@@ -1,0 +1,25 @@
+// Static tasks configuration.
+//
+// Example:
+[
+  {
+    "label": "RUUN PONY RUUUN!!!",
+    "command": "go run -race ./cmd/main.go run -c config.json",
+    "env": { "foo": "bar" },
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "reveal": "always",
+    "hide": "never",
+    "shell": "system"
+  },
+  {
+    "label": "DIBUG PONY DIIBUG!!!",
+    "command": "dlv debug --build-flags -race ./cmd/main.go -- run -c config.json",
+    "env": { "foo": "bar" },
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "reveal": "always",
+    "hide": "never",
+    "shell": "system"
+  }
+]

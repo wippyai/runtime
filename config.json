@@ -1,0 +1,38 @@
+{
+  "servers": {
+    "http": {
+      "id": "my-app-lua",
+      "address": "127.0.0.1:8888",
+      "tls": {},
+      "cors": {}
+    },
+    "temporal": {}
+  },
+  "apps": {
+    "my-app-1": {
+      "id": "may-app",
+      "type": "http",
+      "target_server": "my-app-lua",
+      "source_code": "lua code (tool)",
+      "extensions": {
+        "lua": ["http", "env"]
+      },
+      "ext-config": {
+        "env": {
+          "key": "value"
+        }
+      },
+      "paths": ["/v1/app"],
+      "allowed_methods": "GET,POST",
+      "pipeline": [
+        {
+          "name": "validate"
+        },
+        {
+          "name": "auth",
+          "runtime": "lua"
+        }
+      ]
+    }
+  }
+}
