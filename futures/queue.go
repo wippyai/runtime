@@ -7,6 +7,15 @@ import (
 	"github.com/ponyruntime/pony/api"
 )
 
+type Initiator interface {
+	SetCallback(chan *api.TaskResult)
+	Future() chan *api.TaskResult
+}
+
+type Responder interface {
+	Respond(*api.TaskResult)
+}
+
 // Queue is a super dumb and temporary queue for tasks that are awaiting completion (channel wrapper).
 // TODO: replace with a futures executor
 // TODO: mehods: Done(result), Await() <-chan result
@@ -22,8 +31,11 @@ func NewQueue() *Queue {
 	}
 }
 
-func (q *Queue) Await(ctx context.Context, task *api.Task) {
+// TODO: interface task *api.Task
+func (q *Queue) Await(ctx context.Context, task *api.Task) chan *api.TaskResult {
+	task.SetCallback(make(chan *api.TaskResult, 1))
 	q.awaitCh <- task
+	return task.Future()
 }
 
 func (q *Queue) All() <-chan *api.Task {
