@@ -92,15 +92,15 @@ func (r *Endpoints) ListenEvents() {
 
 					switch cfg := event.Content().(type) {
 					case *api.JSONConfiguration:
-						for name, app := range cfg.Apps {
-							r.log.Info("endpoints: configuring app", zap.String("name", name), zap.String("type", app.Type))
+						for name, srv := range cfg.Servers {
+							r.log.Info("endpoints: configuring server", zap.String("name", name), zap.String("type", srv.Type))
 							// we only accept http apps in the http plugin
-							switch app.Type {
+							switch srv.Type {
 							// Init HTTP
 							// TODO: add types to the api constants
 							case "http":
 								// TODO: builder?
-								h := r.internalEndpoints[app.Type]
+								h := r.internalEndpoints[srv.Type]
 								h.Configure(cfg)
 								h.Start()
 							}

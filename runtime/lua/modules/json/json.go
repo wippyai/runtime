@@ -1,4 +1,4 @@
-package local
+package json
 
 import (
 	"encoding/json"

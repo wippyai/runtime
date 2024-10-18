@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 
 	"github.com/ponyruntime/pony/api"
@@ -28,19 +29,19 @@ func NewEndpoint(log *zap.Logger, queue *futures.Queue) *Endpoint {
 func (e *Endpoint) Configure(cfg *api.JSONConfiguration) {
 	e.log.Info("http: configuring the endpoint")
 
-	mux := http.NewServeMux()
 	for name, v := range cfg.Servers {
+		e.log.Info("http: configuring server", zap.String("name", name), zap.String("type", v.Type), zap.String("address", v.Address))
 		switch v.Type {
 		// we're particularly interested in the HTTP endpoint
 		case "http":
 			e.server.Addr = v.Address
-			mux.Handle(v.Path, e)
 		default:
 			e.log.Warn("http: skipping other endpoint types", zap.String("type", v.Type))
 		}
 	}
 
-	e.server.Handler = mux
+	// TODO: pipeline should be attached here, ServeHTTP is the last step
+	e.server.Handler = e
 }
 
 func (e *Endpoint) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -55,22 +56,28 @@ func (e *Endpoint) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// query args
 	//
 
-	callback := make(chan *api.TaskResult)
-
 	// TODO: we should parse a body here: body + query
+	data, err := io.ReadAll(r.Body)
+	if err != nil {
+		// WARN: proper error handling
+		panic(err)
+	}
+
+	// TODO: get the args from query
+	q := r.URL.Query()
 
 	// from BODY
 	task := &api.Task{
-		ID:       "http-id",
-		App:      "http",
-		Registry: &api.Registry{},
-		Response: callback,
+		App: "http",
+		// args
+		Payload: data,
+		Query:   q.Encode(),
 	}
 
-	e.queue.Await(context.Background(), task)
+	fut := e.queue.Await(context.Background(), task)
 
 	select {
-	case res := <-callback:
+	case res := <-fut:
 		e.log.Info("http: task has been processed", zap.String("path", r.URL.Path))
 		if res.Error != nil {
 			e.log.Error("http: error processing the request", zap.Error(res.Error))
@@ -86,7 +93,7 @@ func (e *Endpoint) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // Start starts the HTTP server
 func (e *Endpoint) Start() {
-	e.log.Info("http: starting the server")
+	e.log.Info("http: starting the server", zap.String("address", e.server.Addr))
 	go func() {
 		err := e.server.ListenAndServe()
 		if err != nil {
