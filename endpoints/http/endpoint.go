@@ -17,7 +17,7 @@ type Endpoint struct {
 	server *http.Server
 }
 
-func NewEndpoint(log *zap.Logger, queue *futures.Queue) *Endpoint {
+func NewHttpEndpoint(log *zap.Logger, queue *futures.Queue) *Endpoint {
 	return &Endpoint{
 		log:    log,
 		queue:  queue,
@@ -52,9 +52,11 @@ func (e *Endpoint) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// 3. Interceptors/additional callbacks support (e.g. logging)
 
 	// lock
-	// switch / map -> switch routes -> check id + app from config
+	// switch / map -> switch routes -> check id + src from config
 	// query args
 	//
+
+	// todo: rewrite and encapsulate into pipeline
 
 	// TODO: we should parse a body here: body + query
 	data, err := io.ReadAll(r.Body)
@@ -66,14 +68,15 @@ func (e *Endpoint) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// TODO: get the args from query
 	q := r.URL.Query()
 
-	// from BODY
+	// from BODY: todo: read on demand inside endpoint pipeline
 	task := &api.Task{
-		App: "http",
-		// args
+		App: "my-app-1",
+		// args, todo: redo
 		Payload: data,
-		Query:   q.Encode(),
+		Query:   q.Encode(), // todo: remove from here
 	}
 
+	// todo: inside pipeline
 	fut := e.queue.Await(context.Background(), task)
 
 	select {

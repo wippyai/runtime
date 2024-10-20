@@ -1,5 +1,9 @@
 package api
 
+// todo: isolate from api
+// todo: this is actually system event types, per plugin event types must be in plugin
+// todo: add transaction start and commit
+
 type JSONConfiguration struct {
 	Servers map[string]*Server `json:"servers"`
 	Apps    map[string]*App    `json:"apps"`
@@ -20,9 +24,9 @@ type App struct {
 	TargetServer string `json:"target_server"`
 	SourceCode   string `json:"source_code"`
 	// lua: [http, env], wasm: [foo, bar]
-	Extensions map[string]any `json:"extensions"`
-	Paths      []string       `json:"paths"`
-	Pipeline   []*Pipeline    `json:"pipeline"`
+	Extensions []string    `json:"extensions"`
+	Paths      []string    `json:"paths"`
+	Pipeline   []*Pipeline `json:"pipeline"`
 }
 
 type Pipeline struct {
