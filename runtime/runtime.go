@@ -143,15 +143,12 @@ func (r *Runtime) Process() {
 	// BUT!!! we also need to track responses from all subsystems
 	// todo: assuming it can be run in multiple coroutines
 	for v := range r.queue.All() { // todo: redo using select
-		resp := &api.TaskResult{
-			Payload: []byte("we are good"),
-		}
+		resp := &api.TaskResult{}
 		r.log.Debug("processing a task", zap.Any("task", v))
 
 		// todo: expect some routing from the handler side
 		app := r.apps[v.App]
 
-		r.log.Debug("app", zap.Any("app", app.code))
 		err := app.eng.DoString(app.code, "handler_code")
 		if err != nil {
 			r.log.Error("failed to execute the handler", zap.Error(err))
