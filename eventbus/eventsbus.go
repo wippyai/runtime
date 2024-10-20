@@ -58,7 +58,7 @@ func (eb *Bus) SubscribeP(
 	ctx context.Context,
 	subID string,
 	subSystem api.SubSystem,
-	etype api.EventType,
+	etype api.EventType, // todo: maybe ignore that as subscribe to system only
 	ch chan<- api.Event,
 ) error {
 	if ch == nil {
@@ -87,7 +87,7 @@ func (eb *Bus) Unsubscribe(_ context.Context, subID string) {
 
 // UnsubscribeP unsubscribes from a specific event
 func (eb *Bus) UnsubscribeP(
-	ctx context.Context,
+	_ context.Context,
 	subID string,
 	subSystem api.SubSystem,
 	etype api.EventType,
@@ -129,7 +129,7 @@ func (eb *Bus) Len() uint {
 	return uint(len(eb.subscribers))
 }
 
-func (eb *Bus) subscribe(ctx context.Context, subID string, pattern string, ch chan<- api.Event) {
+func (eb *Bus) subscribe(_ context.Context, subID string, pattern string, ch chan<- api.Event) {
 	eb.mu.Lock()
 	defer eb.mu.Unlock()
 

@@ -10,7 +10,7 @@ import (
 
 func TestEvenHandler(t *testing.T) {
 	ctx := context.Background()
-	eh, id := NewEventBus()
+	eh, id := GlobalEventBus()
 	defer eh.Unsubscribe(ctx, id)
 
 	ch := make(chan api.Event, 100)
@@ -29,7 +29,7 @@ func TestEvenHandler(t *testing.T) {
 
 func TestEvenHandler2(t *testing.T) {
 	ctx := context.Background()
-	eh, id := NewEventBus()
+	eh, id := GlobalEventBus()
 	defer eh.Unsubscribe(ctx, id)
 
 	ch := make(chan api.Event, 100)

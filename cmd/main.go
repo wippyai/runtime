@@ -64,7 +64,7 @@ func main() {
 						zlog, _ = zap.NewDevelopment()
 					}
 
-					bus, id := eventsbus.NewEventBus()
+					bus, id := eventsbus.GlobalEventBus()
 					defer bus.Unsubscribe(context.Background(), id)
 
 					// TODO: UNSAFE!!!!!! FIX!!!

@@ -17,7 +17,7 @@ type Provider struct {
 }
 
 func NewProvider(log *zap.Logger) *Provider {
-	eb, id := eventsbus.NewEventBus()
+	eb, id := eventsbus.GlobalEventBus()
 	return &Provider{
 		evBusID: id,
 		eb:      eb,
@@ -55,6 +55,7 @@ func (p *Provider) ListenEvents() {
 		evCh,
 	)
 
+	// why do we listen inside the provider?
 	for event := range evCh {
 		switch event.SubSystem() {
 		// broadcast event

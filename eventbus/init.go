@@ -11,7 +11,7 @@ func init() {
 	go evBus.handleEvents()
 }
 
-func NewEventBus() (*Bus, string) {
+func GlobalEventBus() (*Bus, string) {
 	// return events bus with subscriberID
 	return evBus, uuid.NewString()
 }

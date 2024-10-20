@@ -1,0 +1,36 @@
+{
+  "id": "demo-app-1",
+  "env": [],
+  "config": {
+    "http_prefix": "/v1/app"
+  },
+  "endpoints": [
+    {
+      "type": "http-endpoint",
+      "name": "get-http-time",
+      "path": "/time",
+      "methods": "GET",
+      "handler": {
+        "target": "http_time",
+        "pipeline": [
+          "sync_call"
+        ]
+      }
+    }
+  ],
+  "components": [
+    {
+      "name": "http_time",
+      "source": "file://src/demo/http_time.lua",
+      "runtime": {
+        "type": "lua",
+        "extensions": [
+          "http",
+          "json"
+        ],
+        "libraries": [],
+        "env": []
+      }
+    }
+  ]
+}

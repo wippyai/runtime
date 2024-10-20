@@ -28,11 +28,11 @@ type Endpoints struct {
 }
 
 func NewEndpoints(log *zap.Logger, queue *futures.Queue) *Endpoints {
-	eb, id := eventsbus.NewEventBus()
+	eb, id := eventsbus.GlobalEventBus()
 
 	intEndp := make(map[string]Endpoint, 10)
 	// TODO: better init + to const
-	intEndp["http"] = httpEndp.NewEndpoint(log.Named("http"), queue)
+	intEndp["http"] = httpEndp.NewHttpEndpoint(log.Named("http"), queue)
 
 	return &Endpoints{
 		internalEndpoints: intEndp,
@@ -85,13 +85,13 @@ func (r *Endpoints) ListenEvents() {
 				// broadcast events
 			case api.SubSystemAll:
 				switch event.Type() {
-				case api.EventConfigurationUpdated:
+				case api.EventConfigurationUpdated: // todo: make http specific event types to setup
 					// handle configuration update
 					r.log.Debug("endpoints: received a configuration update event", zap.Any("content", event.Content()))
 					// TODO: UNSAFE
 
 					switch cfg := event.Content().(type) {
-					case *api.JSONConfiguration:
+					case *api.JSONConfiguration: // todo: http configuration is specific to http service?
 						for name, srv := range cfg.Servers {
 							r.log.Info("endpoints: configuring server", zap.String("name", name), zap.String("type", srv.Type))
 							// we only accept http apps in the http plugin

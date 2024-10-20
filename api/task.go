@@ -1,9 +1,9 @@
 package api
 
 type Task struct {
-	App string `json:"app"`
+	App string `json:"src"`
 	// Payload is args for lua
-	Payload []byte `json:"payload"`
+	Payload []byte `json:"payload"` // todo: use payload type + any for internal types for later mapping
 	// URL query
 	Query string
 	// internal response channel
@@ -23,7 +23,6 @@ func (t *Task) Respond(tr *TaskResult) {
 }
 
 type TaskResult struct {
-	ID      string `json:"id"`
-	Payload []byte `json:"payload"`
+	Payload []byte `json:"payload"` // todo: payload type and possibly any for internal types
 	Error   error  `json:"error"`
 }

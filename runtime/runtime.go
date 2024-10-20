@@ -4,9 +4,10 @@ package runtime
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
-	"net/http"
-
+	"git.spiralscout.com/estimation-engine/go-lua"
 	"github.com/ponyruntime/pony/api"
 	eventsbus "github.com/ponyruntime/pony/eventbus"
 	"github.com/ponyruntime/pony/futures"
@@ -14,14 +15,16 @@ import (
 	httpM "github.com/ponyruntime/pony/runtime/lua/modules/http"
 	jsonM "github.com/ponyruntime/pony/runtime/lua/modules/json"
 	"go.uber.org/zap"
+	"net/http"
 )
 
 // app is an internal representation of the application
 // it should be re-created on the configuration update event
 type app struct {
-	id  string
-	eng *engine.Engine
-	cfg *api.App
+	id   string
+	eng  *engine.Engine
+	cfg  *api.App
+	code string // todo: isolate
 }
 
 // Runtime ... TODO: add all components field here
@@ -35,7 +38,7 @@ type Runtime struct {
 }
 
 func NewRuntime(log *zap.Logger, queue *futures.Queue) *Runtime {
-	eb, id := eventsbus.NewEventBus()
+	eb, id := eventsbus.GlobalEventBus()
 	return &Runtime{
 		queue:   queue,
 		stop:    make(chan struct{}, 1),
@@ -57,6 +60,8 @@ func (r *Runtime) ListenEvents() {
 		evCh,
 	)
 
+	// todo: must not contain anything about lua
+
 	// listen for events
 	go func() {
 		for event := range evCh {
@@ -74,11 +79,15 @@ func (r *Runtime) ListenEvents() {
 					r.log.Debug("received a configuration update event", zap.Any("content", event.Content()))
 					// TODO: enable subsystems according to the configuration, e.g.:
 					// TODO: unsafe
+					// TODO: change to type selection
 					cfg := event.Content().(*api.JSONConfiguration)
 					for id, acfg := range cfg.Apps {
 						le := engine.NewLuaEngine(context.Background(), r.log.Named(id))
+
 						// preload modules
 						for _, ext := range acfg.Extensions {
+							r.log.Debug("preloading module", zap.Any("extension", ext))
+							// todo: muse be isolated and dynamic
 							switch ext {
 							case "http":
 								le.L.PreloadModule("http", httpM.NewHTTPModule(&http.Client{}, r.log.Named(fmt.Sprintf("%s:%s", id, "http"))).Loader)
@@ -88,15 +97,23 @@ func (r *Runtime) ListenEvents() {
 								r.log.Warn("unknown extension", zap.Any("extension", ext))
 							}
 
-							// create an app which would be used to handle requests from the endpoints
-							// here should be lua pool
-							acfg := &app{
-								id:  acfg.ID,
-								cfg: acfg,
-								eng: le,
+							// base64 decode of code
+							code, err := base64.StdEncoding.DecodeString(acfg.SourceCode)
+							if err != nil {
+								r.log.Error("failed to decode source code", zap.Error(err))
+								continue
 							}
 
-							r.apps[id] = acfg
+							// create an src which would be used to handle requests from the endpoints
+							// here should be lua pool
+							lease := &app{
+								id:   acfg.ID,
+								cfg:  acfg,
+								eng:  le,
+								code: string(code),
+							}
+
+							r.apps[id] = lease
 						}
 
 					}
@@ -124,10 +141,71 @@ func (r *Runtime) ListenEvents() {
 func (r *Runtime) Process() {
 	// TODO: we should be able to stop processing, it probably should be done in the Queue itself, it should close a channel on a broadcast stop event
 	// BUT!!! we also need to track responses from all subsystems
-	for v := range r.queue.All() {
-		resp := &api.TaskResult{}
-		v.Respond(resp)
+	// todo: assuming it can be run in multiple coroutines
+	for v := range r.queue.All() { // todo: redo using select
+		resp := &api.TaskResult{
+			Payload: []byte("we are good"),
+		}
+		r.log.Debug("processing a task", zap.Any("task", v))
 
+		// todo: expect some routing from the handler side
+		app := r.apps[v.App]
+
+		r.log.Debug("app", zap.Any("app", app.code))
+		err := app.eng.DoString(app.code, "handler_code")
+		if err != nil {
+			r.log.Error("failed to execute the handler", zap.Error(err))
+			v.Respond(&api.TaskResult{
+				Error: err,
+			})
+			continue
+		}
+
+		tres := app.eng.Get(-1)
+		// we have a function, need to call it
+		if tres.Type() == lua.LTFunction {
+			// push the function to the lua stack
+			app.eng.L.Push(tres)
+			// call the function with the argument
+			err = app.eng.L.PCall(0, 1, nil)
+			if err != nil {
+				r.log.Error("failed to execute PCall", zap.Error(err))
+				v.Respond(&api.TaskResult{
+					Error: err,
+				})
+				continue
+			}
+
+			// we should not forget to get the result of the function
+			if app.eng.L.GetTop() != 0 {
+				// here is we overwrite the tres variable
+				tres = app.eng.Get(-1)
+			} else {
+				r.log.Warn("no result from the function call")
+				tres = lua.LNil
+			}
+		}
+
+		// we should not Pop values if there are no values on the Lua stack
+		if app.eng.L.GetTop() != 0 {
+			app.eng.Pop(1)
+		}
+
+		// todo: protect as well (Top)
+		result := engine.ToGoAny(tres)
+
+		// Convert the result back to JSON
+		jsonResult, err := json.Marshal(result)
+		if err != nil {
+			v.Respond(&api.TaskResult{
+				Error: err,
+			})
+			continue
+		}
+
+		resp.Payload = jsonResult
+
+		v.Respond(resp)
 	}
 }
 
