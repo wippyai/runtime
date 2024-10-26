@@ -1,18 +1,18 @@
 package eventsbus
 
 import (
-	"encoding/json"
 	"github.com/ponyruntime/pony/api"
+	"github.com/ponyruntime/pony/payload"
 )
 
 type E struct {
 	typ  api.EventType
 	sub  api.Subsystem
-	data json.RawMessage
+	data payload.Payload
 }
 
 // NewEvent initializes new event.
-func NewEvent(etype api.EventType, subsystem api.Subsystem, content []byte) *E {
+func NewEvent(etype api.EventType, subsystem api.Subsystem, content payload.Payload) *E {
 	if etype == "" || subsystem == "" {
 		return nil
 	}

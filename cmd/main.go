@@ -12,7 +12,7 @@ import (
 	jsonCfgProvider "github.com/ponyruntime/pony/configuration/providers/json"
 	pctx "github.com/ponyruntime/pony/context"
 	"github.com/ponyruntime/pony/endpoints"
-	eventsbus "github.com/ponyruntime/pony/eventbus"
+	eb "github.com/ponyruntime/pony/eventbus"
 	"github.com/ponyruntime/pony/futures"
 	"github.com/ponyruntime/pony/runtime"
 	"github.com/urfave/cli/v2"
@@ -75,11 +75,8 @@ func run(ctx *cli.Context) error {
 		zlog, _ = zap.NewDevelopment()
 	}
 
-	bus, id := eventsbus.GlobalEventBus()
+	bus, id := eb.GlobalEventBus()
 	defer bus.Unsubscribe(context.Background(), id)
-
-	// TODO: UNSAFE!!!!!! FIX!!!
-	cfgFilePath := ctx.Context.Value(pctx.CfgFilenameKey).(string)
 
 	queue := futures.NewQueue()
 	endpoints.NewEndpoints(zlog.Named("endpoints"), queue).ListenEvents()
@@ -87,12 +84,16 @@ func run(ctx *cli.Context) error {
 
 	// at this step, we're reading the configuration file and send events to subsystems via eventbus
 	// e.g.: when we have an endpoint configuration - we send it to an endpoint subsystem
+
+	// TODO: UNSAFE!!!!!! FIX!!!
+	cfgFilePath := ctx.Context.Value(pctx.CfgFilenameKey).(string)
+
 	cfg := jsonCfgProvider.NewProvider(zlog.Named("json"))
 	err := cfg.Parse(cfgFilePath)
 	if err != nil {
 		// send the error across the system
 		// TODO: wait for the error to be processed
-		bus.Send(context.Background(), eventsbus.NewEvent(api.EventFatalError, api.SubSystemAll, err))
+		bus.Send(context.Background(), eb.NewEvent(api.EventFatalError, api.SubSystemAll, err))
 		return err
 	}
 
