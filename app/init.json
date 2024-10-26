@@ -1,0 +1,47 @@
+[
+  {
+    "type": "state:init",
+    "comment": "Init Pony runtime"
+  },
+  {
+    "type": "runtime:register",
+    "subsystem": "lua",
+    "comment": "Register Lua handler",
+    "data": {
+      "id": "http_time",
+      "ns": "default",
+      "extensions": [
+        "http",
+        "json"
+      ],
+      "source": "file://src/demo/http_time.lua"
+    }
+  },
+  {
+    "type": "server:declare",
+    "subsystem": "http",
+    "comment": "Declare HTTP server",
+    "data": {
+      "name": "default",
+      "listen": "127.0.0.1:8080"
+    }
+  },
+  {
+    "type": "server:endpoint",
+    "subsystem": "http",
+    "comment": "Get Endpoint",
+    "data": {
+      "server": "default",
+      "method": "GET",
+      "path": "/time",
+      "handler": {
+        "id": "http_time",
+        "ns": "default"
+      }
+    }
+  },
+  {
+    "type": "state:commit",
+    "comment": "Boot application"
+  }
+]

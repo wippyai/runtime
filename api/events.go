@@ -6,32 +6,32 @@ import (
 
 type EventBus interface {
 	SubscribeAll(ctx context.Context, subID string, ch chan<- Event) error
-	SubscribeP(ctx context.Context, subID string, subSystem SubSystem, etype EventType, ch chan<- Event) error
+	SubscribeP(ctx context.Context, subID string, subSystem Subsystem, etype EventType, ch chan<- Event) error
 	Unsubscribe(ctx context.Context, subID string)
-	UnsubscribeP(ctx context.Context, subID string, subSystem SubSystem, etype EventType)
+	UnsubscribeP(ctx context.Context, subID string, subSystem Subsystem, etype EventType)
 	Len() uint
 	Send(ctx context.Context, ev Event)
 }
 
 type Event interface {
 	Type() EventType
-	SubSystem() SubSystem
+	Subsystem() Subsystem
 	Content() any
 }
 
-type SubSystem string
+type Subsystem string
 
 const (
 	// SubSystemAll is a wildcard for all subsystems
-	SubSystemAll SubSystem = "*"
+	SubSystemAll Subsystem = "*"
 	// SubSystemConfiguration subsystem for configuration
-	SubSystemConfiguration SubSystem = "configuration"
+	SubSystemConfiguration Subsystem = "configuration"
 	// SubSystemRuntime subsystem for modules (sql, wasm, etc)
-	SubSystemRuntime SubSystem = "runtime"
+	SubSystemRuntime Subsystem = "runtime"
 	// SubSystemRegistry is a routing subsystem
-	SubSystemRegistry SubSystem = "registry"
+	SubSystemRegistry Subsystem = "registry"
 	// SubSystemEndpoints subsystem is an ingress subsystem
-	SubSystemEndpoints SubSystem = "endpoints"
+	SubSystemEndpoints Subsystem = "endpoints"
 )
 
 type EventType string

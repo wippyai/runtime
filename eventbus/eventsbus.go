@@ -49,15 +49,15 @@ func (eb *Bus) SubscribeAll(ctx context.Context, subID string, ch chan<- api.Eve
 	return nil
 }
 
-// SubscribeP pattern like "subsystem.EventType"
+// SubscribeP pattern like "sub.EventType"
 // subID is a subscriber ID
-// subSystem is a subsystem to subscribe to
+// sub is a sub to subscribe to
 // etype is an event type to subscribe to
 // ch is a channel to receive events
 func (eb *Bus) SubscribeP(
 	ctx context.Context,
 	subID string,
-	subSystem api.SubSystem,
+	subSystem api.Subsystem,
 	etype api.EventType, // todo: maybe ignore that as subscribe to system only
 	ch chan<- api.Event,
 ) error {
@@ -89,7 +89,7 @@ func (eb *Bus) Unsubscribe(_ context.Context, subID string) {
 func (eb *Bus) UnsubscribeP(
 	_ context.Context,
 	subID string,
-	subSystem api.SubSystem,
+	subSystem api.Subsystem,
 	etype api.EventType,
 ) {
 	eb.mu.Lock()
@@ -158,9 +158,9 @@ func (eb *Bus) subscribe(_ context.Context, subID string, pattern string, ch cha
 
 func (eb *Bus) handleEvents() {
 	for ev := range eb.internalEvCh {
-		// subsystem.ConfigurationUpdate for example
+		// sub.ConfigurationUpdate for example
 		eb.mu.RLock()
-		wc := fmt.Sprintf("%s.%s", ev.SubSystem(), ev.Type())
+		wc := fmt.Sprintf("%s.%s", ev.Subsystem(), ev.Type())
 
 		for _, vsub := range eb.subscribers {
 			for i := 0; i < len(vsub); i++ {

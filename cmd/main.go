@@ -49,51 +49,8 @@ func main() {
 						},
 					},
 				},
-				Usage: "Start the Pony server",
-				Action: func(ctx *cli.Context) error {
-					// TODO: configuration for logger
-					// TODO: setup tracing in the context
-					zlogctx := ctx.Context.Value(pctx.LoggerKey)
-
-					// parse logger
-					var zlog *zap.Logger
-					switch tt := zlogctx.(type) {
-					case *zap.Logger:
-						zlog = tt
-					default:
-						zlog, _ = zap.NewDevelopment()
-					}
-
-					bus, id := eventsbus.GlobalEventBus()
-					defer bus.Unsubscribe(context.Background(), id)
-
-					// TODO: UNSAFE!!!!!! FIX!!!
-					cfgFilePath := ctx.Context.Value(pctx.CfgFilenameKey).(string)
-
-					queue := futures.NewQueue()
-					endpoints.NewEndpoints(zlog.Named("endpoints"), queue).ListenEvents()
-					runtime.NewRuntime(zlog.Named("runtime"), queue).ListenEvents()
-
-					// at this step, we're reading the configuration file and send events to subsystems via eventbus
-					// e.g.: when we have an endpoint configuration - we send it to an endpoint subsystem
-					cfg := jsonCfgProvider.NewProvider(zlog.Named("json"))
-					err := cfg.Parse(cfgFilePath)
-					if err != nil {
-						// send the error across the system
-						// TODO: wait for the error to be processed
-						bus.Send(context.Background(), eventsbus.NewEvent(api.EventFatalError, api.SubSystemAll, err))
-						return err
-					}
-
-					sigCh := make(chan os.Signal, 1)
-					signal.Notify(sigCh, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
-
-					select {
-					case <-sigCh:
-						zlog.Info("received a signal to stop the server")
-						return nil
-					}
-				},
+				Usage:  "Start the Pony server",
+				Action: run,
 			},
 		},
 	}
@@ -101,5 +58,50 @@ func main() {
 	err := app.Run(os.Args)
 	if err != nil {
 		log.Fatal(err)
+	}
+}
+
+func run(ctx *cli.Context) error {
+	// TODO: configuration for logger
+	// TODO: setup tracing in the context
+	zlogctx := ctx.Context.Value(pctx.LoggerKey)
+
+	// parse logger
+	var zlog *zap.Logger
+	switch tt := zlogctx.(type) {
+	case *zap.Logger:
+		zlog = tt
+	default:
+		zlog, _ = zap.NewDevelopment()
+	}
+
+	bus, id := eventsbus.GlobalEventBus()
+	defer bus.Unsubscribe(context.Background(), id)
+
+	// TODO: UNSAFE!!!!!! FIX!!!
+	cfgFilePath := ctx.Context.Value(pctx.CfgFilenameKey).(string)
+
+	queue := futures.NewQueue()
+	endpoints.NewEndpoints(zlog.Named("endpoints"), queue).ListenEvents()
+	runtime.NewRuntime(zlog.Named("runtime"), queue).ListenEvents()
+
+	// at this step, we're reading the configuration file and send events to subsystems via eventbus
+	// e.g.: when we have an endpoint configuration - we send it to an endpoint subsystem
+	cfg := jsonCfgProvider.NewProvider(zlog.Named("json"))
+	err := cfg.Parse(cfgFilePath)
+	if err != nil {
+		// send the error across the system
+		// TODO: wait for the error to be processed
+		bus.Send(context.Background(), eventsbus.NewEvent(api.EventFatalError, api.SubSystemAll, err))
+		return err
+	}
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
+
+	select {
+	case <-sigCh:
+		zlog.Info("received a signal to stop the server")
+		return nil
 	}
 }

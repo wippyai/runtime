@@ -57,7 +57,7 @@ func (r *Endpoints) ListenEvents() {
 
 	go func() {
 		for event := range evCh {
-			switch event.SubSystem() {
+			switch event.Subsystem() {
 			// listen only for endpoint events
 			case api.SubSystemEndpoints:
 				switch event.Type() {
