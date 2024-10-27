@@ -18,7 +18,7 @@ func TestEvenHandler(t *testing.T) {
 	err := eh.SubscribeP(ctx, id, api.Transaction, api.EventConfigurationUpdated, ch)
 	require.NoError(t, err)
 
-	eh.Send(ctx, NewEvent(api.EventConfigurationUpdated, api.Transaction, payload.NewString("new config")))
+	eh.Send(ctx, NewEvent(api.Transaction, api.EventConfigurationUpdated, payload.NewString("new config")))
 
 	evt := <-ch
 	require.Equal(t, "new config", evt.Payload())
@@ -37,7 +37,7 @@ func TestEvenHandler2(t *testing.T) {
 	err := eh.SubscribeP(ctx, id, api.SubSystemEndpoints, api.EventsAll, ch)
 	require.NoError(t, err)
 
-	eh.Send(context.Background(), NewEvent(api.EventConfigurationUpdated, api.SubSystemAll, payload.NewString("new config")))
+	eh.Send(context.Background(), NewEvent(api.SubSystemAll, api.EventConfigurationUpdated, payload.NewString("new config")))
 
 	evt := <-ch
 	require.Equal(t, "new config", evt.Payload())
