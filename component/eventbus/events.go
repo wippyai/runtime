@@ -2,7 +2,7 @@ package eventsbus
 
 import (
 	"github.com/ponyruntime/pony/api"
-	"github.com/ponyruntime/pony/payload"
+	"github.com/ponyruntime/pony/api/payload"
 )
 
 type E struct {

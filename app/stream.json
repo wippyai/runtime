@@ -1,13 +1,9 @@
 [
   {
-    "type": "state:init",
-    "comment": "Init Pony runtime"
-  },
-  {
+    "component": "lua",
     "type": "runtime:register",
-    "subsystem": "lua",
     "comment": "Register Lua handler",
-    "data": {
+    "payload": {
       "id": "http_time",
       "ns": "default",
       "extensions": [
@@ -18,19 +14,19 @@
     }
   },
   {
+    "component": "http",
     "type": "server:declare",
-    "subsystem": "http",
     "comment": "Declare HTTP server",
-    "data": {
+    "payload": {
       "name": "default",
       "listen": "127.0.0.1:8080"
     }
   },
   {
+    "component": "http",
     "type": "server:endpoint",
-    "subsystem": "http",
     "comment": "Get Endpoint",
-    "data": {
+    "payload": {
       "server": "default",
       "path": "/time",
       "method": "GET",
@@ -38,15 +34,11 @@
     }
   },
   {
+    "component": "http",
     "type": "server:start",
-    "subsystem": "http",
     "comment": "Start HTTP server",
-    "data": {
+    "payload": {
       "name": "default"
     }
-  },
-  {
-    "type": "state:commit",
-    "comment": "Boot application"
   }
 ]

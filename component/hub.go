@@ -3,22 +3,23 @@ package component
 import (
 	"context"
 	"github.com/ponyruntime/pony/api"
+	"github.com/ponyruntime/pony/api/payload"
 	ebs "github.com/ponyruntime/pony/component/eventbus"
 	"github.com/ponyruntime/pony/exec"
-	"github.com/ponyruntime/pony/payload"
 	"go.uber.org/zap"
+	"sync"
 )
 
 // Hub manages states of multiple nested components.
 type Hub struct {
 	log        *zap.Logger
 	exec       *exec.Queue
-	components map[api.Component]StatefulComponent
+	components map[api.Component]Component
 
-	// active configuration scope
+	// active config scope
 	sm *stateManager
 
-	// configuration pipeline
+	// config pipeline
 	eid string
 	eb  *ebs.Bus
 }
@@ -31,9 +32,10 @@ func NewHub(
 	eb, id := ebs.GlobalEventBus()
 
 	// Initialize maps with appropriate capacity
-	cmp := make(map[api.Component]StatefulComponent)
+	cmp := make(map[api.Component]Component)
 	for _, sys := range components {
 		cmp[sys.ID] = sys.Component
+		log.Debug("registered component", zap.String("component", string(sys.ID)))
 	}
 
 	return &Hub{
@@ -49,14 +51,26 @@ func (r *Hub) Close() {
 	r.eb.Unsubscribe(context.Background(), r.eid)
 	r.eb = nil
 	r.eid = ""
+
+	wg := sync.WaitGroup{}
+	for _, s := range r.components {
+		wg.Add(1)
+		go func() { defer wg.Done(); s.Stop(context.Background()) }()
+	}
+	wg.Wait()
 }
 
-func (r *Hub) ListenEvents() {
-	r.log.Debug("listening to events")
+func (r *Hub) Serve(ctx context.Context) {
+	r.log.Debug("listening to configuration events")
+
+	// start services
+	for _, s := range r.components {
+		s.Start(ctx, r.exec)
+	}
 
 	evCh := make(chan api.Event, 10)
 	// can't be an error here since we're provided all the data
-	err := r.eb.SubscribeAll(context.Background(), r.eid, evCh)
+	err := r.eb.SubscribeAll(ctx, r.eid, evCh)
 	if err != nil {
 		r.log.Fatal("failed to subscribe to events", zap.Error(err))
 		return
@@ -65,7 +79,7 @@ func (r *Hub) ListenEvents() {
 	go func() {
 		for event := range evCh {
 			if event.Component() == api.Transaction {
-				r.onTransaction(event)
+				r.onTransaction(ctx, event)
 				continue
 			}
 
@@ -84,7 +98,7 @@ func (r *Hub) ListenEvents() {
 			// looking for state
 			state := r.sm.Get(event.Component())
 
-			newState, err := s.Handle(context.Background(), event, state.State)
+			newState, err := s.Register(ctx, event, state.State)
 			if err != nil {
 				r.log.Error("failed to handle an event", zap.Error(err))
 				continue
@@ -95,10 +109,10 @@ func (r *Hub) ListenEvents() {
 				r.sm.Set(event.Component(), newState)
 
 				r.eb.Send(
-					context.Background(),
+					ctx,
 					ebs.NewEvent(
 						api.Transaction,
-						api.EventCaptureChange,
+						api.EventRegisterChange,
 						payload.New(State{
 							Component: event.Component(),
 							State:     newState,
@@ -110,7 +124,7 @@ func (r *Hub) ListenEvents() {
 	}()
 }
 
-func (r *Hub) onTransaction(e api.Event) {
+func (r *Hub) onTransaction(ctx context.Context, e api.Event) {
 	if e.Kind() == api.EventBegin {
 		if r.sm != nil {
 			r.log.Warn("working withing internal transaction")
@@ -145,14 +159,14 @@ func (r *Hub) onTransaction(e api.Event) {
 				continue
 			}
 
-			s.Commit(context.Background(), state.State)
+			s.Commit(ctx, state.State)
 			r.log.Debug("commited component state", zap.Any("component", state.Component))
 
 			r.eb.Send(
-				context.Background(),
+				ctx,
 				ebs.NewEvent(
 					api.Transaction,
-					api.EventCaptureCommit,
+					api.EventRegisterCommit,
 					payload.New(state),
 				),
 			)

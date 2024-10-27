@@ -3,8 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
+	pctx "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/component"
-	eb "github.com/ponyruntime/pony/component/eventbus"
 	"github.com/ponyruntime/pony/server/http"
 	"go.uber.org/zap/zapcore"
 	"log"
@@ -14,7 +14,6 @@ import (
 	"syscall"
 	"time"
 
-	pctx "github.com/ponyruntime/pony/context"
 	"github.com/ponyruntime/pony/exec"
 	"github.com/urfave/cli/v2"
 	"go.uber.org/zap"
@@ -31,11 +30,11 @@ func main() {
 				Flags: []cli.Flag{
 					&cli.StringFlag{
 						Name:    "config",
-						Usage:   "Path to the configuration file",
+						Usage:   "Path to the config file",
 						Aliases: []string{"c"},
 						Action: func(ctx *cli.Context, cfgFile string) error {
 							// init logger and put it into the context,
-							// here we should read the configuration file and init logger with it
+							// here we should read the config file and init logger with it
 							absPath, err := filepath.Abs(cfgFile)
 							if err != nil {
 								return err
@@ -63,7 +62,7 @@ func main() {
 }
 
 func run(ctx *cli.Context) error {
-	// TODO: configuration for logger
+	// TODO: config for logger
 	// TODO: setup tracing in the context
 	zlogctx := ctx.Context.Value(pctx.LoggerKey)
 
@@ -76,10 +75,6 @@ func run(ctx *cli.Context) error {
 		zlog = initDevelopmentLogger()
 	}
 
-	// connect to global configuration bus
-	bus, id := eb.GlobalEventBus()
-	defer bus.Unsubscribe(context.Background(), id)
-
 	// primary execution queue sub-system
 	queue := exec.NewQueue()
 
@@ -87,9 +82,19 @@ func run(ctx *cli.Context) error {
 	srv := component.NewHub(
 		zlog.Named("server"),
 		queue,
-		http.NewSubsystem(zlog.Named("http")),
+		component.Declaration{
+			ID:        http.Component,
+			Component: http.NewServer(zlog.Named("http")),
+		},
 	)
-	srv.ListenEvents()
+
+	// todo: fix this
+	cfgFilePath := ctx.Context.Value(pctx.CfgFilenameKey).(string)
+	zlog.Named("root").Info("Pony server is starting ", zap.String("config", cfgFilePath))
+
+	srv.Serve(context.Background())
+
+	// single pass configuration via change group
 
 	//// runtime also composite
 	//rnt := runtime.NewHub(
@@ -99,12 +104,8 @@ func run(ctx *cli.Context) error {
 	//)
 	//rnt.ListenEvents()
 
-	// at this step, we're reading the configuration file and send events to subsystems via eventbus
-	// e.g.: when we have an endpoint configuration - we send it to an endpoint subsystem
-
-	// TODO: UNSAFE!!!!!! FIX!!!
-	cfgFilePath := ctx.Context.Value(pctx.CfgFilenameKey).(string)
-	zlog.Named("root").Info("Pony server is starting ", zap.String("config", cfgFilePath))
+	// at this step, we're reading the config file and send events to subsystems via eventbus
+	// e.g.: when we have an endpoint config - we send it to an endpoint subsystem
 
 	//cfg := jsonCfgProvider.NewProvider(zlog.Named("json"))
 	//err := cfg.Parse(cfgFilePath)
