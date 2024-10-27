@@ -25,14 +25,18 @@ func (e Event) Payload() payload.Payload {
 	return payload.NewJSON(e.Data)
 }
 
-func ReadChangelog(path string) ([]Event, error) {
+func LoadChangelogFile(path string) ([]Event, error) {
 	file, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
 
+	return LoadChangelog(file)
+}
+
+func LoadChangelog(data []byte) ([]Event, error) {
 	var events []Event
-	err = json.Unmarshal(file, &events)
+	err := json.Unmarshal(data, &events)
 	if err != nil {
 		return nil, err
 	}

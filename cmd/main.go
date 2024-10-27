@@ -5,6 +5,7 @@ import (
 	"fmt"
 	pctx "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/component"
+	"github.com/ponyruntime/pony/config/json"
 	"github.com/ponyruntime/pony/server/http"
 	"go.uber.org/zap/zapcore"
 	"log"
@@ -79,7 +80,7 @@ func run(ctx *cli.Context) error {
 	queue := exec.NewQueue()
 
 	// server and all the ingress plugins and endpoints
-	srv := component.NewHub(
+	endpoints := component.NewHub(
 		zlog.Named("server"),
 		queue,
 		component.Declaration{
@@ -88,11 +89,22 @@ func run(ctx *cli.Context) error {
 		},
 	)
 
+	// wait for all endpoints to init
+	endpoints.Boot(context.Background())
+
+	// wait for all runtime to init
+
+	// Loading application configuration
+
 	// todo: fix this
 	cfgFilePath := ctx.Context.Value(pctx.CfgFilenameKey).(string)
 	zlog.Named("root").Info("Pony server is starting ", zap.String("config", cfgFilePath))
+	_, err := json.LoadChangelogFile(cfgFilePath)
+	if err != nil {
+		return err
+	}
 
-	srv.Serve(context.Background())
+	// writing setup
 
 	// single pass configuration via change group
 
