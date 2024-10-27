@@ -84,7 +84,9 @@ func TestHubHandleEvent(t *testing.T) {
 		),
 	)
 
-	sub.Wait(api.Transaction, "server:state")
+	ev := sub.Wait(api.Transaction, "change")
+
+	assert.Equal(t, api.EventType("state"), ev.Type())
 
 	// Verify
 	mockServer.AssertExpectations(t)
