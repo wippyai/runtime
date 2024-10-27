@@ -3,3 +3,6 @@ run:
 
 debug:
 	dlv debug --build-flags -race ./cmd/main.go -- run -c config.json
+
+test:
+	go test ./server/ -v -race
