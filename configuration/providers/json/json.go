@@ -63,7 +63,7 @@ func (p *Provider) ListenEvents() {
 			p.log.Info("json: broadcast event", zap.Any("event", event.Type()))
 
 		// listen only for configuration events
-		case api.SubSystemConfiguration:
+		case api.Transaction:
 			// handle configuration events
 			switch event.Type() {
 
