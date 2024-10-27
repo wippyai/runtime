@@ -1,9 +1,8 @@
-package server
+package component
 
 import (
 	"context"
 	"github.com/ponyruntime/pony/api"
-	"github.com/ponyruntime/pony/component"
 	eventsbus "github.com/ponyruntime/pony/eventbus"
 	"github.com/ponyruntime/pony/exec"
 	"github.com/ponyruntime/pony/payload"
@@ -43,7 +42,7 @@ func TestStateChange(t *testing.T) {
 	queue := exec.NewQueue()
 	mockServer := &MockSubsystemServer{}
 
-	subsystems := []component.Declaration{
+	subsystems := []Declaration{
 		{
 			ID:        "test",
 			Component: mockServer,

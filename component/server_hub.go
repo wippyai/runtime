@@ -1,9 +1,8 @@
-package server
+package component
 
 import (
 	"context"
 	"github.com/ponyruntime/pony/api"
-	"github.com/ponyruntime/pony/component"
 	eventsbus "github.com/ponyruntime/pony/eventbus"
 	"github.com/ponyruntime/pony/exec"
 	"github.com/ponyruntime/pony/payload"
@@ -14,7 +13,7 @@ import (
 type Hub struct {
 	log        *zap.Logger
 	exec       *exec.Queue
-	components map[api.Component]component.Component
+	components map[api.Component]Component
 
 	// active configuration scope
 	ruw         *sync.RWMutex
@@ -29,12 +28,12 @@ type Hub struct {
 func NewHub(
 	log *zap.Logger,
 	queue *exec.Queue,
-	components ...component.Declaration,
+	components ...Declaration,
 ) *Hub {
 	eb, id := eventsbus.GlobalEventBus()
 
 	// Initialize maps with appropriate capacity
-	cmp := make(map[api.Component]component.Component)
+	cmp := make(map[api.Component]Component)
 	for _, sys := range components {
 		cmp[sys.ID] = sys.Component
 	}
