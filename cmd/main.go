@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/ponyruntime/pony/component"
 	"github.com/ponyruntime/pony/server/http"
 	"go.uber.org/zap/zapcore"
 	"log"
@@ -15,7 +16,6 @@ import (
 	pctx "github.com/ponyruntime/pony/context"
 	eb "github.com/ponyruntime/pony/eventbus"
 	"github.com/ponyruntime/pony/exec"
-	"github.com/ponyruntime/pony/server"
 	"github.com/urfave/cli/v2"
 	"go.uber.org/zap"
 )
@@ -84,7 +84,7 @@ func run(ctx *cli.Context) error {
 	queue := exec.NewQueue()
 
 	// server and all the ingress plugins and endpoints
-	srv := server.NewHub(
+	srv := component.NewHub(
 		zlog.Named("server"),
 		queue,
 		http.NewSubsystem(zlog.Named("http")),
