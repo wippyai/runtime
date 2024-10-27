@@ -2,7 +2,7 @@ package eventsbus
 
 import (
 	"context"
-	"github.com/ponyruntime/pony/payload"
+	"github.com/ponyruntime/pony/api/payload"
 	"testing"
 
 	"github.com/ponyruntime/pony/api"
@@ -18,10 +18,10 @@ func TestEvenHandler(t *testing.T) {
 	err := eh.SubscribeP(ctx, id, api.Transaction, api.EventConfigurationUpdated, ch)
 	require.NoError(t, err)
 
-	eh.Send(ctx, NewEvent(api.EventConfigurationUpdated, api.Transaction, payload.NewString("new configuration")))
+	eh.Send(ctx, NewEvent(api.EventConfigurationUpdated, api.Transaction, payload.NewString("new config")))
 
 	evt := <-ch
-	require.Equal(t, "new configuration", evt.Payload())
+	require.Equal(t, "new config", evt.Payload())
 	require.Equal(t, api.Transaction, evt.Component())
 	require.Equal(t, api.EventType("EventConfigurationUpdated"), evt.Kind())
 
@@ -37,10 +37,10 @@ func TestEvenHandler2(t *testing.T) {
 	err := eh.SubscribeP(ctx, id, api.SubSystemEndpoints, api.EventsAll, ch)
 	require.NoError(t, err)
 
-	eh.Send(context.Background(), NewEvent(api.EventConfigurationUpdated, api.SubSystemAll, payload.NewString("new configuration")))
+	eh.Send(context.Background(), NewEvent(api.EventConfigurationUpdated, api.SubSystemAll, payload.NewString("new config")))
 
 	evt := <-ch
-	require.Equal(t, "new configuration", evt.Payload())
+	require.Equal(t, "new config", evt.Payload())
 	require.Equal(t, api.SubSystemAll, evt.Component())
 	require.Equal(t, api.EventType("EventConfigurationUpdated"), evt.Kind())
 

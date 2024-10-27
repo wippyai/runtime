@@ -2,7 +2,7 @@ package api
 
 import (
 	"context"
-	"github.com/ponyruntime/pony/payload"
+	"github.com/ponyruntime/pony/api/payload"
 )
 
 type Event interface {
@@ -28,7 +28,7 @@ const (
 
 	// SubSystemAll is a wildcard for all subsystems
 	SubSystemAll Component = "*"
-	// Transaction subsystem for configuration
+	// Transaction subsystem for config
 	Transaction Component = "transaction"
 	// Servers subsystem for modules (sql, wasm, etc)
 	Servers Component = "server"
@@ -43,15 +43,16 @@ type EventType string
 const (
 	// EventsAll is a wildcard for all events
 	EventsAll EventType = "*"
-	// EventConfigurationUpdated thrown when a configuration updated.
+
+	// EventConfigurationUpdated thrown when a config updated.
 	EventConfigurationUpdated EventType = "EventConfigurationUpdated"
 	// EventFatalError thrown when a subsystem got a fatal error and the system should be shut down.
 	EventFatalError EventType = "EventFatalError"
 	// EventStop thrown when a subsystem(s) should be stopped.
 	EventStop EventType = "EventStop"
 
-	EventCaptureChange EventType = "EventCaptureChange"
-	EventCaptureCommit EventType = "ConfirmCommit"
+	EventRegisterChange EventType = "EventRegisterChange"
+	EventRegisterCommit EventType = "ConfirmCommit"
 
 	EventBegin    EventType = "eventBegin"
 	EventCommit   EventType = "eventCommit"

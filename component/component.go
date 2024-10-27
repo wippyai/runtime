@@ -8,12 +8,12 @@ import (
 
 type Declaration struct {
 	ID        api.Component
-	Component StatefulComponent
+	Component Component
 }
 
-// StatefulComponent is a component that can carry its configuration using the state.
-type StatefulComponent interface {
-	Handle(context.Context, api.Event, any) (any, error)
+// Component is a component that can carry its config using the state.
+type Component interface {
+	Register(context.Context, api.Event, any) (any, error)
 	Commit(context.Context, any)
 
 	Start(context.Context, *exec.Queue)

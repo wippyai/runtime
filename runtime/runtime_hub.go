@@ -19,7 +19,7 @@ import (
 )
 
 // app is an internal representation of the application
-// it should be re-created on the configuration update event
+// it should be re-created on the config update event
 type app struct {
 	id   string
 	eng  *engine.Engine
@@ -69,15 +69,15 @@ func (r *Runtime) ListenEvents() {
 			// broadcast events
 			case api.SubSystemAll:
 				switch event.Kind() {
-				// handle configuration event
-				// On configuration update, we should do the following:
-				// 1. Check the apps configuration, lock the runtime (not done)
-				// 2. Update the apps configuration (not done)
+				// handle config event
+				// On config update, we should do the following:
+				// 1. Check the apps config, lock the runtime (not done)
+				// 2. Update the apps config (not done)
 				// 3. Enable new apps and open for the new events (not done)
 				case api.EventConfigurationUpdated:
-					// handle configuration update
-					r.log.Debug("received a configuration update event", zap.Any("content", event.Payload()))
-					// TODO: enable subsystems according to the configuration, e.g.:
+					// handle config update
+					r.log.Debug("received a config update event", zap.Any("content", event.Payload()))
+					// TODO: enable subsystems according to the config, e.g.:
 					// TODO: unsafe
 					// TODO: change to type selection
 					cfg := event.Payload().(*api.JSONConfiguration)

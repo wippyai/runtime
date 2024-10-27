@@ -3,21 +3,21 @@ package component
 import (
 	"context"
 	"github.com/ponyruntime/pony/api"
+	"github.com/ponyruntime/pony/api/payload"
 	ebs "github.com/ponyruntime/pony/component/eventbus"
 	"github.com/ponyruntime/pony/exec"
-	"github.com/ponyruntime/pony/payload"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"go.uber.org/zap"
 	"testing"
 )
 
-// MockSubsystemServer is a mock implementation of component.StatefulComponent
+// MockSubsystemServer is a mock implementation of component.Component
 type MockSubsystemServer struct {
 	mock.Mock
 }
 
-func (m *MockSubsystemServer) Handle(ctx context.Context, event api.Event, state any) (any, error) {
+func (m *MockSubsystemServer) Register(ctx context.Context, event api.Event, state any) (any, error) {
 	args := m.Called(ctx, event, state)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -59,7 +59,7 @@ func TestUpdateState(t *testing.T) {
 		State: "new-state",
 	}
 
-	mockServer.On("Handle",
+	mockServer.On("Register",
 		mock.MatchedBy(func(ctx context.Context) bool {
 			return true
 		}),
@@ -88,7 +88,7 @@ func TestUpdateState(t *testing.T) {
 		),
 	)
 
-	sub.Wait(api.Transaction, api.EventCaptureChange)
+	sub.Wait(api.Transaction, api.EventRegisterChange)
 
 	mockServer.AssertExpectations(t)
 	assert.Equal(t, newState, hub.sm.states["test"].State)
@@ -118,7 +118,7 @@ func TestStateRollback(t *testing.T) {
 		State: "new-state",
 	}
 
-	mockServer.On("Handle",
+	mockServer.On("Register",
 		mock.MatchedBy(func(ctx context.Context) bool {
 			return true
 		}),
@@ -148,7 +148,7 @@ func TestStateRollback(t *testing.T) {
 		),
 	)
 
-	sub.Wait(api.Transaction, api.EventCaptureChange)
+	sub.Wait(api.Transaction, api.EventRegisterChange)
 
 	hub.eb.Send(context.Background(), ebs.NewEvent(api.Transaction, api.EventRollback, nil))
 
@@ -179,7 +179,7 @@ func TestStatePropagateState(t *testing.T) {
 		State: "new-state",
 	}
 
-	mockServer.On("Handle",
+	mockServer.On("Register",
 		mock.MatchedBy(func(ctx context.Context) bool {
 			return true
 		}),
@@ -194,7 +194,7 @@ func TestStatePropagateState(t *testing.T) {
 	}{
 		State: "final-state",
 	}
-	mockServer.On("Handle",
+	mockServer.On("Register",
 		mock.MatchedBy(func(ctx context.Context) bool {
 			return true
 		}),
@@ -229,7 +229,7 @@ func TestStatePropagateState(t *testing.T) {
 		),
 	)
 
-	sub.Wait(api.Transaction, api.EventCaptureChange)
+	sub.Wait(api.Transaction, api.EventRegisterChange)
 
 	hub.eb.Send(
 		context.Background(),
@@ -240,11 +240,11 @@ func TestStatePropagateState(t *testing.T) {
 		),
 	)
 
-	sub.Wait(api.Transaction, api.EventCaptureChange)
+	sub.Wait(api.Transaction, api.EventRegisterChange)
 
 	hub.eb.Send(context.Background(), ebs.NewEvent(api.Transaction, api.EventCommit, nil))
 
-	e := sub.Wait(api.Transaction, api.EventCaptureCommit)
+	e := sub.Wait(api.Transaction, api.EventRegisterCommit)
 	assert.Equal(t, finalState, e.Payload().Data().(State).State)
 
 	mockServer.AssertExpectations(t)
