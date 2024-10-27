@@ -10,7 +10,7 @@ import (
 	"git.spiralscout.com/estimation-engine/go-lua"
 	"github.com/ponyruntime/pony/api"
 	eventsbus "github.com/ponyruntime/pony/eventbus"
-	"github.com/ponyruntime/pony/futures"
+	"github.com/ponyruntime/pony/exec"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	httpM "github.com/ponyruntime/pony/runtime/lua/modules/http"
 	jsonM "github.com/ponyruntime/pony/runtime/lua/modules/json"
@@ -29,7 +29,7 @@ type app struct {
 
 // Runtime ... TODO: add all components field here
 type Runtime struct {
-	queue   *futures.Queue
+	queue   *exec.Queue
 	apps    map[string]*app
 	stop    chan struct{}
 	log     *zap.Logger
@@ -37,7 +37,7 @@ type Runtime struct {
 	eb      *eventsbus.Bus
 }
 
-func NewRuntime(log *zap.Logger, queue *futures.Queue) *Runtime {
+func NewHub(log *zap.Logger, queue *exec.Queue) *Runtime {
 	eb, id := eventsbus.GlobalEventBus()
 	return &Runtime{
 		queue:   queue,
@@ -104,7 +104,7 @@ func (r *Runtime) ListenEvents() {
 								continue
 							}
 
-							// create an src which would be used to handle requests from the endpoints
+							// create an src which would be used to handle requests from the server
 							// here should be lua pool
 							lease := &app{
 								id:   acfg.ID,

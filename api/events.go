@@ -22,6 +22,9 @@ type Event interface {
 type Subsystem string
 
 const (
+
+	// todo: deprecate here
+
 	// SubSystemAll is a wildcard for all subsystems
 	SubSystemAll Subsystem = "*"
 	// SubSystemConfiguration subsystem for configuration
@@ -31,7 +34,7 @@ const (
 	// SubSystemRegistry is a routing subsystem
 	SubSystemRegistry Subsystem = "registry"
 	// SubSystemEndpoints subsystem is an ingress subsystem
-	SubSystemEndpoints Subsystem = "endpoints"
+	SubSystemEndpoints Subsystem = "server"
 )
 
 type EventType string

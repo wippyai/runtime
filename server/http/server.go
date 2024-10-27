@@ -3,22 +3,43 @@ package http
 import (
 	"context"
 	"errors"
+	"github.com/ponyruntime/pony/server"
 	"io"
 	"net/http"
 
 	"github.com/ponyruntime/pony/api"
-	"github.com/ponyruntime/pony/futures"
+	"github.com/ponyruntime/pony/exec"
 	"go.uber.org/zap"
 )
 
-type Endpoint struct {
+const Subsystem api.Subsystem = "http"
+
+type Endpoint interface {
+	Configure(cfg *api.JSONConfiguration)
+	ServeHTTP(w http.ResponseWriter, r *http.Request)
+	Start()
+	Stop(ctx context.Context)
+}
+
+type HttpServer struct {
 	log    *zap.Logger
-	queue  *futures.Queue
+	queue  *exec.Queue
 	server *http.Server
 }
 
-func NewHttpEndpoint(log *zap.Logger, queue *futures.Queue) *Endpoint {
-	return &Endpoint{
+func NewSubsystem(log *zap.Logger) server.Subsystem {
+	return server.Subsystem{
+		Subsystem: Subsystem,
+		Server:    newServer(log),
+	}
+}
+
+func newServer(log *zap.Logger) HttpServer {
+	return nil
+}
+
+func NewHttpEndpoint(log *zap.Logger, queue *exec.Queue) *HttpServer {
+	return &HttpServer{
 		log:    log,
 		queue:  queue,
 		server: &http.Server{},
@@ -26,7 +47,7 @@ func NewHttpEndpoint(log *zap.Logger, queue *futures.Queue) *Endpoint {
 }
 
 // Configure uses JSONConfiguration to configure the endpoint
-func (e *Endpoint) Configure(cfg *api.JSONConfiguration) {
+func (e *HttpServer) Configure(cfg *api.JSONConfiguration) {
 	e.log.Info("http: configuring the endpoint")
 
 	for name, v := range cfg.Servers {
@@ -44,7 +65,7 @@ func (e *Endpoint) Configure(cfg *api.JSONConfiguration) {
 	e.server.Handler = e
 }
 
-func (e *Endpoint) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (e *HttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	e.log.Info("http: request received", zap.String("path", r.URL.Path))
 	// TODO: futures with proper:
 	// 1. Error handling
@@ -95,7 +116,7 @@ func (e *Endpoint) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // Start starts the HTTP server
-func (e *Endpoint) Start() {
+func (e *HttpServer) Start() {
 	e.log.Info("http: starting the server", zap.String("address", e.server.Addr))
 	go func() {
 		err := e.server.ListenAndServe()
@@ -109,7 +130,7 @@ func (e *Endpoint) Start() {
 	}()
 }
 
-func (e *Endpoint) Stop(ctx context.Context) {
+func (e *HttpServer) Stop(ctx context.Context) {
 	e.log.Info("http: stopping the server")
 	_ = e.server.Shutdown(ctx)
 }
