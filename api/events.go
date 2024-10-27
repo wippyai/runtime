@@ -5,8 +5,8 @@ import (
 )
 
 type Event interface {
-	Type() EventType
-	Component() Component
+	Kind() EventType
+	Target() Component
 	Content() any
 }
 
@@ -49,7 +49,7 @@ const (
 	// EventStop thrown when a subsystem(s) should be stopped.
 	EventStop EventType = "EventStop"
 
-	EventStateChange EventType = "EventStateChange"
+	EventAcceptChange EventType = "EventAcceptChange"
 
 	EventBegin    EventType = "eventBegin"
 	EventCommit   EventType = "eventCommit"

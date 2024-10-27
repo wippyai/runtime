@@ -24,11 +24,11 @@ func NewEvent(cmp api.Component, etype api.EventType, content payload.Payload) *
 	}
 }
 
-func (e *E) Component() api.Component {
+func (e *E) Target() api.Component {
 	return e.cmp
 }
 
-func (e *E) Type() api.EventType {
+func (e *E) Kind() api.EventType {
 	return e.typ
 }
 
