@@ -3,11 +3,10 @@ package component
 import (
 	"context"
 	"github.com/ponyruntime/pony/api"
-	eventsbus "github.com/ponyruntime/pony/eventbus"
+	eventsbus2 "github.com/ponyruntime/pony/component/eventbus"
 	"github.com/ponyruntime/pony/exec"
 	"github.com/ponyruntime/pony/payload"
 	"go.uber.org/zap"
-	"sync"
 )
 
 type Hub struct {
@@ -16,13 +15,12 @@ type Hub struct {
 	components map[api.Component]Component
 
 	// active configuration scope
-	ruw         *sync.RWMutex
 	configuring bool
 	states      map[api.Component]any
 
 	// configuration pipeline
 	eid string
-	eb  *eventsbus.Bus
+	eb  *eventsbus2.Bus
 }
 
 func NewHub(
@@ -30,7 +28,7 @@ func NewHub(
 	queue *exec.Queue,
 	components ...Declaration,
 ) *Hub {
-	eb, id := eventsbus.GlobalEventBus()
+	eb, id := eventsbus2.GlobalEventBus()
 
 	// Initialize maps with appropriate capacity
 	cmp := make(map[api.Component]Component)
@@ -61,6 +59,12 @@ func (r *Hub) ListenEvents() {
 
 	go func() {
 		for event := range evCh {
+			// todo: handle transaction level events here
+			if event.Type() == api.EventBegin {
+				// todo: finish
+				r.configuring = true
+			}
+
 			// looking for subsystem
 			s, ok := r.components[event.Component()]
 			if !ok {
@@ -68,28 +72,23 @@ func (r *Hub) ListenEvents() {
 				continue
 			}
 
-			//switch event.Type() {
-			//case api.EventStateChange:
-			//// ignore
-			//case api.EventStop:
-			//}
-
 			state, _ := r.states[event.Component()] // can be nil
 
-			newState, err := s.Handle(context.Background(), event, state)
+			cst, err := s.Handle(context.Background(), event, state)
 			if err != nil {
 				r.log.Error("server: failed to handle an event", zap.Error(err))
 				continue
 			}
 
 			// registering state change
-			if newState != nil && state != newState {
+			if cst != nil && state != cst {
 				r.configuring = true
-				r.states[event.Component()] = newState
+				r.states[event.Component()] = cst
+
 				r.eb.Send(
 					context.Background(),
 					// got state update, report update
-					eventsbus.NewEvent(
+					eventsbus2.NewEvent(
 						api.Transaction,
 						api.EventStateChange,
 						payload.New(state),

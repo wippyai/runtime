@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"git.spiralscout.com/estimation-engine/go-lua"
 	"github.com/ponyruntime/pony/api"
-	eventsbus "github.com/ponyruntime/pony/eventbus"
+	eventsbus2 "github.com/ponyruntime/pony/component/eventbus"
 	"github.com/ponyruntime/pony/exec"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	httpM "github.com/ponyruntime/pony/runtime/lua/modules/http"
@@ -34,11 +34,11 @@ type Runtime struct {
 	stop    chan struct{}
 	log     *zap.Logger
 	evBusID string
-	eb      *eventsbus.Bus
+	eb      *eventsbus2.Bus
 }
 
 func NewHub(log *zap.Logger, queue *exec.Queue) *Runtime {
-	eb, id := eventsbus.GlobalEventBus()
+	eb, id := eventsbus2.GlobalEventBus()
 	return &Runtime{
 		queue:   queue,
 		stop:    make(chan struct{}, 1),

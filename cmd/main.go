@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/ponyruntime/pony/component"
+	eb "github.com/ponyruntime/pony/component/eventbus"
 	"github.com/ponyruntime/pony/server/http"
 	"go.uber.org/zap/zapcore"
 	"log"
@@ -14,7 +15,6 @@ import (
 	"time"
 
 	pctx "github.com/ponyruntime/pony/context"
-	eb "github.com/ponyruntime/pony/eventbus"
 	"github.com/ponyruntime/pony/exec"
 	"github.com/urfave/cli/v2"
 	"go.uber.org/zap"
