@@ -8,23 +8,23 @@ import (
 type E struct {
 	cmp     api.Component
 	typ     api.EventType
-	content payload.Payload
+	payload payload.Payload
 }
 
 // NewEvent initializes new event.
-func NewEvent(cmp api.Component, etype api.EventType, content payload.Payload) *E {
-	if etype == "" || cmp == "" {
+func NewEvent(component api.Component, etype api.EventType, payload payload.Payload) *E {
+	if etype == "" || component == "" {
 		return nil
 	}
 
 	return &E{
-		cmp:     cmp,
+		cmp:     component,
 		typ:     etype,
-		content: content,
+		payload: payload,
 	}
 }
 
-func (e *E) Target() api.Component {
+func (e *E) Component() api.Component {
 	return e.cmp
 }
 
@@ -32,6 +32,6 @@ func (e *E) Kind() api.EventType {
 	return e.typ
 }
 
-func (e *E) Content() any {
-	return e.content
+func (e *E) Payload() payload.Payload {
+	return e.payload
 }

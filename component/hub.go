@@ -9,10 +9,11 @@ import (
 	"go.uber.org/zap"
 )
 
+// Hub manages states of multiple nested components.
 type Hub struct {
 	log        *zap.Logger
 	exec       *exec.Queue
-	components map[api.Component]Component
+	components map[api.Component]StatefulComponent
 
 	// active configuration scope
 	sm *stateManager
@@ -30,7 +31,7 @@ func NewHub(
 	eb, id := ebs.GlobalEventBus()
 
 	// Initialize maps with appropriate capacity
-	cmp := make(map[api.Component]Component)
+	cmp := make(map[api.Component]StatefulComponent)
 	for _, sys := range components {
 		cmp[sys.ID] = sys.Component
 	}
@@ -63,13 +64,13 @@ func (r *Hub) ListenEvents() {
 
 	go func() {
 		for event := range evCh {
-			if event.Target() == api.Transaction {
+			if event.Component() == api.Transaction {
 				r.onTransaction(event)
 				continue
 			}
 
 			// looking for subsystem
-			s, ok := r.components[event.Target()]
+			s, ok := r.components[event.Component()]
 			if !ok {
 				// hub does not handle this component
 				continue
@@ -81,7 +82,7 @@ func (r *Hub) ListenEvents() {
 			}
 
 			// looking for state
-			state := r.sm.Get(event.Target())
+			state := r.sm.Get(event.Component())
 
 			newState, err := s.Handle(context.Background(), event, state.State)
 			if err != nil {
@@ -91,15 +92,15 @@ func (r *Hub) ListenEvents() {
 
 			// registering state change
 			if newState != nil && newState != state.State {
-				r.sm.Set(event.Target(), newState)
+				r.sm.Set(event.Component(), newState)
 
 				r.eb.Send(
 					context.Background(),
 					ebs.NewEvent(
 						api.Transaction,
-						api.EventAcceptChange,
+						api.EventCaptureChange,
 						payload.New(State{
-							Component: event.Target(),
+							Component: event.Component(),
 							State:     newState,
 						}),
 					),
@@ -146,6 +147,15 @@ func (r *Hub) onTransaction(e api.Event) {
 
 			s.Commit(context.Background(), state.State)
 			r.log.Debug("commited component state", zap.Any("component", state.Component))
+
+			r.eb.Send(
+				context.Background(),
+				ebs.NewEvent(
+					api.Transaction,
+					api.EventCaptureCommit,
+					payload.New(state),
+				),
+			)
 		}
 
 		return

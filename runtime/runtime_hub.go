@@ -65,7 +65,7 @@ func (r *Runtime) ListenEvents() {
 	// listen for events
 	go func() {
 		for event := range evCh {
-			switch event.Target() {
+			switch event.Component() {
 			// broadcast events
 			case api.SubSystemAll:
 				switch event.Kind() {
@@ -76,11 +76,11 @@ func (r *Runtime) ListenEvents() {
 				// 3. Enable new apps and open for the new events (not done)
 				case api.EventConfigurationUpdated:
 					// handle configuration update
-					r.log.Debug("received a configuration update event", zap.Any("content", event.Content()))
+					r.log.Debug("received a configuration update event", zap.Any("content", event.Payload()))
 					// TODO: enable subsystems according to the configuration, e.g.:
 					// TODO: unsafe
 					// TODO: change to type selection
-					cfg := event.Content().(*api.JSONConfiguration)
+					cfg := event.Payload().(*api.JSONConfiguration)
 					for id, acfg := range cfg.Apps {
 						le := engine.NewLuaEngine(context.Background(), r.log.Named(id))
 
@@ -123,7 +123,7 @@ func (r *Runtime) ListenEvents() {
 				// handle events
 				switch event.Kind() {
 				case api.EventFatalError:
-					r.log.Error("received a fatal error event", zap.Any("message", event.Content()))
+					r.log.Error("received a fatal error event", zap.Any("message", event.Payload()))
 					return
 				default:
 					r.log.Info("received an unknown event", zap.Any("type", event.Kind()))

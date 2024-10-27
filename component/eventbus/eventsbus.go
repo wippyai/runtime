@@ -160,7 +160,7 @@ func (eb *Bus) handleEvents() {
 	for ev := range eb.internalEvCh {
 		// cmp.ConfigurationUpdate for example
 		eb.mu.RLock()
-		wc := fmt.Sprintf("%s.%s", ev.Target(), ev.Kind())
+		wc := fmt.Sprintf("%s.%s", ev.Component(), ev.Kind())
 
 		for _, vsub := range eb.subscribers {
 			for i := 0; i < len(vsub); i++ {

@@ -34,7 +34,7 @@ func (s *Subscriber) Wait(sub api.Component, et api.EventType) api.Event {
 	for {
 		select {
 		case ev := <-s.ch:
-			if ev.Target() == sub && ev.Kind() == et {
+			if ev.Component() == sub && ev.Kind() == et {
 				return ev
 			}
 		case <-tout:
