@@ -14,12 +14,12 @@ import (
 type Hub struct {
 	log  *zap.Logger
 	exec *exec.Queue
-	subs map[api.Subsystem]subsystem.Server
+	subs map[api.Component]subsystem.Server
 
 	// active configuration scope
 	ruw         *sync.RWMutex
 	configuring bool
-	states      map[api.Subsystem]*subsystem.State
+	states      map[api.Component]*subsystem.State
 
 	// configuration pipeline
 	eid string
@@ -34,7 +34,7 @@ func NewHub(
 	eb, id := eventsbus.GlobalEventBus()
 
 	// Initialize maps with appropriate capacity
-	subs := make(map[api.Subsystem]subsystem.Server)
+	subs := make(map[api.Component]subsystem.Server)
 	for _, sys := range subsystems {
 		subs[sys.Subsystem] = sys.Server
 	}
@@ -43,7 +43,7 @@ func NewHub(
 		subs:   subs,
 		exec:   queue,
 		log:    log,
-		states: make(map[api.Subsystem]*subsystem.State),
+		states: make(map[api.Component]*subsystem.State),
 		eid:    id,
 		eb:     eb,
 	}
@@ -54,7 +54,7 @@ func (r *Hub) ListenEvents() {
 
 	evCh := make(chan api.Event, 10)
 	// can't be an error here since we're provided all the data
-	err := r.eb.SubscribeP(context.Background(), r.eid, evCh)
+	err := r.eb.SubscribeAll(context.Background(), r.eid, evCh)
 	if err != nil {
 		r.log.Fatal("server: failed to subscribe to events", zap.Error(err))
 		return
@@ -63,13 +63,13 @@ func (r *Hub) ListenEvents() {
 	go func() {
 		for event := range evCh {
 			// looking for subsystem
-			s, ok := r.subs[event.Subsystem()]
+			s, ok := r.subs[event.Component()]
 			if !ok {
 				r.log.Warn("server: received an event for an unknown subsystem", zap.Any("type", event.Type()))
 				continue
 			}
 
-			state, _ := r.states[event.Subsystem()] // can be nil
+			state, _ := r.states[event.Component()] // can be nil
 
 			newState, err := s.Handle(context.Background(), event, state)
 			if err != nil {
@@ -79,7 +79,7 @@ func (r *Hub) ListenEvents() {
 
 			if newState != nil && state != newState {
 				r.configuring = true
-				r.states[event.Subsystem()] = newState
+				r.states[event.Component()] = newState
 				r.eb.Send(
 					context.Background(),
 					// got state update, report update

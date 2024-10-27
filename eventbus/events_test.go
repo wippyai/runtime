@@ -22,7 +22,7 @@ func TestEvenHandler(t *testing.T) {
 
 	evt := <-ch
 	require.Equal(t, "new configuration", evt.Content())
-	require.Equal(t, api.Transaction, evt.Subsystem())
+	require.Equal(t, api.Transaction, evt.Component())
 	require.Equal(t, api.EventType("EventConfigurationUpdated"), evt.Type())
 
 	eh.Unsubscribe(ctx, id)
@@ -41,7 +41,7 @@ func TestEvenHandler2(t *testing.T) {
 
 	evt := <-ch
 	require.Equal(t, "new configuration", evt.Content())
-	require.Equal(t, api.SubSystemAll, evt.Subsystem())
+	require.Equal(t, api.SubSystemAll, evt.Component())
 	require.Equal(t, api.EventType("EventConfigurationUpdated"), evt.Type())
 
 	eh.Unsubscribe(ctx, id)

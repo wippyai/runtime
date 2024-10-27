@@ -12,7 +12,7 @@ import (
 	"go.uber.org/zap"
 )
 
-const Subsystem api.Subsystem = "http"
+const Subsystem api.Component = "http"
 
 type Endpoint interface {
 	Configure(cfg *api.JSONConfiguration)
