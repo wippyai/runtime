@@ -60,7 +60,7 @@ func (r *Hub) Close() {
 	wg.Wait()
 }
 
-func (r *Hub) Serve(ctx context.Context) {
+func (r *Hub) Boot(ctx context.Context) {
 	r.log.Debug("listening to configuration events")
 
 	// start services

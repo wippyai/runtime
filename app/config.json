@@ -1,7 +1,7 @@
 [
   {
-    "component": "lua",
-    "type": "runtime:register",
+    "component": "runtime:lua",
+    "type": "compile",
     "comment": "Register Lua handler",
     "payload": {
       "id": "http_time",
@@ -14,7 +14,7 @@
     }
   },
   {
-    "component": "http",
+    "component": "server:http",
     "type": "server:declare",
     "comment": "Declare HTTP server",
     "payload": {
@@ -23,22 +23,14 @@
     }
   },
   {
-    "component": "http",
-    "type": "server:endpoint",
+    "component": "server:http",
+    "type": "endpoint:declare",
     "comment": "Get Endpoint",
     "payload": {
       "server": "default",
       "path": "/time",
       "method": "GET",
       "handler": "default@http_time"
-    }
-  },
-  {
-    "component": "http",
-    "type": "server:start",
-    "comment": "Start HTTP server",
-    "payload": {
-      "name": "default"
     }
   }
 ]
