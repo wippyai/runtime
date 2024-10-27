@@ -32,12 +32,17 @@
     "comment": "Get Endpoint",
     "data": {
       "server": "default",
-      "method": "GET",
       "path": "/time",
-      "handler": {
-        "id": "http_time",
-        "ns": "default"
-      }
+      "method": "GET",
+      "handler": "default@http_time"
+    }
+  },
+  {
+    "type": "server:start",
+    "subsystem": "http",
+    "comment": "Start HTTP server",
+    "data": {
+      "name": "default"
     }
   },
   {

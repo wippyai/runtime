@@ -2,19 +2,20 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"github.com/ponyruntime/pony/server/http"
+	"go.uber.org/zap/zapcore"
 	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
-	"github.com/ponyruntime/pony/api"
-	jsonCfgProvider "github.com/ponyruntime/pony/configuration/providers/json"
 	pctx "github.com/ponyruntime/pony/context"
-	"github.com/ponyruntime/pony/endpoints"
 	eb "github.com/ponyruntime/pony/eventbus"
-	"github.com/ponyruntime/pony/futures"
-	"github.com/ponyruntime/pony/runtime"
+	"github.com/ponyruntime/pony/exec"
+	"github.com/ponyruntime/pony/server"
 	"github.com/urfave/cli/v2"
 	"go.uber.org/zap"
 )
@@ -41,7 +42,7 @@ func main() {
 							}
 
 							// save the logger
-							zlog, _ := zap.NewDevelopment()
+							zlog := initDevelopmentLogger()
 							ctx.Context = context.WithValue(ctx.Context, pctx.LoggerKey, zlog)
 							// safe the config file
 							ctx.Context = context.WithValue(ctx.Context, pctx.CfgFilenameKey, absPath)
@@ -72,30 +73,47 @@ func run(ctx *cli.Context) error {
 	case *zap.Logger:
 		zlog = tt
 	default:
-		zlog, _ = zap.NewDevelopment()
+		zlog = initDevelopmentLogger()
 	}
 
+	// connect to global configuration bus
 	bus, id := eb.GlobalEventBus()
 	defer bus.Unsubscribe(context.Background(), id)
 
-	queue := futures.NewQueue()
-	endpoints.NewEndpoints(zlog.Named("endpoints"), queue).ListenEvents()
-	runtime.NewRuntime(zlog.Named("runtime"), queue).ListenEvents()
+	// primary execution queue sub-system
+	queue := exec.NewQueue()
+
+	// server and all the ingress plugins and endpoints
+	srv := server.NewHub(
+		zlog.Named("server"),
+		queue,
+		http.NewSubsystem(zlog.Named("http")),
+	)
+	srv.ListenEvents()
+
+	//// runtime also composite
+	//rnt := runtime.NewHub(
+	//	zlog.Named("runtime"),
+	//	queue,
+	//	// todo: lua subsystem
+	//)
+	//rnt.ListenEvents()
 
 	// at this step, we're reading the configuration file and send events to subsystems via eventbus
 	// e.g.: when we have an endpoint configuration - we send it to an endpoint subsystem
 
 	// TODO: UNSAFE!!!!!! FIX!!!
 	cfgFilePath := ctx.Context.Value(pctx.CfgFilenameKey).(string)
+	zlog.Named("root").Info("Pony server is starting ", zap.String("config", cfgFilePath))
 
-	cfg := jsonCfgProvider.NewProvider(zlog.Named("json"))
-	err := cfg.Parse(cfgFilePath)
-	if err != nil {
-		// send the error across the system
-		// TODO: wait for the error to be processed
-		bus.Send(context.Background(), eb.NewEvent(api.EventFatalError, api.SubSystemAll, err))
-		return err
-	}
+	//cfg := jsonCfgProvider.NewProvider(zlog.Named("json"))
+	//err := cfg.Parse(cfgFilePath)
+	//if err != nil {
+	//	// send the error across the system
+	//	// TODO: wait for the error to be processed
+	//	bus.Send(context.Background(), eb.NewEvent(api.EventFatalError, api.SubSystemAll, payload.NewString(err.Error())))
+	//	return err
+	//}
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
@@ -105,4 +123,28 @@ func run(ctx *cli.Context) error {
 		zlog.Info("received a signal to stop the server")
 		return nil
 	}
+}
+
+func initDevelopmentLogger() *zap.Logger {
+	config := zap.NewDevelopmentConfig()
+	config.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
+	config.EncoderConfig.EncodeCaller = nil
+	config.EncoderConfig.EncodeName = func(loggerName string, enc zapcore.PrimitiveArrayEncoder) {
+		// Simple hash function - sum ASCII values
+		hash := 0
+		for _, char := range loggerName {
+			hash += int(char)
+		}
+
+		// Map hash to one of 6 colors (31-36: red, green, yellow, blue, magenta, cyan)
+		colorCode := 31 + (hash % 6)
+
+		// Wrap name in ANSI color codes
+		coloredName := fmt.Sprintf("\x1b[%dm%s\x1b[0m", colorCode, loggerName)
+		enc.AppendString(coloredName)
+	}
+
+	config.EncoderConfig.EncodeTime = zapcore.TimeEncoderOfLayout(time.DateTime)
+	zlog, _ := config.Build()
+	return zlog
 }
