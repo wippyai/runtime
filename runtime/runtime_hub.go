@@ -55,7 +55,7 @@ func (r *Runtime) ListenEvents() {
 	_ = r.eb.SubscribeP(
 		context.Background(),
 		r.evBusID,
-		api.SubSystemRuntime,
+		api.Servers,
 		api.EventsAll,
 		evCh,
 	)
@@ -119,7 +119,7 @@ func (r *Runtime) ListenEvents() {
 					}
 				}
 			// listen only for the runtime events
-			case api.SubSystemRuntime:
+			case api.Servers:
 				// handle events
 				switch event.Type() {
 				case api.EventFatalError:

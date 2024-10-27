@@ -27,10 +27,10 @@ const (
 
 	// SubSystemAll is a wildcard for all subsystems
 	SubSystemAll Subsystem = "*"
-	// SubSystemConfiguration subsystem for configuration
-	SubSystemConfiguration Subsystem = "configuration"
-	// SubSystemRuntime subsystem for modules (sql, wasm, etc)
-	SubSystemRuntime Subsystem = "runtime"
+	// Transaction subsystem for configuration
+	Transaction Subsystem = "transaction"
+	// Servers subsystem for modules (sql, wasm, etc)
+	Servers Subsystem = "server"
 	// SubSystemRegistry is a routing subsystem
 	SubSystemRegistry Subsystem = "registry"
 	// SubSystemEndpoints subsystem is an ingress subsystem

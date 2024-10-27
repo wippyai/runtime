@@ -54,25 +54,14 @@ func (r *Hub) ListenEvents() {
 
 	evCh := make(chan api.Event, 10)
 	// can't be an error here since we're provided all the data
-	_ = r.eb.SubscribeP(
-		context.Background(),
-		r.eid,
-		// listen to all events
-		api.SubSystemEndpoints,
-		api.EventsAll,
-		evCh,
-	)
+	err := r.eb.SubscribeP(context.Background(), r.eid, evCh)
+	if err != nil {
+		r.log.Fatal("server: failed to subscribe to events", zap.Error(err))
+		return
+	}
 
 	go func() {
 		for event := range evCh {
-			switch event.Type() {
-			case "server:declare", "server:endpoint", "server:start":
-				r.log.Debug("server: received an event", zap.Any("type", event.Type()))
-				// handle
-			default:
-				continue
-			}
-
 			// looking for subsystem
 			s, ok := r.subs[event.Subsystem()]
 			if !ok {
@@ -94,7 +83,11 @@ func (r *Hub) ListenEvents() {
 				r.eb.Send(
 					context.Background(),
 					// got state update, report update
-					eventsbus.NewEvent("server:state", event.Subsystem(), payload.New(state)),
+					eventsbus.NewEvent(
+						api.Transaction,
+						"server:state",
+						payload.New(state),
+					),
 				)
 			}
 		}

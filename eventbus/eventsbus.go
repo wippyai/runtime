@@ -57,24 +57,14 @@ func (eb *Bus) SubscribeAll(ctx context.Context, subID string, ch chan<- api.Eve
 func (eb *Bus) SubscribeP(
 	ctx context.Context,
 	subID string,
-	subSystem api.Subsystem,
-	etype api.EventType, // todo: maybe ignore that as subscribe to system only
 	ch chan<- api.Event,
 ) error {
 	if ch == nil {
 		return errors.New("nil channel provided")
 	}
 
-	pattern := fmt.Sprintf("%s.%s", subSystem, etype)
-
-	subIDTr := strings.Trim(subID, " ")
-	patternTr := strings.Trim(pattern, " ")
-
-	if subIDTr == "" || patternTr == "" {
-		return errors.New("subscriberID or pattern can't be empty")
-	}
-
-	eb.subscribe(ctx, subID, pattern, ch)
+	// doing greedy for now
+	eb.subscribe(ctx, subID, "*.*", ch)
 
 	return nil
 }
@@ -89,13 +79,11 @@ func (eb *Bus) Unsubscribe(_ context.Context, subID string) {
 func (eb *Bus) UnsubscribeP(
 	_ context.Context,
 	subID string,
-	subSystem api.Subsystem,
-	etype api.EventType,
 ) {
 	eb.mu.Lock()
 	defer eb.mu.Unlock()
 
-	pattern := fmt.Sprintf("%s.%s", subSystem, etype)
+	pattern := fmt.Sprintf("%s.%s", '*', "*")
 
 	if _, ok := eb.subscribers[subID]; !ok {
 		return

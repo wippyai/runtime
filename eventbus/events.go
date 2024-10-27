@@ -6,20 +6,20 @@ import (
 )
 
 type E struct {
-	typ  api.EventType
 	sub  api.Subsystem
+	typ  api.EventType
 	data payload.Payload
 }
 
 // NewEvent initializes new event.
-func NewEvent(etype api.EventType, subsystem api.Subsystem, content payload.Payload) *E {
+func NewEvent(subsystem api.Subsystem, etype api.EventType, content payload.Payload) *E {
 	if etype == "" || subsystem == "" {
 		return nil
 	}
 
 	return &E{
-		typ:  etype,
 		sub:  subsystem,
+		typ:  etype,
 		data: content,
 	}
 }
