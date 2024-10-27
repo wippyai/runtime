@@ -48,4 +48,6 @@ const (
 	EventFatalError EventType = "EventFatalError"
 	// EventStop thrown when a subsystem(s) should be stopped.
 	EventStop EventType = "EventStop"
+
+	EventStateChange EventType = "EventStateChange"
 )
