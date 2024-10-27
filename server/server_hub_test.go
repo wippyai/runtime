@@ -38,7 +38,7 @@ func (m *MockSubsystemServer) Stop(ctx context.Context) {
 }
 
 // TestHubListenEvents tests the event listening functionality
-func TestHubHandleEvent(t *testing.T) {
+func TestStateChange(t *testing.T) {
 	// Setup
 	logger := zap.NewNop()
 	queue := exec.NewQueue()
@@ -84,7 +84,7 @@ func TestHubHandleEvent(t *testing.T) {
 		),
 	)
 
-	ev := sub.Wait(api.Transaction, "change")
+	ev := sub.Wait(api.Transaction, "state")
 
 	assert.Equal(t, api.EventType("state"), ev.Type())
 
