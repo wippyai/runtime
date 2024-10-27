@@ -63,7 +63,7 @@ func TestStateChange(t *testing.T) {
 			return true
 		}),
 		mock.MatchedBy(func(event api.Event) bool {
-			return event.Type() == "test"
+			return event.Kind() == "test"
 		}),
 		nil,
 	).Return(newState, nil)
@@ -84,9 +84,9 @@ func TestStateChange(t *testing.T) {
 		),
 	)
 
-	ev := sub.Wait(api.Transaction, api.EventStateChange)
+	ev := sub.Wait(api.Transaction, api.EventAcceptChange)
 
-	assert.Equal(t, api.EventStateChange, ev.Type())
+	assert.Equal(t, api.EventAcceptChange, ev.Kind())
 
 	// Verify
 	mockServer.AssertExpectations(t)

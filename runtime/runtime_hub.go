@@ -65,10 +65,10 @@ func (r *Runtime) ListenEvents() {
 	// listen for events
 	go func() {
 		for event := range evCh {
-			switch event.Component() {
+			switch event.Target() {
 			// broadcast events
 			case api.SubSystemAll:
-				switch event.Type() {
+				switch event.Kind() {
 				// handle configuration event
 				// On configuration update, we should do the following:
 				// 1. Check the apps configuration, lock the runtime (not done)
@@ -121,12 +121,12 @@ func (r *Runtime) ListenEvents() {
 			// listen only for the runtime events
 			case api.Servers:
 				// handle events
-				switch event.Type() {
+				switch event.Kind() {
 				case api.EventFatalError:
 					r.log.Error("received a fatal error event", zap.Any("message", event.Content()))
 					return
 				default:
-					r.log.Info("received an unknown event", zap.Any("type", event.Type()))
+					r.log.Info("received an unknown event", zap.Any("type", event.Kind()))
 				}
 			}
 		}

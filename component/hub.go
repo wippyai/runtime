@@ -3,7 +3,7 @@ package component
 import (
 	"context"
 	"github.com/ponyruntime/pony/api"
-	eventsbus2 "github.com/ponyruntime/pony/component/eventbus"
+	ebs "github.com/ponyruntime/pony/component/eventbus"
 	"github.com/ponyruntime/pony/exec"
 	"github.com/ponyruntime/pony/payload"
 	"go.uber.org/zap"
@@ -15,12 +15,11 @@ type Hub struct {
 	components map[api.Component]Component
 
 	// active configuration scope
-	configuring bool
-	states      map[api.Component]any
+	sm *stateManager
 
 	// configuration pipeline
 	eid string
-	eb  *eventsbus2.Bus
+	eb  *ebs.Bus
 }
 
 func NewHub(
@@ -28,7 +27,7 @@ func NewHub(
 	queue *exec.Queue,
 	components ...Declaration,
 ) *Hub {
-	eb, id := eventsbus2.GlobalEventBus()
+	eb, id := ebs.GlobalEventBus()
 
 	// Initialize maps with appropriate capacity
 	cmp := make(map[api.Component]Component)
@@ -40,61 +39,115 @@ func NewHub(
 		components: cmp,
 		exec:       queue,
 		log:        log,
-		states:     make(map[api.Component]any),
 		eid:        id,
 		eb:         eb,
 	}
 }
 
+func (r *Hub) Close() {
+	r.eb.Unsubscribe(context.Background(), r.eid)
+	r.eb = nil
+	r.eid = ""
+}
+
 func (r *Hub) ListenEvents() {
-	r.log.Debug("server: listening to events")
+	r.log.Debug("listening to events")
 
 	evCh := make(chan api.Event, 10)
 	// can't be an error here since we're provided all the data
 	err := r.eb.SubscribeAll(context.Background(), r.eid, evCh)
 	if err != nil {
-		r.log.Fatal("server: failed to subscribe to events", zap.Error(err))
+		r.log.Fatal("failed to subscribe to events", zap.Error(err))
 		return
 	}
 
 	go func() {
 		for event := range evCh {
-			// todo: handle transaction level events here
-			if event.Type() == api.EventBegin {
-				// todo: finish
-				r.configuring = true
-			}
-
-			// looking for subsystem
-			s, ok := r.components[event.Component()]
-			if !ok {
-				r.log.Warn("server: received an event for an unknown subsystem", zap.Any("type", event.Type()))
+			if event.Target() == api.Transaction {
+				r.onTransaction(event)
 				continue
 			}
 
-			state, _ := r.states[event.Component()] // can be nil
+			// looking for subsystem
+			s, ok := r.components[event.Target()]
+			if !ok {
+				// hub does not handle this component
+				continue
+			}
 
-			cst, err := s.Handle(context.Background(), event, state)
+			if r.sm == nil {
+				r.log.Warn("no open transaction, skipping event", zap.String("event", string(event.Kind())))
+				continue
+			}
+
+			// looking for state
+			state := r.sm.Get(event.Target())
+
+			newState, err := s.Handle(context.Background(), event, state.State)
 			if err != nil {
-				r.log.Error("server: failed to handle an event", zap.Error(err))
+				r.log.Error("failed to handle an event", zap.Error(err))
 				continue
 			}
 
 			// registering state change
-			if cst != nil && state != cst {
-				r.configuring = true
-				r.states[event.Component()] = cst
+			if newState != nil && newState != state.State {
+				r.sm.Set(event.Target(), newState)
 
 				r.eb.Send(
 					context.Background(),
-					// got state update, report update
-					eventsbus2.NewEvent(
+					ebs.NewEvent(
 						api.Transaction,
-						api.EventStateChange,
-						payload.New(state),
+						api.EventAcceptChange,
+						payload.New(State{
+							Component: event.Target(),
+							State:     newState,
+						}),
 					),
 				)
 			}
 		}
 	}()
+}
+
+func (r *Hub) onTransaction(e api.Event) {
+	if e.Kind() == api.EventBegin {
+		if r.sm != nil {
+			r.log.Warn("working withing internal transaction")
+		}
+
+		if r.sm == nil {
+			r.sm = newStateManager()
+		}
+		return
+	}
+
+	if e.Kind() == api.EventRollback {
+		r.log.Debug("rolling back transaction")
+		r.sm = nil
+		return
+	}
+
+	if e.Kind() == api.EventCommit {
+		if r.sm == nil {
+			r.log.Warn("no transaction to commit")
+			return
+		}
+
+		defer func() { r.sm = nil }()
+
+		r.log.Debug("committing transaction")
+
+		for _, state := range r.sm.states {
+			s, ok := r.components[state.Component]
+			if !ok {
+				r.log.Warn("state/component mismatch", zap.Any("type", e.Kind()))
+				continue
+			}
+
+			s.Commit(context.Background(), state.State)
+			r.log.Debug("commited component state", zap.Any("component", state.Component))
+		}
+
+		return
+	}
 }
