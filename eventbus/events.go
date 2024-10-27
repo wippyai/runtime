@@ -6,32 +6,32 @@ import (
 )
 
 type E struct {
-	sub  api.Subsystem
-	typ  api.EventType
-	data payload.Payload
+	cmp     api.Component
+	typ     api.EventType
+	content payload.Payload
 }
 
 // NewEvent initializes new event.
-func NewEvent(subsystem api.Subsystem, etype api.EventType, content payload.Payload) *E {
-	if etype == "" || subsystem == "" {
+func NewEvent(cmp api.Component, etype api.EventType, content payload.Payload) *E {
+	if etype == "" || cmp == "" {
 		return nil
 	}
 
 	return &E{
-		sub:  subsystem,
-		typ:  etype,
-		data: content,
+		cmp:     cmp,
+		typ:     etype,
+		content: content,
 	}
+}
+
+func (e *E) Component() api.Component {
+	return e.cmp
 }
 
 func (e *E) Type() api.EventType {
 	return e.typ
 }
 
-func (e *E) Subsystem() api.Subsystem {
-	return e.sub
-}
-
 func (e *E) Content() any {
-	return e.data
+	return e.content
 }

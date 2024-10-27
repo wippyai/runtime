@@ -65,7 +65,7 @@ func (r *Runtime) ListenEvents() {
 	// listen for events
 	go func() {
 		for event := range evCh {
-			switch event.Subsystem() {
+			switch event.Component() {
 			// broadcast events
 			case api.SubSystemAll:
 				switch event.Type() {

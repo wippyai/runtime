@@ -9,12 +9,12 @@ import (
 type StateID string
 
 type Subsystem struct {
-	Subsystem api.Subsystem
+	Subsystem api.Component
 	Server    Server
 }
 
 type State struct {
-	Subsystem api.Subsystem
+	Subsystem api.Component
 	State     any
 }
 

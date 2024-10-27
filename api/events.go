@@ -4,37 +4,37 @@ import (
 	"context"
 )
 
+type Event interface {
+	Type() EventType
+	Component() Component
+	Content() any
+}
+
 type EventBus interface {
 	SubscribeAll(ctx context.Context, subID string, ch chan<- Event) error
-	SubscribeP(ctx context.Context, subID string, subSystem Subsystem, etype EventType, ch chan<- Event) error
+	SubscribeP(ctx context.Context, subID string, subSystem Component, etype EventType, ch chan<- Event) error
 	Unsubscribe(ctx context.Context, subID string)
-	UnsubscribeP(ctx context.Context, subID string, subSystem Subsystem, etype EventType)
+	UnsubscribeP(ctx context.Context, subID string, subSystem Component, etype EventType)
 	Len() uint
 	Send(ctx context.Context, ev Event)
 }
 
-type Event interface {
-	Type() EventType
-	Subsystem() Subsystem
-	Content() any
-}
-
-type Subsystem string
+type Component string
 
 const (
 
 	// todo: deprecate here
 
 	// SubSystemAll is a wildcard for all subsystems
-	SubSystemAll Subsystem = "*"
+	SubSystemAll Component = "*"
 	// Transaction subsystem for configuration
-	Transaction Subsystem = "transaction"
+	Transaction Component = "transaction"
 	// Servers subsystem for modules (sql, wasm, etc)
-	Servers Subsystem = "server"
+	Servers Component = "server"
 	// SubSystemRegistry is a routing subsystem
-	SubSystemRegistry Subsystem = "registry"
+	SubSystemRegistry Component = "registry"
 	// SubSystemEndpoints subsystem is an ingress subsystem
-	SubSystemEndpoints Subsystem = "server"
+	SubSystemEndpoints Component = "server"
 )
 
 type EventType string

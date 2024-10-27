@@ -72,6 +72,7 @@ func TestHubHandleEvent(t *testing.T) {
 	hub.ListenEvents()
 
 	sub := eventsbus.NewSubscriber()
+	defer sub.Close()
 
 	// Send test event
 	hub.eb.Send(

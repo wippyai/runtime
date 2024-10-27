@@ -44,27 +44,37 @@ func (eb *Bus) SubscribeAll(ctx context.Context, subID string, ch chan<- api.Eve
 		return errors.New("subscriberID can't be empty")
 	}
 
-	eb.subscribe(ctx, subID, "*", ch)
+	eb.subscribe(ctx, subID, "*.*", ch)
 
 	return nil
 }
 
-// SubscribeP pattern like "sub.EventType"
+// SubscribeP pattern like "cmp.EventType"
 // subID is a subscriber ID
-// sub is a sub to subscribe to
+// cmp is a cmp to subscribe to
 // etype is an event type to subscribe to
 // ch is a channel to receive events
 func (eb *Bus) SubscribeP(
 	ctx context.Context,
 	subID string,
+	component api.Component,
+	etype api.EventType, // todo: maybe ignore that as subscribe to system only
 	ch chan<- api.Event,
 ) error {
 	if ch == nil {
 		return errors.New("nil channel provided")
 	}
 
-	// doing greedy for now
-	eb.subscribe(ctx, subID, "*.*", ch)
+	pattern := fmt.Sprintf("%s.%s", component, etype)
+
+	subIDTr := strings.Trim(subID, " ")
+	patternTr := strings.Trim(pattern, " ")
+
+	if subIDTr == "" || patternTr == "" {
+		return errors.New("subscriberID or pattern can't be empty")
+	}
+
+	eb.subscribe(ctx, subID, pattern, ch)
 
 	return nil
 }
@@ -77,13 +87,15 @@ func (eb *Bus) Unsubscribe(_ context.Context, subID string) {
 
 // UnsubscribeP unsubscribes from a specific event
 func (eb *Bus) UnsubscribeP(
-	_ context.Context,
+	ctx context.Context,
 	subID string,
+	subSystem api.Component,
+	etype api.EventType,
 ) {
 	eb.mu.Lock()
 	defer eb.mu.Unlock()
 
-	pattern := fmt.Sprintf("%s.%s", '*', "*")
+	pattern := fmt.Sprintf("%s.%s", subSystem, etype)
 
 	if _, ok := eb.subscribers[subID]; !ok {
 		return
@@ -124,7 +136,7 @@ func (eb *Bus) subscribe(_ context.Context, subID string, pattern string, ch cha
 	w := newWildcard(pattern)
 
 	if subArr, ok := eb.subscribers[subID]; ok {
-		// at this point we are confident that sb is a '[]*sub' type
+		// at this point we are confident that sb is a '[]*cmp' type
 		subArr = append(subArr, &sub{
 			pattern: pattern,
 			w:       w,
@@ -146,9 +158,9 @@ func (eb *Bus) subscribe(_ context.Context, subID string, pattern string, ch cha
 
 func (eb *Bus) handleEvents() {
 	for ev := range eb.internalEvCh {
-		// sub.ConfigurationUpdate for example
+		// cmp.ConfigurationUpdate for example
 		eb.mu.RLock()
-		wc := fmt.Sprintf("%s.%s", ev.Subsystem(), ev.Type())
+		wc := fmt.Sprintf("%s.%s", ev.Component(), ev.Type())
 
 		for _, vsub := range eb.subscribers {
 			for i := 0; i < len(vsub); i++ {
