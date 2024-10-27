@@ -19,7 +19,7 @@ type Hub struct {
 	// active configuration scope
 	ruw         *sync.RWMutex
 	configuring bool
-	states      map[api.Component]*component.State
+	states      map[api.Component]any
 
 	// configuration pipeline
 	eid string
@@ -43,7 +43,7 @@ func NewHub(
 		components: cmp,
 		exec:       queue,
 		log:        log,
-		states:     make(map[api.Component]*component.State),
+		states:     make(map[api.Component]any),
 		eid:        id,
 		eb:         eb,
 	}
@@ -69,6 +69,12 @@ func (r *Hub) ListenEvents() {
 				continue
 			}
 
+			//switch event.Type() {
+			//case api.EventStateChange:
+			//// ignore
+			//case api.EventStop:
+			//}
+
 			state, _ := r.states[event.Component()] // can be nil
 
 			newState, err := s.Handle(context.Background(), event, state)
@@ -77,6 +83,7 @@ func (r *Hub) ListenEvents() {
 				continue
 			}
 
+			// registering state change
 			if newState != nil && state != newState {
 				r.configuring = true
 				r.states[event.Component()] = newState
@@ -85,7 +92,7 @@ func (r *Hub) ListenEvents() {
 					// got state update, report update
 					eventsbus.NewEvent(
 						api.Transaction,
-						"state",
+						api.EventStateChange,
 						payload.New(state),
 					),
 				)

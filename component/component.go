@@ -11,14 +11,10 @@ type Declaration struct {
 	Component Component
 }
 
-type State struct {
-	Component api.Component
-	State     any
-}
-
 type Component interface {
-	Handle(context.Context, api.Event, *State) (*State, error)
-	Commit(context.Context, *State) error
+	Handle(context.Context, api.Event, any) (any, error)
+	Commit(context.Context, any)
+
 	Start(context.Context, *exec.Queue)
 	Stop(context.Context)
 }

@@ -18,17 +18,16 @@ type MockSubsystemServer struct {
 	mock.Mock
 }
 
-func (m *MockSubsystemServer) Handle(ctx context.Context, event api.Event, state *component.State) (*component.State, error) {
+func (m *MockSubsystemServer) Handle(ctx context.Context, event api.Event, state any) (any, error) {
 	args := m.Called(ctx, event, state)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*component.State), args.Error(1)
+	return args.Get(0).(any), args.Error(1)
 }
 
-func (m *MockSubsystemServer) Commit(ctx context.Context, state *component.State) error {
-	args := m.Called(ctx, state)
-	return args.Error(0)
+func (m *MockSubsystemServer) Commit(ctx context.Context, state any) {
+	m.Called(ctx, state)
 }
 
 func (m *MockSubsystemServer) Start(ctx context.Context, q *exec.Queue) {
@@ -54,8 +53,10 @@ func TestStateChange(t *testing.T) {
 	hub := NewHub(logger, queue, subsystems...)
 
 	// Setup mock expectations
-	newState := &component.State{
-		Component: "test",
+	newState := struct {
+		State string
+	}{
+		State: "new-state",
 	}
 
 	mockServer.On("Handle",
@@ -65,7 +66,7 @@ func TestStateChange(t *testing.T) {
 		mock.MatchedBy(func(event api.Event) bool {
 			return event.Type() == "test"
 		}),
-		(*component.State)(nil),
+		nil,
 	).Return(newState, nil)
 
 	// Start listening
@@ -84,9 +85,9 @@ func TestStateChange(t *testing.T) {
 		),
 	)
 
-	ev := sub.Wait(api.Transaction, "state")
+	ev := sub.Wait(api.Transaction, api.EventStateChange)
 
-	assert.Equal(t, api.EventType("state"), ev.Type())
+	assert.Equal(t, api.EventStateChange, ev.Type())
 
 	// Verify
 	mockServer.AssertExpectations(t)
