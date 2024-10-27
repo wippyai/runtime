@@ -227,7 +227,7 @@ func (h *Module) doRequest(l *lua.LState, method string, url string, options *lu
 		if _, ok := body.(lua.LString); !ok {
 			// "form" is deprecated.
 			body = options.RawGet(lua.LString("form"))
-			// Only set the Content-Kind to application/x-www-form-urlencoded
+			// Only set the Payload-Kind to application/x-www-form-urlencoded
 			// when someone uses "form", not for "body".
 			if _, ok := body.(lua.LString); ok {
 				req.Header.Set("Content-Type", "application/x-www-form-urlencoded")

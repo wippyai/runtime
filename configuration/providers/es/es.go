@@ -57,7 +57,7 @@ func (p *Provider) ListenEvents() {
 
 	// why do we listen inside the provider?
 	for event := range evCh {
-		switch event.Target() {
+		switch event.Component() {
 		// broadcast event
 		case api.SubSystemAll:
 			p.log.Info("json: broadcast event", zap.Any("event", event.Kind()))

@@ -2,12 +2,13 @@ package api
 
 import (
 	"context"
+	"github.com/ponyruntime/pony/payload"
 )
 
 type Event interface {
+	Component() Component
 	Kind() EventType
-	Target() Component
-	Content() any
+	Payload() payload.Payload
 }
 
 type EventBus interface {
@@ -49,7 +50,8 @@ const (
 	// EventStop thrown when a subsystem(s) should be stopped.
 	EventStop EventType = "EventStop"
 
-	EventAcceptChange EventType = "EventAcceptChange"
+	EventCaptureChange EventType = "EventCaptureChange"
+	EventCaptureCommit EventType = "ConfirmCommit"
 
 	EventBegin    EventType = "eventBegin"
 	EventCommit   EventType = "eventCommit"
