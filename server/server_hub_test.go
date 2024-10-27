@@ -3,30 +3,30 @@ package server
 import (
 	"context"
 	"github.com/ponyruntime/pony/api"
+	"github.com/ponyruntime/pony/component"
 	eventsbus "github.com/ponyruntime/pony/eventbus"
 	"github.com/ponyruntime/pony/exec"
 	"github.com/ponyruntime/pony/payload"
-	"github.com/ponyruntime/pony/subsystem"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"go.uber.org/zap"
 	"testing"
 )
 
-// MockSubsystemServer is a mock implementation of subsystem.Server
+// MockSubsystemServer is a mock implementation of component.Component
 type MockSubsystemServer struct {
 	mock.Mock
 }
 
-func (m *MockSubsystemServer) Handle(ctx context.Context, event api.Event, state *subsystem.State) (*subsystem.State, error) {
+func (m *MockSubsystemServer) Handle(ctx context.Context, event api.Event, state *component.State) (*component.State, error) {
 	args := m.Called(ctx, event, state)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*subsystem.State), args.Error(1)
+	return args.Get(0).(*component.State), args.Error(1)
 }
 
-func (m *MockSubsystemServer) Commit(ctx context.Context, state *subsystem.State) error {
+func (m *MockSubsystemServer) Commit(ctx context.Context, state *component.State) error {
 	args := m.Called(ctx, state)
 	return args.Error(0)
 }
@@ -44,18 +44,18 @@ func TestHubHandleEvent(t *testing.T) {
 	queue := exec.NewQueue()
 	mockServer := &MockSubsystemServer{}
 
-	subsystems := []subsystem.Subsystem{
+	subsystems := []component.Declaration{
 		{
-			Subsystem: "test",
-			Server:    mockServer,
+			ID:        "test",
+			Component: mockServer,
 		},
 	}
 
 	hub := NewHub(logger, queue, subsystems...)
 
 	// Setup mock expectations
-	newState := &subsystem.State{
-		Subsystem: "test",
+	newState := &component.State{
+		Component: "test",
 	}
 
 	mockServer.On("Handle",
@@ -65,7 +65,7 @@ func TestHubHandleEvent(t *testing.T) {
 		mock.MatchedBy(func(event api.Event) bool {
 			return event.Type() == "test"
 		}),
-		(*subsystem.State)(nil),
+		(*component.State)(nil),
 	).Return(newState, nil)
 
 	// Start listening

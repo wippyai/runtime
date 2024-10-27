@@ -106,7 +106,7 @@ func (e *HttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if res.Error != nil {
 			e.log.Error("http: error processing the request", zap.Error(res.Error))
 			w.WriteHeader(http.StatusInternalServerError)
-			_, _ = w.Write([]byte("Internal Server Error"))
+			_, _ = w.Write([]byte("Internal Component Error"))
 			return
 		}
 

@@ -3,10 +3,10 @@ package server
 import (
 	"context"
 	"github.com/ponyruntime/pony/api"
+	"github.com/ponyruntime/pony/component"
 	eventsbus "github.com/ponyruntime/pony/eventbus"
 	"github.com/ponyruntime/pony/exec"
 	"github.com/ponyruntime/pony/payload"
-	"github.com/ponyruntime/pony/subsystem"
 	"go.uber.org/zap"
 	"sync"
 )
@@ -14,12 +14,12 @@ import (
 type Hub struct {
 	log        *zap.Logger
 	exec       *exec.Queue
-	components map[api.Component]subsystem.Server
+	components map[api.Component]component.Component
 
 	// active configuration scope
 	ruw         *sync.RWMutex
 	configuring bool
-	states      map[api.Component]*subsystem.State
+	states      map[api.Component]*component.State
 
 	// configuration pipeline
 	eid string
@@ -29,21 +29,21 @@ type Hub struct {
 func NewHub(
 	log *zap.Logger,
 	queue *exec.Queue,
-	subsystems ...subsystem.Subsystem,
+	components ...component.Declaration,
 ) *Hub {
 	eb, id := eventsbus.GlobalEventBus()
 
 	// Initialize maps with appropriate capacity
-	subs := make(map[api.Component]subsystem.Server)
-	for _, sys := range subsystems {
-		subs[sys.Subsystem] = sys.Server
+	cmp := make(map[api.Component]component.Component)
+	for _, sys := range components {
+		cmp[sys.ID] = sys.Component
 	}
 
 	return &Hub{
-		components: subs,
+		components: cmp,
 		exec:       queue,
 		log:        log,
-		states:     make(map[api.Component]*subsystem.State),
+		states:     make(map[api.Component]*component.State),
 		eid:        id,
 		eb:         eb,
 	}
