@@ -1,4 +1,4 @@
-package subsystem
+package component
 
 import (
 	"context"
@@ -6,19 +6,17 @@ import (
 	"github.com/ponyruntime/pony/exec"
 )
 
-type StateID string
-
-type Subsystem struct {
-	Subsystem api.Component
-	Server    Server
+type Declaration struct {
+	ID        api.Component
+	Component Component
 }
 
 type State struct {
-	Subsystem api.Component
+	Component api.Component
 	State     any
 }
 
-type Server interface {
+type Component interface {
 	Handle(context.Context, api.Event, *State) (*State, error)
 	Commit(context.Context, *State) error
 	Start(context.Context, *exec.Queue)
