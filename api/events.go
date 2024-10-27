@@ -50,4 +50,8 @@ const (
 	EventStop EventType = "EventStop"
 
 	EventStateChange EventType = "EventStateChange"
+
+	EventBegin    EventType = "eventBegin"
+	EventCommit   EventType = "eventCommit"
+	EventRollback EventType = "eventRollback"
 )

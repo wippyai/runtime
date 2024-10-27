@@ -3,21 +3,21 @@ package json
 import (
 	"context"
 	"encoding/json"
+	eventsbus2 "github.com/ponyruntime/pony/component/eventbus"
 	"os"
 
 	"github.com/ponyruntime/pony/api"
-	eventsbus "github.com/ponyruntime/pony/eventbus"
 	"go.uber.org/zap"
 )
 
 type Provider struct {
 	log     *zap.Logger
 	evBusID string
-	eb      *eventsbus.Bus
+	eb      *eventsbus2.Bus
 }
 
 func NewProvider(log *zap.Logger) *Provider {
-	eb, id := eventsbus.GlobalEventBus()
+	eb, id := eventsbus2.GlobalEventBus()
 	return &Provider{
 		evBusID: id,
 		eb:      eb,
@@ -39,7 +39,7 @@ func (p *Provider) Parse(path string) error {
 	}
 
 	// send the new configuration to all subsystems
-	p.eb.Send(context.Background(), eventsbus.NewEvent(api.EventConfigurationUpdated, api.SubSystemAll, cfg))
+	p.eb.Send(context.Background(), eventsbus2.NewEvent(api.EventConfigurationUpdated, api.SubSystemAll, cfg))
 
 	return nil
 }
@@ -74,7 +74,7 @@ func (p *Provider) ListenEvents() {
 
 func (p *Provider) fatal(err error) {
 	// parse each subsystem configuration and send events to the appropriate event bus
-	event := eventsbus.NewEvent(api.EventFatalError, api.SubSystemAll, []byte(err.Error()))
+	event := eventsbus2.NewEvent(api.EventFatalError, api.SubSystemAll, []byte(err.Error()))
 	// fire an event
 	p.eb.Send(context.Background(), event)
 }

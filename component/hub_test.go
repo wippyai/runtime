@@ -3,7 +3,7 @@ package component
 import (
 	"context"
 	"github.com/ponyruntime/pony/api"
-	eventsbus "github.com/ponyruntime/pony/eventbus"
+	eventsbus2 "github.com/ponyruntime/pony/component/eventbus"
 	"github.com/ponyruntime/pony/exec"
 	"github.com/ponyruntime/pony/payload"
 	"github.com/stretchr/testify/assert"
@@ -71,13 +71,13 @@ func TestStateChange(t *testing.T) {
 	// Start listening
 	hub.ListenEvents()
 
-	sub := eventsbus.NewSubscriber()
+	sub := eventsbus2.NewSubscriber()
 	defer sub.Close()
 
 	// Send test event
 	hub.eb.Send(
 		context.Background(),
-		eventsbus.NewEvent(
+		eventsbus2.NewEvent(
 			"test",
 			"test",
 			payload.NewString("configure-server"),
