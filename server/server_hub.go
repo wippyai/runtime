@@ -12,9 +12,9 @@ import (
 )
 
 type Hub struct {
-	log  *zap.Logger
-	exec *exec.Queue
-	subs map[api.Component]subsystem.Server
+	log        *zap.Logger
+	exec       *exec.Queue
+	components map[api.Component]subsystem.Server
 
 	// active configuration scope
 	ruw         *sync.RWMutex
@@ -40,12 +40,12 @@ func NewHub(
 	}
 
 	return &Hub{
-		subs:   subs,
-		exec:   queue,
-		log:    log,
-		states: make(map[api.Component]*subsystem.State),
-		eid:    id,
-		eb:     eb,
+		components: subs,
+		exec:       queue,
+		log:        log,
+		states:     make(map[api.Component]*subsystem.State),
+		eid:        id,
+		eb:         eb,
 	}
 }
 
@@ -63,7 +63,7 @@ func (r *Hub) ListenEvents() {
 	go func() {
 		for event := range evCh {
 			// looking for subsystem
-			s, ok := r.subs[event.Component()]
+			s, ok := r.components[event.Component()]
 			if !ok {
 				r.log.Warn("server: received an event for an unknown subsystem", zap.Any("type", event.Type()))
 				continue
@@ -85,7 +85,7 @@ func (r *Hub) ListenEvents() {
 					// got state update, report update
 					eventsbus.NewEvent(
 						api.Transaction,
-						"server:state",
+						"state",
 						payload.New(state),
 					),
 				)
