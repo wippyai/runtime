@@ -4,8 +4,7 @@
     "type": "compile",
     "comment": "Register Lua handler",
     "payload": {
-      "id": "http_time",
-      "ns": "default",
+      "id": "runtime.function.http_time",
       "extensions": [
         "http",
         "json"
@@ -18,9 +17,10 @@
     "type": "endpoint:declare",
     "comment": "Get Endpoint",
     "payload": {
+      "id": "http.endpoint.default.http_time",
       "path": "/time",
       "method": "GET",
-      "handler": "default@http_time"
+      "handler": "runtime.function.http_time"
     }
   }
 ]

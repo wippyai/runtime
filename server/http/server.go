@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"github.com/ponyruntime/pony/component"
+	"log"
 	"net/http"
 
 	"github.com/ponyruntime/pony/api"
@@ -29,10 +30,18 @@ func (s *Server) Register(ctx context.Context, ev api.Event, state component.Sta
 	if state == nil {
 		return nil, nil
 	}
-
+	log.Println("Registering HTTP server")
 	// processing all sorts of events to boot state
 
 	return nil, nil
+}
+
+func (s *Server) Apply(ctx context.Context, state component.State) error {
+	//hst, ok := state.(*httpState)
+
+	// processing all sorts of events to boot state
+
+	return nil
 }
 
 func (s *Server) Start(ctx context.Context, queue *exec.Queue) {
