@@ -154,7 +154,7 @@ func TestStateRollback(t *testing.T) {
 
 	sub.Wait(config.ConfigGroup, config.AckState)
 
-	hub.eb.Send(context.Background(), ebs.NewEvent(config.ConfigGroup, config.DiscardState, nil))
+	hub.eb.Send(context.Background(), ebs.NewEvent(config.ConfigGroup, config.Discard, nil))
 	sub.Wait(config.ConfigGroup, config.Done)
 
 	cmp.AssertExpectations(t)
@@ -244,7 +244,7 @@ func TestStatePropagateState(t *testing.T) {
 
 	sub.Wait(config.ConfigGroup, config.AckState)
 
-	hub.eb.Send(context.Background(), ebs.NewEvent(config.ConfigGroup, config.ApplyState, nil))
+	hub.eb.Send(context.Background(), ebs.NewEvent(config.ConfigGroup, config.Apply, nil))
 
 	e := sub.Wait(config.ConfigGroup, config.Done)
 

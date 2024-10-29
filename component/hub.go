@@ -124,7 +124,7 @@ func (r *Hub) onConfigurationChange(ctx context.Context, e api.Event) {
 			r.changes = newStateMap()
 		}
 
-	case config.DiscardState:
+	case config.Discard:
 		if r.changes == nil {
 			r.log.Error("no transaction to discard")
 			return
@@ -147,7 +147,7 @@ func (r *Hub) onConfigurationChange(ctx context.Context, e api.Event) {
 		}
 		r.changes = nil
 
-	case config.ApplyState:
+	case config.Apply:
 		if r.changes == nil {
 			r.log.Warn("no transaction to commit")
 			return
