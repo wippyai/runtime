@@ -25,11 +25,14 @@ func NewComponent(log *zap.Logger) *Server {
 	}
 }
 
-func (s *Server) Register(ctx context.Context, event api.Event, payload component.State) (component.State, error) {
-	return nil, nil
-}
+func (s *Server) Register(ctx context.Context, ev api.Event, state component.State) (component.State, error) {
+	if state == nil {
+		return nil, nil
+	}
 
-func (s *Server) Commit(ctx context.Context, payload any) {
+	// processing all sorts of events to boot state
+
+	return nil, nil
 }
 
 func (s *Server) Start(ctx context.Context, queue *exec.Queue) {

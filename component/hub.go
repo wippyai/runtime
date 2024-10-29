@@ -70,7 +70,7 @@ func (r *Hub) Boot(ctx context.Context) {
 
 	go func() {
 		for event := range evCh {
-			if event.Component() == config.Group {
+			if event.Component() == config.ConfigGroup {
 				r.onConfigurationChange(ctx, event)
 				continue
 			}
@@ -81,6 +81,7 @@ func (r *Hub) Boot(ctx context.Context) {
 			}
 
 			cset := r.changes.get(event.Component()).changes
+
 			updated, err := r.components.Register(ctx, event, cset)
 			if err != nil {
 				r.log.Error(
@@ -98,8 +99,8 @@ func (r *Hub) Boot(ctx context.Context) {
 				r.eb.Send(
 					ctx,
 					ebs.NewEvent(
-						config.Group,
-						config.Ack,
+						config.ConfigGroup,
+						config.AckState,
 						payload.New(state{
 							component: event.Component(),
 							changes:   cset,
@@ -123,7 +124,7 @@ func (r *Hub) onConfigurationChange(ctx context.Context, e api.Event) {
 			r.changes = newStateMap()
 		}
 
-	case config.Discard:
+	case config.DiscardState:
 		if r.changes == nil {
 			r.log.Error("no transaction to discard")
 			return
@@ -141,12 +142,12 @@ func (r *Hub) onConfigurationChange(ctx context.Context, e api.Event) {
 
 			r.eb.Send(
 				ctx,
-				ebs.NewEvent(config.Group, config.Done, payload.New(state)),
+				ebs.NewEvent(config.ConfigGroup, config.Done, payload.New(state)),
 			)
 		}
 		r.changes = nil
 
-	case config.Apply:
+	case config.ApplyState:
 		if r.changes == nil {
 			r.log.Warn("no transaction to commit")
 			return
@@ -156,7 +157,8 @@ func (r *Hub) onConfigurationChange(ctx context.Context, e api.Event) {
 		r.log.Debug("committing transaction")
 
 		for _, state := range r.changes.states() {
-			if _, ok := r.components[state.component]; !ok {
+			cmp, ok := r.components[state.component]
+			if !ok {
 				r.log.Warn("state/component mismatch", zap.Any("type", e.Kind()))
 				continue
 			}
@@ -169,18 +171,19 @@ func (r *Hub) onConfigurationChange(ctx context.Context, e api.Event) {
 				continue
 			}
 
-			if err := cset.Apply(ctx); err != nil {
+			err := cmp.Apply(ctx, cset)
+			if err != nil {
 				r.log.Error("failed to apply changes", zap.Error(err))
 				r.eb.Send(
 					ctx,
-					ebs.NewEvent(config.Group, config.Deny, payload.New(state)),
+					ebs.NewEvent(config.ConfigGroup, config.Deny, payload.New(state)),
 				)
 				continue
 			}
 
 			r.eb.Send(
 				ctx,
-				ebs.NewEvent(config.Group, config.Done, payload.New(state)),
+				ebs.NewEvent(config.ConfigGroup, config.Done, payload.New(state)),
 			)
 		}
 	}

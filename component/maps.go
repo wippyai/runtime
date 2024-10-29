@@ -91,5 +91,6 @@ func (s *smap) states() []state {
 			states = append(states, state)
 		}
 	}
+
 	return states
 }

@@ -3,22 +3,22 @@ package config
 import "github.com/ponyruntime/pony/api"
 
 const (
-	Group api.Component = "cfx"
+	ConfigGroup api.Component = "cfx"
 
 	// Begin triggered once per transaction.
 	Begin api.EventType = "begin"
 
-	// Ack triggered by component based on change request.
-	Ack api.EventType = "ack"
+	// AckState triggered by component based on change request.
+	AckState api.EventType = "ack"
 
 	// Deny triggered by component based on change request.
 	Deny api.EventType = "deny"
 
-	// Apply triggered once per transaction.
-	Apply api.EventType = "apply"
+	// ApplyState triggered once per transaction.
+	ApplyState api.EventType = "apply"
 
-	// Discard triggered once per transaction.
-	Discard api.EventType = "discard"
+	// DiscardState triggered once per transaction.
+	DiscardState api.EventType = "discard"
 
 	// Done triggered once per affected component to confirm apply.
 	Done api.EventType = "done"
