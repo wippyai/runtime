@@ -15,19 +15,9 @@
   },
   {
     "component": "server:http",
-    "type": "server:declare",
-    "comment": "Declare HTTP server",
-    "payload": {
-      "name": "default",
-      "listen": "127.0.0.1:8080"
-    }
-  },
-  {
-    "component": "server:http",
     "type": "endpoint:declare",
     "comment": "Get Endpoint",
     "payload": {
-      "server": "default",
       "path": "/time",
       "method": "GET",
       "handler": "default@http_time"

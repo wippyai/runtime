@@ -15,14 +15,14 @@ func TestEvenHandler(t *testing.T) {
 	defer eh.Unsubscribe(ctx, id)
 
 	ch := make(chan api.Event, 100)
-	err := eh.SubscribeP(ctx, id, api.Transaction, api.EventConfigurationUpdated, ch)
+	err := eh.SubscribeP(ctx, id, api.ChangeGroup, api.EventConfigurationUpdated, ch)
 	require.NoError(t, err)
 
-	eh.Send(ctx, NewEvent(api.Transaction, api.EventConfigurationUpdated, payload.NewString("new config")))
+	eh.Send(ctx, NewEvent(api.ChangeGroup, api.EventConfigurationUpdated, payload.NewString("new config")))
 
 	evt := <-ch
 	require.Equal(t, "new config", evt.Payload())
-	require.Equal(t, api.Transaction, evt.Component())
+	require.Equal(t, api.ChangeGroup, evt.Component())
 	require.Equal(t, api.EventType("EventConfigurationUpdated"), evt.Kind())
 
 	eh.Unsubscribe(ctx, id)

@@ -28,8 +28,8 @@ const (
 
 	// SubSystemAll is a wildcard for all subsystems
 	SubSystemAll Component = "*"
-	// Transaction subsystem for config
-	Transaction Component = "transaction"
+	// ChangeGroup subsystem for config
+	ChangeGroup Component = "transaction"
 	// Servers subsystem for modules (sql, wasm, etc)
 	Servers Component = "server"
 	// SubSystemRegistry is a routing subsystem
@@ -53,8 +53,9 @@ const (
 
 	EventRegisterChange EventType = "EventRegisterChange"
 	EventRegisterCommit EventType = "ConfirmCommit"
+	EventApplyError     EventType = "EventApplyError"
 
 	EventBegin    EventType = "eventBegin"
-	EventCommit   EventType = "eventCommit"
-	EventRollback EventType = "eventRollback"
+	EventApply    EventType = "eventCommit"
+	ChangeDiscard EventType = "eventRollback"
 )

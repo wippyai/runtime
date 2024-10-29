@@ -119,7 +119,6 @@ func (eb *Bus) Send(ctx context.Context, ev api.Event) {
 	if ev == nil {
 		return
 	}
-
 	eb.internalEvCh <- ev
 }
 

@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"github.com/ponyruntime/pony/component"
 	"net/http"
 
 	"github.com/ponyruntime/pony/api"
@@ -17,14 +18,14 @@ type Server struct {
 	server *http.Server
 }
 
-func NewServer(log *zap.Logger) *Server {
+func NewComponent(log *zap.Logger) *Server {
 	return &Server{
 		log:    log,
 		server: &http.Server{},
 	}
 }
 
-func (s *Server) Register(ctx context.Context, event api.Event, payload any) (any, error) {
+func (s *Server) Register(ctx context.Context, event api.Event, payload component.State) (component.State, error) {
 	return nil, nil
 }
 
@@ -44,8 +45,8 @@ func (s *Server) Stop(ctx context.Context) {
 //type Endpoint interface {
 //	Configure(cfg *api.JSONConfiguration)
 //	ServeHTTP(w http.ResponseWriter, r *http.Request)
-//	Start()
-//	Stop(ctx context.Context)
+//	start()
+//	stop(ctx context.Context)
 //}
 
 //
@@ -118,8 +119,8 @@ func (s *Server) Stop(ctx context.Context) {
 //	}
 //}
 //
-//// Start starts the HTTP server
-//func (e *Server) Start() {
+//// start starts the HTTP server
+//func (e *Server) start() {
 //	e.log.Info("http: starting the server", zap.String("address", e.server.Addr))
 //	go func() {
 //		err := e.server.ListenAndServe()
@@ -133,7 +134,7 @@ func (s *Server) Stop(ctx context.Context) {
 //	}()
 //}
 //
-//func (e *Server) Stop(ctx context.Context) {
+//func (e *Server) stop(ctx context.Context) {
 //	e.log.Info("http: stopping the server")
 //	_ = e.server.Shutdown(ctx)
 //}

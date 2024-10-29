@@ -3,6 +3,7 @@ package eventsbus
 import (
 	"context"
 	"github.com/ponyruntime/pony/api"
+	"log"
 	"time"
 )
 
@@ -38,6 +39,7 @@ func (s *Subscriber) Wait(sub api.Component, et api.EventType) api.Event {
 				return ev
 			}
 		case <-tout:
+			log.Println("timeout on", sub, et)
 			return nil
 		}
 	}

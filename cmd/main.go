@@ -50,7 +50,7 @@ func main() {
 						},
 					},
 				},
-				Usage:  "Start the Pony server",
+				Usage:  "start the Pony server",
 				Action: run,
 			},
 		},
@@ -85,12 +85,13 @@ func run(ctx *cli.Context) error {
 		queue,
 		component.Declaration{
 			ID:        http.Component,
-			Component: http.NewServer(zlog.Named("http")),
+			Component: http.NewComponent(zlog.Named("http")),
 		},
 	)
 
 	// wait for all endpoints to init
 	endpoints.Boot(context.Background())
+	defer endpoints.Close(context.Background())
 
 	// wait for all runtime to init
 
@@ -149,7 +150,7 @@ func initDevelopmentLogger() *zap.Logger {
 			hash += int(char)
 		}
 
-		// Map hash to one of 6 colors (31-36: red, green, yellow, blue, magenta, cyan)
+		// cmap hash to one of 6 colors (31-36: red, green, yellow, blue, magenta, cyan)
 		colorCode := 31 + (hash % 6)
 
 		// Wrap name in ANSI color codes
