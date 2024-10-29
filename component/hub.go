@@ -5,19 +5,18 @@ import (
 	"github.com/ponyruntime/pony/api"
 	"github.com/ponyruntime/pony/api/payload"
 	ebs "github.com/ponyruntime/pony/component/eventbus"
+	"github.com/ponyruntime/pony/config"
 	"github.com/ponyruntime/pony/exec"
 	"go.uber.org/zap"
-	"sync"
 )
 
 // Hub manages states of multiple nested components.
 type Hub struct {
-	log        *zap.Logger
-	exec       *exec.Queue
-	components map[api.Component]Component
+	log  *zap.Logger
+	exec *exec.Queue
 
-	// active config scope
-	sm *stateManager
+	components cmap
+	changes    *smap
 
 	// config pipeline
 	eid string
@@ -32,7 +31,7 @@ func NewHub(
 	eb, id := ebs.GlobalEventBus()
 
 	// Initialize maps with appropriate capacity
-	cmp := make(map[api.Component]Component)
+	cmp := make(cmap)
 	for _, sys := range components {
 		cmp[sys.ID] = sys.Component
 		log.Debug("registered component", zap.String("component", string(sys.ID)))
@@ -47,26 +46,19 @@ func NewHub(
 	}
 }
 
-func (r *Hub) Close() {
-	r.eb.Unsubscribe(context.Background(), r.eid)
+func (r *Hub) Close(ctx context.Context) {
+	r.eb.Unsubscribe(ctx, r.eid)
 	r.eb = nil
 	r.eid = ""
 
-	wg := sync.WaitGroup{}
-	for _, s := range r.components {
-		wg.Add(1)
-		go func() { defer wg.Done(); s.Stop(context.Background()) }()
-	}
-	wg.Wait()
+	r.components.Stop(ctx)
 }
 
 func (r *Hub) Boot(ctx context.Context) {
 	r.log.Debug("listening to configuration events")
 
-	// start services
-	for _, s := range r.components {
-		s.Start(ctx, r.exec)
-	}
+	// Start services
+	r.components.Start(ctx, r.exec)
 
 	evCh := make(chan api.Event, 10)
 	// can't be an error here since we're provided all the data
@@ -78,44 +70,39 @@ func (r *Hub) Boot(ctx context.Context) {
 
 	go func() {
 		for event := range evCh {
-			if event.Component() == api.Transaction {
-				r.onTransaction(ctx, event)
+			if event.Component() == config.Group {
+				r.onConfigurationChange(ctx, event)
 				continue
 			}
 
-			// looking for subsystem
-			s, ok := r.components[event.Component()]
-			if !ok {
-				// hub does not handle this component
+			if r.changes == nil {
+				r.log.Warn("unable to apply change without open changeset map")
 				continue
 			}
 
-			if r.sm == nil {
-				r.log.Warn("no open transaction, skipping event", zap.String("event", string(event.Kind())))
-				continue
-			}
-
-			// looking for state
-			state := r.sm.Get(event.Component())
-
-			newState, err := s.Register(ctx, event, state.State)
+			cset := r.changes.get(event.Component()).changes
+			updated, err := r.components.Register(ctx, event, cset)
 			if err != nil {
-				r.log.Error("failed to handle an event", zap.Error(err))
+				r.log.Error(
+					"failed to register an event",
+					zap.String("component", string(event.Component())),
+					zap.Error(err),
+				)
 				continue
 			}
 
-			// registering state change
-			if newState != nil && newState != state.State {
-				r.sm.Set(event.Component(), newState)
+			// updating the reference
+			if updated != cset {
+				r.changes.set(event.Component(), updated)
 
 				r.eb.Send(
 					ctx,
 					ebs.NewEvent(
-						api.Transaction,
-						api.EventRegisterChange,
-						payload.New(State{
-							Component: event.Component(),
-							State:     newState,
+						config.Group,
+						config.Ack,
+						payload.New(state{
+							component: event.Component(),
+							changes:   cset,
 						}),
 					),
 				)
@@ -124,54 +111,77 @@ func (r *Hub) Boot(ctx context.Context) {
 	}()
 }
 
-func (r *Hub) onTransaction(ctx context.Context, e api.Event) {
-	if e.Kind() == api.EventBegin {
-		if r.sm != nil {
-			r.log.Warn("working withing internal transaction")
+func (r *Hub) onConfigurationChange(ctx context.Context, e api.Event) {
+	switch e.Kind() {
+	case config.Begin:
+		if r.changes != nil {
+			r.log.Error("overlapping transactions detected")
+			return
 		}
 
-		if r.sm == nil {
-			r.sm = newStateManager()
+		if r.changes == nil {
+			r.changes = newStateMap()
 		}
-		return
-	}
 
-	if e.Kind() == api.EventRollback {
-		r.log.Debug("rolling back transaction")
-		r.sm = nil
-		return
-	}
+	case config.Discard:
+		if r.changes == nil {
+			r.log.Error("no transaction to discard")
+			return
+		}
 
-	if e.Kind() == api.EventCommit {
-		if r.sm == nil {
+		r.log.Debug("discard all changes")
+		for _, state := range r.changes.states() {
+			cset := state.changes
+			if cset == nil {
+				r.log.Warn("no changes to apply")
+				continue
+			}
+
+			cset.Discard(ctx)
+
+			r.eb.Send(
+				ctx,
+				ebs.NewEvent(config.Group, config.Done, payload.New(state)),
+			)
+		}
+		r.changes = nil
+
+	case config.Apply:
+		if r.changes == nil {
 			r.log.Warn("no transaction to commit")
 			return
 		}
 
-		defer func() { r.sm = nil }()
-
+		defer func() { r.changes = nil }()
 		r.log.Debug("committing transaction")
 
-		for _, state := range r.sm.states {
-			s, ok := r.components[state.Component]
-			if !ok {
+		for _, state := range r.changes.states() {
+			if _, ok := r.components[state.component]; !ok {
 				r.log.Warn("state/component mismatch", zap.Any("type", e.Kind()))
 				continue
 			}
 
-			s.Commit(ctx, state.State)
-			r.log.Debug("commited component state", zap.Any("component", state.Component))
+			r.log.Debug("apply component state", zap.Any("component", state.component))
+
+			cset := state.changes
+			if cset == nil {
+				r.log.Warn("no changes to apply")
+				continue
+			}
+
+			if err := cset.Apply(ctx); err != nil {
+				r.log.Error("failed to apply changes", zap.Error(err))
+				r.eb.Send(
+					ctx,
+					ebs.NewEvent(config.Group, config.Deny, payload.New(state)),
+				)
+				continue
+			}
 
 			r.eb.Send(
 				ctx,
-				ebs.NewEvent(
-					api.Transaction,
-					api.EventRegisterCommit,
-					payload.New(state),
-				),
+				ebs.NewEvent(config.Group, config.Done, payload.New(state)),
 			)
 		}
-
-		return
 	}
 }

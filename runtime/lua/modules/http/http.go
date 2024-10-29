@@ -253,7 +253,7 @@ func (h *Module) doRequest(l *lua.LState, method string, url string, options *lu
 			}
 		}
 
-		// Set these last. That way the code above doesn't overwrite them.
+		// set these last. That way the code above doesn't overwrite them.
 		if reqHeaders, ok := options.RawGet(lua.LString("headers")).(*lua.LTable); ok {
 			reqHeaders.ForEach(func(key lua.LValue, value lua.LValue) {
 				req.Header.Set(key.String(), value.String())

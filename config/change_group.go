@@ -12,6 +12,14 @@ type ChangeGroup struct {
 	eb      *eventsbus2.Bus
 }
 
+func NewChangeGroup(log *zap.Logger, eb *eventsbus2.Bus) *ChangeGroup {
+	return &ChangeGroup{
+		log:     log,
+		evBusID: "change_group",
+		eb:      eb,
+	}
+}
+
 //func NewReader() *ChangeGroup {
 //	return &ChangeGroup{}
 //}
@@ -66,7 +74,7 @@ type ChangeGroup struct {
 //
 //func (p *ChangeGroup) fatal(err error) {
 //	// parse each subsystem config and send events to the appropriate event bus
-//	event := eventsbus2.NewEvent(api.EventFatalError, api.SubSystemAll, []byte(err.Error()))
+//	event := eventsbus2.NewEvent(api.EventFatalError, api.SubSystemAll, []byte(err.Deny()))
 //	// fire an event
 //	p.eb.Send(context.Background(), event)
 //}
