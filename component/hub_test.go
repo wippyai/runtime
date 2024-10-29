@@ -2,6 +2,7 @@ package component
 
 import (
 	"context"
+	"fmt"
 	"github.com/ponyruntime/pony/api"
 	"github.com/ponyruntime/pony/api/payload"
 	ebs "github.com/ponyruntime/pony/component/eventbus"
@@ -26,22 +27,23 @@ func (m *mockComponent) Register(ctx context.Context, event api.Event, chs State
 	return args.Get(0).(State), args.Error(1)
 }
 
+func (m *mockComponent) Apply(ctx context.Context, state State) error {
+	m.Called(ctx, state)
+	return nil
+}
+
 func (m *mockComponent) Start(ctx context.Context, q *exec.Queue) {
 }
 
 func (m *mockComponent) Stop(ctx context.Context) {
 }
 
-type mockChangeSet struct {
+type mockState struct {
 	mock.Mock
 	Data string
 }
 
-func (m *mockChangeSet) Apply(ctx context.Context) error {
-	return nil
-}
-
-func (m *mockChangeSet) Discard(ctx context.Context) {
+func (m *mockState) Discard(ctx context.Context) {
 	m.Called(ctx)
 }
 
@@ -50,12 +52,12 @@ func TestUpdateState(t *testing.T) {
 	// Setup
 	logger := zap.NewNop()
 	queue := exec.NewQueue()
-	mockServer := &mockComponent{}
+	cmp := &mockComponent{}
 
 	subsystems := []Declaration{
 		{
 			ID:        "test",
-			Component: mockServer,
+			Component: cmp,
 		},
 	}
 
@@ -63,9 +65,9 @@ func TestUpdateState(t *testing.T) {
 	defer hub.Close(context.Background())
 
 	// Setup mock expectations
-	newState := new(mockChangeSet)
+	newState := new(mockState)
 
-	mockServer.On("Register",
+	cmp.On("Register",
 		mock.MatchedBy(func(ctx context.Context) bool {
 			return true
 		}),
@@ -82,7 +84,7 @@ func TestUpdateState(t *testing.T) {
 	defer sub.Close()
 
 	// begin operation
-	hub.eb.Send(context.Background(), ebs.NewEvent(config.Group, config.Begin, nil))
+	hub.eb.Send(context.Background(), ebs.NewEvent(config.ConfigGroup, config.Begin, nil))
 
 	// Send test event
 	hub.eb.Send(
@@ -94,9 +96,9 @@ func TestUpdateState(t *testing.T) {
 		),
 	)
 
-	sub.Wait(config.Group, config.Ack)
+	sub.Wait(config.ConfigGroup, config.AckState)
 
-	mockServer.AssertExpectations(t)
+	cmp.AssertExpectations(t)
 	assert.Equal(t, newState, hub.changes.get("test").changes)
 }
 
@@ -105,12 +107,12 @@ func TestStateRollback(t *testing.T) {
 	// Setup
 	logger := zap.NewNop()
 	queue := exec.NewQueue()
-	mockServer := &mockComponent{}
+	cmp := &mockComponent{}
 
 	subsystems := []Declaration{
 		{
 			ID:        "test",
-			Component: mockServer,
+			Component: cmp,
 		},
 	}
 
@@ -118,10 +120,10 @@ func TestStateRollback(t *testing.T) {
 	defer hub.Close(context.Background())
 
 	// Setup mock expectations
-	newState := new(mockChangeSet)
+	newState := new(mockState)
 	newState.On("Discard", mock.Anything).Return()
 
-	mockServer.On("Register",
+	cmp.On("Register",
 		mock.MatchedBy(func(ctx context.Context) bool {
 			return true
 		}),
@@ -138,7 +140,7 @@ func TestStateRollback(t *testing.T) {
 	defer sub.Close()
 
 	// begin operation
-	hub.eb.Send(context.Background(), ebs.NewEvent(config.Group, config.Begin, nil))
+	hub.eb.Send(context.Background(), ebs.NewEvent(config.ConfigGroup, config.Begin, nil))
 
 	// Send test event
 	hub.eb.Send(
@@ -150,12 +152,12 @@ func TestStateRollback(t *testing.T) {
 		),
 	)
 
-	sub.Wait(config.Group, config.Ack)
+	sub.Wait(config.ConfigGroup, config.AckState)
 
-	hub.eb.Send(context.Background(), ebs.NewEvent(config.Group, config.Discard, nil))
-	sub.Wait(config.Group, config.Done)
+	hub.eb.Send(context.Background(), ebs.NewEvent(config.ConfigGroup, config.DiscardState, nil))
+	sub.Wait(config.ConfigGroup, config.Done)
 
-	mockServer.AssertExpectations(t)
+	cmp.AssertExpectations(t)
 }
 
 // TestHubListenEvents tests the event listening functionality
@@ -163,12 +165,12 @@ func TestStatePropagateState(t *testing.T) {
 	// Setup
 	logger := zap.NewNop()
 	queue := exec.NewQueue()
-	mockServer := &mockComponent{}
+	cmp := &mockComponent{}
 
 	subsystems := []Declaration{
 		{
 			ID:        "test",
-			Component: mockServer,
+			Component: cmp,
 		},
 	}
 
@@ -176,9 +178,9 @@ func TestStatePropagateState(t *testing.T) {
 	defer hub.Close(context.Background())
 
 	// Setup mock expectations
-	newState := new(mockChangeSet)
+	newState := new(mockState)
 
-	mockServer.On("Register",
+	cmp.On("Register",
 		mock.MatchedBy(func(ctx context.Context) bool {
 			return true
 		}),
@@ -188,11 +190,10 @@ func TestStatePropagateState(t *testing.T) {
 		nil,
 	).Return(newState, nil)
 
-	finalState := new(mockChangeSet)
+	finalState := new(mockState)
 	finalState.Data = "final"
-	finalState.On("Apply", mock.Anything).Return()
 
-	mockServer.On("Register",
+	cmp.On("Register",
 		mock.MatchedBy(func(ctx context.Context) bool {
 			return true
 		}),
@@ -202,6 +203,15 @@ func TestStatePropagateState(t *testing.T) {
 		newState,
 	).Return(finalState, nil)
 
+	cmp.On("Apply",
+		//mock.MatchedBy(func(ctx context.Context) bool {
+		//	return true
+		//}),
+		//finalState,
+		mock.Anything,
+		mock.Anything,
+	).Return(fmt.Errorf("error"))
+
 	// Start listening
 	hub.Boot(context.Background())
 
@@ -209,7 +219,7 @@ func TestStatePropagateState(t *testing.T) {
 	defer sub.Close()
 
 	// begin operation
-	hub.eb.Send(context.Background(), ebs.NewEvent(config.Group, config.Begin, nil))
+	hub.eb.Send(context.Background(), ebs.NewEvent(config.ConfigGroup, config.Begin, nil))
 
 	// Send test event
 	hub.eb.Send(
@@ -221,7 +231,7 @@ func TestStatePropagateState(t *testing.T) {
 		),
 	)
 
-	sub.Wait(config.Group, config.Ack)
+	sub.Wait(config.ConfigGroup, config.AckState)
 
 	hub.eb.Send(
 		context.Background(),
@@ -232,12 +242,12 @@ func TestStatePropagateState(t *testing.T) {
 		),
 	)
 
-	sub.Wait(config.Group, config.Ack)
+	sub.Wait(config.ConfigGroup, config.AckState)
 
-	hub.eb.Send(context.Background(), ebs.NewEvent(config.Group, config.Apply, nil))
+	hub.eb.Send(context.Background(), ebs.NewEvent(config.ConfigGroup, config.ApplyState, nil))
 
-	e := sub.Wait(config.Group, config.Done)
+	e := sub.Wait(config.ConfigGroup, config.Done)
+
 	assert.Equal(t, finalState, e.Payload().Data().(state).changes)
-
-	mockServer.AssertExpectations(t)
+	cmp.AssertExpectations(t)
 }
