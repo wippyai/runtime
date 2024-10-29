@@ -9,6 +9,7 @@
         "http",
         "json"
       ],
+      "method": "main",
       "source": "file://src/demo/http_time.lua"
     }
   },
