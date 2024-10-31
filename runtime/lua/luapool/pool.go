@@ -6,7 +6,6 @@ package pool
 import (
 	"context"
 	"errors"
-	"runtime"
 	"time"
 
 	"github.com/ponyruntime/pony/api"
@@ -16,48 +15,61 @@ import (
 
 type PoolCfg struct {
 	// Number of Virtual Machines (Lua) to be created
-	NumVMs int
+	numVMs int
 	// lua script code (actual lua code, tool)
-	Script string
-	// main function name (entry point, might be any name, not only main)
-	Main string
+	script string
+	// mainFnName function name (entry point, might be any name, not only mainFnName)
+	mainFnName string
+}
+
+func NewPoolCfg(numVMs int, script, mainFnName string) *PoolCfg {
+	return &PoolCfg{
+		numVMs:     numVMs,
+		script:     script,
+		mainFnName: mainFnName,
+	}
 }
 
 type Task struct {
-	Args     any
-	ScriptID string
-	Resp     chan<- string
+	args     any
+	scriptID string
+	resp     chan<- string
+}
+
+func NewPoolTask(scriptID string, args any) *Task {
+	return &Task{
+		args:     args,
+		scriptID: scriptID,
+	}
 }
 
 type Pool struct {
-	numWorkers int
-	taskQueue  chan *Task
-	stopCh     chan struct{}
-	logger     *zap.Logger
-	timeout    time.Duration
-	modules    []api.Module
-	vms        map[string]chan *vm.Vm
+	taskQueue chan *Task
+	stopCh    chan struct{}
+	logger    *zap.Logger
+	timeout   time.Duration
+	modules   []api.Module
+	vms       map[string]chan *vm.Vm
 }
 
 // scripts - scriptID -> script
 // module - scriptID -> []Modules ?
 func NewLuaPool(log *zap.Logger, scripts map[string]*PoolCfg, options ...Options) (*Pool, error) {
-	lp := &Pool{
-		numWorkers: runtime.NumCPU(),
-	}
+	lp := &Pool{}
 
 	// apply options
 	for _, opt := range options {
 		opt(lp)
 	}
 
+	// AFTER INITIALIZATION THIS MAP IS READ-ONLY
 	vms := make(map[string]chan *vm.Vm)
 	for scriptID, cfg := range scripts {
-		log.Debug("creating vms pool", zap.String("scriptID", scriptID), zap.Int("number of VMs to create", cfg.NumVMs))
-		ch := make(chan *vm.Vm, cfg.NumVMs)
-		for i := 0; i < cfg.NumVMs; i++ {
-			log.Debug("creating vm", zap.String("scriptID", scriptID), zap.String("script", cfg.Script), zap.String("main", cfg.Main))
-			vm, err := vm.New(log, cfg.Script, cfg.Main, lp.modules...)
+		log.Debug("creating vms pool", zap.String("scriptID", scriptID), zap.Int("number of VMs to create", cfg.numVMs))
+		ch := make(chan *vm.Vm, cfg.numVMs)
+		for i := 0; i < cfg.numVMs; i++ {
+			log.Debug("creating vm", zap.String("scriptID", scriptID), zap.String("script", cfg.script), zap.String("main", cfg.mainFnName))
+			vm, err := vm.New(log, cfg.script, cfg.mainFnName, lp.modules...)
 			if err != nil {
 				return nil, err
 			}
@@ -82,7 +94,7 @@ func NewLuaPool(log *zap.Logger, scripts map[string]*PoolCfg, options ...Options
 	lp.logger = log
 	lp.vms = vms
 	lp.stopCh = make(chan struct{})
-	lp.taskQueue = make(chan *Task, lp.numWorkers)
+	lp.taskQueue = make(chan *Task, 10)
 
 	lp.poll()
 
@@ -90,8 +102,11 @@ func NewLuaPool(log *zap.Logger, scripts map[string]*PoolCfg, options ...Options
 }
 
 // Queue adds task to the queue
-func (w *Pool) Queue(task *Task) {
+func (w *Pool) Queue(task *Task) <-chan string {
+	rc := make(chan string, 1)
+	task.resp = rc
 	w.taskQueue <- task
+	return rc
 }
 
 // here is the actual work happens
@@ -101,20 +116,22 @@ func (w *Pool) do(v *vm.Vm, task *Task) error {
 		return nil
 	}
 
-	w.logger.Info("executing script on VM", zap.Any("sid", task.ScriptID), zap.Any("args", task.Args))
+	w.logger.Info("executing script on VM", zap.Any("sid", task.scriptID), zap.Any("args", task.args))
 
-	res, err := v.Execute(context.Background(), task.Args)
+	res, err := v.Execute(context.Background(), task.args)
 	if err != nil {
 		return err
 	}
 
 	select {
-	case task.Resp <- res:
+	case task.resp <- res:
 		// send response
 		w.logger.Info("work done, response was sent", zap.String("result", res))
 	default:
 		w.logger.Error("failed to send the response")
 	}
+
+	close(task.resp)
 
 	return nil
 }
@@ -131,20 +148,24 @@ func (w *Pool) poll() {
 		for {
 			select {
 			case work := <-w.taskQueue:
+				// this is actually slows down the process
 				go func() {
 					w.logger.Info("work received")
 					// get vms
 					select {
 					case <-time.After(w.timeout):
-						w.logger.Error("task timed out", zap.String("scriptID", work.ScriptID))
+						w.logger.Error("task timed out", zap.String("scriptID", work.scriptID))
 						// get the VM to execute the script
-					case vm := <-w.vms[work.ScriptID]:
+						// THIS IS A READ-ONLY MAP
+						close(work.resp)
+					case vm := <-w.vms[work.scriptID]:
 						// execute the script
 						err := w.do(vm, work)
 						if err != nil {
 							w.logger.Error("failed to execute script", zap.Error(err))
 						}
-						w.vms[work.ScriptID] <- vm
+						// we're writing to the channel, not the map
+						w.vms[work.scriptID] <- vm
 					}
 				}()
 			case <-w.stopCh:
