@@ -60,6 +60,7 @@ func New(log *zap.Logger, script, main string, modules ...api.Module) (*Vm, erro
 }
 
 func (v *Vm) Execute(ctx context.Context, args any) (string, error) {
+	v.log.Debug("executing on VM", zap.Any("args", args))
 	v.state.SetContext(ctx)
 	v.state.Push(v.fn)
 
