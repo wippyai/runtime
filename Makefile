@@ -6,3 +6,6 @@ debug:
 
 test:
 	go test ./component/ -v -race
+
+debug_vm:
+	dlv test -- test.v -test.run="^TestVM\$"
