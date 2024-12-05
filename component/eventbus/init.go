@@ -4,14 +4,14 @@ import (
 	"github.com/google/uuid"
 )
 
-var evBus *Bus
+var ebus *Bus
 
 func init() {
-	evBus = newEventsBus()
-	go evBus.handleEvents()
+	ebus = newEventsBus()
+	go ebus.handleEvents()
 }
 
 func GlobalEventBus() (*Bus, string) {
 	// return events bus with subscriberID
-	return evBus, uuid.NewString()
+	return ebus, uuid.NewString()
 }

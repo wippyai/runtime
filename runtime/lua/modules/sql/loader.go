@@ -6,12 +6,12 @@ func (m *Module) Loader(l *lua.LState) int {
 	// Create the SQL module table
 	t := l.NewTable()
 
-	// Register the Connect function
+	// generate the Connect function
 	l.SetFuncs(t, map[string]lua.LGFunction{
 		"connect": m.Connect,
 	})
 
-	// Register the DB methods as a metatable
+	// generate the DB methods as a metatable
 	dbMt := l.NewTypeMetatable("DB")
 	l.SetField(dbMt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
 		"execute":          execute,

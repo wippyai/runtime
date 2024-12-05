@@ -9,8 +9,8 @@ import (
 	"fmt"
 	"git.spiralscout.com/estimation-engine/go-lua"
 	"github.com/ponyruntime/pony/api"
-	eventsbus "github.com/ponyruntime/pony/eventbus"
-	"github.com/ponyruntime/pony/futures"
+	eventsbus2 "github.com/ponyruntime/pony/component/eventbus"
+	"github.com/ponyruntime/pony/exec"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	httpM "github.com/ponyruntime/pony/runtime/lua/modules/http"
 	jsonM "github.com/ponyruntime/pony/runtime/lua/modules/json"
@@ -19,7 +19,7 @@ import (
 )
 
 // app is an internal representation of the application
-// it should be re-created on the configuration update event
+// it should be re-created on the config update event
 type app struct {
 	id   string
 	eng  *engine.Engine
@@ -29,16 +29,16 @@ type app struct {
 
 // Runtime ... TODO: add all components field here
 type Runtime struct {
-	queue   *futures.Queue
+	queue   *exec.Queue
 	apps    map[string]*app
 	stop    chan struct{}
 	log     *zap.Logger
 	evBusID string
-	eb      *eventsbus.Bus
+	eb      *eventsbus2.Bus
 }
 
-func NewRuntime(log *zap.Logger, queue *futures.Queue) *Runtime {
-	eb, id := eventsbus.GlobalEventBus()
+func NewHub(log *zap.Logger, queue *exec.Queue) *Runtime {
+	eb, id := eventsbus2.GlobalEventBus()
 	return &Runtime{
 		queue:   queue,
 		stop:    make(chan struct{}, 1),
@@ -55,7 +55,7 @@ func (r *Runtime) ListenEvents() {
 	_ = r.eb.SubscribeP(
 		context.Background(),
 		r.evBusID,
-		api.SubSystemRuntime,
+		api.Servers,
 		api.EventsAll,
 		evCh,
 	)
@@ -65,22 +65,22 @@ func (r *Runtime) ListenEvents() {
 	// listen for events
 	go func() {
 		for event := range evCh {
-			switch event.SubSystem() {
+			switch event.Component() {
 			// broadcast events
 			case api.SubSystemAll:
-				switch event.Type() {
-				// handle configuration event
-				// On configuration update, we should do the following:
-				// 1. Check the apps configuration, lock the runtime (not done)
-				// 2. Update the apps configuration (not done)
+				switch event.Kind() {
+				// handle config event
+				// On config update, we should do the following:
+				// 1. Check the apps config, lock the runtime (not done)
+				// 2. Update the apps config (not done)
 				// 3. Enable new apps and open for the new events (not done)
 				case api.EventConfigurationUpdated:
-					// handle configuration update
-					r.log.Debug("received a configuration update event", zap.Any("content", event.Content()))
-					// TODO: enable subsystems according to the configuration, e.g.:
+					// handle config update
+					r.log.Debug("received a config update event", zap.Any("content", event.Payload()))
+					// TODO: enable subsystems according to the config, e.g.:
 					// TODO: unsafe
 					// TODO: change to type selection
-					cfg := event.Content().(*api.JSONConfiguration)
+					cfg := event.Payload().(*api.JSONConfiguration)
 					for id, acfg := range cfg.Apps {
 						le := engine.NewLuaEngine(context.Background(), r.log.Named(id))
 
@@ -104,7 +104,7 @@ func (r *Runtime) ListenEvents() {
 								continue
 							}
 
-							// create an src which would be used to handle requests from the endpoints
+							// create an src which would be used to handle requests from the server
 							// here should be lua pool
 							lease := &app{
 								id:   acfg.ID,
@@ -119,14 +119,14 @@ func (r *Runtime) ListenEvents() {
 					}
 				}
 			// listen only for the runtime events
-			case api.SubSystemRuntime:
+			case api.Servers:
 				// handle events
-				switch event.Type() {
+				switch event.Kind() {
 				case api.EventFatalError:
-					r.log.Error("received a fatal error event", zap.Any("message", event.Content()))
+					r.log.Error("received a fatal error event", zap.Any("message", event.Payload()))
 					return
 				default:
-					r.log.Info("received an unknown event", zap.Any("type", event.Type()))
+					r.log.Info("received an unknown event", zap.Any("type", event.Kind()))
 				}
 			}
 		}

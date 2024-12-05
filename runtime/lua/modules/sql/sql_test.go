@@ -213,7 +213,7 @@ func TestLuaSQLErrorHandling(t *testing.T) {
 
 // Test committing a transaction in Lua
 func TestLuaTransactionCommit(t *testing.T) {
-	// Set up the database
+	// set up the database
 	db, err := sql.Open("sqlite3", "test.db")
 	require.NoError(t, err)
 	defer func() {
