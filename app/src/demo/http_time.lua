@@ -28,5 +28,3 @@ local function main()
 
     return { current_time = current_time }
 end
-
-return main -- todo: must work if main not returned

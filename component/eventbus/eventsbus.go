@@ -44,20 +44,20 @@ func (eb *Bus) SubscribeAll(ctx context.Context, subID string, ch chan<- api.Eve
 		return errors.New("subscriberID can't be empty")
 	}
 
-	eb.subscribe(ctx, subID, "*", ch)
+	eb.subscribe(ctx, subID, "*.*", ch)
 
 	return nil
 }
 
-// SubscribeP pattern like "subsystem.EventType"
+// SubscribeP pattern like "cmp.EventType"
 // subID is a subscriber ID
-// subSystem is a subsystem to subscribe to
+// cmp is a cmp to subscribe to
 // etype is an event type to subscribe to
 // ch is a channel to receive events
 func (eb *Bus) SubscribeP(
 	ctx context.Context,
 	subID string,
-	subSystem api.SubSystem,
+	component api.Component,
 	etype api.EventType, // todo: maybe ignore that as subscribe to system only
 	ch chan<- api.Event,
 ) error {
@@ -65,7 +65,7 @@ func (eb *Bus) SubscribeP(
 		return errors.New("nil channel provided")
 	}
 
-	pattern := fmt.Sprintf("%s.%s", subSystem, etype)
+	pattern := fmt.Sprintf("%s.%s", component, etype)
 
 	subIDTr := strings.Trim(subID, " ")
 	patternTr := strings.Trim(pattern, " ")
@@ -87,9 +87,9 @@ func (eb *Bus) Unsubscribe(_ context.Context, subID string) {
 
 // UnsubscribeP unsubscribes from a specific event
 func (eb *Bus) UnsubscribeP(
-	_ context.Context,
+	ctx context.Context,
 	subID string,
-	subSystem api.SubSystem,
+	subSystem api.Component,
 	etype api.EventType,
 ) {
 	eb.mu.Lock()
@@ -119,7 +119,6 @@ func (eb *Bus) Send(ctx context.Context, ev api.Event) {
 	if ev == nil {
 		return
 	}
-
 	eb.internalEvCh <- ev
 }
 
@@ -136,7 +135,7 @@ func (eb *Bus) subscribe(_ context.Context, subID string, pattern string, ch cha
 	w := newWildcard(pattern)
 
 	if subArr, ok := eb.subscribers[subID]; ok {
-		// at this point we are confident that sb is a '[]*sub' type
+		// at this point we are confident that sb is a '[]*cmp' type
 		subArr = append(subArr, &sub{
 			pattern: pattern,
 			w:       w,
@@ -158,9 +157,9 @@ func (eb *Bus) subscribe(_ context.Context, subID string, pattern string, ch cha
 
 func (eb *Bus) handleEvents() {
 	for ev := range eb.internalEvCh {
-		// subsystem.ConfigurationUpdate for example
+		// cmp.ConfigurationUpdate for example
 		eb.mu.RLock()
-		wc := fmt.Sprintf("%s.%s", ev.SubSystem(), ev.Type())
+		wc := fmt.Sprintf("%s.%s", ev.Component(), ev.Kind())
 
 		for _, vsub := range eb.subscribers {
 			for i := 0; i < len(vsub); i++ {

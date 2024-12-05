@@ -9,7 +9,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// Engine encapsulates the Lua state and configuration
+// Engine encapsulates the Lua state and config
 type Engine struct {
 	L        *lua.LState
 	printBuf *strings.Builder
