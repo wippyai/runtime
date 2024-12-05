@@ -1,0 +1,23 @@
+name: Linters
+
+on: [push, pull_request]
+
+jobs:
+  linters:
+    name: Golang-CI (lint)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5 # action page: <https://github.com/actions/setup-go>
+        with:
+          go-version: stable
+
+      - name: Run linter
+        uses: golangci/golangci-lint-action@v6.1.1 # Action page: <https://github.com/golangci/golangci-lint-action>
+        with:
+          version: v1.61 # without patch version
+          only-new-issues: false # show only new issues if it's a pull request
+          args: --timeout=10m --build-tags=race ./...
