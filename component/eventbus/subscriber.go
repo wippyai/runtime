@@ -2,9 +2,10 @@ package eventsbus
 
 import (
 	"context"
-	"github.com/ponyruntime/pony/api"
 	"log"
 	"time"
+
+	"github.com/ponyruntime/pony/api"
 )
 
 type Subscriber struct {

@@ -5,7 +5,7 @@ import (
 
 	"go.uber.org/zap"
 
-	"git.spiralscout.com/estimation-engine/go-lua"
+	"github.com/ponyruntime/go-lua"
 	// SQLite3 driver
 	_ "github.com/mattn/go-sqlite3"
 )

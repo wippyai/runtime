@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	nodeReq "git.spiralscout.com/estimation-engine/api/gen/go/core/request/node/v1"
-	nodeV1 "git.spiralscout.com/estimation-engine/api/gen/go/core/response/node/v1"
-	"git.spiralscout.com/estimation-engine/go-lua"
+	nodeReq "github.com/ponyruntime/api/gen/go/core/request/node/v1"
+	nodeV1 "github.com/ponyruntime/api/gen/go/core/response/node/v1"
+	"github.com/ponyruntime/go-lua"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/metadata"

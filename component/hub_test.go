@@ -3,6 +3,8 @@ package component
 import (
 	"context"
 	"fmt"
+	"testing"
+
 	"github.com/ponyruntime/pony/api"
 	"github.com/ponyruntime/pony/api/payload"
 	ebs "github.com/ponyruntime/pony/component/eventbus"
@@ -11,7 +13,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"go.uber.org/zap"
-	"testing"
 )
 
 // mockComponent is a mock implementation of component.Component

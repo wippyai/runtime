@@ -7,7 +7,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"git.spiralscout.com/estimation-engine/go-lua"
+	"net/http"
+
+	"github.com/ponyruntime/go-lua"
 	"github.com/ponyruntime/pony/api"
 	eventsbus2 "github.com/ponyruntime/pony/component/eventbus"
 	"github.com/ponyruntime/pony/exec"
@@ -15,7 +17,6 @@ import (
 	httpM "github.com/ponyruntime/pony/runtime/lua/modules/http"
 	jsonM "github.com/ponyruntime/pony/runtime/lua/modules/json"
 	"go.uber.org/zap"
-	"net/http"
 )
 
 // app is an internal representation of the application

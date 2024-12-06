@@ -3,7 +3,7 @@ package base64
 import (
 	"encoding/base64"
 
-	lua "git.spiralscout.com/estimation-engine/go-lua"
+	lua "github.com/ponyruntime/go-lua"
 )
 
 type Module struct{}

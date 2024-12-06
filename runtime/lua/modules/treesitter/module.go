@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"unsafe"
 
-	"git.spiralscout.com/estimation-engine/go-lua"
+	"github.com/ponyruntime/go-lua"
 	treesitter "github.com/tree-sitter/go-tree-sitter"
 	treesittercsharp "github.com/tree-sitter/tree-sitter-c-sharp/bindings/go"
 	treesittergo "github.com/tree-sitter/tree-sitter-go/bindings/go"

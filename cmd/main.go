@@ -3,17 +3,18 @@ package main
 import (
 	"context"
 	"fmt"
-	pctx "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/component"
-	"github.com/ponyruntime/pony/config/json"
-	"github.com/ponyruntime/pony/server/http"
-	"go.uber.org/zap/zapcore"
 	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"syscall"
 	"time"
+
+	pctx "github.com/ponyruntime/pony/api/context"
+	"github.com/ponyruntime/pony/component"
+	"github.com/ponyruntime/pony/config/json"
+	"github.com/ponyruntime/pony/server/http"
+	"go.uber.org/zap/zapcore"
 
 	"github.com/ponyruntime/pony/exec"
 	"github.com/urfave/cli/v2"
