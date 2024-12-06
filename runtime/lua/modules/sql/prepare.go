@@ -5,8 +5,8 @@ import (
 	"database/sql"
 	"time"
 
-	"git.spiralscout.com/estimation-engine/go-lua"
 	"github.com/google/uuid"
+	"github.com/ponyruntime/go-lua"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"go.uber.org/zap"
 )

@@ -80,7 +80,7 @@ func TestPool(t *testing.T) {
 	`
 
 	scriptId := "foo"
-	scripts := make(map[string]*PoolCfg)
+	scripts := make(map[string]*Config)
 	scripts[scriptId] = NewPoolCfg(2, script, "hello")
 	p, err := NewLuaPool(l, scripts, WithModules(base64M.New()), WithPollTimeout(time.Second*2))
 	require.NoError(t, err)
@@ -106,7 +106,7 @@ func TestPoolConcurrent(t *testing.T) {
 	`
 
 	scriptId := "foo"
-	scripts := make(map[string]*PoolCfg)
+	scripts := make(map[string]*Config)
 
 	scripts[scriptId] = NewPoolCfg(10, script, "hello")
 	p, err := NewLuaPool(l, scripts, WithModules(base64M.New()), WithPollTimeout(time.Second*10))
@@ -146,7 +146,7 @@ func BenchmarkPool(b *testing.B) {
 	`
 
 	scriptId := "foo"
-	scripts := make(map[string]*PoolCfg)
+	scripts := make(map[string]*Config)
 	scripts[scriptId] = NewPoolCfg(10, script, "hello")
 	p, err := NewLuaPool(l, scripts, WithModules(base64M.New()), WithPollTimeout(time.Second*2))
 	require.NoError(b, err)

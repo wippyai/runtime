@@ -2,6 +2,7 @@ package component
 
 import (
 	"context"
+
 	"github.com/ponyruntime/pony/api"
 	"github.com/ponyruntime/pony/api/payload"
 	ebs "github.com/ponyruntime/pony/component/eventbus"

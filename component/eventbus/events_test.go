@@ -2,8 +2,9 @@ package eventsbus
 
 import (
 	"context"
-	"github.com/ponyruntime/pony/api/payload"
 	"testing"
+
+	"github.com/ponyruntime/pony/api/payload"
 
 	"github.com/ponyruntime/pony/api"
 	"github.com/stretchr/testify/require"

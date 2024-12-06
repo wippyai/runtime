@@ -3,9 +3,9 @@ package env
 import (
 	"context"
 
-	vaultReqV1 "git.spiralscout.com/estimation-engine/api/gen/go/vault/values/request/v1"
-	vaultServiceV1 "git.spiralscout.com/estimation-engine/api/gen/go/vault/values/service/v1"
-	"git.spiralscout.com/estimation-engine/go-lua"
+	vaultReqV1 "github.com/ponyruntime/api/gen/go/vault/values/request/v1"
+	vaultServiceV1 "github.com/ponyruntime/api/gen/go/vault/values/service/v1"
+	"github.com/ponyruntime/go-lua"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"

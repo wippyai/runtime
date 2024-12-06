@@ -13,7 +13,7 @@ import (
 	"go.uber.org/zap"
 )
 
-type PoolCfg struct {
+type Config struct {
 	// Number of Virtual Machines (Lua) to be created
 	numVMs int
 	// lua script code (actual lua code, tool)
@@ -22,8 +22,8 @@ type PoolCfg struct {
 	mainFnName string
 }
 
-func NewPoolCfg(numVMs int, script, mainFnName string) *PoolCfg {
-	return &PoolCfg{
+func NewPoolCfg(numVMs int, script, mainFnName string) *Config {
+	return &Config{
 		numVMs:     numVMs,
 		script:     script,
 		mainFnName: mainFnName,
@@ -49,12 +49,12 @@ type Pool struct {
 	logger    *zap.Logger
 	timeout   time.Duration
 	modules   []api.Module
-	vms       map[string]chan *vm.Vm
+	vms       map[string]chan *vm.VM
 }
 
 // scripts - scriptID -> script
 // module - scriptID -> []Modules ?
-func NewLuaPool(log *zap.Logger, scripts map[string]*PoolCfg, options ...Options) (*Pool, error) {
+func NewLuaPool(log *zap.Logger, scripts map[string]*Config, options ...Options) (*Pool, error) {
 	lp := &Pool{}
 
 	// apply options
@@ -63,10 +63,10 @@ func NewLuaPool(log *zap.Logger, scripts map[string]*PoolCfg, options ...Options
 	}
 
 	// AFTER INITIALIZATION THIS MAP IS READ-ONLY
-	vms := make(map[string]chan *vm.Vm)
+	vms := make(map[string]chan *vm.VM)
 	for scriptID, cfg := range scripts {
 		log.Debug("creating vms pool", zap.String("scriptID", scriptID), zap.Int("number of VMs to create", cfg.numVMs))
-		ch := make(chan *vm.Vm, cfg.numVMs)
+		ch := make(chan *vm.VM, cfg.numVMs)
 		for i := 0; i < cfg.numVMs; i++ {
 			log.Debug("creating vm", zap.String("scriptID", scriptID), zap.String("script", cfg.script), zap.String("main", cfg.mainFnName))
 			vm, err := vm.New(log, cfg.script, cfg.mainFnName, lp.modules...)
@@ -110,7 +110,7 @@ func (w *Pool) Queue(task *Task) <-chan string {
 }
 
 // here is the actual work happens
-func (w *Pool) do(v *vm.Vm, task *Task) error {
+func (w *Pool) do(v *vm.VM, task *Task) error {
 	if task == nil {
 		w.logger.Error("task is nil")
 		return nil

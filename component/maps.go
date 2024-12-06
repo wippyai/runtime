@@ -2,9 +2,10 @@ package component
 
 import (
 	"context"
+	"sync"
+
 	"github.com/ponyruntime/pony/api"
 	"github.com/ponyruntime/pony/exec"
-	"sync"
 )
 
 type cmap map[api.Component]Component

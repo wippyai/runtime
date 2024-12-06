@@ -1,7 +1,7 @@
 package engine
 
 import (
-	"git.spiralscout.com/estimation-engine/go-lua"
+	"github.com/ponyruntime/go-lua"
 	"go.uber.org/zap"
 )
 
