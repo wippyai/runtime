@@ -80,7 +80,7 @@ func (r *Runtime) ListenEvents() {
 					// TODO: enable subsystems according to the config, e.g.:
 					// TODO: unsafe
 					// TODO: change to type selection
-					cfg := event.Payload().(*api.JSONConfiguration)
+					cfg := event.Payload().Data().(*api.JSONConfiguration)
 					for id, acfg := range cfg.Apps {
 						le := engine.NewLuaEngine(context.Background(), r.log.Named(id))
 
