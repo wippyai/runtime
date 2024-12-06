@@ -1,7 +1,7 @@
 package sql
 
 import (
-	"git.spiralscout.com/estimation-engine/go-lua"
+	"github.com/ponyruntime/go-lua"
 
 	// PQ Driver
 	_ "github.com/lib/pq"

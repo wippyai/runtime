@@ -2,9 +2,10 @@ package json
 
 import (
 	"encoding/json"
+	"os"
+
 	"github.com/ponyruntime/pony/api"
 	"github.com/ponyruntime/pony/api/payload"
-	"os"
 )
 
 type Event struct {

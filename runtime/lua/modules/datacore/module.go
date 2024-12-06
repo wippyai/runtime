@@ -3,8 +3,8 @@ package datacore
 import (
 	"fmt"
 
-	datacoreV1 "git.spiralscout.com/estimation-engine/api/gen/go/core/service/read/v1"
-	"git.spiralscout.com/estimation-engine/go-lua"
+	datacoreV1 "github.com/ponyruntime/api/gen/go/core/service/read/v1"
+	"github.com/ponyruntime/go-lua"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 )

@@ -1,6 +1,6 @@
 package sql
 
-import "git.spiralscout.com/estimation-engine/go-lua"
+import "github.com/ponyruntime/go-lua"
 
 func (m *Module) Loader(l *lua.LState) int {
 	// Create the SQL module table

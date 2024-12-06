@@ -5,18 +5,20 @@ import (
 	"fmt"
 	"strings"
 
-	"git.spiralscout.com/estimation-engine/go-lua"
+	"github.com/ponyruntime/go-lua"
 	"go.uber.org/zap"
 )
 
 // Engine encapsulates the Lua state and config
 type Engine struct {
+	log      *zap.Logger
 	L        *lua.LState
 	printBuf *strings.Builder
 }
 
 // NewLuaEngine creates and initializes a new LuaEngine
 func NewLuaEngine(ctx context.Context, log *zap.Logger) *Engine {
+	log.Debug("initializing engine")
 	L := lua.NewState()
 	L.SetContext(ctx)
 
@@ -36,6 +38,7 @@ func NewLuaEngine(ctx context.Context, log *zap.Logger) *Engine {
 	}))
 
 	return &Engine{
+		log:      log,
 		printBuf: sb,
 		L:        L,
 	}

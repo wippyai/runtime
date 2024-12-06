@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"git.spiralscout.com/estimation-engine/go-lua"
+	"github.com/ponyruntime/go-lua"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
