@@ -1,7 +1,7 @@
 package env
 
 import (
-	"git.spiralscout.com/estimation-engine/go-lua"
+	"github.com/ponyruntime/go-lua"
 )
 
 // Loader is the module loader function.

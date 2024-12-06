@@ -3,7 +3,7 @@ package http
 import (
 	"net/http"
 
-	"git.spiralscout.com/estimation-engine/go-lua"
+	"github.com/ponyruntime/go-lua"
 )
 
 const luaHTTPResponseTypeName = "http.response"

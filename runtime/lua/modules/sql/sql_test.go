@@ -7,7 +7,7 @@ import (
 	"os"
 	"testing"
 
-	"git.spiralscout.com/estimation-engine/go-lua"
+	"github.com/ponyruntime/go-lua"
 	lengine "github.com/ponyruntime/pony/runtime/lua/engine"
 	"go.uber.org/zap"
 

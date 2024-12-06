@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	branchReq "git.spiralscout.com/estimation-engine/api/gen/go/core/request/branch/v1"
-	"git.spiralscout.com/estimation-engine/go-lua"
+	branchReq "github.com/ponyruntime/api/gen/go/core/request/branch/v1"
+	"github.com/ponyruntime/go-lua"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/metadata"

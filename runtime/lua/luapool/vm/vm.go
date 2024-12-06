@@ -4,21 +4,21 @@ import (
 	"context"
 	"strings"
 
-	"git.spiralscout.com/estimation-engine/go-lua"
-	"git.spiralscout.com/estimation-engine/go-lua/parse"
+	"github.com/ponyruntime/go-lua"
+	"github.com/ponyruntime/go-lua/parse"
 	"github.com/ponyruntime/pony/api"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"go.uber.org/zap"
 )
 
-type Vm struct {
+type VM struct {
 	log   *zap.Logger
 	state *lua.LState
 	fn    lua.LValue
 }
 
 // TODO options with modules
-func New(log *zap.Logger, script, main string, modules ...api.Module) (*Vm, error) {
+func New(log *zap.Logger, script, main string, modules ...api.Module) (*VM, error) {
 	state := lua.NewState(lua.Options{})
 
 	for _, module := range modules {
@@ -39,7 +39,7 @@ func New(log *zap.Logger, script, main string, modules ...api.Module) (*Vm, erro
 	}
 	// ----------------------------- END parse and compile
 
-	// intialize the function
+	// initialize the function
 	fn := state.NewFunctionFromProto(fnProto)
 	state.Push(fn)
 
@@ -52,14 +52,14 @@ func New(log *zap.Logger, script, main string, modules ...api.Module) (*Vm, erro
 	// precompile modules
 	// save moduleName -> functions names
 
-	return &Vm{
+	return &VM{
 		log:   log,
 		state: state,
 		fn:    state.GetGlobal(main),
 	}, nil
 }
 
-func (v *Vm) Execute(ctx context.Context, args any) (string, error) {
+func (v *VM) Execute(ctx context.Context, args any) (string, error) {
 	v.log.Debug("executing on VM", zap.Any("args", args))
 	v.state.SetContext(ctx)
 	v.state.Push(v.fn)
