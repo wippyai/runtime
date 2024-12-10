@@ -1,8 +1,6 @@
 package ctx
 
 import (
-	"context"
-
 	"github.com/ponyruntime/go-lua"
 	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
@@ -11,15 +9,13 @@ import (
 
 // Module (ctx) accepts 1 argument, a string, and returns a context value found by that key.
 type Module[T any] struct {
-	parentCtx context.Context
-	log       *zap.Logger
+	log *zap.Logger
 }
 
-func New[T any](inCtx context.Context, log *zap.Logger) *Module[T] {
+func New[T any](log *zap.Logger) *Module[T] {
 	return &Module[T]{
 		// TODO: context might have a cancel function, do we need to handle context cancellation and propagate it to the lua?
-		parentCtx: inCtx,
-		log:       log,
+		log: log,
 	}
 }
 
