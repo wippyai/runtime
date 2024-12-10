@@ -11,7 +11,6 @@ func (m *Module[T]) Loader(l *lua.LState) int {
 	}
 
 	l.SetFuncs(t, lapi)
-	l.SetContext(m.parentCtx)
 	l.Push(t)
 	return 1
 }

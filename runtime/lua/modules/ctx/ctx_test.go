@@ -22,7 +22,7 @@ func TestContextGetValue(t *testing.T) {
 	engine := lengine.NewLuaEngine(ctx, log.Named("tests"))
 
 	// Preload ctx module
-	engine.L.PreloadModule("ctx", New[any](ctx, log.Named("ctx")).Loader)
+	engine.L.PreloadModule("ctx", New[any](log.Named("ctx")).Loader)
 
 	// Lua code to get value from context
 	luaCode := `
