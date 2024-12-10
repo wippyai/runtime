@@ -12,4 +12,24 @@ func (ck *Key) String() string {
 var (
 	LoggerKey      = &Key{name: "logger"}      //nolint:gochecknoglobals
 	CfgFilenameKey = &Key{name: "cfgfilename"} //nolint:gochecknoglobals
+	ContexterKey   = &Key{name: "contexter"}   //nolint:gochecknoglobals
 )
+
+type Contexter[T any] struct {
+	shared map[string]T
+}
+
+func NewContexter[T any]() *Contexter[T] {
+	return &Contexter[T]{
+		shared: make(map[string]T),
+	}
+}
+
+func (c *Contexter[T]) WithValue(key string, value T) {
+	c.shared[key] = value
+}
+
+func (c *Contexter[T]) Value(key string) (T, bool) {
+	v, ok := c.shared[key]
+	return v, ok
+}
