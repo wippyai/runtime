@@ -22,24 +22,6 @@ func (t *Task) Respond(tr *TaskResult) {
 	t.response <- tr
 }
 
-func (t *Task) StreamingResponse() *Streamer {
-	return &Streamer{ch: t.response}
-}
-
-type Streamer struct {
-	ch chan *TaskResult
-}
-
-func (s *Streamer) ReadChunk() *TaskResult {
-	select {
-	case data := <-s.ch:
-		return data
-	default:
-		// no data
-		return nil
-	}
-}
-
 type TaskResult struct {
 	Payload []byte `json:"payload"` // todo: payload type and possibly any for internal types
 	Error   error  `json:"error"`
