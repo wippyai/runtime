@@ -1,44 +1,55 @@
 package payload
 
-import "encoding/json"
+const (
+	Json   Format = "application/json"
+	Golang Format = "runtime/go"
+	Lua    Format = "runtime/lua"
+	String Format = "text/plain"
+	Bytes  Format = "application/octet-stream"
+)
 
-type Payload interface {
-	Type() string
-	Data() any
-}
+type (
+	Format string
+
+	Payload interface {
+		Format() Format
+		Data() any
+	}
+
+	Transcoder interface {
+		Transcode(Payload, Format) (Payload, error)
+	}
+
+	Marshaller interface {
+		Marshal(v interface{}) (Payload, error)
+	}
+
+	Unmarshaler interface {
+		Unmarshal(Payload, v interface{}) error
+	}
+)
 
 type payload struct {
-	data  any
-	dType string
+	data   any
+	format Format
 }
 
 func (p *payload) Data() any {
 	return p.data
 }
 
-func (p *payload) Type() string {
-	return p.dType
+func (p *payload) Format() Format {
+	return p.format
 }
 
-func NewTypedPayload(data any, dataType string) Payload {
-	return &payload{
-		data:  data,
-		dType: dataType,
-	}
-}
-
-func NewJSON(data json.RawMessage) Payload {
-	return NewTypedPayload(data, "application/json")
+func NewPayload(data any, format Format) Payload {
+	return &payload{data: data, format: format}
 }
 
 func New(data any) Payload {
-	return NewTypedPayload(data, "golang/any")
+	return NewPayload(data, Golang)
 }
 
 func NewString(data string) Payload {
-	return NewTypedPayload(data, "text/plain")
-}
-
-func NewBytes(data []byte) Payload {
-	return NewTypedPayload(data, "application/octet-stream")
+	return NewPayload(data, String)
 }

@@ -66,13 +66,13 @@ func (s *Server) Stop(ctx context.Context) {
 //	e.log.Info("web_server: configuring the endpoint")
 //
 //	for name, v := range chart.Servers {
-//		e.log.Info("web_server: configuring web_server", zap.String("name", name), zap.String("type", v.Type), zap.String("address", v.Address))
-//		switch v.Type {
+//		e.log.Info("web_server: configuring web_server", zap.String("name", name), zap.String("type", v.Format), zap.String("address", v.Address))
+//		switch v.Format {
 //		// we're particularly interested in the HTTP endpoint
 //		case "web_server":
 //			e.web_server.Addr = v.Address
 //		default:
-//			e.log.Warn("web_server: skipping other endpoint types", zap.String("type", v.Type))
+//			e.log.Warn("web_server: skipping other endpoint types", zap.String("type", v.Format))
 //		}
 //	}
 //
@@ -108,7 +108,7 @@ func (s *Server) Stop(ctx context.Context) {
 //	task := &api.Task{
 //		App: "my-app-1",
 //		// args, todo: redo
-//		Payload: data,
+//		State: data,
 //		Query:   q.Encode(), // todo: remove from here
 //	}
 //
@@ -126,7 +126,7 @@ func (s *Server) Stop(ctx context.Context) {
 //		}
 //
 //		w.WriteHeader(web_server.StatusOK)
-//		_, _ = w.Write(res.Payload)
+//		_, _ = w.Write(res.State)
 //	}
 //}
 //

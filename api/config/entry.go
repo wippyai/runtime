@@ -6,6 +6,8 @@ import (
 )
 
 const (
+	Configuration events.System = "config"
+
 	Create events.Kind = "entry.create"
 	Update events.Kind = "entry.update"
 	Delete events.Kind = "entry.delete"
@@ -16,10 +18,15 @@ const (
 type (
 	StateID string
 
+	ID       string
+	Type     string
+	Metadata map[string]any
+
 	Entry struct {
-		Component string
-		Metadata  map[string]string
-		Payload   payload.Payload
+		ID    ID
+		Type  Type
+		Meta  Metadata
+		State payload.Payload
 	}
 
 	Action struct {
@@ -32,3 +39,5 @@ type (
 		Rollback(StateID) error
 	}
 )
+
+// todo: pass transcoder
