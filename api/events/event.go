@@ -25,6 +25,10 @@ type (
 		Unsubscribe(context.Context, SubscriberID)
 		Send(context.Context, Event)
 	}
+
+	Consumer interface {
+		Register(context.Context, Event) error
+	}
 )
 
 func NewPath(path ...string) Path {

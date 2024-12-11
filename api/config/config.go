@@ -6,9 +6,9 @@ import (
 )
 
 const (
-	EntryCreate events.Kind = "entry.create"
-	EntryUpdate events.Kind = "entry.update"
-	EntryDelete events.Kind = "entry.delete"
+	Create events.Kind = "entry.create"
+	Update events.Kind = "entry.update"
+	Delete events.Kind = "entry.delete"
 )
 
 type (
@@ -21,8 +21,8 @@ type (
 	}
 
 	Action struct {
-		Kind events.Kind
-		Entry
+		Kind  events.Kind
+		Entry Entry
 	}
 
 	Configurator interface {
@@ -30,24 +30,3 @@ type (
 		Rollback(StateID) error
 	}
 )
-
-func CreateEntry(e Entry) Action {
-	return Action{
-		Kind:  EntryCreate,
-		Entry: e,
-	}
-}
-
-func UpdateEntry(e Entry) Action {
-	return Action{
-		Kind:  EntryUpdate,
-		Entry: e,
-	}
-}
-
-func DeleteEntry(e Entry) Action {
-	return Action{
-		Kind:  EntryDelete,
-		Entry: e,
-	}
-}
