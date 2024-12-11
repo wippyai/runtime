@@ -2,8 +2,9 @@ package payload
 
 const (
 	Json   Format = "application/json"
-	Golang Format = "runtime/go"
-	Lua    Format = "runtime/lua"
+	Yaml   Format = "application/x-yaml"
+	Golang Format = "golang/any"
+	Lua    Format = "lua/any"
 	String Format = "text/plain"
 	Bytes  Format = "application/octet-stream"
 )

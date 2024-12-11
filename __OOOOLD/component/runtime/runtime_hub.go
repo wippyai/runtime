@@ -88,7 +88,7 @@ func (r *Runtime) ListenEvents() {
 
 						// preload modules
 						for _, ext := range acfg.Extensions {
-							r.log.Debug("preloading transcoders", zap.Any("extension", ext))
+							r.log.Debug("preloading json", zap.Any("extension", ext))
 							// todo: muse be isolated and dynamic
 							switch ext {
 							case "web_server":

@@ -8,7 +8,7 @@ import (
 	"github.com/ponyruntime/pony/internal/graph"
 )
 
-// Transcoder is the global instance of the transcoders service.
+// Transcoder is the global instance of the json service.
 type Transcoder struct {
 	graph           *graph.Graph
 	transcoders     map[graph.Node]map[graph.Node]payload.FormatTranscoder // from -> to -> via transcoder
@@ -38,7 +38,7 @@ func NewTranscoder() *Transcoder {
 	}
 }
 
-// RegisterTranscoder registers a transcoders for a specific format conversion.
+// RegisterTranscoder registers a json for a specific format conversion.
 func (t *Transcoder) RegisterTranscoder(from, to payload.Format, weight int, tt payload.FormatTranscoder) {
 	t.mutex.Lock()
 	defer t.mutex.Unlock()
@@ -97,7 +97,7 @@ func (t *Transcoder) Transcode(p payload.Payload, to payload.Format) (payload.Pa
 
 		tt, ok := t.transcoders[currentFrom][currentTo]
 		if !ok || tt == nil {
-			return nil, fmt.Errorf("no transcoders registered for %s to %s", currentFrom, currentTo)
+			return nil, fmt.Errorf("no json registered for %s to %s", currentFrom, currentTo)
 		}
 
 		currentPayload, err = tt.Transcode(currentPayload)

@@ -49,7 +49,7 @@ func TestTranscoder_RegisterTranscoderAndTranscode(t *testing.T) {
 	formatB := payload.Format("format/B")
 	formatC := payload.Format("format/C")
 
-	// Create mock transcoders
+	// Create mock json
 	transcoderAB := &MockFormatTranscoder{
 		From: formatA,
 		To:   formatB,
@@ -66,7 +66,7 @@ func TestTranscoder_RegisterTranscoderAndTranscode(t *testing.T) {
 		},
 	}
 
-	// Register the transcoders using the provided methods
+	// Register the json using the provided methods
 	transcoder.RegisterTranscoder(formatA, formatB, 1, transcoderAB)
 	transcoder.RegisterTranscoder(formatB, formatC, 1, transcoderBC)
 
@@ -110,7 +110,7 @@ func TestTranscoder_RegisterUnmarshalerAndUnmarshal(t *testing.T) {
 		},
 	}
 
-	// Create mock transcoders
+	// Create mock json
 	transcoderAB := &MockFormatTranscoder{
 		From: formatA,
 		To:   formatB,
@@ -148,7 +148,7 @@ func TestTranscoder_NoTranscodingPath(t *testing.T) {
 	formatA := payload.Format("format/A")
 	formatB := payload.Format("format/B")
 
-	// DO NOT register any transcoders. This ensures there's no path.
+	// DO NOT register any json. This ensures there's no path.
 
 	// Create a payload
 	p := payload.NewPayload("test", formatA)

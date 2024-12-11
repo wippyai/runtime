@@ -378,11 +378,16 @@ func TestStopWithActiveSubscribers(t *testing.T) {
 
 	ch1 := make(chan events.Event)
 	ch2 := make(chan events.Event)
-	_, _ = b.Subscribe(context.Background(), "test-system", ch1)
-	_, _ = b.Subscribe(context.Background(), "other-system", ch2)
+	_, err := b.Subscribe(context.Background(), "test-system", ch1)
+	if err != nil {
+		t.Error("Subscribe failed: ", err)
+	}
+	_, err = b.Subscribe(context.Background(), "other-system", ch2)
+	if err != nil {
+		t.Error("Subscribe failed: ", err)
+	}
 
 	b.Stop()
-
 	// Verify that subscriber channels are closed
 	_, ok1 := <-ch1
 	_, ok2 := <-ch2
