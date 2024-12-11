@@ -170,7 +170,7 @@ func (b *Bus) handleEvents() {
 					continue
 				}
 
-				if s.kind != nil && !s.kind.match(string(event.Kind)) {
+				if s.kind != nil && !s.kind.Match(string(event.Kind)) {
 					continue
 				}
 

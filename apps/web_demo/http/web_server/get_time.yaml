@@ -1,5 +1,6 @@
-name: http.web_server.get_time
-type: endpoint
+id: get_time
+kind: http.endpoint
+
 metadata:
   name: get_time_endpoint
 config:

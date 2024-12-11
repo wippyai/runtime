@@ -4,41 +4,83 @@ import (
 	"testing"
 )
 
-// Test cases for wildcard matching
 func TestWildcardMatching(t *testing.T) {
 	testCases := []struct {
 		pattern string
 		str     string
 		matches bool
 	}{
-		{"web_server.*", "web_server.get", true},
-		{"web_server.*", "web_server.post", true},
-		{"web_server.*", "ftp.get", false},
-		{"*.txt", "report.txt", true},
-		{"*.txt", "image.png", false},
-		{"*", "anything", true},
-		{"web_server.controller.*", "web_server.controller.users", true},
-		{"web_server.controller.*", "web_server.service.users", false},
-		{"web_server.*.action", "web_server.controller.action", true},
-		{"web_server.*.action", "web_server.service.event", false},
-		{"web_server.*", "web_server.controller.users", true},
-		{"web_server.*.*", "web_server.controller.users", true},
-		{"web_server.*.*", "ftp.service.events", false},
-		{"*.*", "a.b", true},
-		{"*.*", "a.b.c", true}, // extended ending
+		// Basic wildcard tests
+		{"a.*", "a.b", true},
+		{"a.*", "a.c", true},
+		{"a.*", "a.b.c", false}, // '*' matches exactly one segment
+
+		// wildcard matches multiple segments with '**'
+		{"a.**", "a.b", true},
+		{"a.**", "a.b.c", true},
+		{"a.**", "a.b.c.d", true},
+		{"a.**", "a", true}, // '**' can match zero segments
+
+		// Multiple wildcards
 		{"*.*.*", "a.b.c", true},
 		{"*.*.*", "a.b", false},
-		{"web_server.controller.users.*", "web_server.controller.users.list", true},
-		{"web_server.controller.users.*", "web_server.controller.products.list", false},
-		{"*.controller.users.*", "web_server.controller.users.list", true},
-		{"*.controller.users.*", "api.service.products.get", false},
+		{"*.*.*", "a.b.c.d", false},
+
+		// wildcard at start
+		{"**.state.*", "a.state.x", true},
+		{"**.state.*", "b.state.y.z", false}, // '**' consumes too much
+		{"**.state.*", "c.state.x", true},
+
+		// Exact matches without wildcards
+		{"a.b.c", "a.b.c", true},
+		{"a.b.c", "a.b", false},
+		{"a.b.c", "a.b.c.d", false},
+
+		// Patterns with alternations
+		{"(a|b).(b|y).c", "a.b.c", true},
+		{"(a|b).(b|y).c", "b.y.c", true},
+		{"(a|b).(b|y).c", "a.y.c", true},
+		{"(a|b).(b|y).c", "c.b.c", false},
+
+		// Mixed wildcards and literals
+		{"a.*.c", "a.b.c", true},
+		{"a.*.c", "a.x.y", false},
+		{"a.*.c", "a.b.d.c", false},
+		{"a.b.*.c", "a.b.x.c", true},
+		{"a.b.*.c", "a.b.x.y.c", false},
+		{"a.b.*.c", "a.x.y.c", false},
+
+		// Edge Cases
+		{"*", "anything", true},
+		{"a", "a", true},
+		{"a", "ab", false},
+		{"", "", false},
+		{"a", "", false},
+		{"", "a", false},
+
+		// More complex scenarios
+		{"(a|b).b.state.*", "a.b.state.x", true},
+		{"(a|b).b.state.*", "b.b.state.x", true},
+		{"(a|b).state.*", "a.d.state.x", false},
+		{"(a|b).(a|b|c).state.*", "a.c.state.x", true},
+
+		// Mixed wildcards
+		{"*.state.*", "a.state.x", true},
+		{"*.state.*", "b.state.y.z", false}, // '*' matches exactly one segment
+		{"*.state.*", "b.event.y.z", false},
+		{"*.*.state.*", "a.b.state.x", true},
+		{"*.*.state.*", "a.b.c.x", false},
+		{"*.*.state.*", "a.b.state", false},
+		{"a.*.*.d", "a.b.c.d", true},
+		{"a.*.*.d", "a.b.x.y", false},
 	}
 
 	for _, tc := range testCases {
 		w := newWildcard(tc.pattern)
-		result := w.match(tc.str)
+		result := w.Match(tc.str)
 		if result != tc.matches {
-			t.Errorf("Pattern: %s, String: %s, Expected: %t, Got: %t", tc.pattern, tc.str, tc.matches, result)
+			t.Errorf("Pattern: %s, String: %s, Expected: %t, Got: %t",
+				tc.pattern, tc.str, tc.matches, result)
 		}
 	}
 }
