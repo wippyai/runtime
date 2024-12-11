@@ -108,7 +108,7 @@ func (s *Server) Stop(ctx context.Context) {
 //	task := &api.Task{
 //		App: "my-app-1",
 //		// args, todo: redo
-//		State: data,
+//		Config: data,
 //		Query:   q.Encode(), // todo: remove from here
 //	}
 //
@@ -126,7 +126,7 @@ func (s *Server) Stop(ctx context.Context) {
 //		}
 //
 //		w.WriteHeader(web_server.StatusOK)
-//		_, _ = w.Write(res.State)
+//		_, _ = w.Write(res.Config)
 //	}
 //}
 //

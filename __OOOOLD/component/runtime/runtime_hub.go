@@ -78,11 +78,11 @@ func (r *Runtime) ListenEvents() {
 				// 3. Enable new apps and open for the new events (not done)
 				case api.EventConfigurationUpdated:
 					// handle chart update
-					r.log.Debug("received a chart update events", zap.Any("content", event.Payload()))
+					r.log.Debug("received a chart update events", zap.Any("content", event.Data()))
 					// TODO: enable subsystems according to the chart, e.g.:
 					// TODO: unsafe
 					// TODO: change to type selection
-					cfg := event.Payload().Data().(*api.JSONConfiguration)
+					cfg := event.Data().Data().(*api.JSONConfiguration)
 					for id, acfg := range cfg.Apps {
 						le := engine.NewLuaEngine(context.Background(), r.log.Named(id))
 
@@ -125,7 +125,7 @@ func (r *Runtime) ListenEvents() {
 				// handle events
 				switch event.Kind() {
 				case api.EventFatalError:
-					r.log.Error("received a fatal error events", zap.Any("message", event.Payload()))
+					r.log.Error("received a fatal error events", zap.Any("message", event.Data()))
 					return
 				default:
 					r.log.Info("received an unknown events", zap.Any("type", event.Kind()))

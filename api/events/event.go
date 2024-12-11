@@ -1,7 +1,6 @@
 package events
 
 import (
-	"github.com/ponyruntime/pony/api/payload"
 	"strings"
 )
 
@@ -11,9 +10,9 @@ type (
 	Kind         string
 
 	Event struct {
-		System  System
-		Kind    Kind
-		Payload payload.Payload
+		System System
+		Kind   Kind
+		Data   any
 	}
 )
 

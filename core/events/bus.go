@@ -103,7 +103,7 @@ func (b *Bus) Unsubscribe(ctx context.Context, subID events.SubscriberID) {
 }
 
 func (b *Bus) Send(ctx context.Context, event events.Event) {
-	if event.Payload == nil {
+	if event.Data == nil {
 		return
 	}
 
@@ -116,7 +116,7 @@ func (b *Bus) Send(ctx context.Context, event events.Event) {
 				"sending event",
 				zap.String("system", string(event.System)),
 				zap.String("kind", string(event.Kind)),
-				zap.Any("payload", event.Payload),
+				zap.Any("payload", event.Data),
 			)
 		}
 
@@ -128,7 +128,7 @@ func (b *Bus) Send(ctx context.Context, event events.Event) {
 					"internal event channel full, dropping event",
 					zap.String("system", string(event.System)),
 					zap.String("kind", string(event.Kind)),
-					zap.Any("payload", event.Payload),
+					zap.Any("payload", event.Data),
 				)
 			}
 		}
@@ -189,7 +189,7 @@ func (b *Bus) handleEvents() {
 							zap.String("sid", string(subID)),
 							zap.String("system", string(event.System)),
 							zap.String("kind", string(event.Kind)),
-							zap.Any("payload", event.Payload),
+							zap.Any("payload", event.Data),
 						)
 					}
 				}

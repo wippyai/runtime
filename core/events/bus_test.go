@@ -26,9 +26,9 @@ func newTestBus(t *testing.T) (*Bus, *observer.ObservedLogs) {
 // Helper function to generate test events
 func newTestEvent(system events.System, kind events.Kind, data any) events.Event {
 	return events.Event{
-		System:  system,
-		Kind:    kind,
-		Payload: payload.New(data),
+		System: system,
+		Kind:   kind,
+		Data:   payload.New(data),
 	}
 }
 
@@ -221,9 +221,9 @@ func TestNilPayload(t *testing.T) {
 
 	// Create event with nil payload
 	event := events.Event{
-		System:  "test-system",
-		Kind:    "test-kind",
-		Payload: nil,
+		System: "test-system",
+		Kind:   "test-kind",
+		Data:   nil,
 	}
 
 	bus.Send(context.Background(), event)
@@ -245,9 +245,9 @@ func TestSendWithNilPayload(t *testing.T) {
 	defer b.Stop()
 
 	event := events.Event{
-		System:  "test-system",
-		Kind:    "test-kind",
-		Payload: nil,
+		System: "test-system",
+		Kind:   "test-kind",
+		Data:   nil,
 	}
 
 	b.Send(context.Background(), event)
@@ -300,9 +300,9 @@ func TestConcurrentSendSubscribe(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			event := events.Event{
-				System:  "test-system",
-				Kind:    "test-kind",
-				Payload: payload.New([]byte("test-data")),
+				System: "test-system",
+				Kind:   "test-kind",
+				Data:   payload.New([]byte("test-data")),
 			}
 			b.Send(context.Background(), event)
 		}()
@@ -340,9 +340,9 @@ func TestNoEventsAfterUnsubscribe(t *testing.T) {
 	b.Unsubscribe(context.Background(), subID)
 
 	event := events.Event{
-		System:  "test-system",
-		Kind:    "test-kind",
-		Payload: payload.New([]byte("test-data")),
+		System: "test-system",
+		Kind:   "test-kind",
+		Data:   payload.New([]byte("test-data")),
 	}
 	b.Send(context.Background(), event)
 
@@ -420,9 +420,9 @@ func TestMultipleSubscribersSameSystemPath(t *testing.T) {
 	_, _ = b.Subscribe(context.Background(), "test-system", ch2)
 
 	event := events.Event{
-		System:  "test-system",
-		Kind:    "test-kind",
-		Payload: payload.New([]byte("test-data")),
+		System: "test-system",
+		Kind:   "test-kind",
+		Data:   payload.New([]byte("test-data")),
 	}
 	b.Send(context.Background(), event)
 
