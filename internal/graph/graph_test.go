@@ -154,3 +154,25 @@ func TestGraphConcurrency(t *testing.T) {
 		t.Errorf("Incorrect shortest path after concurrent access. Got: %v, Expected: %v", actualPath, expectedPath)
 	}
 }
+
+func TestGraph_NoPath(t *testing.T) {
+	g := NewGraph()
+	g.AddNode("A")
+	g.AddNode("B")
+	// No edges added
+
+	_, err := g.ShortestPath("A", "B")
+	if err == nil {
+		t.Errorf("ShortestPath() should have returned an error for disconnected nodes")
+	}
+}
+
+func TestGraph_MissingNode(t *testing.T) {
+	g := NewGraph()
+	// No nodes added
+
+	_, err := g.ShortestPath("A", "B")
+	if err == nil {
+		t.Errorf("ShortestPath() should have returned an error for missing nodes")
+	}
+}

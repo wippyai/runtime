@@ -121,6 +121,14 @@ func (g *Graph) ShortestPath(from, to Node) (*Path, error) {
 	g.mutex.RLock()
 	defer g.mutex.RUnlock()
 
+	// Check if nodes exist
+	if !g.Nodes[from] {
+		return nil, fmt.Errorf("start node %s does not exist in the graph", from)
+	}
+	if !g.Nodes[to] {
+		return nil, fmt.Errorf("end node %s does not exist in the graph", to)
+	}
+
 	// Dijkstra's algorithm
 	distances := make(map[Node]int)
 	previous := make(map[Node]Node)
