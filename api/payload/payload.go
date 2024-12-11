@@ -16,16 +16,20 @@ type (
 		Data() any
 	}
 
-	Transcoder interface {
-		Transcode(Payload, Format) (Payload, error)
-	}
-
-	Marshaller interface {
-		Marshal(v interface{}) (Payload, error)
-	}
-
 	Unmarshaler interface {
-		Unmarshal(Payload, v interface{}) error
+		Unmarshal(Payload, interface{}) error
+	}
+
+	Transcoder interface {
+		RegisterTranscoder(from, to Format, weight int, tt FormatTranscoder)
+		RegisterUnmarshaler(from Format, unmarshaler Unmarshaler)
+
+		Transcode(Payload, Format) (Payload, error)
+		Unmarshaler
+	}
+
+	FormatTranscoder interface {
+		Transcode(Payload) (Payload, error)
 	}
 )
 

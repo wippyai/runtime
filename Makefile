@@ -6,6 +6,7 @@ debug:
 
 test:
 	go test ./core/events/ -v -race
+	go test ./core/payload/ -v -race
 	go test ./internal/graph/ -v -race
 
 	#go test ./core/ -v -race
