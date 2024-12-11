@@ -41,7 +41,7 @@ func TestLoader_Load_SingleEntry_YAML(t *testing.T) {
 
 	// Create a sample YAML payload
 	yamlData := `
-id: test
+path: test
 kind: test-kind
 meta:
   key: value
@@ -61,13 +61,13 @@ meta:
 	}
 
 	expectedEntry := config.Entry{
-		ID:     "test",
+		Path:   "test",
 		Kind:   "test-kind",
 		Meta:   config.Metadata{"key": "value"},
 		Config: p,
 	}
 
-	if entries[0].ID != expectedEntry.ID || entries[0].Kind != expectedEntry.Kind || !reflect.DeepEqual(entries[0].Meta, expectedEntry.Meta) {
+	if entries[0].Path != expectedEntry.Path || entries[0].Kind != expectedEntry.Kind || !reflect.DeepEqual(entries[0].Meta, expectedEntry.Meta) {
 		t.Errorf("loaded entry does not match expected entry\ngot:  %v\nwant: %v", entries[0], expectedEntry)
 	}
 }
@@ -77,7 +77,7 @@ func TestLoader_Load_MultipleEntries_YAML(t *testing.T) {
 	l := NewLoader(dtt)
 
 	yamlData1 := `
-id: entry1
+path: entry1
 kind: kind1
 meta:
   k1: v1
@@ -85,7 +85,7 @@ meta:
 	p1 := payload.NewPayload(yamlData1, payload.Yaml)
 
 	yamlData2 := `
-id: entry2
+path: entry2
 kind: kind2
 meta:
   k2: v2
@@ -103,8 +103,8 @@ meta:
 	}
 
 	expectedEntries := []config.Entry{
-		{ID: "entry1", Kind: "kind1", Meta: config.Metadata{"k1": "v1"}, Config: p1},
-		{ID: "entry2", Kind: "kind2", Meta: config.Metadata{"k2": "v2"}, Config: p2},
+		{Path: "entry1", Kind: "kind1", Meta: config.Metadata{"k1": "v1"}, Config: p1},
+		{Path: "entry2", Kind: "kind2", Meta: config.Metadata{"k2": "v2"}, Config: p2},
 	}
 
 	// We need to sort entries for comparison as the order they are loaded in is not guaranteed to be the same order they appear in the entries map
@@ -112,7 +112,7 @@ meta:
 	sortEntriesByID(expectedEntries)
 
 	for i := 0; i < 2; i++ {
-		if entries[i].ID != expectedEntries[i].ID || entries[i].Kind != expectedEntries[i].Kind || !reflect.DeepEqual(entries[i].Meta, expectedEntries[i].Meta) {
+		if entries[i].Path != expectedEntries[i].Path || entries[i].Kind != expectedEntries[i].Kind || !reflect.DeepEqual(entries[i].Meta, expectedEntries[i].Meta) {
 			t.Errorf("loaded entry does not match expected entry\ngot:  %v\nwant: %v", entries[i], expectedEntries[i])
 		}
 	}
@@ -123,7 +123,7 @@ func TestLoader_Load_WithPrefix_YAML(t *testing.T) {
 	l := NewLoader(dtt).WithPrefix("prefix")
 
 	yamlData := `
-id: my-entry
+path: my-entry
 kind: my-kind
 meta:
   my-key: my-value
@@ -141,13 +141,13 @@ meta:
 	}
 
 	expectedEntry := config.Entry{
-		ID:     "prefix.my-entry", // ID should have the prefix
+		Path:   "prefix.my-entry", // Path should have the prefix
 		Kind:   "my-kind",
 		Meta:   config.Metadata{"my-key": "my-value"},
 		Config: p,
 	}
 
-	if entries[0].ID != expectedEntry.ID || entries[0].Kind != expectedEntry.Kind || !reflect.DeepEqual(entries[0].Meta, expectedEntry.Meta) {
+	if entries[0].Path != expectedEntry.Path || entries[0].Kind != expectedEntry.Kind || !reflect.DeepEqual(entries[0].Meta, expectedEntry.Meta) {
 		t.Errorf("loaded entry does not match expected entry\ngot:  %v\nwant: %v", entries[0], expectedEntry)
 	}
 }
@@ -157,7 +157,7 @@ func TestLoader_Entries_Sorted(t *testing.T) {
 	l := NewLoader(dtt)
 
 	yamlData1 := `
-id: b-entry
+path: b-entry
 kind: kind-b
 meta:
   key: value-b
@@ -165,7 +165,7 @@ meta:
 	p1 := payload.NewPayload(yamlData1, payload.Yaml)
 
 	yamlData2 := `
-id: a-entry
+path: a-entry
 kind: kind-a
 meta:
   key: value-a
@@ -173,7 +173,7 @@ meta:
 	p2 := payload.NewPayload(yamlData2, payload.Yaml)
 
 	yamlData3 := `
-id: c-entry
+path: c-entry
 kind: kind-c
 meta:
   key: value-c
@@ -191,9 +191,9 @@ meta:
 		t.Fatalf("expected 3 entries, got %d", len(entries))
 	}
 
-	// Check if entries are sorted by ID
-	if entries[0].ID != "a-entry" || entries[1].ID != "b-entry" || entries[2].ID != "c-entry" {
-		t.Errorf("entries are not sorted by ID")
+	// Check if entries are sorted by Path
+	if entries[0].Path != "a-entry" || entries[1].Path != "b-entry" || entries[2].Path != "c-entry" {
+		t.Errorf("entries are not sorted by Path")
 	}
 }
 
@@ -203,7 +203,7 @@ func TestLoader_Entries_PrefixOrder(t *testing.T) {
 
 	// Load a base entry
 	baseEntryYAML := `
-id: base
+path: base
 kind: base-kind
 meta:
   key: base-value
@@ -219,7 +219,7 @@ meta:
 
 	// Load entries with the prefix
 	prefixedEntryYAML := `
-id: sub-entry
+path: sub-entry
 kind: sub-kind
 meta:
   key: sub-value
@@ -236,7 +236,7 @@ meta:
 	}
 
 	// Check that the base entry comes before the prefixed entry
-	if entries[0].ID != "base" || entries[1].ID != "base.sub-entry" {
+	if entries[0].Path != "base" || entries[1].Path != "base.sub-entry" {
 		t.Errorf("entries are not in the correct order or prefixed entry is missing")
 	}
 }
@@ -247,10 +247,10 @@ func TestLoader_Load_InvalidEntryFormat(t *testing.T) {
 
 	// Invalid YAML format
 	invalidYAML := `
-id: invalid
+path: invalid
 kind: invalid-kind
 meta:
-  - key: value # Invalid: meta should be a map, not a list
+  - key: value # Invalpath: meta should be a map, not a list
 `
 	p := payload.NewPayload(invalidYAML, payload.Yaml)
 
@@ -269,7 +269,7 @@ func TestLoader_Load_MissingIDAndKind(t *testing.T) {
 	dtt := createDefaultTranscoder()
 	l := NewLoader(dtt)
 
-	// Missing ID
+	// Missing Path
 	missingIDYAML := `
 kind: missing-id-kind
 meta:
@@ -278,16 +278,16 @@ meta:
 	p1 := payload.NewPayload(missingIDYAML, payload.Yaml)
 	err1 := l.Load(p1)
 	if err1 == nil {
-		t.Fatalf("expected an error due to missing ID, but got nil")
+		t.Fatalf("expected an error due to missing Path, but got nil")
 	}
-	expectedErrorMsg1 := "missing ID in config entry" // Correct error message
+	expectedErrorMsg1 := "missing Path in config entry" // Correct error message
 	if err1.Error() != expectedErrorMsg1 {
-		t.Errorf("unexpected error message for missing ID\ngot:  %s\nwant: %s", err1.Error(), expectedErrorMsg1)
+		t.Errorf("unexpected error message for missing Path\ngot:  %s\nwant: %s", err1.Error(), expectedErrorMsg1)
 	}
 
 	// Missing Kind
 	missingKindYAML := `
-id: missing-kind-id
+path: missing-kind-id
 meta:
   key: value
 `
@@ -307,7 +307,7 @@ func TestLoader_Reset(t *testing.T) {
 	l := NewLoader(dtt)
 
 	yamlData := `
-id: test
+path: test
 kind: test-kind
 meta:
   key: value
@@ -334,7 +334,7 @@ func TestLoader_Load_DuplicateID(t *testing.T) {
 	l := NewLoader(dtt)
 
 	yamlData1 := `
-id: dup-entry
+path: dup-entry
 kind: kind1
 meta:
   key: value1
@@ -342,7 +342,7 @@ meta:
 	p1 := payload.NewPayload(yamlData1, payload.Yaml)
 
 	yamlData2 := `
-id: dup-entry
+path: dup-entry
 kind: kind2
 meta:
   key: value2
@@ -364,13 +364,13 @@ meta:
 	}
 
 	expectedEntry := config.Entry{
-		ID:     "dup-entry",
+		Path:   "dup-entry",
 		Kind:   "kind2",                          // Kind from the second payload
 		Meta:   config.Metadata{"key": "value2"}, // Meta from the second payload
 		Config: p2,                               // Config from the second payload
 	}
 
-	if entries[0].ID != expectedEntry.ID || entries[0].Kind != expectedEntry.Kind || !reflect.DeepEqual(entries[0].Meta, expectedEntry.Meta) {
+	if entries[0].Path != expectedEntry.Path || entries[0].Kind != expectedEntry.Kind || !reflect.DeepEqual(entries[0].Meta, expectedEntry.Meta) {
 		t.Errorf("loaded entry does not match expected entry\ngot:  %v\nwant: %v", entries[0], expectedEntry)
 	}
 }
@@ -385,7 +385,7 @@ func TestLoader_Load_Concurrent(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			yamlData := fmt.Sprintf(`
-id: entry-%d
+path: entry-%d
 kind: kind-%d
 meta:
   key: value-%d
@@ -417,9 +417,9 @@ func TestLoader_Load_EmptyPayload(t *testing.T) {
 	}
 }
 
-// Helper function to sort entries by ID for easier comparison in tests
+// Helper function to sort entries by Path for easier comparison in tests
 func sortEntriesByID(entries []config.Entry) {
 	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].ID < entries[j].ID
+		return entries[i].Path < entries[j].Path
 	})
 }
