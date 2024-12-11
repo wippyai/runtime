@@ -4,11 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
-	"time"
-
 	"github.com/ponyruntime/pony/api/events"
 	"go.uber.org/zap"
+	"sync"
+	"sync/atomic"
 )
 
 type sub struct {
@@ -159,6 +158,13 @@ func (b *Bus) handleEvents() {
 		select {
 		case <-b.stop:
 			return
+		case subID := <-b.unsubCh: // Receive subID directly
+			b.mu.Lock()
+			if s, exists := b.subscribers[subID]; exists {
+				close(s.eventCh)
+				delete(b.subscribers, subID)
+			}
+			b.mu.Unlock()
 		case event, ok := <-b.internalEvCh:
 			if !ok {
 				return
@@ -189,18 +195,13 @@ func (b *Bus) handleEvents() {
 				}
 			}
 			b.mu.RUnlock()
-
-		case subID := <-b.unsubCh: // Receive subID directly
-			b.mu.Lock()
-			if s, exists := b.subscribers[subID]; exists {
-				close(s.eventCh)
-				delete(b.subscribers, subID)
-			}
-			b.mu.Unlock()
 		}
 	}
 }
 
+var subscriberCounter uint64
+
 func generateSubscriberID() events.SubscriberID {
-	return events.SubscriberID(fmt.Sprintf("sub-%d", time.Now().UnixNano()))
+	id := atomic.AddUint64(&subscriberCounter, 1) // Atomically increment the counter
+	return events.SubscriberID(fmt.Sprintf("sub-%d", id))
 }
