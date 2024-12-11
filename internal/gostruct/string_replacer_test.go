@@ -388,3 +388,59 @@ func TestReplace(t *testing.T) {
 		})
 	}
 }
+
+func TestReplaceStructWithMap(t *testing.T) {
+	type MyStruct struct {
+		Name string
+		Data map[string]string
+	}
+
+	input := MyStruct{
+		Name: "hello",
+		Data: map[string]string{
+			"key1": "value1",
+			"key2": "value2",
+		},
+	}
+
+	replacer := NewStringReplacer(func(s string) (string, error) {
+		switch s {
+		case "hello":
+			return "HELLO", nil
+		case "value1":
+			return "VALUE1", nil
+		case "value2":
+			return "VALUE2", nil
+		case "key1":
+			return "KEY1", nil
+		case "key2":
+			return "KEY2", nil
+		default:
+			return s, nil
+		}
+	})
+
+	result, err := replacer.Replace(input)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+
+	// Type assertion check
+	resultStruct, ok := result.(MyStruct)
+	if !ok {
+		t.Errorf("expected result to be type MyStruct, got %T", result)
+	}
+
+	// Verify expected values
+	expected := MyStruct{
+		Name: "HELLO",
+		Data: map[string]string{
+			"KEY1": "VALUE1",
+			"KEY2": "VALUE2",
+		},
+	}
+
+	if !reflect.DeepEqual(resultStruct, expected) {
+		t.Errorf("got %+v, want %+v", resultStruct, expected)
+	}
+}
