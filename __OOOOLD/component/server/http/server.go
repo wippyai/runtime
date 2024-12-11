@@ -30,15 +30,15 @@ func (s *Server) Register(ctx context.Context, ev events.Event, state component.
 		return nil, nil
 	}
 	log.Println("Registering HTTP http")
-	// processing all sorts of events to boot state
+	// processing all sorts of events to boot config
 
 	return nil, nil
 }
 
 func (s *Server) Apply(ctx context.Context, state component.State) error {
-	//hst, ok := state.(*httpState)
+	//hst, ok := config.(*httpState)
 
-	// processing all sorts of events to boot state
+	// processing all sorts of events to boot config
 
 	return nil
 }
@@ -62,7 +62,7 @@ func (s *Server) Stop(ctx context.Context) {
 
 //
 //// Configure uses JSONConfiguration to configure the endpoint
-//func (e *Server) Configure(chart *api.JSONConfiguration) {
+//src (e *Server) Configure(chart *api.JSONConfiguration) {
 //	e.log.Info("http: configuring the endpoint")
 //
 //	for name, v := range chart.Servers {
@@ -80,7 +80,7 @@ func (s *Server) Stop(ctx context.Context) {
 //	e.http.Handler = e
 //}
 //
-//func (e *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+//src (e *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 //	e.log.Info("http: request received", zap.String("path", r.URL.Path))
 //	// TODO: futures with proper:
 //	// 1. Error handling
@@ -131,9 +131,9 @@ func (s *Server) Stop(ctx context.Context) {
 //}
 //
 //// start starts the HTTP http
-//func (e *Server) start() {
+//src (e *Server) start() {
 //	e.log.Info("http: starting the http", zap.String("address", e.http.Addr))
-//	go func() {
+//	go src() {
 //		err := e.http.ListenAndServe()
 //		if err != nil {
 //			if errors.Is(err, http.ErrServerClosed) {
@@ -145,7 +145,7 @@ func (s *Server) Stop(ctx context.Context) {
 //	}()
 //}
 //
-//func (e *Server) stop(ctx context.Context) {
+//src (e *Server) stop(ctx context.Context) {
 //	e.log.Info("http: stopping the http")
 //	_ = e.http.Shutdown(ctx)
 //}

@@ -15,7 +15,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// mockComponent is a mock implementation of component.Component
+// mockComponent is a mock implementation of component.Path
 type mockComponent struct {
 	mock.Mock
 }
@@ -205,7 +205,7 @@ func TestStatePropagateState(t *testing.T) {
 	).Return(finalState, nil)
 
 	cmp.On("Apply",
-		//mock.MatchedBy(func(ctx context.Context) bool {
+		//mock.MatchedBy(src(ctx context.Context) bool {
 		//	return true
 		//}),
 		//finalState,

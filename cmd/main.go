@@ -3,9 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/ponyruntime/pony/__OOOOLD/component/server/http"
 	"github.com/ponyruntime/pony/components/config/json"
 	"github.com/ponyruntime/pony/components/exec"
-	"github.com/ponyruntime/pony/components/http/http"
 	"log"
 	"os"
 	"os/signal"

@@ -8,7 +8,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// Engine encapsulates the Lua state and chart
+// Engine encapsulates the Lua config and chart
 type Engine struct {
 	log      *zap.Logger
 	L        *lua.LState
@@ -60,7 +60,7 @@ func (e *Engine) PreloadLibrary(name, code string) {
 	})
 }
 
-// Close closes the Lua state
+// Close closes the Lua config
 func (e *Engine) Close() {
 	e.printBuf.Reset()
 	e.L.Close()
@@ -82,7 +82,7 @@ func (e *Engine) DoString(s, name string) error {
 	return e.L.PCall(0, lua.MultRet, nil)
 }
 
-// SetGlobal sets a global variable in the Lua state
+// SetGlobal sets a global variable in the Lua config
 func (e *Engine) SetGlobal(name string, value lua.LValue) {
 	e.L.SetGlobal(name, value)
 }
