@@ -91,7 +91,7 @@ func TestLuaExecuteQuery(t *testing.T) {
 		return nil, err
 	end
 
-	local result, err = db:execute("INSERT INTO users (name) VALUES ('Alice')")
+	local result, err = db:tasks("INSERT INTO users (name) VALUES ('Alice')")
 	if err then
 		return nil, err
 	end
@@ -126,7 +126,7 @@ func TestLuaExecuteQueryWithArgs(t *testing.T) {
 		return nil, err
 	end
 
-	local result, err = db:execute("INSERT INTO users (id, name) VALUES (?, ?)", {99, "Alice"})
+	local result, err = db:tasks("INSERT INTO users (id, name) VALUES (?, ?)", {99, "Alice"})
 	if err then
 		return nil, err
 	end
@@ -239,13 +239,13 @@ func TestLuaTransactionCommit(t *testing.T) {
 		return nil, err
 	end
 
-	local res, err = db:execute("UPDATE accounts SET balance = balance - 50 WHERE id = ?", {1})
+	local res, err = db:tasks("UPDATE accounts SET balance = balance - 50 WHERE id = ?", {1})
 	if err then
 		db:rollback()
 		return nil, err
 	end
 
-	local res2, err = db:execute("UPDATE accounts SET balance = balance + 50 WHERE id = ?", {2})
+	local res2, err = db:tasks("UPDATE accounts SET balance = balance + 50 WHERE id = ?", {2})
 	if err then
 		db:rollback()
 		return nil, err
@@ -301,14 +301,14 @@ func TestLuaTransactionRollback(t *testing.T) {
 		return nil, err
 	end
 
-	local res, err = db:execute("UPDATE accounts SET balance = balance - 30 WHERE id = ?", {2})
+	local res, err = db:tasks("UPDATE accounts SET balance = balance - 30 WHERE id = ?", {2})
 	if err ~= nil {
 		db:rollback()
 		return nil, err
 	end
 
 	-- Intentional error to trigger rollback
-	local res2, err = db:execute("UPDATE nonexistent_table SET balance = balance + 30 WHERE id = ?", {1})
+	local res2, err = db:tasks("UPDATE nonexistent_table SET balance = balance + 30 WHERE id = ?", {1})
 	if err ~= nil then
 		db:rollback()
 		return nil, err
@@ -360,7 +360,7 @@ func TestLuaTransactionSuccess(t *testing.T) {
 		return nil, err
 	end
 
-	local res, err = db:execute("INSERT INTO transactions(amount) VALUES (?)", {200})
+	local res, err = db:tasks("INSERT INTO transactions(amount) VALUES (?)", {200})
     if err ~= nil then
 		db:rollback()
 		return nil, err
@@ -414,7 +414,7 @@ if err ~= nil then
 	return nil, err
 end
 
-local res1, err = db:execute("INSERT INTO nested(value) VALUES (?)", {"Outer"})
+local res1, err = db:tasks("INSERT INTO nested(value) VALUES (?)", {"Outer"})
 if err ~= nil then
 	db:rollback()
 	return nil, err
@@ -427,7 +427,7 @@ if err ~= nil then
 	return nil, err
 end
 
-local res2, err = db:execute("INSERT INTO nested(value) VALUES (?)", {"Inner"})
+local res2, err = db:tasks("INSERT INTO nested(value) VALUES (?)", {"Inner"})
 if err ~= nil then
 	db:rollback()
 	return nil, err
@@ -485,14 +485,14 @@ func TestLuaTransactionErrorHandling(t *testing.T) {
 		return nil, err
 	end
 
-	local res, err = db:execute("INSERT INTO error_handling(data) VALUES (?)", {"Test"})
+	local res, err = db:tasks("INSERT INTO error_handling(data) VALUES (?)", {"Test"})
 	if err then
 		db:rollback()
 		return nil, err
 	end
 
 	-- Intentional error
-	local res2, err = db:execute("INSERT INTO non_existing_table(data) VALUES (?)", {"Error"})
+	local res2, err = db:tasks("INSERT INTO non_existing_table(data) VALUES (?)", {"Error"})
 	if err ~= nil then
 		db:rollback()
 		return nil, err
@@ -530,7 +530,7 @@ func TestLuaInvalidParameters(t *testing.T) {
 	end
 
 	-- Passing a table instead of a string for the query
-	local res, err = db:execute({"INVALID QUERY"}, {"param"})
+	local res, err = db:tasks({"INVALID QUERY"}, {"param"})
 	if err then
 		return nil, err
 	end
@@ -574,7 +574,7 @@ func TestLuaConcurrentTransactions(t *testing.T) {
 		return nil, err
 	end
 
-	local res, err = db:execute("UPDATE concurrent SET count = count + 1 WHERE id = ?", {1})
+	local res, err = db:tasks("UPDATE concurrent SET count = count + 1 WHERE id = ?", {1})
 	if err ~= nil then
 		db:rollback()
 		return nil, err
@@ -600,7 +600,7 @@ func TestLuaConcurrentTransactions(t *testing.T) {
 		return nil, err
 	end
 
-	local res, err = db:execute("UPDATE concurrent SET count = count + 1 WHERE id = ?", {1})
+	local res, err = db:tasks("UPDATE concurrent SET count = count + 1 WHERE id = ?", {1})
 	if err ~= nil then
 		db:rollback()
 		return nil, err

@@ -24,11 +24,10 @@ func newTestBus(t *testing.T) (*Bus, *observer.ObservedLogs) {
 }
 
 // Helper function to generate test events
-func newTestEvent(system events.System, kind events.Kind, path string, data any) events.Event {
+func newTestEvent(system events.System, kind events.Kind, data any) events.Event {
 	return events.Event{
 		System:  system,
 		Kind:    kind,
-		Path:    events.Path(path),
 		Payload: payload.New(data),
 	}
 }
@@ -61,7 +60,7 @@ func TestSubscribeAndSend(t *testing.T) {
 	require.NoError(t, err)
 	defer bus.Unsubscribe(context.Background(), subID)
 
-	event := newTestEvent("test-system", "test-kind", "path/to/resource", "test-payload")
+	event := newTestEvent("test-system", "test-kind", "test-payload")
 	bus.Send(context.Background(), event)
 
 	receivedEvents := waitForEvents(t, ch, 1, time.Second)
@@ -80,7 +79,6 @@ func TestSubscribeAndSend(t *testing.T) {
 			// Verify log fields
 			require.Equal(t, "test-system", entry.ContextMap()["system"])
 			require.Equal(t, "test-kind", entry.ContextMap()["kind"])
-			require.Equal(t, "path/to/resource", entry.ContextMap()["path"])
 		}
 	}
 	require.True(t, foundSending, "should find 'sending event' log")
@@ -96,11 +94,11 @@ func TestSubscribeWithPathAndSend(t *testing.T) {
 	defer bus.Unsubscribe(context.Background(), subID)
 
 	// Should receive this event
-	event1 := newTestEvent("test-system", "test-kind", "users.created", "test-payload")
+	event1 := newTestEvent("test-system", "users.created", "test-payload")
 	// Should receive this event
-	event2 := newTestEvent("test-system", "test-kind", "users.updated", "test-payload")
+	event2 := newTestEvent("test-system", "users.updated", "test-payload")
 	// Should NOT receive this event
-	event3 := newTestEvent("test-system", "test-kind", "posts.created", "test-payload")
+	event3 := newTestEvent("test-system", "posts.created", "test-payload")
 
 	bus.Send(context.Background(), event1)
 	bus.Send(context.Background(), event2)
@@ -121,8 +119,8 @@ func TestWildcardSystem(t *testing.T) {
 	require.NoError(t, err)
 	defer bus.Unsubscribe(context.Background(), subID)
 
-	event1 := newTestEvent("system1", "test-kind", "resource1", "payload1")
-	event2 := newTestEvent("system2", "test-kind", "resource2", "payload2")
+	event1 := newTestEvent("system1", "test-kind", "payload1")
+	event2 := newTestEvent("system2", "test-kind", "payload2")
 
 	bus.Send(context.Background(), event1)
 	bus.Send(context.Background(), event2)
@@ -144,8 +142,8 @@ func TestChannelFullBehavior(t *testing.T) {
 	defer bus.Unsubscribe(context.Background(), subID)
 
 	// Fill the channel
-	event1 := newTestEvent("test-system", "test-kind", "resource", "payload1")
-	event2 := newTestEvent("test-system", "test-kind", "resource", "payload2")
+	event1 := newTestEvent("test-system", "test-kind", "payload1")
+	event2 := newTestEvent("test-system", "test-kind", "payload2")
 
 	bus.Send(context.Background(), event1)
 	bus.Send(context.Background(), event2)
@@ -173,7 +171,7 @@ func TestUnsubscribe(t *testing.T) {
 	require.NoError(t, err)
 
 	// Send an event before unsubscribing
-	event1 := newTestEvent("test-system", "test-kind", "resource", "payload1")
+	event1 := newTestEvent("test-system", "test-kind", "payload1")
 	bus.Send(context.Background(), event1)
 
 	receivedEvents := waitForEvents(t, ch, 1, time.Second)
@@ -182,7 +180,7 @@ func TestUnsubscribe(t *testing.T) {
 	// Unsubscribe and verify no more events are received
 	bus.Unsubscribe(context.Background(), subID)
 
-	event2 := newTestEvent("test-system", "test-kind", "resource", "payload2")
+	event2 := newTestEvent("test-system", "test-kind", "payload2")
 	bus.Send(context.Background(), event2)
 
 	// Verify channel is closed
@@ -198,7 +196,7 @@ func TestBusStop(t *testing.T) {
 	require.NoError(t, err)
 
 	// Send event before stopping
-	event := newTestEvent("test-system", "test-kind", "resource", "payload")
+	event := newTestEvent("test-system", "test-kind", "payload")
 	bus.Send(context.Background(), event)
 
 	receivedEvents := waitForEvents(t, ch, 1, time.Second)
@@ -225,7 +223,6 @@ func TestNilPayload(t *testing.T) {
 	event := events.Event{
 		System:  "test-system",
 		Kind:    "test-kind",
-		Path:    "resource",
 		Payload: nil,
 	}
 
@@ -250,7 +247,6 @@ func TestSendWithNilPayload(t *testing.T) {
 	event := events.Event{
 		System:  "test-system",
 		Kind:    "test-kind",
-		Path:    "test.path",
 		Payload: nil,
 	}
 
@@ -306,7 +302,6 @@ func TestConcurrentSendSubscribe(t *testing.T) {
 			event := events.Event{
 				System:  "test-system",
 				Kind:    "test-kind",
-				Path:    "test.path",
 				Payload: payload.New([]byte("test-data")),
 			}
 			b.Send(context.Background(), event)
@@ -347,7 +342,6 @@ func TestNoEventsAfterUnsubscribe(t *testing.T) {
 	event := events.Event{
 		System:  "test-system",
 		Kind:    "test-kind",
-		Path:    "test.path",
 		Payload: payload.New([]byte("test-data")),
 	}
 	b.Send(context.Background(), event)
@@ -398,7 +392,7 @@ func TestStopWithActiveSubscribers(t *testing.T) {
 	}
 }
 
-func TestSubscribePEmptyPath(t *testing.T) {
+func TestSubscribePEmptyKind(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	b := NewBus(logger)
 	defer b.Stop()
@@ -406,7 +400,7 @@ func TestSubscribePEmptyPath(t *testing.T) {
 	ch := make(chan events.Event)
 	_, err := b.SubscribeP(context.Background(), "test-system", "", ch)
 	if err != nil {
-		t.Errorf("SubscribeP with empty path failed: %v", err)
+		t.Errorf("SubscribeP with empty kind failed: %v", err)
 		// ...
 	}
 }
@@ -423,7 +417,6 @@ func TestMultipleSubscribersSameSystemPath(t *testing.T) {
 	event := events.Event{
 		System:  "test-system",
 		Kind:    "test-kind",
-		Path:    "test.path",
 		Payload: payload.New([]byte("test-data")),
 	}
 	b.Send(context.Background(), event)

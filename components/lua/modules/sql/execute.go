@@ -32,7 +32,7 @@ func execute(l *lua.LState) int {
 
 // execute executes a SQL statement.
 func (db *DB) execute(l *lua.LState) int {
-	db.log.Debug("calling DB.execute")
+	db.log.Debug("calling DB.tasks")
 
 	// we expect 2 arguments, string and table. First is the query, second is the arguments
 	numArgs := l.GetTop()
@@ -76,16 +76,16 @@ func (db *DB) execute(l *lua.LState) int {
 		db.log.Debug("transaction is active, executing on a transaction")
 		res, err = db.transaction.ExecContext(ctx, qs.String(), args...)
 		if err != nil {
-			db.log.Error("failed to execute query on a transaction, should be rolled back", zap.Error(err))
+			db.log.Error("failed to tasks query on a transaction, should be rolled back", zap.Error(err))
 			l.Push(lua.LNil)
 			l.Push(lua.LString(err.Error()))
 			return 2
 		}
 	} else {
-		// execute on a regular connection
+		// tasks on a regular connection
 		res, err = db.conn.ExecContext(ctx, qs.String(), args...)
 		if err != nil {
-			db.log.Error("failed to execute query", zap.Error(err))
+			db.log.Error("failed to tasks query", zap.Error(err))
 			l.Push(lua.LNil)
 			l.Push(lua.LString(err.Error()))
 			return 2

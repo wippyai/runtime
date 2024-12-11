@@ -1,0 +1,8 @@
+name: http.web_server.get_time
+type: endpoint
+metadata:
+  name: get_time_endpoint
+config:
+  method: GET
+  path: /time
+  handler: app.runtime.web_server.http_time

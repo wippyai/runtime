@@ -15,8 +15,8 @@ import (
 	"github.com/ponyruntime/pony/api"
 	eventsbus2 "github.com/ponyruntime/pony/components/events"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
-	httpM "github.com/ponyruntime/pony/runtime/lua/modules/http"
 	jsonM "github.com/ponyruntime/pony/runtime/lua/modules/json"
+	httpM "github.com/ponyruntime/pony/runtime/lua/modules/web_server"
 	"go.uber.org/zap"
 )
 
@@ -91,8 +91,8 @@ func (r *Runtime) ListenEvents() {
 							r.log.Debug("preloading module", zap.Any("extension", ext))
 							// todo: muse be isolated and dynamic
 							switch ext {
-							case "http":
-								le.L.PreloadModule("http", httpM.NewHTTPModule(&http.Client{}, r.log.Named(fmt.Sprintf("%s:%s", id, "http"))).Loader)
+							case "web_server":
+								le.L.PreloadModule("web_server", httpM.NewHTTPModule(&http.Client{}, r.log.Named(fmt.Sprintf("%s:%s", id, "web_server"))).Loader)
 							case "json":
 								le.L.PreloadModule("json", jsonM.Loader)
 							default:
@@ -106,7 +106,7 @@ func (r *Runtime) ListenEvents() {
 								continue
 							}
 
-							// create an src which would be used to handle requests from the http
+							// create an src which would be used to handle requests from the web_server
 							// here should be lua pool
 							lease := &app{
 								id:   acfg.ID,
@@ -153,7 +153,7 @@ func (r *Runtime) Process() {
 
 		err := app.eng.DoString(app.code, "handler_code")
 		if err != nil {
-			r.log.Error("failed to execute the handler", zap.Error(err))
+			r.log.Error("failed to tasks the handler", zap.Error(err))
 			v.Respond(&internal.TaskResult{
 				Error: err,
 			})
@@ -168,7 +168,7 @@ func (r *Runtime) Process() {
 			// call the function with the argument
 			err = app.eng.L.PCall(0, 1, nil)
 			if err != nil {
-				r.log.Error("failed to execute PCall", zap.Error(err))
+				r.log.Error("failed to tasks PCall", zap.Error(err))
 				v.Respond(&internal.TaskResult{
 					Error: err,
 				})

@@ -93,7 +93,7 @@ func TestUpdateState(t *testing.T) {
 		ebs.NewEvent(
 			"test",
 			"test",
-			payload.NewString("configure-http"),
+			payload.NewString("configure-web_server"),
 		),
 	)
 
@@ -149,7 +149,7 @@ func TestStateRollback(t *testing.T) {
 		ebs.NewEvent(
 			"test",
 			"test",
-			payload.NewString("configure-http"),
+			payload.NewString("configure-web_server"),
 		),
 	)
 
@@ -228,7 +228,7 @@ func TestStatePropagateState(t *testing.T) {
 		ebs.NewEvent(
 			"test",
 			"test",
-			payload.NewString("configure-http"),
+			payload.NewString("configure-web_server"),
 		),
 	)
 
@@ -239,7 +239,7 @@ func TestStatePropagateState(t *testing.T) {
 		ebs.NewEvent(
 			"test",
 			"test",
-			payload.NewString("configure-http-2"),
+			payload.NewString("configure-web_server-2"),
 		),
 	)
 

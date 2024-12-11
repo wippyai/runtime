@@ -6,7 +6,7 @@ import (
 	"github.com/ponyruntime/go-lua"
 )
 
-const luaHTTPResponseTypeName = "http.response"
+const luaHTTPResponseTypeName = "web_server.response"
 
 type luaHTTPResponse struct {
 	res      *http.Response
@@ -37,7 +37,7 @@ func checkHTTPResponse(l *lua.LState) *luaHTTPResponse {
 	if v, ok := ud.Value.(*luaHTTPResponse); ok {
 		return v
 	}
-	l.ArgError(1, "http.response expected")
+	l.ArgError(1, "web_server.response expected")
 	return nil
 }
 

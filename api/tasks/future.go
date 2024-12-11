@@ -1,4 +1,4 @@
-package execute
+package tasks
 
 type future interface {
 	*TaskResult | any

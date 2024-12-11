@@ -78,7 +78,7 @@ func (db *DB) prepare(l *lua.LState) int {
 
 	var stmt *sql.Stmt
 	var err error
-	// we can execute a prepared statement on a transaction or on a regular connection
+	// we can tasks a prepared statement on a transaction or on a regular connection
 	if db.transaction != nil {
 		db.log.Debug("transaction is active, preparing on a transaction")
 		stmt, err = db.transaction.PrepareContext(ctx, qs.String())
@@ -165,16 +165,16 @@ func (db *DB) executePrepared(l *lua.LState) int {
 		db.log.Debug("transaction is active, executing on a transaction")
 		res, err = db.transaction.StmtContext(ctx, prepSt).ExecContext(ctx, args...)
 		if err != nil {
-			db.log.Error("failed to execute prepared statement on a transaction, should be rolled back", zap.Error(err))
+			db.log.Error("failed to tasks prepared statement on a transaction, should be rolled back", zap.Error(err))
 			l.Push(lua.LNil)
 			l.Push(lua.LString(err.Error()))
 			return 2
 		}
 	} else {
-		// execute on a regular connection
+		// tasks on a regular connection
 		res, err = prepSt.ExecContext(ctx, args...)
 		if err != nil {
-			db.log.Error("failed to execute prepared statement", zap.Error(err))
+			db.log.Error("failed to tasks prepared statement", zap.Error(err))
 			l.Push(lua.LNil)
 			l.Push(lua.LString(err.Error()))
 			return 2

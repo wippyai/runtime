@@ -78,16 +78,16 @@ func (db *DB) query(l *lua.LState) int {
 		db.log.Debug("transaction is active, executing on a transaction")
 		rows, err = db.transaction.QueryContext(ctx, qs.String(), args...)
 		if err != nil {
-			db.log.Error("failed to execute query on a transaction, should be rolled back", zap.Error(err))
+			db.log.Error("failed to tasks query on a transaction, should be rolled back", zap.Error(err))
 			l.Push(lua.LNil)
-			l.Push(lua.LString(fmt.Sprintf("failed to execute query on a transaction, should be rolled back, error: %s", err.Error())))
+			l.Push(lua.LString(fmt.Sprintf("failed to tasks query on a transaction, should be rolled back, error: %s", err.Error())))
 			return 2
 		}
 	} else {
-		// execute on a regular connection
+		// tasks on a regular connection
 		rows, err = db.conn.QueryContext(ctx, qs.String(), args...)
 		if err != nil {
-			db.log.Error("failed to execute query", zap.Error(err))
+			db.log.Error("failed to tasks query", zap.Error(err))
 			l.Push(lua.LNil)
 			l.Push(lua.LString(err.Error()))
 			return 2

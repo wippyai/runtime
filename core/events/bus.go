@@ -13,7 +13,7 @@ import (
 
 type sub struct {
 	system  events.System
-	path    *wildcard
+	kind    *wildcard
 	eventCh chan<- events.Event
 }
 
@@ -60,7 +60,7 @@ func (b *Bus) Subscribe(
 	b.mu.Lock()
 	b.subscribers[subID] = sub{
 		system:  system,
-		path:    nil,
+		kind:    nil,
 		eventCh: ch,
 	}
 	b.mu.Unlock()
@@ -71,7 +71,7 @@ func (b *Bus) Subscribe(
 func (b *Bus) SubscribeP(
 	ctx context.Context,
 	system events.System,
-	path events.Path,
+	kind events.Kind,
 	ch chan<- events.Event,
 ) (events.SubscriberID, error) {
 	if ctx.Err() != nil {
@@ -83,12 +83,12 @@ func (b *Bus) SubscribeP(
 	}
 
 	subID := generateSubscriberID()
-	w := newWildcard(string(path))
+	w := newWildcard(string(kind))
 
 	b.mu.Lock()
 	b.subscribers[subID] = sub{
 		system:  system,
-		path:    w,
+		kind:    w,
 		eventCh: ch,
 	}
 	b.mu.Unlock()
@@ -113,9 +113,9 @@ func (b *Bus) Send(ctx context.Context, event events.Event) {
 		return
 	default:
 		if b.logger != nil {
-			b.logger.Debug("sending event",
+			b.logger.Debug(
+				"sending event",
 				zap.String("system", string(event.System)),
-				zap.String("path", string(event.Path)),
 				zap.String("kind", string(event.Kind)),
 				zap.Any("payload", event.Payload),
 			)
@@ -125,9 +125,9 @@ func (b *Bus) Send(ctx context.Context, event events.Event) {
 		case b.internalEvCh <- event:
 		default:
 			if b.logger != nil {
-				b.logger.Warn("internal event channel full, dropping event",
+				b.logger.Error(
+					"internal event channel full, dropping event",
 					zap.String("system", string(event.System)),
-					zap.String("path", string(event.Path)),
 					zap.String("kind", string(event.Kind)),
 					zap.Any("payload", event.Payload),
 				)
@@ -170,7 +170,7 @@ func (b *Bus) handleEvents() {
 					continue
 				}
 
-				if s.path != nil && !s.path.match(string(event.Path)) {
+				if s.kind != nil && !s.kind.match(string(event.Kind)) {
 					continue
 				}
 
@@ -182,7 +182,6 @@ func (b *Bus) handleEvents() {
 							"subscriber channel full, dropping event",
 							zap.String("sid", string(subID)),
 							zap.String("system", string(event.System)),
-							zap.String("path", string(event.Path)),
 							zap.String("kind", string(event.Kind)),
 							zap.Any("payload", event.Payload),
 						)

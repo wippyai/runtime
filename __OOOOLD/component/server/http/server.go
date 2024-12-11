@@ -10,7 +10,7 @@ import (
 	"go.uber.org/zap"
 )
 
-const Component events.System = "http"
+const Component events.System = "web_server"
 
 type Server struct {
 	log    *zap.Logger
@@ -29,7 +29,7 @@ func (s *Server) Register(ctx context.Context, ev events.Event, state component.
 	if state == nil {
 		return nil, nil
 	}
-	log.Println("Registering HTTP http")
+	log.Println("Registering HTTP web_server")
 	// processing all sorts of events to boot config
 
 	return nil, nil
@@ -45,17 +45,17 @@ func (s *Server) Apply(ctx context.Context, state component.State) error {
 
 func (s *Server) Start(ctx context.Context, queue *exec.Queue) {
 	s.queue = queue
-	s.log.Debug("activating http routines")
+	s.log.Debug("activating web_server routines")
 }
 
 func (s *Server) Stop(ctx context.Context) {
-	s.log.Debug("stopping http routines")
+	s.log.Debug("stopping web_server routines")
 }
 
 //
 //type Endpoint interface {
 //	Configure(chart *api.JSONConfiguration)
-//	ServeHTTP(w http.ResponseWriter, r *http.Request)
+//	ServeHTTP(w web_server.ResponseWriter, r *web_server.Request)
 //	start()
 //	stop(ctx context.Context)
 //}
@@ -63,25 +63,25 @@ func (s *Server) Stop(ctx context.Context) {
 //
 //// Configure uses JSONConfiguration to configure the endpoint
 //src (e *Server) Configure(chart *api.JSONConfiguration) {
-//	e.log.Info("http: configuring the endpoint")
+//	e.log.Info("web_server: configuring the endpoint")
 //
 //	for name, v := range chart.Servers {
-//		e.log.Info("http: configuring http", zap.String("name", name), zap.String("type", v.Type), zap.String("address", v.Address))
+//		e.log.Info("web_server: configuring web_server", zap.String("name", name), zap.String("type", v.Type), zap.String("address", v.Address))
 //		switch v.Type {
 //		// we're particularly interested in the HTTP endpoint
-//		case "http":
-//			e.http.Addr = v.Address
+//		case "web_server":
+//			e.web_server.Addr = v.Address
 //		default:
-//			e.log.Warn("http: skipping other endpoint types", zap.String("type", v.Type))
+//			e.log.Warn("web_server: skipping other endpoint types", zap.String("type", v.Type))
 //		}
 //	}
 //
 //	// TODO: pipeline should be attached here, ServeHTTP is the last step
-//	e.http.Handler = e
+//	e.web_server.Handler = e
 //}
 //
-//src (e *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-//	e.log.Info("http: request received", zap.String("path", r.URL.Path))
+//src (e *Server) ServeHTTP(w web_server.ResponseWriter, r *web_server.Request) {
+//	e.log.Info("web_server: request received", zap.String("path", r.URL.Path))
 //	// TODO: futures with proper:
 //	// 1. Error handling
 //	// 2. Timeouts and retries
@@ -117,35 +117,35 @@ func (s *Server) Stop(ctx context.Context) {
 //
 //	select {
 //	case res := <-fut:
-//		e.log.Info("http: task has been processed", zap.String("path", r.URL.Path))
+//		e.log.Info("web_server: task has been processed", zap.String("path", r.URL.Path))
 //		if res.Error != nil {
-//			e.log.Error("http: error processing the request", zap.Error(res.Error))
-//			w.WriteHeader(http.StatusInternalServerError)
+//			e.log.Error("web_server: error processing the request", zap.Error(res.Error))
+//			w.WriteHeader(web_server.StatusInternalServerError)
 //			_, _ = w.Write([]byte("Internal components Error"))
 //			return
 //		}
 //
-//		w.WriteHeader(http.StatusOK)
+//		w.WriteHeader(web_server.StatusOK)
 //		_, _ = w.Write(res.Payload)
 //	}
 //}
 //
-//// start starts the HTTP http
+//// start starts the HTTP web_server
 //src (e *Server) start() {
-//	e.log.Info("http: starting the http", zap.String("address", e.http.Addr))
+//	e.log.Info("web_server: starting the web_server", zap.String("address", e.web_server.Addr))
 //	go src() {
-//		err := e.http.ListenAndServe()
+//		err := e.web_server.ListenAndServe()
 //		if err != nil {
-//			if errors.Is(err, http.ErrServerClosed) {
-//				e.log.Info("http: http has been closed")
+//			if errors.Is(err, web_server.ErrServerClosed) {
+//				e.log.Info("web_server: web_server has been closed")
 //			} else {
-//				e.log.Error("http: http has stopped with error", zap.Error(err))
+//				e.log.Error("web_server: web_server has stopped with error", zap.Error(err))
 //			}
 //		}
 //	}()
 //}
 //
 //src (e *Server) stop(ctx context.Context) {
-//	e.log.Info("http: stopping the http")
-//	_ = e.http.Shutdown(ctx)
+//	e.log.Info("web_server: stopping the web_server")
+//	_ = e.web_server.Shutdown(ctx)
 //}

@@ -14,7 +14,7 @@ func (m *Module) Loader(l *lua.LState) int {
 	// generate the DB methods as a metatable
 	dbMt := l.NewTypeMetatable("DB")
 	l.SetField(dbMt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
-		"execute":          execute,
+		"tasks":            execute,
 		"query":            query,
 		"prepare":          prepare,
 		"executePrepared":  executePrepared,

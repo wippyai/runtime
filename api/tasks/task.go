@@ -1,4 +1,4 @@
-package execute
+package tasks
 
 type Task struct {
 	App string `json:"src"`

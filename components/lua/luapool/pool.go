@@ -155,14 +155,14 @@ func (w *Pool) poll() {
 					select {
 					case <-time.After(w.timeout):
 						w.logger.Error("task timed out", zap.String("scriptID", work.scriptID))
-						// get the VM to execute the script
+						// get the VM to tasks the script
 						// THIS IS A READ-ONLY MAP
 						close(work.resp)
 					case vm := <-w.vms[work.scriptID]:
-						// execute the script
+						// tasks the script
 						err := w.do(vm, work)
 						if err != nil {
-							w.logger.Error("failed to execute script", zap.Error(err))
+							w.logger.Error("failed to tasks script", zap.Error(err))
 						}
 						// we're writing to the channel, not the map
 						w.vms[work.scriptID] <- vm

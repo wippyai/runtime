@@ -1,5 +1,5 @@
 // Package futures provides a simple queue for tasks that are awaiting completion.
-package exec
+package tasks
 
 import (
 	"context"
