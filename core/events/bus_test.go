@@ -425,3 +425,51 @@ func TestMultipleSubscribersSameSystemPath(t *testing.T) {
 	<-ch1
 	<-ch2
 }
+
+func TestMultipleSubscribersDifferentKinds(t *testing.T) {
+	b := NewBus(zap.NewNop())
+	defer b.Stop()
+
+	ch1 := make(chan events.Event, 10)
+	ch2 := make(chan events.Event, 10)
+
+	_, err := b.SubscribeP(context.Background(), "test-system", "users.*", ch1)
+	require.NoError(t, err)
+
+	_, err = b.SubscribeP(context.Background(), "test-system", "posts.*", ch2)
+	require.NoError(t, err)
+
+	// Send events that match different paths
+	userEvent := newTestEvent("test-system", "users.created", "user-data")
+	postEvent := newTestEvent("test-system", "posts.created", "post-data")
+	otherEvent := newTestEvent("test-system", "other.created", "other-data")
+
+	b.Send(context.Background(), userEvent)
+	b.Send(context.Background(), postEvent)
+	b.Send(context.Background(), otherEvent)
+
+	// Verify only user subscriber receives user event
+	select {
+	case evt := <-ch1:
+		require.Equal(t, userEvent, evt)
+	case <-time.After(100 * time.Millisecond):
+		t.Error("user subscriber should have received user event")
+	}
+
+	// Verify only post subscriber receives post event
+	select {
+	case evt := <-ch2:
+		require.Equal(t, postEvent, evt)
+	case <-time.After(100 * time.Millisecond):
+		t.Error("post subscriber should have received post event")
+	}
+
+	select {
+	case <-ch1:
+		t.Error("user subscriber should not have received another event")
+	case <-ch2:
+		t.Error("post subscriber should not have received another event")
+	case <-time.After(100 * time.Millisecond):
+		//OK
+	}
+}
