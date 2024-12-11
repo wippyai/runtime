@@ -23,10 +23,10 @@ type (
 	Metadata map[string]any
 
 	Entry struct {
-		ID    ID
-		Type  Type
-		Meta  Metadata
-		State payload.Payload
+		ID     ID
+		Type   Type
+		Meta   Metadata
+		Config payload.Payload
 	}
 
 	Action struct {
@@ -39,5 +39,3 @@ type (
 		Rollback(StateID) error
 	}
 )
-
-// todo: pass json
