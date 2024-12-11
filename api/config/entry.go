@@ -19,12 +19,12 @@ type (
 	StateID string
 
 	ID       string
-	Type     string
+	Kind     string
 	Metadata map[string]any
 
 	Entry struct {
 		ID     ID
-		Type   Type
+		Kind   Kind
 		Meta   Metadata
 		Config payload.Payload
 	}
