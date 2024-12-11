@@ -9,6 +9,8 @@ const (
 	Create events.Kind = "entry.create"
 	Update events.Kind = "entry.update"
 	Delete events.Kind = "entry.delete"
+	Accept events.Kind = "entry.accept"
+	Reject events.Kind = "entry.reject"
 )
 
 type (

@@ -1,0 +1,6 @@
+name: http.web_server
+type: server
+metadata:
+  comment: "Default http server."
+config:
+  listen: ":8080"

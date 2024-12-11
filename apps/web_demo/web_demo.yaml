@@ -1,0 +1,8 @@
+name: web_demo
+type: root
+metadata:
+  comment: "Simple declarative Web app with a single endpoint."
+config:
+  load:
+    - http: ./http/
+    - runtime: ./src/

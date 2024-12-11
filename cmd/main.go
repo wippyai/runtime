@@ -49,7 +49,7 @@ func main() {
 						},
 					},
 				},
-				Usage:  "start the Pony http",
+				Usage:  "start the Pony web_server",
 				Action: run,
 			},
 		},
@@ -78,13 +78,13 @@ func run(ctx *cli.Context) error {
 	// primary execution queue sub-core
 	queue := exec.NewQueue()
 
-	// http and all the ingress plugins and endpoints
+	// web_server and all the ingress plugins and endpoints
 	endpoints := component.NewHub(
-		zlog.Named("http"),
+		zlog.Named("web_server"),
 		queue,
 		component.Declaration{
 			ID:        http.Component,
-			Component: http.NewComponent(zlog.Named("http")),
+			Component: http.NewComponent(zlog.Named("web_server")),
 		},
 	)
 
@@ -98,7 +98,7 @@ func run(ctx *cli.Context) error {
 
 	// todo: fix this
 	cfgFilePath := ctx.Context.Value(pctx.CfgFilenameKey).(string)
-	zlog.Named("root").Info("Pony http is starting ", zap.String("chart", cfgFilePath))
+	zlog.Named("root").Info("Pony web_server is starting ", zap.String("chart", cfgFilePath))
 	_, err := json.LoadChangelogFile(cfgFilePath)
 	if err != nil {
 		return err
@@ -133,7 +133,7 @@ func run(ctx *cli.Context) error {
 
 	select {
 	case <-sigCh:
-		zlog.Info("received a signal to stop the http")
+		zlog.Info("received a signal to stop the web_server")
 		return nil
 	}
 }
