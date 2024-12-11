@@ -1,0 +1,3 @@
+boot:
+  - chart/get-time.yaml
+  - chart/endpoint.yaml

@@ -2,18 +2,14 @@ package payload
 
 import "encoding/json"
 
-type Header string
-
-const TypeHeader Header = "content-type"
-
 type Payload interface {
 	Type() string
 	Data() any
 }
 
 type payload struct {
-	data    any
-	headers map[Header]string
+	data  any
+	dType string
 }
 
 func (p *payload) Data() any {
@@ -21,18 +17,14 @@ func (p *payload) Data() any {
 }
 
 func (p *payload) Type() string {
-	return p.headers[TypeHeader]
+	return p.dType
 }
 
-func NewTypedPayload(data any, contentType string) Payload {
-	p := &payload{
-		data:    data,
-		headers: make(map[Header]string),
+func NewTypedPayload(data any, dataType string) Payload {
+	return &payload{
+		data:  data,
+		dType: dataType,
 	}
-
-	p.headers[TypeHeader] = contentType
-
-	return p
 }
 
 func NewJSON(data json.RawMessage) Payload {
