@@ -6,7 +6,7 @@ import (
 
 type (
 	Loader interface {
-		WithPrefix(ID) Loader
+		WithPrefix(Path) Loader
 		Load(...payload.Payload) error
 		Entries() []Entry
 		Reset()

@@ -10,7 +10,7 @@ import (
 )
 
 type trimmedEntry struct {
-	ID   config.ID
+	Path config.Path
 	Kind config.Kind
 	Meta config.Metadata
 }
@@ -32,7 +32,7 @@ func NewLoader(dtt payload.Transcoder) config.Loader {
 }
 
 // WithPrefix sets a prefix for the loader.
-func (l *loader) WithPrefix(prefix config.ID) config.Loader {
+func (l *loader) WithPrefix(prefix config.Path) config.Loader {
 	return &loader{
 		prefix:  string(prefix),
 		dtt:     l.dtt,
@@ -53,17 +53,17 @@ func (l *loader) Load(payloads ...payload.Payload) error {
 			return fmt.Errorf("failed to unmarshal payload as config.Entry: %w", err)
 		}
 
-		// Validate that ID and Kind are set
-		if entry.ID == "" {
-			return fmt.Errorf("missing ID in config entry")
+		// Validate that Path and Kind are set
+		if entry.Path == "" {
+			return fmt.Errorf("missing Path in config entry")
 		}
 		if entry.Kind == "" {
 			return fmt.Errorf("missing Kind in config entry")
 		}
 
-		fullID := l.getFullID(entry.ID)
+		fullID := l.getFullID(entry.Path)
 		l.entries[fullID] = config.Entry{
-			ID:     config.ID(fullID),
+			Path:   config.Path(fullID),
 			Kind:   entry.Kind,
 			Meta:   entry.Meta,
 			Config: p,
@@ -84,7 +84,7 @@ func (l *loader) Entries() []config.Entry {
 	}
 
 	sort.Slice(sortedEntries, func(i, j int) bool {
-		return sortedEntries[i].ID < sortedEntries[j].ID
+		return sortedEntries[i].Path < sortedEntries[j].Path
 	})
 
 	return sortedEntries
@@ -98,8 +98,8 @@ func (l *loader) Reset() {
 	l.entries = make(map[string]config.Entry) // Create a new empty map
 }
 
-// getFullID constructs the full ID, including the prefix if set.
-func (l *loader) getFullID(id config.ID) string {
+// getFullID constructs the full Path, including the prefix if set.
+func (l *loader) getFullID(id config.Path) string {
 	if l.prefix == "" {
 		return string(id)
 	}

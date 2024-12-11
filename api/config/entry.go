@@ -18,12 +18,12 @@ const (
 type (
 	StateID string
 
-	ID       string
+	Path     string
 	Kind     string
 	Metadata map[string]any
 
 	Entry struct {
-		ID     ID
+		Path   Path
 		Kind   Kind
 		Meta   Metadata
 		Config payload.Payload
