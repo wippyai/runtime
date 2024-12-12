@@ -34,11 +34,6 @@ func (v Version) Minor() uint {
 	return v.minor
 }
 
-// Equals checks if two versions are equal.
-func (v Version) Equals(other registry.Version) bool {
-	return v.ID() == other.ID()
-}
-
 // String returns the formatted version string (e.g., "v00001.001").
 func (v Version) String() string {
 	return v.id

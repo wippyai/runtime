@@ -1,4 +1,4 @@
-package history
+package storage
 
 import (
 	"github.com/ponyruntime/pony/internal/version"
@@ -32,7 +32,7 @@ func TestMemoryHistory_Record_SingleAction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error getting current version: %v", err)
 	}
-	if !currentVersion.Equals(newVersion) {
+	if currentVersion.ID() != newVersion.ID() {
 		t.Errorf("current version does not match recorded version\ngot:  %v\nwant: %v", currentVersion, newVersion)
 	}
 
@@ -242,7 +242,7 @@ func TestMemoryHistory_Seek(t *testing.T) {
 				if err != nil {
 					t.Fatalf("unexpected error getting current version: %v", err)
 				}
-				if !current.Equals(tc.seekTo) {
+				if current.ID() != tc.seekTo.ID() {
 					t.Errorf("current version is %v, expected %v", current, tc.seekTo)
 				}
 			} else {
