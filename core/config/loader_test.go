@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
 
@@ -14,6 +15,13 @@ import (
 	"github.com/ponyruntime/pony/core/payload/json"
 	"github.com/ponyruntime/pony/core/payload/yaml"
 )
+
+// Helper function to sort entries by Path for easier comparison in tests
+func sortEntriesByID(entries []config.Entry) {
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].Path < entries[j].Path
+	})
+}
 
 // createDefaultTranscoder creates a default dtt with JSON and YAML support
 func createDefaultTranscoder() payload.Transcoder {
@@ -417,9 +425,216 @@ func TestLoader_Load_EmptyPayload(t *testing.T) {
 	}
 }
 
-// Helper function to sort entries by Path for easier comparison in tests
-func sortEntriesByID(entries []config.Entry) {
-	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].Path < entries[j].Path
-	})
+func TestLoader_Load_WithVariables(t *testing.T) {
+	dtt := createDefaultTranscoder()
+	vars := Variables{
+		"PORT":    "8080",
+		"ENV":     "production",
+		"API_KEY": "secret123",
+	}
+
+	l := NewLoader(dtt, WithVariables(vars))
+
+	yamlData := `
+path: web-server
+kind: http.server
+meta:
+  port: ${PORT}
+  env: ${ENV}
+  api_key: ${API_KEY}
+  unresolved: ${MISSING_VAR}
+`
+	p := payload.NewPayload(yamlData, payload.Yaml)
+
+	err := l.Load(p)
+	if err != nil {
+		t.Fatalf("unexpected error during Load: %v", err)
+	}
+
+	entries := l.Entries()
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(entries))
+	}
+
+	meta := entries[0].Meta
+	if meta["port"] != "8080" {
+		t.Errorf("port not interpolated, got %v", meta["port"])
+	}
+	if meta["env"] != "production" {
+		t.Errorf("env not interpolated, got %v", meta["env"])
+	}
+	if meta["api_key"] != "secret123" {
+		t.Errorf("api_key not interpolated, got %v", meta["api_key"])
+	}
+	if meta["unresolved"] != "${MISSING_VAR}" {
+		t.Errorf("unresolved var modified, got %v", meta["unresolved"])
+	}
+}
+
+type mockFS map[string]string
+
+func (m mockFS) ReadFile(path string) ([]byte, error) {
+	if data, ok := m[path]; ok {
+		return []byte(data), nil
+	}
+	return nil, fmt.Errorf("file not found: %s", path)
+}
+
+func TestLoader_Load_WithFileReader(t *testing.T) {
+	dtt := createDefaultTranscoder()
+	fs := mockFS{
+		"handlers/time.lua": `function handle(req)
+    return os.time()
+end`,
+		"handlers/echo.lua": `function handle(req)
+    return req.body
+end`,
+	}
+
+	l := NewLoader(dtt, WithFileReader(fs))
+
+	// Test missing file case first
+	missingFileYAML := `
+path: missing-handler
+kind: lua.function
+meta:
+  name: missing
+source: file://handlers/missing.lua
+`
+	p := payload.NewPayload(missingFileYAML, payload.Yaml)
+	err := l.Load(p)
+	if err == nil {
+		t.Fatal("expected error for missing file, got nil")
+	}
+	if !strings.Contains(err.Error(), "reading file") {
+		t.Errorf("expected error about reading file, got: %v", err)
+	}
+
+	// Test successful load
+	validYAML := `
+path: time-handler
+kind: lua.function
+meta:
+  name: time
+source: file://handlers/time.lua
+`
+	p = payload.NewPayload(validYAML, payload.Yaml)
+	err = l.Load(p)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	entries := l.Entries()
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(entries))
+	}
+
+	if entries[0].Meta["name"] != "time" {
+		t.Errorf("wrong name in metadata, got %v", entries[0].Meta["name"])
+	}
+}
+
+func TestLoader_Load_JSON(t *testing.T) {
+	dtt := createDefaultTranscoder()
+	l := NewLoader(dtt)
+
+	jsonData := `{
+		"path": "test",
+		"kind": "test-kind",
+		"meta": {
+			"key": "value",
+			"number": 123,
+			"nested": {
+				"inner": "value"
+			}
+		}
+	}`
+	p := payload.NewPayload(jsonData, payload.Json)
+
+	err := l.Load(p)
+	if err != nil {
+		t.Fatalf("unexpected error loading JSON: %v", err)
+	}
+
+	entries := l.Entries()
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(entries))
+	}
+
+	entry := entries[0]
+	if entry.Path != "test" {
+		t.Errorf("expected path 'test', got %s", entry.Path)
+	}
+	if entry.Kind != "test-kind" {
+		t.Errorf("expected kind 'test-kind', got %s", entry.Kind)
+	}
+
+	meta := entry.Meta
+	if meta["key"] != "value" {
+		t.Errorf("expected meta key 'value', got %v", meta["key"])
+	}
+	if meta["number"].(float64) != 123 {
+		t.Errorf("expected meta number 123, got %v", meta["number"])
+	}
+
+	nested, ok := meta["nested"].(map[string]interface{})
+	if !ok {
+		t.Fatal("nested object not properly parsed")
+	}
+	if nested["inner"] != "value" {
+		t.Errorf("expected nested inner 'value', got %v", nested["inner"])
+	}
+}
+
+func TestLoader_ConcurrentAccess(t *testing.T) {
+	dtt := createDefaultTranscoder()
+	l := NewLoader(dtt)
+	var wg sync.WaitGroup
+
+	// Concurrent writes
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			yamlData := fmt.Sprintf(`
+path: entry-%d
+kind: test
+meta:
+  value: %d
+`, i, i)
+			p := payload.NewPayload(yamlData, payload.Yaml)
+			err := l.Load(p)
+			if err != nil {
+				t.Errorf("concurrent write failed: %v", err)
+			}
+		}(i)
+	}
+
+	// Concurrent reads while writing
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			entries := l.Entries()
+			// Just accessing entries should not panic
+			_ = len(entries)
+		}()
+	}
+
+	wg.Wait()
+
+	// Verify final state
+	entries := l.Entries()
+	if len(entries) != 10 {
+		t.Errorf("expected 10 entries, got %d", len(entries))
+	}
+
+	// Verify entries are unique and contain expected values
+	seen := make(map[config.Path]bool)
+	for _, entry := range entries {
+		if seen[entry.Path] {
+			t.Errorf("duplicate entry found: %s", entry.Path)
+		}
+		seen[entry.Path] = true
+	}
 }
