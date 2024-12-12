@@ -5,81 +5,68 @@ import (
 	"sync"
 
 	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/internal/version"
 )
 
-// MemoryHistory is an in-memory implementation of the History interface.
-type MemoryHistory struct {
-	versions  []registry.Version
-	actions   map[registry.Version][]registry.Action
-	current   registry.Version
-	lastMajor uint
-	mutex     sync.RWMutex
+// MemoryStorage is an in-memory implementation of the registry.Storage interface.
+type MemoryStorage struct {
+	versions map[uint]registry.Version // Use map for efficient lookup
+	actions  map[uint]registry.OperationSet
+	mutex    sync.RWMutex
 }
 
-// NewMemory creates a new MemoryHistory.
-func NewMemory() *MemoryHistory {
-	initialVersion := version.New(1, 0) // Start at v1.0
-	return &MemoryHistory{
-		versions:  []registry.Version{initialVersion},
-		actions:   make(map[registry.Version][]registry.Action),
-		current:   initialVersion,
-		lastMajor: 0,
+// NewMemory creates a new MemoryStorage.
+func NewMemory() *MemoryStorage {
+	return &MemoryStorage{
+		versions: map[uint]registry.Version{},
+		actions:  make(map[uint]registry.OperationSet),
 	}
 }
 
 // Versions returns a list of all versions in the storage.
-func (h *MemoryHistory) Versions() ([]registry.Version, error) {
-	h.mutex.RLock()
-	defer h.mutex.RUnlock()
+func (m *MemoryStorage) Versions() ([]registry.Version, error) {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
 
-	versionsCopy := make([]registry.Version, len(h.versions))
-	copy(versionsCopy, h.versions)
-	return versionsCopy, nil
+	versions := make([]registry.Version, 0, len(m.versions))
+	for _, v := range m.versions {
+		versions = append(versions, v)
+	}
+	return versions, nil
 }
 
-// Current returns the current version.
-func (h *MemoryHistory) Current() (registry.Version, error) {
-	h.mutex.RLock()
-	defer h.mutex.RUnlock()
-	return h.current, nil
-}
+// Get returns the OperationSet associated with a specific version.
+func (m *MemoryStorage) Get(version registry.Version) (registry.OperationSet, error) {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
 
-// Seek sets the current version to the specified version.
-func (h *MemoryHistory) Seek(to registry.Version) error {
-	h.mutex.Lock()
-	defer h.mutex.Unlock()
-
-	if !h.versionExists(to) {
-		return fmt.Errorf("version not found: %s", to)
+	actions, ok := m.actions[version.ID()]
+	if !ok {
+		return nil, fmt.Errorf("version not found: %s", version)
 	}
 
-	h.current = to
-	return nil
+	// Return a copy to prevent external modification
+	actionsCopy := make(registry.OperationSet, len(actions))
+	copy(actionsCopy, actions)
+	return actionsCopy, nil
 }
 
-// Record records a set of actions and creates a new version.
-func (h *MemoryHistory) Record(actions ...registry.Action) (registry.Version, error) {
-	h.mutex.Lock()
-	defer h.mutex.Unlock()
-
-	// Determine the new version
-	newVersion := version.New(h.lastMajor+1, uint(len(actions)))
-	h.lastMajor++
+// Save records a set of actions and creates a new version.
+func (m *MemoryStorage) Save(newVersion registry.Version, actions registry.OperationSet) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
 
 	// Validate actions - ensure no conflicts for Create within this set of actions
 	createdPaths := make(map[registry.Path]bool)
 	for _, action := range actions {
 		if action.Kind == registry.Create {
 			if _, exists := createdPaths[action.Entry.Path]; exists {
-				return nil, fmt.Errorf("conflict: multiple create actions for path '%s' in the same version", action.Entry.Path)
+				return fmt.Errorf("conflict: multiple create actions for path '%s' in the same version", action.Entry.Path)
 			}
 			createdPaths[action.Entry.Path] = true
 		}
 	}
 
-	// Clone actions to prevent external modification
-	clonedActions := make([]registry.Action, len(actions))
+	clonedActions := make(registry.OperationSet, len(actions))
 	for i, action := range actions {
 		clonedActions[i] = registry.Action{
 			Kind: action.Kind,
@@ -92,34 +79,7 @@ func (h *MemoryHistory) Record(actions ...registry.Action) (registry.Version, er
 		}
 	}
 
-	h.actions[newVersion] = clonedActions
-	h.versions = append(h.versions, newVersion)
-	h.current = newVersion
-
-	return newVersion, nil
-}
-
-// GetActions returns the actions associated with a specific version.
-func (h *MemoryHistory) GetActions(version registry.Version) ([]registry.Action, error) {
-	h.mutex.RLock()
-	defer h.mutex.RUnlock()
-
-	actions, ok := h.actions[version]
-	if !ok {
-		return nil, fmt.Errorf("version not found: %s", version)
-	}
-
-	actionsCopy := make([]registry.Action, len(actions))
-	copy(actionsCopy, actions)
-	return actionsCopy, nil
-}
-
-// versionExists checks if a version exists in the storage.
-func (h *MemoryHistory) versionExists(version registry.Version) bool {
-	for _, v := range h.versions {
-		if v.ID() == version.ID() {
-			return true
-		}
-	}
-	return false
+	m.actions[newVersion.ID()] = actions
+	m.versions[newVersion.ID()] = newVersion
+	return nil
 }

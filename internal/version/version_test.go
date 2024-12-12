@@ -1,7 +1,6 @@
 package version
 
 import (
-	"github.com/ponyruntime/pony/api/registry"
 	"testing"
 )
 
@@ -10,64 +9,33 @@ func TestVersion(t *testing.T) {
 		name     string
 		v1       Version
 		v2       Version
-		v1ID     string
-		v1PrevID string
+		v1ID     uint
+		v1PrevID uint
+		v1String string
 	}{
 		{
 			name:     "Equal versions",
-			v1:       New(1, 2),
-			v2:       New(1, 2),
-			v1ID:     "v00001.002",
-			v1PrevID: "",
-		},
-		{
-			name:     "v1 less than v2 (major)",
-			v1:       New(1, 2),
-			v2:       New(2, 0),
-			v1ID:     "v00001.002",
-			v1PrevID: "",
-		},
-		{
-			name:     "v1 less than v2 (minor)",
-			v1:       New(1, 2),
-			v2:       New(1, 3),
-			v1ID:     "v00001.002",
-			v1PrevID: "",
-		},
-		{
-			name:     "v1 greater than v2 (major)",
-			v1:       New(2, 2),
-			v2:       New(1, 5),
-			v1ID:     "v00002.002",
-			v1PrevID: "",
-		},
-		{
-			name:     "v1 greater than v2 (minor)",
-			v1:       New(1, 5),
-			v2:       New(1, 2),
-			v1ID:     "v00001.005",
-			v1PrevID: "",
+			v1:       New(1),
+			v2:       New(1),
+			v1ID:     1,
+			v1PrevID: 0,
+			v1String: "v1",
 		},
 		{
 			name:     "Large numbers",
-			v1:       New(12345, 678),
-			v2:       New(12345, 678),
-			v1ID:     "v12345.678",
-			v1PrevID: "",
-		},
-		{
-			name:     "v1 less than v2 (large minor)",
-			v1:       New(1, 999),
-			v2:       New(2, 0),
-			v1ID:     "v00001.999",
-			v1PrevID: "",
+			v1:       New(12345),
+			v2:       New(12345),
+			v1ID:     12345,
+			v1PrevID: 0,
+			v1String: "v12345",
 		},
 		{
 			name:     "FromParent",
-			v1:       FromParent(New(1, 2), 2, 3),
-			v2:       New(2, 3),
-			v1ID:     "v00002.003",
-			v1PrevID: "v00001.002",
+			v1:       FromParent(New(1), 2),
+			v2:       New(2),
+			v1ID:     2,
+			v1PrevID: 1,
+			v1String: "v2",
 		},
 	}
 
@@ -83,15 +51,9 @@ func TestVersion(t *testing.T) {
 				t.Errorf("Expected PreviousID() for %v to be %v, got %v", tc.v1, tc.v1PrevID, v1PrevID)
 			}
 
-			// Test Interface Compliance (using v1)
-			var v1Interface registry.Version = tc.v1
-
-			if id := v1Interface.ID(); id != tc.v1.id {
-				t.Errorf("Interface: Expected ID() to be %v, got %v", tc.v1.id, id)
-			}
-
-			if prevID := v1Interface.PreviousID(); prevID != tc.v1PrevID {
-				t.Errorf("Interface: Expected PreviousID() to be %v, got %v", tc.v1PrevID, prevID)
+			// Test String
+			if v1String := tc.v1.String(); v1String != tc.v1String {
+				t.Errorf("Expected String() for %v to be %v, got %v", tc.v1, tc.v1String, v1String)
 			}
 		})
 	}

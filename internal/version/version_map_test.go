@@ -11,9 +11,9 @@ import (
 
 // TestVersionMap_Path_Simple tests a simple linear path.
 func TestVersionMap_Path_Simple(t *testing.T) {
-	v1 := New(1, 0)
-	v2 := FromParent(v1, 1, 1)
-	v3 := FromParent(v2, 1, 2)
+	v1 := New(1)
+	v2 := FromParent(v1, 2)
+	v3 := FromParent(v2, 3)
 
 	vm := NewVersions()
 	vm.Add(v1)
@@ -32,9 +32,9 @@ func TestVersionMap_Path_Simple(t *testing.T) {
 
 // TestVersionMap_Path_Backwards tests a path going backward in time.
 func TestVersionMap_Path_Backwards(t *testing.T) {
-	v1 := New(1, 0)
-	v2 := FromParent(v1, 1, 1)
-	v3 := FromParent(v2, 1, 2)
+	v1 := New(1)
+	v2 := FromParent(v1, 2)
+	v3 := FromParent(v2, 3)
 
 	vm := NewVersions()
 	vm.Add(v1)
@@ -54,10 +54,10 @@ func TestVersionMap_Path_Backwards(t *testing.T) {
 
 // TestVersionMap_Path_Branches tests a path across branches.
 func TestVersionMap_Path_Branches(t *testing.T) {
-	v1 := New(1, 0)
-	v2 := FromParent(v1, 1, 1)
-	v3 := FromParent(v2, 1, 2)
-	v4 := FromParent(v2, 2, 0) // v4 branches from v2
+	v1 := New(1)
+	v2 := FromParent(v1, 2)
+	v3 := FromParent(v2, 3)
+	v4 := FromParent(v2, 4) // v4 branches from v2
 
 	vm := NewVersions()
 	vm.Add(v1)
@@ -78,11 +78,11 @@ func TestVersionMap_Path_Branches(t *testing.T) {
 
 func TestVersionMap(t *testing.T) {
 	// Create some versions.
-	v1 := New(1, 0)
-	v2 := FromParent(v1, 1, 1)
-	v3 := FromParent(v2, 1, 2)
-	v4 := FromParent(v3, 1, 3)
-	v5 := FromParent(v2, 2, 0) // v5 branches from v2
+	v1 := New(1)
+	v2 := FromParent(v1, 2)
+	v3 := FromParent(v2, 3)
+	v4 := FromParent(v3, 4)
+	v5 := FromParent(v2, 5) // v5 branches from v2
 
 	// Test Cases
 	testCases := []struct {
@@ -147,7 +147,7 @@ func TestVersionMap(t *testing.T) {
 			from:        v2,
 			to:          v1,
 			expected:    nil,
-			expectError: fmt.Errorf("version %s not found", v2.ID()),
+			expectError: fmt.Errorf("version %v not found", v2.ID()),
 		},
 		{
 			name: "To version not found",
@@ -157,16 +157,16 @@ func TestVersionMap(t *testing.T) {
 			from:        v1,
 			to:          v2,
 			expected:    nil,
-			expectError: fmt.Errorf("version %s not found", v2.ID()),
+			expectError: fmt.Errorf("version %v not found", v2.ID()),
 		},
 		{
 			name: "No path exists",
 			setup: func(vm registry.VersionHistory) {
 				vm.Add(v1)
-				vm.Add(New(2, 0)) // Create an unrelated version
+				vm.Add(New(2)) // Create an unrelated version
 			},
 			from:        v1,
-			to:          New(2, 0),
+			to:          New(2),
 			expected:    nil,
 			expectError: errors.New("no path found"),
 		},
@@ -187,7 +187,7 @@ func TestVersionMap(t *testing.T) {
 			from:        v1,
 			to:          v1,
 			expected:    nil,
-			expectError: fmt.Errorf("version %s not found", v1.ID()),
+			expectError: fmt.Errorf("version %v not found", v1.ID()),
 		},
 		{
 			name: "Len of empty version map",
@@ -246,7 +246,7 @@ func TestVersionMap(t *testing.T) {
 				}
 			case "Range over versions":
 				var got []registry.Version
-				vm.Range(func(id string, v registry.Version) bool {
+				vm.Range(func(id uint, v registry.Version) bool {
 					got = append(got, v)
 					return true
 				})
