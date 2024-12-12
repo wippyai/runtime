@@ -8,15 +8,14 @@ import (
 	"testing"
 
 	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
+	reg "github.com/ponyruntime/pony/api/registry"
 	transcoder "github.com/ponyruntime/pony/core/payload"
-
 	"github.com/ponyruntime/pony/core/payload/json"
 	"github.com/ponyruntime/pony/core/payload/yaml"
 )
 
 // Helper function to sort entries by Path for easier comparison in tests
-func sortEntriesByID(entries []registry.Entry) {
+func sortEntriesByID(entries []reg.Entry) {
 	sort.Slice(entries, func(i, j int) bool {
 		return entries[i].Path < entries[j].Path
 	})
@@ -67,10 +66,10 @@ meta:
 		t.Fatalf("expected 1 entry, got %d", len(entries))
 	}
 
-	expectedEntry := registry.Entry{
+	expectedEntry := reg.Entry{
 		Path: "test",
 		Kind: "test-kind",
-		Meta: registry.Metadata{"key": "value"},
+		Meta: reg.Metadata{"key": "value"},
 		Data: p,
 	}
 
@@ -109,9 +108,9 @@ meta:
 		t.Fatalf("expected 2 entries, got %d", len(entries))
 	}
 
-	expectedEntries := []registry.Entry{
-		{Path: "entry1", Kind: "kind1", Meta: registry.Metadata{"k1": "v1"}, Data: p1},
-		{Path: "entry2", Kind: "kind2", Meta: registry.Metadata{"k2": "v2"}, Data: p2},
+	expectedEntries := []reg.Entry{
+		{Path: "entry1", Kind: "kind1", Meta: reg.Metadata{"k1": "v1"}, Data: p1},
+		{Path: "entry2", Kind: "kind2", Meta: reg.Metadata{"k2": "v2"}, Data: p2},
 	}
 
 	// We need to sort entries for comparison as the order they are loaded in is not guaranteed to be the same order they appear in the entries map
@@ -147,10 +146,10 @@ meta:
 		t.Fatalf("expected 1 entry, got %d", len(entries))
 	}
 
-	expectedEntry := registry.Entry{
+	expectedEntry := reg.Entry{
 		Path: "prefix.my-entry", // Path should have the prefix
 		Kind: "my-kind",
-		Meta: registry.Metadata{"my-key": "my-value"},
+		Meta: reg.Metadata{"my-key": "my-value"},
 		Data: p,
 	}
 
@@ -266,7 +265,7 @@ meta:
 		t.Fatalf("expected an error during Load with invalid format, but got nil")
 	}
 
-	expectedErrorMsg := "failed to unmarshal payload as registry.Entry"
+	expectedErrorMsg := "failed to unmarshal payload as reg.Entry"
 	if err.Error()[:len(expectedErrorMsg)] != expectedErrorMsg {
 		t.Errorf("unexpected error message\ngot:  %s\nwant: %s", err.Error(), expectedErrorMsg)
 	}
@@ -287,7 +286,7 @@ meta:
 	if err1 == nil {
 		t.Fatalf("expected an error due to missing Path, but got nil")
 	}
-	expectedErrorMsg1 := "missing Path in registry entry" // Correct error message
+	expectedErrorMsg1 := "missing Path in reg entry" // Correct error message
 	if err1.Error() != expectedErrorMsg1 {
 		t.Errorf("unexpected error message for missing Path\ngot:  %s\nwant: %s", err1.Error(), expectedErrorMsg1)
 	}
@@ -303,7 +302,7 @@ meta:
 	if err2 == nil {
 		t.Fatalf("expected an error due to missing Kind, but got nil")
 	}
-	expectedErrorMsg2 := "missing Kind in registry entry" // Correct error message
+	expectedErrorMsg2 := "missing Kind in reg entry" // Correct error message
 	if err2.Error() != expectedErrorMsg2 {
 		t.Errorf("unexpected error message for missing Kind\ngot:  %s\nwant: %s", err2.Error(), expectedErrorMsg2)
 	}
@@ -370,11 +369,11 @@ meta:
 		t.Fatalf("expected 1 entry, got %d", len(entries))
 	}
 
-	expectedEntry := registry.Entry{
+	expectedEntry := reg.Entry{
 		Path: "dup-entry",
-		Kind: "kind2",                            // Kind from the second payload
-		Meta: registry.Metadata{"key": "value2"}, // Meta from the second payload
-		Data: p2,                                 // Data from the second payload
+		Kind: "kind2",                       // Kind from the second payload
+		Meta: reg.Metadata{"key": "value2"}, // Meta from the second payload
+		Data: p2,                            // Data from the second payload
 	}
 
 	if entries[0].Path != expectedEntry.Path || entries[0].Kind != expectedEntry.Kind || !reflect.DeepEqual(entries[0].Meta, expectedEntry.Meta) {
@@ -520,7 +519,7 @@ meta:
 	}
 
 	// Verify entries are unique and contain expected values
-	seen := make(map[registry.Path]bool)
+	seen := make(map[reg.Path]bool)
 	for _, entry := range entries {
 		if seen[entry.Path] {
 			t.Errorf("duplicate entry found: %s", entry.Path)

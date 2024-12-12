@@ -40,14 +40,13 @@ type (
 		Add(v Version) error
 
 		// Range iterates over the versions.
-		Range(f func(id string, v Version) bool)
+		Range(f func(id uint, v Version) bool)
 	}
 
 	Version interface {
-		ID() string
-		PreviousID() string // empty for root version
-		Major() uint
-		Minor() uint
+		ID() uint
+		PreviousID() uint // empty for root version
+		String() string
 	}
 
 	State []Entry
@@ -97,3 +96,15 @@ type (
 		Reset()
 	}
 )
+
+func (os *OperationSet) Create(entry Entry) {
+	*os = append(*os, Action{Kind: Create, Entry: entry})
+}
+
+func (os *OperationSet) Update(entry Entry) {
+	*os = append(*os, Action{Kind: Update, Entry: entry})
+}
+
+func (os *OperationSet) Delete(path Path) {
+	*os = append(*os, Action{Kind: Delete, Entry: Entry{Path: path}})
+}
