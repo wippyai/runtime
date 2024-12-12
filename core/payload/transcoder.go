@@ -156,6 +156,10 @@ func (t *Transcoder) findUnmarshalPath(from graph.Node) (*graph.Path, error) {
 
 // Unmarshal unmarshals a payload into a given struct.
 func (t *Transcoder) Unmarshal(p payload.Payload, v interface{}) error {
+	if p.Format() == "" {
+		return fmt.Errorf("payload format is empty")
+	}
+
 	fromNode := graph.Node(p.Format())
 
 	// Check if the current format has a direct unmarshaler

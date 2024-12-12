@@ -4,8 +4,10 @@ metadata:
   name: web_server-time-handler
 
 runtime: lua
-source: file://src/web_server/http_time.lua
+source: file://http_time.lua
 method: main
 extensions:
   - web_server
   - json
+env:
+  - API_KEY:${API_KEY}
