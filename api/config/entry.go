@@ -38,4 +38,11 @@ type (
 		Apply(...Action) (StateID, error)
 		Rollback(StateID) error
 	}
+
+	Loader interface {
+		WithPrefix(Path) Loader
+		Load(...payload.Payload) error
+		Entries() []Entry
+		Reset()
+	}
 )
