@@ -15,6 +15,7 @@ import (
 	"github.com/ponyruntime/pony/exec"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	httpM "github.com/ponyruntime/pony/runtime/lua/modules/http"
+	httphM "github.com/ponyruntime/pony/runtime/lua/modules/http_handler"
 	jsonM "github.com/ponyruntime/pony/runtime/lua/modules/json"
 	"go.uber.org/zap"
 )
@@ -90,6 +91,8 @@ func (r *Runtime) ListenEvents() {
 							r.log.Debug("preloading module", zap.Any("extension", ext))
 							// todo: muse be isolated and dynamic
 							switch ext {
+							case "http_handler":
+								le.L.PreloadModule("http_handler", httphM.New(r.log.Named("http_handler")).Loader)
 							case "http":
 								le.L.PreloadModule("http", httpM.NewHTTPModule(&http.Client{}, r.log.Named(fmt.Sprintf("%s:%s", id, "http"))).Loader)
 							case "json":
@@ -150,6 +153,7 @@ func (r *Runtime) Process() {
 		// todo: expect some routing from the handler side
 		app := r.apps[v.App]
 
+		// TODO: handler_code is not a good name
 		err := app.eng.DoString(app.code, "handler_code")
 		if err != nil {
 			r.log.Error("failed to execute the handler", zap.Error(err))
