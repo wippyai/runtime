@@ -160,11 +160,11 @@ func (r *Hub) onConfigurationChange(ctx context.Context, e events.Event) {
 		for _, state := range r.changes.states() {
 			cmp, ok := r.components[state.component]
 			if !ok {
-				r.log.Warn("config/components mismatch", zap.Any("type", e.Kind()))
+				r.log.Warn("registry/components mismatch", zap.Any("type", e.Kind()))
 				continue
 			}
 
-			r.log.Debug("apply components config", zap.Any("components", state.component))
+			r.log.Debug("apply components registry", zap.Any("components", state.component))
 
 			cset := state.changes
 			if cset == nil {

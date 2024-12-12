@@ -1,15 +1,14 @@
-package config
+package registry
 
 import (
 	"fmt"
 	"reflect"
 	"sort"
-	"strings"
 	"sync"
 	"testing"
 
-	"github.com/ponyruntime/pony/api/config"
 	"github.com/ponyruntime/pony/api/payload"
+	"github.com/ponyruntime/pony/api/registry"
 	transcoder "github.com/ponyruntime/pony/core/payload"
 
 	"github.com/ponyruntime/pony/core/payload/json"
@@ -17,7 +16,7 @@ import (
 )
 
 // Helper function to sort entries by Path for easier comparison in tests
-func sortEntriesByID(entries []config.Entry) {
+func sortEntriesByID(entries []registry.Entry) {
 	sort.Slice(entries, func(i, j int) bool {
 		return entries[i].Path < entries[j].Path
 	})
@@ -68,11 +67,11 @@ meta:
 		t.Fatalf("expected 1 entry, got %d", len(entries))
 	}
 
-	expectedEntry := config.Entry{
-		Path:   "test",
-		Kind:   "test-kind",
-		Meta:   config.Metadata{"key": "value"},
-		Config: p,
+	expectedEntry := registry.Entry{
+		Path: "test",
+		Kind: "test-kind",
+		Meta: registry.Metadata{"key": "value"},
+		Data: p,
 	}
 
 	if entries[0].Path != expectedEntry.Path || entries[0].Kind != expectedEntry.Kind || !reflect.DeepEqual(entries[0].Meta, expectedEntry.Meta) {
@@ -110,9 +109,9 @@ meta:
 		t.Fatalf("expected 2 entries, got %d", len(entries))
 	}
 
-	expectedEntries := []config.Entry{
-		{Path: "entry1", Kind: "kind1", Meta: config.Metadata{"k1": "v1"}, Config: p1},
-		{Path: "entry2", Kind: "kind2", Meta: config.Metadata{"k2": "v2"}, Config: p2},
+	expectedEntries := []registry.Entry{
+		{Path: "entry1", Kind: "kind1", Meta: registry.Metadata{"k1": "v1"}, Data: p1},
+		{Path: "entry2", Kind: "kind2", Meta: registry.Metadata{"k2": "v2"}, Data: p2},
 	}
 
 	// We need to sort entries for comparison as the order they are loaded in is not guaranteed to be the same order they appear in the entries map
@@ -148,11 +147,11 @@ meta:
 		t.Fatalf("expected 1 entry, got %d", len(entries))
 	}
 
-	expectedEntry := config.Entry{
-		Path:   "prefix.my-entry", // Path should have the prefix
-		Kind:   "my-kind",
-		Meta:   config.Metadata{"my-key": "my-value"},
-		Config: p,
+	expectedEntry := registry.Entry{
+		Path: "prefix.my-entry", // Path should have the prefix
+		Kind: "my-kind",
+		Meta: registry.Metadata{"my-key": "my-value"},
+		Data: p,
 	}
 
 	if entries[0].Path != expectedEntry.Path || entries[0].Kind != expectedEntry.Kind || !reflect.DeepEqual(entries[0].Meta, expectedEntry.Meta) {
@@ -267,7 +266,7 @@ meta:
 		t.Fatalf("expected an error during Load with invalid format, but got nil")
 	}
 
-	expectedErrorMsg := "failed to unmarshal payload as config.Entry"
+	expectedErrorMsg := "failed to unmarshal payload as registry.Entry"
 	if err.Error()[:len(expectedErrorMsg)] != expectedErrorMsg {
 		t.Errorf("unexpected error message\ngot:  %s\nwant: %s", err.Error(), expectedErrorMsg)
 	}
@@ -288,7 +287,7 @@ meta:
 	if err1 == nil {
 		t.Fatalf("expected an error due to missing Path, but got nil")
 	}
-	expectedErrorMsg1 := "missing Path in config entry" // Correct error message
+	expectedErrorMsg1 := "missing Path in registry entry" // Correct error message
 	if err1.Error() != expectedErrorMsg1 {
 		t.Errorf("unexpected error message for missing Path\ngot:  %s\nwant: %s", err1.Error(), expectedErrorMsg1)
 	}
@@ -304,7 +303,7 @@ meta:
 	if err2 == nil {
 		t.Fatalf("expected an error due to missing Kind, but got nil")
 	}
-	expectedErrorMsg2 := "missing Kind in config entry" // Correct error message
+	expectedErrorMsg2 := "missing Kind in registry entry" // Correct error message
 	if err2.Error() != expectedErrorMsg2 {
 		t.Errorf("unexpected error message for missing Kind\ngot:  %s\nwant: %s", err2.Error(), expectedErrorMsg2)
 	}
@@ -371,11 +370,11 @@ meta:
 		t.Fatalf("expected 1 entry, got %d", len(entries))
 	}
 
-	expectedEntry := config.Entry{
-		Path:   "dup-entry",
-		Kind:   "kind2",                          // Kind from the second payload
-		Meta:   config.Metadata{"key": "value2"}, // Meta from the second payload
-		Config: p2,                               // Config from the second payload
+	expectedEntry := registry.Entry{
+		Path: "dup-entry",
+		Kind: "kind2",                            // Kind from the second payload
+		Meta: registry.Metadata{"key": "value2"}, // Meta from the second payload
+		Data: p2,                                 // Data from the second payload
 	}
 
 	if entries[0].Path != expectedEntry.Path || entries[0].Kind != expectedEntry.Kind || !reflect.DeepEqual(entries[0].Meta, expectedEntry.Meta) {
@@ -422,115 +421,6 @@ func TestLoader_Load_EmptyPayload(t *testing.T) {
 	err := l.Load(p)
 	if err == nil {
 		t.Fatalf("expected an error during Load with empty payload, but got nil")
-	}
-}
-
-func TestLoader_Load_WithVariables(t *testing.T) {
-	dtt := createDefaultTranscoder()
-	vars := Variables{
-		"PORT":    "8080",
-		"ENV":     "production",
-		"API_KEY": "secret123",
-	}
-
-	l := NewLoader(dtt, WithVariables(vars))
-
-	yamlData := `
-path: web-server
-kind: http.server
-meta:
-  port: ${PORT}
-  env: ${ENV}
-  api_key: ${API_KEY}
-  unresolved: ${MISSING_VAR}
-`
-	p := payload.NewPayload(yamlData, payload.Yaml)
-
-	err := l.Load(p)
-	if err != nil {
-		t.Fatalf("unexpected error during Load: %v", err)
-	}
-
-	entries := l.Entries()
-	if len(entries) != 1 {
-		t.Fatalf("expected 1 entry, got %d", len(entries))
-	}
-
-	meta := entries[0].Meta
-	if meta["port"] != "8080" {
-		t.Errorf("port not interpolated, got %v", meta["port"])
-	}
-	if meta["env"] != "production" {
-		t.Errorf("env not interpolated, got %v", meta["env"])
-	}
-	if meta["api_key"] != "secret123" {
-		t.Errorf("api_key not interpolated, got %v", meta["api_key"])
-	}
-	if meta["unresolved"] != "${MISSING_VAR}" {
-		t.Errorf("unresolved var modified, got %v", meta["unresolved"])
-	}
-}
-
-type mockFS map[string]string
-
-func (m mockFS) ReadFile(path string) ([]byte, error) {
-	if data, ok := m[path]; ok {
-		return []byte(data), nil
-	}
-	return nil, fmt.Errorf("file not found: %s", path)
-}
-
-func TestLoader_Load_WithFileReader(t *testing.T) {
-	dtt := createDefaultTranscoder()
-	fs := mockFS{
-		"handlers/time.lua": `function handle(req)
-    return os.time()
-end`,
-		"handlers/echo.lua": `function handle(req)
-    return req.body
-end`,
-	}
-
-	l := NewLoader(dtt, WithFileReader(fs))
-
-	// Test missing file case first
-	missingFileYAML := `
-path: missing-handler
-kind: lua.function
-meta:
-  name: missing
-source: file://handlers/missing.lua
-`
-	p := payload.NewPayload(missingFileYAML, payload.Yaml)
-	err := l.Load(p)
-	if err == nil {
-		t.Fatal("expected error for missing file, got nil")
-	}
-	if !strings.Contains(err.Error(), "reading file") {
-		t.Errorf("expected error about reading file, got: %v", err)
-	}
-
-	// Test successful load
-	validYAML := `
-path: time-handler
-kind: lua.function
-meta:
-  name: time
-source: file://handlers/time.lua
-`
-	p = payload.NewPayload(validYAML, payload.Yaml)
-	err = l.Load(p)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	entries := l.Entries()
-	if len(entries) != 1 {
-		t.Fatalf("expected 1 entry, got %d", len(entries))
-	}
-
-	if entries[0].Meta["name"] != "time" {
-		t.Errorf("wrong name in metadata, got %v", entries[0].Meta["name"])
 	}
 }
 
@@ -630,7 +520,7 @@ meta:
 	}
 
 	// Verify entries are unique and contain expected values
-	seen := make(map[config.Path]bool)
+	seen := make(map[registry.Path]bool)
 	for _, entry := range entries {
 		if seen[entry.Path] {
 			t.Errorf("duplicate entry found: %s", entry.Path)

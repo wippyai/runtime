@@ -30,15 +30,15 @@ func (s *Server) Register(ctx context.Context, ev events.Event, state component.
 		return nil, nil
 	}
 	log.Println("Registering HTTP web_server")
-	// processing all sorts of events to boot config
+	// processing all sorts of events to boot registry
 
 	return nil, nil
 }
 
 func (s *Server) Apply(ctx context.Context, state component.State) error {
-	//hst, ok := config.(*httpState)
+	//hst, ok := registry.(*httpState)
 
-	// processing all sorts of events to boot config
+	// processing all sorts of events to boot registry
 
 	return nil
 }
@@ -108,7 +108,7 @@ func (s *Server) Stop(ctx context.Context) {
 //	task := &api.Task{
 //		App: "my-app-1",
 //		// args, todo: redo
-//		Config: data,
+//		Data: data,
 //		Query:   q.Encode(), // todo: remove from here
 //	}
 //
@@ -126,7 +126,7 @@ func (s *Server) Stop(ctx context.Context) {
 //		}
 //
 //		w.WriteHeader(web_server.StatusOK)
-//		_, _ = w.Write(res.Config)
+//		_, _ = w.Write(res.Data)
 //	}
 //}
 //
