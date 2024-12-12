@@ -62,7 +62,7 @@ func (h *history) getVersionState(v registry.Version) ([]registry.Entry, error) 
 		copy(entriesCopy, entries)
 		return entriesCopy, nil
 	}
-	return nil, fmt.Errorf("version %s not found in history", v)
+	return nil, fmt.Errorf("version %s not found in storage", v)
 }
 
 // reconstructState reconstructs the state of the registry at a given version
@@ -115,9 +115,9 @@ func (h *history) reconstructState(targetVersion registry.Version) []registry.En
 
 // rebuild reconstructs the history from the current version back.
 func (h *history) rebuild(currentVersion registry.Version, currentEntries map[registry.Path]*registry.Entry) {
-	h.entries = h.entries[:0] // Clear history
+	h.entries = h.entries[:0] // Clear storage
 
-	// Save the current state as the first entry in the rebuilt history
+	// Save the current state as the first entry in the rebuilt storage
 	currentVersionEntries := make([]registry.Entry, 0, len(currentEntries))
 	for _, entry := range currentEntries {
 		currentVersionEntries = append(currentVersionEntries, *entry)

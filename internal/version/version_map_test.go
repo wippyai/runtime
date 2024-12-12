@@ -1,6 +1,8 @@
 package version
 
 import (
+	"errors"
+	"fmt"
 	"reflect"
 	"testing"
 
@@ -20,7 +22,7 @@ func TestVersionMap_Path_Simple(t *testing.T) {
 
 	from := v1
 	to := v3
-	actualPath := vm.Path(from, to)
+	actualPath, _ := vm.Path(from, to)
 	expectedPath := []registry.Version{v1, v2, v3}
 
 	if !reflect.DeepEqual(actualPath, expectedPath) {
@@ -42,7 +44,7 @@ func TestVersionMap_Path_Backwards(t *testing.T) {
 	// Go from v3 back to v1
 	from := v3
 	to := v1
-	actualPath := vm.Path(from, to)
+	actualPath, _ := vm.Path(from, to)
 	expectedPath := []registry.Version{v3, v2, v1} // Path in reverse
 
 	if !reflect.DeepEqual(actualPath, expectedPath) {
@@ -66,7 +68,7 @@ func TestVersionMap_Path_Branches(t *testing.T) {
 	// Go from v3 to v4 (across the branch)
 	from := v3
 	to := v4
-	actualPath := vm.Path(from, to)
+	actualPath, _ := vm.Path(from, to)
 	expectedPath := []registry.Version{v3, v2, v4}
 
 	if !reflect.DeepEqual(actualPath, expectedPath) {
@@ -85,15 +87,15 @@ func TestVersionMap(t *testing.T) {
 	// Test Cases
 	testCases := []struct {
 		name        string
-		setup       func(vm registry.Versions) // Function to set up the versionMap
+		setup       func(vm registry.VersionHistory) // Function to set up the versionMap
 		from        registry.Version
 		to          registry.Version
 		expected    []registry.Version
-		expectError bool
+		expectError error
 	}{
 		{
 			name: "Path within a branch",
-			setup: func(vm registry.Versions) {
+			setup: func(vm registry.VersionHistory) {
 				vm.Add(v1)
 				vm.Add(v2)
 				vm.Add(v3)
@@ -105,7 +107,7 @@ func TestVersionMap(t *testing.T) {
 		},
 		{
 			name: "Path to the past",
-			setup: func(vm registry.Versions) {
+			setup: func(vm registry.VersionHistory) {
 				vm.Add(v1)
 				vm.Add(v2)
 				vm.Add(v3)
@@ -117,7 +119,7 @@ func TestVersionMap(t *testing.T) {
 		},
 		{
 			name: "Path across branches",
-			setup: func(vm registry.Versions) {
+			setup: func(vm registry.VersionHistory) {
 				vm.Add(v1)
 				vm.Add(v2)
 				vm.Add(v3)
@@ -130,7 +132,7 @@ func TestVersionMap(t *testing.T) {
 		},
 		{
 			name: "From and to are identical",
-			setup: func(vm registry.Versions) {
+			setup: func(vm registry.VersionHistory) {
 				vm.Add(v1)
 			},
 			from:     v1,
@@ -139,38 +141,38 @@ func TestVersionMap(t *testing.T) {
 		},
 		{
 			name: "From version not found",
-			setup: func(vm registry.Versions) {
+			setup: func(vm registry.VersionHistory) {
 				vm.Add(v1)
 			},
 			from:        v2,
 			to:          v1,
 			expected:    nil,
-			expectError: true,
+			expectError: fmt.Errorf("version %s not found", v2.ID()),
 		},
 		{
 			name: "To version not found",
-			setup: func(vm registry.Versions) {
+			setup: func(vm registry.VersionHistory) {
 				vm.Add(v1)
 			},
 			from:        v1,
 			to:          v2,
 			expected:    nil,
-			expectError: true,
+			expectError: fmt.Errorf("version %s not found", v2.ID()),
 		},
 		{
 			name: "No path exists",
-			setup: func(vm registry.Versions) {
+			setup: func(vm registry.VersionHistory) {
 				vm.Add(v1)
 				vm.Add(New(2, 0)) // Create an unrelated version
 			},
 			from:        v1,
 			to:          New(2, 0),
 			expected:    nil,
-			expectError: true,
+			expectError: errors.New("no path found"),
 		},
 		{
 			name: "Add and Get version",
-			setup: func(vm registry.Versions) {
+			setup: func(vm registry.VersionHistory) {
 				vm.Add(v1)
 			},
 			from:     v1,
@@ -178,30 +180,18 @@ func TestVersionMap(t *testing.T) {
 			expected: []registry.Version{v1},
 		},
 		{
-			name: "Delete version",
-			setup: func(vm registry.Versions) {
-				vm.Add(v1)
-				vm.Add(v2)
-				vm.Delete(v1.ID())
-			},
-			from:        v2,
-			to:          v1,
-			expected:    nil,
-			expectError: true,
-		},
-		{
 			name: "Get non-existent version",
-			setup: func(vm registry.Versions) {
+			setup: func(vm registry.VersionHistory) {
 				// No versions added
 			},
 			from:        v1,
 			to:          v1,
 			expected:    nil,
-			expectError: true,
+			expectError: fmt.Errorf("version %s not found", v1.ID()),
 		},
 		{
 			name: "Len of empty version map",
-			setup: func(vm registry.Versions) {
+			setup: func(vm registry.VersionHistory) {
 				// No versions added
 			},
 			from:     nil,
@@ -210,7 +200,7 @@ func TestVersionMap(t *testing.T) {
 		},
 		{
 			name: "Range over versions",
-			setup: func(vm registry.Versions) {
+			setup: func(vm registry.VersionHistory) {
 				vm.Add(v1)
 				vm.Add(v2)
 				vm.Add(v3)
@@ -218,6 +208,18 @@ func TestVersionMap(t *testing.T) {
 			from:     nil,
 			to:       nil,
 			expected: []registry.Version{v1, v2, v3}, // Expect all added versions
+		},
+		{
+			name: "Range over versions",
+			setup: func(vm registry.VersionHistory) {
+				vm.Add(v3)
+				vm.Add(v2)
+				vm.Add(v5)
+				vm.Add(v1)
+			},
+			from:     nil,
+			to:       nil,
+			expected: []registry.Version{v1, v2, v3, v5}, // Expect all added versions
 		},
 	}
 
@@ -231,21 +233,13 @@ func TestVersionMap(t *testing.T) {
 
 			switch tc.name {
 			case "Add and Get version":
-				got, ok := vm.Get(v1.ID())
-				if !ok {
-					t.Errorf("Expected version to be found, but it was not")
-				}
-				if !reflect.DeepEqual(got, v1) {
-					t.Errorf("Expected to get version %v, got %v", v1, got)
-				}
+				// There is no Get in VersionHistory interface, removing
+				// This case is already covered by "From and to are identical"
 			case "Delete version":
-				if _, ok := vm.Get(v1.ID()); ok {
-					t.Errorf("Expected version to be deleted, but it was found")
-				}
+				// There is no Delete in VersionHistory interface, skipping
 			case "Get non-existent version":
-				if _, ok := vm.Get(v1.ID()); ok {
-					t.Errorf("Expected to get no version, but one was found")
-				}
+				// There is no Get in VersionHistory interface, removing
+				// This case is already covered by "From version not found" and "To version not found"
 			case "Len of empty version map":
 				if vm.Len() != 0 {
 					t.Errorf("Expected Len() to be 0, got %v", vm.Len())
@@ -260,13 +254,21 @@ func TestVersionMap(t *testing.T) {
 					t.Errorf("Expected to range over versions %v, got %v", tc.expected, got)
 				}
 			default:
-				path := vm.Path(tc.from, tc.to)
+				path, err := vm.Path(tc.from, tc.to)
 
-				if tc.expectError {
+				if tc.expectError != nil {
+					if err == nil {
+						t.Errorf("Expected an error '%v', but got none", tc.expectError)
+					} else if err.Error() != tc.expectError.Error() {
+						t.Errorf("Expected error '%v', got '%v'", tc.expectError, err)
+					}
 					if path != nil {
-						t.Errorf("Expected an error (path = nil), but got a path: %v", path)
+						t.Errorf("Expected path to be nil due to error, but got: %v", path)
 					}
 				} else {
+					if err != nil {
+						t.Errorf("Expected no error, but got: %v", err)
+					}
 					if !reflect.DeepEqual(path, tc.expected) {
 						t.Errorf("Expected path: %v, got: %v", tc.expected, path)
 					}

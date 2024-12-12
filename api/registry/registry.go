@@ -20,10 +20,10 @@ type (
 	Kind     string
 	Metadata map[string]any
 
-	// Versions represents a collection of Version instances that may form a branched
-	// version history. The underlying data structure is based on a map[string]Version,
+	// VersionHistory represents a collection of Version instances that may form a branched
+	// version storage. The underlying data structure is based on a map[string]Version,
 	// where the key is the Version.ID().
-	Versions interface {
+	VersionHistory interface {
 		// Path returns the ordered sequence of Version instances connecting a starting
 		// version ('from') and an ending version ('to'), including both 'from' and 'to'.
 		//
@@ -31,19 +31,13 @@ type (
 		//   - Both 'from' and 'to' MUST exist; otherwise, nil is returned.
 		//   - If 'from' and 'to' are identical, the returned slice contains only 'from'.
 		//   - If no valid path exists, nil is returned.
-		Path(from, to Version) []Version
-
-		// Get retrieves a version by its ID.
-		Get(id string) (Version, bool)
+		Path(from, to Version) ([]Version, error)
 
 		// Len returns the number of versions.
 		Len() int
 
-		// Add adds a new version.
-		Add(v Version)
-
-		// Delete removes a version by its ID.
-		Delete(id string)
+		// Add adds a new version. Duplicate versions not allowed.
+		Add(v Version) error
 
 		// Range iterates over the versions.
 		Range(f func(id string, v Version) bool)
@@ -52,6 +46,8 @@ type (
 	Version interface {
 		ID() string
 		PreviousID() string // empty for root version
+		Major() uint
+		Minor() uint
 	}
 
 	State []Entry
@@ -62,29 +58,31 @@ type (
 		Data payload.Payload
 	}
 
-	Delta  []Action
-	Action struct {
+	OperationSet []Action
+	Action       struct {
 		Kind  events.Kind
 		Entry Entry
 	}
 
-	Registry interface {
-		Apply(Delta) (Version, error)
+	Storage interface {
 		Versions() ([]Version, error)
-		GetActions(Version) (Delta, error)
+		Get(Version) (OperationSet, error)
+		Save(Version, OperationSet) error
+	}
+
+	Registry interface {
+		Apply(OperationSet) (Version, error)
+		Versions() ([]Version, error)
+		GetActions(Version) (OperationSet, error)
 		Head() (Version, error)
 	}
 
-	Seeker interface {
+	StateSeeker interface {
 		GetState(Version) (State, error)
 	}
 
-	Reader interface {
+	EntryReader interface {
 		GetEntry(Path) (Entry, error)
-	}
-
-	DeltaCalculator interface {
-		GetDelta(from Version, to Version) (Delta, error)
 	}
 
 	Activator interface {
@@ -97,9 +95,5 @@ type (
 		Load(...payload.Payload) error
 		Entries() []Entry
 		Reset()
-	}
-
-	Provider interface {
-		Loader() Loader
 	}
 )

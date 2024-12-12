@@ -1,4 +1,4 @@
-package history
+package storage
 
 import (
 	"fmt"
@@ -28,7 +28,7 @@ func NewMemory() *MemoryHistory {
 	}
 }
 
-// Versions returns a list of all versions in the history.
+// Versions returns a list of all versions in the storage.
 func (h *MemoryHistory) Versions() ([]registry.Version, error) {
 	h.mutex.RLock()
 	defer h.mutex.RUnlock()
@@ -114,10 +114,10 @@ func (h *MemoryHistory) GetActions(version registry.Version) ([]registry.Action,
 	return actionsCopy, nil
 }
 
-// versionExists checks if a version exists in the history.
+// versionExists checks if a version exists in the storage.
 func (h *MemoryHistory) versionExists(version registry.Version) bool {
 	for _, v := range h.versions {
-		if v.Equals(version) {
+		if v.ID() == version.ID() {
 			return true
 		}
 	}
