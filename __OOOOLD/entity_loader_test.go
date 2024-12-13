@@ -1,4 +1,4 @@
-package registry
+package __OOOOLD
 
 import (
 	"fmt"
