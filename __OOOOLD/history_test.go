@@ -43,7 +43,7 @@ func Test_newHistory(t *testing.T) {
 func Test_history_addVersion(t *testing.T) {
 	type args struct {
 		v       registry.Version
-		actions []registry.Action
+		actions []registry.Operation
 	}
 	tests := []struct {
 		name         string
@@ -56,13 +56,13 @@ func Test_history_addVersion(t *testing.T) {
 			name: "Add first version",
 			args: args{
 				v: "reg:v000.000",
-				actions: []registry.Action{
+				actions: []registry.Operation{
 					{Kind: registry.Create, Entry: registry.Entry{Path: "/path/a", Data: payload.NewString("config_a")}},
 				},
 			},
 			wantErr: false,
 			wantHistory: []versionedActions{
-				{version: "reg:v000.000", actions: []registry.Action{
+				{version: "reg:v000.000", actions: []registry.Operation{
 					{Kind: registry.Create, Entry: registry.Entry{Path: "/path/a", Data: payload.NewString("config_a")}},
 				}},
 			},
@@ -76,16 +76,16 @@ func Test_history_addVersion(t *testing.T) {
 			name: "Add second version",
 			args: args{
 				v: "reg:v000.001",
-				actions: []registry.Action{
+				actions: []registry.Operation{
 					{Kind: registry.Create, Entry: registry.Entry{Path: "/path/b", Data: payload.NewString("config_b")}},
 				},
 			},
 			wantErr: false,
 			wantHistory: []versionedActions{
-				{version: "reg:v000.000", actions: []registry.Action{
+				{version: "reg:v000.000", actions: []registry.Operation{
 					{Kind: registry.Create, Entry: registry.Entry{Path: "/path/a", Data: payload.NewString("config_a")}},
 				}},
-				{version: "reg:v000.001", actions: []registry.Action{
+				{version: "reg:v000.001", actions: []registry.Operation{
 					{Kind: registry.Create, Entry: registry.Entry{Path: "/path/b", Data: payload.NewString("config_b")}},
 				}},
 			},
@@ -103,19 +103,19 @@ func Test_history_addVersion(t *testing.T) {
 			name: "Add updated version",
 			args: args{
 				v: "reg:v000.002",
-				actions: []registry.Action{
+				actions: []registry.Operation{
 					{Kind: registry.Update, Entry: registry.Entry{Path: "/path/a", Data: payload.NewString("config_a_updated")}},
 				},
 			},
 			wantErr: false,
 			wantHistory: []versionedActions{
-				{version: "reg:v000.000", actions: []registry.Action{
+				{version: "reg:v000.000", actions: []registry.Operation{
 					{Kind: registry.Create, Entry: registry.Entry{Path: "/path/a", Data: payload.NewString("config_a")}},
 				}},
-				{version: "reg:v000.001", actions: []registry.Action{
+				{version: "reg:v000.001", actions: []registry.Operation{
 					{Kind: registry.Create, Entry: registry.Entry{Path: "/path/b", Data: payload.NewString("config_b")}},
 				}},
-				{version: "reg:v000.002", actions: []registry.Action{
+				{version: "reg:v000.002", actions: []registry.Operation{
 					{Kind: registry.Update, Entry: registry.Entry{Path: "/path/a", Data: payload.NewString("config_a_updated")}},
 				}},
 			},
@@ -137,22 +137,22 @@ func Test_history_addVersion(t *testing.T) {
 			name: "Add deleted version",
 			args: args{
 				v: "reg:v000.003",
-				actions: []registry.Action{
+				actions: []registry.Operation{
 					{Kind: registry.Delete, Entry: registry.Entry{Path: "/path/b"}},
 				},
 			},
 			wantErr: false,
 			wantHistory: []versionedActions{
-				{version: "reg:v000.000", actions: []registry.Action{
+				{version: "reg:v000.000", actions: []registry.Operation{
 					{Kind: registry.Create, Entry: registry.Entry{Path: "/path/a", Data: payload.NewString("config_a")}},
 				}},
-				{version: "reg:v000.001", actions: []registry.Action{
+				{version: "reg:v000.001", actions: []registry.Operation{
 					{Kind: registry.Create, Entry: registry.Entry{Path: "/path/b", Data: payload.NewString("config_b")}},
 				}},
-				{version: "reg:v000.002", actions: []registry.Action{
+				{version: "reg:v000.002", actions: []registry.Operation{
 					{Kind: registry.Update, Entry: registry.Entry{Path: "/path/a", Data: payload.NewString("config_a_updated")}},
 				}},
-				{version: "reg:v000.003", actions: []registry.Action{
+				{version: "reg:v000.003", actions: []registry.Operation{
 					{Kind: registry.Delete, Entry: registry.Entry{Path: "/path/b"}},
 				}},
 			},

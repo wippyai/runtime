@@ -16,9 +16,9 @@ func makeTestEntry(path registry.Path, configData string) registry.Entry {
 	}
 }
 
-// Helper function to create a registry.Action for testing.
-func makeTestAction(kind events.Kind, entry registry.Entry) registry.Action {
-	return registry.Action{
+// Helper function to create a registry.Operation for testing.
+func makeTestAction(kind events.Kind, entry registry.Entry) registry.Operation {
+	return registry.Operation{
 		Kind:  kind,
 		Entry: entry,
 	}
@@ -32,7 +32,7 @@ func sortTestEntries(entries []registry.Entry) {
 }
 
 // Test helper for diffEntries
-func testDiffEntries(t *testing.T, prevEntries, newEntries []registry.Entry, wantActions []registry.Action) {
+func testDiffEntries(t *testing.T, prevEntries, newEntries []registry.Entry, wantActions []registry.Operation) {
 	t.Helper()
 	gotActions := diffEntries(prevEntries, newEntries)
 

@@ -13,6 +13,8 @@ const (
 	Delete events.Kind = "entry.delete"
 	Accept events.Kind = "entry.accept"
 	Reject events.Kind = "entry.reject"
+
+	RootVersion uint = 0
 )
 
 type (
@@ -20,32 +22,9 @@ type (
 	Kind     string
 	Metadata map[string]any
 
-	// VersionHistory represents a collection of Version instances that may form a branched
-	// version storage. The underlying data structure is based on a map[string]Version,
-	// where the key is the Version.ID().
-	VersionHistory interface {
-		// Path returns the ordered sequence of Version instances connecting a starting
-		// version ('from') and an ending version ('to'), including both 'from' and 'to'.
-		//
-		// Constraints:
-		//   - Both 'from' and 'to' MUST exist; otherwise, nil is returned.
-		//   - If 'from' and 'to' are identical, the returned slice contains only 'from'.
-		//   - If no valid path exists, nil is returned.
-		Path(from, to Version) ([]Version, error)
-
-		// Len returns the number of versions.
-		Len() int
-
-		// Add adds a new version. Duplicate versions not allowed.
-		Add(v Version) error
-
-		// Range iterates over the versions.
-		Range(f func(id uint, v Version) bool)
-	}
-
 	Version interface {
 		ID() uint
-		PreviousID() uint // empty for root version
+		Previous() Version // nil for root version
 		String() string
 	}
 
@@ -57,54 +36,43 @@ type (
 		Data payload.Payload
 	}
 
-	OperationSet []Action
-	Action       struct {
+	ChangeSet []Operation
+	Operation struct {
 		Kind  events.Kind
 		Entry Entry
 	}
 
-	Storage interface {
-		Versions() ([]Version, error)
-		Get(Version) (OperationSet, error)
-		Save(Version, OperationSet) error
-	}
-
 	Registry interface {
-		Apply(OperationSet) (Version, error)
-		Versions() ([]Version, error)
-		GetActions(Version) (OperationSet, error)
-		Head() (Version, error)
+		EntryReader
+		StateWriter
+		Active() (Version, error)
 	}
 
-	StateSeeker interface {
-		GetState(Version) (State, error)
+	StateWriter interface {
+		Apply(State) (Version, error)
+		ApplyVersion(Version) error
+	}
+
+	Builder interface {
+		BuildState(History, Version) (State, error)
+		BuildDelta(History, Version, Version) (ChangeSet, error)
 	}
 
 	EntryReader interface {
+		GetAllEntries() ([]Entry, error)
 		GetEntry(Path) (Entry, error)
 	}
 
-	Activator interface {
-		Activate(Version) error
-		Current() (Version, error)
+	History interface {
+		Versions() ([]Version, error)
+		Get(Version) (ChangeSet, error)
+		Save(v Version, cs ChangeSet, head bool) error
+		Head() (Version, error)
 	}
 
 	Loader interface {
-		WithPrefix(Path) Loader
-		Load(...payload.Payload) error
+		Register(prefix Path, payload ...payload.Payload) error
 		Entries() []Entry
 		Reset()
 	}
 )
-
-func (os *OperationSet) Create(entry Entry) {
-	*os = append(*os, Action{Kind: Create, Entry: entry})
-}
-
-func (os *OperationSet) Update(entry Entry) {
-	*os = append(*os, Action{Kind: Update, Entry: entry})
-}
-
-func (os *OperationSet) Delete(path Path) {
-	*os = append(*os, Action{Kind: Delete, Entry: Entry{Path: path}})
-}

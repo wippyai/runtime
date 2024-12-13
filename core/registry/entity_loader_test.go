@@ -38,7 +38,7 @@ func createDefaultTranscoder() payload.Transcoder {
 	return dtt
 }
 
-func TestLoader_Load_SingleEntry_YAML(t *testing.T) {
+func TestLoader_Register_SingleEntry_YAML(t *testing.T) {
 	// Create a default dtt
 	dtt := createDefaultTranscoder()
 
@@ -54,10 +54,10 @@ meta:
 `
 	p := payload.NewPayload(yamlData, payload.Yaml)
 
-	// Load the payload
-	err := l.Load(p)
+	// Register the payload
+	err := l.Register("root/", p)
 	if err != nil {
-		t.Fatalf("unexpected error during Load: %v", err)
+		t.Fatalf("unexpected error during Register: %v", err)
 	}
 
 	// Check if the entry was loaded correctly
@@ -67,7 +67,7 @@ meta:
 	}
 
 	expectedEntry := reg.Entry{
-		Path: "test",
+		Path: "root/test",
 		Kind: "test-kind",
 		Meta: reg.Metadata{"key": "value"},
 		Data: p,
@@ -78,7 +78,7 @@ meta:
 	}
 }
 
-func TestLoader_Load_MultipleEntries_YAML(t *testing.T) {
+func TestLoader_Register_MultipleEntries_YAML(t *testing.T) {
 	dtt := createDefaultTranscoder()
 	l := NewLoader(dtt)
 
@@ -98,9 +98,9 @@ meta:
 `
 	p2 := payload.NewPayload(yamlData2, payload.Yaml)
 
-	err := l.Load(p1, p2)
+	err := l.Register("root/", p1, p2)
 	if err != nil {
-		t.Fatalf("unexpected error during Load: %v", err)
+		t.Fatalf("unexpected error during Register: %v", err)
 	}
 
 	entries := l.Entries()
@@ -109,8 +109,8 @@ meta:
 	}
 
 	expectedEntries := []reg.Entry{
-		{Path: "entry1", Kind: "kind1", Meta: reg.Metadata{"k1": "v1"}, Data: p1},
-		{Path: "entry2", Kind: "kind2", Meta: reg.Metadata{"k2": "v2"}, Data: p2},
+		{Path: "root/entry1", Kind: "kind1", Meta: reg.Metadata{"k1": "v1"}, Data: p1},
+		{Path: "root/entry2", Kind: "kind2", Meta: reg.Metadata{"k2": "v2"}, Data: p2},
 	}
 
 	// We need to sort entries for comparison as the order they are loaded in is not guaranteed to be the same order they appear in the entries map
@@ -121,40 +121,6 @@ meta:
 		if entries[i].Path != expectedEntries[i].Path || entries[i].Kind != expectedEntries[i].Kind || !reflect.DeepEqual(entries[i].Meta, expectedEntries[i].Meta) {
 			t.Errorf("loaded entry does not match expected entry\ngot:  %v\nwant: %v", entries[i], expectedEntries[i])
 		}
-	}
-}
-
-func TestLoader_Load_WithPrefix_YAML(t *testing.T) {
-	dtt := createDefaultTranscoder()
-	l := NewLoader(dtt).WithPrefix("prefix")
-
-	yamlData := `
-path: my-entry
-kind: my-kind
-meta:
-  my-key: my-value
-`
-	p := payload.NewPayload(yamlData, payload.Yaml)
-
-	err := l.Load(p)
-	if err != nil {
-		t.Fatalf("unexpected error during Load: %v", err)
-	}
-
-	entries := l.Entries()
-	if len(entries) != 1 {
-		t.Fatalf("expected 1 entry, got %d", len(entries))
-	}
-
-	expectedEntry := reg.Entry{
-		Path: "prefix.my-entry", // Path should have the prefix
-		Kind: "my-kind",
-		Meta: reg.Metadata{"my-key": "my-value"},
-		Data: p,
-	}
-
-	if entries[0].Path != expectedEntry.Path || entries[0].Kind != expectedEntry.Kind || !reflect.DeepEqual(entries[0].Meta, expectedEntry.Meta) {
-		t.Errorf("loaded entry does not match expected entry\ngot:  %v\nwant: %v", entries[0], expectedEntry)
 	}
 }
 
@@ -186,10 +152,10 @@ meta:
 `
 	p3 := payload.NewPayload(yamlData3, payload.Yaml)
 
-	// Load in a non-alphabetical order
-	err := l.Load(p1, p2, p3)
+	// Register in a non-alphabetical order
+	err := l.Register("root/", p1, p2, p3)
 	if err != nil {
-		t.Fatalf("unexpected error during Load: %v", err)
+		t.Fatalf("unexpected error during Register: %v", err)
 	}
 
 	entries := l.Entries()
@@ -198,56 +164,12 @@ meta:
 	}
 
 	// Check if entries are sorted by Path
-	if entries[0].Path != "a-entry" || entries[1].Path != "b-entry" || entries[2].Path != "c-entry" {
+	if entries[0].Path != "root/a-entry" || entries[1].Path != "root/b-entry" || entries[2].Path != "root/c-entry" {
 		t.Errorf("entries are not sorted by Path")
 	}
 }
 
-func TestLoader_Entries_PrefixOrder(t *testing.T) {
-	dtt := createDefaultTranscoder()
-	l := NewLoader(dtt)
-
-	// Load a base entry
-	baseEntryYAML := `
-path: base
-kind: base-kind
-meta:
-  key: base-value
-`
-	basePayload := payload.NewPayload(baseEntryYAML, payload.Yaml)
-	err := l.Load(basePayload)
-	if err != nil {
-		t.Fatalf("unexpected error during Load: %v", err)
-	}
-
-	// Use the base entry as a prefix loader
-	prefixLoader := l.WithPrefix("base")
-
-	// Load entries with the prefix
-	prefixedEntryYAML := `
-path: sub-entry
-kind: sub-kind
-meta:
-  key: sub-value
-`
-	prefixedPayload := payload.NewPayload(prefixedEntryYAML, payload.Yaml)
-	err = prefixLoader.Load(prefixedPayload)
-	if err != nil {
-		t.Fatalf("unexpected error during Load with prefix: %v", err)
-	}
-
-	entries := l.Entries()
-	if len(entries) != 2 {
-		t.Fatalf("expected 2 entries, got %d", len(entries))
-	}
-
-	// Check that the base entry comes before the prefixed entry
-	if entries[0].Path != "base" || entries[1].Path != "base.sub-entry" {
-		t.Errorf("entries are not in the correct order or prefixed entry is missing")
-	}
-}
-
-func TestLoader_Load_InvalidEntryFormat(t *testing.T) {
+func TestLoader_Register_InvalidEntryFormat(t *testing.T) {
 	dtt := createDefaultTranscoder()
 	l := NewLoader(dtt)
 
@@ -260,9 +182,9 @@ meta:
 `
 	p := payload.NewPayload(invalidYAML, payload.Yaml)
 
-	err := l.Load(p)
+	err := l.Register("root/", p)
 	if err == nil {
-		t.Fatalf("expected an error during Load with invalid format, but got nil")
+		t.Fatalf("expected an error during Register with invalid format, but got nil")
 	}
 
 	expectedErrorMsg := "failed to unmarshal payload as reg.Entry"
@@ -271,7 +193,7 @@ meta:
 	}
 }
 
-func TestLoader_Load_MissingIDAndKind(t *testing.T) {
+func TestLoader_Register_MissingIDAndKind(t *testing.T) {
 	dtt := createDefaultTranscoder()
 	l := NewLoader(dtt)
 
@@ -282,11 +204,11 @@ meta:
   key: value
 `
 	p1 := payload.NewPayload(missingIDYAML, payload.Yaml)
-	err1 := l.Load(p1)
+	err1 := l.Register("root/", p1)
 	if err1 == nil {
 		t.Fatalf("expected an error due to missing Path, but got nil")
 	}
-	expectedErrorMsg1 := "missing Path in reg entry" // Correct error message
+	expectedErrorMsg1 := "missing Path in reg entry"
 	if err1.Error() != expectedErrorMsg1 {
 		t.Errorf("unexpected error message for missing Path\ngot:  %s\nwant: %s", err1.Error(), expectedErrorMsg1)
 	}
@@ -298,11 +220,11 @@ meta:
   key: value
 `
 	p2 := payload.NewPayload(missingKindYAML, payload.Yaml)
-	err2 := l.Load(p2)
+	err2 := l.Register("root/", p2)
 	if err2 == nil {
 		t.Fatalf("expected an error due to missing Kind, but got nil")
 	}
-	expectedErrorMsg2 := "missing Kind in reg entry" // Correct error message
+	expectedErrorMsg2 := "missing Kind in reg entry"
 	if err2.Error() != expectedErrorMsg2 {
 		t.Errorf("unexpected error message for missing Kind\ngot:  %s\nwant: %s", err2.Error(), expectedErrorMsg2)
 	}
@@ -319,9 +241,9 @@ meta:
   key: value
 `
 	p := payload.NewPayload(yamlData, payload.Yaml)
-	err := l.Load(p)
+	err := l.Register("root/", p)
 	if err != nil {
-		t.Fatalf("unexpected error during Load: %v", err)
+		t.Fatalf("unexpected error during Register: %v", err)
 	}
 
 	if len(l.Entries()) != 1 {
@@ -335,7 +257,7 @@ meta:
 	}
 }
 
-func TestLoader_Load_DuplicateID(t *testing.T) {
+func TestLoader_Register_DuplicateID(t *testing.T) {
 	dtt := createDefaultTranscoder()
 	l := NewLoader(dtt)
 
@@ -355,13 +277,13 @@ meta:
 `
 	p2 := payload.NewPayload(yamlData2, payload.Yaml)
 
-	err := l.Load(p1)
+	err := l.Register("root/", p1)
 	if err != nil {
-		t.Fatalf("unexpected error during Load: %v", err)
+		t.Fatalf("unexpected error during Register: %v", err)
 	}
-	err = l.Load(p2)
+	err = l.Register("root/", p2)
 	if err != nil {
-		t.Fatalf("unexpected error during Load: %v", err)
+		t.Fatalf("unexpected error during Register: %v", err)
 	}
 
 	entries := l.Entries()
@@ -370,7 +292,7 @@ meta:
 	}
 
 	expectedEntry := reg.Entry{
-		Path: "dup-entry",
+		Path: "root/dup-entry",
 		Kind: "kind2",                       // Kind from the second payload
 		Meta: reg.Metadata{"key": "value2"}, // Meta from the second payload
 		Data: p2,                            // Data from the second payload
@@ -381,7 +303,7 @@ meta:
 	}
 }
 
-func TestLoader_Load_Concurrent(t *testing.T) {
+func TestLoader_Register_Concurrent(t *testing.T) {
 	dtt := createDefaultTranscoder()
 	l := NewLoader(dtt)
 	var wg sync.WaitGroup
@@ -397,9 +319,9 @@ meta:
   key: value-%d
 `, i, i, i)
 			p := payload.NewPayload(yamlData, payload.Yaml)
-			err := l.Load(p)
+			err := l.Register(reg.Path(fmt.Sprintf("root-%d/", i)), p)
 			if err != nil {
-				t.Errorf("unexpected error during concurrent Load: %v", err)
+				t.Errorf("unexpected error during concurrent Register: %v", err)
 			}
 		}(i)
 	}
@@ -411,19 +333,19 @@ meta:
 	}
 }
 
-func TestLoader_Load_EmptyPayload(t *testing.T) {
+func TestLoader_Register_EmptyPayload(t *testing.T) {
 	dtt := createDefaultTranscoder()
 	l := NewLoader(dtt)
 
 	p := payload.NewPayload("", payload.Yaml) // Empty data
 
-	err := l.Load(p)
+	err := l.Register("root/", p)
 	if err == nil {
-		t.Fatalf("expected an error during Load with empty payload, but got nil")
+		t.Fatalf("expected an error during Register with empty payload, but got nil")
 	}
 }
 
-func TestLoader_Load_JSON(t *testing.T) {
+func TestLoader_Register_JSON(t *testing.T) {
 	dtt := createDefaultTranscoder()
 	l := NewLoader(dtt)
 
@@ -440,7 +362,7 @@ func TestLoader_Load_JSON(t *testing.T) {
 	}`
 	p := payload.NewPayload(jsonData, payload.Json)
 
-	err := l.Load(p)
+	err := l.Register("root/", p)
 	if err != nil {
 		t.Fatalf("unexpected error loading JSON: %v", err)
 	}
@@ -451,8 +373,8 @@ func TestLoader_Load_JSON(t *testing.T) {
 	}
 
 	entry := entries[0]
-	if entry.Path != "test" {
-		t.Errorf("expected path 'test', got %s", entry.Path)
+	if entry.Path != "root/test" {
+		t.Errorf("expected path 'root/test', got %s", entry.Path)
 	}
 	if entry.Kind != "test-kind" {
 		t.Errorf("expected kind 'test-kind', got %s", entry.Kind)
@@ -492,7 +414,7 @@ meta:
   value: %d
 `, i, i)
 			p := payload.NewPayload(yamlData, payload.Yaml)
-			err := l.Load(p)
+			err := l.Register(reg.Path(fmt.Sprintf("root-%d/", i)), p)
 			if err != nil {
 				t.Errorf("concurrent write failed: %v", err)
 			}

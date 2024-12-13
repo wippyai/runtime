@@ -15,7 +15,7 @@ func TestVersionMap_Path_Simple(t *testing.T) {
 	v2 := FromParent(v1, 2)
 	v3 := FromParent(v2, 3)
 
-	vm := NewVersions()
+	vm := NewVersionMap()
 	vm.Add(v1)
 	vm.Add(v2)
 	vm.Add(v3)
@@ -36,7 +36,7 @@ func TestVersionMap_Path_Backwards(t *testing.T) {
 	v2 := FromParent(v1, 2)
 	v3 := FromParent(v2, 3)
 
-	vm := NewVersions()
+	vm := NewVersionMap()
 	vm.Add(v1)
 	vm.Add(v2)
 	vm.Add(v3)
@@ -59,7 +59,7 @@ func TestVersionMap_Path_Branches(t *testing.T) {
 	v3 := FromParent(v2, 3)
 	v4 := FromParent(v2, 4) // v4 branches from v2
 
-	vm := NewVersions()
+	vm := NewVersionMap()
 	vm.Add(v1)
 	vm.Add(v2)
 	vm.Add(v3)
@@ -87,7 +87,7 @@ func TestVersionMap(t *testing.T) {
 	// Test Cases
 	testCases := []struct {
 		name        string
-		setup       func(vm registry.VersionHistory) // Function to set up the versionMap
+		setup       func(vm Map) // Function to set up the versionHistory
 		from        registry.Version
 		to          registry.Version
 		expected    []registry.Version
@@ -95,7 +95,7 @@ func TestVersionMap(t *testing.T) {
 	}{
 		{
 			name: "Path within a branch",
-			setup: func(vm registry.VersionHistory) {
+			setup: func(vm Map) {
 				vm.Add(v1)
 				vm.Add(v2)
 				vm.Add(v3)
@@ -107,7 +107,7 @@ func TestVersionMap(t *testing.T) {
 		},
 		{
 			name: "Path to the past",
-			setup: func(vm registry.VersionHistory) {
+			setup: func(vm Map) {
 				vm.Add(v1)
 				vm.Add(v2)
 				vm.Add(v3)
@@ -119,7 +119,7 @@ func TestVersionMap(t *testing.T) {
 		},
 		{
 			name: "Path across branches",
-			setup: func(vm registry.VersionHistory) {
+			setup: func(vm Map) {
 				vm.Add(v1)
 				vm.Add(v2)
 				vm.Add(v3)
@@ -132,7 +132,7 @@ func TestVersionMap(t *testing.T) {
 		},
 		{
 			name: "From and to are identical",
-			setup: func(vm registry.VersionHistory) {
+			setup: func(vm Map) {
 				vm.Add(v1)
 			},
 			from:     v1,
@@ -141,7 +141,7 @@ func TestVersionMap(t *testing.T) {
 		},
 		{
 			name: "From version not found",
-			setup: func(vm registry.VersionHistory) {
+			setup: func(vm Map) {
 				vm.Add(v1)
 			},
 			from:        v2,
@@ -151,7 +151,7 @@ func TestVersionMap(t *testing.T) {
 		},
 		{
 			name: "To version not found",
-			setup: func(vm registry.VersionHistory) {
+			setup: func(vm Map) {
 				vm.Add(v1)
 			},
 			from:        v1,
@@ -161,7 +161,7 @@ func TestVersionMap(t *testing.T) {
 		},
 		{
 			name: "No path exists",
-			setup: func(vm registry.VersionHistory) {
+			setup: func(vm Map) {
 				vm.Add(v1)
 				vm.Add(New(2)) // Create an unrelated version
 			},
@@ -172,7 +172,7 @@ func TestVersionMap(t *testing.T) {
 		},
 		{
 			name: "Add and Get version",
-			setup: func(vm registry.VersionHistory) {
+			setup: func(vm Map) {
 				vm.Add(v1)
 			},
 			from:     v1,
@@ -181,7 +181,7 @@ func TestVersionMap(t *testing.T) {
 		},
 		{
 			name: "Get non-existent version",
-			setup: func(vm registry.VersionHistory) {
+			setup: func(vm Map) {
 				// No versions added
 			},
 			from:        v1,
@@ -191,7 +191,7 @@ func TestVersionMap(t *testing.T) {
 		},
 		{
 			name: "Len of empty version map",
-			setup: func(vm registry.VersionHistory) {
+			setup: func(vm Map) {
 				// No versions added
 			},
 			from:     nil,
@@ -200,7 +200,7 @@ func TestVersionMap(t *testing.T) {
 		},
 		{
 			name: "Range over versions",
-			setup: func(vm registry.VersionHistory) {
+			setup: func(vm Map) {
 				vm.Add(v1)
 				vm.Add(v2)
 				vm.Add(v3)
@@ -211,7 +211,7 @@ func TestVersionMap(t *testing.T) {
 		},
 		{
 			name: "Range over versions",
-			setup: func(vm registry.VersionHistory) {
+			setup: func(vm Map) {
 				vm.Add(v3)
 				vm.Add(v2)
 				vm.Add(v5)
@@ -225,21 +225,13 @@ func TestVersionMap(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			vm := NewVersions()
+			vm := NewVersionMap()
 
 			if tc.setup != nil {
 				tc.setup(vm)
 			}
 
 			switch tc.name {
-			case "Add and Get version":
-				// There is no Get in VersionHistory interface, removing
-				// This case is already covered by "From and to are identical"
-			case "Delete version":
-				// There is no Delete in VersionHistory interface, skipping
-			case "Get non-existent version":
-				// There is no Get in VersionHistory interface, removing
-				// This case is already covered by "From version not found" and "To version not found"
 			case "Len of empty version map":
 				if vm.Len() != 0 {
 					t.Errorf("Expected Len() to be 0, got %v", vm.Len())

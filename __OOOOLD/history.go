@@ -21,8 +21,8 @@ type history struct {
 }
 
 type versionedActions struct {
-	version registry.Version  // Version to which these actions apply
-	actions []registry.Action // List of actions
+	version registry.Version     // Version to which these actions apply
+	actions []registry.Operation // List of actions
 }
 
 // newHistory creates a new history instance.
@@ -36,9 +36,9 @@ func newHistory() *history {
 }
 
 // addVersion adds a new version to the history.
-func (h *history) addVersion(v registry.Version, actions []registry.Action) error {
+func (h *history) addVersion(v registry.Version, actions []registry.Operation) error {
 	// Defensive copying of actions
-	actionsCopy := make([]registry.Action, len(actions))
+	actionsCopy := make([]registry.Operation, len(actions))
 	copy(actionsCopy, actions)
 
 	h.entries = append(h.entries, versionedActions{

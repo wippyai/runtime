@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"fmt"
 	"reflect"
 	"sort"
 	"testing"
@@ -18,15 +17,15 @@ func TestMemoryStorage_Versions(t *testing.T) {
 	v2 := version.New(2)
 	v3 := version.New(3)
 
-	_ = storage.Save(v1, registry.OperationSet{})
-	_ = storage.Save(v2, registry.OperationSet{})
-	_ = storage.Save(v3, registry.OperationSet{})
+	_ = storage.Save(v1, registry.ChangeSet{}, false)
+	_ = storage.Save(v2, registry.ChangeSet{}, false)
+	_ = storage.Save(v3, registry.ChangeSet{}, false)
 
 	versions, err := storage.Versions()
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
-	// Sort the versions to ensure consistent comparison
+
 	sort.Slice(versions, func(i, j int) bool {
 		return versions[i].ID() < versions[j].ID()
 	})
@@ -41,7 +40,7 @@ func TestMemoryStorage_Get(t *testing.T) {
 	storage := NewMemory()
 	v2 := version.New(2)
 
-	actions := registry.OperationSet{
+	actions := registry.ChangeSet{
 		{
 			Kind: registry.Create,
 			Entry: registry.Entry{
@@ -52,7 +51,7 @@ func TestMemoryStorage_Get(t *testing.T) {
 		},
 	}
 
-	_ = storage.Save(v2, actions)
+	_ = storage.Save(v2, actions, false)
 
 	retrievedActions, err := storage.Get(v2)
 	if err != nil {
@@ -74,7 +73,7 @@ func TestMemoryStorage_Save(t *testing.T) {
 	v1 := version.New(1)
 	v2 := version.New(2)
 
-	actions := registry.OperationSet{
+	actions := registry.ChangeSet{
 		{
 			Kind: registry.Create,
 			Entry: registry.Entry{
@@ -85,19 +84,17 @@ func TestMemoryStorage_Save(t *testing.T) {
 		},
 	}
 
-	// Save v1 as well
-	err := storage.Save(v1, registry.OperationSet{}) // Save v1 with an empty operation set
+	err := storage.Save(v1, registry.ChangeSet{}, false)
 	if err != nil {
 		t.Fatalf("Unexpected error saving v1: %v", err)
 	}
 
-	err = storage.Save(v2, actions)
+	err = storage.Save(v2, actions, false)
 	if err != nil {
 		t.Fatalf("Unexpected error saving v2: %v", err)
 	}
 
 	versions, _ := storage.Versions()
-	// Sort the versions to ensure consistent comparison
 	sort.Slice(versions, func(i, j int) bool {
 		return versions[i].ID() < versions[j].ID()
 	})
@@ -113,36 +110,44 @@ func TestMemoryStorage_Save(t *testing.T) {
 	}
 }
 
-func TestMemoryStorage_Save_Conflict(t *testing.T) {
+func TestMemoryStorage_Head(t *testing.T) {
 	storage := NewMemory()
-	v2 := version.New(2)
 
-	actions := registry.OperationSet{
-		{
-			Kind: registry.Create,
-			Entry: registry.Entry{
-				Path: "/foo",
-				Kind: "test",
-				Data: payload.New("data1"),
-			},
-		},
-		{
-			Kind: registry.Create,
-			Entry: registry.Entry{
-				Path: "/foo",
-				Kind: "test",
-				Data: payload.New("data2"),
-			},
-		},
-	}
-
-	err := storage.Save(v2, actions)
+	_, err := storage.Head()
 	if err == nil {
-		t.Errorf("Expected conflict error, got nil")
+		t.Errorf("Expected error when getting head of empty history, got nil")
 	}
 
-	expectedError := fmt.Errorf("conflict: multiple create actions for path '/foo' in the same version")
-	if err.Error() != expectedError.Error() {
-		t.Errorf("Expected error: %v, got: %v", expectedError, err)
+	v1 := version.New(1)
+	_ = storage.Save(v1, registry.ChangeSet{}, true)
+
+	head, err := storage.Head()
+	if err != nil {
+		t.Fatalf("Unexpected error getting head: %v", err)
+	}
+	if !reflect.DeepEqual(head, v1) {
+		t.Errorf("Expected head to be v1 (%v), got: %v", v1, head)
+	}
+
+	v2 := version.New(2)
+	_ = storage.Save(v2, registry.ChangeSet{}, false)
+
+	head, err = storage.Head()
+	if err != nil {
+		t.Fatalf("Unexpected error getting head: %v", err)
+	}
+	if !reflect.DeepEqual(head, v1) {
+		t.Errorf("Expected head to remain v1 (%v), got: %v", v1, head)
+	}
+
+	v3 := version.New(3)
+	_ = storage.Save(v3, registry.ChangeSet{}, true)
+
+	head, err = storage.Head()
+	if err != nil {
+		t.Fatalf("Unexpected error getting head: %v", err)
+	}
+	if !reflect.DeepEqual(head, v3) {
+		t.Errorf("Expected head to be v3 (%v), got: %v", v3, head)
 	}
 }
