@@ -1,14 +1,15 @@
 package version
 
 import (
+	"github.com/ponyruntime/pony/api/registry"
 	"testing"
 )
 
 func TestVersion(t *testing.T) {
 	testCases := []struct {
 		name     string
-		v1       Version
-		v2       Version
+		v1       registry.Version
+		v2       registry.Version
 		v1ID     uint
 		v1PrevID uint
 		v1String string
@@ -46,9 +47,9 @@ func TestVersion(t *testing.T) {
 				t.Errorf("Expected ID() for %v to be %v, got %v", tc.v1, tc.v1ID, v1ID)
 			}
 
-			// Test PreviousID
-			if v1PrevID := tc.v1.PreviousID(); v1PrevID != tc.v1PrevID {
-				t.Errorf("Expected PreviousID() for %v to be %v, got %v", tc.v1, tc.v1PrevID, v1PrevID)
+			// Test Previous
+			if prev := tc.v1.Previous(); prev != nil && prev.ID() != tc.v1PrevID {
+				t.Errorf("Expected Previous() for %v to be %v, got %v", tc.v1, tc.v1PrevID, prev)
 			}
 
 			// Test String

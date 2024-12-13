@@ -7,10 +7,11 @@ import (
 	"github.com/ponyruntime/pony/api/registry"
 )
 
-// MemoryStorage is an in-memory implementation of the registry.Storage interface.
+// MemoryStorage is an in-memory implementation of the registry.History interface.
 type MemoryStorage struct {
-	versions map[uint]registry.Version // Use map for efficient lookup
-	actions  map[uint]registry.OperationSet
+	versions map[uint]registry.Version
+	actions  map[uint]registry.ChangeSet
+	head     registry.Version
 	mutex    sync.RWMutex
 }
 
@@ -18,7 +19,7 @@ type MemoryStorage struct {
 func NewMemory() *MemoryStorage {
 	return &MemoryStorage{
 		versions: map[uint]registry.Version{},
-		actions:  make(map[uint]registry.OperationSet),
+		actions:  make(map[uint]registry.ChangeSet),
 	}
 }
 
@@ -34,8 +35,8 @@ func (m *MemoryStorage) Versions() ([]registry.Version, error) {
 	return versions, nil
 }
 
-// Get returns the OperationSet associated with a specific version.
-func (m *MemoryStorage) Get(version registry.Version) (registry.OperationSet, error) {
+// Get returns the ChangeSet associated with a specific version.
+func (m *MemoryStorage) Get(version registry.Version) (registry.ChangeSet, error) {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 
@@ -45,41 +46,34 @@ func (m *MemoryStorage) Get(version registry.Version) (registry.OperationSet, er
 	}
 
 	// Return a copy to prevent external modification
-	actionsCopy := make(registry.OperationSet, len(actions))
+	actionsCopy := make(registry.ChangeSet, len(actions))
 	copy(actionsCopy, actions)
 	return actionsCopy, nil
 }
 
 // Save records a set of actions and creates a new version.
-func (m *MemoryStorage) Save(newVersion registry.Version, actions registry.OperationSet) error {
+func (m *MemoryStorage) Save(newVersion registry.Version, actions registry.ChangeSet, head bool) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	// Validate actions - ensure no conflicts for Create within this set of actions
-	createdPaths := make(map[registry.Path]bool)
-	for _, action := range actions {
-		if action.Kind == registry.Create {
-			if _, exists := createdPaths[action.Entry.Path]; exists {
-				return fmt.Errorf("conflict: multiple create actions for path '%s' in the same version", action.Entry.Path)
-			}
-			createdPaths[action.Entry.Path] = true
-		}
-	}
-
-	clonedActions := make(registry.OperationSet, len(actions))
-	for i, action := range actions {
-		clonedActions[i] = registry.Action{
-			Kind: action.Kind,
-			Entry: registry.Entry{
-				Path: action.Entry.Path,
-				Kind: action.Entry.Kind,
-				Meta: action.Entry.Meta,
-				Data: action.Entry.Data,
-			},
-		}
-	}
-
 	m.actions[newVersion.ID()] = actions
 	m.versions[newVersion.ID()] = newVersion
+
+	if head {
+		m.head = newVersion
+	}
+
 	return nil
+}
+
+// Head returns the current head version of the history.
+func (m *MemoryStorage) Head() (registry.Version, error) {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+
+	if m.head == nil {
+		return nil, fmt.Errorf("no head version set")
+	}
+
+	return m.head, nil
 }

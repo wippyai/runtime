@@ -35,18 +35,8 @@ func NewLoader(dtt payload.Transcoder) reg.Loader {
 	}
 }
 
-// WithPrefix sets a prefix for the loader.
-func (l *loader) WithPrefix(prefix reg.Path) reg.Loader {
-	return &loader{
-		prefix:  string(prefix),
-		dtt:     l.dtt,
-		entries: l.entries,
-		mutex:   l.mutex,
-	}
-}
-
-// Load processes the payloads and extracts configuration entries.
-func (l *loader) Load(payloads ...payload.Payload) error {
+// Register processes the payloads and extracts configuration entries.
+func (l *loader) Register(path reg.Path, payloads ...payload.Payload) error {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
@@ -64,9 +54,9 @@ func (l *loader) Load(payloads ...payload.Payload) error {
 			return fmt.Errorf("missing Kind in reg entry")
 		}
 
-		fullID := l.getFullID(entry.Path)
-		l.entries[fullID] = reg.Entry{
-			Path: reg.Path(fullID),
+		fullID := path + entry.Path
+		l.entries[string(fullID)] = reg.Entry{
+			Path: fullID,
 			Kind: entry.Kind,
 			Meta: entry.Meta,
 			Data: p,
@@ -97,12 +87,4 @@ func (l *loader) Reset() {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 	l.entries = make(map[string]reg.Entry)
-}
-
-// getFullID constructs the full Path, including the prefix if set.
-func (l *loader) getFullID(id reg.Path) string {
-	if l.prefix == "" {
-		return string(id)
-	}
-	return l.prefix + "." + string(id)
 }

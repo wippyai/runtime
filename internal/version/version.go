@@ -5,33 +5,42 @@ import (
 	"github.com/ponyruntime/pony/api/registry"
 )
 
-// Version represents a version with major and minor components.
-type Version struct {
+// version represents a version with major and minor components.
+type version struct {
 	id         uint
-	previousID uint
+	previousID *uint
 }
 
 // ID returns the formatted version ID string (e.g., "v00001.001").
-func (v Version) ID() uint {
+func (v version) ID() uint {
 	return v.id
 }
 
 // String returns the formatted version string (e.g., "v00001").
-func (v Version) String() string {
+func (v version) String() string {
 	return fmt.Sprintf("v%d", v.id)
 }
 
 // PreviousID returns the ID of the previous version.
-func (v Version) PreviousID() uint {
-	return v.previousID
+func (v version) Previous() registry.Version {
+	if v.previousID == nil {
+		return nil
+	}
+
+	return version{id: *v.previousID}
 }
 
-// New creates a new Version struct.
-func New(id uint) Version {
-	return Version{id: id}
+// New creates a new version struct.
+func New(id uint) registry.Version {
+	return version{id: id}
 }
 
-// FromParent creates a new Version struct from a parent version.
-func FromParent(parent registry.Version, id uint) Version {
-	return Version{id: id, previousID: parent.ID()}
+// FromParent creates a new version struct from a parent version.
+func FromParent(parent registry.Version, id uint) registry.Version {
+	if parent == nil {
+		return version{id: id}
+	}
+
+	parentID := parent.ID()
+	return version{id: id, previousID: &parentID}
 }

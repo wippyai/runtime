@@ -19,8 +19,8 @@ type Edge struct {
 
 // Graph represents the network of data types and their transcoding relationships.
 type Graph struct {
-	Nodes     map[Node]bool
-	Edges     map[Node]map[Node]int // Adjacency list: Node -> (Node -> Weight)
+	nodes     map[Node]bool
+	edges     map[Node]map[Node]int // Adjacency list: Node -> (Node -> Weight)
 	mutex     sync.RWMutex          // For concurrent access
 	cache     map[string]*Path      // Cache for shortest paths
 	cacheLock sync.RWMutex
@@ -35,8 +35,8 @@ type Path struct {
 // NewGraph creates a new graph.
 func NewGraph() *Graph {
 	return &Graph{
-		Nodes: make(map[Node]bool),
-		Edges: make(map[Node]map[Node]int),
+		nodes: make(map[Node]bool),
+		edges: make(map[Node]map[Node]int),
 		cache: make(map[string]*Path),
 	}
 }
@@ -45,7 +45,7 @@ func NewGraph() *Graph {
 func (g *Graph) AddNode(n Node) {
 	g.mutex.Lock()
 	defer g.mutex.Unlock()
-	g.Nodes[n] = true
+	g.nodes[n] = true
 	g.invalidateCache() // Invalidate cache on node addition
 }
 
@@ -54,10 +54,10 @@ func (g *Graph) AddEdge(e Edge) {
 	g.mutex.Lock()
 	defer g.mutex.Unlock()
 
-	if _, ok := g.Edges[e.From]; !ok {
-		g.Edges[e.From] = make(map[Node]int)
+	if _, ok := g.edges[e.From]; !ok {
+		g.edges[e.From] = make(map[Node]int)
 	}
-	g.Edges[e.From][e.To] = e.Weight
+	g.edges[e.From][e.To] = e.Weight
 	g.invalidateCache() // Invalidate cache on edge addition
 }
 
@@ -122,19 +122,19 @@ func (g *Graph) ShortestPath(from, to Node) (*Path, error) {
 	defer g.mutex.RUnlock()
 
 	// Check if nodes exist
-	if !g.Nodes[from] {
+	if !g.nodes[from] {
 		return nil, fmt.Errorf("start node %s does not exist in the graph", from)
 	}
-	if !g.Nodes[to] {
+	if !g.nodes[to] {
 		return nil, fmt.Errorf("end node %s does not exist in the graph", to)
 	}
 
 	// Dijkstra's algorithm
 	distances := make(map[Node]int)
 	previous := make(map[Node]Node)
-	pq := make(priorityQueue, 0, len(g.Nodes))
+	pq := make(priorityQueue, 0, len(g.nodes))
 
-	for node := range g.Nodes {
+	for node := range g.nodes {
 		if node == from {
 			distances[node] = 0
 			heap.Push(&pq, &priorityQueueItem{node: node, priority: 0})
@@ -154,7 +154,7 @@ func (g *Graph) ShortestPath(from, to Node) (*Path, error) {
 			break // Reached the destination
 		}
 
-		for neighbor, weight := range g.Edges[current] {
+		for neighbor, weight := range g.edges[current] {
 			alt := distances[current] + weight
 			if distances[neighbor] == -1 || alt < distances[neighbor] {
 				distances[neighbor] = alt
