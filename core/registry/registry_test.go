@@ -75,8 +75,8 @@ func TestNewRegistry(t *testing.T) {
 
 func TestInMemoryRegistry_GetAllEntries(t *testing.T) {
 	state := registry.State{
-		{Path: "/foo", Kind: "test", Data: payload.New("data1")},
-		{Path: "/bar", Kind: "test", Data: payload.New("data2")},
+		{Path: "/foo", Kind: "test", Data: payload.NewString("data1")},
+		{Path: "/bar", Kind: "test", Data: payload.NewString("data2")},
 	}
 
 	reg := &memreg{
@@ -89,8 +89,29 @@ func TestInMemoryRegistry_GetAllEntries(t *testing.T) {
 		t.Fatalf("Unexpected error: %v", err)
 	}
 
-	if !reflect.DeepEqual(entries, state) {
-		t.Errorf("Expected entries: %v, got: %v", state, entries)
+	if len(entries) != len(state) {
+		t.Errorf("Expected %d entries, got %d", len(state), len(entries))
+	}
+
+	for i := range state {
+		if state[i].Path != entries[i].Path || state[i].Kind != entries[i].Kind {
+			t.Errorf("Expected entry at index %d to be %v, got %v", i, state[i], entries[i])
+		}
+
+		// Access string value using Data() and type assertion
+		expectedData, ok := state[i].Data.Data().(string)
+		if !ok {
+			t.Fatalf("Expected state Data to be a string, got: %T", state[i].Data.Data())
+		}
+
+		actualData, ok := entries[i].Data.Data().(string)
+		if !ok {
+			t.Fatalf("Expected entries Data to be a string, got: %T", entries[i].Data.Data())
+		}
+
+		if expectedData != actualData {
+			t.Errorf("Expected data at index %d to be %v, got %v", i, expectedData, actualData)
+		}
 	}
 }
 
@@ -295,5 +316,103 @@ func TestInMemoryRegistry_Apply_GetHeadHistoryError(t *testing.T) {
 	}
 	if err.Error() != "failed to get head version: no head version set" {
 		t.Errorf("Expected error: %v, got: %v", "failed to get head version: no head version set", err.Error())
+	}
+}
+
+// Mock for History that returns an error on Save
+type ErrorHistory struct {
+	storage.MemoryStorage // Correctly embed MemoryStorage
+	// Add a map to store versions for Versions() method
+	versions map[registry.Version]registry.ChangeSet
+}
+
+// Override Save to return an error
+func (h *ErrorHistory) Save(v registry.Version, cs registry.ChangeSet, head bool) error {
+	// Also save to versions map
+	if h.versions == nil {
+		h.versions = make(map[registry.Version]registry.ChangeSet)
+	}
+	h.versions[v] = cs
+
+	return errors.New("history error")
+}
+
+// Implement Versions()
+func (h *ErrorHistory) Versions() ([]registry.Version, error) {
+	var vs []registry.Version
+	for v := range h.versions {
+		vs = append(vs, v)
+	}
+	return vs, nil
+}
+
+// Implement Get()
+func (h *ErrorHistory) Get(v registry.Version) (registry.ChangeSet, error) {
+	if cs, ok := h.versions[v]; ok {
+		return cs, nil
+	}
+	return nil, fmt.Errorf("version not found: %v", v)
+}
+
+// Implement Head() - return error if no head, otherwise return latest saved version
+func (h *ErrorHistory) Head() (registry.Version, error) {
+	if len(h.versions) == 0 {
+		return nil, errors.New("no head version set")
+	}
+	var head registry.Version
+	for v := range h.versions {
+		if head == nil || v.ID() > head.ID() {
+			head = v
+		}
+	}
+	return head, nil
+}
+
+func NewErrorHistory() *ErrorHistory {
+	return &ErrorHistory{
+		MemoryStorage: *storage.NewMemory(),
+		versions:      make(map[registry.Version]registry.ChangeSet),
+	}
+}
+
+func TestInMemoryRegistry_Apply_HistorySaveError(t *testing.T) {
+	v0 := version.New(registry.RootVersion)
+	history := NewErrorHistory()
+	_ = history.Save(v0, registry.ChangeSet{}, true) // Set up an initial head version
+	runner := NewMockRunner()
+	stateBuilder := NewStateBuilder(zap.NewNop())
+
+	reg := NewRegistry(history, runner, stateBuilder).(*memreg)
+
+	// Mock the runner to return a new state (so we can test rollback)
+	runner.newState = registry.State{
+		{Path: "/foo", Kind: "test", Data: payload.New("data")},
+	}
+
+	// Attempt to apply changes, which should fail due to the history error
+	_, err := reg.Apply(registry.ChangeSet{
+		{
+			Kind: registry.Create,
+			Entry: registry.Entry{
+				Path: "/foo",
+				Kind: "test",
+				Data: payload.New("data"),
+			},
+		},
+	})
+
+	if err == nil {
+		t.Errorf("Expected error, got nil")
+	}
+
+	expectedErrorMsg := "failed to save new version: history error, rolled back"
+	if err.Error() != expectedErrorMsg {
+		t.Errorf("Expected error message: '%v', got: '%v'", expectedErrorMsg, err.Error())
+	}
+
+	// Verify that the runner's Run method was called only twice (has rollback)
+	expectedRunnerStack := []string{"Run", "Run"}
+	if !reflect.DeepEqual(runner.callStack, expectedRunnerStack) {
+		t.Errorf("Expected runner call stack: %v, got: %v", expectedRunnerStack, runner.callStack)
 	}
 }
