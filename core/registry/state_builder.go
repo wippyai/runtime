@@ -5,6 +5,8 @@ import (
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/internal/version"
 	"go.uber.org/zap"
+	"reflect"
+	"sort"
 )
 
 type StateBuilder struct {
@@ -83,14 +85,92 @@ func (b *StateBuilder) BuildState(history registry.History, targetVersion regist
 	}
 
 	// Convert the state map back to a slice
-	for _, entry := range stateMap {
-		state = append(state, entry)
+	state = make(registry.State, 0, len(stateMap))
+
+	// Extract keys for sorting
+	paths := make([]string, 0, len(stateMap))
+	for path := range stateMap {
+		paths = append(paths, string(path))
+	}
+
+	// Sort the paths
+	sort.Strings(paths)
+
+	// Append entries to state in sorted order
+	for _, path := range paths {
+		state = append(state, stateMap[registry.Path(path)])
 	}
 
 	return state, nil
 }
 
 func (b *StateBuilder) BuildDelta(history registry.History, from, to registry.Version) (registry.ChangeSet, error) {
-	// Leave empty for now
-	return nil, nil
+	// Note: This implementation of BuildDelta relies on building the full states at both the 'from' and 'to' versions
+	// using BuildState, which is less efficient than directly processing changesets. However, it prioritizes
+	// correctness by ensuring a minimal ChangeSet and handling parent-child relationships correctly during
+	// creation and deletion.
+
+	// Build the state at the 'from' version.
+	fromState, err := b.BuildState(history, from)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build state at 'from' version %v: %w", from, err)
+	}
+
+	// Build the state at the 'to' version.
+	toState, err := b.BuildState(history, to)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build state at 'to' version %v: %w", to, err)
+	}
+
+	// Convert the states to maps for easier lookup.
+	fromStateMap := make(map[registry.Path]registry.Entry)
+	for _, entry := range fromState {
+		fromStateMap[entry.Path] = entry
+	}
+
+	toStateMap := make(map[registry.Path]registry.Entry)
+	for _, entry := range toState {
+		toStateMap[entry.Path] = entry
+	}
+
+	// Calculate the delta.
+	creates := make(registry.ChangeSet, 0)
+	updates := make(registry.ChangeSet, 0)
+	deletes := make(registry.ChangeSet, 0)
+
+	// Find new and updated entries.
+	for _, toEntry := range toState {
+		fromEntry, exists := fromStateMap[toEntry.Path]
+		if !exists {
+			// Entry exists in 'to' but not in 'from' - Create operation.
+			creates = append(creates, registry.Operation{Kind: registry.Create, Entry: toEntry})
+		} else if !reflect.DeepEqual(fromEntry, toEntry) {
+			// Entry exists in both but is different - Update operation.
+			updates = append(updates, registry.Operation{Kind: registry.Update, Entry: toEntry})
+		}
+	}
+
+	// Find deleted entries.
+	for _, fromEntry := range fromState {
+		if _, exists := toStateMap[fromEntry.Path]; !exists {
+			deletes = append(deletes, registry.Operation{Kind: registry.Delete, Entry: fromEntry})
+		}
+	}
+
+	// Sort operations for correct order of execution:
+	// 1. Deletes: Sort by path in reverse order (children first).
+	sort.Slice(deletes, func(i, j int) bool {
+		return deletes[i].Entry.Path > deletes[j].Entry.Path
+	})
+
+	// 2. Creates: Sort by path in ascending order (parents first).
+	sort.Slice(creates, func(i, j int) bool {
+		return creates[i].Entry.Path < creates[j].Entry.Path
+	})
+
+	// Concatenate operations to form the final ChangeSet.
+	delta := append(deletes, updates...)
+	delta = append(delta, creates...)
+
+	return delta, nil
 }
