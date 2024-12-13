@@ -13,7 +13,7 @@ type StateBuilder struct {
 	log *zap.Logger
 }
 
-func NewStateBuilder(log *zap.Logger) registry.Builder {
+func NewStateBuilder(log *zap.Logger) registry.StateBuilder {
 	return &StateBuilder{
 		log: log,
 	}
@@ -105,11 +105,6 @@ func (b *StateBuilder) BuildState(history registry.History, targetVersion regist
 }
 
 func (b *StateBuilder) BuildDelta(history registry.History, from, to registry.Version) (registry.ChangeSet, error) {
-	// Note: This implementation of BuildDelta relies on building the full states at both the 'from' and 'to' versions
-	// using BuildState, which is less efficient than directly processing changesets. However, it prioritizes
-	// correctness by ensuring a minimal ChangeSet and handling parent-child relationships correctly during
-	// creation and deletion.
-
 	// Build the state at the 'from' version.
 	fromState, err := b.BuildState(history, from)
 	if err != nil {
@@ -163,7 +158,9 @@ func (b *StateBuilder) BuildDelta(history registry.History, from, to registry.Ve
 		return deletes[i].Entry.Path > deletes[j].Entry.Path
 	})
 
-	// 2. Creates: Sort by path in ascending order (parents first).
+	// 2. Updates: No specific order needed for updates.
+
+	// 3. Creates: Sort by path in ascending order (parents first).
 	sort.Slice(creates, func(i, j int) bool {
 		return creates[i].Entry.Path < creates[j].Entry.Path
 	})

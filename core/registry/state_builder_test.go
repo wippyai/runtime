@@ -581,3 +581,185 @@ func TestStateBuilder_BuildDelta_NoChanges_IdenticalStates(t *testing.T) {
 		t.Errorf("unexpected call stack.\ngot: %v\nwant: %v", history.callStack, expectedCallStack)
 	}
 }
+
+func TestStateBuilder_BuildDelta_EmptyFromAndToStates(t *testing.T) {
+	v0 := version.New(registry.RootVersion)
+
+	history := NewMockHistory()
+	_ = history.Save(v0, registry.ChangeSet{}, false)
+
+	builder := NewStateBuilder(zap.NewNop())
+
+	delta, err := builder.BuildDelta(history, v0, v0) // Same version (empty state)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expectedDelta := registry.ChangeSet{} // Expecting empty delta
+
+	if !reflect.DeepEqual(delta, expectedDelta) {
+		t.Errorf("unexpected delta.\ngot: %v\nwant: %v", delta, expectedDelta)
+	}
+	expectedCallStack := []string{"Save", "Versions", "Get(0)", "Versions", "Get(0)"}
+	if !reflect.DeepEqual(history.callStack, expectedCallStack) {
+		t.Errorf("unexpected call stack.\ngot: %v\nwant: %v", history.callStack, expectedCallStack)
+	}
+}
+
+func TestStateBuilder_BuildDelta_UpdateFollowedByDelete(t *testing.T) {
+	v0 := version.New(registry.RootVersion)
+	v1 := version.FromParent(v0, 1)
+	v2 := version.FromParent(v1, 2)
+
+	entry1 := registry.Entry{Path: "/path/1", Kind: "kind1", Data: payload.New("data1")}
+	entry1Updated := registry.Entry{Path: "/path/1", Kind: "kind1", Data: payload.New("data1Updated")}
+
+	history := NewMockHistory()
+	_ = history.Save(v0, registry.ChangeSet{}, false)
+	_ = history.Save(v1, registry.ChangeSet{
+		{Kind: registry.Create, Entry: entry1},
+		{Kind: registry.Update, Entry: entry1Updated},
+	}, false)
+	_ = history.Save(v2, registry.ChangeSet{
+		{Kind: registry.Delete, Entry: entry1},
+	}, false)
+
+	builder := NewStateBuilder(zap.NewNop())
+
+	delta, err := builder.BuildDelta(history, v0, v2)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expectedDelta := registry.ChangeSet{ // Expecting empty
+	}
+
+	if !reflect.DeepEqual(delta, expectedDelta) {
+		t.Errorf("unexpected delta.\ngot: %v\nwant: %v", delta, expectedDelta)
+	}
+	expectedCallStack := []string{"Save", "Save", "Save", "Versions", "Get(0)", "Versions", "Get(0)", "Get(1)", "Get(2)"}
+	if !reflect.DeepEqual(history.callStack, expectedCallStack) {
+		t.Errorf("unexpected call stack.\ngot: %v\nwant: %v", history.callStack, expectedCallStack)
+	}
+}
+
+func TestStateBuilder_BuildDelta_ComplexScenario(t *testing.T) {
+	v0 := version.New(registry.RootVersion)
+	v1 := version.FromParent(v0, 1)
+	v2 := version.FromParent(v1, 2)
+	v3 := version.FromParent(v2, 3)
+	v4 := version.FromParent(v3, 4)
+	v5 := version.FromParent(v4, 5)
+
+	// Entries
+	entryParent := registry.Entry{Path: "/parent", Kind: "kindParent", Data: payload.New("parentData")}
+	entryChild1 := registry.Entry{Path: "/parent/child1", Kind: "kindChild", Data: payload.New("child1Data")}
+	entryChild2 := registry.Entry{Path: "/parent/child2", Kind: "kindChild", Data: payload.New("child2Data")}
+	entryChild2Updated := registry.Entry{Path: "/parent/child2", Kind: "kindChild", Data: payload.New("child2DataUpdated")} // The updated value is not directly relevant here
+	entryOther := registry.Entry{Path: "/other", Kind: "kindOther", Data: payload.New("otherData")}
+
+	history := NewMockHistory()
+	_ = history.Save(v0, registry.ChangeSet{}, false)
+	_ = history.Save(v1, registry.ChangeSet{
+		{Kind: registry.Create, Entry: entryParent},
+		{Kind: registry.Create, Entry: entryChild1},
+	}, false)
+	_ = history.Save(v2, registry.ChangeSet{
+		{Kind: registry.Create, Entry: entryChild2},
+	}, false)
+	_ = history.Save(v3, registry.ChangeSet{
+		{Kind: registry.Update, Entry: entryChild2Updated},
+	}, false)
+	_ = history.Save(v4, registry.ChangeSet{
+		{Kind: registry.Delete, Entry: entryChild1},
+		{Kind: registry.Create, Entry: entryOther},
+	}, false)
+	_ = history.Save(v5, registry.ChangeSet{
+		{Kind: registry.Delete, Entry: entryParent}, // Delete parent after child
+	}, false)
+
+	builder := NewStateBuilder(zap.NewNop())
+
+	// Build delta from v1 to v5
+	delta, err := builder.BuildDelta(history, v1, v5)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expectedDelta := registry.ChangeSet{
+		{Kind: registry.Delete, Entry: entryChild1},        // Child deleted first
+		{Kind: registry.Delete, Entry: entryParent},        // Parent deleted after child
+		{Kind: registry.Create, Entry: entryOther},         // Other create
+		{Kind: registry.Create, Entry: entryChild2Updated}, // entryChild2 - Create (because it doesn't exist in v1)
+	}
+
+	if !reflect.DeepEqual(delta, expectedDelta) {
+		t.Errorf("unexpected delta.\ngot: %v\nwant: %v", delta, expectedDelta)
+	}
+
+	expectedCallStack := []string{"Save", "Save", "Save", "Save", "Save", "Save", "Versions", "Get(0)", "Get(1)", "Versions", "Get(0)", "Get(1)", "Get(2)", "Get(3)", "Get(4)", "Get(5)"}
+	if !reflect.DeepEqual(history.callStack, expectedCallStack) {
+		t.Errorf("unexpected call stack.\ngot: %v\nwant: %v", history.callStack, expectedCallStack)
+	}
+}
+
+func TestStateBuilder_BuildDelta_ComplexScenario_Inversed(t *testing.T) {
+	v0 := version.New(registry.RootVersion)
+	v1 := version.FromParent(v0, 1)
+	v2 := version.FromParent(v1, 2)
+	v3 := version.FromParent(v2, 3)
+	v4 := version.FromParent(v3, 4)
+	v5 := version.FromParent(v4, 5)
+
+	// Entries
+	entryParent := registry.Entry{Path: "/parent", Kind: "kindParent", Data: payload.New("parentData")}
+	entryChild1 := registry.Entry{Path: "/parent/child1", Kind: "kindChild", Data: payload.New("child1Data")}
+	entryChild2 := registry.Entry{Path: "/parent/child2", Kind: "kindChild", Data: payload.New("child2Data")}
+	entryChild2Updated := registry.Entry{Path: "/parent/child2", Kind: "kindChild", Data: payload.New("child2DataUpdated")}
+	entryOther := registry.Entry{Path: "/other", Kind: "kindOther", Data: payload.New("otherData")}
+
+	history := NewMockHistory()
+	_ = history.Save(v0, registry.ChangeSet{}, false)
+	_ = history.Save(v1, registry.ChangeSet{
+		{Kind: registry.Create, Entry: entryParent},
+		{Kind: registry.Create, Entry: entryChild1},
+	}, false)
+	_ = history.Save(v2, registry.ChangeSet{
+		{Kind: registry.Create, Entry: entryChild2},
+	}, false)
+	_ = history.Save(v3, registry.ChangeSet{
+		{Kind: registry.Update, Entry: entryChild2Updated},
+	}, false)
+	_ = history.Save(v4, registry.ChangeSet{
+		{Kind: registry.Delete, Entry: entryChild1},
+		{Kind: registry.Create, Entry: entryOther},
+	}, false)
+	_ = history.Save(v5, registry.ChangeSet{
+		{Kind: registry.Delete, Entry: entryParent}, // Delete parent after child
+	}, false)
+
+	builder := NewStateBuilder(zap.NewNop())
+
+	// Build delta from v5 to v1 (inversed)
+	delta, err := builder.BuildDelta(history, v5, v1) // Note: v5 to v1
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Expected delta when going from v5 to v1 (inversed)
+	expectedDelta := registry.ChangeSet{
+		{Kind: registry.Delete, Entry: entryChild2Updated},
+		{Kind: registry.Delete, Entry: entryOther},
+		{Kind: registry.Create, Entry: entryParent},
+		{Kind: registry.Create, Entry: entryChild1},
+	}
+
+	if !reflect.DeepEqual(delta, expectedDelta) {
+		t.Errorf("unexpected delta.\ngot: %v\nwant: %v", delta, expectedDelta)
+	}
+
+	expectedCallStack := []string{"Save", "Save", "Save", "Save", "Save", "Save", "Versions", "Get(0)", "Get(1)", "Get(2)", "Get(3)", "Get(4)", "Get(5)", "Versions", "Get(0)", "Get(1)"}
+	if !reflect.DeepEqual(history.callStack, expectedCallStack) {
+		t.Errorf("unexpected call stack.\ngot: %v\nwant: %v", history.callStack, expectedCallStack)
+	}
+}

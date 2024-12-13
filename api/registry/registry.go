@@ -45,15 +45,15 @@ type (
 	Registry interface {
 		EntryReader
 		StateWriter
-		Active() (Version, error)
+		Current() (Version, error)
 	}
 
 	StateWriter interface {
-		Apply(State) (Version, error)
+		Apply(ChangeSet) (Version, error)
 		ApplyVersion(Version) error
 	}
 
-	Builder interface {
+	StateBuilder interface {
 		BuildState(History, Version) (State, error)
 		BuildDelta(History, Version, Version) (ChangeSet, error)
 	}
@@ -68,6 +68,10 @@ type (
 		Get(Version) (ChangeSet, error)
 		Save(v Version, cs ChangeSet, head bool) error
 		Head() (Version, error)
+	}
+
+	Runner interface {
+		Run(State, ChangeSet) (State, error)
 	}
 
 	Loader interface {
