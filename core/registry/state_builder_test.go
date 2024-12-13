@@ -337,7 +337,6 @@ func TestStateBuilder_BuildState_GetError(t *testing.T) {
 		t.Errorf("unexpected error.\ngot: %v\nwant: %v", err, expectedErrMsg)
 	}
 }
-
 func TestStateBuilder_BuildDelta_SimpleCreates(t *testing.T) {
 	v0 := version.New(registry.RootVersion)
 	v1 := version.FromParent(v0, 1)
@@ -352,7 +351,17 @@ func TestStateBuilder_BuildDelta_SimpleCreates(t *testing.T) {
 
 	builder := NewStateBuilder(zap.NewNop())
 
-	delta, err := builder.BuildDelta(history, v0, v1)
+	// Build states
+	fromState, err := builder.BuildState(history, v0)
+	if err != nil {
+		t.Fatalf("unexpected error building state for v0: %v", err)
+	}
+	toState, err := builder.BuildState(history, v1)
+	if err != nil {
+		t.Fatalf("unexpected error building state for v1: %v", err)
+	}
+
+	delta, err := builder.BuildDelta(fromState, toState)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -363,10 +372,6 @@ func TestStateBuilder_BuildDelta_SimpleCreates(t *testing.T) {
 
 	if !reflect.DeepEqual(delta, expectedDelta) {
 		t.Errorf("unexpected delta.\ngot: %v\nwant: %v", delta, expectedDelta)
-	}
-	expectedCallStack := []string{"Save", "Save", "Versions", "Get(0)", "Versions", "Get(0)", "Get(1)"}
-	if !reflect.DeepEqual(history.callStack, expectedCallStack) {
-		t.Errorf("unexpected call stack.\ngot: %v\nwant: %v", history.callStack, expectedCallStack)
 	}
 }
 
@@ -389,7 +394,17 @@ func TestStateBuilder_BuildDelta_SimpleUpdates(t *testing.T) {
 
 	builder := NewStateBuilder(zap.NewNop())
 
-	delta, err := builder.BuildDelta(history, v1, v2)
+	// Build states
+	fromState, err := builder.BuildState(history, v1)
+	if err != nil {
+		t.Fatalf("unexpected error building state for v1: %v", err)
+	}
+	toState, err := builder.BuildState(history, v2)
+	if err != nil {
+		t.Fatalf("unexpected error building state for v2: %v", err)
+	}
+
+	delta, err := builder.BuildDelta(fromState, toState)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -400,10 +415,6 @@ func TestStateBuilder_BuildDelta_SimpleUpdates(t *testing.T) {
 
 	if !reflect.DeepEqual(delta, expectedDelta) {
 		t.Errorf("unexpected delta.\ngot: %v\nwant: %v", delta, expectedDelta)
-	}
-	expectedCallStack := []string{"Save", "Save", "Save", "Versions", "Get(0)", "Get(1)", "Versions", "Get(0)", "Get(1)", "Get(2)"}
-	if !reflect.DeepEqual(history.callStack, expectedCallStack) {
-		t.Errorf("unexpected call stack.\ngot: %v\nwant: %v", history.callStack, expectedCallStack)
 	}
 }
 
@@ -425,7 +436,17 @@ func TestStateBuilder_BuildDelta_SimpleDeletes(t *testing.T) {
 
 	builder := NewStateBuilder(zap.NewNop())
 
-	delta, err := builder.BuildDelta(history, v1, v2)
+	// Build states
+	fromState, err := builder.BuildState(history, v1)
+	if err != nil {
+		t.Fatalf("unexpected error building state for v1: %v", err)
+	}
+	toState, err := builder.BuildState(history, v2)
+	if err != nil {
+		t.Fatalf("unexpected error building state for v2: %v", err)
+	}
+
+	delta, err := builder.BuildDelta(fromState, toState)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -436,10 +457,6 @@ func TestStateBuilder_BuildDelta_SimpleDeletes(t *testing.T) {
 
 	if !reflect.DeepEqual(delta, expectedDelta) {
 		t.Errorf("unexpected delta.\ngot: %v\nwant: %v", delta, expectedDelta)
-	}
-	expectedCallStack := []string{"Save", "Save", "Save", "Versions", "Get(0)", "Get(1)", "Versions", "Get(0)", "Get(1)", "Get(2)"}
-	if !reflect.DeepEqual(history.callStack, expectedCallStack) {
-		t.Errorf("unexpected call stack.\ngot: %v\nwant: %v", history.callStack, expectedCallStack)
 	}
 }
 
@@ -465,7 +482,17 @@ func TestStateBuilder_BuildDelta_MixedOperations(t *testing.T) {
 
 	builder := NewStateBuilder(zap.NewNop())
 
-	delta, err := builder.BuildDelta(history, v1, v2)
+	// Build states
+	fromState, err := builder.BuildState(history, v1)
+	if err != nil {
+		t.Fatalf("unexpected error building state for v1: %v", err)
+	}
+	toState, err := builder.BuildState(history, v2)
+	if err != nil {
+		t.Fatalf("unexpected error building state for v2: %v", err)
+	}
+
+	delta, err := builder.BuildDelta(fromState, toState)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -477,10 +504,6 @@ func TestStateBuilder_BuildDelta_MixedOperations(t *testing.T) {
 
 	if !reflect.DeepEqual(delta, expectedDelta) {
 		t.Errorf("unexpected delta.\ngot: %v\nwant: %v", delta, expectedDelta)
-	}
-	expectedCallStack := []string{"Save", "Save", "Save", "Versions", "Get(0)", "Get(1)", "Versions", "Get(0)", "Get(1)", "Get(2)"}
-	if !reflect.DeepEqual(history.callStack, expectedCallStack) {
-		t.Errorf("unexpected call stack.\ngot: %v\nwant: %v", history.callStack, expectedCallStack)
 	}
 }
 
@@ -498,7 +521,17 @@ func TestStateBuilder_BuildDelta_NoChanges(t *testing.T) {
 
 	builder := NewStateBuilder(zap.NewNop())
 
-	delta, err := builder.BuildDelta(history, v0, v1)
+	// Build states
+	fromState, err := builder.BuildState(history, v0)
+	if err != nil {
+		t.Fatalf("unexpected error building state for v0: %v", err)
+	}
+	toState, err := builder.BuildState(history, v1)
+	if err != nil {
+		t.Fatalf("unexpected error building state for v1: %v", err)
+	}
+
+	delta, err := builder.BuildDelta(fromState, toState)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -509,10 +542,6 @@ func TestStateBuilder_BuildDelta_NoChanges(t *testing.T) {
 
 	if !reflect.DeepEqual(delta, expectedDelta) {
 		t.Errorf("unexpected delta.\ngot: %v\nwant: %v", delta, expectedDelta)
-	}
-	expectedCallStack := []string{"Save", "Save", "Versions", "Get(0)", "Versions", "Get(0)", "Get(1)"}
-	if !reflect.DeepEqual(history.callStack, expectedCallStack) {
-		t.Errorf("unexpected call stack.\ngot: %v\nwant: %v", history.callStack, expectedCallStack)
 	}
 }
 
@@ -530,8 +559,14 @@ func TestStateBuilder_BuildDelta_NoChanges_SameVersion(t *testing.T) {
 
 	builder := NewStateBuilder(zap.NewNop())
 
+	// Build state
+	state, err := builder.BuildState(history, v1)
+	if err != nil {
+		t.Fatalf("unexpected error building state for v1: %v", err)
+	}
+
 	// Compare v1 to itself
-	delta, err := builder.BuildDelta(history, v1, v1)
+	delta, err := builder.BuildDelta(state, state)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -540,11 +575,6 @@ func TestStateBuilder_BuildDelta_NoChanges_SameVersion(t *testing.T) {
 
 	if !reflect.DeepEqual(delta, expectedDelta) {
 		t.Errorf("unexpected delta.\ngot: %v\nwant: %v", delta, expectedDelta)
-	}
-
-	expectedCallStack := []string{"Save", "Save", "Versions", "Get(0)", "Get(1)", "Versions", "Get(0)", "Get(1)"}
-	if !reflect.DeepEqual(history.callStack, expectedCallStack) {
-		t.Errorf("unexpected call stack.\ngot: %v\nwant: %v", history.callStack, expectedCallStack)
 	}
 }
 
@@ -564,8 +594,18 @@ func TestStateBuilder_BuildDelta_NoChanges_IdenticalStates(t *testing.T) {
 
 	builder := NewStateBuilder(zap.NewNop())
 
+	// Build states
+	fromState, err := builder.BuildState(history, v1)
+	if err != nil {
+		t.Fatalf("unexpected error building state for v1: %v", err)
+	}
+	toState, err := builder.BuildState(history, v2)
+	if err != nil {
+		t.Fatalf("unexpected error building state for v2: %v", err)
+	}
+
 	// Compare v1 to v2 (identical states)
-	delta, err := builder.BuildDelta(history, v1, v2)
+	delta, err := builder.BuildDelta(fromState, toState)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -574,11 +614,6 @@ func TestStateBuilder_BuildDelta_NoChanges_IdenticalStates(t *testing.T) {
 
 	if !reflect.DeepEqual(delta, expectedDelta) {
 		t.Errorf("unexpected delta.\ngot: %v\nwant: %v", delta, expectedDelta)
-	}
-
-	expectedCallStack := []string{"Save", "Save", "Save", "Versions", "Get(0)", "Get(1)", "Versions", "Get(0)", "Get(1)", "Get(2)"}
-	if !reflect.DeepEqual(history.callStack, expectedCallStack) {
-		t.Errorf("unexpected call stack.\ngot: %v\nwant: %v", history.callStack, expectedCallStack)
 	}
 }
 
@@ -590,7 +625,17 @@ func TestStateBuilder_BuildDelta_EmptyFromAndToStates(t *testing.T) {
 
 	builder := NewStateBuilder(zap.NewNop())
 
-	delta, err := builder.BuildDelta(history, v0, v0) // Same version (empty state)
+	// Build states
+	fromState, err := builder.BuildState(history, v0)
+	if err != nil {
+		t.Fatalf("unexpected error building state for v0: %v", err)
+	}
+	toState, err := builder.BuildState(history, v0)
+	if err != nil {
+		t.Fatalf("unexpected error building state for v0: %v", err)
+	}
+
+	delta, err := builder.BuildDelta(fromState, toState) // Same version (empty state)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -599,10 +644,6 @@ func TestStateBuilder_BuildDelta_EmptyFromAndToStates(t *testing.T) {
 
 	if !reflect.DeepEqual(delta, expectedDelta) {
 		t.Errorf("unexpected delta.\ngot: %v\nwant: %v", delta, expectedDelta)
-	}
-	expectedCallStack := []string{"Save", "Versions", "Get(0)", "Versions", "Get(0)"}
-	if !reflect.DeepEqual(history.callStack, expectedCallStack) {
-		t.Errorf("unexpected call stack.\ngot: %v\nwant: %v", history.callStack, expectedCallStack)
 	}
 }
 
@@ -626,7 +667,17 @@ func TestStateBuilder_BuildDelta_UpdateFollowedByDelete(t *testing.T) {
 
 	builder := NewStateBuilder(zap.NewNop())
 
-	delta, err := builder.BuildDelta(history, v0, v2)
+	// Build states
+	fromState, err := builder.BuildState(history, v0)
+	if err != nil {
+		t.Fatalf("unexpected error building state for v0: %v", err)
+	}
+	toState, err := builder.BuildState(history, v2)
+	if err != nil {
+		t.Fatalf("unexpected error building state for v2: %v", err)
+	}
+
+	delta, err := builder.BuildDelta(fromState, toState)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -636,10 +687,6 @@ func TestStateBuilder_BuildDelta_UpdateFollowedByDelete(t *testing.T) {
 
 	if !reflect.DeepEqual(delta, expectedDelta) {
 		t.Errorf("unexpected delta.\ngot: %v\nwant: %v", delta, expectedDelta)
-	}
-	expectedCallStack := []string{"Save", "Save", "Save", "Versions", "Get(0)", "Versions", "Get(0)", "Get(1)", "Get(2)"}
-	if !reflect.DeepEqual(history.callStack, expectedCallStack) {
-		t.Errorf("unexpected call stack.\ngot: %v\nwant: %v", history.callStack, expectedCallStack)
 	}
 }
 
@@ -680,8 +727,18 @@ func TestStateBuilder_BuildDelta_ComplexScenario(t *testing.T) {
 
 	builder := NewStateBuilder(zap.NewNop())
 
+	// Build states for v1 to v5
+	fromState, err := builder.BuildState(history, v1)
+	if err != nil {
+		t.Fatalf("unexpected error building state for v1: %v", err)
+	}
+	toState, err := builder.BuildState(history, v5)
+	if err != nil {
+		t.Fatalf("unexpected error building state for v5: %v", err)
+	}
+
 	// Build delta from v1 to v5
-	delta, err := builder.BuildDelta(history, v1, v5)
+	delta, err := builder.BuildDelta(fromState, toState)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -695,11 +752,6 @@ func TestStateBuilder_BuildDelta_ComplexScenario(t *testing.T) {
 
 	if !reflect.DeepEqual(delta, expectedDelta) {
 		t.Errorf("unexpected delta.\ngot: %v\nwant: %v", delta, expectedDelta)
-	}
-
-	expectedCallStack := []string{"Save", "Save", "Save", "Save", "Save", "Save", "Versions", "Get(0)", "Get(1)", "Versions", "Get(0)", "Get(1)", "Get(2)", "Get(3)", "Get(4)", "Get(5)"}
-	if !reflect.DeepEqual(history.callStack, expectedCallStack) {
-		t.Errorf("unexpected call stack.\ngot: %v\nwant: %v", history.callStack, expectedCallStack)
 	}
 }
 
@@ -740,8 +792,18 @@ func TestStateBuilder_BuildDelta_ComplexScenario_Inversed(t *testing.T) {
 
 	builder := NewStateBuilder(zap.NewNop())
 
+	// Build states for v1 and v5
+	fromState, err := builder.BuildState(history, v5)
+	if err != nil {
+		t.Fatalf("unexpected error building state for v5: %v", err)
+	}
+	toState, err := builder.BuildState(history, v1)
+	if err != nil {
+		t.Fatalf("unexpected error building state for v1: %v", err)
+	}
+
 	// Build delta from v5 to v1 (inversed)
-	delta, err := builder.BuildDelta(history, v5, v1) // Note: v5 to v1
+	delta, err := builder.BuildDelta(fromState, toState) // Note: v5 to v1
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -757,9 +819,57 @@ func TestStateBuilder_BuildDelta_ComplexScenario_Inversed(t *testing.T) {
 	if !reflect.DeepEqual(delta, expectedDelta) {
 		t.Errorf("unexpected delta.\ngot: %v\nwant: %v", delta, expectedDelta)
 	}
+}
 
-	expectedCallStack := []string{"Save", "Save", "Save", "Save", "Save", "Save", "Versions", "Get(0)", "Get(1)", "Get(2)", "Get(3)", "Get(4)", "Get(5)", "Versions", "Get(0)", "Get(1)"}
-	if !reflect.DeepEqual(history.callStack, expectedCallStack) {
-		t.Errorf("unexpected call stack.\ngot: %v\nwant: %v", history.callStack, expectedCallStack)
+func TestStateBuilder_BuildDelta_FromNewToOld(t *testing.T) {
+	v0 := version.New(registry.RootVersion)
+	v1 := version.FromParent(v0, 1)
+	v2 := version.FromParent(v1, 2)
+	v3 := version.FromParent(v2, 3)
+
+	// Entries
+	entry1 := registry.Entry{Path: "/path/1", Kind: "kind1", Data: payload.New("data1")}
+	entry2 := registry.Entry{Path: "/path/2", Kind: "kind2", Data: payload.New("data2")}
+	entry2Updated := registry.Entry{Path: "/path/2", Kind: "kind2", Data: payload.New("data2Updated")}
+
+	history := NewMockHistory()
+	_ = history.Save(v0, registry.ChangeSet{}, false)
+	_ = history.Save(v1, registry.ChangeSet{
+		{Kind: registry.Create, Entry: entry1},
+	}, false)
+	_ = history.Save(v2, registry.ChangeSet{
+		{Kind: registry.Create, Entry: entry2},
+	}, false)
+	_ = history.Save(v3, registry.ChangeSet{
+		{Kind: registry.Update, Entry: entry2Updated},
+		{Kind: registry.Delete, Entry: entry1},
+	}, false)
+
+	builder := NewStateBuilder(zap.NewNop())
+
+	// Build states for v1 and v3
+	stateV1, err := builder.BuildState(history, v1)
+	if err != nil {
+		t.Fatalf("unexpected error building state for v1: %v", err)
+	}
+	stateV3, err := builder.BuildState(history, v3)
+	if err != nil {
+		t.Fatalf("unexpected error building state for v3: %v", err)
+	}
+
+	// Build delta from v3 to v1 (new to old)
+	delta, err := builder.BuildDelta(stateV3, stateV1) // Using stateV3 as 'from' and stateV1 as 'to'
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Expected delta when going from v3 to v1
+	expectedDelta := registry.ChangeSet{
+		{Kind: registry.Delete, Entry: entry2Updated}, // Delete the updated entry2
+		{Kind: registry.Create, Entry: entry1},        // Recreate entry1
+	}
+
+	if !reflect.DeepEqual(delta, expectedDelta) {
+		t.Errorf("unexpected delta.\ngot: %v\nwant: %v", delta, expectedDelta)
 	}
 }

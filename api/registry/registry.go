@@ -90,7 +90,7 @@ type (
 		// BuildState constructs the complete registry state at a specific version by applying all changes from the root version up to the target version.
 		BuildState(History, Version) (State, error)
 		// BuildDelta calculates the minimal ChangeSet required to transition the registry from one version to another.
-		BuildDelta(History, Version, Version) (ChangeSet, error)
+		BuildDelta(State, State) (ChangeSet, error)
 	}
 
 	// EntryReader defines methods for reading entries from the registry.
@@ -120,17 +120,5 @@ type (
 	Runner interface {
 		// Run applies a given ChangeSet to a State and returns the resulting modified State.
 		Run(State, ChangeSet) (State, error)
-	}
-
-	// Loader defines methods for loading entries into the registry from external sources.
-	// This could involve parsing configuration files, fetching data from a database, etc.
-	Loader interface {
-		// Register registers one or more payloads under a specific path prefix.
-		// The payloads are typically unmarshaled into Entry objects and added to the registry.
-		Register(prefix Path, payload ...payload.Payload) error
-		// Entries returns a list of all currently loaded entries.
-		Entries() []Entry
-		// Reset clears all currently loaded entries, resetting the loader to an empty state.
-		Reset()
 	}
 )
