@@ -104,27 +104,15 @@ func (b *StateBuilder) BuildState(history registry.History, targetVersion regist
 	return state, nil
 }
 
-func (b *StateBuilder) BuildDelta(history registry.History, from, to registry.Version) (registry.ChangeSet, error) {
-	// Build the state at the 'from' version.
-	fromState, err := b.BuildState(history, from)
-	if err != nil {
-		return nil, fmt.Errorf("failed to build state at 'from' version %v: %w", from, err)
-	}
-
-	// Build the state at the 'to' version.
-	toState, err := b.BuildState(history, to)
-	if err != nil {
-		return nil, fmt.Errorf("failed to build state at 'to' version %v: %w", to, err)
-	}
-
+func (b *StateBuilder) BuildDelta(from, to registry.State) (registry.ChangeSet, error) {
 	// Convert the states to maps for easier lookup.
 	fromStateMap := make(map[registry.Path]registry.Entry)
-	for _, entry := range fromState {
+	for _, entry := range from {
 		fromStateMap[entry.Path] = entry
 	}
 
 	toStateMap := make(map[registry.Path]registry.Entry)
-	for _, entry := range toState {
+	for _, entry := range to {
 		toStateMap[entry.Path] = entry
 	}
 
@@ -134,7 +122,7 @@ func (b *StateBuilder) BuildDelta(history registry.History, from, to registry.Ve
 	deletes := make(registry.ChangeSet, 0)
 
 	// Find new and updated entries.
-	for _, toEntry := range toState {
+	for _, toEntry := range to {
 		fromEntry, exists := fromStateMap[toEntry.Path]
 		if !exists {
 			// Entry exists in 'to' but not in 'from' - Create operation.
@@ -146,7 +134,7 @@ func (b *StateBuilder) BuildDelta(history registry.History, from, to registry.Ve
 	}
 
 	// Find deleted entries.
-	for _, fromEntry := range fromState {
+	for _, fromEntry := range from {
 		if _, exists := toStateMap[fromEntry.Path]; !exists {
 			deletes = append(deletes, registry.Operation{Kind: registry.Delete, Entry: fromEntry})
 		}

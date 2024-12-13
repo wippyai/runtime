@@ -43,7 +43,7 @@ func TestLoader_Register_SingleEntry_YAML(t *testing.T) {
 	dtt := createDefaultTranscoder()
 
 	// Create a new loader with the dtt
-	l := NewLoader(dtt)
+	l := NewEntityLoader(dtt)
 
 	// Create a sample YAML payload
 	yamlData := `
@@ -80,7 +80,7 @@ meta:
 
 func TestLoader_Register_MultipleEntries_YAML(t *testing.T) {
 	dtt := createDefaultTranscoder()
-	l := NewLoader(dtt)
+	l := NewEntityLoader(dtt)
 
 	yamlData1 := `
 path: entry1
@@ -126,7 +126,7 @@ meta:
 
 func TestLoader_Entries_Sorted(t *testing.T) {
 	dtt := createDefaultTranscoder()
-	l := NewLoader(dtt)
+	l := NewEntityLoader(dtt)
 
 	yamlData1 := `
 path: b-entry
@@ -171,7 +171,7 @@ meta:
 
 func TestLoader_Register_InvalidEntryFormat(t *testing.T) {
 	dtt := createDefaultTranscoder()
-	l := NewLoader(dtt)
+	l := NewEntityLoader(dtt)
 
 	// Invalid YAML format
 	invalidYAML := `
@@ -195,7 +195,7 @@ meta:
 
 func TestLoader_Register_MissingIDAndKind(t *testing.T) {
 	dtt := createDefaultTranscoder()
-	l := NewLoader(dtt)
+	l := NewEntityLoader(dtt)
 
 	// Missing Path
 	missingIDYAML := `
@@ -232,7 +232,7 @@ meta:
 
 func TestLoader_Reset(t *testing.T) {
 	dtt := createDefaultTranscoder()
-	l := NewLoader(dtt)
+	l := NewEntityLoader(dtt)
 
 	yamlData := `
 path: test
@@ -259,7 +259,7 @@ meta:
 
 func TestLoader_Register_DuplicateID(t *testing.T) {
 	dtt := createDefaultTranscoder()
-	l := NewLoader(dtt)
+	l := NewEntityLoader(dtt)
 
 	yamlData1 := `
 path: dup-entry
@@ -305,7 +305,7 @@ meta:
 
 func TestLoader_Register_Concurrent(t *testing.T) {
 	dtt := createDefaultTranscoder()
-	l := NewLoader(dtt)
+	l := NewEntityLoader(dtt)
 	var wg sync.WaitGroup
 
 	for i := 0; i < 10; i++ {
@@ -335,7 +335,7 @@ meta:
 
 func TestLoader_Register_EmptyPayload(t *testing.T) {
 	dtt := createDefaultTranscoder()
-	l := NewLoader(dtt)
+	l := NewEntityLoader(dtt)
 
 	p := payload.NewPayload("", payload.Yaml) // Empty data
 
@@ -347,7 +347,7 @@ func TestLoader_Register_EmptyPayload(t *testing.T) {
 
 func TestLoader_Register_JSON(t *testing.T) {
 	dtt := createDefaultTranscoder()
-	l := NewLoader(dtt)
+	l := NewEntityLoader(dtt)
 
 	jsonData := `{
 		"path": "test",
@@ -399,7 +399,7 @@ func TestLoader_Register_JSON(t *testing.T) {
 
 func TestLoader_ConcurrentAccess(t *testing.T) {
 	dtt := createDefaultTranscoder()
-	l := NewLoader(dtt)
+	l := NewEntityLoader(dtt)
 	var wg sync.WaitGroup
 
 	// Concurrent writes

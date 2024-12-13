@@ -2,6 +2,7 @@ package registry
 
 import (
 	"fmt"
+	"go.uber.org/zap"
 	"sync"
 
 	"github.com/ponyruntime/pony/api/registry"
@@ -11,18 +12,25 @@ import (
 type memreg struct {
 	history        registry.History
 	runner         registry.Runner
-	stateBuilder   registry.StateBuilder
+	builder        registry.StateBuilder
 	state          registry.State
 	mu             sync.RWMutex
 	currentVersion registry.Version
+	log            *zap.Logger
 }
 
-func NewRegistry(history registry.History, runner registry.Runner, stateBuilder registry.StateBuilder) registry.Registry {
+func NewRegistry(
+	history registry.History,
+	runner registry.Runner,
+	builder registry.StateBuilder,
+	log *zap.Logger,
+) registry.Registry {
 	return &memreg{
-		history:      history,
-		runner:       runner,
-		stateBuilder: stateBuilder,
-		state:        registry.State{},
+		history: history,
+		runner:  runner,
+		builder: builder,
+		state:   registry.State{},
+		log:     log,
 	}
 }
 
@@ -43,6 +51,7 @@ func (r *memreg) GetEntry(path registry.Path) (registry.Entry, error) {
 			return entry, nil
 		}
 	}
+
 	return registry.Entry{}, fmt.Errorf("entry not found: %s", path)
 }
 
@@ -52,28 +61,32 @@ func (r *memreg) Apply(changes registry.ChangeSet) (registry.Version, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// Get current head version
-	head, err := r.history.Head()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get head version: %w", err)
-	}
+	newVersion := version.FromParent(r.currentVersion, nextVersionID(r.currentVersion))
 
-	newVersion := version.FromParent(r.currentVersion, nextVersionID(head))
+	r.log.Debug("applying changes", zap.Any("changes", changes), zap.Any("new_version", newVersion))
 
 	newState, err := r.runner.Run(r.state, changes)
 	if err != nil {
+		r.log.Error("failed to apply changes", zap.Error(err))
+		if newState != nil {
+			if rerr := r.rollback(newState, r.state); rerr != nil {
+				return nil, fmt.Errorf("failed to apply changes: %w, failed to rollback: %w", err, rerr)
+			}
+		}
+
 		return nil, fmt.Errorf("failed to apply changes: %w", err)
 	}
 
+	r.log.Debug("saving new version", zap.Any("new_version", newVersion))
+
 	err = r.history.Save(newVersion, changes, true)
 	if err != nil {
-		// try to rollback
-		_, rollbackErr := r.runner.Run(newState, changes)
-		if rollbackErr != nil {
-			return nil, fmt.Errorf("failed to save new version: %w, failed to rollback: %w", err, rollbackErr)
+		r.log.Error("failed to save new version", zap.Error(err))
+		if rerr := r.rollback(newState, r.state); rerr != nil {
+			return nil, fmt.Errorf("failed to save new version: %w, failed to rollback: %w", err, rerr)
 		}
 
-		return nil, fmt.Errorf("failed to save new version: %w, rolled back", err)
+		return nil, fmt.Errorf("failed to save new version: %w, recovered", err)
 	}
 
 	r.state = newState // This now use the state directly from the runner
@@ -86,15 +99,22 @@ func (r *memreg) ApplyVersion(v registry.Version) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	changes, err := r.stateBuilder.BuildDelta(r.history, r.currentVersion, v)
+	target, err := r.builder.BuildState(r.history, v)
 	if err != nil {
-		return fmt.Errorf("failed to calculate delta for version %s: %w", v, err)
+		return fmt.Errorf("failed build state of version %s: %w", v, err)
 	}
 
 	// Run the changes through the runner
-	newState, err := r.runner.Run(r.state, changes)
+	newState, err := r.transitionState(r.state, target)
 	if err != nil {
-		return fmt.Errorf("failed to apply changes for version %s: %w", v, err)
+		r.log.Error("failed transition to version", zap.String("version", v.String()), zap.Error(err))
+		if newState != nil {
+			if rerr := r.rollback(newState, r.state); rerr != nil {
+				return fmt.Errorf("failed transition to version %s: %w, failed to rollback: %w", v, err, rerr)
+			}
+		}
+
+		return fmt.Errorf("failed transition to version %s: %w", v, err)
 	}
 
 	r.state = newState
@@ -103,9 +123,41 @@ func (r *memreg) ApplyVersion(v registry.Version) error {
 	return nil
 }
 
+// rollback state desync between actual state in system and state in history
+func (r *memreg) rollback(from, to registry.State) error {
+	r.log.Debug("attempting to rollback", zap.Any("from", from), zap.Any("to", to))
+
+	partial, err := r.transitionState(from, to)
+	if err == nil {
+		return nil // success
+	}
+
+	r.state = partial // we remain in a desynced state
+
+	// todo: add more recovery cases
+
+	return err
+}
+
+func (r *memreg) transitionState(from, to registry.State) (registry.State, error) {
+	r.log.Debug("transitioning state", zap.Any("from", from), zap.Any("to", to))
+
+	cs, terr := r.builder.BuildDelta(from, to)
+	if terr != nil {
+		return nil, fmt.Errorf("failed to compute transition: %w", terr)
+	}
+
+	return r.runner.Run(from, cs)
+}
+
 func (r *memreg) Current() (registry.Version, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+
+	if r.currentVersion == nil {
+		return nil, fmt.Errorf("no current version")
+	}
+
 	return r.currentVersion, nil
 }
 

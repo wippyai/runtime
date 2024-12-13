@@ -15,20 +15,20 @@ type trimmedEntry struct {
 	Meta reg.Metadata
 }
 
-// loader is responsible for loading, parsing, and managing reg entries from payloads.
+// EntityLoader is responsible for loading, parsing, and managing reg entries from payloads.
 // It uses a provided payload.Transcoder to unmarshal payload data into structured reg.Entry objects.
 // Entries are stored internally and can be accessed in a sorted manner.
 // The loader supports optional prefixing for logical grouping of entries, and it's safe for concurrent use.
-type loader struct {
+type EntityLoader struct {
 	prefix  string
 	dtt     payload.Transcoder
 	entries map[string]reg.Entry
 	mutex   *sync.RWMutex
 }
 
-// NewLoader creates a new reg loader with optional replacer support
-func NewLoader(dtt payload.Transcoder) reg.Loader {
-	return &loader{
+// NewEntityLoader creates a new reg EntityLoader with optional replacer support
+func NewEntityLoader(dtt payload.Transcoder) *EntityLoader {
+	return &EntityLoader{
 		dtt:     dtt,
 		entries: make(map[string]reg.Entry),
 		mutex:   &sync.RWMutex{},
@@ -36,7 +36,7 @@ func NewLoader(dtt payload.Transcoder) reg.Loader {
 }
 
 // Register processes the payloads and extracts configuration entries.
-func (l *loader) Register(path reg.Path, payloads ...payload.Payload) error {
+func (l *EntityLoader) Register(path reg.Path, payloads ...payload.Payload) error {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
@@ -66,7 +66,7 @@ func (l *loader) Register(path reg.Path, payloads ...payload.Payload) error {
 }
 
 // Entries returns a sorted list of loaded entries.
-func (l *loader) Entries() []reg.Entry {
+func (l *EntityLoader) Entries() []reg.Entry {
 	l.mutex.RLock()
 	defer l.mutex.RUnlock()
 
@@ -83,7 +83,7 @@ func (l *loader) Entries() []reg.Entry {
 }
 
 // Reset clears all loaded entries.
-func (l *loader) Reset() {
+func (l *EntityLoader) Reset() {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 	l.entries = make(map[string]reg.Entry)

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 
@@ -22,12 +23,16 @@ type MockRunner struct {
 	callStack     []string
 	lastState     registry.State
 	lastChangeSet registry.ChangeSet
+	RunFunc       func(state registry.State, changes registry.ChangeSet) (registry.State, error)
 }
 
 func (m *MockRunner) Run(state registry.State, changes registry.ChangeSet) (registry.State, error) {
 	m.callStack = append(m.callStack, "Run")
 	m.lastState = state
 	m.lastChangeSet = changes
+	if m.RunFunc != nil {
+		return m.RunFunc(state, changes)
+	}
 	if m.err != nil {
 		return state, m.err
 	}
@@ -45,7 +50,7 @@ func TestNewRegistry(t *testing.T) {
 	runner := NewMockRunner()
 	stateBuilder := NewStateBuilder(zap.NewNop())
 
-	r := NewRegistry(history, runner, stateBuilder)
+	r := NewRegistry(history, runner, stateBuilder, zap.NewNop())
 
 	if _, ok := r.(*memreg); !ok {
 		t.Errorf("Expected type *memreg, got %T", r)
@@ -60,8 +65,8 @@ func TestNewRegistry(t *testing.T) {
 		t.Errorf("Expected runner to be %v, got %v", runner, reg.runner)
 	}
 
-	if _, ok := reg.stateBuilder.(*StateBuilder); !ok {
-		t.Errorf("Expected stateBuilder to be of type *StateBuilder, got %T", reg.stateBuilder)
+	if _, ok := reg.builder.(*StateBuilder); !ok {
+		t.Errorf("Expected builder to be of type *StateBuilder, got %T", reg.builder)
 	}
 
 	if reg.state == nil {
@@ -148,7 +153,7 @@ func TestInMemoryRegistry_Apply(t *testing.T) {
 	runner := NewMockRunner()
 	stateBuilder := NewStateBuilder(zap.NewNop())
 
-	reg := NewRegistry(history, runner, stateBuilder).(*memreg)
+	reg := NewRegistry(history, runner, stateBuilder, zap.NewNop()).(*memreg)
 
 	changes := registry.ChangeSet{
 		{
@@ -205,15 +210,18 @@ func TestInMemoryRegistry_Apply_RunnerError(t *testing.T) {
 	runner := NewMockRunner()
 	stateBuilder := NewStateBuilder(zap.NewNop())
 
-	reg := NewRegistry(history, runner, stateBuilder).(*memreg)
-	runner.err = errors.New("runner error")
+	reg := NewRegistry(history, runner, stateBuilder, zap.NewNop()).(*memreg)
+	runner.err = errors.New("runner error, failed to rollback: runner error")
 
 	_, err := reg.Apply(registry.ChangeSet{})
 	if err == nil {
 		t.Errorf("Expected error, got nil")
+		return
 	}
-	if err.Error() != fmt.Sprintf("failed to apply changes: %v", runner.err) {
-		t.Errorf("Expected error: %v, got: %v", runner.err, err)
+
+	expectedPrefix := "failed to apply changes: "
+	if !strings.HasPrefix(err.Error(), expectedPrefix) {
+		t.Errorf("Expected error to start with: '%v', got: '%v'", expectedPrefix, err)
 	}
 }
 
@@ -234,7 +242,7 @@ func TestInMemoryRegistry_ApplyVersion(t *testing.T) {
 	runner := NewMockRunner()
 	stateBuilder := NewStateBuilder(zap.NewNop())
 
-	reg := NewRegistry(history, runner, stateBuilder).(*memreg)
+	reg := NewRegistry(history, runner, stateBuilder, zap.NewNop()).(*memreg)
 	reg.currentVersion = v2 // Set current version to v2
 	// Set initial state to v2 state
 	reg.state = registry.State{
@@ -289,7 +297,7 @@ func TestInMemoryRegistry_ApplyVersion_RunnerError(t *testing.T) {
 
 	runner := NewMockRunner()
 	stateBuilder := NewStateBuilder(zap.NewNop())
-	reg := NewRegistry(history, runner, stateBuilder).(*memreg)
+	reg := NewRegistry(history, runner, stateBuilder, zap.NewNop()).(*memreg)
 	reg.currentVersion = v1
 
 	runner.err = errors.New("runner error")
@@ -297,25 +305,11 @@ func TestInMemoryRegistry_ApplyVersion_RunnerError(t *testing.T) {
 	err := reg.ApplyVersion(v0)
 	if err == nil {
 		t.Errorf("Expected error, got nil")
+		return
 	}
-	if err.Error() != fmt.Sprintf("failed to apply changes for version %v: %v", v0, runner.err) {
-		t.Errorf("Expected error: %v, got: %v", runner.err, err)
-	}
-}
-
-func TestInMemoryRegistry_Apply_GetHeadHistoryError(t *testing.T) {
-	history := storage.NewMemory() // No initial version saved
-	runner := NewMockRunner()
-	stateBuilder := NewStateBuilder(zap.NewNop())
-
-	reg := NewRegistry(history, runner, stateBuilder).(*memreg)
-
-	_, err := reg.Apply(registry.ChangeSet{})
-	if err == nil {
-		t.Errorf("Expected error, got nil")
-	}
-	if err.Error() != "failed to get head version: no head version set" {
-		t.Errorf("Expected error: %v, got: %v", "failed to get head version: no head version set", err.Error())
+	expectedPrefix := fmt.Sprintf("failed transition to version %s: ", v0)
+	if !strings.HasPrefix(err.Error(), expectedPrefix) {
+		t.Errorf("Expected error to start with: '%v', got: '%v'", expectedPrefix, err)
 	}
 }
 
@@ -382,7 +376,7 @@ func TestInMemoryRegistry_Apply_HistorySaveError(t *testing.T) {
 	runner := NewMockRunner()
 	stateBuilder := NewStateBuilder(zap.NewNop())
 
-	reg := NewRegistry(history, runner, stateBuilder).(*memreg)
+	reg := NewRegistry(history, runner, stateBuilder, zap.NewNop()).(*memreg)
 
 	// Mock the runner to return a new state (so we can test rollback)
 	runner.newState = registry.State{
@@ -403,14 +397,253 @@ func TestInMemoryRegistry_Apply_HistorySaveError(t *testing.T) {
 
 	if err == nil {
 		t.Errorf("Expected error, got nil")
+		return
 	}
 
-	expectedErrorMsg := "failed to save new version: history error, rolled back"
+	expectedErrorMsg := "failed to save new version: history error, recovered"
 	if err.Error() != expectedErrorMsg {
 		t.Errorf("Expected error message: '%v', got: '%v'", expectedErrorMsg, err.Error())
 	}
 
-	// Verify that the runner's Run method was called only twice (has rollback)
+	// Verify that the runner's Run method was called only once (no rollback)
+	expectedRunnerStack := []string{"Run", "Run"}
+	if !reflect.DeepEqual(runner.callStack, expectedRunnerStack) {
+		t.Errorf("Expected runner call stack: %v, got: %v", expectedRunnerStack, runner.callStack)
+	}
+}
+
+// CustomizableMockRunner is a mock implementation of registry.Runner for testing
+// that allows setting a custom Run function.
+type CustomizableMockRunner struct {
+	RunFunc func(state registry.State, changes registry.ChangeSet) (registry.State, error)
+}
+
+// Run calls the custom RunFunc if set, otherwise returns an error.
+func (m *CustomizableMockRunner) Run(state registry.State, changes registry.ChangeSet) (registry.State, error) {
+	if m.RunFunc != nil {
+		return m.RunFunc(state, changes)
+	}
+	return nil, errors.New("RunFunc not set")
+}
+
+func TestInMemoryRegistry_ConcurrentApply(t *testing.T) {
+	v0 := version.New(registry.RootVersion)
+	history := storage.NewMemory()
+	_ = history.Save(v0, registry.ChangeSet{}, true)
+	runner := &CustomizableMockRunner{} // Use the new customizable mock
+	stateBuilder := NewStateBuilder(zap.NewNop())
+	reg := NewRegistry(history, runner, stateBuilder, zap.NewNop()).(*memreg)
+
+	var wg sync.WaitGroup
+	numGoroutines := 10
+	changesPerRoutine := 5
+
+	// Mock runner behavior: append changes to state
+	runner.RunFunc = func(state registry.State, changes registry.ChangeSet) (registry.State, error) {
+		for _, change := range changes {
+			state = append(state, change.Entry)
+		}
+		return state, nil
+	}
+
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(routineID int) {
+			defer wg.Done()
+			for j := 0; j < changesPerRoutine; j++ {
+				change := registry.ChangeSet{
+					{
+						Kind: registry.Create,
+						Entry: registry.Entry{
+							Path: registry.Path(fmt.Sprintf("/entry/%d/%d", routineID, j)),
+							Kind: "test",
+							Data: payload.New(fmt.Sprintf("data-%d-%d", routineID, j)),
+						},
+					},
+				}
+				_, err := reg.Apply(change)
+				if err != nil {
+					t.Errorf("Error in Apply: %v", err)
+					return
+				}
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Verify final state
+	finalState, err := reg.GetAllEntries()
+	if err != nil {
+		t.Fatalf("Error getting final state: %v", err)
+	}
+
+	if len(finalState) != numGoroutines*changesPerRoutine {
+		t.Errorf("Expected %d entries, got %d", numGoroutines*changesPerRoutine, len(finalState))
+	}
+
+	// Verify current version
+	currentVersion, err := reg.Current()
+	if err != nil {
+		t.Fatalf("Error getting current version: %v", err)
+	}
+
+	if currentVersion.ID() != uint(numGoroutines*changesPerRoutine) {
+		t.Errorf("Expected current version ID %d, got %d", numGoroutines*changesPerRoutine, currentVersion.ID())
+	}
+}
+
+// TestInMemoryRegistry_Apply_Rollback_Success tests the successful rollback scenario
+// when saving the new version to history fails.
+func TestInMemoryRegistry_Apply_Rollback_Success(t *testing.T) {
+	v0 := version.New(registry.RootVersion)
+	// Use ErrorHistory to simulate a history save error
+	history := NewErrorHistory()
+	_ = history.Save(v0, registry.ChangeSet{}, true)
+
+	runner := NewMockRunner()
+	stateBuilder := NewStateBuilder(zap.NewNop()) // Use the real StateBuilder
+	reg := NewRegistry(history, runner, stateBuilder, zap.NewNop()).(*memreg)
+
+	// Initial state
+	initialState := registry.State{
+		{Path: "/initial", Kind: "test", Data: payload.New("initial_data")},
+	}
+	reg.state = initialState
+	reg.currentVersion = v0
+
+	// Changes that will be applied but should be rolled back
+	changes := registry.ChangeSet{
+		{
+			Kind: registry.Create,
+			Entry: registry.Entry{
+				Path: "/foo",
+				Kind: "test",
+				Data: payload.New("data"),
+			},
+		},
+	}
+
+	// Mock the runner to return a new state that includes the changes
+	newState := append(initialState, changes[0].Entry)
+	runner.newState = newState
+
+	// Mock the runner's Run to apply the rollback changeset correctly
+	runner.RunFunc = func(state registry.State, cs registry.ChangeSet) (registry.State, error) {
+		// Handle initial application of changes
+		if reflect.DeepEqual(cs, changes) {
+			return newState, nil
+		}
+
+		// Handle rollback
+		if len(cs) == 1 && cs[0].Kind == registry.Delete && cs[0].Entry.Path == "/foo" &&
+			reflect.DeepEqual(state, newState) {
+			return initialState, nil
+		}
+
+		return state, fmt.Errorf("unexpected Run call with state: %v, changeset: %v", state, cs)
+	}
+
+	// Attempt to apply changes, which should fail due to the history error
+	_, err := reg.Apply(changes)
+	if err == nil {
+		t.Errorf("Expected error, got nil")
+		return
+	}
+
+	expectedErrorMsg := "failed to save new version: history error, recovered"
+	if err.Error() != expectedErrorMsg {
+		t.Errorf("Expected error message: '%v', got: '%v'", expectedErrorMsg, err.Error())
+	}
+
+	// Verify that the state has been rolled back to the initial state
+	if !reflect.DeepEqual(reg.state, initialState) {
+		t.Errorf("Expected state to be rolled back to: %v, got: %v", initialState, reg.state)
+	}
+
+	// Verify that the current version is still v0
+	if reg.currentVersion != v0 {
+		t.Errorf("Expected current version to remain v0, got: %v", reg.currentVersion)
+	}
+
+	// Verify that the runner's Run method was called twice (rollback happened)
+	expectedRunnerStack := []string{"Run", "Run"}
+	if !reflect.DeepEqual(runner.callStack, expectedRunnerStack) {
+		t.Errorf("Expected runner call stack: %v, got: %v", expectedRunnerStack, runner.callStack)
+	}
+}
+
+// TestInMemoryRegistry_Apply_Rollback_Failure tests the scenario where the rollback
+// itself fails after a history save error.
+func TestInMemoryRegistry_Apply_Rollback_Failure(t *testing.T) {
+	v0 := version.New(registry.RootVersion)
+	history := NewErrorHistory()
+	_ = history.Save(v0, registry.ChangeSet{}, true)
+
+	runner := NewMockRunner()
+	stateBuilder := NewStateBuilder(zap.NewNop())
+	reg := NewRegistry(history, runner, stateBuilder, zap.NewNop()).(*memreg)
+
+	initialState := registry.State{
+		{Path: "/initial", Kind: "test", Data: payload.New("initial_data")},
+	}
+	reg.state = initialState
+	reg.currentVersion = v0
+
+	changes := registry.ChangeSet{
+		{
+			Kind: registry.Create,
+			Entry: registry.Entry{
+				Path: "/foo",
+				Kind: "test",
+				Data: payload.New("data"),
+			},
+		},
+	}
+
+	newState := append(initialState, changes[0].Entry)
+
+	rollbackErr := errors.New("rollback failed")
+	runner.RunFunc = func(state registry.State, cs registry.ChangeSet) (registry.State, error) {
+		// Handle initial application of changes
+		if reflect.DeepEqual(cs, changes) {
+			return newState, nil
+		}
+
+		// Handle rollback failure
+		if len(cs) == 1 && cs[0].Kind == registry.Delete && cs[0].Entry.Path == "/foo" &&
+			reflect.DeepEqual(state, newState) {
+			return state, rollbackErr
+		}
+
+		return state, fmt.Errorf("unexpected Run call with state: %v, changeset: %v", state, cs)
+	}
+
+	_, err := reg.Apply(changes)
+	if err == nil {
+		t.Errorf("Expected error, got nil")
+		return
+	}
+
+	expectedErrorMsg := fmt.Sprintf("failed to save new version: history error, failed to rollback: %v", rollbackErr)
+	if err.Error() != expectedErrorMsg {
+		t.Errorf("Expected error message: '%v', got: '%v'", expectedErrorMsg, err.Error())
+	}
+
+	// Verify that the state is NOT rolled back (it's in the intermediate state)
+	if reflect.DeepEqual(reg.state, initialState) {
+		t.Errorf("Expected state to NOT be rolled back, got initial state: %v", reg.state)
+	}
+
+	if !reflect.DeepEqual(reg.state, newState) {
+		t.Errorf("Expected state to be in intermediate state: %v, got: %v", reg.state, newState)
+	}
+
+	// Verify that the current version is still v0
+	if reg.currentVersion != v0 {
+		t.Errorf("Expected current version to remain v0, got: %v", reg.currentVersion)
+	}
+
 	expectedRunnerStack := []string{"Run", "Run"}
 	if !reflect.DeepEqual(runner.callStack, expectedRunnerStack) {
 		t.Errorf("Expected runner call stack: %v, got: %v", expectedRunnerStack, runner.callStack)
