@@ -73,7 +73,7 @@ func (r *memreg) Apply(changes registry.ChangeSet) (registry.Version, error) {
 			return nil, fmt.Errorf("failed to save new version: %w, failed to rollback: %w", err, rollbackErr)
 		}
 
-		return nil, fmt.Errorf("failed to save new version: %w", err)
+		return nil, fmt.Errorf("failed to save new version: %w, rolled back", err)
 	}
 
 	r.state = newState // This now use the state directly from the runner
