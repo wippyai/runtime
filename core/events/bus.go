@@ -21,7 +21,6 @@ type Bus struct {
 	subscribers  map[events.SubscriberID]sub
 	logger       *zap.Logger
 	internalEvCh chan events.Event
-	unsubCh      chan events.SubscriberID // Channel for unsubscription requests (simplified)
 	stop         chan struct{}
 	wg           sync.WaitGroup
 }
@@ -31,7 +30,6 @@ func NewBus(logger *zap.Logger) *Bus {
 		subscribers:  make(map[events.SubscriberID]sub),
 		logger:       logger,
 		internalEvCh: make(chan events.Event, 100),
-		unsubCh:      make(chan events.SubscriberID), // Use SubscriberID directly
 		stop:         make(chan struct{}),
 	}
 
@@ -96,10 +94,12 @@ func (b *Bus) SubscribeP(
 }
 
 func (b *Bus) Unsubscribe(ctx context.Context, subID events.SubscriberID) {
-	select {
-	case b.unsubCh <- subID: // Send subID directly
-	case <-b.stop: // Handle case where bus is stopped
+	b.mu.Lock()
+	if s, exists := b.subscribers[subID]; exists {
+		close(s.eventCh)
+		delete(b.subscribers, subID)
 	}
+	b.mu.Unlock()
 }
 
 func (b *Bus) Send(ctx context.Context, event events.Event) {
@@ -110,7 +110,7 @@ func (b *Bus) Send(ctx context.Context, event events.Event) {
 	select {
 	case <-b.stop: // Check if bus is stopped
 		return
-	default:
+	case b.internalEvCh <- event:
 		if b.logger != nil {
 			b.logger.Debug(
 				"sending event",
@@ -118,19 +118,6 @@ func (b *Bus) Send(ctx context.Context, event events.Event) {
 				zap.String("kind", string(event.Kind)),
 				zap.Any("payload", event.Data),
 			)
-		}
-
-		select {
-		case b.internalEvCh <- event:
-		default:
-			if b.logger != nil {
-				b.logger.Error(
-					"internal event channel full, dropping event",
-					zap.String("system", string(event.System)),
-					zap.String("kind", string(event.Kind)),
-					zap.Any("payload", event.Data),
-				)
-			}
 		}
 	}
 }
@@ -158,20 +145,13 @@ func (b *Bus) handleEvents() {
 		select {
 		case <-b.stop:
 			return
-		case subID := <-b.unsubCh: // Receive subID directly
-			b.mu.Lock()
-			if s, exists := b.subscribers[subID]; exists {
-				close(s.eventCh)
-				delete(b.subscribers, subID)
-			}
-			b.mu.Unlock()
 		case event, ok := <-b.internalEvCh:
 			if !ok {
 				return
 			}
 
 			b.mu.RLock()
-			for subID, s := range b.subscribers {
+			for _, s := range b.subscribers {
 				if s.system != event.System && s.system != "*" {
 					continue
 				}
@@ -179,20 +159,7 @@ func (b *Bus) handleEvents() {
 				if s.kind != nil && !s.kind.Match(string(event.Kind)) {
 					continue
 				}
-
-				select {
-				case s.eventCh <- event:
-				default:
-					if b.logger != nil {
-						b.logger.Warn(
-							"subscriber channel full, dropping event",
-							zap.String("sid", string(subID)),
-							zap.String("system", string(event.System)),
-							zap.String("kind", string(event.Kind)),
-							zap.Any("payload", event.Data),
-						)
-					}
-				}
+				s.eventCh <- event
 			}
 			b.mu.RUnlock()
 		}
