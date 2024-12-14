@@ -108,6 +108,8 @@ func (b *Bus) Send(ctx context.Context, event events.Event) {
 	}
 
 	select {
+	case <-ctx.Done():
+		return
 	case <-b.stop: // Check if bus is stopped
 		return
 	case b.internalEvCh <- event:
