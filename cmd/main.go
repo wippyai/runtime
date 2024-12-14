@@ -30,7 +30,7 @@ func main() {
 				Flags: []cli.Flag{
 					&cli.StringFlag{
 						Name:    "chart",
-						Usage:   "Path to the chart file",
+						Usage:   "Name to the chart file",
 						Aliases: []string{"c"},
 						Action: func(ctx *cli.Context, cfgFile string) error {
 							// init logger and put it into the context,

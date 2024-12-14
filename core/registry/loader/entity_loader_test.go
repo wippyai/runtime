@@ -36,8 +36,12 @@ func TestEntryLoader_Load_SingleFile(t *testing.T) {
 		t.Fatalf("expected 1 payload, got %d", len(payloads))
 	}
 
-	// Assert the payload's format and content
-	p := payloads[0]
+	// Assert the payload's format, content, and path
+	expectedPath := "data" // No extension, dot-separated
+	p, ok := payloads[expectedPath]
+	if !ok {
+		t.Fatalf("expected payload with path '%s' not found", expectedPath)
+	}
 	if p.Format() != payload.Json {
 		t.Errorf("expected format: %s, got: %s", payload.Json, p.Format())
 	}
@@ -55,8 +59,8 @@ func TestEntryLoader_Load_MultipleFiles(t *testing.T) {
 	defer os.RemoveAll(tempDir)
 
 	files := map[string]string{
-		"data.json": `{"key": "json_value"}`,
-		"data.yaml": "key: yaml_value",
+		"data1.json": `{"key": "json_value"}`,
+		"data2.yaml": "key: yaml_value",
 	}
 	for name, content := range files {
 		err = os.WriteFile(filepath.Join(tempDir, name), []byte(content), 0644)
@@ -77,19 +81,25 @@ func TestEntryLoader_Load_MultipleFiles(t *testing.T) {
 		t.Fatalf("expected 2 payloads, got %d", len(payloads))
 	}
 
-	// Assert the payloads' formats and contents
-	expectedPayloads := map[payload.Format]string{
-		payload.Json: files["data.json"],
-		payload.Yaml: files["data.yaml"],
+	// Assert the payloads' formats, contents, and paths
+	expectedPayloads := map[string]struct {
+		Format  payload.Format
+		Content string
+	}{
+		"data1": {Format: payload.Json, Content: files["data1.json"]},
+		"data2": {Format: payload.Yaml, Content: files["data2.yaml"]},
 	}
-	for _, p := range payloads {
-		expectedContent, ok := expectedPayloads[p.Format()]
+	for path, expected := range expectedPayloads {
+		p, ok := payloads[path]
 		if !ok {
-			t.Errorf("unexpected payload format: %s", p.Format())
+			t.Errorf("expected payload with path '%s' not found", path)
 			continue
 		}
-		if string(p.Data().([]byte)) != expectedContent {
-			t.Errorf("expected data: %s, got: %s for format: %s", expectedContent, string(p.Data().([]byte)), p.Format())
+		if p.Format() != expected.Format {
+			t.Errorf("expected format: %s, got: %s for path: %s", expected.Format, p.Format(), path)
+		}
+		if string(p.Data().([]byte)) != expected.Content {
+			t.Errorf("expected data: %s, got: %s for path: %s", expected.Content, string(p.Data().([]byte)), path)
 		}
 	}
 }
@@ -180,15 +190,27 @@ func TestEntryLoader_Load_NestedDirectories(t *testing.T) {
 	if len(payloads) != 2 {
 		t.Fatalf("expected 2 payloads, got %d", len(payloads))
 	}
-	for _, p := range payloads {
-		var expectedContent string
-		if p.Format() == payload.Json {
-			expectedContent = files[filepath.Join(tempDir, "root.json")]
-		} else {
-			expectedContent = files[filepath.Join(nestedDir, "nested.yaml")]
+
+	// Assert the payloads' formats, contents, and paths
+	expectedPayloads := map[string]struct {
+		Format  payload.Format
+		Content string
+	}{
+		"root":          {Format: payload.Json, Content: files[filepath.Join(tempDir, "root.json")]},
+		"nested/nested": {Format: payload.Yaml, Content: files[filepath.Join(nestedDir, "nested.yaml")]},
+	}
+
+	for path, expected := range expectedPayloads {
+		p, ok := payloads[path]
+		if !ok {
+			t.Errorf("expected payload with path '%s' not found", path)
+			continue
 		}
-		if string(p.Data().([]byte)) != expectedContent {
-			t.Errorf("expected data: %s, got: %s for format: %s", expectedContent, string(p.Data().([]byte)), p.Format())
+		if p.Format() != expected.Format {
+			t.Errorf("expected format: %s, got: %s for path: %s", expected.Format, p.Format(), path)
+		}
+		if string(p.Data().([]byte)) != expected.Content {
+			t.Errorf("expected data: %s, got: %s for path: %s", expected.Content, string(p.Data().([]byte)), path)
 		}
 	}
 }

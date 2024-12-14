@@ -81,7 +81,7 @@ func (s *Server) Stop(ctx context.Context) {
 //}
 //
 //src (e *Server) ServeHTTP(w web_server.ResponseWriter, r *web_server.Request) {
-//	e.log.Info("web_server: request received", zap.String("path", r.URL.Path))
+//	e.log.Info("web_server: request received", zap.String("path", r.URL.Name))
 //	// TODO: futures with proper:
 //	// 1. Error handling
 //	// 2. Timeouts and retries
@@ -117,7 +117,7 @@ func (s *Server) Stop(ctx context.Context) {
 //
 //	select {
 //	case res := <-fut:
-//		e.log.Info("web_server: task has been processed", zap.String("path", r.URL.Path))
+//		e.log.Info("web_server: task has been processed", zap.String("path", r.URL.Name))
 //		if res.Error != nil {
 //			e.log.Error("web_server: error processing the request", zap.Error(res.Error))
 //			w.WriteHeader(web_server.StatusInternalServerError)

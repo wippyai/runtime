@@ -1,34 +1,34 @@
-package gostruct
+package interpolator
 
 import (
 	"reflect"
 )
 
-// StringReplacementFunc defines the function signature for custom string replacement logic.
-type StringReplacementFunc func(string) (string, error)
+// stringReplacer defines the function signature for custom string replacement logic with context.
+type stringReplacer func(string, interface{}) (string, error)
 
-// StringReplacer handles string replacement within arbitrary data structures.
-type StringReplacer struct {
-	replacementFunc StringReplacementFunc
+// replacer handles string replacement within arbitrary data structures.
+type replacer struct {
+	rFunc stringReplacer
 }
 
-// NewStringReplacer creates a new StringReplacer with the provided replacement function.
-func NewStringReplacer(replacementFunc StringReplacementFunc) *StringReplacer {
-	return &StringReplacer{
-		replacementFunc: replacementFunc,
+// newStringReplacer creates a new replacer with the provided replacement function.
+func newStringReplacer(replacementFunc stringReplacer) *replacer {
+	return &replacer{
+		rFunc: replacementFunc,
 	}
 }
 
-// replaceString applies the replacement function to the given string.
-func (r *StringReplacer) replaceString(s string) (string, error) {
-	if r.replacementFunc == nil {
+// replaceString applies the replacement function to the given string, passing the context.
+func (r *replacer) replaceString(s string, ctx interface{}) (string, error) {
+	if r.rFunc == nil {
 		return s, nil
 	}
-	return r.replacementFunc(s)
+	return r.rFunc(s, ctx)
 }
 
-// replaceRecursive is the internal recursive function for value replacement.
-func (r *StringReplacer) replaceRecursive(val reflect.Value) (any, error) {
+// replaceRecursive is the internal recursive function for value replacement with context.
+func (r *replacer) replaceRecursive(val reflect.Value, ctx interface{}) (any, error) {
 	if !val.IsValid() {
 		return nil, nil
 	}
@@ -38,7 +38,7 @@ func (r *StringReplacer) replaceRecursive(val reflect.Value) (any, error) {
 		if val.IsNil() {
 			return val.Interface(), nil
 		}
-		elem, err := r.replaceRecursive(val.Elem())
+		elem, err := r.replaceRecursive(val.Elem(), ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -53,11 +53,11 @@ func (r *StringReplacer) replaceRecursive(val reflect.Value) (any, error) {
 		newMap := reflect.MakeMap(val.Type())
 		for _, k := range val.MapKeys() {
 			v := val.MapIndex(k)
-			newKey, err := r.replaceRecursive(k)
+			newKey, err := r.replaceRecursive(k, ctx)
 			if err != nil {
 				return nil, err
 			}
-			newValue, err := r.replaceRecursive(v)
+			newValue, err := r.replaceRecursive(v, ctx)
 			if err != nil {
 				return nil, err
 			}
@@ -73,7 +73,7 @@ func (r *StringReplacer) replaceRecursive(val reflect.Value) (any, error) {
 			newSliceOrArray = reflect.New(val.Type()).Elem()
 		}
 		for i := 0; i < val.Len(); i++ {
-			newValue, err := r.replaceRecursive(val.Index(i))
+			newValue, err := r.replaceRecursive(val.Index(i), ctx)
 			if err != nil {
 				return nil, err
 			}
@@ -86,7 +86,7 @@ func (r *StringReplacer) replaceRecursive(val reflect.Value) (any, error) {
 		for i := 0; i < val.NumField(); i++ {
 			if val.Type().Field(i).IsExported() {
 				fieldVal := val.Field(i)
-				newValue, err := r.replaceRecursive(fieldVal)
+				newValue, err := r.replaceRecursive(fieldVal, ctx)
 				if err != nil {
 					return nil, err
 				}
@@ -96,7 +96,7 @@ func (r *StringReplacer) replaceRecursive(val reflect.Value) (any, error) {
 		return newStruct.Interface(), nil
 
 	case reflect.String:
-		newStr, err := r.replaceString(val.String())
+		newStr, err := r.replaceString(val.String(), ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -107,13 +107,13 @@ func (r *StringReplacer) replaceRecursive(val reflect.Value) (any, error) {
 	}
 }
 
-// Replace is the main entry point for string replacement within 'data'.
-func (r *StringReplacer) Replace(data any) (any, error) {
+// Replace is the main entry point for string replacement within 'data' with context.
+func (r *replacer) Replace(data any, ctx interface{}) (any, error) {
 	if data == nil {
 		return nil, nil
 	}
 
-	result, err := r.replaceRecursive(reflect.ValueOf(data))
+	result, err := r.replaceRecursive(reflect.ValueOf(data), ctx)
 	if err != nil {
 		return nil, err
 	}

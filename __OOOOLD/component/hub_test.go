@@ -15,7 +15,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// mockComponent is a mock implementation of component.Path
+// mockComponent is a mock implementation of component.Name
 type mockComponent struct {
 	mock.Mock
 }
