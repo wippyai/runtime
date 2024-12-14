@@ -18,13 +18,18 @@ const FileProtocol = "file://"
 // LoadVars replaces placeholders of the form "${variable}" in the input string with
 // their corresponding values from the provided context. If no such placeholders are found,
 // the string is returned unchanged.
-func LoadVars(s string, ctx EntryContext) (string, error) {
+func LoadVars(s string, ctx interface{}) (string, error) {
+	rctx, ok := ctx.(EntryContext)
+	if !ok {
+		return s, nil // Invalid context, skip
+	}
+
 	if !strings.Contains(s, "${") {
 		return s, nil // No variable placeholders, skip
 	}
 
 	result := s
-	for k, v := range ctx.Vars {
+	for k, v := range rctx.Vars {
 		placeholder := "${" + k + "}"
 		result = strings.ReplaceAll(result, placeholder, v)
 	}
@@ -38,7 +43,12 @@ func LoadVars(s string, ctx EntryContext) (string, error) {
 // remains within the root directory to prevent path traversal vulnerabilities.
 // If the file is successfully read, it returns the file's content; otherwise,
 // it returns the original string appended with an error message.
-func LoadFile(s string, ctx EntryContext) (string, error) {
+func LoadFile(s string, ctx interface{}) (string, error) {
+	rctx, ok := ctx.(EntryContext)
+	if !ok {
+		return s, nil // Invalid context, skip
+	}
+
 	if !strings.HasPrefix(s, FileProtocol) {
 		return s, nil // Not a file path, skip it
 	}
@@ -48,18 +58,18 @@ func LoadFile(s string, ctx EntryContext) (string, error) {
 
 	if strings.HasPrefix(filePath, "/") {
 		// Absolute path, make it relative to the root dir
-		fullPath = filepath.Join(ctx.RootDir, filepath.Clean(filePath))
+		fullPath = filepath.Join(rctx.RootDir, filepath.Clean(filePath))
 	} else {
 		// Relative path, make it relative to the context directory
-		fileDir := ctx.RootDir
-		if ctx.Filename != "" {
-			fileDir = filepath.Dir(ctx.Filename)
+		fileDir := rctx.RootDir
+		if rctx.Filename != "" {
+			fileDir = filepath.Dir(rctx.Filename)
 		}
 		fullPath = filepath.Join(fileDir, filePath)
 	}
 
 	// Make sure the path is still within the root directory (security check)
-	relPath, err := filepath.Rel(ctx.RootDir, fullPath)
+	relPath, err := filepath.Rel(rctx.RootDir, fullPath)
 	if err != nil || strings.HasPrefix(relPath, "..") {
 		return s + fmt.Sprintf(" [file-error: file path '%s' is outside of the root directory]", filePath), nil
 	}

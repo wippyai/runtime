@@ -17,8 +17,8 @@ type EntryLoader struct {
 	log  *zap.Logger
 }
 
-// NewEntryLoader creates a new EntryLoader.
-func NewEntryLoader(log *zap.Logger) *EntryLoader {
+// NewPayloadLoader creates a new EntryLoader.
+func NewPayloadLoader(log *zap.Logger) *EntryLoader {
 	return &EntryLoader{
 		exts: map[string]payload.Format{
 			".json": payload.Json,

@@ -25,7 +25,7 @@ func TestEntryLoader_Load_SingleFile(t *testing.T) {
 	}
 
 	// Load the file using EntryLoader
-	loader := NewEntryLoader(zap.NewNop()) // Use a no-op logger for tests
+	loader := NewPayloadLoader(zap.NewNop()) // Use a no-op logger for tests
 	payloads, err := loader.Load(tempDir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -70,7 +70,7 @@ func TestEntryLoader_Load_MultipleFiles(t *testing.T) {
 	}
 
 	// Load the files using EntryLoader
-	loader := NewEntryLoader(zap.NewNop()) // Use a no-op logger for tests
+	loader := NewPayloadLoader(zap.NewNop()) // Use a no-op logger for tests
 	payloads, err := loader.Load(tempDir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -119,7 +119,7 @@ func TestEntryLoader_Load_UnsupportedFileType(t *testing.T) {
 	}
 
 	// Load the files using EntryLoader
-	loader := NewEntryLoader(zap.NewNop()) // Use a no-op logger for tests
+	loader := NewPayloadLoader(zap.NewNop()) // Use a no-op logger for tests
 	payloads, err := loader.Load(tempDir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -140,7 +140,7 @@ func TestEntryLoader_Load_EmptyDirectory(t *testing.T) {
 	defer os.RemoveAll(tempDir)
 
 	// Load the files using EntryLoader
-	loader := NewEntryLoader(zap.NewNop())
+	loader := NewPayloadLoader(zap.NewNop())
 	payloads, err := loader.Load(tempDir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -180,7 +180,7 @@ func TestEntryLoader_Load_NestedDirectories(t *testing.T) {
 	}
 
 	// Load the files using EntryLoader
-	loader := NewEntryLoader(zap.NewNop())
+	loader := NewPayloadLoader(zap.NewNop())
 	payloads, err := loader.Load(tempDir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -216,7 +216,7 @@ func TestEntryLoader_Load_NestedDirectories(t *testing.T) {
 }
 
 func TestEntryLoader_loadFileAsPayload_UnsupportedFormat(t *testing.T) {
-	loader := NewEntryLoader(zap.NewNop())
+	loader := NewPayloadLoader(zap.NewNop())
 
 	// Create a dummy file (it won't be read in this case)
 	tempDir, err := os.MkdirTemp("", "entryloader_test")
