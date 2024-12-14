@@ -1,4 +1,4 @@
-package gostruct
+package interpolator
 
 import (
 	"errors"
@@ -40,13 +40,13 @@ func TestReplaceString(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var replacer *StringReplacer
+			var replacer *replacer
 			if tt.name == "error case" {
-				replacer = NewStringReplacer(func(s string) (string, error) {
+				replacer = newStringReplacer(func(s string, ctx interface{}) (string, error) {
 					return "", errors.New("forced error")
 				})
 			} else {
-				replacer = NewStringReplacer(func(s string) (string, error) {
+				replacer = newStringReplacer(func(s string, ctx interface{}) (string, error) {
 					if s == tt.input && tt.replacement != "" {
 						return tt.replacement, nil
 					}
@@ -54,7 +54,7 @@ func TestReplaceString(t *testing.T) {
 				})
 			}
 
-			result, err := replacer.replaceString(tt.input)
+			result, err := replacer.replaceString(tt.input, nil) // Pass nil context
 			if err != nil && tt.expectedError != nil {
 				if err.Error() != tt.expectedError.Error() {
 					t.Errorf("replaceString() error = %v, expectedError %v", err, tt.expectedError)
@@ -76,14 +76,14 @@ func TestReplace(t *testing.T) {
 	tests := []struct {
 		name            string
 		input           any
-		replacementFunc StringReplacementFunc
+		replacementFunc stringReplacer
 		expectedOutput  any
 		expectedError   error
 	}{
 		{
 			name:  "simple string",
 			input: "hello world",
-			replacementFunc: func(s string) (string, error) {
+			replacementFunc: func(s string, ctx interface{}) (string, error) {
 				return "HELLO WORLD", nil
 			},
 			expectedOutput: "HELLO WORLD",
@@ -95,7 +95,7 @@ func TestReplace(t *testing.T) {
 				"key1": "hello",
 				"key2": "world",
 			},
-			replacementFunc: func(s string) (string, error) {
+			replacementFunc: func(s string, ctx interface{}) (string, error) {
 				if s == "key1" {
 					return "keyA", nil
 				} else if s == "key2" {
@@ -122,7 +122,7 @@ func TestReplace(t *testing.T) {
 					"nestedKey": "nestedValue",
 				},
 			},
-			replacementFunc: func(s string) (string, error) {
+			replacementFunc: func(s string, ctx interface{}) (string, error) {
 				if s == "key1" {
 					return "keyA", nil
 				} else if s == "key3" {
@@ -153,7 +153,7 @@ func TestReplace(t *testing.T) {
 				"hello",
 				"world",
 			},
-			replacementFunc: func(s string) (string, error) {
+			replacementFunc: func(s string, ctx interface{}) (string, error) {
 				return "VALUE", nil
 			},
 			expectedOutput: []string{
@@ -168,7 +168,7 @@ func TestReplace(t *testing.T) {
 				"hello",
 				"world",
 			},
-			replacementFunc: func(s string) (string, error) {
+			replacementFunc: func(s string, ctx interface{}) (string, error) {
 				return "VALUE", nil
 			},
 			expectedOutput: [2]string{
@@ -190,7 +190,7 @@ func TestReplace(t *testing.T) {
 				Field3: 123,
 				field4: "unexported",
 			},
-			replacementFunc: func(s string) (string, error) {
+			replacementFunc: func(s string, ctx interface{}) (string, error) {
 				return "VALUE", nil
 			},
 			// Modify expectedOutput to have empty unexported field since it can't be accessed via reflection
@@ -222,7 +222,7 @@ func TestReplace(t *testing.T) {
 					NestedField: "world",
 				},
 			},
-			replacementFunc: func(s string) (string, error) {
+			replacementFunc: func(s string, ctx interface{}) (string, error) {
 				return "VALUE", nil
 			},
 			expectedOutput: struct {
@@ -246,7 +246,7 @@ func TestReplace(t *testing.T) {
 				s := "hello"
 				return &s
 			}(),
-			replacementFunc: func(s string) (string, error) {
+			replacementFunc: func(s string, ctx interface{}) (string, error) {
 				return "VALUE", nil
 			},
 			expectedOutput: func() *string {
@@ -262,7 +262,7 @@ func TestReplace(t *testing.T) {
 			}{
 				Field: "hello",
 			},
-			replacementFunc: func(s string) (string, error) {
+			replacementFunc: func(s string, ctx interface{}) (string, error) {
 				return "VALUE", nil
 			},
 			expectedOutput: &struct {
@@ -275,7 +275,7 @@ func TestReplace(t *testing.T) {
 		{
 			name:  "nil pointer",
 			input: (*string)(nil),
-			replacementFunc: func(s string) (string, error) {
+			replacementFunc: func(s string, ctx interface{}) (string, error) {
 				return "VALUE", nil
 			},
 			expectedOutput: (*string)(nil),
@@ -284,7 +284,7 @@ func TestReplace(t *testing.T) {
 		{
 			name:  "interface with string",
 			input: interface{}("hello"),
-			replacementFunc: func(s string) (string, error) {
+			replacementFunc: func(s string, ctx interface{}) (string, error) {
 				return "VALUE", nil
 			},
 			expectedOutput: "VALUE",
@@ -293,7 +293,7 @@ func TestReplace(t *testing.T) {
 		{
 			name:  "interface with struct",
 			input: interface{}(struct{ Field string }{Field: "hello"}),
-			replacementFunc: func(s string) (string, error) {
+			replacementFunc: func(s string, ctx interface{}) (string, error) {
 				return "VALUE", nil
 			},
 			expectedOutput: struct{ Field string }{Field: "VALUE"},
@@ -311,7 +311,7 @@ func TestReplace(t *testing.T) {
 				},
 				"key2": "another",
 			},
-			replacementFunc: func(s string) (string, error) {
+			replacementFunc: func(s string, ctx interface{}) (string, error) {
 				if s == "key1" {
 					return "keyA", nil
 				} else if s == "key2" {
@@ -344,7 +344,7 @@ func TestReplace(t *testing.T) {
 		{
 			name:  "error in replacement",
 			input: "hello",
-			replacementFunc: func(s string) (string, error) {
+			replacementFunc: func(s string, ctx interface{}) (string, error) {
 				return "", errors.New("forced error")
 			},
 			expectedOutput: nil,
@@ -363,12 +363,38 @@ func TestReplace(t *testing.T) {
 			},
 			expectedError: nil,
 		},
+		{
+			name:  "context in replacement",
+			input: "hello",
+			replacementFunc: func(s string, ctx interface{}) (string, error) {
+				if ctx == nil {
+					return "", errors.New("context is nil")
+				}
+				if val, ok := ctx.(map[string]string); ok {
+					if val["key"] == "value" {
+						return "VALUE_WITH_CONTEXT", nil
+					}
+					return "", errors.New("wrong context value")
+
+				}
+				return "", errors.New("wrong context type")
+
+			},
+			expectedOutput: "VALUE_WITH_CONTEXT",
+			expectedError:  nil,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			replacer := NewStringReplacer(tt.replacementFunc)
-			result, err := replacer.Replace(tt.input)
+			replacer := newStringReplacer(tt.replacementFunc)
+			var result any
+			var err error
+			if tt.name == "context in replacement" {
+				result, err = replacer.Replace(tt.input, map[string]string{"key": "value"})
+			} else {
+				result, err = replacer.Replace(tt.input, nil)
+			}
 			if err != nil && tt.expectedError != nil {
 				if err.Error() != tt.expectedError.Error() {
 					t.Errorf("Replace() error = %v, expectedError %v", err, tt.expectedError)
@@ -378,8 +404,6 @@ func TestReplace(t *testing.T) {
 				t.Errorf("Replace() error = %v, expectedError %v", err, tt.expectedError)
 				return
 			}
-
-			// In TestReplace, modify the part where you compare results:
 			if result == nil && tt.expectedOutput == nil {
 				// OK
 			} else if !reflect.DeepEqual(result, tt.expectedOutput) {
@@ -403,7 +427,7 @@ func TestReplaceStructWithMap(t *testing.T) {
 		},
 	}
 
-	replacer := NewStringReplacer(func(s string) (string, error) {
+	replacer := newStringReplacer(func(s string, ctx interface{}) (string, error) {
 		switch s {
 		case "hello":
 			return "HELLO", nil
@@ -420,7 +444,7 @@ func TestReplaceStructWithMap(t *testing.T) {
 		}
 	})
 
-	result, err := replacer.Replace(input)
+	result, err := replacer.Replace(input, nil)
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}

@@ -1,159 +1,153 @@
 package loader
 
-import (
-	"fmt"
-	"os"
-	"path/filepath"
-	"sort"
-	"strings"
-	"sync"
+// import (
+//
+//	"fmt"
+//	"github.com/ponyruntime/pony/internal/interpolator"
+//	"os"
+//	"path/filepath"
+//	"strings"
+//	"sync"
+//
+//	"github.com/ponyruntime/pony/api/payload"
+//	"github.com/ponyruntime/pony/api/registry"
+//	"go.uber.org/zap"
+//
+// )
+//
+// // FolderLoader manages the loading of registry entries from a directory.
+//
+//	type FolderLoader struct {
+//		rootPath string
+//		dtt      payload.Transcoder
+//		mutex    *sync.RWMutex
+//		log      *zap.Logger
+//	}
+type Variables map[string]string
 
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
-)
-
-// FolderLoader manages the loading of registry entries from a directory.
-type FolderLoader struct {
-	rootPath     string
-	dtt          payload.Transcoder
-	entries      map[string]registry.Entry
-	mutex        *sync.RWMutex
-	entryLoader  *EntryLoader
-	interpolator *Interpolator
-}
-
-// Option is a function type for configuring the FolderLoader.
-type Option func(*FolderLoader)
-
-// WithVariables enables ${var} interpolation support.
-func WithVariables(vars Variables) Option {
-	return func(l *FolderLoader) {
-		//l.interpolator = NewInterpolator(l.rootPath, vars)
-	}
-}
-
-// NewFolderLoader creates a new FolderLoader.
-func NewFolderLoader(dtt payload.Transcoder, opts ...Option) *FolderLoader {
-	l := &FolderLoader{
-		dtt:     dtt,
-		entries: make(map[string]registry.Entry),
-		mutex:   &sync.RWMutex{},
-	}
-
-	// Apply options
-	for _, opt := range opts {
-		opt(l)
-	}
-
-	return l
-}
-
-// Boot scans the root directory, loads all supported files, and registers them as entries.
-func (l *FolderLoader) Boot(rootPath string) error {
-	//l.mutex.Lock()
-	//defer l.mutex.Unlock()
-	//
-	//l.rootPath = rootPath // Store the root path
-	////l.entryLoader = NewEntryLoader(rootPath)
-	//if l.interpolator != nil {
-	//	//	l.interpolator.rootPath = rootPath
-	//}
-	//
-	////payloads, err := l.entryLoader.Load()
-	//if err != nil {
-	//	return fmt.Errorf("failed to load entries: %w", err)
-	//}
-	//
-	//for _, p := range payloads {
-	//	// Get relative path for prefix calculation
-	//	var relPath string
-	//	if pathData, ok := p.Data().([]byte); ok {
-	//		if path, err := filepath.Rel(l.rootPath, string(pathData)); err == nil {
-	//			relPath = path
-	//		}
-	//	}
-	//
-	//	prefix := l.calculatePrefix(relPath)
-	//
-	//	// Interpolate if enabled
-	//	if l.interpolator != nil {
-	//		p, err = l.interpolator.Interpolate(p, l.dtt)
-	//		if err != nil {
-	//			return fmt.Errorf("failed to interpolate payload: %w", err)
-	//		}
-	//	}
-	//
-	//	if err := l.register(registry.Path(prefix), p); err != nil {
-	//		// todo: log instead of error
-	//		return fmt.Errorf("failed to register entry: %w", err)
-	//	}
-	//}
-
-	return nil
-}
-
-// register processes the payloads and extracts configuration entries.
-func (l *FolderLoader) register(path registry.Path, p payload.Payload) error {
-	var entry trimmedEntry
-	err := l.dtt.Unmarshal(p, &entry)
-	if err != nil {
-		return fmt.Errorf("failed to unmarshal payload as registry.Entry: %w", err)
-	}
-
-	if entry.Path == "" {
-		return fmt.Errorf("missing Path in registry entry")
-	}
-	if entry.Kind == "" {
-		return fmt.Errorf("missing Kind in registry entry")
-	}
-
-	fullID := path + entry.Path // Prefix calculation was moved here
-	l.entries[string(fullID)] = registry.Entry{
-		Path: fullID,
-		Kind: entry.Kind,
-		Meta: entry.Meta,
-		Data: p,
-	}
-
-	return nil
-}
-
-// Entries returns a sorted list of all loaded registry entries.
-func (l *FolderLoader) Entries() []registry.Entry {
-	l.mutex.RLock()
-	defer l.mutex.RUnlock()
-
-	sortedEntries := make([]registry.Entry, 0, len(l.entries))
-	for _, entry := range l.entries {
-		sortedEntries = append(sortedEntries, entry)
-	}
-
-	sort.Slice(sortedEntries, func(i, j int) bool {
-		return sortedEntries[i].Path < sortedEntries[j].Path
-	})
-
-	return sortedEntries
-}
-
-// Reset clears all loaded entries.
-func (l *FolderLoader) Reset() {
-	l.mutex.Lock()
-	defer l.mutex.Unlock()
-	l.entries = make(map[string]registry.Entry)
-}
-
-// calculatePrefix determines the registry prefix based on the file's path relative to the root.
-func (l *FolderLoader) calculatePrefix(relPath string) string {
-	dir := filepath.Dir(relPath)
-	if dir == "." {
-		return "" // Root directory
-	}
-	return strings.ReplaceAll(dir, string(os.PathSeparator), ".") + "."
-}
-
-// trimmedEntry is an internal struct used for unmarshalling entry data.
-type trimmedEntry struct {
-	Path registry.Path
-	Kind registry.Kind
-	Meta registry.Metadata
-}
+//
+//// NewFolderLoader creates a new FolderLoader.
+//func NewFolderLoader(dtt payload.Transcoder, log *zap.Logger) *FolderLoader {
+//	l := &FolderLoader{
+//		dtt:   dtt,
+//		mutex: &sync.RWMutex{},
+//		log:   log,
+//	}
+//
+//	if l.log == nil {
+//		l.log = zap.NewNop()
+//	}
+//
+//	return l
+//}
+//
+//// Boot scans the root directory, loads all supported files, and returns a slice of entries
+//func (l *FolderLoader) Boot(rootPath string, vars Variables) ([]registry.Entry, error) {
+//	l.mutex.Lock()
+//	defer l.mutex.Unlock()
+//
+//	l.rootPath = rootPath // Store the root path
+//
+//	fileReadFunc := l.createFileReadFunc(rootPath)
+//	entryLoader := NewEntryLoader(l.log) // Pass fileReadFunc
+//	payloads, err := entryLoader.Load(rootPath)
+//	if err != nil {
+//		return nil, fmt.Errorf("failed to load entries: %w", err)
+//	}
+//
+//	intr := interpolator.NewInterpolator(vars, fileReadFunc) // Initialize Interpolator here
+//
+//	entries := make([]registry.Entry, 0)
+//
+//	for relPath, p := range payloads {
+//		// Interpolate the payload before registering
+//		interpolatedPayload, err := intr.Interpolate(p, l.dtt)
+//		if err != nil {
+//			l.log.Error("failed to interpolate payload", zap.String("path", relPath), zap.Error(err))
+//			continue
+//		}
+//
+//		entry, err := l.register(interpolatedPayload, relPath) // Use interpolated payload
+//		if err != nil {
+//			l.log.Error("failed to register entry", zap.String("path", relPath), zap.Error(err))
+//			continue // Skip this entry
+//		}
+//		entries = append(entries, entry)
+//	}
+//
+//	return entries, nil
+//}
+//
+//// register processes the payloads and extracts configuration entries.
+//func (l *FolderLoader) register(p payload.Payload, relPath string) (registry.Entry, error) {
+//	var entry fileEntry
+//	err := l.dtt.Unmarshal(p, &entry)
+//	if err != nil {
+//		return registry.Entry{}, fmt.Errorf("failed to unmarshal payload as registry.Entry: %w", err)
+//	}
+//
+//	if entry.Name == "" {
+//		return registry.Entry{}, fmt.Errorf("missing Name in registry entry")
+//	}
+//
+//	if entry.Kind == "" {
+//		return registry.Entry{}, fmt.Errorf("missing Kind in registry entry")
+//	}
+//
+//	// Calculate full ID (prefix + entry path)
+//	fullID := l.calculateFullID(relPath, entry.Name)
+//
+//	return registry.Entry{
+//		Path: fullID,
+//		Kind: entry.Kind,
+//		Meta: entry.Meta,
+//		Data: p,
+//	}, nil
+//}
+//
+//// Reset clears all loaded entries.
+//func (l *FolderLoader) Reset() {
+//	l.mutex.Lock()
+//	defer l.mutex.Unlock()
+//	// No need to clear entries here, as Boot rebuilds the ChangeSet
+//}
+//
+//// calculateFullID determines the full registry path based on file path, and entry path.
+//func (l *FolderLoader) calculateFullID(relPath string, entryName string) registry.Path {
+//	// we never store filename
+//	relPath = strings.TrimSuffix(relPath, filepath.Base(relPath))
+//
+//	fullID := entryName
+//	if relPath != "" {
+//		fullID = strings.TrimSuffix(relPath, "/") + "." + entryName // Add "." to separate
+//	}
+//
+//	return registry.Path(strings.ReplaceAll(fullID, "/", "."))
+//}
+//
+//// fileEntry is an internal struct used for unmarshalling entry data.
+//type fileEntry struct {
+//	Name string            `json:"name" yaml:"name"`
+//	Kind registry.Kind     `json:"kind" yaml:"kind"`
+//	Meta registry.Metadata `json:"meta" yaml:"meta"`
+//}
+//
+//// createFileReadFunc creates a function that reads files relative to a given directory.
+//func (l *FolderLoader) createFileReadFunc(baseDir string) func(string) (string, error) {
+//	return func(filePath string) (string, error) {
+//		// Join the base directory with the requested file path
+//		fullPath := filepath.Join(baseDir, filePath)
+//
+//		// Make sure the path is still within the root directory (security check)
+//		relPath, err := filepath.Rel(l.rootPath, fullPath)
+//		if err != nil || strings.HasPrefix(relPath, "..") {
+//			return "", fmt.Errorf("file path '%s' is outside of the root directory", filePath)
+//		}
+//
+//		data, err := os.ReadFile(fullPath)
+//		if err != nil {
+//			return "", err
+//		}
+//		return string(data), nil
+//	}
+//}

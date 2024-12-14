@@ -116,7 +116,8 @@ type (
 	}
 
 	// Runner defines how ChangeSets are applied to a State to produce a new State.
-	// It encapsulates the logic for handling different operation kinds.
+	// It encapsulates the logic for handling different operation kinds. This component propagates whole
+	// system state.
 	Runner interface {
 		// Run applies a given ChangeSet to a State and returns the resulting modified State.
 		Run(State, ChangeSet) (State, error)

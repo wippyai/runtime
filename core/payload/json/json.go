@@ -22,7 +22,7 @@ type ToGolang struct{}
 // Transcode implements the payload.FormatTranscoder interface.
 func (t *ToGolang) Transcode(p payload.Payload) (payload.Payload, error) {
 	if p.Format() != payload.Json {
-		return nil, fmt.Errorf("ToGolang can only transcode from JSON format, got %s", p.Format())
+		return nil, fmt.Errorf("Json=>Golang can only transcode from JSON format, got %s", p.Format())
 	}
 
 	var data interface{}
@@ -38,7 +38,7 @@ func (t *ToGolang) Transcode(p payload.Payload) (payload.Payload, error) {
 			return nil, fmt.Errorf("failed to unmarshal JSON bytes: %w", err)
 		}
 	default:
-		return nil, fmt.Errorf("ToGolang can only handle string or []byte, got %T", p.Data())
+		return nil, fmt.Errorf("Json=>Golang can only handle string or []byte, got %T", p.Data())
 	}
 	return payload.NewPayload(data, payload.Golang), nil
 }
@@ -46,7 +46,7 @@ func (t *ToGolang) Transcode(p payload.Payload) (payload.Payload, error) {
 // Unmarshal implements the payload.Unmarshaler interface.
 func (t *ToGolang) Unmarshal(p payload.Payload, v interface{}) error {
 	if p.Format() != payload.Json {
-		return fmt.Errorf("ToGolang can only unmarshal from JSON format, got %s", p.Format())
+		return fmt.Errorf("Json=>Golang can only unmarshal from JSON format, got %s", p.Format())
 	}
 
 	var data []byte
@@ -56,7 +56,7 @@ func (t *ToGolang) Unmarshal(p payload.Payload, v interface{}) error {
 	case []byte:
 		data = d
 	default:
-		return fmt.Errorf("ToGolang can only unmarshal string or []byte, got %T", p.Data())
+		return fmt.Errorf("Json=>Golang can only unmarshal string or []byte, got %T", p.Data())
 	}
 
 	return json.Unmarshal(data, v)
@@ -68,7 +68,7 @@ type FromGolang struct{}
 // Transcode implements the payload.FormatTranscoder interface.
 func (t *FromGolang) Transcode(p payload.Payload) (payload.Payload, error) {
 	if p.Format() != payload.Golang {
-		return nil, fmt.Errorf("FromGolang can only transcode from Golang format, got %s", p.Format())
+		return nil, fmt.Errorf("Golang=>Json can only transcode from Golang format, got %s", p.Format())
 	}
 
 	jsonData, err := json.Marshal(p.Data())

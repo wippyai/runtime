@@ -45,7 +45,7 @@ func TestVersionMap_Path_Backwards(t *testing.T) {
 	from := v3
 	to := v1
 	actualPath, _ := vm.Path(from, to)
-	expectedPath := []registry.Version{v3, v2, v1} // Path in reverse
+	expectedPath := []registry.Version{v3, v2, v1} // Name in reverse
 
 	if !reflect.DeepEqual(actualPath, expectedPath) {
 		t.Errorf("Expected path: %v, got: %v", expectedPath, actualPath)
@@ -94,7 +94,7 @@ func TestVersionMap(t *testing.T) {
 		expectError error
 	}{
 		{
-			name: "Path within a branch",
+			name: "Name within a branch",
 			setup: func(vm Map) {
 				vm.Add(v1)
 				vm.Add(v2)
@@ -106,7 +106,7 @@ func TestVersionMap(t *testing.T) {
 			expected: []registry.Version{v1, v2, v3, v4},
 		},
 		{
-			name: "Path to the past",
+			name: "Name to the past",
 			setup: func(vm Map) {
 				vm.Add(v1)
 				vm.Add(v2)
@@ -118,7 +118,7 @@ func TestVersionMap(t *testing.T) {
 			expected: []registry.Version{v4, v3, v2, v1},
 		},
 		{
-			name: "Path across branches",
+			name: "Name across branches",
 			setup: func(vm Map) {
 				vm.Add(v1)
 				vm.Add(v2)

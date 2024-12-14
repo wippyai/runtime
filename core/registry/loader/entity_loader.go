@@ -2,36 +2,37 @@ package loader
 
 import (
 	"fmt"
-	"go.uber.org/zap"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/ponyruntime/pony/api/payload"
+	"go.uber.org/zap"
 )
 
 // EntryLoader loads files, determines their format, and creates payload.Payload objects.
 type EntryLoader struct {
 	exts map[string]payload.Format
-	zap  *zap.Logger
+	log  *zap.Logger
 }
 
 // NewEntryLoader creates a new EntryLoader.
-func NewEntryLoader(zap *zap.Logger) *EntryLoader {
+func NewEntryLoader(log *zap.Logger) *EntryLoader {
 	return &EntryLoader{
 		exts: map[string]payload.Format{
 			".json": payload.Json,
 			".yaml": payload.Yaml,
 			".yml":  payload.Yaml,
 		},
-		zap: zap,
+		log: log,
 	}
 }
 
 // Load walks the directory tree from the rootPath, determines the format of files based on their extensions,
-// and returns a slice of payload.Payload objects representing the file contents.
-func (l *EntryLoader) Load(rootPath string) ([]payload.Payload, error) {
-	var payloads []payload.Payload
+// and returns a map where the key is the relative dot-separated file path (without extension) and the value is the payload.Payload object.
+func (l *EntryLoader) Load(rootPath string) (map[string]payload.Payload, error) {
+	payloads := make(map[string]payload.Payload)
 
 	err := filepath.WalkDir(rootPath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -48,13 +49,27 @@ func (l *EntryLoader) Load(rootPath string) ([]payload.Payload, error) {
 			return nil // Skip unsupported file types
 		}
 
+		relPath, err := filepath.Rel(rootPath, path)
+		if err != nil {
+			return err // Error getting relative path
+		}
+
+		// Transform to dot-separated path without extension
+		dotSeparatedPath := strings.TrimSuffix(relPath, ext)
+
+		if strings.Contains(dotSeparatedPath, ".") {
+			dotSeparatedPath = strings.ReplaceAll(dotSeparatedPath, ".", "_")
+		}
+
+		dotSeparatedPath = filepath.ToSlash(dotSeparatedPath) // Ensure consistent slash direction
+
 		p, err := l.loadFileAsPayload(path, format)
 		if err != nil {
-			l.zap.Error("failed to load file as payload", zap.String("path", path), zap.Error(err))
+			l.log.Error("failed to load file as payload", zap.String("path", path), zap.Error(err))
 			return nil
 		}
 
-		payloads = append(payloads, p)
+		payloads[dotSeparatedPath] = p
 		return nil
 	})
 
