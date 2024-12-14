@@ -10,10 +10,10 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/ponyruntime/pony/api/payload"
-	transcoder "github.com/ponyruntime/pony/core/payload"
-	"github.com/ponyruntime/pony/core/payload/json"
-	"github.com/ponyruntime/pony/core/payload/yaml"
-	"github.com/ponyruntime/pony/core/registry/loader"
+	transcoder "github.com/ponyruntime/pony/pkg/payload"
+	"github.com/ponyruntime/pony/pkg/payload/json"
+	"github.com/ponyruntime/pony/pkg/payload/yaml"
+	"github.com/ponyruntime/pony/pkg/registry/loader"
 )
 
 func createTestTranscoder() payload.Transcoder {

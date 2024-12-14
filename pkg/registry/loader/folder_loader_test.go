@@ -3,10 +3,10 @@ package loader
 import (
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
-	transcoder "github.com/ponyruntime/pony/core/payload"
-	"github.com/ponyruntime/pony/core/payload/json"
-	"github.com/ponyruntime/pony/core/payload/yaml"
 	"github.com/ponyruntime/pony/internal/utils"
+	transcoder "github.com/ponyruntime/pony/pkg/payload"
+	"github.com/ponyruntime/pony/pkg/payload/json"
+	"github.com/ponyruntime/pony/pkg/payload/yaml"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
