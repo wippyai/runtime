@@ -1,6 +1,6 @@
 name: get_time
 kind: http.endpoint
-metadata:
+meta:
   name: get_time_endpoint
 
 method: GET

@@ -1,6 +1,6 @@
 name: http_time
 kind: lua.function
-metadata:
+meta:
   name: web_server-time-handler
 
 runtime: lua
