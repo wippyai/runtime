@@ -18,14 +18,16 @@ import (
 
 // testComponent represents a component that can be configured via registry events.
 type testComponent struct {
-	mu     sync.RWMutex
-	config map[registry.Path]string // Stores configuration as simple strings.
+	mu              sync.RWMutex
+	config          map[registry.Path]string
+	rejectedConfigs map[registry.Path]bool // Tracks rejected configurations.
 }
 
 // newTestComponent creates a new testComponent.
 func newTestComponent() *testComponent {
 	return &testComponent{
-		config: make(map[registry.Path]string),
+		config:          make(map[registry.Path]string),
+		rejectedConfigs: make(map[registry.Path]bool),
 	}
 }
 
@@ -35,37 +37,72 @@ func (c *testComponent) handleEvent(bus events.Bus, evt events.Event) {
 		return // Ignore events from other systems.
 	}
 
-	if evt.Kind != registry.Create && evt.Kind != registry.Update {
-		return
-	}
-
 	entry, ok := evt.Data.(registry.Entry)
 	if !ok {
 		fmt.Printf("Received event with unexpected data type. Expected registry.Entry, got %T\n", evt.Data)
 		return // Ignore events with incorrect data type.
 	}
 
-	p, ok := entry.Data.(payload.Payload)
-	if !ok {
-		fmt.Printf("entry.Data is not of type payload.Payload, got %T\n", entry.Data)
-		return
-	}
-
-	data, ok := p.Data().(string)
-	if !ok {
-		fmt.Printf("payload.Data is not of type string, got %T\n", entry.Data)
+	if entry.Kind != "config" {
 		return
 	}
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.config[entry.Path] = data
 
-	bus.Send(context.Background(), events.Event{
-		System: registry.System,
-		Kind:   registry.Accept,
-		Data:   registry.Entry{Path: entry.Path},
-	})
+	switch evt.Kind {
+	case registry.Create, registry.Update:
+		p, ok := entry.Data.(payload.Payload)
+		if !ok {
+			fmt.Printf("entry.Data is not of type payload.Payload, got %T\n", entry.Data)
+			return
+		}
+
+		data, ok := p.Data().(string)
+		if !ok {
+			fmt.Printf("payload.Data is not of type string, got %T\n", entry.Data)
+			return
+		}
+
+		// Reject configuration based on some criteria (e.g., value starts with "reject").
+		if len(data) >= 6 && data[:6] == "reject" {
+			c.rejectedConfigs[entry.Path] = true
+			bus.Send(context.Background(), events.Event{
+				System: registry.System,
+				Kind:   registry.Reject,
+				Data:   registry.Entry{Path: entry.Path},
+			})
+			return
+		}
+
+		c.config[entry.Path] = data
+		bus.Send(context.Background(), events.Event{
+			System: registry.System,
+			Kind:   registry.Accept,
+			Data:   registry.Entry{Path: entry.Path},
+		})
+
+	case registry.Delete:
+		if _, exists := c.config[entry.Path]; exists {
+			delete(c.config, entry.Path)
+			bus.Send(context.Background(), events.Event{
+				System: registry.System,
+				Kind:   registry.Accept,
+				Data:   registry.Entry{Path: entry.Path},
+			})
+		} else {
+			// Mark as rejected even if it doesn't exist in the config.
+			c.rejectedConfigs[entry.Path] = true
+			bus.Send(context.Background(), events.Event{
+				System: registry.System,
+				Kind:   registry.Reject,
+				Data:   registry.Entry{Path: entry.Path},
+			})
+		}
+
+	default:
+		return
+	}
 }
 
 // getConfig returns the current configuration value for a given path.
@@ -74,6 +111,14 @@ func (c *testComponent) getConfig(path registry.Path) (string, bool) {
 	defer c.mu.RUnlock()
 	val, ok := c.config[path]
 	return val, ok
+}
+
+// wasRejected checks if a configuration was rejected.
+func (c *testComponent) wasRejected(path registry.Path) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	_, ok := c.rejectedConfigs[path]
+	return ok
 }
 
 // attachComponent sets up an event listener for the testComponent.
@@ -98,46 +143,194 @@ func createEntry(path registry.Path, kind registry.Kind, data string) registry.E
 	}
 }
 
-func TestBusRunner_ConfigureComponent(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	bus := eventbus.NewBus(zap.NewNop())
-	busRunner := NewBusRunner(bus, zap.NewNop())
-	component := newTestComponent()
-	componentClose := attachComponent(ctx, t, bus, component)
-	defer componentClose()
-
-	initialState := registry.State{}
-
-	changeSet := registry.ChangeSet{
+func TestBusRunner_Operations(t *testing.T) {
+	testCases := []struct {
+		name        string
+		changeSet   registry.ChangeSet
+		expectError bool
+		finalConfig map[registry.Path]string
+		rejected    []registry.Path
+		finalState  registry.State
+	}{
 		{
-			Kind: registry.Create,
-			Entry: createEntry(
-				"component/config/key1",
-				"config",
-				"value1",
-			),
+			name: "Create",
+			changeSet: registry.ChangeSet{
+				{
+					Kind: registry.Create,
+					Entry: createEntry(
+						"component/config/key1",
+						"config",
+						"value1",
+					),
+				},
+			},
+			expectError: false,
+			finalConfig: map[registry.Path]string{
+				"component/config/key1": "value1",
+			},
+			rejected: []registry.Path{},
+			finalState: registry.State{
+				createEntry("component/config/key1", "config", "value1"),
+			},
 		},
 		{
-			Kind: registry.Create,
-			Entry: createEntry(
-				"component/config/key2",
-				"config",
-				"value2",
-			),
+			name: "CreateAndReject",
+			changeSet: registry.ChangeSet{
+				{
+					Kind: registry.Create,
+					Entry: createEntry(
+						"component/config/key2",
+						"config",
+						"reject_this",
+					),
+				},
+			},
+			expectError: true,
+			finalConfig: map[registry.Path]string{},
+			rejected:    []registry.Path{"component/config/key2"},
+			finalState:  registry.State{},
+		},
+		{
+			name: "Update",
+			changeSet: registry.ChangeSet{
+				{
+					Kind: registry.Create,
+					Entry: createEntry(
+						"component/config/key3",
+						"config",
+						"value3",
+					),
+				},
+				{
+					Kind: registry.Update,
+					Entry: createEntry(
+						"component/config/key3",
+						"config",
+						"updatedValue3",
+					),
+				},
+			},
+			expectError: false,
+			finalConfig: map[registry.Path]string{
+				"component/config/key3": "updatedValue3",
+			},
+			rejected: []registry.Path{},
+			finalState: registry.State{
+				createEntry("component/config/key3", "config", "updatedValue3"),
+			},
+		},
+		{
+			name: "Delete",
+			changeSet: registry.ChangeSet{
+				{
+					Kind: registry.Create,
+					Entry: createEntry(
+						"component/config/key4",
+						"config",
+						"value4",
+					),
+				},
+				{
+					Kind:  registry.Delete,
+					Entry: registry.Entry{Path: "component/config/key4", Kind: "config"},
+				},
+			},
+			expectError: false,
+			finalConfig: map[registry.Path]string{},
+			rejected:    []registry.Path{},
+			finalState:  registry.State{},
+		},
+		{
+			name: "DeleteRejected",
+			changeSet: registry.ChangeSet{
+				{
+					Kind:  registry.Delete,
+					Entry: registry.Entry{Path: "component/config/nonexistent", Kind: "config"},
+				},
+			},
+			expectError: true, // Expect an error because deletion is rejected.
+			finalConfig: map[registry.Path]string{},
+			rejected:    []registry.Path{"component/config/nonexistent"},
+			finalState:  registry.State{}, // State should remain unchanged.
+		},
+		{
+			name: "MixedOperations",
+			changeSet: registry.ChangeSet{
+				{
+					Kind: registry.Create,
+					Entry: createEntry(
+						"component/config/a",
+						"config",
+						"valueA",
+					),
+				},
+				{
+					Kind: registry.Update,
+					Entry: createEntry(
+						"component/config/a",
+						"config",
+						"updatedA",
+					),
+				},
+				{
+					Kind: registry.Create,
+					Entry: createEntry(
+						"component/config/b",
+						"config",
+						"reject_B",
+					),
+				},
+				{
+					Kind:  registry.Delete,
+					Entry: registry.Entry{Path: "component/config/a", Kind: "config"},
+				},
+			},
+			expectError: true, // Expect an error because of the rejection
+			finalConfig: map[registry.Path]string{
+				"component/config/a": "updatedA",
+			},
+			rejected:   []registry.Path{"component/config/b"},
+			finalState: registry.State{},
 		},
 	}
 
-	_, err := busRunner.Transition(ctx, initialState, changeSet)
-	require.NoError(t, err)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
 
-	// Verify that the component received the configuration.
-	val1, ok1 := component.getConfig("component/config/key1")
-	assert.True(t, ok1)
-	assert.Equal(t, "value1", val1)
+			bus := eventbus.NewBus(zap.NewNop())
+			busRunner := NewBusRunner(bus, zap.NewNop())
+			component := newTestComponent()
+			componentClose := attachComponent(ctx, t, bus, component)
+			defer componentClose()
 
-	val2, ok2 := component.getConfig("component/config/key2")
-	assert.True(t, ok2)
-	assert.Equal(t, "value2", val2)
+			initialState := registry.State{}
+
+			finalState, err := busRunner.Transition(ctx, initialState, tc.changeSet)
+			if tc.expectError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+
+			// Verify the component's config.
+			for path, expectedValue := range tc.finalConfig {
+				actualValue, ok := component.getConfig(path)
+				assert.True(t, ok, "Expected config not found: %s", path)
+				assert.Equal(t, expectedValue, actualValue, "Incorrect value for config: %s", path)
+			}
+
+			// Verify rejected configs.
+			for _, rejectedPath := range tc.rejected {
+				assert.True(t, component.wasRejected(rejectedPath), "Expected config to be rejected: %s", rejectedPath)
+			}
+
+			// Verify the number of configs.
+			assert.Equal(t, len(tc.finalConfig), len(component.config), "Unexpected number of configs")
+
+			// Verify the final state.
+			assert.ElementsMatch(t, tc.finalState, finalState, "Final state does not match expected state")
+		})
+	}
 }
