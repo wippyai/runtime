@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"context"
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"
 )
@@ -79,10 +80,10 @@ type (
 	StateWriter interface {
 		// Apply applies a ChangeSet to the registry, creating a new version with the modified state.
 		// It returns the newly created version.
-		Apply(ChangeSet) (Version, error)
+		Apply(context.Context, ChangeSet) (Version, error)
 		// ApplyVersion applies a specific version to the registry.
 		// This effectively rolls the registry's state back or forward to the specified version.
-		ApplyVersion(Version) error
+		ApplyVersion(context.Context, Version) error
 	}
 
 	// StateBuilder defines methods for constructing registry states and calculating the differences between versions.
@@ -119,7 +120,7 @@ type (
 	// It encapsulates the logic for handling different operation kinds. This component propagates whole
 	// system state.
 	Runner interface {
-		// Run applies a given ChangeSet to a State and returns the resulting modified State.
-		Run(State, ChangeSet) (State, error)
+		// Transition applies a given ChangeSet to a State and returns the resulting modified State.
+		Transition(context.Context, State, ChangeSet) (State, error)
 	}
 )

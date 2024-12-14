@@ -1,6 +1,6 @@
 name: my_app
 kind: application
-metadata:
+meta:
   comment: "Simple declarative Web app with a single endpoint."
 load:
   - http: ./http/

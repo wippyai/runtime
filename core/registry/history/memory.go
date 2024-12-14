@@ -1,4 +1,4 @@
-package storage
+package history
 
 import (
 	"fmt"
@@ -23,7 +23,7 @@ func NewMemory() *MemoryStorage {
 	}
 }
 
-// Versions returns a list of all versions in the storage.
+// Versions returns a list of all versions in the history.
 func (m *MemoryStorage) Versions() ([]registry.Version, error) {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()

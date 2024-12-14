@@ -1,6 +1,6 @@
 name: web_server
 kind: server
-metadata:
+meta:
   comment: "Default http server."
 
 listen: ":8080"

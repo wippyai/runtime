@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"context"
 	"fmt"
 	"go.uber.org/zap"
 	"sync"
@@ -57,7 +58,7 @@ func (r *memreg) GetEntry(path registry.Path) (registry.Entry, error) {
 
 // --- StateWriter Interface Implementation ---
 
-func (r *memreg) Apply(changes registry.ChangeSet) (registry.Version, error) {
+func (r *memreg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.Version, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -65,11 +66,11 @@ func (r *memreg) Apply(changes registry.ChangeSet) (registry.Version, error) {
 
 	r.log.Debug("applying changes", zap.Any("changes", changes), zap.Any("new_version", newVersion))
 
-	newState, err := r.runner.Run(r.state, changes)
+	newState, err := r.runner.Transition(ctx, r.state, changes)
 	if err != nil {
 		r.log.Error("failed to apply changes", zap.Error(err))
 		if newState != nil {
-			if rerr := r.rollback(newState, r.state); rerr != nil {
+			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
 				return nil, fmt.Errorf("failed to apply changes: %w, failed to rollback: %w", err, rerr)
 			}
 		}
@@ -82,7 +83,7 @@ func (r *memreg) Apply(changes registry.ChangeSet) (registry.Version, error) {
 	err = r.history.Save(newVersion, changes, true)
 	if err != nil {
 		r.log.Error("failed to save new version", zap.Error(err))
-		if rerr := r.rollback(newState, r.state); rerr != nil {
+		if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
 			return nil, fmt.Errorf("failed to save new version: %w, failed to rollback: %w", err, rerr)
 		}
 
@@ -95,7 +96,7 @@ func (r *memreg) Apply(changes registry.ChangeSet) (registry.Version, error) {
 	return newVersion, nil
 }
 
-func (r *memreg) ApplyVersion(v registry.Version) error {
+func (r *memreg) ApplyVersion(ctx context.Context, v registry.Version) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -104,12 +105,12 @@ func (r *memreg) ApplyVersion(v registry.Version) error {
 		return fmt.Errorf("failed build state of version %s: %w", v, err)
 	}
 
-	// Run the changes through the runner
-	newState, err := r.transitionState(r.state, target)
+	// Transition the changes through the runner
+	newState, err := r.transitionState(ctx, r.state, target)
 	if err != nil {
 		r.log.Error("failed transition to version", zap.String("version", v.String()), zap.Error(err))
 		if newState != nil {
-			if rerr := r.rollback(newState, r.state); rerr != nil {
+			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
 				return fmt.Errorf("failed transition to version %s: %w, failed to rollback: %w", v, err, rerr)
 			}
 		}
@@ -124,10 +125,10 @@ func (r *memreg) ApplyVersion(v registry.Version) error {
 }
 
 // rollback state desync between actual state in system and state in history
-func (r *memreg) rollback(from, to registry.State) error {
+func (r *memreg) rollback(ctx context.Context, from, to registry.State) error {
 	r.log.Debug("attempting to rollback", zap.Any("from", from), zap.Any("to", to))
 
-	partial, err := r.transitionState(from, to)
+	partial, err := r.transitionState(ctx, from, to)
 	if err == nil {
 		return nil // success
 	}
@@ -139,7 +140,7 @@ func (r *memreg) rollback(from, to registry.State) error {
 	return err
 }
 
-func (r *memreg) transitionState(from, to registry.State) (registry.State, error) {
+func (r *memreg) transitionState(ctx context.Context, from, to registry.State) (registry.State, error) {
 	r.log.Debug("transitioning state", zap.Any("from", from), zap.Any("to", to))
 
 	cs, terr := r.builder.BuildDelta(from, to)
@@ -147,7 +148,7 @@ func (r *memreg) transitionState(from, to registry.State) (registry.State, error
 		return nil, fmt.Errorf("failed to compute transition: %w", terr)
 	}
 
-	return r.runner.Run(from, cs)
+	return r.runner.Transition(ctx, from, cs)
 }
 
 func (r *memreg) Current() (registry.Version, error) {

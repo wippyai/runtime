@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -12,8 +13,8 @@ import (
 	transcoder "github.com/ponyruntime/pony/core/payload"
 	"github.com/ponyruntime/pony/core/payload/json"
 	"github.com/ponyruntime/pony/core/payload/yaml"
+	"github.com/ponyruntime/pony/core/registry/history"
 	"github.com/ponyruntime/pony/core/registry/loader"
-	"github.com/ponyruntime/pony/core/registry/storage"
 	"github.com/ponyruntime/pony/internal/utils"
 )
 
@@ -55,12 +56,12 @@ data:
 	defer cleanup()
 
 	// 2. Initialize components:
-	//    - History (using storage.Memory)
+	//    - History (using history.Memory)
 	//    - Runner (with logic to apply loaded entries)
 	//    - StateBuilder
 	//    - FolderLoader
 	//    - Registry
-	history := storage.NewMemory()
+	history := history.NewMemory()
 	runner := &CustomizableMockRunner{}
 	stateBuilder := NewStateBuilder(zap.NewNop())
 	dtt := createTestTranscoder()
@@ -112,7 +113,7 @@ data:
 	//    - Use reg.Apply() to initialize the state
 	initialChangeSet := loader.CreateChangeSetFromEntries(entries)
 
-	newVersion, err := reg.Apply(initialChangeSet)
+	newVersion, err := reg.Apply(context.Background(), initialChangeSet)
 	if err != nil {
 		t.Fatalf("failed to apply initial ChangeSet: %v", err)
 	}
