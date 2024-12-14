@@ -4,11 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-
-	"go.uber.org/zap"
-
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/registry"
+	"go.uber.org/zap"
 )
 
 type BusRunner struct {
@@ -93,8 +91,7 @@ func (br *BusRunner) applyOperation(ctx context.Context, state stateMap, op regi
 				// Even if applyChangeToState fails, we return the original state to maintain consistency
 				return state, fmt.Errorf("applying change to state: %w", err)
 			}
-			state = newState
-
+			return newState, nil
 		case rejection := <-br.rejectChan:
 			// Type assertion: Check if rejection.Data is of type registry.Entry
 			entry, ok := rejection.Data.(registry.Entry)

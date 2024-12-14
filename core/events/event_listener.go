@@ -48,6 +48,7 @@ func NewEventListener(
 
 	if err != nil {
 		cancel()
+		h.bus.Unsubscribe(context.Background(), h.subscriberID)
 		return nil, err
 	}
 
@@ -68,6 +69,7 @@ func (h *EventHandler) eventListener(ch <-chan events.Event) {
 			}
 			h.handlerFunc(h.bus, evt)
 		case <-h.ctx.Done():
+			h.bus.Unsubscribe(context.Background(), h.subscriberID)
 			return
 		}
 	}
@@ -77,5 +79,4 @@ func (h *EventHandler) eventListener(ch <-chan events.Event) {
 func (h *EventHandler) Close() {
 	h.cancel()
 	h.wg.Wait()
-	h.bus.Unsubscribe(context.Background(), h.subscriberID)
 }
