@@ -48,7 +48,7 @@ func (br *BusRunner) Transition(
 		newState, err := br.applyOperation(ctx, currentState, op)
 		if err != nil {
 			br.log.Warn("Operation failed, initiating rollback", zap.Any("operation", op))
-			newState = br.rollback(originalState, newState, appliedOperations)
+			newState = br.rollback(ctx, originalState, newState, appliedOperations)
 			return br.stateHelper.toSlice(newState), fmt.Errorf("operation failed: %w", err)
 		}
 
@@ -116,7 +116,12 @@ func (br *BusRunner) applyOperation(ctx context.Context, state stateMap, op regi
 	}
 }
 
-func (br *BusRunner) rollback(originalState, currentState stateMap, appliedOperations []registry.Operation) stateMap {
+func (br *BusRunner) rollback(
+	ctx context.Context,
+	originalState,
+	currentState stateMap,
+	appliedOperations []registry.Operation,
+) stateMap {
 	// Iterate in reverse order
 	for i := len(appliedOperations) - 1; i >= 0; i-- {
 		op := appliedOperations[i]
@@ -124,6 +129,12 @@ func (br *BusRunner) rollback(originalState, currentState stateMap, appliedOpera
 		if err != nil {
 			br.log.Error("Error getting inverse operation", zap.Error(err))
 			continue
+		}
+
+		newState, err := br.applyOperation(ctx, currentState, inverseOp)
+		if err != nil {
+			br.log.Warn("Failed to rollback operation", zap.Any("operation", op))
+			return newState
 		}
 
 		// Apply the inverse operation to the state

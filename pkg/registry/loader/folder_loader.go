@@ -147,6 +147,7 @@ func (l *FolderLoader) calculateFullID(dirPath string, entryName string) registr
 		fullID = entryName
 	}
 
+	fullID = strings.ReplaceAll(fullID, "\\", ".")
 	fullID = strings.ReplaceAll(fullID, "/", ".")
 	fullID = strings.ReplaceAll(fullID, "..", ".")
 	fullID = strings.TrimPrefix(fullID, ".")
