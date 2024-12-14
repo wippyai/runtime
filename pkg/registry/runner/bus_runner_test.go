@@ -13,7 +13,7 @@ import (
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
-	eventbus "github.com/ponyruntime/pony/core/events"
+	eventbus "github.com/ponyruntime/pony/pkg/events"
 )
 
 // testComponent represents a component that can be configured via registry events.

@@ -24,7 +24,7 @@ type (
 		Data any
 	}
 
-	// Bus is an interface defining the core functionality of an event bus.
+	// Bus is an interface defining the pkg functionality of an event bus.
 	// It allows subscribers to listen for events and publishers to send events.
 	Bus interface {
 		// Subscribe subscribes a channel to events from a specific system.
