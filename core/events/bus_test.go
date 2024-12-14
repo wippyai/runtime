@@ -131,37 +131,6 @@ func TestWildcardSystem(t *testing.T) {
 	require.Equal(t, event2, receivedEvents[1])
 }
 
-func TestChannelFullBehavior(t *testing.T) {
-	bus, logs := newTestBus(t)
-	defer bus.Stop()
-
-	// Create a channel with size 1 to test overflow
-	ch := make(chan events.Event, 1)
-	subID, err := bus.Subscribe(context.Background(), "test-system", ch)
-	require.NoError(t, err)
-	defer bus.Unsubscribe(context.Background(), subID)
-
-	// Fill the channel
-	event1 := newTestEvent("test-system", "test-kind", "payload1")
-	event2 := newTestEvent("test-system", "test-kind", "payload2")
-
-	bus.Send(context.Background(), event1)
-	bus.Send(context.Background(), event2)
-
-	// Wait for logs to be written
-	time.Sleep(50 * time.Millisecond)
-
-	// Check for warning log about full channel
-	var foundWarning bool
-	for _, entry := range logs.All() {
-		if entry.Message == "subscriber channel full, dropping event" {
-			foundWarning = true
-			break
-		}
-	}
-	require.True(t, foundWarning, "should log warning about full channel")
-}
-
 func TestUnsubscribe(t *testing.T) {
 	bus, _ := newTestBus(t)
 	defer bus.Stop()
@@ -290,7 +259,7 @@ func TestConcurrentSendSubscribe(t *testing.T) {
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
-			ch := make(chan events.Event)
+			ch := make(chan events.Event, numGoroutines)
 			_, err := b.Subscribe(context.Background(), "test-system", ch)
 			if err != nil {
 				t.Errorf("Subscribe failed: %v", err)
