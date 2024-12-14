@@ -1,7 +1,9 @@
 package tasks
 
+import "github.com/ponyruntime/pony/api/tasks"
+
 type future interface {
-	*TaskResult | any
+	*tasks.Result | any
 }
 
 type Future[T future] interface {
