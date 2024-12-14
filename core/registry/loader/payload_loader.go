@@ -11,15 +11,15 @@ import (
 	"go.uber.org/zap"
 )
 
-// EntryLoader loads files, determines their format, and creates payload.Payload objects.
-type EntryLoader struct {
+// PayloadLoader loads files, determines their format, and creates payload.Payload objects.
+type PayloadLoader struct {
 	exts map[string]payload.Format
 	log  *zap.Logger
 }
 
-// NewPayloadLoader creates a new EntryLoader.
-func NewPayloadLoader(log *zap.Logger) *EntryLoader {
-	return &EntryLoader{
+// NewPayloadLoader creates a new PayloadLoader.
+func NewPayloadLoader(log *zap.Logger) *PayloadLoader {
+	return &PayloadLoader{
 		exts: map[string]payload.Format{
 			".json": payload.Json,
 			".yaml": payload.Yaml,
@@ -31,7 +31,7 @@ func NewPayloadLoader(log *zap.Logger) *EntryLoader {
 
 // Load walks the directory tree from the rootPath, determines the format of files based on their extensions,
 // and returns a map where the key is the relative dot-separated file path (without extension) and the value is the payload.Payload object.
-func (l *EntryLoader) Load(rootPath string) (map[string]payload.Payload, error) {
+func (l *PayloadLoader) Load(rootPath string) (map[string]payload.Payload, error) {
 	payloads := make(map[string]payload.Payload)
 
 	err := filepath.WalkDir(rootPath, func(path string, d fs.DirEntry, err error) error {
@@ -81,7 +81,7 @@ func (l *EntryLoader) Load(rootPath string) (map[string]payload.Payload, error) 
 }
 
 // loadFileAsPayload loads the file content and creates a Payload.
-func (l *EntryLoader) loadFileAsPayload(path string, format payload.Format) (payload.Payload, error) {
+func (l *PayloadLoader) loadFileAsPayload(path string, format payload.Format) (payload.Payload, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err

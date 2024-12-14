@@ -16,10 +16,11 @@ type Variables map[string]string
 
 // FolderLoader manages the loading of registry entries from a directory.
 type FolderLoader struct {
-	rootPath string
-	dtt      payload.Transcoder
-	log      *zap.Logger
-	i11p     *interpolator.Interpolator
+	rootPath  string
+	namespace string
+	dtt       payload.Transcoder
+	log       *zap.Logger
+	i11p      *interpolator.Interpolator
 }
 
 // FileEntry is an internal struct used for unmarshalling entry data.
@@ -45,7 +46,8 @@ func NewFolderLoader(dtt payload.Transcoder, log *zap.Logger) *FolderLoader {
 }
 
 // Load scans the root directory, loads all supported files, and returns a slice of entries
-func (l *FolderLoader) Load(rootPath string, vars Variables) ([]registry.Entry, error) {
+func (l *FolderLoader) Load(rootPath string, namespace string, vars Variables) ([]registry.Entry, error) {
+	l.namespace = namespace
 	l.rootPath = rootPath
 
 	entryLoader := NewPayloadLoader(l.log)
@@ -96,7 +98,6 @@ func (l *FolderLoader) interpolate(p payload.Payload, ctx EntryContext) (payload
 		return p, err
 	}
 
-	l.log.Debug("Interpolated Payload", zap.Any("payload", ip))
 	return payload.New(ip), nil
 }
 
@@ -118,12 +119,11 @@ func (l *FolderLoader) register(p payload.Payload, relPath string) (registry.Ent
 	}
 
 	// Calculate full ID (prefix + entry path)
-	fullID := l.calculateFullID(relPath, entry.Name)
+	fullID := l.calculateFullID(filepath.Dir(relPath), entry.Name)
 
 	l.log.Debug(
 		"Registering Entry",
 		zap.String("path", string(fullID)),
-		zap.String("relPath", relPath),
 		zap.String("entryName", entry.Name),
 	)
 
@@ -135,15 +135,24 @@ func (l *FolderLoader) register(p payload.Payload, relPath string) (registry.Ent
 	}, nil
 }
 
-// calculateFullID determines the full registry path based on file path, and entry path.
-func (l *FolderLoader) calculateFullID(relPath string, entryName string) registry.Path {
-	// we never store filename
-	relPath = strings.TrimSuffix(relPath, filepath.Base(relPath))
+// calculateFullID determines the full registry path based on file path, and entry path. relPath must point to filename.
+func (l *FolderLoader) calculateFullID(dirPath string, entryName string) registry.Path {
+	// Remove trailing slash if any. we trim at the end
+	dirPath = strings.TrimSuffix(dirPath, "/")
 
-	fullID := entryName
-	if relPath != "" {
-		relPath = strings.TrimSuffix(relPath, "/")
-		fullID = strings.ReplaceAll(relPath, "/", ".") + "." + entryName
+	var fullID string
+	if dirPath != "" {
+		fullID = dirPath + "." + entryName
+	} else {
+		fullID = entryName
+	}
+
+	fullID = strings.ReplaceAll(fullID, "/", ".")
+	fullID = strings.ReplaceAll(fullID, "..", ".")
+	fullID = strings.TrimPrefix(fullID, ".")
+
+	if l.namespace != "" {
+		fullID = l.namespace + ":" + fullID
 	}
 
 	return registry.Path(fullID)

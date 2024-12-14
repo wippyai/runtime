@@ -6,21 +6,16 @@ import (
 	transcoder "github.com/ponyruntime/pony/core/payload"
 	"github.com/ponyruntime/pony/core/payload/json"
 	"github.com/ponyruntime/pony/core/payload/yaml"
+	"github.com/ponyruntime/pony/internal/utils"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
-	"os"
-	"path/filepath"
+	"go.uber.org/zap/zaptest/observer"
+	"strings"
 	"testing"
 )
 
 func TestFolderLoader_Load_MultipleFiles_Interpolation(t *testing.T) {
 	// Create a temporary directory structure for testing
-	tempDir, err := os.MkdirTemp("", "folderloader_test")
-	if err != nil {
-		t.Fatalf("failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
-
 	files := map[string]string{
 		"a.yaml": `
 name: setting_a
@@ -43,18 +38,16 @@ name: setting_d
 kind: config
 data: "interpolated_${not_exist}"
 `,
+		"e/e.yaml": `
+name: setting_e
+kind: config
+data: file://../e_data.txt
+`,
+		"e_data.txt": "value_e",
 	}
-	for path, content := range files {
-		fullPath := filepath.Join(tempDir, path)
-		err = os.MkdirAll(filepath.Dir(fullPath), 0755) // Create directories if they don't exist
-		if err != nil {
-			t.Fatalf("failed to create dir: %v", err)
-		}
-		err = os.WriteFile(fullPath, []byte(content), 0644)
-		if err != nil {
-			t.Fatalf("failed to write file %s: %v", path, err)
-		}
-	}
+
+	rootDir, cleanup := utils.TempDirWithFiles(t, "folderloader_test", files)
+	defer cleanup()
 
 	// Create a transcoder and logger for testing
 	dtt := createTestTranscoder()
@@ -68,13 +61,13 @@ data: "interpolated_${not_exist}"
 	folderLoader := NewFolderLoader(dtt, logger)
 
 	// Load the entries
-	entries, err := folderLoader.Load(tempDir, vars)
+	entries, err := folderLoader.Load(rootDir, "", vars)
 	if err != nil {
 		t.Fatalf("failed to load entries: %v", err)
 	}
 
 	// Assert that four entries were loaded
-	if len(entries) != 4 {
+	if len(entries) != 5 {
 		t.Fatalf("expected 4 entries, got %d", len(entries))
 	}
 
@@ -115,6 +108,14 @@ data: "interpolated_${not_exist}"
 				"data": "interpolated_${not_exist}",
 			},
 		},
+		"e.setting_e": {
+			Kind: "config",
+			Data: map[string]interface{}{
+				"name": "setting_e",
+				"kind": "config",
+				"data": "value_e",
+			},
+		},
 	}
 
 	// Compare loaded entries
@@ -138,11 +139,8 @@ data: "interpolated_${not_exist}"
 
 func TestFolderLoader_Load_NoFiles(t *testing.T) {
 	// Create a temporary directory
-	tempDir, err := os.MkdirTemp("", "folderloader_empty")
-	if err != nil {
-		t.Fatalf("failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
+	rootDir, cleanup := utils.TempDirWithFiles(t, "folderloader_empty", nil)
+	defer cleanup()
 
 	// Initialize FolderLoader, transcoder, and logger
 	dtt := createTestTranscoder()
@@ -153,8 +151,9 @@ func TestFolderLoader_Load_NoFiles(t *testing.T) {
 	vars := Variables{
 		"from_a": "value_from_a",
 	}
+	namespace := "test"
 	// Load the entries from empty directory
-	entries, err := folderLoader.Load(tempDir, vars)
+	entries, err := folderLoader.Load(rootDir, namespace, vars)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -166,27 +165,12 @@ func TestFolderLoader_Load_NoFiles(t *testing.T) {
 
 func TestFolderLoader_Load_UnsupportedFiles(t *testing.T) {
 	// Create a temporary directory structure for testing
-	tempDir, err := os.MkdirTemp("", "folderloader_test")
-	if err != nil {
-		t.Fatalf("failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
-
 	files := map[string]string{
 		"a.txt": "unsupported content",
 	}
 
-	for path, content := range files {
-		fullPath := filepath.Join(tempDir, path)
-		err = os.MkdirAll(filepath.Dir(fullPath), 0755) // Create directories if they don't exist
-		if err != nil {
-			t.Fatalf("failed to create dir: %v", err)
-		}
-		err = os.WriteFile(fullPath, []byte(content), 0644)
-		if err != nil {
-			t.Fatalf("failed to write file %s: %v", path, err)
-		}
-	}
+	rootDir, cleanup := utils.TempDirWithFiles(t, "folderloader_test", files)
+	defer cleanup()
 	// Initialize FolderLoader, transcoder, and logger
 	dtt := createTestTranscoder()
 	logger, _ := zap.NewProduction()
@@ -197,8 +181,9 @@ func TestFolderLoader_Load_UnsupportedFiles(t *testing.T) {
 	vars := Variables{
 		"from_a": "value_from_a",
 	}
+	namespace := "test"
 	// Load the entries
-	entries, err := folderLoader.Load(tempDir, vars)
+	entries, err := folderLoader.Load(rootDir, namespace, vars)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -212,37 +197,22 @@ func TestFolderLoader_Load_UnsupportedFiles(t *testing.T) {
 
 func TestFolderLoader_Load_InvalidYaml(t *testing.T) {
 	// Create a temporary directory structure for testing
-	tempDir, err := os.MkdirTemp("", "folderloader_invalid_yaml")
-	if err != nil {
-		t.Fatalf("failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
-
 	files := map[string]string{
 		"a.yaml": "invalid yaml content",
 	}
-	for path, content := range files {
-		fullPath := filepath.Join(tempDir, path)
-		err = os.MkdirAll(filepath.Dir(fullPath), 0755) // Create directories if they don't exist
-		if err != nil {
-			t.Fatalf("failed to create dir: %v", err)
-		}
-		err = os.WriteFile(fullPath, []byte(content), 0644)
-		if err != nil {
-			t.Fatalf("failed to write file %s: %v", path, err)
-		}
-	}
+	rootDir, cleanup := utils.TempDirWithFiles(t, "folderloader_invalid_yaml", files)
+	defer cleanup()
 
 	// Initialize FolderLoader, transcoder, and logger
 	dtt := createTestTranscoder()
 
 	folderLoader := NewFolderLoader(dtt, zap.NewNop())
-
+	namespace := "test"
 	vars := Variables{
 		"from_a": "value_from_a",
 	}
 	// Load the entries
-	entries, err := folderLoader.Load(tempDir, vars)
+	entries, err := folderLoader.Load(rootDir, namespace, vars)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -267,4 +237,217 @@ func createTestTranscoder() payload.Transcoder {
 	tr.RegisterUnmarshaler(payload.Yaml, &yaml.ToGolang{})
 
 	return tr
+}
+
+func TestFolderLoader_calculateFullID(t *testing.T) {
+	testCases := []struct {
+		name      string
+		relPath   string
+		entryName string
+		namespace string
+		expected  string
+	}{
+		{
+			name:      "root level",
+			relPath:   "",
+			entryName: "test_entry",
+			namespace: "test",
+			expected:  "test:test_entry",
+		},
+		{
+			name:      "single level",
+			relPath:   "folder/",
+			entryName: "test_entry",
+			namespace: "test",
+			expected:  "test:folder.test_entry",
+		},
+		{
+			name:      "single level without /",
+			relPath:   "folder",
+			entryName: "test_entry",
+			namespace: "test",
+			expected:  "test:folder.test_entry",
+		},
+		{
+			name:      "nested level",
+			relPath:   "folder/nested/",
+			entryName: "test_entry",
+			namespace: "test",
+			expected:  "test:folder.nested.test_entry",
+		},
+		{
+			name:      "multiple slashes",
+			relPath:   "folder//nested//",
+			entryName: "test_entry",
+			namespace: "test",
+			expected:  "test:folder.nested.test_entry",
+		},
+		{
+			name:      "root level with no namespace",
+			relPath:   "",
+			entryName: "test_entry",
+			namespace: "",
+			expected:  "test_entry",
+		},
+		{
+			name:      "single level with no namespace",
+			relPath:   "folder/",
+			entryName: "test_entry",
+			namespace: "",
+			expected:  "folder.test_entry",
+		},
+	}
+
+	// Initialize FolderLoader, transcoder, and logger
+	dtt := createTestTranscoder()
+	logger, _ := zap.NewProduction()
+	defer logger.Sync()
+
+	folderLoader := NewFolderLoader(dtt, logger)
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			folderLoader.namespace = tc.namespace
+			result := folderLoader.calculateFullID(tc.relPath, tc.entryName)
+			assert.Equal(t, registry.Path(tc.expected), result, "Expected full ID does not match")
+		})
+	}
+}
+func TestFolderLoader_Load_MissingNameOrKind(t *testing.T) {
+	files := map[string]string{
+		"no_name.yaml": `
+kind: config
+data: value
+`,
+		"no_kind.yaml": `
+name: setting
+data: value
+`,
+		"valid.yaml": `
+name: valid_setting
+kind: config
+data: value
+`,
+	}
+
+	rootDir, cleanup := utils.TempDirWithFiles(t, "folderloader_missing", files)
+	defer cleanup()
+
+	dtt := createTestTranscoder()
+	core, obs := observer.New(zap.DebugLevel)
+	logger := zap.New(core)
+	defer logger.Sync()
+
+	folderLoader := NewFolderLoader(dtt, logger)
+	vars := Variables{}
+	entries, err := folderLoader.Load(rootDir, "", vars)
+	if err != nil {
+		t.Fatalf("failed to load entries: %v", err)
+	}
+
+	// Assert that only one valid entry was loaded
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(entries))
+	}
+
+	if string(entries[0].Path) != "valid_setting" {
+		t.Fatalf("expected entry with path '%s' not found", "valid_setting")
+	}
+
+	// Check logs for errors
+	logged := obs.FilterMessage("failed to process entry, skipping")
+	if len(logged.All()) != 2 {
+		t.Fatalf("expected 2 error logs, got %d", len(logged.All()))
+	}
+
+	expectedMessages := []string{
+		"failed to process entry, skipping",
+		"failed to process entry, skipping",
+	}
+	for i, entry := range logged.All() {
+		if !strings.Contains(entry.Message, expectedMessages[i]) {
+			t.Errorf("expected error message '%s', got '%s'", expectedMessages[i], entry.Message)
+		}
+	}
+}
+
+func TestFolderLoader_Load_InvalidContent(t *testing.T) {
+	files := map[string]string{
+		"invalid.yaml": `
+name: test_entry
+kind: config
+data:
+    invalid: [
+    }
+`,
+		"valid.yaml": `
+name: valid_setting
+kind: config
+data: value
+`,
+	}
+	rootDir, cleanup := utils.TempDirWithFiles(t, "folderloader_invalid", files)
+	defer cleanup()
+
+	dtt := createTestTranscoder()
+	core, obs := observer.New(zap.DebugLevel)
+	logger := zap.New(core)
+	defer logger.Sync()
+
+	folderLoader := NewFolderLoader(dtt, logger)
+	vars := Variables{}
+	entries, err := folderLoader.Load(rootDir, "", vars)
+	if err != nil {
+		t.Fatalf("failed to load entries: %v", err)
+	}
+
+	// Assert that only the valid entry was loaded
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(entries))
+	}
+
+	if string(entries[0].Path) != "valid_setting" {
+		t.Fatalf("expected entry with path '%s' not found", "valid_setting")
+	}
+	// Check logs for errors
+	logged := obs.FilterMessage("failed to process entry, skipping")
+	if len(logged.All()) != 1 {
+		t.Fatalf("expected 1 error log, got %d", len(logged.All()))
+	}
+
+	expectedMessage := "failed to process entry, skipping"
+	if !strings.Contains(logged.All()[0].Message, expectedMessage) {
+		t.Errorf("expected error message to contain '%s', got '%s'", expectedMessage, logged.All()[0].Message)
+	}
+}
+
+func TestFolderLoader_Load_DeeplyNestedFiles(t *testing.T) {
+	files := map[string]string{
+		"a/b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t/file.yaml": `
+name: nested_setting
+kind: config
+data: value
+`,
+	}
+
+	rootDir, cleanup := utils.TempDirWithFiles(t, "folderloader_nested", files)
+	defer cleanup()
+
+	dtt := createTestTranscoder()
+	logger := zap.NewNop() // use nop logger, no need to observe logs
+	folderLoader := NewFolderLoader(dtt, logger)
+	vars := Variables{}
+	entries, err := folderLoader.Load(rootDir, "", vars)
+
+	if err != nil {
+		t.Fatalf("failed to load entries: %v", err)
+	}
+
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(entries))
+	}
+	expectedPath := "a.b.c.d.e.f.g.h.i.j.k.l.m.n.o.p.q.r.s.t.nested_setting"
+	if string(entries[0].Path) != expectedPath {
+		t.Fatalf("expected entry with path '%s' not found", expectedPath)
+	}
 }

@@ -9,7 +9,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func TestEntryLoader_Load_SingleFile(t *testing.T) {
+func TestPayloadLoader_Load_SingleFile(t *testing.T) {
 	// Create a temporary directory with a single JSON file
 	tempDir, err := os.MkdirTemp("", "entryloader_test")
 	if err != nil {
@@ -24,7 +24,7 @@ func TestEntryLoader_Load_SingleFile(t *testing.T) {
 		t.Fatalf("failed to write test file: %v", err)
 	}
 
-	// Load the file using EntryLoader
+	// Load the file using PayloadLoader
 	loader := NewPayloadLoader(zap.NewNop()) // Use a no-op logger for tests
 	payloads, err := loader.Load(tempDir)
 	if err != nil {
@@ -50,7 +50,7 @@ func TestEntryLoader_Load_SingleFile(t *testing.T) {
 	}
 }
 
-func TestEntryLoader_Load_MultipleFiles(t *testing.T) {
+func TestPayloadLoader_Load_MultipleFiles(t *testing.T) {
 	// Create a temporary directory with multiple files (JSON and YAML)
 	tempDir, err := os.MkdirTemp("", "entryloader_test")
 	if err != nil {
@@ -69,7 +69,7 @@ func TestEntryLoader_Load_MultipleFiles(t *testing.T) {
 		}
 	}
 
-	// Load the files using EntryLoader
+	// Load the files using PayloadLoader
 	loader := NewPayloadLoader(zap.NewNop()) // Use a no-op logger for tests
 	payloads, err := loader.Load(tempDir)
 	if err != nil {
@@ -104,7 +104,7 @@ func TestEntryLoader_Load_MultipleFiles(t *testing.T) {
 	}
 }
 
-func TestEntryLoader_Load_UnsupportedFileType(t *testing.T) {
+func TestPayloadLoader_Load_UnsupportedFileType(t *testing.T) {
 	// Create a temporary directory with an unsupported file type
 	tempDir, err := os.MkdirTemp("", "entryloader_test")
 	if err != nil {
@@ -118,7 +118,7 @@ func TestEntryLoader_Load_UnsupportedFileType(t *testing.T) {
 		t.Fatalf("failed to write test file: %v", err)
 	}
 
-	// Load the files using EntryLoader
+	// Load the files using PayloadLoader
 	loader := NewPayloadLoader(zap.NewNop()) // Use a no-op logger for tests
 	payloads, err := loader.Load(tempDir)
 	if err != nil {
@@ -131,7 +131,7 @@ func TestEntryLoader_Load_UnsupportedFileType(t *testing.T) {
 	}
 }
 
-func TestEntryLoader_Load_EmptyDirectory(t *testing.T) {
+func TestPayloadLoader_Load_EmptyDirectory(t *testing.T) {
 	// Create an empty temporary directory
 	tempDir, err := os.MkdirTemp("", "entryloader_test")
 	if err != nil {
@@ -139,7 +139,7 @@ func TestEntryLoader_Load_EmptyDirectory(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	// Load the files using EntryLoader
+	// Load the files using PayloadLoader
 	loader := NewPayloadLoader(zap.NewNop())
 	payloads, err := loader.Load(tempDir)
 	if err != nil {
@@ -152,7 +152,7 @@ func TestEntryLoader_Load_EmptyDirectory(t *testing.T) {
 	}
 }
 
-func TestEntryLoader_Load_NestedDirectories(t *testing.T) {
+func TestPayloadLoader_Load_NestedDirectories(t *testing.T) {
 	// Create a temporary directory with nested directories and files
 	tempDir, err := os.MkdirTemp("", "entryloader_test")
 	if err != nil {
@@ -179,7 +179,7 @@ func TestEntryLoader_Load_NestedDirectories(t *testing.T) {
 		}
 	}
 
-	// Load the files using EntryLoader
+	// Load the files using PayloadLoader
 	loader := NewPayloadLoader(zap.NewNop())
 	payloads, err := loader.Load(tempDir)
 	if err != nil {
@@ -215,7 +215,7 @@ func TestEntryLoader_Load_NestedDirectories(t *testing.T) {
 	}
 }
 
-func TestEntryLoader_loadFileAsPayload_UnsupportedFormat(t *testing.T) {
+func TestPayloadLoader_loadFileAsPayload_UnsupportedFormat(t *testing.T) {
 	loader := NewPayloadLoader(zap.NewNop())
 
 	// Create a dummy file (it won't be read in this case)
