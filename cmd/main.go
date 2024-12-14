@@ -1,140 +1,87 @@
 package main
 
 import (
-	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/__OOOOLD/component/server/http"
-	"github.com/ponyruntime/pony/components/config/json"
-	"github.com/ponyruntime/pony/components/exec"
-	"log"
+	"go.uber.org/zap/zapcore"
 	"os"
-	"os/signal"
-	"path/filepath"
-	"syscall"
+	"strings"
 	"time"
 
-	pctx "github.com/ponyruntime/pony/api/context"
-	"go.uber.org/zap/zapcore"
-
 	"go.uber.org/zap"
+
+	"github.com/ponyruntime/pony/api/payload"
+	transcoder "github.com/ponyruntime/pony/core/payload"
+	"github.com/ponyruntime/pony/core/payload/json"
+	"github.com/ponyruntime/pony/core/payload/yaml"
+	"github.com/ponyruntime/pony/core/registry/loader"
 )
 
-func main() {
-	app := &cli.App{
-		Name:  "Pony",
-		Usage: "pony run -c <chart.json>",
-		Commands: []*cli.Command{
-			{
-				Name:    "run",
-				Aliases: []string{"r"},
-				Flags: []cli.Flag{
-					&cli.StringFlag{
-						Name:    "chart",
-						Usage:   "Name to the chart file",
-						Aliases: []string{"c"},
-						Action: func(ctx *cli.Context, cfgFile string) error {
-							// init logger and put it into the context,
-							// here we should read the chart file and init logger with it
-							absPath, err := filepath.Abs(cfgFile)
-							if err != nil {
-								return err
-							}
+func createTestTranscoder() payload.Transcoder {
+	tr := transcoder.NewTranscoder()
 
-							// save the logger
-							zlog := initDevelopmentLogger()
-							ctx.Context = context.WithValue(ctx.Context, pctx.LoggerKey, zlog)
-							// safe the chart file
-							ctx.Context = context.WithValue(ctx.Context, pctx.CfgFilenameKey, absPath)
-							return nil
-						},
-					},
-				},
-				Usage:  "start the Pony web_server",
-				Action: run,
-			},
-		},
-	}
+	// Register JSON
+	tr.RegisterTranscoder(payload.Json, payload.Golang, 1, &json.ToGolang{})
+	tr.RegisterTranscoder(payload.Golang, payload.Json, 1, &json.FromGolang{})
+	tr.RegisterUnmarshaler(payload.Json, &json.ToGolang{})
 
-	err := app.Run(os.Args)
-	if err != nil {
-		log.Fatal(err)
-	}
+	// Register YAML
+	tr.RegisterTranscoder(payload.Yaml, payload.Golang, 1, &yaml.ToGolang{})
+	tr.RegisterTranscoder(payload.Golang, payload.Yaml, 1, &yaml.FromGolang{})
+	tr.RegisterUnmarshaler(payload.Yaml, &yaml.ToGolang{})
+
+	return tr
 }
 
-func run(ctx *cli.Context) error {
-	// TODO: chart for logger
-	// TODO: setup tracing in the context
-	zlogctx := ctx.Context.Value(pctx.LoggerKey)
+func main() {
+	// 1. Configure Logger and Transcoder:
+	logger := initDevelopmentLogger()
+	defer logger.Sync()
 
-	// parse logger
-	var zlog *zap.Logger
-	switch tt := zlogctx.(type) {
-	case *zap.Logger:
-		zlog = tt
-	default:
-		zlog = initDevelopmentLogger()
+	dtt := createTestTranscoder()
+
+	// 2. Get Folder Path from Command-Line Argument:
+	if len(os.Args) < 2 {
+		fmt.Println("Usage: go run main.go <folder_path> [namespace]")
+		os.Exit(1)
+	}
+	folderPath := os.Args[1]
+
+	namespace := ""
+	if len(os.Args) > 2 {
+		namespace = os.Args[2]
 	}
 
-	// primary execution queue sub-core
-	queue := exec.NewQueue()
+	// 3. Create FolderLoader:
+	folderLoader := loader.NewFolderLoader(dtt, logger)
 
-	// web_server and all the ingress plugins and endpoints
-	endpoints := component.NewHub(
-		zlog.Named("web_server"),
-		queue,
-		component.Declaration{
-			ID:        http.Component,
-			Component: http.NewComponent(zlog.Named("web_server")),
-		},
-	)
+	// --- Load Environment Variables into Variables map ---
+	vars := loader.Variables{}
+	for _, env := range os.Environ() {
+		pair := strings.SplitN(env, "=", 2)
+		vars[pair[0]] = pair[1]
+	}
 
-	// wait for all endpoints to init
-	endpoints.Boot(context.Background())
-	defer endpoints.Close(context.Background())
-
-	// wait for all runtime to init
-
-	// Loading application configuration
-
-	// todo: fix this
-	cfgFilePath := ctx.Context.Value(pctx.CfgFilenameKey).(string)
-	zlog.Named("root").Info("Pony web_server is starting ", zap.String("chart", cfgFilePath))
-	_, err := json.LoadChangelogFile(cfgFilePath)
+	// 4. Load Entries:
+	entries, err := folderLoader.Load(folderPath, namespace, vars) // Pass vars to Load
 	if err != nil {
-		return err
+		logger.Fatal("Failed to load entries", zap.Error(err))
 	}
 
-	// writing setup
+	// 5. Dump Entries to Console:
+	fmt.Println("Loaded Registry Entries (YAML):")
+	for _, entry := range entries {
+		p, err := dtt.Transcode(entry.Data, payload.Yaml)
+		if err != nil {
+			logger.Error("Failed to transcode entry to YAML", zap.String("path", string(entry.Path)), zap.Error(err))
+			continue // Skip to the next entry if transcoding fails
+		}
 
-	// single pass configuration via change group
-
-	//// runtime also composite
-	//rnt := runtime.NewHub(
-	//	zlog.Named("runtime"),
-	//	queue,
-	//	// todo: lua subsystem
-	//)
-	//rnt.ListenEvents()
-
-	// at this step, we're reading the chart file and send events to subsystems via events
-	// e.g.: when we have an endpoint chart - we send it to an endpoint subsystem
-
-	//chart := jsonCfgProvider.NewProvider(zlog.Named("json"))
-	//err := chart.Parse(cfgFilePath)
-	//if err != nil {
-	//	// send the error across the core
-	//	// TODO: wait for the error to be processed
-	//	bus.Send(context.Background(), eb.NewEvent(api.EventFatalError, api.SubSystemAll, payload.NewString(err.Error())))
-	//	return err
-	//}
-
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
-
-	select {
-	case <-sigCh:
-		zlog.Info("received a signal to stop the web_server")
-		return nil
+		// Print the entry:
+		fmt.Println("---")
+		fmt.Printf("Path: %s\n", entry.Path)
+		fmt.Printf("Kind: %s\n", entry.Kind)
+		fmt.Println("Data:")
+		fmt.Println(string(p.Data().(string)))
 	}
 }
 

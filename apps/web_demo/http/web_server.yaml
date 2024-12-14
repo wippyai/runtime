@@ -1,5 +1,5 @@
-id: web_server
-type: server
+name: web_server
+kind: server
 metadata:
   comment: "Default http server."
 

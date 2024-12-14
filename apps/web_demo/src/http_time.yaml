@@ -1,5 +1,5 @@
-id: runtime.web_server.http_time
-type: lua.function
+name: http_time
+kind: lua.function
 metadata:
   name: web_server-time-handler
 
@@ -10,4 +10,4 @@ extensions:
   - web_server
   - json
 env:
-  - API_KEY:${API_KEY}
+  - API_KEY:${OPENAI_KEY}

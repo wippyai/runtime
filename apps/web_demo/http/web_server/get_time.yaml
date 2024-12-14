@@ -1,4 +1,4 @@
-id: get_time
+name: get_time
 kind: http.endpoint
 metadata:
   name: get_time_endpoint
