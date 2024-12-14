@@ -1,160 +1,270 @@
 package loader
 
-//
-//import (
-//	"log"
-//	"os"
-//	"path/filepath"
-//	"testing"
-//
-//	"github.com/ponyruntime/pony/api/payload"
-//	"github.com/ponyruntime/pony/api/registry"
-//	"go.uber.org/zap"
-//)
-//
-//func TestFolderLoader_Boot_MultipleFiles_Sorting_Interpolation(t *testing.T) {
-//	// Create a temporary directory structure for testing
-//	tempDir, err := os.MkdirTemp("", "folderloader_test")
-//	if err != nil {
-//		t.Fatalf("failed to create temp dir: %v", err)
-//	}
-//	defer os.RemoveAll(tempDir)
-//
-//	// Create files with content (including interpolation)
-//	files := map[string]string{
-//		"a.yaml": `
-//name: setting_a
-//kind: config
-//data: value_a
-//`,
-//		"b/b.yaml": `
-//name: setting_b
-//kind: config
-//data: file://b_data.txt
-//`,
-//		"b/b_data.txt": "value_b",
-//		"c/nested/c.yaml": `
-//name: setting_c
-//kind: config
-//data: "interpolated_${from_a}"
-//`,
-//	}
-//	for path, content := range files {
-//		fullPath := filepath.Join(tempDir, path)
-//		err = os.MkdirAll(filepath.Dir(fullPath), 0755) // Create directories if they don't exist
-//		if err != nil {
-//			t.Fatalf("failed to create dir: %v", err)
-//		}
-//		err = os.WriteFile(fullPath, []byte(content), 0644)
-//		if err != nil {
-//			t.Fatalf("failed to write file %s: %v", path, err)
-//		}
-//	}
-//
-//	// Create a transcoder (replace with your actual transcoder setup)
-//	dtt := createTestTranscoder()
-//
-//	// Create FolderLoader with variables
-//	vars := Vars{
-//		"from_a": "value_from_a",
-//	}
-//	logger, _ := zap.NewProduction()
-//	defer logger.Sync()
-//
-//	folderLoader := NewFolderLoader(
-//		dtt,
-//		logger,
-//	)
-//
-//	// Boot the FolderLoader
-//	changeSet, err := folderLoader.Boot(tempDir, vars)
-//	if err != nil {
-//		t.Fatalf("failed to boot folder loader: %v", err)
-//	}
-//
-//	log.Printf("ChangeSet: %v", changeSet)
-//
-//	// Expected ChangeSet (sorted by path) - CORRECTED PATHS
-//	expectedChangeSet := registry.ChangeSet{
-//		{
-//			Kind: registry.Create,
-//			Entry: registry.Entry{
-//				Path: "setting_a", // File in root directory
-//				Kind: "config",
-//				Data: payload.NewPayload(map[string]interface{}{
-//					"name": "setting_a",
-//					"kind": "config",
-//					"data": "value_a",
-//				}, payload.Yaml),
-//			},
-//		},
-//		{
-//			Kind: registry.Create,
-//			Entry: registry.Entry{
-//				Path: "b.setting_b", // File in 'b' subdirectory
-//				Kind: "config",
-//				Data: payload.NewPayload(map[string]interface{}{
-//					"name": "setting_b",
-//					"kind": "config",
-//					"data": "value_b", // Interpolated from file
-//				}, payload.Yaml),
-//			},
-//		},
-//		{
-//			Kind: registry.Create,
-//			Entry: registry.Entry{
-//				Path: "c.nested.setting_c", // File in 'c/nested' subdirectory
-//				Kind: "config",
-//				Data: payload.NewPayload(map[string]interface{}{
-//					"name": "setting_c",
-//					"kind": "config",
-//					"data": "interpolated_value_from_a", // Variable interpolation
-//				}, payload.Yaml),
-//			},
-//		},
-//	}
-//
-//	// Compare ChangeSets
-//	if len(changeSet) != len(expectedChangeSet) {
-//		t.Fatalf("expected %d ChangeSet entries, got %d", len(expectedChangeSet), len(changeSet))
-//	}
-//
-//	for i, op := range changeSet {
-//		expectedOp := expectedChangeSet[i]
-//
-//		if op.Kind != expectedOp.Kind {
-//			t.Errorf("expected operation Kind: %s, got: %s for path: %s", expectedOp.Kind, op.Kind, op.Entry.Path)
-//		}
-//
-//		if op.Entry.Path != expectedOp.Entry.Path {
-//			t.Errorf("expected operation Path: %s, got: %s", expectedOp.Entry.Path, op.Entry.Path)
-//		}
-//
-//		if op.Entry.Kind != expectedOp.Entry.Kind {
-//			t.Errorf("expected operation Kind: %s, got: %s for path: %s", expectedOp.Entry.Kind, op.Entry.Kind, op.Entry.Path)
-//		}
-//
-//		// Data comparison (you might need a more robust way to compare payloads)
-//		// Here, we'll just check if the interpolated values are present
-//		if expectedOp.Entry.Path == "b.setting_b" { // File interpolation
-//			var data map[string]interface{}
-//			err = dtt.Unmarshal(op.Entry.Data, &data)
-//			if err != nil {
-//				t.Fatalf("failed to unmarshal payload data for path %s: %v", op.Entry.Path, err)
-//			}
-//
-//			if data["data"] != "value_b" {
-//				t.Errorf("expected data to contain 'value_b' for path %s, got: %v", op.Entry.Path, data["data"])
-//			}
-//		} else if expectedOp.Entry.Path == "c.nested.setting_c" { // Variable interpolation
-//			var data map[string]interface{}
-//			err = dtt.Unmarshal(op.Entry.Data, &data)
-//			if err != nil {
-//				t.Fatalf("failed to unmarshal payload data for path %s: %v", op.Entry.Path, err)
-//			}
-//			if data["data"] != "interpolated_value_from_a" {
-//				t.Errorf("expected data to contain 'interpolated_value_from_a' for path %s, got: %v", op.Entry.Path, data["data"])
-//			}
-//		}
-//	}
-//}
+import (
+	"github.com/ponyruntime/pony/api/payload"
+	"github.com/ponyruntime/pony/api/registry"
+	transcoder "github.com/ponyruntime/pony/core/payload"
+	"github.com/ponyruntime/pony/core/payload/json"
+	"github.com/ponyruntime/pony/core/payload/yaml"
+	"github.com/stretchr/testify/assert"
+	"go.uber.org/zap"
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestFolderLoader_Load_MultipleFiles_Interpolation(t *testing.T) {
+	// Create a temporary directory structure for testing
+	tempDir, err := os.MkdirTemp("", "folderloader_test")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	files := map[string]string{
+		"a.yaml": `
+name: setting_a
+kind: config
+data: value_a
+`,
+		"b/b.yaml": `
+name: setting_b
+kind: config
+data: file://b_data.txt
+`,
+		"b/b_data.txt": "value_b",
+		"c/nested/c.yaml": `
+name: setting_c
+kind: config
+data: "interpolated_${from_a}"
+`,
+		"d/d.yaml": `
+name: setting_d
+kind: config
+data: "interpolated_${not_exist}"
+`,
+	}
+	for path, content := range files {
+		fullPath := filepath.Join(tempDir, path)
+		err = os.MkdirAll(filepath.Dir(fullPath), 0755) // Create directories if they don't exist
+		if err != nil {
+			t.Fatalf("failed to create dir: %v", err)
+		}
+		err = os.WriteFile(fullPath, []byte(content), 0644)
+		if err != nil {
+			t.Fatalf("failed to write file %s: %v", path, err)
+		}
+	}
+
+	// Create a transcoder and logger for testing
+	dtt := createTestTranscoder()
+	logger, _ := zap.NewProduction()
+	defer logger.Sync()
+
+	// Create FolderLoader with variables
+	vars := Variables{
+		"from_a": "value_from_a",
+	}
+	folderLoader := NewFolderLoader(dtt, logger)
+
+	// Load the entries
+	entries, err := folderLoader.Load(tempDir, vars)
+	if err != nil {
+		t.Fatalf("failed to load entries: %v", err)
+	}
+
+	// Assert that four entries were loaded
+	if len(entries) != 4 {
+		t.Fatalf("expected 4 entries, got %d", len(entries))
+	}
+
+	// Expected Entry setup
+	expectedEntries := map[string]struct {
+		Kind string
+		Data map[string]interface{}
+	}{
+		"setting_a": {
+			Kind: "config",
+			Data: map[string]interface{}{
+				"name": "setting_a",
+				"kind": "config",
+				"data": "value_a",
+			},
+		},
+		"b.setting_b": {
+			Kind: "config",
+			Data: map[string]interface{}{
+				"name": "setting_b",
+				"kind": "config",
+				"data": "value_b",
+			},
+		},
+		"c.nested.setting_c": {
+			Kind: "config",
+			Data: map[string]interface{}{
+				"name": "setting_c",
+				"kind": "config",
+				"data": "interpolated_value_from_a",
+			},
+		},
+		"d.setting_d": {
+			Kind: "config",
+			Data: map[string]interface{}{
+				"name": "setting_d",
+				"kind": "config",
+				"data": "interpolated_${not_exist}",
+			},
+		},
+	}
+
+	// Compare loaded entries
+	for _, entry := range entries {
+		expected, ok := expectedEntries[string(entry.Path)]
+		if !ok {
+			t.Fatalf("expected entry with path '%s' not found", entry.Path)
+		}
+
+		if entry.Kind != registry.Kind(expected.Kind) {
+			t.Errorf("expected entry kind: %s, got: %s for path: %s", expected.Kind, entry.Kind, entry.Path)
+		}
+		var data map[string]interface{}
+		err = dtt.Unmarshal(entry.Data, &data)
+		if err != nil {
+			t.Fatalf("failed to unmarshal payload data for path %s: %v", entry.Path, err)
+		}
+		assert.Equal(t, expected.Data, data, "Data mismatch for path: %s", entry.Path)
+	}
+}
+
+func TestFolderLoader_Load_NoFiles(t *testing.T) {
+	// Create a temporary directory
+	tempDir, err := os.MkdirTemp("", "folderloader_empty")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	// Initialize FolderLoader, transcoder, and logger
+	dtt := createTestTranscoder()
+	logger, _ := zap.NewProduction()
+	defer logger.Sync()
+	folderLoader := NewFolderLoader(dtt, logger)
+
+	vars := Variables{
+		"from_a": "value_from_a",
+	}
+	// Load the entries from empty directory
+	entries, err := folderLoader.Load(tempDir, vars)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Check that the list is empty
+	if len(entries) != 0 {
+		t.Fatalf("expected empty entry list, got %d", len(entries))
+	}
+}
+
+func TestFolderLoader_Load_UnsupportedFiles(t *testing.T) {
+	// Create a temporary directory structure for testing
+	tempDir, err := os.MkdirTemp("", "folderloader_test")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	files := map[string]string{
+		"a.txt": "unsupported content",
+	}
+
+	for path, content := range files {
+		fullPath := filepath.Join(tempDir, path)
+		err = os.MkdirAll(filepath.Dir(fullPath), 0755) // Create directories if they don't exist
+		if err != nil {
+			t.Fatalf("failed to create dir: %v", err)
+		}
+		err = os.WriteFile(fullPath, []byte(content), 0644)
+		if err != nil {
+			t.Fatalf("failed to write file %s: %v", path, err)
+		}
+	}
+	// Initialize FolderLoader, transcoder, and logger
+	dtt := createTestTranscoder()
+	logger, _ := zap.NewProduction()
+	defer logger.Sync()
+
+	folderLoader := NewFolderLoader(dtt, logger)
+
+	vars := Variables{
+		"from_a": "value_from_a",
+	}
+	// Load the entries
+	entries, err := folderLoader.Load(tempDir, vars)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Assert that the entry list is empty
+	if len(entries) != 0 {
+		t.Fatalf("expected empty entry list, got %d", len(entries))
+	}
+
+}
+
+func TestFolderLoader_Load_InvalidYaml(t *testing.T) {
+	// Create a temporary directory structure for testing
+	tempDir, err := os.MkdirTemp("", "folderloader_invalid_yaml")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	files := map[string]string{
+		"a.yaml": "invalid yaml content",
+	}
+	for path, content := range files {
+		fullPath := filepath.Join(tempDir, path)
+		err = os.MkdirAll(filepath.Dir(fullPath), 0755) // Create directories if they don't exist
+		if err != nil {
+			t.Fatalf("failed to create dir: %v", err)
+		}
+		err = os.WriteFile(fullPath, []byte(content), 0644)
+		if err != nil {
+			t.Fatalf("failed to write file %s: %v", path, err)
+		}
+	}
+
+	// Initialize FolderLoader, transcoder, and logger
+	dtt := createTestTranscoder()
+
+	folderLoader := NewFolderLoader(dtt, zap.NewNop())
+
+	vars := Variables{
+		"from_a": "value_from_a",
+	}
+	// Load the entries
+	entries, err := folderLoader.Load(tempDir, vars)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Assert that the entry list is empty
+	if len(entries) != 0 {
+		t.Fatalf("expected empty entry list, got %d", len(entries))
+	}
+}
+
+func createTestTranscoder() payload.Transcoder {
+	tr := transcoder.NewTranscoder()
+
+	// Register JSON
+	tr.RegisterTranscoder(payload.Json, payload.Golang, 1, &json.ToGolang{})
+	tr.RegisterTranscoder(payload.Golang, payload.Json, 1, &json.FromGolang{})
+	tr.RegisterUnmarshaler(payload.Json, &json.ToGolang{})
+
+	// Register YAML
+	tr.RegisterTranscoder(payload.Yaml, payload.Golang, 1, &yaml.ToGolang{})
+	tr.RegisterTranscoder(payload.Golang, payload.Yaml, 1, &yaml.FromGolang{})
+	tr.RegisterUnmarshaler(payload.Yaml, &yaml.ToGolang{})
+
+	return tr
+}
