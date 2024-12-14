@@ -448,6 +448,6 @@ data: value
 	}
 	expectedPath := "a.b.c.d.e.f.g.h.i.j.k.l.m.n.o.p.q.r.s.t.nested_setting"
 	if string(entries[0].Path) != expectedPath {
-		t.Fatalf("expected entry with path '%s' not found", expectedPath)
+		t.Fatalf("expected entry with path '%s' not foundm, got %+v", expectedPath, entries)
 	}
 }

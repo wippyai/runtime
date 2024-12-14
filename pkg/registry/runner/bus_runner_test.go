@@ -286,11 +286,9 @@ func TestBusRunner_Operations(t *testing.T) {
 				},
 			},
 			expectError: true, // Expect an error because of the rejection
-			finalConfig: map[registry.Path]string{
-				"component/config/a": "updatedA",
-			},
-			rejected:   []registry.Path{"component/config/b"},
-			finalState: registry.State{},
+			finalConfig: map[registry.Path]string{},
+			rejected:    []registry.Path{"component/config/b"},
+			finalState:  registry.State{},
 		},
 	}
 
@@ -334,3 +332,82 @@ func TestBusRunner_Operations(t *testing.T) {
 		})
 	}
 }
+
+//
+//func TestBusRunner_Rollback(t *testing.T) {
+//	initialState := registry.State{
+//		createEntry("component/config/key1", "config", "value1"),
+//	}
+//
+//	appliedOperations := registry.ChangeSet{
+//		{
+//			Kind:  registry.Update,
+//			Entry: createEntry("component/config/key1", "config", "updatedValue1"),
+//		},
+//		{
+//			Kind:  registry.Create,
+//			Entry: createEntry("component/config/key2", "config", "value2"),
+//		},
+//	}
+//
+//	busRunner := NewBusRunner(eventbus.NewBus(zap.NewNop()), zap.NewNop())
+//	currentState := busRunner.stateHelper.toMap(initialState)
+//	for _, op := range appliedOperations {
+//		currentState, _ = busRunner.stateHelper.applyChangeToState(currentState, op)
+//	}
+//
+//	rolledBackState := busRunner.rollback(
+//		context.Background(),
+//		busRunner.stateHelper.toMap(initialState),
+//		currentState,
+//		appliedOperations,
+//	)
+//
+//	assert.ElementsMatch(t, initialState, busRunner.stateHelper.toSlice(rolledBackState), "Rollback did not revert to the initial state")
+//}
+
+//
+//func TestBusRunner_RollbackOnSecondOperationFailure(t *testing.T) {
+//	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+//	defer cancel()
+//
+//	bus := eventbus.NewBus(zap.NewNop())
+//	busRunner := NewBusRunner(bus, zap.NewNop())
+//	component := newTestComponent()
+//	componentClose := attachComponent(ctx, t, bus, component)
+//	defer componentClose()
+//
+//	initialState := registry.State{} // Start with an empty state
+//	changeSet := registry.ChangeSet{
+//		{
+//			Kind: registry.Create,
+//			Entry: createEntry(
+//				"component/config/key1",
+//				"config",
+//				"value1",
+//			),
+//		},
+//		{
+//			Kind: registry.Create,
+//			Entry: createEntry(
+//				"component/config/key2",
+//				"config",
+//				"reject_this", // This operation will be rejected
+//			),
+//		},
+//	}
+//
+//	finalState, err := busRunner.Transition(ctx, initialState, changeSet)
+//
+//	// 1. Expect an error because the second operation is rejected
+//	require.Error(t, err)
+//
+//	// 2. Verify the component's config is empty (rolled back)
+//	assert.Equal(t, 0, len(component.config), "Config should be empty after rollback")
+//
+//	// 3. Verify that key2 was rejected
+//	assert.True(t, component.wasRejected("component/config/key2"), "component/config/key2 should be rejected")
+//
+//	// 4. Verify the final state is empty (rolled back)
+//	assert.Empty(t, finalState, "Final state should be empty after rollback")
+//}
