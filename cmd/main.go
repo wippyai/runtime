@@ -81,7 +81,7 @@ func main() {
 		fmt.Printf("Path: %s\n", entry.Path)
 		fmt.Printf("Kind: %s\n", entry.Kind)
 		fmt.Println("Data:")
-		fmt.Println(string(p.Data().(string)))
+		fmt.Printf("\x1b[33m%s\x1b[0m", string(p.Data().(string)))
 	}
 }
 
