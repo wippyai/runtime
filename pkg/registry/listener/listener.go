@@ -11,14 +11,8 @@ import (
 	"github.com/ponyruntime/pony/api/registry"
 )
 
-type Operation struct {
-	Kind  events.Kind
-	Entry registry.Entry
-	Data  any
-}
-
-// EntryListener is a helper class for components to listen to their own registry entries.
-type EntryListener struct {
+// entryListener is a helper class for components to listen to their own registry entries.
+type entryListener struct {
 	dtt          payload.Transcoder
 	bus          events.Bus
 	pattern      string
@@ -27,12 +21,12 @@ type EntryListener struct {
 	ctx          context.Context
 	cancel       context.CancelFunc
 	wg           sync.WaitGroup
-	outputCh     chan<- Operation
+	outputCh     chan<- registry.Operation
 	lastEntry    registry.Entry
 	mu           sync.Mutex
 }
 
-// NewEntryListener creates a new EntryListener.
+// newEntryListener creates a new entryListener.
 //
 // Parameters:
 //   - ctx: The context governing the lifecycle of the listener.
@@ -41,16 +35,16 @@ type EntryListener struct {
 //   - factories: A map of registry kinds to the factories they should be unmarshaled into.
 //   - outputCh: The channel to send unmarshalled operations into
 //   - dtt: Transcoder to unmarshal entry data
-func NewEntryListener(
+func newEntryListener(
 	ctx context.Context,
 	b events.Bus,
 	pattern string,
 	types map[registry.Kind]func() interface{},
-	outputCh chan<- Operation,
+	outputCh chan<- registry.Operation,
 	dtt payload.Transcoder,
-) (*EntryListener, error) {
+) (*entryListener, error) {
 	ctx, cancel := context.WithCancel(ctx)
-	l := &EntryListener{
+	l := &entryListener{
 		dtt:       dtt,
 		bus:       b,
 		pattern:   pattern,
@@ -75,7 +69,7 @@ func NewEntryListener(
 }
 
 // eventListener listens for eventbus and processes them.
-func (l *EntryListener) eventListener(ch <-chan events.Event) {
+func (l *entryListener) eventListener(ch <-chan events.Event) {
 	defer l.wg.Done()
 	w := wildcard.NewWildcard(l.pattern)
 
@@ -120,7 +114,7 @@ func (l *EntryListener) eventListener(ch <-chan events.Event) {
 			}
 
 			// Send the processed event to the output channel.
-			l.outputCh <- Operation{
+			l.outputCh <- registry.Operation{
 				Kind:  evt.Kind,
 				Entry: entry,
 				Data:  obj,
@@ -130,7 +124,7 @@ func (l *EntryListener) eventListener(ch <-chan events.Event) {
 }
 
 // rejectEntry sends a rejection event to the registry.
-func (l *EntryListener) rejectEntry(evt events.Event, reason error) {
+func (l *entryListener) rejectEntry(evt events.Event, reason error) {
 	entry, ok := evt.Data.(registry.Entry)
 	if !ok {
 		// This should ideally never happen, as we already checked above.
@@ -146,7 +140,7 @@ func (l *EntryListener) rejectEntry(evt events.Event, reason error) {
 }
 
 // RejectLast sends a rejection event for the last processed entry.
-func (l *EntryListener) RejectLast(reason error) {
+func (l *entryListener) RejectLast(reason error) {
 	if l.lastEntry.Path == "" {
 		return
 	}
@@ -163,7 +157,7 @@ func (l *EntryListener) RejectLast(reason error) {
 }
 
 // AcceptLast sends an acceptance event for the last processed entry.
-func (l *EntryListener) AcceptLast() {
+func (l *entryListener) AcceptLast() {
 	if l.lastEntry.Path == "" {
 		return
 	}
@@ -180,7 +174,7 @@ func (l *EntryListener) AcceptLast() {
 }
 
 // Close stops the listener and unsubscribes from the event bus.
-func (l *EntryListener) Close() {
+func (l *entryListener) Close() {
 	l.cancel()
 	l.wg.Wait()
 }

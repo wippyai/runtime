@@ -24,7 +24,7 @@ type MockPayload struct {
 	Value string `json:"value"`
 }
 
-// TestEntryListener tests the EntryListener functionality.
+// TestEntryListener tests the entryListener functionality.
 func TestEntryListener(t *testing.T) {
 	// Create a new event bus.
 	bus := eventbus.NewBus(zap.NewNop())
@@ -39,7 +39,7 @@ func TestEntryListener(t *testing.T) {
 		pattern          string
 		types            map[registry.Kind]func() interface{}
 		eventsToSend     []events.Event
-		expectedReceived []Operation
+		expectedReceived []registry.Operation
 		acceptEvents     []bool // Whether to accept or reject each event
 		expectedError    string
 		expectedRejects  int
@@ -61,7 +61,7 @@ func TestEntryListener(t *testing.T) {
 					},
 				},
 			},
-			expectedReceived: []Operation{
+			expectedReceived: []registry.Operation{
 				{
 					Kind: "entry.create",
 					Entry: registry.Entry{
@@ -91,7 +91,7 @@ func TestEntryListener(t *testing.T) {
 					},
 				},
 			},
-			expectedReceived: []Operation{
+			expectedReceived: []registry.Operation{
 				{
 					Kind: "entry.update",
 					Entry: registry.Entry{
@@ -120,7 +120,7 @@ func TestEntryListener(t *testing.T) {
 					},
 				},
 			},
-			expectedReceived: []Operation{
+			expectedReceived: []registry.Operation{
 				{
 					Kind:  "entry.delete",
 					Entry: registry.Entry{Path: "component.config.item3", Kind: "component.mock"},
@@ -146,7 +146,7 @@ func TestEntryListener(t *testing.T) {
 					},
 				},
 			},
-			expectedReceived: []Operation{},
+			expectedReceived: []registry.Operation{},
 		},
 		{
 			name:    "unmarshal_error",
@@ -165,7 +165,7 @@ func TestEntryListener(t *testing.T) {
 					},
 				},
 			},
-			expectedReceived: []Operation{},
+			expectedReceived: []registry.Operation{},
 			expectedRejects:  1,
 		},
 	}
@@ -180,10 +180,10 @@ func TestEntryListener(t *testing.T) {
 			defer cancel()
 
 			// Channel for received eventbus.
-			outputCh := make(chan Operation, len(tc.eventsToSend)+5)
+			outputCh := make(chan registry.Operation, len(tc.eventsToSend)+5)
 
-			// Create a new EntryListener for each test case.
-			listener, err := NewEntryListener(
+			// Create a new entryListener for each test case.
+			listener, err := newEntryListener(
 				ctx,
 				bus,
 				tc.pattern,
@@ -205,7 +205,7 @@ func TestEntryListener(t *testing.T) {
 
 			// Receive eventbus.
 			var receivedEventsMu sync.Mutex
-			receivedEvents := make([]Operation, 0)
+			receivedEvents := make([]registry.Operation, 0)
 
 			if len(tc.expectedReceived) != 0 {
 				wg.Add(1)
@@ -315,8 +315,8 @@ func TestRejectLast(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	outputCh := make(chan Operation, 5)
-	listener, err := NewEntryListener(
+	outputCh := make(chan registry.Operation, 5)
+	listener, err := newEntryListener(
 		ctx,
 		bus,
 		"component.*",
@@ -374,8 +374,8 @@ func TestAcceptLast(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	outputCh := make(chan Operation, 5)
-	listener, err := NewEntryListener(
+	outputCh := make(chan registry.Operation, 5)
+	listener, err := newEntryListener(
 		ctx,
 		bus,
 		"component.*",
@@ -433,8 +433,8 @@ func TestEntryListener_NoFactory(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	outputCh := make(chan Operation, 5)
-	listener, err := NewEntryListener(
+	outputCh := make(chan registry.Operation, 5)
+	listener, err := newEntryListener(
 		ctx,
 		bus,
 		"component.*",

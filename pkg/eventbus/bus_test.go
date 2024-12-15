@@ -238,7 +238,7 @@ func TestConcurrentSubscribeUnsubscribe(t *testing.T) {
 			ch := make(chan events.Event)
 			subID, err := b.Subscribe(context.Background(), "test-system", ch)
 			if err != nil {
-				t.Errorf("Subscribe failed: %v", err)
+				t.Errorf("Listen failed: %v", err)
 				return
 			}
 			time.Sleep(time.Millisecond * 10) // Simulate some work
@@ -263,7 +263,7 @@ func TestConcurrentSendSubscribe(t *testing.T) {
 			ch := make(chan events.Event, numGoroutines)
 			_, err := b.Subscribe(context.Background(), "test-system", ch)
 			if err != nil {
-				t.Errorf("Subscribe failed: %v", err)
+				t.Errorf("Listen failed: %v", err)
 			}
 		}()
 
@@ -350,11 +350,11 @@ func TestStopWithActiveSubscribers(t *testing.T) {
 	ch2 := make(chan events.Event)
 	_, err := b.Subscribe(context.Background(), "test-system", ch1)
 	if err != nil {
-		t.Error("Subscribe failed: ", err)
+		t.Error("Listen failed: ", err)
 	}
 	_, err = b.Subscribe(context.Background(), "other-system", ch2)
 	if err != nil {
-		t.Error("Subscribe failed: ", err)
+		t.Error("Listen failed: ", err)
 	}
 
 	b.Stop()
