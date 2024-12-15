@@ -4,6 +4,7 @@ meta:
   comment: "Returns the current time."
 
 # Endpoint configuration
+server: web_server
 method: GET
 path: /time
-handler: src.http_time
+target: src.http_time
