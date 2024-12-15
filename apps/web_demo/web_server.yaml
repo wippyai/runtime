@@ -3,4 +3,5 @@ kind: http.server
 meta:
   comment: "Default http server."
 
+# Server configuration
 listen: ":8080"
