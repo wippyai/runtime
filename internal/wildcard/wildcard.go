@@ -1,24 +1,24 @@
-package events
+package wildcard
 
 import (
 	"strings"
 )
 
-type wildcard struct {
+type Wildcard struct {
 	segments []string
 }
 
-// newWildcard splits the pattern into segments.
-func newWildcard(pattern string) *wildcard {
+// NewWildcard splits the pattern into segments.
+func NewWildcard(pattern string) *Wildcard {
 	if pattern == "" {
-		return &wildcard{segments: []string{}}
+		return &Wildcard{segments: []string{}}
 	}
 	segments := strings.Split(pattern, ".")
-	return &wildcard{segments: segments}
+	return &Wildcard{segments: segments}
 }
 
-// Match checks if the input string matches the wildcard pattern.
-func (w *wildcard) Match(str string) bool {
+// Match checks if the input string matches the Wildcard pattern.
+func (w *Wildcard) Match(str string) bool {
 	strSegments := strings.Split(str, ".")
 	return matchSegments(w.segments, strSegments)
 }

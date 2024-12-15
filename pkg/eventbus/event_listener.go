@@ -1,4 +1,4 @@
-package events
+package eventbus
 
 import (
 	"context"
@@ -6,7 +6,7 @@ import (
 	"sync"
 )
 
-// EventHandler is a helper struct that simplifies subscribing to and handling events from an event bus.
+// EventHandler is a helper struct that simplifies subscribing to and handling eventbus from an event bus.
 type EventHandler struct {
 	bus          events.Bus
 	system       events.System
@@ -18,8 +18,8 @@ type EventHandler struct {
 	wg           sync.WaitGroup
 }
 
-// NewEventListener creates a new EventHandler that subscribes to events matching the given system and kind pattern.
-// It starts an internal goroutine that listens for events and calls the provided handlerFunc for each received event.
+// NewEventListener creates a new EventHandler that subscribes to eventbus matching the given system and kind pattern.
+// It starts an internal goroutine that listens for eventbus and calls the provided handlerFunc for each received event.
 // The context provided will be used to start the listener and will be used during shutdown
 func NewEventListener(
 	ctx context.Context,
@@ -58,7 +58,7 @@ func NewEventListener(
 	return h, nil
 }
 
-// eventListener is the internal goroutine that listens for events on the provided channel.
+// eventListener is the internal goroutine that listens for eventbus on the provided channel.
 func (h *EventHandler) eventListener(ch <-chan events.Event) {
 	defer h.wg.Done()
 	for {

@@ -38,9 +38,9 @@ func createTestTranscoder() payload.Transcoder {
 func TestInMemoryRegistry_InitFromFolder(t *testing.T) {
 	// 1. Setup: Create a temporary directory with test files using the helper
 	files := map[string]string{
-		"config/database.yaml": `
+		"listener/database.yaml": `
 name: database_url
-kind: config
+kind: listener
 data:
   host: localhost
   port: 5432
@@ -127,11 +127,11 @@ data:
 
 	expectedState := registry.State{
 		{
-			Path: "config.database_url",
-			Kind: "config",
+			Path: "listener.database_url",
+			Kind: "listener",
 			Data: payload.New(map[string]interface{}{
 				"name": "database_url",
-				"kind": "config",
+				"kind": "listener",
 				"data": map[string]interface{}{
 					"host": "localhost",
 					"port": float64(5432), // YAML numbers are unmarshaled as float64

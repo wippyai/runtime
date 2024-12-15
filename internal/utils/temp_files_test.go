@@ -8,7 +8,7 @@ import (
 
 func TestTempDirWithFiles(t *testing.T) {
 	files := map[string]string{
-		"config/config.yaml":     "config content",
+		"listener/listener.yaml": "listener content",
 		"template/template.html": "template content",
 		"main.yaml":              "main content",
 		"sub/dir/file.txt":       "sub file content",
@@ -19,14 +19,14 @@ func TestTempDirWithFiles(t *testing.T) {
 
 	// Now, you can perform assertions on the created file structure and content
 
-	configFile := filepath.Join(rootDir, "config/config.yaml")
+	configFile := filepath.Join(rootDir, "listener/listener.yaml")
 	content, err := os.ReadFile(configFile)
 
 	if err != nil {
 		t.Fatalf("Failed to read file %v", configFile)
 	}
 
-	if string(content) != "config content" {
+	if string(content) != "listener content" {
 		t.Fatalf("Unexpected file content")
 	}
 

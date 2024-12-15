@@ -19,28 +19,28 @@ func TestFolderLoader_Load_MultipleFiles_Interpolation(t *testing.T) {
 	files := map[string]string{
 		"a.yaml": `
 name: setting_a
-kind: config
+kind: listener
 data: value_a
 `,
 		"b/b.yaml": `
 name: setting_b
-kind: config
+kind: listener
 data: file://b_data.txt
 `,
 		"b/b_data.txt": "value_b",
 		"c/nested/c.yaml": `
 name: setting_c
-kind: config
+kind: listener
 data: "interpolated_${from_a}"
 `,
 		"d/d.yaml": `
 name: setting_d
-kind: config
+kind: listener
 data: "interpolated_${not_exist}"
 `,
 		"e/e.yaml": `
 name: setting_e
-kind: config
+kind: listener
 data: file://../e_data.txt
 `,
 		"e_data.txt": "value_e",
@@ -77,42 +77,42 @@ data: file://../e_data.txt
 		Data map[string]interface{}
 	}{
 		"setting_a": {
-			Kind: "config",
+			Kind: "listener",
 			Data: map[string]interface{}{
 				"name": "setting_a",
-				"kind": "config",
+				"kind": "listener",
 				"data": "value_a",
 			},
 		},
 		"b.setting_b": {
-			Kind: "config",
+			Kind: "listener",
 			Data: map[string]interface{}{
 				"name": "setting_b",
-				"kind": "config",
+				"kind": "listener",
 				"data": "value_b",
 			},
 		},
 		"c.nested.setting_c": {
-			Kind: "config",
+			Kind: "listener",
 			Data: map[string]interface{}{
 				"name": "setting_c",
-				"kind": "config",
+				"kind": "listener",
 				"data": "interpolated_value_from_a",
 			},
 		},
 		"d.setting_d": {
-			Kind: "config",
+			Kind: "listener",
 			Data: map[string]interface{}{
 				"name": "setting_d",
-				"kind": "config",
+				"kind": "listener",
 				"data": "interpolated_${not_exist}",
 			},
 		},
 		"e.setting_e": {
-			Kind: "config",
+			Kind: "listener",
 			Data: map[string]interface{}{
 				"name": "setting_e",
-				"kind": "config",
+				"kind": "listener",
 				"data": "value_e",
 			},
 		},
@@ -316,7 +316,7 @@ func TestFolderLoader_calculateFullID(t *testing.T) {
 func TestFolderLoader_Load_MissingNameOrKind(t *testing.T) {
 	files := map[string]string{
 		"no_name.yaml": `
-kind: config
+kind: listener
 data: value
 `,
 		"no_kind.yaml": `
@@ -325,7 +325,7 @@ data: value
 `,
 		"valid.yaml": `
 name: valid_setting
-kind: config
+kind: listener
 data: value
 `,
 	}
@@ -375,14 +375,14 @@ func TestFolderLoader_Load_InvalidContent(t *testing.T) {
 	files := map[string]string{
 		"invalid.yaml": `
 name: test_entry
-kind: config
+kind: listener
 data:
     invalid: [
     }
 `,
 		"valid.yaml": `
 name: valid_setting
-kind: config
+kind: listener
 data: value
 `,
 	}
@@ -425,7 +425,7 @@ func TestFolderLoader_Load_DeeplyNestedFiles(t *testing.T) {
 	files := map[string]string{
 		"a/b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t/file.yaml": `
 name: nested_setting
-kind: config
+kind: listener
 data: value
 `,
 	}

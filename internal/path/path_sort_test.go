@@ -63,16 +63,16 @@ func TestSortPathsHierarchically(t *testing.T) {
 		{
 			name: "same_prefix_different_lengths",
 			input: []registry.Path{
-				"config.advanced.setting",
-				"config",
-				"config.basic",
-				"config.advanced",
+				"listener.advanced.setting",
+				"listener",
+				"listener.basic",
+				"listener.advanced",
 			},
 			expected: []registry.Path{
-				"config",
-				"config.advanced",
-				"config.basic",
-				"config.advanced.setting",
+				"listener",
+				"listener.advanced",
+				"listener.basic",
+				"listener.advanced.setting",
 			},
 		},
 		{

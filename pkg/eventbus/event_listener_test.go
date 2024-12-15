@@ -1,4 +1,4 @@
-package events
+package eventbus
 
 import (
 	"context"
@@ -17,7 +17,7 @@ func newTestBusForEvents(t *testing.T) events.Bus {
 	t.Helper()
 	return NewBus(zap.NewNop())
 }
-func TestEventListener_NewEventHandler(t *testing.T) {
+func TestEventListener_NewEventListener(t *testing.T) {
 	b := newTestBusForEvents(t)
 
 	// Test subscribing with a specific kind
@@ -39,7 +39,7 @@ func TestEventListener_NewEventHandler(t *testing.T) {
 	require.NoError(t, err)
 	defer handler.Close()
 
-	// Send events
+	// Send eventbus
 	event1 := events.Event{System: "test-system", Kind: "test-kind.created", Data: "data1"}
 	event2 := events.Event{System: "test-system", Kind: "test-kind.updated", Data: "data2"}
 	event3 := events.Event{System: "other-system", Kind: "test-kind.created", Data: "data3"} // Should not be received
@@ -51,7 +51,7 @@ func TestEventListener_NewEventHandler(t *testing.T) {
 	// Wait for the eventListener goroutine to exit
 	wg.Wait()
 
-	// Verify received events
+	// Verify received eventbus
 	mu.Lock()
 	require.Len(t, receivedEvents, 2)
 	require.Equal(t, event1, receivedEvents[0])
@@ -59,7 +59,7 @@ func TestEventListener_NewEventHandler(t *testing.T) {
 	mu.Unlock()
 }
 
-func TestEventListener_NewEventHandler_NoKind(t *testing.T) {
+func TestEventListener_NewEventListener_NoKind(t *testing.T) {
 	b := newTestBusForEvents(t)
 
 	// Test subscribing without a specific kind
@@ -81,7 +81,7 @@ func TestEventListener_NewEventHandler_NoKind(t *testing.T) {
 	require.NoError(t, err)
 	defer handler.Close()
 
-	// Send events
+	// Send eventbus
 	event1 := events.Event{System: "test-system", Kind: "test-kind.created", Data: "data1"}
 	event2 := events.Event{System: "test-system", Kind: "test-kind.updated", Data: "data2"}
 	event3 := events.Event{System: "other-system", Kind: "test-kind.created", Data: "data3"} // Should not be received
@@ -93,7 +93,7 @@ func TestEventListener_NewEventHandler_NoKind(t *testing.T) {
 	// Wait for the eventListener goroutine to exit
 	wg.Wait()
 
-	// Verify received events
+	// Verify received eventbus
 	mu.Lock()
 	require.Len(t, receivedEvents, 2)
 	require.Equal(t, event1, receivedEvents[0])
@@ -122,7 +122,7 @@ func TestEventListener_Close(t *testing.T) {
 	handler, err := NewEventListener(ctx, b, "test-system", "test-kind.*", handlerFunc)
 	require.NoError(t, err)
 
-	// Send events
+	// Send eventbus
 	event1 := events.Event{System: "test-system", Kind: "test-kind.created", Data: "data1"}
 	event2 := events.Event{System: "test-system", Kind: "test-kind.updated", Data: "data2"}
 
@@ -136,7 +136,7 @@ func TestEventListener_Close(t *testing.T) {
 	// Send another event
 	b.Send(context.Background(), event2)
 
-	// Verify received events
+	// Verify received eventbus
 	mu.Lock()
 	require.Len(t, receivedEvents, 1)
 	require.Equal(t, event1, receivedEvents[0])

@@ -39,7 +39,7 @@ func TestCreateChangeSetFromEntries(t *testing.T) {
 			entries: []registry.Entry{
 				{
 					Path: "service.url",
-					Kind: "config",
+					Kind: "listener",
 					Meta: map[string]any{"env": "dev"},
 					Data: payload.New("localhost:8080"),
 				},
@@ -49,7 +49,7 @@ func TestCreateChangeSetFromEntries(t *testing.T) {
 					Kind: registry.Create,
 					Entry: registry.Entry{
 						Path: "service.url",
-						Kind: "config",
+						Kind: "listener",
 						Meta: map[string]any{"env": "dev"},
 						Data: payload.New("localhost:8080"),
 					},
@@ -61,13 +61,13 @@ func TestCreateChangeSetFromEntries(t *testing.T) {
 			entries: []registry.Entry{
 				{
 					Path: "service.database.url",
-					Kind: "config",
+					Kind: "listener",
 					Meta: map[string]any{"env": "prod"},
 					Data: payload.New("db://prod"),
 				},
 				{
 					Path: "service.cache.size",
-					Kind: "config",
+					Kind: "listener",
 					Meta: map[string]any{"unit": "MB"},
 					Data: payload.New("1024"),
 				},
@@ -91,7 +91,7 @@ func TestCreateChangeSetFromEntries(t *testing.T) {
 				},
 				{
 					Path: "another.service.key",
-					Kind: "config",
+					Kind: "listener",
 					Meta: map[string]any{"unit": "MB"},
 					Data: payload.New("2024"),
 				},
@@ -128,7 +128,7 @@ func TestCreateChangeSetFromEntries(t *testing.T) {
 					Kind: registry.Create,
 					Entry: registry.Entry{
 						Path: "another.service.key",
-						Kind: "config",
+						Kind: "listener",
 						Meta: map[string]any{"unit": "MB"},
 						Data: payload.New("2024"),
 					},
@@ -137,7 +137,7 @@ func TestCreateChangeSetFromEntries(t *testing.T) {
 					Kind: registry.Create,
 					Entry: registry.Entry{
 						Path: "service.cache.size",
-						Kind: "config",
+						Kind: "listener",
 						Meta: map[string]any{"unit": "MB"},
 						Data: payload.New("1024"),
 					},
@@ -146,7 +146,7 @@ func TestCreateChangeSetFromEntries(t *testing.T) {
 					Kind: registry.Create,
 					Entry: registry.Entry{
 						Path: "service.database.url",
-						Kind: "config",
+						Kind: "listener",
 						Meta: map[string]any{"env": "prod"},
 						Data: payload.New("db://prod"),
 					},
@@ -164,19 +164,19 @@ func TestCreateChangeSetFromEntries(t *testing.T) {
 				},
 				{
 					Path: "app.cache",
-					Kind: "config",
+					Kind: "listener",
 					Meta: map[string]any{"type": "redis"},
 					Data: payload.New(""),
 				},
 				{
-					Path: "app.config",
-					Kind: "config",
+					Path: "app.listener",
+					Kind: "listener",
 					Meta: map[string]any{"env": "dev"},
 					Data: payload.New("localhost:8080"),
 				},
 				{
-					Path: "app.config.logging",
-					Kind: "config",
+					Path: "app.listener.logging",
+					Kind: "listener",
 					Meta: map[string]any{"level": "info"},
 					Data: payload.New("default"),
 				},
@@ -195,7 +195,7 @@ func TestCreateChangeSetFromEntries(t *testing.T) {
 					Kind: registry.Create,
 					Entry: registry.Entry{
 						Path: "app.cache",
-						Kind: "config",
+						Kind: "listener",
 						Meta: map[string]any{"type": "redis"},
 						Data: payload.New(""),
 					},
@@ -203,8 +203,8 @@ func TestCreateChangeSetFromEntries(t *testing.T) {
 				{
 					Kind: registry.Create,
 					Entry: registry.Entry{
-						Path: "app.config",
-						Kind: "config",
+						Path: "app.listener",
+						Kind: "listener",
 						Meta: map[string]any{"env": "dev"},
 						Data: payload.New("localhost:8080"),
 					},
@@ -212,8 +212,8 @@ func TestCreateChangeSetFromEntries(t *testing.T) {
 				{
 					Kind: registry.Create,
 					Entry: registry.Entry{
-						Path: "app.config.logging",
-						Kind: "config",
+						Path: "app.listener.logging",
+						Kind: "listener",
 						Meta: map[string]any{"level": "info"},
 						Data: payload.New("default"),
 					},
@@ -224,28 +224,28 @@ func TestCreateChangeSetFromEntries(t *testing.T) {
 			name: "mixed data types",
 			entries: []registry.Entry{
 				{
-					Path: "config.number",
-					Kind: "config",
+					Path: "listener.number",
+					Kind: "listener",
 					Data: payload.New("123"),
 				},
 				{
-					Path: "config.bool",
-					Kind: "config",
+					Path: "listener.bool",
+					Kind: "listener",
 					Data: payload.New("true"),
 				},
 				{
-					Path: "config.string",
-					Kind: "config",
+					Path: "listener.string",
+					Kind: "listener",
 					Data: payload.New("hello"),
 				},
 				{
-					Path: "config.map",
-					Kind: "config",
+					Path: "listener.map",
+					Kind: "listener",
 					Data: payload.New(`{"a": 1, "b": 2}`),
 				},
 				{
-					Path: "config.slice",
-					Kind: "config",
+					Path: "listener.slice",
+					Kind: "listener",
 					Data: payload.New("[1, 2, 3]"),
 				},
 			},
@@ -253,40 +253,40 @@ func TestCreateChangeSetFromEntries(t *testing.T) {
 				{
 					Kind: registry.Create,
 					Entry: registry.Entry{
-						Path: "config.bool",
-						Kind: "config",
+						Path: "listener.bool",
+						Kind: "listener",
 						Data: payload.New("true"),
 					},
 				},
 				{
 					Kind: registry.Create,
 					Entry: registry.Entry{
-						Path: "config.map",
-						Kind: "config",
+						Path: "listener.map",
+						Kind: "listener",
 						Data: payload.New(`{"a": 1, "b": 2}`),
 					},
 				},
 				{
 					Kind: registry.Create,
 					Entry: registry.Entry{
-						Path: "config.number",
-						Kind: "config",
+						Path: "listener.number",
+						Kind: "listener",
 						Data: payload.New("123"),
 					},
 				},
 				{
 					Kind: registry.Create,
 					Entry: registry.Entry{
-						Path: "config.slice",
-						Kind: "config",
+						Path: "listener.slice",
+						Kind: "listener",
 						Data: payload.New("[1, 2, 3]"),
 					},
 				},
 				{
 					Kind: registry.Create,
 					Entry: registry.Entry{
-						Path: "config.string",
-						Kind: "config",
+						Path: "listener.string",
+						Kind: "listener",
 						Data: payload.New("hello"),
 					},
 				},
