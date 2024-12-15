@@ -1,13 +1,11 @@
 name: http_time
 kind: lua.function
 meta:
-  name: web_server-time-handler
+  comment: "Returns the current time."
 
+# Function declaration
 runtime: lua
 source: file://http_time.lua
 method: main
 extensions:
-  - web_server
   - json
-env:
-  - API_KEY:${OPENAI_KEY}

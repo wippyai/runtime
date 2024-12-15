@@ -1,8 +1,0 @@
-name: get_time
-kind: http.endpoint
-meta:
-  name: get_time_endpoint
-
-method: GET
-path: /time
-handler: app.runtime.web_server.http_time

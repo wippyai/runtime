@@ -1,7 +1,0 @@
-name: my_app
-kind: application
-meta:
-  comment: "Simple declarative Web app with a single endpoint."
-load:
-  - http: ./http/
-  - runtime: ./src/

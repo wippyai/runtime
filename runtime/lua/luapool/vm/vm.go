@@ -2,11 +2,11 @@ package vm
 
 import (
 	"context"
+	"github.com/ponyruntime/pony/api/runtime"
 	"strings"
 
 	"github.com/ponyruntime/go-lua"
 	"github.com/ponyruntime/go-lua/parse"
-	"github.com/ponyruntime/pony/api"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"go.uber.org/zap"
 )
@@ -18,7 +18,7 @@ type VM struct {
 }
 
 // TODO options with modules
-func New(log *zap.Logger, script, main string, modules ...api.Module) (*VM, error) {
+func New(log *zap.Logger, script, main string, modules ...runtime.LuaModule) (*VM, error) {
 	state := lua.NewState(lua.Options{})
 
 	for _, module := range modules {

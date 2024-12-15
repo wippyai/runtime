@@ -1,8 +1,8 @@
-package api
+package runtime
 
 import "github.com/ponyruntime/go-lua"
 
-type Module interface {
+type LuaModule interface {
 	Loader(*lua.LState) int
 	Name() string
 }
