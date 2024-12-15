@@ -1,4 +1,4 @@
-package events
+package eventbus
 
 import (
 	"context"
@@ -23,7 +23,7 @@ func newTestBus(t *testing.T) (*Bus, *observer.ObservedLogs) {
 	return NewBus(logger), observedLogs
 }
 
-// Helper function to generate test events
+// Helper function to generate test eventbus
 func newTestEvent(system events.System, kind events.Kind, data any) events.Event {
 	return events.Event{
 		System: system,
@@ -32,7 +32,7 @@ func newTestEvent(system events.System, kind events.Kind, data any) events.Event
 	}
 }
 
-// Helper function to wait for a specified number of events or timeout
+// Helper function to wait for a specified number of eventbus or timeout
 func waitForEvents(t *testing.T, ch chan events.Event, numEvents int, timeout time.Duration) []events.Event {
 	t.Helper()
 	receivedEvents := make([]events.Event, 0, numEvents)
@@ -44,7 +44,7 @@ func waitForEvents(t *testing.T, ch chan events.Event, numEvents int, timeout ti
 		case evt := <-ch:
 			receivedEvents = append(receivedEvents, evt)
 		case <-timer.C:
-			t.Fatalf("timed out waiting for events. Received %d out of %d", len(receivedEvents), numEvents)
+			t.Fatalf("timed out waiting for eventbus. Received %d out of %d", len(receivedEvents), numEvents)
 		}
 	}
 
@@ -146,7 +146,7 @@ func TestUnsubscribe(t *testing.T) {
 	receivedEvents := waitForEvents(t, ch, 1, time.Second)
 	require.Len(t, receivedEvents, 1)
 
-	// Unsubscribe and verify no more events are received
+	// Unsubscribe and verify no more eventbus are received
 	bus.Unsubscribe(context.Background(), subID)
 
 	event2 := newTestEvent("test-system", "test-kind", "payload2")
@@ -175,7 +175,8 @@ func TestBusStop(t *testing.T) {
 	bus.Stop()
 
 	// Verify internal channel is closed
-	_, ok := <-bus.internalEvCh
+	_, ok := <-bus.fout
+
 	require.False(t, ok, "internal event channel should be closed after stop")
 }
 
@@ -197,7 +198,7 @@ func TestNilPayload(t *testing.T) {
 
 	bus.Send(context.Background(), event)
 
-	// Verify no events were sent and no logs were created
+	// Verify no eventbus were sent and no logs were created
 	select {
 	case <-ch:
 		t.Fatal("should not receive event with nil payload")
@@ -332,7 +333,7 @@ func TestStopBusClosesInternalChannel(t *testing.T) {
 	b.Stop()
 
 	select {
-	case _, ok := <-b.internalEvCh:
+	case _, ok := <-b.fout:
 		if ok {
 			t.Error("Internal event channel should be closed after Stop")
 		}
@@ -407,13 +408,15 @@ func TestMultipleSubscribersDifferentKinds(t *testing.T) {
 	ch1 := make(chan events.Event, 10)
 	ch2 := make(chan events.Event, 10)
 
-	_, err := b.SubscribeP(context.Background(), "test-system", "users.*", ch1)
+	id1, err := b.SubscribeP(context.Background(), "test-system", "users.*", ch1)
 	require.NoError(t, err)
+	defer b.Unsubscribe(context.Background(), id1)
 
-	_, err = b.SubscribeP(context.Background(), "test-system", "posts.*", ch2)
+	id2, err := b.SubscribeP(context.Background(), "test-system", "posts.*", ch2)
 	require.NoError(t, err)
+	defer b.Unsubscribe(context.Background(), id2)
 
-	// Send events that match different paths
+	// Send eventbus that match different paths
 	userEvent := newTestEvent("test-system", "users.created", "user-data")
 	postEvent := newTestEvent("test-system", "posts.created", "post-data")
 	otherEvent := newTestEvent("test-system", "other.created", "other-data")

@@ -15,12 +15,12 @@ func TestStateHelper(t *testing.T) {
 	initialState := registry.State{
 		{
 			Path: "service/api/host",
-			Kind: "config",
+			Kind: "listener",
 			Data: payload.NewString("localhost"),
 		},
 		{
 			Path: "service/api/port",
-			Kind: "config",
+			Kind: "listener",
 			Data: payload.NewString("8080"),
 		},
 	}
@@ -63,7 +63,7 @@ func TestStateHelper(t *testing.T) {
 		stateMap := sh.toMap(initialState)
 
 		// Test Create operation
-		newEntry := registry.Entry{Path: "service/db/host", Kind: "config", Data: payload.NewString("db.local")}
+		newEntry := registry.Entry{Path: "service/db/host", Kind: "listener", Data: payload.NewString("db.local")}
 		createOp := registry.Operation{Kind: registry.Create, Entry: newEntry}
 		newStateMap, err := sh.applyChangeToState(stateMap, createOp)
 		if err != nil {
@@ -74,7 +74,7 @@ func TestStateHelper(t *testing.T) {
 		}
 
 		// Test Update operation
-		updateOp := registry.Operation{Kind: registry.Update, Entry: registry.Entry{Path: "service/api/host", Kind: "config", Data: payload.NewString("api.local")}}
+		updateOp := registry.Operation{Kind: registry.Update, Entry: registry.Entry{Path: "service/api/host", Kind: "listener", Data: payload.NewString("api.local")}}
 		newStateMap, err = sh.applyChangeToState(newStateMap, updateOp)
 		if err != nil {
 			t.Errorf("applyChangeToState() failed for Update: %v", err)
@@ -112,7 +112,7 @@ func TestStateHelper(t *testing.T) {
 		stateMap := sh.toMap(initialState)
 
 		// Test Create inverse (Delete)
-		createOp := registry.Operation{Kind: registry.Create, Entry: registry.Entry{Path: "service/new/path", Kind: "config", Data: payload.NewString("new_value")}}
+		createOp := registry.Operation{Kind: registry.Create, Entry: registry.Entry{Path: "service/new/path", Kind: "listener", Data: payload.NewString("new_value")}}
 		inverseOp, err := sh.getInverseOperation(stateMap, createOp)
 		if err != nil {
 			t.Errorf("getInverseOperation() failed for Create: %v", err)
@@ -122,7 +122,7 @@ func TestStateHelper(t *testing.T) {
 		}
 
 		// Test Update inverse (Update with original entry)
-		updateOp := registry.Operation{Kind: registry.Update, Entry: registry.Entry{Path: "service/api/host", Kind: "config", Data: payload.NewString("updated_value")}}
+		updateOp := registry.Operation{Kind: registry.Update, Entry: registry.Entry{Path: "service/api/host", Kind: "listener", Data: payload.NewString("updated_value")}}
 		inverseOp, err = sh.getInverseOperation(stateMap, updateOp)
 		if err != nil {
 			t.Errorf("getInverseOperation() failed for Update: %v", err)
@@ -142,7 +142,7 @@ func TestStateHelper(t *testing.T) {
 		}
 
 		// Test Update inverse for non-existing entry
-		updateOpNotExist := registry.Operation{Kind: registry.Update, Entry: registry.Entry{Path: "non/existent/path", Kind: "config", Data: payload.NewString("invalid")}}
+		updateOpNotExist := registry.Operation{Kind: registry.Update, Entry: registry.Entry{Path: "non/existent/path", Kind: "listener", Data: payload.NewString("invalid")}}
 		_, err = sh.getInverseOperation(stateMap, updateOpNotExist)
 		if err == nil {
 			t.Errorf("getInverseOperation() failed: expected error for Update with non-existing original entry")

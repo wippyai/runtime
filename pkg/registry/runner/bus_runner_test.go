@@ -13,10 +13,10 @@ import (
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
-	eventbus "github.com/ponyruntime/pony/pkg/events"
+	eventbus "github.com/ponyruntime/pony/pkg/eventbus"
 )
 
-// testComponent represents a component that can be configured via registry events.
+// testComponent represents a component that can be configured via registry eventbus.
 type testComponent struct {
 	mu              sync.RWMutex
 	config          map[registry.Path]string
@@ -31,19 +31,19 @@ func newTestComponent() *testComponent {
 	}
 }
 
-// handleEvent handles registry events and updates the component's configuration.
+// handleEvent handles registry eventbus and updates the component's configuration.
 func (c *testComponent) handleEvent(bus events.Bus, evt events.Event) {
 	if evt.System != registry.System {
-		return // Ignore events from other systems.
+		return // Ignore eventbus from other systems.
 	}
 
 	entry, ok := evt.Data.(registry.Entry)
 	if !ok {
 		fmt.Printf("Received event with unexpected data type. Expected registry.Entry, got %T\n", evt.Data)
-		return // Ignore events with incorrect data type.
+		return // Ignore eventbus with incorrect data type.
 	}
 
-	if entry.Kind != "config" {
+	if entry.Kind != "listener" {
 		return
 	}
 
@@ -91,7 +91,7 @@ func (c *testComponent) handleEvent(bus events.Bus, evt events.Event) {
 				Data:   registry.Entry{Path: entry.Path},
 			})
 		} else {
-			// Mark as rejected even if it doesn't exist in the config.
+			// Mark as rejected even if it doesn't exist in the listener.
 			c.rejectedConfigs[entry.Path] = true
 			bus.Send(context.Background(), events.Event{
 				System: registry.System,
@@ -158,19 +158,19 @@ func TestBusRunner_Operations(t *testing.T) {
 				{
 					Kind: registry.Create,
 					Entry: createEntry(
-						"component/config/key1",
-						"config",
+						"component/listener/key1",
+						"listener",
 						"value1",
 					),
 				},
 			},
 			expectError: false,
 			finalConfig: map[registry.Path]string{
-				"component/config/key1": "value1",
+				"component/listener/key1": "value1",
 			},
 			rejected: []registry.Path{},
 			finalState: registry.State{
-				createEntry("component/config/key1", "config", "value1"),
+				createEntry("component/listener/key1", "listener", "value1"),
 			},
 		},
 		{
@@ -179,15 +179,15 @@ func TestBusRunner_Operations(t *testing.T) {
 				{
 					Kind: registry.Create,
 					Entry: createEntry(
-						"component/config/key2",
-						"config",
+						"component/listener/key2",
+						"listener",
 						"reject_this",
 					),
 				},
 			},
 			expectError: true,
 			finalConfig: map[registry.Path]string{},
-			rejected:    []registry.Path{"component/config/key2"},
+			rejected:    []registry.Path{"component/listener/key2"},
 			finalState:  registry.State{},
 		},
 		{
@@ -196,27 +196,27 @@ func TestBusRunner_Operations(t *testing.T) {
 				{
 					Kind: registry.Create,
 					Entry: createEntry(
-						"component/config/key3",
-						"config",
+						"component/listener/key3",
+						"listener",
 						"value3",
 					),
 				},
 				{
 					Kind: registry.Update,
 					Entry: createEntry(
-						"component/config/key3",
-						"config",
+						"component/listener/key3",
+						"listener",
 						"updatedValue3",
 					),
 				},
 			},
 			expectError: false,
 			finalConfig: map[registry.Path]string{
-				"component/config/key3": "updatedValue3",
+				"component/listener/key3": "updatedValue3",
 			},
 			rejected: []registry.Path{},
 			finalState: registry.State{
-				createEntry("component/config/key3", "config", "updatedValue3"),
+				createEntry("component/listener/key3", "listener", "updatedValue3"),
 			},
 		},
 		{
@@ -225,14 +225,14 @@ func TestBusRunner_Operations(t *testing.T) {
 				{
 					Kind: registry.Create,
 					Entry: createEntry(
-						"component/config/key4",
-						"config",
+						"component/listener/key4",
+						"listener",
 						"value4",
 					),
 				},
 				{
 					Kind:  registry.Delete,
-					Entry: registry.Entry{Path: "component/config/key4", Kind: "config"},
+					Entry: registry.Entry{Path: "component/listener/key4", Kind: "listener"},
 				},
 			},
 			expectError: false,
@@ -245,12 +245,12 @@ func TestBusRunner_Operations(t *testing.T) {
 			changeSet: registry.ChangeSet{
 				{
 					Kind:  registry.Delete,
-					Entry: registry.Entry{Path: "component/config/nonexistent", Kind: "config"},
+					Entry: registry.Entry{Path: "component/listener/nonexistent", Kind: "listener"},
 				},
 			},
 			expectError: true, // Expect an error because deletion is rejected.
 			finalConfig: map[registry.Path]string{},
-			rejected:    []registry.Path{"component/config/nonexistent"},
+			rejected:    []registry.Path{"component/listener/nonexistent"},
 			finalState:  registry.State{}, // State should remain unchanged.
 		},
 		{
@@ -259,35 +259,35 @@ func TestBusRunner_Operations(t *testing.T) {
 				{
 					Kind: registry.Create,
 					Entry: createEntry(
-						"component/config/a",
-						"config",
+						"component/listener/a",
+						"listener",
 						"valueA",
 					),
 				},
 				{
 					Kind: registry.Update,
 					Entry: createEntry(
-						"component/config/a",
-						"config",
+						"component/listener/a",
+						"listener",
 						"updatedA",
 					),
 				},
 				{
 					Kind: registry.Create,
 					Entry: createEntry(
-						"component/config/b",
-						"config",
+						"component/listener/b",
+						"listener",
 						"reject_B",
 					),
 				},
 				{
 					Kind:  registry.Delete,
-					Entry: registry.Entry{Path: "component/config/a", Kind: "config"},
+					Entry: registry.Entry{Path: "component/listener/a", Kind: "listener"},
 				},
 			},
 			expectError: true, // Expect an error because of the rejection
 			finalConfig: map[registry.Path]string{},
-			rejected:    []registry.Path{"component/config/b"},
+			rejected:    []registry.Path{"component/listener/b"},
 			finalState:  registry.State{},
 		},
 	}
@@ -312,16 +312,16 @@ func TestBusRunner_Operations(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			// Verify the component's config.
+			// Verify the component's listener.
 			for path, expectedValue := range tc.finalConfig {
 				actualValue, ok := component.getConfig(path)
-				assert.True(t, ok, "Expected config not found: %s", path)
-				assert.Equal(t, expectedValue, actualValue, "Incorrect value for config: %s", path)
+				assert.True(t, ok, "Expected listener not found: %s", path)
+				assert.Equal(t, expectedValue, actualValue, "Incorrect value for listener: %s", path)
 			}
 
 			// Verify rejected configs.
 			for _, rejectedPath := range tc.rejected {
-				assert.True(t, component.wasRejected(rejectedPath), "Expected config to be rejected: %s", rejectedPath)
+				assert.True(t, component.wasRejected(rejectedPath), "Expected listener to be rejected: %s", rejectedPath)
 			}
 
 			// Verify the number of configs.
@@ -348,16 +348,16 @@ func TestBusRunner_RollbackOnSecondOperationFailure(t *testing.T) {
 		{
 			Kind: registry.Create,
 			Entry: createEntry(
-				"component/config/key1",
-				"config",
+				"component/listener/key1",
+				"listener",
 				"value1",
 			),
 		},
 		{
 			Kind: registry.Create,
 			Entry: createEntry(
-				"component/config/key2",
-				"config",
+				"component/listener/key2",
+				"listener",
 				"reject_this", // This operation will be rejected
 			),
 		},
@@ -368,11 +368,11 @@ func TestBusRunner_RollbackOnSecondOperationFailure(t *testing.T) {
 	// 1. Expect an error because the second operation is rejected
 	require.Error(t, err)
 
-	// 2. Verify the component's config is empty (rolled back)
+	// 2. Verify the component's listener is empty (rolled back)
 	assert.Equal(t, 0, len(component.config), "Config should be empty after rollback")
 
 	// 3. Verify that key2 was rejected
-	assert.True(t, component.wasRejected("component/config/key2"), "component/config/key2 should be rejected")
+	assert.True(t, component.wasRejected("component/listener/key2"), "component/listener/key2 should be rejected")
 
 	// 4. Verify the final state is empty (rolled back)
 	assert.Empty(t, finalState, "Final state should be empty after rollback")

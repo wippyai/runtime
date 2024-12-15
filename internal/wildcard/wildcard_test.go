@@ -1,4 +1,4 @@
-package events
+package wildcard
 
 import (
 	"testing"
@@ -10,12 +10,12 @@ func TestWildcardMatching(t *testing.T) {
 		str     string
 		matches bool
 	}{
-		// Basic wildcard tests
+		// Basic Wildcard tests
 		{"a.*", "a.b", true},
 		{"a.*", "a.c", true},
 		{"a.*", "a.b.c", false}, // '*' matches exactly one segment
 
-		// wildcard matches multiple segments with '**'
+		// Wildcard matches multiple segments with '**'
 		{"a.**", "a.b", true},
 		{"a.**", "a.b.c", true},
 		{"a.**", "a.b.c.d", true},
@@ -26,7 +26,7 @@ func TestWildcardMatching(t *testing.T) {
 		{"*.*.*", "a.b", false},
 		{"*.*.*", "a.b.c.d", false},
 
-		// wildcard at start
+		// Wildcard at start
 		{"**.state.*", "a.state.x", true},
 		{"**.state.*", "b.state.y.z", false}, // '**' consumes too much
 		{"**.state.*", "c.state.x", true},
@@ -76,7 +76,7 @@ func TestWildcardMatching(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		w := newWildcard(tc.pattern)
+		w := NewWildcard(tc.pattern)
 		result := w.Match(tc.str)
 		if result != tc.matches {
 			t.Errorf("Pattern: %s, String: %s, Expected: %t, Got: %t",

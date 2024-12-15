@@ -74,7 +74,7 @@ func TestLoadVars(t *testing.T) {
 func TestLoadFile(t *testing.T) {
 
 	files := map[string]string{
-		"config/config.yaml":     "config content",
+		"listener/listener.yaml": "listener content",
 		"template/template.html": "template content",
 		"main.yaml":              "main content",
 	}
@@ -82,7 +82,7 @@ func TestLoadFile(t *testing.T) {
 	rootDir, cleanup := utils.TempDirWithFiles(t, "test-load-file", files)
 	defer cleanup()
 
-	configFile := filepath.Join(rootDir, "config", "config.yaml")
+	configFile := filepath.Join(rootDir, "listener", "listener.yaml")
 	mainFile := filepath.Join(rootDir, "main.yaml")
 
 	tests := []struct {
@@ -94,12 +94,12 @@ func TestLoadFile(t *testing.T) {
 	}{
 		{
 			name:  "valid relative path",
-			input: "file://config/config.yaml",
+			input: "file://listener/listener.yaml",
 			ctx: EntryContext{
 				RootDir:  rootDir,
 				Filename: mainFile,
 			},
-			expectedOut: "config content",
+			expectedOut: "listener content",
 			expectErr:   false,
 		},
 		{
@@ -114,12 +114,12 @@ func TestLoadFile(t *testing.T) {
 		},
 		{
 			name:  "valid absolute path",
-			input: "file:///config/config.yaml",
+			input: "file:///listener/listener.yaml",
 			ctx: EntryContext{
 				RootDir:  rootDir,
 				Filename: configFile,
 			},
-			expectedOut: "config content",
+			expectedOut: "listener content",
 			expectErr:   false,
 		},
 		{

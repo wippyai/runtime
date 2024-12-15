@@ -23,7 +23,7 @@ type (
 	// It typically uses a hierarchical structure (e.g., "service.database.url").
 	Path string
 
-	// Kind is a string representing the type of an entry (e.g., "config", "service", "endpoint").
+	// Kind is a string representing the type of an entry (e.g., "listener", "service", "endpoint").
 	// This helps categorize entries for different purposes.
 	Kind string
 

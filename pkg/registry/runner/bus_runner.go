@@ -146,24 +146,24 @@ func (br *BusRunner) rollback(
 	return currentState
 }
 
-// subscribeToEvents subscribes to Accept and Reject events.
+// subscribeToEvents subscribes to Accept and Reject eventbus.
 func (br *BusRunner) subscribeToEvents(ctx context.Context) error {
 	var err error
 	br.acceptSubID, err = br.bus.SubscribeP(ctx, registry.System, registry.Accept, br.acceptChan)
 	if err != nil {
-		return fmt.Errorf("subscribing to accept events: %w", err)
+		return fmt.Errorf("subscribing to accept eventbus: %w", err)
 	}
 
 	br.rejectSubID, err = br.bus.SubscribeP(ctx, registry.System, registry.Reject, br.rejectChan)
 	if err != nil {
 		br.bus.Unsubscribe(ctx, br.acceptSubID) // Clean up accept subscription if reject subscription fails
-		return fmt.Errorf("subscribing to reject events: %w", err)
+		return fmt.Errorf("subscribing to reject eventbus: %w", err)
 	}
 
 	return nil
 }
 
-// unsubscribeFromEvents unsubscribes from Accept and Reject events.
+// unsubscribeFromEvents unsubscribes from Accept and Reject eventbus.
 func (br *BusRunner) unsubscribeFromEvents(ctx context.Context) {
 	br.bus.Unsubscribe(ctx, br.acceptSubID)
 	br.bus.Unsubscribe(ctx, br.rejectSubID)
