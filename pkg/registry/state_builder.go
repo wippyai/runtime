@@ -129,6 +129,7 @@ func (b *StateBuilder) BuildDelta(from, to registry.State) (registry.ChangeSet, 
 			creates = append(creates, registry.Operation{Kind: registry.Create, Entry: toEntry})
 		} else if !reflect.DeepEqual(fromEntry, toEntry) {
 			// Entry exists in both but is different - Update operation.
+			// todo: check it carefully
 			updates = append(updates, registry.Operation{Kind: registry.Update, Entry: toEntry})
 		}
 	}

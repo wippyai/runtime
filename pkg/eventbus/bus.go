@@ -30,13 +30,14 @@ type unsub struct {
 }
 
 type Bus struct {
-	subscribers map[events.SubscriberID]sub
-	logger      *zap.Logger
-	fout        chan sendEvent
-	stop        chan struct{}
-	sub         chan sub
-	unsub       chan unsub
-	wg          sync.WaitGroup
+	subscribers       map[events.SubscriberID]sub
+	logger            *zap.Logger
+	fout              chan sendEvent
+	stop              chan struct{}
+	sub               chan sub
+	unsub             chan unsub
+	wg                sync.WaitGroup
+	subscriberCounter uint64
 }
 
 func NewBus(logger *zap.Logger) *Bus {
@@ -76,7 +77,7 @@ func (b *Bus) SubscribeP(
 	if ch == nil {
 		return "", errors.New("nil channel provided")
 	}
-	subID := generateSubscriberID()
+	subID := b.generateSubscriberID()
 	var w *wildcard.Wildcard
 	if kind != "" {
 		w = wildcard.NewWildcard(string(kind))
@@ -90,7 +91,11 @@ func (b *Bus) SubscribeP(
 		doneCh:  make(chan bool),
 	}
 
-	b.sub <- sub
+	select {
+	case b.sub <- sub:
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
 
 	select {
 	case <-ctx.Done():
@@ -113,7 +118,11 @@ func (b *Bus) Unsubscribe(ctx context.Context, subID events.SubscriberID) {
 		doneCh: make(chan bool),
 	}
 
-	b.unsub <- unsub
+	select {
+	case b.unsub <- unsub:
+	case <-ctx.Done():
+		return
+	}
 
 	select {
 	case <-ctx.Done():
@@ -184,21 +193,11 @@ func (b *Bus) handleEvents() {
 					continue
 				}
 
-			sendLoop:
-				for {
-					select {
-					case u := <-b.unsub:
-						b.handleUnsubscribe(u.subID)
-						u.doneCh <- true
-						if u.subID == s.subID {
-							// attempt to send while unsubscribing
-							break sendLoop
-						}
-					case <-send.ctx.Done():
-						break sendLoop
-					case s.eventCh <- send.event:
-						break sendLoop
-					}
+				select {
+				case <-send.ctx.Done():
+					continue
+				case s.eventCh <- send.event:
+					continue
 				}
 			}
 		}
@@ -212,9 +211,7 @@ func (b *Bus) handleUnsubscribe(subID events.SubscriberID) {
 	}
 }
 
-var subscriberCounter uint64
-
-func generateSubscriberID() events.SubscriberID {
-	id := atomic.AddUint64(&subscriberCounter, 1) // Atomically increment the counter
+func (b *Bus) generateSubscriberID() events.SubscriberID {
+	id := atomic.AddUint64(&b.subscriberCounter, 1)
 	return events.SubscriberID(fmt.Sprintf("sub-%d", id))
 }

@@ -48,7 +48,6 @@ func NewEventListener(
 
 	if err != nil {
 		cancel()
-		h.bus.Unsubscribe(context.Background(), h.subscriberID)
 		return nil, err
 	}
 

@@ -11,7 +11,7 @@ import (
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
-	eventbus "github.com/ponyruntime/pony/pkg/eventbus"
+	"github.com/ponyruntime/pony/pkg/eventbus"
 	transcoder "github.com/ponyruntime/pony/pkg/payload"
 	"github.com/ponyruntime/pony/pkg/payload/json"
 	"github.com/stretchr/testify/assert"
@@ -302,5 +302,175 @@ func TestEntryListener(t *testing.T) {
 			}
 			receivedEventsMu.Unlock()
 		})
+	}
+}
+
+func TestRejectLast(t *testing.T) {
+	bus := eventbus.NewBus(zap.NewNop())
+	defer bus.Stop()
+
+	tr := transcoder.NewTranscoder()
+	tr.RegisterUnmarshaler(payload.Json, &json.ToGolang{})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	outputCh := make(chan Operation, 5)
+	listener, err := NewEntryListener(
+		ctx,
+		bus,
+		"component.*",
+		map[registry.Kind]func() interface{}{
+			"component.mock": func() interface{} { return &MockPayload{} },
+		},
+		outputCh,
+		tr,
+	)
+	require.NoError(t, err)
+	defer listener.Close()
+
+	rejectCh := make(chan events.Event)
+	rejectSubID, err := bus.SubscribeP(ctx, registry.System, "entry.reject", rejectCh)
+	require.NoError(t, err)
+	defer bus.Unsubscribe(ctx, rejectSubID)
+
+	// Test case 1: Reject without a prior event
+	listener.RejectLast(fmt.Errorf("rejection without prior event"))
+
+	// Test case 2: Reject after an event
+	bus.Send(ctx, events.Event{
+		System: registry.System,
+		Kind:   "entry.create",
+		Data: registry.Entry{
+			Path: "component.config.item6",
+			Kind: "component.mock",
+			Data: payload.NewPayload(`{"value": "test_value"}`, payload.Json),
+		},
+	})
+
+	// Wait for the event to be processed
+	<-outputCh
+
+	listener.RejectLast(fmt.Errorf("rejection after event"))
+
+	select {
+	case evt := <-rejectCh:
+		assert.Equal(t, registry.Reject, evt.Kind)
+		entry, ok := evt.Data.(registry.Entry)
+		require.True(t, ok)
+		assert.Equal(t, registry.Path("component.config.item6"), entry.Path)
+	case <-time.After(1 * time.Second):
+		assert.Fail(t, "Expected a reject event")
+	}
+}
+
+func TestAcceptLast(t *testing.T) {
+	bus := eventbus.NewBus(zap.NewNop())
+	defer bus.Stop()
+
+	tr := transcoder.NewTranscoder()
+	tr.RegisterUnmarshaler(payload.Json, &json.ToGolang{})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	outputCh := make(chan Operation, 5)
+	listener, err := NewEntryListener(
+		ctx,
+		bus,
+		"component.*",
+		map[registry.Kind]func() interface{}{
+			"component.mock": func() interface{} { return &MockPayload{} },
+		},
+		outputCh,
+		tr,
+	)
+	require.NoError(t, err)
+	defer listener.Close()
+
+	acceptCh := make(chan events.Event)
+	acceptSubID, err := bus.SubscribeP(ctx, registry.System, "entry.accept", acceptCh)
+	require.NoError(t, err)
+	defer bus.Unsubscribe(ctx, acceptSubID)
+
+	// Test case 1: Accept without a prior event
+	listener.AcceptLast() // Should not panic, should send empty path.
+
+	// Test case 2: Accept after an event
+	bus.Send(ctx, events.Event{
+		System: registry.System,
+		Kind:   "entry.create",
+		Data: registry.Entry{
+			Path: "component.config.item7",
+			Kind: "component.mock",
+			Data: payload.NewPayload(`{"value": "test_value"}`, payload.Json),
+		},
+	})
+
+	// Wait for the event to be processed
+	<-outputCh
+
+	listener.AcceptLast()
+
+	select {
+	case evt := <-acceptCh:
+		assert.Equal(t, registry.Accept, evt.Kind)
+		entry, ok := evt.Data.(registry.Entry)
+		require.True(t, ok)
+		assert.Equal(t, registry.Path("component.config.item7"), entry.Path)
+	case <-time.After(1 * time.Second):
+		assert.Fail(t, "Expected an accept event")
+	}
+}
+
+func TestEntryListener_NoFactory(t *testing.T) {
+	bus := eventbus.NewBus(zap.NewNop())
+	defer bus.Stop()
+
+	tr := transcoder.NewTranscoder()
+	tr.RegisterUnmarshaler(payload.Json, &json.ToGolang{})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	outputCh := make(chan Operation, 5)
+	listener, err := NewEntryListener(
+		ctx,
+		bus,
+		"component.*",
+		map[registry.Kind]func() interface{}{
+			// No factory for "component.mock"
+		},
+		outputCh,
+		tr,
+	)
+	require.NoError(t, err)
+	defer listener.Close()
+
+	rejectCh := make(chan events.Event)
+	rejectSubID, err := bus.SubscribeP(ctx, registry.System, "entry.reject", rejectCh)
+	require.NoError(t, err)
+	defer bus.Unsubscribe(ctx, rejectSubID)
+
+	// Send an event with a kind that has no factory
+	bus.Send(ctx, events.Event{
+		System: registry.System,
+		Kind:   "entry.create",
+		Data: registry.Entry{
+			Path: "component.config.item8",
+			Kind: "component.mock", // No factory for this kind
+			Data: payload.NewPayload(`{"value": "test_value"}`, payload.Json),
+		},
+	})
+
+	select {
+	case evt := <-rejectCh:
+		assert.Equal(t, registry.Reject, evt.Kind)
+		entry, ok := evt.Data.(registry.Entry)
+		require.True(t, ok)
+		assert.Equal(t, registry.Path("component.config.item8"), entry.Path)
+		// Verify rejection reason (you might want to extract the reason from the payload)
+	case <-time.After(1 * time.Second):
+		assert.Fail(t, "Expected a reject event due to missing factory")
 	}
 }
