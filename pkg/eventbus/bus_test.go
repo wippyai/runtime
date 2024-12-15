@@ -358,6 +358,7 @@ func TestStopWithActiveSubscribers(t *testing.T) {
 	}
 
 	b.Stop()
+
 	// Verify that subscriber channels are closed
 	_, ok1 := <-ch1
 	_, ok2 := <-ch2

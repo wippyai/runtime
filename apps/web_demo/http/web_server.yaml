@@ -1,5 +1,5 @@
 name: web_server
-kind: server
+kind: http.server
 meta:
   comment: "Default http server."
 

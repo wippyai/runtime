@@ -83,6 +83,7 @@ func (l *EntryListener) eventListener(ch <-chan events.Event) {
 		select {
 		case <-l.ctx.Done():
 			l.bus.Unsubscribe(context.Background(), l.subscriberID)
+			close(l.outputCh)
 			return
 		case evt, ok := <-ch:
 			if !ok { // Channel closed
