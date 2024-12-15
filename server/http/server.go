@@ -2,25 +2,26 @@ package http
 
 import (
 	"context"
+	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/tasks"
+	events2 "github.com/ponyruntime/pony/pkg/registry/listener"
 	"log"
+	"net"
 	"net/http"
 
-	"github.com/ponyruntime/pony/component"
-
-	"github.com/ponyruntime/pony/api"
-	"github.com/ponyruntime/pony/exec"
 	"go.uber.org/zap"
 )
 
 const Component api.Component = "http"
 
 type Server struct {
-	log    *zap.Logger
-	queue  *exec.Queue
-	server *http.Server
+	log      *zap.Logger
+	listener events2.EntryListener
+	exec     tasks.Executor
+	server   []serverWorker
 }
 
-func NewComponent(log *zap.Logger) *Server {
+func NewComponent(bus events.Bus, log *zap.Logger) *Server {
 	return &Server{
 		log:    log,
 		server: &http.Server{},
@@ -46,7 +47,7 @@ func (s *Server) Apply(ctx context.Context, state component.State) error {
 }
 
 func (s *Server) Start(ctx context.Context, queue *exec.Queue) {
-	s.queue = queue
+	s.exec = queue
 	s.log.Debug("activating server routines")
 }
 
@@ -115,7 +116,7 @@ func (s *Server) Stop(ctx context.Context) {
 //	}
 //
 //	// todo: inside pipeline
-//	fut := e.queue.Await(context.Background(), task)
+//	fut := e.exec.Await(context.Background(), task)
 //
 //	select {
 //	case res := <-fut:
