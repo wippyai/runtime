@@ -1,4 +1,4 @@
-package listener
+package entry
 
 import (
 	"context"
@@ -11,8 +11,8 @@ import (
 	"github.com/ponyruntime/pony/api/registry"
 )
 
-// entryListener is a helper class for components to listen to their own registry entries.
-type entryListener struct {
+// Listener is a helper class for components to listen to their own registry entries.
+type Listener struct {
 	dtt          payload.Transcoder
 	bus          events.Bus
 	pattern      string
@@ -26,25 +26,25 @@ type entryListener struct {
 	mu           sync.Mutex
 }
 
-// newEntryListener creates a new entryListener.
+// NewListener creates a new Listener.
 //
 // Parameters:
-//   - ctx: The context governing the lifecycle of the listener.
+//   - ctx: The context governing the lifecycle of the entry.
 //   - b: The event bus to subscribe to.
 //   - pattern: The pattern to match against entry paths (supports wildcards).
 //   - factories: A map of registry kinds to the factories they should be unmarshaled into.
 //   - outputCh: The channel to send unmarshalled operations into
 //   - dtt: Transcoder to unmarshal entry data
-func newEntryListener(
+func NewListener(
 	ctx context.Context,
 	b events.Bus,
 	pattern string,
 	types map[registry.Kind]func() interface{},
 	outputCh chan<- registry.Operation,
 	dtt payload.Transcoder,
-) (*entryListener, error) {
+) (*Listener, error) {
 	ctx, cancel := context.WithCancel(ctx)
-	l := &entryListener{
+	l := &Listener{
 		dtt:       dtt,
 		bus:       b,
 		pattern:   pattern,
@@ -69,7 +69,7 @@ func newEntryListener(
 }
 
 // eventListener listens for eventbus and processes them.
-func (l *entryListener) eventListener(ch <-chan events.Event) {
+func (l *Listener) eventListener(ch <-chan events.Event) {
 	defer l.wg.Done()
 	w := wildcard.NewWildcard(l.pattern)
 
@@ -124,7 +124,7 @@ func (l *entryListener) eventListener(ch <-chan events.Event) {
 }
 
 // rejectEntry sends a rejection event to the registry.
-func (l *entryListener) rejectEntry(evt events.Event, reason error) {
+func (l *Listener) rejectEntry(evt events.Event, reason error) {
 	entry, ok := evt.Data.(registry.Entry)
 	if !ok {
 		// This should ideally never happen, as we already checked above.
@@ -140,7 +140,7 @@ func (l *entryListener) rejectEntry(evt events.Event, reason error) {
 }
 
 // RejectLast sends a rejection event for the last processed entry.
-func (l *entryListener) RejectLast(reason error) {
+func (l *Listener) RejectLast(reason error) {
 	if l.lastEntry.Path == "" {
 		return
 	}
@@ -157,7 +157,7 @@ func (l *entryListener) RejectLast(reason error) {
 }
 
 // AcceptLast sends an acceptance event for the last processed entry.
-func (l *entryListener) AcceptLast() {
+func (l *Listener) AcceptLast() {
 	if l.lastEntry.Path == "" {
 		return
 	}
@@ -173,8 +173,8 @@ func (l *entryListener) AcceptLast() {
 	l.mu.Unlock()
 }
 
-// Close stops the listener and unsubscribes from the event bus.
-func (l *entryListener) Close() {
+// Close stops the entry and unsubscribes from the event bus.
+func (l *Listener) Close() {
 	l.cancel()
 	l.wg.Wait()
 }

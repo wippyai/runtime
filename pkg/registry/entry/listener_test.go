@@ -1,4 +1,4 @@
-package listener
+package entry
 
 import (
 	"context"
@@ -24,7 +24,7 @@ type MockPayload struct {
 	Value string `json:"value"`
 }
 
-// TestEntryListener tests the entryListener functionality.
+// TestEntryListener tests the Listener functionality.
 func TestEntryListener(t *testing.T) {
 	// Create a new event bus.
 	bus := eventbus.NewBus(zap.NewNop())
@@ -182,8 +182,8 @@ func TestEntryListener(t *testing.T) {
 			// Channel for received eventbus.
 			outputCh := make(chan registry.Operation, len(tc.eventsToSend)+5)
 
-			// Create a new entryListener for each test case.
-			listener, err := newEntryListener(
+			// Create a new Listener for each test case.
+			listener, err := NewListener(
 				ctx,
 				bus,
 				tc.pattern,
@@ -316,7 +316,7 @@ func TestRejectLast(t *testing.T) {
 	defer cancel()
 
 	outputCh := make(chan registry.Operation, 5)
-	listener, err := newEntryListener(
+	listener, err := NewListener(
 		ctx,
 		bus,
 		"component.*",
@@ -375,7 +375,7 @@ func TestAcceptLast(t *testing.T) {
 	defer cancel()
 
 	outputCh := make(chan registry.Operation, 5)
-	listener, err := newEntryListener(
+	listener, err := NewListener(
 		ctx,
 		bus,
 		"component.*",
@@ -434,7 +434,7 @@ func TestEntryListener_NoFactory(t *testing.T) {
 	defer cancel()
 
 	outputCh := make(chan registry.Operation, 5)
-	listener, err := newEntryListener(
+	listener, err := NewListener(
 		ctx,
 		bus,
 		"component.*",
