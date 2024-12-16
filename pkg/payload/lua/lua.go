@@ -3,6 +3,7 @@ package lua
 import (
 	"fmt"
 	"reflect"
+	"strings"
 
 	"github.com/ponyruntime/go-lua"
 	"github.com/ponyruntime/pony/api/payload"
@@ -40,7 +41,6 @@ func (t *ToGolang) Transcode(p payload.Payload) (payload.Payload, error) {
 	return payload.NewPayload(data, payload.Golang), nil
 }
 
-// Unmarshal implements the payload.Unmarshaler interface.
 // Unmarshal implements the payload.Unmarshaler interface.
 func (t *ToGolang) Unmarshal(p payload.Payload, v interface{}) error {
 	if p.Format() != payload.Lua {
@@ -84,17 +84,46 @@ func unmarshalRecursive(val interface{}, targetValue reflect.Value) error {
 		targetType := targetValue.Type()
 		for i := 0; i < targetType.NumField(); i++ {
 			field := targetType.Field(i)
-			tag := field.Tag.Get("lua")
-			if tag == "" {
+			fieldValue := targetValue.Field(i)
+
+			luaTag := field.Tag.Get("lua")
+			jsonTag := field.Tag.Get("json")
+
+			// Determine the key to use for lookup in the map
+			var keyToUse string
+			if luaTag != "" {
+				keyToUse = luaTag
+			} else if jsonTag != "" {
+				// Handle json tag with options (e.g., ",omitempty")
+				keyToUse = strings.Split(jsonTag, ",")[0]
+			} else {
+				keyToUse = field.Name // Fallback to field name
+			}
+
+			foundMatch := false
+			for k, v := range mapVal {
+				if strings.EqualFold(keyToUse, k) {
+					if err := unmarshalRecursive(v, fieldValue); err != nil {
+						return fmt.Errorf("error unmarshalling field %s: %w", field.Name, err)
+					}
+					foundMatch = true
+					break
+				}
+			}
+
+			// If no match was found and json tag was used with "omitempty", it's okay
+			if !foundMatch && jsonTag != "" && strings.Contains(jsonTag, "omitempty") {
 				continue
 			}
 
-			if mapValue, ok := mapVal[tag]; ok {
-				fieldValue := targetValue.Field(i)
-				if err := unmarshalRecursive(mapValue, fieldValue); err != nil {
-					return fmt.Errorf("error unmarshalling field %s: %w", field.Name, err)
+			// If no match was found, and a json tag was used without "omitempty", return an error
+			if !foundMatch && jsonTag != "" && !strings.Contains(jsonTag, "omitempty") {
+				// Only return error if lua tag is not present
+				if luaTag == "" {
+					return fmt.Errorf("json tag '%s' specified for field %s, but no matching key found in Lua table", jsonTag, field.Name)
 				}
 			}
+
 		}
 
 	case reflect.Slice:
