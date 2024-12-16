@@ -47,7 +47,7 @@ func (m *MemoryStorage) Get(version registry.Version) (registry.ChangeSet, error
 
 	// Return a copy to prevent external modification
 	actionsCopy := make(registry.ChangeSet, len(actions))
-	copy(actionsCopy, actions)
+	copy(actionsCopy, actions) // todo: not sure this is good
 	return actionsCopy, nil
 }
 

@@ -11,6 +11,23 @@ import (
 	"sync/atomic"
 )
 
+type actionType int
+
+const (
+	subscribe actionType = iota
+	unsubscribe
+	send
+	stop
+)
+
+type action struct {
+	actionType   actionType
+	subscribe    sub
+	unsubscribe  unsub
+	sendEvent    sendEvent
+	stopDoneChan chan struct{} // Channel to signal stop completion
+}
+
 type sendEvent struct {
 	event events.Event
 	ctx   context.Context
@@ -32,10 +49,7 @@ type unsub struct {
 type Bus struct {
 	subscribers       map[events.SubscriberID]sub
 	logger            *zap.Logger
-	fout              chan sendEvent
-	stop              chan struct{}
-	sub               chan sub
-	unsub             chan unsub
+	actions           chan action
 	wg                sync.WaitGroup
 	subscriberCounter uint64
 }
@@ -44,14 +58,11 @@ func NewBus(logger *zap.Logger) *Bus {
 	b := &Bus{
 		subscribers: make(map[events.SubscriberID]sub),
 		logger:      logger,
-		fout:        make(chan sendEvent, 100),
-		stop:        make(chan struct{}),
-		sub:         make(chan sub),
-		unsub:       make(chan unsub),
+		actions:     make(chan action, 100), // Buffered channel for all actions
 	}
 
 	b.wg.Add(1)
-	go b.handleEvents()
+	go b.handleActions()
 
 	return b
 }
@@ -67,7 +78,7 @@ func (b *Bus) Subscribe(
 func (b *Bus) SubscribeP(
 	ctx context.Context,
 	system events.System,
-	kind events.Kind, // todo: change to wildcard.Wildcard
+	kind events.Kind,
 	ch chan<- events.Event,
 ) (events.SubscriberID, error) {
 	if ctx.Err() != nil {
@@ -92,7 +103,7 @@ func (b *Bus) SubscribeP(
 	}
 
 	select {
-	case b.sub <- sub:
+	case b.actions <- action{actionType: subscribe, subscribe: sub}:
 	case <-ctx.Done():
 		return "", ctx.Err()
 	}
@@ -100,16 +111,14 @@ func (b *Bus) SubscribeP(
 	select {
 	case <-ctx.Done():
 		return "", ctx.Err()
-	case <-b.stop:
-		return "", errors.New("bus stopped")
 	case <-sub.doneCh:
+		return subID, nil
 	}
 
-	return subID, nil
 }
 
 func (b *Bus) Unsubscribe(ctx context.Context, subID events.SubscriberID) {
-	if ctx.Err() != nil || b.stop == nil {
+	if ctx.Err() != nil {
 		return
 	}
 
@@ -119,14 +128,13 @@ func (b *Bus) Unsubscribe(ctx context.Context, subID events.SubscriberID) {
 	}
 
 	select {
-	case b.unsub <- unsub:
+	case b.actions <- action{actionType: unsubscribe, unsubscribe: unsub}:
 	case <-ctx.Done():
 		return
 	}
 
 	select {
 	case <-ctx.Done():
-	case <-b.stop:
 	case <-unsub.doneCh:
 	}
 }
@@ -137,11 +145,7 @@ func (b *Bus) Send(ctx context.Context, event events.Event) {
 	}
 
 	select {
-	case <-ctx.Done():
-		return
-	case <-b.stop: // Check if bus is stopped
-		return
-	case b.fout <- sendEvent{event: event, ctx: ctx}:
+	case b.actions <- action{actionType: send, sendEvent: sendEvent{event: event, ctx: ctx}}:
 		if b.logger != nil {
 			b.logger.Debug(
 				"sending event",
@@ -150,56 +154,58 @@ func (b *Bus) Send(ctx context.Context, event events.Event) {
 				zap.Any("payload", event.Data),
 			)
 		}
+	case <-ctx.Done():
+		return
 	}
 }
 
 func (b *Bus) Stop() {
-	close(b.stop)
+	done := make(chan struct{})
+	b.actions <- action{actionType: stop, stopDoneChan: done}
+	<-done // Wait for stop to complete
 	b.wg.Wait()
 }
 
-func (b *Bus) handleEvents() {
+func (b *Bus) handleActions() {
 	defer b.wg.Done()
 
-	for {
-		select {
-		case <-b.stop:
-			for _, s := range b.subscribers {
-				close(s.eventCh)
-			}
-			close(b.fout)
-			return
-		case sub := <-b.sub:
-			b.subscribers[sub.subID] = sub
-			sub.doneCh <- true
-		case u := <-b.unsub:
-			b.handleUnsubscribe(u.subID)
-			u.doneCh <- true
-		case send, ok := <-b.fout:
-			if !ok {
-				return
-			}
-
-			if send.ctx.Err() != nil {
+	for a := range b.actions {
+		switch a.actionType {
+		case subscribe:
+			b.subscribers[a.subscribe.subID] = a.subscribe
+			a.subscribe.doneCh <- true
+		case unsubscribe:
+			b.handleUnsubscribe(a.unsubscribe.subID)
+			a.unsubscribe.doneCh <- true
+		case send:
+			if a.sendEvent.ctx.Err() != nil {
 				continue
 			}
 
 			for _, s := range b.subscribers {
-				if s.system != send.event.System && s.system != "*" {
+				if s.system != a.sendEvent.event.System && s.system != "*" {
 					continue
 				}
 
-				if s.kind != nil && !s.kind.Match(string(send.event.Kind)) {
+				if s.kind != nil && !s.kind.Match(string(a.sendEvent.event.Kind)) {
 					continue
 				}
 
 				select {
-				case <-send.ctx.Done():
+				case <-a.sendEvent.ctx.Done():
 					continue
-				case s.eventCh <- send.event:
+					// todo: subscriber context too?
+				case s.eventCh <- a.sendEvent.event:
 					continue
 				}
 			}
+		case stop:
+			for _, s := range b.subscribers {
+				close(s.eventCh)
+			}
+			close(b.actions)
+			a.stopDoneChan <- struct{}{} // Signal stop completion
+			return
 		}
 	}
 }
@@ -213,5 +219,5 @@ func (b *Bus) handleUnsubscribe(subID events.SubscriberID) {
 
 func (b *Bus) generateSubscriberID() events.SubscriberID {
 	id := atomic.AddUint64(&b.subscriberCounter, 1)
-	return events.SubscriberID(fmt.Sprintf("sub-%d", id))
+	return events.SubscriberID(fmt.Sprintf("sub.%d", id))
 }
