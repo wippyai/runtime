@@ -123,16 +123,27 @@ func TestLuaTranscodersAndUnmarshaler(t *testing.T) {
 }
 
 type Address struct {
-	Street string `lua:"street"`
-	City   string `lua:"city"`
+	Street string `lua:"street" json:"street"`
+	City   string `lua:"city" json:"city"`
 }
 
 type Person struct {
-	Name    string          `lua:"name"`
-	Age     int             `lua:"age"`
-	Address Address         `lua:"address"`
-	Hobbies []string        `lua:"hobbies"`
-	Roles   map[string]bool `lua:"roles"`
+	Name           string          `lua:"name" json:"name"`
+	Age            int             `json:"age"` // No Lua tag, should use case-insensitive matching
+	Address        Address         `lua:"address" json:"address"`
+	Hobbies        []string        `lua:"hobbies" json:"hobbies"`
+	Roles          map[string]bool `lua:"roles" json:"roles"`
+	IgnoredField   string          // No tag, should be ignored
+	MissingField   string          `lua:"missing" json:"missing"`
+	OptionalField  string          `json:"optional,omitempty"`
+	NonNilPointer  *int            `lua:"nonNilPointer" json:"nonNilPointer"`
+	NilPointer     *int            `lua:"nilPointer" json:"nilPointer"`
+	InterfaceField interface{}     `lua:"interfaceField" json:"interfaceField"`
+}
+
+type SpecialPerson struct {
+	Name string `json:"personName,omitempty"` // Using json tag to map to "personName" in Lua
+	Age  int    `json:"age"`
 }
 
 func TestLuaUnmarshalerRecursive(t *testing.T) {
@@ -142,22 +153,27 @@ func TestLuaUnmarshalerRecursive(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	// Example Lua data with nested table, array, and map
+	// Example Lua data
 	luaData := `
-    person = {
-        name = "John Doe",
-        age = 30,
-        address = {
-            street = "123 Main St",
-            city = "Anytown"
-        },
-        hobbies = {"reading", "hiking", "coding"},
-        roles = {
-            admin = true,
-            user = false
-        }
-    }
-    `
+	person = {
+		name = "John Doe",
+		age = 30,
+		address = {
+			street = "123 Main St",
+			city = "Anytown"
+		},
+		hobbies = {"reading", "hiking", "coding"},
+		roles = {
+			admin = true,
+			user = false
+		},
+		personName = "Jane Doe",
+		interfaceField = {
+			innerKey = "innerValue"
+		},
+		nonNilPointer = 10
+	}
+	`
 
 	err := l.DoString(luaData)
 	if err != nil {
@@ -167,13 +183,25 @@ func TestLuaUnmarshalerRecursive(t *testing.T) {
 	tbl := l.GetGlobal("person")
 	originalLuaPayload := payload.NewPayload(tbl, payload.Lua)
 
+	// Test with a struct that has lua tags
 	var p Person
+	// Test with a struct that uses json tags for some fields
+	var sp SpecialPerson
+	// Initialize the NonNilPointer field to test non-nil pointers
+	initialValue := 10
+	p.NonNilPointer = &initialValue
+
 	err = mockTranscoder.Unmarshal(originalLuaPayload, &p)
 	if err != nil {
-		t.Fatalf("Error unmarshalling: %v", err)
+		t.Fatalf("Error unmarshalling to Person: %v", err)
 	}
 
-	// Assertions to check if the data was unmarshalled correctly
+	err = mockTranscoder.Unmarshal(originalLuaPayload, &sp)
+	if err != nil {
+		t.Fatalf("Error unmarshalling to SpecialPerson: %v", err)
+	}
+
+	// Assertions for Person
 	if p.Name != "John Doe" {
 		t.Errorf("Expected name 'John Doe', got '%s'", p.Name)
 	}
@@ -191,5 +219,40 @@ func TestLuaUnmarshalerRecursive(t *testing.T) {
 	}
 	if p.Roles["admin"] != true || p.Roles["user"] != false {
 		t.Errorf("Expected roles {admin=true, user=false}, got %v", p.Roles)
+	}
+	if p.IgnoredField != "" {
+		t.Errorf("Expected IgnoredField to be ignored and empty, got '%s'", p.IgnoredField)
+	}
+	if p.MissingField != "" {
+		t.Errorf("Expected MissingField to be empty (no matching key), got '%s'", p.MissingField)
+	}
+	if p.OptionalField != "" {
+		t.Errorf("Expected OptionalField to be empty (omitempty), got '%s'", p.OptionalField)
+	}
+	// Assertions for SpecialPerson (using json tag)
+	if sp.Name != "Jane Doe" {
+		t.Errorf("Expected special person name 'Jane Doe', got '%s'", sp.Name)
+	}
+	if sp.Age != 30 {
+		t.Errorf("Expected special person age 30, got %d", sp.Age)
+	}
+	if *p.NonNilPointer != 10 {
+		t.Errorf("Expected NonNilPointer to be 10, got %d", *p.NonNilPointer)
+	}
+	if p.NilPointer != nil {
+		t.Errorf("Expected NilPointer to be nil, got %v", *p.NilPointer)
+	}
+	if p.InterfaceField == nil {
+		t.Errorf("Expected InterfaceField to be not nil")
+	} else {
+		// Assert the type of the interface field's value
+		if _, ok := p.InterfaceField.(map[string]interface{}); !ok {
+			t.Errorf("Expected InterfaceField to be map[string]interface{}, got %T", p.InterfaceField)
+		}
+		// Assert the content of the interface field's value (if needed)
+		innerMap, _ := p.InterfaceField.(map[string]interface{})
+		if innerMap["innerKey"] != "innerValue" {
+			t.Errorf("Expected InterfaceField.innerKey to be 'innerValue', got '%s'", innerMap["innerKey"])
+		}
 	}
 }
