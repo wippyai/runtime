@@ -2,6 +2,7 @@ package lua
 
 import (
 	"fmt"
+	"math"
 	"reflect"
 	"strings"
 
@@ -123,7 +124,6 @@ func unmarshalRecursive(val interface{}, targetValue reflect.Value) error {
 					return fmt.Errorf("json tag '%s' specified for field %s, but no matching key found in Lua table", jsonTag, field.Name)
 				}
 			}
-
 		}
 
 	case reflect.Slice:
@@ -175,10 +175,15 @@ func unmarshalRecursive(val interface{}, targetValue reflect.Value) error {
 			// Handle numeric type conversions
 			if sourceValue.Kind() == reflect.Float64 && targetValue.Kind() == reflect.Int {
 				floatVal := sourceValue.Float()
-				if floatVal != float64(int(floatVal)) {
+				intVal := int64(floatVal)
+
+				// Check for precision loss using a tolerance
+				tolerance := 1e-14 // https://en.wikipedia.org/wiki/Machine_epsilon => 16
+				if math.Abs(floatVal-float64(intVal)) > tolerance {
 					return fmt.Errorf("cannot assign float64 value %v to int field without precision loss", floatVal)
 				}
-				targetValue.SetInt(int64(floatVal))
+
+				targetValue.SetInt(intVal)
 				return nil
 			}
 			return fmt.Errorf("cannot assign value of type %s to %s", sourceValue.Type(), targetValue.Type())
