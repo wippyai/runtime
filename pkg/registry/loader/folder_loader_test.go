@@ -225,16 +225,8 @@ func TestFolderLoader_Load_InvalidYaml(t *testing.T) {
 
 func createTestTranscoder() payload.Transcoder {
 	tr := transcoder.NewTranscoder()
-
-	// Register JSON
-	tr.RegisterTranscoder(payload.Json, payload.Golang, 1, &json.ToGolang{})
-	tr.RegisterTranscoder(payload.Golang, payload.Json, 1, &json.FromGolang{})
-	tr.RegisterUnmarshaler(payload.Json, &json.ToGolang{})
-
-	// Register YAML
-	tr.RegisterTranscoder(payload.Yaml, payload.Golang, 1, &yaml.ToGolang{})
-	tr.RegisterTranscoder(payload.Golang, payload.Yaml, 1, &yaml.FromGolang{})
-	tr.RegisterUnmarshaler(payload.Yaml, &yaml.ToGolang{})
+	json.Register(tr)
+	yaml.Register(tr)
 
 	return tr
 }
