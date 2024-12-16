@@ -11,14 +11,8 @@ import (
 
 func TestTranscoder_Unmarshal_Simple(t *testing.T) {
 	transcoder := NewTranscoder()
-
-	// Register JSON
-	transcoder.RegisterTranscoder(payload.Json, payload.Golang, 1, &json.ToGolang{})
-	transcoder.RegisterUnmarshaler(payload.Json, &json.ToGolang{})
-
-	// Register YAML
-	transcoder.RegisterTranscoder(payload.Yaml, payload.Golang, 1, &yaml.ToGolang{})
-	transcoder.RegisterUnmarshaler(payload.Yaml, &yaml.ToGolang{})
+	json.Register(transcoder)
+	yaml.Register(transcoder)
 
 	tests := []struct {
 		name          string
