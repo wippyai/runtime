@@ -1,0 +1,11 @@
+name: http_time
+kind: lua.function
+meta:
+  comment: "Returns the current time."
+
+# Function declaration
+runtime: lua
+source: file://http_time.lua
+method: main
+extensions:
+  - json

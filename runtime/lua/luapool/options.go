@@ -1,9 +1,8 @@
 package pool
 
 import (
+	"github.com/ponyruntime/pony/api/runtime"
 	"time"
-
-	"github.com/ponyruntime/pony/api"
 )
 
 type Options func(*Pool)
@@ -14,7 +13,7 @@ func WithPollTimeout(timeout time.Duration) Options {
 	}
 }
 
-func WithModules(modules ...api.Module) Options {
+func WithModules(modules ...runtime.LuaModule) Options {
 	return func(p *Pool) {
 		p.modules = modules
 	}
