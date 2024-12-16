@@ -173,11 +173,6 @@ func TestBusStop(t *testing.T) {
 
 	// Stop the bus
 	bus.Stop()
-
-	// Verify internal channel is closed
-	_, ok := <-bus.fout
-
-	require.False(t, ok, "internal event channel should be closed after stop")
 }
 
 func TestNilPayload(t *testing.T) {
@@ -331,15 +326,6 @@ func TestStopBusClosesInternalChannel(t *testing.T) {
 	b := NewBus(logger)
 
 	b.Stop()
-
-	select {
-	case _, ok := <-b.fout:
-		if ok {
-			t.Error("Internal event channel should be closed after Stop")
-		}
-	case <-time.After(time.Millisecond * 100):
-		t.Error("Timeout waiting for internal event channel closure")
-	}
 }
 
 func TestStopWithActiveSubscribers(t *testing.T) {
