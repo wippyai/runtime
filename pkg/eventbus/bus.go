@@ -194,6 +194,7 @@ func (b *Bus) handleActions() {
 				select {
 				case <-a.sendEvent.ctx.Done():
 					continue
+					// todo: subscriber context too?
 				case s.eventCh <- a.sendEvent.event:
 					continue
 				}
