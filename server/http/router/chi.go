@@ -110,9 +110,8 @@ func (rw *ChiRouter) Build(handler http.HandlerFunc) (*chi.Mux, error) {
 
 	// Register all endpoints with wrapped handlers
 	for _, ec := range rw.endpoints {
-		fullPath := rw.config.Prefix + ec.Path
-		wrappedHandler := rw.wrapHandlerWithRouteInfo(handler, ec, fullPath)
-		router.Method(ec.Method, fullPath, wrappedHandler)
+		wrappedHandler := rw.wrapHandlerWithRouteInfo(handler, ec, ec.Path)
+		router.Method(ec.Method, ec.Path, wrappedHandler)
 	}
 
 	return router, nil
