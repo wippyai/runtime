@@ -222,3 +222,210 @@ func TestRouterComposition(t *testing.T) {
 		assert.Equal(t, "router1", resp.Header.Get("X-Router-ID"))
 	})
 }
+
+// ---------------------------
+
+func TestRouterEndpointOperations(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}
+
+	t.Run("endpoint lifecycle", func(t *testing.T) {
+		router := NewRouter(handler)
+
+		// Test adding endpoint without router_id (should go to default router)
+		err := router.AddEndpoint("ep1", config.EndpointConfig{
+			Method: http.MethodGet,
+			Path:   "/test",
+		})
+		require.NoError(t, err)
+
+		// Test adding endpoint with non-existent router
+		err = router.AddEndpoint("ep2", config.EndpointConfig{
+			Method: http.MethodGet,
+			Path:   "/test2",
+			Meta:   registry.Metadata{"router_id": "nonexistent"},
+		})
+		assert.Error(t, err)
+
+		// Test deleting non-existent endpoint
+		err = router.DeleteEndpoint("nonexistent")
+		assert.Error(t, err)
+
+		// Test updating non-existent endpoint
+		err = router.UpdateEndpoint("nonexistent", config.EndpointConfig{})
+		assert.Error(t, err)
+
+		// Test updating endpoint with router change
+		err = router.AddRouter(config.RouterConfig{
+			Prefix: "/api/v1",
+			Meta:   registry.Metadata{"router_id": "router1"},
+		})
+		require.NoError(t, err)
+
+		err = router.UpdateEndpoint("ep1", config.EndpointConfig{
+			Method: http.MethodGet,
+			Path:   "/test",
+			Meta:   registry.Metadata{"router_id": "router1"},
+		})
+
+		require.NoError(t, err)
+	})
+}
+
+func TestRouterDefaultRouterOperations(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}
+
+	t.Run("default router operations", func(t *testing.T) {
+		router := NewRouter(handler)
+
+		// Test deleting default router (should fail)
+		err := router.DeleteRouter(DefaultRouterID)
+		assert.Error(t, err)
+
+		// Test updating default router
+		err = router.UpdateRouter(config.RouterConfig{
+			Prefix: "/v2",
+			Meta:   registry.Metadata{"router_id": DefaultRouterID},
+		})
+		assert.Error(t, err)
+	})
+}
+
+func TestRouterErrorCases(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}
+
+	t.Run("router error cases", func(t *testing.T) {
+		router := NewRouter(handler)
+
+		// Test adding router without router_id
+		err := router.AddRouter(config.RouterConfig{
+			Prefix: "/api/v1",
+		})
+		assert.Error(t, err)
+
+		// Test adding duplicate router
+		err = router.AddRouter(config.RouterConfig{
+			Prefix: "/api/v1",
+			Meta:   registry.Metadata{"router_id": "router1"},
+		})
+		require.NoError(t, err)
+
+		err = router.AddRouter(config.RouterConfig{
+			Prefix: "/api/v2",
+			Meta:   registry.Metadata{"router_id": "router1"},
+		})
+		assert.Error(t, err)
+
+		// Test updating non-existent router
+		err = router.UpdateRouter(config.RouterConfig{
+			Prefix: "/api/v2",
+			Meta:   registry.Metadata{"router_id": "nonexistent"},
+		})
+		assert.Error(t, err)
+
+		// Test deleting non-existent router
+		err = router.DeleteRouter("nonexistent")
+		assert.Error(t, err)
+	})
+}
+
+func TestRouterConcurrencyStress(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}
+
+	t.Run("concurrent endpoint operations", func(t *testing.T) {
+		router := NewRouter(handler)
+		done := make(chan bool)
+
+		// Add initial router
+		err := router.AddRouter(config.RouterConfig{
+			Prefix: "/api/v1",
+			Meta:   registry.Metadata{"router_id": "router1"},
+		})
+		require.NoError(t, err)
+
+		// Concurrent endpoint operations
+		go func() {
+			for i := 0; i < 100; i++ {
+				_ = router.AddEndpoint("", config.EndpointConfig{
+					Method: http.MethodGet,
+					Path:   "/test",
+					Meta:   registry.Metadata{"router_id": "router1"},
+				})
+			}
+			done <- true
+		}()
+
+		go func() {
+			for i := 0; i < 100; i++ {
+				_ = router.DeleteEndpoint("ep1")
+			}
+			done <- true
+		}()
+
+		// Wait for operations to complete
+		<-done
+		<-done
+	})
+}
+
+func TestRouterMiddlewareConfiguration(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}
+
+	t.Run("middleware configuration", func(t *testing.T) {
+		router := NewRouter(handler)
+
+		// Test router with all middleware types
+		err := router.AddRouter(config.RouterConfig{
+			Prefix: "/api/v1",
+			Meta:   registry.Metadata{"router_id": "router1"},
+			Middlewares: []string{
+				"timeout",
+				"recoverer",
+				"request_id",
+				"real_ip",
+			},
+			Options: map[string]string{
+				"timeout": "30s",
+			},
+		})
+		require.NoError(t, err)
+
+		// Add test endpoint
+		err = router.AddEndpoint("ep1", config.EndpointConfig{
+			Method: http.MethodGet,
+			Path:   "/test",
+			Meta:   registry.Metadata{"router_id": "router1"},
+		})
+		require.NoError(t, err)
+
+		// Test the endpoint with middleware
+		server := httptest.NewServer(router)
+		defer server.Close()
+
+		resp, err := http.Get(server.URL + "/api/v1/test")
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		// Test invalid timeout duration
+		err = router.AddRouter(config.RouterConfig{
+			Prefix: "/api/v2",
+			Meta:   registry.Metadata{"router_id": "router2"},
+			Middlewares: []string{
+				"timeout",
+			},
+			Options: map[string]string{
+				"timeout": "invalid",
+			},
+		})
+		require.NoError(t, err) // Should still create router even with invalid timeout
+	})
+}

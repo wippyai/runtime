@@ -8,6 +8,7 @@ test:
 	go test ./api/... -v -race
 	go test ./pkg/... -v -race
 	go test ./internal/... -v -race
+	go test ./server/... -v -race
 	#go test ./runtime/... -v -race
 
 debug_vm:

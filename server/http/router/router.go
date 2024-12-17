@@ -208,12 +208,12 @@ func (rm *Router) DeleteEndpoint(endpointID string) error {
 // UpdateEndpoint updates an existing endpoint.
 func (rm *Router) UpdateEndpoint(endpointID string, ecfg config.EndpointConfig) error {
 	rm.mu.Lock()
-	defer rm.mu.Unlock()
-
 	oldEcfg, exists := rm.endpoints[endpointID]
 	if !exists {
+		rm.mu.Unlock()
 		return fmt.Errorf("endpoint with ID '%s' not found", endpointID)
 	}
+	rm.mu.Unlock()
 
 	oldRouterID := oldEcfg.Meta.StringValue("router_id")
 	if oldRouterID == "" {
@@ -242,6 +242,9 @@ func (rm *Router) UpdateEndpoint(endpointID string, ecfg config.EndpointConfig) 
 	}
 
 	// Update endpoint in the existing router
+	rm.mu.Lock()
+	defer rm.mu.Unlock()
+
 	router, exists := rm.routers[newRouterID]
 	if !exists {
 		return fmt.Errorf("router with ID '%s' not found", newRouterID)
@@ -254,6 +257,7 @@ func (rm *Router) UpdateEndpoint(endpointID string, ecfg config.EndpointConfig) 
 
 	// Update endpoint configuration
 	rm.endpoints[endpointID] = ecfg
+
 	rm.rebuildRouter()
 
 	return nil
