@@ -1,10 +1,10 @@
 name: get_time
 kind: http.endpoint
 meta:
+  server_id: "default"
   comment: "Returns the current time."
 
 # Endpoint configuration
-server: web_server
 method: GET
 path: /time
 target: src.http_time
