@@ -1,7 +1,10 @@
 name: web_server
 kind: http.server
 meta:
+  server_id: "default"
   comment: "Default http server."
 
 # Server configuration
 listen: ":8080"
+http:
+  idle_timeout: 60s
