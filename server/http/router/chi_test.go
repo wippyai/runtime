@@ -3,7 +3,6 @@ package router
 import (
 	"context"
 	config "github.com/ponyruntime/pony/api/server/http"
-	httpsrv "github.com/ponyruntime/pony/server/http"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"net/http"
@@ -148,7 +147,7 @@ func TestUpdateEndpoint(t *testing.T) {
 
 func TestBuildRouter(t *testing.T) {
 	cfg := config.RouterConfig{
-		Prefix:      "/api",
+		Prefix:      "/",
 		Middlewares: []string{"timeout", "recoverer", "request_id", "real_ip"},
 		Options:     map[string]string{"timeout": "30s"},
 	}
@@ -156,11 +155,11 @@ func TestBuildRouter(t *testing.T) {
 	router, _ := NewChiRouter(cfg)
 	_ = router.AddEndpoint(config.EndpointConfig{
 		Method: http.MethodGet,
-		Path:   "/test",
+		Path:   "/api/test",
 	})
 
 	handler := func(w http.ResponseWriter, r *http.Request) {
-		routeInfo, ok := httpsrv.GetRouteInfo(r.Context())
+		routeInfo, ok := GetRouteInfo(r.Context())
 		require.True(t, ok)
 		assert.NotNil(t, routeInfo)
 		w.WriteHeader(http.StatusOK)
@@ -190,14 +189,14 @@ func TestBuildRouter(t *testing.T) {
 }
 
 func TestRouteContext(t *testing.T) {
-	router, _ := NewChiRouter(config.RouterConfig{Prefix: "/api"})
+	router, _ := NewChiRouter(config.RouterConfig{Prefix: "/"})
 	_ = router.AddEndpoint(config.EndpointConfig{
 		Method: http.MethodGet,
-		Path:   "/users/{id}",
+		Path:   "/api/users/{id}",
 	})
 
 	handler := func(w http.ResponseWriter, r *http.Request) {
-		routeInfo, ok := httpsrv.GetRouteInfo(r.Context())
+		routeInfo, ok := GetRouteInfo(r.Context())
 		require.True(t, ok)
 		assert.Equal(t, "123", routeInfo.Params["id"])
 		w.WriteHeader(http.StatusOK)
@@ -307,7 +306,7 @@ func TestRouteInfoWithParameters(t *testing.T) {
 
 			// Create test handler that validates route info
 			handler := func(w http.ResponseWriter, r *http.Request) {
-				routeInfo, ok := httpsrv.GetRouteInfo(r.Context())
+				routeInfo, ok := GetRouteInfo(r.Context())
 				require.True(t, ok, "Route info should be present in context")
 				require.NotNil(t, routeInfo, "Route info should not be nil")
 
@@ -360,7 +359,7 @@ func TestRouteInfoContext(t *testing.T) {
 		}
 
 		ctx := context.WithValue(context.Background(), config.RouteInfoCtx, routeInfo)
-		extracted, ok := httpsrv.GetRouteInfo(ctx)
+		extracted, ok := GetRouteInfo(ctx)
 
 		assert.True(t, ok, "Should successfully extract route info")
 		assert.Equal(t, routeInfo, extracted, "Extracted route info should match original")
@@ -368,7 +367,7 @@ func TestRouteInfoContext(t *testing.T) {
 
 	// Test empty/invalid context
 	t.Run("empty context", func(t *testing.T) {
-		extracted, ok := httpsrv.GetRouteInfo(context.Background())
+		extracted, ok := GetRouteInfo(context.Background())
 		assert.False(t, ok, "Should return false for empty context")
 		assert.Nil(t, extracted, "Should return nil for empty context")
 	})
