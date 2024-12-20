@@ -53,11 +53,11 @@ func TestNewRegistry(t *testing.T) {
 
 	r := NewRegistry(history, runner, stateBuilder, zap.NewNop())
 
-	if _, ok := r.(*memreg); !ok {
-		t.Errorf("Expected type *memreg, got %T", r)
+	if _, ok := r.(*reg); !ok {
+		t.Errorf("Expected type *reg, got %T", r)
 	}
 
-	reg := r.(*memreg)
+	reg := r.(*reg)
 	if reg.history != history {
 		t.Errorf("Expected history to be %v, got %v", history, reg.history)
 	}
@@ -85,7 +85,7 @@ func TestInMemoryRegistry_GetAllEntries(t *testing.T) {
 		{ID: "/bar", Kind: "test", Data: payload.NewString("data2")},
 	}
 
-	reg := &memreg{
+	reg := &reg{
 		state: state,
 		mu:    sync.RWMutex{},
 	}
@@ -127,7 +127,7 @@ func TestInMemoryRegistry_GetEntry(t *testing.T) {
 
 	state := registry.State{entry1, entry2}
 
-	reg := &memreg{
+	reg := &reg{
 		state: state,
 		mu:    sync.RWMutex{},
 	}
@@ -154,7 +154,7 @@ func TestInMemoryRegistry_Apply(t *testing.T) {
 	runner := NewMockRunner()
 	stateBuilder := NewStateBuilder(zap.NewNop())
 
-	reg := NewRegistry(history, runner, stateBuilder, zap.NewNop()).(*memreg)
+	reg := NewRegistry(history, runner, stateBuilder, zap.NewNop()).(*reg)
 
 	changes := registry.ChangeSet{
 		{
@@ -211,7 +211,7 @@ func TestInMemoryRegistry_Apply_RunnerError(t *testing.T) {
 	runner := NewMockRunner()
 	stateBuilder := NewStateBuilder(zap.NewNop())
 
-	reg := NewRegistry(history, runner, stateBuilder, zap.NewNop()).(*memreg)
+	reg := NewRegistry(history, runner, stateBuilder, zap.NewNop()).(*reg)
 	runner.err = errors.New("runner error, failed to rollback: runner error")
 
 	_, err := reg.Apply(context.Background(), registry.ChangeSet{})
@@ -243,7 +243,7 @@ func TestInMemoryRegistry_ApplyVersion(t *testing.T) {
 	runner := NewMockRunner()
 	stateBuilder := NewStateBuilder(zap.NewNop())
 
-	reg := NewRegistry(history, runner, stateBuilder, zap.NewNop()).(*memreg)
+	reg := NewRegistry(history, runner, stateBuilder, zap.NewNop()).(*reg)
 	reg.currentVersion = v2 // Set current version to v2
 	// Set initial state to v2 state
 	reg.state = registry.State{
@@ -298,7 +298,7 @@ func TestInMemoryRegistry_ApplyVersion_RunnerError(t *testing.T) {
 
 	runner := NewMockRunner()
 	stateBuilder := NewStateBuilder(zap.NewNop())
-	reg := NewRegistry(history, runner, stateBuilder, zap.NewNop()).(*memreg)
+	reg := NewRegistry(history, runner, stateBuilder, zap.NewNop()).(*reg)
 	reg.currentVersion = v1
 
 	runner.err = errors.New("runner error")
@@ -377,7 +377,7 @@ func TestInMemoryRegistry_Apply_HistorySaveError(t *testing.T) {
 	runner := NewMockRunner()
 	stateBuilder := NewStateBuilder(zap.NewNop())
 
-	reg := NewRegistry(history, runner, stateBuilder, zap.NewNop()).(*memreg)
+	reg := NewRegistry(history, runner, stateBuilder, zap.NewNop()).(*reg)
 
 	// Mock the runner to return a new state (so we can test rollback)
 	runner.newState = registry.State{
@@ -433,7 +433,7 @@ func TestInMemoryRegistry_ConcurrentApply(t *testing.T) {
 	_ = history.Save(v0, registry.ChangeSet{}, true)
 	runner := &CustomizableMockRunner{} // Use the new customizable mock
 	stateBuilder := NewStateBuilder(zap.NewNop())
-	reg := NewRegistry(history, runner, stateBuilder, zap.NewNop()).(*memreg)
+	reg := NewRegistry(history, runner, stateBuilder, zap.NewNop()).(*reg)
 
 	var wg sync.WaitGroup
 	numGoroutines := 10
@@ -504,7 +504,7 @@ func TestInMemoryRegistry_Apply_Rollback_Success(t *testing.T) {
 
 	runner := NewMockRunner()
 	stateBuilder := NewStateBuilder(zap.NewNop()) // Use the real StateBuilder
-	reg := NewRegistry(history, runner, stateBuilder, zap.NewNop()).(*memreg)
+	reg := NewRegistry(history, runner, stateBuilder, zap.NewNop()).(*reg)
 
 	// Initial state
 	initialState := registry.State{
@@ -583,7 +583,7 @@ func TestInMemoryRegistry_Apply_Rollback_Failure(t *testing.T) {
 
 	runner := NewMockRunner()
 	stateBuilder := NewStateBuilder(zap.NewNop())
-	reg := NewRegistry(history, runner, stateBuilder, zap.NewNop()).(*memreg)
+	reg := NewRegistry(history, runner, stateBuilder, zap.NewNop()).(*reg)
 
 	initialState := registry.State{
 		{ID: "/initial", Kind: "test", Data: payload.New("initial_data")},
