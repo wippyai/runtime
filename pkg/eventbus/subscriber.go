@@ -64,11 +64,11 @@ func NewSubscriber(
 }
 
 // Close stops the internal goroutine, unsubscribes from the event bus, and waits for the goroutine to exit.
-func (h *Subscriber) Close() {
-	h.cancel()
-	h.wg.Wait()
+func (s *Subscriber) Close() {
+	s.cancel()
+	s.wg.Wait()
 }
 
-func (h *Subscriber) ID() events.SubscriberID {
-	return h.subscriberID
+func (s *Subscriber) ID() events.SubscriberID {
+	return s.subscriberID
 }
