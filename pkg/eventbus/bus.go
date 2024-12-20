@@ -24,7 +24,7 @@ type action struct {
 	actionType   actionType
 	subscribe    sub
 	unsubscribe  unsub
-	sendEvent    sendEvent
+	event        sendEvent
 	stopDoneChan chan struct{} // Channel to signal stop completion
 }
 
@@ -140,12 +140,8 @@ func (b *Bus) Unsubscribe(ctx context.Context, subID events.SubscriberID) {
 }
 
 func (b *Bus) Send(ctx context.Context, event events.Event) {
-	if event.Data == nil {
-		return
-	}
-
 	select {
-	case b.actions <- action{actionType: send, sendEvent: sendEvent{event: event, ctx: ctx}}:
+	case b.actions <- action{actionType: send, event: sendEvent{event: event, ctx: ctx}}:
 		if b.logger != nil {
 			b.logger.Debug(
 				"sending event",
@@ -178,27 +174,28 @@ func (b *Bus) handleActions() {
 			b.handleUnsubscribe(a.unsubscribe.subID)
 			a.unsubscribe.doneCh <- true
 		case send:
-			if a.sendEvent.ctx.Err() != nil {
+			if a.event.ctx.Err() != nil {
 				continue
 			}
 
 			for _, s := range b.subscribers {
-				if s.system != a.sendEvent.event.System && s.system != "*" {
+				if s.system != a.event.event.System && s.system != "*" {
 					continue
 				}
 
-				if s.kind != nil && !s.kind.Match(string(a.sendEvent.event.Kind)) {
+				if s.kind != nil && !s.kind.Match(string(a.event.event.Kind)) {
 					continue
 				}
 
 				select {
-				case <-a.sendEvent.ctx.Done():
+				case <-a.event.ctx.Done():
+					b.logger.Warn("context cancelled", zap.String("subscriber", string(s.subID)))
 					continue
-					// todo: subscriber context too?
-				case s.eventCh <- a.sendEvent.event:
+				case s.eventCh <- a.event.event:
 					continue
 				}
 			}
+
 		case stop:
 			for _, s := range b.subscribers {
 				close(s.eventCh)

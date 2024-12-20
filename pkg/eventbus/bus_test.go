@@ -175,35 +175,6 @@ func TestBusStop(t *testing.T) {
 	bus.Stop()
 }
 
-func TestNilPayload(t *testing.T) {
-	bus, logs := newTestBus(t)
-	defer bus.Stop()
-
-	ch := make(chan events.Event, 10)
-	subID, err := bus.Subscribe(context.Background(), "test-system", ch)
-	require.NoError(t, err)
-	defer bus.Unsubscribe(context.Background(), subID)
-
-	// Create event with nil payload
-	event := events.Event{
-		System: "test-system",
-		Kind:   "test-kind",
-		Data:   nil,
-	}
-
-	bus.Send(context.Background(), event)
-
-	// Verify no eventbus were sent and no logs were created
-	select {
-	case <-ch:
-		t.Fatal("should not receive event with nil payload")
-	case <-time.After(100 * time.Millisecond):
-		// Expected behavior
-	}
-
-	require.Empty(t, logs.All(), "should not log anything for nil payload")
-}
-
 func TestSendWithNilPayload(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	b := NewBus(logger)

@@ -7,6 +7,7 @@ const (
 	Lua    Format = "lua/any"
 	String Format = "text/plain"
 	Bytes  Format = "application/octet-stream"
+	Error  Format = "golang/error"
 )
 
 type (
@@ -79,4 +80,8 @@ func New(data any) Payload {
 // NewString creates a new payload with the given string data and the String format.
 func NewString(data string) Payload {
 	return NewPayload(data, String)
+}
+
+func NewError(data error) Payload {
+	return NewPayload(data, Error)
 }
