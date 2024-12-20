@@ -15,11 +15,15 @@ const (
 	Accept events.Kind = "entry.accept"
 	Reject events.Kind = "entry.reject"
 
+	Begin   events.Kind = "registry.begin"
+	Commit  events.Kind = "registry.commit"
+	Discard events.Kind = "registry.discard"
+
 	RootVersion uint = 0
 )
 
 type (
-	// ID represents a unique identifier for a registry entry.
+	// ID represents a unique identifier for a registry entry. Most entity events are identified by this ID.
 	// It typically uses a hierarchical structure (e.g., "service.database.url").
 	ID string
 

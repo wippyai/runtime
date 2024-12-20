@@ -39,7 +39,6 @@ func (c *testComponent) handleEvent(bus events.Bus, evt events.Event) {
 
 	entry, ok := evt.Data.(registry.Entry)
 	if !ok {
-		fmt.Printf("Received event with unexpected data type. Expected registry.Entry, got %T\n", evt.Data)
 		return // Ignore eventbus with incorrect data type.
 	}
 
@@ -376,4 +375,146 @@ func TestBusRunner_RollbackOnSecondOperationFailure(t *testing.T) {
 
 	// 4. Verify the final state is empty (rolled back)
 	assert.Empty(t, finalState, "Final state should be empty after rollback")
+}
+
+func TestBusRunner_BeginAndCommitEvents(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	bus := eventbus.NewBus(zap.NewNop())
+	busRunner := NewBusRunner(bus, zap.NewNop())
+	component := newTestComponent()
+
+	// Use a WaitGroup to wait for the listener to process events
+	var wg sync.WaitGroup
+
+	// Channel to receive events in the listener
+	eventChan := make(chan events.Event, 10)
+
+	// Attach the listener to the bus
+	listener, err := eventbus.NewEventListener(
+		ctx, bus, registry.System, "registry.*",
+		func(bus events.Bus, evt events.Event) {
+			if evt.System == registry.System && (evt.Kind == registry.Begin || evt.Kind == registry.Commit) {
+				eventChan <- evt
+				wg.Done()
+
+				if evt.Kind == registry.Commit || evt.Kind == registry.Discard {
+					close(eventChan)
+				}
+			}
+		},
+	)
+	require.NoError(t, err)
+	defer listener.Close()
+
+	componentClose := attachComponent(ctx, t, bus, component)
+	defer componentClose()
+
+	initialState := registry.State{}
+	changeSet := registry.ChangeSet{
+		{
+			Kind: registry.Create,
+			Entry: createEntry(
+				"component/listener/key1",
+				"listener",
+				"value1",
+			),
+		},
+	}
+
+	// Expect 2 events: Begin and Commit
+	wg.Add(2)
+
+	_, err = busRunner.Transition(ctx, initialState, changeSet)
+	require.NoError(t, err)
+
+	// Wait for the listener to process the events
+	wg.Wait()
+
+	// Collect the received events
+	var receivedEvents []events.Event
+	for evt := range eventChan {
+		receivedEvents = append(receivedEvents, evt)
+	}
+
+	// Assert that we received exactly 2 events
+	assert.Equal(t, 2, len(receivedEvents), "Expected 2 events (Begin and Commit)")
+
+	// Verify that the first event is Begin
+	assert.Equal(t, registry.Begin, receivedEvents[0].Kind, "First event should be Begin")
+
+	// Verify that the second event is Commit
+	assert.Equal(t, registry.Commit, receivedEvents[1].Kind, "Second event should be Commit")
+}
+
+func TestBusRunner_BeginAndDiscardEvents(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	bus := eventbus.NewBus(zap.NewNop())
+	busRunner := NewBusRunner(bus, zap.NewNop())
+	component := newTestComponent()
+
+	// Use a WaitGroup to wait for the listener to process events
+	var wg sync.WaitGroup
+
+	// Channel to receive events in the listener, buffered to prevent blocking
+	eventChan := make(chan events.Event, 10)
+
+	// Attach the listener to the bus to listen for Begin and Discard events
+	listener, err := eventbus.NewEventListener(
+		ctx, bus, registry.System, "registry.*",
+		func(bus events.Bus, evt events.Event) {
+			if evt.System == registry.System && (evt.Kind == registry.Begin || evt.Kind == registry.Discard) {
+				eventChan <- evt
+				wg.Done()
+
+				if evt.Kind == registry.Commit || evt.Kind == registry.Discard {
+					close(eventChan)
+				}
+			}
+		},
+	)
+	require.NoError(t, err)
+	defer listener.Close()
+
+	componentClose := attachComponent(ctx, t, bus, component)
+	defer componentClose()
+
+	initialState := registry.State{}
+	changeSet := registry.ChangeSet{
+		{
+			Kind: registry.Create,
+			Entry: createEntry(
+				"component/listener/key1",
+				"listener",
+				"reject_this", // This will cause a rejection and thus a Discard event
+			),
+		},
+	}
+
+	// Expect 2 events: Begin and Discard
+	wg.Add(2)
+
+	_, err = busRunner.Transition(ctx, initialState, changeSet)
+	require.Error(t, err) // We expect an error because the operation is rejected
+
+	// Wait for the listener to process the events
+	wg.Wait()
+
+	// Collect the received events
+	var receivedEvents []events.Event
+	for evt := range eventChan {
+		receivedEvents = append(receivedEvents, evt)
+	}
+
+	// Assert that we received exactly 2 events
+	assert.Equal(t, 2, len(receivedEvents), "Expected 2 events (Begin and Discard)")
+
+	// Verify that the first event is Begin
+	assert.Equal(t, registry.Begin, receivedEvents[0].Kind, "First event should be Begin")
+
+	// Verify that the second event is Discard
+	assert.Equal(t, registry.Discard, receivedEvents[1].Kind, "Second event should be Discard")
 }

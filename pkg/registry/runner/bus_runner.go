@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	"go.uber.org/zap"
 )
@@ -38,18 +39,30 @@ func (br *BusRunner) Transition(
 	currentState := br.stateHelper.toMap(initialState)
 	originalState := br.stateHelper.toMap(initialState) // Keep a copy of the original state for rollbacks
 	appliedOperations := make([]registry.Operation, 0)
-	var finalErr error
 
 	if err := br.subscribeToEvents(ctx); err != nil {
 		return nil, err
 	}
 	defer br.unsubscribeFromEvents(ctx)
 
+	br.bus.Send(ctx, events.Event{
+		System: registry.System,
+		Kind:   registry.Begin,
+	})
+
 	for _, op := range cs {
 		newState, err := br.applyOperation(ctx, currentState, op)
 		if err != nil {
 			br.log.Warn("Operation failed, initiating rollback", zap.Any("operation", op))
 			newState = br.rollback(ctx, originalState, newState, appliedOperations)
+
+			// Only send Discard if there was an error, and rollback already happened
+			br.bus.Send(ctx, events.Event{
+				System: registry.System,
+				Kind:   registry.Discard,
+				Data:   payload.NewError(err),
+			})
+
 			return br.stateHelper.toSlice(newState), fmt.Errorf("operation failed: %w", err)
 		}
 
@@ -57,7 +70,12 @@ func (br *BusRunner) Transition(
 		appliedOperations = append(appliedOperations, op)
 	}
 
-	return br.stateHelper.toSlice(currentState), finalErr
+	br.bus.Send(ctx, events.Event{
+		System: registry.System,
+		Kind:   registry.Commit,
+	})
+
+	return br.stateHelper.toSlice(currentState), nil
 }
 
 func (br *BusRunner) applyOperation(ctx context.Context, state stateMap, op registry.Operation) (stateMap, error) {
@@ -93,6 +111,7 @@ func (br *BusRunner) applyOperation(ctx context.Context, state stateMap, op regi
 				// Even if applyChangeToState fails, we return the original state to maintain consistency
 				return state, fmt.Errorf("applying change to state: %w", err)
 			}
+
 			return newState, nil
 		case rejection := <-br.rejectChan:
 			// Type assertion: Check if rejection.Data is of type registry.Entry
@@ -108,7 +127,6 @@ func (br *BusRunner) applyOperation(ctx context.Context, state stateMap, op regi
 			if entry.ID != op.Entry.ID {
 				return state, errors.New("unrelated accept event")
 			}
-
 			return state, errors.New("operation rejected") // todo: propagate entity level error
 
 		case <-ctx.Done():

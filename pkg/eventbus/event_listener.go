@@ -68,3 +68,7 @@ func (h *EventHandler) Close() {
 	h.cancel()
 	h.wg.Wait()
 }
+
+func (h *EventHandler) ID() events.SubscriberID {
+	return h.subscriberID
+}
