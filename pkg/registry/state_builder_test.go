@@ -60,9 +60,9 @@ func TestStateBuilder_BuildState_HappyPath(t *testing.T) {
 	v3 := version.FromParent(v2, 3)
 
 	// Create some sample entries.
-	entry1 := registry.Entry{Path: "/path/1", Kind: "kind1", Data: payload.New("data1")}
-	entry2 := registry.Entry{Path: "/path/2", Kind: "kind2", Data: payload.New("data2")}
-	entry3 := registry.Entry{Path: "/path/3", Kind: "kind3", Data: payload.New("data3")}
+	entry1 := registry.Entry{ID: "/path/1", Kind: "kind1", Data: payload.New("data1")}
+	entry2 := registry.Entry{ID: "/path/2", Kind: "kind2", Data: payload.New("data2")}
+	entry3 := registry.Entry{ID: "/path/3", Kind: "kind3", Data: payload.New("data3")}
 
 	// Create the mock history.
 	history := NewMockHistory()
@@ -132,7 +132,7 @@ func TestStateBuilder_BuildState_UpdateDeleteNonExistent(t *testing.T) {
 	v1 := version.FromParent(v0, 1)
 	v2 := version.FromParent(v1, 2)
 
-	entry1 := registry.Entry{Path: "/path/1", Kind: "kind1", Data: payload.New("data1")}
+	entry1 := registry.Entry{ID: "/path/1", Kind: "kind1", Data: payload.New("data1")}
 
 	history := NewMockHistory()
 	_ = history.Save(v0, registry.ChangeSet{}, false)
@@ -196,7 +196,7 @@ func TestStateBuilder_BuildState_ConflictingCreates(t *testing.T) {
 	v1 := version.FromParent(v0, 1)
 	v2 := version.FromParent(v1, 2)
 
-	entry1 := registry.Entry{Path: "/path/1", Kind: "kind1", Data: payload.New("data1")}
+	entry1 := registry.Entry{ID: "/path/1", Kind: "kind1", Data: payload.New("data1")}
 
 	history := NewMockHistory()
 	_ = history.Save(v0, registry.ChangeSet{}, false)
@@ -232,8 +232,8 @@ func TestStateBuilder_BuildState_IntermediateVersion(t *testing.T) {
 	v2 := version.FromParent(v1, 2)
 	v3 := version.FromParent(v2, 3)
 
-	entry1 := registry.Entry{Path: "/path/1", Kind: "kind1", Data: payload.New("data1")}
-	entry2 := registry.Entry{Path: "/path/2", Kind: "kind2", Data: payload.New("data2")}
+	entry1 := registry.Entry{ID: "/path/1", Kind: "kind1", Data: payload.New("data1")}
+	entry2 := registry.Entry{ID: "/path/2", Kind: "kind2", Data: payload.New("data2")}
 
 	history := NewMockHistory()
 	_ = history.Save(v0, registry.ChangeSet{}, false)
@@ -312,7 +312,7 @@ func TestStateBuilder_BuildState_GetError(t *testing.T) {
 	v0 := version.New(registry.RootVersion)
 	v1 := version.FromParent(v0, 1)
 
-	entry1 := registry.Entry{Path: "/path/1", Kind: "kind1", Data: payload.New("data1")}
+	entry1 := registry.Entry{ID: "/path/1", Kind: "kind1", Data: payload.New("data1")}
 
 	history := &GetErrorMockHistory{
 		MockHistory: NewMockHistory(),
@@ -341,7 +341,7 @@ func TestStateBuilder_BuildDelta_SimpleCreates(t *testing.T) {
 	v0 := version.New(registry.RootVersion)
 	v1 := version.FromParent(v0, 1)
 
-	entry1 := registry.Entry{Path: "/path/1", Kind: "kind1", Data: payload.New("data1")}
+	entry1 := registry.Entry{ID: "/path/1", Kind: "kind1", Data: payload.New("data1")}
 
 	history := NewMockHistory()
 	_ = history.Save(v0, registry.ChangeSet{}, false)
@@ -380,8 +380,8 @@ func TestStateBuilder_BuildDelta_SimpleUpdates(t *testing.T) {
 	v1 := version.FromParent(v0, 1)
 	v2 := version.FromParent(v1, 2)
 
-	entry1 := registry.Entry{Path: "/path/1", Kind: "kind1", Data: payload.New("data1")}
-	entry1Updated := registry.Entry{Path: "/path/1", Kind: "kind1", Data: payload.New("data2")}
+	entry1 := registry.Entry{ID: "/path/1", Kind: "kind1", Data: payload.New("data1")}
+	entry1Updated := registry.Entry{ID: "/path/1", Kind: "kind1", Data: payload.New("data2")}
 
 	history := NewMockHistory()
 	_ = history.Save(v0, registry.ChangeSet{}, false)
@@ -423,7 +423,7 @@ func TestStateBuilder_BuildDelta_SimpleDeletes(t *testing.T) {
 	v1 := version.FromParent(v0, 1)
 	v2 := version.FromParent(v1, 2)
 
-	entry1 := registry.Entry{Path: "/path/1", Kind: "kind1", Data: payload.New("data1")}
+	entry1 := registry.Entry{ID: "/path/1", Kind: "kind1", Data: payload.New("data1")}
 
 	history := NewMockHistory()
 	_ = history.Save(v0, registry.ChangeSet{}, false)
@@ -465,9 +465,9 @@ func TestStateBuilder_BuildDelta_MixedOperations(t *testing.T) {
 	v1 := version.FromParent(v0, 1)
 	v2 := version.FromParent(v1, 2)
 
-	entry1 := registry.Entry{Path: "/path/1", Kind: "kind1", Data: payload.New("data1")}
-	entry2 := registry.Entry{Path: "/path/2", Kind: "kind2", Data: payload.New("data2")}
-	entry2Updated := registry.Entry{Path: "/path/2", Kind: "kind2", Data: payload.New("data2Updated")}
+	entry1 := registry.Entry{ID: "/path/1", Kind: "kind1", Data: payload.New("data1")}
+	entry2 := registry.Entry{ID: "/path/2", Kind: "kind2", Data: payload.New("data2")}
+	entry2Updated := registry.Entry{ID: "/path/2", Kind: "kind2", Data: payload.New("data2Updated")}
 
 	history := NewMockHistory()
 	_ = history.Save(v0, registry.ChangeSet{}, false)
@@ -511,7 +511,7 @@ func TestStateBuilder_BuildDelta_NoChanges(t *testing.T) {
 	v0 := version.New(registry.RootVersion)
 	v1 := version.FromParent(v0, 1)
 
-	entry1 := registry.Entry{Path: "/path/1", Kind: "kind1", Data: payload.New("data1")}
+	entry1 := registry.Entry{ID: "/path/1", Kind: "kind1", Data: payload.New("data1")}
 
 	history := NewMockHistory()
 	_ = history.Save(v0, registry.ChangeSet{}, false)
@@ -549,7 +549,7 @@ func TestStateBuilder_BuildDelta_NoChanges_SameVersion(t *testing.T) {
 	v0 := version.New(registry.RootVersion)
 	v1 := version.FromParent(v0, 1)
 
-	entry1 := registry.Entry{Path: "/path/1", Kind: "kind1", Data: payload.New("data1")}
+	entry1 := registry.Entry{ID: "/path/1", Kind: "kind1", Data: payload.New("data1")}
 
 	history := NewMockHistory()
 	_ = history.Save(v0, registry.ChangeSet{}, false)
@@ -583,7 +583,7 @@ func TestStateBuilder_BuildDelta_NoChanges_IdenticalStates(t *testing.T) {
 	v1 := version.FromParent(v0, 1)
 	v2 := version.FromParent(v1, 2) // v2 will have the same state as v1
 
-	entry1 := registry.Entry{Path: "/path/1", Kind: "kind1", Data: payload.New("data1")}
+	entry1 := registry.Entry{ID: "/path/1", Kind: "kind1", Data: payload.New("data1")}
 
 	history := NewMockHistory()
 	_ = history.Save(v0, registry.ChangeSet{}, false)
@@ -652,8 +652,8 @@ func TestStateBuilder_BuildDelta_UpdateFollowedByDelete(t *testing.T) {
 	v1 := version.FromParent(v0, 1)
 	v2 := version.FromParent(v1, 2)
 
-	entry1 := registry.Entry{Path: "/path/1", Kind: "kind1", Data: payload.New("data1")}
-	entry1Updated := registry.Entry{Path: "/path/1", Kind: "kind1", Data: payload.New("data1Updated")}
+	entry1 := registry.Entry{ID: "/path/1", Kind: "kind1", Data: payload.New("data1")}
+	entry1Updated := registry.Entry{ID: "/path/1", Kind: "kind1", Data: payload.New("data1Updated")}
 
 	history := NewMockHistory()
 	_ = history.Save(v0, registry.ChangeSet{}, false)
@@ -699,11 +699,11 @@ func TestStateBuilder_BuildDelta_ComplexScenario(t *testing.T) {
 	v5 := version.FromParent(v4, 5)
 
 	// Entries
-	entryParent := registry.Entry{Path: "/parent", Kind: "kindParent", Data: payload.New("parentData")}
-	entryChild1 := registry.Entry{Path: "/parent/child1", Kind: "kindChild", Data: payload.New("child1Data")}
-	entryChild2 := registry.Entry{Path: "/parent/child2", Kind: "kindChild", Data: payload.New("child2Data")}
-	entryChild2Updated := registry.Entry{Path: "/parent/child2", Kind: "kindChild", Data: payload.New("child2DataUpdated")} // The updated value is not directly relevant here
-	entryOther := registry.Entry{Path: "/other", Kind: "kindOther", Data: payload.New("otherData")}
+	entryParent := registry.Entry{ID: "/parent", Kind: "kindParent", Data: payload.New("parentData")}
+	entryChild1 := registry.Entry{ID: "/parent/child1", Kind: "kindChild", Data: payload.New("child1Data")}
+	entryChild2 := registry.Entry{ID: "/parent/child2", Kind: "kindChild", Data: payload.New("child2Data")}
+	entryChild2Updated := registry.Entry{ID: "/parent/child2", Kind: "kindChild", Data: payload.New("child2DataUpdated")} // The updated value is not directly relevant here
+	entryOther := registry.Entry{ID: "/other", Kind: "kindOther", Data: payload.New("otherData")}
 
 	history := NewMockHistory()
 	_ = history.Save(v0, registry.ChangeSet{}, false)
@@ -764,11 +764,11 @@ func TestStateBuilder_BuildDelta_ComplexScenario_Inversed(t *testing.T) {
 	v5 := version.FromParent(v4, 5)
 
 	// Entries
-	entryParent := registry.Entry{Path: "/parent", Kind: "kindParent", Data: payload.New("parentData")}
-	entryChild1 := registry.Entry{Path: "/parent/child1", Kind: "kindChild", Data: payload.New("child1Data")}
-	entryChild2 := registry.Entry{Path: "/parent/child2", Kind: "kindChild", Data: payload.New("child2Data")}
-	entryChild2Updated := registry.Entry{Path: "/parent/child2", Kind: "kindChild", Data: payload.New("child2DataUpdated")}
-	entryOther := registry.Entry{Path: "/other", Kind: "kindOther", Data: payload.New("otherData")}
+	entryParent := registry.Entry{ID: "/parent", Kind: "kindParent", Data: payload.New("parentData")}
+	entryChild1 := registry.Entry{ID: "/parent/child1", Kind: "kindChild", Data: payload.New("child1Data")}
+	entryChild2 := registry.Entry{ID: "/parent/child2", Kind: "kindChild", Data: payload.New("child2Data")}
+	entryChild2Updated := registry.Entry{ID: "/parent/child2", Kind: "kindChild", Data: payload.New("child2DataUpdated")}
+	entryOther := registry.Entry{ID: "/other", Kind: "kindOther", Data: payload.New("otherData")}
 
 	history := NewMockHistory()
 	_ = history.Save(v0, registry.ChangeSet{}, false)
@@ -828,9 +828,9 @@ func TestStateBuilder_BuildDelta_FromNewToOld(t *testing.T) {
 	v3 := version.FromParent(v2, 3)
 
 	// Entries
-	entry1 := registry.Entry{Path: "/path/1", Kind: "kind1", Data: payload.New("data1")}
-	entry2 := registry.Entry{Path: "/path/2", Kind: "kind2", Data: payload.New("data2")}
-	entry2Updated := registry.Entry{Path: "/path/2", Kind: "kind2", Data: payload.New("data2Updated")}
+	entry1 := registry.Entry{ID: "/path/1", Kind: "kind1", Data: payload.New("data1")}
+	entry2 := registry.Entry{ID: "/path/2", Kind: "kind2", Data: payload.New("data2")}
+	entry2Updated := registry.Entry{ID: "/path/2", Kind: "kind2", Data: payload.New("data2Updated")}
 
 	history := NewMockHistory()
 	_ = history.Save(v0, registry.ChangeSet{}, false)

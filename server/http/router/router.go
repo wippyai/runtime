@@ -24,8 +24,8 @@ func GetRouteInfo(ctx context.Context) (*config.RouteInfo, bool) {
 // Router manages routers, endpoints, and the composed Chi router.
 type Router struct {
 	handler        http.HandlerFunc                 // The core HTTP handler function
-	routers        map[string]*ChiRouter            // Map of router ID to ChiRouter
-	endpoints      map[string]config.EndpointConfig // Map of endpoint ID to EndpointConfig
+	routers        map[string]*ChiRouter            // Map of router Name to ChiRouter
+	endpoints      map[string]config.EndpointConfig // Map of endpoint Name to EndpointConfig
 	mu             sync.RWMutex                     // Mutex for concurrency safety
 	composedRouter *chi.Mux                         // The composed Chi router
 	mur            sync.RWMutex                     // Mutex for concurrency safety of router
@@ -64,7 +64,7 @@ func (rm *Router) AddRouter(rcfg config.RouterConfig) error {
 	}
 
 	if _, exists := rm.routers[routerID]; exists {
-		return fmt.Errorf("router with ID '%s' already exists", routerID)
+		return fmt.Errorf("router with Name '%s' already exists", routerID)
 	}
 
 	newRouter, err := NewChiRouter(rcfg)
@@ -89,7 +89,7 @@ func (rm *Router) DeleteRouter(routerID string) error {
 
 	router, exists := rm.routers[routerID]
 	if !exists {
-		return fmt.Errorf("router with ID '%s' not found", routerID)
+		return fmt.Errorf("router with Name '%s' not found", routerID)
 	}
 
 	// Delete all endpoints associated with this router
@@ -126,7 +126,7 @@ func (rm *Router) UpdateRouter(rcfg config.RouterConfig) error {
 
 	existingRouter, exists := rm.routers[routerID]
 	if !exists {
-		return fmt.Errorf("router with ID '%s' not found", routerID)
+		return fmt.Errorf("router with Name '%s' not found", routerID)
 	}
 
 	// Clone and update the existing router
@@ -158,7 +158,7 @@ func (rm *Router) AddEndpoint(endpointID string, ecfg config.EndpointConfig) err
 
 	router, exists := rm.routers[routerID]
 	if !exists {
-		return fmt.Errorf("router with ID '%s' not found", routerID)
+		return fmt.Errorf("router with Name '%s' not found", routerID)
 	}
 
 	// Add endpoint to Chi router
@@ -180,7 +180,7 @@ func (rm *Router) DeleteEndpoint(endpointID string) error {
 
 	ecfg, exists := rm.endpoints[endpointID]
 	if !exists {
-		return fmt.Errorf("endpoint with ID '%s' not found", endpointID)
+		return fmt.Errorf("endpoint with Name '%s' not found", endpointID)
 	}
 
 	routerID := ecfg.Meta.StringValue("router_id")
@@ -190,7 +190,7 @@ func (rm *Router) DeleteEndpoint(endpointID string) error {
 
 	router, exists := rm.routers[routerID]
 	if !exists {
-		return fmt.Errorf("router with ID '%s' not found", routerID)
+		return fmt.Errorf("router with Name '%s' not found", routerID)
 	}
 
 	// Delete endpoint from Chi router
@@ -211,7 +211,7 @@ func (rm *Router) UpdateEndpoint(endpointID string, ecfg config.EndpointConfig) 
 	oldEcfg, exists := rm.endpoints[endpointID]
 	if !exists {
 		rm.mu.Unlock()
-		return fmt.Errorf("endpoint with ID '%s' not found", endpointID)
+		return fmt.Errorf("endpoint with Name '%s' not found", endpointID)
 	}
 	rm.mu.Unlock()
 
@@ -225,7 +225,7 @@ func (rm *Router) UpdateEndpoint(endpointID string, ecfg config.EndpointConfig) 
 		newRouterID = DefaultRouterID
 	}
 
-	// If router ID changed, delete from old and add to new
+	// If router Name changed, delete from old and add to new
 	if oldRouterID != newRouterID {
 		if err := rm.DeleteEndpoint(endpointID); err != nil {
 			return err
@@ -247,7 +247,7 @@ func (rm *Router) UpdateEndpoint(endpointID string, ecfg config.EndpointConfig) 
 
 	router, exists := rm.routers[newRouterID]
 	if !exists {
-		return fmt.Errorf("router with ID '%s' not found", newRouterID)
+		return fmt.Errorf("router with Name '%s' not found", newRouterID)
 	}
 
 	// Add updated endpoint to Chi router

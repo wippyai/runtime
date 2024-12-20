@@ -39,7 +39,7 @@ func main() {
 
 	dtt := createTestTranscoder()
 
-	// 2. Get Folder Path from Command-Line Argument:
+	// 2. Get Folder Name from Command-Line Argument:
 	if len(os.Args) < 2 {
 		fmt.Println("Usage: go run main.go <folder_path> [namespace]")
 		os.Exit(1)
@@ -72,13 +72,13 @@ func main() {
 	for _, entry := range entries {
 		p, err := dtt.Transcode(entry.Data, payload.Yaml)
 		if err != nil {
-			logger.Error("Failed to transcode entry to YAML", zap.String("path", string(entry.Path)), zap.Error(err))
+			logger.Error("Failed to transcode entry to YAML", zap.String("path", string(entry.ID)), zap.Error(err))
 			continue // Skip to the next entry if transcoding fails
 		}
 
 		// Print the entry:
 		fmt.Println("---")
-		fmt.Printf("Path: %s\n", entry.Path)
+		fmt.Printf("Name: %s\n", entry.ID)
 		fmt.Printf("Kind: %s\n", entry.Kind)
 		fmt.Println("Data:")
 		fmt.Printf("\x1b[33m%s\x1b[0m", string(p.Data().(string)))

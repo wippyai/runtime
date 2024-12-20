@@ -118,7 +118,7 @@ func (l *FolderLoader) register(p payload.Payload, relPath string) (registry.Ent
 		return registry.Entry{}, fmt.Errorf("missing Kind in registry entry")
 	}
 
-	// Calculate full ID (prefix + entry path)
+	// Calculate full Name (prefix + entry path)
 	fullID := l.calculateFullID(filepath.Dir(relPath), entry.Name)
 
 	l.log.Debug(
@@ -128,7 +128,7 @@ func (l *FolderLoader) register(p payload.Payload, relPath string) (registry.Ent
 	)
 
 	return registry.Entry{
-		Path: fullID,
+		ID:   fullID,
 		Kind: entry.Kind,
 		Meta: entry.Meta,
 		Data: p,
@@ -136,7 +136,7 @@ func (l *FolderLoader) register(p payload.Payload, relPath string) (registry.Ent
 }
 
 // calculateFullID determines the full registry path based on file path, and entry path. relPath must point to filename.
-func (l *FolderLoader) calculateFullID(dirPath string, entryName string) registry.Path {
+func (l *FolderLoader) calculateFullID(dirPath string, entryName string) registry.ID {
 	// Remove trailing slash if any. we trim at the end
 	dirPath = strings.TrimSuffix(dirPath, "/")
 
@@ -156,5 +156,5 @@ func (l *FolderLoader) calculateFullID(dirPath string, entryName string) registr
 		fullID = l.namespace + ":" + fullID
 	}
 
-	return registry.Path(fullID)
+	return registry.ID(fullID)
 }

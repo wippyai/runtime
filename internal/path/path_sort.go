@@ -6,9 +6,9 @@ import (
 	"strings"
 )
 
-func SortPaths(paths []registry.Path) []registry.Path {
+func SortPaths(paths []registry.ID) []registry.ID {
 	// 1. Determine Levels and Bucket
-	buckets := make(map[int][]registry.Path)
+	buckets := make(map[int][]registry.ID)
 	for _, path := range paths {
 		level := len(strings.Split(string(path), "."))
 		buckets[level] = append(buckets[level], path)
@@ -22,7 +22,7 @@ func SortPaths(paths []registry.Path) []registry.Path {
 	}
 
 	// 3. Glue Buckets Together
-	var sortedPaths []registry.Path
+	var sortedPaths []registry.ID
 	var levels []int
 	for level := range buckets {
 		levels = append(levels, level)

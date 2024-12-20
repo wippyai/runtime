@@ -13,12 +13,12 @@ func CreateChangeSetFromEntries(entries []registry.Entry) registry.ChangeSet {
 		return nil
 	}
 
-	paths := make([]registry.Path, 0, len(entries))
-	entryMap := make(map[registry.Path]registry.Entry, len(entries))
+	paths := make([]registry.ID, 0, len(entries))
+	entryMap := make(map[registry.ID]registry.Entry, len(entries))
 
 	for _, entry := range entries {
-		paths = append(paths, entry.Path)
-		entryMap[entry.Path] = entry
+		paths = append(paths, entry.ID)
+		entryMap[entry.ID] = entry
 	}
 
 	sortedPaths := path.SortPaths(paths)

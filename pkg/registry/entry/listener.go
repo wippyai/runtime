@@ -135,20 +135,20 @@ func (l *Listener) rejectEntry(evt events.Event, reason error) {
 	l.bus.Send(l.ctx, events.Event{
 		System: registry.System,
 		Kind:   registry.Reject,
-		Data:   registry.Entry{Path: entry.Path, Data: payload.NewString(reason.Error())},
+		Data:   registry.Entry{ID: entry.ID, Data: payload.NewString(reason.Error())},
 	})
 }
 
 // RejectLast sends a rejection event for the last processed entry.
 func (l *Listener) RejectLast(reason error) {
-	if l.lastEntry.Path == "" {
+	if l.lastEntry.ID == "" {
 		return
 	}
 
 	l.bus.Send(l.ctx, events.Event{
 		System: registry.System,
 		Kind:   registry.Reject,
-		Data:   registry.Entry{Path: l.lastEntry.Path, Data: payload.NewString(reason.Error())},
+		Data:   registry.Entry{ID: l.lastEntry.ID, Data: payload.NewString(reason.Error())},
 	})
 
 	l.mu.Lock()
@@ -158,14 +158,14 @@ func (l *Listener) RejectLast(reason error) {
 
 // AcceptLast sends an acceptance event for the last processed entry.
 func (l *Listener) AcceptLast() {
-	if l.lastEntry.Path == "" {
+	if l.lastEntry.ID == "" {
 		return
 	}
 
 	l.bus.Send(l.ctx, events.Event{
 		System: registry.System,
 		Kind:   registry.Accept,
-		Data:   registry.Entry{Path: l.lastEntry.Path},
+		Data:   registry.Entry{ID: l.lastEntry.ID},
 	})
 
 	l.mu.Lock()

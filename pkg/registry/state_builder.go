@@ -42,7 +42,7 @@ func (b *StateBuilder) BuildState(history registry.History, targetVersion regist
 	}
 
 	state := make(registry.State, 0)
-	stateMap := make(map[registry.Path]registry.Entry) // Use a map for efficient lookups and overwrites
+	stateMap := make(map[registry.ID]registry.Entry) // Use a map for efficient lookups and overwrites
 
 	for _, ver := range path {
 		b.log.Debug("building version transition", zap.String("version", ver.String()))
@@ -55,31 +55,31 @@ func (b *StateBuilder) BuildState(history registry.History, targetVersion regist
 		for _, operation := range changeSet {
 			switch operation.Kind {
 			case registry.Create:
-				if _, exists := stateMap[operation.Entry.Path]; exists {
+				if _, exists := stateMap[operation.Entry.ID]; exists {
 					b.log.Error("conflict: entry already exists",
-						zap.String("path", string(operation.Entry.Path)),
+						zap.String("path", string(operation.Entry.ID)),
 						zap.String("version", ver.String()),
 					)
 				} else {
-					stateMap[operation.Entry.Path] = operation.Entry
+					stateMap[operation.Entry.ID] = operation.Entry
 				}
 			case registry.Update:
-				if _, exists := stateMap[operation.Entry.Path]; !exists {
+				if _, exists := stateMap[operation.Entry.ID]; !exists {
 					b.log.Warn("update on non-existent entry",
-						zap.String("path", string(operation.Entry.Path)),
+						zap.String("path", string(operation.Entry.ID)),
 						zap.String("version", ver.String()),
 					)
 				}
 				// Update even if it doesn't exist (effectively a create)
-				stateMap[operation.Entry.Path] = operation.Entry
+				stateMap[operation.Entry.ID] = operation.Entry
 			case registry.Delete:
-				if _, exists := stateMap[operation.Entry.Path]; !exists {
+				if _, exists := stateMap[operation.Entry.ID]; !exists {
 					b.log.Warn("delete on non-existent entry",
-						zap.String("path", string(operation.Entry.Path)),
+						zap.String("path", string(operation.Entry.ID)),
 						zap.String("version", ver.String()),
 					)
 				}
-				delete(stateMap, operation.Entry.Path)
+				delete(stateMap, operation.Entry.ID)
 			}
 		}
 	}
@@ -98,7 +98,7 @@ func (b *StateBuilder) BuildState(history registry.History, targetVersion regist
 
 	// Append entries to state in sorted order
 	for _, path := range paths {
-		state = append(state, stateMap[registry.Path(path)])
+		state = append(state, stateMap[registry.ID(path)])
 	}
 
 	return state, nil
@@ -106,14 +106,14 @@ func (b *StateBuilder) BuildState(history registry.History, targetVersion regist
 
 func (b *StateBuilder) BuildDelta(from, to registry.State) (registry.ChangeSet, error) {
 	// Convert the states to maps for easier lookup.
-	fromStateMap := make(map[registry.Path]registry.Entry)
+	fromStateMap := make(map[registry.ID]registry.Entry)
 	for _, entry := range from {
-		fromStateMap[entry.Path] = entry
+		fromStateMap[entry.ID] = entry
 	}
 
-	toStateMap := make(map[registry.Path]registry.Entry)
+	toStateMap := make(map[registry.ID]registry.Entry)
 	for _, entry := range to {
-		toStateMap[entry.Path] = entry
+		toStateMap[entry.ID] = entry
 	}
 
 	// Calculate the delta.
@@ -123,7 +123,7 @@ func (b *StateBuilder) BuildDelta(from, to registry.State) (registry.ChangeSet, 
 
 	// Find new and updated entries.
 	for _, toEntry := range to {
-		fromEntry, exists := fromStateMap[toEntry.Path]
+		fromEntry, exists := fromStateMap[toEntry.ID]
 		if !exists {
 			// Entry exists in 'to' but not in 'from' - Create operation.
 			creates = append(creates, registry.Operation{Kind: registry.Create, Entry: toEntry})
@@ -136,7 +136,7 @@ func (b *StateBuilder) BuildDelta(from, to registry.State) (registry.ChangeSet, 
 
 	// Find deleted entries.
 	for _, fromEntry := range from {
-		if _, exists := toStateMap[fromEntry.Path]; !exists {
+		if _, exists := toStateMap[fromEntry.ID]; !exists {
 			deletes = append(deletes, registry.Operation{Kind: registry.Delete, Entry: fromEntry})
 		}
 	}
@@ -144,14 +144,14 @@ func (b *StateBuilder) BuildDelta(from, to registry.State) (registry.ChangeSet, 
 	// Sort operations for correct order of execution:
 	// 1. Deletes: Sort by path in reverse order (children first).
 	sort.Slice(deletes, func(i, j int) bool {
-		return deletes[i].Entry.Path > deletes[j].Entry.Path
+		return deletes[i].Entry.ID > deletes[j].Entry.ID
 	})
 
 	// 2. Updates: No specific order needed for updates.
 
 	// 3. Creates: Sort by path in ascending order (parents first).
 	sort.Slice(creates, func(i, j int) bool {
-		return creates[i].Entry.Path < creates[j].Entry.Path
+		return creates[i].Entry.ID < creates[j].Entry.ID
 	})
 
 	// Concatenate operations to form the final ChangeSet.

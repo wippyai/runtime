@@ -38,7 +38,7 @@ func TestCreateChangeSetFromEntries(t *testing.T) {
 			name: "single entry",
 			entries: []registry.Entry{
 				{
-					Path: "service.url",
+					ID:   "service.url",
 					Kind: "listener",
 					Meta: map[string]any{"env": "dev"},
 					Data: payload.New("localhost:8080"),
@@ -48,7 +48,7 @@ func TestCreateChangeSetFromEntries(t *testing.T) {
 				{
 					Kind: registry.Create,
 					Entry: registry.Entry{
-						Path: "service.url",
+						ID:   "service.url",
 						Kind: "listener",
 						Meta: map[string]any{"env": "dev"},
 						Data: payload.New("localhost:8080"),
@@ -60,37 +60,37 @@ func TestCreateChangeSetFromEntries(t *testing.T) {
 			name: "multiple entries with sorting",
 			entries: []registry.Entry{
 				{
-					Path: "service.database.url",
+					ID:   "service.database.url",
 					Kind: "listener",
 					Meta: map[string]any{"env": "prod"},
 					Data: payload.New("db://prod"),
 				},
 				{
-					Path: "service.cache.size",
+					ID:   "service.cache.size",
 					Kind: "listener",
 					Meta: map[string]any{"unit": "MB"},
 					Data: payload.New("1024"),
 				},
 				{
-					Path: "gateway.port",
+					ID:   "gateway.port",
 					Kind: "endpoint",
 					Meta: map[string]any{"protocol": "http"},
 					Data: payload.New("8080"),
 				},
 				{
-					Path: "service",
+					ID:   "service",
 					Kind: "service",
 					Meta: map[string]any{"version": "1.0"},
 					Data: payload.New(""),
 				},
 				{
-					Path: "service.database",
+					ID:   "service.database",
 					Kind: "component",
 					Meta: map[string]any{"type": "sql"},
 					Data: payload.New(""),
 				},
 				{
-					Path: "another.service.key",
+					ID:   "another.service.key",
 					Kind: "listener",
 					Meta: map[string]any{"unit": "MB"},
 					Data: payload.New("2024"),
@@ -100,7 +100,7 @@ func TestCreateChangeSetFromEntries(t *testing.T) {
 				{
 					Kind: registry.Create,
 					Entry: registry.Entry{
-						Path: "service",
+						ID:   "service",
 						Kind: "service",
 						Meta: map[string]any{"version": "1.0"},
 						Data: payload.New(""),
@@ -109,7 +109,7 @@ func TestCreateChangeSetFromEntries(t *testing.T) {
 				{
 					Kind: registry.Create,
 					Entry: registry.Entry{
-						Path: "gateway.port",
+						ID:   "gateway.port",
 						Kind: "endpoint",
 						Meta: map[string]any{"protocol": "http"},
 						Data: payload.New("8080"),
@@ -118,7 +118,7 @@ func TestCreateChangeSetFromEntries(t *testing.T) {
 				{
 					Kind: registry.Create,
 					Entry: registry.Entry{
-						Path: "service.database",
+						ID:   "service.database",
 						Kind: "component",
 						Meta: map[string]any{"type": "sql"},
 						Data: payload.New(""),
@@ -127,7 +127,7 @@ func TestCreateChangeSetFromEntries(t *testing.T) {
 				{
 					Kind: registry.Create,
 					Entry: registry.Entry{
-						Path: "another.service.key",
+						ID:   "another.service.key",
 						Kind: "listener",
 						Meta: map[string]any{"unit": "MB"},
 						Data: payload.New("2024"),
@@ -136,7 +136,7 @@ func TestCreateChangeSetFromEntries(t *testing.T) {
 				{
 					Kind: registry.Create,
 					Entry: registry.Entry{
-						Path: "service.cache.size",
+						ID:   "service.cache.size",
 						Kind: "listener",
 						Meta: map[string]any{"unit": "MB"},
 						Data: payload.New("1024"),
@@ -145,7 +145,7 @@ func TestCreateChangeSetFromEntries(t *testing.T) {
 				{
 					Kind: registry.Create,
 					Entry: registry.Entry{
-						Path: "service.database.url",
+						ID:   "service.database.url",
 						Kind: "listener",
 						Meta: map[string]any{"env": "prod"},
 						Data: payload.New("db://prod"),
@@ -157,25 +157,25 @@ func TestCreateChangeSetFromEntries(t *testing.T) {
 			name: "multiple entries already sorted",
 			entries: []registry.Entry{
 				{
-					Path: "app",
+					ID:   "app",
 					Kind: "service",
 					Meta: map[string]any{"version": "1.0"},
 					Data: payload.New(""),
 				},
 				{
-					Path: "app.cache",
+					ID:   "app.cache",
 					Kind: "listener",
 					Meta: map[string]any{"type": "redis"},
 					Data: payload.New(""),
 				},
 				{
-					Path: "app.listener",
+					ID:   "app.listener",
 					Kind: "listener",
 					Meta: map[string]any{"env": "dev"},
 					Data: payload.New("localhost:8080"),
 				},
 				{
-					Path: "app.listener.logging",
+					ID:   "app.listener.logging",
 					Kind: "listener",
 					Meta: map[string]any{"level": "info"},
 					Data: payload.New("default"),
@@ -185,7 +185,7 @@ func TestCreateChangeSetFromEntries(t *testing.T) {
 				{
 					Kind: registry.Create,
 					Entry: registry.Entry{
-						Path: "app",
+						ID:   "app",
 						Kind: "service",
 						Meta: map[string]any{"version": "1.0"},
 						Data: payload.New(""),
@@ -194,7 +194,7 @@ func TestCreateChangeSetFromEntries(t *testing.T) {
 				{
 					Kind: registry.Create,
 					Entry: registry.Entry{
-						Path: "app.cache",
+						ID:   "app.cache",
 						Kind: "listener",
 						Meta: map[string]any{"type": "redis"},
 						Data: payload.New(""),
@@ -203,7 +203,7 @@ func TestCreateChangeSetFromEntries(t *testing.T) {
 				{
 					Kind: registry.Create,
 					Entry: registry.Entry{
-						Path: "app.listener",
+						ID:   "app.listener",
 						Kind: "listener",
 						Meta: map[string]any{"env": "dev"},
 						Data: payload.New("localhost:8080"),
@@ -212,7 +212,7 @@ func TestCreateChangeSetFromEntries(t *testing.T) {
 				{
 					Kind: registry.Create,
 					Entry: registry.Entry{
-						Path: "app.listener.logging",
+						ID:   "app.listener.logging",
 						Kind: "listener",
 						Meta: map[string]any{"level": "info"},
 						Data: payload.New("default"),
@@ -224,27 +224,27 @@ func TestCreateChangeSetFromEntries(t *testing.T) {
 			name: "mixed data types",
 			entries: []registry.Entry{
 				{
-					Path: "listener.number",
+					ID:   "listener.number",
 					Kind: "listener",
 					Data: payload.New("123"),
 				},
 				{
-					Path: "listener.bool",
+					ID:   "listener.bool",
 					Kind: "listener",
 					Data: payload.New("true"),
 				},
 				{
-					Path: "listener.string",
+					ID:   "listener.string",
 					Kind: "listener",
 					Data: payload.New("hello"),
 				},
 				{
-					Path: "listener.map",
+					ID:   "listener.map",
 					Kind: "listener",
 					Data: payload.New(`{"a": 1, "b": 2}`),
 				},
 				{
-					Path: "listener.slice",
+					ID:   "listener.slice",
 					Kind: "listener",
 					Data: payload.New("[1, 2, 3]"),
 				},
@@ -253,7 +253,7 @@ func TestCreateChangeSetFromEntries(t *testing.T) {
 				{
 					Kind: registry.Create,
 					Entry: registry.Entry{
-						Path: "listener.bool",
+						ID:   "listener.bool",
 						Kind: "listener",
 						Data: payload.New("true"),
 					},
@@ -261,7 +261,7 @@ func TestCreateChangeSetFromEntries(t *testing.T) {
 				{
 					Kind: registry.Create,
 					Entry: registry.Entry{
-						Path: "listener.map",
+						ID:   "listener.map",
 						Kind: "listener",
 						Data: payload.New(`{"a": 1, "b": 2}`),
 					},
@@ -269,7 +269,7 @@ func TestCreateChangeSetFromEntries(t *testing.T) {
 				{
 					Kind: registry.Create,
 					Entry: registry.Entry{
-						Path: "listener.number",
+						ID:   "listener.number",
 						Kind: "listener",
 						Data: payload.New("123"),
 					},
@@ -277,7 +277,7 @@ func TestCreateChangeSetFromEntries(t *testing.T) {
 				{
 					Kind: registry.Create,
 					Entry: registry.Entry{
-						Path: "listener.slice",
+						ID:   "listener.slice",
 						Kind: "listener",
 						Data: payload.New("[1, 2, 3]"),
 					},
@@ -285,7 +285,7 @@ func TestCreateChangeSetFromEntries(t *testing.T) {
 				{
 					Kind: registry.Create,
 					Entry: registry.Entry{
-						Path: "listener.string",
+						ID:   "listener.string",
 						Kind: "listener",
 						Data: payload.New("hello"),
 					},
@@ -308,8 +308,8 @@ func TestCreateChangeSetFromEntries(t *testing.T) {
 					return
 				}
 
-				if got[i].Entry.Path != tt.want[i].Entry.Path {
-					t.Errorf("CreateChangeSetFromEntries() Path = %v, want %v", got[i].Entry.Path, tt.want[i].Entry.Path)
+				if got[i].Entry.ID != tt.want[i].Entry.ID {
+					t.Errorf("CreateChangeSetFromEntries() Name = %v, want %v", got[i].Entry.ID, tt.want[i].Entry.ID)
 					return
 				}
 

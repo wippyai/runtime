@@ -19,9 +19,9 @@ const (
 )
 
 type (
-	// Path represents a unique identifier for a registry entry.
+	// ID represents a unique identifier for a registry entry.
 	// It typically uses a hierarchical structure (e.g., "service.database.url").
-	Path string
+	ID string
 
 	// Kind is a string representing the type of an entry (e.g., "listener", "service", "endpoint").
 	// This helps categorize entries for different purposes.
@@ -46,8 +46,8 @@ type (
 
 	// Entry represents a single entry in the registry.
 	Entry struct {
-		// Path is the unique identifier for the entry.
-		Path Path
+		// ID is the unique identifier for the entry.
+		ID ID
 		// Kind is the type/category of the entry.
 		Kind Kind
 		// Meta contains any additional metadata about the entry.
@@ -63,9 +63,8 @@ type (
 	Operation struct {
 		// Kind is the type of operation.
 		Kind events.Kind
-		// Entry is the entry affected by the operation. For Delete operations, only the Path field might be relevant.
+		// Entry is the entry affected by the operation. For Delete operations, only the ID field might be relevant.
 		Entry Entry
-
 		// Data represents unmarshalled data of the entry, typically nil.
 		Data any
 	}
@@ -102,7 +101,7 @@ type (
 		// GetAllEntries retrieves all entries in the registry's current state.
 		GetAllEntries() ([]Entry, error)
 		// GetEntry retrieves a specific entry by its path. Returns an error if the entry is not found.
-		GetEntry(Path) (Entry, error)
+		GetEntry(ID) (Entry, error)
 	}
 
 	// History defines methods for managing the version history of the registry.

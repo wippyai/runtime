@@ -118,7 +118,7 @@ func (db *DB) executePrepared(l *lua.LState) int {
 		return 2
 	}
 
-	// we expect 2 arguments, string with the ID and table with arguments
+	// we expect 2 arguments, string with the Name and table with arguments
 	numArgs := l.GetTop()
 	if numArgs != 2 {
 		db.log.Error("expected 2 arguments")
@@ -127,7 +127,7 @@ func (db *DB) executePrepared(l *lua.LState) int {
 		return 2
 	}
 
-	// 1st argument is the ID
+	// 1st argument is the Name
 	id := l.CheckString(1)
 
 	// 2nd argument is the table
@@ -146,9 +146,9 @@ func (db *DB) executePrepared(l *lua.LState) int {
 
 	prepSt, ok := db.prepstmap[id]
 	if !ok {
-		db.log.Error("prepared statement not found by provided ID")
+		db.log.Error("prepared statement not found by provided Name")
 		l.Push(lua.LNil)
-		l.Push(lua.LString("prepared statement not found by provided ID"))
+		l.Push(lua.LString("prepared statement not found by provided Name"))
 		return 2
 	}
 

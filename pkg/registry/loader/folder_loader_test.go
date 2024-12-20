@@ -120,20 +120,20 @@ data: file://../e_data.txt
 
 	// Compare loaded entries
 	for _, entry := range entries {
-		expected, ok := expectedEntries[string(entry.Path)]
+		expected, ok := expectedEntries[string(entry.ID)]
 		if !ok {
-			t.Fatalf("expected entry with path '%s' not found", entry.Path)
+			t.Fatalf("expected entry with path '%s' not found", entry.ID)
 		}
 
 		if entry.Kind != registry.Kind(expected.Kind) {
-			t.Errorf("expected entry kind: %s, got: %s for path: %s", expected.Kind, entry.Kind, entry.Path)
+			t.Errorf("expected entry kind: %s, got: %s for path: %s", expected.Kind, entry.Kind, entry.ID)
 		}
 		var data map[string]interface{}
 		err = dtt.Unmarshal(entry.Data, &data)
 		if err != nil {
-			t.Fatalf("failed to unmarshal payload data for path %s: %v", entry.Path, err)
+			t.Fatalf("failed to unmarshal payload data for path %s: %v", entry.ID, err)
 		}
-		assert.Equal(t, expected.Data, data, "Data mismatch for path: %s", entry.Path)
+		assert.Equal(t, expected.Data, data, "Data mismatch for path: %s", entry.ID)
 	}
 }
 
@@ -301,7 +301,7 @@ func TestFolderLoader_calculateFullID(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			folderLoader.namespace = tc.namespace
 			result := folderLoader.calculateFullID(tc.relPath, tc.entryName)
-			assert.Equal(t, registry.Path(tc.expected), result, "Expected full ID does not match")
+			assert.Equal(t, registry.ID(tc.expected), result, "Expected full Name does not match")
 		})
 	}
 }
@@ -342,7 +342,7 @@ data: value
 		t.Fatalf("expected 1 entry, got %d", len(entries))
 	}
 
-	if string(entries[0].Path) != "valid_setting" {
+	if string(entries[0].ID) != "valid_setting" {
 		t.Fatalf("expected entry with path '%s' not found", "valid_setting")
 	}
 
@@ -398,7 +398,7 @@ data: value
 		t.Fatalf("expected 1 entry, got %d", len(entries))
 	}
 
-	if string(entries[0].Path) != "valid_setting" {
+	if string(entries[0].ID) != "valid_setting" {
 		t.Fatalf("expected entry with path '%s' not found", "valid_setting")
 	}
 	// Check logs for errors
@@ -439,7 +439,7 @@ data: value
 		t.Fatalf("expected 1 entry, got %d", len(entries))
 	}
 	expectedPath := "a.b.c.d.e.f.g.h.i.j.k.l.m.n.o.p.q.r.s.t.nested_setting"
-	if string(entries[0].Path) != expectedPath {
+	if string(entries[0].ID) != expectedPath {
 		t.Fatalf("expected entry with path '%s' not foundm, got %+v", expectedPath, entries)
 	}
 }

@@ -44,7 +44,7 @@ func TestMemoryStorage_Get(t *testing.T) {
 		{
 			Kind: registry.Create,
 			Entry: registry.Entry{
-				Path: "/foo",
+				ID:   "/foo",
 				Kind: "test",
 				Data: payload.New("data"),
 			},
@@ -77,7 +77,7 @@ func TestMemoryStorage_Save(t *testing.T) {
 		{
 			Kind: registry.Create,
 			Entry: registry.Entry{
-				Path: "/foo",
+				ID:   "/foo",
 				Kind: "test",
 				Data: payload.New("data"),
 			},

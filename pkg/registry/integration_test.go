@@ -85,18 +85,18 @@ data:
 			case registry.Update:
 				found := false
 				for i, entry := range newState {
-					if entry.Path == change.Entry.Path {
+					if entry.ID == change.Entry.ID {
 						newState[i] = change.Entry
 						found = true
 						break
 					}
 				}
 				if !found {
-					return state, fmt.Errorf("entry not found for update: %s", change.Entry.Path)
+					return state, fmt.Errorf("entry not found for update: %s", change.Entry.ID)
 				}
 			case registry.Delete:
 				for i, entry := range newState {
-					if entry.Path == change.Entry.Path {
+					if entry.ID == change.Entry.ID {
 						newState = append(newState[:i], newState[i+1:]...)
 						break
 					}
@@ -127,7 +127,7 @@ data:
 
 	expectedState := registry.State{
 		{
-			Path: "listener.database_url",
+			ID:   "listener.database_url",
 			Kind: "listener",
 			Data: payload.New(map[string]interface{}{
 				"name": "database_url",
@@ -139,7 +139,7 @@ data:
 			}),
 		},
 		{
-			Path: "service.api_service",
+			ID:   "service.api_service",
 			Kind: "service",
 			Data: payload.New(map[string]interface{}{
 				"name": "api_service",
@@ -163,9 +163,9 @@ data:
 	for _, expectedEntry := range expectedState {
 		found := false
 		for _, currentEntry := range currentState {
-			if currentEntry.Path == expectedEntry.Path {
+			if currentEntry.ID == expectedEntry.ID {
 				found = true
-				assert.Equal(t, expectedEntry.Kind, currentEntry.Kind, "Kind mismatch for path: %s", expectedEntry.Path)
+				assert.Equal(t, expectedEntry.Kind, currentEntry.Kind, "Kind mismatch for path: %s", expectedEntry.ID)
 
 				// Compare Data field using assert.Equal for deep comparison of maps
 				var expectedData, currentData map[string]interface{}
@@ -174,12 +174,12 @@ data:
 				err = dtt.Unmarshal(currentEntry.Data, &currentData)
 				assert.NoError(t, err, "Error unmarshalling current data")
 
-				assert.Equal(t, expectedData, currentData, "Data mismatch for path: %s", expectedEntry.Path)
+				assert.Equal(t, expectedData, currentData, "Data mismatch for path: %s", expectedEntry.ID)
 				break
 			}
 		}
 		if !found {
-			t.Errorf("Expected entry not found in state: %s", expectedEntry.Path)
+			t.Errorf("Expected entry not found in state: %s", expectedEntry.ID)
 		}
 	}
 }

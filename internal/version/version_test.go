@@ -42,9 +42,9 @@ func TestVersion(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			// Test ID
+			// Test Name
 			if v1ID := tc.v1.ID(); v1ID != tc.v1ID {
-				t.Errorf("Expected ID() for %v to be %v, got %v", tc.v1, tc.v1ID, v1ID)
+				t.Errorf("Expected Name() for %v to be %v, got %v", tc.v1, tc.v1ID, v1ID)
 			}
 
 			// Test Previous
