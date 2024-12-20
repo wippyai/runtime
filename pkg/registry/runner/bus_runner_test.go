@@ -125,7 +125,7 @@ func (c *testComponent) wasRejected(path registry.ID) bool {
 // attachComponent sets up an event listener for the testComponent.
 func attachComponent(ctx context.Context, t *testing.T, bus events.Bus, component *testComponent) func() {
 	// Listen for all kinds within the registry system.
-	listener, err := eventbus.NewEventListener(ctx, bus, registry.System, "", component.handleEvent)
+	listener, err := eventbus.NewSubscriber(ctx, bus, registry.System, "", component.handleEvent)
 	if err != nil {
 		t.Fatalf("Failed to create event listener for component: %v", err)
 	}
@@ -344,7 +344,7 @@ func TestBusRunner_RollbackOnSecondOperationFailure(t *testing.T) {
 	componentClose := attachComponent(ctx, t, bus, component)
 	defer componentClose()
 
-	initialState := registry.State{} // Start with an empty state
+	initialState := registry.State{} // StartComponent with an empty state
 	changeSet := registry.ChangeSet{
 		{
 			Kind: registry.Create,
@@ -394,7 +394,7 @@ func TestBusRunner_BeginAndCommitEvents(t *testing.T) {
 	eventChan := make(chan events.Event, 10)
 
 	// Attach the listener to the bus
-	listener, err := eventbus.NewEventListener(
+	listener, err := eventbus.NewSubscriber(
 		ctx, bus, registry.System, "registry.*",
 		func(evt events.Event) {
 			if evt.System == registry.System && (evt.Kind == registry.Begin || evt.Kind == registry.Commit) {
@@ -465,7 +465,7 @@ func TestBusRunner_BeginAndDiscardEvents(t *testing.T) {
 	eventChan := make(chan events.Event, 10)
 
 	// Attach the listener to the bus to listen for Begin and Discard events
-	listener, err := eventbus.NewEventListener(
+	listener, err := eventbus.NewSubscriber(
 		ctx, bus, registry.System, "registry.*",
 		func(evt events.Event) {
 			if evt.System == registry.System && (evt.Kind == registry.Begin || evt.Kind == registry.Discard) {

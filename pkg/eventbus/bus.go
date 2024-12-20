@@ -35,7 +35,7 @@ type sendEvent struct {
 
 type sub struct {
 	subID   events.SubscriberID
-	system  events.System
+	system  *wildcard.Wildcard
 	kind    *wildcard.Wildcard
 	eventCh chan<- events.Event
 	doneCh  chan bool
@@ -94,9 +94,14 @@ func (b *Bus) SubscribeP(
 		w = wildcard.NewWildcard(string(kind))
 	}
 
+	var sw *wildcard.Wildcard
+	if system != "" {
+		sw = wildcard.NewWildcard(string(system))
+	}
+
 	sub := sub{
 		subID:   subID,
-		system:  system,
+		system:  sw,
 		kind:    w,
 		eventCh: ch,
 		doneCh:  make(chan bool),
@@ -179,7 +184,7 @@ func (b *Bus) handleActions() {
 			}
 
 			for _, s := range b.subscribers {
-				if s.system != a.event.event.System && s.system != "*" {
+				if s.system != nil && !s.system.Match(string(a.event.event.System)) {
 					continue
 				}
 

@@ -85,7 +85,7 @@ func TestSimpleHTTP(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Start server
+	// StartComponent server
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 

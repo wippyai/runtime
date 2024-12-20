@@ -8,3 +8,9 @@ meta:
 listen: ":8080"
 http:
   idle_timeout: 60s
+
+lifecycle:
+  auto_start: true
+  restart:
+    delay: 5s
+    max_attempts: 3

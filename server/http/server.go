@@ -45,7 +45,7 @@ func (s *Server) Serve(ctx context.Context) error {
 	}
 	s.mu.Unlock()
 
-	// Start server in a goroutine
+	// StartComponent server in a goroutine
 	serverErr := make(chan error, 1)
 	go func() {
 		if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {

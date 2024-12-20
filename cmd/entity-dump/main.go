@@ -61,14 +61,14 @@ func main() {
 		vars[pair[0]] = pair[1]
 	}
 
-	// 4. Load Entries:
+	// 4. Load List:
 	entries, err := folderLoader.Load(folderPath, namespace, vars) // Pass vars to Load
 	if err != nil {
 		logger.Fatal("Failed to load entries", zap.Error(err))
 	}
 
-	// 5. Dump Entries to Console:
-	fmt.Println("Loaded Registry Entries (YAML):")
+	// 5. Dump List to Console:
+	fmt.Println("Loaded Registry List (YAML):")
 	for _, entry := range entries {
 		p, err := dtt.Transcode(entry.Data, payload.Yaml)
 		if err != nil {

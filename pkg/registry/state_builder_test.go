@@ -698,7 +698,7 @@ func TestStateBuilder_BuildDelta_ComplexScenario(t *testing.T) {
 	v4 := version.FromParent(v3, 4)
 	v5 := version.FromParent(v4, 5)
 
-	// Entries
+	// List
 	entryParent := registry.Entry{ID: "/parent", Kind: "kindParent", Data: payload.New("parentData")}
 	entryChild1 := registry.Entry{ID: "/parent/child1", Kind: "kindChild", Data: payload.New("child1Data")}
 	entryChild2 := registry.Entry{ID: "/parent/child2", Kind: "kindChild", Data: payload.New("child2Data")}
@@ -763,7 +763,7 @@ func TestStateBuilder_BuildDelta_ComplexScenario_Inversed(t *testing.T) {
 	v4 := version.FromParent(v3, 4)
 	v5 := version.FromParent(v4, 5)
 
-	// Entries
+	// List
 	entryParent := registry.Entry{ID: "/parent", Kind: "kindParent", Data: payload.New("parentData")}
 	entryChild1 := registry.Entry{ID: "/parent/child1", Kind: "kindChild", Data: payload.New("child1Data")}
 	entryChild2 := registry.Entry{ID: "/parent/child2", Kind: "kindChild", Data: payload.New("child2Data")}
@@ -827,7 +827,7 @@ func TestStateBuilder_BuildDelta_FromNewToOld(t *testing.T) {
 	v2 := version.FromParent(v1, 2)
 	v3 := version.FromParent(v2, 3)
 
-	// Entries
+	// List
 	entry1 := registry.Entry{ID: "/path/1", Kind: "kind1", Data: payload.New("data1")}
 	entry2 := registry.Entry{ID: "/path/2", Kind: "kind2", Data: payload.New("data2")}
 	entry2Updated := registry.Entry{ID: "/path/2", Kind: "kind2", Data: payload.New("data2Updated")}

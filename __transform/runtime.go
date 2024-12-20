@@ -1,5 +1,5 @@
 // Package runtime provides the runtime environment for the application.
-// It knows about all underlying components and is responsible for their lifecycle.
+// It knows about all underlying components and is responsible for their supervisor.
 package __transform
 
 //
