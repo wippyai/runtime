@@ -4,23 +4,27 @@ import (
 	"context"
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/registry"
+	"time"
 )
 
 const (
-	// System is the event system for the supervisor component.
 	System events.System = "supervisor"
-	// Start is the event kind for starting an entity.
-	Start events.Kind = "supervisor.component.start"
-	// Stop is the event kind for stopping an entity.
-	Stop events.Kind = "supervisor.component.stop"
 
-	// UpdateStatus is the event kind for updating the status of an entity. Typically sent by component.
-	UpdateStatus events.Kind = "supervisor.component.status"
+	Start events.Kind = "supervisor.component.start"
+	Stop  events.Kind = "supervisor.component.stop"
+
+	Query  events.Kind = "supervisor.component.query"
+	Report events.Kind = "supervisor.component.status"
+
+	StatusUnknown  Status = "unknown"
+	StatusStarting Status = "starting"
+	StatusRunning  Status = "running"
+	StatusStopping Status = "stopping"
+	StatusStopped  Status = "stopped"
+	StatusFailed   Status = "failed"
 )
 
 type (
-	Status string
-
 	RetryPolicy struct {
 		Delay       string `json:"delay" yaml:"delay"`
 		MaxAttempts int    `json:"max_attempts" yaml:"max_attempts"`
@@ -31,6 +35,8 @@ type (
 		Restart   RetryPolicy `json:"restart" yaml:"restart"`
 	}
 
+	Status string
+
 	OperationalStatus struct {
 		Status  Status
 		Message string
@@ -38,6 +44,8 @@ type (
 
 	Entry struct {
 		ID        registry.ID
+		Added     time.Time
+		Updated   time.Time
 		Lifecycle Lifecycle
 		Status    OperationalStatus
 	}
