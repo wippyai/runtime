@@ -70,7 +70,7 @@ package http
 //
 //	s.listener = listener
 //
-//	// Start processing configuration events
+//	// StartComponent processing configuration events
 //	s.wg.Add(1)
 //	go s.processConfigs(configCh)
 //
@@ -164,7 +164,7 @@ package http
 //					server = NewServer(*cfg, s.handler)
 //					s.servers[serverID] = server
 //
-//					// Start the server
+//					// StartComponent the server
 //					go func() {
 //						if err := server.Serve(s.ctx); err != nil {
 //							s.log.Error("Server error",

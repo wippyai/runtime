@@ -35,7 +35,7 @@ func TestEventListener_NewEventListener(t *testing.T) {
 		wg.Done()
 	}
 
-	handler, err := NewEventListener(ctx, b, "test-system", "test-kind.*", handlerFunc)
+	handler, err := NewSubscriber(ctx, b, "test-system", "test-kind.*", handlerFunc)
 	require.NoError(t, err)
 	defer handler.Close()
 
@@ -77,7 +77,7 @@ func TestEventListener_NewEventListener_NoKind(t *testing.T) {
 		wg.Done()
 	}
 
-	handler, err := NewEventListener(ctx, b, "test-system", "", handlerFunc)
+	handler, err := NewSubscriber(ctx, b, "test-system", "", handlerFunc)
 	require.NoError(t, err)
 	defer handler.Close()
 
@@ -119,7 +119,7 @@ func TestEventListener_Close(t *testing.T) {
 		wg.Done()
 	}
 
-	handler, err := NewEventListener(ctx, b, "test-system", "test-kind.*", handlerFunc)
+	handler, err := NewSubscriber(ctx, b, "test-system", "test-kind.*", handlerFunc)
 	require.NoError(t, err)
 
 	// Send eventbus
@@ -155,7 +155,7 @@ func TestEventListener_ContextCancellation(t *testing.T) {
 		mu.Unlock()
 	}
 
-	handler, err := NewEventListener(ctx, b, "test-system", "", handlerFunc)
+	handler, err := NewSubscriber(ctx, b, "test-system", "", handlerFunc)
 	require.NoError(t, err)
 	defer handler.Close() // Ensure handler is closed even if the test fails
 

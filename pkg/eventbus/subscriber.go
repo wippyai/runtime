@@ -6,8 +6,8 @@ import (
 	"sync"
 )
 
-// EventHandler is a helper struct that simplifies subscribing to and handling events from an event bus.
-type EventHandler struct {
+// Subscriber is a helper struct that simplifies subscribing to and handling events from an event bus.
+type Subscriber struct {
 	bus          events.Bus
 	subscriberID events.SubscriberID
 	handlerFunc  func(events.Event)
@@ -16,18 +16,18 @@ type EventHandler struct {
 	wg           sync.WaitGroup
 }
 
-// NewEventListener creates a new EventHandler that subscribes to events matching the given system and kind pattern.
+// NewSubscriber creates a new Subscriber that subscribes to events matching the given system and kind pattern.
 // It starts an internal goroutine that listens for events and calls the provided handlerFunc for each received event.
 // The context provided will be used to start the listener and will be used during shutdown
-func NewEventListener(
+func NewSubscriber(
 	ctx context.Context,
 	b events.Bus,
 	system events.System,
 	kind events.Kind,
 	handlerFunc func(events.Event),
-) (*EventHandler, error) {
+) (*Subscriber, error) {
 	ctx, cancel := context.WithCancel(ctx)
-	h := &EventHandler{
+	h := &Subscriber{
 		bus:         b,
 		handlerFunc: handlerFunc,
 		ctx:         ctx,
@@ -64,11 +64,11 @@ func NewEventListener(
 }
 
 // Close stops the internal goroutine, unsubscribes from the event bus, and waits for the goroutine to exit.
-func (h *EventHandler) Close() {
+func (h *Subscriber) Close() {
 	h.cancel()
 	h.wg.Wait()
 }
 
-func (h *EventHandler) ID() events.SubscriberID {
+func (h *Subscriber) ID() events.SubscriberID {
 	return h.subscriberID
 }

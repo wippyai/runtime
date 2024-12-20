@@ -87,7 +87,7 @@ func TestRouterComposition(t *testing.T) {
 			// Add an endpoint to each router
 			err = router.AddEndpoint("", config.EndpointConfig{
 				Method: http.MethodGet,
-				Path:   "/control",
+				Path:   "/supervisor",
 				Meta:   registry.Metadata{"router_id": r.id},
 			})
 			require.NoError(t, err)
@@ -101,9 +101,9 @@ func TestRouterComposition(t *testing.T) {
 			path     string
 			routerID string
 		}{
-			{"/api/v1/control", "router1"},
-			{"/api/v2/control", "router2"},
-			{"/internal/control", "router3"},
+			{"/api/v1/supervisor", "router1"},
+			{"/api/v2/supervisor", "router2"},
+			{"/internal/supervisor", "router3"},
 		}
 
 		for _, tt := range tests {
@@ -230,7 +230,7 @@ func TestRouterEndpointOperations(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}
 
-	t.Run("endpoint lifecycle", func(t *testing.T) {
+	t.Run("endpoint supervisor", func(t *testing.T) {
 		router := NewRouter(handler)
 
 		// Test adding endpoint without router_id (should go to default router)

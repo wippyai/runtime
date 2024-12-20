@@ -11,7 +11,7 @@ type (
 	// System represents a system or module that eventbus belong to (e.g., "listener", "runtime", etc).
 	System string
 
-	// Kind represents the specific type of an event within a system (e.g., "listener.created", "control.online").
+	// Kind represents the specific type of an event within a system (e.g., "listener.created", "supervisor.online").
 	Kind string
 
 	Path string

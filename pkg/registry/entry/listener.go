@@ -29,7 +29,7 @@ type Listener struct {
 // NewListener creates a new Listener.
 //
 // Parameters:
-//   - ctx: The context governing the lifecycle of the entry.
+//   - ctx: The context governing the supervisor of the entry.
 //   - b: The event bus to subscribe to.
 //   - pattern: The pattern to match against entry paths (supports wildcards).
 //   - factories: A map of registry kinds to the factories they should be unmarshaled into.
