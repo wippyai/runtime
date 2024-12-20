@@ -9,7 +9,7 @@ import (
 )
 
 // stateMap is an internal representation of the state using a map for faster lookups.
-type stateMap map[registry.Path]registry.Entry
+type stateMap map[registry.ID]registry.Entry
 
 // stateHelper encapsulates state-related operations.
 type stateHelper struct {
@@ -27,7 +27,7 @@ func newStateHelper(log *zap.Logger) *stateHelper {
 func (sh *stateHelper) toMap(state registry.State) stateMap {
 	m := make(stateMap)
 	for _, entry := range state {
-		m[entry.Path] = entry
+		m[entry.ID] = entry
 	}
 	return m
 }
@@ -56,14 +56,14 @@ func (sh *stateHelper) applyChangeToState(state stateMap, op registry.Operation)
 
 	switch op.Kind {
 	case registry.Create:
-		newState[op.Entry.Path] = op.Entry
+		newState[op.Entry.ID] = op.Entry
 	case registry.Update:
-		newState[op.Entry.Path] = op.Entry
+		newState[op.Entry.ID] = op.Entry
 	case registry.Delete:
-		if _, ok := newState[op.Entry.Path]; ok {
-			delete(newState, op.Entry.Path)
+		if _, ok := newState[op.Entry.ID]; ok {
+			delete(newState, op.Entry.ID)
 		} else {
-			sh.log.Warn("Attempted to delete non-existent entry", zap.String("path", string(op.Entry.Path)))
+			sh.log.Warn("Attempted to delete non-existent entry", zap.String("path", string(op.Entry.ID)))
 		}
 	default:
 		return nil, fmt.Errorf("unknown operation kind: %s", op.Kind)
@@ -79,20 +79,20 @@ func (sh *stateHelper) getInverseOperation(state stateMap, op registry.Operation
 		return registry.Operation{Kind: registry.Delete, Entry: op.Entry}, nil // Delete is the inverse of Create.
 	case registry.Update:
 		// Fetch the original entry from the state to ensure we revert to the correct state.
-		originalEntry, exists := state[op.Entry.Path]
+		originalEntry, exists := state[op.Entry.ID]
 		if !exists {
 			// If the entry doesn't exist in the original state, we can't perform an update. Log a warning and skip.
-			sh.log.Warn("Original entry not found for update operation, cannot create inverse", zap.String("path", string(op.Entry.Path)))
-			return registry.Operation{}, fmt.Errorf("original entry not found for path: %s", op.Entry.Path)
+			sh.log.Warn("Original entry not found for update operation, cannot create inverse", zap.String("path", string(op.Entry.ID)))
+			return registry.Operation{}, fmt.Errorf("original entry not found for path: %s", op.Entry.ID)
 		}
 		return registry.Operation{Kind: registry.Update, Entry: originalEntry}, nil
 	case registry.Delete:
 		// For delete, the inverse is to create the entry as it was originally.
-		originalEntry, exists := state[op.Entry.Path]
+		originalEntry, exists := state[op.Entry.ID]
 		if !exists {
 			// If the entry doesn't exist in the original state, we can't recreate it. Log a warning and skip.
-			sh.log.Warn("Original entry not found for delete operation, cannot create inverse", zap.String("path", string(op.Entry.Path)))
-			return registry.Operation{}, fmt.Errorf("original entry not found for path: %s", op.Entry.Path)
+			sh.log.Warn("Original entry not found for delete operation, cannot create inverse", zap.String("path", string(op.Entry.ID)))
+			return registry.Operation{}, fmt.Errorf("original entry not found for path: %s", op.Entry.ID)
 		}
 		return registry.Operation{Kind: registry.Create, Entry: originalEntry}, nil
 	default:

@@ -9,32 +9,32 @@ import (
 func TestSortPathsHierarchically(t *testing.T) {
 	testCases := []struct {
 		name     string
-		input    []registry.Path
-		expected []registry.Path
+		input    []registry.ID
+		expected []registry.ID
 	}{
 		{
 			name:     "empty_input",
-			input:    []registry.Path{},
-			expected: []registry.Path{},
+			input:    []registry.ID{},
+			expected: []registry.ID{},
 		},
 		{
 			name: "single_element",
-			input: []registry.Path{
+			input: []registry.ID{
 				"only.entry",
 			},
-			expected: []registry.Path{
+			expected: []registry.ID{
 				"only.entry",
 			},
 		},
 		{
 			name: "flat_vs_hierarchical",
-			input: []registry.Path{
+			input: []registry.ID{
 				"x.y.z",
 				"setting_x",
 				"a.b.c",
 				"standalone",
 			},
-			expected: []registry.Path{
+			expected: []registry.ID{
 				"setting_x",
 				"standalone",
 				"a.b.c",
@@ -43,7 +43,7 @@ func TestSortPathsHierarchically(t *testing.T) {
 		},
 		{
 			name: "mixed_hierarchy_levels",
-			input: []registry.Path{
+			input: []registry.ID{
 				"a.b.c",
 				"a.b",
 				"x.y.z",
@@ -51,7 +51,7 @@ func TestSortPathsHierarchically(t *testing.T) {
 				"a",
 				"x.y",
 			},
-			expected: []registry.Path{
+			expected: []registry.ID{
 				"a",
 				"x",
 				"a.b",
@@ -62,13 +62,13 @@ func TestSortPathsHierarchically(t *testing.T) {
 		},
 		{
 			name: "same_prefix_different_lengths",
-			input: []registry.Path{
+			input: []registry.ID{
 				"listener.advanced.setting",
 				"listener",
 				"listener.basic",
 				"listener.advanced",
 			},
-			expected: []registry.Path{
+			expected: []registry.ID{
 				"listener",
 				"listener.advanced",
 				"listener.basic",
@@ -77,7 +77,7 @@ func TestSortPathsHierarchically(t *testing.T) {
 		},
 		{
 			name: "mixed_case_with_underscores",
-			input: []registry.Path{
+			input: []registry.ID{
 				"x.y.z",
 				"setting_a",
 				"a.b_c",
@@ -85,7 +85,7 @@ func TestSortPathsHierarchically(t *testing.T) {
 				"standalone_value",
 				"a.b_d",
 			},
-			expected: []registry.Path{
+			expected: []registry.ID{
 				"setting_a",
 				"standalone_value",
 				"a.b_c",
@@ -96,7 +96,7 @@ func TestSortPathsHierarchically(t *testing.T) {
 		},
 		{
 			name: "complex_mixed_case",
-			input: []registry.Path{
+			input: []registry.ID{
 				"b.setting_b",
 				"z.setting_z",
 				"c.nested.setting_c",
@@ -104,7 +104,7 @@ func TestSortPathsHierarchically(t *testing.T) {
 				"b.other_b",
 				"setting_x",
 			},
-			expected: []registry.Path{
+			expected: []registry.ID{
 				"setting_x",
 				"a.setting_a",
 				"b.other_b",
@@ -115,7 +115,7 @@ func TestSortPathsHierarchically(t *testing.T) {
 		},
 		{
 			name: "sibling_paths_ordering_another_level",
-			input: []registry.Path{
+			input: []registry.ID{
 				"y.x",
 				"a.b.c",
 				"x.y.z",
@@ -123,7 +123,7 @@ func TestSortPathsHierarchically(t *testing.T) {
 				"a.d.e",
 				"x.w.v",
 			},
-			expected: []registry.Path{
+			expected: []registry.ID{
 				"y.x",
 				"a.b.c",
 				"a.d.e",

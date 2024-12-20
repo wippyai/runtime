@@ -11,7 +11,7 @@ local function main()
     end
 
     if response.status_code ~= 200 then
-        return { error = "Time service returned status code: " .. response.status_code }
+        return { error = "Time service returned control code: " .. response.status_code }
     end
 
     -- Decode the JSON response

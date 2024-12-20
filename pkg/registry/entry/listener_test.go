@@ -55,7 +55,7 @@ func TestEntryListener(t *testing.T) {
 					System: registry.System,
 					Kind:   "entry.create",
 					Data: registry.Entry{
-						Path: "component.config.item1",
+						ID:   "component.config.item1",
 						Kind: "component.mock",
 						Data: payload.NewPayload(`{"value": "test_value"}`, payload.Json),
 					},
@@ -65,7 +65,7 @@ func TestEntryListener(t *testing.T) {
 				{
 					Kind: "entry.create",
 					Entry: registry.Entry{
-						Path: "component.config.item1",
+						ID:   "component.config.item1",
 						Kind: "component.mock",
 						Data: payload.NewPayload(`{"value": "test_value"}`, payload.Json),
 					},
@@ -85,7 +85,7 @@ func TestEntryListener(t *testing.T) {
 					System: registry.System,
 					Kind:   "entry.update",
 					Data: registry.Entry{
-						Path: "component.config.item2",
+						ID:   "component.config.item2",
 						Kind: "component.mock",
 						Data: payload.NewPayload(`{"value": "updated_value"}`, payload.Json),
 					},
@@ -95,7 +95,7 @@ func TestEntryListener(t *testing.T) {
 				{
 					Kind: "entry.update",
 					Entry: registry.Entry{
-						Path: "component.config.item2",
+						ID:   "component.config.item2",
 						Kind: "component.mock",
 						Data: payload.NewPayload(`{"value": "updated_value"}`, payload.Json),
 					},
@@ -115,7 +115,7 @@ func TestEntryListener(t *testing.T) {
 					System: registry.System,
 					Kind:   "entry.delete",
 					Data: registry.Entry{
-						Path: "component.config.item3",
+						ID:   "component.config.item3",
 						Kind: "component.mock",
 					},
 				},
@@ -123,7 +123,7 @@ func TestEntryListener(t *testing.T) {
 			expectedReceived: []registry.Operation{
 				{
 					Kind:  "entry.delete",
-					Entry: registry.Entry{Path: "component.config.item3", Kind: "component.mock"},
+					Entry: registry.Entry{ID: "component.config.item3", Kind: "component.mock"},
 					Data:  &MockPayload{},
 				},
 			},
@@ -140,7 +140,7 @@ func TestEntryListener(t *testing.T) {
 					System: registry.System,
 					Kind:   "entry.create",
 					Data: registry.Entry{
-						Path: "component.config.item4",
+						ID:   "component.config.item4",
 						Kind: "component.mock",
 						Data: payload.NewPayload(`{"value": "test_value"}`, payload.Json),
 					},
@@ -159,7 +159,7 @@ func TestEntryListener(t *testing.T) {
 					System: registry.System,
 					Kind:   "entry.create",
 					Data: registry.Entry{
-						Path: "component.config.item5",
+						ID:   "component.config.item5",
 						Kind: "component.mock",
 						Data: payload.NewPayload(`invalid_json`, payload.Json),
 					},
@@ -342,7 +342,7 @@ func TestRejectLast(t *testing.T) {
 		System: registry.System,
 		Kind:   "entry.create",
 		Data: registry.Entry{
-			Path: "component.config.item6",
+			ID:   "component.config.item6",
 			Kind: "component.mock",
 			Data: payload.NewPayload(`{"value": "test_value"}`, payload.Json),
 		},
@@ -358,7 +358,7 @@ func TestRejectLast(t *testing.T) {
 		assert.Equal(t, registry.Reject, evt.Kind)
 		entry, ok := evt.Data.(registry.Entry)
 		require.True(t, ok)
-		assert.Equal(t, registry.Path("component.config.item6"), entry.Path)
+		assert.Equal(t, registry.ID("component.config.item6"), entry.ID)
 	case <-time.After(1 * time.Second):
 		assert.Fail(t, "Expected a reject event")
 	}
@@ -401,7 +401,7 @@ func TestAcceptLast(t *testing.T) {
 		System: registry.System,
 		Kind:   "entry.create",
 		Data: registry.Entry{
-			Path: "component.config.item7",
+			ID:   "component.config.item7",
 			Kind: "component.mock",
 			Data: payload.NewPayload(`{"value": "test_value"}`, payload.Json),
 		},
@@ -417,7 +417,7 @@ func TestAcceptLast(t *testing.T) {
 		assert.Equal(t, registry.Accept, evt.Kind)
 		entry, ok := evt.Data.(registry.Entry)
 		require.True(t, ok)
-		assert.Equal(t, registry.Path("component.config.item7"), entry.Path)
+		assert.Equal(t, registry.ID("component.config.item7"), entry.ID)
 	case <-time.After(1 * time.Second):
 		assert.Fail(t, "Expected an accept event")
 	}
@@ -457,7 +457,7 @@ func TestEntryListener_NoFactory(t *testing.T) {
 		System: registry.System,
 		Kind:   "entry.create",
 		Data: registry.Entry{
-			Path: "component.config.item8",
+			ID:   "component.config.item8",
 			Kind: "component.mock", // No factory for this kind
 			Data: payload.NewPayload(`{"value": "test_value"}`, payload.Json),
 		},
@@ -468,7 +468,7 @@ func TestEntryListener_NoFactory(t *testing.T) {
 		assert.Equal(t, registry.Reject, evt.Kind)
 		entry, ok := evt.Data.(registry.Entry)
 		require.True(t, ok)
-		assert.Equal(t, registry.Path("component.config.item8"), entry.Path)
+		assert.Equal(t, registry.ID("component.config.item8"), entry.ID)
 		// Verify rejection reason (you might want to extract the reason from the payload)
 	case <-time.After(1 * time.Second):
 		assert.Fail(t, "Expected a reject event due to missing factory")

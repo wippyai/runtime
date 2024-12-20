@@ -43,12 +43,12 @@ func (r *memreg) GetAllEntries() ([]registry.Entry, error) {
 	return r.state, nil
 }
 
-func (r *memreg) GetEntry(path registry.Path) (registry.Entry, error) {
+func (r *memreg) GetEntry(path registry.ID) (registry.Entry, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	for _, entry := range r.state {
-		if entry.Path == path {
+		if entry.ID == path {
 			return entry, nil
 		}
 	}

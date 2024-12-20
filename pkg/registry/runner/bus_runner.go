@@ -19,6 +19,7 @@ type BusRunner struct {
 	stateHelper *stateHelper
 }
 
+// NewBusRunner creates a new BusRunner. This is a sequential bus, order of operations matter.
 func NewBusRunner(bus events.Bus, log *zap.Logger) *BusRunner {
 	return &BusRunner{
 		bus:         bus,
@@ -64,6 +65,7 @@ func (br *BusRunner) applyOperation(ctx context.Context, state stateMap, op regi
 	br.bus.Send(ctx, events.Event{
 		System: registry.System,
 		Kind:   op.Kind,
+		Path:   events.Path(op.Entry.ID),
 		Data:   op.Entry,
 	})
 
@@ -80,7 +82,7 @@ func (br *BusRunner) applyOperation(ctx context.Context, state stateMap, op regi
 				continue // Skip to the next iteration of the select loop
 			}
 
-			if entry.Path != op.Entry.Path {
+			if entry.ID != op.Entry.ID {
 				return state, errors.New("unrelated accept event")
 			}
 
@@ -103,7 +105,7 @@ func (br *BusRunner) applyOperation(ctx context.Context, state stateMap, op regi
 				continue // Skip to the next iteration of the select loop
 			}
 
-			if entry.Path != op.Entry.Path {
+			if entry.ID != op.Entry.ID {
 				return state, errors.New("unrelated accept event")
 			}
 

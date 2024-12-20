@@ -9,7 +9,7 @@ import (
 type (
 	Task struct {
 		Context context.Context
-		Target  registry.Path
+		Target  registry.ID
 		Payload payload.Payload
 	}
 

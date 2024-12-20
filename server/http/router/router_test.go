@@ -87,7 +87,7 @@ func TestRouterComposition(t *testing.T) {
 			// Add an endpoint to each router
 			err = router.AddEndpoint("", config.EndpointConfig{
 				Method: http.MethodGet,
-				Path:   "/status",
+				Path:   "/control",
 				Meta:   registry.Metadata{"router_id": r.id},
 			})
 			require.NoError(t, err)
@@ -101,9 +101,9 @@ func TestRouterComposition(t *testing.T) {
 			path     string
 			routerID string
 		}{
-			{"/api/v1/status", "router1"},
-			{"/api/v2/status", "router2"},
-			{"/internal/status", "router3"},
+			{"/api/v1/control", "router1"},
+			{"/api/v2/control", "router2"},
+			{"/internal/control", "router3"},
 		}
 
 		for _, tt := range tests {
@@ -218,7 +218,7 @@ func TestRouterComposition(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-		assert.NotEmpty(t, resp.Header.Get("X-Router-ID"), "Request ID middleware should be applied")
+		assert.NotEmpty(t, resp.Header.Get("X-Router-ID"), "Request Name middleware should be applied")
 		assert.Equal(t, "router1", resp.Header.Get("X-Router-ID"))
 	})
 }
