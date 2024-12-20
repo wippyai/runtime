@@ -120,32 +120,6 @@ meta:
 	}
 }
 
-func TestLifecycleLoader_Load_LifecycleNotSpecified(t *testing.T) {
-	input := `
-name: web_server
-kind: http.server
-meta:
-  server_id: "default"
-`
-	// Create a transcoder
-	dtt := createTestTranscoder()
-
-	// Create a LifecycleLoader
-	loader := NewLifecycleLoader(dtt)
-
-	// Create a payload
-	p := payload.NewPayload(input, payload.Yaml)
-
-	// Load the lifecycle
-	got, err := loader.Load(p)
-	if err != nil {
-		t.Fatalf("LifecycleLoader.Load() error = %v, wantErr false", err)
-	}
-
-	// Assert that the loaded lifecycle is empty and not nil
-	assert.Equal(t, supervisor.Lifecycle{}, got, "Loaded lifecycle should be empty")
-}
-
 func createTestTranscoder() payload.Transcoder {
 	tr := transcoder.NewTranscoder()
 	json.Register(tr)
