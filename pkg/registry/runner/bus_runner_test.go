@@ -18,21 +18,23 @@ import (
 
 // testComponent represents a component that can be configured via registry eventbus.
 type testComponent struct {
+	bus             events.Bus
 	mu              sync.RWMutex
 	config          map[registry.ID]string
-	rejectedConfigs map[registry.ID]bool // Tracks rejected configurations.
+	rejectedConfigs map[registry.ID]bool
 }
 
 // newTestComponent creates a new testComponent.
-func newTestComponent() *testComponent {
+func newTestComponent(bus events.Bus) *testComponent {
 	return &testComponent{
+		bus:             bus,
 		config:          make(map[registry.ID]string),
 		rejectedConfigs: make(map[registry.ID]bool),
 	}
 }
 
 // handleEvent handles registry eventbus and updates the component's configuration.
-func (c *testComponent) handleEvent(bus events.Bus, evt events.Event) {
+func (c *testComponent) handleEvent(evt events.Event) {
 	if evt.System != registry.System {
 		return // Ignore eventbus from other systems.
 	}
@@ -66,7 +68,7 @@ func (c *testComponent) handleEvent(bus events.Bus, evt events.Event) {
 		// Reject configuration based on some criteria (e.g., value starts with "reject").
 		if len(data) >= 6 && data[:6] == "reject" {
 			c.rejectedConfigs[entry.ID] = true
-			bus.Send(context.Background(), events.Event{
+			c.bus.Send(context.Background(), events.Event{
 				System: registry.System,
 				Kind:   registry.Reject,
 				Data:   registry.Entry{ID: entry.ID},
@@ -75,7 +77,7 @@ func (c *testComponent) handleEvent(bus events.Bus, evt events.Event) {
 		}
 
 		c.config[entry.ID] = data
-		bus.Send(context.Background(), events.Event{
+		c.bus.Send(context.Background(), events.Event{
 			System: registry.System,
 			Kind:   registry.Accept,
 			Data:   registry.Entry{ID: entry.ID},
@@ -84,7 +86,7 @@ func (c *testComponent) handleEvent(bus events.Bus, evt events.Event) {
 	case registry.Delete:
 		if _, exists := c.config[entry.ID]; exists {
 			delete(c.config, entry.ID)
-			bus.Send(context.Background(), events.Event{
+			c.bus.Send(context.Background(), events.Event{
 				System: registry.System,
 				Kind:   registry.Accept,
 				Data:   registry.Entry{ID: entry.ID},
@@ -92,7 +94,7 @@ func (c *testComponent) handleEvent(bus events.Bus, evt events.Event) {
 		} else {
 			// Mark as rejected even if it doesn't exist in the listener.
 			c.rejectedConfigs[entry.ID] = true
-			bus.Send(context.Background(), events.Event{
+			c.bus.Send(context.Background(), events.Event{
 				System: registry.System,
 				Kind:   registry.Reject,
 				Data:   registry.Entry{ID: entry.ID},
@@ -298,7 +300,7 @@ func TestBusRunner_Operations(t *testing.T) {
 
 			bus := eventbus.NewBus(zap.NewNop())
 			busRunner := NewBusRunner(bus, zap.NewNop())
-			component := newTestComponent()
+			component := newTestComponent(bus)
 			componentClose := attachComponent(ctx, t, bus, component)
 			defer componentClose()
 
@@ -338,7 +340,7 @@ func TestBusRunner_RollbackOnSecondOperationFailure(t *testing.T) {
 
 	bus := eventbus.NewBus(zap.NewNop())
 	busRunner := NewBusRunner(bus, zap.NewNop())
-	component := newTestComponent()
+	component := newTestComponent(bus)
 	componentClose := attachComponent(ctx, t, bus, component)
 	defer componentClose()
 
@@ -383,7 +385,7 @@ func TestBusRunner_BeginAndCommitEvents(t *testing.T) {
 
 	bus := eventbus.NewBus(zap.NewNop())
 	busRunner := NewBusRunner(bus, zap.NewNop())
-	component := newTestComponent()
+	component := newTestComponent(bus)
 
 	// Use a WaitGroup to wait for the listener to process events
 	var wg sync.WaitGroup
@@ -394,7 +396,7 @@ func TestBusRunner_BeginAndCommitEvents(t *testing.T) {
 	// Attach the listener to the bus
 	listener, err := eventbus.NewEventListener(
 		ctx, bus, registry.System, "registry.*",
-		func(bus events.Bus, evt events.Event) {
+		func(evt events.Event) {
 			if evt.System == registry.System && (evt.Kind == registry.Begin || evt.Kind == registry.Commit) {
 				eventChan <- evt
 				wg.Done()
@@ -454,7 +456,7 @@ func TestBusRunner_BeginAndDiscardEvents(t *testing.T) {
 
 	bus := eventbus.NewBus(zap.NewNop())
 	busRunner := NewBusRunner(bus, zap.NewNop())
-	component := newTestComponent()
+	component := newTestComponent(bus)
 
 	// Use a WaitGroup to wait for the listener to process events
 	var wg sync.WaitGroup
@@ -465,7 +467,7 @@ func TestBusRunner_BeginAndDiscardEvents(t *testing.T) {
 	// Attach the listener to the bus to listen for Begin and Discard events
 	listener, err := eventbus.NewEventListener(
 		ctx, bus, registry.System, "registry.*",
-		func(bus events.Bus, evt events.Event) {
+		func(evt events.Event) {
 			if evt.System == registry.System && (evt.Kind == registry.Begin || evt.Kind == registry.Discard) {
 				eventChan <- evt
 				wg.Done()

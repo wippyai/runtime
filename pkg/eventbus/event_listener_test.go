@@ -28,7 +28,7 @@ func TestEventListener_NewEventListener(t *testing.T) {
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	wg.Add(2)
-	handlerFunc := func(b events.Bus, evt events.Event) {
+	handlerFunc := func(evt events.Event) {
 		mu.Lock()
 		receivedEvents = append(receivedEvents, evt)
 		mu.Unlock()
@@ -70,7 +70,7 @@ func TestEventListener_NewEventListener_NoKind(t *testing.T) {
 	var mu sync.Mutex // Mutex to protect receivedEvents
 	var wg sync.WaitGroup
 	wg.Add(2)
-	handlerFunc := func(b events.Bus, evt events.Event) {
+	handlerFunc := func(evt events.Event) {
 		mu.Lock()
 		receivedEvents = append(receivedEvents, evt)
 		mu.Unlock()
@@ -112,7 +112,7 @@ func TestEventListener_Close(t *testing.T) {
 	var mu sync.Mutex // Mutex to protect receivedEvents
 	var wg sync.WaitGroup
 	wg.Add(1)
-	handlerFunc := func(b events.Bus, evt events.Event) {
+	handlerFunc := func(evt events.Event) {
 		mu.Lock()
 		receivedEvents = append(receivedEvents, evt)
 		mu.Unlock()
@@ -149,7 +149,7 @@ func TestEventListener_ContextCancellation(t *testing.T) {
 
 	var receivedEvents []events.Event
 	var mu sync.Mutex
-	handlerFunc := func(b events.Bus, evt events.Event) {
+	handlerFunc := func(evt events.Event) {
 		mu.Lock()
 		receivedEvents = append(receivedEvents, evt)
 		mu.Unlock()

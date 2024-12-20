@@ -10,7 +10,7 @@ import (
 type EventHandler struct {
 	bus          events.Bus
 	subscriberID events.SubscriberID
-	handlerFunc  func(events.Bus, events.Event)
+	handlerFunc  func(events.Event)
 	ctx          context.Context
 	cancel       context.CancelFunc
 	wg           sync.WaitGroup
@@ -24,7 +24,7 @@ func NewEventListener(
 	b events.Bus,
 	system events.System,
 	kind events.Kind,
-	handlerFunc func(events.Bus, events.Event),
+	handlerFunc func(events.Event),
 ) (*EventHandler, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	h := &EventHandler{
@@ -51,7 +51,7 @@ func NewEventListener(
 	go func() {
 		defer h.wg.Done()
 		for evt := range ch {
-			h.handlerFunc(h.bus, evt)
+			h.handlerFunc(evt)
 		}
 	}()
 
