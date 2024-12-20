@@ -67,7 +67,7 @@ data:
 	dtt := createTestTranscoder()
 	folderLoader := loader.NewFolderLoader(dtt, zap.NewNop())
 
-	reg := NewRegistry(history, runner, stateBuilder, zap.NewNop()).(*memreg)
+	reg := NewRegistry(history, runner, stateBuilder, zap.NewNop()).(*reg)
 
 	// 3. Load entries from the folder:
 	entries, err := folderLoader.Load(rootDir, "", loader.Variables{})
