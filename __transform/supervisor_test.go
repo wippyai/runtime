@@ -1,4 +1,4 @@
-package supervisor
+package __transform
 
 // YAML representation of the http server entry
 const httpServerYAML = `

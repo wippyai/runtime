@@ -1,11 +1,11 @@
-package supervisor
+package __transform
 
 import (
+	"github.com/ponyruntime/pony/__transform/api"
 	"github.com/ponyruntime/pony/pkg/payload/yaml"
 	"testing"
 
 	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/supervisor"
 	transcoder "github.com/ponyruntime/pony/pkg/payload"
 	"github.com/ponyruntime/pony/pkg/payload/json"
 	"github.com/stretchr/testify/assert"
@@ -15,7 +15,7 @@ func TestLifecycleLoader_Load(t *testing.T) {
 	tests := []struct {
 		name    string
 		input   string
-		want    supervisor.Lifecycle
+		want    api.Lifecycle
 		wantErr bool
 	}{
 		{
@@ -27,9 +27,9 @@ lifecycle:
     delay: 5s
     max_attempts: 3
 `,
-			want: supervisor.Lifecycle{
+			want: api.Lifecycle{
 				AutoStart: true,
-				Restart: supervisor.RetryPolicy{
+				Restart: api.RetryPolicy{
 					Delay:       "5s",
 					MaxAttempts: 3,
 				},
@@ -49,9 +49,9 @@ lifecycle:
   }
 }
 `,
-			want: supervisor.Lifecycle{
+			want: api.Lifecycle{
 				AutoStart: true,
-				Restart: supervisor.RetryPolicy{
+				Restart: api.RetryPolicy{
 					Delay:       "5s",
 					MaxAttempts: 3,
 				},
@@ -61,7 +61,7 @@ lifecycle:
 		{
 			name:    "Invalid YAML",
 			input:   `invalid yaml`,
-			want:    supervisor.Lifecycle{},
+			want:    api.Lifecycle{},
 			wantErr: true,
 		},
 		{
@@ -75,13 +75,13 @@ lifecycle:
     }
   }
 }`,
-			want:    supervisor.Lifecycle{},
+			want:    api.Lifecycle{},
 			wantErr: true,
 		},
 		{
 			name:    "Empty Input",
 			input:   ``,
-			want:    supervisor.Lifecycle{},
+			want:    api.Lifecycle{},
 			wantErr: false, // Empty lifecycle is valid
 		},
 		{
@@ -92,7 +92,7 @@ kind: http.server
 meta:
   server_id: "default"
 `,
-			want:    supervisor.Lifecycle{},
+			want:    api.Lifecycle{},
 			wantErr: false, // Missing lifecycle is valid
 		},
 	}

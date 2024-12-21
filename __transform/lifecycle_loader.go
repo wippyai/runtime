@@ -1,10 +1,10 @@
-package supervisor
+package __transform
 
 import (
 	"fmt"
+	"github.com/ponyruntime/pony/__transform/api"
 
 	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/supervisor"
 )
 
 // LifecycleLoader manages the loading of lifecycle configurations from payloads.
@@ -20,14 +20,14 @@ func NewLifecycleLoader(dtt payload.Transcoder) *LifecycleLoader {
 }
 
 // Load extracts the lifecycle configuration from the payload.
-func (l *LifecycleLoader) Load(p payload.Payload) (supervisor.Lifecycle, error) {
+func (l *LifecycleLoader) Load(p payload.Payload) (api.Lifecycle, error) {
 	var raw struct {
-		Lifecycle supervisor.Lifecycle `json:"lifecycle" yaml:"lifecycle"`
+		Lifecycle api.Lifecycle `json:"lifecycle" yaml:"lifecycle"`
 	}
 
 	err := l.dtt.Unmarshal(p, &raw)
 	if err != nil {
-		return supervisor.Lifecycle{}, fmt.Errorf("failed to unmarshal payload for lifecycle extraction: %w", err)
+		return api.Lifecycle{}, fmt.Errorf("failed to unmarshal payload for lifecycle extraction: %w", err)
 	}
 
 	return raw.Lifecycle, nil

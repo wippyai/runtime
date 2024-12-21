@@ -1,4 +1,4 @@
-package supervisor
+package api
 
 import (
 	"context"
