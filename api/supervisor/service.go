@@ -15,12 +15,8 @@ const (
 	Starting Status = "starting"
 	// Running indicates the service is currently running and operational.
 	Running Status = "running"
-	// ShuttingDown indicates the service is in the process of a graceful shutdown.
-	ShuttingDown Status = "shutting_down"
-	// Stopping indicates the service is in the process of stopping.
+	// Stopping indicates the service is in the process of a graceful shutdown.
 	Stopping Status = "stopping"
-	// ForceStopping indicates the service is being forcefully stopped.
-	ForceStopping Status = "force_stopping"
 	// Stopped indicates the service has stopped and is no longer running.
 	Stopped Status = "stopped"
 	// Failed indicates the service has failed and is not running.
@@ -36,12 +32,12 @@ type (
 	ServiceEntry struct {
 		ID     registry.ID
 		Config ServiceConfig
-		Status ServiceStatus
+		Status ServiceState
 	}
 
-	// ServiceStatus provides information about the current status of a service,
+	// ServiceState provides information about the current status of a service,
 	// including its operational status and optional detailed information.
-	ServiceStatus struct {
+	ServiceState struct {
 		Status  Status
 		Details payload.Payload
 	}
@@ -53,9 +49,7 @@ type (
 		// StartTimeout specifies the maximum duration allowed for the service to start.
 		StartTimeout time.Duration `json:"start_timeout" yaml:"start_timeout" default:"30s"`
 		// StopTimeout specifies the maximum duration allowed for the service to stop.
-		StopTimeout time.Duration `json:"stop_timeout" yaml:"stop_timeout" default:"30s"`
-		// StatusInterval specifies the interval at which the service status should be updated.
-		StatusInterval time.Duration `json:"status_interval" yaml:"status_interval" default:"5s"`
+		StopTimeout time.Duration `json:"stop_timeout" yamal:"stop_timeout" default:"30s"`
 		// RetryPolicy defines the policy for retrying a failed service.
 		RetryPolicy RetryPolicy `json:"retry_policy" yaml:"retry_policy"`
 		// ForceShutdown indicates whether the service should be forcefully terminated if StopTimeout is reached.
@@ -81,9 +75,7 @@ type (
 	// Service defines the interface that must be implemented by any service managed by the supervisor.
 	Service interface {
 		// Start initiates the service.
-		Start(ctx context.Context) error
-		// Status returns the current status of the service.
-		Status(ctx context.Context) (ServiceStatus, error)
+		Start(ctx context.Context) (<-chan ServiceState, error)
 		// Stop terminates the service.
 		Stop(ctx context.Context) error
 	}
