@@ -75,7 +75,7 @@ func TestSupervisor_BasicLifecycle(t *testing.T) {
 
 	// Test initial state
 	if state := sup.state.getSnapshot(); state.status != supervisor.Unknown {
-		t.Errorf("Expected initial status Unknown, got %v", state.status)
+		t.Errorf("Expected initial Status Unknown, got %v", state.status)
 	}
 
 	// Test transition to Running
@@ -84,10 +84,10 @@ func TestSupervisor_BasicLifecycle(t *testing.T) {
 	}
 
 	if state := sup.state.getSnapshot(); state.status != supervisor.Running {
-		t.Errorf("Expected status Running, got %v", state.status)
+		t.Errorf("Expected Status Running, got %v", state.status)
 	}
 
-	time.Sleep(100 * time.Millisecond) // wait for service details to propagate
+	time.Sleep(100 * time.Millisecond) // wait for service Details to propagate
 
 	// Test transition to Stopped
 	if err := sup.TransitionTo(supervisor.Stopped); err != nil {
@@ -95,7 +95,7 @@ func TestSupervisor_BasicLifecycle(t *testing.T) {
 	}
 
 	if state := sup.state.getSnapshot(); state.status != supervisor.Stopped {
-		t.Errorf("Expected status Stopped, got %v", state.status)
+		t.Errorf("Expected Status Stopped, got %v", state.status)
 	}
 
 	// Stop supervisor
@@ -185,7 +185,7 @@ func TestSupervisor_ServiceFailure(t *testing.T) {
 	<-stateReached
 
 	if state := sup.state.getSnapshot(); state.status != supervisor.Running {
-		t.Errorf("Expected status Running after recovery, got %v", state.status)
+		t.Errorf("Expected Status Running after recovery, got %v", state.status)
 	}
 
 	if attempts != 2 {
@@ -236,7 +236,7 @@ func TestSupervisor_StartupError(t *testing.T) {
 
 	state := sup.state.getSnapshot()
 	if state.status != supervisor.Failed {
-		t.Errorf("Expected Failed status, got %v", state.status)
+		t.Errorf("Expected Failed Status, got %v", state.status)
 	}
 }
 
@@ -286,7 +286,7 @@ func TestSupervisor_ForceShutdown(t *testing.T) {
 
 	state := sup.state.getSnapshot()
 	if state.status != supervisor.Stopped {
-		t.Errorf("Expected Stopped status after force shutdown, got %v", state.status)
+		t.Errorf("Expected Stopped Status after force shutdown, got %v", state.status)
 	}
 }
 func TestSupervisor_ContextCancellation(t *testing.T) {
@@ -343,7 +343,7 @@ func TestSupervisor_ContextCancellation(t *testing.T) {
 
 	state := sup.state.getSnapshot()
 	if state.status != supervisor.Stopped {
-		t.Errorf("Expected status Stopped after context cancellation, got %v", state.status)
+		t.Errorf("Expected Status Stopped after context cancellation, got %v", state.status)
 	}
 }
 
@@ -377,7 +377,7 @@ func TestSupervisor_StartTimeout(t *testing.T) {
 
 	state := sup.state.getSnapshot()
 	if state.status != supervisor.Failed {
-		t.Errorf("Expected Failed status after timeout, got %v", state.status)
+		t.Errorf("Expected Failed Status after timeout, got %v", state.status)
 	}
 }
 
@@ -431,7 +431,7 @@ func TestSupervisor_ServiceRecoveryAfterFailure(t *testing.T) {
 		t.Fatalf("Failed to start service: %v", err)
 	}
 
-	// Wait for initial startup and first status update
+	// Wait for initial startup and first Status update
 	time.Sleep(200 * time.Millisecond)
 
 	// Verify service is running
@@ -471,11 +471,11 @@ func TestSupervisor_ServiceRecoveryAfterFailure(t *testing.T) {
 	expectedTransitions := []supervisor.Status{
 		supervisor.Starting, // Initial start
 		supervisor.Running,  // First successful start
-		supervisor.Running,  // Service details received
+		supervisor.Running,  // Service Details received
 		supervisor.Failed,   // Service death
 		supervisor.Starting, // Recovery attempt
 		supervisor.Running,  // Recovery successful
-		supervisor.Running,  // Service details received after recovery
+		supervisor.Running,  // Service Details received after recovery
 		supervisor.Stopping, // Clean shutdown
 		supervisor.Stopped,  // Final state
 	}
@@ -567,7 +567,7 @@ func TestSupervisor_ServiceFailedRecovery(t *testing.T) {
 		t.Fatalf("Failed to start service: %v", err)
 	}
 
-	// Wait for initial startup and details
+	// Wait for initial startup and Details
 	time.Sleep(100 * time.Millisecond)
 
 	// Verify service is initially running
@@ -607,7 +607,7 @@ func TestSupervisor_ServiceFailedRecovery(t *testing.T) {
 	expectedTransitions := []supervisor.Status{
 		supervisor.Starting, // Initial start
 		supervisor.Running,  // First successful start
-		supervisor.Running,  // Service details received
+		supervisor.Running,  // Service Details received
 		supervisor.Failed,   // Service death
 		supervisor.Starting, // First recovery attempt
 		supervisor.Failed,   // First recovery failure
@@ -714,7 +714,7 @@ func TestSupervisor_ServiceStateSnapshot(t *testing.T) {
 	state.desired = supervisor.Running
 	state.retryCount = 5
 	state.lastUpdate = time.Now()
-	state.details = payload.NewString("test details")
+	state.details = payload.NewString("test Details")
 
 	snapshot := state.getSnapshot()
 
@@ -722,7 +722,7 @@ func TestSupervisor_ServiceStateSnapshot(t *testing.T) {
 		t.Errorf("Status mismatch: expected %v, got %v", state.status, snapshot.status)
 	}
 	if snapshot.desired != state.desired {
-		t.Errorf("Desired status mismatch: expected %v, got %v", state.desired, snapshot.desired)
+		t.Errorf("Desired Status mismatch: expected %v, got %v", state.desired, snapshot.desired)
 	}
 	if snapshot.retryCount != state.retryCount {
 		t.Errorf("Retry count mismatch: expected %v, got %v", state.retryCount, snapshot.retryCount)
@@ -748,9 +748,9 @@ func TestSupervisor_ServiceDetailsUpdate(t *testing.T) {
 	}{
 		{
 			name:        "update with string payload",
-			details:     payload.NewString("test details"),
+			details:     payload.NewString("test Details"),
 			wantStatus:  initialStatus,
-			wantDetails: payload.NewString("test details"),
+			wantDetails: payload.NewString("test Details"),
 		},
 		{
 			name:        "update with error payload",
@@ -779,7 +779,7 @@ func TestSupervisor_ServiceDetailsUpdate(t *testing.T) {
 			}
 
 			if !reflect.DeepEqual(state.details, tc.wantDetails) {
-				t.Errorf("State details = %v, want %v", state.details, tc.wantDetails)
+				t.Errorf("State Details = %v, want %v", state.details, tc.wantDetails)
 			}
 
 			if time.Since(state.lastUpdate) > time.Second {
