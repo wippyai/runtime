@@ -535,6 +535,7 @@ func TestSupervisor_ServiceFailedRecovery(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	sup := NewSupervisor(
 		ctx,
@@ -626,6 +627,8 @@ func TestSupervisor_ServiceFailedRecovery(t *testing.T) {
 			t.Errorf("Transition %d: expected %v, got %v", i, expected, transitions[i])
 		}
 	}
+
+	defer cancel()
 
 	// Verify retry count
 	expectedAttempts := maxRetries + 1 // Initial attempt + maxRetries
@@ -819,7 +822,7 @@ func TestSupervisor_CancelDuringTransition(t *testing.T) {
 
 	// Start first transition that will block in handleTransition
 	go func() {
-		sup.TransitionTo(supervisor.Running)
+		_ = sup.TransitionTo(supervisor.Running)
 		close(transitionStarted)
 	}()
 
