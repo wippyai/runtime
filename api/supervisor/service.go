@@ -2,10 +2,8 @@ package supervisor
 
 import (
 	"context"
-	"time"
-
 	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
+	"time"
 )
 
 const (
@@ -26,21 +24,6 @@ const (
 type (
 	// Status represents the operational status of a service.
 	Status string
-
-	// ServiceEntry represents a registered service within the supervisor,
-	// combining its ID, configuration, and current status.
-	ServiceEntry struct {
-		ID     registry.ID
-		Config ServiceConfig
-		Status ServiceState
-	}
-
-	// ServiceState provides information about the current status of a service,
-	// including its operational status and optional detailed information.
-	ServiceState struct {
-		Status  Status
-		Details payload.Payload
-	}
 
 	// ServiceConfig defines the configuration for a service managed by the supervisor.
 	ServiceConfig struct {
@@ -74,8 +57,9 @@ type (
 
 	// Service defines the interface that must be implemented by any service managed by the supervisor.
 	Service interface {
-		// Start initiates the service.
-		Start(ctx context.Context) (<-chan ServiceState, error)
+		// Start initiates the service. Service can post current status to the returned channel.
+		// The service should close this channel when it is done.
+		Start(ctx context.Context) (<-chan payload.Payload, error)
 		// Stop terminates the service.
 		Stop(ctx context.Context) error
 	}

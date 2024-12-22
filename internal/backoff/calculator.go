@@ -1,4 +1,4 @@
-package supervisor
+package backoff
 
 import (
 	"math/rand"
@@ -8,16 +8,16 @@ import (
 	"github.com/ponyruntime/pony/api/supervisor"
 )
 
-// BackoffCalculator computes retry intervals using configurable backoff and jitter.
-type BackoffCalculator struct {
+// Calculator computes retry intervals using configurable backoff and jitter.
+type Calculator struct {
 	policy      supervisor.RetryPolicy
 	mu          sync.Mutex
 	attempt     int
 	baseBackoff time.Duration
 }
 
-// NewBackoffCalculator creates a new BackoffCalculator with the given retry policy.
-func NewBackoffCalculator(policy supervisor.RetryPolicy) *BackoffCalculator {
+// NewCalculator creates a new Calculator with the given retry policy.
+func NewCalculator(policy supervisor.RetryPolicy) *Calculator {
 	// Handle edge case where MaxAttempts is 0
 	if policy.MaxAttempts == 0 {
 		policy.MaxAttempts = 1 // Ensure at least one attempt
@@ -28,7 +28,7 @@ func NewBackoffCalculator(policy supervisor.RetryPolicy) *BackoffCalculator {
 		policy.BackoffFactor = 1.0 // No backoff if factor is invalid
 	}
 
-	return &BackoffCalculator{
+	return &Calculator{
 		policy:      policy,
 		attempt:     0,
 		baseBackoff: policy.InitialDelay,
@@ -37,7 +37,7 @@ func NewBackoffCalculator(policy supervisor.RetryPolicy) *BackoffCalculator {
 
 // NextInterval returns the duration to wait before the next retry attempt.
 // Returns 0 if no more retries should be attempted.
-func (b *BackoffCalculator) NextInterval() time.Duration {
+func (b *Calculator) NextInterval() time.Duration {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -59,27 +59,20 @@ func (b *BackoffCalculator) NextInterval() time.Duration {
 }
 
 // Reset resets the attempt counter and backoff duration.
-func (b *BackoffCalculator) Reset() {
+func (b *Calculator) Reset() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.attempt = 0
 	b.baseBackoff = b.policy.InitialDelay
 }
 
-// HasRemainingAttempts returns true if retry attempts are still available.
-func (b *BackoffCalculator) HasRemainingAttempts() bool {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.hasRemainingAttempts()
-}
-
 // hasRemainingAttempts is an internal helper that checks if retries are available.
-func (b *BackoffCalculator) hasRemainingAttempts() bool {
+func (b *Calculator) hasRemainingAttempts() bool {
 	return b.attempt < b.policy.MaxAttempts
 }
 
 // calculateIntervalWithJitter applies jitter to the base backoff interval.
-func (b *BackoffCalculator) calculateIntervalWithJitter() time.Duration {
+func (b *Calculator) calculateIntervalWithJitter() time.Duration {
 	if b.baseBackoff == 0 {
 		return 0
 	}
