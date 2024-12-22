@@ -11,7 +11,15 @@ import (
 	"time"
 )
 
-type serviceState struct {
+type State struct {
+	Status     supervisor.Status
+	Details    payload.Payload
+	Desired    supervisor.Status
+	RetryCount int32
+	LastUpdate time.Time
+}
+
+type internalState struct {
 	mu         sync.Mutex
 	status     supervisor.Status
 	details    payload.Payload
@@ -22,9 +30,9 @@ type serviceState struct {
 	cancel     context.CancelFunc
 }
 
-// newServiceState creates a new serviceState instance
-func newServiceState() *serviceState {
-	return &serviceState{
+// newServiceState creates a new internalState instance
+func newServiceState() *internalState {
+	return &internalState{
 		status:     supervisor.Unknown,
 		desired:    supervisor.Unknown,
 		lastUpdate: time.Now(),
@@ -32,11 +40,11 @@ func newServiceState() *serviceState {
 }
 
 // getSnapshot returns a copy of the current state
-func (s *serviceState) getSnapshot() serviceState {
+func (s *internalState) getSnapshot() internalState {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	return serviceState{
+	return internalState{
 		status:     s.status,
 		details:    s.details,
 		desired:    s.desired,
@@ -45,8 +53,21 @@ func (s *serviceState) getSnapshot() serviceState {
 	}
 }
 
+func (s *internalState) publicState() State {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return State{
+		Status:     s.status,
+		Details:    s.details,
+		Desired:    s.desired,
+		RetryCount: s.retryCount,
+		LastUpdate: s.lastUpdate,
+	}
+}
+
 // setContext updates the context and cancel function
-func (s *serviceState) setContext(ctx context.Context, cancel context.CancelFunc) {
+func (s *internalState) setContext(ctx context.Context, cancel context.CancelFunc) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -55,7 +76,7 @@ func (s *serviceState) setContext(ctx context.Context, cancel context.CancelFunc
 }
 
 // getContext returns the current context
-func (s *serviceState) getContext() context.Context {
+func (s *internalState) getContext() context.Context {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -63,7 +84,7 @@ func (s *serviceState) getContext() context.Context {
 }
 
 // cancelContext cancels the current context if it exists
-func (s *serviceState) cancelContext() {
+func (s *internalState) cancelContext() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -73,7 +94,7 @@ func (s *serviceState) cancelContext() {
 }
 
 // updateState updates the service state and returns current details
-func (s *serviceState) updateState(status supervisor.Status, details payload.Payload) (supervisor.Status, payload.Payload) {
+func (s *internalState) updateState(status supervisor.Status, details payload.Payload) (supervisor.Status, payload.Payload) {
 	s.mu.Lock()
 	s.status = status
 	s.mu.Unlock()
@@ -82,7 +103,7 @@ func (s *serviceState) updateState(status supervisor.Status, details payload.Pay
 }
 
 // updateDetails updates only the details and returns current status
-func (s *serviceState) updateDetails(details payload.Payload) (supervisor.Status, payload.Payload) {
+func (s *internalState) updateDetails(details payload.Payload) (supervisor.Status, payload.Payload) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -93,7 +114,7 @@ func (s *serviceState) updateDetails(details payload.Payload) (supervisor.Status
 }
 
 // incRetryCount increases the retry count and returns the new value
-func (s *serviceState) incRetryCount() int32 {
+func (s *internalState) incRetryCount() int32 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -102,7 +123,7 @@ func (s *serviceState) incRetryCount() int32 {
 }
 
 // canRecover checks if the service can be recovered based on current state
-func (s *serviceState) canRecover(maxAttempts int, ctx context.Context) bool {
+func (s *internalState) canRecover(maxAttempts int, ctx context.Context) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -114,7 +135,7 @@ func (s *serviceState) canRecover(maxAttempts int, ctx context.Context) bool {
 }
 
 // setDesiredStatus updates the desired state and returns if it changed
-func (s *serviceState) setDesiredStatus(desired supervisor.Status) bool {
+func (s *internalState) setDesiredStatus(desired supervisor.Status) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -127,7 +148,7 @@ func (s *serviceState) setDesiredStatus(desired supervisor.Status) bool {
 }
 
 // getCurrentStatus returns the current status
-func (s *serviceState) getCurrentStatus() supervisor.Status {
+func (s *internalState) getCurrentStatus() supervisor.Status {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -135,7 +156,7 @@ func (s *serviceState) getCurrentStatus() supervisor.Status {
 }
 
 // getDesiredStatus returns the desired status
-func (s *serviceState) getDesiredStatus() supervisor.Status {
+func (s *internalState) getDesiredStatus() supervisor.Status {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -151,7 +172,7 @@ type stateTransition struct {
 type Supervisor struct {
 	service       supervisor.Service
 	config        supervisor.ServiceConfig
-	state         *serviceState
+	state         *internalState
 	transitions   chan stateTransition
 	onStateChange func(supervisor.Status, payload.Payload)
 	ctx           context.Context
@@ -186,7 +207,7 @@ func NewSupervisor(
 // TransitionTo requests a state transition
 func (s *Supervisor) TransitionTo(status supervisor.Status) error {
 	if status != supervisor.Running && status != supervisor.Stopped {
-		return fmt.Errorf("invalid status: %v", status)
+		return fmt.Errorf("invalid Status: %v", status)
 	}
 
 	// Check context first
@@ -234,6 +255,10 @@ func (s *Supervisor) Stop() error {
 	// Close transitions channel after supervise goroutine is done
 	close(s.transitions)
 	return nil
+}
+
+func (s *Supervisor) State() State {
+	return s.state.publicState()
 }
 
 func (s *Supervisor) supervise() {
@@ -380,7 +405,7 @@ func (s *Supervisor) monitorService(detailsCh <-chan payload.Payload) {
 		case details, ok := <-detailsCh:
 			if !ok {
 				if s.state.getDesiredStatus() == supervisor.Running {
-					s.handleError(fmt.Errorf("service details channel closed unexpectedly"))
+					s.handleError(fmt.Errorf("service Details channel closed unexpectedly"))
 				}
 				return
 			}

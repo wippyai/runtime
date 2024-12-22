@@ -2,12 +2,23 @@ package http
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"net"
 	"net/http"
 	"sync"
 	"time"
 
+	"github.com/ponyruntime/pony/api/payload"
 	config "github.com/ponyruntime/pony/api/server/http"
 	"github.com/ponyruntime/pony/server/http/router"
+)
+
+const (
+	// BootTimeout defines how long to wait for server to start
+	BootTimeout = 30 * time.Second
+	// CheckInterval defines how often to check server status during boot
+	CheckInterval = 100 * time.Millisecond
 )
 
 // Server manages a single HTTP server instance and its associated router
@@ -16,13 +27,17 @@ type Server struct {
 	router *router.Router
 	server *http.Server
 	mu     sync.RWMutex
+
+	// Internal status channel
+	statusChan chan payload.Payload
 }
 
 // NewServer creates a new Server instance with the given configuration and handler
 func NewServer(config config.ServerConfig, handler http.HandlerFunc) *Server {
 	return &Server{
-		config: config,
-		router: router.NewRouter(handler),
+		config:     config,
+		router:     router.NewRouter(handler),
+		statusChan: make(chan payload.Payload, 2), // 1 for initial boot message and extra for shutdown
 	}
 }
 
@@ -33,8 +48,30 @@ func (s *Server) Router() *router.Router {
 	return s.router
 }
 
-// Serve starts the HTTP server and blocks until the context is canceled
-func (s *Server) Serve(ctx context.Context) error {
+// ensureRunning verifies if the server is listening on its configured address
+func (s *Server) ensureRunning(ctx context.Context) error {
+	timeout := time.After(BootTimeout)
+	ticker := time.NewTicker(CheckInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-timeout:
+			return errors.New("server failed to start within timeout")
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			conn, err := net.DialTimeout("tcp", s.config.Addr, time.Second)
+			if err == nil {
+				_ = conn.Close()
+				return nil
+			}
+		}
+	}
+}
+
+// Start implements the Service interface
+func (s *Server) Start(ctx context.Context) (<-chan payload.Payload, error) {
 	s.mu.Lock()
 	s.server = &http.Server{
 		Addr:         s.config.Addr,
@@ -45,28 +82,28 @@ func (s *Server) Serve(ctx context.Context) error {
 	}
 	s.mu.Unlock()
 
-	// StartComponent server in a goroutine
-	serverErr := make(chan error, 1)
+	// Start server in a goroutine
 	go func() {
-		if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			serverErr <- err
+		err := s.server.ListenAndServe()
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			s.statusChan <- payload.NewError(err)
 		}
-		close(serverErr)
+
+		close(s.statusChan)
 	}()
 
-	// Wait for either context cancellation or server error
-	select {
-	case err := <-serverErr:
-		return err
-	case <-ctx.Done():
-		// Give the server a grace period to shutdown
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		return s.Stop(shutdownCtx)
+	// Check if server starts successfully
+	if err := s.ensureRunning(ctx); err != nil {
+		return s.statusChan, err
 	}
+
+	// we are running!
+	s.statusChan <- payload.NewString(fmt.Sprint("server listening on ", s.config.Addr))
+
+	return s.statusChan, nil
 }
 
-// Stop gracefully shuts down the server
+// Stop implements the Service interface
 func (s *Server) Stop(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -74,6 +111,7 @@ func (s *Server) Stop(ctx context.Context) error {
 	if s.server != nil {
 		return s.server.Shutdown(ctx)
 	}
+
 	return nil
 }
 
@@ -81,5 +119,6 @@ func (s *Server) Stop(ctx context.Context) error {
 func (s *Server) UpdateConfig(config config.ServerConfig) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	s.config = config
 }
