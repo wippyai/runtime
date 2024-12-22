@@ -18,7 +18,7 @@ import (
 func TestNewServer(t *testing.T) {
 	cfg := config.ServerConfig{
 		Addr: ":8080",
-		HTTP: config.HTTPConfig{
+		HTTP: config.TimeoutConfig{
 			ReadTimeout:  5 * time.Second,
 			WriteTimeout: 5 * time.Second,
 			IdleTimeout:  10 * time.Second,
@@ -47,7 +47,7 @@ func TestServer_Router(t *testing.T) {
 func TestServer_UpdateConfig(t *testing.T) {
 	initialCfg := config.ServerConfig{
 		Addr: ":8080",
-		HTTP: config.HTTPConfig{
+		HTTP: config.TimeoutConfig{
 			ReadTimeout: 5 * time.Second,
 		},
 	}
@@ -56,7 +56,7 @@ func TestServer_UpdateConfig(t *testing.T) {
 
 	newCfg := config.ServerConfig{
 		Addr: ":9090",
-		HTTP: config.HTTPConfig{
+		HTTP: config.TimeoutConfig{
 			ReadTimeout: 10 * time.Second,
 		},
 	}
