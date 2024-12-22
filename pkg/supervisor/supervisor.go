@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/supervisor"
@@ -184,15 +185,31 @@ func NewSupervisor(
 
 // TransitionTo requests a state transition
 func (s *Supervisor) TransitionTo(status supervisor.Status) error {
+	if status != supervisor.Running && status != supervisor.Stopped {
+		return fmt.Errorf("invalid status: %v", status)
+	}
+
+	// Check context first
+	if err := s.ctx.Err(); err != nil {
+		return fmt.Errorf("supervisor is stopped: %w", err)
+	}
+
 	result := make(chan error, 1)
+
+	// Use separate select for sending transition
 	select {
 	case s.transitions <- stateTransition{target: status, result: result}:
-		return <-result
+		// Wait for result with context
+		select {
+		case err := <-result:
+			return err
+		case <-s.ctx.Done():
+			return fmt.Errorf("supervisor is stopped: %w", s.ctx.Err())
+		}
 	case <-s.ctx.Done():
 		return fmt.Errorf("supervisor is stopped: %w", s.ctx.Err())
 	}
 }
-
 func (s *Supervisor) Start() error {
 	err := s.TransitionTo(supervisor.Running)
 	if err != nil {
@@ -202,13 +219,19 @@ func (s *Supervisor) Start() error {
 }
 
 func (s *Supervisor) Stop() error {
+	// First cancel the context to prevent new transitions
+	s.cancel()
+
+	// Then try to stop the service
 	err := s.TransitionTo(supervisor.Stopped)
-	if err != nil {
+	if err != nil && !errors.Is(err, context.Canceled) {
 		return fmt.Errorf("failed to transition to stopped: %w", err)
 	}
 
-	s.cancel()
+	// Wait for supervise goroutine to finish
 	s.wg.Wait()
+
+	// Close transitions channel after supervise goroutine is done
 	close(s.transitions)
 	return nil
 }
@@ -218,7 +241,10 @@ func (s *Supervisor) supervise() {
 
 	for {
 		select {
-		case transition := <-s.transitions:
+		case transition, ok := <-s.transitions:
+			if !ok {
+				return
+			}
 			err := s.handleTransition(transition.target)
 			transition.result <- err
 		case <-s.ctx.Done():
@@ -293,8 +319,10 @@ func (s *Supervisor) tryStart(ctx context.Context, lastErr error) error {
 		}
 		lastErr = err
 
+		// report state
+		s.updateState(supervisor.Failed, payload.NewError(lastErr))
+
 		if !s.state.canRecover(s.config.RetryPolicy.MaxAttempts, s.ctx) {
-			s.updateState(supervisor.Failed, payload.NewError(lastErr))
 			return fmt.Errorf("failed to start service: %w", lastErr)
 		}
 
