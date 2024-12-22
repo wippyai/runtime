@@ -5,32 +5,140 @@ import (
 	"fmt"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/supervisor"
+	"github.com/ponyruntime/pony/internal/backoff"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
-// ServiceState represents the internal state of a service
-type ServiceState struct {
-	atomic.Value              // stores supervisor.ServiceState
-	desired      atomic.Value // stores supervisor.Status
-	retryCount   atomic.Int32
-	lastUpdate   atomic.Value // stores time.Time of last status update
-	ctx          context.Context
-	cancel       context.CancelFunc
+type serviceState struct {
+	mu         sync.Mutex
+	status     supervisor.Status
+	details    payload.Payload
+	desired    supervisor.Status
+	retryCount int32
+	lastUpdate time.Time
+	ctx        context.Context
+	cancel     context.CancelFunc
 }
 
-// Supervisor manages the lifecycle of a service
-type Supervisor struct {
-	service        supervisor.Service
-	config         supervisor.ServiceConfig
-	state          *ServiceState
-	transitions    chan stateTransition
-	onStatusChange func(supervisor.ServiceState)
-	ctx            context.Context
-	cancel         context.CancelFunc
-	wg             sync.WaitGroup
-	stateMu        sync.RWMutex
+// newServiceState creates a new serviceState instance
+func newServiceState() *serviceState {
+	return &serviceState{
+		status:     supervisor.Unknown,
+		desired:    supervisor.Unknown,
+		lastUpdate: time.Now(),
+	}
+}
+
+// getSnapshot returns a copy of the current state
+func (s *serviceState) getSnapshot() serviceState {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return serviceState{
+		status:     s.status,
+		details:    s.details,
+		desired:    s.desired,
+		retryCount: s.retryCount,
+		lastUpdate: s.lastUpdate,
+	}
+}
+
+// setContext updates the context and cancel function
+func (s *serviceState) setContext(ctx context.Context, cancel context.CancelFunc) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.ctx = ctx
+	s.cancel = cancel
+}
+
+// getContext returns the current context
+func (s *serviceState) getContext() context.Context {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.ctx
+}
+
+// cancelContext cancels the current context if it exists
+func (s *serviceState) cancelContext() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.cancel != nil {
+		s.cancel()
+	}
+}
+
+// updateState updates the service state and returns current details
+func (s *serviceState) updateState(status supervisor.Status, details payload.Payload) (supervisor.Status, payload.Payload) {
+	s.mu.Lock()
+	s.status = status
+	s.mu.Unlock()
+
+	return s.updateDetails(details)
+}
+
+// updateDetails updates only the details and returns current status
+func (s *serviceState) updateDetails(details payload.Payload) (supervisor.Status, payload.Payload) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.details = details
+	s.lastUpdate = time.Now()
+
+	return s.status, details
+}
+
+// incRetryCount increases the retry count and returns the new value
+func (s *serviceState) incRetryCount() int32 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.retryCount++
+	return s.retryCount
+}
+
+// canRecover checks if the service can be recovered based on current state
+func (s *serviceState) canRecover(maxAttempts int, ctx context.Context) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if ctx.Err() != nil {
+		return false
+	}
+
+	return s.desired == supervisor.Running && int(s.retryCount) < maxAttempts
+}
+
+// setDesiredStatus updates the desired state and returns if it changed
+func (s *serviceState) setDesiredStatus(desired supervisor.Status) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if desired == s.desired {
+		return false
+	}
+	s.desired = desired
+
+	return true
+}
+
+// getCurrentStatus returns the current status
+func (s *serviceState) getCurrentStatus() supervisor.Status {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.status
+}
+
+// getDesiredStatus returns the desired status
+func (s *serviceState) getDesiredStatus() supervisor.Status {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.desired
 }
 
 type stateTransition struct {
@@ -38,27 +146,34 @@ type stateTransition struct {
 	result chan error
 }
 
+// Supervisor manages the lifecycle of a service
+type Supervisor struct {
+	service       supervisor.Service
+	config        supervisor.ServiceConfig
+	state         *serviceState
+	transitions   chan stateTransition
+	onStateChange func(supervisor.Status, payload.Payload)
+	ctx           context.Context
+	cancel        context.CancelFunc
+	wg            sync.WaitGroup
+}
+
 func NewSupervisor(
 	ctx context.Context,
 	service supervisor.Service,
 	config supervisor.ServiceConfig,
-	onStatusChange func(supervisor.ServiceState),
+	onStateChange func(status supervisor.Status, details payload.Payload),
 ) *Supervisor {
 	ctx, cancel := context.WithCancel(ctx)
 
-	state := &ServiceState{}
-	state.Value.Store(supervisor.ServiceState{Status: supervisor.Unknown})
-	state.desired.Store(supervisor.Unknown)
-	state.lastUpdate.Store(time.Now())
-
 	s := &Supervisor{
-		service:        service,
-		config:         config,
-		state:          state,
-		transitions:    make(chan stateTransition, 1),
-		onStatusChange: onStatusChange,
-		ctx:            ctx,
-		cancel:         cancel,
+		service:       service,
+		config:        config,
+		state:         newServiceState(),
+		transitions:   make(chan stateTransition, 1),
+		onStateChange: onStateChange,
+		ctx:           ctx,
+		cancel:        cancel,
 	}
 
 	s.wg.Add(1)
@@ -78,19 +193,14 @@ func (s *Supervisor) TransitionTo(status supervisor.Status) error {
 	}
 }
 
-// GetState returns the current service state
-func (s *Supervisor) GetState() supervisor.ServiceState {
-	s.stateMu.RLock()
-	defer s.stateMu.RUnlock()
-	return s.state.Value.Load().(supervisor.ServiceState)
+func (s *Supervisor) Start() error {
+	err := s.TransitionTo(supervisor.Running)
+	if err != nil {
+		return fmt.Errorf("failed to transition to running: %w", err)
+	}
+	return nil
 }
 
-// GetLastUpdateTime returns the timestamp of the last status update
-func (s *Supervisor) GetLastUpdateTime() time.Time {
-	return s.state.lastUpdate.Load().(time.Time)
-}
-
-// Stop gracefully stops the supervisor and underlying service
 func (s *Supervisor) Stop() error {
 	err := s.TransitionTo(supervisor.Stopped)
 	if err != nil {
@@ -112,28 +222,25 @@ func (s *Supervisor) supervise() {
 			err := s.handleTransition(transition.target)
 			transition.result <- err
 		case <-s.ctx.Done():
-			_ = s.stopService()
+			_ = s.tryStop()
 			return
 		}
 	}
 }
 
 func (s *Supervisor) handleTransition(desired supervisor.Status) error {
-	current := s.state.desired.Load().(supervisor.Status)
-	if desired == current {
+	if !s.state.setDesiredStatus(desired) {
 		return nil
 	}
 
-	s.state.desired.Store(desired)
-
 	switch desired {
 	case supervisor.Running:
-		if s.GetState().Status != supervisor.Running {
+		if s.state.getCurrentStatus() != supervisor.Running {
 			return s.startService()
 		}
 	case supervisor.Stopped:
-		if s.GetState().Status != supervisor.Stopped {
-			return s.stopService()
+		if s.state.getCurrentStatus() != supervisor.Stopped {
+			return s.tryStop()
 		}
 	}
 
@@ -142,14 +249,10 @@ func (s *Supervisor) handleTransition(desired supervisor.Status) error {
 
 func (s *Supervisor) startService() error {
 	ctx, cancel := context.WithCancel(s.ctx)
-	s.state.cancel = cancel
-	s.state.ctx = ctx
+	s.state.setContext(ctx, cancel)
 
-	if err := s.startWithBackoff(ctx, nil); err != nil {
-		s.safeUpdateStatus(supervisor.ServiceState{
-			Status:  supervisor.Failed,
-			Details: payload.NewError(err),
-		})
+	if err := s.tryStart(ctx, nil); err != nil {
+		s.updateState(supervisor.Failed, payload.NewError(err))
 		return fmt.Errorf("failed to start service: %w", err)
 	}
 
@@ -157,50 +260,50 @@ func (s *Supervisor) startService() error {
 }
 
 func (s *Supervisor) recoverService(initialErr error) {
-	s.state.retryCount.Add(1)
-
-	recoveryCtx, cancel := context.WithCancel(s.ctx)
-	defer cancel()
-
-	if err := s.startWithBackoff(recoveryCtx, initialErr); err != nil {
-		s.safeUpdateStatus(supervisor.ServiceState{
-			Status:  supervisor.Failed,
-			Details: payload.NewError(err),
-		})
+	if err := s.tryStart(s.ctx, initialErr); err != nil {
+		s.updateState(supervisor.Failed, payload.NewError(err))
 	}
 }
 
-func (s *Supervisor) startWithBackoff(ctx context.Context, initialErr error) error {
-	backoff := NewBackoffCalculator(s.config.RetryPolicy)
+func (s *Supervisor) tryStart(ctx context.Context, lastErr error) error {
+	bf := backoff.NewCalculator(s.config.RetryPolicy)
 
 	for {
-		s.safeUpdateStatus(supervisor.ServiceState{
-			Status:  supervisor.Starting,
-			Details: payload.NewString(fmt.Sprintf("Attempt %d", s.state.retryCount.Load())),
-		})
-
-		if !s.canRecover() {
-			if initialErr != nil {
-				return initialErr
-			}
-			return fmt.Errorf("service recovery failed after %d attempts", s.state.retryCount.Load())
-		}
+		s.updateState(
+			supervisor.Starting,
+			payload.NewString(fmt.Sprintf("Attempt %d", s.state.getSnapshot().retryCount)),
+		)
 
 		startCtx, cancel := context.WithTimeout(ctx, s.config.StartTimeout)
-		statusCh, err := s.service.Start(startCtx)
+		detailsCh, err := s.service.Start(startCtx)
+
+		// Check context cancellation immediately after service.Start
+		if startCtx.Err() != nil {
+			cancel()
+			return fmt.Errorf("service start timeout: %w", startCtx.Err())
+		}
+
 		cancel()
 
 		if err == nil {
 			s.wg.Add(1)
-			go s.monitorService(statusCh)
+			s.updateState(supervisor.Running, nil)
+			go s.monitorService(detailsCh)
 			return nil
 		}
+		lastErr = err
 
-		s.state.retryCount.Add(1)
+		if !s.state.canRecover(s.config.RetryPolicy.MaxAttempts, s.ctx) {
+			s.updateState(supervisor.Failed, payload.NewError(lastErr))
+			return fmt.Errorf("failed to start service: %w", lastErr)
+		}
 
-		interval := backoff.NextInterval()
+		s.state.incRetryCount()
+
+		interval := bf.NextInterval()
 		if interval == 0 {
-			return fmt.Errorf("service recovery failed after %d attempts", s.state.retryCount.Load())
+			s.updateState(supervisor.Failed, payload.NewError(lastErr))
+			return fmt.Errorf("failed to start service: %w", lastErr)
 		}
 
 		select {
@@ -212,33 +315,54 @@ func (s *Supervisor) startWithBackoff(ctx context.Context, initialErr error) err
 	}
 }
 
-func (s *Supervisor) canRecover() bool {
-	desired := s.state.desired.Load().(supervisor.Status)
-	retries := s.state.retryCount.Load()
-
-	if s.ctx.Err() != nil {
-		return false
+func (s *Supervisor) tryStop() error {
+	if s.state.getCurrentStatus() == supervisor.Stopped {
+		return nil
 	}
 
-	return desired == supervisor.Running && int(retries) < s.config.RetryPolicy.MaxAttempts
+	s.updateState(supervisor.Stopping, nil)
+	s.state.cancelContext()
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), s.config.StopTimeout)
+	defer cancel()
+
+	if err := s.service.Stop(shutdownCtx); err != nil {
+		if s.config.ForceShutdown {
+			s.state.cancelContext()
+			s.updateState(
+				supervisor.Stopped,
+				payload.NewError(fmt.Errorf("forced shutdown due to error: %w", err)),
+			)
+			return nil
+		}
+
+		return fmt.Errorf("failed to stop service: %w", err)
+	}
+
+	s.updateState(supervisor.Stopped, nil)
+	return nil
 }
 
-func (s *Supervisor) monitorService(statusCh <-chan supervisor.ServiceState) {
+func (s *Supervisor) monitorService(detailsCh <-chan payload.Payload) {
 	defer s.wg.Done()
 
+	ctx := s.state.getContext()
 	for {
 		select {
-		case status, ok := <-statusCh:
+		case details, ok := <-detailsCh:
 			if !ok {
-				if s.state.desired.Load().(supervisor.Status) == supervisor.Running {
-					s.handleStatus(s.endingState())
+				if s.state.getDesiredStatus() == supervisor.Running {
+					s.handleError(fmt.Errorf("service details channel closed unexpectedly"))
 				}
 				return
 			}
-			s.handleStatus(status)
-		case <-s.state.ctx.Done():
-			if s.state.desired.Load().(supervisor.Status) == supervisor.Running {
-				s.handleStatus(supervisor.ServiceState{Status: supervisor.Stopped})
+			status, details := s.state.updateDetails(details)
+			if s.onStateChange != nil {
+				s.onStateChange(status, details)
+			}
+		case <-ctx.Done():
+			if s.state.getDesiredStatus() == supervisor.Running {
+				s.updateState(supervisor.Stopped, nil)
 			}
 			return
 		case <-s.ctx.Done():
@@ -247,86 +371,16 @@ func (s *Supervisor) monitorService(statusCh <-chan supervisor.ServiceState) {
 	}
 }
 
-func (s *Supervisor) endingState() supervisor.ServiceState {
-	if s.state.desired.Load().(supervisor.Status) == supervisor.Running {
-		return supervisor.ServiceState{
-			Status:  supervisor.Failed,
-			Details: payload.NewError(fmt.Errorf("service status channel closed unexpectedly")),
-		}
-	}
-	return supervisor.ServiceState{Status: supervisor.Stopped}
-}
-
-func (s *Supervisor) stopService() error {
-	currentState := s.GetState()
-	if currentState.Status == supervisor.Stopped {
-		return nil
-	}
-
-	s.safeUpdateStatus(supervisor.ServiceState{Status: supervisor.Stopping})
-
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), s.config.StopTimeout)
-	defer cancel()
-
-	if err := s.service.Stop(shutdownCtx); err != nil {
-		if s.config.ForceShutdown {
-			if s.state.cancel != nil {
-				s.state.cancel()
-			}
-			s.safeUpdateStatus(supervisor.ServiceState{
-				Status:  supervisor.Stopped,
-				Details: payload.NewError(fmt.Errorf("forced shutdown due to error: %w", err)),
-			})
-			return nil
-		}
-		return fmt.Errorf("failed to stop service: %w", err)
-	}
-
-	s.safeUpdateStatus(supervisor.ServiceState{Status: supervisor.Stopped})
-	return nil
-}
-
-func (s *Supervisor) handleStatus(status supervisor.ServiceState) {
-	switch status.Status {
-	case supervisor.Running:
-		s.state.retryCount.Store(0)
-		s.safeUpdateStatus(status)
-	case supervisor.Failed:
-		s.safeUpdateStatus(status)
-		if s.canRecover() {
-			go s.recoverService(s.extractError(status))
-		}
-	default:
-		s.safeUpdateStatus(status)
+func (s *Supervisor) handleError(err error) {
+	s.updateState(supervisor.Failed, payload.NewError(err))
+	if s.state.canRecover(s.config.RetryPolicy.MaxAttempts, s.ctx) {
+		go s.recoverService(err)
 	}
 }
 
-func (s *Supervisor) extractError(status supervisor.ServiceState) error {
-	if status.Details != nil && status.Details.Format() == payload.Error {
-		if err, ok := status.Details.Data().(error); ok {
-			return err
-		}
-	}
-	return nil
-}
-
-// safeUpdateStatus updates the service state with duplicate prevention
-func (s *Supervisor) safeUpdateStatus(newState supervisor.ServiceState) {
-	s.stateMu.Lock()
-	defer s.stateMu.Unlock()
-
-	currentState := s.state.Value.Load().(supervisor.ServiceState)
-
-	// Always allow Running status updates
-	// For other statuses, prevent duplicates
-	if currentState.Status == newState.Status && newState.Status != supervisor.Running {
-		return
-	}
-
-	s.state.Value.Store(newState)
-	s.state.lastUpdate.Store(time.Now())
-
-	if s.onStatusChange != nil {
-		s.onStatusChange(newState)
+func (s *Supervisor) updateState(status supervisor.Status, details payload.Payload) {
+	s.state.updateState(status, details)
+	if s.onStateChange != nil {
+		s.onStateChange(status, details)
 	}
 }

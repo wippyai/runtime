@@ -1,4 +1,4 @@
-package supervisor
+package backoff
 
 import (
 	"testing"
@@ -16,7 +16,7 @@ func TestNewBackoffCalculator(t *testing.T) {
 		MaxAttempts:   5,
 	}
 
-	calc := NewBackoffCalculator(policy)
+	calc := NewCalculator(policy)
 
 	if calc.policy != policy {
 		t.Errorf("Expected policy %v, got %v", policy, calc.policy)
@@ -38,7 +38,7 @@ func TestBackoffCalculator_NextInterval(t *testing.T) {
 		MaxAttempts:   3,
 	}
 
-	calc := NewBackoffCalculator(policy)
+	calc := NewCalculator(policy)
 
 	// Expected intervals for each attempt
 	expectedIntervals := []time.Duration{
@@ -65,7 +65,7 @@ func TestBackoffCalculator_Reset(t *testing.T) {
 		MaxAttempts:   3,
 	}
 
-	calc := NewBackoffCalculator(policy)
+	calc := NewCalculator(policy)
 
 	// Use up some attempts
 	calc.NextInterval()
@@ -97,7 +97,7 @@ func TestBackoffCalculator_Jitter(t *testing.T) {
 		MaxAttempts:   100,
 	}
 
-	calc := NewBackoffCalculator(policy)
+	calc := NewCalculator(policy)
 
 	// Test multiple attempts to verify jitter range
 	for i := 0; i < 50; i++ {
@@ -122,7 +122,7 @@ func TestBackoffCalculator_MaxDelay(t *testing.T) {
 		MaxAttempts:   5,
 	}
 
-	calc := NewBackoffCalculator(policy)
+	calc := NewCalculator(policy)
 
 	// First interval should be initial delay
 	interval := calc.NextInterval()
