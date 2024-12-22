@@ -6,16 +6,16 @@ import (
 	"time"
 )
 
-// ServerConfig represents the initial configuration for the HTTP server.
+// ServerConfig represents the initial configuration for the Timeouts server.
 type (
 	ServerConfig struct {
-		Meta    registry.Metadata        `json:"meta"`    // Metadata
-		Addr    string                   `json:"addr"`    // Address to listen on
-		HTTP    TimeoutConfig            `json:"http"`    // Global HTTP options
-		Service supervisor.ServiceConfig `json:"service"` // Service lifecycle configuration
+		Meta     registry.Metadata        `json:"meta"`     // Metadata
+		Addr     string                   `json:"addr"`     // Address to listen on
+		Service  supervisor.ServiceConfig `json:"service"`  // Service lifecycle configuration
+		Timeouts TimeoutConfig            `json:"timeouts"` // Global Timeouts options
 	}
 
-	// TimeoutConfig represents global HTTP-level configuration options.
+	// TimeoutConfig represents global Timeouts-level configuration options.
 	TimeoutConfig struct {
 		ReadTimeout  time.Duration `json:"read_timeout"`
 		WriteTimeout time.Duration `json:"write_timeout"`
@@ -34,7 +34,7 @@ type (
 	EndpointConfig struct {
 		Meta    registry.Metadata `json:"meta"`    // Metadata
 		Path    string            `json:"path"`    // URL path
-		Method  string            `json:"method"`  // HTTP method
+		Method  string            `json:"method"`  // Timeouts method
 		Options map[string]string `json:"options"` // Endpoint options
 	}
 )
