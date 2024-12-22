@@ -23,7 +23,7 @@ func GetRouteInfo(ctx context.Context) (*config.RouteInfo, bool) {
 
 // Router manages routers, endpoints, and the composed Chi router.
 type Router struct {
-	handler        http.HandlerFunc                 // The core HTTP handler function
+	handler        http.HandlerFunc                 // The core Timeouts handler function
 	routers        map[string]*ChiRouter            // Map of router Name to ChiRouter
 	endpoints      map[string]config.EndpointConfig // Map of endpoint Name to EndpointConfig
 	mu             sync.RWMutex                     // Mutex for concurrency safety

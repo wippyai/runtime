@@ -6,7 +6,7 @@ import (
 	"github.com/ponyruntime/go-lua"
 )
 
-// new - initializes the HTTP handler module, no args expected
+// new - initializes the Timeouts handler module, no args expected
 func (m *Module) new(l *lua.LState) int {
 	m.log.Debug("called new")
 

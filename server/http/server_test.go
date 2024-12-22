@@ -18,7 +18,7 @@ import (
 func TestNewServer(t *testing.T) {
 	cfg := config.ServerConfig{
 		Addr: ":8080",
-		HTTP: config.TimeoutConfig{
+		Timeouts: config.TimeoutConfig{
 			ReadTimeout:  5 * time.Second,
 			WriteTimeout: 5 * time.Second,
 			IdleTimeout:  10 * time.Second,
@@ -47,7 +47,7 @@ func TestServer_Router(t *testing.T) {
 func TestServer_UpdateConfig(t *testing.T) {
 	initialCfg := config.ServerConfig{
 		Addr: ":8080",
-		HTTP: config.TimeoutConfig{
+		Timeouts: config.TimeoutConfig{
 			ReadTimeout: 5 * time.Second,
 		},
 	}
@@ -56,7 +56,7 @@ func TestServer_UpdateConfig(t *testing.T) {
 
 	newCfg := config.ServerConfig{
 		Addr: ":9090",
-		HTTP: config.TimeoutConfig{
+		Timeouts: config.TimeoutConfig{
 			ReadTimeout: 10 * time.Second,
 		},
 	}
@@ -120,12 +120,12 @@ func TestSimpleHTTP(t *testing.T) {
 }
 
 func TestHTTPServerUnderSupervisor(t *testing.T) {
-	// Define a simple HTTP handler for testing
+	// Define a simple Timeouts handler for testing
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("hello from supervised server"))
 	})
 
-	// Create a new HTTP server
+	// Create a new Timeouts server
 	httpServer := NewServer(config.ServerConfig{Addr: "localhost:8124"}, handler)
 	err := httpServer.Router().AddEndpoint("test", config.EndpointConfig{
 		Path:   "/",
@@ -133,7 +133,7 @@ func TestHTTPServerUnderSupervisor(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Create a supervisor for the HTTP server
+	// Create a supervisor for the Timeouts server
 	hsup := sup.NewSupervisor(
 		context.Background(),
 		httpServer,
@@ -162,7 +162,7 @@ func TestHTTPServerUnderSupervisor(t *testing.T) {
 	// Give the server a moment to fully start
 	time.Sleep(200 * time.Millisecond)
 
-	// Make a request to the HTTP server
+	// Make a request to the Timeouts server
 	port := httpServer.server.Addr
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Get("http://" + port)

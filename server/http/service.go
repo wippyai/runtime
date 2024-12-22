@@ -15,7 +15,7 @@ package http
 //	"go.uber.org/zap"
 //)
 //
-//// Supervisor manages HTTP servers and their configurations
+//// Supervisor manages Timeouts servers and their configurations
 //type Supervisor struct {
 //	log      *zap.Logger
 //	bus      events.Bus
@@ -29,11 +29,11 @@ package http
 //	servers map[string]*Server
 //	mu      sync.RWMutex
 //
-//	// Main handler for all HTTP requests
+//	// Main handler for all Timeouts requests
 //	handler http.HandlerFunc
 //}
 //
-//// NewSupervisor creates a new HTTP supervisor
+//// NewSupervisor creates a new Timeouts supervisor
 //func NewSupervisor(log *zap.Logger, bus events.Bus, exec Executor, transcoder payload.Transcoder, handler http.HandlerFunc) (*Supervisor, error) {
 //	ctx, cancel := context.WithCancel(context.Background())
 //

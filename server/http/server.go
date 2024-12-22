@@ -21,7 +21,7 @@ const (
 	CheckInterval = 100 * time.Millisecond
 )
 
-// Server manages a single HTTP server instance and its associated router
+// Server manages a single Timeouts server instance and its associated router
 type Server struct {
 	config config.ServerConfig
 	router *router.Router
@@ -76,9 +76,9 @@ func (s *Server) Start(ctx context.Context) (<-chan payload.Payload, error) {
 	s.server = &http.Server{
 		Addr:         s.config.Addr,
 		Handler:      s.router,
-		ReadTimeout:  s.config.HTTP.ReadTimeout,
-		WriteTimeout: s.config.HTTP.WriteTimeout,
-		IdleTimeout:  s.config.HTTP.IdleTimeout,
+		ReadTimeout:  s.config.Timeouts.ReadTimeout,
+		WriteTimeout: s.config.Timeouts.WriteTimeout,
+		IdleTimeout:  s.config.Timeouts.IdleTimeout,
 	}
 	s.mu.Unlock()
 
