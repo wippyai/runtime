@@ -134,7 +134,7 @@ func TestHTTPServerUnderSupervisor(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create a supervisor for the Timeouts server
-	hsup := sup.NewSupervisor(
+	hsup := sup.NewController(
 		context.Background(),
 		httpServer,
 		supervisor.ServiceConfig{

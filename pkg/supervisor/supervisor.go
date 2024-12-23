@@ -2,438 +2,371 @@ package supervisor
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/supervisor"
-	"github.com/ponyruntime/pony/internal/backoff"
 	"sync"
 	"time"
+
+	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/payload"
+	"github.com/ponyruntime/pony/api/registry"
+	"github.com/ponyruntime/pony/api/supervisor"
+	"github.com/ponyruntime/pony/pkg/eventbus"
+	"go.uber.org/zap"
 )
 
-type State struct {
-	Status     supervisor.Status
-	Details    payload.Payload
-	Desired    supervisor.Status
-	RetryCount int32
-	LastUpdate time.Time
-}
+const (
+	actionRegister actionType = iota
+	actionRemove
+	actionStart
+	actionStop
+	actionBegin
+	actionCommit
+	actionDiscard
+)
 
-type internalState struct {
-	mu         sync.Mutex
-	status     supervisor.Status
-	details    payload.Payload
-	desired    supervisor.Status
-	retryCount int32
-	lastUpdate time.Time
-	ctx        context.Context
-	cancel     context.CancelFunc
-}
+type (
+	actionType int
 
-// newServiceState creates a new internalState instance
-func newServiceState() *internalState {
-	return &internalState{
-		status:     supervisor.Unknown,
-		desired:    supervisor.Unknown,
-		lastUpdate: time.Now(),
+	action struct {
+		kind      actionType
+		serviceID registry.ID
+		entry     *supervisor.Entry
+	}
+
+	Services map[string]State
+
+	Supervisor struct {
+		bus         events.Bus
+		subscriber  *eventbus.Subscriber
+		logger      *zap.Logger
+		mu          sync.RWMutex
+		controllers map[registry.ID]*Controller
+		actions     chan action
+		wg          sync.WaitGroup
+		tx          *registryTX
+	}
+)
+
+// NewSupervisor creates a new Supervisor instance
+func NewSupervisor(bus events.Bus, logger *zap.Logger) *Supervisor {
+	return &Supervisor{
+		bus:         bus,
+		logger:      logger,
+		controllers: make(map[registry.ID]*Controller),
+		actions:     make(chan action, 100),
+		tx:          newTransactionHelper(logger),
 	}
 }
 
-// getSnapshot returns a copy of the current state
-func (s *internalState) getSnapshot() internalState {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+// Services returns a map of all service states indexed by service ID
+func (s *Supervisor) Services() Services {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
-	return internalState{
-		status:     s.status,
-		details:    s.details,
-		desired:    s.desired,
-		retryCount: s.retryCount,
-		lastUpdate: s.lastUpdate,
-	}
-}
-
-func (s *internalState) publicState() State {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	return State{
-		Status:     s.status,
-		Details:    s.details,
-		Desired:    s.desired,
-		RetryCount: s.retryCount,
-		LastUpdate: s.lastUpdate,
-	}
-}
-
-// setContext updates the context and cancel function
-func (s *internalState) setContext(ctx context.Context, cancel context.CancelFunc) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	s.ctx = ctx
-	s.cancel = cancel
-}
-
-// getContext returns the current context
-func (s *internalState) getContext() context.Context {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	return s.ctx
-}
-
-// cancelContext cancels the current context if it exists
-func (s *internalState) cancelContext() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.cancel != nil {
-		s.cancel()
-	}
-}
-
-// updateState updates the service state and returns current details
-func (s *internalState) updateState(status supervisor.Status, details payload.Payload) (supervisor.Status, payload.Payload) {
-	s.mu.Lock()
-	s.status = status
-	s.mu.Unlock()
-
-	return s.updateDetails(details)
-}
-
-// updateDetails updates only the details and returns current status
-func (s *internalState) updateDetails(details payload.Payload) (supervisor.Status, payload.Payload) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	s.details = details
-	s.lastUpdate = time.Now()
-
-	return s.status, details
-}
-
-// incRetryCount increases the retry count and returns the new value
-func (s *internalState) incRetryCount() int32 {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	s.retryCount++
-	return s.retryCount
-}
-
-// canRecover checks if the service can be recovered based on current state
-func (s *internalState) canRecover(maxAttempts int, ctx context.Context) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if ctx.Err() != nil {
-		return false
+	states := make(Services)
+	for id, controller := range s.controllers {
+		states[string(id)] = controller.State()
 	}
 
-	return s.desired == supervisor.Running && int(s.retryCount) < maxAttempts
+	return states
 }
 
-// setDesiredStatus updates the desired state and returns if it changed
-func (s *internalState) setDesiredStatus(desired supervisor.Status) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+// Start initializes the supervisor and starts listening for events
+func (s *Supervisor) Start(ctx context.Context) error {
+	// Subscribe to all relevant events using a single subscriber with patterns
+	sub, err := eventbus.NewSubscriber(
+		ctx,
+		s.bus,
+		"(registry|supervisor)",
+		"*",
+		s.handleEvent,
+	)
 
-	if desired == s.desired {
-		return false
-	}
-	s.desired = desired
-
-	return true
-}
-
-// getCurrentStatus returns the current status
-func (s *internalState) getCurrentStatus() supervisor.Status {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	return s.status
-}
-
-// getDesiredStatus returns the desired status
-func (s *internalState) getDesiredStatus() supervisor.Status {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	return s.desired
-}
-
-type stateTransition struct {
-	target supervisor.Status
-	result chan error
-}
-
-// Supervisor manages the lifecycle of a service
-type Supervisor struct {
-	service       supervisor.Service
-	config        supervisor.ServiceConfig
-	state         *internalState
-	transitions   chan stateTransition
-	onStateChange func(supervisor.Status, payload.Payload)
-	ctx           context.Context
-	cancel        context.CancelFunc
-	wg            sync.WaitGroup
-}
-
-func NewSupervisor(
-	ctx context.Context,
-	service supervisor.Service,
-	config supervisor.ServiceConfig,
-	onStateChange func(status supervisor.Status, details payload.Payload),
-) *Supervisor {
-	ctx, cancel := context.WithCancel(ctx)
-
-	s := &Supervisor{
-		service:       service,
-		config:        config,
-		state:         newServiceState(),
-		transitions:   make(chan stateTransition, 1),
-		onStateChange: onStateChange,
-		ctx:           ctx,
-		cancel:        cancel,
-	}
-
-	s.wg.Add(1)
-	go s.supervise()
-
-	return s
-}
-
-// TransitionTo requests a state transition
-func (s *Supervisor) TransitionTo(status supervisor.Status) error {
-	if status != supervisor.Running && status != supervisor.Stopped {
-		return fmt.Errorf("invalid Status: %v", status)
-	}
-
-	// Check context first
-	if err := s.ctx.Err(); err != nil {
-		return fmt.Errorf("supervisor is stopped: %w", err)
-	}
-
-	result := make(chan error, 1)
-
-	// Use separate select for sending transition
-	select {
-	case s.transitions <- stateTransition{target: status, result: result}:
-		// Wait for result with context
-		select {
-		case err := <-result:
-			return err
-		case <-s.ctx.Done():
-			return fmt.Errorf("supervisor is stopped: %w", s.ctx.Err())
-		}
-	case <-s.ctx.Done():
-		return fmt.Errorf("supervisor is stopped: %w", s.ctx.Err())
-	}
-}
-func (s *Supervisor) Start() error {
-	err := s.TransitionTo(supervisor.Running)
 	if err != nil {
-		return fmt.Errorf("failed to transition to running: %w", err)
+		return fmt.Errorf("failed to create event subscriber: %w", err)
 	}
+	s.subscriber = sub
+
+	// Start main control loop
+	s.wg.Add(1)
+	go s.run(ctx)
+
+	s.logger.Info("supervisor started")
+
 	return nil
 }
 
-func (s *Supervisor) Stop() error {
-	// First cancel the context to prevent new transitions
-	s.cancel()
-
-	// Then try to stop the service
-	err := s.TransitionTo(supervisor.Stopped)
-	if err != nil && !errors.Is(err, context.Canceled) {
-		return fmt.Errorf("failed to transition to stopped: %w", err)
-	}
-
-	// Wait for supervise goroutine to finish
-	s.wg.Wait()
-
-	// Close transitions channel after supervise goroutine is done
-	close(s.transitions)
-	return nil
-}
-
-func (s *Supervisor) State() State {
-	return s.state.publicState()
-}
-
-func (s *Supervisor) supervise() {
-	defer s.wg.Done()
-
-	for {
-		select {
-		case transition, ok := <-s.transitions:
-			if !ok {
-				return
-			}
-			err := s.handleTransition(transition.target)
-			transition.result <- err
-		case <-s.ctx.Done():
-			_ = s.tryStop()
+func (s *Supervisor) handleEvent(e events.Event) {
+	switch {
+	case e.System == supervisor.System && e.Kind == supervisor.Register:
+		// Register new service for supervision
+		entry, ok := e.Data.(*supervisor.Entry)
+		if !ok {
+			s.logger.Error(
+				"failed to decode registration entry",
+				zap.String("event_path", string(e.Path)),
+			)
 			return
 		}
-	}
-}
 
-func (s *Supervisor) handleTransition(desired supervisor.Status) error {
-	if !s.state.setDesiredStatus(desired) {
-		return nil
-	}
-
-	switch desired {
-	case supervisor.Running:
-		if s.state.getCurrentStatus() != supervisor.Running {
-			return s.startService()
+		s.actions <- action{
+			serviceID: registry.ID(e.Path),
+			kind:      actionRegister,
+			entry:     entry,
 		}
-	case supervisor.Stopped:
-		if s.state.getCurrentStatus() != supervisor.Stopped {
-			return s.tryStop()
+	case e.System == supervisor.System && e.Kind == supervisor.Remove:
+		// Remove service from supervision
+		s.actions <- action{serviceID: registry.ID(e.Path), kind: actionRemove}
+	case e.System == registry.System:
+		// Manage system configuration state
+		switch e.Kind {
+		case registry.Begin:
+			s.actions <- action{kind: actionBegin}
+		case registry.Commit:
+			s.actions <- action{kind: actionCommit}
+		case registry.Discard:
+			s.actions <- action{kind: actionDiscard}
 		}
 	}
-
-	return nil
 }
 
-func (s *Supervisor) startService() error {
-	ctx, cancel := context.WithCancel(s.ctx)
-	s.state.setContext(ctx, cancel)
+func (s *Supervisor) run(ctx context.Context) {
+	defer s.wg.Done()
 
-	if err := s.tryStart(ctx, nil); err != nil {
-		s.updateState(supervisor.Failed, payload.NewError(err))
-		return fmt.Errorf("failed to start service: %w", err)
+	for action := range s.actions {
+		switch action.kind {
+		case actionBegin:
+			s.tx.begin()
+
+		case actionDiscard:
+			s.tx.discard()
+
+		case actionCommit:
+			if err := s.tx.commit(s.removeService, s.registerService); err != nil {
+				s.logger.Error("failed to commit transaction", zap.Error(err))
+			} else {
+				s.startPendingServices()
+			}
+
+		case actionRegister:
+			if err := s.tx.registerService(action.serviceID, action.entry); err != nil {
+				s.logger.Error("failed to register service in transaction",
+					zap.String("serviceID", string(action.serviceID)),
+					zap.Error(err),
+				)
+			} else {
+				s.logger.Info("service registered",
+					zap.String("serviceID", string(action.serviceID)),
+				)
+			}
+
+		case actionRemove:
+			if err := s.tx.removeService(action.serviceID); err != nil {
+				s.logger.Error("failed to remove service in transaction",
+					zap.String("serviceID", string(action.serviceID)),
+					zap.Error(err),
+				)
+			} else {
+				s.logger.Info("service removed",
+					zap.String("serviceID", string(action.serviceID)),
+				)
+			}
+
+		case actionStart:
+			err := s.startService(action.serviceID)
+			if err != nil {
+				s.logger.Error("failed to start service in transaction",
+					zap.String("serviceID", string(action.serviceID)),
+					zap.Error(err),
+				)
+			} else {
+				s.logger.Info("service started",
+					zap.String("serviceID", string(action.serviceID)),
+				)
+			}
+
+		case actionStop:
+			err := s.stopService(action.serviceID)
+			if err != nil {
+				s.logger.Error("failed to stop service",
+					zap.String("serviceID", string(action.serviceID)),
+					zap.Error(err),
+				)
+			}
+		}
+	}
+}
+
+func (s *Supervisor) registerService(id registry.ID, entry *supervisor.Entry) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if current, exists := s.controllers[id]; exists {
+		return current.updateConfig(entry.Config)
 	}
 
-	return nil
-}
-
-func (s *Supervisor) recoverService(initialErr error) {
-	if err := s.tryStart(s.ctx, initialErr); err != nil {
-		s.updateState(supervisor.Failed, payload.NewError(err))
-	}
-}
-
-func (s *Supervisor) tryStart(ctx context.Context, lastErr error) error {
-	bf := backoff.NewCalculator(s.config.RetryPolicy)
-
-	for {
-		s.updateState(
-			supervisor.Starting,
-			payload.NewString(fmt.Sprintf("Attempt %d", s.state.getSnapshot().retryCount)),
+	stateHandler := func(status supervisor.Status, details payload.Payload) {
+		s.logger.Info("service state update",
+			zap.String("serviceID", string(id)),
+			zap.String("status", string(status)),
 		)
 
-		startCtx, cancel := context.WithTimeout(ctx, s.config.StartTimeout)
-		detailsCh, err := s.service.Start(startCtx)
-
-		// Check context cancellation immediately after service.Start
-		if startCtx.Err() != nil {
-			cancel()
-			return fmt.Errorf("service start timeout: %w", startCtx.Err())
-		}
-
-		cancel()
-
-		if err == nil {
-			s.wg.Add(1)
-			s.updateState(supervisor.Running, nil)
-			go s.monitorService(detailsCh)
-			return nil
-		}
-		lastErr = err
-
-		// report state
-		s.updateState(supervisor.Failed, payload.NewError(lastErr))
-
-		if !s.state.canRecover(s.config.RetryPolicy.MaxAttempts, s.ctx) {
-			return fmt.Errorf("failed to start service: %w", lastErr)
-		}
-
-		s.state.incRetryCount()
-
-		interval := bf.NextInterval()
-		if interval == 0 {
-			s.updateState(supervisor.Failed, payload.NewError(lastErr))
-			return fmt.Errorf("failed to start service: %w", lastErr)
-		}
-
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(interval):
-			continue
-		}
-	}
-}
-
-func (s *Supervisor) tryStop() error {
-	if s.state.getCurrentStatus() == supervisor.Stopped {
-		return nil
+		s.bus.Send(context.Background(), events.Event{
+			System: supervisor.System,
+			Path:   events.Path(id),
+			Kind:   supervisor.Update,
+			Data: State{
+				Status:     status,
+				Details:    details,
+				Desired:    status,
+				RetryCount: 0,
+				LastUpdate: time.Now(),
+			},
+		})
 	}
 
-	s.updateState(supervisor.Stopping, nil)
-	s.state.cancelContext()
+	controller := NewController(
+		context.Background(),
+		entry.Service,
+		entry.Config,
+		stateHandler,
+	)
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), s.config.StopTimeout)
-	defer cancel()
+	s.controllers[id] = controller
+	s.logger.Info("service registered",
+		zap.String("serviceID", string(id)),
+		zap.Bool("auto_start", entry.Config.AutoStart),
+	)
 
-	if err := s.service.Stop(shutdownCtx); err != nil {
-		if s.config.ForceShutdown {
-			s.state.cancelContext()
-			s.updateState(
-				supervisor.Stopped,
-				payload.NewError(fmt.Errorf("forced shutdown due to error: %w", err)),
-			)
-			return nil
-		}
-
-		return fmt.Errorf("failed to stop service: %w", err)
-	}
-
-	s.updateState(supervisor.Stopped, nil)
 	return nil
 }
 
-func (s *Supervisor) monitorService(detailsCh <-chan payload.Payload) {
-	defer s.wg.Done()
+func (s *Supervisor) removeService(id registry.ID) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	ctx := s.state.getContext()
-	for {
-		select {
-		case details, ok := <-detailsCh:
-			if !ok {
-				if s.state.getDesiredStatus() == supervisor.Running {
-					s.handleError(fmt.Errorf("service Details channel closed unexpectedly"))
-				}
-				return
-			}
-			status, details := s.state.updateDetails(details)
-			if s.onStateChange != nil {
-				s.onStateChange(status, details)
-			}
-		case <-ctx.Done():
-			if s.state.getDesiredStatus() == supervisor.Running {
-				s.updateState(supervisor.Stopped, nil)
-			}
-			return
-		case <-s.ctx.Done():
-			return
+	controller, exists := s.controllers[id]
+	if !exists {
+		return fmt.Errorf("service %s not found", id)
+	}
+
+	if err := controller.Stop(); err != nil {
+		s.logger.Error("failed to stop service during removal",
+			zap.String("serviceID", string(id)),
+			zap.Error(err),
+		)
+		return err
+	}
+
+	delete(s.controllers, id)
+	s.logger.Info("service removed", zap.String("serviceID", string(id)))
+
+	return nil
+}
+
+func (s *Supervisor) startPendingServices() {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for id, controller := range s.controllers {
+		if state := controller.State(); state.Desired == supervisor.Running {
+			continue
+		}
+
+		s.logger.Info("starting service from tx",
+			zap.String("serviceID", string(id)), // Log service ID correctly
+		)
+
+		if err := controller.Start(); err != nil {
+			s.logger.Error("failed to start tx service",
+				zap.String("serviceID", string(id)), // Log service ID correctly
+				zap.Error(err),
+			)
 		}
 	}
 }
 
-func (s *Supervisor) handleError(err error) {
-	s.updateState(supervisor.Failed, payload.NewError(err))
-	if s.state.canRecover(s.config.RetryPolicy.MaxAttempts, s.ctx) {
-		go s.recoverService(err)
+// GetServiceState returns the current state of a service
+func (s *Supervisor) GetServiceState(id registry.ID) (State, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	controller, exists := s.controllers[id]
+	if !exists {
+		return State{}, fmt.Errorf("service %s not found", id)
 	}
+
+	return controller.State(), nil
 }
 
-func (s *Supervisor) updateState(status supervisor.Status, details payload.Payload) {
-	s.state.updateState(status, details)
-	if s.onStateChange != nil {
-		s.onStateChange(status, details)
+func (s *Supervisor) startService(id registry.ID) error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	controller, exists := s.controllers[id]
+	if !exists {
+		return fmt.Errorf("service %s not found", id)
 	}
+
+	return controller.Start()
+}
+
+func (s *Supervisor) stopService(id registry.ID) error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	controller, exists := s.controllers[id]
+	if !exists {
+		return fmt.Errorf("service %s not found", id)
+	}
+
+	return controller.Stop()
+}
+
+// Stop gracefully shuts down the supervisor and all managed services
+func (s *Supervisor) Stop(ctx context.Context) error {
+	s.logger.Info("stopping supervisor")
+
+	if s.subscriber != nil {
+		s.subscriber.Close()
+	}
+
+	close(s.actions)
+	s.wg.Wait()
+
+	// Stop all controllers
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var wg sync.WaitGroup
+	errCh := make(chan error, len(s.controllers))
+
+	for id, controller := range s.controllers {
+		wg.Add(1)
+		go func(id registry.ID, c *Controller) { // Use registry.ID
+			defer wg.Done()
+			if err := c.Stop(); err != nil {
+				s.logger.Error("failed to stop controller",
+					zap.String("serviceID", string(id)), // Log service ID correctly
+					zap.Error(err),
+				)
+				errCh <- fmt.Errorf("failed to stop controller %s: %w", id, err)
+			}
+		}(id, controller)
+	}
+
+	wg.Wait()
+	close(errCh)
+
+	var errs []error
+	for err := range errCh {
+		errs = append(errs, err)
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("failed to stop some controllers: %v", errs)
+	}
+
+	s.logger.Info("supervisor stopped")
+	return nil
 }
