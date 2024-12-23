@@ -2,11 +2,17 @@ package supervisor
 
 import (
 	"context"
+	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"
 	"time"
 )
 
 const (
+	System   events.System = "supervisor"
+	Register events.Kind   = "supervisor.service.register"
+	Remove   events.Kind   = "supervisor.service.remove"
+	Update   events.Kind   = "supervisor.service.update_status"
+
 	// Unknown indicates the service status is currently unknown.
 	Unknown Status = "unknown"
 	// Starting indicates the service is currently starting up.
@@ -22,6 +28,12 @@ const (
 )
 
 type (
+	// Entry payload for supervisor registration event. Service will be identified by event path.
+	Entry struct {
+		Service Service
+		Config  ServiceConfig
+	}
+
 	// Status represents the operational status of a service.
 	Status string
 
@@ -35,8 +47,6 @@ type (
 		StopTimeout time.Duration `json:"stop_timeout" yamal:"stop_timeout" default:"30s"`
 		// RetryPolicy defines the policy for retrying a failed service.
 		RetryPolicy RetryPolicy `json:"retry_policy" yaml:"retry_policy"`
-		// ForceShutdown indicates whether the service should be forcefully terminated if StopTimeout is reached.
-		ForceShutdown bool `json:"force_shutdown" yaml:"force_shutdown" default:"true"`
 		// DependsOn specifies a list of service names that this service depends on.
 		DependsOn []string `json:"depends_on" yaml:"depends_on" default:"[]"` // Empty array
 	}
@@ -58,9 +68,10 @@ type (
 	// Service defines the interface that must be implemented by any service managed by the supervisor.
 	Service interface {
 		// Start initiates the service. Service can post current status to the returned channel.
-		// The service should close this channel when it is done.
+		// The context passed into start method is primary service context, service must exit if context is done.
 		Start(ctx context.Context) (<-chan payload.Payload, error)
-		// Stop terminates the service.
+		// Stop terminates the service. The context passed into stop method is only for graceful stop, service must return error
+		// if it cannot stop within the context deadline.
 		Stop(ctx context.Context) error
 	}
 )
