@@ -5,28 +5,32 @@ import (
 	"sync"
 )
 
-// Node represents a vertex in the graph
-type Node string
+const Infinity = -1
 
-// Edge represents a directed edge between two nodes with a weight
-type Edge struct {
-	From   Node
-	To     Node
-	Weight int
-}
+type (
+	// Node represents a vertex in the graph
+	Node string
 
-// Path represents a sequence of nodes and their total cost
-type Path struct {
-	Nodes []Node
-	Cost  int
-}
+	// Edge represents a directed edge between two nodes with a weight
+	Edge struct {
+		From   Node
+		To     Node
+		Weight int
+	}
 
-// Graph represents a weighted directed graph with concurrent access support
-type Graph struct {
-	nodes map[Node]bool
-	edges map[Node]map[Node]int
-	mutex sync.RWMutex
-}
+	// Path represents a sequence of nodes and their total cost
+	Path struct {
+		Nodes []Node
+		Cost  int
+	}
+
+	// Graph represents a weighted directed graph with concurrent access support
+	Graph struct {
+		nodes map[Node]bool
+		edges map[Node]map[Node]int
+		mutex sync.RWMutex
+	}
+)
 
 // NewGraph creates a new empty graph
 func NewGraph() *Graph {
@@ -78,7 +82,7 @@ func (g *Graph) ShortestPath(from, to Node) (*Path, error) {
 			distances[node] = 0
 			pq.SafePush(newItem(node, 0))
 		} else {
-			distances[node] = -1 // Using -1 to represent infinity
+			distances[node] = Infinity
 		}
 	}
 
@@ -93,7 +97,7 @@ func (g *Graph) ShortestPath(from, to Node) (*Path, error) {
 			break // Reached destination
 		}
 
-		if distances[current.node] == -1 {
+		if distances[current.node] == Infinity {
 			break // No path exists to remaining nodes
 		}
 
@@ -101,7 +105,7 @@ func (g *Graph) ShortestPath(from, to Node) (*Path, error) {
 		for neighbor, weight := range g.edges[current.node] {
 			newDistance := distances[current.node] + weight
 
-			if distances[neighbor] == -1 || newDistance < distances[neighbor] {
+			if distances[neighbor] == Infinity || newDistance < distances[neighbor] {
 				distances[neighbor] = newDistance
 				previous[neighbor] = current.node
 
@@ -116,7 +120,7 @@ func (g *Graph) ShortestPath(from, to Node) (*Path, error) {
 	}
 
 	// Check if path exists
-	if distances[to] == -1 {
+	if distances[to] == Infinity {
 		return nil, fmt.Errorf("no path found")
 	}
 

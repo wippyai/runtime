@@ -123,7 +123,7 @@ func (dl *DependencyLevels) LevelCount() int {
 //
 // Post-conditions:
 //   - Returns the dependency level of the `node` if found.
-//   - Returns -1 if the `node` is not found in any level.
+//   - Returns Infinity if the `node` is not found in any level.
 func (dl *DependencyLevels) GetNodeLevel(node Node) int {
 	for i, level := range dl.Levels {
 		for _, n := range level {
@@ -132,5 +132,6 @@ func (dl *DependencyLevels) GetNodeLevel(node Node) int {
 			}
 		}
 	}
-	return -1
+
+	return Infinity
 }
