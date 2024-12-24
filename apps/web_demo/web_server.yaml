@@ -1,4 +1,4 @@
-name: web_server
+name: service.web_server
 kind: http.server
 meta:
   server_id: "default"
