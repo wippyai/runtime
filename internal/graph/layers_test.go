@@ -205,7 +205,7 @@ func TestDependencyLevels_Methods(t *testing.T) {
 
 	t.Run("GetLevel bounds checking", func(t *testing.T) {
 		// Test negative index
-		if _, err := deps.GetLevel(-1); err == nil {
+		if _, err := deps.GetLevel(Infinity); err == nil {
 			t.Error("Expected error for negative level index")
 		}
 
@@ -223,7 +223,7 @@ func TestDependencyLevels_Methods(t *testing.T) {
 			{"A", 0},
 			{"B", 1},
 			{"C", 2},
-			{"X", -1}, // Non-existent node
+			{"X", Infinity}, // Non-existent node
 		}
 
 		for _, tc := range testCases {

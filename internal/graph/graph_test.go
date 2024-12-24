@@ -2,6 +2,7 @@ package graph
 
 import (
 	"reflect"
+	"sort"
 	"sync"
 	"testing"
 )
@@ -174,5 +175,63 @@ func TestGraph_MissingNode(t *testing.T) {
 	_, err := g.ShortestPath("A", "B")
 	if err == nil {
 		t.Errorf("ShortestPath() should have returned an error for missing nodes")
+	}
+}
+
+func TestGraph_GetNodes(t *testing.T) {
+	g := NewGraph()
+
+	// Add some nodes
+	nodes := []Node{"A", "B", "C"}
+	for _, node := range nodes {
+		g.AddNode(node)
+	}
+
+	// Get all nodes
+	got := g.GetNodes()
+
+	// Since map iteration order is random, we need to sort both slices before comparing
+	sort.Slice(got, func(i, j int) bool { return string(got[i]) < string(got[j]) })
+	if !reflect.DeepEqual(got, nodes) {
+		t.Errorf("GetNodes() = %v, want %v", got, nodes)
+	}
+}
+
+func TestGraph_GetEdges(t *testing.T) {
+	g := NewGraph()
+
+	// Add nodes and edges
+	g.AddNode("A")
+	g.AddNode("B")
+	g.AddNode("C")
+
+	expectedEdges := []Edge{
+		{From: "A", To: "B", Weight: 1},
+		{From: "B", To: "C", Weight: 2},
+	}
+
+	for _, edge := range expectedEdges {
+		g.AddEdge(edge)
+	}
+
+	// Get all edges
+	got := g.GetEdges()
+
+	// Sort both slices for comparison (since map iteration order is random)
+	sort.Slice(got, func(i, j int) bool {
+		if got[i].From != got[j].From {
+			return string(got[i].From) < string(got[j].From)
+		}
+		return string(got[i].To) < string(got[j].To)
+	})
+	sort.Slice(expectedEdges, func(i, j int) bool {
+		if expectedEdges[i].From != expectedEdges[j].From {
+			return string(expectedEdges[i].From) < string(expectedEdges[j].From)
+		}
+		return string(expectedEdges[i].To) < string(expectedEdges[j].To)
+	})
+
+	if !reflect.DeepEqual(got, expectedEdges) {
+		t.Errorf("GetEdges() = %v, want %v", got, expectedEdges)
 	}
 }
