@@ -11,17 +11,17 @@ import (
 
 	"github.com/ponyruntime/pony/api/payload"
 	config "github.com/ponyruntime/pony/api/server/http"
-	"github.com/ponyruntime/pony/server/http/router"
+	"github.com/ponyruntime/pony/service/http/router"
 )
 
 const (
-	// BootTimeout defines how long to wait for server to start
+	// BootTimeout defines how long to wait for service to start
 	BootTimeout = 30 * time.Second
-	// CheckInterval defines how often to check server status during boot
+	// CheckInterval defines how often to check service status during boot
 	CheckInterval = 100 * time.Millisecond
 )
 
-// Server manages a single Timeouts server instance and its associated router
+// Server manages a single Timeouts service instance and its associated router
 type Server struct {
 	config config.ServerConfig
 	router *router.Router
@@ -57,7 +57,7 @@ func (s *Server) ensureRunning(ctx context.Context) error {
 	for {
 		select {
 		case <-timeout:
-			return errors.New("server failed to start within timeout")
+			return errors.New("service failed to start within timeout")
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
@@ -82,7 +82,7 @@ func (s *Server) Start(ctx context.Context) (<-chan payload.Payload, error) {
 	}
 	s.mu.Unlock()
 
-	// Start server in a goroutine
+	// Start service in a goroutine
 	go func() {
 		err := s.server.ListenAndServe()
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -92,13 +92,13 @@ func (s *Server) Start(ctx context.Context) (<-chan payload.Payload, error) {
 		close(s.statusChan)
 	}()
 
-	// Check if server starts successfully
+	// Check if service starts successfully
 	if err := s.ensureRunning(ctx); err != nil {
 		return s.statusChan, err
 	}
 
 	// we are running!
-	s.statusChan <- payload.NewString(fmt.Sprint("server listening on ", s.config.Addr))
+	s.statusChan <- payload.NewString(fmt.Sprint("service listening on ", s.config.Addr))
 
 	return s.statusChan, nil
 }
@@ -115,7 +115,7 @@ func (s *Server) Stop(ctx context.Context) error {
 	return nil
 }
 
-// UpdateConfig updates the server configuration
+// UpdateConfig updates the service configuration
 func (s *Server) UpdateConfig(config config.ServerConfig) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

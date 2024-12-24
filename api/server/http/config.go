@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// ServerConfig represents the initial configuration for the Timeouts server.
+// ServerConfig represents the initial configuration for the Timeouts service.
 type (
 	ServerConfig struct {
 		Meta     registry.Metadata        `json:"meta"`     // Metadata
