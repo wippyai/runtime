@@ -3,7 +3,6 @@ package supervisor
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/supervisor"
 	"go.uber.org/zap"
@@ -14,7 +13,7 @@ import (
 type internalState struct {
 	mu         sync.Mutex
 	status     supervisor.Status
-	details    payload.Payload
+	details    any
 	desired    supervisor.Status
 	retryCount int32
 	lastUpdate time.Time
@@ -89,7 +88,7 @@ func (s *internalState) cancelContext() {
 }
 
 // updateState updates the service state and returns current details
-func (s *internalState) updateState(status supervisor.Status, details payload.Payload) (supervisor.Status, payload.Payload) {
+func (s *internalState) updateState(status supervisor.Status, details any) (supervisor.Status, any) {
 	s.mu.Lock()
 	s.status = status
 	s.mu.Unlock()
@@ -98,7 +97,7 @@ func (s *internalState) updateState(status supervisor.Status, details payload.Pa
 }
 
 // updateDetails updates only the details and returns current status
-func (s *internalState) updateDetails(details payload.Payload) (supervisor.Status, payload.Payload) {
+func (s *internalState) updateDetails(details any) (supervisor.Status, any) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

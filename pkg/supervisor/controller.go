@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/supervisor"
 	"sync"
 	"time"
@@ -12,7 +11,7 @@ import (
 
 type State struct {
 	Status     supervisor.Status
-	Details    payload.Payload
+	Details    any
 	Desired    supervisor.Status
 	RetryCount int32
 	LastUpdate time.Time
@@ -35,7 +34,7 @@ type Controller struct {
 	// State management
 	state         *internalState
 	transitions   chan stateTransition
-	onStateChange func(supervisor.Status, payload.Payload)
+	onStateChange func(supervisor.Status, any)
 }
 
 type stateTransition struct {
@@ -48,7 +47,7 @@ func NewController(
 	ctx context.Context,
 	service supervisor.Service,
 	config supervisor.ServiceConfig,
-	onStateChange func(status supervisor.Status, details payload.Payload),
+	onStateChange func(status supervisor.Status, details any),
 ) *Controller {
 	return &Controller{
 		service:       service,
@@ -161,7 +160,7 @@ func (c *Controller) startService() error {
 	c.state.setContext(ctx, cancel)
 
 	if err := c.tryStart(ctx, nil); err != nil {
-		c.updateState(supervisor.Failed, payload.NewError(err))
+		c.updateState(supervisor.Failed, err)
 		return fmt.Errorf("failed to start service: %w", err)
 	}
 
@@ -185,7 +184,7 @@ func (c *Controller) tryStart(ctx context.Context, lastErr error) error {
 func (c *Controller) attemptStart(ctx context.Context, attempt int) error {
 	c.updateState(
 		supervisor.Starting,
-		payload.NewString(fmt.Sprintf("Attempt %d", attempt-1)),
+		fmt.Sprintf("Attempt %d", attempt-1),
 	)
 
 	startCtx, cancel := context.WithTimeout(ctx, c.config.StartTimeout)
@@ -193,7 +192,7 @@ func (c *Controller) attemptStart(ctx context.Context, attempt int) error {
 
 	detailsCh, err := c.service.Start(startCtx)
 	if err != nil {
-		c.updateState(supervisor.Failed, payload.NewError(err))
+		c.updateState(supervisor.Failed, err)
 		return err
 	}
 
@@ -267,7 +266,7 @@ func (c *Controller) executeShutdown(ctx context.Context) error {
 
 // Service monitoring and recovery
 
-func (c *Controller) monitorService(detailsCh <-chan payload.Payload) {
+func (c *Controller) monitorService(detailsCh <-chan any) {
 	defer c.wg.Done()
 
 	ctx := c.state.getContext()
@@ -296,7 +295,7 @@ func (c *Controller) monitorService(detailsCh <-chan payload.Payload) {
 }
 
 func (c *Controller) handleError(err error) {
-	c.updateState(supervisor.Failed, payload.NewError(err))
+	c.updateState(supervisor.Failed, err)
 	if c.state.canRecover(c.config.RetryPolicy.MaxAttempts, c.ctx) {
 		go c.recoverService(err)
 	}
@@ -311,7 +310,7 @@ func (c *Controller) shouldRetry(ctx context.Context, attempt int) bool {
 	return true
 }
 
-func (c *Controller) updateState(status supervisor.Status, details payload.Payload) {
+func (c *Controller) updateState(status supervisor.Status, details any) {
 	c.state.updateState(status, details)
 	if c.onStateChange != nil {
 		c.onStateChange(status, details)
@@ -320,7 +319,7 @@ func (c *Controller) updateState(status supervisor.Status, details payload.Paylo
 
 func (c *Controller) recoverService(initialErr error) {
 	if err := c.tryStart(c.ctx, initialErr); err != nil {
-		c.updateState(supervisor.Failed, payload.NewError(err))
+		c.updateState(supervisor.Failed, err)
 	}
 }
 
