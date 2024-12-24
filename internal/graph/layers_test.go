@@ -25,7 +25,7 @@ func TestDependencyLevels(t *testing.T) {
 		g.AddEdge(Edge{From: "D", To: "F", Weight: 1})
 		g.AddEdge(Edge{From: "E", To: "F", Weight: 1})
 
-		deps, err := g.NewDependencyLevels()
+		deps, err := g.DependencyLevels()
 		if err != nil {
 			t.Fatalf("Failed to create dependency levels: %v", err)
 		}
@@ -75,7 +75,7 @@ func TestDependencyLevels(t *testing.T) {
 
 	t.Run("Empty graph", func(t *testing.T) {
 		g := NewGraph()
-		deps, err := g.NewDependencyLevels()
+		deps, err := g.DependencyLevels()
 		if err != nil {
 			t.Fatalf("Failed to create dependency levels for empty graph: %v", err)
 		}
@@ -87,7 +87,7 @@ func TestDependencyLevels(t *testing.T) {
 	t.Run("Single node", func(t *testing.T) {
 		g := NewGraph()
 		g.AddNode("A")
-		deps, err := g.NewDependencyLevels()
+		deps, err := g.DependencyLevels()
 		if err != nil {
 			t.Fatalf("Failed to create dependency levels for single node: %v", err)
 		}
@@ -104,7 +104,7 @@ func TestDependencyLevels(t *testing.T) {
 		g.AddEdge(Edge{From: "A", To: "B", Weight: 1})
 		g.AddEdge(Edge{From: "B", To: "C", Weight: 1})
 
-		deps, err := g.NewDependencyLevels()
+		deps, err := g.DependencyLevels()
 		if err != nil {
 			t.Fatalf("Failed to create dependency levels for linear chain: %v", err)
 		}
@@ -126,7 +126,7 @@ func TestDependencyLevels(t *testing.T) {
 		g.AddEdge(Edge{From: "B", To: "D", Weight: 1})
 		g.AddEdge(Edge{From: "C", To: "D", Weight: 1})
 
-		deps, err := g.NewDependencyLevels()
+		deps, err := g.DependencyLevels()
 		if err != nil {
 			t.Fatalf("Failed to create dependency levels for diamond shape: %v", err)
 		}
@@ -149,7 +149,7 @@ func TestDependencyLevels(t *testing.T) {
 		g.AddNode("D")
 		g.AddEdge(Edge{From: "C", To: "D", Weight: 1})
 
-		deps, err := g.NewDependencyLevels()
+		deps, err := g.DependencyLevels()
 		if err != nil {
 			t.Fatalf("Failed to create dependency levels for multiple components: %v", err)
 		}
@@ -171,7 +171,7 @@ func TestDependencyLevels_Cycle(t *testing.T) {
 		g.AddEdge(Edge{From: "B", To: "C", Weight: 1})
 		g.AddEdge(Edge{From: "C", To: "A", Weight: 1}) // Creates a cycle
 
-		_, err := g.NewDependencyLevels()
+		_, err := g.DependencyLevels()
 		if err == nil {
 			t.Error("Expected error for graph with cycle, got nil")
 		}
@@ -182,7 +182,7 @@ func TestDependencyLevels_Cycle(t *testing.T) {
 		g.AddNode("A")
 		g.AddEdge(Edge{From: "A", To: "A", Weight: 1}) // Self-cycle
 
-		_, err := g.NewDependencyLevels()
+		_, err := g.DependencyLevels()
 		if err == nil {
 			t.Error("Expected error for graph with self-cycle, got nil")
 		}
@@ -198,7 +198,7 @@ func TestDependencyLevels_Methods(t *testing.T) {
 	g.AddEdge(Edge{From: "A", To: "B", Weight: 1})
 	g.AddEdge(Edge{From: "B", To: "C", Weight: 1})
 
-	deps, err := g.NewDependencyLevels()
+	deps, err := g.DependencyLevels()
 	if err != nil {
 		t.Fatalf("Failed to create dependency levels: %v", err)
 	}
@@ -257,7 +257,7 @@ func TestDependencyLevels_Concurrent(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			deps, err := g.NewDependencyLevels()
+			deps, err := g.DependencyLevels()
 			if err != nil {
 				t.Errorf("Concurrent NewDependencyLevels failed: %v", err)
 				return
