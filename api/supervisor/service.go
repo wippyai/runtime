@@ -10,7 +10,11 @@ const (
 	System   events.System = "supervisor"
 	Register events.Kind   = "supervisor.service.register"
 	Remove   events.Kind   = "supervisor.service.remove"
-	Update   events.Kind   = "supervisor.service.update_status"
+	Update   events.Kind   = "supervisor.service.status"
+
+	// Service lifecycle events
+	Start events.Kind = "supervisor.service.start"
+	Stop  events.Kind = "supervisor.service.stop"
 
 	// Unknown indicates the service status is currently unknown.
 	Unknown Status = "unknown"

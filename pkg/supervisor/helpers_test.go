@@ -4,7 +4,6 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/supervisor"
 	"go.uber.org/zap"
 )
@@ -40,15 +39,15 @@ func TestTransactionHelper_Commit_Success(t *testing.T) {
 	th := newTransactionHelper(noopLogger())
 	th.begin()
 
-	registered := make(map[registry.ID]*supervisor.Entry)
-	removed := make(map[registry.ID]struct{})
+	registered := make(map[string]*supervisor.Entry)
+	removed := make(map[string]struct{})
 
-	removeFn := func(id registry.ID) error {
+	removeFn := func(id string) error {
 		removed[id] = struct{}{}
 		return nil
 	}
 
-	registerFn := func(id registry.ID, entry *supervisor.Entry) error {
+	registerFn := func(id string, entry *supervisor.Entry) error {
 		registered[id] = entry
 		return nil
 	}
@@ -91,14 +90,14 @@ func TestTransactionHelper_Commit_RemoveError(t *testing.T) {
 	th := newTransactionHelper(noopLogger())
 	th.begin()
 
-	removeFn := func(id registry.ID) error {
+	removeFn := func(id string) error {
 		if id == "service3" {
 			return errors.New("remove error")
 		}
 		return nil
 	}
 
-	registerFn := func(id registry.ID, entry *supervisor.Entry) error {
+	registerFn := func(id string, entry *supervisor.Entry) error {
 		return nil
 	}
 
@@ -119,11 +118,11 @@ func TestTransactionHelper_Commit_RegisterError(t *testing.T) {
 	th := newTransactionHelper(noopLogger())
 	th.begin()
 
-	removeFn := func(id registry.ID) error {
+	removeFn := func(id string) error {
 		return nil
 	}
 
-	registerFn := func(id registry.ID, entry *supervisor.Entry) error {
+	registerFn := func(id string, entry *supervisor.Entry) error {
 		if id == "service2" {
 			return errors.New("register error")
 		}

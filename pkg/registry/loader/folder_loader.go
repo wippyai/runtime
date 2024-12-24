@@ -137,6 +137,8 @@ func (l *FolderLoader) register(p payload.Payload, relPath string) (registry.Ent
 
 // calculateFullID determines the full registry path based on file path, and entry path. relPath must point to filename.
 func (l *FolderLoader) calculateFullID(dirPath string, entryName string) registry.ID {
+	// todo: possibly rethink this method
+
 	// Remove trailing slash if any. we trim at the end
 	dirPath = strings.TrimSuffix(dirPath, "/")
 

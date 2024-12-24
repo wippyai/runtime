@@ -73,7 +73,7 @@ func (c *Controller) Start() error {
 // Stop gracefully shuts down the service controller
 func (c *Controller) Stop() error {
 	err := c.transitionTo(supervisor.Stopped)
-	if err != nil && !isContextCanceled(err) {
+	if err != nil && !errors.Is(err, context.Canceled) {
 		return fmt.Errorf("failed to transition to stopped: %w", err)
 	}
 
@@ -352,10 +352,4 @@ func (c *Controller) sendTransition(status supervisor.Status) error {
 	case <-c.ctx.Done():
 		return fmt.Errorf("supervisor is stopped: %w", c.ctx.Err())
 	}
-}
-
-// Utility functions
-
-func isContextCanceled(err error) bool {
-	return err != nil && errors.Is(err, context.Canceled)
 }
