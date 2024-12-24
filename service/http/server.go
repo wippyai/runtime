@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ponyruntime/pony/api/payload"
 	config "github.com/ponyruntime/pony/api/server/http"
 	"github.com/ponyruntime/pony/service/http/router"
 )
@@ -29,7 +28,7 @@ type Server struct {
 	mu     sync.RWMutex
 
 	// Internal status channel
-	statusChan chan payload.Payload
+	statusChan chan any
 }
 
 // NewServer creates a new Server instance with the given configuration and handler
@@ -37,7 +36,7 @@ func NewServer(config config.ServerConfig, handler http.HandlerFunc) *Server {
 	return &Server{
 		config:     config,
 		router:     router.NewRouter(handler),
-		statusChan: make(chan payload.Payload, 2), // 1 for initial boot message and extra for shutdown
+		statusChan: make(chan any, 2), // 1 for initial boot message and extra for shutdown
 	}
 }
 
@@ -71,7 +70,7 @@ func (s *Server) ensureRunning(ctx context.Context) error {
 }
 
 // Start implements the Service interface
-func (s *Server) Start(ctx context.Context) (<-chan payload.Payload, error) {
+func (s *Server) Start(ctx context.Context) (<-chan any, error) {
 	s.mu.Lock()
 	s.server = &http.Server{
 		Addr:         s.config.Addr,
@@ -86,7 +85,7 @@ func (s *Server) Start(ctx context.Context) (<-chan payload.Payload, error) {
 	go func() {
 		err := s.server.ListenAndServe()
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			s.statusChan <- payload.NewError(err)
+			s.statusChan <- err
 		}
 
 		close(s.statusChan)
@@ -98,7 +97,7 @@ func (s *Server) Start(ctx context.Context) (<-chan payload.Payload, error) {
 	}
 
 	// we are running!
-	s.statusChan <- payload.NewString(fmt.Sprint("service listening on ", s.config.Addr))
+	s.statusChan <- fmt.Sprint("service listening on ", s.config.Addr)
 
 	return s.statusChan, nil
 }

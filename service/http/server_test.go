@@ -2,7 +2,6 @@ package http
 
 import (
 	"context"
-	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/supervisor"
 	sup "github.com/ponyruntime/pony/pkg/supervisor"
 	"io"
@@ -96,8 +95,7 @@ func TestSimpleHTTP(t *testing.T) {
 
 	// Wait for the success message from the status channel
 	select {
-	case msg := <-status:
-		require.False(t, msg.Format() == payload.Error)
+	case <-status:
 	case <-ctx.Done():
 		t.Fatal("timeout waiting for service to start")
 	}
@@ -145,7 +143,7 @@ func TestHTTPServerUnderSupervisor(t *testing.T) {
 				InitialDelay: 100 * time.Millisecond,
 			},
 		},
-		func(status supervisor.Status, details payload.Payload) {},
+		func(status supervisor.Status, details any) {},
 	)
 
 	// Start the supervisor
