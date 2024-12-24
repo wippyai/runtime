@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/supervisor"
 	"reflect"
 	"strings"
@@ -15,11 +14,11 @@ import (
 
 // mockService implements supervisor.Service for testing
 type mockService struct {
-	startFunc func(context.Context) (<-chan payload.Payload, error)
+	startFunc func(context.Context) (<-chan any, error)
 	stopFunc  func(context.Context) error
 }
 
-func (m *mockService) Start(ctx context.Context) (<-chan payload.Payload, error) {
+func (m *mockService) Start(ctx context.Context) (<-chan any, error) {
 	return m.startFunc(ctx)
 }
 
@@ -28,17 +27,17 @@ func (m *mockService) Stop(ctx context.Context) error {
 }
 
 func TestSupervisor_BasicLifecycle(t *testing.T) {
-	detailsCh := make(chan payload.Payload, 1)
+	detailsCh := make(chan any, 1)
 	var receivedStates []struct {
 		status  supervisor.Status
-		details payload.Payload
+		details any
 	}
 	var statesMutex sync.Mutex
 
 	mock := &mockService{
-		startFunc: func(ctx context.Context) (<-chan payload.Payload, error) {
+		startFunc: func(ctx context.Context) (<-chan any, error) {
 			time.Sleep(100 * time.Millisecond)
-			detailsCh <- payload.NewString("service running")
+			detailsCh <- "service running"
 			time.Sleep(100 * time.Millisecond)
 			return detailsCh, nil
 		},
@@ -60,11 +59,11 @@ func TestSupervisor_BasicLifecycle(t *testing.T) {
 				MaxAttempts: 3,
 			},
 		},
-		func(status supervisor.Status, details payload.Payload) {
+		func(status supervisor.Status, details any) {
 			statesMutex.Lock()
 			receivedStates = append(receivedStates, struct {
 				status  supervisor.Status
-				details payload.Payload
+				details any
 			}{status, details})
 			statesMutex.Unlock()
 		},
@@ -109,7 +108,7 @@ func TestSupervisor_BasicLifecycle(t *testing.T) {
 	statesMutex.Lock()
 	finalStates := make([]struct {
 		status  supervisor.Status
-		details payload.Payload
+		details any
 	}, len(receivedStates))
 	copy(finalStates, receivedStates)
 	statesMutex.Unlock()
@@ -136,12 +135,12 @@ func TestSupervisor_BasicLifecycle(t *testing.T) {
 }
 
 func TestSupervisor_ServiceFailure(t *testing.T) {
-	detailsCh := make(chan payload.Payload)
+	detailsCh := make(chan any)
 	attempts := 0
 	stateReached := make(chan struct{}, 1)
 
 	mock := &mockService{
-		startFunc: func(ctx context.Context) (<-chan payload.Payload, error) {
+		startFunc: func(ctx context.Context) (<-chan any, error) {
 			attempts++
 			if attempts == 1 {
 				return nil, errors.New("initial failure")
@@ -165,7 +164,7 @@ func TestSupervisor_ServiceFailure(t *testing.T) {
 				InitialDelay: 100 * time.Millisecond,
 			},
 		},
-		func(status supervisor.Status, details payload.Payload) {
+		func(status supervisor.Status, details any) {
 			if status == supervisor.Running {
 				select {
 				case stateReached <- struct{}{}:
@@ -201,7 +200,7 @@ func TestSupervisor_StartupError(t *testing.T) {
 	expectedErr := errors.New("startup failed")
 
 	mock := &mockService{
-		startFunc: func(ctx context.Context) (<-chan payload.Payload, error) {
+		startFunc: func(ctx context.Context) (<-chan any, error) {
 			return nil, expectedErr
 		},
 		stopFunc: func(ctx context.Context) error {
@@ -216,7 +215,7 @@ func TestSupervisor_StartupError(t *testing.T) {
 			StartTimeout: time.Second,
 			RetryPolicy:  supervisor.RetryPolicy{MaxAttempts: 1},
 		},
-		func(status supervisor.Status, details payload.Payload) {
+		func(status supervisor.Status, details any) {
 			if status == supervisor.Failed {
 				select {
 				case stateReached <- struct{}{}:
@@ -240,12 +239,12 @@ func TestSupervisor_StartupError(t *testing.T) {
 }
 
 func TestSupervisor_ContextCancellation(t *testing.T) {
-	detailsCh := make(chan payload.Payload)
+	detailsCh := make(chan any)
 	serviceStarted := make(chan struct{})
 	serviceStopped := make(chan struct{})
 
 	mock := &mockService{
-		startFunc: func(ctx context.Context) (<-chan payload.Payload, error) {
+		startFunc: func(ctx context.Context) (<-chan any, error) {
 			defer close(serviceStarted)
 			select {
 			case <-ctx.Done():
@@ -299,10 +298,10 @@ func TestSupervisor_ContextCancellation(t *testing.T) {
 
 func TestSupervisor_StartTimeout(t *testing.T) {
 	mock := &mockService{
-		startFunc: func(ctx context.Context) (<-chan payload.Payload, error) {
+		startFunc: func(ctx context.Context) (<-chan any, error) {
 			// Simulate a slow start that should timeout
 			time.Sleep(2 * time.Second)
-			return make(chan payload.Payload), nil
+			return make(chan any), nil
 		},
 		stopFunc: func(ctx context.Context) error {
 			return nil
@@ -332,21 +331,21 @@ func TestSupervisor_StartTimeout(t *testing.T) {
 }
 
 func TestSupervisor_ServiceRecoveryAfterFailure(t *testing.T) {
-	var currentChan chan payload.Payload
+	var currentChan chan any
 	var chanMutex sync.Mutex
 	stateTransitions := make([]supervisor.Status, 0)
 	var statesMutex sync.Mutex
 
 	mock := &mockService{
-		startFunc: func(ctx context.Context) (<-chan payload.Payload, error) {
+		startFunc: func(ctx context.Context) (<-chan any, error) {
 			chanMutex.Lock()
 			// Create a new channel each time the service starts
-			currentChan = make(chan payload.Payload, 1)
+			currentChan = make(chan any, 1)
 			ch := currentChan // local copy to return
 			chanMutex.Unlock()
 
 			// Simulate service startup message
-			ch <- payload.NewString("service started")
+			ch <- "service started"
 
 			return ch, nil
 		},
@@ -366,7 +365,7 @@ func TestSupervisor_ServiceRecoveryAfterFailure(t *testing.T) {
 				InitialDelay: 100 * time.Millisecond,
 			},
 		},
-		func(status supervisor.Status, details payload.Payload) {
+		func(status supervisor.Status, details any) {
 			statesMutex.Lock()
 			stateTransitions = append(stateTransitions, status)
 			statesMutex.Unlock()
@@ -441,7 +440,7 @@ func TestSupervisor_ServiceRecoveryAfterFailure(t *testing.T) {
 }
 
 func TestSupervisor_ServiceFailedRecovery(t *testing.T) {
-	var currentChan chan payload.Payload
+	var currentChan chan any
 	var chanMutex sync.Mutex
 	stateTransitions := make([]supervisor.Status, 0)
 	var statesMutex sync.Mutex
@@ -451,15 +450,15 @@ func TestSupervisor_ServiceFailedRecovery(t *testing.T) {
 	var once sync.Once
 
 	mock := &mockService{
-		startFunc: func(ctx context.Context) (<-chan payload.Payload, error) {
+		startFunc: func(ctx context.Context) (<-chan any, error) {
 			attempts++
 			chanMutex.Lock()
 			defer chanMutex.Unlock()
 
 			if attempts == 1 {
 				// First attempt succeeds
-				currentChan = make(chan payload.Payload, 1)
-				currentChan <- payload.NewString("service started")
+				currentChan = make(chan any, 1)
+				currentChan <- "service started"
 				return currentChan, nil
 			}
 
@@ -485,7 +484,7 @@ func TestSupervisor_ServiceFailedRecovery(t *testing.T) {
 				InitialDelay: 100 * time.Millisecond,
 			},
 		},
-		func(status supervisor.Status, details payload.Payload) {
+		func(status supervisor.Status, details any) {
 			statesMutex.Lock()
 			defer statesMutex.Unlock()
 
@@ -622,7 +621,7 @@ func TestSupervisor_ServiceStateSnapshot(t *testing.T) {
 	state.desired = supervisor.Running
 	state.retryCount = 5
 	state.lastUpdate = time.Now()
-	state.details = payload.NewString("test Details")
+	state.details = "test Details"
 
 	snapshot := state.getSnapshot()
 
@@ -650,21 +649,21 @@ func TestSupervisor_ServiceDetailsUpdate(t *testing.T) {
 
 	testCases := []struct {
 		name        string
-		details     payload.Payload
+		details     any
 		wantStatus  supervisor.Status
-		wantDetails payload.Payload
+		wantDetails any
 	}{
 		{
 			name:        "update with string payload",
-			details:     payload.NewString("test Details"),
+			details:     "test Details",
 			wantStatus:  initialStatus,
-			wantDetails: payload.NewString("test Details"),
+			wantDetails: "test Details",
 		},
 		{
 			name:        "update with error payload",
-			details:     payload.NewError(errors.New("test error")),
+			details:     errors.New("test error"),
 			wantStatus:  initialStatus,
-			wantDetails: payload.NewError(errors.New("test error")),
+			wantDetails: errors.New("test error"),
 		},
 		{
 			name:        "update with nil payload",
@@ -703,11 +702,11 @@ func TestSupervisor_CancelDuringTransition(t *testing.T) {
 	transitionStarted := make(chan struct{})
 
 	mock := &mockService{
-		startFunc: func(ctx context.Context) (<-chan payload.Payload, error) {
+		startFunc: func(ctx context.Context) (<-chan any, error) {
 			// First call blocks until we're ready to proceed
 			select {
 			case <-blockChan:
-				return make(chan payload.Payload), nil
+				return make(chan any), nil
 			case <-ctx.Done():
 				return nil, ctx.Err()
 			}
@@ -770,7 +769,7 @@ func TestSupervisor_CancelDuringTransition(t *testing.T) {
 }
 
 func TestSupervisor_StopAndRestart(t *testing.T) {
-	var currentChan chan payload.Payload
+	var currentChan chan any
 	var chanMutex sync.Mutex
 	stateTransitions := make([]supervisor.Status, 0)
 	var statesMutex sync.Mutex
@@ -780,15 +779,15 @@ func TestSupervisor_StopAndRestart(t *testing.T) {
 	stateSignals := make(chan supervisor.Status, 10)
 
 	mock := &mockService{
-		startFunc: func(ctx context.Context) (<-chan payload.Payload, error) {
+		startFunc: func(ctx context.Context) (<-chan any, error) {
 			startAttempts++
 
 			chanMutex.Lock()
-			currentChan = make(chan payload.Payload, 1)
+			currentChan = make(chan any, 1)
 			ch := currentChan // local copy to return
 			chanMutex.Unlock()
 
-			ch <- payload.NewString(fmt.Sprintf("service started (attempt %d)", startAttempts))
+			ch <- fmt.Sprintf("service started (attempt %d)", startAttempts)
 
 			return ch, nil
 		},
@@ -817,7 +816,7 @@ func TestSupervisor_StopAndRestart(t *testing.T) {
 				InitialDelay: 100 * time.Millisecond,
 			},
 		},
-		func(status supervisor.Status, details payload.Payload) {
+		func(status supervisor.Status, details any) {
 			statesMutex.Lock()
 			stateTransitions = append(stateTransitions, status)
 			statesMutex.Unlock()
@@ -956,16 +955,16 @@ func TestSupervisor_GracefulShutdown(t *testing.T) {
 	shutdownStarted.Add(1)
 	shutdownCompleted.Add(1)
 
-	detailsCh := make(chan payload.Payload, 1)
+	detailsCh := make(chan any, 1)
 	stateTransitions := make([]struct {
 		status  supervisor.Status
-		details payload.Payload
+		details any
 	}, 0)
 	var statesMutex sync.Mutex
 
 	mock := &mockService{
-		startFunc: func(ctx context.Context) (<-chan payload.Payload, error) {
-			detailsCh <- payload.NewString("service running")
+		startFunc: func(ctx context.Context) (<-chan any, error) {
+			detailsCh <- "service running"
 			return detailsCh, nil
 		},
 		stopFunc: func(ctx context.Context) error {
@@ -973,7 +972,7 @@ func TestSupervisor_GracefulShutdown(t *testing.T) {
 			shutdownStarted.Done()
 
 			select {
-			case detailsCh <- payload.NewString("cleaning up resources"):
+			case detailsCh <- "cleaning up resources":
 			case <-ctx.Done():
 				return ctx.Err()
 			}
@@ -985,7 +984,7 @@ func TestSupervisor_GracefulShutdown(t *testing.T) {
 			}
 
 			select {
-			case detailsCh <- payload.NewString("closing connections"):
+			case detailsCh <- "closing connections":
 			case <-ctx.Done():
 				return ctx.Err()
 			}
@@ -1012,11 +1011,11 @@ func TestSupervisor_GracefulShutdown(t *testing.T) {
 				MaxAttempts: 3,
 			},
 		},
-		func(status supervisor.Status, details payload.Payload) {
+		func(status supervisor.Status, details any) {
 			statesMutex.Lock()
 			stateTransitions = append(stateTransitions, struct {
 				status  supervisor.Status
-				details payload.Payload
+				details any
 			}{status, details})
 			statesMutex.Unlock()
 		},
@@ -1059,21 +1058,21 @@ func TestSupervisor_GracefulShutdown(t *testing.T) {
 	statesMutex.Lock()
 	transitions := make([]struct {
 		status  supervisor.Status
-		details payload.Payload
+		details any
 	}, len(stateTransitions))
 	copy(transitions, stateTransitions)
 	statesMutex.Unlock()
 
 	expectedTransitions := []struct {
 		status  supervisor.Status
-		details payload.Payload
+		details any
 	}{
-		{supervisor.Starting, payload.NewString("Attempt 0")},
+		{supervisor.Starting, "Attempt 0"},
 		{supervisor.Running, nil},
-		{supervisor.Running, payload.NewString("service running")},
+		{supervisor.Running, "service running"},
 		{supervisor.Stopping, nil},
-		{supervisor.Stopping, payload.NewString("cleaning up resources")},
-		{supervisor.Stopping, payload.NewString("closing connections")},
+		{supervisor.Stopping, "cleaning up resources"},
+		{supervisor.Stopping, "closing connections"},
 		{supervisor.Stopped, nil},
 	}
 
@@ -1098,10 +1097,10 @@ func TestSupervisor_GracefulShutdown(t *testing.T) {
 
 func TestSupervisor_ShutdownTimeout(t *testing.T) {
 	shutdownStarted := make(chan struct{})
-	detailsCh := make(chan payload.Payload)
+	detailsCh := make(chan any)
 
 	mock := &mockService{
-		startFunc: func(ctx context.Context) (<-chan payload.Payload, error) {
+		startFunc: func(ctx context.Context) (<-chan any, error) {
 			return detailsCh, nil
 		},
 		stopFunc: func(ctx context.Context) error {

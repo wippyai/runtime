@@ -3,7 +3,6 @@ package supervisor
 import (
 	"context"
 	"github.com/ponyruntime/pony/api/events"
-	"github.com/ponyruntime/pony/api/payload"
 	"time"
 )
 
@@ -69,7 +68,7 @@ type (
 	Service interface {
 		// Start initiates the service. Service can post current status to the returned channel.
 		// The context passed into start method is primary service context, service must exit if context is done.
-		Start(ctx context.Context) (<-chan payload.Payload, error)
+		Start(ctx context.Context) (<-chan any, error)
 		// Stop terminates the service. The context passed into stop method is only for graceful stop, service must return error
 		// if it cannot stop within the context deadline.
 		Stop(ctx context.Context) error
