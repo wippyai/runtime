@@ -127,7 +127,7 @@ data:
 
 	expectedState := registry.State{
 		{
-			ID:   "listener.database_url",
+			ID:   "database_url",
 			Kind: "listener",
 			Data: payload.New(map[string]interface{}{
 				"name": "database_url",
@@ -139,7 +139,7 @@ data:
 			}),
 		},
 		{
-			ID:   "service.api_service",
+			ID:   "api_service",
 			Kind: "service",
 			Data: payload.New(map[string]interface{}{
 				"name": "api_service",

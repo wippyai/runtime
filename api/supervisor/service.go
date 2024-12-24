@@ -49,7 +49,7 @@ type (
 		// StopTimeout specifies the maximum duration allowed for the service to stop.
 		StopTimeout time.Duration `json:"stop_timeout" yamal:"stop_timeout" default:"30s"`
 		// RetryPolicy defines the policy for retrying a failed service.
-		RetryPolicy RetryPolicy `json:"retry_policy" yaml:"retry_policy"`
+		RetryPolicy RetryPolicy `json:"restart" yaml:"restart"`
 		// DependsOn specifies a list of service names that this service depends on.
 		DependsOn []string `json:"depends_on" yaml:"depends_on" default:"[]"` // Empty array
 	}
