@@ -556,7 +556,8 @@ func TestSupervisor_ServiceFailedRecovery(t *testing.T) {
 		supervisor.Starting, // First recovery attempt
 		supervisor.Failed,   // First recovery failure
 		supervisor.Starting, // Second recovery attempt
-		supervisor.Failed,   // Final failure
+		supervisor.Failed,   // Recovery failure
+		supervisor.Failed,   // Final failed state
 	}
 
 	if len(transitions) != len(expectedTransitions) {

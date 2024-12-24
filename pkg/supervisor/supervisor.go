@@ -201,8 +201,9 @@ func (s *Supervisor) registerService(id registry.ID, entry *supervisor.Entry) er
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if current, exists := s.controllers[id]; exists {
-		return current.updateConfig(entry.Config)
+	if _, exists := s.controllers[id]; exists {
+		return fmt.Errorf("service %s already registered", id)
+		//return current.updateConfig(entry.Config)
 	}
 
 	stateHandler := func(status supervisor.Status, details payload.Payload) {
