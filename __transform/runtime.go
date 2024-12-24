@@ -109,7 +109,7 @@ package __transform
 //								continue
 //							}
 //
-//							// create an src which would be used to handle requests from the server
+//							// create an src which would be used to handle requests from the service
 //							// here should be lua pool
 //							lease := &app{
 //								id:   acfg.Name,

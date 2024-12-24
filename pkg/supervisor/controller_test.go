@@ -285,6 +285,7 @@ func TestController_ContextCancellation(t *testing.T) {
 	// Wait for service to stop
 	select {
 	case <-serviceStopped:
+		time.Sleep(100 * time.Millisecond) // wait for stop to propagate in controller routine
 		// Expected behavior
 	case <-time.After(2 * time.Second):
 		t.Fatal("Service did not stop after context cancellation")

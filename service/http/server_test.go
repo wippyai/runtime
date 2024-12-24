@@ -72,7 +72,7 @@ func TestServer_StopWithoutServe(t *testing.T) {
 }
 
 func TestSimpleHTTP(t *testing.T) {
-	// Create server with a simple handler
+	// Create service with a simple handler
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("hello"))
 	})
@@ -84,14 +84,14 @@ func TestSimpleHTTP(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Start server
+	// Start service
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	status, err := server.Start(ctx)
 	require.NoError(t, err)
 
-	// Get the actually assigned port from the server
+	// Get the actually assigned port from the service
 	port := server.server.Addr
 
 	// Wait for the success message from the status channel
@@ -99,7 +99,7 @@ func TestSimpleHTTP(t *testing.T) {
 	case msg := <-status:
 		require.False(t, msg.Format() == payload.Error)
 	case <-ctx.Done():
-		t.Fatal("timeout waiting for server to start")
+		t.Fatal("timeout waiting for service to start")
 	}
 
 	// Make request
@@ -122,10 +122,10 @@ func TestSimpleHTTP(t *testing.T) {
 func TestHTTPServerUnderSupervisor(t *testing.T) {
 	// Define a simple Timeouts handler for testing
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte("hello from supervised server"))
+		_, _ = w.Write([]byte("hello from supervised service"))
 	})
 
-	// Create a new Timeouts server
+	// Create a new Timeouts service
 	httpServer := NewServer(config.ServerConfig{Addr: "localhost:8124"}, handler)
 	err := httpServer.Router().AddEndpoint("test", config.EndpointConfig{
 		Path:   "/",
@@ -133,7 +133,7 @@ func TestHTTPServerUnderSupervisor(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Create a supervisor for the Timeouts server
+	// Create a supervisor for the Timeouts service
 	hsup := sup.NewController(
 		context.Background(),
 		httpServer,
@@ -152,16 +152,16 @@ func TestHTTPServerUnderSupervisor(t *testing.T) {
 	err = hsup.Start()
 	require.NoError(t, err)
 
-	// Ensure the server is running
+	// Ensure the service is running
 	state := hsup.State()
 	if state.Status != supervisor.Running {
 		t.Fatalf("Expected supervisor status to be Running, got %v", state.Status)
 	}
 
-	// Give the server a moment to fully start
+	// Give the service a moment to fully start
 	time.Sleep(200 * time.Millisecond)
 
-	// Make a request to the Timeouts server
+	// Make a request to the Timeouts service
 	port := httpServer.server.Addr
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Get("http://" + port)
@@ -173,7 +173,7 @@ func TestHTTPServerUnderSupervisor(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify the response
-	assert.Equal(t, "hello from supervised server", string(body))
+	assert.Equal(t, "hello from supervised service", string(body))
 
 	// Stop the supervisor
 	err = hsup.Stop()

@@ -103,6 +103,7 @@ func (s *testService) WaitForStart(t testing.TB) {
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
 		if s.IsStarted() {
+			time.Sleep(10 * time.Millisecond) // let it propagate
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -116,6 +117,7 @@ func (s *testService) WaitForStop(t testing.TB) {
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
 		if s.IsStopped() {
+			time.Sleep(10 * time.Millisecond) // let it propagate
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -566,6 +568,7 @@ func TestSupervisor_ServiceStoppingStates(t *testing.T) {
 
 	// Wait for full stop
 	svc.WaitForStop(t)
+	time.Sleep(100 * time.Millisecond) // wait for stop to propagate
 	h.assertServiceState("slow-stop", supervisor.Stopped)
 }
 
