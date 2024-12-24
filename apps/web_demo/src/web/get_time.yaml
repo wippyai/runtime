@@ -1,4 +1,4 @@
-name: get_time
+name: endpoints.get_time
 kind: http.endpoint
 meta:
   server_id: "default"
@@ -7,4 +7,4 @@ meta:
 # Endpoint configuration
 method: GET
 path: /time
-target: src.http_time
+target: functions.http_time
