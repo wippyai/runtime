@@ -234,15 +234,34 @@ func (c *Controller) gracefulShutdown() error {
 
 func (c *Controller) executeShutdown(ctx context.Context) error {
 	errCh := make(chan error, 1)
+	done := make(chan struct{})
+
 	go func() {
+		defer close(done)
 		errCh <- c.service.Stop(ctx)
 	}()
 
 	select {
 	case err := <-errCh:
+		<-done // normal shutdown
 		return err
+
 	case <-ctx.Done():
-		return fmt.Errorf("service stop timeout after %v", c.config.StopTimeout)
+		// we are shutting down with dead context, let stop goroutine finish but shorter timeout
+		stopCtx, cancel := context.WithTimeout(context.Background(), c.config.StopTimeout/2)
+		defer cancel()
+
+		select {
+		case <-done:
+			select {
+			case err := <-errCh:
+				return err
+			default:
+				return fmt.Errorf("service stop interrupted: %w", ctx.Err())
+			}
+		case <-stopCtx.Done():
+			return fmt.Errorf("service stop timeout after %v", c.config.StopTimeout)
+		}
 	}
 }
 
