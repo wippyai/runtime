@@ -26,7 +26,7 @@ func (m *mockService) Stop(ctx context.Context) error {
 	return m.stopFunc(ctx)
 }
 
-func TestSupervisor_BasicLifecycle(t *testing.T) {
+func TestController_BasicLifecycle(t *testing.T) {
 	detailsCh := make(chan any, 1)
 	var receivedStates []struct {
 		status  supervisor.Status
@@ -134,7 +134,7 @@ func TestSupervisor_BasicLifecycle(t *testing.T) {
 	}
 }
 
-func TestSupervisor_ServiceFailure(t *testing.T) {
+func TestController_ServiceFailure(t *testing.T) {
 	detailsCh := make(chan any)
 	attempts := 0
 	stateReached := make(chan struct{}, 1)
@@ -195,7 +195,7 @@ func TestSupervisor_ServiceFailure(t *testing.T) {
 	}
 }
 
-func TestSupervisor_StartupError(t *testing.T) {
+func TestController_StartupError(t *testing.T) {
 	stateReached := make(chan struct{}, 1)
 	expectedErr := errors.New("startup failed")
 
@@ -238,7 +238,7 @@ func TestSupervisor_StartupError(t *testing.T) {
 	}
 }
 
-func TestSupervisor_ContextCancellation(t *testing.T) {
+func TestController_ContextCancellation(t *testing.T) {
 	detailsCh := make(chan any)
 	serviceStarted := make(chan struct{})
 	serviceStopped := make(chan struct{})
@@ -296,7 +296,7 @@ func TestSupervisor_ContextCancellation(t *testing.T) {
 	}
 }
 
-func TestSupervisor_StartTimeout(t *testing.T) {
+func TestController_StartTimeout(t *testing.T) {
 	mock := &mockService{
 		startFunc: func(ctx context.Context) (<-chan any, error) {
 			// Simulate a slow start that should timeout
@@ -330,7 +330,7 @@ func TestSupervisor_StartTimeout(t *testing.T) {
 	}
 }
 
-func TestSupervisor_ServiceRecoveryAfterFailure(t *testing.T) {
+func TestController_ServiceRecoveryAfterFailure(t *testing.T) {
 	var currentChan chan any
 	var chanMutex sync.Mutex
 	stateTransitions := make([]supervisor.Status, 0)
@@ -439,7 +439,7 @@ func TestSupervisor_ServiceRecoveryAfterFailure(t *testing.T) {
 	}
 }
 
-func TestSupervisor_ServiceFailedRecovery(t *testing.T) {
+func TestController_ServiceFailedRecovery(t *testing.T) {
 	var currentChan chan any
 	var chanMutex sync.Mutex
 	stateTransitions := make([]supervisor.Status, 0)
@@ -581,7 +581,7 @@ func TestSupervisor_ServiceFailedRecovery(t *testing.T) {
 	}
 }
 
-func TestSupervisor_ContextHandling(t *testing.T) {
+func TestController_ContextHandling(t *testing.T) {
 	state := newServiceState()
 
 	// Test initial context state
@@ -615,7 +615,7 @@ func TestSupervisor_ContextHandling(t *testing.T) {
 	}
 }
 
-func TestSupervisor_ServiceStateSnapshot(t *testing.T) {
+func TestController_ServiceStateSnapshot(t *testing.T) {
 	state := newServiceState()
 	state.status = supervisor.Running
 	state.desired = supervisor.Running
@@ -642,7 +642,7 @@ func TestSupervisor_ServiceStateSnapshot(t *testing.T) {
 	}
 }
 
-func TestSupervisor_ServiceDetailsUpdate(t *testing.T) {
+func TestController_ServiceDetailsUpdate(t *testing.T) {
 	state := newServiceState()
 	initialStatus := supervisor.Running
 	state.status = initialStatus
@@ -696,7 +696,7 @@ func TestSupervisor_ServiceDetailsUpdate(t *testing.T) {
 	}
 }
 
-func TestSupervisor_CancelDuringTransition(t *testing.T) {
+func TestController_CancelDuringTransition(t *testing.T) {
 	// Channel to block the first transition
 	blockChan := make(chan struct{})
 	transitionStarted := make(chan struct{})
@@ -768,7 +768,7 @@ func TestSupervisor_CancelDuringTransition(t *testing.T) {
 	}
 }
 
-func TestSupervisor_StopAndRestart(t *testing.T) {
+func TestController_StopAndRestart(t *testing.T) {
 	var currentChan chan any
 	var chanMutex sync.Mutex
 	stateTransitions := make([]supervisor.Status, 0)
@@ -950,7 +950,7 @@ func TestSupervisor_StopAndRestart(t *testing.T) {
 	}
 }
 
-func TestSupervisor_GracefulShutdown(t *testing.T) {
+func TestController_GracefulShutdown(t *testing.T) {
 	var shutdownStarted, shutdownCompleted sync.WaitGroup
 	shutdownStarted.Add(1)
 	shutdownCompleted.Add(1)
@@ -1095,7 +1095,7 @@ func TestSupervisor_GracefulShutdown(t *testing.T) {
 	}
 }
 
-func TestSupervisor_ShutdownTimeout(t *testing.T) {
+func TestController_ShutdownTimeout(t *testing.T) {
 	shutdownStarted := make(chan struct{})
 	detailsCh := make(chan any)
 

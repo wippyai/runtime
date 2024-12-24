@@ -3,7 +3,6 @@ package supervisor
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/supervisor"
 	"go.uber.org/zap"
 	"sync"
@@ -159,15 +158,15 @@ func (s *internalState) getDesiredStatus() supervisor.Status {
 
 type registryTX struct {
 	open     bool
-	register map[registry.ID]*supervisor.Entry
-	remove   map[registry.ID]struct{}
+	register map[string]*supervisor.Entry
+	remove   map[string]struct{}
 	logger   *zap.Logger
 }
 
 func newTransactionHelper(logger *zap.Logger) *registryTX {
 	return &registryTX{
-		register: make(map[registry.ID]*supervisor.Entry),
-		remove:   make(map[registry.ID]struct{}),
+		register: make(map[string]*supervisor.Entry),
+		remove:   make(map[string]struct{}),
 		logger:   logger,
 	}
 }
@@ -178,11 +177,11 @@ func (th *registryTX) begin() {
 	}
 
 	th.open = true
-	th.register = make(map[registry.ID]*supervisor.Entry)
-	th.remove = make(map[registry.ID]struct{})
+	th.register = make(map[string]*supervisor.Entry)
+	th.remove = make(map[string]struct{})
 }
 
-func (th *registryTX) commit(removeFn func(registry.ID) error, registerFn func(registry.ID, *supervisor.Entry) error) error {
+func (th *registryTX) commit(removeFn func(string) error, registerFn func(string, *supervisor.Entry) error) error {
 	if !th.open {
 		th.logger.Warn("received commit without active transaction")
 		return nil
@@ -215,7 +214,7 @@ func (th *registryTX) discard() {
 	th.logger.Info("discarded all tx service changes")
 }
 
-func (th *registryTX) registerService(id registry.ID, entry *supervisor.Entry) error {
+func (th *registryTX) registerService(id string, entry *supervisor.Entry) error {
 	if !th.open {
 		return fmt.Errorf("received register action outside of transaction")
 	}
@@ -225,7 +224,7 @@ func (th *registryTX) registerService(id registry.ID, entry *supervisor.Entry) e
 	return nil
 }
 
-func (th *registryTX) removeService(id registry.ID) error {
+func (th *registryTX) removeService(id string) error {
 	if !th.open {
 		return fmt.Errorf("received remove action outside of transaction")
 	}
@@ -238,6 +237,6 @@ func (th *registryTX) removeService(id registry.ID) error {
 
 func (th *registryTX) reset() {
 	th.open = false
-	th.register = make(map[registry.ID]*supervisor.Entry)
-	th.remove = make(map[registry.ID]struct{})
+	th.register = make(map[string]*supervisor.Entry)
+	th.remove = make(map[string]struct{})
 }
