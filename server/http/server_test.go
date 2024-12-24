@@ -144,7 +144,6 @@ func TestHTTPServerUnderSupervisor(t *testing.T) {
 				MaxAttempts:  3,
 				InitialDelay: 100 * time.Millisecond,
 			},
-			ForceShutdown: true,
 		},
 		func(status supervisor.Status, details payload.Payload) {},
 	)

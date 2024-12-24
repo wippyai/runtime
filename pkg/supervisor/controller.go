@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/supervisor"
-	"github.com/ponyruntime/pony/internal/backoff"
 	"sync"
 	"time"
 )
@@ -19,26 +18,32 @@ type State struct {
 	LastUpdate time.Time
 }
 
+// Controller manages the lifecycle of a service
+type Controller struct {
+	// Core dependencies
+	service supervisor.Service
+	config  supervisor.ServiceConfig
+
+	// Lifecycle management
+	rootCtx     context.Context
+	ctx         context.Context
+	cancel      context.CancelFunc
+	wg          sync.WaitGroup
+	supervising bool
+	mu          sync.Mutex
+
+	// State management
+	state         *internalState
+	transitions   chan stateTransition
+	onStateChange func(supervisor.Status, payload.Payload)
+}
+
 type stateTransition struct {
 	target supervisor.Status
 	result chan error
 }
 
-// Controller manages the lifecycle of a service
-type Controller struct {
-	service       supervisor.Service
-	config        supervisor.ServiceConfig
-	state         *internalState
-	transitions   chan stateTransition
-	onStateChange func(supervisor.Status, payload.Payload)
-	rootCtx       context.Context
-	ctx           context.Context
-	cancel        context.CancelFunc
-	wg            sync.WaitGroup
-	supervising   bool
-	mu            sync.Mutex
-}
-
+// NewController creates a new service controller
 func NewController(
 	ctx context.Context,
 	service supervisor.Service,
@@ -55,225 +60,171 @@ func NewController(
 	}
 }
 
-func (s *Controller) updateConfig(config supervisor.ServiceConfig) error {
-	return nil
-}
-
-func (s *Controller) Start() error {
-	s.mu.Lock()
-	if !s.supervising {
-		// init supervisor
-		s.ctx, s.cancel = context.WithCancel(s.rootCtx)
-		s.transitions = make(chan stateTransition, 1)
-		s.wg.Add(1)
-		go s.supervise()
-		s.supervising = true
+// Start initializes and starts the service controller
+func (c *Controller) Start() error {
+	c.mu.Lock()
+	if !c.supervising {
+		c.initializeController()
 	}
-	s.mu.Unlock()
+	c.mu.Unlock()
 
-	return s.transitionTo(supervisor.Running)
+	return c.transitionTo(supervisor.Running)
 }
 
-func (s *Controller) Stop() error {
-	err := s.transitionTo(supervisor.Stopped)
-	if err != nil && !errors.Is(err, context.Canceled) {
+// Stop gracefully shuts down the service controller
+func (c *Controller) Stop() error {
+	err := c.transitionTo(supervisor.Stopped)
+	if err != nil && !isContextCanceled(err) {
 		return fmt.Errorf("failed to transition to stopped: %w", err)
 	}
 
-	s.mu.Lock()
-	if s.supervising {
-		if s.cancel != nil {
-			s.cancel()
-		}
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-		// Wait for supervise goroutine to finish
-		s.wg.Wait()
-
-		// Clean up
-		close(s.transitions)
-		s.supervising = false
-		s.ctx = nil
-		s.cancel = nil
+	if c.supervising {
+		c.shutdownController()
 	}
-	s.mu.Unlock()
 
 	return nil
 }
 
-// transitionTo requests a state transition
-func (s *Controller) transitionTo(status supervisor.Status) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.ctx == nil {
-		return fmt.Errorf("supervisor is not started")
-	}
-
-	// Check context first
-	if err := s.ctx.Err(); err != nil {
-		return fmt.Errorf("supervisor is stopped: %w", err)
-	}
-
-	result := make(chan error, 1)
-
-	// Use separate select for sending transition
-	select {
-	case s.transitions <- stateTransition{target: status, result: result}:
-		// Wait for result with context
-		select {
-		case err := <-result:
-			return err
-		case <-s.ctx.Done():
-			return fmt.Errorf("supervisor is stopped: %w", s.ctx.Err())
-		}
-	case <-s.ctx.Done():
-		return fmt.Errorf("supervisor is stopped: %w", s.ctx.Err())
-	}
+// State returns the current public state of the controller
+func (c *Controller) State() State {
+	return c.state.publicState()
 }
 
-func (s *Controller) State() State {
-	return s.state.publicState()
+// Private methods for lifecycle management
+
+func (c *Controller) initializeController() {
+	c.ctx, c.cancel = context.WithCancel(c.rootCtx)
+	c.transitions = make(chan stateTransition, 1)
+	c.wg.Add(1)
+	go c.supervise()
+	c.supervising = true
 }
 
-func (s *Controller) supervise() {
-	defer s.wg.Done()
+func (c *Controller) shutdownController() {
+	if c.cancel != nil {
+		c.cancel()
+	}
+	c.wg.Wait()
+	close(c.transitions)
+	c.supervising = false
+	c.ctx = nil
+	c.cancel = nil
+}
+
+// Core supervision logic
+
+func (c *Controller) supervise() {
+	defer c.wg.Done()
 
 	for {
 		select {
-		case transition, ok := <-s.transitions:
+		case transition, ok := <-c.transitions:
 			if !ok {
 				return
 			}
-			err := s.handleTransition(transition.target)
+			err := c.handleTransition(transition.target)
 			select {
 			case transition.result <- err:
 			default:
 			}
-		case <-s.ctx.Done():
-			_ = s.tryStop()
+		case <-c.ctx.Done():
+			_ = c.tryStop()
 			return
 		}
 	}
 }
 
-func (s *Controller) handleTransition(desired supervisor.Status) error {
-	if !s.state.setDesiredStatus(desired) {
+func (c *Controller) handleTransition(desired supervisor.Status) error {
+	if !c.state.setDesiredStatus(desired) {
 		return nil
 	}
 
 	switch desired {
 	case supervisor.Running:
-		if s.state.getCurrentStatus() != supervisor.Running {
-			return s.startService()
+		if c.state.getCurrentStatus() != supervisor.Running {
+			return c.startService()
 		}
 	case supervisor.Stopped:
-		if s.state.getCurrentStatus() != supervisor.Stopped {
-			return s.tryStop()
-		}
+		return c.tryStop()
 	}
 
 	return nil
 }
 
-func (s *Controller) startService() error {
-	ctx, cancel := context.WithCancel(s.ctx)
-	s.state.setContext(ctx, cancel)
+// Service lifecycle management
 
-	if err := s.tryStart(ctx, nil); err != nil {
-		s.updateState(supervisor.Failed, payload.NewError(err))
+func (c *Controller) startService() error {
+	ctx, cancel := context.WithCancel(c.ctx)
+	c.state.setContext(ctx, cancel)
+
+	if err := c.tryStart(ctx, nil); err != nil {
+		c.updateState(supervisor.Failed, payload.NewError(err))
 		return fmt.Errorf("failed to start service: %w", err)
 	}
 
 	return nil
 }
 
-func (s *Controller) recoverService(initialErr error) {
-	if err := s.tryStart(s.ctx, initialErr); err != nil {
-		s.updateState(supervisor.Failed, payload.NewError(err))
-	}
-}
-
-func (s *Controller) tryStart(ctx context.Context, lastErr error) error {
-	bf := backoff.NewCalculator(s.config.RetryPolicy)
-
-	for {
-		s.updateState(
-			supervisor.Starting,
-			payload.NewString(fmt.Sprintf("Attempt %d", s.state.getSnapshot().retryCount)),
-		)
-
-		startCtx, cancel := context.WithTimeout(ctx, s.config.StartTimeout)
-		detailsCh, err := s.service.Start(startCtx)
-
-		// Check context cancellation immediately after service.Start
-		if startCtx.Err() != nil {
-			cancel()
-			return fmt.Errorf("service start timeout: %w", startCtx.Err())
-		}
-		cancel()
-
-		if err == nil {
-			s.wg.Add(1)
-			s.updateState(supervisor.Running, nil)
-			go s.monitorService(detailsCh)
+func (c *Controller) tryStart(ctx context.Context, lastErr error) error {
+	for attempt := 1; ; attempt++ {
+		if err := c.attemptStart(ctx, attempt); err == nil {
 			return nil
-		}
-		lastErr = err
-
-		// report state
-		s.updateState(supervisor.Failed, payload.NewError(lastErr))
-
-		if !s.state.canRecover(s.config.RetryPolicy.MaxAttempts, s.ctx) {
-			return fmt.Errorf("failed to start service: %w", lastErr)
-		}
-
-		s.state.incRetryCount()
-
-		interval := bf.NextInterval()
-		if interval == 0 {
-			s.updateState(supervisor.Failed, payload.NewError(lastErr))
-			return fmt.Errorf("failed to start service: %w", lastErr)
-		}
-
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(interval):
-			continue
+		} else {
+			lastErr = err
+			if !c.shouldRetry(ctx, attempt) {
+				return fmt.Errorf("failed to start service after %d attempts: %w", attempt, lastErr)
+			}
+			time.Sleep(c.config.RetryPolicy.InitialDelay)
 		}
 	}
 }
 
-func (s *Controller) tryStop() error {
-	if s.state.getCurrentStatus() == supervisor.Stopped {
+func (c *Controller) attemptStart(ctx context.Context, attempt int) error {
+	c.updateState(
+		supervisor.Starting,
+		payload.NewString(fmt.Sprintf("Attempt %d", attempt-1)),
+	)
+
+	startCtx, cancel := context.WithTimeout(ctx, c.config.StartTimeout)
+	defer cancel()
+
+	detailsCh, err := c.service.Start(startCtx)
+	if err != nil {
+		c.updateState(supervisor.Failed, payload.NewError(err))
+		return err
+	}
+
+	if startCtx.Err() != nil {
+		return fmt.Errorf("service start timeout: %w", startCtx.Err())
+	}
+
+	c.wg.Add(1)
+	c.updateState(supervisor.Running, nil)
+	go c.monitorService(detailsCh)
+
+	return nil
+}
+
+func (c *Controller) tryStop() error {
+	if c.state.getCurrentStatus() == supervisor.Stopped {
 		return nil
 	}
 
-	s.updateState(supervisor.Stopping, nil)
+	c.updateState(supervisor.Stopping, nil)
 
-	// Try graceful shutdown first with timeout
-	shutdownCtx, cancel := context.WithTimeout(s.rootCtx, s.config.StopTimeout)
+	return c.gracefulShutdown()
+}
+
+func (c *Controller) gracefulShutdown() error {
+	shutdownCtx, cancel := context.WithTimeout(c.rootCtx, c.config.StopTimeout)
 	defer cancel()
 
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- s.service.Stop(shutdownCtx)
-	}()
+	err := c.executeShutdown(shutdownCtx)
+	c.updateState(supervisor.Stopped, nil)
 
-	// Wait for either completion or timeout
-	var err error
-	select {
-	case err = <-errCh:
-		// Service stopped normally
-	case <-shutdownCtx.Done():
-		// Timeout occurred
-		err = fmt.Errorf("service stop timeout after %v", s.config.StopTimeout)
-	}
-
-	// Always update state to Stopped, regardless of error
-	s.updateState(supervisor.Stopped, nil)
-
-	// Return any error that occurred
 	if err != nil {
 		return fmt.Errorf("failed to stop service: %w", err)
 	}
@@ -281,44 +232,112 @@ func (s *Controller) tryStop() error {
 	return nil
 }
 
-func (s *Controller) monitorService(detailsCh <-chan payload.Payload) {
-	defer s.wg.Done()
+func (c *Controller) executeShutdown(ctx context.Context) error {
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- c.service.Stop(ctx)
+	}()
 
-	ctx := s.state.getContext()
+	select {
+	case err := <-errCh:
+		return err
+	case <-ctx.Done():
+		return fmt.Errorf("service stop timeout after %v", c.config.StopTimeout)
+	}
+}
+
+// Service monitoring and recovery
+
+func (c *Controller) monitorService(detailsCh <-chan payload.Payload) {
+	defer c.wg.Done()
+
+	ctx := c.state.getContext()
 	for {
 		select {
 		case details, ok := <-detailsCh:
 			if !ok {
-				if s.state.getDesiredStatus() == supervisor.Running {
-					s.handleError(fmt.Errorf("service Details channel closed unexpectedly"))
+				if c.state.getDesiredStatus() == supervisor.Running {
+					c.handleError(fmt.Errorf("service ended unexpectedly"))
 				}
 				return
 			}
-			status, details := s.state.updateDetails(details)
-			if s.onStateChange != nil {
-				s.onStateChange(status, details)
+			status, details := c.state.updateDetails(details)
+			if c.onStateChange != nil {
+				c.onStateChange(status, details)
 			}
 		case <-ctx.Done():
-			if s.state.getDesiredStatus() == supervisor.Running {
-				s.updateState(supervisor.Stopped, nil)
+			if c.state.getDesiredStatus() == supervisor.Running {
+				c.updateState(supervisor.Stopped, nil)
 			}
 			return
-		case <-s.ctx.Done():
+		case <-c.ctx.Done():
 			return
 		}
 	}
 }
 
-func (s *Controller) handleError(err error) {
-	s.updateState(supervisor.Failed, payload.NewError(err))
-	if s.state.canRecover(s.config.RetryPolicy.MaxAttempts, s.ctx) {
-		go s.recoverService(err)
+func (c *Controller) handleError(err error) {
+	c.updateState(supervisor.Failed, payload.NewError(err))
+	if c.state.canRecover(c.config.RetryPolicy.MaxAttempts, c.ctx) {
+		go c.recoverService(err)
 	}
 }
 
-func (s *Controller) updateState(status supervisor.Status, details payload.Payload) {
-	s.state.updateState(status, details)
-	if s.onStateChange != nil {
-		s.onStateChange(status, details)
+// Helper methods
+
+func (c *Controller) shouldRetry(ctx context.Context, attempt int) bool {
+	if ctx.Err() != nil || attempt >= c.config.RetryPolicy.MaxAttempts {
+		return false
 	}
+	return true
+}
+
+func (c *Controller) updateState(status supervisor.Status, details payload.Payload) {
+	c.state.updateState(status, details)
+	if c.onStateChange != nil {
+		c.onStateChange(status, details)
+	}
+}
+
+func (c *Controller) recoverService(initialErr error) {
+	if err := c.tryStart(c.ctx, initialErr); err != nil {
+		c.updateState(supervisor.Failed, payload.NewError(err))
+	}
+}
+
+func (c *Controller) transitionTo(status supervisor.Status) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.ctx == nil {
+		return fmt.Errorf("supervisor is not started")
+	}
+
+	if err := c.ctx.Err(); err != nil {
+		return fmt.Errorf("supervisor is stopped: %w", err)
+	}
+
+	return c.sendTransition(status)
+}
+
+func (c *Controller) sendTransition(status supervisor.Status) error {
+	result := make(chan error, 1)
+
+	select {
+	case c.transitions <- stateTransition{target: status, result: result}:
+		select {
+		case err := <-result:
+			return err
+		case <-c.ctx.Done():
+			return fmt.Errorf("supervisor is stopped: %w", c.ctx.Err())
+		}
+	case <-c.ctx.Done():
+		return fmt.Errorf("supervisor is stopped: %w", c.ctx.Err())
+	}
+}
+
+// Utility functions
+
+func isContextCanceled(err error) bool {
+	return err != nil && errors.Is(err, context.Canceled)
 }
