@@ -58,6 +58,110 @@ func (g *Graph) AddEdge(e Edge) {
 	g.edges[e.From][e.To] = e.Weight
 }
 
+// RemoveNode removes a node and all its associated edges from the graph.
+// Returns error if the node doesn't exist.
+func (g *Graph) RemoveNode(n Node) error {
+	g.mutex.Lock()
+	defer g.mutex.Unlock()
+
+	// Check if node exists
+	if !g.nodes[n] {
+		return fmt.Errorf("node %s does not exist", n)
+	}
+
+	// Remove the node from nodes map
+	delete(g.nodes, n)
+
+	// Remove all edges where this node is the source
+	delete(g.edges, n)
+
+	// Remove all edges where this node is the destination
+	for source, edges := range g.edges {
+		delete(edges, n)
+		// If source node has no more edges, clean up the empty map
+		if len(edges) == 0 {
+			delete(g.edges, source)
+		}
+	}
+
+	return nil
+}
+
+// RemoveEdges removes all edges between two nodes in both directions.
+// Returns error if either node doesn't exist.
+func (g *Graph) RemoveEdges(node1, node2 Node) error {
+	g.mutex.Lock()
+	defer g.mutex.Unlock()
+
+	// Verify both nodes exist
+	if !g.nodes[node1] {
+		return fmt.Errorf("node %s does not exist", node1)
+	}
+	if !g.nodes[node2] {
+		return fmt.Errorf("node %s does not exist", node2)
+	}
+
+	// Remove edge from node1 to node2 if it exists
+	if edges, exists := g.edges[node1]; exists {
+		delete(edges, node2)
+		if len(edges) == 0 {
+			delete(g.edges, node1)
+		}
+	}
+
+	// Remove edge from node2 to node1 if it exists
+	if edges, exists := g.edges[node2]; exists {
+		delete(edges, node1)
+		if len(edges) == 0 {
+			delete(g.edges, node2)
+		}
+	}
+
+	return nil
+}
+
+// HasEdge checks if an edge exists between two nodes.
+// Returns false if either node doesn't exist.
+func (g *Graph) HasEdge(from, to Node) bool {
+	g.mutex.RLock()
+	defer g.mutex.RUnlock()
+
+	// Check if both nodes exist
+	if !g.nodes[from] || !g.nodes[to] {
+		return false
+	}
+
+	// Check if edge exists
+	if edges, exists := g.edges[from]; exists {
+		_, hasEdge := edges[to]
+		return hasEdge
+	}
+	return false
+}
+
+// GetNeighbors returns all nodes that have edges from the given node.
+// Returns error if the node doesn't exist.
+func (g *Graph) GetNeighbors(n Node) ([]Node, error) {
+	g.mutex.RLock()
+	defer g.mutex.RUnlock()
+
+	if !g.nodes[n] {
+		return nil, fmt.Errorf("node %s does not exist", n)
+	}
+
+	edges, exists := g.edges[n]
+	if !exists {
+		return []Node{}, nil
+	}
+
+	neighbors := make([]Node, 0, len(edges))
+	for neighbor := range edges {
+		neighbors = append(neighbors, neighbor)
+	}
+
+	return neighbors, nil
+}
+
 // ShortestPath finds the shortest path between two nodes using Dijkstra's algorithm
 func (g *Graph) ShortestPath(from, to Node) (*Path, error) {
 	g.mutex.RLock()
