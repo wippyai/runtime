@@ -102,6 +102,8 @@ func main() {
 		logger.Named("app").Fatal("failed to start supervisor", zap.Error(err))
 	}
 
+	logger.Named("app").Info(">> [[booting application]] <<")
+
 	// boot application state
 	bootCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
 	defer cancel()
@@ -110,7 +112,7 @@ func main() {
 		logger.Named("app").Fatal("failed to apply boot state", zap.Error(err))
 	}
 
-	logger.Named("app").Info("application started")
+	logger.Named("app").Info(">> [[application started]] <<")
 
 	// wait for shutdown
 	<-ctx.Done()
