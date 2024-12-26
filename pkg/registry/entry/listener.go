@@ -117,7 +117,7 @@ func (l *Listener) eventListener(ch <-chan events.Event) {
 			l.outputCh <- registry.Operation{
 				Kind:  evt.Kind,
 				Entry: entry,
-				Data:  obj,
+				//Data:  obj, // todo: recover
 			}
 		}
 	}

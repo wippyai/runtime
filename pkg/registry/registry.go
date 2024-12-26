@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"go.uber.org/zap"
+	"log"
 	"sync"
 
 	"github.com/ponyruntime/pony/api/registry"
@@ -145,6 +146,8 @@ func (r *reg) transitionState(ctx context.Context, from, to registry.State) (reg
 	if terr != nil {
 		return nil, fmt.Errorf("failed to compute transition: %w", terr)
 	}
+
+	log.Printf("Transitioning state from %v to %v", from, to)
 
 	return r.runner.Transition(ctx, from, cs)
 }
