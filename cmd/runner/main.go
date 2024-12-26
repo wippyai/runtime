@@ -39,6 +39,7 @@ func main() {
 
 	// application service supervisor
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	logger := initLogger(*verbose, *veryVerbose)
 	if logger == nil {
@@ -74,13 +75,13 @@ func main() {
 	// boot delta
 	boot, err := state.BuildDelta(regapi.State{}, entries) // build delta
 	if err != nil {
-		logger.Named("app").Fatal("Failed to build state operation set", zap.Error(err))
+		logger.Named("main").Fatal("Failed to build state operation set", zap.Error(err))
 	}
 
 	// service
-	bus := eventbus.NewBus(logger.Named("events"))                   // main configuration bus
-	sup := supervisor.NewSupervisor(bus, logger.Named("supervisor")) // service supervisor
-	reg := registry.NewRegistry(                                     // application state controller, transactional
+	bus := eventbus.NewBus(logger.Named("events"))             // main configuration bus
+	sup := supervisor.NewSupervisor(bus, logger.Named("core")) // service supervisor
+	reg := registry.NewRegistry(                               // application state controller, transactional
 		history.NewMemory(),
 		runner.NewBusRunner(bus, logger.Named("runner")),
 		state,
@@ -90,27 +91,27 @@ func main() {
 	// services, modules, runtimes
 	err = http.Init(bus, dtt, logger.Named("http")).Start(ctx)
 	if err != nil {
-		logger.Named("app").Fatal("failed to start http service", zap.Error(err))
+		logger.Named("main").Fatal("failed to start http service", zap.Error(err))
 	}
 
 	err = runtime.Init(bus, dtt, logger.Named("functions")).Start(ctx)
 	if err != nil {
-		logger.Named("app").Fatal("failed to start runtime service", zap.Error(err))
+		logger.Named("main").Fatal("failed to start runtime service", zap.Error(err))
 	}
 
 	// end service configuration
 	if err := sup.Start(ctx); err != nil {
-		logger.Named("app").Fatal("failed to start supervisor", zap.Error(err))
+		logger.Named("main").Fatal("failed to start supervisor", zap.Error(err))
 	}
 
-	logger.Named("app").Info("booting application")
+	logger.Named("main").Info("booting application")
 
 	// boot application state
 	bootCtx, cancelBoot := context.WithTimeout(ctx, 1*time.Second)
 	defer cancelBoot()
 	_, err = reg.Apply(bootCtx, boot)
 	if err != nil {
-		logger.Named("app").Fatal("failed to apply boot state", zap.Error(err))
+		logger.Named("main").Fatal("failed to apply boot state", zap.Error(err))
 	}
 
 	// Handle graceful shutdown on Ctrl+C
@@ -120,23 +121,16 @@ func main() {
 	// Wait for either shutdown signal or context cancellation
 	select {
 	case <-ctx.Done():
-		logger.Named("app").Info("Context cancelled, shutting down...")
+		logger.Named("main").Info("context cancelled, shutting down...")
 	case sig := <-sigChan:
-		logger.Named("app").Info("Received signal, shutting down...", zap.String("signal", sig.String()))
+		logger.Named("main").Info("received signal, shutting down...", zap.String("signal", sig.String()))
 	}
-
-	// Stop the supervisor gracefully with a timeout
-	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancelShutdown()
 
 	if err := sup.Stop(); err != nil {
-		logger.Named("app").Error("failed to stop supervisor gracefully", zap.Error(err))
+		logger.Named("main").Error("failed to stop supervisor gracefully", zap.Error(err))
 	} else {
-		logger.Named("app").Info("supervisor stopped gracefully")
+		logger.Named("main").Info("supervisor stopped gracefully")
 	}
-
-	cancel()
-	<-shutdownCtx.Done()
 }
 
 func initLogger(verbose, veryVerbose bool) *zap.Logger {

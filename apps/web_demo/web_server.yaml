@@ -5,7 +5,7 @@ meta:
   depends_on:
     - xx
 
-addr: ":8080"
+addr: ":8081"
 timeouts:
   idle: 60s
 
