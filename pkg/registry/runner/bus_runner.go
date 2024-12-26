@@ -53,6 +53,10 @@ func (br *BusRunner) Transition(
 	for _, op := range cs {
 		newState, err := br.applyOperation(ctx, currentState, op)
 		if err != nil {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+
 			br.log.Warn("operation failed, initiating rollback", zap.Any("operation", op), zap.Error(err))
 			newState = br.rollback(ctx, originalState, newState, appliedOperations)
 
