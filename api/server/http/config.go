@@ -15,17 +15,17 @@ const (
 // ServerConfig represents the initial configuration for the Timeouts service.
 type (
 	ServerConfig struct {
-		Meta     registry.Metadata        `json:"meta"`     // Metadata
-		Addr     string                   `json:"addr"`     // Address to listen on
-		Service  supervisor.ServiceConfig `json:"service"`  // Service lifecycle configuration
-		Timeouts TimeoutConfig            `json:"timeouts"` // Global Timeouts options
+		Meta     registry.Metadata        `json:"meta"`      // Metadata
+		Addr     string                   `json:"addr"`      // Address to listen on
+		Timeouts TimeoutConfig            `json:"timeouts"`  // Global Timeouts options
+		Service  supervisor.ServiceConfig `json:"lifecycle"` // Service lifecycle configuration
 	}
 
 	// TimeoutConfig represents global Timeouts-level configuration options.
 	TimeoutConfig struct {
-		ReadTimeout  time.Duration `json:"read_timeout"`
-		WriteTimeout time.Duration `json:"write_timeout"`
-		IdleTimeout  time.Duration `json:"idle_timeout"`
+		ReadTimeout  time.Duration `json:"read"`
+		WriteTimeout time.Duration `json:"write"`
+		IdleTimeout  time.Duration `json:"idle"`
 	}
 
 	// RouterConfig represents the configuration for a group of endpoints (a router).

@@ -2,9 +2,11 @@ package http
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/ponyruntime/pony/api/payload"
 	httpapi "github.com/ponyruntime/pony/api/server/http"
+	"log"
 	"sync"
 
 	"github.com/ponyruntime/pony/api/events"
@@ -45,7 +47,7 @@ func (s *Service) Start(ctx context.Context) error {
 		s.bus,
 		registry.System,
 		registry.Changes,
-		s.processEvent,
+		s.handleEvent,
 	)
 
 	if err != nil {
@@ -70,7 +72,7 @@ func (s *Service) Stop() error {
 	return nil
 }
 
-func (s *Service) processEvent(evt events.Event) {
+func (s *Service) handleEvent(evt events.Event) {
 	entry, ok := evt.Data.(registry.Entry)
 	if !ok {
 		s.log.Error("invalid registry event data", zap.Any("event", evt))
@@ -80,18 +82,22 @@ func (s *Service) processEvent(evt events.Event) {
 	switch entry.Kind {
 	case httpapi.KindServer:
 		s.log.Info("server", zap.Any("event", evt))
-		s.sendAcceptance(entry)
+		s.sendRejection(entry, errors.New("not implemented"))
+		return
+		log.Printf(">>>>>>>>>>>>DATA!!: %+v", entry.Data)
 
-		//cfg := new(httpapi.ServerConfig)
-		//err := s.dtt.Unmarshal(entry.Data, cfg)
-		//if err != nil {
-		//	s.log.Error("failed to unmarshal server config",
-		//		zap.String("server_id", string(entry.ID)),
-		//		zap.Error(err),
-		//	)
-		//	return
-		//}
-		//log.Printf("server config: %v", cfg)
+		cfg := new(httpapi.ServerConfig)
+		err := s.dtt.Unmarshal(entry.Data, cfg)
+		if err != nil {
+			s.log.Error("failed to unmarshal server config",
+				zap.String("server", string(entry.ID)),
+				zap.Error(err),
+			)
+			return
+		}
+
+		log.Printf(">>>>>>>>>>>>server config!!: %+v", cfg)
+		s.sendAcceptance(entry)
 
 		//		s.handleServerEvent(evt.Kind, entry)
 	case httpapi.KindEndpoint:
@@ -252,14 +258,15 @@ func (s *Service) sendAcceptance(entry registry.Entry) {
 	s.bus.Send(s.ctx, events.Event{
 		System: registry.System,
 		Kind:   registry.Accept,
-		Data:   entry,
+		Path:   events.Path(entry.ID),
 	})
 }
 
-func (s *Service) sendRejection(entry registry.Entry) {
+func (s *Service) sendRejection(entry registry.Entry, err error) {
 	s.bus.Send(s.ctx, events.Event{
 		System: registry.System,
 		Kind:   registry.Reject,
-		Data:   entry,
+		Path:   events.Path(entry.ID),
+		Data:   err,
 	})
 }

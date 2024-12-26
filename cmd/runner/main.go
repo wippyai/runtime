@@ -8,7 +8,6 @@ import (
 	"github.com/ponyruntime/pony/pkg/eventbus"
 	transcoder "github.com/ponyruntime/pony/pkg/payload"
 	"github.com/ponyruntime/pony/pkg/payload/json"
-	"github.com/ponyruntime/pony/pkg/payload/lua"
 	"github.com/ponyruntime/pony/pkg/payload/yaml"
 	"github.com/ponyruntime/pony/pkg/registry"
 	"github.com/ponyruntime/pony/pkg/registry/history"
@@ -49,7 +48,7 @@ func main() {
 	dtt := transcoder.NewTranscoder()
 	json.Register(dtt)
 	yaml.Register(dtt)
-	lua.Register(dtt)
+	//lua.Register(dtt) todo: buggy sorting!? debug it
 
 	folderPath := args[0]
 	namespace := ""

@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -36,12 +37,12 @@ func newTestComponent(bus events.Bus) *testComponent {
 // handleEvent handles registry eventbus and updates the component's configuration.
 func (c *testComponent) handleEvent(evt events.Event) {
 	if evt.System != registry.System {
-		return // Ignore eventbus from other systems.
+		return // Ignore events from other systems.
 	}
 
 	entry, ok := evt.Data.(registry.Entry)
 	if !ok {
-		return // Ignore eventbus with incorrect data type.
+		return // Ignore events with incorrect data type.
 	}
 
 	if entry.Kind != "listener" {
@@ -71,7 +72,8 @@ func (c *testComponent) handleEvent(evt events.Event) {
 			c.bus.Send(context.Background(), events.Event{
 				System: registry.System,
 				Kind:   registry.Reject,
-				Data:   registry.Entry{ID: entry.ID},
+				Path:   events.Path(entry.ID), // Add Path field
+				Data:   entry,
 			})
 			return
 		}
@@ -80,7 +82,8 @@ func (c *testComponent) handleEvent(evt events.Event) {
 		c.bus.Send(context.Background(), events.Event{
 			System: registry.System,
 			Kind:   registry.Accept,
-			Data:   registry.Entry{ID: entry.ID},
+			Path:   events.Path(entry.ID), // Add Path field
+			Data:   entry,
 		})
 
 	case registry.Delete:
@@ -89,7 +92,8 @@ func (c *testComponent) handleEvent(evt events.Event) {
 			c.bus.Send(context.Background(), events.Event{
 				System: registry.System,
 				Kind:   registry.Accept,
-				Data:   registry.Entry{ID: entry.ID},
+				Path:   events.Path(entry.ID), // Add Path field
+				Data:   entry,
 			})
 		} else {
 			// Mark as rejected even if it doesn't exist in the listener.
@@ -97,7 +101,8 @@ func (c *testComponent) handleEvent(evt events.Event) {
 			c.bus.Send(context.Background(), events.Event{
 				System: registry.System,
 				Kind:   registry.Reject,
-				Data:   registry.Entry{ID: entry.ID},
+				Path:   events.Path(entry.ID), // Add Path field
+				Data:   entry,
 			})
 		}
 
@@ -519,4 +524,71 @@ func TestBusRunner_BeginAndDiscardEvents(t *testing.T) {
 
 	// Verify that the second event is Discard
 	assert.Equal(t, registry.Discard, receivedEvents[1].Kind, "Second event should be Discard")
+}
+
+func TestBusRunner_ErrorPropagation(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	bus := eventbus.NewBus(zap.NewNop())
+	busRunner := NewBusRunner(bus, zap.NewNop())
+
+	expectedError := errors.New("component configuration not allowed")
+
+	// Create a test component with modified behavior
+	component := &testComponent{
+		bus:             bus,
+		config:          make(map[registry.ID]string),
+		rejectedConfigs: make(map[registry.ID]bool),
+	}
+
+	// Set up event listener with modified behavior for this test
+	listener, err := eventbus.NewSubscriber(ctx, bus, registry.System, "", func(evt events.Event) {
+		if evt.System == registry.System && evt.Kind == registry.Create {
+			entry, ok := evt.Data.(registry.Entry)
+			if !ok {
+				return
+			}
+
+			// Reject with custom error message
+			component.rejectedConfigs[entry.ID] = true
+			bus.Send(context.Background(), events.Event{
+				System: registry.System,
+				Kind:   registry.Reject,
+				Path:   events.Path(entry.ID),
+				Data:   expectedError, // Send error instead of entry
+			})
+			return
+		}
+	})
+	require.NoError(t, err)
+	defer listener.Close()
+
+	// Create a changeset that should trigger the rejection
+	initialState := registry.State{}
+	changeSet := registry.ChangeSet{
+		{
+			Kind: registry.Create,
+			Entry: createEntry(
+				"component/listener/error-test",
+				"listener",
+				"test-value",
+			),
+		},
+	}
+
+	// Execute the transition
+	_, err = busRunner.Transition(ctx, initialState, changeSet)
+
+	// Verify that an error occurred and contains our message
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), expectedError.Error())
+
+	// Verify the error was propagated
+	assert.True(t, component.wasRejected("component/listener/error-test"),
+		"Expected component/listener/error-test to be rejected")
+
+	// Verify no config was stored
+	assert.Equal(t, 0, len(component.config),
+		"No config should be stored after rejection")
 }
