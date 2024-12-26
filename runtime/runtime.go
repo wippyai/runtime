@@ -98,7 +98,7 @@ func (s *Service) processEvent(evt events.Event) {
 		zap.String("function_id", string(entry.ID)),
 	)
 
-	s.sendAcceptance(entry)
+	s.sendAcceptance(entry.ID)
 }
 
 //
@@ -118,10 +118,19 @@ func (s *Service) processEvent(evt events.Event) {
 //	)
 //}
 
-func (s *Service) sendAcceptance(entry registry.Entry) {
+func (s *Service) sendAcceptance(id registry.ID) {
 	s.bus.Send(s.ctx, events.Event{
 		System: registry.System,
 		Kind:   registry.Accept,
-		Path:   events.Path(entry.ID),
+		Path:   events.Path(id),
+	})
+}
+
+func (s *Service) sendRejection(id registry.ID, err error) {
+	s.bus.Send(s.ctx, events.Event{
+		System: registry.System,
+		Kind:   registry.Reject,
+		Path:   events.Path(id),
+		Data:   err,
 	})
 }

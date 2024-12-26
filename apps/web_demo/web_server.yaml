@@ -2,6 +2,8 @@ name: service.web_server
 kind: http.service
 meta:
   comment: "Default http service."
+  depends_on:
+    - xx
 
 addr: ":8080"
 timeouts:
