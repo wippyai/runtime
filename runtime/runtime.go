@@ -94,7 +94,7 @@ func (s *Service) processEvent(evt events.Event) {
 	// Always accept the function registration
 	//	s.registerFunction(entry.ID, cfg)
 
-	s.log.Info("registered function",
+	s.log.Debug("registered function",
 		zap.String("function_id", string(entry.ID)),
 	)
 

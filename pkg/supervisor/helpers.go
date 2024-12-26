@@ -210,8 +210,11 @@ func (th *registryTX) discard() {
 		return
 	}
 
+	if len(th.register) > 0 || len(th.remove) > 0 {
+		th.logger.Warn("discarding transaction with pending changes")
+	}
+
 	th.reset()
-	th.logger.Info("discarded all service changes")
 }
 
 func (th *registryTX) registerService(id string, entry *supervisor.Entry) error {

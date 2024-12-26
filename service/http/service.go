@@ -109,77 +109,66 @@ func (s *Service) handleEvent(evt events.Event) {
 }
 
 func (s *Service) handleServer(id registry.ID, kind events.Kind, cfg *httpapi.ServerConfig) {
-	log.Printf("server: %v, kind: %v, cfg: %v", id, kind, cfg)
-	s.sendAcceptance(id)
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	//		s.mu.Lock()
-	//		defer s.mu.Unlock()
-	//
-	//		switch kind {
-	//		case registry.Create:
-	//			if err := s.createServer(entry); err != nil {
-	//				s.log.Error("failed to create service",
-	//					zap.String("server_id", string(entry.ID)),
-	//					zap.Error(err),
-	//				)
-	//				s.sendRejection(entry)
-	//				return
-	//			}
-	//			s.sendAcceptance(entry)
-	//
-	//		case registry.Update:
-	//			if err := s.updateServer(entry); err != nil {
-	//				s.log.Error("failed to update service",
-	//					zap.String("server_id", string(entry.ID)),
-	//					zap.Error(err),
-	//				)
-	//				s.sendRejection(entry)
-	//				return
-	//			}
-	//			s.sendAcceptance(entry)
-	//
-	//		case registry.Delete:
-	//			if err := s.deleteServer(entry); err != nil {
-	//				s.log.Error("failed to delete service",
-	//					zap.String("server_id", string(entry.ID)),
-	//					zap.Error(err),
-	//				)
-	//				s.sendRejection(entry)
-	//				return
-	//			}
-	//			s.sendAcceptance(entry)
-	//		}
+	switch kind {
+	case registry.Create:
+		//			if err := s.createServer(entry); err != nil {
+		//				s.log.Error("failed to create service",
+		//					zap.String("server_id", string(entry.ID)),
+		//					zap.Error(err),
+		//				)
+		//				s.sendRejection(entry)
+		//				return
+		//			}
+		//			s.sendAcceptance(entry)
+		//
+	case registry.Update:
+		//			if err := s.updateServer(entry); err != nil {
+		//				s.log.Error("failed to update service",
+		//					zap.String("server_id", string(entry.ID)),
+		//					zap.Error(err),
+		//				)
+		//				s.sendRejection(entry)
+		//				return
+		//			}
+		//			s.sendAcceptance(entry)
+		//
+	case registry.Delete:
+		//			if err := s.deleteServer(entry); err != nil {
+		//				s.log.Error("failed to delete service",
+		//					zap.String("server_id", string(entry.ID)),
+		//					zap.Error(err),
+		//				)
+		//				s.sendRejection(entry)
+		//				return
+		//			}
+		//			s.sendAcceptance(entry)
+	}
+
+	s.sendAcceptance(id)
 }
 
-func (s *Service) handleRouter(
-	id registry.ID, kind events.Kind, cfg *httpapi.RouterConfig) {
+func (s *Service) handleRouter(id registry.ID, kind events.Kind, cfg *httpapi.RouterConfig) {
 	s.sendRejection(id, fmt.Errorf("not implemented"))
 }
 
 func (s *Service) handleEndpoint(id registry.ID, kind events.Kind, cfg *httpapi.EndpointConfig) {
-	//		s.mu.Lock()
-	//		defer s.mu.Unlock()
-	//
-	//		// Extract service ID from endpoint ID (assuming format: "servers/[server_id]/endpoints/[endpoint_id]")
-	//		serverID := extractServerID(entry.ID)
-	//		service, exists := s.servers[serverID]
-	//		if !exists {
-	//			s.log.Error("service not found for endpoint",
-	//				zap.String("endpoint_id", string(entry.ID)),
-	//				zap.String("server_id", string(serverID)),
-	//			)
-	//			s.sendRejection(entry)
-	//			return
-	//		}
-	//
-	//		var config EndpointConfig
-	//		if err := entry.Data.(payload.Payload).Unmarshal(&config); err != nil {
-	//			s.log.Error("failed to unmarshal endpoint config",
-	//				zap.String("endpoint_id", string(entry.ID)),
-	//				zap.Error(err),
-	//			)
-	//			s.sendRejection(entry)
-	//			return
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	serverID := cfg.Meta.StringValue(httpapi.ServerID)
+	server, exists := s.servers[registry.ID(serverID)]
+	if !exists {
+		s.sendRejection(id, fmt.Errorf("http server %s not found", serverID))
+		return
+	}
+
+	log.Printf("server: %v", server)
+
+	s.sendAcceptance(id)
+
 }
 
 //
