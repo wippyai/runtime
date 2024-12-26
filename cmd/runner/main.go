@@ -26,11 +26,12 @@ import (
 func main() {
 	// Parse command line flags
 	verbose := flag.Bool("v", false, "enable verbose debug logging")
+	veryVerbose := flag.Bool("vv", false, "enable very verbose debug logging with stack traces")
 	flag.Parse()
 	args := flag.Args()
 
 	if len(args) < 1 {
-		fmt.Println("Usage: go run main.go [-v] <folder_path> [namespace]")
+		fmt.Println("Usage: go run main.go [-v] [-vv] <folder_path> [namespace]")
 		os.Exit(1)
 	}
 
@@ -38,7 +39,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	logger := initLogger(*verbose)
+	logger := initLogger(*verbose, *veryVerbose)
 	if logger == nil {
 		fmt.Println("Failed to initialize logger")
 		os.Exit(1)
@@ -117,20 +118,27 @@ func main() {
 	<-ctx.Done()
 }
 
-func initLogger(verbose bool) *zap.Logger {
+func initLogger(verbose, veryVerbose bool) *zap.Logger {
 	config := zap.NewDevelopmentConfig()
 
-	// Set log level based on verbose flag
-	if verbose {
+	// Set log level based on flags
+	switch {
+	case veryVerbose:
 		config.Level = zap.NewAtomicLevelAt(zapcore.DebugLevel)
-	} else {
+	case verbose:
+		config.Level = zap.NewAtomicLevelAt(zapcore.DebugLevel)
+		// Disable stack traces for -v
+		config.DisableStacktrace = true
+	default:
 		config.Level = zap.NewAtomicLevelAt(zapcore.InfoLevel)
+		// Disable stack traces by default
+		config.DisableStacktrace = true
 	}
 
 	// Always use console encoding with colors
 	config.Encoding = "console"
 	config.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
-	config.EncoderConfig.EncodeCaller = nil
+	config.EncoderConfig.EncodeCaller = nil // Remove caller information
 	config.EncoderConfig.TimeKey = "time"
 	config.EncoderConfig.LevelKey = "level"
 	config.EncoderConfig.NameKey = "logger"
