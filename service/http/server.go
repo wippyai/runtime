@@ -75,7 +75,7 @@ func (s *Server) Start(ctx context.Context) (<-chan any, error) {
 	s.server = &http.Server{
 		Addr:         s.config.Addr,
 		Handler:      s.router,
-		ReadTimeout:  s.config.Timeouts.ReadTimeout,
+		ReadTimeout:  s.config.Timeouts.ReadTimeout, // todo: remove nested one?
 		WriteTimeout: s.config.Timeouts.WriteTimeout,
 		IdleTimeout:  s.config.Timeouts.IdleTimeout,
 	}
@@ -120,4 +120,6 @@ func (s *Server) UpdateConfig(config config.ServerConfig) {
 	defer s.mu.Unlock()
 
 	s.config = config
+
+	// no changes to the server instance
 }

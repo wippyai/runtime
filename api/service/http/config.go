@@ -12,6 +12,9 @@ const (
 	KindServer   registry.Kind = "http.service"
 	KindRouter   registry.Kind = "http.router"
 	KindEndpoint registry.Kind = "http.endpoint"
+
+	ServerID string = "server"
+	RouterID string = "router"
 )
 
 // ServerConfig represents the initial configuration for the Timeouts service.

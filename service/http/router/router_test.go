@@ -18,7 +18,7 @@ func TestRouterComposition(t *testing.T) {
 			http.Error(w, "route info not found", http.StatusInternalServerError)
 			return
 		}
-		w.Header().Set("X-Router-ID", routeInfo.Endpoint.Meta.StringValue("router_id"))
+		w.Header().Set("X-Router-ID", routeInfo.Endpoint.Meta.StringValue(config.RouterID))
 		w.WriteHeader(http.StatusOK)
 	}
 
@@ -28,7 +28,7 @@ func TestRouterComposition(t *testing.T) {
 		// Add a new router
 		err := router.AddRouter(config.RouterConfig{
 			Prefix: "/api/v1",
-			Meta:   registry.Metadata{"router_id": "router1"},
+			Meta:   registry.Metadata{config.RouterID: "router1"},
 		})
 		require.NoError(t, err)
 
@@ -36,14 +36,14 @@ func TestRouterComposition(t *testing.T) {
 		err = router.AddEndpoint("ep1", config.EndpointConfig{
 			Method: http.MethodGet,
 			Path:   "/test",
-			Meta:   registry.Metadata{"router_id": "router1"},
+			Meta:   registry.Metadata{config.RouterID: "router1"},
 		})
 		require.NoError(t, err)
 
 		err = router.AddEndpoint("ep2", config.EndpointConfig{
 			Method: http.MethodGet,
 			Path:   "/default",
-			Meta:   registry.Metadata{"router_id": ""},
+			Meta:   registry.Metadata{config.RouterID: ""},
 		})
 		require.NoError(t, err)
 
@@ -80,7 +80,7 @@ func TestRouterComposition(t *testing.T) {
 		for _, r := range routers {
 			err := router.AddRouter(config.RouterConfig{
 				Prefix: r.prefix,
-				Meta:   registry.Metadata{"router_id": r.id},
+				Meta:   registry.Metadata{config.RouterID: r.id},
 			})
 			require.NoError(t, err)
 
@@ -88,7 +88,7 @@ func TestRouterComposition(t *testing.T) {
 			err = router.AddEndpoint("", config.EndpointConfig{
 				Method: http.MethodGet,
 				Path:   "/supervisor",
-				Meta:   registry.Metadata{"router_id": r.id},
+				Meta:   registry.Metadata{config.RouterID: r.id},
 			})
 			require.NoError(t, err)
 		}
@@ -120,7 +120,7 @@ func TestRouterComposition(t *testing.T) {
 		// Add initial router
 		err := router.AddRouter(config.RouterConfig{
 			Prefix: "/api/v1",
-			Meta:   registry.Metadata{"router_id": "router1"},
+			Meta:   registry.Metadata{config.RouterID: "router1"},
 		})
 		require.NoError(t, err)
 
@@ -128,14 +128,14 @@ func TestRouterComposition(t *testing.T) {
 		err = router.AddEndpoint("ep1", config.EndpointConfig{
 			Method: http.MethodGet,
 			Path:   "/test",
-			Meta:   registry.Metadata{"router_id": "router1"},
+			Meta:   registry.Metadata{config.RouterID: "router1"},
 		})
 		require.NoError(t, err)
 
 		// Update router prefix
 		err = router.UpdateRouter(config.RouterConfig{
 			Prefix: "/api/v2",
-			Meta:   registry.Metadata{"router_id": "router1"},
+			Meta:   registry.Metadata{config.RouterID: "router1"},
 		})
 		require.NoError(t, err)
 
@@ -163,7 +163,7 @@ func TestRouterComposition(t *testing.T) {
 			for i := 0; i < 10; i++ {
 				_ = router.AddRouter(config.RouterConfig{
 					Prefix: "/api/v1",
-					Meta:   registry.Metadata{"router_id": "router1"},
+					Meta:   registry.Metadata{config.RouterID: "router1"},
 				})
 			}
 			done <- true
@@ -173,7 +173,7 @@ func TestRouterComposition(t *testing.T) {
 			for i := 0; i < 10; i++ {
 				_ = router.UpdateRouter(config.RouterConfig{
 					Prefix: "/api/v2",
-					Meta:   registry.Metadata{"router_id": "router1"},
+					Meta:   registry.Metadata{config.RouterID: "router1"},
 				})
 			}
 			done <- true
@@ -198,7 +198,7 @@ func TestRouterComposition(t *testing.T) {
 		// Add router with middleware
 		err := router.AddRouter(config.RouterConfig{
 			Prefix:      "/api/v1",
-			Meta:        registry.Metadata{"router_id": "router1"},
+			Meta:        registry.Metadata{config.RouterID: "router1"},
 			Middlewares: []string{"request_id", "real_ip"},
 		})
 		require.NoError(t, err)
@@ -207,7 +207,7 @@ func TestRouterComposition(t *testing.T) {
 		err = router.AddEndpoint("ep1", config.EndpointConfig{
 			Method: http.MethodGet,
 			Path:   "/test",
-			Meta:   registry.Metadata{"router_id": "router1"},
+			Meta:   registry.Metadata{config.RouterID: "router1"},
 		})
 		require.NoError(t, err)
 
@@ -244,7 +244,7 @@ func TestRouterEndpointOperations(t *testing.T) {
 		err = router.AddEndpoint("ep2", config.EndpointConfig{
 			Method: http.MethodGet,
 			Path:   "/test2",
-			Meta:   registry.Metadata{"router_id": "nonexistent"},
+			Meta:   registry.Metadata{config.RouterID: "nonexistent"},
 		})
 		assert.Error(t, err)
 
@@ -259,14 +259,14 @@ func TestRouterEndpointOperations(t *testing.T) {
 		// Test updating endpoint with router change
 		err = router.AddRouter(config.RouterConfig{
 			Prefix: "/api/v1",
-			Meta:   registry.Metadata{"router_id": "router1"},
+			Meta:   registry.Metadata{config.RouterID: "router1"},
 		})
 		require.NoError(t, err)
 
 		err = router.UpdateEndpoint("ep1", config.EndpointConfig{
 			Method: http.MethodGet,
 			Path:   "/test",
-			Meta:   registry.Metadata{"router_id": "router1"},
+			Meta:   registry.Metadata{config.RouterID: "router1"},
 		})
 
 		require.NoError(t, err)
@@ -288,7 +288,7 @@ func TestRouterDefaultRouterOperations(t *testing.T) {
 		// Test updating default router
 		err = router.UpdateRouter(config.RouterConfig{
 			Prefix: "/v2",
-			Meta:   registry.Metadata{"router_id": DefaultRouterID},
+			Meta:   registry.Metadata{config.RouterID: DefaultRouterID},
 		})
 		assert.Error(t, err)
 	})
@@ -311,20 +311,20 @@ func TestRouterErrorCases(t *testing.T) {
 		// Test adding duplicate router
 		err = router.AddRouter(config.RouterConfig{
 			Prefix: "/api/v1",
-			Meta:   registry.Metadata{"router_id": "router1"},
+			Meta:   registry.Metadata{config.RouterID: "router1"},
 		})
 		require.NoError(t, err)
 
 		err = router.AddRouter(config.RouterConfig{
 			Prefix: "/api/v2",
-			Meta:   registry.Metadata{"router_id": "router1"},
+			Meta:   registry.Metadata{config.RouterID: "router1"},
 		})
 		assert.Error(t, err)
 
 		// Test updating non-existent router
 		err = router.UpdateRouter(config.RouterConfig{
 			Prefix: "/api/v2",
-			Meta:   registry.Metadata{"router_id": "nonexistent"},
+			Meta:   registry.Metadata{config.RouterID: "nonexistent"},
 		})
 		assert.Error(t, err)
 
@@ -346,7 +346,7 @@ func TestRouterConcurrencyStress(t *testing.T) {
 		// Add initial router
 		err := router.AddRouter(config.RouterConfig{
 			Prefix: "/api/v1",
-			Meta:   registry.Metadata{"router_id": "router1"},
+			Meta:   registry.Metadata{config.RouterID: "router1"},
 		})
 		require.NoError(t, err)
 
@@ -356,7 +356,7 @@ func TestRouterConcurrencyStress(t *testing.T) {
 				_ = router.AddEndpoint("", config.EndpointConfig{
 					Method: http.MethodGet,
 					Path:   "/test",
-					Meta:   registry.Metadata{"router_id": "router1"},
+					Meta:   registry.Metadata{config.RouterID: "router1"},
 				})
 			}
 			done <- true
@@ -386,7 +386,7 @@ func TestRouterMiddlewareConfiguration(t *testing.T) {
 		// Test router with all middleware types
 		err := router.AddRouter(config.RouterConfig{
 			Prefix: "/api/v1",
-			Meta:   registry.Metadata{"router_id": "router1"},
+			Meta:   registry.Metadata{config.RouterID: "router1"},
 			Middlewares: []string{
 				"timeout",
 				"recoverer",
@@ -403,7 +403,7 @@ func TestRouterMiddlewareConfiguration(t *testing.T) {
 		err = router.AddEndpoint("ep1", config.EndpointConfig{
 			Method: http.MethodGet,
 			Path:   "/test",
-			Meta:   registry.Metadata{"router_id": "router1"},
+			Meta:   registry.Metadata{config.RouterID: "router1"},
 		})
 		require.NoError(t, err)
 
@@ -418,7 +418,7 @@ func TestRouterMiddlewareConfiguration(t *testing.T) {
 		// Test invalid timeout duration
 		err = router.AddRouter(config.RouterConfig{
 			Prefix: "/api/v2",
-			Meta:   registry.Metadata{"router_id": "router2"},
+			Meta:   registry.Metadata{config.RouterID: "router2"},
 			Middlewares: []string{
 				"timeout",
 			},

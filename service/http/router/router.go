@@ -45,7 +45,7 @@ func NewRouter(handler http.HandlerFunc) *Router {
 	// Initialize the default router
 	rm.routers[DefaultRouterID], _ = NewChiRouter(config.RouterConfig{
 		Prefix: "/",
-		Meta:   registry.Metadata{"router_id": DefaultRouterID},
+		Meta:   registry.Metadata{config.RouterID: DefaultRouterID},
 	})
 
 	rm.rebuildRouter() // Build the initial composed router
@@ -58,9 +58,9 @@ func (rm *Router) AddRouter(rcfg config.RouterConfig) error {
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
 
-	routerID := rcfg.Meta.StringValue("router_id")
+	routerID := rcfg.Meta.StringValue(config.RouterID)
 	if routerID == "" {
-		return fmt.Errorf("router_id is required in metadata")
+		return fmt.Errorf("router id is required in metadata")
 	}
 
 	if _, exists := rm.routers[routerID]; exists {
@@ -94,7 +94,7 @@ func (rm *Router) DeleteRouter(routerID string) error {
 
 	// Delete all endpoints associated with this router
 	for endpointID, ecfg := range rm.endpoints {
-		if ecfg.Meta.StringValue("router_id") == routerID {
+		if ecfg.Meta.StringValue(config.RouterID) == routerID {
 			delete(rm.endpoints, endpointID)
 		}
 	}
@@ -119,9 +119,9 @@ func (rm *Router) UpdateRouter(rcfg config.RouterConfig) error {
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
 
-	routerID := rcfg.Meta.StringValue("router_id")
+	routerID := rcfg.Meta.StringValue(config.RouterID)
 	if routerID == "" {
-		return fmt.Errorf("router_id is required in metadata")
+		return fmt.Errorf("router id is required in metadata")
 	}
 
 	existingRouter, exists := rm.routers[routerID]
@@ -151,7 +151,7 @@ func (rm *Router) AddEndpoint(endpointID string, ecfg config.EndpointConfig) err
 		endpointID = uuid.NewString()
 	}
 
-	routerID := ecfg.Meta.StringValue("router_id")
+	routerID := ecfg.Meta.StringValue(config.RouterID)
 	if routerID == "" {
 		routerID = DefaultRouterID
 	}
@@ -180,17 +180,17 @@ func (rm *Router) DeleteEndpoint(endpointID string) error {
 
 	ecfg, exists := rm.endpoints[endpointID]
 	if !exists {
-		return fmt.Errorf("endpoint with Name '%s' not found", endpointID)
+		return fmt.Errorf("endpoint with name '%s' not found", endpointID)
 	}
 
-	routerID := ecfg.Meta.StringValue("router_id")
+	routerID := ecfg.Meta.StringValue(config.RouterID)
 	if routerID == "" {
 		routerID = DefaultRouterID
 	}
 
 	router, exists := rm.routers[routerID]
 	if !exists {
-		return fmt.Errorf("router with Name '%s' not found", routerID)
+		return fmt.Errorf("router with name '%s' not found", routerID)
 	}
 
 	// Delete endpoint from Chi router
@@ -211,16 +211,16 @@ func (rm *Router) UpdateEndpoint(endpointID string, ecfg config.EndpointConfig) 
 	oldEcfg, exists := rm.endpoints[endpointID]
 	if !exists {
 		rm.mu.Unlock()
-		return fmt.Errorf("endpoint with Name '%s' not found", endpointID)
+		return fmt.Errorf("endpoint with name '%s' not found", endpointID)
 	}
 	rm.mu.Unlock()
 
-	oldRouterID := oldEcfg.Meta.StringValue("router_id")
+	oldRouterID := oldEcfg.Meta.StringValue(config.RouterID)
 	if oldRouterID == "" {
 		oldRouterID = DefaultRouterID
 	}
 
-	newRouterID := ecfg.Meta.StringValue("router_id")
+	newRouterID := ecfg.Meta.StringValue(config.RouterID)
 	if newRouterID == "" {
 		newRouterID = DefaultRouterID
 	}
@@ -247,7 +247,7 @@ func (rm *Router) UpdateEndpoint(endpointID string, ecfg config.EndpointConfig) 
 
 	router, exists := rm.routers[newRouterID]
 	if !exists {
-		return fmt.Errorf("router with Name '%s' not found", newRouterID)
+		return fmt.Errorf("router with name '%s' not found", newRouterID)
 	}
 
 	// Add updated endpoint to Chi router
@@ -271,7 +271,7 @@ func (rm *Router) rebuildRouter() {
 		builtRouter, err := router.Build(rm.handler)
 		if err != nil {
 			// Handle error appropriately (log, panic, etc.)
-			fmt.Printf("Error building router %s: %v\n", routerID, err)
+			fmt.Printf("error building router %s: %v\n", routerID, err) // todo: pass log here?
 			continue
 		}
 		newRouter.Mount(router.config.Prefix, builtRouter)
