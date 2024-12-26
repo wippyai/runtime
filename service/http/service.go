@@ -6,7 +6,6 @@ import (
 	"github.com/ponyruntime/pony/api/payload"
 	httpapi "github.com/ponyruntime/pony/api/service/http"
 	"github.com/ponyruntime/pony/api/supervisor"
-	"log"
 	"net/http"
 	"sync"
 
@@ -202,13 +201,13 @@ func (s *Service) handleEndpoint(id registry.ID, kind events.Kind, cfg httpapi.E
 	defer s.mu.Unlock()
 
 	serverID := cfg.Meta.StringValue(httpapi.ServerID)
-	server, exists := s.servers[registry.ID(serverID)]
+	_, exists := s.servers[registry.ID(serverID)]
 	if !exists {
 		s.sendRejection(id, fmt.Errorf("http server %s not found", serverID))
 		return
 	}
 
-	log.Printf("server: %v", server)
+	//log.Printf("server: %v", server)
 
 	//		switch kind {
 	//		case registry.Create, registry.Update:

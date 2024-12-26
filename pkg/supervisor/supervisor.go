@@ -226,10 +226,6 @@ func (s *Supervisor) run(ctx context.Context) {
 					zap.String("serviceID", string(action.serviceID)),
 					zap.Error(err),
 				)
-			} else {
-				s.logger.Info("service registered",
-					zap.String("serviceID", action.serviceID),
-				)
 			}
 
 		case actionRemove:
@@ -306,6 +302,8 @@ func (s *Supervisor) registerService(id string, entry *supervisor.Entry) error {
 			},
 		})
 	}
+
+	entry.Config.InitDefaults()
 
 	s.controllers[id] = NewController(s.ctx, entry.Service, entry.Config, stateHandler)
 	s.logger.Info("service registered",

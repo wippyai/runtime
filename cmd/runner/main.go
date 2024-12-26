@@ -19,7 +19,9 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -37,7 +39,6 @@ func main() {
 
 	// application service supervisor
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	logger := initLogger(*verbose, *veryVerbose)
 	if logger == nil {
@@ -102,20 +103,40 @@ func main() {
 		logger.Named("app").Fatal("failed to start supervisor", zap.Error(err))
 	}
 
-	logger.Named("app").Info(">> [[booting application]] <<")
+	logger.Named("app").Info("booting application")
 
 	// boot application state
-	bootCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
-	defer cancel()
+	bootCtx, cancelBoot := context.WithTimeout(ctx, 1*time.Second)
+	defer cancelBoot()
 	_, err = reg.Apply(bootCtx, boot)
 	if err != nil {
 		logger.Named("app").Fatal("failed to apply boot state", zap.Error(err))
 	}
 
-	logger.Named("app").Info(">> [[application started]] <<")
+	// Handle graceful shutdown on Ctrl+C
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	// wait for shutdown
-	<-ctx.Done()
+	// Wait for either shutdown signal or context cancellation
+	select {
+	case <-ctx.Done():
+		logger.Named("app").Info("Context cancelled, shutting down...")
+	case sig := <-sigChan:
+		logger.Named("app").Info("Received signal, shutting down...", zap.String("signal", sig.String()))
+	}
+
+	// Stop the supervisor gracefully with a timeout
+	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelShutdown()
+
+	if err := sup.Stop(); err != nil {
+		logger.Named("app").Error("failed to stop supervisor gracefully", zap.Error(err))
+	} else {
+		logger.Named("app").Info("supervisor stopped gracefully")
+	}
+
+	cancel()
+	<-shutdownCtx.Done()
 }
 
 func initLogger(verbose, veryVerbose bool) *zap.Logger {

@@ -146,3 +146,33 @@ func (p *RetryPolicy) UnmarshalJSON(data []byte) error {
 
 	return nil
 }
+
+func (cfg *LifecycleConfig) InitDefaults() {
+	if cfg.StartTimeout == 0 {
+		cfg.StartTimeout = 30 * time.Second
+	}
+
+	if cfg.StopTimeout == 0 {
+		cfg.StopTimeout = 30 * time.Second
+	}
+
+	if cfg.RetryPolicy.InitialDelay == 0 {
+		cfg.RetryPolicy.InitialDelay = time.Second
+	}
+
+	if cfg.RetryPolicy.MaxDelay == 0 {
+		cfg.RetryPolicy.MaxDelay = 30 * time.Second
+	}
+
+	if cfg.RetryPolicy.BackoffFactor == 0 {
+		cfg.RetryPolicy.BackoffFactor = 2.0
+	}
+
+	if cfg.RetryPolicy.Jitter == 0 {
+		cfg.RetryPolicy.Jitter = 0.1
+	}
+
+	if cfg.RetryPolicy.MaxAttempts == 0 {
+		cfg.RetryPolicy.MaxAttempts = 5
+	}
+}
