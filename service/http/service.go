@@ -16,7 +16,6 @@ import (
 // Service manages multiple HTTP servers and their endpoints based on registry configuration
 type Service struct {
 	ctx        context.Context
-	cancel     context.CancelFunc
 	log        *zap.Logger
 	bus        events.Bus
 	dtt        payload.Transcoder
@@ -40,6 +39,7 @@ func (s *Service) Start(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	s.ctx = ctx
 	sub, err := eventbus.NewSubscriber(
 		ctx,
 		s.bus,
@@ -79,7 +79,8 @@ func (s *Service) processEvent(evt events.Event) {
 
 	switch entry.Kind {
 	case httpapi.KindServer:
-		s.log.Info("server event", zap.Any("event", evt))
+		s.log.Info("server", zap.Any("event", evt))
+		s.sendAcceptance(entry)
 
 		//cfg := new(httpapi.ServerConfig)
 		//err := s.dtt.Unmarshal(entry.Data, cfg)
@@ -92,10 +93,11 @@ func (s *Service) processEvent(evt events.Event) {
 		//}
 		//log.Printf("server config: %v", cfg)
 
-		//s.sendAcceptance(entry)
-
 		//		s.handleServerEvent(evt.Kind, entry)
-		//	case kindEndpoint:
+	case httpapi.KindEndpoint:
+		s.log.Info("endpoint", zap.Any("event", evt))
+		s.sendAcceptance(entry)
+
 		//	s.handleEndpointEvent(evt.Kind, entry)
 	}
 }

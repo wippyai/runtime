@@ -110,6 +110,8 @@ func main() {
 		logger.Named("app").Fatal("failed to apply boot state", zap.Error(err))
 	}
 
+	logger.Named("app").Info("application started")
+
 	// wait for shutdown
 	<-ctx.Done()
 }
