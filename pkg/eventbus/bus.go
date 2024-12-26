@@ -152,6 +152,7 @@ func (b *Bus) Send(ctx context.Context, event events.Event) {
 				"sending event",
 				zap.String("system", string(event.System)),
 				zap.String("kind", string(event.Kind)),
+				zap.String("path", string(event.Path)),
 				zap.Any("payload", event.Data),
 			)
 		}

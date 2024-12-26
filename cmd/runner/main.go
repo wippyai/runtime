@@ -8,6 +8,7 @@ import (
 	"github.com/ponyruntime/pony/pkg/eventbus"
 	transcoder "github.com/ponyruntime/pony/pkg/payload"
 	"github.com/ponyruntime/pony/pkg/payload/json"
+	"github.com/ponyruntime/pony/pkg/payload/lua"
 	"github.com/ponyruntime/pony/pkg/payload/yaml"
 	"github.com/ponyruntime/pony/pkg/registry"
 	"github.com/ponyruntime/pony/pkg/registry/history"
@@ -18,6 +19,7 @@ import (
 	"github.com/ponyruntime/pony/service/http"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+	"hash/fnv"
 	"os"
 	"os/signal"
 	"strings"
@@ -51,7 +53,7 @@ func main() {
 	dtt := transcoder.NewTranscoder()
 	json.Register(dtt)
 	yaml.Register(dtt)
-	//lua.Register(dtt) todo: buggy sorting!? debug it
+	lua.Register(dtt)
 
 	folderPath := args[0]
 	namespace := ""
@@ -85,7 +87,7 @@ func main() {
 		history.NewMemory(),
 		runner.NewBusRunner(bus, logger.Named("runner")),
 		state,
-		logger.Named("registry"),
+		logger.Named("state"),
 	)
 
 	// services, modules, runtimes
@@ -94,7 +96,7 @@ func main() {
 		logger.Named("main").Fatal("failed to start http service", zap.Error(err))
 	}
 
-	err = runtime.Init(bus, dtt, logger.Named("functions")).Start(ctx)
+	err = runtime.Init(bus, dtt, logger.Named("funcs")).Start(ctx)
 	if err != nil {
 		logger.Named("main").Fatal("failed to start runtime service", zap.Error(err))
 	}
@@ -166,10 +168,17 @@ func initLogger(verbose, veryVerbose bool) *zap.Logger {
 		for _, char := range loggerName {
 			hash += int(char)
 		}
-		// map hash to one of 6 colors (31-36: red, green, yellow, blue, magenta, cyan)
-		colorCode := 31 + (hash % 6)
+
+		hash2 := hashString(loggerName)
+
+		// Generate R, G, B values from the hash
+		r := int(hash2 & 0xFF)         // Extract red component
+		g := int((hash2 >> 8) & 0xFF)  // Extract green component
+		b := int((hash2 >> 16) & 0xFF) // Extract blue component
+		coloredName := fmt.Sprintf("\x1b[38;2;%d;%d;%dm%s\x1b[0m", r, g, b, loggerName)
+
 		// Wrap name in ANSI color codes
-		coloredName := fmt.Sprintf("\x1b[%dm%s\x1b[0m", colorCode, loggerName)
+		//	coloredName := fmt.Sprintf("\x1b[%dm%s\x1b[0m", colorCode, loggerName)
 		enc.AppendString(coloredName)
 	}
 	config.EncoderConfig.EncodeTime = zapcore.TimeEncoderOfLayout(time.DateTime)
@@ -181,4 +190,10 @@ func initLogger(verbose, veryVerbose bool) *zap.Logger {
 	}
 
 	return logger
+}
+
+func hashString(s string) uint32 {
+	h := fnv.New32a()
+	h.Write([]byte(s))
+	return h.Sum32()
 }

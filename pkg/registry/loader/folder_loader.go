@@ -59,7 +59,7 @@ func (l *FolderLoader) Load(rootPath string, namespace string, vars Variables) (
 	entries := make([]registry.Entry, 0)
 
 	for relPath, p := range payloads {
-		l.log.Debug("Processing entry", zap.String("path", relPath))
+		l.log.Debug("processing entry", zap.String("path", relPath))
 		entry, err := l.processEntry(relPath, p, vars)
 		if err != nil {
 			l.log.Error("failed to process entry, skipping", zap.String("path", relPath), zap.Error(err))
@@ -122,7 +122,7 @@ func (l *FolderLoader) register(p payload.Payload, relPath string) (registry.Ent
 	fullID := l.calculateFullID(filepath.Dir(relPath), entry.Name)
 
 	l.log.Debug(
-		"Registering Entry",
+		"registering entry",
 		zap.String("path", string(fullID)),
 		zap.String("entryName", entry.Name),
 	)
