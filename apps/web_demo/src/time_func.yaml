@@ -1,7 +1,6 @@
 name: functions.http_time
 kind: lua.function
 meta:
-  server_id: "default"
   comment: "Returns the current time."
 
 runtime: lua
