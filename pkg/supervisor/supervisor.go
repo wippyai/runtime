@@ -276,13 +276,13 @@ func (s *Supervisor) registerService(id string, entry *supervisor.Entry) error {
 
 	stateHandler := func(status supervisor.Status, details any) {
 		if err, ok := details.(error); ok {
-			s.logger.Error("service state",
+			s.logger.Error(fmt.Sprintf("service %s is %s", id, status),
 				zap.String("serviceID", id),
 				zap.String("status", string(status)),
 				zap.Error(err),
 			)
 		} else {
-			s.logger.Info("service state",
+			s.logger.Info(fmt.Sprintf("service %s is %s", id, status),
 				zap.String("serviceID", id),
 				zap.String("status", string(status)),
 				zap.Any("details", details),
