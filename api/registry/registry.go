@@ -20,6 +20,8 @@ const (
 	Discard events.Kind = "registry.discard"
 
 	RootVersion uint = 0
+
+	DependsOnTag = "depends_on"
 )
 
 type (
@@ -154,4 +156,14 @@ func (m Metadata) BoolValue(key string) bool {
 		}
 	}
 	return false
+}
+
+func (m Metadata) TagValue(key string) []string {
+	if v, ok := m[key]; ok {
+		if s, ok := v.([]string); ok {
+			return s
+		}
+	}
+
+	return nil
 }

@@ -4,7 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	rapi "github.com/ponyruntime/pony/api/registry"
+	regapi "github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/pkg/eventbus"
 	transcoder "github.com/ponyruntime/pony/pkg/payload"
 	"github.com/ponyruntime/pony/pkg/payload/json"
@@ -15,8 +15,10 @@ import (
 	"github.com/ponyruntime/pony/pkg/registry/loader"
 	"github.com/ponyruntime/pony/pkg/registry/runner"
 	"github.com/ponyruntime/pony/pkg/supervisor"
+	http "github.com/ponyruntime/pony/service/http"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+	"log"
 	"os"
 	"strings"
 	"time"
@@ -69,10 +71,12 @@ func main() {
 	}
 
 	// boot delta
-	boot, err := state.BuildDelta(rapi.State{}, entries) // build delta
+	boot, err := state.BuildDelta(regapi.State{}, entries) // build delta
 	if err != nil {
 		logger.Named("app").Fatal("Failed to build state operation set", zap.Error(err))
 	}
+
+	log.Printf("Loaded %d entries from %+v", len(entries), boot)
 
 	// server
 	bus := eventbus.NewBus(logger.Named("events"))                   // main configuration bus
@@ -85,6 +89,10 @@ func main() {
 	)
 
 	// services, modules, runtimes
+	err = http.Init(bus, dtt, logger.Named("http")).Start(ctx)
+	if err != nil {
+		logger.Named("app").Fatal("failed to start http service", zap.Error(err))
+	}
 
 	// end server configuration
 	if err := sup.Start(ctx); err != nil {
