@@ -279,10 +279,19 @@ func (s *Supervisor) registerService(id string, entry *supervisor.Entry) error {
 	}
 
 	stateHandler := func(status supervisor.Status, details any) {
-		s.logger.Info("service state update",
-			zap.String("serviceID", id),
-			zap.String("status", string(status)),
-		)
+		if err, ok := details.(error); ok {
+			s.logger.Error("service state",
+				zap.String("serviceID", id),
+				zap.String("status", string(status)),
+				zap.Error(err),
+			)
+		} else {
+			s.logger.Info("service state",
+				zap.String("serviceID", id),
+				zap.String("status", string(status)),
+				zap.Any("details", details),
+			)
+		}
 
 		s.bus.Send(s.ctx, events.Event{
 			System: supervisor.System,
