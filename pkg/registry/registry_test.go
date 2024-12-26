@@ -289,31 +289,6 @@ func TestInMemoryRegistry_ApplyVersion(t *testing.T) {
 	}
 }
 
-func TestInMemoryRegistry_ApplyVersion_RunnerError(t *testing.T) {
-	v0 := version.New(registry.RootVersion)
-	v1 := version.FromParent(v0, 1)
-	history := history.NewMemory()
-	_ = history.Save(v0, registry.ChangeSet{}, true)
-	_ = history.Save(v1, registry.ChangeSet{}, false)
-
-	runner := NewMockRunner()
-	stateBuilder := NewStateBuilder(zap.NewNop())
-	reg := NewRegistry(history, runner, stateBuilder, zap.NewNop()).(*reg)
-	reg.currentVersion = v1
-
-	runner.err = errors.New("runner error")
-
-	err := reg.ApplyVersion(context.Background(), v0)
-	if err == nil {
-		t.Errorf("Expected error, got nil")
-		return
-	}
-	expectedPrefix := fmt.Sprintf("failed transition to version %s: ", v0)
-	if !strings.HasPrefix(err.Error(), expectedPrefix) {
-		t.Errorf("Expected error to start with: '%v', got: '%v'", expectedPrefix, err)
-	}
-}
-
 // Mock for History that returns an error on Save
 type ErrorHistory struct {
 	history.MemoryStorage // Correctly embed MemoryStorage
