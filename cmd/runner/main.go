@@ -15,7 +15,7 @@ import (
 	"github.com/ponyruntime/pony/pkg/registry/runner"
 	"github.com/ponyruntime/pony/pkg/supervisor"
 	"github.com/ponyruntime/pony/runtime"
-	http "github.com/ponyruntime/pony/service/http"
+	"github.com/ponyruntime/pony/service/http"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"os"
@@ -75,7 +75,7 @@ func main() {
 		logger.Named("app").Fatal("Failed to build state operation set", zap.Error(err))
 	}
 
-	// server
+	// service
 	bus := eventbus.NewBus(logger.Named("events"))                   // main configuration bus
 	sup := supervisor.NewSupervisor(bus, logger.Named("supervisor")) // service supervisor
 	reg := registry.NewRegistry(                                     // application state controller, transactional
@@ -96,7 +96,7 @@ func main() {
 		logger.Named("app").Fatal("failed to start runtime service", zap.Error(err))
 	}
 
-	// end server configuration
+	// end service configuration
 	if err := sup.Start(ctx); err != nil {
 		logger.Named("app").Fatal("failed to start supervisor", zap.Error(err))
 	}

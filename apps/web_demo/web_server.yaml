@@ -1,7 +1,7 @@
 name: service.web_server
-kind: http.server
+kind: http.service
 meta:
-  comment: "Default http server."
+  comment: "Default http service."
 
 addr: ":8080"
 timeouts:
@@ -10,5 +10,5 @@ timeouts:
 lifecycle:
   auto_start: true
   restart:
-    delay: 5s
+    initial_delay: 5s
     max_attempts: 3

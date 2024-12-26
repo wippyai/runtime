@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// mockService implements supervisor.Service for testing
+// mockService implements supervisor.Lifecycle for testing
 type mockService struct {
 	startFunc func(context.Context) (<-chan any, error)
 	stopFunc  func(context.Context) error
@@ -52,7 +52,7 @@ func TestController_BasicLifecycle(t *testing.T) {
 	ctr := NewController(
 		context.Background(),
 		mock,
-		supervisor.ServiceConfig{
+		supervisor.LifecycleConfig{
 			StartTimeout: 5 * time.Second,
 			StopTimeout:  5 * time.Second,
 			RetryPolicy: supervisor.RetryPolicy{
@@ -156,7 +156,7 @@ func TestController_ServiceFailure(t *testing.T) {
 	ctr := NewController(
 		context.Background(),
 		mock,
-		supervisor.ServiceConfig{
+		supervisor.LifecycleConfig{
 			StartTimeout: 5 * time.Second,
 			StopTimeout:  5 * time.Second,
 			RetryPolicy: supervisor.RetryPolicy{
@@ -211,7 +211,7 @@ func TestController_StartupError(t *testing.T) {
 	ctr := NewController(
 		context.Background(),
 		mock,
-		supervisor.ServiceConfig{
+		supervisor.LifecycleConfig{
 			StartTimeout: time.Second,
 			RetryPolicy:  supervisor.RetryPolicy{MaxAttempts: 1},
 		},
@@ -264,7 +264,7 @@ func TestController_ContextCancellation(t *testing.T) {
 	ctr := NewController(
 		ctx,
 		mock,
-		supervisor.ServiceConfig{
+		supervisor.LifecycleConfig{
 			StartTimeout: time.Second,
 			StopTimeout:  time.Second,
 			RetryPolicy:  supervisor.RetryPolicy{MaxAttempts: 3},
@@ -288,7 +288,7 @@ func TestController_ContextCancellation(t *testing.T) {
 		time.Sleep(100 * time.Millisecond) // wait for stop to propagate in controller routine
 		// Expected behavior
 	case <-time.After(2 * time.Second):
-		t.Fatal("Service did not stop after context cancellation")
+		t.Fatal("Lifecycle did not stop after context cancellation")
 	}
 
 	state := ctr.state.getSnapshot()
@@ -312,7 +312,7 @@ func TestController_StartTimeout(t *testing.T) {
 	ctr := NewController(
 		context.Background(),
 		mock,
-		supervisor.ServiceConfig{
+		supervisor.LifecycleConfig{
 			StartTimeout: 100 * time.Millisecond, // Short timeout
 			StopTimeout:  time.Second,
 			RetryPolicy:  supervisor.RetryPolicy{MaxAttempts: 1},
@@ -358,7 +358,7 @@ func TestController_ServiceRecoveryAfterFailure(t *testing.T) {
 	ctr := NewController(
 		context.Background(),
 		mock,
-		supervisor.ServiceConfig{
+		supervisor.LifecycleConfig{
 			StartTimeout: 5 * time.Second,
 			StopTimeout:  5 * time.Second,
 			RetryPolicy: supervisor.RetryPolicy{
@@ -418,11 +418,11 @@ func TestController_ServiceRecoveryAfterFailure(t *testing.T) {
 	expectedTransitions := []supervisor.Status{
 		supervisor.Starting, // Initial start
 		supervisor.Running,  // First successful start
-		supervisor.Running,  // Service Details received
-		supervisor.Failed,   // Service death
+		supervisor.Running,  // Lifecycle Details received
+		supervisor.Failed,   // Lifecycle death
 		supervisor.Starting, // Recovery attempt
 		supervisor.Running,  // Recovery successful
-		supervisor.Running,  // Service Details received after recovery
+		supervisor.Running,  // Lifecycle Details received after recovery
 		supervisor.Stopping, // Clean shutdown
 		supervisor.Stopped,  // Final state
 	}
@@ -477,7 +477,7 @@ func TestController_ServiceFailedRecovery(t *testing.T) {
 	ctr := NewController(
 		ctx,
 		mock,
-		supervisor.ServiceConfig{
+		supervisor.LifecycleConfig{
 			StartTimeout: 1 * time.Second,
 			StopTimeout:  1 * time.Second,
 			RetryPolicy: supervisor.RetryPolicy{
@@ -531,7 +531,7 @@ func TestController_ServiceFailedRecovery(t *testing.T) {
 	// Wait for service to reach final failed state
 	select {
 	case <-stateChan:
-		// Service reached final failed state
+		// Lifecycle reached final failed state
 	case <-time.After(time.Second):
 		cancel()
 		t.Fatal("Timeout waiting for service to reach final failed state")
@@ -551,8 +551,8 @@ func TestController_ServiceFailedRecovery(t *testing.T) {
 	expectedTransitions := []supervisor.Status{
 		supervisor.Starting, // Initial start
 		supervisor.Running,  // First successful start
-		supervisor.Running,  // Service Details received
-		supervisor.Failed,   // Service death
+		supervisor.Running,  // Lifecycle Details received
+		supervisor.Failed,   // Lifecycle death
 		supervisor.Starting, // First recovery attempt
 		supervisor.Failed,   // First recovery failure
 		supervisor.Starting, // Second recovery attempt
@@ -721,7 +721,7 @@ func TestController_CancelDuringTransition(t *testing.T) {
 	ctr := NewController(
 		ctx,
 		mock,
-		supervisor.ServiceConfig{
+		supervisor.LifecycleConfig{
 			StartTimeout: 5 * time.Second,
 			StopTimeout:  1 * time.Second,
 		},
@@ -809,7 +809,7 @@ func TestController_StopAndRestart(t *testing.T) {
 	ctr := NewController(
 		ctx,
 		mock,
-		supervisor.ServiceConfig{
+		supervisor.LifecycleConfig{
 			StartTimeout: 1 * time.Second,
 			StopTimeout:  1 * time.Second,
 			RetryPolicy: supervisor.RetryPolicy{
@@ -928,12 +928,12 @@ func TestController_StopAndRestart(t *testing.T) {
 	expectedTransitions := []supervisor.Status{
 		supervisor.Starting, // Initial start
 		supervisor.Running,  // First running state
-		supervisor.Running,  // Service details received
+		supervisor.Running,  // Lifecycle details received
 		supervisor.Stopping, // First stop
 		supervisor.Stopped,  // Stopped state
 		supervisor.Starting, // Restart
 		supervisor.Running,  // Second running state
-		supervisor.Running,  // Service details received
+		supervisor.Running,  // Lifecycle details received
 		supervisor.Stopping, // Final stop
 		supervisor.Stopped,  // Final state
 	}
@@ -1005,7 +1005,7 @@ func TestController_GracefulShutdown(t *testing.T) {
 	ctr := NewController(
 		context.Background(),
 		mock,
-		supervisor.ServiceConfig{
+		supervisor.LifecycleConfig{
 			StartTimeout: 1 * time.Second,
 			StopTimeout:  2 * time.Second,
 			RetryPolicy: supervisor.RetryPolicy{
@@ -1120,7 +1120,7 @@ func TestController_ShutdownTimeout(t *testing.T) {
 	ctr := NewController(
 		ctx,
 		mock,
-		supervisor.ServiceConfig{
+		supervisor.LifecycleConfig{
 			StartTimeout: 1 * time.Second,
 			StopTimeout:  500 * time.Millisecond, // Short timeout
 			RetryPolicy: supervisor.RetryPolicy{

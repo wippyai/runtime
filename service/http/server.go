@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	config "github.com/ponyruntime/pony/api/server/http"
+	config "github.com/ponyruntime/pony/api/service/http"
 	"github.com/ponyruntime/pony/service/http/router"
 )
 

@@ -179,7 +179,7 @@ func (h *testSupervisorHarness) registerServices(services map[string]bool) {
 			Path:   events.Path(serviceID),
 			Data: &supervisor.Entry{
 				Service: svc,
-				Config: supervisor.ServiceConfig{
+				Config: supervisor.LifecycleConfig{
 					AutoStart:    autoStart,
 					StartTimeout: 5 * time.Second,
 					StopTimeout:  5 * time.Second,
@@ -201,10 +201,10 @@ func (h *testSupervisorHarness) waitForAllServices(state supervisor.Status) {
 		switch state {
 		case supervisor.Running:
 			svc.WaitForStart(h.t)
-			require.True(h.t, svc.IsStarted(), "Service %s should be started", id)
+			require.True(h.t, svc.IsStarted(), "Lifecycle %s should be started", id)
 		case supervisor.Stopped:
 			svc.WaitForStop(h.t)
-			require.True(h.t, svc.IsStopped(), "Service %s should be stopped", id)
+			require.True(h.t, svc.IsStopped(), "Lifecycle %s should be stopped", id)
 		}
 	}
 }
@@ -237,7 +237,7 @@ func (h *testSupervisorHarness) assertServiceState(serviceID string, expectedSta
 func (h *testSupervisorHarness) assertServiceNotFound(serviceID string) {
 	h.t.Helper()
 	_, err := h.sup.GetState(serviceID)
-	require.Error(h.t, err, "Service should not exist")
+	require.Error(h.t, err, "Lifecycle should not exist")
 	require.Contains(h.t, err.Error(), "not found")
 }
 
@@ -256,12 +256,12 @@ func TestSupervisor_BasicLifecycle(t *testing.T) {
 	// Wait for service startup
 	service := h.services["test-service"]
 	service.WaitForStart(t)
-	require.True(t, service.IsStarted(), "Service should be started")
+	require.True(t, service.IsStarted(), "Lifecycle should be started")
 
 	// Stop supervisor and wait for service shutdown
 	h.stop()
 	service.WaitForStop(t)
-	require.True(t, service.IsStopped(), "Service should be stopped")
+	require.True(t, service.IsStopped(), "Lifecycle should be stopped")
 
 	// Verify logs
 	h.assertLog("supervisor started")
@@ -282,10 +282,10 @@ func TestSupervisor_MultipleServices(t *testing.T) {
 	// Only service-1 should be started automatically
 	svc1 := h.services["service-1"]
 	svc1.WaitForStart(t)
-	require.True(t, svc1.IsStarted(), "Service 1 should be started automatically")
+	require.True(t, svc1.IsStarted(), "Lifecycle 1 should be started automatically")
 
 	svc2 := h.services["service-2"]
-	require.False(t, svc2.IsStarted(), "Service 2 should not be started automatically")
+	require.False(t, svc2.IsStarted(), "Lifecycle 2 should not be started automatically")
 
 	// Start service-2 manually
 	h.sup.actions <- action{
@@ -313,7 +313,7 @@ func TestSupervisor_ServiceRemoval(t *testing.T) {
 
 	service := h.services["test-service"]
 	service.WaitForStart(t)
-	require.True(t, service.IsStarted(), "Service should be started")
+	require.True(t, service.IsStarted(), "Lifecycle should be started")
 
 	// Begin transaction and remove the service
 	h.sup.handleEvent(events.Event{System: registry.System, Kind: registry.Begin})
@@ -322,7 +322,7 @@ func TestSupervisor_ServiceRemoval(t *testing.T) {
 
 	// Verify service is stopped and removed
 	service.WaitForStop(t)
-	require.True(t, service.IsStopped(), "Service should be stopped")
+	require.True(t, service.IsStopped(), "Lifecycle should be stopped")
 	h.assertServiceNotFound("test-service")
 }
 
@@ -339,11 +339,11 @@ func TestSupervisor_TransactionValidation(t *testing.T) {
 		Path:   "test-service",
 		Data: &supervisor.Entry{
 			Service: svc,
-			Config:  supervisor.ServiceConfig{},
+			Config:  supervisor.LifecycleConfig{},
 		},
 	})
 
-	// Service should not be registered without transaction
+	// Lifecycle should not be registered without transaction
 	time.Sleep(100 * time.Millisecond) // Wait for event processing
 	h.assertServiceNotFound("test-service")
 
@@ -394,8 +394,8 @@ func TestSupervisor_TargetedServiceControl(t *testing.T) {
 
 	// Wait for service-1 to stop
 	svc1.WaitForStop(t)
-	require.True(t, svc1.IsStopped(), "Service 1 should be stopped")
-	require.True(t, svc2.IsStarted(), "Service 2 should still be running")
+	require.True(t, svc1.IsStopped(), "Lifecycle 1 should be stopped")
+	require.True(t, svc2.IsStarted(), "Lifecycle 2 should still be running")
 
 	// Start service-1 again
 	h.sup.actions <- action{
@@ -405,7 +405,7 @@ func TestSupervisor_TargetedServiceControl(t *testing.T) {
 
 	// Wait for service-1 to start again
 	svc1.WaitForStart(t)
-	require.True(t, svc1.IsStarted(), "Service 1 should be started again")
+	require.True(t, svc1.IsStarted(), "Lifecycle 1 should be started again")
 }
 
 func TestSupervisor_ServiceFailureAndRetry(t *testing.T) {
@@ -425,7 +425,7 @@ func TestSupervisor_ServiceFailureAndRetry(t *testing.T) {
 		Path:   "failing-service",
 		Data: &supervisor.Entry{
 			Service: svc,
-			Config: supervisor.ServiceConfig{
+			Config: supervisor.LifecycleConfig{
 				AutoStart:    true,
 				StartTimeout: time.Second,
 				RetryPolicy: supervisor.RetryPolicy{
@@ -472,7 +472,7 @@ func TestSupervisor_TransactionDiscard(t *testing.T) {
 		Path:   "service-2",
 		Data: &supervisor.Entry{
 			Service: svc2,
-			Config:  supervisor.ServiceConfig{AutoStart: true},
+			Config:  supervisor.LifecycleConfig{AutoStart: true},
 		},
 	})
 	h.removeService("service-1")
@@ -483,7 +483,7 @@ func TestSupervisor_TransactionDiscard(t *testing.T) {
 	// Verify original state is maintained
 	time.Sleep(100 * time.Millisecond) // Wait for event processing
 
-	require.True(t, service1.IsStarted(), "Service 1 should still be running")
+	require.True(t, service1.IsStarted(), "Lifecycle 1 should still be running")
 	h.assertServiceNotFound("service-2")
 }
 
@@ -584,7 +584,7 @@ func TestSupervisor_InvalidRegistrationPayload(t *testing.T) {
 	}{
 		{"nil-payload", nil},
 		{"empty-entry", &supervisor.Entry{}},
-		{"missing-service", &supervisor.Entry{Config: supervisor.ServiceConfig{}}},
+		{"missing-service", &supervisor.Entry{Config: supervisor.LifecycleConfig{}}},
 		{"string-payload", "invalid"},
 	}
 
@@ -668,7 +668,7 @@ func TestSupervisor_BusEventControl(t *testing.T) {
 		Path:   events.Path(serviceID),
 		Data: &supervisor.Entry{
 			Service: svc,
-			Config: supervisor.ServiceConfig{
+			Config: supervisor.LifecycleConfig{
 				AutoStart:    false, // Don't start automatically
 				StartTimeout: 5 * time.Second,
 				StopTimeout:  5 * time.Second,
@@ -690,9 +690,9 @@ func TestSupervisor_BusEventControl(t *testing.T) {
 
 	// Verify service is registered but not started
 	state, err := h.sup.GetState(serviceID)
-	require.NoError(t, err, "Service should be registered")
-	require.Equal(t, supervisor.Unknown, state.Status, "Service should be in Unknown state")
-	require.False(t, svc.IsStarted(), "Service should not be started")
+	require.NoError(t, err, "Lifecycle should be registered")
+	require.Equal(t, supervisor.Unknown, state.Status, "Lifecycle should be in Unknown state")
+	require.False(t, svc.IsStarted(), "Lifecycle should not be started")
 
 	// Start the service via bus event
 	h.sup.bus.Send(ctx, events.Event{
@@ -703,12 +703,12 @@ func TestSupervisor_BusEventControl(t *testing.T) {
 
 	// Wait for service to start
 	svc.WaitForStart(t)
-	require.True(t, svc.IsStarted(), "Service should be started")
+	require.True(t, svc.IsStarted(), "Lifecycle should be started")
 
 	// Verify running state
 	state, err = h.sup.GetState(serviceID)
 	require.NoError(t, err)
-	require.Equal(t, supervisor.Running, state.Status, "Service should be in Running state")
+	require.Equal(t, supervisor.Running, state.Status, "Lifecycle should be in Running state")
 
 	// Stop the service via bus event
 	h.sup.bus.Send(ctx, events.Event{
@@ -719,12 +719,12 @@ func TestSupervisor_BusEventControl(t *testing.T) {
 
 	// Wait for service to stop
 	svc.WaitForStop(t)
-	require.True(t, svc.IsStopped(), "Service should be stopped")
+	require.True(t, svc.IsStopped(), "Lifecycle should be stopped")
 
 	// Verify stopped state
 	state, err = h.sup.GetState(serviceID)
 	require.NoError(t, err)
-	require.Equal(t, supervisor.Stopped, state.Status, "Service should be in Stopped state")
+	require.Equal(t, supervisor.Stopped, state.Status, "Lifecycle should be in Stopped state")
 
 	// Remove the service via bus event
 	h.sup.bus.Send(ctx, events.Event{
@@ -748,6 +748,6 @@ func TestSupervisor_BusEventControl(t *testing.T) {
 
 	// Verify service is removed
 	_, err = h.sup.GetState(serviceID)
-	require.Error(t, err, "Service should not exist")
+	require.Error(t, err, "Lifecycle should not exist")
 	require.Contains(t, err.Error(), "not found", "Should get not found error")
 }

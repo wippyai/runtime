@@ -2,6 +2,8 @@ package supervisor
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"github.com/ponyruntime/pony/api/events"
 	"time"
 )
@@ -34,14 +36,14 @@ type (
 	// Entry payload for supervisor registration event. Service will be identified by event path.
 	Entry struct {
 		Service Service
-		Config  ServiceConfig
+		Config  LifecycleConfig
 	}
 
 	// Status represents the operational status of a service.
 	Status string
 
-	// ServiceConfig defines the configuration for a service managed by the supervisor.
-	ServiceConfig struct {
+	// LifecycleConfig defines the configuration for a service managed by the supervisor.
+	LifecycleConfig struct {
 		// AutoStart determines if the service should start automatically when the supervisor starts.
 		AutoStart bool `json:"auto_start" yaml:"auto_start" default:"false"`
 		// StartTimeout specifies the maximum duration allowed for the service to start.
@@ -78,3 +80,69 @@ type (
 		Stop(ctx context.Context) error
 	}
 )
+
+// UnmarshalJSON provides custom unmarshaling for LifecycleConfig, handling nested time.Duration fields.
+func (c *LifecycleConfig) UnmarshalJSON(data []byte) error {
+	type Alias LifecycleConfig
+	aux := &struct {
+		StartTimeout string `json:"start_timeout"`
+		StopTimeout  string `json:"stop_timeout"`
+		*Alias
+	}{
+		Alias: (*Alias)(c),
+	}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	var err error
+	if aux.StartTimeout != "" {
+		c.StartTimeout, err = time.ParseDuration(aux.StartTimeout)
+		if err != nil {
+			return fmt.Errorf("invalid StartTimeout duration format: %w", err)
+		}
+	}
+
+	if aux.StopTimeout != "" {
+		c.StopTimeout, err = time.ParseDuration(aux.StopTimeout)
+		if err != nil {
+			return fmt.Errorf("invalid StopTimeout duration format: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// UnmarshalJSON provides custom unmarshaling for RetryPolicy, handling nested time.Duration fields.
+func (p *RetryPolicy) UnmarshalJSON(data []byte) error {
+	type Alias RetryPolicy
+	aux := &struct {
+		InitialDelay string `json:"initial_delay"`
+		MaxDelay     string `json:"max_delay"`
+		*Alias
+	}{
+		Alias: (*Alias)(p),
+	}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	var err error
+	if aux.InitialDelay != "" {
+		p.InitialDelay, err = time.ParseDuration(aux.InitialDelay)
+		if err != nil {
+			return fmt.Errorf("invalid InitialDelay duration format: %w", err)
+		}
+	}
+
+	if aux.MaxDelay != "" {
+		p.MaxDelay, err = time.ParseDuration(aux.MaxDelay)
+		if err != nil {
+			return fmt.Errorf("invalid MaxDelay duration format: %w", err)
+		}
+	}
+
+	return nil
+}

@@ -2,10 +2,9 @@ package http
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"github.com/ponyruntime/pony/api/payload"
-	httpapi "github.com/ponyruntime/pony/api/server/http"
+	httpapi "github.com/ponyruntime/pony/api/service/http"
 	"log"
 	"sync"
 
@@ -81,41 +80,39 @@ func (s *Service) handleEvent(evt events.Event) {
 
 	switch entry.Kind {
 	case httpapi.KindServer:
-		s.log.Info("server", zap.Any("event", evt))
-		s.sendRejection(entry, errors.New("not implemented"))
-		return
-		log.Printf(">>>>>>>>>>>>DATA!!: %+v", entry.Data)
-
 		cfg := new(httpapi.ServerConfig)
 		err := s.dtt.Unmarshal(entry.Data, cfg)
 		if err != nil {
-			s.log.Error("failed to unmarshal server config",
-				zap.String("server", string(entry.ID)),
-				zap.Error(err),
-			)
+			s.sendRejection(entry, err)
 			return
 		}
 
-		log.Printf(">>>>>>>>>>>>server config!!: %+v", cfg)
+		log.Printf(">>>>>>>>>>>>service config!!: %+v", cfg)
+
 		s.sendAcceptance(entry)
 
-		//		s.handleServerEvent(evt.Kind, entry)
 	case httpapi.KindEndpoint:
 		s.log.Info("endpoint", zap.Any("event", evt))
-		s.sendAcceptance(entry)
 
-		//	s.handleEndpointEvent(evt.Kind, entry)
+		cfg := new(httpapi.EndpointConfig)
+		err := s.dtt.Unmarshal(entry.Data, cfg)
+		if err != nil {
+			s.sendRejection(entry, err)
+			return
+		}
+
+		s.sendAcceptance(entry)
 	}
 }
 
-//	func (s *Service) handleServerEvent(kind events.Kind, entry registry.Entry) {
+//	func (s *Lifecycle) handleServerEvent(kind events.Kind, entry registry.Entry) {
 //		s.mu.Lock()
 //		defer s.mu.Unlock()
 //
 //		switch kind {
 //		case registry.Create:
 //			if err := s.createServer(entry); err != nil {
-//				s.log.Error("failed to create server",
+//				s.log.Error("failed to create service",
 //					zap.String("server_id", string(entry.ID)),
 //					zap.Error(err),
 //				)
@@ -126,7 +123,7 @@ func (s *Service) handleEvent(evt events.Event) {
 //
 //		case registry.Update:
 //			if err := s.updateServer(entry); err != nil {
-//				s.log.Error("failed to update server",
+//				s.log.Error("failed to update service",
 //					zap.String("server_id", string(entry.ID)),
 //					zap.Error(err),
 //				)
@@ -137,7 +134,7 @@ func (s *Service) handleEvent(evt events.Event) {
 //
 //		case registry.Delete:
 //			if err := s.deleteServer(entry); err != nil {
-//				s.log.Error("failed to delete server",
+//				s.log.Error("failed to delete service",
 //					zap.String("server_id", string(entry.ID)),
 //					zap.Error(err),
 //				)
@@ -148,15 +145,15 @@ func (s *Service) handleEvent(evt events.Event) {
 //		}
 //	}
 //
-//	func (s *Service) handleEndpointEvent(kind events.Kind, entry registry.Entry) {
+//	func (s *Lifecycle) handleEndpointEvent(kind events.Kind, entry registry.Entry) {
 //		s.mu.Lock()
 //		defer s.mu.Unlock()
 //
-//		// Extract server ID from endpoint ID (assuming format: "servers/[server_id]/endpoints/[endpoint_id]")
+//		// Extract service ID from endpoint ID (assuming format: "servers/[server_id]/endpoints/[endpoint_id]")
 //		serverID := extractServerID(entry.ID)
-//		server, exists := s.servers[serverID]
+//		service, exists := s.servers[serverID]
 //		if !exists {
-//			s.log.Error("server not found for endpoint",
+//			s.log.Error("service not found for endpoint",
 //				zap.String("endpoint_id", string(entry.ID)),
 //				zap.String("server_id", string(serverID)),
 //			)
@@ -176,7 +173,7 @@ func (s *Service) handleEvent(evt events.Event) {
 //
 //		switch kind {
 //		case registry.Create, registry.Update:
-//			if err := server.Router().AddEndpoint(string(entry.ID), config); err != nil {
+//			if err := service.Router().AddEndpoint(string(entry.ID), config); err != nil {
 //				s.log.Error("failed to add/update endpoint",
 //					zap.String("endpoint_id", string(entry.ID)),
 //					zap.Error(err),
@@ -187,7 +184,7 @@ func (s *Service) handleEvent(evt events.Event) {
 //			s.sendAcceptance(entry)
 //
 //		case registry.Delete:
-//			if err := server.Router().RemoveEndpoint(string(entry.ID)); err != nil {
+//			if err := service.Router().RemoveEndpoint(string(entry.ID)); err != nil {
 //				s.log.Error("failed to remove endpoint",
 //					zap.String("endpoint_id", string(entry.ID)),
 //					zap.Error(err),
@@ -199,48 +196,48 @@ func (s *Service) handleEvent(evt events.Event) {
 //		}
 //	}
 //
-//	func (s *Service) createServer(entry registry.Entry) error {
+//	func (s *Lifecycle) createServer(entry registry.Entry) error {
 //		var config ServerConfig
 //		if err := entry.Data.(payload.Payload).Unmarshal(&config); err != nil {
-//			return fmt.Errorf("failed to unmarshal server config: %w", err)
+//			return fmt.Errorf("failed to unmarshal service config: %w", err)
 //		}
 //
-//		// Create new server instance
-//		server := NewServer(config, nil) // TODO: Add proper handler
+//		// Create new service instance
+//		service := NewServer(config, nil) // TODO: Add proper handler
 //
-//		// Register server with supervisor
+//		// Register service with supervisor
 //		s.bus.Send(s.ctx, events.Event{
 //			System: supervisor.System,
 //			Kind:   supervisor.Register,
 //			Path:   events.Path(entry.ID),
 //			Data: &supervisor.Entry{
-//				Service: server,
-//				Config:  config.Service,
+//				Lifecycle: service,
+//				Config:  config.Lifecycle,
 //			},
 //		})
 //
-//		s.servers[entry.ID] = server
+//		s.servers[entry.ID] = service
 //		return nil
 //	}
 //
-//	func (s *Service) updateServer(entry registry.Entry) error {
-//		server, exists := s.servers[entry.ID]
+//	func (s *Lifecycle) updateServer(entry registry.Entry) error {
+//		service, exists := s.servers[entry.ID]
 //		if !exists {
-//			return fmt.Errorf("server not found: %s", entry.ID)
+//			return fmt.Errorf("service not found: %s", entry.ID)
 //		}
 //
 //		var config ServerConfig
 //		if err := entry.Data.(payload.Payload).Unmarshal(&config); err != nil {
-//			return fmt.Errorf("failed to unmarshal server config: %w", err)
+//			return fmt.Errorf("failed to unmarshal service config: %w", err)
 //		}
 //
-//		server.UpdateConfig(config)
+//		service.UpdateConfig(config)
 //		return nil
 //	}
 //
-//	func (s *Service) deleteServer(entry registry.Entry) error {
+//	func (s *Lifecycle) deleteServer(entry registry.Entry) error {
 //		if _, exists := s.servers[entry.ID]; !exists {
-//			return fmt.Errorf("server not found: %s", entry.ID)
+//			return fmt.Errorf("service not found: %s", entry.ID)
 //		}
 //
 //		// Unregister from supervisor

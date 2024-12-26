@@ -102,7 +102,7 @@ func (s *Service) processEvent(evt events.Event) {
 }
 
 //
-//func (s *Service) registerFunction(id registry.ID, cfg FunctionConfig) {
+//func (s *Lifecycle) registerFunction(id registry.ID, cfg FunctionConfig) {
 //	s.mu.Lock()
 //	defer s.mu.Unlock()
 //
@@ -122,6 +122,6 @@ func (s *Service) sendAcceptance(entry registry.Entry) {
 	s.bus.Send(s.ctx, events.Event{
 		System: registry.System,
 		Kind:   registry.Accept,
-		Data:   entry,
+		Path:   events.Path(entry.ID),
 	})
 }
