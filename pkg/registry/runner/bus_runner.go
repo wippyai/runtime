@@ -171,13 +171,13 @@ func (br *BusRunner) subscribeToEvents(ctx context.Context) error {
 	var err error
 	br.acceptSubID, err = br.bus.SubscribeP(ctx, registry.System, registry.Accept, br.acceptChan)
 	if err != nil {
-		return fmt.Errorf("subscribing to accept eventbus: %w", err)
+		return fmt.Errorf("listening events: %w", err)
 	}
 
 	br.rejectSubID, err = br.bus.SubscribeP(ctx, registry.System, registry.Reject, br.rejectChan)
 	if err != nil {
 		br.bus.Unsubscribe(ctx, br.acceptSubID) // Clean up accept subscription if reject subscription fails
-		return fmt.Errorf("subscribing to reject eventbus: %w", err)
+		return fmt.Errorf("listening events: %w", err)
 	}
 
 	return nil

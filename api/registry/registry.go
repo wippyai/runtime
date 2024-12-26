@@ -69,8 +69,6 @@ type (
 		Kind events.Kind
 		// Entry is the entry affected by the operation. For Delete operations, only the ID field might be relevant.
 		Entry Entry
-		// Data represents unmarshalled data of the entry, typically nil.
-		Data any
 	}
 
 	// Registry is the primary interface for interacting with the registry.

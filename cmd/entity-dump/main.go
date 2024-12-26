@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/ponyruntime/pony/pkg/payload/lua"
 	"go.uber.org/zap/zapcore"
 	"os"
 	"strings"
@@ -16,18 +17,12 @@ import (
 	"github.com/ponyruntime/pony/pkg/registry/loader"
 )
 
-func createTestTranscoder() payload.Transcoder {
+func createTranscoder() payload.Transcoder {
 	tr := transcoder.NewTranscoder()
 
-	// Register JSON
-	tr.RegisterTranscoder(payload.Json, payload.Golang, 1, &json.ToGolang{})
-	tr.RegisterTranscoder(payload.Golang, payload.Json, 1, &json.FromGolang{})
-	tr.RegisterUnmarshaler(payload.Json, &json.ToGolang{})
-
-	// Register YAML
-	tr.RegisterTranscoder(payload.Yaml, payload.Golang, 1, &yaml.ToGolang{})
-	tr.RegisterTranscoder(payload.Golang, payload.Yaml, 1, &yaml.FromGolang{})
-	tr.RegisterUnmarshaler(payload.Yaml, &yaml.ToGolang{})
+	json.Register(tr)
+	yaml.Register(tr)
+	lua.Register(tr)
 
 	return tr
 }
@@ -37,7 +32,7 @@ func main() {
 	logger := initDevelopmentLogger()
 	defer logger.Sync()
 
-	dtt := createTestTranscoder()
+	dtt := createTranscoder()
 
 	// 2. Get Folder Name from Command-Line Argument:
 	if len(os.Args) < 2 {
