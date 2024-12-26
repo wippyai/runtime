@@ -192,7 +192,7 @@ func (c *Controller) attemptStart(attempt int) error {
 		c.updateState(supervisor.Failed, err)
 		return err
 	}
-	c.updateState(supervisor.Running, "service started")
+	c.updateState(supervisor.Running, nil)
 
 	c.wg.Add(1)
 	go c.monitorService(detailsCh)
