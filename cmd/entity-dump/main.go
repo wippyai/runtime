@@ -62,6 +62,13 @@ func main() {
 		logger.Fatal("Failed to load entries", zap.Error(err))
 	}
 
+	entries = loader.SortEntriesByDependency(entries)
+
+	// invert the list
+	for i, j := 0, len(entries)-1; i < j; i, j = i+1, j-1 {
+		entries[i], entries[j] = entries[j], entries[i]
+	}
+
 	// 5. Dump List to Console:
 	fmt.Println("Loaded Registry List (YAML):")
 	for _, entry := range entries {
@@ -73,8 +80,8 @@ func main() {
 
 		// Print the entry:
 		fmt.Println("---")
-		fmt.Printf("Name: %s\n", entry.ID)
-		fmt.Printf("Kind: %s\n", entry.Kind)
+		fmt.Printf("Name: \x1b[32m%s\x1b[0m\n", entry.ID)
+		fmt.Printf("Kind: \x1b[35m%s\x1b[0m\n", entry.Kind)
 		fmt.Println("Data:")
 		fmt.Printf("\x1b[33m%s\x1b[0m", string(p.Data().(string)))
 	}

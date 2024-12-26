@@ -3,6 +3,7 @@ package loader
 import (
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/internal/graph"
+	"log"
 	"sort"
 )
 
@@ -26,6 +27,7 @@ func SortEntriesByDependency(entries []registry.Entry) []registry.Entry {
 	// Add dependency edges
 	for _, entry := range entries {
 		dependsOn := entry.Meta.TagValue(registry.DependsOnTag)
+		log.Printf("dependsOn: %+v ======>> %+v", entry.Meta, dependsOn)
 		for _, dep := range dependsOn {
 			// Only consider dependencies within the set of entries we're sorting
 			if _, exists := entryMap[registry.ID(dep)]; exists {
