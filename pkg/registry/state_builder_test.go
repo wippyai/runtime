@@ -1152,7 +1152,7 @@ func TestStateBuilder_BuildDelta_TreeTransformation(t *testing.T) {
 
 	// Build initial and target states
 	fromState := registry.State{d, a, c, e, b}
-	toState := registry.State{f, aV2, g, bV2, cV2}
+	toState := registry.State{aV2, g, f, bV2, cV2}
 
 	builder := NewStateBuilder(zap.NewNop())
 

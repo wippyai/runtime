@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"
+	"log"
 )
 
 const (
@@ -160,10 +161,28 @@ func (m Metadata) BoolValue(key string) bool {
 
 func (m Metadata) TagValue(key string) []string {
 	if v, ok := m[key]; ok {
+		// Case 1: Already a []string
 		if s, ok := v.([]string); ok {
 			return s
 		}
-	}
 
+		// Case 2: Single string
+		if s, ok := v.(string); ok {
+			return []string{s}
+		}
+
+		if arr, ok := v.([]any); ok {
+			result := make([]string, len(arr))
+			for i, val := range arr {
+				if str, ok := val.(string); ok {
+					result[i] = str
+				}
+			}
+			return result
+		}
+
+		// Debug the actual type
+		log.Printf("Unhandled tag value type: %T with value: %+v", v, v)
+	}
 	return nil
 }

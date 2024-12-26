@@ -76,7 +76,7 @@ func main() {
 		logger.Named("app").Fatal("Failed to build state operation set", zap.Error(err))
 	}
 
-	log.Printf("Loaded %d entries from %+v", len(entries), boot)
+	log.Printf("~~~~~~~~~~~~~~~~~~~~~~~~~~~Loaded %d entries from %+v", len(entries), boot)
 
 	// server
 	bus := eventbus.NewBus(logger.Named("events"))                   // main configuration bus
