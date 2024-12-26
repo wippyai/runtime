@@ -211,7 +211,7 @@ func (th *registryTX) discard() {
 	}
 
 	th.reset()
-	th.logger.Info("discarded all tx service changes")
+	th.logger.Info("discarded all service changes")
 }
 
 func (th *registryTX) registerService(id string, entry *supervisor.Entry) error {

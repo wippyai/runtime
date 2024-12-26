@@ -1,5 +1,5 @@
 name: functions.http_time
-kind: lua.function
+kind: function
 meta:
   comment: "Returns the current time."
   runtime: lua

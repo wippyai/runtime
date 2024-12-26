@@ -222,7 +222,7 @@ func (s *Supervisor) run(ctx context.Context) {
 
 		case actionRegister:
 			if err := s.tx.registerService(action.serviceID, action.entry); err != nil {
-				s.logger.Error("failed to register service in transaction",
+				s.logger.Error("failed to register service",
 					zap.String("serviceID", string(action.serviceID)),
 					zap.Error(err),
 				)
@@ -234,7 +234,7 @@ func (s *Supervisor) run(ctx context.Context) {
 
 		case actionRemove:
 			if err := s.tx.removeService(action.serviceID); err != nil {
-				s.logger.Error("failed to remove service in transaction",
+				s.logger.Error("failed to remove service",
 					zap.String("serviceID", action.serviceID),
 					zap.Error(err),
 				)
@@ -247,7 +247,7 @@ func (s *Supervisor) run(ctx context.Context) {
 		case actionStart:
 			err := s.startService(action.serviceID)
 			if err != nil {
-				s.logger.Error("failed to start service in transaction",
+				s.logger.Error("failed to start service",
 					zap.String("serviceID", action.serviceID),
 					zap.Error(err),
 				)
@@ -341,12 +341,12 @@ func (s *Supervisor) startPending() {
 			continue
 		}
 
-		s.logger.Info("starting service from tx",
+		s.logger.Info("starting service",
 			zap.String("serviceID", id),
 		)
 
 		if err := controller.Start(); err != nil {
-			s.logger.Error("failed to start tx service",
+			s.logger.Error("failed to start service",
 				zap.String("serviceID", id),
 				zap.Error(err),
 			)
