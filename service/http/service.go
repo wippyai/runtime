@@ -5,18 +5,12 @@ import (
 	"fmt"
 	"github.com/ponyruntime/pony/api/payload"
 	httpapi "github.com/ponyruntime/pony/api/server/http"
-	"log"
 	"sync"
 
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/pkg/eventbus"
 	"go.uber.org/zap"
-)
-
-const (
-	kindServer   registry.Kind = "server"
-	kindEndpoint registry.Kind = "endpoint"
 )
 
 // Service manages multiple HTTP servers and their endpoints based on registry configuration
@@ -50,7 +44,7 @@ func (s *Service) Start(ctx context.Context) error {
 		ctx,
 		s.bus,
 		registry.System,
-		"entry.*",
+		registry.Changes,
 		s.processEvent,
 	)
 
@@ -83,22 +77,22 @@ func (s *Service) processEvent(evt events.Event) {
 		return
 	}
 
-	log.Printf("entry: %+v", entry)
-
 	switch entry.Kind {
-	case kindServer:
+	case httpapi.KindServer:
 		s.log.Info("server event", zap.Any("event", evt))
-		var cfg httpapi.ServerConfig
-		err := s.dtt.Unmarshal(entry.Data, &cfg)
-		if err != nil {
-			s.log.Error("failed to unmarshal server config",
-				zap.String("server_id", string(entry.ID)),
-				zap.Error(err),
-			)
-			return
-		}
 
-		log.Printf("server config: %v", cfg)
+		//cfg := new(httpapi.ServerConfig)
+		//err := s.dtt.Unmarshal(entry.Data, cfg)
+		//if err != nil {
+		//	s.log.Error("failed to unmarshal server config",
+		//		zap.String("server_id", string(entry.ID)),
+		//		zap.Error(err),
+		//	)
+		//	return
+		//}
+		//log.Printf("server config: %v", cfg)
+
+		//s.sendAcceptance(entry)
 
 		//		s.handleServerEvent(evt.Kind, entry)
 		//	case kindEndpoint:
@@ -106,171 +100,164 @@ func (s *Service) processEvent(evt events.Event) {
 	}
 }
 
-//func (s *Service) handleServerEvent(kind events.Kind, entry registry.Entry) {
-//	s.mu.Lock()
-//	defer s.mu.Unlock()
+//	func (s *Service) handleServerEvent(kind events.Kind, entry registry.Entry) {
+//		s.mu.Lock()
+//		defer s.mu.Unlock()
 //
-//	switch kind {
-//	case registry.Create:
-//		if err := s.createServer(entry); err != nil {
-//			s.log.Error("failed to create server",
-//				zap.String("server_id", string(entry.ID)),
-//				zap.Error(err),
+//		switch kind {
+//		case registry.Create:
+//			if err := s.createServer(entry); err != nil {
+//				s.log.Error("failed to create server",
+//					zap.String("server_id", string(entry.ID)),
+//					zap.Error(err),
+//				)
+//				s.sendRejection(entry)
+//				return
+//			}
+//			s.sendAcceptance(entry)
+//
+//		case registry.Update:
+//			if err := s.updateServer(entry); err != nil {
+//				s.log.Error("failed to update server",
+//					zap.String("server_id", string(entry.ID)),
+//					zap.Error(err),
+//				)
+//				s.sendRejection(entry)
+//				return
+//			}
+//			s.sendAcceptance(entry)
+//
+//		case registry.Delete:
+//			if err := s.deleteServer(entry); err != nil {
+//				s.log.Error("failed to delete server",
+//					zap.String("server_id", string(entry.ID)),
+//					zap.Error(err),
+//				)
+//				s.sendRejection(entry)
+//				return
+//			}
+//			s.sendAcceptance(entry)
+//		}
+//	}
+//
+//	func (s *Service) handleEndpointEvent(kind events.Kind, entry registry.Entry) {
+//		s.mu.Lock()
+//		defer s.mu.Unlock()
+//
+//		// Extract server ID from endpoint ID (assuming format: "servers/[server_id]/endpoints/[endpoint_id]")
+//		serverID := extractServerID(entry.ID)
+//		server, exists := s.servers[serverID]
+//		if !exists {
+//			s.log.Error("server not found for endpoint",
+//				zap.String("endpoint_id", string(entry.ID)),
+//				zap.String("server_id", string(serverID)),
 //			)
 //			s.sendRejection(entry)
 //			return
 //		}
-//		s.sendAcceptance(entry)
 //
-//	case registry.Update:
-//		if err := s.updateServer(entry); err != nil {
-//			s.log.Error("failed to update server",
-//				zap.String("server_id", string(entry.ID)),
-//				zap.Error(err),
-//			)
-//			s.sendRejection(entry)
-//			return
-//		}
-//		s.sendAcceptance(entry)
-//
-//	case registry.Delete:
-//		if err := s.deleteServer(entry); err != nil {
-//			s.log.Error("failed to delete server",
-//				zap.String("server_id", string(entry.ID)),
-//				zap.Error(err),
-//			)
-//			s.sendRejection(entry)
-//			return
-//		}
-//		s.sendAcceptance(entry)
-//	}
-//}
-//
-//func (s *Service) handleEndpointEvent(kind events.Kind, entry registry.Entry) {
-//	s.mu.Lock()
-//	defer s.mu.Unlock()
-//
-//	// Extract server ID from endpoint ID (assuming format: "servers/[server_id]/endpoints/[endpoint_id]")
-//	serverID := extractServerID(entry.ID)
-//	server, exists := s.servers[serverID]
-//	if !exists {
-//		s.log.Error("server not found for endpoint",
-//			zap.String("endpoint_id", string(entry.ID)),
-//			zap.String("server_id", string(serverID)),
-//		)
-//		s.sendRejection(entry)
-//		return
-//	}
-//
-//	var config EndpointConfig
-//	if err := entry.Data.(payload.Payload).Unmarshal(&config); err != nil {
-//		s.log.Error("failed to unmarshal endpoint config",
-//			zap.String("endpoint_id", string(entry.ID)),
-//			zap.Error(err),
-//		)
-//		s.sendRejection(entry)
-//		return
-//	}
-//
-//	switch kind {
-//	case registry.Create, registry.Update:
-//		if err := server.Router().AddEndpoint(string(entry.ID), config); err != nil {
-//			s.log.Error("failed to add/update endpoint",
+//		var config EndpointConfig
+//		if err := entry.Data.(payload.Payload).Unmarshal(&config); err != nil {
+//			s.log.Error("failed to unmarshal endpoint config",
 //				zap.String("endpoint_id", string(entry.ID)),
 //				zap.Error(err),
 //			)
 //			s.sendRejection(entry)
 //			return
 //		}
-//		s.sendAcceptance(entry)
 //
-//	case registry.Delete:
-//		if err := server.Router().RemoveEndpoint(string(entry.ID)); err != nil {
-//			s.log.Error("failed to remove endpoint",
-//				zap.String("endpoint_id", string(entry.ID)),
-//				zap.Error(err),
-//			)
-//			s.sendRejection(entry)
-//			return
+//		switch kind {
+//		case registry.Create, registry.Update:
+//			if err := server.Router().AddEndpoint(string(entry.ID), config); err != nil {
+//				s.log.Error("failed to add/update endpoint",
+//					zap.String("endpoint_id", string(entry.ID)),
+//					zap.Error(err),
+//				)
+//				s.sendRejection(entry)
+//				return
+//			}
+//			s.sendAcceptance(entry)
+//
+//		case registry.Delete:
+//			if err := server.Router().RemoveEndpoint(string(entry.ID)); err != nil {
+//				s.log.Error("failed to remove endpoint",
+//					zap.String("endpoint_id", string(entry.ID)),
+//					zap.Error(err),
+//				)
+//				s.sendRejection(entry)
+//				return
+//			}
+//			s.sendAcceptance(entry)
 //		}
-//		s.sendAcceptance(entry)
-//	}
-//}
-//
-//func (s *Service) createServer(entry registry.Entry) error {
-//	var config ServerConfig
-//	if err := entry.Data.(payload.Payload).Unmarshal(&config); err != nil {
-//		return fmt.Errorf("failed to unmarshal server config: %w", err)
 //	}
 //
-//	// Create new server instance
-//	server := NewServer(config, nil) // TODO: Add proper handler
+//	func (s *Service) createServer(entry registry.Entry) error {
+//		var config ServerConfig
+//		if err := entry.Data.(payload.Payload).Unmarshal(&config); err != nil {
+//			return fmt.Errorf("failed to unmarshal server config: %w", err)
+//		}
 //
-//	// Register server with supervisor
-//	s.bus.Send(s.ctx, events.Event{
-//		System: supervisor.System,
-//		Kind:   supervisor.Register,
-//		Path:   events.Path(entry.ID),
-//		Data: &supervisor.Entry{
-//			Service: server,
-//			Config:  config.Service,
-//		},
-//	})
+//		// Create new server instance
+//		server := NewServer(config, nil) // TODO: Add proper handler
 //
-//	s.servers[entry.ID] = server
-//	return nil
-//}
+//		// Register server with supervisor
+//		s.bus.Send(s.ctx, events.Event{
+//			System: supervisor.System,
+//			Kind:   supervisor.Register,
+//			Path:   events.Path(entry.ID),
+//			Data: &supervisor.Entry{
+//				Service: server,
+//				Config:  config.Service,
+//			},
+//		})
 //
-//func (s *Service) updateServer(entry registry.Entry) error {
-//	server, exists := s.servers[entry.ID]
-//	if !exists {
-//		return fmt.Errorf("server not found: %s", entry.ID)
+//		s.servers[entry.ID] = server
+//		return nil
 //	}
 //
-//	var config ServerConfig
-//	if err := entry.Data.(payload.Payload).Unmarshal(&config); err != nil {
-//		return fmt.Errorf("failed to unmarshal server config: %w", err)
+//	func (s *Service) updateServer(entry registry.Entry) error {
+//		server, exists := s.servers[entry.ID]
+//		if !exists {
+//			return fmt.Errorf("server not found: %s", entry.ID)
+//		}
+//
+//		var config ServerConfig
+//		if err := entry.Data.(payload.Payload).Unmarshal(&config); err != nil {
+//			return fmt.Errorf("failed to unmarshal server config: %w", err)
+//		}
+//
+//		server.UpdateConfig(config)
+//		return nil
 //	}
 //
-//	server.UpdateConfig(config)
-//	return nil
-//}
+//	func (s *Service) deleteServer(entry registry.Entry) error {
+//		if _, exists := s.servers[entry.ID]; !exists {
+//			return fmt.Errorf("server not found: %s", entry.ID)
+//		}
 //
-//func (s *Service) deleteServer(entry registry.Entry) error {
-//	if _, exists := s.servers[entry.ID]; !exists {
-//		return fmt.Errorf("server not found: %s", entry.ID)
+//		// Unregister from supervisor
+//		s.bus.Send(s.ctx, events.Event{
+//			System: supervisor.System,
+//			Kind:   supervisor.Remove,
+//			Path:   events.Path(entry.ID),
+//		})
+
+//		delete(s.servers, entry.ID)
+//		return nil
 //	}
-//
-//	// Unregister from supervisor
-//	s.bus.Send(s.ctx, events.Event{
-//		System: supervisor.System,
-//		Kind:   supervisor.Remove,
-//		Path:   events.Path(entry.ID),
-//	})
-//
-//	delete(s.servers, entry.ID)
-//	return nil
-//}
-//
-//func (s *Service) sendAcceptance(entry registry.Entry) {
-//	s.bus.Send(s.ctx, events.Event{
-//		System: registry.System,
-//		Kind:   registry.Accept,
-//		Data:   entry,
-//	})
-//}
-//
-//func (s *Service) sendRejection(entry registry.Entry) {
-//	s.bus.Send(s.ctx, events.Event{
-//		System: registry.System,
-//		Kind:   registry.Reject,
-//		Data:   entry,
-//	})
-//}
-//
-//// Helper function to extract server ID from endpoint ID
-//func extractServerID(endpointID registry.ID) registry.ID {
-//	// TODO: Implement proper path parsing
-//	// Assuming format: "servers/[server_id]/endpoints/[endpoint_id]"
-//	return endpointID
-//}
+
+func (s *Service) sendAcceptance(entry registry.Entry) {
+	s.bus.Send(s.ctx, events.Event{
+		System: registry.System,
+		Kind:   registry.Accept,
+		Data:   entry,
+	})
+}
+
+func (s *Service) sendRejection(entry registry.Entry) {
+	s.bus.Send(s.ctx, events.Event{
+		System: registry.System,
+		Kind:   registry.Reject,
+		Data:   entry,
+	})
+}

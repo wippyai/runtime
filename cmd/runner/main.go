@@ -15,6 +15,7 @@ import (
 	"github.com/ponyruntime/pony/pkg/registry/loader"
 	"github.com/ponyruntime/pony/pkg/registry/runner"
 	"github.com/ponyruntime/pony/pkg/supervisor"
+	"github.com/ponyruntime/pony/runtime"
 	http "github.com/ponyruntime/pony/service/http"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -89,6 +90,11 @@ func main() {
 	err = http.Init(bus, dtt, logger.Named("http")).Start(ctx)
 	if err != nil {
 		logger.Named("app").Fatal("failed to start http service", zap.Error(err))
+	}
+
+	err = runtime.Init(bus, dtt, logger.Named("functions")).Start(ctx)
+	if err != nil {
+		logger.Named("app").Fatal("failed to start runtime service", zap.Error(err))
 	}
 
 	// end server configuration

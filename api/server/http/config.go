@@ -6,6 +6,12 @@ import (
 	"time"
 )
 
+const (
+	KindServer   registry.Kind = "http.server"
+	KindRouter   registry.Kind = "http.router"
+	KindEndpoint registry.Kind = "http.endpoint"
+)
+
 // ServerConfig represents the initial configuration for the Timeouts service.
 type (
 	ServerConfig struct {

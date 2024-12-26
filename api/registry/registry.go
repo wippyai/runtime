@@ -16,6 +16,8 @@ const (
 	Accept events.Kind = "entry.accept"
 	Reject events.Kind = "entry.reject"
 
+	Changes events.Kind = "entry.(create|update|delete)"
+
 	Begin   events.Kind = "registry.begin"
 	Commit  events.Kind = "registry.commit"
 	Discard events.Kind = "registry.discard"
