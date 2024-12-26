@@ -18,7 +18,6 @@ import (
 	http "github.com/ponyruntime/pony/service/http"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
-	"log"
 	"os"
 	"strings"
 	"time"
@@ -75,8 +74,6 @@ func main() {
 	if err != nil {
 		logger.Named("app").Fatal("Failed to build state operation set", zap.Error(err))
 	}
-
-	log.Printf("~~~~~~~~~~~~~~~~~~~~~~~~~~~Loaded %d entries from %+v", len(entries), boot)
 
 	// server
 	bus := eventbus.NewBus(logger.Named("events"))                   // main configuration bus

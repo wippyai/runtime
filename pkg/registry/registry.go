@@ -69,7 +69,7 @@ func (r *reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 	newState, err := r.runner.Transition(ctx, r.state, changes)
 	if err != nil {
 		r.log.Error("failed to apply changes", zap.Error(err))
-		if newState != nil {
+		if newState != nil && ctx.Err() == nil {
 			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
 				return nil, fmt.Errorf("failed to apply changes: %w, failed to rollback: %w", err, rerr)
 			}
@@ -109,7 +109,7 @@ func (r *reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 	newState, err := r.transitionState(ctx, r.state, target)
 	if err != nil {
 		r.log.Error("failed transition to version", zap.String("version", v.String()), zap.Error(err))
-		if newState != nil {
+		if newState != nil && ctx.Err() == nil {
 			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
 				return fmt.Errorf("failed transition to version %s: %w, failed to rollback: %w", v, err, rerr)
 			}

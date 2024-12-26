@@ -1,7 +1,7 @@
 name: endpoints.get_time
 kind: http.endpoint
 meta:
-  server_id: service.web_server
+  server: service.web_server
   comment: "Returns the current time."
   depends_on:
     - functions.http_time
