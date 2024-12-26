@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	config "github.com/ponyruntime/pony/api/server/http"
+	config "github.com/ponyruntime/pony/api/service/http"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -135,7 +135,7 @@ func TestHTTPServerUnderSupervisor(t *testing.T) {
 	hsup := sup.NewController(
 		context.Background(),
 		httpServer,
-		supervisor.ServiceConfig{
+		supervisor.LifecycleConfig{
 			StartTimeout: 5 * time.Second,
 			StopTimeout:  5 * time.Second,
 			RetryPolicy: supervisor.RetryPolicy{

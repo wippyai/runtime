@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	config "github.com/ponyruntime/pony/api/server/http"
+	config "github.com/ponyruntime/pony/api/service/http"
 	"net/http"
 	"sync"
 	"time"

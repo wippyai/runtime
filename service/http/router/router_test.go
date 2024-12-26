@@ -2,7 +2,7 @@ package router
 
 import (
 	"github.com/ponyruntime/pony/api/registry"
-	config "github.com/ponyruntime/pony/api/server/http"
+	config "github.com/ponyruntime/pony/api/service/http"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"net/http"

@@ -21,7 +21,7 @@ type State struct {
 type Controller struct {
 	// Core dependencies
 	service supervisor.Service
-	config  supervisor.ServiceConfig
+	config  supervisor.LifecycleConfig
 
 	// Lifecycle management
 	rootCtx     context.Context
@@ -46,7 +46,7 @@ type stateTransition struct {
 func NewController(
 	ctx context.Context,
 	service supervisor.Service,
-	config supervisor.ServiceConfig,
+	config supervisor.LifecycleConfig,
 	onStateChange func(status supervisor.Status, details any),
 ) *Controller {
 	return &Controller{
@@ -153,7 +153,7 @@ func (c *Controller) handleTransition(desired supervisor.Status) error {
 	return nil
 }
 
-// Service lifecycle management
+// Lifecycle lifecycle management
 
 func (c *Controller) startService() error {
 	ctx, cancel := context.WithCancel(c.ctx)
@@ -264,7 +264,7 @@ func (c *Controller) executeShutdown(ctx context.Context) error {
 	}
 }
 
-// Service monitoring and recovery
+// Lifecycle monitoring and recovery
 
 func (c *Controller) monitorService(detailsCh <-chan any) {
 	defer c.wg.Done()

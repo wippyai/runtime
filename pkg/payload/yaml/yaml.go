@@ -10,8 +10,8 @@ func Register(transcoder payload.Transcoder) {
 	to := &ToGolang{}
 	from := &FromGolang{}
 
-	transcoder.RegisterTranscoder(payload.Yaml, payload.Golang, 1, to)
-	transcoder.RegisterTranscoder(payload.Golang, payload.Yaml, 1, from)
+	transcoder.RegisterTranscoder(payload.Yaml, payload.Golang, 2, to)
+	transcoder.RegisterTranscoder(payload.Golang, payload.Yaml, 2, from)
 	transcoder.RegisterUnmarshaler(payload.Yaml, to)
 }
 

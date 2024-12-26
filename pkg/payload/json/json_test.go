@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/ponyruntime/pony/api/payload"
 )
@@ -76,6 +77,10 @@ func TestJsonToGolangTranscoder_Unmarshal(t *testing.T) {
 		Key string `json:"key"`
 	}
 
+	type TestDurationStruct struct {
+		Key time.Duration `json:"key"`
+	}
+
 	tests := []struct {
 		name    string
 		payload payload.Payload
@@ -116,6 +121,13 @@ func TestJsonToGolangTranscoder_Unmarshal(t *testing.T) {
 			payload: payload.NewPayload(`{"key": "value"}`, payload.Json),
 			target:  "not a pointer",
 			want:    "",
+			wantErr: true,
+		},
+		{
+			name:    "Unmarshal duration",
+			payload: payload.NewPayload(`{"key": "30s"}`, payload.Json),
+			target:  &TestDurationStruct{},
+			want:    &TestDurationStruct{Key: 30 * time.Second},
 			wantErr: true,
 		},
 		{
