@@ -53,7 +53,7 @@ func (br *BusRunner) Transition(
 	for _, op := range cs {
 		newState, err := br.applyOperation(ctx, currentState, op)
 		if err != nil {
-			br.log.Warn("Operation failed, initiating rollback", zap.Any("operation", op))
+			br.log.Warn("operation failed, initiating rollback", zap.Any("operation", op), zap.Error(err))
 			newState = br.rollback(ctx, originalState, newState, appliedOperations)
 
 			// Only send Discard if there was an error, and rollback already happened
@@ -92,7 +92,7 @@ func (br *BusRunner) applyOperation(ctx context.Context, state stateMap, op regi
 		case confirmation := <-br.acceptChan:
 			entry, ok := confirmation.Data.(registry.Entry)
 			if !ok {
-				br.log.Warn("Received event with unexpected data type",
+				br.log.Warn("received event with unexpected data type",
 					zap.String("expected_type", "registry.Entry"),
 					zap.Any("got_type", fmt.Sprintf("%T", confirmation.Data)), // Log the actual type
 					zap.String("event_kind", string(confirmation.Kind)),
@@ -117,7 +117,7 @@ func (br *BusRunner) applyOperation(ctx context.Context, state stateMap, op regi
 			// Type assertion: Check if rejection.Data is of type registry.Entry
 			entry, ok := rejection.Data.(registry.Entry)
 			if !ok {
-				br.log.Error("Received event with unexpected data type",
+				br.log.Error("received event with unexpected data type",
 					zap.String("expected_type", "registry.Entry"),
 					zap.Any("got_type", fmt.Sprintf("%T", rejection.Data)), // Log the actual type
 					zap.String("event_kind", string(rejection.Kind)))
@@ -147,20 +147,20 @@ func (br *BusRunner) rollback(
 		op := appliedOperations[i]
 		inverseOp, err := br.stateHelper.getInverseOperation(originalState, op)
 		if err != nil {
-			br.log.Error("Error getting inverse operation", zap.Error(err))
+			br.log.Error("error getting inverse operation", zap.Error(err))
 			continue
 		}
 
 		newState, err := br.applyOperation(ctx, currentState, inverseOp)
 		if err != nil {
-			br.log.Warn("Failed to rollback operation", zap.Any("operation", op))
+			br.log.Warn("failed to rollback operation", zap.Any("operation", op))
 			return newState
 		}
 
 		// Apply the inverse operation to the state
 		currentState, err = br.stateHelper.applyChangeToState(currentState, inverseOp)
 		if err != nil {
-			br.log.Error("Error applying rollback operation", zap.Error(err))
+			br.log.Error("error applying rollback operation", zap.Error(err))
 		}
 	}
 	return currentState

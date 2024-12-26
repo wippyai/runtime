@@ -26,7 +26,7 @@ type FolderLoader struct {
 // FileEntry is an internal struct used for unmarshalling entry data.
 type FileEntry struct {
 	Name string            `json:"name" yaml:"name"`
-	Kind registry.Kind     `json:"kind" yaml:"kind"`
+	Kind string            `json:"kind" yaml:"kind"`
 	Meta registry.Metadata `json:"meta" yaml:"meta"`
 }
 
@@ -129,7 +129,7 @@ func (l *FolderLoader) register(p payload.Payload, relPath string) (registry.Ent
 
 	return registry.Entry{
 		ID:   fullID,
-		Kind: entry.Kind,
+		Kind: registry.Kind(entry.Kind),
 		Meta: entry.Meta,
 		Data: p,
 	}, nil
