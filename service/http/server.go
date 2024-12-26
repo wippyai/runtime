@@ -34,9 +34,8 @@ type Server struct {
 // NewServer creates a new Server instance with the given configuration and handler
 func NewServer(config config.ServerConfig, handler http.HandlerFunc) *Server {
 	return &Server{
-		config:     config,
-		router:     router.NewRouter(handler),
-		statusChan: make(chan any, 2), // 1 for initial boot message and extra for shutdown
+		config: config,
+		router: router.NewRouter(handler),
 	}
 }
 
@@ -55,6 +54,14 @@ func (s *Server) ensureRunning(ctx context.Context) error {
 
 	for {
 		select {
+		case err, ok := <-s.statusChan:
+			if !ok {
+				return errors.New("service failed to start")
+			}
+
+			if e, ok := err.(error); ok {
+				return e
+			}
 		case <-timeout:
 			return errors.New("service failed to start within timeout")
 		case <-ctx.Done():
@@ -79,6 +86,11 @@ func (s *Server) Start(ctx context.Context) (<-chan any, error) {
 		WriteTimeout: s.config.Timeouts.WriteTimeout,
 		IdleTimeout:  s.config.Timeouts.IdleTimeout,
 	}
+	s.server.RegisterOnShutdown(func() {
+		close(s.statusChan)
+	})
+
+	s.statusChan = make(chan any, 2) // 1 for initial boot message and extra for shutdown
 	s.mu.Unlock()
 
 	// Start service in a goroutine
@@ -87,13 +99,11 @@ func (s *Server) Start(ctx context.Context) (<-chan any, error) {
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			s.statusChan <- err
 		}
-
-		close(s.statusChan)
 	}()
 
 	// Check if service starts successfully
 	if err := s.ensureRunning(ctx); err != nil {
-		return s.statusChan, err
+		return nil, err
 	}
 
 	// we are running!

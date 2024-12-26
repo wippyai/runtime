@@ -159,7 +159,7 @@ func (c *Controller) startService() error {
 	ctx, cancel := context.WithCancel(c.ctx)
 	c.state.setContext(ctx, cancel)
 
-	if err := c.tryStart(ctx, nil); err != nil {
+	if err := c.tryStart(nil); err != nil {
 		c.updateState(supervisor.Failed, err)
 		return fmt.Errorf("failed to start service: %w", err)
 	}
@@ -167,13 +167,13 @@ func (c *Controller) startService() error {
 	return nil
 }
 
-func (c *Controller) tryStart(ctx context.Context, lastErr error) error {
+func (c *Controller) tryStart(lastErr error) error {
 	for attempt := 1; ; attempt++ {
-		if err := c.attemptStart(ctx, attempt); err == nil {
+		if err := c.attemptStart(attempt); err == nil {
 			return nil
 		} else {
 			lastErr = err
-			if !c.shouldRetry(ctx, attempt) {
+			if !c.shouldRetry(attempt) {
 				return fmt.Errorf("failed to start service after %d attempts: %w", attempt, lastErr)
 			}
 			time.Sleep(c.config.RetryPolicy.InitialDelay)
@@ -181,23 +181,16 @@ func (c *Controller) tryStart(ctx context.Context, lastErr error) error {
 	}
 }
 
-func (c *Controller) attemptStart(ctx context.Context, attempt int) error {
+func (c *Controller) attemptStart(attempt int) error {
 	c.updateState(
 		supervisor.Starting,
-		fmt.Sprintf("Attempt %d", attempt-1),
+		fmt.Sprintf("attempt %d", attempt-1),
 	)
 
-	startCtx, cancel := context.WithTimeout(ctx, c.config.StartTimeout)
-	defer cancel()
-
-	detailsCh, err := c.service.Start(startCtx)
+	detailsCh, err := c.service.Start(c.ctx)
 	if err != nil {
 		c.updateState(supervisor.Failed, err)
 		return err
-	}
-
-	if startCtx.Err() != nil {
-		return fmt.Errorf("service start timeout: %w", startCtx.Err())
 	}
 
 	c.wg.Add(1)
@@ -303,8 +296,8 @@ func (c *Controller) handleError(err error) {
 
 // Helper methods
 
-func (c *Controller) shouldRetry(ctx context.Context, attempt int) bool {
-	if ctx.Err() != nil || attempt >= c.config.RetryPolicy.MaxAttempts {
+func (c *Controller) shouldRetry(attempt int) bool {
+	if c.ctx.Err() != nil || attempt >= c.config.RetryPolicy.MaxAttempts {
 		return false
 	}
 	return true
@@ -318,7 +311,7 @@ func (c *Controller) updateState(status supervisor.Status, details any) {
 }
 
 func (c *Controller) recoverService(initialErr error) {
-	if err := c.tryStart(c.ctx, initialErr); err != nil {
+	if err := c.tryStart(initialErr); err != nil {
 		c.updateState(supervisor.Failed, err)
 	}
 }
