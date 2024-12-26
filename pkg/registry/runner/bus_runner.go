@@ -53,7 +53,7 @@ func (br *BusRunner) Transition(
 		newState, err := br.applyOperation(ctx, currentState, op)
 		if err != nil {
 			if ctx.Err() != nil {
-				return nil, ctx.Err()
+				return nil, err
 			}
 
 			br.log.Warn("operation failed, initiating rollback", zap.Any("operation", op), zap.Error(err))
@@ -123,7 +123,7 @@ func (br *BusRunner) applyOperation(ctx context.Context, state stateMap, op regi
 
 		case <-ctx.Done():
 			// Return the original state in case of timeout/cancellation to maintain consistency
-			return state, ctx.Err()
+			return state, fmt.Errorf("failed to apply operation %s: %w", op.Entry.ID, ctx.Err())
 		}
 	}
 }
