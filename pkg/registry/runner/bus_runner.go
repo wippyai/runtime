@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/ponyruntime/pony/api/events"
-	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	"go.uber.org/zap"
 )
@@ -64,7 +63,7 @@ func (br *BusRunner) Transition(
 			br.bus.Send(ctx, events.Event{
 				System: registry.System,
 				Kind:   registry.Discard,
-				Data:   payload.NewError(err),
+				Data:   err,
 			})
 
 			return br.stateHelper.toSlice(newState), fmt.Errorf("operation failed: %w", err)
@@ -94,17 +93,9 @@ func (br *BusRunner) applyOperation(ctx context.Context, state stateMap, op regi
 	for {
 		select {
 		case confirmation := <-br.acceptChan:
-			entry, ok := confirmation.Data.(registry.Entry)
-			if !ok {
-				br.log.Warn("received event with unexpected data type",
-					zap.String("expected_type", "registry.Entry"),
-					zap.Any("got_type", fmt.Sprintf("%T", confirmation.Data)), // Log the actual type
-					zap.String("event_kind", string(confirmation.Kind)),
-				)
-				continue // Skip to the next iteration of the select loop
-			}
+			id := registry.ID(confirmation.Path)
 
-			if entry.ID != op.Entry.ID {
+			if id != op.Entry.ID {
 				return state, errors.New("unrelated accept event")
 			}
 
@@ -118,20 +109,17 @@ func (br *BusRunner) applyOperation(ctx context.Context, state stateMap, op regi
 
 			return newState, nil
 		case rejection := <-br.rejectChan:
-			// Type assertion: Check if rejection.Data is of type registry.Entry
-			entry, ok := rejection.Data.(registry.Entry)
-			if !ok {
-				br.log.Error("received event with unexpected data type",
-					zap.String("expected_type", "registry.Entry"),
-					zap.Any("got_type", fmt.Sprintf("%T", rejection.Data)), // Log the actual type
-					zap.String("event_kind", string(rejection.Kind)))
-				continue // Skip to the next iteration of the select loop
+			id := registry.ID(rejection.Path)
+
+			if id != op.Entry.ID {
+				return state, errors.New("unrelated reject event")
 			}
 
-			if entry.ID != op.Entry.ID {
-				return state, errors.New("unrelated accept event")
+			err, ok := rejection.Data.(error)
+			if !ok {
+				return state, errors.New("operation rejected, no details")
 			}
-			return state, errors.New("operation rejected") // todo: propagate entity level error
+			return state, err
 
 		case <-ctx.Done():
 			// Return the original state in case of timeout/cancellation to maintain consistency

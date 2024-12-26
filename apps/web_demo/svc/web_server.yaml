@@ -3,9 +3,9 @@ kind: http.server
 meta:
   comment: "Default http server."
 
-listen: ":8080"
-http:
-  idle_timeout: 60s
+addr: ":8080"
+timeouts:
+  idle: 60s
 
 lifecycle:
   auto_start: true

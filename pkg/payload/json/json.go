@@ -40,6 +40,7 @@ func (t *ToGolang) Transcode(p payload.Payload) (payload.Payload, error) {
 	default:
 		return nil, fmt.Errorf("Json=>Golang can only handle string or []byte, got %T", p.Data())
 	}
+
 	return payload.NewPayload(data, payload.Golang), nil
 }
 
