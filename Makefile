@@ -4,6 +4,9 @@ run:
 debug:
 	dlv debug --build-flags -race ./cmd/main.go -- run -c config.json
 
+test-clean:
+	go clean -testcache
+
 test:
 	go test ./internal/... -v -race
 	go test ./api/... -v -race
