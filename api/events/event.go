@@ -11,8 +11,10 @@ type (
 	// System represents a system or module that eventbus belong to (e.g., "listener", "runtime", etc).
 	System string
 
-	// Kind represents the specific type of an event within a system (e.g., "listener.created", "status.online").
+	// Kind represents the specific type of an event within a system (e.g., "listener.created", "supervisor.online").
 	Kind string
+
+	Path string
 
 	// Event is the fundamental structure representing an event.
 	Event struct {
@@ -20,6 +22,8 @@ type (
 		System System
 		// Kind is the specific type of the event.
 		Kind Kind
+		// Path is the path of the event.
+		Path Path
 		// Data is the payload of the event, which can be any relevant data associated with the event.
 		Data any
 	}

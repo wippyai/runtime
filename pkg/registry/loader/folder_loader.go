@@ -26,7 +26,7 @@ type FolderLoader struct {
 // FileEntry is an internal struct used for unmarshalling entry data.
 type FileEntry struct {
 	Name string            `json:"name" yaml:"name"`
-	Kind registry.Kind     `json:"kind" yaml:"kind"`
+	Kind string            `json:"kind" yaml:"kind"`
 	Meta registry.Metadata `json:"meta" yaml:"meta"`
 }
 
@@ -59,7 +59,7 @@ func (l *FolderLoader) Load(rootPath string, namespace string, vars Variables) (
 	entries := make([]registry.Entry, 0)
 
 	for relPath, p := range payloads {
-		l.log.Debug("Processing entry", zap.String("path", relPath))
+		l.log.Debug("processing entry", zap.String("path", relPath))
 		entry, err := l.processEntry(relPath, p, vars)
 		if err != nil {
 			l.log.Error("failed to process entry, skipping", zap.String("path", relPath), zap.Error(err))
@@ -118,35 +118,26 @@ func (l *FolderLoader) register(p payload.Payload, relPath string) (registry.Ent
 		return registry.Entry{}, fmt.Errorf("missing Kind in registry entry")
 	}
 
-	// Calculate full ID (prefix + entry path)
+	// Calculate full Name (prefix + entry path)
 	fullID := l.calculateFullID(filepath.Dir(relPath), entry.Name)
 
 	l.log.Debug(
-		"Registering Entry",
+		"registering entry",
 		zap.String("path", string(fullID)),
 		zap.String("entryName", entry.Name),
 	)
 
 	return registry.Entry{
-		Path: fullID,
-		Kind: entry.Kind,
+		ID:   fullID,
+		Kind: registry.Kind(entry.Kind),
 		Meta: entry.Meta,
 		Data: p,
 	}, nil
 }
 
 // calculateFullID determines the full registry path based on file path, and entry path. relPath must point to filename.
-func (l *FolderLoader) calculateFullID(dirPath string, entryName string) registry.Path {
-	// Remove trailing slash if any. we trim at the end
-	dirPath = strings.TrimSuffix(dirPath, "/")
-
-	var fullID string
-	if dirPath != "" {
-		fullID = dirPath + "." + entryName
-	} else {
-		fullID = entryName
-	}
-
+func (l *FolderLoader) calculateFullID(dirPath string, entryName string) registry.ID {
+	fullID := entryName
 	fullID = strings.ReplaceAll(fullID, "\\", ".")
 	fullID = strings.ReplaceAll(fullID, "/", ".")
 	fullID = strings.ReplaceAll(fullID, "..", ".")
@@ -156,5 +147,5 @@ func (l *FolderLoader) calculateFullID(dirPath string, entryName string) registr
 		fullID = l.namespace + ":" + fullID
 	}
 
-	return registry.Path(fullID)
+	return registry.ID(fullID)
 }

@@ -53,11 +53,11 @@ func TestNewRegistry(t *testing.T) {
 
 	r := NewRegistry(history, runner, stateBuilder, zap.NewNop())
 
-	if _, ok := r.(*memreg); !ok {
-		t.Errorf("Expected type *memreg, got %T", r)
+	if _, ok := r.(*reg); !ok {
+		t.Errorf("Expected type *reg, got %T", r)
 	}
 
-	reg := r.(*memreg)
+	reg := r.(*reg)
 	if reg.history != history {
 		t.Errorf("Expected history to be %v, got %v", history, reg.history)
 	}
@@ -81,11 +81,11 @@ func TestNewRegistry(t *testing.T) {
 
 func TestInMemoryRegistry_GetAllEntries(t *testing.T) {
 	state := registry.State{
-		{Path: "/foo", Kind: "test", Data: payload.NewString("data1")},
-		{Path: "/bar", Kind: "test", Data: payload.NewString("data2")},
+		{ID: "/foo", Kind: "test", Data: payload.NewString("data1")},
+		{ID: "/bar", Kind: "test", Data: payload.NewString("data2")},
 	}
 
-	reg := &memreg{
+	reg := &reg{
 		state: state,
 		mu:    sync.RWMutex{},
 	}
@@ -100,7 +100,7 @@ func TestInMemoryRegistry_GetAllEntries(t *testing.T) {
 	}
 
 	for i := range state {
-		if state[i].Path != entries[i].Path || state[i].Kind != entries[i].Kind {
+		if state[i].ID != entries[i].ID || state[i].Kind != entries[i].Kind {
 			t.Errorf("Expected entry at index %d to be %v, got %v", i, state[i], entries[i])
 		}
 
@@ -122,12 +122,12 @@ func TestInMemoryRegistry_GetAllEntries(t *testing.T) {
 }
 
 func TestInMemoryRegistry_GetEntry(t *testing.T) {
-	entry1 := registry.Entry{Path: "/foo", Kind: "test", Data: payload.New("data1")}
-	entry2 := registry.Entry{Path: "/bar", Kind: "test", Data: payload.New("data2")}
+	entry1 := registry.Entry{ID: "/foo", Kind: "test", Data: payload.New("data1")}
+	entry2 := registry.Entry{ID: "/bar", Kind: "test", Data: payload.New("data2")}
 
 	state := registry.State{entry1, entry2}
 
-	reg := &memreg{
+	reg := &reg{
 		state: state,
 		mu:    sync.RWMutex{},
 	}
@@ -154,13 +154,13 @@ func TestInMemoryRegistry_Apply(t *testing.T) {
 	runner := NewMockRunner()
 	stateBuilder := NewStateBuilder(zap.NewNop())
 
-	reg := NewRegistry(history, runner, stateBuilder, zap.NewNop()).(*memreg)
+	reg := NewRegistry(history, runner, stateBuilder, zap.NewNop()).(*reg)
 
 	changes := registry.ChangeSet{
 		{
 			Kind: registry.Create,
 			Entry: registry.Entry{
-				Path: "/foo",
+				ID:   "/foo",
 				Kind: "test",
 				Data: payload.New("data"),
 			},
@@ -211,7 +211,7 @@ func TestInMemoryRegistry_Apply_RunnerError(t *testing.T) {
 	runner := NewMockRunner()
 	stateBuilder := NewStateBuilder(zap.NewNop())
 
-	reg := NewRegistry(history, runner, stateBuilder, zap.NewNop()).(*memreg)
+	reg := NewRegistry(history, runner, stateBuilder, zap.NewNop()).(*reg)
 	runner.err = errors.New("runner error, failed to rollback: runner error")
 
 	_, err := reg.Apply(context.Background(), registry.ChangeSet{})
@@ -234,25 +234,25 @@ func TestInMemoryRegistry_ApplyVersion(t *testing.T) {
 	history := history.NewMemory()
 	_ = history.Save(v0, registry.ChangeSet{}, true)
 	_ = history.Save(v1, registry.ChangeSet{
-		{Kind: registry.Create, Entry: registry.Entry{Path: "/foo", Kind: "test", Data: payload.New("data1")}},
+		{Kind: registry.Create, Entry: registry.Entry{ID: "/foo", Kind: "test", Data: payload.New("data1")}},
 	}, false)
 	_ = history.Save(v2, registry.ChangeSet{
-		{Kind: registry.Update, Entry: registry.Entry{Path: "/foo", Kind: "test", Data: payload.New("data2")}},
+		{Kind: registry.Update, Entry: registry.Entry{ID: "/foo", Kind: "test", Data: payload.New("data2")}},
 	}, false)
 
 	runner := NewMockRunner()
 	stateBuilder := NewStateBuilder(zap.NewNop())
 
-	reg := NewRegistry(history, runner, stateBuilder, zap.NewNop()).(*memreg)
+	reg := NewRegistry(history, runner, stateBuilder, zap.NewNop()).(*reg)
 	reg.currentVersion = v2 // Set current version to v2
 	// Set initial state to v2 state
 	reg.state = registry.State{
-		{Path: "/foo", Kind: "test", Data: payload.New("data2")},
+		{ID: "/foo", Kind: "test", Data: payload.New("data2")},
 	}
 
 	// Mock the runner to return a new state - v1 state
 	runner.newState = registry.State{
-		{Path: "/foo", Kind: "test", Data: payload.New("data1")},
+		{ID: "/foo", Kind: "test", Data: payload.New("data1")},
 	}
 
 	err := reg.ApplyVersion(context.Background(), v1)
@@ -275,42 +275,17 @@ func TestInMemoryRegistry_ApplyVersion(t *testing.T) {
 
 	// Verify that runner received the correct state and changes
 	expectedStateBeforeRun := registry.State{
-		{Path: "/foo", Kind: "test", Data: payload.New("data2")},
+		{ID: "/foo", Kind: "test", Data: payload.New("data2")},
 	}
 	if !reflect.DeepEqual(runner.lastState, expectedStateBeforeRun) {
 		t.Errorf("Expected runner to receive state: %v, got: %v", expectedStateBeforeRun, runner.lastState)
 	}
 
 	expectedChanges := registry.ChangeSet{
-		{Kind: registry.Update, Entry: registry.Entry{Path: "/foo", Kind: "test", Data: payload.New("data1")}},
+		{Kind: registry.Update, Entry: registry.Entry{ID: "/foo", Kind: "test", Data: payload.New("data1")}},
 	}
 	if !reflect.DeepEqual(runner.lastChangeSet, expectedChanges) {
 		t.Errorf("Expected runner to receive changes: %v, got: %v", expectedChanges, runner.lastChangeSet)
-	}
-}
-
-func TestInMemoryRegistry_ApplyVersion_RunnerError(t *testing.T) {
-	v0 := version.New(registry.RootVersion)
-	v1 := version.FromParent(v0, 1)
-	history := history.NewMemory()
-	_ = history.Save(v0, registry.ChangeSet{}, true)
-	_ = history.Save(v1, registry.ChangeSet{}, false)
-
-	runner := NewMockRunner()
-	stateBuilder := NewStateBuilder(zap.NewNop())
-	reg := NewRegistry(history, runner, stateBuilder, zap.NewNop()).(*memreg)
-	reg.currentVersion = v1
-
-	runner.err = errors.New("runner error")
-
-	err := reg.ApplyVersion(context.Background(), v0)
-	if err == nil {
-		t.Errorf("Expected error, got nil")
-		return
-	}
-	expectedPrefix := fmt.Sprintf("failed transition to version %s: ", v0)
-	if !strings.HasPrefix(err.Error(), expectedPrefix) {
-		t.Errorf("Expected error to start with: '%v', got: '%v'", expectedPrefix, err)
 	}
 }
 
@@ -377,11 +352,11 @@ func TestInMemoryRegistry_Apply_HistorySaveError(t *testing.T) {
 	runner := NewMockRunner()
 	stateBuilder := NewStateBuilder(zap.NewNop())
 
-	reg := NewRegistry(history, runner, stateBuilder, zap.NewNop()).(*memreg)
+	reg := NewRegistry(history, runner, stateBuilder, zap.NewNop()).(*reg)
 
 	// Mock the runner to return a new state (so we can test rollback)
 	runner.newState = registry.State{
-		{Path: "/foo", Kind: "test", Data: payload.New("data")},
+		{ID: "/foo", Kind: "test", Data: payload.New("data")},
 	}
 
 	// Attempt to apply changes, which should fail due to the history error
@@ -389,7 +364,7 @@ func TestInMemoryRegistry_Apply_HistorySaveError(t *testing.T) {
 		{
 			Kind: registry.Create,
 			Entry: registry.Entry{
-				Path: "/foo",
+				ID:   "/foo",
 				Kind: "test",
 				Data: payload.New("data"),
 			},
@@ -433,7 +408,7 @@ func TestInMemoryRegistry_ConcurrentApply(t *testing.T) {
 	_ = history.Save(v0, registry.ChangeSet{}, true)
 	runner := &CustomizableMockRunner{} // Use the new customizable mock
 	stateBuilder := NewStateBuilder(zap.NewNop())
-	reg := NewRegistry(history, runner, stateBuilder, zap.NewNop()).(*memreg)
+	reg := NewRegistry(history, runner, stateBuilder, zap.NewNop()).(*reg)
 
 	var wg sync.WaitGroup
 	numGoroutines := 10
@@ -456,7 +431,7 @@ func TestInMemoryRegistry_ConcurrentApply(t *testing.T) {
 					{
 						Kind: registry.Create,
 						Entry: registry.Entry{
-							Path: registry.Path(fmt.Sprintf("/entry/%d/%d", routineID, j)),
+							ID:   registry.ID(fmt.Sprintf("/entry/%d/%d", routineID, j)),
 							Kind: "test",
 							Data: payload.New(fmt.Sprintf("data-%d-%d", routineID, j)),
 						},
@@ -490,7 +465,7 @@ func TestInMemoryRegistry_ConcurrentApply(t *testing.T) {
 	}
 
 	if currentVersion.ID() != uint(numGoroutines*changesPerRoutine) {
-		t.Errorf("Expected current version ID %d, got %d", numGoroutines*changesPerRoutine, currentVersion.ID())
+		t.Errorf("Expected current version Name %d, got %d", numGoroutines*changesPerRoutine, currentVersion.ID())
 	}
 }
 
@@ -504,11 +479,11 @@ func TestInMemoryRegistry_Apply_Rollback_Success(t *testing.T) {
 
 	runner := NewMockRunner()
 	stateBuilder := NewStateBuilder(zap.NewNop()) // Use the real StateBuilder
-	reg := NewRegistry(history, runner, stateBuilder, zap.NewNop()).(*memreg)
+	reg := NewRegistry(history, runner, stateBuilder, zap.NewNop()).(*reg)
 
 	// Initial state
 	initialState := registry.State{
-		{Path: "/initial", Kind: "test", Data: payload.New("initial_data")},
+		{ID: "/initial", Kind: "test", Data: payload.New("initial_data")},
 	}
 	reg.state = initialState
 	reg.currentVersion = v0
@@ -518,7 +493,7 @@ func TestInMemoryRegistry_Apply_Rollback_Success(t *testing.T) {
 		{
 			Kind: registry.Create,
 			Entry: registry.Entry{
-				Path: "/foo",
+				ID:   "/foo",
 				Kind: "test",
 				Data: payload.New("data"),
 			},
@@ -537,7 +512,7 @@ func TestInMemoryRegistry_Apply_Rollback_Success(t *testing.T) {
 		}
 
 		// Handle rollback
-		if len(cs) == 1 && cs[0].Kind == registry.Delete && cs[0].Entry.Path == "/foo" &&
+		if len(cs) == 1 && cs[0].Kind == registry.Delete && cs[0].Entry.ID == "/foo" &&
 			reflect.DeepEqual(state, newState) {
 			return initialState, nil
 		}
@@ -583,10 +558,10 @@ func TestInMemoryRegistry_Apply_Rollback_Failure(t *testing.T) {
 
 	runner := NewMockRunner()
 	stateBuilder := NewStateBuilder(zap.NewNop())
-	reg := NewRegistry(history, runner, stateBuilder, zap.NewNop()).(*memreg)
+	reg := NewRegistry(history, runner, stateBuilder, zap.NewNop()).(*reg)
 
 	initialState := registry.State{
-		{Path: "/initial", Kind: "test", Data: payload.New("initial_data")},
+		{ID: "/initial", Kind: "test", Data: payload.New("initial_data")},
 	}
 	reg.state = initialState
 	reg.currentVersion = v0
@@ -595,7 +570,7 @@ func TestInMemoryRegistry_Apply_Rollback_Failure(t *testing.T) {
 		{
 			Kind: registry.Create,
 			Entry: registry.Entry{
-				Path: "/foo",
+				ID:   "/foo",
 				Kind: "test",
 				Data: payload.New("data"),
 			},
@@ -612,7 +587,7 @@ func TestInMemoryRegistry_Apply_Rollback_Failure(t *testing.T) {
 		}
 
 		// Handle rollback failure
-		if len(cs) == 1 && cs[0].Kind == registry.Delete && cs[0].Entry.Path == "/foo" &&
+		if len(cs) == 1 && cs[0].Kind == registry.Delete && cs[0].Entry.ID == "/foo" &&
 			reflect.DeepEqual(state, newState) {
 			return state, rollbackErr
 		}

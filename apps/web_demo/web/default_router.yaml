@@ -1,0 +1,9 @@
+name: service.api_router
+kind: http.router
+meta:
+  comment: "Main API router"
+  server: "service.web_server"
+  depends_on:
+    - service.web_server
+
+prefix: /api/v1

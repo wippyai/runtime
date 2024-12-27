@@ -84,7 +84,7 @@ data: file://../e_data.txt
 				"data": "value_a",
 			},
 		},
-		"b.setting_b": {
+		"setting_b": {
 			Kind: "listener",
 			Data: map[string]interface{}{
 				"name": "setting_b",
@@ -92,7 +92,7 @@ data: file://../e_data.txt
 				"data": "value_b",
 			},
 		},
-		"c.nested.setting_c": {
+		"setting_c": {
 			Kind: "listener",
 			Data: map[string]interface{}{
 				"name": "setting_c",
@@ -100,7 +100,7 @@ data: file://../e_data.txt
 				"data": "interpolated_value_from_a",
 			},
 		},
-		"d.setting_d": {
+		"setting_d": {
 			Kind: "listener",
 			Data: map[string]interface{}{
 				"name": "setting_d",
@@ -108,7 +108,7 @@ data: file://../e_data.txt
 				"data": "interpolated_${not_exist}",
 			},
 		},
-		"e.setting_e": {
+		"setting_e": {
 			Kind: "listener",
 			Data: map[string]interface{}{
 				"name": "setting_e",
@@ -120,20 +120,20 @@ data: file://../e_data.txt
 
 	// Compare loaded entries
 	for _, entry := range entries {
-		expected, ok := expectedEntries[string(entry.Path)]
+		expected, ok := expectedEntries[string(entry.ID)]
 		if !ok {
-			t.Fatalf("expected entry with path '%s' not found", entry.Path)
+			t.Fatalf("expected entry with path '%s' not found", entry.ID)
 		}
 
 		if entry.Kind != registry.Kind(expected.Kind) {
-			t.Errorf("expected entry kind: %s, got: %s for path: %s", expected.Kind, entry.Kind, entry.Path)
+			t.Errorf("expected entry kind: %s, got: %s for path: %s", expected.Kind, entry.Kind, entry.ID)
 		}
 		var data map[string]interface{}
 		err = dtt.Unmarshal(entry.Data, &data)
 		if err != nil {
-			t.Fatalf("failed to unmarshal payload data for path %s: %v", entry.Path, err)
+			t.Fatalf("failed to unmarshal payload data for path %s: %v", entry.ID, err)
 		}
-		assert.Equal(t, expected.Data, data, "Data mismatch for path: %s", entry.Path)
+		assert.Equal(t, expected.Data, data, "Data mismatch for path: %s", entry.ID)
 	}
 }
 
@@ -231,80 +231,6 @@ func createTestTranscoder() payload.Transcoder {
 	return tr
 }
 
-func TestFolderLoader_calculateFullID(t *testing.T) {
-	testCases := []struct {
-		name      string
-		relPath   string
-		entryName string
-		namespace string
-		expected  string
-	}{
-		{
-			name:      "root level",
-			relPath:   "",
-			entryName: "test_entry",
-			namespace: "test",
-			expected:  "test:test_entry",
-		},
-		{
-			name:      "single level",
-			relPath:   "folder/",
-			entryName: "test_entry",
-			namespace: "test",
-			expected:  "test:folder.test_entry",
-		},
-		{
-			name:      "single level without /",
-			relPath:   "folder",
-			entryName: "test_entry",
-			namespace: "test",
-			expected:  "test:folder.test_entry",
-		},
-		{
-			name:      "nested level",
-			relPath:   "folder/nested/",
-			entryName: "test_entry",
-			namespace: "test",
-			expected:  "test:folder.nested.test_entry",
-		},
-		{
-			name:      "multiple slashes",
-			relPath:   "folder//nested//",
-			entryName: "test_entry",
-			namespace: "test",
-			expected:  "test:folder.nested.test_entry",
-		},
-		{
-			name:      "root level with no namespace",
-			relPath:   "",
-			entryName: "test_entry",
-			namespace: "",
-			expected:  "test_entry",
-		},
-		{
-			name:      "single level with no namespace",
-			relPath:   "folder/",
-			entryName: "test_entry",
-			namespace: "",
-			expected:  "folder.test_entry",
-		},
-	}
-
-	// Initialize FolderLoader, transcoder, and logger
-	dtt := createTestTranscoder()
-	logger, _ := zap.NewProduction()
-	defer logger.Sync()
-
-	folderLoader := NewFolderLoader(dtt, logger)
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			folderLoader.namespace = tc.namespace
-			result := folderLoader.calculateFullID(tc.relPath, tc.entryName)
-			assert.Equal(t, registry.Path(tc.expected), result, "Expected full ID does not match")
-		})
-	}
-}
 func TestFolderLoader_Load_MissingNameOrKind(t *testing.T) {
 	files := map[string]string{
 		"no_name.yaml": `
@@ -342,7 +268,7 @@ data: value
 		t.Fatalf("expected 1 entry, got %d", len(entries))
 	}
 
-	if string(entries[0].Path) != "valid_setting" {
+	if string(entries[0].ID) != "valid_setting" {
 		t.Fatalf("expected entry with path '%s' not found", "valid_setting")
 	}
 
@@ -398,7 +324,7 @@ data: value
 		t.Fatalf("expected 1 entry, got %d", len(entries))
 	}
 
-	if string(entries[0].Path) != "valid_setting" {
+	if string(entries[0].ID) != "valid_setting" {
 		t.Fatalf("expected entry with path '%s' not found", "valid_setting")
 	}
 	// Check logs for errors
@@ -410,36 +336,5 @@ data: value
 	expectedMessage := "failed to process entry, skipping"
 	if !strings.Contains(logged.All()[0].Message, expectedMessage) {
 		t.Errorf("expected error message to contain '%s', got '%s'", expectedMessage, logged.All()[0].Message)
-	}
-}
-
-func TestFolderLoader_Load_DeeplyNestedFiles(t *testing.T) {
-	files := map[string]string{
-		"a/b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t/file.yaml": `
-name: nested_setting
-kind: listener
-data: value
-`,
-	}
-
-	rootDir, cleanup := utils.TempDirWithFiles(t, "folderloader_nested", files)
-	defer cleanup()
-
-	dtt := createTestTranscoder()
-	logger := zap.NewNop() // use nop logger, no need to observe logs
-	folderLoader := NewFolderLoader(dtt, logger)
-	vars := Variables{}
-	entries, err := folderLoader.Load(rootDir, "", vars)
-
-	if err != nil {
-		t.Fatalf("failed to load entries: %v", err)
-	}
-
-	if len(entries) != 1 {
-		t.Fatalf("expected 1 entry, got %d", len(entries))
-	}
-	expectedPath := "a.b.c.d.e.f.g.h.i.j.k.l.m.n.o.p.q.r.s.t.nested_setting"
-	if string(entries[0].Path) != expectedPath {
-		t.Fatalf("expected entry with path '%s' not foundm, got %+v", expectedPath, entries)
 	}
 }

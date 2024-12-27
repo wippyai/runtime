@@ -14,12 +14,12 @@ func TestStateHelper(t *testing.T) {
 	// Initial state for testing
 	initialState := registry.State{
 		{
-			Path: "service/api/host",
+			ID:   "service/api/host",
 			Kind: "listener",
 			Data: payload.NewString("localhost"),
 		},
 		{
-			Path: "service/api/port",
+			ID:   "service/api/port",
 			Kind: "listener",
 			Data: payload.NewString("8080"),
 		},
@@ -38,8 +38,8 @@ func TestStateHelper(t *testing.T) {
 
 		// Basic check to ensure data integrity
 		for _, entry := range initialState {
-			if _, ok := stateMap[entry.Path]; !ok {
-				t.Errorf("toSlice() failed: entry with path %s missing in map", entry.Path)
+			if _, ok := stateMap[entry.ID]; !ok {
+				t.Errorf("toSlice() failed: entry with path %s missing in map", entry.ID)
 			}
 		}
 	})
@@ -63,7 +63,7 @@ func TestStateHelper(t *testing.T) {
 		stateMap := sh.toMap(initialState)
 
 		// Test Create operation
-		newEntry := registry.Entry{Path: "service/db/host", Kind: "listener", Data: payload.NewString("db.local")}
+		newEntry := registry.Entry{ID: "service/db/host", Kind: "listener", Data: payload.NewString("db.local")}
 		createOp := registry.Operation{Kind: registry.Create, Entry: newEntry}
 		newStateMap, err := sh.applyChangeToState(stateMap, createOp)
 		if err != nil {
@@ -74,7 +74,7 @@ func TestStateHelper(t *testing.T) {
 		}
 
 		// Test Update operation
-		updateOp := registry.Operation{Kind: registry.Update, Entry: registry.Entry{Path: "service/api/host", Kind: "listener", Data: payload.NewString("api.local")}}
+		updateOp := registry.Operation{Kind: registry.Update, Entry: registry.Entry{ID: "service/api/host", Kind: "listener", Data: payload.NewString("api.local")}}
 		newStateMap, err = sh.applyChangeToState(newStateMap, updateOp)
 		if err != nil {
 			t.Errorf("applyChangeToState() failed for Update: %v", err)
@@ -84,7 +84,7 @@ func TestStateHelper(t *testing.T) {
 		}
 
 		// Test Delete operation
-		deleteOp := registry.Operation{Kind: registry.Delete, Entry: registry.Entry{Path: "service/api/port"}}
+		deleteOp := registry.Operation{Kind: registry.Delete, Entry: registry.Entry{ID: "service/api/port"}}
 		newStateMap, err = sh.applyChangeToState(newStateMap, deleteOp)
 		if err != nil {
 			t.Errorf("applyChangeToState() failed for Delete: %v", err)
@@ -94,7 +94,7 @@ func TestStateHelper(t *testing.T) {
 		}
 
 		// Test Delete non-existing entry
-		deleteOpNonExist := registry.Operation{Kind: registry.Delete, Entry: registry.Entry{Path: "non/existent/path"}}
+		deleteOpNonExist := registry.Operation{Kind: registry.Delete, Entry: registry.Entry{ID: "non/existent/path"}}
 		newStateMap, err = sh.applyChangeToState(newStateMap, deleteOpNonExist)
 		if err != nil {
 			t.Errorf("applyChangeToState() failed for Delete non-exist: %v", err)
@@ -112,44 +112,44 @@ func TestStateHelper(t *testing.T) {
 		stateMap := sh.toMap(initialState)
 
 		// Test Create inverse (Delete)
-		createOp := registry.Operation{Kind: registry.Create, Entry: registry.Entry{Path: "service/new/path", Kind: "listener", Data: payload.NewString("new_value")}}
+		createOp := registry.Operation{Kind: registry.Create, Entry: registry.Entry{ID: "service/new/path", Kind: "listener", Data: payload.NewString("new_value")}}
 		inverseOp, err := sh.getInverseOperation(stateMap, createOp)
 		if err != nil {
 			t.Errorf("getInverseOperation() failed for Create: %v", err)
 		}
-		if inverseOp.Kind != registry.Delete || inverseOp.Entry.Path != "service/new/path" {
+		if inverseOp.Kind != registry.Delete || inverseOp.Entry.ID != "service/new/path" {
 			t.Errorf("getInverseOperation() failed: incorrect inverse for Create")
 		}
 
 		// Test Update inverse (Update with original entry)
-		updateOp := registry.Operation{Kind: registry.Update, Entry: registry.Entry{Path: "service/api/host", Kind: "listener", Data: payload.NewString("updated_value")}}
+		updateOp := registry.Operation{Kind: registry.Update, Entry: registry.Entry{ID: "service/api/host", Kind: "listener", Data: payload.NewString("updated_value")}}
 		inverseOp, err = sh.getInverseOperation(stateMap, updateOp)
 		if err != nil {
 			t.Errorf("getInverseOperation() failed for Update: %v", err)
 		}
-		if inverseOp.Kind != registry.Update || inverseOp.Entry.Path != "service/api/host" || inverseOp.Entry.Data.Data() != "localhost" {
+		if inverseOp.Kind != registry.Update || inverseOp.Entry.ID != "service/api/host" || inverseOp.Entry.Data.Data() != "localhost" {
 			t.Errorf("getInverseOperation() failed: incorrect inverse for Update")
 		}
 
 		// Test Delete inverse (Create with original entry)
-		deleteOp := registry.Operation{Kind: registry.Delete, Entry: registry.Entry{Path: "service/api/port"}}
+		deleteOp := registry.Operation{Kind: registry.Delete, Entry: registry.Entry{ID: "service/api/port"}}
 		inverseOp, err = sh.getInverseOperation(stateMap, deleteOp)
 		if err != nil {
 			t.Errorf("getInverseOperation() failed for Delete: %v", err)
 		}
-		if inverseOp.Kind != registry.Create || inverseOp.Entry.Path != "service/api/port" || inverseOp.Entry.Data.Data() != "8080" {
+		if inverseOp.Kind != registry.Create || inverseOp.Entry.ID != "service/api/port" || inverseOp.Entry.Data.Data() != "8080" {
 			t.Errorf("getInverseOperation() failed: incorrect inverse for Delete")
 		}
 
 		// Test Update inverse for non-existing entry
-		updateOpNotExist := registry.Operation{Kind: registry.Update, Entry: registry.Entry{Path: "non/existent/path", Kind: "listener", Data: payload.NewString("invalid")}}
+		updateOpNotExist := registry.Operation{Kind: registry.Update, Entry: registry.Entry{ID: "non/existent/path", Kind: "listener", Data: payload.NewString("invalid")}}
 		_, err = sh.getInverseOperation(stateMap, updateOpNotExist)
 		if err == nil {
 			t.Errorf("getInverseOperation() failed: expected error for Update with non-existing original entry")
 		}
 
 		// Test Delete inverse for non-existing entry
-		deleteOpNotExist := registry.Operation{Kind: registry.Delete, Entry: registry.Entry{Path: "non/existent/path"}}
+		deleteOpNotExist := registry.Operation{Kind: registry.Delete, Entry: registry.Entry{ID: "non/existent/path"}}
 		_, err = sh.getInverseOperation(stateMap, deleteOpNotExist)
 		if err == nil {
 			t.Errorf("getInverseOperation() failed: expected error for Delete with non-existing original entry")

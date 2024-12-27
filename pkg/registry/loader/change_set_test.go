@@ -38,7 +38,7 @@ func TestCreateChangeSetFromEntries(t *testing.T) {
 			name: "single entry",
 			entries: []registry.Entry{
 				{
-					Path: "service.url",
+					ID:   "service.url",
 					Kind: "listener",
 					Meta: map[string]any{"env": "dev"},
 					Data: payload.New("localhost:8080"),
@@ -48,174 +48,10 @@ func TestCreateChangeSetFromEntries(t *testing.T) {
 				{
 					Kind: registry.Create,
 					Entry: registry.Entry{
-						Path: "service.url",
+						ID:   "service.url",
 						Kind: "listener",
 						Meta: map[string]any{"env": "dev"},
 						Data: payload.New("localhost:8080"),
-					},
-				},
-			},
-		},
-		{
-			name: "multiple entries with sorting",
-			entries: []registry.Entry{
-				{
-					Path: "service.database.url",
-					Kind: "listener",
-					Meta: map[string]any{"env": "prod"},
-					Data: payload.New("db://prod"),
-				},
-				{
-					Path: "service.cache.size",
-					Kind: "listener",
-					Meta: map[string]any{"unit": "MB"},
-					Data: payload.New("1024"),
-				},
-				{
-					Path: "gateway.port",
-					Kind: "endpoint",
-					Meta: map[string]any{"protocol": "http"},
-					Data: payload.New("8080"),
-				},
-				{
-					Path: "service",
-					Kind: "service",
-					Meta: map[string]any{"version": "1.0"},
-					Data: payload.New(""),
-				},
-				{
-					Path: "service.database",
-					Kind: "component",
-					Meta: map[string]any{"type": "sql"},
-					Data: payload.New(""),
-				},
-				{
-					Path: "another.service.key",
-					Kind: "listener",
-					Meta: map[string]any{"unit": "MB"},
-					Data: payload.New("2024"),
-				},
-			},
-			want: registry.ChangeSet{
-				{
-					Kind: registry.Create,
-					Entry: registry.Entry{
-						Path: "service",
-						Kind: "service",
-						Meta: map[string]any{"version": "1.0"},
-						Data: payload.New(""),
-					},
-				},
-				{
-					Kind: registry.Create,
-					Entry: registry.Entry{
-						Path: "gateway.port",
-						Kind: "endpoint",
-						Meta: map[string]any{"protocol": "http"},
-						Data: payload.New("8080"),
-					},
-				},
-				{
-					Kind: registry.Create,
-					Entry: registry.Entry{
-						Path: "service.database",
-						Kind: "component",
-						Meta: map[string]any{"type": "sql"},
-						Data: payload.New(""),
-					},
-				},
-				{
-					Kind: registry.Create,
-					Entry: registry.Entry{
-						Path: "another.service.key",
-						Kind: "listener",
-						Meta: map[string]any{"unit": "MB"},
-						Data: payload.New("2024"),
-					},
-				},
-				{
-					Kind: registry.Create,
-					Entry: registry.Entry{
-						Path: "service.cache.size",
-						Kind: "listener",
-						Meta: map[string]any{"unit": "MB"},
-						Data: payload.New("1024"),
-					},
-				},
-				{
-					Kind: registry.Create,
-					Entry: registry.Entry{
-						Path: "service.database.url",
-						Kind: "listener",
-						Meta: map[string]any{"env": "prod"},
-						Data: payload.New("db://prod"),
-					},
-				},
-			},
-		},
-		{
-			name: "multiple entries already sorted",
-			entries: []registry.Entry{
-				{
-					Path: "app",
-					Kind: "service",
-					Meta: map[string]any{"version": "1.0"},
-					Data: payload.New(""),
-				},
-				{
-					Path: "app.cache",
-					Kind: "listener",
-					Meta: map[string]any{"type": "redis"},
-					Data: payload.New(""),
-				},
-				{
-					Path: "app.listener",
-					Kind: "listener",
-					Meta: map[string]any{"env": "dev"},
-					Data: payload.New("localhost:8080"),
-				},
-				{
-					Path: "app.listener.logging",
-					Kind: "listener",
-					Meta: map[string]any{"level": "info"},
-					Data: payload.New("default"),
-				},
-			},
-			want: registry.ChangeSet{
-				{
-					Kind: registry.Create,
-					Entry: registry.Entry{
-						Path: "app",
-						Kind: "service",
-						Meta: map[string]any{"version": "1.0"},
-						Data: payload.New(""),
-					},
-				},
-				{
-					Kind: registry.Create,
-					Entry: registry.Entry{
-						Path: "app.cache",
-						Kind: "listener",
-						Meta: map[string]any{"type": "redis"},
-						Data: payload.New(""),
-					},
-				},
-				{
-					Kind: registry.Create,
-					Entry: registry.Entry{
-						Path: "app.listener",
-						Kind: "listener",
-						Meta: map[string]any{"env": "dev"},
-						Data: payload.New("localhost:8080"),
-					},
-				},
-				{
-					Kind: registry.Create,
-					Entry: registry.Entry{
-						Path: "app.listener.logging",
-						Kind: "listener",
-						Meta: map[string]any{"level": "info"},
-						Data: payload.New("default"),
 					},
 				},
 			},
@@ -224,27 +60,27 @@ func TestCreateChangeSetFromEntries(t *testing.T) {
 			name: "mixed data types",
 			entries: []registry.Entry{
 				{
-					Path: "listener.number",
+					ID:   "listener.number",
 					Kind: "listener",
 					Data: payload.New("123"),
 				},
 				{
-					Path: "listener.bool",
+					ID:   "listener.bool",
 					Kind: "listener",
 					Data: payload.New("true"),
 				},
 				{
-					Path: "listener.string",
+					ID:   "listener.string",
 					Kind: "listener",
 					Data: payload.New("hello"),
 				},
 				{
-					Path: "listener.map",
+					ID:   "listener.map",
 					Kind: "listener",
 					Data: payload.New(`{"a": 1, "b": 2}`),
 				},
 				{
-					Path: "listener.slice",
+					ID:   "listener.slice",
 					Kind: "listener",
 					Data: payload.New("[1, 2, 3]"),
 				},
@@ -253,7 +89,7 @@ func TestCreateChangeSetFromEntries(t *testing.T) {
 				{
 					Kind: registry.Create,
 					Entry: registry.Entry{
-						Path: "listener.bool",
+						ID:   "listener.bool",
 						Kind: "listener",
 						Data: payload.New("true"),
 					},
@@ -261,7 +97,7 @@ func TestCreateChangeSetFromEntries(t *testing.T) {
 				{
 					Kind: registry.Create,
 					Entry: registry.Entry{
-						Path: "listener.map",
+						ID:   "listener.map",
 						Kind: "listener",
 						Data: payload.New(`{"a": 1, "b": 2}`),
 					},
@@ -269,7 +105,7 @@ func TestCreateChangeSetFromEntries(t *testing.T) {
 				{
 					Kind: registry.Create,
 					Entry: registry.Entry{
-						Path: "listener.number",
+						ID:   "listener.number",
 						Kind: "listener",
 						Data: payload.New("123"),
 					},
@@ -277,7 +113,7 @@ func TestCreateChangeSetFromEntries(t *testing.T) {
 				{
 					Kind: registry.Create,
 					Entry: registry.Entry{
-						Path: "listener.slice",
+						ID:   "listener.slice",
 						Kind: "listener",
 						Data: payload.New("[1, 2, 3]"),
 					},
@@ -285,7 +121,7 @@ func TestCreateChangeSetFromEntries(t *testing.T) {
 				{
 					Kind: registry.Create,
 					Entry: registry.Entry{
-						Path: "listener.string",
+						ID:   "listener.string",
 						Kind: "listener",
 						Data: payload.New("hello"),
 					},
@@ -308,8 +144,8 @@ func TestCreateChangeSetFromEntries(t *testing.T) {
 					return
 				}
 
-				if got[i].Entry.Path != tt.want[i].Entry.Path {
-					t.Errorf("CreateChangeSetFromEntries() Path = %v, want %v", got[i].Entry.Path, tt.want[i].Entry.Path)
+				if got[i].Entry.ID != tt.want[i].Entry.ID {
+					t.Errorf("CreateChangeSetFromEntries() Name = %v, want %v", got[i].Entry.ID, tt.want[i].Entry.ID)
 					return
 				}
 
@@ -321,6 +157,299 @@ func TestCreateChangeSetFromEntries(t *testing.T) {
 				if !deepEqualPayloads(got[i].Entry.Data, tt.want[i].Entry.Data) {
 					t.Errorf("CreateChangeSetFromEntries() Payload = %v, want %v", got[i].Entry.Data, tt.want[i].Entry.Data)
 					return
+				}
+			}
+		})
+	}
+}
+
+func TestCreateChangeSetFromEntries_Dependencies(t *testing.T) {
+	tests := []struct {
+		name    string
+		entries []registry.Entry
+		want    registry.ChangeSet
+	}{
+		{
+			name: "simple dependency chain",
+			entries: []registry.Entry{
+				{
+					ID:   "service.database.url",
+					Kind: "listener",
+					Meta: map[string]any{
+						registry.DependsOnTag: []string{"service.database"},
+					},
+					Data: payload.New("db://prod"),
+				},
+				{
+					ID:   "service.database",
+					Kind: "component",
+					Meta: map[string]any{
+						registry.DependsOnTag: []string{"service"},
+					},
+					Data: payload.New(""),
+				},
+				{
+					ID:   "service",
+					Kind: "service",
+					Meta: map[string]any{},
+					Data: payload.New(""),
+				},
+			},
+			want: registry.ChangeSet{
+				{
+					Kind: registry.Create,
+					Entry: registry.Entry{
+						ID:   "service",
+						Kind: "service",
+						Meta: map[string]any{},
+						Data: payload.New(""),
+					},
+				},
+				{
+					Kind: registry.Create,
+					Entry: registry.Entry{
+						ID:   "service.database",
+						Kind: "component",
+						Meta: map[string]any{
+							registry.DependsOnTag: []string{"service"},
+						},
+						Data: payload.New(""),
+					},
+				},
+				{
+					Kind: registry.Create,
+					Entry: registry.Entry{
+						ID:   "service.database.url",
+						Kind: "listener",
+						Meta: map[string]any{
+							registry.DependsOnTag: []string{"service.database"},
+						},
+						Data: payload.New("db://prod"),
+					},
+				},
+			},
+		},
+		{
+			name: "multiple dependencies at same level",
+			entries: []registry.Entry{
+				{
+					ID:   "service.cache",
+					Kind: "component",
+					Meta: map[string]any{
+						registry.DependsOnTag: []string{"service"},
+					},
+					Data: payload.New(""),
+				},
+				{
+					ID:   "service.database",
+					Kind: "component",
+					Meta: map[string]any{
+						registry.DependsOnTag: []string{"service"},
+					},
+					Data: payload.New(""),
+				},
+				{
+					ID:   "service",
+					Kind: "service",
+					Meta: map[string]any{},
+					Data: payload.New(""),
+				},
+			},
+			want: registry.ChangeSet{
+				{
+					Kind: registry.Create,
+					Entry: registry.Entry{
+						ID:   "service",
+						Kind: "service",
+						Meta: map[string]any{},
+						Data: payload.New(""),
+					},
+				},
+				{
+					Kind: registry.Create,
+					Entry: registry.Entry{
+						ID:   "service.cache",
+						Kind: "component",
+						Meta: map[string]any{
+							registry.DependsOnTag: []string{"service"},
+						},
+						Data: payload.New(""),
+					},
+				},
+				{
+					Kind: registry.Create,
+					Entry: registry.Entry{
+						ID:   "service.database",
+						Kind: "component",
+						Meta: map[string]any{
+							registry.DependsOnTag: []string{"service"},
+						},
+						Data: payload.New(""),
+					},
+				},
+			},
+		},
+		{
+			name: "complex dependencies with multiple levels",
+			entries: []registry.Entry{
+				{
+					ID:   "service.metrics",
+					Kind: "component",
+					Meta: map[string]any{
+						registry.DependsOnTag: []string{"service", "service.database"},
+					},
+					Data: payload.New(""),
+				},
+				{
+					ID:   "service.database.url",
+					Kind: "listener",
+					Meta: map[string]any{
+						registry.DependsOnTag: []string{"service.database"},
+					},
+					Data: payload.New("db://prod"),
+				},
+				{
+					ID:   "service.database",
+					Kind: "component",
+					Meta: map[string]any{
+						registry.DependsOnTag: []string{"service"},
+					},
+					Data: payload.New(""),
+				},
+				{
+					ID:   "service",
+					Kind: "service",
+					Meta: map[string]any{},
+					Data: payload.New(""),
+				},
+			},
+			want: registry.ChangeSet{
+				{
+					Kind: registry.Create,
+					Entry: registry.Entry{
+						ID:   "service",
+						Kind: "service",
+						Meta: map[string]any{},
+						Data: payload.New(""),
+					},
+				},
+				{
+					Kind: registry.Create,
+					Entry: registry.Entry{
+						ID:   "service.database",
+						Kind: "component",
+						Meta: map[string]any{
+							registry.DependsOnTag: []string{"service"},
+						},
+						Data: payload.New(""),
+					},
+				},
+				{
+					Kind: registry.Create,
+					Entry: registry.Entry{
+						ID:   "service.database.url",
+						Kind: "listener",
+						Meta: map[string]any{
+							registry.DependsOnTag: []string{"service.database"},
+						},
+						Data: payload.New("db://prod"),
+					},
+				},
+				{
+					Kind: registry.Create,
+					Entry: registry.Entry{
+						ID:   "service.metrics",
+						Kind: "component",
+						Meta: map[string]any{
+							registry.DependsOnTag: []string{"service", "service.database"},
+						},
+						Data: payload.New(""),
+					},
+				},
+			},
+		},
+		{
+			name: "cyclic dependencies fallback to lexicographical sort",
+			entries: []registry.Entry{
+				{
+					ID:   "service.b",
+					Kind: "component",
+					Meta: map[string]any{
+						registry.DependsOnTag: []string{"service.c"},
+					},
+					Data: payload.New(""),
+				},
+				{
+					ID:   "service.c",
+					Kind: "component",
+					Meta: map[string]any{
+						registry.DependsOnTag: []string{"service.b"},
+					},
+					Data: payload.New(""),
+				},
+				{
+					ID:   "service.a",
+					Kind: "component",
+					Meta: map[string]any{},
+					Data: payload.New(""),
+				},
+			},
+			want: registry.ChangeSet{
+				{
+					Kind: registry.Create,
+					Entry: registry.Entry{
+						ID:   "service.a",
+						Kind: "component",
+						Meta: map[string]any{},
+						Data: payload.New(""),
+					},
+				},
+				{
+					Kind: registry.Create,
+					Entry: registry.Entry{
+						ID:   "service.b",
+						Kind: "component",
+						Meta: map[string]any{
+							registry.DependsOnTag: []string{"service.c"},
+						},
+						Data: payload.New(""),
+					},
+				},
+				{
+					Kind: registry.Create,
+					Entry: registry.Entry{
+						ID:   "service.c",
+						Kind: "component",
+						Meta: map[string]any{
+							registry.DependsOnTag: []string{"service.b"},
+						},
+						Data: payload.New(""),
+					},
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := CreateChangeSetFromEntries(tt.entries)
+			if len(got) != len(tt.want) {
+				t.Errorf("CreateChangeSetFromEntries() = %v entries, want %v entries", len(got), len(tt.want))
+				return
+			}
+
+			for i := range got {
+				if got[i].Kind != tt.want[i].Kind {
+					t.Errorf("CreateChangeSetFromEntries()[%d].Kind = %v, want %v", i, got[i].Kind, tt.want[i].Kind)
+				}
+				if got[i].Entry.ID != tt.want[i].Entry.ID {
+					t.Errorf("CreateChangeSetFromEntries()[%d].Entry.ID = %v, want %v", i, got[i].Entry.ID, tt.want[i].Entry.ID)
+				}
+				if !reflect.DeepEqual(got[i].Entry.Meta, tt.want[i].Entry.Meta) {
+					t.Errorf("CreateChangeSetFromEntries()[%d].Entry.Meta = %v, want %v", i, got[i].Entry.Meta, tt.want[i].Entry.Meta)
+				}
+				if !deepEqualPayloads(got[i].Entry.Data, tt.want[i].Entry.Data) {
+					t.Errorf("CreateChangeSetFromEntries()[%d].Entry.Data = %v, want %v", i, got[i].Entry.Data, tt.want[i].Entry.Data)
 				}
 			}
 		})

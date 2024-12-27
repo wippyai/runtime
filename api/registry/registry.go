@@ -15,13 +15,21 @@ const (
 	Accept events.Kind = "entry.accept"
 	Reject events.Kind = "entry.reject"
 
+	Changes events.Kind = "entry.(create|update|delete)"
+
+	Begin   events.Kind = "registry.begin"
+	Commit  events.Kind = "registry.commit"
+	Discard events.Kind = "registry.discard"
+
 	RootVersion uint = 0
+
+	DependsOnTag = "depends_on"
 )
 
 type (
-	// Path represents a unique identifier for a registry entry.
+	// ID represents a unique identifier for a registry entry. Most entity events are identified by this ID.
 	// It typically uses a hierarchical structure (e.g., "service.database.url").
-	Path string
+	ID string
 
 	// Kind is a string representing the type of an entry (e.g., "listener", "service", "endpoint").
 	// This helps categorize entries for different purposes.
@@ -46,8 +54,8 @@ type (
 
 	// Entry represents a single entry in the registry.
 	Entry struct {
-		// Path is the unique identifier for the entry.
-		Path Path
+		// ID is the unique identifier for the entry.
+		ID ID
 		// Kind is the type/category of the entry.
 		Kind Kind
 		// Meta contains any additional metadata about the entry.
@@ -63,7 +71,7 @@ type (
 	Operation struct {
 		// Kind is the type of operation.
 		Kind events.Kind
-		// Entry is the entry affected by the operation. For Delete operations, only the Path field might be relevant.
+		// Entry is the entry affected by the operation. For Delete operations, only the ID field might be relevant.
 		Entry Entry
 	}
 
@@ -99,7 +107,7 @@ type (
 		// GetAllEntries retrieves all entries in the registry's current state.
 		GetAllEntries() ([]Entry, error)
 		// GetEntry retrieves a specific entry by its path. Returns an error if the entry is not found.
-		GetEntry(Path) (Entry, error)
+		GetEntry(ID) (Entry, error)
 	}
 
 	// History defines methods for managing the version history of the registry.
@@ -124,3 +132,55 @@ type (
 		Transition(context.Context, State, ChangeSet) (State, error)
 	}
 )
+
+func (m Metadata) StringValue(key string) string {
+	if v, ok := m[key]; ok {
+		if s, ok := v.(string); ok {
+			return s
+		}
+	}
+	return ""
+}
+
+func (m Metadata) IntValue(key string) int {
+	if v, ok := m[key]; ok {
+		if i, ok := v.(int); ok {
+			return i
+		}
+	}
+	return 0
+}
+
+func (m Metadata) BoolValue(key string) bool {
+	if v, ok := m[key]; ok {
+		if b, ok := v.(bool); ok {
+			return b
+		}
+	}
+	return false
+}
+
+func (m Metadata) TagValue(key string) []string {
+	if v, ok := m[key]; ok {
+		// Case 1: Already a []string
+		if s, ok := v.([]string); ok {
+			return s
+		}
+
+		// Case 2: Single string
+		if s, ok := v.(string); ok {
+			return []string{s}
+		}
+
+		if arr, ok := v.([]any); ok {
+			result := make([]string, len(arr))
+			for i, val := range arr {
+				if str, ok := val.(string); ok {
+					result[i] = str
+				}
+			}
+			return result
+		}
+	}
+	return nil
+}

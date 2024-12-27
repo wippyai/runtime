@@ -7,6 +7,7 @@ import (
 	"github.com/ponyruntime/pony/internal/version"
 	"go.uber.org/zap"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -60,9 +61,9 @@ func TestStateBuilder_BuildState_HappyPath(t *testing.T) {
 	v3 := version.FromParent(v2, 3)
 
 	// Create some sample entries.
-	entry1 := registry.Entry{Path: "/path/1", Kind: "kind1", Data: payload.New("data1")}
-	entry2 := registry.Entry{Path: "/path/2", Kind: "kind2", Data: payload.New("data2")}
-	entry3 := registry.Entry{Path: "/path/3", Kind: "kind3", Data: payload.New("data3")}
+	entry1 := registry.Entry{ID: "/path/1", Kind: "kind1", Data: payload.New("data1")}
+	entry2 := registry.Entry{ID: "/path/2", Kind: "kind2", Data: payload.New("data2")}
+	entry3 := registry.Entry{ID: "/path/3", Kind: "kind3", Data: payload.New("data3")}
 
 	// Create the mock history.
 	history := NewMockHistory()
@@ -132,7 +133,7 @@ func TestStateBuilder_BuildState_UpdateDeleteNonExistent(t *testing.T) {
 	v1 := version.FromParent(v0, 1)
 	v2 := version.FromParent(v1, 2)
 
-	entry1 := registry.Entry{Path: "/path/1", Kind: "kind1", Data: payload.New("data1")}
+	entry1 := registry.Entry{ID: "/path/1", Kind: "kind1", Data: payload.New("data1")}
 
 	history := NewMockHistory()
 	_ = history.Save(v0, registry.ChangeSet{}, false)
@@ -196,7 +197,7 @@ func TestStateBuilder_BuildState_ConflictingCreates(t *testing.T) {
 	v1 := version.FromParent(v0, 1)
 	v2 := version.FromParent(v1, 2)
 
-	entry1 := registry.Entry{Path: "/path/1", Kind: "kind1", Data: payload.New("data1")}
+	entry1 := registry.Entry{ID: "/path/1", Kind: "kind1", Data: payload.New("data1")}
 
 	history := NewMockHistory()
 	_ = history.Save(v0, registry.ChangeSet{}, false)
@@ -232,8 +233,8 @@ func TestStateBuilder_BuildState_IntermediateVersion(t *testing.T) {
 	v2 := version.FromParent(v1, 2)
 	v3 := version.FromParent(v2, 3)
 
-	entry1 := registry.Entry{Path: "/path/1", Kind: "kind1", Data: payload.New("data1")}
-	entry2 := registry.Entry{Path: "/path/2", Kind: "kind2", Data: payload.New("data2")}
+	entry1 := registry.Entry{ID: "/path/1", Kind: "kind1", Data: payload.New("data1")}
+	entry2 := registry.Entry{ID: "/path/2", Kind: "kind2", Data: payload.New("data2")}
 
 	history := NewMockHistory()
 	_ = history.Save(v0, registry.ChangeSet{}, false)
@@ -312,7 +313,7 @@ func TestStateBuilder_BuildState_GetError(t *testing.T) {
 	v0 := version.New(registry.RootVersion)
 	v1 := version.FromParent(v0, 1)
 
-	entry1 := registry.Entry{Path: "/path/1", Kind: "kind1", Data: payload.New("data1")}
+	entry1 := registry.Entry{ID: "/path/1", Kind: "kind1", Data: payload.New("data1")}
 
 	history := &GetErrorMockHistory{
 		MockHistory: NewMockHistory(),
@@ -341,7 +342,7 @@ func TestStateBuilder_BuildDelta_SimpleCreates(t *testing.T) {
 	v0 := version.New(registry.RootVersion)
 	v1 := version.FromParent(v0, 1)
 
-	entry1 := registry.Entry{Path: "/path/1", Kind: "kind1", Data: payload.New("data1")}
+	entry1 := registry.Entry{ID: "/path/1", Kind: "kind1", Data: payload.New("data1")}
 
 	history := NewMockHistory()
 	_ = history.Save(v0, registry.ChangeSet{}, false)
@@ -380,8 +381,8 @@ func TestStateBuilder_BuildDelta_SimpleUpdates(t *testing.T) {
 	v1 := version.FromParent(v0, 1)
 	v2 := version.FromParent(v1, 2)
 
-	entry1 := registry.Entry{Path: "/path/1", Kind: "kind1", Data: payload.New("data1")}
-	entry1Updated := registry.Entry{Path: "/path/1", Kind: "kind1", Data: payload.New("data2")}
+	entry1 := registry.Entry{ID: "/path/1", Kind: "kind1", Data: payload.New("data1")}
+	entry1Updated := registry.Entry{ID: "/path/1", Kind: "kind1", Data: payload.New("data2")}
 
 	history := NewMockHistory()
 	_ = history.Save(v0, registry.ChangeSet{}, false)
@@ -423,7 +424,7 @@ func TestStateBuilder_BuildDelta_SimpleDeletes(t *testing.T) {
 	v1 := version.FromParent(v0, 1)
 	v2 := version.FromParent(v1, 2)
 
-	entry1 := registry.Entry{Path: "/path/1", Kind: "kind1", Data: payload.New("data1")}
+	entry1 := registry.Entry{ID: "/path/1", Kind: "kind1", Data: payload.New("data1")}
 
 	history := NewMockHistory()
 	_ = history.Save(v0, registry.ChangeSet{}, false)
@@ -465,9 +466,9 @@ func TestStateBuilder_BuildDelta_MixedOperations(t *testing.T) {
 	v1 := version.FromParent(v0, 1)
 	v2 := version.FromParent(v1, 2)
 
-	entry1 := registry.Entry{Path: "/path/1", Kind: "kind1", Data: payload.New("data1")}
-	entry2 := registry.Entry{Path: "/path/2", Kind: "kind2", Data: payload.New("data2")}
-	entry2Updated := registry.Entry{Path: "/path/2", Kind: "kind2", Data: payload.New("data2Updated")}
+	entry1 := registry.Entry{ID: "/path/1", Kind: "kind1", Data: payload.New("data1")}
+	entry2 := registry.Entry{ID: "/path/2", Kind: "kind2", Data: payload.New("data2")}
+	entry2Updated := registry.Entry{ID: "/path/2", Kind: "kind2", Data: payload.New("data2Updated")}
 
 	history := NewMockHistory()
 	_ = history.Save(v0, registry.ChangeSet{}, false)
@@ -511,7 +512,7 @@ func TestStateBuilder_BuildDelta_NoChanges(t *testing.T) {
 	v0 := version.New(registry.RootVersion)
 	v1 := version.FromParent(v0, 1)
 
-	entry1 := registry.Entry{Path: "/path/1", Kind: "kind1", Data: payload.New("data1")}
+	entry1 := registry.Entry{ID: "/path/1", Kind: "kind1", Data: payload.New("data1")}
 
 	history := NewMockHistory()
 	_ = history.Save(v0, registry.ChangeSet{}, false)
@@ -549,7 +550,7 @@ func TestStateBuilder_BuildDelta_NoChanges_SameVersion(t *testing.T) {
 	v0 := version.New(registry.RootVersion)
 	v1 := version.FromParent(v0, 1)
 
-	entry1 := registry.Entry{Path: "/path/1", Kind: "kind1", Data: payload.New("data1")}
+	entry1 := registry.Entry{ID: "/path/1", Kind: "kind1", Data: payload.New("data1")}
 
 	history := NewMockHistory()
 	_ = history.Save(v0, registry.ChangeSet{}, false)
@@ -583,7 +584,7 @@ func TestStateBuilder_BuildDelta_NoChanges_IdenticalStates(t *testing.T) {
 	v1 := version.FromParent(v0, 1)
 	v2 := version.FromParent(v1, 2) // v2 will have the same state as v1
 
-	entry1 := registry.Entry{Path: "/path/1", Kind: "kind1", Data: payload.New("data1")}
+	entry1 := registry.Entry{ID: "/path/1", Kind: "kind1", Data: payload.New("data1")}
 
 	history := NewMockHistory()
 	_ = history.Save(v0, registry.ChangeSet{}, false)
@@ -652,8 +653,8 @@ func TestStateBuilder_BuildDelta_UpdateFollowedByDelete(t *testing.T) {
 	v1 := version.FromParent(v0, 1)
 	v2 := version.FromParent(v1, 2)
 
-	entry1 := registry.Entry{Path: "/path/1", Kind: "kind1", Data: payload.New("data1")}
-	entry1Updated := registry.Entry{Path: "/path/1", Kind: "kind1", Data: payload.New("data1Updated")}
+	entry1 := registry.Entry{ID: "/path/1", Kind: "kind1", Data: payload.New("data1")}
+	entry1Updated := registry.Entry{ID: "/path/1", Kind: "kind1", Data: payload.New("data1Updated")}
 
 	history := NewMockHistory()
 	_ = history.Save(v0, registry.ChangeSet{}, false)
@@ -698,12 +699,12 @@ func TestStateBuilder_BuildDelta_ComplexScenario(t *testing.T) {
 	v4 := version.FromParent(v3, 4)
 	v5 := version.FromParent(v4, 5)
 
-	// Entries
-	entryParent := registry.Entry{Path: "/parent", Kind: "kindParent", Data: payload.New("parentData")}
-	entryChild1 := registry.Entry{Path: "/parent/child1", Kind: "kindChild", Data: payload.New("child1Data")}
-	entryChild2 := registry.Entry{Path: "/parent/child2", Kind: "kindChild", Data: payload.New("child2Data")}
-	entryChild2Updated := registry.Entry{Path: "/parent/child2", Kind: "kindChild", Data: payload.New("child2DataUpdated")} // The updated value is not directly relevant here
-	entryOther := registry.Entry{Path: "/other", Kind: "kindOther", Data: payload.New("otherData")}
+	// List
+	entryParent := registry.Entry{ID: "/parent", Kind: "kindParent", Data: payload.New("parentData")}
+	entryChild1 := registry.Entry{ID: "/parent/child1", Kind: "kindChild", Data: payload.New("child1Data")}
+	entryChild2 := registry.Entry{ID: "/parent/child2", Kind: "kindChild", Data: payload.New("child2Data")}
+	entryChild2Updated := registry.Entry{ID: "/parent/child2", Kind: "kindChild", Data: payload.New("child2DataUpdated")} // The updated value is not directly relevant here
+	entryOther := registry.Entry{ID: "/other", Kind: "kindOther", Data: payload.New("otherData")}
 
 	history := NewMockHistory()
 	_ = history.Save(v0, registry.ChangeSet{}, false)
@@ -763,12 +764,12 @@ func TestStateBuilder_BuildDelta_ComplexScenario_Inversed(t *testing.T) {
 	v4 := version.FromParent(v3, 4)
 	v5 := version.FromParent(v4, 5)
 
-	// Entries
-	entryParent := registry.Entry{Path: "/parent", Kind: "kindParent", Data: payload.New("parentData")}
-	entryChild1 := registry.Entry{Path: "/parent/child1", Kind: "kindChild", Data: payload.New("child1Data")}
-	entryChild2 := registry.Entry{Path: "/parent/child2", Kind: "kindChild", Data: payload.New("child2Data")}
-	entryChild2Updated := registry.Entry{Path: "/parent/child2", Kind: "kindChild", Data: payload.New("child2DataUpdated")}
-	entryOther := registry.Entry{Path: "/other", Kind: "kindOther", Data: payload.New("otherData")}
+	// List
+	entryParent := registry.Entry{ID: "/parent", Kind: "kindParent", Data: payload.New("parentData")}
+	entryChild1 := registry.Entry{ID: "/parent/child1", Kind: "kindChild", Data: payload.New("child1Data")}
+	entryChild2 := registry.Entry{ID: "/parent/child2", Kind: "kindChild", Data: payload.New("child2Data")}
+	entryChild2Updated := registry.Entry{ID: "/parent/child2", Kind: "kindChild", Data: payload.New("child2DataUpdated")}
+	entryOther := registry.Entry{ID: "/other", Kind: "kindOther", Data: payload.New("otherData")}
 
 	history := NewMockHistory()
 	_ = history.Save(v0, registry.ChangeSet{}, false)
@@ -827,10 +828,10 @@ func TestStateBuilder_BuildDelta_FromNewToOld(t *testing.T) {
 	v2 := version.FromParent(v1, 2)
 	v3 := version.FromParent(v2, 3)
 
-	// Entries
-	entry1 := registry.Entry{Path: "/path/1", Kind: "kind1", Data: payload.New("data1")}
-	entry2 := registry.Entry{Path: "/path/2", Kind: "kind2", Data: payload.New("data2")}
-	entry2Updated := registry.Entry{Path: "/path/2", Kind: "kind2", Data: payload.New("data2Updated")}
+	// List
+	entry1 := registry.Entry{ID: "/path/1", Kind: "kind1", Data: payload.New("data1")}
+	entry2 := registry.Entry{ID: "/path/2", Kind: "kind2", Data: payload.New("data2")}
+	entry2Updated := registry.Entry{ID: "/path/2", Kind: "kind2", Data: payload.New("data2Updated")}
 
 	history := NewMockHistory()
 	_ = history.Save(v0, registry.ChangeSet{}, false)
@@ -872,4 +873,328 @@ func TestStateBuilder_BuildDelta_FromNewToOld(t *testing.T) {
 	if !reflect.DeepEqual(delta, expectedDelta) {
 		t.Errorf("unexpected delta.\ngot: %v\nwant: %v", delta, expectedDelta)
 	}
+}
+
+func TestStateBuilder_BuildDelta_SimpleCreateDependencies(t *testing.T) {
+	v0 := version.New(registry.RootVersion)
+	v1 := version.FromParent(v0, 1)
+
+	// Create entries with dependencies
+	database := registry.Entry{
+		ID:   "service.database",
+		Kind: "component",
+		Meta: map[string]any{
+			registry.DependsOnTag: []string{"service"},
+		},
+		Data: payload.New(""),
+	}
+	service := registry.Entry{
+		ID:   "service",
+		Kind: "service",
+		Meta: map[string]any{},
+		Data: payload.New(""),
+	}
+
+	history := NewMockHistory()
+	_ = history.Save(v0, registry.ChangeSet{}, false)
+	// Save them in wrong order intentionally to test sorting
+	_ = history.Save(v1, registry.ChangeSet{
+		{Kind: registry.Create, Entry: database},
+		{Kind: registry.Create, Entry: service},
+	}, false)
+
+	builder := NewStateBuilder(zap.NewNop())
+
+	// Build states
+	fromState, err := builder.BuildState(history, v0)
+	if err != nil {
+		t.Fatalf("unexpected error building state for v0: %v", err)
+	}
+	toState, err := builder.BuildState(history, v1)
+	if err != nil {
+		t.Fatalf("unexpected error building state for v1: %v", err)
+	}
+
+	delta, err := builder.BuildDelta(fromState, toState)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Expect service to be created before database
+	expectedDelta := registry.ChangeSet{
+		{Kind: registry.Create, Entry: service},
+		{Kind: registry.Create, Entry: database},
+	}
+
+	if !reflect.DeepEqual(delta, expectedDelta) {
+		t.Errorf("unexpected delta.\ngot: %v\nwant: %v", delta, expectedDelta)
+	}
+}
+
+func TestStateBuilder_BuildDelta_DeleteDependencies(t *testing.T) {
+	v0 := version.New(registry.RootVersion)
+	v1 := version.FromParent(v0, 1)
+	v2 := version.FromParent(v1, 2)
+
+	// Create entries with dependencies
+	database := registry.Entry{
+		ID:   "service.database",
+		Kind: "component",
+		Meta: map[string]any{
+			registry.DependsOnTag: []string{"service"},
+		},
+		Data: payload.New(""),
+	}
+	service := registry.Entry{
+		ID:   "service",
+		Kind: "service",
+		Meta: map[string]any{},
+		Data: payload.New(""),
+	}
+
+	history := NewMockHistory()
+	_ = history.Save(v0, registry.ChangeSet{}, false)
+	_ = history.Save(v1, registry.ChangeSet{
+		{Kind: registry.Create, Entry: service},
+		{Kind: registry.Create, Entry: database},
+	}, false)
+	// Delete in wrong order intentionally
+	_ = history.Save(v2, registry.ChangeSet{
+		{Kind: registry.Delete, Entry: service}, // Should be deleted after database
+		{Kind: registry.Delete, Entry: database},
+	}, false)
+
+	builder := NewStateBuilder(zap.NewNop())
+
+	// Build states
+	fromState, err := builder.BuildState(history, v1)
+	if err != nil {
+		t.Fatalf("unexpected error building state for v1: %v", err)
+	}
+	toState, err := builder.BuildState(history, v2)
+	if err != nil {
+		t.Fatalf("unexpected error building state for v2: %v", err)
+	}
+
+	delta, err := builder.BuildDelta(fromState, toState)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Expect database to be deleted before service
+	expectedDelta := registry.ChangeSet{
+		{Kind: registry.Delete, Entry: database},
+		{Kind: registry.Delete, Entry: service},
+	}
+
+	if !reflect.DeepEqual(delta, expectedDelta) {
+		t.Errorf("unexpected delta.\ngot: %v\nwant: %v", delta, expectedDelta)
+	}
+}
+
+func TestStateBuilder_BuildDelta_UpdateDependencies(t *testing.T) {
+	v0 := version.New(registry.RootVersion)
+	v1 := version.FromParent(v0, 1)
+	v2 := version.FromParent(v1, 2)
+
+	// Create entries with dependencies
+	service := registry.Entry{
+		ID:   "service",
+		Kind: "service",
+		Meta: map[string]any{},
+		Data: payload.New("v1"),
+	}
+	database := registry.Entry{
+		ID:   "service.database",
+		Kind: "component",
+		Meta: map[string]any{
+			registry.DependsOnTag: []string{"service"},
+		},
+		Data: payload.New("v1"),
+	}
+
+	// Updated versions
+	serviceV2 := registry.Entry{
+		ID:   "service",
+		Kind: "service",
+		Meta: map[string]any{},
+		Data: payload.New("v2"),
+	}
+	databaseV2 := registry.Entry{
+		ID:   "service.database",
+		Kind: "component",
+		Meta: map[string]any{
+			registry.DependsOnTag: []string{"service"},
+		},
+		Data: payload.New("v2"),
+	}
+
+	history := NewMockHistory()
+	_ = history.Save(v0, registry.ChangeSet{}, false)
+	_ = history.Save(v1, registry.ChangeSet{
+		{Kind: registry.Create, Entry: service},
+		{Kind: registry.Create, Entry: database},
+	}, false)
+	// Update in wrong order intentionally
+	_ = history.Save(v2, registry.ChangeSet{
+		{Kind: registry.Update, Entry: databaseV2}, // Should be updated after service
+		{Kind: registry.Update, Entry: serviceV2},
+	}, false)
+
+	builder := NewStateBuilder(zap.NewNop())
+
+	// Build states
+	fromState, err := builder.BuildState(history, v1)
+	if err != nil {
+		t.Fatalf("unexpected error building state for v1: %v", err)
+	}
+	toState, err := builder.BuildState(history, v2)
+	if err != nil {
+		t.Fatalf("unexpected error building state for v2: %v", err)
+	}
+
+	delta, err := builder.BuildDelta(fromState, toState)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Expect service to be updated before database
+	expectedDelta := registry.ChangeSet{
+		{Kind: registry.Update, Entry: serviceV2},
+		{Kind: registry.Update, Entry: databaseV2},
+	}
+
+	if !reflect.DeepEqual(delta, expectedDelta) {
+		t.Errorf("unexpected delta.\ngot: %v\nwant: %v", delta, expectedDelta)
+	}
+}
+
+func TestStateBuilder_BuildDelta_TreeTransformation(t *testing.T) {
+	// Initial state entries
+	a := registry.Entry{
+		ID:   "a",
+		Kind: "service",
+		Meta: map[string]any{},
+		Data: payload.New("v1"),
+	}
+	b := registry.Entry{
+		ID:   "b",
+		Kind: "component",
+		Meta: map[string]any{
+			registry.DependsOnTag: []string{"a"},
+		},
+		Data: payload.New("v1"),
+	}
+	c := registry.Entry{
+		ID:   "c",
+		Kind: "component",
+		Meta: map[string]any{
+			registry.DependsOnTag: []string{"b"},
+		},
+		Data: payload.New("v1"),
+	}
+	d := registry.Entry{
+		ID:   "d",
+		Kind: "component",
+		Meta: map[string]any{
+			registry.DependsOnTag: []string{"a"},
+		},
+		Data: payload.New("v1"),
+	}
+	e := registry.Entry{
+		ID:   "e",
+		Kind: "component",
+		Meta: map[string]any{
+			registry.DependsOnTag: []string{"d"},
+		},
+		Data: payload.New("v1"),
+	}
+
+	// Target state entries (updated and new)
+	aV2 := registry.Entry{
+		ID:   "a",
+		Kind: "service",
+		Meta: map[string]any{},
+		Data: payload.New("v2"),
+	}
+	bV2 := registry.Entry{
+		ID:   "b",
+		Kind: "component",
+		Meta: map[string]any{
+			registry.DependsOnTag: []string{"a"},
+		},
+		Data: payload.New("v2"),
+	}
+	cV2 := registry.Entry{
+		ID:   "c",
+		Kind: "component",
+		Meta: map[string]any{
+			registry.DependsOnTag: []string{"b"},
+		},
+		Data: payload.New("v2"),
+	}
+	f := registry.Entry{
+		ID:   "f",
+		Kind: "component",
+		Meta: map[string]any{
+			registry.DependsOnTag: []string{"a"},
+		},
+		Data: payload.New("v1"),
+	}
+	g := registry.Entry{
+		ID:   "g",
+		Kind: "component",
+		Meta: map[string]any{
+			registry.DependsOnTag: []string{"f"},
+		},
+		Data: payload.New("v1"),
+	}
+
+	// Build initial and target states
+	fromState := registry.State{d, a, c, e, b}
+	toState := registry.State{aV2, g, f, bV2, cV2}
+
+	builder := NewStateBuilder(zap.NewNop())
+
+	// Generate delta
+	delta, err := builder.BuildDelta(fromState, toState)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Expected order:
+	// 1. Delete e (leaf)
+	// 2. Delete d (depends on a)
+	// 3. Update a (root)
+	// 4. Update b (depends on a)
+	// 5. Update c (depends on b)
+	// 6. Create f (depends on a)
+	// 7. Create g (depends on f)
+	expectedDelta := registry.ChangeSet{
+		{Kind: registry.Delete, Entry: e},
+		{Kind: registry.Delete, Entry: d},
+		{Kind: registry.Update, Entry: aV2},
+		{Kind: registry.Update, Entry: bV2},
+		{Kind: registry.Update, Entry: cV2},
+		{Kind: registry.Create, Entry: f},
+		{Kind: registry.Create, Entry: g},
+	}
+
+	if !reflect.DeepEqual(delta, expectedDelta) {
+		t.Errorf("unexpected delta order.\ngot:  %v\nwant: %v", formatDelta(delta), formatDelta(expectedDelta))
+	}
+}
+
+// Helper function to format delta for error messages
+func formatDelta(cs registry.ChangeSet) string {
+	var result strings.Builder
+	result.WriteString("\n")
+	for _, op := range cs {
+		result.WriteString(fmt.Sprintf("  %s %s (deps: %v)\n",
+			op.Kind,
+			op.Entry.ID,
+			op.Entry.Meta[registry.DependsOnTag],
+		))
+	}
+	return result.String()
 }
