@@ -1,4 +1,4 @@
-package tasks
+package runtime
 
 import (
 	"context"
@@ -25,5 +25,10 @@ type (
 
 	Executor interface {
 		Execute(Task) (chan *Result, error)
+	}
+
+	// todo: do we need it?
+	Engine interface {
+		Execute(Task) (*Result, error)
 	}
 )

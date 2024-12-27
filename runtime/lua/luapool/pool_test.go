@@ -14,7 +14,7 @@ import (
 )
 
 func TestNewVM(t *testing.T) {
-	l, _ := zap.NewDevelopment()
+	l := zap.NewNop()
 	script := `
 	function hello(args)
     		return args.hello
@@ -42,7 +42,7 @@ func TestNewVM(t *testing.T) {
 }
 
 func TestNewVM2(t *testing.T) {
-	l, _ := zap.NewDevelopment()
+	l := zap.NewNop()
 	script := `
 	function hello(args)
     		return args.hello
@@ -96,7 +96,7 @@ func TestPool(t *testing.T) {
 }
 
 func TestPoolConcurrent(t *testing.T) {
-	l, _ := zap.NewDevelopment()
+	l := zap.NewNop()
 	script := `
 	function hello(args)
     		return args.hello
