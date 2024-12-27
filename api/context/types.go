@@ -2,15 +2,23 @@ package context
 
 import "net/http"
 
-type HttpContextCarrier struct {
+type HTTPContextCarrier struct {
 	r *http.Request
 	w http.ResponseWriter
 }
 
-func (h *HttpContextCarrier) Request() *http.Request {
+// NewHTTPContextCarrier creates a new HttpContextCarrier, after setting the request and response writer, they are real-only
+func NewHTTPContextCarrier(r *http.Request, w http.ResponseWriter) *HTTPContextCarrier {
+	return &HTTPContextCarrier{
+		r: r,
+		w: w,
+	}
+}
+
+func (h *HTTPContextCarrier) Request() *http.Request {
 	return h.r
 }
 
-func (h *HttpContextCarrier) ResponseWriter() http.ResponseWriter {
+func (h *HTTPContextCarrier) ResponseWriter() http.ResponseWriter {
 	return h.w
 }

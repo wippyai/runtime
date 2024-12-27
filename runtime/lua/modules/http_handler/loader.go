@@ -13,7 +13,11 @@ func (m *Module) Loader(l *lua.LState) int {
 
 	l.SetField(httpm, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
 		"method": m.method,
+		"write":  m.write,
 	}))
+
+	ud := l.NewUserData()
+	l.SetMetatable(ud, l.GetTypeMetatable(metatableName))
 
 	l.Push(t)
 	return 1
