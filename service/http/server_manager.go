@@ -3,20 +3,19 @@ package http
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/api/payload"
-	httpapi "github.com/ponyruntime/pony/api/service/http"
-	"github.com/ponyruntime/pony/api/supervisor"
-	"net/http"
-	"sync"
-
 	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
+	config "github.com/ponyruntime/pony/api/service/http"
+	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/ponyruntime/pony/pkg/eventbus"
 	"go.uber.org/zap"
+	"net/http"
+	"sync"
 )
 
-// Service manages multiple HTTP servers and their endpoints based on registry configuration
-type Service struct {
+// ServerManager manages multiple HTTP servers and their endpoints based on registry configuration
+type ServerManager struct {
 	ctx     context.Context
 	log     *zap.Logger
 	bus     events.Bus
@@ -27,8 +26,8 @@ type Service struct {
 }
 
 // Init creates a new HTTP service instance
-func Init(bus events.Bus, dtt payload.Transcoder, logger *zap.Logger) *Service {
-	return &Service{
+func Init(bus events.Bus, dtt payload.Transcoder, logger *zap.Logger) *ServerManager {
+	return &ServerManager{
 		log:     logger,
 		bus:     bus,
 		dtt:     dtt,
@@ -37,7 +36,7 @@ func Init(bus events.Bus, dtt payload.Transcoder, logger *zap.Logger) *Service {
 }
 
 // Start begins listening for registry events
-func (s *Service) Start(ctx context.Context) error {
+func (s *ServerManager) Start(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -58,7 +57,7 @@ func (s *Service) Start(ctx context.Context) error {
 }
 
 // Stop gracefully shuts down all servers and stops listening for events
-func (s *Service) Stop() error {
+func (s *ServerManager) Stop() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -72,7 +71,7 @@ func (s *Service) Stop() error {
 	return nil
 }
 
-func (s *Service) handleEvent(evt events.Event) {
+func (s *ServerManager) handleEvent(evt events.Event) {
 	entry, ok := evt.Data.(registry.Entry)
 	if !ok {
 		s.log.Error("invalid registry event data", zap.Any("event", evt))
@@ -80,8 +79,8 @@ func (s *Service) handleEvent(evt events.Event) {
 	}
 
 	switch entry.Kind {
-	case httpapi.KindServer:
-		cfg := new(httpapi.ServerConfig)
+	case config.KindServer:
+		cfg := new(config.ServerConfig)
 		err := s.dtt.Unmarshal(entry.Data, cfg)
 		if err != nil {
 			s.reject(entry.ID, err)
@@ -95,8 +94,8 @@ func (s *Service) handleEvent(evt events.Event) {
 
 		s.handleServer(entry.ID, evt.Kind, *cfg)
 
-	case httpapi.KindRouter:
-		cfg := new(httpapi.RouterConfig)
+	case config.KindRouter:
+		cfg := new(config.RouterConfig)
 		err := s.dtt.Unmarshal(entry.Data, cfg)
 		if err != nil {
 			s.reject(entry.ID, err)
@@ -110,8 +109,8 @@ func (s *Service) handleEvent(evt events.Event) {
 
 		s.handleRouter(entry.ID, evt.Kind, *cfg)
 
-	case httpapi.KindEndpoint:
-		cfg := new(httpapi.EndpointConfig)
+	case config.KindEndpoint:
+		cfg := new(config.EndpointConfig)
 		err := s.dtt.Unmarshal(entry.Data, cfg)
 		if err != nil {
 			s.reject(entry.ID, err)
@@ -127,7 +126,7 @@ func (s *Service) handleEvent(evt events.Event) {
 	}
 }
 
-func (s *Service) handleServer(id registry.ID, kind events.Kind, cfg httpapi.ServerConfig) {
+func (s *ServerManager) handleServer(id registry.ID, kind events.Kind, cfg config.ServerConfig) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -153,6 +152,8 @@ func (s *Service) handleServer(id registry.ID, kind events.Kind, cfg httpapi.Ser
 			Data:   &supervisor.Entry{Service: server, Config: cfg.Lifecycle},
 		})
 
+		s.log.Debug("server created", zap.String("id", string(id)))
+
 	case registry.Update:
 		server, exists := s.servers[id]
 		if !exists {
@@ -171,6 +172,8 @@ func (s *Service) handleServer(id registry.ID, kind events.Kind, cfg httpapi.Ser
 			Data:   &supervisor.Entry{Config: cfg.Lifecycle}, // only lifecycle config can be updated
 		})
 
+		s.log.Debug("server updated", zap.String("id", string(id)))
+
 	case registry.Delete:
 		if _, exists := s.servers[id]; !exists {
 			s.reject(id, fmt.Errorf("server %s not found", id))
@@ -186,20 +189,60 @@ func (s *Service) handleServer(id registry.ID, kind events.Kind, cfg httpapi.Ser
 
 		// Remove from our local registry
 		delete(s.servers, id)
+
+		s.log.Debug("server deleted", zap.String("id", string(id)))
 	}
 
 	s.accept(id)
 }
 
-func (s *Service) handleRouter(id registry.ID, kind events.Kind, cfg httpapi.RouterConfig) {
-	s.reject(id, fmt.Errorf("not implemented"))
-}
-
-func (s *Service) handleEndpoint(id registry.ID, kind events.Kind, cfg httpapi.EndpointConfig) {
+// handleRouter processes router configuration changes
+func (s *ServerManager) handleRouter(id registry.ID, kind events.Kind, cfg config.RouterConfig) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	serverID := cfg.Meta.StringValue(httpapi.ServerID)
+	// Get the target server
+	serverID := cfg.Meta.StringValue(config.ServerID)
+	server, exists := s.servers[registry.ID(serverID)]
+	if !exists {
+		s.reject(id, fmt.Errorf("http server %s not found", serverID))
+		return
+	}
+
+	switch kind {
+	case registry.Create:
+		if err := server.Router().AddRouter(string(id), cfg); err != nil {
+			s.reject(id, fmt.Errorf("failed to add router: %w", err))
+			return
+		}
+
+		s.log.Debug("router created", zap.String("id", string(id)))
+
+	case registry.Update:
+		if err := server.Router().UpdateRouter(string(id), cfg); err != nil {
+			s.reject(id, fmt.Errorf("failed to update router: %w", err))
+			return
+		}
+
+		s.log.Debug("router updated", zap.String("id", string(id)))
+
+	case registry.Delete:
+		if err := server.Router().DeleteRouter(string(id)); err != nil {
+			s.reject(id, fmt.Errorf("failed to delete router: %w", err))
+			return
+		}
+
+		s.log.Debug("router deleted", zap.String("id", string(id)))
+	}
+
+	s.accept(id)
+}
+
+func (s *ServerManager) handleEndpoint(id registry.ID, kind events.Kind, cfg config.EndpointConfig) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	serverID := cfg.Meta.StringValue(config.ServerID)
 	server, exists := s.servers[registry.ID(serverID)]
 	if !exists {
 		s.reject(id, fmt.Errorf("http server %s not found", serverID))
@@ -217,6 +260,8 @@ func (s *Service) handleEndpoint(id registry.ID, kind events.Kind, cfg httpapi.E
 			return
 		}
 
+		s.log.Debug("endpoint created", zap.String("id", string(id)))
+
 	case registry.Update:
 		if err := server.Router().UpdateEndpoint(string(id), cfg); err != nil {
 			s.log.Error("failed to update endpoint",
@@ -227,6 +272,8 @@ func (s *Service) handleEndpoint(id registry.ID, kind events.Kind, cfg httpapi.E
 			return
 		}
 
+		s.log.Debug("endpoint updated", zap.String("id", string(id)))
+
 	case registry.Delete:
 		if err := server.Router().DeleteEndpoint(string(id)); err != nil {
 			s.log.Error("failed to delete endpoint",
@@ -236,12 +283,14 @@ func (s *Service) handleEndpoint(id registry.ID, kind events.Kind, cfg httpapi.E
 			s.reject(id, err)
 			return
 		}
+
+		s.log.Debug("endpoint deleted", zap.String("id", string(id)))
 	}
 
 	s.accept(id)
 }
 
-func (s *Service) accept(id registry.ID) {
+func (s *ServerManager) accept(id registry.ID) {
 	s.bus.Send(s.ctx, events.Event{
 		System: registry.System,
 		Kind:   registry.Accept,
@@ -249,7 +298,7 @@ func (s *Service) accept(id registry.ID) {
 	})
 }
 
-func (s *Service) reject(id registry.ID, err error) {
+func (s *ServerManager) reject(id registry.ID, err error) {
 	s.bus.Send(s.ctx, events.Event{
 		System: registry.System,
 		Kind:   registry.Reject,

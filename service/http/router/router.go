@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
-	"github.com/ponyruntime/pony/api/registry"
 	config "github.com/ponyruntime/pony/api/service/http"
 	"net/http"
 	"sync"
@@ -43,10 +42,7 @@ func NewRouter(handler http.HandlerFunc) *Router {
 	}
 
 	// Initialize the default router
-	rm.routers[DefaultRouterID], _ = NewChiRouter(config.RouterConfig{
-		Prefix: "/",
-		Meta:   registry.Metadata{config.RouterID: DefaultRouterID},
-	})
+	rm.routers[DefaultRouterID], _ = NewChiRouter(config.RouterConfig{Prefix: "/"})
 
 	rm.rebuildRouter() // Build the initial composed router
 
@@ -54,14 +50,9 @@ func NewRouter(handler http.HandlerFunc) *Router {
 }
 
 // AddRouter adds a new router configuration.
-func (rm *Router) AddRouter(rcfg config.RouterConfig) error {
+func (rm *Router) AddRouter(routerID string, rcfg config.RouterConfig) error {
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
-
-	routerID := rcfg.Meta.StringValue(config.RouterID)
-	if routerID == "" {
-		return fmt.Errorf("router id is required in metadata")
-	}
 
 	if _, exists := rm.routers[routerID]; exists {
 		return fmt.Errorf("router with Name '%s' already exists", routerID)
@@ -115,18 +106,13 @@ func (rm *Router) DeleteRouter(routerID string) error {
 }
 
 // UpdateRouter updates an existing router's configuration.
-func (rm *Router) UpdateRouter(rcfg config.RouterConfig) error {
+func (rm *Router) UpdateRouter(routerID string, rcfg config.RouterConfig) error {
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
 
-	routerID := rcfg.Meta.StringValue(config.RouterID)
-	if routerID == "" {
-		return fmt.Errorf("router id is required in metadata")
-	}
-
 	existingRouter, exists := rm.routers[routerID]
 	if !exists {
-		return fmt.Errorf("router with Name '%s' not found", routerID)
+		return fmt.Errorf("router with name '%s' not found", routerID)
 	}
 
 	// Clone and update the existing router
@@ -158,7 +144,7 @@ func (rm *Router) AddEndpoint(endpointID string, ecfg config.EndpointConfig) err
 
 	router, exists := rm.routers[routerID]
 	if !exists {
-		return fmt.Errorf("router with Name '%s' not found", routerID)
+		return fmt.Errorf("router with name '%s' not found", routerID)
 	}
 
 	// Add endpoint to Chi router
