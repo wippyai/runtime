@@ -47,13 +47,8 @@ func NewCompositeRuntime(namedRuntimes ...NamedRuntime) (*CompositeRuntime, erro
 	}, nil
 }
 
-// getRuntimeName returns the runtime name for the given ID. It uses sync.Map for safe reads.
-func (cr *CompositeRuntime) getRuntimeName(id registry.ID, meta registry.Metadata) (string, error) {
-	if name, ok := cr.routing.Load(string(id)); ok {
-		return name.(string), nil
-	}
-
-	// Fallback to metadata if not found in routing table
+// targetRuntime returns the runtime name for the given ID. It uses sync.Map for safe reads.
+func (cr *CompositeRuntime) targetRuntime(id registry.ID, meta registry.Metadata) (string, error) {
 	runtimeName := meta.StringValue(runtime.RuntimeTag)
 	if runtimeName == "" {
 		return "", fmt.Errorf("no runtime specified for ID %s", id)
@@ -64,7 +59,7 @@ func (cr *CompositeRuntime) getRuntimeName(id registry.ID, meta registry.Metadat
 
 // AddLibrary adds a library to the appropriate runtime.
 func (cr *CompositeRuntime) AddLibrary(id registry.ID, config runtime.LibraryConfig) error {
-	runtimeName, err := cr.getRuntimeName(id, config.Meta)
+	runtimeName, err := cr.targetRuntime(id, config.Meta)
 	if err != nil {
 		return err
 	}
@@ -84,7 +79,7 @@ func (cr *CompositeRuntime) AddLibrary(id registry.ID, config runtime.LibraryCon
 
 // UpdateLibrary updates a library in the appropriate runtime.
 func (cr *CompositeRuntime) UpdateLibrary(id registry.ID, config runtime.LibraryConfig) error {
-	runtimeName, err := cr.getRuntimeName(id, config.Meta)
+	runtimeName, err := cr.targetRuntime(id, config.Meta)
 	if err != nil {
 		return err
 	}
@@ -104,7 +99,7 @@ func (cr *CompositeRuntime) UpdateLibrary(id registry.ID, config runtime.Library
 
 // AddFunction adds a function to the appropriate runtime.
 func (cr *CompositeRuntime) AddFunction(id registry.ID, config runtime.FunctionConfig) error {
-	runtimeName, err := cr.getRuntimeName(id, config.Meta)
+	runtimeName, err := cr.targetRuntime(id, config.Meta)
 	if err != nil {
 		return err
 	}
@@ -125,7 +120,7 @@ func (cr *CompositeRuntime) AddFunction(id registry.ID, config runtime.FunctionC
 
 // UpdateFunction updates a function in the appropriate runtime.
 func (cr *CompositeRuntime) UpdateFunction(id registry.ID, config runtime.FunctionConfig) error {
-	runtimeName, err := cr.getRuntimeName(id, config.Meta)
+	runtimeName, err := cr.targetRuntime(id, config.Meta)
 	if err != nil {
 		return err
 	}
@@ -167,14 +162,14 @@ func (cr *CompositeRuntime) Delete(id registry.ID) error {
 
 // Execute executes a task using the appropriate executor.
 func (cr *CompositeRuntime) Execute(task runtime.Task) (chan *runtime.Result, error) {
-	runtimeName, err := cr.getRuntimeName(task.Target, registry.Metadata{})
-	if err != nil {
-		return nil, err
+	name, ok := cr.routing.Load(string(task.Target))
+	if !ok {
+		return nil, fmt.Errorf("no runtime found for id: %s", string(task.Target))
 	}
 
-	executor, ok := cr.runtimes[runtimeName]
+	executor, ok := cr.runtimes[name.(string)]
 	if !ok {
-		return nil, fmt.Errorf("runtime %s not found for target %s", runtimeName, task.Target)
+		return nil, fmt.Errorf("runtime %s not found for target %s", name, task.Target)
 	}
 	return executor.Execute(task)
 }
