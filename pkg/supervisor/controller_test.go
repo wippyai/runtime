@@ -279,6 +279,8 @@ func TestController_ContextCancellation(t *testing.T) {
 
 	<-serviceStarted // Wait for service to start
 
+	time.Sleep(10 * time.Millisecond) // propagate monitor routine
+
 	// Cancel context
 	cancel()
 
