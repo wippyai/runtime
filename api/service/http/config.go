@@ -138,7 +138,7 @@ func (c *RouterConfig) Validate() error {
 
 	routerID := c.Meta.StringValue(ServerID)
 	if routerID == "" {
-		return fmt.Errorf("server ID in metadata cannot be empty")
+		return fmt.Errorf("server in metadata cannot be empty")
 	}
 
 	// Validate middleware configuration
@@ -193,7 +193,7 @@ func (c *EndpointConfig) Validate() error {
 	// Verify required metadata
 	serverID := c.Meta.StringValue(ServerID)
 	if serverID == "" {
-		return fmt.Errorf("server ID in metadata cannot be empty")
+		return fmt.Errorf("server in metadata cannot be empty")
 	}
 
 	return nil

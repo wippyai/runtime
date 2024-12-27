@@ -2,8 +2,13 @@ package tasks
 
 import (
 	"context"
+	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
+)
+
+const (
+	System events.System = "executor"
 )
 
 type (

@@ -76,7 +76,7 @@ func (s *Server) ensureRunning(ctx context.Context) error {
 	}
 }
 
-// Start implements the Service interface
+// Start implements the ServerManager interface
 func (s *Server) Start(ctx context.Context) (<-chan any, error) {
 	s.mu.Lock()
 	s.server = &http.Server{
@@ -112,7 +112,7 @@ func (s *Server) Start(ctx context.Context) (<-chan any, error) {
 	return s.statusChan, nil
 }
 
-// Stop implements the Service interface
+// Stop implements the ServerManager interface
 func (s *Server) Stop(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
