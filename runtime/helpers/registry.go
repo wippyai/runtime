@@ -3,6 +3,7 @@ package helpers
 import (
 	"github.com/ponyruntime/pony/api/registry"
 	config "github.com/ponyruntime/pony/api/runtime"
+	"log"
 )
 
 type Register struct {
@@ -16,7 +17,9 @@ func (r *Register) UpdateLibrary(registry.ID, config.LibraryConfig) error {
 	return nil
 }
 
-func (r *Register) AddFunction(registry.ID, config.FunctionConfig) error {
+func (r *Register) AddFunction(id registry.ID, cfg config.FunctionConfig) error {
+	log.Printf("Adding function %s", string(id))
+
 	return nil
 }
 

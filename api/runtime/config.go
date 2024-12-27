@@ -23,14 +23,14 @@ type (
 
 	LibraryConfig struct {
 		Meta    registry.Metadata `json:"meta"`
-		Sources []string          `json:"sources"`
+		Source  string            `json:"source"`
 		Modules []string          `json:"modules"`
 	}
 )
 
 func (f *FunctionConfig) Validate() error {
-	if f.Meta.StringValue(RuntimeTag) != "" {
-		return nil
+	if f.Meta.StringValue(RuntimeTag) == "" {
+		return errors.New("missing runtime meta value")
 	}
 
 	if f.Source == "" {
@@ -41,5 +41,17 @@ func (f *FunctionConfig) Validate() error {
 		return errors.New("missing method value")
 	}
 
-	return errors.New("missing runtime meta value")
+	return nil
+}
+
+func (l *LibraryConfig) Validate() error {
+	if l.Meta.StringValue(RuntimeTag) == "" {
+		return errors.New("missing runtime meta value")
+	}
+
+	if l.Source == "" {
+		return errors.New("missing source code")
+	}
+
+	return nil
 }
