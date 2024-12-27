@@ -6,6 +6,7 @@ import (
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/service/http"
+	httpbase "net/http"
 	"testing"
 	"time"
 
@@ -25,7 +26,9 @@ func setupTest(t *testing.T) (*ServerManager, *eventbus.Bus) {
 
 	tr := payload2.NewTranscoder()
 	json.Register(tr)
-	manager := Init(bus, tr, logger)
+	manager := Init(bus, tr, func(writer httpbase.ResponseWriter, request *httpbase.Request) {
+		_, _ = writer.Write([]byte("Hello, World!"))
+	}, logger)
 	return manager, bus
 }
 

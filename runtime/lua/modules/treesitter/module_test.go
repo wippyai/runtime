@@ -13,13 +13,13 @@ import (
 )
 
 func TestInitTS(t *testing.T) {
-	zd, _ := zap.NewDevelopment()
+	zd := zap.NewNop()
 	m := NewModule(zd)
 
 	args := make(map[string]any, 2)
 	// lua expects this file to be in the tests directory
 	args["file_name"] = "tests/demo.php"
-	zl, _ := zap.NewDevelopment()
+	zl := zap.NewNop()
 
 	eng := engine.NewLuaEngine(context.Background(), zl)
 	eng.L.PreloadModule("treesitter", m.Loader)

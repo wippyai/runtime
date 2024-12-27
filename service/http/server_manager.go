@@ -17,12 +17,13 @@ import (
 
 // ServerManager manages multiple HTTP servers and their endpoints based on registry configuration
 type ServerManager struct {
-	ctx context.Context
-	log *zap.Logger
-	bus events.Bus
-	dtt payload.Transcoder
-	scr *eventbus.Subscriber
-	mu  sync.RWMutex
+	ctx     context.Context
+	log     *zap.Logger
+	bus     events.Bus
+	handler http.HandlerFunc
+	dtt     payload.Transcoder
+	scr     *eventbus.Subscriber
+	mu      sync.RWMutex
 
 	// Core server registry
 	servers map[registry.ID]*Server
@@ -33,10 +34,16 @@ type ServerManager struct {
 }
 
 // Init creates a new HTTP service instance
-func Init(bus events.Bus, dtt payload.Transcoder, logger *zap.Logger) *ServerManager {
+func Init(
+	bus events.Bus,
+	dtt payload.Transcoder,
+	handler http.HandlerFunc,
+	logger *zap.Logger,
+) *ServerManager {
 	return &ServerManager{
 		log:             logger,
 		bus:             bus,
+		handler:         handler,
 		dtt:             dtt,
 		servers:         make(map[registry.ID]*Server),
 		endpointServers: make(map[registry.ID]registry.ID),
@@ -48,8 +55,6 @@ func Init(bus events.Bus, dtt payload.Transcoder, logger *zap.Logger) *ServerMan
 func (s *ServerManager) Start(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
-	s.log.Info("starting server manager")
 
 	if s.ctx != nil {
 		s.log.Error("server manager already started")
@@ -165,9 +170,7 @@ func (s *ServerManager) handleServer(id registry.ID, kind events.Kind, cfg *conf
 			return
 		}
 
-		server := NewServer(*cfg, func(writer http.ResponseWriter, request *http.Request) {
-			_, _ = writer.Write([]byte("Hello, World!"))
-		})
+		server := NewServer(*cfg, s.handler)
 		s.servers[id] = server
 
 		// launch the server (if auto-start is enabled)

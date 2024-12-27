@@ -17,6 +17,7 @@ import (
 	"github.com/ponyruntime/pony/pkg/supervisor"
 	"github.com/ponyruntime/pony/runtime"
 	"github.com/ponyruntime/pony/service/http"
+	"github.com/ponyruntime/pony/service/http/handler"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"hash/fnv"
@@ -50,6 +51,8 @@ func main() {
 	}
 	defer logger.Sync()
 
+	mainLogger := logger.Named("main")
+
 	dtt := transcoder.NewTranscoder()
 	json.Register(dtt)
 	yaml.Register(dtt)
@@ -71,13 +74,13 @@ func main() {
 	state := registry.NewStateBuilder(logger.Named("builder"))     // state builder
 	entries, err := folderLoader.Load(folderPath, namespace, vars) // Pass vars to Load
 	if err != nil {
-		logger.Named("app").Fatal("Failed to load entries", zap.Error(err))
+		mainLogger.Fatal("Failed to load entries", zap.Error(err))
 	}
 
 	// boot delta
 	boot, err := state.BuildDelta(regapi.State{}, entries) // build delta
 	if err != nil {
-		logger.Named("main").Fatal("Failed to build state operation set", zap.Error(err))
+		mainLogger.Fatal("Failed to build state operation set", zap.Error(err))
 	}
 
 	// service
@@ -90,30 +93,35 @@ func main() {
 		logger.Named("state"),
 	)
 
+	// execution layer
+	exec := runtime.NewSimpleExecutor()
+
+	// todo: register runtime
+
 	// services, modules, runtimes
-	err = http.Init(bus, dtt, logger.Named("http")).Start(ctx)
+	err = http.Init(bus, dtt, handler.NewEndpointHandler(exec, dtt).Handle, logger.Named("http")).Start(ctx)
 	if err != nil {
-		logger.Named("main").Fatal("failed to start http service", zap.Error(err))
+		mainLogger.Fatal("failed to start http service", zap.Error(err))
 	}
 
 	err = runtime.Init(bus, dtt, logger.Named("funcs")).Start(ctx)
 	if err != nil {
-		logger.Named("main").Fatal("failed to start runtime service", zap.Error(err))
+		mainLogger.Fatal("failed to start runtime service", zap.Error(err))
 	}
 
 	// end service configuration
 	if err := sup.Start(ctx); err != nil {
-		logger.Named("main").Fatal("failed to start supervisor", zap.Error(err))
+		mainLogger.Fatal("failed to start supervisor", zap.Error(err))
 	}
 
-	logger.Named("main").Info("booting application")
+	mainLogger.Info("booting application")
 
 	// boot application state
 	bootCtx, cancelBoot := context.WithTimeout(ctx, 1*time.Second)
 	defer cancelBoot()
 	_, err = reg.Apply(bootCtx, boot)
 	if err != nil {
-		logger.Named("main").Fatal("failed to apply boot state", zap.Error(err))
+		mainLogger.Fatal("failed to apply boot state", zap.Error(err))
 	}
 
 	// Handle graceful shutdown on Ctrl+C
@@ -123,15 +131,15 @@ func main() {
 	// Wait for either shutdown signal or context cancellation
 	select {
 	case <-ctx.Done():
-		logger.Named("main").Info("context cancelled, shutting down...")
+		mainLogger.Info("context cancelled, shutting down...")
 	case sig := <-sigChan:
-		logger.Named("main").Info("received signal, shutting down...", zap.String("signal", sig.String()))
+		mainLogger.Info("received signal, shutting down...", zap.String("signal", sig.String()))
 	}
 
 	if err := sup.Stop(); err != nil {
-		logger.Named("main").Error("failed to stop supervisor gracefully", zap.Error(err))
+		mainLogger.Error("failed to stop supervisor gracefully", zap.Error(err))
 	} else {
-		logger.Named("main").Info("supervisor stopped gracefully")
+		mainLogger.Info("supervisor stopped gracefully")
 	}
 }
 

@@ -1,6 +1,6 @@
 package pool
 
-// tasks
+// funcs
 // 1. Properly access to the context of the request (in the modules, like sql)
 // 2. Concurrency
 import (
