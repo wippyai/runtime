@@ -1,0 +1,199 @@
+package main
+
+import (
+	"context"
+	"flag"
+	"fmt"
+	regapi "github.com/ponyruntime/pony/api/registry"
+	"github.com/ponyruntime/pony/pkg/eventbus"
+	transcoder "github.com/ponyruntime/pony/pkg/payload"
+	"github.com/ponyruntime/pony/pkg/payload/json"
+	"github.com/ponyruntime/pony/pkg/payload/lua"
+	"github.com/ponyruntime/pony/pkg/payload/yaml"
+	"github.com/ponyruntime/pony/pkg/registry"
+	"github.com/ponyruntime/pony/pkg/registry/history"
+	"github.com/ponyruntime/pony/pkg/registry/loader"
+	"github.com/ponyruntime/pony/pkg/registry/runner"
+	"github.com/ponyruntime/pony/pkg/supervisor"
+	"github.com/ponyruntime/pony/runtime"
+	"github.com/ponyruntime/pony/service/http"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"hash/fnv"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+	"time"
+)
+
+func main() {
+	// Parse command line flags
+	verbose := flag.Bool("v", false, "enable verbose debug logging")
+	veryVerbose := flag.Bool("vv", false, "enable very verbose debug logging with stack traces")
+	flag.Parse()
+	args := flag.Args()
+
+	if len(args) < 1 {
+		fmt.Println("Usage: go run main.go [-v] [-vv] <folder_path> [namespace]")
+		os.Exit(1)
+	}
+
+	// application service supervisor
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	logger := initLogger(*verbose, *veryVerbose)
+	if logger == nil {
+		fmt.Println("Failed to initialize logger")
+		os.Exit(1)
+	}
+	defer logger.Sync()
+
+	dtt := transcoder.NewTranscoder()
+	json.Register(dtt)
+	yaml.Register(dtt)
+	lua.Register(dtt)
+
+	folderPath := args[0]
+	namespace := ""
+	if len(args) > 1 {
+		namespace = args[1]
+	}
+
+	folderLoader := loader.NewFolderLoader(dtt, logger.Named("loader"))
+	vars := loader.Variables{}
+	for _, env := range os.Environ() {
+		pair := strings.SplitN(env, "=", 2)
+		vars[pair[0]] = pair[1]
+	}
+
+	state := registry.NewStateBuilder(logger.Named("builder"))     // state builder
+	entries, err := folderLoader.Load(folderPath, namespace, vars) // Pass vars to Load
+	if err != nil {
+		logger.Named("app").Fatal("Failed to load entries", zap.Error(err))
+	}
+
+	// boot delta
+	boot, err := state.BuildDelta(regapi.State{}, entries) // build delta
+	if err != nil {
+		logger.Named("main").Fatal("Failed to build state operation set", zap.Error(err))
+	}
+
+	// service
+	bus := eventbus.NewBus(logger.Named("events"))             // main configuration bus
+	sup := supervisor.NewSupervisor(bus, logger.Named("core")) // service supervisor
+	reg := registry.NewRegistry(                               // application state controller, transactional
+		history.NewMemory(),
+		runner.NewBusRunner(bus, logger.Named("runner")),
+		state,
+		logger.Named("state"),
+	)
+
+	// services, modules, runtimes
+	err = http.Init(bus, dtt, logger.Named("http")).Start(ctx)
+	if err != nil {
+		logger.Named("main").Fatal("failed to start http service", zap.Error(err))
+	}
+
+	err = runtime.Init(bus, dtt, logger.Named("funcs")).Start(ctx)
+	if err != nil {
+		logger.Named("main").Fatal("failed to start runtime service", zap.Error(err))
+	}
+
+	// end service configuration
+	if err := sup.Start(ctx); err != nil {
+		logger.Named("main").Fatal("failed to start supervisor", zap.Error(err))
+	}
+
+	logger.Named("main").Info("booting application")
+
+	// boot application state
+	bootCtx, cancelBoot := context.WithTimeout(ctx, 1*time.Second)
+	defer cancelBoot()
+	_, err = reg.Apply(bootCtx, boot)
+	if err != nil {
+		logger.Named("main").Fatal("failed to apply boot state", zap.Error(err))
+	}
+
+	// Handle graceful shutdown on Ctrl+C
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	// Wait for either shutdown signal or context cancellation
+	select {
+	case <-ctx.Done():
+		logger.Named("main").Info("context cancelled, shutting down...")
+	case sig := <-sigChan:
+		logger.Named("main").Info("received signal, shutting down...", zap.String("signal", sig.String()))
+	}
+
+	if err := sup.Stop(); err != nil {
+		logger.Named("main").Error("failed to stop supervisor gracefully", zap.Error(err))
+	} else {
+		logger.Named("main").Info("supervisor stopped gracefully")
+	}
+}
+
+func initLogger(verbose, veryVerbose bool) *zap.Logger {
+	config := zap.NewDevelopmentConfig()
+
+	// Set log level based on flags
+	switch {
+	case veryVerbose:
+		config.Level = zap.NewAtomicLevelAt(zapcore.DebugLevel)
+	case verbose:
+		config.Level = zap.NewAtomicLevelAt(zapcore.DebugLevel)
+		// Disable stack traces for -v
+		config.DisableStacktrace = true
+	default:
+		config.Level = zap.NewAtomicLevelAt(zapcore.InfoLevel)
+		// Disable stack traces by default
+		config.DisableStacktrace = true
+	}
+
+	// Always use console encoding with colors
+	config.Encoding = "console"
+	config.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
+	config.EncoderConfig.EncodeCaller = nil // Remove caller information
+	config.EncoderConfig.TimeKey = "time"
+	config.EncoderConfig.LevelKey = "level"
+	config.EncoderConfig.NameKey = "logger"
+	config.EncoderConfig.MessageKey = "msg"
+	config.EncoderConfig.StacktraceKey = "stacktrace"
+
+	config.EncoderConfig.EncodeName = func(loggerName string, enc zapcore.PrimitiveArrayEncoder) {
+		// Simple hash function - sum ASCII values
+		hash := 0
+		for _, char := range loggerName {
+			hash += int(char)
+		}
+
+		hash2 := hashString(loggerName)
+
+		// Generate R, G, B values from the hash
+		r := int(hash2 & 0xFF)         // Extract red component
+		g := int((hash2 >> 8) & 0xFF)  // Extract green component
+		b := int((hash2 >> 16) & 0xFF) // Extract blue component
+		coloredName := fmt.Sprintf("\x1b[38;2;%d;%d;%dm%s\x1b[0m", r, g, b, loggerName)
+
+		// Wrap name in ANSI color codes
+		//	coloredName := fmt.Sprintf("\x1b[%dm%s\x1b[0m", colorCode, loggerName)
+		enc.AppendString(coloredName)
+	}
+	config.EncoderConfig.EncodeTime = zapcore.TimeEncoderOfLayout(time.DateTime)
+
+	logger, err := config.Build()
+	if err != nil {
+		fmt.Printf("Failed to build logger: %v\n", err)
+		return nil
+	}
+
+	return logger
+}
+
+func hashString(s string) uint32 {
+	h := fnv.New32a()
+	h.Write([]byte(s))
+	return h.Sum32()
+}

@@ -19,6 +19,7 @@ type BusRunner struct {
 	stateHelper *stateHelper
 }
 
+// NewBusRunner creates a new BusRunner. This is a sequential bus, order of operations matter.
 func NewBusRunner(bus events.Bus, log *zap.Logger) *BusRunner {
 	return &BusRunner{
 		bus:         bus,
@@ -37,18 +38,34 @@ func (br *BusRunner) Transition(
 	currentState := br.stateHelper.toMap(initialState)
 	originalState := br.stateHelper.toMap(initialState) // Keep a copy of the original state for rollbacks
 	appliedOperations := make([]registry.Operation, 0)
-	var finalErr error
 
 	if err := br.subscribeToEvents(ctx); err != nil {
 		return nil, err
 	}
 	defer br.unsubscribeFromEvents(ctx)
 
+	br.bus.Send(ctx, events.Event{
+		System: registry.System,
+		Kind:   registry.Begin,
+	})
+
 	for _, op := range cs {
 		newState, err := br.applyOperation(ctx, currentState, op)
 		if err != nil {
-			br.log.Warn("Operation failed, initiating rollback", zap.Any("operation", op))
+			if ctx.Err() != nil {
+				return nil, err
+			}
+
+			br.log.Warn("operation failed, initiating rollback", zap.Any("operation", op), zap.Error(err))
 			newState = br.rollback(ctx, originalState, newState, appliedOperations)
+
+			// Only send Discard if there was an error, and rollback already happened
+			br.bus.Send(ctx, events.Event{
+				System: registry.System,
+				Kind:   registry.Discard,
+				Data:   err,
+			})
+
 			return br.stateHelper.toSlice(newState), fmt.Errorf("operation failed: %w", err)
 		}
 
@@ -56,7 +73,12 @@ func (br *BusRunner) Transition(
 		appliedOperations = append(appliedOperations, op)
 	}
 
-	return br.stateHelper.toSlice(currentState), finalErr
+	br.bus.Send(ctx, events.Event{
+		System: registry.System,
+		Kind:   registry.Commit,
+	})
+
+	return br.stateHelper.toSlice(currentState), nil
 }
 
 func (br *BusRunner) applyOperation(ctx context.Context, state stateMap, op registry.Operation) (stateMap, error) {
@@ -64,23 +86,16 @@ func (br *BusRunner) applyOperation(ctx context.Context, state stateMap, op regi
 	br.bus.Send(ctx, events.Event{
 		System: registry.System,
 		Kind:   op.Kind,
+		Path:   events.Path(op.Entry.ID),
 		Data:   op.Entry,
 	})
 
 	for {
 		select {
 		case confirmation := <-br.acceptChan:
-			entry, ok := confirmation.Data.(registry.Entry)
-			if !ok {
-				br.log.Warn("Received event with unexpected data type",
-					zap.String("expected_type", "registry.Entry"),
-					zap.Any("got_type", fmt.Sprintf("%T", confirmation.Data)), // Log the actual type
-					zap.String("event_kind", string(confirmation.Kind)),
-				)
-				continue // Skip to the next iteration of the select loop
-			}
+			id := registry.ID(confirmation.Path)
 
-			if entry.Path != op.Entry.Path {
+			if id != op.Entry.ID {
 				return state, errors.New("unrelated accept event")
 			}
 
@@ -91,27 +106,24 @@ func (br *BusRunner) applyOperation(ctx context.Context, state stateMap, op regi
 				// Even if applyChangeToState fails, we return the original state to maintain consistency
 				return state, fmt.Errorf("applying change to state: %w", err)
 			}
+
 			return newState, nil
 		case rejection := <-br.rejectChan:
-			// Type assertion: Check if rejection.Data is of type registry.Entry
-			entry, ok := rejection.Data.(registry.Entry)
+			id := registry.ID(rejection.Path)
+
+			if id != op.Entry.ID {
+				return state, errors.New("unrelated reject event")
+			}
+
+			err, ok := rejection.Data.(error)
 			if !ok {
-				br.log.Error("Received event with unexpected data type",
-					zap.String("expected_type", "registry.Entry"),
-					zap.Any("got_type", fmt.Sprintf("%T", rejection.Data)), // Log the actual type
-					zap.String("event_kind", string(rejection.Kind)))
-				continue // Skip to the next iteration of the select loop
+				return state, errors.New("operation rejected, no details")
 			}
-
-			if entry.Path != op.Entry.Path {
-				return state, errors.New("unrelated accept event")
-			}
-
-			return state, errors.New("operation rejected") // todo: propagate entity level error
+			return state, err
 
 		case <-ctx.Done():
 			// Return the original state in case of timeout/cancellation to maintain consistency
-			return state, ctx.Err()
+			return state, fmt.Errorf("failed to apply operation %s: %w", op.Entry.ID, ctx.Err())
 		}
 	}
 }
@@ -127,20 +139,20 @@ func (br *BusRunner) rollback(
 		op := appliedOperations[i]
 		inverseOp, err := br.stateHelper.getInverseOperation(originalState, op)
 		if err != nil {
-			br.log.Error("Error getting inverse operation", zap.Error(err))
+			br.log.Error("error getting inverse operation", zap.Error(err))
 			continue
 		}
 
 		newState, err := br.applyOperation(ctx, currentState, inverseOp)
 		if err != nil {
-			br.log.Warn("Failed to rollback operation", zap.Any("operation", op))
+			br.log.Warn("failed to rollback operation", zap.Any("operation", op))
 			return newState
 		}
 
 		// Apply the inverse operation to the state
 		currentState, err = br.stateHelper.applyChangeToState(currentState, inverseOp)
 		if err != nil {
-			br.log.Error("Error applying rollback operation", zap.Error(err))
+			br.log.Error("error applying rollback operation", zap.Error(err))
 		}
 	}
 	return currentState
@@ -151,13 +163,13 @@ func (br *BusRunner) subscribeToEvents(ctx context.Context) error {
 	var err error
 	br.acceptSubID, err = br.bus.SubscribeP(ctx, registry.System, registry.Accept, br.acceptChan)
 	if err != nil {
-		return fmt.Errorf("subscribing to accept eventbus: %w", err)
+		return fmt.Errorf("listening events: %w", err)
 	}
 
 	br.rejectSubID, err = br.bus.SubscribeP(ctx, registry.System, registry.Reject, br.rejectChan)
 	if err != nil {
 		br.bus.Unsubscribe(ctx, br.acceptSubID) // Clean up accept subscription if reject subscription fails
-		return fmt.Errorf("subscribing to reject eventbus: %w", err)
+		return fmt.Errorf("listening events: %w", err)
 	}
 
 	return nil

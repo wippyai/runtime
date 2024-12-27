@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/ponyruntime/pony/pkg/payload/lua"
 	"go.uber.org/zap/zapcore"
 	"os"
 	"strings"
@@ -16,18 +17,12 @@ import (
 	"github.com/ponyruntime/pony/pkg/registry/loader"
 )
 
-func createTestTranscoder() payload.Transcoder {
+func createTranscoder() payload.Transcoder {
 	tr := transcoder.NewTranscoder()
 
-	// Register JSON
-	tr.RegisterTranscoder(payload.Json, payload.Golang, 1, &json.ToGolang{})
-	tr.RegisterTranscoder(payload.Golang, payload.Json, 1, &json.FromGolang{})
-	tr.RegisterUnmarshaler(payload.Json, &json.ToGolang{})
-
-	// Register YAML
-	tr.RegisterTranscoder(payload.Yaml, payload.Golang, 1, &yaml.ToGolang{})
-	tr.RegisterTranscoder(payload.Golang, payload.Yaml, 1, &yaml.FromGolang{})
-	tr.RegisterUnmarshaler(payload.Yaml, &yaml.ToGolang{})
+	json.Register(tr)
+	yaml.Register(tr)
+	lua.Register(tr)
 
 	return tr
 }
@@ -37,9 +32,9 @@ func main() {
 	logger := initDevelopmentLogger()
 	defer logger.Sync()
 
-	dtt := createTestTranscoder()
+	dtt := createTranscoder()
 
-	// 2. Get Folder Path from Command-Line Argument:
+	// 2. Get Folder Name from Command-Line Argument:
 	if len(os.Args) < 2 {
 		fmt.Println("Usage: go run main.go <folder_path> [namespace]")
 		os.Exit(1)
@@ -61,25 +56,32 @@ func main() {
 		vars[pair[0]] = pair[1]
 	}
 
-	// 4. Load Entries:
+	// 4. Load List:
 	entries, err := folderLoader.Load(folderPath, namespace, vars) // Pass vars to Load
 	if err != nil {
 		logger.Fatal("Failed to load entries", zap.Error(err))
 	}
 
-	// 5. Dump Entries to Console:
-	fmt.Println("Loaded Registry Entries (YAML):")
+	entries = loader.SortEntriesByDependency(entries)
+
+	// invert the list
+	for i, j := 0, len(entries)-1; i < j; i, j = i+1, j-1 {
+		entries[i], entries[j] = entries[j], entries[i]
+	}
+
+	// 5. Dump List to Console:
+	fmt.Println("Loaded Registry List (YAML):")
 	for _, entry := range entries {
 		p, err := dtt.Transcode(entry.Data, payload.Yaml)
 		if err != nil {
-			logger.Error("Failed to transcode entry to YAML", zap.String("path", string(entry.Path)), zap.Error(err))
+			logger.Error("Failed to transcode entry to YAML", zap.String("path", string(entry.ID)), zap.Error(err))
 			continue // Skip to the next entry if transcoding fails
 		}
 
 		// Print the entry:
 		fmt.Println("---")
-		fmt.Printf("Path: %s\n", entry.Path)
-		fmt.Printf("Kind: %s\n", entry.Kind)
+		fmt.Printf("Name: \x1b[32m%s\x1b[0m\n", entry.ID)
+		fmt.Printf("Kind: \x1b[35m%s\x1b[0m\n", entry.Kind)
 		fmt.Println("Data:")
 		fmt.Printf("\x1b[33m%s\x1b[0m", string(p.Data().(string)))
 	}

@@ -10,7 +10,7 @@ import (
 	"github.com/ponyruntime/pony/internal/version"
 )
 
-type memreg struct {
+type reg struct {
 	history        registry.History
 	runner         registry.Runner
 	builder        registry.StateBuilder
@@ -26,7 +26,7 @@ func NewRegistry(
 	builder registry.StateBuilder,
 	log *zap.Logger,
 ) registry.Registry {
-	return &memreg{
+	return &reg{
 		history: history,
 		runner:  runner,
 		builder: builder,
@@ -37,18 +37,18 @@ func NewRegistry(
 
 // --- EntryReader Interface Implementation ---
 
-func (r *memreg) GetAllEntries() ([]registry.Entry, error) {
+func (r *reg) GetAllEntries() ([]registry.Entry, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.state, nil
 }
 
-func (r *memreg) GetEntry(path registry.Path) (registry.Entry, error) {
+func (r *reg) GetEntry(path registry.ID) (registry.Entry, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	for _, entry := range r.state {
-		if entry.Path == path {
+		if entry.ID == path {
 			return entry, nil
 		}
 	}
@@ -58,7 +58,7 @@ func (r *memreg) GetEntry(path registry.Path) (registry.Entry, error) {
 
 // --- StateWriter Interface Implementation ---
 
-func (r *memreg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.Version, error) {
+func (r *reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.Version, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -69,7 +69,7 @@ func (r *memreg) Apply(ctx context.Context, changes registry.ChangeSet) (registr
 	newState, err := r.runner.Transition(ctx, r.state, changes)
 	if err != nil {
 		r.log.Error("failed to apply changes", zap.Error(err))
-		if newState != nil {
+		if newState != nil && ctx.Err() == nil {
 			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
 				return nil, fmt.Errorf("failed to apply changes: %w, failed to rollback: %w", err, rerr)
 			}
@@ -96,7 +96,7 @@ func (r *memreg) Apply(ctx context.Context, changes registry.ChangeSet) (registr
 	return newVersion, nil
 }
 
-func (r *memreg) ApplyVersion(ctx context.Context, v registry.Version) error {
+func (r *reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -109,7 +109,7 @@ func (r *memreg) ApplyVersion(ctx context.Context, v registry.Version) error {
 	newState, err := r.transitionState(ctx, r.state, target)
 	if err != nil {
 		r.log.Error("failed transition to version", zap.String("version", v.String()), zap.Error(err))
-		if newState != nil {
+		if newState != nil && ctx.Err() == nil {
 			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
 				return fmt.Errorf("failed transition to version %s: %w, failed to rollback: %w", v, err, rerr)
 			}
@@ -125,7 +125,7 @@ func (r *memreg) ApplyVersion(ctx context.Context, v registry.Version) error {
 }
 
 // rollback state desync between actual state in system and state in history
-func (r *memreg) rollback(ctx context.Context, from, to registry.State) error {
+func (r *reg) rollback(ctx context.Context, from, to registry.State) error {
 	r.log.Debug("attempting to rollback", zap.Any("from", from), zap.Any("to", to))
 
 	partial, err := r.transitionState(ctx, from, to)
@@ -135,12 +135,10 @@ func (r *memreg) rollback(ctx context.Context, from, to registry.State) error {
 
 	r.state = partial // we remain in a desynced state
 
-	// todo: add more recovery cases
-
 	return err
 }
 
-func (r *memreg) transitionState(ctx context.Context, from, to registry.State) (registry.State, error) {
+func (r *reg) transitionState(ctx context.Context, from, to registry.State) (registry.State, error) {
 	r.log.Debug("transitioning state", zap.Any("from", from), zap.Any("to", to))
 
 	cs, terr := r.builder.BuildDelta(from, to)
@@ -148,10 +146,14 @@ func (r *memreg) transitionState(ctx context.Context, from, to registry.State) (
 		return nil, fmt.Errorf("failed to compute transition: %w", terr)
 	}
 
+	if len(cs) == 0 {
+		return from, nil
+	}
+
 	return r.runner.Transition(ctx, from, cs)
 }
 
-func (r *memreg) Current() (registry.Version, error) {
+func (r *reg) Current() (registry.Version, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 

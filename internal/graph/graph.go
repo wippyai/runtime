@@ -1,55 +1,53 @@
 package graph
 
 import (
-	"container/heap"
-	"errors"
 	"fmt"
 	"sync"
 )
 
-// Node represents a data type in the graph.
-type Node string
+const Infinity = -1
 
-// Edge represents a possible transcoding operation between two types.
-type Edge struct {
-	From   Node
-	To     Node
-	Weight int
-}
+type (
+	// Node represents a vertex in the graph
+	Node string
 
-// Graph represents the network of data types and their transcoding relationships.
-type Graph struct {
-	nodes     map[Node]bool
-	edges     map[Node]map[Node]int // Adjacency list: Node -> (Node -> Weight)
-	mutex     sync.RWMutex          // For concurrent access
-	cache     map[string]*Path      // Cache for shortest paths
-	cacheLock sync.RWMutex
-}
+	// Edge represents a directed edge between two nodes with a weight
+	Edge struct {
+		From   Node
+		To     Node
+		Weight int
+	}
 
-// Path represents a sequence of nodes forming a path.
-type Path struct {
-	Nodes []Node
-	Cost  int
-}
+	// Path represents a sequence of nodes and their total cost
+	Path struct {
+		Nodes []Node
+		Cost  int
+	}
 
-// NewGraph creates a new graph.
+	// Graph represents a weighted directed graph with concurrent access support
+	Graph struct {
+		nodes map[Node]bool
+		edges map[Node]map[Node]int
+		mutex sync.RWMutex
+	}
+)
+
+// NewGraph creates a new empty graph
 func NewGraph() *Graph {
 	return &Graph{
 		nodes: make(map[Node]bool),
 		edges: make(map[Node]map[Node]int),
-		cache: make(map[string]*Path),
 	}
 }
 
-// AddNode adds a node to the graph.
+// AddNode adds a new node to the graph
 func (g *Graph) AddNode(n Node) {
 	g.mutex.Lock()
 	defer g.mutex.Unlock()
 	g.nodes[n] = true
-	g.invalidateCache() // Invalidate cache on node addition
 }
 
-// AddEdge adds a directed edge to the graph.
+// AddEdge adds a directed edge to the graph
 func (g *Graph) AddEdge(e Edge) {
 	g.mutex.Lock()
 	defer g.mutex.Unlock()
@@ -58,139 +56,218 @@ func (g *Graph) AddEdge(e Edge) {
 		g.edges[e.From] = make(map[Node]int)
 	}
 	g.edges[e.From][e.To] = e.Weight
-	g.invalidateCache() // Invalidate cache on edge addition
 }
 
-// priorityQueueItem represents an item in the priority queue used by Dijkstra's algorithm.
-type priorityQueueItem struct {
-	node     Node
-	priority int
-	index    int // Index in the heap (needed for updating priority)
-}
+// RemoveNode removes a node and all its associated edges from the graph.
+// Returns error if the node doesn't exist.
+func (g *Graph) RemoveNode(n Node) error {
+	g.mutex.Lock()
+	defer g.mutex.Unlock()
 
-// priorityQueue is a priority queue implementation using a min-heap.
-type priorityQueue []*priorityQueueItem
-
-func (pq priorityQueue) Len() int           { return len(pq) }
-func (pq priorityQueue) Less(i, j int) bool { return pq[i].priority < pq[j].priority }
-func (pq priorityQueue) Swap(i, j int) {
-	pq[i], pq[j] = pq[j], pq[i]
-	pq[i].index = i
-	pq[j].index = j
-}
-
-func (pq *priorityQueue) Push(x interface{}) {
-	n := len(*pq)
-	item := x.(*priorityQueueItem)
-	item.index = n
-	*pq = append(*pq, item)
-}
-
-func (pq *priorityQueue) Pop() interface{} {
-	old := *pq
-	n := len(old)
-	item := old[n-1]
-	old[n-1] = nil  // Avoid memory leak
-	item.index = -1 // For safety
-	*pq = old[0 : n-1]
-	return item
-}
-
-// cacheKey creates a key for the cache based on the source and destination nodes.
-func cacheKey(from, to Node) string {
-	return fmt.Sprintf("%s:%s", from, to)
-}
-
-// invalidateCache clears the shortest path cache.
-func (g *Graph) invalidateCache() {
-	g.cacheLock.Lock()
-	defer g.cacheLock.Unlock()
-	g.cache = make(map[string]*Path)
-}
-
-// ShortestPath calculates the shortest path between two nodes using Dijkstra's algorithm.
-func (g *Graph) ShortestPath(from, to Node) (*Path, error) {
-	// Check cache first
-	g.cacheLock.RLock()
-	if path, ok := g.cache[cacheKey(from, to)]; ok {
-		g.cacheLock.RUnlock()
-		return path, nil
+	// Check if node exists
+	if !g.nodes[n] {
+		return fmt.Errorf("node %s does not exist", n)
 	}
-	g.cacheLock.RUnlock()
 
+	// Remove the node from nodes map
+	delete(g.nodes, n)
+
+	// Remove all edges where this node is the source
+	delete(g.edges, n)
+
+	// Remove all edges where this node is the destination
+	for source, edges := range g.edges {
+		delete(edges, n)
+		// If source node has no more edges, clean up the empty map
+		if len(edges) == 0 {
+			delete(g.edges, source)
+		}
+	}
+
+	return nil
+}
+
+// RemoveEdges removes all edges between two nodes in both directions.
+// Returns error if either node doesn't exist.
+func (g *Graph) RemoveEdges(node1, node2 Node) error {
+	g.mutex.Lock()
+	defer g.mutex.Unlock()
+
+	// Verify both nodes exist
+	if !g.nodes[node1] {
+		return fmt.Errorf("node %s does not exist", node1)
+	}
+	if !g.nodes[node2] {
+		return fmt.Errorf("node %s does not exist", node2)
+	}
+
+	// Remove edge from node1 to node2 if it exists
+	if edges, exists := g.edges[node1]; exists {
+		delete(edges, node2)
+		if len(edges) == 0 {
+			delete(g.edges, node1)
+		}
+	}
+
+	// Remove edge from node2 to node1 if it exists
+	if edges, exists := g.edges[node2]; exists {
+		delete(edges, node1)
+		if len(edges) == 0 {
+			delete(g.edges, node2)
+		}
+	}
+
+	return nil
+}
+
+// HasEdge checks if an edge exists between two nodes.
+// Returns false if either node doesn't exist.
+func (g *Graph) HasEdge(from, to Node) bool {
 	g.mutex.RLock()
 	defer g.mutex.RUnlock()
 
-	// Check if nodes exist
+	// Check if both nodes exist
+	if !g.nodes[from] || !g.nodes[to] {
+		return false
+	}
+
+	// Check if edge exists
+	if edges, exists := g.edges[from]; exists {
+		_, hasEdge := edges[to]
+		return hasEdge
+	}
+	return false
+}
+
+// GetNeighbors returns all nodes that have edges from the given node.
+// Returns error if the node doesn't exist.
+func (g *Graph) GetNeighbors(n Node) ([]Node, error) {
+	g.mutex.RLock()
+	defer g.mutex.RUnlock()
+
+	if !g.nodes[n] {
+		return nil, fmt.Errorf("node %s does not exist", n)
+	}
+
+	edges, exists := g.edges[n]
+	if !exists {
+		return []Node{}, nil
+	}
+
+	neighbors := make([]Node, 0, len(edges))
+	for neighbor := range edges {
+		neighbors = append(neighbors, neighbor)
+	}
+
+	return neighbors, nil
+}
+
+// ShortestPath finds the shortest path between two nodes using Dijkstra's algorithm
+func (g *Graph) ShortestPath(from, to Node) (*Path, error) {
+	g.mutex.RLock()
+	defer g.mutex.RUnlock()
+
+	// Verify nodes exist
 	if !g.nodes[from] {
-		return nil, fmt.Errorf("start node %s does not exist in the graph", from)
+		return nil, fmt.Errorf("start node %s does not exist", from)
 	}
 	if !g.nodes[to] {
-		return nil, fmt.Errorf("end node %s does not exist in the graph", to)
+		return nil, fmt.Errorf("end node %s does not exist", to)
 	}
 
-	// Dijkstra's algorithm
+	// Initialize Dijkstra's algorithm data structures
 	distances := make(map[Node]int)
 	previous := make(map[Node]Node)
-	pq := make(priorityQueue, 0, len(g.nodes))
+	pq := newPriorityQueue()
 
+	// Initialize distances
 	for node := range g.nodes {
 		if node == from {
 			distances[node] = 0
-			heap.Push(&pq, &priorityQueueItem{node: node, priority: 0})
+			pq.SafePush(newItem(node, 0))
 		} else {
-			distances[node] = -1 // -1 represents infinity for unvisited nodes
+			distances[node] = Infinity
 		}
 	}
 
+	// Main Dijkstra's algorithm loop
 	for pq.Len() > 0 {
-		current := heap.Pop(&pq).(*priorityQueueItem).node
-
-		if distances[current] == -1 {
-			break // All remaining nodes are unreachable
+		current := pq.SafePop()
+		if current == nil {
+			break
 		}
 
-		if current == to {
-			break // Reached the destination
+		if current.node == to {
+			break // Reached destination
 		}
 
-		for neighbor, weight := range g.edges[current] {
-			alt := distances[current] + weight
-			if distances[neighbor] == -1 || alt < distances[neighbor] {
-				distances[neighbor] = alt
-				previous[neighbor] = current
-				// Update priority if neighbor is already in the queue
-				found := false
-				for i := 0; i < pq.Len(); i++ {
-					if pq[i].node == neighbor {
-						pq[i].priority = alt
-						heap.Fix(&pq, pq[i].index)
-						found = true
-						break
-					}
-				}
-				// Add neighbor to queue if not already present
-				if !found {
-					heap.Push(&pq, &priorityQueueItem{node: neighbor, priority: alt})
+		if distances[current.node] == Infinity {
+			break // No path exists to remaining nodes
+		}
+
+		// Check all neighbors of current node
+		for neighbor, weight := range g.edges[current.node] {
+			newDistance := distances[current.node] + weight
+
+			if distances[neighbor] == Infinity || newDistance < distances[neighbor] {
+				distances[neighbor] = newDistance
+				previous[neighbor] = current.node
+
+				// Update or add neighbor to priority queue
+				if existingItem := pq.Contains(neighbor); existingItem != nil {
+					pq.UpdatePriority(existingItem, newDistance)
+				} else {
+					pq.SafePush(newItem(neighbor, newDistance))
 				}
 			}
 		}
 	}
 
-	if distances[to] == -1 {
-		return nil, errors.New("no path found")
+	// Check if path exists
+	if distances[to] == Infinity {
+		return nil, fmt.Errorf("no path found")
 	}
 
 	// Reconstruct path
-	path := &Path{Cost: distances[to]}
-	for node := to; node != ""; node = previous[node] {
-		path.Nodes = append([]Node{node}, path.Nodes...)
+	path := &Path{
+		Cost:  distances[to],
+		Nodes: make([]Node, 0),
 	}
 
-	// Store in cache
-	g.cacheLock.Lock()
-	g.cache[cacheKey(from, to)] = path
-	g.cacheLock.Unlock()
+	// Build path from destination to source
+	for current := to; current != ""; current = previous[current] {
+		path.Nodes = append([]Node{current}, path.Nodes...)
+	}
 
 	return path, nil
+}
+
+// GetNodes returns a slice of all nodes in the graph
+func (g *Graph) GetNodes() []Node {
+	g.mutex.RLock()
+	defer g.mutex.RUnlock()
+
+	nodes := make([]Node, 0, len(g.nodes))
+	for node := range g.nodes {
+		nodes = append(nodes, node)
+	}
+	return nodes
+}
+
+// GetEdges returns all edges in the graph
+func (g *Graph) GetEdges() []Edge {
+	g.mutex.RLock()
+	defer g.mutex.RUnlock()
+
+	edges := make([]Edge, 0)
+	for from, neighbors := range g.edges {
+		for to, weight := range neighbors {
+			edges = append(edges, Edge{
+				From:   from,
+				To:     to,
+				Weight: weight,
+			})
+		}
+	}
+	return edges
 }

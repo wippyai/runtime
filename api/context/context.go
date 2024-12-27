@@ -10,11 +10,14 @@ func (ck *Key) String() string {
 }
 
 var (
+	// todo: how can we declare context keys outside of this file?
 	LoggerKey      = &Key{name: "logger"}      //nolint:gochecknoglobals
 	CfgFilenameKey = &Key{name: "cfgfilename"} //nolint:gochecknoglobals
 	// TODO: rename
 	ContexterKey   = &Key{name: "contexter"}   //nolint:gochecknoglobals
 	HttpHandlerKey = &Key{name: "httpHandler"} //nolint:gochecknoglobals
+	RouteInfoCtx   = &Key{name: "routeInfo"}   //nolint:gochecknoglobals
+	RequestCtx     = &Key{name: "httpRequest"} //nolint:gochecknoglobals
 )
 
 // TODO: rename
