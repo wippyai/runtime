@@ -8,7 +8,7 @@ import (
 	"github.com/ponyruntime/pony/api/registry"
 )
 
-// stateMap is an internal representation of the state using a map for faster lookups.
+// stateMap is an helpers representation of the state using a map for faster lookups.
 type stateMap map[registry.ID]registry.Entry
 
 // stateHelper encapsulates state-related operations.

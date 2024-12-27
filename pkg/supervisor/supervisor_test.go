@@ -557,7 +557,7 @@ func TestSupervisor_ServiceStoppingStates(t *testing.T) {
 	svc.WaitForStart(t)
 	h.assertServiceState("slow-stop", supervisor.Running)
 
-	// Introduce a small delay to allow service's internal state to update
+	// Introduce a small delay to allow service's helpers state to update
 	time.Sleep(50 * time.Millisecond)
 
 	// Initiate stop and immediately check state

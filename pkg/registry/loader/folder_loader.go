@@ -23,7 +23,7 @@ type FolderLoader struct {
 	i11p      *interpolator.Interpolator
 }
 
-// FileEntry is an internal struct used for unmarshalling entry data.
+// FileEntry is an helpers struct used for unmarshalling entry data.
 type FileEntry struct {
 	Name string            `json:"name" yaml:"name"`
 	Kind string            `json:"kind" yaml:"kind"`
