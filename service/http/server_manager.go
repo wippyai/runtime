@@ -3,6 +3,9 @@ package http
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"sync"
+
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
@@ -10,28 +13,34 @@ import (
 	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/ponyruntime/pony/pkg/eventbus"
 	"go.uber.org/zap"
-	"net/http"
-	"sync"
 )
 
 // ServerManager manages multiple HTTP servers and their endpoints based on registry configuration
 type ServerManager struct {
-	ctx     context.Context
-	log     *zap.Logger
-	bus     events.Bus
-	dtt     payload.Transcoder
-	scr     *eventbus.Subscriber
-	mu      sync.RWMutex
+	ctx context.Context
+	log *zap.Logger
+	bus events.Bus
+	dtt payload.Transcoder
+	scr *eventbus.Subscriber
+	mu  sync.RWMutex
+
+	// Core server registry
 	servers map[registry.ID]*Server
+
+	// Mappings to track relationships
+	endpointServers map[registry.ID]registry.ID // endpoint ID -> server ID
+	routerServers   map[registry.ID]registry.ID // router ID -> server ID
 }
 
 // Init creates a new HTTP service instance
 func Init(bus events.Bus, dtt payload.Transcoder, logger *zap.Logger) *ServerManager {
 	return &ServerManager{
-		log:     logger,
-		bus:     bus,
-		dtt:     dtt,
-		servers: make(map[registry.ID]*Server),
+		log:             logger,
+		bus:             bus,
+		dtt:             dtt,
+		servers:         make(map[registry.ID]*Server),
+		endpointServers: make(map[registry.ID]registry.ID),
+		routerServers:   make(map[registry.ID]registry.ID),
 	}
 }
 
@@ -39,6 +48,13 @@ func Init(bus events.Bus, dtt payload.Transcoder, logger *zap.Logger) *ServerMan
 func (s *ServerManager) Start(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	s.log.Info("starting server manager")
+
+	if s.ctx != nil {
+		s.log.Error("server manager already started")
+		return fmt.Errorf("server manager already started")
+	}
 
 	s.ctx = ctx
 	sub, err := eventbus.NewSubscriber(
@@ -50,7 +66,7 @@ func (s *ServerManager) Start(ctx context.Context) error {
 	)
 
 	if err != nil {
-		return fmt.Errorf("failed to create scr: %w", err)
+		return fmt.Errorf("failed to create subscriber: %w", err)
 	}
 	s.scr = sub
 	return nil
@@ -65,7 +81,9 @@ func (s *ServerManager) Stop() error {
 		s.scr.Close()
 	}
 
-	s.servers = make(map[registry.ID]*Server) // lifecycle delegated to supervisor
+	s.servers = make(map[registry.ID]*Server)
+	s.endpointServers = make(map[registry.ID]registry.ID)
+	s.routerServers = make(map[registry.ID]registry.ID)
 	s.scr = nil
 
 	return nil
@@ -78,55 +96,65 @@ func (s *ServerManager) handleEvent(evt events.Event) {
 		return
 	}
 
+	s.log.Debug("processing registry event",
+		zap.String("id", string(entry.ID)),
+		zap.String("kind", string(evt.Kind)),
+		zap.String("type", string(entry.Kind)))
+
+	// For create/update operations, ensure we have valid data
+	if evt.Kind != registry.Delete && entry.Data == nil {
+		s.reject(entry.ID, fmt.Errorf("configuration data is required for create/update operations"))
+		return
+	}
+
 	switch entry.Kind {
 	case config.KindServer:
 		cfg := new(config.ServerConfig)
-		err := s.dtt.Unmarshal(entry.Data, cfg)
-		if err != nil {
-			s.reject(entry.ID, err)
-			return
+		if entry.Data != nil {
+			if err := s.unmarshalAndValidate(entry.Data, cfg); err != nil {
+				s.reject(entry.ID, err)
+				return
+			}
 		}
-
-		if err := cfg.Validate(); err != nil {
-			s.reject(entry.ID, fmt.Errorf("invalid configuration: %w", err))
-			return
-		}
-
-		s.handleServer(entry.ID, evt.Kind, *cfg)
+		s.handleServer(entry.ID, evt.Kind, cfg)
 
 	case config.KindRouter:
 		cfg := new(config.RouterConfig)
-		err := s.dtt.Unmarshal(entry.Data, cfg)
-		if err != nil {
-			s.reject(entry.ID, err)
-			return
+		if entry.Data != nil {
+			if err := s.unmarshalAndValidate(entry.Data, cfg); err != nil {
+				s.reject(entry.ID, err)
+				return
+			}
 		}
-
-		if err := cfg.Validate(); err != nil {
-			s.reject(entry.ID, fmt.Errorf("invalid configuration: %w", err))
-			return
-		}
-
-		s.handleRouter(entry.ID, evt.Kind, *cfg)
+		s.handleRouter(entry.ID, evt.Kind, cfg)
 
 	case config.KindEndpoint:
 		cfg := new(config.EndpointConfig)
-		err := s.dtt.Unmarshal(entry.Data, cfg)
-		if err != nil {
-			s.reject(entry.ID, err)
-			return
+		if entry.Data != nil {
+			if err := s.unmarshalAndValidate(entry.Data, cfg); err != nil {
+				s.reject(entry.ID, err)
+				return
+			}
 		}
-
-		if err := cfg.Validate(); err != nil {
-			s.reject(entry.ID, fmt.Errorf("invalid configuration: %w", err))
-			return
-		}
-
-		s.handleEndpoint(entry.ID, evt.Kind, *cfg)
+		s.handleEndpoint(entry.ID, evt.Kind, cfg)
 	}
 }
 
-func (s *ServerManager) handleServer(id registry.ID, kind events.Kind, cfg config.ServerConfig) {
+func (s *ServerManager) unmarshalAndValidate(data payload.Payload, cfg interface{}) error {
+	if err := s.dtt.Unmarshal(data, cfg); err != nil {
+		return fmt.Errorf("failed to unmarshal config: %w", err)
+	}
+
+	if validator, ok := cfg.(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return fmt.Errorf("invalid configuration: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func (s *ServerManager) handleServer(id registry.ID, kind events.Kind, cfg *config.ServerConfig) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -137,22 +165,18 @@ func (s *ServerManager) handleServer(id registry.ID, kind events.Kind, cfg confi
 			return
 		}
 
-		// Create new server instance
-		server := NewServer(cfg, func(writer http.ResponseWriter, request *http.Request) {
+		server := NewServer(*cfg, func(writer http.ResponseWriter, request *http.Request) {
 			_, _ = writer.Write([]byte("Hello, World!"))
 		})
-
 		s.servers[id] = server
 
-		// Register with supervisor
+		// launch the server (if auto-start is enabled)
 		s.bus.Send(s.ctx, events.Event{
 			System: supervisor.System,
 			Kind:   supervisor.Register,
 			Path:   events.Path(id),
 			Data:   &supervisor.Entry{Service: server, Config: cfg.Lifecycle},
 		})
-
-		s.log.Debug("server created", zap.String("id", string(id)))
 
 	case registry.Update:
 		server, exists := s.servers[id]
@@ -161,18 +185,13 @@ func (s *ServerManager) handleServer(id registry.ID, kind events.Kind, cfg confi
 			return
 		}
 
-		// Update server config
-		server.UpdateConfig(cfg)
-
-		// Update supervisor lifecycle config
+		server.UpdateConfig(*cfg)
 		s.bus.Send(s.ctx, events.Event{
 			System: supervisor.System,
 			Kind:   supervisor.Update,
 			Path:   events.Path(id),
-			Data:   &supervisor.Entry{Config: cfg.Lifecycle}, // only lifecycle config can be updated
+			Data:   &supervisor.Entry{Config: cfg.Lifecycle},
 		})
-
-		s.log.Debug("server updated", zap.String("id", string(id)))
 
 	case registry.Delete:
 		if _, exists := s.servers[id]; !exists {
@@ -180,111 +199,191 @@ func (s *ServerManager) handleServer(id registry.ID, kind events.Kind, cfg confi
 			return
 		}
 
-		// Unregister from supervisor
+		// Clean up all associated endpoints and routers
+		for epID, srvID := range s.endpointServers {
+			if srvID == id {
+				delete(s.endpointServers, epID)
+			}
+		}
+
+		for rID, srvID := range s.routerServers {
+			if srvID == id {
+				delete(s.routerServers, rID)
+			}
+		}
+
 		s.bus.Send(s.ctx, events.Event{
 			System: supervisor.System,
 			Kind:   supervisor.Remove,
 			Path:   events.Path(id),
 		})
 
-		// Remove from our local registry
 		delete(s.servers, id)
-
-		s.log.Debug("server deleted", zap.String("id", string(id)))
 	}
 
 	s.accept(id)
 }
-
-// handleRouter processes router configuration changes
-func (s *ServerManager) handleRouter(id registry.ID, kind events.Kind, cfg config.RouterConfig) {
+func (s *ServerManager) handleRouter(id registry.ID, kind events.Kind, cfg *config.RouterConfig) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Get the target server
-	serverID := cfg.Meta.StringValue(config.ServerID)
-	server, exists := s.servers[registry.ID(serverID)]
-	if !exists {
-		s.reject(id, fmt.Errorf("http server %s not found", serverID))
-		return
-	}
+	currentServerID, exists := s.routerServers[id]
+	targetServerID := registry.ID(cfg.Meta.StringValue(config.ServerID))
 
 	switch kind {
 	case registry.Create:
-		if err := server.Router().AddRouter(string(id), cfg); err != nil {
-			s.reject(id, fmt.Errorf("failed to add router: %w", err))
+		// Check if the target server exists
+		if _, exists := s.servers[targetServerID]; !exists {
+			s.reject(id, fmt.Errorf("target server %s not found", targetServerID))
 			return
 		}
-
-		s.log.Debug("router created", zap.String("id", string(id)))
+		// Add to the new server
+		newServer := s.servers[targetServerID]
+		if err := newServer.router.AddRouter(string(id), *cfg); err != nil {
+			s.reject(id, fmt.Errorf("failed to add router to new server: %w", err))
+			return
+		}
+		s.routerServers[id] = targetServerID
 
 	case registry.Update:
-		if err := server.Router().UpdateRouter(string(id), cfg); err != nil {
-			s.reject(id, fmt.Errorf("failed to update router: %w", err))
+		// Check if router exists
+		if !exists {
+			s.reject(id, fmt.Errorf("router %s not found in registry", id))
+			return
+		}
+		// Check if the target server exists
+		if _, exists := s.servers[targetServerID]; !exists {
+			s.reject(id, fmt.Errorf("target server %s not found", targetServerID))
 			return
 		}
 
-		s.log.Debug("router updated", zap.String("id", string(id)))
+		if currentServerID == targetServerID {
+			// Regular update
+			server := s.servers[currentServerID]
+			if err := server.router.UpdateRouter(string(id), *cfg); err != nil {
+				s.reject(id, fmt.Errorf("failed to update router: %w", err))
+				return
+			}
+		} else {
+			// Migration:
+			// 1. Add to the new server first
+			newServer := s.servers[targetServerID]
+			if err := newServer.router.AddRouter(string(id), *cfg); err != nil {
+				s.reject(id, fmt.Errorf("failed to add router to new server: %w", err))
+				return
+			}
 
+			// 2. Update mapping
+			s.routerServers[id] = targetServerID
+
+			// 3. Delete from the old server
+			oldServer := s.servers[currentServerID]
+			if err := oldServer.router.DeleteRouter(string(id)); err != nil {
+				// never happens
+				s.log.Error("failed to delete router from old server",
+					zap.String("router_id", string(id)),
+					zap.String("old_server_id", string(currentServerID)),
+					zap.Error(err),
+				)
+			}
+		}
 	case registry.Delete:
-		if err := server.Router().DeleteRouter(string(id)); err != nil {
+		// Check if router exists
+		if !exists {
+			s.reject(id, fmt.Errorf("router %s not found in registry", id))
+			return
+		}
+		server := s.servers[currentServerID]
+		if err := server.router.DeleteRouter(string(id)); err != nil {
 			s.reject(id, fmt.Errorf("failed to delete router: %w", err))
 			return
 		}
-
-		s.log.Debug("router deleted", zap.String("id", string(id)))
+		delete(s.routerServers, id)
 	}
 
 	s.accept(id)
 }
 
-func (s *ServerManager) handleEndpoint(id registry.ID, kind events.Kind, cfg config.EndpointConfig) {
+func (s *ServerManager) handleEndpoint(id registry.ID, kind events.Kind, cfg *config.EndpointConfig) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	serverID := cfg.Meta.StringValue(config.ServerID)
-	server, exists := s.servers[registry.ID(serverID)]
-	if !exists {
-		s.reject(id, fmt.Errorf("http server %s not found", serverID))
-		return
-	}
+	currentServerID, exists := s.endpointServers[id]
+	targetServerID := registry.ID(cfg.Meta.StringValue(config.ServerID))
 
 	switch kind {
 	case registry.Create:
-		if err := server.Router().AddEndpoint(string(id), cfg); err != nil {
-			s.log.Error("failed to add endpoint",
-				zap.String("endpoint_id", string(id)),
-				zap.Error(err),
-			)
-			s.reject(id, err)
+		// Check if the target server exists
+		if _, exists := s.servers[targetServerID]; !exists {
+			s.reject(id, fmt.Errorf("target server %s not found", targetServerID))
 			return
 		}
-
-		s.log.Debug("endpoint created", zap.String("id", string(id)))
+		// Add to the new server
+		newServer := s.servers[targetServerID]
+		if err := newServer.router.AddEndpoint(string(id), *cfg); err != nil {
+			s.reject(id, fmt.Errorf("failed to add endpoint to new server: %w", err))
+			return
+		}
+		s.endpointServers[id] = targetServerID
 
 	case registry.Update:
-		if err := server.Router().UpdateEndpoint(string(id), cfg); err != nil {
-			s.log.Error("failed to update endpoint",
-				zap.String("endpoint_id", string(id)),
-				zap.Error(err),
-			)
-			s.reject(id, err)
+		// Check if endpoint exists
+		if !exists {
+			s.reject(id, fmt.Errorf("endpoint %s not found in registry", id))
 			return
 		}
 
-		s.log.Debug("endpoint updated", zap.String("id", string(id)))
+		// Check if the target server exists
+		if _, exists := s.servers[targetServerID]; !exists {
+			s.reject(id, fmt.Errorf("target server %s not found", targetServerID))
+			return
+		}
+
+		if currentServerID == targetServerID {
+			// Regular update
+			server := s.servers[currentServerID]
+			if err := server.router.UpdateEndpoint(string(id), *cfg); err != nil {
+				s.reject(id, fmt.Errorf("failed to update endpoint: %w", err))
+				return
+			}
+		} else {
+			// Migration:
+			// 1. Add to the new server first
+			newServer := s.servers[targetServerID]
+			if err := newServer.router.AddEndpoint(string(id), *cfg); err != nil {
+				s.reject(id, fmt.Errorf("failed to add endpoint to new server: %w", err))
+				return
+			}
+
+			// 2. Update mapping
+			s.endpointServers[id] = targetServerID
+
+			// 3. Delete from the old server
+			oldServer := s.servers[currentServerID]
+			if err := oldServer.router.DeleteEndpoint(string(id)); err != nil {
+				// never happens
+				s.log.Error("failed to delete endpoint from old server",
+					zap.String("endpoint_id", string(id)),
+					zap.String("old_server_id", string(currentServerID)),
+					zap.Error(err),
+				)
+			}
+		}
 
 	case registry.Delete:
-		if err := server.Router().DeleteEndpoint(string(id)); err != nil {
-			s.log.Error("failed to delete endpoint",
-				zap.String("endpoint_id", string(id)),
-				zap.Error(err),
-			)
-			s.reject(id, err)
+		// Check if endpoint exists
+		if !exists {
+			s.reject(id, fmt.Errorf("endpoint %s not found in registry", id))
 			return
 		}
 
-		s.log.Debug("endpoint deleted", zap.String("id", string(id)))
+		server := s.servers[currentServerID]
+		if err := server.router.DeleteEndpoint(string(id)); err != nil {
+			s.reject(id, fmt.Errorf("failed to delete endpoint: %w", err))
+			return
+		}
+		delete(s.endpointServers, id)
+
 	}
 
 	s.accept(id)

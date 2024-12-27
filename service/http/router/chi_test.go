@@ -1,7 +1,6 @@
 package router
 
 import (
-	"context"
 	config "github.com/ponyruntime/pony/api/service/http"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -29,11 +28,13 @@ func TestAddEndpoint(t *testing.T) {
 
 	tests := []struct {
 		name      string
+		id        string
 		endpoint  config.EndpointConfig
 		wantError bool
 	}{
 		{
 			name: "valid endpoint",
+			id:   "test1",
 			endpoint: config.EndpointConfig{
 				Method: http.MethodGet,
 				Path:   "/test",
@@ -42,21 +43,34 @@ func TestAddEndpoint(t *testing.T) {
 		},
 		{
 			name: "duplicate endpoint",
+			id:   "test1",
 			endpoint: config.EndpointConfig{
 				Method: http.MethodGet,
 				Path:   "/test",
 			},
 			wantError: true,
 		},
+		{
+			name: "different ID same path and method",
+			id:   "test2",
+			endpoint: config.EndpointConfig{
+				Method: http.MethodGet,
+				Path:   "/test",
+			},
+			wantError: false,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := router.AddEndpoint(tt.endpoint)
+			err := router.AddEndpoint(tt.id, tt.endpoint)
 			if tt.wantError {
 				assert.Error(t, err)
 			} else {
 				assert.NoError(t, err)
+				endpoints := router.GetEndpoints()
+				assert.Contains(t, endpoints, tt.id)
+				assert.Equal(t, tt.endpoint, endpoints[tt.id])
 			}
 		})
 	}
@@ -68,35 +82,35 @@ func TestDeleteEndpoint(t *testing.T) {
 		Method: http.MethodGet,
 		Path:   "/test",
 	}
-	_ = router.AddEndpoint(endpoint)
+	err := router.AddEndpoint("test1", endpoint)
+	require.NoError(t, err)
 
 	tests := []struct {
-		name      string
-		path      string
-		method    string
-		wantError bool
+		name       string
+		endpointID string
+		wantError  bool
 	}{
 		{
-			name:      "existing endpoint",
-			path:      "/test",
-			method:    http.MethodGet,
-			wantError: false,
+			name:       "existing endpoint",
+			endpointID: "test1",
+			wantError:  false,
 		},
 		{
-			name:      "non-existent endpoint",
-			path:      "/missing",
-			method:    http.MethodGet,
-			wantError: true,
+			name:       "non-existent endpoint",
+			endpointID: "missing",
+			wantError:  true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := router.DeleteEndpoint(tt.path, tt.method)
+			err := router.DeleteEndpoint(tt.endpointID)
 			if tt.wantError {
 				assert.Error(t, err)
 			} else {
 				assert.NoError(t, err)
+				endpoints := router.GetEndpoints()
+				assert.NotContains(t, endpoints, tt.endpointID)
 			}
 		})
 	}
@@ -108,26 +122,54 @@ func TestUpdateEndpoint(t *testing.T) {
 		Method: http.MethodGet,
 		Path:   "/test",
 	}
-	_ = router.AddEndpoint(originalEndpoint)
+	err := router.AddEndpoint("test1", originalEndpoint)
+	require.NoError(t, err)
+
+	err = router.AddEndpoint("test2", config.EndpointConfig{
+		Method: http.MethodPost,
+		Path:   "/other",
+	})
+	require.NoError(t, err)
 
 	tests := []struct {
 		name      string
+		id        string
 		endpoint  config.EndpointConfig
 		wantError bool
 	}{
 		{
-			name: "existing endpoint",
+			name: "existing endpoint - change method",
+			id:   "test1",
 			endpoint: config.EndpointConfig{
-				Method: http.MethodGet,
+				Method: http.MethodPost,
 				Path:   "/test",
 			},
 			wantError: false,
 		},
 		{
-			name: "non-existent endpoint",
+			name: "existing endpoint - change path",
+			id:   "test1",
+			endpoint: config.EndpointConfig{
+				Method: http.MethodGet,
+				Path:   "/test-updated",
+			},
+			wantError: false,
+		},
+		{
+			name: "path and method conflict with existing endpoint",
+			id:   "test1",
 			endpoint: config.EndpointConfig{
 				Method: http.MethodPost,
-				Path:   "/missing",
+				Path:   "/other",
+			},
+			wantError: true,
+		},
+		{
+			name: "non-existent endpoint ID",
+			id:   "missing",
+			endpoint: config.EndpointConfig{
+				Method: http.MethodGet,
+				Path:   "/test",
 			},
 			wantError: true,
 		},
@@ -135,11 +177,14 @@ func TestUpdateEndpoint(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := router.UpdateEndpoint(tt.endpoint)
+			err := router.UpdateEndpoint(tt.id, tt.endpoint)
 			if tt.wantError {
 				assert.Error(t, err)
 			} else {
 				assert.NoError(t, err)
+				endpoints := router.GetEndpoints()
+				assert.Contains(t, endpoints, tt.id)
+				assert.Equal(t, tt.endpoint, endpoints[tt.id])
 			}
 		})
 	}
@@ -153,15 +198,18 @@ func TestBuildRouter(t *testing.T) {
 	}
 
 	router, _ := NewChiRouter(cfg)
-	_ = router.AddEndpoint(config.EndpointConfig{
+	endpoint := config.EndpointConfig{
 		Method: http.MethodGet,
 		Path:   "/api/test",
-	})
+	}
+	err := router.AddEndpoint("test1", endpoint)
+	require.NoError(t, err)
 
+	var capturedRouteInfo *config.RouteInfo
 	handler := func(w http.ResponseWriter, r *http.Request) {
-		routeInfo, ok := GetRouteInfo(r.Context())
+		routeInfo, ok := r.Context().Value(config.RouteInfoCtx).(*config.RouteInfo)
 		require.True(t, ok)
-		assert.NotNil(t, routeInfo)
+		capturedRouteInfo = routeInfo
 		w.WriteHeader(http.StatusOK)
 	}
 
@@ -173,42 +221,55 @@ func TestBuildRouter(t *testing.T) {
 	server := httptest.NewServer(chiRouter)
 	defer server.Close()
 
+	// Test successful route
 	resp, err := http.Get(server.URL + "/api/test")
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.NotNil(t, capturedRouteInfo)
+	assert.Equal(t, "test1", capturedRouteInfo.EndpointID)
+	assert.Equal(t, endpoint.Method, capturedRouteInfo.Endpoint.Method)
+	assert.Equal(t, endpoint.Path, capturedRouteInfo.Endpoint.Path)
 
-	// Test 404
+	// Test 404 for non-existent route
 	resp, err = http.Get(server.URL + "/api/missing")
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 
-	// Test 405
-	resp, err = http.Post(server.URL+"/api/test", "application/json", nil)
+	// Test 405 for wrong method
+	req, _ := http.NewRequest(http.MethodPost, server.URL+"/api/test", nil)
+	resp, err = http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode)
 }
 
 func TestRouteContext(t *testing.T) {
 	router, _ := NewChiRouter(config.RouterConfig{Prefix: "/"})
-	_ = router.AddEndpoint(config.EndpointConfig{
+	endpoint := config.EndpointConfig{
 		Method: http.MethodGet,
 		Path:   "/api/users/{id}",
-	})
+	}
+	err := router.AddEndpoint("user1", endpoint)
+	require.NoError(t, err)
 
+	var capturedRouteInfo *config.RouteInfo
 	handler := func(w http.ResponseWriter, r *http.Request) {
-		routeInfo, ok := GetRouteInfo(r.Context())
+		routeInfo, ok := r.Context().Value(config.RouteInfoCtx).(*config.RouteInfo)
 		require.True(t, ok)
-		assert.Equal(t, "123", routeInfo.Params["id"])
+		capturedRouteInfo = routeInfo
 		w.WriteHeader(http.StatusOK)
 	}
 
-	chiRouter, _ := router.Build(handler)
+	chiRouter, err := router.Build(handler)
+	require.NoError(t, err)
+
 	server := httptest.NewServer(chiRouter)
 	defer server.Close()
 
 	resp, err := http.Get(server.URL + "/api/users/123")
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, "user1", capturedRouteInfo.EndpointID)
+	assert.Equal(t, "123", capturedRouteInfo.Params["id"])
 }
 
 func TestClone(t *testing.T) {
@@ -219,10 +280,12 @@ func TestClone(t *testing.T) {
 	}
 
 	originalRouter, _ := NewChiRouter(originalCfg)
-	_ = originalRouter.AddEndpoint(config.EndpointConfig{
+	endpoint := config.EndpointConfig{
 		Method: http.MethodGet,
 		Path:   "/test",
-	})
+	}
+	err := originalRouter.AddEndpoint("test1", endpoint)
+	require.NoError(t, err)
 
 	newCfg := config.RouterConfig{
 		Prefix:      "/v2",
@@ -235,65 +298,59 @@ func TestClone(t *testing.T) {
 
 	assert.Equal(t, newCfg, clonedRouter.GetConfig())
 	assert.Equal(t, len(originalRouter.GetEndpoints()), len(clonedRouter.GetEndpoints()))
+
+	// Verify endpoint was cloned correctly
+	clonedEndpoints := clonedRouter.GetEndpoints()
+	assert.Contains(t, clonedEndpoints, "test1")
+	assert.Equal(t, endpoint, clonedEndpoints["test1"])
 }
 
-func TestRouteInfoWithParameters(t *testing.T) {
+func TestRouteInfoContext(t *testing.T) {
 	tests := []struct {
 		name           string
 		path           string
 		requestPath    string
 		method         string
+		endpointID     string
 		expectedParams map[string]string
-		extraChecks    func(*testing.T, *config.RouteInfo)
 	}{
 		{
-			name:        "single URL parameter",
+			name:        "single parameter",
 			path:        "/users/{id}",
 			requestPath: "/users/123",
 			method:      http.MethodGet,
+			endpointID:  "user1",
 			expectedParams: map[string]string{
 				"id": "123",
 			},
 		},
 		{
-			name:        "multiple URL parameters",
+			name:        "multiple parameters",
 			path:        "/users/{userID}/posts/{postID}",
 			requestPath: "/users/456/posts/789",
 			method:      http.MethodGet,
+			endpointID:  "user_post1",
 			expectedParams: map[string]string{
 				"userID": "456",
 				"postID": "789",
 			},
 		},
 		{
-			name:        "parameters with special characters",
-			path:        "/users/{username}/profile",
-			requestPath: "/users/john.doe_123/profile",
-			method:      http.MethodGet,
-			expectedParams: map[string]string{
-				"username": "john.doe_123",
-			},
-		},
-		{
-			name:        "nested resource paths",
+			name:        "nested resources",
 			path:        "/orgs/{orgID}/teams/{teamID}/members/{memberID}",
 			requestPath: "/orgs/org123/teams/team456/members/mem789",
 			method:      http.MethodGet,
+			endpointID:  "org_member1",
 			expectedParams: map[string]string{
 				"orgID":    "org123",
 				"teamID":   "team456",
 				"memberID": "mem789",
-			},
-			extraChecks: func(t *testing.T, info *config.RouteInfo) {
-				assert.Equal(t, "/orgs/{orgID}/teams/{teamID}/members/{memberID}", info.Endpoint.Path)
-				assert.Equal(t, http.MethodGet, info.Endpoint.Method)
 			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create router with test endpoint
 			router, err := NewChiRouter(config.RouterConfig{})
 			require.NoError(t, err)
 
@@ -301,74 +358,32 @@ func TestRouteInfoWithParameters(t *testing.T) {
 				Method: tt.method,
 				Path:   tt.path,
 			}
-			err = router.AddEndpoint(endpoint)
+			err = router.AddEndpoint(tt.endpointID, endpoint)
 			require.NoError(t, err)
 
-			// Create test handler that validates route info
+			var capturedRouteInfo *config.RouteInfo
 			handler := func(w http.ResponseWriter, r *http.Request) {
-				routeInfo, ok := GetRouteInfo(r.Context())
-				require.True(t, ok, "Route info should be present in context")
-				require.NotNil(t, routeInfo, "Route info should not be nil")
-
-				// Validate parameters
-				assert.Equal(t, tt.expectedParams, routeInfo.Params,
-					"Parameters should match expected values")
-
-				// Check endpoint information
-				assert.Equal(t, tt.path, routeInfo.Endpoint.Path,
-					"Endpoint path should match configuration")
-				assert.Equal(t, tt.method, routeInfo.Endpoint.Method,
-					"Endpoint method should match configuration")
-
-				// Run any additional checks
-				if tt.extraChecks != nil {
-					tt.extraChecks(t, routeInfo)
-				}
-
+				routeInfo, ok := r.Context().Value(config.RouteInfoCtx).(*config.RouteInfo)
+				require.True(t, ok)
+				capturedRouteInfo = routeInfo
 				w.WriteHeader(http.StatusOK)
 			}
 
-			// Build and test the router
 			chiRouter, err := router.Build(handler)
 			require.NoError(t, err)
 
 			server := httptest.NewServer(chiRouter)
 			defer server.Close()
 
-			// Make request
-			req, err := http.NewRequest(tt.method, server.URL+tt.requestPath, nil)
-			require.NoError(t, err)
-
-			resp, err := http.DefaultClient.Do(req)
+			resp, err := http.Get(server.URL + tt.requestPath)
 			require.NoError(t, err)
 			assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+			assert.NotNil(t, capturedRouteInfo)
+			assert.Equal(t, tt.endpointID, capturedRouteInfo.EndpointID)
+			assert.Equal(t, tt.expectedParams, capturedRouteInfo.Params)
+			assert.Equal(t, endpoint.Path, capturedRouteInfo.Endpoint.Path)
+			assert.Equal(t, endpoint.Method, capturedRouteInfo.Endpoint.Method)
 		})
 	}
-}
-
-func TestRouteInfoContext(t *testing.T) {
-	// Test direct context manipulation
-	t.Run("context value extraction", func(t *testing.T) {
-		routeInfo := &config.RouteInfo{
-			Params: map[string]string{"test": "value"},
-			Endpoint: config.EndpointConfig{
-				Method: http.MethodGet,
-				Path:   "/test/{test}",
-			},
-			MatchedURI: "/test/value",
-		}
-
-		ctx := context.WithValue(context.Background(), config.RouteInfoCtx, routeInfo)
-		extracted, ok := GetRouteInfo(ctx)
-
-		assert.True(t, ok, "Should successfully extract route info")
-		assert.Equal(t, routeInfo, extracted, "Extracted route info should match original")
-	})
-
-	// Test empty/invalid context
-	t.Run("empty context", func(t *testing.T) {
-		extracted, ok := GetRouteInfo(context.Background())
-		assert.False(t, ok, "Should return false for empty context")
-		assert.Nil(t, extracted, "Should return nil for empty context")
-	})
 }

@@ -14,6 +14,7 @@ type RouteInfo struct {
 	Params     map[string]string
 	Endpoint   EndpointConfig
 	MatchedURI string
+	EndpointID string
 }
 
 // ----- this is module specific part

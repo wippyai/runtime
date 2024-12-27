@@ -519,6 +519,13 @@ func TestRouter_Endpoint_UUID(t *testing.T) {
 
 	router := NewRouter(handler)
 
+	// Count endpoints before adding new one
+	var initialCount int
+	router.endpoints.Range(func(_, _ interface{}) bool {
+		initialCount++
+		return true
+	})
+
 	// Add an endpoint without providing an ID
 	err := router.AddEndpoint("", config.EndpointConfig{
 		Method: http.MethodGet,
@@ -526,14 +533,183 @@ func TestRouter_Endpoint_UUID(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Check if a UUID was generated for the endpoint
-	found := false
-	for endpointID := range router.endpoints {
-		_, err := uuid.Parse(endpointID)
-		if err == nil {
-			found = true
-			break
+	// Find the newly added endpoint
+	var foundEndpointID string
+	router.endpoints.Range(func(key, _ interface{}) bool {
+		if id, ok := key.(string); ok {
+			if _, err := uuid.Parse(id); err == nil {
+				foundEndpointID = id
+				return false // Stop iteration
+			}
 		}
+		return true
+	})
+
+	// Verify we found exactly one new endpoint with a valid UUID
+	var finalCount int
+	router.endpoints.Range(func(_, _ interface{}) bool {
+		finalCount++
+		return true
+	})
+
+	assert.Equal(t, initialCount+1, finalCount, "Expected exactly one new endpoint")
+	assert.NotEmpty(t, foundEndpointID, "Expected to find an endpoint with UUID")
+	_, err = uuid.Parse(foundEndpointID)
+	assert.NoError(t, err, "Expected endpoint ID to be a valid UUID")
+}
+
+func TestRouterEdgeCases(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
 	}
-	assert.True(t, found, "UUID was not generated for endpoint")
+
+	t.Run("delete router complex scenarios", func(t *testing.T) {
+		router := NewRouter(handler)
+
+		// Add router with multiple endpoints
+		err := router.AddRouter("router-to-delete", config.RouterConfig{
+			Prefix: "/delete-test",
+		})
+		require.NoError(t, err)
+
+		// Add multiple endpoints
+		endpoints := []struct {
+			id   string
+			path string
+		}{
+			{"ep1", "/test1"},
+			{"ep2", "/test2"},
+			{"ep3", "/test3"},
+		}
+
+		for _, ep := range endpoints {
+			err := router.AddEndpoint(ep.id, config.EndpointConfig{
+				Method: http.MethodGet,
+				Path:   ep.path,
+				Meta:   registry.Metadata{config.RouterID: "router-to-delete"},
+			})
+			require.NoError(t, err)
+		}
+
+		// Delete router and verify all endpoints are removed
+		err = router.DeleteRouter("router-to-delete")
+		require.NoError(t, err)
+
+		// Verify endpoints are deleted
+		for _, ep := range endpoints {
+			err := router.DeleteEndpoint(ep.id)
+			assert.Error(t, err, "Expected endpoint to be already deleted")
+		}
+
+		// Try to delete the same router again
+		err = router.DeleteRouter("router-to-delete")
+		assert.Error(t, err, "Expected error when deleting non-existent router")
+	})
+
+	t.Run("update endpoint complex scenarios", func(t *testing.T) {
+		router := NewRouter(handler)
+
+		// Add two routers for testing endpoint updates between routers
+		err := router.AddRouter("router1", config.RouterConfig{
+			Prefix: "/api/v1",
+		})
+		require.NoError(t, err)
+
+		err = router.AddRouter("router2", config.RouterConfig{
+			Prefix: "/api/v2",
+		})
+		require.NoError(t, err)
+
+		// Add initial endpoint
+		err = router.AddEndpoint("test-ep", config.EndpointConfig{
+			Method: http.MethodGet,
+			Path:   "/test",
+			Meta:   registry.Metadata{config.RouterID: "router1"},
+		})
+		require.NoError(t, err)
+
+		// Test updating endpoint to move it between routers
+		err = router.UpdateEndpoint("test-ep", config.EndpointConfig{
+			Method: http.MethodGet,
+			Path:   "/test",
+			Meta:   registry.Metadata{config.RouterID: "router2"},
+		})
+		require.NoError(t, err)
+
+		// Verify endpoint works with new router
+		server := httptest.NewServer(router)
+		defer server.Close()
+
+		resp, err := http.Get(server.URL + "/api/v2/test")
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		// Test updating endpoint with invalid router ID
+		err = router.UpdateEndpoint("test-ep", config.EndpointConfig{
+			Method: http.MethodGet,
+			Path:   "/test",
+			Meta:   registry.Metadata{config.RouterID: "non-existent"},
+		})
+		assert.Error(t, err)
+
+		// Test update with conflicting path
+		err = router.AddEndpoint("existing-ep", config.EndpointConfig{
+			Method: http.MethodGet,
+			Path:   "/conflict",
+			Meta:   registry.Metadata{config.RouterID: "router2"},
+		})
+		require.NoError(t, err)
+
+		err = router.UpdateEndpoint("test-ep", config.EndpointConfig{
+			Method: http.MethodGet,
+			Path:   "/conflict",
+			Meta:   registry.Metadata{config.RouterID: "router2"},
+		})
+		assert.Error(t, err)
+	})
+}
+
+func TestRouterUpdateScenarios(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}
+
+	t.Run("update router with active endpoints", func(t *testing.T) {
+		router := NewRouter(handler)
+
+		// Add initial router
+		err := router.AddRouter("update-test", config.RouterConfig{
+			Prefix: "/v1",
+		})
+		require.NoError(t, err)
+
+		// Add endpoints
+		err = router.AddEndpoint("ep1", config.EndpointConfig{
+			Method: http.MethodGet,
+			Path:   "/test",
+			Meta:   registry.Metadata{config.RouterID: "update-test"},
+		})
+		require.NoError(t, err)
+
+		// Update router with new configuration
+		err = router.UpdateRouter("update-test", config.RouterConfig{
+			Prefix:      "/v2",
+			Middlewares: []string{"timeout"},
+			Options:     map[string]string{"timeout": "30s"},
+		})
+		require.NoError(t, err)
+
+		server := httptest.NewServer(router)
+		defer server.Close()
+
+		// Test if endpoint is accessible at new path
+		resp, err := http.Get(server.URL + "/v2/test")
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		// Test if old path is no longer accessible
+		resp, err = http.Get(server.URL + "/v1/test")
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+	})
 }

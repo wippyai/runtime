@@ -14,7 +14,7 @@ import (
 // ChiRouter manages router configuration and endpoints
 type ChiRouter struct {
 	config    config.RouterConfig
-	endpoints []config.EndpointConfig
+	endpoints map[string]config.EndpointConfig
 	mu        sync.RWMutex
 }
 
@@ -22,66 +22,53 @@ type ChiRouter struct {
 func NewChiRouter(cfg config.RouterConfig) (*ChiRouter, error) {
 	return &ChiRouter{
 		config:    cfg,
-		endpoints: []config.EndpointConfig{},
+		endpoints: make(map[string]config.EndpointConfig),
 	}, nil
 }
 
 // AddEndpoint registers a new endpoint configuration
-func (rw *ChiRouter) AddEndpoint(ecfg config.EndpointConfig) error {
+func (rw *ChiRouter) AddEndpoint(endpointID string, cfg config.EndpointConfig) error {
 	rw.mu.Lock()
 	defer rw.mu.Unlock()
 
-	for _, ec := range rw.endpoints {
-		if ec.Path == ecfg.Path && ec.Method == ecfg.Method {
-			return fmt.Errorf("duplicate endpoint: %s %s", ecfg.Method, ecfg.Path)
-		}
+	if _, exists := rw.endpoints[endpointID]; exists {
+		return fmt.Errorf("endpoint with ID %s already exists", endpointID)
 	}
 
-	rw.endpoints = append(rw.endpoints, ecfg)
+	rw.endpoints[endpointID] = cfg
 	return nil
 }
 
-// DeleteEndpoint removes an endpoint configuration
-func (rw *ChiRouter) DeleteEndpoint(path, method string) error {
+// DeleteEndpoint removes an endpoint configuration by ID
+func (rw *ChiRouter) DeleteEndpoint(endpointID string) error {
 	rw.mu.Lock()
 	defer rw.mu.Unlock()
 
-	newEndpoints := make([]config.EndpointConfig, 0, len(rw.endpoints))
-	found := false
-	for _, ec := range rw.endpoints {
-		if ec.Path == path && ec.Method == method {
-			found = true
-			continue
-		}
-		newEndpoints = append(newEndpoints, ec)
+	if _, exists := rw.endpoints[endpointID]; !exists {
+		return fmt.Errorf("endpoint with ID %s not found", endpointID)
 	}
 
-	if !found {
-		return fmt.Errorf("endpoint not found: %s %s", method, path)
-	}
-
-	rw.endpoints = newEndpoints
+	delete(rw.endpoints, endpointID)
 	return nil
 }
 
-// UpdateEndpoint updates an existing endpoint configuration
-func (rw *ChiRouter) UpdateEndpoint(ecfg config.EndpointConfig) error {
+// UpdateEndpoint updates an existing endpoint configuration by ID
+func (rw *ChiRouter) UpdateEndpoint(endpointID string, cfg config.EndpointConfig) error {
 	rw.mu.Lock()
 	defer rw.mu.Unlock()
 
-	found := false
-	for i, ec := range rw.endpoints {
-		if ec.Path == ecfg.Path && ec.Method == ecfg.Method {
-			rw.endpoints[i] = ecfg
-			found = true
-			break
+	if _, exists := rw.endpoints[endpointID]; !exists {
+		return fmt.Errorf("endpoint with ID %s not found", endpointID)
+	}
+
+	// Check for conflicts with other endpoints
+	for id, ec := range rw.endpoints {
+		if id != endpointID && ec.Path == cfg.Path && ec.Method == cfg.Method {
+			return fmt.Errorf("conflict with existing endpoint: %s %s", cfg.Method, cfg.Path)
 		}
 	}
 
-	if !found {
-		return fmt.Errorf("endpoint not found for update: %s %s", ecfg.Method, ecfg.Path)
-	}
-
+	rw.endpoints[endpointID] = cfg
 	return nil
 }
 
@@ -109,8 +96,8 @@ func (rw *ChiRouter) Build(handler http.HandlerFunc) (*chi.Mux, error) {
 	}
 
 	// Register all endpoints with wrapped handlers
-	for _, ec := range rw.endpoints {
-		wrappedHandler := rw.wrapHandlerWithRouteInfo(handler, ec, ec.Path)
+	for id, ec := range rw.endpoints {
+		wrappedHandler := rw.wrapHandlerWithRouteInfo(handler, ec, id)
 		router.Method(ec.Method, ec.Path, wrappedHandler)
 	}
 
@@ -149,7 +136,7 @@ func (rw *ChiRouter) makeMiddleware(opts config.RouterConfig) []func(http.Handle
 func (rw *ChiRouter) wrapHandlerWithRouteInfo(
 	handler http.HandlerFunc,
 	endpoint config.EndpointConfig,
-	fullPath string,
+	endpointID string,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Extract URL parameters
@@ -163,11 +150,12 @@ func (rw *ChiRouter) wrapHandlerWithRouteInfo(
 			}
 		}
 
-		// Create route info
+		// Create route info with endpoint ID
 		routeInfo := &config.RouteInfo{
 			Params:     params,
 			Endpoint:   endpoint,
-			MatchedURI: fullPath,
+			MatchedURI: endpoint.Path,
+			EndpointID: endpointID,
 		}
 
 		// Add route info to context
@@ -186,11 +174,13 @@ func (rw *ChiRouter) GetConfig() config.RouterConfig {
 }
 
 // GetEndpoints retrieves a copy of the current endpoint configurations
-func (rw *ChiRouter) GetEndpoints() []config.EndpointConfig {
+func (rw *ChiRouter) GetEndpoints() map[string]config.EndpointConfig {
 	rw.mu.RLock()
 	defer rw.mu.RUnlock()
-	endpoints := make([]config.EndpointConfig, len(rw.endpoints))
-	copy(endpoints, rw.endpoints)
+	endpoints := make(map[string]config.EndpointConfig, len(rw.endpoints))
+	for id, ec := range rw.endpoints {
+		endpoints[id] = ec
+	}
 	return endpoints
 }
 
@@ -204,9 +194,9 @@ func (rw *ChiRouter) Clone(ncfg config.RouterConfig) (*ChiRouter, error) {
 		return nil, fmt.Errorf("failed to create new router: %w", err)
 	}
 
-	for _, ec := range rw.endpoints {
-		if err := newRouter.AddEndpoint(ec); err != nil {
-			return nil, fmt.Errorf("failed to add endpoint during clone: %w", err)
+	for id, ec := range rw.endpoints {
+		if err := newRouter.AddEndpoint(id, ec); err != nil {
+			return nil, fmt.Errorf("failed to add endpoint %s during clone: %w", id, err)
 		}
 	}
 

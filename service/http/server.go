@@ -39,13 +39,6 @@ func NewServer(config config.ServerConfig, handler http.HandlerFunc) *Server {
 	}
 }
 
-// Router returns the underlying router instance for configuration
-func (s *Server) Router() *router.Router {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.router
-}
-
 // ensureRunning verifies if the server is listening on its configured address
 func (s *Server) ensureRunning(ctx context.Context) error {
 	timeout := time.After(BootTimeout)
