@@ -2,22 +2,22 @@
 package context
 
 type Key struct {
-	Name string
+	name string
 }
 
 func (ck *Key) String() string {
-	return ck.Name
+	return ck.name
 }
 
 var (
 	// todo: how can we declare context keys outside of this file?
-	LoggerKey      = &Key{Name: "logger"}      //nolint:gochecknoglobals
-	CfgFilenameKey = &Key{Name: "cfgfilename"} //nolint:gochecknoglobals
+	LoggerKey      = &Key{name: "logger"}      //nolint:gochecknoglobals
+	CfgFilenameKey = &Key{name: "cfgfilename"} //nolint:gochecknoglobals
 	// TODO: rename
-	ContexterKey   = &Key{Name: "contexter"}   //nolint:gochecknoglobals
-	HttpHandlerKey = &Key{Name: "httpHandler"} //nolint:gochecknoglobals
-	RouteInfoCtx   = &Key{Name: "routeInfo"}   //nolint:gochecknoglobals
-	RequestCtx     = &Key{Name: "httpRequest"} //nolint:gochecknoglobals
+	ContexterKey   = &Key{name: "contexter"}   //nolint:gochecknoglobals
+	HttpHandlerKey = &Key{name: "httpHandler"} //nolint:gochecknoglobals
+	RouteInfoCtx   = &Key{name: "routeInfo"}   //nolint:gochecknoglobals
+	RequestCtx     = &Key{name: "httpRequest"} //nolint:gochecknoglobals
 )
 
 // TODO: rename
