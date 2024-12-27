@@ -32,6 +32,7 @@ func NewPoolCfg(numVMs int, script, mainFnName string) *Config {
 
 type Task struct {
 	args     any
+	ctx      context.Context
 	scriptID string
 	resp     chan<- string
 }
@@ -102,9 +103,10 @@ func NewLuaPool(log *zap.Logger, scripts map[string]*Config, options ...Options)
 }
 
 // Queue adds task to the queue
-func (w *Pool) Queue(task *Task) <-chan string {
+func (w *Pool) Queue(ctx context.Context, task *Task) <-chan string {
 	rc := make(chan string, 1)
 	task.resp = rc
+	task.ctx = ctx
 	w.taskQueue <- task
 	return rc
 }
@@ -118,7 +120,7 @@ func (w *Pool) do(v *vm.VM, task *Task) error {
 
 	w.logger.Info("executing script on VM", zap.Any("sid", task.scriptID), zap.Any("args", task.args))
 
-	res, err := v.Execute(context.Background(), task.args)
+	res, err := v.Execute(task.ctx, task.args)
 	if err != nil {
 		return err
 	}

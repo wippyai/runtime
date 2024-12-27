@@ -88,7 +88,7 @@ func TestPool(t *testing.T) {
 	data := make(map[string]any)
 	data["hello"] = "heeeeeeeeeeelllo"
 
-	resp := p.Queue(NewPoolTask(scriptId, data))
+	resp := p.Queue(context.Background(), NewPoolTask(scriptId, data))
 
 	res := <-resp
 	// to avoid compiler optimization
@@ -105,10 +105,10 @@ func TestPoolConcurrent(t *testing.T) {
 	return hello
 	`
 
-	scriptId := "foo"
+	scriptID := "foo"
 	scripts := make(map[string]*Config)
 
-	scripts[scriptId] = NewPoolCfg(10, script, "hello")
+	scripts[scriptID] = NewPoolCfg(10, script, "hello")
 	p, err := NewLuaPool(l, scripts, WithModules(base64M.New()), WithPollTimeout(time.Second*10))
 	require.NoError(t, err)
 
@@ -121,7 +121,7 @@ func TestPoolConcurrent(t *testing.T) {
 	tt := time.Now()
 	for i := 0; i < 100000; i++ {
 		go func() {
-			resp := p.Queue(NewPoolTask(scriptId, data))
+			resp := p.Queue(context.Background(), NewPoolTask(scriptID, data))
 			for range resp {
 			}
 
@@ -158,7 +158,7 @@ func BenchmarkPool(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		resp := p.Queue(NewPoolTask(scriptId, data))
+		resp := p.Queue(context.Background(), NewPoolTask(scriptId, data))
 		for res := range resp {
 			// to avoid compiler optimization
 			result = res
