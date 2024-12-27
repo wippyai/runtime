@@ -6,5 +6,4 @@ meta:
 
 source: file://http_time.lua
 method: main
-extensions:
-  - json
+modules: [ "json", "http" ]

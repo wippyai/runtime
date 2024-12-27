@@ -2,13 +2,8 @@ package runtime
 
 import (
 	"context"
-	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
-)
-
-const (
-	System events.System = "executor"
 )
 
 type (
@@ -27,8 +22,11 @@ type (
 		Execute(Task) (chan *Result, error)
 	}
 
-	// todo: do we need it?
-	Engine interface {
-		Execute(Task) (*Result, error)
+	Runtime interface {
+		AddLibrary(registry.ID, LibraryConfig) error
+		UpdateLibrary(registry.ID, LibraryConfig) error
+		AddFunction(registry.ID, FunctionConfig) error
+		UpdateFunction(registry.ID, FunctionConfig) error
+		Delete(registry.ID) error
 	}
 )

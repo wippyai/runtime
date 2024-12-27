@@ -16,6 +16,7 @@ import (
 	"github.com/ponyruntime/pony/pkg/registry/runner"
 	"github.com/ponyruntime/pony/pkg/supervisor"
 	"github.com/ponyruntime/pony/runtime"
+	"github.com/ponyruntime/pony/runtime/helpers"
 	"github.com/ponyruntime/pony/service/http"
 	"github.com/ponyruntime/pony/service/http/handler"
 	"go.uber.org/zap"
@@ -94,8 +95,8 @@ func main() {
 	)
 
 	// execution layer
-	exec := runtime.NewSimpleExecutor()
-
+	exec := helpers.NewSimpleExecutor()
+	funcs := &helpers.Register{}
 	// todo: register runtime
 
 	// services, modules, runtimes
@@ -104,7 +105,7 @@ func main() {
 		mainLogger.Fatal("failed to start http service", zap.Error(err))
 	}
 
-	err = runtime.Init(bus, dtt, logger.Named("funcs")).Start(ctx)
+	err = runtime.Init(bus, funcs, dtt, logger.Named("funcs")).Start(ctx)
 	if err != nil {
 		mainLogger.Fatal("failed to start runtime service", zap.Error(err))
 	}
