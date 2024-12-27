@@ -3,11 +3,13 @@ package router
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"sync"
+	"sync/atomic"
+
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	config "github.com/ponyruntime/pony/api/service/http"
-	"net/http"
-	"sync"
 )
 
 const (
@@ -20,140 +22,125 @@ func GetRouteInfo(ctx context.Context) (*config.RouteInfo, bool) {
 	return info, ok
 }
 
-// Router manages routers, endpoints, and the composed Chi router.
-type Router struct {
-	handler        http.HandlerFunc                 // The core Timeouts handler function
-	routers        map[string]*ChiRouter            // Map of router Name to ChiRouter
-	endpoints      map[string]config.EndpointConfig // Map of endpoint Name to EndpointConfig
-	mu             sync.RWMutex                     // Mutex for concurrency safety
-	composedRouter *chi.Mux                         // The composed Chi router
-	mur            sync.RWMutex                     // Mutex for concurrency safety of router
+type atomicRouter struct {
+	value atomic.Pointer[chi.Mux]
 }
 
-// NewRouter creates a new Router instance.
+// Router manages routers, endpoints, and the composed Chi router
+type Router struct {
+	handler        http.HandlerFunc
+	routers        sync.Map     // thread-safe map for routers
+	endpoints      sync.Map     // thread-safe map for endpoints
+	composedRouter atomicRouter // atomic pointer for router updates
+}
+
+// NewRouter creates a new Router instance
 func NewRouter(handler http.HandlerFunc) *Router {
 	rm := &Router{
-		handler:        handler,
-		routers:        make(map[string]*ChiRouter),
-		endpoints:      make(map[string]config.EndpointConfig),
-		composedRouter: chi.NewRouter(),
-		mu:             sync.RWMutex{},
-		mur:            sync.RWMutex{},
+		handler: handler,
 	}
 
 	// Initialize the default router
-	rm.routers[DefaultRouterID], _ = NewChiRouter(config.RouterConfig{Prefix: "/"})
+	defaultRouter, _ := NewChiRouter(config.RouterConfig{Prefix: "/"})
+	rm.routers.Store(DefaultRouterID, defaultRouter)
 
 	rm.rebuildRouter() // Build the initial composed router
-
 	return rm
 }
 
-// AddRouter adds a new router configuration.
+// AddRouter adds a new router configuration
 func (rm *Router) AddRouter(routerID string, rcfg config.RouterConfig) error {
-	rm.mu.Lock()
-	defer rm.mu.Unlock()
-
-	if _, exists := rm.routers[routerID]; exists {
-		return fmt.Errorf("router with Name '%s' already exists", routerID)
-	}
-
 	newRouter, err := NewChiRouter(rcfg)
 	if err != nil {
 		return err
 	}
 
-	rm.routers[routerID] = newRouter
-	rm.rebuildRouter()
+	// Atomic store of the new router
+	if _, loaded := rm.routers.LoadOrStore(routerID, newRouter); loaded {
+		return fmt.Errorf("router with ID '%s' already exists", routerID)
+	}
 
+	rm.rebuildRouter()
 	return nil
 }
 
-// DeleteRouter deletes a router and its endpoints.
+// DeleteRouter deletes a router and its endpoints
 func (rm *Router) DeleteRouter(routerID string) error {
-	rm.mu.Lock()
-	defer rm.mu.Unlock()
-
 	if routerID == DefaultRouterID {
 		return fmt.Errorf("cannot delete the default router")
 	}
 
-	router, exists := rm.routers[routerID]
+	// Get router before deletion
+	routerVal, exists := rm.routers.LoadAndDelete(routerID)
 	if !exists {
-		return fmt.Errorf("router with Name '%s' not found", routerID)
+		return fmt.Errorf("router with ID '%s' not found", routerID)
 	}
+	router := routerVal.(*ChiRouter)
 
-	// Delete all endpoints associated with this router
-	for endpointID, ecfg := range rm.endpoints {
+	// Clean up associated endpoints
+	rm.endpoints.Range(func(key, value interface{}) bool {
+		ecfg := value.(config.EndpointConfig)
 		if ecfg.Meta.StringValue(config.RouterID) == routerID {
-			delete(rm.endpoints, endpointID)
+			rm.endpoints.Delete(key)
 		}
-	}
+		return true
+	})
 
-	// Delete the router itself
-	delete(rm.routers, routerID)
-
-	// Remove all routes from the Chi router
-	for _, ecfg := range router.GetEndpoints() {
-		if err := router.DeleteEndpoint(ecfg.Path, ecfg.Method); err != nil {
-			return fmt.Errorf("failed to delete endpoint %s %s from router %s: %w", ecfg.Method, ecfg.Path, routerID, err)
+	// Remove routes from the Chi router
+	for id, ecfg := range router.GetEndpoints() {
+		if err := router.DeleteEndpoint(id); err != nil {
+			return fmt.Errorf("failed to delete endpoint %s %s from router %s: %w",
+				ecfg.Method, ecfg.Path, routerID, err)
 		}
 	}
 
 	rm.rebuildRouter()
-
 	return nil
 }
 
 // UpdateRouter updates an existing router's configuration.
 func (rm *Router) UpdateRouter(routerID string, rcfg config.RouterConfig) error {
-	rm.mu.Lock()
-	defer rm.mu.Unlock()
-
-	existingRouter, exists := rm.routers[routerID]
+	existingRouter, exists := rm.routers.Load(routerID)
 	if !exists {
-		return fmt.Errorf("router with name '%s' not found", routerID)
+		return fmt.Errorf("router with ID '%s' not found", routerID)
 	}
 
 	// Clone and update the existing router
-	newRouter, err := existingRouter.Clone(rcfg)
+	newRouter, err := existingRouter.(*ChiRouter).Clone(rcfg)
 	if err != nil {
 		return err
 	}
 
-	rm.routers[routerID] = newRouter
+	rm.routers.Store(routerID, newRouter)
 	rm.rebuildRouter()
 
 	return nil
 }
 
 // AddEndpoint adds a new endpoint to the appropriate router.
-func (rm *Router) AddEndpoint(endpointID string, ecfg config.EndpointConfig) error {
-	rm.mu.Lock()
-	defer rm.mu.Unlock()
-
+func (rm *Router) AddEndpoint(endpointID string, cfg config.EndpointConfig) error {
 	// Generate UUID for endpointID if not provided
 	if endpointID == "" {
 		endpointID = uuid.NewString()
 	}
 
-	routerID := ecfg.Meta.StringValue(config.RouterID)
+	routerID := cfg.Meta.StringValue(config.RouterID)
 	if routerID == "" {
 		routerID = DefaultRouterID
 	}
 
-	router, exists := rm.routers[routerID]
+	router, exists := rm.routers.Load(routerID)
 	if !exists {
-		return fmt.Errorf("router with name '%s' not found", routerID)
+		return fmt.Errorf("router with ID '%s' not found", routerID)
 	}
 
 	// Add endpoint to Chi router
-	if err := router.AddEndpoint(ecfg); err != nil {
+	if err := router.(*ChiRouter).AddEndpoint(endpointID, cfg); err != nil {
 		return err
 	}
 
 	// Store endpoint configuration
-	rm.endpoints[endpointID] = ecfg
+	rm.endpoints.Store(endpointID, cfg)
 	rm.rebuildRouter()
 
 	return nil
@@ -161,52 +148,48 @@ func (rm *Router) AddEndpoint(endpointID string, ecfg config.EndpointConfig) err
 
 // DeleteEndpoint deletes an endpoint from its router.
 func (rm *Router) DeleteEndpoint(endpointID string) error {
-	rm.mu.Lock()
-	defer rm.mu.Unlock()
-
-	ecfg, exists := rm.endpoints[endpointID]
+	ecfg, exists := rm.endpoints.Load(endpointID)
 	if !exists {
-		return fmt.Errorf("endpoint with name '%s' not found", endpointID)
+		return fmt.Errorf("endpoint with ID '%s' not found", endpointID)
 	}
 
-	routerID := ecfg.Meta.StringValue(config.RouterID)
+	endpointConfig := ecfg.(config.EndpointConfig)
+	routerID := endpointConfig.Meta.StringValue(config.RouterID)
 	if routerID == "" {
 		routerID = DefaultRouterID
 	}
 
-	router, exists := rm.routers[routerID]
+	router, exists := rm.routers.Load(routerID)
 	if !exists {
-		return fmt.Errorf("router with name '%s' not found", routerID)
+		return fmt.Errorf("router with ID '%s' not found", routerID)
 	}
 
 	// Delete endpoint from Chi router
-	if err := router.DeleteEndpoint(ecfg.Path, ecfg.Method); err != nil {
+	if err := router.(*ChiRouter).DeleteEndpoint(endpointID); err != nil {
 		return err
 	}
 
 	// Remove endpoint configuration
-	delete(rm.endpoints, endpointID)
+	rm.endpoints.Delete(endpointID)
 	rm.rebuildRouter()
 
 	return nil
 }
 
 // UpdateEndpoint updates an existing endpoint.
-func (rm *Router) UpdateEndpoint(endpointID string, ecfg config.EndpointConfig) error {
-	rm.mu.Lock()
-	oldEcfg, exists := rm.endpoints[endpointID]
+func (rm *Router) UpdateEndpoint(endpointID string, cfg config.EndpointConfig) error {
+	oldEcfg, exists := rm.endpoints.Load(endpointID)
 	if !exists {
-		rm.mu.Unlock()
-		return fmt.Errorf("endpoint with name '%s' not found", endpointID)
+		return fmt.Errorf("endpoint with ID '%s' not found", endpointID)
 	}
-	rm.mu.Unlock()
+	oldEndpointConfig := oldEcfg.(config.EndpointConfig)
 
-	oldRouterID := oldEcfg.Meta.StringValue(config.RouterID)
+	oldRouterID := oldEndpointConfig.Meta.StringValue(config.RouterID)
 	if oldRouterID == "" {
 		oldRouterID = DefaultRouterID
 	}
 
-	newRouterID := ecfg.Meta.StringValue(config.RouterID)
+	newRouterID := cfg.Meta.StringValue(config.RouterID)
 	if newRouterID == "" {
 		newRouterID = DefaultRouterID
 	}
@@ -217,8 +200,8 @@ func (rm *Router) UpdateEndpoint(endpointID string, ecfg config.EndpointConfig) 
 			return err
 		}
 
-		if err := rm.AddEndpoint(endpointID, ecfg); err != nil {
-			if err := rm.AddEndpoint(endpointID, oldEcfg); err != nil {
+		if err := rm.AddEndpoint(endpointID, cfg); err != nil {
+			if err := rm.AddEndpoint(endpointID, oldEndpointConfig); err != nil {
 				return fmt.Errorf("failed to rollback endpoint %s to its original configuration: %w", endpointID, err)
 			}
 			return err
@@ -228,49 +211,49 @@ func (rm *Router) UpdateEndpoint(endpointID string, ecfg config.EndpointConfig) 
 	}
 
 	// Update endpoint in the existing router
-	rm.mu.Lock()
-	defer rm.mu.Unlock()
-
-	router, exists := rm.routers[newRouterID]
+	router, exists := rm.routers.Load(newRouterID)
 	if !exists {
-		return fmt.Errorf("router with name '%s' not found", newRouterID)
+		return fmt.Errorf("router with ID '%s' not found", newRouterID)
 	}
 
 	// Add updated endpoint to Chi router
-	if err := router.UpdateEndpoint(ecfg); err != nil {
+	if err := router.(*ChiRouter).UpdateEndpoint(endpointID, cfg); err != nil {
 		return err
 	}
 
 	// Update endpoint configuration
-	rm.endpoints[endpointID] = ecfg
+	rm.endpoints.Store(endpointID, cfg)
 
 	rm.rebuildRouter()
 
 	return nil
 }
 
-// rebuildRouter rebuilds the composed Chi router.
+// rebuildRouter rebuilds the composed Chi router
 func (rm *Router) rebuildRouter() {
 	newRouter := chi.NewRouter()
 
-	for routerID, router := range rm.routers {
+	rm.routers.Range(func(key, value interface{}) bool {
+		routerID := key.(string)
+		router := value.(*ChiRouter)
+
 		builtRouter, err := router.Build(rm.handler)
 		if err != nil {
-			// Handle error appropriately (log, panic, etc.)
-			fmt.Printf("error building router %s: %v\n", routerID, err) // todo: pass log here?
-			continue
+			// Log error but continue with other routers
+			fmt.Printf("error building router %s: %v\n", routerID, err)
+			return true
 		}
 		newRouter.Mount(router.config.Prefix, builtRouter)
-	}
+		return true
+	})
 
-	rm.mur.Lock()
-	rm.composedRouter = newRouter
-	rm.mur.Unlock()
+	// Atomic router update
+	rm.composedRouter.value.Store(newRouter)
 }
 
-// ServeHTTP implements the http.Handler interface for the Router.
+// ServeHTTP implements the http.Handler interface
 func (rm *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	rm.mur.RLock()
-	defer rm.mur.RUnlock()
-	rm.composedRouter.ServeHTTP(w, r)
+	if router := rm.composedRouter.value.Load(); router != nil {
+		router.ServeHTTP(w, r)
+	}
 }

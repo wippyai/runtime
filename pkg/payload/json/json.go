@@ -6,7 +6,7 @@ import (
 	"github.com/ponyruntime/pony/api/payload"
 )
 
-func Register(transcoder payload.Transcoder) {
+func Register(transcoder payload.TranscoderRegister) {
 	to := &ToGolang{}
 	from := &FromGolang{}
 

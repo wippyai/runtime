@@ -33,15 +33,15 @@ type (
 	// Transcoder is an interface for both transcoding and unmarshaling payloads.
 	// It allows converting between different payload formats and also unmarshaling payloads into Go data structures.
 	Transcoder interface {
-		// RegisterTranscoder registers a FormatTranscoder for converting payloads from one format to another.
-		RegisterTranscoder(from, to Format, weight int, tt FormatTranscoder)
-		// RegisterUnmarshaler registers an Unmarshaler for a specific format.
-		RegisterUnmarshaler(from Format, unmarshaler Unmarshaler)
-
 		// Transcode transcodes a payload from its current format to the specified target format.
 		// It may involve multiple steps if a direct transcoder is not registered.
 		Transcode(Payload, Format) (Payload, error)
 		Unmarshaler
+	}
+
+	TranscoderRegister interface {
+		RegisterTranscoder(from, to Format, weight int, tt FormatTranscoder)
+		RegisterUnmarshaler(from Format, unmarshaler Unmarshaler)
 	}
 
 	// FormatTranscoder is an interface for transcoding a payload from one format to another.

@@ -7,8 +7,3 @@ meta:
     - service.web_server
 
 prefix: /api/v1
-middlewares:
-  - timeout
-  - recoverer
-options:
-  timeout: 30s

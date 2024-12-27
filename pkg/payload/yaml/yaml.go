@@ -6,7 +6,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func Register(transcoder payload.Transcoder) {
+func Register(transcoder payload.TranscoderRegister) {
 	to := &ToGolang{}
 	from := &FromGolang{}
 

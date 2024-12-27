@@ -37,10 +37,10 @@ func TestServer_Router(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
 	server := NewServer(cfg, handler)
 
-	router := server.Router()
+	router := server.router
 	assert.NotNil(t, router)
 	// Router should be the same instance each time
-	assert.Equal(t, router, server.Router())
+	assert.Equal(t, router, server.router)
 }
 
 func TestServer_UpdateConfig(t *testing.T) {
@@ -77,7 +77,7 @@ func TestSimpleHTTP(t *testing.T) {
 	})
 
 	server := NewServer(config.ServerConfig{Addr: "localhost:8123"}, handler)
-	err := server.Router().AddEndpoint("test", config.EndpointConfig{
+	err := server.router.AddEndpoint("test", config.EndpointConfig{
 		Path:   "/",
 		Method: "GET",
 	})
@@ -125,7 +125,7 @@ func TestHTTPServerUnderSupervisor(t *testing.T) {
 
 	// Create a new Timeouts service
 	httpServer := NewServer(config.ServerConfig{Addr: "localhost:8124"}, handler)
-	err := httpServer.Router().AddEndpoint("test", config.EndpointConfig{
+	err := httpServer.router.AddEndpoint("test", config.EndpointConfig{
 		Path:   "/",
 		Method: "GET",
 	})
