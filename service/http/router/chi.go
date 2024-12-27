@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	contextapi "github.com/ponyruntime/pony/api/context"
 	config "github.com/ponyruntime/pony/api/service/http"
 	"net/http"
 	"sync"
@@ -159,7 +160,7 @@ func (rw *ChiRouter) wrapHandlerWithRouteInfo(
 		}
 
 		// Add route info to context
-		ctx := context.WithValue(r.Context(), config.RouteInfoCtx, routeInfo)
+		ctx := context.WithValue(r.Context(), contextapi.RouteInfoCtx, routeInfo)
 
 		// Call handler with enhanced context
 		handler(w, r.WithContext(ctx))

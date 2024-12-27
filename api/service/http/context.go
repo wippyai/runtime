@@ -1,14 +1,11 @@
 package http
 
 import (
-	"github.com/ponyruntime/pony/api/context"
 	"net/http"
 )
 
-const (
-	RouteInfoCtx = context.Key("routeInfo")   //nolint:gochecknoglobals
-	RequestCtx   = context.Key("httpRequest") //nolint:gochecknoglobals
-)
+// todo: merge with main context?
+// todo: migrate http context in here?
 
 type RouteInfo struct {
 	Params     map[string]string
