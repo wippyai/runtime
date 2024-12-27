@@ -1,6 +1,7 @@
 package router
 
 import (
+	"github.com/ponyruntime/pony/api/context"
 	config "github.com/ponyruntime/pony/api/service/http"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -207,7 +208,7 @@ func TestBuildRouter(t *testing.T) {
 
 	var capturedRouteInfo *config.RouteInfo
 	handler := func(w http.ResponseWriter, r *http.Request) {
-		routeInfo, ok := r.Context().Value(config.RouteInfoCtx).(*config.RouteInfo)
+		routeInfo, ok := r.Context().Value(context.RouteInfoCtx).(*config.RouteInfo)
 		require.True(t, ok)
 		capturedRouteInfo = routeInfo
 		w.WriteHeader(http.StatusOK)
@@ -253,7 +254,7 @@ func TestRouteContext(t *testing.T) {
 
 	var capturedRouteInfo *config.RouteInfo
 	handler := func(w http.ResponseWriter, r *http.Request) {
-		routeInfo, ok := r.Context().Value(config.RouteInfoCtx).(*config.RouteInfo)
+		routeInfo, ok := r.Context().Value(context.RouteInfoCtx).(*config.RouteInfo)
 		require.True(t, ok)
 		capturedRouteInfo = routeInfo
 		w.WriteHeader(http.StatusOK)
@@ -363,7 +364,7 @@ func TestRouteInfoContext(t *testing.T) {
 
 			var capturedRouteInfo *config.RouteInfo
 			handler := func(w http.ResponseWriter, r *http.Request) {
-				routeInfo, ok := r.Context().Value(config.RouteInfoCtx).(*config.RouteInfo)
+				routeInfo, ok := r.Context().Value(context.RouteInfoCtx).(*config.RouteInfo)
 				require.True(t, ok)
 				capturedRouteInfo = routeInfo
 				w.WriteHeader(http.StatusOK)
