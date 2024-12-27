@@ -4,7 +4,6 @@ import (
 	"context"
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"
-	"log"
 )
 
 const (
@@ -182,9 +181,6 @@ func (m Metadata) TagValue(key string) []string {
 			}
 			return result
 		}
-
-		// Debug the actual type
-		log.Printf("Unhandled tag value type: %T with value: %+v", v, v)
 	}
 	return nil
 }
