@@ -99,7 +99,7 @@ func main() {
 	// todo: register runtime
 
 	// services, modules, runtimes
-	err = http.Init(bus, dtt, handler.NewEndpointHandler(exec, dtt).Handle, logger.Named("http")).Start(ctx)
+	err = http.Init(bus, dtt, handler.NewEndpointHandler(exec, dtt, logger.Named("http")).Handle, logger.Named("http")).Start(ctx)
 	if err != nil {
 		mainLogger.Fatal("failed to start http service", zap.Error(err))
 	}
