@@ -13,3 +13,4 @@ meta:
 method: GET
 path: /time
 target: functions.http_time
+json_output: true

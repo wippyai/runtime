@@ -11,16 +11,15 @@ type SimpleExecutor struct{}
 // Execute implements the Executor interface.
 func (e *SimpleExecutor) Execute(task runtime.Task) (chan *runtime.Result, error) {
 	resultChan := make(chan *runtime.Result, 1) // Buffered channel to prevent blocking
-
-	go func() {
-		resultChan <- &runtime.Result{
-			Payload: payload.New(struct {
-				Message string `json:"message"`
-			}{}),
-			Error: nil,
-		}
-		close(resultChan)
-	}()
+	resultChan <- &runtime.Result{
+		Payload: payload.New(struct {
+			Message string `json:"message"`
+		}{
+			Message: "Hello, world!",
+		}),
+		Error: nil,
+	}
+	close(resultChan)
 
 	return resultChan, nil
 }

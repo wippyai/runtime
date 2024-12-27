@@ -45,11 +45,13 @@ type (
 
 	// EndpointConfig represents the configuration for a single endpoint.
 	EndpointConfig struct {
-		Meta       registry.Metadata `json:"meta"`        // Metadata
-		Path       string            `json:"path"`        // URL path
-		Method     string            `json:"method"`      // Timeouts method
-		JsonOutput bool              `json:"json_output"` // Automatically marshal output to JSON
-		// todo: add json input schema + validation
+		Meta              registry.Metadata `json:"meta"`                // Metadata
+		Path              string            `json:"path"`                // URL path
+		Method            string            `json:"method"`              // Timeouts method
+		JsonInput         bool              `json:"json_input"`          // Expect input as JSON
+		JsonSchema        any               `json:"json_schema"`         // JSON schema for input validation, only if JsonInput is true
+		JsonOutput        bool              `json:"json_output"`         // Automatically marshal output to JSON
+		SuccessStatusCode int               `json:"success_status_code"` // HTTP status code for success
 	}
 )
 
