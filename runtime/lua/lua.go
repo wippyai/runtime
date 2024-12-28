@@ -13,15 +13,17 @@ import (
 	"go.uber.org/zap"
 )
 
-// Manager handles Lua functions and libraries
-type Manager struct {
-	log *zap.Logger
-	bus events.Bus
-	dtt payload.Transcoder
-	mu  sync.RWMutex
-
+// RuntimeManager handles Lua functions and libraries
+type RuntimeManager struct {
+	log       *zap.Logger
+	bus       events.Bus
+	dtt       payload.Transcoder
+	mu        sync.RWMutex
 	functions map[registry.ID]*config.FunctionConfig
 	libraries map[registry.ID]*config.LibraryConfig
+	modules   map[string]config.Module
+
+	callable sync.Map
 }
 
 // NewRuntimeManager creates a new Lua manager instance
@@ -29,18 +31,27 @@ func NewRuntimeManager(
 	bus events.Bus,
 	dtt payload.Transcoder,
 	logger *zap.Logger,
-) *Manager {
-	return &Manager{
+	modules ...config.Module,
+) *RuntimeManager {
+	m := &RuntimeManager{
 		log:       logger,
 		bus:       bus,
 		dtt:       dtt,
 		functions: make(map[registry.ID]*config.FunctionConfig),
 		libraries: make(map[registry.ID]*config.LibraryConfig),
+		modules:   make(map[string]config.Module),
+		callable:  sync.Map{},
 	}
+
+	for _, module := range modules {
+		m.modules[module.Name()] = module
+	}
+
+	return m
 }
 
 // Add implements registry.EntryListener
-func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
+func (m *RuntimeManager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Data == nil {
 		return fmt.Errorf("configuration data is required for create operation")
 	}
@@ -56,7 +67,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 }
 
 // Update implements registry.EntryListener
-func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
+func (m *RuntimeManager) Update(ctx context.Context, entry registry.Entry) error {
 	if entry.Data == nil {
 		return fmt.Errorf("configuration data is required for update operation")
 	}
@@ -72,7 +83,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 }
 
 // Delete implements registry.EntryListener
-func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
+func (m *RuntimeManager) Delete(ctx context.Context, entry registry.Entry) error {
 	switch entry.Kind {
 	case config.KindFunction:
 		return m.deleteFunction(ctx, entry)
@@ -83,11 +94,16 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	}
 }
 
-func (m *Manager) handleTask(task runtime.Task) (chan *runtime.Result, error) {
+func (m *RuntimeManager) Execute(task runtime.Task) (chan *runtime.Result, error) {
+	_, ok := m.callable.Load(task.Target)
+	if !ok {
+		return nil, fmt.Errorf("handler not found")
+	}
+
 	return nil, fmt.Errorf("not implemented")
 }
 
-func (m *Manager) unmarshalAndValidate(data payload.Payload, cfg interface{}) error {
+func (m *RuntimeManager) unmarshalAndValidate(data payload.Payload, cfg interface{}) error {
 	if err := m.dtt.Unmarshal(data, cfg); err != nil {
 		return fmt.Errorf("failed to unmarshal config: %w", err)
 	}
@@ -101,7 +117,7 @@ func (m *Manager) unmarshalAndValidate(data payload.Payload, cfg interface{}) er
 	return nil
 }
 
-func (m *Manager) addFunction(ctx context.Context, entry registry.Entry) error {
+func (m *RuntimeManager) addFunction(ctx context.Context, entry registry.Entry) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -114,11 +130,14 @@ func (m *Manager) addFunction(ctx context.Context, entry registry.Entry) error {
 		return fmt.Errorf("function %s already exists", entry.ID)
 	}
 
+	// -- compile function
+	// -- end of function compilation
+
 	m.functions[entry.ID] = cfg
 	m.bus.Send(ctx, events.Event{
 		System: runtime.System,
 		Kind:   runtime.RegisterHandlerEvent,
-		Data:   runtime.RegisterHandler{Target: entry.ID, Handler: m.handleTask},
+		Data:   runtime.RegisterHandler{Target: entry.ID, Handler: m.Execute},
 	})
 
 	m.log.Info("added function", zap.String("id", string(entry.ID)))
@@ -126,7 +145,7 @@ func (m *Manager) addFunction(ctx context.Context, entry registry.Entry) error {
 	return nil
 }
 
-func (m *Manager) updateFunction(_ context.Context, entry registry.Entry) error {
+func (m *RuntimeManager) updateFunction(_ context.Context, entry registry.Entry) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -139,11 +158,14 @@ func (m *Manager) updateFunction(_ context.Context, entry registry.Entry) error 
 		return fmt.Errorf("function %s not found", entry.ID)
 	}
 
+	// -- compile function
+	// -- end of function compilation
+
 	m.functions[entry.ID] = cfg
 	return nil
 }
 
-func (m *Manager) deleteFunction(ctx context.Context, entry registry.Entry) error {
+func (m *RuntimeManager) deleteFunction(ctx context.Context, entry registry.Entry) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -161,7 +183,7 @@ func (m *Manager) deleteFunction(ctx context.Context, entry registry.Entry) erro
 	return nil
 }
 
-func (m *Manager) addLibrary(_ context.Context, entry registry.Entry) error {
+func (m *RuntimeManager) addLibrary(_ context.Context, entry registry.Entry) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -178,7 +200,7 @@ func (m *Manager) addLibrary(_ context.Context, entry registry.Entry) error {
 	return nil
 }
 
-func (m *Manager) updateLibrary(_ context.Context, entry registry.Entry) error {
+func (m *RuntimeManager) updateLibrary(_ context.Context, entry registry.Entry) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -191,17 +213,23 @@ func (m *Manager) updateLibrary(_ context.Context, entry registry.Entry) error {
 		return fmt.Errorf("library %s not found", entry.ID)
 	}
 
+	// -- recompile dependent functions
+	// -- end of recompilation
+
 	m.libraries[entry.ID] = cfg
 	return nil
 }
 
-func (m *Manager) deleteLibrary(_ context.Context, entry registry.Entry) error {
+func (m *RuntimeManager) deleteLibrary(_ context.Context, entry registry.Entry) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if _, exists := m.libraries[entry.ID]; !exists {
 		return fmt.Errorf("library %s not found", entry.ID)
 	}
+
+	// -- check if any functions depend on this library
+	// -- end of check
 
 	delete(m.libraries, entry.ID)
 	return nil

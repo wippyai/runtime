@@ -18,6 +18,7 @@ import (
 	"github.com/ponyruntime/pony/pkg/supervisor"
 	"github.com/ponyruntime/pony/runtime"
 	luaruntime "github.com/ponyruntime/pony/runtime/lua"
+	base64M "github.com/ponyruntime/pony/runtime/lua/modules/base64"
 	"github.com/ponyruntime/pony/service/http"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -82,7 +83,10 @@ func main() {
 	// -- end of core function executor
 
 	// -- lua lang and modules
-	lua := luaruntime.NewRuntimeManager(bus, dtt, logger.Named("lua"))
+	lua := luaruntime.NewRuntimeManager(
+		bus, dtt, logger.Named("lua"),
+		base64M.New(),
+	)
 
 	// -- end of lua lang and modules
 
@@ -112,7 +116,7 @@ func main() {
 	defer cancelBoot()
 	_, err = reg.Apply(bootCtx, appState)
 	if err != nil {
-		mainLogger.Fatal("failed to apply appState stateBuilder", zap.Error(err))
+		mainLogger.Fatal("failed to apply state", zap.Error(err))
 	}
 
 	mainLogger.Info("application state configured, running")
