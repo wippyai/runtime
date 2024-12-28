@@ -7,6 +7,31 @@ import (
 	"github.com/ponyruntime/go-lua"
 )
 
+type Module struct{}
+
+// NewModule creates a new JSON module.
+func NewModule() *Module {
+	return &Module{}
+}
+
+// Name is the module name.
+func (m *Module) Name() string {
+	return "json"
+}
+
+func (m *Module) Loader(l *lua.LState) int {
+	t := l.NewTable()
+
+	api := map[string]lua.LGFunction{
+		"decode": apiDecode,
+		"encode": apiEncode,
+	}
+
+	l.SetFuncs(t, api)
+	l.Push(t)
+	return 1
+}
+
 // Loader is the module loader function.
 func Loader(l *lua.LState) int {
 	t := l.NewTable()

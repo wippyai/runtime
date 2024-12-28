@@ -34,6 +34,10 @@ func NewHTTPModuleWithDo(do httpDo, log *zap.Logger) *Module {
 	}
 }
 
+func (h *Module) Name() string {
+	return "http"
+}
+
 func (h *Module) Loader(l *lua.LState) int {
 	mod := l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
 		"get":                h.get,

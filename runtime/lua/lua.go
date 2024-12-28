@@ -45,6 +45,7 @@ func NewRuntimeManager(
 
 	for _, module := range modules {
 		m.modules[module.Name()] = module
+		logger.Debug("registered module", zap.String("name", module.Name()))
 	}
 
 	return m
@@ -130,6 +131,18 @@ func (m *RuntimeManager) addFunction(ctx context.Context, entry registry.Entry) 
 		return fmt.Errorf("function %s already exists", entry.ID)
 	}
 
+	for _, module := range cfg.Modules {
+		if _, exists := m.modules[module]; !exists {
+			return fmt.Errorf("module %s not found", module)
+		}
+	}
+
+	for _, library := range cfg.Libraries {
+		if _, exists := m.libraries[registry.ID(library)]; !exists {
+			return fmt.Errorf("library %s not found", library)
+		}
+	}
+
 	// -- compile function
 	// -- end of function compilation
 
@@ -156,6 +169,18 @@ func (m *RuntimeManager) updateFunction(_ context.Context, entry registry.Entry)
 
 	if _, exists := m.functions[entry.ID]; !exists {
 		return fmt.Errorf("function %s not found", entry.ID)
+	}
+
+	for _, module := range cfg.Modules {
+		if _, exists := m.modules[module]; !exists {
+			return fmt.Errorf("module %s not found", module)
+		}
+	}
+
+	for _, library := range cfg.Libraries {
+		if _, exists := m.libraries[registry.ID(library)]; !exists {
+			return fmt.Errorf("library %s not found", library)
+		}
 	}
 
 	// -- compile function
@@ -197,6 +222,8 @@ func (m *RuntimeManager) addLibrary(_ context.Context, entry registry.Entry) err
 	}
 
 	m.libraries[entry.ID] = cfg
+	m.log.Info("added library", zap.String("id", string(entry.ID)))
+
 	return nil
 }
 

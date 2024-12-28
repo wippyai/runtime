@@ -186,6 +186,6 @@ func (h *EndpointHandler) writeRawResponse(w http.ResponseWriter, p payload.Payl
 
 // handleError logs the error and writes it to the response.
 func (h *EndpointHandler) handleError(w http.ResponseWriter, err error, statusCode int) {
-	h.logger.Error("request error", zap.Error(err), zap.Int("status_code", statusCode))
+	h.logger.Debug("request error", zap.Error(err), zap.Int("status_code", statusCode))
 	http.Error(w, err.Error(), statusCode)
 }
