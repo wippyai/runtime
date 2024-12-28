@@ -19,10 +19,13 @@ import (
 	"github.com/ponyruntime/pony/runtime"
 	luaruntime "github.com/ponyruntime/pony/runtime/lua"
 	base64M "github.com/ponyruntime/pony/runtime/lua/modules/base64"
+	httpmodule "github.com/ponyruntime/pony/runtime/lua/modules/http"
+	jsonmodule "github.com/ponyruntime/pony/runtime/lua/modules/json"
 	"github.com/ponyruntime/pony/service/http"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"hash/fnv"
+	httpbase "net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -86,6 +89,8 @@ func main() {
 	lua := luaruntime.NewRuntimeManager(
 		bus, dtt, logger.Named("lua"),
 		base64M.New(),
+		jsonmodule.NewModule(),
+		httpmodule.NewHTTPModule(httpbase.DefaultClient, logger.Named("http")),
 	)
 
 	// -- end of lua lang and modules
