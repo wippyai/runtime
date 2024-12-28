@@ -51,7 +51,7 @@ func TestNewVM2(t *testing.T) {
 	return hello
 	`
 
-	vm, err := engine.NewVM(l, script, "hello", base64M.New())
+	vm, err := engine.NewVM(l, script, "hello", base64M.NewBase64Module())
 	require.NoError(t, err)
 	data := make(map[string]any)
 	data["hello"] = "heeeeeeeeeeelllo"
@@ -82,7 +82,7 @@ func TestPool(t *testing.T) {
 	scriptId := "foo"
 	scripts := make(map[string]*Config)
 	scripts[scriptId] = NewPoolCfg(2, script, "hello")
-	p, err := NewLuaPool(l, scripts, WithModules(base64M.New()), WithPollTimeout(time.Second*2))
+	p, err := NewLuaPool(l, scripts, WithModules(base64M.NewBase64Module()), WithPollTimeout(time.Second*2))
 	require.NoError(t, err)
 
 	data := make(map[string]any)
@@ -109,7 +109,7 @@ func TestPoolConcurrent(t *testing.T) {
 	scripts := make(map[string]*Config)
 
 	scripts[scriptID] = NewPoolCfg(10, script, "hello")
-	p, err := NewLuaPool(l, scripts, WithModules(base64M.New()), WithPollTimeout(time.Second*10))
+	p, err := NewLuaPool(l, scripts, WithModules(base64M.NewBase64Module()), WithPollTimeout(time.Second*10))
 	require.NoError(t, err)
 
 	data := make(map[string]any)
@@ -148,7 +148,7 @@ func BenchmarkPool(b *testing.B) {
 	scriptId := "foo"
 	scripts := make(map[string]*Config)
 	scripts[scriptId] = NewPoolCfg(10, script, "hello")
-	p, err := NewLuaPool(l, scripts, WithModules(base64M.New()), WithPollTimeout(time.Second*2))
+	p, err := NewLuaPool(l, scripts, WithModules(base64M.NewBase64Module()), WithPollTimeout(time.Second*2))
 	require.NoError(b, err)
 
 	data := make(map[string]any)

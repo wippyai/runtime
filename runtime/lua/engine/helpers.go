@@ -1,60 +1,73 @@
+// Package engine provides utilities for converting between Lua and Go data types.
 package engine
 
-//
-//func TableToSlice(v lua.LValue, log *zap.Logger) []string {
-//	var ret []string
-//
-//	if v.Type() != lua.LTTable {
-//		log.Warn("cannot parse table", zap.String("type", v.Type().String()))
-//		return nil
-//	}
-//
-//	ToTable(v).ForEach(func(_, value lua.LValue) {
-//		ret = append(ret, value.String())
-//	})
-//
-//	return ret
-//}
-//
-//func TableToAnySlice(v lua.LValue, log *zap.Logger) []any {
-//	var ret []any
-//
-//	if v.Type() != lua.LTTable {
-//		log.Warn("cannot parse table", zap.String("type", v.Type().String()))
-//		return nil
-//	}
-//
-//	ToTable(v).ForEach(func(_, value lua.LValue) {
-//		ret = append(ret, ToGoAny(value))
-//	})
-//
-//	return ret
-//}
-//
-//func TableToMap(t *lua.LTable, log *zap.Logger) map[string]string {///.
+import (
+	"github.com/ponyruntime/go-lua"
+	"go.uber.org/zap"
+)
 
-//	if t == nil {
-//		log.Warn("table key exists, but the underlying table is nil")
-//		return nil
-//	}
-//
-//	var ret = make(map[string]string)
-//
-//	t.ForEach(func(key, val lua.LValue) {
-//		ret[key.String()] = val.String()
-//	})
-//
-//	return ret
-//}
-//
-//func ToTable(v lua.LValue) *lua.LTable {
-//	if lv, ok := v.(*lua.LTable); ok {
-//		return lv
-//	}
-//	return nil
-//}
-/*
+// ToTable converts a Lua value to a Lua table if possible.
+// Returns nil if the value cannot be converted to a table.
+func ToTable(v lua.LValue) *lua.LTable {
+	if lv, ok := v.(*lua.LTable); ok {
+		return lv
+	}
+	return nil
+}
 
+// TableToSlice converts a Lua table to a slice of strings.
+// Returns nil if the input is not a valid Lua table.
+func TableToSlice(v lua.LValue, log *zap.Logger) []string {
+	var ret []string
+
+	if v.Type() != lua.LTTable {
+		log.Warn("cannot parse table", zap.String("type", v.Type().String()))
+		return nil
+	}
+
+	ToTable(v).ForEach(func(_, value lua.LValue) {
+		ret = append(ret, value.String())
+	})
+
+	return ret
+}
+
+// TableToAnySlice converts a Lua table to a slice of interface{}.
+// Returns nil if the input is not a valid Lua table.
+func TableToAnySlice(v lua.LValue, log *zap.Logger) []any {
+	var ret []any
+
+	if v.Type() != lua.LTTable {
+		log.Warn("cannot parse table", zap.String("type", v.Type().String()))
+		return nil
+	}
+
+	ToTable(v).ForEach(func(_, value lua.LValue) {
+		ret = append(ret, ToGoAny(value))
+	})
+
+	return ret
+}
+
+// TableToMap converts a Lua table to a map of strings.
+// Returns nil if the input table is nil.
+func TableToMap(t *lua.LTable, log *zap.Logger) map[string]string {
+	if t == nil {
+		log.Warn("table key exists, but the underlying table is nil")
+		return nil
+	}
+
+	var ret = make(map[string]string)
+
+	t.ForEach(func(key, val lua.LValue) {
+		ret[key.String()] = val.String()
+	})
+
+	return ret
+}
+
+// GoToLua converts Go values to their Lua equivalents.
+// Supports basic types, slices, and maps. Returns lua.LNil for unsupported types.
 func GoToLua(l *lua.LState, v any) lua.LValue {
 	switch v := v.(type) {
 	case string:
@@ -102,6 +115,9 @@ func GoToLua(l *lua.LState, v any) lua.LValue {
 	}
 }
 
+// ToGoAny converts Lua values to their Go equivalents.
+// Handles nil, boolean, number, string, and table types.
+// Tables are converted to either maps or slices based on their structure.
 func ToGoAny(v lua.LValue) any {
 	switch v.Type() { //nolint:exhaustive
 	case lua.LTNil:
@@ -132,4 +148,3 @@ func ToGoAny(v lua.LValue) any {
 		return v.String()
 	}
 }
-*/
