@@ -32,8 +32,8 @@ func WithDefaultListener(l registry.EntryListener) Option {
 	}
 }
 
-// WithKindListener adds a new kind-based routing rule
-func WithKindListener(pattern string, listener registry.EntryListener) Option {
+// WithListener adds a new kind-based routing rule
+func WithListener(pattern string, listener registry.EntryListener) Option {
 	return func(r *Router) {
 		r.routes = append(r.routes, route{
 			pattern:  pattern,

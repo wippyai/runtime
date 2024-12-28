@@ -6,7 +6,7 @@ package pool
 import (
 	"context"
 	"errors"
-	"github.com/ponyruntime/pony/api/runtime"
+	"github.com/ponyruntime/pony/api/runtime/lua"
 	"time"
 
 	"github.com/ponyruntime/pony/runtime/lua/luapool/vm"
@@ -49,7 +49,7 @@ type Pool struct {
 	stopCh    chan struct{}
 	logger    *zap.Logger
 	timeout   time.Duration
-	modules   []runtime.LuaModule
+	modules   []lua.Module
 	vms       map[string]chan *vm.VM
 }
 

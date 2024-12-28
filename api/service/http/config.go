@@ -48,6 +48,7 @@ type (
 		Meta              registry.Metadata `json:"meta"`                // Metadata
 		Path              string            `json:"path"`                // URL path
 		Method            string            `json:"method"`              // Timeouts method
+		Target            string            `json:"target"`              // Target function
 		JsonInput         bool              `json:"json_input"`          // Expect input as JSON
 		JsonSchema        any               `json:"json_schema"`         // JSON schema for input validation, only if JsonInput is true
 		JsonOutput        bool              `json:"json_output"`         // Automatically marshal output to JSON

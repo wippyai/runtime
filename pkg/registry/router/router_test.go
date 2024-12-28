@@ -45,7 +45,7 @@ func setupRouterTest(t *testing.T) (*Router, *mockListener, *eventbus.Bus) {
 	router, err := NewRouter(context.Background(), bus,
 		WithLogger(zap.NewNop()),
 		WithDefaultListener(mockListener),
-		WithKindListener("test.*", mockListener),
+		WithListener("test.*", mockListener),
 	)
 
 	require.NoError(t, err)
@@ -73,7 +73,7 @@ func TestNewRouter(t *testing.T) {
 		router, err := NewRouter(context.Background(), bus,
 			WithLogger(logger),
 			WithDefaultListener(mockListener),
-			WithKindListener("test.*", mockListener),
+			WithListener("test.*", mockListener),
 		)
 
 		require.NoError(t, err)
@@ -259,8 +259,8 @@ func TestRouter_FindListener(t *testing.T) {
 		listener2 := &mockListener{}
 
 		router, err := NewRouter(context.Background(), bus,
-			WithKindListener("test.*", listener1),
-			WithKindListener("other.*", listener2),
+			WithListener("test.*", listener1),
+			WithListener("other.*", listener2),
 		)
 
 		require.NoError(t, err)
