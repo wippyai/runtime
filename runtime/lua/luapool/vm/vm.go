@@ -61,8 +61,10 @@ func New(log *zap.Logger, script, main string, modules ...runtime.LuaModule) (*V
 
 func (v *VM) Execute(ctx context.Context, args any) (string, error) {
 	v.log.Debug("executing on VM", zap.Any("args", args))
-	v.state.SetContext(ctx)
+	v.state.SetContext(ctx) // todo detach context
 	v.state.Push(v.fn)
+
+	defer v.state.SetContext(nil)
 
 	// push args ---
 	lv := engine.GoToLua(v.state, args)

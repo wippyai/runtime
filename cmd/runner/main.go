@@ -13,11 +13,12 @@ import (
 	"github.com/ponyruntime/pony/pkg/registry"
 	"github.com/ponyruntime/pony/pkg/registry/history"
 	"github.com/ponyruntime/pony/pkg/registry/loader"
+	services "github.com/ponyruntime/pony/pkg/registry/router"
 	"github.com/ponyruntime/pony/pkg/registry/runner"
 	"github.com/ponyruntime/pony/pkg/supervisor"
 	"github.com/ponyruntime/pony/runtime"
+	"github.com/ponyruntime/pony/runtime/noop"
 	"github.com/ponyruntime/pony/service/http"
-	"github.com/ponyruntime/pony/service/http/handler"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"hash/fnv"
@@ -53,77 +54,67 @@ func main() {
 
 	mainLogger := logger.Named("main")
 
-	dtt := transcoder.NewTranscoder()
+	dtt := transcoder.GlobalTranscoder()
 	json.Register(dtt)
 	yaml.Register(dtt)
 	lua.Register(dtt)
 
-	folderPath := args[0]
-	namespace := ""
-	if len(args) > 1 {
-		namespace = args[1]
-	}
+	// -- application state
+	appState, err := loadApplicationState(args, dtt, mainLogger)
 
-	folderLoader := loader.NewFolderLoader(dtt, logger.Named("loader"))
-	vars := loader.Variables{}
-	for _, env := range os.Environ() {
-		pair := strings.SplitN(env, "=", 2)
-		vars[pair[0]] = pair[1]
-	}
-
-	state := registry.NewStateBuilder(logger.Named("builder"))     // state builder
-	entries, err := folderLoader.Load(folderPath, namespace, vars) // Pass vars to Load
-	if err != nil {
-		mainLogger.Fatal("Failed to load entries", zap.Error(err))
-	}
-
-	// boot delta
-	boot, err := state.BuildDelta(regapi.State{}, entries) // build delta
-	if err != nil {
-		mainLogger.Fatal("Failed to build state operation set", zap.Error(err))
-	}
-
-	// service
-	bus := eventbus.NewBus(logger.Named("events"))             // main configuration bus
-	sup := supervisor.NewSupervisor(bus, logger.Named("core")) // service supervisor
-	reg := registry.NewRegistry(                               // application state controller, transactional
+	// -- application core
+	bus := eventbus.NewBus(logger.Named("events")) // main configuration bus
+	reg := registry.NewRegistry(                   // application state controller, transactional
 		history.NewMemory(),
 		runner.NewBusRunner(bus, logger.Named("runner")),
-		state,
+		registry.NewStateBuilder(mainLogger),
 		logger.Named("state"),
 	)
+	app := supervisor.NewSupervisor(bus, logger.Named("core"))
+	// -- end of application core
 
-	// execution layer
-	run, err := runtime.NewCompositeRuntime(runtime.NamedRuntime{Name: "lua", Runtime: nil})
+	// -- core function executor, this service listens and builds routes to call functions between runtimes
+	exec := runtime.NewExecutor(bus, logger.Named("executor"))
+	if err := exec.Start(ctx); err != nil {
+		mainLogger.Fatal("failed to start executor", zap.Error(err))
+	}
+	defer func() { _ = exec.Stop() }()
+	// -- end of core function executor
+
+	// -- lua lang and modules
+	//lua := luaruntime.NewRuntimeManager(bus, logger.Named("lua"))
+	// -- end of lua lang and modules
+
+	// -- configuration bus
+	svc, err := services.NewRouter(ctx, bus,
+		services.WithKindListener(
+			"http.*",
+			http.NewExecutingManager(bus, dtt, exec, logger.Named("http")),
+		),
+		services.WithKindListener("(function|library).lua", noop.NewNoopRuntime(logger.Named("noop"))),
+	)
+
 	if err != nil {
-		mainLogger.Fatal("failed to create runtime", zap.Error(err))
+		mainLogger.Fatal("failed to create router", zap.Error(err))
 	}
-
-	// services, modules, runtimes
-	err = http.Init(bus, dtt, handler.NewEndpointHandler(run, dtt, logger.Named("http")).Handle, logger.Named("http")).Start(ctx)
-	if err != nil {
-		mainLogger.Fatal("failed to start http service", zap.Error(err))
-	}
-
-	err = runtime.Init(bus, run, dtt, logger.Named("funcs")).Start(ctx)
-	if err != nil {
-		mainLogger.Fatal("failed to start runtime service", zap.Error(err))
-	}
-
-	// end service configuration
-	if err := sup.Start(ctx); err != nil {
-		mainLogger.Fatal("failed to start supervisor", zap.Error(err))
-	}
+	defer func() { _ = svc.Stop() }()
+	// -- end of configuration bus
 
 	mainLogger.Info("booting application")
+	if err := app.Start(ctx); err != nil {
+		mainLogger.Fatal("failed to start supervisor", zap.Error(err))
+	}
+	mainLogger.Info("application started, configuring state")
 
-	// boot application state
+	// appState application stateBuilder
 	bootCtx, cancelBoot := context.WithTimeout(ctx, 1*time.Second)
 	defer cancelBoot()
-	_, err = reg.Apply(bootCtx, boot)
+	_, err = reg.Apply(bootCtx, appState)
 	if err != nil {
-		mainLogger.Fatal("failed to apply boot state", zap.Error(err))
+		mainLogger.Fatal("failed to apply appState stateBuilder", zap.Error(err))
 	}
+
+	mainLogger.Info("application state configured, running")
 
 	// Handle graceful shutdown on Ctrl+C
 	sigChan := make(chan os.Signal, 1)
@@ -137,11 +128,43 @@ func main() {
 		mainLogger.Info("received signal, shutting down...", zap.String("signal", sig.String()))
 	}
 
-	if err := sup.Stop(); err != nil {
+	if err := app.Stop(); err != nil {
 		mainLogger.Error("failed to stop supervisor gracefully", zap.Error(err))
 	} else {
 		mainLogger.Info("supervisor stopped gracefully")
 	}
+}
+
+func loadApplicationState(
+	args []string,
+	dtt *transcoder.Transcoder,
+	mainLogger *zap.Logger,
+) (regapi.ChangeSet, error) {
+	folderPath := args[0]
+	namespace := ""
+	if len(args) > 1 {
+		namespace = args[1]
+	}
+
+	folderLoader := loader.NewFolderLoader(dtt, mainLogger)
+	vars := loader.Variables{}
+	for _, env := range os.Environ() {
+		pair := strings.SplitN(env, "=", 2)
+		vars[pair[0]] = pair[1]
+	}
+
+	entries, err := folderLoader.Load(folderPath, namespace, vars) // Pass vars to Load
+	if err != nil {
+		mainLogger.Fatal("Failed to load entries", zap.Error(err))
+	}
+
+	// boot delta
+	boot, err := registry.NewStateBuilder(mainLogger).BuildDelta(regapi.State{}, entries) // build delta
+	if err != nil {
+		mainLogger.Fatal("Failed to build state operation set", zap.Error(err))
+	}
+
+	return boot, err
 }
 
 func initLogger(verbose, veryVerbose bool) *zap.Logger {

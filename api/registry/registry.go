@@ -131,6 +131,13 @@ type (
 		// Transition applies a given ChangeSet to a State and returns the resulting modified State.
 		Transition(context.Context, State, ChangeSet) (State, error)
 	}
+
+	// EntryListener is an interface for components that want to listen to changes in the registry.
+	EntryListener interface {
+		Add(context.Context, Entry) error
+		Update(context.Context, Entry) error
+		Delete(context.Context, Entry) error
+	}
 )
 
 func (m Metadata) StringValue(key string) string {

@@ -1,9 +1,8 @@
 name: functions.http_time
-kind: function
+kind: function.lua
 meta:
   comment: "Returns the current time."
-  runtime: lua
-
+  
 source: file://http_time.lua
 method: main
 modules: [ "json", "http" ]
