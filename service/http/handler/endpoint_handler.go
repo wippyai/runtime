@@ -74,7 +74,7 @@ func (h *EndpointHandler) createTask(r *http.Request, info *config.RouteInfo) (r
 	if !info.Endpoint.JsonInput {
 		return runtime.Task{
 			Context: r.Context(),
-			Target:  registry.ID(info.EndpointID),
+			Target:  registry.ID(info.Endpoint.Target),
 		}, nil
 	}
 
@@ -90,7 +90,7 @@ func (h *EndpointHandler) createTask(r *http.Request, info *config.RouteInfo) (r
 
 	return runtime.Task{
 		Context: r.Context(),
-		Target:  registry.ID(info.EndpointID),
+		Target:  registry.ID(info.Endpoint.Target),
 		Payload: payload.NewPayload(body, payload.Json),
 	}, nil
 }

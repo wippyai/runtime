@@ -2,7 +2,7 @@ package vm
 
 import (
 	"context"
-	"github.com/ponyruntime/pony/api/runtime"
+	lua2 "github.com/ponyruntime/pony/api/runtime/lua"
 	"strings"
 
 	"github.com/ponyruntime/go-lua"
@@ -18,7 +18,7 @@ type VM struct {
 }
 
 // TODO options with modules
-func New(log *zap.Logger, script, main string, modules ...runtime.LuaModule) (*VM, error) {
+func New(log *zap.Logger, script, main string, modules ...lua2.Module) (*VM, error) {
 	state := lua.NewState(lua.Options{})
 
 	for _, module := range modules {

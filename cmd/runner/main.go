@@ -17,7 +17,7 @@ import (
 	"github.com/ponyruntime/pony/pkg/registry/runner"
 	"github.com/ponyruntime/pony/pkg/supervisor"
 	"github.com/ponyruntime/pony/runtime"
-	"github.com/ponyruntime/pony/runtime/noop"
+	luaruntime "github.com/ponyruntime/pony/runtime/lua"
 	"github.com/ponyruntime/pony/service/http"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -74,7 +74,7 @@ func main() {
 	// -- end of application core
 
 	// -- core function executor, this service listens and builds routes to call functions between runtimes
-	exec := runtime.NewExecutor(bus, logger.Named("executor"))
+	exec := runtime.NewExecutor(bus, logger.Named("exec"))
 	if err := exec.Start(ctx); err != nil {
 		mainLogger.Fatal("failed to start executor", zap.Error(err))
 	}
@@ -82,16 +82,17 @@ func main() {
 	// -- end of core function executor
 
 	// -- lua lang and modules
-	//lua := luaruntime.NewRuntimeManager(bus, logger.Named("lua"))
+	lua := luaruntime.NewRuntimeManager(bus, dtt, logger.Named("lua"))
+
 	// -- end of lua lang and modules
 
 	// -- configuration bus
 	svc, err := services.NewRouter(ctx, bus,
-		services.WithKindListener(
+		services.WithListener(
 			"http.*",
 			http.NewExecutingManager(bus, dtt, exec, logger.Named("http")),
 		),
-		services.WithKindListener("(function|library).lua", noop.NewNoopRuntime(logger.Named("noop"))),
+		services.WithListener("(function|library).lua", lua),
 	)
 
 	if err != nil {

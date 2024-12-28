@@ -56,12 +56,12 @@ func (e *Executor) handleEvent(evt events.Event) {
 	switch evt.Kind {
 
 	case runtime.RegisterHandlerEvent:
+
 		if data, ok := evt.Data.(runtime.RegisterHandler); ok {
 			if data.Handler == nil {
 				e.logger.Warn("handler is nil", zap.String("target", string(data.Target)))
 				return
 			}
-
 			e.handlers.Store(data.Target, data.Handler)
 			e.logger.Debug("handler registered",
 				zap.String("target", string(data.Target)))
@@ -86,6 +86,7 @@ func (e *Executor) Execute(task runtime.Task) (chan *runtime.Result, error) {
 		if err != nil {
 			return nil, fmt.Errorf("handler execution failed: %w", err)
 		}
+
 		return resultChan, nil
 	}
 
