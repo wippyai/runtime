@@ -65,11 +65,11 @@ func (v *jsonValidator) Validate(data []byte) error {
 	}
 
 	if !result.Valid() {
-		var errors []string
+		var errs []string
 		for _, err := range result.Errors() {
-			errors = append(errors, err.String())
+			errs = append(errs, err.String())
 		}
-		return &ValidationError{Errors: errors}
+		return &ValidationError{Errors: errs}
 	}
 
 	return nil
