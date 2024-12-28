@@ -56,7 +56,7 @@ func NewExecutingManager(
 	return &ServerManager{
 		log:             logger,
 		bus:             bus,
-		handler:         handler.NewEndpointHandler(exec, dtt, logger.Named("http")).Handle,
+		handler:         handler.NewEndpointHandler(exec, dtt, logger).Handle,
 		dtt:             dtt,
 		servers:         make(map[registry.ID]*Server),
 		endpointServers: make(map[registry.ID]registry.ID),

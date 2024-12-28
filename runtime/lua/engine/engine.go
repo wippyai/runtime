@@ -26,6 +26,10 @@ func NewLuaEngine(ctx context.Context, log *zap.Logger) *Engine {
 
 	// Override print function
 	L.SetGlobal("print", L.NewFunction(func(L *lua.LState) int {
+
+		// todo: check for context
+		///L.Context().Value("logger").(*zap.Logger).Info("print", zap.String("output", L.ToString(1)))
+
 		top := L.GetTop()
 		var parts []string
 		for i := 1; i <= top; i++ {
