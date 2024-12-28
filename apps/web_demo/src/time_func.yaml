@@ -2,7 +2,9 @@ name: functions.http_time
 kind: function.lua
 meta:
   comment: "Returns the current time."
-  
+
 source: file://http_time.lua
 method: main
 modules: [ "json", "http" ]
+pool:
+  num_vms: 10

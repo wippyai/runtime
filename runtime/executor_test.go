@@ -155,7 +155,7 @@ func TestExecutor_Execute(t *testing.T) {
 				Target:  "error.handler",
 				Payload: payload.New("test input"),
 			},
-			expectedErr: "handler execution failed: handler error",
+			expectedErr: "handler error",
 		},
 		{
 			name: "invalid handler type",

@@ -89,10 +89,10 @@ func main() {
 	lua := luaruntime.NewRuntimeManager(
 		bus, dtt, logger.Named("lua"),
 		base64M.New(),
-		jsonmodule.NewModule(),
+		jsonmodule.NewJsonModule(),
 		httpmodule.NewHTTPModule(httpbase.DefaultClient, logger.Named("http")),
 	)
-
+	//nop := noop.NewNoopRuntime(bus, logger.Named("noop"))
 	// -- end of lua lang and modules
 
 	// -- configuration bus

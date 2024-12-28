@@ -9,8 +9,8 @@ import (
 
 type Module struct{}
 
-// NewModule creates a new JSON module.
-func NewModule() *Module {
+// NewJsonModule creates a new JSON module.
+func NewJsonModule() *Module {
 	return &Module{}
 }
 
