@@ -4,7 +4,7 @@ import (
 	"go.uber.org/zap"
 )
 
-const metatableName = "http_handler"
+const metatableName = "http_ctx"
 
 type Module struct {
 	log *zap.Logger
@@ -17,5 +17,5 @@ func New(log *zap.Logger) *Module {
 }
 
 func (m *Module) Name() string {
-	return "http_handler"
+	return "http_ctx"
 }

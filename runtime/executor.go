@@ -54,9 +54,7 @@ func (e *Executor) Stop() error {
 
 func (e *Executor) handleEvent(evt events.Event) {
 	switch evt.Kind {
-
 	case runtime.RegisterHandlerEvent:
-
 		if data, ok := evt.Data.(runtime.RegisterHandler); ok {
 			if data.Handler == nil {
 				e.logger.Warn("handler is nil", zap.String("target", string(data.Target)))
@@ -82,12 +80,7 @@ func (e *Executor) Execute(task runtime.Task) (chan *runtime.Result, error) {
 	}
 
 	if execHandler, ok := handler.(runtime.ExecutorHandler); ok {
-		resultChan, err := execHandler(task)
-		if err != nil {
-			return nil, fmt.Errorf("handler execution failed: %w", err)
-		}
-
-		return resultChan, nil
+		return execHandler(task)
 	}
 
 	return nil, fmt.Errorf("invalid handler type for target: %s", task.Target)

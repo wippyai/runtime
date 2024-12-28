@@ -1,6 +1,7 @@
 package lua
 
 import (
+	"fmt"
 	"github.com/ponyruntime/pony/api/registry"
 )
 
@@ -16,6 +17,11 @@ type (
 		Method    string            `json:"method"`
 		Libraries []string          `json:"libraries"`
 		Modules   []string          `json:"modules"`
+		Pool      PoolConfig        `json:"pool"`
+	}
+
+	PoolConfig struct {
+		NumVMs int `json:"num_vms"`
 	}
 
 	LibraryConfig struct {
@@ -24,3 +30,19 @@ type (
 		Modules []string          `json:"modules"`
 	}
 )
+
+func (c *FunctionConfig) Validate() error {
+	if c.Source == "" {
+		return fmt.Errorf("source is required")
+	}
+
+	if c.Method == "" {
+		return fmt.Errorf("method is required")
+	}
+
+	if c.Pool.NumVMs <= 0 {
+		return fmt.Errorf("pool.num_vms must be greater than 0")
+	}
+
+	return nil
+}

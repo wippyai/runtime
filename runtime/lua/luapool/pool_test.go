@@ -2,6 +2,7 @@ package pool
 
 import (
 	"context"
+	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"sync"
 	"testing"
 	"time"
@@ -9,7 +10,6 @@ import (
 	base64M "github.com/ponyruntime/pony/runtime/lua/modules/base64"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ponyruntime/pony/runtime/lua/luapool/vm"
 	"go.uber.org/zap"
 )
 
@@ -23,7 +23,7 @@ func TestNewVM(t *testing.T) {
 	return hello
 	`
 
-	vm, err := vm.New(l, script, "hello")
+	vm, err := engine.NewVM(l, script, "hello")
 	require.NoError(t, err)
 	data := make(map[string]any)
 	data["hello"] = "heeeeeeeeeeelllo"
@@ -51,7 +51,7 @@ func TestNewVM2(t *testing.T) {
 	return hello
 	`
 
-	vm, err := vm.New(l, script, "hello", base64M.New())
+	vm, err := engine.NewVM(l, script, "hello", base64M.New())
 	require.NoError(t, err)
 	data := make(map[string]any)
 	data["hello"] = "heeeeeeeeeeelllo"

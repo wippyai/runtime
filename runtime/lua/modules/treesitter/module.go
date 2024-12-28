@@ -3,6 +3,8 @@ package treesitter
 import (
 	"errors"
 	"fmt"
+	treesitterjs "github.com/tree-sitter/tree-sitter-javascript/bindings/go"
+	treesitterts "github.com/tree-sitter/tree-sitter-typescript/bindings/go"
 	"unsafe"
 
 	"github.com/ponyruntime/go-lua"
@@ -10,10 +12,8 @@ import (
 	treesittercsharp "github.com/tree-sitter/tree-sitter-c-sharp/bindings/go"
 	treesittergo "github.com/tree-sitter/tree-sitter-go/bindings/go"
 	treesitterhtml "github.com/tree-sitter/tree-sitter-html/bindings/go"
-	treesitterjs "github.com/tree-sitter/tree-sitter-javascript/bindings/go"
 	treesitterphp "github.com/tree-sitter/tree-sitter-php/bindings/go"
 	treesitterpython "github.com/tree-sitter/tree-sitter-python/bindings/go"
-	treesitterts "github.com/tree-sitter/tree-sitter-typescript/bindings/go"
 	"go.uber.org/zap"
 )
 

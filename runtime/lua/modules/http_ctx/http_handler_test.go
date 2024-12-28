@@ -51,7 +51,7 @@ func TestInit(t *testing.T) {
 func TestInitWithPool(t *testing.T) {
 	luaCode := `
 	function handle(args)
-		local httph = require("http_handler")
+		local httph = require("http_ctx")
 		local h = httph.new()
 		local method = h:method()
 		return method
@@ -100,16 +100,16 @@ func (tt *TestStruct) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 
 	httpmod := New(l)
 	eng := engine.NewLuaEngine(ctx, l)
-	eng.L.PreloadModule("http_handler", httpmod.Loader)
+	eng.L.PreloadModule("http_ctx", httpmod.Loader)
 
 	luaCode := `
-	local httph = require("http_handler")
+	local httph = require("http_ctx")
 	local h = httph.new()
 	local method = h:method()
 	return method
 	`
 
-	err := eng.DoString(luaCode, "http_handler")
+	err := eng.DoString(luaCode, "http_ctx")
 	require.NoError(tt.t, err)
 
 	v := eng.Get(-1)

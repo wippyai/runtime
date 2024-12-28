@@ -7,9 +7,9 @@ import (
 	"context"
 	"errors"
 	"github.com/ponyruntime/pony/api/runtime/lua"
+	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"time"
 
-	"github.com/ponyruntime/pony/runtime/lua/luapool/vm"
 	"go.uber.org/zap"
 )
 
@@ -50,7 +50,7 @@ type Pool struct {
 	logger    *zap.Logger
 	timeout   time.Duration
 	modules   []lua.Module
-	vms       map[string]chan *vm.VM
+	vms       map[string]chan *engine.VM
 }
 
 // scripts - scriptID -> script
@@ -64,13 +64,13 @@ func NewLuaPool(log *zap.Logger, scripts map[string]*Config, options ...Options)
 	}
 
 	// AFTER INITIALIZATION THIS MAP IS READ-ONLY
-	vms := make(map[string]chan *vm.VM)
+	vms := make(map[string]chan *engine.VM)
 	for scriptID, cfg := range scripts {
 		log.Debug("creating vms pool", zap.String("scriptID", scriptID), zap.Int("number of VMs to create", cfg.numVMs))
-		ch := make(chan *vm.VM, cfg.numVMs)
+		ch := make(chan *engine.VM, cfg.numVMs)
 		for i := 0; i < cfg.numVMs; i++ {
 			log.Debug("creating vm", zap.String("scriptID", scriptID), zap.String("script", cfg.script), zap.String("main", cfg.mainFnName))
-			vm, err := vm.New(log, cfg.script, cfg.mainFnName, lp.modules...)
+			vm, err := engine.NewVM(log, cfg.script, cfg.mainFnName, lp.modules...)
 			if err != nil {
 				return nil, err
 			}
@@ -112,7 +112,7 @@ func (w *Pool) Queue(ctx context.Context, task *Task) <-chan string {
 }
 
 // here is the actual work happens
-func (w *Pool) do(v *vm.VM, task *Task) error {
+func (w *Pool) do(v *engine.VM, task *Task) error {
 	if task == nil {
 		w.logger.Error("task is nil")
 		return nil

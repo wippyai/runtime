@@ -23,6 +23,7 @@ type RuntimeManager struct {
 	libraries map[registry.ID]*config.LibraryConfig
 	modules   map[string]config.Module
 
+	compiler *Compiler
 	callable sync.Map
 }
 
@@ -47,6 +48,7 @@ func NewRuntimeManager(
 		m.modules[module.Name()] = module
 		logger.Debug("registered module", zap.String("name", module.Name()))
 	}
+	m.compiler = NewCompiler(logger.Named("compiler"), m.modules)
 
 	return m
 }
@@ -143,10 +145,14 @@ func (m *RuntimeManager) addFunction(ctx context.Context, entry registry.Entry) 
 		}
 	}
 
-	// -- compile function
-	// -- end of function compilation
+	btc, err := m.compileFunction(entry.ID, cfg)
+	if err != nil {
+		return fmt.Errorf("failed to compile function: %w", err)
+	}
 
+	m.callable.Store(entry.ID, btc)
 	m.functions[entry.ID] = cfg
+
 	m.bus.Send(ctx, events.Event{
 		System: runtime.System,
 		Kind:   runtime.RegisterHandlerEvent,
@@ -156,6 +162,17 @@ func (m *RuntimeManager) addFunction(ctx context.Context, entry registry.Entry) 
 	m.log.Info("added function", zap.String("id", string(entry.ID)))
 
 	return nil
+}
+
+func (m *RuntimeManager) compileFunction(id registry.ID, cfg *config.FunctionConfig) (string, error) {
+	fn, err := m.compiler.Compile(string(id), *cfg, nil)
+	if err != nil {
+		return "", err
+	}
+
+	m.log.Info("compiled function", zap.Any("fn", fn))
+
+	return fn, nil
 }
 
 func (m *RuntimeManager) updateFunction(_ context.Context, entry registry.Entry) error {
@@ -183,10 +200,16 @@ func (m *RuntimeManager) updateFunction(_ context.Context, entry registry.Entry)
 		}
 	}
 
-	// -- compile function
-	// -- end of function compilation
+	btc, err := m.compileFunction(entry.ID, cfg)
+	if err != nil {
+		return fmt.Errorf("failed to compile function: %w", err)
+	}
 
+	m.callable.Store(entry.ID, btc)
 	m.functions[entry.ID] = cfg
+
+	m.log.Info("updated function", zap.String("id", string(entry.ID)))
+
 	return nil
 }
 
@@ -204,7 +227,11 @@ func (m *RuntimeManager) deleteFunction(ctx context.Context, entry registry.Entr
 		Data:   runtime.DeleteHandler{Target: entry.ID},
 	})
 
+	m.callable.Delete(entry.ID)
 	delete(m.functions, entry.ID)
+
+	m.log.Info("deleted function", zap.String("id", string(entry.ID)))
+
 	return nil
 }
 
@@ -240,10 +267,13 @@ func (m *RuntimeManager) updateLibrary(_ context.Context, entry registry.Entry) 
 		return fmt.Errorf("library %s not found", entry.ID)
 	}
 
-	// -- recompile dependent functions
+	// -- todo: recompile dependent functions
 	// -- end of recompilation
 
 	m.libraries[entry.ID] = cfg
+
+	m.log.Info("updated library", zap.String("id", string(entry.ID)))
+
 	return nil
 }
 
@@ -255,7 +285,7 @@ func (m *RuntimeManager) deleteLibrary(_ context.Context, entry registry.Entry) 
 		return fmt.Errorf("library %s not found", entry.ID)
 	}
 
-	// -- check if any functions depend on this library
+	// -- todo: check if any functions depend on this library
 	// -- end of check
 
 	delete(m.libraries, entry.ID)

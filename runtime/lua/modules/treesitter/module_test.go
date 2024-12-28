@@ -2,7 +2,6 @@ package treesitter
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"testing"
 
@@ -40,6 +39,4 @@ func TestInitTS(t *testing.T) {
 	if result == nil {
 		t.Fatal("result should not be nil")
 	}
-
-	fmt.Println(result)
 }
