@@ -2,12 +2,11 @@ package engine
 
 import (
 	"context"
-	"github.com/stretchr/testify/require"
-	"testing"
-
 	"github.com/ponyruntime/go-lua"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"testing"
 )
 
 func TestVM_Basic(t *testing.T) {
@@ -76,7 +75,7 @@ func TestVM_Options(t *testing.T) {
 		assert.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(`assert(test() == "global")`, "test")
+		err = vm.DoString(nil, `assert(test() == "global")`, "test")
 		assert.NoError(t, err)
 	})
 
@@ -85,7 +84,7 @@ func TestVM_Options(t *testing.T) {
 		assert.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(`assert(TEST_VALUE == "test")`, "test")
+		err = vm.DoString(nil, `assert(TEST_VALUE == "test")`, "test")
 		assert.NoError(t, err)
 	})
 
@@ -102,7 +101,7 @@ func TestVM_Options(t *testing.T) {
 		assert.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.DoString(nil, `
 		local lib = require("testlib")
 		assert(lib.test() == "library")
 		`, "test")
@@ -158,7 +157,7 @@ func TestVM_GlobalState(t *testing.T) {
 	defer vm.Close()
 
 	// Set up initial global state
-	err = vm.DoString(`
+	err = vm.DoString(nil, `
         state = {count = 0}
         function increment()
             state.count = state.count + 1
@@ -171,19 +170,19 @@ func TestVM_GlobalState(t *testing.T) {
 	require.NoError(t, err)
 
 	// First increment should return 1
-	err = vm.DoString(`assert(increment() == 1)`, "test1")
+	err = vm.DoString(nil, `assert(increment() == 1)`, "test1")
 	require.NoError(t, err)
 
 	// Second increment should return 2
-	err = vm.DoString(`assert(increment() == 2)`, "test2")
+	err = vm.DoString(nil, `assert(increment() == 2)`, "test2")
 	require.NoError(t, err)
 
 	// Get count should return the current value (2)
-	err = vm.DoString(`assert(getCount() == 2)`, "test3")
+	err = vm.DoString(nil, `assert(getCount() == 2)`, "test3")
 	require.NoError(t, err)
 
 	// Verify state persists even with new chunk execution
-	err = vm.DoString(`assert(state.count == 2)`, "test4")
+	err = vm.DoString(nil, `assert(state.count == 2)`, "test4")
 	require.NoError(t, err)
 }
 
@@ -258,7 +257,7 @@ func TestVM_ErrorTraceback(t *testing.T) {
 	defer vm.Close()
 
 	t.Run("error in DoString with traceback", func(t *testing.T) {
-		err := vm.DoString(`
+		err := vm.DoString(nil, `
             local function deep()
                 error("deep error")
             end

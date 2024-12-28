@@ -88,7 +88,7 @@ func main() {
 	// -- lua lang and modules
 	lua := luaruntime.NewRuntimeManager(
 		bus, dtt, logger.Named("lua"),
-		base64M.New(),
+		base64M.NewBase64Module(),
 		jsonmodule.NewJsonModule(),
 		httpmodule.NewHTTPModule(httpbase.DefaultClient, logger.Named("http")),
 	)

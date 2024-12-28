@@ -136,13 +136,19 @@ func (v *VM) CompileFunction(name, script string) error {
 	return nil
 }
 
-func (v *VM) DoString(s, name string) error {
+func (v *VM) DoString(ctx context.Context, s, name string) error {
 	fn, err := v.state.Load(strings.NewReader(s), fmt.Sprintf("<%s>", name))
 	if err != nil {
 		return err
 	}
 
 	v.state.Push(fn)
+
+	if ctx != nil {
+		v.state.SetContext(ctx)
+		defer v.state.RemoveContext()
+	}
+
 	return v.state.PCall(0, lua.MultRet, nil)
 }
 
@@ -153,8 +159,10 @@ func (v *VM) Execute(ctx context.Context, name string, args lua.LValue) (lua.LVa
 		return nil, fmt.Errorf("function %q not found", name)
 	}
 
-	v.state.SetContext(ctx)
-	defer v.state.SetContext(nil)
+	if ctx != nil {
+		v.state.SetContext(ctx)
+		defer v.state.RemoveContext()
+	}
 
 	v.state.Push(fn)
 	v.state.Push(args)
