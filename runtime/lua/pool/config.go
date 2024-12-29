@@ -10,21 +10,39 @@ import (
 
 // VMConfig holds configuration for VM instances in the pool
 type VMConfig struct {
-	Modules    map[string]api.Module
-	Libraries  map[string]string
-	Globals    map[string]lua.LValue
-	Functions  map[string]string
+	Modules    []api.Module
+	Libraries  []Library
+	Globals    []Global
+	Functions  []Function
 	EngineOpts []engine.Option
 	Logger     *zap.Logger
+}
+
+// Library represents a Lua library to be loaded
+type Library struct {
+	Name   string
+	Script string
+}
+
+// Function represents a Lua function to be loaded
+type Function struct {
+	Name   string
+	Script string
+}
+
+// Global represents a global variable in the Lua environment
+type Global struct {
+	Name  string
+	Value lua.LValue
 }
 
 // NewVMConfig creates a new VM configuration with default values
 func NewVMConfig(logger *zap.Logger) *VMConfig {
 	return &VMConfig{
-		Modules:    make(map[string]api.Module),
-		Libraries:  make(map[string]string),
-		Globals:    make(map[string]lua.LValue),
-		Functions:  make(map[string]string),
+		Modules:    make([]api.Module, 0),
+		Libraries:  make([]Library, 0),
+		Globals:    make([]Global, 0),
+		Functions:  make([]Function, 0),
 		EngineOpts: make([]engine.Option, 0),
 		Logger:     logger,
 	}
@@ -34,30 +52,39 @@ func NewVMConfig(logger *zap.Logger) *VMConfig {
 type VMConfigOption func(*VMConfig)
 
 // WithModule adds a Lua module to VM configuration
-func WithModule(name string, module api.Module) VMConfigOption {
+func WithModule(module api.Module) VMConfigOption {
 	return func(cfg *VMConfig) {
-		cfg.Modules[name] = module
+		cfg.Modules = append(cfg.Modules, module)
 	}
 }
 
 // WithLibrary adds a Lua library to VM configuration
 func WithLibrary(name, script string) VMConfigOption {
 	return func(cfg *VMConfig) {
-		cfg.Libraries[name] = script
+		cfg.Libraries = append(cfg.Libraries, Library{
+			Name:   name,
+			Script: script,
+		})
 	}
 }
 
 // WithGlobalValue adds a global variable to VM configuration
 func WithGlobalValue(name string, value lua.LValue) VMConfigOption {
 	return func(cfg *VMConfig) {
-		cfg.Globals[name] = value
+		cfg.Globals = append(cfg.Globals, Global{
+			Name:  name,
+			Value: value,
+		})
 	}
 }
 
 // WithFunction adds a Lua function to VM configuration
 func WithFunction(name string, script string) VMConfigOption {
 	return func(cfg *VMConfig) {
-		cfg.Functions[name] = script
+		cfg.Functions = append(cfg.Functions, Function{
+			Name:   name,
+			Script: script,
+		})
 	}
 }
 
@@ -77,18 +104,18 @@ func CreateVM(cfg *VMConfig) (*engine.VM, error) {
 	opts = append(opts, cfg.EngineOpts...)
 
 	// Add modules
-	for modName, module := range cfg.Modules {
-		opts = append(opts, engine.WithLoader(modName, module.Loader))
+	for _, module := range cfg.Modules {
+		opts = append(opts, engine.WithLoader(module.Name(), module.Loader))
 	}
 
 	// Add libraries as proper modules
-	for libName, libScript := range cfg.Libraries {
-		opts = append(opts, engine.WithLibrary(libName, libScript))
+	for _, lib := range cfg.Libraries {
+		opts = append(opts, engine.WithLibrary(lib.Name, lib.Script))
 	}
 
 	// Add globals via options
-	for name, value := range cfg.Globals {
-		opts = append(opts, engine.WithGlobalValue(name, value))
+	for _, global := range cfg.Globals {
+		opts = append(opts, engine.WithGlobalValue(global.Name, global.Value))
 	}
 
 	// Create VM with all options
@@ -98,10 +125,10 @@ func CreateVM(cfg *VMConfig) (*engine.VM, error) {
 	}
 
 	// Add bound functions via options
-	for name, script := range cfg.Functions {
-		if err := vm.CompileFunction(name, script); err != nil {
+	for _, fn := range cfg.Functions {
+		if err := vm.CompileFunction(fn.Name, fn.Script); err != nil {
 			vm.Close()
-			return nil, fmt.Errorf("failed to compile function %q: %w", name, err)
+			return nil, fmt.Errorf("failed to compile function %q: %w", fn.Name, err)
 		}
 	}
 

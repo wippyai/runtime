@@ -1,12 +1,13 @@
 package pool
 
 import (
+	"testing"
+
 	"github.com/ponyruntime/go-lua"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
-	"testing"
 )
 
 func TestNewVMConfig(t *testing.T) {
@@ -33,17 +34,15 @@ func TestNewVMConfig(t *testing.T) {
 }
 
 type mockModule struct {
-	LoaderCalled bool
-	name         string
-}
-
-func (m *mockModule) Loader(L *lua.LState) int {
-	m.LoaderCalled = true
-	return 0
+	name string
 }
 
 func (m *mockModule) Name() string {
 	return m.name
+}
+
+func (m *mockModule) Loader(L *lua.LState) int {
+	return 0
 }
 
 func TestVMConfigOptions(t *testing.T) {
@@ -52,12 +51,11 @@ func TestVMConfigOptions(t *testing.T) {
 	t.Run("with module", func(t *testing.T) {
 		mock := &mockModule{name: "test_module"}
 		cfg := NewVMConfig(logger)
-		opt := WithModule("test_module", mock)
+		opt := WithModule(mock)
 		opt(cfg)
 
-		mod, exists := cfg.Modules["test_module"]
-		assert.True(t, exists)
-		assert.Equal(t, mock, mod)
+		assert.Len(t, cfg.Modules, 1)
+		assert.Equal(t, mock, cfg.Modules[0])
 	})
 
 	t.Run("with library", func(t *testing.T) {
@@ -66,9 +64,9 @@ func TestVMConfigOptions(t *testing.T) {
 		opt := WithLibrary("test_lib", script)
 		opt(cfg)
 
-		lib, exists := cfg.Libraries["test_lib"]
-		assert.True(t, exists)
-		assert.Equal(t, script, lib)
+		assert.Len(t, cfg.Libraries, 1)
+		assert.Equal(t, "test_lib", cfg.Libraries[0].Name)
+		assert.Equal(t, script, cfg.Libraries[0].Script)
 	})
 
 	t.Run("with global value", func(t *testing.T) {
@@ -77,9 +75,9 @@ func TestVMConfigOptions(t *testing.T) {
 		opt := WithGlobalValue("test_global", value)
 		opt(cfg)
 
-		val, exists := cfg.Globals["test_global"]
-		assert.True(t, exists)
-		assert.Equal(t, value, val)
+		assert.Len(t, cfg.Globals, 1)
+		assert.Equal(t, "test_global", cfg.Globals[0].Name)
+		assert.Equal(t, value, cfg.Globals[0].Value)
 	})
 
 	t.Run("with function", func(t *testing.T) {
@@ -88,9 +86,9 @@ func TestVMConfigOptions(t *testing.T) {
 		opt := WithFunction("test_func", script)
 		opt(cfg)
 
-		fn, exists := cfg.Functions["test_func"]
-		assert.True(t, exists)
-		assert.Equal(t, script, fn)
+		assert.Len(t, cfg.Functions, 1)
+		assert.Equal(t, "test_func", cfg.Functions[0].Name)
+		assert.Equal(t, script, cfg.Functions[0].Script)
 	})
 
 	t.Run("with engine options", func(t *testing.T) {
@@ -122,7 +120,7 @@ func TestCreateVM(t *testing.T) {
 
 		// Add a module
 		mock := &mockModule{name: "test_module"}
-		WithModule("test_module", mock)(cfg)
+		WithModule(mock)(cfg)
 
 		// Add a library
 		WithLibrary("test_lib", `
@@ -139,7 +137,6 @@ func TestCreateVM(t *testing.T) {
 			function test(arg)
 				return arg
 			end
-			return test
 		`)(cfg)
 
 		vm, err := CreateVM(cfg)
@@ -147,22 +144,24 @@ func TestCreateVM(t *testing.T) {
 		defer vm.Close()
 
 		// Test library loading
-		err = vm.DoString(nil, `
+		err = vm.DoString(nil, "", `
 			local lib = require("test_lib")
 			assert(lib.test() == "hello")
-		`, "test")
+		`)
 		assert.NoError(t, err)
 
 		// Test global value
-		err = vm.DoString(nil, `
+		err = vm.DoString(nil, "", `
 			assert(test_global == "test")
-		`, "test")
+		`)
 		assert.NoError(t, err)
 
 		// Test function execution
-		result, err := vm.Execute(nil, "test_func", lua.LString("hello"))
+		err = vm.DoString(nil, "", `
+			assert(test("hello") == "hello")
+		`)
 		assert.NoError(t, err)
-		assert.Equal(t, lua.LString("hello"), result)
+
 	})
 
 	t.Run("error on invalid function", func(t *testing.T) {
@@ -194,8 +193,11 @@ func TestVMConfigChaining(t *testing.T) {
 		assert.Len(t, cfg.Libraries, 1)
 
 		// Verify values
-		assert.Equal(t, lua.LString("value1"), cfg.Globals["key1"])
-		assert.Equal(t, lua.LString("value2"), cfg.Globals["key2"])
-		assert.Equal(t, "return {}", cfg.Libraries["lib1"])
+		assert.Equal(t, "key1", cfg.Globals[0].Name)
+		assert.Equal(t, lua.LString("value1"), cfg.Globals[0].Value)
+		assert.Equal(t, "key2", cfg.Globals[1].Name)
+		assert.Equal(t, lua.LString("value2"), cfg.Globals[1].Value)
+		assert.Equal(t, "lib1", cfg.Libraries[0].Name)
+		assert.Equal(t, "return {}", cfg.Libraries[0].Script)
 	})
 }
