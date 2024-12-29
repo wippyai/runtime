@@ -70,12 +70,32 @@ func (v *VM) CompileFunction(name, script string) error {
 		return err
 	}
 
-	if v.state.GetTop() >= 1 {
+	// Case 1: Function was returned directly
+	if v.state.GetTop() >= 1 && v.state.Get(-1).Type() == lua.LTFunction {
 		v.funcs[name] = v.state.Get(-1)
 		v.state.Pop(1)
+		return nil
 	}
 
-	return nil
+	// Case 2: Module table was returned
+	if v.state.GetTop() >= 1 && v.state.Get(-1).Type() == lua.LTTable {
+		if fn := v.state.Get(-1).(*lua.LTable).RawGetString(name); fn.Type() == lua.LTFunction {
+			v.funcs[name] = fn
+			v.state.Pop(1)
+			return nil
+		}
+	}
+
+	// Case 3: Function was declared globally
+	if fn := v.state.GetGlobal(name); fn.Type() == lua.LTFunction {
+		v.funcs[name] = fn
+		if v.state.GetTop() >= 1 {
+			v.state.Pop(1) // Clean up stack if we had a return value
+		}
+		return nil
+	}
+
+	return fmt.Errorf("function %q not found", name)
 }
 
 func (v *VM) DoString(ctx context.Context, s, name string) error {

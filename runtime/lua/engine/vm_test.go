@@ -40,6 +40,161 @@ func TestVM_Basic(t *testing.T) {
 		assert.Equal(t, arg, result)
 	})
 
+	t.Run("compile and execute simple function by name", func(t *testing.T) {
+		vm, err := NewVM(logger)
+		assert.NoError(t, err)
+		defer vm.Close()
+
+		script := `
+		function test(arg)
+			return arg
+		end
+		`
+
+		err = vm.CompileFunction("test", script)
+		assert.NoError(t, err)
+
+		arg := lua.LString("hello world")
+		result, err := vm.Execute(context.Background(), "test", arg)
+		assert.NoError(t, err)
+		assert.Equal(t, arg, result)
+	})
+
+	t.Run("compile no func", func(t *testing.T) {
+		vm, err := NewVM(logger)
+		assert.NoError(t, err)
+		defer vm.Close()
+
+		script := ``
+
+		err = vm.CompileFunction("test", script)
+		assert.Error(t, err)
+	})
+
+	// Add these to TestVM_Basic after the existing test cases
+
+	t.Run("global function without matching name", func(t *testing.T) {
+		vm, err := NewVM(logger)
+		assert.NoError(t, err)
+		defer vm.Close()
+
+		script := `
+    function different_name()
+        return "hello world"
+    end
+    `
+
+		err = vm.CompileFunction("test", script)
+		assert.Error(t, err)
+	})
+
+	t.Run("local function with return", func(t *testing.T) {
+		vm, err := NewVM(logger)
+		assert.NoError(t, err)
+		defer vm.Close()
+
+		script := `
+    local function test()
+        return "hello world"
+    end
+    return test
+    `
+
+		err = vm.CompileFunction("test", script)
+		assert.NoError(t, err)
+
+		result, err := vm.Execute(context.Background(), "test", lua.LNil)
+		assert.NoError(t, err)
+		assert.Equal(t, lua.LString("hello world"), result)
+	})
+
+	t.Run("module style declaration", func(t *testing.T) {
+		vm, err := NewVM(logger)
+		assert.NoError(t, err)
+		defer vm.Close()
+
+		script := `
+    local M = {}
+    function M.test()
+        return "hello world"
+    end
+    return M
+    `
+
+		err = vm.CompileFunction("test", script)
+		assert.NoError(t, err)
+
+		result, err := vm.Execute(context.Background(), "test", lua.LNil)
+		assert.NoError(t, err)
+		assert.Equal(t, lua.LString("hello world"), result)
+	})
+
+	t.Run("anonymous function assignment", func(t *testing.T) {
+		vm, err := NewVM(logger)
+		assert.NoError(t, err)
+		defer vm.Close()
+
+		script := `
+    test = function()
+        return "hello world"
+    end
+    `
+
+		err = vm.CompileFunction("test", script)
+		assert.NoError(t, err)
+
+		result, err := vm.Execute(context.Background(), "test", lua.LNil)
+		assert.NoError(t, err)
+		assert.Equal(t, lua.LString("hello world"), result)
+	})
+
+	t.Run("local with module and direct return", func(t *testing.T) {
+		vm, err := NewVM(logger)
+		assert.NoError(t, err)
+		defer vm.Close()
+
+		script := `
+    local M = {}
+    function M.other()
+        return "other"
+    end
+    function test()
+        return "hello world"
+    end
+    return test
+    `
+
+		err = vm.CompileFunction("test", script)
+		assert.NoError(t, err)
+
+		result, err := vm.Execute(context.Background(), "test", lua.LNil)
+		assert.NoError(t, err)
+		assert.Equal(t, lua.LString("hello world"), result)
+	})
+
+	t.Run("mixed global and local declarations", func(t *testing.T) {
+		vm, err := NewVM(logger)
+		assert.NoError(t, err)
+		defer vm.Close()
+
+		script := `
+    local function helper()
+        return "helper"
+    end
+    
+    function test()
+        return helper()
+    end
+    `
+
+		err = vm.CompileFunction("test", script)
+		assert.NoError(t, err)
+
+		result, err := vm.Execute(context.Background(), "test", lua.LNil)
+		assert.NoError(t, err)
+		assert.Equal(t, lua.LString("helper"), result)
+	})
+
 	t.Run("execute function with table argument", func(t *testing.T) {
 		vm, err := NewVM(logger)
 		assert.NoError(t, err)
