@@ -1,6 +1,7 @@
 package time
 
 import (
+	"context"
 	"github.com/ponyruntime/go-lua"
 	"testing"
 	"time"
@@ -44,16 +45,50 @@ func TestTimeModule(t *testing.T) {
 			require.NoError(t, err)
 			defer vm.Close()
 
-			start := time.Now()
-			err = vm.DoString(nil, `
-				local time = require("time")
-				local duration = time.parse_duration("300ms")
-				time.sleep(duration)
-			`, "test")
-			elapsed := time.Since(start)
+			t.Run("normal sleep", func(t *testing.T) {
+				start := time.Now()
+				err = vm.DoString(nil, `
+					local time = require("time")
+					local duration = time.parse_duration("300ms")
+					time.sleep(duration)
+				`, "test")
+				elapsed := time.Since(start)
 
-			assert.NoError(t, err)
-			assert.GreaterOrEqual(t, elapsed.Milliseconds(), int64(200)) // Allow for small timing variations
+				assert.NoError(t, err)
+				assert.GreaterOrEqual(t, elapsed.Milliseconds(), int64(200)) // Allow for small timing variations
+			})
+
+			t.Run("sleep with context cancellation", func(t *testing.T) {
+				ctx, cancel := context.WithCancel(context.Background())
+
+				// Start long sleep in a goroutine
+				done := make(chan struct{})
+				go func() {
+					defer close(done)
+					err := vm.DoString(ctx, `
+						local time = require("time")
+						local duration = time.parse_duration("5s")
+						local err = time.sleep(duration)
+						if err then
+							assert(err:find("context canceled") ~= nil, "Expected context canceled error")
+						end
+					`, "test")
+					assert.Error(t, err)
+					assert.ErrorContains(t, err, "context canceled")
+				}()
+
+				// Wait a bit then cancel
+				time.Sleep(100 * time.Millisecond)
+				cancel()
+
+				// Wait for completion
+				select {
+				case <-done:
+					// Test completed normally
+				case <-time.After(time.Second):
+					t.Fatal("Test didn't complete in time")
+				}
+			})
 		})
 
 		t.Run("date()", func(t *testing.T) {

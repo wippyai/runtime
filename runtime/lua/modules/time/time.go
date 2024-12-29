@@ -82,11 +82,31 @@ func now(l *lua.LState) int {
 
 func sleep(l *lua.LState) int {
 	if d, ok := isDuration(l, 1); ok {
-		time.Sleep(d.duration)
+		// Get context from state if available
+		if ctx := l.Context(); ctx != nil {
+			// Create timer for the sleep duration
+			timer := time.NewTimer(d.duration)
+			defer timer.Stop()
+
+			// Wait for either timer completion or context cancellation
+			select {
+			case <-timer.C:
+				return 0
+			case <-ctx.Done():
+				timer.Stop()
+				// If context was cancelled, return the error
+				l.Push(lua.LString(ctx.Err().Error()))
+				return 1
+			}
+		} else {
+			// If no context, fall back to regular sleep
+			time.Sleep(d.duration)
+			return 0
+		}
 	} else {
 		l.ArgError(1, "duration expected")
+		return 0
 	}
-	return 0
 }
 
 func date(l *lua.LState) int {
@@ -580,6 +600,22 @@ func registerTime(l *lua.LState, mod *lua.LTable) {
 	mt := l.NewTypeMetatable("Time")
 	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), timeMethods))
 	l.SetField(mt, "__tostring", l.NewFunction(timeToString))
+
+	l.SetField(mod, "RFC3339", lua.LString(time.RFC3339))
+	l.SetField(mod, "RFC3339Nano", lua.LString(time.RFC3339Nano))
+	l.SetField(mod, "RFC822", lua.LString(time.RFC822))
+	l.SetField(mod, "RFC822Z", lua.LString(time.RFC822Z))
+	l.SetField(mod, "RFC850", lua.LString(time.RFC850))
+	l.SetField(mod, "RFC1123", lua.LString(time.RFC1123))
+	l.SetField(mod, "RFC1123Z", lua.LString(time.RFC1123Z))
+	l.SetField(mod, "Kitchen", lua.LString(time.Kitchen))
+	l.SetField(mod, "Stamp", lua.LString(time.Stamp))
+	l.SetField(mod, "StampMilli", lua.LString(time.StampMilli))
+	l.SetField(mod, "StampMicro", lua.LString(time.StampMicro))
+	l.SetField(mod, "StampNano", lua.LString(time.StampNano))
+	l.SetField(mod, "DateTime", lua.LString("2006-01-02 15:04:05"))
+	l.SetField(mod, "DateOnly", lua.LString("2006-01-02"))
+	l.SetField(mod, "TimeOnly", lua.LString("15:04:05"))
 
 	// Register month constants
 	l.SetField(mod, "JANUARY", lua.LNumber(1))
