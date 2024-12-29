@@ -3,7 +3,6 @@ package lua
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/go-lua"
 	"github.com/ponyruntime/pony/api/runtime"
 	config "github.com/ponyruntime/pony/api/runtime/lua"
 	"sync"
@@ -26,23 +25,6 @@ type RuntimeManager struct {
 
 	compiler *Compiler
 	callable sync.Map
-}
-
-type Module struct {
-	name   string
-	loader func(*lua.LState) int
-}
-
-func (m *Module) Name() string {
-	return m.name
-}
-
-func (m *Module) Loader(l *lua.LState) int {
-	return m.loader(l)
-}
-
-func WithModule(name string, loader func(*lua.LState) int) *Module {
-	return &Module{name: name, loader: loader}
 }
 
 // NewRuntimeManager creates a new Lua manager instance
