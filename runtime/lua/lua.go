@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/ponyruntime/pony/api/runtime"
 	config "github.com/ponyruntime/pony/api/runtime/lua"
+	"github.com/ponyruntime/pony/runtime/lua/pool"
 	"sync"
 
 	"github.com/ponyruntime/pony/api/events"
@@ -48,7 +49,7 @@ func NewRuntimeManager(
 		m.modules[module.Name()] = module
 		logger.Debug("registered module", zap.String("name", module.Name()))
 	}
-	m.compiler = NewCompiler(logger.Named("compiler"), m.modules)
+	m.compiler = NewCompiler(logger.Named("compiler"))
 
 	return m
 }
@@ -164,13 +165,16 @@ func (m *RuntimeManager) addFunction(ctx context.Context, entry registry.Entry) 
 	return nil
 }
 
-func (m *RuntimeManager) compileFunction(id registry.ID, cfg *config.FunctionConfig) (string, error) {
-	fn, err := m.compiler.Compile(string(id), *cfg, nil)
+func (m *RuntimeManager) compileFunction(id registry.ID, cfg *config.FunctionConfig) (config.Callable, error) {
+	vmConfig, err := m.vmConfig(id, cfg)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	m.log.Info("compiled function", zap.Any("fn", fn))
+	fn, err := m.compiler.Compile(vmConfig, cfg)
+	if err != nil {
+		return nil, err
+	}
 
 	return fn, nil
 }
@@ -290,4 +294,40 @@ func (m *RuntimeManager) deleteLibrary(_ context.Context, entry registry.Entry) 
 
 	delete(m.libraries, entry.ID)
 	return nil
+}
+
+func (m *RuntimeManager) vmConfig(id registry.ID, fn *config.FunctionConfig) (*pool.VMConfig, error) {
+	// Create new Callable config with manager's logger
+	cfg := pool.NewVMConfig(m.log.Named(fmt.Sprintf("vm.%s", id)))
+
+	// Add required modules
+	for _, moduleName := range fn.Modules {
+		module, exists := m.modules[moduleName]
+		if !exists {
+			return nil, fmt.Errorf("module %s not found", moduleName)
+		}
+
+		cfg.Modules = append(cfg.Modules, module)
+	}
+
+	// Add required libraries
+	for _, libID := range fn.Libraries {
+		lib, exists := m.libraries[registry.ID(libID)]
+		if !exists {
+			return nil, fmt.Errorf("library %s not found", libID)
+		}
+
+		cfg.Libraries = append(cfg.Libraries, pool.Library{
+			Name:   libID,
+			Script: lib.Source,
+		})
+	}
+
+	// Add the function itself
+	cfg.Functions = append(cfg.Functions, pool.Function{
+		Name:   string(id),
+		Script: fn.Source,
+	})
+
+	return cfg, nil
 }

@@ -8,7 +8,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// VMConfig holds configuration for VM instances in the pool
+// VMConfig holds configuration for Callable instances in the pool
 type VMConfig struct {
 	Modules    []api.Module
 	Libraries  []Library
@@ -36,7 +36,7 @@ type Global struct {
 	Value lua.LValue
 }
 
-// NewVMConfig creates a new VM configuration with default values
+// NewVMConfig creates a new Callable configuration with default values
 func NewVMConfig(logger *zap.Logger) *VMConfig {
 	return &VMConfig{
 		Modules:    make([]api.Module, 0),
@@ -51,14 +51,14 @@ func NewVMConfig(logger *zap.Logger) *VMConfig {
 // VMConfigOption represents a configuration option for VMConfig
 type VMConfigOption func(*VMConfig)
 
-// WithModule adds a Lua module to VM configuration
+// WithModule adds a Lua module to Callable configuration
 func WithModule(module api.Module) VMConfigOption {
 	return func(cfg *VMConfig) {
 		cfg.Modules = append(cfg.Modules, module)
 	}
 }
 
-// WithLibrary adds a Lua library to VM configuration
+// WithLibrary adds a Lua library to Callable configuration
 func WithLibrary(name, script string) VMConfigOption {
 	return func(cfg *VMConfig) {
 		cfg.Libraries = append(cfg.Libraries, Library{
@@ -68,7 +68,7 @@ func WithLibrary(name, script string) VMConfigOption {
 	}
 }
 
-// WithGlobalValue adds a global variable to VM configuration
+// WithGlobalValue adds a global variable to Callable configuration
 func WithGlobalValue(name string, value lua.LValue) VMConfigOption {
 	return func(cfg *VMConfig) {
 		cfg.Globals = append(cfg.Globals, Global{
@@ -78,7 +78,7 @@ func WithGlobalValue(name string, value lua.LValue) VMConfigOption {
 	}
 }
 
-// WithFunction adds a Lua function to VM configuration
+// WithFunction adds a Lua function to Callable configuration
 func WithFunction(name string, script string) VMConfigOption {
 	return func(cfg *VMConfig) {
 		cfg.Functions = append(cfg.Functions, Function{
@@ -88,14 +88,14 @@ func WithFunction(name string, script string) VMConfigOption {
 	}
 }
 
-// WithEngineOptions adds engine-specific options to VM configuration
+// WithEngineOptions adds engine-specific options to Callable configuration
 func WithEngineOptions(opts ...engine.Option) VMConfigOption {
 	return func(cfg *VMConfig) {
 		cfg.EngineOpts = append(cfg.EngineOpts, opts...)
 	}
 }
 
-// CreateVM creates a new VM instance with the provided configuration
+// CreateVM creates a new Callable instance with the provided configuration
 func CreateVM(cfg *VMConfig) (*engine.VM, error) {
 	// Collect all options
 	opts := make([]engine.Option, 0)
@@ -118,10 +118,10 @@ func CreateVM(cfg *VMConfig) (*engine.VM, error) {
 		opts = append(opts, engine.WithGlobalValue(global.Name, global.Value))
 	}
 
-	// Create VM with all options
+	// Create Callable with all options
 	vm, err := engine.NewVM(cfg.Logger, opts...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create VM: %w", err)
+		return nil, fmt.Errorf("failed to create Callable: %w", err)
 	}
 
 	// Add bound functions via options

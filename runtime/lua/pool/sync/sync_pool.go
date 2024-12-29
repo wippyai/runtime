@@ -56,7 +56,7 @@ func NewPool(vmConfig *pool.VMConfig, opts ...Option) (*Pool, error) {
 	}
 
 	if err := p.init(); err != nil {
-		return nil, fmt.Errorf("failed to initialize pool: %w", err)
+		return nil, err
 	}
 
 	return p, nil
