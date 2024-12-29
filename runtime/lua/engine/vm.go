@@ -98,7 +98,7 @@ func (v *VM) CompileFunction(name, script string) error {
 	return fmt.Errorf("function %q not found", name)
 }
 
-func (v *VM) DoString(ctx context.Context, s, name string) error {
+func (v *VM) DoString(ctx context.Context, s, name string, args ...lua.LValue) error {
 	fn, err := v.state.Load(strings.NewReader(s), fmt.Sprintf("<%s>", name))
 	if err != nil {
 		return err
@@ -106,16 +106,21 @@ func (v *VM) DoString(ctx context.Context, s, name string) error {
 
 	v.state.Push(fn)
 
+	// Push all provided arguments onto the stack
+	for _, arg := range args {
+		v.state.Push(arg)
+	}
+
 	if ctx != nil {
 		v.state.SetContext(ctx)
 		defer v.state.RemoveContext()
 	}
 
-	return v.state.PCall(0, lua.MultRet, nil)
+	return v.state.PCall(len(args), lua.MultRet, nil)
 }
 
 // Execute runs the named function with provided arguments and returns Lua value
-func (v *VM) Execute(ctx context.Context, funcName string, args lua.LValue) (lua.LValue, error) {
+func (v *VM) Execute(ctx context.Context, funcName string, args ...lua.LValue) (lua.LValue, error) {
 	fn, ok := v.funcs[funcName]
 	if !ok {
 		return nil, fmt.Errorf("function %q not found", funcName)
@@ -127,9 +132,11 @@ func (v *VM) Execute(ctx context.Context, funcName string, args lua.LValue) (lua
 	}
 
 	v.state.Push(fn)
-	v.state.Push(args)
+	for _, arg := range args {
+		v.state.Push(arg)
+	}
 
-	err := v.state.PCall(1, 1, nil)
+	err := v.state.PCall(len(args), 1, nil)
 	if err != nil {
 		return nil, err
 	}
