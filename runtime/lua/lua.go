@@ -99,10 +99,22 @@ func (m *RuntimeManager) Delete(ctx context.Context, entry registry.Entry) error
 }
 
 func (m *RuntimeManager) Execute(task runtime.Task) (chan *runtime.Result, error) {
-	_, ok := m.callable.Load(task.Target)
+	cl, ok := m.callable.Load(task.Target)
 	if !ok {
 		return nil, fmt.Errorf("handler not found")
 	}
+
+	handler, ok := cl.(config.Callable)
+	if !ok {
+		return nil, fmt.Errorf("handler is not a callable")
+	}
+
+	result, err := handler.Execute(task.Context, m.functions[task.Target].Method, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute handler: %w", err)
+	}
+
+	m.log.Info("executed function", zap.String("id", string(task.Target)), zap.Any("result", result))
 
 	return nil, fmt.Errorf("not implemented")
 }
@@ -325,7 +337,7 @@ func (m *RuntimeManager) vmConfig(id registry.ID, fn *config.FunctionConfig) (*p
 
 	// Add the function itself
 	cfg.Functions = append(cfg.Functions, pool.Function{
-		Name:   string(id),
+		Name:   fn.Method,
 		Script: fn.Source,
 	})
 

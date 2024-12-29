@@ -1,7 +1,7 @@
 local http = require("http")
 local json = require("json")
 
-local function main()
+function get_time()
     local api_url = "http://worldtimeapi.org/api/timezone/Etc/UTC"
 
     -- Make the HTTP GET request
@@ -28,5 +28,3 @@ local function main()
 
     return { current_time = current_time }
 end
-
-return main
