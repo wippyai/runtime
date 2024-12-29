@@ -11,7 +11,7 @@ type (
 		Name() string
 	}
 
-	Pool interface {
-		Execute(ctx context.Context, name string, args lua.LValue) (lua.LValue, error)
+	Callable interface {
+		Execute(ctx context.Context, funcName string, args lua.LValue) (lua.LValue, error)
 	}
 )

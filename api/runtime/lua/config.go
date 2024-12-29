@@ -21,7 +21,7 @@ type (
 	}
 
 	PoolConfig struct {
-		NumVMs int `json:"num_vms"`
+		Size int `json:"size"`
 	}
 
 	LibraryConfig struct {
@@ -40,7 +40,7 @@ func (c *FunctionConfig) Validate() error {
 		return fmt.Errorf("method is required")
 	}
 
-	if c.Pool.NumVMs <= 0 {
+	if c.Pool.Size <= 0 {
 		return fmt.Errorf("pool.num_vms must be greater than 0")
 	}
 

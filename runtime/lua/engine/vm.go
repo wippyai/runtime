@@ -95,10 +95,10 @@ func (v *VM) DoString(ctx context.Context, s, name string) error {
 }
 
 // Execute runs the named function with provided arguments and returns Lua value
-func (v *VM) Execute(ctx context.Context, name string, args lua.LValue) (lua.LValue, error) {
-	fn, ok := v.funcs[name]
+func (v *VM) Execute(ctx context.Context, funcName string, args lua.LValue) (lua.LValue, error) {
+	fn, ok := v.funcs[funcName]
 	if !ok {
-		return nil, fmt.Errorf("function %q not found", name)
+		return nil, fmt.Errorf("function %q not found", funcName)
 	}
 
 	if ctx != nil {
