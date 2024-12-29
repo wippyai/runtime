@@ -3,6 +3,7 @@ package sync
 import (
 	"context"
 	"fmt"
+	time2 "github.com/ponyruntime/pony/runtime/lua/modules/time"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -10,7 +11,7 @@ import (
 	"time"
 
 	"github.com/ponyruntime/go-lua"
-	"github.com/ponyruntime/pony/runtime/lua/pool"
+	cfg "github.com/ponyruntime/pony/runtime/lua/pool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -18,10 +19,11 @@ import (
 
 func setupTestPool(t *testing.T, size int) *Pool {
 	logger := zap.NewNop()
-	vmConfig := pool.NewVMConfig(logger)
+	vmConfig := cfg.NewVMConfig(logger)
+	cfg.WithModule(time2.NewTimeModule())(vmConfig)
 
 	// Add a test function to the VM config
-	pool.WithFunction("test", `
+	cfg.WithFunction("test", `
         function test(arg)
             return arg
         end
@@ -29,7 +31,7 @@ func setupTestPool(t *testing.T, size int) *Pool {
     `)(vmConfig)
 
 	// Add a blocking function that will sleep
-	pool.WithFunction("block", `
+	cfg.WithFunction("block", `
         function block()
             while true do
             end
@@ -39,7 +41,7 @@ func setupTestPool(t *testing.T, size int) *Pool {
     `)(vmConfig)
 
 	// Add a function that will fail
-	pool.WithFunction("fail", `
+	cfg.WithFunction("fail", `
         function fail()
             error("intentional failure")
         end
@@ -47,7 +49,7 @@ func setupTestPool(t *testing.T, size int) *Pool {
     `)(vmConfig)
 
 	// Add function that returns unique VM identifier
-	pool.WithFunction("get_id", `
+	cfg.WithFunction("get_id", `
         local id = 0
         function get_id()
             id = id + 1
@@ -55,6 +57,16 @@ func setupTestPool(t *testing.T, size int) *Pool {
         end
         return get_id
     `)(vmConfig)
+
+	// Add a sleep function to VM config
+	cfg.WithFunction("sleep_test", `
+		   function test()
+               local time = require("time") 
+               time.sleep(time.parse_duration("1s"))
+		       return "completed"
+		   end
+		   return test
+		`)(vmConfig)
 
 	// Create pool with custom size
 	p, err := NewPool(vmConfig, WithSize(size), WithLogger(logger))
@@ -164,49 +176,37 @@ func TestPool_ParallelExecution(t *testing.T) {
 
 func TestPool_JobCompletionOnClose(t *testing.T) {
 	t.Run("ensure running job completes on close", func(t *testing.T) {
-		// todo: implement later after adding time package
-		//p := setupTestPool(t, 1)
-		//
-		//// Start a job that will run for a known duration
-		//resultChan := make(chan lua.LValue, 1)
-		//errorChan := make(chan error, 1)
-		//
-		//// Add a sleep function to VM config
-		//pool.WithFunction("sleep_test", `
-		//    function test()
-		//        -- Sleep for a short time
-		//        local start = os.time()
-		//        while os.time() - start < 1 do end
-		//        return "completed"
-		//    end
-		//    return test
-		//`)(p.vmConfig)
-		//
-		//// Start the job
-		//go func() {
-		//	result, err := p.Execute(context.Background(), "sleep_test", lua.LNil)
-		//	if err != nil {
-		//		errorChan <- err
-		//		return
-		//	}
-		//	resultChan <- result
-		//}()
-		//
-		//// Give job time to start
-		//time.Sleep(10 * time.Millisecond)
-		//
-		//// Close the pool while job is running
-		//p.Close()
-		//
-		//// Wait for result or error
-		//select {
-		//case result := <-resultChan:
-		//	require.Equal(t, lua.LString("completed"), result, "Job should complete")
-		//case err := <-errorChan:
-		//	t.Fatalf("Job failed: %v", err)
-		//case <-time.After(2 * time.Second):
-		//	t.Fatal("Job did not complete in time")
-		//}
+		p := setupTestPool(t, 1)
+
+		// Start a job that will run for a known duration
+		resultChan := make(chan lua.LValue, 1)
+		errorChan := make(chan error, 1)
+
+		// Start the job
+		go func() {
+			result, err := p.Execute(context.Background(), "sleep_test", lua.LNil)
+			if err != nil {
+				errorChan <- err
+				return
+			}
+			resultChan <- result
+		}()
+
+		// Give job time to start
+		time.Sleep(10 * time.Millisecond)
+
+		// Close the pool while job is running
+		p.Close()
+
+		// Wait for result or error
+		select {
+		case result := <-resultChan:
+			require.Equal(t, lua.LString("completed"), result, "Job should complete")
+		case err := <-errorChan:
+			t.Fatalf("Job failed: %v", err)
+		case <-time.After(2 * time.Second):
+			t.Fatal("Job did not complete in time")
+		}
 	})
 }
 
@@ -252,16 +252,6 @@ func TestPool_VMReuse(t *testing.T) {
 		p := setupTestPool(t, 1) // Single VM pool
 		defer p.Close()
 
-		// Add function that returns unique VM identifier
-		pool.WithFunction("get_id", `
-            local id = 0
-            function test()
-                id = id + 1
-                return id
-            end
-            return test
-        `)(p.vmConfig)
-
 		// Execute multiple times - should get incrementing IDs from same VM
 		var lastID float64
 		for i := 0; i < 5; i++ {
@@ -279,8 +269,8 @@ func TestPool_VMReuse(t *testing.T) {
 
 func BenchmarkPool_Execute(b *testing.B) {
 	logger := zap.NewNop()
-	vmConfig := pool.NewVMConfig(logger)
-	pool.WithFunction("bench", `
+	vmConfig := cfg.NewVMConfig(logger)
+	cfg.WithFunction("bench", `
 		function test(arg)
 			return arg
 		end
