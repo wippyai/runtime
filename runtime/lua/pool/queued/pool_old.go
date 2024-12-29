@@ -1,10 +1,10 @@
-package pool
+package queued
 
+// // funcs
+// // 1. Properly access to the context of the request (in the modules, like sql)
+// // 2. Concurrency
+// import (
 //
-//// funcs
-//// 1. Properly access to the context of the request (in the modules, like sql)
-//// 2. Concurrency
-//import (
 //	"context"
 //	"errors"
 //	"github.com/ponyruntime/pony/api/runtime/lua"
@@ -12,52 +12,53 @@ package pool
 //	"time"
 //
 //	"go.uber.org/zap"
-//)
 //
-//type Config struct {
-//	// Number of Virtual Machines (Lua) to be created
-//	numVMs int
-//	// lua script code (actual lua code, tool)
-//	script string
-//	// mainFnName function name (entry point, might be any name, not only mainFnName)
-//	mainFnName string
-//}
+// )
 //
-//func NewPoolCfg(numVMs int, script, mainFnName string) *Config {
-//	return &Config{
-//		numVMs:     numVMs,
-//		script:     script,
-//		mainFnName: mainFnName,
+//	type Config struct {
+//		// Number of Virtual Machines (Lua) to be created
+//		numVMs int
+//		// lua script code (actual lua code, tool)
+//		script string
+//		// mainFnName function name (entry point, might be any name, not only mainFnName)
+//		mainFnName string
 //	}
-//}
 //
-//type Task struct {
-//	args     any
-//	ctx      context.Context
-//	scriptID string
-//	resp     chan<- string
-//}
-//
-//func NewPoolTask(scriptID string, args any) *Task {
-//	return &Task{
-//		args:     args,
-//		scriptID: scriptID,
+//	func NewPoolCfg(numVMs int, script, mainFnName string) *Config {
+//		return &Config{
+//			numVMs:     numVMs,
+//			script:     script,
+//			mainFnName: mainFnName,
+//		}
 //	}
-//}
 //
-//type Pool struct {
-//	taskQueue chan *Task
-//	stopCh    chan struct{}
-//	logger    *zap.Logger
-//	timeout   time.Duration
-//	modules   []lua.Module
-//	vms       map[string]chan *engine.VM
+//	type Task struct {
+//		args     any
+//		ctx      context.Context
+//		scriptID string
+//		resp     chan<- string
+//	}
+//
+//	func NewPoolTask(scriptID string, args any) *Task {
+//		return &Task{
+//			args:     args,
+//			scriptID: scriptID,
+//		}
+////	}
+//type SyncPool struct {
+//	//	taskQueue chan *Task
+//	//	stopCh    chan struct{}
+//	logger  *zap.Logger
+//	timeout time.Duration
+//	modules []lua.Module
+//	//	vms       map[string]chan *engine.VM
 //}
+
 //
 //// scripts - scriptID -> script
 //// module - scriptID -> []Modules ?
-//func NewLuaPool(log *zap.Logger, scripts map[string]*Config, options ...Options) (*Pool, error) {
-//	lp := &Pool{}
+//func NewLuaPool(log *zap.Logger, scripts map[string]*Config, options ...Options) (*SyncPool, error) {
+//	lp := &SyncPool{}
 //
 //	// apply options
 //	for _, opt := range options {
@@ -104,7 +105,7 @@ package pool
 //}
 //
 //// Queue adds task to the queue
-//func (w *Pool) Queue(ctx context.Context, task *Task) <-chan string {
+//func (w *SyncPool) Queue(ctx context.Context, task *Task) <-chan string {
 //	rc := make(chan string, 1)
 //	task.resp = rc
 //	task.ctx = ctx
@@ -113,7 +114,7 @@ package pool
 //}
 //
 //// here is the actual work happens
-//func (w *Pool) do(v *engine.VM, task *Task) error {
+//func (w *SyncPool) do(v *engine.VM, task *Task) error {
 //	if task == nil {
 //		w.logger.Error("task is nil")
 //		return nil
@@ -140,13 +141,13 @@ package pool
 //}
 //
 //// Stop sends stop signal to every worker in the pool
-//func (w *Pool) Stop() {
+//func (w *SyncPool) Stop() {
 //	w.stopCh <- struct{}{}
 //}
 //
 //// private ---
 //
-//func (w *Pool) poll() {
+//func (w *SyncPool) poll() {
 //	go func() {
 //		for {
 //			select {
@@ -172,7 +173,7 @@ package pool
 //					}
 //				}()
 //			case <-w.stopCh:
-//				w.logger.Info("luapool stopped")
+//				w.logger.Info("pool stopped")
 //			}
 //		}
 //	}()

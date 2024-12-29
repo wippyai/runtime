@@ -8,7 +8,7 @@ import (
 
 	actx "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
-	lpool "github.com/ponyruntime/pony/runtime/lua/luapool"
+	lpool "github.com/ponyruntime/pony/runtime/lua/pool"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
