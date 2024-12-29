@@ -141,6 +141,18 @@ func apiTouch(l *lua.LState) int {
 	atime := l.OptInt64(2, time.Now().Unix())
 	mtime := l.OptInt64(3, atime)
 
+	// Check if the file exists. If not, create it.
+	if _, err := os.Stat(filepath); os.IsNotExist(err) {
+		file, err := os.Create(filepath)
+		if err != nil {
+			l.Push(lua.LNil)
+			l.Push(lua.LString(err.Error()))
+			return 2
+		}
+		file.Close() // Close the file immediately after creating it
+	}
+
+	// Now that the file exists, change its timestamps
 	err := os.Chtimes(filepath, time.Unix(atime, 0), time.Unix(mtime, 0))
 	if err != nil {
 		l.Push(lua.LNil)

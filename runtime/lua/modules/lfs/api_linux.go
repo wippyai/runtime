@@ -3,6 +3,7 @@
 package lfs
 
 import (
+	"github.com/ponyruntime/go-lua"
 	"os"
 	"syscall"
 )

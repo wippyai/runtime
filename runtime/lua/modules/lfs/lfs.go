@@ -7,7 +7,20 @@ import (
 	"github.com/ponyruntime/go-lua"
 )
 
-func Loader(l *lua.LState) int {
+// Module represents a lfs Lua module.
+type Module struct{}
+
+// NewLFSModule creates and returns a new instance of the lfs Module.
+func NewLFSModule() *Module {
+	return &Module{}
+}
+
+// Name returns the module's name.
+func (m *Module) Name() string {
+	return "lfs"
+}
+
+func (m *Module) Loader(l *lua.LState) int {
 	t := l.NewTable()
 
 	api := map[string]lua.LGFunction{
