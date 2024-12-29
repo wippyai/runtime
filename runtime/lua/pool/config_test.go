@@ -134,7 +134,7 @@ func TestCreateVM(t *testing.T) {
 
 		// Add a function
 		WithFunction("test_func", `
-			function test(arg)
+			function test_func(arg)
 				return arg
 			end
 		`)(cfg)
