@@ -3,6 +3,7 @@ package sync
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -56,8 +57,8 @@ func setupTestPool(t *testing.T, size int) *Pool {
     `)(vmConfig)
 
 	// Create pool with custom size
-	p := NewPool(vmConfig, WithSize(size), WithLogger(logger))
-	require.NoError(t, p.Init())
+	p, err := NewPool(vmConfig, WithSize(size), WithLogger(logger))
+	require.NoError(t, err)
 
 	return p
 }
@@ -83,38 +84,6 @@ func TestPool_Execute(t *testing.T) {
 		_, err := p.Execute(context.Background(), "test", lua.LNil)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "pool is closed")
-	})
-
-	t.Run("execution timeout", func(t *testing.T) {
-		p := setupTestPool(t, 1)
-		defer p.Close()
-
-		// Set timeout
-		p.defaultTimeout = time.Millisecond * 100
-
-		// Create blocking context
-		blockCtx, blockCancel := context.WithCancel(context.Background())
-		defer blockCancel()
-
-		// Block the only VM using our blocking function
-		var wg sync.WaitGroup
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			p.Execute(blockCtx, "block", lua.LNil)
-		}()
-
-		// Small sleep to ensure the VM is acquired
-		time.Sleep(10 * time.Millisecond)
-
-		// Try to execute while VM is held - should timeout
-		r, err := p.Execute(context.Background(), "test", lua.LNil)
-		require.Error(t, err, "Expected timeout error but got result: %v", r)
-		require.Contains(t, err.Error(), "timeout")
-
-		// Cleanup
-		blockCancel()
-		wg.Wait()
 	})
 
 	t.Run("context cancellation", func(t *testing.T) {
@@ -152,18 +121,9 @@ func TestPool_Close(t *testing.T) {
 		p := setupTestPool(t, 1)
 		p.Close()
 
-		assert.True(t, p.IsClosed(), "Pool should be marked as closed")
-
 		_, err := p.Execute(context.Background(), "test", lua.LNil)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "pool is closed")
-	})
-
-	t.Run("double close", func(t *testing.T) {
-		p := setupTestPool(t, 1)
-		p.Close()
-		p.Close() // Should not panic
-		assert.True(t, p.IsClosed(), "Pool should remain closed after second close")
 	})
 }
 
@@ -327,8 +287,8 @@ func BenchmarkPool_Execute(b *testing.B) {
 		return test
 	`)(vmConfig)
 
-	p := NewPool(vmConfig, WithSize(5))
-	require.NoError(b, p.Init())
+	p, err := NewPool(vmConfig, WithSize(runtime.GOMAXPROCS(0)))
+	require.NoError(b, err)
 	defer p.Close()
 
 	ctx := context.Background()

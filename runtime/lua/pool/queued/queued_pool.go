@@ -4,227 +4,185 @@ import (
 	"context"
 	"fmt"
 	"github.com/ponyruntime/go-lua"
-	lua2 "github.com/ponyruntime/pony/api/runtime/lua"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"github.com/ponyruntime/pony/runtime/lua/pool"
 	"go.uber.org/zap"
 	"sync"
-	"time"
+	"sync/atomic"
 )
 
-// Task represents a single unit of work to be executed
-type Task struct {
-	name     string     // function name to execute
-	args     lua.LValue // arguments for the function
-	ctx      context.Context
-	respChan chan TaskResult
+type taskResult struct {
+	value lua.LValue
+	err   error
 }
 
-// TaskResult holds the result of a task execution
-type TaskResult struct {
-	Value lua.LValue
-	Err   error
+type task struct {
+	name   string
+	args   lua.LValue
+	result chan taskResult
 }
 
-// QueuedPool manages multiple Lua VMs with a task queue for load distribution
-type QueuedPool struct {
-	size           int
-	defaultTimeout time.Duration
-	logger         *zap.Logger
-	vmConfig       VMConfig
-
-	mu        sync.RWMutex
-	vms       chan *engine.VM
-	taskQueue chan *Task
-	closeOnce sync.Once
-	closeChan chan struct{}
-	workerWg  sync.WaitGroup
+// Pool manages multiple Lua VMs with a task queue for script execution
+type Pool struct {
+	size       int
+	logger     *zap.Logger
+	vmConfig   *pool.VMConfig
+	tasks      chan *task
+	workers    int
+	closed     atomic.Bool
+	closeOnce  sync.Once
+	done       chan struct{}
+	workerWait sync.WaitGroup
 }
 
-// NewQueuedPool creates a new queued VM pool with the given options
-func NewQueuedPool(opts ...Option) *QueuedPool {
-	p := &QueuedPool{
-		size:           5,           // Default pool size
-		defaultTimeout: time.Minute, // Default timeout
-		logger:         zap.NewNop(),
-		vmConfig: VMConfig{
-			Modules:   make(map[string]lua2.Module),
-			Libraries: make(map[string]string),
-			Globals:   make(map[string]lua.LValue),
-			Functions: make(map[string]string),
-		},
-		taskQueue: make(chan *Task, 100), // Buffered task queue
-		closeChan: make(chan struct{}),
+// Option represents a pool configuration option
+type Option func(*Pool)
+
+// WithSize sets the size of the VM pool
+func WithSize(size int) Option {
+	return func(p *Pool) {
+		if size > 0 {
+			p.size = size
+		}
+	}
+}
+
+// WithWorkers sets the number of worker goroutines
+func WithWorkers(workers int) Option {
+	return func(p *Pool) {
+		if workers > 0 {
+			p.workers = workers
+		}
+	}
+}
+
+// WithLogger sets the logger for the pool
+func WithLogger(logger *zap.Logger) Option {
+	return func(p *Pool) {
+		if logger != nil {
+			p.logger = logger
+		}
+	}
+}
+
+// NewPool creates a new pool with the given configuration
+func NewPool(vmConfig *pool.VMConfig, opts ...Option) (*Pool, error) {
+	p := &Pool{
+		size:    5,
+		workers: 2,
+		logger:  zap.NewNop(),
+		tasks:   make(chan *task, 1000),
+		done:    make(chan struct{}),
 	}
 
-	// Apply options
 	for _, opt := range opts {
 		opt(p)
 	}
 
-	return p
-}
-
-// Init initializes the pool and starts worker goroutines
-func (p *QueuedPool) Init() error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	// Create buffered channel for VM pool
-	p.vms = make(chan *engine.VM, p.size)
-
-	// Create VMs and add them to the pool
-	for i := 0; i < p.size; i++ {
-		vm, err := p.createVM()
-		if err != nil {
-			// Cleanup already created VMs
-			for j := 0; j < i; j++ {
-				select {
-				case vm := <-p.vms:
-					vm.Close()
-				default:
-				}
-			}
-			return fmt.Errorf("failed to create VM %d: %w", i, err)
-		}
-		p.vms <- vm
+	if err := p.init(vmConfig); err != nil {
+		return nil, fmt.Errorf("failed to initialize pool: %w", err)
 	}
 
+	return p, nil
+}
+
+// init initializes the pool and starts worker goroutines
+func (p *Pool) init(vmConfig *pool.VMConfig) error {
+	p.vmConfig = vmConfig
+
 	// Start worker goroutines
-	for i := 0; i < p.size; i++ {
-		p.workerWg.Add(1)
+	for i := 0; i < p.workers; i++ {
+		p.workerWait.Add(1)
 		go p.worker()
 	}
 
 	return nil
 }
 
-// Execute queues a function execution and returns a channel for the result
-func (p *QueuedPool) Execute(ctx context.Context, name string, args lua.LValue) (lua.LValue, error) {
-	select {
-	case <-p.closeChan:
+// Execute queues a task for execution and returns its result
+func (p *Pool) Execute(ctx context.Context, name string, args lua.LValue) (lua.LValue, error) {
+	if p.closed.Load() {
 		return nil, fmt.Errorf("pool is closed")
-	default:
 	}
 
-	// Create response channel
-	respChan := make(chan TaskResult, 1)
-
-	// Create and queue the task
-	task := &Task{
-		name:     name,
-		args:     args,
-		ctx:      ctx,
-		respChan: respChan,
+	t := &task{
+		name:   name,
+		args:   args,
+		result: make(chan taskResult, 1),
 	}
 
 	// Try to queue the task
 	select {
-	case p.taskQueue <- task:
 	case <-ctx.Done():
+		close(t.result)
 		return nil, ctx.Err()
-	case <-time.After(p.defaultTimeout):
-		return nil, fmt.Errorf("timeout queuing task")
+	case <-p.done:
+		close(t.result)
+		return nil, fmt.Errorf("pool is closed")
+	case p.tasks <- t:
 	}
 
-	// Wait for result
+	// Wait for result or cancellation
 	select {
-	case result := <-respChan:
-		return result.Value, result.Err
+	case res := <-t.result:
+		return res.value, res.err
 	case <-ctx.Done():
+		// Note: task might still be picked up and executed by a worker,
+		// but the caller won't wait for the result
 		return nil, ctx.Err()
-	case <-time.After(p.defaultTimeout):
-		return nil, fmt.Errorf("timeout waiting for result")
 	}
 }
 
-// worker processes tasks from the queue
-func (p *QueuedPool) worker() {
-	defer p.workerWg.Done()
+// worker runs in its own goroutine and processes tasks
+func (p *Pool) worker() {
+	defer p.workerWait.Done() // Signal worker completion
+
+	// Create a VM for this worker
+	vm, err := pool.CreateVM(p.vmConfig)
+	if err != nil {
+		p.logger.Error("failed to create VM for worker", zap.Error(err))
+		return
+	}
+	defer vm.Close()
 
 	for {
-		// Try to get a VM
-		var vm *engine.VM
 		select {
-		case vm = <-p.vms:
-			// Got a VM
-		case <-p.closeChan:
-			return
-		}
+		case <-p.done:
+			// Process remaining tasks in the channel after done signal
+			for t := range p.tasks {
+				if t == nil {
+					continue
+				}
 
-		// Process tasks while we have a VM
-		for {
-			select {
-			case task := <-p.taskQueue:
-				// Execute the task
-				result, err := vm.Execute(task.ctx, task.name, task.args)
-
-				// Send result
+				result, err := vm.Execute(context.Background(), t.name, t.args)
 				select {
-				case task.respChan <- TaskResult{Value: result, Err: err}:
+				case t.result <- taskResult{value: result, err: err}:
 				default:
-					p.logger.Warn("failed to send result - channel full or closed")
+					p.logger.Error("failed to send result")
 				}
-				close(task.respChan)
-
-				// If execution failed, recreate VM
-				if err != nil {
-					vm.Close()
-					newVM, createErr := p.createVM()
-					if createErr != nil {
-						p.logger.Error("failed to recreate VM",
-							zap.Error(createErr),
-							zap.Error(err))
-						// Return VM to pool if recreation failed
-						p.vms <- vm
-						break
-					}
-					vm = newVM
-				}
-
-			case <-p.closeChan:
-				vm.Close()
-				return
-
-			default:
-				// No tasks, return VM to pool
-				select {
-				case p.vms <- vm:
-					// VM returned to pool, go back to VM acquisition
-					break
-				default:
-					// SyncPool is full (shouldn't happen)
-					vm.Close()
-				}
-				break
+				close(t.result)
 			}
+			return
+		case t := <-p.tasks:
+			if t == nil {
+				continue
+			}
+			result, err := vm.Execute(context.Background(), t.name, t.args)
+			select {
+			case t.result <- taskResult{value: result, err: err}:
+			default:
+				p.logger.Error("failed to send result")
+			}
+			close(t.result)
 		}
 	}
 }
 
-// Close shuts down the pool and cleans up resources
-func (p *QueuedPool) Close() {
+// Close shuts down the pool
+func (p *Pool) Close() {
 	p.closeOnce.Do(func() {
-		close(p.closeChan)
-
-		// Wait for workers to finish
-		p.workerWg.Wait()
-
-		// Clean up VMs
-		p.mu.Lock()
-		defer p.mu.Unlock()
-
-		if p.vms != nil {
-		cleanup:
-			for {
-				select {
-				case vm := <-p.vms:
-					vm.Close()
-				default:
-					break cleanup
-				}
-			}
-			close(p.vms)
-			close(p.taskQueue)
-		}
+		p.closed.Store(true)
+		close(p.done)
+		close(p.tasks)
+		p.workerWait.Wait()
 	})
 }

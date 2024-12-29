@@ -3,14 +3,12 @@ package sync
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/runtime/lua/pool"
-	"sync"
-	"sync/atomic"
-	"time"
-
 	"github.com/ponyruntime/go-lua"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"github.com/ponyruntime/pony/runtime/lua/pool"
 	"go.uber.org/zap"
+	"sync"
+	"sync/atomic"
 )
 
 // Option represents a pool configuration option
@@ -21,15 +19,6 @@ func WithSize(size int) Option {
 	return func(p *Pool) {
 		if size > 0 {
 			p.size = size
-		}
-	}
-}
-
-// WithDefaultTimeout sets the timeout for VM acquisition
-func WithDefaultTimeout(timeout time.Duration) Option {
-	return func(p *Pool) {
-		if timeout > 0 {
-			p.defaultTimeout = timeout
 		}
 	}
 }
@@ -45,34 +34,36 @@ func WithLogger(logger *zap.Logger) Option {
 
 // Pool manages multiple Lua VMs for efficient script execution
 type Pool struct {
-	size           int
-	defaultTimeout time.Duration
-	logger         *zap.Logger
-	vmConfig       *pool.VMConfig
-	vms            chan *engine.VM
-	closed         atomic.Bool
-	closeOnce      sync.Once
-	done           chan struct{} // Channel for signaling shutdown
+	size      int
+	logger    *zap.Logger
+	vmConfig  *pool.VMConfig
+	vms       chan *engine.VM
+	closed    atomic.Bool
+	closeOnce sync.Once
+	done      chan struct{} // Channel for signaling shutdown
 }
 
-func NewPool(vmConfig *pool.VMConfig, opts ...Option) *Pool {
+func NewPool(vmConfig *pool.VMConfig, opts ...Option) (*Pool, error) {
 	p := &Pool{
-		size:           5,
-		defaultTimeout: time.Minute,
-		logger:         zap.NewNop(),
-		vmConfig:       vmConfig,
-		done:           make(chan struct{}), // Initialize done channel
+		size:     5,
+		logger:   zap.NewNop(),
+		vmConfig: vmConfig,
+		done:     make(chan struct{}), // Initialize done channel
 	}
 
 	for _, opt := range opts {
 		opt(p)
 	}
 
-	return p
+	if err := p.init(); err != nil {
+		return nil, fmt.Errorf("failed to initialize pool: %w", err)
+	}
+
+	return p, nil
 }
 
-// Init initializes the pool by creating VM instances
-func (p *Pool) Init() error {
+// init initializes the pool by creating VM instances
+func (p *Pool) init() error {
 	if p.vms != nil {
 		return fmt.Errorf("pool already initialized")
 	}
@@ -107,48 +98,37 @@ func (p *Pool) Execute(ctx context.Context, name string, args lua.LValue) (lua.L
 		return nil, fmt.Errorf("pool is closed")
 	case <-ctx.Done():
 		return nil, ctx.Err()
-	case <-time.After(p.defaultTimeout):
-		return nil, fmt.Errorf("timeout waiting for available VM")
 	case vm = <-p.vms:
 	}
 
-	// Execute function
 	result, err := vm.Execute(ctx, name, args)
 
-	// Handle VM return based on execution result
-	if err != nil {
-		p.logger.Error("VM execution failed",
-			zap.String("function", name),
-			zap.Error(err))
-
-		// Clean up failed VM
-		vm.Close()
-
-		// Create replacement VM if pool is still open
+	if err == nil {
 		select {
-		case <-p.done:
-			return nil, err
+		case p.vms <- vm:
 		default:
-			// Try create new VM
-			if newVM, createErr := pool.CreateVM(p.vmConfig); createErr == nil {
-				select {
-				case <-p.done:
-					newVM.Close()
-				case p.vms <- newVM:
-				}
-			}
+			vm.Close()
 		}
-		return nil, err
+		return result, nil
 	}
 
-	// Return healthy VM to pool if not closed
+	// Handle VM return based on execution result
+	vm.Close()
+
 	select {
 	case <-p.done:
-		vm.Close()
-	case p.vms <- vm:
+		return nil, err
+	default:
+		if newVM, createErr := pool.CreateVM(p.vmConfig); createErr == nil {
+			select {
+			case p.vms <- newVM:
+			default:
+				newVM.Close()
+			}
+		}
 	}
 
-	return result, nil
+	return nil, err
 }
 
 func (p *Pool) cleanupVMs() {
@@ -171,13 +151,4 @@ func (p *Pool) Close() {
 		close(p.done)  // Signal shutdown
 		p.cleanupVMs() // Cleanup existing VMs
 	})
-}
-
-func (p *Pool) IsClosed() bool {
-	select {
-	case <-p.done:
-		return true
-	default:
-		return false
-	}
 }
