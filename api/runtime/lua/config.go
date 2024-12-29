@@ -21,7 +21,8 @@ type (
 	}
 
 	PoolConfig struct {
-		Size int `json:"size"`
+		Size    int `json:"size"`
+		Workers int `json:"workers"`
 	}
 
 	LibraryConfig struct {
