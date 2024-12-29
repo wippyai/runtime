@@ -110,13 +110,15 @@ func (m *RuntimeManager) Execute(task runtime.Task) (chan *runtime.Result, error
 	}
 
 	result, err := handler.Execute(task.Context, m.functions[task.Target].Method, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute handler: %w", err)
+
+	resultChan := make(chan *runtime.Result, 1)
+	resultChan <- &runtime.Result{
+		Payload: payload.NewPayload(result, payload.Lua),
+		Error:   err,
 	}
+	close(resultChan)
 
-	m.log.Info("executed function", zap.String("id", string(task.Target)), zap.Any("result", result))
-
-	return nil, fmt.Errorf("not implemented")
+	return resultChan, nil
 }
 
 func (m *RuntimeManager) unmarshalAndValidate(data payload.Payload, cfg interface{}) error {

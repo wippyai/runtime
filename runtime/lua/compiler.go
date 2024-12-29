@@ -5,7 +5,6 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/pool"
 	"github.com/ponyruntime/pony/runtime/lua/pool/sync"
 	"go.uber.org/zap"
-	"log"
 )
 
 type Compiler struct {
@@ -22,8 +21,6 @@ func (c *Compiler) Compile(
 	vmCfg *pool.VMConfig,
 	luaCfg *lua.FunctionConfig,
 ) (lua.Callable, error) {
-	log.Printf("luaCfg: %+v\n", luaCfg)
-	log.Printf("vmCfg: %+v\n", vmCfg)
 	return sync.NewPool(
 		vmCfg,
 		sync.WithSize(luaCfg.Pool.Size),
