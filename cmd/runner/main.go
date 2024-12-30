@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	contextapi "github.com/ponyruntime/pony/api/context"
 	regapi "github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/pkg/eventbus"
 	transcoder "github.com/ponyruntime/pony/pkg/payload"
@@ -46,10 +47,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// application service supervisor
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	logger := initLogger(*verbose, *veryVerbose)
 	if logger == nil {
 		fmt.Println("Failed to initialize logger")
@@ -64,12 +61,20 @@ func main() {
 	yaml.Register(dtt)
 	lua.Register(dtt)
 
+	bus := eventbus.NewBus(logger.Named("events")) // main configuration bus
+
+	// application service supervisor
+	ctx, cancel := context.WithCancel(context.Background())
+	ctx = context.WithValue(ctx, contextapi.LoggerCtx, mainLogger)
+	ctx = context.WithValue(ctx, contextapi.TranscoderCtx, dtt)
+	ctx = context.WithValue(ctx, contextapi.BusCtx, bus)
+	defer cancel()
+
 	// -- application state
 	appState, err := loadApplicationState(args, dtt, mainLogger)
 
 	// -- application core
-	bus := eventbus.NewBus(logger.Named("events")) // main configuration bus
-	reg := registry.NewRegistry(                   // application state controller, transactional
+	reg := registry.NewRegistry( // application state controller, transactional
 		history.NewMemory(),
 		runner.NewBusRunner(bus, logger.Named("runner")),
 		registry.NewStateBuilder(mainLogger),
