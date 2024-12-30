@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/ponyruntime/go-lua"
 	"github.com/ponyruntime/pony/api/service/http"
+	"github.com/ponyruntime/pony/runtime/lua/modules/json"
 	basehttp "net/http"
 )
 
@@ -227,20 +228,10 @@ func responseWriteEvent(l *lua.LState) int {
 		return 0
 	}
 
-	var data string
-	switch v := dataLV.(type) {
-	case lua.LString:
-		data = string(v)
-	case lua.LTable:
-		// todo: use transcode!
-		//jsonBytes, err := lua.JsonMarshal(l, v)
-		//if err != nil {
-		//l.Push(lua.LString(fmt.Sprintf("failed to marshal event data: %v", err)))
-		//			return 1
-		//}
-		//data = string(jsonBytes)
-	default:
-		data = lua.LVAsString(dataLV)
+	data, err := json.Encode(dataLV)
+	if err != nil {
+		l.ArgError(2, fmt.Sprintf("failed to marshal event data: %v", err))
+		return 0
 	}
 
 	// Write SSE format
