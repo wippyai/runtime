@@ -2,6 +2,7 @@ package httpctx
 
 import (
 	"github.com/ponyruntime/go-lua"
+	"github.com/ponyruntime/pony/runtime/lua/modules/stream"
 	"go.uber.org/zap"
 )
 
@@ -73,7 +74,8 @@ func (m *Module) Loader(l *lua.LState) int {
 	// Register constants
 	m.registerConstants(l, mod)
 
-	RegisterStream(l, mod)
+	// helper class is always needed
+	stream.RegisterStream(l, mod)
 
 	// Register Request type and methods
 	registerRequest(l, mod)

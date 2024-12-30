@@ -11,8 +11,8 @@ import (
 )
 
 var (
-	ErrMaxSizeExceeded = fmt.Errorf("Stream max size exceeded")
-	ErrReadTimeout     = fmt.Errorf("Stream read timeout")
+	ErrMaxSizeExceeded = fmt.Errorf("stream max size exceeded")
+	ErrReadTimeout     = fmt.Errorf("stream read timeout")
 	ErrInvalidConfig   = fmt.Errorf("invalid Stream configuration")
 )
 
@@ -36,14 +36,14 @@ func (m *Module) Loader(l *lua.LState) int {
 	// Create module table
 	mod := l.NewTable()
 
-	registerStream(l, mod)
+	RegisterStream(l, mod)
 
 	l.Push(mod)
 	return 1
 }
 
-// registerStream registers the Stream type in Lua
-func registerStream(l *lua.LState, mod *lua.LTable) {
+// RegisterStream registers the Stream type in Lua
+func RegisterStream(l *lua.LState, mod *lua.LTable) {
 	// Create and register the Stream metatable
 	mt := l.NewTypeMetatable("Stream")
 	l.SetField(mt, "__index", mt)
@@ -57,15 +57,15 @@ func registerStream(l *lua.LState, mod *lua.LTable) {
 	})
 }
 
-// StreamConfig holds configuration for Stream operations
-type StreamConfig struct {
+// Config holds configuration for Stream operations
+type Config struct {
 	bufferSize int64
 	timeout    time.Duration
 	maxSize    int64
 }
 
 // NewStreamConfig creates a new configuration with validation
-func NewStreamConfig(bufferSize, maxSize int64, timeout time.Duration) (*StreamConfig, error) {
+func NewStreamConfig(bufferSize, maxSize int64, timeout time.Duration) (*Config, error) {
 	if bufferSize <= 0 {
 		bufferSize = 32 * 1024 // Default 32KB buffer
 	}
@@ -76,7 +76,7 @@ func NewStreamConfig(bufferSize, maxSize int64, timeout time.Duration) (*StreamC
 		return nil, fmt.Errorf("%w: negative timeout", ErrInvalidConfig)
 	}
 
-	return &StreamConfig{
+	return &Config{
 		bufferSize: bufferSize,
 		timeout:    timeout,
 		maxSize:    maxSize,
@@ -92,13 +92,13 @@ type readResult struct {
 // Stream handles streaming data from a reader
 type Stream struct {
 	reader    io.ReadCloser
-	config    *StreamConfig
+	config    *Config
 	bytesRead int64
 	ctx       context.Context
 }
 
 // NewStream creates a new Stream with configuration
-func NewStream(ctx context.Context, reader io.ReadCloser, cfg *StreamConfig) (*Stream, error) {
+func NewStream(ctx context.Context, reader io.ReadCloser, cfg *Config) (*Stream, error) {
 	if reader == nil {
 		return nil, fmt.Errorf("%w: nil reader", ErrInvalidConfig)
 	}
@@ -135,10 +135,18 @@ func (s *Stream) ReadChunk() ([]byte, error) {
 	}
 
 	if err != nil {
-		return nil, err
+		if err == io.EOF {
+			return nil, err
+		}
+		return nil, fmt.Errorf("read error: %w", err)
 	}
 
-	s.bytesRead += int64(len(data))
+	n := len(data)
+	if s.config.maxSize > 0 && s.bytesRead+int64(n) > s.config.maxSize {
+		return nil, ErrMaxSizeExceeded
+	}
+
+	s.bytesRead += int64(n)
 	return data, nil
 }
 

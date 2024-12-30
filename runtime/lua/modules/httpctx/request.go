@@ -6,6 +6,7 @@ import (
 	"github.com/ponyruntime/go-lua"
 	"github.com/ponyruntime/pony/api/service/http"
 	"github.com/ponyruntime/pony/runtime/lua/modules/json"
+	"github.com/ponyruntime/pony/runtime/lua/modules/stream"
 	"io"
 	basehttp "net/http"
 	"strings"
@@ -84,9 +85,8 @@ var requestMethods = map[string]lua.LGFunction{
 func requestMethod(l *lua.LState) int {
 	req, err := checkRequest(l, 1)
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		l.ArgError(1, err.Error())
+		return 0
 	}
 
 	l.Push(lua.LString(req.request.Method))
@@ -98,9 +98,8 @@ func requestMethod(l *lua.LState) int {
 func requestPath(l *lua.LState) int {
 	req, err := checkRequest(l, 1)
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		l.ArgError(1, err.Error())
+		return 0
 	}
 
 	l.Push(lua.LString(req.request.URL.Path))
@@ -112,9 +111,8 @@ func requestPath(l *lua.LState) int {
 func requestQuery(l *lua.LState) int {
 	req, err := checkRequest(l, 1)
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		l.ArgError(1, err.Error())
+		return 0
 	}
 
 	key := l.CheckString(2)
@@ -140,9 +138,8 @@ func requestQuery(l *lua.LState) int {
 func requestHeader(l *lua.LState) int {
 	req, err := checkRequest(l, 1)
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		l.ArgError(1, err.Error())
+		return 0
 	}
 
 	key := l.CheckString(2)
@@ -152,12 +149,16 @@ func requestHeader(l *lua.LState) int {
 		return 2
 	}
 
-	value := req.request.Header.Get(key)
-	if value == "" {
+	// Use req.request.Header to get all values for the key.
+	values := req.request.Header[key]
+	if len(values) == 0 {
 		l.Push(lua.LNil)
 		l.Push(lua.LNil)
 		return 2
 	}
+
+	// Join the values with a comma and a space.
+	value := strings.Join(values, ", ")
 
 	l.Push(lua.LString(value))
 	l.Push(lua.LNil)
@@ -168,9 +169,8 @@ func requestHeader(l *lua.LState) int {
 func requestContentType(l *lua.LState) int {
 	req, err := checkRequest(l, 1)
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		l.ArgError(1, err.Error())
+		return 0
 	}
 
 	contentType := req.request.Header.Get("Content-Type")
@@ -189,9 +189,8 @@ func requestContentType(l *lua.LState) int {
 func requestContentLength(l *lua.LState) int {
 	req, err := checkRequest(l, 1)
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		l.ArgError(1, err.Error())
+		return 0
 	}
 
 	l.Push(lua.LNumber(req.request.ContentLength))
@@ -203,9 +202,8 @@ func requestContentLength(l *lua.LState) int {
 func requestIsContentType(l *lua.LState) int {
 	req, err := checkRequest(l, 1)
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		l.ArgError(1, err.Error())
+		return 0
 	}
 
 	expectedType := l.CheckString(2)
@@ -227,9 +225,8 @@ func requestIsContentType(l *lua.LState) int {
 func requestHost(l *lua.LState) int {
 	req, err := checkRequest(l, 1)
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		l.ArgError(1, err.Error())
+		return 0
 	}
 
 	l.Push(lua.LString(req.request.Host))
@@ -241,9 +238,8 @@ func requestHost(l *lua.LState) int {
 func requestRemoteAddr(l *lua.LState) int {
 	req, err := checkRequest(l, 1)
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		l.ArgError(1, err.Error())
+		return 0
 	}
 
 	l.Push(lua.LString(req.request.RemoteAddr))
@@ -255,9 +251,8 @@ func requestRemoteAddr(l *lua.LState) int {
 func requestBody(l *lua.LState) int {
 	req, err := checkRequest(l, 1)
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		l.ArgError(1, err.Error())
+		return 0
 	}
 
 	if req.request.Body == nil {
@@ -268,8 +263,7 @@ func requestBody(l *lua.LState) int {
 
 	if req.config.MaxBody > 0 && req.request.ContentLength > req.config.MaxBody {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("body size %d exceeds maximum allowed size %d",
-			req.request.ContentLength, req.config.MaxBody)))
+		l.Push(lua.LString(stream.ErrMaxSizeExceeded.Error()))
 		return 2
 	}
 
@@ -320,14 +314,19 @@ func requestBody(l *lua.LState) int {
 func requestBodyJSON(l *lua.LState) int {
 	req, err := checkRequest(l, 1)
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		l.ArgError(1, err.Error())
+		return 0
 	}
 
 	if req.request.Body == nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString("no body"))
+		return 2
+	}
+
+	if req.config.MaxBody > 0 && req.request.ContentLength > req.config.MaxBody {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(stream.ErrMaxSizeExceeded.Error()))
 		return 2
 	}
 
@@ -357,9 +356,8 @@ func requestBodyJSON(l *lua.LState) int {
 func requestHasBody(l *lua.LState) int {
 	req, err := checkRequest(l, 1)
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		l.ArgError(1, err.Error())
+		return 0
 	}
 
 	hasBody := req.request.Body != nil && req.request.ContentLength > 0
@@ -372,9 +370,8 @@ func requestHasBody(l *lua.LState) int {
 func requestAccepts(l *lua.LState) int {
 	req, err := checkRequest(l, 1)
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		l.ArgError(1, err.Error())
+		return 0
 	}
 
 	contentType := l.CheckString(2)
@@ -410,9 +407,8 @@ func requestAccepts(l *lua.LState) int {
 func requestStreamBody(l *lua.LState) int {
 	req, err := checkRequest(l, 1)
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		l.ArgError(1, err.Error())
+		return 0
 	}
 
 	if req.request.Body == nil {
@@ -421,35 +417,75 @@ func requestStreamBody(l *lua.LState) int {
 		return 2
 	}
 
-	// Create a buffer size that respects max_body if set
-	bufSize := int64(32 * 1024) // Default 32KB buffer
-	if req.config.MaxBody > 0 && req.config.MaxBody < bufSize {
-		bufSize = req.config.MaxBody
+	// Parse stream options
+	var bufferSize int64 = 32 * 1024 // Default 32KB buffer
+	var maxSize int64 = req.config.MaxBody
+	var timeout time.Duration = time.Duration(req.config.Timeout) * time.Millisecond
+
+	// Check if options table is provided
+	if l.GetTop() > 1 {
+		opts := l.CheckTable(2)
+		if opts != nil {
+			// Get buffer_size option
+			if bs := opts.RawGetString("buffer_size"); !lua.LVIsFalse(bs) {
+				if n, ok := bs.(lua.LNumber); ok {
+					bufferSize = int64(n)
+				}
+			}
+
+			// Get max_size option (overrides request's max_body)
+			if ms := opts.RawGetString("max_size"); !lua.LVIsFalse(ms) {
+				if n, ok := ms.(lua.LNumber); ok {
+					maxSize = int64(n)
+				}
+			}
+
+			// Get timeout option (overrides request's timeout)
+			if t := opts.RawGetString("timeout"); !lua.LVIsFalse(t) {
+				if n, ok := t.(lua.LNumber); ok {
+					timeout = time.Duration(n) * time.Millisecond
+				}
+			}
+		}
 	}
 
-	// Create and return closure function that reads chunks
-	l.Push(l.NewFunction(func(l *lua.LState) int {
-		buffer := make([]byte, bufSize)
-		n, err := req.request.Body.Read(buffer)
+	//if maxSize > 0 && req.request.ContentLength > maxSize {
+	//	l.Push(lua.LNil)
+	//	l.Push(lua.LString(stream.ErrMaxSizeExceeded.Error()))
+	//	return 2
+	//}
 
-		if err == io.EOF {
-			req.request.Body.Close()
-			l.Push(lua.LNil)
-			l.Push(lua.LNil)
-			return 2
-		}
-
-		if err != nil {
-			l.Push(lua.LNil)
-			l.Push(lua.LString(fmt.Sprintf("read error: %v", err)))
-			return 2
-		}
-
-		l.Push(lua.LString(string(buffer[:n])))
+	// Create stream config with parsed options
+	cfg, err := stream.NewStreamConfig(
+		bufferSize,
+		maxSize,
+		timeout,
+	)
+	if err != nil {
 		l.Push(lua.LNil)
+		l.Push(lua.LString(fmt.Sprintf("failed to create stream: %v", err)))
 		return 2
-	}))
+	}
 
+	// Create new stream from request body
+	s, err := stream.NewStream(req.request.Context(), req.request.Body, cfg)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(fmt.Sprintf("failed to create stream: %v", err)))
+		return 2
+	}
+
+	// Create Lua stream wrapper
+	luaStream := &stream.LuaStream{Stream: s}
+	ud := l.NewUserData()
+	ud.Value = luaStream
+
+	// Set Stream metatable
+	l.SetMetatable(ud, l.GetTypeMetatable("Stream"))
+
+	// Return the iterator function and nil (for the error position)
+	l.Push(ud)
+	l.Call(0, 1)
 	l.Push(lua.LNil)
 	return 2
 }

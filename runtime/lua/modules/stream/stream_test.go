@@ -3,6 +3,7 @@ package stream
 import (
 	"bytes"
 	"context"
+	"errors"
 	"github.com/ponyruntime/go-lua"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"go.uber.org/zap"
@@ -17,16 +18,20 @@ import (
 
 // mockReadCloser implements io.ReadCloser for testing
 type mockReadCloser struct {
-	reader *bytes.Reader
-	mu     sync.Mutex
-	closed bool
-	delay  time.Duration
+	reader    *bytes.Reader
+	mu        sync.Mutex
+	closed    bool
+	delay     time.Duration
+	errAfter  int
+	bytesRead int
+	injectErr error
 }
 
 func newMockReadCloser(data []byte, delay time.Duration) *mockReadCloser {
 	return &mockReadCloser{
-		reader: bytes.NewReader(data),
-		delay:  delay,
+		reader:    bytes.NewReader(data),
+		delay:     delay,
+		injectErr: errors.New("mock error"),
 	}
 }
 
@@ -41,7 +46,14 @@ func (m *mockReadCloser) Read(p []byte) (n int, err error) {
 	if m.delay > 0 {
 		time.Sleep(m.delay)
 	}
-	return m.reader.Read(p)
+
+	if m.errAfter > 0 && m.bytesRead >= m.errAfter {
+		return 0, m.injectErr
+	}
+
+	n, err = m.reader.Read(p)
+	m.bytesRead += n
+	return n, err
 }
 
 func (m *mockReadCloser) Close() error {
@@ -91,12 +103,8 @@ func TestStream(t *testing.T) {
 		stream, err := NewStream(context.Background(), reader, cfg)
 		require.NoError(t, err)
 
-		chunk, err := stream.ReadChunk()
-		require.NoError(t, err)
-		assert.NotEmpty(t, chunk)
-
 		_, err = stream.ReadChunk()
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Equal(t, ErrMaxSizeExceeded, err)
 	})
 
@@ -134,7 +142,7 @@ func TestStreamLua(t *testing.T) {
 		defer vm.Close()
 
 		l := vm.State()
-		registerStream(l, l.NewTable())
+		RegisterStream(l, l.NewTable())
 
 		luaStream := &LuaStream{Stream: stream}
 		ud := l.NewUserData()
@@ -176,7 +184,7 @@ func TestStreamLua(t *testing.T) {
 		defer vm.Close()
 
 		l := vm.State()
-		registerStream(l, l.NewTable())
+		RegisterStream(l, l.NewTable())
 
 		luaStream := &LuaStream{Stream: stream}
 		ud := l.NewUserData()
@@ -345,7 +353,7 @@ func TestStreamLuaEdgeCases(t *testing.T) {
 		defer vm.Close()
 
 		l := vm.State()
-		registerStream(l, l.NewTable())
+		RegisterStream(l, l.NewTable())
 
 		luaStream := &LuaStream{Stream: stream}
 		ud := l.NewUserData()
@@ -364,6 +372,56 @@ func TestStreamLuaEdgeCases(t *testing.T) {
 			assert(type(err) == "string", "Expected error string")
 			assert(string.find(err, "closed"), "Error should mention Stream is closed")
 		`
+
+		err = vm.DoString(context.Background(), script, "test")
+		require.NoError(t, err)
+	})
+
+	t.Run("Stream iteration with error", func(t *testing.T) {
+		testData := []byte("chunk1chunk2")
+		reader := newMockReadCloser(testData, 0)
+
+		// Introduce an error after reading 6 bytes (first chunk)
+		reader.errAfter = 6
+
+		cfg, err := NewStreamConfig(6, 0, 0) // Buffer size of 6
+		require.NoError(t, err)
+
+		stream, err := NewStream(context.Background(), reader, cfg)
+		require.NoError(t, err)
+
+		mod := NewStreamModule(logger)
+		vm, err := engine.NewVM(
+			logger,
+			engine.WithLoader(mod.Name(), mod.Loader),
+		)
+		require.NoError(t, err)
+		defer vm.Close()
+
+		l := vm.State()
+		RegisterStream(l, l.NewTable())
+
+		luaStream := &LuaStream{Stream: stream}
+		ud := l.NewUserData()
+		ud.Value = luaStream
+		l.SetMetatable(ud, l.GetTypeMetatable("Stream"))
+		l.SetGlobal("test_stream", ud)
+
+		script := `
+        local chunks = {}
+        local err_msg = nil
+
+        for chunk in test_stream() do
+            if err then
+                err_msg = err
+                break
+            end
+            table.insert(chunks, chunk)
+        end
+		
+        assert(#chunks == 1, "Expected 1 chunk before error")
+        assert(chunks[1] == "chunk1", "First chunk mismatch")
+    	`
 
 		err = vm.DoString(context.Background(), script, "test")
 		require.NoError(t, err)
