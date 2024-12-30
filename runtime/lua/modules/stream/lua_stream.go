@@ -8,18 +8,18 @@ import (
 	"github.com/ponyruntime/go-lua"
 )
 
-// LuaStream wraps stream for Lua
+// LuaStream wraps Stream for Lua
 type LuaStream struct {
-	*stream
+	*Stream
 }
 
-// checkStream verifies and returns the stream from Lua userdata
+// checkStream verifies and returns the Stream from Lua userdata
 func checkStream(l *lua.LState) (*LuaStream, error) {
 	ud := l.CheckUserData(1)
 	if v, ok := ud.Value.(*LuaStream); ok {
 		return v, nil
 	}
-	return nil, fmt.Errorf("expected stream, got %T", ud.Value)
+	return nil, fmt.Errorf("expected Stream, got %T", ud.Value)
 }
 
 // streamRead implements the read() method in Lua
