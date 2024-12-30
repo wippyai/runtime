@@ -17,7 +17,7 @@ type taskResult struct {
 
 type task struct {
 	name   string
-	args   lua.LValue
+	args   []lua.LValue
 	result chan taskResult
 }
 
@@ -99,7 +99,7 @@ func (p *Pool) init(vmConfig *pool.VMConfig) error {
 }
 
 // Execute queues a task for execution and returns its result
-func (p *Pool) Execute(ctx context.Context, name string, args lua.LValue) (lua.LValue, error) {
+func (p *Pool) Execute(ctx context.Context, name string, args ...lua.LValue) (lua.LValue, error) {
 	if p.closed.Load() {
 		return nil, fmt.Errorf("pool is closed")
 	}
@@ -153,7 +153,7 @@ func (p *Pool) worker() {
 					continue
 				}
 
-				result, err := vm.Execute(context.Background(), t.name, t.args)
+				result, err := vm.Execute(context.Background(), t.name, t.args...)
 				select {
 				case t.result <- taskResult{value: result, err: err}:
 				default:
@@ -166,7 +166,7 @@ func (p *Pool) worker() {
 			if t == nil {
 				continue
 			}
-			result, err := vm.Execute(context.Background(), t.name, t.args)
+			result, err := vm.Execute(context.Background(), t.name, t.args...)
 			select {
 			case t.result <- taskResult{value: result, err: err}:
 			default:

@@ -160,7 +160,7 @@ func (m *RuntimeManager) addFunction(ctx context.Context, entry registry.Entry) 
 		}
 	}
 
-	btc, err := m.compileFunction(entry.ID, cfg)
+	btc, err := m.compileFunction(entry.ID, cfg) // todo: delegate to services
 	if err != nil {
 		return fmt.Errorf("failed to compile function: %w", err)
 	}
