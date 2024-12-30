@@ -118,8 +118,8 @@ func TestStream(t *testing.T) {
 func TestStreamLua(t *testing.T) {
 	logger := zap.NewNop()
 
-	t.Run("stream reading with mock reader", func(t *testing.T) {
-		testData := []byte("Hello from mocked stream!")
+	t.Run("Stream reading with mock reader", func(t *testing.T) {
+		testData := []byte("Hello from mocked Stream!")
 		reader := newMockReadCloser(testData, 0)
 
 		cfg, err := NewStreamConfig(int64(len(testData)), 0, 0)
@@ -136,23 +136,23 @@ func TestStreamLua(t *testing.T) {
 		l := vm.State()
 		registerStream(l, l.NewTable())
 
-		luaStream := &LuaStream{stream: stream}
+		luaStream := &LuaStream{Stream: stream}
 		ud := l.NewUserData()
 		ud.Value = luaStream
-		l.SetMetatable(ud, l.GetTypeMetatable("stream"))
+		l.SetMetatable(ud, l.GetTypeMetatable("Stream"))
 		l.SetGlobal("test_stream", ud)
 
 		script := `
 			-- Read data
 			local chunk = test_stream:read()
-			assert(chunk == "Hello from mocked stream!")
+			assert(chunk == "Hello from mocked Stream!")
 
 			-- Get bytes read
 			local bytes = test_stream:bytes_read()
 			assert(type(bytes) == "number")
 			assert(bytes == #chunk)
 
-			-- Close stream
+			-- Close Stream
 			test_stream:close()
 		`
 
@@ -160,7 +160,7 @@ func TestStreamLua(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	t.Run("stream iteration", func(t *testing.T) {
+	t.Run("Stream iteration", func(t *testing.T) {
 		testData := []byte("chunk1chunk2chunk3")
 		reader := newMockReadCloser(testData, 0)
 
@@ -178,10 +178,10 @@ func TestStreamLua(t *testing.T) {
 		l := vm.State()
 		registerStream(l, l.NewTable())
 
-		luaStream := &LuaStream{stream: stream}
+		luaStream := &LuaStream{Stream: stream}
 		ud := l.NewUserData()
 		ud.Value = luaStream
-		l.SetMetatable(ud, l.GetTypeMetatable("stream"))
+		l.SetMetatable(ud, l.GetTypeMetatable("Stream"))
 		l.SetGlobal("test_stream", ud)
 
 		script := `
@@ -302,7 +302,7 @@ func TestStreamLuaEdgeCases(t *testing.T) {
 		defer vm.Close()
 
 		l := vm.State()
-		mt := l.NewTypeMetatable("stream")
+		mt := l.NewTypeMetatable("Stream")
 		l.SetField(mt, "__index", l.NewFunction(func(L *lua.LState) int {
 			method := L.ToString(2)
 			if method == "read" {
@@ -314,15 +314,15 @@ func TestStreamLuaEdgeCases(t *testing.T) {
 
 		// Create userdata with wrong type
 		ud := l.NewUserData()
-		ud.Value = "not a stream"
+		ud.Value = "not a Stream"
 		l.SetMetatable(ud, mt)
 		l.SetGlobal("test_stream", ud)
 
 		script := `
 			local success, err = test_stream:read()
-			assert(success == nil, "Expected nil result for invalid stream")
+			assert(success == nil, "Expected nil result for invalid Stream")
 			assert(type(err) == "string", "Expected error message")
-			assert(string.find(err, "expected stream"), "Error should mention expected stream type")
+			assert(string.find(err, "expected Stream"), "Error should mention expected Stream type")
 		`
 
 		err = vm.DoString(context.Background(), script, "test")
@@ -347,22 +347,22 @@ func TestStreamLuaEdgeCases(t *testing.T) {
 		l := vm.State()
 		registerStream(l, l.NewTable())
 
-		luaStream := &LuaStream{stream: stream}
+		luaStream := &LuaStream{Stream: stream}
 		ud := l.NewUserData()
 		ud.Value = luaStream
-		l.SetMetatable(ud, l.GetTypeMetatable("stream"))
+		l.SetMetatable(ud, l.GetTypeMetatable("Stream"))
 		l.SetGlobal("test_stream", ud)
 
 		script := `
-			-- Close the stream
+			-- Close the Stream
 			local ok = test_stream:close()
 			assert(ok == nil, "Close should return nil on success")
 
 			-- Try to read after close
 			local data, err = test_stream:read()
-			assert(data == nil, "Expected nil data from closed stream")
+			assert(data == nil, "Expected nil data from closed Stream")
 			assert(type(err) == "string", "Expected error string")
-			assert(string.find(err, "closed"), "Error should mention stream is closed")
+			assert(string.find(err, "closed"), "Error should mention Stream is closed")
 		`
 
 		err = vm.DoString(context.Background(), script, "test")
