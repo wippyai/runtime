@@ -46,7 +46,7 @@ func (m *Module) get(l *lua.LState) int {
 		return 0
 	}
 
-	ctxter, ok := ctx.Value(ctxapi.ContexterKey).(*ctxapi.Contexter[any])
+	ctxter, ok := ctx.Value(ctxapi.ValuesCtx).(*ctxapi.Contexter[any])
 	if !ok {
 		l.ArgError(1, "invalid context")
 		return 0
@@ -78,7 +78,7 @@ func (m *Module) set(l *lua.LState) int {
 		return 0
 	}
 
-	ctxter, ok := ctx.Value(ctxapi.ContexterKey).(*ctxapi.Contexter[any])
+	ctxter, ok := ctx.Value(ctxapi.ValuesCtx).(*ctxapi.Contexter[any])
 	if !ok {
 		l.ArgError(1, "invalid context")
 		return 0

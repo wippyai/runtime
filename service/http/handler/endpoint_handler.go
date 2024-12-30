@@ -2,7 +2,6 @@ package handler
 
 import (
 	"fmt"
-	"github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
@@ -61,7 +60,7 @@ func (h *EndpointHandler) Handle(w http.ResponseWriter, r *http.Request) {
 
 // getRouteInfo extracts route information from the request context.
 func (h *EndpointHandler) getRouteInfo(r *http.Request) (*config.RouteInfo, error) {
-	routeInfo, ok := r.Context().Value(context.RouteInfoCtx).(*config.RouteInfo)
+	routeInfo, ok := r.Context().Value(config.RouteCtx).(*config.RouteInfo)
 	if !ok {
 		h.logger.Error("route info not found in context")
 		return nil, fmt.Errorf("route info not found")

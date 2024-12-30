@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	contextapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/runtime"
 	config "github.com/ponyruntime/pony/api/service/http"
@@ -68,7 +67,7 @@ func TestEndpointHandler_Handle_SuccessfulJsonRequest(t *testing.T) {
 			JsonOutput: true,
 		},
 	}
-	ctx := context.WithValue(req.Context(), contextapi.RouteInfoCtx, routeInfo)
+	ctx := context.WithValue(req.Context(), config.RouteCtx, routeInfo)
 	req = req.WithContext(ctx)
 
 	// Setup response recorder
@@ -138,7 +137,7 @@ func TestEndpointHandler_Handle_ValidationError(t *testing.T) {
 			},
 		},
 	}
-	ctx := context.WithValue(req.Context(), contextapi.RouteInfoCtx, routeInfo)
+	ctx := context.WithValue(req.Context(), config.RouteCtx, routeInfo)
 	req = req.WithContext(ctx)
 
 	// Setup response recorder
@@ -168,7 +167,7 @@ func TestEndpointHandler_Handle_ExecutorError(t *testing.T) {
 		EndpointID: "test-endpoint",
 		Endpoint:   config.EndpointConfig{},
 	}
-	ctx := context.WithValue(req.Context(), contextapi.RouteInfoCtx, routeInfo)
+	ctx := context.WithValue(req.Context(), config.RouteCtx, routeInfo)
 	req = req.WithContext(ctx)
 
 	// Setup response recorder
@@ -210,7 +209,7 @@ func TestEndpointHandler_Handle_RawResponse(t *testing.T) {
 			JsonOutput: false,
 		},
 	}
-	ctx := context.WithValue(req.Context(), contextapi.RouteInfoCtx, routeInfo)
+	ctx := context.WithValue(req.Context(), config.RouteCtx, routeInfo)
 	req = req.WithContext(ctx)
 
 	// Setup response recorder
@@ -259,7 +258,7 @@ func TestEndpointHandler_Handle_ContextCancellation(t *testing.T) {
 		EndpointID: "test-endpoint",
 		Endpoint:   config.EndpointConfig{},
 	}
-	ctx = context.WithValue(ctx, contextapi.RouteInfoCtx, routeInfo)
+	ctx = context.WithValue(ctx, config.RouteCtx, routeInfo)
 	req = req.WithContext(ctx)
 
 	// Setup response recorder
@@ -324,7 +323,7 @@ func TestEndpointHandler_Handle_CustomSuccessStatusCode(t *testing.T) {
 			SuccessStatusCode: http.StatusCreated,
 		},
 	}
-	ctx := context.WithValue(req.Context(), contextapi.RouteInfoCtx, routeInfo)
+	ctx := context.WithValue(req.Context(), config.RouteCtx, routeInfo)
 	req = req.WithContext(ctx)
 
 	// Setup response recorder
@@ -367,7 +366,7 @@ func TestEndpointHandler_Handle_JsonTranscodingError(t *testing.T) {
 			JsonOutput: true,
 		},
 	}
-	ctx := context.WithValue(req.Context(), contextapi.RouteInfoCtx, routeInfo)
+	ctx := context.WithValue(req.Context(), config.RouteCtx, routeInfo)
 	req = req.WithContext(ctx)
 
 	// Setup response recorder
@@ -417,7 +416,7 @@ func TestEndpointHandler_Handle_NilPayload(t *testing.T) {
 		EndpointID: "test-endpoint",
 		Endpoint:   config.EndpointConfig{},
 	}
-	ctx := context.WithValue(req.Context(), contextapi.RouteInfoCtx, routeInfo)
+	ctx := context.WithValue(req.Context(), config.RouteCtx, routeInfo)
 	req = req.WithContext(ctx)
 
 	// Setup response recorder
@@ -464,7 +463,7 @@ func TestEndpointHandler_Handle_InvalidPayloadType(t *testing.T) {
 			JsonOutput: true,
 		},
 	}
-	ctx := context.WithValue(req.Context(), contextapi.RouteInfoCtx, routeInfo)
+	ctx := context.WithValue(req.Context(), config.RouteCtx, routeInfo)
 	req = req.WithContext(ctx)
 
 	// Setup response recorder
@@ -513,7 +512,7 @@ func TestEndpointHandler_Handle_NilExecutorResult(t *testing.T) {
 		EndpointID: "test-endpoint",
 		Endpoint:   config.EndpointConfig{},
 	}
-	ctx := context.WithValue(req.Context(), contextapi.RouteInfoCtx, routeInfo)
+	ctx := context.WithValue(req.Context(), config.RouteCtx, routeInfo)
 	req = req.WithContext(ctx)
 
 	// Setup response recorder
