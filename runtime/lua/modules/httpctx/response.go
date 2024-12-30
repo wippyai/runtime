@@ -9,7 +9,9 @@ import (
 
 // Response represents a Lua userdata object wrapping http.ResponseWriter
 type Response struct {
-	writer basehttp.ResponseWriter
+	writer       basehttp.ResponseWriter
+	headersSent  bool
+	transferMode string
 }
 
 // checkResponse gets and verifies Response userdata from Lua state
@@ -33,6 +35,7 @@ var responseMethods = map[string]lua.LGFunction{
 	"write_json":       responseWriteJSON,
 	"set_content_type": responseSetContentType,
 	"write_event":      responseWriteEvent,
+	"set_transfer":     responseSetTransfer,
 }
 
 // responseSetStatus sets the HTTP status code
@@ -43,6 +46,11 @@ func responseSetStatus(l *lua.LState) int {
 		return 0
 	}
 
+	if resp.headersSent {
+		l.Push(lua.LString("cannot set status after headers are sent"))
+		return 1
+	}
+
 	code := l.CheckInt(2)
 	if code < 100 || code > 599 {
 		l.ArgError(2, "invalid status code (must be between 100 and 599)")
@@ -50,6 +58,7 @@ func responseSetStatus(l *lua.LState) int {
 	}
 
 	resp.writer.WriteHeader(code)
+	resp.headersSent = true
 	return 0
 }
 
@@ -59,6 +68,11 @@ func responseSetHeader(l *lua.LState) int {
 	if err != nil {
 		l.ArgError(1, err.Error())
 		return 0
+	}
+
+	if resp.headersSent {
+		l.Push(lua.LString("cannot set headers after they are sent"))
+		return 1
 	}
 
 	key := l.CheckString(2)
@@ -87,6 +101,7 @@ func responseWrite(l *lua.LState) int {
 		return 1
 	}
 
+	resp.headersSent = true
 	l.Push(lua.LNil)
 	return 1
 }
@@ -99,8 +114,9 @@ func responseWriteJSON(l *lua.LState) int {
 		return 0
 	}
 
-	// Ensure proper content type
-	resp.writer.Header().Set("Content-Type", "application/json")
+	if !resp.headersSent {
+		resp.writer.Header().Set("Content-Type", "application/json")
+	}
 
 	data := l.CheckString(2)
 	_, writeErr := resp.writer.Write([]byte(data))
@@ -109,6 +125,7 @@ func responseWriteJSON(l *lua.LState) int {
 		return 1
 	}
 
+	resp.headersSent = true
 	l.Push(lua.LNil)
 	return 1
 }
@@ -121,6 +138,11 @@ func responseSetContentType(l *lua.LState) int {
 		return 0
 	}
 
+	if resp.headersSent {
+		l.Push(lua.LString("cannot set content type after headers are sent"))
+		return 1
+	}
+
 	contentType := l.CheckString(2)
 	if contentType == "" {
 		l.ArgError(2, "content type cannot be empty")
@@ -128,6 +150,40 @@ func responseSetContentType(l *lua.LState) int {
 	}
 
 	resp.writer.Header().Set("Content-Type", contentType)
+	return 0
+}
+
+// responseSetTransfer implements transfer encoding settings
+func responseSetTransfer(l *lua.LState) int {
+	resp, err := checkResponse(l, 1)
+	if err != nil {
+		l.ArgError(1, err.Error())
+		return 0
+	}
+
+	if resp.headersSent {
+		l.Push(lua.LString("cannot set transfer mode after headers are sent"))
+		return 1
+	}
+
+	transferType := l.CheckString(2)
+
+	switch transferType {
+	case transferConstants["CHUNKED"]:
+		resp.writer.Header().Set("Transfer-Encoding", "chunked")
+		resp.transferMode = transferConstants["CHUNKED"]
+
+	case transferConstants["SSE"]:
+		resp.writer.Header().Set("Content-Type", "text/event-stream")
+		resp.writer.Header().Set("Cache-Control", "no-cache")
+		resp.writer.Header().Set("Connection", "keep-alive")
+		resp.transferMode = transferConstants["SSE"]
+
+	default:
+		l.ArgError(2, "invalid transfer type")
+		return 0
+	}
+
 	return 0
 }
 
@@ -139,22 +195,64 @@ func responseWriteEvent(l *lua.LState) int {
 		return 0
 	}
 
-	event := l.CheckString(2)
-	data := l.CheckString(3)
+	// Check if transfer mode is SSE
+	if resp.transferMode != transferConstants["SSE"] {
+		if resp.headersSent {
+			l.Push(lua.LString("cannot switch to SSE mode after headers are sent"))
+			return 1
+		}
+		// Auto-set SSE mode if not set
+		resp.writer.Header().Set("Content-Type", "text/event-stream")
+		resp.writer.Header().Set("Cache-Control", "no-cache")
+		resp.writer.Header().Set("Connection", "keep-alive")
+		resp.transferMode = transferConstants["SSE"]
+	}
 
-	// Set SSE headers if not already set // todo: double headers??
-	resp.writer.Header().Set("Content-Type", "text/event-stream")
-	resp.writer.Header().Set("Cache-Control", "no-cache")
-	resp.writer.Header().Set("Connection", "keep-alive")
+	eventTable := l.CheckTable(2)
+	if eventTable == nil {
+		l.ArgError(2, "expected table for event data")
+		return 0
+	}
+
+	// Get event name and data
+	name := lua.LVAsString(l.GetField(eventTable, "name"))
+	if name == "" {
+		l.ArgError(2, "missing event name")
+		return 0
+	}
+
+	dataLV := l.GetField(eventTable, "data")
+	if dataLV == lua.LNil {
+		l.ArgError(2, "missing event data")
+		return 0
+	}
+
+	var data string
+	switch v := dataLV.(type) {
+	case lua.LString:
+		data = string(v)
+	case lua.LTable:
+		// todo: use transcode!
+		//jsonBytes, err := lua.JsonMarshal(l, v)
+		//if err != nil {
+		//l.Push(lua.LString(fmt.Sprintf("failed to marshal event data: %v", err)))
+		//			return 1
+		//}
+		//data = string(jsonBytes)
+	default:
+		data = lua.LVAsString(dataLV)
+	}
 
 	// Write SSE format
-	_, writeErr := fmt.Fprintf(resp.writer, "event: %s\ndata: %s\n\n", event, data)
+	_, writeErr := fmt.Fprintf(resp.writer, "event: %s\ndata: %s\n\n", name, data)
 	if writeErr != nil {
 		l.Push(lua.LString(fmt.Sprintf("event write error: %v", writeErr)))
 		return 1
 	}
 
-	// Flush if the response writer supports it
+	resp.headersSent = true
+
+	// Flush if supported
 	if f, ok := resp.writer.(basehttp.Flusher); ok {
 		f.Flush()
 	}
@@ -194,7 +292,9 @@ func newResponse(l *lua.LState) int {
 	// Create response userdata
 	ud := l.NewUserData()
 	ud.Value = &Response{
-		writer: reqCtx.ResponseWriter(),
+		writer:       reqCtx.ResponseWriter(),
+		headersSent:  false,
+		transferMode: "",
 	}
 
 	l.SetMetatable(ud, l.GetTypeMetatable("Response"))
