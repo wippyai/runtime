@@ -3,7 +3,6 @@ package router
 import (
 	"context"
 	"fmt"
-	contextapi "github.com/ponyruntime/pony/api/context"
 	"net/http"
 	"sync"
 	"sync/atomic"
@@ -19,7 +18,7 @@ const (
 
 // GetRouteInfo retrieves route information from the context
 func GetRouteInfo(ctx context.Context) (*config.RouteInfo, bool) {
-	info, ok := ctx.Value(contextapi.RouteInfoCtx).(*config.RouteInfo)
+	info, ok := ctx.Value(config.RouteCtx).(*config.RouteInfo)
 	return info, ok
 }
 
