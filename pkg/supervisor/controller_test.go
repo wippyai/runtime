@@ -537,7 +537,7 @@ func TestController_ServiceFailedRecovery(t *testing.T) {
 		// Lifecycle reached final failed state
 	case <-time.After(time.Second):
 		cancel()
-		t.Fatal("Timeout waiting for service to reach final failed state")
+		t.Fatal("timeout waiting for service to reach final failed state")
 	}
 
 	// Get state transitions before cleanup
@@ -768,7 +768,7 @@ func TestController_CancelDuringTransition(t *testing.T) {
 			t.Errorf("Expected 'supervisor is stopped' error, got: %v", err)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("Timeout waiting for transition error")
+		t.Fatal("timeout waiting for transition error")
 	}
 }
 

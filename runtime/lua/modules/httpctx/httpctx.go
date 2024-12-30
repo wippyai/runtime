@@ -10,7 +10,7 @@ type Module struct {
 	log *zap.Logger
 }
 
-// Method constants
+// Method constants as defined in spec
 var methodConstants = map[string]string{
 	"GET":     "GET",
 	"POST":    "POST",
@@ -21,18 +21,18 @@ var methodConstants = map[string]string{
 	"OPTIONS": "OPTIONS",
 }
 
-// Status code constants
+// Status code constants as defined in spec
 var statusConstants = map[string]int{
-	"OK":             200,
-	"CREATED":        201,
-	"NO_CONTENT":     204,
-	"BAD_REQUEST":    400,
-	"UNAUTHORIZED":   401,
-	"NOT_FOUND":      404,
-	"INTERNAL_ERROR": 500,
+	"OK":             200, // Success
+	"CREATED":        201, // Resource created
+	"NO_CONTENT":     204, // Success with no body
+	"BAD_REQUEST":    400, // Client error
+	"UNAUTHORIZED":   401, // Authentication required
+	"NOT_FOUND":      404, // Resource not found
+	"INTERNAL_ERROR": 500, // Server error
 }
 
-// Content type constants
+// Content type constants as defined in spec
 var contentConstants = map[string]string{
 	"JSON":      "application/json",
 	"FORM":      "application/x-www-form-urlencoded",
@@ -41,24 +41,26 @@ var contentConstants = map[string]string{
 	"STREAM":    "application/octet-stream",
 }
 
-// Transfer type constants
+// Transfer type constants as defined in spec
 var transferConstants = map[string]string{
-	"CHUNKED": "chunked",
-	"SSE":     "sse",
+	"CHUNKED": "chunked", // Chunked transfer encoding
+	"SSE":     "sse",     // Server-sent events
 }
 
-// Error type constants
+// Error type constants as defined in spec
 var errorConstants = map[string]string{
-	"PARSE_FAILED":  "PARSE_FAILED",
-	"INVALID_STATE": "INVALID_STATE",
-	"WRITE_FAILED":  "WRITE_FAILED",
-	"STREAM_ERROR":  "STREAM_ERROR",
+	"PARSE_FAILED":  "PARSE_FAILED",  // Body parsing failed
+	"INVALID_STATE": "INVALID_STATE", // Operation not valid in current state
+	"WRITE_FAILED":  "WRITE_FAILED",  // Response write failed
+	"STREAM_ERROR":  "STREAM_ERROR",  // Streaming operation failed
 }
 
+// NewHttpContext creates a new HTTP context module
 func NewHttpContext(log *zap.Logger) *Module {
 	return &Module{log: log}
 }
 
+// Name returns the module name
 func (m *Module) Name() string {
 	return "httpctx"
 }
@@ -71,6 +73,8 @@ func (m *Module) Loader(l *lua.LState) int {
 	// Register constants
 	m.registerConstants(l, mod)
 
+	RegisterStream(l, mod)
+
 	// Register Request type and methods
 	registerRequest(l, mod)
 
@@ -82,37 +86,37 @@ func (m *Module) Loader(l *lua.LState) int {
 	return 1
 }
 
-// registerConstants registers all constant tables
+// registerConstants registers all constant tables with explanatory comments
 func (m *Module) registerConstants(l *lua.LState, mod *lua.LTable) {
-	// METHOD table
+	// METHOD table - HTTP methods
 	methodTbl := l.NewTable()
 	for name, value := range methodConstants {
 		l.SetField(methodTbl, name, lua.LString(value))
 	}
 	l.SetField(mod, "METHOD", methodTbl)
 
-	// STATUS table
+	// STATUS table - HTTP status codes
 	statusTbl := l.NewTable()
 	for name, value := range statusConstants {
 		l.SetField(statusTbl, name, lua.LNumber(value))
 	}
 	l.SetField(mod, "STATUS", statusTbl)
 
-	// CONTENT table
+	// CONTENT table - Content types
 	contentTbl := l.NewTable()
 	for name, value := range contentConstants {
 		l.SetField(contentTbl, name, lua.LString(value))
 	}
 	l.SetField(mod, "CONTENT", contentTbl)
 
-	// TRANSFER table
+	// TRANSFER table - Transfer encoding types
 	transferTbl := l.NewTable()
 	for name, value := range transferConstants {
 		l.SetField(transferTbl, name, lua.LString(value))
 	}
 	l.SetField(mod, "TRANSFER", transferTbl)
 
-	// ERROR table
+	// ERROR table - Error types
 	errorTbl := l.NewTable()
 	for name, value := range errorConstants {
 		l.SetField(errorTbl, name, lua.LString(value))
