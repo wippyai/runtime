@@ -91,6 +91,8 @@ func main() {
 	defer func() { _ = exec.Stop() }()
 	// -- end of core function executor
 
+	ctx = context.WithValue(ctx, contextapi.ExecutorCtx, exec)
+
 	// -- lua lang and modules
 	lua := luaruntime.NewRuntimeManager(
 		bus, dtt, logger.Named("lua"),

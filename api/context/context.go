@@ -12,6 +12,7 @@ func (ck *Key) String() string {
 var (
 	BusCtx        = &Key{Name: "bus"}        //nolint:gochecknoglobals
 	TranscoderCtx = &Key{Name: "transcoder"} //nolint:gochecknoglobals
+	ExecutorCtx   = &Key{Name: "executor"}   //nolint:gochecknoglobals
 	LoggerCtx     = &Key{Name: "logger"}     //nolint:gochecknoglobals
 	ValuesCtx     = &Key{Name: "values"}     //nolint:gochecknoglobals
 )

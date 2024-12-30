@@ -2,10 +2,10 @@ package httpctx
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"github.com/ponyruntime/go-lua"
 	"github.com/ponyruntime/pony/api/service/http"
+	"github.com/ponyruntime/pony/runtime/lua/modules/json"
 	"io"
 	basehttp "net/http"
 	"strings"
@@ -49,13 +49,11 @@ func parseRequestOptions(l *lua.LState, idx int) RequestConfig {
 		return cfg
 	}
 
-	// Get timeout option
 	timeoutLV := l.GetField(opts, "timeout")
 	if timeout, ok := timeoutLV.(lua.LNumber); ok {
 		cfg.Timeout = int64(timeout)
 	}
 
-	// Get max_body option
 	maxBodyLV := l.GetField(opts, "max_body")
 	if maxBody, ok := maxBodyLV.(lua.LNumber); ok {
 		cfg.MaxBody = int64(maxBody)
@@ -66,152 +64,200 @@ func parseRequestOptions(l *lua.LState, idx int) RequestConfig {
 
 // Declare request methods map
 var requestMethods = map[string]lua.LGFunction{
-	"method":         requestMethod,
-	"path":           requestPath,
-	"query":          requestQuery,
-	"header":         requestHeader,
-	"content_type":   requestContentType,
-	"content_length": requestContentLength,
-	"host":           requestHost,
-	"remote_addr":    requestRemoteAddr,
-	"body":           requestBody,
-	"body_json":      requestBodyJSON,
-	"has_body":       requestHasBody,
-	"accepts":        requestAccepts,
+	"method":          requestMethod,
+	"path":            requestPath,
+	"query":           requestQuery,
+	"header":          requestHeader,
+	"content_type":    requestContentType,
+	"content_length":  requestContentLength,
+	"host":            requestHost,
+	"remote_addr":     requestRemoteAddr,
+	"body":            requestBody,
+	"body_json":       requestBodyJSON,
+	"has_body":        requestHasBody,
+	"accepts":         requestAccepts,
+	"is_content_type": requestIsContentType,
+	"stream_body":     requestStreamBody,
 }
 
 // requestMethod returns the HTTP method
 func requestMethod(l *lua.LState) int {
 	req, err := checkRequest(l, 1)
 	if err != nil {
-		l.ArgError(1, err.Error())
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
 	}
 
 	l.Push(lua.LString(req.request.Method))
-	return 1
+	l.Push(lua.LNil)
+	return 2
 }
 
 // requestPath returns the request path
 func requestPath(l *lua.LState) int {
 	req, err := checkRequest(l, 1)
 	if err != nil {
-		l.ArgError(1, err.Error())
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
 	}
 
 	l.Push(lua.LString(req.request.URL.Path))
-	return 1
+	l.Push(lua.LNil)
+	return 2
 }
 
 // requestQuery returns query parameters
 func requestQuery(l *lua.LState) int {
 	req, err := checkRequest(l, 1)
 	if err != nil {
-		l.ArgError(1, err.Error())
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
 	}
 
 	key := l.CheckString(2)
 	if key == "" {
-		l.ArgError(2, "query key cannot be empty")
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.LString("query key cannot be empty"))
+		return 2
 	}
 
 	values := req.request.URL.Query()[key]
 	if len(values) == 0 {
 		l.Push(lua.LNil)
-		return 1
+		l.Push(lua.LNil)
+		return 2
 	}
 
 	l.Push(lua.LString(values[0]))
-	return 1
+	l.Push(lua.LNil)
+	return 2
 }
 
 // requestHeader returns a request header value
 func requestHeader(l *lua.LState) int {
 	req, err := checkRequest(l, 1)
 	if err != nil {
-		l.ArgError(1, err.Error())
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
 	}
 
 	key := l.CheckString(2)
 	if key == "" {
-		l.ArgError(2, "header key cannot be empty")
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.LString("header key cannot be empty"))
+		return 2
 	}
 
 	value := req.request.Header.Get(key)
 	if value == "" {
 		l.Push(lua.LNil)
-		return 1
+		l.Push(lua.LNil)
+		return 2
 	}
 
 	l.Push(lua.LString(value))
-	return 1
+	l.Push(lua.LNil)
+	return 2
 }
 
 // requestContentType returns the Content-Type header
 func requestContentType(l *lua.LState) int {
 	req, err := checkRequest(l, 1)
 	if err != nil {
-		l.ArgError(1, err.Error())
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
 	}
 
 	contentType := req.request.Header.Get("Content-Type")
 	if contentType == "" {
 		l.Push(lua.LNil)
-		return 1
+		l.Push(lua.LNil)
+		return 2
 	}
 
 	l.Push(lua.LString(contentType))
-	return 1
+	l.Push(lua.LNil)
+	return 2
 }
 
 // requestContentLength returns the Content-Length as number
 func requestContentLength(l *lua.LState) int {
 	req, err := checkRequest(l, 1)
 	if err != nil {
-		l.ArgError(1, err.Error())
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
 	}
 
 	l.Push(lua.LNumber(req.request.ContentLength))
-	return 1
+	l.Push(lua.LNil)
+	return 2
+}
+
+// requestIsContentType checks if request has specific content type
+func requestIsContentType(l *lua.LState) int {
+	req, err := checkRequest(l, 1)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	expectedType := l.CheckString(2)
+	if expectedType == "" {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("content type cannot be empty"))
+		return 2
+	}
+
+	actualType := req.request.Header.Get("Content-Type")
+	isMatch := strings.HasPrefix(actualType, expectedType)
+
+	l.Push(lua.LBool(isMatch))
+	l.Push(lua.LNil)
+	return 2
 }
 
 // requestHost returns the request host
 func requestHost(l *lua.LState) int {
 	req, err := checkRequest(l, 1)
 	if err != nil {
-		l.ArgError(1, err.Error())
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
 	}
 
 	l.Push(lua.LString(req.request.Host))
-	return 1
+	l.Push(lua.LNil)
+	return 2
 }
 
 // requestRemoteAddr returns the remote address
 func requestRemoteAddr(l *lua.LState) int {
 	req, err := checkRequest(l, 1)
 	if err != nil {
-		l.ArgError(1, err.Error())
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
 	}
 
 	l.Push(lua.LString(req.request.RemoteAddr))
-	return 1
+	l.Push(lua.LNil)
+	return 2
 }
 
 // requestBody returns the raw request body
 func requestBody(l *lua.LState) int {
 	req, err := checkRequest(l, 1)
 	if err != nil {
-		l.ArgError(1, err.Error())
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
 	}
 
 	if req.request.Body == nil {
@@ -220,7 +266,6 @@ func requestBody(l *lua.LState) int {
 		return 2
 	}
 
-	// Check max body size if configured
 	if req.config.MaxBody > 0 && req.request.ContentLength > req.config.MaxBody {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("body size %d exceeds maximum allowed size %d",
@@ -228,7 +273,6 @@ func requestBody(l *lua.LState) int {
 		return 2
 	}
 
-	// If timeout is set, use a context with timeout
 	var body []byte
 	var readErr error
 
@@ -237,7 +281,6 @@ func requestBody(l *lua.LState) int {
 			time.Duration(req.config.Timeout)*time.Millisecond)
 		defer cancel()
 
-		// Create a channel for the read operation
 		bodyChan := make(chan []byte)
 		errChan := make(chan error)
 
@@ -250,7 +293,6 @@ func requestBody(l *lua.LState) int {
 			bodyChan <- b
 		}()
 
-		// Wait for either completion or timeout
 		select {
 		case body = <-bodyChan:
 		case readErr = <-errChan:
@@ -278,8 +320,9 @@ func requestBody(l *lua.LState) int {
 func requestBodyJSON(l *lua.LState) int {
 	req, err := checkRequest(l, 1)
 	if err != nil {
-		l.ArgError(1, err.Error())
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
 	}
 
 	if req.request.Body == nil {
@@ -297,15 +340,15 @@ func requestBodyJSON(l *lua.LState) int {
 		return 2
 	}
 
-	// Validate JSON
-	var js json.RawMessage
-	if jsonErr := json.Unmarshal(body, &js); jsonErr != nil {
+	// Parse JSON into Lua value
+	luaValue, err := json.Decode(l, body)
+	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("invalid JSON: %v", jsonErr)))
+		l.Push(lua.LString(fmt.Sprintf("invalid JSON: %v", err)))
 		return 2
 	}
 
-	l.Push(lua.LString(string(body)))
+	l.Push(luaValue)
 	l.Push(lua.LNil)
 	return 2
 }
@@ -314,47 +357,101 @@ func requestBodyJSON(l *lua.LState) int {
 func requestHasBody(l *lua.LState) int {
 	req, err := checkRequest(l, 1)
 	if err != nil {
-		l.ArgError(1, err.Error())
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
 	}
 
 	hasBody := req.request.Body != nil && req.request.ContentLength > 0
 	l.Push(lua.LBool(hasBody))
-	return 1
+	l.Push(lua.LNil)
+	return 2
 }
 
 // requestAccepts checks if request accepts a content type
 func requestAccepts(l *lua.LState) int {
 	req, err := checkRequest(l, 1)
 	if err != nil {
-		l.ArgError(1, err.Error())
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
 	}
 
 	contentType := l.CheckString(2)
 	if contentType == "" {
-		l.ArgError(2, "content type cannot be empty")
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.LString("content type cannot be empty"))
+		return 2
 	}
 
 	accept := req.request.Header.Get("Accept")
 	if accept == "" {
 		l.Push(lua.LBool(false))
-		return 1
+		l.Push(lua.LNil)
+		return 2
 	}
 
-	// Check if the Accept header contains the content type
 	accepts := strings.Split(accept, ",")
 	for _, a := range accepts {
 		a = strings.TrimSpace(a)
 		if a == contentType || a == "*/*" {
 			l.Push(lua.LBool(true))
-			return 1
+			l.Push(lua.LNil)
+			return 2
 		}
 	}
 
 	l.Push(lua.LBool(false))
-	return 1
+	l.Push(lua.LNil)
+	return 2
+}
+
+// requestStreamBody returns an iterator for streaming the request body
+func requestStreamBody(l *lua.LState) int {
+	req, err := checkRequest(l, 1)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	if req.request.Body == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("no body"))
+		return 2
+	}
+
+	// Create a buffer size that respects max_body if set
+	bufSize := int64(32 * 1024) // Default 32KB buffer
+	if req.config.MaxBody > 0 && req.config.MaxBody < bufSize {
+		bufSize = req.config.MaxBody
+	}
+
+	// Create and return closure function that reads chunks
+	l.Push(l.NewFunction(func(l *lua.LState) int {
+		buffer := make([]byte, bufSize)
+		n, err := req.request.Body.Read(buffer)
+
+		if err == io.EOF {
+			req.request.Body.Close()
+			l.Push(lua.LNil)
+			l.Push(lua.LNil)
+			return 2
+		}
+
+		if err != nil {
+			l.Push(lua.LNil)
+			l.Push(lua.LString(fmt.Sprintf("read error: %v", err)))
+			return 2
+		}
+
+		l.Push(lua.LString(string(buffer[:n])))
+		l.Push(lua.LNil)
+		return 2
+	}))
+
+	l.Push(lua.LNil)
+	return 2
 }
 
 // requestToString implements the __tostring metamethod for Request
@@ -381,21 +478,24 @@ func newRequest(l *lua.LState) int {
 	// Get HTTP context from Lua state context
 	ctx := l.Context()
 	if ctx == nil {
-		l.ArgError(1, "no context available")
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.LString("no context available"))
+		return 2
 	}
 
 	// Get HTTP request context
 	val := ctx.Value(http.RequestCtx)
 	if val == nil {
-		l.ArgError(1, "no HTTP request context found")
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.LString("no HTTP request context found"))
+		return 2
 	}
 
 	reqCtx, ok := val.(*http.RequestContext)
 	if !ok {
-		l.ArgError(1, "invalid HTTP request context type")
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.LString("invalid HTTP request context type"))
+		return 2
 	}
 
 	// Create request userdata with config
@@ -407,7 +507,8 @@ func newRequest(l *lua.LState) int {
 
 	l.SetMetatable(ud, l.GetTypeMetatable("Request"))
 	l.Push(ud)
-	return 1
+	l.Push(lua.LNil)
+	return 2
 }
 
 // registerRequest registers the Request type and its methods
