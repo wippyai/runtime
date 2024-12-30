@@ -3,6 +3,8 @@ package lua
 import (
 	"context"
 	"fmt"
+	"github.com/ponyruntime/go-lua"
+	contextapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/runtime"
 	config "github.com/ponyruntime/pony/api/runtime/lua"
 	"github.com/ponyruntime/pony/runtime/lua/pool"
@@ -109,7 +111,22 @@ func (m *RuntimeManager) Execute(task runtime.Task) (chan *runtime.Result, error
 		return nil, fmt.Errorf("handler is not a callable")
 	}
 
-	result, err := handler.Execute(task.Context, m.functions[task.Target].Method, nil)
+	args := make([]lua.LValue, 0)
+	if task.Payload != nil {
+		dtt, ok := task.Context.Value(contextapi.TranscoderCtx).(payload.Transcoder)
+		if !ok {
+			return nil, fmt.Errorf("transcoder not found")
+		}
+
+		data, err := dtt.Transcode(task.Payload, payload.Lua)
+		if err != nil {
+			return nil, fmt.Errorf("failed to transcode payload: %w", err)
+		}
+
+		args = append(args, data.(lua.LValue))
+	}
+
+	result, err := handler.Execute(task.Context, m.functions[task.Target].Method, args...)
 
 	resultChan := make(chan *runtime.Result, 1)
 	resultChan <- &runtime.Result{
