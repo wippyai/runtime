@@ -115,12 +115,21 @@ func responseWriteJSON(l *lua.LState) int {
 		return 0
 	}
 
+	// Get the Lua value to encode
+	luaValue := l.CheckAny(2)
+
+	// Encode Lua value to JSON
+	jsonData, err := json.Encode(luaValue)
+	if err != nil {
+		l.Push(lua.LString(fmt.Sprintf("JSON encode error: %v", err)))
+		return 1
+	}
+
 	if !resp.headersSent {
 		resp.writer.Header().Set("Content-Type", "application/json")
 	}
 
-	data := l.CheckString(2)
-	_, writeErr := resp.writer.Write([]byte(data))
+	_, writeErr := resp.writer.Write(jsonData)
 	if writeErr != nil {
 		l.Push(lua.LString(fmt.Sprintf("JSON write error: %v", writeErr)))
 		return 1

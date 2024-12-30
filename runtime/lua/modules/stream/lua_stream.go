@@ -1,11 +1,9 @@
-// lua.go
 package stream
 
 import (
 	"fmt"
-	"io"
-
 	"github.com/ponyruntime/go-lua"
+	"io"
 )
 
 // LuaStream wraps Stream for Lua
@@ -85,13 +83,8 @@ func streamIter(l *lua.LState) int {
 	l.Push(l.NewFunction(func(L *lua.LState) int {
 		data, err := s.ReadChunk()
 		if err != nil {
-			// On EOF, return nil which signals end of iteration
-			if err.Error() == "direct read error: EOF" || err == io.EOF {
-				return 0
-			}
-			// For other errors, raise them
-			L.RaiseError("stream read error: %v", err)
-			return 0
+			L.Push(lua.LNil)
+			return 1
 		}
 		L.Push(lua.LString(data))
 		return 1
