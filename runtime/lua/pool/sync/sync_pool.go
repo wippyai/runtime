@@ -84,7 +84,7 @@ func (p *Pool) init() error {
 	return nil
 }
 
-func (p *Pool) Execute(ctx context.Context, name string, args lua.LValue) (lua.LValue, error) {
+func (p *Pool) Execute(ctx context.Context, name string, args ...lua.LValue) (lua.LValue, error) {
 	select {
 	case <-p.done:
 		return nil, fmt.Errorf("pool is closed")
@@ -101,7 +101,7 @@ func (p *Pool) Execute(ctx context.Context, name string, args lua.LValue) (lua.L
 	case vm = <-p.vms:
 	}
 
-	result, err := vm.Execute(ctx, name, args)
+	result, err := vm.Execute(ctx, name, args...)
 
 	if err == nil {
 		select {

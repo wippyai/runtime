@@ -12,6 +12,6 @@ type (
 	}
 
 	Callable interface {
-		Execute(ctx context.Context, funcName string, args lua.LValue) (lua.LValue, error)
+		Execute(ctx context.Context, funcName string, args ...lua.LValue) (lua.LValue, error)
 	}
 )

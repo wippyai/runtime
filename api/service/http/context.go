@@ -22,6 +22,10 @@ type RequestContext struct {
 	w http.ResponseWriter
 }
 
+func NewRequestContext(r *http.Request, w http.ResponseWriter) *RequestContext {
+	return &RequestContext{r: r, w: w}
+}
+
 func (h *RequestContext) Request() *http.Request {
 	return h.r
 }

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"fmt"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
@@ -48,6 +49,9 @@ func (h *EndpointHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		h.handleError(w, err, statusCode)
 		return
 	}
+
+	// allows internal funcs to work with the request directly
+	task.Context = context.WithValue(task.Context, config.RequestCtx, config.NewRequestContext(r, w))
 
 	result, err := h.executeTask(task)
 	if err != nil {

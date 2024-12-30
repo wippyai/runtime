@@ -31,8 +31,8 @@ type ServerManager struct {
 
 // NewManager creates a new HTTP service instance
 func NewManager(
-	bus events.Bus,
-	dtt payload.Transcoder,
+	bus events.Bus, // todo: delete in favor of context
+	dtt payload.Transcoder, // todo: delete in favor of context
 	handler http.HandlerFunc,
 	logger *zap.Logger,
 ) *ServerManager {
@@ -188,6 +188,7 @@ func (s *ServerManager) deleteServer(ctx context.Context, entry registry.Entry) 
 		return fmt.Errorf("server %s not found", entry.ID)
 	}
 
+	// todo: move to bus context as well it's tests
 	s.bus.Send(ctx, events.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Remove,
