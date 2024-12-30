@@ -11,17 +11,15 @@ import (
 // Transcoder is the global instance of the json service.
 type Transcoder struct {
 	graph           *graph.Graph
-	transcoders     map[graph.Node]map[graph.Node]payload.FormatTranscoder // from -> to -> via transcoder
-	unmarshalers    map[graph.Node]payload.Unmarshaler                     // format -> unmarshaler
-	mutex           sync.RWMutex
-	unmarshalerPath map[graph.Node]*graph.Path // Cache for unmarshaler paths
+	transcoders     map[graph.Node]map[graph.Node]payload.FormatTranscoder
+	unmarshalers    map[graph.Node]payload.Unmarshaler
+	unmarshalerPath sync.Map // thread-safe cache for unmarshaler paths
+	transcodePath   sync.Map // thread-safe cache for transcoder paths
 }
 
-// globalTranscoder is the singleton instance of Transcoder.
 var globalTranscoder *Transcoder
 var once sync.Once
 
-// GlobalTranscoder returns the singleton instance of Transcoder.
 func GlobalTranscoder() *Transcoder {
 	once.Do(func() {
 		globalTranscoder = NewTranscoder()
@@ -31,18 +29,15 @@ func GlobalTranscoder() *Transcoder {
 
 func NewTranscoder() *Transcoder {
 	return &Transcoder{
-		graph:           graph.NewGraph(),
-		transcoders:     make(map[graph.Node]map[graph.Node]payload.FormatTranscoder),
-		unmarshalers:    make(map[graph.Node]payload.Unmarshaler),
-		unmarshalerPath: make(map[graph.Node]*graph.Path),
+		graph:        graph.NewGraph(),
+		transcoders:  make(map[graph.Node]map[graph.Node]payload.FormatTranscoder),
+		unmarshalers: make(map[graph.Node]payload.Unmarshaler),
 	}
 }
 
-// RegisterTranscoder registers a json for a specific format conversion.
+// RegisterTranscoder registers a transcoder for a specific format conversion.
+// Expected to be called only during initialization.
 func (t *Transcoder) RegisterTranscoder(from, to payload.Format, weight int, tt payload.FormatTranscoder) {
-	t.mutex.Lock()
-	defer t.mutex.Unlock()
-
 	fromNode := graph.Node(from)
 	toNode := graph.Node(to)
 
@@ -55,22 +50,34 @@ func (t *Transcoder) RegisterTranscoder(from, to payload.Format, weight int, tt 
 	}
 
 	t.transcoders[fromNode][toNode] = tt
-
-	// Invalidate unmarshaler path cache as the graph has changed
-	t.unmarshalerPath = make(map[graph.Node]*graph.Path)
 }
 
 // RegisterUnmarshaler registers an unmarshaler from a specific format.
+// Expected to be called only during initialization.
 func (t *Transcoder) RegisterUnmarshaler(from payload.Format, unmarshaler payload.Unmarshaler) {
-	t.mutex.Lock()
-	defer t.mutex.Unlock()
-
 	formatNode := graph.Node(from)
 	t.graph.AddNode(formatNode)
 	t.unmarshalers[formatNode] = unmarshaler
+}
 
-	// Invalidate unmarshaler path cache as the graph has changed
-	t.unmarshalerPath = make(map[graph.Node]*graph.Path)
+// getTranscodePath returns the cached path or computes and caches a new path
+func (t *Transcoder) getTranscodePath(from, to graph.Node) (*graph.Path, error) {
+	cacheKey := fmt.Sprintf("%s:%s", from, to)
+
+	// Fast path: check if path is already cached
+	if path, ok := t.transcodePath.Load(cacheKey); ok {
+		return path.(*graph.Path), nil
+	}
+
+	// Slow path: compute path and cache it
+	path, err := t.graph.ShortestPath(from, to)
+	if err != nil {
+		return nil, fmt.Errorf("no transcoding path found from %s to %s", from, to)
+	}
+
+	// Store computed path in cache
+	t.transcodePath.Store(cacheKey, path)
+	return path, nil
 }
 
 // Transcode transcodes a payload to a different format.
@@ -79,15 +86,12 @@ func (t *Transcoder) Transcode(p payload.Payload, to payload.Format) (payload.Pa
 		return p, nil
 	}
 
-	t.mutex.RLock()
-	defer t.mutex.RUnlock()
-
 	fromNode := graph.Node(p.Format())
 	toNode := graph.Node(to)
 
-	path, err := t.graph.ShortestPath(fromNode, toNode)
+	path, err := t.getTranscodePath(fromNode, toNode)
 	if err != nil {
-		return nil, fmt.Errorf("no transcoding path found from %s to %s", fromNode, toNode)
+		return nil, err
 	}
 
 	currentPayload := p
@@ -97,9 +101,10 @@ func (t *Transcoder) Transcode(p payload.Payload, to payload.Format) (payload.Pa
 
 		tt, ok := t.transcoders[currentFrom][currentTo]
 		if !ok || tt == nil {
-			return nil, fmt.Errorf("no json registered for %s to %s", currentFrom, currentTo)
+			return nil, fmt.Errorf("no transcoder registered for %s to %s", currentFrom, currentTo)
 		}
 
+		var err error
 		currentPayload, err = tt.Transcode(currentPayload)
 		if err != nil {
 			return nil, fmt.Errorf("error transcoding from %s to %s: %w", currentFrom, currentTo, err)
@@ -111,26 +116,12 @@ func (t *Transcoder) Transcode(p payload.Payload, to payload.Format) (payload.Pa
 
 // findUnmarshalPath finds the shortest path from a given format to a format that has an associated unmarshaler.
 func (t *Transcoder) findUnmarshalPath(from graph.Node) (*graph.Path, error) {
-	// 1. Check the cache with a read lock first.
-	t.mutex.RLock()
-	cachedPath, ok := t.unmarshalerPath[from]
-	t.mutex.RUnlock() // Release the read lock immediately.
-
-	if ok {
-		return cachedPath, nil
+	// Fast path: check if path is already cached
+	if path, ok := t.unmarshalerPath.Load(from); ok {
+		return path.(*graph.Path), nil
 	}
 
-	// 2. If not in the cache, acquire a write lock to search and potentially update the cache.
-	t.mutex.Lock()
-	defer t.mutex.Unlock()
-
-	// 3. Double-check the cache after acquiring the write lock (in case another goroutine updated it).
-	cachedPath, ok = t.unmarshalerPath[from]
-	if ok {
-		return cachedPath, nil
-	}
-
-	// 4. Search for the shortest path.
+	// Slow path: compute path
 	var unmarshalPath *graph.Path
 	minCost := -1
 
@@ -148,9 +139,8 @@ func (t *Transcoder) findUnmarshalPath(from graph.Node) (*graph.Path, error) {
 		return nil, fmt.Errorf("no unmarshaling path found for format %s", from)
 	}
 
-	// 5. Cache the path.
-	t.unmarshalerPath[from] = unmarshalPath
-
+	// Store computed path in cache
+	t.unmarshalerPath.Store(from, unmarshalPath)
 	return unmarshalPath, nil
 }
 
@@ -163,30 +153,24 @@ func (t *Transcoder) Unmarshal(p payload.Payload, v interface{}) error {
 	fromNode := graph.Node(p.Format())
 
 	// Check if the current format has a direct unmarshaler
-	t.mutex.RLock()
 	unmarshaler, ok := t.unmarshalers[fromNode]
-	t.mutex.RUnlock()
 	if ok {
 		return unmarshaler.Unmarshal(p, v)
 	}
-	// Find a path to a format with an unmarshaler
+
 	path, err := t.findUnmarshalPath(fromNode)
 	if err != nil {
 		return err
 	}
 
-	// Transcode to the unmarshaler format
 	transcodedPayload, err := t.Transcode(p, payload.Format(path.Nodes[len(path.Nodes)-1]))
 	if err != nil {
 		return fmt.Errorf("error transcoding payload for unmarshaling: %w", err)
 	}
 
-	// Unmarshal using the found unmarshaler
-	t.mutex.RLock()
 	unmarshaler, ok = t.unmarshalers[path.Nodes[len(path.Nodes)-1]]
-	t.mutex.RUnlock()
 	if !ok {
-		return fmt.Errorf("unmarshaler not found for format %s, even though a path was found", path.Nodes[len(path.Nodes)-1]) // Should not happen
+		return fmt.Errorf("unmarshaler not found for format %s, even though a path was found", path.Nodes[len(path.Nodes)-1])
 	}
 
 	return unmarshaler.Unmarshal(transcodedPayload, v)
