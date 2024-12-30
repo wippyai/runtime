@@ -78,6 +78,7 @@ func (h *EndpointHandler) createTask(r *http.Request, info *config.RouteInfo) (r
 		return runtime.Task{
 			Context: r.Context(),
 			Target:  registry.ID(info.Endpoint.Target),
+			Payload: payload.New("hello world"),
 		}, nil
 	}
 
