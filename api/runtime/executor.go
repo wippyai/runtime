@@ -25,9 +25,9 @@ type (
 	}
 
 	Task struct {
-		Context context.Context
-		Target  registry.ID
-		Payload payload.Payload
+		Context  context.Context
+		Target   registry.ID
+		Payloads []payload.Payload
 	}
 
 	Result struct {

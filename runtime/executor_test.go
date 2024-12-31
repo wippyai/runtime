@@ -122,16 +122,16 @@ func TestExecutor_Execute(t *testing.T) {
 				time.Sleep(1 * time.Millisecond)
 			},
 			task: runtime.Task{
-				Target:  "test.handler",
-				Payload: payload.New("test input"),
+				Target:   "test.handler",
+				Payloads: payload.New("test input"),
 			},
 			expectedValue: "success",
 		},
 		{
 			name: "handler not found",
 			task: runtime.Task{
-				Target:  "nonexistent.handler",
-				Payload: payload.New("test input"),
+				Target:   "nonexistent.handler",
+				Payloads: payload.New("test input"),
 			},
 			expectedErr: "no handler registered for target: nonexistent.handler",
 		},
@@ -152,8 +152,8 @@ func TestExecutor_Execute(t *testing.T) {
 				time.Sleep(1 * time.Millisecond)
 			},
 			task: runtime.Task{
-				Target:  "error.handler",
-				Payload: payload.New("test input"),
+				Target:   "error.handler",
+				Payloads: payload.New("test input"),
 			},
 			expectedErr: "handler error",
 		},
@@ -170,8 +170,8 @@ func TestExecutor_Execute(t *testing.T) {
 				time.Sleep(1 * time.Millisecond)
 			},
 			task: runtime.Task{
-				Target:  "invalid.handler",
-				Payload: payload.New("test input"),
+				Target:   "invalid.handler",
+				Payloads: payload.New("test input"),
 			},
 			expectedErr: "no handler registered for target",
 		},
@@ -250,8 +250,8 @@ func TestExecutor_ConcurrentHandlerRegistration(t *testing.T) {
 	for i := 0; i < numHandlers; i++ {
 		target := registry.ID(fmt.Sprintf("test.handler.%d", i))
 		resultChan, err := executor.Execute(runtime.Task{
-			Target:  target,
-			Payload: payload.New("test"),
+			Target:   target,
+			Payloads: payload.New("test"),
 		})
 		require.NoError(t, err)
 		_ = <-resultChan
