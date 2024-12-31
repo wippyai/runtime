@@ -57,6 +57,35 @@ func TestExecutorModule(t *testing.T) {
 		require.NoError(t, err)
 	})
 
+	t.Run("execution with context cancellation", func(t *testing.T) {
+		// Create a mock executor that waits before sending result
+		mockExec := &mockExecutor{
+			result: &runtime.Result{
+				Payload: payload.NewPayload("success", payload.Lua),
+				Error:   nil,
+			},
+		}
+
+		mod := New(logger)
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		require.NoError(t, err)
+		defer vm.Close()
+
+		// Create a context that's already cancelled
+		ctx, cancel := context.WithCancel(context.Background())
+		ctx = context.WithValue(ctx, contextapi.ExecutorCtx, mockExec)
+		cancel() // Cancel immediately
+
+		err = vm.DoString(ctx, `
+			local executor = require("executor")
+			local result, err = executor.call("test_function")
+			assert(result == nil)
+			assert(err == "execution cancelled")
+		`, "test_context_cancel")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "context canceled")
+	})
+
 	t.Run("execution with no args", func(t *testing.T) {
 		mockExec := &mockExecutor{
 			result: &runtime.Result{

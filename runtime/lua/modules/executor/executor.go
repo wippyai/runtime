@@ -87,7 +87,16 @@ func (m *Module) call(l *lua.LState) int {
 	}
 
 	// Handle synchronous execution
-	result := <-resultChan
+	var result *runtime.Result
+	select {
+	case r := <-resultChan:
+		result = r
+	case <-ctx.Done():
+		l.Push(lua.LNil)
+		l.Push(lua.LString("execution cancelled"))
+		return 2
+	}
+
 	if result.Error != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(result.Error.Error()))
