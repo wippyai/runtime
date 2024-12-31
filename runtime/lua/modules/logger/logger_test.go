@@ -214,7 +214,7 @@ func TestLoggerModule(t *testing.T) {
 		err = vm.DoString(nil, `
 			local logger = require("logger")
 			logger:error("operation failed", {
-				err_msg = "database connection failed",  -- Changed from 'error' to 'err_msg'
+				error = "database connection failed",  -- Changed from 'error' to 'err_msg'
 				operation = "db_connect"
 			})
 		`, "test")
@@ -224,7 +224,7 @@ func TestLoggerModule(t *testing.T) {
 		require.Len(t, entries, 1)
 		entry := entries[0]
 		assert.Equal(t, "operation failed", entry.Message)
-		assert.Equal(t, "database connection failed", entry.ContextMap()["err_msg"])
+		assert.Equal(t, "database connection failed", entry.ContextMap()["error"])
 		assert.Equal(t, "db_connect", entry.ContextMap()["operation"])
 	})
 }
