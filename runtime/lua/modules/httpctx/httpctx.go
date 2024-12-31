@@ -75,7 +75,7 @@ func (m *Module) Loader(l *lua.LState) int {
 	m.registerConstants(l, mod)
 
 	// helper class is always needed
-	stream.RegisterStream(l, mod)
+	stream.RegisterStream(l)
 
 	// Register Request type and methods
 	registerRequest(l, mod)
