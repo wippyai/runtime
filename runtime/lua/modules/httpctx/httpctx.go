@@ -56,8 +56,8 @@ var errorConstants = map[string]string{
 	"STREAM_ERROR":  "STREAM_ERROR",  // Streaming operation failed
 }
 
-// NewHttpContext creates a new HTTP context module
-func NewHttpContext(log *zap.Logger) *Module {
+// NewHTTPContextModule creates a new HTTP context module
+func NewHTTPContextModule(log *zap.Logger) *Module {
 	return &Module{log: log}
 }
 

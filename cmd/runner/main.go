@@ -21,7 +21,9 @@ import (
 	luaruntime "github.com/ponyruntime/pony/runtime/lua"
 	b64mlib "github.com/ponyruntime/pony/runtime/lua/modules/base64"
 	httplib "github.com/ponyruntime/pony/runtime/lua/modules/http"
+	"github.com/ponyruntime/pony/runtime/lua/modules/httpctx"
 	jsonlib "github.com/ponyruntime/pony/runtime/lua/modules/json"
+	logglib "github.com/ponyruntime/pony/runtime/lua/modules/logger"
 	timelib "github.com/ponyruntime/pony/runtime/lua/modules/time"
 	"github.com/ponyruntime/pony/service/http"
 	"go.uber.org/zap"
@@ -97,11 +99,12 @@ func main() {
 	lua := luaruntime.NewRuntimeManager(
 		bus, dtt, logger.Named("lua"),
 		timelib.NewTimeModule(),
+		logglib.NewLoggerModule(logger.Named("app")),
 		b64mlib.NewBase64Module(),
 		jsonlib.NewJsonModule(),
 		httplib.NewHTTPModule(httpbase.DefaultClient, logger.Named("http")),
+		httpctx.NewHTTPContextModule(logger.Named("http")),
 	)
-	//nop := noop.NewNoopRuntime(bus, logger.Named("noop"))
 	// -- end of lua lang and modules
 
 	// -- configuration bus
