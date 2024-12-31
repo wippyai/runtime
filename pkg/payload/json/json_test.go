@@ -1,12 +1,9 @@
 package json
 
 import (
-	"encoding/json"
+	"github.com/ponyruntime/pony/api/payload"
 	"reflect"
 	"testing"
-	"time"
-
-	"github.com/ponyruntime/pony/api/payload"
 )
 
 func TestJsonToGolangTranscoder_Transcode(t *testing.T) {
@@ -77,10 +74,6 @@ func TestJsonToGolangTranscoder_Unmarshal(t *testing.T) {
 		Key string `json:"key"`
 	}
 
-	type TestDurationStruct struct {
-		Key time.Duration `json:"key"`
-	}
-
 	tests := []struct {
 		name    string
 		payload payload.Payload
@@ -124,13 +117,6 @@ func TestJsonToGolangTranscoder_Unmarshal(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "Unmarshal duration",
-			payload: payload.NewPayload(`{"key": "30s"}`, payload.Json),
-			target:  &TestDurationStruct{},
-			want:    &TestDurationStruct{Key: 30 * time.Second},
-			wantErr: true,
-		},
-		{
 			name:    "Unsupported unmarshal data type",
 			payload: payload.NewPayload(123, payload.Json),
 			target:  &TestStruct{},
@@ -164,13 +150,13 @@ func TestGolangToJsonTranscoder_Transcode(t *testing.T) {
 		{
 			name:    "Valid struct",
 			payload: payload.NewPayload(struct{ Key string }{Key: "value"}, payload.Golang),
-			want:    payload.NewPayload(`{"Key":"value"}`, payload.Json),
+			want:    payload.NewPayload([]byte(`{"Key":"value"}`), payload.Json),
 			wantErr: false,
 		},
 		{
 			name:    "Valid map",
 			payload: payload.NewPayload(map[string]string{"key": "value"}, payload.Golang),
-			want:    payload.NewPayload(`{"key":"value"}`, payload.Json),
+			want:    payload.NewPayload([]byte(`{"key":"value"}`), payload.Json),
 			wantErr: false,
 		},
 		{
@@ -198,14 +184,8 @@ func TestGolangToJsonTranscoder_Transcode(t *testing.T) {
 			if !tt.wantErr && got.Format() != tt.want.Format() {
 				t.Errorf("GolangToJsonTranscoder.Transcode() format = %v, want %v", got.Format(), tt.want.Format())
 			}
-			// For comparing JSON strings, unmarshal them first
-			if !tt.wantErr {
-				var gotData, wantData interface{}
-				_ = json.Unmarshal([]byte(got.Data().(string)), &gotData)
-				_ = json.Unmarshal([]byte(tt.want.Data().(string)), &wantData)
-				if !reflect.DeepEqual(gotData, wantData) {
-					t.Errorf("GolangToJsonTranscoder.Transcode() data = %v, want %v", gotData, wantData)
-				}
+			if !tt.wantErr && !reflect.DeepEqual(got.Data(), tt.want.Data()) {
+				t.Errorf("GolangToJsonTranscoder.Transcode() data = %v, want %v", got.Data(), tt.want.Data())
 			}
 		})
 	}

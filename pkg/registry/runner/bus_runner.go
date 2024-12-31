@@ -82,6 +82,11 @@ func (br *BusRunner) Transition(
 }
 
 func (br *BusRunner) applyOperation(ctx context.Context, state stateMap, op registry.Operation) (stateMap, error) {
+	// todo: uncomment and properly test
+	//if err := br.stateHelper.validateOperation(state, op); err != nil {
+	//	return state, fmt.Errorf("invalid operation: %w", err)
+	//}
+
 	// Send the operation event
 	br.bus.Send(ctx, events.Event{
 		System: registry.System,

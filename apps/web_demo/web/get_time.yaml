@@ -12,4 +12,5 @@ meta:
 # Endpoint configuration
 method: GET
 path: /time
-target: functions.http_time
+target: functions.local_time_func
+json_output: true

@@ -262,7 +262,7 @@ func TestUnsubscribeClosesChannel(t *testing.T) {
 			t.Error("Channel should be closed after unsubscribe")
 		}
 	case <-time.After(time.Millisecond * 100):
-		t.Error("Timeout waiting for channel closure")
+		t.Error("timeout waiting for channel closure")
 	}
 }
 

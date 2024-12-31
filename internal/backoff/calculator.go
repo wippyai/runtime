@@ -66,7 +66,7 @@ func (b *Calculator) Reset() {
 	b.baseBackoff = b.policy.InitialDelay
 }
 
-// hasRemainingAttempts is an internal helper that checks if retries are available.
+// hasRemainingAttempts is an helpers helper that checks if retries are available.
 func (b *Calculator) hasRemainingAttempts() bool {
 	return b.attempt < b.policy.MaxAttempts
 }

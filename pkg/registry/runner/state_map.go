@@ -8,7 +8,7 @@ import (
 	"github.com/ponyruntime/pony/api/registry"
 )
 
-// stateMap is an internal representation of the state using a map for faster lookups.
+// stateMap is an helpers representation of the state using a map for faster lookups.
 type stateMap map[registry.ID]registry.Entry
 
 // stateHelper encapsulates state-related operations.
@@ -98,4 +98,20 @@ func (sh *stateHelper) getInverseOperation(state stateMap, op registry.Operation
 	default:
 		return registry.Operation{}, fmt.Errorf("unknown operation kind: %s", op.Kind)
 	}
+}
+
+func (sh *stateHelper) validateOperation(state stateMap, op registry.Operation) error {
+	switch op.Kind {
+	case registry.Create:
+		if _, exists := state[op.Entry.ID]; exists {
+			return fmt.Errorf("entry already exists: %s", op.Entry.ID)
+		}
+
+	case registry.Update, registry.Delete:
+		if _, exists := state[op.Entry.ID]; !exists {
+			return fmt.Errorf("entry does not exist: %s", op.Entry.ID)
+		}
+	}
+
+	return nil
 }

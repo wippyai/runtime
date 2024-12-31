@@ -2,25 +2,21 @@
 package context
 
 type Key struct {
-	name string
+	Name string
 }
 
 func (ck *Key) String() string {
-	return ck.name
+	return ck.Name
 }
 
 var (
-	// todo: how can we declare context keys outside of this file?
-	LoggerKey      = &Key{name: "logger"}      //nolint:gochecknoglobals
-	CfgFilenameKey = &Key{name: "cfgfilename"} //nolint:gochecknoglobals
-	// TODO: rename
-	ContexterKey   = &Key{name: "contexter"}   //nolint:gochecknoglobals
-	HttpHandlerKey = &Key{name: "httpHandler"} //nolint:gochecknoglobals
-	RouteInfoCtx   = &Key{name: "routeInfo"}   //nolint:gochecknoglobals
-	RequestCtx     = &Key{name: "httpRequest"} //nolint:gochecknoglobals
+	BusCtx        = &Key{Name: "bus"}        //nolint:gochecknoglobals
+	TranscoderCtx = &Key{Name: "transcoder"} //nolint:gochecknoglobals
+	ExecutorCtx   = &Key{Name: "executor"}   //nolint:gochecknoglobals
+	LoggerCtx     = &Key{Name: "logger"}     //nolint:gochecknoglobals
+	ValuesCtx     = &Key{Name: "values"}     //nolint:gochecknoglobals
 )
 
-// TODO: rename
 type Contexter[T any] struct {
 	shared map[string]T
 }
