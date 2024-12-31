@@ -230,7 +230,6 @@ func TestHttpHandler_Integration(t *testing.T) {
 		err = vm.DoString(ctx, script, "test")
 		assert.NoError(t, err)
 
-		// Verify SSE response
 		assert.Equal(t, httpbase.StatusOK, recorder.Code)
 		assert.Equal(t, "text/event-stream", recorder.Header().Get("Content-Type"))
 		assert.Equal(t, "no-cache", recorder.Header().Get("Cache-Control"))
