@@ -112,13 +112,13 @@ func (m *RuntimeManager) Execute(task runtime.Task) (chan *runtime.Result, error
 	}
 
 	args := make([]lua.LValue, 0)
-	if task.Payload != nil {
+	if task.Payloads != nil {
 		dtt, ok := task.Context.Value(contextapi.TranscoderCtx).(payload.Transcoder)
 		if !ok {
 			return nil, fmt.Errorf("transcoder not found in context")
 		}
 
-		local, err := dtt.Transcode(task.Payload, payload.Lua)
+		local, err := dtt.Transcode(task.Payloads, payload.Lua)
 		if err != nil {
 			return nil, fmt.Errorf("failed to transcode payload: %w", err)
 		}
@@ -126,8 +126,10 @@ func (m *RuntimeManager) Execute(task runtime.Task) (chan *runtime.Result, error
 		args = append(args, local.Data().(lua.LValue))
 	}
 
-	// clean up all dangling references
-	ctx, cancel := context.WithCancel(task.Context)
+	// to clean up all dangling references
+	ctx, cancel := context.WithCancel(
+		context.WithValue(task.Context, "function", task.Target),
+	)
 	defer cancel()
 
 	result, err := handler.Execute(ctx, m.functions[task.Target].Method, args...)
