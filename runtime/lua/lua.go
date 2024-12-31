@@ -126,7 +126,11 @@ func (m *RuntimeManager) Execute(task runtime.Task) (chan *runtime.Result, error
 		args = append(args, local.Data().(lua.LValue))
 	}
 
-	result, err := handler.Execute(task.Context, m.functions[task.Target].Method, args...)
+	// clean up all dangling references
+	ctx, cancel := context.WithCancel(task.Context)
+	defer cancel()
+
+	result, err := handler.Execute(ctx, m.functions[task.Target].Method, args...)
 
 	resultChan := make(chan *runtime.Result, 1)
 	resultChan <- &runtime.Result{
