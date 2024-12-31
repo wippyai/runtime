@@ -123,7 +123,7 @@ func TestExecutor_Execute(t *testing.T) {
 			},
 			task: runtime.Task{
 				Target:   "test.handler",
-				Payloads: payload.New("test input"),
+				Payloads: []payload.Payload{payload.New("test input")},
 			},
 			expectedValue: "success",
 		},
@@ -131,7 +131,7 @@ func TestExecutor_Execute(t *testing.T) {
 			name: "handler not found",
 			task: runtime.Task{
 				Target:   "nonexistent.handler",
-				Payloads: payload.New("test input"),
+				Payloads: []payload.Payload{payload.New("test input")},
 			},
 			expectedErr: "no handler registered for target: nonexistent.handler",
 		},
@@ -153,7 +153,7 @@ func TestExecutor_Execute(t *testing.T) {
 			},
 			task: runtime.Task{
 				Target:   "error.handler",
-				Payloads: payload.New("test input"),
+				Payloads: []payload.Payload{payload.New("test input")},
 			},
 			expectedErr: "handler error",
 		},
@@ -171,7 +171,7 @@ func TestExecutor_Execute(t *testing.T) {
 			},
 			task: runtime.Task{
 				Target:   "invalid.handler",
-				Payloads: payload.New("test input"),
+				Payloads: []payload.Payload{payload.New("test input")},
 			},
 			expectedErr: "no handler registered for target",
 		},
@@ -251,7 +251,7 @@ func TestExecutor_ConcurrentHandlerRegistration(t *testing.T) {
 		target := registry.ID(fmt.Sprintf("test.handler.%d", i))
 		resultChan, err := executor.Execute(runtime.Task{
 			Target:   target,
-			Payloads: payload.New("test"),
+			Payloads: []payload.Payload{payload.New("test")},
 		})
 		require.NoError(t, err)
 		_ = <-resultChan

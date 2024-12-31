@@ -11,6 +11,8 @@ import (
 	transcode "github.com/ponyruntime/pony/pkg/payload/lua"
 )
 
+// todo: we might need some whitelist of what can actually be called from Lua
+
 type Module struct {
 	appContext context.Context
 }
@@ -92,28 +94,29 @@ func (m *Module) new(l *lua.LState) int {
 }
 
 func (m *Module) globalCall(l *lua.LState) int {
-	exec, dtt, err := m.extractDependencies(l)
+	executor, err := m.makeExecutor(l)
 	if err != nil {
 		l.RaiseError(err.Error())
 		return 0
-	}
-
-	executor := &Executor{
-		dtt:           dtt,
-		exec:          exec,
-		appContext:    m.appContext,
-		threadContext: l.Context(),
-		contextValues: make(map[string]interface{}),
 	}
 
 	return executor.handleCall(l)
 }
 
 func (m *Module) globalRun(l *lua.LState) int {
-	exec, dtt, err := m.extractDependencies(l)
+	executor, err := m.makeExecutor(l)
 	if err != nil {
 		l.RaiseError(err.Error())
 		return 0
+	}
+
+	return executor.handleRun(l)
+}
+
+func (m *Module) makeExecutor(l *lua.LState) (*Executor, error) {
+	exec, dtt, err := m.extractDependencies(l)
+	if err != nil {
+		return nil, err
 	}
 
 	executor := &Executor{
@@ -124,7 +127,7 @@ func (m *Module) globalRun(l *lua.LState) int {
 		contextValues: make(map[string]interface{}),
 	}
 
-	return executor.handleRun(l)
+	return executor, nil
 }
 
 func (m *Module) withContext(l *lua.LState) int {
@@ -141,7 +144,7 @@ func (m *Module) withContext(l *lua.LState) int {
 	ctxTable.ForEach(func(k, v lua.LValue) {
 		key, ok := k.(lua.LString)
 		if !ok {
-			l.RaiseError("context keys must be strings")
+			l.ArgError(2, "context keys must be strings")
 			return
 		}
 		executor.contextValues[string(key)] = transcode.ToGoAny(v)
@@ -172,27 +175,11 @@ func (m *Module) run(l *lua.LState) int {
 }
 
 func (e *Executor) handleCall(l *lua.LState) int {
-	taskCtx := e.threadContext
-	if len(e.contextValues) > 0 {
-		for k, v := range e.contextValues {
-			taskCtx = context.WithValue(taskCtx, k, v)
-		}
-	}
-
-	task := e.createTask(l, taskCtx)
-	return e.executeSync(l, task)
+	return e.executeSync(l, e.createTask(l, e.threadContext))
 }
 
 func (e *Executor) handleRun(l *lua.LState) int {
-	taskCtx := e.appContext
-	if len(e.contextValues) > 0 {
-		for k, v := range e.contextValues {
-			taskCtx = context.WithValue(taskCtx, k, v)
-		}
-	}
-
-	task := e.createTask(l, taskCtx)
-	return e.executeAsync(l, task)
+	return e.executeAsync(l, e.createTask(l, e.appContext))
 }
 
 func (e *Executor) createTask(l *lua.LState, ctx context.Context) runtime.Task {
@@ -204,6 +191,12 @@ func (e *Executor) createTask(l *lua.LState, ctx context.Context) runtime.Task {
 	target := l.CheckString(targetIndex)
 	if target == "" {
 		l.RaiseError("target name is required")
+	}
+
+	if len(e.contextValues) > 0 {
+		for k, v := range e.contextValues {
+			ctx = context.WithValue(ctx, k, v)
+		}
 	}
 
 	var payloads []payload.Payload
