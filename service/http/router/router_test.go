@@ -77,7 +77,7 @@ func TestRouterComposition(t *testing.T) {
 		}{
 			{"router1", "/api/v1"},
 			{"router2", "/api/v2"},
-			{"router3", "/internal"},
+			{"router3", "/helpers"},
 		}
 
 		for _, r := range routers {
@@ -106,7 +106,7 @@ func TestRouterComposition(t *testing.T) {
 		}{
 			{"/api/v1/supervisor", "router1"},
 			{"/api/v2/supervisor", "router2"},
-			{"/internal/supervisor", "router3"},
+			{"/helpers/supervisor", "router3"},
 		}
 
 		for _, tt := range tests {

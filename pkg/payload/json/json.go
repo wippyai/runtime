@@ -77,5 +77,5 @@ func (t *FromGolang) Transcode(p payload.Payload) (payload.Payload, error) {
 		return nil, fmt.Errorf("failed to marshal to JSON: %w", err)
 	}
 
-	return payload.NewPayload(string(jsonData), payload.Json), nil
+	return payload.NewPayload(jsonData, payload.Json), nil
 }

@@ -10,13 +10,11 @@ func BenchmarkContext(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		ctx = context.WithValue(ctx, LoggerKey, "logger")
-		ctx = context.WithValue(ctx, CfgFilenameKey, "cfgfilename")
+		ctx = context.WithValue(ctx, LoggerCtx, "logger")
 
-		val1 := ctx.Value(LoggerKey)
-		val2 := ctx.Value(CfgFilenameKey)
+		val1 := ctx.Value(LoggerCtx)
 
-		if val1 != "logger" || val2 != "cfgfilename" {
+		if val1 != "logger" {
 			b.Fail()
 		}
 	}
@@ -27,18 +25,15 @@ func BenchmarkRegularKey(b *testing.B) {
 
 	type key int
 	const uniq1 key = 1
-	const uniq2 key = 2
 
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
 		ctx = context.WithValue(ctx, uniq1, "logger")
-		ctx = context.WithValue(ctx, uniq2, "cfgfilename")
 
 		val1 := ctx.Value(uniq1)
-		val2 := ctx.Value(uniq2)
 
-		if val1 != "logger" || val2 != "cfgfilename" {
+		if val1 != "logger" {
 			b.Fail()
 		}
 	}

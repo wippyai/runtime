@@ -1,11 +1,14 @@
 package http
 
 import (
+	"github.com/ponyruntime/pony/api/context"
 	"net/http"
 )
 
-// todo: merge with main context?
-// todo: migrate http context in here?
+var (
+	RequestCtx = &context.Key{Name: "http.request"} //nolint:gochecknoglobals
+	RouteCtx   = &context.Key{Name: "http.route"}   //nolint:gochecknoglobals
+)
 
 type RouteInfo struct {
 	Params     map[string]string
@@ -14,11 +17,13 @@ type RouteInfo struct {
 	EndpointID string
 }
 
-// ----- this is module specific part
-
 type RequestContext struct {
 	r *http.Request
 	w http.ResponseWriter
+}
+
+func NewRequestContext(r *http.Request, w http.ResponseWriter) *RequestContext {
+	return &RequestContext{r: r, w: w}
 }
 
 func (h *RequestContext) Request() *http.Request {

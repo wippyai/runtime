@@ -78,6 +78,7 @@ func (s *Server) Start(ctx context.Context) (<-chan any, error) {
 		ReadTimeout:  s.config.Timeouts.ReadTimeout, // todo: remove nested one?
 		WriteTimeout: s.config.Timeouts.WriteTimeout,
 		IdleTimeout:  s.config.Timeouts.IdleTimeout,
+		BaseContext:  func(listener net.Listener) context.Context { return ctx },
 	}
 	s.server.RegisterOnShutdown(func() {
 		close(s.statusChan)

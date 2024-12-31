@@ -7,25 +7,53 @@ import (
 	"github.com/ponyruntime/go-lua"
 )
 
-// Loader is the module loader function.
-func Loader(l *lua.LState) int {
+var (
+	errNested      = errors.New("cannot encode recursively nested tables to JSON")
+	errSparseArray = errors.New("cannot encode sparse array")
+	errInvalidKeys = errors.New("cannot encode mixed or invalid key types")
+)
+
+type Module struct{}
+
+// NewJsonModule creates a new JSON module.
+func NewJsonModule() *Module {
+	return &Module{}
+}
+
+// Name returns the module name.
+func (m *Module) Name() string {
+	return "json"
+}
+
+// Loader registers the module's functions into Lua state.
+func (m *Module) Loader(l *lua.LState) int {
 	t := l.NewTable()
-
-	api := map[string]lua.LGFunction{
-		"decode": apiDecode,
-		"encode": apiEncode,
-	}
-
-	l.SetFuncs(t, api)
+	l.SetFuncs(t, map[string]lua.LGFunction{
+		"decode": m.decode,
+		"encode": m.encode,
+	})
 	l.Push(t)
 	return 1
 }
 
-func apiDecode(l *lua.LState) int {
-	str := l.CheckString(1)
+// decode decodes JSON string to Lua value with input validation.
+func (*Module) decode(l *lua.LState) int {
+	// Input validation errors - use ArgError
+	if l.Get(1).Type() != lua.LTString {
+		l.ArgError(1, "string expected")
+		return 0
+	}
+
+	str := l.ToString(1)
+	// Empty string is not valid JSON
+	if str == "" {
+		l.ArgError(1, "empty string is not valid JSON")
+		return 0
+	}
 
 	value, err := Decode(l, []byte(str))
 	if err != nil {
+		// JSON processing errors - return nil and error
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
 		return 2
@@ -34,25 +62,25 @@ func apiDecode(l *lua.LState) int {
 	return 1
 }
 
-func apiEncode(l *lua.LState) int {
-	value := l.CheckAny(1)
+// encode encodes Lua value to JSON string with input validation.
+func (*Module) encode(l *lua.LState) int {
+	// Input validation errors - use ArgError
+	if l.Get(1) == nil {
+		l.ArgError(1, "value expected")
+		return 0
+	}
 
+	value := l.Get(1)
 	data, err := Encode(value)
 	if err != nil {
+		// JSON processing errors - return nil and error
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
 		return 2
 	}
 	l.Push(lua.LString(data))
-
 	return 1
 }
-
-var (
-	errNested      = errors.New("cannot encode recursively nested tables to JSON")
-	errSparseArray = errors.New("cannot encode sparse array")
-	errInvalidKeys = errors.New("cannot encode mixed or invalid key types")
-)
 
 type invalidTypeError lua.LValueType
 
@@ -92,7 +120,7 @@ func (j jsonValue) MarshalJSON() ([]byte, error) {
 		key, value := converted.Next(lua.LNil)
 
 		switch key.Type() {
-		case lua.LTNil: // empty table
+		case lua.LTNil:
 			return []byte(`[]`), nil
 		case lua.LTNumber:
 			arr := make([]jsonValue, 0, converted.Len())
@@ -108,7 +136,6 @@ func (j jsonValue) MarshalJSON() ([]byte, error) {
 				expectedKey++
 				key, value = converted.Next(key)
 			}
-
 			return json.Marshal(arr)
 		case lua.LTString:
 			obj := make(map[string]jsonValue)
@@ -120,9 +147,6 @@ func (j jsonValue) MarshalJSON() ([]byte, error) {
 				key, value = converted.Next(key)
 			}
 			return json.Marshal(obj)
-
-		case lua.LTBool, lua.LTFunction, lua.LTUserData, lua.LTThread, lua.LTTable, lua.LTChannel:
-			return nil, errInvalidKeys
 		default:
 			return nil, errInvalidKeys
 		}
@@ -131,7 +155,7 @@ func (j jsonValue) MarshalJSON() ([]byte, error) {
 	}
 }
 
-// Decode converts the JSON encoded data to Lua values.
+// Decode converts JSON encoded data to Lua values.
 func Decode(l *lua.LState, data []byte) (lua.LValue, error) {
 	var value any
 	err := json.Unmarshal(data, &value)
@@ -141,10 +165,7 @@ func Decode(l *lua.LState, data []byte) (lua.LValue, error) {
 	return DecodeValue(l, value), nil
 }
 
-// DecodeValue converts the value to a Lua value.
-//
-// This function only converts values that the encoding/json package decodes to.
-// All other values will return lua.LNil.
+// DecodeValue converts Go value to Lua value.
 func DecodeValue(l *lua.LState, value any) lua.LValue {
 	switch converted := value.(type) {
 	case bool:
@@ -170,6 +191,5 @@ func DecodeValue(l *lua.LState, value any) lua.LValue {
 	case nil:
 		return lua.LNil
 	}
-
 	return lua.LNil
 }

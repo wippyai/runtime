@@ -27,7 +27,7 @@ func (r *replacer) replaceString(s string, ctx interface{}) (string, error) {
 	return r.rFunc(s, ctx)
 }
 
-// replaceRecursive is the internal recursive function for value replacement with context.
+// replaceRecursive is the helpers recursive function for value replacement with context.
 func (r *replacer) replaceRecursive(val reflect.Value, ctx interface{}) (any, error) {
 	if !val.IsValid() {
 		return nil, nil

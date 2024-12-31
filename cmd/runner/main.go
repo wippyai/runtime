@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	contextapi "github.com/ponyruntime/pony/api/context"
 	regapi "github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/pkg/eventbus"
 	transcoder "github.com/ponyruntime/pony/pkg/payload"
@@ -13,13 +14,20 @@ import (
 	"github.com/ponyruntime/pony/pkg/registry"
 	"github.com/ponyruntime/pony/pkg/registry/history"
 	"github.com/ponyruntime/pony/pkg/registry/loader"
+	services "github.com/ponyruntime/pony/pkg/registry/router"
 	"github.com/ponyruntime/pony/pkg/registry/runner"
 	"github.com/ponyruntime/pony/pkg/supervisor"
 	"github.com/ponyruntime/pony/runtime"
+	luaruntime "github.com/ponyruntime/pony/runtime/lua"
+	b64mlib "github.com/ponyruntime/pony/runtime/lua/modules/base64"
+	httplib "github.com/ponyruntime/pony/runtime/lua/modules/http"
+	jsonlib "github.com/ponyruntime/pony/runtime/lua/modules/json"
+	timelib "github.com/ponyruntime/pony/runtime/lua/modules/time"
 	"github.com/ponyruntime/pony/service/http"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"hash/fnv"
+	httpbase "net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -39,10 +47,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// application service supervisor
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	logger := initLogger(*verbose, *veryVerbose)
 	if logger == nil {
 		fmt.Println("Failed to initialize logger")
@@ -50,71 +54,86 @@ func main() {
 	}
 	defer logger.Sync()
 
-	dtt := transcoder.NewTranscoder()
+	mainLogger := logger.Named("main")
+
+	dtt := transcoder.GlobalTranscoder()
 	json.Register(dtt)
 	yaml.Register(dtt)
 	lua.Register(dtt)
 
-	folderPath := args[0]
-	namespace := ""
-	if len(args) > 1 {
-		namespace = args[1]
-	}
+	bus := eventbus.NewBus(logger.Named("events")) // main configuration bus
 
-	folderLoader := loader.NewFolderLoader(dtt, logger.Named("loader"))
-	vars := loader.Variables{}
-	for _, env := range os.Environ() {
-		pair := strings.SplitN(env, "=", 2)
-		vars[pair[0]] = pair[1]
-	}
+	// application service supervisor
+	ctx, cancel := context.WithCancel(context.Background())
+	ctx = context.WithValue(ctx, contextapi.LoggerCtx, mainLogger)
+	ctx = context.WithValue(ctx, contextapi.TranscoderCtx, dtt)
+	ctx = context.WithValue(ctx, contextapi.BusCtx, bus)
+	defer cancel()
 
-	state := registry.NewStateBuilder(logger.Named("builder"))     // state builder
-	entries, err := folderLoader.Load(folderPath, namespace, vars) // Pass vars to Load
-	if err != nil {
-		logger.Named("app").Fatal("Failed to load entries", zap.Error(err))
-	}
+	// -- application state
+	appState, err := loadApplicationState(args, dtt, mainLogger)
 
-	// boot delta
-	boot, err := state.BuildDelta(regapi.State{}, entries) // build delta
-	if err != nil {
-		logger.Named("main").Fatal("Failed to build state operation set", zap.Error(err))
-	}
-
-	// service
-	bus := eventbus.NewBus(logger.Named("events"))             // main configuration bus
-	sup := supervisor.NewSupervisor(bus, logger.Named("core")) // service supervisor
-	reg := registry.NewRegistry(                               // application state controller, transactional
+	// -- application core
+	reg := registry.NewRegistry( // application state controller, transactional
 		history.NewMemory(),
 		runner.NewBusRunner(bus, logger.Named("runner")),
-		state,
+		registry.NewStateBuilder(mainLogger),
 		logger.Named("state"),
 	)
+	app := supervisor.NewSupervisor(bus, logger.Named("core"))
+	// -- end of application core
 
-	// services, modules, runtimes
-	err = http.Init(bus, dtt, logger.Named("http")).Start(ctx)
+	// -- core function executor, this service listens and builds routes to call functions between runtimes
+	exec := runtime.NewExecutor(bus, logger.Named("exec"))
+	if err := exec.Start(ctx); err != nil {
+		mainLogger.Fatal("failed to start executor", zap.Error(err))
+	}
+	defer func() { _ = exec.Stop() }()
+	// -- end of core function executor
+
+	ctx = context.WithValue(ctx, contextapi.ExecutorCtx, exec)
+
+	// -- lua lang and modules
+	lua := luaruntime.NewRuntimeManager(
+		bus, dtt, logger.Named("lua"),
+		timelib.NewTimeModule(),
+		b64mlib.NewBase64Module(),
+		jsonlib.NewJsonModule(),
+		httplib.NewHTTPModule(httpbase.DefaultClient, logger.Named("http")),
+	)
+	//nop := noop.NewNoopRuntime(bus, logger.Named("noop"))
+	// -- end of lua lang and modules
+
+	// -- configuration bus
+	svc, err := services.NewRouter(ctx, bus,
+		services.WithListener(
+			"http.*",
+			http.NewExecutingManager(bus, dtt, exec, logger.Named("http")),
+		),
+		services.WithListener("(function|library).lua", lua),
+	)
+
 	if err != nil {
-		logger.Named("main").Fatal("failed to start http service", zap.Error(err))
+		mainLogger.Fatal("failed to create router", zap.Error(err))
 	}
+	defer func() { _ = svc.Stop() }()
+	// -- end of configuration bus
 
-	err = runtime.Init(bus, dtt, logger.Named("funcs")).Start(ctx)
-	if err != nil {
-		logger.Named("main").Fatal("failed to start runtime service", zap.Error(err))
+	mainLogger.Info("booting application")
+	if err := app.Start(ctx); err != nil {
+		mainLogger.Fatal("failed to start supervisor", zap.Error(err))
 	}
+	mainLogger.Info("application started, configuring state")
 
-	// end service configuration
-	if err := sup.Start(ctx); err != nil {
-		logger.Named("main").Fatal("failed to start supervisor", zap.Error(err))
-	}
-
-	logger.Named("main").Info("booting application")
-
-	// boot application state
+	// appState application stateBuilder
 	bootCtx, cancelBoot := context.WithTimeout(ctx, 1*time.Second)
 	defer cancelBoot()
-	_, err = reg.Apply(bootCtx, boot)
+	_, err = reg.Apply(bootCtx, appState)
 	if err != nil {
-		logger.Named("main").Fatal("failed to apply boot state", zap.Error(err))
+		mainLogger.Fatal("failed to apply state", zap.Error(err))
 	}
+
+	mainLogger.Info("application state configured, running")
 
 	// Handle graceful shutdown on Ctrl+C
 	sigChan := make(chan os.Signal, 1)
@@ -123,16 +142,48 @@ func main() {
 	// Wait for either shutdown signal or context cancellation
 	select {
 	case <-ctx.Done():
-		logger.Named("main").Info("context cancelled, shutting down...")
+		mainLogger.Info("context cancelled, shutting down...")
 	case sig := <-sigChan:
-		logger.Named("main").Info("received signal, shutting down...", zap.String("signal", sig.String()))
+		mainLogger.Info("received signal, shutting down...", zap.String("signal", sig.String()))
 	}
 
-	if err := sup.Stop(); err != nil {
-		logger.Named("main").Error("failed to stop supervisor gracefully", zap.Error(err))
+	if err := app.Stop(); err != nil {
+		mainLogger.Error("failed to stop supervisor gracefully", zap.Error(err))
 	} else {
-		logger.Named("main").Info("supervisor stopped gracefully")
+		mainLogger.Info("supervisor stopped gracefully")
 	}
+}
+
+func loadApplicationState(
+	args []string,
+	dtt *transcoder.Transcoder,
+	mainLogger *zap.Logger,
+) (regapi.ChangeSet, error) {
+	folderPath := args[0]
+	namespace := ""
+	if len(args) > 1 {
+		namespace = args[1]
+	}
+
+	folderLoader := loader.NewFolderLoader(dtt, mainLogger)
+	vars := loader.Variables{}
+	for _, env := range os.Environ() {
+		pair := strings.SplitN(env, "=", 2)
+		vars[pair[0]] = pair[1]
+	}
+
+	entries, err := folderLoader.Load(folderPath, namespace, vars) // Pass vars to Load
+	if err != nil {
+		mainLogger.Fatal("Failed to load entries", zap.Error(err))
+	}
+
+	// boot delta
+	boot, err := registry.NewStateBuilder(mainLogger).BuildDelta(regapi.State{}, entries) // build delta
+	if err != nil {
+		mainLogger.Fatal("Failed to build state operation set", zap.Error(err))
+	}
+
+	return boot, err
 }
 
 func initLogger(verbose, veryVerbose bool) *zap.Logger {

@@ -17,7 +17,7 @@ type Subscriber struct {
 }
 
 // NewSubscriber creates a new Subscriber that subscribes to events matching the given system and kind pattern.
-// It starts an internal goroutine that listens for events and calls the provided handlerFunc for each received event.
+// It starts an helpers goroutine that listens for events and calls the provided handlerFunc for each received event.
 // The context provided will be used to start the listener and will be used during shutdown
 func NewSubscriber(
 	ctx context.Context,
@@ -63,7 +63,7 @@ func NewSubscriber(
 	return h, nil
 }
 
-// Close stops the internal goroutine, unsubscribes from the event bus, and waits for the goroutine to exit.
+// Close stops the helpers goroutine, unsubscribes from the event bus, and waits for the goroutine to exit.
 func (s *Subscriber) Close() {
 	s.cancel()
 	s.wg.Wait()
