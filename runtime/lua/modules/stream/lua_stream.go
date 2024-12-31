@@ -3,12 +3,54 @@ package stream
 import (
 	"fmt"
 	"github.com/ponyruntime/go-lua"
+	"go.uber.org/zap"
 	"io"
 )
 
 // LuaStream wraps Stream for Lua
 type LuaStream struct {
 	*Stream
+}
+
+// Module represents the Stream Lua module
+type Module struct {
+	log *zap.Logger
+}
+
+// NewStreamModule creates a new Stream module (internal)
+func NewStreamModule(log *zap.Logger) *Module {
+	return &Module{log: log}
+}
+
+// Name returns the module name
+func (m *Module) Name() string {
+	return "Stream"
+}
+
+// Loader registers the module functions and constants
+func (m *Module) Loader(l *lua.LState) int {
+	// Create module table
+	mod := l.NewTable()
+
+	RegisterStream(l)
+
+	l.Push(mod)
+	return 1
+}
+
+// RegisterStream registers the Stream type in Lua
+func RegisterStream(l *lua.LState) {
+	// Create and register the Stream metatable
+	mt := l.NewTypeMetatable("Stream")
+	l.SetField(mt, "__index", mt)
+
+	// Register methods
+	l.SetFuncs(mt, map[string]lua.LGFunction{
+		"read":       streamRead,
+		"close":      streamClose,
+		"bytes_read": streamBytesRead,
+		"__call":     streamIter,
+	})
 }
 
 // checkStream verifies and returns the Stream from Lua userdata

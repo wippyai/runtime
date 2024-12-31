@@ -449,13 +449,6 @@ func requestStreamBody(l *lua.LState) int {
 		}
 	}
 
-	// todo: do we want this constrain?
-	//if maxSize > 0 && req.request.ContentLength > maxSize {
-	//	l.Push(lua.LNil)
-	//	l.Push(lua.LString(stream.ErrMaxSizeExceeded.Error()))
-	//	return 2
-	//}
-
 	// Create stream config with parsed options
 	cfg, err := stream.NewStreamConfig(
 		bufferSize,

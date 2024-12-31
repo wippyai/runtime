@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/ponyruntime/go-lua"
+	"github.com/ponyruntime/pony/runtime/lua/modules/stream"
 	"go.uber.org/zap"
 )
 
@@ -58,6 +59,8 @@ func (m *Module) Loader(l *lua.LState) int {
 
 	// Register response type
 	registerHTTPResponseType(mod, l)
+	stream.RegisterStream(l)
+
 	l.Push(mod)
 	return 1
 }
@@ -70,6 +73,7 @@ type requestOptions struct {
 	query   string
 	timeout time.Duration
 	auth    *struct{ user, pass string }
+	stream  *stream.Config // Add stream configuration
 }
 
 // parseOptions parses Lua value into requestOptions
@@ -142,6 +146,35 @@ func parseOptions(l *lua.LState, value lua.LValue) (*requestOptions, error) {
 				user: user.String(),
 				pass: pass.String(),
 			}
+		}
+	}
+
+	// Parse stream
+	if streamOpts := table.RawGetString("stream"); streamOpts != lua.LNil {
+		if streamTable, ok := streamOpts.(*lua.LTable); ok {
+			bufferSize := int64(0)      // Default will be used if not provided
+			maxSize := int64(0)         // Default is no limit
+			timeout := time.Duration(0) // Default is no timeout
+
+			if bs := streamTable.RawGetString("buffer_size"); bs.Type() == lua.LTNumber {
+				bufferSize = int64(bs.(lua.LNumber))
+			}
+			if ms := streamTable.RawGetString("max_size"); ms.Type() == lua.LTNumber {
+				maxSize = int64(ms.(lua.LNumber))
+			}
+			if to := streamTable.RawGetString("timeout"); to.Type() == lua.LTNumber {
+				timeout = time.Duration(to.(lua.LNumber)) * time.Second
+			} else if toStr := streamTable.RawGetString("timeout"); toStr.Type() == lua.LTString {
+				if d, err := time.ParseDuration(string(toStr.(lua.LString))); err == nil {
+					timeout = d
+				}
+			}
+
+			streamCfg, err := stream.NewStreamConfig(bufferSize, maxSize, timeout)
+			if err != nil {
+				return nil, err
+			}
+			opts.stream = streamCfg
 		}
 	}
 
@@ -316,7 +349,31 @@ func (m *Module) executeRequest(l *lua.LState, req *http.Request, opts *requestO
 		l.Push(lua.LString(err.Error()))
 		return 2
 	}
-	defer resp.Body.Close()
+
+	// Handle streaming if stream option is set
+	if opts.stream != nil {
+		s, err := stream.NewStream(ctx, resp.Body, opts.stream)
+		if err != nil {
+			resp.Body.Close() // Close the response body on error
+			l.Push(lua.LNil)
+			l.Push(lua.LString(err.Error()))
+			return 2
+		}
+
+		// Create a LuaStream and associate it with the response
+		luaStream := &stream.LuaStream{Stream: s}
+		ud := l.NewUserData()
+		ud.Value = luaStream
+
+		l.SetMetatable(ud, l.GetTypeMetatable("Stream"))
+
+		// Create a new HTTP response that includes the stream
+		l.Push(newHTTPResponseWithStream(resp, ud, l))
+		return 1
+	}
+
+	// --- Non-streaming handling (existing code) ---
+	defer resp.Body.Close() // Safe to close here for non-streaming
 
 	// Read response
 	body, err := io.ReadAll(resp.Body)

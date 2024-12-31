@@ -142,7 +142,7 @@ func TestStreamLua(t *testing.T) {
 		defer vm.Close()
 
 		l := vm.State()
-		RegisterStream(l, l.NewTable())
+		RegisterStream(l)
 
 		luaStream := &LuaStream{Stream: stream}
 		ud := l.NewUserData()
@@ -184,7 +184,7 @@ func TestStreamLua(t *testing.T) {
 		defer vm.Close()
 
 		l := vm.State()
-		RegisterStream(l, l.NewTable())
+		RegisterStream(l)
 
 		luaStream := &LuaStream{Stream: stream}
 		ud := l.NewUserData()
@@ -353,7 +353,7 @@ func TestStreamLuaEdgeCases(t *testing.T) {
 		defer vm.Close()
 
 		l := vm.State()
-		RegisterStream(l, l.NewTable())
+		RegisterStream(l)
 
 		luaStream := &LuaStream{Stream: stream}
 		ud := l.NewUserData()
@@ -399,7 +399,7 @@ func TestStreamLuaEdgeCases(t *testing.T) {
 		defer vm.Close()
 
 		l := vm.State()
-		RegisterStream(l, l.NewTable())
+		RegisterStream(l)
 
 		luaStream := &LuaStream{Stream: stream}
 		ud := l.NewUserData()
