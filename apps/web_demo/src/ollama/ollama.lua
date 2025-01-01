@@ -65,8 +65,8 @@ function ollama_handler()
             return "Expected a stream from Ollama, but got none"
         end
 
-        for chunk in stream do
-            log:debug("Received chunk from Ollama: ")
+        for chunk in stream() do
+            log:info("Received chunk from Ollama: "..chunk)
 
             if chunk == nil then break end -- End of Ollama stream
 

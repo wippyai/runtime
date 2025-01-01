@@ -329,10 +329,9 @@ func (m *Module) executeRequest(l *lua.LState, req *http.Request, opts *requestO
 	}
 
 	// Set context with timeout from options
+	var cancel context.CancelFunc
 	if opts.timeout > 0 {
-		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, opts.timeout)
-		defer cancel()
 	}
 
 	req = req.WithContext(ctx)
@@ -355,6 +354,7 @@ func (m *Module) executeRequest(l *lua.LState, req *http.Request, opts *requestO
 		s, err := stream.NewStream(ctx, resp.Body, opts.stream)
 		if err != nil {
 			resp.Body.Close() // Close the response body on error
+			cancel()          // Cancel the context
 			l.Push(lua.LNil)
 			l.Push(lua.LString(err.Error()))
 			return 2
@@ -369,11 +369,15 @@ func (m *Module) executeRequest(l *lua.LState, req *http.Request, opts *requestO
 
 		// Create a new HTTP response that includes the stream
 		l.Push(newHTTPResponseWithStream(resp, ud, l))
+		// todo: we have to attach cancel to stream closer
 		return 1
 	}
 
-	// --- Non-streaming handling (existing code) ---
-	defer resp.Body.Close() // Safe to close here for non-streaming
+	// --- Non-streaming handling ---
+	defer resp.Body.Close()
+	if cancel != nil {
+		defer cancel()
+	}
 
 	// Read response
 	body, err := io.ReadAll(resp.Body)

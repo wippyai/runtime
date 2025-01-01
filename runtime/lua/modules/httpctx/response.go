@@ -102,6 +102,8 @@ func responseWrite(l *lua.LState) int {
 		return 1
 	}
 
+	resp.writer.(basehttp.Flusher).Flush()
+
 	resp.headersSent = true
 	l.Push(lua.LNil)
 	return 1

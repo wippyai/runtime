@@ -2,9 +2,12 @@ package http
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
+	"github.com/ponyruntime/go-lua"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"github.com/ponyruntime/pony/runtime/lua/modules/json"
 	"io"
 	"net/http"
 	"sync"
@@ -617,6 +620,80 @@ func TestStreamedResponseBodyHandling(t *testing.T) {
     `
 
 		err = vm.DoString(nil, script, "test")
+		assert.NoError(t, err)
+	})
+}
+
+// todo: remove it after fixing cancels
+func TestRealRequest(t *testing.T) {
+	logger := zap.NewNop()
+	t.Run("make_real_request_to_ollama", func(t *testing.T) {
+		// Create HTTP module with real client
+		mod := NewHTTPModule(http.DefaultClient, logger)
+
+		// Create new Lua VM
+		vm, err := engine.NewVM(
+			logger,
+			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithLoader(json.NewJsonModule().Name(), json.NewJsonModule().Loader),
+			engine.WithGlobalFunction("print", func(l *lua.LState) int {
+				fmt.Println(l.ToString(1))
+				return 0
+			}),
+		)
+		require.NoError(t, err)
+		defer vm.Close()
+
+		script := `
+		local http = require("http")
+		local json = require("json")
+		
+		-- Make real request to Ollama
+		local response = http.post("http://100.70.10.9:11434/api/generate", {
+			headers = {
+				["Content-Type"] = "application/json"
+			},
+			body = json.encode({
+				model = "phi3:14b",
+				prompt = "what is the capital of Belarus?",
+				stream = true
+			}),
+			stream = {
+				buffer_size = 4096,
+				timeout = "50s"
+			}
+		})
+		
+		-- Verify response
+		assert(response ~= nil, "Response should not be nil")
+		assert(response.status_code == 200, "Expected status 200, got: " .. response.status_code)
+		assert(response.stream ~= nil, "Response stream should not be nil")
+		
+		-- Process stream
+		local output = {}
+		local s = response.stream
+
+		for chunk in s() do
+			assert(chunk ~= nil, "Chunk should not be nil")
+			local decoded = json.decode(chunk)
+			if decoded and decoded.response then
+				table.insert(output, decoded.response)
+			end
+
+			if decoded and decoded.done then
+				break
+			end
+
+			print("Received response chunk " ..  chunk)
+		end
+		
+		-- Verify we got some output
+		local final_text = table.concat(output)
+		assert(#final_text > 0, "Expected non-empty response")
+		print("Received response: " .. final_text)
+		`
+
+		err = vm.DoString(context.Background(), script, "test")
 		assert.NoError(t, err)
 	})
 }
