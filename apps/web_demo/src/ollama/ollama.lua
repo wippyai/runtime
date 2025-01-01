@@ -1,7 +1,6 @@
 local http = require("http")
 local json = require("json")
 local httpctx = require("httpctx")
-local log = require("logger")
 
 function ollama_handler()
     local res = httpctx.response()
@@ -66,14 +65,11 @@ function ollama_handler()
         end
 
         for chunk in stream() do
-            log:info("Received chunk from Ollama: "..chunk)
-
             if chunk == nil then break end -- End of Ollama stream
 
             -- Decode the JSON chunk from Ollama (if it's JSON) and extract the "response" field
             local decoded_chunk, decode_err = json.decode(chunk)
             if decode_err then
-                response:write("Error decoding chunk from Ollama: " .. decode_err .. "\n")
                 break
             end
 
