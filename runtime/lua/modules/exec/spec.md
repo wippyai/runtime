@@ -83,7 +83,7 @@ Parameters and returns are the same as the global `call` function.
 
 #### executor:run(target: string, ...args)
 
-Instance method version of the global run function. Executes a task asynchronously using the instance's context.
+Instance method version of the global run function. Executes a task asynchronously using the application's context.
 
 Parameters and returns are the same as the global `run` function.
 
