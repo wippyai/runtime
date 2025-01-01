@@ -11,6 +11,7 @@ import (
 // Response represents a Lua userdata object wrapping http.ResponseWriter
 type Response struct {
 	writer       basehttp.ResponseWriter
+	rCtx         *http.RequestContext
 	headersSent  bool
 	transferMode string
 }
@@ -33,6 +34,7 @@ var responseMethods = map[string]lua.LGFunction{
 	"set_status":       responseSetStatus,
 	"set_header":       responseSetHeader,
 	"write":            responseWrite,
+	"flush":            responseFlush,
 	"write_json":       responseWriteJSON,
 	"set_content_type": responseSetContentType,
 	"write_event":      responseWriteEvent,
@@ -60,6 +62,8 @@ func responseSetStatus(l *lua.LState) int {
 
 	resp.writer.WriteHeader(code)
 	resp.headersSent = true
+	resp.rCtx.MarkHandled()
+
 	return 0
 }
 
@@ -84,6 +88,8 @@ func responseSetHeader(l *lua.LState) int {
 
 	value := l.CheckString(3)
 	resp.writer.Header().Set(key, value)
+	resp.rCtx.MarkHandled()
+
 	return 0
 }
 
@@ -103,6 +109,24 @@ func responseWrite(l *lua.LState) int {
 	}
 
 	resp.headersSent = true
+	resp.rCtx.MarkHandled()
+
+	l.Push(lua.LNil)
+	return 1
+}
+
+// responseFlush flushes the response writer
+func responseFlush(l *lua.LState) int {
+	resp, err := checkResponse(l, 1)
+	if err != nil {
+		l.ArgError(1, err.Error())
+		return 0
+	}
+
+	resp.writer.(basehttp.Flusher).Flush()
+
+	resp.headersSent = true
+	resp.rCtx.MarkHandled()
 	l.Push(lua.LNil)
 	return 1
 }
@@ -136,6 +160,8 @@ func responseWriteJSON(l *lua.LState) int {
 	}
 
 	resp.headersSent = true
+	resp.rCtx.MarkHandled()
+
 	l.Push(lua.LNil)
 	return 1
 }
@@ -251,6 +277,7 @@ func responseWriteEvent(l *lua.LState) int {
 	}
 
 	resp.headersSent = true
+	resp.rCtx.MarkHandled()
 
 	// Flush if supported
 	if f, ok := resp.writer.(basehttp.Flusher); ok {
@@ -293,6 +320,7 @@ func newResponse(l *lua.LState) int {
 	ud := l.NewUserData()
 	ud.Value = &Response{
 		writer:       reqCtx.ResponseWriter(),
+		rCtx:         reqCtx,
 		headersSent:  false,
 		transferMode: "",
 	}

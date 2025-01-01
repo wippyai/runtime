@@ -18,8 +18,9 @@ type RouteInfo struct {
 }
 
 type RequestContext struct {
-	r *http.Request
-	w http.ResponseWriter
+	r               *http.Request
+	w               http.ResponseWriter
+	responseHandled bool
 }
 
 func NewRequestContext(r *http.Request, w http.ResponseWriter) *RequestContext {
@@ -32,4 +33,12 @@ func (h *RequestContext) Request() *http.Request {
 
 func (h *RequestContext) ResponseWriter() http.ResponseWriter {
 	return h.w
+}
+
+func (h *RequestContext) MarkHandled() {
+	h.responseHandled = true
+}
+
+func (h *RequestContext) ResponseHandled() bool {
+	return h.responseHandled
 }

@@ -16,6 +16,7 @@ type taskResult struct {
 }
 
 type task struct {
+	ctx    context.Context
 	name   string
 	args   []lua.LValue
 	result chan taskResult
@@ -105,6 +106,7 @@ func (p *Pool) Execute(ctx context.Context, name string, args ...lua.LValue) (lu
 	}
 
 	t := &task{
+		ctx:    ctx,
 		name:   name,
 		args:   args,
 		result: make(chan taskResult, 1),
@@ -153,7 +155,7 @@ func (p *Pool) worker() {
 					continue
 				}
 
-				result, err := vm.Execute(context.Background(), t.name, t.args...)
+				result, err := vm.Execute(t.ctx, t.name, t.args...)
 				select {
 				case t.result <- taskResult{value: result, err: err}:
 				default:
@@ -166,7 +168,7 @@ func (p *Pool) worker() {
 			if t == nil {
 				continue
 			}
-			result, err := vm.Execute(context.Background(), t.name, t.args...)
+			result, err := vm.Execute(t.ctx, t.name, t.args...)
 			select {
 			case t.result <- taskResult{value: result, err: err}:
 			default:

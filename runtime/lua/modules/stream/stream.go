@@ -1,92 +1,28 @@
-// Stream.go
 package stream
 
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/go-lua"
-	"go.uber.org/zap"
 	"io"
-	"time"
 )
 
 var (
-	ErrMaxSizeExceeded = fmt.Errorf("stream max size exceeded")
-	ErrReadTimeout     = fmt.Errorf("stream read timeout")
-	ErrInvalidConfig   = fmt.Errorf("invalid Stream configuration")
+	ErrInvalidConfig = fmt.Errorf("invalid Stream configuration")
 )
-
-// Module represents the Stream Lua module
-type Module struct {
-	log *zap.Logger
-}
-
-// NewStreamModule creates a new Stream module (internal)
-func NewStreamModule(log *zap.Logger) *Module {
-	return &Module{log: log}
-}
-
-// Name returns the module name
-func (m *Module) Name() string {
-	return "Stream"
-}
-
-// Loader registers the module functions and constants
-func (m *Module) Loader(l *lua.LState) int {
-	// Create module table
-	mod := l.NewTable()
-
-	RegisterStream(l, mod)
-
-	l.Push(mod)
-	return 1
-}
-
-// RegisterStream registers the Stream type in Lua
-func RegisterStream(l *lua.LState, mod *lua.LTable) {
-	// Create and register the Stream metatable
-	mt := l.NewTypeMetatable("Stream")
-	l.SetField(mt, "__index", mt)
-
-	// Register methods
-	l.SetFuncs(mt, map[string]lua.LGFunction{
-		"read":       streamRead,
-		"close":      streamClose,
-		"bytes_read": streamBytesRead,
-		"__call":     streamIter,
-	})
-}
 
 // Config holds configuration for Stream operations
 type Config struct {
 	bufferSize int64
-	timeout    time.Duration
-	maxSize    int64
 }
 
-// NewStreamConfig creates a new configuration with validation
-func NewStreamConfig(bufferSize, maxSize int64, timeout time.Duration) (*Config, error) {
+// NewStreamConfig creates a new configuration
+func NewStreamConfig(bufferSize int64) *Config {
 	if bufferSize <= 0 {
 		bufferSize = 32 * 1024 // Default 32KB buffer
 	}
-	if maxSize < 0 {
-		return nil, fmt.Errorf("%w: negative max size", ErrInvalidConfig)
-	}
-	if timeout < 0 {
-		return nil, fmt.Errorf("%w: negative timeout", ErrInvalidConfig)
-	}
-
 	return &Config{
 		bufferSize: bufferSize,
-		timeout:    timeout,
-		maxSize:    maxSize,
-	}, nil
-}
-
-// readResult holds the result of an asynchronous read operation
-type readResult struct {
-	data []byte
-	err  error
+	}
 }
 
 // Stream handles streaming data from a reader
@@ -103,11 +39,7 @@ func NewStream(ctx context.Context, reader io.ReadCloser, cfg *Config) (*Stream,
 		return nil, fmt.Errorf("%w: nil reader", ErrInvalidConfig)
 	}
 	if cfg == nil {
-		var err error
-		cfg, err = NewStreamConfig(0, 0, 0)
-		if err != nil {
-			return nil, err
-		}
+		cfg = NewStreamConfig(0)
 	}
 
 	return &Stream{
@@ -119,21 +51,8 @@ func NewStream(ctx context.Context, reader io.ReadCloser, cfg *Config) (*Stream,
 
 // ReadChunk reads the next chunk of data
 func (s *Stream) ReadChunk() ([]byte, error) {
-	if err := s.checkMaxSize(); err != nil {
-		return nil, err
-	}
-
 	buffer := make([]byte, s.config.bufferSize)
-
-	var data []byte
-	var err error
-
-	if s.config.timeout > 0 {
-		data, err = s.readWithTimeout(buffer)
-	} else {
-		data, err = s.readDirect(buffer)
-	}
-
+	data, err := s.readDirect(buffer)
 	if err != nil {
 		if err == io.EOF {
 			return nil, err
@@ -142,51 +61,39 @@ func (s *Stream) ReadChunk() ([]byte, error) {
 	}
 
 	n := len(data)
-	if s.config.maxSize > 0 && s.bytesRead+int64(n) > s.config.maxSize {
-		return nil, ErrMaxSizeExceeded
-	}
-
 	s.bytesRead += int64(n)
 	return data, nil
 }
 
-func (s *Stream) checkMaxSize() error {
-	if s.config.maxSize > 0 && s.bytesRead >= s.config.maxSize {
-		return ErrMaxSizeExceeded
-	}
-	return nil
-}
-
 func (s *Stream) readDirect(buffer []byte) ([]byte, error) {
-	n, err := s.reader.Read(buffer)
-	if err != nil {
-		return nil, fmt.Errorf("direct read error: %w", err)
-	}
-	return buffer[:n], nil
-}
+	// Create a channel to receive read results
+	resultCh := make(chan struct {
+		n   int
+		err error
+	}, 1)
 
-func (s *Stream) readWithTimeout(buffer []byte) ([]byte, error) {
-	resultChan := make(chan readResult, 1)
-
+	// Start read operation in a goroutine
 	go func() {
 		n, err := s.reader.Read(buffer)
-		if err != nil {
-			resultChan <- readResult{nil, fmt.Errorf("async read error: %w", err)}
-			return
+		select {
+		case resultCh <- struct {
+			n   int
+			err error
+		}{n, err}:
+		case <-s.ctx.Done():
+			// Read completed but context was cancelled before we could send
 		}
-		resultChan <- readResult{buffer[:n], nil}
 	}()
 
+	// Wait for either context cancellation or read completion
 	select {
-	case result := <-resultChan:
-		if result.err != nil {
-			return nil, result.err
-		}
-		return result.data, nil
-	case <-time.After(s.config.timeout):
-		return nil, ErrReadTimeout
 	case <-s.ctx.Done():
-		return nil, fmt.Errorf("stream context done: %w", s.ctx.Err())
+		return nil, fmt.Errorf("read cancelled: %w", s.ctx.Err())
+	case result := <-resultCh:
+		if result.err != nil {
+			return nil, fmt.Errorf("direct read error: %w", result.err)
+		}
+		return buffer[:result.n], nil
 	}
 }
 

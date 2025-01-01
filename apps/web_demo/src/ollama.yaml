@@ -1,0 +1,11 @@
+name: functions.ollama
+kind: function.lua
+meta:
+  comment: "Calls ollama."
+
+source: file://ollama.lua
+method: ollama_handler
+modules: [ "json", "http" , "httpctx", "logger" ]
+pool:
+  size: 4
+  workers: 16

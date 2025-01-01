@@ -64,6 +64,7 @@ func (db *DB) execute(l *lua.LState) int {
 	// Convert Lua table to any slice
 	args := make([]any, 0)
 	if argsT.Type() != lua.LTNil {
+		// todO; fix it
 		args = engine.TableToAnySlice(argsT, db.log)
 	}
 

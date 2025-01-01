@@ -7,6 +7,8 @@ import (
 	"go.uber.org/zap"
 )
 
+// todo: can it work via dot notation?
+
 // Module represents a logger Lua module
 type Module struct {
 	baseLogger *zap.Logger
@@ -27,7 +29,7 @@ var loggerMethods = map[string]lua.LGFunction{
 	"named": loggerNamed,
 }
 
-func New(log *zap.Logger) *Module {
+func NewLoggerModule(log *zap.Logger) *Module {
 	return &Module{
 		baseLogger: log,
 	}
