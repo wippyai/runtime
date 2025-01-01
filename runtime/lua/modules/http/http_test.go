@@ -17,7 +17,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// mockHTTPClient implements HTTPClient interface for testing
+// mockHTTPClient implements Client interface for testing
 type mockHTTPClient struct {
 	doFunc func(req *http.Request) (*http.Response, error)
 }

@@ -40,6 +40,11 @@ func (m *Module) Loader(l *lua.LState) int {
 
 // RegisterStream registers the Stream type in Lua
 func RegisterStream(l *lua.LState) {
+	// check if the Stream type is already registered
+	if _, ok := l.GetField(l.Get(lua.RegistryIndex), "Stream").(*lua.LTable); ok {
+		return
+	}
+
 	// Create and register the Stream metatable
 	mt := l.NewTypeMetatable("Stream")
 	l.SetField(mt, "__index", mt)

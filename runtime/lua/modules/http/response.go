@@ -25,9 +25,9 @@ func registerHTTPResponseType(module *lua.LTable, l *lua.LState) {
 	l.SetField(module, "response", mt)
 }
 
-// newHTTPResponse creates a new HTTP response userdata with the given response,
+// newResponse creates a new HTTP response userdata with the given response,
 // body, and size.
-func newHTTPResponse(res *http.Response, body *[]byte, bodySize int, l *lua.LState) *lua.LUserData {
+func newResponse(res *http.Response, body *[]byte, bodySize int, l *lua.LState) *lua.LUserData {
 	ud := l.NewUserData()
 	ud.Value = &luaHTTPResponse{
 		res:      res,
@@ -38,8 +38,8 @@ func newHTTPResponse(res *http.Response, body *[]byte, bodySize int, l *lua.LSta
 	return ud
 }
 
-// newHTTPResponseWithStream creates a new HTTP response with a stream
-func newHTTPResponseWithStream(res *http.Response, stream *lua.LUserData, l *lua.LState) *lua.LUserData {
+// newResponseWithStream creates a new HTTP response with a stream
+func newResponseWithStream(res *http.Response, stream *lua.LUserData, l *lua.LState) *lua.LUserData {
 	ud := l.NewUserData()
 	ud.Value = &luaHTTPResponse{
 		res:    res,

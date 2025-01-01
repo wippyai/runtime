@@ -33,6 +33,7 @@ var responseMethods = map[string]lua.LGFunction{
 	"set_status":       responseSetStatus,
 	"set_header":       responseSetHeader,
 	"write":            responseWrite,
+	"flush":            responseFlush,
 	"write_json":       responseWriteJSON,
 	"set_content_type": responseSetContentType,
 	"write_event":      responseWriteEvent,
@@ -100,6 +101,19 @@ func responseWrite(l *lua.LState) int {
 	if writeErr != nil {
 		l.Push(lua.LString(fmt.Sprintf("write error: %v", writeErr)))
 		return 1
+	}
+
+	resp.headersSent = true
+	l.Push(lua.LNil)
+	return 1
+}
+
+// responseFlush flushes the response writer
+func responseFlush(l *lua.LState) int {
+	resp, err := checkResponse(l, 1)
+	if err != nil {
+		l.ArgError(1, err.Error())
+		return 0
 	}
 
 	resp.writer.(basehttp.Flusher).Flush()

@@ -482,3 +482,80 @@ func TestResponse_ErrorCases(t *testing.T) {
 		assert.NoError(t, err)
 	})
 }
+
+func TestResponse_Flush(t *testing.T) {
+	logger := zap.NewNop()
+
+	t.Run("successful flush", func(t *testing.T) {
+		recorder := newMockResponseWriter()
+		req := httptest.NewRequest("GET", "/test", nil)
+		reqCtx := http.NewRequestContext(req, recorder)
+		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+
+		mod := NewHTTPContextModule(logger)
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		require.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.DoString(ctx, `
+			local httpctx = require("httpctx")
+			local res = httpctx.response()
+			res:write("chunk1")
+			res:flush()
+			res:write("chunk2")
+			res:flush()
+		`, "test")
+		assert.NoError(t, err)
+		assert.Equal(t, "chunk1chunk2", recorder.Body.String())
+		assert.True(t, recorder.headersSent)
+	})
+
+	t.Run("flush with invalid response", func(t *testing.T) {
+		recorder := newMockResponseWriter()
+		req := httptest.NewRequest("GET", "/test", nil)
+		reqCtx := http.NewRequestContext(req, recorder)
+		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+
+		mod := NewHTTPContextModule(logger)
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		require.NoError(t, err)
+		defer vm.Close()
+
+		// Test with invalid response userdata
+		err = vm.DoString(ctx, `
+			local httpctx = require("httpctx")
+			local res = newproxy() -- Create invalid userdata
+			local status, err = pcall(function()
+				res:flush()
+			end)
+			assert(not status, "flush should fail with invalid response object")
+		`, "test")
+		assert.NoError(t, err)
+	})
+
+	t.Run("flush in chunked transfer mode", func(t *testing.T) {
+		recorder := newMockResponseWriter()
+		req := httptest.NewRequest("GET", "/test", nil)
+		reqCtx := http.NewRequestContext(req, recorder)
+		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+
+		mod := NewHTTPContextModule(logger)
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		require.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.DoString(ctx, `
+			local httpctx = require("httpctx")
+			local res = httpctx.response()
+			res:set_transfer(httpctx.TRANSFER.CHUNKED)
+			res:write("chunk1")
+			res:flush()
+			res:write("chunk2")
+			res:flush()
+		`, "test")
+		assert.NoError(t, err)
+		assert.Equal(t, "chunked", recorder.Header().Get("Transfer-Encoding"))
+		assert.Equal(t, "chunk1chunk2", recorder.Body.String())
+		assert.True(t, recorder.headersSent)
+	})
+}
