@@ -51,7 +51,8 @@ func (h *EndpointHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// allows internal funcs to work with the request directly
-	task.Context = context.WithValue(task.Context, config.RequestCtx, config.NewRequestContext(r, w))
+	rCtx := config.NewRequestContext(r, w)
+	task.Context = context.WithValue(task.Context, config.RequestCtx, rCtx)
 
 	result, err := h.executeTask(task)
 	if err != nil {
@@ -59,7 +60,10 @@ func (h *EndpointHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.writeResponse(w, result, routeInfo.Endpoint)
+	if !rCtx.ResponseHandled() {
+		// only send if handler hasn't already sent headers
+		h.writeResponse(w, result, routeInfo.Endpoint)
+	}
 }
 
 // getRouteInfo extracts route information from the request context.

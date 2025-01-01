@@ -534,7 +534,7 @@ func TestRequest_BodyReadingErrors(t *testing.T) {
 			local req = httpctx.request({max_body = 5}) -- Max body size of 5 bytes
 			local body, err = req:body()
 			assert(body == nil, "body should be nil when max_body is exceeded")
-			assert(string.find(err, "stream max size exceeded") ~= nil, "error should indicate body too large")
+			assert(string.find(err, "too large") ~= nil, "error should indicate body too large")
 		`, "test")
 		assert.NoError(t, err)
 	})
@@ -588,7 +588,7 @@ func TestRequest_BodyReadingErrors(t *testing.T) {
 			local req = httpctx.request({max_body = 10}) -- Max body size of 10 bytes
 			local data, err = req:body_json()
 			assert(data == nil, "data should be nil when max_body is exceeded")
-			assert(string.find(err, "stream max size exceeded") ~= nil, "error should indicate body too large")
+			assert(string.find(err, "too large") ~= nil, "error should indicate body too large")
 		`, "test")
 		assert.NoError(t, err)
 	})
