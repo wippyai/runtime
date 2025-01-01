@@ -56,7 +56,9 @@ func (h *EndpointHandler) Handle(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.executeTask(task)
 	if err != nil {
-		h.handleError(w, err, http.StatusInternalServerError)
+		if !rCtx.ResponseHandled() {
+			h.handleError(w, err, http.StatusInternalServerError)
+		}
 		return
 	}
 
