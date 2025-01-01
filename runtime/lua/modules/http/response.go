@@ -14,6 +14,7 @@ type luaHTTPResponse struct {
 	res      *http.Response
 	body     lua.LString
 	bodySize int
+	stream   *lua.LUserData // Add stream field for streaming support
 }
 
 // registerHTTPResponseType registers the HTTP response type and its metatable
@@ -24,14 +25,25 @@ func registerHTTPResponseType(module *lua.LTable, l *lua.LState) {
 	l.SetField(module, "response", mt)
 }
 
-// newHTTPResponse creates a new HTTP response userdata with the given response,
+// newResponse creates a new HTTP response userdata with the given response,
 // body, and size.
-func newHTTPResponse(res *http.Response, body *[]byte, bodySize int, l *lua.LState) *lua.LUserData {
+func newResponse(res *http.Response, body *[]byte, bodySize int, l *lua.LState) *lua.LUserData {
 	ud := l.NewUserData()
 	ud.Value = &luaHTTPResponse{
 		res:      res,
 		body:     lua.LString(*body),
 		bodySize: bodySize,
+	}
+	l.SetMetatable(ud, l.GetTypeMetatable(luaHTTPResponseTypeName))
+	return ud
+}
+
+// newResponseWithStream creates a new HTTP response with a stream
+func newResponseWithStream(res *http.Response, stream *lua.LUserData, l *lua.LState) *lua.LUserData {
+	ud := l.NewUserData()
+	ud.Value = &luaHTTPResponse{
+		res:    res,
+		stream: stream,
 	}
 	l.SetMetatable(ud, l.GetTypeMetatable(luaHTTPResponseTypeName))
 	return ud
@@ -69,6 +81,8 @@ func httpResponseIndex(l *lua.LState) int {
 		return httpResponseBody(res, l)
 	case "body_size":
 		return httpResponseBodySize(res, l)
+	case "stream":
+		return httpResponseStream(res, l)
 	default:
 		l.Push(lua.LNil)
 		return 1
@@ -129,13 +143,33 @@ func httpResponseURL(res *luaHTTPResponse, l *lua.LState) int {
 }
 
 // httpResponseBody returns the response body as a string.
+// Returns nil if streaming is used.
 func httpResponseBody(res *luaHTTPResponse, l *lua.LState) int {
-	l.Push(res.body)
+	if res.stream != nil {
+		l.Push(lua.LNil)
+	} else {
+		l.Push(res.body)
+	}
 	return 1
 }
 
 // httpResponseBodySize returns the size of the response body in bytes.
+// Returns -1 if streaming is used.
 func httpResponseBodySize(res *luaHTTPResponse, l *lua.LState) int {
-	l.Push(lua.LNumber(res.bodySize))
+	if res.stream != nil {
+		l.Push(lua.LNumber(-1))
+	} else {
+		l.Push(lua.LNumber(res.bodySize))
+	}
+	return 1
+}
+
+// httpResponseStream returns the stream userdata associated with the response.
+func httpResponseStream(res *luaHTTPResponse, l *lua.LState) int {
+	if res.stream != nil {
+		l.Push(res.stream)
+	} else {
+		l.Push(lua.LNil)
+	}
 	return 1
 }

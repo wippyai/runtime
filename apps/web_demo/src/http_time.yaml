@@ -7,5 +7,5 @@ source: file://http_time.lua
 method: get_time
 modules: [ "json", "http" , "time" ]
 pool:
-  size: 8
-  workers: 32
+  size: 4
+  workers: 16

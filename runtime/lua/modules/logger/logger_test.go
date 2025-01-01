@@ -15,7 +15,7 @@ func TestLoggerModule(t *testing.T) {
 		core, _ := observer.New(zap.InfoLevel)
 		logger := zap.New(core)
 
-		mod := New(logger)
+		mod := NewLoggerModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -31,7 +31,7 @@ func TestLoggerModule(t *testing.T) {
 		core, logs := observer.New(zap.DebugLevel)
 		logger := zap.New(core)
 
-		mod := New(logger)
+		mod := NewLoggerModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -64,7 +64,7 @@ func TestLoggerModule(t *testing.T) {
 		core, logs := observer.New(zap.InfoLevel)
 		logger := zap.New(core)
 
-		mod := New(logger)
+		mod := NewLoggerModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -95,7 +95,7 @@ func TestLoggerModule(t *testing.T) {
 		core, logs := observer.New(zap.InfoLevel)
 		logger := zap.New(core)
 
-		mod := New(logger)
+		mod := NewLoggerModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -126,7 +126,7 @@ func TestLoggerModule(t *testing.T) {
 		core, logs := observer.New(zap.InfoLevel)
 		logger := zap.New(core)
 
-		mod := New(logger)
+		mod := NewLoggerModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -150,7 +150,7 @@ func TestLoggerModule(t *testing.T) {
 		core, _ := observer.New(zap.InfoLevel)
 		logger := zap.New(core)
 
-		mod := New(logger)
+		mod := NewLoggerModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -203,7 +203,7 @@ func TestLoggerModule(t *testing.T) {
 		core, logs := observer.New(zap.InfoLevel)
 		logger := zap.New(core)
 
-		mod := New(logger)
+		mod := NewLoggerModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()

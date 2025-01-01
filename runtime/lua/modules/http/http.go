@@ -5,11 +5,10 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"net/url"
-	"strings"
 	"time"
 
 	"github.com/ponyruntime/go-lua"
+	"github.com/ponyruntime/pony/runtime/lua/modules/stream"
 	"go.uber.org/zap"
 )
 
@@ -22,17 +21,17 @@ var (
 	ErrInvalidRequest = errors.New("request must be a table")
 )
 
-// HTTPClient interface abstracts the http.Client
-type HTTPClient interface {
+// Client interface abstracts the http.Client
+type Client interface {
 	Do(req *http.Request) (*http.Response, error)
 }
 
 type Module struct {
 	log    *zap.Logger
-	client HTTPClient
+	client Client
 }
 
-func NewHTTPModule(client HTTPClient, log *zap.Logger) *Module {
+func NewHTTPModule(client Client, log *zap.Logger) *Module {
 	return &Module{log: log, client: client}
 }
 
@@ -52,184 +51,16 @@ func (m *Module) Loader(l *lua.LState) int {
 		"patch":         m.makeMethod("PATCH"),
 		"request":       m.request,
 		"request_batch": m.requestBatch,
-		"encode_uri":    m.encodeURI,
-		"decode_uri":    m.decodeURI,
+		"encode_uri":    encodeURI,
+		"decode_uri":    decodeURI,
 	})
 
 	// Register response type
 	registerHTTPResponseType(mod, l)
+	stream.RegisterStream(l)
+
 	l.Push(mod)
 	return 1
-}
-
-// requestOptions holds parsed request options
-type requestOptions struct {
-	headers map[string]string
-	cookies map[string]string
-	body    string
-	query   string
-	timeout time.Duration
-	auth    *struct{ user, pass string }
-}
-
-// parseOptions parses Lua value into requestOptions
-func parseOptions(l *lua.LState, value lua.LValue) (*requestOptions, error) {
-	opts := &requestOptions{
-		headers: make(map[string]string),
-		cookies: make(map[string]string),
-		timeout: DefaultTimeout, // Set default timeout
-	}
-
-	// Handle nil or non-table value
-	if value == nil || value.Type() != lua.LTTable {
-		return opts, nil
-	}
-
-	table := value.(*lua.LTable)
-
-	// Parse headers
-	if headers := table.RawGetString("headers"); headers != lua.LNil {
-		if t, ok := headers.(*lua.LTable); ok {
-			t.ForEach(func(k, v lua.LValue) {
-				opts.headers[k.String()] = v.String()
-			})
-		}
-	}
-
-	// Parse cookies
-	if cookies := table.RawGetString("cookies"); cookies != lua.LNil {
-		if t, ok := cookies.(*lua.LTable); ok {
-			t.ForEach(func(k, v lua.LValue) {
-				opts.cookies[k.String()] = v.String()
-			})
-		}
-	}
-
-	// Parse body
-	if body := table.RawGetString("body"); body != lua.LNil {
-		opts.body = body.String()
-	} else if form := table.RawGetString("form"); form != lua.LNil {
-		opts.body = form.String()
-		opts.headers["Content-Type"] = "application/x-www-form-urlencoded"
-	}
-
-	// Parse query
-	if query := table.RawGetString("query"); query != lua.LNil {
-		opts.query = query.String()
-	}
-
-	// Parse timeout
-	if timeout := table.RawGetString("timeout"); timeout != lua.LNil {
-		switch t := timeout.(type) {
-		case lua.LNumber:
-			opts.timeout = time.Duration(t) * time.Second
-		case lua.LString:
-			if d, err := time.ParseDuration(string(t)); err == nil {
-				opts.timeout = d
-			}
-		}
-	}
-
-	// Parse auth
-	if auth := table.RawGetString("auth"); auth != lua.LNil {
-		if t, ok := auth.(*lua.LTable); ok {
-			user := t.RawGetString("user")
-			pass := t.RawGetString("pass")
-			if user.Type() != lua.LTString || pass.Type() != lua.LTString {
-				return nil, ErrInvalidAuth
-			}
-			opts.auth = &struct{ user, pass string }{
-				user: user.String(),
-				pass: pass.String(),
-			}
-		}
-	}
-
-	return opts, nil
-}
-
-// makeRequest creates an HTTP request with the given method, URL, and options
-func makeRequest(
-	method, url string,
-	opts *requestOptions,
-) (*http.Request, error) {
-	if method == "" {
-		return nil, errors.New("method cannot be empty")
-	}
-
-	if url == "" {
-		return nil, errors.New("URL cannot be empty")
-	}
-
-	req, err := http.NewRequest(strings.ToUpper(method), url, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	// Apply options
-	if opts.query != "" {
-		req.URL.RawQuery = opts.query
-	}
-
-	for k, v := range opts.headers {
-		req.Header.Set(k, v)
-	}
-
-	for k, v := range opts.cookies {
-		req.AddCookie(&http.Cookie{Name: k, Value: v})
-	}
-
-	if opts.body != "" {
-		req.Body = io.NopCloser(strings.NewReader(opts.body))
-		req.ContentLength = int64(len(opts.body))
-	}
-
-	if opts.auth != nil {
-		req.SetBasicAuth(opts.auth.user, opts.auth.pass)
-	}
-
-	return req, nil
-}
-
-// getMethodFromArgs fetches and validates the HTTP method from Lua arguments.
-func getMethodFromArgs(l *lua.LState, argIndex int) (string, error) {
-	method := l.CheckString(argIndex)
-	if method == "" {
-		return "", errors.New("method cannot be empty")
-	}
-
-	// validate method
-	switch strings.ToUpper(method) {
-	case "GET", "POST", "PUT", "DELETE", "HEAD", "PATCH":
-		return strings.ToUpper(method), nil
-	default:
-		return "", errors.New("invalid method")
-	}
-}
-
-// getURLFromArgs fetches and validates the URL from Lua arguments.
-func getURLFromArgs(l *lua.LState, argIndex int) (string, error) {
-	if l.Get(argIndex).Type() != lua.LTString {
-		return "", errors.New("URL must be a string")
-	}
-
-	url := l.CheckString(argIndex)
-	if url == "" {
-		return "", errors.New("URL cannot be empty")
-	}
-
-	return url, nil
-}
-
-// getOptionsFromArgs fetches and validates the options from Lua arguments.
-func getOptionsFromArgs(l *lua.LState, argIndex int) (*requestOptions, error) {
-	optionsValue := l.OptTable(argIndex, l.NewTable())
-	opts, err := parseOptions(l, optionsValue)
-	if err != nil {
-		return nil, err
-	}
-
-	return opts, nil
 }
 
 // makeMethod creates handler for specific HTTP method
@@ -296,10 +127,10 @@ func (m *Module) executeRequest(l *lua.LState, req *http.Request, opts *requestO
 	}
 
 	// Set context with timeout from options
+	var cancel context.CancelFunc
 	if opts.timeout > 0 {
-		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, opts.timeout)
-		defer cancel()
+		// we do not trigger cancel on streaming responses, either timeout or user will trigger it
 	}
 
 	req = req.WithContext(ctx)
@@ -316,7 +147,36 @@ func (m *Module) executeRequest(l *lua.LState, req *http.Request, opts *requestO
 		l.Push(lua.LString(err.Error()))
 		return 2
 	}
+
+	// Handle streaming if stream option is set
+	if opts.stream != nil {
+		s, err := stream.NewStream(ctx, resp.Body, opts.stream)
+		if err != nil {
+			resp.Body.Close()
+			cancel()
+			l.Push(lua.LNil)
+			l.Push(lua.LString(err.Error()))
+			return 2
+		}
+
+		// Create a LuaStream and associate it with the response
+		luaStream := &stream.LuaStream{Stream: s}
+		ud := l.NewUserData()
+		ud.Value = luaStream
+
+		l.SetMetatable(ud, l.GetTypeMetatable("Stream"))
+
+		// Create a new HTTP response that includes the stream
+		l.Push(newResponseWithStream(resp, ud, l))
+
+		return 1
+	}
+
+	// --- Non-streaming handling ---
 	defer resp.Body.Close()
+	if cancel != nil {
+		defer cancel()
+	}
 
 	// Read response
 	body, err := io.ReadAll(resp.Body)
@@ -326,7 +186,7 @@ func (m *Module) executeRequest(l *lua.LState, req *http.Request, opts *requestO
 		return 2
 	}
 
-	l.Push(newHTTPResponse(resp, &body, len(body), l))
+	l.Push(newResponse(resp, &body, len(body), l))
 	return 1
 }
 
@@ -374,7 +234,7 @@ func (m *Module) requestBatch(l *lua.LState) int {
 		}
 		optionsValue := reqTable.RawGet(lua.LNumber(3))
 
-		opts, err := parseOptions(l, optionsValue)
+		opts, err := parseOptions(optionsValue)
 		if err != nil {
 			l.ArgError(1, err.Error())
 			return // Stop processing further if option parsing fails
@@ -416,7 +276,7 @@ func (m *Module) requestBatch(l *lua.LState) int {
 				return
 			}
 
-			results <- result{i, newHTTPResponse(resp, &body, len(body), l), nil}
+			results <- result{i, newResponse(resp, &body, len(body), l), nil}
 		}(i, req)
 	}
 
@@ -443,56 +303,4 @@ func (m *Module) requestBatch(l *lua.LState) int {
 		return 2
 	}
 	return 1
-}
-
-func (m *Module) encodeURI(l *lua.LState) int {
-	// check num args
-	if l.GetTop() != 1 {
-		l.ArgError(1, "encode_uri requires exactly 1 string argument")
-		return 0
-	}
-
-	// check type
-	if l.Get(1).Type() != lua.LTString {
-		l.ArgError(1, "string expected")
-		return 0
-	}
-
-	str := l.CheckString(1) // Correctly checks if the first argument is a string.
-
-	l.Push(lua.LString(url.QueryEscape(str)))
-	return 1
-}
-
-func (m *Module) decodeURI(l *lua.LState) int {
-	// check num args
-	if l.GetTop() != 1 {
-		l.ArgError(1, "decode_uri requires exactly 1 string argument")
-		return 0
-	}
-
-	// check type
-	if l.Get(1).Type() != lua.LTString {
-		l.ArgError(1, "string expected")
-		return 0
-	}
-
-	str := l.CheckString(1) // Correctly checks if the first argument is a string.
-	decoded, err := url.QueryUnescape(str)
-	if err != nil {
-		// This is a processing error, not an argument error
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
-	}
-	l.Push(lua.LString(decoded))
-	return 1
-}
-
-// toTable safely converts a LValue to LTable
-func toTable(v lua.LValue) *lua.LTable {
-	if t, ok := v.(*lua.LTable); ok {
-		return t
-	}
-	return nil
 }
