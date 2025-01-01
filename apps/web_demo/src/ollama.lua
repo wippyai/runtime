@@ -2,6 +2,8 @@ local http = require("http")
 local json = require("json")
 local httpctx = require("httpctx")
 
+local default_ollama_url = "http://100.70.10.9:11434/api/generate"
+
 function ollama_handler()
     local res = httpctx.response()
     local req = httpctx.request()
@@ -20,12 +22,12 @@ function ollama_handler()
         buffer_size = tonumber(req:query("buffer_size")) or 4096,
         max_size = tonumber(req:query("max_size")), -- Optional
         timeout = tonumber(req:query("timeout")) or 5000,
-        ollama_url = req:query("ollama_url") or "http://100.70.10.9:11434/api/generate"
+        ollama_url = req:query("ollama_url") or default_ollama_url
     }
 
     local function query_ollama_and_stream_response(response, model, prompt, options)
         options = options or {}
-        local ollama_url = options.ollama_url or "http://100.70.10.9:11434/api/generate"
+        local ollama_url = options.ollama_url or default_ollama_url
         local headers = {
             ["Content-Type"] = "application/json"
         }
@@ -33,7 +35,7 @@ function ollama_handler()
         local request_body = json.encode({
             model = model,
             prompt = prompt,
-            stream = true  -- Always stream from Ollama
+            stream = true -- Always stream from Ollama
         })
 
         local ollama_response, err = http.post(ollama_url, {
@@ -47,11 +49,14 @@ function ollama_handler()
         })
 
         if err then
+            response:set_status(500) -- Internal Server Error
             return "Error querying Ollama: " .. err
         end
 
         if ollama_response.status_code ~= 200 then
-            return "Ollama API error: " .. ollama_response.status_code .. " - " .. (ollama_response.body or "")
+            response:set_status(ollama_response.status_code)
+            response:write("Ollama API error: " .. ollama_response.status_code .. " - " .. (ollama_response.body or ""))
+            return
         end
 
         -- Set up chunked transfer encoding for the user's response
@@ -61,7 +66,8 @@ function ollama_handler()
         -- Stream the response from Ollama back to the user
         local stream = ollama_response.stream
         if not stream then
-            return "Expected a stream from Ollama, but got none"
+            response:set_status(500) -- Internal Server Error
+            return
         end
 
         for chunk in stream() do
@@ -77,8 +83,8 @@ function ollama_handler()
                 -- Write the extracted "response" part to the user
                 response:write(decoded_chunk.response)
             else
-              -- this is not a response but data about
-              response:write(json.encode(decoded_chunk))
+                -- this is not a response but data about
+                response:write(json.encode(decoded_chunk))
             end
 
             response:flush()
@@ -86,7 +92,7 @@ function ollama_handler()
         response:write("")
         response:flush()
 
-        return nil -- Indicate success
+        return
     end
 
     local err = query_ollama_and_stream_response(res, model, prompt, options)
