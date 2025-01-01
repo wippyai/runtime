@@ -84,8 +84,11 @@ function ollama_handler()
               -- this is not a response but data about
               response:write(json.encode(decoded_chunk))
             end
+
+            response:flush()
         end
         response:write("")
+        response:flush()
 
         return nil -- Indicate success
     end
