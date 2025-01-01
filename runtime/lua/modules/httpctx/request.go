@@ -263,7 +263,7 @@ func requestBody(l *lua.LState) int {
 
 	if req.config.MaxBody > 0 && req.request.ContentLength > req.config.MaxBody {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(stream.ErrMaxSizeExceeded.Error()))
+		l.Push(lua.LString("request body too large"))
 		return 2
 	}
 
@@ -326,7 +326,7 @@ func requestBodyJSON(l *lua.LState) int {
 
 	if req.config.MaxBody > 0 && req.request.ContentLength > req.config.MaxBody {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(stream.ErrMaxSizeExceeded.Error()))
+		l.Push(lua.LString("request body too large"))
 		return 2
 	}
 
@@ -419,8 +419,6 @@ func requestStreamBody(l *lua.LState) int {
 
 	// Parse stream options
 	var bufferSize int64 = 32 * 1024 // Default 32KB buffer
-	var maxSize int64 = req.config.MaxBody
-	var timeout time.Duration = time.Duration(req.config.Timeout) * time.Millisecond
 
 	// Check if options table is provided
 	if l.GetTop() > 1 {
@@ -432,37 +430,13 @@ func requestStreamBody(l *lua.LState) int {
 					bufferSize = int64(n)
 				}
 			}
-
-			// Get max_size option (overrides request's max_body)
-			if ms := opts.RawGetString("max_size"); !lua.LVIsFalse(ms) {
-				if n, ok := ms.(lua.LNumber); ok {
-					maxSize = int64(n)
-				}
-			}
-
-			// Get timeout option (overrides request's timeout)
-			if t := opts.RawGetString("timeout"); !lua.LVIsFalse(t) {
-				if n, ok := t.(lua.LNumber); ok {
-					timeout = time.Duration(n) * time.Millisecond
-				}
-			}
 		}
 	}
 
-	// Create stream config with parsed options
-	cfg, err := stream.NewStreamConfig(
-		bufferSize,
-		maxSize,
-		timeout,
-	)
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("failed to create stream: %v", err)))
-		return 2
-	}
-
 	// Create new stream from request body
-	s, err := stream.NewStream(req.request.Context(), req.request.Body, cfg)
+	s, err := stream.NewStream(req.request.Context(), req.request.Body, stream.NewStreamConfig(
+		bufferSize,
+	))
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("failed to create stream: %v", err)))
