@@ -62,6 +62,8 @@ func responseSetStatus(l *lua.LState) int {
 
 	resp.writer.WriteHeader(code)
 	resp.headersSent = true
+	resp.rCtx.MarkHandled()
+
 	return 0
 }
 
@@ -86,6 +88,8 @@ func responseSetHeader(l *lua.LState) int {
 
 	value := l.CheckString(3)
 	resp.writer.Header().Set(key, value)
+	resp.rCtx.MarkHandled()
+
 	return 0
 }
 
@@ -105,6 +109,8 @@ func responseWrite(l *lua.LState) int {
 	}
 
 	resp.headersSent = true
+	resp.rCtx.MarkHandled()
+
 	l.Push(lua.LNil)
 	return 1
 }
