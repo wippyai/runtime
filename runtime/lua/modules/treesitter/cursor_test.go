@@ -174,3 +174,169 @@ func TestCursorMethods(t *testing.T) {
 		assert.NoError(t, err)
 	})
 }
+
+func TestCursorAdditionalMethods(t *testing.T) {
+	logger := zap.NewNop()
+
+	t.Run("cursor field operations", func(t *testing.T) {
+		mod := NewTreeSitterModule(logger)
+		vm, err := engine.NewVM(logger,
+			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithGlobalFunction("assert", assertLua),
+		)
+		require.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.DoString(nil, `
+			local treesitter = require("treesitter")
+			local code = [[
+				type Person struct {
+					Name string
+					Age  int
+				}
+			]]
+			local tree = treesitter.parse("go", code)
+			local cursor = tree:walk()
+			
+			-- Test field operations
+			local field_id = cursor:current_field_id()
+			assert(type(field_id) == "number", "field_id should be number")
+			
+			local field_name = cursor:current_field_name()
+			assert(field_name == nil or type(field_name) == "string", "field_name should be nil or string")
+		`, "test")
+		assert.NoError(t, err)
+	})
+
+	t.Run("cursor navigation edge cases", func(t *testing.T) {
+		mod := NewTreeSitterModule(logger)
+		vm, err := engine.NewVM(logger,
+			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithGlobalFunction("assert", assertLua),
+		)
+		require.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.DoString(nil, `
+			local treesitter = require("treesitter")
+			local code = "package main"
+			local tree = treesitter.parse("go", code)
+			local cursor = tree:walk()
+			
+			-- Test navigation at boundaries
+			cursor:goto_first_child()
+			local result = cursor:goto_previous_sibling()
+			assert(result == false, "should not go to previous sibling at start")
+			
+			cursor:goto_parent()
+			cursor:goto_last_child()
+			result = cursor:goto_next_sibling()
+			assert(result == false, "should not go to next sibling at end")
+			
+			-- Test invalid descendant index
+			cursor:goto_descendant(9999)  -- Should not crash
+			
+			-- Test invalid byte/point positions
+			local idx = cursor:goto_first_child_for_byte(9999)
+			assert(idx == nil, "should handle invalid byte position")
+			
+			local point_idx = cursor:goto_first_child_for_point({row = 999, column = 999})
+			assert(point_idx == nil, "should handle invalid point position")
+		`, "test")
+		assert.NoError(t, err)
+	})
+
+	t.Run("cursor gc", func(t *testing.T) {
+		mod := NewTreeSitterModule(logger)
+		vm, err := engine.NewVM(logger,
+			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithGlobalFunction("assert", assertLua),
+		)
+		require.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.DoString(nil, `
+			local treesitter = require("treesitter")
+			local code = "package main"
+			local tree = treesitter.parse("go", code)
+			local cursor = tree:walk()
+			
+			-- Force garbage collection
+			cursor = nil
+			collectgarbage()
+		`, "test")
+		assert.NoError(t, err)
+	})
+}
+
+func TestCursorImplementation(t *testing.T) {
+	logger := zap.NewNop()
+
+	t.Run("basic cursor movement", func(t *testing.T) {
+		mod := NewTreeSitterModule(logger)
+		vm, err := engine.NewVM(logger,
+			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithGlobalFunction("assert", assertLua),
+		)
+		require.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.DoString(nil, `
+            local treesitter = require("treesitter")
+            local code = "package main\n\nfunc test() {}\n"
+            local tree = treesitter.parse("go", code)
+            local root = tree:root_node()
+            local cursor = tree:walk()
+
+            -- Print initial state
+            print("Initial node: " .. cursor:current_node():kind())
+
+            -- Try first child movement
+            local success = cursor:goto_first_child()
+            assert(success, "should be able to move to first child")
+            assert(cursor:current_node():kind() == "package_clause", "should be at package_clause")
+
+            -- Try next sibling movement
+            success = cursor:goto_next_sibling()
+            assert(success, "should be able to move to next sibling")
+            assert(cursor:current_node():kind() == "function_declaration", "should be at function_declaration")
+
+            -- Test movement back up
+            success = cursor:goto_parent()
+            assert(success, "should be able to move back to parent")
+            assert(cursor:current_node():kind() == "source_file", "should be back at source_file")
+        `, "test")
+		assert.NoError(t, err)
+	})
+
+	t.Run("cursor navigation with reset", func(t *testing.T) {
+		mod := NewTreeSitterModule(logger)
+		vm, err := engine.NewVM(logger,
+			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithGlobalFunction("assert", assertLua),
+		)
+		require.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.DoString(nil, `
+            local treesitter = require("treesitter")
+            local code = "package main\n\nfunc test() {}\n"
+            local tree = treesitter.parse("go", code)
+            local root = tree:root_node()
+            local cursor = tree:walk()
+
+            -- Move cursor down
+            assert(cursor:goto_first_child(), "should move to first child")
+            local before_reset = cursor:current_node():kind()
+
+            -- Reset cursor to root
+            cursor:reset(root)
+            local after_reset = cursor:current_node():kind()
+
+            -- Should be back at root
+            assert(after_reset == "source_file", "should be back at source_file after reset")
+            assert(before_reset ~= after_reset, "position should change after reset")
+        `, "test")
+		assert.NoError(t, err)
+	})
+}

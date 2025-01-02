@@ -18,23 +18,29 @@ func registerNode(L *lua.LState) {
 
 var nodeMethods = map[string]lua.LGFunction{
 	// Navigation methods
-	"parent":             nodeParent,
-	"child":              nodeChild,
-	"child_count":        nodeChildCount,
-	"next_sibling":       nodeNextSibling,
-	"prev_sibling":       nodePrevSibling,
-	"next_named_sibling": nodeNextNamedSibling,
-	"prev_named_sibling": nodePrevNamedSibling,
-	"named_child":        nodeNamedChild,
-	"named_child_count":  nodeNamedChildCount,
+	"parent":                           nodeParent,
+	"child":                            nodeChild,
+	"child_count":                      nodeChildCount,
+	"next_sibling":                     nodeNextSibling,
+	"prev_sibling":                     nodePrevSibling,
+	"next_named_sibling":               nodeNextNamedSibling,
+	"prev_named_sibling":               nodePrevNamedSibling,
+	"named_child":                      nodeNamedChild,
+	"named_child_count":                nodeNamedChildCount,
+	"named_descendant_for_point_range": nodeNamedDescendantForPointRange,
+	"descendant_count":                 nodeDescendantCount,
 
 	// Field-related methods
 	"child_by_field_name":  nodeChildByFieldName,
 	"field_name_for_child": nodeFieldNameForChild,
 
 	// Inspection methods
-	"kind":      nodeKind,
-	"is_named":  nodeIsNamed,
+	"kind":         nodeKind,
+	"is_named":     nodeIsNamed,
+	"grammar_name": nodeGrammarName,
+	"is_extra":     nodeIsExtra,
+	"is_missing":   nodeIsMissing,
+
 	"has_error": nodeHasError,
 	"is_error":  nodeIsError,
 
@@ -43,7 +49,10 @@ var nodeMethods = map[string]lua.LGFunction{
 	"end_byte":    nodeEndByte,
 	"start_point": nodeStartPoint,
 	"end_point":   nodeEndPoint,
-}
+
+	// Text and source methods
+	"text":    nodeText,
+	"to_sexp": nodeToSexp}
 
 // Navigation methods implementation
 
@@ -245,6 +254,94 @@ func nodeEndPoint(L *lua.LState) int {
 	pointTable.RawSetString("row", lua.LNumber(point.Row))
 	pointTable.RawSetString("column", lua.LNumber(point.Column))
 	L.Push(pointTable)
+	return 1
+}
+
+// nodeText retrieves the source text for this node
+func nodeText(L *lua.LState) int {
+	node := checkNode(L)
+	source := L.CheckString(2)
+
+	// Get byte positions
+	start := node.node.StartByte()
+	end := node.node.EndByte()
+
+	// Bounds checking with uint32 for safe comparisons
+	sourceLen := uint32(len(source))
+	startPos := uint32(start)
+	endPos := uint32(end)
+
+	if start < 0 || end < 0 || startPos > endPos || endPos > sourceLen {
+		// Instead of just returning nil, raise an error
+		L.RaiseError("invalid byte range")
+		return 0 // This line won't be reached due to RaiseError
+	}
+
+	// Extract text
+	text := source[start:end]
+	L.Push(lua.LString(text))
+	return 1
+}
+
+func nodeGrammarName(L *lua.LState) int {
+	node := checkNode(L)
+	grammarName := node.node.GrammarName()
+	L.Push(lua.LString(grammarName))
+	return 1
+}
+
+func nodeIsExtra(L *lua.LState) int {
+	node := checkNode(L)
+	L.Push(lua.LBool(node.node.IsExtra()))
+	return 1
+}
+
+func nodeIsMissing(L *lua.LState) int {
+	node := checkNode(L)
+	L.Push(lua.LBool(node.node.IsMissing()))
+	return 1
+}
+
+func nodeNamedDescendantForPointRange(L *lua.LState) int {
+	node := checkNode(L)
+
+	// Get start point table argument
+	startPointTbl := L.CheckTable(2)
+	startRow := uint(startPointTbl.RawGetString("row").(lua.LNumber))
+	startCol := uint(startPointTbl.RawGetString("column").(lua.LNumber))
+
+	// Get end point table argument
+	endPointTbl := L.CheckTable(3)
+	endRow := uint(endPointTbl.RawGetString("row").(lua.LNumber))
+	endCol := uint(endPointTbl.RawGetString("column").(lua.LNumber))
+
+	startPoint := treesitter.Point{Row: startRow, Column: startCol}
+	endPoint := treesitter.Point{Row: endRow, Column: endCol}
+
+	descendant := node.node.NamedDescendantForPointRange(startPoint, endPoint)
+	if descendant == nil {
+		L.Push(lua.LNil)
+		return 1
+	}
+
+	ud := L.NewUserData()
+	ud.Value = &NodeWrapper{node: descendant}
+	L.SetMetatable(ud, L.GetTypeMetatable("treesitter.Node"))
+	L.Push(ud)
+	return 1
+}
+
+func nodeDescendantCount(L *lua.LState) int {
+	node := checkNode(L)
+	count := node.node.DescendantCount()
+	L.Push(lua.LNumber(count))
+	return 1
+}
+
+func nodeToSexp(L *lua.LState) int {
+	node := checkNode(L)
+	sexp := node.node.ToSexp()
+	L.Push(lua.LString(sexp))
 	return 1
 }
 
