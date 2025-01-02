@@ -2,6 +2,7 @@ package http
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
@@ -419,7 +420,7 @@ func TestStreamedResponseBodyHandling(t *testing.T) {
 		assert(final == nil, "expected nil after all chunks read")
 	`
 
-		err = vm.DoString(nil, script, "test")
+		err = vm.DoString(context.Background(), script, "test")
 		assert.NoError(t, err)
 	})
 
@@ -458,7 +459,7 @@ func TestStreamedResponseBodyHandling(t *testing.T) {
 		assert(string.find(err, "context deadline"), "Error should indicate a timeout or canceled context")
 	`
 
-		err = vm.DoString(nil, script, "test")
+		err = vm.DoString(context.Background(), script, "test")
 		assert.NoError(t, err)
 	})
 
@@ -501,7 +502,7 @@ func TestStreamedResponseBodyHandling(t *testing.T) {
 		assert(string.find(err, "mock error"), "Error should indicate the injected error")
 	`
 
-		err = vm.DoString(nil, script, "test")
+		err = vm.DoString(context.Background(), script, "test")
 		assert.NoError(t, err)
 	})
 
@@ -540,7 +541,7 @@ func TestStreamedResponseBodyHandling(t *testing.T) {
 		assert(string.find(err, "closed"), "Error should indicate stream is closed")
 	`
 
-		err = vm.DoString(nil, script, "test")
+		err = vm.DoString(context.Background(), script, "test")
 		assert.NoError(t, err)
 	})
 
@@ -582,7 +583,7 @@ func TestStreamedResponseBodyHandling(t *testing.T) {
     assert(idx - 1 == #expected_chunks, "Wrong number of chunks received")
     `
 
-		err = vm.DoString(nil, script, "test")
+		err = vm.DoString(context.Background(), script, "test")
 		assert.NoError(t, err)
 	})
 }
