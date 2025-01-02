@@ -43,82 +43,103 @@ var phpGrammarContent string
 // LanguageInfo holds information about a supported language.
 type LanguageInfo struct {
 	Name           string                // Full language name (e.g., "JavaScript")
-	Aliases        []string              // Alternative names or short codes (e.g., "js")
+	Aliases        []string              // Alternative names or short codes (e.g., ["js", "javascript"])
 	GrammarContent string                // The embedded grammar file content
 	Language       func() unsafe.Pointer // Function to get the Tree-sitter language object
 }
 
-// supportedLanguages is a map of language aliases to LanguageInfo.
-var supportedLanguages = map[string]LanguageInfo{
-	"php": {
+// languageDefinitions contains the core language definitions
+var languageDefinitions = []LanguageInfo{
+	{
 		Name:           "PHP",
 		Aliases:        []string{"php"},
 		GrammarContent: phpGrammarContent,
 		Language:       treesitterphp.LanguagePHP,
 	},
-	"go": {
+	{
 		Name:           "Go",
-		Aliases:        []string{"go"},
+		Aliases:        []string{"go", "golang"},
 		GrammarContent: goGrammarContent,
 		Language:       treesittergo.Language,
 	},
-	"js": {
+	{
 		Name:           "JavaScript",
 		Aliases:        []string{"js", "javascript"},
 		GrammarContent: jsGrammarContent,
 		Language:       treesitterjs.Language,
 	},
-	"tsx": {
+	{
 		Name:           "TypeScript with JSX",
 		Aliases:        []string{"tsx"},
 		GrammarContent: tsxGrammarContent,
 		Language:       treesitterts.LanguageTSX,
 	},
-	"ts": {
+	{
 		Name:           "TypeScript",
 		Aliases:        []string{"ts", "typescript"},
 		GrammarContent: tsGrammarContent,
 		Language:       treesitterts.LanguageTypescript,
 	},
-	"python": {
+	{
 		Name:           "Python",
-		Aliases:        []string{"python", "py"}, // Added "py" as a common alias
+		Aliases:        []string{"python", "py"},
 		GrammarContent: pythonGrammarContent,
 		Language:       treesitterpython.Language,
 	},
-	"csharp": {
+	{
 		Name:           "C#",
-		Aliases:        []string{"csharp", "c#"},
+		Aliases:        []string{"csharp", "c#", "cs"},
 		GrammarContent: csharpGrammarContent,
 		Language:       treesittercsharp.Language,
 	},
-	"html": {
+	{
 		Name:           "HTML",
 		Aliases:        []string{"html", "html5"},
 		GrammarContent: htmlGrammarContent,
 		Language:       treesitterhtml.Language,
 	},
-	"markdown": {
+	{
 		Name:           "Markdown",
-		Aliases:        []string{"markdown", "md"}, // Added "md" as a common alias
+		Aliases:        []string{"markdown", "md"},
 		GrammarContent: mdGrammarContent,
-		Language:       nil, // Markdown doesn't seem to have a direct Tree-sitter language binding, handle accordingly.
+		Language:       nil,
 	},
+}
+
+// supportedLanguages is a map of all language aliases to their LanguageInfo
+var supportedLanguages map[string]*LanguageInfo
+
+func init() {
+	// Initialize the map with enough capacity for all aliases
+	totalAliases := 0
+	for _, lang := range languageDefinitions {
+		totalAliases += len(lang.Aliases)
+	}
+	supportedLanguages = make(map[string]*LanguageInfo, totalAliases)
+
+	// Map all aliases to their language info
+	for i := range languageDefinitions {
+		langInfo := &languageDefinitions[i]
+		for _, alias := range langInfo.Aliases {
+			supportedLanguages[alias] = langInfo
+		}
+	}
 }
 
 // GetLanguageInfo returns the LanguageInfo for a given language alias.
 func GetLanguageInfo(alias string) *LanguageInfo {
-	if info, ok := supportedLanguages[alias]; ok {
-		return &info
-	}
-	return nil
+	return supportedLanguages[alias]
 }
 
 // GetSupportedLanguages returns a list of supported language names.
 func GetSupportedLanguages() []string {
-	names := make([]string, 0, len(supportedLanguages))
-	for _, info := range supportedLanguages {
-		names = append(names, info.Name)
+	seen := make(map[string]bool)
+	names := make([]string, 0, len(languageDefinitions))
+	for _, langInfo := range languageDefinitions {
+		if !seen[langInfo.Name] {
+			names = append(names, langInfo.Name)
+			seen[langInfo.Name] = true
+		}
 	}
 	return names
 }
