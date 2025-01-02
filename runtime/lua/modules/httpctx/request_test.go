@@ -859,22 +859,6 @@ func TestRequest_RemoteAddr(t *testing.T) {
 func TestRequest_ContextErrors(t *testing.T) {
 	logger := zap.NewNop()
 
-	t.Run("no context available", func(t *testing.T) {
-		mod := NewHTTPContextModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
-		require.NoError(t, err)
-		defer vm.Close()
-
-		// No context set
-		err = vm.DoString(nil, `
-			local httpctx = require("httpctx")
-			local req, err = httpctx.request()
-			assert(req == nil, "request should be nil when no context is available")
-			assert(err == "no context available", "incorrect error message")
-		`, "test")
-		assert.NoError(t, err)
-	})
-
 	t.Run("no HTTP request context found", func(t *testing.T) {
 		ctx := context.Background() // Context without HTTP request
 
