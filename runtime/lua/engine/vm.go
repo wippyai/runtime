@@ -105,23 +105,19 @@ func (v *VM) DoString(ctx context.Context, s, name string, args ...lua.LValue) e
 		return err
 	}
 
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
-	// Attach cleanup to context
-	ctx, cleanup := closer.WithContext(ctx)
-	defer func() {
-		if err := cleanup.Close(); err != nil {
-			v.log.Error("failed to cleanup resources",
-				zap.String("do_string", name),
-				zap.Error(err))
-		}
-	}()
-
 	if ctx != nil {
+		// Attach cleanup to context
+		ctx, cleanup := closer.WithContext(ctx)
+		defer func() {
+			v.state.RemoveContext()
+			if err := cleanup.Close(); err != nil {
+				v.log.Error("failed to cleanup resources",
+					zap.String("do_string", name),
+					zap.Error(err))
+			}
+		}()
+
 		v.state.SetContext(ctx)
-		defer v.state.RemoveContext()
 	}
 
 	v.state.Push(fn)
@@ -141,23 +137,19 @@ func (v *VM) Execute(ctx context.Context, funcName string, args ...lua.LValue) (
 		return nil, fmt.Errorf("function %q not found", funcName)
 	}
 
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
-	// Attach cleanup to context
-	ctx, cleanup := closer.WithContext(ctx)
-	defer func() {
-		if err := cleanup.Close(); err != nil {
-			v.log.Error("failed to cleanup resources",
-				zap.String("function", funcName),
-				zap.Error(err))
-		}
-	}()
-
 	if ctx != nil {
+		// Attach cleanup to context
+		ctx, cleanup := closer.WithContext(ctx)
+		defer func() {
+			v.state.RemoveContext()
+			if err := cleanup.Close(); err != nil {
+				v.log.Error("failed to cleanup resources",
+					zap.String("function", funcName),
+					zap.Error(err))
+			}
+		}()
+
 		v.state.SetContext(ctx)
-		defer v.state.RemoveContext()
 	}
 
 	v.state.Push(fn)

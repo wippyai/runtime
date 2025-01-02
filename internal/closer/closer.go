@@ -26,6 +26,11 @@ func FromContext(ctx context.Context) *Cleanup {
 }
 
 func WithContext(ctx context.Context) (context.Context, *Cleanup) {
+	// check if there is already a cleanup in the context
+	if cleanup := FromContext(ctx); cleanup != nil {
+		return ctx, cleanup
+	}
+
 	cleanup := NewCleanup()
 	return context.WithValue(ctx, ctxapi.CleanupCtx, cleanup), cleanup
 }
