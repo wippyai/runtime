@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"github.com/ponyruntime/pony/internal/closer"
 	"strings"
 
 	"github.com/ponyruntime/go-lua"
@@ -104,16 +105,30 @@ func (v *VM) DoString(ctx context.Context, s, name string, args ...lua.LValue) e
 		return err
 	}
 
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	// Attach cleanup to context
+	ctx, cleanup := closer.WithContext(ctx)
+	defer func() {
+		if err := cleanup.Close(); err != nil {
+			v.log.Error("failed to cleanup resources",
+				zap.String("do_string", name),
+				zap.Error(err))
+		}
+	}()
+
+	if ctx != nil {
+		v.state.SetContext(ctx)
+		defer v.state.RemoveContext()
+	}
+
 	v.state.Push(fn)
 
 	// Push all provided arguments onto the stack
 	for _, arg := range args {
 		v.state.Push(arg)
-	}
-
-	if ctx != nil {
-		v.state.SetContext(ctx)
-		defer v.state.RemoveContext()
 	}
 
 	return v.state.PCall(len(args), lua.MultRet, nil)
@@ -125,6 +140,20 @@ func (v *VM) Execute(ctx context.Context, funcName string, args ...lua.LValue) (
 	if !ok {
 		return nil, fmt.Errorf("function %q not found", funcName)
 	}
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	// Attach cleanup to context
+	ctx, cleanup := closer.WithContext(ctx)
+	defer func() {
+		if err := cleanup.Close(); err != nil {
+			v.log.Error("failed to cleanup resources",
+				zap.String("function", funcName),
+				zap.Error(err))
+		}
+	}()
 
 	if ctx != nil {
 		v.state.SetContext(ctx)
