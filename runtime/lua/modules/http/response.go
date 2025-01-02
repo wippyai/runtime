@@ -34,6 +34,7 @@ func newResponse(res *http.Response, body *[]byte, bodySize int, l *lua.LState) 
 		body:     lua.LString(*body),
 		bodySize: bodySize,
 	}
+
 	l.SetMetatable(ud, l.GetTypeMetatable(luaHTTPResponseTypeName))
 	return ud
 }
