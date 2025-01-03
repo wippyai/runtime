@@ -3,7 +3,7 @@ package time
 import (
 	"time"
 
-	"github.com/ponyruntime/go-lua"
+	"github.com/yuin/gopher-lua"
 )
 
 // Time represents a Lua userdata object wrapping time.Time

@@ -1,7 +1,7 @@
 package sql
 
 import (
-	"github.com/ponyruntime/go-lua"
+	"github.com/yuin/gopher-lua"
 
 	// PQ Driver
 	_ "github.com/lib/pq"

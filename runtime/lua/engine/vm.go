@@ -6,8 +6,8 @@ import (
 	"github.com/ponyruntime/pony/internal/closer"
 	"strings"
 
-	"github.com/ponyruntime/go-lua"
-	"github.com/ponyruntime/go-lua/parse"
+	"github.com/yuin/gopher-lua"
+	"github.com/yuin/gopher-lua/parse"
 	"go.uber.org/zap"
 )
 
@@ -24,7 +24,35 @@ type Option func(*VM)
 
 // NewVM creates a new VM instance with the provided script and options
 func NewVM(log *zap.Logger, opts ...Option) (*VM, error) {
-	state := lua.NewState(lua.Options{})
+	state := lua.NewState(lua.Options{
+		SkipOpenLibs: true,
+	})
+
+	// todo: encapsulate
+	// todo: migrate back to original lua package?
+	// todo: improve overall resource control?
+	// todo: check the state of all the tests
+	for _, pair := range []struct {
+		n string
+		f lua.LGFunction
+	}{
+		{lua.LoadLibName, lua.OpenPackage}, // Must be first
+		{lua.BaseLibName, lua.OpenBase},
+		{lua.TabLibName, lua.OpenTable},
+		{lua.StringLibName, lua.OpenString},
+		{lua.MathLibName, lua.OpenMath},
+		{lua.DebugLibName, lua.OpenDebug},
+		{lua.CoroutineLibName, lua.OpenCoroutine},
+	} {
+		if err := state.CallByParam(lua.P{
+			Fn:      state.NewFunction(pair.f),
+			NRet:    0,
+			Protect: true,
+		}, lua.LString(pair.n)); err != nil {
+			panic(err)
+		}
+	}
+
 	vm := &VM{
 		log:        log,
 		state:      state,

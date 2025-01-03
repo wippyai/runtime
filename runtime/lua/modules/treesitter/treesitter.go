@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/ponyruntime/go-lua"
 	treesitter "github.com/tree-sitter/go-tree-sitter"
+	"github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
 

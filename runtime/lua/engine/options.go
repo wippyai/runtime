@@ -2,7 +2,7 @@ package engine
 
 import (
 	"fmt"
-	"github.com/ponyruntime/go-lua"
+	"github.com/yuin/gopher-lua"
 	"strings"
 )
 

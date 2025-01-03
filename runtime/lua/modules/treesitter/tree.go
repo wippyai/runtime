@@ -1,8 +1,8 @@
 package treesitter
 
 import (
-	"github.com/ponyruntime/go-lua"
 	treesitter "github.com/tree-sitter/go-tree-sitter"
+	"github.com/yuin/gopher-lua"
 )
 
 // TreeWrapper wraps a tree-sitter Tree for Lua integration

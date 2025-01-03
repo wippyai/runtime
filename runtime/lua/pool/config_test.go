@@ -3,10 +3,10 @@ package pool
 import (
 	"testing"
 
-	"github.com/ponyruntime/go-lua"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
 

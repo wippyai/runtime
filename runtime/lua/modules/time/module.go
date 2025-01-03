@@ -1,6 +1,6 @@
 package time
 
-import "github.com/ponyruntime/go-lua"
+import "github.com/yuin/gopher-lua"
 
 // Duration constants in nanoseconds
 const (

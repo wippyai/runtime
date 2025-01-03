@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	lua "github.com/ponyruntime/go-lua"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
+	lua "github.com/yuin/gopher-lua"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
