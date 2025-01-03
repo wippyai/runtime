@@ -846,3 +846,129 @@ func BenchmarkGlobalStateDirectAccess(b *testing.B) {
 		globalState.RawSetString("count", lua.LNumber(count+1))
 	}
 }
+
+func TestVM_SecurityRestrictions(t *testing.T) {
+	logger := zap.NewNop()
+	vm, err := NewVM(logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer vm.Close()
+
+	t.Run("os library should not be available", func(t *testing.T) {
+		err := vm.DoString(nil, `
+			if os then
+				error("os library should not be available")
+			end
+		`, "os_test")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Try to require os
+		err = vm.DoString(nil, `require("os")`, "os_require_test")
+		if err == nil {
+			t.Error("expected error when requiring os library")
+		}
+
+		// Verify specific os operations fail
+		err = vm.DoString(nil, `os.execute("echo test")`, "os_execute_test")
+		if err == nil {
+			t.Error("os.execute should not be available")
+		}
+	})
+
+	t.Run("io library should not be available", func(t *testing.T) {
+		err := vm.DoString(nil, `
+			if io then
+				error("io library should not be available")
+			end
+		`, "io_test")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Try to require io
+		err = vm.DoString(nil, `require("io")`, "io_require_test")
+		if err == nil {
+			t.Error("expected error when requiring io library")
+		}
+
+		// Verify specific io operations fail
+		err = vm.DoString(nil, `io.open("test.txt", "r")`, "io_open_test")
+		if err == nil {
+			t.Error("io.open should not be available")
+		}
+	})
+
+	t.Run("loadlib operations should not work", func(t *testing.T) {
+		err := vm.DoString(nil, `
+			-- Try to load a C library (should fail)
+			local ok, err = package.loadlib("test.so", "luaopen_test")
+			if ok then
+				error("should not be able to load C libraries")
+			end
+		`, "loadlib_test")
+		if err == nil {
+			t.Error("expected error when trying to load C library")
+		}
+	})
+
+	t.Run("require should only work with preloaded modules", func(t *testing.T) {
+		// Add a test library
+		testLib := `
+			local lib = {}
+			function lib.test() return "ok" end
+			return lib
+		`
+		vm, err := NewVM(logger, WithLibrary("testlib", testLib))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm.Close()
+
+		// Verify we can load our preloaded module
+		err = vm.DoString(nil, `
+			local t = require("testlib")
+			assert(t.test() == "ok")
+		`, "require_test")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Try to require a non-existent module
+		err = vm.DoString(nil, `require("nonexistent")`, "require_nonexistent_test")
+		if err == nil {
+			t.Error("expected error when requiring non-existent module")
+		}
+
+		// Try to require a system module
+		err = vm.DoString(nil, `require("socket")`, "require_system_test")
+		if err == nil {
+			t.Error("expected error when requiring system module")
+		}
+	})
+
+	t.Run("attempt file system operations should fail", func(t *testing.T) {
+		tests := []struct {
+			name   string
+			script string
+		}{
+			{"write file attempt", `io.output("test.txt")`},
+			{"read file attempt", `io.input("test.txt")`},
+			{"direct file open", `io.open("test.txt", "r")`},
+			{"os execute", `os.execute("ls")`},
+			{"os remove", `os.remove("test.txt")`},
+			{"os rename", `os.rename("a.txt", "b.txt")`},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				err := vm.DoString(nil, tt.script, tt.name)
+				if err == nil {
+					t.Errorf("%s: expected error but got none", tt.name)
+				}
+			})
+		}
+	})
+}
