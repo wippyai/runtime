@@ -288,9 +288,6 @@ func TestCursorImplementation(t *testing.T) {
             local root = tree:root_node()
             local cursor = tree:walk()
 
-            -- Print initial state
-            print("Initial node: " .. cursor:current_node():kind())
-
             -- Try first child movement
             local success = cursor:goto_first_child()
             assert(success, "should be able to move to first child")

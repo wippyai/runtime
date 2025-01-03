@@ -33,12 +33,15 @@ func (m *Module) Loader(l *lua.LState) int {
 	registerNode(l)
 	// register query
 	registerCursor(l)
+	registerLanguage(l)
 
 	lapi := map[string]lua.LGFunction{
 		"supported_languages": m.supportedLanguages,
-		"parse":               m.parse,
+		"language":            m.language,
 		"parser":              newParser,
-		//"query":               m.query, // in separate file
+		"parse":               m.parse,
+
+		//todo: "query":               m.query, // in separate file
 	}
 
 	l.SetFuncs(t, lapi)
@@ -57,6 +60,32 @@ func (m *Module) supportedLanguages(l *lua.LState) int {
 	return 1
 }
 
+func (m *Module) language(L *lua.LState) int {
+	languageAlias := L.CheckString(1)
+
+	langInfo := GetLanguageInfo(languageAlias)
+	if langInfo == nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(fmt.Sprintf("unsupported language: %s", languageAlias)))
+		return 2
+	}
+
+	if langInfo.Language == nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(fmt.Sprintf("language '%s' does not have a Tree-sitter language binding", languageAlias)))
+		return 2
+	}
+
+	lang := treesitter.NewLanguage(langInfo.Language())
+
+	// Create and return Language userdata
+	ud := L.NewUserData()
+	ud.Value = &LanguageWrapper{lang: lang}
+	L.SetMetatable(ud, L.GetTypeMetatable("treesitter.Language"))
+	L.Push(ud)
+	return 1
+}
+
 // parse parses the text into a Tree object.
 func (m *Module) parse(l *lua.LState) int {
 	if l.GetTop() != 2 {
@@ -66,6 +95,10 @@ func (m *Module) parse(l *lua.LState) int {
 
 	languageAlias := l.CheckString(1)
 	code := l.CheckString(2)
+
+	// Create parser and set language
+	parser := treesitter.NewParser()
+	defer parser.Close()
 
 	langInfo := GetLanguageInfo(languageAlias)
 	if langInfo == nil {
@@ -78,22 +111,7 @@ func (m *Module) parse(l *lua.LState) int {
 		return 0
 	}
 
-	if code == "" {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("code is empty"))
-		return 2
-	}
-
-	parser := treesitter.NewParser()
-	defer parser.Close()
-
-	langFunc := langInfo.Language
-	if langFunc == nil {
-		l.ArgError(1, fmt.Sprintf("language function for '%s' is not defined", languageAlias))
-		return 0
-	}
-
-	lang := langFunc()
+	lang := langInfo.Language()
 	err := parser.SetLanguage(treesitter.NewLanguage(lang))
 	if err != nil {
 		l.Push(lua.LNil)
@@ -101,21 +119,29 @@ func (m *Module) parse(l *lua.LState) int {
 		return 2
 	}
 
+	// Use context from Lua state if available
 	ctx := l.Context()
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
-	tr := parser.ParseCtx(ctx, []byte(code), nil)
-	if tr == nil {
+	if code == "" {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("code is empty"))
+		return 2
+	}
+
+	// Parse with context
+	tree := parser.ParseCtx(ctx, []byte(code), nil)
+	if tree == nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString("failed to parse code"))
 		return 2
 	}
 
-	// Create and return Tree userdata
+	// Return tree userdata
 	ud := l.NewUserData()
-	ud.Value = &TreeWrapper{tree: tr}
+	ud.Value = &TreeWrapper{tree: tree}
 	l.SetMetatable(ud, l.GetTypeMetatable("treesitter.Tree"))
 	l.Push(ud)
 

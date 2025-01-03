@@ -1,9 +1,13 @@
 package treesitter
 
 import (
+	"context"
+	"fmt"
+	"github.com/ponyruntime/pony/internal/closer"
+	"time"
+
 	treesitter "github.com/tree-sitter/go-tree-sitter"
 	"github.com/yuin/gopher-lua"
-	"log"
 )
 
 type ParserWrapper struct {
@@ -20,16 +24,58 @@ var parserMethods = map[string]lua.LGFunction{
 	"parse":        parserParse,
 	"set_language": parserSetLanguage,
 	"get_language": parserGetLanguage,
+	"reset":        parserReset,
+	"close":        parserClose,
+	"set_timeout":  parserSetTimeout,
+	"set_ranges":   parserSetRanges,
 }
 
 func newParser(L *lua.LState) int {
 	parser := treesitter.NewParser()
 
+	if L.Context() != nil {
+		cleanup := closer.FromContext(L.Context())
+		if cleanup != nil {
+			cleanup.Add(func() error { parser.Close(); return nil })
+		}
+	}
+
 	ud := L.NewUserData()
-	ud.Value = &ParserWrapper{parser: parser}
+	ud.Value = &ParserWrapper{
+		parser: parser,
+	}
 	L.SetMetatable(ud, L.GetTypeMetatable("treesitter.Parser"))
 	L.Push(ud)
 	return 1
+}
+
+func (p *ParserWrapper) parseWithContext(code []byte, oldTree *TreeWrapper, ctx context.Context) (*treesitter.Tree, error) {
+	if len(code) == 0 {
+		return nil, fmt.Errorf("code is empty")
+	}
+
+	if deadline, ok := ctx.Deadline(); ok {
+		timeout := time.Until(deadline)
+		p.parser.SetTimeoutMicros(uint64(timeout.Microseconds()))
+	}
+
+	var cflag uintptr
+	p.parser.SetCancellationFlag(&cflag)
+
+	var oldTreePtr *treesitter.Tree
+	if oldTree != nil {
+		oldTreePtr = oldTree.tree
+	}
+
+	tree := p.parser.ParseCtx(ctx, code, oldTreePtr)
+	if tree == nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, fmt.Errorf("failed to parse code")
+	}
+
+	return tree, nil
 }
 
 func parserSetLanguage(L *lua.LState) int {
@@ -74,20 +120,19 @@ func parserGetLanguage(L *lua.LState) int {
 func parserParse(L *lua.LState) int {
 	parser := checkParser(L)
 	code := L.CheckString(2)
-	var oldTree *treesitter.Tree
 
 	if parser.parser.Language() == nil {
-		log.Println("language is not set")
 		L.ArgError(1, "language is not set")
-		return 2
+		return 0
 	}
 
+	var oldTree *TreeWrapper
 	if L.GetTop() > 2 {
 		if ud := L.CheckUserData(3); ud != nil {
 			if tw, ok := ud.Value.(*TreeWrapper); ok {
-				oldTree = tw.tree
+				oldTree = tw
 			} else {
-				L.ArgError(2, "tree expected")
+				L.ArgError(3, "tree expected")
 				return 0
 			}
 		}
@@ -99,11 +144,25 @@ func parserParse(L *lua.LState) int {
 		return 2
 	}
 
-	tree := parser.parser.Parse([]byte(code), oldTree)
-	if tree == nil {
+	// Get context from Lua state
+	ctx := L.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	// Parse with context handling
+	tree, err := parser.parseWithContext([]byte(code), oldTree, ctx)
+	if err != nil {
 		L.Push(lua.LNil)
-		L.Push(lua.LString("failed to parse code"))
+		L.Push(lua.LString(err.Error()))
 		return 2
+	}
+
+	if L.Context() != nil {
+		cleanup := closer.FromContext(L.Context())
+		if cleanup != nil {
+			cleanup.Add(func() error { tree.Close(); return nil })
+		}
 	}
 
 	ud := L.NewUserData()
@@ -113,14 +172,124 @@ func parserParse(L *lua.LState) int {
 	return 1
 }
 
+func parserReset(L *lua.LState) int {
+	p := checkParser(L)
+	p.parser.Reset()
+	return 0
+}
+
+func parserClose(L *lua.LState) int {
+	p := checkParser(L)
+	p.Close()
+	return 0
+}
+
+func parserSetTimeout(L *lua.LState) int {
+	p := checkParser(L)
+	timeout := L.CheckNumber(2)
+	p.parser.SetTimeoutMicros(uint64(timeout * 1000000)) // Convert seconds to microseconds
+	return 0
+}
+
+func parserSetRanges(L *lua.LState) int {
+	p := checkParser(L)
+	rangesTable := L.CheckTable(2)
+
+	var ranges []treesitter.Range
+	var parseError error
+
+	rangesTable.ForEach(func(_, value lua.LValue) {
+		if parseError != nil {
+			return
+		}
+
+		if t, ok := value.(*lua.LTable); ok {
+			var r treesitter.Range
+
+			// Get values with explicit type checks
+			if v := t.RawGetString("start_byte"); v.Type() == lua.LTNumber {
+				r.StartByte = uint(v.(lua.LNumber))
+			} else {
+				parseError = fmt.Errorf("start_byte must be a number")
+				return
+			}
+
+			if v := t.RawGetString("end_byte"); v.Type() == lua.LTNumber {
+				r.EndByte = uint(v.(lua.LNumber))
+			} else {
+				parseError = fmt.Errorf("end_byte must be a number")
+				return
+			}
+
+			if v := t.RawGetString("start_row"); v.Type() == lua.LTNumber {
+				r.StartPoint.Row = uint(v.(lua.LNumber))
+			} else {
+				parseError = fmt.Errorf("start_row must be a number")
+				return
+			}
+
+			if v := t.RawGetString("start_col"); v.Type() == lua.LTNumber {
+				r.StartPoint.Column = uint(v.(lua.LNumber))
+			} else {
+				parseError = fmt.Errorf("start_col must be a number")
+				return
+			}
+
+			if v := t.RawGetString("end_row"); v.Type() == lua.LTNumber {
+				r.EndPoint.Row = uint(v.(lua.LNumber))
+			} else {
+				parseError = fmt.Errorf("end_row must be a number")
+				return
+			}
+
+			if v := t.RawGetString("end_col"); v.Type() == lua.LTNumber {
+				r.EndPoint.Column = uint(v.(lua.LNumber))
+			} else {
+				parseError = fmt.Errorf("end_col must be a number")
+				return
+			}
+
+			ranges = append(ranges, r)
+		}
+	})
+
+	if parseError != nil {
+		L.Push(lua.LFalse)
+		L.Push(lua.LString(parseError.Error()))
+		return 2
+	}
+
+	if err := p.SetIncludedRanges(ranges); err != nil {
+		L.Push(lua.LFalse)
+		L.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	L.Push(lua.LTrue)
+	return 1
+}
+
 func parserGC(L *lua.LState) int {
 	parser := checkParser(L)
 	parser.Close()
 	return 0
 }
 
+func (p *ParserWrapper) SetIncludedRanges(ranges []treesitter.Range) error {
+	if p.parser == nil {
+		return fmt.Errorf("parser is closed")
+	}
+
+	return p.parser.SetIncludedRanges(ranges)
+}
+
+func (p *ParserWrapper) Reset() {
+	p.parser.Reset()
+}
+
 func (p *ParserWrapper) Close() {
 	if p.parser != nil {
+		p.parser.SetLogger(nil)
 		p.parser.Close()
 		p.parser = nil
 	}
