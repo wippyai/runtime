@@ -3,7 +3,6 @@ package treesitter
 import (
 	"context"
 	"fmt"
-
 	treesitter "github.com/tree-sitter/go-tree-sitter"
 	"github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
@@ -141,7 +140,7 @@ func (m *Module) parse(l *lua.LState) int {
 
 	// Return tree userdata
 	ud := l.NewUserData()
-	ud.Value = &TreeWrapper{tree: tree}
+	ud.Value = &TreeWrapper{tree: tree, source: code}
 	l.SetMetatable(ud, l.GetTypeMetatable("treesitter.Tree"))
 	l.Push(ud)
 

@@ -12,6 +12,7 @@ import (
 
 type ParserWrapper struct {
 	parser *treesitter.Parser
+	lang   *LanguageInfo
 }
 
 func registerParser(L *lua.LState) {
@@ -41,9 +42,7 @@ func newParser(L *lua.LState) int {
 	}
 
 	ud := L.NewUserData()
-	ud.Value = &ParserWrapper{
-		parser: parser,
-	}
+	ud.Value = &ParserWrapper{parser: parser}
 	L.SetMetatable(ud, L.GetTypeMetatable("treesitter.Parser"))
 	L.Push(ud)
 	return 1
@@ -100,20 +99,22 @@ func parserSetLanguage(L *lua.LState) int {
 		L.Push(lua.LString(err.Error()))
 		return 2
 	}
+	p.lang = langInfo
 
 	L.Push(lua.LTrue)
 	return 1
 }
 
+// In parser.go:
 func parserGetLanguage(L *lua.LState) int {
 	p := checkParser(L)
-	lang := p.parser.Language()
-	if lang == nil {
-		L.Push(lua.LNil)
-		return 1
+
+	if p.lang == nil {
+		L.RaiseError("language is not set")
+		return 0
 	}
 
-	L.Push(lua.LString("unknown"))
+	L.Push(lua.LString(p.lang.Name))
 	return 1
 }
 
@@ -166,7 +167,7 @@ func parserParse(L *lua.LState) int {
 	}
 
 	ud := L.NewUserData()
-	ud.Value = &TreeWrapper{tree: tree}
+	ud.Value = &TreeWrapper{tree: tree, source: code}
 	L.SetMetatable(ud, L.GetTypeMetatable("treesitter.Tree"))
 	L.Push(ud)
 	return 1

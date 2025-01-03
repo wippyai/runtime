@@ -7,7 +7,8 @@ import (
 
 // NodeWrapper wraps a tree-sitter Node for Lua integration
 type NodeWrapper struct {
-	node *treesitter.Node
+	node   *treesitter.Node
+	source *string
 }
 
 // Register the Node type to Lua
@@ -64,8 +65,9 @@ func nodeParent(L *lua.LState) int {
 		L.Push(lua.LNil)
 		return 1
 	}
+
 	ud := L.NewUserData()
-	ud.Value = &NodeWrapper{node: parent}
+	ud.Value = &NodeWrapper{node: parent, source: node.source}
 	L.SetMetatable(ud, L.GetTypeMetatable("treesitter.Node"))
 	L.Push(ud)
 	return 1
@@ -80,7 +82,7 @@ func nodeChild(L *lua.LState) int {
 		return 1
 	}
 	ud := L.NewUserData()
-	ud.Value = &NodeWrapper{node: child}
+	ud.Value = &NodeWrapper{node: child, source: node.source}
 	L.SetMetatable(ud, L.GetTypeMetatable("treesitter.Node"))
 	L.Push(ud)
 	return 1
@@ -100,7 +102,7 @@ func nodeNextSibling(L *lua.LState) int {
 		return 1
 	}
 	ud := L.NewUserData()
-	ud.Value = &NodeWrapper{node: sibling}
+	ud.Value = &NodeWrapper{node: sibling, source: node.source}
 	L.SetMetatable(ud, L.GetTypeMetatable("treesitter.Node"))
 	L.Push(ud)
 	return 1
@@ -114,7 +116,8 @@ func nodePrevSibling(L *lua.LState) int {
 		return 1
 	}
 	ud := L.NewUserData()
-	ud.Value = &NodeWrapper{node: sibling}
+	// todo: eventually we need sync.map for that to avoid duplicate constructs, but this is optimization for later
+	ud.Value = &NodeWrapper{node: sibling, source: node.source}
 	L.SetMetatable(ud, L.GetTypeMetatable("treesitter.Node"))
 	L.Push(ud)
 	return 1
@@ -128,7 +131,7 @@ func nodeNextNamedSibling(L *lua.LState) int {
 		return 1
 	}
 	ud := L.NewUserData()
-	ud.Value = &NodeWrapper{node: sibling}
+	ud.Value = &NodeWrapper{node: sibling, source: node.source}
 	L.SetMetatable(ud, L.GetTypeMetatable("treesitter.Node"))
 	L.Push(ud)
 	return 1
@@ -142,7 +145,7 @@ func nodePrevNamedSibling(L *lua.LState) int {
 		return 1
 	}
 	ud := L.NewUserData()
-	ud.Value = &NodeWrapper{node: sibling}
+	ud.Value = &NodeWrapper{node: sibling, source: node.source}
 	L.SetMetatable(ud, L.GetTypeMetatable("treesitter.Node"))
 	L.Push(ud)
 	return 1
@@ -157,7 +160,7 @@ func nodeNamedChild(L *lua.LState) int {
 		return 1
 	}
 	ud := L.NewUserData()
-	ud.Value = &NodeWrapper{node: child}
+	ud.Value = &NodeWrapper{node: child, source: node.source}
 	L.SetMetatable(ud, L.GetTypeMetatable("treesitter.Node"))
 	L.Push(ud)
 	return 1
@@ -180,7 +183,7 @@ func nodeChildByFieldName(L *lua.LState) int {
 		return 1
 	}
 	ud := L.NewUserData()
-	ud.Value = &NodeWrapper{node: child}
+	ud.Value = &NodeWrapper{node: child, source: node.source}
 	L.SetMetatable(ud, L.GetTypeMetatable("treesitter.Node"))
 	L.Push(ud)
 	return 1
@@ -261,11 +264,17 @@ func nodeEndPoint(L *lua.LState) int {
 // nodeText retrieves the source text for this node
 func nodeText(L *lua.LState) int {
 	node := checkNode(L)
-	source := L.CheckString(2)
 
-	if source == "" {
-		L.RaiseError("source text is empty")
-		return 0
+	var code string
+	if L.GetTop() == 2 && L.Get(2).Type() == lua.LTString {
+		code = L.CheckString(2)
+	} else {
+		if node.source == nil {
+			L.RaiseError("source reference is empty")
+			return 0
+		}
+
+		code = *node.source
 	}
 
 	// Get byte positions
@@ -273,7 +282,7 @@ func nodeText(L *lua.LState) int {
 	end := node.node.EndByte()
 
 	// Bounds checking with uint32 for safe comparisons
-	sourceLen := uint32(len(source))
+	sourceLen := uint32(len(code))
 	startPos := uint32(start)
 	endPos := uint32(end)
 
@@ -284,7 +293,7 @@ func nodeText(L *lua.LState) int {
 	}
 
 	// Extract text
-	text := source[start:end]
+	text := code[start:end]
 	L.Push(lua.LString(text))
 	return 1
 }

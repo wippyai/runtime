@@ -12,7 +12,8 @@ import (
 
 // TreeWrapper wraps a tree-sitter Tree for Lua integration
 type TreeWrapper struct {
-	tree *treesitter.Tree
+	tree   *treesitter.Tree
+	source string
 }
 
 // Register the Tree type to Lua
@@ -52,7 +53,7 @@ func treeRootNode(L *lua.LState) int {
 
 	// Create and push new Node userdata
 	ud := L.NewUserData()
-	ud.Value = &NodeWrapper{node: root}
+	ud.Value = &NodeWrapper{node: root, source: &tree.source}
 	L.SetMetatable(ud, L.GetTypeMetatable("treesitter.Node"))
 	L.Push(ud)
 	return 1
@@ -82,7 +83,7 @@ func treeRootNodeWithOffset(L *lua.LState) int {
 	}
 
 	ud := L.NewUserData()
-	ud.Value = &NodeWrapper{node: root}
+	ud.Value = &NodeWrapper{node: root, source: &tree.source}
 	L.SetMetatable(ud, L.GetTypeMetatable("treesitter.Node"))
 	L.Push(ud)
 	return 1
@@ -124,7 +125,7 @@ func treeCopy(L *lua.LState) int {
 	}
 
 	ud := L.NewUserData()
-	ud.Value = &TreeWrapper{tree: copied}
+	ud.Value = &TreeWrapper{tree: copied, source: tree.source}
 	L.SetMetatable(ud, L.GetTypeMetatable("treesitter.Tree"))
 	L.Push(ud)
 	return 1
@@ -151,7 +152,7 @@ func treeWalk(L *lua.LState) int {
 	}
 
 	ud := L.NewUserData()
-	ud.Value = cursor
+	ud.Value = &CursorWrapper{cursor: cursor, source: &tree.source}
 	L.SetMetatable(ud, L.GetTypeMetatable("treesitter.Cursor"))
 	L.Push(ud)
 	return 1
