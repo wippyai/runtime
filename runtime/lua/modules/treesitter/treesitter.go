@@ -30,7 +30,7 @@ func (m *Module) Loader(l *lua.LState) int {
 	registerParser(l)
 	registerTree(l)
 	registerNode(l)
-	// register query
+	registerQuery(l)
 	registerCursor(l)
 	registerLanguage(l)
 
@@ -39,8 +39,7 @@ func (m *Module) Loader(l *lua.LState) int {
 		"language":            m.language,
 		"parser":              newParser,
 		"parse":               m.parse,
-
-		//todo: "query":               m.query, // in separate file
+		"query":               newQuery,
 	}
 
 	l.SetFuncs(t, lapi)
@@ -122,12 +121,6 @@ func (m *Module) parse(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
 		ctx = context.Background()
-	}
-
-	if code == "" {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("code is empty"))
-		return 2
 	}
 
 	// Parse with context

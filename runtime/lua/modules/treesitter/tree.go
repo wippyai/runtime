@@ -24,16 +24,16 @@ func registerTree(L *lua.LState) {
 }
 
 var treeMethods = map[string]lua.LGFunction{
-	"root_node":        treeRootNode,
-	"root_node_offset": treeRootNodeWithOffset,
-	"language":         treeLanguage,
-	"copy":             treeCopy,
-	"walk":             treeWalk,
-	"edit":             treeEdit,
-	"close":            treeClose,
-	"changed_ranges":   treeChangedRanges,
-	"included_ranges":  treeIncludedRanges,
-	"print_dot_graph":  treePrintDotGraph,
+	"root_node":             treeRootNode,
+	"root_node_with_offset": treeRootNodeWithOffset,
+	"language":              treeLanguage,
+	"copy":                  treeCopy,
+	"walk":                  treeWalk,
+	"edit":                  treeEdit,
+	"close":                 treeClose,
+	"changed_ranges":        treeChangedRanges,
+	"included_ranges":       treeIncludedRanges,
+	"print_dot_graph":       treePrintDotGraph,
 }
 
 // Tree methods implementation
@@ -41,8 +41,8 @@ var treeMethods = map[string]lua.LGFunction{
 func treeRootNode(L *lua.LState) int {
 	tree := checkTree(L)
 	if tree.tree == nil {
-		L.Push(lua.LNil)
-		return 1
+		L.RaiseError("tree is closed")
+		return 0
 	}
 
 	root := tree.tree.RootNode()
@@ -63,8 +63,8 @@ func treeRootNode(L *lua.LState) int {
 func treeRootNodeWithOffset(L *lua.LState) int {
 	tree := checkTree(L)
 	if tree.tree == nil {
-		L.Push(lua.LNil)
-		return 1
+		L.RaiseError("tree is closed")
+		return 0
 	}
 
 	// Get offset parameters
@@ -93,8 +93,8 @@ func treeRootNodeWithOffset(L *lua.LState) int {
 func treeLanguage(L *lua.LState) int {
 	tree := checkTree(L)
 	if tree.tree == nil {
-		L.Push(lua.LNil)
-		return 1
+		L.RaiseError("tree is closed")
+		return 0
 	}
 
 	lang := tree.tree.Language()
@@ -114,8 +114,8 @@ func treeLanguage(L *lua.LState) int {
 func treeCopy(L *lua.LState) int {
 	tree := checkTree(L)
 	if tree.tree == nil {
-		L.Push(lua.LNil)
-		return 1
+		L.RaiseError("tree is closed")
+		return 0
 	}
 
 	copied := tree.tree.Clone()
@@ -134,8 +134,8 @@ func treeCopy(L *lua.LState) int {
 func treeWalk(L *lua.LState) int {
 	tree := checkTree(L)
 	if tree.tree == nil {
-		L.Push(lua.LNil)
-		return 1
+		L.RaiseError("tree is closed")
+		return 0
 	}
 
 	cursor := tree.tree.Walk()
@@ -162,6 +162,7 @@ func treeGC(L *lua.LState) int {
 	tree := checkTree(L)
 	if tree.tree != nil {
 		tree.tree.Close()
+		tree.tree = nil
 	}
 	return 0
 }
@@ -178,31 +179,57 @@ func (t *TreeWrapper) Edit(edit *treesitter.InputEdit) error {
 func treeEdit(L *lua.LState) int {
 	tree := checkTree(L)
 	if tree.tree == nil {
-		L.ArgError(1, "tree is closed")
+		L.RaiseError("tree is closed")
 		return 0
 	}
 
 	editTable := L.CheckTable(2)
 
+	// Validate edit parameters
+	startByte := int32(editTable.RawGetString("start_byte").(lua.LNumber))
+	oldEndByte := int32(editTable.RawGetString("old_end_byte").(lua.LNumber))
+	newEndByte := int32(editTable.RawGetString("new_end_byte").(lua.LNumber))
+
+	// Basic validation of byte positions
+	if startByte < 0 || oldEndByte < startByte || newEndByte < 0 {
+		L.Push(lua.LFalse)
+		L.Push(lua.LString("invalid byte position"))
+		return 2
+	}
+
+	// Validate row/column positions
+	startRow := int32(editTable.RawGetString("start_row").(lua.LNumber))
+	startCol := int32(editTable.RawGetString("start_column").(lua.LNumber))
+	oldEndRow := int32(editTable.RawGetString("old_end_row").(lua.LNumber))
+	oldEndCol := int32(editTable.RawGetString("old_end_column").(lua.LNumber))
+	newEndRow := int32(editTable.RawGetString("new_end_row").(lua.LNumber))
+	newEndCol := int32(editTable.RawGetString("new_end_column").(lua.LNumber))
+
+	if startRow < 0 || startCol < 0 || oldEndRow < startRow ||
+		(oldEndRow == startRow && oldEndCol < startCol) ||
+		newEndRow < 0 || newEndCol < 0 {
+		L.Push(lua.LFalse)
+		L.Push(lua.LString("invalid point position"))
+		return 2
+	}
+
 	startPoint := treesitter.Point{
-		Row:    uint(editTable.RawGetString("start_row").(lua.LNumber)),
-		Column: uint(editTable.RawGetString("start_column").(lua.LNumber)),
+		Row:    uint(startRow),
+		Column: uint(startCol),
 	}
-
 	oldEndPoint := treesitter.Point{
-		Row:    uint(editTable.RawGetString("old_end_row").(lua.LNumber)),
-		Column: uint(editTable.RawGetString("old_end_column").(lua.LNumber)),
+		Row:    uint(oldEndRow),
+		Column: uint(oldEndCol),
 	}
-
 	newEndPoint := treesitter.Point{
-		Row:    uint(editTable.RawGetString("new_end_row").(lua.LNumber)),
-		Column: uint(editTable.RawGetString("new_end_column").(lua.LNumber)),
+		Row:    uint(newEndRow),
+		Column: uint(newEndCol),
 	}
 
 	edit := &treesitter.InputEdit{
-		StartByte:      uint(editTable.RawGetString("start_byte").(lua.LNumber)),
-		OldEndByte:     uint(editTable.RawGetString("old_end_byte").(lua.LNumber)),
-		NewEndByte:     uint(editTable.RawGetString("new_end_byte").(lua.LNumber)),
+		StartByte:      uint(startByte),
+		OldEndByte:     uint(oldEndByte),
+		NewEndByte:     uint(newEndByte),
 		StartPosition:  startPoint,
 		OldEndPosition: oldEndPoint,
 		NewEndPosition: newEndPoint,
@@ -347,6 +374,7 @@ func treeClose(L *lua.LState) int {
 	tree := checkTree(L)
 	if tree.tree != nil {
 		tree.tree.Close()
+		tree.tree = nil
 	}
 	return 0
 }

@@ -529,8 +529,3 @@ func matchToLuaTable(L *lua.LState, match *treesitter.QueryMatch, source string)
 
 	return matchTable
 }
-
-// Add to Module type
-func (m *Module) query(L *lua.LState) int {
-	return newQuery(L)
-}

@@ -36,7 +36,9 @@ var nodeMethods = map[string]lua.LGFunction{
 	"field_name_for_child": nodeFieldNameForChild,
 
 	// Inspection methods
-	"kind":         nodeKind,
+	"kind": nodeKind,
+	"type": nodeKind, // alias for AI
+
 	"is_named":     nodeIsNamed,
 	"grammar_name": nodeGrammarName,
 	"is_extra":     nodeIsExtra,
