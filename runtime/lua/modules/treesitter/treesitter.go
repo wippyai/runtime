@@ -26,17 +26,18 @@ func (m *Module) Name() string {
 
 // Loader is the module loader function.
 func (m *Module) Loader(l *lua.LState) int {
-	// Register our types first
+	t := l.NewTable()
+
+	registerParser(l)
 	registerTree(l)
 	registerNode(l)
+	// register query
 	registerCursor(l)
-
-	// Create the module table
-	t := l.NewTable()
 
 	lapi := map[string]lua.LGFunction{
 		"supported_languages": m.supportedLanguages,
 		"parse":               m.parse,
+		"parser":              newParser,
 		//"query":               m.query, // in separate file
 	}
 
