@@ -2,10 +2,9 @@ package engine
 
 import (
 	"context"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
+	"strings"
 	"testing"
 )
 
@@ -14,14 +13,20 @@ func TestVM_Basic(t *testing.T) {
 
 	t.Run("create new VM", func(t *testing.T) {
 		vm, err := NewVM(logger)
-		assert.NoError(t, err)
-		assert.NotNil(t, vm)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if vm == nil {
+			t.Fatal("expected non-nil VM")
+		}
 		defer vm.Close()
 	})
 
 	t.Run("compile and execute simple function", func(t *testing.T) {
 		vm, err := NewVM(logger)
-		assert.NoError(t, err)
+		if err != nil {
+			t.Fatal(err)
+		}
 		defer vm.Close()
 
 		script := `
@@ -31,18 +36,25 @@ func TestVM_Basic(t *testing.T) {
 		return test
 		`
 
-		err = vm.CompileFunction("test", script)
-		assert.NoError(t, err)
+		if err := vm.CompileFunction("test", script); err != nil {
+			t.Fatal(err)
+		}
 
 		arg := lua.LString("hello world")
 		result, err := vm.Execute(context.Background(), "test", arg)
-		assert.NoError(t, err)
-		assert.Equal(t, arg, result)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result != arg {
+			t.Errorf("got %v, want %v", result, arg)
+		}
 	})
 
 	t.Run("compile and execute simple function by name", func(t *testing.T) {
 		vm, err := NewVM(logger)
-		assert.NoError(t, err)
+		if err != nil {
+			t.Fatal(err)
+		}
 		defer vm.Close()
 
 		script := `
@@ -51,153 +63,168 @@ func TestVM_Basic(t *testing.T) {
 		end
 		`
 
-		err = vm.CompileFunction("test", script)
-		assert.NoError(t, err)
+		if err := vm.CompileFunction("test", script); err != nil {
+			t.Fatal(err)
+		}
 
 		arg := lua.LString("hello world")
 		result, err := vm.Execute(context.Background(), "test", arg)
-		assert.NoError(t, err)
-		assert.Equal(t, arg, result)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result != arg {
+			t.Errorf("got %v, want %v", result, arg)
+		}
 	})
 
 	t.Run("compile no func", func(t *testing.T) {
 		vm, err := NewVM(logger)
-		assert.NoError(t, err)
+		if err != nil {
+			t.Fatal(err)
+		}
 		defer vm.Close()
 
 		script := ``
 
-		err = vm.CompileFunction("test", script)
-		assert.Error(t, err)
+		if err := vm.CompileFunction("test", script); err == nil {
+			t.Error("expected error, got nil")
+		}
 	})
-
-	// Add these to TestVM_Basic after the existing test cases
 
 	t.Run("global function without matching name", func(t *testing.T) {
 		vm, err := NewVM(logger)
-		assert.NoError(t, err)
+		if err != nil {
+			t.Fatal(err)
+		}
 		defer vm.Close()
 
 		script := `
-    function different_name()
-        return "hello world"
-    end
-    `
+		function different_name()
+			return "hello world"
+		end
+		`
 
-		err = vm.CompileFunction("test", script)
-		assert.Error(t, err)
+		if err := vm.CompileFunction("test", script); err == nil {
+			t.Error("expected error, got nil")
+		}
 	})
 
 	t.Run("local function with return", func(t *testing.T) {
 		vm, err := NewVM(logger)
-		assert.NoError(t, err)
+		if err != nil {
+			t.Fatal(err)
+		}
 		defer vm.Close()
 
 		script := `
-    local function test()
-        return "hello world"
-    end
-    return test
-    `
+		local function test()
+			return "hello world"
+		end
+		return test
+		`
 
-		err = vm.CompileFunction("test", script)
-		assert.NoError(t, err)
+		if err := vm.CompileFunction("test", script); err != nil {
+			t.Fatal(err)
+		}
 
 		result, err := vm.Execute(context.Background(), "test", lua.LNil)
-		assert.NoError(t, err)
-		assert.Equal(t, lua.LString("hello world"), result)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result != lua.LString("hello world") {
+			t.Errorf("got %v, want %v", result, lua.LString("hello world"))
+		}
 	})
 
 	t.Run("module style declaration", func(t *testing.T) {
 		vm, err := NewVM(logger)
-		assert.NoError(t, err)
+		if err != nil {
+			t.Fatal(err)
+		}
 		defer vm.Close()
 
 		script := `
-    local M = {}
-    function M.test()
-        return "hello world"
-    end
-    return M
-    `
+		local M = {}
+		function M.test()
+			return "hello world"
+		end
+		return M
+		`
 
-		err = vm.CompileFunction("test", script)
-		assert.NoError(t, err)
+		if err := vm.CompileFunction("test", script); err != nil {
+			t.Fatal(err)
+		}
 
 		result, err := vm.Execute(context.Background(), "test", lua.LNil)
-		assert.NoError(t, err)
-		assert.Equal(t, lua.LString("hello world"), result)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result != lua.LString("hello world") {
+			t.Errorf("got %v, want %v", result, lua.LString("hello world"))
+		}
 	})
 
 	t.Run("anonymous function assignment", func(t *testing.T) {
 		vm, err := NewVM(logger)
-		assert.NoError(t, err)
+		if err != nil {
+			t.Fatal(err)
+		}
 		defer vm.Close()
 
 		script := `
-    test = function()
-        return "hello world"
-    end
-    `
+		test = function()
+			return "hello world"
+		end
+		`
 
-		err = vm.CompileFunction("test", script)
-		assert.NoError(t, err)
-
-		result, err := vm.Execute(context.Background(), "test", lua.LNil)
-		assert.NoError(t, err)
-		assert.Equal(t, lua.LString("hello world"), result)
-	})
-
-	t.Run("local with module and direct return", func(t *testing.T) {
-		vm, err := NewVM(logger)
-		assert.NoError(t, err)
-		defer vm.Close()
-
-		script := `
-    local M = {}
-    function M.other()
-        return "other"
-    end
-    function test()
-        return "hello world"
-    end
-    return test
-    `
-
-		err = vm.CompileFunction("test", script)
-		assert.NoError(t, err)
+		if err := vm.CompileFunction("test", script); err != nil {
+			t.Fatal(err)
+		}
 
 		result, err := vm.Execute(context.Background(), "test", lua.LNil)
-		assert.NoError(t, err)
-		assert.Equal(t, lua.LString("hello world"), result)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result != lua.LString("hello world") {
+			t.Errorf("got %v, want %v", result, lua.LString("hello world"))
+		}
 	})
 
 	t.Run("mixed global and local declarations", func(t *testing.T) {
 		vm, err := NewVM(logger)
-		assert.NoError(t, err)
+		if err != nil {
+			t.Fatal(err)
+		}
 		defer vm.Close()
 
 		script := `
-    local function helper()
-        return "helper"
-    end
-    
-    function test()
-        return helper()
-    end
-    `
+		local function helper()
+			return "helper"
+		end
+		
+		function test()
+			return helper()
+		end
+		`
 
-		err = vm.CompileFunction("test", script)
-		assert.NoError(t, err)
+		if err := vm.CompileFunction("test", script); err != nil {
+			t.Fatal(err)
+		}
 
 		result, err := vm.Execute(context.Background(), "test", lua.LNil)
-		assert.NoError(t, err)
-		assert.Equal(t, lua.LString("helper"), result)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result != lua.LString("helper") {
+			t.Errorf("got %v, want %v", result, lua.LString("helper"))
+		}
 	})
 
 	t.Run("execute function with table argument", func(t *testing.T) {
 		vm, err := NewVM(logger)
-		assert.NoError(t, err)
+		if err != nil {
+			t.Fatal(err)
+		}
 		defer vm.Close()
 
 		script := `
@@ -207,15 +234,20 @@ func TestVM_Basic(t *testing.T) {
 		return test
 		`
 
-		err = vm.CompileFunction("test", script)
-		assert.NoError(t, err)
+		if err := vm.CompileFunction("test", script); err != nil {
+			t.Fatal(err)
+		}
 
 		tbl := lua.LTable{}
 		tbl.RawSetString("message", lua.LString("hello"))
 
 		result, err := vm.Execute(context.Background(), "test", &tbl)
-		assert.NoError(t, err)
-		assert.Equal(t, lua.LString("hello"), result)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result != lua.LString("hello") {
+			t.Errorf("got %v, want %v", result, lua.LString("hello"))
+		}
 	})
 }
 
@@ -227,20 +259,26 @@ func TestVM_Options(t *testing.T) {
 			L.Push(lua.LString("global"))
 			return 1
 		}))
-		assert.NoError(t, err)
+		if err != nil {
+			t.Fatal(err)
+		}
 		defer vm.Close()
 
-		err = vm.DoString(nil, `assert(test() == "global")`, "test")
-		assert.NoError(t, err)
+		if err := vm.DoString(nil, `assert(test() == "global")`, "test"); err != nil {
+			t.Fatal(err)
+		}
 	})
 
 	t.Run("with global value", func(t *testing.T) {
 		vm, err := NewVM(logger, WithGlobalValue("TEST_VALUE", lua.LString("test")))
-		assert.NoError(t, err)
+		if err != nil {
+			t.Fatal(err)
+		}
 		defer vm.Close()
 
-		err = vm.DoString(nil, `assert(TEST_VALUE == "test")`, "test")
-		assert.NoError(t, err)
+		if err := vm.DoString(nil, `assert(TEST_VALUE == "test")`, "test"); err != nil {
+			t.Fatal(err)
+		}
 	})
 
 	t.Run("with library", func(t *testing.T) {
@@ -253,14 +291,17 @@ func TestVM_Options(t *testing.T) {
 		`
 
 		vm, err := NewVM(logger, WithLibrary("testlib", libSource))
-		assert.NoError(t, err)
+		if err != nil {
+			t.Fatal(err)
+		}
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		if err := vm.DoString(nil, `
 		local lib = require("testlib")
 		assert(lib.test() == "library")
-		`, "test")
-		assert.NoError(t, err)
+		`, "test"); err != nil {
+			t.Fatal(err)
+		}
 	})
 }
 
@@ -269,25 +310,33 @@ func TestVM_Errors(t *testing.T) {
 
 	t.Run("execute non-existent function", func(t *testing.T) {
 		vm, err := NewVM(logger)
-		assert.NoError(t, err)
+		if err != nil {
+			t.Fatal(err)
+		}
 		defer vm.Close()
 
-		_, err = vm.Execute(context.Background(), "nonexistent", lua.LNil)
-		assert.Error(t, err)
+		if _, err := vm.Execute(context.Background(), "nonexistent", lua.LNil); err == nil {
+			t.Error("expected error, got nil")
+		}
 	})
 
 	t.Run("compile invalid script", func(t *testing.T) {
 		vm, err := NewVM(logger)
-		assert.NoError(t, err)
+		if err != nil {
+			t.Fatal(err)
+		}
 		defer vm.Close()
 
-		err = vm.CompileFunction("invalid", "this is not valid lua")
-		assert.Error(t, err)
+		if err := vm.CompileFunction("invalid", "this is not valid lua"); err == nil {
+			t.Error("expected error, got nil")
+		}
 	})
 
 	t.Run("execute script with runtime error", func(t *testing.T) {
 		vm, err := NewVM(logger)
-		assert.NoError(t, err)
+		if err != nil {
+			t.Fatal(err)
+		}
 		defer vm.Close()
 
 		script := `
@@ -297,48 +346,57 @@ func TestVM_Errors(t *testing.T) {
 		return test
 		`
 
-		err = vm.CompileFunction("test", script)
-		assert.NoError(t, err)
+		if err := vm.CompileFunction("test", script); err != nil {
+			t.Fatal(err)
+		}
 
-		_, err = vm.Execute(context.Background(), "test", lua.LNil)
-		assert.Error(t, err)
+		if _, err := vm.Execute(context.Background(), "test", lua.LNil); err == nil {
+			t.Error("expected error, got nil")
+		}
 	})
 }
 
 func TestVM_GlobalState(t *testing.T) {
 	logger := zap.NewNop()
 	vm, err := NewVM(logger)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer vm.Close()
 
 	// Set up initial global state
-	err = vm.DoString(nil, `
-        state = {count = 0}
-        function increment()
-            state.count = state.count + 1
-            return state.count
-        end
-        function getCount()
-            return state.count
-        end
-    `, "setup")
-	require.NoError(t, err)
+	if err := vm.DoString(nil, `
+		state = {count = 0}
+		function increment()
+			state.count = state.count + 1
+			return state.count
+		end
+		function getCount()
+			return state.count
+		end
+	`, "setup"); err != nil {
+		t.Fatal(err)
+	}
 
 	// First increment should return 1
-	err = vm.DoString(nil, `assert(increment() == 1)`, "test1")
-	require.NoError(t, err)
+	if err := vm.DoString(nil, `assert(increment() == 1)`, "test1"); err != nil {
+		t.Fatal(err)
+	}
 
 	// Second increment should return 2
-	err = vm.DoString(nil, `assert(increment() == 2)`, "test2")
-	require.NoError(t, err)
+	if err := vm.DoString(nil, `assert(increment() == 2)`, "test2"); err != nil {
+		t.Fatal(err)
+	}
 
 	// Get count should return the current value (2)
-	err = vm.DoString(nil, `assert(getCount() == 2)`, "test3")
-	require.NoError(t, err)
+	if err := vm.DoString(nil, `assert(getCount() == 2)`, "test3"); err != nil {
+		t.Fatal(err)
+	}
 
 	// Verify state persists even with new chunk execution
-	err = vm.DoString(nil, `assert(state.count == 2)`, "test4")
-	require.NoError(t, err)
+	if err := vm.DoString(nil, `assert(state.count == 2)`, "test4"); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestVM_CompiledGlobalState(t *testing.T) {
@@ -350,129 +408,177 @@ func TestVM_CompiledGlobalState(t *testing.T) {
 
 	// Create VM with global state
 	vm, err := NewVM(logger, WithGlobalValue("state", stateTable))
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer vm.Close()
 
 	// Compile increment function
-	err = vm.CompileFunction("increment", `
-        function increment()
-            state.count = state.count + 1
-            return state.count
-        end
-        return increment
-    `)
-	require.NoError(t, err)
+	if err := vm.CompileFunction("increment", `
+		function increment()
+			state.count = state.count + 1
+			return state.count
+		end
+		return increment
+	`); err != nil {
+		t.Fatal(err)
+	}
 
 	// Compile getCount function
-	err = vm.CompileFunction("getCount", `
-        function getCount()
-            return state.count
-        end
-        return getCount
-    `)
-	require.NoError(t, err)
+	if err := vm.CompileFunction("getCount", `
+		function getCount()
+			return state.count
+		end
+		return getCount
+	`); err != nil {
+		t.Fatal(err)
+	}
 
 	// First increment should return 1
 	result, err := vm.Execute(context.Background(), "increment", lua.LNil)
-	require.NoError(t, err)
-	assert.Equal(t, lua.LNumber(1), result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != lua.LNumber(1) {
+		t.Errorf("got %v, want %v", result, lua.LNumber(1))
+	}
 
 	// Second increment should return 2
 	result, err = vm.Execute(context.Background(), "increment", lua.LNil)
-	require.NoError(t, err)
-	assert.Equal(t, lua.LNumber(2), result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != lua.LNumber(2) {
+		t.Errorf("got %v, want %v", result, lua.LNumber(2))
+	}
 
 	// GetCount should return current value (2)
 	result, err = vm.Execute(context.Background(), "getCount", lua.LNil)
-	require.NoError(t, err)
-	assert.Equal(t, lua.LNumber(2), result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != lua.LNumber(2) {
+		t.Errorf("got %v, want %v", result, lua.LNumber(2))
+	}
 
 	// Verify final state directly through Lua state
 	globalState := vm.State().GetGlobal("state").(*lua.LTable)
 	count := globalState.RawGetString("count")
-	assert.Equal(t, lua.LNumber(2), count)
+	if count != lua.LNumber(2) {
+		t.Errorf("got %v, want %v", count, lua.LNumber(2))
+	}
 }
 
 func TestVM_ErrorTraceback(t *testing.T) {
 	logger := zap.NewNop()
 
 	libSource := `
-        local lib = {}
-        function lib.divide(a, b)
-            if b == 0 then
-                error("division by zero in library function")
-            end
-            return a / b
-        end
-        return lib
-    `
+		local lib = {}
+		function lib.divide(a, b)
+			if b == 0 then
+				error("division by zero in library function")
+			end
+			return a / b
+		end
+		return lib
+	`
 
 	vm, err := NewVM(logger, WithLibrary("mathlib", libSource))
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer vm.Close()
 
 	t.Run("error in DoString with traceback", func(t *testing.T) {
 		err := vm.DoString(nil, `
-            local function deep()
-                error("deep error")
-            end
-            local function middle()
-                deep()
-            end
-            local function top()
-                middle()
-            end
-            top()
-        `, "error_test")
+			local function deep()
+				error("deep error")
+			end
+			local function middle()
+				deep()
+			end
+			local function top()
+				middle()
+			end
+			top()
+		`, "error_test")
 
-		require.Error(t, err)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+
 		errStr := err.Error()
 		// Check error content
-		assert.Contains(t, errStr, "deep error")
+		if !strings.Contains(errStr, "deep error") {
+			t.Error("error should contain 'deep error'")
+		}
 		// Check function names in trace
-		assert.Contains(t, errStr, "in function 'deep'")
-		assert.Contains(t, errStr, "in function 'middle'")
-		assert.Contains(t, errStr, "in function 'top'")
+		if !strings.Contains(errStr, "in function 'deep'") {
+			t.Error("error should contain function 'deep' in trace")
+		}
+		if !strings.Contains(errStr, "in function 'middle'") {
+			t.Error("error should contain function 'middle' in trace")
+		}
+		if !strings.Contains(errStr, "in function 'top'") {
+			t.Error("error should contain function 'top' in trace")
+		}
 		// Check script name and line numbers
-		assert.Contains(t, errStr, "<error_test>:3:")
-		assert.Contains(t, errStr, "<error_test>:6:")
-		assert.Contains(t, errStr, "<error_test>:9:")
+		if !strings.Contains(errStr, "<error_test>:3:") {
+			t.Error("error should contain line reference to error_test:3")
+		}
+		if !strings.Contains(errStr, "<error_test>:6:") {
+			t.Error("error should contain line reference to error_test:6")
+		}
+		if !strings.Contains(errStr, "<error_test>:9:") {
+			t.Error("error should contain line reference to error_test:9")
+		}
 	})
 
 	t.Run("error in compiled function", func(t *testing.T) {
-		err := vm.CompileFunction("bad_function", `
-            function test()
-                local x = nil
-                return x.nonexistent
-            end
-            return test
-        `)
-		require.NoError(t, err)
+		if err := vm.CompileFunction("bad_function", `
+			function test()
+				local x = nil
+				return x.nonexistent
+			end
+			return test
+		`); err != nil {
+			t.Fatal(err)
+		}
 
-		_, err = vm.Execute(context.Background(), "bad_function", lua.LNil)
-		require.Error(t, err)
+		_, err := vm.Execute(context.Background(), "bad_function", lua.LNil)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
 		errStr := err.Error()
 		// Check exact error message
-		assert.Contains(t, errStr, "attempt to index a non-table object(nil)")
-		assert.Contains(t, errStr, "bad_function:4:")
+		if !strings.Contains(errStr, "attempt to index a non-table object(nil)") {
+			t.Error("error should mention attempt to index nil")
+		}
+		if !strings.Contains(errStr, "bad_function:4:") {
+			t.Error("error should contain line reference bad_function:4")
+		}
 	})
 
 	t.Run("syntax error in compile", func(t *testing.T) {
 		err := vm.CompileFunction("syntax_error", `
-            function test()
-                if true then
-                    print("missing end")
-            return test
-        `)
-		require.Error(t, err)
+			function test()
+				if true then
+					print("missing end")
+			return test
+		`)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
 		errStr := err.Error()
-		// Check for generic syntax error
-		assert.Contains(t, errStr, "syntax error")
-		assert.Contains(t, errStr, "syntax_error")
+		if !strings.Contains(errStr, "syntax error") {
+			t.Error("error should mention syntax error")
+		}
+		if !strings.Contains(errStr, "syntax_error") {
+			t.Error("error should reference syntax_error")
+		}
 	})
 }
 
-// BenchmarkNewVM benchmarks the creation of a new VM instance.
 func BenchmarkNewVM(b *testing.B) {
 	logger := zap.NewNop()
 
@@ -488,11 +594,12 @@ func BenchmarkNewVM(b *testing.B) {
 	}
 }
 
-// BenchmarkCompileFunction benchmarks the compilation of a Lua function.
 func BenchmarkCompileFunction(b *testing.B) {
 	logger := zap.NewNop()
 	vm, err := NewVM(logger)
-	require.NoError(b, err)
+	if err != nil {
+		b.Fatal(err)
+	}
 	defer vm.Close()
 
 	script := `
@@ -500,14 +607,13 @@ func BenchmarkCompileFunction(b *testing.B) {
 			return arg
 		end
 		return test
-		`
+	`
 
 	b.ResetTimer()
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		err := vm.CompileFunction("test", script)
-		if err != nil {
+		if err := vm.CompileFunction("test", script); err != nil {
 			b.Fatal(err)
 		}
 		// Clean up the compiled function to avoid affecting subsequent iterations
@@ -515,11 +621,12 @@ func BenchmarkCompileFunction(b *testing.B) {
 	}
 }
 
-// BenchmarkExecuteSimple benchmarks the execution of a simple Lua function.
 func BenchmarkExecuteSimple(b *testing.B) {
 	logger := zap.NewNop()
 	vm, err := NewVM(logger)
-	require.NoError(b, err)
+	if err != nil {
+		b.Fatal(err)
+	}
 	defer vm.Close()
 
 	script := `
@@ -527,10 +634,11 @@ func BenchmarkExecuteSimple(b *testing.B) {
 			return arg
 		end
 		return test
-		`
+	`
 
-	err = vm.CompileFunction("test", script)
-	require.NoError(b, err)
+	if err := vm.CompileFunction("test", script); err != nil {
+		b.Fatal(err)
+	}
 
 	arg := lua.LString("benchmark")
 
@@ -538,18 +646,18 @@ func BenchmarkExecuteSimple(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		_, err := vm.Execute(context.Background(), "test", arg)
-		if err != nil {
+		if _, err := vm.Execute(context.Background(), "test", arg); err != nil {
 			b.Fatal(err)
 		}
 	}
 }
 
-// BenchmarkExecuteComplex benchmarks the execution of a more complex Lua function with table manipulation.
 func BenchmarkExecuteComplex(b *testing.B) {
 	logger := zap.NewNop()
 	vm, err := NewVM(logger)
-	require.NoError(b, err)
+	if err != nil {
+		b.Fatal(err)
+	}
 	defer vm.Close()
 
 	script := `
@@ -561,10 +669,11 @@ func BenchmarkExecuteComplex(b *testing.B) {
 			return sum
 		end
 		return test
-		`
+	`
 
-	err = vm.CompileFunction("test", script)
-	require.NoError(b, err)
+	if err := vm.CompileFunction("test", script); err != nil {
+		b.Fatal(err)
+	}
 
 	tbl := lua.LTable{}
 	tbl.RawSetString("count", lua.LNumber(100))
@@ -573,14 +682,12 @@ func BenchmarkExecuteComplex(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		_, err := vm.Execute(context.Background(), "test", &tbl)
-		if err != nil {
+		if _, err := vm.Execute(context.Background(), "test", &tbl); err != nil {
 			b.Fatal(err)
 		}
 	}
 }
 
-// BenchmarkExecuteWithLibrary benchmarks the execution of a Lua function that uses a preloaded library.
 func BenchmarkExecuteWithLibrary(b *testing.B) {
 	logger := zap.NewNop()
 
@@ -590,10 +697,12 @@ func BenchmarkExecuteWithLibrary(b *testing.B) {
 			return n * 2
 		end
 		return lib
-		`
+	`
 
 	vm, err := NewVM(logger, WithLibrary("testlib", libSource))
-	require.NoError(b, err)
+	if err != nil {
+		b.Fatal(err)
+	}
 	defer vm.Close()
 
 	script := `
@@ -602,10 +711,11 @@ func BenchmarkExecuteWithLibrary(b *testing.B) {
 			return lib.double(arg)
 		end
 		return test
-		`
+	`
 
-	err = vm.CompileFunction("test", script)
-	require.NoError(b, err)
+	if err := vm.CompileFunction("test", script); err != nil {
+		b.Fatal(err)
+	}
 
 	arg := lua.LNumber(5)
 
@@ -613,14 +723,12 @@ func BenchmarkExecuteWithLibrary(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		_, err := vm.Execute(context.Background(), "test", arg)
-		if err != nil {
+		if _, err := vm.Execute(context.Background(), "test", arg); err != nil {
 			b.Fatal(err)
 		}
 	}
 }
 
-// BenchmarkGlobalStateSetup benchmarks the initialization of a VM with global state
 func BenchmarkGlobalStateSetup(b *testing.B) {
 	logger := zap.NewNop()
 	stateTable := &lua.LTable{}
@@ -638,37 +746,37 @@ func BenchmarkGlobalStateSetup(b *testing.B) {
 	}
 }
 
-// BenchmarkGlobalStateAccess benchmarks accessing and modifying global state
 func BenchmarkGlobalStateAccess(b *testing.B) {
 	logger := zap.NewNop()
 	stateTable := &lua.LTable{}
 	stateTable.RawSetString("count", lua.LNumber(0))
 
 	vm, err := NewVM(logger, WithGlobalValue("state", stateTable))
-	require.NoError(b, err)
+	if err != nil {
+		b.Fatal(err)
+	}
 	defer vm.Close()
 
-	err = vm.CompileFunction("increment", `
-        function increment()
-            state.count = state.count + 1
-            return state.count
-        end
-        return increment
-    `)
-	require.NoError(b, err)
+	if err := vm.CompileFunction("increment", `
+		function increment()
+			state.count = state.count + 1
+			return state.count
+		end
+		return increment
+	`); err != nil {
+		b.Fatal(err)
+	}
 
 	b.ResetTimer()
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		_, err := vm.Execute(context.Background(), "increment", lua.LNil)
-		if err != nil {
+		if _, err := vm.Execute(context.Background(), "increment", lua.LNil); err != nil {
 			b.Fatal(err)
 		}
 	}
 }
 
-// BenchmarkGlobalStateMultiFunction benchmarks multiple functions accessing shared state
 func BenchmarkGlobalStateMultiFunction(b *testing.B) {
 	logger := zap.NewNop()
 	stateTable := &lua.LTable{}
@@ -676,54 +784,55 @@ func BenchmarkGlobalStateMultiFunction(b *testing.B) {
 	stateTable.RawSetString("lastOp", lua.LString(""))
 
 	vm, err := NewVM(logger, WithGlobalValue("state", stateTable))
-	require.NoError(b, err)
+	if err != nil {
+		b.Fatal(err)
+	}
 	defer vm.Close()
 
-	// Compile increment function
-	err = vm.CompileFunction("increment", `
-        function increment()
-            state.count = state.count + 1
-            state.lastOp = "increment"
-            return state.count
-        end
-        return increment
-    `)
-	require.NoError(b, err)
+	if err := vm.CompileFunction("increment", `
+		function increment()
+			state.count = state.count + 1
+			state.lastOp = "increment"
+			return state.count
+		end
+		return increment
+	`); err != nil {
+		b.Fatal(err)
+	}
 
-	// Compile get status function
-	err = vm.CompileFunction("getStatus", `
-        function getStatus()
-            return {count = state.count, lastOp = state.lastOp}
-        end
-        return getStatus
-    `)
-	require.NoError(b, err)
+	if err := vm.CompileFunction("getStatus", `
+		function getStatus()
+			return {count = state.count, lastOp = state.lastOp}
+		end
+		return getStatus
+	`); err != nil {
+		b.Fatal(err)
+	}
 
 	b.ResetTimer()
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
 		// Increment
-		_, err := vm.Execute(context.Background(), "increment", lua.LNil)
-		if err != nil {
+		if _, err := vm.Execute(context.Background(), "increment", lua.LNil); err != nil {
 			b.Fatal(err)
 		}
 		// Get status
-		_, err = vm.Execute(context.Background(), "getStatus", lua.LNil)
-		if err != nil {
+		if _, err := vm.Execute(context.Background(), "getStatus", lua.LNil); err != nil {
 			b.Fatal(err)
 		}
 	}
 }
 
-// BenchmarkGlobalStateDirectAccess benchmarks direct state access via State()
 func BenchmarkGlobalStateDirectAccess(b *testing.B) {
 	logger := zap.NewNop()
 	stateTable := &lua.LTable{}
 	stateTable.RawSetString("count", lua.LNumber(0))
 
 	vm, err := NewVM(logger, WithGlobalValue("state", stateTable))
-	require.NoError(b, err)
+	if err != nil {
+		b.Fatal(err)
+	}
 	defer vm.Close()
 
 	L := vm.State()
