@@ -292,14 +292,14 @@ type Person struct {
             local root = tree:root_node()
             
             -- Test text() on root node
-            local root_text = root:text(code)
+            local root_text = root:text()
             assert(root_text == code, "root text should match original code")
             
             -- Test text() on package declaration
             local cursor = tree:walk()
             cursor:goto_first_child()
             local pkg_node = cursor:current_node()
-            local pkg_text = pkg_node:text(code)
+            local pkg_text = pkg_node:text()
             assert(pkg_text == "package main", "package text should match")
             
             -- Test text() on struct field
@@ -316,7 +316,7 @@ type Person struct {
             assert(cursor:goto_next_sibling(), "move to field_declaration")
             
             local field_node = cursor:current_node()
-            local field_text = field_node:text(code)
+            local field_text = field_node:text()
             assert(field_text:match("Name%s+string"), "field text should contain Name string")
             
             -- Test error handling with invalid source

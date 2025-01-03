@@ -5,6 +5,11 @@ import (
 	"github.com/yuin/gopher-lua"
 )
 
+type CursorWrapper struct {
+	cursor *treesitter.TreeCursor
+	source *string
+}
+
 // Register the Cursor type to Lua
 func registerCursor(L *lua.LState) {
 	mt := L.NewTypeMetatable("treesitter.Cursor")
@@ -33,14 +38,14 @@ var cursorMethods = map[string]lua.LGFunction{
 
 func cursorCurrentNode(L *lua.LState) int {
 	cursor := checkCursor(L)
-	node := cursor.Node()
+	node := cursor.cursor.Node()
 	if node == nil {
 		L.Push(lua.LNil)
 		return 1
 	}
 
 	ud := L.NewUserData()
-	ud.Value = &NodeWrapper{node: node}
+	ud.Value = &NodeWrapper{node: node, source: cursor.source}
 	L.SetMetatable(ud, L.GetTypeMetatable("treesitter.Node"))
 	L.Push(ud)
 	return 1
@@ -48,13 +53,13 @@ func cursorCurrentNode(L *lua.LState) int {
 
 func cursorCurrentFieldId(L *lua.LState) int {
 	cursor := checkCursor(L)
-	L.Push(lua.LNumber(cursor.FieldId()))
+	L.Push(lua.LNumber(cursor.cursor.FieldId()))
 	return 1
 }
 
 func cursorCurrentFieldName(L *lua.LState) int {
 	cursor := checkCursor(L)
-	fieldName := cursor.FieldName()
+	fieldName := cursor.cursor.FieldName()
 	if fieldName == "" {
 		L.Push(lua.LNil)
 		return 1
@@ -65,47 +70,47 @@ func cursorCurrentFieldName(L *lua.LState) int {
 
 func cursorCurrentDepth(L *lua.LState) int {
 	cursor := checkCursor(L)
-	L.Push(lua.LNumber(cursor.Depth()))
+	L.Push(lua.LNumber(cursor.cursor.Depth()))
 	return 1
 }
 
 func cursorCurrentDescendantIndex(L *lua.LState) int {
 	cursor := checkCursor(L)
-	L.Push(lua.LNumber(cursor.DescendantIndex()))
+	L.Push(lua.LNumber(cursor.cursor.DescendantIndex()))
 	return 1
 }
 
 func cursorGotoParent(L *lua.LState) int {
 	cursor := checkCursor(L)
-	success := cursor.GotoParent()
+	success := cursor.cursor.GotoParent()
 	L.Push(lua.LBool(success))
 	return 1
 }
 
 func cursorGotoFirstChild(L *lua.LState) int {
 	cursor := checkCursor(L)
-	success := cursor.GotoFirstChild()
+	success := cursor.cursor.GotoFirstChild()
 	L.Push(lua.LBool(success))
 	return 1
 }
 
 func cursorGotoLastChild(L *lua.LState) int {
 	cursor := checkCursor(L)
-	success := cursor.GotoLastChild()
+	success := cursor.cursor.GotoLastChild()
 	L.Push(lua.LBool(success))
 	return 1
 }
 
 func cursorGotoNextSibling(L *lua.LState) int {
 	cursor := checkCursor(L)
-	success := cursor.GotoNextSibling()
+	success := cursor.cursor.GotoNextSibling()
 	L.Push(lua.LBool(success))
 	return 1
 }
 
 func cursorGotoPreviousSibling(L *lua.LState) int {
 	cursor := checkCursor(L)
-	success := cursor.GotoPreviousSibling()
+	success := cursor.cursor.GotoPreviousSibling()
 	L.Push(lua.LBool(success))
 	return 1
 }
@@ -113,14 +118,14 @@ func cursorGotoPreviousSibling(L *lua.LState) int {
 func cursorGotoDescendant(L *lua.LState) int {
 	cursor := checkCursor(L)
 	index := uint32(L.CheckNumber(2))
-	cursor.GotoDescendant(index)
+	cursor.cursor.GotoDescendant(index)
 	return 0
 }
 
 func cursorGotoFirstChildForByte(L *lua.LState) int {
 	cursor := checkCursor(L)
 	byteIndex := uint32(L.CheckNumber(2))
-	if index := cursor.GotoFirstChildForByte(byteIndex); index != nil {
+	if index := cursor.cursor.GotoFirstChildForByte(byteIndex); index != nil {
 		L.Push(lua.LNumber(*index))
 	} else {
 		L.Push(lua.LNil)
@@ -137,7 +142,7 @@ func cursorGotoFirstChildForPoint(L *lua.LState) int {
 	col := uint(pointTbl.RawGetString("column").(lua.LNumber))
 
 	point := treesitter.Point{Row: row, Column: col}
-	if index := cursor.GotoFirstChildForPoint(point); index != nil {
+	if index := cursor.cursor.GotoFirstChildForPoint(point); index != nil {
 		L.Push(lua.LNumber(*index))
 	} else {
 		L.Push(lua.LNil)
@@ -149,7 +154,7 @@ func cursorReset(L *lua.LState) int {
 	cursor := checkCursor(L)
 	ud := L.CheckUserData(2)
 	if node, ok := ud.Value.(*NodeWrapper); ok {
-		cursor.Reset(*node.node)
+		cursor.cursor.Reset(*node.node)
 		return 0
 	}
 	return 0
@@ -158,8 +163,8 @@ func cursorReset(L *lua.LState) int {
 func cursorResetTo(L *lua.LState) int {
 	cursor := checkCursor(L)
 	ud := L.CheckUserData(2)
-	if otherCursor, ok := ud.Value.(*treesitter.TreeCursor); ok {
-		cursor.ResetTo(otherCursor)
+	if otherCursor, ok := ud.Value.(*CursorWrapper); ok {
+		cursor.cursor.ResetTo(otherCursor.cursor)
 		return 0
 	}
 	L.ArgError(2, "TreeCursor expected")
@@ -168,10 +173,10 @@ func cursorResetTo(L *lua.LState) int {
 
 func cursorCopy(L *lua.LState) int {
 	cursor := checkCursor(L)
-	copied := cursor.Copy()
+	copied := cursor.cursor.Copy()
 
 	ud := L.NewUserData()
-	ud.Value = copied
+	ud.Value = &CursorWrapper{cursor: copied, source: cursor.source}
 	L.SetMetatable(ud, L.GetTypeMetatable("treesitter.Cursor"))
 	L.Push(ud)
 	return 1
@@ -180,15 +185,15 @@ func cursorCopy(L *lua.LState) int {
 func cursorGC(L *lua.LState) int {
 	cursor := checkCursor(L)
 	if cursor != nil {
-		cursor.Close()
+		cursor.cursor.Close()
 	}
 	return 0
 }
 
 // Helper functions
-func checkCursor(L *lua.LState) *treesitter.TreeCursor {
+func checkCursor(L *lua.LState) *CursorWrapper {
 	ud := L.CheckUserData(1)
-	if v, ok := ud.Value.(*treesitter.TreeCursor); ok {
+	if v, ok := ud.Value.(*CursorWrapper); ok {
 		return v
 	}
 	L.ArgError(1, "TreeCursor expected")

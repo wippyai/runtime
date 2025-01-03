@@ -205,6 +205,43 @@ func TestParser(t *testing.T) {
 		err = cleanup.Close()
 		assert.NoError(t, err)
 	})
+
+	t.Run("get language", func(t *testing.T) {
+		mod := NewTreeSitterModule(logger)
+		vm, err := engine.NewVM(logger,
+			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithGlobalFunction("assert", assertLua),
+		)
+		require.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.DoString(nil, `
+        local treesitter = require("treesitter")
+        local parser = treesitter.parser()
+        
+        -- Test getting language before setting
+        local ok, err = pcall(function()
+			parser:get_language() -- should raise error
+		end)
+        assert(not ok, "must fail on no language")
+        
+        -- Test getting language after setting
+        parser:set_language("go")
+        lang = parser:get_language()
+        assert(lang == "go", "language should be 'go' after setting")
+        
+        -- Test getting language after reset
+        parser:reset()
+        lang = parser:get_language()  
+        assert(lang == "go", "language should remain 'go' after reset")
+
+        -- Test setting different language
+        assert(parser:set_language("javascript"))
+        lang = parser:get_language()
+        assert(lang == "javascript", "language should be 'javascript' after changing")
+    `, "test")
+		assert.NoError(t, err)
+	})
 }
 
 func TestParserWithRangesForNestedCode(t *testing.T) {
@@ -320,4 +357,28 @@ func world() {
         assert(root:child_count() == 4, "should have four nodes total (2 package clauses + 2 function declarations)")
     `, "test")
 	assert.NoError(t, err)
+}
+
+func TestParserContextCancellation(t *testing.T) {
+	logger := zap.NewNop()
+	mod := NewTreeSitterModule(logger)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	vm, err := engine.NewVM(logger,
+		engine.WithLoader(mod.Name(), mod.Loader),
+	)
+	require.NoError(t, err)
+	defer vm.Close()
+
+	// Cancel before parsing
+	cancel()
+
+	err = vm.DoString(ctx, `
+        local treesitter = require("treesitter")
+        local parser = treesitter.parser()
+        parser:set_language("go")
+        local tree = parser:parse("package main\n\nfunc main() {\n    // Large function body\n}")
+    `, "test")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "context canceled")
 }

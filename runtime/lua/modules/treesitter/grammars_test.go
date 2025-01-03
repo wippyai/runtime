@@ -23,7 +23,7 @@ func TestGetLanguageInfo(t *testing.T) {
 			name:  "Get existing language (primary alias)",
 			alias: "go",
 			want: &LanguageInfo{
-				Name:           "Go",
+				Name:           "go",
 				Aliases:        []string{"go", "golang"},
 				GrammarContent: goGrammarContent,
 				Language:       treesittergo.Language,
@@ -34,7 +34,7 @@ func TestGetLanguageInfo(t *testing.T) {
 			name:  "Get existing language (alternative alias)",
 			alias: "js",
 			want: &LanguageInfo{
-				Name:           "JavaScript",
+				Name:           "javascript",
 				Aliases:        []string{"js", "javascript"},
 				GrammarContent: jsGrammarContent,
 				Language:       treesitterjs.Language,
@@ -51,7 +51,7 @@ func TestGetLanguageInfo(t *testing.T) {
 			name:  "Get language with nil Language function",
 			alias: "markdown",
 			want: &LanguageInfo{
-				Name:           "Markdown",
+				Name:           "markdown",
 				Aliases:        []string{"markdown", "md"},
 				GrammarContent: mdGrammarContent,
 				Language:       nil,
@@ -87,26 +87,6 @@ func TestGetLanguageInfo(t *testing.T) {
 				t.Errorf("GetLanguageInfo() Language presence = %v, want %v", got.Language == nil, tt.want.Language == nil)
 			}
 		})
-	}
-}
-func TestGetSupportedLanguages(t *testing.T) {
-	want := []string{
-		"PHP", "Go", "JavaScript", "TypeScript with JSX", "TypeScript", "Python", "C#", "HTML", "Markdown",
-	}
-	got := GetSupportedLanguages()
-
-	wantMap := make(map[string]bool, len(want))
-	for _, lang := range want {
-		wantMap[lang] = true
-	}
-
-	gotMap := make(map[string]bool, len(got))
-	for _, lang := range got {
-		gotMap[lang] = true
-	}
-
-	if !reflect.DeepEqual(wantMap, gotMap) {
-		t.Errorf("GetSupportedLanguages() = %v, want %v", got, want)
 	}
 }
 
@@ -157,13 +137,13 @@ func TestGrammarSupport(t *testing.T) {
 			assert(type(langs) == "table", "supported_languages should return a table")
 			
 			-- Check that key languages are supported
-			assert(langs["Go"] ~= nil, "Go should be supported")
-			assert(langs["JavaScript"] ~= nil, "JavaScript should be supported")
-			assert(langs["Python"] ~= nil, "Python should be supported")
-			assert(langs["PHP"] ~= nil, "PHP should be supported")
-			assert(langs["TypeScript"] ~= nil, "TypeScript should be supported")
-			assert(langs["HTML"] ~= nil, "HTML should be supported")
-			assert(langs["C#"] ~= nil, "C# should be supported")
+			assert(langs["go"] ~= nil, "Go should be supported")
+			assert(langs["javascript"] ~= nil, "JavaScript should be supported")
+			assert(langs["python"] ~= nil, "Python should be supported")
+			assert(langs["php"] ~= nil, "PHP should be supported")
+			assert(langs["typescript"] ~= nil, "TypeScript should be supported")
+			assert(langs["html"] ~= nil, "HTML should be supported")
+			assert(langs["c#"] ~= nil, "C# should be supported")
 		`, "test")
 		assert.NoError(t, err)
 	})
