@@ -1,13 +1,15 @@
 package payload
 
 const (
-	Json   Format = "application/json"
-	Yaml   Format = "application/x-yaml"
-	Golang Format = "golang/any"
-	Lua    Format = "lua/any"
-	String Format = "text/plain"
-	Bytes  Format = "application/octet-stream"
-	Error  Format = "golang/error"
+	Json       Format = "application/json"
+	Yaml       Format = "application/x-yaml"
+	Golang     Format = "golang/any"
+	Lua        Format = "lua/any"
+	String     Format = "text/plain"
+	Bytes      Format = "application/octet-stream"
+	Error      Format = "golang/error"
+	UniChannel Format = "golang/uni-channel"
+	BiChannel  Format = "golang/bi-channel"
 )
 
 type (

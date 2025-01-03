@@ -3,7 +3,7 @@ package http
 import (
 	"net/http"
 
-	"github.com/ponyruntime/go-lua"
+	"github.com/yuin/gopher-lua"
 )
 
 // luaHTTPResponseTypeName is the type name for HTTP response userdata in Lua

@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ponyruntime/go-lua"
 	"github.com/ponyruntime/pony/runtime/lua/pool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
 

@@ -3,9 +3,9 @@ package lua
 import (
 	"testing"
 
-	"github.com/ponyruntime/go-lua"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/stretchr/testify/assert"
+	"github.com/yuin/gopher-lua"
 )
 
 func TestJsonLuaTranscoders(t *testing.T) {

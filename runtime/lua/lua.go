@@ -3,11 +3,11 @@ package lua
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/go-lua"
 	contextapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/runtime"
 	config "github.com/ponyruntime/pony/api/runtime/lua"
 	"github.com/ponyruntime/pony/runtime/lua/pool"
+	"github.com/yuin/gopher-lua"
 	"sync"
 
 	"github.com/ponyruntime/pony/api/events"

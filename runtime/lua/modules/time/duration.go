@@ -3,7 +3,7 @@ package time
 import (
 	"time"
 
-	"github.com/ponyruntime/go-lua"
+	"github.com/yuin/gopher-lua"
 )
 
 // Module represents a time Lua module

@@ -9,7 +9,7 @@ import (
 	"hash"
 	"hash/fnv"
 
-	"github.com/ponyruntime/go-lua"
+	"github.com/yuin/gopher-lua"
 )
 
 // Module represents a hash Lua module.

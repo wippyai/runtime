@@ -3,11 +3,11 @@ package httpctx
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/go-lua"
 	"github.com/ponyruntime/pony/api/service/http"
 	"github.com/ponyruntime/pony/internal/closer"
 	"github.com/ponyruntime/pony/runtime/lua/modules/json"
 	"github.com/ponyruntime/pony/runtime/lua/modules/stream"
+	"github.com/yuin/gopher-lua"
 	"io"
 	basehttp "net/http"
 	"strings"

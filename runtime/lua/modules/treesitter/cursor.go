@@ -1,8 +1,8 @@
 package treesitter
 
 import (
-	"github.com/ponyruntime/go-lua"
 	treesitter "github.com/tree-sitter/go-tree-sitter"
+	"github.com/yuin/gopher-lua"
 )
 
 // Register the Cursor type to Lua
