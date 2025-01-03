@@ -52,7 +52,8 @@ var nodeMethods = map[string]lua.LGFunction{
 
 	// Text and source methods
 	"text":    nodeText,
-	"to_sexp": nodeToSexp}
+	"to_sexp": nodeToSexp,
+}
 
 // Navigation methods implementation
 
@@ -261,6 +262,11 @@ func nodeEndPoint(L *lua.LState) int {
 func nodeText(L *lua.LState) int {
 	node := checkNode(L)
 	source := L.CheckString(2)
+
+	if source == "" {
+		L.RaiseError("source text is empty")
+		return 0
+	}
 
 	// Get byte positions
 	start := node.node.StartByte()

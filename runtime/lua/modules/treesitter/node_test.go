@@ -552,7 +552,6 @@ func main() {
 			local error_col = -1
 
 			local function find_error_node(node)
-				print("Checking node: " .. node:kind() .. " (is_error: " .. tostring(node:is_error()) .. ", has_error: " .. tostring(node:has_error()) .. ")")
 				if node:is_error() then
 					local start_pos = node:start_point()
 					error_line = start_pos.row + 1  -- Convert to 1-based line numbers
