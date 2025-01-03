@@ -49,10 +49,6 @@ func newParser(L *lua.LState) int {
 }
 
 func (p *ParserWrapper) parseWithContext(code []byte, oldTree *TreeWrapper, ctx context.Context) (*treesitter.Tree, error) {
-	if len(code) == 0 {
-		return nil, fmt.Errorf("code is empty")
-	}
-
 	if deadline, ok := ctx.Deadline(); ok {
 		timeout := time.Until(deadline)
 		p.parser.SetTimeoutMicros(uint64(timeout.Microseconds()))
@@ -137,12 +133,6 @@ func parserParse(L *lua.LState) int {
 				return 0
 			}
 		}
-	}
-
-	if code == "" {
-		L.Push(lua.LNil)
-		L.Push(lua.LString("code is empty"))
-		return 2
 	}
 
 	// Get context from Lua state

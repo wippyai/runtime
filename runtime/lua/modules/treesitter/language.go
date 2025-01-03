@@ -1,5 +1,6 @@
 package treesitter
 
+import "C"
 import (
 	treesitter "github.com/tree-sitter/go-tree-sitter"
 	"github.com/yuin/gopher-lua"

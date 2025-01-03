@@ -151,8 +151,7 @@ func TestParser(t *testing.T) {
 
 			-- Test empty code
 			local tree, err = parser:parse("")
-			assert(tree == nil, "should return nil for empty code")
-			assert(err == "code is empty", "should return empty code error")
+			assert(tree ~= nil, "should return tree for empty code")
 		`, "test")
 		assert.NoError(t, err)
 	})
