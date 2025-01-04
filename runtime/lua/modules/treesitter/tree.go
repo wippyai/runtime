@@ -32,7 +32,7 @@ var treeMethods = map[string]lua.LGFunction{
 	"close":                 treeClose,
 	"changed_ranges":        treeChangedRanges,
 	"included_ranges":       treeIncludedRanges,
-	"print_dot_graph":       treePrintDotGraph,
+	"dot_graph":             treePrintDotGraph,
 }
 
 // Tree methods implementation

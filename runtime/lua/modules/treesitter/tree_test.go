@@ -331,7 +331,7 @@ func TestTreeEditOperations(t *testing.T) {
 			assert(ok, "edit should succeed")
 			
 			-- Verify changes via dot graph
-			local graph = tree:print_dot_graph()
+			local graph = tree:dot_graph()
 			assert(string.match(graph, "has%-changes: 1"), "dot graph should show changed nodes")
 			
 			-- Verify the identifier node was changed
@@ -348,7 +348,7 @@ func TestTreeEditOperations(t *testing.T) {
 			assert(type(included) == "table", "included_ranges should return table")
 			
 			-- Test dot graph output
-			local graph = tree:print_dot_graph()
+			local graph = tree:dot_graph()
 			assert(type(graph) == "string", "dot graph should be string")
 			assert(#graph > 0, "dot graph should not be empty")
 		`, "test")
