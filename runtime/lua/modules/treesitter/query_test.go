@@ -776,6 +776,8 @@ for i = 0, query:pattern_count() - 1 do
         local quantifier = query:capture_quantifier(i, j)
     end
 end
+
+query:close()
 	`, "test")
 
 	assert.NoError(t, err)
