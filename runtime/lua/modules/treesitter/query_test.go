@@ -823,3 +823,23 @@ func TestQueryLuaInLua(t *testing.T) {
 	err = vm.DoString(nil, string(code), "test")
 	assert.NoError(t, err)
 }
+
+func TestQueryLuaFileStruct(t *testing.T) {
+	logger := zap.NewNop()
+	mod := NewTreeSitterModule(logger)
+
+	vm, err := engine.NewVM(logger,
+		engine.WithLoader(mod.Name(), mod.Loader),
+		engine.WithGlobalFunction("assert", assertLua),
+	)
+	require.NoError(t, err)
+	defer vm.Close()
+
+	file := `scripts/lua_file_func.lua`
+
+	code, err := os.ReadFile(file)
+	require.NoError(t, err)
+
+	err = vm.DoString(nil, string(code), "test")
+	assert.NoError(t, err)
+}
