@@ -1,8 +1,8 @@
 package http
 
 import (
-	"github.com/ponyruntime/go-lua"
 	"github.com/stretchr/testify/assert"
+	"github.com/yuin/gopher-lua"
 	"net/http"
 	"testing"
 	"time"

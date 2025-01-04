@@ -1,6 +1,12 @@
 package treesitter
 
 import (
+	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	treesittergo "github.com/tree-sitter/tree-sitter-go/bindings/go"
+	treesitterjs "github.com/tree-sitter/tree-sitter-javascript/bindings/go"
+	"go.uber.org/zap"
 	"reflect"
 	"testing"
 )
@@ -9,19 +15,27 @@ func TestGetLanguageInfo(t *testing.T) {
 	tests := []struct {
 		name      string
 		alias     string
-		want      *LanguageInfo // Now a pointer, but we compare values
+		want      *LanguageInfo
 		wantFound bool
 	}{
 		{
-			name:      "Get existing language (primary alias)",
-			alias:     "go",
-			want:      copyLangInfo(supportedLanguages["go"]), // Create a copy
+			name:  "Get existing language (primary alias)",
+			alias: "go",
+			want: &LanguageInfo{
+				Name:     "go",
+				Aliases:  []string{"go", "golang"},
+				Language: treesittergo.Language,
+			},
 			wantFound: true,
 		},
 		{
-			name:      "Get existing language (alternative alias)",
-			alias:     "js",
-			want:      copyLangInfo(supportedLanguages["js"]), // Create a copy
+			name:  "Get existing language (alternative alias)",
+			alias: "js",
+			want: &LanguageInfo{
+				Name:     "javascript",
+				Aliases:  []string{"js", "javascript"},
+				Language: treesitterjs.Language,
+			},
 			wantFound: true,
 		},
 		{
@@ -31,9 +45,13 @@ func TestGetLanguageInfo(t *testing.T) {
 			wantFound: false,
 		},
 		{
-			name:      "Get language with nil Language function",
-			alias:     "markdown",
-			want:      copyLangInfo(supportedLanguages["markdown"]), // Create a copy
+			name:  "Get language with nil Language function",
+			alias: "markdown",
+			want: &LanguageInfo{
+				Name:     "markdown",
+				Aliases:  []string{"markdown", "md"},
+				Language: nil,
+			},
 			wantFound: true,
 		},
 	}
@@ -42,7 +60,7 @@ func TestGetLanguageInfo(t *testing.T) {
 			got := GetLanguageInfo(tt.alias)
 			if (got != nil) != tt.wantFound {
 				t.Errorf("GetLanguageInfo() found = %v, wantFound %v", got != nil, tt.wantFound)
-				return // Stop the test case here if found state is incorrect
+				return
 			}
 
 			// If not found, we don't need to compare values
@@ -57,36 +75,11 @@ func TestGetLanguageInfo(t *testing.T) {
 			if !reflect.DeepEqual(got.Aliases, tt.want.Aliases) {
 				t.Errorf("GetLanguageInfo() Aliases = %v, want %v", got.Aliases, tt.want.Aliases)
 			}
-			if got.GrammarContent != tt.want.GrammarContent {
-				t.Errorf("GetLanguageInfo() GrammarContent = %v, want %v", got.GrammarContent, tt.want.GrammarContent)
-			}
-			// You can add a check for the Language function being nil or non-nil if needed,
-			// but comparing function equality is generally not reliable.
+			// For Language function, just check if both are nil or both are non-nil
 			if (got.Language == nil) != (tt.want.Language == nil) {
 				t.Errorf("GetLanguageInfo() Language presence = %v, want %v", got.Language == nil, tt.want.Language == nil)
 			}
 		})
-	}
-}
-
-func TestGetSupportedLanguages(t *testing.T) {
-	want := []string{
-		"PHP", "Go", "JavaScript", "TypeScript with JSX", "TypeScript", "Python", "C#", "HTML", "Markdown",
-	}
-	got := GetSupportedLanguages()
-
-	wantMap := make(map[string]bool, len(want))
-	for _, lang := range want {
-		wantMap[lang] = true
-	}
-
-	gotMap := make(map[string]bool, len(got))
-	for _, lang := range got {
-		gotMap[lang] = true
-	}
-
-	if !reflect.DeepEqual(wantMap, gotMap) {
-		t.Errorf("GetSupportedLanguages() = %v, want %v", got, want)
 	}
 }
 
@@ -110,11 +103,124 @@ func TestLanguageFunctions(t *testing.T) {
 func copyLangInfo(info LanguageInfo) *LanguageInfo {
 	// Create a new LanguageInfo with copies of the values
 	newInfo := &LanguageInfo{
-		Name:           info.Name,
-		Aliases:        make([]string, len(info.Aliases)), // Copy the slice
-		GrammarContent: info.GrammarContent,
-		Language:       info.Language,
+		Name:     info.Name,
+		Aliases:  make([]string, len(info.Aliases)), // Copy the slice
+		Language: info.Language,
 	}
 	copy(newInfo.Aliases, info.Aliases) // Copy the slice contents
 	return newInfo
+}
+
+func TestGrammarSupport(t *testing.T) {
+	logger := zap.NewNop()
+
+	t.Run("supported languages", func(t *testing.T) {
+		mod := NewTreeSitterModule(logger)
+		vm, err := engine.NewVM(logger,
+			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithGlobalFunction("assert", assertLua),
+		)
+		require.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.DoString(nil, `
+			local treesitter = require("treesitter")
+			local langs = treesitter.supported_languages()
+			assert(type(langs) == "table", "supported_languages should return a table")
+			
+			-- Check that key languages are supported
+			assert(langs["go"] ~= nil, "Go should be supported")
+			assert(langs["javascript"] ~= nil, "JavaScript should be supported")
+			assert(langs["python"] ~= nil, "Python should be supported")
+			assert(langs["php"] ~= nil, "PHP should be supported")
+			assert(langs["typescript"] ~= nil, "TypeScript should be supported")
+			assert(langs["html"] ~= nil, "HTML should be supported")
+			assert(langs["c#"] ~= nil, "C# should be supported")
+		`, "test")
+		assert.NoError(t, err)
+	})
+
+	t.Run("language aliases", func(t *testing.T) {
+		mod := NewTreeSitterModule(logger)
+		vm, err := engine.NewVM(logger,
+			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithGlobalFunction("assert", assertLua),
+		)
+		require.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.DoString(nil, `
+			local treesitter = require("treesitter")
+			
+			-- Test various language aliases
+			local function test_parse(alias, code)
+				local tree = treesitter.parse(alias, code)
+				assert(tree ~= nil, "should return valid tree for " .. alias)
+				return tree
+			end
+
+			-- Test Go
+			test_parse("go", "package main")
+
+			-- Test JavaScript
+			test_parse("js", "function test() {}")
+			test_parse("javascript", "function test() {}")
+
+			-- Test Python
+			test_parse("python", "def test():\n    pass")
+			test_parse("py", "def test():\n    pass")
+
+			-- Test TypeScript
+			test_parse("ts", "interface Test {}")
+			test_parse("typescript", "interface Test {}")
+
+			-- Test TSX
+			test_parse("tsx", "const Component = () => <div/>")
+
+			-- Test PHP
+			test_parse("php", "<?php\nfunction test() {}")
+
+			-- Test HTML
+			test_parse("html", "<div>test</div>")
+			test_parse("html5", "<div>test</div>")
+
+			-- Test C#
+			test_parse("csharp", "class Test {}")
+			test_parse("c#", "class Test {}")
+		`, "test")
+		assert.NoError(t, err)
+	})
+
+	t.Run("parser error handling", func(t *testing.T) {
+		mod := NewTreeSitterModule(logger)
+		vm, err := engine.NewVM(logger,
+			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithGlobalFunction("assert", assertLua),
+		)
+		require.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.DoString(nil, `
+			local treesitter = require("treesitter")
+			
+			local function test_invalid_parse(alias)
+				local ok, err = pcall(function()
+					treesitter.parse(alias, "code")
+				end)
+				return ok, err
+			end
+
+			-- Test empty language
+			local ok, err = test_invalid_parse("")
+			assert(not ok, "should fail for empty language")
+			assert(string.match(err, "unsupported language"), "error should mention unsupported language")
+
+			-- Test invalid syntax (should parse but have errors)
+			local tree = treesitter.parse("go", "func main() {")
+			assert(tree ~= nil, "should return tree even for invalid syntax")
+			local root = tree:root_node()
+			assert(root:has_error(), "should detect syntax error")
+		`, "test")
+		assert.NoError(t, err)
+	})
 }

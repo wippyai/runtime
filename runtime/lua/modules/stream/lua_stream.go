@@ -2,7 +2,7 @@ package stream
 
 import (
 	"fmt"
-	"github.com/ponyruntime/go-lua"
+	"github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 	"io"
 )

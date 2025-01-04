@@ -3,12 +3,13 @@ package http
 import (
 	"context"
 	"errors"
+	"github.com/ponyruntime/pony/internal/closer"
 	"io"
 	"net/http"
 	"time"
 
-	"github.com/ponyruntime/go-lua"
 	"github.com/ponyruntime/pony/runtime/lua/modules/stream"
+	"github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
 
@@ -126,16 +127,21 @@ func (m *Module) executeRequest(l *lua.LState, req *http.Request, opts *requestO
 		ctx = l.Context()
 	}
 
-	// Set context with timeout from options
-	var cancel context.CancelFunc
+	cleanup := closer.FromContext(ctx)
+	if cleanup == nil {
+		// should never happen
+		ctx, cleanup = closer.WithContext(ctx)
+		defer func() { _ = cleanup.Close() }()
+	}
+
 	if opts.timeout > 0 {
+		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, opts.timeout)
-		// we do not trigger cancel on streaming responses, either timeout or user will trigger it
+		cleanup.Add(func() error { cancel(); return nil })
 	}
 
 	req = req.WithContext(ctx)
 
-	// Execute request
 	m.log.Debug("executing request",
 		zap.String("method", req.Method),
 		zap.String("url", req.URL.String()),
@@ -148,37 +154,38 @@ func (m *Module) executeRequest(l *lua.LState, req *http.Request, opts *requestO
 		return 2
 	}
 
-	// Handle streaming if stream option is set
+	cleanup.Add(func() error {
+		return resp.Body.Close()
+	})
+
 	if opts.stream != nil {
-		s, err := stream.NewStream(ctx, resp.Body, opts.stream)
-		if err != nil {
-			resp.Body.Close()
-			cancel()
-			l.Push(lua.LNil)
-			l.Push(lua.LString(err.Error()))
-			return 2
-		}
+		return m.handleStreamResponse(l, resp, opts.stream, ctx)
+	}
+	return m.handleRegularResponse(l, resp)
+}
 
-		// Create a LuaStream and associate it with the response
-		luaStream := &stream.LuaStream{Stream: s}
-		ud := l.NewUserData()
-		ud.Value = luaStream
-
-		l.SetMetatable(ud, l.GetTypeMetatable("Stream"))
-
-		// Create a new HTTP response that includes the stream
-		l.Push(newResponseWithStream(resp, ud, l))
-
-		return 1
+func (m *Module) handleStreamResponse(
+	l *lua.LState,
+	resp *http.Response,
+	streamOpts *stream.Options,
+	ctx context.Context,
+) int {
+	s, err := stream.NewStream(ctx, resp.Body, streamOpts)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
 	}
 
-	// --- Non-streaming handling ---
-	defer resp.Body.Close()
-	if cancel != nil {
-		defer cancel()
-	}
+	luaStream := &stream.LuaStream{Stream: s}
+	ud := l.NewUserData()
+	ud.Value = luaStream
+	l.SetMetatable(ud, l.GetTypeMetatable("Stream"))
+	l.Push(newResponseWithStream(resp, ud, l))
+	return 1
+}
 
-	// Read response
+func (m *Module) handleRegularResponse(l *lua.LState, resp *http.Response) int {
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		l.Push(lua.LNil)
@@ -211,16 +218,23 @@ func (m *Module) requestBatch(l *lua.LState) int {
 		ctx = context.Background()
 	}
 
+	// VM guarantees cleanup exists
+	cleanup := closer.FromContext(ctx)
+	if cleanup == nil {
+		// should never happen
+		ctx, cleanup = closer.WithContext(ctx)
+		defer func() { _ = cleanup.Close() }()
+	}
+
 	// Validate, parse options, and build requests
-	requests := make([]*http.Request, 0, count) //Preallocate with capacity
+	requests := make([]*http.Request, 0, count)
 	requestsTable.ForEach(func(idx lua.LValue, value lua.LValue) {
 		if value.Type() != lua.LTTable {
 			l.ArgError(1, ErrInvalidRequest.Error())
-			return // Stop processing further if an invalid request is found
+			return
 		}
 
 		reqTable := value.(*lua.LTable)
-
 		method := reqTable.RawGet(lua.LNumber(1))
 		if method.Type() != lua.LTString {
 			l.ArgError(1, "method must be a string")
@@ -232,30 +246,38 @@ func (m *Module) requestBatch(l *lua.LState) int {
 			l.ArgError(1, "URL must be a string")
 			return
 		}
-		optionsValue := reqTable.RawGet(lua.LNumber(3))
 
+		optionsValue := reqTable.RawGet(lua.LNumber(3))
 		opts, err := parseOptions(optionsValue)
 		if err != nil {
 			l.ArgError(1, err.Error())
-			return // Stop processing further if option parsing fails
+			return
+		}
+
+		// Don't allow streaming in batch requests
+		if opts.stream != nil {
+			l.ArgError(1, "streaming is not supported in batch requests")
+			return
 		}
 
 		req, err := makeRequest(method.String(), url.String(), opts)
 		if err != nil {
 			l.ArgError(1, err.Error())
-			return // Stop processing further if request creation fails
+			return
 		}
 
 		// Set context with timeout from options
 		reqCtx := ctx
 		if opts.timeout > 0 {
-			reqCtx, _ = context.WithTimeout(ctx, opts.timeout)
+			var cancel context.CancelFunc
+			reqCtx, cancel = context.WithTimeout(ctx, opts.timeout)
+			cleanup.Add(func() error { cancel(); return nil })
 		}
 
 		requests = append(requests, req.WithContext(reqCtx))
 	})
 
-	// If any error occurred during validation, parsing, or request creation, return immediately
+	// If any error occurred during validation, return immediately
 	if l.GetTop() > 1 {
 		return 0
 	}
@@ -268,7 +290,11 @@ func (m *Module) requestBatch(l *lua.LState) int {
 				results <- result{i, nil, err}
 				return
 			}
-			defer resp.Body.Close()
+
+			// Register response body cleanup
+			cleanup.Add(func() error {
+				return resp.Body.Close()
+			})
 
 			body, err := io.ReadAll(resp.Body)
 			if err != nil {

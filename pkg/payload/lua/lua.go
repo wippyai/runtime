@@ -6,8 +6,8 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/ponyruntime/go-lua"
 	"github.com/ponyruntime/pony/api/payload"
+	"github.com/yuin/gopher-lua"
 )
 
 func Register(transcoder payload.TranscoderRegister) {

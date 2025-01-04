@@ -2,9 +2,9 @@ package pool
 
 import (
 	"fmt"
-	"github.com/ponyruntime/go-lua"
 	api "github.com/ponyruntime/pony/api/runtime/lua"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
 

@@ -2,7 +2,7 @@ package lua
 
 import (
 	"context"
-	"github.com/ponyruntime/go-lua"
+	"github.com/yuin/gopher-lua"
 )
 
 type (

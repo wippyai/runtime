@@ -3,7 +3,7 @@ package http
 import (
 	"net/http"
 
-	"github.com/ponyruntime/go-lua"
+	"github.com/yuin/gopher-lua"
 )
 
 // luaHTTPResponseTypeName is the type name for HTTP response userdata in Lua
@@ -34,6 +34,7 @@ func newResponse(res *http.Response, body *[]byte, bodySize int, l *lua.LState) 
 		body:     lua.LString(*body),
 		bodySize: bodySize,
 	}
+
 	l.SetMetatable(ud, l.GetTypeMetatable(luaHTTPResponseTypeName))
 	return ud
 }

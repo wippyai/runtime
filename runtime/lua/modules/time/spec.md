@@ -144,16 +144,40 @@ Returns the current time.
 
 #### time.sleep(duration: Duration) -> error: string | nil
 
-Pauses the current execution for the specified duration. If a context is available and cancelled during the sleep,
-returns the context error.
+Pauses the current execution for the specified duration.
 
 Parameters:
-
-- `duration`: The duration to sleep.
+- `duration`: The duration to sleep. Must be a Duration userdata object.
 
 Returns:
+- `error`: An error message string in the following cases, or `nil` on success:
+  - "duration expected" if the argument is not a Duration userdata object
+  - The context error message if a context is available and cancelled during sleep
 
-- `error`: An error message if the context is cancelled during sleep or `nil` otherwise.
+Example:
+```lua
+local time = require("time")
+local duration = time.parse_duration("1s")
+local err = time.sleep(duration)  -- sleeps for 1 second
+if err then
+    error("Sleep interrupted: " .. err)
+end
+
+-- Error cases
+local err = time.sleep("1s")        -- Errors with "duration expected"
+local err = time.sleep(123)         -- Errors with "duration expected"
+local err = time.sleep({})          -- Errors with "duration expected"
+
+-- With context cancellation
+-- If running in a context that gets cancelled:
+local err = time.sleep(duration)    -- err will contain context cancellation message
+```
+
+Remarks:
+- The function requires a proper Duration object created via time.parse_duration() or other time module methods
+- Any non-Duration argument will result in an immediate "duration expected" error
+- Unlike other time functions that may have lenient type coercion, sleep() strictly enforces Duration type for safety
+- Context cancellation errors take precedence over type errors
 
 #### time.date(year: number, month: number, day: number, hour: number, min: number, sec: number, nsec: number, loc: Location | nil) -> Time
 

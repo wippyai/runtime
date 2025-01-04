@@ -2,9 +2,9 @@ package httpctx
 
 import (
 	"fmt"
-	"github.com/ponyruntime/go-lua"
 	"github.com/ponyruntime/pony/api/service/http"
 	"github.com/ponyruntime/pony/runtime/lua/modules/json"
+	"github.com/yuin/gopher-lua"
 	basehttp "net/http"
 )
 

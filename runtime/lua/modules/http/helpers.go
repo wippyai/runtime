@@ -2,7 +2,7 @@ package http
 
 import (
 	"errors"
-	"github.com/ponyruntime/go-lua"
+	"github.com/yuin/gopher-lua"
 	"net/url"
 	"strings"
 )

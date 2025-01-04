@@ -10,11 +10,11 @@ import (
 )
 
 type State struct {
-	Status     supervisor.Status
-	Details    any
-	Desired    supervisor.Status
-	RetryCount int32
-	LastUpdate time.Time
+	Status     supervisor.Status `json:"status"`
+	Details    any               `json:"details"`
+	Desired    supervisor.Status `json:"desired"`
+	RetryCount int32             `json:"retry_count"`
+	LastUpdate time.Time         `json:"last_update"`
 }
 
 // Controller manages the lifecycle of a service

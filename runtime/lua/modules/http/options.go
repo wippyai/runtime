@@ -2,8 +2,8 @@ package http
 
 import (
 	"errors"
-	"github.com/ponyruntime/go-lua"
 	"github.com/ponyruntime/pony/runtime/lua/modules/stream"
+	"github.com/yuin/gopher-lua"
 	"io"
 	"net/http"
 	"strings"
@@ -18,7 +18,7 @@ type requestOptions struct {
 	query   string
 	timeout time.Duration
 	auth    *struct{ user, pass string }
-	stream  *stream.Config // Add stream configuration
+	stream  *stream.Options // Add stream configuration
 }
 
 // parseOptions parses Lua value into requestOptions
