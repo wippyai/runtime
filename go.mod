@@ -6,6 +6,7 @@ require (
 	github.com/go-chi/chi/v5 v5.2.0
 	github.com/google/uuid v1.6.0
 	github.com/stretchr/testify v1.10.0
+	github.com/tree-sitter-grammars/tree-sitter-lua v0.2.0
 	github.com/tree-sitter/go-tree-sitter v0.24.0
 	github.com/tree-sitter/tree-sitter-c-sharp v0.23.1
 	github.com/tree-sitter/tree-sitter-go v0.23.4

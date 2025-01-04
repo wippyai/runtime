@@ -149,3 +149,72 @@ func TestLanguageOperations(t *testing.T) {
 		assert.NoError(t, err)
 	})
 }
+
+func TestLuaSupport(t *testing.T) {
+	logger := zap.NewNop()
+	mod := NewTreeSitterModule(logger)
+
+	vm, err := engine.NewVM(logger,
+		engine.WithLoader(mod.Name(), mod.Loader),
+		engine.WithGlobalFunction("assert", assertLua),
+	)
+	require.NoError(t, err)
+	defer vm.Close()
+
+	err = vm.DoString(nil, `
+		local treesitter = require("treesitter")
+
+		-- Simple Lua code with a function
+		local code = [[
+			function greet(name)
+				return "Hello, " .. name .. "!"
+			end
+		]]
+
+		-- Parse the code
+		local tree = treesitter.parse("lua", code)
+		assert(tree ~= nil, "tree should not be nil")
+
+		local root = tree:root_node()
+		assert(root ~= nil, "root should not be nil")
+
+		-- Create a simple query to find the function
+		local query = treesitter.query("lua", [[
+			(function_declaration
+				name: (identifier) @func_name
+				body: (block) @func_body)
+		]])
+		assert(query ~= nil, "query should not be nil")
+
+		-- Execute query
+		local matches = query:matches(root, code)
+		assert(matches ~= nil, "matches should not be nil")
+
+		-- Should find exactly one function
+		local match_count = 0
+		for _, match in pairs(matches) do
+			match_count = match_count + 1
+
+			-- Verify the match has captures
+			assert(match.captures ~= nil, "match should have captures")
+			assert(#match.captures == 2, "should have two captures")
+
+			-- Verify the function name capture
+			local func_name_capture = match.captures[1]
+			assert(func_name_capture.node ~= nil, "capture should have node")
+			assert(func_name_capture.name == "func_name", "capture name should be func_name")
+			local func_name_text = func_name_capture.node:text(code)
+			assert(func_name_text == "greet", "captured function name should be 'greet'")
+
+			-- Verify the function body capture
+			local func_body_capture = match.captures[2]
+			assert(func_body_capture.node ~= nil, "capture should have node")
+			assert(func_body_capture.name == "func_body", "capture name should be func_body")
+			local func_body_text = func_body_capture.node:text(code)
+			assert(func_body_text:match("return \"Hello"), "captured body should start with 'return \"Hello'")
+		end
+
+		assert(match_count == 1, "should find exactly one function")
+	`, "test")
+	assert.NoError(t, err)
+}

@@ -8,7 +8,6 @@ import (
 	treesitterjs "github.com/tree-sitter/tree-sitter-javascript/bindings/go"
 	"go.uber.org/zap"
 	"reflect"
-	"strings"
 	"testing"
 )
 
@@ -23,10 +22,9 @@ func TestGetLanguageInfo(t *testing.T) {
 			name:  "Get existing language (primary alias)",
 			alias: "go",
 			want: &LanguageInfo{
-				Name:           "go",
-				Aliases:        []string{"go", "golang"},
-				GrammarContent: goGrammarContent,
-				Language:       treesittergo.Language,
+				Name:     "go",
+				Aliases:  []string{"go", "golang"},
+				Language: treesittergo.Language,
 			},
 			wantFound: true,
 		},
@@ -34,10 +32,9 @@ func TestGetLanguageInfo(t *testing.T) {
 			name:  "Get existing language (alternative alias)",
 			alias: "js",
 			want: &LanguageInfo{
-				Name:           "javascript",
-				Aliases:        []string{"js", "javascript"},
-				GrammarContent: jsGrammarContent,
-				Language:       treesitterjs.Language,
+				Name:     "javascript",
+				Aliases:  []string{"js", "javascript"},
+				Language: treesitterjs.Language,
 			},
 			wantFound: true,
 		},
@@ -51,10 +48,9 @@ func TestGetLanguageInfo(t *testing.T) {
 			name:  "Get language with nil Language function",
 			alias: "markdown",
 			want: &LanguageInfo{
-				Name:           "markdown",
-				Aliases:        []string{"markdown", "md"},
-				GrammarContent: mdGrammarContent,
-				Language:       nil,
+				Name:     "markdown",
+				Aliases:  []string{"markdown", "md"},
+				Language: nil,
 			},
 			wantFound: true,
 		},
@@ -78,9 +74,6 @@ func TestGetLanguageInfo(t *testing.T) {
 			}
 			if !reflect.DeepEqual(got.Aliases, tt.want.Aliases) {
 				t.Errorf("GetLanguageInfo() Aliases = %v, want %v", got.Aliases, tt.want.Aliases)
-			}
-			if got.GrammarContent != tt.want.GrammarContent {
-				t.Errorf("GetLanguageInfo() GrammarContent = %v, want %v", got.GrammarContent, tt.want.GrammarContent)
 			}
 			// For Language function, just check if both are nil or both are non-nil
 			if (got.Language == nil) != (tt.want.Language == nil) {
@@ -110,10 +103,9 @@ func TestLanguageFunctions(t *testing.T) {
 func copyLangInfo(info LanguageInfo) *LanguageInfo {
 	// Create a new LanguageInfo with copies of the values
 	newInfo := &LanguageInfo{
-		Name:           info.Name,
-		Aliases:        make([]string, len(info.Aliases)), // Copy the slice
-		GrammarContent: info.GrammarContent,
-		Language:       info.Language,
+		Name:     info.Name,
+		Aliases:  make([]string, len(info.Aliases)), // Copy the slice
+		Language: info.Language,
 	}
 	copy(newInfo.Aliases, info.Aliases) // Copy the slice contents
 	return newInfo
@@ -197,20 +189,6 @@ func TestGrammarSupport(t *testing.T) {
 			test_parse("c#", "class Test {}")
 		`, "test")
 		assert.NoError(t, err)
-	})
-
-	t.Run("grammar content", func(t *testing.T) {
-		// Test that each language's grammar content is loaded
-		for alias, info := range supportedLanguages {
-			assert.NotEmptyf(t, info.GrammarContent, "Grammar content should not be empty for %s", alias)
-			assert.NotEmptyf(t, info.Name, "Language name should not be empty for %s", alias)
-			assert.NotEmptyf(t, info.Aliases, "Aliases should not be empty for %s", alias)
-
-			// Skip markdown which intentionally has no language binding
-			if !strings.EqualFold(info.Name, "Markdown") {
-				assert.NotNil(t, info.Language, "Language function should not be nil for %s", alias)
-			}
-		}
 	})
 
 	t.Run("parser error handling", func(t *testing.T) {
