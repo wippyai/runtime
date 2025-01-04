@@ -1,7 +1,7 @@
 package lfs
 
 import (
-	"github.com/ponyruntime/go-lua"
+	"github.com/yuin/gopher-lua"
 	"os"
 	"path/filepath"
 )

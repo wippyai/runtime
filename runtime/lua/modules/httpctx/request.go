@@ -3,10 +3,11 @@ package httpctx
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/go-lua"
 	"github.com/ponyruntime/pony/api/service/http"
+	"github.com/ponyruntime/pony/internal/closer"
 	"github.com/ponyruntime/pony/runtime/lua/modules/json"
 	"github.com/ponyruntime/pony/runtime/lua/modules/stream"
+	"github.com/yuin/gopher-lua"
 	"io"
 	basehttp "net/http"
 	"strings"
@@ -271,8 +272,10 @@ func requestBody(l *lua.LState) int {
 	var readErr error
 
 	if req.config.Timeout > 0 {
-		ctx, cancel := context.WithTimeout(req.request.Context(),
-			time.Duration(req.config.Timeout)*time.Millisecond)
+		ctx, cancel := context.WithTimeout(
+			req.request.Context(),
+			time.Duration(req.config.Timeout)*time.Second,
+		)
 		defer cancel()
 
 		bodyChan := make(chan []byte)
@@ -297,7 +300,7 @@ func requestBody(l *lua.LState) int {
 		body, readErr = io.ReadAll(req.request.Body)
 	}
 
-	defer req.request.Body.Close()
+	defer func() { _ = req.request.Body.Close() }()
 
 	if readErr != nil {
 		l.Push(lua.LNil)
@@ -305,7 +308,63 @@ func requestBody(l *lua.LState) int {
 		return 2
 	}
 
-	l.Push(lua.LString(string(body)))
+	l.Push(lua.LString(body))
+	l.Push(lua.LNil)
+	return 2
+}
+
+// requestStreamBody returns an iterator for streaming the request body
+func requestStreamBody(l *lua.LState) int {
+	req, err := checkRequest(l, 1)
+	if err != nil {
+		l.ArgError(1, err.Error())
+		return 0
+	}
+
+	if req.request.Body == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("no body"))
+		return 2
+	}
+
+	cleanup := closer.FromContext(req.request.Context())
+	if cleanup == nil {
+		ctx, c := closer.WithContext(req.request.Context())
+		req.request = req.request.WithContext(ctx)
+		cleanup = c
+	}
+	cleanup.Add(req.request.Body.Close)
+
+	var bufferSize int64 = 32 * 1024 // Default 32KB buffer
+
+	if l.GetTop() > 1 {
+		opts := l.CheckTable(2)
+		if opts != nil {
+			if bs := opts.RawGetString("buffer_size"); !lua.LVIsFalse(bs) {
+				if n, ok := bs.(lua.LNumber); ok {
+					bufferSize = int64(n)
+				}
+			}
+		}
+	}
+
+	s, err := stream.NewStream(req.request.Context(), req.request.Body, stream.NewStreamConfig(
+		bufferSize,
+	))
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(fmt.Sprintf("failed to create stream: %v", err)))
+		return 2
+	}
+
+	luaStream := &stream.LuaStream{Stream: s}
+	ud := l.NewUserData()
+	ud.Value = luaStream
+
+	l.SetMetatable(ud, l.GetTypeMetatable("Stream"))
+
+	l.Push(ud)
+	l.Call(0, 1)
 	l.Push(lua.LNil)
 	return 2
 }
@@ -399,61 +458,6 @@ func requestAccepts(l *lua.LState) int {
 	}
 
 	l.Push(lua.LBool(false))
-	l.Push(lua.LNil)
-	return 2
-}
-
-// requestStreamBody returns an iterator for streaming the request body
-func requestStreamBody(l *lua.LState) int {
-	req, err := checkRequest(l, 1)
-	if err != nil {
-		l.ArgError(1, err.Error())
-		return 0
-	}
-
-	if req.request.Body == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("no body"))
-		return 2
-	}
-
-	// Parse stream options
-	var bufferSize int64 = 32 * 1024 // Default 32KB buffer
-
-	// Check if options table is provided
-	if l.GetTop() > 1 {
-		opts := l.CheckTable(2)
-		if opts != nil {
-			// Get buffer_size option
-			if bs := opts.RawGetString("buffer_size"); !lua.LVIsFalse(bs) {
-				if n, ok := bs.(lua.LNumber); ok {
-					bufferSize = int64(n)
-				}
-			}
-		}
-	}
-
-	// Create new stream from request body
-	s, err := stream.NewStream(req.request.Context(), req.request.Body, stream.NewStreamConfig(
-		bufferSize,
-	))
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("failed to create stream: %v", err)))
-		return 2
-	}
-
-	// Create Lua stream wrapper
-	luaStream := &stream.LuaStream{Stream: s}
-	ud := l.NewUserData()
-	ud.Value = luaStream
-
-	// Set Stream metatable
-	l.SetMetatable(ud, l.GetTypeMetatable("Stream"))
-
-	// Return the iterator function and nil (for the error position)
-	l.Push(ud)
-	l.Call(0, 1)
 	l.Push(lua.LNil)
 	return 2
 }

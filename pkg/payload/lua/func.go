@@ -1,7 +1,7 @@
 package lua
 
 import (
-	"github.com/ponyruntime/go-lua"
+	"github.com/yuin/gopher-lua"
 )
 
 // Helper functions for Lua transcoding

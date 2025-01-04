@@ -2,7 +2,7 @@ package time
 
 import (
 	"context"
-	"github.com/ponyruntime/go-lua"
+	"github.com/yuin/gopher-lua"
 	"testing"
 	"time"
 

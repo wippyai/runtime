@@ -1,8 +1,8 @@
 package httpctx
 
 import (
-	"github.com/ponyruntime/go-lua"
 	"github.com/ponyruntime/pony/runtime/lua/modules/stream"
+	"github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
 

@@ -10,17 +10,17 @@ var (
 	ErrInvalidConfig = fmt.Errorf("invalid Stream configuration")
 )
 
-// Config holds configuration for Stream operations
-type Config struct {
+// Options holds configuration for Stream operations
+type Options struct {
 	bufferSize int64
 }
 
 // NewStreamConfig creates a new configuration
-func NewStreamConfig(bufferSize int64) *Config {
+func NewStreamConfig(bufferSize int64) *Options {
 	if bufferSize <= 0 {
 		bufferSize = 32 * 1024 // Default 32KB buffer
 	}
-	return &Config{
+	return &Options{
 		bufferSize: bufferSize,
 	}
 }
@@ -28,13 +28,13 @@ func NewStreamConfig(bufferSize int64) *Config {
 // Stream handles streaming data from a reader
 type Stream struct {
 	reader    io.ReadCloser
-	config    *Config
+	config    *Options
 	bytesRead int64
 	ctx       context.Context
 }
 
 // NewStream creates a new Stream with configuration
-func NewStream(ctx context.Context, reader io.ReadCloser, cfg *Config) (*Stream, error) {
+func NewStream(ctx context.Context, reader io.ReadCloser, cfg *Options) (*Stream, error) {
 	if reader == nil {
 		return nil, fmt.Errorf("%w: nil reader", ErrInvalidConfig)
 	}

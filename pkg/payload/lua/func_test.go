@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ponyruntime/go-lua"
+	"github.com/yuin/gopher-lua"
 )
 
 func TestToGoAny(t *testing.T) {

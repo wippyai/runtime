@@ -55,13 +55,13 @@ type (
 	// Entry represents a single entry in the registry.
 	Entry struct {
 		// ID is the unique identifier for the entry.
-		ID ID
+		ID ID `json:"id"`
 		// Kind is the type/category of the entry.
-		Kind Kind
+		Kind Kind `json:"kind"`
 		// Meta contains any additional metadata about the entry.
-		Meta Metadata
+		Meta Metadata `json:"meta"`
 		// Data is the actual payload associated with the entry, providing its value or configuration.
-		Data payload.Payload
+		Data payload.Payload `json:"data"`
 	}
 
 	// ChangeSet represents a set of operations that, when applied sequentially, transition the registry from one state to another.
@@ -70,9 +70,9 @@ type (
 	// Operation represents a single operation within a ChangeSet (e.g., create, update, or delete an entry).
 	Operation struct {
 		// Kind is the type of operation.
-		Kind events.Kind
+		Kind events.Kind `json:"kind"`
 		// Entry is the entry affected by the operation. For Delete operations, only the ID field might be relevant.
-		Entry Entry
+		Entry Entry `json:"entry"`
 	}
 
 	// Registry is the primary interface for interacting with the registry.

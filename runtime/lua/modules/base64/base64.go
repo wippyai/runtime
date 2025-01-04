@@ -3,7 +3,7 @@ package base64
 import (
 	"encoding/base64"
 
-	"github.com/ponyruntime/go-lua"
+	"github.com/yuin/gopher-lua"
 )
 
 // Module represents a base64 Lua module.

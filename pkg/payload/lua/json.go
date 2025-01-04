@@ -2,9 +2,9 @@ package lua
 
 import (
 	"fmt"
-	"github.com/ponyruntime/go-lua"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/runtime/lua/modules/json"
+	"github.com/yuin/gopher-lua"
 )
 
 // RegisterJson registers JSON<->Lua transcoders
