@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
+	"os"
 	"testing"
 )
 
@@ -707,4 +708,24 @@ func TestTreeWalking(t *testing.T) {
         `, "test")
 		assert.NoError(t, err)
 	})
+}
+
+func TestTreeEditAndReparse(t *testing.T) {
+	logger := zap.NewNop()
+	mod := NewTreeSitterModule(logger)
+
+	vm, err := engine.NewVM(logger,
+		engine.WithLoader(mod.Name(), mod.Loader),
+		engine.WithGlobalFunction("assert", assertLua),
+	)
+	require.NoError(t, err)
+	defer vm.Close()
+
+	file := `scripts/tree/edit_reparse.lua`
+
+	code, err := os.ReadFile(file)
+	require.NoError(t, err)
+
+	err = vm.DoString(nil, string(code), "test")
+	assert.NoError(t, err)
 }

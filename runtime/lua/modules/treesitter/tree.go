@@ -13,7 +13,7 @@ import (
 // TreeWrapper wraps a tree-sitter Tree for Lua integration
 type TreeWrapper struct {
 	tree   *treesitter.Tree
-	source string
+	source string // todo: change to byte
 }
 
 // Register the Tree type to Lua

@@ -4,14 +4,14 @@ import (
 	_ "embed"
 	"unsafe"
 
-	treesitterlua "github.com/tree-sitter-grammars/tree-sitter-lua/bindings/go"
-	treesittercsharp "github.com/tree-sitter/tree-sitter-c-sharp/bindings/go"
-	treesittergo "github.com/tree-sitter/tree-sitter-go/bindings/go"
-	treesitterhtml "github.com/tree-sitter/tree-sitter-html/bindings/go"
-	treesitterjs "github.com/tree-sitter/tree-sitter-javascript/bindings/go"
-	treesitterphp "github.com/tree-sitter/tree-sitter-php/bindings/go"
-	treesitterpython "github.com/tree-sitter/tree-sitter-python/bindings/go"
-	treesitterts "github.com/tree-sitter/tree-sitter-typescript/bindings/go"
+	tslua "github.com/tree-sitter-grammars/tree-sitter-lua/bindings/go"
+	cscsharp "github.com/tree-sitter/tree-sitter-c-sharp/bindings/go"
+	tsgo "github.com/tree-sitter/tree-sitter-go/bindings/go"
+	tshtml "github.com/tree-sitter/tree-sitter-html/bindings/go"
+	tsjs "github.com/tree-sitter/tree-sitter-javascript/bindings/go"
+	tsphp "github.com/tree-sitter/tree-sitter-php/bindings/go"
+	tspython "github.com/tree-sitter/tree-sitter-python/bindings/go"
+	tsts "github.com/tree-sitter/tree-sitter-typescript/bindings/go"
 )
 
 // LanguageInfo holds information about a supported language.
@@ -26,57 +26,57 @@ var languageDefinitions = []LanguageInfo{
 	{
 		Name:     "lua",
 		Aliases:  []string{"lua"},
-		Language: treesitterlua.Language,
+		Language: tslua.Language,
 	},
 	{
 		Name:     "php",
 		Aliases:  []string{"php"},
-		Language: treesitterphp.LanguagePHP,
+		Language: tsphp.LanguagePHP,
 	},
 	{
 		Name:     "go",
 		Aliases:  []string{"go", "golang"},
-		Language: treesittergo.Language,
+		Language: tsgo.Language,
 	},
 	{
 		Name:     "javascript",
 		Aliases:  []string{"js", "javascript"},
-		Language: treesitterjs.Language,
+		Language: tsjs.Language,
 	},
 	{
 		Name:     "typescript+jsx",
 		Aliases:  []string{"tsx"},
-		Language: treesitterts.LanguageTSX,
+		Language: tsts.LanguageTSX,
 	},
 	{
 		Name:     "typescript",
 		Aliases:  []string{"ts", "typescript"},
-		Language: treesitterts.LanguageTypescript,
+		Language: tsts.LanguageTypescript,
 	},
 	{
 		Name:     "python",
 		Aliases:  []string{"python", "py"},
-		Language: treesitterpython.Language,
+		Language: tspython.Language,
 	},
 	{
 		Name:     "c#",
 		Aliases:  []string{"csharp", "c#", "cs"},
-		Language: treesittercsharp.Language,
+		Language: cscsharp.Language,
 	},
 	{
 		Name:     "html",
 		Aliases:  []string{"html", "html5"},
-		Language: treesitterhtml.Language,
+		Language: tshtml.Language,
 	},
 	{
 		Name:     "markdown",
 		Aliases:  []string{"markdown", "md"},
-		Language: nil, // todo: fix me and test me
+		Language: nil, // todo: find and fix me
 	},
 	{
 		Name:     "sql",
 		Aliases:  []string{"sql"},
-		Language: nil, // todo: fix me
+		Language: nil, // todo: find and fix me
 	},
 }
 
