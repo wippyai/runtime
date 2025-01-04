@@ -133,7 +133,7 @@ func TestParser(t *testing.T) {
 				parser:set_language("invalid_lang")
 			end)
 			assert(not ok, "should fail for invalid language")
-			assert(string.match(err, "unsupported language"), "should mention unsupported language")
+			assert(string.match(err, "not found"), "should mention unsupported language")
 
 			-- Test parse without language set
 			local ok, err = pcall(function()

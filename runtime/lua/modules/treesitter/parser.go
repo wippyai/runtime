@@ -78,12 +78,12 @@ func parserSetLanguage(L *lua.LState) int {
 
 	langInfo := GetLanguageInfo(langAlias)
 	if langInfo == nil {
-		L.ArgError(2, "unsupported language: "+langAlias)
+		L.RaiseError("language '" + langAlias + "' not found")
 		return 0
 	}
 
 	if langInfo.Language == nil {
-		L.ArgError(2, "language '"+langAlias+"' does not have a Tree-sitter language binding")
+		L.RaiseError("language '" + langAlias + "' does not have a Tree-sitter language binding")
 		return 0
 	}
 
