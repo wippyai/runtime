@@ -18,7 +18,6 @@ type ParserWrapper struct {
 func registerParser(L *lua.LState) {
 	mt := L.NewTypeMetatable("treesitter.Parser")
 	L.SetField(mt, "__index", L.SetFuncs(L.NewTable(), parserMethods))
-	L.SetField(mt, "__gc", L.NewFunction(parserGC))
 }
 
 var parserMethods = map[string]lua.LGFunction{
@@ -260,12 +259,6 @@ func parserSetRanges(L *lua.LState) int {
 	return 1
 }
 
-func parserGC(L *lua.LState) int {
-	parser := checkParser(L)
-	parser.Close()
-	return 0
-}
-
 func (p *ParserWrapper) SetIncludedRanges(ranges []treesitter.Range) error {
 	if p.parser == nil {
 		return fmt.Errorf("parser is closed")
@@ -280,7 +273,6 @@ func (p *ParserWrapper) Reset() {
 
 func (p *ParserWrapper) Close() {
 	if p.parser != nil {
-		p.parser.SetLogger(nil)
 		p.parser.Close()
 		p.parser = nil
 	}

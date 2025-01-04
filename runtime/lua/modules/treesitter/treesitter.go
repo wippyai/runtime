@@ -8,6 +8,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// todo: a good chunk of memory optimizations is needed here, but no rush
 type Module struct {
 	log *zap.Logger
 }

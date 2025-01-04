@@ -605,3 +605,106 @@ func TestComplexTreeOperations(t *testing.T) {
 		assert.NoError(t, err)
 	})
 }
+
+func TestTreeWalking(t *testing.T) {
+	logger := zap.NewNop()
+
+	t.Run("comprehensive tree walk", func(t *testing.T) {
+		mod := NewTreeSitterModule(logger)
+		vm, err := engine.NewVM(logger,
+			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithGlobalFunction("assert", assertLua),
+			engine.WithGlobalFunction("print", func(l *lua.LState) int {
+				t.Log(l.ToString(1))
+				return 0
+			}),
+		)
+		require.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.DoString(nil, `
+            local treesitter = require("treesitter")
+            
+            -- Create a slightly complex tree
+            local code = [[
+                package main
+
+                type Person struct {
+                    Name string
+                    Age  int
+                }
+
+                func (p *Person) String() string {
+                    return p.Name
+                }
+            ]]
+
+            local tree = treesitter.parse("go", code)
+            assert(tree ~= nil, "should parse tree")
+
+            -- Test basic walk
+            local cursor = tree:walk()
+            assert(cursor ~= nil, "should create cursor")
+
+            -- Walk the entire tree manually to force coverage of walk operations
+            local function walk_tree(cursor)
+                local visited = {}
+                local function visit(depth)
+                    local node = cursor:current_node()
+                    local kind = node:kind()
+                    local text = node:text(code)
+                    
+                    table.insert(visited, {kind = kind, text = text})
+
+                    if cursor:goto_first_child() then
+                        visit(depth + 1)
+                        cursor:goto_parent()
+                    end
+
+                    if cursor:goto_next_sibling() then
+                        visit(depth)
+                    end
+                end
+                visit(0)
+                return visited
+            end
+
+            -- Walk the tree
+            local nodes = walk_tree(cursor)
+            assert(#nodes > 0, "should visit nodes")
+
+            -- Verify we've visited key nodes
+            local found_package = false
+            local found_type = false
+            local found_struct = false
+            local found_method = false
+
+            for _, node in ipairs(nodes) do
+                if node.kind == "package_clause" then found_package = true end
+                if node.kind == "type_declaration" then found_type = true end
+                if node.kind == "struct_type" then found_struct = true end
+                if node.kind == "method_declaration" then found_method = true end
+            end
+
+            assert(found_package, "should find package clause")
+            assert(found_type, "should find type declaration")
+            assert(found_struct, "should find struct type")
+            assert(found_method, "should find method declaration")
+
+            -- Test walk with NULL tree
+            tree:close()
+            local ok, err = pcall(function()
+                cursor = tree:walk()
+            end)
+            assert(not ok, "should fail walking closed tree")
+            
+            -- Test walking on empty tree
+            local empty_tree = treesitter.parse("go", "")
+            cursor = empty_tree:walk()
+            assert(cursor ~= nil, "should create cursor for empty tree")
+            local root = cursor:current_node()
+            assert(root:kind() == "source_file", "empty tree should have root node")
+        `, "test")
+		assert.NoError(t, err)
+	})
+}

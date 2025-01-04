@@ -20,7 +20,6 @@ type TreeWrapper struct {
 func registerTree(L *lua.LState) {
 	mt := L.NewTypeMetatable("treesitter.Tree")
 	L.SetField(mt, "__index", L.SetFuncs(L.NewTable(), treeMethods))
-	L.SetField(mt, "__gc", L.NewFunction(treeGC))
 }
 
 var treeMethods = map[string]lua.LGFunction{
@@ -156,15 +155,6 @@ func treeWalk(L *lua.LState) int {
 	L.SetMetatable(ud, L.GetTypeMetatable("treesitter.Cursor"))
 	L.Push(ud)
 	return 1
-}
-
-func treeGC(L *lua.LState) int {
-	tree := checkTree(L)
-	if tree.tree != nil {
-		tree.tree.Close()
-		tree.tree = nil
-	}
-	return 0
 }
 
 func (t *TreeWrapper) Edit(edit *treesitter.InputEdit) error {

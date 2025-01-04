@@ -381,3 +381,230 @@ func TestParserContextCancellation(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "context canceled")
 }
+
+func TestParserLifecycle(t *testing.T) {
+	logger := zap.NewNop()
+
+	t.Run("parser close and reset", func(t *testing.T) {
+		mod := NewTreeSitterModule(logger)
+		vm, err := engine.NewVM(logger,
+			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithGlobalFunction("assert", assertLua),
+		)
+		require.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.DoString(nil, `
+            local treesitter = require("treesitter")
+            
+            -- Create parser and parse some code
+            local parser = treesitter.parser()
+            parser:set_language("go")
+            
+            local code1 = "package main\n\nfunc test() {}\n"
+            local tree1 = parser:parse(code1)
+            assert(tree1 ~= nil, "should parse first code")
+            
+            -- Test parser reset
+            parser:reset()
+            
+            -- Parser should still work after reset
+            local code2 = "package other\n\nfunc other() {}\n"
+            local tree2 = parser:parse(code2)
+            assert(tree2 ~= nil, "should parse after reset")
+            assert(tree2:root_node():text(code2) == code2, "tree should contain new code")
+            
+            -- Test parser close
+            parser:close()
+            
+            -- Operations after close should fail gracefully
+            local ok, err = pcall(function()
+                parser:parse("should fail")
+            end)
+            assert(not ok, "parsing after close should fail")
+            
+            -- Test double close should not crash
+            parser:close()
+            
+            -- Create new parser to verify we can still create and use parsers
+            local parser2 = treesitter.parser()
+            parser2:set_language("go")
+            local tree3 = parser2:parse("package main")
+            assert(tree3 ~= nil, "new parser should work")
+        `, "test")
+		assert.NoError(t, err)
+	})
+
+	t.Run("parser close with memory write", func(t *testing.T) {
+		mod := NewTreeSitterModule(logger)
+		vm, err := engine.NewVM(logger,
+			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithGlobalFunction("assert", assertLua),
+		)
+		require.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.DoString(nil, `
+            local treesitter = require("treesitter")
+            
+            -- Test parser memory handling during edits
+            local parser = treesitter.parser()
+            parser:set_language("go")
+            
+            local code = "func main() {}\n"
+            local tree = parser:parse(code)
+            assert(tree ~= nil, "should parse code")
+            
+            -- Edit the tree
+            local edit = {
+                start_byte = 0,
+                old_end_byte = 4,
+                new_end_byte = 4,
+                start_row = 0,
+                start_column = 0,
+                old_end_row = 0,
+                old_end_column = 4,
+                new_end_row = 0,
+                new_end_column = 4
+            }
+            tree:edit(edit)
+            
+            -- Close parser mid-operation
+            parser:close()
+            
+            -- Tree should still be valid
+            assert(tree:root_node() ~= nil, "tree should still be valid after parser close")
+            
+            -- But new operations should fail
+            local ok, err = pcall(function()
+                parser:parse("package main")
+            end)
+            assert(not ok, "parser should not work after close")
+        `, "test")
+		assert.NoError(t, err)
+	})
+}
+
+func TestParserResetAndClose(t *testing.T) {
+	logger := zap.NewNop()
+
+	t.Run("parser reset and close", func(t *testing.T) {
+		mod := NewTreeSitterModule(logger)
+		vm, err := engine.NewVM(logger,
+			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithGlobalFunction("assert", assertLua),
+		)
+		require.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.DoString(nil, `
+			local treesitter = require("treesitter")
+			
+			-- Get a parser and parse some code
+			local parser = treesitter.parser()
+			assert(parser:set_language("go"), "should set language")
+			
+			local code1 = "package main\n\nfunc main() {}"
+			local tree1 = parser:parse(code1)
+			assert(tree1 ~= nil, "should parse first code")
+			
+			-- Reset the parser
+			parser:reset()
+			
+			-- Parse different code after reset
+			local code2 = "package test\n\nfunc Test() {}"
+			local tree2 = parser:parse(code2)
+			assert(tree2 ~= nil, "should parse second code")
+			
+			-- Verify trees are different
+			local root1 = tree1:root_node()
+			local root2 = tree2:root_node()
+			assert(root1:text() ~= root2:text(), "trees should have different text")
+			
+			-- Test parser close
+			parser:close()
+			
+			-- Verify parser operations fail after close
+			local ok, err = pcall(function()
+				parser:parse("invalid after close")
+			end)
+			assert(not ok, "parser should fail after close")
+		`, "test")
+		assert.NoError(t, err)
+	})
+
+	t.Run("multiple reset cycles", func(t *testing.T) {
+		mod := NewTreeSitterModule(logger)
+		vm, err := engine.NewVM(logger,
+			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithGlobalFunction("assert", assertLua),
+		)
+		require.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.DoString(nil, `
+			local treesitter = require("treesitter")
+			local parser = treesitter.parser()
+			assert(parser:set_language("go"), "should set language")
+			
+			-- Multiple parse-reset cycles
+			local codes = {
+				"package main\n\nfunc main() {}",
+				"package test\n\nfunc Test() {}",
+				"package util\n\nfunc Util() {}"
+			}
+			
+			local trees = {}
+			for i, code in ipairs(codes) do
+				local tree = parser:parse(code)
+				assert(tree ~= nil, string.format("should parse code %d", i))
+				trees[i] = tree:root_node():text()
+				parser:reset()
+			end
+			
+			-- Verify all trees were different
+			assert(trees[1] ~= trees[2], "first and second trees should differ")
+			assert(trees[2] ~= trees[3], "second and third trees should differ")
+			assert(trees[1] ~= trees[3], "first and third trees should differ")
+			
+			parser:close()
+		`, "test")
+		assert.NoError(t, err)
+	})
+
+	t.Run("reset with different languages", func(t *testing.T) {
+		mod := NewTreeSitterModule(logger)
+		vm, err := engine.NewVM(logger,
+			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithGlobalFunction("assert", assertLua),
+		)
+		require.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.DoString(nil, `
+			local treesitter = require("treesitter")
+			local parser = treesitter.parser()
+			
+			-- Test with Go
+			assert(parser:set_language("go"), "should set Go language")
+			local go_tree = parser:parse("package main")
+			assert(go_tree ~= nil, "should parse Go code")
+			
+			parser:reset()
+			
+			-- Test with JavaScript after reset
+			assert(parser:set_language("javascript"), "should set JavaScript language")
+			local js_tree = parser:parse("function test() {}")
+			assert(js_tree ~= nil, "should parse JavaScript code")
+			
+			-- Verify languages are different - using node counts
+			local go_lang = go_tree:language()
+			local js_lang = js_tree:language()
+			assert(go_lang:node_kind_count() ~= js_lang:node_kind_count(), 
+				"languages should have different characteristics")
+			
+			parser:close()
+		`, "test")
+		assert.NoError(t, err)
+	})
+}
