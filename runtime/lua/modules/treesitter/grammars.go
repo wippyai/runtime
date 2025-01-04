@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"unsafe"
 
+	treesitterlua "github.com/tree-sitter-grammars/tree-sitter-lua/bindings/go"
 	treesittercsharp "github.com/tree-sitter/tree-sitter-c-sharp/bindings/go"
 	treesittergo "github.com/tree-sitter/tree-sitter-go/bindings/go"
 	treesitterhtml "github.com/tree-sitter/tree-sitter-html/bindings/go"
@@ -13,96 +14,69 @@ import (
 	treesitterts "github.com/tree-sitter/tree-sitter-typescript/bindings/go"
 )
 
-//go:embed grammars/grammar_html.json
-var htmlGrammarContent string
-
-//go:embed grammars/grammar_md.json
-var mdGrammarContent string
-
-//go:embed grammars/grammar_csharp.json
-var csharpGrammarContent string
-
-//go:embed grammars/grammar_js.json
-var jsGrammarContent string
-
-//go:embed grammars/grammar_python.json
-var pythonGrammarContent string
-
-//go:embed grammars/grammar_ts.json
-var tsGrammarContent string
-
-//go:embed grammars/grammar_tsx.json
-var tsxGrammarContent string
-
-//go:embed grammars/grammar_go.json
-var goGrammarContent string
-
-//go:embed grammars/grammar_php.json
-var phpGrammarContent string
-
 // LanguageInfo holds information about a supported language.
 type LanguageInfo struct {
-	Name           string                // Full language name (e.g., "JavaScript")
-	Aliases        []string              // Alternative names or short codes (e.g., ["js", "javascript"])
-	GrammarContent string                // The embedded grammar file content
-	Language       func() unsafe.Pointer // Function to get the Tree-sitter language object
+	Name     string                // Full language name (e.g., "JavaScript")
+	Aliases  []string              // Alternative names or short codes (e.g., ["js", "javascript"])
+	Language func() unsafe.Pointer // Function to get the Tree-sitter language object
 }
 
 // languageDefinitions contains the core language definitions
 var languageDefinitions = []LanguageInfo{
 	{
-		Name:           "php",
-		Aliases:        []string{"php"},
-		GrammarContent: phpGrammarContent,
-		Language:       treesitterphp.LanguagePHP,
+		Name:     "lua",
+		Aliases:  []string{"lua"},
+		Language: treesitterlua.Language,
 	},
 	{
-		Name:           "go",
-		Aliases:        []string{"go", "golang"},
-		GrammarContent: goGrammarContent,
-		Language:       treesittergo.Language,
+		Name:     "php",
+		Aliases:  []string{"php"},
+		Language: treesitterphp.LanguagePHP,
 	},
 	{
-		Name:           "javascript",
-		Aliases:        []string{"js", "javascript"},
-		GrammarContent: jsGrammarContent,
-		Language:       treesitterjs.Language,
+		Name:     "go",
+		Aliases:  []string{"go", "golang"},
+		Language: treesittergo.Language,
 	},
 	{
-		Name:           "typescript+jsx",
-		Aliases:        []string{"tsx"},
-		GrammarContent: tsxGrammarContent,
-		Language:       treesitterts.LanguageTSX,
+		Name:     "javascript",
+		Aliases:  []string{"js", "javascript"},
+		Language: treesitterjs.Language,
 	},
 	{
-		Name:           "typescript",
-		Aliases:        []string{"ts", "typescript"},
-		GrammarContent: tsGrammarContent,
-		Language:       treesitterts.LanguageTypescript,
+		Name:     "typescript+jsx",
+		Aliases:  []string{"tsx"},
+		Language: treesitterts.LanguageTSX,
 	},
 	{
-		Name:           "python",
-		Aliases:        []string{"python", "py"},
-		GrammarContent: pythonGrammarContent,
-		Language:       treesitterpython.Language,
+		Name:     "typescript",
+		Aliases:  []string{"ts", "typescript"},
+		Language: treesitterts.LanguageTypescript,
 	},
 	{
-		Name:           "c#",
-		Aliases:        []string{"csharp", "c#", "cs"},
-		GrammarContent: csharpGrammarContent,
-		Language:       treesittercsharp.Language,
+		Name:     "python",
+		Aliases:  []string{"python", "py"},
+		Language: treesitterpython.Language,
 	},
 	{
-		Name:           "html",
-		Aliases:        []string{"html", "html5"},
-		GrammarContent: htmlGrammarContent,
-		Language:       treesitterhtml.Language,
+		Name:     "c#",
+		Aliases:  []string{"csharp", "c#", "cs"},
+		Language: treesittercsharp.Language,
 	},
 	{
-		Name:           "markdown",
-		Aliases:        []string{"markdown", "md"},
-		GrammarContent: mdGrammarContent,
-		Language:       nil,
+		Name:     "html",
+		Aliases:  []string{"html", "html5"},
+		Language: treesitterhtml.Language,
+	},
+	{
+		Name:     "markdown",
+		Aliases:  []string{"markdown", "md"},
+		Language: nil, // todo: fix me and test me
+	},
+	{
+		Name:     "sql",
+		Aliases:  []string{"sql"},
+		Language: nil, // todo: fix me
 	},
 }
 
