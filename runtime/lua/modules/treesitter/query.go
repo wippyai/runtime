@@ -20,11 +20,11 @@ type QueryWrapper struct {
 func registerQuery(L *lua.LState) {
 	mt := L.NewTypeMetatable("treesitter.Query")
 	L.SetField(mt, "__index", L.SetFuncs(L.NewTable(), queryMethods))
-	L.SetField(mt, "__gc", L.NewFunction(queryGC))
 }
 
 var queryMethods = map[string]lua.LGFunction{
 	// Core functionality
+	"close":                  queryClose,
 	"matches":                queryMatches,
 	"captures":               queryCaptures,
 	"pattern_count":          queryPatternCount,
@@ -85,17 +85,28 @@ func newQuery(L *lua.LState) int {
 		return 2
 	}
 
-	if L.Context() != nil {
-		cleanup := closer.FromContext(L.Context())
-		if cleanup != nil {
-			cleanup.Add(func() error { query.Close(); return nil })
-		}
-	}
-
 	// Create query wrapper with cursor
 	wrapper := &QueryWrapper{
 		query:  query,
 		cursor: treesitter.NewQueryCursor(),
+	}
+
+	if L.Context() != nil {
+		cleanup := closer.FromContext(L.Context())
+		if cleanup != nil {
+			cleanup.Add(func() error {
+				if wrapper.cursor != nil {
+					wrapper.cursor.Close()
+					wrapper.cursor = nil
+				}
+
+				if wrapper.query != nil {
+					wrapper.query.Close()
+					wrapper.query = nil
+				}
+				return nil
+			})
+		}
 	}
 
 	ud := L.NewUserData()
@@ -105,7 +116,36 @@ func newQuery(L *lua.LState) int {
 	return 1
 }
 
-// Execute query and return matches with predicate support
+func matchToLuaTable(L *lua.LState, query *treesitter.Query, match *treesitter.QueryMatch, source string) *lua.LTable {
+	matchTable := L.NewTable()
+	matchTable.RawSetString("id", lua.LNumber(match.Id()))
+	matchTable.RawSetString("pattern", lua.LNumber(match.PatternIndex))
+
+	capturesTable := L.NewTable()
+	for _, capture := range match.Captures {
+		captureTable := L.NewTable()
+
+		// Create Node wrapper for the specific capture's node
+		nodeUD := L.NewUserData()
+		nodeUD.Value = &NodeWrapper{node: &capture.Node, source: &source}
+		L.SetMetatable(nodeUD, L.GetTypeMetatable("treesitter.Node"))
+
+		captureTable.RawSetString("node", nodeUD)
+		captureTable.RawSetString("index", lua.LNumber(capture.Index))
+
+		// Get capture name from query pattern
+		name := query.CaptureNames()[capture.Index]
+		if name != "" {
+			captureTable.RawSetString("name", lua.LString(name))
+		}
+
+		capturesTable.Append(captureTable)
+	}
+	matchTable.RawSetString("captures", capturesTable)
+
+	return matchTable
+}
+
 func queryMatches(L *lua.LState) int {
 	query := checkQuery(L)
 	nodeUD := L.CheckUserData(2)
@@ -117,18 +157,13 @@ func queryMatches(L *lua.LState) int {
 		return 0
 	}
 
-	// Store source for predicate evaluation
 	query.source = source
-
-	// Execute query
 	matches := query.cursor.Matches(query.query, node.node, []byte(source))
 
-	// Convert matches to Lua table
 	matchesTable := L.NewTable()
 	for match := matches.Next(); match != nil; match = matches.Next() {
-		// Check predicates
 		if match.SatisfiesTextPredicate(query.query, nil, nil, []byte(source)) {
-			matchTable := matchToLuaTable(L, match, source)
+			matchTable := matchToLuaTable(L, query.query, match, source)
 			matchesTable.Append(matchTable)
 		}
 	}
@@ -137,7 +172,6 @@ func queryMatches(L *lua.LState) int {
 	return 1
 }
 
-// Execute query and return captures with predicate support
 func queryCaptures(L *lua.LState) int {
 	query := checkQuery(L)
 	nodeUD := L.CheckUserData(2)
@@ -152,33 +186,37 @@ func queryCaptures(L *lua.LState) int {
 	query.source = source
 	captures := query.cursor.Captures(query.query, node.node, []byte(source))
 
-	// Convert captures to Lua table
 	capturesTable := L.NewTable()
 	for match, index := captures.Next(); match != nil; match, index = captures.Next() {
-		if match.SatisfiesTextPredicate(query.query, nil, nil, []byte(source)) {
-			captureTable := L.NewTable()
-
-			// Add capture info
-			nodeUD := L.NewUserData()
-			nodeUD.Value = &NodeWrapper{node: &match.Captures[index].Node}
-			L.SetMetatable(nodeUD, L.GetTypeMetatable("treesitter.Node"))
-
-			captureTable.RawSetString("node", nodeUD)
-			captureTable.RawSetString("index", lua.LNumber(match.Captures[index].Index))
-
-			// Add capture name
-			name := query.query.CaptureNames()[match.Captures[index].Index]
-			captureTable.RawSetString("name", lua.LString(name))
-
-			// Add capture text
-			start := match.Captures[index].Node.StartByte()
-			end := match.Captures[index].Node.EndByte()
-			if start >= 0 && end >= 0 && end <= uint(len(source)) {
-				captureTable.RawSetString("text", lua.LString(source[start:end]))
-			}
-
-			capturesTable.Append(captureTable)
+		if !match.SatisfiesTextPredicate(query.query, nil, nil, []byte(source)) {
+			continue
 		}
+
+		capture := match.Captures[index]
+		captureTable := L.NewTable()
+
+		// Create Node wrapper
+		nodeUD := L.NewUserData()
+		nodeUD.Value = &NodeWrapper{node: &capture.Node, source: &source}
+		L.SetMetatable(nodeUD, L.GetTypeMetatable("treesitter.Node"))
+
+		captureTable.RawSetString("node", nodeUD)
+		captureTable.RawSetString("index", lua.LNumber(capture.Index))
+
+		// Add capture name
+		name := query.query.CaptureNames()[capture.Index]
+		if name != "" {
+			captureTable.RawSetString("name", lua.LString(name))
+		}
+
+		// Get the text of the captured node
+		start := capture.Node.StartByte()
+		end := capture.Node.EndByte()
+		if start >= 0 && end >= 0 && uint32(end) <= uint32(len(source)) {
+			captureTable.RawSetString("text", lua.LString(source[start:end]))
+		}
+
+		capturesTable.Append(captureTable)
 	}
 
 	L.Push(capturesTable)
@@ -329,13 +367,15 @@ func queryStartByteForPattern(L *lua.LState) int {
 }
 
 // Garbage collection
-func queryGC(L *lua.LState) int {
+func queryClose(L *lua.LState) int {
 	query := checkQuery(L)
 	if query.cursor != nil {
 		query.cursor.Close()
+		query.cursor = nil
 	}
 	if query.query != nil {
 		query.query.Close()
+		query.query = nil
 	}
 	return 0
 }
@@ -475,57 +515,8 @@ func checkQuery(L *lua.LState) *QueryWrapper {
 }
 
 func formatQueryError(err *treesitter.QueryError) string {
-	var kind string
-	switch err.Kind {
-	case treesitter.QueryErrorSyntax:
-		kind = "Syntax"
-	case treesitter.QueryErrorNodeType:
-		kind = "Invalid node type"
-	case treesitter.QueryErrorField:
-		kind = "Invalid field"
-	case treesitter.QueryErrorCapture:
-		kind = "Invalid capture"
-	case treesitter.QueryErrorPredicate:
-		kind = "Invalid predicate"
-	case treesitter.QueryErrorStructure:
-		kind = "Invalid structure"
-	default:
-		kind = "Unknown"
-	}
-
-	return fmt.Sprintf("Query error at %d:%d - %s: %s",
-		err.Row+1, err.Column+1,
-		kind,
-		err.Message)
-}
-
-func matchToLuaTable(L *lua.LState, match *treesitter.QueryMatch, source string) *lua.LTable {
-	matchTable := L.NewTable()
-	matchTable.RawSetString("id", lua.LNumber(match.Id()))
-	matchTable.RawSetString("pattern", lua.LNumber(match.PatternIndex))
-
-	capturesTable := L.NewTable()
-	for _, capture := range match.Captures {
-		captureTable := L.NewTable()
-
-		// Create Node wrapper
-		nodeUD := L.NewUserData()
-		nodeUD.Value = &NodeWrapper{node: &capture.Node}
-		L.SetMetatable(nodeUD, L.GetTypeMetatable("treesitter.Node"))
-
-		captureTable.RawSetString("node", nodeUD)
-		captureTable.RawSetString("index", lua.LNumber(capture.Index))
-
-		// Add captured text
-		start := capture.Node.StartByte()
-		end := capture.Node.EndByte()
-		if start >= 0 && end >= 0 && end <= uint(len(source)) {
-			captureTable.RawSetString("text", lua.LString(source[start:end]))
-		}
-
-		capturesTable.Append(captureTable)
-	}
-	matchTable.RawSetString("captures", capturesTable)
-
-	return matchTable
+	return fmt.Sprintf("%s %s",
+		err.Error(),
+		err.Message,
+	)
 }

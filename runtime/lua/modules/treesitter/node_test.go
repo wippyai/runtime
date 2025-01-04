@@ -598,3 +598,159 @@ func ) {
 		assert.NoError(t, err)
 	})
 }
+
+func TestNodeSiblingNavigation(t *testing.T) {
+	logger := zap.NewNop()
+
+	t.Run("node sibling navigation", func(t *testing.T) {
+		mod := NewTreeSitterModule(logger)
+		vm, err := engine.NewVM(logger,
+			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithGlobalFunction("assert", assertLua),
+			engine.WithGlobalFunction("print", func(l *lua.LState) int {
+				t.Log(l.ToString(1))
+				return 0
+			}),
+		)
+		require.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.DoString(nil, `
+            local treesitter = require("treesitter")
+            local code = [[
+                package main
+                
+                import (
+                    "fmt"
+                    "os"
+                    "strings"
+                )
+
+                func main() {
+                    fmt.Println("test")
+                }
+            ]]
+            
+            local tree = treesitter.parse("go", code)
+            local root = tree:root_node()
+
+            -- Navigate to the first import_spec
+            local cursor = tree:walk()
+            assert(cursor:goto_first_child(), "should move to first child") -- package_clause
+            assert(cursor:goto_next_sibling(), "should move to import_decl") -- import_declaration
+            local import_decl = cursor:current_node()
+
+            -- Find the import_spec_list by checking children
+            local list_node = nil
+            for i = 0, import_decl:child_count() - 1 do
+                local child = import_decl:child(i)
+                if child:kind() == "import_spec_list" then
+                    list_node = child
+                    break
+                end
+            end
+            assert(list_node ~= nil, "should find import_spec_list")
+
+            -- Get first import_spec by finding first import_spec child
+            local first_import = nil
+            for i = 0, list_node:child_count() - 1 do
+                local child = list_node:child(i)
+                if child:kind() == "import_spec" then
+                    first_import = child
+                    break
+                end
+            end
+            assert(first_import ~= nil, "should find first import_spec")
+
+            -- Test next sibling navigation
+            local next = first_import:next_sibling()
+            assert(next ~= nil, "next sibling should exist")
+            assert(next:text(code):match("os"), "next sibling should contain 'os' import")
+
+            -- Test next named sibling
+            local next_named = first_import:next_named_sibling()
+            assert(next_named ~= nil, "next named sibling should exist")
+            assert(next_named:text(code):match("os"), "next named sibling should contain 'os' import")
+
+            -- Get last import_spec by finding last import_spec child
+            local last_import = nil
+            for i = list_node:child_count() - 1, 0, -1 do
+                local child = list_node:child(i)
+                if child:kind() == "import_spec" then
+                    last_import = child
+                    break
+                end
+            end
+            assert(last_import ~= nil, "should find last import_spec")
+
+            -- Test prev sibling
+            local prev = last_import:prev_sibling()
+            assert(prev ~= nil, "prev sibling should exist")
+            assert(prev:text(code):match("os"), "prev sibling should contain 'os' import")
+
+            -- Test prev named sibling
+            local prev_named = last_import:prev_named_sibling()
+            assert(prev_named ~= nil, "prev named sibling should exist")
+            assert(prev_named:text(code):match("os"), "prev named sibling should contain 'os' import")
+
+            -- Test is_missing
+            assert(not first_import:is_missing(), "first import should not be missing")
+            assert(not last_import:is_missing(), "last import should not be missing")
+            assert(not import_decl:is_missing(), "import decl should not be missing")
+
+            cursor:close()
+        `, "test")
+		assert.NoError(t, err)
+	})
+
+	t.Run("node sibling edge cases", func(t *testing.T) {
+		mod := NewTreeSitterModule(logger)
+		vm, err := engine.NewVM(logger,
+			engine.WithLoader(mod.Name(), mod.Loader),
+			engine.WithGlobalFunction("assert", assertLua),
+			engine.WithGlobalFunction("print", func(l *lua.LState) int {
+				t.Log(l.ToString(1))
+				return 0
+			}),
+		)
+		require.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.DoString(nil, `
+            local treesitter = require("treesitter")
+            -- Use a simpler code sample for edge cases
+            local code = [[
+                package main
+
+                func test() {}
+            ]]
+            local tree = treesitter.parse("go", code)
+            local root = tree:root_node()
+ 
+            -- Test first node (no prev siblings)
+            local first = root:child(0)
+            assert(first ~= nil, "should find first child")
+            
+            assert(first:prev_sibling() == nil, "first node should have no prev sibling")
+            assert(first:prev_named_sibling() == nil, "first node should have no prev named sibling")
+            
+            -- Test last node (no next siblings)
+            local last = root:child(1)
+            assert(last ~= nil, "should find last child")
+            
+            assert(last:next_sibling() == nil, "last node should have no next sibling")
+            assert(last:next_named_sibling() == nil, "last node should have no next named sibling")
+            
+            -- Test is_missing on various nodes
+            assert(not first:is_missing(), "first node should not be missing")
+            assert(not last:is_missing(), "last node should not be missing")
+            assert(not root:is_missing(), "root should not be missing")
+
+            -- Create cursor just to test close
+            local cursor = tree:walk()
+            cursor:close()
+            cursor:close() -- should not crash
+        `, "test")
+		assert.NoError(t, err)
+	})
+}

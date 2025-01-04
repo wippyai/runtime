@@ -14,7 +14,6 @@ type CursorWrapper struct {
 func registerCursor(L *lua.LState) {
 	mt := L.NewTypeMetatable("treesitter.Cursor")
 	L.SetField(mt, "__index", L.SetFuncs(L.NewTable(), cursorMethods))
-	L.SetField(mt, "__gc", L.NewFunction(cursorGC))
 }
 
 var cursorMethods = map[string]lua.LGFunction{
@@ -34,6 +33,7 @@ var cursorMethods = map[string]lua.LGFunction{
 	"reset":                      cursorReset,
 	"reset_to":                   cursorResetTo,
 	"copy":                       cursorCopy,
+	"close":                      cursorClose,
 }
 
 func cursorCurrentNode(L *lua.LState) int {
@@ -182,7 +182,7 @@ func cursorCopy(L *lua.LState) int {
 	return 1
 }
 
-func cursorGC(L *lua.LState) int {
+func cursorClose(L *lua.LState) int {
 	cursor := checkCursor(L)
 	if cursor != nil {
 		cursor.cursor.Close()
