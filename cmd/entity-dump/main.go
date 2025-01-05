@@ -34,7 +34,7 @@ func main() {
 
 	dtt := createTranscoder()
 
-	// 2. Get Folder Name from Command-Line Argument:
+	// 2. Get Folder Name from Kind-Line Argument:
 	if len(os.Args) < 2 {
 		fmt.Println("Usage: go run main.go <folder_path> [namespace]")
 		os.Exit(1)

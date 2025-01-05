@@ -44,7 +44,7 @@ func TestCoroutineWithTime(t *testing.T) {
             -- Resume the coroutine multiple times and collect results
             while coroutine.status(producer) ~= "dead" do
                 local success, value = coroutine.resume(producer)
-                assert(success, "Coroutine resume should succeed")
+                assert(success, "Task resume should succeed")
                 if value ~= "done" then
                     count = count + 1
                     results[count] = value
@@ -145,7 +145,7 @@ func TestCoroutineWithTime(t *testing.T) {
             -- Collect timestamps from the coroutine
             while coroutine.status(timer) ~= "dead" do
                 local success, value = coroutine.resume(timer)
-                assert(success, "Coroutine resume should succeed")
+                assert(success, "Task resume should succeed")
                 count = count + 1
                 timestamps[count] = value
             end
