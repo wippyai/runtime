@@ -10,6 +10,7 @@ import (
 func WithLibrary(name string, source string) Option {
 	return func(vm *VM) {
 		loader := func(L *lua.LState) int {
+			// todo: bytecode cache
 			fn, err := L.Load(strings.NewReader(source), fmt.Sprintf("<%s>", name))
 			if err != nil {
 				// Propagate the error by pushing it onto the stack

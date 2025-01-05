@@ -17,10 +17,10 @@ import (
 
 func RunLuaSQLTest(luaCode, testName string) (any, error) {
 	log := zap.NewNop()
-	LE := lengine.NewLuaEngine(context.Background(), log.Named("tests"))
+	LE := lengine.NewCoroutineVM(context.Background(), log.Named("tests"))
 	LE.L.PreloadModule("sql", NewModule(log.Named("sql")).Loader)
 
-	err := LE.DoString(luaCode, testName)
+	err := LE.Init(luaCode, testName)
 	if err != nil {
 		return nil, err
 	}
