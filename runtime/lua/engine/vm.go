@@ -26,7 +26,7 @@ type VM struct {
 func NewVM(log *zap.Logger, opts ...Option) (*VM, error) {
 	state, err := newLuaState()
 	if err != nil {
-		return nil, fmt.Errorf("failed to create Lua state: %w", err)
+		return nil, fmt.Errorf("failed to create Lua State: %w", err)
 	}
 
 	vm := &VM{

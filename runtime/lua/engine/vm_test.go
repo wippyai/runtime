@@ -364,15 +364,15 @@ func TestVM_GlobalState(t *testing.T) {
 	}
 	defer vm.Close()
 
-	// Set up initial global state
+	// Set up initial global State
 	if err := vm.DoString(nil, `
-		state = {count = 0}
+		State = {count = 0}
 		function increment()
-			state.count = state.count + 1
-			return state.count
+			State.count = State.count + 1
+			return State.count
 		end
 		function getCount()
-			return state.count
+			return State.count
 		end
 	`, "setup"); err != nil {
 		t.Fatal(err)
@@ -393,8 +393,8 @@ func TestVM_GlobalState(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Verify state persists even with new chunk execution
-	if err := vm.DoString(nil, `assert(state.count == 2)`, "test4"); err != nil {
+	// Verify State persists even with new chunk execution
+	if err := vm.DoString(nil, `assert(State.count == 2)`, "test4"); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -402,12 +402,12 @@ func TestVM_GlobalState(t *testing.T) {
 func TestVM_CompiledGlobalState(t *testing.T) {
 	logger := zap.NewNop()
 
-	// Create initial state table
+	// Create initial State table
 	stateTable := &lua.LTable{}
 	stateTable.RawSetString("count", lua.LNumber(0))
 
-	// Create VM with global state
-	vm, err := NewVM(logger, WithGlobalValue("state", stateTable))
+	// Create VM with global State
+	vm, err := NewVM(logger, WithGlobalValue("State", stateTable))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -416,8 +416,8 @@ func TestVM_CompiledGlobalState(t *testing.T) {
 	// Compile increment function
 	if err := vm.CompileFunction("increment", `
 		function increment()
-			state.count = state.count + 1
-			return state.count
+			State.count = State.count + 1
+			return State.count
 		end
 		return increment
 	`); err != nil {
@@ -427,7 +427,7 @@ func TestVM_CompiledGlobalState(t *testing.T) {
 	// Compile getCount function
 	if err := vm.CompileFunction("getCount", `
 		function getCount()
-			return state.count
+			return State.count
 		end
 		return getCount
 	`); err != nil {
@@ -461,8 +461,8 @@ func TestVM_CompiledGlobalState(t *testing.T) {
 		t.Errorf("got %v, want %v", result, lua.LNumber(2))
 	}
 
-	// Verify final state directly through Lua state
-	globalState := vm.State().GetGlobal("state").(*lua.LTable)
+	// Verify final State directly through Lua State
+	globalState := vm.State().GetGlobal("State").(*lua.LTable)
 	count := globalState.RawGetString("count")
 	if count != lua.LNumber(2) {
 		t.Errorf("got %v, want %v", count, lua.LNumber(2))
@@ -738,7 +738,7 @@ func BenchmarkGlobalStateSetup(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		vm, err := NewVM(logger, WithGlobalValue("state", stateTable))
+		vm, err := NewVM(logger, WithGlobalValue("State", stateTable))
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -751,7 +751,7 @@ func BenchmarkGlobalStateAccess(b *testing.B) {
 	stateTable := &lua.LTable{}
 	stateTable.RawSetString("count", lua.LNumber(0))
 
-	vm, err := NewVM(logger, WithGlobalValue("state", stateTable))
+	vm, err := NewVM(logger, WithGlobalValue("State", stateTable))
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -759,8 +759,8 @@ func BenchmarkGlobalStateAccess(b *testing.B) {
 
 	if err := vm.CompileFunction("increment", `
 		function increment()
-			state.count = state.count + 1
-			return state.count
+			State.count = State.count + 1
+			return State.count
 		end
 		return increment
 	`); err != nil {
@@ -783,7 +783,7 @@ func BenchmarkGlobalStateMultiFunction(b *testing.B) {
 	stateTable.RawSetString("count", lua.LNumber(0))
 	stateTable.RawSetString("lastOp", lua.LString(""))
 
-	vm, err := NewVM(logger, WithGlobalValue("state", stateTable))
+	vm, err := NewVM(logger, WithGlobalValue("State", stateTable))
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -791,9 +791,9 @@ func BenchmarkGlobalStateMultiFunction(b *testing.B) {
 
 	if err := vm.CompileFunction("increment", `
 		function increment()
-			state.count = state.count + 1
-			state.lastOp = "increment"
-			return state.count
+			State.count = State.count + 1
+			State.lastOp = "increment"
+			return State.count
 		end
 		return increment
 	`); err != nil {
@@ -802,7 +802,7 @@ func BenchmarkGlobalStateMultiFunction(b *testing.B) {
 
 	if err := vm.CompileFunction("getStatus", `
 		function getStatus()
-			return {count = state.count, lastOp = state.lastOp}
+			return {count = State.count, lastOp = State.lastOp}
 		end
 		return getStatus
 	`); err != nil {
@@ -829,7 +829,7 @@ func BenchmarkGlobalStateDirectAccess(b *testing.B) {
 	stateTable := &lua.LTable{}
 	stateTable.RawSetString("count", lua.LNumber(0))
 
-	vm, err := NewVM(logger, WithGlobalValue("state", stateTable))
+	vm, err := NewVM(logger, WithGlobalValue("State", stateTable))
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -841,7 +841,7 @@ func BenchmarkGlobalStateDirectAccess(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		globalState := L.GetGlobal("state").(*lua.LTable)
+		globalState := L.GetGlobal("State").(*lua.LTable)
 		count := globalState.RawGetString("count").(lua.LNumber)
 		globalState.RawSetString("count", lua.LNumber(count+1))
 	}
