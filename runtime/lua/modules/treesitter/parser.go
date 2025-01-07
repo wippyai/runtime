@@ -25,7 +25,7 @@ var parserMethods = map[string]lua.LGFunction{
 	"set_language": parserSetLanguage,
 	"get_language": parserGetLanguage,
 	"reset":        parserReset,
-	chanOpClose:    parserClose,
+	"close":        parserClose,
 	"set_timeout":  parserSetTimeout,
 	"set_ranges":   parserSetRanges,
 }

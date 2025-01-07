@@ -33,7 +33,7 @@ var cursorMethods = map[string]lua.LGFunction{
 	"reset":                      cursorReset,
 	"reset_to":                   cursorResetTo,
 	"copy":                       cursorCopy,
-	chanOpClose:                  cursorClose,
+	"close":                      cursorClose,
 }
 
 func cursorCurrentNode(L *lua.LState) int {

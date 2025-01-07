@@ -39,7 +39,7 @@ func TestHTTPModule(t *testing.T) {
 					StatusCode: 200,
 					Body:       io.NopCloser(bytes.NewBufferString(`{"message": "success"}`)),
 					Header: http.Header{
-						"Content-opType": []string{"application/json"},
+						"Content-Type": []string{"application/json"},
 					},
 					Request: req,
 				}, nil
@@ -60,7 +60,7 @@ func TestHTTPModule(t *testing.T) {
 			})
 			
 			assert(response.status_code == 200)
-			assert(response.headers["Content-opType"] == "application/json")
+			assert(response.headers["Content-Type"] == "application/json")
 			assert(response.body == '{"message": "success"}')
 		`, "test")
 
@@ -81,7 +81,7 @@ func TestHTTPModule(t *testing.T) {
 					StatusCode: 201,
 					Body:       io.NopCloser(bytes.NewBufferString(`{"id": "123"}`)),
 					Header: http.Header{
-						"Content-opType": []string{"application/json"},
+						"Content-type": []string{"application/json"},
 					},
 					Request: req,
 				}, nil
@@ -99,7 +99,7 @@ func TestHTTPModule(t *testing.T) {
 				"https://api.example.com/data",
 				{
 					headers = {
-						["Content-opType"] = "application/json"
+						["Content-type"] = "application/json"
 					},
 					body = '{"key": "value"}'
 				}

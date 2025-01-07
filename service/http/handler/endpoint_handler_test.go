@@ -98,7 +98,7 @@ func TestEndpointHandler_Handle_SuccessfulJsonRequest(t *testing.T) {
 	}
 
 	if ct := w.Header().Get("Content-Type"); ct != "application/json" {
-		t.Errorf("expected Content-opType %s, got %s", "application/json", ct)
+		t.Errorf("expected Content-type %s, got %s", "application/json", ct)
 	}
 
 	if !json.Valid(w.Body.Bytes()) {
