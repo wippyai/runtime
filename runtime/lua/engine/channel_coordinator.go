@@ -2,6 +2,7 @@ package engine
 
 import (
 	lua "github.com/yuin/gopher-lua"
+	"log"
 	"sync"
 )
 
@@ -56,7 +57,7 @@ func NewChannelCoordinator() *ChannelCoordinator {
 	}
 }
 
-func (cc *ChannelCoordinator) AddOperation(task *Task, op *ChanOperation) []*Task {
+func (cc *ChannelCoordinator) PushOperation(task *Task, op *ChanOperation) []*Task {
 	switch op.opType {
 	case chanOpSend:
 		return cc.handleSend(task, op)
@@ -104,7 +105,6 @@ func (cc *ChannelCoordinator) dequeueOp(m map[*Channel]*pendingQueue, ch *Channe
 
 func (cc *ChannelCoordinator) handleSend(task *Task, op *ChanOperation) []*Task {
 	//.Printf("DEBUG: handleSend starting - task=%p thread=%p op=%+v", task, task.thread, op)
-
 	ch := op.ch
 	if ch.closed {
 		task.resumeVal = lua.LNil
@@ -134,12 +134,13 @@ func (cc *ChannelCoordinator) handleSend(task *Task, op *ChanOperation) []*Task 
 		node.task.resumeVal = op.value
 		task.resumeVal = lua.LBool(true)
 
-		// Recycle pending op
+		log.Printf("!!!!DEBUG: handleSend completing rendezvous - sender_task=%p receiver_task=%p", task, node.task)
+		tupleResult[0] = node.task
+		tupleResult[1] = task
+
 		node.reset()
 		pendingPool.Put(node)
 
-		tupleResult[0] = node.task
-		tupleResult[1] = task
 		//	log.Printf("DEBUG: handleSend returning tasks: %+v", tupleResult)
 		return tupleResult
 	}
@@ -150,6 +151,7 @@ func (cc *ChannelCoordinator) handleSend(task *Task, op *ChanOperation) []*Task 
 	node.op = op
 	cc.enqueueOp(cc.senders, ch, node)
 	//	log.Printf("DEBUG: handleSend returning tasks: %+v", noTasks)
+
 	return noTasks
 }
 
@@ -162,15 +164,15 @@ func (cc *ChannelCoordinator) handleReceive(task *Task, op *ChanOperation) []*Ta
 	if value, ok := ch.receive(); ok {
 		task.resumeVal = value
 		monoResult[0] = task
-		//	log.Printf("DEBUG: handleReceive returning tasks: %+v", monoResult)
-
+		log.Printf("DEBUG: handleReceive returning tasks: %+v", monoResult)
+		// todo: logic here is not valid, we need to unblock sender as well if needed
 		return monoResult
 	}
 
 	if ch.closed {
 		task.resumeVal = lua.LNil
 		monoResult[0] = task
-		//	log.Printf("DEBUG: handleReceive returning tasks: %+v", monoResult)
+		log.Printf("DEBUG: handleReceive returning tasks: %+v", monoResult)
 		return monoResult
 	}
 
@@ -180,13 +182,13 @@ func (cc *ChannelCoordinator) handleReceive(task *Task, op *ChanOperation) []*Ta
 		task.resumeVal = node.op.value
 		node.task.resumeVal = lua.LBool(true)
 
-		// Recycle pending op
+		tupleResult[0] = task
+		tupleResult[1] = node.task
+
 		node.reset()
 		pendingPool.Put(node)
 
-		tupleResult[0] = task
-		tupleResult[1] = node.task
-		//log.Printf("DEBUG: handleReceive completing rendezvous - receiver_task=%p sender_task=%p", task, node.task)
+		log.Printf("DEBUG: handleReceive completing rendezvous - receiver_task=%p sender_task=%p", task, node.task)
 		return tupleResult
 	}
 

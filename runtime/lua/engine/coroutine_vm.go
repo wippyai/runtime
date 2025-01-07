@@ -187,50 +187,44 @@ func (e *CoroutineVM) Step(tasks ...*Task) ([]*Task, error) {
 
 		switch task.state {
 		case -1:
-			//	log.Printf("DEBUG: Starting")
-			// Start coroutine execution
+			// Start
 			state, err, values = e.vm.state.Resume(task.thread, task.fn)
 			if err != nil {
 				task.cancel()
 				return nil, fmt.Errorf("error starting task: %v", err)
 			}
 		case lua.ResumeYield:
-			//	log.Printf("DEBUG: Stepping task with yielded values: %+v", task.yieldedVals)
+			// Continue
 			state, err, values = e.vm.State().Resume(task.thread, nil, task.resumeVal)
 			if err != nil {
 				return nil, fmt.Errorf("error resuming task: %v", err)
 			}
 		default:
-			continue
+			return nil, fmt.Errorf("invalid task state: %v", task.state)
 		}
-
-		//log.Printf("DEBUG: Stepping task with yielded values: %+v", task.yieldedVals)
-
-		// Check for channel operation
-		//if op := getChannelOp(task.yieldedVals); op != nil {
-		//	err := e.handleChannel(task, op)
-		//	if err != nil {
-		//		return nil, err
-		//	}
-		//
-		//	continue
-		//}
 
 		task.state = state
 		task.yieldedVals = values
 		task.resumeVal = nil
 
-		//log.Printf("DEBUG: Task resumed - task=%p newState=%v err=%v values=%v", task, state, err, values)
 		if state == lua.ResumeYield {
+			log.Printf("DEBUG: Task resumed - task=%p newState=%v err=%v values=%v", task, state, err, values)
+
+			// We handle channel operations inside the VM
+			if op := getChannelOp(task.yieldedVals); op != nil {
+				for _, t := range e.chanCoord.PushOperation(task, op) {
+					e.queue.Push(t)
+				}
+				continue
+			}
+
 			task.yieldCycle = e.yieldCycle
-			//log.Printf("DEBUG: Task yielded - task=%p", task)
 		}
 	}
 
 	// get all tasks that are pending on external yields after this cycle
 	newlyYielded := make([]*Task, 0)
 	for _, t := range e.tasks {
-		// todo: except channel ops
 		if t.IsYielded() && t.yieldCycle == e.yieldCycle {
 			newlyYielded = append(newlyYielded, t)
 		}
@@ -239,43 +233,6 @@ func (e *CoroutineVM) Step(tasks ...*Task) ([]*Task, error) {
 	//log.Printf("DEBUG: Yielded tasks: %+v", newlyYielded)
 
 	return newlyYielded, nil
-}
-
-func (e *CoroutineVM) handleChannel(task *Task, op *ChanOperation) error {
-	// Handle channel operation using coordinator
-	completedTasks := e.chanCoord.AddOperation(task, op)
-
-	// Process completed tasks
-	for _, t := range completedTasks {
-		if t == nil {
-			continue
-		}
-
-		// Resume the task with its result value
-		log.Printf("DEBUG: About to resume task=%p thread=%p resumeVal=%v", t, t.thread, t.resumeVal)
-		state, err, values := e.vm.State().Resume(t.thread, nil, t.resumeVal)
-		log.Printf("DEBUG: Task resumed - task=%p newState=%v err=%v values=%v",
-			t, state, err, values)
-
-		if err != nil {
-			return fmt.Errorf("error resuming task: %v", err)
-		}
-
-		t.state = state
-		t.yieldedVals = values
-		t.resumeVal = nil
-
-		if task.state == lua.ResumeYield && getChannelOp(task.yieldedVals) == nil {
-			// Check if it yielded another channel op
-			if nextOp := getChannelOp(task.yieldedVals); nextOp != nil {
-				e.queue.Push(t)
-			} else {
-				t.yieldCycle = e.yieldCycle
-			}
-		}
-	}
-
-	return nil
 }
 
 func (e *CoroutineVM) GetYieldedTasks() []*Task {
@@ -319,11 +276,8 @@ func getChannelOp(values []lua.LValue) *ChanOperation {
 		return nil
 	}
 
-	// Try to get the channel operation from UserData
-	if ud, ok := values[0].(*lua.LUserData); ok {
-		if op, ok := ud.Value.(*ChanOperation); ok {
-			return op
-		}
+	if op, ok := values[0].(*ChanOperation); ok {
+		return op
 	}
 
 	return nil

@@ -26,13 +26,13 @@ func TestChannelCoordinator_Basic(t *testing.T) {
 		}
 
 		// Add receive first
-		tasks := cc.AddOperation(recvTask, recvOp)
+		tasks := cc.PushOperation(recvTask, recvOp)
 		if len(tasks) != 0 {
 			t.Fatal("expected receiver to block")
 		}
 
 		// Now add send
-		tasks = cc.AddOperation(sendTask, sendOp)
+		tasks = cc.PushOperation(sendTask, sendOp)
 		if len(tasks) != 2 {
 			t.Fatal("expected both tasks to resume")
 		}
@@ -61,7 +61,7 @@ func TestChannelCoordinator_Basic(t *testing.T) {
 		}
 
 		// Add send
-		tasks := cc.AddOperation(sendTask, sendOp)
+		tasks := cc.PushOperation(sendTask, sendOp)
 		if len(tasks) != 1 {
 			t.Fatal("expected send to complete immediately")
 		}
@@ -88,7 +88,7 @@ func TestChannelCoordinator_Basic(t *testing.T) {
 			ch:     ch,
 			value:  lua.LString("test"),
 		}
-		tasks := cc.AddOperation(sendTask, sendOp)
+		tasks := cc.PushOperation(sendTask, sendOp)
 		if len(tasks) != 0 {
 			t.Fatal("expected send to block")
 		}
@@ -99,7 +99,7 @@ func TestChannelCoordinator_Basic(t *testing.T) {
 			opType: chanOpClose,
 			ch:     ch,
 		}
-		tasks = cc.AddOperation(closeTask, closeOp)
+		tasks = cc.PushOperation(closeTask, closeOp)
 		if len(tasks) != 2 { // close task + blocked sender
 			t.Fatal("expected close to resume all tasks")
 		}
@@ -115,7 +115,7 @@ func TestChannelCoordinator_Basic(t *testing.T) {
 			opType: chanOpReceive,
 			ch:     ch,
 		}
-		tasks = cc.AddOperation(recvTask, recvOp)
+		tasks = cc.PushOperation(recvTask, recvOp)
 		if len(tasks) != 1 {
 			t.Fatal("expected receive to complete immediately")
 		}
@@ -141,7 +141,7 @@ func TestChannelCoordinator_WaitingSender(t *testing.T) {
 		}
 
 		// Add send operation - should block
-		tasks := cc.AddOperation(sendTask, sendOp)
+		tasks := cc.PushOperation(sendTask, sendOp)
 		if len(tasks) != 0 {
 			t.Fatal("expected sender to block")
 		}
@@ -159,7 +159,7 @@ func TestChannelCoordinator_WaitingSender(t *testing.T) {
 		}
 
 		// Add receive - should match with waiting sender
-		tasks = cc.AddOperation(recvTask, recvOp)
+		tasks = cc.PushOperation(recvTask, recvOp)
 		if len(tasks) != 2 {
 			t.Fatal("expected both tasks to resume")
 		}
@@ -200,11 +200,11 @@ func TestChannelCoordinator_WaitingSender(t *testing.T) {
 		}
 
 		// Add sends - both should block
-		tasks := cc.AddOperation(sendTask1, sendOp1)
+		tasks := cc.PushOperation(sendTask1, sendOp1)
 		if len(tasks) != 0 {
 			t.Fatal("expected first sender to block")
 		}
-		tasks = cc.AddOperation(sendTask2, sendOp2)
+		tasks = cc.PushOperation(sendTask2, sendOp2)
 		if len(tasks) != 0 {
 			t.Fatal("expected second sender to block")
 		}
@@ -217,7 +217,7 @@ func TestChannelCoordinator_WaitingSender(t *testing.T) {
 		}
 
 		// Add receive - should match with first waiting sender
-		tasks = cc.AddOperation(recvTask, recvOp)
+		tasks = cc.PushOperation(recvTask, recvOp)
 		if len(tasks) != 2 {
 			t.Fatal("expected two tasks to resume")
 		}
@@ -256,7 +256,7 @@ func TestChannelCoordinator_CloseWithWaitingReceiver(t *testing.T) {
 		}
 
 		// Add receive operation - should block
-		tasks := cc.AddOperation(recvTask, recvOp)
+		tasks := cc.PushOperation(recvTask, recvOp)
 		if len(tasks) != 0 {
 			t.Fatal("expected receiver to block")
 		}
@@ -274,7 +274,7 @@ func TestChannelCoordinator_CloseWithWaitingReceiver(t *testing.T) {
 		}
 
 		// Close should resume the waiting receiver
-		tasks = cc.AddOperation(closeTask, closeOp)
+		tasks = cc.PushOperation(closeTask, closeOp)
 		if len(tasks) != 2 { // close task + blocked receiver
 			t.Fatalf("expected close to resume 2 tasks, got %d", len(tasks))
 		}
@@ -296,7 +296,7 @@ func TestChannelCoordinator_CloseWithWaitingReceiver(t *testing.T) {
 			ch:     ch,
 		}
 
-		tasks = cc.AddOperation(newRecvTask, newRecvOp)
+		tasks = cc.PushOperation(newRecvTask, newRecvOp)
 		if len(tasks) != 1 {
 			t.Fatal("expected immediate completion for receive on closed channel")
 		}
@@ -317,7 +317,7 @@ func TestChannelCoordinator_CloseWithWaitingReceiver(t *testing.T) {
 				opType: chanOpReceive,
 				ch:     ch,
 			}
-			tasks := cc.AddOperation(recvTask, recvOp)
+			tasks := cc.PushOperation(recvTask, recvOp)
 			if len(tasks) != 0 {
 				t.Fatal("expected receiver to block")
 			}
@@ -331,7 +331,7 @@ func TestChannelCoordinator_CloseWithWaitingReceiver(t *testing.T) {
 			ch:     ch,
 		}
 
-		tasks := cc.AddOperation(closeTask, closeOp)
+		tasks := cc.PushOperation(closeTask, closeOp)
 		if len(tasks) != 4 { // close task + 3 receivers
 			t.Fatalf("expected close to resume 4 tasks, got %d", len(tasks))
 		}
@@ -373,14 +373,14 @@ func TestChannel_MemoryCleanup(t *testing.T) {
 			ch:     ch,
 			value:  lua.LString("pending"),
 		}
-		cc.AddOperation(sendTask, sendOp)
+		cc.PushOperation(sendTask, sendOp)
 
 		recvTask := &Task{}
 		recvOp := &ChanOperation{
 			opType: chanOpReceive,
 			ch:     ch,
 		}
-		cc.AddOperation(recvTask, recvOp)
+		cc.PushOperation(recvTask, recvOp)
 
 		// Close channel
 		closeTask := &Task{}
@@ -388,7 +388,7 @@ func TestChannel_MemoryCleanup(t *testing.T) {
 			opType: chanOpClose,
 			ch:     ch,
 		}
-		cc.AddOperation(closeTask, closeOp)
+		cc.PushOperation(closeTask, closeOp)
 
 		// Verify cleanup
 		if ch.buffer != nil {
@@ -429,8 +429,8 @@ func BenchmarkChannelCoordinator(b *testing.B) {
 			}
 
 			// Add receive then send
-			cc.AddOperation(recvTask, recvOp)
-			cc.AddOperation(sendTask, sendOp)
+			cc.PushOperation(recvTask, recvOp)
+			cc.PushOperation(sendTask, sendOp)
 		}
 	})
 
@@ -456,8 +456,8 @@ func BenchmarkChannelCoordinator(b *testing.B) {
 			}
 
 			// Send then receive
-			cc.AddOperation(sendTask, sendOp)
-			cc.AddOperation(recvTask, recvOp)
+			cc.PushOperation(sendTask, sendOp)
+			cc.PushOperation(recvTask, recvOp)
 		}
 	})
 
@@ -476,14 +476,14 @@ func BenchmarkChannelCoordinator(b *testing.B) {
 					ch:     ch,
 					value:  lua.LNumber(j),
 				}
-				cc.AddOperation(sendTask, sendOp)
+				cc.PushOperation(sendTask, sendOp)
 
 				recvTask := &Task{}
 				recvOp := &ChanOperation{
 					opType: chanOpReceive,
 					ch:     ch,
 				}
-				cc.AddOperation(recvTask, recvOp)
+				cc.PushOperation(recvTask, recvOp)
 			}
 
 			// Close channel with pending operations
@@ -492,7 +492,7 @@ func BenchmarkChannelCoordinator(b *testing.B) {
 				opType: chanOpClose,
 				ch:     ch,
 			}
-			cc.AddOperation(closeTask, closeOp)
+			cc.PushOperation(closeTask, closeOp)
 		}
 	})
 
@@ -511,7 +511,7 @@ func BenchmarkChannelCoordinator(b *testing.B) {
 					ch:     ch,
 					value:  lua.LNumber(i),
 				}
-				cc.AddOperation(sendTask, sendOp)
+				cc.PushOperation(sendTask, sendOp)
 
 			case 2: // Receive
 				recvTask := &Task{}
@@ -519,7 +519,7 @@ func BenchmarkChannelCoordinator(b *testing.B) {
 					opType: chanOpReceive,
 					ch:     ch,
 				}
-				cc.AddOperation(recvTask, recvOp)
+				cc.PushOperation(recvTask, recvOp)
 
 			case 3: // Close and create new channel
 				closeTask := &Task{}
@@ -527,7 +527,7 @@ func BenchmarkChannelCoordinator(b *testing.B) {
 					opType: chanOpClose,
 					ch:     ch,
 				}
-				cc.AddOperation(closeTask, closeOp)
+				cc.PushOperation(closeTask, closeOp)
 				ch = newLuaChannel(5)
 			}
 		}
