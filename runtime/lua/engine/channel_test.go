@@ -1,7 +1,10 @@
 package engine
 
 import (
+	"context"
+	"github.com/stretchr/testify/assert"
 	lua "github.com/yuin/gopher-lua"
+	"go.uber.org/zap"
 	"testing"
 )
 
@@ -80,37 +83,6 @@ func TestChannel_Buffer(t *testing.T) {
 		// Should be empty now
 		if !ch.isEmpty() {
 			t.Error("buffer should be empty")
-		}
-	})
-
-	t.Run("cleanup after close", func(t *testing.T) {
-		ch := newLuaChannel(3)
-
-		// Fill buffer
-		values := []string{"first", "second", "third"}
-		for _, v := range values {
-			ch.send(lua.LString(v))
-		}
-
-		// Close and cleanup
-		ch.closed = true
-		ch.cleanup()
-
-		// Verify cleanup
-		if ch.buffer != nil {
-			t.Error("buffer should be nil after cleanup")
-		}
-		if ch.size != 0 {
-			t.Error("size should be 0 after cleanup")
-		}
-		if ch.read != 0 {
-			t.Error("read index should be 0 after cleanup")
-		}
-		if ch.write != 0 {
-			t.Error("write index should be 0 after cleanup")
-		}
-		if !ch.closed {
-			t.Error("channel should remain closed after cleanup")
 		}
 	})
 
@@ -223,4 +195,450 @@ func TestChannel_Buffer(t *testing.T) {
 			t.Errorf("underlying buffer should remain size %d, got %d", capacity, len(ch.buffer))
 		}
 	})
+}
+
+func TestChannelVM_Basic(t *testing.T) {
+	logger := zap.NewNop()
+
+	t.Run("unbuffered channel send/receive", func(t *testing.T) {
+		vm, err := NewCoroutineVM(context.Background(), logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm.Close()
+
+		err = vm.DoString(`
+			local ch = channel.new(0)  -- unbuffered channel
+			
+			-- Sender
+			coroutine.spawn(function()
+				ch:send("hello")
+				coroutine.yield("send_complete")
+			end)
+			
+			-- Receiver
+			coroutine.spawn(function()
+				local msg, ok = ch:receive()
+				assert(ok, "expected successful receive")
+				assert(msg == "hello", "wrong message received")
+				coroutine.yield("receive_complete")
+			end)
+		`, "test")
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Get initial yielded tasks
+		tasks, _ := vm.Step()
+		assert.Equal(t, 2, len(tasks), "expected 2 yielded tasks")
+
+		// Step all tasks until completion
+		for len(tasks) > 0 {
+			var err error
+			tasks, err = vm.Step(tasks...)
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+	})
+
+	t.Run("buffered channel", func(t *testing.T) {
+		vm, err := NewCoroutineVM(context.Background(), logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm.Close()
+
+		err = vm.DoString(`
+			local ch = channel.new(1)  -- buffered channel with capacity 1
+	
+			-- Sender can complete immediately
+			coroutine.spawn(function()
+				ch:send("buffered")
+				coroutine.yield("send_complete")
+			end)
+	
+			-- Receiver gets buffered value
+			coroutine.spawn(function()
+				local msg, ok = ch:receive()
+				assert(ok, "expected successful receive")
+				assert(msg == "buffered", "wrong message received")
+				coroutine.yield("receive_complete")
+			end)
+		`, "test")
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		tasks, _ := vm.Step()
+
+		// Step all tasks until completion
+		for len(tasks) > 0 {
+			var err error
+			tasks, err = vm.Step(tasks...)
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+	})
+
+	t.Run("closed channel", func(t *testing.T) {
+		vm, err := NewCoroutineVM(context.Background(), logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm.Close()
+
+		err = vm.DoString(`
+			local ch = channel.new(0)
+	
+			-- Receiver task
+			coroutine.spawn(function()
+				ch:close()
+				local msg, ok = ch:receive()
+				assert(not ok, "expected closed channel receive")
+				assert(msg == nil, "expected nil from closed channel")
+				coroutine.yield("receive_after_close")
+			end)
+		`, "test")
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		tasks := vm.GetYieldedTasks()
+		for len(tasks) > 0 {
+			var err error
+			tasks, err = vm.Step(tasks...)
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+	})
+}
+
+func TestChannelVM_Operations(t *testing.T) {
+	logger := zap.NewNop()
+
+	t.Run("unbuffered channel yield sequence", func(t *testing.T) {
+		vm, err := NewCoroutineVM(context.Background(), logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm.Close()
+
+		// Track all yields in order
+		var yields []string
+
+		err = vm.DoString(`
+			-- Create an unbuffered channel
+			local ch = channel.new(0)
+			
+			-- Sender coroutine
+			coroutine.spawn(function()
+				coroutine.yield("sender_start")
+				ch:send("message1")
+				coroutine.yield("sender_after_send1")
+				ch:send("message2")
+				coroutine.yield("sender_after_send2")
+				return "sender_done"
+			end)
+			
+			-- Receiver coroutine
+			coroutine.spawn(function()
+				coroutine.yield("receiver_start")
+				local msg1 = ch:receive()
+				coroutine.yield("receiver_got_" .. msg1)
+				local msg2 = ch:receive()
+				coroutine.yield("receiver_got_" .. msg2)
+				return "receiver_done"
+			end)
+		`, "test")
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Start the coroutines
+		initialTasks, err := vm.Step()
+		assert.NoError(t, err)
+		assert.Equal(t, 2, len(initialTasks), "expected both coroutines to yield initially")
+
+		// Initialize tasks with the spawned coroutines
+		tasks := initialTasks
+
+		for len(tasks) > 0 {
+			var nextTasks []*Task
+			for _, task := range tasks {
+				// Record current yields before stepping
+				if vals := task.GetYieldedValues(); len(vals) > 0 {
+					yields = append(yields, vals[0].String())
+				}
+
+				moreTasks, err := vm.Step(task)
+				assert.NoError(t, err)
+				nextTasks = append(nextTasks, moreTasks...)
+			}
+			tasks = nextTasks
+		}
+
+		// Verify yield sequence
+		expectedYields := []string{
+			"sender_start",
+			"receiver_start",
+			"sender_after_send1",
+			"receiver_got_message1",
+			"sender_after_send2",
+			"receiver_got_message2",
+		}
+
+		assert.Equal(t, expectedYields, yields, "incorrect yield sequence")
+	})
+
+	t.Run("buffered channel yield sequence", func(t *testing.T) {
+		vm, err := NewCoroutineVM(context.Background(), logger)
+		assert.NoError(t, err)
+		defer vm.Close()
+
+		var yields []string
+
+		err = vm.DoString(`
+			local ch = channel.new(1)  -- Buffer size 1
+			
+			-- Sender fills buffer then blocks
+			coroutine.spawn(function()
+				coroutine.yield("sender_start")
+				ch:send("msg1")
+				coroutine.yield("sender_after_send1")
+				ch:send("msg2")  -- This will block until first message is received
+				coroutine.yield("sender_after_send2")
+				ch:send("msg3")  -- This will block until second message is received
+				coroutine.yield("sender_after_send3")
+				return "sender_done"
+			end)
+
+			-- Receiver coroutine
+			coroutine.spawn(function()
+				coroutine.yield("receiver_start")
+				local msg = ch:receive()  -- Gets msg1
+				coroutine.yield("receiver_got_" .. msg)
+				msg = ch:receive()  -- Gets msg2
+				coroutine.yield("receiver_got_" .. msg)
+				msg = ch:receive()  -- Gets msg3
+				coroutine.yield("receiver_got_" .. msg)
+				return "receiver_done"
+			end)
+		`, "test")
+
+		assert.NoError(t, err)
+
+		// Start the coroutines
+		initialTasks, err := vm.Step()
+		assert.NoError(t, err)
+		assert.Equal(t, 2, len(initialTasks), "expected both coroutines to yield initially")
+
+		// Initialize tasks with the spawned coroutines
+		tasks := initialTasks
+
+		for len(tasks) > 0 {
+			var nextTasks []*Task
+			for _, task := range tasks {
+				// Record current yields before stepping
+				if vals := task.GetYieldedValues(); len(vals) > 0 {
+					yields = append(yields, vals[0].String())
+				}
+
+				moreTasks, err := vm.Step(task)
+				assert.NoError(t, err)
+				nextTasks = append(nextTasks, moreTasks...)
+			}
+			tasks = nextTasks
+		}
+
+		// Verify yield sequence
+		expectedYields := []string{
+			"sender_start",
+			"receiver_start",
+			"sender_after_send1", // First send succeeds immediately (buffer size 1)
+			"receiver_got_msg1",  // First receive
+			"sender_after_send2", // Second send completes after first receive
+			"receiver_got_msg2",  // Second receive
+			"sender_after_send3", // Third send completes after second receive
+			"receiver_got_msg3",  // Third receive
+		}
+
+		assert.Equal(t, expectedYields, yields, "incorrect yield sequence")
+	})
+
+	t.Run("channel close yield sequence", func(t *testing.T) {
+		vm, err := NewCoroutineVM(context.Background(), logger)
+		assert.NoError(t, err)
+		defer vm.Close()
+
+		var yields []string
+
+		err = vm.DoString(`
+			local ch = channel.new(1)  -- Buffer size 1
+			
+			-- Multiple receivers
+			for i = 1, 2 do
+				coroutine.spawn(function()
+					coroutine.yield("receiver" .. i .. "_start")
+					local msg, ok = ch:receive()
+					local result
+					if ok and msg then
+						result = "receiver" .. i .. "_got_" .. msg
+					else
+						result = "receiver" .. i .. "_got_closed"
+					end
+					coroutine.yield(result)
+					return "receiver" .. i .. "_done"
+				end)
+			end
+
+			-- Sender that closes
+			coroutine.spawn(function()
+				coroutine.yield("sender_start")
+				ch:send("msg1")
+				coroutine.yield("sender_after_send")
+				ch:close()
+				coroutine.yield("sender_after_close")
+				local ok, err = pcall(function()
+					ch:send("msg2")  -- Should fail
+				end)
+				coroutine.yield("sender_after_failed_send")
+				return "sender_done"
+			end)
+		`, "test")
+
+		assert.NoError(t, err)
+
+		// Start the coroutines
+		initialTasks, err := vm.Step()
+		assert.NoError(t, err)
+		assert.Equal(t, 3, len(initialTasks), "expected both coroutines to yield initially")
+
+		// Process all tasks until completion
+		tasks := initialTasks
+		for len(tasks) > 0 {
+			var nextTasks []*Task
+			for _, task := range tasks {
+				if vals := task.GetYieldedValues(); len(vals) > 0 {
+					yields = append(yields, vals[0].String())
+				}
+
+				moreTasks, err := vm.Step(task)
+				assert.NoError(t, err)
+				nextTasks = append(nextTasks, moreTasks...)
+			}
+			tasks = nextTasks
+		}
+
+		// Verify yield sequence
+		expectedYields := []string{
+			"receiver1_start",
+			"receiver2_start",
+			"sender_start",
+			"sender_after_send",
+			"receiver1_got_msg1",       // First receiver gets the buffered message
+			"receiver2_got_closed",     // Second receiver sees closed channel
+			"sender_after_close",       // Channel gets closed (due to scheduling triggered after)
+			"sender_after_failed_send", // Send after close fails
+		}
+
+		assert.Equal(t, expectedYields, yields, "incorrect yield sequence")
+	})
+
+	t.Run("multiple senders and receivers", func(t *testing.T) {
+		vm, err := NewCoroutineVM(context.Background(), logger)
+		assert.NoError(t, err)
+		defer vm.Close()
+
+		var yields []string
+
+		err = vm.DoString(`
+			local ch = channel.new(1)  -- Buffer size 1
+			
+			-- Multiple senders
+			for i = 1, 2 do
+				coroutine.spawn(function()
+					coroutine.yield("sender" .. i .. "_start")
+					ch:send("msg" .. i)
+					coroutine.yield("sender" .. i .. "_after_send")
+					return "sender" .. i .. "_done"
+				end)
+			end
+			
+			-- Multiple receivers
+			for i = 1, 2 do
+				coroutine.spawn(function()
+					coroutine.yield("receiver" .. i .. "_start")
+					local msg = ch:receive()
+					coroutine.yield("receiver" .. i .. "_got_" .. msg)
+					return "receiver" .. i .. "_done"
+				end)
+			end
+		`, "test")
+
+		assert.NoError(t, err)
+
+		// Start the coroutines
+		initialTasks, err := vm.Step()
+		assert.NoError(t, err)
+		assert.Equal(t, 4, len(initialTasks), "expected four coroutines to yield initially")
+
+		// Process all tasks until completion
+		tasks := initialTasks
+		for len(tasks) > 0 {
+			var nextTasks []*Task
+			for _, task := range tasks {
+				if vals := task.GetYieldedValues(); len(vals) > 0 {
+					yields = append(yields, vals[0].String())
+				}
+
+				moreTasks, err := vm.Step(task)
+				assert.NoError(t, err)
+				nextTasks = append(nextTasks, moreTasks...)
+			}
+			tasks = nextTasks
+		}
+
+		// Verify initial yields and completion yields
+		assert.Contains(t, yields, "sender1_start")
+		assert.Contains(t, yields, "sender2_start")
+		assert.Contains(t, yields, "receiver1_start")
+		assert.Contains(t, yields, "receiver2_start")
+
+		// Verify that first message was received before second send completed
+		assertOrderedYields(t, yields,
+			"sender1_after_send",
+			"receiver1_got_msg1",
+			"sender2_after_send",
+			"receiver2_got_msg2")
+	})
+}
+
+// Helper to verify that yields appear in the specified order
+func assertOrderedYields(t *testing.T, yields []string, orderedYields ...string) {
+	lastIdx := -1
+	for _, yield := range orderedYields {
+		idx := -1
+		for i, y := range yields {
+			if y == yield {
+				idx = i
+				break
+			}
+		}
+		if idx == -1 {
+			t.Errorf("yield %q not found in sequence", yield)
+			return
+		}
+		if idx <= lastIdx {
+			t.Errorf("yield %q found at position %d, expected after position %d", yield, idx, lastIdx)
+			return
+		}
+		lastIdx = idx
+	}
 }

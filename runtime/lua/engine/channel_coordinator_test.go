@@ -350,37 +350,82 @@ func TestChannelCoordinator_CloseWithWaitingReceiver(t *testing.T) {
 	})
 }
 
-func TestChannel_MemoryCleanup(t *testing.T) {
-	t.Run("cleanup after close", func(t *testing.T) {
+func TestChannelBufferedClose(t *testing.T) {
+	t.Run("close buffered channel with receivers", func(t *testing.T) {
 		cc := NewChannelCoordinator()
-		ch := newLuaChannel(5) // buffered channel
+		ch := newLuaChannel(2) // buffered channel with capacity 2
 
-		// Fill buffer
-		values := []lua.LValue{
-			lua.LString("test1"),
-			lua.LString("test2"),
-			lua.LString("test3"),
-		}
+		// Add two messages to buffer
+		ch.send(lua.LString("msg1"))
+		ch.send(lua.LString("msg2"))
 
-		for _, v := range values {
-			ch.send(v)
-		}
-
-		// Queue some operations
-		sendTask := &Task{}
-		sendOp := &ChanOperation{
-			opType: chanOpSend,
-			ch:     ch,
-			value:  lua.LString("pending"),
-		}
-		cc.PushOperation(sendTask, sendOp)
-
-		recvTask := &Task{}
-		recvOp := &ChanOperation{
+		// First receiver should get msg1 immediately
+		recvTask1 := &Task{}
+		recvOp1 := &ChanOperation{
 			opType: chanOpReceive,
 			ch:     ch,
 		}
-		cc.PushOperation(recvTask, recvOp)
+		tasks := cc.PushOperation(recvTask1, recvOp1)
+		if len(tasks) != 1 {
+			t.Fatal("first receiver should get message immediately")
+		}
+		if recvTask1.resumeVal.String() != "msg1" {
+			t.Errorf("first receiver expected msg1, got %v", recvTask1.resumeVal)
+		}
+
+		// Second receiver should get msg2 immediately
+		recvTask2 := &Task{}
+		recvOp2 := &ChanOperation{
+			opType: chanOpReceive,
+			ch:     ch,
+		}
+		tasks = cc.PushOperation(recvTask2, recvOp2)
+		if len(tasks) != 1 {
+			t.Fatal("second receiver should get message immediately")
+		}
+		if recvTask2.resumeVal.String() != "msg2" {
+			t.Errorf("second receiver expected msg2, got %v", recvTask2.resumeVal)
+		}
+
+		// Third receiver should block as buffer is empty
+		recvTask3 := &Task{}
+		recvOp3 := &ChanOperation{
+			opType: chanOpReceive,
+			ch:     ch,
+		}
+		tasks = cc.PushOperation(recvTask3, recvOp3)
+		if len(tasks) != 0 {
+			t.Fatal("third receiver should block")
+		}
+
+		// Close the channel
+		closeTask := &Task{}
+		closeOp := &ChanOperation{
+			opType: chanOpClose,
+			ch:     ch,
+		}
+		tasks = cc.PushOperation(closeTask, closeOp)
+		if len(tasks) != 2 { // close task + blocked receiver
+			t.Fatalf("expected 2 tasks to resume, got %d", len(tasks))
+		}
+
+		// Verify third receiver got closed signal
+		if recvTask3.resumeVal != lua.LNil {
+			t.Errorf("third receiver expected nil (closed), got %v", recvTask3.resumeVal)
+		}
+
+		// Verify buffer was cleaned up after all messages read
+		if !ch.isEmpty() {
+			t.Error("expected buffer to be empty after all messages read")
+		}
+	})
+
+	t.Run("receive after close with buffered messages", func(t *testing.T) {
+		cc := NewChannelCoordinator()
+		ch := newLuaChannel(1)
+
+		// Add message to buffer
+		ch.send(lua.LString("buffered"))
 
 		// Close channel
 		closeTask := &Task{}
@@ -390,18 +435,37 @@ func TestChannel_MemoryCleanup(t *testing.T) {
 		}
 		cc.PushOperation(closeTask, closeOp)
 
-		// Verify cleanup
-		if ch.buffer != nil {
-			t.Error("buffer should be nil after close")
+		// Try to receive after close
+		recvTask := &Task{}
+		recvOp := &ChanOperation{
+			opType: chanOpReceive,
+			ch:     ch,
 		}
-		if ch.size != 0 {
-			t.Error("size should be 0 after close")
+
+		tasks := cc.PushOperation(recvTask, recvOp)
+		if len(tasks) != 1 {
+			t.Fatal("expected receive to complete immediately")
 		}
-		if cc.senders[ch] != nil {
-			t.Error("senders queue should be cleaned up")
+
+		// Should get buffered message
+		if recvTask.resumeVal.String() != "buffered" {
+			t.Errorf("expected buffered message, got %v", recvTask.resumeVal)
 		}
-		if cc.receivers[ch] != nil {
-			t.Error("receivers queue should be cleaned up")
+
+		// Second receive should get closed signal
+		recvTask2 := &Task{}
+		recvOp2 := &ChanOperation{
+			opType: chanOpReceive,
+			ch:     ch,
+		}
+
+		tasks = cc.PushOperation(recvTask2, recvOp2)
+		if len(tasks) != 1 {
+			t.Fatal("expected receive to complete immediately")
+		}
+
+		if recvTask2.resumeVal != lua.LNil {
+			t.Errorf("expected nil (closed), got %v", recvTask2.resumeVal)
 		}
 	})
 }
@@ -530,6 +594,65 @@ func BenchmarkChannelCoordinator(b *testing.B) {
 				cc.PushOperation(closeTask, closeOp)
 				ch = newLuaChannel(5)
 			}
+		}
+	})
+}
+
+func TestChannelCoordinator_MultipleReceiversClose(t *testing.T) {
+	t.Run("multiple receivers get closed signal", func(t *testing.T) {
+		cc := NewChannelCoordinator()
+		ch := newLuaChannel(0)
+
+		// Add two receivers first
+		recvTask1 := &Task{}
+		recvOp1 := &ChanOperation{
+			opType: chanOpReceive,
+			ch:     ch,
+		}
+		tasks := cc.PushOperation(recvTask1, recvOp1)
+		if len(tasks) != 0 {
+			t.Fatal("expected first receiver to block")
+		}
+
+		recvTask2 := &Task{}
+		recvOp2 := &ChanOperation{
+			opType: chanOpReceive,
+			ch:     ch,
+		}
+		tasks = cc.PushOperation(recvTask2, recvOp2)
+		if len(tasks) != 0 {
+			t.Fatal("expected second receiver to block")
+		}
+
+		// Close channel and verify both receivers get notified
+		closeTask := &Task{}
+		closeOp := &ChanOperation{
+			opType: chanOpClose,
+			ch:     ch,
+		}
+		tasks = cc.PushOperation(closeTask, closeOp)
+		if len(tasks) != 3 { // close task + 2 blocked receivers
+			t.Fatalf("expected 3 tasks to resume, got %d", len(tasks))
+		}
+
+		// Verify both receivers got closed signal
+		var closedCount int
+		for _, task := range tasks {
+			if task == recvTask1 || task == recvTask2 {
+				if task.resumeVal != lua.LNil {
+					t.Errorf("expected receiver to get nil (closed), got %v", task.resumeVal)
+				}
+				closedCount++
+			}
+		}
+
+		if closedCount != 2 {
+			t.Error("not all receivers got closed signal")
+		}
+
+		// Verify queues are cleaned up
+		if cc.receivers[ch] != nil {
+			t.Error("expected receiver queue to be empty")
 		}
 	})
 }

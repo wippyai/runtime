@@ -3,7 +3,6 @@ package engine
 import (
 	"fmt"
 	lua "github.com/yuin/gopher-lua"
-	"log"
 )
 
 type chanOp int
@@ -81,8 +80,6 @@ func (c *Channel) isEmpty() bool {
 }
 
 func (c *Channel) send(value lua.LValue) bool {
-	//log.Printf("DEBUG: Channel send attempt - size=%d capacity=%d closed=%v", c.size, c.capacity, c.closed)
-
 	if c.closed || c.isFull() {
 		return false
 	}
@@ -94,7 +91,6 @@ func (c *Channel) send(value lua.LValue) bool {
 }
 
 func (c *Channel) receive() (lua.LValue, bool) {
-	//log.Printf("DEBUG: Channel receive attempt - size=%d capacity=%d closed=%v", c.size, c.capacity, c.closed)
 	if c.isEmpty() {
 		return nil, false
 	}
@@ -150,15 +146,12 @@ func (e *CoroutineVM) bindChannels() {
 			return 1
 		}
 
-		log.Printf("DEBUG: Creating send operation for channel")
-
 		// Create and yield the operation
-		ret := L.Yield(&ChanOperation{
+		L.Yield(&ChanOperation{
 			opType: chanOpSend,
 			ch:     ch,
 			value:  value,
 		})
-		log.Printf("DEBUG: Send operation resumed with: %v", ret)
 		return -1
 	}))
 
@@ -180,14 +173,11 @@ func (e *CoroutineVM) bindChannels() {
 			return 2
 		}
 
-		log.Printf("DEBUG: Creating receive operation for channel")
-
 		// Create and yield the operation
-		ret := L.Yield(&ChanOperation{
+		L.Yield(&ChanOperation{
 			opType: chanOpReceive,
 			ch:     ch,
 		})
-		log.Printf("DEBUG: Receive operation resumed with: %v", ret)
 		return -1
 	}))
 
@@ -200,11 +190,10 @@ func (e *CoroutineVM) bindChannels() {
 			return 0
 		}
 
-		ret := L.Yield(&ChanOperation{
+		L.Yield(&ChanOperation{
 			opType: chanOpClose,
 			ch:     ch,
 		})
-		log.Printf("DEBUG: Close operation completed with: %v", ret)
-		return 0
+		return -1
 	}))
 }
