@@ -29,7 +29,7 @@ var treeMethods = map[string]lua.LGFunction{
 	"copy":                  treeCopy,
 	"walk":                  treeWalk,
 	"edit":                  treeEdit,
-	chanOpClose:             treeClose,
+	"close":                 treeClose,
 	"changed_ranges":        treeChangedRanges,
 	"included_ranges":       treeIncludedRanges,
 	"dot_graph":             treePrintDotGraph,

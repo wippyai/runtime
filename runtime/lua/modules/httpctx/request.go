@@ -166,7 +166,7 @@ func requestHeader(l *lua.LState) int {
 	return 2
 }
 
-// requestContentType returns the Content-opType header
+// requestContentType returns the Content-type header
 func requestContentType(l *lua.LState) int {
 	req, err := checkRequest(l, 1)
 	if err != nil {
