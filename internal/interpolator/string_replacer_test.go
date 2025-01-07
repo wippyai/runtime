@@ -449,7 +449,7 @@ func TestReplaceStructWithMap(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 
-	// Type assertion check
+	// type assertion check
 	resultStruct, ok := result.(MyStruct)
 	if !ok {
 		t.Errorf("expected result to be type MyStruct, got %T", result)

@@ -259,7 +259,7 @@ func TestUnsubscribeClosesChannel(t *testing.T) {
 	select {
 	case _, ok := <-ch:
 		if ok {
-			t.Error("Channel should be closed after unsubscribe")
+			t.Error("opChan should be closed after unsubscribe")
 		}
 	case <-time.After(time.Millisecond * 100):
 		t.Error("timeout waiting for channel closure")

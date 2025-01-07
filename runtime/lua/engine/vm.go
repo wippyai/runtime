@@ -62,6 +62,7 @@ func (v *VM) CompileFunction(name, script string) error {
 		return fmt.Errorf("parse error: %w", err)
 	}
 
+	// todo: use more effective to pre-compile bytecode outside of a single VM
 	fnProto, err := lua.Compile(chunk, name)
 	if err != nil {
 		return fmt.Errorf("compile error: %w", err)

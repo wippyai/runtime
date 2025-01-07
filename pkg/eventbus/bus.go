@@ -25,7 +25,7 @@ type action struct {
 	subscribe    sub
 	unsubscribe  unsub
 	event        sendEvent
-	stopDoneChan chan struct{} // Channel to signal stop completion
+	stopDoneChan chan struct{} // opChan to signal stop completion
 }
 
 type sendEvent struct {

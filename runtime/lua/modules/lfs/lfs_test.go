@@ -23,7 +23,7 @@ func assertLua(L *lua.LState) int {
 }
 
 func TestLFSModuleDoString(t *testing.T) {
-	// Test to verify that DoString cannot handle arguments yet
+	// Test to verify that Init cannot handle arguments yet
 	logger := zap.NewNop()
 
 	t.Run("module creation and loading", func(t *testing.T) {

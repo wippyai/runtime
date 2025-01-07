@@ -34,13 +34,13 @@ func TestParseOptions(t *testing.T) {
 			setupTable: func(l *lua.LState) *lua.LTable {
 				tbl := l.NewTable()
 				headers := l.NewTable()
-				headers.RawSetString("Content-Type", lua.LString("application/json"))
+				headers.RawSetString("Content-type", lua.LString("application/json"))
 				headers.RawSetString("Authorization", lua.LString("Bearer token"))
 				tbl.RawSetString("headers", headers)
 				return tbl
 			},
 			validate: func(t *testing.T, opts *requestOptions) {
-				assert.Equal(t, "application/json", opts.headers["Content-Type"])
+				assert.Equal(t, "application/json", opts.headers["Content-type"])
 				assert.Equal(t, "Bearer token", opts.headers["Authorization"])
 			},
 		},
@@ -77,7 +77,7 @@ func TestParseOptions(t *testing.T) {
 			},
 			validate: func(t *testing.T, opts *requestOptions) {
 				assert.Equal(t, "key=value", opts.body)
-				assert.Equal(t, "application/x-www-form-urlencoded", opts.headers["Content-Type"])
+				assert.Equal(t, "application/x-www-form-urlencoded", opts.headers["Content-type"])
 			},
 		},
 		{
@@ -190,7 +190,7 @@ func TestMakeRequest(t *testing.T) {
 			method: "POST",
 			url:    "http://example.com",
 			opts: &requestOptions{
-				headers: map[string]string{"Content-Type": "application/json"},
+				headers: map[string]string{"Content-type": "application/json"},
 				cookies: make(map[string]string),
 			},
 			validate: func(t *testing.T, req *http.Request) {
