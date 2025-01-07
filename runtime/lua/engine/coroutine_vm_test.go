@@ -6,7 +6,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
-	"log"
 	"strings"
 	"testing"
 )
@@ -111,7 +110,6 @@ func TestCoroutineVM_ParallelTasks(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		log.Printf("DEBUG: Initial tasks: %v", tasks)
 		if len(tasks) != 2 {
 			t.Fatalf("expected 2 yielded tasks, got %d", len(tasks))
 		}

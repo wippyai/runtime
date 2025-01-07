@@ -6,7 +6,6 @@ import (
 	"fmt"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
-	"log"
 )
 
 type Task struct {
@@ -208,8 +207,6 @@ func (e *CoroutineVM) Step(tasks ...*Task) ([]*Task, error) {
 		task.resumeVal = nil
 
 		if state == lua.ResumeYield {
-			log.Printf("DEBUG: Task resumed - task=%p newState=%v err=%v values=%v", task, state, err, values)
-
 			// We handle channel operations inside the VM
 			if op := getChannelOp(task.yieldedVals); op != nil {
 				for _, t := range e.chanCoord.PushOperation(task, op) {
@@ -229,8 +226,6 @@ func (e *CoroutineVM) Step(tasks ...*Task) ([]*Task, error) {
 			newlyYielded = append(newlyYielded, t)
 		}
 	}
-
-	//log.Printf("DEBUG: Yielded tasks: %+v", newlyYielded)
 
 	return newlyYielded, nil
 }
