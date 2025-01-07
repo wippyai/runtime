@@ -83,11 +83,6 @@ func (e *CoroutineVM) DoString(script, name string) error {
 	return e.vm.DoString(nil, script, name)
 }
 
-func (e *CoroutineVM) DoProto(code *lua.FunctionProto) error {
-	e.vm.state.Push(e.vm.state.NewFunctionFromProto(code))
-	return nil
-}
-
 func (e *CoroutineVM) bindCoroutines() {
 	coTable := e.vm.state.GetGlobal("coroutine").(*lua.LTable)
 

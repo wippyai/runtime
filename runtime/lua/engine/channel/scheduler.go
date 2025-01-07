@@ -1,6 +1,7 @@
 package channel
 
 import (
+	"fmt"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	lua "github.com/yuin/gopher-lua"
 	"sync"
@@ -38,6 +39,10 @@ func (q *pendingQueue) reset() {
 	q.tail = nil
 }
 
+type VM interface {
+	Step(tasks ...*engine.Task) ([]*engine.Task, error)
+}
+
 type Scheduler struct {
 	senders   map[*Channel]*pendingQueue
 	receivers map[*Channel]*pendingQueue
@@ -50,29 +55,45 @@ func NewScheduler() *Scheduler {
 	}
 }
 
-func (s *Scheduler) Step(vm engine.CoroutineVM, task ...*engine.Task) ([]*engine.Task, error) {
-	tasks, err := vm.Step(task...)
+func (s *Scheduler) Step(vm VM, tasks ...*engine.Task) ([]*engine.Task, error) {
+	vmTasks, err := vm.Step(tasks...)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("initial VM.Step failed: %w", err)
 	}
 
-	var finalTasks []*engine.Task
-	for {
-		var newTasks []*engine.Task
-		for _, t := range tasks {
-			if op, ok := t.GetYieldedValues()[0].(*chanOperation); ok {
-				newTasks = append(newTasks, s.pushOperation(t, op)...)
+	var externalTasks []*engine.Task
+	var channelTasks []*engine.Task
+
+	// Keep processing until all channel operations are handled
+	for len(vmTasks) > 0 {
+		for _, task := range vmTasks {
+			if len(task.Yielded) == 0 {
+				// should never happen
+				externalTasks = append(externalTasks, task)
+				continue
+			}
+
+			if op, ok := task.Yielded[0].(*chanOperation); ok {
+				channelTasks = append(channelTasks, s.pushOperation(task, op)...)
+				continue
 			} else {
-				finalTasks = append(finalTasks, t)
+				externalTasks = append(externalTasks, task)
 			}
 		}
 
-		if len(newTasks) == 0 {
+		if len(channelTasks) == 0 {
 			break
+		}
+
+		// keep going until we done with all channel operations
+		vmTasks, err = vm.Step(channelTasks...)
+		channelTasks = nil
+		if err != nil {
+			return nil, fmt.Errorf("VM.Step failed: %w", err)
 		}
 	}
 
-	return tasks, nil
+	return externalTasks, nil
 }
 
 func (s *Scheduler) pushOperation(task *engine.Task, op *chanOperation) []*engine.Task {
@@ -125,21 +146,22 @@ func (s *Scheduler) dequeueOp(m map[*Channel]*pendingQueue, ch *Channel) *pendin
 func (s *Scheduler) handleSend(task *engine.Task, op *chanOperation) []*engine.Task {
 	ch := op.ch
 	if ch.closed {
-		task.SetResumeValues(lua.LNil)
+		task.Resumed = []lua.LValue{lua.LNil}
 		return []*engine.Task{task}
 	}
 
 	// Try buffer first for buffered channels
 	if ch.capacity > 0 && !ch.isFull() {
 		if ch.send(op.value) {
-			task.SetResumeValues(lua.LBool(true))
+			task.Resumed = []lua.LValue{lua.LBool(true)}
 			return []*engine.Task{task}
 		}
 	}
+
 	if node := s.dequeueOp(s.receivers, ch); node != nil {
 		// Complete both operations
-		node.task.SetResumeValues(op.value)
-		task.SetResumeValues(lua.LBool(true))
+		node.task.Resumed = []lua.LValue{op.value}
+		task.Resumed = []lua.LValue{lua.LBool(true)}
 
 		result := []*engine.Task{task, node.task}
 
@@ -163,25 +185,25 @@ func (s *Scheduler) handleReceive(task *engine.Task, op *chanOperation) []*engin
 
 	// Try to receive from buffer first
 	if value, ok := ch.receive(); ok {
-		task.SetResumeValues(value)
+		task.Resumed = []lua.LValue{value, lua.LBool(true)}
 		return []*engine.Task{task}
 	}
 
 	if ch.closed {
-		task.SetResumeValues(lua.LNil)
+		task.Resumed = []lua.LValue{lua.LNil, lua.LBool(false)}
 		return []*engine.Task{task}
 	}
 
 	// Check for waiting sender
-	if node := s.dequeueOp(s.senders, ch); node != nil {
+	if sender := s.dequeueOp(s.senders, ch); sender != nil {
 		// Complete both operations
-		task.SetResumeValues(node.op.value)
-		node.task.SetResumeValues(lua.LBool(true))
+		task.Resumed = []lua.LValue{sender.op.value}
+		sender.task.Resumed = []lua.LValue{lua.LBool(true)}
 
-		result := []*engine.Task{task, node.task}
+		result := []*engine.Task{task, sender.task}
 
-		node.reset()
-		pendingPool.Put(node)
+		sender.reset()
+		pendingPool.Put(sender)
 
 		return result
 	}
@@ -198,6 +220,7 @@ func (s *Scheduler) handleReceive(task *engine.Task, op *chanOperation) []*engin
 func (s *Scheduler) handleClose(task *engine.Task, op *chanOperation) []*engine.Task {
 	ch := op.ch
 	ch.closed = true
+	task.Resumed = []lua.LValue{lua.LBool(true)}
 
 	// Count total pending tasks
 	total := 1 // for close task
@@ -217,29 +240,25 @@ func (s *Scheduler) handleClose(task *engine.Task, op *chanOperation) []*engine.
 	result = append(result, task)
 
 	// Resume all senders with channel closed indicator
-	for node := s.dequeueOp(s.senders, ch); node != nil; node = s.dequeueOp(s.senders, ch) {
-		node.task.SetResumeValues(lua.LNil)
-		result = append(result, node.task)
-		node.reset()
-		pendingPool.Put(node)
+	for sender := s.dequeueOp(s.senders, ch); sender != nil; sender = s.dequeueOp(s.senders, ch) {
+		sender.task.Resumed = []lua.LValue{lua.LNil} // channel closed
+		result = append(result, sender.task)
+		sender.reset()
+		pendingPool.Put(sender)
 	}
 
 	// Handle receivers - they can still get buffered values
-	for node := s.dequeueOp(s.receivers, ch); node != nil; node = s.dequeueOp(s.receivers, ch) {
+	for receiver := s.dequeueOp(s.receivers, ch); receiver != nil; receiver = s.dequeueOp(s.receivers, ch) {
 		// Try to receive any buffered value first
 		if value, ok := ch.receive(); ok {
-			node.task.SetResumeValues(value)
+			receiver.task.Resumed = []lua.LValue{value, lua.LBool(true)}
 		} else {
-			node.task.SetResumeValues(lua.LNil, lua.LBool(false)) // channel closed
+			receiver.task.Resumed = []lua.LValue{lua.LNil, lua.LBool(false)} // channel closed
 		}
-		result = append(result, node.task)
-		node.reset()
-		pendingPool.Put(node)
-	}
+		result = append(result, receiver.task)
 
-	// Only cleanup if no buffered messages remain
-	if ch.isEmpty() {
-		ch.cleanup()
+		receiver.reset()
+		pendingPool.Put(receiver)
 	}
 
 	return result
