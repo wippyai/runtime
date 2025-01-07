@@ -21,7 +21,7 @@ func (m *Module) Loader(l *lua.LState) int {
 		"begin_transaction": beginTransaction,
 		"commit":            commit,
 		"rollback":          rollback,
-		"close":             closeDB,
+		chanOpClose:         closeDB,
 	}))
 
 	// Push the SQL module table

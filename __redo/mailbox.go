@@ -20,7 +20,7 @@ type MailboxConfig struct {
 	Policy OverflowPolicy
 	// For PolicyBlock
 	BlockTimeout time.Duration
-	// Channel buffer sizes
+	// opChan buffer sizes
 	RecvChanSize uint64
 }
 

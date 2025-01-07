@@ -55,7 +55,7 @@ func TestHttpHandler_Integration(t *testing.T) {
 			
 			-- Prepare and send response
 			-- Headers must be set before status code
-			res:set_header("Content-Type", httpctx.CONTENT.JSON)
+			res:set_header("Content-opType", httpctx.CONTENT.JSON)
 			res:set_header("X-Response-ID", "resp-456")
 			
 			-- Set status last before writing

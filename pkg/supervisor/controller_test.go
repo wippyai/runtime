@@ -701,7 +701,7 @@ func TestController_ServiceDetailsUpdate(t *testing.T) {
 }
 
 func TestController_CancelDuringTransition(t *testing.T) {
-	// Channel to block the first transition
+	// opChan to block the first transition
 	blockChan := make(chan struct{})
 	transitionStarted := make(chan struct{})
 

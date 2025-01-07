@@ -91,8 +91,6 @@ function ollama_handler()
         end
         response:write("")
         response:flush()
-
-        return
     end
 
     local err = query_ollama_and_stream_response(res, model, prompt, options)

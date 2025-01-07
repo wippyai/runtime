@@ -52,7 +52,7 @@ func RegisterStream(l *lua.LState) {
 	// Register methods
 	l.SetFuncs(mt, map[string]lua.LGFunction{
 		"read":       streamRead,
-		"close":      streamClose,
+		chanOpClose:  streamClose,
 		"bytes_read": streamBytesRead,
 		"__call":     streamIter,
 	})
