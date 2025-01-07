@@ -42,19 +42,19 @@ func TestLoadVars(t *testing.T) {
 		},
 		{
 			name:  "unknown variable",
-			input: "Value: ${UNKNOWN}",
+			input: "value: ${UNKNOWN}",
 			ctx: EntryContext{
 				Vars: Variables{"PORT": "8080"},
 			},
-			expected: "Value: ${UNKNOWN}", // Unresolved variable is left as is
+			expected: "value: ${UNKNOWN}", // Unresolved variable is left as is
 		},
 		{
 			name:  "empty variables",
-			input: "Value: ${EMPTY}",
+			input: "value: ${EMPTY}",
 			ctx: EntryContext{
 				Vars: Variables{},
 			},
-			expected: "Value: ${EMPTY}",
+			expected: "value: ${EMPTY}",
 		},
 	}
 

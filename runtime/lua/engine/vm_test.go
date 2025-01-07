@@ -489,7 +489,7 @@ func TestVM_ErrorTraceback(t *testing.T) {
 	}
 	defer vm.Close()
 
-	t.Run("error in DoString with traceback", func(t *testing.T) {
+	t.Run("error in Init with traceback", func(t *testing.T) {
 		err := vm.DoString(nil, `
 			local function deep()
 				error("deep error")

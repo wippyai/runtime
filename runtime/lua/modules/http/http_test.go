@@ -81,7 +81,7 @@ func TestHTTPModule(t *testing.T) {
 					StatusCode: 201,
 					Body:       io.NopCloser(bytes.NewBufferString(`{"id": "123"}`)),
 					Header: http.Header{
-						"Content-Type": []string{"application/json"},
+						"Content-type": []string{"application/json"},
 					},
 					Request: req,
 				}, nil
@@ -99,7 +99,7 @@ func TestHTTPModule(t *testing.T) {
 				"https://api.example.com/data",
 				{
 					headers = {
-						["Content-Type"] = "application/json"
+						["Content-type"] = "application/json"
 					},
 					body = '{"key": "value"}'
 				}
