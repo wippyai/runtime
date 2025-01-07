@@ -1,15 +1,9 @@
-package engine
+package channel
 
 import (
+	"github.com/ponyruntime/pony/runtime/lua/engine"
 	lua "github.com/yuin/gopher-lua"
 	"sync"
-)
-
-// Pre-allocated results for common cases
-var (
-	monoResult  = []*Task{nil}
-	tupleResult = []*Task{nil, nil}
-	noTasks     = make([]*Task, 0)
 )
 
 // Pool of reusable objects to reduce allocations
@@ -23,8 +17,8 @@ var (
 )
 
 type pendingOp struct {
-	task *Task
-	op   *ChanOperation
+	task *engine.Task
+	op   *chanOperation
 	next *pendingOp
 }
 
@@ -44,31 +38,57 @@ func (q *pendingQueue) reset() {
 	q.tail = nil
 }
 
-type ChannelCoordinator struct {
+type Scheduler struct {
 	senders   map[*Channel]*pendingQueue
 	receivers map[*Channel]*pendingQueue
 }
 
-func NewChannelCoordinator() *ChannelCoordinator {
-	return &ChannelCoordinator{
+func NewScheduler() *Scheduler {
+	return &Scheduler{
 		senders:   make(map[*Channel]*pendingQueue),
 		receivers: make(map[*Channel]*pendingQueue),
 	}
 }
 
-func (cc *ChannelCoordinator) PushOperation(task *Task, op *ChanOperation) []*Task {
-	switch op.opType {
-	case chanOpSend:
-		return cc.handleSend(task, op)
-	case chanOpReceive:
-		return cc.handleReceive(task, op)
-	case chanOpClose:
-		return cc.handleClose(task, op)
+func (s *Scheduler) Step(vm engine.CoroutineVM, task ...*engine.Task) ([]*engine.Task, error) {
+	tasks, err := vm.Step(task...)
+	if err != nil {
+		return nil, err
 	}
-	return noTasks
+
+	var finalTasks []*engine.Task
+	for {
+		var newTasks []*engine.Task
+		for _, t := range tasks {
+			if op, ok := t.GetYieldedValues()[0].(*chanOperation); ok {
+				newTasks = append(newTasks, s.pushOperation(t, op)...)
+			} else {
+				finalTasks = append(finalTasks, t)
+			}
+		}
+
+		if len(newTasks) == 0 {
+			break
+		}
+	}
+
+	return tasks, nil
 }
 
-func (cc *ChannelCoordinator) enqueueOp(m map[*Channel]*pendingQueue, ch *Channel, node *pendingOp) {
+func (s *Scheduler) pushOperation(task *engine.Task, op *chanOperation) []*engine.Task {
+	switch op.opType {
+	case chanSend:
+		return s.handleSend(task, op)
+	case chanReceive:
+		return s.handleReceive(task, op)
+	case chanClose:
+		return s.handleClose(task, op)
+	}
+
+	return nil
+}
+
+func (s *Scheduler) enqueueOp(m map[*Channel]*pendingQueue, ch *Channel, node *pendingOp) {
 	queue, exists := m[ch]
 	if !exists || queue == nil {
 		queue = queuePool.Get().(*pendingQueue)
@@ -82,7 +102,7 @@ func (cc *ChannelCoordinator) enqueueOp(m map[*Channel]*pendingQueue, ch *Channe
 	queue.tail = node
 }
 
-func (cc *ChannelCoordinator) dequeueOp(m map[*Channel]*pendingQueue, ch *Channel) *pendingOp {
+func (s *Scheduler) dequeueOp(m map[*Channel]*pendingQueue, ch *Channel) *pendingOp {
 	queue, exists := m[ch]
 	if !exists || queue == nil || queue.head == nil {
 		return nil
@@ -102,121 +122,115 @@ func (cc *ChannelCoordinator) dequeueOp(m map[*Channel]*pendingQueue, ch *Channe
 	return node
 }
 
-func (cc *ChannelCoordinator) handleSend(task *Task, op *ChanOperation) []*Task {
+func (s *Scheduler) handleSend(task *engine.Task, op *chanOperation) []*engine.Task {
 	ch := op.ch
 	if ch.closed {
-		task.resumeVal = lua.LNil
-		monoResult[0] = task
-		return monoResult
+		task.SetResumeValues(lua.LNil)
+		return []*engine.Task{task}
 	}
 
 	// Try buffer first for buffered channels
 	if ch.capacity > 0 && !ch.isFull() {
 		if ch.send(op.value) {
-			task.resumeVal = lua.LBool(true)
-			monoResult[0] = task
-			return monoResult
+			task.SetResumeValues(lua.LBool(true))
+			return []*engine.Task{task}
 		}
 	}
-	if node := cc.dequeueOp(cc.receivers, ch); node != nil {
+	if node := s.dequeueOp(s.receivers, ch); node != nil {
 		// Complete both operations
-		node.task.resumeVal = op.value
-		task.resumeVal = lua.LBool(true)
+		node.task.SetResumeValues(op.value)
+		task.SetResumeValues(lua.LBool(true))
 
-		tupleResult[0] = node.task
-		tupleResult[1] = task
+		result := []*engine.Task{task, node.task}
 
 		node.reset()
 		pendingPool.Put(node)
 
-		return tupleResult
+		return result
 	}
 
 	// Queue the sender
 	node := pendingPool.Get().(*pendingOp)
 	node.task = task
 	node.op = op
-	cc.enqueueOp(cc.senders, ch, node)
+	s.enqueueOp(s.senders, ch, node)
 
-	return noTasks
+	return nil
 }
 
-func (cc *ChannelCoordinator) handleReceive(task *Task, op *ChanOperation) []*Task {
+func (s *Scheduler) handleReceive(task *engine.Task, op *chanOperation) []*engine.Task {
 	ch := op.ch
 
 	// Try to receive from buffer first
 	if value, ok := ch.receive(); ok {
-		task.resumeVal = value
-		monoResult[0] = task
-		return monoResult
+		task.SetResumeValues(value)
+		return []*engine.Task{task}
 	}
 
 	if ch.closed {
-		task.resumeVal = lua.LNil
-		monoResult[0] = task
-		return monoResult
+		task.SetResumeValues(lua.LNil)
+		return []*engine.Task{task}
 	}
 
 	// Check for waiting sender
-	if node := cc.dequeueOp(cc.senders, ch); node != nil {
+	if node := s.dequeueOp(s.senders, ch); node != nil {
 		// Complete both operations
-		task.resumeVal = node.op.value
-		node.task.resumeVal = lua.LBool(true)
+		task.SetResumeValues(node.op.value)
+		node.task.SetResumeValues(lua.LBool(true))
 
-		tupleResult[0] = task
-		tupleResult[1] = node.task
+		result := []*engine.Task{task, node.task}
 
 		node.reset()
 		pendingPool.Put(node)
 
-		return tupleResult
+		return result
 	}
 
 	// Queue the receiver
 	node := pendingPool.Get().(*pendingOp)
 	node.task = task
 	node.op = op
-	cc.enqueueOp(cc.receivers, ch, node)
+	s.enqueueOp(s.receivers, ch, node)
 
-	return noTasks
+	return nil
 }
 
-func (cc *ChannelCoordinator) handleClose(task *Task, op *ChanOperation) []*Task {
+func (s *Scheduler) handleClose(task *engine.Task, op *chanOperation) []*engine.Task {
 	ch := op.ch
 	ch.closed = true
 
 	// Count total pending tasks
 	total := 1 // for close task
-	if queue := cc.senders[ch]; queue != nil {
+	if queue := s.senders[ch]; queue != nil {
 		for p := queue.head; p != nil; p = p.next {
 			total++
 		}
 	}
-	if queue := cc.receivers[ch]; queue != nil {
+	if queue := s.receivers[ch]; queue != nil {
 		for p := queue.head; p != nil; p = p.next {
 			total++
 		}
 	}
 
 	// Pre-allocate result slice
-	result := make([]*Task, 0, total)
+	result := make([]*engine.Task, 0, total)
 	result = append(result, task)
 
 	// Resume all senders with channel closed indicator
-	for node := cc.dequeueOp(cc.senders, ch); node != nil; node = cc.dequeueOp(cc.senders, ch) {
-		node.task.resumeVal = lua.LNil
+	for node := s.dequeueOp(s.senders, ch); node != nil; node = s.dequeueOp(s.senders, ch) {
+		node.task.SetResumeValues(lua.LNil)
 		result = append(result, node.task)
 		node.reset()
 		pendingPool.Put(node)
 	}
 
 	// Handle receivers - they can still get buffered values
-	for node := cc.dequeueOp(cc.receivers, ch); node != nil; node = cc.dequeueOp(cc.receivers, ch) {
+	for node := s.dequeueOp(s.receivers, ch); node != nil; node = s.dequeueOp(s.receivers, ch) {
 		// Try to receive any buffered value first
 		if value, ok := ch.receive(); ok {
-			node.task.resumeVal = value
+			node.task.SetResumeValues(value)
 		} else {
-			node.task.resumeVal = lua.LNil
+			node.task.SetResumeValues(lua.LNil, lua.LBool(false)) // channel closed
 		}
 		result = append(result, node.task)
 		node.reset()

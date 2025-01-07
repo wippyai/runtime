@@ -36,7 +36,7 @@ func WithLibrary(name string, source string) Option {
 			return 1 // Success
 		}
 
-		// Use vm.state.PreloadModule to register the loader
+		// Use vm.State.PreloadModule to register the loader
 		vm.state.PreloadModule(name, loader)
 	}
 }

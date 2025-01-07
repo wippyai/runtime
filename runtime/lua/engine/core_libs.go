@@ -22,7 +22,7 @@ var coreLuaLibs = []CoreLib{
 	// never os or io
 }
 
-// loadCoreLuaLibs loads the core Lua libraries into the state
+// loadCoreLuaLibs loads the core Lua libraries into the State
 func loadCoreLuaLibs(state *lua.LState) error {
 	for _, lib := range coreLuaLibs {
 		if err := state.CallByParam(lua.P{
@@ -36,7 +36,7 @@ func loadCoreLuaLibs(state *lua.LState) error {
 	return nil
 }
 
-// newLuaState creates a new Lua state with core libraries
+// newLuaState creates a new Lua State with core libraries
 func newLuaState() (*lua.LState, error) {
 	state := lua.NewState(lua.Options{
 		SkipOpenLibs: true,

@@ -42,10 +42,10 @@ func TestCoroutineVM_Basic(t *testing.T) {
 
 		// Check first yield
 		task := tasks[0]
-		if !task.IsYielded() {
+		if task.State != lua.ResumeYield {
 			t.Fatal("expected task to be yielded")
 		}
-		vals := task.GetYieldedValues()
+		vals := task.Yielded
 		if len(vals) != 1 || vals[0].String() != "first" {
 			t.Fatalf("unexpected yield values: %v", vals)
 		}
@@ -58,7 +58,7 @@ func TestCoroutineVM_Basic(t *testing.T) {
 		if len(tasks) != 1 {
 			t.Fatal("expected task to yield again")
 		}
-		vals = tasks[0].GetYieldedValues()
+		vals = tasks[0].Yielded
 		if len(vals) != 1 || vals[0].String() != "second" {
 			t.Fatalf("unexpected yield values: %v", vals)
 		}
@@ -117,7 +117,7 @@ func TestCoroutineVM_ParallelTasks(t *testing.T) {
 		// Verify first yields
 		var task1, task2 *Task
 		for _, task := range tasks {
-			vals := task.GetYieldedValues()
+			vals := task.Yielded
 			if len(vals) != 1 {
 				t.Fatalf("expected 1 yielded value, got %d", len(vals))
 			}
@@ -144,7 +144,7 @@ func TestCoroutineVM_ParallelTasks(t *testing.T) {
 		if len(tasks) != 1 {
 			t.Fatal("expected task1 to yield again")
 		}
-		if tasks[0].GetYieldedValues()[0].String() != "task1_middle" {
+		if tasks[0].Yielded[0].String() != "task1_middle" {
 			t.Fatal("unexpected yield value from task1")
 		}
 
@@ -197,7 +197,7 @@ func TestCoroutineVM_ErrorHandling(t *testing.T) {
 		}
 
 		task := tasks[0]
-		vals := task.GetYieldedValues()
+		vals := task.Yielded
 		if vals[0].String() != "start" {
 			t.Fatalf("unexpected yield value: %s", vals[0].String())
 		}
@@ -243,7 +243,7 @@ func TestCoroutineVM_ErrorHandling(t *testing.T) {
 		}
 
 		task := tasks[0]
-		if err := vm.RemoveTask(task); err != nil {
+		if err := vm.removeTask(task); err != nil {
 			t.Fatal("failed to remove task")
 		}
 
@@ -340,7 +340,7 @@ func TestCoroutineVM_NativeCoroutines(t *testing.T) {
 		}
 
 		task := tasks[0]
-		vals := task.GetYieldedValues()
+		vals := task.Yielded
 		if len(vals) != 1 || vals[0].String() != "native_first" {
 			t.Fatalf("unexpected first yield value: %v", vals)
 		}
@@ -352,7 +352,7 @@ func TestCoroutineVM_NativeCoroutines(t *testing.T) {
 		if len(tasks) != 1 {
 			t.Fatal("expected second yield")
 		}
-		vals = tasks[0].GetYieldedValues()
+		vals = tasks[0].Yielded
 		if len(vals) != 1 || vals[0].String() != "native_done" {
 			t.Fatalf("unexpected second yield value: %v", vals)
 		}
@@ -406,13 +406,13 @@ func TestCoroutineVM_NativeCoroutines(t *testing.T) {
 		}
 
 		// First task should get first value
-		vals := tasks[0].GetYieldedValues()
+		vals := tasks[0].Yielded
 		if len(vals) != 1 {
 			t.Fatalf("unexpected number of values for task1: %v", vals)
 		}
 
 		// Second task gets "task2_1" since it starts its own coroutine sequence
-		vals = tasks[1].GetYieldedValues()
+		vals = tasks[1].Yielded
 		if len(vals) != 1 {
 			t.Fatalf("unexpected number of values for task2: %v", vals)
 		}
@@ -451,7 +451,7 @@ func TestCoroutineVM_NativeCoroutines(t *testing.T) {
 
 		tasks, _ := vm.Step()
 		task := tasks[0]
-		vals := task.GetYieldedValues()
+		vals := task.Yielded
 		if len(vals) != 1 || vals[0].String() != "after_error" {
 			t.Fatalf("unexpected yield value: %v", vals)
 		}
@@ -558,7 +558,7 @@ func TestCoroutineVM_ArgumentValidation(t *testing.T) {
 			t.Fatalf("expected 1 yielded task, got %d", len(tasks))
 		}
 
-		vals := tasks[0].GetYieldedValues()
+		vals := tasks[0].Yielded
 		if len(vals) != 1 || vals[0].String() != "ok" {
 			t.Fatalf("unexpected yield values: %v", vals)
 		}
@@ -589,7 +589,7 @@ func TestCoroutineVM_ArgumentValidation(t *testing.T) {
 			t.Fatalf("expected 1 yielded task, got %d", len(tasks))
 		}
 
-		vals := tasks[0].GetYieldedValues()
+		vals := tasks[0].Yielded
 		if len(vals) != 1 || vals[0].String() != "captured" {
 			t.Fatalf("unexpected yield values: %v", vals)
 		}
@@ -634,12 +634,12 @@ func TestCoroutineVM_AdditionalCoverage(t *testing.T) {
 		}
 
 		task := tasks[0]
-		if !task.IsYielded() {
+		if task.State != lua.ResumeYield {
 			t.Fatal("expected task to be yielded")
 		}
 
-		// Test SetResumeValue
-		task.SetResumeValue(lua.LString("test_value"))
+		// Test SetResumeValues
+		task.Resumed = []lua.LValue{lua.LString("test_value")}
 		tasks, err = vm.Step(task)
 		if err != nil {
 			t.Fatal(err)
@@ -648,7 +648,7 @@ func TestCoroutineVM_AdditionalCoverage(t *testing.T) {
 		if len(tasks) != 1 {
 			t.Fatal("expected task to yield again")
 		}
-		vals := tasks[0].GetYieldedValues()
+		vals := tasks[0].Yielded
 		if len(vals) != 1 || vals[0].String() != "got test_value" {
 			t.Fatalf("unexpected yield values: %v", vals)
 		}
@@ -730,7 +730,7 @@ func TestCoroutineVM_AdditionalCoverage(t *testing.T) {
 
 		// Create a dummy task that's not in the VM
 		dummyTask := &Task{}
-		err = vm.RemoveTask(dummyTask)
+		err = vm.removeTask(dummyTask)
 		if err == nil {
 			t.Fatal("expected error when removing non-existent task")
 		}
@@ -810,7 +810,7 @@ func TestCoroutineVM_StatusAndWrap(t *testing.T) {
 			t.Fatalf("expected 1 yielded task, got %d", len(tasks))
 		}
 
-		vals := tasks[0].GetYieldedValues()
+		vals := tasks[0].Yielded
 		if len(vals) != 1 {
 			t.Fatal("expected yielded status results")
 		}
@@ -845,7 +845,7 @@ func TestCoroutineVM_StatusAndWrap(t *testing.T) {
 
 		tasks, _ := vm.Step()
 		for _, task := range tasks {
-			vals := task.GetYieldedValues()
+			vals := task.Yielded
 			t.Logf("task yielded values: %v", vals)
 		}
 	})
@@ -862,7 +862,7 @@ func TestCoroutineVM_SharedBuffer(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(`	
-			-- Shared state
+			-- Shared State
 			shared_buffer = {
 				data = {},
 				size = 0
@@ -926,7 +926,7 @@ func TestCoroutineVM_SharedBuffer(t *testing.T) {
 		// Identify writer and flusher tasks
 		var writerTask, flusherTask *Task
 		for _, task := range tasks {
-			vals := task.GetYieldedValues()
+			vals := task.Yielded
 			if len(vals) != 1 {
 				t.Fatalf("expected 1 yielded value, got %d", len(vals))
 			}
@@ -950,7 +950,7 @@ func TestCoroutineVM_SharedBuffer(t *testing.T) {
 
 		for _, val := range testValues {
 			// Send value to writer
-			writerTask.SetResumeValue(lua.LString(val))
+			writerTask.Resumed = []lua.LValue{lua.LString(val)}
 			tasks, err = vm.Step(writerTask)
 			if err != nil {
 				t.Fatal(err)
@@ -960,7 +960,7 @@ func TestCoroutineVM_SharedBuffer(t *testing.T) {
 			}
 
 			// Verify write confirmation
-			writeResult := tasks[0].GetYieldedValues()[0].String()
+			writeResult := tasks[0].Yielded[0].String()
 			if !strings.Contains(writeResult, "wrote:"+val) {
 				t.Fatalf("unexpected write result: %v", writeResult)
 			}
@@ -972,7 +972,7 @@ func TestCoroutineVM_SharedBuffer(t *testing.T) {
 			}
 			if len(tasks) == 1 {
 				writerTask = tasks[0]
-				writeStatus := writerTask.GetYieldedValues()[0].String()
+				writeStatus := writerTask.Yielded[0].String()
 				if writeStatus != "ready_for_input" {
 					t.Fatalf("expected writer ready for input, got: %v", writeStatus)
 				}
@@ -980,7 +980,7 @@ func TestCoroutineVM_SharedBuffer(t *testing.T) {
 		}
 
 		// Trigger flush
-		flusherTask.SetResumeValue(lua.LString("flush"))
+		flusherTask.Resumed = []lua.LValue{lua.LString("flush")}
 		tasks, err = vm.Step(flusherTask)
 		if err != nil {
 			t.Fatal(err)
@@ -990,7 +990,7 @@ func TestCoroutineVM_SharedBuffer(t *testing.T) {
 		}
 
 		// Verify flushed data
-		flushResult := tasks[0].GetYieldedValues()[0].String()
+		flushResult := tasks[0].Yielded[0].String()
 		expectedResult := "flushed:val1, val2, val3, val4, val5"
 		if flushResult != expectedResult {
 			t.Fatalf("unexpected flush result: got %q, want %q", flushResult, expectedResult)
@@ -1044,7 +1044,7 @@ func TestCoroutineVM_NestedSpawn(t *testing.T) {
 		}
 
 		parentTask := tasks[0]
-		if parentTask.GetYieldedValues()[0].String() != "parent_start" {
+		if parentTask.Yielded[0].String() != "parent_start" {
 			t.Fatal("unexpected parent initial yield")
 		}
 
@@ -1058,11 +1058,11 @@ func TestCoroutineVM_NestedSpawn(t *testing.T) {
 			t.Fatal("unexpected yield after spawn")
 		}
 
-		if tasks[0].GetYieldedValues()[0].String() != "parent_spawned" {
+		if tasks[0].Yielded[0].String() != "parent_spawned" {
 			t.Fatal("unexpected parent yield after spawn")
 		}
 
-		if tasks[1].GetYieldedValues()[0].String() != "child_running" {
+		if tasks[1].Yielded[0].String() != "child_running" {
 			t.Fatal("unexpected child initial yield")
 		}
 
@@ -1075,7 +1075,7 @@ func TestCoroutineVM_NestedSpawn(t *testing.T) {
 		// Verify child task
 		var childTask *Task
 		for _, task := range allTasks {
-			vals := task.GetYieldedValues()
+			vals := task.Yielded
 			if vals[0].String() == "child_running" {
 				childTask = task
 				break
@@ -1147,7 +1147,7 @@ func TestCoroutineVM_NestedSpawn(t *testing.T) {
 		}
 
 		rootTask := tasks[0]
-		if rootTask.GetYieldedValues()[0].String() != "root_start" {
+		if rootTask.Yielded[0].String() != "root_start" {
 			t.Fatal("unexpected root initial yield")
 		}
 
@@ -1161,15 +1161,15 @@ func TestCoroutineVM_NestedSpawn(t *testing.T) {
 			t.Fatal("missing tasks")
 		}
 
-		if tasks[0].GetYieldedValues()[0].String() != "root_spawned" {
+		if tasks[0].Yielded[0].String() != "root_spawned" {
 			t.Fatal("unexpected root yield after spawn")
 		}
 
-		if tasks[1].GetYieldedValues()[0].String() != "middle_start" {
+		if tasks[1].Yielded[0].String() != "middle_start" {
 			t.Fatal("unexpected middle initial yield")
 		}
 
-		if tasks[2].GetYieldedValues()[0].String() != "middle_start" {
+		if tasks[2].Yielded[0].String() != "middle_start" {
 			t.Fatal("unexpected middle initial yield")
 		}
 
@@ -1182,7 +1182,7 @@ func TestCoroutineVM_NestedSpawn(t *testing.T) {
 		// Step middle tasks to spawn leaves
 		var middleTasks []*Task
 		for _, task := range allTasks {
-			vals := task.GetYieldedValues()
+			vals := task.Yielded
 			if vals[0].String() == "middle_start" {
 				middleTasks = append(middleTasks, task)
 			}
@@ -1201,7 +1201,7 @@ func TestCoroutineVM_NestedSpawn(t *testing.T) {
 		// Verify leaf tasks:2 middle + 4 leaf
 		leafCount := 0
 		for _, task := range tasks {
-			if task.GetYieldedValues()[0].String() == "leaf" {
+			if task.Yielded[0].String() == "leaf" {
 				leafCount++
 			}
 		}
@@ -1273,7 +1273,7 @@ func TestCoroutineVM_MonitorStatus(t *testing.T) {
 
 		var targetTask, monitorTask *Task
 		for _, task := range tasks {
-			vals := task.GetYieldedValues()
+			vals := task.Yielded
 			switch vals[0].String() {
 			case "target_running":
 				targetTask = task
@@ -1297,7 +1297,7 @@ func TestCoroutineVM_MonitorStatus(t *testing.T) {
 		monitorTask = tasks[0]
 
 		// Move target to second yield
-		targetTask.SetResumeValue(lua.LString("resume1"))
+		targetTask.Resumed = []lua.LValue{lua.LString("resume1")}
 		tasks, err = vm.Step(targetTask)
 		if err != nil {
 			t.Fatal(err)
@@ -1318,7 +1318,7 @@ func TestCoroutineVM_MonitorStatus(t *testing.T) {
 		monitorTask = tasks[0]
 
 		// Complete target
-		targetTask.SetResumeValue(lua.LString("resume2"))
+		targetTask.Resumed = []lua.LValue{lua.LString("resume2")}
 		tasks, err = vm.Step(targetTask)
 		if err != nil {
 			t.Fatal(err)
@@ -1395,6 +1395,102 @@ func TestCoroutineVM_MonitorStatus(t *testing.T) {
 	})
 }
 
+func TestCoroutineVM_ClosedCoroutines(t *testing.T) {
+	logger := zap.NewNop()
+
+	t.Run("coroutines removed after completion", func(t *testing.T) {
+		vm, err := NewCoroutineVM(context.Background(), logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm.Close()
+
+		err = vm.DoString(`
+			completed_count = 0
+			
+			function test_cleanup()
+				completed_count = completed_count + 1
+				return "done"
+			end
+
+			-- Spawn multiple coroutines
+			for i = 1, 3 do
+				coroutine.spawn(test_cleanup)
+			end
+		`, "cleanup_test")
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Check initial task count
+		if len(vm.tasks) != 3 {
+			t.Fatalf("expected 3 initial tasks, got %d", len(vm.tasks))
+		}
+
+		// Step to complete all tasks
+		_, err = vm.Step(vm.tasks...)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Verify tasks were removed
+		if len(vm.tasks) != 0 {
+			t.Fatalf("expected tasks to be removed after completion, got %d tasks", len(vm.tasks))
+		}
+
+		// Verify completion counter
+		err = vm.DoString(`assert(completed_count == 3, "not all coroutines completed")`, "verify")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Verify GetYieldedTasks also returns empty
+		if len(vm.GetYieldedTasks()) != 0 {
+			t.Fatal("GetYieldedTasks should return empty after completion")
+		}
+	})
+
+	t.Run("coroutines removed after error", func(t *testing.T) {
+		vm, err := NewCoroutineVM(context.Background(), logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm.Close()
+
+		err = vm.DoString(`
+			function error_test()
+				error("test error")
+			end
+	
+			coroutine.spawn(error_test)
+		`, "error_test")
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if len(vm.tasks) != 1 {
+			t.Fatal("expected 1 initial task")
+		}
+
+		// Step should result in error but cleanup task
+		_, err = vm.Step(vm.tasks...)
+		if err == nil {
+			t.Fatal("expected error from coroutine")
+		}
+
+		// Verify task was removed
+		if len(vm.tasks) != 0 {
+			t.Fatal("expected task to be removed after error")
+		}
+
+		if len(vm.GetYieldedTasks()) != 0 {
+			t.Fatal("GetYieldedTasks should return empty after error")
+		}
+	})
+}
+
 func BenchmarkCoroutineVM(b *testing.B) {
 	logger := zap.NewNop()
 
@@ -1420,6 +1516,10 @@ func BenchmarkCoroutineVM(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
+		_, err = vm.Step()
+		if err != nil {
+			b.Fatal(err)
+		}
 
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
@@ -1429,9 +1529,9 @@ func BenchmarkCoroutineVM(b *testing.B) {
 			}
 
 			task := tasks[0]
-			if len(task.GetYieldedValues()) > 0 && task.GetYieldedValues()[0].String() == "ready" {
+			if len(task.Yielded) > 0 && task.Yielded[0].String() == "ready" {
 				// Send test message
-				task.SetResumeValue(lua.LString("ping"))
+				task.Resumed = []lua.LValue{lua.LString("ping")}
 				tasks, err = vm.Step(task)
 				if err != nil {
 					b.Fatal(err)
