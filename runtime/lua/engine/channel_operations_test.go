@@ -46,7 +46,7 @@ func TestChannelVM_Basic(t *testing.T) {
 		}
 
 		// Get initial yielded tasks
-		tasks := vm.GetYieldedTasks()
+		tasks, _ := vm.Step()
 		assert.Equal(t, 2, len(tasks), "expected 2 yielded tasks")
 
 		// Step all tasks until completion
