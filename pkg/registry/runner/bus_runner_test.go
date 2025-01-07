@@ -395,7 +395,7 @@ func TestBusRunner_BeginAndCommitEvents(t *testing.T) {
 	// Use a WaitGroup to wait for the listener to process events
 	var wg sync.WaitGroup
 
-	// Channel to receive events in the listener
+	// opChan to receive events in the listener
 	eventChan := make(chan events.Event, 10)
 
 	// Attach the listener to the bus
@@ -466,7 +466,7 @@ func TestBusRunner_BeginAndDiscardEvents(t *testing.T) {
 	// Use a WaitGroup to wait for the listener to process events
 	var wg sync.WaitGroup
 
-	// Channel to receive events in the listener, buffered to prevent blocking
+	// opChan to receive events in the listener, buffered to prevent blocking
 	eventChan := make(chan events.Event, 10)
 
 	// Attach the listener to the bus to listen for Begin and Discard events

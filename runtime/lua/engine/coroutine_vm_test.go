@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
+	"log"
 	"strings"
 	"testing"
 )
@@ -35,7 +36,7 @@ func TestCoroutineVM_Basic(t *testing.T) {
 		}
 
 		// Get yielded tasks
-		tasks := vm.GetYieldedTasks()
+		tasks, _ := vm.Step()
 		if len(tasks) != 1 {
 			t.Fatalf("expected 1 yielded task, got %d", len(tasks))
 		}
@@ -105,7 +106,12 @@ func TestCoroutineVM_ParallelTasks(t *testing.T) {
 		}
 
 		// Get initial yielded tasks
-		tasks := vm.GetYieldedTasks()
+		tasks, err := vm.Step()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		log.Printf("DEBUG: Initial tasks: %v", tasks)
 		if len(tasks) != 2 {
 			t.Fatalf("expected 2 yielded tasks, got %d", len(tasks))
 		}
@@ -187,7 +193,7 @@ func TestCoroutineVM_ErrorHandling(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		tasks := vm.GetYieldedTasks()
+		tasks, _ := vm.Step()
 		if len(tasks) != 1 {
 			t.Fatalf("expected 1 yielded task, got %d", len(tasks))
 		}
@@ -233,7 +239,7 @@ func TestCoroutineVM_ErrorHandling(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		tasks := vm.GetYieldedTasks()
+		tasks, _ := vm.Step()
 		if len(tasks) != 1 {
 			t.Fatalf("expected 1 yielded task, got %d", len(tasks))
 		}
@@ -277,7 +283,7 @@ func TestCoroutineVM_ContextPropagation(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		tasks := vm.GetYieldedTasks()
+		tasks, _ := vm.Step()
 		if len(tasks) != 1 {
 			t.Fatalf("expected 1 yielded task, got %d", len(tasks))
 		}
@@ -330,7 +336,7 @@ func TestCoroutineVM_NativeCoroutines(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		tasks := vm.GetYieldedTasks()
+		tasks, _ := vm.Step()
 		if len(tasks) != 1 {
 			t.Fatalf("expected 1 yielded task, got %d", len(tasks))
 		}
@@ -396,7 +402,7 @@ func TestCoroutineVM_NativeCoroutines(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		tasks := vm.GetYieldedTasks()
+		tasks, _ := vm.Step()
 		if len(tasks) != 2 {
 			t.Fatalf("expected 2 yielded tasks, got %d", len(tasks))
 		}
@@ -445,7 +451,7 @@ func TestCoroutineVM_NativeCoroutines(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		tasks := vm.GetYieldedTasks()
+		tasks, _ := vm.Step()
 		task := tasks[0]
 		vals := task.GetYieldedValues()
 		if len(vals) != 1 || vals[0].String() != "after_error" {
@@ -549,7 +555,7 @@ func TestCoroutineVM_ArgumentValidation(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		tasks := vm.GetYieldedTasks()
+		tasks, _ := vm.Step()
 		if len(tasks) != 1 {
 			t.Fatalf("expected 1 yielded task, got %d", len(tasks))
 		}
@@ -580,7 +586,7 @@ func TestCoroutineVM_ArgumentValidation(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		tasks := vm.GetYieldedTasks()
+		tasks, _ := vm.Step()
 		if len(tasks) != 1 {
 			t.Fatalf("expected 1 yielded task, got %d", len(tasks))
 		}
@@ -624,7 +630,7 @@ func TestCoroutineVM_AdditionalCoverage(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		tasks := vm.GetYieldedTasks()
+		tasks, _ := vm.Step()
 		if len(tasks) != 1 {
 			t.Fatalf("expected 1 yielded task, got %d", len(tasks))
 		}
@@ -668,7 +674,7 @@ func TestCoroutineVM_AdditionalCoverage(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		tasks := vm.GetYieldedTasks()
+		tasks, _ := vm.Step()
 		if len(tasks) != 0 {
 			t.Fatal("expected no yielded tasks")
 		}
@@ -702,7 +708,7 @@ func TestCoroutineVM_AdditionalCoverage(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		tasks := vm.GetYieldedTasks()
+		tasks, _ := vm.Step()
 		if len(tasks) != 1 {
 			t.Fatalf("expected 1 yielded task, got %d", len(tasks))
 		}
@@ -742,7 +748,7 @@ func TestCoroutineVM_AdditionalCoverage(t *testing.T) {
 		}
 		defer vm.Close()
 
-		err = vm.DoString(`
+		vm.DoString(`
 			-- Create a function that will error when called
 			local badFunc = function()
 				error("coroutine creation error")
@@ -750,9 +756,11 @@ func TestCoroutineVM_AdditionalCoverage(t *testing.T) {
 			coroutine.spawn(badFunc)
 		`, "test")
 
+		_, err = vm.Step()
 		if err == nil {
 			t.Fatal("expected error when creating coroutine")
 		}
+
 		if !strings.Contains(err.Error(), "coroutine creation error") {
 			t.Fatalf("unexpected error message: %v", err)
 		}
@@ -799,7 +807,7 @@ func TestCoroutineVM_StatusAndWrap(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		tasks := vm.GetYieldedTasks()
+		tasks, _ := vm.Step()
 		if len(tasks) != 1 {
 			t.Fatalf("expected 1 yielded task, got %d", len(tasks))
 		}
@@ -837,7 +845,7 @@ func TestCoroutineVM_StatusAndWrap(t *testing.T) {
 
 		assert.Error(t, err)
 
-		tasks := vm.GetYieldedTasks()
+		tasks, _ := vm.Step()
 		for _, task := range tasks {
 			vals := task.GetYieldedValues()
 			t.Logf("task yielded values: %v", vals)
@@ -912,7 +920,7 @@ func TestCoroutineVM_SharedBuffer(t *testing.T) {
 		}
 
 		// Get initial tasks
-		tasks := vm.GetYieldedTasks()
+		tasks, _ := vm.Step()
 		if len(tasks) != 2 {
 			t.Fatalf("expected 2 yielded tasks, got %d", len(tasks))
 		}
@@ -1032,7 +1040,7 @@ func TestCoroutineVM_NestedSpawn(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		tasks := vm.GetYieldedTasks()
+		tasks, _ := vm.Step()
 		if len(tasks) != 1 {
 			t.Fatal("expected 1 initial task")
 		}
@@ -1047,8 +1055,17 @@ func TestCoroutineVM_NestedSpawn(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(tasks) != 1 || tasks[0].GetYieldedValues()[0].String() != "parent_spawned" {
+
+		if len(tasks) != 2 {
 			t.Fatal("unexpected yield after spawn")
+		}
+
+		if tasks[0].GetYieldedValues()[0].String() != "parent_spawned" {
+			t.Fatal("unexpected parent yield after spawn")
+		}
+
+		if tasks[1].GetYieldedValues()[0].String() != "child_running" {
+			t.Fatal("unexpected child initial yield")
 		}
 
 		// Check all yielded tasks - should include child
@@ -1126,7 +1143,7 @@ func TestCoroutineVM_NestedSpawn(t *testing.T) {
 		}
 
 		// Step through and verify task hierarchy
-		tasks := vm.GetYieldedTasks()
+		tasks, _ := vm.Step()
 		if len(tasks) != 1 {
 			t.Fatal("expected 1 root task")
 		}
@@ -1141,8 +1158,21 @@ func TestCoroutineVM_NestedSpawn(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(tasks) != 1 || tasks[0].GetYieldedValues()[0].String() != "root_spawned" {
+
+		if len(tasks) != 3 {
+			t.Fatal("missing tasks")
+		}
+
+		if tasks[0].GetYieldedValues()[0].String() != "root_spawned" {
 			t.Fatal("unexpected root yield after spawn")
+		}
+
+		if tasks[1].GetYieldedValues()[0].String() != "middle_start" {
+			t.Fatal("unexpected middle initial yield")
+		}
+
+		if tasks[2].GetYieldedValues()[0].String() != "middle_start" {
+			t.Fatal("unexpected middle initial yield")
 		}
 
 		// Should now have root + 2 middle tasks
@@ -1159,30 +1189,20 @@ func TestCoroutineVM_NestedSpawn(t *testing.T) {
 				middleTasks = append(middleTasks, task)
 			}
 		}
+
 		if len(middleTasks) != 2 {
 			t.Fatal("expected 2 middle tasks")
 		}
 
 		// Step both middle tasks
-		for _, middleTask := range middleTasks {
-			tasks, err = vm.Step(middleTask)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if len(tasks) != 1 || tasks[0].GetYieldedValues()[0].String() != "middle_spawned" {
-				t.Fatal("unexpected middle yield after spawn")
-			}
+		tasks, err = vm.Step(middleTasks...)
+		if err != nil {
+			t.Fatal(err)
 		}
 
-		// Should now have all tasks: 1 root + 2 middle + 4 leaf
-		allTasks = vm.GetYieldedTasks()
-		if len(allTasks) != 7 {
-			t.Fatalf("expected 7 total tasks, got %d", len(allTasks))
-		}
-
-		// Verify leaf tasks
+		// Verify leaf tasks:2 middle + 4 leaf
 		leafCount := 0
-		for _, task := range allTasks {
+		for _, task := range tasks {
 			if task.GetYieldedValues()[0].String() == "leaf" {
 				leafCount++
 			}
@@ -1248,7 +1268,7 @@ func TestCoroutineVM_MonitorStatus(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		tasks := vm.GetYieldedTasks()
+		tasks, _ := vm.Step()
 		if len(tasks) != 2 {
 			t.Fatal("expected 2 initial tasks")
 		}

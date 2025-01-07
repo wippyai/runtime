@@ -40,7 +40,7 @@ type Pool struct {
 	vms       chan *engine.VM
 	closed    atomic.Bool
 	closeOnce sync.Once
-	done      chan struct{} // Channel for signaling shutdown
+	done      chan struct{} // opChan for signaling shutdown
 }
 
 func NewPool(vmConfig *pool.VMConfig, opts ...Option) (*Pool, error) {

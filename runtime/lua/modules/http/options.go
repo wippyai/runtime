@@ -55,7 +55,7 @@ func parseOptions(value lua.LValue) (*requestOptions, error) {
 		opts.body = body.String()
 	} else if form := table.RawGetString("form"); form != lua.LNil {
 		opts.body = form.String()
-		opts.headers["Content-Type"] = "application/x-www-form-urlencoded"
+		opts.headers["Content-opType"] = "application/x-www-form-urlencoded"
 	}
 
 	if query := table.RawGetString("query"); query != lua.LNil {

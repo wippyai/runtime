@@ -27,7 +27,7 @@ func TestHTTPResponse(t *testing.T) {
 					StatusCode: 200,
 					Body:       io.NopCloser(bytes.NewBufferString(`{"test":"data"}`)),
 					Header: http.Header{
-						"Content-Type":     []string{"application/json"},
+						"Content-opType":   []string{"application/json"},
 						"X-Custom-Header":  []string{"custom-value"},
 						"X-Empty-Header":   []string{},
 						"X-Multi-Header":   []string{"value1", "value2"},
@@ -49,7 +49,7 @@ func TestHTTPResponse(t *testing.T) {
 			local response = http.get("https://api.example.com/test")
 			assert(response ~= nil, "Response should not be nil")
 			assert(response.headers ~= nil, "Headers should not be nil")
-			assert(response.headers["Content-Type"] == "application/json", "Content-Type mismatch")
+			assert(response.headers["Content-opType"] == "application/json", "Content-opType mismatch")
 			assert(response.headers["X-Custom-Header"] == "custom-value", "Custom header mismatch")
 			assert(response.headers["X-Multi-Header"] == "value1", "Multi-value header mismatch")
 			assert(response.headers["X-Special-Chars"] == "value with spaces & symbols", "Special chars header mismatch")

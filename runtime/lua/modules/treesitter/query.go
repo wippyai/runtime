@@ -24,7 +24,7 @@ func registerQuery(L *lua.LState) {
 
 var queryMethods = map[string]lua.LGFunction{
 	// Core functionality
-	"close":                  queryClose,
+	chanOpClose:              queryClose,
 	"matches":                queryMatches,
 	"captures":               queryCaptures,
 	"pattern_count":          queryPatternCount,

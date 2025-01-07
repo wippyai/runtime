@@ -166,7 +166,7 @@ func responseWriteJSON(l *lua.LState) int {
 	return 1
 }
 
-// responseSetContentType sets the Content-Type header
+// responseSetContentType sets the Content-opType header
 func responseSetContentType(l *lua.LState) int {
 	resp, err := checkResponse(l, 1)
 	if err != nil {
