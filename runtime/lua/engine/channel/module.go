@@ -1,6 +1,8 @@
 package channel
 
-import lua "github.com/yuin/gopher-lua"
+import (
+	lua "github.com/yuin/gopher-lua"
+)
 
 // Module represents a channel Lua module
 type Module struct{}
@@ -29,9 +31,10 @@ func (m *Module) Loader(L *lua.LState) int {
 	L.SetField(mt, "send", L.NewFunction(m.send))
 	L.SetField(mt, "receive", L.NewFunction(m.receive))
 	L.SetField(mt, "close", L.NewFunction(m.close))
+	L.SetGlobal("channel", mod)
 
-	// Push the module
 	L.Push(mod)
+
 	return 1
 }
 
@@ -46,8 +49,10 @@ func (m *Module) new(L *lua.LState) int {
 	ch := newLuaChannel(capacity)
 	ud := L.NewUserData()
 	ud.Value = ch
+
 	L.SetMetatable(ud, L.GetTypeMetatable("channel"))
 	L.Push(ud)
+
 	return 1
 }
 
@@ -69,11 +74,7 @@ func (m *Module) send(L *lua.LState) int {
 	}
 
 	// Create and yield the operation
-	L.Yield(&chanOperation{
-		opType: chanSend,
-		ch:     ch,
-		value:  value,
-	})
+	L.Yield(&chanOperation{opType: chanSend, ch: ch, value: value})
 	return -1
 }
 
@@ -96,10 +97,7 @@ func (m *Module) receive(L *lua.LState) int {
 	}
 
 	// Create and yield the operation
-	L.Yield(&chanOperation{
-		opType: chanReceive,
-		ch:     ch,
-	})
+	L.Yield(&chanOperation{opType: chanReceive, ch: ch})
 	return -1
 }
 
@@ -112,9 +110,6 @@ func (m *Module) close(L *lua.LState) int {
 		return 0
 	}
 
-	L.Yield(&chanOperation{
-		opType: chanClose,
-		ch:     ch,
-	})
+	L.Yield(&chanOperation{opType: chanClose, ch: ch})
 	return -1
 }

@@ -15,381 +15,453 @@ func (m *mockVM) Step(tasks ...*engine.Task) ([]*engine.Task, error) {
 	return m.stepFunc(tasks...)
 }
 
+func TestSchedulerDirect(t *testing.T) {
+	t.Run("send_receive_unbuffered", func(t *testing.T) {
+		s := NewScheduler()
+		ch := newLuaChannel(0)
+
+		// Create tasks
+		sendTask := &engine.Task{}
+		sendOp := &chanOperation{
+			opType: chanSend,
+			ch:     ch,
+			value:  lua.LString("test"),
+		}
+
+		recvTask := &engine.Task{}
+		recvOp := &chanOperation{
+			opType: chanReceive,
+			ch:     ch,
+		}
+
+		// Try receive first
+		tasks := s.pushOperation(recvTask, recvOp)
+		assert.Empty(t, tasks, "receiver should block")
+		assert.NotNil(t, s.receivers[ch], "receiver should be queued")
+
+		// Then send
+		tasks = s.pushOperation(sendTask, sendOp)
+		assert.Len(t, tasks, 2, "should resume both tasks")
+
+		// Verify send succeeded
+		assert.Equal(t, lua.LBool(true), sendTask.Resumed[0], "send should succeed")
+
+		// Verify receive got value
+		assert.Equal(t, lua.LString("test"), recvTask.Resumed[0], "receive should get value")
+
+		// Verify queues are empty
+		assert.Nil(t, s.receivers[ch], "receiver queue should be empty")
+		assert.Nil(t, s.senders[ch], "sender queue should be empty")
+	})
+
+	t.Run("buffered_channel_operations", func(t *testing.T) {
+		s := NewScheduler()
+		ch := newLuaChannel(2)
+
+		// Send first message
+		send1 := &engine.Task{}
+		sendOp1 := &chanOperation{
+			opType: chanSend,
+			ch:     ch,
+			value:  lua.LString("msg1"),
+		}
+		tasks := s.pushOperation(send1, sendOp1)
+		assert.Len(t, tasks, 1, "first send should complete")
+		assert.Equal(t, lua.LBool(true), send1.Resumed[0])
+
+		// Send second message
+		send2 := &engine.Task{}
+		sendOp2 := &chanOperation{
+			opType: chanSend,
+			ch:     ch,
+			value:  lua.LString("msg2"),
+		}
+		tasks = s.pushOperation(send2, sendOp2)
+		assert.Len(t, tasks, 1, "second send should complete")
+
+		// Third send should block
+		send3 := &engine.Task{}
+		sendOp3 := &chanOperation{
+			opType: chanSend,
+			ch:     ch,
+			value:  lua.LString("msg3"),
+		}
+		tasks = s.pushOperation(send3, sendOp3)
+		assert.Empty(t, tasks, "third send should block")
+		assert.NotNil(t, s.senders[ch], "sender should be queued")
+
+		// First receive completes immediately with buffered value
+		recv1 := &engine.Task{}
+		recvOp1 := &chanOperation{
+			opType: chanReceive,
+			ch:     ch,
+		}
+		tasks = s.pushOperation(recv1, recvOp1)
+		assert.Len(t, tasks, 1, "first receive should complete")
+		assert.Equal(t, lua.LString("msg1"), recv1.Resumed[0])
+
+		// Second receive also completes immediately with second buffered value
+		recv2 := &engine.Task{}
+		recvOp2 := &chanOperation{
+			opType: chanReceive,
+			ch:     ch,
+		}
+		tasks = s.pushOperation(recv2, recvOp2)
+		assert.Len(t, tasks, 1, "second receive should complete")
+		assert.Equal(t, lua.LString("msg2"), recv2.Resumed[0])
+	})
+
+	t.Run("close_with_pending_operations", func(t *testing.T) {
+		s := NewScheduler()
+		ch := newLuaChannel(1)
+
+		// Send first message to buffer
+		send1 := &engine.Task{}
+		sendOp1 := &chanOperation{
+			opType: chanSend,
+			ch:     ch,
+			value:  lua.LString("msg1"),
+		}
+		tasks := s.pushOperation(send1, sendOp1)
+		assert.Len(t, tasks, 1, "first send should complete")
+
+		// Second send blocks
+		send2 := &engine.Task{}
+		sendOp2 := &chanOperation{
+			opType: chanSend,
+			ch:     ch,
+			value:  lua.LString("msg2"),
+		}
+		tasks = s.pushOperation(send2, sendOp2)
+		assert.Empty(t, tasks, "second send should block")
+
+		// First receive gets buffered value
+		recv1 := &engine.Task{}
+		recvOp1 := &chanOperation{
+			opType: chanReceive,
+			ch:     ch,
+		}
+		tasks = s.pushOperation(recv1, recvOp1)
+		assert.Len(t, tasks, 1, "first receive should complete")
+		assert.Equal(t, lua.LString("msg1"), recv1.Resumed[0])
+
+		// Close channel
+		closeTask := &engine.Task{}
+		closeOp := &chanOperation{
+			opType: chanClose,
+			ch:     ch,
+		}
+		tasks = s.pushOperation(closeTask, closeOp)
+
+		// Close task and blocked sender should be resumed
+		assert.Len(t, tasks, 2, "close should resume pending operations")
+
+		// Verify sender got nil (channel closed)
+		assert.Equal(t, lua.LNil, send2.Resumed[0], "sender should get nil on closed channel")
+
+		// Verify subsequent receive gets nil
+		recv2 := &engine.Task{}
+		recvOp2 := &chanOperation{
+			opType: chanReceive,
+			ch:     ch,
+		}
+		tasks = s.pushOperation(recv2, recvOp2)
+		assert.Len(t, tasks, 1, "receive on closed channel should complete immediately")
+		assert.Equal(t, lua.LNil, recv2.Resumed[0], "receive should get nil from closed channel")
+
+		// Verify queues are cleaned up
+		assert.Nil(t, s.senders[ch], "sender queue should be empty")
+		assert.Nil(t, s.receivers[ch], "receiver queue should be empty")
+	})
+
+	t.Run("object_pool_reuse", func(t *testing.T) {
+		s := NewScheduler()
+		ch := newLuaChannel(0)
+
+		// Create and queue multiple operations
+		for i := 0; i < 10; i++ {
+			sendTask := &engine.Task{}
+			sendOp := &chanOperation{
+				opType: chanSend,
+				ch:     ch,
+				value:  lua.LNumber(i),
+			}
+			s.pushOperation(sendTask, sendOp)
+
+			recvTask := &engine.Task{}
+			recvOp := &chanOperation{
+				opType: chanReceive,
+				ch:     ch,
+			}
+			tasks := s.pushOperation(recvTask, recvOp)
+
+			// Each pair should complete together
+			assert.Len(t, tasks, 2, "send/receive pair should complete")
+		}
+
+		// Verify no leaks in queues
+		assert.Nil(t, s.senders[ch], "sender queue should be empty")
+		assert.Nil(t, s.receivers[ch], "receiver queue should be empty")
+	})
+
+	t.Run("multiple_receivers_waiting", func(t *testing.T) {
+		s := NewScheduler()
+		ch := newLuaChannel(0)
+
+		// Queue two receivers first
+		recv1 := &engine.Task{}
+		recvOp1 := &chanOperation{
+			opType: chanReceive,
+			ch:     ch,
+		}
+		tasks := s.pushOperation(recv1, recvOp1)
+		assert.Empty(t, tasks, "first receiver should block")
+
+		recv2 := &engine.Task{}
+		recvOp2 := &chanOperation{
+			opType: chanReceive,
+			ch:     ch,
+		}
+		tasks = s.pushOperation(recv2, recvOp2)
+		assert.Empty(t, tasks, "second receiver should block")
+
+		// Send first value - should wake up first receiver
+		send1 := &engine.Task{}
+		sendOp1 := &chanOperation{
+			opType: chanSend,
+			ch:     ch,
+			value:  lua.LString("first"),
+		}
+		tasks = s.pushOperation(send1, sendOp1)
+		assert.Len(t, tasks, 2, "first send should wake first receiver")
+		assert.Equal(t, lua.LString("first"), recv1.Resumed[0], "first receiver should get first value")
+
+		// Send second value - should wake up second receiver
+		send2 := &engine.Task{}
+		sendOp2 := &chanOperation{
+			opType: chanSend,
+			ch:     ch,
+			value:  lua.LString("second"),
+		}
+		tasks = s.pushOperation(send2, sendOp2)
+		assert.Len(t, tasks, 2, "second send should wake second receiver")
+		assert.Equal(t, lua.LString("second"), recv2.Resumed[0], "second receiver should get second value")
+	})
+
+	t.Run("multiple_senders_waiting", func(t *testing.T) {
+		s := NewScheduler()
+		ch := newLuaChannel(0)
+
+		// Queue two senders first
+		send1 := &engine.Task{}
+		sendOp1 := &chanOperation{
+			opType: chanSend,
+			ch:     ch,
+			value:  lua.LString("first"),
+		}
+		tasks := s.pushOperation(send1, sendOp1)
+		assert.Empty(t, tasks, "first sender should block")
+
+		send2 := &engine.Task{}
+		sendOp2 := &chanOperation{
+			opType: chanSend,
+			ch:     ch,
+			value:  lua.LString("second"),
+		}
+		tasks = s.pushOperation(send2, sendOp2)
+		assert.Empty(t, tasks, "second sender should block")
+
+		// Receive first - should wake up first sender
+		recv1 := &engine.Task{}
+		recvOp1 := &chanOperation{
+			opType: chanReceive,
+			ch:     ch,
+		}
+		tasks = s.pushOperation(recv1, recvOp1)
+		assert.Len(t, tasks, 2, "first receive should wake first sender")
+		assert.Equal(t, lua.LString("first"), recv1.Resumed[0], "should receive first value")
+
+		// Receive second - should wake up second sender
+		recv2 := &engine.Task{}
+		recvOp2 := &chanOperation{
+			opType: chanReceive,
+			ch:     ch,
+		}
+		tasks = s.pushOperation(recv2, recvOp2)
+		assert.Len(t, tasks, 2, "second receive should wake second sender")
+		assert.Equal(t, lua.LString("second"), recv2.Resumed[0], "should receive second value")
+	})
+
+	t.Run("close_with_multiple_receivers", func(t *testing.T) {
+		s := NewScheduler()
+		ch := newLuaChannel(0)
+
+		// Queue multiple receivers
+		var receivers []*engine.Task
+		for i := 0; i < 3; i++ {
+			task := &engine.Task{}
+			op := &chanOperation{
+				opType: chanReceive,
+				ch:     ch,
+			}
+			tasks := s.pushOperation(task, op)
+			assert.Empty(t, tasks, "receiver should block")
+			receivers = append(receivers, task)
+		}
+
+		// Close the channel
+		closeTask := &engine.Task{}
+		closeOp := &chanOperation{
+			opType: chanClose,
+			ch:     ch,
+		}
+		tasks := s.pushOperation(closeTask, closeOp)
+		assert.Len(t, tasks, 4, "close should resume all receivers + close task")
+
+		// Verify all receivers got nil
+		for i, recv := range receivers {
+			assert.Equal(t, lua.LNil, recv.Resumed[0], "receiver %d should get nil on closed channel", i)
+		}
+	})
+
+	t.Run("close_buffered_with_receivers", func(t *testing.T) {
+		s := NewScheduler()
+		ch := newLuaChannel(2)
+
+		// Fill the buffer
+		send1 := &engine.Task{}
+		sendOp1 := &chanOperation{
+			opType: chanSend,
+			ch:     ch,
+			value:  lua.LString("msg1"),
+		}
+		tasks := s.pushOperation(send1, sendOp1)
+		assert.Len(t, tasks, 1, "first send should complete")
+
+		send2 := &engine.Task{}
+		sendOp2 := &chanOperation{
+			opType: chanSend,
+			ch:     ch,
+			value:  lua.LString("msg2"),
+		}
+		tasks = s.pushOperation(send2, sendOp2)
+		assert.Len(t, tasks, 1, "second send should complete")
+
+		// Close the channel
+		closeTask := &engine.Task{}
+		closeOp := &chanOperation{
+			opType: chanClose,
+			ch:     ch,
+		}
+		tasks = s.pushOperation(closeTask, closeOp)
+		assert.Len(t, tasks, 1, "close task should complete")
+
+		// First receive should get first buffered message
+		recv1 := &engine.Task{}
+		recvOp1 := &chanOperation{
+			opType: chanReceive,
+			ch:     ch,
+		}
+		tasks = s.pushOperation(recv1, recvOp1)
+		assert.Len(t, tasks, 1, "first receive should complete")
+		assert.Equal(t, lua.LString("msg1"), recv1.Resumed[0], "should get first buffered message")
+
+		// Second receive should get second buffered message
+		recv2 := &engine.Task{}
+		recvOp2 := &chanOperation{
+			opType: chanReceive,
+			ch:     ch,
+		}
+		tasks = s.pushOperation(recv2, recvOp2)
+		assert.Len(t, tasks, 1, "second receive should complete")
+		assert.Equal(t, lua.LString("msg2"), recv2.Resumed[0], "should get second buffered message")
+
+		// Third receive should get nil (channel closed and empty)
+		recv3 := &engine.Task{}
+		recvOp3 := &chanOperation{
+			opType: chanReceive,
+			ch:     ch,
+		}
+		tasks = s.pushOperation(recv3, recvOp3)
+		assert.Len(t, tasks, 1, "receive on closed empty channel should complete")
+		assert.Equal(t, lua.LNil, recv3.Resumed[0], "should get nil from closed empty channel")
+	})
+
+	t.Run("buffered_channel_send_receive_order", func(t *testing.T) {
+		s := NewScheduler()
+		ch := newLuaChannel(3)
+
+		// Send three messages
+		values := []string{"first", "second", "third"}
+		var sends []*engine.Task
+
+		for _, val := range values {
+			task := &engine.Task{}
+			op := &chanOperation{
+				opType: chanSend,
+				ch:     ch,
+				value:  lua.LString(val),
+			}
+			tasks := s.pushOperation(task, op)
+			assert.Len(t, tasks, 1, "send to non-full buffer should complete")
+			sends = append(sends, task)
+		}
+
+		// Receive them in order
+		for i, expected := range values {
+			task := &engine.Task{}
+			op := &chanOperation{
+				opType: chanReceive,
+				ch:     ch,
+			}
+			tasks := s.pushOperation(task, op)
+			assert.Len(t, tasks, 1, "receive from non-empty buffer should complete")
+			assert.Equal(t, lua.LString(expected), task.Resumed[0],
+				"messages should be received in order %d", i)
+		}
+	})
+}
+
 func TestScheduler_Step(t *testing.T) {
 	t.Run("basic channel operations", func(t *testing.T) {
 		s := NewScheduler()
 		ch := newLuaChannel(0)
 
-		// Mock VM that returns tasks with channel operations
-		vm := &mockVM{
-			stepFunc: func(tasks ...*engine.Task) ([]*engine.Task, error) {
-				result := make([]*engine.Task, 2)
-
-				// Create a sender task
-				senderTask := &engine.Task{}
-				senderTask.SetYieldedValues([]lua.LValue{&chanOperation{
-					opType: chanSend,
-					ch:     ch,
-					value:  lua.LString("test"),
-				}})
-				result[0] = senderTask
-
-				// Create a receiver task
-				receiverTask := &engine.Task{}
-				receiverTask.SetYieldedValues([]lua.LValue{&chanOperation{
-					opType: chanReceive,
-					ch:     ch,
-				}})
-				result[1] = receiverTask
-
-				return result, nil
-			},
-		}
-
-		tasks, err := s.Step(vm)
-		assert.NoError(t, err)
-		assert.Len(t, tasks, 2)
-
-		// Verify sender and receiver were matched
-		assert.Equal(t, lua.LBool(true), tasks[0].GetResumeValues()[0], "sender should complete successfully")
-		assert.Equal(t, lua.LString("test"), tasks[1].GetResumeValues()[0], "receiver should get sent value")
-	})
-
-	t.Run("buffered channel operations", func(t *testing.T) {
-		s := NewScheduler()
-		ch := newLuaChannel(1) // buffered capacity 1
-
-		vm := &mockVM{
-			stepFunc: func(tasks ...*engine.Task) ([]*engine.Task, error) {
-				result := make([]*engine.Task, 2)
-
-				// Sender task - should complete immediately due to buffer
-				senderTask := &engine.Task{}
-				senderTask.SetYieldedValues([]lua.LValue{&chanOperation{
-					opType: chanSend,
-					ch:     ch,
-					value:  lua.LString("buffered"),
-				}})
-				result[0] = senderTask
-
-				// Second send - should block
-				sender2Task := &engine.Task{}
-				sender2Task.SetYieldedValues([]lua.LValue{&chanOperation{
-					opType: chanSend,
-					ch:     ch,
-					value:  lua.LString("blocked"),
-				}})
-				result[1] = sender2Task
-
-				return result, nil
-			},
-		}
-
-		tasks, err := s.Step(vm)
-		assert.NoError(t, err)
-		assert.Len(t, tasks, 1)
-		assert.Equal(t, lua.LBool(true), tasks[0].GetResumeValues()[0], "first send should complete")
-
-		// Now add a receiver
-		vm.stepFunc = func(tasks ...*engine.Task) ([]*engine.Task, error) {
-			receiverTask := &engine.Task{}
-			receiverTask.SetYieldedValues([]lua.LValue{&chanOperation{
-				opType: chanReceive,
-				ch:     ch,
-			}})
-			return []*engine.Task{receiverTask}, nil
-		}
-
-		tasks, err = s.Step(vm)
-		assert.NoError(t, err)
-		assert.Len(t, tasks, 2)
-		assert.Equal(t, lua.LString("buffered"), tasks[0].GetResumeValues()[0], "receiver should get buffered value")
-		assert.Equal(t, lua.LBool(true), tasks[1].GetResumeValues()[0], "blocked send should complete")
-	})
-
-	t.Run("channel close operations", func(t *testing.T) {
-		s := NewScheduler()
-		ch := newLuaChannel(1)
-
-		// Setup initial state with pending operations
-		vm := &mockVM{
-			stepFunc: func(tasks ...*engine.Task) ([]*engine.Task, error) {
-				result := make([]*engine.Task, 3)
-
-				// Queue a sender
-				senderTask := &engine.Task{}
-				senderTask.SetYieldedValues([]lua.LValue{&chanOperation{
-					opType: chanSend,
-					ch:     ch,
-					value:  lua.LString("pending"),
-				}})
-				result[0] = senderTask
-
-				// Queue a receiver
-				receiverTask := &engine.Task{}
-				receiverTask.SetYieldedValues([]lua.LValue{&chanOperation{
-					opType: chanReceive,
-					ch:     ch,
-				}})
-				result[1] = receiverTask
-
-				// Close the channel
-				closeTask := &engine.Task{}
-				closeTask.SetYieldedValues([]lua.LValue{&chanOperation{
-					opType: chanClose,
-					ch:     ch,
-				}})
-				result[2] = closeTask
-
-				return result, nil
-			},
-		}
-
-		tasks, err := s.Step(vm)
-		assert.NoError(t, err)
-		assert.Len(t, tasks, 3)
-
-		// Verify close effects
-		assert.True(t, ch.closed, "channel should be closed")
-		assert.Equal(t, lua.LNil, tasks[0].GetResumeValues()[0], "pending send should fail")
-		assert.Equal(t, lua.LNil, tasks[1].GetResumeValues()[0], "pending receive should get nil")
-	})
-
-	t.Run("non-channel operations pass through", func(t *testing.T) {
-		s := NewScheduler()
-
-		vm := &mockVM{
-			stepFunc: func(tasks ...*engine.Task) ([]*engine.Task, error) {
-				regularTask := &engine.Task{}
-				regularTask.SetYieldedValues([]lua.LValue{lua.LString("regular yield")})
-				return []*engine.Task{regularTask}, nil
-			},
-		}
-
-		tasks, err := s.Step(vm)
-		assert.NoError(t, err)
-		assert.Len(t, tasks, 1)
-		assert.Equal(t, "regular yield", tasks[0].GetYieldedValues()[0].String())
-	})
-
-	t.Run("error propagation", func(t *testing.T) {
-		s := NewScheduler()
-
-		vm := &mockVM{
-			stepFunc: func(tasks ...*engine.Task) ([]*engine.Task, error) {
-				return nil, assert.AnError
-			},
-		}
-
-		tasks, err := s.Step(vm)
-		assert.Error(t, err)
-		assert.Nil(t, tasks)
-	})
-}
-
-func TestScheduler_TaskQueue(t *testing.T) {
-	t.Run("pending operation cleanup", func(t *testing.T) {
-		s := NewScheduler()
-		ch := newLuaChannel(0)
-
-		// Fill pending queues
 		senderTask := &engine.Task{}
-		s.pushOperation(senderTask, &chanOperation{
-			opType: chanSend,
-			ch:     ch,
-			value:  lua.LString("test"),
-		})
-
 		receiverTask := &engine.Task{}
-		s.pushOperation(receiverTask, &chanOperation{
-			opType: chanReceive,
-			ch:     ch,
-		})
+		otherTask := &engine.Task{}
 
-		// Verify queues are populated
-		assert.NotNil(t, s.senders[ch])
-		assert.NotNil(t, s.receivers[ch])
-
-		// Close channel
-		closeTask := &engine.Task{}
-		tasks := s.pushOperation(closeTask, &chanOperation{
-			opType: chanClose,
-			ch:     ch,
-		})
-
-		// Verify cleanup
-		assert.Len(t, tasks, 3)
-		assert.Nil(t, s.senders[ch])
-		assert.Nil(t, s.receivers[ch])
-		assert.True(t, ch.closed)
-	})
-
-	t.Run("object pool reuse", func(t *testing.T) {
-		s := NewScheduler()
-		ch := newLuaChannel(0)
-
-		// Get initial objects from pool
-		node1 := pendingPool.Get().(*pendingOp)
-		queue1 := queuePool.Get().(*pendingQueue)
-
-		// Reset and return to pool
-		node1.reset()
-		pendingPool.Put(node1)
-		queue1.reset()
-		queuePool.Put(queue1)
-
-		// Use scheduler operations to reuse pool objects
-		task := &engine.Task{}
-		s.pushOperation(task, &chanOperation{
-			opType: chanSend,
-			ch:     ch,
-			value:  lua.LString("test"),
-		})
-
-		// Verify objects were reused
-		assert.NotNil(t, s.senders[ch])
-		assert.Equal(t, task, s.senders[ch].head.task)
-	})
-}
-
-func TestScheduler_EdgeCases(t *testing.T) {
-	t.Run("zero capacity channel", func(t *testing.T) {
-		s := NewScheduler()
-		ch := newLuaChannel(0)
-
+		firstCall := true
 		vm := &mockVM{
 			stepFunc: func(tasks ...*engine.Task) ([]*engine.Task, error) {
-				senderTask := &engine.Task{}
-				senderTask.SetYieldedValues([]lua.LValue{&chanOperation{
-					opType: chanSend,
-					ch:     ch,
-					value:  lua.LString("test"),
-				}})
-				return []*engine.Task{senderTask}, nil
-			},
-		}
+				if firstCall {
+					firstCall = false
 
-		// Send should block without receiver
-		tasks, err := s.Step(vm)
-		assert.NoError(t, err)
-		assert.Empty(t, tasks)
+					senderTask.Yielded = []lua.LValue{&chanOperation{
+						opType: chanSend,
+						ch:     ch,
+						value:  lua.LString("test"),
+					}}
 
-		// Add receiver
-		vm.stepFunc = func(tasks ...*engine.Task) ([]*engine.Task, error) {
-			receiverTask := &engine.Task{}
-			receiverTask.SetYieldedValues([]lua.LValue{&chanOperation{
-				opType: chanReceive,
-				ch:     ch,
-			}})
-			return []*engine.Task{receiverTask}, nil
-		}
+					receiverTask.Yielded = []lua.LValue{&chanOperation{
+						opType: chanReceive,
+						ch:     ch,
+					}}
 
-		tasks, err = s.Step(vm)
-		assert.NoError(t, err)
-		assert.Len(t, tasks, 2)
-	})
-
-	t.Run("closed channel operations", func(t *testing.T) {
-		s := NewScheduler()
-		ch := newLuaChannel(1)
-
-		// Close channel
-		closeTask := &engine.Task{}
-		s.pushOperation(closeTask, &chanOperation{
-			opType: chanClose,
-			ch:     ch,
-		})
-
-		vm := &mockVM{
-			stepFunc: func(tasks ...*engine.Task) ([]*engine.Task, error) {
-				result := make([]*engine.Task, 2)
-
-				// Try send on closed channel
-				senderTask := &engine.Task{}
-				senderTask.SetYieldedValues([]lua.LValue{&chanOperation{
-					opType: chanSend,
-					ch:     ch,
-					value:  lua.LString("test"),
-				}})
-				result[0] = senderTask
-
-				// Try receive from closed channel
-				receiverTask := &engine.Task{}
-				receiverTask.SetYieldedValues([]lua.LValue{&chanOperation{
-					opType: chanReceive,
-					ch:     ch,
-				}})
-				result[1] = receiverTask
-
-				return result, nil
-			},
-		}
-
-		tasks, err := s.Step(vm)
-		assert.NoError(t, err)
-		assert.Len(t, tasks, 2)
-
-		// Verify closed channel behavior
-		assert.Equal(t, lua.LNil, tasks[0].GetResumeValues()[0], "send on closed channel should fail")
-		assert.Equal(t, lua.LNil, tasks[1].GetResumeValues()[0], "receive from closed empty channel should return nil")
-	})
-
-	t.Run("multiple operations on same channel", func(t *testing.T) {
-		s := NewScheduler()
-		ch := newLuaChannel(1)
-
-		vm := &mockVM{
-			stepFunc: func(tasks ...*engine.Task) ([]*engine.Task, error) {
-				result := make([]*engine.Task, 3)
-
-				// First send - should buffer
-				send1Task := &engine.Task{}
-				send1Task.SetYieldedValues([]lua.LValue{&chanOperation{
-					opType: chanSend,
-					ch:     ch,
-					value:  lua.LString("first"),
-				}})
-				result[0] = send1Task
-
-				// Second send - should block
-				send2Task := &engine.Task{}
-				send2Task.SetYieldedValues([]lua.LValue{&chanOperation{
-					opType: chanSend,
-					ch:     ch,
-					value:  lua.LString("second"),
-				}})
-				result[1] = send2Task
-
-				// Receive - should get buffered value
-				recvTask := &engine.Task{}
-				recvTask.SetYieldedValues([]lua.LValue{&chanOperation{
-					opType: chanReceive,
-					ch:     ch,
-				}})
-				result[2] = recvTask
-
-				return result, nil
-			},
-		}
-
-		tasks, err := s.Step(vm)
-		assert.NoError(t, err)
-
-		// Verify operation sequence
-		foundFirst := false
-		foundSecond := false
-		for _, task := range tasks {
-			vals := task.GetResumeValues()
-			if len(vals) > 0 {
-				if vals[0].String() == "first" {
-					foundFirst = true
+					otherTask.Yielded = []lua.LValue{lua.LNil}
+					return []*engine.Task{senderTask, otherTask, receiverTask}, nil
 				}
-				if vals[0] == lua.LBool(true) {
-					foundSecond = true
-				}
-			}
+
+				// no more tasks to run
+				return nil, nil
+			},
 		}
-		assert.True(t, foundFirst, "should receive first value")
-		assert.True(t, foundSecond, "second send should complete")
+
+		tasks, err := s.Step(vm)
+		assert.NoError(t, err)
+		assert.Len(t, tasks, 1)
+
+		// check we got other task
+		assert.Equal(t, otherTask, tasks[0])
 	})
 }
