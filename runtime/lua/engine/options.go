@@ -36,7 +36,7 @@ func WithLibrary(name string, source string) Option {
 			return 1 // Success
 		}
 
-		// Use vm.state.PreloadModule to register the loader
+		// Use vm.State.PreloadModule to register the loader
 		vm.state.PreloadModule(name, loader)
 	}
 }
@@ -45,6 +45,25 @@ func WithLibrary(name string, source string) Option {
 func WithLoader(name string, loader lua.LGFunction) Option {
 	return func(vm *VM) {
 		vm.state.PreloadModule(name, loader)
+	}
+}
+
+func WithPreloaded(name string, loader lua.LGFunction) Option {
+	return func(vm *VM) {
+		// Create module instance using loader
+		L := vm.state
+		L.Push(L.NewFunction(loader))
+		err := L.PCall(0, lua.MultRet, nil)
+		if err != nil {
+			vm.initErrors = append(vm.initErrors, fmt.Errorf("preload %s failed: %w", name, err))
+			return
+		}
+
+		// Set module result as global
+		if L.GetTop() > 0 {
+			L.SetGlobal(name, L.Get(-1))
+			L.Pop(1)
+		}
 	}
 }
 
