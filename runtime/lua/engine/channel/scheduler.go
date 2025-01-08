@@ -274,8 +274,12 @@ func (s *Scheduler) handleClose(task *engine.Task, op *chanOperation) []*engine.
 
 	// resume all senders with channel closed indicator
 	for sender := s.dequeue(s.senders, ch); sender != nil; sender = s.dequeue(s.senders, ch) {
-		// todo: handle select cases
-		sender.task.Resumed = []lua.LValue{lua.LNil} // channel closed
+		if sender.selectCase == nil {
+			sender.task.Resumed = []lua.LValue{lua.LNil} // channel closed
+		} else {
+			sender.task.Error = fmt.Errorf("channel closed")
+		}
+
 		result = append(result, sender.task)
 		sender.reset()
 		pendingPool.Put(sender)
@@ -283,13 +287,25 @@ func (s *Scheduler) handleClose(task *engine.Task, op *chanOperation) []*engine.
 
 	// handle receivers - they can still get buffered values
 	for receiver := s.dequeue(s.receivers, ch); receiver != nil; receiver = s.dequeue(s.receivers, ch) {
-		// todo: handle select cases
 		// Try to receive any buffered value first
 		if value, ok := ch.receive(); ok {
-			receiver.task.Resumed = []lua.LValue{value, lua.LBool(true)}
+			if receiver.selectCase == nil {
+				receiver.task.Resumed = []lua.LValue{value, lua.LBool(true)}
+			} else {
+				receiver.task.Resumed = []lua.LValue{receiver.selectCase.makeCaseResult(
+					receiver.task.Thread(), ch, value, true,
+				)}
+			}
 		} else {
-			receiver.task.Resumed = []lua.LValue{lua.LNil, lua.LBool(false)} // channel closed
+			if receiver.selectCase == nil {
+				receiver.task.Resumed = []lua.LValue{lua.LNil, lua.LBool(false)} // channel closed
+			} else {
+				receiver.task.Resumed = []lua.LValue{receiver.selectCase.makeCaseResult(
+					receiver.task.Thread(), ch, nil, false,
+				)}
+			}
 		}
+
 		result = append(result, receiver.task)
 
 		receiver.reset()

@@ -18,6 +18,7 @@ type Task struct {
 	State   lua.ResumeState
 	Yielded []lua.LValue
 	Resumed []lua.LValue
+	Error   error
 }
 
 func (t *Task) Thread() *lua.LState {
@@ -163,7 +164,16 @@ func (e *CoroutineVM) createCoroutine(fn *lua.LFunction) (*Task, error) {
 	return task, nil
 }
 
-func (e *CoroutineVM) Step(tasks ...*Task) ([]*Task, error) {
+func (e *CoroutineVM) Step(tasks ...*Task) (result []*Task, finalErr error) {
+	// at the moment Lua5.1 does not allow to use yields as part of pcall, doing that will cause engine panic
+	// so we need to recover from it in case of user error
+	// todo: properly isolate this issue and make upstream PR
+	defer func() {
+		if r := recover(); r != nil {
+			finalErr = fmt.Errorf("panic: %v", r)
+		}
+	}()
+
 	// Add tasks to queue
 	for _, t := range tasks {
 		e.queue.Push(t)
@@ -193,12 +203,17 @@ func (e *CoroutineVM) Step(tasks ...*Task) ([]*Task, error) {
 				return nil, fmt.Errorf("error removing task: %v", err)
 			}
 		case lua.ResumeYield:
-			// Continue
-			state, err, values = e.vm.State().Resume(task.thread, nil, task.Resumed...)
-
-			if err != nil {
+			if task.Error != nil {
+				task.thread.RaiseError(task.Error.Error())
 				_ = e.removeTask(task)
-				return nil, fmt.Errorf("error resuming task: %v", err)
+				return nil, fmt.Errorf("error in task: %v", task.Error)
+			} else {
+				// Continue
+				state, err, values = e.vm.State().Resume(task.thread, nil, task.Resumed...)
+				if err != nil {
+					_ = e.removeTask(task)
+					return nil, fmt.Errorf("error resuming task: %v", err)
+				}
 			}
 		default:
 			return nil, fmt.Errorf("invalid task state: %v", task.State)
