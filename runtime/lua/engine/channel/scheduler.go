@@ -94,6 +94,11 @@ func (s *Scheduler) handleSelect(task *engine.Task, op *selectOperation) []*engi
 			selectCase: selectData,
 		}
 
+		if ch.IsExternal() {
+			s.external.addReceiver(ch.ExternalName(), pOp) // not queued since handled from outside
+			continue
+		}
+
 		// Queue based on operation type
 		if sc.dir == chanSend {
 			s.enqueue(s.senders, ch, pOp)
@@ -323,8 +328,26 @@ func (s *Scheduler) ActiveSignals() []string {
 // Signal sends a value to an external channel
 func (s *Scheduler) Signal(name string, value lua.LValue) []*engine.Task {
 	if op := s.external.popReceiver(name); op != nil {
-		op.task.Resumed = []lua.LValue{value, lua.LBool(true)}
+		// If this was part of a select, clean up other external channels
+		if op.selectCase != nil {
+			for _, sc := range op.selectCase.channels {
+				ch := sc.Channel()
+				if ch != nil && ch.IsExternal() && ch.ExternalName() != name {
+					s.external.removeReceiver(ch.ExternalName(), op)
+				}
+			}
+		}
 
+		if op.selectCase == nil {
+			op.task.Resumed = []lua.LValue{value, lua.LBool(true)}
+		} else {
+			op.task.Resumed = []lua.LValue{op.selectCase.makeCaseResult(
+				op.task.Thread(),
+				op.op.ch,
+				value,
+				true,
+			)}
+		}
 		results := []*engine.Task{op.task}
 
 		op.reset()
@@ -332,6 +355,5 @@ func (s *Scheduler) Signal(name string, value lua.LValue) []*engine.Task {
 
 		return results
 	}
-
 	return nil
 }
