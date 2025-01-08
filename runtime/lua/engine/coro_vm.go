@@ -9,27 +9,14 @@ import (
 )
 
 type Task struct {
-	l             *lua.LState
-	thread        *lua.LState
-	state         lua.ResumeState
-	yieldedVals   []lua.LValue
-	resumeVal     lua.LValue
-	cancel        context.CancelFunc
-	yieldCycle    int
-	lastYieldVals []lua.LValue // Last yielded values before polling
-	fn            *lua.LFunction
-}
+	l      *lua.LState
+	thread *lua.LState
+	cancel context.CancelFunc
+	fn     *lua.LFunction
 
-func (t *Task) IsYielded() bool {
-	return t.state == lua.ResumeYield
-}
-
-func (t *Task) GetYieldedValues() []lua.LValue {
-	return t.yieldedVals
-}
-
-func (t *Task) SetResumeValue(val lua.LValue) {
-	t.resumeVal = val
+	State   lua.ResumeState
+	Yielded []lua.LValue
+	Resumed []lua.LValue
 }
 
 type taskQueue struct {
@@ -60,12 +47,10 @@ func (q *taskQueue) IsEmpty() bool {
 }
 
 type CoroutineVM struct {
-	ctx        context.Context
-	vm         *VM
-	tasks      []*Task
-	queue      *taskQueue
-	chanCoord  *ChannelCoordinator
-	yieldCycle int
+	ctx   context.Context
+	vm    *VM
+	tasks []*Task
+	queue *taskQueue
 }
 
 func NewCoroutineVM(
@@ -83,15 +68,13 @@ func NewCoroutineVM(
 	}
 
 	avm := &CoroutineVM{
-		ctx:       ctx,
-		vm:        vm,
-		tasks:     make([]*Task, 0),
-		queue:     newTaskQueue(),
-		chanCoord: NewChannelCoordinator(),
+		ctx:   ctx,
+		vm:    vm,
+		tasks: make([]*Task, 0),
+		queue: newTaskQueue(),
 	}
 	avm.vm.state.SetContext(ctx)
 	avm.bindCoroutines()
-	avm.bindChannels()
 
 	return avm, nil
 }
@@ -160,7 +143,7 @@ func (e *CoroutineVM) createCoroutine(fn *lua.LFunction) (*Task, error) {
 		thread: thread,
 		cancel: cancel,
 		fn:     fn,
-		state:  -1,
+		State:  -1,
 	}
 
 	e.tasks = append(e.tasks, task)
@@ -175,72 +158,64 @@ func (e *CoroutineVM) Step(tasks ...*Task) ([]*Task, error) {
 		e.queue.Push(t)
 	}
 
-	e.yieldCycle++
-
 	var state lua.ResumeState
 	var err error
 	var values []lua.LValue
 
+	yieldedTasks := make([]*Task, 0)
+
 	for !e.queue.IsEmpty() {
 		task := e.queue.Pop()
 
-		switch task.state {
+		switch task.State {
 		case -1:
 			// Start
 			state, err, values = e.vm.state.Resume(task.thread, task.fn)
 			if err != nil {
 				task.cancel()
+				_ = e.removeTask(task)
 				return nil, fmt.Errorf("error starting task: %v", err)
+			}
+		case lua.ResumeOK:
+			// Done
+			if err := e.removeTask(task); err != nil {
+				return nil, fmt.Errorf("error removing task: %v", err)
 			}
 		case lua.ResumeYield:
 			// Continue
-			state, err, values = e.vm.State().Resume(task.thread, nil, task.resumeVal)
+			state, err, values = e.vm.State().Resume(task.thread, nil, task.Resumed...)
+
 			if err != nil {
+				_ = e.removeTask(task)
 				return nil, fmt.Errorf("error resuming task: %v", err)
 			}
 		default:
-			return nil, fmt.Errorf("invalid task state: %v", task.state)
+			return nil, fmt.Errorf("invalid task state: %v", task.State)
 		}
 
-		task.state = state
-		task.yieldedVals = values
-		task.resumeVal = nil
+		task.State = state
+		task.Yielded = values
+		task.Resumed = nil
 
 		if state == lua.ResumeYield {
-			// We handle channel operations inside the VM
-			if op := getChannelOp(task.yieldedVals); op != nil {
-				for _, t := range e.chanCoord.PushOperation(task, op) {
-					e.queue.Push(t)
-				}
-				continue
-			}
-
-			task.yieldCycle = e.yieldCycle
+			yieldedTasks = append(yieldedTasks, task)
 		}
 	}
 
-	// get all tasks that are pending on external yields after this cycle
-	newlyYielded := make([]*Task, 0)
-	for _, t := range e.tasks {
-		if t.IsYielded() && t.yieldCycle == e.yieldCycle {
-			newlyYielded = append(newlyYielded, t)
-		}
-	}
-
-	return newlyYielded, nil
+	return yieldedTasks, nil
 }
 
 func (e *CoroutineVM) GetYieldedTasks() []*Task {
 	yielded := make([]*Task, 0)
 	for _, task := range e.tasks {
-		if task.IsYielded() {
+		if task.State == lua.ResumeYield {
 			yielded = append(yielded, task)
 		}
 	}
 	return yielded
 }
 
-func (e *CoroutineVM) RemoveTask(task *Task) error {
+func (e *CoroutineVM) removeTask(task *Task) error {
 	for i, t := range e.tasks {
 		if t == task {
 			if task.cancel != nil {
@@ -262,18 +237,5 @@ func (e *CoroutineVM) Close() error {
 	if e.vm != nil {
 		e.vm.Close()
 	}
-	return nil
-}
-
-// Get first channel operation from yielded values if present
-func getChannelOp(values []lua.LValue) *ChanOperation {
-	if len(values) == 0 {
-		return nil
-	}
-
-	if op, ok := values[0].(*ChanOperation); ok {
-		return op
-	}
-
 	return nil
 }
