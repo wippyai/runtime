@@ -339,10 +339,10 @@ func TestModule_BlockingSelects(t *testing.T) {
 				})
 	
 				-- Should only get here after one operation succeeds
-				assert(result.channel == ch1, "wrong channel selected")	
+				assert(result.channel == ch1, "wrong channel selected")
 				assert(result.ok, "operation should succeed")
 				assert(result.value == "test_value", "wrong value received")
-				
+	
 				coroutine.yield("select_complete")
 			end)
 	
@@ -380,5 +380,109 @@ func TestModule_BlockingSelects(t *testing.T) {
 		}
 
 		assert.Equal(t, expectedYields, yields, "incorrect yield sequence")
+	})
+
+	t.Run("basic blocking select closed on receive", func(t *testing.T) {
+		vm, err := engine.NewCoroutineVM(
+			context.Background(), logger,
+			engine.WithPreloaded("channel", NewChannelModule().Loader),
+		)
+		assert.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.PushScript(`
+			-- Create channels
+			local ch1 = channel.new(0)  -- unbuffered
+			local ch2 = channel.new(0)  -- unbuffered
+	
+			-- First coroutine: blocks on select waiting for send or receive
+			coroutine.spawn(function()
+				local result = channel.select({
+					ch1:case_receive(),
+					ch2:case_send("test")
+				})
+	
+				-- Should only get here after one operation succeeds
+				assert(result.channel == ch1, "must indicate closed channel")
+				assert(result.ok == false, "operation should indicate closed channel")
+				coroutine.yield("select_complete")
+			end)
+	
+			-- Second coroutine: sleeps then enables one of the operations
+			coroutine.spawn(function()
+				coroutine.yield("helper_starting")
+				local ok = ch1:close()
+				assert(ok, "can not close")
+				coroutine.yield("helper_complete")
+			end)
+		`, "test")
+
+		assert.NoError(t, err)
+
+		scheduler := NewScheduler()
+		tasks, err := scheduler.Step(vm)
+		assert.NoError(t, err)
+
+		var yields []string
+		for len(tasks) > 0 {
+			for _, task := range tasks {
+				if vals := task.Yielded; len(vals) > 0 {
+					yields = append(yields, vals[0].String())
+				}
+			}
+			tasks, err = scheduler.Step(vm, tasks...)
+			assert.NoError(t, err)
+		}
+
+		// Verify the sequence of operations
+		expectedYields := []string{
+			"helper_starting",
+			"helper_complete",
+			"select_complete",
+		}
+
+		assert.Equal(t, expectedYields, yields, "incorrect yield sequence")
+	})
+
+	t.Run("basic blocking select closed on send", func(t *testing.T) {
+		vm, err := engine.NewCoroutineVM(
+			context.Background(), logger,
+			engine.WithPreloaded("channel", NewChannelModule().Loader),
+		)
+		assert.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.PushScript(`
+			-- Create channels
+			local ch1 = channel.new(0)  -- unbuffered
+			local ch2 = channel.new(0)  -- unbuffered
+			
+			-- First coroutine: blocks on select waiting for send or receive
+			coroutine.spawn(function()	
+				-- will panic!
+				channel.select{
+					ch1:case_receive(),
+					ch2:case_send("test")
+				}
+			end)
+			
+			-- Second coroutine: sleeps then closes ch2
+			coroutine.spawn(function()
+				coroutine.yield("helper_starting")
+				local ok = ch2:close() -- Close ch2 (the send channel)
+				assert(ok, "cannot close ch2")
+				coroutine.yield("helper_complete")
+			end)
+		`, "test")
+
+		assert.NoError(t, err)
+
+		scheduler := NewScheduler()
+		tasks, err := scheduler.Step(vm)
+
+		assert.NoError(t, err)
+
+		tasks, err = scheduler.Step(vm, tasks...)
+		assert.Error(t, err) // send to closed channel
 	})
 }
