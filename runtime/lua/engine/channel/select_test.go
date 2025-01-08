@@ -181,53 +181,51 @@ func TestModule_ImmediateSelects(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.PushScript(`
-        coroutine.spawn(function()
-    	    -- Test receive on closed channel
-	        local ch = channel.new(1)
-            ch:close()
-        	coroutine.yield("closed")
+		-- Test receive on closed channel
+		local ch = channel.new(1)
+		ch:close()
+		coroutine.yield("closed")
 
-			-- Rest can be immediate operations
-			local result = channel.select{
-				ch:case_receive(),
-				default = true
-			}
-			assert(result.channel == ch, "closed channel receive should be selected")
-			assert(result.ok == false, "receive on closed should set ok=false")
-			assert(result.value == nil, "receive on closed should return nil")
-	
-			-- Test send to closed channel (should error)
-			local ok, err = pcall(function()
-				channel.select{
-					ch:case_send("test")
-				}
-			end)
-			assert(not ok, "send on closed channel should error")
-			assert(string.find(err, "attempt to send on closed channel"), 
-				   "wrong error message: " .. err)
-	
-			-- Test receive when there's a value before close
-			local ch2 = channel.new(1)
-			ch2:send("last value")
-			
-			ch2:close()
-			coroutine.yield("closed2")
+		-- Rest can be immediate operations
+		local result = channel.select{
+			ch:case_receive(),
+			default = true
+		}
+		assert(result.channel == ch, "closed channel receive should be selected")
+		assert(result.ok == false, "receive on closed should set ok=false")
+		assert(result.value == nil, "receive on closed should return nil")
 
-			result = channel.select{
-				ch2:case_receive()
+		-- Test send to closed channel (should error)
+		local ok, err = pcall(function()
+			channel.select{
+				ch:case_send("test")
 			}
-			assert(result.channel == ch2, "should receive from closed channel with value")
-			assert(result.value == "last value", "should get buffered value")
-			assert(result.ok == true, "receive buffered value should set ok=true")
-			
-			-- Next receive should indicate closed
-			result = channel.select{
-				ch2:case_receive()
-			}
-			assert(result.channel == ch2, "should receive from empty closed channel")
-			assert(result.value == nil, "should get nil from empty closed channel")
-			assert(result.ok == false, "should indicate channel closed")
-        end)
+		end)
+		assert(not ok, "send on closed channel should error")
+		assert(string.find(err, "attempt to send on closed channel"), 
+			   "wrong error message: " .. err)
+
+		-- Test receive when there's a value before close
+		local ch2 = channel.new(1)
+		ch2:send("last value")
+		
+		ch2:close()
+		coroutine.yield("closed2")
+
+		result = channel.select{
+			ch2:case_receive()
+		}
+		assert(result.channel == ch2, "should receive from closed channel with value")
+		assert(result.value == "last value", "should get buffered value")
+		assert(result.ok == true, "receive buffered value should set ok=true")
+		
+		-- Next receive should indicate closed
+		result = channel.select{
+			ch2:case_receive()
+		}
+		assert(result.channel == ch2, "should receive from empty closed channel")
+		assert(result.value == nil, "should get nil from empty closed channel")
+		assert(result.ok == false, "should indicate channel closed")
     `, "test")
 
 		assert.NoError(t, err)
