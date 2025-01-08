@@ -28,6 +28,7 @@ func (m *Module) Loader(L *lua.LState) int {
 
 	// Register functions
 	L.SetField(mod, "new", L.NewFunction(m.new))
+	L.SetField(mod, "external", L.NewFunction(m.newExternal))
 	L.SetField(mt, "send", L.NewFunction(m.send))
 	L.SetField(mt, "receive", L.NewFunction(m.receive))
 	L.SetField(mt, "close", L.NewFunction(m.close))
@@ -60,6 +61,11 @@ func (m *Module) new(L *lua.LState) int {
 func (m *Module) send(L *lua.LState) int {
 	ch := L.CheckUserData(1).Value.(*Channel)
 	value := L.CheckAny(2)
+
+	if ch.IsExternal() {
+		L.RaiseError("cannot send to external channel")
+		return 0
+	}
 
 	if ch.closed {
 		L.RaiseError("attempt to send on closed channel")
@@ -105,6 +111,11 @@ func (m *Module) receive(L *lua.LState) int {
 func (m *Module) close(L *lua.LState) int {
 	ch := L.CheckUserData(1).Value.(*Channel)
 
+	if ch.IsExternal() {
+		L.RaiseError("cannot close external channel")
+		return 0
+	}
+
 	if ch.closed {
 		L.RaiseError("attempt to close already closed channel")
 		return 0
@@ -112,4 +123,16 @@ func (m *Module) close(L *lua.LState) int {
 
 	L.Yield(&chanOperation{opType: chanClose, ch: ch})
 	return -1
+}
+
+// todo: this is temp
+func (m *Module) newExternal(L *lua.LState) int {
+	ch := newExternalChannel(L.CheckString(1))
+	ud := L.NewUserData()
+	ud.Value = ch
+
+	L.SetMetatable(ud, L.GetTypeMetatable("channel"))
+	L.Push(ud)
+
+	return 1
 }

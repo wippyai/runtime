@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
+	"log"
 	"testing"
 )
 
@@ -311,281 +312,281 @@ func TestModule_Operations(t *testing.T) {
 func TestModule_YieldSequences(t *testing.T) {
 	logger := zap.NewNop()
 
-	//t.Run("buffer wrapping with yield verification", func(t *testing.T) {
-	//	scheduler := NewScheduler()
-	//	channels := NewChannelModule()
-	//
-	//	vm, err := engine.NewCoroutineVM(
-	//		context.Background(), logger,
-	//		engine.WithPreloaded(channels.Name(), channels.Loader),
-	//	)
-	//	assert.NoError(t, err)
-	//	defer vm.Close()
-	//
-	//	err = vm.DoString(`
-	//        local ch = channel.new(3)
-	//        local sends_complete = false
-	//
-	//        -- Sender that fills buffer
-	//        coroutine.spawn(function()
-	//            -- Fill buffer
-	//            assert(ch:send("1"), "first send")
-	//            coroutine.yield("sent_1")
-	//
-	//            assert(ch:send("2"), "second send")
-	//            coroutine.yield("sent_2")
-	//
-	//            assert(ch:send("3"), "third send")
-	//            coroutine.yield("sent_3")
-	//
-	//            sends_complete = true
-	//            coroutine.yield("sends_complete")
-	//        end)
-	//
-	//        -- Receiver that waits for sends to complete
-	//        coroutine.spawn(function()
-	//            -- Wait for sends to complete
-	//            while not sends_complete do
-	//                coroutine.yield("waiting")
-	//            end
-	//
-	//            -- Now receive all values
-	//            local v1, ok = ch:receive()
-	//            assert(ok and v1 == "1", "receive 1")
-	//            coroutine.yield("received_1")
-	//
-	//            local v2, ok = ch:receive()
-	//            assert(ok and v2 == "2", "receive 2")
-	//            coroutine.yield("received_2")
-	//
-	//            local v3, ok = ch:receive()
-	//            assert(ok and v3 == "3", "receive 3")
-	//            coroutine.yield("received_3")
-	//
-	//            coroutine.yield("receiver_done")
-	//        end)
-	//    `, "test")
-	//
-	//	assert.NoError(t, err)
-	//
-	//	tasks, err := scheduler.Step(vm)
-	//	assert.NoError(t, err)
-	//
-	//	yields := []string{}
-	//	for len(tasks) > 0 {
-	//		for _, task := range tasks {
-	//			if len(task.Yielded) > 0 {
-	//				yields = append(yields, task.Yielded[0].String())
-	//			}
-	//		}
-	//		tasks, err = scheduler.Step(vm, tasks...)
-	//		assert.NoError(t, err)
-	//	}
-	//
-	//	// We care about the relative ordering of sends and receives,
-	//	// not the exact sequence of "waiting" yields
-	//	filteredYields := []string{}
-	//	for _, y := range yields {
-	//		if y != "waiting" {
-	//			filteredYields = append(filteredYields, y)
-	//		}
-	//	}
-	//
-	//	expectedYields := []string{
-	//		"sent_1",
-	//		"sent_2",
-	//		"sent_3",
-	//		"sends_complete",
-	//		"received_1",
-	//		"received_2",
-	//		"received_3",
-	//		"receiver_done",
-	//	}
-	//
-	//	assert.Equal(t, expectedYields, filteredYields, "incorrect yield sequence")
-	//})
-	//
-	//t.Run("value type preservation", func(t *testing.T) {
-	//	vm, err := engine.NewCoroutineVM(
-	//		context.Background(), logger,
-	//		engine.WithPreloaded("channel", NewChannelModule().Loader),
-	//	)
-	//	assert.NoError(t, err)
-	//	defer vm.Close()
-	//
-	//	err = vm.DoString(`
-	//		local ch = channel.new(1)
-	//		local results = {}
-	//
-	//		-- Test different Lua value types
-	//		coroutine.spawn(function()
-	//			-- String
-	//			assert(ch:send("test string"))
-	//			coroutine.yield("sent_string")
-	//
-	//			-- Number
-	//			assert(ch:send(42.5))
-	//			coroutine.yield("sent_number")
-	//
-	//			-- Boolean
-	//			assert(ch:send(true))
-	//			coroutine.yield("sent_boolean")
-	//
-	//			-- Table
-	//			local t = {key = "value", nested = {1, 2, 3}}
-	//			assert(ch:send(t))
-	//			coroutine.yield("sent_table")
-	//
-	//			-- Nil
-	//			assert(ch:send(nil))
-	//			coroutine.yield("sent_nil")
-	//
-	//			coroutine.yield("sends_complete")
-	//		end)
-	//
-	//		-- Receiver verifies type preservation
-	//		coroutine.spawn(function()
-	//			-- String
-	//			local v, ok = ch:receive()
-	//			assert(ok and type(v) == "string" and v == "test string")
-	//			coroutine.yield("received_string")
-	//
-	//			-- Number
-	//			v, ok = ch:receive()
-	//			assert(ok and type(v) == "number" and v == 42.5)
-	//			coroutine.yield("received_number")
-	//
-	//			-- Boolean
-	//			v, ok = ch:receive()
-	//			assert(ok and type(v) == "boolean" and v == true)
-	//			coroutine.yield("received_boolean")
-	//
-	//			-- Table
-	//			v, ok = ch:receive()
-	//			assert(ok and type(v) == "table")
-	//			assert(v.key == "value" and v.nested[1] == 1)
-	//			coroutine.yield("received_table")
-	//
-	//			-- Nil
-	//			v, ok = ch:receive()
-	//			assert(ok and v == nil)
-	//			coroutine.yield("received_nil")
-	//
-	//			coroutine.yield("receives_complete")
-	//		end)
-	//	`, "test")
-	//
-	//	assert.NoError(t, err)
-	//
-	//	var yields []string
-	//	tasks, _ := vm.Step()
-	//	for len(tasks) > 0 {
-	//		for _, task := range tasks {
-	//			if vals := task.Yielded; len(vals) > 0 {
-	//				yields = append(yields, vals[0].String())
-	//			}
-	//		}
-	//		var err error
-	//		tasks, err = vm.Step(tasks...)
-	//		assert.NoError(t, err)
-	//	}
-	//
-	//	// Verify type preservation sequence
-	//	expectedYields := []string{
-	//		"sent_string",
-	//		"received_string",
-	//		"sent_number",
-	//		"received_number",
-	//		"sent_boolean",
-	//		"received_boolean",
-	//		"sent_table",
-	//		"received_table",
-	//		"sent_nil",
-	//		"received_nil",
-	//		"sends_complete",
-	//		"receives_complete",
-	//	}
-	//
-	//	assert.Equal(t, expectedYields, yields, "incorrect type sequence")
-	//})
-	//
-	//t.Run("cleanup and reference handling", func(t *testing.T) {
-	//	scheduler := NewScheduler()
-	//	channels := NewChannelModule()
-	//
-	//	vm, err := engine.NewCoroutineVM(
-	//		context.Background(), logger,
-	//		engine.WithPreloaded(channels.Name(), channels.Loader),
-	//	)
-	//	assert.NoError(t, err)
-	//	defer vm.Close()
-	//
-	//	err = vm.DoString(`
-	//		local ch = channel.new(3)
-	//		local refs = {}
-	//
-	//		-- Create some table references
-	//		local t1 = {data = "table1"}
-	//		local t2 = {data = "table2"}
-	//
-	//		coroutine.spawn(function()
-	//			-- Fill channel
-	//			assert(ch:send(t1))
-	//			coroutine.yield("sent_t1")
-	//
-	//			assert(ch:send(t2))
-	//			coroutine.yield("sent_t2")
-	//
-	//			-- Close channel
-	//			ch:close()
-	//			coroutine.yield("channel_closed")
-	//		end)
-	//
-	//		-- Receiver verifies cleanup
-	//		coroutine.spawn(function()
-	//			-- Get values before cleanup
-	//			local v1, ok = ch:receive()
-	//			assert(ok and v1.data == "table1")
-	//			coroutine.yield("received_t1")
-	//
-	//			local v2, ok = ch:receive()
-	//			assert(ok and v2.data == "table2")
-	//			coroutine.yield("received_t2")
-	//
-	//			-- Should get nil after close
-	//			local v3, ok = ch:receive()
-	//			assert(not ok and v3 == nil)
-	//			coroutine.yield("received_nil")
-	//		end)
-	//	`, "test")
-	//
-	//	assert.NoError(t, err)
-	//
-	//	var yields []string
-	//	tasks, _ := scheduler.Step(vm)
-	//	for len(tasks) > 0 {
-	//		for _, task := range tasks {
-	//			if vals := task.Yielded; len(vals) > 0 {
-	//				yields = append(yields, vals[0].String())
-	//			}
-	//		}
-	//		var err error
-	//		tasks, err = scheduler.Step(vm, tasks...)
-	//		log.Printf("tasks: %v", tasks)
-	//		assert.NoError(t, err)
-	//	}
-	//
-	//	expectedYields := []string{
-	//		"sent_t1",
-	//		"received_t1",
-	//		"sent_t2",
-	//		"received_t2",
-	//		"channel_closed",
-	//		"received_nil",
-	//	}
-	//
-	//	assert.Equal(t, expectedYields, yields, "incorrect cleanup sequence")
-	//})
+	t.Run("buffer wrapping with yield verification", func(t *testing.T) {
+		scheduler := NewScheduler()
+		channels := NewChannelModule()
+
+		vm, err := engine.NewCoroutineVM(
+			context.Background(), logger,
+			engine.WithPreloaded(channels.Name(), channels.Loader),
+		)
+		assert.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.DoString(`
+	       local ch = channel.new(3)
+	       local sends_complete = false
+	
+	       -- Sender that fills buffer
+	       coroutine.spawn(function()
+	           -- Fill buffer
+	           assert(ch:send("1"), "first send")
+	           coroutine.yield("sent_1")
+	
+	           assert(ch:send("2"), "second send")
+	           coroutine.yield("sent_2")
+	
+	           assert(ch:send("3"), "third send")
+	           coroutine.yield("sent_3")
+	
+	           sends_complete = true
+	           coroutine.yield("sends_complete")
+	       end)
+	
+	       -- Receiver that waits for sends to complete
+	       coroutine.spawn(function()
+	           -- Wait for sends to complete
+	           while not sends_complete do
+	               coroutine.yield("waiting")
+	           end
+	
+	           -- Now receive all values
+	           local v1, ok = ch:receive()
+	           assert(ok and v1 == "1", "receive 1")
+	           coroutine.yield("received_1")
+	
+	           local v2, ok = ch:receive()
+	           assert(ok and v2 == "2", "receive 2")
+	           coroutine.yield("received_2")
+	
+	           local v3, ok = ch:receive()
+	           assert(ok and v3 == "3", "receive 3")
+	           coroutine.yield("received_3")
+	
+	           coroutine.yield("receiver_done")
+	       end)
+	   `, "test")
+
+		assert.NoError(t, err)
+
+		tasks, err := scheduler.Step(vm)
+		assert.NoError(t, err)
+
+		yields := []string{}
+		for len(tasks) > 0 {
+			for _, task := range tasks {
+				if len(task.Yielded) > 0 {
+					yields = append(yields, task.Yielded[0].String())
+				}
+			}
+			tasks, err = scheduler.Step(vm, tasks...)
+			assert.NoError(t, err)
+		}
+
+		// We care about the relative ordering of sends and receives,
+		// not the exact sequence of "waiting" yields
+		filteredYields := []string{}
+		for _, y := range yields {
+			if y != "waiting" {
+				filteredYields = append(filteredYields, y)
+			}
+		}
+
+		expectedYields := []string{
+			"sent_1",
+			"sent_2",
+			"sent_3",
+			"sends_complete",
+			"received_1",
+			"received_2",
+			"received_3",
+			"receiver_done",
+		}
+
+		assert.Equal(t, expectedYields, filteredYields, "incorrect yield sequence")
+	})
+
+	t.Run("value type preservation", func(t *testing.T) {
+		vm, err := engine.NewCoroutineVM(
+			context.Background(), logger,
+			engine.WithPreloaded("channel", NewChannelModule().Loader),
+		)
+		assert.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.DoString(`
+			local ch = channel.new(1)
+			local results = {}
+	
+			-- Test different Lua value types
+			coroutine.spawn(function()
+				-- String
+				assert(ch:send("test string"))
+				coroutine.yield("sent_string")
+	
+				-- Number
+				assert(ch:send(42.5))
+				coroutine.yield("sent_number")
+	
+				-- Boolean
+				assert(ch:send(true))
+				coroutine.yield("sent_boolean")
+	
+				-- Table
+				local t = {key = "value", nested = {1, 2, 3}}
+				assert(ch:send(t))
+				coroutine.yield("sent_table")
+	
+				-- Nil
+				assert(ch:send(nil))
+				coroutine.yield("sent_nil")
+	
+				coroutine.yield("sends_complete")
+			end)
+	
+			-- Receiver verifies type preservation
+			coroutine.spawn(function()
+				-- String
+				local v, ok = ch:receive()
+				assert(ok and type(v) == "string" and v == "test string")
+				coroutine.yield("received_string")
+	
+				-- Number
+				v, ok = ch:receive()
+				assert(ok and type(v) == "number" and v == 42.5)
+				coroutine.yield("received_number")
+	
+				-- Boolean
+				v, ok = ch:receive()
+				assert(ok and type(v) == "boolean" and v == true)
+				coroutine.yield("received_boolean")
+	
+				-- Table
+				v, ok = ch:receive()
+				assert(ok and type(v) == "table")
+				assert(v.key == "value" and v.nested[1] == 1)
+				coroutine.yield("received_table")
+	
+				-- Nil
+				v, ok = ch:receive()
+				assert(ok and v == nil)
+				coroutine.yield("received_nil")
+	
+				coroutine.yield("receives_complete")
+			end)
+		`, "test")
+
+		assert.NoError(t, err)
+
+		var yields []string
+		tasks, _ := vm.Step()
+		for len(tasks) > 0 {
+			for _, task := range tasks {
+				if vals := task.Yielded; len(vals) > 0 {
+					yields = append(yields, vals[0].String())
+				}
+			}
+			var err error
+			tasks, err = vm.Step(tasks...)
+			assert.NoError(t, err)
+		}
+
+		// Verify type preservation sequence
+		expectedYields := []string{
+			"sent_string",
+			"received_string",
+			"sent_number",
+			"received_number",
+			"sent_boolean",
+			"received_boolean",
+			"sent_table",
+			"received_table",
+			"sent_nil",
+			"received_nil",
+			"sends_complete",
+			"receives_complete",
+		}
+
+		assert.Equal(t, expectedYields, yields, "incorrect type sequence")
+	})
+
+	t.Run("cleanup and reference handling", func(t *testing.T) {
+		scheduler := NewScheduler()
+		channels := NewChannelModule()
+
+		vm, err := engine.NewCoroutineVM(
+			context.Background(), logger,
+			engine.WithPreloaded(channels.Name(), channels.Loader),
+		)
+		assert.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.DoString(`
+			local ch = channel.new(3)
+			local refs = {}
+	
+			-- Create some table references
+			local t1 = {data = "table1"}
+			local t2 = {data = "table2"}
+	
+			coroutine.spawn(function()
+				-- Fill channel
+				assert(ch:send(t1))
+				coroutine.yield("sent_t1")
+	
+				assert(ch:send(t2))
+				coroutine.yield("sent_t2")
+	
+				-- Close channel
+				ch:close()
+				coroutine.yield("channel_closed")
+			end)
+	
+			-- Receiver verifies cleanup
+			coroutine.spawn(function()
+				-- Get values before cleanup
+				local v1, ok = ch:receive()
+				assert(ok and v1.data == "table1")
+				coroutine.yield("received_t1")
+	
+				local v2, ok = ch:receive()
+				assert(ok and v2.data == "table2")
+				coroutine.yield("received_t2")
+	
+				-- Should get nil after close
+				local v3, ok = ch:receive()
+				assert(not ok and v3 == nil)
+				coroutine.yield("received_nil")
+			end)
+		`, "test")
+
+		assert.NoError(t, err)
+
+		var yields []string
+		tasks, _ := scheduler.Step(vm)
+		for len(tasks) > 0 {
+			for _, task := range tasks {
+				if vals := task.Yielded; len(vals) > 0 {
+					yields = append(yields, vals[0].String())
+				}
+			}
+			var err error
+			tasks, err = scheduler.Step(vm, tasks...)
+			log.Printf("tasks: %v", tasks)
+			assert.NoError(t, err)
+		}
+
+		expectedYields := []string{
+			"sent_t1",
+			"received_t1",
+			"sent_t2",
+			"received_t2",
+			"channel_closed",
+			"received_nil",
+		}
+
+		assert.Equal(t, expectedYields, yields, "incorrect cleanup sequence")
+	})
 
 	t.Run("buffered channel with multiple coroutines", func(t *testing.T) {
 		scheduler := NewScheduler()
@@ -695,5 +696,193 @@ func TestModule_YieldSequences(t *testing.T) {
 		assert.Less(t, senderIdx["sender2_done"], closeIdx)
 		assert.Less(t, receiverIdx["receiver1_done"], closeIdx)
 		assert.Less(t, receiverIdx["receiver2_done"], closeIdx)
+	})
+}
+
+func TestExternalChannels_Basic(t *testing.T) {
+	logger := zap.NewNop()
+
+	t.Run("external channel send data", func(t *testing.T) {
+		scheduler := NewScheduler()
+		channels := NewChannelModule()
+
+		vm, err := engine.NewCoroutineVM(
+			context.Background(), logger,
+			engine.WithPreloaded(channels.Name(), channels.Loader),
+		)
+
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm.Close()
+
+		err = vm.DoString(`
+        local ch = channel.external("signal") 
+        
+        -- Receiver
+        coroutine.spawn(function()
+            local msg, ok = ch:receive()
+            assert(ok, "expected successful receive")
+            assert(msg == "hello", "wrong message received")
+            coroutine.yield("receive_complete")    
+        end)
+    `, "test")
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Get initial yielded tasks
+		tasks, err := scheduler.Step(vm)
+		assert.NoError(t, err)
+
+		// Verify external channel is registered
+		listeners := scheduler.ActiveSignals()
+		assert.Equal(t, 1, len(listeners), "expected one external listener")
+		assert.Equal(t, "signal", listeners[0], "expected signal channel to be registered")
+
+		// Send data to external channel
+		tasks = scheduler.Signal("signal", lua.LString("hello"))
+		assert.Equal(t, 1, len(tasks), "expected one task to be resumed")
+
+		// Process resumed task
+		tasks, err = scheduler.Step(vm, tasks...)
+		assert.NoError(t, err)
+		assert.Equal(t, 1, len(tasks), "expected one final yield")
+
+		// Verify channel was unregistered after completion
+		listeners = scheduler.ActiveSignals()
+		assert.Equal(t, 0, len(listeners), "expected no remaining listeners")
+	})
+
+	t.Run("external channel multi-receive with yield", func(t *testing.T) {
+		scheduler := NewScheduler()
+		channels := NewChannelModule()
+
+		vm, err := engine.NewCoroutineVM(
+			context.Background(), logger,
+			engine.WithPreloaded(channels.Name(), channels.Loader),
+		)
+		assert.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.DoString(`
+        local ch = channel.external("signal") 
+        
+        coroutine.spawn(function()
+            -- First receive
+            local msg1, ok = ch:receive()
+            assert(ok and msg1 == "first", "wrong first message")
+            
+            -- Second receive
+            local msg2, ok = ch:receive()
+            assert(ok and msg2 == "second", "wrong second message")
+            
+            -- Yield doing something else
+            coroutine.yield("other_work")
+            
+            -- Third receive after yield
+            local msg3, ok = ch:receive()
+            assert(ok and msg3 == "third", "wrong third message")
+            
+            coroutine.yield("all_done")
+        end)
+    `, "test")
+		assert.NoError(t, err)
+
+		// Get initial task
+		tasks, err := scheduler.Step(vm)
+		assert.NoError(t, err)
+
+		// First signal
+		tasks = scheduler.Signal("signal", lua.LString("first"))
+		assert.Equal(t, 1, len(tasks))
+		tasks, err = scheduler.Step(vm, tasks...)
+		assert.NoError(t, err)
+
+		// Second signal
+		tasks = scheduler.Signal("signal", lua.LString("second"))
+		assert.Equal(t, 1, len(tasks))
+		tasks, err = scheduler.Step(vm, tasks...)
+		assert.NoError(t, err)
+
+		// Should now be yielded with "other_work"
+		assert.Equal(t, 1, len(tasks))
+		assert.Equal(t, "other_work", tasks[0].Yielded[0].String())
+
+		// Verify channel not in listeners during yield
+		assert.Equal(t, 0, len(scheduler.ActiveSignals()))
+
+		// Step to get to next receive
+		tasks, err = scheduler.Step(vm, tasks...)
+		assert.NoError(t, err)
+
+		// Channel should be listening again
+		assert.Equal(t, []string{"signal"}, scheduler.ActiveSignals())
+
+		// Third signal
+		tasks = scheduler.Signal("signal", lua.LString("third"))
+		assert.Equal(t, 1, len(tasks))
+		tasks, err = scheduler.Step(vm, tasks...)
+		assert.NoError(t, err)
+
+		// Should be done
+		assert.Equal(t, "all_done", tasks[0].Yielded[0].String())
+	})
+
+	t.Run("multiple receivers on single external channel", func(t *testing.T) {
+		scheduler := NewScheduler()
+		channels := NewChannelModule()
+
+		vm, err := engine.NewCoroutineVM(
+			context.Background(), logger,
+			engine.WithPreloaded(channels.Name(), channels.Loader),
+		)
+		assert.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.DoString(`
+        local ch = channel.external("broadcast")
+        
+        -- First receiver
+        coroutine.spawn(function()
+            local msg, ok = ch:receive()
+            assert(ok and msg == "hello", "wrong message in first receiver")
+            coroutine.yield("first_done")
+        end)
+        
+        -- Second receiver
+        coroutine.spawn(function()
+            local msg, ok = ch:receive()
+            assert(ok and msg == "hello", "wrong message in second receiver")
+            coroutine.yield("second_done")
+        end)
+    `, "test")
+		assert.NoError(t, err)
+
+		// Get initial tasks
+		tasks, err := scheduler.Step(vm)
+		assert.NoError(t, err)
+
+		// Verify both are registered
+		assert.Equal(t, []string{"broadcast"}, scheduler.ActiveSignals())
+
+		// Send signal
+		tasks = scheduler.Signal("broadcast", lua.LString("hello"))
+		assert.Equal(t, 2, len(tasks), "both receivers should get signal")
+
+		// Step the resumed tasks to get their final yields
+		tasks, err = scheduler.Step(vm, tasks...)
+		assert.NoError(t, err)
+
+		// Now collect the actual yields
+		var yields []string
+		for _, task := range tasks {
+			yields = append(yields, task.Yielded[0].String())
+		}
+		assert.ElementsMatch(t, []string{"first_done", "second_done"}, yields)
+
+		// Channel should no longer be listened
+		assert.Equal(t, 0, len(scheduler.ActiveSignals()))
 	})
 }

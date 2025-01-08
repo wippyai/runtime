@@ -44,6 +44,7 @@ type Channel struct {
 	read     int          // Read index for buffer
 	write    int          // Write index for buffer
 	size     int          // Current number of items in buffer
+	external string       // External channel name
 }
 
 func newLuaChannel(capacity int) *Channel {
@@ -55,6 +56,21 @@ func newLuaChannel(capacity int) *Channel {
 		buffer:   buf,
 		capacity: capacity,
 	}
+}
+
+func newExternalChannel(name string) *Channel {
+	return &Channel{
+		external: name,
+		capacity: 0,
+	}
+}
+
+func (c *Channel) ExternalName() string {
+	return c.external
+}
+
+func (c *Channel) IsExternal() bool {
+	return c.external != ""
 }
 
 // Cleanup releases all references and resets internal state

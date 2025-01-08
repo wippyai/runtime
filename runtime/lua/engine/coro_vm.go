@@ -162,7 +162,7 @@ func (e *CoroutineVM) Step(tasks ...*Task) ([]*Task, error) {
 	var err error
 	var values []lua.LValue
 
-	yeildedTasks := make([]*Task, 0)
+	yieldedTasks := make([]*Task, 0)
 
 	for !e.queue.IsEmpty() {
 		task := e.queue.Pop()
@@ -198,11 +198,11 @@ func (e *CoroutineVM) Step(tasks ...*Task) ([]*Task, error) {
 		task.Resumed = nil
 
 		if state == lua.ResumeYield {
-			yeildedTasks = append(yeildedTasks, task)
+			yieldedTasks = append(yieldedTasks, task)
 		}
 	}
 
-	return yeildedTasks, nil
+	return yieldedTasks, nil
 }
 
 func (e *CoroutineVM) GetYieldedTasks() []*Task {

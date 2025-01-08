@@ -43,15 +43,95 @@ type VM interface {
 	Step(tasks ...*engine.Task) ([]*engine.Task, error)
 }
 
+// externalChannels optimized for ordered tracking of external channel receivers
+type externalChannels struct {
+	// Slice of channel entries, maintained in registration order
+	channels []channelEntry
+}
+
+// channelEntry tracks receivers for a single external channel
+type channelEntry struct {
+	name      string
+	receivers []*pendingOp
+}
+
+func newExternalChannels() *externalChannels {
+	return &externalChannels{
+		channels: make([]channelEntry, 0, 4), // Pre-allocate small capacity
+	}
+}
+
+func (ec *externalChannels) addReceiver(name string, op *pendingOp) {
+	// Check if channel exists
+	for i := range ec.channels {
+		if ec.channels[i].name == name {
+			ec.channels[i].receivers = append(ec.channels[i].receivers, op)
+			return
+		}
+	}
+
+	// New channel - append to maintain order
+	ec.channels = append(ec.channels, channelEntry{
+		name:      name,
+		receivers: []*pendingOp{op},
+	})
+}
+
+func (ec *externalChannels) removeReceiver(name string, op *pendingOp) {
+	for i := range ec.channels {
+		if ec.channels[i].name == name {
+			receivers := ec.channels[i].receivers
+			for j, r := range receivers {
+				if r == op {
+					// Remove receiver
+					lastIdx := len(receivers) - 1
+					receivers[j] = receivers[lastIdx]
+					ec.channels[i].receivers = receivers[:lastIdx]
+
+					// If no more receivers, remove channel entry
+					if len(ec.channels[i].receivers) == 0 {
+						lastChan := len(ec.channels) - 1
+						ec.channels[i] = ec.channels[lastChan]
+						ec.channels = ec.channels[:lastChan]
+					}
+					return
+				}
+			}
+		}
+	}
+}
+
+func (ec *externalChannels) getOrderedNames() []string {
+	if len(ec.channels) == 0 {
+		return nil
+	}
+	names := make([]string, len(ec.channels))
+	for i := range ec.channels {
+		names[i] = ec.channels[i].name
+	}
+	return names
+}
+
+func (ec *externalChannels) getReceivers(name string) []*pendingOp {
+	for i := range ec.channels {
+		if ec.channels[i].name == name {
+			return ec.channels[i].receivers
+		}
+	}
+	return nil
+}
+
 type Scheduler struct {
 	senders   map[*Channel]*pendingQueue
 	receivers map[*Channel]*pendingQueue
+	external  *externalChannels
 }
 
 func NewScheduler() *Scheduler {
 	return &Scheduler{
 		senders:   make(map[*Channel]*pendingQueue),
 		receivers: make(map[*Channel]*pendingQueue),
+		external:  newExternalChannels(),
 	}
 }
 
@@ -208,6 +288,16 @@ func (s *Scheduler) handleReceive(task *engine.Task, op *chanOperation) []*engin
 		return result
 	}
 
+	if ch.IsExternal() {
+		// Create pending op
+		node := pendingPool.Get().(*pendingOp)
+		node.task = task
+		node.op = op
+
+		s.external.addReceiver(ch.ExternalName(), node)
+		return nil
+	}
+
 	// Queue the receiver
 	node := pendingPool.Get().(*pendingOp)
 	node.task = task
@@ -262,4 +352,32 @@ func (s *Scheduler) handleClose(task *engine.Task, op *chanOperation) []*engine.
 	}
 
 	return result
+}
+
+// ActiveSignals returns a list of external channel names currently being listened to
+func (s *Scheduler) ActiveSignals() []string {
+	return s.external.getOrderedNames()
+}
+
+// Signal sends a value to an external channel
+func (s *Scheduler) Signal(name string, value lua.LValue) []*engine.Task {
+	receivers := s.external.getReceivers(name)
+	if len(receivers) == 0 {
+		return nil
+	}
+
+	// Complete each receiver
+	var tasks []*engine.Task
+	for _, receiver := range receivers {
+		receiver.task.Resumed = []lua.LValue{value, lua.LBool(true)}
+		tasks = append(tasks, receiver.task)
+
+		// Remove this specific receiver
+		s.external.removeReceiver(name, receiver)
+
+		receiver.reset()
+		pendingPool.Put(receiver)
+	}
+
+	return tasks
 }
