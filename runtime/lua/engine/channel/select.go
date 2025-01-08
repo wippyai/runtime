@@ -34,7 +34,7 @@ func (sc *selectCase) Type() lua.LValueType {
 
 // selectOperation represents a yielded select operation
 type selectOperation struct {
-	cases      []selectCase
+	cases      []*selectCase
 	hasDefault bool
 }
 
@@ -96,7 +96,7 @@ func selectOp(L *lua.LState) int {
 	hasDefault := L.OptBool(2, false)
 
 	// Extract and validate cases from table
-	var cases []selectCase
+	var cases []*selectCase
 	casesTable.ForEach(func(k, value lua.LValue) {
 		if k == lua.LString("default") {
 			if hasDefault {
@@ -113,7 +113,7 @@ func selectOp(L *lua.LState) int {
 				L.RaiseError("attempt to send on closed channel")
 				return
 			}
-			cases = append(cases, *sc)
+			cases = append(cases, sc)
 		} else {
 			L.RaiseError("invalid select case: expected channel case")
 		}

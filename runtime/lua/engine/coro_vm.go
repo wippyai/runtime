@@ -20,6 +20,10 @@ type Task struct {
 	Resumed []lua.LValue
 }
 
+func (t *Task) Thread() *lua.LState {
+	return t.thread
+}
+
 type taskQueue struct {
 	active *list.List
 }
