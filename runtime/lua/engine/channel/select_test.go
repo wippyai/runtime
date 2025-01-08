@@ -486,3 +486,209 @@ func TestModule_BlockingSelects(t *testing.T) {
 		assert.Error(t, err) // send to closed channel
 	})
 }
+
+func TestModule_AdditionalSelectScenarios(t *testing.T) {
+	logger := zap.NewNop()
+
+	t.Run("select with multiple ready operations", func(t *testing.T) {
+		vm, err := engine.NewCoroutineVM(
+			context.Background(), logger,
+			engine.WithPreloaded("channel", NewChannelModule().Loader),
+		)
+		assert.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.PushScript(`
+			-- Create buffered channels and populate them
+			local ch1 = channel.new(1)
+			local ch2 = channel.new(1)
+			
+			ch1:send("value1")
+			ch2:send("value2")
+			
+			-- Both channels have values, select should pick one
+			local result = channel.select({
+				ch1:case_receive(),
+				ch2:case_receive()
+			})
+			
+			-- Verify we got one of the values
+			assert(result.channel == ch1 or result.channel == ch2, "should select one of the ready channels")
+			assert(result.value == "value1" or result.value == "value2", "should receive one of the values")
+			assert(result.ok == true, "receive should succeed")
+			
+			-- The other channel should still have its value
+			local remaining = result.channel == ch1 and ch2 or ch1
+			local val, ok = remaining:receive()
+			assert(ok and (val == "value1" or val == "value2"), "other channel should still have its value")
+		`, "test")
+
+		assert.NoError(t, err)
+	})
+
+	t.Run("select with error cases", func(t *testing.T) {
+		vm, err := engine.NewCoroutineVM(
+			context.Background(), logger,
+			engine.WithPreloaded("channel", NewChannelModule().Loader),
+		)
+		assert.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.PushScript(`
+			-- Test invalid select cases
+			local ch = channel.new(0)
+			
+			-- Test empty select without default
+			local ok, err = pcall(function()
+				channel.select({})
+			end)
+			assert(not ok, "empty select without default should error")
+			assert(string.find(err, "select with no cases and no default"), 
+				   "wrong error message: " .. err)
+			
+			-- Test invalid case type
+			ok, err = pcall(function()
+				channel.select({
+					"not a case"
+				})
+			end)
+			assert(not ok, "invalid case should error")
+			assert(string.find(err, "invalid select case"), 
+				   "wrong error message: " .. err)
+			
+			-- Test duplicate default cases
+			ok, err = pcall(function()
+				channel.select({
+					default = true,
+					ch:case_receive(),
+					default = true
+				})
+			end)
+			assert(not ok, "duplicate default should error")
+			assert(string.find(err, "multiple default cases"), 
+				   "wrong error message: " .. err)
+		`, "test")
+
+		assert.NoError(t, err)
+	})
+
+	t.Run("select with mixed send/receive on same channel", func(t *testing.T) {
+		vm, err := engine.NewCoroutineVM(
+			context.Background(), logger,
+			engine.WithPreloaded("channel", NewChannelModule().Loader),
+		)
+		assert.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.PushScript(`
+			local ch = channel.new(0)  -- unbuffered
+			
+			-- First coroutine: select with both send and receive on same channel
+			coroutine.spawn(function()
+				local result = channel.select({
+					ch:case_send("test"),
+					ch:case_receive()
+				})
+				
+				-- One operation should complete once helper enables it
+				assert(result.channel == ch, "wrong channel selected")
+				assert(result.ok == true, "operation should succeed")
+				coroutine.yield("select_complete")
+			end)
+			
+			-- Helper coroutine enables one of the operations
+			coroutine.spawn(function()
+				coroutine.yield("helper_starting")
+				local msg = ch:send("helper_value")
+				assert(msg, "send should succeed")
+				coroutine.yield("helper_complete")
+			end)
+		`, "test")
+
+		assert.NoError(t, err)
+
+		scheduler := NewScheduler()
+		tasks, err := scheduler.Step(vm)
+		assert.NoError(t, err)
+
+		var yields []string
+		for len(tasks) > 0 {
+			for _, task := range tasks {
+				if vals := task.Yielded; len(vals) > 0 {
+					yields = append(yields, vals[0].String())
+				}
+			}
+			tasks, err = scheduler.Step(vm, tasks...)
+			assert.NoError(t, err)
+		}
+
+		expectedYields := []string{
+			"helper_starting",
+			"helper_complete",
+			"select_complete",
+		}
+		assert.Equal(t, expectedYields, yields, "incorrect yield sequence")
+	})
+
+	t.Run("select with multiple coroutines blocking", func(t *testing.T) {
+		vm, err := engine.NewCoroutineVM(
+			context.Background(), logger,
+			engine.WithPreloaded("channel", NewChannelModule().Loader),
+		)
+		assert.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.PushScript(`
+			local ch = channel.new(0)  -- unbuffered
+			
+			-- Multiple coroutines blocking on select
+			for i = 1, 3 do
+				coroutine.spawn(function()
+					local result = channel.select({
+						ch:case_receive()
+					})
+					assert(result.channel == ch, "wrong channel selected")
+					assert(result.ok == true, "receive should succeed")
+					assert(result.value == "value" .. i, "wrong value received")
+					coroutine.yield("receiver_" .. i .. "_complete")
+				end)
+			end
+			
+			-- Helper sends values to unblock them one by one
+			coroutine.spawn(function()
+				coroutine.yield("sender_starting")
+				for i = 1, 3 do
+					local ok = ch:send("value" .. i)
+					assert(ok, "send should succeed")
+					coroutine.yield("sent_" .. i)
+				end
+			end)
+		`, "test")
+
+		assert.NoError(t, err)
+
+		scheduler := NewScheduler()
+		tasks, err := scheduler.Step(vm)
+		assert.NoError(t, err)
+
+		var yields []string
+		for len(tasks) > 0 {
+			for _, task := range tasks {
+				if vals := task.Yielded; len(vals) > 0 {
+					yields = append(yields, vals[0].String())
+				}
+			}
+			tasks, err = scheduler.Step(vm, tasks...)
+			assert.NoError(t, err)
+		}
+
+		// Verify all receivers got values and sender completed
+		assert.Contains(t, yields, "sender_starting", "sender didn't start")
+		assert.Contains(t, yields, "sent_1", "first send didn't complete")
+		assert.Contains(t, yields, "sent_2", "second send didn't complete")
+		assert.Contains(t, yields, "sent_3", "third send didn't complete")
+		assert.Contains(t, yields, "receiver_1_complete", "first receiver didn't complete")
+		assert.Contains(t, yields, "receiver_2_complete", "second receiver didn't complete")
+		assert.Contains(t, yields, "receiver_3_complete", "third receiver didn't complete")
+	})
+}
