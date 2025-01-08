@@ -135,11 +135,6 @@ func (e *CoroutineVM) bindCoroutines() {
 	oldResume := coTable.RawGetString("resume").(*lua.LFunction)
 	e.vm.state.SetField(coTable, "resume", e.vm.state.NewFunction(func(L *lua.LState) int {
 		co := L.CheckThread(1)
-		if co == L {
-			L.RaiseError("attempt to resume VM thread")
-			return 0
-		}
-
 		L.Push(oldResume)
 		L.Push(co)
 		L.Call(1, lua.MultRet)
