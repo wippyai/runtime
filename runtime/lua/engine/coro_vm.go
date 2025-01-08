@@ -6,6 +6,7 @@ import (
 	"fmt"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
+	"strings"
 )
 
 type Task struct {
@@ -46,6 +47,7 @@ func (q *taskQueue) IsEmpty() bool {
 	return q.active.Len() == 0
 }
 
+// this vm is NOT thread safe, external synchronization is required
 type CoroutineVM struct {
 	ctx   context.Context
 	vm    *VM
@@ -79,8 +81,18 @@ func NewCoroutineVM(
 	return avm, nil
 }
 
-func (e *CoroutineVM) DoString(script, name string) error {
-	return e.vm.DoString(nil, script, name)
+func (e *CoroutineVM) PushScript(script, name string) error {
+	chunk, err := e.vm.state.Load(strings.NewReader(script), name)
+	if err != nil {
+		return err
+	}
+
+	_, err = e.createCoroutine(chunk)
+	if err != nil {
+		return err
+	}
+
+	return err
 }
 
 func (e *CoroutineVM) bindCoroutines() {
@@ -162,7 +174,7 @@ func (e *CoroutineVM) Step(tasks ...*Task) ([]*Task, error) {
 	var err error
 	var values []lua.LValue
 
-	yieldedTasks := make([]*Task, 0)
+	yeildedTasks := make([]*Task, 0)
 
 	for !e.queue.IsEmpty() {
 		task := e.queue.Pop()
@@ -198,11 +210,11 @@ func (e *CoroutineVM) Step(tasks ...*Task) ([]*Task, error) {
 		task.Resumed = nil
 
 		if state == lua.ResumeYield {
-			yieldedTasks = append(yieldedTasks, task)
+			yeildedTasks = append(yeildedTasks, task)
 		}
 	}
 
-	return yieldedTasks, nil
+	return yeildedTasks, nil
 }
 
 func (e *CoroutineVM) GetYieldedTasks() []*Task {

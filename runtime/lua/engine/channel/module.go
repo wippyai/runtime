@@ -26,12 +26,21 @@ func (m *Module) Loader(L *lua.LState) int {
 	mt := L.NewTypeMetatable("channel")
 	L.SetField(mt, "__index", mt)
 
-	// Register functions
+	// channel constructor
 	L.SetField(mod, "new", L.NewFunction(m.new))
-	L.SetField(mod, "external", L.NewFunction(m.newExternal))
+	L.SetField(mod, "external", L.NewFunction(m.newExternal)) // todo: remove it later
+
+	// channel operations
 	L.SetField(mt, "send", L.NewFunction(m.send))
 	L.SetField(mt, "receive", L.NewFunction(m.receive))
 	L.SetField(mt, "close", L.NewFunction(m.close))
+
+	//
+	L.SetField(mod, "select", L.NewFunction(selectOp))
+	L.SetField(mt, "case_send", L.NewFunction(caseSend))
+	L.SetField(mt, "case_receive", L.NewFunction(caseReceive))
+
+	// no need for require
 	L.SetGlobal("channel", mod)
 
 	L.Push(mod)
@@ -125,7 +134,7 @@ func (m *Module) close(L *lua.LState) int {
 	return -1
 }
 
-// todo: this is temp
+// todo: this is temp, TODO: DELETE IT!
 func (m *Module) newExternal(L *lua.LState) int {
 	ch := newExternalChannel(L.CheckString(1))
 	ud := L.NewUserData()

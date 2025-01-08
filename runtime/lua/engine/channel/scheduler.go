@@ -27,7 +27,7 @@ func NewScheduler() *Scheduler {
 func (s *Scheduler) Step(vm VM, tasks ...*engine.Task) ([]*engine.Task, error) {
 	vmTasks, err := vm.Step(tasks...)
 	if err != nil {
-		return nil, fmt.Errorf("initial VM.Step failed: %w", err)
+		return nil, err
 	}
 
 	var externalTasks []*engine.Task
@@ -58,7 +58,7 @@ func (s *Scheduler) Step(vm VM, tasks ...*engine.Task) ([]*engine.Task, error) {
 		vmTasks, err = vm.Step(channelTasks...)
 		channelTasks = nil
 		if err != nil {
-			return nil, fmt.Errorf("VM.Step failed: %w", err)
+			return nil, fmt.Errorf("coroutine failed: %w", err)
 		}
 	}
 
