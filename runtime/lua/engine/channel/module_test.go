@@ -14,6 +14,44 @@ import (
 func TestChannels_Basic(t *testing.T) {
 	logger := zap.NewNop()
 
+	t.Run("channel comparison", func(t *testing.T) {
+		vm, err := engine.NewCoroutineVM(
+			context.Background(), logger,
+			engine.WithPreloaded("channel", NewChannelModule().Loader),
+		)
+		assert.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.PushScript(`
+        -- Create some channels
+        local ch1 = channel.new(0)
+        local ch2 = channel.new(0)
+        local ch3 = ch1  -- Same reference as ch1
+        
+        -- Test equality
+        assert(ch1 == ch3, "same channel should be equal")
+        assert(ch1 ~= ch2, "different channels should not be equal")
+        
+        -- Test in table as key
+        local channels = {}
+        channels[ch1] = "channel1"
+        channels[ch2] = "channel2"
+        
+        assert(channels[ch1] == "channel1", "channel table key lookup failed")
+        assert(channels[ch3] == "channel1", "channel reference equality failed")
+        assert(channels[ch2] == "channel2", "different channel lookup failed")
+	`, "test")
+
+		assert.NoError(t, err)
+
+		tasks := vm.GetYieldedTasks()
+		for len(tasks) > 0 {
+			var err error
+			tasks, err = vm.Step(tasks...)
+			assert.NoError(t, err)
+		}
+	})
+
 	t.Run("unbuffered channel send/receive", func(t *testing.T) {
 		scheduler := NewScheduler()
 		channels := NewChannelModule()
@@ -28,7 +66,7 @@ func TestChannels_Basic(t *testing.T) {
 		}
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.PushScript(`
 			local ch = channel.new(0)  -- unbuffered channel
 			
 			-- Sender
@@ -76,7 +114,7 @@ func TestModule_Operations(t *testing.T) {
 		assert.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.PushScript(`
 			local ch = channel.new(2)  -- buffered channel capacity 2
 
 			-- Sender goroutine
@@ -118,7 +156,7 @@ func TestModule_Operations(t *testing.T) {
 		assert.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.PushScript(`
 			local ch = channel.new(1)
 
 			-- Sender with close
@@ -170,7 +208,7 @@ func TestModule_Operations(t *testing.T) {
 		assert.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.PushScript(`
 			local ch = channel.new(1) -- Buffer size 1
 			local received = {}
 			local sent = {}
@@ -233,7 +271,7 @@ func TestModule_Operations(t *testing.T) {
 		assert.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.PushScript(`
 			local ch = channel.new(0)
 			
 			-- Test synchronous send/receive
@@ -274,7 +312,7 @@ func TestModule_Operations(t *testing.T) {
 		assert.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.PushScript(`
 			-- Test negative capacity
 			local ok, err = pcall(function()
 				channel.new(-1)
@@ -324,7 +362,7 @@ func TestModule_YieldSequences(t *testing.T) {
 		assert.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.PushScript(`
 	       local ch = channel.new(3)
 	       local sends_complete = false
 	
@@ -415,7 +453,7 @@ func TestModule_YieldSequences(t *testing.T) {
 		assert.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.PushScript(`
 			local ch = channel.new(1)
 			local results = {}
 	
@@ -522,7 +560,7 @@ func TestModule_YieldSequences(t *testing.T) {
 		assert.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.PushScript(`
 			local ch = channel.new(3)
 			local refs = {}
 	
@@ -597,7 +635,7 @@ func TestModule_YieldSequences(t *testing.T) {
 		assert.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.PushScript(`
 			local ch = channel.new(2)  -- buffered channel capacity 2
 			local received = {}
 			local completed = {senders = 0, receivers = 0}
@@ -716,7 +754,7 @@ func TestExternalChannels_Basic(t *testing.T) {
 		}
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.PushScript(`
         local ch = channel.external("signal") 
         
         -- Receiver
@@ -766,7 +804,7 @@ func TestExternalChannels_Basic(t *testing.T) {
 		assert.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.PushScript(`
         local ch = channel.external("signal") 
         
         coroutine.spawn(function()
@@ -841,7 +879,7 @@ func TestExternalChannels_Basic(t *testing.T) {
 		assert.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.PushScript(`
             local ch = channel.external("distributed")
             
             -- First receiver
@@ -901,7 +939,7 @@ func TestMapReduce(t *testing.T) {
 		assert.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.PushScript(`
 			-- Create channels
 			local workCh = channel.new(0)   -- Work distribution channel
 			local resultCh = channel.new(0)  -- Results collection channel

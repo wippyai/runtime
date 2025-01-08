@@ -36,7 +36,7 @@ func (y *chanOperation) Type() lua.LValueType {
 	return lua.LTUserData
 }
 
-// Channel represents a buffered or unbuffered channel
+// Channel represents a buffered or unbuffered channel, this  is NOT thread safe, external synchronization is required
 type Channel struct {
 	buffer   []lua.LValue // Buffer for values
 	capacity int          // Buffer capacity (0 for unbuffered)
@@ -58,7 +58,7 @@ func newLuaChannel(capacity int) *Channel {
 	}
 }
 
-func newExternalChannel(name string) *Channel {
+func newExternalChannel(name string) *Channel { // todo: move to external package?
 	return &Channel{
 		external: name,
 		capacity: 0,
