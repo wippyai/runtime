@@ -42,10 +42,12 @@ func (s *Scheduler) Step(vm VM, tasks ...*engine.Task) ([]*engine.Task, error) {
 				continue
 			}
 
-			if op, ok := task.Yielded[0].(*chanOperation); ok {
+			switch op := task.Yielded[0].(type) {
+			case *chanOperation:
 				channelTasks = append(channelTasks, s.pushOperation(task, op)...)
-				continue
-			} else {
+			case *selectOperation:
+				channelTasks = append(channelTasks, s.handleSelect(task, op)...)
+			default:
 				externalTasks = append(externalTasks, task)
 			}
 		}
@@ -63,6 +65,44 @@ func (s *Scheduler) Step(vm VM, tasks ...*engine.Task) ([]*engine.Task, error) {
 	}
 
 	return externalTasks, nil
+}
+
+func (s *Scheduler) handleSelect(task *engine.Task, op *selectOperation) []*engine.Task {
+	selectData := &selectData{
+		parentSelect: op,
+		channels:     make([]*selectCase, 0, len(op.cases)),
+	}
+
+	// Register all cases
+	for _, sc := range op.cases {
+		ch := sc.Channel()
+		if ch == nil {
+			continue
+		}
+
+		// Track case for later result creation
+		selectData.channels = append(selectData.channels, sc)
+
+		// Create pending operation
+		pOp := &pendingOp{
+			task: task,
+			op: &chanOperation{
+				opType: sc.dir,
+				ch:     ch,
+				value:  sc.value,
+			},
+			selectCase: selectData,
+		}
+
+		// Queue based on operation type
+		if sc.dir == chanSend {
+			s.enqueue(s.senders, ch, pOp)
+		} else {
+			s.enqueue(s.receivers, ch, pOp)
+		}
+	}
+
+	return nil
 }
 
 func (s *Scheduler) pushOperation(task *engine.Task, op *chanOperation) []*engine.Task {
@@ -127,15 +167,22 @@ func (s *Scheduler) handleSend(task *engine.Task, op *chanOperation) []*engine.T
 		}
 	}
 
-	if node := s.dequeue(s.receivers, ch); node != nil {
+	if receiver := s.dequeue(s.receivers, ch); receiver != nil {
+		if receiver.selectCase == nil {
+			receiver.task.Resumed = []lua.LValue{op.value}
+		} else {
+			receiver.task.Resumed = []lua.LValue{receiver.selectCase.makeCaseResult(
+				receiver.task.Thread(), ch, op.value, true,
+			)}
+		}
+
 		// Complete both operations
-		node.task.Resumed = []lua.LValue{op.value}
 		task.Resumed = []lua.LValue{lua.LBool(true)}
 
-		result := []*engine.Task{task, node.task}
+		result := []*engine.Task{task, receiver.task}
 
-		node.reset()
-		pendingPool.Put(node)
+		receiver.reset()
+		pendingPool.Put(receiver)
 
 		return result
 	}
@@ -165,9 +212,15 @@ func (s *Scheduler) handleReceive(task *engine.Task, op *chanOperation) []*engin
 
 	// Check for waiting sender
 	if sender := s.dequeue(s.senders, ch); sender != nil {
-		// Complete both operations
 		task.Resumed = []lua.LValue{sender.op.value}
-		sender.task.Resumed = []lua.LValue{lua.LBool(true)}
+
+		if sender.selectCase == nil {
+			sender.task.Resumed = []lua.LValue{lua.LBool(true)}
+		} else {
+			sender.task.Resumed = []lua.LValue{sender.selectCase.makeCaseResult(
+				sender.task.Thread(), ch, nil, true,
+			)}
+		}
 
 		result := []*engine.Task{task, sender.task}
 
@@ -183,6 +236,7 @@ func (s *Scheduler) handleReceive(task *engine.Task, op *chanOperation) []*engin
 		node.task = task
 		node.op = op
 
+		// not queued since handled from outside
 		s.external.addReceiver(ch.ExternalName(), node)
 		return nil
 	}
@@ -218,16 +272,18 @@ func (s *Scheduler) handleClose(task *engine.Task, op *chanOperation) []*engine.
 	result := make([]*engine.Task, 0, total)
 	result = append(result, task)
 
-	// Resume all senders with channel closed indicator
+	// resume all senders with channel closed indicator
 	for sender := s.dequeue(s.senders, ch); sender != nil; sender = s.dequeue(s.senders, ch) {
+		// todo: handle select cases
 		sender.task.Resumed = []lua.LValue{lua.LNil} // channel closed
 		result = append(result, sender.task)
 		sender.reset()
 		pendingPool.Put(sender)
 	}
 
-	// Handle receivers - they can still get buffered values
+	// handle receivers - they can still get buffered values
 	for receiver := s.dequeue(s.receivers, ch); receiver != nil; receiver = s.dequeue(s.receivers, ch) {
+		// todo: handle select cases
 		// Try to receive any buffered value first
 		if value, ok := ch.receive(); ok {
 			receiver.task.Resumed = []lua.LValue{value, lua.LBool(true)}

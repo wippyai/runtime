@@ -2,6 +2,7 @@ package channel
 
 import (
 	"github.com/ponyruntime/pony/runtime/lua/engine"
+	lua "github.com/yuin/gopher-lua"
 	"sync"
 )
 
@@ -20,16 +21,44 @@ var (
 	}
 )
 
+type selectData struct {
+	parentSelect *selectOperation
+	channels     []*selectCase
+}
+
+func (sd *selectData) makeCaseResult(
+	l *lua.LState,
+	ch *Channel,
+	value lua.LValue,
+	ok bool,
+) lua.LValue {
+	for _, sc := range sd.channels {
+		if sc.Channel() == ch {
+			return makeSelectResult(
+				l,
+				&selectResult{
+					chValue: sc.chValue,
+					value:   value,
+					ok:      ok,
+				},
+			)
+		}
+	}
+	return nil
+}
+
 type pendingOp struct {
-	task *engine.Task
-	op   *chanOperation
-	next *pendingOp
+	task       *engine.Task
+	op         *chanOperation
+	next       *pendingOp
+	selectCase *selectData // If this op is part of a select
 }
 
 func (p *pendingOp) reset() {
 	p.task = nil
 	p.op = nil
 	p.next = nil
+	p.selectCase = nil
 }
 
 type pendingQueue struct {
