@@ -842,22 +842,22 @@ func TestExternalChannels_Basic(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(`
-        local ch = channel.external("broadcast")
-        
-        -- First receiver
-        coroutine.spawn(function()
-            local msg, ok = ch:receive()
-            assert(ok and msg == "hello", "wrong message in first receiver")
-            coroutine.yield("first_done")
-        end)
-        
-        -- Second receiver
-        coroutine.spawn(function()
-            local msg, ok = ch:receive()
-            assert(ok and msg == "hello", "wrong message in second receiver")
-            coroutine.yield("second_done")
-        end)
-    `, "test")
+            local ch = channel.external("distributed")
+            
+            -- First receiver
+            coroutine.spawn(function()
+                local msg, ok = ch:receive()
+                assert(ok and msg == "first", "wrong message in first receiver")
+                coroutine.yield("first_done")
+            end)
+            
+            -- Second receiver
+            coroutine.spawn(function()
+                local msg, ok = ch:receive()
+                assert(ok and msg == "second", "wrong message in second receiver")
+                coroutine.yield("second_done")
+            end)
+        `, "test")
 		assert.NoError(t, err)
 
 		// Get initial tasks
@@ -865,22 +865,23 @@ func TestExternalChannels_Basic(t *testing.T) {
 		assert.NoError(t, err)
 
 		// Verify both are registered
-		assert.Equal(t, []string{"broadcast"}, scheduler.ActiveSignals())
+		assert.Equal(t, []string{"distributed"}, scheduler.ActiveSignals())
 
-		// Send signal
-		tasks = scheduler.Signal("broadcast", lua.LString("hello"))
-		assert.Equal(t, 2, len(tasks), "both receivers should get signal")
+		// Send first signal - should go to first receiver
+		tasks = scheduler.Signal("distributed", lua.LString("first"))
+		assert.Equal(t, 1, len(tasks), "first receiver should be resumed")
 
-		// Step the resumed tasks to get their final yields
 		tasks, err = scheduler.Step(vm, tasks...)
 		assert.NoError(t, err)
+		assert.Equal(t, "first_done", tasks[0].Yielded[0].String())
 
-		// Now collect the actual yields
-		var yields []string
-		for _, task := range tasks {
-			yields = append(yields, task.Yielded[0].String())
-		}
-		assert.ElementsMatch(t, []string{"first_done", "second_done"}, yields)
+		// Send second signal - should go to second receiver
+		tasks = scheduler.Signal("distributed", lua.LString("second"))
+		assert.Equal(t, 1, len(tasks), "second receiver should be resumed")
+
+		tasks, err = scheduler.Step(vm, tasks...)
+		assert.NoError(t, err)
+		assert.Equal(t, "second_done", tasks[0].Yielded[0].String())
 
 		// Channel should no longer be listened
 		assert.Equal(t, 0, len(scheduler.ActiveSignals()))

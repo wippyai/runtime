@@ -4,134 +4,23 @@ import (
 	"fmt"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	lua "github.com/yuin/gopher-lua"
-	"sync"
 )
-
-// Pool of reusable objects to reduce allocations
-var (
-	pendingPool = sync.Pool{
-		New: func() interface{} { return &pendingOp{} },
-	}
-	queuePool = sync.Pool{
-		New: func() interface{} { return &pendingQueue{} },
-	}
-)
-
-type pendingOp struct {
-	task *engine.Task
-	op   *chanOperation
-	next *pendingOp
-}
-
-func (p *pendingOp) reset() {
-	p.task = nil
-	p.op = nil
-	p.next = nil
-}
-
-type pendingQueue struct {
-	head *pendingOp
-	tail *pendingOp
-}
-
-func (q *pendingQueue) reset() {
-	q.head = nil
-	q.tail = nil
-}
 
 type VM interface {
 	Step(tasks ...*engine.Task) ([]*engine.Task, error)
 }
 
-// externalChannels optimized for ordered tracking of external channel receivers
-type externalChannels struct {
-	// Slice of channel entries, maintained in registration order
-	channels []channelEntry
-}
-
-// channelEntry tracks receivers for a single external channel
-type channelEntry struct {
-	name      string
-	receivers []*pendingOp
-}
-
-func newExternalChannels() *externalChannels {
-	return &externalChannels{
-		channels: make([]channelEntry, 0, 4), // Pre-allocate small capacity
-	}
-}
-
-func (ec *externalChannels) addReceiver(name string, op *pendingOp) {
-	// Check if channel exists
-	for i := range ec.channels {
-		if ec.channels[i].name == name {
-			ec.channels[i].receivers = append(ec.channels[i].receivers, op)
-			return
-		}
-	}
-
-	// New channel - append to maintain order
-	ec.channels = append(ec.channels, channelEntry{
-		name:      name,
-		receivers: []*pendingOp{op},
-	})
-}
-
-func (ec *externalChannels) removeReceiver(name string, op *pendingOp) {
-	for i := range ec.channels {
-		if ec.channels[i].name == name {
-			receivers := ec.channels[i].receivers
-			for j, r := range receivers {
-				if r == op {
-					// Remove receiver
-					lastIdx := len(receivers) - 1
-					receivers[j] = receivers[lastIdx]
-					ec.channels[i].receivers = receivers[:lastIdx]
-
-					// If no more receivers, remove channel entry
-					if len(ec.channels[i].receivers) == 0 {
-						lastChan := len(ec.channels) - 1
-						ec.channels[i] = ec.channels[lastChan]
-						ec.channels = ec.channels[:lastChan]
-					}
-					return
-				}
-			}
-		}
-	}
-}
-
-func (ec *externalChannels) getOrderedNames() []string {
-	if len(ec.channels) == 0 {
-		return nil
-	}
-	names := make([]string, len(ec.channels))
-	for i := range ec.channels {
-		names[i] = ec.channels[i].name
-	}
-	return names
-}
-
-func (ec *externalChannels) getReceivers(name string) []*pendingOp {
-	for i := range ec.channels {
-		if ec.channels[i].name == name {
-			return ec.channels[i].receivers
-		}
-	}
-	return nil
-}
-
 type Scheduler struct {
 	senders   map[*Channel]*pendingQueue
 	receivers map[*Channel]*pendingQueue
-	external  *externalChannels
+	external  *signals
 }
 
 func NewScheduler() *Scheduler {
 	return &Scheduler{
 		senders:   make(map[*Channel]*pendingQueue),
 		receivers: make(map[*Channel]*pendingQueue),
-		external:  newExternalChannels(),
+		external:  newSignals(),
 	}
 }
 
@@ -189,7 +78,7 @@ func (s *Scheduler) pushOperation(task *engine.Task, op *chanOperation) []*engin
 	return nil
 }
 
-func (s *Scheduler) enqueueOp(m map[*Channel]*pendingQueue, ch *Channel, node *pendingOp) {
+func (s *Scheduler) enqueue(m map[*Channel]*pendingQueue, ch *Channel, node *pendingOp) {
 	queue, exists := m[ch]
 	if !exists || queue == nil {
 		queue = queuePool.Get().(*pendingQueue)
@@ -203,7 +92,7 @@ func (s *Scheduler) enqueueOp(m map[*Channel]*pendingQueue, ch *Channel, node *p
 	queue.tail = node
 }
 
-func (s *Scheduler) dequeueOp(m map[*Channel]*pendingQueue, ch *Channel) *pendingOp {
+func (s *Scheduler) dequeue(m map[*Channel]*pendingQueue, ch *Channel) *pendingOp {
 	queue, exists := m[ch]
 	if !exists || queue == nil || queue.head == nil {
 		return nil
@@ -238,7 +127,7 @@ func (s *Scheduler) handleSend(task *engine.Task, op *chanOperation) []*engine.T
 		}
 	}
 
-	if node := s.dequeueOp(s.receivers, ch); node != nil {
+	if node := s.dequeue(s.receivers, ch); node != nil {
 		// Complete both operations
 		node.task.Resumed = []lua.LValue{op.value}
 		task.Resumed = []lua.LValue{lua.LBool(true)}
@@ -255,7 +144,7 @@ func (s *Scheduler) handleSend(task *engine.Task, op *chanOperation) []*engine.T
 	node := pendingPool.Get().(*pendingOp)
 	node.task = task
 	node.op = op
-	s.enqueueOp(s.senders, ch, node)
+	s.enqueue(s.senders, ch, node)
 
 	return nil
 }
@@ -275,7 +164,7 @@ func (s *Scheduler) handleReceive(task *engine.Task, op *chanOperation) []*engin
 	}
 
 	// Check for waiting sender
-	if sender := s.dequeueOp(s.senders, ch); sender != nil {
+	if sender := s.dequeue(s.senders, ch); sender != nil {
 		// Complete both operations
 		task.Resumed = []lua.LValue{sender.op.value}
 		sender.task.Resumed = []lua.LValue{lua.LBool(true)}
@@ -302,7 +191,7 @@ func (s *Scheduler) handleReceive(task *engine.Task, op *chanOperation) []*engin
 	node := pendingPool.Get().(*pendingOp)
 	node.task = task
 	node.op = op
-	s.enqueueOp(s.receivers, ch, node)
+	s.enqueue(s.receivers, ch, node)
 
 	return nil
 }
@@ -330,7 +219,7 @@ func (s *Scheduler) handleClose(task *engine.Task, op *chanOperation) []*engine.
 	result = append(result, task)
 
 	// Resume all senders with channel closed indicator
-	for sender := s.dequeueOp(s.senders, ch); sender != nil; sender = s.dequeueOp(s.senders, ch) {
+	for sender := s.dequeue(s.senders, ch); sender != nil; sender = s.dequeue(s.senders, ch) {
 		sender.task.Resumed = []lua.LValue{lua.LNil} // channel closed
 		result = append(result, sender.task)
 		sender.reset()
@@ -338,7 +227,7 @@ func (s *Scheduler) handleClose(task *engine.Task, op *chanOperation) []*engine.
 	}
 
 	// Handle receivers - they can still get buffered values
-	for receiver := s.dequeueOp(s.receivers, ch); receiver != nil; receiver = s.dequeueOp(s.receivers, ch) {
+	for receiver := s.dequeue(s.receivers, ch); receiver != nil; receiver = s.dequeue(s.receivers, ch) {
 		// Try to receive any buffered value first
 		if value, ok := ch.receive(); ok {
 			receiver.task.Resumed = []lua.LValue{value, lua.LBool(true)}
@@ -356,28 +245,21 @@ func (s *Scheduler) handleClose(task *engine.Task, op *chanOperation) []*engine.
 
 // ActiveSignals returns a list of external channel names currently being listened to
 func (s *Scheduler) ActiveSignals() []string {
-	return s.external.getOrderedNames()
+	return s.external.getNames()
 }
 
 // Signal sends a value to an external channel
 func (s *Scheduler) Signal(name string, value lua.LValue) []*engine.Task {
-	receivers := s.external.getReceivers(name)
-	if len(receivers) == 0 {
-		return nil
+	if op := s.external.popReceiver(name); op != nil {
+		op.task.Resumed = []lua.LValue{value, lua.LBool(true)}
+
+		results := []*engine.Task{op.task}
+
+		op.reset()
+		pendingPool.Put(op)
+
+		return results
 	}
 
-	// Complete each receiver
-	var tasks []*engine.Task
-	for _, receiver := range receivers {
-		receiver.task.Resumed = []lua.LValue{value, lua.LBool(true)}
-		tasks = append(tasks, receiver.task)
-
-		// Remove this specific receiver
-		s.external.removeReceiver(name, receiver)
-
-		receiver.reset()
-		pendingPool.Put(receiver)
-	}
-
-	return tasks
+	return nil
 }
