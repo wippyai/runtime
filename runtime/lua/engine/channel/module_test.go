@@ -2,11 +2,12 @@ package channel
 
 import (
 	"context"
+	"fmt"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/stretchr/testify/assert"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
-	"log"
+	"strings"
 	"testing"
 )
 
@@ -572,7 +573,6 @@ func TestModule_YieldSequences(t *testing.T) {
 			}
 			var err error
 			tasks, err = scheduler.Step(vm, tasks...)
-			log.Printf("tasks: %v", tasks)
 			assert.NoError(t, err)
 		}
 
@@ -885,5 +885,136 @@ func TestExternalChannels_Basic(t *testing.T) {
 
 		// Channel should no longer be listened
 		assert.Equal(t, 0, len(scheduler.ActiveSignals()))
+	})
+}
+
+func TestMapReduce(t *testing.T) {
+	logger := zap.NewNop()
+
+	t.Run("parallel map reduce with 3 workers", func(t *testing.T) {
+		scheduler := NewScheduler()
+		channels := NewChannelModule()
+		vm, err := engine.NewCoroutineVM(
+			context.Background(), logger,
+			engine.WithPreloaded(channels.Name(), channels.Loader),
+		)
+		assert.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.DoString(`
+			-- Create channels
+			local workCh = channel.new(0)   -- Work distribution channel
+			local resultCh = channel.new(0)  -- Results collection channel
+			
+			-- Input data: numbers 1 through 10
+			local input = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+			local expected_sum = 385  -- Sum of squares of input
+			
+			-- Map function: squares the number
+			function map_fn(x)
+				return x * x
+			end
+			
+			-- Worker function that processes items from work channel
+			function worker(id)
+				while true do
+					local num, ok = workCh:receive()
+					if not ok then
+						break  -- Channel closed
+					end
+					
+					-- Process the number and send result
+					local result = map_fn(num)
+					resultCh:send({
+						worker = id,
+						input = num,
+						result = result
+					})
+					coroutine.yield("worker_" .. id .. "_processed_" .. num)
+				end
+				coroutine.yield("worker_" .. id .. "_done")
+			end
+			
+			-- Start 3 workers
+			for i = 1, 3 do
+				coroutine.spawn(function()
+					worker(i)
+				end)
+			end
+			
+			-- Distributor coroutine that sends work
+			coroutine.spawn(function()
+				-- Send all numbers to be processed
+				for _, num in ipairs(input) do
+					workCh:send(num)
+					coroutine.yield("distributed_" .. num)
+				end
+				
+				-- Close work channel to signal no more work
+				workCh:close()
+				coroutine.yield("distribution_complete")
+			end)
+			
+			-- Reducer coroutine that collects and combines results
+			coroutine.spawn(function()
+				local results = {}
+				local sum = 0
+				
+				-- Collect results until we have processed all input
+				while #results < #input do
+					local result = resultCh:receive()
+					table.insert(results, result)
+					sum = sum + result.result
+					coroutine.yield("reduced_" .. result.input)
+				end
+				
+				-- Verify results
+				assert(#results == #input, "got wrong number of results")
+				assert(sum == expected_sum, string.format(
+					"wrong sum: expected %d, got %d", expected_sum, sum))
+				
+				-- Close result channel
+				resultCh:close()
+				coroutine.yield("reduce_complete")
+			end)
+		`, "test")
+
+		assert.NoError(t, err)
+
+		// Process all coroutines until completion
+		var yields []string
+		tasks, err := scheduler.Step(vm)
+		assert.NoError(t, err)
+
+		for len(tasks) > 0 {
+			for _, task := range tasks {
+				if vals := task.Yielded; len(vals) > 0 {
+					yields = append(yields, vals[0].String())
+				}
+			}
+			tasks, err = scheduler.Step(vm, tasks...)
+			assert.NoError(t, err)
+		}
+
+		// Verify key stages completed
+		assert.Contains(t, yields, "distribution_complete")
+		assert.Contains(t, yields, "reduce_complete")
+
+		// Verify all workers completed
+		assert.Contains(t, yields, "worker_1_done")
+		assert.Contains(t, yields, "worker_2_done")
+		assert.Contains(t, yields, "worker_3_done")
+
+		// Verify all numbers were processed
+		for i := 1; i <= 10; i++ {
+			found := false
+			for _, y := range yields {
+				if strings.Contains(y, fmt.Sprintf("reduced_%d", i)) {
+					found = true
+					break
+				}
+			}
+			assert.True(t, found, "number %d was not processed", i)
+		}
 	})
 }
