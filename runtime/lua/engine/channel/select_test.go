@@ -51,7 +51,7 @@ func TestModule_ImmediateSelects(t *testing.T) {
 
 		assert.NoError(t, err)
 
-		scheduler := NewScheduler()
+		scheduler := NewRuntime()
 		tasks, err := scheduler.Step(vm)
 		assert.NoError(t, err)
 
@@ -231,7 +231,7 @@ func TestModule_ImmediateSelects(t *testing.T) {
 
 		assert.NoError(t, err)
 
-		scheduler := NewScheduler()
+		scheduler := NewRuntime()
 		tasks, err := scheduler.Step(vm)
 		assert.NoError(t, err)
 
@@ -294,7 +294,7 @@ func TestModule_BlockingSelects(t *testing.T) {
 
 		assert.NoError(t, err)
 
-		scheduler := NewScheduler()
+		scheduler := NewRuntime()
 		tasks, err := scheduler.Step(vm)
 		assert.NoError(t, err)
 
@@ -358,7 +358,7 @@ func TestModule_BlockingSelects(t *testing.T) {
 
 		assert.NoError(t, err)
 
-		scheduler := NewScheduler()
+		scheduler := NewRuntime()
 		tasks, err := scheduler.Step(vm)
 		assert.NoError(t, err)
 
@@ -420,7 +420,7 @@ func TestModule_BlockingSelects(t *testing.T) {
 
 		assert.NoError(t, err)
 
-		scheduler := NewScheduler()
+		scheduler := NewRuntime()
 		tasks, err := scheduler.Step(vm)
 		assert.NoError(t, err)
 
@@ -478,7 +478,7 @@ func TestModule_BlockingSelects(t *testing.T) {
 
 		assert.NoError(t, err)
 
-		scheduler := NewScheduler()
+		scheduler := NewRuntime()
 		tasks, err := scheduler.Step(vm)
 
 		assert.NoError(t, err)
@@ -608,7 +608,7 @@ func TestModule_AdditionalSelectScenarios(t *testing.T) {
 
 		assert.NoError(t, err)
 
-		scheduler := NewScheduler()
+		scheduler := NewRuntime()
 		tasks, err := scheduler.Step(vm)
 		assert.NoError(t, err)
 
@@ -668,7 +668,7 @@ func TestModule_AdditionalSelectScenarios(t *testing.T) {
 
 		assert.NoError(t, err)
 
-		scheduler := NewScheduler()
+		scheduler := NewRuntime()
 		tasks, err := scheduler.Step(vm)
 		assert.NoError(t, err)
 
@@ -753,7 +753,7 @@ func TestModule_AdditionalSelectScenarios(t *testing.T) {
 	//`, "test")
 	//	assert.NoError(t, err)
 	//
-	//	scheduler := NewScheduler()
+	//	scheduler := NewRuntime()
 	//	fmt.Printf("\nDEBUG: Starting scheduler steps\n")
 	//
 	//	tasks, err := scheduler.Step(vm)
@@ -788,7 +788,7 @@ func TestExternalChannelSelect(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("select on inbox channel", func(t *testing.T) {
-		scheduler := NewScheduler()
+		scheduler := NewRuntime()
 		channels := NewChannelModule()
 
 		vm, err := engine.NewCoroutineVM(
@@ -836,7 +836,7 @@ func TestExternalChannelSelect(t *testing.T) {
 	})
 
 	//t.Run("select between multiple inbox channels", func(t *testing.T) {
-	//	scheduler := NewScheduler()
+	//	scheduler := NewRuntime()
 	//	channels := NewChannelModule()
 	//
 	//	vm, err := engine.NewCoroutineVM(

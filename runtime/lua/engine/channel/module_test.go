@@ -53,7 +53,7 @@ func TestChannels_Basic(t *testing.T) {
 	})
 
 	t.Run("unbuffered channel send/receive", func(t *testing.T) {
-		scheduler := NewScheduler()
+		scheduler := NewRuntime()
 		channels := NewChannelModule()
 
 		vm, err := engine.NewCoroutineVM(
@@ -352,7 +352,7 @@ func TestModule_YieldSequences(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("buffer wrapping with yield verification", func(t *testing.T) {
-		scheduler := NewScheduler()
+		scheduler := NewRuntime()
 		channels := NewChannelModule()
 
 		vm, err := engine.NewCoroutineVM(
@@ -550,7 +550,7 @@ func TestModule_YieldSequences(t *testing.T) {
 	})
 
 	t.Run("cleanup and reference handling", func(t *testing.T) {
-		scheduler := NewScheduler()
+		scheduler := NewRuntime()
 		channels := NewChannelModule()
 
 		vm, err := engine.NewCoroutineVM(
@@ -627,7 +627,7 @@ func TestModule_YieldSequences(t *testing.T) {
 	})
 
 	t.Run("buffered channel with multiple coroutines", func(t *testing.T) {
-		scheduler := NewScheduler()
+		scheduler := NewRuntime()
 		vm, err := engine.NewCoroutineVM(
 			context.Background(), logger,
 			engine.WithPreloaded("channel", NewChannelModule().Loader),
@@ -741,7 +741,7 @@ func TestExternalChannels_Basic(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("inbox channel send data", func(t *testing.T) {
-		scheduler := NewScheduler()
+		scheduler := NewRuntime()
 		channels := NewChannelModule()
 
 		vm, err := engine.NewCoroutineVM(
@@ -794,7 +794,7 @@ func TestExternalChannels_Basic(t *testing.T) {
 	})
 
 	t.Run("inbox channel multi-receive with yield", func(t *testing.T) {
-		scheduler := NewScheduler()
+		scheduler := NewRuntime()
 		channels := NewChannelModule()
 
 		vm, err := engine.NewCoroutineVM(
@@ -869,7 +869,7 @@ func TestExternalChannels_Basic(t *testing.T) {
 	})
 
 	t.Run("multiple receivers on single inbox channel", func(t *testing.T) {
-		scheduler := NewScheduler()
+		scheduler := NewRuntime()
 		channels := NewChannelModule()
 
 		vm, err := engine.NewCoroutineVM(
@@ -930,7 +930,7 @@ func TestMapReduce(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("parallel map reduce with 3 workers", func(t *testing.T) {
-		scheduler := NewScheduler()
+		scheduler := NewRuntime()
 		channels := NewChannelModule()
 		vm, err := engine.NewCoroutineVM(
 			context.Background(), logger,
