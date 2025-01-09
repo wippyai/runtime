@@ -208,7 +208,7 @@ func TestScheduler(t *testing.T) {
 					assert.Contains(t, signals, "test-signal", "signal should be registered")
 
 					// Send external message
-					tasks := s.Send("test-signal", lua.LString("external"))
+					tasks, _ := s.Send("test-signal", lua.LString("external"))
 					assert.Len(t, tasks, 1, "receiver should be resumed")
 
 					// Verify receiver got message

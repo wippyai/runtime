@@ -823,7 +823,7 @@ func TestExternalChannelSelect(t *testing.T) {
 		assert.Equal(t, []string{"ext1"}, listeners, "channel should be registered")
 
 		// Send data to channel
-		tasks = scheduler.Send("ext1", lua.LString("test_data"))
+		tasks, _ = scheduler.Send("ext1", lua.LString("test_data"))
 		assert.Equal(t, 1, len(tasks), "should have one task to resume")
 
 		// Process resumed task
