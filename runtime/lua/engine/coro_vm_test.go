@@ -972,7 +972,7 @@ func TestCoroutineVM_SharedBuffer(t *testing.T) {
 		testValues := []string{"val1", "val2", "val3", "val4", "val5"}
 
 		for _, val := range testValues {
-			// Send value to writer
+			// send value to writer
 			writerTask.Resumed = []lua.LValue{lua.LString(val)}
 			tasks, err = vm.Step(writerTask)
 			if err != nil {
@@ -1558,7 +1558,7 @@ func BenchmarkCoroutineVM(b *testing.B) {
 
 			task := tasks[0]
 			if len(task.Yielded) > 0 && task.Yielded[0].String() == "ready" {
-				// Send test message
+				// send test message
 				task.Resumed = []lua.LValue{lua.LString("ping")}
 				tasks, err = vm.Step(task)
 				if err != nil {

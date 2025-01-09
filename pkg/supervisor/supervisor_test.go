@@ -656,7 +656,7 @@ func TestSupervisor_BusEventControl(t *testing.T) {
 	svc := newTestService()
 	serviceID := "event-controlled-service"
 
-	// Send registration events through the bus
+	// send registration events through the bus
 	h.sup.bus.Send(ctx, events.Event{
 		System: registry.System,
 		Kind:   registry.Begin,

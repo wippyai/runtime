@@ -45,6 +45,33 @@ func (q *pendingQueue) dequeue() *pendingOp {
 	return op
 }
 
+// remove removes a specific node from the queue
+// Returns true if node was found and removed, false otherwise
+func (q *pendingQueue) remove(op *pendingOp) bool {
+	if q.size == 0 {
+		return false
+	}
+
+	if q.head == op {
+		q.dequeue()
+		return true
+	}
+
+	// Walk queue to find predecessor of target node
+	for curr := q.head; curr != nil && curr.next != nil; curr = curr.next {
+		if curr.next == op {
+			curr.next = op.next
+			if curr.next == nil {
+				q.tail = curr
+			}
+			q.size--
+			return true
+		}
+	}
+
+	return false
+}
+
 func (q *pendingQueue) reset() {
 	q.head = nil
 	q.tail = nil

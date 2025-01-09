@@ -165,7 +165,7 @@ func TestHttpHandler_Integration(t *testing.T) {
 			assert(body == nil, "body should be nil for invalid JSON")
 			assert(err ~= nil, "should have error for invalid JSON")
 			
-			-- Send error response
+			-- send error response
 			res:set_content_type(httpctx.CONTENT.JSON)
 			res:set_status(httpctx.STATUS.BAD_REQUEST)
 			res:write_json({
@@ -210,7 +210,7 @@ func TestHttpHandler_Integration(t *testing.T) {
 			-- Set up SSE
 			res:set_transfer(httpctx.TRANSFER.SSE)
 			
-			-- Send multiple events
+			-- send multiple events
 			res:write_event({
 				name = "start",
 				data = {status = "starting"}

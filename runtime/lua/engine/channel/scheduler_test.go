@@ -61,7 +61,7 @@ func TestSchedulerDirect(t *testing.T) {
 		s := NewRuntime()
 		ch := newChannel(2)
 
-		// Send first message
+		// send first message
 		send1 := &engine.Task{}
 		sendOp1 := &chanOperation{
 			opType: chanSend,
@@ -72,7 +72,7 @@ func TestSchedulerDirect(t *testing.T) {
 		assert.Len(t, tasks, 1, "first send should complete")
 		assert.Equal(t, lua.LBool(true), send1.Resumed[0])
 
-		// Send second message
+		// send second message
 		send2 := &engine.Task{}
 		sendOp2 := &chanOperation{
 			opType: chanSend,
@@ -118,7 +118,7 @@ func TestSchedulerDirect(t *testing.T) {
 		s := NewRuntime()
 		ch := newChannel(1)
 
-		// Send first message to buffer
+		// send first message to buffer
 		send1 := &engine.Task{}
 		sendOp1 := &chanOperation{
 			opType: chanSend,
@@ -228,7 +228,7 @@ func TestSchedulerDirect(t *testing.T) {
 		tasks = s.pushOperation(recv2, recvOp2)
 		assert.Empty(t, tasks, "second receiver should block")
 
-		// Send first value - should wake up first receiver
+		// send first value - should wake up first receiver
 		send1 := &engine.Task{}
 		sendOp1 := &chanOperation{
 			opType: chanSend,
@@ -239,7 +239,7 @@ func TestSchedulerDirect(t *testing.T) {
 		assert.Len(t, tasks, 2, "first send should wake first receiver")
 		assert.Equal(t, lua.LString("first"), recv1.Resumed[0], "first receiver should get first value")
 
-		// Send second value - should wake up second receiver
+		// send second value - should wake up second receiver
 		send2 := &engine.Task{}
 		sendOp2 := &chanOperation{
 			opType: chanSend,
@@ -394,7 +394,7 @@ func TestSchedulerDirect(t *testing.T) {
 		s := NewRuntime()
 		ch := newChannel(3)
 
-		// Send three messages
+		// send three messages
 		values := []string{"first", "second", "third"}
 		var sends []*engine.Task
 

@@ -82,9 +82,9 @@ func (c *Scheduler) HandleChannelTasks(tasks []*engine.Task) ([]*engine.Task, er
 		var resultTasks []*engine.Task
 		switch op := task.Yielded[0].(type) {
 		case *chanOperation:
-			resultTasks = c.HandleOperation(task, op)
+			resultTasks = c.handleOperation(task, op)
 		case *selectOperation:
-			resultTasks = c.HandleSelect(task, op)
+			resultTasks = c.handleSelect(task, op)
 		default:
 			externalTasks = append(externalTasks, task)
 		}
@@ -95,8 +95,8 @@ func (c *Scheduler) HandleChannelTasks(tasks []*engine.Task) ([]*engine.Task, er
 	return append(externalTasks, channelTasks...), nil
 }
 
-// HandleOperation processes a single channel operation
-func (c *Scheduler) HandleOperation(task *engine.Task, op *chanOperation) []*engine.Task {
+// handleOperation processes a single channel operation
+func (c *Scheduler) handleOperation(task *engine.Task, op *chanOperation) []*engine.Task {
 	switch op.opType {
 	case chanSend:
 		return c.handleSend(task, op)
@@ -108,8 +108,8 @@ func (c *Scheduler) HandleOperation(task *engine.Task, op *chanOperation) []*eng
 	return nil
 }
 
-// HandleSelect processes a select operation
-func (c *Scheduler) HandleSelect(task *engine.Task, op *selectOperation) []*engine.Task {
+// handleSelect processes a select operation
+func (c *Scheduler) handleSelect(task *engine.Task, op *selectOperation) []*engine.Task {
 	// Register all cases
 	for _, sc := range op.cases {
 		ch := sc.Channel()
@@ -142,13 +142,13 @@ func (c *Scheduler) HandleSelect(task *engine.Task, op *selectOperation) []*engi
 	return nil
 }
 
-// GetActiveSignals returns list of inbox channel names being listened to
-func (c *Scheduler) GetActiveSignals() []string {
+// getActiveSignals returns list of inbox channel names being listened to
+func (c *Scheduler) getActiveSignals() []string {
 	return c.inbox.getNames()
 }
 
-// Send sends a value to an inbox channel
-func (c *Scheduler) Send(name string, value lua.LValue) ([]*engine.Task, error) {
+// send sends a value to an inbox channel
+func (c *Scheduler) send(name string, value lua.LValue) ([]*engine.Task, error) {
 	op := c.inbox.popReceiver(name)
 	if op == nil {
 		return nil, fmt.Errorf("no receiver found for channel %s", name)
@@ -350,5 +350,5 @@ func (c *Scheduler) handleClose(task *engine.Task, op *chanOperation) []*engine.
 func (c *Scheduler) Cleanup() {
 	c.senders.clear()
 	c.receivers.clear()
-	// Inbox cleanup would be added here if needed
+	c.inbox.clear()
 }
