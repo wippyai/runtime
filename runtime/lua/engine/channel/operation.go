@@ -148,36 +148,39 @@ func (c *Scheduler) GetActiveSignals() []string {
 }
 
 // Send sends a value to an inbox channel
-func (c *Scheduler) Send(name string, value lua.LValue) []*engine.Task {
-	if op := c.inbox.popReceiver(name); op != nil {
-		// Clean up other inbox channels if part of select
-		if op.selectOp != nil {
-			for _, sc := range op.selectOp.cases {
-				ch := sc.Channel()
-				if ch != nil && ch.IsNamed() && ch.Name() != name {
-					c.inbox.removeReceiver(ch.Name(), op)
-				}
+func (c *Scheduler) Send(name string, value lua.LValue) ([]*engine.Task, error) {
+	op := c.inbox.popReceiver(name)
+	if op == nil {
+		return nil, fmt.Errorf("no receiver found for channel %s", name)
+	}
+
+	// Clean up other inbox channels if part of select
+	if op.selectOp != nil {
+		for _, sc := range op.selectOp.cases {
+			ch := sc.Channel()
+			if ch != nil && ch.IsNamed() && ch.Name() != name {
+				c.inbox.removeReceiver(ch.Name(), op)
 			}
 		}
-
-		if op.selectOp == nil {
-			op.task.Resumed = []lua.LValue{value, lua.LBool(true)}
-		} else {
-			op.task.Resumed = []lua.LValue{op.selectOp.caseResult(
-				op.task.Thread(),
-				op.op.ch,
-				value,
-				true,
-			)}
-		}
-		results := []*engine.Task{op.task}
-
-		op.reset()
-		pendingPool.Put(op)
-
-		return results
 	}
-	return nil
+
+	if op.selectOp == nil {
+		op.task.Resumed = []lua.LValue{value, lua.LBool(true)}
+	} else {
+		op.task.Resumed = []lua.LValue{op.selectOp.caseResult(
+			op.task.Thread(),
+			op.op.ch,
+			value,
+			true,
+		)}
+	}
+	results := []*engine.Task{op.task}
+
+	op.reset()
+	pendingPool.Put(op)
+
+	return results, nil
+
 }
 
 // handleSend processes a send operation

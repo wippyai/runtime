@@ -64,7 +64,7 @@ func (s *Runtime) ActiveSignals() []string {
 }
 
 // Send sends a value to a named inbox channel
-func (s *Runtime) Send(name string, value lua.LValue) []*engine.Task {
+func (s *Runtime) Send(name string, value lua.LValue) ([]*engine.Task, error) {
 	return s.scheduler.Send(name, value)
 }
 

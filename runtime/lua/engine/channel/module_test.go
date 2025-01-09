@@ -780,7 +780,7 @@ func TestExternalChannels_Basic(t *testing.T) {
 		assert.Equal(t, "signal", listeners[0], "expected signal channel to be registered")
 
 		// Send data to inbox channel
-		tasks = scheduler.Send("signal", lua.LString("hello"))
+		tasks, _ = scheduler.Send("signal", lua.LString("hello"))
 		assert.Equal(t, 1, len(tasks), "expected one task to be resumed")
 
 		// Process resumed task
@@ -833,13 +833,13 @@ func TestExternalChannels_Basic(t *testing.T) {
 		assert.NoError(t, err)
 
 		// First signal
-		tasks = scheduler.Send("signal", lua.LString("first"))
+		tasks, _ = scheduler.Send("signal", lua.LString("first"))
 		assert.Equal(t, 1, len(tasks))
 		tasks, err = scheduler.Step(vm, tasks...)
 		assert.NoError(t, err)
 
 		// Second signal
-		tasks = scheduler.Send("signal", lua.LString("second"))
+		tasks, _ = scheduler.Send("signal", lua.LString("second"))
 		assert.Equal(t, 1, len(tasks))
 		tasks, err = scheduler.Step(vm, tasks...)
 		assert.NoError(t, err)
@@ -859,7 +859,7 @@ func TestExternalChannels_Basic(t *testing.T) {
 		assert.Equal(t, []string{"signal"}, scheduler.ActiveSignals())
 
 		// Third signal
-		tasks = scheduler.Send("signal", lua.LString("third"))
+		tasks, _ = scheduler.Send("signal", lua.LString("third"))
 		assert.Equal(t, 1, len(tasks))
 		tasks, err = scheduler.Step(vm, tasks...)
 		assert.NoError(t, err)
@@ -906,7 +906,7 @@ func TestExternalChannels_Basic(t *testing.T) {
 		assert.Equal(t, []string{"distributed"}, scheduler.ActiveSignals())
 
 		// Send first signal - should go to first receiver
-		tasks = scheduler.Send("distributed", lua.LString("first"))
+		tasks, _ = scheduler.Send("distributed", lua.LString("first"))
 		assert.Equal(t, 1, len(tasks), "first receiver should be resumed")
 
 		tasks, err = scheduler.Step(vm, tasks...)
@@ -914,7 +914,7 @@ func TestExternalChannels_Basic(t *testing.T) {
 		assert.Equal(t, "first_done", tasks[0].Yielded[0].String())
 
 		// Send second signal - should go to second receiver
-		tasks = scheduler.Send("distributed", lua.LString("second"))
+		tasks, _ = scheduler.Send("distributed", lua.LString("second"))
 		assert.Equal(t, 1, len(tasks), "second receiver should be resumed")
 
 		tasks, err = scheduler.Step(vm, tasks...)
