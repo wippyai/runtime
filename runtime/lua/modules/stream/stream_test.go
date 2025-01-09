@@ -242,7 +242,7 @@ func TestStreamLuaEdgeCases(t *testing.T) {
 			local success, err = test_stream:read()
 			assert(success == nil, "Expected nil result for invalid Stream")
 			assert(type(err) == "string", "Expected error message")
-			assert(string.find(err, "expected Stream"), "RaiseError should mention expected Stream type")
+			assert(string.find(err, "expected Stream"), "Error should mention expected Stream type")
 		`
 
 		err = vm.DoString(context.Background(), script, "test")
@@ -277,7 +277,7 @@ func TestStreamLuaEdgeCases(t *testing.T) {
 			local data, err = test_stream:read()
 			assert(data == nil, "Expected nil data from closed Stream")
 			assert(type(err) == "string", "Expected error string")
-			assert(string.find(err, "closed"), "RaiseError should mention Stream is closed")
+			assert(string.find(err, "closed"), "Error should mention Stream is closed")
 		`
 
 		err = vm.DoString(context.Background(), script, "test")

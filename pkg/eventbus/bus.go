@@ -207,7 +207,7 @@ func (b *Bus) handleActions() {
 				close(s.eventCh)
 			}
 			close(b.actions)
-			a.stopDoneChan <- struct{}{} // Send stop completion
+			a.stopDoneChan <- struct{}{} // Signal stop completion
 			return
 		}
 	}
