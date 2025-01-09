@@ -12,13 +12,13 @@ type VM interface {
 
 // Runtime coordinates task execution and channel operations
 type Runtime struct {
-	controller *Scheduler
+	scheduler *Scheduler
 }
 
 // NewRuntime creates a new scheduler instance
 func NewRuntime() *Runtime {
 	return &Runtime{
-		controller: NewScheduler(),
+		scheduler: NewScheduler(),
 	}
 }
 
@@ -34,8 +34,8 @@ func (s *Runtime) Step(vm VM, tasks ...*engine.Task) ([]*engine.Task, error) {
 
 	// Keep processing until all channel operations are handled
 	for len(vmTasks) > 0 {
-		// Process current batch of tasks through controller
-		processedTasks, err := s.controller.HandleChannelTasks(vmTasks)
+		// Process current batch of tasks through scheduler
+		processedTasks, err := s.scheduler.HandleChannelTasks(vmTasks)
 		if err != nil {
 			return nil, fmt.Errorf("task processing failed: %w", err)
 		}
@@ -60,12 +60,12 @@ func (s *Runtime) Step(vm VM, tasks ...*engine.Task) ([]*engine.Task, error) {
 
 // ActiveSignals returns list of active inbox channels
 func (s *Runtime) ActiveSignals() []string {
-	return s.controller.GetActiveSignals()
+	return s.scheduler.GetActiveSignals()
 }
 
 // Send sends a value to a named inbox channel
 func (s *Runtime) Send(name string, value lua.LValue) []*engine.Task {
-	return s.controller.Send(name, value)
+	return s.scheduler.Send(name, value)
 }
 
 // filterExternalTasks separates non-channel tasks
@@ -78,7 +78,7 @@ func (s *Runtime) filterExternalTasks(tasks []*engine.Task) []*engine.Task {
 		}
 
 		switch task.Yielded[0].(type) {
-		case *chanOperation, *selectSwitch:
+		case *chanOperation, *selectOperation:
 			continue
 		default:
 			external = append(external, task)
@@ -96,7 +96,7 @@ func (s *Runtime) filterChannelTasks(tasks []*engine.Task) []*engine.Task {
 		}
 
 		switch task.Yielded[0].(type) {
-		case *chanOperation, *selectSwitch:
+		case *chanOperation, *selectOperation:
 			channel = append(channel, task)
 		}
 	}
@@ -105,5 +105,5 @@ func (s *Runtime) filterChannelTasks(tasks []*engine.Task) []*engine.Task {
 
 // Cleanup releases scheduler resources
 func (s *Runtime) Cleanup() {
-	s.controller.Cleanup()
+	s.scheduler.Cleanup()
 }

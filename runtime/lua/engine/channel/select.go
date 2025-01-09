@@ -35,24 +35,24 @@ func (sc *selectCase) Type() lua.LValueType {
 	return lua.LTUserData
 }
 
-// selectSwitch represents a yielded select operation.
-type selectSwitch struct {
+// selectOperation represents a yielded select operation.
+type selectOperation struct {
 	cases      []*selectCase
 	hasDefault bool
 }
 
-// String returns a string representation of the selectSwitch.
-func (s *selectSwitch) String() string {
+// String returns a string representation of the selectOperation.
+func (s *selectOperation) String() string {
 	return "channel.select"
 }
 
-// Type returns the Lua type of the selectSwitch.
-func (s *selectSwitch) Type() lua.LValueType {
+// Type returns the Lua type of the selectOperation.
+func (s *selectOperation) Type() lua.LValueType {
 	return lua.LTUserData
 }
 
-// caseResult creates a select result from a yielded selectSwitch.
-func (s *selectSwitch) caseResult(l *lua.LState, ch *Channel, value lua.LValue, ok bool) lua.LValue {
+// caseResult creates a select result from a yielded selectOperation.
+func (s *selectOperation) caseResult(l *lua.LState, ch *Channel, value lua.LValue, ok bool) lua.LValue {
 	for _, sc := range s.cases {
 		if sc.Channel() == ch {
 			return makeSelectResult(l, &selectResult{
@@ -196,7 +196,7 @@ func selectOp(L *lua.LState) int {
 	}
 
 	// Yield the select operation.
-	op := &selectSwitch{cases: cases, hasDefault: hasDefault}
+	op := &selectOperation{cases: cases, hasDefault: hasDefault}
 	L.Yield(op)
 	return -1
 }

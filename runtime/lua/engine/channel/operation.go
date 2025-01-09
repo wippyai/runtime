@@ -19,7 +19,7 @@ type pendingOp struct {
 	task     *engine.Task
 	op       *chanOperation
 	next     *pendingOp
-	selectOp *selectSwitch // If this op is part of a select
+	selectOp *selectOperation // If this op is part of a select
 }
 
 func (p *pendingOp) reset() {
@@ -59,7 +59,7 @@ type Scheduler struct {
 	inbox     *inbox
 }
 
-// NewScheduler creates a new controller instance
+// NewScheduler creates a new scheduler instance
 func NewScheduler() *Scheduler {
 	return &Scheduler{
 		senders:   newQueueMapper(),
@@ -83,7 +83,7 @@ func (c *Scheduler) HandleChannelTasks(tasks []*engine.Task) ([]*engine.Task, er
 		switch op := task.Yielded[0].(type) {
 		case *chanOperation:
 			resultTasks = c.HandleOperation(task, op)
-		case *selectSwitch:
+		case *selectOperation:
 			resultTasks = c.HandleSelect(task, op)
 		default:
 			externalTasks = append(externalTasks, task)
@@ -109,7 +109,7 @@ func (c *Scheduler) HandleOperation(task *engine.Task, op *chanOperation) []*eng
 }
 
 // HandleSelect processes a select operation
-func (c *Scheduler) HandleSelect(task *engine.Task, op *selectSwitch) []*engine.Task {
+func (c *Scheduler) HandleSelect(task *engine.Task, op *selectOperation) []*engine.Task {
 	// Register all cases
 	for _, sc := range op.cases {
 		ch := sc.Channel()
