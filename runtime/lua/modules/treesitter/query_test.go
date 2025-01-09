@@ -669,9 +669,9 @@ for _, case in ipairs(error_cases) do
     -- Should have an error message
     assert(err ~= nil, "should have error message for query: " .. case.query)
     
-    -- RaiseError message should match expected pattern
+    -- Error message should match expected pattern
     assert(err:match(case.expected), 
-           string.format("\nRaiseError message did not match pattern.\nGot: '%s'\nExpected to match: '%s'", 
+           string.format("\nError message did not match pattern.\nGot: '%s'\nExpected to match: '%s'", 
                         err, case.expected))
 end
 

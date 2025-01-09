@@ -439,7 +439,7 @@ func TestInMemoryRegistry_ConcurrentApply(t *testing.T) {
 				}
 				_, err := reg.Apply(context.Background(), change)
 				if err != nil {
-					t.Errorf("RaiseError in Apply: %v", err)
+					t.Errorf("Error in Apply: %v", err)
 					return
 				}
 			}
@@ -451,7 +451,7 @@ func TestInMemoryRegistry_ConcurrentApply(t *testing.T) {
 	// Verify final state
 	finalState, err := reg.GetAllEntries()
 	if err != nil {
-		t.Fatalf("RaiseError getting final state: %v", err)
+		t.Fatalf("Error getting final state: %v", err)
 	}
 
 	if len(finalState) != numGoroutines*changesPerRoutine {
@@ -461,7 +461,7 @@ func TestInMemoryRegistry_ConcurrentApply(t *testing.T) {
 	// Verify current version
 	currentVersion, err := reg.Current()
 	if err != nil {
-		t.Fatalf("RaiseError getting current version: %v", err)
+		t.Fatalf("Error getting current version: %v", err)
 	}
 
 	if currentVersion.ID() != uint(numGoroutines*changesPerRoutine) {

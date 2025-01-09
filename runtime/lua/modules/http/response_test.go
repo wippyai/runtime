@@ -271,8 +271,8 @@ func TestHTTPResponse(t *testing.T) {
 					local http = require("http")
 					local response, err = http.get("https://api.example.com/test")
 					assert(response == nil, "Response should be nil")
-					assert(err ~= nil, "RaiseError should not be nil")
-					assert(string.find(err, "mock error") ~= nil, "RaiseError message mismatch")
+					assert(err ~= nil, "Error should not be nil")
+					assert(string.find(err, "mock error") ~= nil, "Error message mismatch")
 				`,
 				shouldError: false,
 			},
@@ -456,7 +456,7 @@ func TestStreamedResponseBodyHandling(t *testing.T) {
 
 		local chunk, err = s:read()
 		assert(chunk == nil, "Chunk should be nil due to timeout")
-		assert(string.find(err, "context deadline"), "RaiseError should indicate a timeout or canceled context")
+		assert(string.find(err, "context deadline"), "Error should indicate a timeout or canceled context")
 	`
 
 		err = vm.DoString(context.Background(), script, "test")
@@ -495,11 +495,11 @@ func TestStreamedResponseBodyHandling(t *testing.T) {
 		local s = response.stream
 		local chunk, err = s:read()
 		assert(chunk == "chunk1", "First chunk should be read successfully")
-		assert(err == nil, "RaiseError should be nil for the first chunk")
+		assert(err == nil, "Error should be nil for the first chunk")
 
 		chunk, err = s:read()
 		assert(chunk == nil, "Chunk should be nil due to error")
-		assert(string.find(err, "mock error"), "RaiseError should indicate the injected error")
+		assert(string.find(err, "mock error"), "Error should indicate the injected error")
 	`
 
 		err = vm.DoString(context.Background(), script, "test")
@@ -538,7 +538,7 @@ func TestStreamedResponseBodyHandling(t *testing.T) {
 
 		local chunk, err = s:read()
 		assert(chunk == nil, "Chunk should be nil after closing")
-		assert(string.find(err, "closed"), "RaiseError should indicate stream is closed")
+		assert(string.find(err, "closed"), "Error should indicate stream is closed")
 	`
 
 		err = vm.DoString(context.Background(), script, "test")

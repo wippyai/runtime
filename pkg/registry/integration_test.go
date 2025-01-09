@@ -170,9 +170,9 @@ data:
 				// Compare Data field using assert.Equal for deep comparison of maps
 				var expectedData, currentData map[string]interface{}
 				err = dtt.Unmarshal(expectedEntry.Data, &expectedData)
-				assert.NoError(t, err, "RaiseError unmarshalling expected data")
+				assert.NoError(t, err, "Error unmarshalling expected data")
 				err = dtt.Unmarshal(currentEntry.Data, &currentData)
-				assert.NoError(t, err, "RaiseError unmarshalling current data")
+				assert.NoError(t, err, "Error unmarshalling current data")
 
 				assert.Equal(t, expectedData, currentData, "Data mismatch for path: %s", expectedEntry.ID)
 				break
