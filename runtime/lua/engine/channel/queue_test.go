@@ -12,7 +12,7 @@ func TestPendingOp(t *testing.T) {
 			task:     &engine.Task{},
 			op:       &chanOperation{},
 			next:     &pendingOp{},
-			selectOp: &selectSwitch{},
+			selectOp: &selectOperation{},
 		}
 
 		op.reset()
