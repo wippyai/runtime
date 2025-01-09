@@ -276,3 +276,157 @@ func TestObjectPool(t *testing.T) {
 		assert.Nil(t, q2.tail)
 	})
 }
+
+func TestPendingQueue_Remove(t *testing.T) {
+	t.Run("remove from empty queue", func(t *testing.T) {
+		q := &pendingQueue{}
+		op := &pendingOp{}
+
+		success := q.remove(op)
+		assert.False(t, success)
+		assert.Equal(t, 0, q.size)
+		assert.Nil(t, q.head)
+		assert.Nil(t, q.tail)
+	})
+
+	t.Run("remove head of single element queue", func(t *testing.T) {
+		q := &pendingQueue{}
+		op := &pendingOp{}
+
+		q.enqueue(op)
+		success := q.remove(op)
+
+		assert.True(t, success)
+		assert.Equal(t, 0, q.size)
+		assert.Nil(t, q.head)
+		assert.Nil(t, q.tail)
+	})
+
+	t.Run("remove head of multi-element queue", func(t *testing.T) {
+		q := &pendingQueue{}
+		op1 := &pendingOp{}
+		op2 := &pendingOp{}
+		op3 := &pendingOp{}
+
+		q.enqueue(op1)
+		q.enqueue(op2)
+		q.enqueue(op3)
+
+		success := q.remove(op1)
+
+		assert.True(t, success)
+		assert.Equal(t, 2, q.size)
+		assert.Equal(t, op2, q.head)
+		assert.Equal(t, op3, q.tail)
+	})
+
+	t.Run("remove middle element", func(t *testing.T) {
+		q := &pendingQueue{}
+		op1 := &pendingOp{}
+		op2 := &pendingOp{}
+		op3 := &pendingOp{}
+
+		q.enqueue(op1)
+		q.enqueue(op2)
+		q.enqueue(op3)
+
+		success := q.remove(op2)
+
+		assert.True(t, success)
+		assert.Equal(t, 2, q.size)
+		assert.Equal(t, op1, q.head)
+		assert.Equal(t, op3, q.tail)
+		assert.Equal(t, op3, op1.next)
+	})
+
+	t.Run("remove tail element", func(t *testing.T) {
+		q := &pendingQueue{}
+		op1 := &pendingOp{}
+		op2 := &pendingOp{}
+		op3 := &pendingOp{}
+
+		q.enqueue(op1)
+		q.enqueue(op2)
+		q.enqueue(op3)
+
+		success := q.remove(op3)
+
+		assert.True(t, success)
+		assert.Equal(t, 2, q.size)
+		assert.Equal(t, op1, q.head)
+		assert.Equal(t, op2, q.tail)
+		assert.Nil(t, op2.next)
+	})
+
+	t.Run("remove non-existent element", func(t *testing.T) {
+		q := &pendingQueue{}
+		op1 := &pendingOp{}
+		op2 := &pendingOp{}
+		nonExistent := &pendingOp{}
+
+		q.enqueue(op1)
+		q.enqueue(op2)
+
+		success := q.remove(nonExistent)
+
+		assert.False(t, success)
+		assert.Equal(t, 2, q.size)
+		assert.Equal(t, op1, q.head)
+		assert.Equal(t, op2, q.tail)
+	})
+
+	t.Run("remove all elements sequentially", func(t *testing.T) {
+		q := &pendingQueue{}
+		op1 := &pendingOp{}
+		op2 := &pendingOp{}
+		op3 := &pendingOp{}
+
+		q.enqueue(op1)
+		q.enqueue(op2)
+		q.enqueue(op3)
+
+		success1 := q.remove(op2)
+		assert.True(t, success1)
+		assert.Equal(t, 2, q.size)
+
+		success2 := q.remove(op1)
+		assert.True(t, success2)
+		assert.Equal(t, 1, q.size)
+		assert.Equal(t, op3, q.head)
+		assert.Equal(t, op3, q.tail)
+
+		success3 := q.remove(op3)
+		assert.True(t, success3)
+		assert.Equal(t, 0, q.size)
+		assert.Nil(t, q.head)
+		assert.Nil(t, q.tail)
+	})
+}
+
+// Add new benchmark for remove operation
+func BenchmarkPendingQueue_Remove(b *testing.B) {
+	b.Run("remove_head", func(b *testing.B) {
+		q := &pendingQueue{}
+		op := &pendingOp{}
+
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			q.enqueue(op)
+			q.remove(op)
+		}
+	})
+
+	b.Run("remove_tail", func(b *testing.B) {
+		q := &pendingQueue{}
+		placeholder := &pendingOp{}
+		targetOp := &pendingOp{}
+
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			q.enqueue(placeholder)
+			q.enqueue(targetOp)
+			q.remove(targetOp)
+			q.remove(placeholder)
+		}
+	})
+}

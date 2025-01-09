@@ -146,7 +146,7 @@ func TestScheduler(t *testing.T) {
 			stepFunc: func(tasks ...*engine.Task) ([]*engine.Task, error) {
 				switch phase {
 				case 0:
-					// Send a message and close channel
+					// send a message and close channel
 					sender.Yielded = []lua.LValue{&chanOperation{
 						opType: chanSend,
 						ch:     ch,
@@ -204,10 +204,10 @@ func TestScheduler(t *testing.T) {
 					return []*engine.Task{receiver}, nil
 				case 1:
 					// Verify signal was registered
-					signals := s.ActiveSignals()
+					signals := s.GetActiveSignals()
 					assert.Contains(t, signals, "test-signal", "signal should be registered")
 
-					// Send external message
+					// send external message
 					tasks, _ := s.Send("test-signal", lua.LString("external"))
 					assert.Len(t, tasks, 1, "receiver should be resumed")
 
@@ -216,7 +216,7 @@ func TestScheduler(t *testing.T) {
 					assert.Equal(t, lua.LBool(true), receiver.Resumed[1], "receive should indicate success")
 
 					// Verify signal was unregistered
-					signals = s.ActiveSignals()
+					signals = s.GetActiveSignals()
 					assert.NotContains(t, signals, "test-signal", "signal should be unregistered")
 
 					phase++

@@ -730,7 +730,7 @@ func TestModule_AdditionalSelectScenarios(t *testing.T) {
 	//        coroutine.yield("helper_starting")
 	//
 	//        print("DEBUG: Helper sending to ch1")
-	//        -- Send to ch1 specifically
+	//        -- send to ch1 specifically
 	//        local ok = ch1:send("test_value")
 	//        assert(ok, "send to ch1 failed")
 	//        coroutine.yield("helper_complete")
@@ -819,10 +819,10 @@ func TestExternalChannelSelect(t *testing.T) {
 		assert.NoError(t, err)
 
 		// Verify channel is registered
-		listeners := scheduler.ActiveSignals()
+		listeners := scheduler.GetActiveSignals()
 		assert.Equal(t, []string{"ext1"}, listeners, "channel should be registered")
 
-		// Send data to channel
+		// send data to channel
 		tasks, _ = scheduler.Send("ext1", lua.LString("test_data"))
 		assert.Equal(t, 1, len(tasks), "should have one task to resume")
 
@@ -832,7 +832,7 @@ func TestExternalChannelSelect(t *testing.T) {
 		assert.Equal(t, "receive_complete", tasks[0].Yielded[0].String())
 
 		// Channel should be unregistered
-		assert.Equal(t, 0, len(scheduler.ActiveSignals()), "channel should be unregistered")
+		assert.Equal(t, 0, len(scheduler.GetActiveSignals()), "channel should be unregistered")
 	})
 
 	//t.Run("select between multiple inbox channels", func(t *testing.T) {
@@ -877,13 +877,13 @@ func TestExternalChannelSelect(t *testing.T) {
 	//	assert.NoError(t, err)
 	//
 	//	// Verify both channels are registered
-	//	listeners := scheduler.ActiveSignals()
+	//	listeners := scheduler.GetActiveSignals()
 	//	assert.Equal(t, 2, len(listeners), "both channels should be registered")
 	//	assert.Contains(t, listeners, "ext1")
 	//	assert.Contains(t, listeners, "ext2")
 	//
-	//	// Send to first channel
-	//	tasks = scheduler.Send("ext1", lua.LString("data1"))
+	//	// send to first channel
+	//	tasks = scheduler.send("ext1", lua.LString("data1"))
 	//	assert.Equal(t, 1, len(tasks), "should have one task to resume")
 	//
 	//	tasks, err = scheduler.Step(vm, tasks...)
@@ -894,8 +894,8 @@ func TestExternalChannelSelect(t *testing.T) {
 	//	tasks, err = scheduler.Step(vm, tasks...)
 	//	assert.NoError(t, err)
 	//
-	//	// Send to second channel
-	//	tasks = scheduler.Send("ext2", lua.LString("data2"))
+	//	// send to second channel
+	//	tasks = scheduler.send("ext2", lua.LString("data2"))
 	//	assert.Equal(t, 1, len(tasks), "should have one task to resume")
 	//
 	//	tasks, err = scheduler.Step(vm, tasks...)
@@ -903,7 +903,7 @@ func TestExternalChannelSelect(t *testing.T) {
 	//	assert.Equal(t, "second_receive_complete", tasks[0].Yielded[0].String())
 	//
 	//	// All channels should be unregistered at end
-	//	assert.Equal(t, 0, len(scheduler.ActiveSignals()), "no channels should remain registered")
+	//	assert.Equal(t, 0, len(scheduler.GetActiveSignals()), "no channels should remain registered")
 	//})
 }
 

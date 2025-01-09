@@ -123,7 +123,7 @@ func TestChannel_Buffer(t *testing.T) {
 			"7", "8", "9", // Replace all again
 		}
 
-		// Send values in groups of 3
+		// send values in groups of 3
 		for i := 0; i < len(sequence); i += 3 {
 			// Receive previous values if not first group
 			if i > 0 {
@@ -139,7 +139,7 @@ func TestChannel_Buffer(t *testing.T) {
 				}
 			}
 
-			// Send new values
+			// send new values
 			for j := 0; j < 3; j++ {
 				ok := ch.send(lua.LString(sequence[i+j]))
 				if !ok {
@@ -297,7 +297,7 @@ func TestChannel_Operations(t *testing.T) {
 		ch.send(lua.LString("1"))
 		ch.closed = true
 
-		// Send should fail
+		// send should fail
 		if ch.send(lua.LString("2")) {
 			t.Error("send on closed channel should fail")
 		}
@@ -513,6 +513,6 @@ func TestChanOperation(t *testing.T) {
 		assert.NotPanics(t, func() {
 			str := op.String()
 			assert.Contains(t, str, "channel.send{value=<nil>}")
-		}, "Send operation should handle nil value gracefully")
+		}, "send operation should handle nil value gracefully")
 	})
 }

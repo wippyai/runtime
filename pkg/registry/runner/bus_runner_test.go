@@ -556,7 +556,7 @@ func TestBusRunner_ErrorPropagation(t *testing.T) {
 				System: registry.System,
 				Kind:   registry.Reject,
 				Path:   events.Path(entry.ID),
-				Data:   expectedError, // Send error instead of entry
+				Data:   expectedError, // send error instead of entry
 			})
 			return
 		}

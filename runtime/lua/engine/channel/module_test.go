@@ -775,11 +775,11 @@ func TestExternalChannels_Basic(t *testing.T) {
 		assert.NoError(t, err)
 
 		// Verify inbox channel is registered
-		listeners := scheduler.ActiveSignals()
+		listeners := scheduler.GetActiveSignals()
 		assert.Equal(t, 1, len(listeners), "expected one inbox listener")
 		assert.Equal(t, "signal", listeners[0], "expected signal channel to be registered")
 
-		// Send data to inbox channel
+		// send data to inbox channel
 		tasks, _ = scheduler.Send("signal", lua.LString("hello"))
 		assert.Equal(t, 1, len(tasks), "expected one task to be resumed")
 
@@ -789,7 +789,7 @@ func TestExternalChannels_Basic(t *testing.T) {
 		assert.Equal(t, 1, len(tasks), "expected one final yield")
 
 		// Verify channel was unregistered after completion
-		listeners = scheduler.ActiveSignals()
+		listeners = scheduler.GetActiveSignals()
 		assert.Equal(t, 0, len(listeners), "expected no remaining listeners")
 	})
 
@@ -849,14 +849,14 @@ func TestExternalChannels_Basic(t *testing.T) {
 		assert.Equal(t, "other_work", tasks[0].Yielded[0].String())
 
 		// Verify channel not in listeners during yield
-		assert.Equal(t, 0, len(scheduler.ActiveSignals()))
+		assert.Equal(t, 0, len(scheduler.GetActiveSignals()))
 
 		// Step to get to next receive
 		tasks, err = scheduler.Step(vm, tasks...)
 		assert.NoError(t, err)
 
 		// Channel should be listening again
-		assert.Equal(t, []string{"signal"}, scheduler.ActiveSignals())
+		assert.Equal(t, []string{"signal"}, scheduler.GetActiveSignals())
 
 		// Third signal
 		tasks, _ = scheduler.Send("signal", lua.LString("third"))
@@ -903,9 +903,9 @@ func TestExternalChannels_Basic(t *testing.T) {
 		assert.NoError(t, err)
 
 		// Verify both are registered
-		assert.Equal(t, []string{"distributed"}, scheduler.ActiveSignals())
+		assert.Equal(t, []string{"distributed"}, scheduler.GetActiveSignals())
 
-		// Send first signal - should go to first receiver
+		// send first signal - should go to first receiver
 		tasks, _ = scheduler.Send("distributed", lua.LString("first"))
 		assert.Equal(t, 1, len(tasks), "first receiver should be resumed")
 
@@ -913,7 +913,7 @@ func TestExternalChannels_Basic(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, "first_done", tasks[0].Yielded[0].String())
 
-		// Send second signal - should go to second receiver
+		// send second signal - should go to second receiver
 		tasks, _ = scheduler.Send("distributed", lua.LString("second"))
 		assert.Equal(t, 1, len(tasks), "second receiver should be resumed")
 
@@ -922,7 +922,7 @@ func TestExternalChannels_Basic(t *testing.T) {
 		assert.Equal(t, "second_done", tasks[0].Yielded[0].String())
 
 		// Channel should no longer be listened
-		assert.Equal(t, 0, len(scheduler.ActiveSignals()))
+		assert.Equal(t, 0, len(scheduler.GetActiveSignals()))
 	})
 }
 
@@ -982,7 +982,7 @@ func TestMapReduce(t *testing.T) {
 			
 			-- Distributor coroutine that sends work
 			coroutine.spawn(function()
-				-- Send all numbers to be processed
+				-- send all numbers to be processed
 				for _, num in ipairs(input) do
 					workCh:send(num)
 					coroutine.yield("distributed_" .. num)

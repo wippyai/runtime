@@ -58,14 +58,14 @@ func (s *Runtime) Step(vm VM, tasks ...*engine.Task) ([]*engine.Task, error) {
 	return externalTasks, nil
 }
 
-// ActiveSignals returns list of active inbox channels
-func (s *Runtime) ActiveSignals() []string {
-	return s.scheduler.GetActiveSignals()
+// GetActiveSignals returns list of active inbox channels
+func (s *Runtime) GetActiveSignals() []string {
+	return s.scheduler.getActiveSignals()
 }
 
 // Send sends a value to a named inbox channel
 func (s *Runtime) Send(name string, value lua.LValue) ([]*engine.Task, error) {
-	return s.scheduler.Send(name, value)
+	return s.scheduler.send(name, value)
 }
 
 // filterExternalTasks separates non-channel tasks

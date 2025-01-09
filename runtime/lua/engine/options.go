@@ -15,7 +15,7 @@ func WithLibrary(name string, source string) Option {
 			if err != nil {
 				// Propagate the error by pushing it onto the stack
 				L.Push(lua.LString(err.Error()))
-				return 1 // Send error
+				return 1 // send error
 			}
 
 			L.Push(fn)
@@ -23,14 +23,14 @@ func WithLibrary(name string, source string) Option {
 			if err != nil {
 				// Propagate the error
 				L.Push(lua.LString(err.Error()))
-				return 1 // Send error
+				return 1 // send error
 			}
 
 			if L.GetTop() > 0 && L.Get(-1).Type() != lua.LTTable {
 				// Propagate the error: library did not return a table
 				err := fmt.Errorf("library '%s' must return a table", name)
 				L.Push(lua.LString(err.Error()))
-				return 1 // Send error
+				return 1 // send error
 			}
 
 			return 1 // Success
