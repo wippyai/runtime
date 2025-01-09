@@ -51,7 +51,7 @@ func (l *PayloadLoader) Load(rootPath string) (map[string]payload.Payload, error
 
 		relPath, err := filepath.Rel(rootPath, path)
 		if err != nil {
-			return err // Error getting relative path
+			return err // RaiseError getting relative path
 		}
 
 		// Transform to dot-separated path without extension

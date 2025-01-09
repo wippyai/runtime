@@ -124,7 +124,7 @@ func TestGraphConcurrency(t *testing.T) {
 	actualPath, err := g.ShortestPath("A", "F")
 
 	if err != nil {
-		t.Errorf("Error getting shortest path after concurrent access: %v", err)
+		t.Errorf("RaiseError getting shortest path after concurrent access: %v", err)
 	}
 
 	if !reflect.DeepEqual(actualPath, expectedPath) {

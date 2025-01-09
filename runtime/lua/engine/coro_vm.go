@@ -15,10 +15,10 @@ type Task struct {
 	cancel context.CancelFunc
 	fn     *lua.LFunction
 
-	State   lua.ResumeState
-	Yielded []lua.LValue
-	Resumed []lua.LValue
-	Error   error
+	State      lua.ResumeState
+	Yielded    []lua.LValue
+	Resumed    []lua.LValue
+	RaiseError error
 }
 
 func (t *Task) Thread() *lua.LState {
@@ -203,10 +203,10 @@ func (e *CoroutineVM) Step(tasks ...*Task) (result []*Task, finalErr error) {
 				return nil, fmt.Errorf("error removing task: %v", err)
 			}
 		case lua.ResumeYield:
-			if task.Error != nil {
-				task.thread.RaiseError(task.Error.Error())
+			if task.RaiseError != nil {
+				task.thread.RaiseError(task.RaiseError.Error())
 				_ = e.removeTask(task)
-				return nil, fmt.Errorf("error in task: %v", task.Error)
+				return nil, fmt.Errorf("error in task: %v", task.RaiseError)
 			} else {
 				// Continue
 				state, err, values = e.vm.State().Resume(task.thread, nil, task.Resumed...)

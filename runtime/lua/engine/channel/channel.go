@@ -1,81 +1,50 @@
 package channel
 
 import (
-	"fmt"
 	lua "github.com/yuin/gopher-lua"
 )
 
-type chanOp int
-
-const (
-	chanSend chanOp = iota
-	chanReceive
-	chanClose
-)
-
-// chanOperation sent via yields to coordinate channel communication
-type chanOperation struct {
-	opType chanOp
-	ch     *Channel
-	value  lua.LValue
-}
-
-func (y *chanOperation) String() string {
-	switch y.opType {
-	case chanSend:
-		return fmt.Sprintf("channel.send{value=%+v}", y.value)
-	case chanReceive:
-		return fmt.Sprintf("channel.receive")
-	case chanClose:
-		return fmt.Sprintf("channel.close")
-	}
-	return "unknown"
-}
-
-func (y *chanOperation) Type() lua.LValueType {
-	return lua.LTUserData
-}
-
-// Channel represents a buffered or unbuffered channel, this  is NOT thread safe, external synchronization is required
+// Channel represents a buffered or unbuffered channel.
+// This is NOT thread-safe; inbox synchronization is required.
 type Channel struct {
-	buffer   []lua.LValue // Buffer for values
-	capacity int          // Buffer capacity (0 for unbuffered)
-	closed   bool         // Whether channel is closed
-	read     int          // Read index for buffer
-	write    int          // Write index for buffer
-	size     int          // Current number of items in buffer
-	external string       // External channel name
+	buffer   []lua.LValue
+	capacity int
+	closed   bool
+	read     int
+	write    int
+	size     int
+	name     string
 }
 
-func newLuaChannel(capacity int) *Channel {
+// Named creates a named channel intended for external use.
+// Named channels are unbuffered.
+func Named(name string) *Channel {
+	return &Channel{name: name}
+}
+
+// newChannel creates a new channel with the given capacity.
+// A capacity of 0 creates an unbuffered channel.
+func newChannel(capacity int) *Channel {
 	var buf []lua.LValue
 	if capacity > 0 {
 		buf = make([]lua.LValue, capacity)
 	}
-	return &Channel{
-		buffer:   buf,
-		capacity: capacity,
-	}
+
+	return &Channel{buffer: buf, capacity: capacity}
 }
 
-func newExternalChannel(name string) *Channel { // todo: move to external package?
-	return &Channel{
-		external: name,
-		capacity: 0,
-	}
+// Name returns the external name of the channel, if any.
+func (c *Channel) Name() string {
+	return c.name
 }
 
-func (c *Channel) ExternalName() string {
-	return c.external
+// IsNamed returns true if the channel has an external name.
+func (c *Channel) IsNamed() bool {
+	return c.name != ""
 }
 
-func (c *Channel) IsExternal() bool {
-	return c.external != ""
-}
-
-// Cleanup releases all references and resets internal state
+// cleanup releases all references and resets internal state.
 func (c *Channel) cleanup() {
-	// Clear buffer and release references
 	for i := range c.buffer {
 		c.buffer[i] = nil
 	}
@@ -83,36 +52,51 @@ func (c *Channel) cleanup() {
 	c.size = 0
 	c.read = 0
 	c.write = 0
-	// Keep closed = true
+	c.closed = true // Keep closed = true after cleanup as original code
 }
 
-// Buffer operations
+// isFull returns true if the channel's buffer is full.
 func (c *Channel) isFull() bool {
 	return c.size >= c.capacity
 }
 
+// isEmpty returns true if the channel's buffer is empty.
 func (c *Channel) isEmpty() bool {
 	return c.size == 0
 }
 
+// send sends a value to the channel.
+// Returns false if the channel is closed or full.
 func (c *Channel) send(value lua.LValue) bool {
 	if c.closed || c.isFull() {
 		return false
 	}
 
-	c.buffer[c.write] = value
-	c.write = (c.write + 1) % c.capacity
-	c.size++
+	if c.capacity > 0 {
+		if c.isFull() {
+			return false
+		}
+		c.buffer[c.write] = value
+		c.write = (c.write + 1) % c.capacity
+		c.size++
+	}
+
 	return true
 }
 
+// receive receives a value from the channel.
+// Returns the value and true if successful, or nil and false if the channel is empty.
 func (c *Channel) receive() (lua.LValue, bool) {
-	if c.isEmpty() {
+	if c.capacity > 0 && c.isEmpty() {
+		return nil, false
+	}
+
+	if c.capacity == 0 {
 		return nil, false
 	}
 
 	value := c.buffer[c.read]
-	c.buffer[c.read] = nil // Clear reference
+	c.buffer[c.read] = nil
 	c.read = (c.read + 1) % c.capacity
 	c.size--
 	return value, true

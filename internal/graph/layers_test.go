@@ -51,7 +51,7 @@ func TestDependencyLevels(t *testing.T) {
 		for i, expectedLevel := range expectedLevels {
 			actualLevel, err := deps.GetLevel(i)
 			if err != nil {
-				t.Errorf("Error getting level %d: %v", i, err)
+				t.Errorf("RaiseError getting level %d: %v", i, err)
 				continue
 			}
 

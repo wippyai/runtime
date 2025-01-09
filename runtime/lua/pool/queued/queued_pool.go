@@ -136,7 +136,7 @@ func (p *Pool) Execute(ctx context.Context, name string, args ...lua.LValue) (lu
 
 // worker runs in its own goroutine and processes tasks
 func (p *Pool) worker() {
-	defer p.workerWait.Done() // Signal worker completion
+	defer p.workerWait.Done() // Send worker completion
 
 	// Create a VM for this worker
 	vm, err := pool.CreateVM(p.vmConfig)

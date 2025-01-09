@@ -48,7 +48,7 @@ var transferConstants = map[string]string{
 	"SSE":     "sse",     // Server-sent events
 }
 
-// Error type constants as defined in spec
+// RaiseError type constants as defined in spec
 var errorConstants = map[string]string{
 	"PARSE_FAILED":  "PARSE_FAILED",  // Body parsing failed
 	"INVALID_STATE": "INVALID_STATE", // Operation not valid in current state
@@ -118,7 +118,7 @@ func (m *Module) registerConstants(l *lua.LState, mod *lua.LTable) {
 	}
 	l.SetField(mod, "TRANSFER", transferTbl)
 
-	// ERROR table - Error types
+	// ERROR table - RaiseError types
 	errorTbl := l.NewTable()
 	for name, value := range errorConstants {
 		l.SetField(errorTbl, name, lua.LString(value))

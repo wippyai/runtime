@@ -64,7 +64,7 @@ func TestLuaTranscodersAndUnmarshaler(t *testing.T) {
 	golangPayload := payload.NewPayload(map[string]interface{}{"name": "Jane Doe", "age": 25}, payload.Golang)
 	luaPayload, err := mockTranscoder.Transcode(golangPayload, payload.Lua)
 	if err != nil {
-		t.Fatalf("Error transcoding to Lua: %v", err)
+		t.Fatalf("RaiseError transcoding to Lua: %v", err)
 	}
 
 	if luaPayload.Format() != payload.Lua {
@@ -75,7 +75,7 @@ func TestLuaTranscodersAndUnmarshaler(t *testing.T) {
 	originalLuaPayload := payload.NewPayload(tbl, payload.Lua)
 	golangPayload, err = mockTranscoder.Transcode(originalLuaPayload, payload.Golang)
 	if err != nil {
-		t.Fatalf("Error transcoding to Golang: %v", err)
+		t.Fatalf("RaiseError transcoding to Golang: %v", err)
 	}
 
 	if golangPayload.Format() != payload.Golang {
@@ -99,7 +99,7 @@ func TestLuaTranscodersAndUnmarshaler(t *testing.T) {
 	var p Person
 	err = mockTranscoder.Unmarshal(originalLuaPayload, &p)
 	if err != nil {
-		t.Fatalf("Error unmarshalling: %v", err)
+		t.Fatalf("RaiseError unmarshalling: %v", err)
 	}
 
 	if p.Name != "John Doe" || p.Age != 30 {
@@ -114,7 +114,7 @@ func TestLuaTranscodersAndUnmarshaler(t *testing.T) {
 	var pNil Person
 	err = mockTranscoder.Unmarshal(nilLuaPayload, &pNil)
 	if err != nil {
-		t.Fatalf("Error unmarshalling with nil value: %v", err)
+		t.Fatalf("RaiseError unmarshalling with nil value: %v", err)
 	}
 
 	if pNil.Name != "" || pNil.Age != 0 {
@@ -177,7 +177,7 @@ func TestLuaUnmarshalerRecursive(t *testing.T) {
 
 	err := l.DoString(luaData)
 	if err != nil {
-		t.Fatalf("Error loading Lua data: %v", err)
+		t.Fatalf("RaiseError loading Lua data: %v", err)
 	}
 
 	tbl := l.GetGlobal("person")
@@ -193,12 +193,12 @@ func TestLuaUnmarshalerRecursive(t *testing.T) {
 
 	err = mockTranscoder.Unmarshal(originalLuaPayload, &p)
 	if err != nil {
-		t.Fatalf("Error unmarshalling to Person: %v", err)
+		t.Fatalf("RaiseError unmarshalling to Person: %v", err)
 	}
 
 	err = mockTranscoder.Unmarshal(originalLuaPayload, &sp)
 	if err != nil {
-		t.Fatalf("Error unmarshalling to SpecialPerson: %v", err)
+		t.Fatalf("RaiseError unmarshalling to SpecialPerson: %v", err)
 	}
 
 	// Assertions for Person

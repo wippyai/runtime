@@ -547,7 +547,7 @@ func TestController_ServiceFailedRecovery(t *testing.T) {
 	statesMutex.Unlock()
 
 	if err := ctr.Stop(); err != nil {
-		t.Logf("Error during supervisor shutdown: %v", err)
+		t.Logf("RaiseError during supervisor shutdown: %v", err)
 	}
 
 	// Verify the complete state transition sequence
@@ -972,7 +972,7 @@ func TestController_GracefulShutdown(t *testing.T) {
 			return detailsCh, nil
 		},
 		stopFunc: func(ctx context.Context) error {
-			// Signal that shutdown has started
+			// Send that shutdown has started
 			shutdownStarted.Done()
 
 			select {

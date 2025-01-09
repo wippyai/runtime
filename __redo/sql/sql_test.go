@@ -492,7 +492,7 @@ func TestLuaTransactionErrorHandling(t *testing.T) {
 	end
 
 	-- Intentional error
-	local res2, err = db:execute("INSERT INTO non_existing_table(data) VALUES (?)", {"Error"})
+	local res2, err = db:execute("INSERT INTO non_existing_table(data) VALUES (?)", {"RaiseError"})
 	if err ~= nil then
 		db:rollback()
 		return nil, err

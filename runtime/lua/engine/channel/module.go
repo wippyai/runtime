@@ -28,7 +28,7 @@ func (m *Module) Loader(L *lua.LState) int {
 
 	// channel constructor
 	L.SetField(mod, "new", L.NewFunction(m.new))
-	L.SetField(mod, "external", L.NewFunction(m.newExternal)) // todo: remove it later
+	L.SetField(mod, "inbox", L.NewFunction(m.newExternal)) // todo: remove it later
 
 	// channel operations
 	L.SetField(mt, "send", L.NewFunction(m.send))
@@ -56,7 +56,7 @@ func (m *Module) new(L *lua.LState) int {
 		return 0
 	}
 
-	ch := newLuaChannel(capacity)
+	ch := newChannel(capacity)
 	ud := L.NewUserData()
 	ud.Value = ch
 
@@ -71,8 +71,8 @@ func (m *Module) send(L *lua.LState) int {
 	ch := L.CheckUserData(1).Value.(*Channel)
 	value := L.CheckAny(2)
 
-	if ch.IsExternal() {
-		L.RaiseError("cannot send to external channel")
+	if ch.IsNamed() {
+		L.RaiseError("cannot send to inbox channel")
 		return 0
 	}
 
@@ -120,8 +120,8 @@ func (m *Module) receive(L *lua.LState) int {
 func (m *Module) close(L *lua.LState) int {
 	ch := L.CheckUserData(1).Value.(*Channel)
 
-	if ch.IsExternal() {
-		L.RaiseError("cannot close external channel")
+	if ch.IsNamed() {
+		L.RaiseError("cannot close inbox channel")
 		return 0
 	}
 
@@ -136,7 +136,7 @@ func (m *Module) close(L *lua.LState) int {
 
 // todo: this is temp, TODO: DELETE IT!
 func (m *Module) newExternal(L *lua.LState) int {
-	ch := newExternalChannel(L.CheckString(1))
+	ch := Named(L.CheckString(1))
 	ud := L.NewUserData()
 	ud.Value = ch
 
