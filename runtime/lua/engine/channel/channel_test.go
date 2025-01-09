@@ -8,7 +8,7 @@ import (
 
 func TestChannel_Buffer(t *testing.T) {
 	t.Run("unbuffered channel creation", func(t *testing.T) {
-		ch := newLuaChannel(0)
+		ch := newChannel(0)
 		if ch.buffer != nil {
 			t.Error("unbuffered channel should have nil buffer")
 		}
@@ -19,7 +19,7 @@ func TestChannel_Buffer(t *testing.T) {
 
 	t.Run("buffered channel creation", func(t *testing.T) {
 		capacity := 5
-		ch := newLuaChannel(capacity)
+		ch := newChannel(capacity)
 		if len(ch.buffer) != capacity {
 			t.Errorf("buffer length should be %d, got %d", capacity, len(ch.buffer))
 		}
@@ -29,7 +29,7 @@ func TestChannel_Buffer(t *testing.T) {
 	})
 
 	t.Run("circular buffer operations", func(t *testing.T) {
-		ch := newLuaChannel(3)
+		ch := newChannel(3)
 
 		// Fill buffer
 		values := []string{"first", "second", "third"}
@@ -85,7 +85,7 @@ func TestChannel_Buffer(t *testing.T) {
 	})
 
 	t.Run("closed channel operations", func(t *testing.T) {
-		ch := newLuaChannel(3)
+		ch := newChannel(3)
 
 		// Fill partially
 		ch.send(lua.LString("value"))
@@ -116,7 +116,7 @@ func TestChannel_Buffer(t *testing.T) {
 	})
 
 	t.Run("buffer wrapping", func(t *testing.T) {
-		ch := newLuaChannel(3)
+		ch := newChannel(3)
 		sequence := []string{
 			"1", "2", "3", // Fill buffer
 			"4", "5", "6", // Replace all values
@@ -170,7 +170,7 @@ func TestChannel_Buffer(t *testing.T) {
 
 	t.Run("verify fixed capacity", func(t *testing.T) {
 		capacity := 2
-		ch := newLuaChannel(capacity)
+		ch := newChannel(capacity)
 
 		// Fill to capacity
 		if !ch.send(lua.LString("1")) {
@@ -197,7 +197,7 @@ func TestChannel_Buffer(t *testing.T) {
 
 func TestChannel_Operations(t *testing.T) {
 	t.Run("cleanup releases all references", func(t *testing.T) {
-		ch := newLuaChannel(3)
+		ch := newChannel(3)
 
 		// Fill buffer
 		ch.send(lua.LString("1"))
@@ -222,7 +222,7 @@ func TestChannel_Operations(t *testing.T) {
 	})
 
 	t.Run("buffer state checks", func(t *testing.T) {
-		ch := newLuaChannel(2)
+		ch := newChannel(2)
 
 		if !ch.isEmpty() {
 			t.Error("new channel should be empty")
@@ -246,7 +246,7 @@ func TestChannel_Operations(t *testing.T) {
 	})
 
 	t.Run("circular buffer full cycle", func(t *testing.T) {
-		ch := newLuaChannel(2)
+		ch := newChannel(2)
 
 		// Fill
 		if !ch.send(lua.LString("1")) {
@@ -291,7 +291,7 @@ func TestChannel_Operations(t *testing.T) {
 	})
 
 	t.Run("closed channel behavior", func(t *testing.T) {
-		ch := newLuaChannel(2)
+		ch := newChannel(2)
 
 		// Fill partially and close
 		ch.send(lua.LString("1"))
@@ -324,7 +324,7 @@ func TestChannel_Operations(t *testing.T) {
 	})
 
 	t.Run("zero capacity channel", func(t *testing.T) {
-		ch := newLuaChannel(0)
+		ch := newChannel(0)
 
 		if ch.buffer != nil {
 			t.Error("zero capacity channel should have nil buffer")
@@ -350,7 +350,7 @@ func TestChannel_Operations(t *testing.T) {
 	})
 
 	t.Run("edge case index wrapping", func(t *testing.T) {
-		ch := newLuaChannel(3)
+		ch := newChannel(3)
 
 		// Multiple cycles of filling and emptying
 		for cycle := 0; cycle < 3; cycle++ {
@@ -394,7 +394,7 @@ func TestChanOperation(t *testing.T) {
 				name: "send operation",
 				op: &chanOperation{
 					opType: chanSend,
-					ch:     newLuaChannel(0),
+					ch:     newChannel(0),
 					value:  lua.LString("test value"),
 				},
 				expected: "channel.send{value=test value}",
@@ -403,7 +403,7 @@ func TestChanOperation(t *testing.T) {
 				name: "receive operation",
 				op: &chanOperation{
 					opType: chanReceive,
-					ch:     newLuaChannel(0),
+					ch:     newChannel(0),
 				},
 				expected: "channel.receive",
 			},
@@ -411,7 +411,7 @@ func TestChanOperation(t *testing.T) {
 				name: "close operation",
 				op: &chanOperation{
 					opType: chanClose,
-					ch:     newLuaChannel(0),
+					ch:     newChannel(0),
 				},
 				expected: "channel.close",
 			},
@@ -419,7 +419,7 @@ func TestChanOperation(t *testing.T) {
 				name: "invalid operation type",
 				op: &chanOperation{
 					opType: chanOp(999), // Invalid operation type
-					ch:     newLuaChannel(0),
+					ch:     newChannel(0),
 				},
 				expected: "unknown",
 			},
@@ -468,7 +468,7 @@ func TestChanOperation(t *testing.T) {
 			t.Run(vt.name, func(t *testing.T) {
 				op := &chanOperation{
 					opType: chanSend,
-					ch:     newLuaChannel(0),
+					ch:     newChannel(0),
 					value:  vt.value,
 				}
 				if vt.name == "table value" {
@@ -482,9 +482,9 @@ func TestChanOperation(t *testing.T) {
 
 	t.Run("Type method", func(t *testing.T) {
 		ops := []*chanOperation{
-			{opType: chanSend, ch: newLuaChannel(0), value: lua.LString("test")},
-			{opType: chanReceive, ch: newLuaChannel(0)},
-			{opType: chanClose, ch: newLuaChannel(0)},
+			{opType: chanSend, ch: newChannel(0), value: lua.LString("test")},
+			{opType: chanReceive, ch: newChannel(0)},
+			{opType: chanClose, ch: newChannel(0)},
 		}
 
 		for _, op := range ops {
@@ -507,7 +507,7 @@ func TestChanOperation(t *testing.T) {
 	t.Run("Operation with nil value", func(t *testing.T) {
 		op := &chanOperation{
 			opType: chanSend,
-			ch:     newLuaChannel(0),
+			ch:     newChannel(0),
 			value:  nil,
 		}
 		assert.NotPanics(t, func() {

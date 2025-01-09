@@ -1,83 +1,18 @@
 package channel
 
-import (
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	lua "github.com/yuin/gopher-lua"
-	"sync"
-)
+import "sync"
 
-// todo: refactor this class
-
-// Pool of reusable objects to reduce allocations
 var (
-	pendingPool = sync.Pool{
-		New: func() interface{} { return &pendingOp{} },
-	}
-	queuePool = sync.Pool{
-		New: func() interface{} { return &pendingQueue{} },
-	}
-	signalPool = sync.Pool{
-		New: func() interface{} { return &signalEntry{} },
-	}
+	signalPool = sync.Pool{New: func() interface{} { return &signalEntry{} }}
 )
 
-type selectData struct {
-	parentSelect *selectOperation
-	channels     []*selectCase
-}
-
-func (sd *selectData) makeCaseResult(
-	l *lua.LState,
-	ch *Channel,
-	value lua.LValue,
-	ok bool,
-) lua.LValue {
-	for _, sc := range sd.channels {
-		if sc.Channel() == ch {
-			return makeSelectResult(
-				l,
-				&selectResult{
-					chValue: sc.chValue,
-					value:   value,
-					ok:      ok,
-				},
-			)
-		}
-	}
-	return nil
-}
-
-type pendingOp struct {
-	task       *engine.Task
-	op         *chanOperation
-	next       *pendingOp
-	selectCase *selectData // If this op is part of a select
-}
-
-func (p *pendingOp) reset() {
-	p.task = nil
-	p.op = nil
-	p.next = nil
-	p.selectCase = nil
-}
-
-type pendingQueue struct {
-	head *pendingOp
-	tail *pendingOp
-}
-
-func (q *pendingQueue) reset() {
-	q.head = nil
-	q.tail = nil
-}
-
-// signals optimized for ordered tracking of external channel receivers
-type signals struct {
+// inbox optimized for ordered tracking of inbox channel receivers
+type inbox struct {
 	// Slice of channel entries, maintained in registration order
 	channels []*signalEntry
 }
 
-// signalEntry tracks receivers for a single external channel
+// signalEntry tracks receivers for a single inbox channel
 type signalEntry struct {
 	name      string
 	receivers *pendingQueue
@@ -88,13 +23,13 @@ func (s *signalEntry) reset() {
 	s.receivers = nil
 }
 
-func newSignals() *signals {
-	return &signals{
+func newInbox() *inbox {
+	return &inbox{
 		channels: make([]*signalEntry, 0),
 	}
 }
 
-func (ec *signals) addReceiver(name string, op *pendingOp) {
+func (ec *inbox) addReceiver(name string, op *pendingOp) {
 	for i := range ec.channels {
 		if ec.channels[i].name == name {
 			if ec.channels[i].receivers == nil {
@@ -126,7 +61,7 @@ func (ec *signals) addReceiver(name string, op *pendingOp) {
 	ec.channels = append(ec.channels, entry)
 }
 
-func (ec *signals) removeReceiver(name string, op *pendingOp) {
+func (ec *inbox) removeReceiver(name string, op *pendingOp) {
 	for i := range ec.channels {
 		if ec.channels[i].name == name {
 			// Remove receiver
@@ -169,7 +104,7 @@ func (ec *signals) removeReceiver(name string, op *pendingOp) {
 	}
 }
 
-func (ec *signals) getNames() []string {
+func (ec *inbox) getNames() []string {
 	if len(ec.channels) == 0 {
 		return nil
 	}
@@ -180,7 +115,7 @@ func (ec *signals) getNames() []string {
 	return names
 }
 
-func (ec *signals) popReceiver(name string) *pendingOp {
+func (ec *inbox) popReceiver(name string) *pendingOp {
 	for i := range ec.channels {
 		if ec.channels[i].name == name {
 			queue := ec.channels[i].receivers

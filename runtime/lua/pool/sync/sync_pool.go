@@ -148,7 +148,7 @@ func (p *Pool) cleanupVMs() {
 
 func (p *Pool) Close() {
 	p.closeOnce.Do(func() {
-		close(p.done)  // Signal shutdown
+		close(p.done)  // Send shutdown
 		p.cleanupVMs() // Cleanup existing VMs
 	})
 }

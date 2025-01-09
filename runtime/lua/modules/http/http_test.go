@@ -420,12 +420,12 @@ func TestHTTPModuleTimeouts(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("request timeout from options", func(t *testing.T) {
-		requestStarted := make(chan struct{})   // Signal when request starts
-		requestCompleted := make(chan struct{}) // Signal when request completes
+		requestStarted := make(chan struct{})   // Send when request starts
+		requestCompleted := make(chan struct{}) // Send when request completes
 
 		mockClient := &mockHTTPClient{
 			doFunc: func(req *http.Request) (*http.Response, error) {
-				// Signal that request has started
+				// Send that request has started
 				close(requestStarted)
 
 				// Wait until either canceled or test signals completion
@@ -473,7 +473,7 @@ func TestHTTPModuleTimeouts(t *testing.T) {
 		time.Sleep(200 * time.Millisecond)
 
 		// At this point, the request should have timed out
-		// Signal request to complete (though it should already be timed out)
+		// Send request to complete (though it should already be timed out)
 		close(requestCompleted)
 
 		// Wait for test goroutine to complete
@@ -517,7 +517,7 @@ func TestHTTPModuleTimeouts(t *testing.T) {
 
 		mockClient := &mockHTTPClient{
 			doFunc: func(req *http.Request) (*http.Response, error) {
-				// Signal that request has started
+				// Send that request has started
 				close(requestStarted)
 
 				select {
@@ -624,7 +624,7 @@ func TestHTTPModuleTimeouts(t *testing.T) {
                 -- Assert slow request timed out
                 assert(responses[2] == nil, "Slow request should timeout")
                 assert(errors[2] ~= nil, "Should have timeout error for slow request")
-                assert(errors[2]:find("deadline exceeded") ~= nil, "Error should mention deadline exceeded")
+                assert(errors[2]:find("deadline exceeded") ~= nil, "RaiseError should mention deadline exceeded")
             `, "test")
 			done <- err
 		}()

@@ -18,7 +18,7 @@ func (m *mockVM) Step(tasks ...*engine.Task) ([]*engine.Task, error) {
 func TestSchedulerDirect(t *testing.T) {
 	t.Run("send_receive_unbuffered", func(t *testing.T) {
 		s := NewScheduler()
-		ch := newLuaChannel(0)
+		ch := newChannel(0)
 
 		// Create tasks
 		sendTask := &engine.Task{}
@@ -37,7 +37,7 @@ func TestSchedulerDirect(t *testing.T) {
 		// Try receive first
 		tasks := s.pushOperation(recvTask, recvOp)
 		assert.Empty(t, tasks, "receiver should block")
-		assert.NotNil(t, s.receivers[ch], "receiver should be queued")
+		assert.NotNil(t, s.receivers.queues[ch], "receiver should be queued")
 
 		// Then send
 		tasks = s.pushOperation(sendTask, sendOp)
@@ -50,13 +50,13 @@ func TestSchedulerDirect(t *testing.T) {
 		assert.Equal(t, lua.LString("test"), recvTask.Resumed[0], "receive should get value")
 
 		// Verify queues are empty
-		assert.Nil(t, s.receivers[ch], "receiver queue should be empty")
-		assert.Nil(t, s.senders[ch], "sender queue should be empty")
+		assert.Nil(t, s.receivers.queues[ch], "receiver queue should be empty")
+		assert.Nil(t, s.senders.queues[ch], "sender queue should be empty")
 	})
 
 	t.Run("buffered_channel_operations", func(t *testing.T) {
 		s := NewScheduler()
-		ch := newLuaChannel(2)
+		ch := newChannel(2)
 
 		// Send first message
 		send1 := &engine.Task{}
@@ -88,7 +88,7 @@ func TestSchedulerDirect(t *testing.T) {
 		}
 		tasks = s.pushOperation(send3, sendOp3)
 		assert.Empty(t, tasks, "third send should block")
-		assert.NotNil(t, s.senders[ch], "sender should be queued")
+		assert.NotNil(t, s.senders.queues[ch], "sender should be queued")
 
 		// First receive completes immediately with buffered value
 		recv1 := &engine.Task{}
@@ -113,7 +113,7 @@ func TestSchedulerDirect(t *testing.T) {
 
 	t.Run("close_with_pending_operations", func(t *testing.T) {
 		s := NewScheduler()
-		ch := newLuaChannel(1)
+		ch := newChannel(1)
 
 		// Send first message to buffer
 		send1 := &engine.Task{}
@@ -170,13 +170,13 @@ func TestSchedulerDirect(t *testing.T) {
 		assert.Equal(t, lua.LNil, recv2.Resumed[0], "receive should get nil from closed channel")
 
 		// Verify queues are cleaned up
-		assert.Nil(t, s.senders[ch], "sender queue should be empty")
-		assert.Nil(t, s.receivers[ch], "receiver queue should be empty")
+		assert.Nil(t, s.senders.queues[ch], "sender queue should be empty")
+		assert.Nil(t, s.receivers.queues[ch], "receiver queue should be empty")
 	})
 
 	t.Run("object_pool_reuse", func(t *testing.T) {
 		s := NewScheduler()
-		ch := newLuaChannel(0)
+		ch := newChannel(0)
 
 		// Create and queue multiple operations
 		for i := 0; i < 10; i++ {
@@ -200,13 +200,13 @@ func TestSchedulerDirect(t *testing.T) {
 		}
 
 		// Verify no leaks in queues
-		assert.Nil(t, s.senders[ch], "sender queue should be empty")
-		assert.Nil(t, s.receivers[ch], "receiver queue should be empty")
+		assert.Nil(t, s.senders.queues[ch], "sender queue should be empty")
+		assert.Nil(t, s.receivers.queues[ch], "receiver queue should be empty")
 	})
 
 	t.Run("multiple_receivers_waiting", func(t *testing.T) {
 		s := NewScheduler()
-		ch := newLuaChannel(0)
+		ch := newChannel(0)
 
 		// Queue two receivers first
 		recv1 := &engine.Task{}
@@ -250,7 +250,7 @@ func TestSchedulerDirect(t *testing.T) {
 
 	t.Run("multiple_senders_waiting", func(t *testing.T) {
 		s := NewScheduler()
-		ch := newLuaChannel(0)
+		ch := newChannel(0)
 
 		// Queue two senders first
 		send1 := &engine.Task{}
@@ -294,7 +294,7 @@ func TestSchedulerDirect(t *testing.T) {
 
 	t.Run("close_with_multiple_receivers", func(t *testing.T) {
 		s := NewScheduler()
-		ch := newLuaChannel(0)
+		ch := newChannel(0)
 
 		// Queue multiple receivers
 		var receivers []*engine.Task
@@ -326,7 +326,7 @@ func TestSchedulerDirect(t *testing.T) {
 
 	t.Run("close_buffered_with_receivers", func(t *testing.T) {
 		s := NewScheduler()
-		ch := newLuaChannel(2)
+		ch := newChannel(2)
 
 		// Fill the buffer
 		send1 := &engine.Task{}
@@ -389,7 +389,7 @@ func TestSchedulerDirect(t *testing.T) {
 
 	t.Run("buffered_channel_send_receive_order", func(t *testing.T) {
 		s := NewScheduler()
-		ch := newLuaChannel(3)
+		ch := newChannel(3)
 
 		// Send three messages
 		values := []string{"first", "second", "third"}
@@ -425,7 +425,7 @@ func TestSchedulerDirect(t *testing.T) {
 func TestScheduler_Step(t *testing.T) {
 	t.Run("basic channel operations", func(t *testing.T) {
 		s := NewScheduler()
-		ch := newLuaChannel(0)
+		ch := newChannel(0)
 
 		senderTask := &engine.Task{}
 		receiverTask := &engine.Task{}

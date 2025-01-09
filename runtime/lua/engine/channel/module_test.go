@@ -740,7 +740,7 @@ func TestModule_YieldSequences(t *testing.T) {
 func TestExternalChannels_Basic(t *testing.T) {
 	logger := zap.NewNop()
 
-	t.Run("external channel send data", func(t *testing.T) {
+	t.Run("inbox channel send data", func(t *testing.T) {
 		scheduler := NewScheduler()
 		channels := NewChannelModule()
 
@@ -755,7 +755,7 @@ func TestExternalChannels_Basic(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.PushScript(`
-        local ch = channel.external("signal") 
+        local ch = channel.inbox("signal") 
         
         -- Receiver
         coroutine.spawn(function()
@@ -774,13 +774,13 @@ func TestExternalChannels_Basic(t *testing.T) {
 		tasks, err := scheduler.Step(vm)
 		assert.NoError(t, err)
 
-		// Verify external channel is registered
+		// Verify inbox channel is registered
 		listeners := scheduler.ActiveSignals()
-		assert.Equal(t, 1, len(listeners), "expected one external listener")
+		assert.Equal(t, 1, len(listeners), "expected one inbox listener")
 		assert.Equal(t, "signal", listeners[0], "expected signal channel to be registered")
 
-		// Send data to external channel
-		tasks = scheduler.Signal("signal", lua.LString("hello"))
+		// Send data to inbox channel
+		tasks = scheduler.Send("signal", lua.LString("hello"))
 		assert.Equal(t, 1, len(tasks), "expected one task to be resumed")
 
 		// Process resumed task
@@ -793,7 +793,7 @@ func TestExternalChannels_Basic(t *testing.T) {
 		assert.Equal(t, 0, len(listeners), "expected no remaining listeners")
 	})
 
-	t.Run("external channel multi-receive with yield", func(t *testing.T) {
+	t.Run("inbox channel multi-receive with yield", func(t *testing.T) {
 		scheduler := NewScheduler()
 		channels := NewChannelModule()
 
@@ -805,7 +805,7 @@ func TestExternalChannels_Basic(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.PushScript(`
-        local ch = channel.external("signal") 
+        local ch = channel.inbox("signal") 
         
         coroutine.spawn(function()
             -- First receive
@@ -833,13 +833,13 @@ func TestExternalChannels_Basic(t *testing.T) {
 		assert.NoError(t, err)
 
 		// First signal
-		tasks = scheduler.Signal("signal", lua.LString("first"))
+		tasks = scheduler.Send("signal", lua.LString("first"))
 		assert.Equal(t, 1, len(tasks))
 		tasks, err = scheduler.Step(vm, tasks...)
 		assert.NoError(t, err)
 
 		// Second signal
-		tasks = scheduler.Signal("signal", lua.LString("second"))
+		tasks = scheduler.Send("signal", lua.LString("second"))
 		assert.Equal(t, 1, len(tasks))
 		tasks, err = scheduler.Step(vm, tasks...)
 		assert.NoError(t, err)
@@ -859,7 +859,7 @@ func TestExternalChannels_Basic(t *testing.T) {
 		assert.Equal(t, []string{"signal"}, scheduler.ActiveSignals())
 
 		// Third signal
-		tasks = scheduler.Signal("signal", lua.LString("third"))
+		tasks = scheduler.Send("signal", lua.LString("third"))
 		assert.Equal(t, 1, len(tasks))
 		tasks, err = scheduler.Step(vm, tasks...)
 		assert.NoError(t, err)
@@ -868,7 +868,7 @@ func TestExternalChannels_Basic(t *testing.T) {
 		assert.Equal(t, "all_done", tasks[0].Yielded[0].String())
 	})
 
-	t.Run("multiple receivers on single external channel", func(t *testing.T) {
+	t.Run("multiple receivers on single inbox channel", func(t *testing.T) {
 		scheduler := NewScheduler()
 		channels := NewChannelModule()
 
@@ -880,7 +880,7 @@ func TestExternalChannels_Basic(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.PushScript(`
-            local ch = channel.external("distributed")
+            local ch = channel.inbox("distributed")
             
             -- First receiver
             coroutine.spawn(function()
@@ -906,7 +906,7 @@ func TestExternalChannels_Basic(t *testing.T) {
 		assert.Equal(t, []string{"distributed"}, scheduler.ActiveSignals())
 
 		// Send first signal - should go to first receiver
-		tasks = scheduler.Signal("distributed", lua.LString("first"))
+		tasks = scheduler.Send("distributed", lua.LString("first"))
 		assert.Equal(t, 1, len(tasks), "first receiver should be resumed")
 
 		tasks, err = scheduler.Step(vm, tasks...)
@@ -914,7 +914,7 @@ func TestExternalChannels_Basic(t *testing.T) {
 		assert.Equal(t, "first_done", tasks[0].Yielded[0].String())
 
 		// Send second signal - should go to second receiver
-		tasks = scheduler.Signal("distributed", lua.LString("second"))
+		tasks = scheduler.Send("distributed", lua.LString("second"))
 		assert.Equal(t, 1, len(tasks), "second receiver should be resumed")
 
 		tasks, err = scheduler.Step(vm, tasks...)

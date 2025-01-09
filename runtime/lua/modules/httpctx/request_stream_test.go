@@ -174,7 +174,7 @@ func TestRequest_StreamBody(t *testing.T) {
 		errorReader := &errorReader{
 			data:  []byte(bodyContent),
 			pos:   0,
-			errAt: len(bodyContent) / 2, // Error after reading half the data
+			errAt: len(bodyContent) / 2, // RaiseError after reading half the data
 		}
 
 		req := httptest.NewRequest("POST", "/test", errorReader)
