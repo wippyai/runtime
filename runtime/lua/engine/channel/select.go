@@ -4,44 +4,25 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-// selectSwitch represents a yielded select operation
-type selectSwitch struct {
-	cases      []*selectCase
-	hasDefault bool
-}
+// Select Operations
 
-// Make selectSwitch implement lua.LValue so it can be yielded
-func (s *selectSwitch) String() string {
-	return "channel.select"
-}
-
-func (s *selectSwitch) Type() lua.LValueType {
-	return lua.LTUserData
-}
-
-// selectCase represents a single case in a select operation
+// selectCase represents a single case in a select operation.
 type selectCase struct {
-	chValue *lua.LUserData // The channel to operate on
-	dir     chanOp         // Direction: send or receive
-	value   lua.LValue     // Value to send (for send cases)
+	chValue *lua.LUserData // The channel to operate on.
+	dir     chanOp         // Direction: send or receive.
+	value   lua.LValue     // Value to send (for send cases).
 }
 
-type selectResult struct {
-	chValue *lua.LUserData // Selected channel
-	value   lua.LValue     // Received value (for receive cases)
-	ok      bool           // Success flag (false for closed channel)
-}
-
+// Channel retrieves the Channel from the selectCase.
 func (sc *selectCase) Channel() *Channel {
 	ch, ok := sc.chValue.Value.(*Channel)
 	if !ok {
 		return nil
 	}
-
 	return ch
 }
 
-// Ensure selectOp implements lua.LValue
+// String returns a string representation of the selectCase.
 func (sc *selectCase) String() string {
 	if sc.dir == chanSend {
 		return "channel.case_send"
@@ -49,110 +30,134 @@ func (sc *selectCase) String() string {
 	return "channel.case_receive"
 }
 
+// Type returns the Lua type of the selectCase.
 func (sc *selectCase) Type() lua.LValueType {
 	return lua.LTUserData
 }
 
-// selectResult represents the result of a select operation
+// selectSwitch represents a yielded select operation.
+type selectSwitch struct {
+	cases      []*selectCase
+	hasDefault bool
+}
 
-func (s *selectSwitch) caseResult(
-	l *lua.LState,
-	ch *Channel,
-	value lua.LValue,
-	ok bool,
-) lua.LValue {
+// String returns a string representation of the selectSwitch.
+func (s *selectSwitch) String() string {
+	return "channel.select"
+}
+
+// Type returns the Lua type of the selectSwitch.
+func (s *selectSwitch) Type() lua.LValueType {
+	return lua.LTUserData
+}
+
+// caseResult creates a select result from a yielded selectSwitch.
+func (s *selectSwitch) caseResult(l *lua.LState, ch *Channel, value lua.LValue, ok bool) lua.LValue {
 	for _, sc := range s.cases {
 		if sc.Channel() == ch {
-			return makeSelectResult(
-				l,
-				&selectResult{
-					chValue: sc.chValue,
-					value:   value,
-					ok:      ok,
-				},
-			)
+			return makeSelectResult(l, &selectResult{
+				chValue: sc.chValue,
+				value:   value,
+				ok:      ok,
+			})
 		}
 	}
 	return nil
 }
 
-// caseSend implements channel:case_send(value)
+// selectResult represents the result of a select operation.
+type selectResult struct {
+	chValue *lua.LUserData // Selected channel.
+	value   lua.LValue     // Received value (for receive cases).
+	ok      bool           // Success flag (false for closed channel).
+}
+
+// makeSelectResult creates a Lua table representing the selectResult.
+func makeSelectResult(L *lua.LState, result *selectResult) *lua.LTable {
+	tab := L.NewTable()
+
+	if result.chValue != nil {
+		tab.RawSetString("channel", result.chValue)
+	} else {
+		tab.RawSetString("channel", lua.LNil)
+	}
+
+	if result.value != nil {
+		tab.RawSetString("value", result.value)
+	}
+
+	tab.RawSetString("ok", lua.LBool(result.ok))
+	return tab
+}
+
+// Lua API Functions
+
+// caseSend implements channel:case_send(value) for use in select.
 func caseSend(L *lua.LState) int {
 	chValue := L.CheckUserData(1)
 	ch, ok := chValue.Value.(*Channel)
 	if !ok {
 		L.RaiseError("invalid channel")
-		return 0
 	}
 
 	value := L.CheckAny(2)
 	if ch.IsNamed() {
 		L.RaiseError("cannot send to inbox channel")
-		return 0
 	}
 
 	sc := &selectCase{chValue: chValue, dir: chanSend, value: value}
-
 	L.Push(sc)
 	return 1
 }
 
-// caseReceive implements channel:case_receive()
+// caseReceive implements channel:case_receive() for use in select.
 func caseReceive(L *lua.LState) int {
 	chValue := L.CheckUserData(1)
-	_, ok := chValue.Value.(*Channel)
-	if !ok {
+	if _, ok := chValue.Value.(*Channel); !ok {
 		L.RaiseError("invalid channel")
-		return 0
 	}
 
 	sc := &selectCase{chValue: chValue, dir: chanReceive}
-
 	L.Push(sc)
 	return 1
 }
 
+// selectOp implements the select operation.
 func selectOp(L *lua.LState) int {
-	// Validate first argument is table
 	casesTable := L.CheckTable(1)
 	hasDefault := L.OptBool(2, false)
 
-	// Extract and validate cases from table
 	var cases []*selectCase
 	casesTable.ForEach(func(k, value lua.LValue) {
-		if k == lua.LString("default") {
+		if k.String() == "default" {
 			if hasDefault {
 				L.RaiseError("multiple default cases in select")
-				return
 			}
 			hasDefault = true
-			return
+			return // Continue ForEach loop.
 		}
 
-		if sc, ok := value.(*selectCase); ok {
-			// Validate channel is not closed for send operations
-			if sc.dir == chanSend && sc.Channel().closed {
-				L.RaiseError("attempt to send on closed channel")
-				return
-			}
-			cases = append(cases, sc)
-		} else {
+		sc, ok := value.(*selectCase)
+		if !ok {
 			L.RaiseError("invalid select case: expected channel case")
 		}
+
+		if sc.dir == chanSend && sc.Channel().closed {
+			L.RaiseError("attempt to send on closed channel")
+		}
+
+		cases = append(cases, sc)
 	})
 
-	// Validate we have cases or default
 	if len(cases) == 0 && !hasDefault {
 		L.RaiseError("select with no cases and no default")
-		return 0
 	}
 
-	// try immediate operations first
+	// Try immediate operations first.
 	for _, c := range cases {
 		ch := c.Channel()
 		switch c.dir {
 		case chanSend:
-			// For buffered channels, try to send immediately
 			if ch.capacity > 0 && !ch.isFull() {
 				if ok := ch.send(c.value); ok {
 					L.Push(makeSelectResult(L, &selectResult{
@@ -162,10 +167,9 @@ func selectOp(L *lua.LState) int {
 					return 1
 				}
 			}
-
 		case chanReceive:
-			// Try to receive immediately
-			if value, ok := ch.receive(); ok {
+			value, ok := ch.receive()
+			if ok {
 				L.Push(makeSelectResult(L, &selectResult{
 					chValue: c.chValue,
 					value:   value,
@@ -174,7 +178,6 @@ func selectOp(L *lua.LState) int {
 				return 1
 			}
 
-			// Handle closed channels immediately
 			if ch.closed {
 				L.Push(makeSelectResult(L, &selectResult{
 					chValue: c.chValue,
@@ -183,46 +186,17 @@ func selectOp(L *lua.LState) int {
 				}))
 				return 1
 			}
-		case chanClose:
-			// never happens
 		}
 	}
 
-	// If we have a default case and no operation was ready
+	// Handle default case if no operation was ready.
 	if hasDefault {
 		L.Push(makeSelectResult(L, &selectResult{chValue: nil, ok: true}))
 		return 1
 	}
 
-	// Create select operation for yielding
-	op := &selectSwitch{
-		cases:      cases,
-		hasDefault: hasDefault,
-	}
-
-	// Yield the select operation
+	// Yield the select operation.
+	op := &selectSwitch{cases: cases, hasDefault: hasDefault}
 	L.Yield(op)
 	return -1
-}
-
-// Helper function to create a select result table
-func makeSelectResult(L *lua.LState, result *selectResult) *lua.LTable {
-	tab := L.NewTable()
-
-	// Set channel if one was selected
-	if result.chValue != nil {
-		tab.RawSetString("channel", result.chValue)
-	} else {
-		tab.RawSetString("channel", lua.LNil)
-	}
-
-	// Set value if it exists (for receive cases)
-	if result.value != nil {
-		tab.RawSetString("value", result.value)
-	}
-
-	// Set ok flag
-	tab.RawSetString("ok", lua.LBool(result.ok))
-
-	return tab
 }
