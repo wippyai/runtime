@@ -12,13 +12,13 @@ type VM interface {
 
 // Runtime coordinates task execution and channel operations
 type Runtime struct {
-	scheduler *Scheduler
+	scheduler *scheduler
 }
 
 // NewRuntime creates a new scheduler instance
 func NewRuntime() *Runtime {
 	return &Runtime{
-		scheduler: NewScheduler(),
+		scheduler: newScheduler(),
 	}
 }
 
@@ -35,7 +35,7 @@ func (s *Runtime) Step(vm VM, tasks ...*engine.Task) ([]*engine.Task, error) {
 	// Keep processing until all channel operations are handled
 	for len(vmTasks) > 0 {
 		// Process current batch of tasks through scheduler
-		processedTasks, err := s.scheduler.HandleChannelTasks(vmTasks)
+		processedTasks, err := s.scheduler.handleChannelTasks(vmTasks)
 		if err != nil {
 			return nil, fmt.Errorf("task processing failed: %w", err)
 		}
@@ -60,7 +60,7 @@ func (s *Runtime) Step(vm VM, tasks ...*engine.Task) ([]*engine.Task, error) {
 
 // GetActiveSignals returns list of active inbox channels
 func (s *Runtime) GetActiveSignals() []string {
-	return s.scheduler.getActiveSignals()
+	return s.scheduler.getWaitingNames()
 }
 
 // Send sends a value to a named inbox channel

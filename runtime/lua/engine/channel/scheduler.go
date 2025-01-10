@@ -52,24 +52,22 @@ func (y *chanOperation) Type() lua.LValueType {
 	return lua.LTUserData
 }
 
-// Scheduler manages all channel operations and state
-type Scheduler struct {
+// scheduler manages all channel operations and state, not thread-safe
+type scheduler struct {
 	senders   *queueMapper
 	receivers *queueMapper
-	inbox     *inbox
 }
 
-// NewScheduler creates a new scheduler instance
-func NewScheduler() *Scheduler {
-	return &Scheduler{
+// newScheduler creates a new scheduler instance
+func newScheduler() *scheduler {
+	return &scheduler{
 		senders:   newQueueMapper(),
 		receivers: newQueueMapper(),
-		inbox:     newInbox(),
 	}
 }
 
-// HandleChannelTasks processes tasks that contain channel operations
-func (c *Scheduler) HandleChannelTasks(tasks []*engine.Task) ([]*engine.Task, error) {
+// handleChannelTasks processes tasks that contain channel operations
+func (c *scheduler) handleChannelTasks(tasks []*engine.Task) ([]*engine.Task, error) {
 	var externalTasks []*engine.Task
 	var channelTasks []*engine.Task
 
@@ -96,7 +94,7 @@ func (c *Scheduler) HandleChannelTasks(tasks []*engine.Task) ([]*engine.Task, er
 }
 
 // handleOperation processes a single channel operation
-func (c *Scheduler) handleOperation(task *engine.Task, op *chanOperation) []*engine.Task {
+func (c *scheduler) handleOperation(task *engine.Task, op *chanOperation) []*engine.Task {
 	switch op.opType {
 	case chanSend:
 		return c.handleSend(task, op)
@@ -105,63 +103,25 @@ func (c *Scheduler) handleOperation(task *engine.Task, op *chanOperation) []*eng
 	case chanClose:
 		return c.handleClose(task, op)
 	}
+
 	return nil
 }
 
-// handleSelect processes a select operation
-func (c *Scheduler) handleSelect(task *engine.Task, op *selectOperation) []*engine.Task {
-	// Register all cases
-	for _, sc := range op.cases {
-		ch := sc.Channel()
-		if ch == nil {
-			continue
-		}
-
-		pOp := &pendingOp{
-			task: task,
-			op: &chanOperation{
-				opType: sc.dir,
-				ch:     ch,
-				value:  sc.value,
-			},
-			selectOp: op,
-		}
-
-		if ch.IsNamed() {
-			c.inbox.addReceiver(ch.Name(), pOp)
-			continue
-		}
-
-		if sc.dir == chanSend {
-			c.senders.enqueue(ch, pOp)
-		} else {
-			c.receivers.enqueue(ch, pOp)
-		}
+// getWaitingNames returns list of inbox channel names being listened to. Order is not guaranteed, expect external ordering.
+func (c *scheduler) getWaitingNames() []string {
+	var names []string
+	for name, _ := range c.receivers.named {
+		names = append(names, name)
 	}
 
-	return nil
-}
-
-// getActiveSignals returns list of inbox channel names being listened to
-func (c *Scheduler) getActiveSignals() []string {
-	return c.inbox.getNames()
+	return names
 }
 
 // send sends a value to an inbox channel
-func (c *Scheduler) send(name string, value lua.LValue) ([]*engine.Task, error) {
-	op := c.inbox.popReceiver(name)
+func (c *scheduler) send(name string, value lua.LValue) ([]*engine.Task, error) {
+	op := c.receivers.dequeueNamed(name)
 	if op == nil {
 		return nil, fmt.Errorf("no receiver found for channel %s", name)
-	}
-
-	// Clean up other inbox channels if part of select
-	if op.selectOp != nil {
-		for _, sc := range op.selectOp.cases {
-			ch := sc.Channel()
-			if ch != nil && ch.IsNamed() && ch.Name() != name {
-				c.inbox.removeReceiver(ch.Name(), op)
-			}
-		}
 	}
 
 	if op.selectOp == nil {
@@ -184,7 +144,7 @@ func (c *Scheduler) send(name string, value lua.LValue) ([]*engine.Task, error) 
 }
 
 // handleSend processes a send operation
-func (c *Scheduler) handleSend(task *engine.Task, op *chanOperation) []*engine.Task {
+func (c *scheduler) handleSend(task *engine.Task, op *chanOperation) []*engine.Task {
 	ch := op.ch
 	if ch.closed {
 		task.Resumed = []lua.LValue{lua.LNil}
@@ -229,7 +189,7 @@ func (c *Scheduler) handleSend(task *engine.Task, op *chanOperation) []*engine.T
 }
 
 // handleReceive processes a receive operation
-func (c *Scheduler) handleReceive(task *engine.Task, op *chanOperation) []*engine.Task {
+func (c *scheduler) handleReceive(task *engine.Task, op *chanOperation) []*engine.Task {
 	ch := op.ch
 
 	// Try to receive any buffered value first
@@ -243,35 +203,25 @@ func (c *Scheduler) handleReceive(task *engine.Task, op *chanOperation) []*engin
 		return []*engine.Task{task}
 	}
 
-	// Check for waiting sender
-	if sender := c.senders.dequeue(ch); sender != nil {
-		task.Resumed = []lua.LValue{sender.op.value}
+	if !ch.IsNamed() {
+		if sender := c.senders.dequeue(ch); sender != nil {
+			task.Resumed = []lua.LValue{sender.op.value}
 
-		if sender.selectOp == nil {
-			sender.task.Resumed = []lua.LValue{lua.LBool(true)}
-		} else {
-			sender.task.Resumed = []lua.LValue{sender.selectOp.caseResult(
-				sender.task.Thread(), ch, nil, true,
-			)}
+			if sender.selectOp == nil {
+				sender.task.Resumed = []lua.LValue{lua.LBool(true)}
+			} else {
+				sender.task.Resumed = []lua.LValue{sender.selectOp.caseResult(
+					sender.task.Thread(), ch, nil, true,
+				)}
+			}
+
+			result := []*engine.Task{task, sender.task}
+
+			sender.reset()
+			pendingPool.Put(sender)
+
+			return result
 		}
-
-		result := []*engine.Task{task, sender.task}
-
-		sender.reset()
-		pendingPool.Put(sender)
-
-		return result
-	}
-
-	if ch.IsNamed() {
-		// Create pending op
-		node := pendingPool.Get().(*pendingOp)
-		node.task = task
-		node.op = op
-
-		// Not queued since handled from outside
-		c.inbox.addReceiver(ch.Name(), node)
-		return nil
 	}
 
 	// Queue the receiver
@@ -284,7 +234,7 @@ func (c *Scheduler) handleReceive(task *engine.Task, op *chanOperation) []*engin
 }
 
 // handleClose processes a close operation
-func (c *Scheduler) handleClose(task *engine.Task, op *chanOperation) []*engine.Task {
+func (c *scheduler) handleClose(task *engine.Task, op *chanOperation) []*engine.Task {
 	ch := op.ch
 	ch.closed = true
 	task.Resumed = []lua.LValue{lua.LBool(true)}
@@ -293,11 +243,11 @@ func (c *Scheduler) handleClose(task *engine.Task, op *chanOperation) []*engine.
 	total := 1 // for close task
 	sendersQueue := c.senders.queues[ch]
 	if sendersQueue != nil {
-		total += sendersQueue.size
+		total += sendersQueue.size()
 	}
 	receiversQueue := c.receivers.queues[ch]
 	if receiversQueue != nil {
-		total += receiversQueue.size
+		total += receiversQueue.size()
 	}
 
 	// Pre-allocate result slice
@@ -346,9 +296,35 @@ func (c *Scheduler) handleClose(task *engine.Task, op *chanOperation) []*engine.
 	return result
 }
 
+// handleSelect processes a select operation
+func (c *scheduler) handleSelect(task *engine.Task, op *selectOperation) []*engine.Task {
+	// Register all cases
+	for _, sc := range op.cases {
+		ch := sc.Channel()
+
+		pOp := &pendingOp{
+			task: task,
+			op: &chanOperation{
+				opType: sc.dir,
+				ch:     ch,
+				value:  sc.value,
+			},
+			selectOp: op,
+		}
+
+		if sc.dir == chanSend {
+			c.senders.enqueue(ch, pOp)
+		} else {
+			c.receivers.enqueue(ch, pOp)
+		}
+		// todo: remove select
+	}
+
+	return nil
+}
+
 // Cleanup releases all resources and resets state
-func (c *Scheduler) Cleanup() {
+func (c *scheduler) Cleanup() {
 	c.senders.clear()
 	c.receivers.clear()
-	c.inbox.clear()
 }

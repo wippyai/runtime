@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
+	"log"
 	"strings"
 	"testing"
 )
@@ -774,6 +775,7 @@ func TestExternalChannels_Basic(t *testing.T) {
 		tasks, err := scheduler.Step(vm)
 		assert.NoError(t, err)
 
+		log.Printf("---------------------------------------tasks: %v", tasks)
 		// Verify inbox channel is registered
 		listeners := scheduler.GetActiveSignals()
 		assert.Equal(t, 1, len(listeners), "expected one inbox listener")

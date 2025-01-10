@@ -1,6 +1,7 @@
 package channel
 
 import (
+	"container/list"
 	"sync"
 )
 
@@ -12,80 +13,103 @@ var (
 
 // pendingQueue is not thread safe, external synchronization is required
 type pendingQueue struct {
-	head  *pendingOp
-	tail  *pendingOp
-	named map[string][]*pendingOp
-	size  int
+	ops       *list.List
+	named     map[string][]*pendingOp
+	selectOps map[*selectOperation][]*list.Element // Track elements for each select
 }
 
-func (q *pendingQueue) enqueue(op *pendingOp) {
-	if q.size == 0 {
-		q.head = op
-		q.tail = op
-	} else {
-		q.tail.next = op
-		q.tail = op
+func newPendingQueue() *pendingQueue {
+	return &pendingQueue{
+		ops:       list.New(),
+		named:     make(map[string][]*pendingOp),
+		selectOps: make(map[*selectOperation][]*list.Element),
 	}
-	q.size++
-}
-
-func (q *pendingQueue) dequeue() *pendingOp {
-	if q.size == 0 {
-		return nil
-	}
-
-	op := q.head
-	q.head = op.next
-	op.next = nil // Avoid potential memory leak
-	q.size--
-
-	if q.size == 0 {
-		q.tail = nil
-	}
-
-	return op
-}
-
-// remove removes a specific node from the queue
-// Returns true if node was found and removed, false otherwise
-func (q *pendingQueue) remove(op *pendingOp) bool {
-	if q.size == 0 {
-		return false
-	}
-
-	if q.head == op {
-		q.dequeue()
-		return true
-	}
-
-	// Walk queue to find predecessor of target node
-	for curr := q.head; curr != nil && curr.next != nil; curr = curr.next {
-		if curr.next == op {
-			curr.next = op.next
-			if curr.next == nil {
-				q.tail = curr
-			}
-			q.size--
-			return true
-		}
-	}
-
-	return false
 }
 
 func (q *pendingQueue) reset() {
-	q.head = nil
-	q.tail = nil
-	q.size = 0
+	if q.ops != nil {
+		q.ops.Init()
+	} else {
+		q.ops = list.New()
+	}
+	q.named = make(map[string][]*pendingOp)
+	q.selectOps = make(map[*selectOperation][]*list.Element)
+}
+
+func (q *pendingQueue) enqueue(op *pendingOp) {
+	elem := q.ops.PushBack(op)
+
+	// If this is part of a select, track its element
+	if op.selectOp != nil {
+		q.selectOps[op.selectOp] = append(q.selectOps[op.selectOp], elem)
+	}
+}
+
+func (q *pendingQueue) dequeue() *pendingOp {
+	if q.ops.Len() == 0 {
+		return nil
+	}
+
+	elem := q.ops.Front()
+	op := elem.Value.(*pendingOp)
+
+	// If it was part of a select, remove from tracking
+	if op.selectOp != nil {
+		delete(q.selectOps, op.selectOp)
+	}
+
+	q.ops.Remove(elem)
+	return op
+}
+
+// removeSelect removes all operations that belong to the same select operation
+func (q *pendingQueue) removeSelect(selectOp *selectOperation) {
+	if selectOp == nil {
+		return
+	}
+
+	// Use our tracked elements to directly remove the ops
+	if elements, exists := q.selectOps[selectOp]; exists {
+		for _, elem := range elements {
+			if elem != nil {
+				op := elem.Value.(*pendingOp)
+				q.ops.Remove(elem)
+				op.reset()
+				pendingPool.Put(op)
+			}
+		}
+		delete(q.selectOps, selectOp)
+	}
+}
+
+func (q *pendingQueue) remove(op *pendingOp) bool {
+	if op == nil {
+		return false
+	}
+
+	// Find and remove the operation
+	for e := q.ops.Front(); e != nil; e = e.Next() {
+		if e.Value.(*pendingOp) == op {
+			// If it was part of a select, clean up tracking
+			if op.selectOp != nil {
+				delete(q.selectOps, op.selectOp)
+			}
+			q.ops.Remove(e)
+			return true
+		}
+	}
+	return false
+}
+
+func (q *pendingQueue) size() int {
+	return q.ops.Len()
 }
 
 func (q *pendingQueue) clear() {
-	current := q.head
-	for current != nil {
-		next := current.next
-		current.reset()
-		pendingPool.Put(current)
-		current = next
+	for e := q.ops.Front(); e != nil; e = e.Next() {
+		op := e.Value.(*pendingOp)
+		op.reset()
+		pendingPool.Put(op)
 	}
 	q.reset()
 }
@@ -93,11 +117,13 @@ func (q *pendingQueue) clear() {
 // queueMapper handles mappings between channels and their pending operation queues
 type queueMapper struct {
 	queues map[*Channel]*pendingQueue
+	named  map[string]*pendingQueue
 }
 
 func newQueueMapper() *queueMapper {
 	return &queueMapper{
 		queues: make(map[*Channel]*pendingQueue),
+		named:  make(map[string]*pendingQueue),
 	}
 }
 
@@ -110,6 +136,11 @@ func (m *queueMapper) allocateQueue(ch *Channel) *pendingQueue {
 	queue := queuePool.Get().(*pendingQueue)
 	queue.reset()
 	m.queues[ch] = queue
+
+	if ch.name != "" {
+		m.named[ch.name] = queue // alias
+	}
+
 	return queue
 }
 
@@ -122,15 +153,42 @@ func (m *queueMapper) enqueue(ch *Channel, op *pendingOp) {
 // dequeue removes and returns first operation from channel's queue
 func (m *queueMapper) dequeue(ch *Channel) *pendingOp {
 	queue, exists := m.queues[ch]
-	if !exists || queue.size == 0 {
+	if !exists {
 		return nil
 	}
 
 	op := queue.dequeue()
+	if op == nil {
+		return nil
+	}
+
+	if queue.ops.Len() == 0 {
+		delete(m.queues, ch)
+		if ch.name != "" {
+			delete(m.named, ch.name)
+		}
+		queue.reset()
+		queuePool.Put(queue)
+	}
+
+	return op
+}
+
+func (m *queueMapper) dequeueNamed(name string) *pendingOp {
+	queue, exists := m.named[name]
+	if !exists {
+		return nil
+	}
+
+	op := queue.dequeue()
+	if op == nil {
+		return nil
+	}
 
 	// Clean up empty queue
-	if queue.size == 0 {
-		delete(m.queues, ch)
+	if queue.size() == 0 {
+		delete(m.named, name)
+		delete(m.queues, op.op.ch)
 		queue.reset()
 		queuePool.Put(queue)
 	}
@@ -141,16 +199,29 @@ func (m *queueMapper) dequeue(ch *Channel) *pendingOp {
 // getQueueSize returns size of channel's queue
 func (m *queueMapper) getQueueSize(ch *Channel) int {
 	if queue, exists := m.queues[ch]; exists {
-		return queue.size
+		return queue.size()
 	}
-
 	return 0
+}
+
+func (m *queueMapper) getNamedQueueSize(name string) int {
+	if queue, exists := m.named[name]; exists {
+		return queue.size()
+	}
+	return 0
+}
+
+// removeSelect removes all operations belonging to the given select from all queues
+func (m *queueMapper) removeSelect(selectOp *selectOperation) {
+	for _, queue := range m.queues {
+		queue.removeSelect(selectOp)
+	}
 }
 
 // clear removes all operations from all queues
 func (m *queueMapper) clear() {
 	for ch, queue := range m.queues {
-		queue.clear() // This will return ops to pool
+		queue.clear()
 		delete(m.queues, ch)
 		queuePool.Put(queue)
 	}
