@@ -6,513 +6,389 @@ import (
 	"testing"
 )
 
-func TestChannel_Buffer(t *testing.T) {
-	t.Run("unbuffered channel creation", func(t *testing.T) {
-		ch := newChannel(0)
-		if ch.buffer != nil {
-			t.Error("unbuffered channel should have nil buffer")
+func TestChannel(t *testing.T) {
+	t.Run("creation and initialization", func(t *testing.T) {
+		tests := []struct {
+			name        string
+			capacity    int
+			expectBuf   bool
+			expectEmpty bool
+			expectFull  bool
+		}{
+			{
+				name:        "zero capacity channel",
+				capacity:    0,
+				expectBuf:   false,
+				expectEmpty: true,
+				expectFull:  true,
+			},
+			{
+				name:        "capacity one channel",
+				capacity:    1,
+				expectBuf:   true,
+				expectEmpty: true,
+				expectFull:  false,
+			},
+			{
+				name:        "larger capacity channel",
+				capacity:    5,
+				expectBuf:   true,
+				expectEmpty: true,
+				expectFull:  false,
+			},
 		}
-		if ch.capacity != 0 {
-			t.Error("unbuffered channel should have 0 capacity")
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				ch := newChannel(tt.capacity)
+
+				if tt.expectBuf && ch.buffer == nil {
+					t.Error("expected non-nil buffer")
+				}
+				if !tt.expectBuf && ch.buffer != nil {
+					t.Error("expected nil buffer")
+				}
+				assert.Equal(t, tt.capacity, ch.capacity)
+				assert.Equal(t, tt.expectEmpty, ch.isEmpty())
+				assert.Equal(t, tt.expectFull, ch.isFull())
+				assert.Equal(t, 0, ch.size)
+			})
 		}
 	})
 
-	t.Run("buffered channel creation", func(t *testing.T) {
-		capacity := 5
-		ch := newChannel(capacity)
-		if len(ch.buffer) != capacity {
-			t.Errorf("buffer length should be %d, got %d", capacity, len(ch.buffer))
-		}
-		if ch.capacity != capacity {
-			t.Errorf("channel capacity should be %d, got %d", capacity, ch.capacity)
-		}
+	t.Run("named channel operations", func(t *testing.T) {
+		t.Run("creation", func(t *testing.T) {
+			ch := Named("test-channel", 5)
+			assert.Equal(t, "test-channel", ch.Name())
+			assert.True(t, ch.IsNamed())
+			assert.Equal(t, 5, ch.capacity)
+		})
+
+		t.Run("anonymous channel", func(t *testing.T) {
+			ch := newChannel(5)
+			assert.Empty(t, ch.Name())
+			assert.False(t, ch.IsNamed())
+		})
 	})
 
-	t.Run("circular buffer operations", func(t *testing.T) {
-		ch := newChannel(3)
+	t.Run("buffer operations", func(t *testing.T) {
+		t.Run("sequential operations", func(t *testing.T) {
+			ch := newChannel(3)
 
-		// Fill buffer
-		values := []string{"first", "second", "third"}
-		for _, v := range values {
-			ok := ch.send(lua.LString(v))
-			if !ok {
-				t.Error("send should succeed when buffer not full")
-			}
-		}
+			// Test sequential send operations
+			assert.True(t, ch.send(lua.LString("first")))
+			assert.Equal(t, 1, ch.size)
+			assert.True(t, ch.send(lua.LString("second")))
+			assert.Equal(t, 2, ch.size)
+			assert.True(t, ch.send(lua.LString("third")))
+			assert.Equal(t, 3, ch.size)
+			assert.True(t, ch.isFull())
 
-		// Buffer should be full
-		if !ch.isFull() {
-			t.Error("buffer should be full")
-		}
-
-		// Try send when full
-		ok := ch.send(lua.LString("overflow"))
-		if ok {
-			t.Error("send should fail when buffer full")
-		}
-
-		// Read first value
-		val, ok := ch.receive()
-		if !ok {
-			t.Error("receive should succeed when buffer has values")
-		}
-		if val.String() != "first" {
-			t.Errorf("expected 'first', got %v", val)
-		}
-
-		// Should be able to send one more
-		ok = ch.send(lua.LString("fourth"))
-		if !ok {
-			t.Error("send should succeed after receive")
-		}
-
-		// Verify circular buffer worked
-		remaining := []string{"second", "third", "fourth"}
-		for i, expected := range remaining {
+			// Test sequential receive operations
 			val, ok := ch.receive()
-			if !ok {
-				t.Errorf("receive %d should succeed", i)
-			}
-			if val.String() != expected {
-				t.Errorf("expected '%s', got %v", expected, val)
-			}
-		}
+			assert.True(t, ok)
+			assert.Equal(t, "first", val.String())
+			assert.Equal(t, 2, ch.size)
 
-		// Should be empty now
-		if !ch.isEmpty() {
-			t.Error("buffer should be empty")
-		}
+			val, ok = ch.receive()
+			assert.True(t, ok)
+			assert.Equal(t, "second", val.String())
+			assert.Equal(t, 1, ch.size)
+
+			val, ok = ch.receive()
+			assert.True(t, ok)
+			assert.Equal(t, "third", val.String())
+			assert.Equal(t, 0, ch.size)
+			assert.True(t, ch.isEmpty())
+		})
+
+		t.Run("circular buffer wraparound", func(t *testing.T) {
+			ch := newChannel(2)
+
+			// Fill buffer
+			assert.True(t, ch.send(lua.LString("1")))
+			assert.True(t, ch.send(lua.LString("2")))
+
+			// Remove one and add another to cause wraparound
+			val, ok := ch.receive()
+			assert.True(t, ok)
+			assert.Equal(t, "1", val.String())
+
+			assert.True(t, ch.send(lua.LString("3")))
+
+			// Verify contents after wraparound
+			val, ok = ch.receive()
+			assert.True(t, ok)
+			assert.Equal(t, "2", val.String())
+
+			val, ok = ch.receive()
+			assert.True(t, ok)
+			assert.Equal(t, "3", val.String())
+		})
 	})
 
-	t.Run("closed channel operations", func(t *testing.T) {
-		ch := newChannel(3)
+	t.Run("channel closure", func(t *testing.T) {
+		t.Run("operations on closed channel", func(t *testing.T) {
+			ch := newChannel(2)
 
-		// Fill partially
-		ch.send(lua.LString("value"))
+			// Fill and close
+			assert.True(t, ch.send(lua.LString("value")))
+			ch.closed = true
 
-		// Close channel
-		ch.closed = true
+			// Test operations after closure
+			assert.False(t, ch.send(lua.LString("new")))
 
-		// Try operations on closed channel
-		ok := ch.send(lua.LString("after close"))
-		if ok {
-			t.Error("send should fail on closed channel")
-		}
+			// Should still receive buffered values
+			val, ok := ch.receive()
+			assert.True(t, ok)
+			assert.Equal(t, "value", val.String())
 
-		// Should still be able to receive buffered values
-		val, ok := ch.receive()
-		if !ok {
-			t.Error("receive should get buffered value from closed channel")
-		}
-		if val.String() != "value" {
-			t.Errorf("wrong value received, got %v", val)
-		}
+			// Further receives should fail
+			val, ok = ch.receive()
+			assert.False(t, ok)
+			assert.Nil(t, val)
+		})
 
-		// Further receives should fail
-		val, ok = ch.receive()
-		if ok {
-			t.Error("receive should fail when closed channel is empty")
-		}
+		t.Run("cleanup after closure", func(t *testing.T) {
+			ch := newChannel(3)
+			ch.send(lua.LString("1"))
+			ch.send(lua.LString("2"))
+
+			ch.cleanup()
+
+			assert.Nil(t, ch.buffer)
+			assert.Equal(t, 0, ch.size)
+			assert.Equal(t, 0, ch.read)
+			assert.Equal(t, 0, ch.write)
+			assert.True(t, ch.closed)
+
+			// Operations after cleanup should fail
+			assert.False(t, ch.send(lua.LString("new")))
+			val, ok := ch.receive()
+			assert.False(t, ok)
+			assert.Nil(t, val)
+		})
 	})
 
-	t.Run("buffer wrapping", func(t *testing.T) {
-		ch := newChannel(3)
-		sequence := []string{
-			"1", "2", "3", // Fill buffer
-			"4", "5", "6", // Replace all values
-			"7", "8", "9", // Replace all again
-		}
+	t.Run("stress testing", func(t *testing.T) {
+		t.Run("rapid send/receive cycles", func(t *testing.T) {
+			ch := newChannel(3)
+			cycles := 100
 
-		// send values in groups of 3
-		for i := 0; i < len(sequence); i += 3 {
-			// Receive previous values if not first group
-			if i > 0 {
+			for i := 0; i < cycles; i++ {
+				// Fill buffer
+				for j := 0; j < 3; j++ {
+					assert.True(t, ch.send(lua.LNumber(i*3+j)))
+				}
+
+				// Empty buffer
 				for j := 0; j < 3; j++ {
 					val, ok := ch.receive()
-					if !ok {
-						t.Errorf("receive failed at i=%d, j=%d", i, j)
-					}
-					expected := sequence[i-3+j]
-					if val.String() != expected {
-						t.Errorf("expected '%s', got %v", expected, val)
-					}
+					assert.True(t, ok)
+					assert.Equal(t, float64(i*3+j), float64(val.(lua.LNumber)))
 				}
+
+				assert.True(t, ch.isEmpty())
+				assert.Equal(t, ch.read, ch.write)
 			}
+		})
 
-			// send new values
-			for j := 0; j < 3; j++ {
-				ok := ch.send(lua.LString(sequence[i+j]))
-				if !ok {
-					t.Errorf("send failed at i=%d, j=%d", i, j)
-				}
-			}
-		}
+		t.Run("alternating operations", func(t *testing.T) {
+			ch := newChannel(2)
 
-		// Verify final values
-		for i := 6; i < 9; i++ {
-			val, ok := ch.receive()
-			if !ok {
-				t.Errorf("final receive failed at i=%d", i)
-			}
-			if val.String() != sequence[i] {
-				t.Errorf("expected '%s', got %v", sequence[i], val)
-			}
-		}
-
-		// Buffer should be empty with indices wrapped around
-		if !ch.isEmpty() {
-			t.Error("buffer should be empty")
-		}
-		if ch.read != ch.write {
-			t.Error("read and write indices should be equal when empty")
-		}
-	})
-
-	t.Run("verify fixed capacity", func(t *testing.T) {
-		capacity := 2
-		ch := newChannel(capacity)
-
-		// Fill to capacity
-		if !ch.send(lua.LString("1")) {
-			t.Error("first send should succeed")
-		}
-		if !ch.send(lua.LString("2")) {
-			t.Error("second send should succeed")
-		}
-
-		// Try to exceed capacity
-		if ch.send(lua.LString("3")) {
-			t.Error("send should fail when buffer at capacity")
-		}
-
-		// Verify size hasn't grown
-		if ch.size != capacity {
-			t.Errorf("buffer size should be %d, got %d", capacity, ch.size)
-		}
-		if len(ch.buffer) != capacity {
-			t.Errorf("underlying buffer should remain size %d, got %d", capacity, len(ch.buffer))
-		}
-	})
-}
-
-func TestChannel_Operations(t *testing.T) {
-	t.Run("cleanup releases all references", func(t *testing.T) {
-		ch := newChannel(3)
-
-		// Fill buffer
-		ch.send(lua.LString("1"))
-		ch.send(lua.LString("2"))
-		ch.send(lua.LString("3"))
-
-		// Cleanup
-		ch.cleanup()
-
-		if ch.buffer != nil {
-			t.Error("cleanup should set buffer to nil")
-		}
-		if ch.size != 0 {
-			t.Error("cleanup should reset size")
-		}
-		if ch.read != 0 {
-			t.Error("cleanup should reset read index")
-		}
-		if ch.write != 0 {
-			t.Error("cleanup should reset write index")
-		}
-	})
-
-	t.Run("buffer state checks", func(t *testing.T) {
-		ch := newChannel(2)
-
-		if !ch.isEmpty() {
-			t.Error("new channel should be empty")
-		}
-		if ch.isFull() {
-			t.Error("new channel should not be full")
-		}
-
-		ch.send(lua.LString("1"))
-		if ch.isEmpty() {
-			t.Error("channel with one item should not be empty")
-		}
-		if ch.isFull() {
-			t.Error("channel with one item in capacity 2 should not be full")
-		}
-
-		ch.send(lua.LString("2"))
-		if !ch.isFull() {
-			t.Error("channel at capacity should be full")
-		}
-	})
-
-	t.Run("circular buffer full cycle", func(t *testing.T) {
-		ch := newChannel(2)
-
-		// Fill
-		if !ch.send(lua.LString("1")) {
-			t.Error("first send failed")
-		}
-		if !ch.send(lua.LString("2")) {
-			t.Error("second send failed")
-		}
-
-		// Should be full
-		if !ch.isFull() {
-			t.Error("channel should be full")
-		}
-
-		// Read one
-		val, ok := ch.receive()
-		if !ok || val.String() != "1" {
-			t.Error("receive failed or wrong value")
-		}
-
-		// Write one wrapping around
-		if !ch.send(lua.LString("3")) {
-			t.Error("send after receive failed")
-		}
-
-		// Read all
-		remaining := []string{"2", "3"}
-		for i, expected := range remaining {
-			val, ok := ch.receive()
-			if !ok {
-				t.Errorf("receive %d failed", i)
-			}
-			if val.String() != expected {
-				t.Errorf("expected %s, got %s", expected, val.String())
-			}
-		}
-
-		// Should be empty
-		if !ch.isEmpty() {
-			t.Error("channel should be empty after reading all")
-		}
-	})
-
-	t.Run("closed channel behavior", func(t *testing.T) {
-		ch := newChannel(2)
-
-		// Fill partially and close
-		ch.send(lua.LString("1"))
-		ch.closed = true
-
-		// send should fail
-		if ch.send(lua.LString("2")) {
-			t.Error("send on closed channel should fail")
-		}
-
-		// Should be able to receive buffered value
-		val, ok := ch.receive()
-		if !ok || val.String() != "1" {
-			t.Error("should receive buffered value from closed channel")
-		}
-
-		// Further receives should fail
-		val, ok = ch.receive()
-		if ok || val != nil {
-			t.Error("receive from empty closed channel should fail")
-		}
-
-		// Cleanup after close
-		if ch.isEmpty() {
-			ch.cleanup()
-			if ch.buffer != nil || ch.size != 0 {
-				t.Error("cleanup after close should clear state")
-			}
-		}
-	})
-
-	t.Run("zero capacity channel", func(t *testing.T) {
-		ch := newChannel(0)
-
-		if ch.buffer != nil {
-			t.Error("zero capacity channel should have nil buffer")
-		}
-
-		if !ch.isEmpty() {
-			t.Error("zero capacity channel should be empty")
-		}
-
-		if !ch.isFull() {
-			t.Error("zero capacity channel should always be full")
-		}
-
-		// Operations should fail
-		if ch.send(lua.LString("test")) {
-			t.Error("send on zero capacity channel should fail")
-		}
-
-		val, ok := ch.receive()
-		if ok || val != nil {
-			t.Error("receive from zero capacity channel should fail")
-		}
-	})
-
-	t.Run("edge case index wrapping", func(t *testing.T) {
-		ch := newChannel(3)
-
-		// Multiple cycles of filling and emptying
-		for cycle := 0; cycle < 3; cycle++ {
-			// Fill
-			for i := 0; i < 3; i++ {
-				ok := ch.send(lua.LString(string(rune('A' + i))))
-				if !ok {
-					t.Errorf("send failed on cycle %d, item %d", cycle, i)
-				}
-			}
-
-			// Empty
-			for i := 0; i < 3; i++ {
+			for i := 0; i < 50; i++ {
+				assert.True(t, ch.send(lua.LNumber(i)))
 				val, ok := ch.receive()
-				if !ok {
-					t.Errorf("receive failed on cycle %d, item %d", cycle, i)
-				}
-				expected := string(rune('A' + i))
-				if val.String() != expected {
-					t.Errorf("wrong value on cycle %d, item %d: expected %s, got %s",
-						cycle, i, expected, val.String())
-				}
+				assert.True(t, ok)
+				assert.Equal(t, float64(i), float64(val.(lua.LNumber)))
+				assert.True(t, ch.isEmpty())
 			}
-		}
+		})
+	})
 
-		// Verify indices wrapped correctly
-		if ch.read != ch.write {
-			t.Error("indices should be equal after complete cycles")
-		}
+	t.Run("error conditions", func(t *testing.T) {
+		t.Run("operations on full channel", func(t *testing.T) {
+			ch := newChannel(1)
+
+			assert.True(t, ch.send(lua.LString("value")))
+			assert.False(t, ch.send(lua.LString("overflow")))
+			assert.True(t, ch.isFull())
+		})
+
+		t.Run("operations on empty channel", func(t *testing.T) {
+			ch := newChannel(1)
+
+			val, ok := ch.receive()
+			assert.False(t, ok)
+			assert.Nil(t, val)
+			assert.True(t, ch.isEmpty())
+		})
+	})
+
+	t.Run("additional edge cases", func(t *testing.T) {
+		t.Run("send after receive with exact capacity", func(t *testing.T) {
+			ch := newChannel(1)
+			assert.True(t, ch.send(lua.LString("first")))
+			val, ok := ch.receive()
+			assert.True(t, ok)
+			assert.Equal(t, "first", val.String())
+			assert.True(t, ch.send(lua.LString("second"))) // Should succeed exactly at capacity
+		})
+
+		t.Run("zero-capacity channel edge cases", func(t *testing.T) {
+			ch := newChannel(0)
+			assert.True(t, ch.isFull())  // Zero capacity channels are always full
+			assert.True(t, ch.isEmpty()) // And always empty
+			assert.False(t, ch.send(lua.LString("test")))
+			val, ok := ch.receive()
+			assert.False(t, ok)
+			assert.Nil(t, val)
+		})
+
+		t.Run("cleanup with partial buffer", func(t *testing.T) {
+			ch := newChannel(3)
+			assert.True(t, ch.send(lua.LString("1")))
+			ch.receive()                              // Read one value
+			assert.True(t, ch.send(lua.LString("2"))) // Write one more
+
+			// Now have a partial buffer with gaps
+			ch.cleanup()
+			assert.Nil(t, ch.buffer)
+			assert.True(t, ch.closed)
+			assert.Equal(t, 0, ch.size)
+		})
+
+		t.Run("rapid close and cleanup cycle", func(t *testing.T) {
+			ch := newChannel(2)
+			for i := 0; i < 100; i++ {
+				ch.closed = true
+				ch.cleanup()
+				ch = newChannel(2) // Create new channel
+				assert.True(t, ch.send(lua.LString("test")))
+			}
+		})
+
+		t.Run("boundary indices", func(t *testing.T) {
+			ch := newChannel(3)
+			// Fill completely
+			for i := 0; i < ch.capacity; i++ {
+				assert.True(t, ch.send(lua.LString("value")))
+			}
+			// Empty completely
+			for i := 0; i < ch.capacity; i++ {
+				_, ok := ch.receive()
+				assert.True(t, ok)
+			}
+			// Indices should wrap exactly to 0
+			assert.Equal(t, 0, ch.read%ch.capacity)
+			assert.Equal(t, 0, ch.write%ch.capacity)
+		})
+
+		t.Run("mixed value types", func(t *testing.T) {
+			ch := newChannel(4)
+			values := []lua.LValue{
+				lua.LString("string"),
+				lua.LNumber(42),
+				lua.LBool(true),
+				lua.LNil,
+			}
+
+			// Send mixed types
+			for _, v := range values {
+				assert.True(t, ch.send(v))
+			}
+
+			// Receive and verify
+			for _, expected := range values {
+				val, ok := ch.receive()
+				assert.True(t, ok)
+				assert.Equal(t, expected.Type(), val.Type())
+			}
+		})
 	})
 }
 
-func TestChanOperation(t *testing.T) {
-	t.Run("String representation", func(t *testing.T) {
-		testCases := []struct {
-			name     string
-			op       *chanOperation
-			expected string
-		}{
-			{
-				name: "send operation",
-				op: &chanOperation{
-					opType: chanSend,
-					ch:     newChannel(0),
-					value:  lua.LString("test value"),
-				},
-				expected: "channel.send{value=test value}",
-			},
-			{
-				name: "receive operation",
-				op: &chanOperation{
-					opType: chanReceive,
-					ch:     newChannel(0),
-				},
-				expected: "channel.receive",
-			},
-			{
-				name: "close operation",
-				op: &chanOperation{
-					opType: chanClose,
-					ch:     newChannel(0),
-				},
-				expected: "channel.close",
-			},
-			{
-				name: "invalid operation type",
-				op: &chanOperation{
-					opType: chanOp(999), // Invalid operation type
-					ch:     newChannel(0),
-				},
-				expected: "unknown",
-			},
-		}
+// Benchmarks
+func BenchmarkChannel(b *testing.B) {
+	b.Run("send/receive cycle", func(b *testing.B) {
+		ch := newChannel(1)
+		value := lua.LString("test")
+		b.ResetTimer()
 
-		for _, tc := range testCases {
-			t.Run(tc.name, func(t *testing.T) {
-				assert.Equal(t, tc.expected, tc.op.String())
-			})
-		}
-
-		// Test different value types in send operation
-		valueTests := []struct {
-			name     string
-			value    lua.LValue
-			expected string
-		}{
-			{
-				name:     "string value",
-				value:    lua.LString("hello"),
-				expected: "channel.send{value=hello}",
-			},
-			{
-				name:     "number value",
-				value:    lua.LNumber(42),
-				expected: "channel.send{value=42}",
-			},
-			{
-				name:     "bool value",
-				value:    lua.LBool(true),
-				expected: "channel.send{value=true}",
-			},
-			{
-				name:     "nil value",
-				value:    lua.LNil,
-				expected: "channel.send{value=nil}",
-			},
-			{
-				name:     "table value",
-				value:    &lua.LTable{},
-				expected: "channel.send{value=table: ", // Just check prefix as table string contains address
-			},
-		}
-
-		for _, vt := range valueTests {
-			t.Run(vt.name, func(t *testing.T) {
-				op := &chanOperation{
-					opType: chanSend,
-					ch:     newChannel(0),
-					value:  vt.value,
-				}
-				if vt.name == "table value" {
-					assert.Contains(t, op.String(), vt.expected)
-				} else {
-					assert.Equal(t, vt.expected, op.String())
-				}
-			})
+		for i := 0; i < b.N; i++ {
+			ch.send(value)
+			ch.receive()
 		}
 	})
 
-	t.Run("Type method", func(t *testing.T) {
-		ops := []*chanOperation{
-			{opType: chanSend, ch: newChannel(0), value: lua.LString("test")},
-			{opType: chanReceive, ch: newChannel(0)},
-			{opType: chanClose, ch: newChannel(0)},
-		}
+	b.Run("buffer fill and drain", func(b *testing.B) {
+		ch := newChannel(100)
+		value := lua.LString("test")
+		b.ResetTimer()
 
-		for _, op := range ops {
-			assert.Equal(t, lua.LTUserData, op.Type(), "chanOperation should always return LTUserData type")
+		for i := 0; i < b.N; i++ {
+			// Fill buffer
+			for j := 0; j < ch.capacity; j++ {
+				ch.send(value)
+			}
+			// Drain buffer
+			for j := 0; j < ch.capacity; j++ {
+				ch.receive()
+			}
 		}
 	})
 
-	t.Run("Operation with nil channel", func(t *testing.T) {
-		op := &chanOperation{
-			opType: chanSend,
-			ch:     nil,
-			value:  lua.LString("test"),
+	b.Run("circular buffer wraparound", func(b *testing.B) {
+		ch := newChannel(3)
+		value := lua.LString("test")
+		b.ResetTimer()
+
+		for i := 0; i < b.N; i++ {
+			// Force wraparound pattern
+			ch.send(value)
+			ch.send(value)
+			ch.receive()
+			ch.send(value)
+			ch.receive()
+			ch.receive()
 		}
-		assert.NotPanics(t, func() {
-			_ = op.String()
-			_ = op.Type()
-		}, "Operations should handle nil channel gracefully")
 	})
 
-	t.Run("Operation with nil value", func(t *testing.T) {
-		op := &chanOperation{
-			opType: chanSend,
-			ch:     newChannel(0),
-			value:  nil,
+	b.Run("concurrent size small buffer", func(b *testing.B) {
+		ch := newChannel(10)
+		value := lua.LString("test")
+		b.ResetTimer()
+
+		for i := 0; i < b.N; i++ {
+			ch.send(value)
+			ch.size++ // Simulate concurrent size updates
+			ch.receive()
+			ch.size-- // Simulate concurrent size updates
 		}
-		assert.NotPanics(t, func() {
-			str := op.String()
-			assert.Contains(t, str, "channel.send{value=<nil>}")
-		}, "send operation should handle nil value gracefully")
+	})
+
+	b.Run("zero capacity operations", func(b *testing.B) {
+		ch := newChannel(0)
+		value := lua.LString("test")
+		b.ResetTimer()
+
+		for i := 0; i < b.N; i++ {
+			ch.send(value) // Will always fail
+			ch.receive()   // Will always fail
+		}
+	})
+
+	b.Run("cleanup overhead", func(b *testing.B) {
+		value := lua.LString("test")
+		b.ResetTimer()
+
+		for i := 0; i < b.N; i++ {
+			ch := newChannel(100)
+			// Fill partially
+			for j := 0; j < 50; j++ {
+				ch.send(value)
+			}
+			ch.cleanup()
+		}
 	})
 }

@@ -28,7 +28,6 @@ func (m *Module) Loader(L *lua.LState) int {
 
 	// channel constructor
 	L.SetField(mod, "new", L.NewFunction(m.new))
-	L.SetField(mod, "inbox", L.NewFunction(m.newExternal)) // todo: remove it later
 
 	// channel operations
 	L.SetField(mt, "send", L.NewFunction(m.send))
@@ -72,7 +71,7 @@ func (m *Module) send(L *lua.LState) int {
 	value := L.CheckAny(2)
 
 	if ch.IsNamed() {
-		L.RaiseError("cannot send to inbox channel")
+		L.RaiseError("cannot send to named channel")
 		return 0
 	}
 
@@ -89,7 +88,7 @@ func (m *Module) send(L *lua.LState) int {
 	}
 
 	// Create and yield the operation
-	L.Yield(&chanOperation{opType: chanSend, ch: ch, value: value})
+	L.Yield(&chanOperation{dir: chanSend, ch: ch, value: value})
 	return -1
 }
 
@@ -112,7 +111,7 @@ func (m *Module) receive(L *lua.LState) int {
 	}
 
 	// Create and yield the operation
-	L.Yield(&chanOperation{opType: chanReceive, ch: ch})
+	L.Yield(&chanOperation{dir: chanReceive, ch: ch})
 	return -1
 }
 
@@ -121,7 +120,7 @@ func (m *Module) close(L *lua.LState) int {
 	ch := L.CheckUserData(1).Value.(*Channel)
 
 	if ch.IsNamed() {
-		L.RaiseError("cannot close inbox channel")
+		L.RaiseError("cannot close named channel")
 		return 0
 	}
 
@@ -130,18 +129,6 @@ func (m *Module) close(L *lua.LState) int {
 		return 0
 	}
 
-	L.Yield(&chanOperation{opType: chanClose, ch: ch})
+	L.Yield(&chanOperation{dir: chanClose, ch: ch})
 	return -1
-}
-
-// todo: this is temp, TODO: DELETE IT!
-func (m *Module) newExternal(L *lua.LState) int {
-	ch := Named(L.CheckString(1), 0)
-	ud := L.NewUserData()
-	ud.Value = ch
-
-	L.SetMetatable(ud, L.GetTypeMetatable("channel"))
-	L.Push(ud)
-
-	return 1
 }

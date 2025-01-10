@@ -4,7 +4,6 @@ import (
 	"context"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/stretchr/testify/assert"
-	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 	"testing"
 )
@@ -702,54 +701,54 @@ func TestModule_AdditionalSelectScenarios(t *testing.T) {
 	//	defer vm.Close()
 	//
 	//	err = vm.PushScript(`
-	//    print("DEBUG: Test starting")
-	//    -- Create unbuffered channels
-	//    local ch1 = channel.new(0)
-	//    local ch2 = channel.new(0)
-	//    local ch3 = channel.new(0)
+	//  print("DEBUG: Test starting")
+	//  -- Create unbuffered channels
+	//  local ch1 = channel.new(0)
+	//  local ch2 = channel.new(0)
+	//  local ch3 = channel.new(0)
 	//
-	//    print("DEBUG: Spawning select coroutine")
-	//    -- First coroutine blocks on select with multiple receives
-	//    coroutine.spawn(function()
-	//        print("DEBUG: Inside select coroutine")
-	//        local result = channel.select({
-	//            ch1:case_receive(),
-	//            ch2:case_receive(),
-	//            ch3:case_receive()
-	//        })
-	//        -- Should select ch1 since that's the one we send to
-	//        print("DEBUG: Select completed, selected channel:", tostring(result.channel))
-	//        assert(result.channel == ch1, "wrong channel selected - expected ch1")
-	//        assert(result.value == "test_value", "wrong value received")
-	//        coroutine.yield("select_complete")
-	//    end)
+	//  print("DEBUG: Spawning select coroutine")
+	//  -- First coroutine blocks on select with multiple receives
+	//  coroutine.spawn(function()
+	//      print("DEBUG: Inside select coroutine")
+	//      local result = channel.select({
+	//          ch1:case_receive(),
+	//          ch2:case_receive(),
+	//          ch3:case_receive()
+	//      })
+	//      -- Should select ch1 since that's the one we send to
+	//      print("DEBUG: Select completed, selected channel:", tostring(result.channel))
+	//      assert(result.channel == ch1, "wrong channel selected - expected ch1")
+	//      assert(result.value == "test_value", "wrong value received")
+	//      coroutine.yield("select_complete")
+	//  end)
 	//
-	//    print("DEBUG: Spawning helper coroutine")
-	//    -- Helper coroutine sends to trigger select
-	//    coroutine.spawn(function()
-	//        coroutine.yield("helper_starting")
+	//  print("DEBUG: Spawning helper coroutine")
+	//  -- Helper coroutine sends to trigger select
+	//  coroutine.spawn(function()
+	//      coroutine.yield("helper_starting")
 	//
-	//        print("DEBUG: Helper sending to ch1")
-	//        -- send to ch1 specifically
-	//        local ok = ch1:send("test_value")
-	//        assert(ok, "send to ch1 failed")
-	//        coroutine.yield("helper_complete")
+	//      print("DEBUG: Helper sending to ch1")
+	//      -- send to ch1 specifically
+	//      local ok = ch1:send("test_value")
+	//      assert(ok, "send to ch1 failed")
+	//      coroutine.yield("helper_complete")
 	//
-	//        print("DEBUG: Helper verifying cleanup")
-	//        -- Now verify ch2 and ch3 were cleaned up by doing sends
-	//        -- These should work immediately if cleanup was successful
-	//        ok = ch2:send("verify2")
-	//        assert(ok, "ch2 send failed - not cleaned up")
-	//        local v2 = ch2:receive()
-	//        assert(v2 == "verify2", "ch2 receive failed")
-	//        coroutine.yield("ch2_verified")
+	//      print("DEBUG: Helper verifying cleanup")
+	//      -- Now verify ch2 and ch3 were cleaned up by doing sends
+	//      -- These should work immediately if cleanup was successful
+	//      ok = ch2:send("verify2")
+	//      assert(ok, "ch2 send failed - not cleaned up")
+	//      local v2 = ch2:receive()
+	//      assert(v2 == "verify2", "ch2 receive failed")
+	//      coroutine.yield("ch2_verified")
 	//
-	//        ok = ch3:send("verify3")
-	//        assert(ok, "ch3 send failed - not cleaned up")
-	//        local v3 = ch3:receive()
-	//        assert(v3 == "verify3", "ch3 receive failed")
-	//        coroutine.yield("ch3_verified")
-	//    end)
+	//      ok = ch3:send("verify3")
+	//      assert(ok, "ch3 send failed - not cleaned up")
+	//      local v3 = ch3:receive()
+	//      assert(v3 == "verify3", "ch3 receive failed")
+	//      coroutine.yield("ch3_verified")
+	//  end)
 	//`, "test")
 	//	assert.NoError(t, err)
 	//
@@ -781,133 +780,4 @@ func TestModule_AdditionalSelectScenarios(t *testing.T) {
 	//	}
 	//	assert.Equal(t, expectedYields, yields, "incorrect yield sequence")
 	//})
-	// todo: uncomment
 }
-
-func TestExternalChannelSelect(t *testing.T) {
-	logger := zap.NewNop()
-
-	t.Run("select on inbox channel", func(t *testing.T) {
-		scheduler := NewRuntime()
-		channels := NewChannelModule()
-
-		vm, err := engine.NewCoroutineVM(
-			context.Background(), logger,
-			engine.WithPreloaded(channels.Name(), channels.Loader),
-		)
-		assert.NoError(t, err)
-		defer vm.Close()
-
-		err = vm.PushScript(`
-			local ext = channel.inbox("ext1")
-			
-			coroutine.spawn(function()
-				local result = channel.select({
-					ext:case_receive()
-				})
-
-				assert(result.channel == ext, "wrong channel selected")
-				assert(result.value == "test_data", "wrong value received")
-				assert(result.ok, "receive should succeed")
-				coroutine.yield("receive_complete")
-			end)
-		`, "test")
-		assert.NoError(t, err)
-
-		// Get initial task - this registers the receiver
-		tasks, err := scheduler.Step(vm)
-		assert.NoError(t, err)
-
-		// Verify channel is registered
-		listeners := scheduler.GetActiveSignals()
-		assert.Equal(t, []string{"ext1"}, listeners, "channel should be registered")
-
-		// send data to channel
-		tasks, _ = scheduler.Send("ext1", lua.LString("test_data"))
-		assert.Equal(t, 1, len(tasks), "should have one task to resume")
-
-		// Process resumed task
-		tasks, err = scheduler.Step(vm, tasks...)
-		assert.NoError(t, err)
-		assert.Equal(t, "receive_complete", tasks[0].Yielded[0].String())
-
-		// Channel should be unregistered
-		assert.Equal(t, 0, len(scheduler.GetActiveSignals()), "channel should be unregistered")
-	})
-
-	//t.Run("select between multiple inbox channels", func(t *testing.T) {
-	//	scheduler := NewRuntime()
-	//	channels := NewChannelModule()
-	//
-	//	vm, err := engine.NewCoroutineVM(
-	//		context.Background(), logger,
-	//		engine.WithPreloaded(channels.Name(), channels.Loader),
-	//	)
-	//	assert.NoError(t, err)
-	//	defer vm.Close()
-	//
-	//	err = vm.PushScript(`
-	//		local ext1 = channel.inbox("ext1")
-	//		local ext2 = channel.inbox("ext2")
-	//
-	//		coroutine.spawn(function()
-	//			-- First select should get ext1
-	//			local result = channel.select({
-	//				ext1:case_receive(),
-	//				ext2:case_receive()
-	//			})
-	//			assert(result.channel == ext1, "wrong channel selected")
-	//			assert(result.value == "data1", "wrong value received")
-	//			coroutine.yield("first_receive_complete")
-	//
-	//			-- Second select should get ext2
-	//			result = channel.select({
-	//				ext1:case_receive(),
-	//				ext2:case_receive()
-	//			})
-	//			assert(result.channel == ext2, "wrong channel selected")
-	//			assert(result.value == "data2", "wrong value received")
-	//			coroutine.yield("second_receive_complete")
-	//		end)
-	//	`, "test")
-	//	assert.NoError(t, err)
-	//
-	//	// Get initial task - this registers both receivers
-	//	tasks, err := scheduler.Step(vm)
-	//	assert.NoError(t, err)
-	//
-	//	// Verify both channels are registered
-	//	listeners := scheduler.GetActiveSignals()
-	//	assert.Equal(t, 2, len(listeners), "both channels should be registered")
-	//	assert.Contains(t, listeners, "ext1")
-	//	assert.Contains(t, listeners, "ext2")
-	//
-	//	// send to first channel
-	//	tasks = scheduler.send("ext1", lua.LString("data1"))
-	//	assert.Equal(t, 1, len(tasks), "should have one task to resume")
-	//
-	//	tasks, err = scheduler.Step(vm, tasks...)
-	//	assert.NoError(t, err)
-	//	assert.Equal(t, "first_receive_complete", tasks[0].Yielded[0].String())
-	//
-	//	// Step to register second set of receivers
-	//	tasks, err = scheduler.Step(vm, tasks...)
-	//	assert.NoError(t, err)
-	//
-	//	// send to second channel
-	//	tasks = scheduler.send("ext2", lua.LString("data2"))
-	//	assert.Equal(t, 1, len(tasks), "should have one task to resume")
-	//
-	//	tasks, err = scheduler.Step(vm, tasks...)
-	//	assert.NoError(t, err)
-	//	assert.Equal(t, "second_receive_complete", tasks[0].Yielded[0].String())
-	//
-	//	// All channels should be unregistered at end
-	//	assert.Equal(t, 0, len(scheduler.GetActiveSignals()), "no channels should remain registered")
-	//})
-}
-
-// TODO: ENSURE WE DEQUEUE CHANNELS WHEN SELECT TRIGGERED!!!!!!!!!!!!!!!!
-// TODO: EXTERNAL SIGNAL DOES NOT CLEAR UP CHANNEL PENDINGS!!!!!
-// TODO: WE HAVE TO DRAIN ALL THE SELECTS WHEN HAPPENS
-// TODO: WE HAVE FIND A WAY TO DE_REGISTER SIGNAL WHEN SELECT UNLOCKS IMMEDIATELY
