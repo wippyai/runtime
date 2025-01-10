@@ -14,7 +14,7 @@ const (
 	chanClose
 )
 
-// carries chan operation context over to the scheduler
+// carries chan operation context over to the bufferedScheduler
 type pendingOp struct {
 	task     *engine.Task
 	op       *chanOperation
@@ -52,22 +52,22 @@ func (y *chanOperation) Type() lua.LValueType {
 	return lua.LTUserData
 }
 
-// scheduler manages all channel operations and state, not thread-safe
-type scheduler struct {
+// bufferedScheduler manages all channel operations and state, not thread-safe
+type bufferedScheduler struct {
 	senders   *queueMapper
 	receivers *queueMapper
 }
 
-// newScheduler creates a new scheduler instance
-func newScheduler() *scheduler {
-	return &scheduler{
+// newScheduler creates a new bufferedScheduler instance
+func newScheduler() *bufferedScheduler {
+	return &bufferedScheduler{
 		senders:   newQueueMapper(),
 		receivers: newQueueMapper(),
 	}
 }
 
 // handleTasks processes tasks that contain channel operations
-func (s *scheduler) handleTasks(tasks []*engine.Task) ([]*engine.Task, error) {
+func (s *bufferedScheduler) handleTasks(tasks []*engine.Task) ([]*engine.Task, error) {
 	var externalTasks []*engine.Task
 	var channelTasks []*engine.Task
 
@@ -98,7 +98,7 @@ func (s *scheduler) handleTasks(tasks []*engine.Task) ([]*engine.Task, error) {
 }
 
 // handleOperation processes a single channel operation
-func (s *scheduler) handleOperation(task *engine.Task, op *chanOperation) []*engine.Task {
+func (s *bufferedScheduler) handleOperation(task *engine.Task, op *chanOperation) []*engine.Task {
 	switch op.dir {
 	case chanSend:
 		return s.handleSend(task, op)
@@ -112,7 +112,7 @@ func (s *scheduler) handleOperation(task *engine.Task, op *chanOperation) []*eng
 }
 
 // getOpenChannels returns list of inbox channel names being listened to. Order is not guaranteed, expect external ordering.
-func (s *scheduler) getOpenChannels() []string {
+func (s *bufferedScheduler) getOpenChannels() []string {
 	var names []string
 	for name, _ := range s.receivers.named {
 		names = append(names, name)
@@ -122,7 +122,7 @@ func (s *scheduler) getOpenChannels() []string {
 }
 
 // send sends a value to an inbox channel
-func (s *scheduler) send(name string, value lua.LValue) ([]*engine.Task, error) {
+func (s *bufferedScheduler) send(name string, value lua.LValue) ([]*engine.Task, error) {
 	op := s.receivers.dequeueNamed(name)
 	if op == nil {
 		return nil, fmt.Errorf("no receiver found for channel %s", name)
@@ -148,7 +148,7 @@ func (s *scheduler) send(name string, value lua.LValue) ([]*engine.Task, error) 
 }
 
 // handleSend processes a send operation
-func (s *scheduler) handleSend(task *engine.Task, op *chanOperation) []*engine.Task {
+func (s *bufferedScheduler) handleSend(task *engine.Task, op *chanOperation) []*engine.Task {
 	ch := op.ch
 	if ch.closed {
 		task.Resumed = []lua.LValue{lua.LNil}
@@ -193,7 +193,7 @@ func (s *scheduler) handleSend(task *engine.Task, op *chanOperation) []*engine.T
 }
 
 // handleReceive processes a receive operation
-func (s *scheduler) handleReceive(task *engine.Task, op *chanOperation) []*engine.Task {
+func (s *bufferedScheduler) handleReceive(task *engine.Task, op *chanOperation) []*engine.Task {
 	ch := op.ch
 
 	// Try to receive any buffered value first
@@ -238,7 +238,7 @@ func (s *scheduler) handleReceive(task *engine.Task, op *chanOperation) []*engin
 }
 
 // handleClose processes a close operation
-func (s *scheduler) handleClose(task *engine.Task, op *chanOperation) []*engine.Task {
+func (s *bufferedScheduler) handleClose(task *engine.Task, op *chanOperation) []*engine.Task {
 	ch := op.ch
 	if ch.closed {
 		task.RaiseError = fmt.Errorf("channel already closed")
@@ -302,7 +302,7 @@ func (s *scheduler) handleClose(task *engine.Task, op *chanOperation) []*engine.
 }
 
 // handleSelect processes a select operation
-func (s *scheduler) handleSelect(task *engine.Task, op *selectOperation) []*engine.Task {
+func (s *bufferedScheduler) handleSelect(task *engine.Task, op *selectOperation) []*engine.Task {
 	// Register all cases
 	for _, sc := range op.cases {
 		ch := sc.Channel()
@@ -328,7 +328,7 @@ func (s *scheduler) handleSelect(task *engine.Task, op *selectOperation) []*engi
 }
 
 // Cleanup releases all resources and resets state
-func (s *scheduler) Cleanup() {
+func (s *bufferedScheduler) close() {
 	s.senders.clear()
 	s.receivers.clear()
 }

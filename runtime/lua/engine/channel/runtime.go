@@ -10,12 +10,19 @@ type VM interface {
 	Step(tasks ...*engine.Task) ([]*engine.Task, error)
 }
 
-// Runtime coordinates task execution and channel operations
-type Runtime struct {
-	scheduler *scheduler
+type scheduler interface {
+	handleTasks(tasks []*engine.Task) ([]*engine.Task, error)
+	send(name string, value lua.LValue) ([]*engine.Task, error)
+	getOpenChannels() []string
+	close()
 }
 
-// NewRuntime creates a new scheduler instance
+// Runtime coordinates task execution and channel operations
+type Runtime struct {
+	scheduler scheduler
+}
+
+// NewRuntime creates a new bufferedScheduler instance
 func NewRuntime() *Runtime {
 	return &Runtime{
 		scheduler: newScheduler(),
@@ -34,7 +41,7 @@ func (s *Runtime) Step(vm VM, tasks ...*engine.Task) ([]*engine.Task, error) {
 
 	// Keep processing until all channel operations are handled
 	for len(vmTasks) > 0 {
-		// Process current batch of tasks through scheduler
+		// Process current batch of tasks through bufferedScheduler
 		processedTasks, err := s.scheduler.handleTasks(vmTasks)
 		if err != nil {
 			return nil, fmt.Errorf("task processing failed: %w", err)
@@ -103,7 +110,7 @@ func (s *Runtime) filterChannelTasks(tasks []*engine.Task) []*engine.Task {
 	return channel
 }
 
-// Cleanup releases scheduler resources
+// Cleanup releases bufferedScheduler resources
 func (s *Runtime) Cleanup() {
-	s.scheduler.Cleanup()
+	s.scheduler.close()
 }
