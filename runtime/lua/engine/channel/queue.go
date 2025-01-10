@@ -12,9 +12,10 @@ var (
 
 // pendingQueue is not thread safe, external synchronization is required
 type pendingQueue struct {
-	head *pendingOp
-	tail *pendingOp
-	size int
+	head  *pendingOp
+	tail  *pendingOp
+	named map[string][]*pendingOp
+	size  int
 }
 
 func (q *pendingQueue) enqueue(op *pendingOp) {

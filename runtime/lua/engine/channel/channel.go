@@ -8,18 +8,18 @@ import (
 // This is NOT thread-safe; inbox synchronization is required.
 type Channel struct {
 	buffer   []lua.LValue
+	name     string
 	capacity int
 	closed   bool
 	read     int
 	write    int
 	size     int
-	name     string
 }
 
 // Named creates a named channel intended for external use.
 // Named channels are unbuffered.
-func Named(name string) *Channel {
-	return &Channel{name: name}
+func Named(name string, capacity int) *Channel {
+	return &Channel{name: name, capacity: capacity}
 }
 
 // newChannel creates a new channel with the given capacity.
