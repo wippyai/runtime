@@ -186,7 +186,7 @@ func TestScheduler(t *testing.T) {
 
 	t.Run("inbox channel operations", func(t *testing.T) {
 		s := NewRuntime()
-		ch := Named("test-signal")
+		ch := Named("test-signal", 0)
 
 		receiver := &engine.Task{}
 

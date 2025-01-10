@@ -136,7 +136,7 @@ func (m *Module) close(L *lua.LState) int {
 
 // todo: this is temp, TODO: DELETE IT!
 func (m *Module) newExternal(L *lua.LState) int {
-	ch := Named(L.CheckString(1))
+	ch := Named(L.CheckString(1), 0)
 	ud := L.NewUserData()
 	ud.Value = ch
 
