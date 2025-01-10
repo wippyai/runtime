@@ -5,7 +5,7 @@ package channel
 //	logger := zap.NewNop()
 //
 //	t.Run("inbox channel send data", func(t *testing.T) {
-//		scheduler := NewRuntime()
+//		bufferedScheduler := NewRuntime()
 //		channels := NewChannelModule()
 //
 //		vm, err := engine.NewCoroutineVM(
@@ -35,31 +35,31 @@ package channel
 //		}
 //
 //		// Get initial yielded tasks
-//		tasks, err := scheduler.Step(vm)
+//		tasks, err := bufferedScheduler.Step(vm)
 //		assert.NoError(t, err)
 //
 //		log.Printf("---------------------------------------tasks: %v", tasks)
 //		// Verify inbox channel is registered
-//		listeners := scheduler.GetOpenChannels()
+//		listeners := bufferedScheduler.GetOpenChannels()
 //		assert.Equal(t, 1, len(listeners), "expected one inbox listener")
 //		assert.Equal(t, "signal", listeners[0], "expected signal channel to be registered")
 //
 //		// send data to inbox channel
-//		tasks, _ = scheduler.Send("signal", lua.LString("hello"))
+//		tasks, _ = bufferedScheduler.Send("signal", lua.LString("hello"))
 //		assert.Equal(t, 1, len(tasks), "expected one task to be resumed")
 //
 //		// Process resumed task
-//		tasks, err = scheduler.Step(vm, tasks...)
+//		tasks, err = bufferedScheduler.Step(vm, tasks...)
 //		assert.NoError(t, err)
 //		assert.Equal(t, 1, len(tasks), "expected one final yield")
 //
 //		// Verify channel was unregistered after completion
-//		listeners = scheduler.GetOpenChannels()
+//		listeners = bufferedScheduler.GetOpenChannels()
 //		assert.Equal(t, 0, len(listeners), "expected no remaining listeners")
 //	})
 //
 //	t.Run("inbox channel multi-receive with yield", func(t *testing.T) {
-//		scheduler := NewRuntime()
+//		bufferedScheduler := NewRuntime()
 //		channels := NewChannelModule()
 //
 //		vm, err := engine.NewCoroutineVM(
@@ -94,19 +94,19 @@ package channel
 //		assert.NoError(t, err)
 //
 //		// Get initial task
-//		tasks, err := scheduler.Step(vm)
+//		tasks, err := bufferedScheduler.Step(vm)
 //		assert.NoError(t, err)
 //
 //		// First signal
-//		tasks, _ = scheduler.Send("signal", lua.LString("first"))
+//		tasks, _ = bufferedScheduler.Send("signal", lua.LString("first"))
 //		assert.Equal(t, 1, len(tasks))
-//		tasks, err = scheduler.Step(vm, tasks...)
+//		tasks, err = bufferedScheduler.Step(vm, tasks...)
 //		assert.NoError(t, err)
 //
 //		// Second signal
-//		tasks, _ = scheduler.Send("signal", lua.LString("second"))
+//		tasks, _ = bufferedScheduler.Send("signal", lua.LString("second"))
 //		assert.Equal(t, 1, len(tasks))
-//		tasks, err = scheduler.Step(vm, tasks...)
+//		tasks, err = bufferedScheduler.Step(vm, tasks...)
 //		assert.NoError(t, err)
 //
 //		// Should now be yielded with "other_work"
@@ -114,19 +114,19 @@ package channel
 //		assert.Equal(t, "other_work", tasks[0].Yielded[0].String())
 //
 //		// Verify channel not in listeners during yield
-//		assert.Equal(t, 0, len(scheduler.GetOpenChannels()))
+//		assert.Equal(t, 0, len(bufferedScheduler.GetOpenChannels()))
 //
 //		// Step to get to next receive
-//		tasks, err = scheduler.Step(vm, tasks...)
+//		tasks, err = bufferedScheduler.Step(vm, tasks...)
 //		assert.NoError(t, err)
 //
 //		// Channel should be listening again
-//		assert.Equal(t, []string{"signal"}, scheduler.GetOpenChannels())
+//		assert.Equal(t, []string{"signal"}, bufferedScheduler.GetOpenChannels())
 //
 //		// Third signal
-//		tasks, _ = scheduler.Send("signal", lua.LString("third"))
+//		tasks, _ = bufferedScheduler.Send("signal", lua.LString("third"))
 //		assert.Equal(t, 1, len(tasks))
-//		tasks, err = scheduler.Step(vm, tasks...)
+//		tasks, err = bufferedScheduler.Step(vm, tasks...)
 //		assert.NoError(t, err)
 //
 //		// Should be done
@@ -134,7 +134,7 @@ package channel
 //	})
 //
 //	t.Run("multiple receivers on single inbox channel", func(t *testing.T) {
-//		scheduler := NewRuntime()
+//		bufferedScheduler := NewRuntime()
 //		channels := NewChannelModule()
 //
 //		vm, err := engine.NewCoroutineVM(
@@ -164,30 +164,30 @@ package channel
 //		assert.NoError(t, err)
 //
 //		// Get initial tasks
-//		tasks, err := scheduler.Step(vm)
+//		tasks, err := bufferedScheduler.Step(vm)
 //		assert.NoError(t, err)
 //
 //		// Verify both are registered
-//		assert.Equal(t, []string{"distributed"}, scheduler.GetOpenChannels())
+//		assert.Equal(t, []string{"distributed"}, bufferedScheduler.GetOpenChannels())
 //
 //		// send first signal - should go to first receiver
-//		tasks, _ = scheduler.Send("distributed", lua.LString("first"))
+//		tasks, _ = bufferedScheduler.Send("distributed", lua.LString("first"))
 //		assert.Equal(t, 1, len(tasks), "first receiver should be resumed")
 //
-//		tasks, err = scheduler.Step(vm, tasks...)
+//		tasks, err = bufferedScheduler.Step(vm, tasks...)
 //		assert.NoError(t, err)
 //		assert.Equal(t, "first_done", tasks[0].Yielded[0].String())
 //
 //		// send second signal - should go to second receiver
-//		tasks, _ = scheduler.Send("distributed", lua.LString("second"))
+//		tasks, _ = bufferedScheduler.Send("distributed", lua.LString("second"))
 //		assert.Equal(t, 1, len(tasks), "second receiver should be resumed")
 //
-//		tasks, err = scheduler.Step(vm, tasks...)
+//		tasks, err = bufferedScheduler.Step(vm, tasks...)
 //		assert.NoError(t, err)
 //		assert.Equal(t, "second_done", tasks[0].Yielded[0].String())
 //
 //		// Channel should no longer be listened
-//		assert.Equal(t, 0, len(scheduler.GetOpenChannels()))
+//		assert.Equal(t, 0, len(bufferedScheduler.GetOpenChannels()))
 //	})
 //}
 //
@@ -195,7 +195,7 @@ package channel
 //	logger := zap.NewNop()
 //
 //	t.Run("select on inbox channel", func(t *testing.T) {
-//		scheduler := NewRuntime()
+//		bufferedScheduler := NewRuntime()
 //		channels := NewChannelModule()
 //
 //		vm, err := engine.NewCoroutineVM(
@@ -222,28 +222,28 @@ package channel
 //		assert.NoError(t, err)
 //
 //		// Get initial task - this registers the receiver
-//		tasks, err := scheduler.Step(vm)
+//		tasks, err := bufferedScheduler.Step(vm)
 //		assert.NoError(t, err)
 //
 //		// Verify channel is registered
-//		listeners := scheduler.GetOpenChannels()
+//		listeners := bufferedScheduler.GetOpenChannels()
 //		assert.Equal(t, []string{"ext1"}, listeners, "channel should be registered")
 //
 //		// send data to channel
-//		tasks, _ = scheduler.Send("ext1", lua.LString("test_data"))
+//		tasks, _ = bufferedScheduler.Send("ext1", lua.LString("test_data"))
 //		assert.Equal(t, 1, len(tasks), "should have one task to resume")
 //
 //		// Process resumed task
-//		tasks, err = scheduler.Step(vm, tasks...)
+//		tasks, err = bufferedScheduler.Step(vm, tasks...)
 //		assert.NoError(t, err)
 //		assert.Equal(t, "receive_complete", tasks[0].Yielded[0].String())
 //
 //		// Channel should be unregistered
-//		assert.Equal(t, 0, len(scheduler.GetOpenChannels()), "channel should be unregistered")
+//		assert.Equal(t, 0, len(bufferedScheduler.GetOpenChannels()), "channel should be unregistered")
 //	})
 //
 //	//t.Run("select between multiple inbox channels", func(t *testing.T) {
-//	//	scheduler := NewRuntime()
+//	//	bufferedScheduler := NewRuntime()
 //	//	channels := NewChannelModule()
 //	//
 //	//	vm, err := engine.NewCoroutineVM(
@@ -280,37 +280,37 @@ package channel
 //	//	assert.NoError(t, err)
 //	//
 //	//	// Get initial task - this registers both receivers
-//	//	tasks, err := scheduler.Step(vm)
+//	//	tasks, err := bufferedScheduler.Step(vm)
 //	//	assert.NoError(t, err)
 //	//
 //	//	// Verify both channels are registered
-//	//	listeners := scheduler.GetOpenChannels()
+//	//	listeners := bufferedScheduler.GetOpenChannels()
 //	//	assert.Equal(t, 2, len(listeners), "both channels should be registered")
 //	//	assert.Contains(t, listeners, "ext1")
 //	//	assert.Contains(t, listeners, "ext2")
 //	//
 //	//	// send to first channel
-//	//	tasks = scheduler.send("ext1", lua.LString("data1"))
+//	//	tasks = bufferedScheduler.send("ext1", lua.LString("data1"))
 //	//	assert.Equal(t, 1, len(tasks), "should have one task to resume")
 //	//
-//	//	tasks, err = scheduler.Step(vm, tasks...)
+//	//	tasks, err = bufferedScheduler.Step(vm, tasks...)
 //	//	assert.NoError(t, err)
 //	//	assert.Equal(t, "first_receive_complete", tasks[0].Yielded[0].String())
 //	//
 //	//	// Step to register second set of receivers
-//	//	tasks, err = scheduler.Step(vm, tasks...)
+//	//	tasks, err = bufferedScheduler.Step(vm, tasks...)
 //	//	assert.NoError(t, err)
 //	//
 //	//	// send to second channel
-//	//	tasks = scheduler.send("ext2", lua.LString("data2"))
+//	//	tasks = bufferedScheduler.send("ext2", lua.LString("data2"))
 //	//	assert.Equal(t, 1, len(tasks), "should have one task to resume")
 //	//
-//	//	tasks, err = scheduler.Step(vm, tasks...)
+//	//	tasks, err = bufferedScheduler.Step(vm, tasks...)
 //	//	assert.NoError(t, err)
 //	//	assert.Equal(t, "second_receive_complete", tasks[0].Yielded[0].String())
 //	//
 //	//	// All channels should be unregistered at end
-//	//	assert.Equal(t, 0, len(scheduler.GetOpenChannels()), "no channels should remain registered")
+//	//	assert.Equal(t, 0, len(bufferedScheduler.GetOpenChannels()), "no channels should remain registered")
 //	//})
 //}
 //

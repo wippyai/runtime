@@ -752,10 +752,10 @@ func TestModule_AdditionalSelectScenarios(t *testing.T) {
 	//`, "test")
 	//	assert.NoError(t, err)
 	//
-	//	scheduler := NewRuntime()
-	//	fmt.Printf("\nDEBUG: Starting scheduler steps\n")
+	//	bufferedScheduler := NewRuntime()
+	//	fmt.Printf("\nDEBUG: Starting bufferedScheduler steps\n")
 	//
-	//	tasks, err := scheduler.Step(vm)
+	//	tasks, err := bufferedScheduler.Step(vm)
 	//	assert.NoError(t, err)
 	//
 	//	var yields []string
@@ -766,7 +766,7 @@ func TestModule_AdditionalSelectScenarios(t *testing.T) {
 	//				yields = append(yields, vals[0].String())
 	//			}
 	//		}
-	//		tasks, err = scheduler.Step(vm, tasks...)
+	//		tasks, err = bufferedScheduler.Step(vm, tasks...)
 	//		assert.NoError(t, err)
 	//	}
 	//

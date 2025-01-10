@@ -57,7 +57,7 @@ func TestSchedulerResources(t *testing.T) {
 		assert.Nil(t, ch.buffer[0], "buffer slot should be cleared after receive")
 		assert.Equal(t, 0, ch.size)
 
-		// Cleanup should release all resources
+		// close should release all resources
 		ch.cleanup()
 		assert.Nil(t, ch.buffer)
 		assert.Equal(t, 0, ch.size)
@@ -385,8 +385,8 @@ func TestScheduler(t *testing.T) {
 
 		scheduler.handleTasks([]*engine.Task{senderTask, receiverTask})
 
-		// Cleanup
-		scheduler.Cleanup()
+		// close
+		scheduler.close()
 
 		assert.Nil(t, scheduler.senders.queues[ch])
 		assert.Nil(t, scheduler.receivers.queues[ch])
