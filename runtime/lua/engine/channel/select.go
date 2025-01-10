@@ -5,6 +5,87 @@ import (
 )
 
 // Select Operations
+func selectOp(L *lua.LState) int {
+	casesTable := L.CheckTable(1)
+	hasDefault := L.OptBool(2, false)
+
+	var cases []*selectCase
+	casesTable.ForEach(func(k, value lua.LValue) {
+		if k.String() == "default" {
+			if hasDefault {
+				L.RaiseError("multiple default cases in select")
+			}
+			hasDefault = true
+			return // Continue ForEach loop.
+		}
+
+		sc, ok := value.(*selectCase)
+		if !ok {
+			L.RaiseError("invalid select case: expected channel case")
+		}
+
+		if sc.dir == chanSend && sc.Channel().closed {
+			L.RaiseError("attempt to send on closed channel")
+		}
+
+		if sc.dir == chanSend && sc.Channel().IsNamed() {
+			L.RaiseError("cannot send to named channel")
+		}
+
+		cases = append(cases, sc)
+	})
+
+	if len(cases) == 0 && !hasDefault {
+		L.RaiseError("select with no cases and no default")
+	}
+
+	// Try immediate operations first.
+	for _, c := range cases {
+		ch := c.Channel()
+		switch c.dir {
+		case chanSend:
+			if ch.capacity > 0 && !ch.isFull() {
+				if ok := ch.send(c.value); ok {
+					L.Push(makeSelectResult(L, &selectResult{
+						chValue: c.chValue,
+						ok:      true,
+					}))
+					return 1
+				}
+			}
+		case chanReceive:
+			value, ok := ch.receive()
+			if ok {
+				L.Push(makeSelectResult(L, &selectResult{
+					chValue: c.chValue,
+					value:   value,
+					ok:      true,
+				}))
+				return 1
+			}
+
+			if ch.closed {
+				L.Push(makeSelectResult(L, &selectResult{
+					chValue: c.chValue,
+					value:   lua.LNil,
+					ok:      false,
+				}))
+				return 1
+			}
+		}
+	}
+
+	// Handle default case if no operation was ready.
+	if hasDefault {
+		L.Push(makeSelectResult(L, &selectResult{chValue: nil, ok: true}))
+		return 1
+	}
+
+	// Yield the select operation.
+	op := &selectOperation{cases: cases, hasDefault: hasDefault}
+	L.Yield(op)
+	return -1
+}
 
 // selectCase represents a single case in a select operation.
 type selectCase struct {
@@ -120,83 +201,4 @@ func caseReceive(L *lua.LState) int {
 	sc := &selectCase{chValue: chValue, dir: chanReceive}
 	L.Push(sc)
 	return 1
-}
-
-// selectOp implements the select operation.
-func selectOp(L *lua.LState) int {
-	casesTable := L.CheckTable(1)
-	hasDefault := L.OptBool(2, false)
-
-	var cases []*selectCase
-	casesTable.ForEach(func(k, value lua.LValue) {
-		if k.String() == "default" {
-			if hasDefault {
-				L.RaiseError("multiple default cases in select")
-			}
-			hasDefault = true
-			return // Continue ForEach loop.
-		}
-
-		sc, ok := value.(*selectCase)
-		if !ok {
-			L.RaiseError("invalid select case: expected channel case")
-		}
-
-		if sc.dir == chanSend && sc.Channel().closed {
-			L.RaiseError("attempt to send on closed channel")
-		}
-
-		cases = append(cases, sc)
-	})
-
-	if len(cases) == 0 && !hasDefault {
-		L.RaiseError("select with no cases and no default")
-	}
-
-	// Try immediate operations first.
-	for _, c := range cases {
-		ch := c.Channel()
-		switch c.dir {
-		case chanSend:
-			if ch.capacity > 0 && !ch.isFull() {
-				if ok := ch.send(c.value); ok {
-					L.Push(makeSelectResult(L, &selectResult{
-						chValue: c.chValue,
-						ok:      true,
-					}))
-					return 1
-				}
-			}
-		case chanReceive:
-			value, ok := ch.receive()
-			if ok {
-				L.Push(makeSelectResult(L, &selectResult{
-					chValue: c.chValue,
-					value:   value,
-					ok:      true,
-				}))
-				return 1
-			}
-
-			if ch.closed {
-				L.Push(makeSelectResult(L, &selectResult{
-					chValue: c.chValue,
-					value:   lua.LNil,
-					ok:      false,
-				}))
-				return 1
-			}
-		}
-	}
-
-	// Handle default case if no operation was ready.
-	if hasDefault {
-		L.Push(makeSelectResult(L, &selectResult{chValue: nil, ok: true}))
-		return 1
-	}
-
-	// Yield the select operation.
-	op := &selectOperation{cases: cases, hasDefault: hasDefault}
-	L.Yield(op)
-	return -1
 }
