@@ -26,32 +26,28 @@ func TestPendingOp(t *testing.T) {
 
 func TestPendingQueue(t *testing.T) {
 	t.Run("empty queue operations", func(t *testing.T) {
-		q := &pendingQueue{}
-
-		assert.Equal(t, 0, q.size)
+		q := newPendingQueue()
+		assert.Equal(t, 0, q.size())
 		assert.Nil(t, q.dequeue())
-		assert.Nil(t, q.head)
-		assert.Nil(t, q.tail)
 	})
 
 	t.Run("single element operations", func(t *testing.T) {
-		q := &pendingQueue{}
+		q := newPendingQueue()
 		op := &pendingOp{}
 
 		q.enqueue(op)
-		assert.Equal(t, 1, q.size)
-		assert.Equal(t, op, q.head)
-		assert.Equal(t, op, q.tail)
+		assert.Equal(t, 1, q.size())
+		assert.NotNil(t, q.ops.Front())
+		assert.Equal(t, op, q.ops.Front().Value)
 
 		dequeued := q.dequeue()
 		assert.Equal(t, op, dequeued)
-		assert.Equal(t, 0, q.size)
-		assert.Nil(t, q.head)
-		assert.Nil(t, q.tail)
+		assert.Equal(t, 0, q.size())
+		assert.Nil(t, q.ops.Front())
 	})
 
 	t.Run("multiple elements operations", func(t *testing.T) {
-		q := &pendingQueue{}
+		q := newPendingQueue()
 		op1 := &pendingOp{}
 		op2 := &pendingOp{}
 		op3 := &pendingOp{}
@@ -60,52 +56,57 @@ func TestPendingQueue(t *testing.T) {
 		q.enqueue(op2)
 		q.enqueue(op3)
 
-		assert.Equal(t, 3, q.size)
-		assert.Equal(t, op1, q.head)
-		assert.Equal(t, op3, q.tail)
+		assert.Equal(t, 3, q.size())
 
 		dequeued1 := q.dequeue()
 		assert.Equal(t, op1, dequeued1)
-		assert.Equal(t, 2, q.size)
-		assert.Equal(t, op2, q.head)
+		assert.Equal(t, 2, q.size())
 
 		dequeued2 := q.dequeue()
 		assert.Equal(t, op2, dequeued2)
-		assert.Equal(t, 1, q.size)
-		assert.Equal(t, op3, q.head)
-		assert.Equal(t, op3, q.tail)
+		assert.Equal(t, 1, q.size())
 
 		dequeued3 := q.dequeue()
 		assert.Equal(t, op3, dequeued3)
-		assert.Equal(t, 0, q.size)
-		assert.Nil(t, q.head)
-		assert.Nil(t, q.tail)
+		assert.Equal(t, 0, q.size())
+	})
+
+	t.Run("select operation tracking", func(t *testing.T) {
+		q := newPendingQueue()
+		selectOp := &selectOperation{}
+		op := &pendingOp{selectOp: selectOp}
+
+		q.enqueue(op)
+		assert.Len(t, q.selectOps[selectOp], 1)
+
+		q.dequeue()
+		assert.Empty(t, q.selectOps)
+	})
+
+	t.Run("remove operation", func(t *testing.T) {
+		q := newPendingQueue()
+		op := &pendingOp{}
+
+		q.enqueue(op)
+		success := q.remove(op)
+		assert.True(t, success)
+		assert.Equal(t, 0, q.size())
+
+		success = q.remove(op)
+		assert.False(t, success)
 	})
 
 	t.Run("clear queue", func(t *testing.T) {
-		q := &pendingQueue{}
+		q := newPendingQueue()
 		op1 := &pendingOp{}
-		op2 := &pendingOp{}
+		op2 := &pendingOp{selectOp: &selectOperation{}}
 
 		q.enqueue(op1)
 		q.enqueue(op2)
 		q.clear()
 
-		assert.Equal(t, 0, q.size)
-		assert.Nil(t, q.head)
-		assert.Nil(t, q.tail)
-	})
-
-	t.Run("reset queue", func(t *testing.T) {
-		q := &pendingQueue{}
-		op := &pendingOp{}
-
-		q.enqueue(op)
-		q.reset()
-
-		assert.Equal(t, 0, q.size)
-		assert.Nil(t, q.head)
-		assert.Nil(t, q.tail)
+		assert.Equal(t, 0, q.size())
+		assert.Empty(t, q.selectOps)
 	})
 }
 
@@ -116,17 +117,38 @@ func TestQueueMapper(t *testing.T) {
 
 		queue := mapper.allocateQueue(ch)
 		assert.NotNil(t, queue)
-		assert.Equal(t, 0, queue.size)
+		assert.Equal(t, 0, queue.size())
 
 		// Test reuse of same channel
 		queue2 := mapper.allocateQueue(ch)
 		assert.Equal(t, queue, queue2)
 	})
 
-	t.Run("enqueue and dequeue operations", func(t *testing.T) {
+	t.Run("named channel operations", func(t *testing.T) {
+		mapper := newQueueMapper()
+		ch := &Channel{name: "test"}
+		op := &pendingOp{
+			op: &chanOperation{ch: ch},
+		}
+
+		// Test enqueue
+		mapper.enqueue(ch, op)
+		assert.Equal(t, 1, mapper.getQueueSize(ch))
+		assert.Equal(t, 1, mapper.getNamedQueueSize("test"))
+
+		// Test dequeue by name
+		dequeued := mapper.dequeueNamed("test")
+		assert.Equal(t, op, dequeued)
+		assert.Equal(t, 0, mapper.getQueueSize(ch))
+		assert.Equal(t, 0, mapper.getNamedQueueSize("test"))
+	})
+
+	t.Run("regular channel operations", func(t *testing.T) {
 		mapper := newQueueMapper()
 		ch := &Channel{}
-		op := &pendingOp{}
+		op := &pendingOp{
+			op: &chanOperation{ch: ch},
+		}
 
 		mapper.enqueue(ch, op)
 		assert.Equal(t, 1, mapper.getQueueSize(ch))
@@ -136,101 +158,153 @@ func TestQueueMapper(t *testing.T) {
 		assert.Equal(t, 0, mapper.getQueueSize(ch))
 	})
 
-	t.Run("queue cleanup on empty", func(t *testing.T) {
+	t.Run("select operation removal", func(t *testing.T) {
 		mapper := newQueueMapper()
 		ch := &Channel{}
-		op := &pendingOp{}
+		selectOp := &selectOperation{}
+		op := &pendingOp{
+			op:       &chanOperation{ch: ch},
+			selectOp: selectOp,
+		}
 
 		mapper.enqueue(ch, op)
-		mapper.dequeue(ch)
-
-		// Queue should be removed from mapper and returned to pool
-		_, exists := mapper.queues[ch]
-		assert.False(t, exists)
+		mapper.removeSelect(selectOp)
 		assert.Equal(t, 0, mapper.getQueueSize(ch))
 	})
 
-	t.Run("clear all queues", func(t *testing.T) {
+	t.Run("queue cleanup", func(t *testing.T) {
 		mapper := newQueueMapper()
-		ch1 := &Channel{}
-		ch2 := &Channel{}
+		ch1 := &Channel{name: "test1"}
+		ch2 := &Channel{name: "test2"}
 
-		mapper.enqueue(ch1, &pendingOp{})
-		mapper.enqueue(ch2, &pendingOp{})
-		assert.Equal(t, 2, len(mapper.queues))
+		mapper.enqueue(ch1, &pendingOp{op: &chanOperation{ch: ch1}})
+		mapper.enqueue(ch2, &pendingOp{op: &chanOperation{ch: ch2}})
 
 		mapper.clear()
-		assert.Equal(t, 0, len(mapper.queues))
 		assert.Equal(t, 0, mapper.getQueueSize(ch1))
 		assert.Equal(t, 0, mapper.getQueueSize(ch2))
+		assert.Equal(t, 0, mapper.getNamedQueueSize("test1"))
+		assert.Equal(t, 0, mapper.getNamedQueueSize("test2"))
+	})
+}
+
+func TestEdgeCases(t *testing.T) {
+	t.Run("remove nil op", func(t *testing.T) {
+		q := newPendingQueue()
+		success := q.remove(nil)
+		assert.False(t, success)
 	})
 
-	t.Run("dequeue from non-existent queue", func(t *testing.T) {
-		mapper := newQueueMapper()
-		ch := &Channel{}
+	t.Run("removeSelect with nil selectOp", func(t *testing.T) {
+		q := newPendingQueue()
+		q.removeSelect(nil) // Should not panic
+	})
 
-		op := mapper.dequeue(ch)
+	t.Run("reset with nil ops list", func(t *testing.T) {
+		q := &pendingQueue{} // manually create without initialization
+		q.reset()            // should handle nil ops
+		assert.NotNil(t, q.ops)
+	})
+}
+
+func TestQueueMapperExtended(t *testing.T) {
+	t.Run("dequeue from non-existent channel", func(t *testing.T) {
+		mapper := newQueueMapper()
+		op := mapper.dequeue(&Channel{})
 		assert.Nil(t, op)
 	})
-}
 
-// Benchmarks
-func BenchmarkPendingQueue(b *testing.B) {
-	b.Run("enqueue", func(b *testing.B) {
-		q := &pendingQueue{}
-		op := &pendingOp{}
-
-		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
-			q.enqueue(op)
-		}
-	})
-
-	b.Run("dequeue", func(b *testing.B) {
-		q := &pendingQueue{}
-		op := &pendingOp{}
-
-		// Pre-fill queue
-		for i := 0; i < b.N; i++ {
-			q.enqueue(op)
-		}
-
-		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
-			q.dequeue()
-		}
-	})
-
-	b.Run("enqueue_dequeue_cycle", func(b *testing.B) {
-		q := &pendingQueue{}
-		op := &pendingOp{}
-
-		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
-			q.enqueue(op)
-			q.dequeue()
-		}
-	})
-}
-
-func BenchmarkQueueMapper(b *testing.B) {
-	b.Run("allocateQueue", func(b *testing.B) {
+	t.Run("dequeueNamed from non-existent name", func(t *testing.T) {
 		mapper := newQueueMapper()
-		channels := make([]*Channel, b.N)
-		for i := 0; i < b.N; i++ {
-			channels[i] = &Channel{}
-		}
-
-		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
-			mapper.allocateQueue(channels[i])
-		}
+		op := mapper.dequeueNamed("nonexistent")
+		assert.Nil(t, op)
 	})
 
-	b.Run("enqueue_dequeue", func(b *testing.B) {
+	t.Run("cleanup on empty dequeue", func(t *testing.T) {
+		mapper := newQueueMapper()
+		ch := &Channel{name: "test"}
+		op := &pendingOp{op: &chanOperation{ch: ch}}
+
+		// Add and then remove via mapper methods
+		mapper.enqueue(ch, op)
+		_ = mapper.dequeue(ch) // This should trigger cleanup since queue becomes empty
+
+		// Verify cleanup
+		_, exists := mapper.queues[ch]
+		assert.False(t, exists, "channel queue should be cleaned up")
+		_, existsNamed := mapper.named["test"]
+		assert.False(t, existsNamed, "named queue should be cleaned up")
+	})
+}
+
+func TestPoolReuse(t *testing.T) {
+	t.Run("pool reuse safety", func(t *testing.T) {
+		op := pendingPool.Get().(*pendingOp)
+		op.task = &engine.Task{}
+
+		op.reset()
+		pendingPool.Put(op)
+
+		newOp := pendingPool.Get().(*pendingOp)
+		assert.Nil(t, newOp.task, "pool should return clean objects")
+	})
+}
+
+func TestQueueState(t *testing.T) {
+	t.Run("queue state after operations", func(t *testing.T) {
+		mapper := newQueueMapper()
+		ch := &Channel{name: "test"}
+		op := &pendingOp{op: &chanOperation{ch: ch}}
+
+		mapper.enqueue(ch, op)
+		_ = mapper.dequeue(ch)
+
+		// Try to reuse the same channel
+		mapper.enqueue(ch, op)
+		assert.Equal(t, 1, mapper.getQueueSize(ch))
+		assert.Equal(t, 1, mapper.getNamedQueueSize("test"))
+	})
+}
+
+func TestSelectOperations(t *testing.T) {
+	t.Run("multiple select ops tracking", func(t *testing.T) {
+		q := newPendingQueue()
+		select1 := &selectOperation{}
+		select2 := &selectOperation{}
+
+		op1 := &pendingOp{selectOp: select1}
+		op2 := &pendingOp{selectOp: select2}
+
+		q.enqueue(op1)
+		q.enqueue(op2)
+
+		assert.Len(t, q.selectOps[select1], 1)
+		assert.Len(t, q.selectOps[select2], 1)
+
+		q.removeSelect(select1)
+		assert.Len(t, q.selectOps[select2], 1)
+	})
+}
+
+func TestNamedChannelAliasing(t *testing.T) {
+	t.Run("named channel aliasing", func(t *testing.T) {
+		mapper := newQueueMapper()
+		ch := &Channel{name: "test"}
+
+		queue1 := mapper.allocateQueue(ch)
+		namedQueue := mapper.named["test"]
+
+		assert.Equal(t, queue1, namedQueue, "named queue should be aliased to channel queue")
+	})
+}
+
+func BenchmarkQueueOperations(b *testing.B) {
+	b.Run("enqueue/dequeue cycle", func(b *testing.B) {
 		mapper := newQueueMapper()
 		ch := &Channel{}
-		op := &pendingOp{}
+		op := &pendingOp{
+			op: &chanOperation{ch: ch},
+		}
 
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
@@ -238,195 +312,34 @@ func BenchmarkQueueMapper(b *testing.B) {
 			mapper.dequeue(ch)
 		}
 	})
-}
 
-// Test object pool behavior
-func TestObjectPool(t *testing.T) {
-	t.Run("pendingPool reuse", func(t *testing.T) {
-		// Get an object from the pool
-		op1 := pendingPool.Get().(*pendingOp)
-		op1.task = &engine.Task{}
-
-		// Reset and return it to the pool
-		op1.reset()
-		pendingPool.Put(op1)
-
-		// Get another object
-		op2 := pendingPool.Get().(*pendingOp)
-
-		// Should be reset
-		assert.Nil(t, op2.task)
-	})
-
-	t.Run("queuePool reuse", func(t *testing.T) {
-		// Get a queue from the pool
-		q1 := queuePool.Get().(*pendingQueue)
-		q1.enqueue(&pendingOp{})
-
-		// Return it to the pool
-		q1.clear()
-		queuePool.Put(q1)
-
-		// Get another queue
-		q2 := queuePool.Get().(*pendingQueue)
-
-		// Should be reset
-		assert.Equal(t, 0, q2.size)
-		assert.Nil(t, q2.head)
-		assert.Nil(t, q2.tail)
-	})
-}
-
-func TestPendingQueue_Remove(t *testing.T) {
-	t.Run("remove from empty queue", func(t *testing.T) {
-		q := &pendingQueue{}
-		op := &pendingOp{}
-
-		success := q.remove(op)
-		assert.False(t, success)
-		assert.Equal(t, 0, q.size)
-		assert.Nil(t, q.head)
-		assert.Nil(t, q.tail)
-	})
-
-	t.Run("remove head of single element queue", func(t *testing.T) {
-		q := &pendingQueue{}
-		op := &pendingOp{}
-
-		q.enqueue(op)
-		success := q.remove(op)
-
-		assert.True(t, success)
-		assert.Equal(t, 0, q.size)
-		assert.Nil(t, q.head)
-		assert.Nil(t, q.tail)
-	})
-
-	t.Run("remove head of multi-element queue", func(t *testing.T) {
-		q := &pendingQueue{}
-		op1 := &pendingOp{}
-		op2 := &pendingOp{}
-		op3 := &pendingOp{}
-
-		q.enqueue(op1)
-		q.enqueue(op2)
-		q.enqueue(op3)
-
-		success := q.remove(op1)
-
-		assert.True(t, success)
-		assert.Equal(t, 2, q.size)
-		assert.Equal(t, op2, q.head)
-		assert.Equal(t, op3, q.tail)
-	})
-
-	t.Run("remove middle element", func(t *testing.T) {
-		q := &pendingQueue{}
-		op1 := &pendingOp{}
-		op2 := &pendingOp{}
-		op3 := &pendingOp{}
-
-		q.enqueue(op1)
-		q.enqueue(op2)
-		q.enqueue(op3)
-
-		success := q.remove(op2)
-
-		assert.True(t, success)
-		assert.Equal(t, 2, q.size)
-		assert.Equal(t, op1, q.head)
-		assert.Equal(t, op3, q.tail)
-		assert.Equal(t, op3, op1.next)
-	})
-
-	t.Run("remove tail element", func(t *testing.T) {
-		q := &pendingQueue{}
-		op1 := &pendingOp{}
-		op2 := &pendingOp{}
-		op3 := &pendingOp{}
-
-		q.enqueue(op1)
-		q.enqueue(op2)
-		q.enqueue(op3)
-
-		success := q.remove(op3)
-
-		assert.True(t, success)
-		assert.Equal(t, 2, q.size)
-		assert.Equal(t, op1, q.head)
-		assert.Equal(t, op2, q.tail)
-		assert.Nil(t, op2.next)
-	})
-
-	t.Run("remove non-existent element", func(t *testing.T) {
-		q := &pendingQueue{}
-		op1 := &pendingOp{}
-		op2 := &pendingOp{}
-		nonExistent := &pendingOp{}
-
-		q.enqueue(op1)
-		q.enqueue(op2)
-
-		success := q.remove(nonExistent)
-
-		assert.False(t, success)
-		assert.Equal(t, 2, q.size)
-		assert.Equal(t, op1, q.head)
-		assert.Equal(t, op2, q.tail)
-	})
-
-	t.Run("remove all elements sequentially", func(t *testing.T) {
-		q := &pendingQueue{}
-		op1 := &pendingOp{}
-		op2 := &pendingOp{}
-		op3 := &pendingOp{}
-
-		q.enqueue(op1)
-		q.enqueue(op2)
-		q.enqueue(op3)
-
-		success1 := q.remove(op2)
-		assert.True(t, success1)
-		assert.Equal(t, 2, q.size)
-
-		success2 := q.remove(op1)
-		assert.True(t, success2)
-		assert.Equal(t, 1, q.size)
-		assert.Equal(t, op3, q.head)
-		assert.Equal(t, op3, q.tail)
-
-		success3 := q.remove(op3)
-		assert.True(t, success3)
-		assert.Equal(t, 0, q.size)
-		assert.Nil(t, q.head)
-		assert.Nil(t, q.tail)
-	})
-}
-
-// Add new benchmark for remove operation
-func BenchmarkPendingQueue_Remove(b *testing.B) {
-	b.Run("remove_head", func(b *testing.B) {
-		q := &pendingQueue{}
-		op := &pendingOp{}
+	b.Run("named channel operations", func(b *testing.B) {
+		mapper := newQueueMapper()
+		ch := &Channel{name: "test"}
+		op := &pendingOp{
+			op: &chanOperation{ch: ch},
+		}
 
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			q.enqueue(op)
-			q.remove(op)
+			mapper.enqueue(ch, op)
+			mapper.dequeueNamed("test")
 		}
 	})
 
-	b.Run("remove_tail", func(b *testing.B) {
-		q := &pendingQueue{}
-		placeholder := &pendingOp{}
-		targetOp := &pendingOp{}
+	b.Run("select operation", func(b *testing.B) {
+		mapper := newQueueMapper()
+		ch := &Channel{}
+		selectOp := &selectOperation{}
+		op := &pendingOp{
+			op:       &chanOperation{ch: ch},
+			selectOp: selectOp,
+		}
 
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			q.enqueue(placeholder)
-			q.enqueue(targetOp)
-			q.remove(targetOp)
-			q.remove(placeholder)
+			mapper.enqueue(ch, op)
+			mapper.removeSelect(selectOp)
 		}
 	})
 }
