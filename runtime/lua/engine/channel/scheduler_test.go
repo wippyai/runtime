@@ -85,7 +85,7 @@ func TestSchedulerResources(t *testing.T) {
 		tasks, err := scheduler.handleTasks(receiverTasks)
 		assert.NoError(t, err)
 		assert.Empty(t, tasks, "receivers should block")
-		assert.Equal(t, 3, scheduler.ops.receivers.getQueueSize(ch))
+		assert.Equal(t, 3, scheduler.receivers.getQueueSize(ch))
 
 		// Send messages one by one
 		for i := 0; i < 3; i++ {
@@ -100,11 +100,11 @@ func TestSchedulerResources(t *testing.T) {
 			tasks, err := scheduler.handleTasks([]*engine.Task{senderTask})
 			assert.NoError(t, err)
 			assert.Len(t, tasks, 2, "send should complete with receiver")
-			assert.Equal(t, 2-i, scheduler.ops.receivers.getQueueSize(ch))
+			assert.Equal(t, 2-i, scheduler.receivers.getQueueSize(ch))
 		}
 
 		// Verify queues are cleaned up
-		assert.Nil(t, scheduler.ops.receivers.queues[ch])
+		assert.Nil(t, scheduler.receivers.queues[ch])
 	})
 
 	t.Run("buffer cycling and cleanup", func(t *testing.T) {
@@ -173,7 +173,7 @@ func TestSchedulerResources(t *testing.T) {
 		tasks, err := scheduler.handleTasks([]*engine.Task{senderTask1, senderTask2})
 		assert.NoError(t, err)
 		assert.Len(t, tasks, 1)
-		assert.Equal(t, 1, scheduler.ops.senders.getQueueSize(ch))
+		assert.Equal(t, 1, scheduler.senders.getQueueSize(ch))
 
 		// Close channel
 		closeTask := &engine.Task{}
@@ -188,8 +188,8 @@ func TestSchedulerResources(t *testing.T) {
 		assert.Contains(t, tasks, senderTask2)
 
 		// Verify cleanup
-		assert.Nil(t, scheduler.ops.senders.queues[ch])
-		assert.Nil(t, scheduler.ops.receivers.queues[ch])
+		assert.Nil(t, scheduler.senders.queues[ch])
+		assert.Nil(t, scheduler.receivers.queues[ch])
 	})
 }
 
@@ -218,7 +218,7 @@ func TestScheduler(t *testing.T) {
 		tasks, err := scheduler.handleTasks([]*engine.Task{receiverTask})
 		assert.NoError(t, err)
 		assert.Empty(t, tasks, "receiver should block")
-		assert.Equal(t, 1, scheduler.ops.receivers.getQueueSize(ch))
+		assert.Equal(t, 1, scheduler.receivers.getQueueSize(ch))
 
 		// Process sender - should complete both operations
 		tasks, err = scheduler.handleTasks([]*engine.Task{senderTask})
@@ -388,8 +388,8 @@ func TestScheduler(t *testing.T) {
 		// close
 		scheduler.close()
 
-		assert.Nil(t, scheduler.ops.senders.queues[ch])
-		assert.Nil(t, scheduler.ops.receivers.queues[ch])
+		assert.Nil(t, scheduler.senders.queues[ch])
+		assert.Nil(t, scheduler.receivers.queues[ch])
 	})
 }
 
@@ -410,8 +410,7 @@ func TestScheduler_Error_Cases(t *testing.T) {
 		tasks, err := scheduler.handleTasks([]*engine.Task{senderTask})
 		assert.NoError(t, err)
 		assert.Len(t, tasks, 1)
-		assert.Error(t, tasks[0].RaiseError, "send on closed channel should error")
-		assert.Contains(t, tasks[0].RaiseError.Error(), "channel closed")
+		assert.Equal(t, lua.LNil, senderTask.Resumed[0])
 	})
 
 	t.Run("receive from closed empty channel", func(t *testing.T) {

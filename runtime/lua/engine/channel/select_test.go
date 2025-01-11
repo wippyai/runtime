@@ -730,8 +730,8 @@ func TestModule_SelectQueueState(t *testing.T) {
 			t.Fatal("scheduler is not bufferedScheduler")
 		}
 
-		assert.Empty(t, sch.ops.senders.queues, "senders queue should be empty")
-		assert.Equal(t, 0, len(sch.ops.receivers.queues), "should have no receivers") // no select remains due to immediate completion
+		assert.Empty(t, sch.senders.queues, "senders queue should be empty")
+		assert.Equal(t, 0, len(sch.receivers.queues), "should have no receivers") // no select remains due to immediate completion
 
 		// Complete the test
 		var yields []string
@@ -747,8 +747,8 @@ func TestModule_SelectQueueState(t *testing.T) {
 		}
 
 		// Verify final state - queues should be empty
-		assert.Empty(t, sch.ops.senders.queues, "senders queue should be empty at end")
-		assert.Empty(t, sch.ops.receivers.queues, "receivers queue should be empty at end")
+		assert.Empty(t, sch.senders.queues, "senders queue should be empty at end")
+		assert.Empty(t, sch.receivers.queues, "receivers queue should be empty at end")
 
 		expectedYields := []string{
 			"select_complete",
@@ -793,8 +793,8 @@ func TestModule_SelectQueueState_Blocking(t *testing.T) {
 		}
 
 		// Verify initial state - should have one receiver
-		assert.Empty(t, sch.ops.senders.queues, "senders queue should be empty")
-		assert.Equal(t, 1, len(sch.ops.receivers.queues), "should have one receiver queue")
+		assert.Empty(t, sch.senders.queues, "senders queue should be empty")
+		assert.Equal(t, 1, len(sch.receivers.queues), "should have one receiver queue")
 
 		// state should be blocked
 	})
@@ -883,8 +883,8 @@ func TestModule_SelectCleanup(t *testing.T) {
 		}
 
 		// Verify cleanup
-		assert.Empty(t, sch.ops.senders.queues, "senders queue should be empty")
-		assert.Empty(t, sch.ops.receivers.queues, "receivers queue should be empty")
+		assert.Empty(t, sch.senders.queues, "senders queue should be empty")
+		assert.Empty(t, sch.receivers.queues, "receivers queue should be empty")
 
 		expectedYields := []string{
 			"helper_starting",
@@ -990,8 +990,8 @@ func TestModule_SelectCleanupOnClose(t *testing.T) {
 		}
 
 		// Verify final state - all queues should be empty
-		assert.Empty(t, sch.ops.senders.queues, "senders queue should be empty")
-		assert.Empty(t, sch.ops.receivers.queues, "receivers queue should be empty")
+		assert.Empty(t, sch.senders.queues, "senders queue should be empty")
+		assert.Empty(t, sch.receivers.queues, "receivers queue should be empty")
 
 		expectedYields := []string{
 			"helper_starting",
