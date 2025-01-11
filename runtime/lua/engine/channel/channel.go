@@ -18,8 +18,8 @@ type Channel struct {
 
 // Named creates a named channel intended for external use.
 // Named channels are unbuffered.
-func Named(name string, capacity int) *Channel {
-	return &Channel{name: name, capacity: capacity}
+func Named(name string) *Channel {
+	return &Channel{name: name}
 }
 
 // newChannel creates a new channel with the given capacity.

@@ -343,3 +343,95 @@ func BenchmarkQueueOperations(b *testing.B) {
 		}
 	})
 }
+
+func TestPoolConstructors(t *testing.T) {
+	t.Run("newPendingOp initializes all fields", func(t *testing.T) {
+		task := &engine.Task{}
+		chanOp := &chanOperation{}
+		selectOp := &selectOperation{}
+
+		op := newPendingOp(task, chanOp, selectOp)
+		defer releasePendingOp(op)
+
+		assert.Equal(t, task, op.task)
+		assert.Equal(t, chanOp, op.op)
+		assert.Equal(t, selectOp, op.selectOp)
+		assert.Nil(t, op.next)
+	})
+
+	t.Run("pendingOp pool provides clean objects", func(t *testing.T) {
+		// Create and dirty an op
+		op1 := newPendingOp(&engine.Task{}, &chanOperation{}, &selectOperation{})
+		releasePendingOp(op1)
+
+		// Get new op from pool
+		op2 := newPendingOp(nil, nil, nil)
+		defer releasePendingOp(op2)
+
+		// Verify it's clean regardless of whether it's the same object
+		assert.Nil(t, op2.next)
+		assert.Nil(t, op2.selectOp)
+		// task and op will be nil as we passed nil to constructor
+	})
+
+	t.Run("releasePendingOp cleans up properly", func(t *testing.T) {
+		op := newPendingOp(&engine.Task{}, &chanOperation{}, &selectOperation{})
+		releasePendingOp(op)
+
+		// After release, all fields should be nil
+		assert.Nil(t, op.task)
+		assert.Nil(t, op.op)
+		assert.Nil(t, op.selectOp)
+		assert.Nil(t, op.next)
+	})
+
+	t.Run("newPendingQueueFromPool initializes empty queue", func(t *testing.T) {
+		queue := newPendingQueueFromPool()
+		defer releasePendingQueue(queue)
+
+		assert.NotNil(t, queue.ops)
+		assert.Equal(t, 0, queue.ops.Len())
+		assert.NotNil(t, queue.named)
+		assert.NotNil(t, queue.selectOps)
+		assert.Empty(t, queue.named)
+		assert.Empty(t, queue.selectOps)
+	})
+
+	t.Run("pendingQueue pool provides clean queues", func(t *testing.T) {
+		// Create and dirty a queue
+		queue1 := newPendingQueueFromPool()
+		op := newPendingOp(&engine.Task{}, &chanOperation{}, nil)
+		queue1.enqueue(op)
+		releasePendingQueue(queue1)
+
+		// Get new queue from pool
+		queue2 := newPendingQueueFromPool()
+		defer releasePendingQueue(queue2)
+
+		// Verify it's clean regardless of whether it's the same object
+		assert.Equal(t, 0, queue2.ops.Len())
+		assert.Empty(t, queue2.named)
+		assert.Empty(t, queue2.selectOps)
+	})
+
+	t.Run("releasePendingQueue cleans up properly", func(t *testing.T) {
+		queue := newPendingQueueFromPool()
+		op := newPendingOp(&engine.Task{}, &chanOperation{}, nil)
+		queue.enqueue(op)
+
+		releasePendingQueue(queue)
+
+		// After release, queue should be empty and maps initialized but empty
+		assert.Equal(t, 0, queue.ops.Len())
+		assert.NotNil(t, queue.named)
+		assert.NotNil(t, queue.selectOps)
+		assert.Empty(t, queue.named)
+		assert.Empty(t, queue.selectOps)
+	})
+
+	t.Run("nil safety", func(t *testing.T) {
+		// Should not panic
+		releasePendingOp(nil)
+		releasePendingQueue(nil)
+	})
+}

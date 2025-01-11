@@ -37,6 +37,7 @@ func selectOp(L *lua.LState) int {
 
 	if len(cases) == 0 && !hasDefault {
 		L.RaiseError("select with no cases and no default")
+		return 0
 	}
 
 	// Try immediate operations first.

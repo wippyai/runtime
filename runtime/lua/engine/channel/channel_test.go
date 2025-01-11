@@ -57,12 +57,6 @@ func TestChannel(t *testing.T) {
 	})
 
 	t.Run("named channel operations", func(t *testing.T) {
-		t.Run("creation", func(t *testing.T) {
-			ch := Named("test-channel", 5)
-			assert.Equal(t, "test-channel", ch.Name())
-			assert.True(t, ch.IsNamed())
-			assert.Equal(t, 5, ch.capacity)
-		})
 
 		t.Run("anonymous channel", func(t *testing.T) {
 			ch := newChannel(5)

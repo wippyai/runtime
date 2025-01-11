@@ -867,3 +867,248 @@ func TestMapReduce(t *testing.T) {
 		}
 	})
 }
+
+func TestChannelPassing(t *testing.T) {
+	logger := zap.NewNop()
+
+	t.Run("passing channels through channels", func(t *testing.T) {
+		vm, err := engine.NewCoroutineVM(
+			context.Background(), logger,
+			engine.WithPreloaded("channel", NewChannelModule().Loader),
+		)
+		assert.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.PushScript(`
+			-- Test a simple channel passing scenario first
+			local ch1 = channel.new(1)  -- buffered channel
+			local ch2 = channel.new(1)  -- channel to be passed
+			
+			-- First coroutine sends a channel
+			coroutine.spawn(function()
+				assert(ch2:send("test_message"))
+				assert(ch1:send(ch2))
+				coroutine.yield("sender_complete")
+			end)
+			
+			-- Second coroutine receives the channel and reads from it
+			coroutine.spawn(function()
+				local receivedCh, ok = ch1:receive()
+				assert(ok, "failed to receive channel")
+				
+				local msg, ok = receivedCh:receive()
+				assert(ok and msg == "test_message", "wrong message: " .. tostring(msg))
+				
+				coroutine.yield("receiver_complete")
+			end)
+		`, "test")
+
+		assert.NoError(t, err)
+
+		scheduler := NewRuntime()
+		tasks, err := scheduler.Step(vm)
+		assert.NoError(t, err)
+
+		var yields []string
+		for len(tasks) > 0 {
+			for _, task := range tasks {
+				if vals := task.Yielded; len(vals) > 0 {
+					yields = append(yields, vals[0].String())
+				}
+			}
+			tasks, err = scheduler.Step(vm, tasks...)
+			assert.NoError(t, err)
+		}
+
+		// Verify basic channel passing works
+		assert.Contains(t, yields, "sender_complete")
+		assert.Contains(t, yields, "receiver_complete")
+
+		// Now test a more complex scenario
+		err = vm.PushScript(`
+			-- Create channels for passing
+			local controlCh = channel.new(1)  -- Control channel for passing worker channels
+			local resultCh = channel.new(1)   -- Channel for results
+			
+			-- Worker that processes data
+			coroutine.spawn(function()
+				-- Create worker channel
+				local workerCh = channel.new(1)
+				
+				-- Send my channel to manager
+				assert(controlCh:send(workerCh))
+				coroutine.yield("worker_sent_channel")
+				
+				-- Wait for work and process it
+				local work, ok = workerCh:receive()
+				assert(ok, "failed to receive work")
+				
+				-- Send result
+				assert(resultCh:send(work * 2))
+				coroutine.yield("worker_complete")
+			end)
+			
+			-- Manager that coordinates work
+			coroutine.spawn(function()
+				-- Get worker channel
+				local workerCh, ok = controlCh:receive()
+				assert(ok, "failed to receive worker channel")
+				coroutine.yield("manager_got_channel")
+				
+				-- Send work
+				assert(workerCh:send(21))
+				coroutine.yield("manager_sent_work")
+				
+				-- Get result
+				local result, ok = resultCh:receive()
+				assert(ok, "failed to receive result")
+				assert(result == 42, "wrong result")
+				
+				coroutine.yield("manager_complete")
+			end)
+		`, "test")
+
+		assert.NoError(t, err)
+
+		tasks, err = scheduler.Step(vm)
+		assert.NoError(t, err)
+
+		yields = nil // Reset yields for second test
+		for len(tasks) > 0 {
+			for _, task := range tasks {
+				if vals := task.Yielded; len(vals) > 0 {
+					yields = append(yields, vals[0].String())
+				}
+			}
+			tasks, err = scheduler.Step(vm, tasks...)
+			assert.NoError(t, err)
+		}
+
+		// Verify expected sequence
+		expectedYields := []string{
+			"worker_sent_channel",
+			"manager_got_channel",
+			"manager_sent_work",
+			"worker_complete",
+			"manager_complete",
+		}
+
+		for _, expected := range expectedYields {
+			assert.Contains(t, yields, expected, "missing yield: %s", expected)
+		}
+
+		// Verify basic ordering constraints
+		var workerSentIdx, managerGotIdx int
+		for i, y := range yields {
+			if y == "worker_sent_channel" {
+				workerSentIdx = i
+			}
+			if y == "manager_got_channel" {
+				managerGotIdx = i
+			}
+		}
+
+		assert.Less(t, workerSentIdx, managerGotIdx,
+			"worker should send channel before manager receives it")
+	})
+}
+
+func TestChannelPassingWithCoreDebug(t *testing.T) {
+	logger := zap.NewNop()
+
+	t.Run("single worker with core debug", func(t *testing.T) {
+		vm, err := engine.NewCoroutineVM(
+			context.Background(), logger,
+			engine.WithPreloaded("channel", NewChannelModule().Loader),
+		)
+		assert.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.PushScript(`
+            -- Create channels
+            local chanCh = channel.new(0)   -- Channel for passing worker channel
+            local resultCh = channel.new(0)  -- Channel for results
+            
+            -- Worker
+            coroutine.spawn(function()
+                coroutine.yield("worker_start")
+                
+                -- Create worker channel
+                local workerCh = channel.new(0)
+                coroutine.yield("worker_created_channel")
+                
+                -- Send channel to manager
+                chanCh:send(workerCh)
+                coroutine.yield("worker_sent_channel")
+                
+                -- Wait for and process work
+                local work = workerCh:receive()
+                coroutine.yield("worker_got_work:" .. tostring(work))
+                
+                -- Send result
+                resultCh:send(work * 2)
+                coroutine.yield("worker_sent_result")
+            end)
+            
+            -- Manager 
+            coroutine.spawn(function()
+                coroutine.yield("manager_start")
+                
+                -- Get worker channel
+                local workerCh = chanCh:receive()
+                coroutine.yield("manager_got_channel")
+                
+                -- Send work
+                workerCh:send(42)
+                coroutine.yield("manager_sent_work")
+                
+                -- Get result
+                local result = resultCh:receive()
+                coroutine.yield("manager_got_result:" .. tostring(result))
+                
+                assert(result == 84, "Wrong result")
+                coroutine.yield("manager_verified")
+            end)
+        `, "test")
+
+		assert.NoError(t, err)
+
+		scheduler := NewRuntime()
+		tasks, err := scheduler.Step(vm)
+		assert.NoError(t, err)
+
+		var yields []string
+		for len(tasks) > 0 {
+			for _, task := range tasks {
+				if vals := task.Yielded; len(vals) > 0 {
+					yield := vals[0].String()
+					yields = append(yields, yield)
+				}
+			}
+			tasks, err = scheduler.Step(vm, tasks...)
+			if err != nil {
+				t.Logf("Error after yields:")
+				for _, y := range yields {
+					t.Logf("  %s", y)
+				}
+				t.Fatal(err)
+			}
+		}
+
+		// Verify sequence
+		expectedSequence := []string{
+			"worker_start",
+			"manager_start",
+			"worker_created_channel",
+			"worker_sent_channel",
+			"manager_got_channel",
+			"manager_sent_work",
+			"worker_got_work:42",
+			"worker_sent_result",
+			"manager_got_result:84",
+			"manager_verified",
+		}
+
+		assert.Equal(t, expectedSequence, yields, "Wrong operation sequence")
+	})
+}

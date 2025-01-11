@@ -1,6 +1,149 @@
 package channel
 
 //
+//func TestNamedChannels_SignalAggregation(t *testing.T) {
+//	logger := zap.NewNop()
+//
+//	t.Run("aggregate three parent signals", func(t *testing.T) {
+//		scheduler := NewRuntime()
+//		channels := NewChannelModule()
+//
+//		createNamedChannel := func(L *lua.LState) int {
+//			name := L.CheckString(1)
+//			t.Logf("Creating named channel: %s", name)
+//			ch := Named(name)
+//			ud := L.NewUserData()
+//			ud.Value = ch
+//			L.SetMetatable(ud, L.GetTypeMetatable("channel"))
+//			L.Push(ud)
+//			return 1
+//		}
+//
+//		vm, err := engine.NewCoroutineVM(
+//			context.Background(),
+//			logger,
+//			engine.WithPreloaded(channels.Name(), channels.Loader),
+//			engine.WithGlobalFunction("create_named_channel", createNamedChannel),
+//		)
+//		assert.NoError(t, err)
+//		defer vm.Close()
+//
+//		err = vm.PushScript(`
+//            print("Starting script execution")
+//            coroutine.spawn(function()
+//                print("Creating channels")
+//                local parent1 = create_named_channel("parent1")
+//                local parent2 = create_named_channel("parent2")
+//                local parent3 = create_named_channel("parent3")
+//                print("Channels created")
+//
+//                local results = {}
+//
+//                print("Waiting for parent1")
+//                coroutine.yield("waiting_parent1")
+//                print("About to receive from parent1")
+//                local msg1, ok = parent1:receive()
+//                print("Received from parent1:", msg1, ok)
+//                assert(ok, "failed to receive from parent1")
+//                results[1] = msg1
+//                coroutine.yield("got_parent1")
+//
+//                print("About to receive from parent2")
+//                local msg2, ok = parent2:receive()
+//                print("Received from parent2:", msg2, ok)
+//                assert(ok, "failed to receive from parent2")
+//                results[2] = msg2
+//                coroutine.yield("got_parent2")
+//
+//                print("About to receive from parent3")
+//                local msg3, ok = parent3:receive()
+//                print("Received from parent3:", msg3, ok)
+//                assert(ok, "failed to receive from parent3")
+//                results[3] = msg3
+//                coroutine.yield("got_parent3")
+//
+//                print("Preparing final result")
+//                local result = results[1] .. "-" .. results[2] .. "-" .. results[3]
+//                print("Final result:", result)
+//                coroutine.yield(result)
+//            end)
+//        `, "test")
+//		assert.NoError(t, err)
+//
+//		// Get initial tasks and validate
+//		t.Log("Getting initial tasks")
+//		tasks, err := vm.Step()
+//		assert.NoError(t, err)
+//		t.Logf("Initial tasks count: %d", len(tasks))
+//		require.NotEmpty(t, tasks, "should have tasks after initial step")
+//
+//		if len(tasks) > 0 {
+//			t.Logf("First yield value: %v", tasks[0].Yielded[0])
+//		}
+//
+//		// First we should see it waiting for parent1
+//		require.Equal(t, "waiting_parent1", tasks[0].Yielded[0].String())
+//
+//		// Step to get to the receive
+//		t.Log("Stepping to receive")
+//		tasks, err = scheduler.Step(vm, tasks...)
+//		assert.NoError(t, err)
+//		t.Logf("Tasks after scheduler step: %d", len(tasks))
+//		if len(tasks) > 0 && len(tasks[0].Yielded) > 0 {
+//			t.Logf("Yield value after step: %v", tasks[0].Yielded[0])
+//		}
+//		require.NotEmpty(t, tasks, "should have tasks after initial receive")
+//
+//		// Check registered channels
+//		listeners := scheduler.GetOpenChannels()
+//		t.Logf("Registered channels: %v", listeners)
+//
+//		// Send signals one by one and verify
+//		signals := []struct {
+//			channel string
+//			value   string
+//			expect  string
+//		}{
+//			{"parent1", "signal1", "got_parent1"},
+//			{"parent2", "signal2", "got_parent2"},
+//			{"parent3", "signal3", "got_parent3"},
+//		}
+//
+//		for i, s := range signals {
+//			t.Logf("Processing signal %d: %s -> %s", i, s.channel, s.value)
+//
+//			// Send signal
+//			tasks, err = scheduler.Send(s.channel, lua.LString(s.value))
+//			assert.NoError(t, err)
+//			t.Logf("Tasks after send: %d", len(tasks))
+//			require.NotEmpty(t, tasks, "should have tasks after sending signal")
+//
+//			// Process the signal
+//			tasks, err = scheduler.Step(vm, tasks...)
+//			assert.NoError(t, err)
+//			t.Logf("Tasks after step: %d", len(tasks))
+//			if len(tasks) > 0 && len(tasks[0].Yielded) > 0 {
+//				t.Logf("Yield value: %v", tasks[0].Yielded[0])
+//			}
+//			require.NotEmpty(t, tasks, "should have tasks after step")
+//			assert.Equal(t, s.expect, tasks[0].Yielded[0].String())
+//
+//			// Check channel state
+//			listeners = scheduler.GetOpenChannels()
+//			t.Logf("Registered channels after signal %d: %v", i, listeners)
+//		}
+//
+//		// Verify final state
+//		require.NotEmpty(t, tasks, "should have final task")
+//		assert.Equal(t, "signal1-signal2-signal3", tasks[0].Yielded[0].String())
+//
+//		listeners = scheduler.GetOpenChannels()
+//		t.Logf("Final registered channels: %v", listeners)
+//		assert.Empty(t, scheduler.GetOpenChannels(), "all channels should be unregistered")
+//	})
+//}
+
+//
 //func TestExternalChannels_Basic(t *testing.T) {
 //	logger := zap.NewNop()
 //

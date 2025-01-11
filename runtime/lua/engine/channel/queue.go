@@ -2,6 +2,7 @@ package channel
 
 import (
 	"container/list"
+	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"sync"
 )
 
@@ -16,6 +17,40 @@ type pendingQueue struct {
 	ops       *list.List
 	named     map[string][]*pendingOp
 	selectOps map[*selectOperation][]*list.Element // Track elements for each select
+}
+
+// Add these functions at the top level in queue.go after the pool declarations:
+
+// newPendingOp creates a new pendingOp with the given parameters
+func newPendingOp(task *engine.Task, op *chanOperation, selectOp *selectOperation) *pendingOp {
+	pending := pendingPool.Get().(*pendingOp)
+	pending.task = task
+	pending.op = op
+	pending.selectOp = selectOp
+	return pending
+}
+
+// releasePendingOp returns a pendingOp to the pool
+func releasePendingOp(op *pendingOp) {
+	if op != nil {
+		op.reset()
+		pendingPool.Put(op)
+	}
+}
+
+// newPendingQueueFromPool creates a new pendingQueue from the pool
+func newPendingQueueFromPool() *pendingQueue {
+	queue := queuePool.Get().(*pendingQueue)
+	queue.reset()
+	return queue
+}
+
+// releasePendingQueue returns a pendingQueue to the pool
+func releasePendingQueue(queue *pendingQueue) {
+	if queue != nil {
+		queue.clear() // This already calls reset
+		queuePool.Put(queue)
+	}
 }
 
 func newPendingQueue() *pendingQueue {
@@ -213,8 +248,17 @@ func (m *queueMapper) getNamedQueueSize(name string) int {
 
 // removeSelect removes all operations belonging to the given select from all queues
 func (m *queueMapper) removeSelect(selectOp *selectOperation) {
-	for _, queue := range m.queues {
+	for ch, queue := range m.queues {
 		queue.removeSelect(selectOp)
+		// If queue is empty after removal, clean it up
+		if queue.size() == 0 {
+			delete(m.queues, ch)
+			if ch.name != "" {
+				delete(m.named, ch.name)
+			}
+			queue.reset()
+			queuePool.Put(queue)
+		}
 	}
 }
 
