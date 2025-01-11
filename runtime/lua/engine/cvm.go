@@ -198,7 +198,7 @@ func (e *CoroutineVM) Step(tasks ...*Task) (result []*Task, finalErr error) {
 				return nil, fmt.Errorf("error starting task: %v", err)
 			}
 		case lua.ResumeOK:
-			// Done
+			// done
 			if err := e.removeTask(task); err != nil {
 				return nil, fmt.Errorf("error removing task: %v", err)
 			}

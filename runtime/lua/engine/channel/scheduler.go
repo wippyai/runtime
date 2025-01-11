@@ -1,6 +1,7 @@
 package channel
 
 import (
+	"errors"
 	"fmt"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	lua "github.com/yuin/gopher-lua"
@@ -52,52 +53,74 @@ func (y *chanOperation) Type() lua.LValueType {
 	return lua.LTUserData
 }
 
-// bufferedScheduler manages all channel operations and state, not thread-safe
-type bufferedScheduler struct {
-	senders   *queueMapper
-	receivers *queueMapper
+// taskResult helps handle task completion and return values
+type taskResult struct {
+	tasks []*engine.Task
 }
 
-// newScheduler creates a new bufferedScheduler instance
-func newScheduler() *bufferedScheduler {
-	return &bufferedScheduler{
-		senders:   newQueueMapper(),
-		receivers: newQueueMapper(),
+func newTaskResult() *taskResult {
+	return &taskResult{
+		tasks: make([]*engine.Task, 0, 2),
 	}
 }
 
-// handleTasks processes tasks that contain channel operations
+// with returns current task result for chaining
+func (tr *taskResult) with(task *engine.Task) *taskResult {
+	tr.tasks = append(tr.tasks, task)
+	return tr
+}
+
+// withSuccess returns taskResult with task marked as successful with values
+func (tr *taskResult) withSuccess(task *engine.Task, values ...lua.LValue) *taskResult {
+	task.Resumed = values
+	return tr.with(task)
+}
+
+// withError returns taskResult with task marked as failed
+func (tr *taskResult) withError(task *engine.Task, err error) *taskResult {
+	task.RaiseError = err
+	return tr.with(task)
+}
+
+// done returns completed tasks slice
+func (tr *taskResult) done() []*engine.Task {
+	return tr.tasks
+}
+
+type bufferedScheduler struct {
+	ops *channelOps
+}
+
+func newScheduler() *bufferedScheduler {
+	return &bufferedScheduler{
+		ops: newChannelOps(),
+	}
+}
+
 func (s *bufferedScheduler) handleTasks(tasks []*engine.Task) ([]*engine.Task, error) {
-	var externalTasks []*engine.Task
-	var channelTasks []*engine.Task
+	var result []*engine.Task
 
 	for _, task := range tasks {
 		if len(task.Yielded) == 0 {
-			externalTasks = append(externalTasks, task)
+			result = append(result, task)
 			continue
 		}
 
-		var resultTasks []*engine.Task
 		switch op := task.Yielded[0].(type) {
 		case *chanOperation:
-			resultTasks = s.handleOperation(task, op)
+			processed := s.handleOperation(task, op)
+			result = append(result, processed...)
 		case *selectOperation:
-			resultTasks = s.handleSelect(task, op)
-			if len(resultTasks) > 0 {
-				s.senders.removeSelect(op)
-				s.receivers.removeSelect(op)
-			}
+			processed := s.handleSelect(task, op)
+			result = append(result, processed...)
 		default:
-			externalTasks = append(externalTasks, task)
+			result = append(result, task)
 		}
-
-		channelTasks = append(channelTasks, resultTasks...)
 	}
 
-	return append(externalTasks, channelTasks...), nil
+	return result, nil
 }
 
-// handleOperation processes a single channel operation
 func (s *bufferedScheduler) handleOperation(task *engine.Task, op *chanOperation) []*engine.Task {
 	switch op.dir {
 	case chanSend:
@@ -107,228 +130,175 @@ func (s *bufferedScheduler) handleOperation(task *engine.Task, op *chanOperation
 	case chanClose:
 		return s.handleClose(task, op)
 	}
-
 	return nil
 }
 
-// getOpenChannels returns list of inbox channel names being listened to. Order is not guaranteed, expect external ordering.
-func (s *bufferedScheduler) getOpenChannels() []string {
-	var names []string
-	for name, _ := range s.receivers.named {
-		names = append(names, name)
-	}
-
-	return names
-}
-
-// send sends a value to an inbox channel
-func (s *bufferedScheduler) send(name string, value lua.LValue) ([]*engine.Task, error) {
-	op := s.receivers.dequeueNamed(name)
-	if op == nil {
-		return nil, fmt.Errorf("no receiver found for channel %s", name)
-	}
-
-	if op.selectOp == nil {
-		op.task.Resumed = []lua.LValue{value, lua.LBool(true)}
-	} else {
-		op.task.Resumed = []lua.LValue{op.selectOp.caseResult(
-			op.task.Thread(),
-			op.op.ch,
-			value,
-			true,
-		)}
-	}
-	results := []*engine.Task{op.task}
-
-	op.reset()
-	pendingPool.Put(op)
-
-	return results, nil
-
-}
-
-// handleSend processes a send operation
 func (s *bufferedScheduler) handleSend(task *engine.Task, op *chanOperation) []*engine.Task {
 	ch := op.ch
 	if ch.closed {
-		task.Resumed = []lua.LValue{lua.LNil}
-		return []*engine.Task{task}
-	}
-
-	// Try buffer first for buffered channels
-	if ch.capacity > 0 && !ch.isFull() {
-		if ch.send(op.value) {
-			task.Resumed = []lua.LValue{lua.LBool(true)}
-			return []*engine.Task{task}
-		}
+		return newTaskResult().withError(task, errors.New("channel closed")).done()
 	}
 
 	// Try matching with a waiting receiver
-	if receiver := s.receivers.dequeue(ch); receiver != nil {
-		if receiver.selectOp == nil {
-			receiver.task.Resumed = []lua.LValue{op.value}
-		} else {
-			receiver.task.Resumed = []lua.LValue{receiver.selectOp.caseResult(
-				receiver.task.Thread(), ch, op.value, true,
-			)}
-		}
-
-		// Complete both operations
-		task.Resumed = []lua.LValue{lua.LBool(true)}
-		result := []*engine.Task{task, receiver.task}
-
-		receiver.reset()
-		pendingPool.Put(receiver)
-
-		return result
+	if receiverTask := s.ops.findReceiver(ch, op.value); receiverTask != nil {
+		return newTaskResult().
+			withSuccess(task, lua.LBool(true)).
+			with(receiverTask).
+			done()
 	}
 
-	// Queue the sender
-	node := pendingPool.Get().(*pendingOp)
-	node.task = task
-	node.op = op
-	s.senders.enqueue(ch, node)
+	// Try buffering
+	if s.ops.trySend(ch, op.value) {
+		return newTaskResult().withSuccess(task, lua.LBool(true)).done()
+	}
 
-	return nil // no tasks, blocked
+	// Queue the send operation
+	s.ops.queueOperation(task, op, nil)
+	return nil
 }
 
-// handleReceive processes a receive operation
 func (s *bufferedScheduler) handleReceive(task *engine.Task, op *chanOperation) []*engine.Task {
 	ch := op.ch
 
-	// Try to receive any buffered value first
+	// Try buffered value first
 	if value, ok := ch.receive(); ok {
-		task.Resumed = []lua.LValue{value, lua.LBool(true)}
-		return []*engine.Task{task}
+		// Return buffered value regardless of closed state
+		return newTaskResult().withSuccess(task, value, lua.LBool(true)).done()
 	}
 
+	// If closed and no buffered values left, return nil,false
 	if ch.closed {
-		task.Resumed = []lua.LValue{lua.LNil, lua.LBool(false)}
-		return []*engine.Task{task}
+		return newTaskResult().withSuccess(task, lua.LNil, lua.LBool(false)).done()
 	}
 
+	// Try matching with a sender for non-named channels
 	if !ch.IsNamed() {
-		if sender := s.senders.dequeue(ch); sender != nil {
-			task.Resumed = []lua.LValue{sender.op.value}
-
-			if sender.selectOp == nil {
-				sender.task.Resumed = []lua.LValue{lua.LBool(true)}
-			} else {
-				sender.task.Resumed = []lua.LValue{sender.selectOp.caseResult(
-					sender.task.Thread(), ch, nil, true,
-				)}
-			}
-
-			result := []*engine.Task{task, sender.task}
-
-			sender.reset()
-			pendingPool.Put(sender)
-
-			return result
+		if value, senderTask := s.ops.findSender(ch); senderTask != nil {
+			return newTaskResult().
+				withSuccess(task, value, lua.LBool(true)).
+				with(senderTask).
+				done()
 		}
 	}
 
-	// Queue the receiver
-	node := pendingPool.Get().(*pendingOp)
-	node.task = task
-	node.op = op
-	s.receivers.enqueue(ch, node)
-
+	// Queue the receive operation if channel is open
+	s.ops.queueOperation(task, op, nil)
 	return nil
 }
-
-// handleClose processes a close operation
 func (s *bufferedScheduler) handleClose(task *engine.Task, op *chanOperation) []*engine.Task {
 	ch := op.ch
 	if ch.closed {
-		task.RaiseError = fmt.Errorf("channel already closed")
-		return []*engine.Task{task}
+		return newTaskResult().withError(task, fmt.Errorf("channel already closed")).done()
 	}
 
 	ch.closed = true
-	task.Resumed = []lua.LValue{lua.LBool(true)}
+	result := newTaskResult().withSuccess(task, lua.LBool(true))
 
-	// Count total pending tasks
-	total := 1 // for close task
-	sendersQueue := s.senders.queues[ch]
-	if sendersQueue != nil {
-		total += sendersQueue.size()
-	}
-	receiversQueue := s.receivers.queues[ch]
-	if receiversQueue != nil {
-		total += receiversQueue.size()
+	// Handle all senders - they get error
+	for {
+		if _, senderTask := s.ops.findSender(ch); senderTask == nil {
+			break
+		} else {
+			result.withError(senderTask, fmt.Errorf("channel closed"))
+		}
 	}
 
-	// Pre-allocate result slice
-	result := make([]*engine.Task, 0, total)
-	result = append(result, task)
-
-	// Resume all senders with channel closed indicator
-	for sender := s.senders.dequeue(ch); sender != nil; sender = s.senders.dequeue(ch) {
-		sender.task.RaiseError = fmt.Errorf("channel closed")
-
-		result = append(result, sender.task)
-		sender.reset()
-		pendingPool.Put(sender)
-	}
-
-	// Handle receivers - they can still get buffered values, others will read during receive calls
-	for receiver := s.receivers.dequeue(ch); receiver != nil; receiver = s.receivers.dequeue(ch) {
-		// Try to receive any buffered value first
-		if value, ok := ch.receive(); ok {
-			if receiver.selectOp == nil {
-				receiver.task.Resumed = []lua.LValue{value, lua.LBool(true)}
+	// Handle only waiting receivers - DO NOT drain buffer
+	for {
+		if recvTask := s.ops.findReceiver(ch, nil); recvTask != nil {
+			// If there are buffered values, give those first
+			if value, ok := ch.receive(); ok {
+				result.withSuccess(recvTask, value, lua.LBool(true))
 			} else {
-				receiver.task.Resumed = []lua.LValue{receiver.selectOp.caseResult(
-					receiver.task.Thread(), ch, value, true,
-				)}
+				result.withSuccess(recvTask, lua.LNil, lua.LBool(false))
 			}
 		} else {
-			if receiver.selectOp == nil {
-				receiver.task.Resumed = []lua.LValue{lua.LNil, lua.LBool(false)} // channel closed
-			} else {
-				receiver.task.Resumed = []lua.LValue{receiver.selectOp.caseResult(
-					receiver.task.Thread(), ch, nil, false,
-				)}
-			}
+			break
 		}
-
-		result = append(result, receiver.task)
-		receiver.reset()
-		pendingPool.Put(receiver)
 	}
 
-	return result
+	return result.done()
 }
 
-// handleSelect processes a select operation
 func (s *bufferedScheduler) handleSelect(task *engine.Task, op *selectOperation) []*engine.Task {
-	// Register all cases
+	// Try immediate operations first
 	for _, sc := range op.cases {
 		ch := sc.Channel()
 
-		pOp := &pendingOp{
-			task: task,
-			op: &chanOperation{
-				dir:   sc.dir,
-				ch:    ch,
-				value: sc.value,
-			},
-			selectOp: op,
-		}
+		switch sc.dir {
+		case chanSend:
+			if ch.closed {
+				return newTaskResult().
+					withError(task, fmt.Errorf("channel closed")).
+					done()
+			}
 
-		if sc.dir == chanSend {
-			s.senders.enqueue(ch, pOp)
-		} else {
-			s.receivers.enqueue(ch, pOp)
+			// Try matching with a receiver
+			if recvTask := s.ops.findReceiver(ch, sc.value); recvTask != nil {
+				return newTaskResult().
+					withSuccess(task, op.caseResult(task.Thread(), ch, nil, true)).
+					with(recvTask).
+					done()
+			}
+
+			// Try buffered send
+			if s.ops.trySend(ch, sc.value) {
+				return newTaskResult().
+					withSuccess(task, op.caseResult(task.Thread(), ch, nil, true)).
+					done()
+			}
+
+		case chanReceive:
+			// Try receive from buffer or matching with sender
+			if value, ok := s.ops.tryReceive(ch); ok {
+				return newTaskResult().
+					withSuccess(task, op.caseResult(task.Thread(), ch, value, true)).
+					done()
+			}
+			if ch.closed {
+				return newTaskResult().
+					withSuccess(task, op.caseResult(task.Thread(), ch, nil, false)).
+					done()
+			}
+			if value, senderTask := s.ops.findSender(ch); senderTask != nil {
+				return newTaskResult().
+					withSuccess(task, op.caseResult(task.Thread(), ch, value, true)).
+					with(senderTask).
+					done()
+			}
 		}
+	}
+
+	if op.hasDefault {
+		return newTaskResult().
+			withSuccess(task, op.caseResult(task.Thread(), nil, nil, true)).
+			done()
+	}
+
+	// Queue select operation
+	for _, sc := range op.cases {
+		s.ops.queueOperation(task, &chanOperation{
+			dir:   sc.dir,
+			ch:    sc.Channel(),
+			value: sc.value,
+		}, op)
 	}
 
 	return nil
 }
 
-// Cleanup releases all resources and resets state
+func (s *bufferedScheduler) send(name string, value lua.LValue) ([]*engine.Task, error) {
+	if task, err := s.ops.pushNamed(name, value); err != nil {
+		return nil, err
+	} else {
+		return []*engine.Task{task}, nil
+	}
+}
+
+func (s *bufferedScheduler) getOpenChannels() []string {
+	return s.ops.getOpenChannels()
+}
+
 func (s *bufferedScheduler) close() {
-	s.senders.clear()
-	s.receivers.clear()
+	s.ops.cleanup()
 }
