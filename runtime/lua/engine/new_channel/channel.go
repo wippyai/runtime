@@ -34,6 +34,7 @@ type opMatch struct {
 	closed    bool           // If operation was on closed channel
 }
 
+// Channel represents a buffered or unbuffered channel, not-thread safe, external synchronization is required.
 type Channel struct {
 	name     string
 	capacity int
