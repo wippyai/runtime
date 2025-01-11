@@ -82,7 +82,7 @@ func (s *bufferedScheduler) handleTasks(tasks []*engine.Task) ([]*engine.Task, e
 		case *chanOperation:
 			resultTasks = s.handleOperation(task, op)
 		case *selectOperation:
-			resultTasks = s.handleSelect(task, op)
+			resultTasks = s.scheduleSelect(task, op)
 			if len(resultTasks) > 0 {
 				s.senders.removeSelect(op)
 				s.receivers.removeSelect(op)
@@ -310,19 +310,15 @@ func (s *bufferedScheduler) handleClose(task *engine.Task, op *chanOperation) []
 	return result
 }
 
-// handleSelect processes a select operation
-func (s *bufferedScheduler) handleSelect(task *engine.Task, op *selectOperation) []*engine.Task {
+// scheduleSelect processes a select operation
+func (s *bufferedScheduler) scheduleSelect(task *engine.Task, op *selectOperation) []*engine.Task {
 	// Register all cases
 	for _, sc := range op.cases {
 		ch := sc.Channel()
 
 		pOp := &pendingOp{
-			task: task,
-			op: &chanOperation{
-				dir:   sc.dir,
-				ch:    ch,
-				value: sc.value,
-			},
+			task:     task,
+			op:       &chanOperation{dir: sc.dir, ch: ch, value: sc.value},
 			selectOp: op,
 		}
 

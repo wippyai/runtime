@@ -127,6 +127,67 @@ func TestModule_ImmediateSelects(t *testing.T) {
 		assert.NoError(t, err)
 	})
 
+	t.Run("immediate select with buffered channels", func(t *testing.T) {
+		vm, err := engine.NewCoroutineVM(
+			context.Background(), logger,
+			engine.WithPreloaded("channel", NewChannelModule().Loader),
+		)
+		assert.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.PushScript(`
+			-- Test 1: Immediate receive from buffered channel
+			local ch1 = channel.new(1)
+			ch1:send("value1")
+			
+			local result = channel.select({
+				ch1:case_receive()
+			})
+			assert(result.channel == ch1, "wrong channel selected")
+			assert(result.value == "value1", "wrong value received")
+			assert(result.ok == true, "receive should succeed")
+			
+			-- Test 2: Immediate send to non-full buffered channel
+			local ch2 = channel.new(1)
+			result = channel.select({
+				ch2:case_send("value2")
+			})
+			assert(result.channel == ch2, "wrong channel selected")
+			assert(result.ok == true, "send should succeed")
+			
+			-- Test 3: Multiple ready operations
+			local ch3 = channel.new(1)
+			local ch4 = channel.new(1)
+			ch3:send("value3")  -- Make receive ready
+			                    -- ch4 is empty so send is ready
+			
+			result = channel.select({
+				ch3:case_receive(),
+				ch4:case_send("value4")
+			})
+			assert(result.channel == ch3 or result.channel == ch4, 
+				   "should select one of the ready channels")
+			if result.channel == ch3 then
+				assert(result.value == "value3", "wrong value received")
+			else
+				assert(result.ok == true, "send should succeed")
+			end
+			
+			-- Test 4: Mix of ready and blocking operations
+			local ch5 = channel.new(1)
+			local ch6 = channel.new(0)  -- unbuffered, will block
+			ch5:send("value5")
+			
+			result = channel.select({
+				ch5:case_receive(),  -- ready
+				ch6:case_receive()   -- would block
+			})
+			assert(result.channel == ch5, "should select ready channel")
+			assert(result.value == "value5", "wrong value received")
+		`, "test")
+		assert.NoError(t, err)
+	})
+
 	t.Run("select on same channel", func(t *testing.T) {
 		vm, err := engine.NewCoroutineVM(
 			context.Background(), logger,

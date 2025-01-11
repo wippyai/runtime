@@ -1112,3 +1112,72 @@ func TestChannelPassingWithCoreDebug(t *testing.T) {
 		assert.Equal(t, expectedSequence, yields, "Wrong operation sequence")
 	})
 }
+
+func TestRapidBufferedOperations(t *testing.T) {
+	logger := zap.NewNop()
+
+	t.Run("buffer blocking behavior", func(t *testing.T) {
+		vm, err := engine.NewCoroutineVM(
+			context.Background(), logger,
+			engine.WithPreloaded("channel", NewChannelModule().Loader),
+		)
+		assert.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.PushScript(`
+			local ch = channel.new(2)  -- smaller buffer for easier testing
+			
+			-- First coroutine fills buffer and blocks
+			coroutine.spawn(function()
+				assert(ch:send("value1"), "first send should succeed")
+				assert(ch:send("value2"), "second send should succeed")
+				-- This should block since buffer is full
+				ch:send("value3")  -- Will block here
+				coroutine.yield("send_unblocked") -- Should only happen after receive
+			end)
+
+			-- Second coroutine receives and unblocks first
+			coroutine.spawn(function()
+				coroutine.yield("receiver_start")
+				
+				local val1, ok1 = ch:receive()
+				assert(ok1 and val1 == "value1", "first receive failed")
+				coroutine.yield("received_1")
+				
+				local val2, ok2 = ch:receive()
+				assert(ok2 and val2 == "value2", "second receive failed")
+				coroutine.yield("received_2")
+				
+				local val3, ok3 = ch:receive()
+				assert(ok3 and val3 == "value3", "third receive failed")
+				coroutine.yield("received_3")
+			end)
+		`, "test")
+		assert.NoError(t, err)
+
+		scheduler := NewRuntime()
+		tasks, err := scheduler.Step(vm)
+		assert.NoError(t, err)
+
+		var yields []string
+		for len(tasks) > 0 {
+			for _, task := range tasks {
+				if vals := task.Yielded; len(vals) > 0 {
+					yields = append(yields, vals[0].String())
+				}
+			}
+			tasks, err = scheduler.Step(vm, tasks...)
+			assert.NoError(t, err)
+		}
+
+		// Verify operation sequence
+		expectedYields := []string{
+			"receiver_start", // Receiver starts
+			"received_1",     // Receives first value
+			"received_2",     // Receives second value
+			"send_unblocked", // First coroutine unblocks after receiver makes space
+			"received_3",     // Receives third value
+		}
+		assert.Equal(t, expectedYields, yields, "incorrect operation sequence")
+	})
+}
