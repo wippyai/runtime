@@ -18,7 +18,6 @@ type op struct {
 	kind     opKind
 	ch       *Channel
 	value    lua.LValue
-	chValue  lua.LValue  // Lua level value of channel, for select result
 	task     *lua.LState // nil for buffered values
 	selectOp *selectOp   // associated select op, nil for direct ops and buffered values
 }
@@ -47,6 +46,7 @@ type Channel struct {
 	closed   bool
 	size     int
 
+	value     lua.LValue // lua value associated with the channel
 	senders   *list.List
 	receivers *list.List
 }
@@ -65,9 +65,9 @@ func newChannel(capacity int) *Channel {
 	}
 }
 
-func (c *Channel) send(senderTask *lua.LState, value lua.LValue, selectOp *selectOp) onNext {
+func (c *Channel) send(senderTask *lua.LState, value lua.LValue, selectOp *selectOp) *onNext {
 	if c.closed {
-		return onNext{
+		return &onNext{
 			results: []*opResult{
 				{task: senderTask, err: errors.New("send on closed channel")},
 			},
@@ -77,23 +77,19 @@ func (c *Channel) send(senderTask *lua.LState, value lua.LValue, selectOp *selec
 	// Try to wake receiver first
 	if e := c.receivers.Front(); e != nil {
 		recvOp := c.receivers.Remove(e).(*op)
-		if recvOp.selectOp != nil {
-			c.flushSelects(recvOp.selectOp) // clean all other channels involved in the select
-			return onNext{
-				yields: true,
-				results: []*opResult{
-					{task: recvOp.task, values: selectResult(recvOp.task, recvOp.chValue, recvOp.value, true)},
-					{task: senderTask, values: callerResult(senderTask, selectOp, value, nil, true)},
-				},
-			}
-		}
 
 		if recvOp.task != nil {
-			return onNext{
+			return &onNext{
 				yields: true,
 				results: []*opResult{
-					{task: recvOp.task, values: []lua.LValue{value, lua.LBool(true)}},
-					{task: senderTask, values: callerResult(senderTask, selectOp, value, nil, true)}, // send ok
+					{
+						task:   recvOp.task,
+						values: makeResult(recvOp.task, recvOp.selectOp, recvOp.ch.value, value, true),
+					},
+					{
+						task:   senderTask,
+						values: makeResult(senderTask, selectOp, c.value, nil, true),
+					},
 				},
 			}
 		}
@@ -108,9 +104,12 @@ func (c *Channel) send(senderTask *lua.LState, value lua.LValue, selectOp *selec
 			selectOp: selectOp,
 		})
 		c.size++
-		return onNext{
+		return &onNext{
 			results: []*opResult{
-				{task: senderTask, values: callerResult(senderTask, selectOp, value, nil, true)}, // send successful
+				{
+					task:   senderTask,
+					values: makeResult(senderTask, selectOp, c.value, value, true),
+				},
 			},
 		}
 	}
@@ -125,52 +124,53 @@ func (c *Channel) send(senderTask *lua.LState, value lua.LValue, selectOp *selec
 	})
 	c.size++
 
-	return onNext{yields: true} // Yield, nothing to do
+	return &onNext{yields: true} // Yield, nothing to do
 }
 
-func (c *Channel) receive(receiverTask *lua.LState, selectOp *selectOp) onNext {
+func (c *Channel) receive(receiverTask *lua.LState, selectOp *selectOp) *onNext {
 	// Try get from senders first
 	if e := c.senders.Front(); e != nil {
 		sendOp := c.senders.Remove(e).(*op)
 		c.size--
 
-		if sendOp.selectOp != nil {
-			c.flushSelects(sendOp.selectOp)
-
-			return onNext{
-				yields: true,
-				results: []*opResult{
-					{task: sendOp.task, values: nil}, // wake sender
-					{task: receiverTask, values: callerResult(receiverTask, selectOp, sendOp.value, sendOp.value, true)},
-				},
-			}
-		}
-
 		if sendOp.task != nil {
-			return onNext{
+			return &onNext{
 				yields: true,
 				results: []*opResult{
-					{task: sendOp.task, values: nil}, // wake sender
-					{task: receiverTask, values: callerResult(receiverTask, selectOp, sendOp.value, sendOp.value, true)},
+					{
+						task:   sendOp.task,
+						values: makeResult(sendOp.task, sendOp.selectOp, sendOp.ch.value, sendOp.value, true),
+					},
+					{
+						task:   receiverTask,
+						values: makeResult(receiverTask, selectOp, c.value, sendOp.value, true),
+					},
 				},
 			}
 		}
 
 		// buffered
-		return onNext{
+		return &onNext{
 			results: []*opResult{
-				{task: receiverTask, values: callerResult(receiverTask, selectOp, sendOp.value, sendOp.value, true)},
+				{
+					task:   receiverTask,
+					values: makeResult(receiverTask, selectOp, c.value, sendOp.value, true),
+				},
 			},
 		}
 	}
 
 	if c.closed {
-		return onNext{
+		return &onNext{
 			results: []*opResult{
-				{task: receiverTask, values: callerResult(receiverTask, selectOp, lua.LNil, lua.LNil, false)},
+				{
+					task:   receiverTask,
+					values: makeResult(receiverTask, selectOp, c.value, lua.LNil, false),
+				},
 			},
 		}
 	}
+
 	// Have to block
 	c.receivers.PushBack(&op{
 		kind:     receiveOp,
@@ -178,12 +178,12 @@ func (c *Channel) receive(receiverTask *lua.LState, selectOp *selectOp) onNext {
 		task:     receiverTask,
 		selectOp: selectOp,
 	})
-	return onNext{yields: true}
+	return &onNext{yields: true}
 }
 
-func (c *Channel) close() onNext {
+func (c *Channel) close(closerTask *lua.LState) *onNext {
 	if c.closed {
-		return onNext{
+		return &onNext{
 			results: []*opResult{
 				{err: errors.New("close of closed channel")},
 			},
@@ -197,17 +197,17 @@ func (c *Channel) close() onNext {
 	for e := c.senders.Front(); e != nil; {
 		nextE := e.Next() // Save next before removing current
 		op := e.Value.(*op)
-		if op.selectOp != nil {
-			c.flushSelects(op.selectOp) // deletes any other pending selects on other channels
-		}
 		if op.task != nil {
+			if op.selectOp != nil {
+				c.flushSelects(op.selectOp)
+			}
 			results = append(results, &opResult{
 				task: op.task,
 				err:  errors.New("send on closed channel"),
 			})
+			c.senders.Remove(e)
+			c.size--
 		}
-		c.senders.Remove(e)
-		c.size--
 		e = nextE
 	}
 
@@ -228,7 +228,12 @@ func (c *Channel) close() onNext {
 		e = nextE
 	}
 
-	return onNext{
+	if len(results) > 0 {
+		// wake up closer after all senders and non-buffered receivers are handled
+		results = append(results, &opResult{task: closerTask, values: nil})
+	}
+
+	return &onNext{
 		yields:  len(results) > 0,
 		results: results,
 	}
@@ -288,16 +293,7 @@ func (c *Channel) canReceive() bool {
 	return c.senders.Front() != nil
 }
 
-func selectResult(L *lua.LState, chValue, value lua.LValue, ok bool) []lua.LValue {
-	result := L.NewTable()
-	result.RawSetString("channel", chValue)
-	result.RawSetString("value", value)
-	result.RawSetString("ok", lua.LBool(ok))
-
-	return []lua.LValue{result}
-}
-
-func callerResult(task *lua.LState, selectOp *selectOp, chValue, value lua.LValue, ok bool) []lua.LValue {
+func makeResult(task *lua.LState, selectOp *selectOp, chValue, value lua.LValue, ok bool) []lua.LValue {
 	if selectOp != nil {
 		return selectResult(task, chValue, value, ok)
 	}
@@ -307,4 +303,13 @@ func callerResult(task *lua.LState, selectOp *selectOp, chValue, value lua.LValu
 	}
 
 	return []lua.LValue{value, lua.LBool(ok)} // For receive operations
+}
+
+func selectResult(L *lua.LState, chValue, value lua.LValue, ok bool) []lua.LValue {
+	result := L.NewTable()
+	result.RawSetString("channel", chValue)
+	result.RawSetString("value", value)
+	result.RawSetString("ok", lua.LBool(ok))
+
+	return []lua.LValue{result}
 }

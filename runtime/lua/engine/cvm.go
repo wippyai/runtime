@@ -33,7 +33,7 @@ func (t *Task) Type() lua.LValueType {
 }
 
 func (t *Task) String() string {
-	return fmt.Sprintf("coroutine %p", t.thread)
+	return fmt.Sprintf("<coroutine %p> %+v", t.thread, t.Yielded)
 }
 
 type TaskQueue struct {
