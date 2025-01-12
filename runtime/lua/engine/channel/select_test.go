@@ -25,7 +25,7 @@ func TestModule_ImmediateSelects(t *testing.T) {
 			local ch2 = channel.new(1)  -- buffered with capacity 1
 	
 			-- Test 1: Select with send on buffered channel
-			coroutine.spawn(function()
+			coroutine.go(function()
 				-- Since ch2 is buffered with capacity 1, this should succeed immediately
 				local result = channel.select({
 					ch2:case_send("test1")
@@ -37,7 +37,7 @@ func TestModule_ImmediateSelects(t *testing.T) {
 			end)
 	
 			-- Test 2: Select with receive on buffered channel
-			coroutine.spawn(function()
+			coroutine.go(function()
 				local result = channel.select({
 					ch2:case_receive()
 				})
@@ -330,7 +330,7 @@ func TestModule_BlockingSelects(t *testing.T) {
 			local ch2 = channel.new(0)  -- unbuffered
 	
 			-- First coroutine: blocks on select waiting for send or receive
-			coroutine.spawn(function()
+			coroutine.go(function()
 				local result = channel.select({
 					ch1:case_receive(),
 					ch2:case_send("test")
@@ -343,7 +343,7 @@ func TestModule_BlockingSelects(t *testing.T) {
 			end)
 	
 			-- Second coroutine: sleeps then enables one of the operations
-			coroutine.spawn(function()
+			coroutine.go(function()
 				coroutine.yield("helper_starting")
 				-- Receive from ch2, allowing the blocked send to complete
 				local msg, ok = ch2:receive()
@@ -393,7 +393,7 @@ func TestModule_BlockingSelects(t *testing.T) {
 			local ch2 = channel.new(0)  -- unbuffered
 	
 			-- First coroutine: blocks on select waiting for send or receive
-			coroutine.spawn(function()
+			coroutine.go(function()
 				local result = channel.select({
 					ch1:case_receive(),
 					ch2:case_send("test")
@@ -408,7 +408,7 @@ func TestModule_BlockingSelects(t *testing.T) {
 			end)
 	
 			-- Second coroutine: sleeps then enables one of the operations
-			coroutine.spawn(function()
+			coroutine.go(function()
 				coroutine.yield("helper_starting")
 				local ok = ch1:send("test_value")
 				assert(ok, "can not send")
@@ -457,7 +457,7 @@ func TestModule_BlockingSelects(t *testing.T) {
 			local ch2 = channel.new(0)  -- unbuffered
 	
 			-- First coroutine: blocks on select waiting for send or receive
-			coroutine.spawn(function()
+			coroutine.go(function()
 				local result = channel.select({
 					ch1:case_receive(),
 					ch2:case_send("test")
@@ -470,7 +470,7 @@ func TestModule_BlockingSelects(t *testing.T) {
 			end)
 	
 			-- Second coroutine: sleeps then enables one of the operations
-			coroutine.spawn(function()
+			coroutine.go(function()
 				coroutine.yield("helper_starting")
 				local ok = ch1:close()
 				assert(ok, "can not close")
@@ -519,7 +519,7 @@ func TestModule_BlockingSelects(t *testing.T) {
 			local ch2 = channel.new(0)  -- unbuffered
 			
 			-- First coroutine: blocks on select waiting for send or receive
-			coroutine.spawn(function()	
+			coroutine.go(function()	
 				-- will panic!
 				channel.select{
 					ch1:case_receive(),
@@ -528,7 +528,7 @@ func TestModule_BlockingSelects(t *testing.T) {
 			end)
 			
 			-- Second coroutine: sleeps then closes ch2
-			coroutine.spawn(function()
+			coroutine.go(function()
 				coroutine.yield("helper_starting")
 				local ok = ch2:close() -- Close ch2 (the send channel)
 				assert(ok, "cannot close ch2")
@@ -645,7 +645,7 @@ func TestModule_AdditionalSelectScenarios(t *testing.T) {
 			local ch = channel.new(0)  -- unbuffered
 			
 			-- First coroutine: select with both send and receive on same channel
-			coroutine.spawn(function()
+			coroutine.go(function()
 				local result = channel.select({
 					ch:case_send("test"),
 					ch:case_receive()
@@ -658,7 +658,7 @@ func TestModule_AdditionalSelectScenarios(t *testing.T) {
 			end)
 			
 			-- Helper coroutine enables one of the operations
-			coroutine.spawn(function()
+			coroutine.go(function()
 				coroutine.yield("helper_starting")
 				local msg = ch:send("helper_value")
 				assert(msg, "send should succeed")
@@ -704,7 +704,7 @@ func TestModule_AdditionalSelectScenarios(t *testing.T) {
 			
 			-- Multiple coroutines blocking on select
 			for i = 1, 3 do
-				coroutine.spawn(function()
+				coroutine.go(function()
 					local result = channel.select({
 						ch:case_receive()
 					})
@@ -716,7 +716,7 @@ func TestModule_AdditionalSelectScenarios(t *testing.T) {
 			end
 			
 			-- Helper sends values to unblock them one by one
-			coroutine.spawn(function()
+			coroutine.go(function()
 				coroutine.yield("sender_starting")
 				for i = 1, 3 do
 					local ok = ch:send("value" .. i)
@@ -769,7 +769,7 @@ func TestModule_SelectQueueState(t *testing.T) {
 			local ch = channel.new(0)  -- unbuffered
 			
 			-- Spawn receiver that will block on select
-			coroutine.spawn(function()
+			coroutine.go(function()
 				local result = channel.select{
 					ch:case_receive(),
 					default = true
@@ -833,7 +833,7 @@ func TestModule_SelectQueueState_Blocking(t *testing.T) {
 			local ch = channel.new(0)  -- unbuffered
 			
 			-- Spawn receiver that will block on select
-			coroutine.spawn(function()
+			coroutine.go(function()
 				local result = channel.select{
 					ch:case_receive(),
 				}
@@ -879,7 +879,7 @@ func TestModule_SelectCleanup(t *testing.T) {
 			local ch3 = channel.new(0)  -- unbuffered
 
 			-- First coroutine: blocks on select with multiple receives
-			coroutine.spawn(function()
+			coroutine.go(function()
 				local result = channel.select{
 					ch1:case_receive(),
 					ch2:case_receive(),
@@ -891,7 +891,7 @@ func TestModule_SelectCleanup(t *testing.T) {
 			end)
 
 			-- Helper coroutine: triggers select and verifies cleanup
-			coroutine.spawn(function()
+			coroutine.go(function()
 				coroutine.yield("helper_starting")
 				
 				-- Trigger select
@@ -975,7 +975,7 @@ func TestModule_SelectCleanupOnClose(t *testing.T) {
             local ch2 = channel.new(0)  -- unbuffered
 
             -- First coroutine: blocks on select with multiple operations
-            coroutine.spawn(function()
+            coroutine.go(function()
                 local result = channel.select{
                     ch1:case_receive(),
                     ch2:case_receive()
@@ -987,7 +987,7 @@ func TestModule_SelectCleanupOnClose(t *testing.T) {
             end)
 
             -- Second coroutine: different select operation on same channels
-            coroutine.spawn(function()
+            coroutine.go(function()
                 local result = channel.select{
                     ch1:case_receive(),
                     ch2:case_receive()
@@ -999,7 +999,7 @@ func TestModule_SelectCleanupOnClose(t *testing.T) {
             end)
 
             -- Helper coroutine: closes ch1 to trigger select completion
-            coroutine.spawn(function()
+            coroutine.go(function()
                 coroutine.yield("helper_starting")
                 
                 -- Close ch1 which should trigger both selects

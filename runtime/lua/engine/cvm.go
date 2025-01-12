@@ -114,12 +114,11 @@ func (e *CoroutineVM) PushScript(script, name string) error {
 func (e *CoroutineVM) bindCoroutines() {
 	coTable := e.vm.state.GetGlobal("coroutine").(*lua.LTable)
 
-	// Add spawn function
-	e.vm.state.SetField(coTable, "spawn", e.vm.state.NewFunction(func(L *lua.LState) int {
+	e.vm.state.SetField(coTable, "go", e.vm.state.NewFunction(func(L *lua.LState) int {
 		fnValue := L.Get(1)
 
 		if fnValue.Type() != lua.LTFunction {
-			L.RaiseError("coroutine.spawn() requires a function argument")
+			L.RaiseError("coroutine.go() requires a function argument")
 			return 0
 		}
 

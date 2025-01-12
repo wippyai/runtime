@@ -70,13 +70,13 @@ func TestChannels_Basic(t *testing.T) {
 			local ch = channel.new(0)  -- unbuffered channel
 			
 			-- Sender
-			coroutine.spawn(function()
+			coroutine.go(function()
 				ch:send("hello")
 				coroutine.yield("send_complete")
 			end)
 			
 			-- Receiver
-			coroutine.spawn(function()
+			coroutine.go(function()
 				local msg, ok = ch:receive()
 				assert(ok, "expected successful receive")
 				assert(msg == "hello", "wrong message received")
@@ -118,7 +118,7 @@ func TestModule_Operations(t *testing.T) {
 			local ch = channel.new(2)  -- buffered channel capacity 2
 
 			-- Sender goroutine
-			coroutine.spawn(function()
+			coroutine.go(function()
 				assert(ch:send("first"), "first send should succeed")
 				assert(ch:send("second"), "second send should succeed")
 				local ok = ch:send("third")  -- should block
@@ -127,7 +127,7 @@ func TestModule_Operations(t *testing.T) {
 			end)
 
 			-- Receiver goroutine
-			coroutine.spawn(function()
+			coroutine.go(function()
 				local msg1, ok1 = ch:receive()
 				assert(ok1 and msg1 == "first", "first receive failed")
 				
@@ -160,7 +160,7 @@ func TestModule_Operations(t *testing.T) {
 			local ch = channel.new(1)
 
 			-- Sender with close
-			coroutine.spawn(function()
+			coroutine.go(function()
 				assert(ch:send("buffered"), "send should succeed")
 				ch:close()
 				
@@ -176,7 +176,7 @@ func TestModule_Operations(t *testing.T) {
 
 			-- Multiple receivers
 			for i = 1, 2 do
-				coroutine.spawn(function()
+				coroutine.go(function()
 					local msg, ok = ch:receive()
 					if i == 1 then
 						assert(ok and msg == "buffered", 
@@ -215,7 +215,7 @@ func TestModule_Operations(t *testing.T) {
 
 			-- Multiple senders
 			for i = 1, 3 do
-				coroutine.spawn(function()
+				coroutine.go(function()
 					local msg = "msg" .. i
 					local ok = ch:send(msg)
 					sent[i] = ok and msg or "failed"
@@ -225,7 +225,7 @@ func TestModule_Operations(t *testing.T) {
 
 			-- Multiple receivers
 			for i = 1, 3 do
-				coroutine.spawn(function()
+				coroutine.go(function()
 					local msg, ok = ch:receive()
 					received[i] = ok and msg or "failed"
 					coroutine.yield("receiver" .. i .. "_done")
@@ -233,7 +233,7 @@ func TestModule_Operations(t *testing.T) {
 			end
 			
 			-- Wait for completion and verify
-			coroutine.spawn(function()
+			coroutine.go(function()
 				-- Verify we got all messages
 				assert(#received == 3, "should receive 3 messages")
 				assert(#sent == 3, "should send 3 messages")
@@ -275,19 +275,19 @@ func TestModule_Operations(t *testing.T) {
 			local ch = channel.new(0)
 			
 			-- Test synchronous send/receive
-			coroutine.spawn(function()
+			coroutine.go(function()
 				ch:send("sync")
 				coroutine.yield("send_complete")
 			end)
 			
-			coroutine.spawn(function()
+			coroutine.go(function()
 				local msg, ok = ch:receive()
 				assert(ok and msg == "sync", "sync receive failed")
 				coroutine.yield("receive_complete")
 			end)
 			
 			-- Verify can't buffer
-			coroutine.spawn(function()
+			coroutine.go(function()
 				local ok = ch:send("should block")
 				assert(not ok, "send should block on unbuffered channel")
 				coroutine.yield("blocked_send")
@@ -323,7 +323,7 @@ func TestModule_Operations(t *testing.T) {
 			local ch = channel.new(0)
 			
 			-- Test close operations in coroutine
-			coroutine.spawn(function()
+			coroutine.go(function()
 				ch:close()
 				
 				-- Test double close
@@ -367,7 +367,7 @@ func TestModule_YieldSequences(t *testing.T) {
 	       local sends_complete = false
 	
 	       -- Sender that fills buffer
-	       coroutine.spawn(function()
+	       coroutine.go(function()
 	           -- Fill buffer
 	           assert(ch:send("1"), "first send")
 	           coroutine.yield("sent_1")
@@ -383,7 +383,7 @@ func TestModule_YieldSequences(t *testing.T) {
 	       end)
 	
 	       -- Receiver that waits for sends to complete
-	       coroutine.spawn(function()
+	       coroutine.go(function()
 	           -- Wait for sends to complete
 	           while not sends_complete do
 	               coroutine.yield("waiting")
@@ -458,7 +458,7 @@ func TestModule_YieldSequences(t *testing.T) {
 			local results = {}
 	
 			-- Test different Lua value types
-			coroutine.spawn(function()
+			coroutine.go(function()
 				-- String
 				assert(ch:send("test string"))
 				coroutine.yield("sent_string")
@@ -484,7 +484,7 @@ func TestModule_YieldSequences(t *testing.T) {
 			end)
 	
 			-- Receiver verifies type preservation
-			coroutine.spawn(function()
+			coroutine.go(function()
 				-- String
 				local v, ok = ch:receive()
 				assert(ok and type(v) == "string" and v == "test string")
@@ -568,7 +568,7 @@ func TestModule_YieldSequences(t *testing.T) {
 			local t1 = {data = "table1"}
 			local t2 = {data = "table2"}
 	
-			coroutine.spawn(function()
+			coroutine.go(function()
 				-- Fill channel
 				assert(ch:send(t1))
 				coroutine.yield("sent_t1")
@@ -582,7 +582,7 @@ func TestModule_YieldSequences(t *testing.T) {
 			end)
 	
 			-- Receiver verifies cleanup
-			coroutine.spawn(function()
+			coroutine.go(function()
 				-- Get values before cleanup
 				local v1, ok = ch:receive()
 				assert(ok and v1.data == "table1")
@@ -642,7 +642,7 @@ func TestModule_YieldSequences(t *testing.T) {
 
 			-- Multiple senders
 			for i = 1, 3 do
-				coroutine.spawn(function()
+				coroutine.go(function()
 					ch:send("msg" .. i)  -- Third send will block
 					completed.senders = completed.senders + 1
 					coroutine.yield("sender" .. i .. "_done")
@@ -651,7 +651,7 @@ func TestModule_YieldSequences(t *testing.T) {
 
 			-- Multiple receivers
 			for i = 1, 3 do
-				coroutine.spawn(function()
+				coroutine.go(function()
 					local msg = ch:receive()  -- First two complete immediately
 					received[i] = msg
 					completed.receivers = completed.receivers + 1
@@ -660,7 +660,7 @@ func TestModule_YieldSequences(t *testing.T) {
 			end
 
 			-- Closer
-			coroutine.spawn(function()
+			coroutine.go(function()
 				while completed.senders < 2 or completed.receivers < 2 do
 					coroutine.yield("waiting")
 				end
@@ -669,7 +669,7 @@ func TestModule_YieldSequences(t *testing.T) {
 			end)
 
 			-- Verify final state
-			coroutine.spawn(function()
+			coroutine.go(function()
 				while completed.senders < 3 or completed.receivers < 3 do
 					coroutine.yield("verify_waiting")
 				end
@@ -786,13 +786,13 @@ func TestMapReduce(t *testing.T) {
 			
 			-- Start 3 workers
 			for i = 1, 3 do
-				coroutine.spawn(function()
+				coroutine.go(function()
 					worker(i)
 				end)
 			end
 			
 			-- Distributor coroutine that sends work
-			coroutine.spawn(function()
+			coroutine.go(function()
 				-- send all numbers to be processed
 				for _, num in ipairs(input) do
 					workCh:send(num)
@@ -805,7 +805,7 @@ func TestMapReduce(t *testing.T) {
 			end)
 			
 			-- Reducer coroutine that collects and combines results
-			coroutine.spawn(function()
+			coroutine.go(function()
 				local results = {}
 				local sum = 0
 				
@@ -885,14 +885,14 @@ func TestChannelPassing(t *testing.T) {
 			local ch2 = channel.new(1)  -- channel to be passed
 			
 			-- First coroutine sends a channel
-			coroutine.spawn(function()
+			coroutine.go(function()
 				assert(ch2:send("test_message"))
 				assert(ch1:send(ch2))
 				coroutine.yield("sender_complete")
 			end)
 			
 			-- Second coroutine receives the channel and reads from it
-			coroutine.spawn(function()
+			coroutine.go(function()
 				local receivedCh, ok = ch1:receive()
 				assert(ok, "failed to receive channel")
 				
@@ -931,7 +931,7 @@ func TestChannelPassing(t *testing.T) {
 			local resultCh = channel.new(1)   -- Channel for results
 			
 			-- Worker that processes data
-			coroutine.spawn(function()
+			coroutine.go(function()
 				-- Create worker channel
 				local workerCh = channel.new(1)
 				
@@ -949,7 +949,7 @@ func TestChannelPassing(t *testing.T) {
 			end)
 			
 			-- Manager that coordinates work
-			coroutine.spawn(function()
+			coroutine.go(function()
 				-- Get worker channel
 				local workerCh, ok = controlCh:receive()
 				assert(ok, "failed to receive worker channel")
@@ -1030,7 +1030,7 @@ func TestChannelPassingWithCoreDebug(t *testing.T) {
             local resultCh = channel.new(0)  -- Channel for results
             
             -- Worker
-            coroutine.spawn(function()
+            coroutine.go(function()
                 coroutine.yield("worker_start")
                 
                 -- Create worker channel
@@ -1051,7 +1051,7 @@ func TestChannelPassingWithCoreDebug(t *testing.T) {
             end)
             
             -- Manager 
-            coroutine.spawn(function()
+            coroutine.go(function()
                 coroutine.yield("manager_start")
                 
                 -- Get worker channel
@@ -1128,7 +1128,7 @@ func TestRapidBufferedOperations(t *testing.T) {
 			local ch = channel.new(2)  -- smaller buffer for easier testing
 			
 			-- First coroutine fills buffer and blocks
-			coroutine.spawn(function()
+			coroutine.go(function()
 				assert(ch:send("value1"), "first send should succeed")
 				assert(ch:send("value2"), "second send should succeed")
 				-- This should block since buffer is full
@@ -1137,7 +1137,7 @@ func TestRapidBufferedOperations(t *testing.T) {
 			end)
 
 			-- Second coroutine receives and unblocks first
-			coroutine.spawn(function()
+			coroutine.go(function()
 				coroutine.yield("receiver_start")
 				
 				local val1, ok1 = ch:receive()
