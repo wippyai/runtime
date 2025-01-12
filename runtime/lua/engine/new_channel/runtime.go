@@ -29,7 +29,10 @@ func (r *Runtime) Step(vm VM, tasks ...*engine.Task) ([]*engine.Task, error) {
 		r.queue.Push(task)
 	}
 
-	for !r.queue.IsEmpty() {
+	boot := true
+	for !r.queue.IsEmpty() || boot {
+		boot = false
+
 		var batch []*engine.Task
 		for !r.queue.IsEmpty() {
 			batch = append(batch, r.queue.Pop())
@@ -45,14 +48,17 @@ func (r *Runtime) Step(vm VM, tasks ...*engine.Task) ([]*engine.Task, error) {
 				continue
 			}
 
-			op, ok := task.Yielded[0].(*op)
+			// always seek for last value in stack (func args also be in stack)
+			value := task.Yielded[len(task.Yielded)-1]
+
+			opNext, ok := value.(*onNext)
 			if !ok {
 				externalOps = append(externalOps, task)
 				continue
 			}
 
-			if next := r.handleChannelOp(task, op); next.yields && len(next.results) > 0 {
-				for _, result := range next.results {
+			if opNext.yields && len(opNext.results) > 0 {
+				for _, result := range opNext.results {
 					task, err := vm.GetTask(result.task)
 					if err != nil {
 						return nil, fmt.Errorf("task not found: %w", err)
@@ -72,15 +78,4 @@ func (r *Runtime) Step(vm VM, tasks ...*engine.Task) ([]*engine.Task, error) {
 
 	// delegate to parent layer
 	return externalOps, nil
-}
-
-func (r *Runtime) handleChannelOp(task *engine.Task, op *op) onNext {
-	switch op.kind {
-	case sendOp:
-		return op.ch.send(task.Thread(), op.value, nil)
-	case receiveOp:
-		return op.ch.receive(task.Thread(), nil)
-	}
-
-	return onNext{}
 }

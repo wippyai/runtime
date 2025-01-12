@@ -1519,6 +1519,276 @@ func TestCoroutineVM_ClosedCoroutines(t *testing.T) {
 	})
 }
 
+type customValue struct {
+	value string
+}
+
+func (cv *customValue) String() string {
+	return cv.value
+}
+
+func (cv *customValue) Type() lua.LValueType {
+	return lua.LTUserData
+}
+
+func TestCoroutineVM_CustomValue(t *testing.T) {
+	logger := zap.NewNop()
+
+	t.Run("yield custom value type directly", func(t *testing.T) {
+		vm, err := NewCoroutineVM(context.Background(), logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm.Close()
+
+		// Register a function that creates our custom value
+		vm.vm.state.SetGlobal("createCustomValue", vm.vm.state.NewFunction(func(L *lua.LState) int {
+			val := &customValue{value: "custom_data"}
+			L.Push(val)
+			return 1
+		}))
+
+		err = vm.PushScript(`
+			function custom_task()
+				local custom = createCustomValue()
+				coroutine.yield(custom)
+				return "done"
+			end
+
+			coroutine.spawn(custom_task)
+		`, "custom_value_test")
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Initial step to start coroutine
+		tasks, err := vm.Step()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if len(tasks) != 1 {
+			t.Fatalf("expected 1 yielded task, got %d", len(tasks))
+		}
+
+		// Verify yielded value
+		task := tasks[0]
+		if len(task.Yielded) != 1 {
+			t.Fatalf("expected 1 yielded value, got %d", len(task.Yielded))
+		}
+
+		// Check if the yielded value is our custom type
+		customVal, ok := task.Yielded[0].(*customValue)
+		if !ok {
+			t.Fatalf("expected customValue, got %T", task.Yielded[0])
+		}
+
+		if customVal.value != "custom_data" {
+			t.Fatalf("expected custom_data, got %s", customVal.value)
+		}
+
+		// Complete the coroutine
+		tasks, err = vm.Step(task)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if len(tasks) != 0 {
+			t.Fatal("expected coroutine to complete")
+		}
+	})
+
+	t.Run("yield custom value from function", func(t *testing.T) {
+		vm, err := NewCoroutineVM(context.Background(), logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm.Close()
+
+		// Register a function that creates our custom value
+		vm.vm.state.SetGlobal("createCustomValue", vm.vm.state.NewFunction(func(L *lua.LState) int {
+			L.Push(&customValue{value: "custom_data"})
+			return -1
+		}))
+
+		err = vm.PushScript(`
+			function custom_task()
+				createCustomValue()
+				return "done"
+			end
+
+			coroutine.spawn(custom_task)
+		`, "custom_value_test")
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Initial step to start coroutine
+		tasks, err := vm.Step()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if len(tasks) != 1 {
+			t.Fatalf("expected 1 yielded task, got %d", len(tasks))
+		}
+
+		// Verify yielded value
+		task := tasks[0]
+		if len(task.Yielded) != 1 {
+			t.Fatalf("expected 1 yielded value, got %d", len(task.Yielded))
+		}
+
+		// Check if the yielded value is our custom type
+		customVal, ok := task.Yielded[0].(*customValue)
+		if !ok {
+			t.Fatalf("expected customValue, got %T", task.Yielded[0])
+		}
+
+		if customVal.value != "custom_data" {
+			t.Fatalf("expected custom_data, got %s", customVal.value)
+		}
+
+		// Complete the coroutine
+		tasks, err = vm.Step(task)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if len(tasks) != 0 {
+			t.Fatal("expected coroutine to complete")
+		}
+	})
+
+	t.Run("yield custom value in root coroutine", func(t *testing.T) {
+		vm, err := NewCoroutineVM(context.Background(), logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm.Close()
+
+		// Register a function that creates our custom value
+		vm.vm.state.SetGlobal("createCustomValue", vm.vm.state.NewFunction(func(L *lua.LState) int {
+			L.Push(&customValue{value: "custom_data"})
+			return -1
+		}))
+
+		err = vm.PushScript(`
+			createCustomValue()
+		`, "custom_value_test")
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Initial step to start coroutine
+		tasks, err := vm.Step()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if len(tasks) != 1 {
+			t.Fatalf("expected 1 yielded task, got %d", len(tasks))
+		}
+
+		// Verify yielded value
+		task := tasks[0]
+		if len(task.Yielded) != 1 {
+			t.Fatalf("expected 1 yielded value, got %d", len(task.Yielded))
+		}
+
+		// Check if the yielded value is our custom type
+		customVal, ok := task.Yielded[0].(*customValue)
+		if !ok {
+			t.Fatalf("expected customValue, got %T", task.Yielded[0])
+		}
+
+		if customVal.value != "custom_data" {
+			t.Fatalf("expected custom_data, got %s", customVal.value)
+		}
+
+		// Complete the coroutine
+		tasks, err = vm.Step(task)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if len(tasks) != 0 {
+			t.Fatal("expected coroutine to complete")
+		}
+	})
+
+	t.Run("yield custom value in root coroutine with args", func(t *testing.T) {
+		vm, err := NewCoroutineVM(context.Background(), logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm.Close()
+
+		// Register a function that creates our custom value
+		vm.vm.state.SetGlobal("createCustomValue", vm.vm.state.NewFunction(func(L *lua.LState) int {
+			L.Push(&customValue{value: "custom_data"})
+			return -1
+		}))
+
+		err = vm.PushScript(`
+			createCustomValue("arg1")
+		`, "custom_value_test")
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Initial step to start coroutine
+		tasks, err := vm.Step()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if len(tasks) != 1 {
+			t.Fatalf("expected 1 yielded task, got %d", len(tasks))
+		}
+
+		// Verify yielded value
+		task := tasks[0]
+		if len(task.Yielded) != 2 {
+			t.Fatalf("expected 2 yielded value, got %d", len(task.Yielded))
+		}
+
+		// Check if the yielded value is our custom type
+		arg1, ok := task.Yielded[0].(lua.LString)
+		if !ok {
+			t.Fatalf("expected customValue, got %T", task.Yielded[0])
+		}
+
+		if arg1.String() != "arg1" {
+			t.Fatalf("expected arg1, got %v", arg1)
+		}
+
+		// Check if the yielded value is our custom type
+		customVal, ok := task.Yielded[1].(*customValue)
+		if !ok {
+			t.Fatalf("expected customValue, got %T", task.Yielded[0])
+		}
+
+		if customVal.value != "custom_data" {
+			t.Fatalf("expected custom_data, got %s", customVal.value)
+		}
+
+		// Complete the coroutine
+		tasks, err = vm.Step(task)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if len(tasks) != 0 {
+			t.Fatal("expected coroutine to complete")
+		}
+	})
+}
+
 func BenchmarkCoroutineVM(b *testing.B) {
 	logger := zap.NewNop()
 

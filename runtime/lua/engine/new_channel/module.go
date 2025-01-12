@@ -11,25 +11,16 @@ func (o *op) String() string {
 }
 
 func (o *op) Type() lua.LValueType {
-	return lua.LTUserData
-}
-
-// Lua interface for selectOp
-func (s *selectOp) String() string {
-	return fmt.Sprintf("channel.select{cases=%d}", len(s.cases))
-}
-
-func (s *selectOp) Type() lua.LValueType {
-	return lua.LTUserData
+	return lua.LTChannel
 }
 
 // Lua interface for onNext
-func (m onNext) String() string {
+func (m *onNext) String() string {
 	return fmt.Sprintf("next{yields=%t}", m.yields)
 }
 
-func (m onNext) Type() lua.LValueType {
-	return lua.LTUserData
+func (m *onNext) Type() lua.LValueType {
+	return lua.LTChannel
 }
 
 // Module represents a channel Lua module
@@ -84,6 +75,7 @@ func newChannelLua(L *lua.LState) int {
 	ch := newChannel(capacity)
 	ud := L.NewUserData()
 	ud.Value = ch
+	ch.value = ud // yep
 	L.SetMetatable(ud, L.GetTypeMetatable("channel"))
 	L.Push(ud)
 	return 1
@@ -100,6 +92,7 @@ func newNamedChannelLua(L *lua.LState) int {
 	ch := Named(name, capacity)
 	ud := L.NewUserData()
 	ud.Value = ch
+	ch.value = ud // yep
 	L.SetMetatable(ud, L.GetTypeMetatable("channel"))
 	L.Push(ud)
 	return 1
@@ -176,7 +169,7 @@ func closeLua(L *lua.LState) int {
 		return 0
 	}
 
-	next := ch.close()
+	next := ch.close(L)
 
 	if next.yields {
 		L.Push(next)
@@ -203,14 +196,14 @@ func caseSendLua(L *lua.LState) int {
 		return 0
 	}
 
-	L.Push(&op{kind: sendOp, ch: ch, chValue: L.Get(1), value: value})
+	L.Push(&op{kind: sendOp, ch: ch, value: value})
 	return 1
 }
 
 func caseReceiveLua(L *lua.LState) int {
 	ch := checkChannel(L)
 
-	L.Push(&op{kind: receiveOp, ch: ch, chValue: L.Get(1)})
+	L.Push(&op{kind: receiveOp, ch: ch})
 	return 1
 }
 
@@ -264,7 +257,7 @@ func selectLua(L *lua.LState) int {
 }
 
 // trySelects checks the ability of immediate select operation
-func trySelect(L *lua.LState, selectOp *selectOp) onNext {
+func trySelect(L *lua.LState, selectOp *selectOp) *onNext {
 	// Try each case in order
 	for _, caseOp := range selectOp.cases {
 		caseOp.selectOp = selectOp // for future reference
@@ -286,7 +279,7 @@ func trySelect(L *lua.LState, selectOp *selectOp) onNext {
 		result := L.NewTable()
 		result.RawSetString("default", lua.LBool(true))
 		result.RawSetString("ok", lua.LBool(true))
-		return onNext{
+		return &onNext{
 			results: []*opResult{
 				{task: L, values: []lua.LValue{result}},
 			},
@@ -294,7 +287,7 @@ func trySelect(L *lua.LState, selectOp *selectOp) onNext {
 	}
 
 	// Must block
-	return onNext{yields: true}
+	return &onNext{yields: true}
 }
 
 // Helper functions
