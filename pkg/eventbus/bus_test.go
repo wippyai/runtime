@@ -139,7 +139,7 @@ func TestUnsubscribe(t *testing.T) {
 	subID, err := bus.Subscribe(context.Background(), "test-system", ch)
 	require.NoError(t, err)
 
-	// Send an event before unsubscribing
+	// send an event before unsubscribing
 	event1 := newTestEvent("test-system", "test-kind", "payload1")
 	bus.Send(context.Background(), event1)
 
@@ -164,7 +164,7 @@ func TestBusStop(t *testing.T) {
 	_, err := bus.Subscribe(context.Background(), "test-system", ch)
 	require.NoError(t, err)
 
-	// Send event before stopping
+	// send event before stopping
 	event := newTestEvent("test-system", "test-kind", "payload")
 	bus.Send(context.Background(), event)
 
@@ -374,7 +374,7 @@ func TestMultipleSubscribersDifferentKinds(t *testing.T) {
 	require.NoError(t, err)
 	defer b.Unsubscribe(context.Background(), id2)
 
-	// Send eventbus that match different paths
+	// send eventbus that match different paths
 	userEvent := newTestEvent("test-system", "users.created", "user-data")
 	postEvent := newTestEvent("test-system", "posts.created", "post-data")
 	otherEvent := newTestEvent("test-system", "other.created", "other-data")

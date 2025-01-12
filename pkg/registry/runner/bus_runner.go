@@ -87,7 +87,7 @@ func (br *BusRunner) applyOperation(ctx context.Context, state stateMap, op regi
 	//	return state, fmt.Errorf("invalid operation: %w", err)
 	//}
 
-	// Send the operation event
+	// send the operation event
 	br.bus.Send(ctx, events.Event{
 		System: registry.System,
 		Kind:   op.Kind,

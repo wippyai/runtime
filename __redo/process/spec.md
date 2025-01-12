@@ -102,16 +102,16 @@ local output = cmd:stdout()  -- returns all stdout collected so far
 local errors = cmd:stderr()  -- returns all stderr collected so far
 
 -- Stream output with separate handlers
-cmd:on_stdout(function(data)
+cmd:on_stdout(function(data) -- todo: use iterator instead?
     -- handle stdout data chunk
 end)
 
-cmd:on_stderr(function(data)
+cmd:on_stderr(function(data) -- todo: use iterator instead?
     -- handle stderr data chunk
 end)
 
 -- Or use combined stream (simpler but less control)
-cmd:on_output(function(data, source)
+cmd:on_output(function(data, source) -- todo: use iterator instead?
     -- source is "stdout" or "stderr"
     -- data is the output chunk
 end)
