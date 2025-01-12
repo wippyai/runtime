@@ -32,6 +32,9 @@ Named channels allow external communication with the process. They can be access
 local ch = channel.named("my_channel", 2)
 ```
 
+> **Note:** Named channels cannot be closed manually and are managed by the runtime. You can not write to named channels
+> from Lua code (yet).
+
 ## Basic Operations
 
 ### Sending
@@ -64,16 +67,6 @@ ch:close()
 
 The select statement allows you to wait on multiple channel operations simultaneously.
 
-### Creating Select Cases
-
-```lua
--- Create send case
-local sendCase = ch:case_send(value)
-
--- Create receive case
-local recvCase = ch:case_receive()
-```
-
 ### Using Select
 
 ```lua
@@ -89,6 +82,8 @@ if result.channel == ch1 then
 elseif result.channel == ch2 then
     print("Sent value")
 end
+
+-- result.ok is true if operation was successful, false on closed
 ```
 
 ### Select with Default
@@ -155,7 +150,7 @@ local function handler()
     -- Handle messages from both channels
     for i = 1, 2 do
         local result = channel.select{
-            ch1:case_receive(),
+            ch1:case_receive(), -- always first written value
             ch2:case_receive()
         }
         coroutine.yield("received: " .. result.value)
@@ -170,7 +165,6 @@ coroutine.spawn(handler)
 ```lua
 -- Process handling external communication
 local input = channel.named("input", 1)
-local output = channel.named("output", 1)
 
 coroutine.spawn(function()
     while true do
@@ -178,10 +172,8 @@ coroutine.spawn(function()
         if not ok then break end
         
         -- Process value
-        local result = "processed:" .. value
-        
-        -- Send back result
-        output:send(result)
+        local result = "processed:" .. value      
+        coroutine.yield(result)
     end
 end)
 ```
@@ -219,11 +211,12 @@ end)
     - Cases must be channel operations
     - Default case makes select non-blocking
     - Select fairly chooses between ready cases
+    - Always deterministically selects one case
 
 3. **Coroutine Context**
-    - Channels only work within Pony processes
+    - Channels only work within Pony processes and coroutines
     - Not available in regular functions
-    - Must be used with coroutine.spawn
+    - Must be used with `coroutine.spawn`
 
 ## Runtime Interaction
 
