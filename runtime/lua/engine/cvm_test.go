@@ -27,7 +27,7 @@ func TestCoroutineVM_Basic(t *testing.T) {
 				return "done"
 			end
 
-			coroutine.go(co)
+			coroutine.spawn(co)
 		`, "test")
 		if err != nil {
 			t.Fatal(err)
@@ -95,8 +95,8 @@ func TestCoroutineVM_ParallelTasks(t *testing.T) {
 				return "task2_done"
 			end
 
-			coroutine.go(task1)
-			coroutine.go(task2)
+			coroutine.spawn(task1)
+			coroutine.spawn(task2)
 		`, "parallel_test")
 
 		if err != nil {
@@ -183,7 +183,7 @@ func TestCoroutineVM_ErrorHandling(t *testing.T) {
 				error("intentional error")
 			end
 
-			coroutine.go(error_task)
+			coroutine.spawn(error_task)
 		`, "error_test")
 
 		if err != nil {
@@ -229,7 +229,7 @@ func TestCoroutineVM_ErrorHandling(t *testing.T) {
 				return x
 			end
 
-			coroutine.go(long_task)
+			coroutine.spawn(long_task)
 		`, "cancel_test")
 
 		if err != nil {
@@ -273,7 +273,7 @@ func TestCoroutineVM_ContextPropagation(t *testing.T) {
 				end
 			end
 
-			coroutine.go(check_ctx)
+			coroutine.spawn(check_ctx)
 		`, "context_test")
 
 		if err != nil {
@@ -326,7 +326,7 @@ func TestCoroutineVM_NativeCoroutines(t *testing.T) {
 				coroutine.yield(val) -- yields "native_done" to VM
 			end
 
-			coroutine.go(task_func)
+			coroutine.spawn(task_func)
 		`, "test")
 
 		if err != nil {
@@ -391,8 +391,8 @@ func TestCoroutineVM_NativeCoroutines(t *testing.T) {
 				coroutine.yield(val)
 			end
 
-			coroutine.go(task1)
-			coroutine.go(task2)
+			coroutine.spawn(task1)
+			coroutine.spawn(task2)
 		`, "test")
 
 		if err != nil {
@@ -441,7 +441,7 @@ func TestCoroutineVM_NativeCoroutines(t *testing.T) {
 				coroutine.yield(val)
 			end
 
-			coroutine.go(task_func)
+			coroutine.spawn(task_func)
 		`, "test")
 
 		if err != nil {
@@ -473,7 +473,7 @@ func TestCoroutineVM_ArgumentValidation(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.PushScript(`
-			coroutine.go(nil)
+			coroutine.spawn(nil)
 		`, "nil_test")
 
 		if err != nil {
@@ -506,7 +506,7 @@ func TestCoroutineVM_ArgumentValidation(t *testing.T) {
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
 				script := fmt.Sprintf(`
-					coroutine.go(%s)
+					coroutine.spawn(%s)
 				`, tc.value)
 
 				err := vm.PushScript(script, tc.name)
@@ -530,7 +530,7 @@ func TestCoroutineVM_ArgumentValidation(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.PushScript(`
-			coroutine.go()
+			coroutine.spawn()
 		`, "missing_arg_test")
 
 		if err != nil {
@@ -556,7 +556,7 @@ func TestCoroutineVM_ArgumentValidation(t *testing.T) {
 			end
 			
 			-- Extra arguments should be ignored
-			coroutine.go(fn, "extra1", "extra2")
+			coroutine.spawn(fn, "extra1", "extra2")
 		`, "extra_args_test")
 
 		if err != nil {
@@ -590,7 +590,7 @@ func TestCoroutineVM_ArgumentValidation(t *testing.T) {
 			local function fn()
 				coroutine.yield(x)
 			end
-			coroutine.go(fn)
+			coroutine.spawn(fn)
 		`, "upvalue_test")
 
 		if err != nil {
@@ -638,7 +638,7 @@ func TestCoroutineVM_AdditionalCoverage(t *testing.T) {
 				local val = coroutine.yield("first")
 				coroutine.yield("got " .. tostring(val))
 			end
-			coroutine.go(test_resume_value)
+			coroutine.spawn(test_resume_value)
 		`, "test")
 
 		if err != nil {
@@ -682,7 +682,7 @@ func TestCoroutineVM_AdditionalCoverage(t *testing.T) {
 			function completed_task()
 				return "done"
 			end
-			coroutine.go(completed_task)
+			coroutine.spawn(completed_task)
 		`, "test")
 
 		if err != nil {
@@ -716,7 +716,7 @@ func TestCoroutineVM_AdditionalCoverage(t *testing.T) {
 				local val = coroutine.yield("first")
 				error("resume error")
 			end
-			coroutine.go(error_on_resume)
+			coroutine.spawn(error_on_resume)
 		`, "test")
 
 		if err != nil {
@@ -768,7 +768,7 @@ func TestCoroutineVM_AdditionalCoverage(t *testing.T) {
 			local badFunc = function()
 				error("coroutine creation error")
 			end
-			coroutine.go(badFunc)
+			coroutine.spawn(badFunc)
 		`, "test")
 
 		_, err = vm.Step()
@@ -815,7 +815,7 @@ func TestCoroutineVM_StatusAndWrap(t *testing.T) {
 				coroutine.yield(status_results)
 			end
 
-			coroutine.go(check_status)
+			coroutine.spawn(check_status)
 		`, "status_test")
 
 		if err != nil {
@@ -855,7 +855,7 @@ func TestCoroutineVM_StatusAndWrap(t *testing.T) {
 			end)
 
 			-- Try to spawn the wrapped function
-			coroutine.go(wrapped)
+			coroutine.spawn(wrapped)
 		`, "wrap_test")
 
 		if err != nil {
@@ -932,8 +932,8 @@ func TestCoroutineVM_SharedBuffer(t *testing.T) {
 				end
 			end
 
-			coroutine.go(writer)
-			coroutine.go(flusher)
+			coroutine.spawn(writer)
+			coroutine.spawn(flusher)
 		`, "buffer_test")
 
 		if err != nil {
@@ -1049,12 +1049,12 @@ func TestCoroutineVM_NestedSpawn(t *testing.T) {
 
 			function parent()
 				coroutine.yield("parent_start")
-				coroutine.go(child)
+				coroutine.spawn(child)
 				coroutine.yield("parent_spawned")
 				return "parent_done"
 			end
 
-			coroutine.go(parent)
+			coroutine.spawn(parent)
 		`, "nested_spawn_test")
 
 		if err != nil {
@@ -1142,21 +1142,21 @@ func TestCoroutineVM_NestedSpawn(t *testing.T) {
 
 			function middle()
 				coroutine.yield("middle_start")
-				coroutine.go(leaf)
-				coroutine.go(leaf)
+				coroutine.spawn(leaf)
+				coroutine.spawn(leaf)
 				coroutine.yield("middle_spawned")
 				return "middle_done"
 			end
 
 			function root()
 				coroutine.yield("root_start")
-				coroutine.go(middle)
-				coroutine.go(middle)
+				coroutine.spawn(middle)
+				coroutine.spawn(middle)
 				coroutine.yield("root_spawned")
 				return "root_done"
 			end
 
-			coroutine.go(root)
+			coroutine.spawn(root)
 		`, "multi_nested_test")
 
 		if err != nil {
@@ -1281,8 +1281,8 @@ func TestCoroutineVM_MonitorStatus(t *testing.T) {
 				return "monitor_done"
 			end
 			
-			target_thread = coroutine.go(target_task)
-			coroutine.go(monitor_task)
+			target_thread = coroutine.spawn(target_task)
+			coroutine.spawn(monitor_task)
 		`, "monitor_test")
 
 		if err != nil {
@@ -1438,7 +1438,7 @@ func TestCoroutineVM_ClosedCoroutines(t *testing.T) {
 
 			-- Spawn multiple coroutines
 			for i = 1, 3 do
-				coroutine.go(test_cleanup)
+				coroutine.spawn(test_cleanup)
 			end
 		`, "cleanup_test")
 
@@ -1491,7 +1491,7 @@ func TestCoroutineVM_ClosedCoroutines(t *testing.T) {
 				error("test error")
 			end
 	
-			coroutine.go(error_test)
+			coroutine.spawn(error_test)
 		`, "error_test")
 
 		if err != nil {
@@ -1555,7 +1555,7 @@ func TestCoroutineVM_CustomValue(t *testing.T) {
 				return "done"
 			end
 
-			coroutine.go(custom_task)
+			coroutine.spawn(custom_task)
 		`, "custom_value_test")
 
 		if err != nil {
@@ -1618,7 +1618,7 @@ func TestCoroutineVM_CustomValue(t *testing.T) {
 				return "done"
 			end
 
-			coroutine.go(custom_task)
+			coroutine.spawn(custom_task)
 		`, "custom_value_test")
 
 		if err != nil {
@@ -1807,7 +1807,7 @@ func BenchmarkCoroutineVM(b *testing.B) {
 				end
 			end
 
-			coroutine.go(echo)
+			coroutine.spawn(echo)
 		`
 
 		err = vm.PushScript(script, "bench")

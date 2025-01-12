@@ -26,7 +26,7 @@ func TestChannelPassingSimple(t *testing.T) {
 		local namedCh = channel.named("test", 0)
 
 		-- Test passing regular channel
-		coroutine.go(function()
+		coroutine.spawn(function()
 			local ch = channel.new(0)    -- Create regular channel
 			passCh:send(ch)              -- Pass it
 			ch:send("hello")             
@@ -34,13 +34,13 @@ func TestChannelPassingSimple(t *testing.T) {
 		end)
 
 		-- Test passing named channel
-		coroutine.go(function()
+		coroutine.spawn(function()
 			passCh:send(namedCh)         -- Pass named channel
 			coroutine.yield("named_sent")
 		end)
 
 		-- Receiver for both channels
-		coroutine.go(function()
+		coroutine.spawn(function()
 			-- Receive and use regular channel
 			local ch1 = passCh:receive()
 			local msg = ch1:receive()
