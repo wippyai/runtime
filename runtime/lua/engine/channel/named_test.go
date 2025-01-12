@@ -30,7 +30,7 @@ package channel
 //
 //		err = vm.PushScript(`
 //            print("Starting script execution")
-//            coroutine.spawn(function()
+//            coroutine.go(function()
 //                print("Creating channels")
 //                local parent1 = create_named_channel("parent1")
 //                local parent2 = create_named_channel("parent2")
@@ -165,7 +165,7 @@ package channel
 //        local ch = channel.inbox("signal")
 //
 //        -- Receiver
-//        coroutine.spawn(function()
+//        coroutine.go(function()
 //            local msg, ok = ch:receive()
 //            assert(ok, "expected successful receive")
 //            assert(msg == "hello", "wrong message received")
@@ -215,7 +215,7 @@ package channel
 //		err = vm.PushScript(`
 //        local ch = channel.inbox("signal")
 //
-//        coroutine.spawn(function()
+//        coroutine.go(function()
 //            -- First receive
 //            local msg1, ok = ch:receive()
 //            assert(ok and msg1 == "first", "wrong first message")
@@ -291,14 +291,14 @@ package channel
 //            local ch = channel.inbox("distributed")
 //
 //            -- First receiver
-//            coroutine.spawn(function()
+//            coroutine.go(function()
 //                local msg, ok = ch:receive()
 //                assert(ok and msg == "first", "wrong message in first receiver")
 //                coroutine.yield("first_done")
 //            end)
 //
 //            -- Second receiver
-//            coroutine.spawn(function()
+//            coroutine.go(function()
 //                local msg, ok = ch:receive()
 //                assert(ok and msg == "second", "wrong message in second receiver")
 //                coroutine.yield("second_done")
@@ -351,7 +351,7 @@ package channel
 //		err = vm.PushScript(`
 //			local ext = channel.inbox("ext1")
 //
-//			coroutine.spawn(function()
+//			coroutine.go(function()
 //				local result = channel.select({
 //					ext:case_receive()
 //				})
@@ -400,7 +400,7 @@ package channel
 //	//		local ext1 = channel.inbox("ext1")
 //	//		local ext2 = channel.inbox("ext2")
 //	//
-//	//		coroutine.spawn(function()
+//	//		coroutine.go(function()
 //	//			-- First select should get ext1
 //	//			local result = channel.select({
 //	//				ext1:case_receive(),

@@ -16,6 +16,10 @@ func (o *op) Type() lua.LValueType {
 
 // Lua interface for onNext
 func (m *onNext) String() string {
+	if len(m.block) > 0 {
+		return fmt.Sprintf("next{yields=true,block=%v}", m.block)
+	}
+
 	return fmt.Sprintf("next{yields=%t}", m.yields)
 }
 
@@ -48,11 +52,14 @@ func (m *Module) Loader(L *lua.LState) int {
 
 	// Channel methods
 	channelMethods := map[string]lua.LGFunction{
-		"send":         sendLua,
-		"receive":      receiveLua,
-		"close":        closeLua,
-		"case_send":    caseSendLua,
-		"case_receive": caseReceiveLua,
+		"send":             sendLua,
+		"receive":          receiveLua,
+		"close":            closeLua,
+		"case_send":        caseSendLua,
+		"case_receive":     caseReceiveLua,
+		"_debug_size":      debugSizeLua,
+		"_debug_senders":   debugSendersLua,
+		"_debug_receivers": debugReceiversLua,
 	}
 
 	// Channel metatable
@@ -120,8 +127,8 @@ func sendLua(L *lua.LState) int {
 		return -1
 	}
 
-	if len(next.results) > 0 && next.results[0].err != nil {
-		L.RaiseError(next.results[0].err.Error())
+	if len(next.next) > 0 && next.next[0].err != nil {
+		L.RaiseError(next.next[0].err.Error())
 		return 0
 	}
 
@@ -138,8 +145,8 @@ func receiveLua(L *lua.LState) int {
 		return -1 // yield to scheduler
 	}
 
-	if len(next.results) > 0 {
-		result := next.results[0]
+	if len(next.next) > 0 {
+		result := next.next[0]
 		if result.err != nil {
 			L.RaiseError(result.err.Error())
 			return 0
@@ -176,9 +183,9 @@ func closeLua(L *lua.LState) int {
 		return -1 // yield to scheduler
 	}
 
-	// Handle immediate results
-	if len(next.results) > 0 && next.results[0].err != nil {
-		L.RaiseError(next.results[0].err.Error())
+	// Handle immediate next
+	if len(next.next) > 0 && next.next[0].err != nil {
+		L.RaiseError(next.next[0].err.Error())
 		return 0
 	}
 
@@ -240,8 +247,8 @@ func selectLua(L *lua.LState) int {
 		return -1
 	}
 
-	if len(next.results) > 0 {
-		result := next.results[0]
+	if len(next.next) > 0 {
+		result := next.next[0]
 		if result.err != nil {
 			L.RaiseError(result.err.Error())
 			return 0
@@ -258,36 +265,43 @@ func selectLua(L *lua.LState) int {
 
 // trySelects checks the ability of immediate select operation
 func trySelect(L *lua.LState, selectOp *selectOp) *onNext {
-	// Try each case in order
+	waits := make([]*Channel, 0, len(selectOp.cases))
 	for _, caseOp := range selectOp.cases {
 		caseOp.selectOp = selectOp // for future reference
+		waits = append(waits, caseOp.ch)
 
 		switch caseOp.kind {
 		case sendOp:
-			if caseOp.ch.canSend() {
-				return caseOp.ch.send(L, caseOp.value, selectOp)
+			m := caseOp.ch.send(L, caseOp.value, selectOp)
+			if !m.yields {
+				flushSelects(selectOp)
+				return m
 			}
 		case receiveOp:
-			if caseOp.ch.canReceive() {
-				return caseOp.ch.receive(L, selectOp)
+			m := caseOp.ch.receive(L, selectOp)
+			if !m.yields {
+				flushSelects(selectOp)
+				return m
 			}
 		}
 	}
 
 	// Handle default case
 	if selectOp.hasDefault {
+		flushSelects(selectOp)
+
 		result := L.NewTable()
 		result.RawSetString("default", lua.LBool(true))
 		result.RawSetString("ok", lua.LBool(true))
 		return &onNext{
-			results: []*opResult{
+			next: []*opStep{
 				{task: L, values: []lua.LValue{result}},
 			},
 		}
 	}
 
 	// Must block
-	return &onNext{yields: true}
+	return &onNext{yields: true, block: waits}
 }
 
 // Helper functions
@@ -298,4 +312,23 @@ func checkChannel(L *lua.LState) *Channel {
 	}
 	L.ArgError(1, "channel expected")
 	return nil
+}
+
+// Debug methods
+func debugSizeLua(L *lua.LState) int {
+	ch := checkChannel(L)
+	L.Push(lua.LNumber(ch.size))
+	return 1
+}
+
+func debugSendersLua(L *lua.LState) int {
+	ch := checkChannel(L)
+	L.Push(lua.LNumber(ch.senders.Len()))
+	return 1
+}
+
+func debugReceiversLua(L *lua.LState) int {
+	ch := checkChannel(L)
+	L.Push(lua.LNumber(ch.receivers.Len()))
+	return 1
 }
