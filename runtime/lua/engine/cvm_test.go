@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"fmt"
-	"github.com/stretchr/testify/assert"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 	"strings"
@@ -21,14 +20,14 @@ func TestCoroutineVM_Basic(t *testing.T) {
 		defer vm.Close()
 
 		// Load and run script that spawns a coroutine
-		err = vm.DoString(`
+		err = vm.PushScript(`
 			local function co()
 				coroutine.yield("first")
 				coroutine.yield("second")
 				return "done"
 			end
 
-			coroutine.spawn(co)
+			coroutine.go(co)
 		`, "test")
 		if err != nil {
 			t.Fatal(err)
@@ -84,7 +83,7 @@ func TestCoroutineVM_ParallelTasks(t *testing.T) {
 		}
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.PushScript(`
 			function task1()
 				coroutine.yield("task1_start")
 				coroutine.yield("task1_middle")
@@ -96,8 +95,8 @@ func TestCoroutineVM_ParallelTasks(t *testing.T) {
 				return "task2_done"
 			end
 
-			coroutine.spawn(task1)
-			coroutine.spawn(task2)
+			coroutine.go(task1)
+			coroutine.go(task2)
 		`, "parallel_test")
 
 		if err != nil {
@@ -178,13 +177,13 @@ func TestCoroutineVM_ErrorHandling(t *testing.T) {
 		}
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.PushScript(`
 			function error_task()
 				coroutine.yield("start")
 				error("intentional error")
 			end
 
-			coroutine.spawn(error_task)
+			coroutine.go(error_task)
 		`, "error_test")
 
 		if err != nil {
@@ -219,7 +218,7 @@ func TestCoroutineVM_ErrorHandling(t *testing.T) {
 		}
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.PushScript(`
 			function long_task()
 				coroutine.yield("running")
 				-- Simulate long operation
@@ -230,7 +229,7 @@ func TestCoroutineVM_ErrorHandling(t *testing.T) {
 				return x
 			end
 
-			coroutine.spawn(long_task)
+			coroutine.go(long_task)
 		`, "cancel_test")
 
 		if err != nil {
@@ -265,7 +264,7 @@ func TestCoroutineVM_ContextPropagation(t *testing.T) {
 		}
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.PushScript(`
 			function check_ctx()
 				while true do
 					if coroutine.yield("check") == "stop" then
@@ -274,7 +273,7 @@ func TestCoroutineVM_ContextPropagation(t *testing.T) {
 				end
 			end
 
-			coroutine.spawn(check_ctx)
+			coroutine.go(check_ctx)
 		`, "context_test")
 
 		if err != nil {
@@ -310,7 +309,7 @@ func TestCoroutineVM_NativeCoroutines(t *testing.T) {
 		}
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.PushScript(`
 			function task_func()
 				-- Create a native coroutine
 				local co = coroutine.create(function()
@@ -327,7 +326,7 @@ func TestCoroutineVM_NativeCoroutines(t *testing.T) {
 				coroutine.yield(val) -- yields "native_done" to VM
 			end
 
-			coroutine.spawn(task_func)
+			coroutine.go(task_func)
 		`, "test")
 
 		if err != nil {
@@ -365,7 +364,7 @@ func TestCoroutineVM_NativeCoroutines(t *testing.T) {
 		}
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.PushScript(`
 			-- Create a shared native coroutine
 			shared_co = coroutine.create(function(task_name)
 				for i = 1, 2 do
@@ -392,8 +391,8 @@ func TestCoroutineVM_NativeCoroutines(t *testing.T) {
 				coroutine.yield(val)
 			end
 
-			coroutine.spawn(task1)
-			coroutine.spawn(task2)
+			coroutine.go(task1)
+			coroutine.go(task2)
 		`, "test")
 
 		if err != nil {
@@ -425,7 +424,7 @@ func TestCoroutineVM_NativeCoroutines(t *testing.T) {
 		}
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.PushScript(`
 			error_caught = false
 			
 			function task_func()
@@ -442,7 +441,7 @@ func TestCoroutineVM_NativeCoroutines(t *testing.T) {
 				coroutine.yield(val)
 			end
 
-			coroutine.spawn(task_func)
+			coroutine.go(task_func)
 		`, "test")
 
 		if err != nil {
@@ -456,7 +455,7 @@ func TestCoroutineVM_NativeCoroutines(t *testing.T) {
 			t.Fatalf("unexpected yield value: %v", vals)
 		}
 
-		err = vm.DoString(`assert(error_caught == true)`, "verify")
+		err = vm.PushScript(`assert(error_caught == true)`, "verify")
 		if err != nil {
 			t.Fatal(fmt.Sprintf("assertion failed: %v", err))
 		}
@@ -473,15 +472,17 @@ func TestCoroutineVM_ArgumentValidation(t *testing.T) {
 		}
 		defer vm.Close()
 
-		err = vm.DoString(`
-			coroutine.spawn(nil)
+		err = vm.PushScript(`
+			coroutine.go(nil)
 		`, "nil_test")
 
-		if err == nil {
-			t.Fatal("expected error when spawning with nil argument")
+		if err != nil {
+			t.Fatal(err)
 		}
-		if !strings.Contains(err.Error(), "requires a function argument") {
-			t.Fatalf("unexpected error message: %v", err)
+
+		_, err = vm.Step()
+		if err == nil || !strings.Contains(err.Error(), "requires a function argument") {
+			t.Fatal("expected error when spawning with nil argument")
 		}
 	})
 
@@ -493,23 +494,29 @@ func TestCoroutineVM_ArgumentValidation(t *testing.T) {
 		defer vm.Close()
 
 		testCases := []struct {
-			name   string
-			script string
+			name  string
+			value string
 		}{
-			{"string", `coroutine.spawn("not a function")`},
-			{"number", `coroutine.spawn(42)`},
-			{"table", `coroutine.spawn({})`},
-			{"boolean", `coroutine.spawn(true)`},
+			{"string", `"not a function"`},
+			{"number", "42"},
+			{"table", "{}"},
+			{"boolean", "true"},
 		}
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
-				err := vm.DoString(tc.script, tc.name)
-				if err == nil {
-					t.Fatal("expected error when spawning with non-function argument")
+				script := fmt.Sprintf(`
+					coroutine.go(%s)
+				`, tc.value)
+
+				err := vm.PushScript(script, tc.name)
+				if err != nil {
+					t.Fatal(err)
 				}
-				if !strings.Contains(err.Error(), "requires a function argument") {
-					t.Fatalf("unexpected error message: %v", err)
+
+				_, err = vm.Step()
+				if err == nil || !strings.Contains(err.Error(), "requires a function argument") {
+					t.Fatal("expected error when spawning with non-function argument")
 				}
 			})
 		}
@@ -522,15 +529,17 @@ func TestCoroutineVM_ArgumentValidation(t *testing.T) {
 		}
 		defer vm.Close()
 
-		err = vm.DoString(`
-			coroutine.spawn()
+		err = vm.PushScript(`
+			coroutine.go()
 		`, "missing_arg_test")
 
-		if err == nil {
-			t.Fatal("expected error when spawning with no arguments")
+		if err != nil {
+			t.Fatal(err)
 		}
-		if !strings.Contains(err.Error(), "requires a function argument") {
-			t.Fatalf("unexpected error message: %v", err)
+
+		_, err = vm.Step()
+		if err == nil || !strings.Contains(err.Error(), "requires a function argument") {
+			t.Fatal("expected error when spawning with no arguments")
 		}
 	})
 
@@ -541,19 +550,24 @@ func TestCoroutineVM_ArgumentValidation(t *testing.T) {
 		}
 		defer vm.Close()
 
-		// Extra arguments should be ignored, not cause an error
-		err = vm.DoString(`
+		err = vm.PushScript(`
 			local function fn()
 				coroutine.yield("ok")
 			end
-			coroutine.spawn(fn, "extra1", "extra2")
+			
+			-- Extra arguments should be ignored
+			coroutine.go(fn, "extra1", "extra2")
 		`, "extra_args_test")
 
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		tasks, _ := vm.Step()
+		tasks, err := vm.Step()
+		if err != nil {
+			t.Fatal(err)
+		}
+
 		if len(tasks) != 1 {
 			t.Fatalf("expected 1 yielded task, got %d", len(tasks))
 		}
@@ -571,20 +585,23 @@ func TestCoroutineVM_ArgumentValidation(t *testing.T) {
 		}
 		defer vm.Close()
 
-		// Test that spawning a function with upvalues works correctly
-		err = vm.DoString(`
+		err = vm.PushScript(`
 			local x = "captured"
 			local function fn()
 				coroutine.yield(x)
 			end
-			coroutine.spawn(fn)
+			coroutine.go(fn)
 		`, "upvalue_test")
 
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		tasks, _ := vm.Step()
+		tasks, err := vm.Step()
+		if err != nil {
+			t.Fatal(err)
+		}
+
 		if len(tasks) != 1 {
 			t.Fatalf("expected 1 yielded task, got %d", len(tasks))
 		}
@@ -616,12 +633,12 @@ func TestCoroutineVM_AdditionalCoverage(t *testing.T) {
 		}
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.PushScript(`
 			function test_resume_value()
 				local val = coroutine.yield("first")
 				coroutine.yield("got " .. tostring(val))
 			end
-			coroutine.spawn(test_resume_value)
+			coroutine.go(test_resume_value)
 		`, "test")
 
 		if err != nil {
@@ -661,11 +678,11 @@ func TestCoroutineVM_AdditionalCoverage(t *testing.T) {
 		}
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.PushScript(`
 			function completed_task()
 				return "done"
 			end
-			coroutine.spawn(completed_task)
+			coroutine.go(completed_task)
 		`, "test")
 
 		if err != nil {
@@ -694,12 +711,12 @@ func TestCoroutineVM_AdditionalCoverage(t *testing.T) {
 		}
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.PushScript(`
 			function error_on_resume()
 				local val = coroutine.yield("first")
 				error("resume error")
 			end
-			coroutine.spawn(error_on_resume)
+			coroutine.go(error_on_resume)
 		`, "test")
 
 		if err != nil {
@@ -746,12 +763,12 @@ func TestCoroutineVM_AdditionalCoverage(t *testing.T) {
 		}
 		defer vm.Close()
 
-		vm.DoString(`
+		vm.PushScript(`
 			-- Create a function that will error when called
 			local badFunc = function()
 				error("coroutine creation error")
 			end
-			coroutine.spawn(badFunc)
+			coroutine.go(badFunc)
 		`, "test")
 
 		_, err = vm.Step()
@@ -775,7 +792,7 @@ func TestCoroutineVM_StatusAndWrap(t *testing.T) {
 		}
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.PushScript(`
 			-- Create a task that will check statuses
 			local status_results = {}
 			
@@ -798,7 +815,7 @@ func TestCoroutineVM_StatusAndWrap(t *testing.T) {
 				coroutine.yield(status_results)
 			end
 
-			coroutine.spawn(check_status)
+			coroutine.go(check_status)
 		`, "status_test")
 
 		if err != nil {
@@ -830,7 +847,7 @@ func TestCoroutineVM_StatusAndWrap(t *testing.T) {
 		}
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.PushScript(`
 			-- Create a wrapped coroutine
 			local wrapped = coroutine.wrap(function()
 				coroutine.yield("from_wrap")
@@ -838,15 +855,21 @@ func TestCoroutineVM_StatusAndWrap(t *testing.T) {
 			end)
 
 			-- Try to spawn the wrapped function
-			coroutine.spawn(wrapped)
+			coroutine.go(wrapped)
 		`, "wrap_test")
 
-		assert.Error(t, err)
+		if err != nil {
+			t.Fatal(err)
+		}
 
-		tasks, _ := vm.Step()
-		for _, task := range tasks {
-			vals := task.Yielded
-			t.Logf("task yielded values: %v", vals)
+		// The error should occur during Step() when we try to actually spawn
+		_, err = vm.Step()
+		if err == nil {
+			t.Fatal("expected error when spawning wrapped coroutine")
+		}
+
+		if !strings.Contains(err.Error(), "cannot spawn wrapped coroutines") {
+			t.Fatalf("unexpected error message: %v", err)
 		}
 	})
 }
@@ -861,7 +884,7 @@ func TestCoroutineVM_SharedBuffer(t *testing.T) {
 		}
 		defer vm.Close()
 
-		err = vm.DoString(`	
+		err = vm.PushScript(`	
 			-- Shared State
 			shared_buffer = {
 				data = {},
@@ -909,8 +932,8 @@ func TestCoroutineVM_SharedBuffer(t *testing.T) {
 				end
 			end
 
-			coroutine.spawn(writer)
-			coroutine.spawn(flusher)
+			coroutine.go(writer)
+			coroutine.go(flusher)
 		`, "buffer_test")
 
 		if err != nil {
@@ -949,7 +972,7 @@ func TestCoroutineVM_SharedBuffer(t *testing.T) {
 		testValues := []string{"val1", "val2", "val3", "val4", "val5"}
 
 		for _, val := range testValues {
-			// Send value to writer
+			// send value to writer
 			writerTask.Resumed = []lua.LValue{lua.LString(val)}
 			tasks, err = vm.Step(writerTask)
 			if err != nil {
@@ -1018,7 +1041,7 @@ func TestCoroutineVM_NestedSpawn(t *testing.T) {
 		}
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.PushScript(`
 			function child()
 				coroutine.yield("child_running")
 				return "child_done"
@@ -1026,12 +1049,12 @@ func TestCoroutineVM_NestedSpawn(t *testing.T) {
 
 			function parent()
 				coroutine.yield("parent_start")
-				coroutine.spawn(child)
+				coroutine.go(child)
 				coroutine.yield("parent_spawned")
 				return "parent_done"
 			end
 
-			coroutine.spawn(parent)
+			coroutine.go(parent)
 		`, "nested_spawn_test")
 
 		if err != nil {
@@ -1111,7 +1134,7 @@ func TestCoroutineVM_NestedSpawn(t *testing.T) {
 		}
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.PushScript(`
 			function leaf()
 				coroutine.yield("leaf")
 				return "leaf_done"
@@ -1119,21 +1142,21 @@ func TestCoroutineVM_NestedSpawn(t *testing.T) {
 
 			function middle()
 				coroutine.yield("middle_start")
-				coroutine.spawn(leaf)
-				coroutine.spawn(leaf)
+				coroutine.go(leaf)
+				coroutine.go(leaf)
 				coroutine.yield("middle_spawned")
 				return "middle_done"
 			end
 
 			function root()
 				coroutine.yield("root_start")
-				coroutine.spawn(middle)
-				coroutine.spawn(middle)
+				coroutine.go(middle)
+				coroutine.go(middle)
 				coroutine.yield("root_spawned")
 				return "root_done"
 			end
 
-			coroutine.spawn(root)
+			coroutine.go(root)
 		`, "multi_nested_test")
 
 		if err != nil {
@@ -1221,7 +1244,7 @@ func TestCoroutineVM_MonitorStatus(t *testing.T) {
 		}
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.PushScript(`
 			status_log = {}
 			target_thread = nil
 			yield_values = {}
@@ -1258,8 +1281,8 @@ func TestCoroutineVM_MonitorStatus(t *testing.T) {
 				return "monitor_done"
 			end
 			
-			target_thread = coroutine.spawn(target_task)
-			coroutine.spawn(monitor_task)
+			target_thread = coroutine.go(target_task)
+			coroutine.go(monitor_task)
 		`, "monitor_test")
 
 		if err != nil {
@@ -1341,7 +1364,7 @@ func TestCoroutineVM_MonitorStatus(t *testing.T) {
 		}
 
 		// Verify status transitions and resume values
-		err = vm.DoString(`
+		err = vm.PushScript(`
 			assert(#status_log == 4, string.format("expected 4 status entries, got %d", #status_log))
 			
 			assert(status_log[1].phase == "initial" and status_log[1].status == "suspended", 
@@ -1372,7 +1395,7 @@ func TestCoroutineVM_MonitorStatus(t *testing.T) {
 		}
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.PushScript(`
 			local ok, err = pcall(function()
 				coroutine.status(nil)
 			end)
@@ -1405,7 +1428,7 @@ func TestCoroutineVM_ClosedCoroutines(t *testing.T) {
 		}
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.PushScript(`
 			completed_count = 0
 			
 			function test_cleanup()
@@ -1415,7 +1438,7 @@ func TestCoroutineVM_ClosedCoroutines(t *testing.T) {
 
 			-- Spawn multiple coroutines
 			for i = 1, 3 do
-				coroutine.spawn(test_cleanup)
+				coroutine.go(test_cleanup)
 			end
 		`, "cleanup_test")
 
@@ -1423,9 +1446,14 @@ func TestCoroutineVM_ClosedCoroutines(t *testing.T) {
 			t.Fatal(err)
 		}
 
+		_, err = vm.Step() // initial tick
+		if err != nil {
+			t.Fatal(err)
+		}
+
 		// Check initial task count
-		if len(vm.tasks) != 3 {
-			t.Fatalf("expected 3 initial tasks, got %d", len(vm.tasks))
+		if len(vm.tasks) != 4 {
+			t.Fatalf("expected 4 initial tasks, got %d", len(vm.tasks))
 		}
 
 		// Step to complete all tasks
@@ -1440,7 +1468,7 @@ func TestCoroutineVM_ClosedCoroutines(t *testing.T) {
 		}
 
 		// Verify completion counter
-		err = vm.DoString(`assert(completed_count == 3, "not all coroutines completed")`, "verify")
+		err = vm.PushScript(`assert(completed_count == 3, "not all coroutines completed")`, "verify")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1458,12 +1486,12 @@ func TestCoroutineVM_ClosedCoroutines(t *testing.T) {
 		}
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.PushScript(`
 			function error_test()
 				error("test error")
 			end
 	
-			coroutine.spawn(error_test)
+			coroutine.go(error_test)
 		`, "error_test")
 
 		if err != nil {
@@ -1491,6 +1519,276 @@ func TestCoroutineVM_ClosedCoroutines(t *testing.T) {
 	})
 }
 
+type customValue struct {
+	value string
+}
+
+func (cv *customValue) String() string {
+	return cv.value
+}
+
+func (cv *customValue) Type() lua.LValueType {
+	return lua.LTUserData
+}
+
+func TestCoroutineVM_CustomValue(t *testing.T) {
+	logger := zap.NewNop()
+
+	t.Run("yield custom value type directly", func(t *testing.T) {
+		vm, err := NewCoroutineVM(context.Background(), logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm.Close()
+
+		// Register a function that creates our custom value
+		vm.vm.state.SetGlobal("createCustomValue", vm.vm.state.NewFunction(func(L *lua.LState) int {
+			val := &customValue{value: "custom_data"}
+			L.Push(val)
+			return 1
+		}))
+
+		err = vm.PushScript(`
+			function custom_task()
+				local custom = createCustomValue()
+				coroutine.yield(custom)
+				return "done"
+			end
+
+			coroutine.go(custom_task)
+		`, "custom_value_test")
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Initial step to start coroutine
+		tasks, err := vm.Step()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if len(tasks) != 1 {
+			t.Fatalf("expected 1 yielded task, got %d", len(tasks))
+		}
+
+		// Verify yielded value
+		task := tasks[0]
+		if len(task.Yielded) != 1 {
+			t.Fatalf("expected 1 yielded value, got %d", len(task.Yielded))
+		}
+
+		// Check if the yielded value is our custom type
+		customVal, ok := task.Yielded[0].(*customValue)
+		if !ok {
+			t.Fatalf("expected customValue, got %T", task.Yielded[0])
+		}
+
+		if customVal.value != "custom_data" {
+			t.Fatalf("expected custom_data, got %s", customVal.value)
+		}
+
+		// Complete the coroutine
+		tasks, err = vm.Step(task)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if len(tasks) != 0 {
+			t.Fatal("expected coroutine to complete")
+		}
+	})
+
+	t.Run("yield custom value from function", func(t *testing.T) {
+		vm, err := NewCoroutineVM(context.Background(), logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm.Close()
+
+		// Register a function that creates our custom value
+		vm.vm.state.SetGlobal("createCustomValue", vm.vm.state.NewFunction(func(L *lua.LState) int {
+			L.Push(&customValue{value: "custom_data"})
+			return -1
+		}))
+
+		err = vm.PushScript(`
+			function custom_task()
+				createCustomValue()
+				return "done"
+			end
+
+			coroutine.go(custom_task)
+		`, "custom_value_test")
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Initial step to start coroutine
+		tasks, err := vm.Step()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if len(tasks) != 1 {
+			t.Fatalf("expected 1 yielded task, got %d", len(tasks))
+		}
+
+		// Verify yielded value
+		task := tasks[0]
+		if len(task.Yielded) != 1 {
+			t.Fatalf("expected 1 yielded value, got %d", len(task.Yielded))
+		}
+
+		// Check if the yielded value is our custom type
+		customVal, ok := task.Yielded[0].(*customValue)
+		if !ok {
+			t.Fatalf("expected customValue, got %T", task.Yielded[0])
+		}
+
+		if customVal.value != "custom_data" {
+			t.Fatalf("expected custom_data, got %s", customVal.value)
+		}
+
+		// Complete the coroutine
+		tasks, err = vm.Step(task)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if len(tasks) != 0 {
+			t.Fatal("expected coroutine to complete")
+		}
+	})
+
+	t.Run("yield custom value in root coroutine", func(t *testing.T) {
+		vm, err := NewCoroutineVM(context.Background(), logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm.Close()
+
+		// Register a function that creates our custom value
+		vm.vm.state.SetGlobal("createCustomValue", vm.vm.state.NewFunction(func(L *lua.LState) int {
+			L.Push(&customValue{value: "custom_data"})
+			return -1
+		}))
+
+		err = vm.PushScript(`
+			createCustomValue()
+		`, "custom_value_test")
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Initial step to start coroutine
+		tasks, err := vm.Step()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if len(tasks) != 1 {
+			t.Fatalf("expected 1 yielded task, got %d", len(tasks))
+		}
+
+		// Verify yielded value
+		task := tasks[0]
+		if len(task.Yielded) != 1 {
+			t.Fatalf("expected 1 yielded value, got %d", len(task.Yielded))
+		}
+
+		// Check if the yielded value is our custom type
+		customVal, ok := task.Yielded[0].(*customValue)
+		if !ok {
+			t.Fatalf("expected customValue, got %T", task.Yielded[0])
+		}
+
+		if customVal.value != "custom_data" {
+			t.Fatalf("expected custom_data, got %s", customVal.value)
+		}
+
+		// Complete the coroutine
+		tasks, err = vm.Step(task)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if len(tasks) != 0 {
+			t.Fatal("expected coroutine to complete")
+		}
+	})
+
+	t.Run("yield custom value in root coroutine with args", func(t *testing.T) {
+		vm, err := NewCoroutineVM(context.Background(), logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm.Close()
+
+		// Register a function that creates our custom value
+		vm.vm.state.SetGlobal("createCustomValue", vm.vm.state.NewFunction(func(L *lua.LState) int {
+			L.Push(&customValue{value: "custom_data"})
+			return -1
+		}))
+
+		err = vm.PushScript(`
+			createCustomValue("arg1")
+		`, "custom_value_test")
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Initial step to start coroutine
+		tasks, err := vm.Step()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if len(tasks) != 1 {
+			t.Fatalf("expected 1 yielded task, got %d", len(tasks))
+		}
+
+		// Verify yielded value
+		task := tasks[0]
+		if len(task.Yielded) != 2 {
+			t.Fatalf("expected 2 yielded value, got %d", len(task.Yielded))
+		}
+
+		// Check if the yielded value is our custom type
+		arg1, ok := task.Yielded[0].(lua.LString)
+		if !ok {
+			t.Fatalf("expected customValue, got %T", task.Yielded[0])
+		}
+
+		if arg1.String() != "arg1" {
+			t.Fatalf("expected arg1, got %v", arg1)
+		}
+
+		// Check if the yielded value is our custom type
+		customVal, ok := task.Yielded[1].(*customValue)
+		if !ok {
+			t.Fatalf("expected customValue, got %T", task.Yielded[0])
+		}
+
+		if customVal.value != "custom_data" {
+			t.Fatalf("expected custom_data, got %s", customVal.value)
+		}
+
+		// Complete the coroutine
+		tasks, err = vm.Step(task)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if len(tasks) != 0 {
+			t.Fatal("expected coroutine to complete")
+		}
+	})
+}
+
 func BenchmarkCoroutineVM(b *testing.B) {
 	logger := zap.NewNop()
 
@@ -1509,10 +1807,10 @@ func BenchmarkCoroutineVM(b *testing.B) {
 				end
 			end
 
-			coroutine.spawn(echo)
+			coroutine.go(echo)
 		`
 
-		err = vm.DoString(script, "bench")
+		err = vm.PushScript(script, "bench")
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -1530,7 +1828,7 @@ func BenchmarkCoroutineVM(b *testing.B) {
 
 			task := tasks[0]
 			if len(task.Yielded) > 0 && task.Yielded[0].String() == "ready" {
-				// Send test message
+				// send test message
 				task.Resumed = []lua.LValue{lua.LString("ping")}
 				tasks, err = vm.Step(task)
 				if err != nil {

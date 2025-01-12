@@ -6,7 +6,11 @@ import (
 	"fmt"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
+	"strings"
 )
+
+// TaskKey is the key used to store the current task in the Lua state specific to thread
+const TaskKey = "_CURRENT_TASK"
 
 type Task struct {
 	l      *lua.LState
@@ -14,26 +18,39 @@ type Task struct {
 	cancel context.CancelFunc
 	fn     *lua.LFunction
 
-	State   lua.ResumeState
-	Yielded []lua.LValue
-	Resumed []lua.LValue
+	State      lua.ResumeState
+	Yielded    []lua.LValue
+	Resumed    []lua.LValue
+	RaiseError error
 }
 
-type taskQueue struct {
+func (t *Task) Thread() *lua.LState {
+	return t.thread
+}
+
+func (t *Task) Type() lua.LValueType {
+	return lua.LTThread
+}
+
+func (t *Task) String() string {
+	return fmt.Sprintf("<coroutine %p> %+v", t.thread, t.Yielded)
+}
+
+type TaskQueue struct {
 	active *list.List
 }
 
-func newTaskQueue() *taskQueue {
-	return &taskQueue{
+func NewTaskQueue() *TaskQueue {
+	return &TaskQueue{
 		active: list.New(),
 	}
 }
 
-func (q *taskQueue) Push(task *Task) {
+func (q *TaskQueue) Push(task *Task) {
 	q.active.PushBack(task)
 }
 
-func (q *taskQueue) Pop() *Task {
+func (q *TaskQueue) Pop() *Task {
 	if q.active.Len() == 0 {
 		return nil
 	}
@@ -42,15 +59,16 @@ func (q *taskQueue) Pop() *Task {
 	return e.Value.(*Task)
 }
 
-func (q *taskQueue) IsEmpty() bool {
+func (q *TaskQueue) IsEmpty() bool {
 	return q.active.Len() == 0
 }
 
+// this vm is NOT thread safe, external synchronization is required
 type CoroutineVM struct {
 	ctx   context.Context
 	vm    *VM
 	tasks []*Task
-	queue *taskQueue
+	queue *TaskQueue
 }
 
 func NewCoroutineVM(
@@ -71,7 +89,7 @@ func NewCoroutineVM(
 		ctx:   ctx,
 		vm:    vm,
 		tasks: make([]*Task, 0),
-		queue: newTaskQueue(),
+		queue: NewTaskQueue(),
 	}
 	avm.vm.state.SetContext(ctx)
 	avm.bindCoroutines()
@@ -79,19 +97,28 @@ func NewCoroutineVM(
 	return avm, nil
 }
 
-func (e *CoroutineVM) DoString(script, name string) error {
-	return e.vm.DoString(nil, script, name)
+func (e *CoroutineVM) PushScript(script, name string) error {
+	chunk, err := e.vm.state.Load(strings.NewReader(script), name)
+	if err != nil {
+		return err
+	}
+
+	_, err = e.createCoroutine(chunk)
+	if err != nil {
+		return err
+	}
+
+	return err
 }
 
 func (e *CoroutineVM) bindCoroutines() {
 	coTable := e.vm.state.GetGlobal("coroutine").(*lua.LTable)
 
-	// Add spawn function
-	e.vm.state.SetField(coTable, "spawn", e.vm.state.NewFunction(func(L *lua.LState) int {
+	e.vm.state.SetField(coTable, "go", e.vm.state.NewFunction(func(L *lua.LState) int {
 		fnValue := L.Get(1)
 
 		if fnValue.Type() != lua.LTFunction {
-			L.RaiseError("coroutine.spawn() requires a function argument")
+			L.RaiseError("coroutine.go() requires a function argument")
 			return 0
 		}
 
@@ -123,11 +150,6 @@ func (e *CoroutineVM) bindCoroutines() {
 	oldResume := coTable.RawGetString("resume").(*lua.LFunction)
 	e.vm.state.SetField(coTable, "resume", e.vm.state.NewFunction(func(L *lua.LState) int {
 		co := L.CheckThread(1)
-		if co == L {
-			L.RaiseError("attempt to resume VM thread")
-			return 0
-		}
-
 		L.Push(oldResume)
 		L.Push(co)
 		L.Call(1, lua.MultRet)
@@ -152,7 +174,25 @@ func (e *CoroutineVM) createCoroutine(fn *lua.LFunction) (*Task, error) {
 	return task, nil
 }
 
-func (e *CoroutineVM) Step(tasks ...*Task) ([]*Task, error) {
+func (e *CoroutineVM) GetTask(thread *lua.LState) (*Task, error) {
+	for _, task := range e.tasks {
+		if task.thread == thread {
+			return task, nil
+		}
+	}
+	return nil, fmt.Errorf("task not found")
+}
+
+func (e *CoroutineVM) Step(tasks ...*Task) (result []*Task, finalErr error) {
+	// at the moment Lua5.1 does not allow to use yields as part of pcall, doing that will cause engine panic
+	// so we need to recover from it in case of user error
+	// todo: properly isolate this issue and make upstream PR
+	defer func() {
+		if r := recover(); r != nil {
+			finalErr = fmt.Errorf("panic: %v", r)
+		}
+	}()
+
 	// Add tasks to queue
 	for _, t := range tasks {
 		e.queue.Push(t)
@@ -162,7 +202,7 @@ func (e *CoroutineVM) Step(tasks ...*Task) ([]*Task, error) {
 	var err error
 	var values []lua.LValue
 
-	yieldedTasks := make([]*Task, 0)
+	yeildedTasks := make([]*Task, 0)
 
 	for !e.queue.IsEmpty() {
 		task := e.queue.Pop()
@@ -177,17 +217,22 @@ func (e *CoroutineVM) Step(tasks ...*Task) ([]*Task, error) {
 				return nil, fmt.Errorf("error starting task: %v", err)
 			}
 		case lua.ResumeOK:
-			// Done
+			// done
 			if err := e.removeTask(task); err != nil {
 				return nil, fmt.Errorf("error removing task: %v", err)
 			}
 		case lua.ResumeYield:
-			// Continue
-			state, err, values = e.vm.State().Resume(task.thread, nil, task.Resumed...)
-
-			if err != nil {
+			if task.RaiseError != nil {
+				task.thread.RaiseError(task.RaiseError.Error())
 				_ = e.removeTask(task)
-				return nil, fmt.Errorf("error resuming task: %v", err)
+				return nil, fmt.Errorf("error in task: %v", task.RaiseError)
+			} else {
+				// Continue
+				state, err, values = e.vm.State().Resume(task.thread, nil, task.Resumed...)
+				if err != nil {
+					_ = e.removeTask(task)
+					return nil, fmt.Errorf("error resuming task: %v", err)
+				}
 			}
 		default:
 			return nil, fmt.Errorf("invalid task state: %v", task.State)
@@ -198,11 +243,11 @@ func (e *CoroutineVM) Step(tasks ...*Task) ([]*Task, error) {
 		task.Resumed = nil
 
 		if state == lua.ResumeYield {
-			yieldedTasks = append(yieldedTasks, task)
+			yeildedTasks = append(yeildedTasks, task)
 		}
 	}
 
-	return yieldedTasks, nil
+	return yeildedTasks, nil
 }
 
 func (e *CoroutineVM) GetYieldedTasks() []*Task {

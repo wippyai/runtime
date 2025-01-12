@@ -1,518 +1,499 @@
 package channel
 
 import (
-	"github.com/stretchr/testify/assert"
 	lua "github.com/yuin/gopher-lua"
 	"testing"
 )
 
-func TestChannel_Buffer(t *testing.T) {
-	t.Run("unbuffered channel creation", func(t *testing.T) {
-		ch := newLuaChannel(0)
-		if ch.buffer != nil {
-			t.Error("unbuffered channel should have nil buffer")
+func TestChannelBasicOperations(t *testing.T) {
+	t.Run("unbuffered send/receive", func(t *testing.T) {
+		ch := newChannel(0)
+		L1 := lua.NewState()
+		L2 := lua.NewState()
+
+		value := lua.LString("test")
+		next := ch.send(L1, value, nil)
+
+		if !next.yields {
+			t.Error("sender should yield on unbuffered channel")
 		}
-		if ch.capacity != 0 {
-			t.Error("unbuffered channel should have 0 capacity")
+		if len(next.next) != 0 {
+			t.Error("unexpected next for blocked send")
+		}
+
+		next = ch.receive(L2, nil)
+		if !next.yields {
+			t.Error("expected yields=true for completing send/receive")
+		}
+		if len(next.next) != 2 {
+			t.Error("expected 2 next for send/receive pair")
+		}
+
+		if next.next[1].values[0] != value {
+			t.Error("received wrong value")
 		}
 	})
 
-	t.Run("buffered channel creation", func(t *testing.T) {
-		capacity := 5
-		ch := newLuaChannel(capacity)
-		if len(ch.buffer) != capacity {
-			t.Errorf("buffer length should be %d, got %d", capacity, len(ch.buffer))
-		}
-		if ch.capacity != capacity {
-			t.Errorf("channel capacity should be %d, got %d", capacity, ch.capacity)
-		}
-	})
+	t.Run("buffered operations", func(t *testing.T) {
+		ch := newChannel(1)
+		L := lua.NewState()
 
-	t.Run("circular buffer operations", func(t *testing.T) {
-		ch := newLuaChannel(3)
+		value := lua.LString("test")
+		next := ch.send(L, value, nil)
 
-		// Fill buffer
-		values := []string{"first", "second", "third"}
-		for _, v := range values {
-			ok := ch.send(lua.LString(v))
-			if !ok {
-				t.Error("send should succeed when buffer not full")
-			}
+		if next.yields {
+			t.Error("send on non-full buffered channel shouldn't yield")
 		}
 
-		// Buffer should be full
 		if !ch.isFull() {
-			t.Error("buffer should be full")
+			t.Error("channel should be full after send")
 		}
 
-		// Try send when full
-		ok := ch.send(lua.LString("overflow"))
-		if ok {
-			t.Error("send should fail when buffer full")
+		next = ch.receive(L, nil)
+		if len(next.next) != 1 {
+			t.Error("expected 1 result for buffered receive")
 		}
 
-		// Read first value
-		val, ok := ch.receive()
-		if !ok {
-			t.Error("receive should succeed when buffer has values")
-		}
-		if val.String() != "first" {
-			t.Errorf("expected 'first', got %v", val)
-		}
-
-		// Should be able to send one more
-		ok = ch.send(lua.LString("fourth"))
-		if !ok {
-			t.Error("send should succeed after receive")
-		}
-
-		// Verify circular buffer worked
-		remaining := []string{"second", "third", "fourth"}
-		for i, expected := range remaining {
-			val, ok := ch.receive()
-			if !ok {
-				t.Errorf("receive %d should succeed", i)
-			}
-			if val.String() != expected {
-				t.Errorf("expected '%s', got %v", expected, val)
-			}
-		}
-
-		// Should be empty now
-		if !ch.isEmpty() {
-			t.Error("buffer should be empty")
+		if next.next[0].values[0] != value {
+			t.Error("received wrong value from buffer")
 		}
 	})
 
-	t.Run("closed channel operations", func(t *testing.T) {
-		ch := newLuaChannel(3)
+	t.Run("close channel", func(t *testing.T) {
+		ch := newChannel(0)
+		L := lua.NewState()
 
-		// Fill partially
-		ch.send(lua.LString("value"))
+		next := ch.close(L)
+		if next.yields {
+			t.Error("close on empty channel shouldn't yield")
+		}
 
-		// Close channel
-		ch.closed = true
+		next = ch.send(L, lua.LString("test"), nil)
+		if next.next[0].err == nil {
+			t.Error("expected error on send to closed channel")
+		}
+
+		next = ch.receive(L, nil)
+		if next.next[0].values[1] != lua.LFalse {
+			t.Error("receive on closed channel should return ok=false")
+		}
+	})
+}
+
+func TestSelectOperations(t *testing.T) {
+	t.Run("select send", func(t *testing.T) {
+		ch := newChannel(0)
+		L := lua.NewState()
+
+		selectOp := &selectOp{
+			cases: []*op{{
+				kind:     sendOp,
+				ch:       ch,
+				value:    lua.LString("test"),
+				task:     L,
+				selectOp: nil,
+			}},
+			task: L,
+		}
+		selectOp.cases[0].selectOp = selectOp
+
+		next := ch.send(L, lua.LString("test"), selectOp)
+		if !next.yields {
+			t.Error("select send should yield when no receiver")
+		}
+	})
+
+	t.Run("select receive", func(t *testing.T) {
+		ch := newChannel(0)
+		L := lua.NewState()
+
+		selectOp := &selectOp{
+			cases: []*op{{
+				kind:     receiveOp,
+				ch:       ch,
+				task:     L,
+				selectOp: nil,
+			}},
+			task: L,
+		}
+		selectOp.cases[0].selectOp = selectOp
+
+		next := ch.receive(L, selectOp)
+		if !next.yields {
+			t.Error("select receive should yield when no sender")
+		}
+	})
+}
+
+func TestChannelEdgeCases(t *testing.T) {
+	t.Run("close full buffered channel", func(t *testing.T) {
+		ch := newChannel(1)
+		L := lua.NewState()
+
+		ch.send(L, lua.LString("test"), nil)
+		next := ch.close(L)
+
+		if next.yields {
+			t.Error("close shouldn't yield with only buffered values")
+		}
+
+		next = ch.receive(L, nil)
+		if next.next[0].values[1] != lua.LTrue {
+			t.Error("should receive buffered value successfully")
+		}
+
+		next = ch.receive(L, nil)
+		if next.next[0].values[1] != lua.LFalse {
+			t.Error("second receive should indicate closed channel")
+		}
+	})
+
+	t.Run("close channel with pending operations", func(t *testing.T) {
+		ch := newChannel(0)
+		L1 := lua.NewState()
+
+		// Add a blocked sender
+		ch.send(L1, lua.LString("test"), nil)
+
+		// Close the channel
+		next := ch.close(L1)
+		if len(next.next) != 2 {
+			t.Errorf("expected 2 next (sender error + closer), got %d", len(next.next))
+		}
+
+		senderResult := next.next[0]
+		if senderResult.err == nil || senderResult.err.Error() != "send on closed channel" {
+			t.Error("expected send on closed channel error")
+		}
+		if senderResult.task != L1 {
+			t.Error("wrong task in sender result")
+		}
+
+		closerResult := next.next[1]
+		if closerResult.task != L1 {
+			t.Error("wrong task in closer result")
+		}
+		if closerResult.values != nil {
+			t.Error("closer should have nil values")
+		}
+	})
+}
+
+func TestNamedChannels(t *testing.T) {
+	t.Run("named channel creation", func(t *testing.T) {
+		ch := Named("test", 1)
+		if !ch.isNamed() {
+			t.Error("channel should be named")
+		}
+		if ch.name != "test" {
+			t.Error("wrong channel name")
+		}
+	})
+}
+
+func TestChannelWaits(t *testing.T) {
+	t.Run("unbuffered send block", func(t *testing.T) {
+		ch := newChannel(0)
+		L := lua.NewState()
+
+		next := ch.send(L, lua.LString("test"), nil)
+
+		if !next.yields {
+			t.Error("send should yield on unbuffered channel")
+		}
+		if len(next.block) != 1 {
+			t.Error("expected exactly one wait channel")
+		}
+		if next.block[0] != ch {
+			t.Error("wait should be on the sending channel")
+		}
+	})
+
+	t.Run("unbuffered receive block", func(t *testing.T) {
+		ch := newChannel(0)
+		L := lua.NewState()
+
+		next := ch.receive(L, nil)
+
+		if !next.yields {
+			t.Error("receive should yield on empty unbuffered channel")
+		}
+		if len(next.block) != 1 {
+			t.Error("expected exactly one wait channel")
+		}
+		if next.block[0] != ch {
+			t.Error("wait should be on the receiving channel")
+		}
+	})
+
+	t.Run("buffered send no wait when not full", func(t *testing.T) {
+		ch := newChannel(1)
+		L := lua.NewState()
+
+		next := ch.send(L, lua.LString("test"), nil)
+
+		if next.yields {
+			t.Error("send shouldn't yield on non-full buffered channel")
+		}
+		if len(next.block) != 0 {
+			t.Error("should have no wait channels for non-blocking send")
+		}
+	})
+
+	t.Run("buffered send block when full", func(t *testing.T) {
+		ch := newChannel(1)
+		L := lua.NewState()
+
+		// Fill the buffer first
+		ch.send(L, lua.LString("test1"), nil)
+
+		// Try to send when buffer is full
+		next := ch.send(L, lua.LString("test2"), nil)
+
+		if !next.yields {
+			t.Error("send should yield on full buffered channel")
+		}
+		if len(next.block) != 1 {
+			t.Error("expected exactly one wait channel")
+		}
+		if next.block[0] != ch {
+			t.Error("wait should be on the sending channel")
+		}
+	})
+
+	t.Run("no block on completed operations", func(t *testing.T) {
+		ch := newChannel(0)
+		L1 := lua.NewState()
+		L2 := lua.NewState()
+
+		// Set up a receiver first
+		ch.receive(L1, nil)
+
+		// Send should complete immediately
+		next := ch.send(L2, lua.LString("test"), nil)
+
+		if len(next.block) != 0 {
+			t.Error("completed operation should have no block")
+		}
+	})
+
+	t.Run("no block on closed channel operations", func(t *testing.T) {
+		ch := newChannel(0)
+		L := lua.NewState()
+
+		ch.close(L)
 
 		// Try operations on closed channel
-		ok := ch.send(lua.LString("after close"))
-		if ok {
-			t.Error("send should fail on closed channel")
-		}
+		sendNext := ch.send(L, lua.LString("test"), nil)
+		receiveNext := ch.receive(L, nil)
 
-		// Should still be able to receive buffered values
-		val, ok := ch.receive()
-		if !ok {
-			t.Error("receive should get buffered value from closed channel")
+		if len(sendNext.block) != 0 {
+			t.Error("send on closed channel should have no block")
 		}
-		if val.String() != "value" {
-			t.Errorf("wrong value received, got %v", val)
-		}
-
-		// Further receives should fail
-		val, ok = ch.receive()
-		if ok {
-			t.Error("receive should fail when closed channel is empty")
-		}
-	})
-
-	t.Run("buffer wrapping", func(t *testing.T) {
-		ch := newLuaChannel(3)
-		sequence := []string{
-			"1", "2", "3", // Fill buffer
-			"4", "5", "6", // Replace all values
-			"7", "8", "9", // Replace all again
-		}
-
-		// Send values in groups of 3
-		for i := 0; i < len(sequence); i += 3 {
-			// Receive previous values if not first group
-			if i > 0 {
-				for j := 0; j < 3; j++ {
-					val, ok := ch.receive()
-					if !ok {
-						t.Errorf("receive failed at i=%d, j=%d", i, j)
-					}
-					expected := sequence[i-3+j]
-					if val.String() != expected {
-						t.Errorf("expected '%s', got %v", expected, val)
-					}
-				}
-			}
-
-			// Send new values
-			for j := 0; j < 3; j++ {
-				ok := ch.send(lua.LString(sequence[i+j]))
-				if !ok {
-					t.Errorf("send failed at i=%d, j=%d", i, j)
-				}
-			}
-		}
-
-		// Verify final values
-		for i := 6; i < 9; i++ {
-			val, ok := ch.receive()
-			if !ok {
-				t.Errorf("final receive failed at i=%d", i)
-			}
-			if val.String() != sequence[i] {
-				t.Errorf("expected '%s', got %v", sequence[i], val)
-			}
-		}
-
-		// Buffer should be empty with indices wrapped around
-		if !ch.isEmpty() {
-			t.Error("buffer should be empty")
-		}
-		if ch.read != ch.write {
-			t.Error("read and write indices should be equal when empty")
-		}
-	})
-
-	t.Run("verify fixed capacity", func(t *testing.T) {
-		capacity := 2
-		ch := newLuaChannel(capacity)
-
-		// Fill to capacity
-		if !ch.send(lua.LString("1")) {
-			t.Error("first send should succeed")
-		}
-		if !ch.send(lua.LString("2")) {
-			t.Error("second send should succeed")
-		}
-
-		// Try to exceed capacity
-		if ch.send(lua.LString("3")) {
-			t.Error("send should fail when buffer at capacity")
-		}
-
-		// Verify size hasn't grown
-		if ch.size != capacity {
-			t.Errorf("buffer size should be %d, got %d", capacity, ch.size)
-		}
-		if len(ch.buffer) != capacity {
-			t.Errorf("underlying buffer should remain size %d, got %d", capacity, len(ch.buffer))
+		if len(receiveNext.block) != 0 {
+			t.Error("receive on closed channel should have no block")
 		}
 	})
 }
 
-func TestChannel_Operations(t *testing.T) {
-	t.Run("cleanup releases all references", func(t *testing.T) {
-		ch := newLuaChannel(3)
+func TestChannelReleaseLogic(t *testing.T) {
+	t.Run("direct operation release", func(t *testing.T) {
+		ch := newChannel(0)
+		L := lua.NewState()
 
-		// Fill buffer
-		ch.send(lua.LString("1"))
-		ch.send(lua.LString("2"))
-		ch.send(lua.LString("3"))
+		// Create a direct send operation
+		op := &op{
+			kind: sendOp,
+			ch:   ch,
+			task: L,
+		}
 
-		// Cleanup
-		ch.cleanup()
-
-		if ch.buffer != nil {
-			t.Error("cleanup should set buffer to nil")
+		releases := release(op)
+		if len(releases) != 1 {
+			t.Error("direct operation should release exactly one channel")
 		}
-		if ch.size != 0 {
-			t.Error("cleanup should reset size")
-		}
-		if ch.read != 0 {
-			t.Error("cleanup should reset read index")
-		}
-		if ch.write != 0 {
-			t.Error("cleanup should reset write index")
+		if releases[0] != ch {
+			t.Error("released channel should be the operation's channel")
 		}
 	})
 
-	t.Run("buffer state checks", func(t *testing.T) {
-		ch := newLuaChannel(2)
+	t.Run("select operation release", func(t *testing.T) {
+		ch1 := newChannel(0)
+		ch2 := newChannel(0)
+		L := lua.NewState()
 
-		if !ch.isEmpty() {
-			t.Error("new channel should be empty")
-		}
-		if ch.isFull() {
-			t.Error("new channel should not be full")
-		}
-
-		ch.send(lua.LString("1"))
-		if ch.isEmpty() {
-			t.Error("channel with one item should not be empty")
-		}
-		if ch.isFull() {
-			t.Error("channel with one item in capacity 2 should not be full")
-		}
-
-		ch.send(lua.LString("2"))
-		if !ch.isFull() {
-			t.Error("channel at capacity should be full")
-		}
-	})
-
-	t.Run("circular buffer full cycle", func(t *testing.T) {
-		ch := newLuaChannel(2)
-
-		// Fill
-		if !ch.send(lua.LString("1")) {
-			t.Error("first send failed")
-		}
-		if !ch.send(lua.LString("2")) {
-			t.Error("second send failed")
+		// Create a select operation with two cases
+		selectOp := &selectOp{
+			task: L,
+			cases: []*op{
+				{
+					kind: sendOp,
+					ch:   ch1,
+					task: L,
+				},
+				{
+					kind: receiveOp,
+					ch:   ch2,
+					task: L,
+				},
+			},
 		}
 
-		// Should be full
-		if !ch.isFull() {
-			t.Error("channel should be full")
+		// Set up the select operation references
+		selectOp.cases[0].selectOp = selectOp
+		selectOp.cases[1].selectOp = selectOp
+
+		// Add operations to channels
+		ch1.senders.PushBack(selectOp.cases[0])
+		ch2.receivers.PushBack(selectOp.cases[1])
+		ch1.size++
+
+		releases := release(selectOp.cases[0])
+		if len(releases) != 2 {
+			t.Errorf("select operation should release all channels, got %d releases", len(releases))
 		}
 
-		// Read one
-		val, ok := ch.receive()
-		if !ok || val.String() != "1" {
-			t.Error("receive failed or wrong value")
+		// Verify channels are cleaned up
+		if ch1.senders.Len() != 0 || ch2.receivers.Len() != 0 {
+			t.Error("channels should have no pending operations after release")
 		}
-
-		// Write one wrapping around
-		if !ch.send(lua.LString("3")) {
-			t.Error("send after receive failed")
-		}
-
-		// Read all
-		remaining := []string{"2", "3"}
-		for i, expected := range remaining {
-			val, ok := ch.receive()
-			if !ok {
-				t.Errorf("receive %d failed", i)
-			}
-			if val.String() != expected {
-				t.Errorf("expected %s, got %s", expected, val.String())
-			}
-		}
-
-		// Should be empty
-		if !ch.isEmpty() {
-			t.Error("channel should be empty after reading all")
+		if ch1.size != 0 {
+			t.Error("channel size should be reset after release")
 		}
 	})
 
-	t.Run("closed channel behavior", func(t *testing.T) {
-		ch := newLuaChannel(2)
+	t.Run("multiple select operations on same channel", func(t *testing.T) {
+		ch := newChannel(0)
+		L1 := lua.NewState()
+		L2 := lua.NewState()
 
-		// Fill partially and close
-		ch.send(lua.LString("1"))
-		ch.closed = true
+		// Create two select operations
+		select1 := &selectOp{
+			task: L1,
+			cases: []*op{
+				{
+					kind: sendOp,
+					ch:   ch,
+					task: L1,
+				},
+			},
+		}
+		select1.cases[0].selectOp = select1
 
-		// Send should fail
-		if ch.send(lua.LString("2")) {
-			t.Error("send on closed channel should fail")
+		select2 := &selectOp{
+			task: L2,
+			cases: []*op{
+				{
+					kind: sendOp,
+					ch:   ch,
+					task: L2,
+				},
+			},
+		}
+		select2.cases[0].selectOp = select2
+
+		// Add both operations to channel
+		ch.senders.PushBack(select1.cases[0])
+		ch.senders.PushBack(select2.cases[0])
+		ch.size += 2
+
+		// Release first select
+		releases := release(select1.cases[0])
+		if len(releases) != 1 {
+			t.Error("should only release one channel")
 		}
 
-		// Should be able to receive buffered value
-		val, ok := ch.receive()
-		if !ok || val.String() != "1" {
-			t.Error("should receive buffered value from closed channel")
+		// Verify only first operation was removed
+		if ch.senders.Len() != 1 {
+			t.Error("should have one remaining operation")
+		}
+		if ch.size != 1 {
+			t.Error("channel size should be decremented once")
 		}
 
-		// Further receives should fail
-		val, ok = ch.receive()
-		if ok || val != nil {
-			t.Error("receive from empty closed channel should fail")
-		}
-
-		// Cleanup after close
-		if ch.isEmpty() {
-			ch.cleanup()
-			if ch.buffer != nil || ch.size != 0 {
-				t.Error("cleanup after close should clear state")
-			}
-		}
-	})
-
-	t.Run("zero capacity channel", func(t *testing.T) {
-		ch := newLuaChannel(0)
-
-		if ch.buffer != nil {
-			t.Error("zero capacity channel should have nil buffer")
-		}
-
-		if !ch.isEmpty() {
-			t.Error("zero capacity channel should be empty")
-		}
-
-		if !ch.isFull() {
-			t.Error("zero capacity channel should always be full")
-		}
-
-		// Operations should fail
-		if ch.send(lua.LString("test")) {
-			t.Error("send on zero capacity channel should fail")
-		}
-
-		val, ok := ch.receive()
-		if ok || val != nil {
-			t.Error("receive from zero capacity channel should fail")
-		}
-	})
-
-	t.Run("edge case index wrapping", func(t *testing.T) {
-		ch := newLuaChannel(3)
-
-		// Multiple cycles of filling and emptying
-		for cycle := 0; cycle < 3; cycle++ {
-			// Fill
-			for i := 0; i < 3; i++ {
-				ok := ch.send(lua.LString(string(rune('A' + i))))
-				if !ok {
-					t.Errorf("send failed on cycle %d, item %d", cycle, i)
-				}
-			}
-
-			// Empty
-			for i := 0; i < 3; i++ {
-				val, ok := ch.receive()
-				if !ok {
-					t.Errorf("receive failed on cycle %d, item %d", cycle, i)
-				}
-				expected := string(rune('A' + i))
-				if val.String() != expected {
-					t.Errorf("wrong value on cycle %d, item %d: expected %s, got %s",
-						cycle, i, expected, val.String())
-				}
-			}
-		}
-
-		// Verify indices wrapped correctly
-		if ch.read != ch.write {
-			t.Error("indices should be equal after complete cycles")
+		// Verify remaining operation is from select2
+		remainingOp := ch.senders.Front().Value.(*op)
+		if remainingOp.selectOp != select2 {
+			t.Error("wrong operation was removed")
 		}
 	})
 }
 
-func TestChanOperation(t *testing.T) {
-	t.Run("String representation", func(t *testing.T) {
-		testCases := []struct {
-			name     string
-			op       *chanOperation
-			expected string
-		}{
-			{
-				name: "send operation",
-				op: &chanOperation{
-					opType: chanSend,
-					ch:     newLuaChannel(0),
-					value:  lua.LString("test value"),
-				},
-				expected: "channel.send{value=test value}",
-			},
-			{
-				name: "receive operation",
-				op: &chanOperation{
-					opType: chanReceive,
-					ch:     newLuaChannel(0),
-				},
-				expected: "channel.receive",
-			},
-			{
-				name: "close operation",
-				op: &chanOperation{
-					opType: chanClose,
-					ch:     newLuaChannel(0),
-				},
-				expected: "channel.close",
-			},
-			{
-				name: "invalid operation type",
-				op: &chanOperation{
-					opType: chanOp(999), // Invalid operation type
-					ch:     newLuaChannel(0),
-				},
-				expected: "unknown",
-			},
+func TestChannelBlockingScenarios(t *testing.T) {
+	t.Run("blocking with multiple operations", func(t *testing.T) {
+		ch := newChannel(0)
+		L1 := lua.NewState()
+		L2 := lua.NewState()
+		L3 := lua.NewState()
+
+		// Add multiple blocked senders
+		next1 := ch.send(L1, lua.LString("test1"), nil)
+		next2 := ch.send(L2, lua.LString("test2"), nil)
+
+		if !next1.yields || !next2.yields {
+			t.Error("senders should block")
+		}
+		if len(next1.block) != 1 || len(next2.block) != 1 {
+			t.Error("each operation should block on the channel")
 		}
 
-		for _, tc := range testCases {
-			t.Run(tc.name, func(t *testing.T) {
-				assert.Equal(t, tc.expected, tc.op.String())
-			})
+		// Receiver should unblock first sender only
+		next := ch.receive(L3, nil)
+		if len(next.next) != 2 {
+			t.Error("should wake up receiver and first sender only")
 		}
 
-		// Test different value types in send operation
-		valueTests := []struct {
-			name     string
-			value    lua.LValue
-			expected string
-		}{
-			{
-				name:     "string value",
-				value:    lua.LString("hello"),
-				expected: "channel.send{value=hello}",
-			},
-			{
-				name:     "number value",
-				value:    lua.LNumber(42),
-				expected: "channel.send{value=42}",
-			},
-			{
-				name:     "bool value",
-				value:    lua.LBool(true),
-				expected: "channel.send{value=true}",
-			},
-			{
-				name:     "nil value",
-				value:    lua.LNil,
-				expected: "channel.send{value=nil}",
-			},
-			{
-				name:     "table value",
-				value:    &lua.LTable{},
-				expected: "channel.send{value=table: ", // Just check prefix as table string contains address
-			},
+		// Verify second sender still blocked
+		if ch.senders.Len() != 1 {
+			t.Error("should have one sender still blocked")
 		}
 
-		for _, vt := range valueTests {
-			t.Run(vt.name, func(t *testing.T) {
-				op := &chanOperation{
-					opType: chanSend,
-					ch:     newLuaChannel(0),
-					value:  vt.value,
-				}
-				if vt.name == "table value" {
-					assert.Contains(t, op.String(), vt.expected)
-				} else {
-					assert.Equal(t, vt.expected, op.String())
-				}
-			})
+		remainingSend := ch.senders.Front().Value.(*op)
+		if remainingSend.task != L2 {
+			t.Error("wrong sender was unblocked")
 		}
 	})
 
-	t.Run("Type method", func(t *testing.T) {
-		ops := []*chanOperation{
-			{opType: chanSend, ch: newLuaChannel(0), value: lua.LString("test")},
-			{opType: chanReceive, ch: newLuaChannel(0)},
-			{opType: chanClose, ch: newLuaChannel(0)},
+	t.Run("blocking select with multiple channels", func(t *testing.T) {
+		ch1 := newChannel(0)
+		ch2 := newChannel(0)
+		L1 := lua.NewState()
+		L2 := lua.NewState()
+
+		// Create select operation watching both channels
+		selectOp := &selectOp{
+			task: L1,
+			cases: []*op{
+				{
+					kind: receiveOp,
+					ch:   ch1,
+					task: L1,
+				},
+				{
+					kind: receiveOp,
+					ch:   ch2,
+					task: L1,
+				},
+			},
+		}
+		selectOp.cases[0].selectOp = selectOp
+		selectOp.cases[1].selectOp = selectOp
+
+		// Block select operation on both channels
+		next1 := ch1.receive(L1, selectOp)
+		if !next1.yields {
+			t.Error("select should block initially")
 		}
 
-		for _, op := range ops {
-			assert.Equal(t, lua.LTUserData, op.Type(), "chanOperation should always return LTUserData type")
+		// Send on first channel should unblock select
+		next2 := ch1.send(L2, lua.LString("test"), nil)
+		if len(next2.next) != 2 {
+			t.Error("should wake up both sender and select")
 		}
-	})
 
-	t.Run("Operation with nil channel", func(t *testing.T) {
-		op := &chanOperation{
-			opType: chanSend,
-			ch:     nil,
-			value:  lua.LString("test"),
+		// Verify second channel was cleaned up
+		if ch2.receivers.Len() != 0 {
+			t.Error("select operation should be removed from other channel")
 		}
-		assert.NotPanics(t, func() {
-			_ = op.String()
-			_ = op.Type()
-		}, "Operations should handle nil channel gracefully")
-	})
-
-	t.Run("Operation with nil value", func(t *testing.T) {
-		op := &chanOperation{
-			opType: chanSend,
-			ch:     newLuaChannel(0),
-			value:  nil,
-		}
-		assert.NotPanics(t, func() {
-			str := op.String()
-			assert.Contains(t, str, "channel.send{value=<nil>}")
-		}, "Send operation should handle nil value gracefully")
 	})
 }

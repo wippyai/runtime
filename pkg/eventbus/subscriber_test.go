@@ -39,7 +39,7 @@ func TestEventListener_NewEventListener(t *testing.T) {
 	require.NoError(t, err)
 	defer handler.Close()
 
-	// Send eventbus
+	// send eventbus
 	event1 := events.Event{System: "test-system", Kind: "test-kind.created", Data: "data1"}
 	event2 := events.Event{System: "test-system", Kind: "test-kind.updated", Data: "data2"}
 	event3 := events.Event{System: "other-system", Kind: "test-kind.created", Data: "data3"} // Should not be received
@@ -81,7 +81,7 @@ func TestEventListener_NewEventListener_NoKind(t *testing.T) {
 	require.NoError(t, err)
 	defer handler.Close()
 
-	// Send eventbus
+	// send eventbus
 	event1 := events.Event{System: "test-system", Kind: "test-kind.created", Data: "data1"}
 	event2 := events.Event{System: "test-system", Kind: "test-kind.updated", Data: "data2"}
 	event3 := events.Event{System: "other-system", Kind: "test-kind.created", Data: "data3"} // Should not be received
@@ -122,7 +122,7 @@ func TestEventListener_Close(t *testing.T) {
 	handler, err := NewSubscriber(ctx, b, "test-system", "test-kind.*", handlerFunc)
 	require.NoError(t, err)
 
-	// Send eventbus
+	// send eventbus
 	event1 := events.Event{System: "test-system", Kind: "test-kind.created", Data: "data1"}
 	event2 := events.Event{System: "test-system", Kind: "test-kind.updated", Data: "data2"}
 
@@ -133,7 +133,7 @@ func TestEventListener_Close(t *testing.T) {
 	// Close the handler
 	handler.Close()
 
-	// Send another event
+	// send another event
 	b.Send(context.Background(), event2)
 
 	// Verify received eventbus
