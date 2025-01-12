@@ -83,7 +83,7 @@ func TestSelectBlockedReceive(t *testing.T) {
 		local ch2 = channel.new(0)
 		
 		-- Start select operation that will block
-		coroutine.go(function()
+		coroutine.spawn(function()
 			local result = channel.select{
 				ch1:case_receive(),
 				ch2:case_receive()
@@ -138,7 +138,7 @@ func TestSelectBlockedClose(t *testing.T) {
 		local ch2 = channel.new(0)
 		
 		-- Start select operation that will block
-		coroutine.go(function()
+		coroutine.spawn(function()
 			local result = channel.select{
 				ch1:case_receive(),
 				ch2:case_receive()
@@ -276,7 +276,7 @@ func TestSelectLoopWithFeeds(t *testing.T) {
         local done = channel.new(0)
         
         -- Start select loop in goroutine
-        coroutine.go(function()
+        coroutine.spawn(function()
             local count = 0
             while count < 2 do
                 local result = channel.select{
@@ -360,7 +360,7 @@ func TestSelectCleanupOnReceive(t *testing.T) {
        local ch2 = channel.new(0)
 
        -- Start blocked select
-       coroutine.go(function()
+       coroutine.spawn(function()
            local result = channel.select{
                ch1:case_receive(),
                ch2:case_receive()
@@ -461,7 +461,7 @@ func TestSelectCleanupAll(t *testing.T) {
 		local ch3 = channel.new(0)
 		local ch4 = channel.new(0)
 
-		coroutine.go(function()
+		coroutine.spawn(function()
 			local result = channel.select{
 				ch3:case_receive(),
 				ch4:case_receive()
@@ -620,7 +620,7 @@ func TestMixedSelectBlocking(t *testing.T) {
 		local resultCh = channel.new(1)  -- for test coordination
 		
 		-- Start a goroutine that will do mixed select
-		coroutine.go(function()
+		coroutine.spawn(function()
 			local result = channel.select{
 				ch1:case_send("value1"),    -- might be selected
 				ch2:case_receive()          -- might be selected
@@ -631,7 +631,7 @@ func TestMixedSelectBlocking(t *testing.T) {
 		coroutine.yield("select_started")
 		
 		-- Start helper goroutine to trigger one of the cases
-		coroutine.go(function()
+		coroutine.spawn(function()
 			ch2:send("value2")  -- trigger the receive case
 			coroutine.yield("helper_complete")
 		end)

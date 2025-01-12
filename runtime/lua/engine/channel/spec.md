@@ -1,0 +1,260 @@
+# Channel System Documentation for Pony Coroutine VM
+
+⚠️ **Important:** The channel system can only be used inside Pony processes. It is not available in other parts of the
+system like functions.
+
+## Overview
+
+The channel system provides a Go-like concurrency model for Pony processes, allowing coroutines to communicate and
+synchronize through message passing. It supports both buffered and unbuffered channels, select operations, and named
+channels for external communication.
+
+## Channel Types
+
+### Regular Channels
+
+Regular channels are used for internal communication between coroutines within a process.
+
+```lua
+-- Create an unbuffered channel
+local ch = channel.new()
+
+-- Create a buffered channel with capacity 5
+local ch = channel.new(5)
+```
+
+### Named Channels
+
+Named channels allow external communication with the process. They can be accessed through the runtime.
+
+```lua
+-- Create a named channel with capacity 2
+local ch = channel.named("my_channel", 2)
+```
+
+## Basic Operations
+
+### Sending
+
+```lua
+-- Send a value (blocks if channel is full)
+ch:send("message")
+```
+
+### Receiving
+
+```lua
+-- Receive a value and status (blocks if channel is empty)
+local value, ok = ch:receive()
+if ok then
+    print("Received:", value)
+else
+    print("Channel closed")
+end
+```
+
+### Closing
+
+```lua
+-- Close a channel (only for regular channels)
+ch:close()
+```
+
+## Select Operations
+
+The select statement allows you to wait on multiple channel operations simultaneously.
+
+### Creating Select Cases
+
+```lua
+-- Create send case
+local sendCase = ch:case_send(value)
+
+-- Create receive case
+local recvCase = ch:case_receive()
+```
+
+### Using Select
+
+```lua
+-- Select with multiple cases
+local result = channel.select{
+    ch1:case_receive(),
+    ch2:case_send("value")
+}
+
+-- Check selected case
+if result.channel == ch1 then
+    print("Received:", result.value)
+elseif result.channel == ch2 then
+    print("Sent value")
+end
+```
+
+### Select with Default
+
+```lua
+-- Select with default case
+local result = channel.select{
+    ch1:case_receive(),
+    ch2:case_send("value"),
+    default = true
+}
+
+if result.default then
+    print("No operation ready")
+end
+```
+
+## Examples
+
+### Basic Producer-Consumer
+
+```lua
+-- Producer-consumer pattern
+local function producer(ch)
+    for i = 1, 5 do
+        ch:send("item" .. i)
+        coroutine.yield("produced " .. i)
+    end
+    ch:close()
+end
+
+local function consumer(ch)
+    while true do
+        local value, ok = ch:receive()
+        if not ok then
+            break
+        end
+        coroutine.yield("consumed " .. value)
+    end
+end
+
+local ch = channel.new(2)
+coroutine.spawn(function() producer(ch) end)
+coroutine.spawn(function() consumer(ch) end)
+```
+
+### Multiple Coroutines with Select
+
+```lua
+-- Multiple channel handling with select
+local function handler()
+    local ch1 = channel.new()
+    local ch2 = channel.new()
+    
+    -- Start sender coroutines
+    coroutine.spawn(function()
+        ch1:send("message1")
+    end)
+    
+    coroutine.spawn(function()
+        ch2:send("message2")
+    end)
+    
+    -- Handle messages from both channels
+    for i = 1, 2 do
+        local result = channel.select{
+            ch1:case_receive(),
+            ch2:case_receive()
+        }
+        coroutine.yield("received: " .. result.value)
+    end
+end
+
+coroutine.spawn(handler)
+```
+
+### External Communication with Named Channels
+
+```lua
+-- Process handling external communication
+local input = channel.named("input", 1)
+local output = channel.named("output", 1)
+
+coroutine.spawn(function()
+    while true do
+        local value, ok = input:receive()
+        if not ok then break end
+        
+        -- Process value
+        local result = "processed:" .. value
+        
+        -- Send back result
+        output:send(result)
+    end
+end)
+```
+
+## Best Practices
+
+1. **Channel Ownership**
+    - Close channels from the sender side
+    - Don't close named channels (managed by runtime)
+    - Check `ok` value when receiving
+
+2. **Buffering**
+    - Use unbuffered channels for synchronization
+    - Use buffered channels for decoupling
+    - Choose buffer size based on expected message rate
+
+3. **Error Handling**
+    - Always check for errors when sending/receiving
+    - Handle channel closure gracefully
+    - Use select with default case for non-blocking operations
+
+4. **Resource Management**
+    - Close channels when no longer needed
+    - Don't leave blocked coroutines
+    - Clean up resources in case of errors
+
+## Limitations and Considerations
+
+1. **Named Channels**
+    - Cannot be closed manually
+    - Cannot send to named channels
+    - Only for receiving external data
+
+2. **Select Operations**
+    - Cases must be channel operations
+    - Default case makes select non-blocking
+    - Select fairly chooses between ready cases
+
+3. **Coroutine Context**
+    - Channels only work within Pony processes
+    - Not available in regular functions
+    - Must be used with coroutine.spawn
+
+## Runtime Interaction
+
+The runtime manages named channels and provides methods to:
+
+- Send data to named channels
+- Monitor channel state
+- Track active channels
+- Handle channel cleanup
+
+```lua
+-- Example of runtime interaction (from Go side)
+channels := runtime.GetOpenChannels()
+for _, ch := range channels {
+    if ch.Name == "input" {
+        runtime.Send("input", "data")
+    }
+}
+```
+
+## Debugging
+
+Debug methods are available for troubleshooting:
+
+```lua
+-- Get channel size
+local size = ch:_debug_size()
+
+-- Get number of blocked senders
+local senders = ch:_debug_senders()
+
+-- Get number of blocked receivers
+local receivers = ch:_debug_receivers()
+```

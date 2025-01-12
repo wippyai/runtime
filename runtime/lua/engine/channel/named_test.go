@@ -62,7 +62,7 @@ func TestNamedChannelSelectVisibility(t *testing.T) {
 		local done = channel.new(0) -- regular channel for coordination
 
 		-- Start select operation that will block on both named channels
-		coroutine.go(function()
+		coroutine.spawn(function()
 			local result = channel.select{
 				ch1:case_receive(),
 				ch2:case_receive()
@@ -208,7 +208,7 @@ func TestNamedChannelMultipleReceivers(t *testing.T) {
 		
 		-- Start 3 coroutines that will wait for values
 		for i = 1, 3 do
-			coroutine.go(function()
+			coroutine.spawn(function()
 				local current = order
 				order = order + 1
 				local val = ch:receive()
@@ -351,7 +351,7 @@ func TestBufferedNamedChannelWriteCapacity(t *testing.T) {
         local done = channel.new(0)
         
         -- Start receiver coroutine
-        coroutine.go(function()
+        coroutine.spawn(function()
             -- Signal we're starting
             ready:send("ready")
             

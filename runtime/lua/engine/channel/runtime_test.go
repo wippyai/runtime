@@ -26,14 +26,14 @@ func TestUnbufferedChannelOperations(t *testing.T) {
 			local ch = channel.new()
 
 			-- Sender coroutine
-			coroutine.go(function()
+			coroutine.spawn(function()
 				coroutine.yield("sender_start")
 				ch:send("message") -- blocks
 				coroutine.yield("sent")
 			end)
 
 			-- Receiver coroutine
-			coroutine.go(function()
+			coroutine.spawn(function()
 				coroutine.yield("receiver_start")
 				local msg, ok = ch:receive()
 				assert(msg == "message", "wrong message received: " .. tostring(msg))
@@ -84,7 +84,7 @@ func TestUnbufferedChannelOperationsMainCoroutine(t *testing.T) {
 			local ch = channel.new()
 
 			-- Sender coroutine
-			coroutine.go(function()
+			coroutine.spawn(function()
 				coroutine.yield("sender_start")
 				ch:send("message") -- blocks
 				coroutine.yield("sent")
@@ -138,7 +138,7 @@ func TestClosedChannelOperations(t *testing.T) {
 			ch:close()
 
 			-- Try receiving from closed channel
-			coroutine.go(function()
+			coroutine.spawn(function()
 				coroutine.yield("receiver_start")
 				local msg, ok = ch:receive()
 				assert(msg == nil, "expected nil message")
@@ -147,7 +147,7 @@ func TestClosedChannelOperations(t *testing.T) {
 			end)
 
 			-- Try sending to closed channel
-			coroutine.go(function()
+			coroutine.spawn(function()
 				coroutine.yield("sender_start")
 				local success, err = pcall(function()
 					ch:send("message")
@@ -200,7 +200,7 @@ func TestCloseChannelWithPendingOperations(t *testing.T) {
 			local ch = channel.new()
 
 			-- Spawn blocking receiver first
-			coroutine.go(function()
+			coroutine.spawn(function()
 				coroutine.yield("receiver_start")
 				local msg, ok = ch:receive()  -- This will block
 				assert(msg == nil, "expected nil message")
@@ -209,7 +209,7 @@ func TestCloseChannelWithPendingOperations(t *testing.T) {
 			end)
 
 			-- Close the channel after receiver is blocked
-			coroutine.go(function()
+			coroutine.spawn(function()
 				coroutine.yield("closer_start")
 				ch:close()
 				coroutine.yield("channel_closed")
@@ -258,7 +258,7 @@ func TestBufferedChannelBasicOperations(t *testing.T) {
 			local ch = channel.new(2)
 
 			-- Test non-blocking sends up to capacity
-			coroutine.go(function()
+			coroutine.spawn(function()
 				ch:send("msg1") -- no block
 				coroutine.yield("first_sent")
 				ch:send("msg2") -- no block
@@ -266,7 +266,7 @@ func TestBufferedChannelBasicOperations(t *testing.T) {
 			end)
 
 			-- Test block from buffer
-			coroutine.go(function()
+			coroutine.spawn(function()
 				coroutine.yield("receiver_start")
 				local msg1, ok1 = ch:receive() -- no block
 				assert(msg1 == "msg1" and ok1 == true, "first receive failed")
@@ -320,7 +320,7 @@ func TestBufferedChannelBlockingBehavior(t *testing.T) {
 		local ch = channel.new(1)
 
 		-- Fill the buffer and attempt to send (should block)
-		coroutine.go(function()
+		coroutine.spawn(function()
 			ch:send("msg1") -- no block
 			coroutine.yield("buffer_written")
 
@@ -330,7 +330,7 @@ func TestBufferedChannelBlockingBehavior(t *testing.T) {
 		end)
 
 		-- Receiver gets values after sender blocks
-		coroutine.go(function()
+		coroutine.spawn(function()
 			coroutine.yield("receiver_start")
 
 			local msg1, ok1 = ch:receive()
@@ -738,7 +738,7 @@ func TestMainCoroutinePanicHandling(t *testing.T) {
 		local ch = channel.new(0)
 		
 		-- Start a goroutine that will be blocked
-		coroutine.go(function()
+		coroutine.spawn(function()
 			ch:receive()
 		end)
 		
@@ -792,7 +792,7 @@ func TestMainCoroutineChannelCascadingClose(t *testing.T) {
 		
 		-- Start two goroutines that will be blocked on receive
 		for i = 1, 2 do
-			coroutine.go(function()
+			coroutine.spawn(function()
 				local val, ok = ch:receive()
 				next:send({value = val, ok = ok})
 			end)
@@ -862,7 +862,7 @@ func TestMapReducePattern(t *testing.T) {
 
 		-- Start workers
 		for i = 1, 3 do
-			coroutine.go(function()
+			coroutine.spawn(function()
 				while true do
 					local num, ok = workCh:receive()
 					if not ok then
@@ -881,7 +881,7 @@ func TestMapReducePattern(t *testing.T) {
 		end
 
 		-- Producer that distributes work
-		coroutine.go(function()
+		coroutine.spawn(function()
 			for _, num in ipairs(input) do
 				workCh:send(num)
 				coroutine.yield("distributed_" .. num)
@@ -891,7 +891,7 @@ func TestMapReducePattern(t *testing.T) {
 		end)
 
 		-- Consumer that reduces next
-		coroutine.go(function()
+		coroutine.spawn(function()
 			local next = {}
 			local sum = 0
 
@@ -981,7 +981,7 @@ func TestFanOutPattern(t *testing.T) {
 		local doneCh = channel.new(0)
 		
 		-- Fan-out distributor
-		coroutine.go(function()
+		coroutine.spawn(function()
 			local outIdx = 1
 			for i = 1, 6 do
 				-- Round-robin distribution
@@ -1000,7 +1000,7 @@ func TestFanOutPattern(t *testing.T) {
 		-- Consumers for each output channel
 		local received = {0, 0, 0}
 		for i = 1, #outputs do
-			coroutine.go(function()
+			coroutine.spawn(function()
 				while true do
 					local val, ok = outputs[i]:receive()
 					if not ok then
@@ -1113,7 +1113,7 @@ func TestFanInPattern(t *testing.T) {
 		
 		-- Producers for each input channel
 		for i = 1, #inputs do
-			coroutine.go(function()
+			coroutine.spawn(function()
 				-- Each producer sends its index twice
 				inputs[i]:send(i)
 				coroutine.yield("producer_" .. i .. "_first")
@@ -1125,7 +1125,7 @@ func TestFanInPattern(t *testing.T) {
 		end
 		
 		-- Fan-in multiplexer
-		coroutine.go(function()
+		coroutine.spawn(function()
 			local active = {true, true, true}
 			local count = 0
 			local next = {}
@@ -1152,7 +1152,7 @@ func TestFanInPattern(t *testing.T) {
 		end)
 		
 		-- Consumer
-		coroutine.go(function()
+		coroutine.spawn(function()
 			local received = {}
 			
 			while true do
