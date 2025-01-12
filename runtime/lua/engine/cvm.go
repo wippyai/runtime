@@ -9,6 +9,9 @@ import (
 	"strings"
 )
 
+// TaskKey is the key used to store the current task in the Lua state specific to thread
+const TaskKey = "_CURRENT_TASK"
+
 type Task struct {
 	l      *lua.LState
 	thread *lua.LState
@@ -25,21 +28,29 @@ func (t *Task) Thread() *lua.LState {
 	return t.thread
 }
 
-type taskQueue struct {
+func (t *Task) Type() lua.LValueType {
+	return lua.LTThread
+}
+
+func (t *Task) String() string {
+	return fmt.Sprintf("coroutine %p", t.thread)
+}
+
+type TaskQueue struct {
 	active *list.List
 }
 
-func newTaskQueue() *taskQueue {
-	return &taskQueue{
+func NewTaskQueue() *TaskQueue {
+	return &TaskQueue{
 		active: list.New(),
 	}
 }
 
-func (q *taskQueue) Push(task *Task) {
+func (q *TaskQueue) Push(task *Task) {
 	q.active.PushBack(task)
 }
 
-func (q *taskQueue) Pop() *Task {
+func (q *TaskQueue) Pop() *Task {
 	if q.active.Len() == 0 {
 		return nil
 	}
@@ -48,7 +59,7 @@ func (q *taskQueue) Pop() *Task {
 	return e.Value.(*Task)
 }
 
-func (q *taskQueue) IsEmpty() bool {
+func (q *TaskQueue) IsEmpty() bool {
 	return q.active.Len() == 0
 }
 
@@ -57,7 +68,7 @@ type CoroutineVM struct {
 	ctx   context.Context
 	vm    *VM
 	tasks []*Task
-	queue *taskQueue
+	queue *TaskQueue
 }
 
 func NewCoroutineVM(
@@ -78,7 +89,7 @@ func NewCoroutineVM(
 		ctx:   ctx,
 		vm:    vm,
 		tasks: make([]*Task, 0),
-		queue: newTaskQueue(),
+		queue: NewTaskQueue(),
 	}
 	avm.vm.state.SetContext(ctx)
 	avm.bindCoroutines()
@@ -162,6 +173,15 @@ func (e *CoroutineVM) createCoroutine(fn *lua.LFunction) (*Task, error) {
 	e.queue.Push(task)
 
 	return task, nil
+}
+
+func (e *CoroutineVM) GetTask(thread *lua.LState) (*Task, error) {
+	for _, task := range e.tasks {
+		if task.thread == thread {
+			return task, nil
+		}
+	}
+	return nil, fmt.Errorf("task not found")
 }
 
 func (e *CoroutineVM) Step(tasks ...*Task) (result []*Task, finalErr error) {

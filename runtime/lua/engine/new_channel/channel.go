@@ -2,10 +2,11 @@ package channel
 
 import (
 	"container/list"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"errors"
 	lua "github.com/yuin/gopher-lua"
 )
 
+// note, channel operations are not task safe but deterministic
 type opKind int
 
 const (
@@ -17,24 +18,29 @@ type op struct {
 	kind     opKind
 	ch       *Channel
 	value    lua.LValue
-	task     *engine.Task // nil for buffered values
-	selectOp *selectOp    // nil for direct ops and buffered values
+	chValue  lua.LValue  // Lua level value of channel, for select result
+	task     *lua.LState // nil for buffered values
+	selectOp *selectOp   // associated select op, nil for direct ops and buffered values
 }
 
 type selectOp struct {
-	cases []*op
-	task  *engine.Task
+	cases      []*op       // Cases to select from
+	hasDefault bool        // If there is a default case
+	task       *lua.LState // Task to wake
 }
 
-type opMatch struct {
-	value     lua.LValue     // The value being transferred
-	selectOp  *selectOp      // Select operation to complete
-	wakeTasks []*engine.Task // Tasks to wake (if any)
-	yields    bool           // If current task should yield
-	closed    bool           // If operation was on closed channel
+type onNext struct {
+	yields  bool        // If current task should yield
+	results []*opResult // Operations to wake
 }
 
-// Channel represents a buffered or unbuffered channel, not-thread safe, external synchronization is required.
+type opResult struct {
+	err    error
+	task   *lua.LState
+	values []lua.LValue
+}
+
+// Channel represents a buffered or unbuffered channel, not-task safe, external synchronization is required.
 type Channel struct {
 	name     string
 	capacity int
@@ -59,27 +65,37 @@ func newChannel(capacity int) *Channel {
 	}
 }
 
-func (c *Channel) trySend(senderTask *engine.Task, value lua.LValue, selectOp *selectOp) opMatch {
+func (c *Channel) send(senderTask *lua.LState, value lua.LValue, selectOp *selectOp) onNext {
 	if c.closed {
-		return opMatch{closed: true}
+		return onNext{
+			results: []*opResult{
+				{task: senderTask, err: errors.New("send on closed channel")},
+			},
+		}
 	}
 
 	// Try to wake receiver first
 	if e := c.receivers.Front(); e != nil {
 		recvOp := c.receivers.Remove(e).(*op)
 		if recvOp.selectOp != nil {
-			return opMatch{
-				wakeTasks: []*engine.Task{recvOp.task, senderTask},
-				selectOp:  recvOp.selectOp,
-				value:     value,
-				yields:    true,
+			c.flushSelects(recvOp.selectOp) // clean all other channels involved in the select
+			return onNext{
+				yields: true,
+				results: []*opResult{
+					{task: recvOp.task, values: selectResult(recvOp.task, recvOp.chValue, recvOp.value, true)},
+					{task: senderTask, values: callerResult(senderTask, selectOp, value, nil, true)},
+				},
 			}
 		}
 
-		return opMatch{
-			wakeTasks: []*engine.Task{recvOp.task, senderTask},
-			value:     value,
-			yields:    true,
+		if recvOp.task != nil {
+			return onNext{
+				yields: true,
+				results: []*opResult{
+					{task: recvOp.task, values: []lua.LValue{value, lua.LBool(true)}},
+					{task: senderTask, values: callerResult(senderTask, selectOp, value, nil, true)}, // send ok
+				},
+			}
 		}
 	}
 
@@ -92,7 +108,11 @@ func (c *Channel) trySend(senderTask *engine.Task, value lua.LValue, selectOp *s
 			selectOp: selectOp,
 		})
 		c.size++
-		return opMatch{} // No yield needed
+		return onNext{
+			results: []*opResult{
+				{task: senderTask, values: callerResult(senderTask, selectOp, value, nil, true)}, // send successful
+			},
+		}
 	}
 
 	// Have to block
@@ -105,40 +125,52 @@ func (c *Channel) trySend(senderTask *engine.Task, value lua.LValue, selectOp *s
 	})
 	c.size++
 
-	return opMatch{yields: true}
+	return onNext{yields: true} // Yield, nothing to do
 }
 
-func (c *Channel) tryReceive(receiverTask *engine.Task, selectOp *selectOp) opMatch {
+func (c *Channel) receive(receiverTask *lua.LState, selectOp *selectOp) onNext {
 	// Try get from senders first
 	if e := c.senders.Front(); e != nil {
 		sendOp := c.senders.Remove(e).(*op)
 		c.size--
 
 		if sendOp.selectOp != nil {
-			return opMatch{
-				wakeTasks: []*engine.Task{sendOp.task, receiverTask},
-				selectOp:  sendOp.selectOp,
-				value:     sendOp.value,
-				yields:    true,
+			c.flushSelects(sendOp.selectOp)
+
+			return onNext{
+				yields: true,
+				results: []*opResult{
+					{task: sendOp.task, values: nil}, // wake sender
+					{task: receiverTask, values: callerResult(receiverTask, selectOp, sendOp.value, sendOp.value, true)},
+				},
 			}
 		}
 
 		if sendOp.task != nil {
-			return opMatch{
-				wakeTasks: []*engine.Task{sendOp.task, receiverTask},
-				value:     sendOp.value,
-				yields:    true,
+			return onNext{
+				yields: true,
+				results: []*opResult{
+					{task: sendOp.task, values: nil}, // wake sender
+					{task: receiverTask, values: callerResult(receiverTask, selectOp, sendOp.value, sendOp.value, true)},
+				},
 			}
 		}
 
 		// buffered
-		return opMatch{value: sendOp.value}
+		return onNext{
+			results: []*opResult{
+				{task: receiverTask, values: callerResult(receiverTask, selectOp, sendOp.value, sendOp.value, true)},
+			},
+		}
 	}
 
 	if c.closed {
-		return opMatch{closed: true}
+		return onNext{
+			results: []*opResult{
+				{task: receiverTask, values: callerResult(receiverTask, selectOp, lua.LNil, lua.LNil, false)},
+			},
+		}
 	}
-
 	// Have to block
 	c.receivers.PushBack(&op{
 		kind:     receiveOp,
@@ -146,47 +178,72 @@ func (c *Channel) tryReceive(receiverTask *engine.Task, selectOp *selectOp) opMa
 		task:     receiverTask,
 		selectOp: selectOp,
 	})
-	return opMatch{yields: true}
+	return onNext{yields: true}
 }
 
-func (c *Channel) close() opMatch {
+func (c *Channel) close() onNext {
 	if c.closed {
-		return opMatch{closed: true}
+		return onNext{
+			results: []*opResult{
+				{err: errors.New("close of closed channel")},
+			},
+		}
 	}
+
 	c.closed = true
+	var results []*opResult
 
-	senderIter := c.senders.Front()
-	receiverIter := c.receivers.Front()
-
-	var tasksToWake []*engine.Task
-
-	// Process both lists until we exhaust one or both
-	for senderIter != nil || receiverIter != nil {
-		if senderIter != nil {
-			op := senderIter.Value.(*op)
-			if op.task != nil { // Only wake if it's not a buffered value
-				tasksToWake = append(tasksToWake, op.task)
-			}
-			senderIter = senderIter.Next()
+	// Handle and remove ALL senders - they all fail with error
+	for e := c.senders.Front(); e != nil; {
+		nextE := e.Next() // Save next before removing current
+		op := e.Value.(*op)
+		if op.selectOp != nil {
+			c.flushSelects(op.selectOp) // deletes any other pending selects on other channels
 		}
-
-		if receiverIter != nil {
-			tasksToWake = append(tasksToWake, receiverIter.Value.(*op).task)
-			receiverIter = receiverIter.Next()
+		if op.task != nil {
+			results = append(results, &opResult{
+				task: op.task,
+				err:  errors.New("send on closed channel"),
+			})
 		}
+		c.senders.Remove(e)
+		c.size--
+		e = nextE
 	}
 
-	// Cleanup channel state
-	c.cleanup()
+	// Handle non-buffered receivers only
+	for e := c.receivers.Front(); e != nil; {
+		nextE := e.Next() // Save next before potential removal
+		op := e.Value.(*op)
+		if op.task != nil {
+			if op.selectOp != nil {
+				c.flushSelects(op.selectOp)
+			}
+			results = append(results, &opResult{
+				task:   op.task,
+				values: []lua.LValue{lua.LNil, lua.LBool(false)},
+			})
+			c.receivers.Remove(e) // remove task receiver, buffered values are not removed
+		}
+		e = nextE
+	}
 
-	return opMatch{
-		wakeTasks: tasksToWake,
-		closed:    true,
-		yields:    true, // to wake tasks
+	return onNext{
+		yields:  len(results) > 0,
+		results: results,
+	}
+}
+
+func (c *Channel) flushSelects(s *selectOp) {
+	for _, caseOp := range s.cases {
+		if caseOp.ch != c {
+			caseOp.ch.discardSelect(s)
+		}
 	}
 }
 
 func (c *Channel) discardSelect(selectOp *selectOp) {
+	/* Good candidate for optimization. */
 	for e := c.senders.Front(); e != nil; {
 		next := e.Next()
 		if op := e.Value.(*op); op.selectOp == selectOp {
@@ -205,7 +262,7 @@ func (c *Channel) discardSelect(selectOp *selectOp) {
 	}
 }
 
-func (c *Channel) cleanup() {
+func (c *Channel) reset() {
 	c.size = 0
 	c.senders.Init()
 	c.receivers.Init()
@@ -229,4 +286,25 @@ func (c *Channel) canSend() bool {
 
 func (c *Channel) canReceive() bool {
 	return c.senders.Front() != nil
+}
+
+func selectResult(L *lua.LState, chValue, value lua.LValue, ok bool) []lua.LValue {
+	result := L.NewTable()
+	result.RawSetString("channel", chValue)
+	result.RawSetString("value", value)
+	result.RawSetString("ok", lua.LBool(ok))
+
+	return []lua.LValue{result}
+}
+
+func callerResult(task *lua.LState, selectOp *selectOp, chValue, value lua.LValue, ok bool) []lua.LValue {
+	if selectOp != nil {
+		return selectResult(task, chValue, value, ok)
+	}
+
+	if value == nil {
+		return nil // For send operations that succeed
+	}
+
+	return []lua.LValue{value, lua.LBool(ok)} // For receive operations
 }
