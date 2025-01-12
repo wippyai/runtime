@@ -1,475 +1,443 @@
 package channel
 
-//
-//func TestNamedChannels_SignalAggregation(t *testing.T) {
-//	logger := zap.NewNop()
-//
-//	t.Run("aggregate three parent signals", func(t *testing.T) {
-//		scheduler := NewRuntime()
-//		channels := NewChannelModule()
-//
-//		createNamedChannel := func(L *lua.LState) int {
-//			name := L.CheckString(1)
-//			t.Logf("Creating named channel: %s", name)
-//			ch := Named(name)
-//			ud := L.NewUserData()
-//			ud.Value = ch
-//			L.SetMetatable(ud, L.GetTypeMetatable("channel"))
-//			L.Push(ud)
-//			return 1
-//		}
-//
-//		vm, err := engine.NewCoroutineVM(
-//			context.Background(),
-//			logger,
-//			engine.WithPreloaded(channels.Name(), channels.Loader),
-//			engine.WithGlobalFunction("create_named_channel", createNamedChannel),
-//		)
-//		assert.NoError(t, err)
-//		defer vm.Close()
-//
-//		err = vm.PushScript(`
-//            print("Starting script execution")
-//            coroutine.go(function()
-//                print("Creating channels")
-//                local parent1 = create_named_channel("parent1")
-//                local parent2 = create_named_channel("parent2")
-//                local parent3 = create_named_channel("parent3")
-//                print("Channels created")
-//
-//                local results = {}
-//
-//                print("Waiting for parent1")
-//                coroutine.yield("waiting_parent1")
-//                print("About to receive from parent1")
-//                local msg1, ok = parent1:receive()
-//                print("Received from parent1:", msg1, ok)
-//                assert(ok, "failed to receive from parent1")
-//                results[1] = msg1
-//                coroutine.yield("got_parent1")
-//
-//                print("About to receive from parent2")
-//                local msg2, ok = parent2:receive()
-//                print("Received from parent2:", msg2, ok)
-//                assert(ok, "failed to receive from parent2")
-//                results[2] = msg2
-//                coroutine.yield("got_parent2")
-//
-//                print("About to receive from parent3")
-//                local msg3, ok = parent3:receive()
-//                print("Received from parent3:", msg3, ok)
-//                assert(ok, "failed to receive from parent3")
-//                results[3] = msg3
-//                coroutine.yield("got_parent3")
-//
-//                print("Preparing final result")
-//                local result = results[1] .. "-" .. results[2] .. "-" .. results[3]
-//                print("Final result:", result)
-//                coroutine.yield(result)
-//            end)
-//        `, "test")
-//		assert.NoError(t, err)
-//
-//		// Get initial tasks and validate
-//		t.Log("Getting initial tasks")
-//		tasks, err := vm.Step()
-//		assert.NoError(t, err)
-//		t.Logf("Initial tasks count: %d", len(tasks))
-//		require.NotEmpty(t, tasks, "should have tasks after initial step")
-//
-//		if len(tasks) > 0 {
-//			t.Logf("First yield value: %v", tasks[0].Yielded[0])
-//		}
-//
-//		// First we should see it waiting for parent1
-//		require.Equal(t, "waiting_parent1", tasks[0].Yielded[0].String())
-//
-//		// Step to get to the receive
-//		t.Log("Stepping to receive")
-//		tasks, err = scheduler.Step(vm, tasks...)
-//		assert.NoError(t, err)
-//		t.Logf("Tasks after scheduler step: %d", len(tasks))
-//		if len(tasks) > 0 && len(tasks[0].Yielded) > 0 {
-//			t.Logf("Yield value after step: %v", tasks[0].Yielded[0])
-//		}
-//		require.NotEmpty(t, tasks, "should have tasks after initial receive")
-//
-//		// Check registered channels
-//		listeners := scheduler.GetOpenChannels()
-//		t.Logf("Registered channels: %v", listeners)
-//
-//		// Send signals one by one and verify
-//		signals := []struct {
-//			channel string
-//			value   string
-//			expect  string
-//		}{
-//			{"parent1", "signal1", "got_parent1"},
-//			{"parent2", "signal2", "got_parent2"},
-//			{"parent3", "signal3", "got_parent3"},
-//		}
-//
-//		for i, s := range signals {
-//			t.Logf("Processing signal %d: %s -> %s", i, s.channel, s.value)
-//
-//			// Send signal
-//			tasks, err = scheduler.Send(s.channel, lua.LString(s.value))
-//			assert.NoError(t, err)
-//			t.Logf("Tasks after send: %d", len(tasks))
-//			require.NotEmpty(t, tasks, "should have tasks after sending signal")
-//
-//			// Process the signal
-//			tasks, err = scheduler.Step(vm, tasks...)
-//			assert.NoError(t, err)
-//			t.Logf("Tasks after step: %d", len(tasks))
-//			if len(tasks) > 0 && len(tasks[0].Yielded) > 0 {
-//				t.Logf("Yield value: %v", tasks[0].Yielded[0])
-//			}
-//			require.NotEmpty(t, tasks, "should have tasks after step")
-//			assert.Equal(t, s.expect, tasks[0].Yielded[0].String())
-//
-//			// Check channel state
-//			listeners = scheduler.GetOpenChannels()
-//			t.Logf("Registered channels after signal %d: %v", i, listeners)
-//		}
-//
-//		// Verify final state
-//		require.NotEmpty(t, tasks, "should have final task")
-//		assert.Equal(t, "signal1-signal2-signal3", tasks[0].Yielded[0].String())
-//
-//		listeners = scheduler.GetOpenChannels()
-//		t.Logf("Final registered channels: %v", listeners)
-//		assert.Empty(t, scheduler.GetOpenChannels(), "all channels should be unregistered")
-//	})
-//}
+import (
+	"context"
+	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"github.com/stretchr/testify/assert"
+	lua "github.com/yuin/gopher-lua"
+	"go.uber.org/zap"
+	"strings"
+	"testing"
+)
 
-//
-//func TestExternalChannels_Basic(t *testing.T) {
-//	logger := zap.NewNop()
-//
-//	t.Run("inbox channel send data", func(t *testing.T) {
-//		bufferedScheduler := NewRuntime()
-//		channels := NewChannelModule()
-//
-//		vm, err := engine.NewCoroutineVM(
-//			context.Background(), logger,
-//			engine.WithPreloaded(channels.Name(), channels.Loader),
-//		)
-//
-//		if err != nil {
-//			t.Fatal(err)
-//		}
-//		defer vm.Close()
-//
-//		err = vm.PushScript(`
-//        local ch = channel.inbox("signal")
-//
-//        -- Receiver
-//        coroutine.go(function()
-//            local msg, ok = ch:receive()
-//            assert(ok, "expected successful receive")
-//            assert(msg == "hello", "wrong message received")
-//            coroutine.yield("receive_complete")
-//        end)
-//    `, "test")
-//
-//		if err != nil {
-//			t.Fatal(err)
-//		}
-//
-//		// Get initial yielded tasks
-//		tasks, err := bufferedScheduler.Step(vm)
-//		assert.NoError(t, err)
-//
-//		log.Printf("---------------------------------------tasks: %v", tasks)
-//		// Verify inbox channel is registered
-//		listeners := bufferedScheduler.GetOpenChannels()
-//		assert.Equal(t, 1, len(listeners), "expected one inbox listener")
-//		assert.Equal(t, "signal", listeners[0], "expected signal channel to be registered")
-//
-//		// send data to inbox channel
-//		tasks, _ = bufferedScheduler.Send("signal", lua.LString("hello"))
-//		assert.Equal(t, 1, len(tasks), "expected one task to be resumed")
-//
-//		// Process resumed task
-//		tasks, err = bufferedScheduler.Step(vm, tasks...)
-//		assert.NoError(t, err)
-//		assert.Equal(t, 1, len(tasks), "expected one final yield")
-//
-//		// Verify channel was unregistered after completion
-//		listeners = bufferedScheduler.GetOpenChannels()
-//		assert.Equal(t, 0, len(listeners), "expected no remaining listeners")
-//	})
-//
-//	t.Run("inbox channel multi-receive with yield", func(t *testing.T) {
-//		bufferedScheduler := NewRuntime()
-//		channels := NewChannelModule()
-//
-//		vm, err := engine.NewCoroutineVM(
-//			context.Background(), logger,
-//			engine.WithPreloaded(channels.Name(), channels.Loader),
-//		)
-//		assert.NoError(t, err)
-//		defer vm.Close()
-//
-//		err = vm.PushScript(`
-//        local ch = channel.inbox("signal")
-//
-//        coroutine.go(function()
-//            -- First receive
-//            local msg1, ok = ch:receive()
-//            assert(ok and msg1 == "first", "wrong first message")
-//
-//            -- Second receive
-//            local msg2, ok = ch:receive()
-//            assert(ok and msg2 == "second", "wrong second message")
-//
-//            -- Yield doing something else
-//            coroutine.yield("other_work")
-//
-//            -- Third receive after yield
-//            local msg3, ok = ch:receive()
-//            assert(ok and msg3 == "third", "wrong third message")
-//
-//            coroutine.yield("all_done")
-//        end)
-//    `, "test")
-//		assert.NoError(t, err)
-//
-//		// Get initial task
-//		tasks, err := bufferedScheduler.Step(vm)
-//		assert.NoError(t, err)
-//
-//		// First signal
-//		tasks, _ = bufferedScheduler.Send("signal", lua.LString("first"))
-//		assert.Equal(t, 1, len(tasks))
-//		tasks, err = bufferedScheduler.Step(vm, tasks...)
-//		assert.NoError(t, err)
-//
-//		// Second signal
-//		tasks, _ = bufferedScheduler.Send("signal", lua.LString("second"))
-//		assert.Equal(t, 1, len(tasks))
-//		tasks, err = bufferedScheduler.Step(vm, tasks...)
-//		assert.NoError(t, err)
-//
-//		// Should now be yielded with "other_work"
-//		assert.Equal(t, 1, len(tasks))
-//		assert.Equal(t, "other_work", tasks[0].Yielded[0].String())
-//
-//		// Verify channel not in listeners during yield
-//		assert.Equal(t, 0, len(bufferedScheduler.GetOpenChannels()))
-//
-//		// Step to get to next receive
-//		tasks, err = bufferedScheduler.Step(vm, tasks...)
-//		assert.NoError(t, err)
-//
-//		// Channel should be listening again
-//		assert.Equal(t, []string{"signal"}, bufferedScheduler.GetOpenChannels())
-//
-//		// Third signal
-//		tasks, _ = bufferedScheduler.Send("signal", lua.LString("third"))
-//		assert.Equal(t, 1, len(tasks))
-//		tasks, err = bufferedScheduler.Step(vm, tasks...)
-//		assert.NoError(t, err)
-//
-//		// Should be done
-//		assert.Equal(t, "all_done", tasks[0].Yielded[0].String())
-//	})
-//
-//	t.Run("multiple receivers on single inbox channel", func(t *testing.T) {
-//		bufferedScheduler := NewRuntime()
-//		channels := NewChannelModule()
-//
-//		vm, err := engine.NewCoroutineVM(
-//			context.Background(), logger,
-//			engine.WithPreloaded(channels.Name(), channels.Loader),
-//		)
-//		assert.NoError(t, err)
-//		defer vm.Close()
-//
-//		err = vm.PushScript(`
-//            local ch = channel.inbox("distributed")
-//
-//            -- First receiver
-//            coroutine.go(function()
-//                local msg, ok = ch:receive()
-//                assert(ok and msg == "first", "wrong message in first receiver")
-//                coroutine.yield("first_done")
-//            end)
-//
-//            -- Second receiver
-//            coroutine.go(function()
-//                local msg, ok = ch:receive()
-//                assert(ok and msg == "second", "wrong message in second receiver")
-//                coroutine.yield("second_done")
-//            end)
-//        `, "test")
-//		assert.NoError(t, err)
-//
-//		// Get initial tasks
-//		tasks, err := bufferedScheduler.Step(vm)
-//		assert.NoError(t, err)
-//
-//		// Verify both are registered
-//		assert.Equal(t, []string{"distributed"}, bufferedScheduler.GetOpenChannels())
-//
-//		// send first signal - should go to first receiver
-//		tasks, _ = bufferedScheduler.Send("distributed", lua.LString("first"))
-//		assert.Equal(t, 1, len(tasks), "first receiver should be resumed")
-//
-//		tasks, err = bufferedScheduler.Step(vm, tasks...)
-//		assert.NoError(t, err)
-//		assert.Equal(t, "first_done", tasks[0].Yielded[0].String())
-//
-//		// send second signal - should go to second receiver
-//		tasks, _ = bufferedScheduler.Send("distributed", lua.LString("second"))
-//		assert.Equal(t, 1, len(tasks), "second receiver should be resumed")
-//
-//		tasks, err = bufferedScheduler.Step(vm, tasks...)
-//		assert.NoError(t, err)
-//		assert.Equal(t, "second_done", tasks[0].Yielded[0].String())
-//
-//		// Channel should no longer be listened
-//		assert.Equal(t, 0, len(bufferedScheduler.GetOpenChannels()))
-//	})
-//}
-//
-//func TestExternalChannelSelect(t *testing.T) {
-//	logger := zap.NewNop()
-//
-//	t.Run("select on inbox channel", func(t *testing.T) {
-//		bufferedScheduler := NewRuntime()
-//		channels := NewChannelModule()
-//
-//		vm, err := engine.NewCoroutineVM(
-//			context.Background(), logger,
-//			engine.WithPreloaded(channels.Name(), channels.Loader),
-//		)
-//		assert.NoError(t, err)
-//		defer vm.Close()
-//
-//		err = vm.PushScript(`
-//			local ext = channel.inbox("ext1")
-//
-//			coroutine.go(function()
-//				local result = channel.select({
-//					ext:case_receive()
-//				})
-//
-//				assert(result.channel == ext, "wrong channel selected")
-//				assert(result.value == "test_data", "wrong value received")
-//				assert(result.ok, "receive should succeed")
-//				coroutine.yield("receive_complete")
-//			end)
-//		`, "test")
-//		assert.NoError(t, err)
-//
-//		// Get initial task - this registers the receiver
-//		tasks, err := bufferedScheduler.Step(vm)
-//		assert.NoError(t, err)
-//
-//		// Verify channel is registered
-//		listeners := bufferedScheduler.GetOpenChannels()
-//		assert.Equal(t, []string{"ext1"}, listeners, "channel should be registered")
-//
-//		// send data to channel
-//		tasks, _ = bufferedScheduler.Send("ext1", lua.LString("test_data"))
-//		assert.Equal(t, 1, len(tasks), "should have one task to resume")
-//
-//		// Process resumed task
-//		tasks, err = bufferedScheduler.Step(vm, tasks...)
-//		assert.NoError(t, err)
-//		assert.Equal(t, "receive_complete", tasks[0].Yielded[0].String())
-//
-//		// Channel should be unregistered
-//		assert.Equal(t, 0, len(bufferedScheduler.GetOpenChannels()), "channel should be unregistered")
-//	})
-//
-//	//t.Run("select between multiple inbox channels", func(t *testing.T) {
-//	//	bufferedScheduler := NewRuntime()
-//	//	channels := NewChannelModule()
-//	//
-//	//	vm, err := engine.NewCoroutineVM(
-//	//		context.Background(), logger,
-//	//		engine.WithPreloaded(channels.Name(), channels.Loader),
-//	//	)
-//	//	assert.NoError(t, err)
-//	//	defer vm.Close()
-//	//
-//	//	err = vm.PushScript(`
-//	//		local ext1 = channel.inbox("ext1")
-//	//		local ext2 = channel.inbox("ext2")
-//	//
-//	//		coroutine.go(function()
-//	//			-- First select should get ext1
-//	//			local result = channel.select({
-//	//				ext1:case_receive(),
-//	//				ext2:case_receive()
-//	//			})
-//	//			assert(result.channel == ext1, "wrong channel selected")
-//	//			assert(result.value == "data1", "wrong value received")
-//	//			coroutine.yield("first_receive_complete")
-//	//
-//	//			-- Second select should get ext2
-//	//			result = channel.select({
-//	//				ext1:case_receive(),
-//	//				ext2:case_receive()
-//	//			})
-//	//			assert(result.channel == ext2, "wrong channel selected")
-//	//			assert(result.value == "data2", "wrong value received")
-//	//			coroutine.yield("second_receive_complete")
-//	//		end)
-//	//	`, "test")
-//	//	assert.NoError(t, err)
-//	//
-//	//	// Get initial task - this registers both receivers
-//	//	tasks, err := bufferedScheduler.Step(vm)
-//	//	assert.NoError(t, err)
-//	//
-//	//	// Verify both channels are registered
-//	//	listeners := bufferedScheduler.GetOpenChannels()
-//	//	assert.Equal(t, 2, len(listeners), "both channels should be registered")
-//	//	assert.Contains(t, listeners, "ext1")
-//	//	assert.Contains(t, listeners, "ext2")
-//	//
-//	//	// send to first channel
-//	//	tasks = bufferedScheduler.send("ext1", lua.LString("data1"))
-//	//	assert.Equal(t, 1, len(tasks), "should have one task to resume")
-//	//
-//	//	tasks, err = bufferedScheduler.Step(vm, tasks...)
-//	//	assert.NoError(t, err)
-//	//	assert.Equal(t, "first_receive_complete", tasks[0].Yielded[0].String())
-//	//
-//	//	// Step to register second set of receivers
-//	//	tasks, err = bufferedScheduler.Step(vm, tasks...)
-//	//	assert.NoError(t, err)
-//	//
-//	//	// send to second channel
-//	//	tasks = bufferedScheduler.send("ext2", lua.LString("data2"))
-//	//	assert.Equal(t, 1, len(tasks), "should have one task to resume")
-//	//
-//	//	tasks, err = bufferedScheduler.Step(vm, tasks...)
-//	//	assert.NoError(t, err)
-//	//	assert.Equal(t, "second_receive_complete", tasks[0].Yielded[0].String())
-//	//
-//	//	// All channels should be unregistered at end
-//	//	assert.Equal(t, 0, len(bufferedScheduler.GetOpenChannels()), "no channels should remain registered")
-//	//})
-//}
-//
-//// TODO: ENSURE WE DEQUEUE CHANNELS WHEN SELECT TRIGGERED!!!!!!!!!!!!!!!!
-//// TODO: EXTERNAL SIGNAL DOES NOT CLEAR UP CHANNEL PENDINGS!!!!!
-//// TODO: WE HAVE TO DRAIN ALL THE SELECTS WHEN HAPPENS
-//// TODO: WE HAVE FIND A WAY TO DE_REGISTER SIGNAL WHEN SELECT UNLOCKS IMMEDIATELY
-//
-//// todo: this is temp, TODO: DELETE IT!
-//func (m *Module) newExternal(L *lua.LState) int {
-//	ch := Named(L.CheckString(1), 0)
-//	ud := L.NewUserData()
-//	ud.Value = ch
-//
-//	L.SetMetatable(ud, L.GetTypeMetatable("channel"))
-//	L.Push(ud)
-//
-//	return 1
-//}
+func TestNamedChannelVisibility(t *testing.T) {
+	logger := zap.NewNop()
+
+	vm, err := engine.NewCoroutineVM(
+		context.Background(),
+		logger,
+		engine.WithPreloaded("channel", NewChannelModule().Loader),
+	)
+	assert.NoError(t, err)
+	defer vm.Close()
+
+	err = vm.PushScript(`
+		-- Create two named channels
+		local ch1 = channel.named("channel1", 1)
+		local ch2 = channel.named("channel2", 1)
+
+		-- Only block on channel1
+		local val = ch1:receive()
+
+		coroutine.yield("blocked")
+	`, "test")
+	assert.NoError(t, err)
+
+	runtime := NewRuntime()
+	tasks, err := runtime.Step(vm)
+	assert.NoError(t, err)
+	assert.Equal(t, 0, len(tasks), "expected no tasks")
+
+	// Check open channels after first step
+	channels := runtime.GetOpenChannels()
+	assert.Equal(t, 1, len(channels), "expected exactly one visible channel")
+	assert.Equal(t, "channel1", channels[0].Name, "expected channel1 to be visible")
+}
+
+func TestNamedChannelSelectVisibility(t *testing.T) {
+	logger := zap.NewNop()
+
+	vm, err := engine.NewCoroutineVM(
+		context.Background(),
+		logger,
+		engine.WithPreloaded("channel", NewChannelModule().Loader),
+	)
+	assert.NoError(t, err)
+	defer vm.Close()
+
+	err = vm.PushScript(`
+		-- Create named channels with different capacities
+		local ch1 = channel.named("select_ch1", 0) -- unbuffered
+		local ch2 = channel.named("select_ch2", 1) -- buffered
+		local done = channel.new(0) -- regular channel for coordination
+
+		-- Start select operation that will block on both named channels
+		coroutine.go(function()
+			local result = channel.select{
+				ch1:case_receive(),
+				ch2:case_receive()
+			}
+			done:send("completed:" .. result.value)
+			coroutine.yield("select_completed")
+		end)
+
+		coroutine.yield("select_started")
+
+		-- Send value through runtime to ch1
+		coroutine.yield("ready_for_send")
+
+		-- Wait for completion
+		local msg = done:receive()
+		coroutine.yield("done")
+		coroutine.yield(msg)
+	`, "test")
+	assert.NoError(t, err)
+
+	runtime := NewRuntime()
+	tasks, err := runtime.Step(vm)
+	assert.NoError(t, err)
+
+	var yields []string
+	checkChannels := func(expectedNames []string) {
+		channels := runtime.GetOpenChannels()
+		assert.Equal(t, len(expectedNames), len(channels), "unexpected number of open channels")
+
+		actualNames := make(map[string]bool)
+		for _, ch := range channels {
+			actualNames[ch.Name] = true
+		}
+
+		for _, expected := range expectedNames {
+			assert.True(t, actualNames[expected], "expected channel %s to be visible", expected)
+		}
+	}
+
+	// Process tasks and collect yields
+	for len(tasks) > 0 {
+		for _, task := range tasks {
+			if len(task.Yielded) > 0 {
+				yield := task.Yielded[0].String()
+				yields = append(yields, yield)
+
+				// Check channel visibility at each yield point
+				switch yield {
+				case "select_started":
+					// Both channels should be visible after select starts
+					checkChannels([]string{"select_ch1", "select_ch2"})
+				case "ready_for_send":
+					// Send value through runtime to ch1
+					err := runtime.Send("select_ch1", lua.LString("value1"))
+					assert.NoError(t, err)
+
+				case "done":
+					checkChannels([]string{})
+				}
+			}
+		}
+		tasks, err = runtime.Step(vm, tasks...)
+		assert.NoError(t, err)
+	}
+
+	expectedYields := []string{
+		"select_started",
+		"ready_for_send",
+		"select_completed",
+		"done",
+		"completed:value1",
+	}
+	assert.Equal(t, expectedYields, yields, "yields occurred in unexpected order")
+}
+
+func TestNamedChannelSelectDefaultCase(t *testing.T) {
+	logger := zap.NewNop()
+
+	vm, err := engine.NewCoroutineVM(
+		context.Background(),
+		logger,
+		engine.WithPreloaded("channel", NewChannelModule().Loader),
+	)
+	assert.NoError(t, err)
+	defer vm.Close()
+
+	err = vm.PushScript(`
+		-- Create named channels
+		local ch1 = channel.named("default_ch1", 0)
+		local ch2 = channel.named("default_ch2", 0)
+
+		-- Select with default case
+		local result = channel.select{
+			ch1:case_receive(),
+			ch2:case_receive(),
+			default = true
+		}
+
+		assert(result.default == true, "should hit default case")
+		coroutine.yield("select_with_default_complete")
+	`, "test")
+	assert.NoError(t, err)
+
+	runtime := NewRuntime()
+	tasks, err := runtime.Step(vm)
+	assert.NoError(t, err)
+
+	// Check that no channels are visible since select with default doesn't block
+	channels := runtime.GetOpenChannels()
+	assert.Equal(t, 0, len(channels), "expected no visible channels with default case")
+
+	var yields []string
+	for len(tasks) > 0 {
+		for _, task := range tasks {
+			if len(task.Yielded) > 0 {
+				yields = append(yields, task.Yielded[0].String())
+			}
+		}
+		tasks, err = runtime.Step(vm, tasks...)
+		assert.NoError(t, err)
+	}
+
+	expectedYields := []string{"select_with_default_complete"}
+	assert.Equal(t, expectedYields, yields)
+}
+
+func TestNamedChannelMultipleReceivers(t *testing.T) {
+	logger := zap.NewNop()
+
+	vm, err := engine.NewCoroutineVM(
+		context.Background(),
+		logger,
+		engine.WithPreloaded("channel", NewChannelModule().Loader),
+	)
+	assert.NoError(t, err)
+	defer vm.Close()
+
+	err = vm.PushScript(`
+		-- Create channels
+		local ch = channel.named("test_channel", 0)
+		local results = channel.new(3) -- To collect results in order
+		local order = 1 -- Track order of reception
+		
+		-- Start 3 coroutines that will wait for values
+		for i = 1, 3 do
+			coroutine.go(function()
+				local current = order
+				order = order + 1
+				local val = ch:receive()
+				results:send({
+					value = val,
+					receiver = i,
+					order = current -- Record order of setup
+				})
+				coroutine.yield("receiver_" .. i .. "_got_" .. tostring(val))
+			end)
+		end
+
+		-- Notify test that receivers are ready
+		coroutine.yield("receivers_ready")
+		
+		-- Collect results in order they were received
+		local received = {}
+		for i = 1, 3 do
+			local result = results:receive()
+			table.insert(received, result)
+			coroutine.yield("collected_result_" .. i)
+		end
+		
+		-- Verify all values were received
+		assert(#received == 3, "should receive exactly 3 values")
+		
+		-- Sort by order of setup to ensure deterministic verification
+		table.sort(received, function(a, b) return a.order < b.order end)
+		
+		-- First routine gets first value, second gets second, etc.
+		assert(received[1].value == "value1", string.format(
+			"wrong first value: got %s, receiver %d, order %d", 
+			tostring(received[1].value), received[1].receiver, received[1].order))
+		assert(received[2].value == "value2", string.format(
+			"wrong second value: got %s, receiver %d, order %d",
+			tostring(received[2].value), received[2].receiver, received[2].order))
+		assert(received[3].value == "value3", string.format(
+			"wrong third value: got %s, receiver %d, order %d",
+			tostring(received[3].value), received[3].receiver, received[3].order))
+		
+		coroutine.yield("verification_complete")
+	`, "test")
+	assert.NoError(t, err)
+
+	runtime := NewRuntime()
+	tasks, err := runtime.Step(vm)
+	assert.NoError(t, err)
+
+	var yields []string
+	var receiverCount int
+	var valuesDelivered bool
+
+	for len(tasks) > 0 {
+		for _, task := range tasks {
+			if len(task.Yielded) > 0 {
+				yield := task.Yielded[0].String()
+				yields = append(yields, yield)
+
+				// Once we see receivers are ready, check channels and send values
+				if yield == "receivers_ready" && !valuesDelivered {
+					channels := runtime.GetOpenChannels()
+					assert.Equal(t, 1, len(channels), "expected exactly one visible channel")
+					assert.Equal(t, "test_channel", channels[0].Name, "unexpected channel name")
+					assert.Equal(t, 3, channels[0].Refs, "expected 3 references to channel")
+
+					// Send all values in one batch - order matters!
+					err = runtime.Send("test_channel",
+						lua.LString("value1"), // Should go to first waiting routine
+						lua.LString("value2"), // Should go to second waiting routine
+						lua.LString("value3"), // Should go to third waiting routine
+					)
+					assert.NoError(t, err)
+					valuesDelivered = true
+				}
+
+				if strings.HasPrefix(yield, "receiver_") && strings.Contains(yield, "_got_") {
+					receiverCount++
+				}
+			}
+		}
+
+		tasks, err = runtime.Step(vm, tasks...)
+		assert.NoError(t, err)
+	}
+
+	// Verify key events occurred in order
+	assert.Contains(t, yields, "receivers_ready", "missing receivers_ready signal")
+
+	// Verify order of value reception
+	var receiveOrder []string
+	for _, yield := range yields {
+		if strings.HasPrefix(yield, "receiver_") && strings.Contains(yield, "_got_") {
+			receiveOrder = append(receiveOrder, yield)
+		}
+	}
+
+	// Should be exactly 3 receive events
+	assert.Equal(t, 3, len(receiveOrder), "wrong number of receive events")
+
+	// Values should be received in order: value1, value2, value3
+	assert.True(t, strings.Contains(receiveOrder[0], "_got_value1"),
+		"first value should be value1, got: %s", receiveOrder[0])
+	assert.True(t, strings.Contains(receiveOrder[1], "_got_value2"),
+		"second value should be value2, got: %s", receiveOrder[1])
+	assert.True(t, strings.Contains(receiveOrder[2], "_got_value3"),
+		"third value should be value3, got: %s", receiveOrder[2])
+
+	// Verify final verification completed
+	assert.Contains(t, yields, "verification_complete", "missing final verification")
+
+	// no pending named
+	channels := runtime.GetOpenChannels()
+	assert.Equal(t, 0, len(channels), "expected no visible channels after completion")
+
+	// Count result collections
+	collectionCount := 0
+	for _, yield := range yields {
+		if strings.HasPrefix(yield, "collected_result_") {
+			collectionCount++
+		}
+	}
+	assert.Equal(t, 3, collectionCount, "wrong number of results collected")
+}
+
+func TestBufferedNamedChannelWriteCapacity(t *testing.T) {
+	logger := zap.NewNop()
+
+	vm, err := engine.NewCoroutineVM(
+		context.Background(),
+		logger,
+		engine.WithPreloaded("channel", NewChannelModule().Loader),
+	)
+	assert.NoError(t, err)
+	defer vm.Close()
+
+	err = vm.PushScript(`
+        -- Create channels
+        local ch = channel.named("buffered_channel", 3)
+        local ready = channel.new(0)
+        local done = channel.new(0)
+        
+        -- Start receiver coroutine
+        coroutine.go(function()
+            -- Signal we're starting
+            ready:send("ready")
+            
+            -- Read all buffered values
+            for i = 1, 4 do
+                local val = ch:receive()
+                coroutine.yield("read_" .. tostring(val))
+            end
+            
+            -- Signal completion
+            done:send("done")
+            coroutine.yield("reader_complete")
+        end)
+        
+        -- Wait for reader to be ready
+        ready:receive()
+        coroutine.yield("main_ready")
+        
+        -- Wait for completion
+        local result = done:receive()
+        coroutine.yield("all_complete")
+    `, "test")
+	assert.NoError(t, err)
+
+	runtime := NewRuntime()
+	tasks, err := runtime.Step(vm)
+	assert.NoError(t, err)
+
+	var yields []string
+	var writesDone bool
+
+	for len(tasks) > 0 {
+		for _, task := range tasks {
+			if len(task.Yielded) > 0 {
+				yield := task.Yielded[0].String()
+				yields = append(yields, yield)
+
+				if yield == "main_ready" && !writesDone {
+					// Check channel state
+					channels := runtime.GetOpenChannels()
+					assert.Equal(t, 1, len(channels), "channel should be visible with reader")
+					assert.Equal(t, "buffered_channel", channels[0].Name)
+					assert.Equal(t, 4, channels[0].Slots, "should have 3 buffer slots + 1 reader")
+
+					// First try to send too many values at once
+					err = runtime.Send("buffered_channel",
+						lua.LString("value1"),
+						lua.LString("value2"),
+						lua.LString("value3"),
+						lua.LString("value4"),
+						lua.LString("value5"), // This should make it fail
+					)
+					assert.Error(t, err, "should fail when sending too many values")
+
+					// Now send just enough values
+					err = runtime.Send("buffered_channel",
+						lua.LString("value1"),
+						lua.LString("value2"),
+						lua.LString("value3"),
+						lua.LString("value4"),
+					)
+					assert.NoError(t, err, "should succeed when sending correct number of values")
+
+					writesDone = true
+				}
+			}
+		}
+
+		tasks, err = runtime.Step(vm, tasks...)
+		assert.NoError(t, err)
+	}
+
+	// Verify we saw all expected yields
+	assert.Contains(t, yields, "main_ready", "main routine should become ready")
+	assert.Contains(t, yields, "all_complete", "main routine should complete")
+
+	// Check each value was read
+	valuesRead := 0
+	for _, yield := range yields {
+		if strings.HasPrefix(yield, "read_value") {
+			valuesRead++
+		}
+	}
+	assert.Equal(t, 4, valuesRead, "should read all 4 values")
+
+	// Verify final state
+	channels := runtime.GetOpenChannels()
+	assert.Equal(t, 0, len(channels), "no channels should remain visible")
+}

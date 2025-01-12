@@ -7,110 +7,178 @@ import (
 )
 
 type VM interface {
+	GetTask(thread *lua.LState) (*engine.Task, error)
 	Step(tasks ...*engine.Task) ([]*engine.Task, error)
 }
 
-type scheduler interface {
-	handleTasks(tasks []*engine.Task) ([]*engine.Task, error)
-	send(name string, value lua.LValue) ([]*engine.Task, error)
-	getOpenChannels() []string
-	close()
+type OpenChannel struct {
+	Name  string
+	Slots int
+	Refs  int
 }
 
-// Runtime coordinates task execution and channel operations
+// channelRef tracks references to a named channel
+type channelRef struct {
+	channel *Channel
+	count   int
+}
+
+// Runtime maintains state for channel operations
 type Runtime struct {
-	scheduler scheduler
+	queue         *engine.TaskQueue
+	next          []*opStep
+	namedChannels map[string]*channelRef // Track named channels with reference counting
 }
 
-// NewRuntime creates a new bufferedScheduler instance
 func NewRuntime() *Runtime {
 	return &Runtime{
-		scheduler: newScheduler(),
+		queue:         engine.NewTaskQueue(),
+		next:          make([]*opStep, 0),
+		namedChannels: make(map[string]*channelRef),
 	}
 }
 
-// Step processes tasks and handles yielded operations
-func (s *Runtime) Step(vm VM, tasks ...*engine.Task) ([]*engine.Task, error) {
-	vmTasks, err := vm.Step(tasks...)
-	if err != nil {
-		return nil, err
+// GetOpenChannels returns a map of named channels currently waiting for data
+func (r *Runtime) GetOpenChannels() []OpenChannel {
+	result := make([]OpenChannel, 0, len(r.namedChannels))
+	for name, ref := range r.namedChannels {
+		result = append(result, OpenChannel{
+			Name:  name,
+			Slots: ref.channel.capacity - ref.channel.size + ref.count,
+			Refs:  ref.count,
+		})
+	}
+	return result
+}
+
+func (r *Runtime) Send(name string, values ...lua.LValue) error {
+	ref, exists := r.namedChannels[name]
+	if !exists {
+		return fmt.Errorf("channel %s not found or not ready for data", name)
 	}
 
-	var externalTasks []*engine.Task
-	var channelTasks []*engine.Task
+	ch := ref.channel
+	if (ch.size + len(values) - ref.count) > ch.capacity {
+		return fmt.Errorf("unable to send %d values to channel %s, only %d slots available",
+			len(values), name, ch.capacity-ch.size+ref.count)
+	}
 
-	// Keep processing until all channel operations are handled
-	for len(vmTasks) > 0 {
-		// Process current batch of tasks through bufferedScheduler
-		processedTasks, err := s.scheduler.handleTasks(vmTasks)
+	for _, value := range values {
+		next := ch.send(nil, value, nil)
+		if next.yields && len(next.next) > 0 {
+			if len(next.release) > 0 {
+				r.updateChannelRefs(nil, next.release)
+			}
+
+			for _, result := range next.next {
+				if result.task == nil {
+					continue
+				}
+				r.next = append(r.next, result)
+			}
+		}
+	}
+
+	return nil
+}
+
+// Step handles channel operations while maintaining VM compatibility
+func (r *Runtime) Step(vm VM, tasks ...*engine.Task) ([]*engine.Task, error) {
+	var externalOps []*engine.Task
+
+	for _, prepend := range r.next {
+		task, err := vm.GetTask(prepend.task)
 		if err != nil {
-			return nil, fmt.Errorf("task processing failed: %w", err)
+			return nil, fmt.Errorf("task not found: %w", err)
 		}
 
-		// Separate channel tasks from external tasks
-		externalTasks = append(externalTasks, s.filterExternalTasks(processedTasks)...)
-		channelTasks = s.filterChannelTasks(processedTasks)
-
-		if len(channelTasks) == 0 {
-			break
+		if prepend.err != nil {
+			task.RaiseError = prepend.err
+		} else {
+			task.Resumed = prepend.values
 		}
 
-		// Continue processing channel tasks
-		vmTasks, err = vm.Step(channelTasks...)
+		r.queue.Push(task)
+	}
+	r.next = make([]*opStep, 0) // todo: it was not tested
+
+	for _, task := range tasks {
+		r.queue.Push(task)
+	}
+
+	boot := true
+	for !r.queue.IsEmpty() || boot {
+		boot = false
+
+		var batch []*engine.Task
+		for !r.queue.IsEmpty() {
+			batch = append(batch, r.queue.Pop())
+		}
+
+		vmTasks, err := vm.Step(batch...)
 		if err != nil {
-			return nil, fmt.Errorf("coroutine failed: %w", err)
+			return nil, fmt.Errorf("vm step failed: %w", err)
+		}
+
+		for _, task := range vmTasks {
+			if len(task.Yielded) == 0 {
+				continue
+			}
+
+			// when we yield from method Lua VM preserves func args, remember that.
+			value := task.Yielded[len(task.Yielded)-1]
+			opNext, ok := value.(*onNext)
+			if !ok {
+				externalOps = append(externalOps, task)
+				continue
+			}
+
+			r.updateChannelRefs(opNext.block, opNext.release)
+
+			if opNext.yields && len(opNext.next) > 0 {
+				for _, result := range opNext.next {
+					task, err := vm.GetTask(result.task)
+					if err != nil {
+						return nil, fmt.Errorf("task not found: %w", err)
+					}
+
+					if result.err != nil {
+						task.RaiseError = result.err
+					} else {
+						task.Resumed = result.values
+					}
+
+					r.queue.Push(task)
+				}
+			}
 		}
 	}
 
-	return externalTasks, nil
+	return externalOps, nil
 }
 
-// GetOpenChannels returns list of active inbox channels
-func (s *Runtime) GetOpenChannels() []string {
-	return s.scheduler.getOpenChannels()
-}
-
-// Send sends a value to a named inbox channel
-func (s *Runtime) Send(name string, value lua.LValue) ([]*engine.Task, error) {
-	return s.scheduler.send(name, value)
-}
-
-// filterExternalTasks separates non-channel tasks
-func (s *Runtime) filterExternalTasks(tasks []*engine.Task) []*engine.Task {
-	var external []*engine.Task
-	for _, task := range tasks {
-		if len(task.Yielded) == 0 {
-			external = append(external, task)
-			continue
-		}
-
-		switch task.Yielded[0].(type) {
-		case *chanOperation, *selectOperation:
-			continue
-		default:
-			external = append(external, task)
+// updateChannelRefs handles reference counting for channels
+func (r *Runtime) updateChannelRefs(blocks, releases []*Channel) {
+	for _, ch := range blocks {
+		if ch.isNamed() {
+			ref, exists := r.namedChannels[ch.name]
+			if !exists {
+				ref = &channelRef{channel: ch}
+				r.namedChannels[ch.name] = ref
+			}
+			ref.count++
 		}
 	}
-	return external
-}
 
-// filterChannelTasks separates channel-related tasks
-func (s *Runtime) filterChannelTasks(tasks []*engine.Task) []*engine.Task {
-	var channel []*engine.Task
-	for _, task := range tasks {
-		if len(task.Yielded) == 0 {
-			continue
-		}
-
-		switch task.Yielded[0].(type) {
-		case *chanOperation, *selectOperation:
-			channel = append(channel, task)
+	for _, ch := range releases {
+		if ch.isNamed() {
+			if ref, exists := r.namedChannels[ch.name]; exists {
+				ref.count--
+				// Remove channel if no more references
+				if ref.count == 0 {
+					delete(r.namedChannels, ch.name)
+				}
+			}
 		}
 	}
-	return channel
-}
-
-// Cleanup releases bufferedScheduler resources
-func (s *Runtime) Cleanup() {
-	s.scheduler.close()
 }

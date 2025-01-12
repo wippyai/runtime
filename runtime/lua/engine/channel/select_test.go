@@ -8,1060 +8,764 @@ import (
 	"testing"
 )
 
-func TestModule_ImmediateSelects(t *testing.T) {
+func TestSelectImmediate(t *testing.T) {
 	logger := zap.NewNop()
 
-	t.Run("basic select operations", func(t *testing.T) {
-		vm, err := engine.NewCoroutineVM(
-			context.Background(), logger,
-			engine.WithPreloaded("channel", NewChannelModule().Loader),
-		)
-		assert.NoError(t, err)
-		defer vm.Close()
+	vm, err := engine.NewCoroutineVM(
+		context.Background(),
+		logger,
+		engine.WithPreloaded("channel", NewChannelModule().Loader),
+	)
+	assert.NoError(t, err)
+	defer vm.Close()
 
-		err = vm.PushScript(`
-			-- Create channels
-			local ch1 = channel.new(0)  -- unbuffered
-			local ch2 = channel.new(1)  -- buffered with capacity 1
-	
-			-- Test 1: Select with send on buffered channel
-			coroutine.go(function()
-				-- Since ch2 is buffered with capacity 1, this should succeed immediately
-				local result = channel.select({
-					ch2:case_send("test1")
-				})
-	
-				assert(result.channel == ch2, "wrong channel selected")
-				assert(result.ok, "send should succeed")
-				coroutine.yield("send_complete")
-			end)
-	
-			-- Test 2: Select with receive on buffered channel
-			coroutine.go(function()
-				local result = channel.select({
-					ch2:case_receive()
-				})
-				assert(result.channel == ch2, "wrong channel selected")
-				assert(result.value == "test1", "wrong value received")
-				assert(result.ok, "receive should succeed")
-				coroutine.yield("receive_complete")
-			end)
-		`, "test")
+	err = vm.PushScript(`
+		-- Create two buffered channels
+		local ch1 = channel.new(1)
+		local ch2 = channel.new(1)
 
-		assert.NoError(t, err)
+		-- Send a value to ch1
+		ch1:send("msg1")
+		coroutine.yield("value_buffered")
 
-		scheduler := NewRuntime()
-		tasks, err := scheduler.Step(vm)
-		assert.NoError(t, err)
+		-- Try select on both channels
+		local result = channel.select{
+			ch1:case_receive(),
+			ch2:case_receive()
+		}
 
-		var yields []string
-		for len(tasks) > 0 {
-			for _, task := range tasks {
-				if vals := task.Yielded; len(vals) > 0 {
-					yields = append(yields, vals[0].String())
-				}
+		-- Should immediately select ch1 since it has a value
+		assert(result.channel == ch1, "wrong channel selected")
+		assert(result.value == "msg1", "wrong value received")
+		assert(result.ok == true, "receive should succeed")
+		coroutine.yield("select_complete")
+
+	`, "test")
+	assert.NoError(t, err)
+
+	runtime := NewRuntime()
+	tasks, err := runtime.Step(vm)
+	assert.NoError(t, err)
+
+	var yields []string
+	for len(tasks) > 0 {
+		for _, task := range tasks {
+			if len(task.Yielded) > 0 {
+				yields = append(yields, task.Yielded[0].String())
 			}
-			tasks, err = scheduler.Step(vm, tasks...)
-			assert.NoError(t, err)
 		}
-
-		// Verify the sequence of operations
-		expectedYields := []string{
-			"send_complete",
-			"receive_complete",
-		}
-
-		// Check that all expected yields occurred
-		for _, expected := range expectedYields {
-			assert.Contains(t, yields, expected, "missing yield: %s", expected)
-		}
-	})
-
-	t.Run("select with default", func(t *testing.T) {
-		vm, err := engine.NewCoroutineVM(
-			context.Background(), logger,
-			engine.WithPreloaded("channel", NewChannelModule().Loader),
-		)
+		tasks, err = runtime.Step(vm, tasks...)
 		assert.NoError(t, err)
-		defer vm.Close()
+	}
 
-		err = vm.PushScript(`
-			-- Create channels
-			local ch1 = channel.new(0)  -- unbuffered
-			local ch2 = channel.new(1)  -- buffered with capacity 1
-	
-			-- Test default case when no operations are ready (table style)
+	expectedOrder := []string{
+		"value_buffered",
+		"select_complete",
+	}
+
+	assert.Equal(t, expectedOrder, yields, "yields occurred in unexpected order")
+}
+
+func TestSelectBlockedReceive(t *testing.T) {
+	logger := zap.NewNop()
+
+	vm, err := engine.NewCoroutineVM(
+		context.Background(),
+		logger,
+		engine.WithPreloaded("channel", NewChannelModule().Loader),
+	)
+	assert.NoError(t, err)
+	defer vm.Close()
+
+	err = vm.PushScript(`
+		-- Create two unbuffered channels
+		local ch1 = channel.new(0)
+		local ch2 = channel.new(0)
+		
+		-- Start select operation that will block
+		coroutine.go(function()
 			local result = channel.select{
 				ch1:case_receive(),
-				ch2:case_receive(),
-				default = true
+				ch2:case_receive()
 			}
-	
-			assert(result.channel == nil, "first: default case should be selected")
-	   	assert(result.ok == true, "first: default case should indicate success")
-	   	assert(result.value == nil, "first: default case should have nil value")
-	
-			-- Test default case with parameter style
-			result = channel.select({
-				ch1:case_receive(),
-				ch2:case_receive(),
-			}, true)
-	
-			assert(result.channel == nil, "default case should be selected")
-			assert(result.ok == true, "default case should indicate success")
-			assert(result.value == nil, "first: default case should have nil value")
-	
-			-- Test that default is not selected when operation is ready
-			ch2:send("test")
-	
-			result = channel.select({
-				ch1:case_receive(),
-				ch2:case_receive(),
-			}, true)
-	
-			assert(result.channel == ch2, "ready channel should be selected over default")
-			assert(result.value == "test", "wrong value received")
-			assert(result.ok == true, "receive should succeed")
-		`, "test")
-
-		assert.NoError(t, err)
-	})
-
-	t.Run("immediate select with buffered channels", func(t *testing.T) {
-		vm, err := engine.NewCoroutineVM(
-			context.Background(), logger,
-			engine.WithPreloaded("channel", NewChannelModule().Loader),
-		)
-		assert.NoError(t, err)
-		defer vm.Close()
-
-		err = vm.PushScript(`
-			-- Test 1: Immediate receive from buffered channel
-			local ch1 = channel.new(1)
-			ch1:send("value1")
-			
-			local result = channel.select({
-				ch1:case_receive()
-			})
-			assert(result.channel == ch1, "wrong channel selected")
-			assert(result.value == "value1", "wrong value received")
-			assert(result.ok == true, "receive should succeed")
-			
-			-- Test 2: Immediate send to non-full buffered channel
-			local ch2 = channel.new(1)
-			result = channel.select({
-				ch2:case_send("value2")
-			})
-			assert(result.channel == ch2, "wrong channel selected")
-			assert(result.ok == true, "send should succeed")
-			
-			-- Test 3: Multiple ready operations
-			local ch3 = channel.new(1)
-			local ch4 = channel.new(1)
-			ch3:send("value3")  -- Make receive ready
-			                    -- ch4 is empty so send is ready
-			
-			result = channel.select({
-				ch3:case_receive(),
-				ch4:case_send("value4")
-			})
-			assert(result.channel == ch3 or result.channel == ch4, 
-				   "should select one of the ready channels")
-			if result.channel == ch3 then
-				assert(result.value == "value3", "wrong value received")
-			else
-				assert(result.ok == true, "send should succeed")
-			end
-			
-			-- Test 4: Mix of ready and blocking operations
-			local ch5 = channel.new(1)
-			local ch6 = channel.new(0)  -- unbuffered, will block
-			ch5:send("value5")
-			
-			result = channel.select({
-				ch5:case_receive(),  -- ready
-				ch6:case_receive()   -- would block
-			})
-			assert(result.channel == ch5, "should select ready channel")
-			assert(result.value == "value5", "wrong value received")
-		`, "test")
-		assert.NoError(t, err)
-	})
-
-	t.Run("select on same channel", func(t *testing.T) {
-		vm, err := engine.NewCoroutineVM(
-			context.Background(), logger,
-			engine.WithPreloaded("channel", NewChannelModule().Loader),
-		)
-		assert.NoError(t, err)
-		defer vm.Close()
-
-		err = vm.PushScript(`
-	   -- Test buffered channel (capacity 1)
-	   local ch = channel.new(1)
-	
-	   -- Test 1: Empty buffer, send should succeed
-	   local result = channel.select{
-	       ch:case_send("test"),
-	       ch:case_receive(),
-	       default = true
-	   }
-	   assert(result.channel == ch, "send should succeed on empty buffered channel")
-	   assert(result.ok == true, "send should succeed")
-	
-	   -- Test 2: Now buffer has value, receive should succeed
-	   result = channel.select{
-	       ch:case_send("test2"),
-	       ch:case_receive(),
-	       default = true
-	   }
-	   assert(result.channel == ch, "receive should succeed on non-empty buffered channel")
-	   assert(result.value == "test", "should receive first sent value")
-	   assert(result.ok == true, "receive should succeed")
-	
-	   -- Test unbuffered channel (should fall to default)
-	   local unbuffered = channel.new(0)
-	   result = channel.select{
-	       unbuffered:case_send("test"),
-	       unbuffered:case_receive(),
-	       default = true
-	   }
-	   assert(result.channel == nil, "unbuffered channel should fall to default")
-	   assert(result.ok == true, "default case should indicate success")
-	`, "test")
-
-		assert.NoError(t, err)
-	})
-
-	t.Run("select with closed channels", func(t *testing.T) {
-		vm, err := engine.NewCoroutineVM(
-			context.Background(), logger,
-			engine.WithPreloaded("channel", NewChannelModule().Loader),
-		)
-		assert.NoError(t, err)
-		defer vm.Close()
-
-		err = vm.PushScript(`
-		-- Test receive on closed channel
-		local ch = channel.new(1)
-		ch:close()
-		coroutine.yield("closed")
-
-		-- Rest can be immediate operations
-		local result = channel.select{
-			ch:case_receive(),
-			default = true
-		}
-		assert(result.channel == ch, "closed channel receive should be selected")
-		assert(result.ok == false, "receive on closed should set ok=false")
-		assert(result.value == nil, "receive on closed should return nil")
-
-		-- Test send to closed channel (should error)
-		local ok, err = pcall(function()
-			channel.select{
-				ch:case_send("test")
-			}
+			coroutine.yield("select_completed:" .. result.value)
 		end)
-		assert(not ok, "send on closed channel should error")
-		assert(string.find(err, "attempt to send on closed channel"), 
-			   "wrong error message: " .. err)
-
-		-- Test receive when there's a value before close
-		local ch2 = channel.new(1)
-		ch2:send("last value")
 		
-		ch2:close()
-		coroutine.yield("closed2")
+		coroutine.yield("select_started")
+		ch2:send("ch2_value")
+		coroutine.yield("send_completed")
+	`, "test")
+	assert.NoError(t, err)
 
-		result = channel.select{
-			ch2:case_receive()
-		}
-		assert(result.channel == ch2, "should receive from closed channel with value")
-		assert(result.value == "last value", "should get buffered value")
-		assert(result.ok == true, "receive buffered value should set ok=true")
-		
-		-- Next receive should indicate closed
-		result = channel.select{
-			ch2:case_receive()
-		}
-		assert(result.channel == ch2, "should receive from empty closed channel")
-		assert(result.value == nil, "should get nil from empty closed channel")
-		assert(result.ok == false, "should indicate channel closed")
-    `, "test")
+	runtime := NewRuntime()
+	tasks, err := runtime.Step(vm)
+	assert.NoError(t, err)
 
-		assert.NoError(t, err)
-
-		scheduler := NewRuntime()
-		tasks, err := scheduler.Step(vm)
-		assert.NoError(t, err)
-
-		var yields []string
-		for len(tasks) > 0 {
-			for _, task := range tasks {
-				if vals := task.Yielded; len(vals) > 0 {
-					yields = append(yields, vals[0].String())
-				}
+	var yields []string
+	for len(tasks) > 0 {
+		for _, task := range tasks {
+			if len(task.Yielded) > 0 {
+				yields = append(yields, task.Yielded[0].String())
 			}
-
-			tasks, err = scheduler.Step(vm, tasks...)
-			assert.NoError(t, err)
 		}
+		tasks, err = runtime.Step(vm, tasks...)
+		assert.NoError(t, err)
+	}
 
-		// Verify close operations completed
-		assert.Contains(t, yields, "closed", "channel not closed")
-		assert.Contains(t, yields, "closed2", "second channel not closed")
-	})
+	expectedOrder := []string{
+		"select_started",
+		"select_completed:ch2_value",
+		"send_completed",
+	}
+
+	assert.Equal(t, expectedOrder, yields, "yields occurred in unexpected order")
 }
 
-func TestModule_BlockingSelects(t *testing.T) {
+func TestSelectBlockedClose(t *testing.T) {
 	logger := zap.NewNop()
 
-	t.Run("basic blocking select", func(t *testing.T) {
-		vm, err := engine.NewCoroutineVM(
-			context.Background(), logger,
-			engine.WithPreloaded("channel", NewChannelModule().Loader),
-		)
-		assert.NoError(t, err)
-		defer vm.Close()
+	vm, err := engine.NewCoroutineVM(
+		context.Background(),
+		logger,
+		engine.WithPreloaded("channel", NewChannelModule().Loader),
+	)
+	assert.NoError(t, err)
+	defer vm.Close()
 
-		err = vm.PushScript(`
-			-- Create channels
-			local ch1 = channel.new(0)  -- unbuffered
-			local ch2 = channel.new(0)  -- unbuffered
-	
-			-- First coroutine: blocks on select waiting for send or receive
-			coroutine.go(function()
-				local result = channel.select({
-					ch1:case_receive(),
-					ch2:case_send("test")
-				})
-	
-				-- Should only get here after one operation succeeds
-				assert(result.channel == ch2, "wrong channel selected")
-				assert(result.ok, "operation should succeed")
-				coroutine.yield("select_complete")
-			end)
-	
-			-- Second coroutine: sleeps then enables one of the operations
-			coroutine.go(function()
-				coroutine.yield("helper_starting")
-				-- Receive from ch2, allowing the blocked send to complete
-				local msg, ok = ch2:receive()
-				assert(ok and msg == "test", "wrong message received")
-				coroutine.yield("helper_complete")
-			end)
-		`, "test")
-
-		assert.NoError(t, err)
-
-		scheduler := NewRuntime()
-		tasks, err := scheduler.Step(vm)
-		assert.NoError(t, err)
-
-		var yields []string
-		for len(tasks) > 0 {
-			for _, task := range tasks {
-				if vals := task.Yielded; len(vals) > 0 {
-					yields = append(yields, vals[0].String())
-				}
-			}
-			tasks, err = scheduler.Step(vm, tasks...)
-			assert.NoError(t, err)
-		}
-
-		// Verify the sequence of operations
-		expectedYields := []string{
-			"helper_starting",
-			"helper_complete",
-			"select_complete",
-		}
-
-		assert.Equal(t, expectedYields, yields, "incorrect yield sequence")
-	})
-
-	t.Run("basic blocking select inverted", func(t *testing.T) {
-		vm, err := engine.NewCoroutineVM(
-			context.Background(), logger,
-			engine.WithPreloaded("channel", NewChannelModule().Loader),
-		)
-		assert.NoError(t, err)
-		defer vm.Close()
-
-		err = vm.PushScript(`
-			-- Create channels
-			local ch1 = channel.new(0)  -- unbuffered
-			local ch2 = channel.new(0)  -- unbuffered
-	
-			-- First coroutine: blocks on select waiting for send or receive
-			coroutine.go(function()
-				local result = channel.select({
-					ch1:case_receive(),
-					ch2:case_send("test")
-				})
-	
-				-- Should only get here after one operation succeeds
-				assert(result.channel == ch1, "wrong channel selected")
-				assert(result.ok, "operation should succeed")
-				assert(result.value == "test_value", "wrong value received")
-	
-				coroutine.yield("select_complete")
-			end)
-	
-			-- Second coroutine: sleeps then enables one of the operations
-			coroutine.go(function()
-				coroutine.yield("helper_starting")
-				local ok = ch1:send("test_value")
-				assert(ok, "can not send")
-				coroutine.yield("helper_complete")
-			end)
-		`, "test")
-
-		assert.NoError(t, err)
-
-		scheduler := NewRuntime()
-		tasks, err := scheduler.Step(vm)
-		assert.NoError(t, err)
-
-		var yields []string
-		for len(tasks) > 0 {
-			for _, task := range tasks {
-				if vals := task.Yielded; len(vals) > 0 {
-					yields = append(yields, vals[0].String())
-				}
-			}
-			tasks, err = scheduler.Step(vm, tasks...)
-			assert.NoError(t, err)
-		}
-
-		// Verify the sequence of operations
-		expectedYields := []string{
-			"helper_starting",
-			"helper_complete",
-			"select_complete",
-		}
-
-		assert.Equal(t, expectedYields, yields, "incorrect yield sequence")
-	})
-
-	t.Run("basic blocking select closed on receive", func(t *testing.T) {
-		vm, err := engine.NewCoroutineVM(
-			context.Background(), logger,
-			engine.WithPreloaded("channel", NewChannelModule().Loader),
-		)
-		assert.NoError(t, err)
-		defer vm.Close()
-
-		err = vm.PushScript(`
-			-- Create channels
-			local ch1 = channel.new(0)  -- unbuffered
-			local ch2 = channel.new(0)  -- unbuffered
-	
-			-- First coroutine: blocks on select waiting for send or receive
-			coroutine.go(function()
-				local result = channel.select({
-					ch1:case_receive(),
-					ch2:case_send("test")
-				})
-	
-				-- Should only get here after one operation succeeds
-				assert(result.channel == ch1, "must indicate closed channel")
-				assert(result.ok == false, "operation should indicate closed channel")
-				coroutine.yield("select_complete")
-			end)
-	
-			-- Second coroutine: sleeps then enables one of the operations
-			coroutine.go(function()
-				coroutine.yield("helper_starting")
-				local ok = ch1:close()
-				assert(ok, "can not close")
-				coroutine.yield("helper_complete")
-			end)
-		`, "test")
-
-		assert.NoError(t, err)
-
-		scheduler := NewRuntime()
-		tasks, err := scheduler.Step(vm)
-		assert.NoError(t, err)
-
-		var yields []string
-		for len(tasks) > 0 {
-			for _, task := range tasks {
-				if vals := task.Yielded; len(vals) > 0 {
-					yields = append(yields, vals[0].String())
-				}
-			}
-			tasks, err = scheduler.Step(vm, tasks...)
-			assert.NoError(t, err)
-		}
-
-		// Verify the sequence of operations
-		expectedYields := []string{
-			"helper_starting",
-			"helper_complete",
-			"select_complete",
-		}
-
-		assert.Equal(t, expectedYields, yields, "incorrect yield sequence")
-	})
-
-	t.Run("basic blocking select closed on send", func(t *testing.T) {
-		vm, err := engine.NewCoroutineVM(
-			context.Background(), logger,
-			engine.WithPreloaded("channel", NewChannelModule().Loader),
-		)
-		assert.NoError(t, err)
-		defer vm.Close()
-
-		err = vm.PushScript(`
-			-- Create channels
-			local ch1 = channel.new(0)  -- unbuffered
-			local ch2 = channel.new(0)  -- unbuffered
-			
-			-- First coroutine: blocks on select waiting for send or receive
-			coroutine.go(function()	
-				-- will panic!
-				channel.select{
-					ch1:case_receive(),
-					ch2:case_send("test")
-				}
-			end)
-			
-			-- Second coroutine: sleeps then closes ch2
-			coroutine.go(function()
-				coroutine.yield("helper_starting")
-				local ok = ch2:close() -- Close ch2 (the send channel)
-				assert(ok, "cannot close ch2")
-				coroutine.yield("helper_complete")
-			end)
-		`, "test")
-
-		assert.NoError(t, err)
-
-		scheduler := NewRuntime()
-		tasks, err := scheduler.Step(vm)
-
-		assert.NoError(t, err)
-
-		tasks, err = scheduler.Step(vm, tasks...)
-		assert.Error(t, err) // send to closed channel
-	})
-}
-
-func TestModule_AdditionalSelectScenarios(t *testing.T) {
-	logger := zap.NewNop()
-
-	t.Run("select with multiple ready operations", func(t *testing.T) {
-		vm, err := engine.NewCoroutineVM(
-			context.Background(), logger,
-			engine.WithPreloaded("channel", NewChannelModule().Loader),
-		)
-		assert.NoError(t, err)
-		defer vm.Close()
-
-		err = vm.PushScript(`
-			-- Create buffered channels and populate them
-			local ch1 = channel.new(1)
-			local ch2 = channel.new(1)
-			
-			ch1:send("value1")
-			ch2:send("value2")
-			
-			-- Both channels have values, select should pick one
-			local result = channel.select({
+	err = vm.PushScript(`
+		-- Create two unbuffered channels
+		local ch1 = channel.new(0)
+		local ch2 = channel.new(0)
+		
+		-- Start select operation that will block
+		coroutine.go(function()
+			local result = channel.select{
 				ch1:case_receive(),
 				ch2:case_receive()
-			})
-			
-			-- Verify we got one of the values
-			assert(result.channel == ch1 or result.channel == ch2, "should select one of the ready channels")
-			assert(result.value == "value1" or result.value == "value2", "should receive one of the values")
-			assert(result.ok == true, "receive should succeed")
-			
-			-- The other channel should still have its value
-			local remaining = result.channel == ch1 and ch2 or ch1
-			local val, ok = remaining:receive()
-			assert(ok and (val == "value1" or val == "value2"), "other channel should still have its value")
-		`, "test")
-
-		assert.NoError(t, err)
-	})
-
-	t.Run("select with error cases", func(t *testing.T) {
-		vm, err := engine.NewCoroutineVM(
-			context.Background(), logger,
-			engine.WithPreloaded("channel", NewChannelModule().Loader),
-		)
-		assert.NoError(t, err)
-		defer vm.Close()
-
-		err = vm.PushScript(`
-			-- Test invalid select cases
-			local ch = channel.new(0)
-			
-			-- Test empty select without default
-			local ok, err = pcall(function()
-				channel.select({})
-			end)
-			assert(not ok, "empty select without default should error")
-			assert(string.find(err, "select with no cases and no default"), 
-				   "wrong error message: " .. err)
-			
-			-- Test invalid case type
-			ok, err = pcall(function()
-				channel.select({
-					"not a case"
-				})
-			end)
-			assert(not ok, "invalid case should error")
-			assert(string.find(err, "invalid select case"), 
-				   "wrong error message: " .. err)
-			
-			-- Test duplicate default cases
-			ok, err = pcall(function()
-				channel.select({
-					default = true,
-					ch:case_receive(),
-					default = true
-				})
-			end)
-			assert(not ok, "duplicate default should error")
-			assert(string.find(err, "multiple default cases"), 
-				   "wrong error message: " .. err)
-		`, "test")
-
-		assert.NoError(t, err)
-	})
-
-	t.Run("select with mixed send/receive on same channel", func(t *testing.T) {
-		vm, err := engine.NewCoroutineVM(
-			context.Background(), logger,
-			engine.WithPreloaded("channel", NewChannelModule().Loader),
-		)
-		assert.NoError(t, err)
-		defer vm.Close()
-
-		err = vm.PushScript(`
-			local ch = channel.new(0)  -- unbuffered
-			
-			-- First coroutine: select with both send and receive on same channel
-			coroutine.go(function()
-				local result = channel.select({
-					ch:case_send("test"),
-					ch:case_receive()
-				})
-				
-				-- One operation should complete once helper enables it
-				assert(result.channel == ch, "wrong channel selected")
-				assert(result.ok == true, "operation should succeed")
-				coroutine.yield("select_complete")
-			end)
-			
-			-- Helper coroutine enables one of the operations
-			coroutine.go(function()
-				coroutine.yield("helper_starting")
-				local msg = ch:send("helper_value")
-				assert(msg, "send should succeed")
-				coroutine.yield("helper_complete")
-			end)
-		`, "test")
-
-		assert.NoError(t, err)
-
-		scheduler := NewRuntime()
-		tasks, err := scheduler.Step(vm)
-		assert.NoError(t, err)
-
-		var yields []string
-		for len(tasks) > 0 {
-			for _, task := range tasks {
-				if vals := task.Yielded; len(vals) > 0 {
-					yields = append(yields, vals[0].String())
-				}
 			}
-			tasks, err = scheduler.Step(vm, tasks...)
-			assert.NoError(t, err)
-		}
+			-- For closed channel, value should be nil and ok should be false
+			assert(result.value == nil, "value should be nil for closed channel")
+			assert(result.ok == false, "ok should be false for closed channel")
+			coroutine.yield("select_completed")
+		end)
+		
+		coroutine.yield("select_started")
+		
+		-- Close ch1, this should wake up select
+		ch1:close()
+		coroutine.yield("close_completed")
+	`, "test")
+	assert.NoError(t, err)
 
-		expectedYields := []string{
-			"helper_starting",
-			"helper_complete",
-			"select_complete",
-		}
-		assert.Equal(t, expectedYields, yields, "incorrect yield sequence")
-	})
+	runtime := NewRuntime()
+	tasks, err := runtime.Step(vm)
+	assert.NoError(t, err)
 
-	t.Run("select with multiple coroutines blocking", func(t *testing.T) {
-		vm, err := engine.NewCoroutineVM(
-			context.Background(), logger,
-			engine.WithPreloaded("channel", NewChannelModule().Loader),
-		)
-		assert.NoError(t, err)
-		defer vm.Close()
-
-		err = vm.PushScript(`
-			local ch = channel.new(0)  -- unbuffered
-			
-			-- Multiple coroutines blocking on select
-			for i = 1, 3 do
-				coroutine.go(function()
-					local result = channel.select({
-						ch:case_receive()
-					})
-					assert(result.channel == ch, "wrong channel selected")
-					assert(result.ok == true, "receive should succeed")
-					assert(result.value == "value" .. i, "wrong value received")
-					coroutine.yield("receiver_" .. i .. "_complete")
-				end)
-			end
-			
-			-- Helper sends values to unblock them one by one
-			coroutine.go(function()
-				coroutine.yield("sender_starting")
-				for i = 1, 3 do
-					local ok = ch:send("value" .. i)
-					assert(ok, "send should succeed")
-					coroutine.yield("sent_" .. i)
-				end
-			end)
-		`, "test")
-
-		assert.NoError(t, err)
-
-		scheduler := NewRuntime()
-		tasks, err := scheduler.Step(vm)
-		assert.NoError(t, err)
-
-		var yields []string
-		for len(tasks) > 0 {
-			for _, task := range tasks {
-				if vals := task.Yielded; len(vals) > 0 {
-					yields = append(yields, vals[0].String())
-				}
+	var yields []string
+	for len(tasks) > 0 {
+		for _, task := range tasks {
+			if len(task.Yielded) > 0 {
+				yields = append(yields, task.Yielded[0].String())
 			}
-			tasks, err = scheduler.Step(vm, tasks...)
-			assert.NoError(t, err)
 		}
+		tasks, err = runtime.Step(vm, tasks...)
+		assert.NoError(t, err)
+	}
 
-		// Verify all receivers got values and sender completed
-		assert.Contains(t, yields, "sender_starting", "sender didn't start")
-		assert.Contains(t, yields, "sent_1", "first send didn't complete")
-		assert.Contains(t, yields, "sent_2", "second send didn't complete")
-		assert.Contains(t, yields, "sent_3", "third send didn't complete")
-		assert.Contains(t, yields, "receiver_1_complete", "first receiver didn't complete")
-		assert.Contains(t, yields, "receiver_2_complete", "second receiver didn't complete")
-		assert.Contains(t, yields, "receiver_3_complete", "third receiver didn't complete")
-	})
+	expectedOrder := []string{
+		"select_started",
+		"select_completed",
+		"close_completed",
+	}
+
+	assert.Equal(t, expectedOrder, yields, "yields occurred in unexpected order")
 }
 
-func TestModule_SelectQueueState(t *testing.T) {
-	logger := zap.NewNop()
-	t.Run("verify select queue state", func(t *testing.T) {
-		vm, err := engine.NewCoroutineVM(
-			context.Background(), logger,
-			engine.WithPreloaded("channel", NewChannelModule().Loader),
-		)
-		assert.NoError(t, err)
-		defer vm.Close()
-
-		err = vm.PushScript(`
-			-- Create test channel
-			local ch = channel.new(0)  -- unbuffered
-			
-			-- Spawn receiver that will block on select
-			coroutine.go(function()
-				local result = channel.select{
-					ch:case_receive(),
-					default = true
-				}
-				coroutine.yield("select_complete")
-			end)
-		`, "test")
-		assert.NoError(t, err)
-
-		scheduler := NewRuntime()
-
-		// First step - should create coroutine and enqueue select
-		tasks, err := scheduler.Step(vm)
-		assert.NoError(t, err)
-
-		// Get scheduler and verify state after select is enqueued
-		sch, ok := scheduler.scheduler.(*bufferedScheduler)
-		if !ok {
-			t.Fatal("scheduler is not bufferedScheduler")
-		}
-
-		assert.Empty(t, sch.senders.queues, "senders queue should be empty")
-		assert.Equal(t, 0, len(sch.receivers.queues), "should have no receivers") // no select remains due to immediate completion
-
-		// Complete the test
-		var yields []string
-		for len(tasks) > 0 {
-			for _, task := range tasks {
-				if vals := task.Yielded; len(vals) > 0 {
-					yield := vals[0].String()
-					yields = append(yields, yield)
-				}
-			}
-			tasks, err = scheduler.Step(vm, tasks...)
-			assert.NoError(t, err)
-		}
-
-		// Verify final state - queues should be empty
-		assert.Empty(t, sch.senders.queues, "senders queue should be empty at end")
-		assert.Empty(t, sch.receivers.queues, "receivers queue should be empty at end")
-
-		expectedYields := []string{
-			"select_complete",
-		}
-		assert.Equal(t, expectedYields, yields, "unexpected yields")
-	})
-}
-
-func TestModule_SelectQueueState_Blocking(t *testing.T) {
-	logger := zap.NewNop()
-	t.Run("verify select queue state", func(t *testing.T) {
-		vm, err := engine.NewCoroutineVM(
-			context.Background(), logger,
-			engine.WithPreloaded("channel", NewChannelModule().Loader),
-		)
-		assert.NoError(t, err)
-		defer vm.Close()
-
-		err = vm.PushScript(`	
-			-- Create test channel
-			local ch = channel.new(0)  -- unbuffered
-			
-			-- Spawn receiver that will block on select
-			coroutine.go(function()
-				local result = channel.select{
-					ch:case_receive(),
-				}
-				coroutine.yield("select_complete")
-			end)
-		`, "test")
-		assert.NoError(t, err)
-
-		scheduler := NewRuntime()
-
-		_, err = scheduler.Step(vm)
-		assert.NoError(t, err)
-
-		// Get scheduler and verify state after select is enqueued
-		sch, ok := scheduler.scheduler.(*bufferedScheduler)
-		if !ok {
-			t.Fatal("scheduler is not bufferedScheduler")
-		}
-
-		// Verify initial state - should have one receiver
-		assert.Empty(t, sch.senders.queues, "senders queue should be empty")
-		assert.Equal(t, 1, len(sch.receivers.queues), "should have one receiver queue")
-
-		// state should be blocked
-	})
-}
-
-func TestModule_SelectCleanup(t *testing.T) {
+func TestSelectWithDefaultImmediate(t *testing.T) {
 	logger := zap.NewNop()
 
-	t.Run("select cleanup verification", func(t *testing.T) {
-		vm, err := engine.NewCoroutineVM(
-			context.Background(), logger,
-			engine.WithPreloaded("channel", NewChannelModule().Loader),
-		)
-		assert.NoError(t, err)
-		defer vm.Close()
+	vm, err := engine.NewCoroutineVM(
+		context.Background(),
+		logger,
+		engine.WithPreloaded("channel", NewChannelModule().Loader),
+	)
+	assert.NoError(t, err)
+	defer vm.Close()
 
-		err = vm.PushScript(`
-			-- Create test channels
-			local ch1 = channel.new(0)  -- unbuffered
-			local ch2 = channel.new(0)  -- unbuffered
-			local ch3 = channel.new(0)  -- unbuffered
+	err = vm.PushScript(`
+        -- Helper to get channel stats
+        local function channel_stats(ch)
+            return {
+                size = ch:_debug_size(),
+                senders = ch:_debug_senders(),
+                receivers = ch:_debug_receivers()
+            }
+        end
 
-			-- First coroutine: blocks on select with multiple receives
-			coroutine.go(function()
-				local result = channel.select{
-					ch1:case_receive(),
-					ch2:case_receive(),
-					ch3:case_receive()
-				}
-				assert(result.channel == ch1, "wrong channel selected")
-				assert(result.value == "test1", "wrong value received")
-				coroutine.yield("select_complete")
-			end)
+        -- Create two empty channels
+        local ch1 = channel.new(0)
+        local ch2 = channel.new(0)
 
-			-- Helper coroutine: triggers select and verifies cleanup
-			coroutine.go(function()
-				coroutine.yield("helper_starting")
-				
-				-- Trigger select
-				assert(ch1:send("test1"))
-				coroutine.yield("send_complete")
+        -- Try select with default
+        local result = channel.select{
+            ch1:case_receive(),
+            ch2:case_receive(),
+            default = true
+        }
 
-				-- Verify cleanup: try non-blocking send on ch2 and ch3
-				-- If cleanup worked, these should fail (fall to default) since channels are unbuffered
-				-- and should have no lingering receivers
-				local result = channel.select{
-					ch2:case_send("verify2"),
-					default = true
-				}
-				assert(result.channel == nil, "ch2 should have no receivers")
-				coroutine.yield("ch2_verified")
+        assert(result.default == true, "should select default")
 
-				result = channel.select{
-					ch3:case_send("verify3"),
-					default = true
-				}
-				assert(result.channel == nil, "ch3 should have no receivers")
-				coroutine.yield("ch3_verified")
-			end)
-		`, "test")
-		assert.NoError(t, err)
+        -- Verify no pending operations
+        local stats1 = channel_stats(ch1)
+        local stats2 = channel_stats(ch2)
+        
+        assert(stats1.size == 0, "ch1 should be empty")
+        assert(stats1.senders == 0, "ch1 should have no senders")
+        assert(stats1.receivers == 0, "ch1 should have no receivers")
+        
+        assert(stats2.size == 0, "ch2 should be empty")
+        assert(stats2.senders == 0, "ch2 should have no senders")
+        assert(stats2.receivers == 0, "ch2 should have no receivers")
 
-		scheduler := NewRuntime()
+        coroutine.yield("select_complete")
+    `, "test")
+	assert.NoError(t, err)
 
-		tasks, err := scheduler.Step(vm)
-		assert.NoError(t, err)
+	runtime := NewRuntime()
+	tasks, err := runtime.Step(vm)
+	assert.NoError(t, err)
 
-		var yields []string
-		for len(tasks) > 0 {
-			for _, task := range tasks {
-				if vals := task.Yielded; len(vals) > 0 {
-					yield := vals[0].String()
-					yields = append(yields, yield)
-				}
-			}
-			tasks, err = scheduler.Step(vm, tasks...)
-			if err != nil {
-				t.Fatalf("Scheduler error: %v", err)
+	var yields []string
+	for len(tasks) > 0 {
+		for _, task := range tasks {
+			if len(task.Yielded) > 0 {
+				yields = append(yields, task.Yielded[0].String())
 			}
 		}
+		tasks, err = runtime.Step(vm, tasks...)
+		assert.NoError(t, err)
+	}
 
-		sch, ok := scheduler.scheduler.(*bufferedScheduler)
-		if !ok {
-			t.Fatalf("scheduler is not bufferedScheduler")
-			return
-		}
-
-		// Verify cleanup
-		assert.Empty(t, sch.senders.queues, "senders queue should be empty")
-		assert.Empty(t, sch.receivers.queues, "receivers queue should be empty")
-
-		expectedYields := []string{
-			"helper_starting",
-			"send_complete",
-			"select_complete",
-			"ch2_verified",
-			"ch3_verified",
-		}
-		assert.Equal(t, expectedYields, yields, "operations did not complete in expected order")
-	})
+	expectedOrder := []string{"select_complete"}
+	assert.Equal(t, expectedOrder, yields)
 }
 
-func TestModule_SelectCleanupOnClose(t *testing.T) {
+func TestSelectLoopWithFeeds(t *testing.T) {
 	logger := zap.NewNop()
 
-	t.Run("verify select cleanup on channel close", func(t *testing.T) {
-		vm, err := engine.NewCoroutineVM(
-			context.Background(), logger,
-			engine.WithPreloaded("channel", NewChannelModule().Loader),
-		)
-		assert.NoError(t, err)
-		defer vm.Close()
+	vm, err := engine.NewCoroutineVM(
+		context.Background(),
+		logger,
+		engine.WithPreloaded("channel", NewChannelModule().Loader),
+	)
+	assert.NoError(t, err)
+	defer vm.Close()
 
-		err = vm.PushScript(`
-            -- Create test channels
-            local ch1 = channel.new(0)  -- unbuffered
-            local ch2 = channel.new(0)  -- unbuffered
-
-            -- First coroutine: blocks on select with multiple operations
-            coroutine.go(function()
+	err = vm.PushScript(`
+        -- Helper for channel stats
+        local function channel_stats(ch)
+            return {
+                size = ch:_debug_size(),
+                senders = ch:_debug_senders(),
+                receivers = ch:_debug_receivers()
+            }
+        end
+        
+        local ch1 = channel.new(0)
+        local ch2 = channel.new(0)
+        local done = channel.new(0)
+        
+        -- Start select loop in goroutine
+        coroutine.go(function()
+            local count = 0
+            while count < 2 do
                 local result = channel.select{
                     ch1:case_receive(),
                     ch2:case_receive()
                 }
-                assert(result.channel == ch1, "wrong channel selected")
-                assert(result.ok == false, "should indicate closed channel")
-                assert(result.value == nil, "should receive nil from closed channel")
-                coroutine.yield("select_complete")
-            end)
+                count = count + 1
+                coroutine.yield("received:" .. result.value)
+            end
+            done:send("done")
+        end)
+        
+        coroutine.yield("loop_started")
+        
+        -- Feed values from main goroutine
+        ch1:send("val1")
+        coroutine.yield("sent1")
+        
+        ch2:send("val2")
+        coroutine.yield("sent2")
+        
+        -- Wait for completion
+        done:receive()
+        coroutine.yield("complete")
+        
+        -- Verify cleanup
+        local stats1 = channel_stats(ch1)
+        local stats2 = channel_stats(ch2)
+        assert(stats1.receivers == 0, "ch1 should have no receivers")
+        assert(stats2.receivers == 0, "ch2 should have no receivers")
+    `, "test")
+	assert.NoError(t, err)
 
-            -- Second coroutine: different select operation on same channels
-            coroutine.go(function()
-                local result = channel.select{
-                    ch1:case_receive(),
-                    ch2:case_receive()
-                }
-                assert(result.channel == ch1, "wrong channel selected")
-                assert(result.ok == false, "should indicate closed channel")
-                assert(result.value == nil, "should receive nil from closed channel")
-                coroutine.yield("select2_complete")
-            end)
+	runtime := NewRuntime()
+	tasks, err := runtime.Step(vm)
+	assert.NoError(t, err)
 
-            -- Helper coroutine: closes ch1 to trigger select completion
-            coroutine.go(function()
-                coroutine.yield("helper_starting")
-                
-                -- Close ch1 which should trigger both selects
-                assert(ch1:close())
-                coroutine.yield("close_complete")
-
-                -- Verify cleanup: try non-blocking operations on ch2
-                local result = channel.select{
-                    ch2:case_receive(),
-                    default = true
-                }
-                assert(result.channel == nil, "ch2 should have no pending operations")
-                coroutine.yield("ch2_verified")
-
-                -- Double check queues are empty by trying a send
-                result = channel.select{
-                    ch2:case_send("verify"),
-                    default = true
-                }
-                assert(result.channel == nil, "ch2 should have no pending operations")
-                coroutine.yield("ch2_verified_send")
-            end)
-        `, "test")
-		assert.NoError(t, err)
-
-		scheduler := NewRuntime()
-
-		tasks, err := scheduler.Step(vm)
-		assert.NoError(t, err)
-
-		var yields []string
-		for len(tasks) > 0 {
-			for _, task := range tasks {
-				if vals := task.Yielded; len(vals) > 0 {
-					yield := vals[0].String()
-					yields = append(yields, yield)
-				}
-			}
-			tasks, err = scheduler.Step(vm, tasks...)
-			if err != nil {
-				t.Fatalf("Scheduler error: %v", err)
+	var yields []string
+	for len(tasks) > 0 {
+		for _, task := range tasks {
+			if len(task.Yielded) > 0 {
+				yields = append(yields, task.Yielded[0].String())
 			}
 		}
+		tasks, err = runtime.Step(vm, tasks...)
+		assert.NoError(t, err)
+	}
 
-		sch, ok := scheduler.scheduler.(*bufferedScheduler)
-		if !ok {
-			t.Fatal("scheduler is not bufferedScheduler")
-			return
+	expectedOrder := []string{
+		"loop_started",
+		"received:val1",
+		"sent1",
+		"received:val2",
+		"sent2",
+		"complete",
+	}
+	assert.Equal(t, expectedOrder, yields)
+}
+
+func TestSelectCleanupOnReceive(t *testing.T) {
+	logger := zap.NewNop()
+
+	vm, err := engine.NewCoroutineVM(
+		context.Background(),
+		logger,
+		engine.WithPreloaded("channel", NewChannelModule().Loader),
+	)
+	assert.NoError(t, err)
+	defer vm.Close()
+
+	err = vm.PushScript(`
+       local function channel_stats(ch)
+           return {
+               size = ch:_debug_size(),
+               senders = ch:_debug_senders(),
+               receivers = ch:_debug_receivers()
+           }
+       end
+
+       local ch1 = channel.new(0)
+       local ch2 = channel.new(0)
+
+       -- Start blocked select
+       coroutine.go(function()
+           local result = channel.select{
+               ch1:case_receive(),
+               ch2:case_receive()
+           }
+           coroutine.yield("selected:" .. result.value)
+
+           -- Check cleanup after select completes
+           local stats1 = channel_stats(ch1)
+           local stats2 = channel_stats(ch2)
+           assert(stats1.receivers == 0, "ch1 should have no receivers")
+           assert(stats2.receivers == 0, "ch2 should have no receivers")
+       end)
+
+       coroutine.yield("select_started")
+
+       -- Verify both channels have 1 receiver from select
+       local stats1 = channel_stats(ch1)
+       local stats2 = channel_stats(ch2)
+       assert(stats1.receivers == 1, "ch1 should have 1 receiver")
+       assert(stats2.receivers == 1, "ch2 should have 1 receiver")
+
+       ch1:send("val1")
+       coroutine.yield("send_complete")
+   `, "test")
+	assert.NoError(t, err)
+
+	runtime := NewRuntime()
+	tasks, err := runtime.Step(vm)
+	assert.NoError(t, err)
+
+	var yields []string
+	for len(tasks) > 0 {
+		for _, task := range tasks {
+			if len(task.Yielded) > 0 {
+				yields = append(yields, task.Yielded[0].String())
+			}
 		}
+		tasks, err = runtime.Step(vm, tasks...)
+		assert.NoError(t, err)
+	}
 
-		// Verify final state - all queues should be empty
-		assert.Empty(t, sch.senders.queues, "senders queue should be empty")
-		assert.Empty(t, sch.receivers.queues, "receivers queue should be empty")
+	expectedOrder := []string{
+		"select_started",
+		"selected:val1",
+		"send_complete",
+	}
+	assert.Equal(t, expectedOrder, yields)
+}
 
-		expectedYields := []string{
-			"helper_starting",
-			"close_complete",
-			"select_complete",
-			"select2_complete",
-			"ch2_verified",
-			"ch2_verified_send",
+func TestSelectCleanupAll(t *testing.T) {
+	logger := zap.NewNop()
+
+	vm, err := engine.NewCoroutineVM(
+		context.Background(),
+		logger,
+		engine.WithPreloaded("channel", NewChannelModule().Loader),
+	)
+	assert.NoError(t, err)
+	defer vm.Close()
+
+	err = vm.PushScript(`
+		local function channel_stats(ch)
+			return {
+				size = ch:_debug_size(),
+				senders = ch:_debug_senders(),
+				receivers = ch:_debug_receivers()
+			}
+		end
+
+		local function verify_no_ops(ch1, ch2)
+			local stats1 = channel_stats(ch1)
+			local stats2 = channel_stats(ch2)
+			assert(stats1.receivers == 0, "ch1 should have no receivers")
+			assert(stats1.senders == 0, "ch1 should have no senders")
+			assert(stats2.receivers == 0, "ch2 should have no receivers")
+			assert(stats2.senders == 0, "ch2 should have no senders")
+		end
+
+		-- Test 1: Immediate select cleanup
+		local ch1 = channel.new(1) -- buffered
+		local ch2 = channel.new(0) -- unbuffered
+		
+		ch1:send("val1") -- buffer a value
+		coroutine.yield("value_buffered")
+
+		-- Should immediately select ch1 since it has buffered value
+		local result = channel.select{
+			ch1:case_receive(),
+			ch2:case_receive(),
 		}
-		assert.Equal(t, expectedYields, yields, "operations did not complete in expected order")
-	})
+		assert(result.value == "val1", "should receive buffered value")
+		
+		-- Verify no leftover operations
+		verify_no_ops(ch1, ch2)
+		coroutine.yield("immediate_select_cleaned")
+
+		-- Test 2: Blocking select cleanup
+		local ch3 = channel.new(0)
+		local ch4 = channel.new(0)
+
+		coroutine.go(function()
+			local result = channel.select{
+				ch3:case_receive(),
+				ch4:case_receive()
+			}
+			assert(result.value == "val2", "should receive sent value")
+			verify_no_ops(ch3, ch4)
+			coroutine.yield("blocking_select_cleaned")
+		end)
+		
+		coroutine.yield("select_started")
+
+		-- Verify both channels have pending select
+		local stats3 = channel_stats(ch3)
+		local stats4 = channel_stats(ch4)
+		assert(stats3.receivers == 1, "ch3 should have 1 receiver")
+		assert(stats4.receivers == 1, "ch4 should have 1 receiver")
+		coroutine.yield("select_verified")
+
+		-- Wake up select
+		ch3:send("val2")
+		coroutine.yield("select_completed")
+	`, "test")
+	assert.NoError(t, err)
+
+	runtime := NewRuntime()
+	tasks, err := runtime.Step(vm)
+	assert.NoError(t, err)
+
+	var yields []string
+	for len(tasks) > 0 {
+		for _, task := range tasks {
+			if len(task.Yielded) > 0 {
+				yields = append(yields, task.Yielded[0].String())
+			}
+		}
+		tasks, err = runtime.Step(vm, tasks...)
+		assert.NoError(t, err)
+	}
+
+	expectedOrder := []string{
+		"value_buffered",
+		"immediate_select_cleaned",
+		"select_started",
+		"select_verified",
+		"blocking_select_cleaned",
+		"select_completed",
+	}
+	assert.Equal(t, expectedOrder, yields, "yields occurred in unexpected order")
+}
+
+// TestMixedSelectImmediate tests select with both send and receive cases
+// where one case can be immediately selected
+func TestMixedSelectImmediate(t *testing.T) {
+	logger := zap.NewNop()
+
+	vm, err := engine.NewCoroutineVM(
+		context.Background(),
+		logger,
+		engine.WithPreloaded("channel", NewChannelModule().Loader),
+	)
+	assert.NoError(t, err)
+	defer vm.Close()
+
+	err = vm.PushScript(`
+		local function channel_stats(ch)
+			return {
+				size = ch:_debug_size(),
+				senders = ch:_debug_senders(),
+				receivers = ch:_debug_receivers()
+			}
+		end
+
+		-- Create channels with different states
+		local readyCh = channel.new(1)    -- buffered, will have a value
+		local emptyCh = channel.new(1)    -- buffered, empty
+		local fullCh = channel.new(1)     -- buffered, full
+		
+		-- Setup channel states
+		readyCh:send("ready_value")       -- value ready for receive
+		fullCh:send("full")               -- no space for send in future
+		
+		coroutine.yield("channels_setup")
+		
+		-- Test 1: Select with ready receive and blocked send
+		local result = channel.select{
+			fullCh:case_send("blocked"),   -- would block			
+			readyCh:case_receive(),        -- should be selected (immediate)	
+		}
+		
+		assert(result.channel == readyCh, "wrong channel selected")
+		assert(result.value == "ready_value", "wrong value received")
+		assert(result.ok == true, "receive should succeed")
+		coroutine.yield("test1_complete")
+		
+		-- Test 2: Select with ready send and blocked receive
+		local result2 = channel.select{
+			emptyCh:case_send("new_value"), -- should be selected (immediate)
+			fullCh:case_receive()           -- immediate select, but second in order
+		}
+		
+		assert(result2.channel == emptyCh, "wrong channel selected")
+		assert(result2.ok == true, "send should succeed")
+		coroutine.yield("test2_complete")
+		
+		-- Verify no lingering operations
+		local emptyStats = channel_stats(emptyCh)
+		local fullStats = channel_stats(fullCh)
+		
+		assert(emptyStats.senders == 0, "emptyStats should have no pending senders, got " .. emptyStats.senders)
+		assert(emptyStats.receivers == 0, "emptyStats should have no pending receivers, got " .. emptyStats.receivers)
+		assert(fullStats.senders == 1, "fullStats should have 1 pending sender, got " .. fullStats.senders)
+		assert(fullStats.receivers == 0, "fullStats should have no pending receivers, got " .. fullStats.receivers)
+	`, "test")
+	assert.NoError(t, err)
+
+	runtime := NewRuntime()
+	tasks, err := runtime.Step(vm)
+	assert.NoError(t, err)
+
+	var yields []string
+	for len(tasks) > 0 {
+		for _, task := range tasks {
+			if len(task.Yielded) > 0 {
+				yields = append(yields, task.Yielded[0].String())
+			}
+		}
+		tasks, err = runtime.Step(vm, tasks...)
+		assert.NoError(t, err)
+	}
+
+	expectedOrder := []string{
+		"channels_setup",
+		"test1_complete",
+		"test2_complete",
+	}
+	assert.Equal(t, expectedOrder, yields)
+}
+
+// TestMixedSelectBlocking tests select with both send and receive cases
+// where all cases initially block and are then unblocked by other goroutines
+func TestMixedSelectBlocking(t *testing.T) {
+	logger := zap.NewNop()
+
+	vm, err := engine.NewCoroutineVM(
+		context.Background(),
+		logger,
+		engine.WithPreloaded("channel", NewChannelModule().Loader),
+	)
+	assert.NoError(t, err)
+	defer vm.Close()
+
+	err = vm.PushScript(`
+		-- Create unbuffered channels
+		local ch1 = channel.new(0)
+		local ch2 = channel.new(0)
+		local resultCh = channel.new(1)  -- for test coordination
+		
+		-- Start a goroutine that will do mixed select
+		coroutine.go(function()
+			local result = channel.select{
+				ch1:case_send("value1"),    -- might be selected
+				ch2:case_receive()          -- might be selected
+			}
+			resultCh:send(result)
+		end)
+		
+		coroutine.yield("select_started")
+		
+		-- Start helper goroutine to trigger one of the cases
+		coroutine.go(function()
+			ch2:send("value2")  -- trigger the receive case
+			coroutine.yield("helper_complete")
+		end)
+		
+		-- Wait for and verify select result
+		local result = resultCh:receive()
+		assert(result.channel == ch2, "wrong channel selected")
+		assert(result.value == "value2", "wrong value received")
+		assert(result.ok == true, "operation should succeed")
+		
+		coroutine.yield("test_complete")
+		
+		-- Verify cleanup
+		local function channel_stats(ch)
+			return {
+				size = ch:_debug_size(),
+				senders = ch:_debug_senders(),
+				receivers = ch:_debug_receivers()
+			}
+		end
+		
+		local stats1 = channel_stats(ch1)
+		local stats2 = channel_stats(ch2)
+		
+		assert(stats1.senders == 0, "ch1 should have no pending senders")
+		assert(stats1.receivers == 0, "ch1 should have no pending receivers")
+		assert(stats2.senders == 0, "ch2 should have no pending senders")
+		assert(stats2.receivers == 0, "ch2 should have no pending receivers")
+	`, "test")
+	assert.NoError(t, err)
+
+	runtime := NewRuntime()
+	tasks, err := runtime.Step(vm)
+	assert.NoError(t, err)
+
+	var yields []string
+	for len(tasks) > 0 {
+		for _, task := range tasks {
+			if len(task.Yielded) > 0 {
+				yields = append(yields, task.Yielded[0].String())
+			}
+		}
+		tasks, err = runtime.Step(vm, tasks...)
+		assert.NoError(t, err)
+	}
+
+	expectedOrder := []string{
+		"select_started",
+		"helper_complete",
+		"test_complete",
+	}
+	assert.Equal(t, expectedOrder, yields)
+}
+
+// TestMixedSelectWithDefault tests select with both send and receive cases
+// and a default case
+func TestMixedSelectWithDefault(t *testing.T) {
+	logger := zap.NewNop()
+
+	vm, err := engine.NewCoroutineVM(
+		context.Background(),
+		logger,
+		engine.WithPreloaded("channel", NewChannelModule().Loader),
+	)
+	assert.NoError(t, err)
+	defer vm.Close()
+
+	err = vm.PushScript(`
+		-- Create channels that would block
+		local sendCh = channel.new(0)   -- unbuffered
+		local recvCh = channel.new(0)   -- unbuffered
+		
+		-- Test 1: Select with all blocking cases should hit default
+		local result = channel.select{
+			sendCh:case_send("value"),
+			recvCh:case_receive(),
+			default = true
+		}
+		
+		assert(result.default == true, "should hit default case")
+		coroutine.yield("default_case_hit")
+		
+		-- Test 2: Select with one ready case should not hit default
+		local bufferedCh = channel.new(1)
+		bufferedCh:send("ready")
+		
+		local result2 = channel.select{
+			sendCh:case_send("value"),
+			bufferedCh:case_receive(),
+			default = true
+		}
+		
+		assert(result2.default == nil, "should not hit default")
+		assert(result2.channel == bufferedCh, "wrong channel selected")
+		assert(result2.value == "ready", "wrong value received")
+		coroutine.yield("ready_case_selected")
+		
+		-- Verify no lingering operations
+		local function channel_stats(ch)
+			return {
+				size = ch:_debug_size(),
+				senders = ch:_debug_senders(),
+				receivers = ch:_debug_receivers()
+			}
+		end
+		
+		local sendStats = channel_stats(sendCh)
+		local recvStats = channel_stats(recvCh)
+		local bufferedStats = channel_stats(bufferedCh)
+		
+		assert(sendStats.senders == 0 and sendStats.receivers == 0, "sendCh should be clean")
+		assert(recvStats.senders == 0 and recvStats.receivers == 0, "recvCh should be clean")
+		assert(bufferedStats.senders == 0 and bufferedStats.receivers == 0, "bufferedCh should be clean")
+	`, "test")
+	assert.NoError(t, err)
+
+	runtime := NewRuntime()
+	tasks, err := runtime.Step(vm)
+	assert.NoError(t, err)
+
+	var yields []string
+	for len(tasks) > 0 {
+		for _, task := range tasks {
+			if len(task.Yielded) > 0 {
+				yields = append(yields, task.Yielded[0].String())
+			}
+		}
+		tasks, err = runtime.Step(vm, tasks...)
+		assert.NoError(t, err)
+	}
+
+	expectedOrder := []string{
+		"default_case_hit",
+		"ready_case_selected",
+	}
+	assert.Equal(t, expectedOrder, yields)
 }
