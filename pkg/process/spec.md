@@ -24,6 +24,8 @@ node_id:app_id:namespace.name:pid.seq
 
 Components:
 
+TODO: add process kind
+ 
 - Static part (process location):
     - `node_id`: Physical node identifier where process runs (e.g., "node1")
     - `app_id`: Application identifier (e.g., "myapp")
@@ -245,7 +247,7 @@ end
 
 2. Message Delivery
     - Message sending is always non-blocking
-    - No delivery guarantees provided by send operation
+    - Messages are delivered in order
     - Messages stay outside process until buffer space available
 
 3. Process Links
@@ -265,7 +267,7 @@ end
 
 6. Process Migration
     - State preserved across migrations
-    - Previous state available in process args
+    - Previous state available in process args (sent via `process.upgrade`)
     - Migration failure treated as process failure
 
 7. Process Groups
