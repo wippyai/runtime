@@ -6,14 +6,12 @@ system like functions.
 ## Overview
 
 The channel system provides a Go-like concurrency model for Pony processes, allowing coroutines to communicate and
-synchronize through message passing. It supports both buffered and unbuffered channels, select operations, and named
-channels for external communication.
+synchronize through message passing. It supports both buffered and unbuffered channels, select operations, and named/port
+channels for external communication (internally).
 
-## Channel Types
+## Channels
 
-### Regular Channels
-
-Regular channels are used for internal communication between coroutines within a process.
+Channels are used for internal communication between coroutines within a process.
 
 ```lua
 -- Create an unbuffered channel
@@ -22,18 +20,6 @@ local ch = channel.new()
 -- Create a buffered channel with capacity 5
 local ch = channel.new(5)
 ```
-
-### Named Channels
-
-Named channels allow external communication with the process. They can be accessed through the runtime.
-
-```lua
--- Create a named channel with capacity 2
-local ch = channel.named("my_channel", 2)
-```
-
-> **Note:** Named channels cannot be closed manually and are managed by the runtime. You can not write to named channels
-> from Lua code (yet).
 
 ## Basic Operations
 
@@ -160,24 +146,6 @@ end
 coroutine.spawn(handler)
 ```
 
-### External Communication with Named Channels
-
-```lua
--- Process handling external communication
-local input = channel.named("input", 1)
-
-coroutine.spawn(function()
-    while true do
-        local value, ok = input:receive()
-        if not ok then break end
-        
-        -- Process value
-        local result = "processed:" .. value      
-        coroutine.yield(result)
-    end
-end)
-```
-
 ## Best Practices
 
 1. **Channel Ownership**
@@ -202,12 +170,7 @@ end)
 
 ## Limitations and Considerations
 
-1. **Named Channels**
-    - Cannot be closed manually
-    - Cannot send to named channels
-    - Only for receiving external data
-
-2. **Select Operations**
+1. **Select Operations**
     - Cases must be channel operations
     - Default case makes select non-blocking
     - Select fairly chooses between ready cases
@@ -218,24 +181,6 @@ end)
     - Not available in regular functions
     - Must be used with `coroutine.spawn`
 
-## Runtime Interaction
-
-The runtime manages named channels and provides methods to:
-
-- Send data to named channels
-- Monitor channel state
-- Track active channels
-- Handle channel cleanup
-
-```lua
--- Example of runtime interaction (from Go side)
-channels := runtime.GetOpenChannels()
-for _, ch := range channels {
-    if ch.Name == "input" {
-        runtime.Send("input", "data")
-    }
-}
-```
 
 ## Debugging
 
