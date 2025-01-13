@@ -13,7 +13,7 @@ require (
 	github.com/tree-sitter/tree-sitter-html v0.23.2
 	github.com/tree-sitter/tree-sitter-javascript v0.23.1
 	github.com/tree-sitter/tree-sitter-php v0.23.11
-	github.com/tree-sitter/tree-sitter-python v0.23.5
+	github.com/tree-sitter/tree-sitter-python v0.23.6
 	github.com/tree-sitter/tree-sitter-typescript v0.23.2
 	github.com/xeipuuv/gojsonschema v1.2.0
 	github.com/yuin/gopher-lua v1.1.1
