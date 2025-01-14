@@ -13,7 +13,7 @@ import (
 func TestNamedChannelVisibility(t *testing.T) {
 	logger := zap.NewNop()
 
-	vm, err := engine.NewCoroutineVM(
+	vm, err := engine.NewCVM(
 		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
@@ -21,7 +21,7 @@ func TestNamedChannelVisibility(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.PushScript(`
+	err = vm.DoString(`
 		-- Create two named channels
 		local ch1 = channel.named("channel1", 1)
 		local ch2 = channel.named("channel2", 1)
@@ -47,7 +47,7 @@ func TestNamedChannelVisibility(t *testing.T) {
 func TestNamedChannelSelectVisibility(t *testing.T) {
 	logger := zap.NewNop()
 
-	vm, err := engine.NewCoroutineVM(
+	vm, err := engine.NewCVM(
 		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
@@ -55,7 +55,7 @@ func TestNamedChannelSelectVisibility(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.PushScript(`
+	err = vm.DoString(`
 		-- Create named channels with different capacities
 		local ch1 = channel.named("select_ch1", 0) -- unbuffered
 		local ch2 = channel.named("select_ch2", 1) -- buffered
@@ -141,7 +141,7 @@ func TestNamedChannelSelectVisibility(t *testing.T) {
 func TestNamedChannelSelectDefaultCase(t *testing.T) {
 	logger := zap.NewNop()
 
-	vm, err := engine.NewCoroutineVM(
+	vm, err := engine.NewCVM(
 		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
@@ -149,7 +149,7 @@ func TestNamedChannelSelectDefaultCase(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.PushScript(`
+	err = vm.DoString(`
 		-- Create named channels
 		local ch1 = channel.named("default_ch1", 0)
 		local ch2 = channel.named("default_ch2", 0)
@@ -192,7 +192,7 @@ func TestNamedChannelSelectDefaultCase(t *testing.T) {
 func TestNamedChannelMultipleReceivers(t *testing.T) {
 	logger := zap.NewNop()
 
-	vm, err := engine.NewCoroutineVM(
+	vm, err := engine.NewCVM(
 		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
@@ -200,7 +200,7 @@ func TestNamedChannelMultipleReceivers(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.PushScript(`
+	err = vm.DoString(`
 		-- Create channels
 		local ch = channel.named("test_channel", 0)
 		local results = channel.new(3) -- To collect results in order
@@ -336,7 +336,7 @@ func TestNamedChannelMultipleReceivers(t *testing.T) {
 func TestBufferedNamedChannelWriteCapacity(t *testing.T) {
 	logger := zap.NewNop()
 
-	vm, err := engine.NewCoroutineVM(
+	vm, err := engine.NewCVM(
 		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
@@ -344,7 +344,7 @@ func TestBufferedNamedChannelWriteCapacity(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.PushScript(`
+	err = vm.DoString(`
         -- Create channels
         local ch = channel.named("buffered_channel", 3)
         local ready = channel.new(0)

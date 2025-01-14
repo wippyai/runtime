@@ -1,4 +1,4 @@
-package pool
+package factory
 
 import (
 	"github.com/ponyruntime/pony/api/runtime/lua"
@@ -7,17 +7,17 @@ import (
 	"go.uber.org/zap"
 )
 
-type Compiler struct {
+type Configurator struct {
 	log *zap.Logger
 }
 
-func NewCompiler(log *zap.Logger) *Compiler {
-	return &Compiler{
+func NewConfigurator(log *zap.Logger) *Configurator {
+	return &Configurator{
 		log: log,
 	}
 }
 
-func (c *Compiler) Compile(
+func (c *Configurator) Compile(
 	factory lua.Factory,
 	luaCfg *lua.FunctionConfig,
 ) (lua.Callable, error) {
