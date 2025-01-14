@@ -3,17 +3,18 @@ package sync
 import (
 	"context"
 	"fmt"
-	time2 "github.com/ponyruntime/pony/runtime/lua/modules/time"
 	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	time2 "github.com/ponyruntime/pony/runtime/lua/modules/time"
+
 	cfg "github.com/ponyruntime/pony/runtime/lua/pool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/yuin/gopher-lua"
+	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
 

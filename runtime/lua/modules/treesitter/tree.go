@@ -3,11 +3,12 @@ package treesitter
 import (
 	"bytes"
 	"fmt"
-	"github.com/ponyruntime/pony/internal/closer"
-	treesitter "github.com/tree-sitter/go-tree-sitter"
-	"github.com/yuin/gopher-lua"
 	"os"
 	"sync"
+
+	"github.com/ponyruntime/pony/internal/closer"
+	treesitter "github.com/tree-sitter/go-tree-sitter"
+	lua "github.com/yuin/gopher-lua"
 )
 
 // TreeWrapper wraps a tree-sitter Tree for Lua integration

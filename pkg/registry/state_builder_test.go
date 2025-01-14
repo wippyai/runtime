@@ -2,13 +2,14 @@ package registry
 
 import (
 	"fmt"
+	"reflect"
+	"strings"
+	"testing"
+
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/internal/version"
 	"go.uber.org/zap"
-	"reflect"
-	"strings"
-	"testing"
 )
 
 // MockHistory is a mock implementation of the registry.History interface for testing.

@@ -4,9 +4,10 @@ import (
 	"container/list"
 	"context"
 	"fmt"
+	"strings"
+
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
-	"strings"
 )
 
 // TaskKey is the key used to store the current task in the Lua state specific to thread

@@ -2,6 +2,7 @@ package registry
 
 import (
 	"context"
+
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"
 )

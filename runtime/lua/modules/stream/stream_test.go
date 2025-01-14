@@ -4,12 +4,13 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/yuin/gopher-lua"
-	"go.uber.org/zap"
 	"io"
 	"sync"
 	"testing"
+
+	"github.com/ponyruntime/pony/runtime/lua/engine"
+	lua "github.com/yuin/gopher-lua"
+	"go.uber.org/zap"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

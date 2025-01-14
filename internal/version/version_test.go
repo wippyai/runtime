@@ -1,8 +1,9 @@
 package version
 
 import (
-	"github.com/ponyruntime/pony/api/registry"
 	"testing"
+
+	"github.com/ponyruntime/pony/api/registry"
 )
 
 func TestVersion(t *testing.T) {

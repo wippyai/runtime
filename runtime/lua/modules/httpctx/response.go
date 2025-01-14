@@ -2,10 +2,11 @@ package httpctx
 
 import (
 	"fmt"
+	basehttp "net/http"
+
 	"github.com/ponyruntime/pony/api/service/http"
 	"github.com/ponyruntime/pony/runtime/lua/modules/json"
-	"github.com/yuin/gopher-lua"
-	basehttp "net/http"
+	lua "github.com/yuin/gopher-lua"
 )
 
 // Response represents a Lua userdata object wrapping http.ResponseWriter

@@ -2,12 +2,13 @@ package http
 
 import (
 	"errors"
-	"github.com/ponyruntime/pony/runtime/lua/modules/stream"
-	"github.com/yuin/gopher-lua"
 	"io"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/ponyruntime/pony/runtime/lua/modules/stream"
+	lua "github.com/yuin/gopher-lua"
 )
 
 // requestOptions holds parsed request options

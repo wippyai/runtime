@@ -4,7 +4,7 @@
 package lfs
 
 import (
-	"github.com/yuin/gopher-lua"
+	lua "github.com/yuin/gopher-lua"
 )
 
 // Module represents a lfs Lua module.

@@ -3,13 +3,14 @@ package http
 import (
 	"context"
 	"errors"
-	"github.com/ponyruntime/pony/internal/closer"
 	"io"
 	"net/http"
 	"time"
 
+	"github.com/ponyruntime/pony/internal/closer"
+
 	"github.com/ponyruntime/pony/runtime/lua/modules/stream"
-	"github.com/yuin/gopher-lua"
+	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
 

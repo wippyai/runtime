@@ -1,12 +1,14 @@
 package treesitter
 
 import (
+	"context"
+	"os"
+	"testing"
+
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
-	"os"
-	"testing"
 )
 
 func TestBasicQuery(t *testing.T) {
@@ -20,7 +22,7 @@ func TestBasicQuery(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(nil, `
+	err = vm.DoString(context.Background(), `
 		local treesitter = require("treesitter")
 		
 		-- Simple test code with a function
@@ -80,7 +82,7 @@ func TestQueryMultipleCaptures(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(nil, `
+	err = vm.DoString(context.Background(), `
 		local treesitter = require("treesitter")
 		
 		-- Test code with multiple functions and parameters
@@ -148,7 +150,7 @@ func TestQueryFunctionDetails(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(nil, `
+	err = vm.DoString(context.Background(), `
         local treesitter = require("treesitter")
         
         local code = [[
@@ -258,7 +260,7 @@ func TestQueryParamDebug(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(nil, `
+	err = vm.DoString(context.Background(), `
         local treesitter = require("treesitter")
 
 local code = [[
@@ -378,7 +380,7 @@ func TestQueryAdvancedFeatures(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(nil, `
+	err = vm.DoString(context.Background(), `
         local treesitter = require("treesitter")
         
         local code = [[
@@ -489,7 +491,7 @@ func TestQueryOperations(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(nil, `
+	err = vm.DoString(context.Background(), `
 		local treesitter = require("treesitter")
 
 -- Test code with rich syntax for comprehensive query testing
@@ -629,7 +631,7 @@ func TestQueryErrorCases(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(nil, `
+	err = vm.DoString(context.Background(), `
 		local treesitter = require("treesitter")
 
 -- Test different query error types
@@ -702,7 +704,7 @@ func TestQueryTextPredicates(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(nil, `
+	err = vm.DoString(context.Background(), `
 		local treesitter = require("treesitter")
 
 -- Test code with various matches for predicates
@@ -800,7 +802,7 @@ func TestQueryNestedGrammars(t *testing.T) {
 	code, err := os.ReadFile(file)
 	require.NoError(t, err)
 
-	err = vm.DoString(nil, string(code), "test")
+	err = vm.DoString(context.Background(), string(code), "test")
 	assert.NoError(t, err)
 }
 
@@ -820,7 +822,7 @@ func TestQueryLuaInLua(t *testing.T) {
 	code, err := os.ReadFile(file)
 	require.NoError(t, err)
 
-	err = vm.DoString(nil, string(code), "test")
+	err = vm.DoString(context.Background(), string(code), "test")
 	assert.NoError(t, err)
 }
 
@@ -840,6 +842,6 @@ func TestQueryLuaFileStruct(t *testing.T) {
 	code, err := os.ReadFile(file)
 	require.NoError(t, err)
 
-	err = vm.DoString(nil, string(code), "test")
+	err = vm.DoString(context.Background(), string(code), "test")
 	assert.NoError(t, err)
 }

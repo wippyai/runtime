@@ -1,6 +1,9 @@
 package loader
 
 import (
+	"strings"
+	"testing"
+
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/internal/utils"
@@ -10,8 +13,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
-	"strings"
-	"testing"
 )
 
 func TestFolderLoader_Load_MultipleFiles_Interpolation(t *testing.T) {
