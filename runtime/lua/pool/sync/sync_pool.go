@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sync"
-	"sync/atomic"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/pool"
@@ -39,7 +38,6 @@ type Pool struct {
 	logger    *zap.Logger
 	vmConfig  *pool.VMConfig
 	vms       chan *engine.VM
-	closed    atomic.Bool
 	closeOnce sync.Once
 	done      chan struct{} // opChan for signaling shutdown
 }
