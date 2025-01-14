@@ -2,11 +2,12 @@ package httpctx
 
 import (
 	"context"
+	"testing"
+
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
-	"testing"
 )
 
 func TestHttpContextConstants(t *testing.T) {

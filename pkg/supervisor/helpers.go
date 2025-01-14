@@ -3,10 +3,11 @@ package supervisor
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/api/supervisor"
-	"go.uber.org/zap"
 	"sync"
 	"time"
+
+	"github.com/ponyruntime/pony/api/supervisor"
+	"go.uber.org/zap"
 )
 
 type internalState struct {

@@ -1,12 +1,14 @@
 package treesitter
 
 import (
+	"context"
+	"testing"
+
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/yuin/gopher-lua"
+	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
-	"testing"
 )
 
 func TestNodeMethods(t *testing.T) {
@@ -21,7 +23,7 @@ func TestNodeMethods(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local treesitter = require("treesitter")
 			local code = [[
 				package main
@@ -59,7 +61,7 @@ func TestNodeMethods(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local treesitter = require("treesitter")
 			local code = [[
 				package main
@@ -95,7 +97,7 @@ func TestNodeMethods(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local treesitter = require("treesitter")
 			local code = [[
 				package main
@@ -130,7 +132,7 @@ func TestNodeMethods(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local treesitter = require("treesitter")
 			local code = [[
 				package main
@@ -168,7 +170,7 @@ func TestNodeAdditionalMethods(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local treesitter = require("treesitter")
 			local code = [[
 				type Person struct {
@@ -201,7 +203,7 @@ func TestNodeAdditionalMethods(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local treesitter = require("treesitter")
 			local code = "func main() { invalid syntax }"
 			local tree = treesitter.parse("go", code)
@@ -233,7 +235,7 @@ func TestNodeAdditionalMethods(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local treesitter = require("treesitter")
 			local code = "package main"
 			local tree = treesitter.parse("go", code)
@@ -280,7 +282,7 @@ func TestNodeTextMethod(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
             local treesitter = require("treesitter")
             local code = [[package main
 
@@ -342,7 +344,7 @@ func TestNodeChildText(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
             local treesitter = require("treesitter")
             local code = "func test() { return 42 }"
             
@@ -380,7 +382,7 @@ func TestOtherNodeMethods(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local treesitter = require("treesitter")
 			local code = [[
 				package main
@@ -421,7 +423,7 @@ func TestOtherNodeMethods(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local treesitter = require("treesitter")
 			local code = "func main() { x = "  -- Missing expression and closing brace
 			local tree = treesitter.parse("go", code)
@@ -458,7 +460,7 @@ func TestOtherNodeMethods(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local treesitter = require("treesitter")
 			local code = [[package main
 			
@@ -487,7 +489,7 @@ func hello() {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local treesitter = require("treesitter")
 			local code = [[package main
 
@@ -533,7 +535,7 @@ func TestCodeValidation(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local treesitter = require("treesitter")
 			
 			-- Test case 1: Missing closing brace
@@ -615,7 +617,7 @@ func TestNodeSiblingNavigation(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
             local treesitter = require("treesitter")
             local code = [[
                 package main
@@ -716,7 +718,7 @@ func TestNodeSiblingNavigation(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
             local treesitter = require("treesitter")
             -- Use a simpler code sample for edge cases
             local code = [[

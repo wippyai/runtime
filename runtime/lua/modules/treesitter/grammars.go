@@ -1,7 +1,6 @@
 package treesitter
 
 import (
-	_ "embed"
 	"unsafe"
 
 	tslua "github.com/tree-sitter-grammars/tree-sitter-lua/bindings/go"
@@ -21,99 +20,106 @@ type LanguageInfo struct {
 	Language func() unsafe.Pointer // Function to get the Tree-sitter language object
 }
 
-// languageDefinitions contains the core language definitions
-var languageDefinitions = []LanguageInfo{
-	{
-		Name:     "lua",
-		Aliases:  []string{"lua"},
-		Language: tslua.Language,
-	},
-	{
-		Name:     "php",
-		Aliases:  []string{"php"},
-		Language: tsphp.LanguagePHP,
-	},
-	{
-		Name:     "go",
-		Aliases:  []string{"go", "golang"},
-		Language: tsgo.Language,
-	},
-	{
-		Name:     "javascript",
-		Aliases:  []string{"js", "javascript"},
-		Language: tsjs.Language,
-	},
-	{
-		Name:     "typescript+jsx",
-		Aliases:  []string{"tsx"},
-		Language: tsts.LanguageTSX,
-	},
-	{
-		Name:     "typescript",
-		Aliases:  []string{"ts", "typescript"},
-		Language: tsts.LanguageTypescript,
-	},
-	{
-		Name:     "python",
-		Aliases:  []string{"python", "py"},
-		Language: tspython.Language,
-	},
-	{
-		Name:     "c#",
-		Aliases:  []string{"csharp", "c#", "cs"},
-		Language: cscsharp.Language,
-	},
-	{
-		Name:     "html",
-		Aliases:  []string{"html", "html5"},
-		Language: tshtml.Language,
-	},
-	{
-		Name:     "markdown",
-		Aliases:  []string{"markdown", "md"},
-		Language: nil, // todo: find and fix me
-	},
-	{
-		Name:     "sql",
-		Aliases:  []string{"sql"},
-		Language: nil, // todo: find and fix me
-	},
+type Languages struct {
+	li        []*LanguageInfo
+	supported map[string]*LanguageInfo
 }
 
-// supportedLanguages is a map of all language aliases to their LanguageInfo
-var supportedLanguages map[string]*LanguageInfo
+func NewLanguages() *Languages {
+	li := []*LanguageInfo{
+		{
+			Name:     "lua",
+			Aliases:  []string{"lua"},
+			Language: tslua.Language,
+		},
+		{
+			Name:     "php",
+			Aliases:  []string{"php"},
+			Language: tsphp.LanguagePHP,
+		},
+		{
+			Name:     "go",
+			Aliases:  []string{"go", "golang"},
+			Language: tsgo.Language,
+		},
+		{
+			Name:     "javascript",
+			Aliases:  []string{"js", "javascript"},
+			Language: tsjs.Language,
+		},
+		{
+			Name:     "typescript+jsx",
+			Aliases:  []string{"tsx"},
+			Language: tsts.LanguageTSX,
+		},
+		{
+			Name:     "typescript",
+			Aliases:  []string{"ts", "typescript"},
+			Language: tsts.LanguageTypescript,
+		},
+		{
+			Name:     "python",
+			Aliases:  []string{"python", "py"},
+			Language: tspython.Language,
+		},
+		{
+			Name:     "c#",
+			Aliases:  []string{"csharp", "c#", "cs"},
+			Language: cscsharp.Language,
+		},
+		{
+			Name:     "html",
+			Aliases:  []string{"html", "html5"},
+			Language: tshtml.Language,
+		},
+		{
+			Name:     "markdown",
+			Aliases:  []string{"markdown", "md"},
+			Language: nil, // todo: find and fix me
+		},
+		{
+			Name:     "sql",
+			Aliases:  []string{"sql"},
+			Language: nil, // todo: find and fix me
+		},
+	}
 
-func init() {
 	// Initialize the map with enough capacity for all aliases
 	totalAliases := 0
-	for _, lang := range languageDefinitions {
+	for _, lang := range li {
 		totalAliases += len(lang.Aliases)
 	}
-	supportedLanguages = make(map[string]*LanguageInfo, totalAliases)
+
+	supportedLanguages := make(map[string]*LanguageInfo, totalAliases)
 
 	// Map all aliases to their language info
-	for i := range languageDefinitions {
-		langInfo := &languageDefinitions[i]
+	for i := range li {
+		langInfo := li[i]
 		for _, alias := range langInfo.Aliases {
 			supportedLanguages[alias] = langInfo
 		}
 	}
+
+	return &Languages{
+		li:        li,
+		supported: supportedLanguages,
+	}
 }
 
-// GetLanguageInfo returns the LanguageInfo for a given language alias.
-func GetLanguageInfo(alias string) *LanguageInfo {
-	return supportedLanguages[alias]
+// GetLanguageInfo returns the LanguageInfo for a given language alias or nil
+func (l *Languages) GetLanguageInfo(alias string) *LanguageInfo {
+	return l.supported[alias]
 }
 
-// GetSupportedLanguages returns a list of supported language names.
-func GetSupportedLanguages() []string {
+func (l *Languages) GetSupportedLanguages() []string {
 	seen := make(map[string]bool)
-	names := make([]string, 0, len(languageDefinitions))
-	for _, langInfo := range languageDefinitions {
+	names := make([]string, 0, 10)
+	for _, langInfo := range l.li {
 		if !seen[langInfo.Name] {
 			names = append(names, langInfo.Name)
 			seen[langInfo.Name] = true
 		}
 	}
+
 	return names
 }

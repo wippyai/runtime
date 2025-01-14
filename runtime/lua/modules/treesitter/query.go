@@ -3,10 +3,11 @@ package treesitter
 
 import (
 	"fmt"
+	"regexp"
+
 	"github.com/ponyruntime/pony/internal/closer"
 	treesitter "github.com/tree-sitter/go-tree-sitter"
-	"github.com/yuin/gopher-lua"
-	"regexp"
+	lua "github.com/yuin/gopher-lua"
 )
 
 // QueryWrapper wraps a tree-sitter Query and QueryCursor for Lua integration
@@ -17,71 +18,69 @@ type QueryWrapper struct {
 }
 
 // Register the Query type to Lua
-func registerQuery(L *lua.LState) {
-	mt := L.NewTypeMetatable("treesitter.Query")
-	L.SetField(mt, "__index", L.SetFuncs(L.NewTable(), queryMethods))
-}
+func registerQuery(l *lua.LState) {
+	mt := l.NewTypeMetatable("treesitter.Query")
+	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
+		// Core functionality
+		"close":                  queryClose,
+		"matches":                queryMatches,
+		"captures":               queryCaptures,
+		"pattern_count":          queryPatternCount,
+		"capture_count":          queryCaptureCount,
+		"string_count":           queryStringCount,
+		"start_byte_for_pattern": queryStartByteForPattern,
 
-var queryMethods = map[string]lua.LGFunction{
-	// Core functionality
-	"close":                  queryClose,
-	"matches":                queryMatches,
-	"captures":               queryCaptures,
-	"pattern_count":          queryPatternCount,
-	"capture_count":          queryCaptureCount,
-	"string_count":           queryStringCount,
-	"start_byte_for_pattern": queryStartByteForPattern,
+		// Cursor control
+		"set_byte_range":         querySetByteRange,
+		"set_point_range":        querySetPointRange,
+		"set_match_limit":        querySetMatchLimit,
+		"get_match_limit":        queryGetMatchLimit,
+		"did_exceed_match_limit": queryDidExceedMatchLimit,
+		"set_timeout":            querySetTimeout,
+		"get_timeout":            queryGetTimeout,
 
-	// Cursor control
-	"set_byte_range":         querySetByteRange,
-	"set_point_range":        querySetPointRange,
-	"set_match_limit":        querySetMatchLimit,
-	"get_match_limit":        queryGetMatchLimit,
-	"did_exceed_match_limit": queryDidExceedMatchLimit,
-	"set_timeout":            querySetTimeout,
-	"get_timeout":            queryGetTimeout,
+		// Pattern/capture control
+		"disable_pattern":      queryDisablePattern,
+		"disable_capture":      queryDisableCapture,
+		"is_pattern_rooted":    queryIsPatternRooted,
+		"is_pattern_non_local": queryIsPatternNonLocal,
+		"capture_name_for_id":  queryCaptureNameForID,
+		"capture_quantifier":   queryCaptureQuantifier,
 
-	// Pattern/capture control
-	"disable_pattern":      queryDisablePattern,
-	"disable_capture":      queryDisableCapture,
-	"is_pattern_rooted":    queryIsPatternRooted,
-	"is_pattern_non_local": queryIsPatternNonLocal,
-	"capture_name_for_id":  queryCaptureNameForId,
-	"capture_quantifier":   queryCaptureQuantifier,
-
-	"set_max_start_depth":     querySetMaxStartDepth,
-	"get_property_predicates": queryGetPropertyPredicates,
-	"get_property_settings":   queryGetPropertySettings,
-	"is_pattern_guaranteed":   queryIsPatternGuaranteed,
-	"capture_index_for_name":  queryCaptureIndexForName,
-	"end_byte_for_pattern":    queryEndByteForPattern,
-	"get_text_predicates":     queryGetTextPredicates,
+		"set_max_start_depth":     querySetMaxStartDepth,
+		"get_property_predicates": queryGetPropertyPredicates,
+		"get_property_settings":   queryGetPropertySettings,
+		"is_pattern_guaranteed":   queryIsPatternGuaranteed,
+		"capture_index_for_name":  queryCaptureIndexForName,
+		"end_byte_for_pattern":    queryEndByteForPattern,
+		"get_text_predicates":     queryGetTextPredicates,
+	}))
 }
 
 // Create a new Query
-func newQuery(L *lua.LState) int {
-	languageStr := L.CheckString(1)
-	pattern := L.CheckString(2)
+func newQuery(l *lua.LState) int {
+	languageStr := l.CheckString(1)
+	pattern := l.CheckString(2)
 
 	// Get language from string
-	langInfo := GetLanguageInfo(languageStr)
+	langInfo := NewLanguages().GetLanguageInfo(languageStr)
 	if langInfo == nil {
-		L.Push(lua.LNil)
-		L.Push(lua.LString(fmt.Sprintf("unsupported language: %s", languageStr)))
+		l.Push(lua.LNil)
+		l.Push(lua.LString(fmt.Sprintf("unsupported language: %s", languageStr)))
 		return 2
 	}
 
 	if langInfo.Language == nil {
-		L.Push(lua.LNil)
-		L.Push(lua.LString(fmt.Sprintf("language '%s' does not have a Tree-sitter language binding", languageStr)))
+		l.Push(lua.LNil)
+		l.Push(lua.LString(fmt.Sprintf("language '%s' does not have a Tree-sitter language binding", languageStr)))
 		return 2
 	}
 
 	lang := treesitter.NewLanguage(langInfo.Language())
 	query, err := treesitter.NewQuery(lang, pattern)
 	if err != nil {
-		L.Push(lua.LNil)
-		L.Push(lua.LString(formatQueryError(err)))
+		l.Push(lua.LNil)
+		l.Push(lua.LString(formatQueryError(err)))
 		return 2
 	}
 
@@ -91,8 +90,8 @@ func newQuery(L *lua.LState) int {
 		cursor: treesitter.NewQueryCursor(),
 	}
 
-	if L.Context() != nil {
-		cleanup := closer.FromContext(L.Context())
+	if l.Context() != nil {
+		cleanup := closer.FromContext(l.Context())
 		if cleanup != nil {
 			cleanup.Add(func() error {
 				if wrapper.cursor != nil {
@@ -109,26 +108,26 @@ func newQuery(L *lua.LState) int {
 		}
 	}
 
-	ud := L.NewUserData()
+	ud := l.NewUserData()
 	ud.Value = wrapper
-	L.SetMetatable(ud, L.GetTypeMetatable("treesitter.Query"))
-	L.Push(ud)
+	l.SetMetatable(ud, l.GetTypeMetatable("treesitter.Query"))
+	l.Push(ud)
 	return 1
 }
 
-func matchToLuaTable(L *lua.LState, query *treesitter.Query, match *treesitter.QueryMatch, source string) *lua.LTable {
-	matchTable := L.NewTable()
+func matchToLuaTable(l *lua.LState, query *treesitter.Query, match *treesitter.QueryMatch, source string) *lua.LTable {
+	matchTable := l.NewTable()
 	matchTable.RawSetString("id", lua.LNumber(match.Id()))
 	matchTable.RawSetString("pattern", lua.LNumber(match.PatternIndex))
 
-	capturesTable := L.NewTable()
+	capturesTable := l.NewTable()
 	for _, capture := range match.Captures {
-		captureTable := L.NewTable()
+		captureTable := l.NewTable()
 
 		// Create Node wrapper for the specific capture's node
-		nodeUD := L.NewUserData()
+		nodeUD := l.NewUserData()
 		nodeUD.Value = &NodeWrapper{node: &capture.Node, source: &source}
-		L.SetMetatable(nodeUD, L.GetTypeMetatable("treesitter.Node"))
+		l.SetMetatable(nodeUD, l.GetTypeMetatable("treesitter.Node"))
 
 		captureTable.RawSetString("node", nodeUD)
 		captureTable.RawSetString("index", lua.LNumber(capture.Index))
@@ -146,59 +145,59 @@ func matchToLuaTable(L *lua.LState, query *treesitter.Query, match *treesitter.Q
 	return matchTable
 }
 
-func queryMatches(L *lua.LState) int {
-	query := checkQuery(L)
-	nodeUD := L.CheckUserData(2)
-	source := L.CheckString(3)
+func queryMatches(l *lua.LState) int {
+	query := checkQuery(l)
+	nodeUD := l.CheckUserData(2)
+	source := l.CheckString(3)
 
 	node, ok := nodeUD.Value.(*NodeWrapper)
 	if !ok {
-		L.ArgError(2, "Node expected")
+		l.ArgError(2, "Node expected")
 		return 0
 	}
 
 	query.source = source
 	matches := query.cursor.Matches(query.query, node.node, []byte(source))
 
-	matchesTable := L.NewTable()
+	matchesTable := l.NewTable()
 	for match := matches.Next(); match != nil; match = matches.Next() {
 		if match.SatisfiesTextPredicate(query.query, nil, nil, []byte(source)) {
-			matchTable := matchToLuaTable(L, query.query, match, source)
+			matchTable := matchToLuaTable(l, query.query, match, source)
 			matchesTable.Append(matchTable)
 		}
 	}
 
-	L.Push(matchesTable)
+	l.Push(matchesTable)
 	return 1
 }
 
-func queryCaptures(L *lua.LState) int {
-	query := checkQuery(L)
-	nodeUD := L.CheckUserData(2)
-	source := L.CheckString(3)
+func queryCaptures(l *lua.LState) int {
+	query := checkQuery(l)
+	nodeUD := l.CheckUserData(2)
+	source := l.CheckString(3)
 
 	node, ok := nodeUD.Value.(*NodeWrapper)
 	if !ok {
-		L.ArgError(2, "Node expected")
+		l.ArgError(2, "Node expected")
 		return 0
 	}
 
 	query.source = source
 	captures := query.cursor.Captures(query.query, node.node, []byte(source))
 
-	capturesTable := L.NewTable()
+	capturesTable := l.NewTable()
 	for match, index := captures.Next(); match != nil; match, index = captures.Next() {
 		if !match.SatisfiesTextPredicate(query.query, nil, nil, []byte(source)) {
 			continue
 		}
 
 		capture := match.Captures[index]
-		captureTable := L.NewTable()
+		captureTable := l.NewTable()
 
 		// Create Node wrapper
-		nodeUD := L.NewUserData()
+		nodeUD := l.NewUserData()
 		nodeUD.Value = &NodeWrapper{node: &capture.Node, source: &source}
-		L.SetMetatable(nodeUD, L.GetTypeMetatable("treesitter.Node"))
+		l.SetMetatable(nodeUD, l.GetTypeMetatable("treesitter.Node"))
 
 		captureTable.RawSetString("node", nodeUD)
 		captureTable.RawSetString("index", lua.LNumber(capture.Index))
@@ -212,35 +211,35 @@ func queryCaptures(L *lua.LState) int {
 		// Get the text of the captured node
 		start := capture.Node.StartByte()
 		end := capture.Node.EndByte()
-		if start >= 0 && end >= 0 && uint32(end) <= uint32(len(source)) {
+		if end <= uint(len(source)) {
 			captureTable.RawSetString("text", lua.LString(source[start:end]))
 		}
 
 		capturesTable.Append(captureTable)
 	}
 
-	L.Push(capturesTable)
+	l.Push(capturesTable)
 	return 1
 }
 
 // Cursor control methods
 
-func querySetByteRange(L *lua.LState) int {
-	query := checkQuery(L)
-	startByte := uint(L.CheckNumber(2))
-	endByte := uint(L.CheckNumber(3))
+func querySetByteRange(l *lua.LState) int {
+	query := checkQuery(l)
+	startByte := uint(l.CheckNumber(2))
+	endByte := uint(l.CheckNumber(3))
 	query.cursor.SetByteRange(startByte, endByte)
 	return 0
 }
 
-func querySetPointRange(L *lua.LState) int {
-	query := checkQuery(L)
+func querySetPointRange(l *lua.LState) int {
+	query := checkQuery(l)
 
-	startPointTbl := L.CheckTable(2)
+	startPointTbl := l.CheckTable(2)
 	startRow := uint(startPointTbl.RawGetString("row").(lua.LNumber))
 	startCol := uint(startPointTbl.RawGetString("column").(lua.LNumber))
 
-	endPointTbl := L.CheckTable(3)
+	endPointTbl := l.CheckTable(3)
 	endRow := uint(endPointTbl.RawGetString("row").(lua.LNumber))
 	endCol := uint(endPointTbl.RawGetString("column").(lua.LNumber))
 
@@ -251,90 +250,90 @@ func querySetPointRange(L *lua.LState) int {
 	return 0
 }
 
-func querySetMatchLimit(L *lua.LState) int {
-	query := checkQuery(L)
-	limit := uint(L.CheckNumber(2))
+func querySetMatchLimit(l *lua.LState) int {
+	query := checkQuery(l)
+	limit := uint(l.CheckNumber(2))
 	query.cursor.SetMatchLimit(limit)
 	return 0
 }
 
-func queryGetMatchLimit(L *lua.LState) int {
-	query := checkQuery(L)
-	L.Push(lua.LNumber(query.cursor.MatchLimit()))
+func queryGetMatchLimit(l *lua.LState) int {
+	query := checkQuery(l)
+	l.Push(lua.LNumber(query.cursor.MatchLimit()))
 	return 1
 }
 
-func queryDidExceedMatchLimit(L *lua.LState) int {
-	query := checkQuery(L)
-	L.Push(lua.LBool(query.cursor.DidExceedMatchLimit()))
+func queryDidExceedMatchLimit(l *lua.LState) int {
+	query := checkQuery(l)
+	l.Push(lua.LBool(query.cursor.DidExceedMatchLimit()))
 	return 1
 }
 
-func querySetTimeout(L *lua.LState) int {
-	query := checkQuery(L)
-	timeout := uint64(L.CheckNumber(2))
+func querySetTimeout(l *lua.LState) int {
+	query := checkQuery(l)
+	timeout := uint64(l.CheckNumber(2))
 	query.cursor.SetTimeoutMicros(timeout)
 	return 0
 }
 
-func queryGetTimeout(L *lua.LState) int {
-	query := checkQuery(L)
-	L.Push(lua.LNumber(query.cursor.TimeoutMicros()))
+func queryGetTimeout(l *lua.LState) int {
+	query := checkQuery(l)
+	l.Push(lua.LNumber(query.cursor.TimeoutMicros()))
 	return 1
 }
 
 // Pattern and capture control methods
 
-func queryDisablePattern(L *lua.LState) int {
-	query := checkQuery(L)
-	pattern := uint(L.CheckNumber(2))
+func queryDisablePattern(l *lua.LState) int {
+	query := checkQuery(l)
+	pattern := uint(l.CheckNumber(2))
 	query.query.DisablePattern(pattern)
 	return 0
 }
 
-func queryDisableCapture(L *lua.LState) int {
-	query := checkQuery(L)
-	name := L.CheckString(2)
+func queryDisableCapture(l *lua.LState) int {
+	query := checkQuery(l)
+	name := l.CheckString(2)
 	query.query.DisableCapture(name)
 	return 0
 }
 
-func queryIsPatternRooted(L *lua.LState) int {
-	query := checkQuery(L)
-	pattern := uint(L.CheckNumber(2))
-	L.Push(lua.LBool(query.query.IsPatternRooted(pattern)))
+func queryIsPatternRooted(l *lua.LState) int {
+	query := checkQuery(l)
+	pattern := uint(l.CheckNumber(2))
+	l.Push(lua.LBool(query.query.IsPatternRooted(pattern)))
 	return 1
 }
 
-func queryIsPatternNonLocal(L *lua.LState) int {
-	query := checkQuery(L)
-	pattern := uint(L.CheckNumber(2))
-	L.Push(lua.LBool(query.query.IsPatternNonLocal(pattern)))
+func queryIsPatternNonLocal(l *lua.LState) int {
+	query := checkQuery(l)
+	pattern := uint(l.CheckNumber(2))
+	l.Push(lua.LBool(query.query.IsPatternNonLocal(pattern)))
 	return 1
 }
 
-func queryCaptureNameForId(L *lua.LState) int {
-	query := checkQuery(L)
-	id := uint(L.CheckNumber(2))
+func queryCaptureNameForID(l *lua.LState) int {
+	query := checkQuery(l)
+	id := uint(l.CheckNumber(2))
 	names := query.query.CaptureNames()
 	if id < uint(len(names)) {
-		L.Push(lua.LString(names[id]))
+		l.Push(lua.LString(names[id]))
 	} else {
-		L.Push(lua.LNil)
+		l.Push(lua.LNil)
 	}
 	return 1
 }
 
-func queryCaptureQuantifier(L *lua.LState) int {
-	query := checkQuery(L)
-	pattern := uint(L.CheckNumber(2))
-	id := uint(L.CheckNumber(3))
+func queryCaptureQuantifier(l *lua.LState) int {
+	query := checkQuery(l)
+	pattern := uint(l.CheckNumber(2))
+	id := uint(l.CheckNumber(3))
 
 	quantifiers := query.query.CaptureQuantifiers(pattern)
 	if id < uint(len(quantifiers)) {
-		L.Push(lua.LNumber(quantifiers[id]))
+		l.Push(lua.LNumber(quantifiers[id]))
 	} else {
-		L.Push(lua.LNil)
+		l.Push(lua.LNil)
 	}
 	return 1
 }

@@ -3,10 +3,11 @@ package engine
 import (
 	"context"
 	"fmt"
-	lua "github.com/yuin/gopher-lua"
-	"go.uber.org/zap"
 	"strings"
 	"testing"
+
+	lua "github.com/yuin/gopher-lua"
+	"go.uber.org/zap"
 )
 
 func TestCoroutineVM_Basic(t *testing.T) {

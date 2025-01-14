@@ -2,11 +2,12 @@ package loader
 
 import (
 	"fmt"
-	"github.com/ponyruntime/pony/internal/utils"
-	"github.com/stretchr/testify/assert"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ponyruntime/pony/internal/utils"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestLoadVars(t *testing.T) {

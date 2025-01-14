@@ -3,7 +3,7 @@ package treesitter
 import "C"
 import (
 	treesitter "github.com/tree-sitter/go-tree-sitter"
-	"github.com/yuin/gopher-lua"
+	lua "github.com/yuin/gopher-lua"
 )
 
 // LanguageWrapper wraps a tree-sitter Language for Lua integration

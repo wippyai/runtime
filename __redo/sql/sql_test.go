@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	lengine "github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/yuin/gopher-lua"
+	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 
 	_ "github.com/mattn/go-sqlite3"

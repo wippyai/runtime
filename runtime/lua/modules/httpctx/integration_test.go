@@ -3,15 +3,16 @@ package httpctx
 import (
 	"context"
 	"encoding/json"
+	httpbase "net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
 	"github.com/ponyruntime/pony/api/service/http"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
-	httpbase "net/http"
-	"net/http/httptest"
-	"strings"
-	"testing"
 )
 
 func TestHttpHandler_Integration(t *testing.T) {

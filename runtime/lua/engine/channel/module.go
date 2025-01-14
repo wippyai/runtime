@@ -2,6 +2,7 @@ package channel
 
 import (
 	"fmt"
+
 	lua "github.com/yuin/gopher-lua"
 )
 

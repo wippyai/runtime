@@ -2,13 +2,13 @@ package time
 
 import (
 	"context"
-	"github.com/yuin/gopher-lua"
 	"testing"
 	"time"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
 

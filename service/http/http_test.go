@@ -2,11 +2,12 @@ package http
 
 import (
 	"context"
+	httpbase "net/http"
+	"testing"
+
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/service/http"
-	httpbase "net/http"
-	"testing"
 
 	"github.com/ponyruntime/pony/pkg/eventbus"
 	transcoder "github.com/ponyruntime/pony/pkg/payload"

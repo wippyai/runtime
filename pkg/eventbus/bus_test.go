@@ -2,15 +2,16 @@ package eventbus
 
 import (
 	"context"
+	"sync"
+	"testing"
+	"time"
+
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
-	"sync"
-	"testing"
-	"time"
 )
 
 // Helper function to create a new Bus with an observed logger for testing

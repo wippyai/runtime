@@ -3,12 +3,13 @@ package sync
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/pool"
-	"github.com/yuin/gopher-lua"
-	"go.uber.org/zap"
 	"sync"
 	"sync/atomic"
+
+	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"github.com/ponyruntime/pony/runtime/lua/pool"
+	lua "github.com/yuin/gopher-lua"
+	"go.uber.org/zap"
 )
 
 // Option represents a pool configuration option
