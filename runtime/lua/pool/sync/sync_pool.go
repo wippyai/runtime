@@ -3,8 +3,7 @@ package sync
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/pool"
+	api "github.com/ponyruntime/pony/api/runtime/lua"
 	"github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 	"sync"
@@ -36,19 +35,19 @@ func WithLogger(logger *zap.Logger) Option {
 type Pool struct {
 	size      int
 	logger    *zap.Logger
-	vmConfig  *pool.VMConfig
-	vms       chan *engine.VM
+	factory   api.Factory
+	vms       chan api.VM
 	closed    atomic.Bool
 	closeOnce sync.Once
 	done      chan struct{} // opChan for signaling shutdown
 }
 
-func NewPool(vmConfig *pool.VMConfig, opts ...Option) (*Pool, error) {
+func NewPool(factory api.Factory, opts ...Option) (*Pool, error) {
 	p := &Pool{
-		size:     5,
-		logger:   zap.NewNop(),
-		vmConfig: vmConfig,
-		done:     make(chan struct{}), // Initialize done channel
+		size:    5,
+		logger:  zap.NewNop(),
+		factory: factory,
+		done:    make(chan struct{}), // Initialize done channel
 	}
 
 	for _, opt := range opts {
@@ -68,11 +67,11 @@ func (p *Pool) init() error {
 		return fmt.Errorf("pool already initialized")
 	}
 
-	p.vms = make(chan *engine.VM, p.size)
+	p.vms = make(chan api.VM, p.size)
 
 	// Create initial VM pool
 	for i := 0; i < p.size; i++ {
-		vm, err := pool.CreateVM(p.vmConfig)
+		vm, err := p.factory.MakeVM()
 		if err != nil {
 			close(p.vms)
 			p.cleanupVMs()
@@ -92,7 +91,7 @@ func (p *Pool) Execute(ctx context.Context, name string, args ...lua.LValue) (lu
 	}
 
 	// Acquire VM from pool
-	var vm *engine.VM
+	var vm api.VM
 	select {
 	case <-p.done:
 		return nil, fmt.Errorf("pool is closed")
@@ -119,7 +118,7 @@ func (p *Pool) Execute(ctx context.Context, name string, args ...lua.LValue) (lu
 	case <-p.done:
 		return nil, err
 	default:
-		if newVM, createErr := pool.CreateVM(p.vmConfig); createErr == nil {
+		if newVM, createErr := p.factory.MakeVM(); createErr == nil {
 			select {
 			case p.vms <- newVM:
 			default:

@@ -6,7 +6,7 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-type VM interface {
+type CVM interface {
 	GetTask(thread *lua.LState) (*engine.Task, error)
 	Step(tasks ...*engine.Task) ([]*engine.Task, error)
 }
@@ -82,8 +82,8 @@ func (r *Runtime) Send(name string, values ...lua.LValue) error {
 	return nil
 }
 
-// Step handles channel operations while maintaining VM compatibility
-func (r *Runtime) Step(vm VM, tasks ...*engine.Task) ([]*engine.Task, error) {
+// Step handles channel operations while maintaining CVM compatibility
+func (r *Runtime) Step(vm CVM, tasks ...*engine.Task) ([]*engine.Task, error) {
 	var externalOps []*engine.Task
 
 	for _, prepend := range r.next {
@@ -125,7 +125,7 @@ func (r *Runtime) Step(vm VM, tasks ...*engine.Task) ([]*engine.Task, error) {
 				continue
 			}
 
-			// when we yield from method Lua VM preserves func args, remember that.
+			// when we yield from method Lua CVM preserves func args, remember that.
 			value := task.Yielded[len(task.Yielded)-1]
 			opNext, ok := value.(*onNext)
 			if !ok {

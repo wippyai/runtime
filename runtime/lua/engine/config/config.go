@@ -1,4 +1,4 @@
-package pool
+package config
 
 import (
 	"fmt"
@@ -16,6 +16,7 @@ type VMConfig struct {
 	Functions  []Function
 	EngineOpts []engine.Option
 	Logger     *zap.Logger
+	compiled   bool
 }
 
 // Library represents a Lua library to be loaded
@@ -55,6 +56,7 @@ type VMConfigOption func(*VMConfig)
 func WithModule(module api.Module) VMConfigOption {
 	return func(cfg *VMConfig) {
 		cfg.Modules = append(cfg.Modules, module)
+		cfg.compiled = false
 	}
 }
 
@@ -65,6 +67,7 @@ func WithLibrary(name, script string) VMConfigOption {
 			Name:   name,
 			Script: script,
 		})
+		cfg.compiled = false
 	}
 }
 
@@ -75,6 +78,7 @@ func WithGlobalValue(name string, value lua.LValue) VMConfigOption {
 			Name:  name,
 			Value: value,
 		})
+		cfg.compiled = false
 	}
 }
 
@@ -85,6 +89,7 @@ func WithFunction(name string, script string) VMConfigOption {
 			Name:   name,
 			Script: script,
 		})
+		cfg.compiled = false
 	}
 }
 
@@ -92,7 +97,19 @@ func WithFunction(name string, script string) VMConfigOption {
 func WithEngineOptions(opts ...engine.Option) VMConfigOption {
 	return func(cfg *VMConfig) {
 		cfg.EngineOpts = append(cfg.EngineOpts, opts...)
+		cfg.compiled = false
 	}
+}
+
+// todo: compile option here?
+
+func (cfg *VMConfig) Compile() error {
+	// todo: ??
+	return nil
+}
+
+func (cfg *VMConfig) MakeVM() (api.VM, error) {
+	return CreateVM(cfg)
 }
 
 // CreateVM creates a new Callable instance with the provided configuration
@@ -131,6 +148,8 @@ func CreateVM(cfg *VMConfig) (*engine.VM, error) {
 			return nil, fmt.Errorf("failed to compile function %q: %w", fn.Name, err)
 		}
 	}
+
+	// mount coroutine based VM
 
 	return vm, nil
 }

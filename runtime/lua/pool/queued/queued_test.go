@@ -3,13 +3,13 @@ package queued
 import (
 	"context"
 	"fmt"
+	"github.com/ponyruntime/pony/runtime/lua/engine/config"
 	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/ponyruntime/pony/runtime/lua/pool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/yuin/gopher-lua"
@@ -18,17 +18,17 @@ import (
 
 func setupTestPool(t *testing.T, size, workers int) *Pool {
 	logger := zap.NewNop()
-	vmConfig := pool.NewVMConfig(logger)
+	vmConfig := config.NewVMConfig(logger)
 
 	// Add test functions to VM config
-	pool.WithFunction("test", `
+	config.WithFunction("test", `
 		function test(arg)
 			return arg
 		end
 		return test
 	`)(vmConfig)
 
-	pool.WithFunction("block", `
+	config.WithFunction("block", `
 		function block()
 			while true do
 			end
@@ -37,14 +37,14 @@ func setupTestPool(t *testing.T, size, workers int) *Pool {
 		return block
 	`)(vmConfig)
 
-	pool.WithFunction("fail", `
+	config.WithFunction("fail", `
 		function fail()
 			error("intentional failure")
 		end
 		return fail
 	`)(vmConfig)
 
-	pool.WithFunction("get_id", `
+	config.WithFunction("get_id", `
 		local id = 0
 		function get_id()
 			id = id + 1
@@ -240,8 +240,8 @@ func TestQueuedPool_QueueBehavior(t *testing.T) {
 
 func BenchmarkQueuedPool_Execute(b *testing.B) {
 	logger := zap.NewNop()
-	vmConfig := pool.NewVMConfig(logger)
-	pool.WithFunction("bench", `
+	vmConfig := config.NewVMConfig(logger)
+	config.WithFunction("bench", `
 		function test(arg)
 			return arg
 		end
