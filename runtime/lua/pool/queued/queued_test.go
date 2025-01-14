@@ -3,7 +3,7 @@ package queued
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/runtime/lua/engine/config"
+	"github.com/ponyruntime/pony/runtime/lua/engine/factory"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -18,17 +18,17 @@ import (
 
 func setupTestPool(t *testing.T, size, workers int) *Pool {
 	logger := zap.NewNop()
-	vmConfig := config.NewVMConfig(logger)
+	vmConfig := factory.NewFactory(logger)
 
 	// Add test functions to VM config
-	config.WithFunction("test", `
+	factory.WithFunction("test", `
 		function test(arg)
 			return arg
 		end
 		return test
 	`)(vmConfig)
 
-	config.WithFunction("block", `
+	factory.WithFunction("block", `
 		function block()
 			while true do
 			end
@@ -37,14 +37,14 @@ func setupTestPool(t *testing.T, size, workers int) *Pool {
 		return block
 	`)(vmConfig)
 
-	config.WithFunction("fail", `
+	factory.WithFunction("fail", `
 		function fail()
 			error("intentional failure")
 		end
 		return fail
 	`)(vmConfig)
 
-	config.WithFunction("get_id", `
+	factory.WithFunction("get_id", `
 		local id = 0
 		function get_id()
 			id = id + 1
@@ -240,8 +240,8 @@ func TestQueuedPool_QueueBehavior(t *testing.T) {
 
 func BenchmarkQueuedPool_Execute(b *testing.B) {
 	logger := zap.NewNop()
-	vmConfig := config.NewVMConfig(logger)
-	config.WithFunction("bench", `
+	vmConfig := factory.NewFactory(logger)
+	factory.WithFunction("bench", `
 		function test(arg)
 			return arg
 		end

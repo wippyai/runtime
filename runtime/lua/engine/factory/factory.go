@@ -1,4 +1,4 @@
-package config
+package factory
 
 import (
 	"fmt"
@@ -8,15 +8,16 @@ import (
 	"go.uber.org/zap"
 )
 
-// VMConfig holds configuration for Callable instances in the pool
-type VMConfig struct {
+// Factory holds configuration for Callable instances in the pool
+type Factory struct {
 	Modules    []api.Module
 	Libraries  []Library
 	Globals    []Global
 	Functions  []Function
 	EngineOpts []engine.Option
 	Logger     *zap.Logger
-	compiled   bool
+	//Async      bool // todo: implement
+	compiled bool
 }
 
 // Library represents a Lua library to be loaded
@@ -37,9 +38,9 @@ type Global struct {
 	Value lua.LValue
 }
 
-// NewVMConfig creates a new Callable configuration with default values
-func NewVMConfig(logger *zap.Logger) *VMConfig {
-	return &VMConfig{
+// NewFactory creates a new Callable configuration with default values
+func NewFactory(logger *zap.Logger) *Factory {
+	return &Factory{
 		Modules:    make([]api.Module, 0),
 		Libraries:  make([]Library, 0),
 		Globals:    make([]Global, 0),
@@ -49,12 +50,12 @@ func NewVMConfig(logger *zap.Logger) *VMConfig {
 	}
 }
 
-// VMConfigOption represents a configuration option for VMConfig
-type VMConfigOption func(*VMConfig)
+// VMConfigOption represents a configuration option for Factory
+type VMConfigOption func(*Factory)
 
 // WithModule adds a Lua module to Callable configuration
 func WithModule(module api.Module) VMConfigOption {
-	return func(cfg *VMConfig) {
+	return func(cfg *Factory) {
 		cfg.Modules = append(cfg.Modules, module)
 		cfg.compiled = false
 	}
@@ -62,7 +63,7 @@ func WithModule(module api.Module) VMConfigOption {
 
 // WithLibrary adds a Lua library to Callable configuration
 func WithLibrary(name, script string) VMConfigOption {
-	return func(cfg *VMConfig) {
+	return func(cfg *Factory) {
 		cfg.Libraries = append(cfg.Libraries, Library{
 			Name:   name,
 			Script: script,
@@ -73,7 +74,7 @@ func WithLibrary(name, script string) VMConfigOption {
 
 // WithGlobalValue adds a global variable to Callable configuration
 func WithGlobalValue(name string, value lua.LValue) VMConfigOption {
-	return func(cfg *VMConfig) {
+	return func(cfg *Factory) {
 		cfg.Globals = append(cfg.Globals, Global{
 			Name:  name,
 			Value: value,
@@ -84,7 +85,7 @@ func WithGlobalValue(name string, value lua.LValue) VMConfigOption {
 
 // WithFunction adds a Lua function to Callable configuration
 func WithFunction(name string, script string) VMConfigOption {
-	return func(cfg *VMConfig) {
+	return func(cfg *Factory) {
 		cfg.Functions = append(cfg.Functions, Function{
 			Name:   name,
 			Script: script,
@@ -95,25 +96,37 @@ func WithFunction(name string, script string) VMConfigOption {
 
 // WithEngineOptions adds engine-specific options to Callable configuration
 func WithEngineOptions(opts ...engine.Option) VMConfigOption {
-	return func(cfg *VMConfig) {
+	return func(cfg *Factory) {
 		cfg.EngineOpts = append(cfg.EngineOpts, opts...)
 		cfg.compiled = false
 	}
 }
 
-// todo: compile option here?
-
-func (cfg *VMConfig) Compile() error {
-	// todo: ??
+func (cfg *Factory) Compile() error {
+	// todo: implement
 	return nil
 }
 
-func (cfg *VMConfig) MakeVM() (api.VM, error) {
-	return CreateVM(cfg)
+func (cfg *Factory) MakeVM() (api.VM, error) {
+	if !cfg.compiled {
+		if err := cfg.Compile(); err != nil {
+			return nil, err
+		}
+	}
+
+	base, err := CreateVM(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	// check if we have to apply any layer for it
+	//if cfg.
+
+	return base, nil
 }
 
 // CreateVM creates a new Callable instance with the provided configuration
-func CreateVM(cfg *VMConfig) (*engine.VM, error) {
+func CreateVM(cfg *Factory) (*engine.VM, error) {
 	// Collect all options
 	opts := make([]engine.Option, 0)
 

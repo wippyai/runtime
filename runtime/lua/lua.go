@@ -6,7 +6,7 @@ import (
 	contextapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/runtime"
 	api "github.com/ponyruntime/pony/api/runtime/lua"
-	config "github.com/ponyruntime/pony/runtime/lua/engine/config"
+	config "github.com/ponyruntime/pony/runtime/lua/engine/factory"
 	"github.com/ponyruntime/pony/runtime/lua/pool"
 	"github.com/yuin/gopher-lua"
 	"sync"
@@ -338,7 +338,7 @@ func (m *RuntimeManager) deleteLibrary(_ context.Context, entry registry.Entry) 
 
 func (m *RuntimeManager) factory(id registry.ID, fn *api.FunctionConfig) (api.Factory, error) {
 	// Create new Callable api with manager's logger
-	cfg := config.NewVMConfig(m.log.Named(fmt.Sprintf("vm.%s", id)))
+	cfg := config.NewFactory(m.log.Named(fmt.Sprintf("vm.%s", id)))
 
 	// Add required modules
 	for _, moduleName := range fn.Modules {

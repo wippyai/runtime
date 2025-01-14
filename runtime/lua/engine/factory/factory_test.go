@@ -1,4 +1,4 @@
-package config
+package factory
 
 import (
 	"testing"
@@ -14,7 +14,7 @@ func TestNewVMConfig(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("default configuration", func(t *testing.T) {
-		cfg := NewVMConfig(logger)
+		cfg := NewFactory(logger)
 
 		assert.NotNil(t, cfg)
 		assert.NotNil(t, cfg.Modules)
@@ -50,7 +50,7 @@ func TestVMConfigOptions(t *testing.T) {
 
 	t.Run("with module", func(t *testing.T) {
 		mock := &mockModule{name: "test_module"}
-		cfg := NewVMConfig(logger)
+		cfg := NewFactory(logger)
 		opt := WithModule(mock)
 		opt(cfg)
 
@@ -59,7 +59,7 @@ func TestVMConfigOptions(t *testing.T) {
 	})
 
 	t.Run("with library", func(t *testing.T) {
-		cfg := NewVMConfig(logger)
+		cfg := NewFactory(logger)
 		script := "return {test = function() return 'hello' end}"
 		opt := WithLibrary("test_lib", script)
 		opt(cfg)
@@ -70,7 +70,7 @@ func TestVMConfigOptions(t *testing.T) {
 	})
 
 	t.Run("with global value", func(t *testing.T) {
-		cfg := NewVMConfig(logger)
+		cfg := NewFactory(logger)
 		value := lua.LString("test_value")
 		opt := WithGlobalValue("test_global", value)
 		opt(cfg)
@@ -81,7 +81,7 @@ func TestVMConfigOptions(t *testing.T) {
 	})
 
 	t.Run("with function", func(t *testing.T) {
-		cfg := NewVMConfig(logger)
+		cfg := NewFactory(logger)
 		script := "function test() return 'hello' end"
 		opt := WithFunction("test_func", script)
 		opt(cfg)
@@ -92,7 +92,7 @@ func TestVMConfigOptions(t *testing.T) {
 	})
 
 	t.Run("with engine options", func(t *testing.T) {
-		cfg := NewVMConfig(logger)
+		cfg := NewFactory(logger)
 		opt1 := func(*engine.VM) {}
 		opt2 := func(*engine.VM) {}
 
@@ -107,7 +107,7 @@ func TestCreateVM(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("create empty VM", func(t *testing.T) {
-		cfg := NewVMConfig(logger)
+		cfg := NewFactory(logger)
 		vm, err := CreateVM(cfg)
 
 		require.NoError(t, err)
@@ -116,7 +116,7 @@ func TestCreateVM(t *testing.T) {
 	})
 
 	t.Run("create VM with all options", func(t *testing.T) {
-		cfg := NewVMConfig(logger)
+		cfg := NewFactory(logger)
 
 		// Add a module
 		mock := &mockModule{name: "test_module"}
@@ -165,7 +165,7 @@ func TestCreateVM(t *testing.T) {
 	})
 
 	t.Run("error on invalid function", func(t *testing.T) {
-		cfg := NewVMConfig(logger)
+		cfg := NewFactory(logger)
 		WithFunction("invalid", "this is not valid lua")(cfg)
 
 		vm, err := CreateVM(cfg)
@@ -178,7 +178,7 @@ func TestVMConfigChaining(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("multiple options", func(t *testing.T) {
-		cfg := NewVMConfig(logger)
+		cfg := NewFactory(logger)
 
 		// Apply multiple options
 		opt1 := WithGlobalValue("key1", lua.LString("value1"))
