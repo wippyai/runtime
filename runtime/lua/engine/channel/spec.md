@@ -6,8 +6,7 @@ system like functions.
 ## Overview
 
 The channel system provides a Go-like concurrency model for Pony processes, allowing coroutines to communicate and
-synchronize through message passing. It supports both buffered and unbuffered channels, select operations, and named/port
-channels for external communication (internally).
+synchronize through message passing. It supports both buffered and unbuffered channels and select operations.
 
 ## Channels
 
@@ -96,7 +95,6 @@ end
 local function producer(ch)
     for i = 1, 5 do
         ch:send("item" .. i)
-        coroutine.yield("produced " .. i)
     end
     ch:close()
 end
@@ -107,7 +105,7 @@ local function consumer(ch)
         if not ok then
             break
         end
-        coroutine.yield("consumed " .. value)
+        do_something(value)
     end
 end
 
@@ -139,7 +137,7 @@ local function handler()
             ch1:case_receive(), -- always first written value
             ch2:case_receive()
         }
-        coroutine.yield("received: " .. result.value)
+       do_work(result.value)
     end
 end
 
@@ -150,7 +148,6 @@ coroutine.spawn(handler)
 
 1. **Channel Ownership**
     - Close channels from the sender side
-    - Don't close named channels (managed by runtime)
     - Check `ok` value when receiving
 
 2. **Buffering**
