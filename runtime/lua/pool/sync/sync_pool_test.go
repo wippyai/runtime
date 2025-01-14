@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	cfg "github.com/ponyruntime/pony/runtime/lua/engine/config"
+	cfg "github.com/ponyruntime/pony/runtime/lua/engine/factory"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/yuin/gopher-lua"
@@ -19,7 +19,7 @@ import (
 
 func setupTestPool(t *testing.T, size int) *Pool {
 	logger := zap.NewNop()
-	vmConfig := cfg.NewVMConfig(logger)
+	vmConfig := cfg.NewFactory(logger)
 	cfg.WithModule(time2.NewTimeModule())(vmConfig)
 
 	// Add a test function to the VM config
@@ -269,7 +269,7 @@ func TestPool_VMReuse(t *testing.T) {
 
 func BenchmarkPool_Execute(b *testing.B) {
 	logger := zap.NewNop()
-	vmConfig := cfg.NewVMConfig(logger)
+	vmConfig := cfg.NewFactory(logger)
 	cfg.WithFunction("bench", `
 		function test(arg)
 			return arg

@@ -848,14 +848,14 @@ func TestCoroutineVM_StatusAndWrap(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.PushScript(`
-			-- Create a wrapped coroutine
-			local wrapped = coroutine.wrap(function()
+			-- Create a vm coroutine
+			local vm = coroutine.wrap(function()
 				coroutine.yield("from_wrap")
 				return "wrap_done"
 			end)
 
-			-- Try to spawn the wrapped function
-			coroutine.spawn(wrapped)
+			-- Try to spawn the vm function
+			coroutine.spawn(vm)
 		`, "wrap_test")
 
 		if err != nil {
@@ -865,10 +865,10 @@ func TestCoroutineVM_StatusAndWrap(t *testing.T) {
 		// The error should occur during Step() when we try to actually spawn
 		_, err = vm.Step()
 		if err == nil {
-			t.Fatal("expected error when spawning wrapped coroutine")
+			t.Fatal("expected error when spawning vm coroutine")
 		}
 
-		if !strings.Contains(err.Error(), "cannot spawn wrapped coroutines") {
+		if !strings.Contains(err.Error(), "cannot spawn vm coroutines") {
 			t.Fatalf("unexpected error message: %v", err)
 		}
 	})

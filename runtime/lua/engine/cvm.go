@@ -97,6 +97,15 @@ func NewCoroutineVM(
 	return avm, nil
 }
 
+func (e *CoroutineVM) PushContext(ctx context.Context) context.Context {
+	prev := e.ctx
+
+	e.ctx = ctx
+	e.vm.state.SetContext(ctx)
+
+	return prev
+}
+
 func (e *CoroutineVM) PushScript(script, name string) error {
 	chunk, err := e.vm.state.Load(strings.NewReader(script), name)
 	if err != nil {
@@ -126,7 +135,7 @@ func (e *CoroutineVM) bindCoroutines() {
 			if fn.IsG || len(fn.Upvalues) > 0 {
 				for _, upval := range fn.Upvalues {
 					if _, isThread := upval.Value().(*lua.LState); isThread {
-						L.RaiseError("cannot spawn wrapped coroutines")
+						L.RaiseError("cannot spawn vm coroutines")
 						return 0
 					}
 				}
@@ -181,6 +190,22 @@ func (e *CoroutineVM) GetTask(thread *lua.LState) (*Task, error) {
 		}
 	}
 	return nil, fmt.Errorf("task not found")
+}
+
+func (e *CoroutineVM) Start(funcName string, args ...lua.LValue) error {
+	fn := e.vm.state.GetGlobal(funcName)
+	if fn == lua.LNil {
+		return fmt.Errorf("function %q not found", funcName)
+	}
+
+	task, err := e.createCoroutine(fn.(*lua.LFunction))
+	if err != nil {
+		return fmt.Errorf("failed to create coroutine: %w", err)
+	}
+	task.Resumed = args
+
+	return nil
+
 }
 
 func (e *CoroutineVM) Step(tasks ...*Task) (result []*Task, finalErr error) {
@@ -273,7 +298,7 @@ func (e *CoroutineVM) removeTask(task *Task) error {
 	return fmt.Errorf("task not found")
 }
 
-func (e *CoroutineVM) Close() error {
+func (e *CoroutineVM) Close() {
 	for _, task := range e.tasks {
 		if task.cancel != nil {
 			task.cancel()
@@ -282,5 +307,4 @@ func (e *CoroutineVM) Close() error {
 	if e.vm != nil {
 		e.vm.Close()
 	}
-	return nil
 }

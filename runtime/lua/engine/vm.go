@@ -71,13 +71,14 @@ func (v *VM) CompileFunction(name, script string) error {
 	fn := v.state.NewFunctionFromProto(fnProto)
 	v.state.Push(fn)
 
+	// todo: wait what?
 	if err := v.state.PCall(0, 1, nil); err != nil {
 		return fmt.Errorf("execution error: %w", err)
 	}
 
-	if err := v.storeFunctionResult(name); err != nil {
-		return err
-	}
+	//if err := v.storeFunctionResult(name); err != nil {
+	//	return err
+	//}
 
 	return nil
 }
