@@ -3,6 +3,7 @@ package treesitter
 import (
 	"unsafe"
 
+	tsmd "github.com/ponyruntime/tree-sitter-markdown/bindings/go"
 	tslua "github.com/tree-sitter-grammars/tree-sitter-lua/bindings/go"
 	cscsharp "github.com/tree-sitter/tree-sitter-c-sharp/bindings/go"
 	tsgo "github.com/tree-sitter/tree-sitter-go/bindings/go"
@@ -75,7 +76,7 @@ func NewLanguages() *Languages {
 		{
 			Name:     "markdown",
 			Aliases:  []string{"markdown", "md"},
-			Language: nil, // todo: find and fix me
+			Language: tsmd.Language,
 		},
 		{
 			Name:     "sql",

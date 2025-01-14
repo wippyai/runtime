@@ -48,10 +48,10 @@ func TestGetLanguageInfo(t *testing.T) {
 		},
 		{
 			name:  "Get language with nil Language function",
-			alias: "markdown",
+			alias: "foo",
 			want: &LanguageInfo{
-				Name:     "markdown",
-				Aliases:  []string{"markdown", "md"},
+				Name:     "bar",
+				Aliases:  []string{"foobar", "bar"},
 				Language: nil,
 			},
 			wantFound: true,
