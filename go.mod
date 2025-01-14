@@ -1,10 +1,13 @@
 module github.com/ponyruntime/pony
 
-go 1.23.2
+go 1.23
+
+toolchain go1.23.4
 
 require (
 	github.com/go-chi/chi/v5 v5.2.0
 	github.com/google/uuid v1.6.0
+	github.com/ponyruntime/tree-sitter-markdown v0.0.2
 	github.com/stretchr/testify v1.10.0
 	github.com/tree-sitter-grammars/tree-sitter-lua v0.2.0
 	github.com/tree-sitter/go-tree-sitter v0.24.0
@@ -20,6 +23,8 @@ require (
 	go.uber.org/zap v1.27.0
 	gopkg.in/yaml.v3 v3.0.1
 )
+
+// replace github.com/ponyruntime/tree-sitter-markdown v0.0.1 => ../tree-sitter-markdown
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
