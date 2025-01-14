@@ -11,7 +11,7 @@ import (
 func TestSelectImmediate(t *testing.T) {
 	logger := zap.NewNop()
 
-	vm, err := engine.NewCoroutineVM(
+	vm, err := engine.NewCVM(
 		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
@@ -19,7 +19,7 @@ func TestSelectImmediate(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.PushScript(`
+	err = vm.DoString(`
 		-- Create two buffered channels
 		local ch1 = channel.new(1)
 		local ch2 = channel.new(1)
@@ -69,7 +69,7 @@ func TestSelectImmediate(t *testing.T) {
 func TestSelectBlockedReceive(t *testing.T) {
 	logger := zap.NewNop()
 
-	vm, err := engine.NewCoroutineVM(
+	vm, err := engine.NewCVM(
 		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
@@ -77,7 +77,7 @@ func TestSelectBlockedReceive(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.PushScript(`
+	err = vm.DoString(`
 		-- Create two unbuffered channels
 		local ch1 = channel.new(0)
 		local ch2 = channel.new(0)
@@ -124,7 +124,7 @@ func TestSelectBlockedReceive(t *testing.T) {
 func TestSelectBlockedClose(t *testing.T) {
 	logger := zap.NewNop()
 
-	vm, err := engine.NewCoroutineVM(
+	vm, err := engine.NewCVM(
 		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
@@ -132,7 +132,7 @@ func TestSelectBlockedClose(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.PushScript(`
+	err = vm.DoString(`
 		-- Create two unbuffered channels
 		local ch1 = channel.new(0)
 		local ch2 = channel.new(0)
@@ -184,7 +184,7 @@ func TestSelectBlockedClose(t *testing.T) {
 func TestSelectWithDefaultImmediate(t *testing.T) {
 	logger := zap.NewNop()
 
-	vm, err := engine.NewCoroutineVM(
+	vm, err := engine.NewCVM(
 		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
@@ -192,7 +192,7 @@ func TestSelectWithDefaultImmediate(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.PushScript(`
+	err = vm.DoString(`
         -- Helper to get channel stats
         local function channel_stats(ch)
             return {
@@ -253,7 +253,7 @@ func TestSelectWithDefaultImmediate(t *testing.T) {
 func TestSelectLoopWithFeeds(t *testing.T) {
 	logger := zap.NewNop()
 
-	vm, err := engine.NewCoroutineVM(
+	vm, err := engine.NewCVM(
 		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
@@ -261,7 +261,7 @@ func TestSelectLoopWithFeeds(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.PushScript(`
+	err = vm.DoString(`
         -- Helper for channel stats
         local function channel_stats(ch)
             return {
@@ -339,7 +339,7 @@ func TestSelectLoopWithFeeds(t *testing.T) {
 func TestSelectCleanupOnReceive(t *testing.T) {
 	logger := zap.NewNop()
 
-	vm, err := engine.NewCoroutineVM(
+	vm, err := engine.NewCVM(
 		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
@@ -347,7 +347,7 @@ func TestSelectCleanupOnReceive(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.PushScript(`
+	err = vm.DoString(`
        local function channel_stats(ch)
            return {
                size = ch:_debug_size(),
@@ -413,7 +413,7 @@ func TestSelectCleanupOnReceive(t *testing.T) {
 func TestSelectCleanupAll(t *testing.T) {
 	logger := zap.NewNop()
 
-	vm, err := engine.NewCoroutineVM(
+	vm, err := engine.NewCVM(
 		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
@@ -421,7 +421,7 @@ func TestSelectCleanupAll(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.PushScript(`
+	err = vm.DoString(`
 		local function channel_stats(ch)
 			return {
 				size = ch:_debug_size(),
@@ -517,7 +517,7 @@ func TestSelectCleanupAll(t *testing.T) {
 func TestMixedSelectImmediate(t *testing.T) {
 	logger := zap.NewNop()
 
-	vm, err := engine.NewCoroutineVM(
+	vm, err := engine.NewCVM(
 		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
@@ -525,7 +525,7 @@ func TestMixedSelectImmediate(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.PushScript(`
+	err = vm.DoString(`
 		local function channel_stats(ch)
 			return {
 				size = ch:_debug_size(),
@@ -605,7 +605,7 @@ func TestMixedSelectImmediate(t *testing.T) {
 func TestMixedSelectBlocking(t *testing.T) {
 	logger := zap.NewNop()
 
-	vm, err := engine.NewCoroutineVM(
+	vm, err := engine.NewCVM(
 		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
@@ -613,7 +613,7 @@ func TestMixedSelectBlocking(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.PushScript(`
+	err = vm.DoString(`
 		-- Create unbuffered channels
 		local ch1 = channel.new(0)
 		local ch2 = channel.new(0)
@@ -691,7 +691,7 @@ func TestMixedSelectBlocking(t *testing.T) {
 func TestMixedSelectWithDefault(t *testing.T) {
 	logger := zap.NewNop()
 
-	vm, err := engine.NewCoroutineVM(
+	vm, err := engine.NewCVM(
 		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
@@ -699,7 +699,7 @@ func TestMixedSelectWithDefault(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.PushScript(`
+	err = vm.DoString(`
 		-- Create channels that would block
 		local sendCh = channel.new(0)   -- unbuffered
 		local recvCh = channel.new(0)   -- unbuffered

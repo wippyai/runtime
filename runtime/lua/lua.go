@@ -27,7 +27,7 @@ type RuntimeManager struct {
 	libraries map[registry.ID]*api.LibraryConfig
 	modules   map[string]api.Module
 
-	compiler *pool.Compiler
+	compiler *pool.Configurator
 	callable sync.Map
 }
 
@@ -52,7 +52,7 @@ func NewRuntimeManager(
 		m.modules[module.Name()] = module
 		logger.Debug("registered module", zap.String("name", module.Name()))
 	}
-	m.compiler = pool.NewCompiler(logger.Named("compiler"))
+	m.compiler = pool.NewConfigurator(logger.Named("compiler"))
 
 	return m
 }

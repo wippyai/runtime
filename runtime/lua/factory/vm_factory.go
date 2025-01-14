@@ -156,7 +156,7 @@ func CreateVM(cfg *Factory) (*engine.VM, error) {
 
 	// Add bound functions via options
 	for _, fn := range cfg.Functions {
-		if err := vm.CompileFunction(fn.Name, fn.Script); err != nil {
+		if err := vm.Import(fn.Name, fn.Script); err != nil {
 			vm.Close()
 			return nil, fmt.Errorf("failed to compile function %q: %w", fn.Name, err)
 		}

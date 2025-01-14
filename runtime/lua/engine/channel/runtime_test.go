@@ -13,7 +13,7 @@ import (
 func TestUnbufferedChannelOperations(t *testing.T) {
 	logger := zap.NewNop()
 
-	vm, err := engine.NewCoroutineVM(
+	vm, err := engine.NewCVM(
 		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
@@ -21,7 +21,7 @@ func TestUnbufferedChannelOperations(t *testing.T) {
 	assert.NoError(t, err)
 	defer func() { _ = vm.Close() }()
 
-	err = vm.PushScript(`
+	err = vm.DoString(`
 			-- Create an unbuffered channel
 			local ch = channel.new()
 
@@ -71,7 +71,7 @@ func TestUnbufferedChannelOperations(t *testing.T) {
 func TestUnbufferedChannelOperationsMainCoroutine(t *testing.T) {
 	logger := zap.NewNop()
 
-	vm, err := engine.NewCoroutineVM(
+	vm, err := engine.NewCVM(
 		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
@@ -79,7 +79,7 @@ func TestUnbufferedChannelOperationsMainCoroutine(t *testing.T) {
 	assert.NoError(t, err)
 	defer func() { _ = vm.Close() }()
 
-	err = vm.PushScript(`
+	err = vm.DoString(`
 			-- Create an unbuffered channel
 			local ch = channel.new()
 
@@ -124,7 +124,7 @@ func TestUnbufferedChannelOperationsMainCoroutine(t *testing.T) {
 func TestClosedChannelOperations(t *testing.T) {
 	logger := zap.NewNop()
 
-	vm, err := engine.NewCoroutineVM(
+	vm, err := engine.NewCVM(
 		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
@@ -132,7 +132,7 @@ func TestClosedChannelOperations(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.PushScript(`
+	err = vm.DoString(`
 			-- Create a channel and close it
 			local ch = channel.new()
 			ch:close()
@@ -187,7 +187,7 @@ func TestClosedChannelOperations(t *testing.T) {
 func TestCloseChannelWithPendingOperations(t *testing.T) {
 	logger := zap.NewNop()
 
-	vm, err := engine.NewCoroutineVM(
+	vm, err := engine.NewCVM(
 		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
@@ -195,7 +195,7 @@ func TestCloseChannelWithPendingOperations(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.PushScript(`
+	err = vm.DoString(`
 			-- Create a channel
 			local ch = channel.new()
 
@@ -245,7 +245,7 @@ func TestCloseChannelWithPendingOperations(t *testing.T) {
 func TestBufferedChannelBasicOperations(t *testing.T) {
 	logger := zap.NewNop()
 
-	vm, err := engine.NewCoroutineVM(
+	vm, err := engine.NewCVM(
 		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
@@ -253,7 +253,7 @@ func TestBufferedChannelBasicOperations(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.PushScript(`
+	err = vm.DoString(`
 			-- Create a buffered channel with capacity 2
 			local ch = channel.new(2)
 
@@ -307,7 +307,7 @@ func TestBufferedChannelBasicOperations(t *testing.T) {
 func TestBufferedChannelBlockingBehavior(t *testing.T) {
 	logger := zap.NewNop()
 
-	vm, err := engine.NewCoroutineVM(
+	vm, err := engine.NewCVM(
 		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
@@ -315,7 +315,7 @@ func TestBufferedChannelBlockingBehavior(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.PushScript(`
+	err = vm.DoString(`
 		-- Create a buffered channel with capacity 1
 		local ch = channel.new(1)
 
@@ -373,7 +373,7 @@ func TestBufferedChannelBlockingBehavior(t *testing.T) {
 func TestReadBufferedValues(t *testing.T) {
 	logger := zap.NewNop()
 
-	vm, err := engine.NewCoroutineVM(
+	vm, err := engine.NewCVM(
 		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
@@ -381,7 +381,7 @@ func TestReadBufferedValues(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.PushScript(`
+	err = vm.DoString(`
 		-- Create a buffered channel with capacity 1
 		local ch = channel.new(1)
 		
@@ -427,7 +427,7 @@ func TestReadBufferedValues(t *testing.T) {
 func TestBufferedChannelEdgeCases(t *testing.T) {
 	logger := zap.NewNop()
 
-	vm, err := engine.NewCoroutineVM(
+	vm, err := engine.NewCVM(
 		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
@@ -435,7 +435,7 @@ func TestBufferedChannelEdgeCases(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.PushScript(`
+	err = vm.DoString(`
 		-- Test error cases first
 		local success, err = pcall(function()
 			local invalidCh = channel.new(-1) -- Should error
@@ -521,7 +521,7 @@ func TestBufferedChannelEdgeCases(t *testing.T) {
 func TestBufferedChannelCloseWithPendingOperations(t *testing.T) {
 	logger := zap.NewNop()
 
-	vm, err := engine.NewCoroutineVM(
+	vm, err := engine.NewCVM(
 		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
@@ -529,7 +529,7 @@ func TestBufferedChannelCloseWithPendingOperations(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.PushScript(`
+	err = vm.DoString(`
 		-- Create a buffered channel with capacity 2
 		local ch = channel.new(2)
 
@@ -590,7 +590,7 @@ func TestBufferedChannelCloseWithPendingOperations(t *testing.T) {
 func TestBufferedChannelClose(t *testing.T) {
 	logger := zap.NewNop()
 
-	vm, err := engine.NewCoroutineVM(
+	vm, err := engine.NewCVM(
 		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
@@ -598,7 +598,7 @@ func TestBufferedChannelClose(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.PushScript(`
+	err = vm.DoString(`
 		local ch = channel.new(2)
 		
 		-- Buffer a value
@@ -649,7 +649,7 @@ func TestBufferedChannelClose(t *testing.T) {
 func TestBufferedChannelSendError(t *testing.T) {
 	logger := zap.NewNop()
 
-	vm, err := engine.NewCoroutineVM(
+	vm, err := engine.NewCVM(
 		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
@@ -657,7 +657,7 @@ func TestBufferedChannelSendError(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.PushScript(`
+	err = vm.DoString(`
 		local ch = channel.new(1)
 		ch:close()
 		ch:send("msg") -- Should error
@@ -678,7 +678,7 @@ func TestBufferedChannelSendError(t *testing.T) {
 func TestMainCoroutineBlockingOnBufferedChannel(t *testing.T) {
 	logger := zap.NewNop()
 
-	vm, err := engine.NewCoroutineVM(
+	vm, err := engine.NewCVM(
 		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
@@ -686,7 +686,7 @@ func TestMainCoroutineBlockingOnBufferedChannel(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.PushScript(`
+	err = vm.DoString(`
 		-- Create a buffered channel with capacity 1
 		local ch = channel.new(1)
 		
@@ -726,7 +726,7 @@ func TestMainCoroutineBlockingOnBufferedChannel(t *testing.T) {
 func TestMainCoroutinePanicHandling(t *testing.T) {
 	logger := zap.NewNop()
 
-	vm, err := engine.NewCoroutineVM(
+	vm, err := engine.NewCVM(
 		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
@@ -734,7 +734,7 @@ func TestMainCoroutinePanicHandling(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.PushScript(`
+	err = vm.DoString(`
 		local ch = channel.new(0)
 		
 		-- Start a goroutine that will be blocked
@@ -778,7 +778,7 @@ func TestMainCoroutinePanicHandling(t *testing.T) {
 func TestMainCoroutineChannelCascadingClose(t *testing.T) {
 	logger := zap.NewNop()
 
-	vm, err := engine.NewCoroutineVM(
+	vm, err := engine.NewCVM(
 		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
@@ -786,7 +786,7 @@ func TestMainCoroutineChannelCascadingClose(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.PushScript(`
+	err = vm.DoString(`
 		local ch = channel.new(0)
 		local next = channel.new(2) -- Collect next from goroutines
 		
@@ -842,7 +842,7 @@ func TestMainCoroutineChannelCascadingClose(t *testing.T) {
 func TestMapReducePattern(t *testing.T) {
 	logger := zap.NewNop()
 
-	vm, err := engine.NewCoroutineVM(
+	vm, err := engine.NewCVM(
 		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
@@ -850,7 +850,7 @@ func TestMapReducePattern(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.PushScript(`
+	err = vm.DoString(`
 		-- Create channels for work distribution and result collection
 		local workCh = channel.new(5)    -- Buffer some work items
 		local resultCh = channel.new(0)  -- Unbuffered next channel
@@ -962,7 +962,7 @@ func TestMapReducePattern(t *testing.T) {
 func TestFanOutPattern(t *testing.T) {
 	logger := zap.NewNop()
 
-	vm, err := engine.NewCoroutineVM(
+	vm, err := engine.NewCVM(
 		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
@@ -970,7 +970,7 @@ func TestFanOutPattern(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.PushScript(`
+	err = vm.DoString(`
 		-- Input channel and multiple output channels
 		local source = channel.new(0)
 		local outputs = {
@@ -1093,7 +1093,7 @@ func TestFanOutPattern(t *testing.T) {
 func TestFanInPattern(t *testing.T) {
 	logger := zap.NewNop()
 
-	vm, err := engine.NewCoroutineVM(
+	vm, err := engine.NewCVM(
 		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
@@ -1101,7 +1101,7 @@ func TestFanInPattern(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.PushScript(`
+	err = vm.DoString(`
 		-- Multiple input channels and single output channel
 		local inputs = {
 			channel.new(0),

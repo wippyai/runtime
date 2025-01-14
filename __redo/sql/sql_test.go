@@ -17,7 +17,7 @@ import (
 
 func RunLuaSQLTest(luaCode, testName string) (any, error) {
 	log := zap.NewNop()
-	LE := lengine.NewCoroutineVM(context.Background(), log.Named("tests"))
+	LE := lengine.NewCVM(context.Background(), log.Named("tests"))
 	LE.L.PreloadModule("sql", NewModule(log.Named("sql")).Loader)
 
 	err := LE.Init(luaCode, testName)

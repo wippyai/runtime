@@ -3,9 +3,9 @@ package engine
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/internal/closer"
 	"strings"
 
+	"github.com/ponyruntime/pony/internal/closer"
 	"github.com/yuin/gopher-lua"
 	"github.com/yuin/gopher-lua/parse"
 	"go.uber.org/zap"
@@ -18,7 +18,7 @@ type Option func(*VM)
 type VM struct {
 	log        *zap.Logger
 	state      *lua.LState
-	funcs      map[string]lua.LValue
+	exported   map[string]*lua.LFunction
 	initErrors []error
 }
 
@@ -32,7 +32,7 @@ func NewVM(log *zap.Logger, opts ...Option) (*VM, error) {
 	vm := &VM{
 		log:        log,
 		state:      state,
-		funcs:      make(map[string]lua.LValue),
+		exported:   make(map[string]*lua.LFunction),
 		initErrors: []error{},
 	}
 
@@ -47,78 +47,54 @@ func NewVM(log *zap.Logger, opts ...Option) (*VM, error) {
 	return vm, nil
 }
 
-func collectErrors(errors []error) []string {
-	result := make([]string, len(errors))
-	for i, err := range errors {
-		result[i] = err.Error()
+// Close closes the VM and releases resources
+func (v *VM) Close() {
+	if v.state != nil {
+		v.state.Close()
 	}
-	return result
 }
 
-// CompileFunction loads a script and stores its named function
-func (v *VM) CompileFunction(name, script string) error {
-	chunk, err := parse.Parse(strings.NewReader(script), name)
+// Import loads a script and stores its named functions
+func (v *VM) Import(s, name string, funcName ...string) error {
+	if len(funcName) == 0 {
+		return fmt.Errorf("no function names provided for export")
+	}
+
+	chunk, err := parse.Parse(strings.NewReader(s), name)
 	if err != nil {
 		return fmt.Errorf("parse error: %w", err)
 	}
 
-	// todo: use more effective to pre-compile bytecode outside of a single VM
 	fnProto, err := lua.Compile(chunk, name)
 	if err != nil {
 		return fmt.Errorf("compile error: %w", err)
 	}
 
-	fn := v.state.NewFunctionFromProto(fnProto)
-	v.state.Push(fn)
+	return v.Mount(fnProto, funcName...)
+}
 
-	// todo: wait what?
+// Mount loads and mounts (executes) provided function(s) prototype
+func (v *VM) Mount(proto *lua.FunctionProto, funcNames ...string) error {
+	if len(funcNames) == 0 {
+		return fmt.Errorf("no function names provided for mount")
+	}
+
+	v.state.Push(v.state.NewFunctionFromProto(proto))
+
 	if err := v.state.PCall(0, 1, nil); err != nil {
 		return fmt.Errorf("execution error: %w", err)
 	}
 
-	//if err := v.storeFunctionResult(name); err != nil {
-	//	return err
-	//}
+	if err := v.exportFunctions(funcNames...); err != nil {
+		return fmt.Errorf("export error: %w", err)
+	}
 
 	return nil
 }
 
-func (v *VM) storeFunctionResult(name string) error {
-	if v.state.GetTop() < 1 {
-		return fmt.Errorf("no function result for %q", name)
-	}
-
-	// Try direct function return
-	if v.state.Get(-1).Type() == lua.LTFunction {
-		v.funcs[name] = v.state.Get(-1)
-		v.state.Pop(1)
-		return nil
-	}
-
-	// Try module table return
-	if v.state.Get(-1).Type() == lua.LTTable {
-		if fn := v.state.Get(-1).(*lua.LTable).RawGetString(name); fn.Type() == lua.LTFunction {
-			v.funcs[name] = fn
-			v.state.Pop(1)
-			return nil
-		}
-	}
-
-	// Try global function
-	if fn := v.state.GetGlobal(name); fn.Type() == lua.LTFunction {
-		v.funcs[name] = fn
-		if v.state.GetTop() >= 1 {
-			v.state.Pop(1)
-		}
-		return nil
-	}
-
-	return fmt.Errorf("function %q not found", name)
-}
-
 // Execute runs the named function with provided arguments
 func (v *VM) Execute(ctx context.Context, funcName string, args ...lua.LValue) (lua.LValue, error) {
-	fn, ok := v.funcs[funcName]
+	fn, ok := v.exported[funcName]
 	if !ok {
 		return nil, fmt.Errorf("function %q not found", funcName)
 	}
@@ -137,31 +113,6 @@ func (v *VM) Execute(ctx context.Context, funcName string, args ...lua.LValue) (
 	}
 
 	return v.callFunction(fn, args)
-}
-
-func (v *VM) callFunction(fn lua.LValue, args []lua.LValue) (lua.LValue, error) {
-	v.state.Push(fn)
-	for _, arg := range args {
-		v.state.Push(arg)
-	}
-
-	if err := v.state.PCall(len(args), 1, nil); err != nil {
-		return nil, err
-	}
-
-	var result lua.LValue
-	if v.state.GetTop() >= 1 {
-		result = v.state.Get(-1)
-		v.state.Pop(1)
-	}
-
-	return result, nil
-}
-
-func (v *VM) Close() {
-	if v.state != nil {
-		v.state.Close()
-	}
 }
 
 // DoString executes a Lua string with given context and arguments
@@ -192,6 +143,73 @@ func (v *VM) DoString(ctx context.Context, s string, name string, args ...lua.LV
 	return v.state.PCall(len(args), lua.MultRet, nil)
 }
 
-func (v *VM) State() *lua.LState {
-	return v.state
+func collectErrors(errors []error) []string {
+	result := make([]string, len(errors))
+	for i, err := range errors {
+		result[i] = err.Error()
+	}
+	return result
+}
+
+func (v *VM) exportFunctions(funcNames ...string) error {
+	if v.state.GetTop() < 1 {
+		return fmt.Errorf("no functions available to export")
+	}
+
+	value := v.state.Get(-1)
+	defer v.state.Pop(1)
+
+	var exportErrors []string
+
+	for _, funcName := range funcNames {
+		var fn *lua.LFunction
+
+		// Try direct function return
+		if value.Type() == lua.LTFunction {
+			fn = value.(*lua.LFunction)
+		} else if value.Type() == lua.LTTable {
+			// Try module table return
+			if tableVal := value.(*lua.LTable).RawGetString(funcName); tableVal.Type() == lua.LTFunction {
+				fn = tableVal.(*lua.LFunction)
+			}
+		}
+
+		// Try global function if not found above
+		if fn == nil {
+			if global := v.state.GetGlobal(funcName); global.Type() == lua.LTFunction {
+				fn = global.(*lua.LFunction)
+			}
+		}
+
+		if fn != nil {
+			v.exported[funcName] = fn
+		} else {
+			exportErrors = append(exportErrors, fmt.Sprintf("function %q not found", funcName))
+		}
+	}
+
+	if len(exportErrors) > 0 {
+		return fmt.Errorf("export errors: %s", strings.Join(exportErrors, "; "))
+	}
+
+	return nil
+}
+
+func (v *VM) callFunction(fn lua.LValue, args []lua.LValue) (lua.LValue, error) {
+	v.state.Push(fn)
+	for _, arg := range args {
+		v.state.Push(arg)
+	}
+
+	if err := v.state.PCall(len(args), 1, nil); err != nil {
+		return nil, fmt.Errorf("function call error: %w", err)
+	}
+
+	var result lua.LValue
+	if v.state.GetTop() >= 1 {
+		result = v.state.Get(-1)
+		v.state.Pop(1)
+	}
+
+	return result, nil
 }

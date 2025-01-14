@@ -13,14 +13,14 @@ func TestCoroutineVM_Basic(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("spawn and step simple coroutine", func(t *testing.T) {
-		vm, err := NewCoroutineVM(context.Background(), logger)
+		vm, err := NewCVM(context.Background(), logger)
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer vm.Close()
 
 		// Load and run script that spawns a coroutine
-		err = vm.PushScript(`
+		err = vm.DoString(`
 			local function co()
 				coroutine.yield("first")
 				coroutine.yield("second")
@@ -77,13 +77,13 @@ func TestCoroutineVM_ParallelTasks(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("multiple parallel coroutines", func(t *testing.T) {
-		vm, err := NewCoroutineVM(context.Background(), logger)
+		vm, err := NewCVM(context.Background(), logger)
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer vm.Close()
 
-		err = vm.PushScript(`
+		err = vm.DoString(`
 			function task1()
 				coroutine.yield("task1_start")
 				coroutine.yield("task1_middle")
@@ -171,13 +171,13 @@ func TestCoroutineVM_ErrorHandling(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("error in coroutine", func(t *testing.T) {
-		vm, err := NewCoroutineVM(context.Background(), logger)
+		vm, err := NewCVM(context.Background(), logger)
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer vm.Close()
 
-		err = vm.PushScript(`
+		err = vm.DoString(`
 			function error_task()
 				coroutine.yield("start")
 				error("intentional error")
@@ -212,13 +212,13 @@ func TestCoroutineVM_ErrorHandling(t *testing.T) {
 	})
 
 	t.Run("cancel coroutine", func(t *testing.T) {
-		vm, err := NewCoroutineVM(context.Background(), logger)
+		vm, err := NewCVM(context.Background(), logger)
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer vm.Close()
 
-		err = vm.PushScript(`
+		err = vm.DoString(`
 			function long_task()
 				coroutine.yield("running")
 				-- Simulate long operation
@@ -258,13 +258,13 @@ func TestCoroutineVM_ContextPropagation(t *testing.T) {
 
 	t.Run("context cancellation", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
-		vm, err := NewCoroutineVM(ctx, logger)
+		vm, err := NewCVM(ctx, logger)
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer vm.Close()
 
-		err = vm.PushScript(`
+		err = vm.DoString(`
 			function check_ctx()
 				while true do
 					if coroutine.yield("check") == "stop" then
@@ -303,13 +303,13 @@ func TestCoroutineVM_NativeCoroutines(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("native coroutine inside task", func(t *testing.T) {
-		vm, err := NewCoroutineVM(context.Background(), logger)
+		vm, err := NewCVM(context.Background(), logger)
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer vm.Close()
 
-		err = vm.PushScript(`
+		err = vm.DoString(`
 			function task_func()
 				-- Create a native coroutine
 				local co = coroutine.create(function()
@@ -358,13 +358,13 @@ func TestCoroutineVM_NativeCoroutines(t *testing.T) {
 	})
 
 	t.Run("shared coroutine between tasks", func(t *testing.T) {
-		vm, err := NewCoroutineVM(context.Background(), logger)
+		vm, err := NewCVM(context.Background(), logger)
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer vm.Close()
 
-		err = vm.PushScript(`
+		err = vm.DoString(`
 			-- Create a shared native coroutine
 			shared_co = coroutine.create(function(task_name)
 				for i = 1, 2 do
@@ -418,13 +418,13 @@ func TestCoroutineVM_NativeCoroutines(t *testing.T) {
 	})
 
 	t.Run("prevent task self-resumption", func(t *testing.T) {
-		vm, err := NewCoroutineVM(context.Background(), logger)
+		vm, err := NewCVM(context.Background(), logger)
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer vm.Close()
 
-		err = vm.PushScript(`
+		err = vm.DoString(`
 			error_caught = false
 			
 			function task_func()
@@ -455,7 +455,7 @@ func TestCoroutineVM_NativeCoroutines(t *testing.T) {
 			t.Fatalf("unexpected yield value: %v", vals)
 		}
 
-		err = vm.PushScript(`assert(error_caught == true)`, "verify")
+		err = vm.DoString(`assert(error_caught == true)`, "verify")
 		if err != nil {
 			t.Fatal(fmt.Sprintf("assertion failed: %v", err))
 		}
@@ -466,13 +466,13 @@ func TestCoroutineVM_ArgumentValidation(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("spawn with nil argument", func(t *testing.T) {
-		vm, err := NewCoroutineVM(context.Background(), logger)
+		vm, err := NewCVM(context.Background(), logger)
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer vm.Close()
 
-		err = vm.PushScript(`
+		err = vm.DoString(`
 			coroutine.spawn(nil)
 		`, "nil_test")
 
@@ -487,7 +487,7 @@ func TestCoroutineVM_ArgumentValidation(t *testing.T) {
 	})
 
 	t.Run("spawn with non-function argument", func(t *testing.T) {
-		vm, err := NewCoroutineVM(context.Background(), logger)
+		vm, err := NewCVM(context.Background(), logger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -509,7 +509,7 @@ func TestCoroutineVM_ArgumentValidation(t *testing.T) {
 					coroutine.spawn(%s)
 				`, tc.value)
 
-				err := vm.PushScript(script, tc.name)
+				err := vm.DoString(script, tc.name)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -523,13 +523,13 @@ func TestCoroutineVM_ArgumentValidation(t *testing.T) {
 	})
 
 	t.Run("spawn with missing argument", func(t *testing.T) {
-		vm, err := NewCoroutineVM(context.Background(), logger)
+		vm, err := NewCVM(context.Background(), logger)
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer vm.Close()
 
-		err = vm.PushScript(`
+		err = vm.DoString(`
 			coroutine.spawn()
 		`, "missing_arg_test")
 
@@ -544,13 +544,13 @@ func TestCoroutineVM_ArgumentValidation(t *testing.T) {
 	})
 
 	t.Run("spawn with extra arguments", func(t *testing.T) {
-		vm, err := NewCoroutineVM(context.Background(), logger)
+		vm, err := NewCVM(context.Background(), logger)
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer vm.Close()
 
-		err = vm.PushScript(`
+		err = vm.DoString(`
 			local function fn()
 				coroutine.yield("ok")
 			end
@@ -579,13 +579,13 @@ func TestCoroutineVM_ArgumentValidation(t *testing.T) {
 	})
 
 	t.Run("spawn upvalue function", func(t *testing.T) {
-		vm, err := NewCoroutineVM(context.Background(), logger)
+		vm, err := NewCVM(context.Background(), logger)
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer vm.Close()
 
-		err = vm.PushScript(`
+		err = vm.DoString(`
 			local x = "captured"
 			local function fn()
 				coroutine.yield(x)
@@ -617,7 +617,7 @@ func TestCoroutineVM_AdditionalCoverage(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("nil context", func(t *testing.T) {
-		_, err := NewCoroutineVM(nil, logger)
+		_, err := NewCVM(nil, logger)
 		if err == nil {
 			t.Fatal("expected error when creating VM with nil context")
 		}
@@ -627,13 +627,13 @@ func TestCoroutineVM_AdditionalCoverage(t *testing.T) {
 	})
 
 	t.Run("resume value", func(t *testing.T) {
-		vm, err := NewCoroutineVM(context.Background(), logger)
+		vm, err := NewCVM(context.Background(), logger)
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer vm.Close()
 
-		err = vm.PushScript(`
+		err = vm.DoString(`
 			function test_resume_value()
 				local val = coroutine.yield("first")
 				coroutine.yield("got " .. tostring(val))
@@ -672,13 +672,13 @@ func TestCoroutineVM_AdditionalCoverage(t *testing.T) {
 	})
 
 	t.Run("step non-yielded task", func(t *testing.T) {
-		vm, err := NewCoroutineVM(context.Background(), logger)
+		vm, err := NewCVM(context.Background(), logger)
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer vm.Close()
 
-		err = vm.PushScript(`
+		err = vm.DoString(`
 			function completed_task()
 				return "done"
 			end
@@ -705,13 +705,13 @@ func TestCoroutineVM_AdditionalCoverage(t *testing.T) {
 	})
 
 	t.Run("resume error", func(t *testing.T) {
-		vm, err := NewCoroutineVM(context.Background(), logger)
+		vm, err := NewCVM(context.Background(), logger)
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer vm.Close()
 
-		err = vm.PushScript(`
+		err = vm.DoString(`
 			function error_on_resume()
 				local val = coroutine.yield("first")
 				error("resume error")
@@ -739,7 +739,7 @@ func TestCoroutineVM_AdditionalCoverage(t *testing.T) {
 	})
 
 	t.Run("remove non-existent task", func(t *testing.T) {
-		vm, err := NewCoroutineVM(context.Background(), logger)
+		vm, err := NewCVM(context.Background(), logger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -757,13 +757,13 @@ func TestCoroutineVM_AdditionalCoverage(t *testing.T) {
 	})
 
 	t.Run("create coroutine error", func(t *testing.T) {
-		vm, err := NewCoroutineVM(context.Background(), logger)
+		vm, err := NewCVM(context.Background(), logger)
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer vm.Close()
 
-		vm.PushScript(`
+		vm.DoString(`
 			-- Create a function that will error when called
 			local badFunc = function()
 				error("coroutine creation error")
@@ -786,13 +786,13 @@ func TestCoroutineVM_StatusAndWrap(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("status with spawned coroutines", func(t *testing.T) {
-		vm, err := NewCoroutineVM(context.Background(), logger)
+		vm, err := NewCVM(context.Background(), logger)
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer vm.Close()
 
-		err = vm.PushScript(`
+		err = vm.DoString(`
 			-- Create a task that will check statuses
 			local status_results = {}
 			
@@ -841,13 +841,13 @@ func TestCoroutineVM_StatusAndWrap(t *testing.T) {
 	})
 
 	t.Run("wrap interaction with spawn", func(t *testing.T) {
-		vm, err := NewCoroutineVM(context.Background(), logger)
+		vm, err := NewCVM(context.Background(), logger)
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer vm.Close()
 
-		err = vm.PushScript(`
+		err = vm.DoString(`
 			-- Create a vm coroutine
 			local vm = coroutine.wrap(function()
 				coroutine.yield("from_wrap")
@@ -878,13 +878,13 @@ func TestCoroutineVM_SharedBuffer(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("writer and flusher using shared buffer", func(t *testing.T) {
-		vm, err := NewCoroutineVM(context.Background(), logger)
+		vm, err := NewCVM(context.Background(), logger)
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer vm.Close()
 
-		err = vm.PushScript(`	
+		err = vm.DoString(`	
 			-- Shared State
 			shared_buffer = {
 				data = {},
@@ -1035,13 +1035,13 @@ func TestCoroutineVM_NestedSpawn(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("spawn from within coroutine", func(t *testing.T) {
-		vm, err := NewCoroutineVM(context.Background(), logger)
+		vm, err := NewCVM(context.Background(), logger)
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer vm.Close()
 
-		err = vm.PushScript(`
+		err = vm.DoString(`
 			function child()
 				coroutine.yield("child_running")
 				return "child_done"
@@ -1128,13 +1128,13 @@ func TestCoroutineVM_NestedSpawn(t *testing.T) {
 	})
 
 	t.Run("multiple nested spawns", func(t *testing.T) {
-		vm, err := NewCoroutineVM(context.Background(), logger)
+		vm, err := NewCVM(context.Background(), logger)
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer vm.Close()
 
-		err = vm.PushScript(`
+		err = vm.DoString(`
 			function leaf()
 				coroutine.yield("leaf")
 				return "leaf_done"
@@ -1238,13 +1238,13 @@ func TestCoroutineVM_MonitorStatus(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("monitor another coroutine's status", func(t *testing.T) {
-		vm, err := NewCoroutineVM(context.Background(), logger)
+		vm, err := NewCVM(context.Background(), logger)
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer vm.Close()
 
-		err = vm.PushScript(`
+		err = vm.DoString(`
 			status_log = {}
 			target_thread = nil
 			yield_values = {}
@@ -1364,7 +1364,7 @@ func TestCoroutineVM_MonitorStatus(t *testing.T) {
 		}
 
 		// Verify status transitions and resume values
-		err = vm.PushScript(`
+		err = vm.DoString(`
 			assert(#status_log == 4, string.format("expected 4 status entries, got %d", #status_log))
 			
 			assert(status_log[1].phase == "initial" and status_log[1].status == "suspended", 
@@ -1389,13 +1389,13 @@ func TestCoroutineVM_MonitorStatus(t *testing.T) {
 	})
 
 	t.Run("monitor invalid thread", func(t *testing.T) {
-		vm, err := NewCoroutineVM(context.Background(), logger)
+		vm, err := NewCVM(context.Background(), logger)
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer vm.Close()
 
-		err = vm.PushScript(`
+		err = vm.DoString(`
 			local ok, err = pcall(function()
 				coroutine.status(nil)
 			end)
@@ -1422,13 +1422,13 @@ func TestCoroutineVM_ClosedCoroutines(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("coroutines removed after completion", func(t *testing.T) {
-		vm, err := NewCoroutineVM(context.Background(), logger)
+		vm, err := NewCVM(context.Background(), logger)
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer vm.Close()
 
-		err = vm.PushScript(`
+		err = vm.DoString(`
 			completed_count = 0
 			
 			function test_cleanup()
@@ -1468,7 +1468,7 @@ func TestCoroutineVM_ClosedCoroutines(t *testing.T) {
 		}
 
 		// Verify completion counter
-		err = vm.PushScript(`assert(completed_count == 3, "not all coroutines completed")`, "verify")
+		err = vm.DoString(`assert(completed_count == 3, "not all coroutines completed")`, "verify")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1480,13 +1480,13 @@ func TestCoroutineVM_ClosedCoroutines(t *testing.T) {
 	})
 
 	t.Run("coroutines removed after error", func(t *testing.T) {
-		vm, err := NewCoroutineVM(context.Background(), logger)
+		vm, err := NewCVM(context.Background(), logger)
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer vm.Close()
 
-		err = vm.PushScript(`
+		err = vm.DoString(`
 			function error_test()
 				error("test error")
 			end
@@ -1535,7 +1535,7 @@ func TestCoroutineVM_CustomValue(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("yield custom value type directly", func(t *testing.T) {
-		vm, err := NewCoroutineVM(context.Background(), logger)
+		vm, err := NewCVM(context.Background(), logger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1548,7 +1548,7 @@ func TestCoroutineVM_CustomValue(t *testing.T) {
 			return 1
 		}))
 
-		err = vm.PushScript(`
+		err = vm.DoString(`
 			function custom_task()
 				local custom = createCustomValue()
 				coroutine.yield(custom)
@@ -1600,7 +1600,7 @@ func TestCoroutineVM_CustomValue(t *testing.T) {
 	})
 
 	t.Run("yield custom value from function", func(t *testing.T) {
-		vm, err := NewCoroutineVM(context.Background(), logger)
+		vm, err := NewCVM(context.Background(), logger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1612,7 +1612,7 @@ func TestCoroutineVM_CustomValue(t *testing.T) {
 			return -1
 		}))
 
-		err = vm.PushScript(`
+		err = vm.DoString(`
 			function custom_task()
 				createCustomValue()
 				return "done"
@@ -1663,7 +1663,7 @@ func TestCoroutineVM_CustomValue(t *testing.T) {
 	})
 
 	t.Run("yield custom value in root coroutine", func(t *testing.T) {
-		vm, err := NewCoroutineVM(context.Background(), logger)
+		vm, err := NewCVM(context.Background(), logger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1675,7 +1675,7 @@ func TestCoroutineVM_CustomValue(t *testing.T) {
 			return -1
 		}))
 
-		err = vm.PushScript(`
+		err = vm.DoString(`
 			createCustomValue()
 		`, "custom_value_test")
 
@@ -1721,7 +1721,7 @@ func TestCoroutineVM_CustomValue(t *testing.T) {
 	})
 
 	t.Run("yield custom value in root coroutine with args", func(t *testing.T) {
-		vm, err := NewCoroutineVM(context.Background(), logger)
+		vm, err := NewCVM(context.Background(), logger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1733,7 +1733,7 @@ func TestCoroutineVM_CustomValue(t *testing.T) {
 			return -1
 		}))
 
-		err = vm.PushScript(`
+		err = vm.DoString(`
 			createCustomValue("arg1")
 		`, "custom_value_test")
 
@@ -1794,7 +1794,7 @@ func BenchmarkCoroutineVM(b *testing.B) {
 
 	b.Run("send_message", func(b *testing.B) {
 		ctx := context.Background()
-		vm, err := NewCoroutineVM(ctx, logger)
+		vm, err := NewCVM(ctx, logger)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -1810,7 +1810,7 @@ func BenchmarkCoroutineVM(b *testing.B) {
 			coroutine.spawn(echo)
 		`
 
-		err = vm.PushScript(script, "bench")
+		err = vm.DoString(script, "bench")
 		if err != nil {
 			b.Fatal(err)
 		}

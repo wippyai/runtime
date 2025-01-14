@@ -1,67 +1,12 @@
 package engine
 
 import (
-	"container/list"
 	"context"
 	"fmt"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 	"strings"
 )
-
-// TaskKey is the key used to store the current task in the Lua state specific to thread
-const TaskKey = "_CURRENT_TASK"
-
-type Task struct {
-	l      *lua.LState
-	thread *lua.LState
-	cancel context.CancelFunc
-	fn     *lua.LFunction
-
-	State      lua.ResumeState
-	Yielded    []lua.LValue
-	Resumed    []lua.LValue
-	RaiseError error
-}
-
-func (t *Task) Thread() *lua.LState {
-	return t.thread
-}
-
-func (t *Task) Type() lua.LValueType {
-	return lua.LTThread
-}
-
-func (t *Task) String() string {
-	return fmt.Sprintf("<coroutine %p> %+v", t.thread, t.Yielded)
-}
-
-type TaskQueue struct {
-	active *list.List
-}
-
-func NewTaskQueue() *TaskQueue {
-	return &TaskQueue{
-		active: list.New(),
-	}
-}
-
-func (q *TaskQueue) Push(task *Task) {
-	q.active.PushBack(task)
-}
-
-func (q *TaskQueue) Pop() *Task {
-	if q.active.Len() == 0 {
-		return nil
-	}
-	e := q.active.Front()
-	q.active.Remove(e)
-	return e.Value.(*Task)
-}
-
-func (q *TaskQueue) IsEmpty() bool {
-	return q.active.Len() == 0
-}
 
 // this vm is NOT thread safe, external synchronization is required
 type CoroutineVM struct {
@@ -71,7 +16,7 @@ type CoroutineVM struct {
 	queue *TaskQueue
 }
 
-func NewCoroutineVM(
+func NewCVM(
 	ctx context.Context,
 	log *zap.Logger,
 	opts ...Option,
@@ -97,27 +42,24 @@ func NewCoroutineVM(
 	return avm, nil
 }
 
-func (e *CoroutineVM) PushContext(ctx context.Context) context.Context {
-	prev := e.ctx
-
-	e.ctx = ctx
-	e.vm.state.SetContext(ctx)
-
-	return prev
-}
-
-func (e *CoroutineVM) PushScript(script, name string) error {
-	chunk, err := e.vm.state.Load(strings.NewReader(script), name)
+func (e *CoroutineVM) DoString(script, scriptName string, args ...lua.LValue) error {
+	chunk, err := e.vm.state.Load(strings.NewReader(script), scriptName)
 	if err != nil {
 		return err
 	}
 
-	_, err = e.createCoroutine(chunk)
+	task, err := e.createCoroutine(chunk)
 	if err != nil {
 		return err
 	}
+	task.Resumed = args
 
 	return err
+}
+
+// Mount loads a function mounts (executes) provided function(s) prototype. Use it to share VCM code.
+func (e *CoroutineVM) Mount(proto *lua.FunctionProto, scriptName string) error {
+	return e.vm.Mount(proto, scriptName)
 }
 
 func (e *CoroutineVM) bindCoroutines() {
@@ -170,7 +112,7 @@ func (e *CoroutineVM) createCoroutine(fn *lua.LFunction) (*Task, error) {
 	thread, cancel := e.vm.state.NewThread()
 
 	task := &Task{
-		l:      e.vm.State(),
+		l:      e.vm.state,
 		thread: thread,
 		cancel: cancel,
 		fn:     fn,
@@ -193,19 +135,18 @@ func (e *CoroutineVM) GetTask(thread *lua.LState) (*Task, error) {
 }
 
 func (e *CoroutineVM) Start(funcName string, args ...lua.LValue) error {
-	fn := e.vm.state.GetGlobal(funcName)
-	if fn == lua.LNil {
+	fn, ok := e.vm.exported[funcName]
+	if !ok {
 		return fmt.Errorf("function %q not found", funcName)
 	}
 
-	task, err := e.createCoroutine(fn.(*lua.LFunction))
+	task, err := e.createCoroutine(fn)
 	if err != nil {
 		return fmt.Errorf("failed to create coroutine: %w", err)
 	}
 	task.Resumed = args
 
 	return nil
-
 }
 
 func (e *CoroutineVM) Step(tasks ...*Task) (result []*Task, finalErr error) {
@@ -253,7 +194,7 @@ func (e *CoroutineVM) Step(tasks ...*Task) (result []*Task, finalErr error) {
 				return nil, fmt.Errorf("error in task: %v", task.RaiseError)
 			} else {
 				// Continue
-				state, err, values = e.vm.State().Resume(task.thread, nil, task.Resumed...)
+				state, err, values = e.vm.state.Resume(task.thread, nil, task.Resumed...)
 				if err != nil {
 					_ = e.removeTask(task)
 					return nil, fmt.Errorf("error resuming task: %v", err)

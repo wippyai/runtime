@@ -36,7 +36,7 @@ func TestVM_Basic(t *testing.T) {
 		end
 		`
 
-		if err := vm.Import(script, "test", "test"); err != nil {
+		if err := vm.Import("test", script, "test"); err != nil {
 			t.Fatal(err)
 		}
 
@@ -63,7 +63,7 @@ func TestVM_Basic(t *testing.T) {
 		end
 		`
 
-		if err := vm.Import(script, "test", "test"); err != nil {
+		if err := vm.Import("test", script); err != nil {
 			t.Fatal(err)
 		}
 
@@ -86,7 +86,7 @@ func TestVM_Basic(t *testing.T) {
 
 		script := ``
 
-		if err := vm.Import(script, "test"); err == nil {
+		if err := vm.Import("test", script); err == nil {
 			t.Error("expected error, got nil")
 		}
 	})
@@ -104,12 +104,8 @@ func TestVM_Basic(t *testing.T) {
 		end
 		`
 
-		if err := vm.Import(script, "test", "different_name"); err != nil {
-			t.Fatal(err)
-		}
-
-		if _, err := vm.Execute(context.Background(), "different_name"); err != nil {
-			t.Fatal(err)
+		if err := vm.Import("test", script); err == nil {
+			t.Error("expected error, got nil")
 		}
 	})
 
@@ -127,11 +123,11 @@ func TestVM_Basic(t *testing.T) {
 		return test
 		`
 
-		if err := vm.Import(script, "test", "test"); err != nil {
+		if err := vm.Import("test", script); err != nil {
 			t.Fatal(err)
 		}
 
-		result, err := vm.Execute(context.Background(), "test")
+		result, err := vm.Execute(context.Background(), "test", lua.LNil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -155,11 +151,11 @@ func TestVM_Basic(t *testing.T) {
 		return M
 		`
 
-		if err := vm.Import(script, "test", "test"); err != nil {
+		if err := vm.Import("test", script); err != nil {
 			t.Fatal(err)
 		}
 
-		result, err := vm.Execute(context.Background(), "test")
+		result, err := vm.Execute(context.Background(), "test", lua.LNil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -181,11 +177,11 @@ func TestVM_Basic(t *testing.T) {
 		end
 		`
 
-		if err := vm.Import(script, "test", "test"); err != nil {
+		if err := vm.Import("test", script); err != nil {
 			t.Fatal(err)
 		}
 
-		result, err := vm.Execute(context.Background(), "test")
+		result, err := vm.Execute(context.Background(), "test", lua.LNil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -211,11 +207,11 @@ func TestVM_Basic(t *testing.T) {
 		end
 		`
 
-		if err := vm.Import(script, "test", "test"); err != nil {
+		if err := vm.Import("test", script); err != nil {
 			t.Fatal(err)
 		}
 
-		result, err := vm.Execute(context.Background(), "test")
+		result, err := vm.Execute(context.Background(), "test", lua.LNil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -235,16 +231,17 @@ func TestVM_Basic(t *testing.T) {
 		function test(args)
 			return args.message
 		end
+		return test
 		`
 
-		if err := vm.Import(script, "test", "test"); err != nil {
+		if err := vm.Import("test", script); err != nil {
 			t.Fatal(err)
 		}
 
-		tbl := &lua.LTable{}
+		tbl := lua.LTable{}
 		tbl.RawSetString("message", lua.LString("hello"))
 
-		result, err := vm.Execute(context.Background(), "test", tbl)
+		result, err := vm.Execute(context.Background(), "test", &tbl)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -330,7 +327,7 @@ func TestVM_Errors(t *testing.T) {
 		}
 		defer vm.Close()
 
-		if err := vm.Import("this is not valid lua", "invalid"); err == nil {
+		if err := vm.Import("invalid", "this is not valid lua"); err == nil {
 			t.Error("expected error, got nil")
 		}
 	})
@@ -346,9 +343,10 @@ func TestVM_Errors(t *testing.T) {
 		function test()
 			error("runtime error")
 		end
+		return test
 		`
 
-		if err := vm.Import(script, "test", "test"); err != nil {
+		if err := vm.Import("test", script); err != nil {
 			t.Fatal(err)
 		}
 
@@ -416,26 +414,28 @@ func TestVM_CompiledGlobalState(t *testing.T) {
 	defer vm.Close()
 
 	// DoString increment function
-	if err := vm.Import(`
+	if err := vm.Import("increment", `
 		function increment()
 			State.count = State.count + 1
 			return State.count
 		end
-	`, "increment", "increment"); err != nil {
+		return increment
+	`); err != nil {
 		t.Fatal(err)
 	}
 
 	// DoString getCount function
-	if err := vm.Import(`
+	if err := vm.Import("getCount", `
 		function getCount()
 			return State.count
 		end
-	`, "getCount", "getCount"); err != nil {
+		return getCount
+	`); err != nil {
 		t.Fatal(err)
 	}
 
 	// First increment should return 1
-	result, err := vm.Execute(context.Background(), "increment")
+	result, err := vm.Execute(context.Background(), "increment", lua.LNil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -444,7 +444,7 @@ func TestVM_CompiledGlobalState(t *testing.T) {
 	}
 
 	// Second increment should return 2
-	result, err = vm.Execute(context.Background(), "increment")
+	result, err = vm.Execute(context.Background(), "increment", lua.LNil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -453,7 +453,7 @@ func TestVM_CompiledGlobalState(t *testing.T) {
 	}
 
 	// GetCount should return current value (2)
-	result, err = vm.Execute(context.Background(), "getCount")
+	result, err = vm.Execute(context.Background(), "getCount", lua.LNil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -535,16 +535,17 @@ func TestVM_ErrorTraceback(t *testing.T) {
 	})
 
 	t.Run("error in compiled function", func(t *testing.T) {
-		if err := vm.Import(`
+		if err := vm.Import("bad_function", `
 			function test()
 				local x = nil
 				return x.nonexistent
 			end
-		`, "bad_function", "test"); err != nil {
+			return test
+		`); err != nil {
 			t.Fatal(err)
 		}
 
-		_, err := vm.Execute(context.Background(), "test")
+		_, err := vm.Execute(context.Background(), "bad_function", lua.LNil)
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
@@ -559,12 +560,12 @@ func TestVM_ErrorTraceback(t *testing.T) {
 	})
 
 	t.Run("syntax error in compile", func(t *testing.T) {
-		err := vm.Import(`
+		err := vm.Import("syntax_error", `
 			function test()
 				if true then
 					print("missing end")
 			return test
-		`, "syntax_error", "test")
+		`)
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
@@ -576,6 +577,274 @@ func TestVM_ErrorTraceback(t *testing.T) {
 			t.Error("error should reference syntax_error")
 		}
 	})
+}
+
+func BenchmarkNewVM(b *testing.B) {
+	logger := zap.NewNop()
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		vm, err := NewVM(logger)
+		if err != nil {
+			b.Fatal(err)
+		}
+		vm.Close()
+	}
+}
+
+func BenchmarkCompileFunction(b *testing.B) {
+	logger := zap.NewNop()
+	vm, err := NewVM(logger)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer vm.Close()
+
+	script := `
+		function test(arg)
+			return arg
+		end
+		return test
+	`
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		if err := vm.Import("test", script); err != nil {
+			b.Fatal(err)
+		}
+		// Clean up the compiled function to avoid affecting subsequent iterations
+		delete(vm.exported, "test")
+	}
+}
+
+func BenchmarkExecuteSimple(b *testing.B) {
+	logger := zap.NewNop()
+	vm, err := NewVM(logger)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer vm.Close()
+
+	script := `
+		function test(arg)
+			return arg
+		end
+		return test
+	`
+
+	if err := vm.Import("test", script); err != nil {
+		b.Fatal(err)
+	}
+
+	arg := lua.LString("benchmark")
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		if _, err := vm.Execute(context.Background(), "test", arg); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkExecuteComplex(b *testing.B) {
+	logger := zap.NewNop()
+	vm, err := NewVM(logger)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer vm.Close()
+
+	script := `
+		function test(args)
+			local sum = 0
+			for i = 1, args.count do
+				sum = sum + i
+			end
+			return sum
+		end
+		return test
+	`
+
+	if err := vm.Import("test", script); err != nil {
+		b.Fatal(err)
+	}
+
+	tbl := lua.LTable{}
+	tbl.RawSetString("count", lua.LNumber(100))
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		if _, err := vm.Execute(context.Background(), "test", &tbl); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkExecuteWithLibrary(b *testing.B) {
+	logger := zap.NewNop()
+
+	libSource := `
+		local lib = {}
+		function lib.double(n)
+			return n * 2
+		end
+		return lib
+	`
+
+	vm, err := NewVM(logger, WithLibrary("testlib", libSource))
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer vm.Close()
+
+	script := `
+		local lib = require("testlib")
+		function test(arg)
+			return lib.double(arg)
+		end
+		return test
+	`
+
+	if err := vm.Import("test", script); err != nil {
+		b.Fatal(err)
+	}
+
+	arg := lua.LNumber(5)
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		if _, err := vm.Execute(context.Background(), "test", arg); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkGlobalStateSetup(b *testing.B) {
+	logger := zap.NewNop()
+	stateTable := &lua.LTable{}
+	stateTable.RawSetString("count", lua.LNumber(0))
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		vm, err := NewVM(logger, WithGlobalValue("State", stateTable))
+		if err != nil {
+			b.Fatal(err)
+		}
+		vm.Close()
+	}
+}
+
+func BenchmarkGlobalStateAccess(b *testing.B) {
+	logger := zap.NewNop()
+	stateTable := &lua.LTable{}
+	stateTable.RawSetString("count", lua.LNumber(0))
+
+	vm, err := NewVM(logger, WithGlobalValue("State", stateTable))
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer vm.Close()
+
+	if err := vm.Import("increment", `
+		function increment()
+			State.count = State.count + 1
+			return State.count
+		end
+		return increment
+	`); err != nil {
+		b.Fatal(err)
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		if _, err := vm.Execute(context.Background(), "increment", lua.LNil); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkGlobalStateMultiFunction(b *testing.B) {
+	logger := zap.NewNop()
+	stateTable := &lua.LTable{}
+	stateTable.RawSetString("count", lua.LNumber(0))
+	stateTable.RawSetString("lastOp", lua.LString(""))
+
+	vm, err := NewVM(logger, WithGlobalValue("State", stateTable))
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer vm.Close()
+
+	if err := vm.Import("increment", `
+		function increment()
+			State.count = State.count + 1
+			State.lastOp = "increment"
+			return State.count
+		end
+		return increment
+	`); err != nil {
+		b.Fatal(err)
+	}
+
+	if err := vm.Import("getStatus", `
+		function getStatus()
+			return {count = State.count, lastOp = State.lastOp}
+		end
+		return getStatus
+	`); err != nil {
+		b.Fatal(err)
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		// Increment
+		if _, err := vm.Execute(context.Background(), "increment", lua.LNil); err != nil {
+			b.Fatal(err)
+		}
+		// Get status
+		if _, err := vm.Execute(context.Background(), "getStatus", lua.LNil); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkGlobalStateDirectAccess(b *testing.B) {
+	logger := zap.NewNop()
+	stateTable := &lua.LTable{}
+	stateTable.RawSetString("count", lua.LNumber(0))
+
+	vm, err := NewVM(logger, WithGlobalValue("State", stateTable))
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer vm.Close()
+
+	L := vm.state
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		globalState := L.GetGlobal("State").(*lua.LTable)
+		count := globalState.RawGetString("count").(lua.LNumber)
+		globalState.RawSetString("count", lua.LNumber(count+1))
+	}
 }
 
 func TestVM_SecurityRestrictions(t *testing.T) {
@@ -719,6 +988,7 @@ func TestVM_Mount(t *testing.T) {
 		function test(arg)
 			return "Hello " .. arg
 		end
+		return test
 		`
 
 		// Parse and compile the script to get function prototype
@@ -792,6 +1062,7 @@ func TestVM_Mount(t *testing.T) {
 			count = count + 1
 			return count
 		end
+		return test
 		`
 
 		// Parse and compile
@@ -814,7 +1085,7 @@ func TestVM_Mount(t *testing.T) {
 		}
 
 		// Execute in VM1 twice
-		result1, err := vm1.Execute(context.Background(), "test")
+		result1, err := vm1.Execute(context.Background(), "test", lua.LNil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -822,7 +1093,7 @@ func TestVM_Mount(t *testing.T) {
 			t.Errorf("VM1 first call: got %v, want %v", result1, lua.LNumber(1))
 		}
 
-		result1, err = vm1.Execute(context.Background(), "test")
+		result1, err = vm1.Execute(context.Background(), "test", lua.LNil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -831,7 +1102,7 @@ func TestVM_Mount(t *testing.T) {
 		}
 
 		// Execute in VM2 should start from 1 again
-		result2, err := vm2.Execute(context.Background(), "test")
+		result2, err := vm2.Execute(context.Background(), "test", lua.LNil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -954,7 +1225,7 @@ func TestVM_FunctionNameDetection(t *testing.T) {
 
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {
-				if err := vm.Import(tc.script, tc.name, tc.name); err != nil {
+				if err := vm.Import(tc.name, tc.script); err != nil {
 					t.Fatal(err)
 				}
 
@@ -1027,7 +1298,7 @@ func TestVM_FunctionNameDetection(t *testing.T) {
 
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {
-				if err := vm.Import(tc.script, tc.name, tc.name); err != nil {
+				if err := vm.Import(tc.name, tc.script); err != nil {
 					t.Fatal(err)
 				}
 
@@ -1094,7 +1365,7 @@ func TestVM_FunctionNameDetection(t *testing.T) {
 
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {
-				if err := vm.Import(tc.script, tc.name, tc.name); err != nil {
+				if err := vm.Import(tc.name, tc.script); err != nil {
 					t.Fatal(err)
 				}
 
@@ -1155,7 +1426,7 @@ func TestVM_FunctionNameDetection(t *testing.T) {
 
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {
-				err := vm.Import(tc.script, tc.name, tc.name)
+				err := vm.Import(tc.name, tc.script)
 				if err == nil {
 					t.Error("expected error for mismatched function name, got nil")
 				}
@@ -1182,11 +1453,11 @@ func TestVM_FunctionNameDetection(t *testing.T) {
 			end
 		`
 
-		if err := vm.Import(script, "test", "test"); err != nil {
+		if err := vm.Import("test", script); err != nil {
 			t.Fatal(err)
 		}
 
-		result, err := vm.Execute(context.Background(), "test")
+		result, err := vm.Execute(context.Background(), "test", lua.LNil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1303,114 +1574,4 @@ func TestVM_SharedLibraryProto(t *testing.T) {
 			t.Fatal("VM2 state test failed:", err)
 		}
 	})
-}
-
-func TestVM_Import_EdgeCases(t *testing.T) {
-	logger := zap.NewNop()
-	vm, err := NewVM(logger)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer vm.Close()
-
-	t.Run("empty function name", func(t *testing.T) {
-		script := `
-			function test()
-				return 1
-			end
-		`
-		if err := vm.Import(script, "test", ""); err == nil {
-			t.Error("expected error with empty function name, got nil")
-		}
-	})
-
-	t.Run("invalid function name", func(t *testing.T) {
-		script := `
-            function invalid$name()
-                return 1
-            end
-        `
-		if err := vm.Import(script, "test", "invalid$name"); err == nil {
-			t.Error("expected error with invalid function name, got nil")
-		}
-	})
-
-	t.Run("function not found in prototype", func(t *testing.T) {
-		script := `
-            function test()
-                return 1
-            end
-        `
-		chunk, err := parse.Parse(strings.NewReader(script), "test")
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		proto, err := lua.Compile(chunk, "test")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := vm.Mount(proto, "nonexistent"); err == nil {
-			t.Error("expected error with non-existent function name, got nil")
-		}
-	})
-}
-
-func TestVM_Execute_ArgumentErrors(t *testing.T) {
-	logger := zap.NewNop()
-	vm, err := NewVM(logger)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer vm.Close()
-
-	script := `
-		function test(a, b)
-			return a + b
-		end
-	`
-	if err := vm.Import(script, "test", "test"); err != nil {
-		t.Fatal(err)
-	}
-
-	t.Run("too few arguments", func(t *testing.T) {
-		if _, err := vm.Execute(context.Background(), "test", lua.LNumber(1)); err == nil {
-			t.Error("expected error with too few arguments, got nil")
-		}
-	})
-
-	t.Run("incorrect argument type", func(t *testing.T) {
-		if _, err := vm.Execute(context.Background(), "test", lua.LString("a"), lua.LNumber(2)); err == nil {
-			t.Error("expected error with incorrect argument type, got nil")
-		}
-	})
-}
-
-func TestVM_Context_Cancellation(t *testing.T) {
-	logger := zap.NewNop()
-	vm, err := NewVM(logger)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer vm.Close()
-
-	script := `
-		function test()
-			while true do
-			end
-		end
-	`
-	if err := vm.Import(script, "test", "test"); err != nil {
-		t.Fatal(err)
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // Cancel immediately
-
-	_, err = vm.Execute(ctx, "test")
-	if err == nil {
-		t.Error("expected error with canceled context, got nil")
-	} else if !strings.Contains(err.Error(), "context canceled") && !strings.Contains(err.Error(), "interrupted") {
-		t.Errorf("expected error message to contain 'context canceled' or 'interrupted', got: %v", err)
-	}
 }

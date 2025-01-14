@@ -6,37 +6,45 @@ import (
 	"strings"
 )
 
-// WithLibrary adds a library from source code to the VM
-func WithLibrary(name string, source string) Option {
+// WithLibrary adds a library from either source code or function prototype to the VM
+func WithLibrary(name string, source interface{}) Option {
 	return func(vm *VM) {
 		loader := func(L *lua.LState) int {
-			// todo: bytecode cache
-			fn, err := L.Load(strings.NewReader(source), fmt.Sprintf("<%s>", name))
-			if err != nil {
-				// Propagate the error by pushing it onto the stack
-				L.Push(lua.LString(err.Error()))
-				return 1 // send error
+			var fn *lua.LFunction
+
+			switch s := source.(type) {
+			case string:
+				// Source code path
+				var err error
+				fn, err = L.Load(strings.NewReader(s), fmt.Sprintf("<%s>", name))
+				if err != nil {
+					L.Push(lua.LString(err.Error()))
+					return 1
+				}
+			case *lua.FunctionProto:
+				// Function prototype path
+				fn = L.NewFunctionFromProto(s)
+			default:
+				L.Push(lua.LString(fmt.Sprintf("invalid source type for library '%s'", name)))
+				return 1
 			}
 
 			L.Push(fn)
-			err = L.PCall(0, lua.MultRet, nil)
+			err := L.PCall(0, lua.MultRet, nil)
 			if err != nil {
-				// Propagate the error
 				L.Push(lua.LString(err.Error()))
-				return 1 // send error
+				return 1
 			}
 
 			if L.GetTop() > 0 && L.Get(-1).Type() != lua.LTTable {
-				// Propagate the error: library did not return a table
 				err := fmt.Errorf("library '%s' must return a table", name)
 				L.Push(lua.LString(err.Error()))
-				return 1 // send error
+				return 1
 			}
 
-			return 1 // Success
+			return 1
 		}
 
-		// Use vm.State.PreloadModule to register the loader
 		vm.state.PreloadModule(name, loader)
 	}
 }

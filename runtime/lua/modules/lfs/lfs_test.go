@@ -98,7 +98,7 @@ func TestLFSModuleDoString(t *testing.T) {
 		tempDir := t.TempDir()
 		testDir := filepath.Join(tempDir, "testdir")
 
-		err = vm.CompileFunction("mkdir_rmdir_test", `
+		err = vm.Import("mkdir_rmdir_test", `
 			local lfs = require("lfs")
 			function mkdir_rmdir_test(dirpath)
 				local success = lfs.mkdir(dirpath)
@@ -134,7 +134,7 @@ func TestLFSModuleDoString(t *testing.T) {
 		err = os.WriteFile(tempFile, []byte("test content"), 0644)
 		require.NoError(t, err)
 
-		err = vm.CompileFunction("attributes_test", `
+		err = vm.Import("attributes_test", `
 			local lfs = require("lfs")
 			function attributes_test(filepath)
 				local attr = lfs.attributes(filepath)
@@ -165,7 +165,7 @@ func TestLFSModuleDoString(t *testing.T) {
 		tempDir := t.TempDir()
 		tempFile := filepath.Join(tempDir, "touch_test.txt")
 
-		err = vm.CompileFunction("touch_test", `
+		err = vm.Import("touch_test", `
 			local lfs = require("lfs")
 			function touch_test(filepath)
 				local success = lfs.touch(filepath)
@@ -203,7 +203,7 @@ func TestLFSModuleDoString(t *testing.T) {
 
 		linkFile := filepath.Join(tempDir, "link.txt")
 
-		err = vm.CompileFunction("link_test", `
+		err = vm.Import("link_test", `
 			local lfs = require("lfs")
 			function link_test(source, link)
 				local success = lfs.link(source, link, true)  -- Create symbolic link
@@ -240,7 +240,7 @@ func TestLFSModuleDoString(t *testing.T) {
 			require.NoError(t, err)
 		}
 
-		err = vm.CompileFunction("dir_test", `
+		err = vm.Import("dir_test", `
 			local lfs = require("lfs")
 			function dir_test(dirpath)
 				local iter, dir = lfs.dir(dirpath)
