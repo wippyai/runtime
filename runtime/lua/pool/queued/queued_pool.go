@@ -3,7 +3,7 @@ package queued
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/runtime/lua/pool"
+	api "github.com/ponyruntime/pony/api/runtime/lua"
 	"github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 	"sync"
@@ -26,7 +26,7 @@ type task struct {
 type Pool struct {
 	size       int
 	logger     *zap.Logger
-	vmConfig   *pool.VMConfig
+	factory    api.Factory
 	tasks      chan *task
 	workers    int
 	closed     atomic.Bool
@@ -66,7 +66,7 @@ func WithLogger(logger *zap.Logger) Option {
 }
 
 // NewPool creates a new pool with the given configuration
-func NewPool(vmConfig *pool.VMConfig, opts ...Option) (*Pool, error) {
+func NewPool(factory api.Factory, opts ...Option) (*Pool, error) {
 	p := &Pool{
 		size:    5,
 		workers: 2,
@@ -79,7 +79,7 @@ func NewPool(vmConfig *pool.VMConfig, opts ...Option) (*Pool, error) {
 		opt(p)
 	}
 
-	if err := p.init(vmConfig); err != nil {
+	if err := p.init(factory); err != nil {
 		return nil, fmt.Errorf("failed to initialize pool: %w", err)
 	}
 
@@ -87,8 +87,8 @@ func NewPool(vmConfig *pool.VMConfig, opts ...Option) (*Pool, error) {
 }
 
 // init initializes the pool and starts worker goroutines
-func (p *Pool) init(vmConfig *pool.VMConfig) error {
-	p.vmConfig = vmConfig
+func (p *Pool) init(factory api.Factory) error {
+	p.factory = factory
 
 	// Start worker goroutines
 	for i := 0; i < p.workers; i++ {
@@ -139,7 +139,7 @@ func (p *Pool) worker() {
 	defer p.workerWait.Done() // Signal worker completion
 
 	// Create a VM for this worker
-	vm, err := pool.CreateVM(p.vmConfig)
+	vm, err := p.factory.MakeVM()
 	if err != nil {
 		p.logger.Error("failed to create VM for worker", zap.Error(err))
 		return

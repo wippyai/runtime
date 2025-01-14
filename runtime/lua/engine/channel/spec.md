@@ -179,8 +179,6 @@ coroutine.spawn(handler)
 3. **Coroutine Context**
     - Channels only work within Pony processes and coroutines
     - Not available in regular functions
-    - Must be used with `coroutine.spawn`
-
 
 ## Debugging
 
