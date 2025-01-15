@@ -3,12 +3,12 @@ package sync
 import (
 	"context"
 	"fmt"
+	"sync"
+
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/pool"
-	"github.com/yuin/gopher-lua"
+	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
-	"sync"
-	"sync/atomic"
 )
 
 // Option represents a pool configuration option
@@ -38,7 +38,6 @@ type Pool struct {
 	logger    *zap.Logger
 	vmConfig  *pool.VMConfig
 	vms       chan *engine.VM
-	closed    atomic.Bool
 	closeOnce sync.Once
 	done      chan struct{} // opChan for signaling shutdown
 }

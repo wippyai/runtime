@@ -2,8 +2,9 @@ package ctx
 
 import (
 	"context"
-	ctxapi "github.com/ponyruntime/pony/api/context"
 	"testing"
+
+	ctxapi "github.com/ponyruntime/pony/api/context"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/stretchr/testify/assert"

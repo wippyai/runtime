@@ -1,9 +1,10 @@
 package registry
 
 import (
-	"github.com/ponyruntime/pony/api/registry"
 	"reflect"
 	"testing"
+
+	"github.com/ponyruntime/pony/api/registry"
 )
 
 func TestMetadata_StringValue(t *testing.T) {

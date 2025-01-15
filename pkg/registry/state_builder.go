@@ -2,12 +2,13 @@ package registry
 
 import (
 	"fmt"
+	"reflect"
+	"sort"
+
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/internal/version"
 	"github.com/ponyruntime/pony/pkg/registry/loader"
 	"go.uber.org/zap"
-	"reflect"
-	"sort"
 )
 
 type StateBuilder struct {

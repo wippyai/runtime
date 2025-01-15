@@ -2,8 +2,9 @@ package eventbus
 
 import (
 	"context"
-	"github.com/ponyruntime/pony/api/events"
 	"sync"
+
+	"github.com/ponyruntime/pony/api/events"
 )
 
 // Subscriber is a helper struct that simplifies subscribing to and handling events from an event bus.

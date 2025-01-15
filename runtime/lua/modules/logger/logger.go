@@ -2,8 +2,9 @@ package logger
 
 import (
 	"errors"
+
 	transcoder "github.com/ponyruntime/pony/pkg/payload/lua"
-	"github.com/yuin/gopher-lua"
+	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
 

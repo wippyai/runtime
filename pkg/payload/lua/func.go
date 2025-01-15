@@ -1,7 +1,7 @@
 package lua
 
 import (
-	"github.com/yuin/gopher-lua"
+	lua "github.com/yuin/gopher-lua"
 )
 
 // Helper functions for Lua transcoding

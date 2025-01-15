@@ -2,12 +2,13 @@ package channel
 
 import (
 	"context"
+	"strings"
+	"testing"
+
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/stretchr/testify/assert"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
-	"strings"
-	"testing"
 )
 
 func TestNamedChannelVisibility(t *testing.T) {

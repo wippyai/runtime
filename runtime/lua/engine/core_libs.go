@@ -1,7 +1,7 @@
 package engine
 
 import (
-	"github.com/yuin/gopher-lua"
+	lua "github.com/yuin/gopher-lua"
 )
 
 // CoreLib represents a core Lua library

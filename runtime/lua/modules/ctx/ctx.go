@@ -3,7 +3,7 @@ package ctx
 import (
 	ctxapi "github.com/ponyruntime/pony/api/context" // Make sure this import path is correct
 	transcoder "github.com/ponyruntime/pony/pkg/payload/lua"
-	"github.com/yuin/gopher-lua"
+	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
 

@@ -3,6 +3,10 @@ package runtime
 import (
 	"context"
 	"fmt"
+	"sync"
+	"testing"
+	"time"
+
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
@@ -11,9 +15,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
-	"sync"
-	"testing"
-	"time"
 )
 
 func setupTest(t *testing.T) (*Executor, events.Bus) {
