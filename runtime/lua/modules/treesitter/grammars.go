@@ -4,6 +4,7 @@ import (
 	"unsafe"
 
 	tsmd "github.com/ponyruntime/tree-sitter-markdown/bindings/go"
+	tssql "github.com/ponyruntime/tree-sitter-sql/bindings/go"
 	tslua "github.com/tree-sitter-grammars/tree-sitter-lua/bindings/go"
 	cscsharp "github.com/tree-sitter/tree-sitter-c-sharp/bindings/go"
 	tsgo "github.com/tree-sitter/tree-sitter-go/bindings/go"
@@ -81,7 +82,7 @@ func NewLanguages() *Languages {
 		{
 			Name:     "sql",
 			Aliases:  []string{"sql"},
-			Language: nil, // todo: find and fix me
+			Language: tssql.Language,
 		},
 	}
 
