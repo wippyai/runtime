@@ -47,12 +47,12 @@ func NewCVM(
 
 // DoString executes a Lua script string with the given name and arguments.
 func (e *CoroutineVM) DoString(script, scriptName string, args ...lua.LValue) error {
-	chunk, err := e.vm.state.Load(strings.NewReader(script), scriptName)
+	fn, err := e.vm.state.Load(strings.NewReader(script), scriptName)
 	if err != nil {
 		return err
 	}
 
-	task, err := e.createTask(chunk)
+	task, err := e.createTask(fn)
 	if err != nil {
 		return err
 	}
@@ -79,7 +79,7 @@ func (e *CoroutineVM) Start(funcName string, args ...lua.LValue) (<-chan TaskRes
 		return nil, fmt.Errorf("failed to create coroutine: %w", err)
 	}
 	task.Resumed = args
-	task.output = make(chan TaskResult)
+	task.output = make(chan TaskResult, 1)
 
 	return task.output, nil
 }
@@ -110,64 +110,44 @@ func (e *CoroutineVM) Step(tasks ...*Task) (result []*Task, finalErr error) {
 	for !e.queue.IsEmpty() {
 		task := e.queue.Pop()
 
-		switch task.State {
-		case -1:
-			// Start
-			state, err, values = e.vm.state.Resume(task.thread, task.fn)
-			if err != nil {
-				task.cancel()
-				_ = e.removeTask(task)
-				return nil, fmt.Errorf("error starting task: %v", err)
-			}
-		case lua.ResumeOK:
-			if task.output != nil {
-				top := task.thread.GetTop()
-				if top > 0 {
-					results := make([]lua.LValue, top)
-					for i := 1; i <= top; i++ {
-						// flush all the results
-						results[i-1] = task.thread.Get(i)
-					}
-					task.output <- TaskResult{Result: results[0]}
-					close(task.output)
-				} else {
-					task.output <- TaskResult{}
+		if task.State == lua.ResumeYield {
+			if task.RaiseError != nil {
+				if task.output != nil {
+					task.output <- TaskResult{Error: task.RaiseError}
 					close(task.output)
 				}
+				_ = e.removeTask(task)
+				return nil, task.RaiseError
 			}
 
-			// done
-			if err := e.removeTask(task); err != nil {
+			state, err, values = e.vm.state.Resume(task.thread, task.fn, task.Resumed...)
+			if err != nil {
 				if task.output != nil {
 					task.output <- TaskResult{Error: err}
 					close(task.output)
 				}
-
-				return nil, fmt.Errorf("error removing task: %v", err)
-			}
-		case lua.ResumeYield:
-			if task.RaiseError != nil {
-				task.thread.RaiseError(task.RaiseError.Error())
 				_ = e.removeTask(task)
-				return nil, fmt.Errorf("error in task: %v", task.RaiseError)
-			} else {
-				// Continue
-				state, err, values = e.vm.state.Resume(task.thread, nil, task.Resumed...)
-				if err != nil {
-					_ = e.removeTask(task)
-					return nil, fmt.Errorf("error resuming task: %v", err)
-				}
+				return nil, fmt.Errorf("error resuming task: %v", err)
 			}
-		default:
-			return nil, fmt.Errorf("invalid task state: %v", task.State)
-		}
 
-		task.State = state
-		task.Yielded = values
-		task.Resumed = nil
+			task.State = state
+			task.Yielded = values
+			task.Resumed = nil
+		}
 
 		if state == lua.ResumeYield {
 			yeildedTasks = append(yeildedTasks, task)
+		} else if state == lua.ResumeOK || state == lua.ResumeError {
+			if task.output != nil {
+				if top := task.thread.GetTop(); top > 0 {
+					task.output <- TaskResult{Result: values}
+				} else {
+					task.output <- TaskResult{}
+				}
+				close(task.output)
+			}
+
+			_ = e.removeTask(task)
 		}
 	}
 
@@ -264,7 +244,7 @@ func (e *CoroutineVM) createTask(fn *lua.LFunction) (*Task, error) {
 		thread: thread,
 		cancel: cancel,
 		fn:     fn,
-		State:  -1,
+		State:  lua.ResumeYield,
 	}
 
 	e.tasks = append(e.tasks, task)

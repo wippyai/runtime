@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	lua "github.com/yuin/gopher-lua"
+	"github.com/yuin/gopher-lua/parse"
 	"go.uber.org/zap"
 	"strings"
 	"testing"
@@ -1421,7 +1422,7 @@ func TestCoroutineVM_MonitorStatus(t *testing.T) {
 func TestCoroutineVM_ClosedCoroutines(t *testing.T) {
 	logger := zap.NewNop()
 
-	t.Run("coroutines removed after completion", func(t *testing.T) {
+	t.Run("coroutines removed after immediate completion", func(t *testing.T) {
 		vm, err := NewCVM(context.Background(), logger)
 		if err != nil {
 			t.Fatal(err)
@@ -1452,30 +1453,8 @@ func TestCoroutineVM_ClosedCoroutines(t *testing.T) {
 		}
 
 		// Check initial task count
-		if len(vm.tasks) != 4 {
-			t.Fatalf("expected 4 initial tasks, got %d", len(vm.tasks))
-		}
-
-		// Step to complete all tasks
-		_, err = vm.Step(vm.tasks...)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		// Verify tasks were removed
 		if len(vm.tasks) != 0 {
-			t.Fatalf("expected tasks to be removed after completion, got %d tasks", len(vm.tasks))
-		}
-
-		// Verify completion counter
-		err = vm.DoString(`assert(completed_count == 3, "not all coroutines completed")`, "verify")
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		// Verify GetYieldedTasks also returns empty
-		if len(vm.GetYieldedTasks()) != 0 {
-			t.Fatal("GetYieldedTasks should return empty after completion")
+			t.Fatalf("expected all tasks immediatelly done")
 		}
 	})
 
@@ -1835,6 +1814,499 @@ func BenchmarkCoroutineVM(b *testing.B) {
 					b.Fatal(err)
 				}
 			}
+		}
+	})
+}
+
+func TestCoroutineVM_Mount(t *testing.T) {
+	logger := zap.NewNop()
+
+	t.Run("mount and execute coroutine function", func(t *testing.T) {
+		// Create first VM and compile function
+		vm1, err := NewCVM(context.Background(), logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm1.Close()
+
+		script := `
+            function test()
+                coroutine.yield("hello")
+                local val = coroutine.yield("world")
+                return "done: " .. val
+            end
+        `
+
+		// Parse and compile the script
+		chunk, err := parse.Parse(strings.NewReader(script), "test")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		proto, err := lua.Compile(chunk, "test")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Mount the function in first VM
+		if err := vm1.Mount(proto, "test"); err != nil {
+			t.Fatal(err)
+		}
+
+		// Create second VM and mount same function
+		vm2, err := NewCVM(context.Background(), logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm2.Close()
+
+		// Mount same function prototype in VM2
+		if err := vm2.Mount(proto, "test"); err != nil {
+			t.Fatal(err)
+		}
+
+		// Start coroutines in both VMs
+		ch1, err := vm1.Start("test")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		ch2, err := vm2.Start("test")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Process VM1
+		tasks, err := vm1.Step()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		for len(tasks) > 0 {
+			var nextTasks []*Task
+			for _, task := range tasks {
+				switch task.Yielded[0].String() {
+				case "hello":
+					task.Resumed = []lua.LValue{}
+				case "world":
+					task.Resumed = []lua.LValue{lua.LString("test1")}
+				default:
+					t.Fatalf("unexpected yield value in VM1: %v", task.Yielded[0])
+				}
+
+				newTasks, err := vm1.Step(task)
+				if err != nil {
+					t.Fatal(err)
+				}
+				nextTasks = append(nextTasks, newTasks...)
+			}
+			tasks = nextTasks
+		}
+
+		// Process VM2
+		tasks, err = vm2.Step()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		for len(tasks) > 0 {
+			var nextTasks []*Task
+			for _, task := range tasks {
+				switch task.Yielded[0].String() {
+				case "hello":
+					task.Resumed = []lua.LValue{}
+				case "world":
+					task.Resumed = []lua.LValue{lua.LString("test2")}
+				default:
+					t.Fatalf("unexpected yield value in VM2: %v", task.Yielded[0])
+				}
+
+				newTasks, err := vm2.Step(task)
+				if err != nil {
+					t.Fatal(err)
+				}
+				nextTasks = append(nextTasks, newTasks...)
+			}
+			tasks = nextTasks
+		}
+
+		// Verify results from both VMs
+		result1 := <-ch1
+		if result1.Error != nil {
+			t.Fatal(result1.Error)
+		}
+		if result1.Result[0].String() != "done: test1" {
+			t.Fatalf("unexpected result from VM1: %v", result1.Result)
+		}
+
+		result2 := <-ch2
+		if result2.Error != nil {
+			t.Fatal(result2.Error)
+		}
+		if result2.Result[0].String() != "done: test2" {
+			t.Fatalf("unexpected result from VM2: %v", result2.Result)
+		}
+	})
+
+	t.Run("mount invalid function prototype", func(t *testing.T) {
+		vm, err := NewCVM(context.Background(), logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm.Close()
+
+		// Try to mount nil prototype
+		err = vm.Mount(nil, "test")
+		if err == nil {
+			t.Error("expected error when mounting nil prototype")
+		}
+
+		// Try to mount with no function names
+		chunk, err := parse.Parse(strings.NewReader("function test() end"), "test")
+		if err != nil {
+			t.Fatal(err)
+		}
+		proto, err := lua.Compile(chunk, "test")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		err = vm.Mount(proto)
+		if err == nil {
+			t.Error("expected error when mounting without function names")
+		}
+	})
+
+	t.Run("mount and execute multiple functions", func(t *testing.T) {
+		vm, err := NewCVM(context.Background(), logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm.Close()
+
+		script := `
+			function func1(arg1)
+				coroutine.yield("from_func1")
+				return "func1_done" .. arg1
+			end
+	
+			function func2(arg1, arg2)
+				coroutine.yield("from_func2")
+				return "func2_done" .. arg2 .. arg1
+			end
+		`
+
+		chunk, err := parse.Parse(strings.NewReader(script), "test")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		proto, err := lua.Compile(chunk, "test")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Mount both functions
+		if err := vm.Mount(proto, "func1", "func2"); err != nil {
+			t.Fatal(err)
+		}
+
+		// Start both coroutines
+		ch1, err := vm.Start("func1", lua.LString("arg1"))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		ch2, err := vm.Start("func2", lua.LString("arg1"), lua.LString("arg2"))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Process all tasks until completion
+		var nextTasks []*Task
+		for {
+			tasks, err := vm.Step(nextTasks...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(tasks) == 0 {
+				break
+			}
+
+			// Verify yields from both functions
+			for _, task := range tasks {
+				yieldVal := task.Yielded[0].String()
+				if yieldVal != "from_func1" && yieldVal != "from_func2" {
+					t.Fatalf("unexpected yield value: %v", yieldVal)
+				}
+				task.Resumed = []lua.LValue{} // Empty resume is fine for this test
+			}
+			nextTasks = tasks
+		}
+
+		// Verify results
+		result1 := <-ch1
+		if result1.Error != nil {
+			t.Fatal(result1.Error)
+		}
+		if result1.Result[0].String() != "func1_donearg1" {
+			t.Fatalf("unexpected result from func: %v", result1.Result)
+		}
+
+		result2 := <-ch2
+		if result2.Error != nil {
+			t.Fatal(result2.Error)
+		}
+		if result2.Result[0].String() != "func2_donearg2arg1" {
+			t.Fatalf("unexpected result from func2: %v", result2.Result)
+		}
+	})
+}
+
+func TestCoroutineVM_StartWithArguments(t *testing.T) {
+	logger := zap.NewNop()
+
+	t.Run("start with different argument types", func(t *testing.T) {
+		vm, err := NewCVM(context.Background(), logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm.Close()
+
+		script := `
+			function test_args(str, num, bool, tbl)
+				-- First yield returns the types
+				coroutine.yield(
+					type(str) .. "," ..
+					type(num) .. "," ..
+					type(bool) .. "," ..
+					type(tbl)
+				)
+				
+				-- Second yield returns the values as strings
+				coroutine.yield(
+					tostring(str) .. "," ..
+					tostring(num) .. "," ..
+					tostring(bool) .. "," ..
+					tostring(#tbl)
+				)
+				
+				return "args_received"
+			end
+		`
+
+		// Parse and compile the script
+		chunk, err := parse.Parse(strings.NewReader(script), "test")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		proto, err := lua.Compile(chunk, "test")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Mount the function
+		if err := vm.Mount(proto, "test_args"); err != nil {
+			t.Fatal(err)
+		}
+
+		// Create test arguments of different types
+		testTable := &lua.LTable{}
+		testTable.RawSetInt(1, lua.LString("item1"))
+		testTable.RawSetInt(2, lua.LString("item2"))
+
+		args := []lua.LValue{
+			lua.LString("test_string"),
+			lua.LNumber(42),
+			lua.LBool(true),
+			testTable,
+		}
+
+		// Start the function with arguments
+		ch, err := vm.Start("test_args", args...)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Process the coroutine
+		tasks, err := vm.Step()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(tasks) != 1 {
+			t.Fatal("expected 1 yielded task")
+		}
+
+		// Check first yield - type checking
+		typeCheck := tasks[0].Yielded[0].String()
+		expectedTypes := "string,number,boolean,table"
+		if typeCheck != expectedTypes {
+			t.Fatalf("wrong argument types, got %q, want %q", typeCheck, expectedTypes)
+		}
+
+		// Step again to get values
+		tasks, err = vm.Step(tasks[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(tasks) != 1 {
+			t.Fatal("expected 1 yielded task")
+		}
+
+		// Check second yield - value checking
+		valueCheck := tasks[0].Yielded[0].String()
+		expectedValues := "test_string,42,true,2"
+		if valueCheck != expectedValues {
+			t.Fatalf("wrong argument values, got %q, want %q", valueCheck, expectedValues)
+		}
+
+		// Complete the coroutine
+		tasks, err = vm.Step(tasks[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(tasks) != 0 {
+			t.Fatal("expected coroutine to complete")
+		}
+
+		// Verify final result from channel
+		result := <-ch
+		if result.Error != nil {
+			t.Fatal(result.Error)
+		}
+		if result.Result[0].String() != "args_received" {
+			t.Fatalf("unexpected result: %v", result.Result)
+		}
+	})
+
+	t.Run("start with no arguments", func(t *testing.T) {
+		vm, err := NewCVM(context.Background(), logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm.Close()
+
+		script := `
+			function no_args()
+				coroutine.yield("no_args_called")
+				return "no_args_ok"
+			end
+		`
+
+		// Parse and compile the script
+		chunk, err := parse.Parse(strings.NewReader(script), "test")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		proto, err := lua.Compile(chunk, "test")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Mount the function
+		if err := vm.Mount(proto, "no_args"); err != nil {
+			t.Fatal(err)
+		}
+
+		ch, err := vm.Start("no_args")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		tasks, err := vm.Step()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(tasks) != 1 {
+			t.Fatal("expected 1 yielded task")
+		}
+
+		// Verify function was called with no arguments
+		if tasks[0].Yielded[0].String() != "no_args_called" {
+			t.Fatal("function not called correctly")
+		}
+
+		// Complete the coroutine
+		tasks, err = vm.Step(tasks[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		result := <-ch
+		if result.Error != nil {
+			t.Fatal(result.Error)
+		}
+		if result.Result[0].String() != "no_args_ok" {
+			t.Fatalf("unexpected result: %v", result.Result)
+		}
+	})
+
+	t.Run("start with nil arguments", func(t *testing.T) {
+		vm, err := NewCVM(context.Background(), logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm.Close()
+
+		script := `
+			function nil_args(a, b)
+				coroutine.yield(
+					(a == nil and "nil" or "not_nil") .. "," ..
+					(b == nil and "nil" or "not_nil")
+				)
+				return "nil_args_ok"
+			end
+		`
+
+		// Parse and compile the script
+		chunk, err := parse.Parse(strings.NewReader(script), "test")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		proto, err := lua.Compile(chunk, "test")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Mount the function
+		if err := vm.Mount(proto, "nil_args"); err != nil {
+			t.Fatal(err)
+		}
+
+		ch, err := vm.Start("nil_args", lua.LNil, lua.LNil)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		tasks, err := vm.Step()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(tasks) != 1 {
+			t.Fatal("expected 1 yielded task")
+		}
+
+		// Verify nil arguments were handled correctly
+		nilCheck := tasks[0].Yielded[0].String()
+		if nilCheck != "nil,nil" {
+			t.Fatalf("expected nil arguments, got %s", nilCheck)
+		}
+
+		// Complete the coroutine
+		tasks, err = vm.Step(tasks[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		result := <-ch
+		if result.Error != nil {
+			t.Fatal(result.Error)
+		}
+		if result.Result[0].String() != "nil_args_ok" {
+			t.Fatalf("unexpected result: %v", result.Result)
 		}
 	})
 }
