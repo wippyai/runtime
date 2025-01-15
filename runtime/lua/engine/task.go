@@ -61,6 +61,22 @@ func (q *TaskQueue) Pop() *Task {
 	return e.Value.(*Task)
 }
 
+func (q *TaskQueue) Drain() []*Task {
+	tasks := make([]*Task, 0, q.active.Len())
+	for e := q.active.Front(); e != nil; e = e.Next() {
+		t := e.Value.(*Task)
+		if t != nil {
+			tasks = append(tasks, t)
+		}
+	}
+	q.active.Init()
+	return tasks
+}
+
 func (q *TaskQueue) IsEmpty() bool {
 	return q.active.Len() == 0
+}
+
+func (q *TaskQueue) Len() int {
+	return q.active.Len()
 }
