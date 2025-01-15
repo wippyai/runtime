@@ -13,12 +13,13 @@ func TestChannelPassingSimple(t *testing.T) {
 	logger := zap.NewNop()
 
 	vm, err := engine.NewCVM(
-		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
+
+	vm.SetContext(context.Background())
 
 	err = vm.StartString(`
 		-- Create test channels

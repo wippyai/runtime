@@ -13,7 +13,6 @@ func TestSelectImmediate(t *testing.T) {
 	logger := zap.NewNop()
 
 	vm, err := engine.NewCVM(
-		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
 	)
@@ -71,12 +70,12 @@ func TestSelectBlockedReceive(t *testing.T) {
 	logger := zap.NewNop()
 
 	vm, err := engine.NewCVM(
-		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
+	vm.SetContext(context.Background())
 
 	err = vm.StartString(`
 		-- Create two unbuffered channels
@@ -126,12 +125,12 @@ func TestSelectBlockedClose(t *testing.T) {
 	logger := zap.NewNop()
 
 	vm, err := engine.NewCVM(
-		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
+	vm.SetContext(context.Background())
 
 	err = vm.StartString(`
 		-- Create two unbuffered channels
@@ -186,12 +185,12 @@ func TestSelectWithDefaultImmediate(t *testing.T) {
 	logger := zap.NewNop()
 
 	vm, err := engine.NewCVM(
-		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
+	vm.SetContext(context.Background())
 
 	err = vm.StartString(`
         -- Helper to get channel stats
@@ -255,12 +254,12 @@ func TestSelectLoopWithFeeds(t *testing.T) {
 	logger := zap.NewNop()
 
 	vm, err := engine.NewCVM(
-		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
+	vm.SetContext(context.Background())
 
 	err = vm.StartString(`
         -- Helper for channel stats
@@ -341,12 +340,12 @@ func TestSelectCleanupOnReceive(t *testing.T) {
 	logger := zap.NewNop()
 
 	vm, err := engine.NewCVM(
-		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
+	vm.SetContext(context.Background())
 
 	err = vm.StartString(`
        local function channel_stats(ch)
@@ -415,12 +414,12 @@ func TestSelectCleanupAll(t *testing.T) {
 	logger := zap.NewNop()
 
 	vm, err := engine.NewCVM(
-		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
+	vm.SetContext(context.Background())
 
 	err = vm.StartString(`
 		local function channel_stats(ch)
@@ -519,12 +518,12 @@ func TestMixedSelectImmediate(t *testing.T) {
 	logger := zap.NewNop()
 
 	vm, err := engine.NewCVM(
-		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
+	vm.SetContext(context.Background())
 
 	err = vm.StartString(`
 		local function channel_stats(ch)
@@ -607,12 +606,12 @@ func TestMixedSelectBlocking(t *testing.T) {
 	logger := zap.NewNop()
 
 	vm, err := engine.NewCVM(
-		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
+	vm.SetContext(context.Background())
 
 	err = vm.StartString(`
 		-- Create unbuffered channels
@@ -693,12 +692,12 @@ func TestMixedSelectWithDefault(t *testing.T) {
 	logger := zap.NewNop()
 
 	vm, err := engine.NewCVM(
-		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
+	vm.SetContext(context.Background())
 
 	err = vm.StartString(`
 		-- Create channels that would block
