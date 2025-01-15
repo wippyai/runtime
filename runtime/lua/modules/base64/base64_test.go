@@ -71,7 +71,7 @@ func TestBase64ModuleWithVM(t *testing.T) {
 					end
 					return test
 				`
-				err = vm.Import("test", script)
+				err = vm.Import(script, "test", "test")
 				require.NoError(t, err)
 
 				result, err := vm.Execute(context.Background(), "test", lua.LString(tc.input))
@@ -138,7 +138,7 @@ func TestBase64ModuleWithVM(t *testing.T) {
 					end
 					return test
 				`
-				err = vm.Import("test", script)
+				err = vm.Import(script, "test", "test")
 				require.NoError(t, err)
 
 				result, err := vm.Execute(context.Background(), "test", lua.LString(tc.input))
@@ -171,7 +171,7 @@ func TestBase64ModuleWithVM(t *testing.T) {
 			end
 			return test
 		`
-		err = vm.Import("test", script)
+		err = vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
 		input := "Hello, 世界! 🌍"

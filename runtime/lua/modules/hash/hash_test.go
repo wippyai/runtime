@@ -113,7 +113,7 @@ func TestHashModuleWithVM(t *testing.T) {
 					end
 					return test
 				`
-				err = vm.Import("test", script)
+				err = vm.Import(script, "test", "test")
 				require.NoError(t, err)
 
 				_, err = vm.Execute(context.Background(), "test", tc.input)
@@ -171,7 +171,7 @@ func TestHashModuleWithVM(t *testing.T) {
 						end
 						return test
 					`
-					err = vm.Import("test", script)
+					err = vm.Import(script, "test", "test")
 					require.NoError(t, err)
 
 					result, err := vm.Execute(context.Background(), "test", lua.LString(tc.input))
@@ -227,7 +227,7 @@ func TestHashModuleWithVM(t *testing.T) {
 					end
 					return test
 				`
-				err = vm.Import("test32", script32)
+				err = vm.Import(script32, "test_file", "test32")
 				require.NoError(t, err)
 
 				result32, err := vm.Execute(context.Background(), "test32", lua.LString(tc.input))
@@ -247,7 +247,7 @@ func TestHashModuleWithVM(t *testing.T) {
 					end
 					return test
 				`
-				err = vm.Import("test64", script64)
+				err = vm.Import(script64, "test_demo", "test64")
 				require.NoError(t, err)
 
 				result64, err := vm.Execute(context.Background(), "test64", lua.LString(tc.input))
@@ -294,7 +294,7 @@ func TestHashModuleWithVM(t *testing.T) {
 			end
 			return test
 		`
-		err = vm.Import("test", script)
+		err = vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
 		result, err := vm.Execute(context.Background(), "test")
