@@ -1,13 +1,139 @@
 package treesitter
 
 import (
+	"context"
+	"os"
+	"testing"
+
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
-	"os"
-	"testing"
 )
+
+func TestSQLQueries(t *testing.T) {
+	logger := zap.NewNop()
+	mod := NewTreeSitterModule(logger)
+
+	vm, err := engine.NewVM(logger,
+		engine.WithLoader(mod.Name(), mod.Loader),
+		engine.WithGlobalFunction("assert", assertLua),
+	)
+	require.NoError(t, err)
+	defer vm.Close()
+
+	err = vm.DoString(context.Background(), `
+	local treesitter = require("treesitter")
+
+	-- Test SQL query parsing
+	local sql_code = [[
+/*
+This is a query
+With a multiline comment
+*/
+SELECT id
+/*
+SELECT id FROM my_table;
+*/
+FROM my_table;
+        ]]
+
+	-- Parse SQL code
+	local tree = treesitter.parse("sql", sql_code)
+	assert(tree ~= nil, "tree should not be nil")
+
+    local root = tree:root_node()
+	assert(root ~= nil, "root should not be nil")
+
+	local create_table_query = treesitter.query("sql", [[
+(program
+  (marginalia)
+  (statement
+    (select
+      (keyword_select)
+      (select_expression
+        (term
+          value: (field
+            name: (identifier)))))
+    (marginalia)
+    (from
+      (keyword_from)
+      (relation
+        (object_reference
+          name: (identifier))))))
+	]])
+	-- Execute query
+	local matches = create_table_query:matches(root, sql_code)
+	assert(matches ~= nil, "matches should not be nil")
+	`, "test")
+	assert.NoError(t, err)
+}
+
+func TestMarkdownQueries(t *testing.T) {
+	logger := zap.NewNop()
+	mod := NewTreeSitterModule(logger)
+
+	vm, err := engine.NewVM(logger,
+		engine.WithLoader(mod.Name(), mod.Loader),
+		engine.WithGlobalFunction("assert", assertLua),
+	)
+	require.NoError(t, err)
+	defer vm.Close()
+
+	err = vm.DoString(context.Background(), `
+		local treesitter = require("treesitter")
+		
+		-- Test Markdown parsing
+		local md_code = [[
+- [x] foo
+  - [ ] bar
+  - [x] baz
+- [ ] bim
+
+]]
+		
+		-- Parse Markdown code
+		local tree = treesitter.parse("markdown", md_code)
+		assert(tree ~= nil, "tree should not be nil")
+		
+		local root = tree:root_node()
+		assert(root ~= nil, "root should not be nil")
+		
+		-- Query for headers
+		local header_query = treesitter.query("markdown", [[
+			(document
+  (section
+    (list
+      (list_item
+        (list_marker_minus)
+        (task_list_marker_checked)
+        (paragraph
+          (inline)
+          (block_continuation))
+        (list
+          (list_item
+            (list_marker_minus)
+            (task_list_marker_unchecked)
+            (paragraph
+              (inline)
+              (block_continuation)))
+          (list_item
+            (list_marker_minus)
+            (task_list_marker_checked)
+            (paragraph
+              (inline)))))
+      (list_item
+        (list_marker_minus)
+        (task_list_marker_unchecked)
+        (paragraph
+          (inline))))))
+		]])
+		
+		local matches = header_query:matches(root, md_code)
+		assert(matches ~= nil, "matches should not be nil")
+	`, "test")
+	assert.NoError(t, err)
+}
 
 func TestBasicQuery(t *testing.T) {
 	logger := zap.NewNop()
@@ -20,36 +146,36 @@ func TestBasicQuery(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(nil, `
+	err = vm.DoString(context.Background(), `
 		local treesitter = require("treesitter")
-		
+
 		-- Simple test code with a function
 		local code = [[
 			func hello() {
 				println("world")
 			}
 		]]
-		
+
 		-- Parse the code
 		local tree = treesitter.parse("go", code)
 		assert(tree ~= nil, "tree should not be nil")
-		
+
 		local root = tree:root_node()
 		assert(root ~= nil, "root should not be nil")
-		
+
 		-- Create a simple query to find the function
 		local query = treesitter.query("go", "(function_declaration) @function")
 		assert(query ~= nil, "query should not be nil")
-		
+
 		-- Execute query
 		local matches = query:matches(root, code)
 		assert(matches ~= nil, "matches should not be nil")
-		
+
 		-- Should find exactly one function
 		local match_count = 0
 		for _, match in pairs(matches) do
 			match_count = match_count + 1
-			
+
 			-- Verify the match has captures
 			assert(match.captures ~= nil, "match should have captures")
 			assert(#match.captures > 0, "should have at least one capture")
@@ -57,13 +183,13 @@ func TestBasicQuery(t *testing.T) {
 			-- Verify the captured node
 			local capture = match.captures[1]
 			assert(capture.node ~= nil, "capture should have node")
-			
+
 			-- Get the text of the captured node
 			local text = capture.node:text(code)
 
 			assert(text:match("^func hello"), "captured text should start with 'func hello'")
 		end
-		
+
 		assert(match_count == 1, "should find exactly one function")
 	`, "test")
 	assert.NoError(t, err)
@@ -80,9 +206,9 @@ func TestQueryMultipleCaptures(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(nil, `
+	err = vm.DoString(context.Background(), `
 		local treesitter = require("treesitter")
-		
+
 		-- Test code with multiple functions and parameters
 		local code = [[
 func add(x int, y int) int {
@@ -93,36 +219,36 @@ func greet(name string) {
 	println("Hello, " .. name)
 }
 ]]
-		
+
 		-- Parse the code
 		local tree = treesitter.parse("go", code)
 		assert(tree ~= nil, "tree should not be nil")
-		
+
 		local root = tree:root_node()
 		assert(root ~= nil, "root should not be nil")
-		
+
 		-- Create query to capture function name and parameters
 		local query = treesitter.query("go", [[
 (function_declaration
   name: (identifier) @func_name)
 ]])
-		
+
 		-- Execute query and debug output
 		local matches = query:matches(root, code)
 		assert(matches ~= nil, "matches should not be nil")
-		
+
 		-- Verify matches
 		local found_add = false
 		local found_greet = false
-		
+
 		for i, match in ipairs(matches) do
 			assert(match.captures ~= nil, "match should have captures")
-			
+
 			for j, capture in ipairs(match.captures) do
 				assert(capture.node ~= nil, "capture should have node")
-				
+
 				local text = capture.node:text(code)
-				
+
 				if text == "add" then
 					found_add = true
 				elseif text == "greet" then
@@ -130,7 +256,7 @@ func greet(name string) {
 				end
 			end
 		end
-		
+
 		assert(found_add, "should find 'add' function")
 		assert(found_greet, "should find 'greet' function")
 	`, "test")
@@ -148,9 +274,9 @@ func TestQueryFunctionDetails(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(nil, `
+	err = vm.DoString(context.Background(), `
         local treesitter = require("treesitter")
-        
+
         local code = [[
 func add(x int, y int) int {
     return x + y
@@ -164,33 +290,33 @@ func log(msg string) {
     println(msg)
 }
 ]]
-        
+
         local tree = treesitter.parse("go", code)
         local root = tree:root_node()
-        
+
         -- First get functions and their names
         local func_query = treesitter.query("go", [[
-(function_declaration 
+(function_declaration
   name: (identifier) @func_name
   parameters: (parameter_list) @params
   result: (type_identifier)? @return_type)
 ]])
 
         local param_query = treesitter.query("go", [[
-(parameter_list 
+(parameter_list
   (parameter_declaration
     name: (identifier) @param_name
     type: (type_identifier) @param_type))
 ]])
 
         local func_matches = func_query:matches(root, code)
-        
+
         local functions = {}
-        
+
         -- Process each function declaration
         for _, match in ipairs(func_matches) do
             local func = { name = nil, params = {}, return_type = nil }
-            
+
             -- Find the function name and parameter list node
             for _, capture in ipairs(match.captures) do
                 if capture.name == "func_name" then
@@ -217,10 +343,10 @@ func log(msg string) {
             end
             table.insert(functions, func)
         end
-        
+
         -- Verification phase
         for _, func in ipairs(functions) do
-            
+
             -- Verify the function details
             if func.name == "add" then
                 assert(#func.params == 2, "add should have 2 parameters")
@@ -258,7 +384,7 @@ func TestQueryParamDebug(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(nil, `
+	err = vm.DoString(context.Background(), `
         local treesitter = require("treesitter")
 
 local code = [[
@@ -290,8 +416,8 @@ local func_query = treesitter.query("go", [[
 -- Query for parameters within a parameter list
 local param_query = treesitter.query("go", [[
 (parameter_list
-  (parameter_declaration 
-    name: (identifier) @param_name 
+  (parameter_declaration
+    name: (identifier) @param_name
     type: (type_identifier) @param_type))
 ]])
 
@@ -301,46 +427,46 @@ local functions = {}
 
 -- Process function matches
 for i, match in ipairs(func_matches) do
-    
+
     local func = { name = nil, params = {}, return_type = nil }
-    
+
     for j, capture in ipairs(match.captures) do
         local text = capture.node:text(code)
-        
+
         if capture.name == "func_name" then
             func.name = text
         elseif capture.name == "return_type" then
             func.return_type = text
         elseif capture.name == "params" then
             local param_matches = param_query:matches(capture.node, code)
-            
+
             -- Process parameter matches
             for k, param_match in ipairs(param_matches) do
                 local param = {}
-                
+
                 for l, param_capture in ipairs(param_match.captures) do
                     local param_text = param_capture.node:text(code)
-                    
+
                     if param_capture.name == "param_name" then
                         param.name = param_text
                     elseif param_capture.name == "param_type" then
                         param.type = param_text
                     end
                 end
-                
+
                 if param.name and param.type then
                     table.insert(func.params, param)
                 end
             end
         end
     end
-    
+
     table.insert(functions, func)
 end
 
 -- Verification phase
 for _, func in ipairs(functions) do
-    
+
     -- Assertions
     if func.name == "add" then
         assert(#func.params == 2, "add should have 2 parameters")
@@ -378,9 +504,9 @@ func TestQueryAdvancedFeatures(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(nil, `
+	err = vm.DoString(context.Background(), `
         local treesitter = require("treesitter")
-        
+
         local code = [[
 func example(x int, y string) int {
     if x > 0 {
@@ -390,24 +516,24 @@ func example(x int, y string) int {
     return 0
 }
 ]]
-        
+
         local tree = treesitter.parse("go", code)
         local root = tree:root_node()
-        
+
         -- Create query with multiple patterns
         local query = treesitter.query("go", [[
           (function_declaration) @func
-          (parameter_declaration name: (identifier) @param_name type: (type_identifier) @param_type) 
+          (parameter_declaration name: (identifier) @param_name type: (type_identifier) @param_type)
           (if_statement condition: (binary_expression) @condition)
         ]])
 
         -- Test pattern count and capture count
         local pattern_count = query:pattern_count()
         assert(pattern_count == 3, "should have 3 patterns")
-        
+
         local capture_count = query:capture_count()
         assert(capture_count == 4, "should have 4 captures") -- func, param_name, param_type, condition
-        
+
         -- Get all capture names
         local capture_names = {}
         for i = 0, capture_count-1 do
@@ -420,12 +546,12 @@ func example(x int, y string) int {
         assert(capture_names["param_name"], "should have param_name capture")
         assert(capture_names["param_type"], "should have param_type capture")
         assert(capture_names["condition"], "should have condition capture")
-        
+
         -- Test match limit and timeout
         query:set_match_limit(1000)
         local limit = query:get_match_limit()
         assert(limit == 1000, "match limit should be set")
-        
+
         query:set_timeout(5000)
         local timeout = query:get_timeout()
         assert(timeout == 5000, "timeout should be set")
@@ -436,7 +562,7 @@ func example(x int, y string) int {
 
         -- Test matches
         local matches = query:matches(root, code)
-        
+
         local found_func = false
         local found_param = false
         local found_condition = false
@@ -489,7 +615,7 @@ func TestQueryOperations(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(nil, `
+	err = vm.DoString(context.Background(), `
 		local treesitter = require("treesitter")
 
 -- Test code with rich syntax for comprehensive query testing
@@ -528,14 +654,14 @@ local query = treesitter.query("go", [[
         parameters: (parameter_list) @params
         result: [(type_identifier) (ERROR)]? @return_type) @function
 
-    (if_statement 
+    (if_statement
         condition: (_) @if_condition) @if
-    
+
     (binary_expression
         left: (_) @left
         operator: (_) @op
         right: (_) @right) @binary
-    
+
     ((identifier) @id
      (#match? @id "^process"))
 ]])
@@ -629,7 +755,7 @@ func TestQueryErrorCases(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(nil, `
+	err = vm.DoString(context.Background(), `
 		local treesitter = require("treesitter")
 
 -- Test different query error types
@@ -662,16 +788,16 @@ local error_cases = {
 
 for _, case in ipairs(error_cases) do
     local query, err = treesitter.query("go", case.query)
-    
+
     -- Should not create a valid query
     assert(query == nil, "invalid query '" .. case.query .. "' should return nil")
-    
+
     -- Should have an error message
     assert(err ~= nil, "should have error message for query: " .. case.query)
-    
+
     -- Error message should match expected pattern
-    assert(err:match(case.expected), 
-           string.format("\nError message did not match pattern.\nGot: '%s'\nExpected to match: '%s'", 
+    assert(err:match(case.expected),
+           string.format("\nError message did not match pattern.\nGot: '%s'\nExpected to match: '%s'",
                         err, case.expected))
 end
 
@@ -702,7 +828,7 @@ func TestQueryTextPredicates(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(nil, `
+	err = vm.DoString(context.Background(), `
 		local treesitter = require("treesitter")
 
 -- Test code with various matches for predicates
@@ -734,7 +860,7 @@ local query = treesitter.query("go", [[
   name: (identifier) @func
   (#match? @func "^[A-Z]"))
 
-(field_declaration 
+(field_declaration
   name: (field_identifier) @field
   type: (type_identifier) @type
   (#eq? @type "string"))
@@ -800,7 +926,7 @@ func TestQueryNestedGrammars(t *testing.T) {
 	code, err := os.ReadFile(file)
 	require.NoError(t, err)
 
-	err = vm.DoString(nil, string(code), "test")
+	err = vm.DoString(context.Background(), string(code), "test")
 	assert.NoError(t, err)
 }
 
@@ -820,7 +946,7 @@ func TestQueryLuaInLua(t *testing.T) {
 	code, err := os.ReadFile(file)
 	require.NoError(t, err)
 
-	err = vm.DoString(nil, string(code), "test")
+	err = vm.DoString(context.Background(), string(code), "test")
 	assert.NoError(t, err)
 }
 
@@ -840,6 +966,6 @@ func TestQueryLuaFileStruct(t *testing.T) {
 	code, err := os.ReadFile(file)
 	require.NoError(t, err)
 
-	err = vm.DoString(nil, string(code), "test")
+	err = vm.DoString(context.Background(), string(code), "test")
 	assert.NoError(t, err)
 }

@@ -1,9 +1,10 @@
 package lfs
 
 import (
-	"github.com/yuin/gopher-lua"
 	"os"
 	"path/filepath"
+
+	lua "github.com/yuin/gopher-lua"
 )
 
 func attributes(l *lua.LState, statFunc func(string) (os.FileInfo, error)) int {

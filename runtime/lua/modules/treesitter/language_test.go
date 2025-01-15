@@ -1,11 +1,13 @@
 package treesitter
 
 import (
+	"context"
+	"testing"
+
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
-	"testing"
 )
 
 func TestLanguageMethods(t *testing.T) {
@@ -20,7 +22,7 @@ func TestLanguageMethods(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local treesitter = require("treesitter")
 			local code = "package main"
 			local tree = treesitter.parse("go", code)
@@ -43,7 +45,7 @@ func TestLanguageMethods(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local treesitter = require("treesitter")
 			local code = "package main"
 			local tree = treesitter.parse("go", code)
@@ -66,7 +68,7 @@ func TestLanguageMethods(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local treesitter = require("treesitter")
 			local code = "package main"
 			local tree = treesitter.parse("go", code)
@@ -101,7 +103,7 @@ func TestLanguageMethods(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local treesitter = require("treesitter")
 			local code = "package main"
 			local tree = treesitter.parse("go", code)
@@ -132,7 +134,7 @@ func TestLanguageMethods(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local treesitter = require("treesitter")
 			local code = "package main"
 			local tree = treesitter.parse("go", code)
@@ -159,7 +161,7 @@ func TestLanguageEdgeCases(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local treesitter = require("treesitter")
 			
 			-- Test with invalid language
@@ -191,7 +193,7 @@ func TestLanguageEdgeCases(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local treesitter = require("treesitter")
 			local code = "package main"
 			local tree = treesitter.parse("go", code)
@@ -221,7 +223,7 @@ func TestLanguageEdgeCases(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local treesitter = require("treesitter")
 			
 			-- Test with different languages

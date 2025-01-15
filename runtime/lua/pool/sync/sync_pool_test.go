@@ -3,24 +3,26 @@ package sync
 import (
 	"context"
 	"fmt"
-	time2 "github.com/ponyruntime/pony/runtime/lua/modules/time"
 	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	timemod "github.com/ponyruntime/pony/runtime/lua/modules/time"
+
 	cfg "github.com/ponyruntime/pony/runtime/lua/factory"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/yuin/gopher-lua"
+
+	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
 
 func setupTestPool(t *testing.T, size int) *Pool {
 	logger := zap.NewNop()
 	vmConfig := cfg.NewFactory(logger)
-	cfg.WithModule(time2.NewTimeModule())(vmConfig)
+	cfg.WithModule(timemod.NewTimeModule())(vmConfig)
 
 	// Add a test function to the VM config
 	cfg.WithFunction("test", `

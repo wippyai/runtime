@@ -7,7 +7,6 @@ import (
 	"github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 	"sync"
-	"sync/atomic"
 )
 
 // Option represents a pool configuration option
@@ -37,7 +36,6 @@ type Pool struct {
 	logger    *zap.Logger
 	factory   api.Factory
 	vms       chan api.VM
-	closed    atomic.Bool
 	closeOnce sync.Once
 	done      chan struct{} // opChan for signaling shutdown
 }

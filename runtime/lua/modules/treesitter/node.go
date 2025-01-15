@@ -2,7 +2,7 @@ package treesitter
 
 import (
 	treesitter "github.com/tree-sitter/go-tree-sitter"
-	"github.com/yuin/gopher-lua"
+	lua "github.com/yuin/gopher-lua"
 )
 
 // NodeWrapper wraps a tree-sitter Node for Lua integration
@@ -14,48 +14,47 @@ type NodeWrapper struct {
 // Register the Node type to Lua
 func registerNode(L *lua.LState) {
 	mt := L.NewTypeMetatable("treesitter.Node")
-	L.SetField(mt, "__index", L.SetFuncs(L.NewTable(), nodeMethods))
-}
 
-var nodeMethods = map[string]lua.LGFunction{
-	// Navigation methods
-	"parent":                           nodeParent,
-	"child":                            nodeChild,
-	"child_count":                      nodeChildCount,
-	"next_sibling":                     nodeNextSibling,
-	"prev_sibling":                     nodePrevSibling,
-	"next_named_sibling":               nodeNextNamedSibling,
-	"prev_named_sibling":               nodePrevNamedSibling,
-	"named_child":                      nodeNamedChild,
-	"named_child_count":                nodeNamedChildCount,
-	"named_descendant_for_point_range": nodeNamedDescendantForPointRange,
-	"descendant_count":                 nodeDescendantCount,
+	L.SetField(mt, "__index", L.SetFuncs(L.NewTable(), map[string]lua.LGFunction{
+		// Navigation methods
+		"parent":                           nodeParent,
+		"child":                            nodeChild,
+		"child_count":                      nodeChildCount,
+		"next_sibling":                     nodeNextSibling,
+		"prev_sibling":                     nodePrevSibling,
+		"next_named_sibling":               nodeNextNamedSibling,
+		"prev_named_sibling":               nodePrevNamedSibling,
+		"named_child":                      nodeNamedChild,
+		"named_child_count":                nodeNamedChildCount,
+		"named_descendant_for_point_range": nodeNamedDescendantForPointRange,
+		"descendant_count":                 nodeDescendantCount,
 
-	// Field-related methods
-	"child_by_field_name":  nodeChildByFieldName,
-	"field_name_for_child": nodeFieldNameForChild,
+		// Field-related methods
+		"child_by_field_name":  nodeChildByFieldName,
+		"field_name_for_child": nodeFieldNameForChild,
 
-	// Inspection methods
-	"kind": nodeKind,
-	"type": nodeKind, // alias for AI
+		// Inspection methods
+		"kind": nodeKind,
+		"type": nodeKind, // alias for AI
 
-	"is_named":     nodeIsNamed,
-	"grammar_name": nodeGrammarName,
-	"is_extra":     nodeIsExtra,
-	"is_missing":   nodeIsMissing,
+		"is_named":     nodeIsNamed,
+		"grammar_name": nodeGrammarName,
+		"is_extra":     nodeIsExtra,
+		"is_missing":   nodeIsMissing,
 
-	"has_error": nodeHasError,
-	"is_error":  nodeIsError,
+		"has_error": nodeHasError,
+		"is_error":  nodeIsError,
 
-	// Position methods
-	"start_byte":  nodeStartByte,
-	"end_byte":    nodeEndByte,
-	"start_point": nodeStartPoint,
-	"end_point":   nodeEndPoint,
+		// Position methods
+		"start_byte":  nodeStartByte,
+		"end_byte":    nodeEndByte,
+		"start_point": nodeStartPoint,
+		"end_point":   nodeEndPoint,
 
-	// Text and source methods
-	"text":    nodeText,
-	"to_sexp": nodeToSexp,
+		// Text and source methods
+		"text":    nodeText,
+		"to_sexp": nodeToSexp,
+	}))
 }
 
 // Navigation methods implementation
@@ -280,15 +279,15 @@ func nodeText(L *lua.LState) int {
 	}
 
 	// Get byte positions
+	// start and end can't be < 0
 	start := node.node.StartByte()
 	end := node.node.EndByte()
 
-	// Bounds checking with uint32 for safe comparisons
-	sourceLen := uint32(len(code))
-	startPos := uint32(start)
-	endPos := uint32(end)
+	sourceLen := len(code)
+	startPos := start
+	endPos := end
 
-	if start < 0 || end < 0 || startPos > endPos || endPos > sourceLen {
+	if startPos > endPos || endPos > uint(sourceLen) {
 		// Instead of just returning nil, raise an error
 		L.RaiseError("invalid byte range")
 		return 0 // This line won't be reached due to RaiseError

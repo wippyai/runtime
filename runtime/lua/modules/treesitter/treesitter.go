@@ -3,19 +3,22 @@ package treesitter
 import (
 	"context"
 	"fmt"
+
 	treesitter "github.com/tree-sitter/go-tree-sitter"
-	"github.com/yuin/gopher-lua"
+	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
 
 // todo: a good chunk of memory optimizations is needed here, but no rush
 type Module struct {
-	log *zap.Logger
+	languages *Languages
+	log       *zap.Logger
 }
 
 func NewTreeSitterModule(log *zap.Logger) *Module {
 	return &Module{
-		log: log,
+		languages: NewLanguages(),
+		log:       log,
 	}
 }
 
@@ -50,7 +53,7 @@ func (m *Module) Loader(l *lua.LState) int {
 
 // supportedLanguages returns a table of supported languages.
 func (m *Module) supportedLanguages(l *lua.LState) int {
-	langs := GetSupportedLanguages()
+	langs := m.languages.GetSupportedLanguages()
 	table := l.NewTable()
 	for _, lang := range langs {
 		table.RawSetString(lang, lua.LTrue)
@@ -59,34 +62,36 @@ func (m *Module) supportedLanguages(l *lua.LState) int {
 	return 1
 }
 
-func (m *Module) language(L *lua.LState) int {
-	languageAlias := L.CheckString(1)
+func (m *Module) language(l *lua.LState) int {
+	languageAlias := l.CheckString(1)
 
-	langInfo := GetLanguageInfo(languageAlias)
+	langInfo := m.languages.GetLanguageInfo(languageAlias)
 	if langInfo == nil {
-		L.Push(lua.LNil)
-		L.Push(lua.LString(fmt.Sprintf("unsupported language: %s", languageAlias)))
+		l.Push(lua.LNil)
+		l.Push(lua.LString(fmt.Sprintf("unsupported language: %s", languageAlias)))
 		return 2
 	}
 
 	if langInfo.Language == nil {
-		L.Push(lua.LNil)
-		L.Push(lua.LString(fmt.Sprintf("language '%s' does not have a Tree-sitter language binding", languageAlias)))
+		l.Push(lua.LNil)
+		l.Push(lua.LString(fmt.Sprintf("language '%s' does not have a Tree-sitter language binding", languageAlias)))
 		return 2
 	}
 
 	lang := treesitter.NewLanguage(langInfo.Language())
 
 	// Create and return Language userdata
-	ud := L.NewUserData()
+	ud := l.NewUserData()
 	ud.Value = &LanguageWrapper{lang: lang}
-	L.SetMetatable(ud, L.GetTypeMetatable("treesitter.Language"))
-	L.Push(ud)
+	l.SetMetatable(ud, l.GetTypeMetatable("treesitter.Language"))
+	l.Push(ud)
 	return 1
 }
 
 // parse parses the text into a Tree object.
 func (m *Module) parse(l *lua.LState) int {
+	m.log.Debug("parse called")
+
 	if l.GetTop() != 2 {
 		l.ArgError(1, "expected 2 arguments: language, code")
 		return 0
@@ -99,7 +104,7 @@ func (m *Module) parse(l *lua.LState) int {
 	parser := treesitter.NewParser()
 	defer parser.Close()
 
-	langInfo := GetLanguageInfo(languageAlias)
+	langInfo := m.languages.GetLanguageInfo(languageAlias)
 	if langInfo == nil {
 		l.ArgError(1, fmt.Sprintf("unsupported language: %s", languageAlias))
 		return 0

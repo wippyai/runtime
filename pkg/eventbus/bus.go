@@ -4,11 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
+	"sync/atomic"
+
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/internal/wildcard"
 	"go.uber.org/zap"
-	"sync"
-	"sync/atomic"
 )
 
 type actionType int

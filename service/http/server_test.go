@@ -2,12 +2,13 @@ package http
 
 import (
 	"context"
-	"github.com/ponyruntime/pony/api/supervisor"
-	sup "github.com/ponyruntime/pony/pkg/supervisor"
 	"io"
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/ponyruntime/pony/api/supervisor"
+	sup "github.com/ponyruntime/pony/pkg/supervisor"
 
 	config "github.com/ponyruntime/pony/api/service/http"
 	"github.com/stretchr/testify/assert"

@@ -2,8 +2,9 @@ package engine
 
 import (
 	"fmt"
-	"github.com/yuin/gopher-lua"
 	"strings"
+
+	lua "github.com/yuin/gopher-lua"
 )
 
 // WithLibrary adds a library from either source code or function prototype to the VM

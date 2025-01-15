@@ -1,13 +1,14 @@
 package http
 
 import (
+	"net/http"
+	"testing"
+
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/yuin/gopher-lua"
+	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
-	"net/http"
-	"testing"
 )
 
 func TestEncodeURI(t *testing.T) {

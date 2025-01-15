@@ -3,11 +3,12 @@ package channel
 import (
 	"context"
 	"fmt"
+	"strings"
+	"testing"
+
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
-	"strings"
-	"testing"
 )
 
 func TestUnbufferedChannelOperations(t *testing.T) {

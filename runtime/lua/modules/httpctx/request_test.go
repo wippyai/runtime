@@ -4,17 +4,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/ponyruntime/pony/api/service/http"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"github.com/yuin/gopher-lua"
-	"go.uber.org/zap"
 	"io"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ponyruntime/pony/api/service/http"
+	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	lua "github.com/yuin/gopher-lua"
+	"go.uber.org/zap"
 )
 
 type delayReader struct {

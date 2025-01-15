@@ -3,11 +3,12 @@ package treesitter
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/internal/closer"
 	"time"
 
+	"github.com/ponyruntime/pony/internal/closer"
+
 	treesitter "github.com/tree-sitter/go-tree-sitter"
-	"github.com/yuin/gopher-lua"
+	lua "github.com/yuin/gopher-lua"
 )
 
 type ParserWrapper struct {
@@ -17,40 +18,39 @@ type ParserWrapper struct {
 
 func registerParser(L *lua.LState) {
 	mt := L.NewTypeMetatable("treesitter.Parser")
-	L.SetField(mt, "__index", L.SetFuncs(L.NewTable(), parserMethods))
+	L.SetField(mt, "__index", L.SetFuncs(L.NewTable(), map[string]lua.LGFunction{
+		"parse":        parserParse,
+		"set_language": parserSetLanguage,
+		"get_language": parserGetLanguage,
+		"reset":        parserReset,
+		"close":        parserClose,
+		"set_timeout":  parserSetTimeout,
+		"set_ranges":   parserSetRanges,
+	}))
 }
 
-var parserMethods = map[string]lua.LGFunction{
-	"parse":        parserParse,
-	"set_language": parserSetLanguage,
-	"get_language": parserGetLanguage,
-	"reset":        parserReset,
-	"close":        parserClose,
-	"set_timeout":  parserSetTimeout,
-	"set_ranges":   parserSetRanges,
-}
-
-func newParser(L *lua.LState) int {
+func newParser(l *lua.LState) int {
 	parser := treesitter.NewParser()
+	wrap := &ParserWrapper{parser: parser}
 
-	if L.Context() != nil {
-		cleanup := closer.FromContext(L.Context())
+	if l.Context() != nil {
+		cleanup := closer.FromContext(l.Context())
 		if cleanup != nil {
-			cleanup.Add(func() error { parser.Close(); return nil })
+			cleanup.Add(func() error { wrap.Close(); return nil })
 		}
 	}
 
-	ud := L.NewUserData()
-	ud.Value = &ParserWrapper{parser: parser}
-	L.SetMetatable(ud, L.GetTypeMetatable("treesitter.Parser"))
-	L.Push(ud)
+	ud := l.NewUserData()
+	ud.Value = wrap
+	l.SetMetatable(ud, l.GetTypeMetatable("treesitter.Parser"))
+	l.Push(ud)
 	return 1
 }
 
-func (p *ParserWrapper) parseWithContext(code []byte, oldTree *TreeWrapper, ctx context.Context) (*treesitter.Tree, error) {
+func (p *ParserWrapper) parseWithContext(ctx context.Context, code []byte, oldTree *TreeWrapper) (*treesitter.Tree, error) {
 	if deadline, ok := ctx.Deadline(); ok {
 		timeout := time.Until(deadline)
-		p.parser.SetTimeoutMicros(uint64(timeout.Microseconds()))
+		p.parser.SetTimeoutMicros(uint64(timeout.Microseconds())) //nolint:gosec
 	}
 
 	var cflag uintptr
@@ -76,14 +76,14 @@ func parserSetLanguage(L *lua.LState) int {
 	p := checkParser(L)
 	langAlias := L.CheckString(2)
 
-	langInfo := GetLanguageInfo(langAlias)
+	langInfo := NewLanguages().GetLanguageInfo(langAlias)
 	if langInfo == nil {
-		L.RaiseError("language '" + langAlias + "' not found")
+		L.RaiseError("language %s is not found", langAlias)
 		return 0
 	}
 
 	if langInfo.Language == nil {
-		L.RaiseError("language '" + langAlias + "' does not have a Tree-sitter language binding")
+		L.RaiseError("language %s does not have a Tree-sitter language binding", langAlias)
 		return 0
 	}
 
@@ -141,7 +141,7 @@ func parserParse(L *lua.LState) int {
 	}
 
 	// Parse with context handling
-	tree, err := parser.parseWithContext([]byte(code), oldTree, ctx)
+	tree, err := parser.parseWithContext(ctx, []byte(code), oldTree)
 	if err != nil {
 		L.Push(lua.LNil)
 		L.Push(lua.LString(err.Error()))
@@ -171,6 +171,7 @@ func parserReset(L *lua.LState) int {
 func parserClose(L *lua.LState) int {
 	p := checkParser(L)
 	p.Close()
+
 	return 0
 }
 

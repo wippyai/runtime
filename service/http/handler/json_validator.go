@@ -4,8 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/xeipuuv/gojsonschema"
 	"strings"
+
+	"github.com/xeipuuv/gojsonschema"
 )
 
 // ValidationError represents a JSON schema validation error

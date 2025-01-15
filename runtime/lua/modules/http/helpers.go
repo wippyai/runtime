@@ -2,9 +2,10 @@ package http
 
 import (
 	"errors"
-	"github.com/yuin/gopher-lua"
 	"net/url"
 	"strings"
+
+	lua "github.com/yuin/gopher-lua"
 )
 
 func encodeURI(l *lua.LState) int {

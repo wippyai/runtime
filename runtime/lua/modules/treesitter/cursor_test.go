@@ -1,11 +1,13 @@
 package treesitter
 
 import (
+	"context"
+	"testing"
+
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
-	"testing"
 )
 
 func TestCursorMethods(t *testing.T) {
@@ -20,7 +22,7 @@ func TestCursorMethods(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local treesitter = require("treesitter")
 			local code = [[
 				package main
@@ -61,7 +63,7 @@ func TestCursorMethods(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local treesitter = require("treesitter")
 			local code = [[
 				package main
@@ -102,7 +104,7 @@ func TestCursorMethods(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local treesitter = require("treesitter")
 			local code = "package main"
 			local tree = treesitter.parse("go", code)
@@ -146,7 +148,7 @@ func TestCursorMethods(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local treesitter = require("treesitter")
 			local code = [[
 				package main
@@ -187,7 +189,7 @@ func TestCursorAdditionalMethods(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local treesitter = require("treesitter")
 			local code = [[
 				type Person struct {
@@ -217,7 +219,7 @@ func TestCursorAdditionalMethods(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local treesitter = require("treesitter")
 			local code = "package main"
 			local tree = treesitter.parse("go", code)
@@ -255,7 +257,7 @@ func TestCursorAdditionalMethods(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local treesitter = require("treesitter")
 			local code = "package main"
 			local tree = treesitter.parse("go", code)
@@ -281,7 +283,7 @@ func TestCursorImplementation(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
             local treesitter = require("treesitter")
             local code = "package main\n\nfunc test() {}\n"
             local tree = treesitter.parse("go", code)
@@ -315,7 +317,7 @@ func TestCursorImplementation(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
             local treesitter = require("treesitter")
             local code = "package main\n\nfunc test() {}\n"
             local tree = treesitter.parse("go", code)

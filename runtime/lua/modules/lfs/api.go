@@ -1,9 +1,10 @@
 package lfs
 
 import (
-	"github.com/yuin/gopher-lua"
 	"os"
 	"time"
+
+	lua "github.com/yuin/gopher-lua"
 )
 
 func apiAttributes(l *lua.LState) int {

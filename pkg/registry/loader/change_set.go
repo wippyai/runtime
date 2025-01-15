@@ -1,9 +1,10 @@
 package loader
 
 import (
+	"sort"
+
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/internal/graph"
-	"sort"
 )
 
 // SortEntriesByDependency sorts entries based on their dependencies.

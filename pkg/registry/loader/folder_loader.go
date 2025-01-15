@@ -2,9 +2,10 @@ package loader
 
 import (
 	"fmt"
-	"github.com/ponyruntime/pony/internal/interpolator"
 	"path/filepath"
 	"strings"
+
+	"github.com/ponyruntime/pony/internal/interpolator"
 
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"

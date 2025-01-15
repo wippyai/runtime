@@ -1,11 +1,12 @@
 package http
 
 import (
-	"github.com/stretchr/testify/assert"
-	"github.com/yuin/gopher-lua"
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	lua "github.com/yuin/gopher-lua"
 )
 
 func TestParseOptions(t *testing.T) {

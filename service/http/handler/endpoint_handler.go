@@ -3,13 +3,14 @@ package handler
 import (
 	"context"
 	"fmt"
+	"io"
+	"net/http"
+
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
 	config "github.com/ponyruntime/pony/api/service/http"
 	"go.uber.org/zap"
-	"io"
-	"net/http"
 )
 
 // EndpointHandler processes HTTP requests for specific endpoints.
