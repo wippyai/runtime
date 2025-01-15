@@ -129,6 +129,7 @@ func (e *CoroutineVM) Step(tasks ...*Task) (result []*Task, finalErr error) {
 				if task.output != nil {
 					task.output <- TaskResult{Error: task.RaiseError}
 					close(task.output)
+					task.output = nil
 				}
 				_ = e.removeTask(task)
 				return nil, task.RaiseError
@@ -139,6 +140,7 @@ func (e *CoroutineVM) Step(tasks ...*Task) (result []*Task, finalErr error) {
 				if task.output != nil {
 					task.output <- TaskResult{Error: err}
 					close(task.output)
+					task.output = nil
 				}
 				_ = e.removeTask(task)
 				return nil, fmt.Errorf("error resuming task: %v", err)
@@ -159,6 +161,7 @@ func (e *CoroutineVM) Step(tasks ...*Task) (result []*Task, finalErr error) {
 					task.output <- TaskResult{}
 				}
 				close(task.output)
+				task.output = nil
 			}
 
 			_ = e.removeTask(task)
@@ -195,6 +198,11 @@ func (e *CoroutineVM) Close() {
 	for _, task := range e.tasks {
 		if task.cancel != nil {
 			task.cancel()
+		}
+
+		if task.output != nil {
+			close(task.output)
+			task.output = nil
 		}
 	}
 	if e.vm != nil {

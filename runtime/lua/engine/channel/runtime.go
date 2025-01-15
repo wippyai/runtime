@@ -2,8 +2,6 @@ package channel
 
 import (
 	"fmt"
-	api "github.com/ponyruntime/pony/api/runtime/lua"
-
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -80,7 +78,7 @@ func (r *Runtime) Send(name string, values ...lua.LValue) error {
 }
 
 // Step handles channel operations while maintaining CVM compatibility
-func (r *Runtime) Step(vm api.CVM, tasks ...*engine.Task) ([]*engine.Task, error) {
+func (r *Runtime) Step(vm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, error) {
 	var externalOps []*engine.Task
 
 	for _, prepend := range r.next {
