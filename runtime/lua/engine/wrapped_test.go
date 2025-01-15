@@ -107,7 +107,7 @@ func TestExecLayer_HandledValues(t *testing.T) {
 		}
 		defer base.Close()
 
-		exec := &execLayer{handled: make([][]lua.LValue, 0)}
+		exec := &execLayer{}
 		wvm := NewWrappedCVM(base)
 		wvm.AddLayer(exec)
 
