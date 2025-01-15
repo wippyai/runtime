@@ -45,8 +45,8 @@ func NewCVM(
 	return avm, nil
 }
 
-// DoString executes a Lua script string with the given name and arguments.
-func (e *CoroutineVM) DoString(script, scriptName string, args ...lua.LValue) error {
+// StartString executes a Lua script string with the given name and arguments.
+func (e *CoroutineVM) StartString(script, scriptName string, args ...lua.LValue) error {
 	fn, err := e.vm.state.Load(strings.NewReader(script), scriptName)
 	if err != nil {
 		return err

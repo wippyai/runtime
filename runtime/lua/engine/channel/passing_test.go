@@ -19,7 +19,7 @@ func TestChannelPassingSimple(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(`
+	err = vm.StartString(`
 		-- Create test channels
 		local passCh = channel.new(0)    -- channel for passing other channels
 		local done = channel.new(0)      -- synchronization
