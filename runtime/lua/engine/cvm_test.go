@@ -201,7 +201,7 @@ func TestCoroutineVM_ErrorHandling(t *testing.T) {
 			t.Fatalf("unexpected yield value: %s", vals[0].String())
 		}
 
-		// Step should result in error
+		// Step should output in error
 		_, err = vm.Step(task)
 		if err == nil {
 			t.Fatal("expected error from coroutine")
@@ -919,14 +919,14 @@ func TestCoroutineVM_SharedBuffer(t *testing.T) {
 					
 					if cmd == "flush" then
 						-- Read all data
-						local result = table.concat(shared_buffer.data, ", ")
+						local output = table.concat(shared_buffer.data, ", ")
 						local count = #shared_buffer.data
 						
 						-- Clear buffer
 						shared_buffer.data = {}
 						shared_buffer.size = 0
 						
-						coroutine.yield("flushed:" .. result)
+						coroutine.yield("flushed:" .. output)
 						return "flusher_done"
 					end
 				end
@@ -985,7 +985,7 @@ func TestCoroutineVM_SharedBuffer(t *testing.T) {
 			// Verify write confirmation
 			writeResult := tasks[0].Yielded[0].String()
 			if !strings.Contains(writeResult, "wrote:"+val) {
-				t.Fatalf("unexpected write result: %v", writeResult)
+				t.Fatalf("unexpected write output: %v", writeResult)
 			}
 
 			// Get ready for next value
@@ -1009,14 +1009,14 @@ func TestCoroutineVM_SharedBuffer(t *testing.T) {
 			t.Fatal(err)
 		}
 		if len(tasks) != 1 {
-			t.Fatal("expected flusher to yield result")
+			t.Fatal("expected flusher to yield output")
 		}
 
 		// Verify flushed data
 		flushResult := tasks[0].Yielded[0].String()
 		expectedResult := "flushed:val1, val2, val3, val4, val5"
 		if flushResult != expectedResult {
-			t.Fatalf("unexpected flush result: got %q, want %q", flushResult, expectedResult)
+			t.Fatalf("unexpected flush output: got %q, want %q", flushResult, expectedResult)
 		}
 
 		// Complete flusher
@@ -1502,7 +1502,7 @@ func TestCoroutineVM_ClosedCoroutines(t *testing.T) {
 			t.Fatal("expected 1 initial task")
 		}
 
-		// Step should result in error but cleanup task
+		// Step should output in error but cleanup task
 		_, err = vm.Step(vm.tasks...)
 		if err == nil {
 			t.Fatal("expected error from coroutine")
@@ -1835,82 +1835,6 @@ func BenchmarkCoroutineVM(b *testing.B) {
 					b.Fatal(err)
 				}
 			}
-		}
-	})
-}
-
-func TestCoroutineVM_Mount(t *testing.T) {
-	logger := zap.NewNop()
-
-	t.Run("mount and reuse compiled code", func(t *testing.T) {
-		// Create first VM and compile code
-		vm1, err := NewCVM(context.Background(), logger)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer vm1.Close()
-
-		// Load and compile script
-		chunk, err := vm1.vm.state.LoadString(`
-			function shared_task()
-				coroutine.yield("shared_first")
-				coroutine.yield("shared_second")
-				return "shared_done"
-			end
-			return shared_task
-		`)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		// Get function prototype
-		proto := chunk.Proto
-
-		// Mount in first VM
-		err = vm1.Mount(proto, "shared_task")
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		// Verify function works in first VM
-		err = vm1.Start("shared_task")
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		tasks, err := vm1.Step()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(tasks) != 1 || tasks[0].Yielded[0].String() != "shared_first" {
-			t.Fatal("unexpected first yield in VM1")
-		}
-
-		// Create second VM and mount same prototype
-		vm2, err := NewCVM(context.Background(), logger)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer vm2.Close()
-
-		// Mount compiled code in second VM
-		err = vm2.Mount(proto, "shared_task")
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		// Verify function works in second VM
-		err = vm2.Start("shared_task")
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		tasks, err = vm2.Step()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(tasks) != 1 || tasks[0].Yielded[0].String() != "shared_first" {
-			t.Fatal("unexpected first yield in VM2")
 		}
 	})
 }

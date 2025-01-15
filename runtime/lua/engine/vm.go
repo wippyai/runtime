@@ -211,8 +211,13 @@ func (v *VM) callFunction(fn lua.LValue, args []lua.LValue) (lua.LValue, error) 
 
 	var result lua.LValue
 	if v.state.GetTop() >= 1 {
-		result = v.state.Get(-1)
-		v.state.Pop(1)
+		count := v.state.GetTop()
+		for i := 1; i <= v.state.GetTop(); i++ {
+			if i == 1 {
+				result = v.state.Get(i)
+			}
+		}
+		v.state.Pop(count)
 	}
 
 	return result, nil
