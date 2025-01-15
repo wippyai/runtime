@@ -67,7 +67,7 @@ func WithPreloaded(name string, loader lua.LGFunction) Option {
 			return
 		}
 
-		// Set module result as global
+		// Set module output as global
 		if L.GetTop() > 0 {
 			L.SetGlobal(name, L.Get(-1))
 			L.Pop(1)

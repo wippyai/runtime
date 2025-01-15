@@ -68,19 +68,20 @@ func (e *CoroutineVM) Mount(proto *lua.FunctionProto, funcName ...string) error 
 }
 
 // Start begins execution of a named function with the provided arguments.
-func (e *CoroutineVM) Start(funcName string, args ...lua.LValue) error {
+func (e *CoroutineVM) Start(funcName string, args ...lua.LValue) (<-chan TaskResult, error) {
 	fn, ok := e.vm.exported[funcName]
 	if !ok {
-		return fmt.Errorf("function %q not found", funcName)
+		return nil, fmt.Errorf("function %q not found", funcName)
 	}
 
 	task, err := e.createTask(fn)
 	if err != nil {
-		return fmt.Errorf("failed to create coroutine: %w", err)
+		return nil, fmt.Errorf("failed to create coroutine: %w", err)
 	}
 	task.Resumed = args
+	task.output = make(chan TaskResult)
 
-	return nil
+	return task.output, nil
 }
 
 // Step advances the execution of provided tasks or continues with queued tasks.
@@ -119,8 +120,29 @@ func (e *CoroutineVM) Step(tasks ...*Task) (result []*Task, finalErr error) {
 				return nil, fmt.Errorf("error starting task: %v", err)
 			}
 		case lua.ResumeOK:
+			if task.output != nil {
+				top := task.thread.GetTop()
+				if top > 0 {
+					results := make([]lua.LValue, top)
+					for i := 1; i <= top; i++ {
+						// flush all the results
+						results[i-1] = task.thread.Get(i)
+					}
+					task.output <- TaskResult{Result: results[0]}
+					close(task.output)
+				} else {
+					task.output <- TaskResult{}
+					close(task.output)
+				}
+			}
+
 			// done
 			if err := e.removeTask(task); err != nil {
+				if task.output != nil {
+					task.output <- TaskResult{Error: err}
+					close(task.output)
+				}
+
 				return nil, fmt.Errorf("error removing task: %v", err)
 			}
 		case lua.ResumeYield:

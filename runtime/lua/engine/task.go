@@ -12,6 +12,7 @@ type Task struct {
 	thread *lua.LState
 	cancel context.CancelFunc
 	fn     *lua.LFunction
+	output chan TaskResult
 
 	State      lua.ResumeState
 	Yielded    []lua.LValue
@@ -29,6 +30,11 @@ func (t *Task) Type() lua.LValueType {
 
 func (t *Task) String() string {
 	return fmt.Sprintf("<coroutine %p> %+v", t.thread, t.Yielded)
+}
+
+type TaskResult struct {
+	Result lua.LValue
+	Error  error
 }
 
 type TaskQueue struct {

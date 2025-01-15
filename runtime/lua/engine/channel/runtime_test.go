@@ -19,7 +19,7 @@ func TestUnbufferedChannelOperations(t *testing.T) {
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
 	)
 	assert.NoError(t, err)
-	defer func() { _ = vm.Close() }()
+	defer vm.Close()
 
 	err = vm.DoString(`
 			-- Create an unbuffered channel
@@ -77,7 +77,7 @@ func TestUnbufferedChannelOperationsMainCoroutine(t *testing.T) {
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
 	)
 	assert.NoError(t, err)
-	defer func() { _ = vm.Close() }()
+	defer vm.Close()
 
 	err = vm.DoString(`
 			-- Create an unbuffered channel
