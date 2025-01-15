@@ -79,6 +79,10 @@ func (v *VM) Mount(proto *lua.FunctionProto, funcNames ...string) error {
 		return fmt.Errorf("no function names provided for mount")
 	}
 
+	if proto == nil {
+		return fmt.Errorf("nil function prototype provided")
+	}
+
 	v.state.Push(v.state.NewFunctionFromProto(proto))
 
 	if err := v.state.PCall(0, 1, nil); err != nil {
