@@ -15,12 +15,13 @@ func TestNamedChannelVisibility(t *testing.T) {
 	logger := zap.NewNop()
 
 	vm, err := engine.NewCVM(
-		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
+
+	vm.SetContext(context.Background())
 
 	err = vm.StartString(`
 		-- Create two named channels
@@ -49,12 +50,13 @@ func TestNamedChannelSelectVisibility(t *testing.T) {
 	logger := zap.NewNop()
 
 	vm, err := engine.NewCVM(
-		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
+
+	vm.SetContext(context.Background())
 
 	err = vm.StartString(`
 		-- Create named channels with different capacities
@@ -143,12 +145,13 @@ func TestNamedChannelSelectDefaultCase(t *testing.T) {
 	logger := zap.NewNop()
 
 	vm, err := engine.NewCVM(
-		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
+
+	vm.SetContext(context.Background())
 
 	err = vm.StartString(`
 		-- Create named channels
@@ -194,12 +197,13 @@ func TestNamedChannelMultipleReceivers(t *testing.T) {
 	logger := zap.NewNop()
 
 	vm, err := engine.NewCVM(
-		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
+
+	vm.SetContext(context.Background())
 
 	err = vm.StartString(`
 		-- Create channels
@@ -338,12 +342,13 @@ func TestBufferedNamedChannelWriteCapacity(t *testing.T) {
 	logger := zap.NewNop()
 
 	vm, err := engine.NewCVM(
-		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
+
+	vm.SetContext(context.Background())
 
 	err = vm.StartString(`
         -- Create channels

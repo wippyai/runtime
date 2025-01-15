@@ -15,12 +15,12 @@ func TestUnbufferedChannelOperations(t *testing.T) {
 	logger := zap.NewNop()
 
 	vm, err := engine.NewCVM(
-		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
+	vm.SetContext(context.Background())
 
 	err = vm.StartString(`
 			-- Create an unbuffered channel
@@ -73,12 +73,13 @@ func TestUnbufferedChannelOperationsMainCoroutine(t *testing.T) {
 	logger := zap.NewNop()
 
 	vm, err := engine.NewCVM(
-		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
+
+	vm.SetContext(context.Background())
 
 	err = vm.StartString(`
 			-- Create an unbuffered channel
@@ -126,12 +127,12 @@ func TestClosedChannelOperations(t *testing.T) {
 	logger := zap.NewNop()
 
 	vm, err := engine.NewCVM(
-		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
+	vm.SetContext(context.Background())
 
 	err = vm.StartString(`
 			-- Create a channel and close it
@@ -189,12 +190,12 @@ func TestCloseChannelWithPendingOperations(t *testing.T) {
 	logger := zap.NewNop()
 
 	vm, err := engine.NewCVM(
-		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
+	vm.SetContext(context.Background())
 
 	err = vm.StartString(`
 			-- Create a channel
@@ -247,12 +248,12 @@ func TestBufferedChannelBasicOperations(t *testing.T) {
 	logger := zap.NewNop()
 
 	vm, err := engine.NewCVM(
-		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
+	vm.SetContext(context.Background())
 
 	err = vm.StartString(`
 			-- Create a buffered channel with capacity 2
@@ -309,12 +310,12 @@ func TestBufferedChannelBlockingBehavior(t *testing.T) {
 	logger := zap.NewNop()
 
 	vm, err := engine.NewCVM(
-		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
+	vm.SetContext(context.Background())
 
 	err = vm.StartString(`
 		-- Create a buffered channel with capacity 1
@@ -375,12 +376,12 @@ func TestReadBufferedValues(t *testing.T) {
 	logger := zap.NewNop()
 
 	vm, err := engine.NewCVM(
-		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
+	vm.SetContext(context.Background())
 
 	err = vm.StartString(`
 		-- Create a buffered channel with capacity 1
@@ -429,12 +430,12 @@ func TestBufferedChannelEdgeCases(t *testing.T) {
 	logger := zap.NewNop()
 
 	vm, err := engine.NewCVM(
-		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
+	vm.SetContext(context.Background())
 
 	err = vm.StartString(`
 		-- Test error cases first
@@ -523,12 +524,12 @@ func TestBufferedChannelCloseWithPendingOperations(t *testing.T) {
 	logger := zap.NewNop()
 
 	vm, err := engine.NewCVM(
-		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
+	vm.SetContext(context.Background())
 
 	err = vm.StartString(`
 		-- Create a buffered channel with capacity 2
@@ -592,12 +593,12 @@ func TestBufferedChannelClose(t *testing.T) {
 	logger := zap.NewNop()
 
 	vm, err := engine.NewCVM(
-		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
+	vm.SetContext(context.Background())
 
 	err = vm.StartString(`
 		local ch = channel.new(2)
@@ -651,12 +652,12 @@ func TestBufferedChannelSendError(t *testing.T) {
 	logger := zap.NewNop()
 
 	vm, err := engine.NewCVM(
-		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
+	vm.SetContext(context.Background())
 
 	err = vm.StartString(`
 		local ch = channel.new(1)
@@ -680,12 +681,12 @@ func TestMainCoroutineBlockingOnBufferedChannel(t *testing.T) {
 	logger := zap.NewNop()
 
 	vm, err := engine.NewCVM(
-		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
+	vm.SetContext(context.Background())
 
 	err = vm.StartString(`
 		-- Create a buffered channel with capacity 1
@@ -728,12 +729,12 @@ func TestMainCoroutinePanicHandling(t *testing.T) {
 	logger := zap.NewNop()
 
 	vm, err := engine.NewCVM(
-		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
+	vm.SetContext(context.Background())
 
 	err = vm.StartString(`
 		local ch = channel.new(0)
@@ -780,12 +781,12 @@ func TestMainCoroutineChannelCascadingClose(t *testing.T) {
 	logger := zap.NewNop()
 
 	vm, err := engine.NewCVM(
-		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
+	vm.SetContext(context.Background())
 
 	err = vm.StartString(`
 		local ch = channel.new(0)
@@ -844,12 +845,12 @@ func TestMapReducePattern(t *testing.T) {
 	logger := zap.NewNop()
 
 	vm, err := engine.NewCVM(
-		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
+	vm.SetContext(context.Background())
 
 	err = vm.StartString(`
 		-- Create channels for work distribution and result collection
@@ -964,12 +965,12 @@ func TestFanOutPattern(t *testing.T) {
 	logger := zap.NewNop()
 
 	vm, err := engine.NewCVM(
-		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
+	vm.SetContext(context.Background())
 
 	err = vm.StartString(`
 		-- Input channel and multiple output channels
@@ -1095,12 +1096,12 @@ func TestFanInPattern(t *testing.T) {
 	logger := zap.NewNop()
 
 	vm, err := engine.NewCVM(
-		context.Background(),
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
+	vm.SetContext(context.Background())
 
 	err = vm.StartString(`
 		-- Multiple input channels and single output channel

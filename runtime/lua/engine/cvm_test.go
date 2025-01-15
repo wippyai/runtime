@@ -15,7 +15,8 @@ func TestCoroutineVM_Basic(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("spawn and step simple coroutine", func(t *testing.T) {
-		vm, err := NewCVM(context.Background(), logger)
+		vm, err := NewCVM(logger)
+		vm.SetContext(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -79,7 +80,8 @@ func TestCoroutineVM_ParallelTasks(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("multiple parallel coroutines", func(t *testing.T) {
-		vm, err := NewCVM(context.Background(), logger)
+		vm, err := NewCVM(logger)
+		vm.SetContext(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -173,7 +175,9 @@ func TestCoroutineVM_ErrorHandling(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("error in coroutine", func(t *testing.T) {
-		vm, err := NewCVM(context.Background(), logger)
+		vm, err := NewCVM(logger)
+		vm.SetContext(context.Background())
+
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -214,7 +218,8 @@ func TestCoroutineVM_ErrorHandling(t *testing.T) {
 	})
 
 	t.Run("cancel coroutine", func(t *testing.T) {
-		vm, err := NewCVM(context.Background(), logger)
+		vm, err := NewCVM(logger)
+		vm.SetContext(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -260,7 +265,9 @@ func TestCoroutineVM_ContextPropagation(t *testing.T) {
 
 	t.Run("context cancellation", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
-		vm, err := NewCVM(ctx, logger)
+		vm, err := NewCVM(logger)
+		vm.SetContext(ctx)
+
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -305,7 +312,8 @@ func TestCoroutineVM_NativeCoroutines(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("native coroutine inside task", func(t *testing.T) {
-		vm, err := NewCVM(context.Background(), logger)
+		vm, err := NewCVM(logger)
+		vm.SetContext(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -360,7 +368,8 @@ func TestCoroutineVM_NativeCoroutines(t *testing.T) {
 	})
 
 	t.Run("shared coroutine between tasks", func(t *testing.T) {
-		vm, err := NewCVM(context.Background(), logger)
+		vm, err := NewCVM(logger)
+		vm.SetContext(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -420,7 +429,8 @@ func TestCoroutineVM_NativeCoroutines(t *testing.T) {
 	})
 
 	t.Run("prevent task self-resumption", func(t *testing.T) {
-		vm, err := NewCVM(context.Background(), logger)
+		vm, err := NewCVM(logger)
+		vm.SetContext(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -468,7 +478,8 @@ func TestCoroutineVM_ArgumentValidation(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("spawn with nil argument", func(t *testing.T) {
-		vm, err := NewCVM(context.Background(), logger)
+		vm, err := NewCVM(logger)
+		vm.SetContext(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -489,7 +500,8 @@ func TestCoroutineVM_ArgumentValidation(t *testing.T) {
 	})
 
 	t.Run("spawn with non-function argument", func(t *testing.T) {
-		vm, err := NewCVM(context.Background(), logger)
+		vm, err := NewCVM(logger)
+		vm.SetContext(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -525,7 +537,8 @@ func TestCoroutineVM_ArgumentValidation(t *testing.T) {
 	})
 
 	t.Run("spawn with missing argument", func(t *testing.T) {
-		vm, err := NewCVM(context.Background(), logger)
+		vm, err := NewCVM(logger)
+		vm.SetContext(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -546,7 +559,8 @@ func TestCoroutineVM_ArgumentValidation(t *testing.T) {
 	})
 
 	t.Run("spawn with extra arguments", func(t *testing.T) {
-		vm, err := NewCVM(context.Background(), logger)
+		vm, err := NewCVM(logger)
+		vm.SetContext(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -581,7 +595,8 @@ func TestCoroutineVM_ArgumentValidation(t *testing.T) {
 	})
 
 	t.Run("spawn upvalue function", func(t *testing.T) {
-		vm, err := NewCVM(context.Background(), logger)
+		vm, err := NewCVM(logger)
+		vm.SetContext(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -618,18 +633,9 @@ func TestCoroutineVM_ArgumentValidation(t *testing.T) {
 func TestCoroutineVM_AdditionalCoverage(t *testing.T) {
 	logger := zap.NewNop()
 
-	t.Run("nil context", func(t *testing.T) {
-		_, err := NewCVM(nil, logger)
-		if err == nil {
-			t.Fatal("expected error when creating VM with nil context")
-		}
-		if !strings.Contains(err.Error(), "context is required for async VMs") {
-			t.Fatalf("unexpected error message: %v", err)
-		}
-	})
-
 	t.Run("resume value", func(t *testing.T) {
-		vm, err := NewCVM(context.Background(), logger)
+		vm, err := NewCVM(logger)
+		vm.SetContext(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -674,7 +680,8 @@ func TestCoroutineVM_AdditionalCoverage(t *testing.T) {
 	})
 
 	t.Run("step non-yielded task", func(t *testing.T) {
-		vm, err := NewCVM(context.Background(), logger)
+		vm, err := NewCVM(logger)
+		vm.SetContext(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -707,7 +714,8 @@ func TestCoroutineVM_AdditionalCoverage(t *testing.T) {
 	})
 
 	t.Run("resume error", func(t *testing.T) {
-		vm, err := NewCVM(context.Background(), logger)
+		vm, err := NewCVM(logger)
+		vm.SetContext(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -741,7 +749,8 @@ func TestCoroutineVM_AdditionalCoverage(t *testing.T) {
 	})
 
 	t.Run("remove non-existent task", func(t *testing.T) {
-		vm, err := NewCVM(context.Background(), logger)
+		vm, err := NewCVM(logger)
+		vm.SetContext(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -759,7 +768,8 @@ func TestCoroutineVM_AdditionalCoverage(t *testing.T) {
 	})
 
 	t.Run("create coroutine error", func(t *testing.T) {
-		vm, err := NewCVM(context.Background(), logger)
+		vm, err := NewCVM(logger)
+		vm.SetContext(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -788,7 +798,8 @@ func TestCoroutineVM_StatusAndWrap(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("status with spawned coroutines", func(t *testing.T) {
-		vm, err := NewCVM(context.Background(), logger)
+		vm, err := NewCVM(logger)
+		vm.SetContext(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -843,7 +854,8 @@ func TestCoroutineVM_StatusAndWrap(t *testing.T) {
 	})
 
 	t.Run("wrap interaction with spawn", func(t *testing.T) {
-		vm, err := NewCVM(context.Background(), logger)
+		vm, err := NewCVM(logger)
+		vm.SetContext(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -880,7 +892,8 @@ func TestCoroutineVM_SharedBuffer(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("writer and flusher using shared buffer", func(t *testing.T) {
-		vm, err := NewCVM(context.Background(), logger)
+		vm, err := NewCVM(logger)
+		vm.SetContext(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1037,7 +1050,8 @@ func TestCoroutineVM_NestedSpawn(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("spawn from within coroutine", func(t *testing.T) {
-		vm, err := NewCVM(context.Background(), logger)
+		vm, err := NewCVM(logger)
+		vm.SetContext(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1130,7 +1144,8 @@ func TestCoroutineVM_NestedSpawn(t *testing.T) {
 	})
 
 	t.Run("multiple nested spawns", func(t *testing.T) {
-		vm, err := NewCVM(context.Background(), logger)
+		vm, err := NewCVM(logger)
+		vm.SetContext(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1240,7 +1255,8 @@ func TestCoroutineVM_MonitorStatus(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("monitor another coroutine's status", func(t *testing.T) {
-		vm, err := NewCVM(context.Background(), logger)
+		vm, err := NewCVM(logger)
+		vm.SetContext(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1391,7 +1407,8 @@ func TestCoroutineVM_MonitorStatus(t *testing.T) {
 	})
 
 	t.Run("monitor invalid thread", func(t *testing.T) {
-		vm, err := NewCVM(context.Background(), logger)
+		vm, err := NewCVM(logger)
+		vm.SetContext(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1424,7 +1441,8 @@ func TestCoroutineVM_ClosedCoroutines(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("coroutines removed after immediate completion", func(t *testing.T) {
-		vm, err := NewCVM(context.Background(), logger)
+		vm, err := NewCVM(logger)
+		vm.SetContext(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1460,7 +1478,8 @@ func TestCoroutineVM_ClosedCoroutines(t *testing.T) {
 	})
 
 	t.Run("coroutines removed after error", func(t *testing.T) {
-		vm, err := NewCVM(context.Background(), logger)
+		vm, err := NewCVM(logger)
+		vm.SetContext(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1515,7 +1534,8 @@ func TestCoroutineVM_CustomValue(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("yield custom value type directly", func(t *testing.T) {
-		vm, err := NewCVM(context.Background(), logger)
+		vm, err := NewCVM(logger)
+		vm.SetContext(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1580,7 +1600,8 @@ func TestCoroutineVM_CustomValue(t *testing.T) {
 	})
 
 	t.Run("yield custom value from function", func(t *testing.T) {
-		vm, err := NewCVM(context.Background(), logger)
+		vm, err := NewCVM(logger)
+		vm.SetContext(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1643,7 +1664,8 @@ func TestCoroutineVM_CustomValue(t *testing.T) {
 	})
 
 	t.Run("yield custom value in root coroutine", func(t *testing.T) {
-		vm, err := NewCVM(context.Background(), logger)
+		vm, err := NewCVM(logger)
+		vm.SetContext(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1701,7 +1723,8 @@ func TestCoroutineVM_CustomValue(t *testing.T) {
 	})
 
 	t.Run("yield custom value in root coroutine with args", func(t *testing.T) {
-		vm, err := NewCVM(context.Background(), logger)
+		vm, err := NewCVM(logger)
+		vm.SetContext(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1774,11 +1797,13 @@ func BenchmarkCoroutineVM(b *testing.B) {
 
 	b.Run("send_message", func(b *testing.B) {
 		ctx := context.Background()
-		vm, err := NewCVM(ctx, logger)
+		vm, err := NewCVM(logger)
 		if err != nil {
 			b.Fatal(err)
 		}
 		defer vm.Close()
+
+		vm.SetContext(ctx)
 
 		script := `
 			function echo()
@@ -1824,11 +1849,13 @@ func TestCoroutineVM_Mount(t *testing.T) {
 
 	t.Run("mount and execute coroutine function", func(t *testing.T) {
 		// Create first VM and compile function
-		vm1, err := NewCVM(context.Background(), logger)
+		vm1, err := NewCVM(logger)
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer vm1.Close()
+
+		vm1.SetContext(context.Background())
 
 		script := `
             function test()
@@ -1855,7 +1882,8 @@ func TestCoroutineVM_Mount(t *testing.T) {
 		}
 
 		// Create second VM and mount same function
-		vm2, err := NewCVM(context.Background(), logger)
+		vm2, err := NewCVM(logger)
+		vm2.SetContext(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1950,7 +1978,8 @@ func TestCoroutineVM_Mount(t *testing.T) {
 	})
 
 	t.Run("mount invalid function prototype", func(t *testing.T) {
-		vm, err := NewCVM(context.Background(), logger)
+		vm, err := NewCVM(logger)
+		vm.SetContext(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1979,7 +2008,8 @@ func TestCoroutineVM_Mount(t *testing.T) {
 	})
 
 	t.Run("mount and execute multiple functions", func(t *testing.T) {
-		vm, err := NewCVM(context.Background(), logger)
+		vm, err := NewCVM(logger)
+		vm.SetContext(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2068,7 +2098,8 @@ func TestCoroutineVM_StartWithArguments(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("start with different argument types", func(t *testing.T) {
-		vm, err := NewCVM(context.Background(), logger)
+		vm, err := NewCVM(logger)
+		vm.SetContext(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2182,7 +2213,8 @@ func TestCoroutineVM_StartWithArguments(t *testing.T) {
 	})
 
 	t.Run("start with no arguments", func(t *testing.T) {
-		vm, err := NewCVM(context.Background(), logger)
+		vm, err := NewCVM(logger)
+		vm.SetContext(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2245,7 +2277,8 @@ func TestCoroutineVM_StartWithArguments(t *testing.T) {
 	})
 
 	t.Run("start with nil arguments", func(t *testing.T) {
-		vm, err := NewCVM(context.Background(), logger)
+		vm, err := NewCVM(logger)
+		vm.SetContext(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2316,7 +2349,8 @@ func TestCoroutineVM_ImmediateErrors(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("immediate error before yield", func(t *testing.T) {
-		vm, err := NewCVM(context.Background(), logger)
+		vm, err := NewCVM(logger)
+		vm.SetContext(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2349,7 +2383,8 @@ func TestCoroutineVM_ImmediateErrors(t *testing.T) {
 	})
 
 	t.Run("compile and start immediate error", func(t *testing.T) {
-		vm, err := NewCVM(context.Background(), logger)
+		vm, err := NewCVM(logger)
+		vm.SetContext(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2400,7 +2435,8 @@ func TestCoroutineVM_ImmediateErrors(t *testing.T) {
 	})
 
 	t.Run("error in nested immediate function", func(t *testing.T) {
-		vm, err := NewCVM(context.Background(), logger)
+		vm, err := NewCVM(logger)
+		vm.SetContext(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2439,7 +2475,8 @@ func TestCoroutineVM_Import(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("import and execute simple function", func(t *testing.T) {
-		vm, err := NewCVM(context.Background(), logger)
+		vm, err := NewCVM(logger)
+		vm.SetContext(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2492,7 +2529,8 @@ func TestCoroutineVM_Import(t *testing.T) {
 	})
 
 	t.Run("import multiple functions", func(t *testing.T) {
-		vm, err := NewCVM(context.Background(), logger)
+		vm, err := NewCVM(logger)
+		vm.SetContext(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2565,7 +2603,8 @@ func TestCoroutineVM_Import(t *testing.T) {
 	})
 
 	t.Run("import with no function names", func(t *testing.T) {
-		vm, err := NewCVM(context.Background(), logger)
+		vm, err := NewCVM(logger)
+		vm.SetContext(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2587,7 +2626,8 @@ func TestCoroutineVM_Import(t *testing.T) {
 	})
 
 	t.Run("import non-existent function", func(t *testing.T) {
-		vm, err := NewCVM(context.Background(), logger)
+		vm, err := NewCVM(logger)
+		vm.SetContext(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2606,7 +2646,8 @@ func TestCoroutineVM_Import(t *testing.T) {
 	})
 
 	t.Run("import with syntax error", func(t *testing.T) {
-		vm, err := NewCVM(context.Background(), logger)
+		vm, err := NewCVM(logger)
+		vm.SetContext(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2627,7 +2668,8 @@ func TestCoroutineVM_Import(t *testing.T) {
 	})
 
 	t.Run("import function with upvalues", func(t *testing.T) {
-		vm, err := NewCVM(context.Background(), logger)
+		vm, err := NewCVM(logger)
+		vm.SetContext(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2671,7 +2713,8 @@ func TestCoroutineVM_Import(t *testing.T) {
 	})
 
 	t.Run("import with nested functions", func(t *testing.T) {
-		vm, err := NewCVM(context.Background(), logger)
+		vm, err := NewCVM(logger)
+		vm.SetContext(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2726,7 +2769,8 @@ func TestCoroutineVM_Import(t *testing.T) {
 	})
 
 	t.Run("import module style function", func(t *testing.T) {
-		vm, err := NewCVM(context.Background(), logger)
+		vm, err := NewCVM(logger)
+		vm.SetContext(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2771,7 +2815,8 @@ func TestCoroutineVM_Import(t *testing.T) {
 	})
 
 	t.Run("import with shared state between functions", func(t *testing.T) {
-		vm, err := NewCVM(context.Background(), logger)
+		vm, err := NewCVM(logger)
+		vm.SetContext(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}

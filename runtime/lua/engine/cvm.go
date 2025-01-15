@@ -13,7 +13,6 @@ import (
 // CoroutineVM represents a Lua virtual machine with coroutine support.
 // This VM is NOT thread safe, external synchronization is required.
 type CoroutineVM struct {
-	ctx   context.Context
 	vm    *VM
 	tasks []*Task
 	queue *TaskQueue
@@ -22,26 +21,19 @@ type CoroutineVM struct {
 // NewCVM creates a new CoroutineVM instance with the provided context, logger and options.
 // Context is required for proper async operation and resource cleanup.
 func NewCVM(
-	ctx context.Context,
 	log *zap.Logger,
 	opts ...Option,
 ) (*CoroutineVM, error) {
-	if ctx == nil {
-		return nil, fmt.Errorf("context is required for async VMs")
-	}
-
 	vm, err := NewVM(log, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create VM: %w", err)
 	}
 
 	avm := &CoroutineVM{
-		ctx:   ctx,
 		vm:    vm,
 		tasks: make([]*Task, 0),
 		queue: NewTaskQueue(),
 	}
-	avm.vm.state.SetContext(ctx)
 	avm.bindCoroutines()
 
 	return avm, nil
@@ -208,6 +200,10 @@ func (e *CoroutineVM) Close() {
 	if e.vm != nil {
 		e.vm.Close()
 	}
+}
+
+func (e *CoroutineVM) SetContext(ctx context.Context) {
+	e.vm.state.SetContext(ctx)
 }
 
 // bindCoroutines sets up coroutine-related functions in the Lua environment.
