@@ -332,5 +332,5 @@ return {create = create}  -- Available as "processes.worker.create"
 
 6. Process Migration
     - State preserved across migrations
-    - Previous state available in process args (sent via `process.upgrade`)
+    - Previous state available in process args (sent via `process.migrate`)
     - Migration failure treated as process failure

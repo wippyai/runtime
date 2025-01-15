@@ -6,7 +6,7 @@ import (
 	contextapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/runtime"
 	api "github.com/ponyruntime/pony/api/runtime/lua"
-	config "github.com/ponyruntime/pony/runtime/lua/engine/factory"
+	"github.com/ponyruntime/pony/runtime/lua/factory"
 	"github.com/ponyruntime/pony/runtime/lua/pool"
 	"github.com/yuin/gopher-lua"
 	"sync"
@@ -27,7 +27,7 @@ type RuntimeManager struct {
 	libraries map[registry.ID]*api.LibraryConfig
 	modules   map[string]api.Module
 
-	compiler *pool.Configurator
+	pools    *pool.Factory
 	callable sync.Map
 }
 
@@ -52,7 +52,7 @@ func NewRuntimeManager(
 		m.modules[module.Name()] = module
 		logger.Debug("registered module", zap.String("name", module.Name()))
 	}
-	m.compiler = pool.NewConfigurator(logger.Named("compiler"))
+	m.pools = pool.NewFactory(logger.Named("pool"))
 
 	return m
 }
@@ -206,12 +206,12 @@ func (m *RuntimeManager) addFunction(ctx context.Context, entry registry.Entry) 
 }
 
 func (m *RuntimeManager) compileFunction(id registry.ID, cfg *api.FunctionConfig) (api.Callable, error) {
-	factory, err := m.factory(id, cfg)
+	factory, err := m.nameFactory(id, cfg)
 	if err != nil {
 		return nil, err
 	}
 
-	fn, err := m.compiler.Compile(factory, cfg)
+	fn, err := m.pools.Compile(factory, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -336,9 +336,9 @@ func (m *RuntimeManager) deleteLibrary(_ context.Context, entry registry.Entry) 
 	return nil
 }
 
-func (m *RuntimeManager) factory(id registry.ID, fn *api.FunctionConfig) (api.Factory, error) {
+func (m *RuntimeManager) nameFactory(id registry.ID, fn *api.FunctionConfig) (api.Factory, error) {
 	// Create new Callable api with manager's logger
-	cfg := config.NewFactory(m.log.Named(fmt.Sprintf("vm.%s", id)))
+	cfg := factory.NewFactory(m.log.Named(fmt.Sprintf("vm.%s", id)))
 
 	// Add required modules
 	for _, moduleName := range fn.Modules {
@@ -357,14 +357,14 @@ func (m *RuntimeManager) factory(id registry.ID, fn *api.FunctionConfig) (api.Fa
 			return nil, fmt.Errorf("library %s not found", libID)
 		}
 
-		cfg.Libraries = append(cfg.Libraries, config.Library{
+		cfg.Libraries = append(cfg.Libraries, factory.Library{
 			Name:   libID,
 			Script: lib.Source,
 		})
 	}
 
 	// Add the function itself
-	cfg.Functions = append(cfg.Functions, config.Function{
+	cfg.Functions = append(cfg.Functions, factory.Function{
 		Name:   fn.Method,
 		Script: fn.Source,
 	})

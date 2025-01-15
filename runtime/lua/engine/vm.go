@@ -119,7 +119,7 @@ func (v *VM) Execute(ctx context.Context, funcName string, args ...lua.LValue) (
 	return v.callFunction(fn, args)
 }
 
-// DoString executes a Lua string with given context and arguments
+// DoString executes a Lua string with given context and arguments.
 func (v *VM) DoString(ctx context.Context, s string, name string, args ...lua.LValue) error {
 	fn, err := v.state.Load(strings.NewReader(s), fmt.Sprintf("<%s>", name))
 	if err != nil {
@@ -145,6 +145,10 @@ func (v *VM) DoString(ctx context.Context, s string, name string, args ...lua.LV
 	}
 
 	return v.state.PCall(len(args), lua.MultRet, nil)
+}
+
+func (v *VM) State() *lua.LState {
+	return v.state
 }
 
 func collectErrors(errors []error) []string {

@@ -3,7 +3,7 @@ package queued
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/runtime/lua/engine/factory"
+	"github.com/ponyruntime/pony/runtime/lua/factory"
 	"runtime"
 	"sync"
 	"sync/atomic"
