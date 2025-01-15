@@ -3,10 +3,11 @@ package http
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/api/runtime"
-	"github.com/ponyruntime/pony/service/http/handler"
 	"net/http"
 	"sync"
+
+	"github.com/ponyruntime/pony/api/runtime"
+	"github.com/ponyruntime/pony/service/http/handler"
 
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"

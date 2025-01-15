@@ -4,12 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/ponyruntime/pony/api/supervisor"
 	"reflect"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/ponyruntime/pony/api/supervisor"
 )
 
 // mockService implements supervisor.Lifecycle for testing

@@ -3,9 +3,10 @@
 package lfs
 
 import (
-	"github.com/yuin/gopher-lua"
 	"os"
 	"syscall"
+
+	lua "github.com/yuin/gopher-lua"
 )
 
 func attributesFill(tbl *lua.LTable, stat os.FileInfo) error {

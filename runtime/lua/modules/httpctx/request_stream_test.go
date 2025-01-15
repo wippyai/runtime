@@ -2,12 +2,13 @@ package httpctx
 
 import (
 	"context"
-	"github.com/ponyruntime/pony/api/service/http"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"go.uber.org/zap"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/ponyruntime/pony/api/service/http"
+	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"go.uber.org/zap"
 )
 
 func TestRequest_StreamBody_Simple(t *testing.T) {

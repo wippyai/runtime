@@ -1,10 +1,10 @@
 package sql
 
 import (
-	"github.com/yuin/gopher-lua"
 
 	// PQ Driver
 	_ "github.com/lib/pq"
+	lua "github.com/yuin/gopher-lua"
 	// SQLite3 driver
 	_ "github.com/mattn/go-sqlite3"
 

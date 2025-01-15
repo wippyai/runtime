@@ -1,9 +1,10 @@
 package json
 
 import (
-	"github.com/ponyruntime/pony/api/payload"
 	"reflect"
 	"testing"
+
+	"github.com/ponyruntime/pony/api/payload"
 )
 
 func TestJsonToGolangTranscoder_Transcode(t *testing.T) {

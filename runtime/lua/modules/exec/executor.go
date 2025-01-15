@@ -3,12 +3,13 @@ package exec
 import (
 	"context"
 	"errors"
+
 	contextapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
 	transcode "github.com/ponyruntime/pony/pkg/payload/lua"
-	"github.com/yuin/gopher-lua"
+	lua "github.com/yuin/gopher-lua"
 )
 
 // todo: we might need some whitelist of what can actually be called from Lua

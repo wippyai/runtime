@@ -3,12 +3,13 @@ package lua
 import (
 	"context"
 	"fmt"
+	"sync"
+
 	contextapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/runtime"
 	config "github.com/ponyruntime/pony/api/runtime/lua"
 	"github.com/ponyruntime/pony/runtime/lua/pool"
-	"github.com/yuin/gopher-lua"
-	"sync"
+	lua "github.com/yuin/gopher-lua"
 
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"
@@ -130,7 +131,9 @@ func (m *RuntimeManager) Execute(task runtime.Task) (chan *runtime.Result, error
 
 	// to clean up all dangling references
 	ctx, cancel := context.WithCancel(
-		context.WithValue(task.Context, "function", task.Target),
+		// TODO: should not use string
+		// TODO where is that key used?
+		context.WithValue(task.Context, "function", task.Target), //nolint:revive,staticcheck
 	)
 	defer cancel()
 

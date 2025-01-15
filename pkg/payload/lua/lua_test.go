@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/ponyruntime/pony/api/payload"
-	"github.com/yuin/gopher-lua"
+	lua "github.com/yuin/gopher-lua"
 )
 
 // MockTranscoder is a mock implementation of payload.Transcoder for testing.

@@ -1,6 +1,6 @@
 package sql
 
-import "github.com/yuin/gopher-lua"
+import lua "github.com/yuin/gopher-lua"
 
 func (m *Module) Loader(l *lua.LState) int {
 	// Create the SQL module table

@@ -2,8 +2,9 @@ package closer
 
 import (
 	"context"
-	ctxapi "github.com/ponyruntime/pony/api/context"
 	"sync"
+
+	ctxapi "github.com/ponyruntime/pony/api/context"
 )
 
 type Cleanup struct {

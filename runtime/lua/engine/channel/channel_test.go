@@ -1,8 +1,9 @@
 package channel
 
 import (
-	lua "github.com/yuin/gopher-lua"
 	"testing"
+
+	lua "github.com/yuin/gopher-lua"
 )
 
 func TestChannelBasicOperations(t *testing.T) {

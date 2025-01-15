@@ -4,6 +4,14 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"hash/fnv"
+	httpbase "net/http"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+	"time"
+
 	contextapi "github.com/ponyruntime/pony/api/context"
 	regapi "github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/pkg/eventbus"
@@ -28,13 +36,6 @@ import (
 	"github.com/ponyruntime/pony/service/http"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
-	"hash/fnv"
-	httpbase "net/http"
-	"os"
-	"os/signal"
-	"strings"
-	"syscall"
-	"time"
 )
 
 func main() {

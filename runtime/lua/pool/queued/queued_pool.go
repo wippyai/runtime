@@ -3,11 +3,12 @@ package queued
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/runtime/lua/pool"
-	"github.com/yuin/gopher-lua"
-	"go.uber.org/zap"
 	"sync"
 	"sync/atomic"
+
+	"github.com/ponyruntime/pony/runtime/lua/pool"
+	lua "github.com/yuin/gopher-lua"
+	"go.uber.org/zap"
 )
 
 type taskResult struct {

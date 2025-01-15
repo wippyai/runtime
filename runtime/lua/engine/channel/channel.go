@@ -3,6 +3,7 @@ package channel
 import (
 	"container/list"
 	"errors"
+
 	lua "github.com/yuin/gopher-lua"
 )
 

@@ -2,10 +2,11 @@ package engine
 
 import (
 	"context"
-	"github.com/yuin/gopher-lua"
-	"go.uber.org/zap"
 	"strings"
 	"testing"
+
+	lua "github.com/yuin/gopher-lua"
+	"go.uber.org/zap"
 )
 
 func TestVM_Basic(t *testing.T) {

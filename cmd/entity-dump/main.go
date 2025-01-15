@@ -2,11 +2,12 @@ package main
 
 import (
 	"fmt"
-	"github.com/ponyruntime/pony/pkg/payload/lua"
-	"go.uber.org/zap/zapcore"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/ponyruntime/pony/pkg/payload/lua"
+	"go.uber.org/zap/zapcore"
 
 	"go.uber.org/zap"
 
