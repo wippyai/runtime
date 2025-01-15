@@ -10,12 +10,13 @@ import (
 
 // Factory holds configuration for Callable instances in the pool
 type Factory struct {
-	Modules    []api.Module
-	Libraries  []Library
-	Globals    []Global
-	Functions  []Function
-	EngineOpts []engine.Option
-	Logger     *zap.Logger
+	Modules           []api.Module
+	Libraries         []Library
+	Globals           []Global
+	Functions         []Function
+	ExportedFunctions map[string]struct{}
+	EngineOpts        []engine.Option
+	Logger            *zap.Logger
 	//Async      bool // todo: implement
 	compiled bool
 }
@@ -41,12 +42,13 @@ type Global struct {
 // NewFactory creates a new Callable configuration with default values
 func NewFactory(logger *zap.Logger) *Factory {
 	return &Factory{
-		Modules:    make([]api.Module, 0),
-		Libraries:  make([]Library, 0),
-		Globals:    make([]Global, 0),
-		Functions:  make([]Function, 0),
-		EngineOpts: make([]engine.Option, 0),
-		Logger:     logger,
+		Modules:           make([]api.Module, 0),
+		Libraries:         make([]Library, 0),
+		Globals:           make([]Global, 0),
+		Functions:         make([]Function, 0),
+		ExportedFunctions: make(map[string]struct{}),
+		EngineOpts:        make([]engine.Option, 0),
+		Logger:            logger,
 	}
 }
 
@@ -156,7 +158,7 @@ func CreateVM(cfg *Factory) (*engine.VM, error) {
 
 	// Add bound functions via options
 	for _, fn := range cfg.Functions {
-		if err := vm.Import(fn.Name, fn.Script); err != nil {
+		if err := vm.Import(fn.Script, fn.Name, fn.Name); err != nil {
 			vm.Close()
 			return nil, fmt.Errorf("failed to compile function %q: %w", fn.Name, err)
 		}

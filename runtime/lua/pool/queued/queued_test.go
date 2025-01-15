@@ -18,7 +18,7 @@ import (
 
 func setupTestPool(t *testing.T, size, workers int) *Pool {
 	logger := zap.NewNop()
-	vmConfig := factory.NewFactory(logger)
+	f := factory.NewFactory(logger)
 
 	// Add test functions to VM config
 	factory.WithFunction("test", `
@@ -26,7 +26,7 @@ func setupTestPool(t *testing.T, size, workers int) *Pool {
 			return arg
 		end
 		return test
-	`)(vmConfig)
+	`)(f)
 
 	factory.WithFunction("block", `
 		function block()
@@ -35,14 +35,14 @@ func setupTestPool(t *testing.T, size, workers int) *Pool {
 			return nil
 		end
 		return block
-	`)(vmConfig)
+	`)(f)
 
 	factory.WithFunction("fail", `
 		function fail()
 			error("intentional failure")
 		end
 		return fail
-	`)(vmConfig)
+	`)(f)
 
 	factory.WithFunction("get_id", `
 		local id = 0
@@ -51,13 +51,14 @@ func setupTestPool(t *testing.T, size, workers int) *Pool {
 			return id
 		end
 		return get_id
-	`)(vmConfig)
+	`)(f)
 
 	// Create pool with custom size and workers
-	p, err := NewPool(vmConfig,
+	p, err := NewPool(f,
 		WithSize(size),
 		WithWorkers(workers),
-		WithLogger(logger))
+		WithLogger(logger),
+	)
 	require.NoError(t, err)
 
 	return p
