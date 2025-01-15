@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	cfg "github.com/ponyruntime/pony/runtime/lua/engine/factory"
+	cfg "github.com/ponyruntime/pony/runtime/lua/factory"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/yuin/gopher-lua"
