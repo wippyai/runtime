@@ -8,6 +8,7 @@ require (
 	github.com/go-chi/chi/v5 v5.2.0
 	github.com/google/uuid v1.6.0
 	github.com/ponyruntime/tree-sitter-markdown v0.0.2
+	github.com/ponyruntime/tree-sitter-sql v0.0.3
 	github.com/stretchr/testify v1.10.0
 	github.com/tree-sitter-grammars/tree-sitter-lua v0.2.0
 	github.com/tree-sitter/go-tree-sitter v0.24.0
@@ -24,13 +25,13 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 )
 
-// replace github.com/ponyruntime/tree-sitter-markdown v0.0.1 => ../tree-sitter-markdown
+// replace github.com/ponyruntime/tree-sitter-sql => ../tree-sitter-sql
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/mattn/go-pointer v0.0.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	github.com/xeipuuv/gojsonpointer v0.0.0-20180127040702-4e3ac2762d5f // indirect
+	github.com/xeipuuv/gojsonpointer v0.0.0-20190905194746-02993c407bfb // indirect
 	github.com/xeipuuv/gojsonreference v0.0.0-20180127040603-bd5ef7bd5415 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 )
