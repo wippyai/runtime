@@ -2433,3 +2433,415 @@ func TestCoroutineVM_ImmediateErrors(t *testing.T) {
 		}
 	})
 }
+
+func TestCoroutineVM_Import(t *testing.T) {
+	logger := zap.NewNop()
+
+	t.Run("import and execute simple function", func(t *testing.T) {
+		vm, err := NewCVM(context.Background(), logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm.Close()
+
+		script := `
+			function test()
+				coroutine.yield("first")
+				return "done"
+			end
+		`
+
+		err = vm.Import(script, "test", "test")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Start the function and get output channel
+		ch, err := vm.Start("test")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Process task
+		tasks, err := vm.Step()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(tasks) != 1 {
+			t.Fatal("expected 1 yielded task")
+		}
+
+		if tasks[0].Yielded[0].String() != "first" {
+			t.Fatalf("unexpected yield value: %v", tasks[0].Yielded[0])
+		}
+
+		// Complete task
+		tasks, err = vm.Step(tasks[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		result := <-ch
+		if result.Error != nil {
+			t.Fatal(result.Error)
+		}
+		if result.Result[0].String() != "done" {
+			t.Fatalf("unexpected result: %v", result.Result[0])
+		}
+	})
+
+	t.Run("import multiple functions", func(t *testing.T) {
+		vm, err := NewCVM(context.Background(), logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm.Close()
+
+		script := `
+			function func1()
+				coroutine.yield("from_func1")
+				return "func1_done"
+			end
+
+			function func2()
+				coroutine.yield("from_func2")
+				return "func2_done"
+			end
+		`
+
+		err = vm.Import(script, "test", "func1", "func2")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Test func1
+		ch1, err := vm.Start("func1")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		tasks, err := vm.Step()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(tasks) != 1 || tasks[0].Yielded[0].String() != "from_func1" {
+			t.Fatal("unexpected func1 yield")
+		}
+
+		_, err = vm.Step(tasks[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		result1 := <-ch1
+		if result1.Error != nil || result1.Result[0].String() != "func1_done" {
+			t.Fatal("unexpected func1 result")
+		}
+
+		// Test func2
+		ch2, err := vm.Start("func2")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		tasks, err = vm.Step()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(tasks) != 1 || tasks[0].Yielded[0].String() != "from_func2" {
+			t.Fatal("unexpected func2 yield")
+		}
+
+		_, err = vm.Step(tasks[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		result2 := <-ch2
+		if result2.Error != nil || result2.Result[0].String() != "func2_done" {
+			t.Fatal("unexpected func2 result")
+		}
+	})
+
+	t.Run("import with no function names", func(t *testing.T) {
+		vm, err := NewCVM(context.Background(), logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm.Close()
+
+		script := `
+			function test()
+				return "test"
+			end
+		`
+
+		err = vm.Import(script, "test")
+		if err == nil {
+			t.Error("expected error when importing with no function names")
+		}
+		if !strings.Contains(err.Error(), "no function names provided") {
+			t.Errorf("unexpected error message: %v", err)
+		}
+	})
+
+	t.Run("import non-existent function", func(t *testing.T) {
+		vm, err := NewCVM(context.Background(), logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm.Close()
+
+		script := `
+			function test()
+				return "test"
+			end
+		`
+
+		err = vm.Import(script, "test", "nonexistent")
+		if err == nil {
+			t.Error("expected error when importing non-existent function")
+		}
+	})
+
+	t.Run("import with syntax error", func(t *testing.T) {
+		vm, err := NewCVM(context.Background(), logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm.Close()
+
+		script := `
+			function test()
+				return "missing end
+		`
+
+		err = vm.Import(script, "test", "test")
+		if err == nil {
+			t.Error("expected error with invalid syntax")
+		}
+		if !strings.Contains(err.Error(), "parse error") {
+			t.Errorf("unexpected error message: %v", err)
+		}
+	})
+
+	t.Run("import function with upvalues", func(t *testing.T) {
+		vm, err := NewCVM(context.Background(), logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm.Close()
+
+		script := `
+			local x = "captured"
+			function test()
+				coroutine.yield(x)
+				return "done"
+			end
+		`
+
+		err = vm.Import(script, "test", "test")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		ch, err := vm.Start("test")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		tasks, err := vm.Step()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(tasks) != 1 || tasks[0].Yielded[0].String() != "captured" {
+			t.Fatal("unexpected yield value")
+		}
+
+		_, err = vm.Step(tasks[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		result := <-ch
+		if result.Error != nil || result.Result[0].String() != "done" {
+			t.Fatal("unexpected result")
+		}
+	})
+
+	t.Run("import with nested functions", func(t *testing.T) {
+		vm, err := NewCVM(context.Background(), logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm.Close()
+
+		script := `
+			function outer()
+				local function inner()
+					coroutine.yield("inner")
+					return "inner_done"
+				end
+				coroutine.yield("outer")
+				return inner()
+			end
+		`
+
+		err = vm.Import(script, "test", "outer")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		ch, err := vm.Start("outer")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		tasks, err := vm.Step()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(tasks) != 1 || tasks[0].Yielded[0].String() != "outer" {
+			t.Fatal("unexpected outer yield")
+		}
+
+		tasks, err = vm.Step(tasks[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(tasks) != 1 || tasks[0].Yielded[0].String() != "inner" {
+			t.Fatal("unexpected inner yield")
+		}
+
+		_, err = vm.Step(tasks[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		result := <-ch
+		if result.Error != nil || result.Result[0].String() != "inner_done" {
+			t.Fatal("unexpected result")
+		}
+	})
+
+	t.Run("import module style function", func(t *testing.T) {
+		vm, err := NewCVM(context.Background(), logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm.Close()
+
+		script := `
+			local M = {}
+			function M.test()
+				coroutine.yield("module")
+				return "module_done"
+			end
+			return M
+		`
+
+		err = vm.Import(script, "test", "test")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		ch, err := vm.Start("test")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		tasks, err := vm.Step()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(tasks) != 1 || tasks[0].Yielded[0].String() != "module" {
+			t.Fatal("unexpected yield")
+		}
+
+		_, err = vm.Step(tasks[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		result := <-ch
+		if result.Error != nil || result.Result[0].String() != "module_done" {
+			t.Fatal("unexpected result")
+		}
+	})
+
+	t.Run("import with shared state between functions", func(t *testing.T) {
+		vm, err := NewCVM(context.Background(), logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm.Close()
+
+		script := `
+			local state = 0
+			
+			function increment()
+				state = state + 1
+				coroutine.yield(state)
+				return state
+			end
+
+			function get_state()
+				coroutine.yield(state)
+				return state
+			end
+		`
+
+		err = vm.Import(script, "test", "increment", "get_state")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Run increment
+		ch1, err := vm.Start("increment")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		tasks, err := vm.Step()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(tasks) != 1 || tasks[0].Yielded[0].(lua.LNumber) != 1 {
+			t.Fatal("unexpected increment yield")
+		}
+
+		_, err = vm.Step(tasks[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		result1 := <-ch1
+		if result1.Error != nil || result1.Result[0].(lua.LNumber) != 1 {
+			t.Fatal("unexpected increment result")
+		}
+
+		// Check state
+		ch2, err := vm.Start("get_state")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		tasks, err = vm.Step()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(tasks) != 1 || tasks[0].Yielded[0].(lua.LNumber) != 1 {
+			t.Fatal("unexpected get_state yield")
+		}
+
+		_, err = vm.Step(tasks[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		result2 := <-ch2
+		if result2.Error != nil || result2.Result[0].(lua.LNumber) != 1 {
+			t.Fatal("unexpected get_state result")
+		}
+	})
+}

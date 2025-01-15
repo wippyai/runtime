@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	lua "github.com/yuin/gopher-lua"
+	"github.com/yuin/gopher-lua/parse"
 	"go.uber.org/zap"
 	"strings"
 )
@@ -45,8 +46,28 @@ func NewCVM(
 	return avm, nil
 }
 
+// Import loads a script and stores its named functions
+func (e *CoroutineVM) Import(s, name string, funcName ...string) error {
+	if len(funcName) == 0 {
+		return fmt.Errorf("no function names provided for export")
+	}
+
+	chunk, err := parse.Parse(strings.NewReader(s), name)
+	if err != nil {
+		return fmt.Errorf("parse error: %w", err)
+	}
+
+	fnProto, err := lua.Compile(chunk, name)
+	if err != nil {
+		return fmt.Errorf("compile error: %w", err)
+	}
+
+	return e.Mount(fnProto, funcName...)
+}
+
 // StartString starts a Lua script string with the given name and arguments as coroutine. Step is required to advance execution.
 func (e *CoroutineVM) StartString(script, scriptName string, args ...lua.LValue) error {
+	// todo: possibly deprecate this method
 	fn, err := e.vm.state.Load(strings.NewReader(script), scriptName)
 	if err != nil {
 		return err
