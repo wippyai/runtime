@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/yuin/gopher-lua"
+	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
 

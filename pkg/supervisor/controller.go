@@ -4,9 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/ponyruntime/pony/api/supervisor"
 	"sync"
 	"time"
+
+	"github.com/ponyruntime/pony/api/supervisor"
 )
 
 type State struct {

@@ -3,14 +3,15 @@ package httpctx
 import (
 	"context"
 	"encoding/json"
+	basehttp "net/http"
+	"net/http/httptest"
+	"testing"
+
 	"github.com/ponyruntime/pony/api/service/http"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
-	basehttp "net/http"
-	"net/http/httptest"
-	"testing"
 )
 
 // mockResponseWriter wraps httptest.ResponseRecorder to track header sent state

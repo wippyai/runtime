@@ -3,12 +3,13 @@ package router
 import (
 	"context"
 	"fmt"
-	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
-	config "github.com/ponyruntime/pony/api/service/http"
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+	config "github.com/ponyruntime/pony/api/service/http"
 )
 
 // ChiRouter manages router configuration and endpoints

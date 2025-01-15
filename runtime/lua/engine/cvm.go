@@ -3,10 +3,11 @@ package engine
 import (
 	"context"
 	"fmt"
+	"strings"
+
 	lua "github.com/yuin/gopher-lua"
 	"github.com/yuin/gopher-lua/parse"
 	"go.uber.org/zap"
-	"strings"
 )
 
 // CoroutineVM represents a Lua virtual machine with coroutine support.

@@ -2,9 +2,10 @@ package stream
 
 import (
 	"fmt"
-	"github.com/yuin/gopher-lua"
-	"go.uber.org/zap"
 	"io"
+
+	lua "github.com/yuin/gopher-lua"
+	"go.uber.org/zap"
 )
 
 // LuaStream wraps Stream for Lua

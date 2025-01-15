@@ -2,7 +2,8 @@ package lua
 
 import (
 	"context"
-	"github.com/yuin/gopher-lua"
+
+	lua "github.com/yuin/gopher-lua"
 )
 
 type (

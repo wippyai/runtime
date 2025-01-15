@@ -2,15 +2,16 @@ package router
 
 import (
 	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"sync"
+	"testing"
+
 	"github.com/google/uuid"
 	"github.com/ponyruntime/pony/api/registry"
 	config "github.com/ponyruntime/pony/api/service/http"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"net/http"
-	"net/http/httptest"
-	"sync"
-	"testing"
 )
 
 func TestRouterComposition(t *testing.T) {

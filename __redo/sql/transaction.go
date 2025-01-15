@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 
-	"github.com/yuin/gopher-lua"
+	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
 

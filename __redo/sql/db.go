@@ -5,7 +5,7 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/yuin/gopher-lua"
+	lua "github.com/yuin/gopher-lua"
 	// SQLite3 driver
 	_ "github.com/mattn/go-sqlite3"
 )

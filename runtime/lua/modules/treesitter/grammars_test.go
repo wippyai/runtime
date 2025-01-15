@@ -1,14 +1,16 @@
 package treesitter
 
 import (
+	"context"
+	"reflect"
+	"testing"
+
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	treesittergo "github.com/tree-sitter/tree-sitter-go/bindings/go"
 	treesitterjs "github.com/tree-sitter/tree-sitter-javascript/bindings/go"
 	"go.uber.org/zap"
-	"reflect"
-	"testing"
 )
 
 func TestGetLanguageInfo(t *testing.T) {
@@ -46,18 +48,20 @@ func TestGetLanguageInfo(t *testing.T) {
 		},
 		{
 			name:  "Get language with nil Language function",
-			alias: "markdown",
+			alias: "foo",
 			want: &LanguageInfo{
-				Name:     "markdown",
-				Aliases:  []string{"markdown", "md"},
+				Name:     "bar",
+				Aliases:  []string{"foobar", "bar"},
 				Language: nil,
 			},
-			wantFound: true,
+			wantFound: false,
 		},
 	}
+
+	langs := NewLanguages()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := GetLanguageInfo(tt.alias)
+			got := langs.GetLanguageInfo(tt.alias)
 			if (got != nil) != tt.wantFound {
 				t.Errorf("GetLanguageInfo() found = %v, wantFound %v", got != nil, tt.wantFound)
 				return
@@ -85,7 +89,8 @@ func TestGetLanguageInfo(t *testing.T) {
 
 // TestLanguageFunctions checks if the Language functions return non-nil values.
 func TestLanguageFunctions(t *testing.T) {
-	for alias, info := range supportedLanguages {
+	langs := NewLanguages()
+	for alias, info := range langs.supported {
 		// Skip languages without a Language function (like Markdown)
 		if info.Language == nil {
 			continue
@@ -97,18 +102,6 @@ func TestLanguageFunctions(t *testing.T) {
 			}
 		})
 	}
-}
-
-// copyLangInfo creates a copy of a LanguageInfo value.
-func copyLangInfo(info LanguageInfo) *LanguageInfo {
-	// Create a new LanguageInfo with copies of the values
-	newInfo := &LanguageInfo{
-		Name:     info.Name,
-		Aliases:  make([]string, len(info.Aliases)), // Copy the slice
-		Language: info.Language,
-	}
-	copy(newInfo.Aliases, info.Aliases) // Copy the slice contents
-	return newInfo
 }
 
 func TestGrammarSupport(t *testing.T) {
@@ -123,7 +116,7 @@ func TestGrammarSupport(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local treesitter = require("treesitter")
 			local langs = treesitter.supported_languages()
 			assert(type(langs) == "table", "supported_languages should return a table")
@@ -149,7 +142,7 @@ func TestGrammarSupport(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local treesitter = require("treesitter")
 			
 			-- Test various language aliases
@@ -200,7 +193,7 @@ func TestGrammarSupport(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local treesitter = require("treesitter")
 			
 			local function test_invalid_parse(alias)
