@@ -1838,3 +1838,79 @@ func BenchmarkCoroutineVM(b *testing.B) {
 		}
 	})
 }
+
+func TestCoroutineVM_Mount(t *testing.T) {
+	logger := zap.NewNop()
+
+	t.Run("mount and reuse compiled code", func(t *testing.T) {
+		// Create first VM and compile code
+		vm1, err := NewCVM(context.Background(), logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm1.Close()
+
+		// Load and compile script
+		chunk, err := vm1.vm.state.LoadString(`
+			function shared_task()
+				coroutine.yield("shared_first")
+				coroutine.yield("shared_second")
+				return "shared_done"
+			end
+			return shared_task
+		`)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Get function prototype
+		proto := chunk.Proto
+
+		// Mount in first VM
+		err = vm1.Mount(proto, "shared_task")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Verify function works in first VM
+		err = vm1.Start("shared_task")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		tasks, err := vm1.Step()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(tasks) != 1 || tasks[0].Yielded[0].String() != "shared_first" {
+			t.Fatal("unexpected first yield in VM1")
+		}
+
+		// Create second VM and mount same prototype
+		vm2, err := NewCVM(context.Background(), logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm2.Close()
+
+		// Mount compiled code in second VM
+		err = vm2.Mount(proto, "shared_task")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Verify function works in second VM
+		err = vm2.Start("shared_task")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		tasks, err = vm2.Step()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(tasks) != 1 || tasks[0].Yielded[0].String() != "shared_first" {
+			t.Fatal("unexpected first yield in VM2")
+		}
+	})
+}
