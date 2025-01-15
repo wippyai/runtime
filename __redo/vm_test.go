@@ -413,7 +413,7 @@ func TestVM_CompiledGlobalState(t *testing.T) {
 	}
 	defer vm.Close()
 
-	// DoString increment function
+	// StartString increment function
 	if err := vm.Import("increment", `
 		function increment()
 			State.count = State.count + 1
@@ -424,7 +424,7 @@ func TestVM_CompiledGlobalState(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// DoString getCount function
+	// StartString getCount function
 	if err := vm.Import("getCount", `
 		function getCount()
 			return State.count

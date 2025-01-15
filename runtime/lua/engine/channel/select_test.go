@@ -19,7 +19,7 @@ func TestSelectImmediate(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(`
+	err = vm.StartString(`
 		-- Create two buffered channels
 		local ch1 = channel.new(1)
 		local ch2 = channel.new(1)
@@ -77,7 +77,7 @@ func TestSelectBlockedReceive(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(`
+	err = vm.StartString(`
 		-- Create two unbuffered channels
 		local ch1 = channel.new(0)
 		local ch2 = channel.new(0)
@@ -132,7 +132,7 @@ func TestSelectBlockedClose(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(`
+	err = vm.StartString(`
 		-- Create two unbuffered channels
 		local ch1 = channel.new(0)
 		local ch2 = channel.new(0)
@@ -192,7 +192,7 @@ func TestSelectWithDefaultImmediate(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(`
+	err = vm.StartString(`
         -- Helper to get channel stats
         local function channel_stats(ch)
             return {
@@ -261,7 +261,7 @@ func TestSelectLoopWithFeeds(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(`
+	err = vm.StartString(`
         -- Helper for channel stats
         local function channel_stats(ch)
             return {
@@ -347,7 +347,7 @@ func TestSelectCleanupOnReceive(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(`
+	err = vm.StartString(`
        local function channel_stats(ch)
            return {
                size = ch:_debug_size(),
@@ -421,7 +421,7 @@ func TestSelectCleanupAll(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(`
+	err = vm.StartString(`
 		local function channel_stats(ch)
 			return {
 				size = ch:_debug_size(),
@@ -525,7 +525,7 @@ func TestMixedSelectImmediate(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(`
+	err = vm.StartString(`
 		local function channel_stats(ch)
 			return {
 				size = ch:_debug_size(),
@@ -613,7 +613,7 @@ func TestMixedSelectBlocking(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(`
+	err = vm.StartString(`
 		-- Create unbuffered channels
 		local ch1 = channel.new(0)
 		local ch2 = channel.new(0)
@@ -699,7 +699,7 @@ func TestMixedSelectWithDefault(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(`
+	err = vm.StartString(`
 		-- Create channels that would block
 		local sendCh = channel.new(0)   -- unbuffered
 		local recvCh = channel.new(0)   -- unbuffered

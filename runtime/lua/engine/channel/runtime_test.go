@@ -21,7 +21,7 @@ func TestUnbufferedChannelOperations(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(`
+	err = vm.StartString(`
 			-- Create an unbuffered channel
 			local ch = channel.new()
 
@@ -79,7 +79,7 @@ func TestUnbufferedChannelOperationsMainCoroutine(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(`
+	err = vm.StartString(`
 			-- Create an unbuffered channel
 			local ch = channel.new()
 
@@ -132,7 +132,7 @@ func TestClosedChannelOperations(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(`
+	err = vm.StartString(`
 			-- Create a channel and close it
 			local ch = channel.new()
 			ch:close()
@@ -195,7 +195,7 @@ func TestCloseChannelWithPendingOperations(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(`
+	err = vm.StartString(`
 			-- Create a channel
 			local ch = channel.new()
 
@@ -253,7 +253,7 @@ func TestBufferedChannelBasicOperations(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(`
+	err = vm.StartString(`
 			-- Create a buffered channel with capacity 2
 			local ch = channel.new(2)
 
@@ -315,7 +315,7 @@ func TestBufferedChannelBlockingBehavior(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(`
+	err = vm.StartString(`
 		-- Create a buffered channel with capacity 1
 		local ch = channel.new(1)
 
@@ -381,7 +381,7 @@ func TestReadBufferedValues(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(`
+	err = vm.StartString(`
 		-- Create a buffered channel with capacity 1
 		local ch = channel.new(1)
 		
@@ -435,7 +435,7 @@ func TestBufferedChannelEdgeCases(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(`
+	err = vm.StartString(`
 		-- Test error cases first
 		local success, err = pcall(function()
 			local invalidCh = channel.new(-1) -- Should error
@@ -529,7 +529,7 @@ func TestBufferedChannelCloseWithPendingOperations(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(`
+	err = vm.StartString(`
 		-- Create a buffered channel with capacity 2
 		local ch = channel.new(2)
 
@@ -598,7 +598,7 @@ func TestBufferedChannelClose(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(`
+	err = vm.StartString(`
 		local ch = channel.new(2)
 		
 		-- Buffer a value
@@ -657,7 +657,7 @@ func TestBufferedChannelSendError(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(`
+	err = vm.StartString(`
 		local ch = channel.new(1)
 		ch:close()
 		ch:send("msg") -- Should error
@@ -686,7 +686,7 @@ func TestMainCoroutineBlockingOnBufferedChannel(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(`
+	err = vm.StartString(`
 		-- Create a buffered channel with capacity 1
 		local ch = channel.new(1)
 		
@@ -734,7 +734,7 @@ func TestMainCoroutinePanicHandling(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(`
+	err = vm.StartString(`
 		local ch = channel.new(0)
 		
 		-- Start a goroutine that will be blocked
@@ -786,7 +786,7 @@ func TestMainCoroutineChannelCascadingClose(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(`
+	err = vm.StartString(`
 		local ch = channel.new(0)
 		local next = channel.new(2) -- Collect next from goroutines
 		
@@ -850,7 +850,7 @@ func TestMapReducePattern(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(`
+	err = vm.StartString(`
 		-- Create channels for work distribution and result collection
 		local workCh = channel.new(5)    -- Buffer some work items
 		local resultCh = channel.new(0)  -- Unbuffered next channel
@@ -970,7 +970,7 @@ func TestFanOutPattern(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(`
+	err = vm.StartString(`
 		-- Input channel and multiple output channels
 		local source = channel.new(0)
 		local outputs = {
@@ -1101,7 +1101,7 @@ func TestFanInPattern(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.DoString(`
+	err = vm.StartString(`
 		-- Multiple input channels and single output channel
 		local inputs = {
 			channel.new(0),

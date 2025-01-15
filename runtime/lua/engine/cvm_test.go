@@ -21,7 +21,7 @@ func TestCoroutineVM_Basic(t *testing.T) {
 		defer vm.Close()
 
 		// Load and run script that spawns a coroutine
-		err = vm.DoString(`
+		err = vm.StartString(`
 			local function co()
 				coroutine.yield("first")
 				coroutine.yield("second")
@@ -84,7 +84,7 @@ func TestCoroutineVM_ParallelTasks(t *testing.T) {
 		}
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.StartString(`
 			function task1()
 				coroutine.yield("task1_start")
 				coroutine.yield("task1_middle")
@@ -178,7 +178,7 @@ func TestCoroutineVM_ErrorHandling(t *testing.T) {
 		}
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.StartString(`
 			function error_task()
 				coroutine.yield("start")
 				error("intentional error")
@@ -219,7 +219,7 @@ func TestCoroutineVM_ErrorHandling(t *testing.T) {
 		}
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.StartString(`
 			function long_task()
 				coroutine.yield("running")
 				-- Simulate long operation
@@ -265,7 +265,7 @@ func TestCoroutineVM_ContextPropagation(t *testing.T) {
 		}
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.StartString(`
 			function check_ctx()
 				while true do
 					if coroutine.yield("check") == "stop" then
@@ -310,7 +310,7 @@ func TestCoroutineVM_NativeCoroutines(t *testing.T) {
 		}
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.StartString(`
 			function task_func()
 				-- Create a native coroutine
 				local co = coroutine.create(function()
@@ -365,7 +365,7 @@ func TestCoroutineVM_NativeCoroutines(t *testing.T) {
 		}
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.StartString(`
 			-- Create a shared native coroutine
 			shared_co = coroutine.create(function(task_name)
 				for i = 1, 2 do
@@ -425,7 +425,7 @@ func TestCoroutineVM_NativeCoroutines(t *testing.T) {
 		}
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.StartString(`
 			error_caught = false
 			
 			function task_func()
@@ -456,7 +456,7 @@ func TestCoroutineVM_NativeCoroutines(t *testing.T) {
 			t.Fatalf("unexpected yield value: %v", vals)
 		}
 
-		err = vm.DoString(`assert(error_caught == true)`, "verify")
+		err = vm.StartString(`assert(error_caught == true)`, "verify")
 		if err != nil {
 			t.Fatal(fmt.Sprintf("assertion failed: %v", err))
 		}
@@ -473,7 +473,7 @@ func TestCoroutineVM_ArgumentValidation(t *testing.T) {
 		}
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.StartString(`
 			coroutine.spawn(nil)
 		`, "nil_test")
 
@@ -510,7 +510,7 @@ func TestCoroutineVM_ArgumentValidation(t *testing.T) {
 					coroutine.spawn(%s)
 				`, tc.value)
 
-				err := vm.DoString(script, tc.name)
+				err := vm.StartString(script, tc.name)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -530,7 +530,7 @@ func TestCoroutineVM_ArgumentValidation(t *testing.T) {
 		}
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.StartString(`
 			coroutine.spawn()
 		`, "missing_arg_test")
 
@@ -551,7 +551,7 @@ func TestCoroutineVM_ArgumentValidation(t *testing.T) {
 		}
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.StartString(`
 			local function fn()
 				coroutine.yield("ok")
 			end
@@ -586,7 +586,7 @@ func TestCoroutineVM_ArgumentValidation(t *testing.T) {
 		}
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.StartString(`
 			local x = "captured"
 			local function fn()
 				coroutine.yield(x)
@@ -634,7 +634,7 @@ func TestCoroutineVM_AdditionalCoverage(t *testing.T) {
 		}
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.StartString(`
 			function test_resume_value()
 				local val = coroutine.yield("first")
 				coroutine.yield("got " .. tostring(val))
@@ -679,7 +679,7 @@ func TestCoroutineVM_AdditionalCoverage(t *testing.T) {
 		}
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.StartString(`
 			function completed_task()
 				return "done"
 			end
@@ -712,7 +712,7 @@ func TestCoroutineVM_AdditionalCoverage(t *testing.T) {
 		}
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.StartString(`
 			function error_on_resume()
 				local val = coroutine.yield("first")
 				error("resume error")
@@ -764,7 +764,7 @@ func TestCoroutineVM_AdditionalCoverage(t *testing.T) {
 		}
 		defer vm.Close()
 
-		vm.DoString(`
+		vm.StartString(`
 			-- Create a function that will error when called
 			local badFunc = function()
 				error("coroutine creation error")
@@ -793,7 +793,7 @@ func TestCoroutineVM_StatusAndWrap(t *testing.T) {
 		}
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.StartString(`
 			-- Create a task that will check statuses
 			local status_results = {}
 			
@@ -848,7 +848,7 @@ func TestCoroutineVM_StatusAndWrap(t *testing.T) {
 		}
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.StartString(`
 			-- Create a vm coroutine
 			local vm = coroutine.wrap(function()
 				coroutine.yield("from_wrap")
@@ -885,7 +885,7 @@ func TestCoroutineVM_SharedBuffer(t *testing.T) {
 		}
 		defer vm.Close()
 
-		err = vm.DoString(`	
+		err = vm.StartString(`	
 			-- Shared State
 			shared_buffer = {
 				data = {},
@@ -1042,7 +1042,7 @@ func TestCoroutineVM_NestedSpawn(t *testing.T) {
 		}
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.StartString(`
 			function child()
 				coroutine.yield("child_running")
 				return "child_done"
@@ -1135,7 +1135,7 @@ func TestCoroutineVM_NestedSpawn(t *testing.T) {
 		}
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.StartString(`
 			function leaf()
 				coroutine.yield("leaf")
 				return "leaf_done"
@@ -1245,7 +1245,7 @@ func TestCoroutineVM_MonitorStatus(t *testing.T) {
 		}
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.StartString(`
 			status_log = {}
 			target_thread = nil
 			yield_values = {}
@@ -1365,7 +1365,7 @@ func TestCoroutineVM_MonitorStatus(t *testing.T) {
 		}
 
 		// Verify status transitions and resume values
-		err = vm.DoString(`
+		err = vm.StartString(`
 			assert(#status_log == 4, string.format("expected 4 status entries, got %d", #status_log))
 			
 			assert(status_log[1].phase == "initial" and status_log[1].status == "suspended", 
@@ -1396,7 +1396,7 @@ func TestCoroutineVM_MonitorStatus(t *testing.T) {
 		}
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.StartString(`
 			local ok, err = pcall(function()
 				coroutine.status(nil)
 			end)
@@ -1429,7 +1429,7 @@ func TestCoroutineVM_ClosedCoroutines(t *testing.T) {
 		}
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.StartString(`
 			completed_count = 0
 			
 			function test_cleanup()
@@ -1465,7 +1465,7 @@ func TestCoroutineVM_ClosedCoroutines(t *testing.T) {
 		}
 		defer vm.Close()
 
-		err = vm.DoString(`
+		err = vm.StartString(`
 			function error_test()
 				error("test error")
 			end
@@ -1527,7 +1527,7 @@ func TestCoroutineVM_CustomValue(t *testing.T) {
 			return 1
 		}))
 
-		err = vm.DoString(`
+		err = vm.StartString(`
 			function custom_task()
 				local custom = createCustomValue()
 				coroutine.yield(custom)
@@ -1591,7 +1591,7 @@ func TestCoroutineVM_CustomValue(t *testing.T) {
 			return -1
 		}))
 
-		err = vm.DoString(`
+		err = vm.StartString(`
 			function custom_task()
 				createCustomValue()
 				return "done"
@@ -1654,7 +1654,7 @@ func TestCoroutineVM_CustomValue(t *testing.T) {
 			return -1
 		}))
 
-		err = vm.DoString(`
+		err = vm.StartString(`
 			createCustomValue()
 		`, "custom_value_test")
 
@@ -1712,7 +1712,7 @@ func TestCoroutineVM_CustomValue(t *testing.T) {
 			return -1
 		}))
 
-		err = vm.DoString(`
+		err = vm.StartString(`
 			createCustomValue("arg1")
 		`, "custom_value_test")
 
@@ -1789,7 +1789,7 @@ func BenchmarkCoroutineVM(b *testing.B) {
 			coroutine.spawn(echo)
 		`
 
-		err = vm.DoString(script, "bench")
+		err = vm.StartString(script, "bench")
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -2307,6 +2307,129 @@ func TestCoroutineVM_StartWithArguments(t *testing.T) {
 		}
 		if result.Result[0].String() != "nil_args_ok" {
 			t.Fatalf("unexpected result: %v", result.Result)
+		}
+	})
+}
+
+func TestCoroutineVM_ImmediateErrors(t *testing.T) {
+	logger := zap.NewNop()
+
+	t.Run("immediate error before yield", func(t *testing.T) {
+		vm, err := NewCVM(context.Background(), logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm.Close()
+
+		err = vm.StartString(`
+            function immediate_error()
+                error("immediate error")
+                -- No yield, error happens immediately
+            end
+
+            coroutine.spawn(immediate_error)
+        `, "immediate_error_test")
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Step should result in error
+		tasks, err := vm.Step()
+		if err == nil {
+			t.Fatal("expected immediate error")
+		}
+		if !strings.Contains(err.Error(), "immediate error") {
+			t.Fatalf("unexpected error message: %v", err)
+		}
+		if len(tasks) != 0 {
+			t.Fatal("expected no tasks after error")
+		}
+	})
+
+	t.Run("compile and start immediate error", func(t *testing.T) {
+		vm, err := NewCVM(context.Background(), logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm.Close()
+
+		// Parse and compile the function
+		script := `
+            function test_error()
+                error("start error")
+            end
+        `
+
+		chunk, err := parse.Parse(strings.NewReader(script), "error_test")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		proto, err := lua.Compile(chunk, "error_test")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Mount the function
+		if err := vm.Mount(proto, "test_error"); err != nil {
+			t.Fatal(err)
+		}
+
+		// Start the function and get the channel
+		ch, err := vm.Start("test_error")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Step should trigger the error
+		_, stepErr := vm.Step()
+		if stepErr == nil {
+			t.Fatal("expected error from Step")
+		}
+
+		// Verify error is sent through channel
+		result := <-ch
+		if result.Error == nil {
+			t.Fatal("expected error in task result")
+		}
+		if !strings.Contains(result.Error.Error(), "start error") {
+			t.Fatalf("unexpected error message: %v", result.Error)
+		}
+	})
+
+	t.Run("error in nested immediate function", func(t *testing.T) {
+		vm, err := NewCVM(context.Background(), logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm.Close()
+
+		err = vm.StartString(`
+            function nested_func()
+                local function inner()
+                    error("nested error")
+                end
+                inner() -- Call immediately
+            end
+
+            coroutine.spawn(nested_func)
+        `, "nested_error_test")
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Step should result in error
+		tasks, err := vm.Step()
+		if err == nil {
+			t.Fatal("expected error from nested function")
+		}
+		if !strings.Contains(err.Error(), "nested error") {
+			t.Fatalf("unexpected error message: %v", err)
+		}
+		if len(tasks) != 0 {
+			t.Fatal("expected no tasks after error")
 		}
 	})
 }
