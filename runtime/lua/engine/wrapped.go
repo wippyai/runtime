@@ -60,6 +60,19 @@ func (w *wrappedLayer) Close() {
 	w.next.Close()
 }
 
+// CVMOption represents a function that can modify a CVMWrapper
+type CVMOption func(*CVMWrapper)
+
+// WithLayer returns a CVMOption that adds a layer to the wrapper
+func WithLayer(layer Layer) CVMOption {
+	return func(w *CVMWrapper) {
+		w.layers = append(w.layers, layer)
+		// Invalidate cache
+		w.wrapped = nil
+		w.layerCount = 0
+	}
+}
+
 // CVMWrapper provides a way to wrap CVM with middleware layers
 type CVMWrapper struct {
 	cvm        *CoroutineVM // Base CVM
@@ -68,21 +81,19 @@ type CVMWrapper struct {
 	layerCount int          // Number of layers when cache was built
 }
 
-// NewWrappedCVM creates a new wrapper around provided CVM
-func NewWrappedCVM(cvm *CoroutineVM) *CVMWrapper {
-	return &CVMWrapper{
+// NewWrappedCVM creates a new wrapper around provided CVM with optional layers
+func NewWrappedCVM(cvm *CoroutineVM, opts ...CVMOption) *CVMWrapper {
+	w := &CVMWrapper{
 		cvm:    cvm,
 		layers: make([]Layer, 0),
 	}
-}
 
-// AddLayer adds a new layer to the chain.
-// Layers are executed in order they were added (first added = outermost).
-func (e *CVMWrapper) AddLayer(layer Layer) {
-	e.layers = append(e.layers, layer)
-	// Invalidate cache
-	e.wrapped = nil
-	e.layerCount = 0
+	// Apply all options
+	for _, opt := range opts {
+		opt(w)
+	}
+
+	return w
 }
 
 // getWrapped returns cached or builds new wrapped chain

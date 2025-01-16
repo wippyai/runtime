@@ -29,8 +29,7 @@ func TestRunner_AsLayer(t *testing.T) {
 	defer vm.Close()
 
 	// Create wrapped VM with runner layer
-	wrapped := engine.NewWrappedCVM(vm)
-	wrapped.AddLayer(NewAsyncRunner())
+	wrapped := engine.NewWrappedCVM(vm, engine.WithLayer(NewAsyncRunner()))
 
 	// Import test script
 	err = vm.Import(`
@@ -79,8 +78,7 @@ func TestAsyncCoroutines(t *testing.T) {
 		defer vm.Close()
 
 		// Create wrapped VM with async runner
-		wrapped := engine.NewWrappedCVM(vm)
-		wrapped.AddLayer(NewAsyncRunner())
+		wrapped := engine.NewWrappedCVM(vm, engine.WithLayer(NewAsyncRunner()))
 
 		// Import test script with two coroutines
 		err = vm.Import(`
@@ -99,8 +97,8 @@ func TestAsyncCoroutines(t *testing.T) {
                    results.second = {res2, dur2}
                end)
 
-				local res3, dur3 = async_sleep(100)
-				results.third = {res3, dur3}
+			   local res3, dur3 = async_sleep(100)
+     		   results.third = {res3, dur3}
 
                return results
            end
@@ -160,16 +158,20 @@ func TestAsyncCoroutines(t *testing.T) {
 func createVM(t *testing.T) *engine.CoroutineVM {
 	log := zap.NewNop()
 	vm, err := engine.NewCVM(log,
+		//engine.WithGlobalValue("async", lua.LBool(true)),
 		engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
 		engine.WithGlobalFunction("async_double", func(L *lua.LState) int {
+
 			WrapAsync(L, func(args []lua.LValue) Result {
 				value := args[0].(lua.LNumber)
 				time.Sleep(100 * time.Millisecond)
-				return Result{Values: []lua.LValue{lua.LNumber(value * 2)}}
+				return Result{Values: []lua.LValue{value * 2}}
 			})
+
 			return -1
 		}),
 	)
+
 	assert.NoError(t, err)
 	return vm
 }
@@ -182,7 +184,7 @@ func TestRunner_ChannelLayer(t *testing.T) {
 
             -- Spawn worker that does async operation
             coroutine.spawn(function()
-               local doubled = async_double(5)
+                local doubled = async_double(5)
                 ch:send(doubled)
             end)
             
@@ -196,9 +198,10 @@ func TestRunner_ChannelLayer(t *testing.T) {
 		vm := createVM(t)
 		defer vm.Close()
 
-		wrapped := engine.NewWrappedCVM(vm)
-		wrapped.AddLayer(channel.NewRuntime())
-		wrapped.AddLayer(NewAsyncRunner())
+		wrapped := engine.NewWrappedCVM(vm,
+			engine.WithLayer(channel.NewRuntime()),
+			engine.WithLayer(NewAsyncRunner()),
+		)
 
 		err := vm.Import(testScript, "test", "test_layers")
 		assert.NoError(t, err)
@@ -216,9 +219,10 @@ func TestRunner_ChannelLayer(t *testing.T) {
 		vm := createVM(t)
 		defer vm.Close()
 
-		wrapped := engine.NewWrappedCVM(vm)
-		wrapped.AddLayer(NewAsyncRunner())
-		wrapped.AddLayer(channel.NewRuntime())
+		wrapped := engine.NewWrappedCVM(vm,
+			engine.WithLayer(NewAsyncRunner()),
+			engine.WithLayer(channel.NewRuntime()),
+		)
 
 		err := vm.Import(testScript, "test", "test_layers")
 		assert.NoError(t, err)
@@ -271,9 +275,10 @@ func TestDistributedWorkers(t *testing.T) {
 		defer vm.Close()
 
 		// Setup wrapped VM with required layers
-		wrapped := engine.NewWrappedCVM(vm)
-		wrapped.AddLayer(channel.NewRuntime())
-		wrapped.AddLayer(NewAsyncRunner())
+		wrapped := engine.NewWrappedCVM(vm,
+			engine.WithLayer(channel.NewRuntime()),
+			engine.WithLayer(NewAsyncRunner()),
+		)
 
 		// Import test script
 		err := vm.Import(testScript, "test", "test_distributed_workers")
@@ -393,9 +398,10 @@ func TestWorkerPool(t *testing.T) {
 		defer vm.Close()
 
 		// Setup wrapped VM with required layers
-		wrapped := engine.NewWrappedCVM(vm)
-		wrapped.AddLayer(channel.NewRuntime())
-		wrapped.AddLayer(NewAsyncRunner())
+		wrapped := engine.NewWrappedCVM(vm,
+			engine.WithLayer(channel.NewRuntime()),
+			engine.WithLayer(NewAsyncRunner()),
+		)
 
 		// Import test script
 		err := vm.Import(testScript, "test", "test_worker_pool")
