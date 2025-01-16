@@ -3,7 +3,7 @@ package time
 import (
 	"context"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/async"
+	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 	"testing"
@@ -25,7 +25,7 @@ func TestSleepInCoroutines(t *testing.T) {
 		defer vm.Close()
 
 		// Create wrapped VM with async runner
-		wrapped := engine.NewWrappedCVM(vm, engine.WithLayer(async.NewAsyncRunner()))
+		wrapped := engine.NewWrappedCVM(vm, engine.WithLayer(coroutine.NewCoroutineRunner()))
 
 		// Import test script with two coroutines
 		err = vm.Import(`

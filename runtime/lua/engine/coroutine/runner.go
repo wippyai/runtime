@@ -1,4 +1,4 @@
-package async
+package coroutine
 
 import (
 	"context"
@@ -16,8 +16,8 @@ type Runner struct {
 	results chan taskEntry
 }
 
-// NewAsyncRunner creates a new async runner layer
-func NewAsyncRunner() *Runner {
+// NewCoroutineRunner creates a new async runner layer
+func NewCoroutineRunner() *Runner {
 	r := &Runner{results: make(chan taskEntry, 4096)}
 	return r
 }

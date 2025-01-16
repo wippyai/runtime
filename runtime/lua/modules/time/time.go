@@ -1,8 +1,9 @@
 package time
 
 import (
+	"context"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/async"
+	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	"time"
 
 	lua "github.com/yuin/gopher-lua"
@@ -82,69 +83,50 @@ func now(l *lua.LState) int {
 	return 1
 }
 
+// Helper function that encapsulates sleep logic with context handling
+func performSleep(ctx context.Context, duration time.Duration) error {
+	if ctx != nil {
+		timer := time.NewTimer(duration)
+		defer timer.Stop()
+
+		select {
+		case <-timer.C:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
+	time.Sleep(duration)
+	return nil
+}
+
 func sleep(l *lua.LState) int {
 	if d, ok := isDuration(l, 1); ok {
-		// Get context from state if available
-		if ctx := l.Context(); ctx != nil {
-			// Create timer for the sleep duration
-			timer := time.NewTimer(d.duration)
-			defer timer.Stop()
-
-			// Wait for either timer completion or context cancellation
-			select {
-			case <-timer.C:
-				return 0
-			case <-ctx.Done():
-				timer.Stop()
-				// If context was cancelled, return the error
-				l.Push(lua.LString(ctx.Err().Error()))
-				return 1
-			}
-		} else {
-			// If no context, fall back to regular sleep
-			time.Sleep(d.duration)
-			return 0
+		if err := performSleep(l.Context(), d.duration); err != nil {
+			l.Push(lua.LString(err.Error()))
+			return 1
 		}
-	} else {
-		l.ArgError(1, "duration expected")
 		return 0
 	}
+
+	l.ArgError(1, "duration expected")
+	return 0
 }
 
 func sleepAsync(l *lua.LState) int {
-	// Validate input duration argument
 	if d, ok := isDuration(l, 1); ok {
-		// Wrap the sleep operation in an async function
-		async.WrapAsync(l, func(args []lua.LValue) async.Result {
-			// Get context from state if available
-			if ctx := l.Context(); ctx != nil {
-				// Create timer for the sleep duration
-				timer := time.NewTimer(d.duration)
-				defer timer.Stop()
-
-				// Wait for either timer completion or context cancellation
-				select {
-				case <-timer.C:
-					return async.Result{
-						Values: []lua.LValue{lua.LString("ok")},
-					}
-				case <-ctx.Done():
-					// If context was cancelled, return the error
-					return async.Result{
-						Values: []lua.LValue{lua.LNil},
-						Err:    ctx.Err(),
-					}
+		coroutine.WrapCoroutine(l, func() coroutine.Result {
+			if err := performSleep(l.Context(), d.duration); err != nil {
+				return coroutine.Result{
+					Values: []lua.LValue{lua.LNil},
+					Err:    err,
 				}
 			}
-
-			// If no context available, fallback to regular sleep
-			time.Sleep(d.duration)
-			return async.Result{
+			return coroutine.Result{
 				Values: []lua.LValue{lua.LString("ok")},
 			}
 		})
-
-		// Return -1 to indicate yielding
 		return -1
 	}
 
