@@ -17,7 +17,7 @@ import (
 
 func RunLuaSQLTest(luaCode, testName string) (any, error) {
 	log := zap.NewNop()
-	LE := lengine.NewCoroutineVM(context.Background(), log.Named("tests"))
+	LE := lengine.NewCVM(context.Background(), log.Named("tests"))
 	LE.L.PreloadModule("sql", NewModule(log.Named("sql")).Loader)
 
 	err := LE.Init(luaCode, testName)
@@ -195,7 +195,7 @@ func TestLuaSQLErrorHandling(t *testing.T) {
 	end
 
 	-- This should fail because the table does not exist
-	local result, err = db:Execute("INSERT INTO nonexistent_table (name) VALUES ('Charlie')")
+	local result, err = db:Run("INSERT INTO nonexistent_table (name) VALUES ('Charlie')")
 	if err then
 		return nil, err
 	end

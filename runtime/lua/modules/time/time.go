@@ -1,6 +1,9 @@
 package time
 
 import (
+	"context"
+	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	"time"
 
 	lua "github.com/yuin/gopher-lua"
@@ -80,33 +83,55 @@ func now(l *lua.LState) int {
 	return 1
 }
 
+// Helper function that encapsulates sleep logic with context handling
+func performSleep(ctx context.Context, duration time.Duration) error {
+	if ctx != nil {
+		timer := time.NewTimer(duration)
+		defer timer.Stop()
+
+		select {
+		case <-timer.C:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
+	time.Sleep(duration)
+	return nil
+}
+
 func sleep(l *lua.LState) int {
 	if d, ok := isDuration(l, 1); ok {
-		// Get context from state if available
-		if ctx := l.Context(); ctx != nil {
-			// Create timer for the sleep duration
-			timer := time.NewTimer(d.duration)
-			defer timer.Stop()
-
-			// Wait for either timer completion or context cancellation
-			select {
-			case <-timer.C:
-				return 0
-			case <-ctx.Done():
-				timer.Stop()
-				// If context was cancelled, return the error
-				l.Push(lua.LString(ctx.Err().Error()))
-				return 1
-			}
-		} else {
-			// If no context, fall back to regular sleep
-			time.Sleep(d.duration)
-			return 0
+		if err := performSleep(l.Context(), d.duration); err != nil {
+			l.Push(lua.LString(err.Error()))
+			return 1
 		}
-	} else {
-		l.ArgError(1, "duration expected")
 		return 0
 	}
+
+	l.ArgError(1, "duration expected")
+	return 0
+}
+
+func sleepAsync(l *lua.LState) int {
+	if d, ok := isDuration(l, 1); ok {
+		coroutine.WrapCoroutine(l, func() coroutine.Result {
+			if err := performSleep(l.Context(), d.duration); err != nil {
+				return coroutine.Result{
+					Values: []lua.LValue{lua.LNil},
+					Err:    err,
+				}
+			}
+			return coroutine.Result{
+				Values: []lua.LValue{lua.LString("ok")},
+			}
+		})
+		return -1
+	}
+
+	l.ArgError(1, "duration expected")
+	return 0
 }
 
 func date(l *lua.LState) int {
@@ -114,7 +139,7 @@ func date(l *lua.LState) int {
 	month := time.Month(l.CheckInt(2))
 	day := l.CheckInt(3)
 	hour := l.CheckInt(4)
-	min := l.CheckInt(5)
+	mn := l.CheckInt(5)
 	sec := l.CheckInt(6)
 	nsec := l.CheckInt(7)
 
@@ -130,7 +155,7 @@ func date(l *lua.LState) int {
 		loc = time.Local
 	}
 
-	t := time.Date(year, month, day, hour, min, sec, nsec, loc)
+	t := time.Date(year, month, day, hour, mn, sec, nsec, loc)
 	ud := l.NewUserData()
 	ud.Value = &Time{time: t}
 	l.SetMetatable(ud, l.GetTypeMetatable("Time"))
@@ -359,9 +384,9 @@ func timeClock(l *lua.LState) int {
 		return 0
 	}
 
-	hour, min, sec := t.time.Clock()
+	hour, mn, sec := t.time.Clock()
 	l.Push(lua.LNumber(hour))
-	l.Push(lua.LNumber(min))
+	l.Push(lua.LNumber(mn))
 	l.Push(lua.LNumber(sec))
 	return 3
 }
@@ -640,10 +665,15 @@ func registerTime(l *lua.LState, mod *lua.LTable) {
 	l.SetField(mod, "FRIDAY", lua.LNumber(5))
 	l.SetField(mod, "SATURDAY", lua.LNumber(6))
 
+	sleepFunc := sleep
+	if engine.IsCoroutineVM(l) {
+		sleepFunc = sleepAsync
+	}
+
 	// Register time functions
 	l.SetFuncs(mod, map[string]lua.LGFunction{
 		"now":   now,
-		"sleep": sleep,
+		"sleep": sleepFunc,
 		"date":  date,
 		"unix":  unix,
 		"parse": parse,

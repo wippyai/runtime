@@ -2,15 +2,9 @@ package channel
 
 import (
 	"fmt"
-
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	lua "github.com/yuin/gopher-lua"
 )
-
-type VM interface {
-	GetTask(thread *lua.LState) (*engine.Task, error)
-	Step(tasks ...*engine.Task) ([]*engine.Task, error)
-}
 
 type OpenChannel struct {
 	Name  string
@@ -31,7 +25,7 @@ type Runtime struct {
 	namedChannels map[string]*channelRef // Track named channels with reference counting
 }
 
-func NewRuntime() *Runtime {
+func NewChannelRunner() *Runtime {
 	return &Runtime{
 		queue:         engine.NewTaskQueue(),
 		next:          make([]*opStep, 0),
@@ -72,7 +66,7 @@ func (r *Runtime) Send(name string, values ...lua.LValue) error {
 			}
 
 			for _, result := range next.next {
-				if result.task == nil {
+				if result.state == nil {
 					continue
 				}
 				r.next = append(r.next, result)
@@ -83,14 +77,14 @@ func (r *Runtime) Send(name string, values ...lua.LValue) error {
 	return nil
 }
 
-// Step handles channel operations while maintaining VM compatibility
-func (r *Runtime) Step(vm VM, tasks ...*engine.Task) ([]*engine.Task, error) {
+// Step handles channel operations while maintaining CVM compatibility
+func (r *Runtime) Step(vm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, error) {
 	var externalOps []*engine.Task
 
 	for _, prepend := range r.next {
-		task, err := vm.GetTask(prepend.task)
+		task, err := vm.GetTask(prepend.state)
 		if err != nil {
-			return nil, fmt.Errorf("task not found: %w", err)
+			return nil, fmt.Errorf("state not found: %w", err)
 		}
 
 		if prepend.err != nil {
@@ -126,7 +120,7 @@ func (r *Runtime) Step(vm VM, tasks ...*engine.Task) ([]*engine.Task, error) {
 				continue
 			}
 
-			// when we yield from method Lua VM preserves func args, remember that.
+			// when we yield from method Lua CVM preserves func args, remember that.
 			value := task.Yielded[len(task.Yielded)-1]
 			opNext, ok := value.(*onNext)
 			if !ok {
@@ -138,9 +132,9 @@ func (r *Runtime) Step(vm VM, tasks ...*engine.Task) ([]*engine.Task, error) {
 
 			if opNext.yields && len(opNext.next) > 0 {
 				for _, result := range opNext.next {
-					task, err := vm.GetTask(result.task)
+					task, err := vm.GetTask(result.state)
 					if err != nil {
-						return nil, fmt.Errorf("task not found: %w", err)
+						return nil, fmt.Errorf("state not found!: %w", err)
 					}
 
 					if result.err != nil {

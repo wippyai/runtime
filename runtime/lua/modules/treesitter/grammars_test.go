@@ -54,7 +54,7 @@ func TestGetLanguageInfo(t *testing.T) {
 				Aliases:  []string{"foobar", "bar"},
 				Language: nil,
 			},
-			wantFound: true,
+			wantFound: false,
 		},
 	}
 

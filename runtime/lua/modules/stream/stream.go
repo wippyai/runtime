@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"sync"
 )
 
 var (
@@ -30,6 +31,7 @@ type Stream struct {
 	reader    io.ReadCloser
 	config    *Options
 	bytesRead int64
+	mu        sync.Mutex
 	ctx       context.Context
 }
 
@@ -51,6 +53,9 @@ func NewStream(ctx context.Context, reader io.ReadCloser, cfg *Options) (*Stream
 
 // ReadChunk reads the next chunk of data
 func (s *Stream) ReadChunk() ([]byte, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	buffer := make([]byte, s.config.bufferSize)
 	data, err := s.readDirect(buffer)
 	if err != nil {
@@ -98,10 +103,16 @@ func (s *Stream) readDirect(buffer []byte) ([]byte, error) {
 }
 
 func (s *Stream) BytesRead() int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	return s.bytesRead
 }
 
 func (s *Stream) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if err := s.reader.Close(); err != nil {
 		return fmt.Errorf("stream close error: %w", err)
 	}

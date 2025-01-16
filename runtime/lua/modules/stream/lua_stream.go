@@ -2,10 +2,11 @@ package stream
 
 import (
 	"fmt"
-	"io"
-
+	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
+	"io"
 )
 
 // LuaStream wraps Stream for Lua
@@ -50,9 +51,14 @@ func RegisterStream(l *lua.LState) {
 	mt := l.NewTypeMetatable("Stream")
 	l.SetField(mt, "__index", mt)
 
+	readFunc := streamRead
+	if engine.IsCoroutineVM(l) {
+		readFunc = streamReadAsync
+	}
+
 	// Register methods
 	l.SetFuncs(mt, map[string]lua.LGFunction{
-		"read":       streamRead,
+		"read":       readFunc,
 		"close":      streamClose,
 		"bytes_read": streamBytesRead,
 		"__call":     streamIter,
@@ -66,6 +72,29 @@ func checkStream(l *lua.LState) (*LuaStream, error) {
 		return v, nil
 	}
 	return nil, fmt.Errorf("expected Stream, got %T", ud.Value)
+}
+
+func streamReadAsync(l *lua.LState) int {
+	stream, err := checkStream(l)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	coroutine.WrapCoroutine(l, func() coroutine.Result {
+		chunk, err := stream.ReadChunk()
+		if err == io.EOF {
+			return coroutine.Result{Values: []lua.LValue{lua.LNil}}
+		}
+
+		if err != nil {
+			return coroutine.Result{Values: []lua.LValue{lua.LNil, lua.LString(err.Error())}}
+		}
+
+		return coroutine.Result{Values: []lua.LValue{lua.LString(chunk)}}
+	})
+	return -1
 }
 
 // streamRead implements the read() method in Lua

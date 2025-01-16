@@ -3,13 +3,13 @@ package queued
 import (
 	"context"
 	"fmt"
+	"github.com/ponyruntime/pony/runtime/lua/factory"
 	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/ponyruntime/pony/runtime/lua/pool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	lua "github.com/yuin/gopher-lua"
@@ -18,46 +18,47 @@ import (
 
 func setupTestPool(t *testing.T, size, workers int) *Pool {
 	logger := zap.NewNop()
-	vmConfig := pool.NewVMConfig(logger)
+	f := factory.NewFactory(logger)
 
 	// Add test functions to VM config
-	pool.WithFunction("test", `
+	factory.WithFunction("test", `
 		function test(arg)
 			return arg
 		end
 		return test
-	`)(vmConfig)
+	`)(f)
 
-	pool.WithFunction("block", `
+	factory.WithFunction("block", `
 		function block()
 			while true do
 			end
 			return nil
 		end
 		return block
-	`)(vmConfig)
+	`)(f)
 
-	pool.WithFunction("fail", `
+	factory.WithFunction("fail", `
 		function fail()
 			error("intentional failure")
 		end
 		return fail
-	`)(vmConfig)
+	`)(f)
 
-	pool.WithFunction("get_id", `
+	factory.WithFunction("get_id", `
 		local id = 0
 		function get_id()
 			id = id + 1
 			return id
 		end
 		return get_id
-	`)(vmConfig)
+	`)(f)
 
 	// Create pool with custom size and workers
-	p, err := NewPool(vmConfig,
+	p, err := NewPool(f,
 		WithSize(size),
 		WithWorkers(workers),
-		WithLogger(logger))
+		WithLogger(logger),
+	)
 	require.NoError(t, err)
 
 	return p
@@ -105,7 +106,7 @@ func TestQueuedPool_Execute(t *testing.T) {
 		p := setupTestPool(t, 1, 1)
 		defer p.Close()
 
-		// Execute failing function
+		// Run failing function
 		_, err := p.Execute(ctx, "fail", lua.LNil)
 		assert.Error(t, err)
 
@@ -158,7 +159,7 @@ func TestQueuedPool_ParallelExecution(t *testing.T) {
 		executed := make(map[string]int)
 		var mu sync.Mutex
 
-		// Execute multiple tasks and track results
+		// Run multiple tasks and track results
 		for i := 0; i < 30; i++ {
 			wg.Add(1)
 			go func() {
@@ -240,8 +241,8 @@ func TestQueuedPool_QueueBehavior(t *testing.T) {
 
 func BenchmarkQueuedPool_Execute(b *testing.B) {
 	logger := zap.NewNop()
-	vmConfig := pool.NewVMConfig(logger)
-	pool.WithFunction("bench", `
+	vmConfig := factory.NewFactory(logger)
+	factory.WithFunction("bench", `
 		function test(arg)
 			return arg
 		end

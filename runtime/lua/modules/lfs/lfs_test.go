@@ -98,7 +98,7 @@ func TestLFSModuleDoString(t *testing.T) {
 		tempDir := t.TempDir()
 		testDir := filepath.Join(tempDir, "testdir")
 
-		err = vm.CompileFunction("mkdir_rmdir_test", `
+		err = vm.Import(`
 			local lfs = require("lfs")
 			function mkdir_rmdir_test(dirpath)
 				local success = lfs.mkdir(dirpath)
@@ -114,7 +114,7 @@ func TestLFSModuleDoString(t *testing.T) {
 				assert(attr == nil, "directory should not exist after removal")
 			end
 			return mkdir_rmdir_test
-		`)
+		`, "mkdir_rmdir_test_file", "mkdir_rmdir_test")
 		require.NoError(t, err)
 
 		_, err = vm.Execute(context.Background(), "mkdir_rmdir_test", lua.LString(testDir))
@@ -134,7 +134,7 @@ func TestLFSModuleDoString(t *testing.T) {
 		err = os.WriteFile(tempFile, []byte("test content"), 0644)
 		require.NoError(t, err)
 
-		err = vm.CompileFunction("attributes_test", `
+		err = vm.Import(`
 			local lfs = require("lfs")
 			function attributes_test(filepath)
 				local attr = lfs.attributes(filepath)
@@ -146,7 +146,7 @@ func TestLFSModuleDoString(t *testing.T) {
 				assert(type(attr.change) == "number", "change time should be a number")
 			end
 			return attributes_test
-		`)
+		`, "attributes_test", "attributes_test")
 		require.NoError(t, err)
 
 		_, err = vm.Execute(context.Background(), "attributes_test", lua.LString(tempFile))
@@ -165,7 +165,7 @@ func TestLFSModuleDoString(t *testing.T) {
 		tempDir := t.TempDir()
 		tempFile := filepath.Join(tempDir, "touch_test.txt")
 
-		err = vm.CompileFunction("touch_test", `
+		err = vm.Import(`
 			local lfs = require("lfs")
 			function touch_test(filepath)
 				local success = lfs.touch(filepath)
@@ -176,7 +176,7 @@ func TestLFSModuleDoString(t *testing.T) {
 				assert(attr.mode == "file", "should be a file")
 			end
 			return touch_test
-		`)
+		`, "touch_test_file", "touch_test")
 		require.NoError(t, err)
 
 		_, err = vm.Execute(context.Background(), "touch_test", lua.LString(tempFile))
@@ -203,7 +203,7 @@ func TestLFSModuleDoString(t *testing.T) {
 
 		linkFile := filepath.Join(tempDir, "link.txt")
 
-		err = vm.CompileFunction("link_test", `
+		err = vm.Import(`
 			local lfs = require("lfs")
 			function link_test(source, link)
 				local success = lfs.link(source, link, true)  -- Create symbolic link
@@ -214,7 +214,7 @@ func TestLFSModuleDoString(t *testing.T) {
 				assert(attr.mode == "link", "should be a symbolic link")
 			end
 			return link_test
-		`)
+		`, "link_test_file", "link_test")
 		require.NoError(t, err)
 
 		_, err = vm.Execute(
@@ -240,7 +240,7 @@ func TestLFSModuleDoString(t *testing.T) {
 			require.NoError(t, err)
 		}
 
-		err = vm.CompileFunction("dir_test", `
+		err = vm.Import(`
 			local lfs = require("lfs")
 			function dir_test(dirpath)
 				local iter, dir = lfs.dir(dirpath)
@@ -253,7 +253,7 @@ func TestLFSModuleDoString(t *testing.T) {
 				assert(count >= 3, "should find at least 3 entries")
 			end
 			return dir_test
-		`)
+		`, "dir_test_file", "dir_test")
 		require.NoError(t, err)
 
 		_, err = vm.Execute(context.Background(), "dir_test", lua.LString(tempDir))

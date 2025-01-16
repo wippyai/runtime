@@ -34,6 +34,8 @@ func NewEndpointHandler(
 	}
 }
 
+// todo: we want to connect to app context here to halt the request processing
+
 // Handle processes incoming HTTP requests.
 // It extracts route information, validates the request, executes the task,
 // and writes the response back to the client.
