@@ -41,6 +41,7 @@ func (r *Runner) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, er
 			if len(task.Yielded) > 0 {
 				if wrapper, ok := task.Yielded[len(task.Yielded)-1].(*FuncWrapper); ok {
 					r.wait++
+
 					go func(t *engine.Task, w *FuncWrapper) {
 						r.results <- taskEntry{task: t, result: w.Run()}
 					}(task, wrapper)

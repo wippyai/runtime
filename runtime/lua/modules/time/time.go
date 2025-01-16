@@ -139,7 +139,7 @@ func date(l *lua.LState) int {
 	month := time.Month(l.CheckInt(2))
 	day := l.CheckInt(3)
 	hour := l.CheckInt(4)
-	min := l.CheckInt(5)
+	mn := l.CheckInt(5)
 	sec := l.CheckInt(6)
 	nsec := l.CheckInt(7)
 
@@ -155,7 +155,7 @@ func date(l *lua.LState) int {
 		loc = time.Local
 	}
 
-	t := time.Date(year, month, day, hour, min, sec, nsec, loc)
+	t := time.Date(year, month, day, hour, mn, sec, nsec, loc)
 	ud := l.NewUserData()
 	ud.Value = &Time{time: t}
 	l.SetMetatable(ud, l.GetTypeMetatable("Time"))
@@ -384,9 +384,9 @@ func timeClock(l *lua.LState) int {
 		return 0
 	}
 
-	hour, min, sec := t.time.Clock()
+	hour, mn, sec := t.time.Clock()
 	l.Push(lua.LNumber(hour))
-	l.Push(lua.LNumber(min))
+	l.Push(lua.LNumber(mn))
 	l.Push(lua.LNumber(sec))
 	return 3
 }
