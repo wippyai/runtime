@@ -20,7 +20,9 @@ func (m *Module) executeRequestYield(l *lua.LState, req *http.Request, opts *req
 
 	cleanup := closer.FromContext(ctx)
 	if cleanup == nil {
+		// should never happen
 		ctx, cleanup = closer.WithContext(ctx)
+		defer func() { _ = cleanup.Close() }()
 	}
 
 	if opts.timeout > 0 {
@@ -37,8 +39,6 @@ func (m *Module) executeRequestYield(l *lua.LState, req *http.Request, opts *req
 	)
 
 	coroutine.WrapCoroutine(l, func() coroutine.Result {
-		defer func() { _ = cleanup.Close() }()
-
 		resp, err := m.client.Do(req)
 		if err != nil {
 			return coroutine.Result{Values: []lua.LValue{lua.LNil, lua.LString(err.Error())}}

@@ -92,3 +92,77 @@ func TestAsyncStreamRead(t *testing.T) {
 		assert.Equal(t, "chunk3", third)
 	})
 }
+
+func TestAsyncStreamIter(t *testing.T) {
+	t.Run("async stream iteration", func(t *testing.T) {
+		log := zap.NewNop()
+
+		// Create base VM with stream module
+		vm, err := engine.NewCVM(
+			log,
+			engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
+			engine.WithPreloaded("stream", NewStreamModule(log).Loader),
+		)
+		require.NoError(t, err)
+		defer vm.Close()
+
+		// Create wrapped VM with async runner
+		wrapped := engine.NewWrappedCVM(
+			vm,
+			engine.WithLayer(channel.NewChannelRunner()),
+			engine.WithLayer(coroutine.NewCoroutineRunner()),
+		)
+
+		// Create test data and stream
+		testData := []byte("chunk1chunk2chunk3")
+		reader := newMockReadCloser(testData)
+		stream, err := NewStream(context.Background(), reader, NewStreamConfig(6))
+		require.NoError(t, err)
+
+		// Register stream in Lua
+		luaStream := &LuaStream{Stream: stream}
+		ud := vm.State().NewUserData()
+		ud.Value = luaStream
+		vm.State().SetMetatable(ud, vm.State().GetTypeMetatable("Stream"))
+		vm.State().SetGlobal("test_stream", ud)
+
+		// Import test script with coroutines
+		err = vm.Import(`
+            function test_stream_iter()
+                local results = {}
+                local sync = channel.new(1)
+                
+                -- First coroutine reads chunks
+                coroutine.spawn(function()
+                    local chunks = {}
+                    for chunk in test_stream() do
+                        table.insert(chunks, chunk)
+                    end
+                    results.chunks = chunks
+                    sync:send(true)
+                end)
+
+                -- Wait for first coroutine to finish
+                sync:receive()
+                return results
+            end
+        `, "test", "test_stream_iter")
+		require.NoError(t, err)
+
+		// Execute test and verify results
+		result, err := wrapped.Execute(context.Background(), "test_stream_iter")
+		require.NoError(t, err)
+
+		// Verify results
+		resultTable := result.(*lua.LTable)
+		chunks := resultTable.RawGetString("chunks").(*lua.LTable)
+
+		// Convert chunks from Lua table to Go slice
+		var allChunks []string
+		chunks.ForEach(func(_, value lua.LValue) {
+			allChunks = append(allChunks, value.String())
+		})
+
+		assert.Equal(t, []string{"chunk1", "chunk2", "chunk3"}, allChunks)
+	})
+}
