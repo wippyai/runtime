@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
+	"log"
 	"time"
 
 	lua "github.com/yuin/gopher-lua"
@@ -93,6 +94,7 @@ func performSleep(ctx context.Context, duration time.Duration) error {
 		case <-timer.C:
 			return nil
 		case <-ctx.Done():
+			log.Printf("sleep: %s", ctx.Err())
 			return ctx.Err()
 		}
 	}

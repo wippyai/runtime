@@ -13,12 +13,13 @@ const (
 
 type (
 	FunctionConfig struct {
-		Meta      registry.Metadata `json:"meta"`
-		Source    string            `json:"source"`
-		Method    string            `json:"method"`
-		Libraries []string          `json:"libraries"`
-		Modules   []string          `json:"modules"`
-		Pool      PoolConfig        `json:"pool"`
+		Meta       registry.Metadata `json:"meta"`
+		Source     string            `json:"source"`
+		Method     string            `json:"method"`
+		Libraries  []string          `json:"libraries"`
+		Modules    []string          `json:"modules"`
+		Pool       PoolConfig        `json:"pool"`
+		Coroutines bool              `json:"coroutines"`
 	}
 
 	PoolConfig struct {

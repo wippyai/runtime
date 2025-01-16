@@ -2,6 +2,8 @@ package factory
 
 import (
 	"fmt"
+	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
+	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 
 	api "github.com/ponyruntime/pony/api/runtime/lua"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
@@ -18,8 +20,8 @@ type Factory struct {
 	ExportedFunctions map[string]struct{}
 	EngineOpts        []engine.Option
 	Logger            *zap.Logger
-	//Async      bool // todo: implement
-	compiled bool
+	Coroutines        bool
+	compiled          bool
 }
 
 // Library represents a Lua library to be loaded
@@ -129,7 +131,7 @@ func (cfg *Factory) MakeVM() (api.VM, error) {
 }
 
 // CreateVM creates a new Callable instance with the provided configuration
-func CreateVM(cfg *Factory) (*engine.VM, error) {
+func CreateVM(cfg *Factory) (api.VM, error) {
 	// Collect all options
 	opts := make([]engine.Option, 0)
 
@@ -151,10 +153,10 @@ func CreateVM(cfg *Factory) (*engine.VM, error) {
 		opts = append(opts, engine.WithGlobalValue(global.Name, global.Value))
 	}
 
-	// Create Callable with all options
-	vm, err := engine.NewVM(cfg.Logger, opts...)
+	channelOpts := []engine.Option{engine.WithPreloaded("channel", channel.NewChannelModule().Loader)}
+	vm, err := engine.NewCVM(cfg.Logger, append(channelOpts, opts...)...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create Callable: %w", err)
+		return nil, fmt.Errorf("failed to create CoroutineVM: %w", err)
 	}
 
 	// Add bound functions via options
@@ -165,7 +167,11 @@ func CreateVM(cfg *Factory) (*engine.VM, error) {
 		}
 	}
 
-	// mount coroutine based VM
+	// wrapping into execution layer
+	wrap := engine.NewWrappedCVM(vm,
+		engine.WithLayer(channel.NewRuntime()),
+		engine.WithLayer(coroutine.NewCoroutineRunner()),
+	)
 
-	return vm, nil
+	return wrap, nil
 }

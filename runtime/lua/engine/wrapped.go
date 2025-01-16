@@ -172,3 +172,7 @@ func (e *CVMWrapper) Execute(
 
 	return nil, nil
 }
+
+func (e *CVMWrapper) Close() {
+	e.getWrapped().Close()
+}
