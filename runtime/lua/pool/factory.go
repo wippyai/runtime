@@ -17,7 +17,7 @@ func NewFactory(log *zap.Logger) *Factory {
 	}
 }
 
-func (c *Factory) Compile(
+func (c *Factory) Build(
 	factory lua.Factory,
 	luaCfg *lua.FunctionConfig,
 ) (lua.Callable, error) {

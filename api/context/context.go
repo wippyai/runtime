@@ -16,6 +16,7 @@ var (
 	LoggerCtx     = &Key{Name: "logger"}     //nolint:gochecknoglobals
 	ValuesCtx     = &Key{Name: "values"}     //nolint:gochecknoglobals
 	CleanupCtx    = &Key{Name: "cleanup"}    //nolint:gochecknoglobals
+	TaskCtx       = &Key{Name: "task"}       //nolint:gochecknoglobals
 )
 
 type Contexter[T any] struct {

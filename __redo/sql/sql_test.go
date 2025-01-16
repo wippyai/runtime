@@ -195,7 +195,7 @@ func TestLuaSQLErrorHandling(t *testing.T) {
 	end
 
 	-- This should fail because the table does not exist
-	local result, err = db:Execute("INSERT INTO nonexistent_table (name) VALUES ('Charlie')")
+	local result, err = db:Run("INSERT INTO nonexistent_table (name) VALUES ('Charlie')")
 	if err then
 		return nil, err
 	end

@@ -22,10 +22,11 @@ type (
 
 	// CVM represents core VM functionality required by layers
 	CVM interface {
+		GetContext() context.Context
 		Start(funcName string, args ...lua.LValue) (<-chan TaskResult, error)
-		GetTask(thread *lua.LState) (*Task, error)
 		Step(tasks ...*Task) ([]*Task, error)
-		GetYieldedTasks() []*Task
+		GetTasks() []*Task
+		GetTask(thread *lua.LState) (*Task, error)
 		Close()
 	}
 
@@ -35,6 +36,10 @@ type (
 	}
 )
 
+func (w *wrappedLayer) GetContext() context.Context {
+	return w.next.GetContext()
+}
+
 func (w *wrappedLayer) Start(funcName string, args ...lua.LValue) (<-chan TaskResult, error) {
 	return w.next.Start(funcName, args...)
 }
@@ -43,8 +48,8 @@ func (w *wrappedLayer) GetTask(thread *lua.LState) (*Task, error) {
 	return w.next.GetTask(thread)
 }
 
-func (w *wrappedLayer) GetYieldedTasks() []*Task {
-	return w.next.GetYieldedTasks()
+func (w *wrappedLayer) GetTasks() []*Task {
+	return w.next.GetTasks()
 }
 
 func (w *wrappedLayer) Step(tasks ...*Task) ([]*Task, error) {
