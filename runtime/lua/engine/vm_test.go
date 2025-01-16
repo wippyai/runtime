@@ -754,7 +754,7 @@ func TestVM_Mount(t *testing.T) {
 		arg := lua.LString("World")
 		expected := lua.LString("Hello World")
 
-		// Execute in VM1
+		// Run in VM1
 		result1, err := vm1.Execute(context.Background(), "test", arg)
 		if err != nil {
 			t.Fatal(err)
@@ -763,7 +763,7 @@ func TestVM_Mount(t *testing.T) {
 			t.Errorf("VM1: got %v, want %v", result1, expected)
 		}
 
-		// Execute in VM2
+		// Run in VM2
 		result2, err := vm2.Execute(context.Background(), "test", arg)
 		if err != nil {
 			t.Fatal(err)
@@ -814,7 +814,7 @@ func TestVM_Mount(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		// Execute in VM1 twice
+		// Run in VM1 twice
 		result1, err := vm1.Execute(context.Background(), "test")
 		if err != nil {
 			t.Fatal(err)
@@ -831,7 +831,7 @@ func TestVM_Mount(t *testing.T) {
 			t.Errorf("VM1 second call: got %v, want %v", result1, lua.LNumber(2))
 		}
 
-		// Execute in VM2 should start from 1 again
+		// Run in VM2 should start from 1 again
 		result2, err := vm2.Execute(context.Background(), "test")
 		if err != nil {
 			t.Fatal(err)

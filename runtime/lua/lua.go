@@ -27,9 +27,8 @@ type RuntimeManager struct {
 	functions map[registry.ID]*api.FunctionConfig
 	libraries map[registry.ID]*api.LibraryConfig
 	modules   map[string]api.Module
-
-	pools    *pool.Factory
-	callable sync.Map
+	pools     *pool.Factory
+	callable  sync.Map
 }
 
 // NewRuntimeManager creates a new Lua manager instance
@@ -132,9 +131,7 @@ func (m *RuntimeManager) Execute(task runtime.Task) (chan *runtime.Result, error
 
 	// to clean up all dangling references
 	ctx, cancel := context.WithCancel(
-		// TODO: should not use string
-		// TODO where is that key used?
-		context.WithValue(task.Context, "function", task.Target), //nolint:revive,staticcheck
+		context.WithValue(task.Context, contextapi.TaskCtx, task.Target), //nolint:revive,staticcheck
 	)
 	defer cancel()
 
@@ -209,17 +206,22 @@ func (m *RuntimeManager) addFunction(ctx context.Context, entry registry.Entry) 
 }
 
 func (m *RuntimeManager) compileFunction(id registry.ID, cfg *api.FunctionConfig) (api.Callable, error) {
-	factory, err := m.nameFactory(id, cfg)
+	fvm, err := m.makeFactory(id, cfg)
 	if err != nil {
 		return nil, err
 	}
 
-	fn, err := m.pools.Compile(factory, cfg)
+	err = fvm.Compile()
 	if err != nil {
 		return nil, err
 	}
 
-	return fn, nil
+	vmPl, err := m.pools.Build(fvm, cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	return vmPl, nil
 }
 
 func (m *RuntimeManager) updateFunction(_ context.Context, entry registry.Entry) error {
@@ -339,7 +341,7 @@ func (m *RuntimeManager) deleteLibrary(_ context.Context, entry registry.Entry) 
 	return nil
 }
 
-func (m *RuntimeManager) nameFactory(id registry.ID, fn *api.FunctionConfig) (api.Factory, error) {
+func (m *RuntimeManager) makeFactory(id registry.ID, fn *api.FunctionConfig) (api.Factory, error) {
 	// Create new Callable api with manager's logger
 	cfg := factory.NewFactory(m.log.Named(fmt.Sprintf("vm.%s", id)))
 

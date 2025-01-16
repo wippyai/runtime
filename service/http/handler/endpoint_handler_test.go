@@ -90,7 +90,7 @@ func TestEndpointHandler_Handle_SuccessfulJsonRequest(t *testing.T) {
 		return payload.NewPayload(expectedResponse, payload.Json), nil
 	}
 
-	// Execute
+	// Run
 	handler.Handle(w, req)
 
 	// Assert
@@ -144,7 +144,7 @@ func TestEndpointHandler_Handle_ValidationError(t *testing.T) {
 	// Setup response recorder
 	w := httptest.NewRecorder()
 
-	// Execute
+	// Run
 	handler.Handle(w, req)
 
 	if w.Code != http.StatusBadRequest {
@@ -180,7 +180,7 @@ func TestEndpointHandler_Handle_ExecutorError(t *testing.T) {
 		return nil, errors.New(expectedError)
 	}
 
-	// Execute
+	// Run
 	handler.Handle(w, req)
 
 	if w.Code != http.StatusInternalServerError {
@@ -228,7 +228,7 @@ func TestEndpointHandler_Handle_RawResponse(t *testing.T) {
 		return resultChan, nil
 	}
 
-	// Execute
+	// Run
 	handler.Handle(w, req)
 
 	if w.Code != http.StatusOK {
@@ -270,7 +270,7 @@ func TestEndpointHandler_Handle_ContextCancellation(t *testing.T) {
 		return make(chan *runtime.Result), nil
 	}
 
-	// Execute
+	// Run
 	handler.Handle(w, req)
 
 	if w.Code != http.StatusInternalServerError {
@@ -294,7 +294,7 @@ func TestEndpointHandler_Handle_MissingRouteInfo(t *testing.T) {
 	req := httptest.NewRequest("GET", "/test", nil)
 	w := httptest.NewRecorder()
 
-	// Execute
+	// Run
 	handler.Handle(w, req)
 
 	if w.Code != http.StatusInternalServerError {
@@ -341,7 +341,7 @@ func TestEndpointHandler_Handle_CustomSuccessStatusCode(t *testing.T) {
 		return resultChan, nil
 	}
 
-	// Execute
+	// Run
 	handler.Handle(w, req)
 
 	if w.Code != http.StatusCreated {
@@ -389,7 +389,7 @@ func TestEndpointHandler_Handle_JsonTranscodingError(t *testing.T) {
 		return nil, errors.New("transcoding failed")
 	}
 
-	// Execute
+	// Run
 	handler.Handle(w, req)
 
 	if w.Code != http.StatusInternalServerError {
@@ -434,7 +434,7 @@ func TestEndpointHandler_Handle_NilPayload(t *testing.T) {
 		return resultChan, nil
 	}
 
-	// Execute
+	// Run
 	handler.Handle(w, req)
 
 	if w.Code != http.StatusOK {
@@ -485,7 +485,7 @@ func TestEndpointHandler_Handle_InvalidPayloadType(t *testing.T) {
 		return p, nil // Return the same invalid payload
 	}
 
-	// Execute
+	// Run
 	handler.Handle(w, req)
 
 	if w.Code != http.StatusInternalServerError {
@@ -528,7 +528,7 @@ func TestEndpointHandler_Handle_NilExecutorResult(t *testing.T) {
 		return resultChan, nil
 	}
 
-	// Execute
+	// Run
 	handler.Handle(w, req)
 
 	if w.Code != http.StatusInternalServerError {

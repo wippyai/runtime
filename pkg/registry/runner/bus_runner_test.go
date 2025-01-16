@@ -578,7 +578,7 @@ func TestBusRunner_ErrorPropagation(t *testing.T) {
 		},
 	}
 
-	// Execute the transition
+	// Run the transition
 	_, err = busRunner.Transition(ctx, initialState, changeSet)
 
 	// Verify that an error occurred and contains our message

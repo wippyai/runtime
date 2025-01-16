@@ -119,7 +119,7 @@ func TestPool_Execute(t *testing.T) {
 		p := setupTestPool(t, 1)
 		defer p.Close()
 
-		// Execute failing function
+		// Run failing function
 		_, err := p.Execute(ctx, "fail", lua.LNil)
 		assert.Error(t, err)
 
@@ -254,7 +254,7 @@ func TestPool_VMReuse(t *testing.T) {
 		p := setupTestPool(t, 1) // Single VM pool
 		defer p.Close()
 
-		// Execute multiple times - should get incrementing IDs from same VM
+		// Run multiple times - should get incrementing IDs from same VM
 		var lastID float64
 		for i := 0; i < 5; i++ {
 			result, err := p.Execute(context.Background(), "get_id", lua.LNil)

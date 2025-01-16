@@ -253,7 +253,7 @@ func TestCoroutineVM_ErrorHandling(t *testing.T) {
 			t.Fatal("failed to remove task")
 		}
 
-		remainingTasks := vm.GetYieldedTasks()
+		remainingTasks := vm.GetTasks()
 		if len(remainingTasks) != 0 {
 			t.Fatal("expected no remaining tasks after removal")
 		}
@@ -1106,7 +1106,7 @@ func TestCoroutineVM_NestedSpawn(t *testing.T) {
 		}
 
 		// Check all yielded tasks - should include child
-		allTasks := vm.GetYieldedTasks()
+		allTasks := vm.GetTasks()
 		if len(allTasks) != 2 {
 			t.Fatal("expected both parent and child tasks")
 		}
@@ -1214,7 +1214,7 @@ func TestCoroutineVM_NestedSpawn(t *testing.T) {
 		}
 
 		// Should now have root + 2 middle tasks
-		allTasks := vm.GetYieldedTasks()
+		allTasks := vm.GetTasks()
 		if len(allTasks) != 3 {
 			t.Fatal("expected root + 2 middle tasks")
 		}
@@ -1512,8 +1512,8 @@ func TestCoroutineVM_ClosedCoroutines(t *testing.T) {
 			t.Fatal("expected task to be removed after error")
 		}
 
-		if len(vm.GetYieldedTasks()) != 0 {
-			t.Fatal("GetYieldedTasks should return empty after error")
+		if len(vm.GetTasks()) != 0 {
+			t.Fatal("GetTasks should return empty after error")
 		}
 	})
 }
@@ -1826,7 +1826,7 @@ func BenchmarkCoroutineVM(b *testing.B) {
 
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			tasks := vm.GetYieldedTasks()
+			tasks := vm.GetTasks()
 			if len(tasks) != 1 {
 				b.Fatal("expected 1 yielded task")
 			}

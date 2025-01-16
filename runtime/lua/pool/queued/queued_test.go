@@ -106,7 +106,7 @@ func TestQueuedPool_Execute(t *testing.T) {
 		p := setupTestPool(t, 1, 1)
 		defer p.Close()
 
-		// Execute failing function
+		// Run failing function
 		_, err := p.Execute(ctx, "fail", lua.LNil)
 		assert.Error(t, err)
 
@@ -159,7 +159,7 @@ func TestQueuedPool_ParallelExecution(t *testing.T) {
 		executed := make(map[string]int)
 		var mu sync.Mutex
 
-		// Execute multiple tasks and track results
+		// Run multiple tasks and track results
 		for i := 0; i < 30; i++ {
 			wg.Add(1)
 			go func() {

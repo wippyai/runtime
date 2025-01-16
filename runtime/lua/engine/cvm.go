@@ -171,13 +171,11 @@ func (e *CoroutineVM) Step(tasks ...*Task) (result []*Task, finalErr error) {
 	return yeildedTasks, nil
 }
 
-// GetYieldedTasks returns all tasks currently in yielded state.
-func (e *CoroutineVM) GetYieldedTasks() []*Task {
+// GetTasks returns all tasks running in VM.
+func (e *CoroutineVM) GetTasks() []*Task {
 	yielded := make([]*Task, 0)
 	for _, task := range e.tasks {
-		if task.State == lua.ResumeYield {
-			yielded = append(yielded, task)
-		}
+		yielded = append(yielded, task)
 	}
 
 	return yielded
@@ -208,6 +206,10 @@ func (e *CoroutineVM) Close() {
 	if e.vm != nil {
 		e.vm.Close()
 	}
+}
+
+func (e *CoroutineVM) GetContext() context.Context {
+	return e.vm.state.Context()
 }
 
 func (e *CoroutineVM) SetContext(ctx context.Context) {

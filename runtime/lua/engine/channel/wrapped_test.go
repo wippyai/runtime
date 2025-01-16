@@ -83,7 +83,7 @@ func TestChannelRuntimeAsLayer(t *testing.T) {
 		`, "test", "test")
 		assert.NoError(t, err)
 
-		// Execute and verify
+		// Run and verify
 		result, err := wrapped.Execute(context.Background(), "test")
 		assert.NoError(t, err)
 		if result != nil {
