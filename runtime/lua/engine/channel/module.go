@@ -296,7 +296,7 @@ func trySelect(L *lua.LState, selectOp *selectOp) *onNext {
 		result.RawSetString("ok", lua.LBool(true))
 		return &onNext{
 			next: []*opStep{
-				{task: L, values: []lua.LValue{result}},
+				{state: L, values: []lua.LValue{result}},
 			},
 		}
 	}

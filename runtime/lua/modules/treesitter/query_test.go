@@ -62,7 +62,7 @@ FROM my_table;
         (object_reference
           name: (identifier))))))
 	]])
-	-- Execute query
+	-- Run query
 	local matches = create_table_query:matches(root, sql_code)
 	assert(matches ~= nil, "matches should not be nil")
 	`, "test")
@@ -167,7 +167,7 @@ func TestBasicQuery(t *testing.T) {
 		local query = treesitter.query("go", "(function_declaration) @function")
 		assert(query ~= nil, "query should not be nil")
 
-		-- Execute query
+		-- Run query
 		local matches = query:matches(root, code)
 		assert(matches ~= nil, "matches should not be nil")
 
@@ -233,7 +233,7 @@ func greet(name string) {
   name: (identifier) @func_name)
 ]])
 
-		-- Execute query and debug output
+		-- Run query and debug output
 		local matches = query:matches(root, code)
 		assert(matches ~= nil, "matches should not be nil")
 
@@ -887,7 +887,7 @@ for i = 0, query:pattern_count() - 1 do
     end
 end
 
--- Execute query and validate matches
+-- Run query and validate matches
 local root = treesitter.parse("go", code):root_node()
 local matches = query:matches(root, code)
 

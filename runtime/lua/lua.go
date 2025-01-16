@@ -7,7 +7,8 @@ import (
 
 	contextapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/runtime"
-	config "github.com/ponyruntime/pony/api/runtime/lua"
+	api "github.com/ponyruntime/pony/api/runtime/lua"
+	"github.com/ponyruntime/pony/runtime/lua/factory"
 	"github.com/ponyruntime/pony/runtime/lua/pool"
 	lua "github.com/yuin/gopher-lua"
 
@@ -23,12 +24,11 @@ type RuntimeManager struct {
 	bus       events.Bus
 	dtt       payload.Transcoder
 	mu        sync.RWMutex
-	functions map[registry.ID]*config.FunctionConfig
-	libraries map[registry.ID]*config.LibraryConfig
-	modules   map[string]config.Module
-
-	compiler *Compiler
-	callable sync.Map
+	functions map[registry.ID]*api.FunctionConfig
+	libraries map[registry.ID]*api.LibraryConfig
+	modules   map[string]api.Module
+	pools     *pool.Factory
+	callable  sync.Map
 }
 
 // NewRuntimeManager creates a new Lua manager instance
@@ -36,15 +36,15 @@ func NewRuntimeManager(
 	bus events.Bus,
 	dtt payload.Transcoder,
 	logger *zap.Logger,
-	modules ...config.Module,
+	modules ...api.Module,
 ) *RuntimeManager {
 	m := &RuntimeManager{
 		log:       logger,
 		bus:       bus,
 		dtt:       dtt,
-		functions: make(map[registry.ID]*config.FunctionConfig),
-		libraries: make(map[registry.ID]*config.LibraryConfig),
-		modules:   make(map[string]config.Module),
+		functions: make(map[registry.ID]*api.FunctionConfig),
+		libraries: make(map[registry.ID]*api.LibraryConfig),
+		modules:   make(map[string]api.Module),
 		callable:  sync.Map{},
 	}
 
@@ -52,7 +52,7 @@ func NewRuntimeManager(
 		m.modules[module.Name()] = module
 		logger.Debug("registered module", zap.String("name", module.Name()))
 	}
-	m.compiler = NewCompiler(logger.Named("compiler"))
+	m.pools = pool.NewFactory(logger.Named("pool"))
 
 	return m
 }
@@ -64,9 +64,9 @@ func (m *RuntimeManager) Add(ctx context.Context, entry registry.Entry) error {
 	}
 
 	switch entry.Kind {
-	case config.KindFunction:
+	case api.KindFunction:
 		return m.addFunction(ctx, entry)
-	case config.KindLibrary:
+	case api.KindLibrary:
 		return m.addLibrary(ctx, entry)
 	default:
 		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
@@ -80,9 +80,9 @@ func (m *RuntimeManager) Update(ctx context.Context, entry registry.Entry) error
 	}
 
 	switch entry.Kind {
-	case config.KindFunction:
+	case api.KindFunction:
 		return m.updateFunction(ctx, entry)
-	case config.KindLibrary:
+	case api.KindLibrary:
 		return m.updateLibrary(ctx, entry)
 	default:
 		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
@@ -92,9 +92,9 @@ func (m *RuntimeManager) Update(ctx context.Context, entry registry.Entry) error
 // Delete implements registry.EntryListener
 func (m *RuntimeManager) Delete(ctx context.Context, entry registry.Entry) error {
 	switch entry.Kind {
-	case config.KindFunction:
+	case api.KindFunction:
 		return m.deleteFunction(ctx, entry)
-	case config.KindLibrary:
+	case api.KindLibrary:
 		return m.deleteLibrary(ctx, entry)
 	default:
 		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
@@ -107,7 +107,7 @@ func (m *RuntimeManager) Execute(task runtime.Task) (chan *runtime.Result, error
 		return nil, fmt.Errorf("handler not found")
 	}
 
-	handler, ok := cl.(config.Callable)
+	handler, ok := cl.(api.Callable)
 	if !ok {
 		return nil, fmt.Errorf("handler is not a callable")
 	}
@@ -131,9 +131,7 @@ func (m *RuntimeManager) Execute(task runtime.Task) (chan *runtime.Result, error
 
 	// to clean up all dangling references
 	ctx, cancel := context.WithCancel(
-		// TODO: should not use string
-		// TODO where is that key used?
-		context.WithValue(task.Context, "function", task.Target), //nolint:revive,staticcheck
+		context.WithValue(task.Context, contextapi.TaskCtx, task.Target), //nolint:revive,staticcheck
 	)
 	defer cancel()
 
@@ -151,7 +149,7 @@ func (m *RuntimeManager) Execute(task runtime.Task) (chan *runtime.Result, error
 
 func (m *RuntimeManager) unmarshalAndValidate(data payload.Payload, cfg interface{}) error {
 	if err := m.dtt.Unmarshal(data, cfg); err != nil {
-		return fmt.Errorf("failed to unmarshal config: %w", err)
+		return fmt.Errorf("failed to unmarshal api: %w", err)
 	}
 
 	if validator, ok := cfg.(interface{ Validate() error }); ok {
@@ -167,7 +165,7 @@ func (m *RuntimeManager) addFunction(ctx context.Context, entry registry.Entry) 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	cfg := new(config.FunctionConfig)
+	cfg := new(api.FunctionConfig)
 	if err := m.unmarshalAndValidate(entry.Data, cfg); err != nil {
 		return err
 	}
@@ -207,25 +205,30 @@ func (m *RuntimeManager) addFunction(ctx context.Context, entry registry.Entry) 
 	return nil
 }
 
-func (m *RuntimeManager) compileFunction(id registry.ID, cfg *config.FunctionConfig) (config.Callable, error) {
-	vmConfig, err := m.vmConfig(id, cfg)
+func (m *RuntimeManager) compileFunction(id registry.ID, cfg *api.FunctionConfig) (api.Callable, error) {
+	fvm, err := m.makeFactory(id, cfg)
 	if err != nil {
 		return nil, err
 	}
 
-	fn, err := m.compiler.Compile(vmConfig, cfg)
+	err = fvm.Compile()
 	if err != nil {
 		return nil, err
 	}
 
-	return fn, nil
+	vmPl, err := m.pools.Build(fvm, cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	return vmPl, nil
 }
 
 func (m *RuntimeManager) updateFunction(_ context.Context, entry registry.Entry) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	cfg := new(config.FunctionConfig)
+	cfg := new(api.FunctionConfig)
 	if err := m.unmarshalAndValidate(entry.Data, cfg); err != nil {
 		return err
 	}
@@ -285,7 +288,7 @@ func (m *RuntimeManager) addLibrary(_ context.Context, entry registry.Entry) err
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	cfg := new(config.LibraryConfig)
+	cfg := new(api.LibraryConfig)
 	if err := m.unmarshalAndValidate(entry.Data, cfg); err != nil {
 		return err
 	}
@@ -304,7 +307,7 @@ func (m *RuntimeManager) updateLibrary(_ context.Context, entry registry.Entry) 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	cfg := new(config.LibraryConfig)
+	cfg := new(api.LibraryConfig)
 	if err := m.unmarshalAndValidate(entry.Data, cfg); err != nil {
 		return err
 	}
@@ -338,9 +341,9 @@ func (m *RuntimeManager) deleteLibrary(_ context.Context, entry registry.Entry) 
 	return nil
 }
 
-func (m *RuntimeManager) vmConfig(id registry.ID, fn *config.FunctionConfig) (*pool.VMConfig, error) {
-	// Create new Callable config with manager's logger
-	cfg := pool.NewVMConfig(m.log.Named(fmt.Sprintf("vm.%s", id)))
+func (m *RuntimeManager) makeFactory(id registry.ID, fn *api.FunctionConfig) (api.Factory, error) {
+	// Create new Callable api with manager's logger
+	cfg := factory.NewFactory(m.log.Named(fmt.Sprintf("vm.%s", id)))
 
 	// Add required modules
 	for _, moduleName := range fn.Modules {
@@ -359,14 +362,14 @@ func (m *RuntimeManager) vmConfig(id registry.ID, fn *config.FunctionConfig) (*p
 			return nil, fmt.Errorf("library %s not found", libID)
 		}
 
-		cfg.Libraries = append(cfg.Libraries, pool.Library{
+		cfg.Libraries = append(cfg.Libraries, factory.Library{
 			Name:   libID,
 			Script: lib.Source,
 		})
 	}
 
 	// Add the function itself
-	cfg.Functions = append(cfg.Functions, pool.Function{
+	cfg.Functions = append(cfg.Functions, factory.Function{
 		Name:   fn.Method,
 		Script: fn.Source,
 	})

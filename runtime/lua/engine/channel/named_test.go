@@ -14,15 +14,16 @@ import (
 func TestNamedChannelVisibility(t *testing.T) {
 	logger := zap.NewNop()
 
-	vm, err := engine.NewCoroutineVM(
-		context.Background(),
+	vm, err := engine.NewCVM(
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.PushScript(`
+	vm.SetContext(context.Background())
+
+	err = vm.StartString(`
 		-- Create two named channels
 		local ch1 = channel.named("channel1", 1)
 		local ch2 = channel.named("channel2", 1)
@@ -34,7 +35,7 @@ func TestNamedChannelVisibility(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewRuntime()
+	runtime := NewChannelRunner()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 	assert.Equal(t, 0, len(tasks), "expected no tasks")
@@ -48,15 +49,16 @@ func TestNamedChannelVisibility(t *testing.T) {
 func TestNamedChannelSelectVisibility(t *testing.T) {
 	logger := zap.NewNop()
 
-	vm, err := engine.NewCoroutineVM(
-		context.Background(),
+	vm, err := engine.NewCVM(
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.PushScript(`
+	vm.SetContext(context.Background())
+
+	err = vm.StartString(`
 		-- Create named channels with different capacities
 		local ch1 = channel.named("select_ch1", 0) -- unbuffered
 		local ch2 = channel.named("select_ch2", 1) -- buffered
@@ -84,7 +86,7 @@ func TestNamedChannelSelectVisibility(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewRuntime()
+	runtime := NewChannelRunner()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -142,15 +144,16 @@ func TestNamedChannelSelectVisibility(t *testing.T) {
 func TestNamedChannelSelectDefaultCase(t *testing.T) {
 	logger := zap.NewNop()
 
-	vm, err := engine.NewCoroutineVM(
-		context.Background(),
+	vm, err := engine.NewCVM(
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.PushScript(`
+	vm.SetContext(context.Background())
+
+	err = vm.StartString(`
 		-- Create named channels
 		local ch1 = channel.named("default_ch1", 0)
 		local ch2 = channel.named("default_ch2", 0)
@@ -167,7 +170,7 @@ func TestNamedChannelSelectDefaultCase(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewRuntime()
+	runtime := NewChannelRunner()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -193,15 +196,16 @@ func TestNamedChannelSelectDefaultCase(t *testing.T) {
 func TestNamedChannelMultipleReceivers(t *testing.T) {
 	logger := zap.NewNop()
 
-	vm, err := engine.NewCoroutineVM(
-		context.Background(),
+	vm, err := engine.NewCVM(
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.PushScript(`
+	vm.SetContext(context.Background())
+
+	err = vm.StartString(`
 		-- Create channels
 		local ch = channel.named("test_channel", 0)
 		local results = channel.new(3) -- To collect results in order
@@ -254,7 +258,7 @@ func TestNamedChannelMultipleReceivers(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewRuntime()
+	runtime := NewChannelRunner()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -337,15 +341,16 @@ func TestNamedChannelMultipleReceivers(t *testing.T) {
 func TestBufferedNamedChannelWriteCapacity(t *testing.T) {
 	logger := zap.NewNop()
 
-	vm, err := engine.NewCoroutineVM(
-		context.Background(),
+	vm, err := engine.NewCVM(
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.PushScript(`
+	vm.SetContext(context.Background())
+
+	err = vm.StartString(`
         -- Create channels
         local ch = channel.named("buffered_channel", 3)
         local ready = channel.new(0)
@@ -377,7 +382,7 @@ func TestBufferedNamedChannelWriteCapacity(t *testing.T) {
     `, "test")
 	assert.NoError(t, err)
 
-	runtime := NewRuntime()
+	runtime := NewChannelRunner()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 

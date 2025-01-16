@@ -31,16 +31,17 @@ func registerParser(L *lua.LState) {
 
 func newParser(l *lua.LState) int {
 	parser := treesitter.NewParser()
+	wrap := &ParserWrapper{parser: parser}
 
 	if l.Context() != nil {
 		cleanup := closer.FromContext(l.Context())
 		if cleanup != nil {
-			cleanup.Add(func() error { parser.Close(); return nil })
+			cleanup.Add(func() error { wrap.Close(); return nil })
 		}
 	}
 
 	ud := l.NewUserData()
-	ud.Value = &ParserWrapper{parser: parser}
+	ud.Value = wrap
 	l.SetMetatable(ud, l.GetTypeMetatable("treesitter.Parser"))
 	l.Push(ud)
 	return 1
@@ -170,6 +171,7 @@ func parserReset(L *lua.LState) int {
 func parserClose(L *lua.LState) int {
 	p := checkParser(L)
 	p.Close()
+
 	return 0
 }
 

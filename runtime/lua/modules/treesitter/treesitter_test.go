@@ -188,7 +188,7 @@ func TestLuaSupport(t *testing.T) {
 		]])
 		assert(query ~= nil, "query should not be nil")
 
-		-- Execute query
+		-- Run query
 		local matches = query:matches(root, code)
 		assert(matches ~= nil, "matches should not be nil")
 

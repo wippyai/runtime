@@ -1,7 +1,9 @@
-package pool
+package factory
 
 import (
 	"fmt"
+	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
+	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 
 	api "github.com/ponyruntime/pony/api/runtime/lua"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
@@ -9,14 +11,17 @@ import (
 	"go.uber.org/zap"
 )
 
-// VMConfig holds configuration for Callable instances in the pool
-type VMConfig struct {
-	Modules    []api.Module
-	Libraries  []Library
-	Globals    []Global
-	Functions  []Function
-	EngineOpts []engine.Option
-	Logger     *zap.Logger
+// Factory holds configuration for Callable instances in the pool
+type Factory struct {
+	Modules           []api.Module
+	Libraries         []Library
+	Globals           []Global
+	Functions         []Function
+	ExportedFunctions map[string]struct{}
+	EngineOpts        []engine.Option
+	Logger            *zap.Logger
+	Coroutines        bool
+	compiled          bool
 }
 
 // Library represents a Lua library to be loaded
@@ -37,67 +42,96 @@ type Global struct {
 	Value lua.LValue
 }
 
-// NewVMConfig creates a new Callable configuration with default values
-func NewVMConfig(logger *zap.Logger) *VMConfig {
-	return &VMConfig{
-		Modules:    make([]api.Module, 0),
-		Libraries:  make([]Library, 0),
-		Globals:    make([]Global, 0),
-		Functions:  make([]Function, 0),
-		EngineOpts: make([]engine.Option, 0),
-		Logger:     logger,
+// NewFactory creates a new Callable configuration with default values
+func NewFactory(logger *zap.Logger) *Factory {
+	return &Factory{
+		Modules:           make([]api.Module, 0),
+		Libraries:         make([]Library, 0),
+		Globals:           make([]Global, 0),
+		Functions:         make([]Function, 0),
+		ExportedFunctions: make(map[string]struct{}),
+		EngineOpts:        make([]engine.Option, 0),
+		Logger:            logger,
 	}
 }
 
-// VMConfigOption represents a configuration option for VMConfig
-type VMConfigOption func(*VMConfig)
+// VMConfigOption represents a configuration option for Factory
+type VMConfigOption func(*Factory)
 
 // WithModule adds a Lua module to Callable configuration
 func WithModule(module api.Module) VMConfigOption {
-	return func(cfg *VMConfig) {
+	return func(cfg *Factory) {
 		cfg.Modules = append(cfg.Modules, module)
+		cfg.compiled = false
 	}
 }
 
 // WithLibrary adds a Lua library to Callable configuration
 func WithLibrary(name, script string) VMConfigOption {
-	return func(cfg *VMConfig) {
+	return func(cfg *Factory) {
 		cfg.Libraries = append(cfg.Libraries, Library{
 			Name:   name,
 			Script: script,
 		})
+		cfg.compiled = false
 	}
 }
 
 // WithGlobalValue adds a global variable to Callable configuration
 func WithGlobalValue(name string, value lua.LValue) VMConfigOption {
-	return func(cfg *VMConfig) {
+	return func(cfg *Factory) {
 		cfg.Globals = append(cfg.Globals, Global{
 			Name:  name,
 			Value: value,
 		})
+		cfg.compiled = false
 	}
 }
 
 // WithFunction adds a Lua function to Callable configuration
 func WithFunction(name string, script string) VMConfigOption {
-	return func(cfg *VMConfig) {
+	return func(cfg *Factory) {
 		cfg.Functions = append(cfg.Functions, Function{
 			Name:   name,
 			Script: script,
 		})
+		cfg.compiled = false
 	}
 }
 
 // WithEngineOptions adds engine-specific options to Callable configuration
 func WithEngineOptions(opts ...engine.Option) VMConfigOption {
-	return func(cfg *VMConfig) {
+	return func(cfg *Factory) {
 		cfg.EngineOpts = append(cfg.EngineOpts, opts...)
+		cfg.compiled = false
 	}
 }
 
+func (cfg *Factory) Compile() error {
+	// todo: implement
+	return nil
+}
+
+func (cfg *Factory) MakeVM() (api.VM, error) {
+	if !cfg.compiled {
+		if err := cfg.Compile(); err != nil {
+			return nil, err
+		}
+	}
+
+	base, err := CreateVM(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	// check if we have to apply any layer for it
+	//if cfg.
+
+	return base, nil
+}
+
 // CreateVM creates a new Callable instance with the provided configuration
-func CreateVM(cfg *VMConfig) (*engine.VM, error) {
+func CreateVM(cfg *Factory) (api.VM, error) {
 	// Collect all options
 	opts := make([]engine.Option, 0)
 
@@ -119,19 +153,25 @@ func CreateVM(cfg *VMConfig) (*engine.VM, error) {
 		opts = append(opts, engine.WithGlobalValue(global.Name, global.Value))
 	}
 
-	// Create Callable with all options
-	vm, err := engine.NewVM(cfg.Logger, opts...)
+	channelOpts := []engine.Option{engine.WithPreloaded("channel", channel.NewChannelModule().Loader)}
+	vm, err := engine.NewCVM(cfg.Logger, append(channelOpts, opts...)...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create Callable: %w", err)
+		return nil, fmt.Errorf("failed to create CoroutineVM: %w", err)
 	}
 
 	// Add bound functions via options
 	for _, fn := range cfg.Functions {
-		if err := vm.CompileFunction(fn.Name, fn.Script); err != nil {
+		if err := vm.Import(fn.Script, fn.Name, fn.Name); err != nil {
 			vm.Close()
 			return nil, fmt.Errorf("failed to compile function %q: %w", fn.Name, err)
 		}
 	}
 
-	return vm, nil
+	// wrapping into execution layer
+	wrap := engine.NewWrappedCVM(vm,
+		engine.WithLayer(channel.NewChannelRunner()),
+		engine.WithLayer(coroutine.NewCoroutineRunner()),
+	)
+
+	return wrap, nil
 }

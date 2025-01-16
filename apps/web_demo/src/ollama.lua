@@ -9,7 +9,7 @@ function ollama_handler()
     local req = httpctx.request()
 
     -- Extract parameters from the incoming request (you can modify how these are obtained)
-    local model = req:query("model") or "phi3:14b" -- Get model from query parameter, default to phi3:14b
+    local model = req:query("model") or "mistral:latest" -- Get model from query parameter, default to phi3:14b
     local prompt = req:query("prompt")
 
     if not prompt or prompt == "" then
@@ -89,6 +89,7 @@ function ollama_handler()
 
             response:flush()
         end
+
         response:write("")
         response:flush()
     end

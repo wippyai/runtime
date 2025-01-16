@@ -12,15 +12,16 @@ import (
 func TestChannelPassingSimple(t *testing.T) {
 	logger := zap.NewNop()
 
-	vm, err := engine.NewCoroutineVM(
-		context.Background(),
+	vm, err := engine.NewCVM(
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.PushScript(`
+	vm.SetContext(context.Background())
+
+	err = vm.StartString(`
 		-- Create test channels
 		local passCh = channel.new(0)    -- channel for passing other channels
 		local done = channel.new(0)      -- synchronization
@@ -62,7 +63,7 @@ func TestChannelPassingSimple(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewRuntime()
+	runtime := NewChannelRunner()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 

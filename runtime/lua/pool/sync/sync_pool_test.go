@@ -9,19 +9,20 @@ import (
 	"testing"
 	"time"
 
-	time2 "github.com/ponyruntime/pony/runtime/lua/modules/time"
+	timemod "github.com/ponyruntime/pony/runtime/lua/modules/time"
 
-	cfg "github.com/ponyruntime/pony/runtime/lua/pool"
+	cfg "github.com/ponyruntime/pony/runtime/lua/factory"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
 
 func setupTestPool(t *testing.T, size int) *Pool {
 	logger := zap.NewNop()
-	vmConfig := cfg.NewVMConfig(logger)
-	cfg.WithModule(time2.NewTimeModule())(vmConfig)
+	vmConfig := cfg.NewFactory(logger)
+	cfg.WithModule(timemod.NewTimeModule())(vmConfig)
 
 	// Add a test function to the VM config
 	cfg.WithFunction("test", `
@@ -118,7 +119,7 @@ func TestPool_Execute(t *testing.T) {
 		p := setupTestPool(t, 1)
 		defer p.Close()
 
-		// Execute failing function
+		// Run failing function
 		_, err := p.Execute(ctx, "fail", lua.LNil)
 		assert.Error(t, err)
 
@@ -253,7 +254,7 @@ func TestPool_VMReuse(t *testing.T) {
 		p := setupTestPool(t, 1) // Single VM pool
 		defer p.Close()
 
-		// Execute multiple times - should get incrementing IDs from same VM
+		// Run multiple times - should get incrementing IDs from same VM
 		var lastID float64
 		for i := 0; i < 5; i++ {
 			result, err := p.Execute(context.Background(), "get_id", lua.LNil)
@@ -270,7 +271,7 @@ func TestPool_VMReuse(t *testing.T) {
 
 func BenchmarkPool_Execute(b *testing.B) {
 	logger := zap.NewNop()
-	vmConfig := cfg.NewVMConfig(logger)
+	vmConfig := cfg.NewFactory(logger)
 	cfg.WithFunction("bench", `
 		function test(arg)
 			return arg

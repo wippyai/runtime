@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"errors"
+	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"io"
 	"net/http"
 	"time"
@@ -87,6 +88,9 @@ func (m *Module) makeMethod(method string) lua.LGFunction {
 			return 0
 		}
 
+		if engine.IsCoroutineVM(l) {
+			return m.executeRequestYield(l, req, opts)
+		}
 		return m.executeRequest(l, req, opts)
 	}
 }
@@ -118,6 +122,9 @@ func (m *Module) request(l *lua.LState) int {
 		return 0
 	}
 
+	if engine.IsCoroutineVM(l) {
+		return m.executeRequestYield(l, req, opts)
+	}
 	return m.executeRequest(l, req, opts)
 }
 
@@ -142,11 +149,6 @@ func (m *Module) executeRequest(l *lua.LState, req *http.Request, opts *requestO
 	}
 
 	req = req.WithContext(ctx)
-
-	m.log.Debug("executing request",
-		zap.String("method", req.Method),
-		zap.String("url", req.URL.String()),
-	)
 
 	resp, err := m.client.Do(req)
 	if err != nil {
