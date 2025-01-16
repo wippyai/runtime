@@ -3,7 +3,6 @@ package async
 import (
 	"context"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
-	lua "github.com/yuin/gopher-lua"
 )
 
 type taskEntry struct {
@@ -25,51 +24,37 @@ func NewAsyncRunner() *Runner {
 
 // Step implements the engine.Layer interface
 func (r *Runner) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, error) {
-	nextTasks := make([]*engine.Task, 0)
+	outTasks := make([]*engine.Task, 0)
+	var err error
+	boot := true
+	for r.wait > 0 || boot {
+		boot = false
 
-	for len(tasks) != 0 {
-		for _, task := range tasks {
-			if len(task.Yielded) == 0 {
-				nextTasks = append(nextTasks, task)
-				continue
-			}
+		tasks = append(tasks, r.flush(cvm.GetContext(), len(tasks) == 0)...)
 
-			// Check for async function wrapper
-			if wrapper, ok := task.Yielded[len(task.Yielded)-1].(*FuncWrapper); ok {
-				r.wait++
-				task.Yielded = []lua.LValue{}
-				go func() { r.results <- taskEntry{task: task, result: wrapper.Run()} }()
-			} else {
-				nextTasks = append(nextTasks, task)
-			}
-		}
-
-		// try tasks that already ready
-		nextTasks = append(nextTasks, r.flush(cvm.GetContext(), false)...)
-
-		var err error
-		tasks, err = cvm.Step(nextTasks...)
+		tasks, err = cvm.Step(tasks...)
 		if err != nil {
 			return nil, err
 		}
 
-		if len(tasks) == 0 {
-			if r.wait != 0 {
-				// wait for some tasks to complete to unblock
-				tasks = append(tasks, r.flush(cvm.GetContext(), true)...)
-				if r.wait != 0 && len(tasks) == 0 {
-					return nil, cvm.GetContext().Err() // intercepted
+		for _, task := range tasks {
+			if len(task.Yielded) > 0 {
+				if wrapper, ok := task.Yielded[len(task.Yielded)-1].(*FuncWrapper); ok {
+					r.wait++
+					go func(t *engine.Task, w *FuncWrapper) {
+						r.results <- taskEntry{task: t, result: w.Run()}
+					}(task, wrapper)
+					continue
 				}
-
-				continue
 			}
 
-			// no more tasks to process
-			return nil, nil
+			outTasks = append(outTasks, task) // not our task
 		}
+
+		tasks = []*engine.Task{}
 	}
 
-	return nil, nil
+	return outTasks, nil
 }
 
 func (r *Runner) flush(ctx context.Context, block bool) []*engine.Task {

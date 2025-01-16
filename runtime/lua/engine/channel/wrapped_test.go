@@ -25,7 +25,7 @@ func (v *execLayer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task,
 		// Process tasks that have yielded values
 		for _, task := range tasks {
 			if len(task.Yielded) > 0 {
-				// Set empty resume values but don't modify the task otherwise
+				// Set empty resume values but don't modify the state otherwise
 				task.Resumed = []lua.LValue{}
 				v.handled = append(v.handled, task.Yielded)
 			}
