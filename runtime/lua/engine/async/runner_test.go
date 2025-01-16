@@ -197,9 +197,8 @@ func TestRunner_ChannelLayer(t *testing.T) {
 		defer vm.Close()
 
 		wrapped := engine.NewWrappedCVM(vm)
-		wrapped.AddLayer(NewAsyncRunner())
-
 		wrapped.AddLayer(channel.NewRuntime())
+		wrapped.AddLayer(NewAsyncRunner())
 
 		err := vm.Import(testScript, "test", "test_layers")
 		assert.NoError(t, err)
@@ -273,8 +272,8 @@ func TestDistributedWorkers(t *testing.T) {
 
 		// Setup wrapped VM with required layers
 		wrapped := engine.NewWrappedCVM(vm)
-		wrapped.AddLayer(NewAsyncRunner())
 		wrapped.AddLayer(channel.NewRuntime())
+		wrapped.AddLayer(NewAsyncRunner())
 
 		// Import test script
 		err := vm.Import(testScript, "test", "test_distributed_workers")
@@ -395,8 +394,8 @@ func TestWorkerPool(t *testing.T) {
 
 		// Setup wrapped VM with required layers
 		wrapped := engine.NewWrappedCVM(vm)
-		wrapped.AddLayer(NewAsyncRunner())
 		wrapped.AddLayer(channel.NewRuntime())
+		wrapped.AddLayer(NewAsyncRunner())
 
 		// Import test script
 		err := vm.Import(testScript, "test", "test_worker_pool")
