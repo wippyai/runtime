@@ -66,9 +66,7 @@ func TestWrappedVM_Basic(t *testing.T) {
 		loggingLayer := &loggingLayer{}
 		exec := &execLayer{handled: make([][]lua.LValue, 0)}
 
-		wvm := NewWrappedCVM(base)
-		wvm.AddLayer(loggingLayer)
-		wvm.AddLayer(exec)
+		wvm := NewWrappedCVM(base, WithLayer(loggingLayer), WithLayer(exec))
 
 		// Simple function that yields once and returns
 		err = base.Import(`
@@ -108,8 +106,7 @@ func TestExecLayer_HandledValues(t *testing.T) {
 		defer base.Close()
 
 		exec := &execLayer{}
-		wvm := NewWrappedCVM(base)
-		wvm.AddLayer(exec)
+		wvm := NewWrappedCVM(base, WithLayer(exec))
 
 		// Simpler test case first
 		err = base.Import(`

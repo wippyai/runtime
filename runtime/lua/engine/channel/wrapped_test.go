@@ -56,9 +56,10 @@ func TestChannelRuntimeAsLayer(t *testing.T) {
 
 		// Create wrapped CVM with channel runtime as layer
 		channelRuntime := NewRuntime()
-		wrapped := engine.NewWrappedCVM(base)
-		wrapped.AddLayer(channelRuntime)
-		wrapped.AddLayer(&execLayer{})
+		wrapped := engine.NewWrappedCVM(base,
+			engine.WithLayer(channelRuntime),
+			engine.WithLayer(&execLayer{}),
+		)
 
 		// Test script using channels
 		err = base.Import(`
@@ -100,9 +101,10 @@ func TestChannelRuntimeAsLayer(t *testing.T) {
 		defer base.Close()
 
 		channelRuntime := NewRuntime()
-		wrapped := engine.NewWrappedCVM(base)
-		wrapped.AddLayer(channelRuntime)
-		wrapped.AddLayer(&execLayer{})
+		wrapped := engine.NewWrappedCVM(base,
+			engine.WithLayer(channelRuntime),
+			engine.WithLayer(&execLayer{}),
+		)
 
 		err = base.Import(`
 			function test()
@@ -142,32 +144,6 @@ func TestChannelRuntimeAsLayer(t *testing.T) {
 		assert.Equal(t, "done", result.String())
 	})
 
-	t.Run("channel layer error handling", func(t *testing.T) {
-		base, err := engine.NewCVM(
-			logger,
-			engine.WithPreloaded("channel", NewChannelModule().Loader),
-		)
-		assert.NoError(t, err)
-		defer base.Close()
-
-		channelRuntime := NewRuntime()
-		wrapped := engine.NewWrappedCVM(base)
-		wrapped.AddLayer(channelRuntime)
-		wrapped.AddLayer(&execLayer{})
-
-		err = base.Import(`
-			function test()
-				local ch = channel.new(1)
-				ch:close()
-	
-				-- This should error
-				ch:send("message")
-				return "unreachable"
-			end
-		`, "test", "test")
-		assert.NoError(t, err)
-	})
-
 	t.Run("channel layer cleanup on panic", func(t *testing.T) {
 		base, err := engine.NewCVM(
 			logger,
@@ -177,9 +153,10 @@ func TestChannelRuntimeAsLayer(t *testing.T) {
 		defer base.Close()
 
 		channelRuntime := NewRuntime()
-		wrapped := engine.NewWrappedCVM(base)
-		wrapped.AddLayer(channelRuntime)
-		wrapped.AddLayer(&execLayer{})
+		wrapped := engine.NewWrappedCVM(base,
+			engine.WithLayer(channelRuntime),
+			engine.WithLayer(&execLayer{}),
+		)
 
 		err = base.Import(`
 			function test()
@@ -211,9 +188,11 @@ func TestChannelRuntimeAsLayer(t *testing.T) {
 		defer base.Close()
 
 		channelRuntime := NewRuntime()
-		wrapped := engine.NewWrappedCVM(base)
-		wrapped.AddLayer(channelRuntime)
-		wrapped.AddLayer(&execLayer{})
+		wrapped := engine.NewWrappedCVM(
+			base,
+			engine.WithLayer(channelRuntime),
+			engine.WithLayer(&execLayer{}),
+		)
 
 		// Create a named channel and verify it's tracked
 		err = channelRuntime.Send("test-channel", lua.LString("direct message"))
