@@ -1,12 +1,12 @@
-package async
+package coroutine
 
 import (
 	"errors"
 	lua "github.com/yuin/gopher-lua"
 )
 
-// Func is our custom function format
-type Func func(args []lua.LValue) Result
+// Func is our simplified function format that just returns a Result
+type Func func() Result
 
 // Result represents possible outputs from async function
 type Result struct {
@@ -15,8 +15,7 @@ type Result struct {
 }
 
 type FuncWrapper struct {
-	fn   Func
-	args []lua.LValue
+	fn Func
 }
 
 func (f *FuncWrapper) Type() lua.LValueType {
@@ -27,17 +26,9 @@ func (f *FuncWrapper) String() string {
 	return "async.func"
 }
 
-// WrapAsync wraps our Func into Lua-compatible format
-func WrapAsync(L *lua.LState, fn Func) {
-	top := L.GetTop()
-	args := make([]lua.LValue, top)
-
-	// Capture all arguments
-	for i := 1; i <= top; i++ {
-		args[i-1] = L.Get(i)
-	}
-
-	L.Push(&FuncWrapper{fn: fn, args: args}) // in detached state, we expect layer to handle it
+// WrapCoroutine wraps our Func into Lua-compatible format
+func WrapCoroutine(L *lua.LState, fn Func) {
+	L.Push(&FuncWrapper{fn: fn})
 }
 
 // Run runs the wrapped function and returns results/error
@@ -46,9 +37,7 @@ func (f *FuncWrapper) Run() Result {
 		return Result{Err: errors.New("function has already been executed")}
 	}
 
-	r := f.fn(f.args)
+	r := f.fn()
 	f.fn = nil
-	f.args = nil
-
 	return r
 }
