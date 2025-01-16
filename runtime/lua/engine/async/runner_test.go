@@ -233,3 +233,87 @@ func TestRunner_ChannelLayer(t *testing.T) {
 		assert.Equal(t, float64(10), float64(numValue))
 	})
 }
+
+func TestDistributedWorkers(t *testing.T) {
+	testScript := `
+        function test_distributed_workers()
+            local NUM_WORKERS = 5
+            local NUM_TASKS = 10
+            local results = {}
+            
+            -- Create result channel with buffer size matching number of tasks
+            local result_ch = channel.new(NUM_TASKS)
+            
+            -- Distribute work across workers
+            for i = 1, NUM_WORKERS do
+                coroutine.spawn(function()
+                    -- Each worker processes their portion of tasks
+                    local worker_id = i
+                    for task = worker_id, NUM_TASKS, NUM_WORKERS do
+                        local result = async_double(task)
+                        result_ch:send({worker = worker_id, task = task, value = result})
+                    end
+                end)
+            end
+            
+            -- Collect all results
+            for i = 1, NUM_TASKS do
+                local result = result_ch:receive()
+                results[i] = result
+            end
+            
+            return results
+        end
+    `
+
+	t.Run("distributed work across workers", func(t *testing.T) {
+		// Create VM with necessary modules
+		vm := createVM(t)
+		defer vm.Close()
+
+		// Setup wrapped VM with required layers
+		wrapped := engine.NewWrappedCVM(vm)
+		wrapped.AddLayer(NewAsyncRunner())
+		wrapped.AddLayer(channel.NewRuntime())
+
+		// Import test script
+		err := vm.Import(testScript, "test", "test_distributed_workers")
+		assert.NoError(t, err)
+
+		// Execute and time the operation
+		start := time.Now()
+		result, err := wrapped.Execute(context.Background(), "test_distributed_workers")
+		duration := time.Since(start)
+		assert.NoError(t, err)
+
+		// Verify results
+		resultTable := result.(*lua.LTable)
+
+		// We should have 10 results
+		count := 0
+		resultTable.ForEach(func(_, value lua.LValue) {
+			count++
+			result := value.(*lua.LTable)
+
+			// Each result should have worker, task, and value fields
+			worker := result.RawGetString("worker").(lua.LNumber)
+			task := result.RawGetString("task").(lua.LNumber)
+			value = result.RawGetString("value").(lua.LNumber)
+
+			// Verify the doubled value is correct
+			assert.Equal(t, task*2, value)
+
+			// Verify worker ID is in valid range
+			assert.GreaterOrEqual(t, int(worker), 1)
+			assert.LessOrEqual(t, int(worker), 5)
+		})
+		assert.Equal(t, 10, count, "should have 10 results")
+
+		// Since we're running 10 tasks that each take 100ms
+		// but distributing across 5 workers, it should take
+		// approximately 200ms (2 tasks per worker)
+		// Add some buffer for scheduling overhead
+		assert.Less(t, duration, 350*time.Millisecond,
+			"tasks should complete in parallel, got %v", duration)
+	})
+}
