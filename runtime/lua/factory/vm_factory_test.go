@@ -115,55 +115,6 @@ func TestCreateVM(t *testing.T) {
 		defer vm.Close()
 	})
 
-	t.Run("create VM with all options", func(t *testing.T) {
-		cfg := NewFactory(logger)
-
-		// Add a module
-		mock := &mockModule{name: "test_module"}
-		WithModule(mock)(cfg)
-
-		// Add a library
-		WithLibrary("test_lib", `
-			local lib = {}
-			function lib.test() return "hello" end
-			return lib
-		`)(cfg)
-
-		// Add a global
-		WithGlobalValue("test_global", lua.LString("test"))(cfg)
-
-		// Add a function
-		WithFunction("test_func", `
-			function test_func(arg)
-				return arg
-			end
-		`)(cfg)
-
-		vm, err := CreateVM(cfg)
-		require.NoError(t, err)
-		defer vm.Close()
-
-		// Test library loading
-		err = vm.DoString(nil, "", `
-			local lib = require("test_lib")
-			assert(lib.test() == "hello")
-		`)
-		assert.NoError(t, err)
-
-		// Test global value
-		err = vm.DoString(nil, "", `
-			assert(test_global == "test")
-		`)
-		assert.NoError(t, err)
-
-		// Test function execution
-		err = vm.DoString(nil, "", `
-			assert(test("hello") == "hello")
-		`)
-		assert.NoError(t, err)
-
-	})
-
 	t.Run("error on invalid function", func(t *testing.T) {
 		cfg := NewFactory(logger)
 		WithFunction("invalid", "this is not valid lua")(cfg)

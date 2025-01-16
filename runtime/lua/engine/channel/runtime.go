@@ -25,7 +25,7 @@ type Runtime struct {
 	namedChannels map[string]*channelRef // Track named channels with reference counting
 }
 
-func NewRuntime() *Runtime {
+func NewChannelRunner() *Runtime {
 	return &Runtime{
 		queue:         engine.NewTaskQueue(),
 		next:          make([]*opStep, 0),

@@ -63,7 +63,7 @@ func TestChannelPassingSimple(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewRuntime()
+	runtime := NewChannelRunner()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
