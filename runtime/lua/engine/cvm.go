@@ -223,6 +223,10 @@ func (e *CoroutineVM) SetContext(ctx context.Context) {
 	e.vm.state.SetContext(ctx)
 }
 
+func (e *CoroutineVM) State() *lua.LState {
+	return e.vm.state
+}
+
 // bindCoroutines sets up coroutine-related functions in the Lua environment.
 func (e *CoroutineVM) bindCoroutines() {
 	coTable := e.vm.state.GetGlobal("coroutine").(*lua.LTable)
