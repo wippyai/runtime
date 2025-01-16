@@ -47,32 +47,29 @@ function ollama_handler()
                 timeout = options.timeout
             }
         })
-print("read stream(((")
+
         if err then
-            print("Error querying Ollama: " .. err)
             response:set_status(500) -- Internal Server Error
             return "Error querying Ollama: " .. err
         end
-print("read streamxxx")
+
         if ollama_response.status_code ~= 200 then
             response:set_status(ollama_response.status_code)
             response:write("Ollama API error: " .. ollama_response.status_code .. " - " .. (ollama_response.body or ""))
             return
         end
-print("read stream0")
+
         -- Set up chunked transfer encoding for the user's response
         response:set_transfer(httpctx.TRANSFER.CHUNKED)
         response:set_header("Content-Type", "application/json") -- Or text/plain if you want to stream raw text
 
-print("read stream1")
         -- Stream the response from Ollama back to the user
         local stream = ollama_response.stream
         if not stream then
-        print("read stream error")
             response:set_status(500) -- Internal Server Error
             return
         end
-print("read stream2")
+
         for chunk in stream() do
             if chunk == nil then break end -- End of Ollama stream
 
@@ -92,6 +89,7 @@ print("read stream2")
 
             response:flush()
         end
+
         response:write("")
         response:flush()
     end
