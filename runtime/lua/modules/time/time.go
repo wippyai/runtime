@@ -1,6 +1,8 @@
 package time
 
 import (
+	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"github.com/ponyruntime/pony/runtime/lua/engine/async"
 	"time"
 
 	lua "github.com/yuin/gopher-lua"
@@ -107,6 +109,47 @@ func sleep(l *lua.LState) int {
 		l.ArgError(1, "duration expected")
 		return 0
 	}
+}
+
+func sleepAsync(l *lua.LState) int {
+	// Validate input duration argument
+	if d, ok := isDuration(l, 1); ok {
+		// Wrap the sleep operation in an async function
+		async.WrapAsync(l, func(args []lua.LValue) async.Result {
+			// Get context from state if available
+			if ctx := l.Context(); ctx != nil {
+				// Create timer for the sleep duration
+				timer := time.NewTimer(d.duration)
+				defer timer.Stop()
+
+				// Wait for either timer completion or context cancellation
+				select {
+				case <-timer.C:
+					return async.Result{
+						Values: []lua.LValue{lua.LString("ok")},
+					}
+				case <-ctx.Done():
+					// If context was cancelled, return the error
+					return async.Result{
+						Values: []lua.LValue{lua.LNil},
+						Err:    ctx.Err(),
+					}
+				}
+			}
+
+			// If no context available, fallback to regular sleep
+			time.Sleep(d.duration)
+			return async.Result{
+				Values: []lua.LValue{lua.LString("ok")},
+			}
+		})
+
+		// Return -1 to indicate yielding
+		return -1
+	}
+
+	l.ArgError(1, "duration expected")
+	return 0
 }
 
 func date(l *lua.LState) int {
@@ -640,10 +683,15 @@ func registerTime(l *lua.LState, mod *lua.LTable) {
 	l.SetField(mod, "FRIDAY", lua.LNumber(5))
 	l.SetField(mod, "SATURDAY", lua.LNumber(6))
 
+	sleepFunc := sleep
+	if engine.IsCoroutineVM(l) {
+		sleepFunc = sleepAsync
+	}
+
 	// Register time functions
 	l.SetFuncs(mod, map[string]lua.LGFunction{
 		"now":   now,
-		"sleep": sleep,
+		"sleep": sleepFunc,
 		"date":  date,
 		"unix":  unix,
 		"parse": parse,
