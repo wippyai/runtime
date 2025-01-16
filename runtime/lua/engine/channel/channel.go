@@ -7,7 +7,7 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-// note, channel operations are not task safe but deterministic
+// note, channel operations are not state safe but deterministic
 type opKind int
 
 const (
@@ -30,19 +30,19 @@ type selectOp struct {
 }
 
 type onNext struct {
-	yields  bool       // If current task should yield
+	yields  bool       // If current state should yield
 	next    []*opStep  // Operations to wake
-	block   []*Channel // Channels this task is waiting on
-	release []*Channel // Channels this task is releasing
+	block   []*Channel // Channels this state is waiting on
+	release []*Channel // Channels this state is releasing
 }
 
 type opStep struct {
 	err    error
-	task   *lua.LState
+	state  *lua.LState
 	values []lua.LValue
 }
 
-// Channel represents a buffered or unbuffered channel, not-task safe, external synchronization is required.
+// Channel represents a buffered or unbuffered channel, not-state safe, external synchronization is required.
 type Channel struct {
 	name     string
 	capacity int
@@ -72,7 +72,7 @@ func (c *Channel) send(senderTask *lua.LState, value lua.LValue, selectOp *selec
 	if c.closed {
 		return &onNext{
 			next: []*opStep{
-				{task: senderTask, err: errors.New("send on closed channel")},
+				{state: senderTask, err: errors.New("send on closed channel")},
 			},
 		}
 	}
@@ -86,11 +86,11 @@ func (c *Channel) send(senderTask *lua.LState, value lua.LValue, selectOp *selec
 				yields: true,
 				next: []*opStep{
 					{
-						task:   recvOp.task,
+						state:  recvOp.task,
 						values: makeResult(recvOp.task, recvOp.selectOp, recvOp.ch.value, value, true),
 					},
 					{
-						task:   senderTask,
+						state:  senderTask,
 						values: makeResult(senderTask, selectOp, c.value, nil, true),
 					},
 				},
@@ -111,7 +111,7 @@ func (c *Channel) send(senderTask *lua.LState, value lua.LValue, selectOp *selec
 		return &onNext{
 			next: []*opStep{
 				{
-					task:   senderTask,
+					state:  senderTask,
 					values: makeResult(senderTask, selectOp, c.value, value, true),
 				},
 			},
@@ -142,11 +142,11 @@ func (c *Channel) receive(receiverTask *lua.LState, selectOp *selectOp) *onNext 
 				yields: true,
 				next: []*opStep{
 					{
-						task:   sendOp.task,
+						state:  sendOp.task,
 						values: makeResult(sendOp.task, sendOp.selectOp, sendOp.ch.value, sendOp.value, true),
 					},
 					{
-						task:   receiverTask,
+						state:  receiverTask,
 						values: makeResult(receiverTask, selectOp, c.value, sendOp.value, true),
 					},
 				},
@@ -158,7 +158,7 @@ func (c *Channel) receive(receiverTask *lua.LState, selectOp *selectOp) *onNext 
 		return &onNext{
 			next: []*opStep{
 				{
-					task:   receiverTask,
+					state:  receiverTask,
 					values: makeResult(receiverTask, selectOp, c.value, sendOp.value, true),
 				},
 			},
@@ -169,7 +169,7 @@ func (c *Channel) receive(receiverTask *lua.LState, selectOp *selectOp) *onNext 
 		return &onNext{
 			next: []*opStep{
 				{
-					task:   receiverTask,
+					state:  receiverTask,
 					values: makeResult(receiverTask, selectOp, c.value, lua.LNil, false),
 				},
 			},
@@ -205,8 +205,8 @@ func (c *Channel) close(closerTask *lua.LState) *onNext {
 		op := e.Value.(*op)
 		if op.task != nil {
 			results = append(results, &opStep{
-				task: op.task,
-				err:  errors.New("send on closed channel"),
+				state: op.task,
+				err:   errors.New("send on closed channel"),
 			})
 			releases = append(releases, release(op)...)
 			c.senders.Remove(e)
@@ -221,7 +221,7 @@ func (c *Channel) close(closerTask *lua.LState) *onNext {
 		op := e.Value.(*op)
 		if op.task != nil {
 			results = append(results, &opStep{
-				task:   op.task,
+				state:  op.task,
 				values: makeResult(op.task, op.selectOp, c.value, lua.LNil, false),
 			})
 			releases = append(releases, release(op)...)
@@ -232,7 +232,7 @@ func (c *Channel) close(closerTask *lua.LState) *onNext {
 
 	if len(results) > 0 {
 		// wake up closer after all senders and non-buffered receivers are handled
-		results = append(results, &opStep{task: closerTask, values: nil})
+		results = append(results, &opStep{state: closerTask, values: nil})
 	}
 
 	return &onNext{

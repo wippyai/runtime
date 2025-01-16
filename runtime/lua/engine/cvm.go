@@ -119,7 +119,7 @@ func (e *CoroutineVM) Step(tasks ...*Task) (result []*Task, finalErr error) {
 	var err error
 	var values []lua.LValue
 
-	yeildedTasks := make([]*Task, 0)
+	yieldedTasks := make([]*Task, 0)
 
 	for !e.queue.IsEmpty() {
 		task := e.queue.Pop()
@@ -152,7 +152,7 @@ func (e *CoroutineVM) Step(tasks ...*Task) (result []*Task, finalErr error) {
 		}
 
 		if state == lua.ResumeYield {
-			yeildedTasks = append(yeildedTasks, task)
+			yieldedTasks = append(yieldedTasks, task)
 		} else if state == lua.ResumeOK || state == lua.ResumeError {
 			if task.output != nil {
 				if top := task.thread.GetTop(); top > 0 {
@@ -163,12 +163,11 @@ func (e *CoroutineVM) Step(tasks ...*Task) (result []*Task, finalErr error) {
 				close(task.output)
 				task.output = nil
 			}
-
 			_ = e.removeTask(task)
 		}
 	}
 
-	return yeildedTasks, nil
+	return yieldedTasks, nil
 }
 
 // GetTasks returns all tasks running in VM.

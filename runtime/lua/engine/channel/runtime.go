@@ -66,7 +66,7 @@ func (r *Runtime) Send(name string, values ...lua.LValue) error {
 			}
 
 			for _, result := range next.next {
-				if result.task == nil {
+				if result.state == nil {
 					continue
 				}
 				r.next = append(r.next, result)
@@ -82,9 +82,9 @@ func (r *Runtime) Step(vm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, er
 	var externalOps []*engine.Task
 
 	for _, prepend := range r.next {
-		task, err := vm.GetTask(prepend.task)
+		task, err := vm.GetTask(prepend.state)
 		if err != nil {
-			return nil, fmt.Errorf("task not found: %w", err)
+			return nil, fmt.Errorf("state not found: %w", err)
 		}
 
 		if prepend.err != nil {
@@ -132,9 +132,9 @@ func (r *Runtime) Step(vm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, er
 
 			if opNext.yields && len(opNext.next) > 0 {
 				for _, result := range opNext.next {
-					task, err := vm.GetTask(result.task)
+					task, err := vm.GetTask(result.state)
 					if err != nil {
-						return nil, fmt.Errorf("task not found: %w", err)
+						return nil, fmt.Errorf("state not found!: %w", err)
 					}
 
 					if result.err != nil {

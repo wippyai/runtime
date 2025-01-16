@@ -166,13 +166,13 @@ func TestChannelEdgeCases(t *testing.T) {
 		if senderResult.err == nil || senderResult.err.Error() != "send on closed channel" {
 			t.Error("expected send on closed channel error")
 		}
-		if senderResult.task != L1 {
-			t.Error("wrong task in sender result")
+		if senderResult.state != L1 {
+			t.Error("wrong state in sender result")
 		}
 
 		closerResult := next.next[1]
-		if closerResult.task != L1 {
-			t.Error("wrong task in closer result")
+		if closerResult.state != L1 {
+			t.Error("wrong state in closer result")
 		}
 		if closerResult.values != nil {
 			t.Error("closer should have nil values")
