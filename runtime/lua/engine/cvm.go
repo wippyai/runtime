@@ -18,6 +18,14 @@ type CoroutineVM struct {
 	queue *TaskQueue
 }
 
+func IsCoroutineVM(L *lua.LState) bool {
+	t, ok := L.GetGlobal("coroutine").(*lua.LTable)
+
+	// check spawn function
+	_, ok = t.RawGetString("spawn").(*lua.LFunction)
+	return ok
+}
+
 // NewCVM creates a new CoroutineVM instance with the provided context, logger and options.
 // Context is required for proper async operation and resource cleanup.
 func NewCVM(

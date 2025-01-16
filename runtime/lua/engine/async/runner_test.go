@@ -151,7 +151,6 @@ func TestAsyncCoroutines(t *testing.T) {
 			t.Errorf("coroutines appear to be running sequentially, took %v", duration)
 		}
 	})
-
 }
 
 // ----------
