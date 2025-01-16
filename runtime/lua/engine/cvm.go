@@ -10,6 +10,8 @@ import (
 	"go.uber.org/zap"
 )
 
+var coroOptions = []Option{WithGlobalValue("_COROUTINE_ENABLED", lua.LTrue)}
+
 // CoroutineVM represents a Lua virtual machine with coroutine support.
 // This VM is NOT thread safe, external synchronization is required.
 type CoroutineVM struct {
@@ -19,11 +21,12 @@ type CoroutineVM struct {
 }
 
 func IsCoroutineVM(L *lua.LState) bool {
-	t, ok := L.GetGlobal("coroutine").(*lua.LTable)
+	//check _COROUTINE_ENABLED
+	if L.GetGlobal("_COROUTINE_ENABLED") != lua.LTrue {
+		return false
+	}
 
-	// check spawn function
-	_, ok = t.RawGetString("spawn").(*lua.LFunction)
-	return ok
+	return true
 }
 
 // NewCVM creates a new CoroutineVM instance with the provided context, logger and options.
@@ -32,7 +35,7 @@ func NewCVM(
 	log *zap.Logger,
 	opts ...Option,
 ) (*CoroutineVM, error) {
-	vm, err := NewVM(log, opts...)
+	vm, err := NewVM(log, append(coroOptions, opts...)...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create VM: %w", err)
 	}
