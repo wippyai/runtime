@@ -3,6 +3,7 @@ package stream
 import (
 	"context"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -18,6 +19,7 @@ func TestAsyncStreamRead(t *testing.T) {
 		// Create base VM with stream module
 		vm, err := engine.NewCVM(
 			log,
+			engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
 			engine.WithPreloaded("stream", NewStreamModule(log).Loader),
 		)
 		require.NoError(t, err)
@@ -26,6 +28,7 @@ func TestAsyncStreamRead(t *testing.T) {
 		// Create wrapped VM with async runner
 		wrapped := engine.NewWrappedCVM(
 			vm,
+			engine.WithLayer(channel.NewChannelRunner()),
 			engine.WithLayer(coroutine.NewCoroutineRunner()),
 		)
 
@@ -45,26 +48,32 @@ func TestAsyncStreamRead(t *testing.T) {
 		// Import test script with coroutines
 		err = vm.Import(`
             function test_stream_read()
-                local results = {}
-
-                -- Start first coroutine
-                coroutine.spawn(function()
-                    local chunk = test_stream:read()
-                    results.second = chunk
-                end)
-
-                -- Start second coroutine
-                coroutine.spawn(function()
-                    local chunk = test_stream:read()
-                    results.third = chunk
-                end)
-
-                -- Read in main flow
-                local chunk = test_stream:read()
-                results.first = chunk
-
-                return results
-            end
+				local results = {}
+				local sync1 = channel.new(1)
+				local sync2 = channel.new(1)
+			
+				-- Main flow reads first
+				local chunk = test_stream:read()
+				results.first = chunk
+				sync1:send(true) -- Signal first coroutine to start
+			
+				-- Start first coroutine
+				coroutine.spawn(function()
+					sync1:receive() -- Wait for main flow
+					local chunk = test_stream:read()
+					results.second = chunk
+					sync2:send(true) -- Signal second coroutine
+				end)
+			
+				-- Start second coroutine
+				coroutine.spawn(function()
+					sync2:receive() -- Wait for first coroutine
+					local chunk = test_stream:read()
+					results.third = chunk
+				end)
+			
+				return results
+			end
         `, "test", "test_stream_read")
 		require.NoError(t, err)
 

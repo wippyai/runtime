@@ -55,7 +55,7 @@ func TestChannelRuntimeAsLayer(t *testing.T) {
 		defer base.Close()
 
 		// Create wrapped CVM with channel runtime as layer
-		channelRuntime := NewRuntime()
+		channelRuntime := NewChannelRunner()
 		wrapped := engine.NewWrappedCVM(base,
 			engine.WithLayer(channelRuntime),
 			engine.WithLayer(&execLayer{}),
@@ -100,7 +100,7 @@ func TestChannelRuntimeAsLayer(t *testing.T) {
 		assert.NoError(t, err)
 		defer base.Close()
 
-		channelRuntime := NewRuntime()
+		channelRuntime := NewChannelRunner()
 		wrapped := engine.NewWrappedCVM(base,
 			engine.WithLayer(channelRuntime),
 			engine.WithLayer(&execLayer{}),
@@ -152,7 +152,7 @@ func TestChannelRuntimeAsLayer(t *testing.T) {
 		assert.NoError(t, err)
 		defer base.Close()
 
-		channelRuntime := NewRuntime()
+		channelRuntime := NewChannelRunner()
 		wrapped := engine.NewWrappedCVM(base,
 			engine.WithLayer(channelRuntime),
 			engine.WithLayer(&execLayer{}),
@@ -187,7 +187,7 @@ func TestChannelRuntimeAsLayer(t *testing.T) {
 		assert.NoError(t, err)
 		defer base.Close()
 
-		channelRuntime := NewRuntime()
+		channelRuntime := NewChannelRunner()
 		wrapped := engine.NewWrappedCVM(
 			base,
 			engine.WithLayer(channelRuntime),

@@ -71,7 +71,7 @@ func (m *Module) handleStreamResponseAsync(
 	l.SetMetatable(ud, l.GetTypeMetatable("Stream"))
 
 	return coroutine.Result{
-		Values: []lua.LValue{newResponseWithStream(resp, ud, l)},
+		Values: []lua.LValue{newResponseWithStream(resp, ud, l), lua.LNil},
 	}
 }
 
@@ -82,6 +82,6 @@ func (m *Module) handleRegularResponseAsync(l *lua.LState, resp *http.Response) 
 	}
 
 	return coroutine.Result{
-		Values: []lua.LValue{newResponse(resp, &body, len(body), l)},
+		Values: []lua.LValue{newResponse(resp, &body, len(body), l), lua.LNil},
 	}
 }

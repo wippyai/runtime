@@ -44,7 +44,7 @@ func TestUnbufferedChannelOperations(t *testing.T) {
 		`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewRuntime()
+	runtime := NewChannelRunner()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -99,7 +99,7 @@ func TestUnbufferedChannelOperationsMainCoroutine(t *testing.T) {
 		`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewRuntime()
+	runtime := NewChannelRunner()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -161,7 +161,7 @@ func TestClosedChannelOperations(t *testing.T) {
 		`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewRuntime()
+	runtime := NewChannelRunner()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -219,7 +219,7 @@ func TestCloseChannelWithPendingOperations(t *testing.T) {
 		`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewRuntime()
+	runtime := NewChannelRunner()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -281,7 +281,7 @@ func TestBufferedChannelBasicOperations(t *testing.T) {
 		`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewRuntime()
+	runtime := NewChannelRunner()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -346,7 +346,7 @@ func TestBufferedChannelBlockingBehavior(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewRuntime()
+	runtime := NewChannelRunner()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -402,7 +402,7 @@ func TestReadBufferedValues(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewRuntime()
+	runtime := NewChannelRunner()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -489,7 +489,7 @@ func TestBufferedChannelEdgeCases(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewRuntime()
+	runtime := NewChannelRunner()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -562,7 +562,7 @@ func TestBufferedChannelCloseWithPendingOperations(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewRuntime()
+	runtime := NewChannelRunner()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -623,7 +623,7 @@ func TestBufferedChannelClose(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewRuntime()
+	runtime := NewChannelRunner()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -666,7 +666,7 @@ func TestBufferedChannelSendError(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewRuntime()
+	runtime := NewChannelRunner()
 	_, err = runtime.Step(vm)
 	if err == nil {
 		t.Error("expected error from send on closed channel")
@@ -702,7 +702,7 @@ func TestMainCoroutineBlockingOnBufferedChannel(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewRuntime()
+	runtime := NewChannelRunner()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -751,7 +751,7 @@ func TestMainCoroutinePanicHandling(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewRuntime()
+	runtime := NewChannelRunner()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -817,7 +817,7 @@ func TestMainCoroutineChannelCascadingClose(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewRuntime()
+	runtime := NewChannelRunner()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -919,7 +919,7 @@ func TestMapReducePattern(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewRuntime()
+	runtime := NewChannelRunner()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -1029,7 +1029,7 @@ func TestFanOutPattern(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewRuntime()
+	runtime := NewChannelRunner()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -1192,7 +1192,7 @@ func TestFanInPattern(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewRuntime()
+	runtime := NewChannelRunner()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 

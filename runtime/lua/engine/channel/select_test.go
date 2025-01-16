@@ -43,7 +43,7 @@ func TestSelectImmediate(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewRuntime()
+	runtime := NewChannelRunner()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -97,7 +97,7 @@ func TestSelectBlockedReceive(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewRuntime()
+	runtime := NewChannelRunner()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -157,7 +157,7 @@ func TestSelectBlockedClose(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewRuntime()
+	runtime := NewChannelRunner()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -231,7 +231,7 @@ func TestSelectWithDefaultImmediate(t *testing.T) {
     `, "test")
 	assert.NoError(t, err)
 
-	runtime := NewRuntime()
+	runtime := NewChannelRunner()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -310,7 +310,7 @@ func TestSelectLoopWithFeeds(t *testing.T) {
     `, "test")
 	assert.NoError(t, err)
 
-	runtime := NewRuntime()
+	runtime := NewChannelRunner()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -387,7 +387,7 @@ func TestSelectCleanupOnReceive(t *testing.T) {
    `, "test")
 	assert.NoError(t, err)
 
-	runtime := NewRuntime()
+	runtime := NewChannelRunner()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -486,7 +486,7 @@ func TestSelectCleanupAll(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewRuntime()
+	runtime := NewChannelRunner()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -577,7 +577,7 @@ func TestMixedSelectImmediate(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewRuntime()
+	runtime := NewChannelRunner()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -663,7 +663,7 @@ func TestMixedSelectBlocking(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewRuntime()
+	runtime := NewChannelRunner()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -748,7 +748,7 @@ func TestMixedSelectWithDefault(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewRuntime()
+	runtime := NewChannelRunner()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 

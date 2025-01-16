@@ -169,7 +169,7 @@ func CreateVM(cfg *Factory) (api.VM, error) {
 
 	// wrapping into execution layer
 	wrap := engine.NewWrappedCVM(vm,
-		engine.WithLayer(channel.NewRuntime()),
+		engine.WithLayer(channel.NewChannelRunner()),
 		engine.WithLayer(coroutine.NewCoroutineRunner()),
 	)
 

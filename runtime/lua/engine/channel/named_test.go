@@ -35,7 +35,7 @@ func TestNamedChannelVisibility(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewRuntime()
+	runtime := NewChannelRunner()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 	assert.Equal(t, 0, len(tasks), "expected no tasks")
@@ -86,7 +86,7 @@ func TestNamedChannelSelectVisibility(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewRuntime()
+	runtime := NewChannelRunner()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -170,7 +170,7 @@ func TestNamedChannelSelectDefaultCase(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewRuntime()
+	runtime := NewChannelRunner()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -258,7 +258,7 @@ func TestNamedChannelMultipleReceivers(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewRuntime()
+	runtime := NewChannelRunner()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -382,7 +382,7 @@ func TestBufferedNamedChannelWriteCapacity(t *testing.T) {
     `, "test")
 	assert.NoError(t, err)
 
-	runtime := NewRuntime()
+	runtime := NewChannelRunner()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
