@@ -158,7 +158,6 @@ func TestAsyncCoroutines(t *testing.T) {
 func createVM(t *testing.T) *engine.CoroutineVM {
 	log := zap.NewNop()
 	vm, err := engine.NewCVM(log,
-		//engine.WithGlobalValue("async", lua.LBool(true)),
 		engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
 		engine.WithGlobalFunction("async_double", func(L *lua.LState) int {
 			// Validate argument first
