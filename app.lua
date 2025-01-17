@@ -31,8 +31,8 @@ function App()
     -- Main loop to receive and print ticks
     while true do
         local result = channel.select{
-            ticker_channel:case_receive()--,
-            -- signal_channel:case_receive()
+            ticker_channel:case_receive(),
+            signal_channel:case_receive()
         }
 
         if not result.ok then

@@ -346,12 +346,18 @@ func selectLua(L *lua.LState) int {
 
 // trySelects checks the ability of immediate select operation
 func trySelect(L *lua.LState, selectOp *selectOp) *onNext {
-	waits := make([]*Channel, 0, len(selectOp.cases))
-	next := make([]*opStep, 0)
+	//waits := make([]*Channel, 0, len(selectOp.cases))
+	//next := make([]*opStep, 0)
+	nNext := &onNext{
+		yields:  true,
+		next:    make([]*opStep, 0),
+		block:   make([]*Channel, 0),
+		release: make([]*Channel, 0),
+	}
 
 	for _, caseOp := range selectOp.cases {
 		caseOp.selectOp = selectOp // for future reference
-		waits = append(waits, caseOp.ch)
+		//waits = append(waits, caseOp.ch)
 
 		switch caseOp.kind {
 		case sendOp:
@@ -360,7 +366,11 @@ func trySelect(L *lua.LState, selectOp *selectOp) *onNext {
 				flushSelects(selectOp)
 				return m
 			}
-			next = append(next, m.next...)
+
+			// merge
+			nNext.next = append(nNext.next, m.next...)
+			nNext.block = append(nNext.block, m.block...)
+			nNext.release = append(nNext.release, m.release...)
 		case receiveOp:
 			m := caseOp.ch.receive(L, selectOp)
 			if !m.yields {
@@ -368,7 +378,10 @@ func trySelect(L *lua.LState, selectOp *selectOp) *onNext {
 				return m
 			}
 
-			next = append(next, m.next...)
+			// merge
+			nNext.next = append(nNext.next, m.next...)
+			nNext.block = append(nNext.block, m.block...)
+			nNext.release = append(nNext.release, m.release...)
 		}
 	}
 
@@ -387,7 +400,7 @@ func trySelect(L *lua.LState, selectOp *selectOp) *onNext {
 	}
 
 	// Must block
-	return &onNext{yields: true, block: waits, next: next}
+	return nNext
 }
 
 // Helper functions
