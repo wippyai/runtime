@@ -12,6 +12,7 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/modules/json"
 	"github.com/ponyruntime/pony/runtime/lua/modules/time"
 	"go.uber.org/zap"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -104,7 +105,7 @@ type BTLayer struct {
 }
 
 func (b *BTLayer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, error) {
-	//log.Printf("%v", b.chRun.GetOpenChannels())
+	log.Printf("%v", b.chRun.GetOpenChannels())
 
 	//log.Printf("BTLayer Step")
 	return cvm.Step(tasks...)
