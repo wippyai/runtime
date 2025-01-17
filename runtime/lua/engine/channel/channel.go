@@ -3,7 +3,6 @@ package channel
 import (
 	"container/list"
 	"errors"
-
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -94,7 +93,7 @@ func (c *Channel) send(senderTask *lua.LState, value lua.LValue, selectOp *selec
 						values: makeResult(senderTask, selectOp, c.value, nil, true),
 					},
 				},
-				release: release(recvOp),
+				release: append(release(recvOp), flushSelects(selectOp)...),
 			}
 		}
 	}
@@ -150,7 +149,7 @@ func (c *Channel) receive(receiverTask *lua.LState, selectOp *selectOp) *onNext 
 						values: makeResult(receiverTask, selectOp, c.value, sendOp.value, true),
 					},
 				},
-				release: release(sendOp),
+				release: append(release(sendOp), flushSelects(selectOp)...),
 			}
 		}
 
@@ -253,11 +252,14 @@ func release(op *op) []*Channel {
 	} else {
 		releases = []*Channel{op.ch}
 	}
-
 	return releases
 }
 
 func flushSelects(s *selectOp) []*Channel {
+	if s == nil {
+		return nil
+	}
+
 	var releases []*Channel
 	for _, caseOp := range s.cases {
 		releases = append(releases, caseOp.ch)
