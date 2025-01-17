@@ -357,7 +357,6 @@ func trySelect(L *lua.LState, selectOp *selectOp) *onNext {
 
 	for _, caseOp := range selectOp.cases {
 		caseOp.selectOp = selectOp // for future reference
-		//waits = append(waits, caseOp.ch)
 
 		switch caseOp.kind {
 		case sendOp:
@@ -392,6 +391,7 @@ func trySelect(L *lua.LState, selectOp *selectOp) *onNext {
 		result := L.NewTable()
 		result.RawSetString("default", lua.LBool(true))
 		result.RawSetString("ok", lua.LBool(true))
+
 		return &onNext{
 			next: []*opStep{
 				{state: L, values: []lua.LValue{result}},
