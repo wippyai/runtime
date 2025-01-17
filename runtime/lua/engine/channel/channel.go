@@ -104,9 +104,10 @@ func (c *Channel) send(senderTask *lua.LState, value lua.LValue, selectOp *selec
 			kind:     sendOp,
 			ch:       c,
 			value:    value,
-			selectOp: selectOp,
+			selectOp: nil,
 		})
 		c.size++
+
 		return &onNext{
 			next: []*opStep{
 				{
@@ -114,6 +115,8 @@ func (c *Channel) send(senderTask *lua.LState, value lua.LValue, selectOp *selec
 					values: makeResult(senderTask, selectOp, c.value, value, true),
 				},
 			},
+			release: flushSelects(selectOp), // Added: cleanup select operations
+
 		}
 	}
 
@@ -182,6 +185,7 @@ func (c *Channel) receive(receiverTask *lua.LState, selectOp *selectOp) *onNext 
 		task:     receiverTask,
 		selectOp: selectOp,
 	})
+
 	return &onNext{yields: true, block: []*Channel{c}}
 }
 
@@ -255,38 +259,48 @@ func release(op *op) []*Channel {
 	return releases
 }
 
-func flushSelects(s *selectOp) []*Channel {
-	if s == nil {
-		return nil
-	}
-
-	var releases []*Channel
-	for _, caseOp := range s.cases {
-		releases = append(releases, caseOp.ch)
-		caseOp.ch.discardSelect(s)
-	}
-
-	return releases
-}
-
 func (c *Channel) discardSelect(selectOp *selectOp) {
-	/* Good candidate for optimization. */
+	// First, check senders
 	for e := c.senders.Front(); e != nil; {
 		next := e.Next()
 		if op := e.Value.(*op); op.selectOp == selectOp {
 			c.senders.Remove(e)
 			c.size--
+			break
 		}
 		e = next
 	}
 
 	for e := c.receivers.Front(); e != nil; {
 		next := e.Next()
-		if op := e.Value.(*op); op.selectOp == selectOp {
+		op := e.Value.(*op)
+
+		if op.selectOp == selectOp {
 			c.receivers.Remove(e)
+			// don't decrement size here - it's for senders only
+			break
 		}
 		e = next
 	}
+}
+
+func flushSelects(s *selectOp) []*Channel {
+	if s == nil {
+		return nil
+	}
+
+	var releases []*Channel
+
+	for _, caseOp := range s.cases {
+		if caseOp.ch == nil {
+			continue
+		}
+
+		releases = append(releases, caseOp.ch)
+		caseOp.ch.discardSelect(s)
+	}
+
+	return releases
 }
 
 func (c *Channel) reset() {
@@ -321,7 +335,7 @@ func makeResult(task *lua.LState, selectOp *selectOp, chValue, value lua.LValue,
 	}
 
 	if value == nil {
-		return nil // For send operations that succeed
+		return nil
 	}
 
 	return []lua.LValue{value, lua.LBool(ok)} // For receive operations

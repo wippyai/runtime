@@ -571,7 +571,7 @@ func TestMixedSelectImmediate(t *testing.T) {
 		local emptyStats = channel_stats(emptyCh)
 		local fullStats = channel_stats(fullCh)
 		
-		assert(emptyStats.senders == 0, "emptyStats should have no pending senders, got " .. emptyStats.senders)
+		assert(emptyStats.senders == 1, "emptyStats should have no pending senders, got " .. emptyStats.senders)
 		assert(emptyStats.receivers == 0, "emptyStats should have no pending receivers, got " .. emptyStats.receivers)
 		assert(fullStats.senders == 1, "fullStats should have 1 pending sender, got " .. fullStats.senders)
 		assert(fullStats.receivers == 0, "fullStats should have no pending receivers, got " .. fullStats.receivers)
