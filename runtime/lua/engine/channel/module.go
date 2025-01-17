@@ -2,6 +2,7 @@ package channel
 
 import (
 	"fmt"
+	"strings"
 
 	lua "github.com/yuin/gopher-lua"
 )
@@ -17,11 +18,90 @@ func (o *op) Type() lua.LValueType {
 
 // Lua interface for onNext
 func (m *onNext) String() string {
-	if len(m.block) > 0 {
-		return fmt.Sprintf("next{yields=true,block=%v}", m.block)
+	var parts []string
+
+	// Basic state
+	parts = append(parts, fmt.Sprintf("yields=%t", m.yields))
+
+	// Next operations
+	if len(m.next) > 0 {
+		opDetails := make([]string, 0, len(m.next))
+		for i, op := range m.next {
+			details := []string{fmt.Sprintf("op%d{", i)}
+
+			// State info
+			if op.state != nil {
+				details = append(details, "hasState=true")
+			}
+
+			// Error info
+			if op.err != nil {
+				details = append(details, fmt.Sprintf("err='%s'", op.err))
+			}
+
+			// Values info
+			if len(op.values) > 0 {
+				valueStrs := make([]string, 0, len(op.values))
+				for _, v := range op.values {
+					if v == nil {
+						valueStrs = append(valueStrs, "nil")
+					} else {
+						valueStrs = append(valueStrs, v.String())
+					}
+				}
+				details = append(details, fmt.Sprintf("values=[%s]", strings.Join(valueStrs, ",")))
+			}
+
+			opDetails = append(opDetails, strings.Join(details, " ")+"}")
+		}
+		parts = append(parts, fmt.Sprintf("next=[%s]", strings.Join(opDetails, " ")))
 	}
 
-	return fmt.Sprintf("next{yields=%t}", m.yields)
+	// Block channels
+	if len(m.block) > 0 {
+		chDetails := make([]string, 0, len(m.block))
+		for _, ch := range m.block {
+			details := []string{
+				fmt.Sprintf("addr=%p", ch),
+			}
+			if ch.name != "" {
+				details = append(details, fmt.Sprintf("name='%s'", ch.name))
+			}
+			details = append(details,
+				fmt.Sprintf("cap=%d", ch.capacity),
+				fmt.Sprintf("size=%d", ch.size),
+				fmt.Sprintf("closed=%t", ch.closed),
+				fmt.Sprintf("senders=%d", ch.senders.Len()),
+				fmt.Sprintf("receivers=%d", ch.receivers.Len()),
+			)
+			chDetails = append(chDetails, fmt.Sprintf("{%s}", strings.Join(details, " ")))
+		}
+		parts = append(parts, fmt.Sprintf("block=[%s]", strings.Join(chDetails, " ")))
+	}
+
+	// Release channels
+	if len(m.release) > 0 {
+		chDetails := make([]string, 0, len(m.release))
+		for _, ch := range m.release {
+			details := []string{
+				fmt.Sprintf("addr=%p", ch),
+			}
+			if ch.name != "" {
+				details = append(details, fmt.Sprintf("name='%s'", ch.name))
+			}
+			details = append(details,
+				fmt.Sprintf("cap=%d", ch.capacity),
+				fmt.Sprintf("size=%d", ch.size),
+				fmt.Sprintf("closed=%t", ch.closed),
+				fmt.Sprintf("senders=%d", ch.senders.Len()),
+				fmt.Sprintf("receivers=%d", ch.receivers.Len()),
+			)
+			chDetails = append(chDetails, fmt.Sprintf("{%s}", strings.Join(details, " ")))
+		}
+		parts = append(parts, fmt.Sprintf("release=[%s]", strings.Join(chDetails, " ")))
+	}
+
+	return fmt.Sprintf("next{%s}", strings.Join(parts, " "))
 }
 
 func (m *onNext) Type() lua.LValueType {
@@ -267,6 +347,8 @@ func selectLua(L *lua.LState) int {
 // trySelects checks the ability of immediate select operation
 func trySelect(L *lua.LState, selectOp *selectOp) *onNext {
 	waits := make([]*Channel, 0, len(selectOp.cases))
+	next := make([]*opStep, 0)
+
 	for _, caseOp := range selectOp.cases {
 		caseOp.selectOp = selectOp // for future reference
 		waits = append(waits, caseOp.ch)
@@ -278,12 +360,15 @@ func trySelect(L *lua.LState, selectOp *selectOp) *onNext {
 				flushSelects(selectOp)
 				return m
 			}
+			next = append(next, m.next...)
 		case receiveOp:
 			m := caseOp.ch.receive(L, selectOp)
 			if !m.yields {
 				flushSelects(selectOp)
 				return m
 			}
+
+			next = append(next, m.next...)
 		}
 	}
 
@@ -302,7 +387,7 @@ func trySelect(L *lua.LState, selectOp *selectOp) *onNext {
 	}
 
 	// Must block
-	return &onNext{yields: true, block: waits}
+	return &onNext{yields: true, block: waits, next: next}
 }
 
 // Helper functions

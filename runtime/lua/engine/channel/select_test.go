@@ -2,6 +2,7 @@ package channel
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine"
@@ -768,4 +769,106 @@ func TestMixedSelectWithDefault(t *testing.T) {
 		"ready_case_selected",
 	}
 	assert.Equal(t, expectedOrder, yields)
+}
+
+func TestSingleCaseSelectWithReadyData(t *testing.T) {
+	logger := zap.NewNop()
+
+	vm, err := engine.NewCVM(
+		logger,
+		engine.WithPreloaded("channel", NewChannelModule().Loader),
+	)
+	assert.NoError(t, err)
+	defer vm.Close()
+	vm.SetContext(context.Background())
+
+	err = vm.StartString(`
+		local ch = channel.new(0)  -- unbuffered channel
+		local ready = channel.new(0)  -- synchronization channel
+		local results = {}  -- collect results
+
+		-- Spawn 3 sender coroutines
+		for i = 1, 3 do
+			coroutine.spawn(function()
+				ch:send("val" .. i)
+				coroutine.yield("sent" .. i)
+			end)
+		end
+
+		coroutine.yield("senders_launched")
+
+		-- Main test coroutine that will use select
+		coroutine.spawn(function()
+			-- By this point at least one sender should be ready
+			local result = channel.select{
+				ch:case_receive()
+			}
+			table.insert(results, result.value)
+			coroutine.yield("received1")
+
+			-- Get remaining values directly
+			local val2, ok2 = ch:receive()
+			table.insert(results, val2)
+			coroutine.yield("received2")
+
+			local val3, ok3 = ch:receive()
+			table.insert(results, val3)
+			coroutine.yield("received3")
+
+			ready:send(true)
+		end)
+
+		-- Wait for completion
+		ready:receive()
+		coroutine.yield("complete")
+		
+		-- Verify all values were received
+		assert(#results == 3, "should receive 3 values")
+		table.sort(results)
+		assert(results[1] == "val1")
+		assert(results[2] == "val2")
+		assert(results[3] == "val3")
+	`, "test")
+	assert.NoError(t, err)
+
+	runtime := NewChannelRunner()
+	tasks, err := runtime.Step(vm)
+	assert.NoError(t, err)
+
+	var yields []string
+	for len(tasks) > 0 {
+		for _, task := range tasks {
+			if len(task.Yielded) > 0 {
+				yields = append(yields, task.Yielded[0].String())
+			}
+		}
+		tasks, err = runtime.Step(vm, tasks...)
+		assert.NoError(t, err)
+	}
+
+	// Verify at least one sender yielded before first receive
+	hasSenderBeforeReceive := false
+	receivedAny := false
+	for _, yield := range yields {
+		if strings.HasPrefix(yield, "sent") && !receivedAny {
+			hasSenderBeforeReceive = true
+		}
+		if strings.HasPrefix(yield, "received") {
+			receivedAny = true
+		}
+	}
+	assert.True(t, hasSenderBeforeReceive, "no sender yielded before first receive")
+
+	// Verify all expected events occurred
+	assert.Contains(t, yields, "senders_launched", "senders should launch first")
+	assert.Contains(t, yields, "complete", "test should complete")
+
+	// Verify we got all receives
+	receivedCount := 0
+	for _, yield := range yields {
+		if strings.HasPrefix(yield, "received") {
+			receivedCount++
+		}
+	}
+	assert.Equal(t, 3, receivedCount, "should receive all 3 values")
 }

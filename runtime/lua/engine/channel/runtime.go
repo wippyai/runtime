@@ -18,15 +18,15 @@ type channelRef struct {
 	count   int
 }
 
-// Runtime maintains state for channel operations
-type Runtime struct {
+// Runner maintains state for channel operations
+type Runner struct {
 	queue         *engine.TaskQueue
 	next          []*opStep
 	namedChannels map[string]*channelRef // Track named channels with reference counting
 }
 
-func NewChannelRunner() *Runtime {
-	return &Runtime{
+func NewChannelRunner() *Runner {
+	return &Runner{
 		queue:         engine.NewTaskQueue(),
 		next:          make([]*opStep, 0),
 		namedChannels: make(map[string]*channelRef),
@@ -34,7 +34,7 @@ func NewChannelRunner() *Runtime {
 }
 
 // GetOpenChannels returns a map of named channels currently waiting for data
-func (r *Runtime) GetOpenChannels() []OpenChannel {
+func (r *Runner) GetOpenChannels() []OpenChannel {
 	result := make([]OpenChannel, 0, len(r.namedChannels))
 	for name, ref := range r.namedChannels {
 		result = append(result, OpenChannel{
@@ -46,7 +46,7 @@ func (r *Runtime) GetOpenChannels() []OpenChannel {
 	return result
 }
 
-func (r *Runtime) Send(name string, values ...lua.LValue) error {
+func (r *Runner) Send(name string, values ...lua.LValue) error {
 	ref, exists := r.namedChannels[name]
 	if !exists {
 		return fmt.Errorf("channel %s not found or not ready for data", name)
@@ -78,7 +78,7 @@ func (r *Runtime) Send(name string, values ...lua.LValue) error {
 }
 
 // Step handles channel operations while maintaining CVM compatibility
-func (r *Runtime) Step(vm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, error) {
+func (r *Runner) Step(vm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, error) {
 	var externalOps []*engine.Task
 
 	for _, prepend := range r.next {
@@ -153,7 +153,7 @@ func (r *Runtime) Step(vm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, er
 }
 
 // updateChannelRefs handles reference counting for channels
-func (r *Runtime) updateChannelRefs(blocks, releases []*Channel) {
+func (r *Runner) updateChannelRefs(blocks, releases []*Channel) {
 	for _, ch := range blocks {
 		if ch.isNamed() {
 			ref, exists := r.namedChannels[ch.name]

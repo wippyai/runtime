@@ -114,7 +114,7 @@ func sleep(l *lua.LState) int {
 	return 0
 }
 
-func sleepAsync(l *lua.LState) int {
+func sleepCoroutine(l *lua.LState) int {
 	if d, ok := isDuration(l, 1); ok {
 		coroutine.WrapCoroutine(l, func() coroutine.Result {
 			if err := performSleep(l.Context(), d.duration); err != nil {
@@ -667,7 +667,7 @@ func registerTime(l *lua.LState, mod *lua.LTable) {
 
 	sleepFunc := sleep
 	if engine.IsCoroutineVM(l) {
-		sleepFunc = sleepAsync
+		sleepFunc = sleepCoroutine
 	}
 
 	// Register time functions

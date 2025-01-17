@@ -90,7 +90,7 @@ func (v *VM) Mount(proto *lua.FunctionProto, funcNames ...string) error {
 	}
 
 	if err := v.exportFunctions(funcNames...); err != nil {
-		return fmt.Errorf("export error: %w", err)
+		return err
 	}
 
 	return nil
