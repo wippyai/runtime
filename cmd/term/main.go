@@ -11,8 +11,8 @@ import (
 	httpmod "github.com/ponyruntime/pony/runtime/lua/modules/http"
 	"github.com/ponyruntime/pony/runtime/lua/modules/json"
 	"github.com/ponyruntime/pony/runtime/lua/modules/time"
+	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
-	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -105,7 +105,16 @@ type BTLayer struct {
 }
 
 func (b *BTLayer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, error) {
-	log.Printf("%v", b.chRun.GetOpenChannels())
+	openCh := b.chRun.GetOpenChannels()
+
+	if len(openCh) > 0 {
+		for _, ch := range openCh {
+			err := b.chRun.Send(ch.Name, lua.LString("Hello from BTLayer"))
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
 
 	//log.Printf("BTLayer Step")
 	return cvm.Step(tasks...)
