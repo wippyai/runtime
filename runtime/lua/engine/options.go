@@ -96,6 +96,8 @@ func WithLibrary(name string, source interface{}) Option {
 	}
 }
 
+// todo: add with Module, see api
+
 // WithLoader adds a library with a custom loader function to the VM
 func WithLoader(name string, loader lua.LGFunction) Option {
 	return func(vm *VM) {
