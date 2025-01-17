@@ -355,39 +355,22 @@ func trySelect(L *lua.LState, selectOp *selectOp) *onNext {
 		release: make([]*Channel, 0),
 	}
 
+	// check if we can execute chan operation immediatelly
 	for _, caseOp := range selectOp.cases {
-		caseOp.selectOp = selectOp // for future reference
-
 		switch caseOp.kind {
 		case sendOp:
-			m := caseOp.ch.send(L, caseOp.value, selectOp)
-			if !m.yields {
-				flushSelects(selectOp)
-				return m
+			if caseOp.ch.canSend() {
+				return caseOp.ch.send(L, caseOp.value, selectOp)
 			}
-
-			// merge
-			nNext.next = append(nNext.next, m.next...)
-			nNext.block = append(nNext.block, m.block...)
-			nNext.release = append(nNext.release, m.release...)
 		case receiveOp:
-			m := caseOp.ch.receive(L, selectOp)
-			if !m.yields {
-				flushSelects(selectOp)
-				return m
+			if caseOp.ch.canReceive() {
+				return caseOp.ch.receive(L, selectOp)
 			}
-
-			// merge
-			nNext.next = append(nNext.next, m.next...)
-			nNext.block = append(nNext.block, m.block...)
-			nNext.release = append(nNext.release, m.release...)
 		}
 	}
 
 	// Handle default case
 	if selectOp.hasDefault {
-		flushSelects(selectOp)
-
 		result := L.NewTable()
 		result.RawSetString("default", lua.LBool(true))
 		result.RawSetString("ok", lua.LBool(true))
@@ -396,6 +379,27 @@ func trySelect(L *lua.LState, selectOp *selectOp) *onNext {
 			next: []*opStep{
 				{state: L, values: []lua.LValue{result}},
 			},
+		}
+	}
+
+	for _, caseOp := range selectOp.cases {
+		caseOp.selectOp = selectOp // for future reference
+
+		switch caseOp.kind {
+		case sendOp:
+			m := caseOp.ch.send(L, caseOp.value, selectOp)
+
+			// merge
+			nNext.next = append(nNext.next, m.next...)
+			nNext.block = append(nNext.block, m.block...)
+			nNext.release = append(nNext.release, m.release...)
+		case receiveOp:
+			m := caseOp.ch.receive(L, selectOp)
+
+			// merge
+			nNext.next = append(nNext.next, m.next...)
+			nNext.block = append(nNext.block, m.block...)
+			nNext.release = append(nNext.release, m.release...)
 		}
 	}
 

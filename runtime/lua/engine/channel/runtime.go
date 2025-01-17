@@ -60,9 +60,10 @@ func (r *Runner) Send(name string, values ...lua.LValue) error {
 
 	for _, value := range values {
 		next := ch.send(nil, value, nil)
+
 		if next.yields && len(next.next) > 0 {
 			if len(next.release) > 0 {
-				r.updateChannelRefs(nil, next.release)
+				r.updateChannelRefs(next.block, next.release)
 			}
 
 			for _, result := range next.next {
