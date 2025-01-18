@@ -67,7 +67,7 @@ func (b *BTLayer) TryFlushMessage() error {
 		openChannels := b.chRun.GetOpenChannels()
 		for _, ch := range openChannels {
 			if ch.Name == "messages" {
-				return b.chRun.Send("messages", msg)
+				return b.chRun.SendToOpen("messages", msg)
 			}
 		}
 	}

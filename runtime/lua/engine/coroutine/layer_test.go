@@ -359,7 +359,7 @@ func TestWorkerPool(t *testing.T) {
                end)
            end
 
-           -- Send all tasks
+           -- SendToOpen all tasks
            for i = 1, NUM_TASKS do
                task_ch:send(i)
            end

@@ -45,16 +45,11 @@ func (r *Runner) GetOpenChannels() []OpenChannel {
 	return result
 }
 
-func (r *Runner) Send(ctx context.Context, tg *engine.TaskGroup, name string, values ...lua.LValue) error {
-	ref, exists := r.namedChannels[name]
-	if !exists {
-		return fmt.Errorf("channel %s not found or not ready for data", name)
-	}
-
-	ch := ref.channel
-	if (ch.size + len(values) - ref.count) > ch.capacity {
-		return fmt.Errorf("unable to send %d values to channel %s, only %d slots available",
-			len(values), name, ch.capacity-ch.size+ref.count)
+// Send is NOT thread safe, it should only be called by another layer during execution step.
+func (r *Runner) Send(ctx context.Context, ch *Channel, values ...lua.LValue) error {
+	tg := engine.GetTaskGroup(ctx)
+	if tg == nil {
+		return fmt.Errorf("task group not found on context")
 	}
 
 	for _, value := range values {
@@ -67,6 +62,7 @@ func (r *Runner) Send(ctx context.Context, tg *engine.TaskGroup, name string, va
 
 			for _, result := range next.next {
 				if result.state == nil {
+					// no one waits for us
 					continue
 				}
 
@@ -87,7 +83,7 @@ func (r *Runner) Send(ctx context.Context, tg *engine.TaskGroup, name string, va
 	return nil
 }
 
-// Step handles channel operations while maintaining CVM compatibility
+// Step handles channel operations while maintaining CVM compatibility, todo: deprecate
 func (r *Runner) Step(vm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, error) {
 	tg := engine.GetTaskGroup(vm.GetContext())
 	var externalOps []*engine.Task
@@ -97,7 +93,7 @@ func (r *Runner) Step(vm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, err
 	}
 
 	boot := true
-	for !r.queue.IsEmpty() || boot {
+	for !r.queue.IsEmpty() || boot { // we want to rotate channels as close to VM as possible
 		boot = false
 
 		var batch []*engine.Task
@@ -147,7 +143,7 @@ func (r *Runner) Step(vm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, err
 	return externalOps, nil
 }
 
-// updateChannelRefs handles reference counting for channels
+// updateChannelRefs handles reference counting for channels todo: deprecate
 func (r *Runner) updateChannelRefs(tg *engine.TaskGroup, blocks, releases []*Channel) {
 	for _, ch := range blocks {
 		if ch.isNamed() {
