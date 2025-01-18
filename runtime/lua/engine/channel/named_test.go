@@ -56,7 +56,9 @@ func TestNamedChannelSelectVisibility(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	vm.SetContext(context.Background())
+	tg := engine.NewTaskGroup(100)
+
+	vm.SetContext(engine.WithTaskGroup(context.Background(), tg))
 
 	err = vm.StartString(`
 		-- Create named channels with different capacities
@@ -119,7 +121,12 @@ func TestNamedChannelSelectVisibility(t *testing.T) {
 					checkChannels([]string{"select_ch1", "select_ch2"})
 				case "ready_for_send":
 					// Send value through runtime to ch1
-					err := runtime.Send("select_ch1", lua.LString("value1"))
+					err := runtime.Send(
+						context.Background(),
+						tg,
+						"select_ch1",
+						lua.LString("value1"),
+					)
 					assert.NoError(t, err)
 
 				case "done":
@@ -127,7 +134,9 @@ func TestNamedChannelSelectVisibility(t *testing.T) {
 				}
 			}
 		}
-		tasks, err = runtime.Step(vm, tasks...)
+
+		outer, err := tg.Wait(context.Background(), vm, false)
+		tasks, err = runtime.Step(vm, append(outer, tasks...)...)
 		assert.NoError(t, err)
 	}
 
@@ -203,7 +212,8 @@ func TestNamedChannelMultipleReceivers(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	vm.SetContext(context.Background())
+	tg := engine.NewTaskGroup(100)
+	vm.SetContext(engine.WithTaskGroup(context.Background(), tg))
 
 	err = vm.StartString(`
 		-- Create channels
@@ -280,7 +290,9 @@ func TestNamedChannelMultipleReceivers(t *testing.T) {
 					assert.Equal(t, 3, channels[0].Refs, "expected 3 references to channel")
 
 					// Send all values in one batch - order matters!
-					err = runtime.Send("test_channel",
+					err = runtime.Send(
+						context.Background(),
+						tg, "test_channel",
 						lua.LString("value1"), // Should go to first waiting routine
 						lua.LString("value2"), // Should go to second waiting routine
 						lua.LString("value3"), // Should go to third waiting routine
@@ -295,7 +307,8 @@ func TestNamedChannelMultipleReceivers(t *testing.T) {
 			}
 		}
 
-		tasks, err = runtime.Step(vm, tasks...)
+		outer, err := tg.Wait(context.Background(), vm, false)
+		tasks, err = runtime.Step(vm, append(outer, tasks...)...)
 		assert.NoError(t, err)
 	}
 
@@ -348,7 +361,8 @@ func TestBufferedNamedChannelWriteCapacity(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	vm.SetContext(context.Background())
+	tg := engine.NewTaskGroup(100)
+	vm.SetContext(engine.WithTaskGroup(context.Background(), tg))
 
 	err = vm.StartString(`
         -- Create channels
@@ -403,7 +417,8 @@ func TestBufferedNamedChannelWriteCapacity(t *testing.T) {
 					assert.Equal(t, 4, channels[0].Slots, "should have 3 buffer slots + 1 reader")
 
 					// First try to send too many values at once
-					err = runtime.Send("buffered_channel",
+					err = runtime.Send(context.Background(),
+						tg, "buffered_channel",
 						lua.LString("value1"),
 						lua.LString("value2"),
 						lua.LString("value3"),
@@ -413,7 +428,8 @@ func TestBufferedNamedChannelWriteCapacity(t *testing.T) {
 					assert.Error(t, err, "should fail when sending too many values")
 
 					// Now send just enough values
-					err = runtime.Send("buffered_channel",
+					err = runtime.Send(context.Background(),
+						tg, "buffered_channel",
 						lua.LString("value1"),
 						lua.LString("value2"),
 						lua.LString("value3"),
@@ -426,7 +442,8 @@ func TestBufferedNamedChannelWriteCapacity(t *testing.T) {
 			}
 		}
 
-		tasks, err = runtime.Step(vm, tasks...)
+		outer, err := tg.Wait(context.Background(), vm, false)
+		tasks, err = runtime.Step(vm, append(outer, tasks...)...)
 		assert.NoError(t, err)
 	}
 

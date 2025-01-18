@@ -20,6 +20,8 @@ func TestSelectImmediate(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
+	vm.SetContext(context.Background())
+
 	err = vm.StartString(`
 		-- Create two buffered channels
 		local ch1 = channel.new(1)

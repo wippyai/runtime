@@ -195,7 +195,12 @@ func TestChannelRuntimeAsLayer(t *testing.T) {
 		)
 
 		// Create a named channel and verify it's tracked
-		err = channelRuntime.Send("test-channel", lua.LString("direct message"))
+		err = channelRuntime.Send(
+			context.Background(),
+			wrapped.GetTaskGroup(),
+			"test-channel",
+			lua.LString("direct message"),
+		)
 		assert.Error(t, err, "should not allow sending to non-existent channel")
 
 		err = base.Import(`

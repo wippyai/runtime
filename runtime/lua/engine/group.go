@@ -51,7 +51,17 @@ func (g *TaskGroup) Send(ctx context.Context, result TaskResult) error {
 // This is always called synchronously from the main thread
 func (g *TaskGroup) Add(state *lua.LState) {
 	g.taskCount++
-	g.states[state] = struct{}{}
+	if state != nil {
+		g.states[state] = struct{}{}
+	}
+}
+
+// Remove unregisters a Lua state from tracking
+func (g *TaskGroup) Remove(state *lua.LState) {
+	g.taskCount--
+	if state != nil {
+		delete(g.states, state)
+	}
 }
 
 // GetTaskCount returns the current number of tasks
@@ -59,8 +69,8 @@ func (g *TaskGroup) GetTaskCount() int32 {
 	return g.taskCount
 }
 
-// wait processes all available results and returns tasks ready for resumption
-func (g *TaskGroup) wait(ctx context.Context, cvm CVM, block bool) ([]*Task, error) {
+// Wait processes all available results and returns tasks ready for resumption
+func (g *TaskGroup) Wait(ctx context.Context, cvm CVM, block bool) ([]*Task, error) {
 	tasks := make([]*Task, 0)
 
 	// Process all available results
