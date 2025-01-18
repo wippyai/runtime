@@ -64,7 +64,6 @@ func receiveLua(L *lua.LState) int {
 	ch := channel.Named(Channel, 0)
 	ud := L.NewUserData()
 	ud.Value = ch
-	ch.LinkValue(ud)
 	L.SetMetatable(ud, L.GetTypeMetatable("channel"))
 	L.Push(ud)
 	return 1

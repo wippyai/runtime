@@ -128,7 +128,6 @@ func (m *Module) Loader(L *lua.LState) int {
 
 	// Register constructors
 	L.SetField(mod, "new", L.NewFunction(newChannelLua))
-	L.SetField(mod, "named", L.NewFunction(newNamedChannelLua))
 	L.SetField(mod, "select", L.NewFunction(selectLua))
 
 	// Channel methods
@@ -152,6 +151,14 @@ func (m *Module) Loader(L *lua.LState) int {
 	return 1
 }
 
+func Wrap(L *lua.LState, ch *Channel) lua.LValue {
+	ud := L.NewUserData()
+	ud.Value = ch
+	ch.value = ud // for select conditions they are always coupled
+	L.SetMetatable(ud, L.GetTypeMetatable("channel"))
+	return ud
+}
+
 // Constructor functions
 func newChannelLua(L *lua.LState) int {
 	capacity := L.OptInt(1, 0)
@@ -161,23 +168,6 @@ func newChannelLua(L *lua.LState) int {
 	}
 
 	ch := newChannel(capacity)
-	ud := L.NewUserData()
-	ud.Value = ch
-	ch.value = ud // yep
-	L.SetMetatable(ud, L.GetTypeMetatable("channel"))
-	L.Push(ud)
-	return 1
-}
-
-func newNamedChannelLua(L *lua.LState) int {
-	name := L.CheckString(1)
-	capacity := L.OptInt(2, 0)
-	if capacity < 0 {
-		L.RaiseError("channel capacity must be >= 0")
-		return 0
-	}
-
-	ch := Named(name, capacity)
 	ud := L.NewUserData()
 	ud.Value = ch
 	ch.value = ud // yep

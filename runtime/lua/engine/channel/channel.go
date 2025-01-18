@@ -67,8 +67,8 @@ func newChannel(capacity int) *Channel {
 	}
 }
 
-func (c *Channel) LinkValue(value lua.LValue) {
-	c.value = value
+func (c *Channel) Slots() int {
+	return (c.capacity - c.size) + c.receivers.Len()
 }
 
 func (c *Channel) send(senderTask *lua.LState, value lua.LValue, selectOp *selectOp) *onNext {
@@ -311,14 +311,6 @@ func (c *Channel) reset() {
 	c.size = 0
 	c.senders.Init()
 	c.receivers.Init()
-}
-
-func (c *Channel) isFull() bool {
-	return c.size >= c.capacity
-}
-
-func (c *Channel) isEmpty() bool {
-	return c.size == 0
 }
 
 func (c *Channel) isNamed() bool {

@@ -27,7 +27,7 @@ func TestSelectImmediate(t *testing.T) {
 		local ch1 = channel.new(1)
 		local ch2 = channel.new(1)
 
-		-- Send a value to ch1
+		-- SendToOpen a value to ch1
 		ch1:send("msg1")
 		coroutine.yield("value_buffered")
 

@@ -65,8 +65,8 @@ func (g *TaskGroup) Remove(state *lua.LState) {
 }
 
 // GetTaskCount returns the current number of tasks
-func (g *TaskGroup) GetTaskCount() int32 {
-	return g.taskCount
+func (g *TaskGroup) GetTaskCount() int {
+	return int(g.taskCount)
 }
 
 // Wait processes all available results and returns tasks ready for resumption

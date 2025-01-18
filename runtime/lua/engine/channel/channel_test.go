@@ -46,10 +46,6 @@ func TestChannelBasicOperations(t *testing.T) {
 			t.Error("send on non-full buffered channel shouldn't yield")
 		}
 
-		if !ch.isFull() {
-			t.Error("channel should be full after send")
-		}
-
 		next = ch.receive(L, nil)
 		if len(next.next) != 1 {
 			t.Error("expected 1 result for buffered receive")
@@ -270,7 +266,7 @@ func TestChannelWaits(t *testing.T) {
 		// Set up a receiver first
 		ch.receive(L1, nil)
 
-		// Send should complete immediately
+		// SendToOpen should complete immediately
 		next := ch.send(L2, lua.LString("test"), nil)
 
 		if len(next.block) != 0 {
@@ -486,7 +482,7 @@ func TestChannelBlockingScenarios(t *testing.T) {
 			t.Error("select should block initially")
 		}
 
-		// Send on first channel should unblock select
+		// SendToOpen on first channel should unblock select
 		next2 := ch1.send(L2, lua.LString("test"), nil)
 		if len(next2.next) != 2 {
 			t.Error("should wake up both sender and select")

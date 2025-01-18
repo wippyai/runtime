@@ -35,6 +35,36 @@ func NewLayer(chRunner *channel.Runner, opts ...LayerOption) *Layer {
 	return l
 }
 
+// Schedule pushes a new task to the buffer and returns a channel for the response
+func (l *Layer) Schedule(tg *engine.TaskGroup, value lua.LValue) (chan response, error) {
+	respChan := make(chan response, 1)
+	t := &task{
+		value:    []lua.LValue{value},
+		respChan: respChan,
+	}
+
+	select {
+	case l.bufferChan <- t:
+		return respChan, nil
+	default:
+		// Buffer is full
+		return nil, errors.New("task buffer full")
+	}
+}
+
+func (l *Layer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, error) {
+
+	return cvm.Step(tasks...)
+
+	// Just try to flush any buffered tasks
+	if err := l.tryFlush(); err != nil {
+		return nil, err
+	}
+
+	// Pass through all tasks without modification
+	return tasks, nil
+}
+
 // tryFlush attempts to flush tasks from buffer to the named channel
 func (l *Layer) tryFlush() error {
 	// Check if channel is open and get capacity
@@ -69,34 +99,7 @@ func (l *Layer) tryFlush() error {
 	}
 
 	if len(values) > 0 {
-		return l.chRunner.Send(nil, nil, Channel, values...)
+		return l.chRunner.SendToOpen(nil, nil, Channel, values...)
 	}
 	return nil
-}
-
-func (l *Layer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, error) {
-	// Just try to flush any buffered tasks
-	if err := l.tryFlush(); err != nil {
-		return nil, err
-	}
-
-	// Pass through all tasks without modification
-	return tasks, nil
-}
-
-// Schedule pushes a new task to the buffer and returns a channel for the response
-func (l *Layer) Schedule(value lua.LValue) (chan response, error) {
-	respChan := make(chan response, 1)
-	t := &task{
-		value:    []lua.LValue{value},
-		respChan: respChan,
-	}
-
-	select {
-	case l.bufferChan <- t:
-		return respChan, nil
-	default:
-		// Buffer is full
-		return nil, errors.New("task buffer full")
-	}
 }
