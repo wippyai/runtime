@@ -109,7 +109,7 @@ func (p *Pool) Execute(ctx context.Context, name string, args ...lua.LValue) (lu
 		return result, nil
 	}
 
-	// Handle VM return based on execution result
+	// we never allow failed VMs to be returned to the pool
 	vm.Close()
 
 	select {

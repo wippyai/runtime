@@ -67,6 +67,10 @@ func newChannel(capacity int) *Channel {
 	}
 }
 
+func (c *Channel) LinkValue(value lua.LValue) {
+	c.value = value
+}
+
 func (c *Channel) send(senderTask *lua.LState, value lua.LValue, selectOp *selectOp) *onNext {
 	if c.closed {
 		return &onNext{
