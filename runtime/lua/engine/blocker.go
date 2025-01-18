@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"log"
 	"sync/atomic"
 )
 
@@ -19,8 +20,9 @@ type (
 	}
 
 	LayerState struct {
-		Layer Layer
-		Tasks int
+		Layer   Layer
+		Blocked bool
+		Tasks   int
 	}
 
 	Blockable interface {
@@ -40,11 +42,12 @@ func (b *Blocker) Add() {
 }
 
 func (b *Blocker) Done() {
-	b.count.Add(-1)
+	newCount := b.count.Add(-1)
 
 	if atomic.CompareAndSwapInt32(&b.state, stateBlocked, stateUnblocked) {
 		select {
-		case b.notify <- LayerState{Layer: b.layer, Tasks: 0}:
+		case b.notify <- LayerState{Layer: b.layer, Blocked: false, Tasks: int(newCount)}:
+			log.Printf("done layer %p %v %v", b.layer, false, newCount)
 		default:
 			// must never happen
 		}
@@ -53,10 +56,10 @@ func (b *Blocker) Done() {
 
 func (b *Blocker) FlushState() {
 	if b.IsBlocked() {
-
 		if atomic.CompareAndSwapInt32(&b.state, stateNormal, stateBlocked) || atomic.CompareAndSwapInt32(&b.state, stateUnblocked, stateBlocked) {
 			select {
-			case b.notify <- LayerState{Layer: b.layer, Tasks: int(b.count.Load())}:
+			case b.notify <- LayerState{Layer: b.layer, Blocked: true, Tasks: int(b.count.Load())}:
+				log.Printf("flush layer %p %v %v", b.layer, true, b.count.Load())
 			default:
 				// must never happen
 			}

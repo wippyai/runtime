@@ -46,10 +46,10 @@ func (r *Runner) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, er
 					r.blocker.Add()
 				}
 				go func(t *engine.Task, w *FuncWrapper) {
-					r.results <- taskEntry{task: t, result: w.Run()}
 					if r.blocker != nil {
 						r.blocker.Done()
 					}
+					r.results <- taskEntry{task: t, result: w.Run()}
 				}(task, wrapper)
 				continue
 			}

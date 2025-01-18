@@ -103,7 +103,7 @@ func (m model) View() string {
 	s += style.Render("Custom Commands Demo\n\n")
 	s += style.Render(fmt.Sprintf("Status: %s\n", m.status))
 	s += style.Render(fmt.Sprintf("Random Number: %d\n", m.number))
-	s += style.Render(fmt.Sprintf("Last Tick: %s\n", m.lastTick.Format("15:04:05")))
+	s += style.Render(fmt.Sprintf("Last Blocked: %s\n", m.lastTick.Format("15:04:05")))
 
 	if m.loading {
 		s += style.Render("\nLoading...\n")
