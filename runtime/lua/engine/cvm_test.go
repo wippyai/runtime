@@ -929,10 +929,10 @@ func TestCoroutineVM_SharedBuffer(t *testing.T) {
 			-- Flusher that reads accumulated values
 			function flusher()
 				while true do
-					-- Wait until signaled to flush	
+					-- Wait until signaled to wait	
 					local cmd = coroutine.yield("waiting")
 					
-					if cmd == "flush" then
+					if cmd == "wait" then
 						-- Read all data
 						local output = table.concat(shared_buffer.data, ", ")
 						local count = #shared_buffer.data
@@ -1017,8 +1017,8 @@ func TestCoroutineVM_SharedBuffer(t *testing.T) {
 			}
 		}
 
-		// Trigger flush
-		flusherTask.Resumed = []lua.LValue{lua.LString("flush")}
+		// Trigger wait
+		flusherTask.Resumed = []lua.LValue{lua.LString("wait")}
 		tasks, err = vm.Step(flusherTask)
 		if err != nil {
 			t.Fatal(err)
@@ -1031,7 +1031,7 @@ func TestCoroutineVM_SharedBuffer(t *testing.T) {
 		flushResult := tasks[0].Yielded[0].String()
 		expectedResult := "flushed:val1, val2, val3, val4, val5"
 		if flushResult != expectedResult {
-			t.Fatalf("unexpected flush output: got %q, want %q", flushResult, expectedResult)
+			t.Fatalf("unexpected wait output: got %q, want %q", flushResult, expectedResult)
 		}
 
 		// Complete flusher

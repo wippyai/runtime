@@ -137,7 +137,7 @@ func (e *CoroutineVM) Step(tasks ...*Task) (result []*Task, finalErr error) {
 		if task.State == lua.ResumeYield {
 			if task.RaiseError != nil {
 				if task.output != nil {
-					task.output <- TaskResult{Error: task.RaiseError}
+					task.output <- TaskResult{State: task.l, Error: task.RaiseError}
 					close(task.output)
 					task.output = nil
 				}
@@ -148,7 +148,7 @@ func (e *CoroutineVM) Step(tasks ...*Task) (result []*Task, finalErr error) {
 			state, err, values = e.vm.state.Resume(task.thread, task.fn, task.Resumed...)
 			if err != nil {
 				if task.output != nil {
-					task.output <- TaskResult{Error: err}
+					task.output <- TaskResult{State: task.l, Error: err}
 					close(task.output)
 					task.output = nil
 				}
@@ -166,9 +166,9 @@ func (e *CoroutineVM) Step(tasks ...*Task) (result []*Task, finalErr error) {
 		} else if state == lua.ResumeOK || state == lua.ResumeError {
 			if task.output != nil {
 				if top := task.thread.GetTop(); top > 0 {
-					task.output <- TaskResult{Result: values}
+					task.output <- TaskResult{State: task.l, Result: values}
 				} else {
-					task.output <- TaskResult{}
+					task.output <- TaskResult{State: task.l}
 				}
 				close(task.output)
 				task.output = nil

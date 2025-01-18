@@ -33,7 +33,7 @@ func (t *Task) String() string {
 }
 
 type TaskResult struct {
-	// Single value!
+	State  *lua.LState
 	Result []lua.LValue
 	Error  error
 }
