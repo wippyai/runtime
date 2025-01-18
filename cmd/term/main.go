@@ -98,6 +98,28 @@ func (m model) View() string {
 	return b.String()
 }
 
+// MessageYield represents a yielded message that should be handled by BTLayer
+type MessageYield struct {
+	Message lua.LValue
+}
+
+func (m *MessageYield) String() string {
+	return "message.yield{" + m.Message.String() + "}"
+}
+
+func (m *MessageYield) Type() lua.LValueType {
+	return lua.LTUserData
+}
+
+// IsMessageYield checks if a yielded value is a MessageYield
+func IsMessageYield(value lua.LValue) (*MessageYield, bool) {
+	if msg, ok := value.(*MessageYield); ok {
+		return msg, true
+	}
+
+	return nil, false
+}
+
 // Custom error message type
 type errMsg string
 
@@ -106,20 +128,55 @@ type BTLayer struct {
 }
 
 func (b *BTLayer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, error) {
-	openCh := b.chRun.GetOpenChannels()
-	log.Printf("open %v", openCh)
-	if len(openCh) > 0 {
-		for _, ch := range openCh {
-			err := b.chRun.Send(ch.Name, lua.LString("Hello from BTLayer"))
-			if err != nil {
-				return nil, err
+	outTasks := make([]*engine.Task, 0)
+	var err error
+	boot := true
+
+	for len(tasks) > 0 || boot {
+		boot = false
+
+		// Handle channel operations
+		openCh := b.chRun.GetOpenChannels()
+		if len(openCh) > 0 {
+			for _, ch := range openCh {
+				err := b.chRun.Send(ch.Name, lua.LString("Hello from BTLayer"))
+				if err != nil {
+					return nil, err
+				}
 			}
 		}
 
-		//os.Exit(1)
+		// Process current batch of tasks
+		tasks, err = cvm.Step(tasks...)
+		if err != nil {
+			return nil, err
+		}
+
+		currentTasks := make([]*engine.Task, 0)
+		for _, task := range tasks {
+			if len(task.Yielded) > 0 {
+				lastYield := task.Yielded[len(task.Yielded)-1]
+
+				// Check if this is a message yield
+				if msgYield, ok := IsMessageYield(lastYield); ok {
+					// Handle the message
+					log.Printf("Handling message yield: %v", msgYield.Message)
+
+					// Resume the task with result
+					task.Resumed = []lua.LValue{lua.LTrue}
+					currentTasks = append(currentTasks, task)
+					continue
+				}
+			}
+			// Pass through non-message yields
+			outTasks = append(outTasks, task)
+		}
+
+		// Set up next iteration
+		tasks = currentTasks
 	}
 
-	return cvm.Step(tasks...)
+	return outTasks, nil
 }
 
 func main() {
@@ -130,6 +187,11 @@ func main() {
 		engine.WithPreloaded("http", httpmod.NewHTTPModule(http.DefaultClient, log).Loader),
 		engine.WithPreloaded("json", json.NewJsonModule().Loader),
 		engine.WithPreloaded("time", time.NewTimeModule().Loader),
+		engine.WithGlobalFunction("send_message", func(L *lua.LState) int {
+			msg := L.CheckAny(1)
+			L.Push(&MessageYield{Message: msg})
+			return -1
+		}),
 	)
 	if err != nil {
 		fmt.Printf("Error creating VM: %v", err)

@@ -159,6 +159,9 @@ func (e *CVMWrapper) Execute(
 	select {
 	case result = <-out:
 	default:
+		if len(e.cvm.tasks) > 0 {
+			return nil, errors.New("no result, VM deadlock")
+		}
 		return nil, errors.New("no result")
 	}
 
