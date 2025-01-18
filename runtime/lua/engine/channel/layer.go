@@ -83,6 +83,41 @@ func (r *Runner) Send(ctx context.Context, ch *Channel, values ...lua.LValue) er
 	return nil
 }
 
+// Close is NOT thread safe, it should only be called by another layer during execution step.
+func (r *Runner) Close(ctx context.Context, ch *Channel) error {
+	tg := engine.GetTaskGroup(ctx)
+	if tg == nil {
+		return fmt.Errorf("task group not found on context")
+	}
+
+	next := ch.close(nil)
+	if next.yields && len(next.next) > 0 {
+		if len(next.release) > 0 {
+			r.updateChannelRefs(tg, next.block, next.release)
+		}
+
+		for _, result := range next.next {
+			if result.state == nil {
+				// no one waits for us
+				continue
+			}
+
+			tg.Add(result.state)
+			err := tg.Send(ctx, engine.TaskResult{
+				State:  result.state,
+				Result: result.values,
+				Error:  result.err,
+			})
+
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
 // Step handles channel operations while maintaining CVM compatibility, todo: deprecate
 func (r *Runner) Step(vm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, error) {
 	tg := engine.GetTaskGroup(vm.GetContext())
