@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	lua "github.com/yuin/gopher-lua"
-	"log"
 )
 
 type contextKey struct{}
@@ -109,7 +108,6 @@ func (g *TaskGroup) wait(ctx context.Context, cvm CVM, block bool) ([]*Task, err
 func (g *TaskGroup) processResult(cvm CVM, result TaskResult) (*Task, error) {
 	task, err := cvm.GetTask(result.State)
 	if err != nil {
-		log.Printf("Processing result: %+v at %+v", result, cvm.GetTasks())
 		return nil, err
 	}
 
@@ -120,6 +118,32 @@ func (g *TaskGroup) processResult(cvm CVM, result TaskResult) (*Task, error) {
 	}
 
 	return task, nil
+}
+
+func (g *TaskGroup) clean() {
+	if g.taskCount == 0 {
+		return
+	}
+
+	g.taskCount = 0
+	g.states = make(map[*lua.LState]struct{})
+
+	// drain
+	ok := true
+	for {
+		if !ok {
+			break
+		}
+
+		select {
+		case _, okD := <-g.results:
+			if !okD {
+				ok = false
+			}
+		default:
+			ok = false
+		}
+	}
 }
 
 // GetActiveStates returns a slice of currently active Lua states

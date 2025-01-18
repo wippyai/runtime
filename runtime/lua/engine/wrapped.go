@@ -6,7 +6,6 @@ import (
 	"github.com/ponyruntime/pony/internal/closer"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
-	"log"
 )
 
 type (
@@ -30,11 +29,27 @@ type (
 		Close()
 	}
 
+	CoroutineLeak struct {
+		Count int
+	}
+
+	DeadlockError struct {
+		Count int
+	}
+
 	wrappedLayer struct {
 		next  CVM   // Next layer or base CVM
 		layer Layer // Current layer
 	}
 )
+
+func (e *CoroutineLeak) Error() string {
+	return fmt.Sprintf("found orphaned coroutines: %d", e.Count)
+}
+
+func (e *DeadlockError) Error() string {
+	return fmt.Sprintf("deadlock detected on %d coroutines", e.Count)
+}
 
 func (w *wrappedLayer) GetContext() context.Context {
 	return w.next.GetContext()
@@ -129,6 +144,7 @@ func (e *CVMWrapper) Execute(
 	if ctx != nil {
 		ctx, cleanup := closer.WithContext(ctx)
 		defer func() {
+			e.cleanup()
 			e.cvm.vm.state.RemoveContext()
 			if err := cleanup.Close(); err != nil {
 				e.cvm.vm.log.Error("cleanup failed",
@@ -148,7 +164,6 @@ func (e *CVMWrapper) Execute(
 	}
 
 	for {
-
 		tasks, err := wrapped.Step(e.cvm.queue.Drain()...)
 		if err != nil {
 			return nil, err
@@ -162,27 +177,32 @@ func (e *CVMWrapper) Execute(
 		// main coroutine is done
 		select {
 		case result = <-out:
+			stuck := len(e.cvm.tasks)
+
 			if result.Error != nil {
 				return nil, result.Error
 			}
 
-			if e.taskGroup.GetTaskCount() > 0 {
-				return nil, fmt.Errorf("found dangling coroutuines: %d", e.taskGroup.GetTaskCount())
-			}
-
 			if len(result.Result) > 0 {
+				if stuck > 0 {
+					// soft-error, we let parent to decide
+					return result.Result[0], &CoroutineLeak{Count: stuck}
+				}
+
 				return result.Result[0], nil
 			}
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		default:
+			// wait-wait-wait, are we deadlocked?
+			if len(tasks) == 0 && e.taskGroup.GetTaskCount() == 0 {
+				return nil, &DeadlockError{Count: len(e.cvm.tasks)}
+			}
 		}
 
 		// block for any pending task
 		tasks, err = e.taskGroup.wait(ctx, e.cvm, true)
 		if err != nil {
-			log.Printf("error: %v", e.cvm.GetTasks())
-			log.Printf("error: %v", err)
 			return nil, err
 		}
 
@@ -190,6 +210,15 @@ func (e *CVMWrapper) Execute(
 			e.cvm.queue.Push(task)
 		}
 	}
+}
+
+func (e *CVMWrapper) cleanup() {
+	// cancel and close all threads
+	for _, t := range e.cvm.tasks {
+		_ = e.cvm.removeTask(t)
+	}
+
+	e.taskGroup.clean()
 }
 
 func (e *CVMWrapper) Close() {
