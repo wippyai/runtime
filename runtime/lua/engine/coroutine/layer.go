@@ -3,7 +3,6 @@ package coroutine
 import (
 	"context"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"sync/atomic"
 )
 
 type taskEntry struct {
@@ -14,9 +13,8 @@ type taskEntry struct {
 // Runner provides layer for handling async function wrappers
 type Runner struct {
 	wait    int
-	notify  chan engine.Layer
-	blocked atomic.Bool
 	results chan taskEntry
+	blocker *engine.Blocker
 }
 
 // NewCoroutineRunner creates a new async runner layer
@@ -25,45 +23,44 @@ func NewCoroutineRunner() *Runner {
 	return r
 }
 
-func (r *Runner) IsBlocked() bool {
-	return r.wait > 0
-}
-
-func (r *Runner) SetNotify(notify chan engine.Layer) {
-	r.notify = notify
+func (r *Runner) SetNotify(notify chan engine.LayerState) {
+	r.blocker = engine.NewBlocker(r, notify)
 }
 
 // Step implements the engine.Layer interface
 func (r *Runner) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, error) {
 	outTasks := make([]*engine.Task, 0)
-	var err error
 
-	boot := true
-	for r.wait > 0 || boot {
-		boot = false
+	tasks = append(tasks, r.flush(cvm.GetContext(), len(tasks) == 0)...)
 
-		tasks = append(tasks, r.flush(cvm.GetContext(), len(tasks) == 0)...)
+	vmTasks, err := cvm.Step(tasks...)
+	if err != nil {
+		return nil, err
+	}
 
-		tasks, err = cvm.Step(tasks...)
-		if err != nil {
-			return nil, err
-		}
-
-		for _, task := range tasks {
-			if len(task.Yielded) > 0 {
-				if wrapper, ok := task.Yielded[len(task.Yielded)-1].(*FuncWrapper); ok {
-					r.wait++
-					go func(t *engine.Task, w *FuncWrapper) {
-						r.results <- taskEntry{task: t, result: w.Run()}
-					}(task, wrapper)
-					continue
+	for _, task := range vmTasks {
+		if len(task.Yielded) > 0 {
+			if wrapper, ok := task.Yielded[len(task.Yielded)-1].(*FuncWrapper); ok {
+				r.wait++
+				if r.blocker != nil {
+					r.blocker.Add()
 				}
+				go func(t *engine.Task, w *FuncWrapper) {
+					r.results <- taskEntry{task: t, result: w.Run()}
+					if r.blocker != nil {
+						r.blocker.Done()
+					}
+				}(task, wrapper)
+				continue
 			}
-
-			outTasks = append(outTasks, task) // not our task
 		}
 
-		tasks = []*engine.Task{}
+		outTasks = append(outTasks, task) // not our tasks
+	}
+
+	tasks = []*engine.Task{}
+	if r.blocker != nil {
+		r.blocker.FlushState()
 	}
 
 	return outTasks, nil

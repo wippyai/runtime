@@ -21,16 +21,6 @@ type (
 		Step(cvm CVM, tasks ...*Task) ([]*Task, error)
 	}
 
-	LayerState struct {
-		Layer   Layer
-		Blocked bool
-	}
-
-	// todo: potentially decouple via context?
-	BlockingLayer interface {
-		SetNotify(chan LayerState)
-	}
-
 	// CVM represents core VM functionality required by layers
 	CVM interface {
 		GetContext() context.Context
@@ -90,7 +80,7 @@ type CVMWrapper struct {
 	layers      []Layer         // Layers in order of addition (first = outermost)
 	wrapped     CVM             // Cached wrapped chain
 	layerCount  int             // Number of layers when cache was built
-	layerNotify chan LayerState // Ready channel
+	blockNotify chan LayerState // Ready channel
 	blocked     sync.Map
 }
 
@@ -107,21 +97,21 @@ func NewWrappedCVM(cvm *CoroutineVM, opts ...CVMOption) *CVMWrapper {
 		opt(w)
 	}
 
-	// single message for block and single for layerNotify
-	w.layerNotify = make(chan LayerState, len(w.layers)*2)
+	// single message for block and single for blockNotify
+	w.blockNotify = make(chan LayerState, len(w.layers)*2)
 
 	// Check if any layer is blocking
 	found := false
 	for _, layer := range w.layers {
-		if bLayer, ok := layer.(BlockingLayer); ok {
+		if bLayer, ok := layer.(Blockable); ok {
 			// we always want to know who is currently blocked by any external data
-			bLayer.SetNotify(w.layerNotify)
+			bLayer.SetNotify(w.blockNotify)
 			found = true
 		}
 	}
 
 	if !found {
-		w.layerNotify = nil
+		w.blockNotify = nil
 	}
 
 	return w
@@ -176,24 +166,18 @@ func (e *CVMWrapper) Execute(
 	}
 
 	for {
-		tasks, err := wrapped.Step(e.cvm.queue.Drain()...) // kick-off execution from start queue
+		tasks, err := wrapped.Step(e.cvm.queue.Drain()...)
 		if err != nil {
 			return nil, err
-		}
-
-		if len(tasks) == 0 {
-			if e.waitBlocking() {
-				// keep loop going, some tasks will be mixed by underlying layers
-				continue
-			}
-
-			// we are done
-			break
 		}
 
 		if len(tasks) > 0 {
 			// some tasks leaked out of the wrapped chain
 			return nil, fmt.Errorf("unexpected tasks, missing VM layer: %v", tasks)
+		}
+
+		if !e.waitBlocking() {
+			break
 		}
 	}
 
@@ -234,7 +218,7 @@ func (e *CVMWrapper) GetBlocked() map[Layer]bool {
 
 // waitBlocking updates to use the new non-blocking approach
 func (e *CVMWrapper) waitBlocking() bool {
-	if e.layerNotify == nil {
+	if e.blockNotify == nil {
 		return false
 	}
 
@@ -251,8 +235,8 @@ func (e *CVMWrapper) waitBlocked() bool {
 			break
 		}
 		select {
-		case st := <-e.layerNotify:
-			if !st.Blocked {
+		case st := <-e.blockNotify:
+			if st.Tasks == 0 {
 				e.blocked.Delete(st.Layer)
 				didUnblock = true
 			} else {
@@ -282,8 +266,8 @@ func (e *CVMWrapper) waitBlocked() bool {
 	// we have to wait for something to unblock
 	for {
 		select {
-		case st := <-e.layerNotify:
-			if !st.Blocked {
+		case st := <-e.blockNotify:
+			if st.Tasks == 0 {
 				e.blocked.Delete(st.Layer)
 				return true // we unblocked something
 			} else {
