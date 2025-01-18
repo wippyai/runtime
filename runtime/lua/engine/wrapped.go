@@ -7,7 +7,7 @@ import (
 	"github.com/ponyruntime/pony/internal/closer"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
-	"sync"
+	"log"
 )
 
 type (
@@ -81,7 +81,7 @@ type CVMWrapper struct {
 	wrapped     CVM             // Cached wrapped chain
 	layerCount  int             // Number of layers when cache was built
 	blockNotify chan LayerState // Ready channel
-	blocked     sync.Map
+	blocked     map[Layer]int
 }
 
 // NewWrappedCVM creates a new wrapper around provided CVM with optional layers
@@ -89,7 +89,7 @@ func NewWrappedCVM(cvm *CoroutineVM, opts ...CVMOption) *CVMWrapper {
 	w := &CVMWrapper{
 		cvm:     cvm,
 		layers:  make([]Layer, 0),
-		blocked: sync.Map{},
+		blocked: make(map[Layer]int),
 	}
 
 	// Apply all options
@@ -107,6 +107,8 @@ func NewWrappedCVM(cvm *CoroutineVM, opts ...CVMOption) *CVMWrapper {
 			// we always want to know who is currently blocked by any external data
 			bLayer.SetNotify(w.blockNotify)
 			found = true
+
+			w.blocked[layer] = 0
 		}
 	}
 
@@ -166,6 +168,7 @@ func (e *CVMWrapper) Execute(
 	}
 
 	for {
+		log.Printf("step")
 		tasks, err := wrapped.Step(e.cvm.queue.Drain()...)
 		if err != nil {
 			return nil, err
@@ -207,18 +210,14 @@ func (e *CVMWrapper) Close() {
 	e.getWrapped().Close()
 }
 
-func (e *CVMWrapper) GetBlocked() map[Layer]bool {
-	blocked := make(map[Layer]bool)
-	e.blocked.Range(func(key, value interface{}) bool {
-		blocked[key.(Layer)] = value.(bool)
-		return true
-	})
-	return blocked
+func (e *CVMWrapper) GetBlocked() map[Layer]int {
+	return e.blocked
 }
 
 // waitBlocking updates to use the new non-blocking approach
 func (e *CVMWrapper) waitBlocking() bool {
 	if e.blockNotify == nil {
+		log.Printf("no blockNotify")
 		return false
 	}
 
@@ -236,13 +235,8 @@ func (e *CVMWrapper) waitBlocked() bool {
 		}
 		select {
 		case st := <-e.blockNotify:
-			if st.Tasks == 0 {
-				e.blocked.Delete(st.Layer)
-				didUnblock = true
-			} else {
-				e.blocked.Store(st.Layer, struct{}{})
-				didBlock = true
-			}
+			e.blocked[st.Layer] = st.Tasks
+			didUnblock = !st.Blocked
 		case <-e.cvm.GetContext().Done():
 			return false
 		default:
@@ -251,30 +245,37 @@ func (e *CVMWrapper) waitBlocked() bool {
 	}
 
 	if didUnblock {
+		log.Printf("unblocked")
 		// we unblocked something and we can continue, layers will mix tasks on themselves now
 		return true
 	}
 
-	hasBlocked := false
-	e.blocked.Range(func(key, value interface{}) bool { hasBlocked = true; return false })
+	hasTasks := false
+	for _, tasks := range e.blocked {
+		if tasks > 0 {
+			hasTasks = true
+			break
+		}
+	}
 
-	if !didBlock && !hasBlocked {
+	if !didBlock && !hasTasks {
 		// nothing really to do
 		return false
 	}
+
+	log.Printf("fallback")
+	log.Printf("blocked: %v", e.blocked)
 
 	// we have to wait for something to unblock
 	for {
 		select {
 		case st := <-e.blockNotify:
-			if st.Tasks == 0 {
-				e.blocked.Delete(st.Layer)
-				return true // we unblocked something
-			} else {
-				// should not happen, but sure
-				e.blocked.Store(st.Layer, struct{}{})
+			e.blocked[st.Layer] = st.Tasks
+			if !st.Blocked {
+				return true
 			}
 		case <-e.cvm.GetContext().Done():
+			log.Printf("context done")
 			return false
 		}
 	}

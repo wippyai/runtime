@@ -23,6 +23,7 @@ type Runner struct {
 	queue         *engine.TaskQueue
 	next          []*opStep
 	namedChannels map[string]*channelRef // Track named channels with reference counting
+	blocker       *engine.Blocker
 }
 
 func NewChannelRunner() *Runner {
@@ -31,6 +32,10 @@ func NewChannelRunner() *Runner {
 		next:          make([]*opStep, 0),
 		namedChannels: make(map[string]*channelRef),
 	}
+}
+
+func (r *Runner) SetNotify(notify chan engine.LayerState) {
+	r.blocker = engine.NewBlocker(r, notify)
 }
 
 // GetOpenChannels returns a map of named channels currently waiting for data
