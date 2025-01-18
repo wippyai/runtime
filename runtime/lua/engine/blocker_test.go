@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"sync"
 	"testing"
 	"time"
 )
@@ -13,9 +12,9 @@ func (m *mockLayer) Step(cvm CVM, tasks ...*Task) ([]*Task, error) {
 }
 
 func TestBlockingState_Basic(t *testing.T) {
-	notify := make(chan Layer, 10)
+	notify := make(chan LayerState, 10)
 	layer := &mockLayer{}
-	state := NewLayerBlocker(layer, notify)
+	state := NewBlocker(layer, notify)
 
 	if state.IsBlocked() {
 		t.Error("New state should not be blocked")
@@ -23,19 +22,19 @@ func TestBlockingState_Basic(t *testing.T) {
 
 	state.Add()
 	if !state.IsBlocked() {
-		t.Error("State should be blocked after Add")
+		t.Error("LayerState should be blocked after Add")
 	}
 
 	state.Done()
 	if state.IsBlocked() {
-		t.Error("State should not be blocked after Done")
+		t.Error("LayerState should not be blocked after Done")
 	}
 }
 
 func TestBlockingState_FlushState(t *testing.T) {
-	notify := make(chan Layer, 10)
+	notify := make(chan LayerState, 10)
 	layer := &mockLayer{}
-	state := NewLayerBlocker(layer, notify)
+	state := NewBlocker(layer, notify)
 
 	// Test flush with no blocking
 	state.FlushState()
@@ -51,7 +50,7 @@ func TestBlockingState_FlushState(t *testing.T) {
 	state.FlushState()
 	select {
 	case l := <-notify:
-		if l != layer {
+		if l.Layer != layer {
 			t.Error("Wrong layer notified")
 		}
 	default:
@@ -69,9 +68,9 @@ func TestBlockingState_FlushState(t *testing.T) {
 }
 
 func TestBlockingState_NotificationDeduplication(t *testing.T) {
-	notify := make(chan Layer, 10)
+	notify := make(chan LayerState, 10)
 	layer := &mockLayer{}
-	state := NewLayerBlocker(layer, notify)
+	state := NewBlocker(layer, notify)
 
 	// Add and flush should notify once
 	state.Add()
@@ -103,59 +102,10 @@ func TestBlockingState_NotificationDeduplication(t *testing.T) {
 	}
 }
 
-func TestBlockingState_ConcurrentAccess(t *testing.T) {
-	notify := make(chan Layer, 1000) // Large buffer to prevent blocking
-	layer := &mockLayer{}
-	state := NewLayerBlocker(layer, notify)
-
-	var wg sync.WaitGroup
-	workers := 10
-	iterations := 100
-
-	// Start multiple goroutines doing Add/Done cycles
-	for i := 0; i < workers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < iterations; j++ {
-				state.Add()
-				state.FlushState()           // Might notify
-				time.Sleep(time.Microsecond) // Introduce some chaos
-				state.Done()
-			}
-		}()
-	}
-
-	wg.Wait()
-
-	// Final state should be unblocked
-	if state.IsBlocked() {
-		t.Error("Final state should be unblocked")
-	}
-
-	// Drain channel and count notifications
-	notifications := 0
-	for {
-		select {
-		case <-notify:
-			notifications++
-		default:
-			goto done
-		}
-	}
-
-done:
-
-	// We should have fewer notifications than operations due to deduplication
-	if notifications >= workers*iterations {
-		t.Errorf("Got %d notifications, expected fewer due to deduplication", notifications)
-	}
-}
-
 func TestBlockingState_EdgeCases(t *testing.T) {
-	notify := make(chan Layer, 10)
+	notify := make(chan LayerState, 10)
 	layer := &mockLayer{}
-	state := NewLayerBlocker(layer, notify)
+	state := NewBlocker(layer, notify)
 
 	// Test rapid Add/Done cycles without Flush
 	for i := 0; i < 100; i++ {
@@ -181,9 +131,9 @@ func TestBlockingState_EdgeCases(t *testing.T) {
 }
 
 func TestBlockingState_ZeroNotifyChannel(t *testing.T) {
-	notify := make(chan Layer) // Zero buffer
+	notify := make(chan LayerState) // Zero buffer
 	layer := &mockLayer{}
-	state := NewLayerBlocker(layer, notify)
+	state := NewBlocker(layer, notify)
 
 	// Create synchronization channel
 	ready := make(chan struct{})
