@@ -19,7 +19,7 @@ func TestRunner_AsLayer(t *testing.T) {
 			// Validate and get duration upfront
 			ms := L.CheckNumber(1)
 
-			WrapCoroutine(L, func() Result {
+			Wrap(L, func() Result {
 				time.Sleep(time.Duration(ms) * time.Millisecond)
 				return Result{Values: []lua.LValue{lua.LString("slept"), ms}}
 			})
@@ -67,7 +67,7 @@ func TestAsyncCoroutines(t *testing.T) {
 				// Validate and get duration upfront
 				ms := l.CheckNumber(1)
 
-				WrapCoroutine(l, func() Result {
+				Wrap(l, func() Result {
 					time.Sleep(time.Duration(ms) * time.Millisecond)
 					return Result{Values: []lua.LValue{lua.LString("slept"), ms}}
 				})
@@ -163,7 +163,7 @@ func createVM(t *testing.T) *engine.CoroutineVM {
 			// Validate argument first
 			value := l.CheckNumber(1)
 
-			WrapCoroutine(l, func() Result {
+			Wrap(l, func() Result {
 				time.Sleep(100 * time.Millisecond)
 				return Result{Values: []lua.LValue{value * 2}}
 			})

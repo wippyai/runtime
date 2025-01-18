@@ -116,7 +116,7 @@ func sleep(l *lua.LState) int {
 
 func sleepCoroutine(l *lua.LState) int {
 	if d, ok := isDuration(l, 1); ok {
-		coroutine.WrapCoroutine(l, func() coroutine.Result {
+		coroutine.Wrap(l, func() coroutine.Result {
 			if err := performSleep(l.Context(), d.duration); err != nil {
 				return coroutine.Result{
 					Values: []lua.LValue{lua.LNil},

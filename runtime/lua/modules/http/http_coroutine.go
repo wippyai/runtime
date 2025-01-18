@@ -38,7 +38,7 @@ func (m *Module) executeRequestYield(l *lua.LState, req *http.Request, opts *req
 		zap.String("url", req.URL.String()),
 	)
 
-	coroutine.WrapCoroutine(l, func() coroutine.Result {
+	coroutine.Wrap(l, func() coroutine.Result {
 		resp, err := m.client.Do(req)
 		if err != nil {
 			return coroutine.Result{Values: []lua.LValue{lua.LNil, lua.LString(err.Error())}}
