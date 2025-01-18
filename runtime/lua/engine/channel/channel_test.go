@@ -480,7 +480,7 @@ func TestChannelBlockingScenarios(t *testing.T) {
 		selectOp.cases[0].selectOp = selectOp
 		selectOp.cases[1].selectOp = selectOp
 
-		// Block select operation on both channels
+		// Blocked select operation on both channels
 		next1 := ch1.receive(L1, selectOp)
 		if !next1.yields {
 			t.Error("select should block initially")

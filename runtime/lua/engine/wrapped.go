@@ -7,6 +7,7 @@ import (
 	"github.com/ponyruntime/pony/internal/closer"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
+	"sync"
 )
 
 type (
@@ -18,6 +19,16 @@ type (
 		// The CVM parameter represents the next layer (or base CVM) in the chain.
 		// Returns processed tasks and any error encountered.
 		Step(cvm CVM, tasks ...*Task) ([]*Task, error)
+	}
+
+	LayerState struct {
+		Layer   Layer
+		Blocked bool
+	}
+
+	// todo: potentially decouple via context?
+	BlockingLayer interface {
+		SetNotify(chan LayerState)
 	}
 
 	// CVM represents core VM functionality required by layers
@@ -75,22 +86,42 @@ func WithLayer(layer Layer) CVMOption {
 
 // CVMWrapper provides a way to wrap CVM with middleware layers
 type CVMWrapper struct {
-	cvm        *CoroutineVM // Base CVM
-	layers     []Layer      // Layers in order of addition (first = outermost)
-	wrapped    CVM          // Cached wrapped chain
-	layerCount int          // Number of layers when cache was built
+	cvm         *CoroutineVM    // Base CVM
+	layers      []Layer         // Layers in order of addition (first = outermost)
+	wrapped     CVM             // Cached wrapped chain
+	layerCount  int             // Number of layers when cache was built
+	layerNotify chan LayerState // Ready channel
+	blocked     sync.Map
 }
 
 // NewWrappedCVM creates a new wrapper around provided CVM with optional layers
 func NewWrappedCVM(cvm *CoroutineVM, opts ...CVMOption) *CVMWrapper {
 	w := &CVMWrapper{
-		cvm:    cvm,
-		layers: make([]Layer, 0),
+		cvm:     cvm,
+		layers:  make([]Layer, 0),
+		blocked: sync.Map{},
 	}
 
 	// Apply all options
 	for _, opt := range opts {
 		opt(w)
+	}
+
+	// single message for block and single for layerNotify
+	w.layerNotify = make(chan LayerState, len(w.layers)*2)
+
+	// Check if any layer is blocking
+	found := false
+	for _, layer := range w.layers {
+		if bLayer, ok := layer.(BlockingLayer); ok {
+			// we always want to know who is currently blocked by any external data
+			bLayer.SetNotify(w.layerNotify)
+			found = true
+		}
+	}
+
+	if !found {
+		w.layerNotify = nil
 	}
 
 	return w
@@ -113,7 +144,6 @@ func (e *CVMWrapper) getWrapped() CVM {
 
 	// Cache the result
 	e.wrapped = wrapped
-	e.layerCount = len(e.layers)
 
 	return wrapped
 }
@@ -145,13 +175,26 @@ func (e *CVMWrapper) Execute(
 		return nil, err
 	}
 
-	tasks, err := wrapped.Step(e.cvm.queue.Drain()...) // kick-off execution from start queue
-	if err != nil {
-		return nil, err
-	}
+	for {
+		tasks, err := wrapped.Step(e.cvm.queue.Drain()...) // kick-off execution from start queue
+		if err != nil {
+			return nil, err
+		}
 
-	if len(tasks) > 0 {
-		return nil, fmt.Errorf("unexpected tasks: %v", tasks)
+		if len(tasks) == 0 {
+			if e.waitBlocking() {
+				// keep loop going, some tasks will be mixed by underlying layers
+				continue
+			}
+
+			// we are done
+			break
+		}
+
+		if len(tasks) > 0 {
+			// some tasks leaked out of the wrapped chain
+			return nil, fmt.Errorf("unexpected tasks, missing VM layer: %v", tasks)
+		}
 	}
 
 	// Get final result
@@ -178,4 +221,77 @@ func (e *CVMWrapper) Execute(
 
 func (e *CVMWrapper) Close() {
 	e.getWrapped().Close()
+}
+
+func (e *CVMWrapper) GetBlocked() map[Layer]bool {
+	blocked := make(map[Layer]bool)
+	e.blocked.Range(func(key, value interface{}) bool {
+		blocked[key.(Layer)] = value.(bool)
+		return true
+	})
+	return blocked
+}
+
+// waitBlocking updates to use the new non-blocking approach
+func (e *CVMWrapper) waitBlocking() bool {
+	if e.layerNotify == nil {
+		return false
+	}
+
+	return e.waitBlocked()
+}
+
+// waitBlocked processes all unblocked layers and returns true if we unblocked anything
+func (e *CVMWrapper) waitBlocked() bool {
+	didUnblock := false
+	didBlock := false
+	reading := true
+	for {
+		if !reading {
+			break
+		}
+		select {
+		case st := <-e.layerNotify:
+			if !st.Blocked {
+				e.blocked.Delete(st.Layer)
+				didUnblock = true
+			} else {
+				e.blocked.Store(st.Layer, struct{}{})
+				didBlock = true
+			}
+		case <-e.cvm.GetContext().Done():
+			return false
+		default:
+			reading = false
+		}
+	}
+
+	if didUnblock {
+		// we unblocked something and we can continue, layers will mix tasks on themselves now
+		return true
+	}
+
+	hasBlocked := false
+	e.blocked.Range(func(key, value interface{}) bool { hasBlocked = true; return false })
+
+	if !didBlock && !hasBlocked {
+		// nothing really to do
+		return false
+	}
+
+	// we have to wait for something to unblock
+	for {
+		select {
+		case st := <-e.layerNotify:
+			if !st.Blocked {
+				e.blocked.Delete(st.Layer)
+				return true // we unblocked something
+			} else {
+				// should not happen, but sure
+				e.blocked.Store(st.Layer, struct{}{})
+			}
+		case <-e.cvm.GetContext().Done():
+			return false
+		}
+	}
 }

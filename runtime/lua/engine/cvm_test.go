@@ -1003,7 +1003,7 @@ func TestCoroutineVM_SharedBuffer(t *testing.T) {
 				t.Fatalf("unexpected write output: %v", writeResult)
 			}
 
-			// Get ready for next value
+			// Get layerNotify for next value
 			tasks, err = vm.Step(tasks[0])
 			if err != nil {
 				t.Fatal(err)
@@ -1012,7 +1012,7 @@ func TestCoroutineVM_SharedBuffer(t *testing.T) {
 				writerTask = tasks[0]
 				writeStatus := writerTask.Yielded[0].String()
 				if writeStatus != "ready_for_input" {
-					t.Fatalf("expected writer ready for input, got: %v", writeStatus)
+					t.Fatalf("expected writer layerNotify for input, got: %v", writeStatus)
 				}
 			}
 		}
@@ -1808,7 +1808,7 @@ func BenchmarkCoroutineVM(b *testing.B) {
 		script := `
 			function echo()
 				while true do
-					local msg = coroutine.yield("ready")
+					local msg = coroutine.yield("layerNotify")
 				end
 			end
 
@@ -1832,7 +1832,7 @@ func BenchmarkCoroutineVM(b *testing.B) {
 			}
 
 			task := tasks[0]
-			if len(task.Yielded) > 0 && task.Yielded[0].String() == "ready" {
+			if len(task.Yielded) > 0 && task.Yielded[0].String() == "layerNotify" {
 				// send test message
 				task.Resumed = []lua.LValue{lua.LString("ping")}
 				tasks, err = vm.Step(task)

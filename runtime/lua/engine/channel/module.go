@@ -57,7 +57,7 @@ func (m *onNext) String() string {
 		parts = append(parts, fmt.Sprintf("next=[%s]", strings.Join(opDetails, " ")))
 	}
 
-	// Block channels
+	// Blocked channels
 	if len(m.block) > 0 {
 		chDetails := make([]string, 0, len(m.block))
 		for _, ch := range m.block {

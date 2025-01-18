@@ -3,6 +3,7 @@ package coroutine
 import (
 	"context"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"sync/atomic"
 )
 
 type taskEntry struct {
@@ -13,6 +14,8 @@ type taskEntry struct {
 // Runner provides layer for handling async function wrappers
 type Runner struct {
 	wait    int
+	notify  chan engine.Layer
+	blocked atomic.Bool
 	results chan taskEntry
 }
 
@@ -22,10 +25,19 @@ func NewCoroutineRunner() *Runner {
 	return r
 }
 
+func (r *Runner) IsBlocked() bool {
+	return r.wait > 0
+}
+
+func (r *Runner) SetNotify(notify chan engine.Layer) {
+	r.notify = notify
+}
+
 // Step implements the engine.Layer interface
 func (r *Runner) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, error) {
 	outTasks := make([]*engine.Task, 0)
 	var err error
+
 	boot := true
 	for r.wait > 0 || boot {
 		boot = false
