@@ -3,23 +3,53 @@ package coroutine
 import (
 	"errors"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
+	lua "github.com/yuin/gopher-lua"
 )
 
-type taskEntry struct {
-	task   *engine.Task
-	result Result
+// Func is our simplified function format that just returns a Result
+type Func func() Result
+
+// Result represents possible outputs from async function
+type Result struct {
+	Values []lua.LValue
+	Err    error
+}
+
+type FuncWrapper struct {
+	fn Func
+}
+
+func (f *FuncWrapper) Type() lua.LValueType {
+	return lua.LTFunction
+}
+
+func (f *FuncWrapper) String() string {
+	return "async.func"
+}
+
+// Wrap wraps our Func into Lua-compatible format
+func Wrap(L *lua.LState, fn Func) {
+	L.Push(&FuncWrapper{fn: fn})
+}
+
+// Run runs the wrapped function and returns results/error
+func (f *FuncWrapper) Run() Result {
+	if f.fn == nil {
+		return Result{Err: errors.New("function has already been executed")}
+	}
+
+	r := f.fn()
+	f.fn = nil
+	return r
 }
 
 // Runner provides layer for handling async function wrappers
 type Runner struct {
-	wait    int
-	results chan taskEntry
 }
 
 // NewCoroutineRunner creates a new async runner layer
 func NewCoroutineRunner() *Runner {
-	r := &Runner{results: make(chan taskEntry, 4096)}
-	return r
+	return &Runner{}
 }
 
 // Step implements the engine.Layer interface
@@ -33,17 +63,17 @@ func (r *Runner) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, er
 
 	for _, task := range vmTasks {
 		if len(task.Yielded) > 0 {
-			if wrapper, ok := task.Yielded[len(task.Yielded)-1].(*FuncWrapper); ok {
-				tctx := task.Thread().Context()
-				tg := engine.GetTaskGroup(tctx)
+			if fw, ok := task.Yielded[len(task.Yielded)-1].(*FuncWrapper); ok {
+				tCtx := task.Thread().Context()
+				tg := engine.GetTaskGroup(tCtx)
 				if tg == nil {
 					return nil, errors.New("task group not found")
 				}
 				tg.Add(task.Thread())
 				go func(t *engine.Task, w *FuncWrapper) {
 					res := w.Run()
-					_ = tg.Send(tctx, engine.TaskResult{State: t.Thread(), Result: res.Values, Error: res.Err})
-				}(task, wrapper)
+					_ = tg.Send(tCtx, engine.TaskResult{State: t.Thread(), Result: res.Values, Error: res.Err})
+				}(task, fw)
 				continue
 			}
 		}
@@ -55,43 +85,3 @@ func (r *Runner) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, er
 
 	return outTasks, nil
 }
-
-//
-//func (r *Runner) flush(ctx context.Context, block bool) []*engine.Task {
-//	tasks := make([]*engine.Task, 0)
-//	for r.wait > 0 {
-//		if block {
-//			select {
-//			case entry := <-r.results:
-//				if entry.result.Err != nil {
-//					entry.task.RaiseError = entry.result.Err
-//				} else {
-//					entry.task.Resumed = entry.result.Values
-//				}
-//
-//				r.wait--
-//				tasks = append(tasks, entry.task)
-//				block = false
-//				continue
-//			case <-ctx.Done():
-//				return tasks
-//			}
-//		}
-//
-//		select {
-//		case entry := <-r.results:
-//			if entry.result.Err != nil {
-//				entry.task.RaiseError = entry.result.Err
-//			} else {
-//				entry.task.Resumed = entry.result.Values
-//			}
-//
-//			r.wait--
-//			tasks = append(tasks, entry.task)
-//		default:
-//			return tasks
-//		}
-//	}
-//
-//	return tasks
-//}
