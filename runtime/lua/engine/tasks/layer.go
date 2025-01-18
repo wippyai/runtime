@@ -69,7 +69,7 @@ func (l *Layer) tryFlush() error {
 	}
 
 	if len(values) > 0 {
-		return l.chRunner.Send(Channel, values...)
+		return l.chRunner.Send(nil, nil, Channel, values...)
 	}
 	return nil
 }

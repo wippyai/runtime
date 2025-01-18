@@ -134,6 +134,10 @@ func (e *CVMWrapper) getWrapped() CVM {
 	return wrapped
 }
 
+func (e *CVMWrapper) GetTaskGroup() *TaskGroup {
+	return e.taskGroup
+}
+
 // Execute runs a function through the layer chain with provided context and arguments
 func (e *CVMWrapper) Execute(
 	ctx context.Context,
@@ -194,14 +198,14 @@ func (e *CVMWrapper) Execute(
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		default:
-			// wait-wait-wait, are we deadlocked?
+			// Wait-Wait-Wait, are we deadlocked?
 			if len(tasks) == 0 && e.taskGroup.GetTaskCount() == 0 {
 				return nil, &DeadlockError{Count: len(e.cvm.tasks)}
 			}
 		}
 
 		// block for any pending task
-		tasks, err = e.taskGroup.wait(ctx, e.cvm, true)
+		tasks, err = e.taskGroup.Wait(ctx, e.cvm, true)
 		if err != nil {
 			return nil, err
 		}

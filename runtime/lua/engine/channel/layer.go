@@ -1,6 +1,7 @@
 package channel
 
 import (
+	"context"
 	"fmt"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	lua "github.com/yuin/gopher-lua"
@@ -21,14 +22,12 @@ type channelRef struct {
 // Runner maintains state for channel operations
 type Runner struct {
 	queue         *engine.TaskQueue
-	next          []*opStep
 	namedChannels map[string]*channelRef // Track named channels with reference counting
 }
 
 func NewChannelRunner() *Runner {
 	return &Runner{
 		queue:         engine.NewTaskQueue(),
-		next:          make([]*opStep, 0),
 		namedChannels: make(map[string]*channelRef),
 	}
 }
@@ -46,7 +45,7 @@ func (r *Runner) GetOpenChannels() []OpenChannel {
 	return result
 }
 
-func (r *Runner) Send(name string, values ...lua.LValue) error {
+func (r *Runner) Send(ctx context.Context, tg *engine.TaskGroup, name string, values ...lua.LValue) error {
 	ref, exists := r.namedChannels[name]
 	if !exists {
 		return fmt.Errorf("channel %s not found or not ready for data", name)
@@ -63,14 +62,24 @@ func (r *Runner) Send(name string, values ...lua.LValue) error {
 
 		if next.yields && len(next.next) > 0 {
 			if len(next.release) > 0 {
-				r.updateChannelRefs(next.block, next.release)
+				r.updateChannelRefs(tg, next.block, next.release)
 			}
 
 			for _, result := range next.next {
 				if result.state == nil {
 					continue
 				}
-				r.next = append(r.next, result)
+
+				tg.Add(result.state)
+				err := tg.Send(ctx, engine.TaskResult{
+					State:  result.state,
+					Result: result.values,
+					Error:  result.err,
+				})
+
+				if err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -80,23 +89,8 @@ func (r *Runner) Send(name string, values ...lua.LValue) error {
 
 // Step handles channel operations while maintaining CVM compatibility
 func (r *Runner) Step(vm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, error) {
+	tg := engine.GetTaskGroup(vm.GetContext())
 	var externalOps []*engine.Task
-
-	for _, prepend := range r.next {
-		task, err := vm.GetTask(prepend.state)
-		if err != nil {
-			return nil, fmt.Errorf("state not found: %w", err)
-		}
-
-		if prepend.err != nil {
-			task.RaiseError = prepend.err
-		} else {
-			task.Resumed = prepend.values
-		}
-
-		r.queue.Push(task)
-	}
-	r.next = make([]*opStep, 0) // todo: it was not tested
 
 	for _, task := range tasks {
 		r.queue.Push(task)
@@ -129,7 +123,7 @@ func (r *Runner) Step(vm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, err
 				continue
 			}
 
-			r.updateChannelRefs(opNext.block, opNext.release)
+			r.updateChannelRefs(tg, opNext.block, opNext.release)
 
 			if opNext.yields && len(opNext.next) > 0 {
 				for _, result := range opNext.next {
@@ -154,7 +148,7 @@ func (r *Runner) Step(vm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, err
 }
 
 // updateChannelRefs handles reference counting for channels
-func (r *Runner) updateChannelRefs(blocks, releases []*Channel) {
+func (r *Runner) updateChannelRefs(tg *engine.TaskGroup, blocks, releases []*Channel) {
 	for _, ch := range blocks {
 		if ch.isNamed() {
 			ref, exists := r.namedChannels[ch.name]
@@ -162,7 +156,12 @@ func (r *Runner) updateChannelRefs(blocks, releases []*Channel) {
 				ref = &channelRef{channel: ch}
 				r.namedChannels[ch.name] = ref
 			}
+
 			ref.count++
+
+			if tg != nil {
+				tg.Add(nil)
+			}
 		}
 	}
 
@@ -170,9 +169,13 @@ func (r *Runner) updateChannelRefs(blocks, releases []*Channel) {
 		if ch.isNamed() {
 			if ref, exists := r.namedChannels[ch.name]; exists {
 				ref.count--
-				// Remove channel if no more references
+
 				if ref.count == 0 {
 					delete(r.namedChannels, ch.name)
+				}
+
+				if tg != nil {
+					tg.Remove(nil)
 				}
 			}
 		}
