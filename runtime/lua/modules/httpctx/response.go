@@ -280,7 +280,7 @@ func responseWriteEvent(l *lua.LState) int {
 	resp.headersSent = true
 	resp.rCtx.MarkHandled()
 
-	// Flush if supported
+	// flush if supported
 	if f, ok := resp.writer.(basehttp.Flusher); ok {
 		f.Flush()
 	}
