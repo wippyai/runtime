@@ -31,6 +31,11 @@ func timeAfter(L *lua.LState) int {
 		return 0
 	}
 
+	if err := ValidateContext(L); err != nil {
+		L.RaiseError("time_after: %s", err)
+		return 0
+	}
+
 	ch := channel.Named(fmt.Sprintf("timer_%d", ms), 1)
 	go func() {
 		select {
