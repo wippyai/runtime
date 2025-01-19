@@ -2,6 +2,7 @@ package factory
 
 import (
 	"fmt"
+	"github.com/ponyruntime/pony/runtime/lua/engine/async"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 
@@ -167,9 +168,12 @@ func CreateVM(cfg *Factory) (api.VM, error) {
 		}
 	}
 
+	channels := channel.NewChannelRunner()
+
 	// wrapping into execution layer
 	wrap := engine.NewWrappedCVM(vm,
-		engine.WithLayer(channel.NewChannelRunner()),
+		engine.WithLayer(channels),
+		engine.WithLayer(async.NewAsyncRunner(channels)),
 		engine.WithLayer(coroutine.NewCoroutineRunner()),
 	)
 
