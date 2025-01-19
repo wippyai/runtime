@@ -711,5 +711,8 @@ func registerTime(l *lua.LState, mod *lua.LTable) {
 		"date":  date,
 		"unix":  unix,
 		"parse": parse,
+
+		// requires async layer!
+		"after": after,
 	})
 }

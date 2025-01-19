@@ -26,7 +26,7 @@ func TestChromiseTimeBasic(t *testing.T) {
 
 	tg := engine.NewTaskGroup(100)
 	ctx := engine.WithTaskGroup(context.Background(), tg)
-	ctx = WithScheduleChannel(ctx, make(chan scheduleItem, 100))
+	ctx = WithScheduleChannel(ctx, make(chan schedule, 100))
 
 	vm.SetContext(ctx)
 
@@ -71,7 +71,7 @@ func TestChromiseRunner(t *testing.T) {
 
 		tg := engine.NewTaskGroup(100)
 		ctx := engine.WithTaskGroup(context.Background(), tg)
-		ctx = WithScheduleChannel(ctx, make(chan scheduleItem, 100))
+		ctx = WithScheduleChannel(ctx, make(chan schedule, 100))
 		vm.SetContext(ctx)
 
 		script := `
@@ -154,7 +154,7 @@ func TestChromiseRunner(t *testing.T) {
 		tg := engine.NewTaskGroup(100)
 		ctx, cancel := context.WithCancel(context.Background())
 		ctx = engine.WithTaskGroup(ctx, tg)
-		ctx = WithScheduleChannel(ctx, make(chan scheduleItem, 100))
+		ctx = WithScheduleChannel(ctx, make(chan schedule, 100))
 		vm.SetContext(ctx)
 
 		script := `
@@ -205,7 +205,7 @@ func TestChromiseRunner(t *testing.T) {
 
 		tg := engine.NewTaskGroup(100)
 		ctx := engine.WithTaskGroup(context.Background(), tg)
-		ctx = WithScheduleChannel(ctx, make(chan scheduleItem, 100))
+		ctx = WithScheduleChannel(ctx, make(chan schedule, 100))
 		vm.SetContext(ctx)
 
 		script := `
