@@ -1,4 +1,4 @@
-package chromise
+package async
 
 import (
 	"context"
@@ -40,7 +40,7 @@ func TestChromiseTimeBasic(t *testing.T) {
 	assert.NoError(t, err)
 
 	channels := channel.NewChannelRunner()
-	chromise := NewChromiseRunner(channels)
+	chromise := NewAsyncRunner(channels)
 
 	wrapped := engine.NewWrappedCVM(vm,
 		engine.WithLayer(chromise),
@@ -115,7 +115,7 @@ func TestChromiseRunner(t *testing.T) {
 		require.NoError(t, err)
 
 		channels := channel.NewChannelRunner()
-		chromise := NewChromiseRunner(channels)
+		chromise := NewAsyncRunner(channels)
 		wrapped := engine.NewWrappedCVM(vm,
 			engine.WithLayer(chromise),
 			engine.WithLayer(channels),
@@ -169,7 +169,7 @@ func TestChromiseRunner(t *testing.T) {
 		require.NoError(t, err)
 
 		channels := channel.NewChannelRunner()
-		chromise := NewChromiseRunner(channels)
+		chromise := NewAsyncRunner(channels)
 		wrapped := engine.NewWrappedCVM(vm,
 			engine.WithLayer(chromise),
 			engine.WithLayer(channels),
@@ -219,7 +219,7 @@ func TestChromiseRunner(t *testing.T) {
 		require.NoError(t, err)
 
 		channels := channel.NewChannelRunner()
-		chromise := NewChromiseRunner(channels)
+		chromise := NewAsyncRunner(channels)
 		wrapped := engine.NewWrappedCVM(vm,
 			engine.WithLayer(chromise),
 			engine.WithLayer(channels),

@@ -1,4 +1,4 @@
-package chromise
+package async
 
 import (
 	"context"
