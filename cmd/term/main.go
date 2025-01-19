@@ -6,6 +6,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"github.com/ponyruntime/pony/runtime/lua/engine/async"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	httpmod "github.com/ponyruntime/pony/runtime/lua/modules/http"
@@ -138,12 +139,12 @@ func (b *BTLayer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, e
 		// Handle channel operations
 		openCh := b.chRun.GetActiveChannels()
 		if len(openCh) > 0 {
-			for _, ch := range openCh {
-				err := b.chRun.SendToOpen(ch.Name, lua.LString("Hello from BTLayer"))
-				if err != nil {
-					return nil, err
-				}
-			}
+			//for _, ch := range openCh {
+			//	//err := b.chRun.Send(ch.Name, lua.LString("Hello from BTLayer"))
+			//	//if err != nil {
+			//	//					return nil, err
+			//	//				}
+			//}
 		}
 
 		// Process current batch of tasks
@@ -213,11 +214,16 @@ func main() {
 	wvm := engine.NewWrappedCVM(vm,
 		engine.WithLayer(chRun),
 		engine.WithLayer(btLayer),
+		engine.WithLayer(async.NewAsyncRunner(chRun)),
 		engine.WithLayer(coroutine.NewCoroutineRunner()),
 	)
 	defer wvm.Close()
 
-	_, err = wvm.Execute(context.Background(), "App")
+	ctx := context.Background()
+	ctx = engine.WithTaskGroup(ctx, engine.NewTaskGroup(1024))
+	ctx = async.WithAsyncChannel(ctx)
+
+	_, err = wvm.Execute(ctx, "App")
 	if err != nil {
 		fmt.Printf("Error executing VM: %v", err)
 		return
