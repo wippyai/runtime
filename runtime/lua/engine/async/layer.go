@@ -24,7 +24,7 @@ func (r *Runner) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, er
 		return nil, err
 	}
 
-	if sch := GetScheduleChannel(cvm.GetContext()); sch != nil {
+	if sch := getAsyncChannel(cvm.GetContext()); sch != nil {
 		select {
 		case item := <-sch:
 			// push data downstream to channel runner
