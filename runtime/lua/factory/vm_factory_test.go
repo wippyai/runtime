@@ -108,7 +108,7 @@ func TestCreateVM(t *testing.T) {
 
 	t.Run("create empty VM", func(t *testing.T) {
 		cfg := NewFactory(logger)
-		vm, err := CreateVM(cfg)
+		vm, err := createVM(cfg)
 
 		require.NoError(t, err)
 		require.NotNil(t, vm)
@@ -119,7 +119,7 @@ func TestCreateVM(t *testing.T) {
 		cfg := NewFactory(logger)
 		WithFunction("invalid", "this is not valid lua")(cfg)
 
-		vm, err := CreateVM(cfg)
+		vm, err := createVM(cfg)
 		assert.Error(t, err)
 		assert.Nil(t, vm)
 	})

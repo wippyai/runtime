@@ -120,19 +120,16 @@ func (cfg *Factory) MakeVM() (api.VM, error) {
 		}
 	}
 
-	base, err := CreateVM(cfg)
+	base, err := createVM(cfg)
 	if err != nil {
 		return nil, err
 	}
 
-	// check if we have to apply any layer for it
-	//if cfg.
-
 	return base, nil
 }
 
-// CreateVM creates a new Callable instance with the provided configuration
-func CreateVM(cfg *Factory) (api.VM, error) {
+// createVM creates a new Callable instance with the provided configuration
+func createVM(cfg *Factory) (api.VM, error) {
 	// Collect all options
 	opts := make([]engine.Option, 0)
 
