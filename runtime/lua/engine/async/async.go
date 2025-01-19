@@ -2,6 +2,7 @@ package async
 
 import (
 	"context"
+	"errors"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	lua "github.com/yuin/gopher-lua"
@@ -27,6 +28,20 @@ func GetScheduleChannel(ctx context.Context) chan scheduleItem {
 	if ch, ok := ctx.Value(scheduleKey).(chan scheduleItem); ok {
 		return ch
 	}
+	return nil
+}
+
+func ValidateContext(L *lua.LState) error {
+	tg := engine.GetTaskGroup(L.Context())
+	if tg == nil {
+		return errors.New("cannot send from non-task context")
+	}
+
+	sh := GetScheduleChannel(L.Context())
+	if sh == nil {
+		return errors.New("cannot send from non-task context")
+	}
+
 	return nil
 }
 

@@ -102,36 +102,70 @@ func performSleep(ctx context.Context, duration time.Duration) error {
 }
 
 func sleep(l *lua.LState) int {
-	if d, ok := isDuration(l, 1); ok {
-		if err := performSleep(l.Context(), d.duration); err != nil {
+	var duration time.Duration
+	var err error
+
+	switch v := l.Get(1).(type) {
+	case *lua.LUserData:
+		if d, ok := v.Value.(*Duration); ok {
+			duration = d.duration
+		} else {
+			l.ArgError(1, "duration expected")
+			return 0
+		}
+	case lua.LString:
+		duration, err = time.ParseDuration(string(v))
+		if err != nil {
 			l.Push(lua.LString(err.Error()))
 			return 1
 		}
+	default:
+		l.ArgError(1, "duration or string expected")
 		return 0
 	}
 
-	l.ArgError(1, "duration expected")
+	if err := performSleep(l.Context(), duration); err != nil {
+		l.Push(lua.LString(err.Error()))
+		return 1
+	}
 	return 0
 }
 
 func sleepCoroutine(l *lua.LState) int {
-	if d, ok := isDuration(l, 1); ok {
-		coroutine.Wrap(l, func() coroutine.Result {
-			if err := performSleep(l.Context(), d.duration); err != nil {
-				return coroutine.Result{
-					Values: []lua.LValue{lua.LNil},
-					Err:    err,
-				}
-			}
-			return coroutine.Result{
-				Values: []lua.LValue{lua.LString("ok")},
-			}
-		})
-		return -1
+	var duration time.Duration
+	var err error
+
+	switch v := l.Get(1).(type) {
+	case *lua.LUserData:
+		if d, ok := v.Value.(*Duration); ok {
+			duration = d.duration
+		} else {
+			l.ArgError(1, "duration expected")
+			return 0
+		}
+	case lua.LString:
+		duration, err = time.ParseDuration(string(v))
+		if err != nil {
+			l.Push(lua.LString(err.Error()))
+			return 1
+		}
+	default:
+		l.ArgError(1, "duration or string expected")
+		return 0
 	}
 
-	l.ArgError(1, "duration expected")
-	return 0
+	coroutine.Wrap(l, func() coroutine.Result {
+		if err := performSleep(l.Context(), duration); err != nil {
+			return coroutine.Result{
+				Values: []lua.LValue{lua.LNil},
+				Err:    err,
+			}
+		}
+		return coroutine.Result{
+			Values: []lua.LValue{lua.LString("ok")},
+		}
+	})
+	return -1
 }
 
 func date(l *lua.LState) int {
