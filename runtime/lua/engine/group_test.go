@@ -2,10 +2,13 @@ package engine
 
 import (
 	"context"
+	"fmt"
 	"github.com/stretchr/testify/assert"
 	lua "github.com/yuin/gopher-lua"
+	"sort"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestTaskGroup(t *testing.T) {
@@ -169,6 +172,155 @@ func TestTaskGroup(t *testing.T) {
 	})
 }
 
+func TestTaskGroupProcessing(t *testing.T) {
+	t.Run("process result handling", func(t *testing.T) {
+		group := NewTaskGroup(10)
+		L := lua.NewState()
+		defer L.Close()
+
+		mockTask := &Task{
+			thread: L,
+			// Initialize with nil Resumed to match expected state
+			Resumed: nil,
+		}
+
+		mockCVM := &mockCVMWithTasks{
+			tasks: map[*lua.LState]*Task{
+				L: mockTask,
+			},
+		}
+
+		// Test successful result processing
+		result := TaskResult{
+			State:  L,
+			Result: []lua.LValue{lua.LString("success")},
+		}
+
+		task, err := group.processResult(mockCVM, result)
+		assert.NoError(t, err)
+		assert.NotNil(t, task)
+		assert.Equal(t, result.Result, task.Resumed)
+		assert.Nil(t, task.RaiseError)
+
+		// Test error result processing
+		testErr := fmt.Errorf("test error")
+		errorResult := TaskResult{
+			State: L,
+			Error: testErr,
+		}
+
+		task, err = group.processResult(mockCVM, errorResult)
+		assert.NoError(t, err)
+		assert.NotNil(t, task)
+		assert.Equal(t, testErr, task.RaiseError)
+
+		// Test CVM error
+		mockCVM.shouldError = true
+		task, err = group.processResult(mockCVM, result)
+		assert.Error(t, err)
+		assert.Nil(t, task)
+	})
+
+	t.Run("wait with result processing", func(t *testing.T) {
+		group := NewTaskGroup(10)
+		L1 := lua.NewState()
+		L2 := lua.NewState()
+		defer L1.Close()
+		defer L2.Close()
+
+		// Create tasks for our test states with proper initialization
+		task1 := &Task{
+			thread:  L1,
+			Resumed: nil,
+		}
+		task2 := &Task{
+			thread:  L2,
+			Resumed: nil,
+		}
+
+		mockCVM := &mockCVMWithTasks{
+			tasks: map[*lua.LState]*Task{
+				L1: task1,
+				L2: task2,
+			},
+		}
+
+		// Add both states to the group
+		group.Add(L1)
+		group.Add(L2)
+
+		// Create a WaitGroup to coordinate our goroutines
+		var wg sync.WaitGroup
+		ctx := context.Background()
+
+		// Start a goroutine to send results
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			// Send first result immediately
+			result1 := TaskResult{
+				State:  L1,
+				Result: []lua.LValue{lua.LString("result1")},
+			}
+			_ = group.Send(ctx, result1)
+
+			// Send second result immediately after
+			result2 := TaskResult{
+				State:  L2,
+				Result: []lua.LValue{lua.LString("result2")},
+			}
+			_ = group.Send(ctx, result2)
+		}()
+
+		// Start waiting for results - use a timeout context
+		timeoutCtx, cancel := context.WithTimeout(ctx, time.Second)
+		defer cancel()
+
+		tasks, err := group.Wait(timeoutCtx, mockCVM, true)
+		wg.Wait()
+
+		assert.NoError(t, err)
+		assert.Len(t, tasks, 2)
+
+		// Sort tasks by thread pointer for consistent comparison
+		sortedTasks := make([]*Task, len(tasks))
+		copy(sortedTasks, tasks)
+		sort.Slice(sortedTasks, func(i, j int) bool {
+			return fmt.Sprintf("%p", sortedTasks[i].thread) < fmt.Sprintf("%p", sortedTasks[j].thread)
+		})
+
+		// Verify task results in order
+		assert.Equal(t, []lua.LValue{lua.LString("result1")}, sortedTasks[0].Resumed)
+		assert.Equal(t, []lua.LValue{lua.LString("result2")}, sortedTasks[1].Resumed)
+	})
+
+	t.Run("wait with wakeup interruption", func(t *testing.T) {
+		group := NewTaskGroup(10)
+		L := lua.NewState()
+		defer L.Close()
+
+		group.Add(L)
+
+		var wg sync.WaitGroup
+		ctx := context.Background()
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			time.Sleep(50 * time.Millisecond)
+			group.WakeUp()
+		}()
+
+		tasks, err := group.Wait(ctx, &mockCVM{}, true)
+		wg.Wait()
+
+		assert.NoError(t, err)
+		assert.Empty(t, tasks)
+		assert.Equal(t, int32(0), group.wakeCount)
+	})
+}
+
 // mockCVM implements the CVM interface for testing
 type mockCVM struct{}
 
@@ -178,3 +330,37 @@ func (m *mockCVM) Step(...*Task) ([]*Task, error)                         { retu
 func (m *mockCVM) GetTasks() []*Task                                      { return nil }
 func (m *mockCVM) GetTask(*lua.LState) (*Task, error)                     { return nil, nil }
 func (m *mockCVM) Close()                                                 {}
+
+// mockCVMWithTasks implements CVM interface with configurable task responses
+type mockCVMWithTasks struct {
+	tasks       map[*lua.LState]*Task
+	shouldError bool
+}
+
+func (m *mockCVMWithTasks) GetContext() context.Context {
+	return context.Background()
+}
+
+func (m *mockCVMWithTasks) Start(string, ...lua.LValue) (<-chan TaskResult, error) {
+	return nil, nil
+}
+
+func (m *mockCVMWithTasks) Step(...*Task) ([]*Task, error) {
+	return nil, nil
+}
+
+func (m *mockCVMWithTasks) GetTasks() []*Task {
+	return nil
+}
+
+func (m *mockCVMWithTasks) GetTask(state *lua.LState) (*Task, error) {
+	if m.shouldError {
+		return nil, fmt.Errorf("mock CVM error")
+	}
+	if task, ok := m.tasks[state]; ok {
+		return task, nil
+	}
+	return nil, fmt.Errorf("task not found")
+}
+
+func (m *mockCVMWithTasks) Close() {}
