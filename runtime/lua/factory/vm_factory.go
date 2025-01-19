@@ -141,6 +141,7 @@ func CreateVM(cfg *Factory) (api.VM, error) {
 
 	// Add modules
 	for _, module := range cfg.Modules {
+		// todo: with preloaded?
 		opts = append(opts, engine.WithLoader(module.Name(), module.Loader))
 	}
 
@@ -154,8 +155,11 @@ func CreateVM(cfg *Factory) (api.VM, error) {
 		opts = append(opts, engine.WithGlobalValue(global.Name, global.Value))
 	}
 
-	channelOpts := []engine.Option{engine.WithPreloaded("channel", channel.NewChannelModule().Loader)}
-	vm, err := engine.NewCVM(cfg.Logger, append(channelOpts, opts...)...)
+	internal := []engine.Option{
+		engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
+	}
+
+	vm, err := engine.NewCVM(cfg.Logger, append(internal, opts...)...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create CoroutineVM: %w", err)
 	}
