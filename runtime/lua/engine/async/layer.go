@@ -1,9 +1,8 @@
-package chromise
+package async
 
 import (
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
-	"log"
 )
 
 // Runner processes scheduled operations
@@ -11,7 +10,7 @@ type Runner struct {
 	channels *channel.Runner
 }
 
-func NewChromiseRunner(channels *channel.Runner) *Runner {
+func NewAsyncRunner(channels *channel.Runner) *Runner {
 	return &Runner{
 		channels: channels,
 	}
@@ -25,27 +24,20 @@ func (r *Runner) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, er
 		return nil, err
 	}
 
-	// Get schedule channel from context
 	if sch := GetScheduleChannel(cvm.GetContext()); sch != nil {
-		// Non-blocking check of schedule channel
 		select {
 		case item := <-sch:
-			tg := engine.GetTaskGroup(cvm.GetContext())
-			if tg == nil {
-				return outTasks, nil
-			}
+			// push data downstream to channel runner
 
 			if item.ok {
 				err := r.channels.Send(cvm.GetContext(), item.ch, item.value)
 				if err != nil {
-					log.Printf("chromise: failed to send value: %s", err) // todo: make it better
-					return outTasks, nil
+					return outTasks, nil // Log error but continue
 				}
 			} else {
 				err := r.channels.Close(cvm.GetContext(), item.ch)
 				if err != nil {
-					log.Printf("chromise: failed to close channel: %s", err) // todo: make it better
-					return outTasks, nil                                     // Log error but continue
+					return outTasks, nil // Log error but continue
 				}
 			}
 		default:
