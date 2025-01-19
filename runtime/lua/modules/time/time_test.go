@@ -494,12 +494,15 @@ func TestTimeModule_TestBath(t *testing.T) {
 			{
 				name: "add invalid duration",
 				script: `
-                    local time = require("time")
-                    local t = time.now()
-                    local success, err = pcall(function() return t:add(123) end)
+					local time = require("time")
+					local t = time.now()
+					local success, err = pcall(function() 
+						-- Using a table which is not a valid duration type
+						return t:add({}) 
+					end)
 					return success, err
-                `,
-				expectedError: "duration expected",
+				`,
+				expectedError: "duration, string, or number expected",
 			},
 			{
 				name: "sub invalid time",
@@ -646,9 +649,11 @@ func TestSleep(t *testing.T) {
 				name: "sleep with invalid string",
 				script: `
 					local time = require("time")
-					local err = time.sleep("invalid")
+					local success, err = pcall(function()
+					   time.sleep("invalid")
+					end)
 					assert(err ~= nil)
-					return err
+					return success, err
 				`,
 				expectError:   true,
 				errorContains: "time: invalid duration",
@@ -658,12 +663,13 @@ func TestSleep(t *testing.T) {
 				script: `
 					local time = require("time")
 					local success, err = pcall(function()
-						time.sleep(123)
+						time.sleep({})  
 					end)
+					assert(err ~= nil)
 					return success, err
 				`,
 				expectError:   true,
-				errorContains: "duration or string expected",
+				errorContains: "duration, string, or number expected",
 			},
 		}
 

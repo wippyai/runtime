@@ -9,27 +9,9 @@ import (
 )
 
 func after(l *lua.LState) int {
-	var duration time.Duration
-	var err error
-
-	switch v := l.Get(1).(type) {
-	case *lua.LUserData:
-		if d, ok := v.Value.(*Duration); ok {
-			duration = d.duration
-		} else {
-			l.ArgError(1, "duration expected")
-			return 0
-		}
-	case lua.LString:
-		duration, err = time.ParseDuration(string(v))
-		if err != nil {
-			l.RaiseError("time.after: %s", err)
-			return 0
-		}
-	case lua.LNumber:
-		duration = time.Duration(float64(v) * float64(time.Millisecond))
-	default:
-		l.ArgError(1, "duration, string, or number expected")
+	duration, err := parseDurationValue(l.Get(1))
+	if err != nil {
+		l.RaiseError("time.after: %s", err)
 		return 0
 	}
 

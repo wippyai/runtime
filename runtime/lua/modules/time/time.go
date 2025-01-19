@@ -100,58 +100,33 @@ func performSleep(ctx context.Context, duration time.Duration) error {
 	time.Sleep(duration)
 	return nil
 }
-
 func sleep(l *lua.LState) int {
-	var duration time.Duration
-	var err error
-
-	switch v := l.Get(1).(type) {
-	case *lua.LUserData:
-		if d, ok := v.Value.(*Duration); ok {
-			duration = d.duration
-		} else {
-			l.ArgError(1, "duration expected")
+	duration, err := parseDurationValue(l.Get(1))
+	if err != nil {
+		if _, ok := l.Get(1).(*lua.LNumber); ok {
+			l.RaiseError("duration or string expected")
 			return 0
 		}
-	case lua.LString:
-		duration, err = time.ParseDuration(string(v))
-		if err != nil {
-			l.Push(lua.LString(err.Error()))
-			return 1
-		}
-	default:
-		l.ArgError(1, "duration or string expected")
-		return 0
+		l.RaiseError(err.Error())
+		return 1
 	}
 
 	if err := performSleep(l.Context(), duration); err != nil {
-		l.Push(lua.LString(err.Error()))
+		l.RaiseError(err.Error())
 		return 1
 	}
 	return 0
 }
 
 func sleepCoroutine(l *lua.LState) int {
-	var duration time.Duration
-	var err error
-
-	switch v := l.Get(1).(type) {
-	case *lua.LUserData:
-		if d, ok := v.Value.(*Duration); ok {
-			duration = d.duration
-		} else {
-			l.ArgError(1, "duration expected")
+	duration, err := parseDurationValue(l.Get(1))
+	if err != nil {
+		if _, ok := l.Get(1).(*lua.LNumber); ok {
+			l.RaiseError("duration or string expected")
 			return 0
 		}
-	case lua.LString:
-		duration, err = time.ParseDuration(string(v))
-		if err != nil {
-			l.Push(lua.LString(err.Error()))
-			return 1
-		}
-	default:
-		l.ArgError(1, "duration or string expected")
-		return 0
+		l.RaiseError(err.Error())
+		return 1
 	}
 
 	coroutine.Wrap(l, func() coroutine.Result {
@@ -246,13 +221,13 @@ func timeAdd(l *lua.LState) int {
 		return 0
 	}
 
-	d, ok := isDuration(l, 2)
-	if !ok {
-		l.ArgError(2, "duration expected")
+	duration, err := parseDurationValue(l.Get(2))
+	if err != nil {
+		l.ArgError(2, err.Error())
 		return 0
 	}
 
-	newTime := t.time.Add(d.duration)
+	newTime := t.time.Add(duration)
 	result := l.NewUserData()
 	result.Value = &Time{time: newTime}
 	l.SetMetatable(result, l.GetTypeMetatable("Time"))

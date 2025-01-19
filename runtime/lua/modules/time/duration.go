@@ -1,6 +1,7 @@
 package time
 
 import (
+	"fmt"
 	"time"
 
 	lua "github.com/yuin/gopher-lua"
@@ -98,14 +99,7 @@ func durationToString(l *lua.LState) int {
 
 // parseDuration implements time.ParseDuration for Lua
 func parseDuration(l *lua.LState) int {
-	str := l.CheckString(1)
-
-	if str == "" {
-		l.ArgError(1, "empty string")
-		return 0
-	}
-
-	duration, err := time.ParseDuration(str)
+	duration, err := parseDurationValue(l.Get(1))
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
@@ -117,6 +111,25 @@ func parseDuration(l *lua.LState) int {
 	l.SetMetatable(ud, l.GetTypeMetatable("Duration"))
 	l.Push(ud)
 	return 1
+}
+
+func parseDurationValue(value lua.LValue) (time.Duration, error) {
+	switch v := value.(type) {
+	case *lua.LUserData:
+		if d, ok := v.Value.(*Duration); ok {
+			return d.duration, nil
+		}
+		return 0, fmt.Errorf("duration expected, got %T", v.Value)
+
+	case lua.LString:
+		return time.ParseDuration(string(v))
+
+	case lua.LNumber:
+		// Treat raw numbers as milliseconds for compatibility
+		return time.Duration(float64(v) * float64(time.Millisecond)), nil
+	}
+
+	return 0, fmt.Errorf("duration, string, or number expected, got %T", value)
 }
 
 func registerDuration(l *lua.LState, mod *lua.LTable) {
