@@ -483,7 +483,7 @@ func TestSelectCleanupAll(t *testing.T) {
 		assert(stats4.receivers == 1, "ch4 should have 1 receiver")
 		coroutine.yield("select_verified")
 
-		-- Wake up select
+		-- WakeUp up select
 		ch3:send("val2")
 		coroutine.yield("select_completed")
 	`, "test")

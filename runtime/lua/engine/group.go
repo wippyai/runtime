@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	lua "github.com/yuin/gopher-lua"
+	"sync/atomic"
 )
 
 type contextKey struct{}
@@ -12,6 +13,8 @@ var taskGroupKey = &contextKey{}
 // TaskGroup manages a group of related tasks, their states, and result collection
 type TaskGroup struct {
 	results   chan TaskResult
+	wakeup    chan struct{}
+	wakeCount int32
 	taskCount int32
 	states    map[*lua.LState]struct{}
 }
@@ -20,6 +23,7 @@ type TaskGroup struct {
 func NewTaskGroup(size int) *TaskGroup {
 	return &TaskGroup{
 		results: make(chan TaskResult, size),
+		wakeup:  make(chan struct{}, size),
 		states:  make(map[*lua.LState]struct{}),
 	}
 }
@@ -47,7 +51,7 @@ func (g *TaskGroup) Send(ctx context.Context, result TaskResult) error {
 	}
 }
 
-// Add registers a new Lua state for tracking
+// Add registers a new Lua state for tracking, not thread safe
 // This is always called synchronously from the main thread
 func (g *TaskGroup) Add(state *lua.LState) {
 	g.taskCount++
@@ -56,11 +60,20 @@ func (g *TaskGroup) Add(state *lua.LState) {
 	}
 }
 
-// Remove unregisters a Lua state from tracking
+// Remove unregisters a Lua state from tracking, not thread safe
 func (g *TaskGroup) Remove(state *lua.LState) {
 	g.taskCount--
 	if state != nil {
 		delete(g.states, state)
+	}
+}
+
+// WakeUp increments the wake count and sends a wakeup signal, thread safe
+func (g *TaskGroup) WakeUp() {
+	atomic.AddInt32(&g.wakeCount, 1)
+	select {
+	case g.wakeup <- struct{}{}:
+	default:
 	}
 }
 
@@ -89,6 +102,10 @@ func (g *TaskGroup) Wait(ctx context.Context, cvm CVM, block bool) ([]*Task, err
 				delete(g.states, result.State)
 				block = false
 				continue
+			case <-g.wakeup:
+				atomic.AddInt32(&g.wakeCount, -1)
+				// WakeUp up and continue processing
+				block = false
 			case <-ctx.Done():
 				return nil, ctx.Err()
 			}
@@ -106,6 +123,9 @@ func (g *TaskGroup) Wait(ctx context.Context, cvm CVM, block bool) ([]*Task, err
 			}
 			g.taskCount--
 			delete(g.states, result.State)
+		case <-g.wakeup:
+			atomic.AddInt32(&g.wakeCount, -1)
+			// WakeUp up and continue processing
 		default:
 			return tasks, nil
 		}
