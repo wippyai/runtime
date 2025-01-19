@@ -14,7 +14,7 @@ local function create_ticker(chan, interval, name, color)
         local dt = time.parse_duration(interval)
         while true do
             chan:send({ name = name, color = color })
-            time.sleep(dt)
+            time.after(dt):receive()
             send_message({ name = name, color = color })
         end
     end
@@ -23,18 +23,18 @@ end
 function App()
     -- Create channels
     local ticker_channel = channel.new()
-    local signal_channel = channel.named("signal") -- Named channel for signals
+    --local signal_channel = channel.named("signal") -- Named channel for signals
 
     -- Spawn three tickers with different intervals
-    coroutine.spawn(create_ticker(ticker_channel, "1ns", "Fast Ticker", COLORS.RED))
-    coroutine.spawn(create_ticker(ticker_channel, "2ns", "Medium Ticker", COLORS.GREEN))
-    coroutine.spawn(create_ticker(ticker_channel, "3ns", "Slow Ticker", COLORS.YELLOW))
+    coroutine.spawn(create_ticker(ticker_channel, "1ms", "Fast Ticker", COLORS.RED))
+    coroutine.spawn(create_ticker(ticker_channel, "2ms", "Medium Ticker", COLORS.GREEN))
+    coroutine.spawn(create_ticker(ticker_channel, "3ms", "Slow Ticker", COLORS.YELLOW))
 
     -- Main loop to receive and print ticks
     while true do
         local result = channel.select {
             ticker_channel:case_receive(),
-            signal_channel:case_receive() -- todo: this kills app
+         --   signal_channel:case_receive() -- todo: this kills app
         }
 
         if not result.ok then
