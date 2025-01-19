@@ -138,7 +138,7 @@ func TestTimeAfter(t *testing.T) {
 	})
 }
 
-func TestTimers(t *testing.T) {
+func TestAfterTimers(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("concurrent timers", func(t *testing.T) {

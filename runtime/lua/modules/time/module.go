@@ -29,6 +29,8 @@ func (m *Module) Loader(l *lua.LState) int {
 	registerDuration(l, mod)
 	registerLocation(l, mod)
 	registerTime(l, mod)
+	registerTimer(l, mod)
+	registerTicker(l, mod)
 
 	l.Push(mod)
 	return 1
