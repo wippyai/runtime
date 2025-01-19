@@ -10,7 +10,7 @@ import (
 
 type scheduleCtx struct{}
 
-type scheduleItem struct {
+type schedule struct {
 	ch    *channel.Channel
 	value lua.LValue
 	ok    bool
@@ -19,13 +19,13 @@ type scheduleItem struct {
 var scheduleKey = &scheduleCtx{}
 
 // WithScheduleChannel attaches schedule channel to context
-func WithScheduleChannel(ctx context.Context, ch chan scheduleItem) context.Context {
-	return context.WithValue(ctx, scheduleKey, ch)
+func WithScheduleChannel(ctx context.Context) context.Context {
+	return context.WithValue(ctx, scheduleKey, make(chan schedule, 4096))
 }
 
 // GetScheduleChannel retrieves the schedule channel from context
-func GetScheduleChannel(ctx context.Context) chan scheduleItem {
-	if ch, ok := ctx.Value(scheduleKey).(chan scheduleItem); ok {
+func GetScheduleChannel(ctx context.Context) chan schedule {
+	if ch, ok := ctx.Value(scheduleKey).(chan schedule); ok {
 		return ch
 	}
 	return nil
@@ -57,6 +57,6 @@ func Send(L *lua.LState, ch *channel.Channel, value lua.LValue, ok bool) {
 		return
 	}
 
-	sh <- scheduleItem{ch: ch, value: value, ok: ok}
+	sh <- schedule{ch: ch, value: value, ok: ok}
 	tg.WakeUp()
 }
