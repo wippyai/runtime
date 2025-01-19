@@ -7,16 +7,10 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-type OpenChannel struct {
+type ActiveChannel struct {
 	Name  string
 	Slots int
 	Refs  int
-}
-
-// channelRef tracks references to a named channel
-type channelRef struct {
-	channel *Channel
-	count   int
 }
 
 // Runner maintains state for channel operations
@@ -33,10 +27,10 @@ func NewChannelRunner() *Runner {
 }
 
 // GetActiveChannels returns all channels that currently block execution.
-func (r *Runner) GetActiveChannels() []OpenChannel {
-	result := make([]OpenChannel, 0, len(r.channels))
+func (r *Runner) GetActiveChannels() []ActiveChannel {
+	result := make([]ActiveChannel, 0, len(r.channels))
 	for ch, refs := range r.channels {
-		result = append(result, OpenChannel{
+		result = append(result, ActiveChannel{
 			Name:  ch.name,
 			Slots: ch.capacity - ch.size + refs,
 			Refs:  refs,
