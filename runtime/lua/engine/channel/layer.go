@@ -45,7 +45,7 @@ func (r *Runner) GetActiveChannels() []OpenChannel {
 	return result
 }
 
-// Send is NOT thread safe, it should only be called by another layer during execution step.
+// Send is NOT thread safe, it should only be called by another layer during execution step inside TG context.
 func (r *Runner) Send(ctx context.Context, ch *Channel, values ...lua.LValue) error {
 	tg := engine.GetTaskGroup(ctx)
 	if tg == nil {
