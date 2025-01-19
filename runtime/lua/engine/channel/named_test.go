@@ -60,7 +60,7 @@ func TestNamedChannelSend(t *testing.T) {
 	assert.Equal(t, 1, tg.GetTaskCount(), "expected 1 task blocked")
 
 	// assert open chans
-	channels := runtime.GetOpenChannels()
+	channels := runtime.GetActiveChannels()
 	assert.Equal(t, 1, len(channels), "expected 1 open channel")
 	assert.Equal(t, "channel1", channels[0].Name, "unexpected channel name")
 
@@ -142,7 +142,7 @@ func TestNamedChannelSelectVisibility(t *testing.T) {
 
 	var yields []string
 	checkChannels := func(expectedNames []string) {
-		channels := runtime.GetOpenChannels()
+		channels := runtime.GetActiveChannels()
 		assert.Equal(t, len(expectedNames), len(channels), "unexpected number of open channels")
 
 		actualNames := make(map[string]bool)
@@ -243,7 +243,7 @@ func TestNamedChannelSelectDefaultCase(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Check that no channels are visible since select with default doesn't block
-	channels := runtime.GetOpenChannels()
+	channels := runtime.GetActiveChannels()
 	assert.Equal(t, 0, len(channels), "expected no visible channels with default case")
 
 	var yields []string
@@ -362,7 +362,7 @@ func TestNamedChannelMultipleReceivers(t *testing.T) {
 
 				// Once we see receivers are ready, check channels and send values
 				if yield == "receivers_ready" && !valuesDelivered {
-					channels := runtime.GetOpenChannels()
+					channels := runtime.GetActiveChannels()
 					assert.Equal(t, 1, len(channels), "expected exactly one visible channel")
 					assert.Equal(t, "test_channel", channels[0].Name, "unexpected channel name")
 					assert.Equal(t, 3, channels[0].Refs, "expected 3 references to channel")
@@ -417,7 +417,7 @@ func TestNamedChannelMultipleReceivers(t *testing.T) {
 	assert.Contains(t, yields, "verification_complete", "missing final verification")
 
 	// no pending named
-	channels := runtime.GetOpenChannels()
+	channels := runtime.GetActiveChannels()
 	assert.Equal(t, 0, len(channels), "expected no visible channels after completion")
 
 	// Count result collections
@@ -505,7 +505,7 @@ func TestBufferedNamedChannelWriteCapacity(t *testing.T) {
 
 				if yield == "main_ready" && !writesDone {
 					// Check channel state
-					channels := runtime.GetOpenChannels()
+					channels := runtime.GetActiveChannels()
 					assert.Equal(t, 1, len(channels), "channel should be visible with reader")
 					assert.Equal(t, "buffered_channel", channels[0].Name)
 					assert.Equal(t, 4, channels[0].Slots, "should have 3 buffer slots + 1 reader")
@@ -557,6 +557,6 @@ func TestBufferedNamedChannelWriteCapacity(t *testing.T) {
 	}
 
 	// Verify final state
-	channels := runtime.GetOpenChannels()
+	channels := runtime.GetActiveChannels()
 	assert.Equal(t, 0, len(channels), "no channels should remain visible")
 }

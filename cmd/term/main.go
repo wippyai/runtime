@@ -136,7 +136,7 @@ func (b *BTLayer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, e
 		boot = false
 
 		// Handle channel operations
-		openCh := b.chRun.GetOpenChannels()
+		openCh := b.chRun.GetActiveChannels()
 		if len(openCh) > 0 {
 			for _, ch := range openCh {
 				err := b.chRun.SendToOpen(ch.Name, lua.LString("Hello from BTLayer"))
