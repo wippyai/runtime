@@ -64,7 +64,7 @@ func NewBTLayer(chRun *channel.Runner) *BTLayer {
 
 func (b *BTLayer) TryFlushMessage() error {
 	if msg, ok := b.Model.TryGetMessage(); ok {
-		openChannels := b.chRun.GetOpenChannels()
+		openChannels := b.chRun.GetActiveChannels()
 		for _, ch := range openChannels {
 			if ch.Name == "messages" {
 				return b.chRun.SendToOpen("messages", msg)

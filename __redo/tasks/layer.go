@@ -68,7 +68,7 @@ func (l *Layer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, err
 // tryFlush attempts to flush tasks from buffer to the named channel
 func (l *Layer) tryFlush() error {
 	// Check if channel is open and get capacity
-	openChannels := l.chRunner.GetOpenChannels()
+	openChannels := l.chRunner.GetActiveChannels()
 	var taskChannel *channel.OpenChannel
 	for _, ch := range openChannels {
 		if ch.Name == Channel {

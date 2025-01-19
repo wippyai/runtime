@@ -21,25 +21,25 @@ type channelRef struct {
 
 // Runner maintains state for channel operations
 type Runner struct {
-	queue         *engine.TaskQueue
-	namedChannels map[string]*channelRef // Track named channels with reference counting
+	queue    *engine.TaskQueue
+	channels map[*Channel]int // Track named channels with reference counting
 }
 
 func NewChannelRunner() *Runner {
 	return &Runner{
-		queue:         engine.NewTaskQueue(),
-		namedChannels: make(map[string]*channelRef),
+		queue:    engine.NewTaskQueue(),
+		channels: make(map[*Channel]int),
 	}
 }
 
-// GetOpenChannels returns a map of named channels currently waiting for data
-func (r *Runner) GetOpenChannels() []OpenChannel {
-	result := make([]OpenChannel, 0, len(r.namedChannels))
-	for name, ref := range r.namedChannels {
+// GetActiveChannels returns all channels that currently block execution.
+func (r *Runner) GetActiveChannels() []OpenChannel {
+	result := make([]OpenChannel, 0, len(r.channels))
+	for ch, refs := range r.channels {
 		result = append(result, OpenChannel{
-			Name:  name,
-			Slots: ref.channel.capacity - ref.channel.size + ref.count,
-			Refs:  ref.count,
+			Name:  ch.name,
+			Slots: ch.capacity - ch.size + refs,
+			Refs:  refs,
 		})
 	}
 	return result
@@ -178,36 +178,29 @@ func (r *Runner) Step(vm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, err
 	return externalOps, nil
 }
 
-// updateChannelRefs handles reference counting for channels todo: deprecate
+// updateChannelRefs handles reference counting for channels
 func (r *Runner) updateChannelRefs(tg *engine.TaskGroup, blocks, releases []*Channel) {
 	for _, ch := range blocks {
-		if ch.isNamed() {
-			ref, exists := r.namedChannels[ch.name]
-			if !exists {
-				ref = &channelRef{channel: ch}
-				r.namedChannels[ch.name] = ref
-			}
+		_, exists := r.channels[ch]
+		if !exists {
+			r.channels[ch] = 0
+		}
 
-			ref.count++
-
-			if tg != nil {
-				tg.Add(nil)
-			}
+		r.channels[ch]++
+		if ch.isNamed() && tg != nil {
+			tg.Add(nil)
 		}
 	}
 
 	for _, ch := range releases {
-		if ch.isNamed() {
-			if ref, exists := r.namedChannels[ch.name]; exists {
-				ref.count--
+		if _, exists := r.channels[ch]; exists {
+			r.channels[ch]--
+			if r.channels[ch] == 0 {
+				delete(r.channels, ch)
+			}
 
-				if ref.count == 0 {
-					delete(r.namedChannels, ch.name)
-				}
-
-				if tg != nil {
-					tg.Remove(nil)
-				}
+			if ch.isNamed() && tg != nil {
+				tg.Remove(nil)
 			}
 		}
 	}
