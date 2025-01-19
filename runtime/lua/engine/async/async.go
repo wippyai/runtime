@@ -18,13 +18,13 @@ type schedule struct {
 
 var scheduleKey = &scheduleCtx{}
 
-// WithScheduleChannel attaches schedule channel to context
-func WithScheduleChannel(ctx context.Context) context.Context {
+// WithAsyncChannel attaches schedule channel to context
+func WithAsyncChannel(ctx context.Context) context.Context {
 	return context.WithValue(ctx, scheduleKey, make(chan schedule, 4096))
 }
 
-// GetScheduleChannel retrieves the schedule channel from context
-func GetScheduleChannel(ctx context.Context) chan schedule {
+// getAsyncChannel retrieves the schedule channel from context
+func getAsyncChannel(ctx context.Context) chan schedule {
 	if ch, ok := ctx.Value(scheduleKey).(chan schedule); ok {
 		return ch
 	}
@@ -37,7 +37,7 @@ func ValidateContext(L *lua.LState) error {
 		return errors.New("cannot send from non-task context")
 	}
 
-	sh := GetScheduleChannel(L.Context())
+	sh := getAsyncChannel(L.Context())
 	if sh == nil {
 		return errors.New("cannot send from non-task context")
 	}
@@ -52,11 +52,15 @@ func Send(L *lua.LState, ch *channel.Channel, value lua.LValue, ok bool) {
 		return
 	}
 
-	sh := GetScheduleChannel(L.Context())
+	sh := getAsyncChannel(L.Context())
 	if sh == nil {
 		return
 	}
 
-	sh <- schedule{ch: ch, value: value, ok: ok}
+	select {
+	case sh <- schedule{ch: ch, value: value, ok: ok}:
+	default:
+		// Channel is full
+	}
 	tg.WakeUp()
 }

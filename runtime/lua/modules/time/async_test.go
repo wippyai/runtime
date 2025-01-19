@@ -105,7 +105,7 @@ func TestTimeAfter(t *testing.T) {
 
 				tg := engine.NewTaskGroup(100)
 				ctx := engine.WithTaskGroup(context.Background(), tg)
-				ctx = async.WithScheduleChannel(ctx)
+				ctx = async.WithAsyncChannel(ctx)
 				vm.SetContext(ctx)
 
 				err = vm.Import(tc.script, "test", "test")
@@ -152,7 +152,7 @@ func TestTimers(t *testing.T) {
 
 		tg := engine.NewTaskGroup(100)
 		ctx := engine.WithTaskGroup(context.Background(), tg)
-		ctx = async.WithScheduleChannel(ctx)
+		ctx = async.WithAsyncChannel(ctx)
 		vm.SetContext(ctx)
 
 		script := `
@@ -232,7 +232,7 @@ func TestTimers(t *testing.T) {
 		tg := engine.NewTaskGroup(100)
 		ctx, cancel := context.WithCancel(context.Background())
 		ctx = engine.WithTaskGroup(ctx, tg)
-		ctx = async.WithScheduleChannel(ctx)
+		ctx = async.WithAsyncChannel(ctx)
 		vm.SetContext(ctx)
 
 		script := `
@@ -289,7 +289,7 @@ func TestTimers(t *testing.T) {
 
 		tg := engine.NewTaskGroup(100)
 		ctx := engine.WithTaskGroup(context.Background(), tg)
-		ctx = async.WithScheduleChannel(ctx)
+		ctx = async.WithAsyncChannel(ctx)
 		vm.SetContext(ctx)
 
 		script := `
@@ -344,7 +344,7 @@ func TestTimers(t *testing.T) {
 
 		tg := engine.NewTaskGroup(100)
 		ctx := engine.WithTaskGroup(context.Background(), tg)
-		ctx = async.WithScheduleChannel(ctx)
+		ctx = async.WithAsyncChannel(ctx)
 		vm.SetContext(ctx)
 
 		script := `
