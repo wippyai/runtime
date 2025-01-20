@@ -83,7 +83,10 @@ func (m *Mixer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, err
 	default:
 	}
 
-	for len(processableTasks) > 0 {
+	boot := true
+	for len(processableTasks) > 0 || boot {
+		boot = false
+
 		// Process tasks through next layer
 		nextTasks, err := cvm.Step(processableTasks...)
 		if err != nil {
