@@ -51,11 +51,6 @@ func ticker(l *lua.LState) int {
 		return 0
 	}
 
-	if err := async.ValidateContext(l); err != nil {
-		l.RaiseError("time.ticker: %s", err)
-		return 0
-	}
-
 	// Create channel and ticker
 	ch := channel.Named(fmt.Sprintf("ticker_%s", duration), 1)
 	ticker := time.NewTicker(duration)

@@ -129,15 +129,17 @@ func sleepCoroutine(l *lua.LState) int {
 		return 1
 	}
 
-	coroutine.Wrap(l, func() coroutine.Result {
+	coroutine.Wrap(l, func() engine.Result {
 		if err := performSleep(l.Context(), duration); err != nil {
-			return coroutine.Result{
-				Values: []lua.LValue{lua.LNil},
+			return engine.Result{
+				State:  l,
+				Result: []lua.LValue{lua.LNil},
 				Error:  err,
 			}
 		}
-		return coroutine.Result{
-			Values: []lua.LValue{lua.LString("ok")},
+		return engine.Result{
+			State:  l,
+			Result: []lua.LValue{lua.LString("ok")},
 		}
 	})
 	return -1

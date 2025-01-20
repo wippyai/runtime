@@ -48,13 +48,13 @@ func TestTicker(t *testing.T) {
 		require.NoError(t, err)
 
 		channels := channel.NewChannelLayer()
-		asyncRunner := async.NewAsyncLayer(channels)
+		asyncRunner := async.NewAsyncLayer(channels, 4096)
 		wrapped := engine.NewRunner(vm,
 			engine.WithLayer(asyncRunner),
 			engine.WithLayer(channels),
 		)
 
-		ctx := async.WithAsyncChannel(engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup()))
+		ctx := asyncRunner.WithAsyncChannel(engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup()))
 
 		start := time.Now()
 		result, err := wrapped.Execute(ctx, "test")
@@ -160,21 +160,17 @@ func TestTicker(t *testing.T) {
 				require.NoError(t, err)
 				defer vm.Close()
 
-				tg := engine.NewTaskGroup(100)
-				ctx := engine.WithTaskGroup(context.Background(), tg)
-				ctx = async.WithAsyncChannel(ctx)
-				vm.SetContext(ctx)
-
 				err = vm.Import(tc.script, "test", "test")
 				require.NoError(t, err)
 
 				channels := channel.NewChannelLayer()
-				asyncRunner := async.NewAsyncLayer(channels)
+				asyncRunner := async.NewAsyncLayer(channels, 4096)
 				wrapped := engine.NewRunner(vm,
 					engine.WithLayer(asyncRunner),
 					engine.WithLayer(channels),
 				)
 
+				ctx := asyncRunner.WithAsyncChannel(context.Background())
 				result, err := wrapped.Execute(ctx, "test")
 
 				if tc.expectError {
@@ -197,13 +193,6 @@ func TestTicker(t *testing.T) {
 			engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
 		)
 		require.NoError(t, err)
-		defer vm.Close()
-
-		tg := engine.NewTaskGroup(100)
-		ctx, cancel := context.WithCancel(context.Background())
-		ctx = engine.WithTaskGroup(ctx, tg)
-		ctx = async.WithAsyncChannel(ctx)
-		vm.SetContext(ctx)
 
 		script := `
 			function test()
@@ -220,11 +209,14 @@ func TestTicker(t *testing.T) {
 		require.NoError(t, err)
 
 		channels := channel.NewChannelLayer()
-		asyncRunner := async.NewAsyncLayer(channels)
+		asyncRunner := async.NewAsyncLayer(channels, 4096)
 		wrapped := engine.NewRunner(vm,
 			engine.WithLayer(asyncRunner),
 			engine.WithLayer(channels),
 		)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		ctx = asyncRunner.WithAsyncChannel(ctx)
 
 		done := make(chan struct{})
 		var execErr error
@@ -291,14 +283,14 @@ func TestTicker(t *testing.T) {
 		require.NoError(t, err)
 
 		channels := channel.NewChannelLayer()
-		asyncRunner := async.NewAsyncLayer(channels)
+		asyncRunner := async.NewAsyncLayer(channels, 4096)
 		wrapped := engine.NewRunner(vm,
 			engine.WithLayer(asyncRunner),
 			engine.WithLayer(channels),
 			engine.WithLayer(coroutine.NewCoroutineLayer()),
 		)
 
-		ctx := async.WithAsyncChannel(engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup()))
+		ctx := asyncRunner.WithAsyncChannel(context.Background())
 
 		result, err := wrapped.Execute(ctx, "test")
 		require.NoError(t, err)

@@ -202,7 +202,10 @@ func (e *Runner) Execute(
 	funcName string,
 	args ...lua.LValue,
 ) (lua.LValue, error) {
+
+	// we always have to ensure we run using the task group context!
 	ctx, cleanup := closer.WithContext(WithTaskGroup(ctx, e.taskGroup))
+
 	defer func() {
 		for _, t := range e.cvm.tasks {
 			_ = e.cvm.removeTask(t)

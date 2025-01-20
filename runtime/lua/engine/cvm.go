@@ -286,6 +286,7 @@ func (e *CoroutineVM) Close() {
 			task.output = nil
 		}
 	}
+
 	if e.vm != nil {
 		e.vm.Close()
 	}
