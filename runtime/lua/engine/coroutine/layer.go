@@ -12,7 +12,7 @@ type Func func() Result
 // Result represents possible outputs from async function
 type Result struct {
 	Values []lua.LValue
-	Err    error
+	Error  error
 }
 
 type FuncWrapper struct {
@@ -35,7 +35,7 @@ func Wrap(L *lua.LState, fn Func) {
 // Run runs the wrapped function and returns results/error
 func (f *FuncWrapper) Run() Result {
 	if f.fn == nil {
-		return Result{Err: errors.New("function has already been executed")}
+		return Result{Error: errors.New("function has already been executed")}
 	}
 
 	r := f.fn()
@@ -72,7 +72,7 @@ func (r *Runner) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, er
 				tg.Add(task.Thread())
 				go func(t *engine.Task, w *FuncWrapper) {
 					res := w.Run()
-					_ = tg.Send(tCtx, engine.TaskResult{State: t.Thread(), Result: res.Values, Error: res.Err})
+					_ = tg.Send(tCtx, engine.TaskResult{State: t.Thread(), Result: res.Values, Error: res.Error})
 				}(task, fw)
 				continue
 			}

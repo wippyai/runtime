@@ -54,22 +54,23 @@ func (g *TaskGroup) Send(ctx context.Context, result TaskResult) error {
 // Add registers a new Lua state for tracking, not thread safe
 // This is always called synchronously from the main thread
 func (g *TaskGroup) Add(state *lua.LState) {
-	g.taskCount++
+	g.wakeCount++
 	if state != nil {
-		g.states[state] = struct{}{}
+		g.states[state] = struct{}{} // make th read safe
 	}
 }
 
 // Remove unregisters a Lua state from tracking, not thread safe
 func (g *TaskGroup) Remove(state *lua.LState) {
-	g.taskCount--
+	g.wakeCount--
 	if state != nil {
-		delete(g.states, state)
+		delete(g.states, state) // make th read safe
 	}
 }
 
 // WakeUp increments the wake count and sends a wakeup signal, thread safe
 func (g *TaskGroup) WakeUp() {
+	// we can optimize it a bit by skipping channel send if there is already a wakeup signal
 	atomic.AddInt32(&g.wakeCount, 1)
 	select {
 	case g.wakeup <- struct{}{}:

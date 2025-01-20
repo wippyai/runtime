@@ -51,6 +51,7 @@ func NewVM(log *zap.Logger, opts ...Option) (*VM, error) {
 func (v *VM) Close() {
 	if v.state != nil {
 		v.state.Close()
+		v.state = nil
 	}
 }
 
