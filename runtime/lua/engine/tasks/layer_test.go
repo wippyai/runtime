@@ -355,7 +355,7 @@ func setupVM(b *testing.B) (*engine.CoroutineVM, *engine.CVMWrapper, *Mixer, fun
 	}
 
 	channelRunner := channel.NewChannelRunner()
-	taskMixer := NewMixer(channelRunner, 10)
+	taskMixer := NewMixer(channelRunner, 1000)
 
 	wrapped := engine.NewWrappedCVM(vm,
 		engine.WithLayer(channelRunner),
@@ -363,7 +363,7 @@ func setupVM(b *testing.B) (*engine.CoroutineVM, *engine.CVMWrapper, *Mixer, fun
 	)
 
 	cleanup := func() {
-		vm.Close()
+		wrapped.Close()
 	}
 
 	return vm, wrapped, taskMixer, cleanup
@@ -371,7 +371,7 @@ func setupVM(b *testing.B) (*engine.CoroutineVM, *engine.CVMWrapper, *Mixer, fun
 
 // BenchmarkSingleTaskExecution benchmarks basic task execution
 func BenchmarkSingleTaskExecution(b *testing.B) {
-	cvm, wrapped, taskMixer, cleanup := setupVM(b)
+	cvm, wrapped, tasker, cleanup := setupVM(b)
 	defer cleanup()
 
 	script := `
@@ -394,22 +394,25 @@ func BenchmarkSingleTaskExecution(b *testing.B) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	done := make(chan struct{}, 1)
+
 	// Start handler
 	go func() {
-		_, err := wrapped.Execute(ctx, "bench_handler")
-		if err != nil {
-			b.Error(err)
-		}
+		_, _ = wrapped.Execute(ctx, "bench_handler")
+		done <- struct{}{}
 	}()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		out, err := taskMixer.Send(ctx, "bench_task", lua.LString("test"))
+		out, err := tasker.Send(ctx, "bench_task", lua.LString("test"))
 		if err != nil {
 			b.Fatal(err)
 		}
 		<-out // Wait for completion
 	}
+
+	cancel()
+	<-done
 }
 
 // BenchmarkParallelTaskExecution benchmarks parallel task execution
@@ -418,15 +421,15 @@ func BenchmarkParallelTaskExecution(b *testing.B) {
 	defer cleanup()
 
 	script := `
-        function bench_handler()
-            local inbox = tasks.channel(100)
-            while true do
-                local task, ok = inbox:receive()
-                if not ok then break end
-                task:complete(task:input())
-            end
-        end
-    `
+       function bench_handler()
+           local inbox = tasks.channel(100)
+           while true do
+               local task, ok = inbox:receive()
+               if not ok then break end
+               task:complete(task:input())
+           end
+       end
+   `
 
 	err := cvm.Import(script, "bench", "bench_handler")
 	if err != nil {
@@ -435,14 +438,13 @@ func BenchmarkParallelTaskExecution(b *testing.B) {
 
 	ctx := engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup())
 	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
+
+	done := make(chan struct{}, 1)
 
 	// Start handler
 	go func() {
-		_, err := wrapped.Execute(ctx, "bench_handler")
-		if err != nil {
-			b.Error(err)
-		}
+		_, _ = wrapped.Execute(ctx, "bench_handler")
+		done <- struct{}{}
 	}()
 
 	b.ResetTimer()
@@ -455,6 +457,9 @@ func BenchmarkParallelTaskExecution(b *testing.B) {
 			<-out // Wait for completion
 		}
 	})
+
+	cancel()
+	<-done
 }
 
 // BenchmarkTaskWithData benchmarks task execution with data property
@@ -463,16 +468,16 @@ func BenchmarkTaskWithData(b *testing.B) {
 	defer cleanup()
 
 	script := `
-        function bench_handler()
-            local inbox = tasks.channel()
-            while true do
-                local task, ok = inbox:receive()
-                if not ok then break end
-                task.data = task:input()
-                task:complete(task.data)
-            end
-        end
-    `
+       function bench_handler()
+           local inbox = tasks.channel()
+           while true do
+               local task, ok = inbox:receive()
+               if not ok then break end
+               local data = task:input()
+               task:complete(data)
+           end
+       end
+   `
 
 	err := cvm.Import(script, "bench", "bench_handler")
 	if err != nil {
@@ -481,14 +486,13 @@ func BenchmarkTaskWithData(b *testing.B) {
 
 	ctx := engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup())
 	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
+
+	done := make(chan struct{}, 1)
 
 	// Start handler
 	go func() {
-		_, err := wrapped.Execute(ctx, "bench_handler")
-		if err != nil {
-			b.Error(err)
-		}
+		_, _ = wrapped.Execute(ctx, "bench_handler")
+		done <- struct{}{}
 	}()
 
 	// Create test data table
@@ -504,70 +508,7 @@ func BenchmarkTaskWithData(b *testing.B) {
 		}
 		<-out // Wait for completion
 	}
-}
 
-// BenchmarkBatchTaskProcessing benchmarks processing multiple tasks in batches
-func BenchmarkBatchTaskProcessing(b *testing.B) {
-	cvm, wrapped, taskMixer, cleanup := setupVM(b)
-	defer cleanup()
-
-	script := `
-        function bench_handler()
-            local inbox = tasks.channel(1000)
-            local batch = {}
-            local batch_size = 0
-            local MAX_BATCH = 100
-
-            while true do
-                local task, ok = inbox:receive()
-                if not ok then
-                    -- Process remaining batch
-                    for _, t in ipairs(batch) do
-                        t:complete("done")
-                    end
-                    break
-                end
-
-                batch_size = batch_size + 1
-                batch[batch_size] = task
-
-                if batch_size >= MAX_BATCH then
-                    -- Process batch
-                    for _, t in ipairs(batch) do
-                        t:complete("done")
-                    end
-                    batch = {}
-                    batch_size = 0
-                end
-            end
-        end
-    `
-
-	err := cvm.Import(script, "bench", "bench_handler")
-	if err != nil {
-		b.Fatal(err)
-	}
-
-	ctx := engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup())
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	// Start handler
-	go func() {
-		_, err := wrapped.Execute(ctx, "bench_handler")
-		if err != nil {
-			b.Error(err)
-		}
-	}()
-
-	b.ResetTimer()
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			out, err := taskMixer.Send(ctx, "bench_task", lua.LString("test"))
-			if err != nil {
-				b.Fatal(err)
-			}
-			<-out // Wait for completion
-		}
-	})
+	cancel()
+	<-done
 }

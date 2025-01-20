@@ -45,10 +45,9 @@ func (m *Mixer) Send(ctx context.Context, id TaskID, input lua.LValue) (chan cor
 		return nil, errors.New("no task group found in context") // todo: add predefined errors
 	}
 
-	tg.WakeUp()
-
 	ret := make(chan coroutine.Result, 1)
 	m.inbox <- &taskSchedule{id: id, input: input, channel: ret}
+	tg.WakeUp()
 	return ret, nil
 }
 
