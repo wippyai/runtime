@@ -74,7 +74,7 @@ func TestTaskGroup(t *testing.T) {
 		err = group.Send(context.Background(), result)
 		assert.NoError(t, err)
 
-		// Test 2: Send with cancelled context
+		// Test 2: send with cancelled context
 		cancelCtx, cancel := context.WithCancel(context.Background())
 
 		var sendErr error
@@ -258,14 +258,14 @@ func TestTaskGroupProcessing(t *testing.T) {
 		go func() {
 			defer wg.Done()
 
-			// Send first result immediately
+			// send first result immediately
 			result1 := Result{
 				State:  L1,
 				Result: []lua.LValue{lua.LString("result1")},
 			}
 			_ = group.Send(ctx, result1)
 
-			// Send second result immediately after
+			// send second result immediately after
 			result2 := Result{
 				State:  L2,
 				Result: []lua.LValue{lua.LString("result2")},

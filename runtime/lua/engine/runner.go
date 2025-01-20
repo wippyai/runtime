@@ -145,6 +145,13 @@ func (e *Runner) Start(ctx context.Context, funcName string, args ...lua.LValue)
 }
 
 func (e *Runner) Run(ctx context.Context, exitCh <-chan Result) (lua.LValue, error) {
+	defer func() {
+		for _, t := range e.cvm.tasks {
+			_ = e.cvm.removeTask(t)
+		}
+		e.taskGroup.clean()
+	}()
+
 	wrapped := e.getWrapped()
 	var result Result
 	for {
@@ -207,19 +214,8 @@ func (e *Runner) Execute(
 	args ...lua.LValue,
 ) (lua.LValue, error) {
 	// we always have to ensure we run using the task group context!
-	ctx, cleanup := closer.WithContext(WithTaskGroup(ctx, e.taskGroup))
-	for _, l := range e.layers {
-		if c, ok := l.(Contexter); ok {
-			ctx = c.WithContext(ctx)
-		}
-	}
-
+	ctx, cleanup := closer.WithContext(e.WithContext(ctx))
 	defer func() {
-		for _, t := range e.cvm.tasks {
-			_ = e.cvm.removeTask(t)
-		}
-		e.taskGroup.clean()
-		e.cvm.vm.state.RemoveContext()
 		if err := cleanup.Close(); err != nil {
 			e.cvm.vm.log.Error("cleanup failed", zap.Error(err))
 		}
@@ -231,6 +227,17 @@ func (e *Runner) Execute(
 	}
 
 	return e.Run(ctx, out)
+}
+
+func (e *Runner) WithContext(ctx context.Context) context.Context {
+	ctx = WithTaskGroup(ctx, e.taskGroup)
+	for _, l := range e.layers {
+		if c, ok := l.(Contexter); ok {
+			ctx = c.WithContext(ctx)
+		}
+	}
+
+	return ctx
 }
 
 func (e *Runner) Close() {

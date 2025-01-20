@@ -378,7 +378,7 @@ func TestTimerSelectAndCoroutine(t *testing.T) {
 					local t = time.timer("100ms")
 					local ch = channel.new(0)
 
-					-- Send on separate channel after 50ms
+					-- send on separate channel after 50ms
 					coroutine.spawn(function()
 						time.sleep("50ms")
 						ch:send("message")
@@ -470,7 +470,7 @@ func TestTimerSelectAndCoroutineInversedOrder(t *testing.T) {
 					local t = time.timer("100ms")
 					local ch = channel.new(0)
 
-					-- Send on separate channel after 50ms
+					-- send on separate channel after 50ms
 					coroutine.spawn(function()
 						time.sleep("50ms")
 						ch:send("message")
