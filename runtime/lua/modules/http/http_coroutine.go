@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"github.com/ponyruntime/pony/internal/closer"
+	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	"github.com/ponyruntime/pony/runtime/lua/modules/stream"
 	lua "github.com/yuin/gopher-lua"
@@ -38,10 +39,10 @@ func (m *Module) executeRequestYield(l *lua.LState, req *http.Request, opts *req
 		zap.String("url", req.URL.String()),
 	)
 
-	coroutine.Wrap(l, func() coroutine.Result {
+	coroutine.Wrap(l, func() engine.Result {
 		resp, err := m.client.Do(req)
 		if err != nil {
-			return coroutine.Result{Values: []lua.LValue{lua.LNil, lua.LString(err.Error())}}
+			return engine.Result{Result: []lua.LValue{lua.LNil, lua.LString(err.Error())}}
 		}
 		cleanup.Add(resp.Body.Close)
 
@@ -59,10 +60,10 @@ func (m *Module) handleStreamResponseAsync(
 	resp *http.Response,
 	streamOpts *stream.Options,
 	ctx context.Context,
-) coroutine.Result {
+) engine.Result {
 	s, err := stream.NewStream(ctx, resp.Body, streamOpts)
 	if err != nil {
-		return coroutine.Result{Values: []lua.LValue{lua.LNil, lua.LString(err.Error())}}
+		return engine.Result{Result: []lua.LValue{lua.LNil, lua.LString(err.Error())}}
 	}
 
 	luaStream := &stream.LuaStream{Stream: s}
@@ -70,18 +71,14 @@ func (m *Module) handleStreamResponseAsync(
 	ud.Value = luaStream
 	l.SetMetatable(ud, l.GetTypeMetatable("Stream"))
 
-	return coroutine.Result{
-		Values: []lua.LValue{newResponseWithStream(resp, ud, l), lua.LNil},
-	}
+	return engine.Result{Result: []lua.LValue{newResponseWithStream(resp, ud, l), lua.LNil}}
 }
 
-func (m *Module) handleRegularResponseAsync(l *lua.LState, resp *http.Response) coroutine.Result {
+func (m *Module) handleRegularResponseAsync(l *lua.LState, resp *http.Response) engine.Result {
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return coroutine.Result{Values: []lua.LValue{lua.LNil, lua.LString(err.Error())}}
+		return engine.Result{Result: []lua.LValue{lua.LNil, lua.LString(err.Error())}}
 	}
 
-	return coroutine.Result{
-		Values: []lua.LValue{newResponse(resp, &body, len(body), l), lua.LNil},
-	}
+	return engine.Result{Result: []lua.LValue{newResponse(resp, &body, len(body), l), lua.LNil}}
 }

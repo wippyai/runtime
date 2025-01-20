@@ -52,11 +52,6 @@ func timer(l *lua.LState) int {
 		return 0
 	}
 
-	if err := async.ValidateContext(l); err != nil {
-		l.RaiseError("time.timer: %s", err)
-		return 0
-	}
-
 	// Create channel and timer
 	ch := channel.Named(fmt.Sprintf("timer_%s", duration), 1)
 	timer := time.NewTimer(duration)

@@ -20,11 +20,6 @@ func after(l *lua.LState) int {
 		return 0
 	}
 
-	if err := async.ValidateContext(l); err != nil {
-		l.RaiseError("time.after: %s", err)
-		return 0
-	}
-
 	ch := channel.Named(fmt.Sprintf("timer_%s", duration), 1)
 	go func() {
 		select {
@@ -32,8 +27,8 @@ func after(l *lua.LState) int {
 		case <-l.Context().Done():
 			return
 		}
-		async.Send(l, ch, lua.LBool(true), true)
-		async.Send(l, ch, lua.LNil, false) // close channel
+		_ = async.Send(l, ch, lua.LBool(true), true)
+		_ = async.Send(l, ch, lua.LNil, false) // close channel
 	}()
 
 	l.Push(channel.Wrap(l, ch))

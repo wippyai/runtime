@@ -107,14 +107,14 @@ func TestTimeAfter(t *testing.T) {
 				require.NoError(t, err)
 
 				channels := channel.NewChannelLayer()
-				asyncRunner := async.NewAsyncLayer(channels)
+				asyncRunner := async.NewAsyncLayer(channels, 4096)
 				wrapped := engine.NewRunner(vm,
 					engine.WithLayer(asyncRunner),
 					engine.WithLayer(channels),
 				)
 
 				ctx := engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup())
-				ctx = async.WithAsyncChannel(ctx)
+				ctx = asyncRunner.WithAsyncChannel(ctx)
 
 				start := time.Now()
 				result, err := wrapped.Execute(ctx, "test")
@@ -191,15 +191,14 @@ func TestAfterTimers(t *testing.T) {
 		require.NoError(t, err)
 
 		channels := channel.NewChannelLayer()
-		asyncRunner := async.NewAsyncLayer(channels)
+		asyncRunner := async.NewAsyncLayer(channels, 4069)
 		wrapped := engine.NewRunner(vm,
 			engine.WithLayer(asyncRunner),
 			engine.WithLayer(channels),
 		)
 
 		ctx := engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup())
-		ctx = async.WithAsyncChannel(ctx)
-		vm.SetContext(ctx)
+		ctx = asyncRunner.WithAsyncChannel(ctx)
 
 		start := time.Now()
 		result, err := wrapped.Execute(ctx, "test")
@@ -269,15 +268,14 @@ func TestAfterTimers(t *testing.T) {
 		require.NoError(t, err)
 
 		channels := channel.NewChannelLayer()
-		asyncRunner := async.NewAsyncLayer(channels)
+		asyncRunner := async.NewAsyncLayer(channels, 4069)
 		wrapped := engine.NewRunner(vm,
 			engine.WithLayer(channels),
 			engine.WithLayer(asyncRunner),
 		)
 
 		ctx := engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup())
-		ctx = async.WithAsyncChannel(ctx)
-		vm.SetContext(ctx)
+		ctx = asyncRunner.WithAsyncChannel(ctx)
 
 		start := time.Now()
 		result, err := wrapped.Execute(ctx, "test")
@@ -318,15 +316,14 @@ func TestAfterTimers(t *testing.T) {
 		require.NoError(t, err)
 
 		channels := channel.NewChannelLayer()
-		asyncRunner := async.NewAsyncLayer(channels)
+		asyncRunner := async.NewAsyncLayer(channels, 4069)
 		wrapped := engine.NewRunner(vm,
 			engine.WithLayer(asyncRunner),
 			engine.WithLayer(channels),
 		)
 
 		ctx, cancel := context.WithCancel(engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup()))
-		ctx = async.WithAsyncChannel(ctx)
-		vm.SetContext(ctx)
+		ctx = asyncRunner.WithAsyncChannel(ctx)
 
 		// Start execution in a goroutine
 		done := make(chan struct{})
@@ -379,15 +376,14 @@ func TestAfterTimers(t *testing.T) {
 		require.NoError(t, err)
 
 		channels := channel.NewChannelLayer()
-		asyncRunner := async.NewAsyncLayer(channels)
+		asyncRunner := async.NewAsyncLayer(channels, 4069)
 		wrapped := engine.NewRunner(vm,
 			engine.WithLayer(asyncRunner),
 			engine.WithLayer(channels),
 		)
 
 		ctx := engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup())
-		ctx = async.WithAsyncChannel(ctx)
-		vm.SetContext(ctx)
+		ctx = asyncRunner.WithAsyncChannel(ctx)
 
 		start := time.Now()
 		result, err := wrapped.Execute(ctx, "test")
@@ -451,15 +447,14 @@ func TestAfterTimers(t *testing.T) {
 		require.NoError(t, err)
 
 		channels := channel.NewChannelLayer()
-		asyncRunner := async.NewAsyncLayer(channels)
+		asyncRunner := async.NewAsyncLayer(channels, 4069)
 		wrapped := engine.NewRunner(vm,
 			engine.WithLayer(asyncRunner),
 			engine.WithLayer(channels),
 		)
 
 		ctx := engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup())
-		ctx = async.WithAsyncChannel(ctx)
-		vm.SetContext(ctx)
+		ctx = asyncRunner.WithAsyncChannel(ctx)
 
 		start := time.Now()
 		result, err := wrapped.Execute(ctx, "test")
