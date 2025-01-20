@@ -7,13 +7,7 @@ import (
 )
 
 // Func is our simplified function format that just returns a Result
-type Func func() Result
-
-// Result represents possible outputs from async function
-type Result struct {
-	Values []lua.LValue
-	Error  error
-}
+type Func func() engine.Result
 
 type FuncWrapper struct {
 	fn Func
@@ -33,9 +27,9 @@ func Wrap(L *lua.LState, fn Func) {
 }
 
 // Run runs the wrapped function and returns results/error
-func (f *FuncWrapper) Run() Result {
+func (f *FuncWrapper) Run() engine.Result {
 	if f.fn == nil {
-		return Result{Error: errors.New("function has already been executed")}
+		return engine.Result{Error: errors.New("function has already been executed")}
 	}
 
 	r := f.fn()
@@ -61,18 +55,21 @@ func (r *Runner) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, er
 		return nil, err
 	}
 
+	ctx := cvm.Context()
+	tg := engine.GetTaskGroup(ctx)
+
 	for _, task := range vmTasks {
 		if len(task.Yielded) > 0 {
 			if fw, ok := task.Yielded[len(task.Yielded)-1].(*FuncWrapper); ok {
-				tCtx := task.Thread().Context()
-				tg := engine.GetTaskGroup(tCtx)
+				thread := task.Thread()
 				if tg == nil {
 					return nil, errors.New("task group not found")
 				}
-				tg.Add(task.Thread())
+				tg.Add(thread)
 				go func(t *engine.Task, w *FuncWrapper) {
 					res := w.Run()
-					_ = tg.Send(tCtx, engine.Result{State: t.Thread(), Result: res.Values, Error: res.Error})
+					res.State = thread
+					_ = tg.Send(ctx, res)
 				}(task, fw)
 				continue
 			}
