@@ -63,7 +63,7 @@ func TestNamedChannelSend(t *testing.T) {
 	assert.Equal(t, 1, len(channels), "expected 1 open channel")
 	assert.Equal(t, "channel1", channels[0].Name, "unexpected channel name")
 
-	// Send value to named channel
+	// send value to named channel
 	err = runtime.Send(ctx, named["channel1"], lua.LString("value1"))
 	assert.NoError(t, err)
 
@@ -165,7 +165,7 @@ func TestNamedChannelSelectVisibility(t *testing.T) {
 					// Both channels should be visible after select starts
 					checkChannels([]string{"select_ch1", "select_ch2"})
 				case "ready_for_send":
-					// Send value through runtime to ch1 using task group
+					// send value through runtime to ch1 using task group
 					err := runtime.Send(ctx, named["select_ch1"], lua.LString("value1"))
 					assert.NoError(t, err)
 				case "done":
@@ -363,7 +363,7 @@ func TestNamedChannelMultipleReceivers(t *testing.T) {
 					assert.Equal(t, "test_channel", channels[0].Name, "unexpected channel name")
 					assert.Equal(t, 3, channels[0].Refs, "expected 3 references to channel")
 
-					// Send all values to the named channel
+					// send all values to the named channel
 					err = runtime.Send(
 						ctx,
 						named["test_channel"],
@@ -505,7 +505,7 @@ func TestBufferedNamedChannelWriteCapacity(t *testing.T) {
 					assert.Equal(t, "buffered_channel", channels[0].Name)
 					assert.Equal(t, 4, channels[0].Slots, "should have 3 buffer slots + 1 reader")
 
-					// Send values to fill buffer and one more for the reader
+					// send values to fill buffer and one more for the reader
 					err = runtime.Send(ctx, named["buffered_channel"],
 						lua.LString("value1"),
 						lua.LString("value2"),

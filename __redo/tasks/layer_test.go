@@ -153,7 +153,7 @@ func TestConsecutiveTasks(t *testing.T) {
 		done <- result
 	}()
 
-	// Send three consecutive tasks
+	// send three consecutive tasks
 	outputs := make([]chan coroutine.Result, 3)
 	for i := 0; i < 3; i++ {
 		taskData := lua.LTable{}
@@ -275,7 +275,7 @@ func TestAsyncTasksWithTimers(t *testing.T) {
 		done <- result
 	}()
 
-	// Send three tasks with different delays
+	// send three tasks with different delays
 	delays := []int{150, 50, 100} // Task A: 150ms, Task B: 50ms, Task C: 100ms
 	outputs := make([]chan coroutine.Result, 3)
 

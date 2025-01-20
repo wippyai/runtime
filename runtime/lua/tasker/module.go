@@ -1,8 +1,8 @@
-package tasks
+package tasker
 
 import (
 	"errors"
-	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
+	"github.com/ponyruntime/pony/runtime/lua/engine"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -50,7 +50,7 @@ func (m *Module) Loader(L *lua.LState) int {
 	L.SetField(mod, "channel", L.NewFunction(channelFunc))
 
 	// Register task methods
-	mt := L.NewTypeMetatable("tasks.task")
+	mt := L.NewTypeMetatable("tasks.Task")
 	L.SetField(mt, "__index", L.SetFuncs(L.NewTable(), map[string]lua.LGFunction{
 		"input":    m.taskInput,
 		"complete": m.taskComplete,
@@ -66,7 +66,7 @@ func (m *Module) Loader(L *lua.LState) int {
 func newTask(L *lua.LState, schedule *taskSchedule) lua.LValue {
 	ud := L.NewUserData()
 	ud.Value = schedule
-	L.SetMetatable(ud, L.GetTypeMetatable("tasks.task"))
+	L.SetMetatable(ud, L.GetTypeMetatable("tasks.Task"))
 
 	return ud
 }
@@ -95,8 +95,8 @@ func (m *Module) taskComplete(L *lua.LState) int {
 		values = append(values, L.Get(i))
 	}
 
-	// Send completion result directly to task channel
-	handle.channel <- coroutine.Result{Values: values}
+	// send completion result directly to task channel
+	handle.channel <- engine.Result{Result: values}
 	close(handle.channel) // Close channel after completion
 	return 0
 }
@@ -106,8 +106,8 @@ func (m *Module) taskFail(L *lua.LState) int {
 	handle := checkTask(L)
 	errMsg := L.CheckString(2)
 
-	// Send error result directly to task channel
-	handle.channel <- coroutine.Result{Error: errors.New(errMsg)}
+	// send error result directly to task channel
+	handle.channel <- engine.Result{Error: errors.New(errMsg)}
 	close(handle.channel) // Close channel after failure
 	return 0
 }
@@ -122,8 +122,8 @@ func (m *Module) taskSend(L *lua.LState) int {
 		values = append(values, L.Get(i))
 	}
 
-	// Send values directly to task channel
-	handle.channel <- coroutine.Result{Values: values}
+	// send values directly to task channel
+	handle.channel <- engine.Result{Result: values}
 	return 0
 }
 
@@ -131,8 +131,12 @@ func (m *Module) taskSend(L *lua.LState) int {
 func (m *Module) taskInput(L *lua.LState) int {
 	handle := checkTask(L)
 
-	L.Push(handle.input)
-	return 1
+	// Push input values to stack
+	for _, v := range handle.input {
+		L.Push(v)
+	}
+
+	return len(handle.input)
 }
 
 // checkTask validates and returns the task handle from Lua stack
