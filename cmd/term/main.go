@@ -219,6 +219,8 @@ func main() {
 	)
 	defer wvm.Close()
 
+	// todo: use task mixer!
+
 	ctx := context.Background()
 	ctx = engine.WithTaskGroup(ctx, wvm.GetTaskGroup())
 	ctx = async.WithAsyncChannel(ctx)
