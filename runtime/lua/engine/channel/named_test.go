@@ -38,9 +38,8 @@ func TestNamedChannelSend(t *testing.T) {
 
 	tg := engine.NewTaskGroup(100)
 	ctx := engine.WithTaskGroup(context.Background(), tg)
-	vm.SetContext(engine.WithTaskGroup(context.Background(), tg))
 
-	err = vm.StartString(`
+	err = vm.StartString(engine.WithTaskGroup(context.Background(), tg), `
 		-- Create two named channels
 		local ch1 = new_named("channel1", 1)
 		local ch2 = new_named("channel2", 1)
@@ -52,7 +51,7 @@ func TestNamedChannelSend(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewChannelRunner()
+	runtime := NewChannelLayer()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 	assert.Equal(t, 0, len(tasks), "expected no tasks")
@@ -106,9 +105,8 @@ func TestNamedChannelSelectVisibility(t *testing.T) {
 
 	tg := engine.NewTaskGroup(100)
 	ctx := engine.WithTaskGroup(context.Background(), tg)
-	vm.SetContext(ctx)
 
-	err = vm.StartString(`
+	err = vm.StartString(ctx, `
 		-- Create named channels with different capacities 
 		local ch1 = new_named("select_ch1", 0) -- unbuffered
 		local ch2 = new_named("select_ch2", 1) -- buffered
@@ -136,7 +134,7 @@ func TestNamedChannelSelectVisibility(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewChannelRunner()
+	runtime := NewChannelLayer()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -219,9 +217,8 @@ func TestNamedChannelSelectDefaultCase(t *testing.T) {
 
 	tg := engine.NewTaskGroup(100)
 	ctx := engine.WithTaskGroup(context.Background(), tg)
-	vm.SetContext(ctx)
 
-	err = vm.StartString(`
+	err = vm.StartString(ctx, `
 		-- Create named channels
 		local ch1 = new_named("default_ch1", 0)
 		local ch2 = new_named("default_ch2", 0)
@@ -238,7 +235,7 @@ func TestNamedChannelSelectDefaultCase(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewChannelRunner()
+	runtime := NewChannelLayer()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -291,9 +288,8 @@ func TestNamedChannelMultipleReceivers(t *testing.T) {
 
 	tg := engine.NewTaskGroup(100)
 	ctx := engine.WithTaskGroup(context.Background(), tg)
-	vm.SetContext(ctx)
 
-	err = vm.StartString(`
+	err = vm.StartString(ctx, `
 		-- Create channels
 		local ch = new_named("test_channel", 0)
 		local results = channel.new(3) -- To collect results in order
@@ -346,7 +342,7 @@ func TestNamedChannelMultipleReceivers(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewChannelRunner()
+	runtime := NewChannelLayer()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -456,9 +452,8 @@ func TestBufferedNamedChannelWriteCapacity(t *testing.T) {
 
 	tg := engine.NewTaskGroup(100)
 	ctx := engine.WithTaskGroup(context.Background(), tg)
-	vm.SetContext(ctx)
 
-	err = vm.StartString(`
+	err = vm.StartString(ctx, `
         -- Create buffered channel and control channels
         local ch = new_named("buffered_channel", 3)
         local ready = channel.new(0)
@@ -490,7 +485,7 @@ func TestBufferedNamedChannelWriteCapacity(t *testing.T) {
     `, "test")
 	assert.NoError(t, err)
 
-	runtime := NewChannelRunner()
+	runtime := NewChannelLayer()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 

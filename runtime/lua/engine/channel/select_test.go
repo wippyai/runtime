@@ -20,9 +20,7 @@ func TestSelectImmediate(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	vm.SetContext(context.Background())
-
-	err = vm.StartString(`
+	err = vm.StartString(context.Background(), `
 		-- Create two buffered channels
 		local ch1 = channel.new(1)
 		local ch2 = channel.new(1)
@@ -46,7 +44,7 @@ func TestSelectImmediate(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewChannelRunner()
+	runtime := NewChannelLayer()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -78,9 +76,8 @@ func TestSelectBlockedReceive(t *testing.T) {
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
-	vm.SetContext(context.Background())
 
-	err = vm.StartString(`
+	err = vm.StartString(context.Background(), `
 		-- Create two unbuffered channels
 		local ch1 = channel.new(0)
 		local ch2 = channel.new(0)
@@ -100,7 +97,7 @@ func TestSelectBlockedReceive(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewChannelRunner()
+	runtime := NewChannelLayer()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -133,9 +130,8 @@ func TestSelectBlockedClose(t *testing.T) {
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
-	vm.SetContext(context.Background())
 
-	err = vm.StartString(`
+	err = vm.StartString(context.Background(), `
 		-- Create two unbuffered channels
 		local ch1 = channel.new(0)
 		local ch2 = channel.new(0)
@@ -160,7 +156,7 @@ func TestSelectBlockedClose(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewChannelRunner()
+	runtime := NewChannelLayer()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -193,9 +189,8 @@ func TestSelectWithDefaultImmediate(t *testing.T) {
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
-	vm.SetContext(context.Background())
 
-	err = vm.StartString(`
+	err = vm.StartString(context.Background(), `
         -- Helper to get channel stats
         local function channel_stats(ch)
             return {
@@ -234,7 +229,7 @@ func TestSelectWithDefaultImmediate(t *testing.T) {
     `, "test")
 	assert.NoError(t, err)
 
-	runtime := NewChannelRunner()
+	runtime := NewChannelLayer()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -262,9 +257,8 @@ func TestSelectLoopWithFeeds(t *testing.T) {
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
-	vm.SetContext(context.Background())
 
-	err = vm.StartString(`
+	err = vm.StartString(context.Background(), `
         -- Helper for channel stats
         local function channel_stats(ch)
             return {
@@ -313,7 +307,7 @@ func TestSelectLoopWithFeeds(t *testing.T) {
     `, "test")
 	assert.NoError(t, err)
 
-	runtime := NewChannelRunner()
+	runtime := NewChannelLayer()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -348,9 +342,8 @@ func TestSelectCleanupOnReceive(t *testing.T) {
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
-	vm.SetContext(context.Background())
 
-	err = vm.StartString(`
+	err = vm.StartString(context.Background(), `
        local function channel_stats(ch)
            return {
                size = ch:_debug_size(),
@@ -390,7 +383,7 @@ func TestSelectCleanupOnReceive(t *testing.T) {
    `, "test")
 	assert.NoError(t, err)
 
-	runtime := NewChannelRunner()
+	runtime := NewChannelLayer()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -422,9 +415,8 @@ func TestSelectCleanupAll(t *testing.T) {
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
-	vm.SetContext(context.Background())
 
-	err = vm.StartString(`
+	err = vm.StartString(context.Background(), `
 		local function channel_stats(ch)
 			return {
 				size = ch:_debug_size(),
@@ -489,7 +481,7 @@ func TestSelectCleanupAll(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewChannelRunner()
+	runtime := NewChannelLayer()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -526,9 +518,8 @@ func TestMixedSelectImmediate(t *testing.T) {
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
-	vm.SetContext(context.Background())
 
-	err = vm.StartString(`
+	err = vm.StartString(context.Background(), `
 		local function channel_stats(ch)
 			return {
 				size = ch:_debug_size(),
@@ -580,7 +571,7 @@ func TestMixedSelectImmediate(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewChannelRunner()
+	runtime := NewChannelLayer()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -614,9 +605,8 @@ func TestMixedSelectBlocking(t *testing.T) {
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
-	vm.SetContext(context.Background())
 
-	err = vm.StartString(`
+	err = vm.StartString(context.Background(), `
 		-- Create unbuffered channels
 		local ch1 = channel.new(0)
 		local ch2 = channel.new(0)
@@ -666,7 +656,7 @@ func TestMixedSelectBlocking(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewChannelRunner()
+	runtime := NewChannelLayer()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -700,9 +690,8 @@ func TestMixedSelectWithDefault(t *testing.T) {
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
-	vm.SetContext(context.Background())
 
-	err = vm.StartString(`
+	err = vm.StartString(context.Background(), `
 		-- Create channels that would block
 		local sendCh = channel.new(0)   -- unbuffered
 		local recvCh = channel.new(0)   -- unbuffered
@@ -751,7 +740,7 @@ func TestMixedSelectWithDefault(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewChannelRunner()
+	runtime := NewChannelLayer()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -782,9 +771,8 @@ func TestSingleCaseSelectWithReadyData(t *testing.T) {
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
-	vm.SetContext(context.Background())
 
-	err = vm.StartString(`
+	err = vm.StartString(context.Background(), `
 		local ch = channel.new(0)  -- unbuffered channel
 		local ready = channel.new(0)  -- synchronization channel
 		local results = {}  -- collect results
@@ -833,7 +821,7 @@ func TestSingleCaseSelectWithReadyData(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewChannelRunner()
+	runtime := NewChannelLayer()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 

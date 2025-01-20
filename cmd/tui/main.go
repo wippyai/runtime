@@ -108,9 +108,9 @@ function app()
 end
 `, "app_code", "app")
 
-	wvm := engine.NewWrappedCVM(vm,
-		engine.WithLayer(channel.NewChannelRunner()),
-		engine.WithLayer(coroutine.NewCoroutineRunner()),
+	wvm := engine.NewRunner(vm,
+		engine.WithLayer(channel.NewChannelLayer()),
+		engine.WithLayer(coroutine.NewCoroutineLayer()),
 		// todo: add model layer!
 	)
 	defer wvm.Close()

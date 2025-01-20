@@ -12,23 +12,23 @@ import (
 // Tasker manages task execution within a Lua VM
 type Tasker struct {
 	cvm     *engine.CoroutineVM
-	wrapped *engine.CVMWrapper
+	wrapped *engine.Runner
 	inbox   chan *taskSchedule
 	running atomic.Bool
 }
 
 // NewTasker creates a new instance of the task manager
-func NewTasker(cvm *engine.CoroutineVM, channels *channel.Runner, inboxSize int, opts ...engine.WrapperOption) (*Tasker, error) {
+func NewTasker(cvm *engine.CoroutineVM, channels *channel.Layer, inboxSize int, opts ...engine.RunnerOption) (*Tasker, error) {
 	mixer := NewMixer(channels, inboxSize)
 
 	// Set up base layers and add user options
-	baseOpts := []engine.WrapperOption{
+	baseOpts := []engine.RunnerOption{
 		engine.WithLayer(channels),
 		engine.WithLayer(mixer),
 	}
 
 	// Create wrapped VM with all layers
-	wrapped := engine.NewWrappedCVM(cvm, append(baseOpts, opts...)...)
+	wrapped := engine.NewRunner(cvm, append(baseOpts, opts...)...)
 
 	tasker := &Tasker{
 		cvm:     cvm,

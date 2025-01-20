@@ -13,21 +13,21 @@ type ActiveChannel struct {
 	Refs  int
 }
 
-// Runner maintains state for channel operations
-type Runner struct {
+// Layer maintains state for channel operations
+type Layer struct {
 	queue    *engine.TaskQueue
 	channels map[*Channel]int // Track named channels with reference counting
 }
 
-func NewChannelRunner() *Runner {
-	return &Runner{
+func NewChannelLayer() *Layer {
+	return &Layer{
 		queue:    engine.NewTaskQueue(),
 		channels: make(map[*Channel]int),
 	}
 }
 
 // GetActiveChannels returns all channels that currently block execution.
-func (r *Runner) GetActiveChannels() []ActiveChannel {
+func (r *Layer) GetActiveChannels() []ActiveChannel {
 	result := make([]ActiveChannel, 0, len(r.channels))
 	for ch, refs := range r.channels {
 		result = append(result, ActiveChannel{
@@ -40,7 +40,7 @@ func (r *Runner) GetActiveChannels() []ActiveChannel {
 }
 
 // Send is NOT thread safe, it should only be called by another layer during execution step inside TG context.
-func (r *Runner) Send(ctx context.Context, ch *Channel, values ...lua.LValue) error {
+func (r *Layer) Send(ctx context.Context, ch *Channel, values ...lua.LValue) error {
 	tg := engine.GetTaskGroup(ctx)
 	if tg == nil {
 		return fmt.Errorf("task group not found on context")
@@ -78,7 +78,7 @@ func (r *Runner) Send(ctx context.Context, ch *Channel, values ...lua.LValue) er
 }
 
 // Close is NOT thread safe, it should only be called by another layer during execution step.
-func (r *Runner) Close(ctx context.Context, ch *Channel) error {
+func (r *Layer) Close(ctx context.Context, ch *Channel) error {
 	tg := engine.GetTaskGroup(ctx)
 	if tg == nil {
 		return fmt.Errorf("task group not found on context")
@@ -113,8 +113,7 @@ func (r *Runner) Close(ctx context.Context, ch *Channel) error {
 }
 
 // Step handles channel operations while maintaining CVM compatibility, todo: deprecate
-func (r *Runner) Step(vm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, error) {
-	tg := engine.GetTaskGroup(vm.Context())
+func (r *Layer) Step(vm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, error) {
 	var externalOps []*engine.Task
 
 	for _, task := range tasks {
@@ -148,7 +147,7 @@ func (r *Runner) Step(vm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, err
 				continue
 			}
 
-			r.updateChannelRefs(tg, opNext.block, opNext.release)
+			r.updateChannelRefs(engine.GetTaskGroup(task.Thread().Context()), opNext.block, opNext.release)
 
 			if opNext.yields && len(opNext.next) > 0 {
 				for _, result := range opNext.next {
@@ -173,7 +172,7 @@ func (r *Runner) Step(vm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, err
 }
 
 // updateChannelRefs handles reference counting for channels
-func (r *Runner) updateChannelRefs(tg *engine.TaskGroup, blocks, releases []*Channel) {
+func (r *Layer) updateChannelRefs(tg *engine.TaskGroup, blocks, releases []*Channel) {
 	for _, ch := range blocks {
 		_, exists := r.channels[ch]
 		if !exists {

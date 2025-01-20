@@ -143,14 +143,14 @@ func (e *CoroutineVM) Import(s, name string, funcName ...string) error {
 }
 
 // StartString starts a Lua script string with the given name and arguments as coroutine. Step is required to advance execution.
-func (e *CoroutineVM) StartString(script, scriptName string, args ...lua.LValue) error {
+func (e *CoroutineVM) StartString(ctx context.Context, script, scriptName string, args ...lua.LValue) error {
 	// todo: possibly deprecate this method
 	fn, err := e.vm.state.Load(strings.NewReader(script), scriptName)
 	if err != nil {
 		return err
 	}
 
-	task, err := e.createTask(fn)
+	task, err := e.createTask(ctx, fn)
 	if err != nil {
 		return err
 	}
@@ -166,13 +166,13 @@ func (e *CoroutineVM) Mount(proto *lua.FunctionProto, funcName ...string) error 
 }
 
 // Start begins execution of a named function with the provided arguments.
-func (e *CoroutineVM) Start(funcName string, args ...lua.LValue) (<-chan Result, error) {
+func (e *CoroutineVM) Start(ctx context.Context, funcName string, args ...lua.LValue) (<-chan Result, error) {
 	fn, ok := e.vm.exported[funcName]
 	if !ok {
 		return nil, fmt.Errorf("function %q not found", funcName)
 	}
 
-	task, err := e.createTask(fn)
+	task, err := e.createTask(ctx, fn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create coroutine: %w", err)
 	}
@@ -295,10 +295,6 @@ func (e *CoroutineVM) Context() context.Context {
 	return e.vm.state.Context()
 }
 
-func (e *CoroutineVM) SetContext(ctx context.Context) {
-	e.vm.state.SetContext(ctx)
-}
-
 func (e *CoroutineVM) State() *lua.LState {
 	return e.vm.state
 }
@@ -325,7 +321,7 @@ func (e *CoroutineVM) bindCoroutines() {
 				}
 			}
 
-			task, err := e.createTask(fn)
+			task, err := e.createTask(L.Context(), fn)
 			if err != nil {
 				L.RaiseError("failed to spawn coroutine: %v", err)
 				return 0
@@ -351,8 +347,9 @@ func (e *CoroutineVM) bindCoroutines() {
 }
 
 // createTask creates a new coroutine task from a Lua function.
-func (e *CoroutineVM) createTask(fn *lua.LFunction) (*Task, error) {
+func (e *CoroutineVM) createTask(ctx context.Context, fn *lua.LFunction) (*Task, error) {
 	thread, cancel := e.vm.state.NewThread()
+	thread.SetContext(ctx)
 
 	task := &Task{
 		l:      e.vm.state,

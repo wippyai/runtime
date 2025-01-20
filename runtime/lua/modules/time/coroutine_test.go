@@ -25,7 +25,7 @@ func TestSleepInCoroutines(t *testing.T) {
 		defer vm.Close()
 
 		// Create wrapped VM with async runner
-		wrapped := engine.NewWrappedCVM(vm, engine.WithLayer(coroutine.NewCoroutineRunner()))
+		wrapped := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
 
 		// Import test script with two coroutines
 		err = vm.Import(`

@@ -21,8 +21,7 @@ type (
 
 	// CVM represents core VM functionality required by layers
 	CVM interface {
-		Context() context.Context
-		Start(funcName string, args ...lua.LValue) (<-chan Result, error)
+		Start(ctx context.Context, funcName string, args ...lua.LValue) (<-chan Result, error)
 		Step(tasks ...*Task) ([]*Task, error)
 		GetTasks() []*Task
 		GetTask(thread *lua.LState) (*Task, error)
@@ -52,12 +51,8 @@ func (e *DeadlockError) Error() string {
 	return fmt.Sprintf("deadlock detected on %d coroutines", e.Count)
 }
 
-func (w *wrappedLayer) Context() context.Context {
-	return w.next.Context()
-}
-
-func (w *wrappedLayer) Start(funcName string, args ...lua.LValue) (<-chan Result, error) {
-	return w.next.Start(funcName, args...)
+func (w *wrappedLayer) Start(ctx context.Context, funcName string, args ...lua.LValue) (<-chan Result, error) {
+	return w.next.Start(ctx, funcName, args...)
 }
 
 func (w *wrappedLayer) GetTask(thread *lua.LState) (*Task, error) {
@@ -78,12 +73,12 @@ func (w *wrappedLayer) Close() {
 	w.next.Close()
 }
 
-// WrapperOption represents a function that can modify a CVMWrapper
-type WrapperOption func(*CVMWrapper)
+// RunnerOption represents a function that can modify a Runner
+type RunnerOption func(*Runner)
 
-// WithLayer returns a WrapperOption that adds a layer to the wrapper
-func WithLayer(layer Layer) WrapperOption {
-	return func(w *CVMWrapper) {
+// WithLayer returns a RunnerOption that adds a layer to the wrapper
+func WithLayer(layer Layer) RunnerOption {
+	return func(w *Runner) {
 		w.layers = append(w.layers, layer)
 		// Invalidate cache
 		w.wrapped = nil
@@ -91,8 +86,8 @@ func WithLayer(layer Layer) WrapperOption {
 	}
 }
 
-// CVMWrapper provides a way to wrap CVM with middleware layers
-type CVMWrapper struct {
+// Runner provides a way to wrap CVM with middleware layers
+type Runner struct {
 	cvm        *CoroutineVM // Base CVM
 	taskGroup  *TaskGroup   // Keep track of tasks
 	layers     []Layer      // Layers in order of addition (first = outermost)
@@ -100,9 +95,9 @@ type CVMWrapper struct {
 	layerCount int          // Number of layers when cache was built
 }
 
-// NewWrappedCVM creates a new wrapper around provided CVM with optional layers
-func NewWrappedCVM(cvm *CoroutineVM, opts ...WrapperOption) *CVMWrapper {
-	w := &CVMWrapper{
+// NewRunner creates a new wrapper around provided CVM with optional layers
+func NewRunner(cvm *CoroutineVM, opts ...RunnerOption) *Runner {
+	w := &Runner{
 		cvm:       cvm,
 		taskGroup: NewTaskGroup(4096), // todo; move to options too
 		layers:    make([]Layer, 0),
@@ -117,7 +112,7 @@ func NewWrappedCVM(cvm *CoroutineVM, opts ...WrapperOption) *CVMWrapper {
 }
 
 // getWrapped returns cached or builds new wrapped chain
-func (e *CVMWrapper) getWrapped() CVM {
+func (e *Runner) getWrapped() CVM {
 	// Return cached if available and valid
 	if e.wrapped != nil && e.layerCount == len(e.layers) {
 		return e.wrapped
@@ -137,35 +132,15 @@ func (e *CVMWrapper) getWrapped() CVM {
 	return wrapped
 }
 
-func (e *CVMWrapper) GetTaskGroup() *TaskGroup {
+func (e *Runner) GetTaskGroup() *TaskGroup {
 	return e.taskGroup
 }
 
-func (e *CVMWrapper) Start(funcName string, args ...lua.LValue) (<-chan Result, error) {
-	return e.getWrapped().Start(funcName, args...)
+func (e *Runner) Start(ctx context.Context, funcName string, args ...lua.LValue) (<-chan Result, error) {
+	return e.getWrapped().Start(ctx, funcName, args...)
 }
 
-func (e *CVMWrapper) Run(ctx context.Context, exitCh <-chan Result) (lua.LValue, error) {
-	ctx, cleanup := closer.WithContext(WithTaskGroup(ctx, e.taskGroup))
-	defer func() {
-		for _, t := range e.cvm.tasks {
-			_ = e.cvm.removeTask(t)
-		}
-		e.taskGroup.clean()
-		e.cvm.vm.state.RemoveContext()
-		if err := cleanup.Close(); err != nil {
-			e.cvm.vm.log.Error("cleanup failed", zap.Error(err))
-		}
-	}()
-
-	// establish context
-	e.cvm.vm.state.SetContext(ctx)
-	for _, t := range e.cvm.tasks {
-		if t.thread.Context() == nil {
-			t.thread.SetContext(ctx)
-		}
-	}
-
+func (e *Runner) Run(ctx context.Context, exitCh <-chan Result) (lua.LValue, error) {
 	wrapped := e.getWrapped()
 	var result Result
 	for {
@@ -222,12 +197,24 @@ func (e *CVMWrapper) Run(ctx context.Context, exitCh <-chan Result) (lua.LValue,
 }
 
 // Execute runs a function through the layer chain with provided context and arguments
-func (e *CVMWrapper) Execute(
+func (e *Runner) Execute(
 	ctx context.Context,
 	funcName string,
 	args ...lua.LValue,
 ) (lua.LValue, error) {
-	out, err := e.Start(funcName, args...)
+	ctx, cleanup := closer.WithContext(WithTaskGroup(ctx, e.taskGroup))
+	defer func() {
+		for _, t := range e.cvm.tasks {
+			_ = e.cvm.removeTask(t)
+		}
+		e.taskGroup.clean()
+		e.cvm.vm.state.RemoveContext()
+		if err := cleanup.Close(); err != nil {
+			e.cvm.vm.log.Error("cleanup failed", zap.Error(err))
+		}
+	}()
+
+	out, err := e.Start(ctx, funcName, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -235,6 +222,6 @@ func (e *CVMWrapper) Execute(
 	return e.Run(ctx, out)
 }
 
-func (e *CVMWrapper) Close() {
+func (e *Runner) Close() {
 	e.getWrapped().Close()
 }

@@ -32,7 +32,7 @@ func TestRunner_AsLayer(t *testing.T) {
 	defer vm.Close()
 
 	// Create wrapped VM with runner layer
-	wrapped := engine.NewWrappedCVM(vm, engine.WithLayer(NewCoroutineRunner()))
+	wrapped := engine.NewRunner(vm, engine.WithLayer(NewCoroutineLayer()))
 
 	// Import test script
 	err = vm.Import(`
@@ -80,7 +80,7 @@ func TestAsyncCoroutines(t *testing.T) {
 		defer vm.Close()
 
 		// Create wrapped VM with async runner
-		wrapped := engine.NewWrappedCVM(vm, engine.WithLayer(NewCoroutineRunner()))
+		wrapped := engine.NewRunner(vm, engine.WithLayer(NewCoroutineLayer()))
 
 		// Import test script with two coroutines
 		err = vm.Import(`
@@ -198,9 +198,9 @@ func TestRunner_ChannelLayer(t *testing.T) {
 		vm := createVM(t)
 		defer vm.Close()
 
-		wrapped := engine.NewWrappedCVM(vm,
-			engine.WithLayer(channel.NewChannelRunner()),
-			engine.WithLayer(NewCoroutineRunner()),
+		wrapped := engine.NewRunner(vm,
+			engine.WithLayer(channel.NewChannelLayer()),
+			engine.WithLayer(NewCoroutineLayer()),
 		)
 
 		err := vm.Import(testScript, "test", "test_layers")
@@ -219,9 +219,9 @@ func TestRunner_ChannelLayer(t *testing.T) {
 		vm := createVM(t)
 		defer vm.Close()
 
-		wrapped := engine.NewWrappedCVM(vm,
-			engine.WithLayer(NewCoroutineRunner()),
-			engine.WithLayer(channel.NewChannelRunner()),
+		wrapped := engine.NewRunner(vm,
+			engine.WithLayer(NewCoroutineLayer()),
+			engine.WithLayer(channel.NewChannelLayer()),
 		)
 
 		err := vm.Import(testScript, "test", "test_layers")
@@ -275,9 +275,9 @@ func TestDistributedWorkers(t *testing.T) {
 		defer vm.Close()
 
 		// Setup wrapped VM with required layers
-		wrapped := engine.NewWrappedCVM(vm,
-			engine.WithLayer(channel.NewChannelRunner()),
-			engine.WithLayer(NewCoroutineRunner()),
+		wrapped := engine.NewRunner(vm,
+			engine.WithLayer(channel.NewChannelLayer()),
+			engine.WithLayer(NewCoroutineLayer()),
 		)
 
 		// Import test script
@@ -398,9 +398,9 @@ func TestWorkerPool(t *testing.T) {
 		defer vm.Close()
 
 		// Setup wrapped VM with required layers
-		wrapped := engine.NewWrappedCVM(vm,
-			engine.WithLayer(channel.NewChannelRunner()),
-			engine.WithLayer(NewCoroutineRunner()),
+		wrapped := engine.NewRunner(vm,
+			engine.WithLayer(channel.NewChannelLayer()),
+			engine.WithLayer(NewCoroutineLayer()),
 		)
 
 		// Import test script

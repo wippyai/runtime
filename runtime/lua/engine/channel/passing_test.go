@@ -30,9 +30,7 @@ func TestChannelPassingSimple(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	vm.SetContext(context.Background())
-
-	err = vm.StartString(`
+	err = vm.StartString(context.Background(), `
 		-- Create test channels
 		local passCh = channel.new(0)    -- channel for passing other channels
 		local done = channel.new(0)      -- synchronization
@@ -74,7 +72,7 @@ func TestChannelPassingSimple(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewChannelRunner()
+	runtime := NewChannelLayer()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 

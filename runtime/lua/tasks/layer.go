@@ -21,7 +21,7 @@ type taskSchedule struct {
 
 // Mixer implements task management functionality
 type Mixer struct {
-	channels *channel.Runner
+	channels *channel.Layer
 	outbox   *channel.Channel
 	inbox    chan *taskSchedule // Shared channel for all tasks
 	close    chan struct{}
@@ -29,7 +29,7 @@ type Mixer struct {
 }
 
 // NewMixer creates a new task management layer
-func NewMixer(channels *channel.Runner, inboxSize int) *Mixer {
+func NewMixer(channels *channel.Layer, inboxSize int) *Mixer {
 	return &Mixer{
 		channels: channels,
 		outbox:   nil, // created on demand

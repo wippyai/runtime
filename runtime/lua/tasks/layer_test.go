@@ -28,11 +28,11 @@ func TestTasksSingleExecution(t *testing.T) {
 		assert.NoError(t, err)
 
 		// Create channel runner and task runner
-		channelRunner := channel.NewChannelRunner()
+		channelRunner := channel.NewChannelLayer()
 		taskMixer := NewMixer(channelRunner, 10)
 
 		// Create wrapped VM with both layers
-		wrapped := engine.NewWrappedCVM(vm,
+		wrapped := engine.NewRunner(vm,
 			engine.WithLayer(channelRunner),
 			engine.WithLayer(taskMixer),
 		)
@@ -108,11 +108,11 @@ func TestConsecutiveTasks(t *testing.T) {
 	defer vm.Close()
 
 	// Create channel runner and task mixer
-	channelRunner := channel.NewChannelRunner()
+	channelRunner := channel.NewChannelLayer()
 	taskMixer := NewMixer(channelRunner, 10)
 
 	// Create wrapped VM with required layers
-	wrapped := engine.NewWrappedCVM(vm,
+	wrapped := engine.NewRunner(vm,
 		engine.WithLayer(channelRunner),
 		engine.WithLayer(taskMixer),
 	)
@@ -211,12 +211,12 @@ func TestAsyncTasksWithTimers(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Create runners and mixers
-	channelRunner := channel.NewChannelRunner()
-	asyncRunner := async.NewAsyncRunner(channelRunner)
+	channelRunner := channel.NewChannelLayer()
+	asyncRunner := async.NewAsyncLayer(channelRunner)
 	taskMixer := NewMixer(channelRunner, 10)
 
 	// Create wrapped VM with all layers
-	wrapped := engine.NewWrappedCVM(vm,
+	wrapped := engine.NewRunner(vm,
 		engine.WithLayer(channelRunner),
 		engine.WithLayer(asyncRunner),
 		engine.WithLayer(taskMixer),
@@ -343,7 +343,7 @@ func TestAsyncTasksWithTimers(t *testing.T) {
 }
 
 // setupVM creates a new VM with required modules for benchmarking
-func setupVM(b *testing.B) (*engine.CoroutineVM, *engine.CVMWrapper, *Mixer, func()) {
+func setupVM(b *testing.B) (*engine.CoroutineVM, *engine.Runner, *Mixer, func()) {
 	logger := zap.NewNop()
 
 	vm, err := engine.NewCVM(logger,
@@ -354,10 +354,10 @@ func setupVM(b *testing.B) (*engine.CoroutineVM, *engine.CVMWrapper, *Mixer, fun
 		b.Fatal(err)
 	}
 
-	channelRunner := channel.NewChannelRunner()
+	channelRunner := channel.NewChannelLayer()
 	taskMixer := NewMixer(channelRunner, 1000)
 
-	wrapped := engine.NewWrappedCVM(vm,
+	wrapped := engine.NewRunner(vm,
 		engine.WithLayer(channelRunner),
 		engine.WithLayer(taskMixer),
 	)

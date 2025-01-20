@@ -51,11 +51,11 @@ func IsViewYield(value lua.LValue) (*ViewYield, bool) {
 }
 
 type BTLayer struct {
-	chRun *channel.Runner
+	chRun *channel.Layer
 	Model *Model
 }
 
-func NewBTLayer(chRun *channel.Runner) *BTLayer {
+func NewBTLayer(chRun *channel.Layer) *BTLayer {
 	return &BTLayer{
 		chRun: chRun,
 		Model: NewModel(),
