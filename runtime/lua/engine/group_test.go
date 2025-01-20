@@ -324,7 +324,7 @@ func TestTaskGroupProcessing(t *testing.T) {
 // mockCVM implements the CVM interface for testing
 type mockCVM struct{}
 
-func (m *mockCVM) GetContext() context.Context                            { return context.Background() }
+func (m *mockCVM) Context() context.Context                               { return context.Background() }
 func (m *mockCVM) Start(string, ...lua.LValue) (<-chan TaskResult, error) { return nil, nil }
 func (m *mockCVM) Step(...*Task) ([]*Task, error)                         { return nil, nil }
 func (m *mockCVM) GetTasks() []*Task                                      { return nil }
@@ -338,7 +338,7 @@ type mockCVMWithTasks struct {
 	shouldError bool
 }
 
-func (m *mockCVMWithTasks) GetContext() context.Context {
+func (m *mockCVMWithTasks) Context() context.Context {
 	return context.Background()
 }
 

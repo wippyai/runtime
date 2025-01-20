@@ -217,7 +217,7 @@ func (e *CoroutineVM) Close() {
 	}
 }
 
-func (e *CoroutineVM) GetContext() context.Context {
+func (e *CoroutineVM) Context() context.Context {
 	return e.vm.state.Context()
 }
 

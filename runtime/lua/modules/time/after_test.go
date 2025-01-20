@@ -217,6 +217,84 @@ func TestAfterTimers(t *testing.T) {
 		assert.Less(t, duration, 200*time.Millisecond, "Should not take too long")
 	})
 
+	t.Run("concurrent timers inverse order", func(t *testing.T) {
+		vm, err := engine.NewCVM(
+			logger,
+			engine.WithPreloaded("time", NewTimeModule().Loader),
+			engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
+		)
+		require.NoError(t, err)
+		defer vm.Close()
+
+		script := `
+            function test()
+                local results = {}
+                local done = channel.new(0)
+
+                -- Start three timers with different durations
+                coroutine.spawn(function()
+                    local t1 = time.after("50ms")
+                    t1:receive()
+                    table.insert(results, "timer1")
+                    if #results == 3 then
+                        done:send(true)
+                    end
+                end)
+
+                coroutine.spawn(function()
+                    local t2 = time.after("100ms")
+                    t2:receive()
+                    table.insert(results, "timer2")
+                    if #results == 3 then
+                        done:send(true)
+                    end
+                end)
+
+                coroutine.spawn(function()
+                    local t3 = time.after("150ms")
+                    t3:receive()
+                    table.insert(results, "timer3")
+                    if #results == 3 then
+                        done:send(true)
+                    end
+                end)
+
+                -- Wait for all timers to complete
+                done:receive()
+                return results
+            end
+        `
+
+		err = vm.Import(script, "test", "test")
+		require.NoError(t, err)
+
+		channels := channel.NewChannelRunner()
+		asyncRunner := async.NewAsyncRunner(channels)
+		wrapped := engine.NewWrappedCVM(vm,
+			engine.WithLayer(channels),
+			engine.WithLayer(asyncRunner),
+		)
+
+		ctx := engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup())
+		ctx = async.WithAsyncChannel(ctx)
+		vm.SetContext(ctx)
+
+		start := time.Now()
+		result, err := wrapped.Execute(ctx, "test")
+		duration := time.Since(start)
+		require.NoError(t, err)
+
+		// Verify result order
+		resultTable := result.(*lua.LTable)
+		assert.Equal(t, "timer1", resultTable.RawGetInt(1).String(), "First timer should complete first")
+		assert.Equal(t, "timer2", resultTable.RawGetInt(2).String(), "Second timer should complete second")
+		assert.Equal(t, "timer3", resultTable.RawGetInt(3).String(), "Third timer should complete third")
+
+		// Verify timing
+		assert.GreaterOrEqual(t, duration, 150*time.Millisecond, "Should take at least 150ms")
+		assert.Less(t, duration, 200*time.Millisecond, "Should not take too long")
+	})
+
 	t.Run("timer cancellation", func(t *testing.T) {
 		vm, err := engine.NewCVM(
 			logger,

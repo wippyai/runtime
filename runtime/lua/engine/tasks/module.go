@@ -52,6 +52,7 @@ func (m *Module) Loader(L *lua.LState) int {
 	// Register task methods
 	mt := L.NewTypeMetatable("tasks.task")
 	L.SetField(mt, "__index", L.SetFuncs(L.NewTable(), map[string]lua.LGFunction{
+		"input":    m.taskInput,
 		"complete": m.taskComplete,
 		"fail":     m.taskFail,
 		"send":     m.taskSend,
@@ -124,6 +125,14 @@ func (m *Module) taskSend(L *lua.LState) int {
 	// Send values directly to task channel
 	handle.channel <- coroutine.Result{Values: values}
 	return 0
+}
+
+// taskInput implements task:value() -> values...
+func (m *Module) taskInput(L *lua.LState) int {
+	handle := checkTask(L)
+
+	L.Push(handle.input)
+	return 1
 }
 
 // checkTask validates and returns the task handle from Lua stack
