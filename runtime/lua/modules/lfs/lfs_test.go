@@ -14,20 +14,20 @@ import (
 	"go.uber.org/zap"
 )
 
-func assertLua(L *lua.LState) int {
-	if L.ToBool(1) {
+func assertLua(l *lua.LState) int {
+	if l.ToBool(1) {
 		return 0
 	}
-	L.RaiseError(L.OptString(2, "assertion failed!"))
+	l.RaiseError("%s", l.OptString(2, "assertion failed!"))
 	return 0
 }
 
 func TestLFSModuleDoString(t *testing.T) {
 	// Test to verify that Init cannot handle arguments yet
-	logger := zap.NewNop()
+	logger, _ := zap.NewDevelopment()
 
 	t.Run("module creation and loading", func(t *testing.T) {
-		mod := NewLFSModule()
+		mod := NewLFSModule(logger)
 		vm, err := engine.NewVM(logger,
 			engine.WithLoader(mod.Name(), mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
@@ -35,7 +35,7 @@ func TestLFSModuleDoString(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local lfs = require("lfs")
 			assert(type(lfs) == "table")
 			assert(type(lfs.attributes) == "function")
@@ -51,7 +51,7 @@ func TestLFSModuleDoString(t *testing.T) {
 	})
 
 	t.Run("currentdir and chdir", func(t *testing.T) {
-		mod := NewLFSModule()
+		mod := NewLFSModule(logger)
 		vm, err := engine.NewVM(logger,
 			engine.WithLoader(mod.Name(), mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
@@ -62,7 +62,7 @@ func TestLFSModuleDoString(t *testing.T) {
 		initialDir, err := os.Getwd()
 		require.NoError(t, err)
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local lfs = require("lfs")
 			local current = lfs.currentdir()
 			assert(current ~= nil, "currentdir should return a path")
@@ -87,7 +87,7 @@ func TestLFSModuleDoString(t *testing.T) {
 	})
 
 	t.Run("mkdir and rmdir", func(t *testing.T) {
-		mod := NewLFSModule()
+		mod := NewLFSModule(logger)
 		vm, err := engine.NewVM(logger,
 			engine.WithLoader(mod.Name(), mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
@@ -122,7 +122,7 @@ func TestLFSModuleDoString(t *testing.T) {
 	})
 
 	t.Run("attributes", func(t *testing.T) {
-		mod := NewLFSModule()
+		mod := NewLFSModule(logger)
 		vm, err := engine.NewVM(logger,
 			engine.WithLoader(mod.Name(), mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
@@ -131,7 +131,7 @@ func TestLFSModuleDoString(t *testing.T) {
 		defer vm.Close()
 
 		tempFile := filepath.Join(t.TempDir(), "test.txt")
-		err = os.WriteFile(tempFile, []byte("test content"), 0644)
+		err = os.WriteFile(tempFile, []byte("test content"), 0600)
 		require.NoError(t, err)
 
 		err = vm.Import(`
@@ -154,7 +154,7 @@ func TestLFSModuleDoString(t *testing.T) {
 	})
 
 	t.Run("touch", func(t *testing.T) {
-		mod := NewLFSModule()
+		mod := NewLFSModule(logger)
 		vm, err := engine.NewVM(logger,
 			engine.WithLoader(mod.Name(), mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
@@ -188,7 +188,7 @@ func TestLFSModuleDoString(t *testing.T) {
 	})
 
 	t.Run("link", func(t *testing.T) {
-		mod := NewLFSModule()
+		mod := NewLFSModule(logger)
 		vm, err := engine.NewVM(logger,
 			engine.WithLoader(mod.Name(), mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
@@ -198,7 +198,7 @@ func TestLFSModuleDoString(t *testing.T) {
 
 		tempDir := t.TempDir()
 		sourceFile := filepath.Join(tempDir, "source.txt")
-		err = os.WriteFile(sourceFile, []byte("test content"), 0644)
+		err = os.WriteFile(sourceFile, []byte("test content"), 0600)
 		require.NoError(t, err)
 
 		linkFile := filepath.Join(tempDir, "link.txt")
@@ -224,7 +224,7 @@ func TestLFSModuleDoString(t *testing.T) {
 	})
 
 	t.Run("dir iterator", func(t *testing.T) {
-		mod := NewLFSModule()
+		mod := NewLFSModule(logger)
 		vm, err := engine.NewVM(logger,
 			engine.WithLoader(mod.Name(), mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
@@ -236,7 +236,7 @@ func TestLFSModuleDoString(t *testing.T) {
 		// Create some files
 		files := []string{"file1.txt", "file2.txt", "file3.txt"}
 		for _, f := range files {
-			err = os.WriteFile(filepath.Join(tempDir, f), []byte("test"), 0644)
+			err = os.WriteFile(filepath.Join(tempDir, f), []byte("test"), 0600)
 			require.NoError(t, err)
 		}
 
