@@ -341,3 +341,233 @@ func TestAsyncTasksWithTimers(t *testing.T) {
 		t.Fatal("timeout waiting for handler completion")
 	}
 }
+
+// setupVM creates a new VM with required modules for benchmarking
+func setupVM(b *testing.B) (*engine.CoroutineVM, *engine.CVMWrapper, *Mixer, func()) {
+	logger := zap.NewNop()
+
+	vm, err := engine.NewCVM(logger,
+		engine.WithPreloaded("tasks", NewModule().Loader),
+		engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
+	)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	channelRunner := channel.NewChannelRunner()
+	taskMixer := NewMixer(channelRunner, 10)
+
+	wrapped := engine.NewWrappedCVM(vm,
+		engine.WithLayer(channelRunner),
+		engine.WithLayer(taskMixer),
+	)
+
+	cleanup := func() {
+		vm.Close()
+	}
+
+	return vm, wrapped, taskMixer, cleanup
+}
+
+// BenchmarkSingleTaskExecution benchmarks basic task execution
+func BenchmarkSingleTaskExecution(b *testing.B) {
+	cvm, wrapped, taskMixer, cleanup := setupVM(b)
+	defer cleanup()
+
+	script := `
+        function bench_handler()
+            local inbox = tasks.channel()
+            while true do
+                local task, ok = inbox:receive()
+                if not ok then break end
+                task:complete(task:input())
+            end
+        end
+    `
+
+	err := cvm.Import(script, "bench", "bench_handler")
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	ctx := engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup())
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	// Start handler
+	go func() {
+		_, err := wrapped.Execute(ctx, "bench_handler")
+		if err != nil {
+			b.Error(err)
+		}
+	}()
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		out, err := taskMixer.Send(ctx, "bench_task", lua.LString("test"))
+		if err != nil {
+			b.Fatal(err)
+		}
+		<-out // Wait for completion
+	}
+}
+
+// BenchmarkParallelTaskExecution benchmarks parallel task execution
+func BenchmarkParallelTaskExecution(b *testing.B) {
+	cvm, wrapped, taskMixer, cleanup := setupVM(b)
+	defer cleanup()
+
+	script := `
+        function bench_handler()
+            local inbox = tasks.channel(100)
+            while true do
+                local task, ok = inbox:receive()
+                if not ok then break end
+                task:complete(task:input())
+            end
+        end
+    `
+
+	err := cvm.Import(script, "bench", "bench_handler")
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	ctx := engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup())
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	// Start handler
+	go func() {
+		_, err := wrapped.Execute(ctx, "bench_handler")
+		if err != nil {
+			b.Error(err)
+		}
+	}()
+
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			out, err := taskMixer.Send(ctx, "bench_task", lua.LString("test"))
+			if err != nil {
+				b.Fatal(err)
+			}
+			<-out // Wait for completion
+		}
+	})
+}
+
+// BenchmarkTaskWithData benchmarks task execution with data property
+func BenchmarkTaskWithData(b *testing.B) {
+	cvm, wrapped, taskMixer, cleanup := setupVM(b)
+	defer cleanup()
+
+	script := `
+        function bench_handler()
+            local inbox = tasks.channel()
+            while true do
+                local task, ok = inbox:receive()
+                if not ok then break end
+                task.data = task:input()
+                task:complete(task.data)
+            end
+        end
+    `
+
+	err := cvm.Import(script, "bench", "bench_handler")
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	ctx := engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup())
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	// Start handler
+	go func() {
+		_, err := wrapped.Execute(ctx, "bench_handler")
+		if err != nil {
+			b.Error(err)
+		}
+	}()
+
+	// Create test data table
+	testData := &lua.LTable{}
+	testData.RawSetString("value", lua.LString("test"))
+	testData.RawSetString("number", lua.LNumber(123))
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		out, err := taskMixer.Send(ctx, "bench_task", testData)
+		if err != nil {
+			b.Fatal(err)
+		}
+		<-out // Wait for completion
+	}
+}
+
+// BenchmarkBatchTaskProcessing benchmarks processing multiple tasks in batches
+func BenchmarkBatchTaskProcessing(b *testing.B) {
+	cvm, wrapped, taskMixer, cleanup := setupVM(b)
+	defer cleanup()
+
+	script := `
+        function bench_handler()
+            local inbox = tasks.channel(1000)
+            local batch = {}
+            local batch_size = 0
+            local MAX_BATCH = 100
+
+            while true do
+                local task, ok = inbox:receive()
+                if not ok then
+                    -- Process remaining batch
+                    for _, t in ipairs(batch) do
+                        t:complete("done")
+                    end
+                    break
+                end
+
+                batch_size = batch_size + 1
+                batch[batch_size] = task
+
+                if batch_size >= MAX_BATCH then
+                    -- Process batch
+                    for _, t in ipairs(batch) do
+                        t:complete("done")
+                    end
+                    batch = {}
+                    batch_size = 0
+                end
+            end
+        end
+    `
+
+	err := cvm.Import(script, "bench", "bench_handler")
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	ctx := engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup())
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	// Start handler
+	go func() {
+		_, err := wrapped.Execute(ctx, "bench_handler")
+		if err != nil {
+			b.Error(err)
+		}
+	}()
+
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			out, err := taskMixer.Send(ctx, "bench_task", lua.LString("test"))
+			if err != nil {
+				b.Fatal(err)
+			}
+			<-out // Wait for completion
+		}
+	})
+}
