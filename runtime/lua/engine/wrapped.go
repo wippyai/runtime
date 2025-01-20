@@ -26,6 +26,7 @@ type (
 		Step(tasks ...*Task) ([]*Task, error)
 		GetTasks() []*Task
 		GetTask(thread *lua.LState) (*Task, error)
+		State() *lua.LState
 		Close()
 	}
 
@@ -70,6 +71,8 @@ func (w *wrappedLayer) GetTasks() []*Task {
 func (w *wrappedLayer) Step(tasks ...*Task) ([]*Task, error) {
 	return w.layer.Step(w.next, tasks...)
 }
+
+func (w *wrappedLayer) State() *lua.LState { return w.next.State() }
 
 func (w *wrappedLayer) Close() {
 	w.next.Close()

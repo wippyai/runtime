@@ -329,6 +329,7 @@ func (m *mockCVM) Start(string, ...lua.LValue) (<-chan TaskResult, error) { retu
 func (m *mockCVM) Step(...*Task) ([]*Task, error)                         { return nil, nil }
 func (m *mockCVM) GetTasks() []*Task                                      { return nil }
 func (m *mockCVM) GetTask(*lua.LState) (*Task, error)                     { return nil, nil }
+func (m *mockCVM) State() *lua.LState                                     { return nil }
 func (m *mockCVM) Close()                                                 {}
 
 // mockCVMWithTasks implements CVM interface with configurable task responses
@@ -361,6 +362,10 @@ func (m *mockCVMWithTasks) GetTask(state *lua.LState) (*Task, error) {
 		return task, nil
 	}
 	return nil, fmt.Errorf("task not found")
+}
+
+func (m *mockCVMWithTasks) State() *lua.LState {
+	return nil
 }
 
 func (m *mockCVMWithTasks) Close() {}

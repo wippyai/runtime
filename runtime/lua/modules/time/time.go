@@ -133,7 +133,7 @@ func sleepCoroutine(l *lua.LState) int {
 		if err := performSleep(l.Context(), duration); err != nil {
 			return coroutine.Result{
 				Values: []lua.LValue{lua.LNil},
-				Err:    err,
+				Error:  err,
 			}
 		}
 		return coroutine.Result{
