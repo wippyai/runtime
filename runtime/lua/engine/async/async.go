@@ -49,7 +49,6 @@ func ValidateContext(L *lua.LState) error {
 func Send(L *lua.LState, ch *channel.Channel, value lua.LValue, ok bool) {
 	tg := engine.GetTaskGroup(L.Context())
 	if tg == nil {
-
 		return
 	}
 

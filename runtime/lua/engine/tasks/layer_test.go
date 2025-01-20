@@ -221,7 +221,7 @@ func TestAsyncTasksWithTimers(t *testing.T) {
 		engine.WithLayer(asyncRunner),
 		engine.WithLayer(taskMixer),
 	)
-	defer wrapped.Close()
+	//defer wrapped.Close()
 
 	// Import test script that processes tasks with different delays
 	script := `
@@ -233,20 +233,16 @@ func TestAsyncTasksWithTimers(t *testing.T) {
 			-- Start three coroutines to handle tasks
 			for i = 1, 3 do
 				coroutine.spawn(function()
-				
 					local task, ok = inbox:receive()
 					if not ok then return end
 
-print("here")
 					-- Wait for specified delay
-					time.sleep("10ms"):receive()
-
-					print("done_" .. task:input().id)
+					time.after(task:input().delay):receive()
 
 					-- Record completion order
 					table.insert(results, {
 						id = task:input().id,
-						original_order = task.order
+						original_order = task:input().order
 					})
 
 					-- Signal completion and send result back

@@ -28,7 +28,6 @@ func (r *Runner) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, er
 		select {
 		case item := <-sch:
 			// push data downstream to channel runner
-
 			if item.ok {
 				err := r.channels.Send(cvm.Context(), item.ch, item.value)
 				if err != nil {
