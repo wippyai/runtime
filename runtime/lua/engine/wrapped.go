@@ -78,11 +78,11 @@ func (w *wrappedLayer) Close() {
 	w.next.Close()
 }
 
-// CVMOption represents a function that can modify a CVMWrapper
-type CVMOption func(*CVMWrapper)
+// WrapperOption represents a function that can modify a CVMWrapper
+type WrapperOption func(*CVMWrapper)
 
-// WithLayer returns a CVMOption that adds a layer to the wrapper
-func WithLayer(layer Layer) CVMOption {
+// WithLayer returns a WrapperOption that adds a layer to the wrapper
+func WithLayer(layer Layer) WrapperOption {
 	return func(w *CVMWrapper) {
 		w.layers = append(w.layers, layer)
 		// Invalidate cache
@@ -101,7 +101,7 @@ type CVMWrapper struct {
 }
 
 // NewWrappedCVM creates a new wrapper around provided CVM with optional layers
-func NewWrappedCVM(cvm *CoroutineVM, opts ...CVMOption) *CVMWrapper {
+func NewWrappedCVM(cvm *CoroutineVM, opts ...WrapperOption) *CVMWrapper {
 	w := &CVMWrapper{
 		cvm:       cvm,
 		taskGroup: NewTaskGroup(4096), // todo; move to options too
@@ -146,6 +146,26 @@ func (e *CVMWrapper) Start(funcName string, args ...lua.LValue) (<-chan Result, 
 }
 
 func (e *CVMWrapper) Run(ctx context.Context, exitCh <-chan Result) (lua.LValue, error) {
+	ctx, cleanup := closer.WithContext(WithTaskGroup(ctx, e.taskGroup))
+	defer func() {
+		for _, t := range e.cvm.tasks {
+			_ = e.cvm.removeTask(t)
+		}
+		e.taskGroup.clean()
+		e.cvm.vm.state.RemoveContext()
+		if err := cleanup.Close(); err != nil {
+			e.cvm.vm.log.Error("cleanup failed", zap.Error(err))
+		}
+	}()
+
+	// establish context
+	e.cvm.vm.state.SetContext(ctx)
+	for _, t := range e.cvm.tasks {
+		if t.thread.Context() == nil {
+			t.thread.SetContext(ctx)
+		}
+	}
+
 	wrapped := e.getWrapped()
 	var result Result
 	for {
@@ -207,24 +227,6 @@ func (e *CVMWrapper) Execute(
 	funcName string,
 	args ...lua.LValue,
 ) (lua.LValue, error) {
-	if ctx != nil {
-		ctx, cleanup := closer.WithContext(ctx)
-		defer func() {
-			for _, t := range e.cvm.tasks {
-				_ = e.cvm.removeTask(t)
-			}
-
-			e.taskGroup.clean()
-			e.cvm.vm.state.RemoveContext()
-			if err := cleanup.Close(); err != nil {
-				e.cvm.vm.log.Error("cleanup failed",
-					zap.String("function", funcName),
-					zap.Error(err))
-			}
-		}()
-		e.cvm.vm.state.SetContext(WithTaskGroup(ctx, e.taskGroup))
-	}
-
 	out, err := e.Start(funcName, args...)
 	if err != nil {
 		return nil, err

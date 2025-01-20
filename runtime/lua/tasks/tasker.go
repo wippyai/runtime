@@ -9,19 +9,6 @@ import (
 	"sync/atomic"
 )
 
-// Result represents possible outputs from task execution
-type Result struct {
-	Values []lua.LValue
-	Error  error
-}
-
-// taskSchedule represents a message that can be sent through the tasker
-type taskSchedule struct {
-	id      string
-	input   lua.LValue
-	channel chan *Result
-}
-
 // Tasker manages task execution within a Lua VM
 type Tasker struct {
 	cvm     *engine.CoroutineVM
@@ -31,21 +18,17 @@ type Tasker struct {
 }
 
 // NewTasker creates a new instance of the task manager
-func NewTasker(cvm *engine.CoroutineVM, channels *channel.Runner, inboxSize int, opts ...engine.CVMOption) (*Tasker, error) {
-	// Create task mixer
+func NewTasker(cvm *engine.CoroutineVM, channels *channel.Runner, inboxSize int, opts ...engine.WrapperOption) (*Tasker, error) {
 	mixer := NewMixer(channels, inboxSize)
 
 	// Set up base layers and add user options
-	baseOpts := []engine.CVMOption{
+	baseOpts := []engine.WrapperOption{
 		engine.WithLayer(channels),
 		engine.WithLayer(mixer),
 	}
 
-	// Append any additional user options
-	opts = append(baseOpts, opts...)
-
 	// Create wrapped VM with all layers
-	wrapped := engine.NewWrappedCVM(cvm, opts...)
+	wrapped := engine.NewWrappedCVM(cvm, append(baseOpts, opts...)...)
 
 	tasker := &Tasker{
 		cvm:     cvm,
@@ -165,13 +148,13 @@ func (t *Tasker) Stop(ctx context.Context) error {
 	}
 }
 
-// Schedule submits a new task for execution
-func (t *Tasker) Schedule(id string, input lua.LValue) (<-chan *Result, error) {
+// Execute submits a new task for execution
+func (t *Tasker) Execute(id string, input lua.LValue) (<-chan Result, error) {
 	if !t.running.Load() {
 		return nil, fmt.Errorf("tasker not running")
 	}
 
-	resultChan := make(chan *Result, 1)
+	resultChan := make(chan Result, 1)
 	schedule := &taskSchedule{
 		id:      id,
 		input:   input,
