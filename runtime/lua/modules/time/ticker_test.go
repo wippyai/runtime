@@ -47,9 +47,9 @@ func TestTicker(t *testing.T) {
 		err = vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		channels := channel.NewChannelRunner()
-		asyncRunner := async.NewAsyncRunner(channels)
-		wrapped := engine.NewWrappedCVM(vm,
+		channels := channel.NewChannelLayer()
+		asyncRunner := async.NewAsyncLayer(channels)
+		wrapped := engine.NewRunner(vm,
 			engine.WithLayer(asyncRunner),
 			engine.WithLayer(channels),
 		)
@@ -168,9 +168,9 @@ func TestTicker(t *testing.T) {
 				err = vm.Import(tc.script, "test", "test")
 				require.NoError(t, err)
 
-				channels := channel.NewChannelRunner()
-				asyncRunner := async.NewAsyncRunner(channels)
-				wrapped := engine.NewWrappedCVM(vm,
+				channels := channel.NewChannelLayer()
+				asyncRunner := async.NewAsyncLayer(channels)
+				wrapped := engine.NewRunner(vm,
 					engine.WithLayer(asyncRunner),
 					engine.WithLayer(channels),
 				)
@@ -219,9 +219,9 @@ func TestTicker(t *testing.T) {
 		err = vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		channels := channel.NewChannelRunner()
-		asyncRunner := async.NewAsyncRunner(channels)
-		wrapped := engine.NewWrappedCVM(vm,
+		channels := channel.NewChannelLayer()
+		asyncRunner := async.NewAsyncLayer(channels)
+		wrapped := engine.NewRunner(vm,
 			engine.WithLayer(asyncRunner),
 			engine.WithLayer(channels),
 		)
@@ -290,12 +290,12 @@ func TestTicker(t *testing.T) {
 		err = vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		channels := channel.NewChannelRunner()
-		asyncRunner := async.NewAsyncRunner(channels)
-		wrapped := engine.NewWrappedCVM(vm,
+		channels := channel.NewChannelLayer()
+		asyncRunner := async.NewAsyncLayer(channels)
+		wrapped := engine.NewRunner(vm,
 			engine.WithLayer(asyncRunner),
 			engine.WithLayer(channels),
-			engine.WithLayer(coroutine.NewCoroutineRunner()),
+			engine.WithLayer(coroutine.NewCoroutineLayer()),
 		)
 
 		ctx := async.WithAsyncChannel(engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup()))

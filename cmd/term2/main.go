@@ -52,13 +52,13 @@ func main() {
 		return
 	}
 
-	chRun := channel.NewChannelRunner()
+	chRun := channel.NewChannelLayer()
 	btLayer := &BTLayer{chRun: chRun}
 
-	wvm := engine.NewWrappedCVM(vm,
+	wvm := engine.NewRunner(vm,
 		engine.WithLayer(chRun),
 		engine.WithLayer(btLayer),
-		engine.WithLayer(coroutine.NewCoroutineRunner()),
+		engine.WithLayer(coroutine.NewCoroutineLayer()),
 	)
 	defer wvm.Close()
 

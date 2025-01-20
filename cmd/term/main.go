@@ -125,7 +125,7 @@ func IsMessageYield(value lua.LValue) (*MessageYield, bool) {
 type errMsg string
 
 type BTLayer struct {
-	chRun *channel.Runner
+	chRun *channel.Layer
 }
 
 func (b *BTLayer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, error) {
@@ -208,14 +208,14 @@ func main() {
 		return
 	}
 
-	chRun := channel.NewChannelRunner()
+	chRun := channel.NewChannelLayer()
 	btLayer := &BTLayer{chRun: chRun}
 
-	wvm := engine.NewWrappedCVM(vm,
+	wvm := engine.NewRunner(vm,
 		engine.WithLayer(chRun),
 		engine.WithLayer(btLayer),
-		engine.WithLayer(async.NewAsyncRunner(chRun)),
-		engine.WithLayer(coroutine.NewCoroutineRunner()),
+		engine.WithLayer(async.NewAsyncLayer(chRun)),
+		engine.WithLayer(coroutine.NewCoroutineLayer()),
 	)
 	defer wvm.Close()
 

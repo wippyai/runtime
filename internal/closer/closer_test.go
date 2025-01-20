@@ -108,10 +108,10 @@ func TestCleanup(t *testing.T) {
 		newCtx, newCleanup := WithContext(ctx)
 
 		if newCleanup != existingCleanup {
-			t.Error("WithContext should return existing cleanup")
+			t.Error("WithAsyncChannel should return existing cleanup")
 		}
 		if newCtx != ctx {
-			t.Error("WithContext should return same context when cleanup exists")
+			t.Error("WithAsyncChannel should return same context when cleanup exists")
 		}
 	})
 }

@@ -169,13 +169,13 @@ func createVM(cfg *Factory) (api.VM, error) {
 		}
 	}
 
-	channels := channel.NewChannelRunner()
+	channels := channel.NewChannelLayer()
 
 	// wrapping into execution layer
-	wrap := engine.NewWrappedCVM(vm,
+	wrap := engine.NewRunner(vm,
 		engine.WithLayer(channels),
-		engine.WithLayer(async.NewAsyncRunner(channels)),
-		engine.WithLayer(coroutine.NewCoroutineRunner()),
+		engine.WithLayer(async.NewAsyncLayer(channels)),
+		engine.WithLayer(coroutine.NewCoroutineLayer()),
 	)
 
 	return wrap, nil

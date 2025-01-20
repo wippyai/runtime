@@ -324,13 +324,15 @@ func TestTaskGroupProcessing(t *testing.T) {
 // mockCVM implements the CVM interface for testing
 type mockCVM struct{}
 
-func (m *mockCVM) Context() context.Context                           { return context.Background() }
-func (m *mockCVM) Start(string, ...lua.LValue) (<-chan Result, error) { return nil, nil }
-func (m *mockCVM) Step(...*Task) ([]*Task, error)                     { return nil, nil }
-func (m *mockCVM) GetTasks() []*Task                                  { return nil }
-func (m *mockCVM) GetTask(*lua.LState) (*Task, error)                 { return nil, nil }
-func (m *mockCVM) State() *lua.LState                                 { return nil }
-func (m *mockCVM) Close()                                             {}
+func (m *mockCVM) Context() context.Context { return context.Background() }
+func (m *mockCVM) Start(context.Context, string, ...lua.LValue) (<-chan Result, error) {
+	return nil, nil
+}
+func (m *mockCVM) Step(...*Task) ([]*Task, error)     { return nil, nil }
+func (m *mockCVM) GetTasks() []*Task                  { return nil }
+func (m *mockCVM) GetTask(*lua.LState) (*Task, error) { return nil, nil }
+func (m *mockCVM) State() *lua.LState                 { return nil }
+func (m *mockCVM) Close()                             {}
 
 // mockCVMWithTasks implements CVM interface with configurable task responses
 type mockCVMWithTasks struct {
@@ -342,7 +344,7 @@ func (m *mockCVMWithTasks) Context() context.Context {
 	return context.Background()
 }
 
-func (m *mockCVMWithTasks) Start(string, ...lua.LValue) (<-chan Result, error) {
+func (m *mockCVMWithTasks) Start(context.Context, string, ...lua.LValue) (<-chan Result, error) {
 	return nil, nil
 }
 

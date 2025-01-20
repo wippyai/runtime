@@ -26,10 +26,10 @@ func TestAsyncStreamRead(t *testing.T) {
 		defer vm.Close()
 
 		// Create wrapped VM with async runner
-		wrapped := engine.NewWrappedCVM(
+		wrapped := engine.NewRunner(
 			vm,
-			engine.WithLayer(channel.NewChannelRunner()),
-			engine.WithLayer(coroutine.NewCoroutineRunner()),
+			engine.WithLayer(channel.NewChannelLayer()),
+			engine.WithLayer(coroutine.NewCoroutineLayer()),
 		)
 
 		// Create test data and stream
@@ -109,10 +109,10 @@ func TestAsyncStreamIter(t *testing.T) {
 		defer vm.Close()
 
 		// Create wrapped VM with async runner
-		wrapped := engine.NewWrappedCVM(
+		wrapped := engine.NewRunner(
 			vm,
-			engine.WithLayer(channel.NewChannelRunner()),
-			engine.WithLayer(coroutine.NewCoroutineRunner()),
+			engine.WithLayer(channel.NewChannelLayer()),
+			engine.WithLayer(coroutine.NewCoroutineLayer()),
 		)
 
 		// Create test data and stream

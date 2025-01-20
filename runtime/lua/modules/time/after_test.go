@@ -106,9 +106,9 @@ func TestTimeAfter(t *testing.T) {
 				err = vm.Import(tc.script, "test", "test")
 				require.NoError(t, err)
 
-				channels := channel.NewChannelRunner()
-				asyncRunner := async.NewAsyncRunner(channels)
-				wrapped := engine.NewWrappedCVM(vm,
+				channels := channel.NewChannelLayer()
+				asyncRunner := async.NewAsyncLayer(channels)
+				wrapped := engine.NewRunner(vm,
 					engine.WithLayer(asyncRunner),
 					engine.WithLayer(channels),
 				)
@@ -190,9 +190,9 @@ func TestAfterTimers(t *testing.T) {
 		err = vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		channels := channel.NewChannelRunner()
-		asyncRunner := async.NewAsyncRunner(channels)
-		wrapped := engine.NewWrappedCVM(vm,
+		channels := channel.NewChannelLayer()
+		asyncRunner := async.NewAsyncLayer(channels)
+		wrapped := engine.NewRunner(vm,
 			engine.WithLayer(asyncRunner),
 			engine.WithLayer(channels),
 		)
@@ -268,9 +268,9 @@ func TestAfterTimers(t *testing.T) {
 		err = vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		channels := channel.NewChannelRunner()
-		asyncRunner := async.NewAsyncRunner(channels)
-		wrapped := engine.NewWrappedCVM(vm,
+		channels := channel.NewChannelLayer()
+		asyncRunner := async.NewAsyncLayer(channels)
+		wrapped := engine.NewRunner(vm,
 			engine.WithLayer(channels),
 			engine.WithLayer(asyncRunner),
 		)
@@ -317,9 +317,9 @@ func TestAfterTimers(t *testing.T) {
 		err = vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		channels := channel.NewChannelRunner()
-		asyncRunner := async.NewAsyncRunner(channels)
-		wrapped := engine.NewWrappedCVM(vm,
+		channels := channel.NewChannelLayer()
+		asyncRunner := async.NewAsyncLayer(channels)
+		wrapped := engine.NewRunner(vm,
 			engine.WithLayer(asyncRunner),
 			engine.WithLayer(channels),
 		)
@@ -378,9 +378,9 @@ func TestAfterTimers(t *testing.T) {
 		err = vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		channels := channel.NewChannelRunner()
-		asyncRunner := async.NewAsyncRunner(channels)
-		wrapped := engine.NewWrappedCVM(vm,
+		channels := channel.NewChannelLayer()
+		asyncRunner := async.NewAsyncLayer(channels)
+		wrapped := engine.NewRunner(vm,
 			engine.WithLayer(asyncRunner),
 			engine.WithLayer(channels),
 		)
@@ -450,9 +450,9 @@ func TestAfterTimers(t *testing.T) {
 		err = vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		channels := channel.NewChannelRunner()
-		asyncRunner := async.NewAsyncRunner(channels)
-		wrapped := engine.NewWrappedCVM(vm,
+		channels := channel.NewChannelLayer()
+		asyncRunner := async.NewAsyncLayer(channels)
+		wrapped := engine.NewRunner(vm,
 			engine.WithLayer(asyncRunner),
 			engine.WithLayer(channels),
 		)

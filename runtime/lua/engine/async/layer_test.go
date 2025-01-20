@@ -14,11 +14,6 @@ import (
 
 // after is a simple async function that sends a value after a delay
 func after(L *lua.LState) int {
-	if err := ValidateContext(L); err != nil {
-		L.RaiseError("after: %s", err)
-		return 0
-	}
-
 	delay := L.CheckInt(1)
 	if delay <= 0 {
 		L.RaiseError("delay must be positive")
@@ -29,8 +24,8 @@ func after(L *lua.LState) int {
 	go func() {
 		select {
 		case <-time.After(time.Duration(delay) * time.Millisecond):
-			Send(L, ch, lua.LTrue, true)
-			Send(L, ch, lua.LNil, false)
+			_ = Send(L, ch, lua.LTrue, true)
+			_ = Send(L, ch, lua.LNil, false)
 		case <-L.Context().Done():
 			return
 		}
@@ -63,16 +58,15 @@ func TestAsyncLayer(t *testing.T) {
 		err = vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		channels := channel.NewChannelRunner()
-		asyncRunner := NewAsyncRunner(channels)
-		wrapped := engine.NewWrappedCVM(vm,
+		channels := channel.NewChannelLayer()
+		asyncRunner := NewAsyncLayer(channels, 4096)
+		wrapped := engine.NewRunner(vm,
 			engine.WithLayer(asyncRunner),
 			engine.WithLayer(channels),
 		)
 
 		ctx := engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup())
-		ctx = WithAsyncChannel(ctx)
-		vm.SetContext(ctx)
+		ctx = asyncRunner.WithAsyncChannel(ctx)
 
 		start := time.Now()
 		result, err := wrapped.Execute(ctx, "test")
@@ -103,16 +97,16 @@ func TestAsyncLayer(t *testing.T) {
 		err = vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		channels := channel.NewChannelRunner()
-		asyncRunner := NewAsyncRunner(channels)
-		wrapped := engine.NewWrappedCVM(vm,
+		channels := channel.NewChannelLayer()
+		asyncRunner := NewAsyncLayer(channels, 4096)
+		wrapped := engine.NewRunner(vm,
 			engine.WithLayer(asyncRunner),
 			engine.WithLayer(channels),
 		)
 
 		ctx, cancel := context.WithCancel(context.Background())
 		ctx = engine.WithTaskGroup(ctx, wrapped.GetTaskGroup())
-		ctx = WithAsyncChannel(ctx)
+		ctx = asyncRunner.WithAsyncChannel(ctx)
 
 		// Cancel after a short delay
 		go func() {

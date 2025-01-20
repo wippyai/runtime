@@ -13,6 +13,7 @@ import (
 )
 
 // todo: we might need some whitelist of what can actually be called from Lua
+// todo: work on permission layer!
 
 type Module struct {
 	appContext context.Context
