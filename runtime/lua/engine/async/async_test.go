@@ -27,7 +27,7 @@ func TestSend(t *testing.T) {
 		value := lua.LString("test")
 
 		// Send value
-		Send(L, ch, value, true)
+		_ = Send(L, ch, value, true)
 
 		// Verify async was sent by checking the async channel
 		_, asyncCh, _ := getContext(ctx)
@@ -53,6 +53,6 @@ func TestSend(t *testing.T) {
 		value := lua.LString("test")
 
 		// Send should not panic but silently fail
-		Send(L, ch, value, true)
+		_ = Send(L, ch, value, true)
 	})
 }
