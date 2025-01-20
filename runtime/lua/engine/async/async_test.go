@@ -18,7 +18,7 @@ func TestSend(t *testing.T) {
 		ctx := context.Background()
 		tg := engine.NewTaskGroup(10)
 		ctx = engine.WithTaskGroup(ctx, tg)
-		ctx = NewAsyncLayer(nil, 4096).WithAsyncChannel(ctx)
+		ctx = NewAsyncLayer(nil, 4096).WithContext(ctx)
 
 		L.SetContext(ctx)
 

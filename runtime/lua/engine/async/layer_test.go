@@ -66,7 +66,7 @@ func TestAsyncLayer(t *testing.T) {
 		)
 
 		ctx := engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup())
-		ctx = asyncRunner.WithAsyncChannel(ctx)
+		ctx = asyncRunner.WithContext(ctx)
 
 		start := time.Now()
 		result, err := wrapped.Execute(ctx, "test")
@@ -106,7 +106,7 @@ func TestAsyncLayer(t *testing.T) {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		ctx = engine.WithTaskGroup(ctx, wrapped.GetTaskGroup())
-		ctx = asyncRunner.WithAsyncChannel(ctx)
+		ctx = asyncRunner.WithContext(ctx)
 
 		// Cancel after a short delay
 		go func() {

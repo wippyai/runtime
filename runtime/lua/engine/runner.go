@@ -19,6 +19,10 @@ type (
 		Step(cvm CVM, tasks ...*Task) ([]*Task, error)
 	}
 
+	Contexter interface {
+		WithContext(ctx context.Context) context.Context
+	}
+
 	// CVM represents core VM functionality required by layers
 	CVM interface {
 		Start(ctx context.Context, funcName string, args ...lua.LValue) (<-chan Result, error)
@@ -202,9 +206,13 @@ func (e *Runner) Execute(
 	funcName string,
 	args ...lua.LValue,
 ) (lua.LValue, error) {
-
 	// we always have to ensure we run using the task group context!
 	ctx, cleanup := closer.WithContext(WithTaskGroup(ctx, e.taskGroup))
+	for _, l := range e.layers {
+		if c, ok := l.(Contexter); ok {
+			ctx = c.WithContext(ctx)
+		}
+	}
 
 	defer func() {
 		for _, t := range e.cvm.tasks {
