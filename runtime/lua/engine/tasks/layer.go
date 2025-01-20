@@ -7,7 +7,7 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	lua "github.com/yuin/gopher-lua"
-	"log"
+	"sync/atomic"
 )
 
 type TaskID = string
@@ -25,6 +25,7 @@ type Mixer struct {
 	outbox   *channel.Channel
 	inbox    chan *taskSchedule // Shared channel for all tasks
 	close    chan struct{}
+	closed   int32
 }
 
 // NewMixer creates a new task management layer
@@ -33,7 +34,8 @@ func NewMixer(channels *channel.Runner, inboxSize int) *Mixer {
 		channels: channels,
 		outbox:   nil, // created on demand
 		inbox:    make(chan *taskSchedule, inboxSize),
-		close:    make(chan struct{}),
+		close:    make(chan struct{}, 1),
+		closed:   int32(0),
 	}
 }
 
@@ -66,6 +68,18 @@ func (m *Mixer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, err
 			return nil, err
 		}
 		m.outbox = nil
+		drain := true
+		for {
+			if !drain {
+				break
+			}
+			select {
+			case <-m.inbox:
+			default:
+				drain = false
+			}
+		}
+		atomic.CompareAndSwapInt32(&m.closed, 1, 0)
 	default:
 	}
 
@@ -105,7 +119,6 @@ func (m *Mixer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, err
 		// todo: add batching support
 		select {
 		case schedule := <-m.inbox:
-			log.Printf("Received task: %s", schedule.id)
 			if m.outbox == nil {
 				m.outbox = channel.Named("tasks", cap(m.inbox))
 			}
@@ -122,13 +135,17 @@ func (m *Mixer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, err
 	return outTasks, nil
 }
 
-// Close closes the outbox channel and frees task on any block.
-func (m *Mixer) Close(ctx context.Context) error {
+// Close thread safe close of the task channel. Can be re-requested.
+func (m *Mixer) CloseOutbox(ctx context.Context) error {
+	if !atomic.CompareAndSwapInt32(&m.closed, 0, 1) {
+		return nil
+	}
+
 	tg := engine.GetTaskGroup(ctx)
 	if tg == nil {
 		return errors.New("no task group found in context") // todo: add predefined errors
 	}
-	close(m.close)
+	m.close <- struct{}{}
 	tg.WakeUp()
 
 	return nil

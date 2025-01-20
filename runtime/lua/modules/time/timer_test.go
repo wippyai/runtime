@@ -26,11 +26,6 @@ func TestTimer(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		tg := engine.NewTaskGroup(100)
-		ctx := engine.WithTaskGroup(context.Background(), tg)
-		ctx = async.WithAsyncChannel(ctx)
-		vm.SetContext(ctx)
-
 		script := `
 			function test()
 				local t = time.timer("100ms")
@@ -48,6 +43,9 @@ func TestTimer(t *testing.T) {
 			engine.WithLayer(asyncRunner),
 			engine.WithLayer(channels),
 		)
+
+		ctx := engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup())
+		ctx = async.WithAsyncChannel(ctx)
 
 		start := time.Now()
 		result, err := wrapped.Execute(ctx, "test")
@@ -67,11 +65,6 @@ func TestTimer(t *testing.T) {
 		)
 		require.NoError(t, err)
 		defer vm.Close()
-
-		tg := engine.NewTaskGroup(100)
-		ctx := engine.WithTaskGroup(context.Background(), tg)
-		ctx = async.WithAsyncChannel(ctx)
-		vm.SetContext(ctx)
 
 		script := `
 			function test()
@@ -101,6 +94,9 @@ func TestTimer(t *testing.T) {
 			engine.WithLayer(channels),
 		)
 
+		ctx := engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup())
+		ctx = async.WithAsyncChannel(ctx)
+
 		result, err := wrapped.Execute(ctx, "test")
 		require.NoError(t, err)
 
@@ -117,11 +113,6 @@ func TestTimer(t *testing.T) {
 		)
 		require.NoError(t, err)
 		defer vm.Close()
-
-		tg := engine.NewTaskGroup(100)
-		ctx := engine.WithTaskGroup(context.Background(), tg)
-		ctx = async.WithAsyncChannel(ctx)
-		vm.SetContext(ctx)
 
 		script := `
 			function test()
@@ -141,6 +132,9 @@ func TestTimer(t *testing.T) {
 			engine.WithLayer(channels),
 		)
 
+		ctx := engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup())
+		ctx = async.WithAsyncChannel(ctx)
+
 		result, err := wrapped.Execute(ctx, "test")
 		require.NoError(t, err)
 		assert.Equal(t, "true", result.String())
@@ -154,11 +148,6 @@ func TestTimer(t *testing.T) {
 		)
 		require.NoError(t, err)
 		defer vm.Close()
-
-		tg := engine.NewTaskGroup(100)
-		ctx := engine.WithTaskGroup(context.Background(), tg)
-		ctx = async.WithAsyncChannel(ctx)
-		vm.SetContext(ctx)
 
 		script := `
 			function test()
@@ -186,6 +175,9 @@ func TestTimer(t *testing.T) {
 			engine.WithLayer(asyncRunner),
 			engine.WithLayer(channels),
 		)
+
+		ctx := engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup())
+		ctx = async.WithAsyncChannel(ctx)
 
 		start := time.Now()
 		result, err := wrapped.Execute(ctx, "test")
@@ -286,11 +278,6 @@ func TestTimer(t *testing.T) {
 				require.NoError(t, err)
 				defer vm.Close()
 
-				tg := engine.NewTaskGroup(100)
-				ctx := engine.WithTaskGroup(context.Background(), tg)
-				ctx = async.WithAsyncChannel(ctx)
-				vm.SetContext(ctx)
-
 				err = vm.Import(tc.script, "test", "test")
 				require.NoError(t, err)
 
@@ -300,6 +287,9 @@ func TestTimer(t *testing.T) {
 					engine.WithLayer(asyncRunner),
 					engine.WithLayer(channels),
 				)
+
+				ctx := engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup())
+				ctx = async.WithAsyncChannel(ctx)
 
 				start := time.Now()
 				result, err := wrapped.Execute(ctx, "test")
@@ -329,12 +319,6 @@ func TestTimer(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		tg := engine.NewTaskGroup(100)
-		ctx, cancel := context.WithCancel(context.Background())
-		ctx = engine.WithTaskGroup(ctx, tg)
-		ctx = async.WithAsyncChannel(ctx)
-		vm.SetContext(ctx)
-
 		script := `
 			function test()
 				local t = time.timer("500ms")
@@ -352,6 +336,9 @@ func TestTimer(t *testing.T) {
 			engine.WithLayer(asyncRunner),
 			engine.WithLayer(channels),
 		)
+
+		ctx, cancel := context.WithCancel(engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup()))
+		ctx = async.WithAsyncChannel(ctx)
 
 		done := make(chan struct{})
 		var execErr error
@@ -386,11 +373,6 @@ func TestTimerSelectAndCoroutine(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		tg := engine.NewTaskGroup(100)
-		ctx := engine.WithTaskGroup(context.Background(), tg)
-		ctx = async.WithAsyncChannel(ctx)
-		vm.SetContext(ctx)
-
 		script := `
 			function test()
 				local results = {}
@@ -451,6 +433,9 @@ func TestTimerSelectAndCoroutine(t *testing.T) {
 			engine.WithLayer(asyncRunner),
 			engine.WithLayer(coroutine.NewCoroutineRunner()),
 		)
+
+		ctx := engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup())
+		ctx = async.WithAsyncChannel(ctx)
 
 		start := time.Now()
 		result, err := wrapped.Execute(ctx, "test")
@@ -481,11 +466,6 @@ func TestTimerSelectAndCoroutineInversedOrder(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		tg := engine.NewTaskGroup(100)
-		ctx := engine.WithTaskGroup(context.Background(), tg)
-		ctx = async.WithAsyncChannel(ctx)
-		vm.SetContext(ctx)
-
 		script := `
 			function test()
 				local results = {}
@@ -546,6 +526,9 @@ func TestTimerSelectAndCoroutineInversedOrder(t *testing.T) {
 			engine.WithLayer(channels),
 			engine.WithLayer(asyncRunner),
 		)
+
+		ctx := engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup())
+		ctx = async.WithAsyncChannel(ctx)
 
 		start := time.Now()
 		result, err := wrapped.Execute(ctx, "test")

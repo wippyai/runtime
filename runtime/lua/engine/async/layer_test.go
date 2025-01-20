@@ -52,11 +52,6 @@ func TestAsyncLayer(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		tg := engine.NewTaskGroup(100)
-		ctx := engine.WithTaskGroup(context.Background(), tg)
-		ctx = WithAsyncChannel(ctx)
-		vm.SetContext(ctx)
-
 		script := `
             function test()
                 local ch = after(100)  -- wait 100ms
@@ -74,6 +69,10 @@ func TestAsyncLayer(t *testing.T) {
 			engine.WithLayer(asyncRunner),
 			engine.WithLayer(channels),
 		)
+
+		ctx := engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup())
+		ctx = WithAsyncChannel(ctx)
+		vm.SetContext(ctx)
 
 		start := time.Now()
 		result, err := wrapped.Execute(ctx, "test")
@@ -93,12 +92,6 @@ func TestAsyncLayer(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		tg := engine.NewTaskGroup(100)
-		ctx, cancel := context.WithCancel(context.Background())
-		ctx = engine.WithTaskGroup(ctx, tg)
-		ctx = WithAsyncChannel(ctx)
-		vm.SetContext(ctx)
-
 		script := `
             function test()
                 local ch = after(1000)  -- wait 1s
@@ -116,6 +109,10 @@ func TestAsyncLayer(t *testing.T) {
 			engine.WithLayer(asyncRunner),
 			engine.WithLayer(channels),
 		)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		ctx = engine.WithTaskGroup(ctx, wrapped.GetTaskGroup())
+		ctx = WithAsyncChannel(ctx)
 
 		// Cancel after a short delay
 		go func() {

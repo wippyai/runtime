@@ -103,11 +103,6 @@ func TestTimeAfter(t *testing.T) {
 				require.NoError(t, err)
 				defer vm.Close()
 
-				tg := engine.NewTaskGroup(100)
-				ctx := engine.WithTaskGroup(context.Background(), tg)
-				ctx = async.WithAsyncChannel(ctx)
-				vm.SetContext(ctx)
-
 				err = vm.Import(tc.script, "test", "test")
 				require.NoError(t, err)
 
@@ -117,6 +112,9 @@ func TestTimeAfter(t *testing.T) {
 					engine.WithLayer(asyncRunner),
 					engine.WithLayer(channels),
 				)
+
+				ctx := engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup())
+				ctx = async.WithAsyncChannel(ctx)
 
 				start := time.Now()
 				result, err := wrapped.Execute(ctx, "test")
@@ -149,11 +147,6 @@ func TestAfterTimers(t *testing.T) {
 		)
 		require.NoError(t, err)
 		defer vm.Close()
-
-		tg := engine.NewTaskGroup(100)
-		ctx := engine.WithTaskGroup(context.Background(), tg)
-		ctx = async.WithAsyncChannel(ctx)
-		vm.SetContext(ctx)
 
 		script := `
             function test()
@@ -204,6 +197,10 @@ func TestAfterTimers(t *testing.T) {
 			engine.WithLayer(channels),
 		)
 
+		ctx := engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup())
+		ctx = async.WithAsyncChannel(ctx)
+		vm.SetContext(ctx)
+
 		start := time.Now()
 		result, err := wrapped.Execute(ctx, "test")
 		duration := time.Since(start)
@@ -229,12 +226,6 @@ func TestAfterTimers(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		tg := engine.NewTaskGroup(100)
-		ctx, cancel := context.WithCancel(context.Background())
-		ctx = engine.WithTaskGroup(ctx, tg)
-		ctx = async.WithAsyncChannel(ctx)
-		vm.SetContext(ctx)
-
 		script := `
             function test()
                 local t1 = time.after("500ms")
@@ -254,6 +245,10 @@ func TestAfterTimers(t *testing.T) {
 			engine.WithLayer(asyncRunner),
 			engine.WithLayer(channels),
 		)
+
+		ctx, cancel := context.WithCancel(engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup()))
+		ctx = async.WithAsyncChannel(ctx)
+		vm.SetContext(ctx)
 
 		// Start execution in a goroutine
 		done := make(chan struct{})
@@ -287,11 +282,6 @@ func TestAfterTimers(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		tg := engine.NewTaskGroup(100)
-		ctx := engine.WithTaskGroup(context.Background(), tg)
-		ctx = async.WithAsyncChannel(ctx)
-		vm.SetContext(ctx)
-
 		script := `
             function test()
                 local results = {}
@@ -317,6 +307,10 @@ func TestAfterTimers(t *testing.T) {
 			engine.WithLayer(channels),
 		)
 
+		ctx := engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup())
+		ctx = async.WithAsyncChannel(ctx)
+		vm.SetContext(ctx)
+
 		start := time.Now()
 		result, err := wrapped.Execute(ctx, "test")
 		duration := time.Since(start)
@@ -341,11 +335,6 @@ func TestAfterTimers(t *testing.T) {
 		)
 		require.NoError(t, err)
 		defer vm.Close()
-
-		tg := engine.NewTaskGroup(100)
-		ctx := engine.WithTaskGroup(context.Background(), tg)
-		ctx = async.WithAsyncChannel(ctx)
-		vm.SetContext(ctx)
 
 		script := `
             function test()
@@ -389,6 +378,10 @@ func TestAfterTimers(t *testing.T) {
 			engine.WithLayer(asyncRunner),
 			engine.WithLayer(channels),
 		)
+
+		ctx := engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup())
+		ctx = async.WithAsyncChannel(ctx)
+		vm.SetContext(ctx)
 
 		start := time.Now()
 		result, err := wrapped.Execute(ctx, "test")

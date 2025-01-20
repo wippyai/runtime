@@ -220,7 +220,7 @@ func main() {
 	defer wvm.Close()
 
 	ctx := context.Background()
-	ctx = engine.WithTaskGroup(ctx, engine.NewTaskGroup(1024))
+	ctx = engine.WithTaskGroup(ctx, wvm.GetTaskGroup())
 	ctx = async.WithAsyncChannel(ctx)
 
 	_, err = wvm.Execute(ctx, "App")

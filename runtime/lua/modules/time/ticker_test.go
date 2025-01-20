@@ -26,11 +26,6 @@ func TestTicker(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		tg := engine.NewTaskGroup(100)
-		ctx := engine.WithTaskGroup(context.Background(), tg)
-		ctx = async.WithAsyncChannel(ctx)
-		vm.SetContext(ctx)
-
 		script := `
 			function test()
 				local results = {}
@@ -58,6 +53,8 @@ func TestTicker(t *testing.T) {
 			engine.WithLayer(asyncRunner),
 			engine.WithLayer(channels),
 		)
+
+		ctx := async.WithAsyncChannel(engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup()))
 
 		start := time.Now()
 		result, err := wrapped.Execute(ctx, "test")
@@ -259,11 +256,6 @@ func TestTicker(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		tg := engine.NewTaskGroup(100)
-		ctx := engine.WithTaskGroup(context.Background(), tg)
-		ctx = async.WithAsyncChannel(ctx)
-		vm.SetContext(ctx)
-
 		script := `
 			function test()
 				local results = {}
@@ -305,6 +297,8 @@ func TestTicker(t *testing.T) {
 			engine.WithLayer(channels),
 			engine.WithLayer(coroutine.NewCoroutineRunner()),
 		)
+
+		ctx := async.WithAsyncChannel(engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup()))
 
 		result, err := wrapped.Execute(ctx, "test")
 		require.NoError(t, err)
