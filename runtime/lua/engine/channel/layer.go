@@ -61,7 +61,7 @@ func (r *Runner) Send(ctx context.Context, ch *Channel, values ...lua.LValue) er
 				}
 
 				tg.Add(result.state)
-				err := tg.Send(ctx, engine.TaskResult{
+				err := tg.Send(ctx, engine.Result{
 					State:  result.state,
 					Result: result.values,
 					Error:  result.err,
@@ -97,7 +97,7 @@ func (r *Runner) Close(ctx context.Context, ch *Channel) error {
 			}
 
 			tg.Add(result.state)
-			err := tg.Send(ctx, engine.TaskResult{
+			err := tg.Send(ctx, engine.Result{
 				State:  result.state,
 				Result: result.values,
 				Error:  result.err,

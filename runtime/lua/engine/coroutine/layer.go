@@ -72,7 +72,7 @@ func (r *Runner) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, er
 				tg.Add(task.Thread())
 				go func(t *engine.Task, w *FuncWrapper) {
 					res := w.Run()
-					_ = tg.Send(tCtx, engine.TaskResult{State: t.Thread(), Result: res.Values, Error: res.Error})
+					_ = tg.Send(tCtx, engine.Result{State: t.Thread(), Result: res.Values, Error: res.Error})
 				}(task, fw)
 				continue
 			}

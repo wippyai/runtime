@@ -22,7 +22,7 @@ type (
 	// CVM represents core VM functionality required by layers
 	CVM interface {
 		Context() context.Context
-		Start(funcName string, args ...lua.LValue) (<-chan TaskResult, error)
+		Start(funcName string, args ...lua.LValue) (<-chan Result, error)
 		Step(tasks ...*Task) ([]*Task, error)
 		GetTasks() []*Task
 		GetTask(thread *lua.LState) (*Task, error)
@@ -56,7 +56,7 @@ func (w *wrappedLayer) Context() context.Context {
 	return w.next.Context()
 }
 
-func (w *wrappedLayer) Start(funcName string, args ...lua.LValue) (<-chan TaskResult, error) {
+func (w *wrappedLayer) Start(funcName string, args ...lua.LValue) (<-chan Result, error) {
 	return w.next.Start(funcName, args...)
 }
 
@@ -141,35 +141,13 @@ func (e *CVMWrapper) GetTaskGroup() *TaskGroup {
 	return e.taskGroup
 }
 
-// Execute runs a function through the layer chain with provided context and arguments
-func (e *CVMWrapper) Execute(
-	ctx context.Context,
-	funcName string,
-	args ...lua.LValue,
-) (lua.LValue, error) {
-	var result TaskResult
-	if ctx != nil {
-		ctx, cleanup := closer.WithContext(ctx)
-		defer func() {
-			e.cleanup()
-			e.cvm.vm.state.RemoveContext()
-			if err := cleanup.Close(); err != nil {
-				e.cvm.vm.log.Error("cleanup failed",
-					zap.String("function", funcName),
-					zap.Error(err))
-			}
-		}()
-		e.cvm.vm.state.SetContext(WithTaskGroup(ctx, e.taskGroup))
-	}
+func (e *CVMWrapper) Start(funcName string, args ...lua.LValue) (<-chan Result, error) {
+	return e.getWrapped().Start(funcName, args...)
+}
 
-	// Get or build wrapped chain
+func (e *CVMWrapper) Run(ctx context.Context, exitCh <-chan Result) (lua.LValue, error) {
 	wrapped := e.getWrapped()
-
-	out, err := wrapped.Start(funcName, args...)
-	if err != nil {
-		return nil, err
-	}
-
+	var result Result
 	for {
 		tasks, err := wrapped.Step(e.cvm.queue.Drain()...)
 		if err != nil {
@@ -181,9 +159,8 @@ func (e *CVMWrapper) Execute(
 			return nil, fmt.Errorf("unexpected tasks, missing VM layer: %v", tasks)
 		}
 
-		// main coroutine is done
 		select {
-		case result = <-out:
+		case result = <-exitCh:
 			stuck := len(e.cvm.tasks)
 
 			if result.Error != nil {
@@ -207,6 +184,11 @@ func (e *CVMWrapper) Execute(
 			}
 		}
 
+		// Wait-Wait-Wait, are we deadlocked?
+		if len(tasks) == 0 && e.taskGroup.GetTaskCount() == 0 {
+			return nil, &DeadlockError{Count: len(e.cvm.tasks)}
+		}
+
 		// block for any pending task
 		tasks, err = e.taskGroup.Wait(ctx, e.cvm, true)
 		if err != nil {
@@ -219,13 +201,36 @@ func (e *CVMWrapper) Execute(
 	}
 }
 
-func (e *CVMWrapper) cleanup() {
-	// cancel and close all threads
-	for _, t := range e.cvm.tasks {
-		_ = e.cvm.removeTask(t)
+// Execute runs a function through the layer chain with provided context and arguments
+func (e *CVMWrapper) Execute(
+	ctx context.Context,
+	funcName string,
+	args ...lua.LValue,
+) (lua.LValue, error) {
+	if ctx != nil {
+		ctx, cleanup := closer.WithContext(ctx)
+		defer func() {
+			for _, t := range e.cvm.tasks {
+				_ = e.cvm.removeTask(t)
+			}
+
+			e.taskGroup.clean()
+			e.cvm.vm.state.RemoveContext()
+			if err := cleanup.Close(); err != nil {
+				e.cvm.vm.log.Error("cleanup failed",
+					zap.String("function", funcName),
+					zap.Error(err))
+			}
+		}()
+		e.cvm.vm.state.SetContext(WithTaskGroup(ctx, e.taskGroup))
 	}
 
-	e.taskGroup.clean()
+	out, err := e.Start(funcName, args...)
+	if err != nil {
+		return nil, err
+	}
+
+	return e.Run(ctx, out)
 }
 
 func (e *CVMWrapper) Close() {

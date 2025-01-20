@@ -64,7 +64,7 @@ func TestTaskGroup(t *testing.T) {
 	t.Run("result sending with context", func(t *testing.T) {
 		// Create a TaskGroup with small buffer
 		group := NewTaskGroup(2)
-		result := TaskResult{State: lua.NewState(), Result: []lua.LValue{lua.LString("test")}}
+		result := Result{State: lua.NewState(), Result: []lua.LValue{lua.LString("test")}}
 
 		// Test 1: Successful send with active context
 		err := group.Send(context.Background(), result)
@@ -118,7 +118,7 @@ func TestTaskGroup(t *testing.T) {
 		defer L.Close()
 
 		group.Add(L)
-		result := TaskResult{State: L, Result: []lua.LValue{lua.LString("test")}}
+		result := Result{State: L, Result: []lua.LValue{lua.LString("test")}}
 		_ = group.Send(context.Background(), result)
 
 		group.clean()
@@ -191,7 +191,7 @@ func TestTaskGroupProcessing(t *testing.T) {
 		}
 
 		// Test successful result processing
-		result := TaskResult{
+		result := Result{
 			State:  L,
 			Result: []lua.LValue{lua.LString("success")},
 		}
@@ -204,7 +204,7 @@ func TestTaskGroupProcessing(t *testing.T) {
 
 		// Test error result processing
 		testErr := fmt.Errorf("test error")
-		errorResult := TaskResult{
+		errorResult := Result{
 			State: L,
 			Error: testErr,
 		}
@@ -259,14 +259,14 @@ func TestTaskGroupProcessing(t *testing.T) {
 			defer wg.Done()
 
 			// Send first result immediately
-			result1 := TaskResult{
+			result1 := Result{
 				State:  L1,
 				Result: []lua.LValue{lua.LString("result1")},
 			}
 			_ = group.Send(ctx, result1)
 
 			// Send second result immediately after
-			result2 := TaskResult{
+			result2 := Result{
 				State:  L2,
 				Result: []lua.LValue{lua.LString("result2")},
 			}
@@ -324,13 +324,13 @@ func TestTaskGroupProcessing(t *testing.T) {
 // mockCVM implements the CVM interface for testing
 type mockCVM struct{}
 
-func (m *mockCVM) Context() context.Context                               { return context.Background() }
-func (m *mockCVM) Start(string, ...lua.LValue) (<-chan TaskResult, error) { return nil, nil }
-func (m *mockCVM) Step(...*Task) ([]*Task, error)                         { return nil, nil }
-func (m *mockCVM) GetTasks() []*Task                                      { return nil }
-func (m *mockCVM) GetTask(*lua.LState) (*Task, error)                     { return nil, nil }
-func (m *mockCVM) State() *lua.LState                                     { return nil }
-func (m *mockCVM) Close()                                                 {}
+func (m *mockCVM) Context() context.Context                           { return context.Background() }
+func (m *mockCVM) Start(string, ...lua.LValue) (<-chan Result, error) { return nil, nil }
+func (m *mockCVM) Step(...*Task) ([]*Task, error)                     { return nil, nil }
+func (m *mockCVM) GetTasks() []*Task                                  { return nil }
+func (m *mockCVM) GetTask(*lua.LState) (*Task, error)                 { return nil, nil }
+func (m *mockCVM) State() *lua.LState                                 { return nil }
+func (m *mockCVM) Close()                                             {}
 
 // mockCVMWithTasks implements CVM interface with configurable task responses
 type mockCVMWithTasks struct {
@@ -342,7 +342,7 @@ func (m *mockCVMWithTasks) Context() context.Context {
 	return context.Background()
 }
 
-func (m *mockCVMWithTasks) Start(string, ...lua.LValue) (<-chan TaskResult, error) {
+func (m *mockCVMWithTasks) Start(string, ...lua.LValue) (<-chan Result, error) {
 	return nil, nil
 }
 

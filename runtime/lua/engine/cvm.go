@@ -92,7 +92,7 @@ func (e *CoroutineVM) Mount(proto *lua.FunctionProto, funcName ...string) error 
 }
 
 // Start begins execution of a named function with the provided arguments.
-func (e *CoroutineVM) Start(funcName string, args ...lua.LValue) (<-chan TaskResult, error) {
+func (e *CoroutineVM) Start(funcName string, args ...lua.LValue) (<-chan Result, error) {
 	fn, ok := e.vm.exported[funcName]
 	if !ok {
 		return nil, fmt.Errorf("function %q not found", funcName)
@@ -103,7 +103,7 @@ func (e *CoroutineVM) Start(funcName string, args ...lua.LValue) (<-chan TaskRes
 		return nil, fmt.Errorf("failed to create coroutine: %w", err)
 	}
 	task.Resumed = args
-	task.output = make(chan TaskResult, 1)
+	task.output = make(chan Result, 1)
 
 	return task.output, nil
 }
@@ -137,7 +137,7 @@ func (e *CoroutineVM) Step(tasks ...*Task) (result []*Task, finalErr error) {
 		if task.State == lua.ResumeYield {
 			if task.RaiseError != nil {
 				if task.output != nil {
-					task.output <- TaskResult{State: task.l, Error: task.RaiseError}
+					task.output <- Result{State: task.l, Error: task.RaiseError}
 					close(task.output)
 					task.output = nil
 				}
@@ -148,7 +148,7 @@ func (e *CoroutineVM) Step(tasks ...*Task) (result []*Task, finalErr error) {
 			state, err, values = e.vm.state.Resume(task.thread, task.fn, task.Resumed...)
 			if err != nil {
 				if task.output != nil {
-					task.output <- TaskResult{State: task.l, Error: err}
+					task.output <- Result{State: task.l, Error: err}
 					close(task.output)
 					task.output = nil
 				}
@@ -166,9 +166,9 @@ func (e *CoroutineVM) Step(tasks ...*Task) (result []*Task, finalErr error) {
 		} else if state == lua.ResumeOK || state == lua.ResumeError {
 			if task.output != nil {
 				if top := task.thread.GetTop(); top > 0 {
-					task.output <- TaskResult{State: task.l, Result: values}
+					task.output <- Result{State: task.l, Result: values}
 				} else {
-					task.output <- TaskResult{State: task.l}
+					task.output <- Result{State: task.l}
 				}
 				close(task.output)
 				task.output = nil
