@@ -144,7 +144,6 @@ func (e *CoroutineVM) Import(s, name string, funcName ...string) error {
 
 // StartString starts a Lua script string with the given name and arguments as coroutine. Step is required to advance execution.
 func (e *CoroutineVM) StartString(ctx context.Context, script, scriptName string, args ...lua.LValue) error {
-	// todo: possibly deprecate this method
 	fn, err := e.vm.state.Load(strings.NewReader(script), scriptName)
 	if err != nil {
 		return err
