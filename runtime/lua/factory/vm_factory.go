@@ -174,7 +174,7 @@ func createVM(cfg *Factory) (api.VM, error) {
 	// wrapping into execution layer
 	wrap := engine.NewRunner(vm,
 		engine.WithLayer(channels),
-		engine.WithLayer(async.NewAsyncLayer(channels)),
+		engine.WithLayer(async.NewAsyncLayer(channels, 4096)),
 		engine.WithLayer(coroutine.NewCoroutineLayer()),
 	)
 

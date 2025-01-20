@@ -62,7 +62,7 @@ func NewAsyncLayer(channels *channel.Layer, chanSize int) *Layer {
 	}
 }
 
-func (r *Layer) WithAsyncChannel(ctx context.Context) context.Context {
+func (r *Layer) WithContext(ctx context.Context) context.Context {
 	return context.WithValue(ctx, scheduleKey, r.schedule)
 }
 

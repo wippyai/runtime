@@ -54,7 +54,7 @@ func TestTicker(t *testing.T) {
 			engine.WithLayer(channels),
 		)
 
-		ctx := asyncRunner.WithAsyncChannel(engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup()))
+		ctx := asyncRunner.WithContext(engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup()))
 
 		start := time.Now()
 		result, err := wrapped.Execute(ctx, "test")
@@ -170,7 +170,7 @@ func TestTicker(t *testing.T) {
 					engine.WithLayer(channels),
 				)
 
-				ctx := asyncRunner.WithAsyncChannel(context.Background())
+				ctx := asyncRunner.WithContext(context.Background())
 				result, err := wrapped.Execute(ctx, "test")
 
 				if tc.expectError {
@@ -216,7 +216,7 @@ func TestTicker(t *testing.T) {
 		)
 
 		ctx, cancel := context.WithCancel(context.Background())
-		ctx = asyncRunner.WithAsyncChannel(ctx)
+		ctx = asyncRunner.WithContext(ctx)
 
 		done := make(chan struct{})
 		var execErr error
@@ -290,7 +290,7 @@ func TestTicker(t *testing.T) {
 			engine.WithLayer(coroutine.NewCoroutineLayer()),
 		)
 
-		ctx := asyncRunner.WithAsyncChannel(context.Background())
+		ctx := asyncRunner.WithContext(context.Background())
 
 		result, err := wrapped.Execute(ctx, "test")
 		require.NoError(t, err)

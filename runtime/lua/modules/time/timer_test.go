@@ -44,7 +44,7 @@ func TestTimer(t *testing.T) {
 			engine.WithLayer(channels),
 		)
 
-		ctx := asyncRunner.WithAsyncChannel(context.Background())
+		ctx := asyncRunner.WithContext(context.Background())
 
 		start := time.Now()
 		result, err := wrapped.Execute(ctx, "test")
@@ -93,7 +93,7 @@ func TestTimer(t *testing.T) {
 			engine.WithLayer(channels),
 		)
 
-		ctx := asyncRunner.WithAsyncChannel(context.Background())
+		ctx := asyncRunner.WithContext(context.Background())
 
 		result, err := wrapped.Execute(ctx, "test")
 		require.NoError(t, err)
@@ -130,7 +130,7 @@ func TestTimer(t *testing.T) {
 			engine.WithLayer(channels),
 		)
 
-		ctx := asyncRunner.WithAsyncChannel(context.Background())
+		ctx := asyncRunner.WithContext(context.Background())
 
 		result, err := wrapped.Execute(ctx, "test")
 		require.NoError(t, err)
@@ -173,7 +173,7 @@ func TestTimer(t *testing.T) {
 			engine.WithLayer(channels),
 		)
 
-		ctx := asyncRunner.WithAsyncChannel(context.Background())
+		ctx := asyncRunner.WithContext(context.Background())
 
 		start := time.Now()
 		result, err := wrapped.Execute(ctx, "test")
@@ -284,7 +284,7 @@ func TestTimer(t *testing.T) {
 					engine.WithLayer(channels),
 				)
 
-				ctx := asyncRunner.WithAsyncChannel(context.Background())
+				ctx := asyncRunner.WithContext(context.Background())
 
 				start := time.Now()
 				result, err := wrapped.Execute(ctx, "test")
@@ -333,7 +333,7 @@ func TestTimer(t *testing.T) {
 		)
 
 		ctx, cancel := context.WithCancel(context.Background())
-		ctx = asyncRunner.WithAsyncChannel(ctx)
+		ctx = asyncRunner.WithContext(ctx)
 
 		done := make(chan struct{})
 		var execErr error
@@ -429,7 +429,7 @@ func TestTimerSelectAndCoroutine(t *testing.T) {
 			engine.WithLayer(coroutine.NewCoroutineLayer()),
 		)
 
-		ctx := asyncRunner.WithAsyncChannel(context.Background())
+		ctx := asyncRunner.WithContext(context.Background())
 
 		start := time.Now()
 		result, err := wrapped.Execute(ctx, "test")
@@ -521,7 +521,7 @@ func TestTimerSelectAndCoroutineInversedOrder(t *testing.T) {
 			engine.WithLayer(asyncRunner),
 		)
 
-		ctx := asyncRunner.WithAsyncChannel(context.Background())
+		ctx := asyncRunner.WithContext(context.Background())
 
 		start := time.Now()
 		result, err := wrapped.Execute(ctx, "test")

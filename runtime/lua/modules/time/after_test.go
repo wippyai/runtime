@@ -114,7 +114,7 @@ func TestTimeAfter(t *testing.T) {
 				)
 
 				ctx := engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup())
-				ctx = asyncRunner.WithAsyncChannel(ctx)
+				ctx = asyncRunner.WithContext(ctx)
 
 				start := time.Now()
 				result, err := wrapped.Execute(ctx, "test")
@@ -198,7 +198,7 @@ func TestAfterTimers(t *testing.T) {
 		)
 
 		ctx := engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup())
-		ctx = asyncRunner.WithAsyncChannel(ctx)
+		ctx = asyncRunner.WithContext(ctx)
 
 		start := time.Now()
 		result, err := wrapped.Execute(ctx, "test")
@@ -275,7 +275,7 @@ func TestAfterTimers(t *testing.T) {
 		)
 
 		ctx := engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup())
-		ctx = asyncRunner.WithAsyncChannel(ctx)
+		ctx = asyncRunner.WithContext(ctx)
 
 		start := time.Now()
 		result, err := wrapped.Execute(ctx, "test")
@@ -323,7 +323,7 @@ func TestAfterTimers(t *testing.T) {
 		)
 
 		ctx, cancel := context.WithCancel(engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup()))
-		ctx = asyncRunner.WithAsyncChannel(ctx)
+		ctx = asyncRunner.WithContext(ctx)
 
 		// Start execution in a goroutine
 		done := make(chan struct{})
@@ -383,7 +383,7 @@ func TestAfterTimers(t *testing.T) {
 		)
 
 		ctx := engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup())
-		ctx = asyncRunner.WithAsyncChannel(ctx)
+		ctx = asyncRunner.WithContext(ctx)
 
 		start := time.Now()
 		result, err := wrapped.Execute(ctx, "test")
@@ -454,7 +454,7 @@ func TestAfterTimers(t *testing.T) {
 		)
 
 		ctx := engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup())
-		ctx = asyncRunner.WithAsyncChannel(ctx)
+		ctx = asyncRunner.WithContext(ctx)
 
 		start := time.Now()
 		result, err := wrapped.Execute(ctx, "test")
