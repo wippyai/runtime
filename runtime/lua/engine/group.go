@@ -54,7 +54,7 @@ func (g *TaskGroup) Send(ctx context.Context, result TaskResult) error {
 // Add registers a new Lua state for tracking, not thread safe
 // This is always called synchronously from the main thread
 func (g *TaskGroup) Add(state *lua.LState) {
-	g.wakeCount++
+	g.taskCount++
 	if state != nil {
 		g.states[state] = struct{}{} // make th read safe
 	}
@@ -62,7 +62,7 @@ func (g *TaskGroup) Add(state *lua.LState) {
 
 // Remove unregisters a Lua state from tracking, not thread safe
 func (g *TaskGroup) Remove(state *lua.LState) {
-	g.wakeCount--
+	g.taskCount--
 	if state != nil {
 		delete(g.states, state) // make th read safe
 	}
@@ -107,6 +107,7 @@ func (g *TaskGroup) Wait(ctx context.Context, cvm CVM, block bool) ([]*Task, err
 				atomic.AddInt32(&g.wakeCount, -1)
 				// WakeUp up and continue processing
 				block = false
+				continue
 			case <-ctx.Done():
 				return nil, ctx.Err()
 			}
@@ -157,6 +158,7 @@ func (g *TaskGroup) clean() {
 	}
 
 	g.taskCount = 0
+	g.wakeCount = 0
 	g.states = make(map[*lua.LState]struct{})
 
 	// drain

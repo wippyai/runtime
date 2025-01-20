@@ -39,10 +39,9 @@ func TestTasksSingleExecution(t *testing.T) {
 
 				while true do
 					local task, ok = inbox:receive()
-					if not ok then	
+					if not ok then
 						break	
 					end	
-					print("TASK", task)
 					task:complete("world")
 				end 
 				return "exit"
@@ -52,8 +51,7 @@ func TestTasksSingleExecution(t *testing.T) {
 		assert.NoError(t, err)
 
 		// Set up task group context
-		tg := engine.NewTaskGroup(100)
-		ctx, cancel := context.WithCancel(engine.WithTaskGroup(context.Background(), tg))
+		ctx, cancel := context.WithCancel(engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup()))
 		defer cancel()
 
 		done := make(chan struct{}, 1)
@@ -62,7 +60,11 @@ func TestTasksSingleExecution(t *testing.T) {
 		go func() {
 			result, err := wrapped.Execute(ctx, "test_handler")
 			assert.NoError(t, err)
-			assert.Equal(t, "exit", result.String())
+			if result != nil {
+				assert.Equal(t, "exit", result.String())
+			} else {
+				t.Fatal("no result")
+			}
 			done <- struct{}{}
 		}()
 
@@ -70,15 +72,15 @@ func TestTasksSingleExecution(t *testing.T) {
 		out, err := taskMixer.Send(ctx, "test", lua.LString("hello"))
 		assert.NoError(t, err)
 
-		// todo: close mixer
-
 		select {
 		case result := <-out:
-			taskMixer.Close(ctx)
-			assert.Equal(t, "world", result)
+			err = taskMixer.CloseOutbox(ctx)
+			assert.NoError(t, err)
+			assert.Equal(t, "world", result.Values[0].String())
 			select {
 			case <-done:
 			case <-time.After(1 * time.Second):
+				cancel()
 				t.Fatal("timeout on close")
 			}
 		case <-time.After(1 * time.Second):
