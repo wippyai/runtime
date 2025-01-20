@@ -8,12 +8,11 @@ import (
 )
 
 type Task struct {
-	l      *lua.LState
-	thread *lua.LState
-	cancel context.CancelFunc
-	fn     *lua.LFunction
-	output chan TaskResult
-
+	l          *lua.LState
+	thread     *lua.LState
+	cancel     context.CancelFunc
+	fn         *lua.LFunction
+	output     chan Result
 	State      lua.ResumeState
 	Yielded    []lua.LValue
 	Resumed    []lua.LValue
@@ -32,7 +31,7 @@ func (t *Task) String() string {
 	return fmt.Sprintf("<coroutine %p> %+v", t.thread, t.Yielded)
 }
 
-type TaskResult struct {
+type Result struct {
 	State  *lua.LState
 	Result []lua.LValue
 	Error  error
