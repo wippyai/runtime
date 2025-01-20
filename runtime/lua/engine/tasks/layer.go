@@ -54,7 +54,7 @@ func (m *Mixer) Send(ctx context.Context, id TaskID, input lua.LValue) (chan cor
 
 // Step implements the engine.Layer interface
 func (m *Mixer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, error) {
-	tg := engine.GetTaskGroup(cvm.GetContext())
+	tg := engine.GetTaskGroup(cvm.Context())
 	if tg == nil {
 		return nil, errors.New("no task group found in context") // todo: add predefined errors
 	}
@@ -64,7 +64,7 @@ func (m *Mixer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, err
 
 	select {
 	case <-m.close:
-		if err := m.channels.Close(cvm.GetContext(), m.outbox); err != nil {
+		if err := m.channels.Close(cvm.Context(), m.outbox); err != nil {
 			return nil, err
 		}
 		m.outbox = nil
@@ -124,7 +124,7 @@ func (m *Mixer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, err
 			}
 
 			// Send input through channel runner
-			if err := m.channels.Send(cvm.GetContext(), m.outbox, newTask(cvm.State(), schedule)); err != nil {
+			if err := m.channels.Send(cvm.Context(), m.outbox, newTask(cvm.State(), schedule)); err != nil {
 				return nil, err
 			}
 		default:

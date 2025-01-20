@@ -24,18 +24,18 @@ func (r *Runner) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, er
 		return nil, err
 	}
 
-	if sch := getAsyncChannel(cvm.GetContext()); sch != nil {
+	if sch := getAsyncChannel(cvm.Context()); sch != nil {
 		select {
 		case item := <-sch:
 			// push data downstream to channel runner
 
 			if item.ok {
-				err := r.channels.Send(cvm.GetContext(), item.ch, item.value)
+				err := r.channels.Send(cvm.Context(), item.ch, item.value)
 				if err != nil {
 					return outTasks, nil // Log error but continue
 				}
 			} else {
-				err := r.channels.Close(cvm.GetContext(), item.ch)
+				err := r.channels.Close(cvm.Context(), item.ch)
 				if err != nil {
 					return outTasks, nil // Log error but continue
 				}

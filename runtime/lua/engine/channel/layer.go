@@ -114,7 +114,7 @@ func (r *Runner) Close(ctx context.Context, ch *Channel) error {
 
 // Step handles channel operations while maintaining CVM compatibility, todo: deprecate
 func (r *Runner) Step(vm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, error) {
-	tg := engine.GetTaskGroup(vm.GetContext())
+	tg := engine.GetTaskGroup(vm.Context())
 	var externalOps []*engine.Task
 
 	for _, task := range tasks {

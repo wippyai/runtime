@@ -21,7 +21,7 @@ type (
 
 	// CVM represents core VM functionality required by layers
 	CVM interface {
-		GetContext() context.Context
+		Context() context.Context
 		Start(funcName string, args ...lua.LValue) (<-chan TaskResult, error)
 		Step(tasks ...*Task) ([]*Task, error)
 		GetTasks() []*Task
@@ -52,8 +52,8 @@ func (e *DeadlockError) Error() string {
 	return fmt.Sprintf("deadlock detected on %d coroutines", e.Count)
 }
 
-func (w *wrappedLayer) GetContext() context.Context {
-	return w.next.GetContext()
+func (w *wrappedLayer) Context() context.Context {
+	return w.next.Context()
 }
 
 func (w *wrappedLayer) Start(funcName string, args ...lua.LValue) (<-chan TaskResult, error) {
