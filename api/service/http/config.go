@@ -203,3 +203,19 @@ func (c *EndpointConfig) Validate() error {
 
 	return nil
 }
+
+// MarshalJSON implements custom marshaling for TimeoutConfig to handle time.Duration fields.
+func (c *TimeoutConfig) MarshalJSON() ([]byte, error) {
+	type Alias TimeoutConfig
+	return json.Marshal(&struct {
+		ReadTimeout  string `json:"read"`
+		WriteTimeout string `json:"write"`
+		IdleTimeout  string `json:"idle"`
+		*Alias
+	}{
+		ReadTimeout:  c.ReadTimeout.String(),
+		WriteTimeout: c.WriteTimeout.String(),
+		IdleTimeout:  c.IdleTimeout.String(),
+		Alias:        (*Alias)(c),
+	})
+}

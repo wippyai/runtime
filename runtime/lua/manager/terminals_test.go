@@ -3,16 +3,16 @@ package manager
 import (
 	"context"
 	"fmt"
-	"io"
-	"testing"
-
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	api "github.com/ponyruntime/pony/api/runtime/lua"
 	"github.com/ponyruntime/pony/api/service/terminal"
+	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"io"
+	"testing"
 )
 
 // mockTerminalFactory implements TerminalFactory for testing
@@ -31,7 +31,6 @@ func (f *mockTerminalFactory) MakeTerminal(
 	return &mockTerminal{}, nil
 }
 
-// mockTerminal implements terminal.Terminal for testing
 type mockTerminal struct{}
 
 func (t *mockTerminal) Run(ctx context.Context, in io.Reader, out io.Writer) error {
@@ -45,6 +44,20 @@ func makeTestTerminalEntry(id string, cfg *api.TerminalConfig) registry.Entry {
 		Meta: registry.Metadata{},
 		Data: payload.NewPayload(cfg, payload.Golang),
 	}
+}
+
+// Helper to create default lifecycle config
+func makeDefaultLifecycleConfig() supervisor.LifecycleConfig {
+	cfg := supervisor.LifecycleConfig{
+		AutoStart: true,
+		RetryPolicy: supervisor.RetryPolicy{
+			BackoffFactor: 2.0,
+			Jitter:        0.1,
+			MaxAttempts:   5,
+		},
+	}
+	cfg.InitDefaults()
+	return cfg
 }
 
 func TestNewTerminals(t *testing.T) {
@@ -80,7 +93,7 @@ func setupTerminalManagers(t *testing.T) (*Terminals, *Modules, *Libraries) {
 		Meta:    registry.Metadata{"name": "test_lib"},
 		Modules: []string{"test_module"},
 	}
-	err = libraries.Add(nil, makeTestEntry("test_lib", libCfg))
+	err = libraries.Add(context.Background(), makeTestEntry("test_lib", libCfg))
 	require.NoError(t, err)
 
 	return terminals, modules, libraries
@@ -92,9 +105,12 @@ func TestTerminals_Add(t *testing.T) {
 	t.Run("adds new terminal successfully", func(t *testing.T) {
 		cfg := &api.TerminalConfig{
 			Source:    "function main() print('hello') end",
+			Method:    "main",
 			Libraries: []string{"test_lib"},
 			Modules:   []string{"test_module"},
 			Meta:      registry.Metadata{},
+			Options:   terminal.Options{},
+			Lifecycle: makeDefaultLifecycleConfig(),
 		}
 		err := terminals.Add(makeTestTerminalEntry("test_term", cfg), modules, libraries)
 		require.NoError(t, err)
@@ -108,9 +124,12 @@ func TestTerminals_Add(t *testing.T) {
 	t.Run("fails adding duplicate terminal", func(t *testing.T) {
 		cfg := &api.TerminalConfig{
 			Source:    "function main() print('hello') end",
+			Method:    "main",
 			Libraries: []string{"test_lib"},
 			Modules:   []string{"test_module"},
 			Meta:      registry.Metadata{},
+			Options:   terminal.Options{},
+			Lifecycle: makeDefaultLifecycleConfig(),
 		}
 		err := terminals.Add(makeTestTerminalEntry("test_term", cfg), modules, libraries)
 		assert.Error(t, err)
@@ -120,9 +139,12 @@ func TestTerminals_Add(t *testing.T) {
 	t.Run("fails with missing module dependency", func(t *testing.T) {
 		cfg := &api.TerminalConfig{
 			Source:    "function main() print('hello') end",
+			Method:    "main",
 			Libraries: []string{"test_lib"},
 			Modules:   []string{"non_existent_module"},
 			Meta:      registry.Metadata{},
+			Options:   terminal.Options{},
+			Lifecycle: makeDefaultLifecycleConfig(),
 		}
 		err := terminals.Add(makeTestTerminalEntry("new_term", cfg), modules, libraries)
 		assert.Error(t, err)
@@ -132,9 +154,12 @@ func TestTerminals_Add(t *testing.T) {
 	t.Run("fails with missing library dependency", func(t *testing.T) {
 		cfg := &api.TerminalConfig{
 			Source:    "function main() print('hello') end",
+			Method:    "main",
 			Libraries: []string{"non_existent_lib"},
 			Modules:   []string{"test_module"},
 			Meta:      registry.Metadata{},
+			Options:   terminal.Options{},
+			Lifecycle: makeDefaultLifecycleConfig(),
 		}
 		err := terminals.Add(makeTestTerminalEntry("new_term", cfg), modules, libraries)
 		assert.Error(t, err)
@@ -148,9 +173,12 @@ func TestTerminals_Update(t *testing.T) {
 	// First add a terminal
 	initialCfg := &api.TerminalConfig{
 		Source:    "function main() print('hello') end",
+		Method:    "main",
 		Libraries: []string{"test_lib"},
 		Modules:   []string{"test_module"},
 		Meta:      registry.Metadata{},
+		Options:   terminal.Options{},
+		Lifecycle: makeDefaultLifecycleConfig(),
 	}
 	err := terminals.Add(makeTestTerminalEntry("test_term", initialCfg), modules, libraries)
 	require.NoError(t, err)
@@ -158,9 +186,12 @@ func TestTerminals_Update(t *testing.T) {
 	t.Run("updates existing terminal", func(t *testing.T) {
 		updatedCfg := &api.TerminalConfig{
 			Source:    "function main() print('updated') end",
+			Method:    "main",
 			Libraries: []string{"test_lib"},
 			Modules:   []string{"test_module"},
 			Meta:      registry.Metadata{"version": "2"},
+			Options:   terminal.Options{Title: "Updated Terminal"},
+			Lifecycle: makeDefaultLifecycleConfig(),
 		}
 		err := terminals.Update(makeTestTerminalEntry("test_term", updatedCfg), modules, libraries)
 		require.NoError(t, err)
@@ -174,9 +205,12 @@ func TestTerminals_Update(t *testing.T) {
 	t.Run("fails updating non-existent terminal", func(t *testing.T) {
 		cfg := &api.TerminalConfig{
 			Source:    "function main() print('hello') end",
+			Method:    "main",
 			Libraries: []string{"test_lib"},
 			Modules:   []string{"test_module"},
 			Meta:      registry.Metadata{},
+			Options:   terminal.Options{},
+			Lifecycle: makeDefaultLifecycleConfig(),
 		}
 		err := terminals.Update(makeTestTerminalEntry("non_existent", cfg), modules, libraries)
 		assert.Error(t, err)
@@ -190,9 +224,12 @@ func TestTerminals_Delete(t *testing.T) {
 	// First add a terminal
 	cfg := &api.TerminalConfig{
 		Source:    "function main() print('hello') end",
+		Method:    "main",
 		Libraries: []string{"test_lib"},
 		Modules:   []string{"test_module"},
 		Meta:      registry.Metadata{},
+		Options:   terminal.Options{},
+		Lifecycle: makeDefaultLifecycleConfig(),
 	}
 	err := terminals.Add(makeTestTerminalEntry("test_term", cfg), modules, libraries)
 	require.NoError(t, err)
@@ -219,15 +256,21 @@ func TestTerminals_FindDependentOnLibrary(t *testing.T) {
 	// Add two terminals with different dependencies
 	cfg1 := &api.TerminalConfig{
 		Source:    "function main() print('hello') end",
+		Method:    "main",
 		Libraries: []string{"test_lib"},
 		Modules:   []string{"test_module"},
 		Meta:      registry.Metadata{},
+		Options:   terminal.Options{},
+		Lifecycle: makeDefaultLifecycleConfig(),
 	}
 	cfg2 := &api.TerminalConfig{
 		Source:    "function main() print('world') end",
+		Method:    "main",
 		Libraries: []string{},
 		Modules:   []string{"test_module"},
 		Meta:      registry.Metadata{},
+		Options:   terminal.Options{},
+		Lifecycle: makeDefaultLifecycleConfig(),
 	}
 
 	err := terminals.Add(makeTestTerminalEntry("term1", cfg1), modules, libraries)
@@ -253,9 +296,12 @@ func TestTerminals_MakeTerminal(t *testing.T) {
 	// Add a terminal
 	cfg := &api.TerminalConfig{
 		Source:    "function main() print('hello') end",
+		Method:    "main",
 		Libraries: []string{"test_lib"},
 		Modules:   []string{"test_module"},
 		Meta:      registry.Metadata{},
+		Options:   terminal.Options{},
+		Lifecycle: makeDefaultLifecycleConfig(),
 	}
 	err := terminals.Add(makeTestTerminalEntry("test_term", cfg), modules, libraries)
 	require.NoError(t, err)
