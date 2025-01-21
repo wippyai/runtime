@@ -150,6 +150,7 @@ func (m *RuntimeManager) Delete(ctx context.Context, entry registry.Entry) error
 		m.bus.Send(ctx, events.Event{
 			System: runtime.System,
 			Kind:   runtime.DeleteHandlerEvent,
+			Path:   events.Path(entry.ID),
 			Data:   runtime.DeleteHandler{Target: entry.ID},
 		})
 		m.callable.Delete(entry.ID)
@@ -174,6 +175,7 @@ func (m *RuntimeManager) Delete(ctx context.Context, entry registry.Entry) error
 		m.bus.Send(ctx, events.Event{
 			System: terminal.System,
 			Kind:   terminal.DeleteTerminalEvent,
+			Path:   events.Path(entry.ID),
 			Data:   entry.ID,
 		})
 
@@ -268,6 +270,7 @@ func (m *RuntimeManager) compileAndRegisterFunction(ctx context.Context, id regi
 	m.bus.Send(ctx, events.Event{
 		System: runtime.System,
 		Kind:   runtime.RegisterHandlerEvent,
+		Path:   events.Path(id),
 		Data:   runtime.RegisterHandler{Target: id, Handler: m.Execute},
 	})
 
@@ -288,7 +291,8 @@ func (m *RuntimeManager) compileAndRegisterTerminal(ctx context.Context, id regi
 	m.bus.Send(ctx, events.Event{
 		System: terminal.System,
 		Kind:   terminal.RegisterTerminalEvent,
-		Data: terminal.RegisterApplication{
+		Path:   events.Path(id),
+		Data: terminal.TerminalApp{
 			Terminal:  instance,
 			Options:   term.Options,
 			Lifecycle: term.Lifecycle,

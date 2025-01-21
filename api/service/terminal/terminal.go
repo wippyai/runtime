@@ -19,7 +19,7 @@ const (
 )
 
 type (
-	RegisterApplication struct {
+	TerminalApp struct {
 		Terminal  Terminal
 		Options   Options                    `json:"options"`
 		Lifecycle supervisor.LifecycleConfig `json:"lifecycle"`
