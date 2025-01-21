@@ -13,28 +13,40 @@ import (
 )
 
 // todo: we might need some whitelist of what can actually be called from Lua
-// todo: work on permission layer!
 
+// contextKey is a custom type for context keys to avoid string collisions
+type contextKey string
+
+// Module provides Lua bindings for executing tasks in the runtime.
+// It allows creating executors and managing task execution from Lua code.
 type Module struct {
 	appContext context.Context
 }
 
+// Executor handles task execution with context and payload management.
+// It provides both synchronous and asynchronous execution modes with
+// proper context propagation and payload transcoding.
 type Executor struct {
 	dtt           payload.Transcoder
 	exec          runtime.Executor
 	appContext    context.Context
 	threadContext context.Context
-	contextValues map[string]interface{}
+	contextValues map[contextKey]interface{}
 }
 
-func NewExecutorModule(ctx context.Context) *Module {
-	return &Module{appContext: ctx}
+// NewExecutorModule creates a new executor module with the given context.
+// The context is used as the default application context for all executors.
+func NewExecutorModule(appContext context.Context) *Module {
+	return &Module{appContext: appContext}
 }
 
+// Name returns the module name that will be used in Lua.
 func (m *Module) Name() string {
 	return "executor"
 }
 
+// Loader implements the Lua module loader interface.
+// It registers the executor creation and management functions in the Lua state.
 func (m *Module) Loader(l *lua.LState) int {
 	mod := l.NewTable()
 	l.SetFuncs(mod, map[string]lua.LGFunction{
@@ -85,7 +97,7 @@ func (m *Module) new(l *lua.LState) int {
 		exec:          exec,
 		appContext:    m.appContext,
 		threadContext: l.Context(),
-		contextValues: make(map[string]interface{}),
+		contextValues: make(map[contextKey]interface{}),
 	}
 
 	ud := l.NewUserData()
@@ -126,7 +138,7 @@ func (m *Module) makeExecutor(l *lua.LState) (*Executor, error) {
 		exec:          exec,
 		appContext:    m.appContext,
 		threadContext: l.Context(),
-		contextValues: make(map[string]interface{}),
+		contextValues: make(map[contextKey]interface{}),
 	}
 
 	return executor, nil
@@ -141,7 +153,7 @@ func (m *Module) withContext(l *lua.LState) int {
 	}
 
 	ctxTable := l.CheckTable(2)
-	executor.contextValues = make(map[string]interface{})
+	executor.contextValues = make(map[contextKey]interface{})
 
 	ctxTable.ForEach(func(k, v lua.LValue) {
 		key, ok := k.(lua.LString)
@@ -149,7 +161,7 @@ func (m *Module) withContext(l *lua.LState) int {
 			l.ArgError(2, "context keys must be strings")
 			return
 		}
-		executor.contextValues[string(key)] = transcode.ToGoAny(v)
+		executor.contextValues[contextKey(key)] = transcode.ToGoAny(v)
 	})
 
 	l.Push(ud)
@@ -177,14 +189,14 @@ func (m *Module) run(l *lua.LState) int {
 }
 
 func (e *Executor) handleCall(l *lua.LState) int {
-	return e.executeSync(l, e.createTask(l, e.threadContext))
+	return e.executeSync(l, e.createTask(e.threadContext, l))
 }
 
 func (e *Executor) handleRun(l *lua.LState) int {
-	return e.executeAsync(l, e.createTask(l, e.appContext))
+	return e.executeAsync(l, e.createTask(e.appContext, l))
 }
 
-func (e *Executor) createTask(l *lua.LState, ctx context.Context) runtime.Task {
+func (e *Executor) createTask(ctx context.Context, l *lua.LState) runtime.Task {
 	targetIndex := 1
 	if l.Get(1).Type() == lua.LTUserData {
 		targetIndex = 2

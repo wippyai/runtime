@@ -47,6 +47,9 @@ type unsub struct {
 	doneCh chan bool
 }
 
+// Bus is an event bus that handles pub/sub message distribution with support for
+// system and kind filtering using wildcards. It provides thread-safe operations
+// for subscribing, unsubscribing, and sending events.
 type Bus struct {
 	subscribers       map[events.SubscriberID]sub
 	logger            *zap.Logger
@@ -55,6 +58,8 @@ type Bus struct {
 	subscriberCounter uint64
 }
 
+// NewBus creates a new event bus instance with the provided logger.
+// It initializes internal channels and starts the event handling goroutine.
 func NewBus(logger *zap.Logger) *Bus {
 	b := &Bus{
 		subscribers: make(map[events.SubscriberID]sub),
@@ -68,6 +73,8 @@ func NewBus(logger *zap.Logger) *Bus {
 	return b
 }
 
+// Subscribe creates a new subscription for events from the specified system.
+// It returns a unique subscriber ID that can be used to unsubscribe later.
 func (b *Bus) Subscribe(
 	ctx context.Context,
 	system events.System,
@@ -76,6 +83,8 @@ func (b *Bus) Subscribe(
 	return b.SubscribeP(ctx, system, "", ch)
 }
 
+// SubscribeP creates a new subscription for events matching both system and kind filters.
+// It supports wildcard patterns in both system and kind parameters.
 func (b *Bus) SubscribeP(
 	ctx context.Context,
 	system events.System,
@@ -123,6 +132,8 @@ func (b *Bus) SubscribeP(
 
 }
 
+// Unsubscribe removes the subscription identified by the given subscriber ID.
+// It closes the associated event channel.
 func (b *Bus) Unsubscribe(ctx context.Context, subID events.SubscriberID) {
 	if ctx.Err() != nil {
 		return
@@ -145,6 +156,8 @@ func (b *Bus) Unsubscribe(ctx context.Context, subID events.SubscriberID) {
 	}
 }
 
+// Send publishes an event to all matching subscribers based on their system and kind filters.
+// The event delivery is skipped if the context is canceled.
 func (b *Bus) Send(ctx context.Context, event events.Event) {
 	select {
 	case b.actions <- action{actionType: send, event: sendEvent{event: event, ctx: ctx}}:
@@ -162,6 +175,8 @@ func (b *Bus) Send(ctx context.Context, event events.Event) {
 	}
 }
 
+// Stop gracefully shuts down the event bus by closing all subscriber channels
+// and stopping the event handling goroutine.
 func (b *Bus) Stop() {
 	done := make(chan struct{})
 	b.actions <- action{actionType: stop, stopDoneChan: done}
