@@ -1,19 +1,22 @@
 package ctx
 
 import (
-	ctxapi "github.com/ponyruntime/pony/api/context"
+	ctxapi "github.com/ponyruntime/pony/api/context" // Make sure this import path is correct
 	transcoder "github.com/ponyruntime/pony/pkg/payload/lua"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
 
-// Module provides context manipulation operations for Lua scripts.
-// It enables getting and setting context values by key.
-type Module struct{}
+// Module (ctx) gets or sets a context value found by a given key.
+type Module struct {
+	log *zap.Logger
+}
 
 // New creates a new context module with the specified logger.
 func New(log *zap.Logger) *Module {
-	return &Module{}
+	return &Module{
+		log: log,
+	}
 }
 
 // Name returns the module name.

@@ -25,7 +25,7 @@ var (
 	// CleanupCtx is the context key for cleanup operations
 	CleanupCtx = &Key{Name: "cleanup"} //nolint:gochecknoglobals
 	// TaskCtx is the context key for task-related data
-	TaskCtx = &Key{Name: "task"} //nolint:gochecknoglobals
+	TaskCtx = &Key{Name: "task"} //nolint:gochecknoglobalsLFSUserData   = &Key{Name: "lfsuserdata"} //nolint:gochecknoglobals
 )
 
 // Contexter provides a generic type-safe context value store.
