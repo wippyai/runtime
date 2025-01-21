@@ -25,6 +25,7 @@ func NewNoopRuntime(bus events.Bus, logger *zap.Logger) *Runtime {
 	}
 }
 
+// Execute implements the runtime.Executor interface, does not do anything.
 func (n *Runtime) Execute(task runtime.Task) (chan *runtime.Result, error) {
 	rspChan := make(chan *runtime.Result, 1)
 	rspChan <- &runtime.Result{

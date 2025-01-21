@@ -45,6 +45,7 @@ func NewManager(
 	}
 }
 
+// NewExecutingManager creates a new HTTP service instance with an executing runtime
 func NewExecutingManager(
 	bus events.Bus,
 	dtt payload.Transcoder,

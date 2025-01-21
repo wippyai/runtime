@@ -21,6 +21,7 @@ type reg struct {
 	log            *zap.Logger
 }
 
+// NewRegistry creates a new registry instance.
 func NewRegistry(
 	history registry.History,
 	runner registry.Runner,

@@ -7,6 +7,7 @@ import (
 	"github.com/ponyruntime/pony/api/payload"
 )
 
+// Register registers JSON transcoders.
 func Register(transcoder payload.TranscoderRegister) {
 	to := &ToGolang{}
 	from := &FromGolang{}

@@ -10,6 +10,7 @@ import (
 	"github.com/ponyruntime/pony/api/supervisor"
 )
 
+// State represents the current state managed service.
 type State struct {
 	Status     supervisor.Status `json:"status"`
 	Details    any               `json:"details"`

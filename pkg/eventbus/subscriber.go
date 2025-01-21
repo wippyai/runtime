@@ -70,6 +70,7 @@ func (s *Subscriber) Close() {
 	s.wg.Wait()
 }
 
+// ID returns the subscriber ID.
 func (s *Subscriber) ID() events.SubscriberID {
 	return s.subscriberID
 }

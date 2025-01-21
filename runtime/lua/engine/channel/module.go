@@ -151,6 +151,7 @@ func (m *Module) Loader(L *lua.LState) int {
 	return 1
 }
 
+// Wrap wraps a channel into a Lua value.
 func Wrap(L *lua.LState, ch *Channel) lua.LValue {
 	ud := L.NewUserData()
 	ud.Value = ch

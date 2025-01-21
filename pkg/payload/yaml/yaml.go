@@ -7,6 +7,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// Register registers the YAML transcoders.
 func Register(transcoder payload.TranscoderRegister) {
 	to := &ToGolang{}
 	from := &FromGolang{}
