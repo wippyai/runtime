@@ -214,18 +214,12 @@ func main() {
 	wvm := engine.NewRunner(vm,
 		engine.WithLayer(chRun),
 		engine.WithLayer(btLayer),
-		engine.WithLayer(async.NewAsyncLayer(chRun)),
+		engine.WithLayer(async.NewAsyncLayer(chRun, 4096)),
 		engine.WithLayer(coroutine.NewCoroutineLayer()),
 	)
 	defer wvm.Close()
 
-	// todo: use task mixer!
-
-	ctx := context.Background()
-	ctx = engine.WithTaskGroup(ctx, wvm.GetTaskGroup())
-	ctx = async.WithAsyncChannel(ctx)
-
-	_, err = wvm.Execute(ctx, "App")
+	_, err = wvm.Execute(context.Background(), "App")
 	if err != nil {
 		fmt.Printf("Error executing VM: %v", err)
 		return
