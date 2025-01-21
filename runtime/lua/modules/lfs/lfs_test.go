@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	apic "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	lua "github.com/yuin/gopher-lua"
 
@@ -22,12 +23,56 @@ func assertLua(l *lua.LState) int {
 	return 0
 }
 
+func TestLFS(t *testing.T) {
+	// Test to verify that Init cannot handle arguments yet
+	logger, _ := zap.NewDevelopment()
+	ctx := context.Background()
+	ctx = context.WithValue(ctx, apic.LoggerCtx, logger)
+
+	mod := NewLFSModule()
+	vm, err := engine.NewVM(logger,
+		engine.WithLoader(mod.Name(), mod.Loader),
+		engine.WithGlobalFunction("assert", assertLua),
+	)
+	require.NoError(t, err)
+	defer vm.Close()
+
+	initialDir, err := os.Getwd()
+	require.NoError(t, err)
+
+	err = vm.DoString(ctx, `
+			local lfs = require("lfs")
+			local current = lfs.currentdir()
+			assert(current ~= nil, "currentdir should return a path")
+			
+			-- Try changing to parent directory
+			local success = lfs.chdir("..")
+			assert(success == true, "chdir should succeed")
+			
+			local newCurrent = lfs.currentdir()
+			assert(current ~= newCurrent, "directory should have changed")
+			
+			-- Change back
+			success = lfs.chdir(current)
+			assert(success == true, "chdir back should succeed")
+		`, "test")
+	assert.NoError(t, err)
+
+	// Verify we're back where we started
+	endDir, err := os.Getwd()
+	require.NoError(t, err)
+	assert.Equal(t, initialDir, endDir)
+}
+
 func TestLFSModuleDoString(t *testing.T) {
 	// Test to verify that Init cannot handle arguments yet
 	logger, _ := zap.NewDevelopment()
 
+	ctx := context.Background()
+	ctx = context.WithValue(ctx, apic.LoggerCtx, logger)
+
 	t.Run("module creation and loading", func(t *testing.T) {
-		mod := NewLFSModule(logger)
+		mod := NewLFSModule()
 		vm, err := engine.NewVM(logger,
 			engine.WithLoader(mod.Name(), mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
@@ -35,7 +80,7 @@ func TestLFSModuleDoString(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(ctx, `
 			local lfs = require("lfs")
 			assert(type(lfs) == "table")
 			assert(type(lfs.attributes) == "function")
@@ -51,7 +96,7 @@ func TestLFSModuleDoString(t *testing.T) {
 	})
 
 	t.Run("currentdir and chdir", func(t *testing.T) {
-		mod := NewLFSModule(logger)
+		mod := NewLFSModule()
 		vm, err := engine.NewVM(logger,
 			engine.WithLoader(mod.Name(), mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
@@ -62,7 +107,7 @@ func TestLFSModuleDoString(t *testing.T) {
 		initialDir, err := os.Getwd()
 		require.NoError(t, err)
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(ctx, `
 			local lfs = require("lfs")
 			local current = lfs.currentdir()
 			assert(current ~= nil, "currentdir should return a path")
@@ -87,7 +132,7 @@ func TestLFSModuleDoString(t *testing.T) {
 	})
 
 	t.Run("mkdir and rmdir", func(t *testing.T) {
-		mod := NewLFSModule(logger)
+		mod := NewLFSModule()
 		vm, err := engine.NewVM(logger,
 			engine.WithLoader(mod.Name(), mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
@@ -117,12 +162,12 @@ func TestLFSModuleDoString(t *testing.T) {
 		`, "mkdir_rmdir_test_file", "mkdir_rmdir_test")
 		require.NoError(t, err)
 
-		_, err = vm.Execute(context.Background(), "mkdir_rmdir_test", lua.LString(testDir))
+		_, err = vm.Execute(ctx, "mkdir_rmdir_test", lua.LString(testDir))
 		assert.NoError(t, err)
 	})
 
 	t.Run("attributes", func(t *testing.T) {
-		mod := NewLFSModule(logger)
+		mod := NewLFSModule()
 		vm, err := engine.NewVM(logger,
 			engine.WithLoader(mod.Name(), mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
@@ -149,12 +194,12 @@ func TestLFSModuleDoString(t *testing.T) {
 		`, "attributes_test", "attributes_test")
 		require.NoError(t, err)
 
-		_, err = vm.Execute(context.Background(), "attributes_test", lua.LString(tempFile))
+		_, err = vm.Execute(ctx, "attributes_test", lua.LString(tempFile))
 		assert.NoError(t, err)
 	})
 
 	t.Run("touch", func(t *testing.T) {
-		mod := NewLFSModule(logger)
+		mod := NewLFSModule()
 		vm, err := engine.NewVM(logger,
 			engine.WithLoader(mod.Name(), mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
@@ -179,7 +224,7 @@ func TestLFSModuleDoString(t *testing.T) {
 		`, "touch_test_file", "touch_test")
 		require.NoError(t, err)
 
-		_, err = vm.Execute(context.Background(), "touch_test", lua.LString(tempFile))
+		_, err = vm.Execute(ctx, "touch_test", lua.LString(tempFile))
 		assert.NoError(t, err, "Lua function should execute without error")
 
 		// Verify the file exists using os.Stat (which uses absolute paths)
@@ -188,7 +233,7 @@ func TestLFSModuleDoString(t *testing.T) {
 	})
 
 	t.Run("link", func(t *testing.T) {
-		mod := NewLFSModule(logger)
+		mod := NewLFSModule()
 		vm, err := engine.NewVM(logger,
 			engine.WithLoader(mod.Name(), mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
@@ -218,13 +263,13 @@ func TestLFSModuleDoString(t *testing.T) {
 		require.NoError(t, err)
 
 		_, err = vm.Execute(
-			context.Background(),
+			ctx,
 			"link_test", lua.LString(sourceFile), lua.LString(linkFile))
 		assert.NoError(t, err)
 	})
 
 	t.Run("dir iterator", func(t *testing.T) {
-		mod := NewLFSModule(logger)
+		mod := NewLFSModule()
 		vm, err := engine.NewVM(logger,
 			engine.WithLoader(mod.Name(), mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
@@ -256,7 +301,7 @@ func TestLFSModuleDoString(t *testing.T) {
 		`, "dir_test_file", "dir_test")
 		require.NoError(t, err)
 
-		_, err = vm.Execute(context.Background(), "dir_test", lua.LString(tempDir))
+		_, err = vm.Execute(ctx, "dir_test", lua.LString(tempDir))
 		assert.NoError(t, err)
 	})
 }
