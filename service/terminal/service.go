@@ -3,7 +3,6 @@ package terminal
 import (
 	"context"
 	"github.com/ponyruntime/pony/api/service/terminal"
-	"log"
 	"os"
 	"sync"
 )
@@ -63,7 +62,6 @@ func (s *service) Start(ctx context.Context) (<-chan any, error) {
 
 // Stop implements supervisor.Service interface
 func (s *service) Stop(ctx context.Context) error {
-	log.Printf("STOP TERMINAL APP")
 	s.mu.Lock()
 	if !s.running {
 		s.mu.Unlock()
