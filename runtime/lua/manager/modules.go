@@ -44,9 +44,18 @@ func (m *Modules) Unregister(name string) error {
 }
 
 // Get returns a module by name
-func (m *Modules) Get(name string) (api.Module, bool) {
+func (m *Modules) Get(name string) (api.Module, error) {
 	module, exists := m.modules[name]
-	return module, exists
+	if !exists {
+		return nil, fmt.Errorf("module %s not found", name)
+	}
+
+	return module, nil
+}
+
+func (m *Modules) Has(name string) bool {
+	_, exists := m.modules[name]
+	return exists
 }
 
 // List returns all registered module names

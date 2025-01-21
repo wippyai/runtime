@@ -1,10 +1,7 @@
 package manager
 
 import (
-	"context"
 	"fmt"
-	terminal2 "github.com/ponyruntime/pony/service/terminal"
-
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	api "github.com/ponyruntime/pony/api/runtime/lua"
@@ -12,28 +9,43 @@ import (
 	"go.uber.org/zap"
 )
 
-// Terminals handles Lua terminal app operations
-type Terminals struct {
-	log       *zap.Logger
-	dtt       payload.Transcoder
-	terminals map[registry.ID]*api.TerminalConfig
-}
+type (
+	TerminalFactory interface {
+		MakeTerminal(
+			cfg api.TerminalConfig,
+			modules api.ModuleRegistry,
+			libraries api.LibraryRegistry,
+		) (terminal.Terminal, error)
+	}
+
+	// Terminals handles Lua terminal app operations
+	Terminals struct {
+		log       *zap.Logger
+		dtt       payload.Transcoder
+		terminals map[registry.ID]*api.TerminalConfig
+		factory   TerminalFactory
+	}
+)
 
 // NewTerminals creates a new terminal manager instance
-func NewTerminals(dtt payload.Transcoder, logger *zap.Logger) *Terminals {
+func NewTerminals(
+	dtt payload.Transcoder,
+	logger *zap.Logger,
+	factory TerminalFactory,
+) *Terminals {
 	return &Terminals{
 		log:       logger,
 		dtt:       dtt,
 		terminals: make(map[registry.ID]*api.TerminalConfig),
+		factory:   factory,
 	}
 }
 
 // Add adds a new terminal configuration
 func (m *Terminals) Add(
-	ctx context.Context,
 	entry registry.Entry,
-	modules *Modules,
-	libraries *Libraries,
+	modules api.ModuleRegistry,
+	libraries api.LibraryRegistry,
 ) error {
 	cfg := new(api.TerminalConfig)
 	if err := m.unmarshalAndValidate(entry.Data, cfg); err != nil {
@@ -57,8 +69,8 @@ func (m *Terminals) Add(
 // Update updates an existing terminal configuration
 func (m *Terminals) Update(
 	entry registry.Entry,
-	modules *Modules,
-	libraries *Libraries,
+	modules api.ModuleRegistry,
+	libraries api.LibraryRegistry,
 ) error {
 	cfg := new(api.TerminalConfig)
 	if err := m.unmarshalAndValidate(entry.Data, cfg); err != nil {
@@ -113,8 +125,8 @@ func (m *Terminals) FindDependentOnLibrary(libraryID registry.ID) []registry.ID 
 // MakeTerminal creates a new terminal factory using provided managers
 func (m *Terminals) MakeTerminal(
 	id registry.ID,
-	modules *Modules,
-	libraries *Libraries,
+	modules api.ModuleRegistry,
+	libraries api.LibraryRegistry,
 ) (terminal.Terminal, error) {
 	term, exists := m.GetTerminal(id)
 	if !exists {
@@ -126,27 +138,26 @@ func (m *Terminals) MakeTerminal(
 		return nil, err
 	}
 
-	// TODO: Create and return terminal instance
-	return terminal2.NewEchoTerminal("cx"), nil
+	return m.factory.MakeTerminal(*term, modules, libraries)
 }
 
 // Internal methods
 
 func (m *Terminals) validateDependencies(
 	cfg *api.TerminalConfig,
-	modules *Modules,
-	libraries *Libraries,
+	modules api.ModuleRegistry,
+	libraries api.LibraryRegistry,
 ) error {
 	// Validate modules
 	for _, modID := range cfg.Modules {
-		if _, exists := modules.Get(modID); !exists {
+		if !modules.Has(modID) {
 			return fmt.Errorf("module %s not found", modID)
 		}
 	}
 
 	// Validate libraries
 	for _, libID := range cfg.Libraries {
-		if !libraries.HasLibrary(registry.ID(libID)) {
+		if !libraries.Has(registry.ID(libID)) {
 			return fmt.Errorf("library %s not found", libID)
 		}
 	}

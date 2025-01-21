@@ -28,8 +28,8 @@ func NewFunctions(dtt payload.Transcoder, logger *zap.Logger) *Functions {
 // Add adds a new function with required dependencies
 func (m *Functions) Add(
 	entry registry.Entry,
-	modules *Modules,
-	libraries *Libraries,
+	modules api.ModuleRegistry,
+	libraries api.LibraryRegistry,
 ) error {
 	cfg := new(api.FunctionConfig)
 	if err := m.unmarshalAndValidate(entry.Data, cfg); err != nil {
@@ -52,8 +52,8 @@ func (m *Functions) Add(
 // Update updates an existing function with required dependencies
 func (m *Functions) Update(
 	entry registry.Entry,
-	modules *Modules,
-	libraries *Libraries,
+	modules api.ModuleRegistry,
+	libraries api.LibraryRegistry,
 ) error {
 	cfg := new(api.FunctionConfig)
 	if err := m.unmarshalAndValidate(entry.Data, cfg); err != nil {
@@ -84,8 +84,8 @@ func (m *Functions) Delete(entry registry.Entry) error {
 	return nil
 }
 
-// GetFunction returns a function config by ID
-func (m *Functions) GetFunction(id registry.ID) (*api.FunctionConfig, bool) {
+// Get returns a function config by ID
+func (m *Functions) Get(id registry.ID) (*api.FunctionConfig, bool) {
 	fn, exists := m.functions[id]
 	return fn, exists
 }
@@ -107,11 +107,11 @@ func (m *Functions) FindDependentOnLibrary(libraryID registry.ID) []registry.ID 
 // MakeFactory creates a new factory for function compilation using provided managers
 func (m *Functions) MakeFactory(
 	id registry.ID,
-	modules *Modules,
-	libraries *Libraries,
 	logger *zap.Logger,
+	modules api.ModuleRegistry,
+	libraries api.LibraryRegistry,
 ) (api.Factory, error) {
-	fn, exists := m.GetFunction(id)
+	fn, exists := m.Get(id)
 	if !exists {
 		return nil, fmt.Errorf("function %s not found", id)
 	}
@@ -120,19 +120,20 @@ func (m *Functions) MakeFactory(
 
 	// Add required modules
 	for _, modID := range fn.Modules {
-		module, exists := modules.Get(modID)
-		if !exists {
-			return nil, fmt.Errorf("module %s not found", modID)
+		module, err := modules.Get(modID)
+		if err != nil {
+			return nil, err
 		}
 		cfg.Modules = append(cfg.Modules, module)
 	}
 
 	// Add required libraries
 	for _, libID := range fn.Libraries {
-		lib, exists := libraries.GetLibrary(registry.ID(libID))
-		if !exists {
-			return nil, fmt.Errorf("library %s not found", libID)
+		lib, err := libraries.Get(registry.ID(libID))
+		if err != nil {
+			return nil, err
 		}
+
 		cfg.Libraries = append(cfg.Libraries, factory.Library{
 			Name:   libID,
 			Script: lib.Source,
@@ -152,19 +153,19 @@ func (m *Functions) MakeFactory(
 
 func (m *Functions) validateDependencies(
 	cfg *api.FunctionConfig,
-	modules *Modules,
-	libraries *Libraries,
+	modules api.ModuleRegistry,
+	libraries api.LibraryRegistry,
 ) error {
 	// Validate modules
 	for _, modID := range cfg.Modules {
-		if _, exists := modules.Get(modID); !exists {
+		if !modules.Has(modID) {
 			return fmt.Errorf("module %s not found", modID)
 		}
 	}
 
 	// Validate libraries
 	for _, libID := range cfg.Libraries {
-		if !libraries.HasLibrary(registry.ID(libID)) {
+		if !libraries.Has(registry.ID(libID)) {
 			return fmt.Errorf("library %s not found", libID)
 		}
 	}
