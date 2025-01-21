@@ -31,8 +31,8 @@ func (t *taskSchedule) Type() lua.LValueType {
 type Module struct {
 }
 
-// NewModule creates a new tasks module instance
-func NewModule() *Module {
+// NewTaskModule creates a new tasks module instance
+func NewTaskModule() *Module {
 	return &Module{}
 }
 

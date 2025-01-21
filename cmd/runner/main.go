@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"github.com/ponyruntime/pony/service/terminal"
 	"hash/fnv"
 	httpbase "net/http"
 	"os"
@@ -33,6 +34,7 @@ import (
 	jsonlib "github.com/ponyruntime/pony/runtime/lua/modules/json"
 	logglib "github.com/ponyruntime/pony/runtime/lua/modules/logger"
 	timelib "github.com/ponyruntime/pony/runtime/lua/modules/time"
+	tsitter "github.com/ponyruntime/pony/runtime/lua/modules/treesitter"
 	"github.com/ponyruntime/pony/service/http"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -77,14 +79,19 @@ func main() {
 	appState, err := loadApplicationState(args, dtt, mainLogger)
 
 	// -- application core
-	reg := registry.NewRegistry( // application state controller, transactional
+	reg := registry.NewRegistry(
 		history.NewMemory(),
 		runner.NewBusRunner(bus, logger.Named("runner")),
 		registry.NewStateBuilder(mainLogger),
 		logger.Named("state"),
 	)
+
 	app := supervisor.NewSupervisor(bus, logger.Named("core"))
 	// -- end of application core
+
+	// -- additional services
+	terminal.NewManager(bus, logger.Named("terminal"))
+	// -- end of additional services
 
 	// -- core function executor, this service listens and builds routes to call functions between runtimes
 	exec := runtime.NewExecutor(bus, logger.Named("exec"))
@@ -97,7 +104,7 @@ func main() {
 	ctx = context.WithValue(ctx, contextapi.ExecutorCtx, exec)
 
 	// -- lua lang and modules
-	lua := luaruntime.NewRuntimeManager(
+	luaRuntime := luaruntime.NewRuntimeManager(
 		bus, dtt, logger.Named("lua"),
 		timelib.NewTimeModule(),
 		logglib.NewLoggerModule(logger.Named("app")),
@@ -105,16 +112,14 @@ func main() {
 		jsonlib.NewJsonModule(),
 		httplib.NewHTTPModule(httpbase.DefaultClient, logger.Named("http")),
 		httpctx.NewHTTPContextModule(logger.Named("http")),
+		tsitter.NewTreeSitterModule(logger.Named("treesitter")),
 	)
 	// -- end of lua lang and modules
 
 	// -- configuration bus
 	svc, err := services.NewRouter(ctx, bus,
-		services.WithListener(
-			"http.*",
-			http.NewExecutingManager(bus, dtt, exec, logger.Named("http")),
-		),
-		services.WithListener("(function|library).lua", lua),
+		services.WithListener("http.*", http.NewExecutingManager(bus, dtt, exec, logger.Named("http"))),
+		services.WithListener("(function|library).lua", luaRuntime),
 	)
 
 	if err != nil {
