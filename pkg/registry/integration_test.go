@@ -22,14 +22,14 @@ func createTestTranscoder() payload.Transcoder {
 	tr := transcoder.NewTranscoder()
 
 	// Register JSON
-	tr.RegisterTranscoder(payload.Json, payload.Golang, 1, &json.ToGolang{})
-	tr.RegisterTranscoder(payload.Golang, payload.Json, 1, &json.FromGolang{})
-	tr.RegisterUnmarshaler(payload.Json, &json.ToGolang{})
+	tr.RegisterTranscoder(payload.JSON, payload.Golang, 1, &json.ToGolang{})
+	tr.RegisterTranscoder(payload.Golang, payload.JSON, 1, &json.FromGolang{})
+	tr.RegisterUnmarshaler(payload.JSON, &json.ToGolang{})
 
 	// Register YAML
-	tr.RegisterTranscoder(payload.Yaml, payload.Golang, 1, &yaml.ToGolang{})
-	tr.RegisterTranscoder(payload.Golang, payload.Yaml, 1, &yaml.FromGolang{})
-	tr.RegisterUnmarshaler(payload.Yaml, &yaml.ToGolang{})
+	tr.RegisterTranscoder(payload.YAML, payload.Golang, 1, &yaml.ToGolang{})
+	tr.RegisterTranscoder(payload.Golang, payload.YAML, 1, &yaml.FromGolang{})
+	tr.RegisterUnmarshaler(payload.YAML, &yaml.ToGolang{})
 
 	return tr
 }

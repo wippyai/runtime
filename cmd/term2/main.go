@@ -186,7 +186,7 @@ func main() {
 		log,
 		engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
 		engine.WithPreloaded("http", httpmod.NewHTTPModule(http.DefaultClient, log).Loader),
-		engine.WithPreloaded("json", json.NewJsonModule().Loader),
+		engine.WithPreloaded("json", json.NewJSONModule().Loader),
 		engine.WithPreloaded("time", time.NewTimeModule().Loader),
 		engine.WithGlobalFunction("send_message", func(L *lua.LState) int {
 			msg := L.CheckAny(1)

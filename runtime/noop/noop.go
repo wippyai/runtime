@@ -11,21 +11,21 @@ import (
 	"go.uber.org/zap"
 )
 
-// NoopRuntime implements a no-op runtime manager that satisfies the EntryListener interface
-type NoopRuntime struct {
+// Runtime implements a no-op runtime manager that satisfies the EntryListener interface
+type Runtime struct {
 	bus    events.Bus
 	logger *zap.Logger
 }
 
-// NewNoopRuntime creates a new instance of NoopRuntime
-func NewNoopRuntime(bus events.Bus, logger *zap.Logger) *NoopRuntime {
-	return &NoopRuntime{
+// NewNoopRuntime creates a new instance of Runtime
+func NewNoopRuntime(bus events.Bus, logger *zap.Logger) *Runtime {
+	return &Runtime{
 		bus:    bus,
 		logger: logger,
 	}
 }
 
-func (n *NoopRuntime) Execute(task runtime.Task) (chan *runtime.Result, error) {
+func (n *Runtime) Execute(task runtime.Task) (chan *runtime.Result, error) {
 	rspChan := make(chan *runtime.Result, 1)
 	rspChan <- &runtime.Result{
 		Payload: payload.New(fmt.Sprintf("noop runtime: task %s executed", task.Target)),
@@ -35,7 +35,7 @@ func (n *NoopRuntime) Execute(task runtime.Task) (chan *runtime.Result, error) {
 }
 
 // Add implements EntryListener.Add - does nothing and returns nil
-func (n *NoopRuntime) Add(ctx context.Context, entry registry.Entry) error {
+func (n *Runtime) Add(ctx context.Context, entry registry.Entry) error {
 	n.logger.Debug("noop runtime: add called",
 		zap.String("id", string(entry.ID)),
 		zap.String("kind", string(entry.Kind)))
@@ -50,7 +50,7 @@ func (n *NoopRuntime) Add(ctx context.Context, entry registry.Entry) error {
 }
 
 // Update implements EntryListener.Update - does nothing and returns nil
-func (n *NoopRuntime) Update(_ context.Context, entry registry.Entry) error {
+func (n *Runtime) Update(_ context.Context, entry registry.Entry) error {
 	n.logger.Debug("noop runtime: update called",
 		zap.String("id", string(entry.ID)),
 		zap.String("kind", string(entry.Kind)))
@@ -58,7 +58,7 @@ func (n *NoopRuntime) Update(_ context.Context, entry registry.Entry) error {
 }
 
 // Delete implements EntryListener.Delete - does nothing and returns nil
-func (n *NoopRuntime) Delete(ctx context.Context, entry registry.Entry) error {
+func (n *Runtime) Delete(ctx context.Context, entry registry.Entry) error {
 	n.logger.Debug("noop runtime: delete called",
 		zap.String("id", string(entry.ID)),
 		zap.String("kind", string(entry.Kind)))

@@ -19,9 +19,9 @@ func TestNewPayload(t *testing.T) {
 		{
 			name:         "string data with JSON format",
 			data:         `{"name": "test"}`,
-			format:       Json,
+			format:       JSON,
 			expectData:   `{"name": "test"}`,
-			expectFormat: Json,
+			expectFormat: JSON,
 		},
 		{
 			name:         "nil data with Golang format",

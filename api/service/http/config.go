@@ -50,9 +50,9 @@ type (
 		Path              string            `json:"path"`                // URL path
 		Method            string            `json:"method"`              // Timeouts method
 		Target            string            `json:"target"`              // Target function
-		JsonInput         bool              `json:"json_input"`          // Expect input as JSON
-		JsonSchema        any               `json:"json_schema"`         // JSON schema for input validation, only if JsonInput is true
-		JsonOutput        bool              `json:"json_output"`         // Automatically marshal output to JSON
+		JSONInput         bool              `json:"json_input"`          // Expect input as JSON
+		JSONSchema        any               `json:"json_schema"`         // JSON schema for input validation, only if JSONInput is true
+		JSONOutput        bool              `json:"json_output"`         // Automatically marshal output to JSON
 		SuccessStatusCode int               `json:"success_status_code"` // HTTP status code for success
 	}
 )

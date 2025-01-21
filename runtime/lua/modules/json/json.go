@@ -15,8 +15,8 @@ var (
 
 type Module struct{}
 
-// NewJsonModule creates a new JSON module.
-func NewJsonModule() *Module {
+// NewJSONModule creates a new JSON module.
+func NewJSONModule() *Module {
 	return &Module{}
 }
 

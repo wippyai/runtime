@@ -113,7 +113,7 @@ func main() {
 		timelib.NewTimeModule(),
 		logglib.NewLoggerModule(logger.Named("app")),
 		b64mlib.NewBase64Module(),
-		jsonlib.NewJsonModule(),
+		jsonlib.NewJSONModule(),
 		httplib.NewHTTPModule(httpbase.DefaultClient, logger.Named("http")),
 		httpctx.NewHTTPContextModule(logger.Named("http")),
 		tsitter.NewTreeSitterModule(logger.Named("treesitter")),
