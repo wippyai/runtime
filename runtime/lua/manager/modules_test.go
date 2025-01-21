@@ -43,8 +43,8 @@ func TestModules_Register(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify module was stored
-		stored, exists := modules.Get("test1")
-		assert.True(t, exists)
+		stored, err := modules.Get("test1")
+		assert.NoError(t, err)
 		assert.Equal(t, module, stored)
 	})
 
@@ -88,8 +88,9 @@ func TestModules_Unregister(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify it's gone
-		_, exists := modules.Get("test")
-		assert.False(t, exists)
+		_, err = modules.Get("test")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "not found")
 	})
 
 	t.Run("fails unregistering non-existent module", func(t *testing.T) {
@@ -108,13 +109,34 @@ func TestModules_Get(t *testing.T) {
 		err := modules.Register(module)
 		require.NoError(t, err)
 
-		stored, exists := modules.Get("test")
-		assert.True(t, exists)
+		stored, err := modules.Get("test")
+		assert.NoError(t, err)
 		assert.Equal(t, module, stored)
 	})
 
+	t.Run("returns error for non-existent module", func(t *testing.T) {
+		stored, err := modules.Get("non-existent")
+		assert.Error(t, err)
+		assert.Nil(t, stored)
+		assert.Contains(t, err.Error(), "not found")
+	})
+}
+
+func TestModules_Has(t *testing.T) {
+	logger := zap.NewNop()
+	modules := NewModules(logger)
+	module := &mockModule{name: "test"}
+
+	t.Run("returns true for existing module", func(t *testing.T) {
+		err := modules.Register(module)
+		require.NoError(t, err)
+
+		exists := modules.Has("test")
+		assert.True(t, exists)
+	})
+
 	t.Run("returns false for non-existent module", func(t *testing.T) {
-		_, exists := modules.Get("non-existent")
+		exists := modules.Has("non-existent")
 		assert.False(t, exists)
 	})
 }

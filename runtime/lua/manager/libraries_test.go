@@ -63,8 +63,8 @@ func TestLibraries_Add(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify library was stored
-		stored, exists := libs.GetLibrary("test1")
-		assert.True(t, exists)
+		stored, err := libs.Get("test1")
+		assert.NoError(t, err)
 		assert.Equal(t, cfg, stored)
 	})
 
@@ -96,8 +96,8 @@ func TestLibraries_Add(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify both libraries exist
-		assert.True(t, libs.HasLibrary("test2"))
-		assert.True(t, libs.HasLibrary("test3"))
+		assert.True(t, libs.Has("test2"))
+		assert.True(t, libs.Has("test3"))
 	})
 }
 
@@ -126,8 +126,8 @@ func TestLibraries_Update(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify library was updated
-		stored, exists := libs.GetLibrary("test")
-		assert.True(t, exists)
+		stored, err := libs.Get("test")
+		assert.NoError(t, err)
 		assert.Equal(t, updatedCfg, stored)
 	})
 
@@ -163,7 +163,7 @@ func TestLibraries_Delete(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify library was deleted
-		assert.False(t, libs.HasLibrary("test"))
+		assert.False(t, libs.Has("test"))
 	})
 
 	t.Run("fails deleting non-existent library", func(t *testing.T) {
@@ -173,7 +173,7 @@ func TestLibraries_Delete(t *testing.T) {
 	})
 }
 
-func TestLibraries_GetLibrary(t *testing.T) {
+func TestLibraries_Get(t *testing.T) {
 	logger := zap.NewNop()
 	dtt := makeTestTranscoder()
 	libs := NewLibraries(dtt, logger)
@@ -188,18 +188,20 @@ func TestLibraries_GetLibrary(t *testing.T) {
 		err := libs.Add(ctx, makeTestEntry("test", cfg))
 		require.NoError(t, err)
 
-		stored, exists := libs.GetLibrary("test")
-		assert.True(t, exists)
+		stored, err := libs.Get("test")
+		assert.NoError(t, err)
 		assert.Equal(t, cfg, stored)
 	})
 
-	t.Run("returns false for non-existent library", func(t *testing.T) {
-		_, exists := libs.GetLibrary("non-existent")
-		assert.False(t, exists)
+	t.Run("returns error for non-existent library", func(t *testing.T) {
+		stored, err := libs.Get("non-existent")
+		assert.Error(t, err)
+		assert.Nil(t, stored)
+		assert.Contains(t, err.Error(), "not found")
 	})
 }
 
-func TestLibraries_HasLibrary(t *testing.T) {
+func TestLibraries_Has(t *testing.T) {
 	logger := zap.NewNop()
 	dtt := makeTestTranscoder()
 	libs := NewLibraries(dtt, logger)
@@ -214,12 +216,12 @@ func TestLibraries_HasLibrary(t *testing.T) {
 		err := libs.Add(ctx, makeTestEntry("test", cfg))
 		require.NoError(t, err)
 
-		exists := libs.HasLibrary("test")
+		exists := libs.Has("test")
 		assert.True(t, exists)
 	})
 
 	t.Run("returns false for non-existent library", func(t *testing.T) {
-		exists := libs.HasLibrary("non-existent")
+		exists := libs.Has("non-existent")
 		assert.False(t, exists)
 	})
 }

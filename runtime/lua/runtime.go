@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/ponyruntime/pony/api/service/terminal"
 	"github.com/ponyruntime/pony/runtime/lua/manager"
+	terminal2 "github.com/ponyruntime/pony/runtime/lua/terminal"
 	"sync"
 
 	contextapi "github.com/ponyruntime/pony/api/context"
@@ -42,7 +43,7 @@ func NewRuntimeManager(
 		bus:       bus,
 		functions: manager.NewFunctions(dtt, logger),
 		libraries: manager.NewLibraries(dtt, logger),
-		terminals: manager.NewTerminals(dtt, logger),
+		terminals: manager.NewTerminals(dtt, logger, terminal2.NewDefaultFactory()),
 		modules:   manager.NewModules(logger),
 		callable:  sync.Map{},
 	}
@@ -75,7 +76,7 @@ func (m *RuntimeManager) Add(ctx context.Context, entry registry.Entry) error {
 		return m.libraries.Add(ctx, entry)
 
 	case api.KindTerminal:
-		if err := m.terminals.Add(ctx, entry, m.modules, m.libraries); err != nil {
+		if err := m.terminals.Add(entry, m.modules, m.libraries); err != nil {
 			return err
 		}
 		return m.compileAndRegisterTerminal(ctx, entry.ID)
@@ -200,7 +201,7 @@ func (m *RuntimeManager) Execute(task runtime.Task) (chan *runtime.Result, error
 	}
 
 	// Get the function configuration
-	fn, exists := m.functions.GetFunction(task.Target)
+	fn, exists := m.functions.Get(task.Target)
 	if !exists {
 		return nil, fmt.Errorf("function configuration not found for target: %s", task.Target)
 	}
@@ -246,7 +247,7 @@ func (m *RuntimeManager) Execute(task runtime.Task) (chan *runtime.Result, error
 // Internal methods
 
 func (m *RuntimeManager) compileAndRegisterFunction(ctx context.Context, id registry.ID) error {
-	factory, err := m.functions.MakeFactory(id, m.modules, m.libraries, m.log)
+	factory, err := m.functions.MakeFactory(id, m.log, m.modules, m.libraries)
 	if err != nil {
 		return fmt.Errorf("failed to create factory: %w", err)
 	}
@@ -255,7 +256,7 @@ func (m *RuntimeManager) compileAndRegisterFunction(ctx context.Context, id regi
 		return fmt.Errorf("failed to compile function: %w", err)
 	}
 
-	fn, exists := m.functions.GetFunction(id)
+	fn, exists := m.functions.Get(id)
 	if !exists {
 		return fmt.Errorf("function configuration not found")
 	}

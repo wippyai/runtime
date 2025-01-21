@@ -71,14 +71,18 @@ func (m *Libraries) Delete(ctx context.Context, entry registry.Entry) error {
 	return nil
 }
 
-// GetLibrary retrieves a library by ID
-func (m *Libraries) GetLibrary(id registry.ID) (*api.LibraryConfig, bool) {
+// Get retrieves a library by ID
+func (m *Libraries) Get(id registry.ID) (*api.LibraryConfig, error) {
 	lib, exists := m.libraries[id]
-	return lib, exists
+	if !exists {
+		return nil, fmt.Errorf("library %s not found", id)
+	}
+
+	return lib, nil
 }
 
-// HasLibrary checks if a library exists
-func (m *Libraries) HasLibrary(id registry.ID) bool {
+// Has checks if a library exists
+func (m *Libraries) Has(id registry.ID) bool {
 	_, exists := m.libraries[id]
 	return exists
 }

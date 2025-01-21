@@ -2,6 +2,7 @@ package lua
 
 import (
 	"context"
+	"github.com/ponyruntime/pony/api/registry"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -18,6 +19,21 @@ type (
 	Factory interface {
 		Compile() error
 		MakeVM() (VM, error)
+	}
+
+	FunctionProvider interface {
+		Get(name registry.ID) (*FunctionConfig, error)
+		Has(name registry.ID) bool
+	}
+
+	LibraryRegistry interface {
+		Get(name registry.ID) (*LibraryConfig, error)
+		Has(name registry.ID) bool
+	}
+
+	ModuleRegistry interface {
+		Get(name string) (Module, error)
+		Has(name string) bool
 	}
 
 	VM interface {

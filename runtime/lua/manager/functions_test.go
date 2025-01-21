@@ -73,7 +73,7 @@ func TestFunctions_Add(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify function was stored
-		stored, exists := functions.GetFunction("test_func")
+		stored, exists := functions.Get("test_func")
 		assert.True(t, exists)
 		assert.Equal(t, cfg, stored)
 	})
@@ -149,7 +149,7 @@ func TestFunctions_Update(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify function was updated
-		stored, exists := functions.GetFunction("test_func")
+		stored, exists := functions.Get("test_func")
 		assert.True(t, exists)
 		assert.Equal(t, updatedCfg, stored)
 	})
@@ -189,7 +189,7 @@ func TestFunctions_Delete(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify function was deleted
-		_, exists := functions.GetFunction("test_func")
+		_, exists := functions.Get("test_func")
 		assert.False(t, exists)
 	})
 
@@ -255,13 +255,13 @@ func TestFunctions_MakeFactory(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("creates factory successfully", func(t *testing.T) {
-		factory, err := functions.MakeFactory("test_func", modules, libraries, logger)
+		factory, err := functions.MakeFactory("test_func", logger, modules, libraries)
 		require.NoError(t, err)
 		assert.NotNil(t, factory)
 	})
 
 	t.Run("fails with non-existent function", func(t *testing.T) {
-		factory, err := functions.MakeFactory("non_existent", modules, libraries, logger)
+		factory, err := functions.MakeFactory("non_existent", logger, modules, libraries)
 		assert.Error(t, err)
 		assert.Nil(t, factory)
 		assert.Contains(t, err.Error(), "not found")
