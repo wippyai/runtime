@@ -3,11 +3,9 @@ package http
 import (
 	"context"
 	"fmt"
-	"net/http"
-	"sync"
-
 	"github.com/ponyruntime/pony/api/runtime"
 	"github.com/ponyruntime/pony/service/http/handler"
+	"net/http"
 
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"
@@ -23,7 +21,6 @@ type ServerManager struct {
 	bus     events.Bus
 	handler http.HandlerFunc
 	dtt     payload.Transcoder
-	mu      sync.RWMutex
 
 	servers         map[registry.ID]*Server
 	endpointServers map[registry.ID]registry.ID // endpoint ID -> server ID
@@ -130,9 +127,6 @@ func (s *ServerManager) unmarshalAndValidate(data payload.Payload, cfg interface
 }
 
 func (s *ServerManager) addServer(ctx context.Context, entry registry.Entry) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	cfg := new(config.ServerConfig)
 	if err := s.unmarshalAndValidate(entry.Data, cfg); err != nil {
 		return err
@@ -156,9 +150,6 @@ func (s *ServerManager) addServer(ctx context.Context, entry registry.Entry) err
 }
 
 func (s *ServerManager) updateServer(ctx context.Context, entry registry.Entry) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	cfg := new(config.ServerConfig)
 	if err := s.unmarshalAndValidate(entry.Data, cfg); err != nil {
 		return err
@@ -182,9 +173,6 @@ func (s *ServerManager) updateServer(ctx context.Context, entry registry.Entry) 
 }
 
 func (s *ServerManager) deleteServer(ctx context.Context, entry registry.Entry) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if _, exists := s.servers[entry.ID]; !exists {
 		return fmt.Errorf("server %s not found", entry.ID)
 	}
@@ -214,9 +202,6 @@ func (s *ServerManager) deleteServer(ctx context.Context, entry registry.Entry) 
 }
 
 func (s *ServerManager) addRouter(entry registry.Entry) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	cfg := new(config.RouterConfig)
 	if err := s.unmarshalAndValidate(entry.Data, cfg); err != nil {
 		return err
@@ -237,9 +222,6 @@ func (s *ServerManager) addRouter(entry registry.Entry) error {
 }
 
 func (s *ServerManager) updateRouter(entry registry.Entry) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	cfg := new(config.RouterConfig)
 	if err := s.unmarshalAndValidate(entry.Data, cfg); err != nil {
 		return err
@@ -270,9 +252,6 @@ func (s *ServerManager) updateRouter(entry registry.Entry) error {
 }
 
 func (s *ServerManager) deleteRouter(entry registry.Entry) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	serverID, exists := s.routerServers[entry.ID]
 	if !exists {
 		return fmt.Errorf("router %s not found", entry.ID)
@@ -287,9 +266,6 @@ func (s *ServerManager) deleteRouter(entry registry.Entry) error {
 }
 
 func (s *ServerManager) addEndpoint(entry registry.Entry) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	cfg := new(config.EndpointConfig)
 	if err := s.unmarshalAndValidate(entry.Data, cfg); err != nil {
 		return err
@@ -310,9 +286,6 @@ func (s *ServerManager) addEndpoint(entry registry.Entry) error {
 }
 
 func (s *ServerManager) updateEndpoint(entry registry.Entry) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	cfg := new(config.EndpointConfig)
 	if err := s.unmarshalAndValidate(entry.Data, cfg); err != nil {
 		return err
@@ -343,9 +316,6 @@ func (s *ServerManager) updateEndpoint(entry registry.Entry) error {
 }
 
 func (s *ServerManager) deleteEndpoint(entry registry.Entry) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	serverID, exists := s.endpointServers[entry.ID]
 	if !exists {
 		return fmt.Errorf("endpoint %s not found", entry.ID)

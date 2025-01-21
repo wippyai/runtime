@@ -123,7 +123,7 @@ func main() {
 	// -- configuration bus
 	svc, err := services.NewRouter(ctx, bus,
 		services.WithListener("http.*", http.NewExecutingManager(bus, dtt, exec, logger.Named("http"))),
-		services.WithListener("(function|library).lua", luaRuntime),
+		services.WithListener("(function|library|terminal).lua", luaRuntime),
 	)
 
 	if err != nil {

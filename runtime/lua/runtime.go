@@ -3,6 +3,7 @@ package lua
 import (
 	"context"
 	"fmt"
+	"github.com/ponyruntime/pony/api/service/terminal"
 	"github.com/ponyruntime/pony/runtime/lua/manager"
 	"sync"
 
@@ -23,6 +24,7 @@ type RuntimeManager struct {
 	bus       events.Bus
 	functions *manager.Functions
 	libraries *manager.Libraries
+	terminals *manager.Terminals
 	modules   *manager.Modules
 	pools     *pool.Factory
 	callable  sync.Map
@@ -40,6 +42,7 @@ func NewRuntimeManager(
 		bus:       bus,
 		functions: manager.NewFunctions(dtt, logger),
 		libraries: manager.NewLibraries(dtt, logger),
+		terminals: manager.NewTerminals(dtt, logger),
 		modules:   manager.NewModules(logger),
 		callable:  sync.Map{},
 	}
@@ -71,6 +74,12 @@ func (m *RuntimeManager) Add(ctx context.Context, entry registry.Entry) error {
 	case api.KindLibrary:
 		return m.libraries.Add(ctx, entry)
 
+	case api.KindTerminal:
+		if err := m.terminals.Add(ctx, entry, m.modules, m.libraries); err != nil {
+			return err
+		}
+		return m.compileAndRegisterTerminal(ctx, entry.ID)
+
 	default:
 		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
 	}
@@ -87,6 +96,7 @@ func (m *RuntimeManager) Update(ctx context.Context, entry registry.Entry) error
 		if err := m.functions.Update(entry, m.modules, m.libraries); err != nil {
 			return err
 		}
+
 		return m.compileAndRegisterFunction(ctx, entry.ID)
 
 	case api.KindLibrary:
@@ -105,7 +115,28 @@ func (m *RuntimeManager) Update(ctx context.Context, entry registry.Entry) error
 				return err
 			}
 		}
+
+		// Find and update all dependent terminals
+		dependentTerminals := m.terminals.FindDependentOnLibrary(entry.ID)
+		for _, terminalID := range dependentTerminals {
+			// Recreate and register terminal
+			if err := m.compileAndRegisterTerminal(ctx, terminalID); err != nil {
+				m.log.Error("failed to recreate terminal after library update",
+					zap.String("terminal", string(terminalID)),
+					zap.String("library", string(entry.ID)),
+					zap.Error(err))
+				return err
+			}
+		}
+
 		return nil
+
+	case api.KindTerminal:
+		if err := m.terminals.Update(entry, m.modules, m.libraries); err != nil {
+			return err
+		}
+
+		return m.compileAndRegisterTerminal(ctx, entry.ID)
 
 	default:
 		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
@@ -130,7 +161,23 @@ func (m *RuntimeManager) Delete(ctx context.Context, entry registry.Entry) error
 		if len(dependent) > 0 {
 			return fmt.Errorf("library %s is used by functions: %v", entry.ID, dependent)
 		}
+
+		// Check for dependent terminals
+		dependentTerms := m.terminals.FindDependentOnLibrary(entry.ID)
+		if len(dependentTerms) > 0 {
+			return fmt.Errorf("library %s is used by terminals: %v", entry.ID, dependentTerms)
+		}
+
 		return m.libraries.Delete(ctx, entry)
+
+	case api.KindTerminal:
+		m.bus.Send(ctx, events.Event{
+			System: terminal.System,
+			Kind:   terminal.DeleteTerminalEvent,
+			Data:   entry.ID,
+		})
+
+		return m.terminals.Delete(entry)
 
 	default:
 		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
@@ -222,6 +269,30 @@ func (m *RuntimeManager) compileAndRegisterFunction(ctx context.Context, id regi
 		System: runtime.System,
 		Kind:   runtime.RegisterHandlerEvent,
 		Data:   runtime.RegisterHandler{Target: id, Handler: m.Execute},
+	})
+
+	return nil
+}
+
+func (m *RuntimeManager) compileAndRegisterTerminal(ctx context.Context, id registry.ID) error {
+	term, exists := m.terminals.GetTerminal(id)
+	if !exists {
+		return fmt.Errorf("terminal configuration not found")
+	}
+
+	instance, err := m.terminals.MakeTerminal(id, m.modules, m.libraries)
+	if err != nil {
+		return fmt.Errorf("failed to create terminal: %w", err)
+	}
+
+	m.bus.Send(ctx, events.Event{
+		System: terminal.System,
+		Kind:   terminal.RegisterTerminalEvent,
+		Data: terminal.RegisterApplication{
+			Terminal:  instance,
+			Options:   term.Options,
+			Lifecycle: term.Lifecycle,
+		},
 	})
 
 	return nil
