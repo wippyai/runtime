@@ -148,6 +148,7 @@ func (v *VM) DoString(ctx context.Context, s string, name string, args ...lua.LV
 	return v.state.PCall(len(args), lua.MultRet, nil)
 }
 
+// State returns the underlying Lua state of the VM.
 func (v *VM) State() *lua.LState {
 	return v.state
 }

@@ -1,25 +1,28 @@
 package ctx
 
 import (
-	ctxapi "github.com/ponyruntime/pony/api/context" // Make sure this import path is correct
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	transcoder "github.com/ponyruntime/pony/pkg/payload/lua"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
 
-// Module (ctx) gets or sets a context value found by a given key.
+// Module provides context manipulation operations for Lua scripts.
+// It enables getting and setting context values by key.
 type Module struct{}
 
+// New creates a new context module with the specified logger.
 func New(log *zap.Logger) *Module {
 	return &Module{}
 }
 
-// Name returns the module name
+// Name returns the module name.
 func (m *Module) Name() string {
 	return "ctx"
 }
 
-// Loader is the entry point for loading the plugin
+// Loader is the entry point for loading the module into Lua.
+// It registers the get and set functions into the Lua state.
 func (m *Module) Loader(l *lua.LState) int {
 	t := l.NewTable()
 
@@ -33,6 +36,8 @@ func (m *Module) Loader(l *lua.LState) int {
 	return 1
 }
 
+// get retrieves a value from the context by key.
+// Returns (value, nil) if found, (nil, error) if not found.
 func (m *Module) get(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
@@ -65,6 +70,8 @@ func (m *Module) get(l *lua.LState) int {
 	return 2
 }
 
+// set stores a value in the context with the specified key.
+// Returns (true, nil) on success.
 func (m *Module) set(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
