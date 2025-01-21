@@ -102,6 +102,8 @@ func (p *RetryPolicy) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// InitDefaults initializes the LifecycleConfig with default values if they are not set.
+// This includes setting default timeouts, retry policies, and backoff parameters.
 func (cfg *LifecycleConfig) InitDefaults() {
 	if cfg.StartTimeout == 0 {
 		cfg.StartTimeout = 30 * time.Second
