@@ -19,7 +19,10 @@ import (
 const DefaultTimeout = 90 * time.Second
 
 var (
-	ErrInvalidAuth    = errors.New("auth table must contain non-nil user and pass fields")
+	// ErrInvalidAuth is returned when authentication credentials are missing or invalid
+	ErrInvalidAuth = errors.New("auth table must contain non-nil user and pass fields")
+
+	// ErrInvalidRequest is returned when the request is not a table, internal.
 	ErrInvalidRequest = errors.New("request must be a table")
 )
 
@@ -28,15 +31,18 @@ type Client interface {
 	Do(req *http.Request) (*http.Response, error)
 }
 
+// Module implements HTTP client functionality for Lua runtime
 type Module struct {
 	log    *zap.Logger
 	client Client
 }
 
+// NewHTTPModule creates a new HTTP module instance with the given client and logger
 func NewHTTPModule(client Client, log *zap.Logger) *Module {
 	return &Module{log: log, client: client}
 }
 
+// Name returns the module name
 func (m *Module) Name() string {
 	return "http"
 }
