@@ -424,6 +424,99 @@ func TestAsyncTasksWithTimers(t *testing.T) {
 	}
 }
 
+func TestTasker_TaskSend(t *testing.T) {
+	logger := zap.NewNop()
+
+	// Create VM with required modules
+	vm, err := engine.NewCVM(logger,
+		engine.WithPreloaded("tasks", NewModule().Loader),
+		engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
+	)
+	require.NoError(t, err)
+	defer vm.Close()
+
+	// Create tasker
+	tasker := NewTasker(logger, vm, channel.NewChannelLayer(), 10)
+
+	script := `
+		function send_handler()
+			local inbox = tasks.channel()
+			
+			while true do
+				local task, ok = inbox:receive()
+				if not ok then
+					break
+				end
+
+				-- Send intermediate results
+				task:send("progress", 50)
+				task:send("progress", 75)
+				
+				-- Complete with final result
+				task:complete("done", 100)
+			end
+			
+			return "exit"
+		end
+	`
+	err = vm.Import(script, "test", "send_handler")
+	require.NoError(t, err)
+
+	// Start tasker
+	statusCh, err := tasker.Start(context.Background(), "send_handler")
+	require.NoError(t, err)
+	assert.Equal(t, "engine started", <-statusCh)
+
+	// Execute task
+	resultCh, err := tasker.Execute(context.Background(), "test_task", []lua.LValue{lua.LString("test")})
+	require.NoError(t, err)
+
+	// Collect all results (both intermediate and final)
+	var results [][]lua.LValue
+	var isChannelOpen bool = true
+
+	for isChannelOpen {
+		select {
+		case result, ok := <-resultCh:
+			if !ok {
+				isChannelOpen = false
+				break
+			}
+			require.NoError(t, result.Error)
+			results = append(results, result.Result)
+		case <-time.After(time.Second):
+			t.Fatal("timeout waiting for results")
+		}
+	}
+
+	// Verify results
+	require.Equal(t, 3, len(results), "should receive two progress updates and one completion")
+
+	// Check first progress update
+	assert.Equal(t, "progress", results[0][0].String())
+	assert.Equal(t, float64(50), float64(results[0][1].(lua.LNumber)))
+
+	// Check second progress update
+	assert.Equal(t, "progress", results[1][0].String())
+	assert.Equal(t, float64(75), float64(results[1][1].(lua.LNumber)))
+
+	// Check final result
+	assert.Equal(t, "done", results[2][0].String())
+	assert.Equal(t, float64(100), float64(results[2][1].(lua.LNumber)))
+
+	// Stop tasker
+	err = tasker.Stop(context.Background())
+	require.NoError(t, err)
+
+	// Verify final status
+	select {
+	case status := <-statusCh:
+		assert.Contains(t, status.(string), "engine exit: exit")
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for exit")
+	}
+}
+
 func setupVM(b *testing.B) (*Tasker, func()) {
 	logger := zap.NewNop()
 
