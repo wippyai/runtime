@@ -2,24 +2,65 @@ package lfs
 
 import (
 	"os"
+	"path"
+	"path/filepath"
 	"time"
 
+	apic "github.com/ponyruntime/pony/api/context"
+	"github.com/ponyruntime/pony/internal/closer"
 	lua "github.com/yuin/gopher-lua"
+	"go.uber.org/zap"
 )
 
 func apiAttributes(l *lua.LState) int {
 	return attributes(l, os.Stat)
 }
 
+func getCtxLogger(l *lua.LState) *zap.Logger {
+	ctx := l.Context()
+	return ctx.Value(apic.LoggerCtx).(*zap.Logger)
+}
+
 func apiChdir(l *lua.LState) int {
 	dir := l.CheckString(1)
+	log := getCtxLogger(l)
+	cwd := l.GetGlobal(globalFnName).String()
 
-	err := os.Chdir(dir)
+	log.Debug("previous dir", zap.String("dir", cwd), zap.String("new", dir))
+
+	if dir == cwd {
+		l.Push(lua.LNil)
+		l.Push(lua.LTrue)
+		return 1
+	}
+
+	// if the path is relative, then concatenate it with the current directory
+	if isRelative(dir) {
+		dir = path.Join(cwd, dir)
+	}
+
+	// check if the directory exists
+	f, err := os.Open(dir)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
 		return 2
 	}
+	_ = f.Close()
+
+	// save the current directory
+	log.Debug("current dir", zap.String("dir", dir))
+	// save the new cwd
+	l.SetGlobal(globalFnName, lua.LString(dir))
+
+	closer := closer.FromContext(l.Context())
+	// TODO: closer should use some kind of ID to identify cases when we have multiple identical calls
+	closer.Add(func() error {
+		// clear the global variable
+		l.SetGlobal(globalFnName, lua.LString(""))
+		return nil
+	})
+
 	l.Push(lua.LTrue)
 	return 1
 }
@@ -30,20 +71,32 @@ func apiLockdir(l *lua.LState) int {
 }
 
 func apiCurrentdir(l *lua.LState) int {
-	dir, err := os.Getwd()
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
-	}
-	l.Push(lua.LString(dir))
+	cwd := l.GetGlobal(globalFnName).String()
+	log := getCtxLogger(l)
+	log.Debug("current dir", zap.String("dir", cwd))
+
+	l.Push(lua.LString(cwd))
 	return 1
 }
 
 func apiDir(l *lua.LState) int {
-	path := l.CheckString(1)
+	lp := l.CheckString(1)
+	if lp == "" {
+		l.RaiseError("%s", "path is empty")
+		return 0
+	}
 
-	f, err := os.Open(path)
+	cwd := l.GetGlobal(globalFnName).String()
+
+	log := getCtxLogger(l)
+	// if the path is relative, then concatenate it with the current directory
+	if isRelative(lp) {
+		lp = path.Join(cwd, lp)
+	}
+
+	log.Debug("dir", zap.String("path", lp))
+
+	f, err := os.Open(lp)
 	if err != nil {
 		l.RaiseError("%s", err)
 		return 0
@@ -57,10 +110,19 @@ func apiDir(l *lua.LState) int {
 		l.RaiseError("not a directory")
 		return 0
 	}
+
 	l.Push(l.NewFunction(dirItr))
 	ud := l.NewUserData()
 	ud.Value = f
 	l.Push(ud)
+
+	// add the file to the cleanup
+	closer := closer.FromContext(l.Context())
+	closer.Add(func() error {
+		_ = f.Close()
+		return nil
+	})
+
 	return 2
 }
 
@@ -71,14 +133,27 @@ func apiLock(l *lua.LState) int {
 
 func apiLink(l *lua.LState) int {
 	old := l.CheckString(1)
-	_new := l.CheckString(2)
+	cwd := l.GetGlobal(globalFnName).String()
+	log := getCtxLogger(l)
+	if isRelative(old) {
+		old = path.Join(cwd, old)
+	}
+
+	newn := l.CheckString(2)
+	// if the path is relative, then concatenate it with the current directory
+	if isRelative(newn) {
+		newn = path.Join(cwd, newn)
+	}
+
+	log.Debug("link", zap.String("old", old), zap.String("new", newn))
+
 	symlink := l.OptBool(3, false)
 
 	var err error
 	if symlink {
-		err = os.Symlink(old, _new)
+		err = os.Symlink(old, newn)
 	} else {
-		err = os.Link(old, _new)
+		err = os.Link(old, newn)
 	}
 
 	if err != nil {
@@ -86,26 +161,45 @@ func apiLink(l *lua.LState) int {
 		l.Push(lua.LString(err.Error()))
 		return 2
 	}
-	l.Push(lua.LTrue)
 
+	l.Push(lua.LTrue)
 	return 1
 }
 
 func apiMkdir(l *lua.LState) int {
 	dir := l.CheckString(1)
+	log := getCtxLogger(l)
+	cwd := l.GetGlobal(globalFnName).String()
 
-	err := os.Mkdir(dir, 0755)
+	// if the path is relative, then concatenate it with the current directory
+	if isRelative(dir) {
+		dir = path.Join(cwd, dir)
+	}
+
+	log.Debug("mkdir", zap.String("dir", dir))
+	// 0644 - user: read, write; group: read; others: read
+	err := os.Mkdir(dir, 0644)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
 		return 2
 	}
+
 	l.Push(lua.LTrue)
 	return 1
 }
 
 func apiRmdir(l *lua.LState) int {
 	dir := l.CheckString(1)
+	cwd := l.GetGlobal(globalFnName).String()
+	log := getCtxLogger(l)
+
+	// if the path is relative, then concatenate it with the current directory
+	if isRelative(dir) {
+		dir = path.Join(cwd, dir)
+	}
+
+	log.Debug("rmdir", zap.String("dir", dir))
 
 	stat, err := os.Stat(dir)
 	if err != nil {
@@ -138,13 +232,22 @@ func apiSymlinkattributes(l *lua.LState) int {
 }
 
 func apiTouch(l *lua.LState) int {
-	filepath := l.CheckString(1)
+	dir := l.CheckString(1)
+	log := getCtxLogger(l)
+	cwd := l.GetGlobal(globalFnName).String()
+
+	if isRelative(dir) {
+		dir = path.Join(cwd, dir)
+	}
+
+	log.Debug("touch", zap.String("file", dir))
+
 	atime := l.OptInt64(2, time.Now().Unix())
 	mtime := l.OptInt64(3, atime)
 
 	// Check if the file exists. If not, create it.
-	if _, err := os.Stat(filepath); os.IsNotExist(err) {
-		file, err := os.Create(filepath)
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		file, err := os.Create(dir)
 		if err != nil {
 			l.Push(lua.LNil)
 			l.Push(lua.LString(err.Error()))
@@ -154,7 +257,7 @@ func apiTouch(l *lua.LState) int {
 	}
 
 	// Now that the file exists, change its timestamps
-	err := os.Chtimes(filepath, time.Unix(atime, 0), time.Unix(mtime, 0))
+	err := os.Chtimes(dir, time.Unix(atime, 0), time.Unix(mtime, 0))
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
@@ -167,4 +270,9 @@ func apiTouch(l *lua.LState) int {
 func apiUnlock(l *lua.LState) int {
 	l.RaiseError("unimplemented function")
 	return 0
+}
+
+// isRelative returns true if the path is relative.
+func isRelative(path string) bool {
+	return !filepath.IsAbs(path)
 }
