@@ -41,15 +41,24 @@ func attributes(l *lua.LState, statFunc func(string) (os.FileInfo, error)) int {
 
 func dirItr(l *lua.LState) int {
 	ud := l.CheckUserData(1)
+	if ud == nil {
+		return 0
+	}
 
 	f, ok := ud.Value.(*os.File)
 	if !ok {
 		return 0
 	}
+
+	if f == nil {
+		return 0
+	}
+
 	names, err := f.Readdirnames(1)
 	if err != nil {
 		return 0
 	}
+
 	l.Push(lua.LString(names[0]))
 	return 1
 }

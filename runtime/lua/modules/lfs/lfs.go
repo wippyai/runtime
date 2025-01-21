@@ -4,8 +4,12 @@
 package lfs
 
 import (
+	"os"
+
 	lua "github.com/yuin/gopher-lua"
 )
+
+const globalFnName = "___currdir"
 
 // Module represents a lfs Lua module.
 type Module struct{}
@@ -39,7 +43,13 @@ func (m *Module) Loader(l *lua.LState) int {
 		"unlock":            apiUnlock,
 	}
 
+	// TODO: is it safe to omit error handling here?
+	// case1: cwd does not exist
+	dir, _ := os.Getwd()
+	l.SetGlobal(globalFnName, lua.LString(dir))
+
 	l.SetFuncs(t, api)
 	l.Push(t)
+
 	return 1
 }
