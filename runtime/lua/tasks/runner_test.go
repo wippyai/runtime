@@ -21,7 +21,7 @@ func TestTasker_BasicExecution(t *testing.T) {
 	t.Run("simple task execution", func(t *testing.T) {
 		// Create base VM with tasks module
 		vm, err := engine.NewCVM(logger,
-			engine.WithPreloaded("tasks", NewModule().Loader),
+			engine.WithPreloaded("tasks", NewTaskModule().Loader),
 			engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
 		)
 		assert.NoError(t, err)
@@ -103,7 +103,7 @@ func TestTasker_ErrorHandling(t *testing.T) {
 	t.Run("task failure handling", func(t *testing.T) {
 		// Create VM with modules
 		vm, err := engine.NewCVM(logger,
-			engine.WithPreloaded("tasks", NewModule().Loader),
+			engine.WithPreloaded("tasks", NewTaskModule().Loader),
 			engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
 		)
 		require.NoError(t, err)
@@ -166,7 +166,7 @@ func TestTasker_ConcurrentExecution(t *testing.T) {
 
 	t.Run("multiple concurrent tasks", func(t *testing.T) {
 		vm, err := engine.NewCVM(logger,
-			engine.WithPreloaded("tasks", NewModule().Loader),
+			engine.WithPreloaded("tasks", NewTaskModule().Loader),
 			engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
 		)
 		require.NoError(t, err)
@@ -231,7 +231,7 @@ func TestConsecutiveTasks(t *testing.T) {
 
 	// Create base VM with tasks module and channels
 	vm, err := engine.NewCVM(logger,
-		engine.WithPreloaded("tasks", NewModule().Loader),
+		engine.WithPreloaded("tasks", NewTaskModule().Loader),
 		engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
 	)
 	assert.NoError(t, err)
@@ -316,7 +316,7 @@ func TestAsyncTasksWithTimers(t *testing.T) {
 
 	// Create base VM with required modules
 	vm, err := engine.NewCVM(logger,
-		engine.WithPreloaded("tasks", NewModule().Loader),
+		engine.WithPreloaded("tasks", NewTaskModule().Loader),
 		engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
 		engine.WithPreloaded("time", timemod.NewTimeModule().Loader),
 	)
@@ -429,7 +429,7 @@ func TestTasker_TaskSend(t *testing.T) {
 
 	// Create VM with required modules
 	vm, err := engine.NewCVM(logger,
-		engine.WithPreloaded("tasks", NewModule().Loader),
+		engine.WithPreloaded("tasks", NewTaskModule().Loader),
 		engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
 	)
 	require.NoError(t, err)
@@ -521,7 +521,7 @@ func setupVM(b *testing.B) (*TaskRunner, func()) {
 	logger := zap.NewNop()
 
 	vm, err := engine.NewCVM(logger,
-		engine.WithPreloaded("tasks", NewModule().Loader),
+		engine.WithPreloaded("tasks", NewTaskModule().Loader),
 		engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
 	)
 	if err != nil {

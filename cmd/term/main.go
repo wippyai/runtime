@@ -3,228 +3,172 @@ package main
 import (
 	"context"
 	"fmt"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/bubbletea"
+	transcode "github.com/ponyruntime/pony/pkg/payload/lua"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/async"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
-	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
-	httpmod "github.com/ponyruntime/pony/runtime/lua/modules/http"
-	"github.com/ponyruntime/pony/runtime/lua/modules/json"
-	"github.com/ponyruntime/pony/runtime/lua/modules/time"
+	"github.com/ponyruntime/pony/runtime/lua/tasks"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
-	"log"
-	"net/http"
-	"os"
-	"strings"
 )
 
 type model struct {
-	windowSize   tea.WindowSizeMsg
-	mousePos     tea.MouseMsg
-	active       bool
-	lastKey      string
-	windowEvents []string
-	vm           engine.VM
+	tasker *tasks.TaskRunner
+	logger *zap.Logger
+	ctx    context.Context
+	state  *lua.LState
+}
+
+const luaScript = `
+function App()
+    local inbox = tasks.channel()
+    local text = ""
+    
+    while true do
+        local task, ok = inbox:receive()
+        if not ok then
+            break
+        end
+        
+        local msg = task:input()
+        if msg.type == "update" then
+            if msg.key then
+                if msg.key.Type == " " or msg.key.String == " " then
+                    -- Handle space
+                    text = text .. " "
+                elseif msg.key.Type == "runes" then
+                    text = text .. msg.key.String
+                elseif msg.key.String == "backspace" then
+                    if #text > 0 then
+                        repeat
+                            text = text:sub(1, -2)
+                        until #text == 0 or text:match("[\128-\191]$") == nil
+                    end
+                end
+            end
+            task:send(true)
+            task:complete(nil)
+        elseif msg.type == "view" then
+            task:complete("Text: " .. text .. "▌")
+        end
+    end
+end
+
+return App
+`
+
+func (m model) mapMessage(msg tea.Msg) lua.LValue {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		return transcode.GoToLua(m.state, map[string]any{
+			"type": "update",
+			"key": map[string]any{
+				"Type":   msg.Type.String(),
+				"String": msg.String(),
+				"Alt":    msg.Alt,
+				"Runes":  string(msg.Runes),
+			},
+		})
+	default:
+		return transcode.GoToLua(m.state, map[string]any{
+			"type": "update",
+			"msg":  fmt.Sprintf("%v", msg),
+		})
+	}
+}
+
+func initialModel() model {
+	logger := zap.NewExample()
+	ctx := context.Background()
+
+	vm, err := engine.NewCVM(logger,
+		engine.WithPreloaded("tasks", tasks.NewTaskModule().Loader),
+		engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
+	)
+	if err != nil {
+		logger.Fatal("failed to create VM", zap.Error(err))
+	}
+
+	if err := vm.Import(luaScript, "app", "App"); err != nil {
+		logger.Fatal("failed to import Lua code", zap.Error(err))
+	}
+
+	tasker := tasks.NewTasker(logger, vm, channel.NewChannelLayer(), 1024)
+	statusCh, err := tasker.Start(ctx, "App")
+	if err != nil {
+		logger.Fatal("failed to start tasker", zap.Error(err))
+	}
+
+	status := <-statusCh
+	logger.Info("tasker status", zap.Any("status", status))
+
+	return model{
+		tasker: tasker,
+		logger: logger,
+		ctx:    ctx,
+		state:  vm.State(),
+	}
 }
 
 func (m model) Init() tea.Cmd {
-	// Enable alternate screen
-	return tea.EnterAltScreen
+	return nil
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	// System Messages
-	case tea.WindowSizeMsg:
-		// Terminal window was resized
-		m.windowSize = msg
-		m.windowEvents = append(m.windowEvents, fmt.Sprintf("Window resized to %dx%d", msg.Width, msg.Height))
-
-	case tea.MouseMsg:
-		// Mouse event occurred
-		m.mousePos = msg
-		m.windowEvents = append(m.windowEvents, fmt.Sprintf("Mouse %s at %d,%d", msg.Type, msg.X, msg.Y))
-
 	case tea.KeyMsg:
-		switch msg.Type {
-		case tea.KeyCtrlC:
-			return m, tea.Quit
-		case tea.KeyEscape:
-			return m, tea.Quit
-		case tea.KeyTab:
-			m.active = !m.active
-		default:
-			m.lastKey = msg.String()
-		}
+		// Debug all key info
+		m.logger.Info("key details",
+			zap.String("type", msg.Type.String()),
+			zap.String("string", msg.String()),
+			zap.String("runes", string(msg.Runes)),
+			zap.Any("key", msg),
+		)
 
-	// Custom system messages
-	case errMsg:
-		m.windowEvents = append(m.windowEvents, "Error: "+string(msg))
+		if msg.String() == "q" || msg.String() == "ctrl+c" {
+			return m, tea.Quit
+		}
 	}
 
-	// Keep only last 5 events
-	if len(m.windowEvents) > 5 {
-		m.windowEvents = m.windowEvents[len(m.windowEvents)-5:]
+	// Map message and send to Lua
+	mappedMsg := m.mapMessage(msg)
+	resultCh, err := m.tasker.Execute(m.ctx, "update", []lua.LValue{mappedMsg})
+	if err != nil {
+		m.logger.Error("failed to execute update task", zap.Error(err))
+		return m, nil
+	}
+
+	result := <-resultCh
+	if result.Error != nil {
+		m.logger.Error("update task failed", zap.Error(result.Error))
 	}
 
 	return m, nil
 }
 
 func (m model) View() string {
-	style := lipgloss.NewStyle().
-		PaddingLeft(2).
-		Foreground(lipgloss.Color("#FF75B5"))
-
-	var b strings.Builder
-	b.WriteString("Terminal Events Demo\n\n")
-
-	// Window info
-	b.WriteString(style.Render(fmt.Sprintf("Window Size: %dx%d\n", m.windowSize.Width, m.windowSize.Height)))
-	b.WriteString(style.Render(fmt.Sprintf("Mouse Position: %d,%d\n", m.mousePos.X, m.mousePos.Y)))
-	b.WriteString(style.Render(fmt.Sprintf("Active: %v\n", m.active)))
-	b.WriteString(style.Render(fmt.Sprintf("Last Key: %s\n", m.lastKey)))
-
-	// Recent events
-	b.WriteString("\nRecent Events:\n")
-	for _, event := range m.windowEvents {
-		b.WriteString(style.Render("• " + event + "\n"))
+	resultCh, err := m.tasker.Execute(m.ctx, "view", []lua.LValue{
+		transcode.GoToLua(m.state, map[string]any{"type": "view"}),
+	})
+	if err != nil {
+		return "Error: failed to execute view task"
 	}
 
-	b.WriteString("\nControls:\n")
-	b.WriteString("• Tab: Toggle active state\n")
-	b.WriteString("• Esc/Ctrl+C: Quit\n")
-
-	return b.String()
-}
-
-// MessageYield represents a yielded message that should be handled by BTLayer
-type MessageYield struct {
-	Message lua.LValue
-}
-
-func (m *MessageYield) String() string {
-	return "message.yield{" + m.Message.String() + "}"
-}
-
-func (m *MessageYield) Type() lua.LValueType {
-	return lua.LTUserData
-}
-
-// IsMessageYield checks if a yielded value is a MessageYield
-func IsMessageYield(value lua.LValue) (*MessageYield, bool) {
-	if msg, ok := value.(*MessageYield); ok {
-		return msg, true
+	result := <-resultCh
+	if result.Error != nil {
+		return "Error: view task failed"
 	}
 
-	return nil, false
-}
-
-// Custom error message type
-type errMsg string
-
-type BTLayer struct {
-	chRun *channel.Layer
-}
-
-func (b *BTLayer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, error) {
-	outTasks := make([]*engine.Task, 0)
-	var err error
-	boot := true
-
-	for len(tasks) > 0 || boot {
-		boot = false
-
-		// Handle channel operations
-		openCh := b.chRun.GetActiveChannels()
-		if len(openCh) > 0 {
-			//for _, ch := range openCh {
-			//	//err := b.chRun.send(ch.Name, lua.LString("Hello from BTLayer"))
-			//	//if err != nil {
-			//	//					return nil, err
-			//	//				}
-			//}
-		}
-
-		// Process current batch of tasks
-		tasks, err = cvm.Step(tasks...)
-		if err != nil {
-			return nil, err
-		}
-
-		currentTasks := make([]*engine.Task, 0)
-		for _, task := range tasks {
-			if len(task.Yielded) > 0 {
-				lastYield := task.Yielded[len(task.Yielded)-1]
-
-				// Check if this is a message yield
-				if msgYield, ok := IsMessageYield(lastYield); ok {
-					// Handle the message
-					log.Printf("Handling message yield: %v", msgYield.Message)
-
-					// Resume the task with result
-					task.Resumed = []lua.LValue{lua.LTrue}
-					currentTasks = append(currentTasks, task)
-					continue
-				}
-			}
-			// Pass through non-message yields
-			outTasks = append(outTasks, task)
-		}
-
-		// Set up next iteration
-		tasks = currentTasks
+	if len(result.Result) > 0 {
+		return result.Result[0].String()
 	}
 
-	return outTasks, nil
+	return "No view data"
 }
 
 func main() {
-	log := zap.NewNop()
-	vm, err := engine.NewCVM(
-		log,
-		engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
-		engine.WithPreloaded("http", httpmod.NewHTTPModule(http.DefaultClient, log).Loader),
-		engine.WithPreloaded("json", json.NewJsonModule().Loader),
-		engine.WithPreloaded("time", time.NewTimeModule().Loader),
-		engine.WithGlobalFunction("send_message", func(L *lua.LState) int {
-			msg := L.CheckAny(1)
-			L.Push(&MessageYield{Message: msg})
-			return -1
-		}),
-	)
-	if err != nil {
-		fmt.Printf("Error creating VM: %v", err)
-		return
+	p := tea.NewProgram(initialModel(), tea.WithAltScreen())
+	if _, err := p.Run(); err != nil {
+		fmt.Printf("Error running program: %v\n", err)
 	}
-
-	// Load the app code
-	code, err := os.ReadFile("app.lua")
-
-	err = vm.Import(string(code), "app_code", "App")
-	if err != nil {
-		fmt.Printf("Error importing code: %v", err)
-		return
-	}
-
-	chRun := channel.NewChannelLayer()
-	btLayer := &BTLayer{chRun: chRun}
-
-	wvm := engine.NewRunner(vm,
-		engine.WithLayer(chRun),
-		engine.WithLayer(btLayer),
-		engine.WithLayer(async.NewAsyncLayer(chRun, 4096)),
-		engine.WithLayer(coroutine.NewCoroutineLayer()),
-	)
-	defer wvm.Close()
-
-	_, err = wvm.Execute(context.Background(), "App")
-	if err != nil {
-		fmt.Printf("Error executing VM: %v", err)
-		return
-	}
-
-	// wait for exit
-	select {}
 }
