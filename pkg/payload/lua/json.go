@@ -8,22 +8,22 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-// RegisterJson registers JSON<->Lua transcoders
-func RegisterJson(transcoder payload.TranscoderRegister) {
-	to := &JsonToLua{}
-	from := &LuaToJson{}
+// RegisterJSON registers JSON<->Lua transcoders
+func RegisterJSON(transcoder payload.TranscoderRegister) {
+	to := &JSONToLua{}
+	from := &ToJSON{}
 
-	transcoder.RegisterTranscoder(payload.Json, payload.Lua, 1, to)
-	transcoder.RegisterTranscoder(payload.Lua, payload.Json, 1, from)
+	transcoder.RegisterTranscoder(payload.JSON, payload.Lua, 1, to)
+	transcoder.RegisterTranscoder(payload.Lua, payload.JSON, 1, from)
 }
 
-// JsonToLua converts a JSON payload to a Lua payload
-type JsonToLua struct{}
+// JSONToLua converts a JSON payload to a Lua payload
+type JSONToLua struct{}
 
 // Transcode implements the payload.FormatTranscoder interface
-func (t *JsonToLua) Transcode(p payload.Payload) (payload.Payload, error) {
-	if p.Format() != payload.Json {
-		return nil, fmt.Errorf("Json=>Lua can only transcode from JSON format, got %s", p.Format())
+func (t *JSONToLua) Transcode(p payload.Payload) (payload.Payload, error) {
+	if p.Format() != payload.JSON {
+		return nil, fmt.Errorf("JSON=>Lua can only transcode from JSON format, got %s", p.Format())
 	}
 
 	l := lua.NewState()
@@ -36,7 +36,7 @@ func (t *JsonToLua) Transcode(p payload.Payload) (payload.Payload, error) {
 	case []byte:
 		data = v
 	default:
-		return nil, fmt.Errorf("Json=>Lua can only handle string or []byte, got %T", p.Data())
+		return nil, fmt.Errorf("JSON=>Lua can only handle string or []byte, got %T", p.Data())
 	}
 
 	// Use the existing Decode function
@@ -48,18 +48,18 @@ func (t *JsonToLua) Transcode(p payload.Payload) (payload.Payload, error) {
 	return payload.NewPayload(luaValue, payload.Lua), nil
 }
 
-// LuaToJson converts a Lua payload to a JSON payload
-type LuaToJson struct{}
+// ToJSON converts a Lua payload to a JSON payload
+type ToJSON struct{}
 
 // Transcode implements the payload.FormatTranscoder interface
-func (t *LuaToJson) Transcode(p payload.Payload) (payload.Payload, error) {
+func (t *ToJSON) Transcode(p payload.Payload) (payload.Payload, error) {
 	if p.Format() != payload.Lua {
-		return nil, fmt.Errorf("Lua=>Json can only transcode from Lua format, got %s", p.Format())
+		return nil, fmt.Errorf("Lua=>JSON can only transcode from Lua format, got %s", p.Format())
 	}
 
 	lv, ok := p.Data().(lua.LValue)
 	if !ok {
-		return nil, fmt.Errorf("Lua=>Json expects data to be of type lua.LValue, got %T", p.Data())
+		return nil, fmt.Errorf("Lua=>JSON expects data to be of type lua.LValue, got %T", p.Data())
 	}
 
 	// Use the existing Encode function
@@ -68,5 +68,5 @@ func (t *LuaToJson) Transcode(p payload.Payload) (payload.Payload, error) {
 		return nil, fmt.Errorf("failed to encode to JSON: %w", err)
 	}
 
-	return payload.NewPayload(jsonData, payload.Json), nil
+	return payload.NewPayload(jsonData, payload.JSON), nil
 }

@@ -83,7 +83,7 @@ func (h *EndpointHandler) getRouteInfo(r *http.Request) (*config.RouteInfo, erro
 
 // createTask builds a task from the HTTP request and route information.
 func (h *EndpointHandler) createTask(r *http.Request, info *config.RouteInfo) (runtime.Task, error) {
-	if !info.Endpoint.JsonInput {
+	if !info.Endpoint.JSONInput {
 		return runtime.Task{
 			Context: r.Context(),
 			Target:  registry.ID(info.Endpoint.Target),
@@ -96,24 +96,24 @@ func (h *EndpointHandler) createTask(r *http.Request, info *config.RouteInfo) (r
 	}
 	defer r.Body.Close()
 
-	if err := h.validateJsonInput(body, info.Endpoint.JsonSchema); err != nil {
+	if err := h.validateJSONInput(body, info.Endpoint.JSONSchema); err != nil {
 		return runtime.Task{}, fmt.Errorf("validation failed: %w", err)
 	}
 
 	return runtime.Task{
 		Context:  r.Context(),
 		Target:   registry.ID(info.Endpoint.Target),
-		Payloads: []payload.Payload{payload.NewPayload(body, payload.Json)},
+		Payloads: []payload.Payload{payload.NewPayload(body, payload.JSON)},
 	}, nil
 }
 
-// validateJsonInput validates JSON input against the provided schema.
-func (h *EndpointHandler) validateJsonInput(body []byte, schema interface{}) error {
+// validateJSONInput validates JSON input against the provided schema.
+func (h *EndpointHandler) validateJSONInput(body []byte, schema interface{}) error {
 	if schema == nil {
 		return nil
 	}
 
-	validator, err := newJsonValidator(schema)
+	validator, err := newJSONValidator(schema)
 	if err != nil {
 		return fmt.Errorf("creating JSON validator: %w", err)
 	}
@@ -151,17 +151,17 @@ func (h *EndpointHandler) writeResponse(w http.ResponseWriter, result *runtime.R
 		statusCode = cfg.SuccessStatusCode
 	}
 
-	if cfg.JsonOutput {
-		h.writeJsonResponse(w, result.Payload, statusCode)
+	if cfg.JSONOutput {
+		h.writeJSONResponse(w, result.Payload, statusCode)
 		return
 	}
 
 	h.writeRawResponse(w, result.Payload, statusCode)
 }
 
-// writeJsonResponse writes a JSON response with proper headers.
-func (h *EndpointHandler) writeJsonResponse(w http.ResponseWriter, p payload.Payload, statusCode int) {
-	out, err := h.transcoder.Transcode(p, payload.Json)
+// writeJSONResponse writes a JSON response with proper headers.
+func (h *EndpointHandler) writeJSONResponse(w http.ResponseWriter, p payload.Payload, statusCode int) {
+	out, err := h.transcoder.Transcode(p, payload.JSON)
 	if err != nil {
 		h.handleError(w, fmt.Errorf("transcoding to JSON: %w", err), http.StatusInternalServerError)
 		return

@@ -23,14 +23,14 @@ func TestTranscoder_Unmarshal_Simple(t *testing.T) {
 	}{
 		{
 			name:          "Unmarshal JSON to map",
-			inputPayload:  payload.NewPayload(`{"key": "value"}`, payload.Json),
+			inputPayload:  payload.NewPayload(`{"key": "value"}`, payload.JSON),
 			targetType:    &map[string]interface{}{},
 			expectedValue: map[string]interface{}{"key": "value"},
 			expectError:   false,
 		},
 		{
 			name:          "Unmarshal YAML to map",
-			inputPayload:  payload.NewPayload("key: value", payload.Yaml),
+			inputPayload:  payload.NewPayload("key: value", payload.YAML),
 			targetType:    &map[string]interface{}{},
 			expectedValue: map[string]interface{}{"key": "value"},
 			expectError:   false,
@@ -44,7 +44,7 @@ func TestTranscoder_Unmarshal_Simple(t *testing.T) {
 					"Street": "123 Main St",
 					"City": "Anytown"
 				}
-			}`, payload.Json),
+			}`, payload.JSON),
 			targetType: &struct {
 				Name    string
 				Age     int
@@ -81,7 +81,7 @@ age: 30
 address:
   street: 123 Main St
   city: Anytown
-`, payload.Yaml),
+`, payload.YAML),
 			targetType: &struct {
 				Name    string
 				Age     int
@@ -148,9 +148,9 @@ func TestTranscoder_Transcode_MultiStep(t *testing.T) {
 	}{
 		{
 			name:            "Transcode YAML to JSON",
-			inputPayload:    payload.NewPayload("key: value", payload.Yaml),
-			targetFormat:    payload.Json,
-			expectedPayload: payload.NewPayload(`{"key":"value"}`, payload.Json),
+			inputPayload:    payload.NewPayload("key: value", payload.YAML),
+			targetFormat:    payload.JSON,
+			expectedPayload: payload.NewPayload(`{"key":"value"}`, payload.JSON),
 			expectError:     false,
 		},
 		{
@@ -162,9 +162,9 @@ person:
   address:
     street: 123 Main St
     city: Anytown
-`, payload.Yaml),
-			targetFormat:    payload.Json,
-			expectedPayload: payload.NewPayload(`{"person":{"address":{"city":"Anytown","street":"123 Main St"},"age":30,"name":"John Doe"}}`, payload.Json),
+`, payload.YAML),
+			targetFormat:    payload.JSON,
+			expectedPayload: payload.NewPayload(`{"person":{"address":{"city":"Anytown","street":"123 Main St"},"age":30,"name":"John Doe"}}`, payload.JSON),
 			expectError:     false,
 		},
 	}
@@ -186,7 +186,7 @@ person:
 					t.Errorf("transcoded payload format does not match expected format\ngot:  %v\nwant: %v", transcodedPayload.Format(), tt.expectedPayload.Format())
 				}
 				switch tt.expectedPayload.Format() {
-				case payload.Json:
+				case payload.JSON:
 					var got, want interface{}
 					jt := &json.ToGolang{}
 
@@ -234,7 +234,7 @@ func TestTranscoder_Unmarshal_AnyToStruct(t *testing.T) {
 						"Street": "456 Oak Ave",
 						"City": "Springfield"
 					}
-				}`, payload.Json)
+				}`, payload.JSON)
 				golangAnyPayload, err := transcoder.Transcode(jsonPayload, payload.Golang)
 				if err != nil {
 					t.Fatalf("failed to transcode JSON to Golang ANY: %v", err)
@@ -307,22 +307,22 @@ func TestTranscoder_Transcode_JSONToYAML(t *testing.T) {
 	}{
 		{
 			name:            "Transcode JSON to YAML",
-			inputPayload:    payload.NewPayload(`{"key":"value"}`, payload.Json),
-			targetFormat:    payload.Yaml,
-			expectedPayload: payload.NewPayload("key: value\n", payload.Yaml),
+			inputPayload:    payload.NewPayload(`{"key":"value"}`, payload.JSON),
+			targetFormat:    payload.YAML,
+			expectedPayload: payload.NewPayload("key: value\n", payload.YAML),
 			expectError:     false,
 		},
 		{
 			name:         "Transcode JSON to YAML (complex)",
-			inputPayload: payload.NewPayload(`{"person":{"address":{"city":"Anytown","street":"123 Main St"},"age":30,"name":"John Doe"}}`, payload.Json),
-			targetFormat: payload.Yaml,
+			inputPayload: payload.NewPayload(`{"person":{"address":{"city":"Anytown","street":"123 Main St"},"age":30,"name":"John Doe"}}`, payload.JSON),
+			targetFormat: payload.YAML,
 			expectedPayload: payload.NewPayload(`person:
     address:
         city: Anytown
         street: 123 Main St
     age: 30
     name: John Doe
-`, payload.Yaml),
+`, payload.YAML),
 			expectError: false,
 		},
 	}

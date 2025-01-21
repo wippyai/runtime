@@ -79,7 +79,7 @@ func TestNewRouter(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, router)
 		assert.Equal(t, logger, router.log)
-		assert.Equal(t, mockListener, router.default_)
+		assert.Equal(t, mockListener, router.defaultListener)
 		assert.Len(t, router.routes, 1)
 	})
 
