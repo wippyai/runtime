@@ -1,18 +1,73 @@
 package terminal
 
 import (
-	"bufio"
 	"context"
 	"fmt"
+	tea "github.com/charmbracelet/bubbletea"
 	"io"
+	"log"
 )
 
-// EchoTerminal is a simple terminal that echoes input back to output
+type bubbleModel struct {
+	prompt   string
+	input    string
+	out      io.Writer
+	cursor   int
+	quitting bool
+}
+
+func (m bubbleModel) Init() tea.Cmd {
+	return tea.EnterAltScreen
+}
+
+func (m bubbleModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.Type {
+		case tea.KeyCtrlC, tea.KeyEsc:
+			m.quitting = true
+			return m, tea.Quit
+		case tea.KeyEnter:
+			fmt.Fprintln(m.out, m.input)
+			fmt.Fprint(m.out, m.prompt)
+			m.input = ""
+			m.cursor = 0
+			return m, nil
+		case tea.KeyBackspace:
+			if m.cursor > 0 {
+				m.input = m.input[:m.cursor-1] + m.input[m.cursor:]
+				m.cursor--
+			}
+			return m, nil
+		case tea.KeyLeft:
+			if m.cursor > 0 {
+				m.cursor--
+			}
+			return m, nil
+		case tea.KeyRight:
+			if m.cursor < len(m.input) {
+				m.cursor++
+			}
+			return m, nil
+		}
+
+		if msg.Type == tea.KeyRunes {
+			m.input = m.input[:m.cursor] + string(msg.Runes) + m.input[m.cursor:]
+			m.cursor += len(msg.Runes)
+		}
+	}
+
+	return m, nil
+}
+
+func (m bubbleModel) View() string {
+	return fmt.Sprintf("%s%s", m.prompt, m.input)
+}
+
 type EchoTerminal struct {
 	prompt string
 }
 
-// NewEchoTerminal creates a new echo terminal instance
 func NewEchoTerminal(prompt string) *EchoTerminal {
 	if prompt == "" {
 		prompt = "> "
@@ -22,38 +77,28 @@ func NewEchoTerminal(prompt string) *EchoTerminal {
 	}
 }
 
-// Run implements Options interface
 func (t *EchoTerminal) Run(ctx context.Context, in io.Reader, out io.Writer) error {
-	scanner := bufio.NewScanner(in)
-
-	// Write initial prompt
-	if _, err := fmt.Fprint(out, t.prompt); err != nil {
-		return fmt.Errorf("failed to write prompt: %w", err)
+	model := bubbleModel{
+		prompt: t.prompt,
+		out:    out,
 	}
 
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-			if !scanner.Scan() {
-				if err := scanner.Err(); err != nil {
-					return fmt.Errorf("scanner error: %w", err)
-				}
-				return nil // EOF
-			}
+	p := tea.NewProgram(model, tea.WithAltScreen())
 
-			line := scanner.Text()
+	go func() {
+		<-ctx.Done()
+		p.Quit()
+	}()
 
-			// Echo the input
-			if _, err := fmt.Fprintln(out, line); err != nil {
-				return fmt.Errorf("failed to write output: %w", err)
-			}
-
-			// Write prompt for next line
-			if _, err := fmt.Fprint(out, t.prompt); err != nil {
-				return fmt.Errorf("failed to write prompt: %w", err)
-			}
-		}
+	log.Printf("STEAT")
+	m, err := p.Run()
+	if err != nil {
+		return fmt.Errorf("bubbletea error: %w", err)
 	}
+
+	if m.(bubbleModel).quitting {
+		return context.Canceled
+	}
+
+	return nil
 }
