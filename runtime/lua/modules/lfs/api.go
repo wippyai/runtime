@@ -6,35 +6,29 @@ import (
 	"path/filepath"
 	"time"
 
+	apic "github.com/ponyruntime/pony/api/context"
+	"github.com/ponyruntime/pony/internal/closer"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
 
-func (m *Module) apiAttributes(l *lua.LState) int {
+func apiAttributes(l *lua.LState) int {
 	return attributes(l, os.Stat)
 }
 
-func (m *Module) close(l *lua.LState) int {
-	ud := l.CheckUserData(1)
-	if ud == nil {
-		return 0
-	}
-
-	// if not file, then there is something else in the userdata
-	f, ok := ud.Value.(*os.File)
-	if !ok {
-		return 0
-	}
-	if f != nil {
-		_ = f.Close()
-	}
-	return 0
+func getCtxLogger(l *lua.LState) *zap.Logger {
+	ctx := l.Context()
+	return ctx.Value(apic.LoggerCtx).(*zap.Logger)
 }
 
-func (m *Module) apiChdir(l *lua.LState) int {
+func apiChdir(l *lua.LState) int {
 	dir := l.CheckString(1)
-	m.log.Debug("previous dir", zap.String("dir", m.currDir), zap.String("new", dir))
-	if dir == m.currDir {
+	log := getCtxLogger(l)
+	cwd := l.GetGlobal(globalFnName).String()
+
+	log.Debug("previous dir", zap.String("dir", cwd), zap.String("new", dir))
+
+	if dir == cwd {
 		l.Push(lua.LNil)
 		l.Push(lua.LTrue)
 		return 1
@@ -42,7 +36,7 @@ func (m *Module) apiChdir(l *lua.LState) int {
 
 	// if the path is relative, then concatenate it with the current directory
 	if isRelative(dir) {
-		dir = path.Join(m.currDir, dir)
+		dir = path.Join(cwd, dir)
 	}
 
 	// check if the directory exists
@@ -55,38 +49,52 @@ func (m *Module) apiChdir(l *lua.LState) int {
 	_ = f.Close()
 
 	// save the current directory
-	m.currDir = dir
-	m.log.Debug("current dir", zap.String("dir", m.currDir))
+	log.Debug("current dir", zap.String("dir", dir))
+	// save the new cwd
+	l.SetGlobal(globalFnName, lua.LString(dir))
+
+	closer := closer.FromContext(l.Context())
+	// TODO: closer should use some kind of ID to identify cases when we have multiple identical calls
+	closer.Add(func() error {
+		// clear the global variable
+		l.SetGlobal(globalFnName, lua.LString(""))
+		return nil
+	})
 
 	l.Push(lua.LTrue)
 	return 1
 }
 
-func (m *Module) apiLockdir(l *lua.LState) int {
+func apiLockdir(l *lua.LState) int {
 	l.RaiseError("unimplemented function")
 	return 0
 }
 
-func (m *Module) apiCurrentdir(l *lua.LState) int {
-	m.log.Debug("current dir", zap.String("dir", m.currDir))
+func apiCurrentdir(l *lua.LState) int {
+	cwd := l.GetGlobal(globalFnName).String()
+	log := getCtxLogger(l)
+	log.Debug("current dir", zap.String("dir", cwd))
 
-	l.Push(lua.LString(m.currDir))
+	l.Push(lua.LString(cwd))
 	return 1
 }
 
-func (m *Module) apiDir(l *lua.LState) int {
+func apiDir(l *lua.LState) int {
 	lp := l.CheckString(1)
 	if lp == "" {
 		l.RaiseError("%s", "path is empty")
 		return 0
 	}
 
+	cwd := l.GetGlobal(globalFnName).String()
+
+	log := getCtxLogger(l)
 	// if the path is relative, then concatenate it with the current directory
 	if isRelative(lp) {
-		lp = path.Join(m.currDir, lp)
+		lp = path.Join(cwd, lp)
 	}
 
-	m.log.Debug("dir", zap.String("path", lp))
+	log.Debug("dir", zap.String("path", lp))
 
 	f, err := os.Open(lp)
 	if err != nil {
@@ -102,32 +110,42 @@ func (m *Module) apiDir(l *lua.LState) int {
 		l.RaiseError("not a directory")
 		return 0
 	}
+
 	l.Push(l.NewFunction(dirItr))
 	ud := l.NewUserData()
 	ud.Value = f
 	l.Push(ud)
+
+	// add the file to the cleanup
+	closer := closer.FromContext(l.Context())
+	closer.Add(func() error {
+		_ = f.Close()
+		return nil
+	})
+
 	return 2
 }
 
-func (m *Module) apiLock(l *lua.LState) int {
+func apiLock(l *lua.LState) int {
 	l.RaiseError("unimplemented function")
 	return 0
 }
 
-func (m *Module) apiLink(l *lua.LState) int {
+func apiLink(l *lua.LState) int {
 	old := l.CheckString(1)
-	// if the path is relative, then concatenate it with the current directory
+	cwd := l.GetGlobal(globalFnName).String()
+	log := getCtxLogger(l)
 	if isRelative(old) {
-		old = path.Join(m.currDir, old)
+		old = path.Join(cwd, old)
 	}
 
 	newn := l.CheckString(2)
 	// if the path is relative, then concatenate it with the current directory
 	if isRelative(newn) {
-		newn = path.Join(m.currDir, newn)
+		newn = path.Join(cwd, newn)
 	}
 
-	m.log.Debug("link", zap.String("old", old), zap.String("new", newn))
+	log.Debug("link", zap.String("old", old), zap.String("new", newn))
 
 	symlink := l.OptBool(3, false)
 
@@ -143,20 +161,22 @@ func (m *Module) apiLink(l *lua.LState) int {
 		l.Push(lua.LString(err.Error()))
 		return 2
 	}
-	l.Push(lua.LTrue)
 
+	l.Push(lua.LTrue)
 	return 1
 }
 
-func (m *Module) apiMkdir(l *lua.LState) int {
+func apiMkdir(l *lua.LState) int {
 	dir := l.CheckString(1)
+	log := getCtxLogger(l)
+	cwd := l.GetGlobal(globalFnName).String()
 
 	// if the path is relative, then concatenate it with the current directory
 	if isRelative(dir) {
-		dir = path.Join(m.currDir, dir)
+		dir = path.Join(cwd, dir)
 	}
 
-	m.log.Debug("mkdir", zap.String("dir", dir))
+	log.Debug("mkdir", zap.String("dir", dir))
 	// 0644 - user: read, write; group: read; others: read
 	err := os.Mkdir(dir, 0644)
 	if err != nil {
@@ -164,19 +184,22 @@ func (m *Module) apiMkdir(l *lua.LState) int {
 		l.Push(lua.LString(err.Error()))
 		return 2
 	}
+
 	l.Push(lua.LTrue)
 	return 1
 }
 
-func (m *Module) apiRmdir(l *lua.LState) int {
+func apiRmdir(l *lua.LState) int {
 	dir := l.CheckString(1)
+	cwd := l.GetGlobal(globalFnName).String()
+	log := getCtxLogger(l)
 
 	// if the path is relative, then concatenate it with the current directory
 	if isRelative(dir) {
-		dir = path.Join(m.currDir, dir)
+		dir = path.Join(cwd, dir)
 	}
 
-	m.log.Debug("rmdir", zap.String("dir", dir))
+	log.Debug("rmdir", zap.String("dir", dir))
 
 	stat, err := os.Stat(dir)
 	if err != nil {
@@ -199,23 +222,25 @@ func (m *Module) apiRmdir(l *lua.LState) int {
 	return 1
 }
 
-func (m *Module) apiSetmode(l *lua.LState) int {
+func apiSetmode(l *lua.LState) int {
 	l.RaiseError("unimplemented function")
 	return 0
 }
 
-func (m *Module) apiSymlinkattributes(l *lua.LState) int {
+func apiSymlinkattributes(l *lua.LState) int {
 	return attributes(l, os.Lstat)
 }
 
-func (m *Module) apiTouch(l *lua.LState) int {
+func apiTouch(l *lua.LState) int {
 	dir := l.CheckString(1)
-	// if the path is relative, then concatenate it with the current directory
+	log := getCtxLogger(l)
+	cwd := l.GetGlobal(globalFnName).String()
+
 	if isRelative(dir) {
-		dir = path.Join(m.currDir, dir)
+		dir = path.Join(cwd, dir)
 	}
 
-	m.log.Debug("touch", zap.String("file", dir))
+	log.Debug("touch", zap.String("file", dir))
 
 	atime := l.OptInt64(2, time.Now().Unix())
 	mtime := l.OptInt64(3, atime)
@@ -242,7 +267,7 @@ func (m *Module) apiTouch(l *lua.LState) int {
 	return 1
 }
 
-func (m *Module) apiUnlock(l *lua.LState) int {
+func apiUnlock(l *lua.LState) int {
 	l.RaiseError("unimplemented function")
 	return 0
 }
