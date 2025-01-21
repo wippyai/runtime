@@ -1,1 +1,169 @@
 package manager
+
+import (
+	"context"
+	"fmt"
+	terminal2 "github.com/ponyruntime/pony/service/terminal"
+
+	"github.com/ponyruntime/pony/api/payload"
+	"github.com/ponyruntime/pony/api/registry"
+	api "github.com/ponyruntime/pony/api/runtime/lua"
+	"github.com/ponyruntime/pony/api/service/terminal"
+	"go.uber.org/zap"
+)
+
+// Terminals handles Lua terminal app operations
+type Terminals struct {
+	log       *zap.Logger
+	dtt       payload.Transcoder
+	terminals map[registry.ID]*api.TerminalConfig
+}
+
+// NewTerminals creates a new terminal manager instance
+func NewTerminals(dtt payload.Transcoder, logger *zap.Logger) *Terminals {
+	return &Terminals{
+		log:       logger,
+		dtt:       dtt,
+		terminals: make(map[registry.ID]*api.TerminalConfig),
+	}
+}
+
+// Add adds a new terminal configuration
+func (m *Terminals) Add(
+	ctx context.Context,
+	entry registry.Entry,
+	modules *Modules,
+	libraries *Libraries,
+) error {
+	cfg := new(api.TerminalConfig)
+	if err := m.unmarshalAndValidate(entry.Data, cfg); err != nil {
+		return err
+	}
+
+	if _, exists := m.terminals[entry.ID]; exists {
+		return fmt.Errorf("terminal %s already exists", entry.ID)
+	}
+
+	// Validate dependencies
+	if err := m.validateDependencies(cfg, modules, libraries); err != nil {
+		return err
+	}
+
+	m.terminals[entry.ID] = cfg
+	m.log.Info("added terminal", zap.String("id", string(entry.ID)))
+	return nil
+}
+
+// Update updates an existing terminal configuration
+func (m *Terminals) Update(
+	entry registry.Entry,
+	modules *Modules,
+	libraries *Libraries,
+) error {
+	cfg := new(api.TerminalConfig)
+	if err := m.unmarshalAndValidate(entry.Data, cfg); err != nil {
+		return err
+	}
+
+	if _, exists := m.terminals[entry.ID]; !exists {
+		return fmt.Errorf("terminal %s not found", entry.ID)
+	}
+
+	// Validate dependencies
+	if err := m.validateDependencies(cfg, modules, libraries); err != nil {
+		return err
+	}
+
+	m.terminals[entry.ID] = cfg
+	m.log.Info("updated terminal", zap.String("id", string(entry.ID)))
+	return nil
+}
+
+// Delete removes a terminal configuration
+func (m *Terminals) Delete(entry registry.Entry) error {
+	if _, exists := m.terminals[entry.ID]; !exists {
+		return fmt.Errorf("terminal %s not found", entry.ID)
+	}
+
+	delete(m.terminals, entry.ID)
+	m.log.Info("deleted terminal", zap.String("id", string(entry.ID)))
+	return nil
+}
+
+// GetTerminal retrieves a terminal config by ID
+func (m *Terminals) GetTerminal(id registry.ID) (*api.TerminalConfig, bool) {
+	term, exists := m.terminals[id]
+	return term, exists
+}
+
+// FindDependentOnLibrary finds all terminals that depend on a given library
+func (m *Terminals) FindDependentOnLibrary(libraryID registry.ID) []registry.ID {
+	var dependent []registry.ID
+	for id, term := range m.terminals {
+		for _, lib := range term.Libraries {
+			if registry.ID(lib) == libraryID {
+				dependent = append(dependent, id)
+				break
+			}
+		}
+	}
+	return dependent
+}
+
+// MakeTerminal creates a new terminal factory using provided managers
+func (m *Terminals) MakeTerminal(
+	id registry.ID,
+	modules *Modules,
+	libraries *Libraries,
+) (terminal.Terminal, error) {
+	term, exists := m.GetTerminal(id)
+	if !exists {
+		return nil, fmt.Errorf("terminal %s not found", id)
+	}
+
+	// Validate dependencies before creating
+	if err := m.validateDependencies(term, modules, libraries); err != nil {
+		return nil, err
+	}
+
+	// TODO: Create and return terminal instance
+	return terminal2.NewEchoTerminal("cx"), nil
+}
+
+// Internal methods
+
+func (m *Terminals) validateDependencies(
+	cfg *api.TerminalConfig,
+	modules *Modules,
+	libraries *Libraries,
+) error {
+	// Validate modules
+	for _, modID := range cfg.Modules {
+		if _, exists := modules.Get(modID); !exists {
+			return fmt.Errorf("module %s not found", modID)
+		}
+	}
+
+	// Validate libraries
+	for _, libID := range cfg.Libraries {
+		if !libraries.HasLibrary(registry.ID(libID)) {
+			return fmt.Errorf("library %s not found", libID)
+		}
+	}
+
+	return nil
+}
+
+func (m *Terminals) unmarshalAndValidate(data payload.Payload, cfg interface{}) error {
+	if err := m.dtt.Unmarshal(data, cfg); err != nil {
+		return fmt.Errorf("failed to unmarshal config: %w", err)
+	}
+
+	if validator, ok := cfg.(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return fmt.Errorf("invalid configuration: %w", err)
+		}
+	}
+
+	return nil
+}
