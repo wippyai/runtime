@@ -15,9 +15,8 @@ import (
 	"go.uber.org/zap"
 )
 
-const (
-	DefaultTimeout = 30 * time.Second
-)
+// DefaultTimeout is the default timeout for HTTP requests.
+const DefaultTimeout = 90 * time.Second
 
 var (
 	ErrInvalidAuth    = errors.New("auth table must contain non-nil user and pass fields")
@@ -162,16 +161,16 @@ func (m *Module) executeRequest(l *lua.LState, req *http.Request, opts *requestO
 	})
 
 	if opts.stream != nil {
-		return m.handleStreamResponse(l, resp, opts.stream, ctx)
+		return m.handleStreamResponse(ctx, l, resp, opts.stream)
 	}
 	return m.handleRegularResponse(l, resp)
 }
 
 func (m *Module) handleStreamResponse(
+	ctx context.Context,
 	l *lua.LState,
 	resp *http.Response,
 	streamOpts *stream.Options,
-	ctx context.Context,
 ) int {
 	s, err := stream.NewStream(ctx, resp.Body, streamOpts)
 	if err != nil {
