@@ -10,6 +10,7 @@ import (
 )
 
 type (
+	// TerminalFactory creates new terminal instances.
 	TerminalFactory interface {
 		MakeTerminal(
 			cfg api.TerminalConfig,

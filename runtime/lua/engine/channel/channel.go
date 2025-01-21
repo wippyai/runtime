@@ -41,7 +41,9 @@ type opStep struct {
 	values []lua.LValue
 }
 
-// Channel represents a buffered or unbuffered channel, not-state safe, external synchronization is required.
+// Channel represents a buffered or unbuffered channel that requires external synchronization.
+// It implements Lua channel semantics with support for buffering, select operations,
+// and non-blocking sends/receives.
 type Channel struct {
 	name     string
 	capacity int
@@ -53,6 +55,8 @@ type Channel struct {
 	receivers *list.List
 }
 
+// Named creates a new channel with the given name and buffer capacity.
+// Named channels can be referenced across different Lua states.
 func Named(name string, capacity int) *Channel {
 	ch := newChannel(capacity)
 	ch.name = name
@@ -67,6 +71,8 @@ func newChannel(capacity int) *Channel {
 	}
 }
 
+// Slots returns the number of available slots for sending.
+// This includes both buffer capacity and any waiting receivers.
 func (c *Channel) Slots() int {
 	return (c.capacity - c.size) + c.receivers.Len()
 }
@@ -119,8 +125,7 @@ func (c *Channel) send(senderTask *lua.LState, value lua.LValue, selectOp *selec
 					values: makeResult(senderTask, selectOp, c.value, value, true),
 				},
 			},
-			release: flushSelects(selectOp), // Added: cleanup select operations
-
+			release: flushSelects(selectOp),
 		}
 	}
 
@@ -134,7 +139,7 @@ func (c *Channel) send(senderTask *lua.LState, value lua.LValue, selectOp *selec
 	})
 	c.size++
 
-	return &onNext{yields: true, block: []*Channel{c}} // Yield, nothing to do
+	return &onNext{yields: true, block: []*Channel{c}}
 }
 
 func (c *Channel) receive(receiverTask *lua.LState, selectOp *selectOp) *onNext {
@@ -208,7 +213,7 @@ func (c *Channel) close(closerTask *lua.LState) *onNext {
 
 	// Handle and remove ALL senders - they all fail with error
 	for e := c.senders.Front(); e != nil; {
-		nextE := e.Next() // Save next before removing current
+		nextE := e.Next()
 		op := e.Value.(*op)
 		if op.task != nil {
 			results = append(results, &opStep{
@@ -238,7 +243,6 @@ func (c *Channel) close(closerTask *lua.LState) *onNext {
 	}
 
 	if len(results) > 0 {
-		// wake up closer after all senders and non-buffered receivers are handled
 		results = append(results, &opStep{state: closerTask, values: nil})
 	}
 
@@ -281,7 +285,6 @@ func (c *Channel) discardSelect(selectOp *selectOp) {
 
 		if op.selectOp == selectOp {
 			c.receivers.Remove(e)
-			// don't decrement size here - it's for senders only
 			break
 		}
 		e = next
@@ -334,7 +337,7 @@ func makeResult(task *lua.LState, selectOp *selectOp, chValue, value lua.LValue,
 		return nil
 	}
 
-	return []lua.LValue{value, lua.LBool(ok)} // For receive operations
+	return []lua.LValue{value, lua.LBool(ok)}
 }
 
 func selectResult(L *lua.LState, chValue, value lua.LValue, ok bool) []lua.LValue {

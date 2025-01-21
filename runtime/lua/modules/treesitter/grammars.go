@@ -1,3 +1,4 @@
+// Package treesitter provides Tree-sitter parsing functionality and language support
 package treesitter
 
 import (
@@ -17,16 +18,18 @@ import (
 
 // LanguageInfo holds information about a supported language.
 type LanguageInfo struct {
-	Name     string                // Full language name (e.g., "JavaScript")
+	Name     string                // Full lowercased language name (e.g., "javascript")
 	Aliases  []string              // Alternative names or short codes (e.g., ["js", "javascript"])
 	Language func() unsafe.Pointer // Function to get the Tree-sitter language object
 }
 
+// Languages maintains a registry of supported programming languages and their aliases
 type Languages struct {
 	li        []*LanguageInfo
 	supported map[string]*LanguageInfo
 }
 
+// NewLanguages creates and initializes a new Languages registry with all supported languages
 func NewLanguages() *Languages {
 	li := []*LanguageInfo{
 		{
@@ -108,11 +111,12 @@ func NewLanguages() *Languages {
 	}
 }
 
-// GetLanguageInfo returns the LanguageInfo for a given language alias or nil
+// GetLanguageInfo returns the LanguageInfo for a given language alias or nil if not found
 func (l *Languages) GetLanguageInfo(alias string) *LanguageInfo {
 	return l.supported[alias]
 }
 
+// GetSupportedLanguages returns a list of all supported language names without duplicates
 func (l *Languages) GetSupportedLanguages() []string {
 	seen := make(map[string]bool)
 	names := make([]string, 0, 10)

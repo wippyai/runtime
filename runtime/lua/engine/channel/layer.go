@@ -1,3 +1,4 @@
+// Package channel provides channel-based communication primitives for the Lua runtime engine
 package channel
 
 import (
@@ -7,18 +8,23 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
+// ActiveChannel represents a channel that currently blocks execution,
+// containing its current state and reference information.
 type ActiveChannel struct {
-	Name  string
-	Slots int
-	Refs  int
+	Name  string // Channel identifier
+	Slots int    // Available slots in the channel
+	Refs  int    // Number of current references
 }
 
-// Layer maintains state for channel operations
+// Layer maintains state for channel operations and provides thread-safe
+// channel management within the Lua runtime engine.
 type Layer struct {
 	queue    *engine.TaskQueue
 	channels map[*Channel]int // Track named channels with reference counting
 }
 
+// NewChannelLayer creates a new Layer instance with initialized task queue
+// and channel tracking.
 func NewChannelLayer() *Layer {
 	return &Layer{
 		queue:    engine.NewTaskQueue(),
@@ -27,6 +33,8 @@ func NewChannelLayer() *Layer {
 }
 
 // GetActiveChannels returns all channels that currently block execution.
+// Each returned ActiveChannel contains the channel's name, available slots,
+// and current reference count.
 func (r *Layer) GetActiveChannels() []ActiveChannel {
 	result := make([]ActiveChannel, 0, len(r.channels))
 	for ch, refs := range r.channels {
@@ -39,7 +47,9 @@ func (r *Layer) GetActiveChannels() []ActiveChannel {
 	return result
 }
 
-// Send is NOT thread safe, it should only be called by another layer during execution step inside TG context.
+// Send sends values to a channel within the context of a task group.
+// This method is NOT thread safe and should only be called by another layer
+// during execution step inside the TaskGroup context.
 func (r *Layer) Send(ctx context.Context, ch *Channel, values ...lua.LValue) error {
 	tg := engine.GetTaskGroup(ctx)
 	if tg == nil {
@@ -77,7 +87,9 @@ func (r *Layer) Send(ctx context.Context, ch *Channel, values ...lua.LValue) err
 	return nil
 }
 
-// Close is NOT thread safe, it should only be called by another layer during execution step.
+// Close closes a channel within the context of a task group.
+// This method is NOT thread safe and should only be called by another layer
+// during execution step.
 func (r *Layer) Close(ctx context.Context, ch *Channel) error {
 	tg := engine.GetTaskGroup(ctx)
 	if tg == nil {
@@ -112,7 +124,9 @@ func (r *Layer) Close(ctx context.Context, ch *Channel) error {
 	return nil
 }
 
-// Step handles channel operations while maintaining CVM compatibility, todo: deprecate
+// Step handles channel operations while maintaining CVM compatibility.
+// This method processes tasks in batches and manages channel operations
+// through the virtual machine.
 func (r *Layer) Step(vm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, error) {
 	var externalOps []*engine.Task
 
