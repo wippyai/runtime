@@ -2,32 +2,25 @@ package terminal
 
 import (
 	"context"
-	"fmt"
 	"github.com/ponyruntime/pony/api/events"
-	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/supervisor"
 	"io"
 )
 
 const (
-	System        events.System = "terminal"
-	RegisterEvent events.Kind   = "terminal.register"
-	DeleteEvent   events.Kind   = "terminal.delete"
+	System                events.System = "terminal"
+	RegisterTerminalEvent events.Kind   = "terminal.register"
+	DeleteTerminalEvent   events.Kind   = "terminal.delete"
 
+	// Mouse behavior modes
 	MouseNone string = "none"
 	MouseCell string = "cell"
 	MouseAll  string = "all"
 )
 
 type (
-	Registration struct {
-		Terminal Terminal
-		Config   Config
-	}
-
-	// Config represents terminal configuration
-	Config struct {
-		Meta      registry.Metadata          `json:"meta"`
+	RegisterApplication struct {
+		Terminal  Terminal
 		Options   Options                    `json:"options"`
 		Lifecycle supervisor.LifecycleConfig `json:"lifecycle"`
 	}
@@ -52,13 +45,3 @@ type (
 		Run(ctx context.Context, in io.Reader, out io.Writer) error
 	}
 )
-
-// Validate checks if the terminal configuration is valid
-func (c *Config) Validate() error {
-	switch c.Options.MouseMode {
-	case MouseNone, MouseCell, MouseAll, "":
-		return nil
-	default:
-		return fmt.Errorf("invalid mouse mode: %s. Must be one of: none, cell, all", c.Options.MouseMode)
-	}
-}

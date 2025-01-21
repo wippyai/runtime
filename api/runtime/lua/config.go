@@ -2,6 +2,8 @@ package lua
 
 import (
 	"fmt"
+	"github.com/ponyruntime/pony/api/service/terminal"
+	"github.com/ponyruntime/pony/api/supervisor"
 
 	"github.com/ponyruntime/pony/api/registry"
 )
@@ -9,6 +11,7 @@ import (
 const (
 	KindFunction registry.Kind = "function.lua"
 	KindLibrary  registry.Kind = "library.lua"
+	KindTerminal registry.Kind = "terminal.lua"
 )
 
 type (
@@ -19,6 +22,16 @@ type (
 		Libraries []string          `json:"libraries"`
 		Modules   []string          `json:"modules"`
 		Pool      PoolConfig        `json:"pool"`
+	}
+
+	TerminalConfig struct {
+		Meta      registry.Metadata          `json:"meta"`
+		Source    string                     `json:"source"`
+		Method    string                     `json:"method"`
+		Libraries []string                   `json:"libraries"`
+		Modules   []string                   `json:"modules"`
+		Options   terminal.Options           `json:"options"`
+		Lifecycle supervisor.LifecycleConfig `json:"lifecycle"`
 	}
 
 	PoolConfig struct {
