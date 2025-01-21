@@ -1,3 +1,6 @@
+// Package supervisor provides service lifecycle management and supervision
+// functionality for the Pony runtime environment. It handles service registration,
+// state transitions, and failure recovery.
 package supervisor
 
 import (
@@ -32,6 +35,10 @@ type (
 		entry     *supervisor.Entry
 	}
 
+	// Supervisor manages the lifecycle of registered services, handling their
+	// registration, startup, shutdown, and monitoring. It provides transaction
+	// support for service state changes and integrates with the event system
+	// for coordinated operations.
 	Supervisor struct {
 		ctx         context.Context
 		bus         events.Bus
@@ -45,7 +52,9 @@ type (
 	}
 )
 
-// NewSupervisor creates a new Supervisor instance
+// NewSupervisor creates a new Supervisor instance with the provided event bus
+// and logger. The supervisor is initially inactive and must be started with
+// the Start method.
 func NewSupervisor(bus events.Bus, logger *zap.Logger) *Supervisor {
 	return &Supervisor{
 		bus:         bus,
@@ -56,7 +65,8 @@ func NewSupervisor(bus events.Bus, logger *zap.Logger) *Supervisor {
 	}
 }
 
-// GetState returns the current state of a service
+// GetState returns the current state of a service identified by its ID.
+// Returns an error if the service is not found.
 func (s *Supervisor) GetState(id string) (State, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -69,7 +79,8 @@ func (s *Supervisor) GetState(id string) (State, error) {
 	return controller.State(), nil
 }
 
-// GetAllStates returns a map of all service states indexed by service ID
+// GetAllStates returns a map of service states for all registered services,
+// indexed by their service IDs.
 func (s *Supervisor) GetAllStates() map[string]State {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -82,7 +93,8 @@ func (s *Supervisor) GetAllStates() map[string]State {
 	return states
 }
 
-// Start initializes the supervisor and starts listening for events
+// Start initializes the supervisor and begins listening for events.
+// It sets up event subscriptions and starts the main control loop.
 func (s *Supervisor) Start(ctx context.Context) error {
 	// Subscribe to all relevant events using a single subscriber with patterns
 	sub, err := eventbus.NewSubscriber(
@@ -107,7 +119,8 @@ func (s *Supervisor) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop gracefully shuts down the supervisor and all managed services
+// Stop gracefully shuts down the supervisor and all managed services.
+// It ensures all services are properly stopped and resources are cleaned up.
 func (s *Supervisor) Stop() error {
 	s.logger.Info("stopping supervisor")
 

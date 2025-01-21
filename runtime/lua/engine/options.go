@@ -7,7 +7,9 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-// WithLibrary adds a library from either source code or function prototype to the VM
+// WithLibrary adds a library from either source code or function prototype to the VM.
+// The source can be either a string containing Lua code or a *lua.FunctionProto.
+// The library must return a table when loaded.
 func WithLibrary(name string, source interface{}) Option {
 	return func(vm *VM) {
 		// Validate library name
@@ -98,13 +100,16 @@ func WithLibrary(name string, source interface{}) Option {
 
 // todo: add with Module, see api
 
-// WithLoader adds a library with a custom loader function to the VM
+// WithLoader adds a library with a custom loader function to the VM.
+// The loader function should return a table that will be used as the module.
 func WithLoader(name string, loader lua.LGFunction) Option {
 	return func(vm *VM) {
 		vm.state.PreloadModule(name, loader)
 	}
 }
 
+// WithPreloaded preloads a module using the provided loader function and sets
+// the result as a global variable with the given name.
 func WithPreloaded(name string, loader lua.LGFunction) Option {
 	return func(vm *VM) {
 		// Create module instance using loader
@@ -124,12 +129,14 @@ func WithPreloaded(name string, loader lua.LGFunction) Option {
 	}
 }
 
+// WithGlobalFunction adds a global function to the Lua state with the given name.
 func WithGlobalFunction(name string, function lua.LGFunction) Option {
 	return func(vm *VM) {
 		vm.state.SetGlobal(name, vm.state.NewFunction(function))
 	}
 }
 
+// WithGlobalValue adds a global value to the Lua state with the given name.
 func WithGlobalValue(name string, value lua.LValue) Option {
 	return func(vm *VM) {
 		vm.state.SetGlobal(name, value)

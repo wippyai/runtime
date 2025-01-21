@@ -11,16 +11,20 @@ import (
 	"go.uber.org/zap"
 )
 
+// StateBuilder constructs registry states and calculates state transitions
 type StateBuilder struct {
 	log *zap.Logger
 }
 
+// NewStateBuilder creates a new StateBuilder instance with the provided logger
 func NewStateBuilder(log *zap.Logger) registry.StateBuilder {
 	return &StateBuilder{
 		log: log,
 	}
 }
 
+// BuildState constructs a registry State by applying the version history up to targetVersion.
+// It processes operations in version order and handles create/update/delete operations.
 func (b *StateBuilder) BuildState(history registry.History, targetVersion registry.Version) (registry.State, error) {
 	vm := version.NewVersionMap()
 	versions, err := history.Versions()
@@ -106,6 +110,8 @@ func (b *StateBuilder) BuildState(history registry.History, targetVersion regist
 	return state, nil
 }
 
+// BuildDelta calculates the changes required to transition from one state to another.
+// It returns a ChangeSet containing create, update, and delete operations in dependency order.
 func (b *StateBuilder) BuildDelta(from, to registry.State) (registry.ChangeSet, error) {
 	// Convert the states to maps for easier lookup
 	fromStateMap := make(map[registry.ID]registry.Entry)

@@ -9,10 +9,12 @@ import (
 // Func is our simplified function format that just returns a Result
 type Func func() engine.Result
 
+// FuncWrapper encapsulates an asynchronous function that can be executed in Lua context
 type FuncWrapper struct {
 	fn Func
 }
 
+// Type returns the Lua type for this function wrapper
 func (f *FuncWrapper) Type() lua.LValueType {
 	return lua.LTFunction
 }
