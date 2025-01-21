@@ -3,10 +3,8 @@ package terminal
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/api/service/terminal"
-	"sync"
-
 	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/service/terminal"
 	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/ponyruntime/pony/pkg/eventbus"
 	"go.uber.org/zap"
@@ -18,7 +16,6 @@ type Manager struct {
 	log        *zap.Logger
 	bus        events.Bus
 	subscriber *eventbus.Subscriber
-	mu         sync.RWMutex
 	terminals  map[string]*service
 }
 
@@ -63,50 +60,40 @@ func (m *Manager) Stop() error {
 func (m *Manager) handleEvent(e events.Event) {
 	switch e.Kind {
 	case terminal.RegisterTerminalEvent:
-		reg, ok := e.Data.(*terminal.RegisterApplication)
+		app, ok := e.Data.(terminal.TerminalApp)
 		if !ok {
 			m.log.Error("invalid register terminal data", zap.String("id", string(e.Path)))
 			return
 		}
-		m.handleRegister(string(e.Path), reg)
+		m.handleRegister(string(e.Path), app)
 	case terminal.DeleteTerminalEvent:
 		m.handleDelete(string(e.Path))
 	}
 }
 
-func (m *Manager) handleRegister(id string, reg *terminal.RegisterApplication) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
+func (m *Manager) handleRegister(id string, app terminal.TerminalApp) {
 	// todo: can be an update!
-
+	// todo: check if already running! (we will need runtime migration!)
 	// create terminal application service
-	term := newService(reg.Terminal, reg.Options)
+	term := newService(app.Terminal, app.Options)
 
 	m.terminals[id] = term
 
-	// register service
+	// register service if not already
 	m.bus.Send(m.ctx, events.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Register,
 		Path:   events.Path(id),
 		Data: &supervisor.Entry{
 			Service: term,
-			Config:  reg.Lifecycle,
+			Config:  app.Lifecycle,
 		},
 	})
 
 	m.log.Info("term registered", zap.String("id", id))
 }
 
-func (m *Manager) handleUpdate(id string, reg *terminal.RegisterApplication) {
-	// todo: implement update
-}
-
 func (m *Manager) handleDelete(id string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	// Check if terminal exists
 	if _, exists := m.terminals[id]; !exists {
 		m.log.Error("terminal not found for deletion", zap.String("id", id))
