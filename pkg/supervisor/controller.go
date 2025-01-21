@@ -170,15 +170,16 @@ func (c *Controller) startService() error {
 
 func (c *Controller) tryStart(lastErr error) error {
 	for attempt := 1; ; attempt++ {
-		if err := c.attemptStart(attempt); err == nil {
+		err := c.attemptStart(attempt)
+		if err == nil {
 			return nil
-		} else {
-			lastErr = err
-			if !c.shouldRetry(attempt) {
-				return fmt.Errorf("failed to start service after %d attempts: %w", attempt, lastErr)
-			}
-			time.Sleep(c.config.RetryPolicy.InitialDelay)
 		}
+
+		lastErr = err
+		if !c.shouldRetry(attempt) {
+			return fmt.Errorf("failed to start service after %d attempts: %w", attempt, lastErr)
+		}
+		time.Sleep(c.config.RetryPolicy.InitialDelay)
 	}
 }
 
@@ -193,7 +194,8 @@ func (c *Controller) attemptStart(attempt int) error {
 		c.updateState(supervisor.Failed, err)
 		return err
 	}
-	c.updateState(supervisor.Running, nil) // todo: do we need this or move to convention?
+	// do we need this or move to convention?
+	c.updateState(supervisor.Running, nil)
 
 	c.wg.Add(1)
 	go c.monitorService(detailsCh)
@@ -290,7 +292,7 @@ func (c *Controller) monitorService(detailsCh <-chan any) {
 
 func (c *Controller) handleError(err error) {
 	c.updateState(supervisor.Failed, err)
-	if c.state.canRecover(c.config.RetryPolicy.MaxAttempts, c.ctx) {
+	if c.state.canRecover(c.ctx, c.config.RetryPolicy.MaxAttempts) {
 		go c.recoverService(err)
 	}
 }

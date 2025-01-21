@@ -47,7 +47,7 @@ func (m *Module) executeRequestYield(l *lua.LState, req *http.Request, opts *req
 		cleanup.Add(resp.Body.Close)
 
 		if opts.stream != nil {
-			return m.handleStreamResponseAsync(l, resp, opts.stream, ctx)
+			return m.handleStreamResponseAsync(ctx, l, resp, opts.stream)
 		}
 		return m.handleRegularResponseAsync(l, resp)
 	})
@@ -56,10 +56,10 @@ func (m *Module) executeRequestYield(l *lua.LState, req *http.Request, opts *req
 }
 
 func (m *Module) handleStreamResponseAsync(
+	ctx context.Context,
 	l *lua.LState,
 	resp *http.Response,
 	streamOpts *stream.Options,
-	ctx context.Context,
 ) engine.Result {
 	s, err := stream.NewStream(ctx, resp.Body, streamOpts)
 	if err != nil {
