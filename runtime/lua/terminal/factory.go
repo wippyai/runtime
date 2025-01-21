@@ -6,14 +6,17 @@ import (
 	terminal2 "github.com/ponyruntime/pony/service/terminal"
 )
 
-type defaultFactory struct {
+// DefaultFactory is the default terminal factory.
+type DefaultFactory struct {
 }
 
-func NewDefaultFactory() *defaultFactory {
-	return &defaultFactory{}
+// NewDefaultFactory creates a new default terminal factory.
+func NewDefaultFactory() *DefaultFactory {
+	return &DefaultFactory{}
 }
 
-func (f *defaultFactory) MakeTerminal(
+// MakeTerminal creates a new terminal instance.
+func (f *DefaultFactory) MakeTerminal(
 	cfg api.TerminalConfig,
 	modules api.ModuleRegistry,
 	libraries api.LibraryRegistry,
