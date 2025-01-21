@@ -1,4 +1,4 @@
-package tasker
+package tasks
 
 import (
 	"context"
@@ -517,7 +517,7 @@ func TestTasker_TaskSend(t *testing.T) {
 	}
 }
 
-func setupVM(b *testing.B) (*Tasker, func()) {
+func setupVM(b *testing.B) (*TaskRunner, func()) {
 	logger := zap.NewNop()
 
 	vm, err := engine.NewCVM(logger,

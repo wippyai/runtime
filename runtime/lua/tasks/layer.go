@@ -1,4 +1,4 @@
-package tasker
+package tasks
 
 import (
 	"github.com/ponyruntime/pony/runtime/lua/engine"
@@ -6,8 +6,6 @@ import (
 	lua "github.com/yuin/gopher-lua"
 	"sync/atomic"
 )
-
-type TaskID = string
 
 // taskSchedule represents a message that can be sent through the task layer
 type taskSchedule struct {

@@ -1,4 +1,4 @@
-package tasker
+package tasks
 
 import (
 	"errors"

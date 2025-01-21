@@ -1,4 +1,4 @@
-package tasker
+package tasks
 
 import (
 	"context"
@@ -12,8 +12,11 @@ import (
 	"sync/atomic"
 )
 
-// Tasker manages task execution within a Lua VM
-type Tasker struct {
+// TaskID represents a unique identifier for a task
+type TaskID = string
+
+// TaskRunner manages task execution within a Lua VM
+type TaskRunner struct {
 	log     *zap.Logger
 	cvm     *engine.CoroutineVM
 	inbox   chan *taskSchedule
@@ -31,7 +34,7 @@ func NewTasker(
 	channels *channel.Layer,
 	inboxSize int,
 	opts ...engine.RunnerOption,
-) *Tasker {
+) *TaskRunner {
 	inbox := make(chan *taskSchedule, inboxSize)
 	mixer := newTaskMixer(channels, inbox)
 
@@ -41,7 +44,7 @@ func NewTasker(
 		engine.WithLayer(mixer),
 	}
 
-	return &Tasker{
+	return &TaskRunner{
 		log:    log,
 		cvm:    cvm,
 		inbox:  inbox,
@@ -51,7 +54,7 @@ func NewTasker(
 }
 
 // Start initiates the task manager service
-func (t *Tasker) Start(ctx context.Context, funcName string, args ...lua.LValue) (<-chan any, error) {
+func (t *TaskRunner) Start(ctx context.Context, funcName string, args ...lua.LValue) (<-chan any, error) {
 	if !t.running.CompareAndSwap(false, true) {
 		return nil, fmt.Errorf("tasker already running")
 	}
@@ -97,7 +100,7 @@ func (t *Tasker) Start(ctx context.Context, funcName string, args ...lua.LValue)
 }
 
 // Execute submits a new task for execution
-func (t *Tasker) Execute(ctx context.Context, id TaskID, input []lua.LValue) (<-chan engine.Result, error) {
+func (t *TaskRunner) Execute(ctx context.Context, id TaskID, input []lua.LValue) (<-chan engine.Result, error) {
 	if !t.running.Load() {
 		return nil, fmt.Errorf("tasker not running")
 	}
@@ -123,7 +126,7 @@ func (t *Tasker) Execute(ctx context.Context, id TaskID, input []lua.LValue) (<-
 }
 
 // Stop gracefully shuts down the task manager
-func (t *Tasker) Stop(ctx context.Context) error {
+func (t *TaskRunner) Stop(ctx context.Context) error {
 	if !t.running.Load() {
 		return nil
 	}
