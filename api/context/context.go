@@ -10,13 +10,14 @@ func (ck *Key) String() string {
 }
 
 var (
-	BusCtx        = &Key{Name: "bus"}        //nolint:gochecknoglobals
-	TranscoderCtx = &Key{Name: "transcoder"} //nolint:gochecknoglobals
-	ExecutorCtx   = &Key{Name: "executor"}   //nolint:gochecknoglobals
-	LoggerCtx     = &Key{Name: "logger"}     //nolint:gochecknoglobals
-	ValuesCtx     = &Key{Name: "values"}     //nolint:gochecknoglobals
-	CleanupCtx    = &Key{Name: "cleanup"}    //nolint:gochecknoglobals
-	TaskCtx       = &Key{Name: "task"}       //nolint:gochecknoglobals
+	BusCtx        = &Key{Name: "bus"}         //nolint:gochecknoglobals
+	TranscoderCtx = &Key{Name: "transcoder"}  //nolint:gochecknoglobals
+	ExecutorCtx   = &Key{Name: "executor"}    //nolint:gochecknoglobals
+	LoggerCtx     = &Key{Name: "logger"}      //nolint:gochecknoglobals
+	ValuesCtx     = &Key{Name: "values"}      //nolint:gochecknoglobals
+	CleanupCtx    = &Key{Name: "cleanup"}     //nolint:gochecknoglobals
+	TaskCtx       = &Key{Name: "task"}        //nolint:gochecknoglobals
+	LFSUserData   = &Key{Name: "lfsuserdata"} //nolint:gochecknoglobals
 )
 
 type Contexter[T any] struct {

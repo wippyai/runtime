@@ -2,9 +2,10 @@ package engine
 
 import (
 	"context"
-	"github.com/yuin/gopher-lua/parse"
 	"strings"
 	"testing"
+
+	"github.com/yuin/gopher-lua/parse"
 
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
