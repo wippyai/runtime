@@ -62,24 +62,26 @@ func (m *Manager) Stop() error {
 
 func (m *Manager) handleEvent(e events.Event) {
 	switch e.Kind {
-	case terminal.RegisterEvent:
-		reg, ok := e.Data.(*terminal.Registration)
+	case terminal.RegisterTerminalEvent:
+		reg, ok := e.Data.(*terminal.RegisterApplication)
 		if !ok {
-			m.log.Error("invalid register terminal data", zap.String("event_path", string(e.Path)))
+			m.log.Error("invalid register terminal data", zap.String("id", string(e.Path)))
 			return
 		}
 		m.handleRegister(string(e.Path), reg)
-	case terminal.DeleteEvent:
+	case terminal.DeleteTerminalEvent:
 		m.handleDelete(string(e.Path))
 	}
 }
 
-func (m *Manager) handleRegister(id string, reg *terminal.Registration) {
+func (m *Manager) handleRegister(id string, reg *terminal.RegisterApplication) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	// todo: can be an update!
+
 	// create terminal application service
-	term := newService(reg.Terminal, reg.Config.Options)
+	term := newService(reg.Terminal, reg.Options)
 
 	m.terminals[id] = term
 
@@ -90,11 +92,15 @@ func (m *Manager) handleRegister(id string, reg *terminal.Registration) {
 		Path:   events.Path(id),
 		Data: &supervisor.Entry{
 			Service: term,
-			Config:  reg.Config.Lifecycle,
+			Config:  reg.Lifecycle,
 		},
 	})
 
 	m.log.Info("term registered", zap.String("id", id))
+}
+
+func (m *Manager) handleUpdate(id string, reg *terminal.RegisterApplication) {
+	// todo: implement update
 }
 
 func (m *Manager) handleDelete(id string) {

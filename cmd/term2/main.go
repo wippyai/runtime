@@ -38,7 +38,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	// System Messages
 	case tea.WindowSizeMsg:
-		// Terminal window was resized
+		// Options window was resized
 		m.windowSize = msg
 		m.windowEvents = append(m.windowEvents, fmt.Sprintf("Window resized to %dx%d", msg.Width, msg.Height))
 
@@ -78,7 +78,7 @@ func (m model) View() string {
 		Foreground(lipgloss.Color("#FF75B5"))
 
 	var b strings.Builder
-	b.WriteString("Terminal Events Demo\n\n")
+	b.WriteString("Options Events Demo\n\n")
 
 	// Window info
 	b.WriteString(style.Render(fmt.Sprintf("Window Size: %dx%d\n", m.windowSize.Width, m.windowSize.Height)))

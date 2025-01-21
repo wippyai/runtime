@@ -3,11 +3,12 @@ package terminal
 import (
 	"context"
 	"github.com/ponyruntime/pony/api/service/terminal"
+	"log"
+	"os"
 	"sync"
-	"time"
 )
 
-// service wraps a Terminal to implement the supervisor.Service interface
+// service wraps a Options to implement the supervisor.Service interface
 type service struct {
 	terminal terminal.Terminal
 	options  terminal.Options
@@ -47,14 +48,11 @@ func (s *service) Start(ctx context.Context) (<-chan any, error) {
 		defer close(statusChan)
 
 		//// Run terminal with stdin/stdout
-		//// Note: In a real implementation, you might want to configure these
-		//err := s.terminal.Run(ctx, os.Stdin, os.Stdout)
-		//if err != nil {
-		//	statusChan <- err
-		//	return
-		//}
-
-		time.Sleep(10 * time.Minute)
+		err := s.terminal.Run(ctx, os.Stdin, os.Stdout)
+		if err != nil {
+			statusChan <- err
+			return
+		}
 	}()
 
 	s.running = true
@@ -65,6 +63,7 @@ func (s *service) Start(ctx context.Context) (<-chan any, error) {
 
 // Stop implements supervisor.Service interface
 func (s *service) Stop(ctx context.Context) error {
+	log.Printf("STOP TERMINAL APP")
 	s.mu.Lock()
 	if !s.running {
 		s.mu.Unlock()

@@ -59,7 +59,7 @@ func main() {
 	}
 	defer logger.Sync()
 
-	mainLogger := logger.Named("main")
+	appLogger := logger.Named("main")
 
 	dtt := transcoder.GlobalTranscoder()
 	json.Register(dtt)
@@ -70,19 +70,19 @@ func main() {
 
 	// application service supervisor
 	ctx, cancel := context.WithCancel(context.Background())
-	ctx = context.WithValue(ctx, contextapi.LoggerCtx, mainLogger)
+	ctx = context.WithValue(ctx, contextapi.LoggerCtx, appLogger)
 	ctx = context.WithValue(ctx, contextapi.TranscoderCtx, dtt)
 	ctx = context.WithValue(ctx, contextapi.BusCtx, bus)
 	defer cancel()
 
 	// -- application state
-	appState, err := loadApplicationState(args, dtt, mainLogger)
+	appState, err := loadApplicationState(args, dtt, appLogger)
 
 	// -- application core
 	reg := registry.NewRegistry(
 		history.NewMemory(),
 		runner.NewBusRunner(bus, logger.Named("runner")),
-		registry.NewStateBuilder(mainLogger),
+		registry.NewStateBuilder(appLogger),
 		logger.Named("state"),
 	)
 
@@ -90,13 +90,17 @@ func main() {
 	// -- end of application core
 
 	// -- additional services
-	terminal.NewManager(bus, logger.Named("terminal"))
+	term := terminal.NewManager(bus, logger.Named("term"))
+	if err := term.Start(ctx); err != nil {
+		appLogger.Fatal("failed to start executor", zap.Error(err))
+	}
+	defer func() { _ = term.Stop() }()
 	// -- end of additional services
 
 	// -- core function executor, this service listens and builds routes to call functions between runtimes
 	exec := runtime.NewExecutor(bus, logger.Named("exec"))
 	if err := exec.Start(ctx); err != nil {
-		mainLogger.Fatal("failed to start executor", zap.Error(err))
+		appLogger.Fatal("failed to start executor", zap.Error(err))
 	}
 	defer func() { _ = exec.Stop() }()
 	// -- end of core function executor
@@ -123,26 +127,26 @@ func main() {
 	)
 
 	if err != nil {
-		mainLogger.Fatal("failed to create router", zap.Error(err))
+		appLogger.Fatal("failed to create router", zap.Error(err))
 	}
 	defer func() { _ = svc.Stop() }()
 	// -- end of configuration bus
 
-	mainLogger.Info("booting application")
+	appLogger.Info("booting application")
 	if err := app.Start(ctx); err != nil {
-		mainLogger.Fatal("failed to start supervisor", zap.Error(err))
+		appLogger.Fatal("failed to start supervisor", zap.Error(err))
 	}
-	mainLogger.Info("application started, configuring state")
+	appLogger.Info("application started, configuring state")
 
 	// appState application stateBuilder
 	bootCtx, cancelBoot := context.WithTimeout(ctx, 1*time.Second)
 	defer cancelBoot()
 	_, err = reg.Apply(bootCtx, appState)
 	if err != nil {
-		mainLogger.Fatal("failed to apply state", zap.Error(err))
+		appLogger.Fatal("failed to apply state", zap.Error(err))
 	}
 
-	mainLogger.Info("application state configured, running")
+	appLogger.Info("application state configured, running")
 
 	// Handle graceful shutdown on Ctrl+C
 	sigChan := make(chan os.Signal, 1)
@@ -151,15 +155,15 @@ func main() {
 	// Wait for either shutdown signal or context cancellation
 	select {
 	case <-ctx.Done():
-		mainLogger.Info("context cancelled, shutting down...")
+		appLogger.Info("context cancelled, shutting down...")
 	case sig := <-sigChan:
-		mainLogger.Info("received signal, shutting down...", zap.String("signal", sig.String()))
+		appLogger.Info("received signal, shutting down...", zap.String("signal", sig.String()))
 	}
 
 	if err := app.Stop(); err != nil {
-		mainLogger.Error("failed to stop supervisor gracefully", zap.Error(err))
+		appLogger.Error("failed to stop supervisor gracefully", zap.Error(err))
 	} else {
-		mainLogger.Info("supervisor stopped gracefully")
+		appLogger.Info("supervisor stopped gracefully")
 	}
 }
 
