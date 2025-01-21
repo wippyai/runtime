@@ -53,6 +53,7 @@ func (m *Modules) Get(name string) (api.Module, error) {
 	return module, nil
 }
 
+// Has checks if a module is registered
 func (m *Modules) Has(name string) bool {
 	_, exists := m.modules[name]
 	return exists

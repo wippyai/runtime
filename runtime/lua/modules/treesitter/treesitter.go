@@ -17,6 +17,7 @@ type Module struct {
 	log       *zap.Logger
 }
 
+// NewTreeSitterModule creates a new Tree-sitter module.
 func NewTreeSitterModule(log *zap.Logger) *Module {
 	return &Module{
 		languages: NewLanguages(),
