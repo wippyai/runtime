@@ -96,8 +96,8 @@ func (m *Module) taskComplete(L *lua.LState) int {
 	}
 
 	// send completion result directly to task channel
-	handle.channel <- engine.Result{Result: values}
-	close(handle.channel) // Close channel after completion
+	handle.channel <- engine.Result{State: L, Result: values}
+	close(handle.channel) // closeChannel channel after completion
 	return 0
 }
 
@@ -107,8 +107,8 @@ func (m *Module) taskFail(L *lua.LState) int {
 	errMsg := L.CheckString(2)
 
 	// send error result directly to task channel
-	handle.channel <- engine.Result{Error: errors.New(errMsg)}
-	close(handle.channel) // Close channel after failure
+	handle.channel <- engine.Result{State: L, Error: errors.New(errMsg)}
+	close(handle.channel) // closeChannel channel after failure
 	return 0
 }
 
@@ -123,7 +123,7 @@ func (m *Module) taskSend(L *lua.LState) int {
 	}
 
 	// send values directly to task channel
-	handle.channel <- engine.Result{Result: values}
+	handle.channel <- engine.Result{State: L, Result: values}
 	return 0
 }
 

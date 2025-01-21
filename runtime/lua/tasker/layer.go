@@ -43,22 +43,24 @@ func (m *mixerLayer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task
 
 	select {
 	case <-m.close:
-		if err := m.channels.Close(cvm.State().Context(), m.outbox); err != nil {
-			return nil, err
-		}
-		m.outbox = nil
-		drain := true
-		for {
-			if !drain {
-				break
+		if m.outbox != nil {
+			if err := m.channels.Close(cvm.State().Context(), m.outbox); err != nil {
+				return nil, err
 			}
-			select {
-			case <-m.inbox:
-			default:
-				drain = false
+			m.outbox = nil
+			drain := true
+			for {
+				if !drain {
+					break
+				}
+				select {
+				case <-m.inbox:
+				default:
+					drain = false
+				}
 			}
+			atomic.CompareAndSwapInt32(&m.closed, 1, 0)
 		}
-		atomic.CompareAndSwapInt32(&m.closed, 1, 0)
 	default:
 	}
 
@@ -118,10 +120,20 @@ func (m *mixerLayer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task
 			}
 		}
 
-		if err := m.channels.Send(cvm.State().Context(), m.outbox, execute...); err != nil {
-			return nil, err
+		if len(execute) != 0 {
+			if err := m.channels.Send(cvm.State().Context(), m.outbox, execute...); err != nil {
+				return nil, err
+			}
 		}
 	}
 
 	return outTasks, nil
+}
+
+func (m *mixerLayer) closeChannel() error {
+	if atomic.CompareAndSwapInt32(&m.closed, 0, 1) {
+		close(m.close)
+	}
+
+	return nil
 }

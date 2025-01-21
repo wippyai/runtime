@@ -171,6 +171,11 @@ func (e *CoroutineVM) Start(ctx context.Context, funcName string, args ...lua.LV
 		return nil, fmt.Errorf("function %q not found", funcName)
 	}
 
+	if e.vm.state.Context() == nil {
+		// probably think about alternative way
+		e.vm.state.SetContext(ctx)
+	}
+
 	task, err := e.createTask(ctx, fn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create coroutine: %w", err)
@@ -289,10 +294,6 @@ func (e *CoroutineVM) Close() {
 	if e.vm != nil {
 		e.vm.Close()
 	}
-}
-
-func (e *CoroutineVM) Context() context.Context {
-	return e.vm.state.Context()
 }
 
 func (e *CoroutineVM) State() *lua.LState {
