@@ -293,7 +293,7 @@ func (m *RuntimeManager) compileAndRegisterTerminal(ctx context.Context, id regi
 		System: terminal.System,
 		Kind:   terminal.RegisterTerminalEvent,
 		Path:   events.Path(id),
-		Data: terminal.TerminalApp{
+		Data: terminal.Application{
 			Terminal:  instance,
 			Options:   term.Options,
 			Lifecycle: term.Lifecycle,

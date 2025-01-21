@@ -60,7 +60,7 @@ func (m *Manager) Stop() error {
 func (m *Manager) handleEvent(e events.Event) {
 	switch e.Kind {
 	case terminal.RegisterTerminalEvent:
-		app, ok := e.Data.(terminal.TerminalApp)
+		app, ok := e.Data.(terminal.Application)
 		if !ok {
 			m.log.Error("invalid register terminal data", zap.String("id", string(e.Path)))
 			return
@@ -71,7 +71,7 @@ func (m *Manager) handleEvent(e events.Event) {
 	}
 }
 
-func (m *Manager) handleRegister(id string, app terminal.TerminalApp) {
+func (m *Manager) handleRegister(id string, app terminal.Application) {
 	// todo: can be an update!
 	// todo: check if already running! (we will need runtime migration!)
 	// create terminal application service
