@@ -12,6 +12,8 @@ import (
 
 var coroOptions = []Option{WithGlobalValue("_COROUTINE_ENABLED", lua.LTrue)}
 
+// Task represents a coroutine execution unit in the Lua VM.
+// It maintains the state and context of a running coroutine.
 type Task struct {
 	l          *lua.LState
 	thread     *lua.LState
@@ -24,10 +26,12 @@ type Task struct {
 	RaiseError error
 }
 
+// Thread returns the Lua state associated with this task's coroutine.
 func (t *Task) Thread() *lua.LState {
 	return t.thread
 }
 
+// Type returns the Lua type of this task (LTThread).
 func (t *Task) Type() lua.LValueType {
 	return lua.LTThread
 }
@@ -36,26 +40,33 @@ func (t *Task) String() string {
 	return fmt.Sprintf("<coroutine %p> %+v", t.thread, t.Yielded)
 }
 
+// Result represents the outcome of a coroutine execution.
+// It contains the final state, return values, and any error that occurred.
 type Result struct {
 	State  *lua.LState
 	Result []lua.LValue
 	Error  error
 }
 
+// TaskQueue manages a queue of coroutine tasks waiting for execution.
 type TaskQueue struct {
 	active *list.List
 }
 
+// NewTaskQueue creates and initializes a new TaskQueue instance.
 func NewTaskQueue() *TaskQueue {
 	return &TaskQueue{
 		active: list.New(),
 	}
 }
 
+// Push adds a new task to the end of the queue.
 func (q *TaskQueue) Push(task *Task) {
 	q.active.PushBack(task)
 }
 
+// Pop removes and returns the first task in the queue.
+// Returns nil if the queue is empty.
 func (q *TaskQueue) Pop() *Task {
 	if q.active.Len() == 0 {
 		return nil
@@ -65,6 +76,7 @@ func (q *TaskQueue) Pop() *Task {
 	return e.Value.(*Task)
 }
 
+// Drain removes and returns all tasks from the queue.
 func (q *TaskQueue) Drain() []*Task {
 	tasks := make([]*Task, 0, q.active.Len())
 	for e := q.active.Front(); e != nil; e = e.Next() {
@@ -77,10 +89,12 @@ func (q *TaskQueue) Drain() []*Task {
 	return tasks
 }
 
+// IsEmpty returns true if the queue contains no tasks.
 func (q *TaskQueue) IsEmpty() bool {
 	return q.active.Len() == 0
 }
 
+// Len returns the number of tasks currently in the queue.
 func (q *TaskQueue) Len() int {
 	return q.active.Len()
 }
@@ -93,6 +107,8 @@ type CoroutineVM struct {
 	queue *TaskQueue
 }
 
+// IsCoroutineVM checks if the given Lua state has coroutine support enabled
+// by verifying the presence of the _COROUTINE_ENABLED global variable.
 func IsCoroutineVM(L *lua.LState) bool {
 	//check _COROUTINE_ENABLED
 	if L.GetGlobal("_COROUTINE_ENABLED") != lua.LTrue {
@@ -296,6 +312,7 @@ func (e *CoroutineVM) Close() {
 	}
 }
 
+// State returns the underlying Lua state of the VM.
 func (e *CoroutineVM) State() *lua.LState {
 	return e.vm.state
 }

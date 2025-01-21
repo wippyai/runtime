@@ -19,6 +19,8 @@ type (
 		Step(cvm CVM, tasks ...*Task) ([]*Task, error)
 	}
 
+	// Contexter allows middleware layers to modify the context chain.
+	// Implementing this interface is optional for layers that need to add values to the context.
 	Contexter interface {
 		WithContext(ctx context.Context) context.Context
 	}
@@ -33,10 +35,14 @@ type (
 		Close()
 	}
 
+	// CoroutineLeak represents an error when orphaned coroutines are detected
+	// during VM execution. Count indicates the number of leaked coroutines.
 	CoroutineLeak struct {
 		Count int
 	}
 
+	// DeadlockError represents a deadlock condition where coroutines are
+	// unable to make progress. Count indicates number of blocked coroutines.
 	DeadlockError struct {
 		Count int
 	}
@@ -136,14 +142,21 @@ func (e *Runner) getWrapped() CVM {
 	return wrapped
 }
 
+// GetTaskGroup returns the task group associated with this runner.
+// The task group is used to track and manage concurrent tasks.
 func (e *Runner) GetTaskGroup() *TaskGroup {
 	return e.taskGroup
 }
 
+// Start initiates execution of a function with the given name and arguments.
+// It returns a channel that will receive the execution result.
 func (e *Runner) Start(ctx context.Context, funcName string, args ...lua.LValue) (<-chan Result, error) {
 	return e.getWrapped().Start(ctx, funcName, args...)
 }
 
+// Run executes the VM until completion, processing tasks through the layer chain.
+// It manages coroutine execution and handles task scheduling.
+// Returns the final execution result or an error if execution fails.
 func (e *Runner) Run(ctx context.Context, exitCh <-chan Result) (lua.LValue, error) {
 	defer func() {
 		for _, t := range e.cvm.tasks {
@@ -229,6 +242,8 @@ func (e *Runner) Execute(
 	return e.Run(ctx, out)
 }
 
+// WithContext creates a new context with task group and layer-specific values.
+// Each layer that implements Contexter can add its own values to the context chain.
 func (e *Runner) WithContext(ctx context.Context) context.Context {
 	ctx = WithTaskGroup(ctx, e.taskGroup)
 	for _, l := range e.layers {
@@ -240,6 +255,8 @@ func (e *Runner) WithContext(ctx context.Context) context.Context {
 	return ctx
 }
 
+// Close shuts down the runner and its underlying CVM.
+// This should be called when the runner is no longer needed.
 func (e *Runner) Close() {
 	e.getWrapped().Close()
 }
