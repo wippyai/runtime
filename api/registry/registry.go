@@ -7,23 +7,37 @@ import (
 	"github.com/ponyruntime/pony/api/payload"
 )
 
+// Registry system constants define the various event types and identifiers used throughout the registry.
+// These constants are used to identify different operations and states in the registry system.
 const (
+	// System identifies the registry system in the event context
 	System events.System = "registry"
 
+	// Create represents an event for creating a new registry entry
 	Create events.Kind = "entry.create"
+	// Update represents an event for updating an existing registry entry
 	Update events.Kind = "entry.update"
+	// Delete represents an event for removing a registry entry
 	Delete events.Kind = "entry.delete"
+	// Accept represents an event for accepting a registry entry
 	Accept events.Kind = "entry.accept"
+	// Reject represents an event for rejecting a registry entry
 	Reject events.Kind = "entry.reject"
 
+	// Changes represents a pattern matching any create, update, or delete events
 	Changes events.Kind = "entry.(create|update|delete)"
 
-	Begin   events.Kind = "registry.begin"
-	Commit  events.Kind = "registry.commit"
+	// Begin represents the start of a registry transaction
+	Begin events.Kind = "registry.begin"
+	// Commit represents the successful completion of a registry transaction
+	Commit events.Kind = "registry.commit"
+	// Discard represents the rollback of a registry transaction
 	Discard events.Kind = "registry.discard"
 
+	// RootVersion represents the initial version of the registry
 	RootVersion uint = 0
 
+	// DependsOnTag is used to mark dependencies between registry entries
 	DependsOnTag = "depends_on"
 )
 

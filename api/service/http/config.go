@@ -11,12 +11,19 @@ import (
 	"github.com/ponyruntime/pony/api/supervisor"
 )
 
+// Registry kind constants for HTTP service components.
+// These identify different types of HTTP-related components in the registry.
 const (
-	KindServer   registry.Kind = "http.service"
-	KindRouter   registry.Kind = "http.router"
+	// KindServer identifies an HTTP server component
+	KindServer registry.Kind = "http.service"
+	// KindRouter identifies an HTTP router component
+	KindRouter registry.Kind = "http.router"
+	// KindEndpoint identifies an HTTP endpoint component
 	KindEndpoint registry.Kind = "http.endpoint"
 
+	// ServerID is the key used to identify the server in configuration metadata
 	ServerID string = "server"
+	// RouterID is the key used to identify the router in configuration metadata
 	RouterID string = "router"
 )
 
