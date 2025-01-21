@@ -30,22 +30,27 @@ func WithLogger(logger *zap.Logger) Option {
 	}
 }
 
-// Pool manages multiple Lua VMs for efficient script execution
+// Pool manages multiple Lua VMs for efficient script execution.
+// It implements a fixed-size pool of VMs that can be reused across
+// multiple script executions to improve performance and resource utilization.
 type Pool struct {
 	size      int
 	logger    *zap.Logger
 	factory   api.Factory
 	vms       chan api.VM
 	closeOnce sync.Once
-	done      chan struct{} // opChan for signaling shutdown
+	done      chan struct{} // Channel for signaling shutdown
 }
 
+// NewPool creates a new VM pool with the specified factory and options.
+// By default, it creates a pool with size 5 and a no-op logger.
+// Returns an error if pool initialization fails.
 func NewPool(factory api.Factory, opts ...Option) (*Pool, error) {
 	p := &Pool{
 		size:    5,
 		logger:  zap.NewNop(),
 		factory: factory,
-		done:    make(chan struct{}), // Initialize done channel
+		done:    make(chan struct{}),
 	}
 
 	for _, opt := range opts {
@@ -81,6 +86,10 @@ func (p *Pool) init() error {
 	return nil
 }
 
+// Execute runs the specified Lua function with the given arguments using a VM from the pool.
+// It manages VM lifecycle, handles errors, and ensures proper cleanup.
+// Returns the function result and any error that occurred during execution.
+// If the pool is closed or the context is cancelled, returns an appropriate error.
 func (p *Pool) Execute(ctx context.Context, name string, args ...lua.LValue) (lua.LValue, error) {
 	select {
 	case <-p.done:
@@ -109,7 +118,7 @@ func (p *Pool) Execute(ctx context.Context, name string, args ...lua.LValue) (lu
 		return result, nil
 	}
 
-	// we never allow failed VMs to be returned to the pool
+	// Never allow failed VMs to be returned to the pool
 	vm.Close()
 
 	select {
@@ -128,8 +137,8 @@ func (p *Pool) Execute(ctx context.Context, name string, args ...lua.LValue) (lu
 	return nil, err
 }
 
+// cleanupVMs drains and closes all VMs in the pool
 func (p *Pool) cleanupVMs() {
-	// Drain and close all VMs
 	for {
 		select {
 		case vm, ok := <-p.vms:
@@ -143,9 +152,11 @@ func (p *Pool) cleanupVMs() {
 	}
 }
 
+// Close shuts down the pool and releases all resources.
+// It ensures that cleanup happens exactly once and is safe for concurrent use.
 func (p *Pool) Close() {
 	p.closeOnce.Do(func() {
 		close(p.done)  // Signal shutdown
-		p.cleanupVMs() // close existing VMs
+		p.cleanupVMs() // Close existing VMs
 	})
 }
