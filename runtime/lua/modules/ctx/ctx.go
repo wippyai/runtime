@@ -8,10 +8,14 @@ import (
 )
 
 // Module (ctx) gets or sets a context value found by a given key.
-type Module struct{}
+type Module struct {
+	log *zap.Logger
+}
 
 func New(log *zap.Logger) *Module {
-	return &Module{}
+	return &Module{
+		log: log,
+	}
 }
 
 // Name returns the module name
