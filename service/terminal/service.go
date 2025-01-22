@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"github.com/ponyruntime/pony/api/service/terminal"
-	"github.com/ponyruntime/pony/service/terminal/logger"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -19,14 +18,14 @@ type service struct {
 	options  terminal.Options
 	cancel   context.CancelFunc
 	wg       sync.WaitGroup
-	logger   *logger.Core
+	logger   *LoggerInterceptor
 }
 
 // newService creates a new service instance
 func newService(
 	terminal terminal.Terminal,
 	options terminal.Options,
-	logger *logger.Core,
+	logger *LoggerInterceptor,
 ) *service {
 	return &service{
 		terminal: terminal,
