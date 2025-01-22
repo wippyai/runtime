@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"context"
+	"errors"
 	"github.com/ponyruntime/pony/api/events"
 )
 
@@ -37,6 +38,13 @@ const (
 	Stopped Status = "stopped"
 	// Failed indicates the service has failed and is not running
 	Failed Status = "failed"
+)
+
+var (
+	// Terminated error is returned when a service is terminated, disables supervision.
+	Terminated = errors.New("service terminated")
+	// Exited error is returned when a service exits on its own, disables supervision.
+	Exited = errors.New("service exited")
 )
 
 type (

@@ -2,24 +2,32 @@ package terminal
 
 import (
 	"context"
+	"errors"
 	"github.com/ponyruntime/pony/api/service/terminal"
+	"github.com/ponyruntime/pony/service/terminal/logger"
+	"log"
 	"os"
 	"sync"
+	"sync/atomic"
 )
 
-// service wraps a Options to implement the supervisor.Service interface
+// we only allow single terminal instance per node
+var running atomic.Bool
+
+// service wraps an Options to implement the supervisor.Service interface
 type service struct {
 	terminal terminal.Terminal
 	options  terminal.Options
-
-	cancel  context.CancelFunc
-	wg      sync.WaitGroup
-	running bool
-	mu      sync.Mutex
+	cancel   context.CancelFunc
+	wg       sync.WaitGroup
 }
 
 // newService creates a new service instance
-func newService(terminal terminal.Terminal, options terminal.Options) *service {
+func newService(
+	loggerCore *logger.Core,
+	terminal terminal.Terminal,
+	options terminal.Options,
+) *service {
 	return &service{
 		terminal: terminal,
 		options:  options,
@@ -28,12 +36,12 @@ func newService(terminal terminal.Terminal, options terminal.Options) *service {
 
 // Start implements supervisor.Service interface
 func (s *service) Start(ctx context.Context) (<-chan any, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.running {
-		return nil, nil
+	log.Printf("Starting terminal service %v", running.Load())
+	if !running.CompareAndSwap(false, true) {
+		return nil, errors.New("terminal is already running")
 	}
+
+	log.Printf("Starting terminal service %v", running.Load())
 
 	// Create status channel and context with cancellation
 	statusChan := make(chan any, 1)
@@ -46,18 +54,13 @@ func (s *service) Start(ctx context.Context) (<-chan any, error) {
 		defer s.wg.Done()
 		defer close(statusChan)
 
-		// todo; we need to polish this shit
-
-		// Run terminal with stdin/stdout
 		err := s.terminal.Run(ctx, os.Stdin, os.Stdout)
 		if err != nil {
-			// todo: indicate terminate status
 			statusChan <- err
 			return
 		}
 	}()
 
-	s.running = true
 	statusChan <- "terminal started"
 
 	return statusChan, nil
@@ -65,15 +68,12 @@ func (s *service) Start(ctx context.Context) (<-chan any, error) {
 
 // Stop implements supervisor.Service interface
 func (s *service) Stop(ctx context.Context) error {
-	s.mu.Lock()
-	if !s.running {
-		s.mu.Unlock()
-		return nil
+	if running.CompareAndSwap(true, false) {
+		return errors.New("terminal is not running")
 	}
 
 	// Cancel the running context
 	s.cancel()
-	s.mu.Unlock()
 
 	// Wait for terminal to finish with timeout
 	done := make(chan struct{})
@@ -81,9 +81,6 @@ func (s *service) Stop(ctx context.Context) error {
 
 	select {
 	case <-done:
-		s.mu.Lock()
-		s.running = false
-		s.mu.Unlock()
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()

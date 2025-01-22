@@ -18,7 +18,7 @@ type Manager struct {
 	bus        events.Bus
 	subscriber *eventbus.Subscriber
 	terminals  map[string]*service
-	logCore    *logger.Core
+	loggerCore *logger.Core
 }
 
 // NewManager creates a new Manager instance
@@ -28,10 +28,10 @@ func NewManager(
 	core *logger.Core,
 ) *Manager {
 	return &Manager{
-		log:       logger,
-		bus:       bus,
-		terminals: make(map[string]*service),
-		logCore:   core,
+		log:        logger,
+		bus:        bus,
+		terminals:  make(map[string]*service),
+		loggerCore: core,
 	}
 }
 
@@ -78,7 +78,11 @@ func (m *Manager) handleRegister(id string, app terminal.Application) {
 	// todo: can be an update!
 	// todo: check if already running! (we will need runtime migration!)
 	// create terminal application service
-	term := newService(app.Terminal, app.Options)
+	term := newService(
+		m.loggerCore,
+		app.Terminal,
+		app.Options,
+	)
 
 	m.terminals[id] = term
 
