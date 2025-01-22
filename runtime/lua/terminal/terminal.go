@@ -5,19 +5,84 @@ import (
 	"fmt"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/ponyruntime/pony/api/supervisor"
+	transcode "github.com/ponyruntime/pony/pkg/payload/lua"
+	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
+	"github.com/ponyruntime/pony/runtime/lua/tasks"
+	lua "github.com/yuin/gopher-lua"
+	"go.uber.org/zap"
 	"io"
-	"strings"
 )
 
-type InputField struct {
-	label   string
-	value   string
-	cursor  int
-	focused bool
-}
+const luaScript = `
+function App()
+    local inbox = tasks.channel()
+    local inputs = {
+        { text = "", focused = true, label = "Input 1" },
+        { text = "", focused = false, label = "Input 2" }
+    }
+    
+    local function getCurrentInput()
+        for i, input in ipairs(inputs) do
+            if input.focused then
+                return i, input
+            end
+        end
+        return 1, inputs[1]
+    end
+
+    while true do
+        local task, ok = inbox:receive()
+        if not ok then
+            break
+        end
+        
+        local msg = task:input()
+        if msg.type == "update" then
+            local idx, current = getCurrentInput()
+            
+            if msg.key then
+                if msg.key.String == "tab" then
+                    inputs[idx].focused = false
+                    local nextIdx = (idx % #inputs) + 1
+                    inputs[nextIdx].focused = true
+                elseif msg.key.Type == "space" or msg.key.String == " " then
+                    current.text = current.text .. " "
+                elseif msg.key.Type == "runes" then
+                    current.text = current.text .. msg.key.String
+                elseif msg.key.String == "backspace" then
+                    if #current.text > 0 then
+                        current.text = current.text:sub(1, -2)
+                    end
+                end
+            end
+            task:send(true)
+            task:complete(nil)
+        elseif msg.type == "view" then
+            local view = ""
+            for _, input in ipairs(inputs) do
+                view = view .. input.label .. ": " 
+                if input.focused then
+                    view = view .. input.text .. "█"
+                else
+                    view = view .. input.text
+                end
+                view = view .. "\n"
+            end
+            view = view .. "\n[Tab] ?Switch fields • [Enter] Submit • [q] Quit"
+            task:complete(view)
+        end
+    end
+end
+
+return App
+`
 
 type bubbleModel struct {
-	inputs   []InputField
+	tasker   *tasks.TaskRunner
+	logger   *zap.Logger
+	ctx      context.Context
+	state    *lua.LState
 	out      io.Writer
 	quitting bool
 }
@@ -26,130 +91,110 @@ func (m bubbleModel) Init() tea.Cmd {
 	return tea.EnterAltScreen
 }
 
+func (m bubbleModel) mapMessage(msg tea.Msg) lua.LValue {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		return transcode.GoToLua(m.state, map[string]any{
+			"type": "update",
+			"key": map[string]any{
+				"Type":   msg.Type.String(),
+				"String": msg.String(),
+				"Alt":    msg.Alt,
+				"Runes":  string(msg.Runes),
+			},
+		})
+	default:
+		return transcode.GoToLua(m.state, map[string]any{
+			"type": "update",
+			"msg":  fmt.Sprintf("%v", msg),
+		})
+	}
+}
+
 func (m bubbleModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "q":
+		if msg.String() == "q" || msg.String() == "ctrl+c" {
 			m.quitting = true
 			return m, tea.Quit
-		case "ctrl+c", "esc":
-			m.quitting = true
-			return m, tea.Quit
-		case "enter":
-			// Print current input values
-			for _, input := range m.inputs {
-				fmt.Fprintf(m.out, "%s: %s\n", input.label, input.value)
-			}
-			// Clear inputs
-			for i := range m.inputs {
-				m.inputs[i].value = ""
-				m.inputs[i].cursor = 0
-			}
-			return m, nil
-		case "tab":
-			// Switch focus between input fields
-			for i := range m.inputs {
-				if m.inputs[i].focused {
-					m.inputs[i].focused = false
-					m.inputs[(i+1)%len(m.inputs)].focused = true
-					break
-				}
-			}
-			return m, nil
-		case "backspace":
-			for i := range m.inputs {
-				if m.inputs[i].focused && m.inputs[i].cursor > 0 {
-					m.inputs[i].value = m.inputs[i].value[:m.inputs[i].cursor-1] + m.inputs[i].value[m.inputs[i].cursor:]
-					m.inputs[i].cursor--
-					break
-				}
-			}
-			return m, nil
-		case "left":
-			for i := range m.inputs {
-				if m.inputs[i].focused && m.inputs[i].cursor > 0 {
-					m.inputs[i].cursor--
-					break
-				}
-			}
-			return m, nil
-		case "right":
-			for i := range m.inputs {
-				if m.inputs[i].focused && m.inputs[i].cursor < len(m.inputs[i].value) {
-					m.inputs[i].cursor++
-					break
-				}
-			}
-			return m, nil
-		default:
-			if msg.Type == tea.KeyRunes {
-				for i := range m.inputs {
-					if m.inputs[i].focused {
-						m.inputs[i].value = m.inputs[i].value[:m.inputs[i].cursor] + string(msg.Runes) + m.inputs[i].value[m.inputs[i].cursor:]
-						m.inputs[i].cursor += len(msg.Runes)
-						break
-					}
-				}
-			}
 		}
+	}
+
+	mappedMsg := m.mapMessage(msg)
+	resultCh, err := m.tasker.Execute(m.ctx, "update", []lua.LValue{mappedMsg})
+	if err != nil {
+		m.logger.Error("failed to execute update task", zap.Error(err))
+		return m, nil
+	}
+
+	result := <-resultCh
+	if result.Error != nil {
+		m.logger.Error("update task failed", zap.Error(result.Error))
 	}
 
 	return m, nil
 }
 
 func (m bubbleModel) View() string {
-	var sb strings.Builder
-
-	// Draw each input field
-	for _, input := range m.inputs {
-		// Show label
-		sb.WriteString(input.label)
-		sb.WriteString(": ")
-
-		// Show input value with cursor
-		if input.focused {
-			if input.cursor == len(input.value) {
-				sb.WriteString(input.value + "█")
-			} else {
-				sb.WriteString(input.value[:input.cursor] + "█" + input.value[input.cursor:])
-			}
-		} else {
-			sb.WriteString(input.value + " ")
-		}
-		sb.WriteString("\n")
+	resultCh, err := m.tasker.Execute(m.ctx, "view", []lua.LValue{
+		transcode.GoToLua(m.state, map[string]any{"type": "view"}),
+	})
+	if err != nil {
+		return "Error: failed to execute view task"
 	}
 
-	// Add controls help
-	sb.WriteString("\n[Tab] Switch fields • [Enter] Submit • [q] Quit\n")
-
-	return sb.String()
-}
-
-type DualInputTerminal struct {
-	labels []string
-}
-
-func NewDualInputTerminal(labels []string) *DualInputTerminal {
-	if len(labels) == 0 {
-		labels = []string{"Input 1", "Input 2"}
+	result := <-resultCh
+	if result.Error != nil {
+		return "Error: view task failed"
 	}
-	return &DualInputTerminal{
-		labels: labels,
+
+	if len(result.Result) > 0 {
+		return result.Result[0].String()
+	}
+
+	return "No view data"
+}
+
+type LuaTerminal struct {
+	logger *zap.Logger
+}
+
+func NewLuaTerminal(logger *zap.Logger) *LuaTerminal {
+	if logger == nil {
+		logger = zap.NewExample()
+	}
+	return &LuaTerminal{
+		logger: logger,
 	}
 }
 
-func (t *DualInputTerminal) Run(ctx context.Context, in io.Reader, out io.Writer) error {
-	inputs := make([]InputField, len(t.labels))
-	for i, label := range t.labels {
-		inputs[i] = InputField{
-			label:   label,
-			focused: i == 0, // Focus first input by default
-		}
+func (t *LuaTerminal) Run(ctx context.Context, in io.Reader, out io.Writer) error {
+	vm, err := engine.NewCVM(t.logger,
+		engine.WithPreloaded("tasks", tasks.NewTaskModule().Loader),
+		engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create VM: %w", err)
 	}
+
+	if err := vm.Import(luaScript, "app", "App"); err != nil {
+		return fmt.Errorf("failed to import Lua code: %w", err)
+	}
+
+	tasker := tasks.NewTasker(t.logger, vm, channel.NewChannelLayer(), 1024)
+	statusCh, err := tasker.Start(ctx, "App")
+	if err != nil {
+		return fmt.Errorf("failed to start tasker: %w", err)
+	}
+
+	status := <-statusCh
+	t.logger.Info("tasker status", zap.Any("status", status))
 
 	model := bubbleModel{
-		inputs: inputs,
+		tasker: tasker,
+		logger: t.logger,
+		ctx:    ctx,
+		state:  vm.State(),
 		out:    out,
 	}
 

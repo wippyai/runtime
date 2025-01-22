@@ -13,6 +13,7 @@ type (
 	// TerminalFactory creates new terminal instances.
 	TerminalFactory interface {
 		MakeTerminal(
+			log *zap.Logger,
 			cfg api.TerminalConfig,
 			modules api.ModuleRegistry,
 			libraries api.LibraryRegistry,
@@ -139,7 +140,7 @@ func (m *Terminals) MakeTerminal(
 		return nil, err
 	}
 
-	return m.factory.MakeTerminal(*term, modules, libraries)
+	return m.factory.MakeTerminal(m.log, *term, modules, libraries)
 }
 
 // Internal methods
