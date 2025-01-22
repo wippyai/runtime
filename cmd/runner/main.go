@@ -208,23 +208,11 @@ func initLogger(verbose, veryVerbose bool) (*zap.Logger, *logger.Core) {
 		config.Level = zap.NewAtomicLevelAt(zapcore.DebugLevel)
 	case verbose:
 		config.Level = zap.NewAtomicLevelAt(zapcore.DebugLevel)
-		// Disable stack traces for -v
 		config.DisableStacktrace = true
 	default:
 		config.Level = zap.NewAtomicLevelAt(zapcore.InfoLevel)
-		// Disable stack traces by default
 		config.DisableStacktrace = true
 	}
-
-	// Always use console encoding with colors
-	config.Encoding = "console"
-	config.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
-	config.EncoderConfig.EncodeCaller = nil // Remove caller information
-	config.EncoderConfig.TimeKey = "time"
-	config.EncoderConfig.LevelKey = "level"
-	config.EncoderConfig.NameKey = "logger"
-	config.EncoderConfig.MessageKey = "msg"
-	config.EncoderConfig.StacktraceKey = "stacktrace"
 
 	config.EncoderConfig.EncodeTime = zapcore.TimeEncoderOfLayout(time.DateTime)
 

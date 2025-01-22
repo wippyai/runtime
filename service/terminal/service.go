@@ -5,14 +5,13 @@ import (
 	"errors"
 	"github.com/ponyruntime/pony/api/service/terminal"
 	"github.com/ponyruntime/pony/service/terminal/logger"
-	"log"
 	"os"
 	"sync"
 	"sync/atomic"
 )
 
 // we only allow single terminal instance per node
-var running atomic.Bool
+var running atomic.Pointer[service]
 
 // service wraps an Options to implement the supervisor.Service interface
 type service struct {
@@ -20,28 +19,31 @@ type service struct {
 	options  terminal.Options
 	cancel   context.CancelFunc
 	wg       sync.WaitGroup
+	logger   *logger.Core
 }
 
 // newService creates a new service instance
 func newService(
-	loggerCore *logger.Core,
 	terminal terminal.Terminal,
 	options terminal.Options,
+	logger *logger.Core,
 ) *service {
 	return &service{
 		terminal: terminal,
 		options:  options,
+		logger:   logger,
 	}
 }
 
 // Start implements supervisor.Service interface
 func (s *service) Start(ctx context.Context) (<-chan any, error) {
-	log.Printf("Starting terminal service %v", running.Load())
-	if !running.CompareAndSwap(false, true) {
+	if !running.CompareAndSwap(nil, s) {
 		return nil, errors.New("terminal is already running")
 	}
 
-	log.Printf("Starting terminal service %v", running.Load())
+	// we do not want to display logs in terminal, todo: probably use simpler interface
+	s.logger.SetTerminalActive(true)
+	// todo: can we combine with active flag or migration process between versions?
 
 	// Create status channel and context with cancellation
 	statusChan := make(chan any, 1)
@@ -53,6 +55,8 @@ func (s *service) Start(ctx context.Context) (<-chan any, error) {
 	go func() {
 		defer s.wg.Done()
 		defer close(statusChan)
+		defer s.logger.SetTerminalActive(false)
+		defer running.Store(nil)
 
 		err := s.terminal.Run(ctx, os.Stdin, os.Stdout)
 		if err != nil {
@@ -68,7 +72,7 @@ func (s *service) Start(ctx context.Context) (<-chan any, error) {
 
 // Stop implements supervisor.Service interface
 func (s *service) Stop(ctx context.Context) error {
-	if running.CompareAndSwap(true, false) {
+	if running.CompareAndSwap(s, nil) {
 		return errors.New("terminal is not running")
 	}
 
