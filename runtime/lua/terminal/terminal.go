@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/ponyruntime/pony/api/supervisor"
 	"io"
-	"log"
 )
 
 type bubbleModel struct {
@@ -93,14 +93,13 @@ func (t *EchoTerminal) Run(ctx context.Context, in io.Reader, out io.Writer) err
 
 	go func() { <-ctx.Done(); p.Quit() }()
 
-	log.Printf("STEAT")
 	m, err := p.Run()
 	if err != nil {
 		return fmt.Errorf("bubbletea error: %w", err)
 	}
 
 	if m.(bubbleModel).quitting {
-		return context.Canceled
+		return supervisor.Exited
 	}
 
 	return nil

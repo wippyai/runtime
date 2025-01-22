@@ -270,12 +270,31 @@ func (c *Controller) monitorService(detailsCh <-chan any) {
 	for {
 		select {
 		case details, ok := <-detailsCh:
+			if err, ok := details.(error); ok {
+				if errors.Is(err, context.Canceled) {
+					// exit
+
+					c.updateState(supervisor.Stopped, nil)
+					return
+				}
+
+				if errors.Is(err, supervisor.Exited) || errors.Is(err, supervisor.Terminated) {
+					// no more supervision needed
+					c.updateState(supervisor.Stopped, nil)
+					return
+				}
+
+				// start recovery loop
+				ok = false
+			}
+
 			if !ok {
 				if c.state.getDesiredStatus() == supervisor.Running {
 					c.handleError(fmt.Errorf("service ended unexpectedly"))
 				}
 				return
 			}
+
 			status, details := c.state.updateDetails(details)
 			if c.onStateChange != nil {
 				c.onStateChange(status, details)
