@@ -7,7 +7,6 @@ import (
 	"github.com/ponyruntime/pony/api/service/terminal"
 	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/ponyruntime/pony/pkg/eventbus"
-	logger "github.com/ponyruntime/pony/service/terminal/logger"
 	"go.uber.org/zap"
 )
 
@@ -18,20 +17,20 @@ type Manager struct {
 	bus        events.Bus
 	subscriber *eventbus.Subscriber
 	terminals  map[string]*service
-	loggerCore *logger.Core
+	loggerCore *LoggerCore
 }
 
 // NewManager creates a new Manager instance
 func NewManager(
 	bus events.Bus,
 	logger *zap.Logger,
-	core *logger.Core,
+	loggerCore *LoggerCore,
 ) *Manager {
 	return &Manager{
 		log:        logger,
 		bus:        bus,
 		terminals:  make(map[string]*service),
-		loggerCore: core,
+		loggerCore: loggerCore,
 	}
 }
 
@@ -75,15 +74,13 @@ func (m *Manager) handleEvent(e events.Event) {
 }
 
 func (m *Manager) handleRegister(id string, app terminal.Application) {
+	// todo: Check if alterady running and perform graceful migration
+	// todo: or delegate it to underlying service
+
 	// todo: can be an update!
 	// todo: check if already running! (we will need runtime migration!)
 	// create terminal application service
-	term := newService(
-		m.loggerCore,
-		app.Terminal,
-		app.Options,
-	)
-
+	term := newService(app.Terminal, app.Options, m.loggerCore)
 	m.terminals[id] = term
 
 	// register service if not already
