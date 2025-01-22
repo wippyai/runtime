@@ -20,5 +20,5 @@ func (f *DefaultFactory) MakeTerminal(
 	modules api.ModuleRegistry,
 	libraries api.LibraryRegistry,
 ) (terminal.Terminal, error) {
-	return NewEchoTerminal("p"), nil
+	return NewDualInputTerminal([]string{"p", "b"}), nil
 }

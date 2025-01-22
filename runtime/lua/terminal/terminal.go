@@ -6,13 +6,19 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/ponyruntime/pony/api/supervisor"
 	"io"
+	"strings"
 )
 
+type InputField struct {
+	label   string
+	value   string
+	cursor  int
+	focused bool
+}
+
 type bubbleModel struct {
-	prompt   string
-	input    string
+	inputs   []InputField
 	out      io.Writer
-	cursor   int
 	quitting bool
 }
 
@@ -23,37 +29,69 @@ func (m bubbleModel) Init() tea.Cmd {
 func (m bubbleModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		switch msg.Type {
-		case tea.KeyCtrlC, tea.KeyEsc:
+		switch msg.String() {
+		case "q":
 			m.quitting = true
 			return m, tea.Quit
-		case tea.KeyEnter:
-			fmt.Fprintln(m.out, m.input)
-			fmt.Fprint(m.out, m.prompt)
-			m.input = ""
-			m.cursor = 0
-			return m, nil
-		case tea.KeyBackspace:
-			if m.cursor > 0 {
-				m.input = m.input[:m.cursor-1] + m.input[m.cursor:]
-				m.cursor--
+		case "ctrl+c", "esc":
+			m.quitting = true
+			return m, tea.Quit
+		case "enter":
+			// Print current input values
+			for _, input := range m.inputs {
+				fmt.Fprintf(m.out, "%s: %s\n", input.label, input.value)
+			}
+			// Clear inputs
+			for i := range m.inputs {
+				m.inputs[i].value = ""
+				m.inputs[i].cursor = 0
 			}
 			return m, nil
-		case tea.KeyLeft:
-			if m.cursor > 0 {
-				m.cursor--
+		case "tab":
+			// Switch focus between input fields
+			for i := range m.inputs {
+				if m.inputs[i].focused {
+					m.inputs[i].focused = false
+					m.inputs[(i+1)%len(m.inputs)].focused = true
+					break
+				}
 			}
 			return m, nil
-		case tea.KeyRight:
-			if m.cursor < len(m.input) {
-				m.cursor++
+		case "backspace":
+			for i := range m.inputs {
+				if m.inputs[i].focused && m.inputs[i].cursor > 0 {
+					m.inputs[i].value = m.inputs[i].value[:m.inputs[i].cursor-1] + m.inputs[i].value[m.inputs[i].cursor:]
+					m.inputs[i].cursor--
+					break
+				}
 			}
 			return m, nil
-		}
-
-		if msg.Type == tea.KeyRunes {
-			m.input = m.input[:m.cursor] + string(msg.Runes) + m.input[m.cursor:]
-			m.cursor += len(msg.Runes)
+		case "left":
+			for i := range m.inputs {
+				if m.inputs[i].focused && m.inputs[i].cursor > 0 {
+					m.inputs[i].cursor--
+					break
+				}
+			}
+			return m, nil
+		case "right":
+			for i := range m.inputs {
+				if m.inputs[i].focused && m.inputs[i].cursor < len(m.inputs[i].value) {
+					m.inputs[i].cursor++
+					break
+				}
+			}
+			return m, nil
+		default:
+			if msg.Type == tea.KeyRunes {
+				for i := range m.inputs {
+					if m.inputs[i].focused {
+						m.inputs[i].value = m.inputs[i].value[:m.inputs[i].cursor] + string(msg.Runes) + m.inputs[i].value[m.inputs[i].cursor:]
+						m.inputs[i].cursor += len(msg.Runes)
+						break
+					}
+				}
+			}
 		}
 	}
 
@@ -61,25 +99,57 @@ func (m bubbleModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m bubbleModel) View() string {
-	return fmt.Sprintf("%s%s", m.prompt, m.input)
-}
+	var sb strings.Builder
 
-type EchoTerminal struct {
-	prompt string
-}
+	// Draw each input field
+	for _, input := range m.inputs {
+		// Show label
+		sb.WriteString(input.label)
+		sb.WriteString(": ")
 
-func NewEchoTerminal(prompt string) *EchoTerminal {
-	if prompt == "" {
-		prompt = "> "
+		// Show input value with cursor
+		if input.focused {
+			if input.cursor == len(input.value) {
+				sb.WriteString(input.value + "█")
+			} else {
+				sb.WriteString(input.value[:input.cursor] + "█" + input.value[input.cursor:])
+			}
+		} else {
+			sb.WriteString(input.value + " ")
+		}
+		sb.WriteString("\n")
 	}
-	return &EchoTerminal{
-		prompt: prompt,
+
+	// Add controls help
+	sb.WriteString("\n[Tab] Switch fields • [Enter] Submit • [q] Quit\n")
+
+	return sb.String()
+}
+
+type DualInputTerminal struct {
+	labels []string
+}
+
+func NewDualInputTerminal(labels []string) *DualInputTerminal {
+	if len(labels) == 0 {
+		labels = []string{"Input 1", "Input 2"}
+	}
+	return &DualInputTerminal{
+		labels: labels,
 	}
 }
 
-func (t *EchoTerminal) Run(ctx context.Context, in io.Reader, out io.Writer) error {
+func (t *DualInputTerminal) Run(ctx context.Context, in io.Reader, out io.Writer) error {
+	inputs := make([]InputField, len(t.labels))
+	for i, label := range t.labels {
+		inputs[i] = InputField{
+			label:   label,
+			focused: i == 0, // Focus first input by default
+		}
+	}
+
 	model := bubbleModel{
-		prompt: t.prompt,
+		inputs: inputs,
 		out:    out,
 	}
 
@@ -88,7 +158,6 @@ func (t *EchoTerminal) Run(ctx context.Context, in io.Reader, out io.Writer) err
 		tea.WithInput(in),
 		tea.WithOutput(out),
 		tea.WithAltScreen(),
-		//tea.WithoutSignals(),
 	)
 
 	go func() { <-ctx.Done(); p.Quit() }()

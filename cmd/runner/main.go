@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"github.com/ponyruntime/pony/service/terminal"
-	"github.com/ponyruntime/pony/service/terminal/logger"
 	httpbase "net/http"
 	"os"
 	"os/signal"
@@ -199,7 +198,7 @@ func loadApplicationState(
 	return boot, err
 }
 
-func initLogger(verbose, veryVerbose bool) (*zap.Logger, *logger.Core) {
+func initLogger(verbose, veryVerbose bool) (*zap.Logger, *terminal.LoggerInterceptor) {
 	config := zap.NewDevelopmentConfig()
 
 	// Set log level based on flags
@@ -222,7 +221,7 @@ func initLogger(verbose, veryVerbose bool) (*zap.Logger, *logger.Core) {
 		return nil, nil
 	}
 
-	terminalCore := logger.NewTerminalLoggerCore(log.Core())
+	terminalCore := terminal.NewLoggerInterceptor(log.Core())
 	log = zap.New(terminalCore)
 
 	return log, terminalCore
