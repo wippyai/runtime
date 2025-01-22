@@ -3,6 +3,7 @@ package terminal
 import (
 	api "github.com/ponyruntime/pony/api/runtime/lua"
 	"github.com/ponyruntime/pony/api/service/terminal"
+	"go.uber.org/zap"
 )
 
 // DefaultFactory is the default terminal factory.
@@ -16,9 +17,10 @@ func NewDefaultFactory() *DefaultFactory {
 
 // MakeTerminal creates a new terminal instance.
 func (f *DefaultFactory) MakeTerminal(
+	log *zap.Logger,
 	cfg api.TerminalConfig,
 	modules api.ModuleRegistry,
 	libraries api.LibraryRegistry,
 ) (terminal.Terminal, error) {
-	return NewDualInputTerminal([]string{"p", "b"}), nil
+	return NewLuaTerminal(log), nil
 }
