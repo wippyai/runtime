@@ -46,9 +46,12 @@ func (s *service) Start(ctx context.Context) (<-chan any, error) {
 		defer s.wg.Done()
 		defer close(statusChan)
 
-		//// Run terminal with stdin/stdout
+		// todo; we need to polish this shit
+
+		// Run terminal with stdin/stdout
 		err := s.terminal.Run(ctx, os.Stdin, os.Stdout)
 		if err != nil {
+			// todo: indicate terminate status
 			statusChan <- err
 			return
 		}
@@ -74,10 +77,7 @@ func (s *service) Stop(ctx context.Context) error {
 
 	// Wait for terminal to finish with timeout
 	done := make(chan struct{})
-	go func() {
-		s.wg.Wait()
-		close(done)
-	}()
+	go func() { s.wg.Wait(); close(done) }()
 
 	select {
 	case <-done:
