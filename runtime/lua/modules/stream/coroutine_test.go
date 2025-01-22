@@ -26,10 +26,10 @@ func TestAsyncStreamRead(t *testing.T) {
 		defer vm.Close()
 
 		// Create wrapped VM with async runner
-		wrapped := engine.NewWrappedCVM(
+		wrapped := engine.NewRunner(
 			vm,
-			engine.WithLayer(channel.NewChannelRunner()),
-			engine.WithLayer(coroutine.NewCoroutineRunner()),
+			engine.WithLayer(channel.NewChannelLayer()),
+			engine.WithLayer(coroutine.NewCoroutineLayer()),
 		)
 
 		// Create test data and stream
@@ -50,28 +50,30 @@ func TestAsyncStreamRead(t *testing.T) {
             function test_stream_read()
 				local results = {}
 				local sync1 = channel.new(1)
-				local sync2 = channel.new(1)
-			
+				local sync2 = channel.new(1) 
+				local done = channel.new(2) -- Track both coroutines completion
+				
 				-- Main flow reads first
 				local chunk = test_stream:read()
 				results.first = chunk
-				sync1:send(true) -- Signal first coroutine to start
-			
-				-- Start first coroutine
+				sync1:send(true)
+				
+				-- Both coroutines can run in parallel after first read
 				coroutine.spawn(function()
-					sync1:receive() -- Wait for main flow
+					sync1:receive()
 					local chunk = test_stream:read()
 					results.second = chunk
-					sync2:send(true) -- Signal second coroutine
+					sync2:send("next")
 				end)
-			
-				-- Start second coroutine
+				
 				coroutine.spawn(function()
-					sync2:receive() -- Wait for first coroutine
+					sync2:receive()
 					local chunk = test_stream:read()
 					results.third = chunk
+					done:send(true)
 				end)
-			
+					
+				done:receive()
 				return results
 			end
         `, "test", "test_stream_read")
@@ -107,10 +109,10 @@ func TestAsyncStreamIter(t *testing.T) {
 		defer vm.Close()
 
 		// Create wrapped VM with async runner
-		wrapped := engine.NewWrappedCVM(
+		wrapped := engine.NewRunner(
 			vm,
-			engine.WithLayer(channel.NewChannelRunner()),
-			engine.WithLayer(coroutine.NewCoroutineRunner()),
+			engine.WithLayer(channel.NewChannelLayer()),
+			engine.WithLayer(coroutine.NewCoroutineLayer()),
 		)
 
 		// Create test data and stream

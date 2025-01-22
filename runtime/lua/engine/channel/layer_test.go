@@ -20,9 +20,8 @@ func TestUnbufferedChannelOperations(t *testing.T) {
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
-	vm.SetContext(context.Background())
 
-	err = vm.StartString(`
+	err = vm.StartString(context.Background(), `
 			-- Create an unbuffered channel
 			local ch = channel.new()
 
@@ -44,8 +43,8 @@ func TestUnbufferedChannelOperations(t *testing.T) {
 		`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewChannelRunner()
-	tasks, err := runtime.Step(vm)
+	channels := NewChannelLayer()
+	tasks, err := channels.Step(vm)
 	assert.NoError(t, err)
 
 	var yields []string
@@ -55,7 +54,7 @@ func TestUnbufferedChannelOperations(t *testing.T) {
 				yields = append(yields, task.Yielded[0].String())
 			}
 		}
-		tasks, err = runtime.Step(vm, tasks...)
+		tasks, err = channels.Step(vm, tasks...)
 		assert.NoError(t, err)
 	}
 
@@ -79,9 +78,7 @@ func TestUnbufferedChannelOperationsMainCoroutine(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	vm.SetContext(context.Background())
-
-	err = vm.StartString(`
+	err = vm.StartString(context.Background(), `
 			-- Create an unbuffered channel
 			local ch = channel.new()
 
@@ -99,8 +96,8 @@ func TestUnbufferedChannelOperationsMainCoroutine(t *testing.T) {
 		`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewChannelRunner()
-	tasks, err := runtime.Step(vm)
+	channels := NewChannelLayer()
+	tasks, err := channels.Step(vm)
 	assert.NoError(t, err)
 
 	var yields []string
@@ -110,7 +107,7 @@ func TestUnbufferedChannelOperationsMainCoroutine(t *testing.T) {
 				yields = append(yields, task.Yielded[0].String())
 			}
 		}
-		tasks, err = runtime.Step(vm, tasks...)
+		tasks, err = channels.Step(vm, tasks...)
 		assert.NoError(t, err)
 	}
 
@@ -132,9 +129,8 @@ func TestClosedChannelOperations(t *testing.T) {
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
-	vm.SetContext(context.Background())
 
-	err = vm.StartString(`
+	err = vm.StartString(context.Background(), `
 			-- Create a channel and close it
 			local ch = channel.new()
 			ch:close()
@@ -161,7 +157,7 @@ func TestClosedChannelOperations(t *testing.T) {
 		`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewChannelRunner()
+	runtime := NewChannelLayer()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -195,9 +191,8 @@ func TestCloseChannelWithPendingOperations(t *testing.T) {
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
-	vm.SetContext(context.Background())
 
-	err = vm.StartString(`
+	err = vm.StartString(context.Background(), `
 			-- Create a channel
 			local ch = channel.new()
 
@@ -219,8 +214,8 @@ func TestCloseChannelWithPendingOperations(t *testing.T) {
 		`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewChannelRunner()
-	tasks, err := runtime.Step(vm)
+	channels := NewChannelLayer()
+	tasks, err := channels.Step(vm)
 	assert.NoError(t, err)
 
 	var yields []string
@@ -230,7 +225,7 @@ func TestCloseChannelWithPendingOperations(t *testing.T) {
 				yields = append(yields, task.Yielded[0].String())
 			}
 		}
-		tasks, err = runtime.Step(vm, tasks...)
+		tasks, err = channels.Step(vm, tasks...)
 		assert.NoError(t, err)
 	}
 
@@ -253,9 +248,8 @@ func TestBufferedChannelBasicOperations(t *testing.T) {
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
-	vm.SetContext(context.Background())
 
-	err = vm.StartString(`
+	err = vm.StartString(context.Background(), `
 			-- Create a buffered channel with capacity 2
 			local ch = channel.new(2)
 
@@ -281,8 +275,8 @@ func TestBufferedChannelBasicOperations(t *testing.T) {
 		`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewChannelRunner()
-	tasks, err := runtime.Step(vm)
+	channels := NewChannelLayer()
+	tasks, err := channels.Step(vm)
 	assert.NoError(t, err)
 
 	var yields []string
@@ -292,7 +286,7 @@ func TestBufferedChannelBasicOperations(t *testing.T) {
 				yields = append(yields, task.Yielded[0].String())
 			}
 		}
-		tasks, err = runtime.Step(vm, tasks...)
+		tasks, err = channels.Step(vm, tasks...)
 		assert.NoError(t, err)
 	}
 
@@ -315,9 +309,8 @@ func TestBufferedChannelBlockingBehavior(t *testing.T) {
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
-	vm.SetContext(context.Background())
 
-	err = vm.StartString(`
+	err = vm.StartString(context.Background(), `
 		-- Create a buffered channel with capacity 1
 		local ch = channel.new(1)
 
@@ -346,8 +339,8 @@ func TestBufferedChannelBlockingBehavior(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewChannelRunner()
-	tasks, err := runtime.Step(vm)
+	channels := NewChannelLayer()
+	tasks, err := channels.Step(vm)
 	assert.NoError(t, err)
 
 	var yields []string
@@ -357,7 +350,7 @@ func TestBufferedChannelBlockingBehavior(t *testing.T) {
 				yields = append(yields, task.Yielded[0].String())
 			}
 		}
-		tasks, err = runtime.Step(vm, tasks...)
+		tasks, err = channels.Step(vm, tasks...)
 		assert.NoError(t, err)
 	}
 
@@ -381,9 +374,8 @@ func TestReadBufferedValues(t *testing.T) {
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
-	vm.SetContext(context.Background())
 
-	err = vm.StartString(`
+	err = vm.StartString(context.Background(), `
 		-- Create a buffered channel with capacity 1
 		local ch = channel.new(1)
 		
@@ -402,8 +394,8 @@ func TestReadBufferedValues(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewChannelRunner()
-	tasks, err := runtime.Step(vm)
+	channels := NewChannelLayer()
+	tasks, err := channels.Step(vm)
 	assert.NoError(t, err)
 
 	var yields []string
@@ -413,7 +405,7 @@ func TestReadBufferedValues(t *testing.T) {
 				yields = append(yields, task.Yielded[0].String())
 			}
 		}
-		tasks, err = runtime.Step(vm, tasks...)
+		tasks, err = channels.Step(vm, tasks...)
 		assert.NoError(t, err)
 	}
 
@@ -435,9 +427,8 @@ func TestBufferedChannelEdgeCases(t *testing.T) {
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
-	vm.SetContext(context.Background())
 
-	err = vm.StartString(`
+	err = vm.StartString(context.Background(), `
 		-- Test error cases first
 		local success, err = pcall(function()
 			local invalidCh = channel.new(-1) -- Should error
@@ -489,8 +480,8 @@ func TestBufferedChannelEdgeCases(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewChannelRunner()
-	tasks, err := runtime.Step(vm)
+	channels := NewChannelLayer()
+	tasks, err := channels.Step(vm)
 	assert.NoError(t, err)
 
 	var yields []string
@@ -500,7 +491,7 @@ func TestBufferedChannelEdgeCases(t *testing.T) {
 				yields = append(yields, task.Yielded[0].String())
 			}
 		}
-		tasks, err = runtime.Step(vm, tasks...)
+		tasks, err = channels.Step(vm, tasks...)
 		assert.NoError(t, err)
 	}
 
@@ -529,9 +520,8 @@ func TestBufferedChannelCloseWithPendingOperations(t *testing.T) {
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
-	vm.SetContext(context.Background())
 
-	err = vm.StartString(`
+	err = vm.StartString(context.Background(), `
 		-- Create a buffered channel with capacity 2
 		local ch = channel.new(2)
 
@@ -562,8 +552,8 @@ func TestBufferedChannelCloseWithPendingOperations(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewChannelRunner()
-	tasks, err := runtime.Step(vm)
+	channels := NewChannelLayer()
+	tasks, err := channels.Step(vm)
 	assert.NoError(t, err)
 
 	var yields []string
@@ -573,7 +563,7 @@ func TestBufferedChannelCloseWithPendingOperations(t *testing.T) {
 				yields = append(yields, task.Yielded[0].String())
 			}
 		}
-		tasks, err = runtime.Step(vm, tasks...)
+		tasks, err = channels.Step(vm, tasks...)
 		assert.NoError(t, err)
 	}
 
@@ -598,9 +588,8 @@ func TestBufferedChannelClose(t *testing.T) {
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
-	vm.SetContext(context.Background())
 
-	err = vm.StartString(`
+	err = vm.StartString(context.Background(), `
 		local ch = channel.new(2)
 		
 		-- Buffer a value
@@ -623,7 +612,7 @@ func TestBufferedChannelClose(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewChannelRunner()
+	runtime := NewChannelLayer()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -657,16 +646,15 @@ func TestBufferedChannelSendError(t *testing.T) {
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
-	vm.SetContext(context.Background())
 
-	err = vm.StartString(`
+	err = vm.StartString(context.Background(), `
 		local ch = channel.new(1)
 		ch:close()
 		ch:send("msg") -- Should error
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewChannelRunner()
+	runtime := NewChannelLayer()
 	_, err = runtime.Step(vm)
 	if err == nil {
 		t.Error("expected error from send on closed channel")
@@ -686,9 +674,8 @@ func TestMainCoroutineBlockingOnBufferedChannel(t *testing.T) {
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
-	vm.SetContext(context.Background())
 
-	err = vm.StartString(`
+	err = vm.StartString(context.Background(), `
 		-- Create a buffered channel with capacity 1
 		local ch = channel.new(1)
 		
@@ -702,7 +689,7 @@ func TestMainCoroutineBlockingOnBufferedChannel(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewChannelRunner()
+	runtime := NewChannelLayer()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -734,9 +721,8 @@ func TestMainCoroutinePanicHandling(t *testing.T) {
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
-	vm.SetContext(context.Background())
 
-	err = vm.StartString(`
+	err = vm.StartString(context.Background(), `
 		local ch = channel.new(0)
 		
 		-- Start a goroutine that will be blocked
@@ -751,7 +737,7 @@ func TestMainCoroutinePanicHandling(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewChannelRunner()
+	runtime := NewChannelLayer()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -786,9 +772,8 @@ func TestMainCoroutineChannelCascadingClose(t *testing.T) {
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
-	vm.SetContext(context.Background())
 
-	err = vm.StartString(`
+	err = vm.StartString(context.Background(), `
 		local ch = channel.new(0)
 		local next = channel.new(2) -- Collect next from goroutines
 		
@@ -817,7 +802,7 @@ func TestMainCoroutineChannelCascadingClose(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewChannelRunner()
+	runtime := NewChannelLayer()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -850,9 +835,8 @@ func TestMapReducePattern(t *testing.T) {
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
-	vm.SetContext(context.Background())
 
-	err = vm.StartString(`
+	err = vm.StartString(context.Background(), `
 		-- Create channels for work distribution and result collection
 		local workCh = channel.new(5)    -- Buffer some work items
 		local resultCh = channel.new(0)  -- Unbuffered next channel
@@ -919,7 +903,7 @@ func TestMapReducePattern(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewChannelRunner()
+	runtime := NewChannelLayer()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -970,9 +954,8 @@ func TestFanOutPattern(t *testing.T) {
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
-	vm.SetContext(context.Background())
 
-	err = vm.StartString(`
+	err = vm.StartString(context.Background(), `
 		-- Input channel and multiple output channels
 		local source = channel.new(0)
 		local outputs = {
@@ -1029,7 +1012,7 @@ func TestFanOutPattern(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewChannelRunner()
+	runtime := NewChannelLayer()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -1101,9 +1084,8 @@ func TestFanInPattern(t *testing.T) {
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
-	vm.SetContext(context.Background())
 
-	err = vm.StartString(`
+	err = vm.StartString(context.Background(), `
 		-- Multiple input channels and single output channel
 		local inputs = {
 			channel.new(0),
@@ -1192,7 +1174,7 @@ func TestFanInPattern(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewChannelRunner()
+	runtime := NewChannelLayer()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 

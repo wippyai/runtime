@@ -2,6 +2,7 @@ package channel
 
 import (
 	"context"
+	lua "github.com/yuin/gopher-lua"
 	"testing"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine"
@@ -15,17 +16,25 @@ func TestChannelPassingSimple(t *testing.T) {
 	vm, err := engine.NewCVM(
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
+		engine.WithGlobalFunction("new_named", func(L *lua.LState) int {
+			name := L.CheckString(1)
+			capacity := L.OptInt(2, 0)
+			if capacity < 0 {
+				L.RaiseError("channel capacity must be >= 0")
+				return 0
+			}
+			L.Push(Wrap(L, Named(name, capacity)))
+			return 1
+		}),
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	vm.SetContext(context.Background())
-
-	err = vm.StartString(`
+	err = vm.StartString(context.Background(), `
 		-- Create test channels
 		local passCh = channel.new(0)    -- channel for passing other channels
 		local done = channel.new(0)      -- synchronization
-		local namedCh = channel.named("test", 0)
+		local namedCh = new_named("test", 0)
 
 		-- Test passing regular channel
 		coroutine.spawn(function()
@@ -63,7 +72,7 @@ func TestChannelPassingSimple(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewChannelRunner()
+	runtime := NewChannelLayer()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 

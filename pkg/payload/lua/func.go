@@ -10,7 +10,7 @@ import (
 func ToGoAny(v lua.LValue) any {
 	switch v.Type() { //nolint:exhaustive
 	case lua.LTNil:
-		return nil // Use nil instead of v.String() for nil values
+		return nil
 	case lua.LTBool:
 		return lua.LVAsBool(v)
 	case lua.LTNumber:
@@ -20,22 +20,29 @@ func ToGoAny(v lua.LValue) any {
 	case lua.LTTable:
 		tbl := v.(*lua.LTable)
 		maxn := tbl.MaxN()
-		if maxn == 0 { // Table is being used as a map
-			result := make(map[string]any)
-			tbl.ForEach(func(key, value lua.LValue) {
-				result[key.String()] = ToGoAny(value)
-			})
-			return result
-		} else { // Table is being used as an array
-			result := make([]any, 0, maxn)
-			for i := 1; i <= maxn; i++ {
-				result = append(result, ToGoAny(tbl.RawGetInt(i)))
-			}
-			return result
+		if maxn == 0 {
+			return tableToMap(tbl)
 		}
+		return tableToSlice(tbl, maxn)
 	default:
-		return v.String() // Fallback for other types
+		return v.String()
 	}
+}
+
+func tableToMap(tbl *lua.LTable) map[string]any {
+	result := make(map[string]any)
+	tbl.ForEach(func(key, value lua.LValue) {
+		result[key.String()] = ToGoAny(value)
+	})
+	return result
+}
+
+func tableToSlice(tbl *lua.LTable, maxn int) []any {
+	result := make([]any, 0, maxn)
+	for i := 1; i <= maxn; i++ {
+		result = append(result, ToGoAny(tbl.RawGetInt(i)))
+	}
+	return result
 }
 
 // GoToLua converts a Go value to its Lua equivalent.

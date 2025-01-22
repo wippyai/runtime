@@ -1,3 +1,4 @@
+// Package runner provides implementations for running registry operations
 package runner
 
 import (
@@ -10,6 +11,9 @@ import (
 	"go.uber.org/zap"
 )
 
+// BusRunner executes registry operations sequentially through an event bus, handling
+// state transitions, rollbacks, and error handling. It maintains operation order
+// and provides transactional semantics through the event bus.
 type BusRunner struct {
 	bus         events.Bus
 	log         *zap.Logger
@@ -31,6 +35,10 @@ func NewBusRunner(bus events.Bus, log *zap.Logger) *BusRunner {
 	}
 }
 
+// Transition applies a series of operations to transform the registry from an initial state
+// to a new state. If any operation fails, it rolls back all previously applied operations
+// to maintain consistency. The process is coordinated through the event bus with Accept/Reject
+// events determining the success of each operation.
 func (br *BusRunner) Transition(
 	ctx context.Context,
 	initialState registry.State,

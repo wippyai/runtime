@@ -2,35 +2,49 @@ package supervisor
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
-	"time"
-
+	"errors"
 	"github.com/ponyruntime/pony/api/events"
 )
 
+// Supervisor system constants define the event types and identifiers used by the supervisor.
 const (
-	System   events.System = "supervisor"
-	Register events.Kind   = "supervisor.service.register"
-	Remove   events.Kind   = "supervisor.service.remove"
-	Update   events.Kind   = "supervisor.service.status"
+	// System identifies the supervisor system in the event context
+	System events.System = "supervisor"
+	// Register represents an event for registering a new service
+	Register events.Kind = "supervisor.service.register"
+	// Remove represents an event for removing a service
+	Remove events.Kind = "supervisor.service.remove"
+	// Update represents an event for updating service status
+	Update events.Kind = "supervisor.service.status"
 
-	// Service lifecycle events
+	// Service lifecycle event constants define the different lifecycle states
+
+	// Start represents an event to start a service
 	Start events.Kind = "supervisor.service.start"
-	Stop  events.Kind = "supervisor.service.stop"
+	// Stop represents an event to stop a service
+	Stop events.Kind = "supervisor.service.stop"
 
-	// Unknown indicates the service status is currently unknown.
+	// Service status constants define the possible operational states of a service
+
+	// Unknown indicates the service status is currently unknown
 	Unknown Status = "unknown"
-	// Starting indicates the service is currently starting up.
+	// Starting indicates the service is currently starting up
 	Starting Status = "starting"
-	// Running indicates the service is currently running and operational.
+	// Running indicates the service is currently running and operational
 	Running Status = "running"
-	// Stopping indicates the service is in the process of a graceful shutdown.
+	// Stopping indicates the service is in the process of a graceful shutdown
 	Stopping Status = "stopping"
-	// Stopped indicates the service has stopped and is no longer running.
+	// Stopped indicates the service has stopped and is no longer running
 	Stopped Status = "stopped"
-	// Failed indicates the service has failed and is not running.
+	// Failed indicates the service has failed and is not running
 	Failed Status = "failed"
+)
+
+var (
+	// Terminated error is returned when a service is terminated, disables supervision.
+	Terminated = errors.New("service terminated")
+	// Exited error is returned when a service exits on its own, disables supervision.
+	Exited = errors.New("service exited")
 )
 
 type (
@@ -43,34 +57,6 @@ type (
 	// Status represents the operational status of a service.
 	Status string
 
-	// LifecycleConfig defines the configuration for a service managed by the supervisor.
-	LifecycleConfig struct {
-		// AutoStart determines if the service should start automatically when the supervisor starts.
-		AutoStart bool `json:"auto_start" yaml:"auto_start" default:"false"`
-		// StartTimeout specifies the maximum duration allowed for the service to start.
-		StartTimeout time.Duration `json:"start_timeout" yaml:"start_timeout" default:"30s"`
-		// StopTimeout specifies the maximum duration allowed for the service to stop.
-		StopTimeout time.Duration `json:"stop_timeout" yamal:"stop_timeout" default:"30s"`
-		// RetryPolicy defines the policy for retrying a failed service.
-		RetryPolicy RetryPolicy `json:"restart" yaml:"restart"`
-		// DependsOn specifies a list of service names that this service depends on.
-		DependsOn []string `json:"depends_on" yaml:"depends_on" default:"[]"` // Empty array
-	}
-
-	// RetryPolicy defines the parameters for retrying a service after a failure.
-	RetryPolicy struct {
-		// InitialDelay specifies the initial delay before the first retry attempt.
-		InitialDelay time.Duration `json:"initial_delay" yaml:"initial_delay" default:"1s"`
-		// MaxDelay specifies the maximum delay between retry attempts.
-		MaxDelay time.Duration `json:"max_delay" yaml:"max_delay" default:"30s"`
-		// BackoffFactor determines the exponential backoff factor for increasing the delay between retries.
-		BackoffFactor float64 `json:"backoff_factor" yaml:"backoff_factor" default:"2.0"`
-		// Jitter introduces random variation to the retry delay to prevent synchronized retries.
-		Jitter float64 `json:"jitter" yaml:"jitter" default:"0.1"`
-		// MaxAttempts specifies the maximum number of retry attempts before giving up.
-		MaxAttempts int `json:"max_attempts" yaml:"max_attempts" default:"5"`
-	}
-
 	// Service defines the interface that must be implemented by any service managed by the supervisor.
 	Service interface {
 		// Start initiates the service. Service can post current status to the returned channel.
@@ -81,99 +67,3 @@ type (
 		Stop(ctx context.Context) error
 	}
 )
-
-// UnmarshalJSON provides custom unmarshaling for LifecycleConfig, handling nested time.Duration fields.
-func (c *LifecycleConfig) UnmarshalJSON(data []byte) error {
-	type Alias LifecycleConfig
-	aux := &struct {
-		StartTimeout string `json:"start_timeout"`
-		StopTimeout  string `json:"stop_timeout"`
-		*Alias
-	}{
-		Alias: (*Alias)(c),
-	}
-
-	if err := json.Unmarshal(data, &aux); err != nil {
-		return err
-	}
-
-	var err error
-	if aux.StartTimeout != "" {
-		c.StartTimeout, err = time.ParseDuration(aux.StartTimeout)
-		if err != nil {
-			return fmt.Errorf("invalid StartTimeout duration format: %w", err)
-		}
-	}
-
-	if aux.StopTimeout != "" {
-		c.StopTimeout, err = time.ParseDuration(aux.StopTimeout)
-		if err != nil {
-			return fmt.Errorf("invalid StopTimeout duration format: %w", err)
-		}
-	}
-
-	return nil
-}
-
-// UnmarshalJSON provides custom unmarshaling for RetryPolicy, handling nested time.Duration fields.
-func (p *RetryPolicy) UnmarshalJSON(data []byte) error {
-	type Alias RetryPolicy
-	aux := &struct {
-		InitialDelay string `json:"initial_delay"`
-		MaxDelay     string `json:"max_delay"`
-		*Alias
-	}{
-		Alias: (*Alias)(p),
-	}
-
-	if err := json.Unmarshal(data, &aux); err != nil {
-		return err
-	}
-
-	var err error
-	if aux.InitialDelay != "" {
-		p.InitialDelay, err = time.ParseDuration(aux.InitialDelay)
-		if err != nil {
-			return fmt.Errorf("invalid InitialDelay duration format: %w", err)
-		}
-	}
-
-	if aux.MaxDelay != "" {
-		p.MaxDelay, err = time.ParseDuration(aux.MaxDelay)
-		if err != nil {
-			return fmt.Errorf("invalid MaxDelay duration format: %w", err)
-		}
-	}
-
-	return nil
-}
-
-func (cfg *LifecycleConfig) InitDefaults() {
-	if cfg.StartTimeout == 0 {
-		cfg.StartTimeout = 30 * time.Second
-	}
-
-	if cfg.StopTimeout == 0 {
-		cfg.StopTimeout = 30 * time.Second
-	}
-
-	if cfg.RetryPolicy.InitialDelay == 0 {
-		cfg.RetryPolicy.InitialDelay = time.Second
-	}
-
-	if cfg.RetryPolicy.MaxDelay == 0 {
-		cfg.RetryPolicy.MaxDelay = 30 * time.Second
-	}
-
-	if cfg.RetryPolicy.BackoffFactor == 0 {
-		cfg.RetryPolicy.BackoffFactor = 2.0
-	}
-
-	if cfg.RetryPolicy.Jitter == 0 {
-		cfg.RetryPolicy.Jitter = 0.1
-	}
-
-	if cfg.RetryPolicy.MaxAttempts == 0 {
-		cfg.RetryPolicy.MaxAttempts = 5
-	}
-}

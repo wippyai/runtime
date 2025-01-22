@@ -7,12 +7,18 @@ import (
 	"strings"
 )
 
+// EntryContext holds the context for loading and interpolating configuration entries.
+// It contains variables for interpolation, root directory for file resolution,
+// and the current configuration filename being processed.
 type EntryContext struct {
 	Vars     Variables
 	RootDir  string
 	Filename string
 }
 
+// FileProtocol is the prefix used to identify file-based configuration values.
+// Values starting with this prefix will be interpreted as file paths and their
+// contents will be loaded.
 const FileProtocol = "file://"
 
 // LoadVars replaces placeholders of the form "${variable}" in the input string with

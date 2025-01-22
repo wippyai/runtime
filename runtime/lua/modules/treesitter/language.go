@@ -21,12 +21,12 @@ var languageMethods = map[string]lua.LGFunction{
 	"version":            languageVersion,
 	"node_kind_count":    languageNodeKindCount,
 	"parse_state_count":  languageParseStateCount,
-	"node_kind_for_id":   languageNodeKindForId,
-	"id_for_node_kind":   languageIdForNodeKind,
+	"node_kind_for_id":   languageNodeKindForID,
+	"id_for_node_kind":   languageIDForNodeKind,
 	"node_kind_is_named": languageNodeKindIsNamed,
 	"field_count":        languageFieldCount,
-	"field_name_for_id":  languageFieldNameForId,
-	"field_id_for_name":  languageFieldIdForName,
+	"field_name_for_id":  languageFieldNameForID,
+	"field_id_for_name":  languageFieldIDForName,
 }
 
 func checkLanguage(L *lua.LState) *LanguageWrapper {
@@ -69,7 +69,7 @@ func languageParseStateCount(L *lua.LState) int {
 	return 1
 }
 
-func languageNodeKindForId(L *lua.LState) int {
+func languageNodeKindForID(L *lua.LState) int {
 	lang := checkLanguage(L)
 	if lang.lang == nil {
 		L.Push(lua.LNil)
@@ -80,7 +80,7 @@ func languageNodeKindForId(L *lua.LState) int {
 	return 1
 }
 
-func languageIdForNodeKind(L *lua.LState) int {
+func languageIDForNodeKind(L *lua.LState) int {
 	lang := checkLanguage(L)
 	if lang.lang == nil {
 		L.Push(lua.LNil)
@@ -113,7 +113,7 @@ func languageFieldCount(L *lua.LState) int {
 	return 1
 }
 
-func languageFieldNameForId(L *lua.LState) int {
+func languageFieldNameForID(L *lua.LState) int {
 	lang := checkLanguage(L)
 	if lang.lang == nil {
 		L.Push(lua.LNil)
@@ -124,7 +124,7 @@ func languageFieldNameForId(L *lua.LState) int {
 	return 1
 }
 
-func languageFieldIdForName(L *lua.LState) int {
+func languageFieldIDForName(L *lua.LState) int {
 	lang := checkLanguage(L)
 	if lang.lang == nil {
 		L.Push(lua.LNil)

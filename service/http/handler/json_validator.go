@@ -29,8 +29,8 @@ type jsonValidator struct {
 	schema *gojsonschema.Schema
 }
 
-// newJsonValidator creates a validator from either string or object schema
-func newJsonValidator(schema any) (*jsonValidator, error) {
+// newJSONValidator creates a validator from either string or object schema
+func newJSONValidator(schema any) (*jsonValidator, error) {
 	var loader gojsonschema.JSONLoader
 
 	switch s := schema.(type) {

@@ -10,11 +10,14 @@ import (
 )
 
 // todo: a good chunk of memory optimizations is needed here, but no rush
+
+// Module is the Lua module for the Tree-sitter bindings.
 type Module struct {
 	languages *Languages
 	log       *zap.Logger
 }
 
+// NewTreeSitterModule creates a new Tree-sitter module.
 func NewTreeSitterModule(log *zap.Logger) *Module {
 	return &Module{
 		languages: NewLanguages(),

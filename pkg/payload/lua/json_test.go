@@ -10,7 +10,7 @@ import (
 
 func TestJsonLuaTranscoders(t *testing.T) {
 	mockTranscoder := NewMockTranscoder()
-	RegisterJson(mockTranscoder)
+	RegisterJSON(mockTranscoder)
 
 	l := lua.NewState()
 	defer l.Close()
@@ -25,7 +25,7 @@ func TestJsonLuaTranscoders(t *testing.T) {
 		}{
 			{
 				name:  "simple object",
-				input: payload.NewPayload(`{"name":"test","age":30}`, payload.Json),
+				input: payload.NewPayload(`{"name":"test","age":30}`, payload.JSON),
 				validate: func(t *testing.T, p payload.Payload) {
 					lv, ok := p.Data().(lua.LValue)
 					assert.True(t, ok)
@@ -39,7 +39,7 @@ func TestJsonLuaTranscoders(t *testing.T) {
 			},
 			{
 				name:  "array",
-				input: payload.NewPayload(`[1,2,"three"]`, payload.Json),
+				input: payload.NewPayload(`[1,2,"three"]`, payload.JSON),
 				validate: func(t *testing.T, p payload.Payload) {
 					lv, ok := p.Data().(lua.LValue)
 					assert.True(t, ok)
@@ -54,7 +54,7 @@ func TestJsonLuaTranscoders(t *testing.T) {
 			},
 			{
 				name:    "invalid JSON",
-				input:   payload.NewPayload(`{"invalid":}`, payload.Json),
+				input:   payload.NewPayload(`{"invalid":}`, payload.JSON),
 				wantErr: true,
 			},
 			{
@@ -66,7 +66,7 @@ func TestJsonLuaTranscoders(t *testing.T) {
 
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				transcoder := &JsonToLua{}
+				transcoder := &JSONToLua{}
 				result, err := transcoder.Transcode(tt.input)
 
 				if tt.wantErr {
@@ -123,7 +123,7 @@ func TestJsonLuaTranscoders(t *testing.T) {
 
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				transcoder := &LuaToJson{}
+				transcoder := &ToJSON{}
 				result, err := transcoder.Transcode(tt.input)
 
 				if tt.wantErr {
@@ -132,7 +132,7 @@ func TestJsonLuaTranscoders(t *testing.T) {
 				}
 
 				assert.NoError(t, err)
-				assert.Equal(t, payload.Json, result.Format())
+				assert.Equal(t, payload.JSON, result.Format())
 
 				// Compare JSON strings (ignore whitespace differences)
 				resultStr := string(result.Data().([]byte))

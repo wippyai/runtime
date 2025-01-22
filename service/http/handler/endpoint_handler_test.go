@@ -64,8 +64,8 @@ func TestEndpointHandler_Handle_SuccessfulJsonRequest(t *testing.T) {
 	routeInfo := &config.RouteInfo{
 		EndpointID: "test-endpoint",
 		Endpoint: config.EndpointConfig{
-			JsonInput:  true,
-			JsonOutput: true,
+			JSONInput:  true,
+			JSONOutput: true,
 		},
 	}
 	ctx := context.WithValue(req.Context(), config.RouteCtx, routeInfo)
@@ -78,7 +78,7 @@ func TestEndpointHandler_Handle_SuccessfulJsonRequest(t *testing.T) {
 	resultChan := make(chan *runtime.Result, 1)
 	expectedResponse := []byte(`{"result":"success"}`)
 	resultChan <- &runtime.Result{
-		Payload: payload.NewPayload(expectedResponse, payload.Json),
+		Payload: payload.NewPayload(expectedResponse, payload.JSON),
 	}
 	close(resultChan)
 
@@ -87,7 +87,7 @@ func TestEndpointHandler_Handle_SuccessfulJsonRequest(t *testing.T) {
 	}
 
 	transcoder.transcodeFunc = func(p payload.Payload, format payload.Format) (payload.Payload, error) {
-		return payload.NewPayload(expectedResponse, payload.Json), nil
+		return payload.NewPayload(expectedResponse, payload.JSON), nil
 	}
 
 	// Run
@@ -127,8 +127,8 @@ func TestEndpointHandler_Handle_ValidationError(t *testing.T) {
 	routeInfo := &config.RouteInfo{
 		EndpointID: "test-endpoint",
 		Endpoint: config.EndpointConfig{
-			JsonInput: true,
-			JsonSchema: map[string]interface{}{
+			JSONInput: true,
+			JSONSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"test": map[string]interface{}{
@@ -207,7 +207,7 @@ func TestEndpointHandler_Handle_RawResponse(t *testing.T) {
 	routeInfo := &config.RouteInfo{
 		EndpointID: "test-endpoint",
 		Endpoint: config.EndpointConfig{
-			JsonOutput: false,
+			JSONOutput: false,
 		},
 	}
 	ctx := context.WithValue(req.Context(), config.RouteCtx, routeInfo)
@@ -364,7 +364,7 @@ func TestEndpointHandler_Handle_JsonTranscodingError(t *testing.T) {
 	routeInfo := &config.RouteInfo{
 		EndpointID: "test-endpoint",
 		Endpoint: config.EndpointConfig{
-			JsonOutput: true,
+			JSONOutput: true,
 		},
 	}
 	ctx := context.WithValue(req.Context(), config.RouteCtx, routeInfo)
@@ -461,7 +461,7 @@ func TestEndpointHandler_Handle_InvalidPayloadType(t *testing.T) {
 	routeInfo := &config.RouteInfo{
 		EndpointID: "test-endpoint",
 		Endpoint: config.EndpointConfig{
-			JsonOutput: true,
+			JSONOutput: true,
 		},
 	}
 	ctx := context.WithValue(req.Context(), config.RouteCtx, routeInfo)
@@ -473,7 +473,7 @@ func TestEndpointHandler_Handle_InvalidPayloadType(t *testing.T) {
 	// Setup executor response
 	resultChan := make(chan *runtime.Result, 1)
 	resultChan <- &runtime.Result{
-		Payload: payload.NewPayload("invalid type", payload.Json), // String instead of []byte
+		Payload: payload.NewPayload("invalid type", payload.JSON), // String instead of []byte
 	}
 	close(resultChan)
 

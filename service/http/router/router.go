@@ -12,9 +12,8 @@ import (
 	config "github.com/ponyruntime/pony/api/service/http"
 )
 
-const (
-	DefaultRouterID = "" // Identifier for the default router
-)
+// DefaultRouterID is the default router ID
+const DefaultRouterID = ""
 
 // GetRouteInfo retrieves route information from the context
 func GetRouteInfo(ctx context.Context) (*config.RouteInfo, bool) {

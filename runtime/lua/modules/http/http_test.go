@@ -656,7 +656,7 @@ func TestHTTPModuleTimeouts(t *testing.T) {
 				assert.True(t, hasDeadline, "Context should have a deadline")
 
 				// The deadline should be approximately 30 seconds from now (default timeout)
-				expectedDeadline := time.Now().Add(30 * time.Second)
+				expectedDeadline := time.Now().Add(90 * time.Second)
 				assert.WithinDuration(t, expectedDeadline, deadline, 100*time.Millisecond)
 
 				return &http.Response{

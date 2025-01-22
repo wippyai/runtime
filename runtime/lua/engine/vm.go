@@ -52,6 +52,7 @@ func NewVM(log *zap.Logger, opts ...Option) (*VM, error) {
 func (v *VM) Close() {
 	if v.state != nil {
 		v.state.Close()
+		v.state = nil
 	}
 }
 
@@ -91,7 +92,7 @@ func (v *VM) Mount(proto *lua.FunctionProto, funcNames ...string) error {
 	}
 
 	if err := v.exportFunctions(funcNames...); err != nil {
-		return fmt.Errorf("export error: %w", err)
+		return err
 	}
 
 	return nil
@@ -148,6 +149,7 @@ func (v *VM) DoString(ctx context.Context, s string, name string, args ...lua.LV
 	return v.state.PCall(len(args), lua.MultRet, nil)
 }
 
+// State returns the underlying Lua state of the VM.
 func (v *VM) State() *lua.LState {
 	return v.state
 }

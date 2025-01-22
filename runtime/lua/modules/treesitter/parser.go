@@ -11,6 +11,7 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
+// ParserWrapper wraps a Tree-sitter parser with language information
 type ParserWrapper struct {
 	parser *treesitter.Parser
 	lang   *LanguageInfo
@@ -100,7 +101,6 @@ func parserSetLanguage(L *lua.LState) int {
 	return 1
 }
 
-// In parser.go:
 func parserGetLanguage(L *lua.LState) int {
 	p := checkParser(L)
 
@@ -134,13 +134,11 @@ func parserParse(L *lua.LState) int {
 		}
 	}
 
-	// Get context from Lua state
 	ctx := L.Context()
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
-	// Parse with context handling
 	tree, err := parser.parseWithContext(ctx, []byte(code), oldTree)
 	if err != nil {
 		L.Push(lua.LNil)
@@ -171,7 +169,6 @@ func parserReset(L *lua.LState) int {
 func parserClose(L *lua.LState) int {
 	p := checkParser(L)
 	p.Close()
-
 	return 0
 }
 
@@ -197,7 +194,6 @@ func parserSetRanges(L *lua.LState) int {
 		if t, ok := value.(*lua.LTable); ok {
 			var r treesitter.Range
 
-			// Get values with explicit type checks
 			if v := t.RawGetString("start_byte"); v.Type() == lua.LTNumber {
 				r.StartByte = uint(v.(lua.LNumber))
 			} else {
@@ -260,18 +256,20 @@ func parserSetRanges(L *lua.LState) int {
 	return 1
 }
 
+// SetIncludedRanges sets the ranges of text that should be included in parsing
 func (p *ParserWrapper) SetIncludedRanges(ranges []treesitter.Range) error {
 	if p.parser == nil {
 		return fmt.Errorf("parser is closed")
 	}
-
 	return p.parser.SetIncludedRanges(ranges)
 }
 
+// Reset resets the parser to its initial state
 func (p *ParserWrapper) Reset() {
 	p.parser.Reset()
 }
 
+// Close releases all resources associated with the parser
 func (p *ParserWrapper) Close() {
 	if p.parser != nil {
 		p.parser.Close()

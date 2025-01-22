@@ -19,9 +19,9 @@ func TestRunner_AsLayer(t *testing.T) {
 			// Validate and get duration upfront
 			ms := L.CheckNumber(1)
 
-			WrapCoroutine(L, func() Result {
+			Wrap(L, func() engine.Result {
 				time.Sleep(time.Duration(ms) * time.Millisecond)
-				return Result{Values: []lua.LValue{lua.LString("slept"), ms}}
+				return engine.Result{Result: []lua.LValue{lua.LString("slept"), ms}}
 			})
 			return -1
 		}),
@@ -32,7 +32,7 @@ func TestRunner_AsLayer(t *testing.T) {
 	defer vm.Close()
 
 	// Create wrapped VM with runner layer
-	wrapped := engine.NewWrappedCVM(vm, engine.WithLayer(NewCoroutineRunner()))
+	wrapped := engine.NewRunner(vm, engine.WithLayer(NewCoroutineLayer()))
 
 	// Import test script
 	err = vm.Import(`
@@ -56,19 +56,20 @@ func TestRunner_AsLayer(t *testing.T) {
 		t.Errorf("unexpected result: got %v, want 'done'", result)
 	}
 }
+
 func TestAsyncCoroutines(t *testing.T) {
 	t.Run("concurrent coroutines with different sleep durations", func(t *testing.T) {
 		log := zap.NewNop()
 
 		// Create base VM with sleep function
 		vm, err := engine.NewCVM(log,
-			engine.WithGlobalFunction("async_sleep", func(L *lua.LState) int {
+			engine.WithGlobalFunction("async_sleep", func(l *lua.LState) int {
 				// Validate and get duration upfront
-				ms := L.CheckNumber(1)
+				ms := l.CheckNumber(1)
 
-				WrapCoroutine(L, func() Result {
+				Wrap(l, func() engine.Result {
 					time.Sleep(time.Duration(ms) * time.Millisecond)
-					return Result{Values: []lua.LValue{lua.LString("slept"), ms}}
+					return engine.Result{Result: []lua.LValue{lua.LString("slept"), ms}}
 				})
 				return -1
 			}),
@@ -79,31 +80,31 @@ func TestAsyncCoroutines(t *testing.T) {
 		defer vm.Close()
 
 		// Create wrapped VM with async runner
-		wrapped := engine.NewWrappedCVM(vm, engine.WithLayer(NewCoroutineRunner()))
+		wrapped := engine.NewRunner(vm, engine.WithLayer(NewCoroutineLayer()))
 
 		// Import test script with two coroutines
 		err = vm.Import(`
-           function test_sleep()
-               local results = {}
+          function test_sleep()
+              local results = {}
 
-               -- Start first coroutine (longer sleep)
-               coroutine.spawn(function()
-                   local res1, dur1 = async_sleep(75)
-                   results.first = {res1, dur1}
-               end)
+              -- Start first coroutine (longer sleep)
+              coroutine.spawn(function()
+                  local res1, dur1 = async_sleep(75)
+                  results.first = {res1, dur1}
+              end)
 
-               -- Start second coroutine (shorter sleep)
-               coroutine.spawn(function()
-                   local res2, dur2 = async_sleep(25)
-                   results.second = {res2, dur2}
-               end)
+              -- Start second coroutine (shorter sleep)
+              coroutine.spawn(function()
+                  local res2, dur2 = async_sleep(25)
+                  results.second = {res2, dur2}
+              end)
 
 			   local res3, dur3 = async_sleep(100)
-     		   results.third = {res3, dur3}
+    		   results.third = {res3, dur3}
 
-               return results
-           end
-       `, "test", "test_sleep")
+              return results
+          end
+      `, "test", "test_sleep")
 
 		if err != nil {
 			t.Fatal(err)
@@ -154,18 +155,17 @@ func TestAsyncCoroutines(t *testing.T) {
 	})
 }
 
-// ----------
 func createVM(t *testing.T) *engine.CoroutineVM {
 	log := zap.NewNop()
 	vm, err := engine.NewCVM(log,
 		engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
-		engine.WithGlobalFunction("async_double", func(L *lua.LState) int {
+		engine.WithGlobalFunction("async_double", func(l *lua.LState) int {
 			// Validate argument first
-			value := L.CheckNumber(1)
+			value := l.CheckNumber(1)
 
-			WrapCoroutine(L, func() Result {
+			Wrap(l, func() engine.Result {
 				time.Sleep(100 * time.Millisecond)
-				return Result{Values: []lua.LValue{value * 2}}
+				return engine.Result{Result: []lua.LValue{value * 2}}
 			})
 
 			return -1
@@ -178,29 +178,29 @@ func createVM(t *testing.T) *engine.CoroutineVM {
 
 func TestRunner_ChannelLayer(t *testing.T) {
 	testScript := `
-        function test_layers()
-            -- Channel for communication
-            local ch = channel.new(1)
+       function test_layers()
+           -- Channel for communication
+           local ch = channel.new(1)
 
-            -- Spawn worker that does async operation
-            coroutine.spawn(function()
-                local doubled = async_double(5)
-                ch:send(doubled)
-            end)
-            
-            -- Wait for result
-            local result = ch:receive()
-            return result
-        end
-    `
+           -- Spawn worker that does async operation
+           coroutine.spawn(function()
+               local doubled = async_double(5)
+               ch:send(doubled)
+           end)
+
+           -- Wait for result
+           local result = ch:receive()
+           return result
+       end
+   `
 
 	t.Run("channel first, async second", func(t *testing.T) {
 		vm := createVM(t)
 		defer vm.Close()
 
-		wrapped := engine.NewWrappedCVM(vm,
-			engine.WithLayer(channel.NewChannelRunner()),
-			engine.WithLayer(NewCoroutineRunner()),
+		wrapped := engine.NewRunner(vm,
+			engine.WithLayer(channel.NewChannelLayer()),
+			engine.WithLayer(NewCoroutineLayer()),
 		)
 
 		err := vm.Import(testScript, "test", "test_layers")
@@ -219,9 +219,9 @@ func TestRunner_ChannelLayer(t *testing.T) {
 		vm := createVM(t)
 		defer vm.Close()
 
-		wrapped := engine.NewWrappedCVM(vm,
-			engine.WithLayer(NewCoroutineRunner()),
-			engine.WithLayer(channel.NewChannelRunner()),
+		wrapped := engine.NewRunner(vm,
+			engine.WithLayer(NewCoroutineLayer()),
+			engine.WithLayer(channel.NewChannelLayer()),
 		)
 
 		err := vm.Import(testScript, "test", "test_layers")
@@ -239,35 +239,35 @@ func TestRunner_ChannelLayer(t *testing.T) {
 
 func TestDistributedWorkers(t *testing.T) {
 	testScript := `
-        function test_distributed_workers()
-            local NUM_WORKERS = 5
-            local NUM_TASKS = 10
-            local results = {}
-            
-            -- Create result channel with buffer size matching number of tasks
-            local result_ch = channel.new(NUM_TASKS)
-            
-            -- Distribute work across workers
-            for i = 1, NUM_WORKERS do
-                coroutine.spawn(function()
-                    -- Each worker processes their portion of tasks
-                    local worker_id = i
-                    for task = worker_id, NUM_TASKS, NUM_WORKERS do
-                        local result = async_double(task)
-                        result_ch:send({worker = worker_id, task = task, value = result})
-                    end
-                end)
-            end
-            
-            -- Collect all results
-            for i = 1, NUM_TASKS do
-                local result = result_ch:receive()
-                results[i] = result
-            end
-            
-            return results
-        end
-    `
+       function test_distributed_workers()
+           local NUM_WORKERS = 5
+           local NUM_TASKS = 10
+           local results = {}
+
+           -- Create result channel with buffer size matching number of tasks
+           local result_ch = channel.new(NUM_TASKS)
+
+           -- Distribute work across workers
+           for i = 1, NUM_WORKERS do
+               coroutine.spawn(function()
+                   -- Each worker processes their portion of tasks
+                   local worker_id = i
+                   for task = worker_id, NUM_TASKS, NUM_WORKERS do
+                       local result = async_double(task)
+                       result_ch:send({worker = worker_id, task = task, value = result})
+                   end
+               end)
+           end
+
+           -- Collect all results
+           for i = 1, NUM_TASKS do
+               local result = result_ch:receive()
+               results[i] = result
+           end
+
+           return results
+       end
+   `
 
 	t.Run("distributed work across workers", func(t *testing.T) {
 		// Create VM with necessary modules
@@ -275,9 +275,9 @@ func TestDistributedWorkers(t *testing.T) {
 		defer vm.Close()
 
 		// Setup wrapped VM with required layers
-		wrapped := engine.NewWrappedCVM(vm,
-			engine.WithLayer(channel.NewChannelRunner()),
-			engine.WithLayer(NewCoroutineRunner()),
+		wrapped := engine.NewRunner(vm,
+			engine.WithLayer(channel.NewChannelLayer()),
+			engine.WithLayer(NewCoroutineLayer()),
 		)
 
 		// Import test script
@@ -324,73 +324,73 @@ func TestDistributedWorkers(t *testing.T) {
 
 func TestWorkerPool(t *testing.T) {
 	testScript := `
-        function test_worker_pool()
-            local NUM_WORKERS = 20
-            local NUM_TASKS = 20
-            
-            -- Create channels for tasks and results
-            local task_ch = channel.new(NUM_TASKS)
-            local result_ch = channel.new(NUM_TASKS)
-            local done_ch = channel.new(NUM_WORKERS) -- Channel to track worker completion
-            
-            -- Spawn workers
-            for i = 1, NUM_WORKERS do
-                coroutine.spawn(function()
-                    local worker_id = i
-                    
-                    -- Process tasks until channel is closed
-                    while true do
-                        local task, ok = task_ch:receive()
-                        if not ok then
-                            break -- Channel closed, exit worker
-                        end
-                        
-                        -- Process task
-                        local result = async_double(task)
-                        result_ch:send({
-                            worker = worker_id,
-                            task = task,
-                            value = result
-                        })
-                    end
-                    
-                    -- Signal worker completion
-                    done_ch:send(worker_id)
-                end)
-            end
-            
-            -- Send all tasks
-            for i = 1, NUM_TASKS do
-                task_ch:send(i)
-            end
-            
-            -- Close task channel to signal no more tasks
-            task_ch:close()
-            
-            -- Collect and sum all results
-            local total = 0
-            local received = 0
-            local results = {}
-            
-            while received < NUM_TASKS do
-                local result = result_ch:receive()
-                received = received + 1
-                total = total + result.value
-                results[received] = result
-            end
-            
-            -- Wait for all workers to complete
-            for i = 1, NUM_WORKERS do
-                done_ch:receive()
-            end
-            
-            return {
-                sum = total,
-                results = results,
-                tasks_completed = received
-            }
-        end
-    `
+       function test_worker_pool()
+           local NUM_WORKERS = 20
+           local NUM_TASKS = 20
+
+           -- Create channels for tasks and results
+           local task_ch = channel.new(NUM_TASKS)
+           local result_ch = channel.new(NUM_TASKS)
+           local done_ch = channel.new(NUM_WORKERS) -- Channel to track worker completion
+
+           -- Spawn workers
+           for i = 1, NUM_WORKERS do
+               coroutine.spawn(function()
+                   local worker_id = i
+
+                   -- Process tasks until channel is closed
+                   while true do
+                       local task, ok = task_ch:receive()
+                       if not ok then
+                           break -- Channel closed, exit worker
+                       end
+
+                       -- Process task
+                       local result = async_double(task)
+                       result_ch:send({
+                           worker = worker_id,
+                           task = task,
+                           value = result
+                       })
+                   end
+
+                   -- Signal worker completion
+                   done_ch:send(worker_id)
+               end)
+           end
+
+           -- SendToOpen all tasks
+           for i = 1, NUM_TASKS do
+               task_ch:send(i)
+           end
+
+           -- Close task channel to signal no more tasks
+           task_ch:close()
+
+           -- Collect and sum all results
+           local total = 0
+           local received = 0
+           local results = {}
+
+           while received < NUM_TASKS do
+               local result = result_ch:receive()
+               received = received + 1
+               total = total + result.value
+               results[received] = result
+           end
+
+           -- Wait for all workers to complete
+           for i = 1, NUM_WORKERS do
+               done_ch:receive()
+           end
+
+           return {
+               sum = total,
+               results = results,
+               tasks_completed = received
+           }
+       end
+   `
 
 	t.Run("worker pool with result aggregation", func(t *testing.T) {
 		// Create VM with necessary modules
@@ -398,9 +398,9 @@ func TestWorkerPool(t *testing.T) {
 		defer vm.Close()
 
 		// Setup wrapped VM with required layers
-		wrapped := engine.NewWrappedCVM(vm,
-			engine.WithLayer(channel.NewChannelRunner()),
-			engine.WithLayer(NewCoroutineRunner()),
+		wrapped := engine.NewRunner(vm,
+			engine.WithLayer(channel.NewChannelLayer()),
+			engine.WithLayer(NewCoroutineLayer()),
 		)
 
 		// Import test script
