@@ -99,6 +99,11 @@ func (t *TaskRunner) Start(ctx context.Context, funcName string, args ...lua.LVa
 	return status, nil
 }
 
+// State returns the underlying Lua state
+func (t *TaskRunner) State() *lua.LState {
+	return t.cvm.State()
+}
+
 // Execute submits a new task for execution
 func (t *TaskRunner) Execute(ctx context.Context, id TaskID, input []lua.LValue) (<-chan engine.Result, error) {
 	if !t.running.Load() {
