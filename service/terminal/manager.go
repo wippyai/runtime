@@ -17,14 +17,14 @@ type Manager struct {
 	bus        events.Bus
 	subscriber *eventbus.Subscriber
 	terminals  map[string]*service
-	loggerCore *LoggerCore
+	loggerCore *LoggerInterceptor
 }
 
 // NewManager creates a new Manager instance
 func NewManager(
 	bus events.Bus,
 	logger *zap.Logger,
-	loggerCore *LoggerCore,
+	loggerCore *LoggerInterceptor,
 ) *Manager {
 	return &Manager{
 		log:        logger,
