@@ -43,7 +43,7 @@ func NewRuntimeManager(
 		bus:       bus,
 		functions: manager.NewFunctions(dtt, logger),
 		libraries: manager.NewLibraries(dtt, logger),
-		terminals: manager.NewTerminals(dtt, logger, terminal2.NewDefaultFactory()),
+		terminals: manager.NewTerminals(dtt, logger, terminal2.NewFactory()),
 		modules:   manager.NewModules(logger),
 		callable:  sync.Map{},
 	}
