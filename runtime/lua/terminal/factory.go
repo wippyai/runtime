@@ -3,7 +3,6 @@ package terminal
 import (
 	api "github.com/ponyruntime/pony/api/runtime/lua"
 	"github.com/ponyruntime/pony/api/service/terminal"
-	terminal2 "github.com/ponyruntime/pony/service/terminal"
 )
 
 // DefaultFactory is the default terminal factory.
@@ -21,5 +20,5 @@ func (f *DefaultFactory) MakeTerminal(
 	modules api.ModuleRegistry,
 	libraries api.LibraryRegistry,
 ) (terminal.Terminal, error) {
-	return terminal2.NewEchoTerminal("p"), nil
+	return NewEchoTerminal("p"), nil
 }

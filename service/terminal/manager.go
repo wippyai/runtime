@@ -7,6 +7,7 @@ import (
 	"github.com/ponyruntime/pony/api/service/terminal"
 	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/ponyruntime/pony/pkg/eventbus"
+	logger "github.com/ponyruntime/pony/service/terminal/logger"
 	"go.uber.org/zap"
 )
 
@@ -17,18 +18,20 @@ type Manager struct {
 	bus        events.Bus
 	subscriber *eventbus.Subscriber
 	terminals  map[string]*service
+	logCore    *logger.Core
 }
 
 // NewManager creates a new Manager instance
 func NewManager(
 	bus events.Bus,
 	logger *zap.Logger,
-	// todo: log interceptor!
+	core *logger.Core,
 ) *Manager {
 	return &Manager{
 		log:       logger,
 		bus:       bus,
 		terminals: make(map[string]*service),
+		logCore:   core,
 	}
 }
 

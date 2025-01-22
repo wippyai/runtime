@@ -5,7 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/ponyruntime/pony/service/terminal"
-	"hash/fnv"
+	"github.com/ponyruntime/pony/service/terminal/logger"
 	httpbase "net/http"
 	"os"
 	"os/signal"
@@ -52,21 +52,21 @@ func main() {
 		os.Exit(1)
 	}
 
-	logger := initLogger(*verbose, *veryVerbose)
-	if logger == nil {
+	log, terminalCore := initLogger(*verbose, *veryVerbose)
+	if log == nil {
 		fmt.Println("Failed to initialize logger")
 		os.Exit(1)
 	}
-	defer logger.Sync()
+	defer log.Sync()
 
-	appLogger := logger.Named("main")
+	appLogger := log.Named("main")
 
 	dtt := transcoder.GlobalTranscoder()
 	json.Register(dtt)
 	yaml.Register(dtt)
 	lua.Register(dtt)
 
-	bus := eventbus.NewBus(logger.Named("events")) // main configuration bus
+	bus := eventbus.NewBus(log.Named("events")) // main configuration bus
 
 	// application service supervisor
 	ctx, cancel := context.WithCancel(context.Background())
@@ -81,16 +81,16 @@ func main() {
 	// -- application core
 	reg := registry.NewRegistry(
 		history.NewMemory(),
-		runner.NewBusRunner(bus, logger.Named("runner")),
+		runner.NewBusRunner(bus, log.Named("runner")),
 		registry.NewStateBuilder(appLogger),
-		logger.Named("state"),
+		log.Named("state"),
 	)
 
-	app := supervisor.NewSupervisor(bus, logger.Named("core"))
+	app := supervisor.NewSupervisor(bus, log.Named("core"))
 	// -- end of application core
 
 	// -- additional services
-	term := terminal.NewManager(bus, logger.Named("term"))
+	term := terminal.NewManager(bus, log.Named("term"), terminalCore)
 	if err := term.Start(ctx); err != nil {
 		appLogger.Fatal("failed to start executor", zap.Error(err))
 	}
@@ -98,7 +98,7 @@ func main() {
 	// -- end of additional services
 
 	// -- core function executor, this service listens and builds routes to call functions between runtimes
-	exec := runtime.NewExecutor(bus, logger.Named("exec"))
+	exec := runtime.NewExecutor(bus, log.Named("exec"))
 	if err := exec.Start(ctx); err != nil {
 		appLogger.Fatal("failed to start executor", zap.Error(err))
 	}
@@ -109,20 +109,20 @@ func main() {
 
 	// -- lua lang and modules
 	luaRuntime := luaruntime.NewRuntimeManager(
-		bus, dtt, logger.Named("lua"),
+		bus, dtt, log.Named("lua"),
 		timelib.NewTimeModule(),
-		logglib.NewLoggerModule(logger.Named("app")),
+		logglib.NewLoggerModule(log.Named("app")),
 		b64mlib.NewBase64Module(),
 		jsonlib.NewJSONModule(),
-		httplib.NewHTTPModule(httpbase.DefaultClient, logger.Named("http")),
-		httpctx.NewHTTPContextModule(logger.Named("http")),
-		tsitter.NewTreeSitterModule(logger.Named("treesitter")),
+		httplib.NewHTTPModule(httpbase.DefaultClient, log.Named("http")),
+		httpctx.NewHTTPContextModule(log.Named("http")),
+		tsitter.NewTreeSitterModule(log.Named("treesitter")),
 	)
 	// -- end of lua lang and modules
 
 	// -- configuration bus
 	svc, err := services.NewRouter(ctx, bus,
-		services.WithListener("http.*", http.NewExecutingManager(bus, dtt, exec, logger.Named("http"))),
+		services.WithListener("http.*", http.NewExecutingManager(bus, dtt, exec, log.Named("http"))),
 		services.WithListener("(function|library|terminal).lua", luaRuntime),
 	)
 
@@ -199,7 +199,7 @@ func loadApplicationState(
 	return boot, err
 }
 
-func initLogger(verbose, veryVerbose bool) *zap.Logger {
+func initLogger(verbose, veryVerbose bool) (*zap.Logger, *logger.Core) {
 	config := zap.NewDevelopmentConfig()
 
 	// Set log level based on flags
@@ -226,38 +226,16 @@ func initLogger(verbose, veryVerbose bool) *zap.Logger {
 	config.EncoderConfig.MessageKey = "msg"
 	config.EncoderConfig.StacktraceKey = "stacktrace"
 
-	config.EncoderConfig.EncodeName = func(loggerName string, enc zapcore.PrimitiveArrayEncoder) {
-		// Simple hash function - sum ASCII values
-		hash := 0
-		for _, char := range loggerName {
-			hash += int(char)
-		}
-
-		hash2 := hashString(loggerName)
-
-		// Generate R, G, B values from the hash
-		r := int(hash2 & 0xFF)         // Extract red component
-		g := int((hash2 >> 8) & 0xFF)  // Extract green component
-		b := int((hash2 >> 16) & 0xFF) // Extract blue component
-		coloredName := fmt.Sprintf("\x1b[38;2;%d;%d;%dm%s\x1b[0m", r, g, b, loggerName)
-
-		// Wrap name in ANSI color codes
-		//	coloredName := fmt.Sprintf("\x1b[%dm%s\x1b[0m", colorCode, loggerName)
-		enc.AppendString(coloredName)
-	}
 	config.EncoderConfig.EncodeTime = zapcore.TimeEncoderOfLayout(time.DateTime)
 
-	logger, err := config.Build()
+	log, err := config.Build()
 	if err != nil {
 		fmt.Printf("Failed to build logger: %v\n", err)
-		return nil
+		return nil, nil
 	}
 
-	return logger
-}
+	terminalCore := logger.NewTerminalLoggerCore(log.Core())
+	log = zap.New(terminalCore)
 
-func hashString(s string) uint32 {
-	h := fnv.New32a()
-	h.Write([]byte(s))
-	return h.Sum32()
+	return log, terminalCore
 }
