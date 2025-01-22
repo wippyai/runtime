@@ -100,38 +100,49 @@ func performSleep(ctx context.Context, duration time.Duration) error {
 	time.Sleep(duration)
 	return nil
 }
-
 func sleep(l *lua.LState) int {
-	if d, ok := isDuration(l, 1); ok {
-		if err := performSleep(l.Context(), d.duration); err != nil {
-			l.Push(lua.LString(err.Error()))
-			return 1
+	duration, err := parseDurationValue(l.Get(1))
+	if err != nil {
+		if _, ok := l.Get(1).(*lua.LNumber); ok {
+			l.RaiseError("duration or string expected")
+			return 0
 		}
-		return 0
+		l.RaiseError(err.Error())
+		return 1
 	}
 
-	l.ArgError(1, "duration expected")
+	if err := performSleep(l.Context(), duration); err != nil {
+		l.RaiseError(err.Error())
+		return 1
+	}
 	return 0
 }
 
-func sleepAsync(l *lua.LState) int {
-	if d, ok := isDuration(l, 1); ok {
-		coroutine.WrapCoroutine(l, func() coroutine.Result {
-			if err := performSleep(l.Context(), d.duration); err != nil {
-				return coroutine.Result{
-					Values: []lua.LValue{lua.LNil},
-					Err:    err,
-				}
-			}
-			return coroutine.Result{
-				Values: []lua.LValue{lua.LString("ok")},
-			}
-		})
-		return -1
+func sleepCoroutine(l *lua.LState) int {
+	duration, err := parseDurationValue(l.Get(1))
+	if err != nil {
+		if _, ok := l.Get(1).(*lua.LNumber); ok {
+			l.RaiseError("duration or string expected")
+			return 0
+		}
+		l.RaiseError(err.Error())
+		return 1
 	}
 
-	l.ArgError(1, "duration expected")
-	return 0
+	coroutine.Wrap(l, func() engine.Result {
+		if err := performSleep(l.Context(), duration); err != nil {
+			return engine.Result{
+				State:  l,
+				Result: []lua.LValue{lua.LNil},
+				Error:  err,
+			}
+		}
+		return engine.Result{
+			State:  l,
+			Result: []lua.LValue{lua.LString("ok")},
+		}
+	})
+	return -1
 }
 
 func date(l *lua.LState) int {
@@ -212,13 +223,13 @@ func timeAdd(l *lua.LState) int {
 		return 0
 	}
 
-	d, ok := isDuration(l, 2)
-	if !ok {
-		l.ArgError(2, "duration expected")
+	duration, err := parseDurationValue(l.Get(2))
+	if err != nil {
+		l.ArgError(2, err.Error())
 		return 0
 	}
 
-	newTime := t.time.Add(d.duration)
+	newTime := t.time.Add(duration)
 	result := l.NewUserData()
 	result.Value = &Time{time: newTime}
 	l.SetMetatable(result, l.GetTypeMetatable("Time"))
@@ -667,7 +678,7 @@ func registerTime(l *lua.LState, mod *lua.LTable) {
 
 	sleepFunc := sleep
 	if engine.IsCoroutineVM(l) {
-		sleepFunc = sleepAsync
+		sleepFunc = sleepCoroutine
 	}
 
 	// Register time functions
@@ -677,5 +688,8 @@ func registerTime(l *lua.LState, mod *lua.LTable) {
 		"date":  date,
 		"unix":  unix,
 		"parse": parse,
+
+		// requires async layer!
+		"after": after,
 	})
 }

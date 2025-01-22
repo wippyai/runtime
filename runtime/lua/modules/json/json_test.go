@@ -22,7 +22,7 @@ func TestJsonModule(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("module creation and loading", func(t *testing.T) {
-		mod := NewJsonModule()
+		mod := NewJSONModule()
 		vm, err := engine.NewVM(logger,
 			engine.WithLoader(mod.Name(), mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),
@@ -118,7 +118,7 @@ func TestJsonModule(t *testing.T) {
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
-				mod := NewJsonModule()
+				mod := NewJSONModule()
 				vm, err := engine.NewVM(logger,
 					engine.WithLoader(mod.Name(), mod.Loader),
 					engine.WithGlobalFunction("assert", assertLua),
@@ -213,7 +213,7 @@ func TestJsonModule(t *testing.T) {
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
-				mod := NewJsonModule()
+				mod := NewJSONModule()
 				vm, err := engine.NewVM(logger,
 					engine.WithLoader(mod.Name(), mod.Loader),
 					engine.WithGlobalFunction("assert", assertLua),
@@ -281,7 +281,7 @@ func TestJsonModule(t *testing.T) {
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
-				mod := NewJsonModule()
+				mod := NewJSONModule()
 				vm, err := engine.NewVM(logger,
 					engine.WithLoader(mod.Name(), mod.Loader),
 					engine.WithGlobalFunction("assert", assertLua),
@@ -300,7 +300,7 @@ func TestJsonModule(t *testing.T) {
 	})
 
 	t.Run("round trip", func(t *testing.T) {
-		mod := NewJsonModule()
+		mod := NewJSONModule()
 		vm, err := engine.NewVM(logger,
 			engine.WithLoader(mod.Name(), mod.Loader),
 			engine.WithGlobalFunction("assert", assertLua),

@@ -1,3 +1,4 @@
+// Package stream provides utilities for handling streaming data with context awareness
 package stream
 
 import (
@@ -8,6 +9,8 @@ import (
 )
 
 var (
+	// ErrInvalidConfig indicates that the Stream configuration is invalid,
+	// such as when a nil reader is provided
 	ErrInvalidConfig = fmt.Errorf("invalid Stream configuration")
 )
 
@@ -16,7 +19,8 @@ type Options struct {
 	bufferSize int64
 }
 
-// NewStreamConfig creates a new configuration
+// NewStreamConfig creates a new configuration with the specified buffer size.
+// If bufferSize is <= 0, it defaults to 32KB.
 func NewStreamConfig(bufferSize int64) *Options {
 	if bufferSize <= 0 {
 		bufferSize = 32 * 1024 // Default 32KB buffer
@@ -26,7 +30,9 @@ func NewStreamConfig(bufferSize int64) *Options {
 	}
 }
 
-// Stream handles streaming data from a reader
+// Stream handles streaming data from a reader with context awareness and
+// concurrent-safe operations. It tracks bytes read and provides chunked reading
+// capabilities.
 type Stream struct {
 	reader    io.ReadCloser
 	config    *Options
@@ -35,7 +41,8 @@ type Stream struct {
 	ctx       context.Context
 }
 
-// NewStream creates a new Stream with configuration
+// NewStream creates a new Stream with the provided context, reader and configuration.
+// Returns an error if reader is nil or if configuration is invalid.
 func NewStream(ctx context.Context, reader io.ReadCloser, cfg *Options) (*Stream, error) {
 	if reader == nil {
 		return nil, fmt.Errorf("%w: nil reader", ErrInvalidConfig)
@@ -51,7 +58,8 @@ func NewStream(ctx context.Context, reader io.ReadCloser, cfg *Options) (*Stream
 	}, nil
 }
 
-// ReadChunk reads the next chunk of data
+// ReadChunk reads the next chunk of data based on the configured buffer size.
+// Returns EOF when the stream is exhausted.
 func (s *Stream) ReadChunk() ([]byte, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -102,6 +110,8 @@ func (s *Stream) readDirect(buffer []byte) ([]byte, error) {
 	}
 }
 
+// BytesRead returns the total number of bytes read from the stream so far.
+// This operation is concurrent-safe.
 func (s *Stream) BytesRead() int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -109,6 +119,8 @@ func (s *Stream) BytesRead() int64 {
 	return s.bytesRead
 }
 
+// Close closes the underlying reader and releases associated resources.
+// Returns an error if the close operation fails.
 func (s *Stream) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -52,9 +52,9 @@ func TestNewJsonValidator(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := newJsonValidator(tc.schema)
+			_, err := newJSONValidator(tc.schema)
 			if (err != nil) != tc.expectErr {
-				t.Errorf("newJsonValidator() error = %v, expectErr %v", err, tc.expectErr)
+				t.Errorf("newJSONValidator() error = %v, expectErr %v", err, tc.expectErr)
 			}
 		})
 	}
@@ -113,11 +113,11 @@ func TestJsonValidator_Validate(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			validator, err := newJsonValidator(tc.schema)
+			validator, err := newJSONValidator(tc.schema)
 			if err != nil {
 				if !tc.expectErr {
 					// we didn't expect an error but got one during validator creation
-					t.Fatalf("newJsonValidator() error = %v, expected no error", err)
+					t.Fatalf("newJSONValidator() error = %v, expected no error", err)
 				} else {
 					// we expected an error and got one, which is okay for this test case
 					return

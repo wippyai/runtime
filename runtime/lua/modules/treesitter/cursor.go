@@ -5,6 +5,7 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
+// CursorWrapper wraps a tree-sitter TreeCursor for Lua integration
 type CursorWrapper struct {
 	cursor *treesitter.TreeCursor
 	source *string

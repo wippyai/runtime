@@ -154,7 +154,7 @@ func treeWalk(L *lua.LState) int {
 	return 1
 }
 
-func (t *TreeWrapper) Edit(edit *treesitter.InputEdit) error {
+func (t *TreeWrapper) edit(edit *treesitter.InputEdit) error {
 	if t.tree == nil {
 		return fmt.Errorf("tree is nil")
 	}
@@ -223,7 +223,7 @@ func treeEdit(L *lua.LState) int {
 		NewEndPosition: newEndPoint,
 	}
 
-	if err := tree.Edit(edit); err != nil {
+	if err := tree.edit(edit); err != nil {
 		L.Push(lua.LFalse)
 		L.Push(lua.LString(err.Error()))
 		return 2

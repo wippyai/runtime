@@ -9,6 +9,8 @@ import (
 )
 
 type (
+	// Map represents a version history that maintains relationships between different
+	// versions and provides operations to traverse and manage the version graph.
 	Map interface {
 		// Path returns the ordered sequence of version instances connecting a starting
 		// version ('from') and an ending version ('to'), including both 'from' and 'to'.
@@ -34,6 +36,9 @@ type versionHistory struct {
 	versions map[string]registry.Version
 }
 
+// NewVersionMap creates a new empty version map for tracking version history
+// and relationships between different versions. It initializes the internal
+// storage and provides thread-safe access to version information.
 func NewVersionMap() Map {
 	return &versionHistory{
 		versions: make(map[string]registry.Version),

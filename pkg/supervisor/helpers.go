@@ -117,7 +117,7 @@ func (s *internalState) incRetryCount() int32 {
 }
 
 // canRecover checks if the service can be recovered based on current state
-func (s *internalState) canRecover(maxAttempts int, ctx context.Context) bool {
+func (s *internalState) canRecover(ctx context.Context, maxAttempts int) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

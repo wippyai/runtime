@@ -20,6 +20,7 @@ type Transcoder struct {
 var globalTranscoder *Transcoder
 var once sync.Once
 
+// GlobalTranscoder returns the global static transcoder instance.
 func GlobalTranscoder() *Transcoder {
 	once.Do(func() {
 		globalTranscoder = NewTranscoder()
@@ -27,6 +28,7 @@ func GlobalTranscoder() *Transcoder {
 	return globalTranscoder
 }
 
+// NewTranscoder creates a new transcoder instance.
 func NewTranscoder() *Transcoder {
 	return &Transcoder{
 		graph:        graph.NewGraph(),

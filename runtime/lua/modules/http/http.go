@@ -15,12 +15,14 @@ import (
 	"go.uber.org/zap"
 )
 
-const (
-	DefaultTimeout = 30 * time.Second
-)
+// DefaultTimeout is the default timeout for HTTP requests.
+const DefaultTimeout = 90 * time.Second
 
 var (
-	ErrInvalidAuth    = errors.New("auth table must contain non-nil user and pass fields")
+	// ErrInvalidAuth is returned when authentication credentials are missing or invalid
+	ErrInvalidAuth = errors.New("auth table must contain non-nil user and pass fields")
+
+	// ErrInvalidRequest is returned when the request is not a table, internal.
 	ErrInvalidRequest = errors.New("request must be a table")
 )
 
@@ -29,15 +31,18 @@ type Client interface {
 	Do(req *http.Request) (*http.Response, error)
 }
 
+// Module implements HTTP client functionality for Lua runtime
 type Module struct {
 	log    *zap.Logger
 	client Client
 }
 
+// NewHTTPModule creates a new HTTP module instance with the given client and logger
 func NewHTTPModule(client Client, log *zap.Logger) *Module {
 	return &Module{log: log, client: client}
 }
 
+// Name returns the module name
 func (m *Module) Name() string {
 	return "http"
 }
@@ -162,16 +167,16 @@ func (m *Module) executeRequest(l *lua.LState, req *http.Request, opts *requestO
 	})
 
 	if opts.stream != nil {
-		return m.handleStreamResponse(l, resp, opts.stream, ctx)
+		return m.handleStreamResponse(ctx, l, resp, opts.stream)
 	}
 	return m.handleRegularResponse(l, resp)
 }
 
 func (m *Module) handleStreamResponse(
+	ctx context.Context,
 	l *lua.LState,
 	resp *http.Response,
 	streamOpts *stream.Options,
-	ctx context.Context,
 ) int {
 	s, err := stream.NewStream(ctx, resp.Body, streamOpts)
 	if err != nil {

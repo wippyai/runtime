@@ -11,6 +11,8 @@ import (
 	"go.uber.org/zap"
 )
 
+// Executor manages the execution of tasks by registered handlers in the runtime system.
+// It uses an event bus for communication and supports dynamic handler registration.
 type Executor struct {
 	ctx        context.Context
 	logger     *zap.Logger
@@ -19,6 +21,7 @@ type Executor struct {
 	subscriber *eventbus.Subscriber
 }
 
+// NewExecutor creates a new Executor instance with the provided event bus and logger.
 func NewExecutor(bus events.Bus, logger *zap.Logger) *Executor {
 	return &Executor{
 		bus:    bus,
@@ -26,6 +29,8 @@ func NewExecutor(bus events.Bus, logger *zap.Logger) *Executor {
 	}
 }
 
+// Start initializes the executor and begins listening for executor events.
+// It sets up a subscriber for handling executor-related events on the event bus.
 func (e *Executor) Start(ctx context.Context) error {
 	e.ctx = ctx
 
@@ -45,6 +50,7 @@ func (e *Executor) Start(ctx context.Context) error {
 	return nil
 }
 
+// Stop cleanly shuts down the executor by closing its event subscriber.
 func (e *Executor) Stop() error {
 	if e.subscriber != nil {
 		e.subscriber.Close()
@@ -73,6 +79,9 @@ func (e *Executor) handleEvent(evt events.Event) {
 	}
 }
 
+// Execute runs the given task using its registered handler and returns a channel
+// for receiving the execution result(s). Returns an error if no handler is registered
+// for the task's target or if the handler type is invalid.
 func (e *Executor) Execute(task runtime.Task) (chan *runtime.Result, error) {
 	handler, exists := e.handlers.Load(task.Target)
 	if !exists {

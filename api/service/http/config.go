@@ -11,12 +11,19 @@ import (
 	"github.com/ponyruntime/pony/api/supervisor"
 )
 
+// Registry kind constants for HTTP service components.
+// These identify different types of HTTP-related components in the registry.
 const (
-	KindServer   registry.Kind = "http.service"
-	KindRouter   registry.Kind = "http.router"
+	// KindServer identifies an HTTP server component
+	KindServer registry.Kind = "http.service"
+	// KindRouter identifies an HTTP router component
+	KindRouter registry.Kind = "http.router"
+	// KindEndpoint identifies an HTTP endpoint component
 	KindEndpoint registry.Kind = "http.endpoint"
 
+	// ServerID is the key used to identify the server in configuration metadata
 	ServerID string = "server"
+	// RouterID is the key used to identify the router in configuration metadata
 	RouterID string = "router"
 )
 
@@ -50,9 +57,9 @@ type (
 		Path              string            `json:"path"`                // URL path
 		Method            string            `json:"method"`              // Timeouts method
 		Target            string            `json:"target"`              // Target function
-		JsonInput         bool              `json:"json_input"`          // Expect input as JSON
-		JsonSchema        any               `json:"json_schema"`         // JSON schema for input validation, only if JsonInput is true
-		JsonOutput        bool              `json:"json_output"`         // Automatically marshal output to JSON
+		JSONInput         bool              `json:"json_input"`          // Expect input as JSON
+		JSONSchema        any               `json:"json_schema"`         // JSON schema for input validation, only if JSONInput is true
+		JSONOutput        bool              `json:"json_output"`         // Automatically marshal output to JSON
 		SuccessStatusCode int               `json:"success_status_code"` // HTTP status code for success
 	}
 )
@@ -202,4 +209,20 @@ func (c *EndpointConfig) Validate() error {
 	}
 
 	return nil
+}
+
+// MarshalJSON implements custom marshaling for TimeoutConfig to handle time.Duration fields.
+func (c *TimeoutConfig) MarshalJSON() ([]byte, error) {
+	type Alias TimeoutConfig
+	return json.Marshal(&struct {
+		ReadTimeout  string `json:"read"`
+		WriteTimeout string `json:"write"`
+		IdleTimeout  string `json:"idle"`
+		*Alias
+	}{
+		ReadTimeout:  c.ReadTimeout.String(),
+		WriteTimeout: c.WriteTimeout.String(),
+		IdleTimeout:  c.IdleTimeout.String(),
+		Alias:        (*Alias)(c),
+	})
 }

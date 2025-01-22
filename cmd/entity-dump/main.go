@@ -73,7 +73,7 @@ func main() {
 	// 5. Dump List to Console:
 	fmt.Println("Loaded Registry List (YAML):")
 	for _, entry := range entries {
-		p, err := dtt.Transcode(entry.Data, payload.Yaml)
+		p, err := dtt.Transcode(entry.Data, payload.YAML)
 		if err != nil {
 			logger.Error("Failed to transcode entry to YAML", zap.String("path", string(entry.ID)), zap.Error(err))
 			continue // Skip to the next entry if transcoding fails

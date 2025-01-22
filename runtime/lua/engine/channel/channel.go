@@ -3,7 +3,6 @@ package channel
 import (
 	"container/list"
 	"errors"
-
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -42,7 +41,9 @@ type opStep struct {
 	values []lua.LValue
 }
 
-// Channel represents a buffered or unbuffered channel, not-state safe, external synchronization is required.
+// Channel represents a buffered or unbuffered channel that requires external synchronization.
+// It implements Lua channel semantics with support for buffering, select operations,
+// and non-blocking sends/receives.
 type Channel struct {
 	name     string
 	capacity int
@@ -54,6 +55,8 @@ type Channel struct {
 	receivers *list.List
 }
 
+// Named creates a new channel with the given name and buffer capacity.
+// Named channels can be referenced across different Lua states.
 func Named(name string, capacity int) *Channel {
 	ch := newChannel(capacity)
 	ch.name = name
@@ -66,6 +69,12 @@ func newChannel(capacity int) *Channel {
 		senders:   list.New(),
 		receivers: list.New(),
 	}
+}
+
+// Slots returns the number of available slots for sending.
+// This includes both buffer capacity and any waiting receivers.
+func (c *Channel) Slots() int {
+	return (c.capacity - c.size) + c.receivers.Len()
 }
 
 func (c *Channel) send(senderTask *lua.LState, value lua.LValue, selectOp *selectOp) *onNext {
@@ -94,7 +103,7 @@ func (c *Channel) send(senderTask *lua.LState, value lua.LValue, selectOp *selec
 						values: makeResult(senderTask, selectOp, c.value, nil, true),
 					},
 				},
-				release: release(recvOp),
+				release: append(release(recvOp), flushSelects(selectOp)...),
 			}
 		}
 	}
@@ -105,9 +114,10 @@ func (c *Channel) send(senderTask *lua.LState, value lua.LValue, selectOp *selec
 			kind:     sendOp,
 			ch:       c,
 			value:    value,
-			selectOp: selectOp,
+			selectOp: nil,
 		})
 		c.size++
+
 		return &onNext{
 			next: []*opStep{
 				{
@@ -115,6 +125,7 @@ func (c *Channel) send(senderTask *lua.LState, value lua.LValue, selectOp *selec
 					values: makeResult(senderTask, selectOp, c.value, value, true),
 				},
 			},
+			release: flushSelects(selectOp),
 		}
 	}
 
@@ -128,7 +139,7 @@ func (c *Channel) send(senderTask *lua.LState, value lua.LValue, selectOp *selec
 	})
 	c.size++
 
-	return &onNext{yields: true, block: []*Channel{c}} // Yield, nothing to do
+	return &onNext{yields: true, block: []*Channel{c}}
 }
 
 func (c *Channel) receive(receiverTask *lua.LState, selectOp *selectOp) *onNext {
@@ -150,7 +161,7 @@ func (c *Channel) receive(receiverTask *lua.LState, selectOp *selectOp) *onNext 
 						values: makeResult(receiverTask, selectOp, c.value, sendOp.value, true),
 					},
 				},
-				release: release(sendOp),
+				release: append(release(sendOp), flushSelects(selectOp)...),
 			}
 		}
 
@@ -183,6 +194,7 @@ func (c *Channel) receive(receiverTask *lua.LState, selectOp *selectOp) *onNext 
 		task:     receiverTask,
 		selectOp: selectOp,
 	})
+
 	return &onNext{yields: true, block: []*Channel{c}}
 }
 
@@ -201,7 +213,7 @@ func (c *Channel) close(closerTask *lua.LState) *onNext {
 
 	// Handle and remove ALL senders - they all fail with error
 	for e := c.senders.Front(); e != nil; {
-		nextE := e.Next() // Save next before removing current
+		nextE := e.Next()
 		op := e.Value.(*op)
 		if op.task != nil {
 			results = append(results, &opStep{
@@ -231,7 +243,6 @@ func (c *Channel) close(closerTask *lua.LState) *onNext {
 	}
 
 	if len(results) > 0 {
-		// wake up closer after all senders and non-buffered receivers are handled
 		results = append(results, &opStep{state: closerTask, values: nil})
 	}
 
@@ -253,13 +264,45 @@ func release(op *op) []*Channel {
 	} else {
 		releases = []*Channel{op.ch}
 	}
-
 	return releases
 }
 
+func (c *Channel) discardSelect(selectOp *selectOp) {
+	// First, check senders
+	for e := c.senders.Front(); e != nil; {
+		next := e.Next()
+		if op := e.Value.(*op); op.selectOp == selectOp {
+			c.senders.Remove(e)
+			c.size--
+			break
+		}
+		e = next
+	}
+
+	for e := c.receivers.Front(); e != nil; {
+		next := e.Next()
+		op := e.Value.(*op)
+
+		if op.selectOp == selectOp {
+			c.receivers.Remove(e)
+			break
+		}
+		e = next
+	}
+}
+
 func flushSelects(s *selectOp) []*Channel {
+	if s == nil {
+		return nil
+	}
+
 	var releases []*Channel
+
 	for _, caseOp := range s.cases {
+		if caseOp.ch == nil {
+			continue
+		}
+
 		releases = append(releases, caseOp.ch)
 		caseOp.ch.discardSelect(s)
 	}
@@ -267,38 +310,10 @@ func flushSelects(s *selectOp) []*Channel {
 	return releases
 }
 
-func (c *Channel) discardSelect(selectOp *selectOp) {
-	/* Good candidate for optimization. */
-	for e := c.senders.Front(); e != nil; {
-		next := e.Next()
-		if op := e.Value.(*op); op.selectOp == selectOp {
-			c.senders.Remove(e)
-			c.size--
-		}
-		e = next
-	}
-
-	for e := c.receivers.Front(); e != nil; {
-		next := e.Next()
-		if op := e.Value.(*op); op.selectOp == selectOp {
-			c.receivers.Remove(e)
-		}
-		e = next
-	}
-}
-
 func (c *Channel) reset() {
 	c.size = 0
 	c.senders.Init()
 	c.receivers.Init()
-}
-
-func (c *Channel) isFull() bool {
-	return c.size >= c.capacity
-}
-
-func (c *Channel) isEmpty() bool {
-	return c.size == 0
 }
 
 func (c *Channel) isNamed() bool {
@@ -319,10 +334,10 @@ func makeResult(task *lua.LState, selectOp *selectOp, chValue, value lua.LValue,
 	}
 
 	if value == nil {
-		return nil // For send operations that succeed
+		return nil
 	}
 
-	return []lua.LValue{value, lua.LBool(ok)} // For receive operations
+	return []lua.LValue{value, lua.LBool(ok)}
 }
 
 func selectResult(L *lua.LState, chValue, value lua.LValue, ok bool) []lua.LValue {

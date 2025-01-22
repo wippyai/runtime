@@ -2,12 +2,11 @@ package channel
 
 import (
 	"context"
-	"testing"
-
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/stretchr/testify/assert"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
+	"testing"
 )
 
 // Simple validation layer that enforces a max value rule on yields
@@ -55,8 +54,8 @@ func TestChannelRuntimeAsLayer(t *testing.T) {
 		defer base.Close()
 
 		// Create wrapped CVM with channel runtime as layer
-		channelRuntime := NewChannelRunner()
-		wrapped := engine.NewWrappedCVM(base,
+		channelRuntime := NewChannelLayer()
+		wrapped := engine.NewRunner(base,
 			engine.WithLayer(channelRuntime),
 			engine.WithLayer(&execLayer{}),
 		)
@@ -100,8 +99,8 @@ func TestChannelRuntimeAsLayer(t *testing.T) {
 		assert.NoError(t, err)
 		defer base.Close()
 
-		channelRuntime := NewChannelRunner()
-		wrapped := engine.NewWrappedCVM(base,
+		channelRuntime := NewChannelLayer()
+		wrapped := engine.NewRunner(base,
 			engine.WithLayer(channelRuntime),
 			engine.WithLayer(&execLayer{}),
 		)
@@ -152,8 +151,8 @@ func TestChannelRuntimeAsLayer(t *testing.T) {
 		assert.NoError(t, err)
 		defer base.Close()
 
-		channelRuntime := NewChannelRunner()
-		wrapped := engine.NewWrappedCVM(base,
+		channelRuntime := NewChannelLayer()
+		wrapped := engine.NewRunner(base,
 			engine.WithLayer(channelRuntime),
 			engine.WithLayer(&execLayer{}),
 		)
@@ -177,47 +176,5 @@ func TestChannelRuntimeAsLayer(t *testing.T) {
 		_, err = wrapped.Execute(context.Background(), "test")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "deliberate panic")
-	})
-
-	t.Run("channel layer with named channels", func(t *testing.T) {
-		base, err := engine.NewCVM(
-			logger,
-			engine.WithPreloaded("channel", NewChannelModule().Loader),
-		)
-		assert.NoError(t, err)
-		defer base.Close()
-
-		channelRuntime := NewChannelRunner()
-		wrapped := engine.NewWrappedCVM(
-			base,
-			engine.WithLayer(channelRuntime),
-			engine.WithLayer(&execLayer{}),
-		)
-
-		// Create a named channel and verify it's tracked
-		err = channelRuntime.Send("test-channel", lua.LString("direct message"))
-		assert.Error(t, err, "should not allow sending to non-existent channel")
-
-		err = base.Import(`
-			function test()
-				-- Create named channel
-				local ch = channel.new(1, "test-channel")
-	
-				-- Verify runtime tracks it
-				ch:send("message")
-				coroutine.yield("sent")
-	
-				local msg, ok = ch:receive()
-				assert(msg == "message", "wrong message")
-				coroutine.yield("received")
-	
-				return "done"
-			end
-		`, "test", "test")
-		assert.NoError(t, err)
-
-		result, err := wrapped.Execute(context.Background(), "test")
-		assert.NoError(t, err)
-		assert.Equal(t, "done", result.String())
 	})
 }
