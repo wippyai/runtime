@@ -7,13 +7,11 @@ import (
 
 const (
 	// System identifies the logs system in the event context
-	System events.System = "logs"
-
-	// Event kinds for the logging system
-	SetConfigEvent   events.Kind = "logs.config"
-	EntryEvent       events.Kind = "logs.entry"
-	GetConfigEvent   events.Kind = "logs.config.get"
-	ConfigStateEvent events.Kind = "logs.config.state"
+	System           events.System = "logs"
+	EntryEvent       events.Kind   = "logs.entry"
+	SetConfigEvent   events.Kind   = "logs.config.set"
+	GetConfigEvent   events.Kind   = "logs.config.get"
+	ConfigStateEvent events.Kind   = "logs.config.state"
 )
 
 type (
@@ -27,11 +25,6 @@ type (
 
 		// MinLevel is the minimum level of logs to process
 		MinLevel zapcore.Level `json:"min_level"`
-	}
-
-	// ConfigResponse contains the current logging configuration
-	ConfigResponse struct {
-		Config Config `json:"config"`
 	}
 
 	// Core represents a configurable logging core that can be integrated into the system

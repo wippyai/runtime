@@ -70,12 +70,12 @@ func TestTimer(t *testing.T) {
 				local results = {}
 				local t = time.timer("100ms")
 				
-				-- Stop then reset
+				-- stop then reset
 				t:stop()
 				local reset_result = t:reset("50ms")
 				table.insert(results, reset_result)
 				
-				-- Wait for timer
+				-- wait for timer
 				t:channel():receive()
 				table.insert(results, "fired")
 				
@@ -155,7 +155,7 @@ func TestTimer(t *testing.T) {
 				local reset_result = t:reset("50ms")
 				table.insert(results, reset_result)
 				
-				-- Wait for timer
+				-- wait for timer
 				t:channel():receive()
 				table.insert(results, "fired")
 				
@@ -412,7 +412,7 @@ func TestTimerSelectAndCoroutine(t *testing.T) {
 					done:send(true)
 				end)
 
-				-- Wait for test completion
+				-- wait for test completion
 				done:receive()
 				return results
 			end
@@ -504,7 +504,7 @@ func TestTimerSelectAndCoroutineInversedOrder(t *testing.T) {
 					done:send(true)
 				end)
 
-				-- Wait for test completion
+				-- wait for test completion
 				done:receive()
 				return results
 			end

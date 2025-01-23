@@ -190,18 +190,40 @@ func (c *Controller) attemptStart(attempt int) error {
 		fmt.Sprintf("attempt %d", attempt-1),
 	)
 
-	detailsCh, err := c.service.Start(c.ctx)
-	if err != nil {
-		c.updateState(supervisor.Failed, err)
-		return err
+	var detailsCh <-chan any
+	errCh := make(chan error, 1)
+
+	// Start service with controller context
+	go func() {
+		ch, err := c.service.Start(c.ctx)
+		if err != nil {
+			errCh <- err
+			return
+		}
+		detailsCh = ch
+		errCh <- nil
+	}()
+
+	// Wait for start or timeout
+	select {
+	case err := <-errCh:
+		if err != nil {
+			c.updateState(supervisor.Failed, err)
+			return err
+		}
+		c.updateState(supervisor.Running, nil)
+		c.wg.Add(1)
+		go c.monitorService(detailsCh)
+		return nil
+
+	case <-time.After(c.config.StartTimeout):
+		c.cancel() // Cancel the start context
+
+		// restore the context
+		c.ctx, c.cancel = context.WithCancel(c.rootCtx)
+
+		return fmt.Errorf("service start timed out after %v", c.config.StartTimeout)
 	}
-	// do we need this or move to convention?
-	c.updateState(supervisor.Running, nil)
-
-	c.wg.Add(1)
-	go c.monitorService(detailsCh)
-
-	return nil
 }
 
 func (c *Controller) tryStop() error {

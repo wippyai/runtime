@@ -181,7 +181,7 @@ func TestAfterTimers(t *testing.T) {
                     end
                 end)
 
-                -- Wait for all timers to complete
+                -- wait for all timers to complete
                 done:receive()
                 return results
             end
@@ -258,7 +258,7 @@ func TestAfterTimers(t *testing.T) {
                     end
                 end)
 
-                -- Wait for all timers to complete
+                -- wait for all timers to complete
                 done:receive()
                 return results
             end
@@ -334,11 +334,11 @@ func TestAfterTimers(t *testing.T) {
 			_, execErr = wrapped.Execute(ctx, "test")
 		}()
 
-		// Wait a bit then cancel
+		// wait a bit then cancel
 		time.Sleep(100 * time.Millisecond)
 		cancel()
 
-		// Wait for completion or timeout
+		// wait for completion or timeout
 		select {
 		case <-done:
 			assert.Error(t, execErr)

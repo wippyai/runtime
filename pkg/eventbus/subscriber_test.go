@@ -47,7 +47,7 @@ func TestEventListener_NewEventListener(t *testing.T) {
 	b.Send(context.Background(), event2)
 	b.Send(context.Background(), event3)
 
-	// Wait for the eventListener goroutine to exit
+	// wait for the eventListener goroutine to exit
 	wg.Wait()
 
 	// Verify received eventbus
@@ -89,7 +89,7 @@ func TestEventListener_NewEventListener_NoKind(t *testing.T) {
 	b.Send(context.Background(), event2)
 	b.Send(context.Background(), event3)
 
-	// Wait for the eventListener goroutine to exit
+	// wait for the eventListener goroutine to exit
 	wg.Wait()
 
 	// Verify received eventbus

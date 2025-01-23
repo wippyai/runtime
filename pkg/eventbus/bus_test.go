@@ -149,7 +149,7 @@ func TestBusStop(t *testing.T) {
 	receivedEvents := waitForEvents(t, ch, 1, time.Second)
 	require.Len(t, receivedEvents, 1)
 
-	// Stop the bus
+	// stop the bus
 	bus.Stop()
 }
 

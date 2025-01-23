@@ -200,7 +200,7 @@ func TestPool_JobCompletionOnClose(t *testing.T) {
 		// Close the pool while job is running
 		p.Close()
 
-		// Wait for result or error
+		// wait for result or error
 		select {
 		case result := <-resultChan:
 			require.Equal(t, lua.LString("completed"), result, "Job should complete")

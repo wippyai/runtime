@@ -19,6 +19,7 @@ type Manager struct {
 	core   api.Core
 	mu     sync.RWMutex
 	config api.Config
+	ctx    context.Context
 	sub    *eventbus.Subscriber
 }
 
@@ -31,7 +32,7 @@ func NewManager(bus events.Bus, core api.Core, logger *zap.Logger) *Manager {
 		config: api.Config{
 			PropagateDownstream: true,
 			StreamToEvents:      false,
-			MinLevel:            zapcore.InfoLevel,
+			MinLevel:            zapcore.DebugLevel, // todo: pass from outside
 		},
 	}
 }
@@ -39,11 +40,13 @@ func NewManager(bus events.Bus, core api.Core, logger *zap.Logger) *Manager {
 // Start initializes the service and starts listening for events
 func (m *Manager) Start(ctx context.Context) error {
 	// Subscribe to log configuration events and config requests
-	sub, err := eventbus.NewSubscriber(ctx, m.bus, api.System, "*", m.handleEvent)
+	sub, err := eventbus.NewSubscriber(ctx, m.bus, api.System, "logs.config.(set|get)", m.handleEvent)
 	if err != nil {
 		return fmt.Errorf("failed to subscribe to events: %w", err)
 	}
 	m.sub = sub
+
+	m.ctx = ctx
 
 	// Apply initial configuration
 	m.applyConfig(ctx, m.config)
@@ -69,12 +72,11 @@ func (m *Manager) Stop(ctx context.Context) error {
 
 // handleEvent processes incoming events
 func (m *Manager) handleEvent(e events.Event) {
-	ctx := context.Background()
 	switch e.Kind {
 	case api.SetConfigEvent:
-		m.handleConfigEvent(ctx, e)
+		m.handleConfigEvent(m.ctx, e)
 	case api.GetConfigEvent:
-		m.handleGetConfigEvent(ctx, e)
+		m.handleGetConfigEvent(m.ctx, e)
 	}
 }
 
@@ -117,9 +119,7 @@ func (m *Manager) handleGetConfigEvent(ctx context.Context, e events.Event) {
 		System: api.System,
 		Kind:   api.ConfigStateEvent,
 		Path:   e.Path,
-		Data: api.ConfigResponse{
-			Config: currentConfig,
-		},
+		Data:   currentConfig,
 	})
 }
 
@@ -127,6 +127,13 @@ func (m *Manager) handleGetConfigEvent(ctx context.Context, e events.Event) {
 func (m *Manager) applyConfig(ctx context.Context, cfg api.Config) {
 	m.config = cfg
 	m.core.Configure(cfg)
+	// Send confirmation that config was applied
+	m.bus.Send(ctx, events.Event{
+		System: api.System,
+		Kind:   api.ConfigStateEvent,
+		Path:   "terminal-logs", // Use the same path as the request
+		Data:   cfg,
+	})
 }
 
 // GetConfig returns the current logging configuration

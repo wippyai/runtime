@@ -2,164 +2,228 @@ package terminal
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/registry"
-	logsapi "github.com/ponyruntime/pony/api/service/logs"
 	api "github.com/ponyruntime/pony/api/service/terminal"
-	logs2 "github.com/ponyruntime/pony/service/logs"
+	"github.com/ponyruntime/pony/api/supervisor"
+	"go.uber.org/zap"
+	"log"
 	"sync"
 )
 
-var (
-	instance          *service
-	instanceLock      sync.Mutex
-	ErrAlreadyRunning = fmt.Errorf("terminal service already running")
+type serviceAction struct {
+	actionType string
+	terminal   api.Terminal
+	options    api.Options
+	id         registry.ID
+	result     chan error
+}
+
+const (
+	actionStart  = "start"
+	actionStop   = "stop"
+	actionUpdate = "update"
 )
 
 type service struct {
-	terminal      api.Terminal
-	options       api.Options
-	id            registry.ID
-	lifecycle     *appLifecycle
-	mu            sync.Mutex
-	baseLogConfig *logsapi.Config
+	terminal  *terminalRunner
+	actionCh  chan serviceAction
+	statusCh  chan any
+	doneCh    chan struct{}
+	bus       events.Bus
+	log       *zap.Logger
+	logSwitch *logSwitcher
+	timeouts  api.TimeoutConfig
+	mu        sync.Mutex
 }
 
-func newService(app api.Terminal, opts api.Options, id registry.ID, timeouts api.TimeoutConfig, bus events.Bus) *service {
+func newService(
+	app api.Terminal,
+	opts api.Options,
+	id registry.ID,
+	timeouts api.TimeoutConfig,
+	bus events.Bus,
+	log *zap.Logger,
+) *service {
 	return &service{
-		terminal:  app,
-		options:   opts,
-		id:        id,
-		lifecycle: newAppLifecycle(bus, timeouts),
-	}
-}
-
-func (s *service) redirectLogging(ctx context.Context) error {
-	ctx, cancel := context.WithTimeout(ctx, s.lifecycle.timeouts.StartTimeout) // Or whatever timeout we want
-	defer cancel()
-
-	cfg, err := logs2.GetConfig(ctx, s.lifecycle.bus)
-	if err != nil {
-		return fmt.Errorf("failed to setup logging: %w", err)
-	}
-	s.baseLogConfig = &cfg
-
-	// Now set our terminal logging config
-	s.lifecycle.bus.Send(ctx, events.Event{
-		System: logsapi.System,
-		Kind:   logsapi.SetConfigEvent,
-		Data: logsapi.Config{
-			PropagateDownstream: false,
-			StreamToEvents:      true,
-			MinLevel:            s.baseLogConfig.MinLevel, // Preserve original level
-		},
-	})
-
-	return nil
-}
-
-func (s *service) restoreLogging(ctx context.Context) {
-	if s.baseLogConfig != nil {
-		s.lifecycle.bus.Send(ctx, events.Event{
-			System: logsapi.System,
-			Kind:   logsapi.SetConfigEvent,
-			Data:   *s.baseLogConfig,
-		})
+		terminal:  newTerminalRunner(app, opts, id, bus, log),
+		actionCh:  make(chan serviceAction),
+		statusCh:  make(chan any, 10),
+		doneCh:    make(chan struct{}),
+		bus:       bus,
+		log:       log,
+		logSwitch: newLogSwitcher(bus, log),
+		timeouts:  timeouts,
 	}
 }
 
 func (s *service) Start(ctx context.Context) (<-chan any, error) {
-	instanceLock.Lock()
-	if instance != nil {
-		instanceLock.Unlock()
-		return nil, ErrAlreadyRunning
-	}
-	instance = s
-	instanceLock.Unlock()
+	resultCh := make(chan error, 1)
+	select {
+	case s.actionCh <- serviceAction{
+		actionType: actionStart,
+		result:     resultCh,
+	}:
+		select {
+		case err := <-resultCh:
+			if err != nil {
+				return nil, err
+			}
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 
-	// Setup logging redirection
-	if err := s.redirectLogging(ctx); err != nil {
-		s.clearInstance()
-		return nil, fmt.Errorf("failed to setup logging: %w", err)
-	}
+		log.Printf("STARTED!")
 
-	if err := s.lifecycle.Start(ctx, s.terminal, s.options, s.id); err != nil {
-		s.restoreLogging(ctx)
-		s.clearInstance()
-		return nil, fmt.Errorf("failed to start terminal: %w", err)
+		return s.statusCh, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	}
-
-	return s.lifecycle.Status(), nil
 }
 
 func (s *service) Stop(ctx context.Context) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	s.lifecycle.Release(ctx)
-	s.restoreLogging(ctx)
-	s.clearInstance()
-	return nil
+	resultCh := make(chan error, 1)
+	select {
+	case s.actionCh <- serviceAction{
+		actionType: actionStop,
+		result:     resultCh,
+	}:
+		select {
+		case err := <-resultCh:
+			if err != nil {
+				return err
+			}
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (s *service) UpdateApp(ctx context.Context, term api.Terminal, opts api.Options, id registry.ID) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if err := s.lifecycle.Update(ctx, term, opts, id); err != nil {
-		// Since service will die on update failure, restore logging first
-		s.restoreLogging(ctx)
-
-		// Then cleanup and return error
+	resultCh := make(chan error, 1)
+	select {
+	case s.actionCh <- serviceAction{
+		actionType: actionUpdate,
+		terminal:   term,
+		options:    opts,
+		id:         id,
+		result:     resultCh,
+	}:
 		select {
-		case status := <-s.lifecycle.Status():
-			s.clearInstance()
-			return fmt.Errorf("failed to update terminal: %v", status)
-		default:
-			s.clearInstance()
-			return fmt.Errorf("failed to update terminal: %w", err)
+		case err := <-resultCh:
+			if err != nil {
+				return err
+			}
+		case <-ctx.Done():
+			return ctx.Err()
 		}
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
-
-	s.terminal = term
-	s.options = opts
-	s.id = id
-
-	return nil
 }
 
-func (s *service) Terminate() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func (s *service) run(ctx context.Context) {
+	defer func() {
+		s.logSwitch.restore(context.Background())
 
-	ctx, cancel := context.WithTimeout(context.Background(), s.lifecycle.timeouts.StopTimeout)
-	defer cancel()
-
-	s.lifecycle.setState(appStateTerminating)
-
-	if instance, ok := s.lifecycle.Current(); ok {
-		instance.cancel()
-
-		if err := instance.terminal.Close(ctx); err != nil {
-			select {
-			case status := <-s.lifecycle.Status():
-				_ = fmt.Errorf("failed to terminate terminal: %v", status)
-			default:
-				_ = fmt.Errorf("failed to terminate terminal: %w", err)
+		// Ensure last runner error is sent before closing channels
+		if s.terminal != nil {
+			if err := s.terminal.exitErr; err != nil {
+				s.sendStatus(err)
 			}
 		}
-	}
+		close(s.statusCh)
+		close(s.doneCh)
+	}()
 
-	s.lifecycle.Release(ctx)
-	s.restoreLogging(ctx)
-	s.clearInstance()
+	for {
+		select {
+		case <-ctx.Done():
+			if s.terminal != nil {
+				if err := s.terminal.stop(ctx); err != nil {
+					s.log.Warn("failed to stop terminal", zap.Error(err))
+				}
+			}
+			return
+
+		case action := <-s.actionCh:
+			var err error
+
+			switch action.actionType {
+			case actionStart:
+				if err = s.logSwitch.enable(ctx); err != nil {
+					break
+				}
+				if s.terminal != nil {
+					err = s.terminal.Start(ctx)
+				}
+				if err == nil {
+					s.sendStatus("running")
+				}
+
+			case actionStop:
+				if s.terminal != nil {
+					err = s.terminal.stop(ctx)
+				}
+				if err == nil {
+					s.sendStatus("stopped")
+				}
+
+			case actionUpdate:
+				if s.terminal == nil {
+					err = errors.New("service not running")
+					break
+				}
+
+				newRunner := newTerminalRunner(action.terminal, action.options, action.id, s.bus, s.log)
+
+				// Stop current terminal
+				if err = s.terminal.stop(ctx); err != nil {
+					break
+				}
+
+				// Transfer state if possible
+				if err = s.terminal.transferState(newRunner); err != nil {
+					break
+				}
+
+				// Start new terminal
+				if err = newRunner.Start(ctx); err != nil {
+					break
+				}
+
+				s.terminal = newRunner
+				s.sendStatus("terminal updated")
+			}
+
+			action.result <- err
+			if err != nil {
+				s.sendStatus(err)
+				return
+			}
+
+		case <-s.terminal.wait():
+			err := s.terminal.exitErr
+			if errors.Is(err, supervisor.Terminated) || errors.Is(err, supervisor.Exited) {
+				s.sendStatus(err)
+			} else {
+				s.sendStatus(fmt.Errorf("terminal failed: %w", err))
+			}
+			return
+		}
+	}
 }
 
-func (s *service) clearInstance() {
-	instanceLock.Lock()
-	if instance == s {
-		instance = nil
+func (s *service) sendStatus(status any) {
+	select {
+	case s.statusCh <- status:
+	default:
+		s.log.Warn("failed to send status update", zap.Any("status", status))
 	}
-	instanceLock.Unlock()
 }
