@@ -5,6 +5,7 @@ package supervisor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -289,11 +290,25 @@ func (s *Supervisor) registerService(id string, entry *supervisor.Entry) error {
 
 	stateHandler := func(status supervisor.Status, details any) {
 		if err, ok := details.(error); ok {
-			s.logger.Error(fmt.Sprintf("service %s is %s", id, status),
-				zap.String("serviceID", id),
-				zap.String("status", string(status)),
-				zap.Error(err),
-			)
+			if errors.Is(err, supervisor.Exited) {
+				s.logger.Info(fmt.Sprintf("service %s is %s", id, status),
+					zap.String("serviceID", id),
+					zap.String("status", string(status)),
+					zap.Error(err),
+				)
+			} else if errors.Is(err, supervisor.Terminated) || errors.Is(err, context.Canceled) {
+				s.logger.Warn(fmt.Sprintf("service %s is %s", id, status),
+					zap.String("serviceID", id),
+					zap.String("status", string(status)),
+					zap.Error(err),
+				)
+			} else {
+				s.logger.Error(fmt.Sprintf("service %s is %s", id, status),
+					zap.String("serviceID", id),
+					zap.String("status", string(status)),
+					zap.Error(err),
+				)
+			}
 		} else {
 			s.logger.Info(fmt.Sprintf("service %s is %s", id, status),
 				zap.String("serviceID", id),
