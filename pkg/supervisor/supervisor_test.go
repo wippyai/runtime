@@ -136,7 +136,7 @@ type testSupervisorHarness struct {
 func newTestHarness(t testing.TB) *testSupervisorHarness {
 	core, logs := observer.New(zapcore.DebugLevel)
 	logger := zap.New(core)
-	bus := eventbus.NewBus(logger)
+	bus := eventbus.NewBus()
 
 	h := &testSupervisorHarness{
 		t:        t,

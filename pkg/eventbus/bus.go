@@ -9,7 +9,6 @@ import (
 
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/internal/wildcard"
-	"go.uber.org/zap"
 )
 
 type actionType int
@@ -52,7 +51,6 @@ type unsub struct {
 // for subscribing, unsubscribing, and sending events.
 type Bus struct {
 	subscribers       map[events.SubscriberID]sub
-	logger            *zap.Logger
 	actions           chan action
 	wg                sync.WaitGroup
 	subscriberCounter uint64
@@ -60,10 +58,9 @@ type Bus struct {
 
 // NewBus creates a new event bus instance with the provided logger.
 // It initializes internal channels and starts the event handling goroutine.
-func NewBus(logger *zap.Logger) *Bus {
+func NewBus() *Bus {
 	b := &Bus{
 		subscribers: make(map[events.SubscriberID]sub),
-		logger:      logger,
 		actions:     make(chan action, 100), // Buffered channel for all actions
 	}
 
@@ -161,15 +158,6 @@ func (b *Bus) Unsubscribe(ctx context.Context, subID events.SubscriberID) {
 func (b *Bus) Send(ctx context.Context, event events.Event) {
 	select {
 	case b.actions <- action{actionType: send, event: sendEvent{event: event, ctx: ctx}}:
-		if b.logger != nil {
-			b.logger.Debug(
-				"sending event",
-				zap.String("system", string(event.System)),
-				zap.String("kind", string(event.Kind)),
-				zap.String("path", string(event.Path)),
-				zap.Any("payload", event.Data),
-			)
-		}
 	case <-ctx.Done():
 		return
 	}
@@ -211,7 +199,6 @@ func (b *Bus) handleActions() {
 
 				select {
 				case <-a.event.ctx.Done():
-					b.logger.Warn("context cancelled", zap.String("subscriber", string(s.subID)))
 					continue
 				case s.eventCh <- a.event.event:
 					continue

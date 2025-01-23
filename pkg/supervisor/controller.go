@@ -270,22 +270,19 @@ func (c *Controller) monitorService(detailsCh <-chan any) {
 	for {
 		select {
 		case details, ok := <-detailsCh:
-			if err, ok := details.(error); ok {
+			if err, okt := details.(error); okt {
 				if errors.Is(err, context.Canceled) {
 					// exit
 
-					c.updateState(supervisor.Stopped, nil)
+					c.updateState(supervisor.Stopped, context.Canceled)
 					return
 				}
 
 				if errors.Is(err, supervisor.Exited) || errors.Is(err, supervisor.Terminated) {
 					// no more supervision needed
-					c.updateState(supervisor.Stopped, nil)
+					c.updateState(supervisor.Stopped, err)
 					return
 				}
-
-				// start recovery loop
-				ok = false
 			}
 
 			if !ok {
@@ -301,7 +298,7 @@ func (c *Controller) monitorService(detailsCh <-chan any) {
 			}
 		case <-ctx.Done():
 			if c.state.getDesiredStatus() == supervisor.Running {
-				c.updateState(supervisor.Stopped, nil)
+				c.updateState(supervisor.Stopped, context.Canceled)
 			}
 			return
 		case <-c.ctx.Done():
