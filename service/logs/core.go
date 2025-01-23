@@ -22,6 +22,7 @@ func NewCore(downstream zapcore.Core, bus events.Bus) api.Core {
 		downstream: downstream,
 		bus:        bus,
 	}
+
 	// Set default configuration
 	c.config.Store(api.Config{
 		PropagateDownstream: true,

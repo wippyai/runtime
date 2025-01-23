@@ -163,6 +163,7 @@ func (m *Manager) handleEvent(e events.Event) {
 		m.apps[registry.ID(e.Path)] = &app
 
 		// Update any running services using this app
+		found := false
 		for _, svc := range m.services {
 			if instance, ok := svc.lifecycle.Current(); ok && instance.id == registry.ID(e.Path) {
 				err := svc.UpdateApp(m.ctx, app.Terminal, app.Options, registry.ID(e.Path))
@@ -171,13 +172,21 @@ func (m *Manager) handleEvent(e events.Event) {
 						zap.String("id", string(e.Path)),
 						zap.Error(err))
 				}
+
+				found = true
+				m.log.Info("updated terminal application", zap.String("id", string(e.Path)))
 			}
 		}
 		m.mu.Unlock()
 
+		if !found {
+			m.log.Info("registered terminal application", zap.String("id", string(e.Path)))
+		}
 	case api.DeleteTerminalEvent:
 		m.mu.Lock()
 		delete(m.apps, registry.ID(e.Path))
 		m.mu.Unlock()
+
+		m.log.Info("deleted terminal application", zap.String("id", string(e.Path)))
 	}
 }
