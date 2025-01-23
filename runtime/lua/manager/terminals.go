@@ -31,12 +31,12 @@ type (
 
 // NewTerminals creates a new terminal manager instance
 func NewTerminals(
+	log *zap.Logger,
 	dtt payload.Transcoder,
-	logger *zap.Logger,
 	factory TerminalFactory,
 ) *Terminals {
 	return &Terminals{
-		log:       logger,
+		log:       log,
 		dtt:       dtt,
 		terminals: make(map[registry.ID]*api.TerminalConfig),
 		factory:   factory,

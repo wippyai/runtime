@@ -17,16 +17,17 @@ import (
 
 // mockTerminalFactory implements TerminalFactory for testing
 type mockTerminalFactory struct {
-	makeTerminalFunc func(api.TerminalConfig, api.ModuleRegistry, api.LibraryRegistry) (terminal.Terminal, error)
+	makeTerminalFunc func(*zap.Logger, api.TerminalConfig, api.ModuleRegistry, api.LibraryRegistry) (terminal.Terminal, error)
 }
 
 func (f *mockTerminalFactory) MakeTerminal(
+	log *zap.Logger,
 	cfg api.TerminalConfig,
 	modules api.ModuleRegistry,
 	libraries api.LibraryRegistry,
 ) (terminal.Terminal, error) {
 	if f.makeTerminalFunc != nil {
-		return f.makeTerminalFunc(cfg, modules, libraries)
+		return f.makeTerminalFunc(log, cfg, modules, libraries)
 	}
 	return &mockTerminal{}, nil
 }
@@ -34,6 +35,10 @@ func (f *mockTerminalFactory) MakeTerminal(
 type mockTerminal struct{}
 
 func (t *mockTerminal) Run(ctx context.Context, in io.Reader, out io.Writer) error {
+	return nil
+}
+
+func (t *mockTerminal) Close(ctx context.Context) error {
 	return nil
 }
 
@@ -66,7 +71,7 @@ func TestNewTerminals(t *testing.T) {
 	factory := &mockTerminalFactory{}
 
 	t.Run("creates new instance", func(t *testing.T) {
-		terms := NewTerminals(dtt, logger, factory)
+		terms := NewTerminals(logger, dtt, factory)
 		assert.NotNil(t, terms)
 		assert.NotNil(t, terms.terminals)
 		assert.Empty(t, terms.terminals)
@@ -80,7 +85,7 @@ func setupTerminalManagers(t *testing.T) (*Terminals, *Modules, *Libraries) {
 
 	modules := NewModules(logger)
 	libraries := NewLibraries(dtt, logger)
-	terminals := NewTerminals(dtt, logger, factory)
+	terminals := NewTerminals(logger, dtt, factory)
 
 	// Register test module
 	module := &mockModule{name: "test_module"}
@@ -326,11 +331,11 @@ func TestTerminals_MakeTerminal(t *testing.T) {
 	t.Run("fails with factory error", func(t *testing.T) {
 		// Create new terminals manager with failing factory
 		failingFactory := &mockTerminalFactory{
-			makeTerminalFunc: func(api.TerminalConfig, api.ModuleRegistry, api.LibraryRegistry) (terminal.Terminal, error) {
+			makeTerminalFunc: func(*zap.Logger, api.TerminalConfig, api.ModuleRegistry, api.LibraryRegistry) (terminal.Terminal, error) {
 				return nil, fmt.Errorf("factory error")
 			},
 		}
-		failingTerminals := NewTerminals(terminals.dtt, terminals.log, failingFactory)
+		failingTerminals := NewTerminals(terminals.log, terminals.dtt, failingFactory)
 
 		// Add the same terminal config
 		err := failingTerminals.Add(makeTestTerminalEntry("test_term", cfg), modules, libraries)

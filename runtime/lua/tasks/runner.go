@@ -54,7 +54,7 @@ func NewTasker(
 }
 
 // Start initiates the task manager service
-func (t *TaskRunner) Start(ctx context.Context, funcName string, args ...lua.LValue) (<-chan any, error) {
+func (t *TaskRunner) Start(ctx context.Context, funcName string, args ...lua.LValue) (<-chan lua.LValue, error) {
 	if !t.running.CompareAndSwap(false, true) {
 		return nil, fmt.Errorf("tasker already running")
 	}
@@ -66,7 +66,7 @@ func (t *TaskRunner) Start(ctx context.Context, funcName string, args ...lua.LVa
 		}
 	}()
 
-	status := make(chan any, 9)
+	resultChan := make(chan lua.LValue, 1)
 
 	// always isolate context
 	ctx, t.cancel = context.WithCancel(ctx)
@@ -78,25 +78,22 @@ func (t *TaskRunner) Start(ctx context.Context, funcName string, args ...lua.LVa
 		return nil, fmt.Errorf("failed to start engine: %v", err)
 	}
 
-	status <- "engine started"
-
 	// Start the main execution loop
 	t.wg.Add(1)
 	go func() {
 		defer t.wg.Done()
 		defer t.running.Store(false)
-		defer close(status)
+		defer close(resultChan)
 
 		// Run the engine with context
 		result, err := t.runner.Run(ctx, exitCh)
 		if err != nil {
-			status <- fmt.Sprintf("engine error: %v", err)
 			return
 		}
-		status <- fmt.Sprintf("engine exit: %v", result)
+		resultChan <- result
 	}()
 
-	return status, nil
+	return resultChan, nil
 }
 
 // State returns the underlying Lua state
