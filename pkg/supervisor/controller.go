@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ponyruntime/pony/internal/backoff"
 	"sync"
 	"time"
 
@@ -170,17 +171,45 @@ func (c *Controller) startService() error {
 }
 
 func (c *Controller) tryStart(lastErr error) error {
+	bf := backoff.NewCalculator(c.config.RetryPolicy)
 	for attempt := 1; ; attempt++ {
 		err := c.attemptStart(attempt)
 		if err == nil {
 			return nil
 		}
 
+		// check if we have pending state transitions
+		select {
+		case transition, ok := <-c.transitions:
+			err := fmt.Errorf("failed to start service: %w", err)
+			if !ok {
+				err = fmt.Errorf("supervisor is stopped")
+			}
+
+			if transition.target == supervisor.Stopped {
+				c.updateState(supervisor.Stopped, "interrupted")
+				select {
+				case transition.result <- nil:
+				default:
+				}
+
+				return context.Canceled
+			}
+
+			select {
+			case transition.result <- err:
+			default:
+			}
+			return err
+		default:
+		}
+
 		lastErr = err
 		if !c.shouldRetry(attempt) {
 			return fmt.Errorf("failed to start service after %d attempts: %w", attempt, lastErr)
 		}
-		time.Sleep(c.config.RetryPolicy.InitialDelay)
+
+		time.Sleep(bf.NextInterval())
 	}
 }
 
@@ -190,39 +219,43 @@ func (c *Controller) attemptStart(attempt int) error {
 		fmt.Sprintf("attempt %d", attempt-1),
 	)
 
-	var detailsCh <-chan any
-	errCh := make(chan error, 1)
+	resultCh := make(chan error, 1)
+	detailsCh := make(chan (<-chan any), 1)
+	timeoutCtx, timeoutCancel := context.WithTimeout(context.Background(), c.config.StartTimeout)
+	defer timeoutCancel()
 
-	// Start service with controller context
+	// Capture ctx to avoid race
+	ctx := c.ctx
+
 	go func() {
-		ch, err := c.service.Start(c.ctx)
-		if err != nil {
-			errCh <- err
-			return
+		ch, err := c.service.Start(ctx)
+		if err == nil {
+			detailsCh <- ch
 		}
-		detailsCh = ch
-		errCh <- nil
+
+		resultCh <- err
 	}()
 
-	// Wait for start or timeout
 	select {
-	case err := <-errCh:
+	case err := <-resultCh:
 		if err != nil {
 			c.updateState(supervisor.Failed, err)
 			return err
 		}
+
 		c.updateState(supervisor.Running, nil)
 		c.wg.Add(1)
-		go c.monitorService(detailsCh)
+		go c.monitorService(<-detailsCh)
 		return nil
 
-	case <-time.After(c.config.StartTimeout):
-		c.cancel() // Cancel the start context
+	case <-timeoutCtx.Done():
+		c.mu.Lock()
+		c.cancel()
+		newCtx, cancel := context.WithCancel(c.rootCtx)
+		c.ctx, c.cancel = newCtx, cancel
+		c.mu.Unlock()
 
-		// restore the context
-		c.ctx, c.cancel = context.WithCancel(c.rootCtx)
-
-		return fmt.Errorf("service start timed out after %v", c.config.StartTimeout)
+		return context.DeadlineExceeded
 	}
 }
 
@@ -360,20 +393,19 @@ func (c *Controller) recoverService(initialErr error) {
 
 func (c *Controller) transitionTo(status supervisor.Status) error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	if c.ctx == nil {
+		c.mu.Unlock()
 		return fmt.Errorf("supervisor is not started")
 	}
 
 	if err := c.ctx.Err(); err != nil {
+		c.mu.Unlock()
 		return fmt.Errorf("supervisor is stopped: %w", err)
 	}
 
-	return c.sendTransition(status)
-}
+	ctx := c.ctx
+	c.mu.Unlock()
 
-func (c *Controller) sendTransition(status supervisor.Status) error {
 	result := make(chan error, 1)
 
 	select {
@@ -381,10 +413,10 @@ func (c *Controller) sendTransition(status supervisor.Status) error {
 		select {
 		case err := <-result:
 			return err
-		case <-c.ctx.Done():
-			return fmt.Errorf("supervisor is stopped: %w", c.ctx.Err())
+		case <-ctx.Done():
+			return fmt.Errorf("supervisor is stopped: %w", ctx.Err())
 		}
-	case <-c.ctx.Done():
-		return fmt.Errorf("supervisor is stopped: %w", c.ctx.Err())
+	case <-ctx.Done():
+		return fmt.Errorf("supervisor is stopped: %w", ctx.Err())
 	}
 }
