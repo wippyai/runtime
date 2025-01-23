@@ -188,7 +188,7 @@ func TestRunner_ChannelLayer(t *testing.T) {
                ch:send(doubled)
            end)
 
-           -- Wait for result
+           -- wait for result
            local result = ch:receive()
            return result
        end
@@ -379,7 +379,7 @@ func TestWorkerPool(t *testing.T) {
                results[received] = result
            end
 
-           -- Wait for all workers to complete
+           -- wait for all workers to complete
            for i = 1, NUM_WORKERS do
                done_ch:receive()
            end

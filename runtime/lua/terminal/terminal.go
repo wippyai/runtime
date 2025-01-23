@@ -77,7 +77,7 @@ func (t *LuaTerminal) Run(ctx context.Context, in io.Reader, out io.Writer) erro
 		return fmt.Errorf("bubbletea error: %w", err)
 	}
 
-	// Stop the tasker and capture final state as state
+	// stop the tasker and capture final state as state
 	if err := t.tasker.Stop(ctx); err != nil {
 		t.log.Error("failed to stop tasker", zap.Error(err))
 	}

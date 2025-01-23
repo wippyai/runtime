@@ -33,7 +33,7 @@ func TestExecutor_StartStop(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, executor.subscriber)
 
-	// Test Stop
+	// Test stop
 	err = executor.Stop()
 	require.NoError(t, err)
 }

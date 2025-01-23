@@ -437,7 +437,7 @@ func TestBusRunner_BeginAndCommitEvents(t *testing.T) {
 	_, err = busRunner.Transition(ctx, initialState, changeSet)
 	require.NoError(t, err)
 
-	// Wait for the listener to process the events
+	// wait for the listener to process the events
 	wg.Wait()
 
 	// Collect the received events
@@ -508,7 +508,7 @@ func TestBusRunner_BeginAndDiscardEvents(t *testing.T) {
 	_, err = busRunner.Transition(ctx, initialState, changeSet)
 	require.Error(t, err) // We expect an error because the operation is rejected
 
-	// Wait for the listener to process the events
+	// wait for the listener to process the events
 	wg.Wait()
 
 	// Collect the received events

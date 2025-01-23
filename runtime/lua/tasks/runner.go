@@ -140,7 +140,7 @@ func (t *TaskRunner) Stop(ctx context.Context) error {
 	}
 	t.runner.GetTaskGroup().WakeUp()
 
-	// Wait for processing to complete with context deadline
+	// wait for processing to complete with context deadline
 	done := make(chan struct{})
 	go func() {
 		t.wg.Wait()

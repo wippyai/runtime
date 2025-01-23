@@ -344,7 +344,7 @@ func treePrintDotGraph(L *lua.LState) int {
 	tree.tree.PrintDotGraph(int(w.Fd()))
 	_ = w.Close()
 
-	// Wait for reading to complete
+	// wait for reading to complete
 	wg.Wait()
 
 	if readErr != nil {

@@ -77,11 +77,11 @@ func TestTimeModule(t *testing.T) {
 					assert.ErrorContains(t, err, "context canceled")
 				}()
 
-				// Wait a bit then cancel
+				// wait a bit then cancel
 				time.Sleep(100 * time.Millisecond)
 				cancel()
 
-				// Wait for completion
+				// wait for completion
 				select {
 				case <-done:
 					// Test completed normally
@@ -755,11 +755,11 @@ func TestSleep(t *testing.T) {
 					assert.ErrorContains(t, err, "context canceled")
 				}()
 
-				// Wait a bit then cancel
+				// wait a bit then cancel
 				time.Sleep(100 * time.Millisecond)
 				cancel()
 
-				// Wait for completion
+				// wait for completion
 				select {
 				case <-done:
 					// Test completed normally

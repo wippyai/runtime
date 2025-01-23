@@ -133,7 +133,7 @@ func (s *Supervisor) Stop() error {
 	close(s.actions)
 	s.wg.Wait()
 
-	// Stop all controllers
+	// stop all controllers
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

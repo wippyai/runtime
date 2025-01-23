@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/internal/wildcard"
@@ -168,7 +170,7 @@ func (b *Bus) Send(ctx context.Context, event events.Event) {
 func (b *Bus) Stop() {
 	done := make(chan struct{})
 	b.actions <- action{actionType: stop, stopDoneChan: done}
-	<-done // Wait for stop to complete
+	<-done // wait for stop to complete, todo: add ctx?
 	b.wg.Wait()
 }
 
@@ -202,6 +204,8 @@ func (b *Bus) handleActions() {
 					continue
 				case s.eventCh <- a.event.event:
 					continue
+				case <-time.After(1 * time.Second):
+					log.Printf("!!!!!!!!ERROPR!!!!!!!!!!!!!!!!!!!!SENDING TO %+v", s)
 				}
 			}
 

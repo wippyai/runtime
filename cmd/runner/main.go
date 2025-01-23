@@ -138,6 +138,14 @@ func main() {
 		services.WithListener("terminal.*", term),
 	)
 
+	go func() {
+		// spam log every second
+		for {
+			appLogger.Info("running")
+			time.Sleep(1 * time.Second)
+		}
+	}()
+
 	if err != nil {
 		appLogger.Fatal("failed to create router", zap.Error(err))
 	}
@@ -164,7 +172,7 @@ func main() {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	// Wait for either shutdown signal or context cancellation
+	// wait for either shutdown signal or context cancellation
 	select {
 	case <-ctx.Done():
 		appLogger.Info("context cancelled, shutting down...")

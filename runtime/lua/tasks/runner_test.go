@@ -75,7 +75,7 @@ func TestTasker_BasicExecution(t *testing.T) {
 
 		ctx, _ := context.WithTimeout(context.Background(), time.Second)
 
-		// Stop the tasker
+		// stop the tasker
 		err = tasker.Stop(ctx)
 		assert.NoError(t, err)
 
@@ -283,7 +283,7 @@ func TestConsecutiveTasks(t *testing.T) {
 	assert.Equal(t, "processed_B", results[1])
 	assert.Equal(t, "processed_C", results[2])
 
-	// Stop tasker
+	// stop tasker
 	err = tasker.Stop(context.Background())
 	assert.NoError(t, err)
 
@@ -335,7 +335,7 @@ func TestAsyncTasksWithTimers(t *testing.T) {
 					local task, ok = inbox:receive()
 					if not ok then return end
 
-					-- Wait for specified delay
+					-- wait for specified delay
 					time.after(task:input().delay):receive()
 
 					-- Record completion order
@@ -350,7 +350,7 @@ func TestAsyncTasksWithTimers(t *testing.T) {
 				end)
 			end
 
-			-- Wait for all tasks to complete
+			-- wait for all tasks to complete
 			for i = 1, 3 do
 				completed:receive()
 			end
@@ -398,7 +398,7 @@ func TestAsyncTasksWithTimers(t *testing.T) {
 	assert.Equal(t, "done_B", results[1])
 	assert.Equal(t, "done_C", results[2])
 
-	// Stop tasker
+	// stop tasker
 	err = tasker.Stop(context.Background())
 	require.NoError(t, err)
 
@@ -493,7 +493,7 @@ func TestTasker_TaskSend(t *testing.T) {
 	assert.Equal(t, "done", results[2][0].String())
 	assert.Equal(t, float64(100), float64(results[2][1].(lua.LNumber)))
 
-	// Stop tasker
+	// stop tasker
 	err = tasker.Stop(context.Background())
 	require.NoError(t, err)
 
@@ -566,7 +566,7 @@ func BenchmarkSingleTaskExecution(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		<-out // Wait for completion
+		<-out // wait for completion
 	}
 }
 
@@ -603,7 +603,7 @@ func BenchmarkParallelTaskExecution(b *testing.B) {
 			if err != nil {
 				b.Fatal(err)
 			}
-			<-out // Wait for completion
+			<-out // wait for completion
 		}
 	})
 }
@@ -646,6 +646,6 @@ func BenchmarkTaskWithData(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		<-out // Wait for completion
+		<-out // wait for completion
 	}
 }
