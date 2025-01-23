@@ -3,7 +3,6 @@ package logs
 import (
 	"context"
 	"fmt"
-	"log"
 	"sync"
 
 	"github.com/ponyruntime/pony/api/events"
@@ -112,7 +111,7 @@ func (m *Manager) handleGetConfigEvent(ctx context.Context, e events.Event) {
 	m.mu.RLock()
 	currentConfig := m.config
 	m.mu.RUnlock()
-	log.Printf("GGGGGGGGGGGGGGGGGGGGGGGGGEEEEEEEEETTTTTTTTT currentConfig: %+v", currentConfig)
+
 	// Send response with current config
 	m.bus.Send(ctx, events.Event{
 		System: api.System,
