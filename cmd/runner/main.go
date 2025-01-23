@@ -101,7 +101,7 @@ func main() {
 	// -- end of application core
 
 	// -- additional services
-	term := terminal.NewManager(bus, log.Named("term"))
+	term := terminal.NewManager(bus, dtt, log.Named("term"))
 	if err := term.Start(ctx); err != nil {
 		appLogger.Fatal("failed to start executor", zap.Error(err))
 	}
@@ -135,6 +135,7 @@ func main() {
 	svc, err := services.NewRouter(ctx, bus,
 		services.WithListener("http.*", http.NewExecutingManager(bus, dtt, exec, log.Named("http"))),
 		services.WithListener("(function|library|terminal).lua", luaRuntime),
+		services.WithListener("terminal.*", term),
 	)
 
 	if err != nil {

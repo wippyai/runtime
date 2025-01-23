@@ -4,20 +4,21 @@ import (
 	"context"
 	"fmt"
 	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	api "github.com/ponyruntime/pony/api/service/terminal"
 	"github.com/ponyruntime/pony/api/supervisor"
-	"github.com/ponyruntime/pony/pkg/payload"
+	"github.com/ponyruntime/pony/pkg/eventbus"
 	"go.uber.org/zap"
 	"sync"
 )
 
 type Manager struct {
-	ctx context.Context
-	log *zap.Logger
-	bus events.Bus
-	dtt payload.Transcoder
-
+	ctx      context.Context
+	log      *zap.Logger
+	bus      events.Bus
+	dtt      payload.Transcoder
+	sub      *eventbus.Subscriber
 	mu       sync.RWMutex
 	services map[registry.ID]*service
 	apps     map[registry.ID]*api.Application
@@ -31,6 +32,31 @@ func NewManager(bus events.Bus, dtt payload.Transcoder, logger *zap.Logger) *Man
 		services: make(map[registry.ID]*service),
 		apps:     make(map[registry.ID]*api.Application),
 	}
+}
+
+// Start initializes the manager and starts listening for events
+func (m *Manager) Start(ctx context.Context) error {
+	m.ctx = ctx
+
+	// Subscribe to terminal events
+	sub, err := eventbus.NewSubscriber(ctx, m.bus, api.System, "*", m.handleEvent)
+	if err != nil {
+		return fmt.Errorf("failed to create event subscriber: %w", err)
+	}
+	m.sub = sub
+
+	m.log.Info("terminal manager started")
+	return nil
+}
+
+// Stop gracefully shuts down the manager
+func (m *Manager) Stop() error {
+	if m.sub != nil {
+		m.sub.Close()
+		m.sub = nil
+	}
+
+	return nil
 }
 
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
