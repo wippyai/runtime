@@ -19,7 +19,7 @@ import (
 
 func setupTest(t *testing.T) (*Executor, events.Bus) {
 	logger := zap.NewNop()
-	bus := eventbus.NewBus(logger)
+	bus := eventbus.NewBus()
 	executor := NewExecutor(bus, logger)
 	return executor, bus
 }
