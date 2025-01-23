@@ -304,7 +304,7 @@ func TestBusRunner_Operations(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
-			bus := eventbus.NewBus(zap.NewNop())
+			bus := eventbus.NewBus()
 			busRunner := NewBusRunner(bus, zap.NewNop())
 			component := newTestComponent(bus)
 			componentClose := attachComponent(ctx, t, bus, component)
@@ -344,7 +344,7 @@ func TestBusRunner_RollbackOnSecondOperationFailure(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	bus := eventbus.NewBus(zap.NewNop())
+	bus := eventbus.NewBus()
 	busRunner := NewBusRunner(bus, zap.NewNop())
 	component := newTestComponent(bus)
 	componentClose := attachComponent(ctx, t, bus, component)
@@ -389,7 +389,7 @@ func TestBusRunner_BeginAndCommitEvents(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	bus := eventbus.NewBus(zap.NewNop())
+	bus := eventbus.NewBus()
 	busRunner := NewBusRunner(bus, zap.NewNop())
 	component := newTestComponent(bus)
 
@@ -460,7 +460,7 @@ func TestBusRunner_BeginAndDiscardEvents(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	bus := eventbus.NewBus(zap.NewNop())
+	bus := eventbus.NewBus()
 	busRunner := NewBusRunner(bus, zap.NewNop())
 	component := newTestComponent(bus)
 
@@ -531,7 +531,7 @@ func TestBusRunner_ErrorPropagation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	bus := eventbus.NewBus(zap.NewNop())
+	bus := eventbus.NewBus()
 	busRunner := NewBusRunner(bus, zap.NewNop())
 
 	expectedError := errors.New("component configuration not allowed")

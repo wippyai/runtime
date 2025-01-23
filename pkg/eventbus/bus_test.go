@@ -9,19 +9,13 @@ import (
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
-	"go.uber.org/zap/zaptest/observer"
 )
 
-// Helper function to create a new Bus with an observed logger for testing
-func newTestBus(t *testing.T) (*Bus, *observer.ObservedLogs) {
+// Helper function to create a new Bus for testing
+func newTestBus(t *testing.T) *Bus {
 	t.Helper()
 
-	observedCore, observedLogs := observer.New(zapcore.DebugLevel)
-	logger := zap.New(observedCore)
-
-	return NewBus(logger), observedLogs
+	return NewBus()
 }
 
 // Helper function to generate test eventbus
@@ -53,7 +47,7 @@ func waitForEvents(t *testing.T, ch chan events.Event, numEvents int, timeout ti
 }
 
 func TestSubscribeAndSend(t *testing.T) {
-	bus, logs := newTestBus(t)
+	bus := newTestBus(t)
 	defer bus.Stop()
 
 	ch := make(chan events.Event, 10)
@@ -66,27 +60,10 @@ func TestSubscribeAndSend(t *testing.T) {
 
 	receivedEvents := waitForEvents(t, ch, 1, time.Second)
 	require.Equal(t, event, receivedEvents[0])
-
-	// Wait a bit for logs to be written
-	time.Sleep(50 * time.Millisecond)
-
-	entries := logs.All()
-	require.GreaterOrEqual(t, len(entries), 1) // Should see "sending" log
-
-	var foundSending bool
-	for _, entry := range entries {
-		if entry.Message == "sending event" {
-			foundSending = true
-			// Verify log fields
-			require.Equal(t, "test-system", entry.ContextMap()["system"])
-			require.Equal(t, "test-kind", entry.ContextMap()["kind"])
-		}
-	}
-	require.True(t, foundSending, "should find 'sending event' log")
 }
 
 func TestSubscribeWithPathAndSend(t *testing.T) {
-	bus, _ := newTestBus(t)
+	bus := newTestBus(t)
 	defer bus.Stop()
 
 	ch := make(chan events.Event, 10)
@@ -112,7 +89,7 @@ func TestSubscribeWithPathAndSend(t *testing.T) {
 }
 
 func TestWildcardSystem(t *testing.T) {
-	bus, _ := newTestBus(t)
+	bus := newTestBus(t)
 	defer bus.Stop()
 
 	ch := make(chan events.Event, 10)
@@ -133,7 +110,7 @@ func TestWildcardSystem(t *testing.T) {
 }
 
 func TestUnsubscribe(t *testing.T) {
-	bus, _ := newTestBus(t)
+	bus := newTestBus(t)
 	defer bus.Stop()
 
 	ch := make(chan events.Event, 10)
@@ -159,7 +136,7 @@ func TestUnsubscribe(t *testing.T) {
 }
 
 func TestBusStop(t *testing.T) {
-	bus, _ := newTestBus(t)
+	bus := newTestBus(t)
 
 	ch := make(chan events.Event, 10)
 	_, err := bus.Subscribe(context.Background(), "test-system", ch)
@@ -177,8 +154,7 @@ func TestBusStop(t *testing.T) {
 }
 
 func TestSendWithNilPayload(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
-	b := NewBus(logger)
+	b := NewBus()
 	defer b.Stop()
 
 	event := events.Event{
@@ -191,8 +167,7 @@ func TestSendWithNilPayload(t *testing.T) {
 }
 
 func TestConcurrentSubscribeUnsubscribe(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
-	b := NewBus(logger)
+	b := NewBus()
 	defer b.Stop()
 
 	var wg sync.WaitGroup
@@ -217,7 +192,7 @@ func TestConcurrentSubscribeUnsubscribe(t *testing.T) {
 }
 
 func TestConcurrentSendSubscribe(t *testing.T) {
-	b := NewBus(zap.NewNop())
+	b := NewBus()
 	defer b.Stop()
 
 	var wg sync.WaitGroup
@@ -249,7 +224,7 @@ func TestConcurrentSendSubscribe(t *testing.T) {
 }
 
 func TestUnsubscribeClosesChannel(t *testing.T) {
-	b := NewBus(zap.NewNop())
+	b := NewBus()
 	defer b.Stop()
 
 	ch := make(chan events.Event)
@@ -268,7 +243,7 @@ func TestUnsubscribeClosesChannel(t *testing.T) {
 }
 
 func TestNoEventsAfterUnsubscribe(t *testing.T) {
-	b := NewBus(zap.NewNop())
+	b := NewBus()
 	defer b.Stop()
 
 	ch := make(chan events.Event)
@@ -294,15 +269,13 @@ func TestNoEventsAfterUnsubscribe(t *testing.T) {
 }
 
 func TestStopBusClosesInternalChannel(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
-	b := NewBus(logger)
+	b := NewBus()
 
 	b.Stop()
 }
 
 func TestStopWithActiveSubscribers(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
-	b := NewBus(logger)
+	b := NewBus()
 
 	ch1 := make(chan events.Event)
 	ch2 := make(chan events.Event)
@@ -327,20 +300,18 @@ func TestStopWithActiveSubscribers(t *testing.T) {
 }
 
 func TestSubscribePEmptyKind(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
-	b := NewBus(logger)
+	b := NewBus()
 	defer b.Stop()
 
 	ch := make(chan events.Event)
 	_, err := b.SubscribeP(context.Background(), "test-system", "", ch)
 	if err != nil {
 		t.Errorf("SubscribeP with empty kind failed: %v", err)
-		// ...
 	}
 }
 
 func TestMultipleSubscribersSameSystemPath(t *testing.T) {
-	b := NewBus(zap.NewNop())
+	b := NewBus()
 	defer b.Stop()
 
 	ch1 := make(chan events.Event, 1)
@@ -361,7 +332,7 @@ func TestMultipleSubscribersSameSystemPath(t *testing.T) {
 }
 
 func TestMultipleSubscribersDifferentKinds(t *testing.T) {
-	b := NewBus(zap.NewNop())
+	b := NewBus()
 	defer b.Stop()
 
 	ch1 := make(chan events.Event, 10)

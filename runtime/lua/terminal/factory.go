@@ -26,7 +26,6 @@ func (f *Factory) MakeTerminal(
 	modules api.ModuleRegistry,
 	libraries api.LibraryRegistry,
 ) (terminal.Terminal, error) {
-	// Collect all engine options
 	opts := []engine.Option{
 		// Always require the task and channel modules
 		engine.WithPreloaded("tasks", tasks.NewTaskModule().Loader),
