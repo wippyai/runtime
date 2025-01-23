@@ -22,7 +22,7 @@ type LuaTerminal struct {
 	state    atomic.Value // stores last captured state
 }
 
-type LuaTerminalOptions struct {
+type Options struct {
 	FuncName string
 	Args     []lua.LValue
 }
@@ -30,7 +30,7 @@ type LuaTerminalOptions struct {
 func NewLuaTerminal(
 	log *zap.Logger,
 	tasker *tasks.TaskRunner,
-	opts LuaTerminalOptions,
+	opts Options,
 ) *LuaTerminal {
 	if log == nil {
 		log = zap.NewExample()

@@ -31,8 +31,8 @@ type (
 
 // NewTerminals creates a new terminal manager instance
 func NewTerminals(
-	log *zap.Logger,
 	dtt payload.Transcoder,
+	log *zap.Logger,
 	factory TerminalFactory,
 ) *Terminals {
 	return &Terminals{
