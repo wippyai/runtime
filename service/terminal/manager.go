@@ -10,6 +10,7 @@ import (
 	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/ponyruntime/pony/pkg/eventbus"
 	"go.uber.org/zap"
+	"log"
 	"sync"
 )
 
@@ -63,6 +64,8 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindTerminal {
 		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
 	}
+
+	log.Printf("!!!!!!!!!!!!entry.Data: %v", entry.Data)
 
 	cfg := new(api.ServiceConfig)
 	if err := m.dtt.Unmarshal(entry.Data, cfg); err != nil {
