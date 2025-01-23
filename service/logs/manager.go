@@ -3,23 +3,24 @@ package logs
 import (
 	"context"
 	"fmt"
+	"log"
 	"sync"
 
 	"github.com/ponyruntime/pony/api/events"
 	api "github.com/ponyruntime/pony/api/service/logs"
+	"github.com/ponyruntime/pony/pkg/eventbus"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
 
 // Manager manages logging configuration and event handling
 type Manager struct {
-	log       *zap.Logger
-	bus       events.Bus
-	core      api.Core
-	mu        sync.RWMutex
-	config    api.Config
-	eventChan chan events.Event
-	subID     events.SubscriberID
+	log    *zap.Logger
+	bus    events.Bus
+	core   api.Core
+	mu     sync.RWMutex
+	config api.Config
+	sub    *eventbus.Subscriber
 }
 
 // NewManager creates a new logging service instance
@@ -33,24 +34,20 @@ func NewManager(bus events.Bus, core api.Core, logger *zap.Logger) *Manager {
 			StreamToEvents:      false,
 			MinLevel:            zapcore.InfoLevel,
 		},
-		eventChan: make(chan events.Event),
 	}
 }
 
 // Start initializes the service and starts listening for events
 func (m *Manager) Start(ctx context.Context) error {
 	// Subscribe to log configuration events and config requests
-	subID, err := m.bus.SubscribeP(ctx, api.System, "*", m.eventChan)
+	sub, err := eventbus.NewSubscriber(ctx, m.bus, api.System, "*", m.handleEvent)
 	if err != nil {
 		return fmt.Errorf("failed to subscribe to events: %w", err)
 	}
-	m.subID = subID
+	m.sub = sub
 
 	// Apply initial configuration
 	m.applyConfig(ctx, m.config)
-
-	// Start event handling loop
-	go m.eventLoop(ctx)
 
 	m.log.Info("logging service started",
 		zap.Bool("propagate", m.config.PropagateDownstream),
@@ -63,31 +60,17 @@ func (m *Manager) Start(ctx context.Context) error {
 
 // Stop gracefully shuts down the service
 func (m *Manager) Stop(ctx context.Context) error {
-	if m.subID != "" {
-		m.bus.Unsubscribe(ctx, m.subID)
-		m.subID = ""
+	if m.sub != nil {
+		m.sub.Close()
+		m.sub = nil
 	}
 	m.log.Info("logging service stopped")
 	return nil
 }
 
-// eventLoop handles incoming events
-func (m *Manager) eventLoop(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case event, ok := <-m.eventChan:
-			if !ok {
-				return
-			}
-			m.handleEvent(ctx, event)
-		}
-	}
-}
-
 // handleEvent processes incoming events
-func (m *Manager) handleEvent(ctx context.Context, e events.Event) {
+func (m *Manager) handleEvent(e events.Event) {
+	ctx := context.Background()
 	switch e.Kind {
 	case api.SetConfigEvent:
 		m.handleConfigEvent(ctx, e)
@@ -126,21 +109,15 @@ func (m *Manager) handleConfigEvent(ctx context.Context, e events.Event) {
 
 // handleGetConfigEvent handles requests for current config state
 func (m *Manager) handleGetConfigEvent(ctx context.Context, e events.Event) {
-	req, ok := e.Data.(api.ConfigRequest)
-	if !ok {
-		m.log.Error("invalid config request data type")
-		return
-	}
-
 	m.mu.RLock()
 	currentConfig := m.config
 	m.mu.RUnlock()
-
+	log.Printf("GGGGGGGGGGGGGGGGGGGGGGGGGEEEEEEEEETTTTTTTTT currentConfig: %+v", currentConfig)
 	// Send response with current config
 	m.bus.Send(ctx, events.Event{
 		System: api.System,
 		Kind:   api.ConfigStateEvent,
-		Path:   req.ResponsePath,
+		Path:   e.Path,
 		Data: api.ConfigResponse{
 			Config: currentConfig,
 		},

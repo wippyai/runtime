@@ -29,11 +29,6 @@ type (
 		MinLevel zapcore.Level `json:"min_level"`
 	}
 
-	// ConfigRequest is sent to request current config state
-	ConfigRequest struct {
-		ResponsePath events.Path `json:"response_path"`
-	}
-
 	// ConfigResponse contains the current logging configuration
 	ConfigResponse struct {
 		Config Config `json:"config"`

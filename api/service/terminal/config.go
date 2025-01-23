@@ -27,6 +27,26 @@ type TimeoutConfig struct {
 	CloseTimeout time.Duration `json:"close"`
 }
 
+// InitDefaults initializes the TimeoutConfig with default values if they are not set
+func (c *TimeoutConfig) InitDefaults() {
+	if c.StopTimeout == 0 {
+		c.StopTimeout = DefaultStopTimeout
+	}
+	if c.StartTimeout == 0 {
+		c.StartTimeout = DefaultStartTimeout
+	}
+	if c.CloseTimeout == 0 {
+		c.CloseTimeout = DefaultCloseTimeout
+	}
+}
+
+// InitDefaults initializes the ServiceConfig with default values
+func (c *ServiceConfig) InitDefaults() {
+	c.Timeouts.InitDefaults()
+	// Initialize lifecycle defaults if needed
+	c.Lifecycle.InitDefaults()
+}
+
 // UnmarshalJSON implements custom unmarshaling for TimeoutConfig
 func (c *TimeoutConfig) UnmarshalJSON(data []byte) error {
 	type Alias TimeoutConfig

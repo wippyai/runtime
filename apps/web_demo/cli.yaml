@@ -1,0 +1,12 @@
+name: terminal
+kind: terminal.service
+meta:
+  comment: "Default terminal service."
+
+target: "default_terminal"
+
+lifecycle:
+  auto_start: true
+  restart:
+    initial_delay: 5s
+    max_attempts: 3

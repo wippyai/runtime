@@ -137,7 +137,7 @@ func (br *BusRunner) applyOperation(ctx context.Context, state stateMap, op regi
 
 		case <-ctx.Done():
 			// Return the original state in case of timeout/cancellation to maintain consistency
-			return state, fmt.Errorf("failed to apply operation %s: %w", op.Entry.ID, ctx.Err())
+			return state, fmt.Errorf("failed to apply operation %s (%s): %w", op.Entry.ID, op.Entry.Kind, ctx.Err())
 		}
 	}
 }
