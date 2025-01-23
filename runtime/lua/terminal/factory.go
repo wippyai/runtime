@@ -75,5 +75,8 @@ func (f *Factory) MakeTerminal(
 		1024, // Buffer size for task inbox
 	)
 
-	return NewLuaTerminal(log, tasker), nil
+	return NewLuaTerminal(log, tasker, Options{
+		FuncName: cfg.Method,
+		Args:     nil,
+	}), nil
 }

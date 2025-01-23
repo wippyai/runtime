@@ -71,7 +71,7 @@ func TestNewTerminals(t *testing.T) {
 	factory := &mockTerminalFactory{}
 
 	t.Run("creates new instance", func(t *testing.T) {
-		terms := NewTerminals(logger, dtt, factory)
+		terms := NewTerminals(dtt, logger, factory)
 		assert.NotNil(t, terms)
 		assert.NotNil(t, terms.terminals)
 		assert.Empty(t, terms.terminals)
@@ -85,7 +85,7 @@ func setupTerminalManagers(t *testing.T) (*Terminals, *Modules, *Libraries) {
 
 	modules := NewModules(logger)
 	libraries := NewLibraries(dtt, logger)
-	terminals := NewTerminals(logger, dtt, factory)
+	terminals := NewTerminals(dtt, logger, factory)
 
 	// Register test module
 	module := &mockModule{name: "test_module"}
@@ -335,7 +335,7 @@ func TestTerminals_MakeTerminal(t *testing.T) {
 				return nil, fmt.Errorf("factory error")
 			},
 		}
-		failingTerminals := NewTerminals(terminals.log, terminals.dtt, failingFactory)
+		failingTerminals := NewTerminals(terminals.dtt, terminals.log, failingFactory)
 
 		// Add the same terminal config
 		err := failingTerminals.Add(makeTestTerminalEntry("test_term", cfg), modules, libraries)
