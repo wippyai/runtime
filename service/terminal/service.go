@@ -3,13 +3,12 @@ package terminal
 import (
 	"context"
 	"fmt"
-	"sync"
-	"time"
-
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/service/logs"
+	logsapi "github.com/ponyruntime/pony/api/service/logs"
 	api "github.com/ponyruntime/pony/api/service/terminal"
+	logs2 "github.com/ponyruntime/pony/service/logs"
+	"sync"
 )
 
 var (
@@ -24,7 +23,7 @@ type service struct {
 	id            registry.ID
 	lifecycle     *appLifecycle
 	mu            sync.Mutex
-	baseLogConfig *logs.Config
+	baseLogConfig *logsapi.Config
 }
 
 func newService(app api.Terminal, opts api.Options, id registry.ID, timeouts api.TimeoutConfig, bus events.Bus) *service {
@@ -37,38 +36,20 @@ func newService(app api.Terminal, opts api.Options, id registry.ID, timeouts api
 }
 
 func (s *service) redirectLogging(ctx context.Context) error {
-	// First, get current config
-	respChan := make(chan events.Event, 1)
-	subID, err := s.lifecycle.bus.SubscribeP(ctx, logs.System, logs.ConfigStateEvent, respChan)
+	ctx, cancel := context.WithTimeout(ctx, s.lifecycle.timeouts.StartTimeout) // Or whatever timeout we want
+	defer cancel()
+
+	cfg, err := logs2.GetConfig(ctx, s.lifecycle.bus)
 	if err != nil {
-		return fmt.Errorf("failed to subscribe to log config: %w", err)
+		return fmt.Errorf("failed to setup logging: %w", err)
 	}
-	defer s.lifecycle.bus.Unsubscribe(ctx, subID)
-
-	// Request current config
-	s.lifecycle.bus.Send(ctx, events.Event{
-		System: logs.System,
-		Kind:   logs.GetConfigEvent,
-		Data: &logs.ConfigRequest{
-			ResponsePath: "terminal.logs",
-		},
-	})
-
-	// Wait for response with timeout
-	select {
-	case resp := <-respChan:
-		if cfg, ok := resp.Data.(logs.ConfigResponse); ok {
-			s.baseLogConfig = &cfg.Config
-		}
-	case <-time.After(s.lifecycle.timeouts.StartTimeout):
-		return fmt.Errorf("timeout waiting for log config")
-	}
+	s.baseLogConfig = &cfg
 
 	// Now set our terminal logging config
 	s.lifecycle.bus.Send(ctx, events.Event{
-		System: logs.System,
-		Kind:   logs.SetConfigEvent,
-		Data: logs.Config{
+		System: logsapi.System,
+		Kind:   logsapi.SetConfigEvent,
+		Data: logsapi.Config{
 			PropagateDownstream: false,
 			StreamToEvents:      true,
 			MinLevel:            s.baseLogConfig.MinLevel, // Preserve original level
@@ -81,8 +62,8 @@ func (s *service) redirectLogging(ctx context.Context) error {
 func (s *service) restoreLogging(ctx context.Context) {
 	if s.baseLogConfig != nil {
 		s.lifecycle.bus.Send(ctx, events.Event{
-			System: logs.System,
-			Kind:   logs.SetConfigEvent,
+			System: logsapi.System,
+			Kind:   logsapi.SetConfigEvent,
 			Data:   *s.baseLogConfig,
 		})
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"sync"
 	"sync/atomic"
 
@@ -156,6 +157,7 @@ func (b *Bus) Unsubscribe(ctx context.Context, subID events.SubscriberID) {
 // Send publishes an event to all matching subscribers based on their system and kind filters.
 // The event delivery is skipped if the context is canceled.
 func (b *Bus) Send(ctx context.Context, event events.Event) {
+	log.Printf("Sending event: %v", event)
 	select {
 	case b.actions <- action{actionType: send, event: sendEvent{event: event, ctx: ctx}}:
 	case <-ctx.Done():
