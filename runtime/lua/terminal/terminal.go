@@ -4,141 +4,52 @@ import (
 	"context"
 	"fmt"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/supervisor"
-	transcode "github.com/ponyruntime/pony/pkg/payload/lua"
 	"github.com/ponyruntime/pony/runtime/lua/tasks"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 	"io"
-	"time"
+	"sync/atomic"
 )
 
-type tickMsg struct{}
-
-func tick() tea.Cmd {
-	return tea.Tick(100*time.Millisecond, func(t time.Time) tea.Msg {
-		return tickMsg{}
-	})
-}
-
-type bubbleModel struct {
-	tasker   *tasks.TaskRunner
-	logger   *zap.Logger
-	ctx      context.Context
-	state    *lua.LState
-	out      io.Writer
-	quitting bool
-}
-
-func (m bubbleModel) Init() tea.Cmd {
-	return tea.Batch(
-		tea.EnterAltScreen,
-		tick(),
-	)
-}
-
-func (m bubbleModel) mapMessage(msg tea.Msg) lua.LValue {
-	switch msg := msg.(type) {
-	case tickMsg:
-		return transcode.GoToLua(m.state, map[string]any{
-			"type": "update",
-			"tick": true,
-		})
-	case tea.KeyMsg:
-		return transcode.GoToLua(m.state, map[string]any{
-			"type": "update",
-			"key": map[string]any{
-				"Type":   msg.Type.String(),
-				"String": msg.String(),
-				"Alt":    msg.Alt,
-				"Runes":  string(msg.Runes),
-			},
-		})
-	default:
-		return transcode.GoToLua(m.state, map[string]any{
-			"type": "update",
-			"msg":  fmt.Sprintf("%v", msg),
-		})
-	}
-}
-
-func (m bubbleModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		if msg.String() == "q" || msg.String() == "ctrl+c" {
-			m.quitting = true
-			return m, tea.Quit
-		}
-	}
-
-	mappedMsg := m.mapMessage(msg)
-	resultCh, err := m.tasker.Execute(m.ctx, "update", []lua.LValue{mappedMsg})
-	if err != nil {
-		m.logger.Error("failed to execute update task", zap.Error(err))
-		return m, nil
-	}
-
-	result := <-resultCh
-	if result.Error != nil {
-		m.logger.Error("update task failed", zap.Error(result.Error))
-	}
-
-	if _, ok := msg.(tickMsg); ok {
-		return m, tick()
-	}
-
-	return m, nil
-}
-
-func (m bubbleModel) View() string {
-	resultCh, err := m.tasker.Execute(m.ctx, "view", []lua.LValue{
-		transcode.GoToLua(m.state, map[string]any{"type": "view"}),
-	})
-	if err != nil {
-		return "Error: failed to execute view task"
-	}
-
-	result := <-resultCh
-	if result.Error != nil {
-		return "Error: view task failed"
-	}
-
-	if len(result.Result) > 0 {
-		return result.Result[0].String()
-	}
-
-	return "No view data"
-}
-
 type LuaTerminal struct {
-	log    *zap.Logger
-	tasker *tasks.TaskRunner
+	log      *zap.Logger
+	tasker   *tasks.TaskRunner
+	funcName string
+	args     []lua.LValue
+	state    atomic.Value // stores last captured state
+}
+
+type LuaTerminalOptions struct {
+	FuncName string
+	Args     []lua.LValue
 }
 
 func NewLuaTerminal(
 	log *zap.Logger,
 	tasker *tasks.TaskRunner,
+	opts LuaTerminalOptions,
 ) *LuaTerminal {
 	if log == nil {
 		log = zap.NewExample()
 	}
 
 	return &LuaTerminal{
-		log:    log,
-		tasker: tasker,
+		log:      log,
+		tasker:   tasker,
+		funcName: opts.FuncName,
+		args:     opts.Args,
 	}
 }
 
 func (t *LuaTerminal) Run(ctx context.Context, in io.Reader, out io.Writer) error {
-	// Start the tasker with the main App function
-	statusCh, err := t.tasker.Start(ctx, "App")
+	// Start the tasker with the configured function and args
+	resultChan, err := t.tasker.Start(ctx, t.funcName, t.args...)
 	if err != nil {
 		return fmt.Errorf("failed to start tasker: %w", err)
 	}
-
-	// Wait for initial status
-	status := <-statusCh
-	t.log.Info("tasker status", zap.Any("status", status))
 
 	model := bubbleModel{
 		tasker: t.tasker,
@@ -166,14 +77,55 @@ func (t *LuaTerminal) Run(ctx context.Context, in io.Reader, out io.Writer) erro
 		return fmt.Errorf("bubbletea error: %w", err)
 	}
 
-	// Stop the tasker before exiting
+	// Stop the tasker and capture final state as state
 	if err := t.tasker.Stop(ctx); err != nil {
 		t.log.Error("failed to stop tasker", zap.Error(err))
+	}
+
+	// Store final state from state channel as our state
+	select {
+	case state := <-resultChan:
+		if state != nil {
+			t.state.Store(state)
+		}
+	default:
 	}
 
 	if m.(bubbleModel).quitting {
 		return supervisor.Exited
 	}
 
+	return nil
+}
+
+func (t *LuaTerminal) Close(ctx context.Context) error {
+	return nil
+}
+
+func (t *LuaTerminal) Observe(ctx context.Context, bus events.Bus) error {
+	return nil
+}
+
+func (t *LuaTerminal) State() payload.Payload {
+	if state := t.state.Load(); state != nil {
+		//return state
+	}
+	return nil
+}
+
+// todo: ctx
+func (t *LuaTerminal) SetState(ctx context.Context, state payload.Payload) error {
+	// todO: get bus and dtt from ctx
+	if state == nil {
+		t.args = nil
+		return nil
+	}
+
+	//luaArgs, ok := state.([]lua.LValue)
+	//if !ok {
+	//	return fmt.Errorf("invalid state type: expected []lua.LValue, got %T", state)
+	//}
+	//
+	//t.args = luaArgs
 	return nil
 }
