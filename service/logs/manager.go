@@ -67,7 +67,6 @@ func (m *Manager) Stop(ctx context.Context) error {
 		m.bus.Unsubscribe(ctx, m.subID)
 		m.subID = ""
 	}
-	close(m.eventChan)
 	m.log.Info("logging service stopped")
 	return nil
 }

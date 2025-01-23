@@ -162,7 +162,7 @@ func (m *Manager) handleEvent(e events.Event) {
 		// Update any running services using this app
 		for _, svc := range m.services {
 			if instance, ok := svc.lifecycle.Current(); ok && instance.id == registry.ID(e.Path) {
-				err := svc.UpdateApp(context.Background(), app.Terminal, app.Options, registry.ID(e.Path))
+				err := svc.UpdateApp(m.ctx, app.Terminal, app.Options, registry.ID(e.Path))
 				if err != nil {
 					m.log.Error("failed to update service",
 						zap.String("id", string(e.Path)),
