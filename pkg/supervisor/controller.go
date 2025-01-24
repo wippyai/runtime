@@ -17,6 +17,7 @@ type controlAction int
 const (
 	controlStart controlAction = iota
 	controlStop
+	controlFailed
 	controlExit
 )
 
@@ -97,6 +98,7 @@ func (c *Controller) runCommand(op controlOp) error {
 
 func (c *Controller) supervise() {
 	var startCh chan<- error
+	var exitCh chan any
 
 	var ctx context.Context
 	var cancel context.CancelFunc
@@ -126,6 +128,14 @@ func (c *Controller) supervise() {
 				cancel()
 				cancel = nil
 			}
+
+			if startCh != nil {
+				select {
+				case startCh <- context.Canceled:
+				case <-c.root.Done():
+				}
+			}
+
 			// we are done
 			return
 
@@ -133,23 +143,62 @@ func (c *Controller) supervise() {
 			var err error
 			switch op.kind {
 			case controlStop:
+				log.Printf("GOT STOP")
+				if ctx == nil {
+					// nothing to stop
+					break
+				}
+
+				err = c.tryStop(ctx)
+
+				// graceful shutdown failed, force exit
 				if cancel != nil {
-					err = c.tryStop(ctx)
 					cancel()
 					cancel = nil
 				}
+
+				if exitCh != nil {
+					// wait for monitor to exit
+					select {
+					case <-exitCh:
+					case <-c.ctx.Done():
+					}
+					exitCh = nil
+				}
+
 				respondAndCancel(context.Canceled) // for active start command if any
 
 			case controlExit:
 				c.updateState(supervisor.Exited, nil)
 				respondAndCancel(context.Canceled) // for active start command if any
 
+				if cancel != nil {
+					cancel()
+					cancel = nil
+				}
+			case controlFailed:
+				c.updateState(supervisor.Failed, "unexpected failure")
+				if c.state.getDesiredStatus() == supervisor.Running {
+					// immediate retry attempt
+					go func() {
+						select {
+						case c.ops <- controlOp{kind: controlStart}:
+						case <-c.ctx.Done():
+						}
+					}()
+				}
+				continue
 			case controlStart:
+				if c.state.getCurrentStatus() == supervisor.Running {
+					break
+				}
+
 				ctx, cancel = context.WithCancel(c.ctx)
+				log.Printf("STARTING %v", c.state.getCurrentStatus())
 				detailsCh, sErr := c.tryStart(ctx, cancel)
 
 				if sErr != nil {
-					if startCh == nil {
+					if startCh == nil && op.result != nil {
 						startCh = op.result
 						op.result = nil
 					}
@@ -178,7 +227,8 @@ func (c *Controller) supervise() {
 					break
 				}
 
-				go c.monitor(ctx, detailsCh)
+				exitCh = make(chan any, 1)
+				go c.monitor(ctx, exitCh, detailsCh)
 				respondStart(nil)
 			}
 
@@ -192,8 +242,8 @@ func (c *Controller) supervise() {
 	}
 }
 
-func (c *Controller) monitor(ctx context.Context, detailsCh <-chan any) {
-	defer log.Printf("monitoring stopped")
+func (c *Controller) monitor(ctx context.Context, exitCh chan<- any, detailsCh <-chan any) {
+	defer close(exitCh)
 	for {
 		select {
 		case <-ctx.Done():
@@ -201,14 +251,12 @@ func (c *Controller) monitor(ctx context.Context, detailsCh <-chan any) {
 		case details, ok := <-detailsCh:
 			if !ok {
 				if c.state.getDesiredStatus() == supervisor.Running {
-					c.updateState(supervisor.Failed, fmt.Errorf("service ended unexpectedly"))
 					select {
-					case c.ops <- controlOp{kind: controlStart}:
+					case c.ops <- controlOp{kind: controlFailed}:
 						// immediate retry attempt
 					case <-ctx.Done():
 					}
 				}
-
 				return
 			}
 
@@ -229,10 +277,6 @@ func (c *Controller) monitor(ctx context.Context, detailsCh <-chan any) {
 }
 
 func (c *Controller) tryStart(ctx context.Context, cancel context.CancelFunc) (<-chan any, error) {
-	if c.state.getCurrentStatus() == supervisor.Running {
-		return nil, nil
-	}
-
 	if c.state.getCurrentStatus() != supervisor.Failed {
 		// reset retry count if this is a fresh start
 		c.state.resetRetryCount()
@@ -266,6 +310,7 @@ func (c *Controller) tryStart(ctx context.Context, cancel context.CancelFunc) (<
 			if isTerminalError(result.err) {
 				return nil, result.err
 			}
+
 			// Just update state and return error, let supervise handle retry
 			c.updateState(supervisor.Failed, result.err)
 			return nil, result.err
@@ -295,7 +340,6 @@ func (c *Controller) tryStop(ctx context.Context) error {
 	resultCh := make(chan error, 1)
 	stopCtx, cancel := context.WithTimeout(ctx, c.config.StopTimeout)
 	defer cancel()
-
 	go func() {
 		err := c.service.Stop(stopCtx)
 		select {

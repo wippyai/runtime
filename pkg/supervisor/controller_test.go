@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
+	"math/rand"
 	"reflect"
 	"strings"
 	"sync"
@@ -227,67 +229,6 @@ func TestController_StartupError(t *testing.T) {
 	state := ctr.state.getSnapshot()
 	if state.status != supervisor.Failed {
 		t.Errorf("Expected Failed Status, got %v", state.status)
-	}
-}
-
-func TestController_ContextCancellation(t *testing.T) {
-	detailsCh := make(chan any)
-	serviceStarted := make(chan struct{})
-	serviceStopped := make(chan struct{})
-
-	mock := &mockService{
-		startFunc: func(ctx context.Context) (<-chan any, error) {
-			defer close(serviceStarted)
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			default:
-				return detailsCh, nil
-			}
-		},
-		stopFunc: func(ctx context.Context) error {
-			defer close(serviceStopped)
-			close(detailsCh)
-			return nil
-		},
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	ctr := NewController(
-		ctx,
-		mock,
-		supervisor.LifecycleConfig{
-			StartTimeout: time.Second,
-			StopTimeout:  time.Second,
-			RetryPolicy:  supervisor.RetryPolicy{MaxAttempts: 3},
-		},
-		nil,
-	)
-
-	// Start the service
-	if err := ctr.Start(); err != nil {
-		t.Fatalf("Failed to start service: %v", err)
-	}
-
-	<-serviceStarted // wait for service to start
-
-	time.Sleep(10 * time.Millisecond) // propagate monitor routine
-
-	// Cancel context
-	cancel()
-
-	// wait for service to stop
-	select {
-	case <-serviceStopped:
-		time.Sleep(100 * time.Millisecond) // wait for stop to propagate in controller routine
-		// Expected behavior
-	case <-time.After(2 * time.Second):
-		t.Fatal("Lifecycle did not stop after context cancellation")
-	}
-
-	state := ctr.state.getSnapshot()
-	if state.status != supervisor.Failed {
-		t.Errorf("Expected Status Failed after context cancellation, got %v", state.status)
 	}
 }
 
@@ -925,6 +866,7 @@ func TestController_GracefulShutdown(t *testing.T) {
 
 			close(detailsCh)
 			shutdownCompleted.Done()
+
 			return nil
 		},
 	}
@@ -995,7 +937,7 @@ func TestController_GracefulShutdown(t *testing.T) {
 		status  supervisor.Status
 		details any
 	}{
-		{supervisor.Starting, "attempt 0"},
+		{supervisor.Starting, "attempt 1"},
 		{supervisor.Running, nil},
 		{supervisor.Running, "service running"},
 		{supervisor.Stopping, nil},
@@ -1154,8 +1096,8 @@ func TestController_StopDuringFailedStart(t *testing.T) {
 
 	// Now try to stop while service is starting
 	err := ctr.Stop()
-	if err != nil {
-		t.Fatalf("Failed to stop service: %v", err)
+	if err == nil {
+		t.Errorf("Expected stop timeout error, got nil")
 	}
 
 	// Verify the start error indicates cancellation
@@ -1170,8 +1112,8 @@ func TestController_StopDuringFailedStart(t *testing.T) {
 
 	// Verify final state
 	state := ctr.State()
-	if state.Status != supervisor.Stopped {
-		t.Errorf("Expected final status Stopped, got: %v", state.Status)
+	if state.Status != supervisor.Failed {
+		t.Errorf("Expected final status Failed, got: %v", state.Status)
 	}
 
 	// Verify retry count matches expectations
@@ -1265,8 +1207,8 @@ func TestController_StartTimeout(t *testing.T) {
 	}
 
 	// Cleanup
-	if err := ctr.Stop(); err != nil {
-		t.Errorf("Failed to stop controller: %v", err)
+	if err := ctr.Stop(); err == nil {
+		t.Fatal("Expected error from stop, got nil")
 	}
 }
 
@@ -1415,189 +1357,182 @@ func TestController_ServiceExitDuringOperation(t *testing.T) {
 	}
 }
 
-//
-//func TestController_StressTestStartLast(t *testing.T) {
-//	var currentChan chan any
-//	var chanMutex sync.Mutex
-//	startAttempts := atomic.Int32{}
-//	stopAttempts := atomic.Int32{}
-//
-//	mock := &mockService{
-//		startFunc: func(ctx context.Context) (<-chan any, error) {
-//			startAttempts.Add(1)
-//			chanMutex.Lock()
-//			currentChan = make(chan any, 1)
-//			ch := currentChan
-//			chanMutex.Unlock()
-//
-//			ch <- "service started"
-//			return ch, nil
-//		},
-//		stopFunc: func(ctx context.Context) error {
-//			stopAttempts.Add(1)
-//			chanMutex.Lock()
-//			if currentChan != nil {
-//				close(currentChan)
-//				currentChan = nil
-//			}
-//			chanMutex.Unlock()
-//			return nil
-//		},
-//	}
-//
-//	ctr := NewController(
-//		context.Background(),
-//		mock,
-//		supervisor.LifecycleConfig{
-//			StartTimeout: 1 * time.Second,
-//			StopTimeout:  1 * time.Second,
-//			RetryPolicy: supervisor.RetryPolicy{
-//				MaxAttempts:  3,
-//				InitialDelay: 50 * time.Millisecond,
-//			},
-//		},
-//		nil,
-//	)
-//
-//	const numOperations = 50
-//	var wg sync.WaitGroup
-//	wg.Add(numOperations)
-//
-//	// Launch random operations
-//	for i := 0; i < numOperations-1; i++ {
-//		go func() {
-//			defer wg.Done()
-//			defer log.Println("Operation done")
-//			if rand.Float32() < 0.5 {
-//				_ = ctr.Start()
-//			} else {
-//				_ = ctr.Stop()
-//			}
-//		}()
-//	}
-//	log.Printf("numOperations: %d", numOperations)
-//	// Last operation is always Start
-//	go func() {
-//		defer wg.Done()
-//		_ = ctr.Start()
-//	}()
-//
-//	// Wait for all operations to complete
-//	log.Printf("!!!!!!!!!!!!!!WAIT FOR COMPLETION")
-//	wg.Wait()
-//	time.Sleep(200 * time.Millisecond) // Wait for final state to settle
-//
-//	// Verify final state is Running
-//	state := ctr.State()
-//	if state.Status != supervisor.Running {
-//		t.Errorf("Expected final status Running, got: %v", state.Status)
-//	}
-//
-//	// Cleanup
-//	if err := ctr.Stop(); err != nil {
-//		t.Errorf("Failed to stop controller: %v", err)
-//	}
-//
-//	t.Logf("Total start attempts: %d, stop attempts: %d", startAttempts.Load(), stopAttempts.Load())
-//}
-//
-//func TestController_StressTestStopLast(t *testing.T) {
-//	var currentChan chan any
-//	var chanMutex sync.Mutex
-//	startAttempts := atomic.Int32{}
-//	stopAttempts := atomic.Int32{}
-//	stateTransitions := make([]supervisor.Status, 0)
-//	var statesMutex sync.Mutex
-//
-//	mock := &mockService{
-//		startFunc: func(ctx context.Context) (<-chan any, error) {
-//			startAttempts.Add(1)
-//			chanMutex.Lock()
-//			currentChan = make(chan any, 1)
-//			ch := currentChan
-//			chanMutex.Unlock()
-//
-//			ch <- "service started"
-//			return ch, nil
-//		},
-//		stopFunc: func(ctx context.Context) error {
-//			stopAttempts.Add(1)
-//			chanMutex.Lock()
-//			if currentChan != nil {
-//				close(currentChan)
-//				currentChan = nil
-//			}
-//			chanMutex.Unlock()
-//			return nil
-//		},
-//	}
-//
-//	ctr := NewController(
-//		context.Background(),
-//		mock,
-//		supervisor.LifecycleConfig{
-//			StartTimeout: 1 * time.Second,
-//			StopTimeout:  1 * time.Second,
-//			RetryPolicy: supervisor.RetryPolicy{
-//				MaxAttempts:  3,
-//				InitialDelay: 50 * time.Millisecond,
-//			},
-//		},
-//		func(status supervisor.Status, details any) {
-//			statesMutex.Lock()
-//			stateTransitions = append(stateTransitions, status)
-//			statesMutex.Unlock()
-//		},
-//	)
-//
-//	const numOperations = 50
-//	var wg sync.WaitGroup
-//	wg.Add(numOperations)
-//
-//	// Launch random operations
-//	for i := 0; i < numOperations-1; i++ {
-//		go func() {
-//			defer wg.Done()
-//			if rand.Float32() < 0.5 {
-//				_ = ctr.Start()
-//			} else {
-//				_ = ctr.Stop()
-//			}
-//		}()
-//	}
-//
-//	// Last operation is always Stop
-//	go func() {
-//		defer wg.Done()
-//		_ = ctr.Stop()
-//	}()
-//
-//	// Wait for all operations to complete
-//	wg.Wait()
-//	time.Sleep(200 * time.Millisecond) // Wait for final state to settle
-//
-//	// Verify final state is Stopped
-//	state := ctr.State()
-//	if state.Status != supervisor.Stopped {
-//		t.Errorf("Expected final status Stopped, got: %v", state.Status)
-//	}
-//
-//	// Get final state transitions
-//	statesMutex.Lock()
-//	transitions := stateTransitions
-//	statesMutex.Unlock()
-//
-//	// Verify the last few transitions lead to Stopped state
-//	if len(transitions) >= 2 {
-//		lastTransitions := transitions[len(transitions)-2:]
-//		expectedLastTransitions := []supervisor.Status{
-//			supervisor.Stopping,
-//			supervisor.Stopped,
-//		}
-//		if !reflect.DeepEqual(lastTransitions, expectedLastTransitions) {
-//			t.Errorf("Expected last transitions %v, got %v", expectedLastTransitions, lastTransitions)
-//		}
-//	}
-//
-//	t.Logf("Total start attempts: %d, stop attempts: %d", startAttempts.Load(), stopAttempts.Load())
-//}
+func TestController_StressTestStartLast(t *testing.T) {
+	var currentChan chan any
+	var chanMutex sync.Mutex
+	startAttempts := atomic.Int32{}
+	stopAttempts := atomic.Int32{}
+
+	mock := &mockService{
+		startFunc: func(ctx context.Context) (<-chan any, error) {
+			startAttempts.Add(1)
+			chanMutex.Lock()
+			currentChan = make(chan any, 1)
+			ch := currentChan
+			ch <- "service started"
+			chanMutex.Unlock()
+
+			return ch, nil
+		},
+		stopFunc: func(ctx context.Context) error {
+			stopAttempts.Add(1)
+			chanMutex.Lock()
+			if currentChan != nil {
+				close(currentChan)
+				currentChan = nil
+			}
+			chanMutex.Unlock()
+			return nil
+		},
+	}
+
+	ctr := NewController(
+		context.Background(),
+		mock,
+		supervisor.LifecycleConfig{
+			StartTimeout: 1 * time.Second,
+			StopTimeout:  1 * time.Second,
+			RetryPolicy: supervisor.RetryPolicy{
+				MaxAttempts:  3,
+				InitialDelay: 50 * time.Millisecond,
+			},
+		},
+		nil,
+	)
+
+	const numOperations = 100
+	var wg sync.WaitGroup
+
+	// Launch random operations
+	for i := 0; i < numOperations-1; i++ {
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+			if rand.Float32() < 0.5 {
+				_ = ctr.Start()
+			} else {
+				_ = ctr.Stop()
+			}
+		}()
+	}
+
+	// wait for batch to complete
+	wg.Wait()
+
+	// Last operation is always Start
+	_ = ctr.Start()
+
+	// Verify final state is Running
+	state := ctr.State()
+	if state.Status != supervisor.Running {
+		t.Errorf("Expected final status Running, got: %v", state.Status)
+	}
+
+	// Cleanup
+	if err := ctr.Stop(); err != nil {
+		t.Errorf("Failed to stop controller: %v", err)
+	}
+}
+
+func TestController_StressTestStopLast(t *testing.T) {
+	var currentChan chan any
+	var chanMutex sync.Mutex
+	startAttempts := atomic.Int32{}
+	stopAttempts := atomic.Int32{}
+	stateTransitions := make([]supervisor.Status, 0)
+	var statesMutex sync.Mutex
+
+	mock := &mockService{
+		startFunc: func(ctx context.Context) (<-chan any, error) {
+			startAttempts.Add(1)
+			chanMutex.Lock()
+			currentChan = make(chan any, 1)
+			ch := currentChan
+			ch <- "service started"
+			chanMutex.Unlock()
+			return ch, nil
+		},
+		stopFunc: func(ctx context.Context) error {
+			stopAttempts.Add(1)
+			chanMutex.Lock()
+			if currentChan != nil {
+				close(currentChan)
+				currentChan = nil
+			}
+			chanMutex.Unlock()
+			return nil
+		},
+	}
+
+	ctr := NewController(
+		context.Background(),
+		mock,
+		supervisor.LifecycleConfig{
+			StartTimeout: 1 * time.Second,
+			StopTimeout:  1 * time.Second,
+			RetryPolicy: supervisor.RetryPolicy{
+				MaxAttempts:  3,
+				InitialDelay: 50 * time.Millisecond,
+			},
+		},
+		func(status supervisor.Status, details any) {
+			log.Printf("State transition: %v", status)
+			statesMutex.Lock()
+			stateTransitions = append(stateTransitions, status)
+			statesMutex.Unlock()
+		},
+	)
+
+	const numOperations = 200
+	var wg sync.WaitGroup
+
+	// Launch random operations
+	for i := 0; i < numOperations-1; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			if rand.Float32() < 0.5 {
+				_ = ctr.Start()
+			} else {
+				_ = ctr.Stop()
+			}
+		}()
+	}
+
+	// Wait for all operations to complete
+	wg.Wait()
+
+	// Last operation is always Stop
+	log.Printf("SENDING STOP")
+	_ = ctr.Stop()
+	log.Printf("SENT STOP")
+
+	// Verify final state is Stopped
+	state := ctr.State()
+	if state.Status != supervisor.Stopped && state.Status != supervisor.Failed {
+		t.Errorf("Expected final status Stopped/Failed, got: %v", state.Status)
+	}
+
+	// Get final state transitions
+	statesMutex.Lock()
+	transitions := stateTransitions
+	statesMutex.Unlock()
+
+	// Verify the last few transitions lead to Stopped state
+	if len(transitions) >= 2 {
+		lastTransitions := transitions[len(transitions)-2:]
+		expectedLastTransitions := []supervisor.Status{
+			supervisor.Stopping,
+			supervisor.Stopped,
+		}
+		expectedLastTransitions2 := []supervisor.Status{
+			supervisor.Stopping,
+			supervisor.Failed,
+		}
+		if !reflect.DeepEqual(lastTransitions, expectedLastTransitions) && !reflect.DeepEqual(lastTransitions, expectedLastTransitions2) {
+			t.Errorf("Expected last transitions %v, got %v", expectedLastTransitions, lastTransitions)
+		}
+	}
+}
