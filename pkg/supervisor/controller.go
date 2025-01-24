@@ -68,6 +68,8 @@ func (c *Controller) Start() error {
 	}
 	c.mu.Unlock()
 
+	c.state.setDesiredStatus(supervisor.Running)
+
 	result := make(chan error, 1)
 	select {
 	case c.ops <- controlOp{kind: controlStart, result: result}:
@@ -89,6 +91,8 @@ func (c *Controller) Stop() error {
 		return nil
 	}
 	c.mu.Unlock()
+
+	c.state.setDesiredStatus(supervisor.Stopped)
 
 	result := make(chan error, 1)
 	select {
@@ -146,21 +150,32 @@ func (c *Controller) supervise() {
 		case op := <-c.ops:
 			var err error
 			switch op.kind {
-			case controlStart:
-				c.state.setDesiredStatus(supervisor.Running)
-				c.bootContext()
+			case controlStop:
+				err = c.tryStop()
+				sendAndCancel(context.Canceled)
 
+			case controlExit:
+				c.updateState(supervisor.Exited, nil)
+				sendAndCancel(context.Canceled)
+
+			case controlStart:
+				c.bootContext()
 				detailsCh, sErr := c.tryStart()
 
 				if sErr != nil {
-					if isTerminalError(sErr) {
-						if startCh == nil {
-							startCh = op.result
-							op.result = nil
-						}
+					if startCh == nil {
+						startCh = op.result
+						op.result = nil
+					}
 
+					if isTerminalError(sErr) {
 						c.updateState(supervisor.Exited, sErr)
 						sendAndCancel(sErr)
+						break
+					}
+
+					if c.state.getDesiredStatus() != supervisor.Running {
+						sendStartCmd(context.Canceled)
 						break
 					}
 
@@ -174,25 +189,11 @@ func (c *Controller) supervise() {
 
 					// Schedule retry
 					go c.tryRetry(int(attempt))
-					if startCh == nil {
-						// delay response
-						startCh = op.result
-						op.result = nil
-					}
 					break
 				}
 
 				go c.monitor(detailsCh)
 				sendStartCmd(nil)
-
-			case controlStop:
-				c.state.setDesiredStatus(supervisor.Stopped)
-				err = c.tryStop()
-				sendAndCancel(context.Canceled)
-
-			case controlExit:
-				c.updateState(supervisor.Exited, nil)
-				sendAndCancel(context.Canceled)
 			}
 
 			if op.result != nil {
@@ -338,10 +339,7 @@ func (c *Controller) tryRetry(attempt int) {
 	select {
 	case <-time.After(delay):
 		select {
-		case c.ops <- controlOp{
-			kind:    controlStart,
-			attempt: attempt,
-		}:
+		case c.ops <- controlOp{kind: controlStart, attempt: attempt}:
 		case <-svcCtx.Done():
 		}
 	case <-svcCtx.Done():
