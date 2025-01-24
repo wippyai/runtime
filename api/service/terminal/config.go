@@ -11,10 +11,9 @@ import (
 
 // Default timeout values
 const (
-	DefaultStartTimeout  = 10 * time.Second
-	DefaultStopTimeout   = 5 * time.Second
-	DefaultUpdateTimeout = 20 * time.Second
-	DefaultCloseTimeout  = 3 * time.Second
+	DefaultStartTimeout = 10 * time.Second
+	DefaultStopTimeout  = 5 * time.Second
+	DefaultCloseTimeout = 3 * time.Second
 )
 
 // TimeoutConfig represents terminal operation timeouts
@@ -43,7 +42,6 @@ func (c *TimeoutConfig) InitDefaults() {
 // InitDefaults initializes the ServiceConfig with default values
 func (c *ServiceConfig) InitDefaults() {
 	c.Timeouts.InitDefaults()
-	// Initialize lifecycle defaults if needed
 	c.Lifecycle.InitDefaults()
 }
 

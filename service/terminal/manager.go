@@ -21,7 +21,7 @@ type Manager struct {
 	sub      *eventbus.Subscriber
 	mu       sync.RWMutex
 	services map[registry.ID]*service
-	apps     map[registry.ID]*api.Application
+	apps     map[registry.ID]*api.Terminal
 }
 
 func NewManager(bus events.Bus, dtt payload.Transcoder, logger *zap.Logger) *Manager {
@@ -30,7 +30,7 @@ func NewManager(bus events.Bus, dtt payload.Transcoder, logger *zap.Logger) *Man
 		bus:      bus,
 		dtt:      dtt,
 		services: make(map[registry.ID]*service),
-		apps:     make(map[registry.ID]*api.Application),
+		apps:     make(map[registry.ID]*api.Terminal),
 	}
 }
 
@@ -72,8 +72,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		return fmt.Errorf("invalid config: %w", err)
 	}
 
-	cfg.Timeouts.InitDefaults()
-	cfg.Lifecycle.InitDefaults()
+	cfg.InitDefaults()
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -83,7 +82,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		return fmt.Errorf("terminal app %s not found", cfg.Target)
 	}
 
-	svc := newService(app.Terminal, app.Options, cfg.Target, cfg.Timeouts, m.bus, m.log)
+	svc := newService(*app, cfg.Target, cfg.Timeouts, m.bus, m.log)
 	m.services[entry.ID] = svc
 
 	// Register with supervisor
@@ -112,8 +111,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		return fmt.Errorf("invalid config: %w", err)
 	}
 
-	cfg.Timeouts.InitDefaults()
-	cfg.Lifecycle.InitDefaults()
+	cfg.InitDefaults()
 
 	svc, exists := m.services[entry.ID]
 	if !exists {
@@ -125,7 +123,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		return fmt.Errorf("terminal app %s not found", cfg.Target)
 	}
 
-	if err := svc.UpdateApp(ctx, app.Terminal, app.Options, cfg.Target); err != nil {
+	if err := svc.UpdateApp(ctx, *app, cfg.Target); err != nil {
 		return fmt.Errorf("failed to update service: %w", err)
 	}
 
@@ -156,7 +154,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 func (m *Manager) handleEvent(e events.Event) {
 	switch e.Kind {
 	case api.RegisterTerminalEvent:
-		app, ok := e.Data.(api.Application)
+		app, ok := e.Data.(api.Terminal)
 		if !ok {
 			m.log.Error("invalid register terminal data", zap.String("id", string(e.Path)))
 			return
@@ -169,7 +167,7 @@ func (m *Manager) handleEvent(e events.Event) {
 		found := false
 		for _, svc := range m.services {
 			if svc.terminal.id == registry.ID(e.Path) {
-				err := svc.UpdateApp(m.ctx, app.Terminal, app.Options, registry.ID(e.Path))
+				err := svc.UpdateApp(m.ctx, app, registry.ID(e.Path))
 				if err != nil {
 					m.log.Error("failed to update service",
 						zap.String("id", string(e.Path)),

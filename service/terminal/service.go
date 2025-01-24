@@ -12,23 +12,24 @@ import (
 	"sync"
 )
 
-type serviceAction struct {
-	actionType string
-	terminal   api.Terminal
-	options    api.Options
-	id         registry.ID
-	result     chan error
-}
+type controlAction int
 
 const (
-	actionStart  = "start"
-	actionStop   = "stop"
-	actionUpdate = "update"
+	actionStart controlAction = iota
+	actionStop
+	actionUpdate
 )
+
+type controlOp struct {
+	action   controlAction
+	terminal api.Terminal
+	id       registry.ID
+	result   chan error
+}
 
 type service struct {
 	terminal  *terminalRunner
-	actionCh  chan serviceAction
+	opCh      chan controlOp
 	statusCh  chan any
 	doneCh    chan struct{}
 	bus       events.Bus
@@ -40,15 +41,14 @@ type service struct {
 
 func newService(
 	app api.Terminal,
-	opts api.Options,
 	id registry.ID,
 	timeouts api.TimeoutConfig,
 	bus events.Bus,
 	log *zap.Logger,
 ) *service {
 	return &service{
-		terminal:  newTerminalRunner(app, opts, id, bus, log),
-		actionCh:  make(chan serviceAction, 1),
+		terminal:  newTerminalRunner(app, id, bus, log),
+		opCh:      make(chan controlOp, 1),
 		statusCh:  make(chan any, 10),
 		doneCh:    make(chan struct{}),
 		bus:       bus,
@@ -63,9 +63,9 @@ func (s *service) Start(ctx context.Context) (<-chan any, error) {
 
 	resultCh := make(chan error, 1)
 	select {
-	case s.actionCh <- serviceAction{
-		actionType: actionStart,
-		result:     resultCh,
+	case s.opCh <- controlOp{
+		action: actionStart,
+		result: resultCh,
 	}:
 		select {
 		case err := <-resultCh:
@@ -85,9 +85,9 @@ func (s *service) Start(ctx context.Context) (<-chan any, error) {
 func (s *service) Stop(ctx context.Context) error {
 	resultCh := make(chan error, 1)
 	select {
-	case s.actionCh <- serviceAction{
-		actionType: actionStop,
-		result:     resultCh,
+	case s.opCh <- controlOp{
+		action: actionStop,
+		result: resultCh,
 	}:
 		select {
 		case err := <-resultCh:
@@ -103,15 +103,14 @@ func (s *service) Stop(ctx context.Context) error {
 	}
 }
 
-func (s *service) UpdateApp(ctx context.Context, term api.Terminal, opts api.Options, id registry.ID) error {
+func (s *service) UpdateApp(ctx context.Context, term api.Terminal, id registry.ID) error {
 	resultCh := make(chan error, 1)
 	select {
-	case s.actionCh <- serviceAction{
-		actionType: actionUpdate,
-		terminal:   term,
-		options:    opts,
-		id:         id,
-		result:     resultCh,
+	case s.opCh <- controlOp{
+		action:   actionUpdate,
+		terminal: term,
+		id:       id,
+		result:   resultCh,
 	}:
 		select {
 		case err := <-resultCh:
@@ -151,10 +150,10 @@ func (s *service) run(ctx context.Context) {
 			}
 			return
 
-		case action := <-s.actionCh:
+		case op := <-s.opCh:
 			var err error
 
-			switch action.actionType {
+			switch op.action {
 			case actionStart:
 				if err = s.logSwitch.enableOn(ctx); err != nil {
 					break
@@ -180,7 +179,7 @@ func (s *service) run(ctx context.Context) {
 					break
 				}
 
-				newRunner := newTerminalRunner(action.terminal, action.options, action.id, s.bus, s.log)
+				newRunner := newTerminalRunner(op.terminal, op.id, s.bus, s.log)
 
 				// Stop current terminal
 				if err = s.terminal.stop(ctx); err != nil {
@@ -201,7 +200,7 @@ func (s *service) run(ctx context.Context) {
 				s.sendStatus("terminal updated")
 			}
 
-			action.result <- err
+			op.result <- err
 			if err != nil {
 				s.sendStatus(err)
 				return
