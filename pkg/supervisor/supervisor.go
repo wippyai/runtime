@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"sync"
 	"time"
 
@@ -132,13 +131,10 @@ func (s *Supervisor) Stop() error {
 	}
 
 	close(s.actions)
-	log.Printf("waiting for wg")
 	s.wg.Wait()
 
 	// stop all controllers
-	log.Printf("lock to get")
 	s.mu.Lock()
-	log.Printf("lock to get done")
 	defer s.mu.Unlock()
 
 	var wg sync.WaitGroup
