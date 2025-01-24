@@ -138,14 +138,6 @@ func main() {
 		services.WithListener("terminal.*", term),
 	)
 
-	go func() {
-		// spam log every second
-		for {
-			appLogger.Info("running")
-			time.Sleep(1 * time.Second)
-		}
-	}()
-
 	if err != nil {
 		appLogger.Fatal("failed to create router", zap.Error(err))
 	}

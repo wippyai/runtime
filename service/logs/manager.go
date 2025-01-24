@@ -32,10 +32,12 @@ func NewManager(bus events.Bus, core api.Core, logger *zap.Logger) *Manager {
 		config: api.Config{
 			PropagateDownstream: true,
 			StreamToEvents:      false,
-			MinLevel:            zapcore.DebugLevel, // todo: pass from outside
+			MinLevel:            zapcore.InfoLevel, // todo: pass from outside
 		},
 	}
 }
+
+// todo: make a real service
 
 // Start initializes the service and starts listening for events
 func (m *Manager) Start(ctx context.Context) error {

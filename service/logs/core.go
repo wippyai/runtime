@@ -27,7 +27,7 @@ func NewCore(downstream zapcore.Core, bus events.Bus) api.Core {
 	c.config.Store(api.Config{
 		PropagateDownstream: true,
 		StreamToEvents:      false,
-		MinLevel:            zapcore.DebugLevel,
+		MinLevel:            zapcore.InfoLevel,
 	})
 	return c
 }

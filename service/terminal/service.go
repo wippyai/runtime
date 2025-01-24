@@ -9,7 +9,6 @@ import (
 	api "github.com/ponyruntime/pony/api/service/terminal"
 	"github.com/ponyruntime/pony/api/supervisor"
 	"go.uber.org/zap"
-	"log"
 	"sync"
 )
 
@@ -49,7 +48,7 @@ func newService(
 ) *service {
 	return &service{
 		terminal:  newTerminalRunner(app, opts, id, bus, log),
-		actionCh:  make(chan serviceAction),
+		actionCh:  make(chan serviceAction, 1),
 		statusCh:  make(chan any, 10),
 		doneCh:    make(chan struct{}),
 		bus:       bus,
@@ -60,6 +59,8 @@ func newService(
 }
 
 func (s *service) Start(ctx context.Context) (<-chan any, error) {
+	go s.run(ctx)
+
 	resultCh := make(chan error, 1)
 	select {
 	case s.actionCh <- serviceAction{
@@ -74,8 +75,6 @@ func (s *service) Start(ctx context.Context) (<-chan any, error) {
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		}
-
-		log.Printf("STARTED!")
 
 		return s.statusCh, nil
 	case <-ctx.Done():
@@ -130,7 +129,7 @@ func (s *service) UpdateApp(ctx context.Context, term api.Terminal, opts api.Opt
 
 func (s *service) run(ctx context.Context) {
 	defer func() {
-		s.logSwitch.restore(context.Background())
+		s.logSwitch.restoreOn(context.Background())
 
 		// Ensure last runner error is sent before closing channels
 		if s.terminal != nil {
@@ -157,7 +156,7 @@ func (s *service) run(ctx context.Context) {
 
 			switch action.actionType {
 			case actionStart:
-				if err = s.logSwitch.enable(ctx); err != nil {
+				if err = s.logSwitch.enableOn(ctx); err != nil {
 					break
 				}
 				if s.terminal != nil {

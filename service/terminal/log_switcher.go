@@ -24,8 +24,8 @@ func newLogSwitcher(bus events.Bus, log *zap.Logger) *logSwitcher {
 	}
 }
 
-// enable switches to terminal-specific logging configuration
-func (l *logSwitcher) enable(ctx context.Context) error {
+// enableOn switches to terminal-specific logging configuration
+func (l *logSwitcher) enableOn(ctx context.Context) error {
 	// Get current config
 	cfg, err := logs.GetConfig(ctx, l.bus)
 	if err != nil {
@@ -47,11 +47,11 @@ func (l *logSwitcher) enable(ctx context.Context) error {
 	return nil
 }
 
-// restore reverts to original logging configuration
-func (l *logSwitcher) restore(ctx context.Context) {
+// restoreOn reverts to original logging configuration
+func (l *logSwitcher) restoreOn(ctx context.Context) {
 	if l.baseConfig != nil {
 		if err := logs.SetConfig(ctx, l.bus, *l.baseConfig); err != nil {
-			l.log.Error("failed to restore logging config", zap.Error(err))
+			l.log.Error("failed to restoreOn logging config", zap.Error(err))
 		} else {
 			l.log.Debug("logging config restored")
 		}
