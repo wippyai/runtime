@@ -20,6 +20,7 @@ type LuaTerminal struct {
 	funcName string
 	args     []lua.LValue
 	state    atomic.Value // stores last captured state
+	upstream <-chan any
 }
 
 type Options struct {
@@ -29,8 +30,9 @@ type Options struct {
 
 func NewLuaTerminal(
 	log *zap.Logger,
-	tasker *tasks.TaskRunner,
+	runner *tasks.TaskRunner,
 	opts Options,
+	upstream <-chan any,
 ) *LuaTerminal {
 	if log == nil {
 		log = zap.NewExample()
@@ -38,9 +40,10 @@ func NewLuaTerminal(
 
 	return &LuaTerminal{
 		log:      log,
-		tasker:   tasker,
+		tasker:   runner,
 		funcName: opts.FuncName,
 		args:     opts.Args,
+		upstream: upstream,
 	}
 }
 
@@ -70,6 +73,18 @@ func (t *LuaTerminal) Run(ctx context.Context, in io.Reader, out io.Writer) erro
 	go func() {
 		<-ctx.Done()
 		p.Quit()
+	}()
+
+	go func() {
+		for {
+			select {
+			case msg := <-t.upstream:
+				p.Send(msg)
+			case <-ctx.Done():
+				return
+			}
+		}
+
 	}()
 
 	m, err := p.Run()
@@ -110,6 +125,7 @@ func (t *LuaTerminal) State() payload.Payload {
 	if state := t.state.Load(); state != nil {
 		//return state
 	}
+
 	return nil
 }
 
