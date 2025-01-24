@@ -220,7 +220,7 @@ func (c *Controller) supervise() {
 					}
 
 					// Schedule retry
-					go c.tryRetry(ctx, int(attempt))
+					go c.tryRetry(int(attempt))
 					break
 				}
 
@@ -319,7 +319,7 @@ func (c *Controller) tryStart(ctx context.Context, cancel context.CancelFunc) (<
 	case <-time.After(c.config.StartTimeout):
 		cancel()
 		c.updateState(supervisor.Failed, "start timeout")
-		return nil, context.DeadlineExceeded
+		return nil, errors.New("service start timed out")
 
 	case <-c.ctx.Done():
 		c.updateState(supervisor.Exited, "controller exited")
@@ -355,7 +355,7 @@ func (c *Controller) tryStop(ctx context.Context) error {
 	}
 }
 
-func (c *Controller) tryRetry(ctx context.Context, attempt int) {
+func (c *Controller) tryRetry(attempt int) {
 	if attempt >= c.config.RetryPolicy.MaxAttempts {
 		return
 	}
@@ -367,9 +367,9 @@ func (c *Controller) tryRetry(ctx context.Context, attempt int) {
 	case <-time.After(delay):
 		select {
 		case c.ops <- controlOp{kind: controlStart, attempt: attempt}:
-		case <-ctx.Done():
+		case <-c.ctx.Done():
 		}
-	case <-ctx.Done():
+	case <-c.ctx.Done():
 	}
 }
 
