@@ -116,6 +116,24 @@ func (c *Controller) Stop() error {
 func (c *Controller) supervise() {
 	var startCh chan<- error
 
+	sendStartCmd := func(err error) {
+		if startCh != nil {
+			select {
+			case startCh <- err:
+			case <-c.root.Done():
+			}
+			startCh = nil
+		}
+	}
+
+	sendAndCancel := func(err error) {
+		sendStartCmd(err)
+		if c.cancel != nil {
+			c.cancel()
+			c.cancel = nil
+		}
+	}
+
 	for {
 		select {
 		case <-c.ctx.Done():
@@ -142,19 +160,7 @@ func (c *Controller) supervise() {
 						}
 
 						c.updateState(supervisor.Exited, sErr)
-						if startCh != nil {
-							// report to original caller
-							select {
-							case startCh <- sErr:
-							case <-c.root.Done():
-							}
-							startCh = nil
-						}
-
-						if c.cancel != nil {
-							c.cancel()
-							c.cancel = nil
-						}
+						sendAndCancel(sErr)
 						break
 					}
 
@@ -162,21 +168,14 @@ func (c *Controller) supervise() {
 					attempt := c.state.incRetryCount()
 					if int(attempt) >= c.config.RetryPolicy.MaxAttempts {
 						err = context.DeadlineExceeded
-						if startCh != nil {
-							// report to original caller
-							select {
-							case startCh <- err:
-							case <-c.root.Done():
-							}
-							startCh = nil
-						}
+						sendStartCmd(err)
 						break
 					}
 
 					// Schedule retry
 					go c.tryRetry(int(attempt))
 					if startCh == nil {
-						// respond when we ready
+						// delay response
 						startCh = op.result
 						op.result = nil
 					}
@@ -184,50 +183,16 @@ func (c *Controller) supervise() {
 				}
 
 				go c.monitor(detailsCh)
-
-				if startCh != nil {
-					// report to original caller
-					select {
-					case startCh <- nil:
-					case <-c.root.Done():
-					}
-					startCh = nil
-				}
+				sendStartCmd(nil)
 
 			case controlStop:
 				c.state.setDesiredStatus(supervisor.Stopped)
 				err = c.tryStop()
-
-				if startCh != nil {
-					// report to original caller
-					select {
-					case startCh <- context.Canceled:
-					case <-c.root.Done():
-					}
-					startCh = nil
-				}
-
-				if c.cancel != nil {
-					c.cancel()
-					c.cancel = nil
-				}
+				sendAndCancel(context.Canceled)
 
 			case controlExit:
 				c.updateState(supervisor.Exited, nil)
-
-				if startCh != nil {
-					// report to original caller
-					select {
-					case startCh <- context.Canceled:
-					case <-c.root.Done():
-					}
-					startCh = nil
-				}
-
-				if c.cancel != nil {
-					c.cancel()
-					c.cancel = nil
-				}
+				sendAndCancel(context.Canceled)
 			}
 
 			if op.result != nil {
