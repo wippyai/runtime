@@ -7,6 +7,7 @@ target: "default_terminal"
 
 lifecycle:
   auto_start: true
+  start_timeout: 5s
   restart:
-    initial_delay: 5s
+    initial_delay: 1s
     max_attempts: 3

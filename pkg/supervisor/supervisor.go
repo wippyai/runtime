@@ -382,9 +382,9 @@ func (s *Supervisor) startController(id string, c *Controller) {
 		s.logger.Error("failed to start service",
 			zap.String("serviceID", id),
 			zap.Error(err))
+	} else {
+		s.logger.Info("service started", zap.String("service", id))
 	}
-
-	s.logger.Info("service started", zap.String("service", id))
 }
 
 func (s *Supervisor) stopController(id string, c *Controller) {
@@ -392,7 +392,7 @@ func (s *Supervisor) stopController(id string, c *Controller) {
 		s.logger.Error("failed to stop service",
 			zap.String("serviceID", id),
 			zap.Error(err))
+	} else {
+		s.logger.Info("service stopped", zap.String("service", id))
 	}
-
-	s.logger.Info("service stopped", zap.String("service", id))
 }
