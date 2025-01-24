@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"sync"
 	"time"
 
@@ -143,7 +142,6 @@ func (c *Controller) supervise() {
 			var err error
 			switch op.kind {
 			case controlStop:
-				log.Printf("GOT STOP")
 				if ctx == nil {
 					// nothing to stop
 					break
@@ -194,7 +192,6 @@ func (c *Controller) supervise() {
 				}
 
 				ctx, cancel = context.WithCancel(c.ctx)
-				log.Printf("STARTING %v", c.state.getCurrentStatus())
 				detailsCh, sErr := c.tryStart(ctx, cancel)
 
 				if sErr != nil {
