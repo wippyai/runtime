@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"sync"
 	"time"
 
@@ -145,7 +144,6 @@ func (s *Supervisor) Stop() error {
 		wg.Add(1)
 		go func(id string, c *Controller) {
 			defer wg.Done()
-			log.Printf("stopping controller %s", id)
 			if err := c.Stop(); err != nil {
 				s.logger.Error("failed to stop controller",
 					zap.String("serviceID", id),

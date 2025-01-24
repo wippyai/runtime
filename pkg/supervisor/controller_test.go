@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"reflect"
 	"strings"
 	"sync"
@@ -1001,17 +1000,11 @@ func TestController_GracefulShutdown(t *testing.T) {
 		shutdownErr <- ctr.Stop()
 	}()
 
-	log.Println("waiting for shutdown to start")
-
 	// wait for shutdown to start
 	shutdownStarted.Wait()
 
-	log.Println("shutdown started")
-
 	// wait for shutdown to complete
 	shutdownCompleted.Wait()
-
-	log.Println("shutdown completed")
 
 	// Check if shutdown completed successfully
 	select {
@@ -1199,8 +1192,6 @@ func TestController_StopDuringFailedStart(t *testing.T) {
 		t.Fatalf("Failed to stop service: %v", err)
 	}
 
-	log.Printf("stop called %v", err)
-
 	// Verify the start error indicates cancellation
 	select {
 	case err := <-startErr:
@@ -1313,27 +1304,16 @@ func TestController_StartTimeout(t *testing.T) {
 	}
 }
 
-func TestController_StopDuringStartSequence(t *testing.T) {
-	startAttempted := make(chan struct{})
-	stopInitiated := make(chan struct{})
+func TestController_ServiceExitError(t *testing.T) {
+	stateTransitions := make([]supervisor.Status, 0)
+	var statesMutex sync.Mutex
 
 	mock := &mockService{
 		startFunc: func(ctx context.Context) (<-chan any, error) {
-			select {
-			case startAttempted <- struct{}{}:
-			default:
-			}
-
-			// Simulate slow startup
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			case <-time.After(500 * time.Millisecond):
-				return make(chan any), nil
-			}
+			// Return ExitErr directly from start
+			return nil, supervisor.ExitErr
 		},
 		stopFunc: func(ctx context.Context) error {
-			close(stopInitiated)
 			return nil
 		},
 	}
@@ -1345,61 +1325,126 @@ func TestController_StopDuringStartSequence(t *testing.T) {
 			StartTimeout: 1 * time.Second,
 			StopTimeout:  1 * time.Second,
 			RetryPolicy: supervisor.RetryPolicy{
-				MaxAttempts:  3,
-				InitialDelay: 100 * time.Millisecond,
+				MaxAttempts: 3, // Should not retry on ExitErr
 			},
 		},
-		nil,
+		func(status supervisor.Status, details any) {
+			statesMutex.Lock()
+			defer statesMutex.Unlock()
+			stateTransitions = append(stateTransitions, status)
+		},
 	)
 
-	// Start in background
-	startErr := make(chan error, 1)
-	go func() {
-		startErr <- ctr.Start()
-	}()
+	// Start the service
+	err := ctr.Start()
 
-	// Wait for start attempt
-	select {
-	case <-startAttempted:
-	case <-time.After(time.Second):
-		t.Fatal("Service did not attempt to start")
+	// Should get ExitErr
+	if !errors.Is(err, supervisor.ExitErr) {
+		t.Fatalf("Expected supervisor.ExitErr, got: %v", err)
 	}
 
-	// Initiate stop
-	stopErr := make(chan error, 1)
-	go func() {
-		stopErr <- ctr.Stop()
-	}()
+	// Get final state transitions
+	statesMutex.Lock()
+	transitions := make([]supervisor.Status, len(stateTransitions))
+	copy(transitions, stateTransitions)
+	statesMutex.Unlock()
 
-	// Verify stop completes
-	select {
-	case <-stopInitiated:
-	case <-time.After(time.Second):
-		t.Fatal("Stop was not initiated")
+	// Expected state transition sequence
+	expectedTransitions := []supervisor.Status{
+		supervisor.Starting,
+		supervisor.Exited, // Should go directly to Exited on ExitErr
 	}
 
-	// Verify errors
-	select {
-	case err := <-startErr:
-		if !errors.Is(err, context.Canceled) {
-			t.Errorf("Expected context.Canceled error, got: %v", err)
+	if len(transitions) != len(expectedTransitions) {
+		t.Errorf("Expected %d transitions, got %d", len(expectedTransitions), len(transitions))
+		t.Logf("Actual transitions: %v", transitions)
+		return
+	}
+
+	for i, expected := range expectedTransitions {
+		if transitions[i] != expected {
+			t.Errorf("Transition %d: expected %v, got %v", i, expected, transitions[i])
 		}
-	case <-time.After(time.Second):
-		t.Fatal("Start did not return error")
-	}
-
-	select {
-	case err := <-stopErr:
-		if err != nil {
-			t.Errorf("Expected nil error from Stop, got: %v", err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("Stop did not complete")
 	}
 
 	// Verify final state
 	state := ctr.State()
-	if state.Status != supervisor.Stopped {
-		t.Errorf("Expected final status Stopped, got: %v", state.Status)
+	if state.Status != supervisor.Exited {
+		t.Errorf("Expected final status Exited, got: %v", state.Status)
+	}
+}
+
+func TestController_ServiceExitDuringOperation(t *testing.T) {
+	detailsCh := make(chan any, 1)
+	stateTransitions := make([]supervisor.Status, 0)
+	var statesMutex sync.Mutex
+
+	mock := &mockService{
+		startFunc: func(ctx context.Context) (<-chan any, error) {
+			return detailsCh, nil
+		},
+		stopFunc: func(ctx context.Context) error {
+			return nil
+		},
+	}
+
+	ctr := NewController(
+		context.Background(),
+		mock,
+		supervisor.LifecycleConfig{
+			StartTimeout: 1 * time.Second,
+			StopTimeout:  1 * time.Second,
+			RetryPolicy: supervisor.RetryPolicy{
+				MaxAttempts: 3, // Should not retry on ExitErr
+			},
+		},
+		func(status supervisor.Status, details any) {
+			statesMutex.Lock()
+			defer statesMutex.Unlock()
+			stateTransitions = append(stateTransitions, status)
+		},
+	)
+
+	// Start the service
+	err := ctr.Start()
+	if err != nil {
+		t.Fatalf("Failed to start service: %v", err)
+	}
+
+	// Send ExitErr through details channel
+	detailsCh <- supervisor.ExitErr
+
+	// Wait for processing
+	time.Sleep(100 * time.Millisecond)
+
+	// Get final state transitions
+	statesMutex.Lock()
+	transitions := make([]supervisor.Status, len(stateTransitions))
+	copy(transitions, stateTransitions)
+	statesMutex.Unlock()
+
+	// Expected state transition sequence
+	expectedTransitions := []supervisor.Status{
+		supervisor.Starting,
+		supervisor.Running,
+		supervisor.Exited, // Should transition to Exited on ExitErr
+	}
+
+	if len(transitions) != len(expectedTransitions) {
+		t.Errorf("Expected %d transitions, got %d", len(expectedTransitions), len(transitions))
+		t.Logf("Actual transitions: %v", transitions)
+		return
+	}
+
+	for i, expected := range expectedTransitions {
+		if transitions[i] != expected {
+			t.Errorf("Transition %d: expected %v, got %v", i, expected, transitions[i])
+		}
+	}
+
+	// Verify final state
+	state := ctr.State()
+	if state.Status != supervisor.Exited {
+		t.Errorf("Expected final status Exited, got: %v", state.Status)
 	}
 }
