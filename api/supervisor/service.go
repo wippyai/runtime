@@ -36,15 +36,17 @@ const (
 	Stopping Status = "stopping"
 	// Stopped indicates the service has stopped and is no longer running
 	Stopped Status = "stopped"
+	// Stopped indicates the service has stopped and is no longer running
+	Exited Status = "exited"
 	// Failed indicates the service has failed and is not running
 	Failed Status = "failed"
 )
 
 var (
-	// Terminated error is returned when a service is terminated, disables supervision.
-	Terminated = errors.New("service terminated")
-	// Exited error is returned when a service exits on its own, disables supervision.
-	Exited = errors.New("service exited")
+	// TerminatedErr error is returned when a service is terminated, disables supervision.
+	TerminatedErr = errors.New("service terminated")
+	// ExitErr error is returned when a service exits on its own, disables supervision.
+	ExitErr = errors.New("service exited")
 )
 
 type (

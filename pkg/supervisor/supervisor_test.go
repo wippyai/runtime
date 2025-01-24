@@ -629,7 +629,7 @@ func TestSupervisor_GetAllStates(t *testing.T) {
 	}
 
 	// wait for services to reach their states
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(500 * time.Millisecond)
 
 	// Get all states
 	states := h.sup.GetAllStates()

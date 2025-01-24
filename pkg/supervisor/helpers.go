@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -10,6 +11,13 @@ import (
 	"go.uber.org/zap"
 )
 
+type State struct {
+	Status     supervisor.Status `json:"status"`
+	Details    any               `json:"details"`
+	Desired    supervisor.Status `json:"desired"`
+	RetryCount int32             `json:"retry_count"`
+	LastUpdate time.Time         `json:"last_update"`
+}
 type internalState struct {
 	mu         sync.Mutex
 	status     supervisor.Status
@@ -22,6 +30,17 @@ type internalState struct {
 	mur        sync.Mutex
 	runCtx     context.Context
 	runCancel  context.CancelFunc
+}
+
+// isTerminalError determines if the error represents a terminal state
+// that should not be retried
+func isTerminalError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return errors.Is(err, context.Canceled) ||
+		errors.Is(err, supervisor.TerminatedErr) ||
+		errors.Is(err, supervisor.ExitErr)
 }
 
 // newServiceState creates a new internalState instance
@@ -114,6 +133,22 @@ func (s *internalState) incRetryCount() int32 {
 
 	s.retryCount++
 	return s.retryCount
+}
+
+// getRetryCount returns the current retry count
+func (s *internalState) getRetryCount() int32 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.retryCount
+}
+
+// resetRetryCount resets the retry counter to zero
+func (s *internalState) resetRetryCount() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.retryCount = 0
 }
 
 // canRecover checks if the service can be recovered based on current state
