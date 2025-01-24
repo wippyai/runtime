@@ -229,7 +229,6 @@ func (s *Supervisor) run(ctx context.Context) {
 	s.ctx = ctx
 
 	for action := range s.actions {
-		log.Printf("processing action in superviosr %v", action)
 		switch action.kind {
 		case actionBegin:
 			s.tx.begin()
@@ -241,9 +240,7 @@ func (s *Supervisor) run(ctx context.Context) {
 			if err := s.tx.commit(s.removeService, s.registerService); err != nil {
 				s.logger.Error("failed to commit transaction", zap.Error(err))
 			} else {
-				log.Printf("starting pending")
-				go s.startPending()
-				log.Printf("pending started")
+				s.startPending()
 			}
 
 		case actionRegister:
@@ -261,45 +258,41 @@ func (s *Supervisor) run(ctx context.Context) {
 					zap.Error(err),
 				)
 			} else {
-				s.logger.Info("service removed",
-					zap.String("serviceID", action.serviceID),
-				)
+				s.logger.Info("service removed", zap.String("serviceID", action.serviceID))
 			}
 
 		case actionStart:
-			log.Printf("starting service")
-			err := s.startService(action.serviceID)
-			if err != nil {
-				s.logger.Error("failed to start service",
-					zap.String("serviceID", action.serviceID),
-					zap.Error(err),
-				)
-			} else {
-				s.logger.Info("service started",
-					zap.String("serviceID", action.serviceID),
-				)
+			s.mu.Lock()
+			controller, exists := s.controllers[action.serviceID]
+			s.mu.Unlock()
+			if !exists {
+				s.logger.Error("service not found", zap.String("serviceID", action.serviceID))
+				continue
 			}
-			log.Printf("service started")
-
+			go s.startController(action.serviceID, controller)
 		case actionStop:
-			err := s.stopService(action.serviceID)
-			if err != nil {
-				s.logger.Error("failed to stop service",
-					zap.String("serviceID", action.serviceID),
-					zap.Error(err),
-				)
+			s.mu.Lock()
+			controller, exists := s.controllers[action.serviceID]
+			s.mu.Unlock()
+
+			if !exists {
+				s.logger.Error("service not found", zap.String("serviceID", action.serviceID))
+				continue
 			}
+
+			go s.stopController(action.serviceID, controller)
 		}
 	}
 }
 
 func (s *Supervisor) registerService(id string, entry *supervisor.Entry) error {
 	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if _, exists := s.controllers[id]; exists {
 		//return current.updateConfig(entry.Config) todo: implement later
 		return fmt.Errorf("service %s already registered", id)
 	}
-	s.mu.Unlock()
 
 	stateHandler := func(status supervisor.Status, details any) {
 		if err, ok := details.(error); ok {
@@ -345,10 +338,7 @@ func (s *Supervisor) registerService(id string, entry *supervisor.Entry) error {
 	}
 
 	entry.Config.InitDefaults()
-
-	s.mu.Lock()
 	s.controllers[id] = NewController(s.ctx, entry.Service, entry.Config, stateHandler)
-	s.mu.Unlock()
 
 	s.logger.Info("service registered",
 		zap.String("serviceID", id),
@@ -367,25 +357,17 @@ func (s *Supervisor) removeService(id string) error {
 	delete(s.controllers, id)
 	s.mu.Unlock()
 
-	if err := controller.Stop(); err != nil {
-		s.logger.Warn("failed to stop service during removal, detaching",
-			zap.String("serviceID", id),
-			zap.Error(err),
-		)
-		return err
-	}
-
-	s.logger.Info("service removed", zap.String("serviceID", id))
+	s.logger.Info("removing service", zap.String("serviceID", id))
+	go s.stopController(id, controller)
 
 	return nil
 }
 
 func (s *Supervisor) startPending() {
 	s.mu.RLock()
-	controllers := s.controllers
-	s.mu.RUnlock()
+	defer s.mu.RUnlock()
 
-	for id, controller := range controllers {
+	for id, controller := range s.controllers {
 		state := controller.State()
 		if state.Desired == supervisor.Running || (!controller.config.AutoStart && state.Desired != supervisor.Running) {
 			continue
@@ -395,33 +377,26 @@ func (s *Supervisor) startPending() {
 			zap.String("serviceID", id),
 		)
 
-		if err := controller.Start(); err != nil {
-			s.logger.Error("failed to start service",
-				zap.String("serviceID", id),
-				zap.Error(err),
-			)
-		}
+		go s.startController(id, controller)
 	}
 }
 
-func (s *Supervisor) startService(id string) error {
-	s.mu.RLock()
-	controller, exists := s.controllers[id]
-	if !exists {
-		return fmt.Errorf("service %s not found", id)
+func (s *Supervisor) startController(id string, c *Controller) {
+	if err := c.Start(); err != nil {
+		s.logger.Error("failed to start service",
+			zap.String("serviceID", id),
+			zap.Error(err))
 	}
-	s.mu.RUnlock()
 
-	return controller.Start()
+	s.logger.Info("service started", zap.String("service", id))
 }
 
-func (s *Supervisor) stopService(id string) error {
-	s.mu.RLock()
-	controller, exists := s.controllers[id]
-	if !exists {
-		return fmt.Errorf("service %s not found", id)
+func (s *Supervisor) stopController(id string, c *Controller) {
+	if err := c.Stop(); err != nil {
+		s.logger.Error("failed to stop service",
+			zap.String("serviceID", id),
+			zap.Error(err))
 	}
-	defer s.mu.RUnlock()
 
-	return controller.Stop()
+	s.logger.Info("service stopped", zap.String("service", id))
 }
