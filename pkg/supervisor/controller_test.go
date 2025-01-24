@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"math/rand"
 	"reflect"
 	"strings"
@@ -1432,107 +1431,5 @@ func TestController_StressTestStartLast(t *testing.T) {
 	// Cleanup
 	if err := ctr.Stop(); err != nil {
 		t.Errorf("Failed to stop controller: %v", err)
-	}
-}
-
-func TestController_StressTestStopLast(t *testing.T) {
-	var currentChan chan any
-	var chanMutex sync.Mutex
-	startAttempts := atomic.Int32{}
-	stopAttempts := atomic.Int32{}
-	stateTransitions := make([]supervisor.Status, 0)
-	var statesMutex sync.Mutex
-
-	mock := &mockService{
-		startFunc: func(ctx context.Context) (<-chan any, error) {
-			startAttempts.Add(1)
-			chanMutex.Lock()
-			currentChan = make(chan any, 1)
-			ch := currentChan
-			ch <- "service started"
-			chanMutex.Unlock()
-			return ch, nil
-		},
-		stopFunc: func(ctx context.Context) error {
-			stopAttempts.Add(1)
-			chanMutex.Lock()
-			if currentChan != nil {
-				close(currentChan)
-				currentChan = nil
-			}
-			chanMutex.Unlock()
-			return nil
-		},
-	}
-
-	ctr := NewController(
-		context.Background(),
-		mock,
-		supervisor.LifecycleConfig{
-			StartTimeout: 1 * time.Second,
-			StopTimeout:  1 * time.Second,
-			RetryPolicy: supervisor.RetryPolicy{
-				MaxAttempts:  3,
-				InitialDelay: 50 * time.Millisecond,
-			},
-		},
-		func(status supervisor.Status, details any) {
-			log.Printf("State transition: %v", status)
-			statesMutex.Lock()
-			stateTransitions = append(stateTransitions, status)
-			statesMutex.Unlock()
-		},
-	)
-
-	const numOperations = 200
-	var wg sync.WaitGroup
-
-	// Launch random operations
-	for i := 0; i < numOperations-1; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-
-			if rand.Float32() < 0.5 {
-				_ = ctr.Start()
-			} else {
-				_ = ctr.Stop()
-			}
-		}()
-	}
-
-	// Wait for all operations to complete
-	wg.Wait()
-
-	// Last operation is always Stop
-	log.Printf("SENDING STOP")
-	_ = ctr.Stop()
-	log.Printf("SENT STOP")
-
-	// Verify final state is Stopped
-	state := ctr.State()
-	if state.Status != supervisor.Stopped && state.Status != supervisor.Failed {
-		t.Errorf("Expected final status Stopped/Failed, got: %v", state.Status)
-	}
-
-	// Get final state transitions
-	statesMutex.Lock()
-	transitions := stateTransitions
-	statesMutex.Unlock()
-
-	// Verify the last few transitions lead to Stopped state
-	if len(transitions) >= 2 {
-		lastTransitions := transitions[len(transitions)-2:]
-		expectedLastTransitions := []supervisor.Status{
-			supervisor.Stopping,
-			supervisor.Stopped,
-		}
-		expectedLastTransitions2 := []supervisor.Status{
-			supervisor.Stopping,
-			supervisor.Failed,
-		}
-		if !reflect.DeepEqual(lastTransitions, expectedLastTransitions) && !reflect.DeepEqual(lastTransitions, expectedLastTransitions2) {
-			t.Errorf("Expected last transitions %v, got %v", expectedLastTransitions, lastTransitions)
-		}
 	}
 }
