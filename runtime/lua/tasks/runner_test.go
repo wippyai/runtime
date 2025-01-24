@@ -48,7 +48,7 @@ func TestTasker_BasicExecution(t *testing.T) {
 		assert.NoError(t, err)
 
 		// Create tasker with both layers
-		tasker := NewTasker(
+		tasker := NewTaskRunner(
 			logger,
 			vm,
 			channel.NewChannelLayer(),
@@ -124,7 +124,7 @@ func TestTasker_ErrorHandling(t *testing.T) {
 		err = vm.Import(script, "test", "error_handler")
 		require.NoError(t, err)
 
-		tasker := NewTasker(logger, vm, channel.NewChannelLayer(), 10)
+		tasker := NewTaskRunner(logger, vm, channel.NewChannelLayer(), 10)
 		statusCh, err := tasker.Start(context.Background(), "error_handler")
 		require.NoError(t, err)
 
@@ -181,7 +181,7 @@ func TestTasker_ConcurrentExecution(t *testing.T) {
 		err = vm.Import(script, "test", "concurrent_handler")
 		require.NoError(t, err)
 
-		tasker := NewTasker(logger, vm, channel.NewChannelLayer(), 10)
+		tasker := NewTaskRunner(logger, vm, channel.NewChannelLayer(), 10)
 		statusCh, err := tasker.Start(context.Background(), "concurrent_handler")
 		require.NoError(t, err)
 
@@ -225,7 +225,7 @@ func TestConsecutiveTasks(t *testing.T) {
 	defer vm.Close()
 
 	// Create tasker
-	tasker := NewTasker(logger, vm, channel.NewChannelLayer(), 10)
+	tasker := NewTaskRunner(logger, vm, channel.NewChannelLayer(), 10)
 
 	script := `
 		function test_handler()
@@ -315,7 +315,7 @@ func TestAsyncTasksWithTimers(t *testing.T) {
 	channels := channel.NewChannelLayer()
 
 	// Create tasker with async support
-	tasker := NewTasker(
+	tasker := NewTaskRunner(
 		logger,
 		vm,
 		channels,
@@ -426,7 +426,7 @@ func TestTasker_TaskSend(t *testing.T) {
 	defer vm.Close()
 
 	// Create tasker
-	tasker := NewTasker(logger, vm, channel.NewChannelLayer(), 10)
+	tasker := NewTaskRunner(logger, vm, channel.NewChannelLayer(), 10)
 
 	script := `
 		function send_handler()
@@ -517,7 +517,7 @@ func setupVM(b *testing.B) (*TaskRunner, func()) {
 		b.Fatal(err)
 	}
 
-	tasker := NewTasker(
+	tasker := NewTaskRunner(
 		logger,
 		vm,
 		channel.NewChannelLayer(),

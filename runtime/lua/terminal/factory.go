@@ -2,12 +2,12 @@ package terminal
 
 import (
 	"fmt"
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/ponyruntime/pony/api/registry"
 	api "github.com/ponyruntime/pony/api/runtime/lua"
 	"github.com/ponyruntime/pony/api/service/terminal"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
+	"github.com/ponyruntime/pony/runtime/lua/modules/upstream"
 	"github.com/ponyruntime/pony/runtime/lua/tasks"
 	"go.uber.org/zap"
 )
@@ -27,8 +27,9 @@ func (f *Factory) MakeTerminal(
 	modules api.ModuleRegistry,
 	libraries api.LibraryRegistry,
 ) (terminal.Terminal, error) {
+	up := make(chan any, 1024)
 	opts := []engine.Option{
-		// Always require the task and channel modules
+		engine.WithPreloaded("upstream", upstream.NewUpstreamModule(up).Loader),
 		engine.WithPreloaded("tasks", tasks.NewTaskModule().Loader),
 		engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
 	}
@@ -66,17 +67,12 @@ func (f *Factory) MakeTerminal(
 		return nil, fmt.Errorf("failed to import terminal code: %w", err)
 	}
 
-	// Create tasker with channel layer
+	// Create runner with channel layer
 	channels := channel.NewChannelLayer()
-	tasker := tasks.NewTasker(
-		log,
-		vm,
-		channels,
-		1024, // Buffer size for task inbox
-	)
+	runner := tasks.NewTaskRunner(log, vm, channels, 1024)
 
-	return NewLuaTerminal(log, tasker, Options{
+	return NewLuaTerminal(log, runner, Options{
 		FuncName: cfg.Method,
 		Args:     nil, // we have no state to start with, todo: support os args
-	}), nil
+	}, up), nil
 }

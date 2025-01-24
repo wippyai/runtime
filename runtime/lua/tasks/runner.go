@@ -27,8 +27,8 @@ type TaskRunner struct {
 	cancel  context.CancelFunc
 }
 
-// NewTasker creates a new instance of the task manager
-func NewTasker(
+// NewTaskRunner creates a new instance of the task manager
+func NewTaskRunner(
 	log *zap.Logger,
 	cvm *engine.CoroutineVM,
 	channels *channel.Layer,
