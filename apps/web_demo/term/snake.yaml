@@ -1,15 +1,15 @@
 name: default_terminal
 kind: terminal.lua
 meta:
-  comment: "Simple terminal text editor"
+  comment: "Snake"
 
-source: file://default.lua
+source: file://snake.lua
 method: App
 
 options:
   alt_screen: true
-  title: "Simple Terminal Editor"
-  mouse: "none"
+  title: "Snake game"
+  mouse: "cell"
   disable_signals: false
 
 lifecycle:

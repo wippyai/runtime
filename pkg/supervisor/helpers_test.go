@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"errors"
+	"github.com/stretchr/testify/assert"
 	"testing"
 
 	"github.com/ponyruntime/pony/api/supervisor"
@@ -23,8 +24,8 @@ func TestTransactionHelper_Begin(t *testing.T) {
 	}
 
 	// Subsequent begin should reset the state
-	th.registerService("testService", &supervisor.Entry{})
-	th.removeService("anotherService")
+	assert.NoError(t, th.registerService("testService", &supervisor.Entry{}))
+	assert.NoError(t, th.removeService("anotherService"))
 	th.begin()
 
 	if !th.open {
@@ -52,9 +53,9 @@ func TestTransactionHelper_Commit_Success(t *testing.T) {
 		return nil
 	}
 
-	th.registerService("service1", &supervisor.Entry{})
-	th.registerService("service2", &supervisor.Entry{})
-	th.removeService("service3")
+	assert.NoError(t, th.registerService("service1", &supervisor.Entry{}))
+	assert.NoError(t, th.registerService("service2", &supervisor.Entry{}))
+	assert.NoError(t, th.removeService("service3"))
 
 	err := th.commit(removeFn, registerFn)
 	if err != nil {
@@ -101,11 +102,12 @@ func TestTransactionHelper_Commit_RemoveError(t *testing.T) {
 		return nil
 	}
 
-	th.removeService("service3")
+	assert.NoError(t, th.removeService("service3"))
 
 	err := th.commit(removeFn, registerFn)
 	if err == nil {
 		t.Error("commit should have failed")
+		return
 	}
 
 	expectedError := "failed to remove service service3 during commit: remove error"
@@ -129,12 +131,13 @@ func TestTransactionHelper_Commit_RegisterError(t *testing.T) {
 		return nil
 	}
 
-	th.registerService("service1", &supervisor.Entry{})
-	th.registerService("service2", &supervisor.Entry{})
+	assert.NoError(t, th.registerService("service1", &supervisor.Entry{}))
+	assert.NoError(t, th.registerService("service2", &supervisor.Entry{}))
 
 	err := th.commit(removeFn, registerFn)
 	if err == nil {
 		t.Error("commit should have failed")
+		return
 	}
 
 	expectedError := "failed to register service service2 during commit: register error"
@@ -156,8 +159,8 @@ func TestTransactionHelper_Discard(t *testing.T) {
 	th := newTransactionHelper(noopLogger())
 	th.begin()
 
-	th.registerService("service1", &supervisor.Entry{})
-	th.removeService("service2")
+	assert.NoError(t, th.registerService("service1", &supervisor.Entry{}))
+	assert.NoError(t, th.removeService("service2"))
 
 	th.discard()
 
@@ -178,14 +181,14 @@ func TestTransactionHelper_RegisterService(t *testing.T) {
 	th := newTransactionHelper(noopLogger())
 	th.begin()
 
-	th.registerService("service1", &supervisor.Entry{})
+	assert.NoError(t, th.registerService("service1", &supervisor.Entry{}))
 	if len(th.register) != 1 {
 		t.Error("service should be registered")
 	}
 
 	// Registering a service that was marked for removal should remove it from th.remove
-	th.removeService("service1")
-	th.registerService("service1", &supervisor.Entry{})
+	assert.NoError(t, th.removeService("service1"))
+	assert.NoError(t, th.registerService("service1", &supervisor.Entry{}))
 	if len(th.remove) != 0 {
 		t.Error("service should have been removed from removal list")
 	}
@@ -208,14 +211,14 @@ func TestTransactionHelper_RemoveService(t *testing.T) {
 	th := newTransactionHelper(noopLogger())
 	th.begin()
 
-	th.removeService("service1")
+	assert.NoError(t, th.removeService("service1"))
 	if len(th.remove) != 1 {
 		t.Error("service should be marked for removal")
 	}
 
 	// Removing a service that was registered should remove it from th.register
-	th.registerService("service1", &supervisor.Entry{})
-	th.removeService("service1")
+	assert.NoError(t, th.registerService("service1", &supervisor.Entry{}))
+	assert.NoError(t, th.removeService("service1"))
 	if len(th.register) != 0 {
 		t.Error("service should have been removed from register list")
 	}

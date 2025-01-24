@@ -48,25 +48,4 @@ type (
 		// SetState attempts to restore terminal to given state, set prior to Run
 		SetState(payload.Payload) error
 	}
-
-	// Application represents the terminal application registration payload
-	Application struct {
-		Terminal Terminal // The actual terminal implementation
-		Options  Options  `json:"options"` // Terminal-specific options
-	}
-
-	// Options contains terminal-specific settings
-	Options struct {
-		// UseAltScreen determines if the terminal should use the alternate screen buffer
-		UseAltScreen bool `json:"alt_screen"`
-
-		// Title sets the terminal window title
-		Title string `json:"title,omitempty"`
-
-		// MouseMode determines the type of mouse support
-		MouseMode string `json:"mouse,omitempty"`
-
-		// DisableSignals prevents handling of signals (ctrl+c, etc)
-		DisableSignals bool `json:"disable_signals,omitempty"`
-	}
 )

@@ -16,7 +16,6 @@ import (
 // terminalRunner encapsulates terminal execution and lifecycle
 type terminalRunner struct {
 	terminal api.Terminal
-	options  api.Options
 	id       registry.ID
 	bus      events.Bus
 	log      *zap.Logger
@@ -30,14 +29,12 @@ type terminalRunner struct {
 
 func newTerminalRunner(
 	app api.Terminal,
-	opts api.Options,
 	id registry.ID,
 	bus events.Bus,
 	log *zap.Logger,
 ) *terminalRunner {
 	return &terminalRunner{
 		terminal: app,
-		options:  opts,
 		id:       id,
 		bus:      bus,
 		log:      log,
@@ -90,6 +87,7 @@ func (r *terminalRunner) stop(ctx context.Context) error {
 	}
 
 	r.cancel()
+	r.ctx = nil
 
 	select {
 	case <-ctx.Done():

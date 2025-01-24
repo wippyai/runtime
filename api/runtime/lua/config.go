@@ -2,7 +2,6 @@ package lua
 
 import (
 	"fmt"
-	"github.com/ponyruntime/pony/api/service/terminal"
 	"github.com/ponyruntime/pony/api/supervisor"
 
 	"github.com/ponyruntime/pony/api/registry"
@@ -40,7 +39,7 @@ type (
 		Method    string                     `json:"method"`    // Name of the Lua method to execute
 		Libraries []string                   `json:"libraries"` // Required Lua libraries
 		Modules   []string                   `json:"modules"`   // Required Lua modules
-		Options   terminal.Options           `json:"options"`   // Terminal-specific options
+		Options   TerminalOptions            `json:"options"`   // Terminal-specific options
 		Lifecycle supervisor.LifecycleConfig `json:"lifecycle"` // Lifecycle management config
 	}
 
@@ -57,6 +56,21 @@ type (
 		Meta    registry.Metadata `json:"meta"`    // Metadata for the library
 		Source  string            `json:"source"`  // Library source code
 		Modules []string          `json:"modules"` // Required Lua modules
+	}
+
+	// BubbleTea terminal binding options.
+	TerminalOptions struct {
+		// UseAltScreen determines if the terminal should use the alternate screen buffer
+		UseAltScreen bool `json:"alt_screen"`
+
+		// Title sets the terminal window title
+		Title string `json:"title,omitempty"`
+
+		// MouseMode determines the type of mouse support
+		MouseMode string `json:"mouse,omitempty"`
+
+		// DisableSignals prevents handling of signals (ctrl+c, etc)
+		DisableSignals bool `json:"disable_signals,omitempty"`
 	}
 )
 

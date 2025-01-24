@@ -279,11 +279,6 @@ func (m *RuntimeManager) compileAndRegisterFunction(ctx context.Context, id regi
 }
 
 func (m *RuntimeManager) compileAndRegisterTerminal(ctx context.Context, id registry.ID) error {
-	term, exists := m.terminals.GetTerminal(id)
-	if !exists {
-		return fmt.Errorf("terminal configuration not found")
-	}
-
 	instance, err := m.terminals.MakeTerminal(id, m.modules, m.libraries)
 	if err != nil {
 		return fmt.Errorf("failed to create terminal: %w", err)
@@ -293,10 +288,7 @@ func (m *RuntimeManager) compileAndRegisterTerminal(ctx context.Context, id regi
 		System: terminal.System,
 		Kind:   terminal.RegisterTerminalEvent,
 		Path:   events.Path(id),
-		Data: terminal.Application{
-			Terminal: instance,
-			Options:  term.Options,
-		},
+		Data:   instance,
 	})
 
 	return nil

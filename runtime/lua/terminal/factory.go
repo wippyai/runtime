@@ -54,7 +54,6 @@ func (f *Factory) MakeTerminal(
 		opts = append(opts, engine.WithLibrary(libName, lib.Source))
 	}
 
-	// Create the VM with options
 	vm, err := engine.NewCVM(log, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create VM: %w", err)
@@ -77,6 +76,6 @@ func (f *Factory) MakeTerminal(
 
 	return NewLuaTerminal(log, tasker, Options{
 		FuncName: cfg.Method,
-		Args:     nil,
+		Args:     nil, // we have no state to start with, todo: support os args
 	}), nil
 }
