@@ -92,7 +92,7 @@ func (t *LuaTerminal) Run(ctx context.Context, in io.Reader, out io.Writer) erro
 	}
 
 	if m.(bubbleModel).quitting {
-		return supervisor.Exited
+		return supervisor.ExitErr
 	}
 
 	return nil

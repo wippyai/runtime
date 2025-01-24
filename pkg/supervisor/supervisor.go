@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -144,6 +145,7 @@ func (s *Supervisor) Stop() error {
 		wg.Add(1)
 		go func(id string, c *Controller) {
 			defer wg.Done()
+			log.Printf("stopping controller %s", id)
 			if err := c.Stop(); err != nil {
 				s.logger.Error("failed to stop controller",
 					zap.String("serviceID", id),
@@ -281,22 +283,21 @@ func (s *Supervisor) run(ctx context.Context) {
 
 func (s *Supervisor) registerService(id string, entry *supervisor.Entry) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if _, exists := s.controllers[id]; exists {
 		//return current.updateConfig(entry.Config) todo: implement later
 		return fmt.Errorf("service %s already registered", id)
 	}
+	s.mu.Unlock()
 
 	stateHandler := func(status supervisor.Status, details any) {
 		if err, ok := details.(error); ok {
-			if errors.Is(err, supervisor.Exited) {
+			if errors.Is(err, supervisor.ExitErr) {
 				s.logger.Info(fmt.Sprintf("service %s is %s", id, status),
 					zap.String("serviceID", id),
 					zap.String("status", string(status)),
 					zap.Error(err),
 				)
-			} else if errors.Is(err, supervisor.Terminated) || errors.Is(err, context.Canceled) {
+			} else if errors.Is(err, supervisor.TerminatedErr) || errors.Is(err, context.Canceled) {
 				s.logger.Warn(fmt.Sprintf("service %s is %s", id, status),
 					zap.String("serviceID", id),
 					zap.String("status", string(status)),
@@ -333,7 +334,10 @@ func (s *Supervisor) registerService(id string, entry *supervisor.Entry) error {
 
 	entry.Config.InitDefaults()
 
+	s.mu.Lock()
 	s.controllers[id] = NewController(s.ctx, entry.Service, entry.Config, stateHandler)
+	s.mu.Unlock()
+
 	s.logger.Info("service registered",
 		zap.String("serviceID", id),
 		zap.Bool("auto_start", entry.Config.AutoStart),
