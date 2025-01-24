@@ -25,8 +25,6 @@ type internalState struct {
 	desired    supervisor.Status
 	retryCount int32
 	lastUpdate time.Time
-	ctx        context.Context
-	cancel     context.CancelFunc
 	mur        sync.Mutex
 	runCtx     context.Context
 	runCancel  context.CancelFunc
@@ -79,33 +77,6 @@ func (s *internalState) publicState() State {
 	}
 }
 
-// setContext updates the context and cancel function
-func (s *internalState) setContext(ctx context.Context, cancel context.CancelFunc) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	s.ctx = ctx
-	s.cancel = cancel
-}
-
-// getContext returns the current context
-func (s *internalState) getContext() context.Context {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	return s.ctx
-}
-
-// cancelContext cancels the current context if it exists
-func (s *internalState) cancelContext() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.cancel != nil {
-		s.cancel()
-	}
-}
-
 // updateState updates the service state and returns current details
 func (s *internalState) updateState(status supervisor.Status, details any) (supervisor.Status, any) {
 	s.mu.Lock()
@@ -149,18 +120,6 @@ func (s *internalState) resetRetryCount() {
 	defer s.mu.Unlock()
 
 	s.retryCount = 0
-}
-
-// canRecover checks if the service can be recovered based on current state
-func (s *internalState) canRecover(ctx context.Context, maxAttempts int) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if ctx.Err() != nil {
-		return false
-	}
-
-	return s.desired == supervisor.Running && int(s.retryCount) < maxAttempts
 }
 
 // setDesiredStatus updates the desired state and returns if it changed

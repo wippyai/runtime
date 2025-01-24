@@ -543,40 +543,6 @@ func TestController_ServiceFailedRecovery(t *testing.T) {
 	}
 }
 
-func TestController_ContextHandling(t *testing.T) {
-	state := newServiceState()
-
-	// Test initial context state
-	if state.getContext() != nil {
-		t.Error("Expected nil initial context")
-	}
-
-	// Test setting context
-	ctx, cancel := context.WithCancel(context.Background())
-	state.setContext(ctx, cancel)
-
-	if state.getContext() != ctx {
-		t.Error("Context not set correctly")
-	}
-
-	// Test cancelling context
-	state.cancelContext()
-	select {
-	case <-ctx.Done():
-		// Expected behavior
-	default:
-		t.Error("Context not cancelled")
-	}
-
-	// Test setting new context after cancellation
-	newCtx, newCancel := context.WithCancel(context.Background())
-	state.setContext(newCtx, newCancel)
-
-	if state.getContext() != newCtx {
-		t.Error("New context not set correctly")
-	}
-}
-
 func TestController_ServiceStateSnapshot(t *testing.T) {
 	state := newServiceState()
 	state.status = supervisor.Running
@@ -1448,3 +1414,190 @@ func TestController_ServiceExitDuringOperation(t *testing.T) {
 		t.Errorf("Expected final status Exited, got: %v", state.Status)
 	}
 }
+
+//
+//func TestController_StressTestStartLast(t *testing.T) {
+//	var currentChan chan any
+//	var chanMutex sync.Mutex
+//	startAttempts := atomic.Int32{}
+//	stopAttempts := atomic.Int32{}
+//
+//	mock := &mockService{
+//		startFunc: func(ctx context.Context) (<-chan any, error) {
+//			startAttempts.Add(1)
+//			chanMutex.Lock()
+//			currentChan = make(chan any, 1)
+//			ch := currentChan
+//			chanMutex.Unlock()
+//
+//			ch <- "service started"
+//			return ch, nil
+//		},
+//		stopFunc: func(ctx context.Context) error {
+//			stopAttempts.Add(1)
+//			chanMutex.Lock()
+//			if currentChan != nil {
+//				close(currentChan)
+//				currentChan = nil
+//			}
+//			chanMutex.Unlock()
+//			return nil
+//		},
+//	}
+//
+//	ctr := NewController(
+//		context.Background(),
+//		mock,
+//		supervisor.LifecycleConfig{
+//			StartTimeout: 1 * time.Second,
+//			StopTimeout:  1 * time.Second,
+//			RetryPolicy: supervisor.RetryPolicy{
+//				MaxAttempts:  3,
+//				InitialDelay: 50 * time.Millisecond,
+//			},
+//		},
+//		nil,
+//	)
+//
+//	const numOperations = 50
+//	var wg sync.WaitGroup
+//	wg.Add(numOperations)
+//
+//	// Launch random operations
+//	for i := 0; i < numOperations-1; i++ {
+//		go func() {
+//			defer wg.Done()
+//			defer log.Println("Operation done")
+//			if rand.Float32() < 0.5 {
+//				_ = ctr.Start()
+//			} else {
+//				_ = ctr.Stop()
+//			}
+//		}()
+//	}
+//	log.Printf("numOperations: %d", numOperations)
+//	// Last operation is always Start
+//	go func() {
+//		defer wg.Done()
+//		_ = ctr.Start()
+//	}()
+//
+//	// Wait for all operations to complete
+//	log.Printf("!!!!!!!!!!!!!!WAIT FOR COMPLETION")
+//	wg.Wait()
+//	time.Sleep(200 * time.Millisecond) // Wait for final state to settle
+//
+//	// Verify final state is Running
+//	state := ctr.State()
+//	if state.Status != supervisor.Running {
+//		t.Errorf("Expected final status Running, got: %v", state.Status)
+//	}
+//
+//	// Cleanup
+//	if err := ctr.Stop(); err != nil {
+//		t.Errorf("Failed to stop controller: %v", err)
+//	}
+//
+//	t.Logf("Total start attempts: %d, stop attempts: %d", startAttempts.Load(), stopAttempts.Load())
+//}
+//
+//func TestController_StressTestStopLast(t *testing.T) {
+//	var currentChan chan any
+//	var chanMutex sync.Mutex
+//	startAttempts := atomic.Int32{}
+//	stopAttempts := atomic.Int32{}
+//	stateTransitions := make([]supervisor.Status, 0)
+//	var statesMutex sync.Mutex
+//
+//	mock := &mockService{
+//		startFunc: func(ctx context.Context) (<-chan any, error) {
+//			startAttempts.Add(1)
+//			chanMutex.Lock()
+//			currentChan = make(chan any, 1)
+//			ch := currentChan
+//			chanMutex.Unlock()
+//
+//			ch <- "service started"
+//			return ch, nil
+//		},
+//		stopFunc: func(ctx context.Context) error {
+//			stopAttempts.Add(1)
+//			chanMutex.Lock()
+//			if currentChan != nil {
+//				close(currentChan)
+//				currentChan = nil
+//			}
+//			chanMutex.Unlock()
+//			return nil
+//		},
+//	}
+//
+//	ctr := NewController(
+//		context.Background(),
+//		mock,
+//		supervisor.LifecycleConfig{
+//			StartTimeout: 1 * time.Second,
+//			StopTimeout:  1 * time.Second,
+//			RetryPolicy: supervisor.RetryPolicy{
+//				MaxAttempts:  3,
+//				InitialDelay: 50 * time.Millisecond,
+//			},
+//		},
+//		func(status supervisor.Status, details any) {
+//			statesMutex.Lock()
+//			stateTransitions = append(stateTransitions, status)
+//			statesMutex.Unlock()
+//		},
+//	)
+//
+//	const numOperations = 50
+//	var wg sync.WaitGroup
+//	wg.Add(numOperations)
+//
+//	// Launch random operations
+//	for i := 0; i < numOperations-1; i++ {
+//		go func() {
+//			defer wg.Done()
+//			if rand.Float32() < 0.5 {
+//				_ = ctr.Start()
+//			} else {
+//				_ = ctr.Stop()
+//			}
+//		}()
+//	}
+//
+//	// Last operation is always Stop
+//	go func() {
+//		defer wg.Done()
+//		_ = ctr.Stop()
+//	}()
+//
+//	// Wait for all operations to complete
+//	wg.Wait()
+//	time.Sleep(200 * time.Millisecond) // Wait for final state to settle
+//
+//	// Verify final state is Stopped
+//	state := ctr.State()
+//	if state.Status != supervisor.Stopped {
+//		t.Errorf("Expected final status Stopped, got: %v", state.Status)
+//	}
+//
+//	// Get final state transitions
+//	statesMutex.Lock()
+//	transitions := stateTransitions
+//	statesMutex.Unlock()
+//
+//	// Verify the last few transitions lead to Stopped state
+//	if len(transitions) >= 2 {
+//		lastTransitions := transitions[len(transitions)-2:]
+//		expectedLastTransitions := []supervisor.Status{
+//			supervisor.Stopping,
+//			supervisor.Stopped,
+//		}
+//		if !reflect.DeepEqual(lastTransitions, expectedLastTransitions) {
+//			t.Errorf("Expected last transitions %v, got %v", expectedLastTransitions, lastTransitions)
+//		}
+//	}
+//
+//	t.Logf("Total start attempts: %d, stop attempts: %d", startAttempts.Load(), stopAttempts.Load())
+//}
