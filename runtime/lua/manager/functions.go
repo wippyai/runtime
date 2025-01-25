@@ -118,13 +118,21 @@ func (m *Functions) MakeFactory(
 
 	fct := factory.NewFactory(logger.Named(fmt.Sprintf("vm.%s", id)))
 
+	knownModules := make(map[string]struct{})
+
 	// Add required modules
 	for _, modID := range cfg.Modules {
 		module, err := modules.Get(modID)
 		if err != nil {
 			return nil, err
 		}
+
+		if _, exists := knownModules[module.Name()]; exists {
+			continue
+		}
+
 		fct.Modules = append(fct.Modules, module)
+		knownModules[module.Name()] = struct{}{}
 	}
 
 	// Add required libraries
@@ -138,6 +146,21 @@ func (m *Functions) MakeFactory(
 			Name:   libID,
 			Script: lib.Source,
 		})
+
+		// todo: library also can depend on other libraries
+		for _, depID := range lib.Modules {
+			dep, err := modules.Get(depID)
+			if err != nil {
+				return nil, err
+			}
+
+			if _, exists := knownModules[dep.Name()]; exists {
+				continue
+			}
+
+			fct.Modules = append(fct.Modules, dep)
+			knownModules[dep.Name()] = struct{}{}
+		}
 	}
 
 	// Add the function itself
