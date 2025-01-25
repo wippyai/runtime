@@ -32,7 +32,7 @@ func NewManager(bus events.Bus, core api.Core, logger *zap.Logger) *Manager {
 		config: api.Config{
 			PropagateDownstream: true,
 			StreamToEvents:      false,
-			MinLevel:            zapcore.InfoLevel, // todo: pass from outside
+			MinLevel:            zapcore.DebugLevel, // todo: pass from outside
 		},
 	}
 }

@@ -5,9 +5,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/registry"
+	registry2 "github.com/ponyruntime/pony/pkg/registry"
 	"go.uber.org/zap"
 )
 
@@ -96,6 +96,11 @@ func (br *BusRunner) applyOperation(ctx context.Context, state stateMap, op regi
 	//	return state, fmt.Errorf("invalid operation: %w", err)
 	//}
 
+	br.log.Debug("starting operation",
+		zap.String("kind", string(op.Kind)),
+		zap.String("id", string(op.Entry.ID)),
+		zap.Any("meta", op.Entry.Meta))
+
 	// send the operation event
 	br.bus.Send(ctx, events.Event{
 		System: registry.System,
@@ -108,6 +113,9 @@ func (br *BusRunner) applyOperation(ctx context.Context, state stateMap, op regi
 		select {
 		case confirmation := <-br.acceptChan:
 			id := registry.ID(confirmation.Path)
+			br.log.Debug("received accept event",
+				zap.String("id", string(id)),
+				zap.String("expected", string(op.Entry.ID)))
 
 			if id != op.Entry.ID {
 				return state, errors.New("unrelated accept event")
@@ -124,6 +132,10 @@ func (br *BusRunner) applyOperation(ctx context.Context, state stateMap, op regi
 			return newState, nil
 		case rejection := <-br.rejectChan:
 			id := registry.ID(rejection.Path)
+			br.log.Debug("received reject event",
+				zap.String("id", string(id)),
+				zap.String("expected", string(op.Entry.ID)),
+				zap.Any("data", rejection.Data))
 
 			if id != op.Entry.ID {
 				return state, errors.New("unrelated reject event")
@@ -142,32 +154,43 @@ func (br *BusRunner) applyOperation(ctx context.Context, state stateMap, op regi
 	}
 }
 
-func (br *BusRunner) rollback(
-	ctx context.Context,
-	originalState,
-	currentState stateMap,
-	appliedOperations []registry.Operation,
-) stateMap {
-	// Iterate in reverse order
-	for i := len(appliedOperations) - 1; i >= 0; i-- {
-		op := appliedOperations[i]
-		inverseOp, err := br.stateHelper.getInverseOperation(originalState, op)
+func (br *BusRunner) rollback(ctx context.Context, originalState, currentState stateMap, appliedOperations []registry.Operation) stateMap {
+	br.log.Debug("starting rollback",
+		zap.Any("current_state", currentState),
+		zap.Any("original_state", originalState))
+
+	// Convert states to registry.State format
+	fromState := br.stateHelper.toSlice(currentState)
+	toState := br.stateHelper.toSlice(originalState)
+
+	// Use BuildDelta to generate ordered operations
+	stateBuilder := registry2.NewStateBuilder(br.log)
+	delta, err := stateBuilder.BuildDelta(fromState, toState)
+
+	if err != nil {
+		br.log.Error("failed to build rollback delta", zap.Error(err))
+		return currentState
+	}
+
+	br.log.Debug("rollback delta calculated",
+		zap.Any("delta", delta))
+
+	// Apply rollback operations
+	for _, op := range delta {
+		br.log.Debug("applying rollback operation",
+			zap.String("kind", string(op.Kind)),
+			zap.String("id", string(op.Entry.ID)),
+			zap.Any("meta", op.Entry.Meta))
+
+		newState, err := br.applyOperation(ctx, currentState, op)
 		if err != nil {
-			br.log.Error("error getting inverse operation", zap.Error(err))
+			br.log.Error("failed to apply rollback operation",
+				zap.Any("operation", op),
+				zap.Error(err))
+			// Continue trying other operations instead of returning
 			continue
 		}
-
-		newState, err := br.applyOperation(ctx, currentState, inverseOp)
-		if err != nil {
-			br.log.Warn("failed to rollback operation", zap.Any("operation", op))
-			return newState
-		}
-
-		// Apply the inverse operation to the state
-		currentState, err = br.stateHelper.applyChangeToState(currentState, inverseOp)
-		if err != nil {
-			br.log.Error("error applying rollback operation", zap.Error(err))
-		}
+		currentState = newState
 	}
 	return currentState
 }

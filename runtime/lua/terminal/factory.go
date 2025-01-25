@@ -25,7 +25,7 @@ func NewFactory() *Factory {
 // MakeTerminal creates a new terminal instance.
 func (f *Factory) MakeTerminal(
 	log *zap.Logger,
-	cfg api.TerminalConfig,
+	cfg *api.TerminalConfig,
 	modules api.ModuleRegistry,
 	libraries api.LibraryRegistry,
 ) (terminal.Terminal, error) {
