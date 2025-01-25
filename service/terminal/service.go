@@ -29,6 +29,7 @@ type controlOp struct {
 
 type service struct {
 	terminal  *terminalRunner
+	ctx       context.Context
 	opCh      chan controlOp
 	statusCh  chan any
 	doneCh    chan struct{}
@@ -49,8 +50,6 @@ func newService(
 	return &service{
 		terminal:  newTerminalRunner(app, id, bus, log),
 		opCh:      make(chan controlOp, 1),
-		statusCh:  make(chan any, 10),
-		doneCh:    make(chan struct{}),
 		bus:       bus,
 		log:       log,
 		logSwitch: newLogSwitcher(bus, log),
@@ -59,6 +58,17 @@ func newService(
 }
 
 func (s *service) Start(ctx context.Context) (<-chan any, error) {
+	s.mu.Lock()
+	if s.ctx != nil {
+		s.mu.Unlock()
+		return nil, errors.New("service already running")
+	}
+	s.mu.Unlock()
+
+	s.ctx = ctx
+	s.statusCh = make(chan any, 10)
+	s.doneCh = make(chan struct{})
+
 	go s.run(ctx)
 
 	resultCh := make(chan error, 1)
@@ -128,6 +138,7 @@ func (s *service) UpdateApp(ctx context.Context, term api.Terminal, id registry.
 
 func (s *service) run(ctx context.Context) {
 	defer func() {
+		s.ctx = nil
 		s.logSwitch.restoreOn(context.Background())
 
 		// Ensure last runner error is sent before closing channels
@@ -155,6 +166,7 @@ func (s *service) run(ctx context.Context) {
 
 			switch op.action {
 			case actionStart:
+				// todo: make configurable
 				if err = s.logSwitch.enableOn(ctx); err != nil {
 					break
 				}

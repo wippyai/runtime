@@ -1,4 +1,4 @@
-name: default_terminal
+name: snake.terminal
 kind: terminal.lua
 meta:
   comment: "Snake"
@@ -9,13 +9,8 @@ method: App
 options:
   alt_screen: true
   title: "Snake game"
-  mouse: "cell"
-  disable_signals: false
 
 lifecycle:
   auto_start: true
   startup_timeout: "5s"
   shutdown_timeout: "3s"
-  retry_policy:
-    max_retries: 0
-    initial_delay: "10s"

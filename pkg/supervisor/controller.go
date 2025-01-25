@@ -177,7 +177,7 @@ func (c *Controller) supervise() {
 			case controlFailed:
 				c.updateState(supervisor.Failed, "unexpected failure")
 				if c.state.getDesiredStatus() == supervisor.Running {
-					// immediate retry attempt
+					// the service suddenly failed, retry
 					go func() {
 						select {
 						case c.ops <- controlOp{kind: controlStart}:
@@ -328,7 +328,7 @@ func (c *Controller) tryStart(ctx context.Context, cancel context.CancelFunc) (<
 }
 
 func (c *Controller) tryStop(ctx context.Context) error {
-	if c.state.getCurrentStatus() == supervisor.Stopped {
+	if c.state.getCurrentStatus() == supervisor.Stopped || c.state.getCurrentStatus() == supervisor.Exited {
 		return nil
 	}
 

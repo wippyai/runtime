@@ -94,6 +94,8 @@ function App()
             break
         end
 
+        print(task:input())
+
         local msg = task:input()
         if msg.type == "update" then
             if msg.tick then
