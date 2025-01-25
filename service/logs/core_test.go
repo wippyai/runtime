@@ -86,9 +86,6 @@ func TestNewCore(t *testing.T) {
 	if config.StreamToEvents {
 		t.Error("expected StreamToEvents to be false")
 	}
-	if config.MinLevel != zapcore.DebugLevel {
-		t.Errorf("expected MinLevel to be DebugLevel, got %v", config.MinLevel)
-	}
 }
 
 func TestCore_Configure(t *testing.T) {

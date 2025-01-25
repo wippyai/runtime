@@ -12,7 +12,6 @@ import (
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 	"io"
-	"log"
 	"sync/atomic"
 )
 
@@ -81,7 +80,6 @@ func (t *LuaTerminal) Run(ctx context.Context, in io.Reader, out io.Writer) erro
 		for {
 			select {
 			case msg := <-t.upstream:
-				log.Printf("msg: %v", msg)
 				p.Send(msg)
 			case <-ctx.Done():
 				return

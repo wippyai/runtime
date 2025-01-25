@@ -1,0 +1,8 @@
+name: bubbletea.lib
+kind: library.lua
+meta:
+  comment: "BubbleTea UI components and utilities"
+  version: "0.1.0"
+
+source: file://bubbletea.lua
+modules: [ "time" ]  # Required for window size handling and animations

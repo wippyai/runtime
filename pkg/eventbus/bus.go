@@ -4,13 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
-	"sync"
-	"sync/atomic"
-	"time"
-
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/internal/wildcard"
+	"sync"
+	"sync/atomic"
 )
 
 type actionType int
@@ -23,11 +20,10 @@ const (
 )
 
 type action struct {
-	actionType   actionType
-	subscribe    sub
-	unsubscribe  unsub
-	event        sendEvent
-	stopDoneChan chan struct{} // opChan to signal stop completion
+	actionType  actionType
+	subscribe   sub
+	unsubscribe unsub
+	event       sendEvent
 }
 
 type sendEvent struct {
@@ -56,6 +52,7 @@ type Bus struct {
 	actions           chan action
 	wg                sync.WaitGroup
 	subscriberCounter uint64
+	closed            chan any
 }
 
 // NewBus creates a new event bus instance with the provided logger.
@@ -64,6 +61,7 @@ func NewBus() *Bus {
 	b := &Bus{
 		subscribers: make(map[events.SubscriberID]sub),
 		actions:     make(chan action, 100), // Buffered channel for all actions
+		closed:      make(chan any),
 	}
 
 	b.wg.Add(1)
@@ -118,6 +116,8 @@ func (b *Bus) SubscribeP(
 
 	select {
 	case b.actions <- action{actionType: subscribe, subscribe: sub}:
+	case <-b.closed:
+		return "", errors.New("bus is closed")
 	case <-ctx.Done():
 		return "", ctx.Err()
 	}
@@ -125,6 +125,8 @@ func (b *Bus) SubscribeP(
 	select {
 	case <-ctx.Done():
 		return "", ctx.Err()
+	case <-b.closed:
+		return "", errors.New("bus is closed")
 	case <-sub.doneCh:
 		return subID, nil
 	}
@@ -145,12 +147,13 @@ func (b *Bus) Unsubscribe(ctx context.Context, subID events.SubscriberID) {
 
 	select {
 	case b.actions <- action{actionType: unsubscribe, unsubscribe: unsub}:
+	case <-b.closed:
 	case <-ctx.Done():
-		return
 	}
 
 	select {
 	case <-ctx.Done():
+	case <-b.closed:
 	case <-unsub.doneCh:
 	}
 }
@@ -160,17 +163,19 @@ func (b *Bus) Unsubscribe(ctx context.Context, subID events.SubscriberID) {
 func (b *Bus) Send(ctx context.Context, event events.Event) {
 	select {
 	case b.actions <- action{actionType: send, event: sendEvent{event: event, ctx: ctx}}:
+	case <-b.closed:
 	case <-ctx.Done():
-		return
 	}
 }
 
 // Stop gracefully shuts down the event bus by closing all subscriber channels
 // and stopping the event handling goroutine.
 func (b *Bus) Stop() {
-	done := make(chan struct{})
-	b.actions <- action{actionType: stop, stopDoneChan: done}
-	<-done // wait for stop to complete, todo: add ctx?
+	select {
+	case b.actions <- action{actionType: stop}:
+	case <-b.closed:
+	}
+
 	b.wg.Wait()
 }
 
@@ -202,27 +207,27 @@ func (b *Bus) handleActions() {
 				select {
 				case <-a.event.ctx.Done():
 					continue
+				case <-b.closed:
+					continue
 				case s.eventCh <- a.event.event:
 					continue
-				case <-time.After(1 * time.Second):
-					log.Printf("!!!!!!!!ERROPR!!!!!!!!!!!!!!!!!!!!SENDING TO %+v", s)
 				}
 			}
 
 		case stop:
-			for _, s := range b.subscribers {
-				close(s.eventCh)
+			for id, _ := range b.subscribers {
+				b.handleUnsubscribe(id)
 			}
 			close(b.actions)
-			a.stopDoneChan <- struct{}{} // Signal stop completion
+			b.actions = nil
+			close(b.closed)
 			return
 		}
 	}
 }
 
 func (b *Bus) handleUnsubscribe(subID events.SubscriberID) {
-	if s, exists := b.subscribers[subID]; exists {
-		close(s.eventCh)
+	if _, exists := b.subscribers[subID]; exists {
 		delete(b.subscribers, subID)
 	}
 }
