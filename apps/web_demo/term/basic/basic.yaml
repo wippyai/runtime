@@ -2,7 +2,7 @@ name: basic.terminal
 kind: terminal.lua
 meta:
   comment: "Simple upstream example"
-  depends_on: [ "bubbletea.lib" ]
+  depends_on: [ "bubbletea_tui" ]
 
 source: file://basic.lua
 method: App
@@ -12,7 +12,7 @@ options:
   title: "Simple App"
 
 modules: [ "time" ]
-libraries: [ "bubbletea.lib" ]
+libraries: [ "bubbletea_tui" ]
 
 lifecycle:
   auto_start: true

@@ -1,5 +1,5 @@
 -- Import the bubbletea library
-local tea = require("bubbletea.lib")
+local tea = require("bubbletea_tui")
 
 -- Operation log to store all operations
 local operations = {}

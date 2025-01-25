@@ -1,4 +1,4 @@
-name: bubbletea.lib
+name: bubbletea_tui
 kind: library.lua
 meta:
   comment: "BubbleTea UI components and utilities"
