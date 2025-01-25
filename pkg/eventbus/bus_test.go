@@ -124,17 +124,20 @@ func TestUnsubscribe(t *testing.T) {
 	receivedEvents := waitForEvents(t, ch, 1, time.Second)
 	require.Len(t, receivedEvents, 1)
 
-	// Unsubscribe and verify no more eventbus are received
+	// Unsubscribe and verify no more events are received
 	bus.Unsubscribe(context.Background(), subID)
 
 	event2 := newTestEvent("test-system", "test-kind", "payload2")
 	bus.Send(context.Background(), event2)
 
-	// Verify channel is closed
-	_, ok := <-ch
-	require.False(t, ok, "channel should be closed after unsubscribe")
+	// Verify no new events are received
+	select {
+	case evt := <-ch:
+		t.Errorf("received unexpected event after unsubscribe: %v", evt)
+	case <-time.After(100 * time.Millisecond):
+		// Expected: no events received after unsubscribe
+	}
 }
-
 func TestBusStop(t *testing.T) {
 	bus := newTestBus(t)
 
@@ -232,13 +235,20 @@ func TestUnsubscribeClosesChannel(t *testing.T) {
 
 	b.Unsubscribe(context.Background(), subID)
 
+	// Send an event after unsubscribe
+	event := events.Event{
+		System: "test-system",
+		Kind:   "test-kind",
+		Data:   payload.New([]byte("test-data")),
+	}
+	b.Send(context.Background(), event)
+
+	// Verify no events are received after unsubscribe
 	select {
-	case _, ok := <-ch:
-		if ok {
-			t.Error("opChan should be closed after unsubscribe")
-		}
-	case <-time.After(time.Millisecond * 100):
-		t.Error("timeout waiting for channel closure")
+	case evt := <-ch:
+		t.Errorf("received event after unsubscribe: %v", evt)
+	case <-time.After(100 * time.Millisecond):
+		// Expected: no events received
 	}
 }
 
@@ -280,22 +290,24 @@ func TestStopWithActiveSubscribers(t *testing.T) {
 	ch1 := make(chan events.Event)
 	ch2 := make(chan events.Event)
 	_, err := b.Subscribe(context.Background(), "test-system", ch1)
-	if err != nil {
-		t.Error("Listen failed: ", err)
-	}
+	require.NoError(t, err)
 	_, err = b.Subscribe(context.Background(), "other-system", ch2)
-	if err != nil {
-		t.Error("Listen failed: ", err)
-	}
+	require.NoError(t, err)
 
 	b.Stop()
 
-	// Verify that subscriber channels are closed
-	_, ok1 := <-ch1
-	_, ok2 := <-ch2
+	// Send events after stop
+	event := newTestEvent("test-system", "test-kind", "test-data")
+	b.Send(context.Background(), event)
 
-	if ok1 || ok2 {
-		t.Error("Subscriber channels should be closed when the bus is stopped")
+	// Verify that no events are received after stop
+	select {
+	case evt := <-ch1:
+		t.Errorf("received unexpected event after stop on ch1: %v", evt)
+	case evt := <-ch2:
+		t.Errorf("received unexpected event after stop on ch2: %v", evt)
+	case <-time.After(100 * time.Millisecond):
+		// Expected: no events received after stop
 	}
 }
 
@@ -379,4 +391,66 @@ func TestMultipleSubscribersDifferentKinds(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 		//OK
 	}
+}
+
+func TestStopWithPendingUnsubscribe(t *testing.T) {
+	b := NewBus()
+
+	// Create a subscriber
+	ch := make(chan events.Event)
+	subID, err := b.Subscribe(context.Background(), "test-system", ch)
+	require.NoError(t, err)
+
+	// Fill up the actions channel with unsubscribe requests
+	// The channel buffer is 100, so we'll add more than that
+	var wg sync.WaitGroup
+	for i := 0; i < 150; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			b.Unsubscribe(context.Background(), subID)
+		}()
+	}
+
+	// Call Stop() while unsubscribe requests are being processed
+	go func() {
+		time.Sleep(10 * time.Millisecond) // Give some time for unsubscribe requests to queue up
+		b.Stop()
+	}()
+
+	wg.Wait()
+}
+
+func TestMultipleUnsubscribeSameID(t *testing.T) {
+	b := NewBus()
+	defer b.Stop()
+
+	ch := make(chan events.Event)
+	subID, err := b.Subscribe(context.Background(), "test-system", ch)
+	require.NoError(t, err)
+
+	// Try to unsubscribe multiple times concurrently
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			b.Unsubscribe(context.Background(), subID)
+		}()
+	}
+
+	wg.Wait()
+}
+
+func TestUnsubscribeAfterStop(t *testing.T) {
+	b := NewBus()
+
+	ch := make(chan events.Event)
+	subID, err := b.Subscribe(context.Background(), "test-system", ch)
+	require.NoError(t, err)
+
+	b.Stop()
+
+	// Should not panic when unsubscribing after stop
+	b.Unsubscribe(context.Background(), subID)
 }

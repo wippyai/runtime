@@ -10,7 +10,6 @@ import (
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 	"io"
-	"log"
 	"time"
 )
 
@@ -30,7 +29,6 @@ func (m bubbleModel) Init() tea.Cmd {
 }
 
 func (m bubbleModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	log.Printf("got: %v", msg)
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		if msg.String() == "q" || msg.String() == "ctrl+c" {
