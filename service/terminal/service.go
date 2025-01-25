@@ -12,6 +12,24 @@ import (
 	"sync"
 )
 
+/*
+*
+
+	                 goroutine 195 [running]:
+	                                                        github.com/ponyruntime/pony/service/terminal.(*service).sendStatus(0xc000165570, {0xaa6880, 0xc0021d67c0})
+	                                           /mnt/d/Projects/pony/service/terminal/service.go:235 +0x56
+	                                                                                                     github.com/ponyruntime/pony/service/terminal.(*service).run.func1()
+	                                                   /mnt/d/Projects/pony/service/terminal/service.go:147 +0x85
+	                                                                                                             panic({0xaa38e0?, 0xc2f9e0?})
+	                   /home/wolfy-j/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.23.4.linux-amd64/src/runtime/panic.go:785 +0x132
+	github.com/ponyruntime/pony/service/terminal.(*service).sendStatus(0xc000165570, {0xa948a0, 0xc0009e6290})
+	                                                                                                           /mnt/d/Projects/pony/service/terminal/service.go:235 +0x56
+	                                         github.com/ponyruntime/pony/service/terminal.(*service).run(0xc000165570, {0xc37410, 0xc000f9a780})
+	                   /mnt/d/Projects/pony/service/terminal/service.go:217 +0x587
+	                                                                              created by github.com/ponyruntime/pony/service/terminal.(*service).Start in goroutine 194
+	                                                   /mnt/d/Projects/pony/service/terminal/service.go:72 +0x205
+	                                                                                                             exit status 2
+*/
 type controlAction int
 
 const (
@@ -167,9 +185,9 @@ func (s *service) run(ctx context.Context) {
 			switch op.action {
 			case actionStart:
 				// todo: make configurable
-				if err = s.logSwitch.enableOn(ctx); err != nil {
-					break
-				}
+				//if err = s.logSwitch.enableOn(ctx); err != nil {
+				//	break
+				//}
 				if s.terminal != nil {
 					err = s.terminal.Start(ctx)
 				}
