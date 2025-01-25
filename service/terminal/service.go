@@ -185,9 +185,9 @@ func (s *service) run(ctx context.Context) {
 			switch op.action {
 			case actionStart:
 				// todo: make configurable
-				//if err = s.logSwitch.enableOn(ctx); err != nil {
-				//	break
-				//}
+				if err = s.logSwitch.enableOn(ctx); err != nil {
+					break
+				}
 				if s.terminal != nil {
 					err = s.terminal.Start(ctx)
 				}

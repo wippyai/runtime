@@ -1,9 +1,7 @@
 function App()
-    -- Initialize channels
     local inbox = tasks.channel()
     local done = channel.new()
 
-    -- Configuration
     local window_width = 80
     local window_height = 24
     local response_text = ""
@@ -13,7 +11,10 @@ function App()
     local streaming_active = false
     local max_line_width = window_width - 4
 
-    -- Helper functions
+    local function contains_eof(text)
+        return text:match("Error reading stream: read error: direct read error: EOF") ~= nil
+    end
+
     local function center_text(text, width)
         local padding = width - #text
         if padding <= 0 then return text end
@@ -62,11 +63,10 @@ function App()
         return lines
     end
 
-    -- Start cursor blink timer
     coroutine.spawn(function()
         local ticker = time.ticker("0.5s")
         while true do
-            local result = channel.select{
+            local result = channel.select {
                 ticker:channel():case_receive(),
                 done:case_receive()
             }
@@ -82,7 +82,6 @@ function App()
         end
     end)
 
-    -- Query Ollama about French cuisine
     coroutine.spawn(function()
         local ollama_url = "http://100.70.10.9:11434/api/generate"
         local headers = {
@@ -111,25 +110,22 @@ function App()
             return
         end
 
-        print("Got response:", response)
         local stream = response and response.stream
-        print("Got stream:", stream)
-
         if stream then
-            print("Starting stream read")
             streaming_active = true
             local buffer = ""
 
             while true do
-                print("Reading chunk...")
                 local chunk, err = stream:read()
-                print("Read result: chunk=", chunk, ", error=", err)
                 if err then
-                    upstream.log("Stream error: " .. tostring(err))
+                    if err == "EOF" then
+                        response_text = response_text .. "[EOF]"
+                        break
+                    end
+                    response_text = response_text .. "\nError reading stream: " .. err
                     break
                 end
                 if not chunk then
-                    upstream.log("No more chunks")
                     break
                 end
 
@@ -160,11 +156,11 @@ function App()
 
     local function create_box()
         local lines = {
-            "┌" .. string.rep("─", window_width-2) .. "┐"
+            "┌" .. string.rep("─", window_width - 2) .. "┐"
         }
 
-        table.insert(lines, "│" .. center_text("French Cuisine & Culture", window_width-2) .. "│")
-        table.insert(lines, "│" .. string.rep("─", window_width-2) .. "│")
+        table.insert(lines, "│" .. center_text("French Cuisine & Culture", window_width - 2) .. "│")
+        table.insert(lines, "│" .. string.rep("─", window_width - 2) .. "│")
 
         if is_loading then
             if streaming_active then
@@ -172,13 +168,17 @@ function App()
                 if cursor_visible then
                     status = status .. cursor
                 end
-                table.insert(lines, "│" .. center_text(status, window_width-2) .. "│")
+                table.insert(lines, "│" .. center_text(status, window_width - 2) .. "│")
             else
-                table.insert(lines, "│" .. center_text("Connecting to Ollama...", window_width-2) .. "│")
+                table.insert(lines, "│" .. center_text("Connecting to Ollama...", window_width - 2) .. "│")
             end
         end
 
-        local wrapped_lines = wrap_text(response_text, max_line_width)
+        local display_text = response_text
+        if contains_eof(display_text) then
+            display_text = display_text:gsub("Error reading stream: read error: direct read error: EOF", "[EOF]")
+        end
+        local wrapped_lines = wrap_text(display_text, max_line_width)
         for _, line in ipairs(wrapped_lines) do
             local display_line = "│ " .. line .. string.rep(" ", max_line_width - #line) .. " │"
             table.insert(lines, display_line)
@@ -189,11 +189,11 @@ function App()
             lines[#lines] = last_line:sub(1, -3) .. cursor .. "│"
         end
 
-        while #lines < window_height-1 do
-            table.insert(lines, "│" .. string.rep(" ", window_width-2) .. "│")
+        while #lines < window_height - 1 do
+            table.insert(lines, "│" .. string.rep(" ", window_width - 2) .. "│")
         end
 
-        table.insert(lines, "└" .. string.rep("─", window_width-2) .. "┘")
+        table.insert(lines, "└" .. string.rep("─", window_width - 2) .. "┘")
 
         return table.concat(lines, "\n")
     end

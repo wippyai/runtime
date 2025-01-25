@@ -41,10 +41,15 @@ func (f *Factory) MakeTerminal(
 		}),
 	}
 
+	knownModules := make(map[string]struct{})
+	knownModules["upstream"] = struct{}{}
+	knownModules["tasks"] = struct{}{}
+	knownModules["channel"] = struct{}{}
+
 	// Add user-configured modules
 	for _, modName := range cfg.Modules {
-		if modName == "tasks" || modName == "channel" {
-			continue
+		if _, ok := knownModules[modName]; ok {
+			return nil, fmt.Errorf("module %s is reserved", modName)
 		}
 
 		mod, err := modules.Get(modName)
@@ -52,6 +57,7 @@ func (f *Factory) MakeTerminal(
 			return nil, err
 		}
 		opts = append(opts, engine.WithPreloaded(mod.Name(), mod.Loader))
+		knownModules[modName] = struct{}{}
 	}
 
 	// Add libraries
@@ -61,6 +67,19 @@ func (f *Factory) MakeTerminal(
 			return nil, err
 		}
 		opts = append(opts, engine.WithLibrary(libName, lib.Source))
+
+		// lib deps
+		for _, modID := range lib.Modules {
+			module, err := modules.Get(modID)
+			if err != nil {
+				return nil, err
+			}
+			if _, exists := knownModules[module.Name()]; exists {
+				continue
+			}
+			opts = append(opts, engine.WithPreloaded(module.Name(), module.Loader))
+			knownModules[module.Name()] = struct{}{}
+		}
 	}
 
 	vm, err := engine.NewCVM(log, opts...)

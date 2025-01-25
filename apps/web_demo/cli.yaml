@@ -7,7 +7,7 @@ meta:
     - "snake.terminal"
     - "basic.terminal"
 
-target: "paris.terminal"
+target: "chat.terminal"
 
 lifecycle:
   auto_start: true
