@@ -13,6 +13,7 @@ import (
 	"go.uber.org/zap"
 	"io"
 	"sync/atomic"
+	"time"
 )
 
 type LuaTerminal struct {
@@ -94,6 +95,8 @@ func (t *LuaTerminal) Run(ctx context.Context, in io.Reader, out io.Writer) erro
 		// Store final state from state channel as our state
 		select {
 		case state := <-resultChan:
+			time.Sleep(2 * time.Second)
+
 			p.Quit()
 			select {
 			case result <- state:

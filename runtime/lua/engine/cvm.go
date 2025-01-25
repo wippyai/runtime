@@ -246,6 +246,7 @@ func (e *CoroutineVM) Step(tasks ...*Task) (result []*Task, finalErr error) {
 					close(task.output)
 					task.output = nil
 				}
+
 				_ = e.removeTask(task)
 				return nil, fmt.Errorf("error resuming task: %v", err)
 			}

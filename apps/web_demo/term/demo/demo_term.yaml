@@ -2,7 +2,6 @@ name: chart.terminal
 kind: terminal.lua
 meta:
   comment: "Real-time Chart Demo"
-  depends_on: [ "bubbletea_tui" ]
 
 source: file://chart.lua
 method: App

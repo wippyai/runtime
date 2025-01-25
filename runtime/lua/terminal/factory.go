@@ -11,6 +11,7 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	"github.com/ponyruntime/pony/runtime/lua/modules/upstream"
 	"github.com/ponyruntime/pony/runtime/lua/tasks"
+	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
 
@@ -34,6 +35,10 @@ func (f *Factory) MakeTerminal(
 		engine.WithPreloaded("upstream", upstream.NewUpstreamModule(up).Loader),
 		engine.WithPreloaded("tasks", tasks.NewTaskModule().Loader),
 		engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
+		engine.WithGlobalFunction("print", func(l *lua.LState) int {
+			log.Info(l.Get(1).String())
+			return 0
+		}),
 	}
 
 	// Add user-configured modules
@@ -82,8 +87,8 @@ func (f *Factory) MakeTerminal(
 	// Order: coroutine -> async -> channel -> base VM
 	runner := tasks.NewTaskRunner(
 		log, vm, channels, 1024,
-		engine.WithLayer(coroutineLayer),
 		engine.WithLayer(asyncLayer),
+		engine.WithLayer(coroutineLayer),
 	)
 
 	return NewLuaTerminal(log, runner, Options{
