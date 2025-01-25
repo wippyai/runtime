@@ -54,7 +54,7 @@ func NewTaskRunner(
 }
 
 // Start initiates the task manager service
-func (t *TaskRunner) Start(ctx context.Context, funcName string, args ...lua.LValue) (<-chan lua.LValue, error) {
+func (t *TaskRunner) Start(ctx context.Context, funcName string, args ...lua.LValue) (<-chan any, error) {
 	if !t.running.CompareAndSwap(false, true) {
 		return nil, fmt.Errorf("tasker already running")
 	}
@@ -66,7 +66,7 @@ func (t *TaskRunner) Start(ctx context.Context, funcName string, args ...lua.LVa
 		}
 	}()
 
-	resultChan := make(chan lua.LValue, 1)
+	resultChan := make(chan any, 1)
 
 	// always isolate context
 	ctx, t.cancel = context.WithCancel(ctx)
@@ -88,9 +88,17 @@ func (t *TaskRunner) Start(ctx context.Context, funcName string, args ...lua.LVa
 		// Run the engine with context
 		result, err := t.runner.Run(ctx, exitCh)
 		if err != nil {
+			select {
+			case resultChan <- err:
+			case <-ctx.Done():
+			}
 			return
 		}
-		resultChan <- result
+
+		select {
+		case resultChan <- result:
+		case <-ctx.Done():
+		}
 	}()
 
 	return resultChan, nil

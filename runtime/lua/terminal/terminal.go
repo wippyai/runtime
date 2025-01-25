@@ -7,10 +7,12 @@ import (
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/supervisor"
+	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/tasks"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 	"io"
+	"log"
 	"sync/atomic"
 )
 
@@ -35,7 +37,7 @@ func NewLuaTerminal(
 	upstream <-chan any,
 ) *LuaTerminal {
 	if log == nil {
-		log = zap.NewExample()
+		log = zap.NewNop()
 	}
 
 	return &LuaTerminal{
@@ -66,7 +68,7 @@ func (t *LuaTerminal) Run(ctx context.Context, in io.Reader, out io.Writer) erro
 		model,
 		tea.WithInput(in),
 		tea.WithOutput(out),
-		tea.WithAltScreen(),
+		//	tea.WithAltScreen(),
 	)
 
 	// Handle context cancellation
@@ -79,12 +81,28 @@ func (t *LuaTerminal) Run(ctx context.Context, in io.Reader, out io.Writer) erro
 		for {
 			select {
 			case msg := <-t.upstream:
+				log.Printf("msg: %v", msg)
 				p.Send(msg)
 			case <-ctx.Done():
 				return
 			}
 		}
 
+	}()
+
+	result := make(chan any, 1)
+
+	go func() {
+		// Store final state from state channel as our state
+		select {
+		case state := <-resultChan:
+			p.Quit()
+			select {
+			case result <- state:
+			case <-ctx.Done():
+			}
+		case <-ctx.Done():
+		}
 	}()
 
 	m, err := p.Run()
@@ -97,13 +115,22 @@ func (t *LuaTerminal) Run(ctx context.Context, in io.Reader, out io.Writer) erro
 		t.log.Error("failed to stop tasker", zap.Error(err))
 	}
 
-	// Store final state from state channel as our state
 	select {
-	case state := <-resultChan:
-		if state != nil {
+	case result := <-result:
+		if state, ok := result.(lua.LValue); ok {
 			t.state.Store(state)
 		}
-	default:
+
+		if err, ok := result.(error); ok {
+			if leak, ok := err.(*engine.CoroutineLeak); ok {
+				t.log.Error("found coroutine leak, exiting", zap.Any("leak", leak))
+				return supervisor.ExitErr
+			}
+
+			return fmt.Errorf("terminal app error: %w", err)
+		}
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 
 	if m.(bubbleModel).quitting {

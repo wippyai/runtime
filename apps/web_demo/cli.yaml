@@ -2,8 +2,12 @@ name: terminal
 kind: terminal.service
 meta:
   comment: "Default terminal service."
+  depends_on:
+    - "counter.terminal"
+    - "snake.terminal"
+    - "basic.terminal"
 
-target: "default_terminal"
+target: "basic.terminal"
 
 lifecycle:
   auto_start: true

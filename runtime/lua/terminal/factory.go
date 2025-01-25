@@ -6,7 +6,9 @@ import (
 	api "github.com/ponyruntime/pony/api/runtime/lua"
 	"github.com/ponyruntime/pony/api/service/terminal"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"github.com/ponyruntime/pony/runtime/lua/engine/async"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
+	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	"github.com/ponyruntime/pony/runtime/lua/modules/upstream"
 	"github.com/ponyruntime/pony/runtime/lua/tasks"
 	"go.uber.org/zap"
@@ -44,7 +46,7 @@ func (f *Factory) MakeTerminal(
 		if err != nil {
 			return nil, err
 		}
-		opts = append(opts, engine.WithLoader(mod.Name(), mod.Loader))
+		opts = append(opts, engine.WithPreloaded(mod.Name(), mod.Loader))
 	}
 
 	// Add libraries
@@ -67,9 +69,22 @@ func (f *Factory) MakeTerminal(
 		return nil, fmt.Errorf("failed to import terminal code: %w", err)
 	}
 
-	// Create runner with channel layer
+	// Create channel layer
 	channels := channel.NewChannelLayer()
-	runner := tasks.NewTaskRunner(log, vm, channels, 1024)
+
+	// async layer, example: time.after():receive()
+	asyncLayer := async.NewAsyncLayer(channels, 4096)
+
+	// coroutine executor, example: time.sleep
+	coroutineLayer := coroutine.NewCoroutineLayer()
+
+	// Create runner with all layers
+	// Order: coroutine -> async -> channel -> base VM
+	runner := tasks.NewTaskRunner(
+		log, vm, channels, 1024,
+		engine.WithLayer(coroutineLayer),
+		engine.WithLayer(asyncLayer),
+	)
 
 	return NewLuaTerminal(log, runner, Options{
 		FuncName: cfg.Method,
