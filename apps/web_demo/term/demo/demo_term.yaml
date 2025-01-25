@@ -1,17 +1,17 @@
-name: basic.terminal
+name: chart.terminal
 kind: terminal.lua
 meta:
-  comment: "Simple upstream example"
+  comment: "Real-time Chart Demo"
+  depends_on: [ "bubbletea_tui" ]
 
-source: file://basic.lua
+source: file://chart.lua
 method: App
 
 options:
   alt_screen: true
-  title: "Simple App"
+  title: "Real-time Chart Demo"
 
 modules: [ "time" ]
-libraries: [ ]
 
 lifecycle:
   auto_start: true
