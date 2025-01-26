@@ -124,7 +124,13 @@ type service struct {
 	done     chan struct{} // Signal for complete shutdown
 }
 
-func newService(app api.Terminal, id registry.ID, cfg *api.ServiceConfig, bus events.Bus, log *zap.Logger) *service {
+func newService(
+	app api.Terminal,
+	id registry.ID,
+	cfg *api.ServiceConfig,
+	bus events.Bus,
+	log *zap.Logger,
+) *service {
 	return &service{
 		terminal: newTerminalRunner(app, id, bus, log),
 		opCh:     make(chan controlOp, 1),

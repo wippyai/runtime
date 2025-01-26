@@ -64,15 +64,10 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
 	}
 
-	cfg := new(api.ServiceConfig)
-	if err := m.dtt.Unmarshal(entry.Data, cfg); err != nil {
-		return fmt.Errorf("failed to unmarshal cfg: %w", err)
+	cfg, err := m.fetchConfig(entry)
+	if err != nil {
+		return err
 	}
-	if err := cfg.Validate(); err != nil {
-		return fmt.Errorf("invalid cfg: %w", err)
-	}
-
-	cfg.InitDefaults()
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -103,15 +98,10 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	cfg := new(api.ServiceConfig)
-	if err := m.dtt.Unmarshal(entry.Data, cfg); err != nil {
-		return fmt.Errorf("failed to unmarshal cfg: %w", err)
+	cfg, err := m.fetchConfig(entry)
+	if err != nil {
+		return err
 	}
-	if err := cfg.Validate(); err != nil {
-		return fmt.Errorf("invalid cfg: %w", err)
-	}
-
-	cfg.InitDefaults()
 
 	svc, exists := m.services[entry.ID]
 	if !exists {
@@ -135,6 +125,19 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	})
 
 	return nil
+}
+
+func (m *Manager) fetchConfig(entry registry.Entry) (*api.ServiceConfig, error) {
+	cfg := new(api.ServiceConfig)
+	if err := m.dtt.Unmarshal(entry.Data, cfg); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal cfg: %w", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid cfg: %w", err)
+	}
+
+	cfg.InitDefaults()
+	return cfg, nil
 }
 
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
