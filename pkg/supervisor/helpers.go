@@ -11,6 +11,8 @@ import (
 	"go.uber.org/zap"
 )
 
+// State represents the current state of a supervised service,
+// including its status, desired status, and retry attempt information.
 type State struct {
 	Status     supervisor.Status `json:"status"`
 	Details    any               `json:"details"`
@@ -18,6 +20,7 @@ type State struct {
 	RetryCount int32             `json:"retry_count"`
 	LastUpdate time.Time         `json:"last_update"`
 }
+
 type internalState struct {
 	mu         sync.Mutex
 	status     supervisor.Status
@@ -37,8 +40,8 @@ func isTerminalError(err error) bool {
 		return false
 	}
 	return errors.Is(err, context.Canceled) ||
-		errors.Is(err, supervisor.TerminatedErr) ||
-		errors.Is(err, supervisor.ExitErr)
+		errors.Is(err, supervisor.ErrTerminated) ||
+		errors.Is(err, supervisor.ErrExit)
 }
 
 // newServiceState creates a new internalState instance

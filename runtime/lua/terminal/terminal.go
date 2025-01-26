@@ -125,7 +125,7 @@ func (t *LuaTerminal) Run(ctx context.Context, in io.Reader, out io.Writer) erro
 		if err, ok := result.(error); ok {
 			if leak, ok := err.(*engine.CoroutineLeak); ok {
 				t.log.Error("found coroutine leak, exiting", zap.Any("leak", leak))
-				return supervisor.ExitErr
+				return supervisor.ErrExit
 			}
 
 			return fmt.Errorf("terminal app error: %w", err)
@@ -135,7 +135,7 @@ func (t *LuaTerminal) Run(ctx context.Context, in io.Reader, out io.Writer) erro
 	}
 
 	if m.(bubbleModel).quitting {
-		return supervisor.ExitErr
+		return supervisor.ErrExit
 	}
 
 	return nil

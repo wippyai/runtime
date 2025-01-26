@@ -239,7 +239,7 @@ func (s *service) run(ctx context.Context) {
 
 		case <-s.terminal.wait():
 			err := s.terminal.exitErr
-			if errors.Is(err, supervisor.TerminatedErr) || errors.Is(err, supervisor.ExitErr) {
+			if errors.Is(err, supervisor.ErrTerminated) || errors.Is(err, supervisor.ErrExit) {
 				s.sendStatus(err)
 			} else {
 				s.sendStatus(fmt.Errorf("terminal failed: %w", err))

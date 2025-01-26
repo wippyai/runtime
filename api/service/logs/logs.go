@@ -7,11 +7,19 @@ import (
 
 const (
 	// System identifies the logs system in the event context
-	System           events.System = "logs"
-	EntryEvent       events.Kind   = "logs.entry"
-	SetConfigEvent   events.Kind   = "logs.config.set"
-	GetConfigEvent   events.Kind   = "logs.config.get"
-	ConfigStateEvent events.Kind   = "logs.config.state"
+	System events.System = "logs"
+
+	// EntryEvent represents a log entry event in the system
+	EntryEvent events.Kind = "logs.entry"
+
+	// SetConfigEvent represents a log configuration update event
+	SetConfigEvent events.Kind = "logs.config.set"
+
+	// GetConfigEvent represents a log configuration retrieval event
+	GetConfigEvent events.Kind = "logs.config.get"
+
+	// ConfigStateEvent represents the current state of log configuration
+	ConfigStateEvent events.Kind = "logs.config.state"
 )
 
 type (

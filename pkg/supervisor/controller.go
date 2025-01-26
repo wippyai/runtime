@@ -45,6 +45,8 @@ type Controller struct {
 	ops chan controlOp
 }
 
+// NewController creates a new service lifecycle controller with the specified configuration.
+// It manages service state transitions and handles retry policies for failed services.
 func NewController(
 	ctx context.Context,
 	service supervisor.Service,
@@ -67,11 +69,15 @@ func NewController(
 	return ctrl
 }
 
+// Start initiates the service and transitions it to the running state.
+// It returns an error if the service fails to start or if the controller is stopped.
 func (c *Controller) Start() error {
 	c.state.setDesiredStatus(supervisor.Running)
 	return c.runCommand(controlOp{kind: controlStart})
 }
 
+// Stop gracefully stops the service and transitions it to the stopped state.
+// It returns an error if the service fails to stop or if the controller is stopped.
 func (c *Controller) Stop() error {
 	c.state.setDesiredStatus(supervisor.Stopped)
 	return c.runCommand(controlOp{kind: controlStop})
@@ -323,7 +329,7 @@ func (c *Controller) tryStart(ctx context.Context, cancel context.CancelFunc) (<
 
 	case <-c.ctx.Done():
 		c.updateState(supervisor.Exited, "controller exited")
-		return nil, supervisor.ExitErr
+		return nil, supervisor.ErrExit
 	}
 }
 
@@ -373,6 +379,8 @@ func (c *Controller) tryRetry(attempt int) {
 	}
 }
 
+// State returns the current state of the service, including its status,
+// desired status, and retry count.
 func (c *Controller) State() State {
 	return c.state.publicState()
 }

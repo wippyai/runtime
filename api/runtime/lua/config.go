@@ -58,7 +58,8 @@ type (
 		Modules []string          `json:"modules"` // Required Lua modules
 	}
 
-	// BubbleTea terminal binding options.
+	// TerminalOptions provides configuration options for a BubbleTea terminal,
+	// controlling display settings and behavior. @todo deprecate?
 	TerminalOptions struct {
 		// UseAltScreen determines if the terminal should use the alternate screen buffer
 		UseAltScreen bool `json:"alt_screen"`
