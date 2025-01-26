@@ -4,6 +4,7 @@ import (
 	"strings"
 )
 
+// Wildcard represents a wildcard pattern that can match strings.
 type Wildcard struct {
 	segments []string
 }

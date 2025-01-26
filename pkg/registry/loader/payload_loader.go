@@ -21,9 +21,9 @@ type PayloadLoader struct {
 func NewPayloadLoader(log *zap.Logger) *PayloadLoader {
 	return &PayloadLoader{
 		exts: map[string]payload.Format{
-			".json": payload.Json,
-			".yaml": payload.Yaml,
-			".yml":  payload.Yaml,
+			".json": payload.JSON,
+			".yaml": payload.YAML,
+			".yml":  payload.YAML,
 		},
 		log: log,
 	}
@@ -88,10 +88,10 @@ func (l *PayloadLoader) loadFileAsPayload(path string, format payload.Format) (p
 	}
 
 	switch format {
-	case payload.Json:
-		return payload.NewPayload(data, payload.Json), nil
-	case payload.Yaml:
-		return payload.NewPayload(data, payload.Yaml), nil
+	case payload.JSON:
+		return payload.NewPayload(data, payload.JSON), nil
+	case payload.YAML:
+		return payload.NewPayload(data, payload.YAML), nil
 	default:
 		return nil, fmt.Errorf("unsupported file format: %s", format)
 	}

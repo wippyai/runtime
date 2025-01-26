@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 	"strings"
 	"testing"
@@ -330,6 +331,177 @@ func TestVM_LibraryStackTrace(t *testing.T) {
 		}
 		if vm != nil {
 			vm.Close()
+		}
+	})
+}
+
+func TestVM_WithPreloaded(t *testing.T) {
+	logger := zap.NewNop()
+
+	t.Run("successful preload", func(t *testing.T) {
+		// Create a simple loader that returns a table
+		loader := func(L *lua.LState) int {
+			tab := L.NewTable()
+			L.SetField(tab, "test", lua.LString("value"))
+			L.Push(tab)
+			return 1
+		}
+
+		vm, err := NewVM(logger, WithPreloaded("testmod", loader))
+		if err != nil {
+			t.Fatalf("expected no error, got: %v", err)
+		}
+		defer vm.Close()
+
+		// Verify the module is available as a global
+		if err := vm.state.DoString(`
+			if type(testmod) ~= "table" then
+				error("testmod should be a table")
+			end
+			if testmod.test ~= "value" then
+				error("testmod.test should be 'value'")
+			end
+		`); err != nil {
+			t.Errorf("module verification failed: %v", err)
+		}
+	})
+
+	t.Run("preload with multiple return values", func(t *testing.T) {
+		// Loader that returns multiple values
+		loader := func(L *lua.LState) int {
+			// In actual usage, WithPreloaded only uses the last returned value
+			tab := L.NewTable()
+			L.SetField(tab, "first", lua.LString("one"))
+			L.Push(tab)
+
+			tab2 := L.NewTable()
+			L.SetField(tab2, "second", lua.LString("two"))
+			L.Push(tab2)
+			return 2
+		}
+
+		vm, err := NewVM(logger, WithPreloaded("multimod", loader))
+		if err != nil {
+			t.Fatalf("expected no error, got: %v", err)
+		}
+		defer vm.Close()
+
+		// The last value pushed should be set as the global
+		if err := vm.state.DoString(`
+			if type(multimod) ~= "table" or multimod.second ~= "two" then
+				error("last return value not set correctly")
+			end
+		`); err != nil {
+			t.Errorf("module verification failed: %v", err)
+		}
+	})
+
+	t.Run("preload with no return value", func(t *testing.T) {
+		// Loader that returns nothing
+		loader := func(L *lua.LState) int {
+			return 0
+		}
+
+		vm, err := NewVM(logger, WithPreloaded("emptymod", loader))
+		if err != nil {
+			t.Fatalf("expected no error, got: %v", err)
+		}
+		defer vm.Close()
+
+		// Verify no global was set
+		if err := vm.state.DoString(`
+			if emptymod ~= nil then
+				error("emptymod should not be defined")
+			end
+		`); err != nil {
+			t.Errorf("module verification failed: %v", err)
+		}
+	})
+
+	t.Run("preload with error", func(t *testing.T) {
+		// Loader that raises an error
+		loader := func(L *lua.LState) int {
+			L.RaiseError("intentional loader error")
+			return 0
+		}
+
+		vm, err := NewVM(logger, WithPreloaded("errormod", loader))
+		if err == nil {
+			t.Error("expected error, got nil")
+			vm.Close()
+			return
+		}
+
+		// Verify error message
+		if !strings.Contains(err.Error(), "preload errormod failed") ||
+			!strings.Contains(err.Error(), "intentional loader error") {
+			t.Errorf("unexpected error message: %v", err)
+		}
+
+		if vm != nil {
+			vm.Close()
+		}
+	})
+
+	t.Run("multiple preloaded modules", func(t *testing.T) {
+		loader1 := func(L *lua.LState) int {
+			L.Push(lua.LNumber(42))
+			return 1
+		}
+
+		loader2 := func(L *lua.LState) int {
+			L.Push(lua.LString("hello"))
+			return 1
+		}
+
+		vm, err := NewVM(logger,
+			WithPreloaded("mod1", loader1),
+			WithPreloaded("mod2", loader2))
+		if err != nil {
+			t.Fatalf("expected no error, got: %v", err)
+		}
+		defer vm.Close()
+
+		// Verify both modules are available
+		if err := vm.state.DoString(`
+			if mod1 ~= 42 then
+				error("mod1 should be 42")
+			end
+			if mod2 ~= "hello" then
+				error("mod2 should be 'hello'")
+			end
+		`); err != nil {
+			t.Errorf("module verification failed: %v", err)
+		}
+	})
+
+	t.Run("preload with state modification", func(t *testing.T) {
+		// Loader that modifies state beyond just returning values
+		loader := func(L *lua.LState) int {
+			// Set a global directly
+			L.SetGlobal("direct_global", lua.LString("direct"))
+
+			// Return a value to be set as module
+			L.Push(lua.LString("return_value"))
+			return 1
+		}
+
+		vm, err := NewVM(logger, WithPreloaded("modifymod", loader))
+		if err != nil {
+			t.Fatalf("expected no error, got: %v", err)
+		}
+		defer vm.Close()
+
+		// Verify both the direct global and returned module value
+		if err := vm.state.DoString(`
+			if direct_global ~= "direct" then
+				error("direct_global not set correctly")
+			end
+			if modifymod ~= "return_value" then
+				error("modifymod not set correctly")
+			end
+		`); err != nil {
+			t.Errorf("state verification failed: %v", err)
 		}
 	})
 }

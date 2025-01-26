@@ -29,7 +29,7 @@ func WithLogger(log *zap.Logger) Option {
 // WithDefaultListener sets the default listener for unmatched events
 func WithDefaultListener(l registry.EntryListener) Option {
 	return func(r *Router) {
-		r.default_ = l
+		r.defaultListener = l
 	}
 }
 
@@ -53,12 +53,12 @@ type route struct {
 
 // Router handles registry events and routes them to appropriate listeners
 type Router struct {
-	ctx        context.Context
-	log        *zap.Logger
-	bus        events.Bus
-	subscriber *eventbus.Subscriber
-	routes     []route
-	default_   registry.EntryListener
+	ctx             context.Context
+	log             *zap.Logger
+	bus             events.Bus
+	subscriber      *eventbus.Subscriber
+	routes          []route
+	defaultListener registry.EntryListener
 }
 
 // NewRouter creates a new Router instance with the provided options
@@ -146,7 +146,7 @@ func (r *Router) findListener(kind registry.Kind) registry.EntryListener {
 	}
 
 	// Return default listener if no routes matched
-	return r.default_
+	return r.defaultListener
 }
 
 func (r *Router) processWithListener(kind events.Kind, entry registry.Entry, listener registry.EntryListener) error {

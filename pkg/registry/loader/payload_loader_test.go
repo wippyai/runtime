@@ -42,8 +42,8 @@ func TestPayloadLoader_Load_SingleFile(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected payload with path '%s' not found", expectedPath)
 	}
-	if p.Format() != payload.Json {
-		t.Errorf("expected format: %s, got: %s", payload.Json, p.Format())
+	if p.Format() != payload.JSON {
+		t.Errorf("expected format: %s, got: %s", payload.JSON, p.Format())
 	}
 	if string(p.Data().([]byte)) != testFileContent {
 		t.Errorf("expected data: %s, got: %s", testFileContent, string(p.Data().([]byte)))
@@ -86,8 +86,8 @@ func TestPayloadLoader_Load_MultipleFiles(t *testing.T) {
 		Format  payload.Format
 		Content string
 	}{
-		"data1": {Format: payload.Json, Content: files["data1.json"]},
-		"data2": {Format: payload.Yaml, Content: files["data2.yaml"]},
+		"data1": {Format: payload.JSON, Content: files["data1.json"]},
+		"data2": {Format: payload.YAML, Content: files["data2.yaml"]},
 	}
 	for path, expected := range expectedPayloads {
 		p, ok := payloads[path]
@@ -196,8 +196,8 @@ func TestPayloadLoader_Load_NestedDirectories(t *testing.T) {
 		Format  payload.Format
 		Content string
 	}{
-		"root":          {Format: payload.Json, Content: files[filepath.Join(tempDir, "root.json")]},
-		"nested/nested": {Format: payload.Yaml, Content: files[filepath.Join(nestedDir, "nested.yaml")]},
+		"root":          {Format: payload.JSON, Content: files[filepath.Join(tempDir, "root.json")]},
+		"nested/nested": {Format: payload.YAML, Content: files[filepath.Join(nestedDir, "nested.yaml")]},
 	}
 
 	for path, expected := range expectedPayloads {

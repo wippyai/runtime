@@ -24,6 +24,7 @@ func (m *Module) Name() string {
 	return "lfs"
 }
 
+// Loader loads the module into the given Lua state.
 func (m *Module) Loader(l *lua.LState) int {
 	t := l.NewTable()
 

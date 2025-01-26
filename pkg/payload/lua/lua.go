@@ -10,6 +10,7 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
+// Register registers the Lua transcoders.
 func Register(transcoder payload.TranscoderRegister) {
 	to := &ToGolang{}
 	from := &FromGolang{}

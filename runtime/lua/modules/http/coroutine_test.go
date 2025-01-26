@@ -59,9 +59,9 @@ func TestAsyncHTTP(t *testing.T) {
 		defer vm.Close()
 
 		// Create wrapped VM with async runner
-		wrapped := engine.NewWrappedCVM(
+		wrapped := engine.NewRunner(
 			vm,
-			engine.WithLayer(coroutine.NewCoroutineRunner()),
+			engine.WithLayer(coroutine.NewCoroutineLayer()),
 		)
 
 		// Import test script with coroutines
@@ -158,9 +158,9 @@ func TestAsyncHTTP(t *testing.T) {
 		defer vm.Close()
 
 		// Create wrapped VM with async runner
-		wrapped := engine.NewWrappedCVM(
+		wrapped := engine.NewRunner(
 			vm,
-			engine.WithLayer(coroutine.NewCoroutineRunner()),
+			engine.WithLayer(coroutine.NewCoroutineLayer()),
 		)
 
 		// Import test script

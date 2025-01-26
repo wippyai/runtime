@@ -456,7 +456,7 @@ func TestParserLifecycle(t *testing.T) {
             local tree = parser:parse(code)
             assert(tree ~= nil, "should parse code")
             
-            -- Edit the tree
+            -- edit the tree
             local edit = {
                 start_byte = 0,
                 old_end_byte = 4,

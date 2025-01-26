@@ -30,6 +30,7 @@ var loggerMethods = map[string]lua.LGFunction{
 	"named": loggerNamed,
 }
 
+// NewLoggerModule creates a new logger module
 func NewLoggerModule(log *zap.Logger) *Module {
 	return &Module{
 		baseLogger: log,

@@ -10,6 +10,7 @@ import (
 	"github.com/ponyruntime/pony/api/supervisor"
 )
 
+// State represents the current state managed service.
 type State struct {
 	Status     supervisor.Status `json:"status"`
 	Details    any               `json:"details"`
@@ -170,15 +171,16 @@ func (c *Controller) startService() error {
 
 func (c *Controller) tryStart(lastErr error) error {
 	for attempt := 1; ; attempt++ {
-		if err := c.attemptStart(attempt); err == nil {
+		err := c.attemptStart(attempt)
+		if err == nil {
 			return nil
-		} else {
-			lastErr = err
-			if !c.shouldRetry(attempt) {
-				return fmt.Errorf("failed to start service after %d attempts: %w", attempt, lastErr)
-			}
-			time.Sleep(c.config.RetryPolicy.InitialDelay)
 		}
+
+		lastErr = err
+		if !c.shouldRetry(attempt) {
+			return fmt.Errorf("failed to start service after %d attempts: %w", attempt, lastErr)
+		}
+		time.Sleep(c.config.RetryPolicy.InitialDelay)
 	}
 }
 
@@ -193,7 +195,8 @@ func (c *Controller) attemptStart(attempt int) error {
 		c.updateState(supervisor.Failed, err)
 		return err
 	}
-	c.updateState(supervisor.Running, nil) // todo: do we need this or move to convention?
+	// do we need this or move to convention?
+	c.updateState(supervisor.Running, nil)
 
 	c.wg.Add(1)
 	go c.monitorService(detailsCh)
@@ -267,12 +270,31 @@ func (c *Controller) monitorService(detailsCh <-chan any) {
 	for {
 		select {
 		case details, ok := <-detailsCh:
+			if err, ok := details.(error); ok {
+				if errors.Is(err, context.Canceled) {
+					// exit
+
+					c.updateState(supervisor.Stopped, nil)
+					return
+				}
+
+				if errors.Is(err, supervisor.Exited) || errors.Is(err, supervisor.Terminated) {
+					// no more supervision needed
+					c.updateState(supervisor.Stopped, nil)
+					return
+				}
+
+				// start recovery loop
+				ok = false
+			}
+
 			if !ok {
 				if c.state.getDesiredStatus() == supervisor.Running {
 					c.handleError(fmt.Errorf("service ended unexpectedly"))
 				}
 				return
 			}
+
 			status, details := c.state.updateDetails(details)
 			if c.onStateChange != nil {
 				c.onStateChange(status, details)
@@ -290,7 +312,7 @@ func (c *Controller) monitorService(detailsCh <-chan any) {
 
 func (c *Controller) handleError(err error) {
 	c.updateState(supervisor.Failed, err)
-	if c.state.canRecover(c.config.RetryPolicy.MaxAttempts, c.ctx) {
+	if c.state.canRecover(c.ctx, c.config.RetryPolicy.MaxAttempts) {
 		go c.recoverService(err)
 	}
 }

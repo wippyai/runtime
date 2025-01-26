@@ -1,15 +1,22 @@
 package payload
 
+// Format constants define the supported payload formats.
+// These formats determine how the payload data should be interpreted and processed.
 const (
-	Json       Format = "application/json"
-	Yaml       Format = "application/x-yaml"
-	Golang     Format = "golang/any"
-	Lua        Format = "lua/any"
-	String     Format = "text/plain"
-	Bytes      Format = "application/octet-stream"
-	Error      Format = "golang/error"
-	UniChannel Format = "golang/uni-channel"
-	BiChannel  Format = "golang/bi-channel"
+	// JSON represents a JSON-formatted payload
+	JSON Format = "application/json"
+	// YAML represents a YAML-formatted payload
+	YAML Format = "application/x-yaml"
+	// Golang represents a raw Go value payload
+	Golang Format = "golang/any"
+	// Lua represents a Lua script or value payload
+	Lua Format = "lua/any"
+	// String represents a plain text payload
+	String Format = "text/plain"
+	// Bytes represents a raw binary payload
+	Bytes Format = "application/octet-stream"
+	// Error represents a Go error payload
+	Error Format = "golang/error"
 )
 
 type (
@@ -41,8 +48,13 @@ type (
 		Unmarshaler
 	}
 
+	// TranscoderRegister is an interface for registering transcoders and unmarshalers.
+	// It provides methods to register format-specific transcoders and unmarshalers with optional weights
+	// for controlling transcoding paths.
 	TranscoderRegister interface {
+		// RegisterTranscoder registers a new transcoder for converting between formats
 		RegisterTranscoder(from, to Format, weight int, tt FormatTranscoder)
+		// RegisterUnmarshaler registers a new unmarshaler for a specific format
 		RegisterUnmarshaler(from Format, unmarshaler Unmarshaler)
 	}
 
@@ -84,6 +96,7 @@ func NewString(data string) Payload {
 	return NewPayload(data, String)
 }
 
+// NewError creates a new payload wrapping a Go error with the Error format.
 func NewError(data error) Payload {
 	return NewPayload(data, Error)
 }
