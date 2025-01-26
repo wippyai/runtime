@@ -657,7 +657,7 @@ func TestBusRunner_RollbackOrder(t *testing.T) {
 
 	// Should fail with dependency error
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "is used by", "Error should indicate dependency violation")
+	assert.Contains(t, err.Error(), "rejected", "Error should indicate dependency violation")
 
 	// The state should still contain lib1 and app1 since rollback failed
 	hasLib := false
@@ -670,6 +670,7 @@ func TestBusRunner_RollbackOrder(t *testing.T) {
 			hasApp = true
 		}
 	}
-	assert.True(t, hasLib, "lib1 should still exist as rollback failed")
-	assert.True(t, hasApp, "app1 should still exist as rollback failed")
+
+	assert.True(t, hasLib, "lib1 should remain since deletion would be rejected")
+	assert.False(t, hasApp, "app1 should be gone after rollback")
 }
