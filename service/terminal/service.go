@@ -42,7 +42,6 @@ func newService(
 		log:      log,
 		cfg:      cfg,
 		csw:      logs.NewConfigSwitcher(bus, log),
-		done:     make(chan struct{}),
 	}
 }
 
@@ -53,6 +52,7 @@ func (s *service) Start(ctx context.Context) (<-chan any, error) {
 		return nil, errors.New("service already running")
 	}
 
+	s.done = make(chan struct{})
 	s.ctx = ctx
 	s.statusCh = make(chan any, 10)
 	s.ops = newOperations(s.terminal, s.bus, s.log, s.csw, s.statusCh)
