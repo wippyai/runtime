@@ -232,7 +232,7 @@ func (s *service) run(ctx context.Context) {
 					break
 				}
 
-				s.terminal = newRunner
+				s.terminal = newRunner // race?
 				s.sendStatus("terminal updated")
 			}
 
@@ -256,7 +256,7 @@ func (s *service) run(ctx context.Context) {
 
 func (s *service) sendStatus(status any) {
 	select {
-	case s.statusCh <- status:
+	case s.statusCh <- status: // race?
 	default:
 		s.log.Warn("failed to send status update", zap.Any("status", status))
 	}
