@@ -202,11 +202,12 @@ func (s *service) run(ctx context.Context) {
 }
 
 func (s *service) redirectLogs(ctx context.Context) error {
-	if s.cfg.HideLogs {
-		return s.csw.EnableTemporaryConfig(ctx, logsapi.Config{
-			MinLevel:       zap.DebugLevel,
-			StreamToEvents: true,
-		})
+	if !s.cfg.HideLogs {
+		return nil
 	}
-	return nil
+
+	return s.csw.EnableTemporaryConfig(ctx, logsapi.Config{
+		MinLevel:       zap.DebugLevel,
+		StreamToEvents: true,
+	})
 }
