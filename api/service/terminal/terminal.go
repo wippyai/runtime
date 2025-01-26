@@ -17,6 +17,7 @@ const (
 
 	// RegisterTerminalEvent represents an event for registering a new terminal
 	RegisterTerminalEvent events.Kind = "terminal.register"
+
 	// DeleteTerminalEvent represents an event for removing a terminal
 	DeleteTerminalEvent events.Kind = "terminal.delete"
 )
