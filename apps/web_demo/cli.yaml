@@ -6,9 +6,10 @@ meta:
     - "counter.terminal"
     - "snake.terminal"
     - "basic.terminal"
+    - "chat.terminal"
 
 target: "chat.terminal"
-#hide_logs: true
+hide_logs: true
 
 lifecycle:
   auto_start: true
