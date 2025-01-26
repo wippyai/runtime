@@ -16,6 +16,29 @@ const (
 	DefaultCloseTimeout = 3 * time.Second
 )
 
+// ServiceConfig represents the configuration for a terminal service
+type ServiceConfig struct {
+	Meta         registry.Metadata          `json:"meta"`
+	Target       registry.ID                `json:"target"`        // ID of the terminal app to use
+	Timeouts     TimeoutConfig              `json:"timeouts"`      // Terminal operation timeouts
+	RedirectLogs bool                       `json:"redirect_logs"` // Redirect logs (all) to the event bus, releases io.Output
+	Lifecycle    supervisor.LifecycleConfig `json:"lifecycle"`     // Lifecycle management config
+}
+
+// Validate checks if the service configuration is valid
+func (c *ServiceConfig) Validate() error {
+	if c.Meta == nil {
+		return fmt.Errorf("metadata cannot be nil")
+	}
+	if c.Target == "" {
+		return fmt.Errorf("target cannot be empty")
+	}
+	if err := c.Timeouts.Validate(); err != nil {
+		return fmt.Errorf("invalid timeout configuration: %w", err)
+	}
+	return nil
+}
+
 // TimeoutConfig represents terminal operation timeouts
 type TimeoutConfig struct {
 	// StopTimeout is how long to wait for terminal to stop gracefully
@@ -112,28 +135,6 @@ func (c *TimeoutConfig) Validate() error {
 	}
 	if c.CloseTimeout < 0 {
 		return fmt.Errorf("close timeout must be positive or zero (default)")
-	}
-	return nil
-}
-
-// ServiceConfig represents the configuration for a terminal service
-type ServiceConfig struct {
-	Meta      registry.Metadata          `json:"meta"`
-	Target    registry.ID                `json:"target"`    // ID of the terminal app to use
-	Timeouts  TimeoutConfig              `json:"timeouts"`  // Terminal operation timeouts
-	Lifecycle supervisor.LifecycleConfig `json:"lifecycle"` // Lifecycle management config
-}
-
-// Validate checks if the service configuration is valid
-func (c *ServiceConfig) Validate() error {
-	if c.Meta == nil {
-		return fmt.Errorf("metadata cannot be nil")
-	}
-	if c.Target == "" {
-		return fmt.Errorf("target cannot be empty")
-	}
-	if err := c.Timeouts.Validate(); err != nil {
-		return fmt.Errorf("invalid timeout configuration: %w", err)
 	}
 	return nil
 }

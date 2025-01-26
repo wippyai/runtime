@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/registry"
+	logsapi "github.com/ponyruntime/pony/api/service/logs"
 	api "github.com/ponyruntime/pony/api/service/terminal"
 	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/ponyruntime/pony/service/logs"
+
 	"go.uber.org/zap"
 	"sync"
 )
@@ -47,32 +49,32 @@ type controlOp struct {
 }
 
 type service struct {
-	terminal  *terminalRunner
-	ctx       context.Context
-	opCh      chan controlOp
-	statusCh  chan any
-	doneCh    chan struct{}
-	bus       events.Bus
-	log       *zap.Logger
-	logSwitch *logs.LogSwitcher
-	timeouts  api.TimeoutConfig
-	mu        sync.Mutex
+	terminal *terminalRunner
+	mu       sync.Mutex
+	ctx      context.Context
+	opCh     chan controlOp
+	statusCh chan any
+	doneCh   chan struct{}
+	bus      events.Bus
+	log      *zap.Logger
+	cfg      *api.ServiceConfig
+	csw      *logs.ConfigSwitcher
 }
 
 func newService(
 	app api.Terminal,
 	id registry.ID,
-	timeouts api.TimeoutConfig,
+	cfg *api.ServiceConfig,
 	bus events.Bus,
 	log *zap.Logger,
 ) *service {
 	return &service{
-		terminal:  newTerminalRunner(app, id, bus, log),
-		opCh:      make(chan controlOp, 1),
-		bus:       bus,
-		log:       log,
-		logSwitch: logs.NewLogSwitcher(bus, log),
-		timeouts:  timeouts,
+		terminal: newTerminalRunner(app, id, bus, log),
+		opCh:     make(chan controlOp, 1),
+		bus:      bus,
+		log:      log,
+		cfg:      cfg,
+		csw:      logs.NewConfigSwitcher(bus, log),
 	}
 }
 
@@ -158,7 +160,7 @@ func (s *service) UpdateApp(ctx context.Context, term api.Terminal, id registry.
 func (s *service) run(ctx context.Context) {
 	defer func() {
 		s.ctx = nil
-		s.logSwitch.RestoreOn(context.Background())
+		s.csw.RestoreBaseConfig(context.Background())
 
 		// Ensure last runner error is sent before closing channels
 		if s.terminal != nil {
@@ -186,7 +188,10 @@ func (s *service) run(ctx context.Context) {
 			switch op.action {
 			case actionStart:
 				// todo: make configurable
-				if err = s.logSwitch.EnableOn(ctx); err != nil {
+				if err = s.csw.EnableTemporaryConfig(ctx, logsapi.Config{
+					MinLevel:       zap.DebugLevel,
+					StreamToEvents: true,
+				}); err != nil {
 					break
 				}
 				if s.terminal != nil {

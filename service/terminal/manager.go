@@ -66,10 +66,10 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 
 	cfg := new(api.ServiceConfig)
 	if err := m.dtt.Unmarshal(entry.Data, cfg); err != nil {
-		return fmt.Errorf("failed to unmarshal config: %w", err)
+		return fmt.Errorf("failed to unmarshal cfg: %w", err)
 	}
 	if err := cfg.Validate(); err != nil {
-		return fmt.Errorf("invalid config: %w", err)
+		return fmt.Errorf("invalid cfg: %w", err)
 	}
 
 	cfg.InitDefaults()
@@ -82,7 +82,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		return fmt.Errorf("terminal app %s not found", cfg.Target)
 	}
 
-	svc := newService(*app, cfg.Target, cfg.Timeouts, m.bus, m.log)
+	svc := newService(*app, entry.ID, cfg, m.bus, m.log)
 	m.services[entry.ID] = svc
 
 	// Register with supervisor
@@ -105,10 +105,10 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 	cfg := new(api.ServiceConfig)
 	if err := m.dtt.Unmarshal(entry.Data, cfg); err != nil {
-		return fmt.Errorf("failed to unmarshal config: %w", err)
+		return fmt.Errorf("failed to unmarshal cfg: %w", err)
 	}
 	if err := cfg.Validate(); err != nil {
-		return fmt.Errorf("invalid config: %w", err)
+		return fmt.Errorf("invalid cfg: %w", err)
 	}
 
 	cfg.InitDefaults()

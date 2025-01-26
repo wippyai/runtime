@@ -80,19 +80,27 @@ func (r *terminalRunner) run() {
 
 func (r *terminalRunner) stop(ctx context.Context) error {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	if r.ctx == nil {
+		r.mu.Unlock()
 		return nil
 	}
 
-	r.cancel()
 	r.ctx = nil
+	r.mu.Unlock()
 
+	// coordinated shutdown
+	done := make(chan struct{})
+	go func() {
+		r.cancel()
+		<-r.done
+		close(done)
+	}()
+
+	// wait for either shutdown completion or timeout
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case <-r.done:
+	case <-done:
 		return nil
 	}
 }
