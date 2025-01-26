@@ -183,18 +183,21 @@ func TestExecutor_WriteStdin(t *testing.T) {
 				assert.NoError(t, err)
 
 				go func() {
-					err := executor.WriteStdin([]byte(tt.input))
-					assert.Equal(t, tt.wantErr, err != nil)
+					executor.Wait()
+				}()
+
+				go func() {
+					err2 := executor.WriteStdin([]byte(tt.input))
+					assert.NoError(t, err2)
 				}()
 
 				sb := new(strings.Builder)
 				for output := range executor.Stdout() {
 					sb.WriteString(string(output))
+					executor.Stop()
 				}
 
 				assert.Contains(t, sb.String(), tt.expect)
-
-				executor.Stop()
 			} else {
 				// Test writing to a non-running process
 				err := executor.WriteStdin([]byte(tt.input))
