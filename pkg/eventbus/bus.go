@@ -183,6 +183,12 @@ func (b *Bus) handleActions() {
 	defer b.wg.Done()
 
 	for a := range b.actions {
+		select {
+		case <-b.closed:
+			return
+		default:
+		}
+
 		switch a.actionType {
 		case subscribe:
 			b.subscribers[a.subscribe.subID] = a.subscribe
@@ -215,11 +221,10 @@ func (b *Bus) handleActions() {
 			}
 
 		case stop:
+			// todo: possibly have more strategies
 			for id, _ := range b.subscribers {
 				b.handleUnsubscribe(id)
 			}
-			close(b.actions)
-			b.actions = nil
 			close(b.closed)
 			return
 		}
