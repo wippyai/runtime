@@ -1217,8 +1217,8 @@ func TestController_ServiceExitError(t *testing.T) {
 
 	mock := &mockService{
 		startFunc: func(ctx context.Context) (<-chan any, error) {
-			// Return ExitErr directly from start
-			return nil, supervisor.ExitErr
+			// Return ErrExit directly from start
+			return nil, supervisor.ErrExit
 		},
 		stopFunc: func(ctx context.Context) error {
 			return nil
@@ -1232,7 +1232,7 @@ func TestController_ServiceExitError(t *testing.T) {
 			StartTimeout: 1 * time.Second,
 			StopTimeout:  1 * time.Second,
 			RetryPolicy: supervisor.RetryPolicy{
-				MaxAttempts: 3, // Should not retry on ExitErr
+				MaxAttempts: 3, // Should not retry on ErrExit
 			},
 		},
 		func(status supervisor.Status, details any) {
@@ -1245,9 +1245,9 @@ func TestController_ServiceExitError(t *testing.T) {
 	// Start the service
 	err := ctr.Start()
 
-	// Should get ExitErr
-	if !errors.Is(err, supervisor.ExitErr) {
-		t.Fatalf("Expected supervisor.ExitErr, got: %v", err)
+	// Should get ErrExit
+	if !errors.Is(err, supervisor.ErrExit) {
+		t.Fatalf("Expected supervisor.ErrExit, got: %v", err)
 	}
 
 	// Get final state transitions
@@ -1259,7 +1259,7 @@ func TestController_ServiceExitError(t *testing.T) {
 	// Expected state transition sequence
 	expectedTransitions := []supervisor.Status{
 		supervisor.Starting,
-		supervisor.Exited, // Should go directly to Exited on ExitErr
+		supervisor.Exited, // Should go directly to Exited on ErrExit
 	}
 
 	if len(transitions) != len(expectedTransitions) {
@@ -1302,7 +1302,7 @@ func TestController_ServiceExitDuringOperation(t *testing.T) {
 			StartTimeout: 1 * time.Second,
 			StopTimeout:  1 * time.Second,
 			RetryPolicy: supervisor.RetryPolicy{
-				MaxAttempts: 3, // Should not retry on ExitErr
+				MaxAttempts: 3, // Should not retry on ErrExit
 			},
 		},
 		func(status supervisor.Status, details any) {
@@ -1318,8 +1318,8 @@ func TestController_ServiceExitDuringOperation(t *testing.T) {
 		t.Fatalf("Failed to start service: %v", err)
 	}
 
-	// Send ExitErr through details channel
-	detailsCh <- supervisor.ExitErr
+	// Send ErrExit through details channel
+	detailsCh <- supervisor.ErrExit
 
 	// Wait for processing
 	time.Sleep(100 * time.Millisecond)
@@ -1334,7 +1334,7 @@ func TestController_ServiceExitDuringOperation(t *testing.T) {
 	expectedTransitions := []supervisor.Status{
 		supervisor.Starting,
 		supervisor.Running,
-		supervisor.Exited, // Should transition to Exited on ExitErr
+		supervisor.Exited, // Should transition to Exited on ErrExit
 	}
 
 	if len(transitions) != len(expectedTransitions) {

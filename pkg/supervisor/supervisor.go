@@ -292,13 +292,13 @@ func (s *Supervisor) registerService(id string, entry *supervisor.Entry) error {
 
 	stateHandler := func(status supervisor.Status, details any) {
 		if err, ok := details.(error); ok {
-			if errors.Is(err, supervisor.ExitErr) {
+			if errors.Is(err, supervisor.ErrExit) {
 				s.logger.Info(fmt.Sprintf("service %s is %s", id, status),
 					zap.String("serviceID", id),
 					zap.String("status", string(status)),
 					zap.Error(err),
 				)
-			} else if errors.Is(err, supervisor.TerminatedErr) || errors.Is(err, context.Canceled) {
+			} else if errors.Is(err, supervisor.ErrTerminated) || errors.Is(err, context.Canceled) {
 				s.logger.Warn(fmt.Sprintf("service %s is %s", id, status),
 					zap.String("serviceID", id),
 					zap.String("status", string(status)),

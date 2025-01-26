@@ -222,7 +222,7 @@ func (b *Bus) handleActions() {
 
 		case stop:
 			// todo: possibly have more strategies
-			for id, _ := range b.subscribers {
+			for id := range b.subscribers {
 				b.handleUnsubscribe(id)
 			}
 			close(b.closed)

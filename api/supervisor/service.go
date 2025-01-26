@@ -43,10 +43,10 @@ const (
 )
 
 var (
-	// TerminatedErr error is returned when a service is terminated, disables supervision.
-	TerminatedErr = errors.New("service terminated")
-	// ExitErr error is returned when a service exits on its own, disables supervision.
-	ExitErr = errors.New("service exited")
+	// ErrTerminated error is returned when a service is terminated, disables supervision.
+	ErrTerminated = errors.New("service terminated")
+	// ErrExit error is returned when a service exits on its own, disables supervision.
+	ErrExit = errors.New("service exited")
 )
 
 type (
