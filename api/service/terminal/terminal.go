@@ -19,11 +19,6 @@ const (
 	RegisterTerminalEvent events.Kind = "terminal.register"
 	// DeleteTerminalEvent represents an event for removing a terminal
 	DeleteTerminalEvent events.Kind = "terminal.delete"
-
-	// Mouse behavior mode constants
-	MouseNone string = "none"
-	MouseCell string = "cell"
-	MouseAll  string = "all"
 )
 
 type (
