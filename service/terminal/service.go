@@ -143,7 +143,7 @@ func (s *service) run(ctx context.Context) {
 		close(s.done)
 		s.mu.Unlock()
 
-		s.csw.RestoreBaseConfig(ctx)
+		s.csw.RestoreBaseConfig(context.Background())
 	}()
 
 	for {
