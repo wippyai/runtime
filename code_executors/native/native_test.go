@@ -29,15 +29,19 @@ func TestExecutor_Execute(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			logger := zap.NewNop()
+			logger, _ := zap.NewDevelopment()
 			executor := NewNativeExecutor(logger, WithCmd(tt.command))
+			err := executor.Start()
+			go func() {
+				executor.Wait()
+			}()
 
-			err := executor.cmd.Run()
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {
 				assert.NoError(t, err)
 			}
+			executor.Stop()
 		})
 	}
 }
@@ -87,7 +91,7 @@ func TestExecutor_Stdout(t *testing.T) {
 }
 
 func TestExecutor_EmptyCmd(t *testing.T) {
-	logger := zap.NewNop()
+	logger, _ := zap.NewDevelopment()
 	executor := NewNativeExecutor(logger, WithCmd(""))
 
 	err := executor.Start()
@@ -106,7 +110,7 @@ func TestExecutor_EmptyCmd(t *testing.T) {
 }
 
 func TestExecutor_Stderr(t *testing.T) {
-	logger := zap.NewNop()
+	logger, _ := zap.NewDevelopment()
 	executor := NewNativeExecutor(logger, WithCmd("echo 'error message' >&2"))
 
 	err := executor.Start()
@@ -125,7 +129,7 @@ func TestExecutor_Stderr(t *testing.T) {
 }
 
 func TestExecutor_ReadWithInvalidCommand(t *testing.T) {
-	logger := zap.NewNop()
+	logger, _ := zap.NewDevelopment()
 	executor := NewNativeExecutor(logger, WithCmd("invalidcommand"))
 
 	err := executor.Start()
@@ -135,7 +139,7 @@ func TestExecutor_ReadWithInvalidCommand(t *testing.T) {
 		executor.Wait()
 	}()
 
-	// Wait for error message in stderr
+	// Wait for an error message in stderr
 	sb := new(strings.Builder)
 
 	for output := range executor.Stderr() {
@@ -171,7 +175,7 @@ func TestExecutor_WriteStdin(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			logger := zap.NewNop()
+			logger, _ := zap.NewDevelopment()
 			executor := NewNativeExecutor(logger, WithCmd(tt.command))
 
 			if tt.command == "cat" {
@@ -181,7 +185,6 @@ func TestExecutor_WriteStdin(t *testing.T) {
 				go func() {
 					err := executor.WriteStdin([]byte(tt.input))
 					assert.Equal(t, tt.wantErr, err != nil)
-					executor.stdinPipe.Close()
 				}()
 
 				sb := new(strings.Builder)
@@ -193,7 +196,7 @@ func TestExecutor_WriteStdin(t *testing.T) {
 
 				executor.Stop()
 			} else {
-				// Test writing to non-running process
+				// Test writing to a non-running process
 				err := executor.WriteStdin([]byte(tt.input))
 				assert.Error(t, err)
 				assert.Contains(t, err.Error(), "process is not running")
