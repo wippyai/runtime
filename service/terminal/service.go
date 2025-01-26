@@ -10,29 +10,10 @@ import (
 	api "github.com/ponyruntime/pony/api/service/terminal"
 	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/ponyruntime/pony/service/logs"
-
 	"go.uber.org/zap"
 	"sync"
 )
 
-/*
-*
-
-	                 goroutine 195 [running]:
-	                                                        github.com/ponyruntime/pony/service/terminal.(*service).sendStatus(0xc000165570, {0xaa6880, 0xc0021d67c0})
-	                                           /mnt/d/Projects/pony/service/terminal/service.go:235 +0x56
-	                                                                                                     github.com/ponyruntime/pony/service/terminal.(*service).run.func1()
-	                                                   /mnt/d/Projects/pony/service/terminal/service.go:147 +0x85
-	                                                                                                             panic({0xaa38e0?, 0xc2f9e0?})
-	                   /home/wolfy-j/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.23.4.linux-amd64/src/runtime/panic.go:785 +0x132
-	github.com/ponyruntime/pony/service/terminal.(*service).sendStatus(0xc000165570, {0xa948a0, 0xc0009e6290})
-	                                                                                                           /mnt/d/Projects/pony/service/terminal/service.go:235 +0x56
-	                                         github.com/ponyruntime/pony/service/terminal.(*service).run(0xc000165570, {0xc37410, 0xc000f9a780})
-	                   /mnt/d/Projects/pony/service/terminal/service.go:217 +0x587
-	                                                                              created by github.com/ponyruntime/pony/service/terminal.(*service).Start in goroutine 194
-	                                                   /mnt/d/Projects/pony/service/terminal/service.go:72 +0x205
-	                                                                                                             exit status 2
-*/
 type controlAction int
 
 const (
@@ -48,26 +29,102 @@ type controlOp struct {
 	result   chan error
 }
 
+type operations struct {
+	terminal *terminalRunner
+	cfg      *api.ServiceConfig
+	bus      events.Bus
+	log      *zap.Logger
+	csw      *logs.ConfigSwitcher
+	statusCh chan<- any // Write-only channel
+}
+
+func newOperations(terminal *terminalRunner, bus events.Bus, log *zap.Logger, csw *logs.ConfigSwitcher, statusCh chan<- any) *operations {
+	return &operations{
+		terminal: terminal,
+		bus:      bus,
+		log:      log,
+		csw:      csw,
+		statusCh: statusCh,
+	}
+}
+
+func (o *operations) handleStart(ctx context.Context) error {
+	if err := o.csw.EnableTemporaryConfig(ctx, logsapi.Config{
+		MinLevel:       zap.DebugLevel,
+		StreamToEvents: true,
+	}); err != nil {
+		return err
+	}
+
+	if o.terminal != nil {
+		if err := o.terminal.Start(ctx); err != nil {
+			return err
+		}
+	}
+
+	o.sendStatus("running")
+	return nil
+}
+
+func (o *operations) handleStop(ctx context.Context) error {
+	if o.terminal != nil {
+		if err := o.terminal.stop(ctx); err != nil {
+			return err
+		}
+	}
+	o.sendStatus("stopped")
+	return nil
+}
+
+func (o *operations) handleUpdate(ctx context.Context, newTerminal api.Terminal, id registry.ID) error {
+	if o.terminal == nil {
+		return errors.New("service not running")
+	}
+
+	newRunner := newTerminalRunner(newTerminal, id, o.bus, o.log)
+
+	if err := o.terminal.stop(ctx); err != nil {
+		return err
+	}
+
+	if err := o.terminal.transferState(newRunner); err != nil {
+		return err
+	}
+
+	if err := newRunner.Start(ctx); err != nil {
+		return err
+	}
+
+	o.terminal = newRunner
+	o.sendStatus("terminal updated")
+	return nil
+}
+
+// sendStatus attempts to send status update, non-blocking
+func (o *operations) sendStatus(status any) {
+	// Use non-blocking send to prevent deadlocks
+	select {
+	case o.statusCh <- status:
+	default:
+		o.log.Warn("failed to send status update", zap.Any("status", status))
+	}
+}
+
 type service struct {
 	terminal *terminalRunner
 	mu       sync.Mutex
 	ctx      context.Context
 	opCh     chan controlOp
 	statusCh chan any
-	doneCh   chan struct{}
 	bus      events.Bus
 	log      *zap.Logger
 	cfg      *api.ServiceConfig
 	csw      *logs.ConfigSwitcher
+	ops      *operations
+	done     chan struct{} // Signal for complete shutdown
 }
 
-func newService(
-	app api.Terminal,
-	id registry.ID,
-	cfg *api.ServiceConfig,
-	bus events.Bus,
-	log *zap.Logger,
-) *service {
+func newService(app api.Terminal, id registry.ID, cfg *api.ServiceConfig, bus events.Bus, log *zap.Logger) *service {
 	return &service{
 		terminal: newTerminalRunner(app, id, bus, log),
 		opCh:     make(chan controlOp, 1),
@@ -75,6 +132,7 @@ func newService(
 		log:      log,
 		cfg:      cfg,
 		csw:      logs.NewConfigSwitcher(bus, log),
+		done:     make(chan struct{}),
 	}
 }
 
@@ -84,11 +142,11 @@ func (s *service) Start(ctx context.Context) (<-chan any, error) {
 		s.mu.Unlock()
 		return nil, errors.New("service already running")
 	}
-	s.mu.Unlock()
 
 	s.ctx = ctx
 	s.statusCh = make(chan any, 10)
-	s.doneCh = make(chan struct{})
+	s.ops = newOperations(s.terminal, s.bus, s.log, s.csw, s.statusCh)
+	s.mu.Unlock()
 
 	go s.run(ctx)
 
@@ -101,12 +159,11 @@ func (s *service) Start(ctx context.Context) (<-chan any, error) {
 		select {
 		case err := <-resultCh:
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("failed to start service: %w", err)
 			}
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		}
-
 		return s.statusCh, nil
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -123,12 +180,19 @@ func (s *service) Stop(ctx context.Context) error {
 		select {
 		case err := <-resultCh:
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to stop service: %w", err)
 			}
 		case <-ctx.Done():
 			return ctx.Err()
 		}
-		return nil
+
+		// Wait for complete shutdown
+		select {
+		case <-s.done:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	case <-ctx.Done():
 		return ctx.Err()
 	}
@@ -146,7 +210,7 @@ func (s *service) UpdateApp(ctx context.Context, term api.Terminal, id registry.
 		select {
 		case err := <-resultCh:
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to update service: %w", err)
 			}
 		case <-ctx.Done():
 			return ctx.Err()
@@ -159,17 +223,15 @@ func (s *service) UpdateApp(ctx context.Context, term api.Terminal, id registry.
 
 func (s *service) run(ctx context.Context) {
 	defer func() {
+		s.mu.Lock()
 		s.ctx = nil
-		s.csw.RestoreBaseConfig(context.Background())
-
-		// Ensure last runner error is sent before closing channels
-		if s.terminal != nil {
-			if err := s.terminal.exitErr; err != nil {
-				s.sendStatus(err)
-			}
-		}
+		// Close channels we own
 		close(s.statusCh)
-		close(s.doneCh)
+		close(s.opCh)
+		close(s.done)
+		s.mu.Unlock()
+
+		s.csw.RestoreBaseConfig(context.Background())
 	}()
 
 	for {
@@ -187,77 +249,32 @@ func (s *service) run(ctx context.Context) {
 
 			switch op.action {
 			case actionStart:
-				// todo: make configurable
-				if err = s.csw.EnableTemporaryConfig(ctx, logsapi.Config{
-					MinLevel:       zap.DebugLevel,
-					StreamToEvents: true,
-				}); err != nil {
-					break
-				}
-				if s.terminal != nil {
-					err = s.terminal.Start(ctx)
-				}
-				if err == nil {
-					s.sendStatus("running")
-				}
-
+				err = s.ops.handleStart(ctx)
 			case actionStop:
-				if s.terminal != nil {
-					err = s.terminal.stop(ctx)
-				}
+				err = s.ops.handleStop(ctx)
 				if err == nil {
-					s.sendStatus("stopped")
+					// After successful stop, exit the run loop
+					op.result <- nil
+					return
 				}
-
 			case actionUpdate:
-				if s.terminal == nil {
-					err = errors.New("service not running")
-					break
-				}
-
-				newRunner := newTerminalRunner(op.terminal, op.id, s.bus, s.log)
-
-				// Stop current terminal
-				if err = s.terminal.stop(ctx); err != nil {
-					break
-				}
-
-				// Transfer state if possible
-				if err = s.terminal.transferState(newRunner); err != nil {
-					break
-				}
-
-				// Start new terminal
-				if err = newRunner.Start(ctx); err != nil {
-					break
-				}
-
-				s.terminal = newRunner // race?
-				s.sendStatus("terminal updated")
+				err = s.ops.handleUpdate(ctx, op.terminal, op.id)
 			}
 
 			op.result <- err
 			if err != nil {
-				s.sendStatus(err)
+				s.ops.sendStatus(err)
 				return
 			}
 
 		case <-s.terminal.wait():
 			err := s.terminal.exitErr
 			if errors.Is(err, supervisor.ErrTerminated) || errors.Is(err, supervisor.ErrExit) {
-				s.sendStatus(err)
+				s.ops.sendStatus(err)
 			} else {
-				s.sendStatus(fmt.Errorf("terminal failed: %w", err))
+				s.ops.sendStatus(fmt.Errorf("terminal failed: %w", err))
 			}
 			return
 		}
-	}
-}
-
-func (s *service) sendStatus(status any) {
-	select {
-	case s.statusCh <- status: // race?
-	default:
-		s.log.Warn("failed to send status update", zap.Any("status", status))
 	}
 }
