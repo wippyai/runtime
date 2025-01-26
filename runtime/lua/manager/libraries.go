@@ -54,6 +54,7 @@ func (m *Libraries) Delete(id registry.ID) error {
 	return nil
 }
 
+// Clone creates a reusable copy of the library manager
 func (m *Libraries) Clone() *Libraries {
 	cloned := &Libraries{
 		log:       m.log,
