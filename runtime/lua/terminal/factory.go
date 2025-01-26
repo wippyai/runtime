@@ -15,6 +15,10 @@ import (
 	"go.uber.org/zap"
 )
 
+/**
+@todo: this is draft in progress
+*/
+
 // Factory is the default terminal factory.
 type Factory struct{}
 
