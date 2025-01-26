@@ -13,6 +13,10 @@ import (
 	"time"
 )
 
+/**
+@todo: this is draft in progress
+*/
+
 type bubbleModel struct {
 	tasker   *tasks.TaskRunner
 	logger   *zap.Logger

@@ -16,6 +16,10 @@ import (
 	"time"
 )
 
+/**
+@todo: this is draft in progress
+*/
+
 type LuaTerminal struct {
 	log      *zap.Logger
 	tasker   *tasks.TaskRunner
