@@ -17,10 +17,10 @@ const (
 
 // ServiceConfig represents the configuration for a terminal service
 type ServiceConfig struct {
-	Meta         registry.Metadata          `json:"meta"`
-	Target       registry.ID                `json:"target"`        // ID of the terminal app to use
-	RedirectLogs bool                       `json:"redirect_logs"` // Redirect logs (all) to the event bus, releases io.Output
-	Lifecycle    supervisor.LifecycleConfig `json:"lifecycle"`     // Lifecycle management config
+	Meta      registry.Metadata          `json:"meta"`
+	Target    registry.ID                `json:"target"`    // ID of the terminal app to use
+	HideLogs  bool                       `json:"hide_logs"` // Redirect logs (all) to the event bus, releases io.Output
+	Lifecycle supervisor.LifecycleConfig `json:"lifecycle"` // Lifecycle management config
 }
 
 // Validate checks if the service configuration is valid

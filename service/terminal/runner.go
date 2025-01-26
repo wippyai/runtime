@@ -42,7 +42,7 @@ func newTerminalRunner(
 	}
 }
 
-func (r *terminalRunner) Start(ctx context.Context) error {
+func (r *terminalRunner) start(ctx context.Context) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 

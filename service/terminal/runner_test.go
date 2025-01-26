@@ -149,14 +149,14 @@ func TestTerminalRunner_Start(t *testing.T) {
 			setupFunc: func(t *testing.T, term terminal.Terminal) {
 				runner := newTerminalRunner(term, id, bus, logger)
 				ctx := context.Background()
-				err := runner.Start(ctx)
+				err := runner.start(ctx)
 				require.NoError(t, err)
 
 				mt := term.(*mockTerminal)
 				<-mt.started // Wait for Run to actually start
 
 				// Try to start again
-				err = runner.Start(ctx)
+				err = runner.start(ctx)
 				assert.Error(t, err)
 			},
 		},
@@ -171,7 +171,7 @@ func TestTerminalRunner_Start(t *testing.T) {
 				return
 			}
 
-			err := runner.Start(context.Background())
+			err := runner.start(context.Background())
 			if tt.wantErr {
 				assert.Error(t, err)
 				return
@@ -210,7 +210,7 @@ func TestTerminalRunner_Stop(t *testing.T) {
 			terminal: newMockTerminal(),
 			setup: func(r *terminalRunner) {
 				ctx := context.Background()
-				err := r.Start(ctx)
+				err := r.start(ctx)
 				require.NoError(t, err)
 
 				mt := r.terminal.(*mockTerminal)
@@ -233,7 +233,7 @@ func TestTerminalRunner_Stop(t *testing.T) {
 			}(),
 			setup: func(r *terminalRunner) {
 				ctx := context.Background()
-				err := r.Start(ctx)
+				err := r.start(ctx)
 				require.NoError(t, err)
 
 				mt := r.terminal.(*mockTerminal)
