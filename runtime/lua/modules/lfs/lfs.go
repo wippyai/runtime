@@ -46,7 +46,7 @@ func (m *Module) Loader(l *lua.LState) int {
 
 	// TODO: is it safe to omit error handling here?
 	// case1: cwd does not exist
-	dir, _ := os.Getwd()
+	dir, _ := os.Getwd() // generally speaking we can isolate whole concept of root in here and simply use our mocked fs
 	l.SetGlobal(globalFnName, lua.LString(dir))
 
 	l.SetFuncs(t, api)

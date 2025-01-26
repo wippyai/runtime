@@ -121,6 +121,7 @@ func apiLock(l *lua.LState) int {
 func apiLink(l *lua.LState) int {
 	old := l.CheckString(1)
 	cwd := l.GetGlobal(globalFnName).String()
+	log := getCtxLogger(l)
 	if isRelative(old) {
 		old = path.Join(cwd, old)
 	}
@@ -130,6 +131,8 @@ func apiLink(l *lua.LState) int {
 	if isRelative(newn) {
 		newn = path.Join(cwd, newn)
 	}
+
+	log.Debug("link", zap.String("old", old), zap.String("new", newn))
 
 	symlink := l.OptBool(3, false)
 
@@ -212,11 +215,14 @@ func apiSymlinkAttributes(l *lua.LState) int {
 
 func apiTouch(l *lua.LState) int {
 	dir := l.CheckString(1)
+	log := getCtxLogger(l)
 	cwd := l.GetGlobal(globalFnName).String()
 
 	if isRelative(dir) {
 		dir = path.Join(cwd, dir)
 	}
+
+	log.Debug("touch", zap.String("file", dir))
 
 	atime := l.OptInt64(2, time.Now().Unix())
 	mtime := l.OptInt64(3, atime)
