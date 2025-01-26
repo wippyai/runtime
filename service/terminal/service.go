@@ -8,6 +8,7 @@ import (
 	"github.com/ponyruntime/pony/api/registry"
 	api "github.com/ponyruntime/pony/api/service/terminal"
 	"github.com/ponyruntime/pony/api/supervisor"
+	"github.com/ponyruntime/pony/service/logs"
 	"go.uber.org/zap"
 	"sync"
 )
@@ -53,7 +54,7 @@ type service struct {
 	doneCh    chan struct{}
 	bus       events.Bus
 	log       *zap.Logger
-	logSwitch *logSwitcher
+	logSwitch *logs.LogSwitcher
 	timeouts  api.TimeoutConfig
 	mu        sync.Mutex
 }
@@ -70,7 +71,7 @@ func newService(
 		opCh:      make(chan controlOp, 1),
 		bus:       bus,
 		log:       log,
-		logSwitch: newLogSwitcher(bus, log),
+		logSwitch: logs.NewLogSwitcher(bus, log),
 		timeouts:  timeouts,
 	}
 }
@@ -157,7 +158,7 @@ func (s *service) UpdateApp(ctx context.Context, term api.Terminal, id registry.
 func (s *service) run(ctx context.Context) {
 	defer func() {
 		s.ctx = nil
-		s.logSwitch.restoreOn(context.Background())
+		s.logSwitch.RestoreOn(context.Background())
 
 		// Ensure last runner error is sent before closing channels
 		if s.terminal != nil {
@@ -185,7 +186,7 @@ func (s *service) run(ctx context.Context) {
 			switch op.action {
 			case actionStart:
 				// todo: make configurable
-				if err = s.logSwitch.enableOn(ctx); err != nil {
+				if err = s.logSwitch.EnableOn(ctx); err != nil {
 					break
 				}
 				if s.terminal != nil {

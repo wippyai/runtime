@@ -12,7 +12,8 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-// Manager manages logging configuration and event handling
+// Manager manages logging configuration and event handling. This is considered to be a root service since it trunks
+// all the logs from the system and sends them to the event bus. Unmanaged.
 type Manager struct {
 	log    *zap.Logger
 	bus    events.Bus
@@ -37,8 +38,6 @@ func NewManager(bus events.Bus, core api.Core, logger *zap.Logger) *Manager {
 	}
 }
 
-// todo: make a real service
-
 // Start initializes the service and starts listening for events
 func (m *Manager) Start(ctx context.Context) error {
 	// Subscribe to log configuration events and config requests
@@ -51,7 +50,7 @@ func (m *Manager) Start(ctx context.Context) error {
 	m.ctx = ctx
 
 	// Apply initial configuration
-	m.applyConfig(ctx, m.config)
+	m.handleSetConfigEvent(ctx, "start", m.config)
 
 	m.log.Info("logging service started",
 		zap.Bool("propagate", m.config.PropagateDownstream),
@@ -107,7 +106,7 @@ func (m *Manager) handleConfigEvent(ctx context.Context, e events.Event) {
 		zap.String("new_level", cfg.MinLevel.String()),
 	)
 
-	m.applyConfig(ctx, cfg)
+	m.handleSetConfigEvent(ctx, e.Path, cfg)
 }
 
 // handleGetConfigEvent handles requests for current config state
@@ -125,15 +124,15 @@ func (m *Manager) handleGetConfigEvent(ctx context.Context, e events.Event) {
 	})
 }
 
-// applyConfig applies a new logging configuration
-func (m *Manager) applyConfig(ctx context.Context, cfg api.Config) {
+// handleSetConfigEvent applies a new logging configuration
+func (m *Manager) handleSetConfigEvent(ctx context.Context, path events.Path, cfg api.Config) {
 	m.config = cfg
 	m.core.Configure(cfg)
 	// Send confirmation that config was applied
 	m.bus.Send(ctx, events.Event{
 		System: api.System,
 		Kind:   api.ConfigStateEvent,
-		Path:   "terminal-logs", // Use the same path as the request
+		Path:   path,
 		Data:   cfg,
 	})
 }
