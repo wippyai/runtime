@@ -11,6 +11,12 @@ import (
 	"go.uber.org/zap"
 )
 
+const (
+	notStarted string = "not_started"
+	running    string = "running"
+	terminated string = "terminated"
+)
+
 type Executor struct {
 	rwm sync.RWMutex
 	log *zap.Logger
@@ -32,7 +38,7 @@ func NewNativeExecutor(log *zap.Logger, opts ...Options) *Executor {
 	e := &Executor{
 		stderrCh: make(chan []byte, 100),
 		stdoutCh: make(chan []byte, 100),
-		state:    "not_started",
+		state:    notStarted,
 		log:      log,
 	}
 
@@ -56,11 +62,11 @@ func NewNativeExecutor(log *zap.Logger, opts ...Options) *Executor {
 	}
 
 	// we can safely skip the error here
-	// because we don't initializing stderrpipe twice or after the process was already started
+	// because we don't initialize stderrpipe twice or after the process was already started
 	ep, _ := command.StderrPipe()
 
 	// we can safely skip the error here
-	// because we don't initializing stdoutpipe twice or after the process was already started
+	// because we don't initialize stdoutpipe twice or after the process was already started
 	op, _ := command.StdoutPipe()
 
 	ip, _ := command.StdinPipe()
@@ -85,7 +91,7 @@ func (e *Executor) Start() error {
 	}
 
 	e.pid = e.cmd.Process.Pid
-	e.state = "running"
+	e.state = running
 	return nil
 }
 
@@ -119,7 +125,7 @@ func (e *Executor) Signal(sig int) {
 	e.rwm.RLock()
 	defer e.rwm.RUnlock()
 
-	if e.state != "running" {
+	if e.state != running {
 		e.log.Error("process is not running", zap.String("state", e.state))
 		return
 	}
@@ -129,6 +135,7 @@ func (e *Executor) Signal(sig int) {
 		return
 	}
 
+	// we're using os.FindProcess to avoid touching e.cmd
 	p, err := os.FindProcess(e.pid)
 	if err != nil {
 		e.log.Error("error finding process", zap.Error(err))
@@ -177,7 +184,7 @@ func (e *Executor) Stop() {
 	_ = p.Kill()
 	// to prevent multiple calls to Stop()
 	e.pid = 0
-	e.state = "terminated"
+	e.state = terminated
 }
 
 func (e *Executor) Wait() {
@@ -187,7 +194,7 @@ func (e *Executor) Wait() {
 	}
 
 	e.rwm.Lock()
-	e.state = "terminated"
+	e.state = terminated
 	e.rwm.Unlock()
 
 	e.log.Debug("command finished")
