@@ -68,7 +68,6 @@ function App()
             task:complete("ok")
         elseif msg.type == "view" then
             task:complete(ui:render(session))
-            error("DEAD")
         else
             task:complete("ok")
         end
