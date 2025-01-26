@@ -16,19 +16,19 @@ func TestJsonToGolangTranscoder_Transcode(t *testing.T) {
 	}{
 		{
 			name:    "Valid JSON string",
-			payload: payload.NewPayload(`{"key": "value"}`, payload.Json),
+			payload: payload.NewPayload(`{"key": "value"}`, payload.JSON),
 			want:    payload.NewPayload(map[string]interface{}{"key": "value"}, payload.Golang),
 			wantErr: false,
 		},
 		{
 			name:    "Valid JSON bytes",
-			payload: payload.NewPayload([]byte(`{"key": "value"}`), payload.Json),
+			payload: payload.NewPayload([]byte(`{"key": "value"}`), payload.JSON),
 			want:    payload.NewPayload(map[string]interface{}{"key": "value"}, payload.Golang),
 			wantErr: false,
 		},
 		{
 			name:    "Invalid JSON",
-			payload: payload.NewPayload(`{"key": "value"`, payload.Json),
+			payload: payload.NewPayload(`{"key": "value"`, payload.JSON),
 			want:    nil,
 			wantErr: true,
 		},
@@ -40,13 +40,13 @@ func TestJsonToGolangTranscoder_Transcode(t *testing.T) {
 		},
 		{
 			name:    "Unsupported JSON data type",
-			payload: payload.NewPayload(123, payload.Json), // JSON number is not handled
+			payload: payload.NewPayload(123, payload.JSON), // JSON number is not handled
 			want:    nil,
 			wantErr: true,
 		},
 		{
 			name:    "Invalid JSON bytes",
-			payload: payload.NewPayload([]byte(`{"key": "value"`), payload.Json),
+			payload: payload.NewPayload([]byte(`{"key": "value"`), payload.JSON),
 			want:    nil,
 			wantErr: true,
 		},
@@ -84,21 +84,21 @@ func TestJsonToGolangTranscoder_Unmarshal(t *testing.T) {
 	}{
 		{
 			name:    "Valid JSON string to struct",
-			payload: payload.NewPayload(`{"key": "value"}`, payload.Json),
+			payload: payload.NewPayload(`{"key": "value"}`, payload.JSON),
 			target:  &TestStruct{},
 			want:    &TestStruct{Key: "value"},
 			wantErr: false,
 		},
 		{
 			name:    "Valid JSON bytes to struct",
-			payload: payload.NewPayload([]byte(`{"key": "value"}`), payload.Json),
+			payload: payload.NewPayload([]byte(`{"key": "value"}`), payload.JSON),
 			target:  &TestStruct{},
 			want:    &TestStruct{Key: "value"},
 			wantErr: false,
 		},
 		{
 			name:    "Invalid JSON",
-			payload: payload.NewPayload(`{"key": "value"`, payload.Json),
+			payload: payload.NewPayload(`{"key": "value"`, payload.JSON),
 			target:  &TestStruct{},
 			want:    &TestStruct{},
 			wantErr: true,
@@ -112,14 +112,14 @@ func TestJsonToGolangTranscoder_Unmarshal(t *testing.T) {
 		},
 		{
 			name:    "Unmarshal into wrong type",
-			payload: payload.NewPayload(`{"key": "value"}`, payload.Json),
+			payload: payload.NewPayload(`{"key": "value"}`, payload.JSON),
 			target:  "not a pointer",
 			want:    "",
 			wantErr: true,
 		},
 		{
 			name:    "Unsupported unmarshal data type",
-			payload: payload.NewPayload(123, payload.Json),
+			payload: payload.NewPayload(123, payload.JSON),
 			target:  &TestStruct{},
 			want:    &TestStruct{},
 			wantErr: true,
@@ -151,13 +151,13 @@ func TestGolangToJsonTranscoder_Transcode(t *testing.T) {
 		{
 			name:    "Valid struct",
 			payload: payload.NewPayload(struct{ Key string }{Key: "value"}, payload.Golang),
-			want:    payload.NewPayload([]byte(`{"Key":"value"}`), payload.Json),
+			want:    payload.NewPayload([]byte(`{"Key":"value"}`), payload.JSON),
 			wantErr: false,
 		},
 		{
 			name:    "Valid map",
 			payload: payload.NewPayload(map[string]string{"key": "value"}, payload.Golang),
-			want:    payload.NewPayload([]byte(`{"key":"value"}`), payload.Json),
+			want:    payload.NewPayload([]byte(`{"key":"value"}`), payload.JSON),
 			wantErr: false,
 		},
 		{

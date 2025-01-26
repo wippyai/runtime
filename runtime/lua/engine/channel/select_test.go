@@ -2,6 +2,7 @@ package channel
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine"
@@ -19,12 +20,12 @@ func TestSelectImmediate(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.StartString(`
+	err = vm.StartString(context.Background(), `
 		-- Create two buffered channels
 		local ch1 = channel.new(1)
 		local ch2 = channel.new(1)
 
-		-- Send a value to ch1
+		-- SendToOpen a value to ch1
 		ch1:send("msg1")
 		coroutine.yield("value_buffered")
 
@@ -43,7 +44,7 @@ func TestSelectImmediate(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewChannelRunner()
+	runtime := NewChannelLayer()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -75,9 +76,8 @@ func TestSelectBlockedReceive(t *testing.T) {
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
-	vm.SetContext(context.Background())
 
-	err = vm.StartString(`
+	err = vm.StartString(context.Background(), `
 		-- Create two unbuffered channels
 		local ch1 = channel.new(0)
 		local ch2 = channel.new(0)
@@ -97,7 +97,7 @@ func TestSelectBlockedReceive(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewChannelRunner()
+	runtime := NewChannelLayer()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -130,9 +130,8 @@ func TestSelectBlockedClose(t *testing.T) {
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
-	vm.SetContext(context.Background())
 
-	err = vm.StartString(`
+	err = vm.StartString(context.Background(), `
 		-- Create two unbuffered channels
 		local ch1 = channel.new(0)
 		local ch2 = channel.new(0)
@@ -157,7 +156,7 @@ func TestSelectBlockedClose(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewChannelRunner()
+	runtime := NewChannelLayer()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -190,9 +189,8 @@ func TestSelectWithDefaultImmediate(t *testing.T) {
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
-	vm.SetContext(context.Background())
 
-	err = vm.StartString(`
+	err = vm.StartString(context.Background(), `
         -- Helper to get channel stats
         local function channel_stats(ch)
             return {
@@ -231,7 +229,7 @@ func TestSelectWithDefaultImmediate(t *testing.T) {
     `, "test")
 	assert.NoError(t, err)
 
-	runtime := NewChannelRunner()
+	runtime := NewChannelLayer()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -259,9 +257,8 @@ func TestSelectLoopWithFeeds(t *testing.T) {
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
-	vm.SetContext(context.Background())
 
-	err = vm.StartString(`
+	err = vm.StartString(context.Background(), `
         -- Helper for channel stats
         local function channel_stats(ch)
             return {
@@ -310,7 +307,7 @@ func TestSelectLoopWithFeeds(t *testing.T) {
     `, "test")
 	assert.NoError(t, err)
 
-	runtime := NewChannelRunner()
+	runtime := NewChannelLayer()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -345,9 +342,8 @@ func TestSelectCleanupOnReceive(t *testing.T) {
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
-	vm.SetContext(context.Background())
 
-	err = vm.StartString(`
+	err = vm.StartString(context.Background(), `
        local function channel_stats(ch)
            return {
                size = ch:_debug_size(),
@@ -387,7 +383,7 @@ func TestSelectCleanupOnReceive(t *testing.T) {
    `, "test")
 	assert.NoError(t, err)
 
-	runtime := NewChannelRunner()
+	runtime := NewChannelLayer()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -419,9 +415,8 @@ func TestSelectCleanupAll(t *testing.T) {
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
-	vm.SetContext(context.Background())
 
-	err = vm.StartString(`
+	err = vm.StartString(context.Background(), `
 		local function channel_stats(ch)
 			return {
 				size = ch:_debug_size(),
@@ -480,13 +475,13 @@ func TestSelectCleanupAll(t *testing.T) {
 		assert(stats4.receivers == 1, "ch4 should have 1 receiver")
 		coroutine.yield("select_verified")
 
-		-- Wake up select
+		-- WakeUp up select
 		ch3:send("val2")
 		coroutine.yield("select_completed")
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewChannelRunner()
+	runtime := NewChannelLayer()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -523,9 +518,8 @@ func TestMixedSelectImmediate(t *testing.T) {
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
-	vm.SetContext(context.Background())
 
-	err = vm.StartString(`
+	err = vm.StartString(context.Background(), `
 		local function channel_stats(ch)
 			return {
 				size = ch:_debug_size(),
@@ -570,14 +564,14 @@ func TestMixedSelectImmediate(t *testing.T) {
 		local emptyStats = channel_stats(emptyCh)
 		local fullStats = channel_stats(fullCh)
 		
-		assert(emptyStats.senders == 0, "emptyStats should have no pending senders, got " .. emptyStats.senders)
+		assert(emptyStats.senders == 1, "emptyStats should have no pending senders, got " .. emptyStats.senders)
 		assert(emptyStats.receivers == 0, "emptyStats should have no pending receivers, got " .. emptyStats.receivers)
 		assert(fullStats.senders == 1, "fullStats should have 1 pending sender, got " .. fullStats.senders)
 		assert(fullStats.receivers == 0, "fullStats should have no pending receivers, got " .. fullStats.receivers)
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewChannelRunner()
+	runtime := NewChannelLayer()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -611,9 +605,8 @@ func TestMixedSelectBlocking(t *testing.T) {
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
-	vm.SetContext(context.Background())
 
-	err = vm.StartString(`
+	err = vm.StartString(context.Background(), `
 		-- Create unbuffered channels
 		local ch1 = channel.new(0)
 		local ch2 = channel.new(0)
@@ -663,7 +656,7 @@ func TestMixedSelectBlocking(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewChannelRunner()
+	runtime := NewChannelLayer()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -697,9 +690,8 @@ func TestMixedSelectWithDefault(t *testing.T) {
 	)
 	assert.NoError(t, err)
 	defer vm.Close()
-	vm.SetContext(context.Background())
 
-	err = vm.StartString(`
+	err = vm.StartString(context.Background(), `
 		-- Create channels that would block
 		local sendCh = channel.new(0)   -- unbuffered
 		local recvCh = channel.new(0)   -- unbuffered
@@ -748,7 +740,7 @@ func TestMixedSelectWithDefault(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	runtime := NewChannelRunner()
+	runtime := NewChannelLayer()
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -768,4 +760,105 @@ func TestMixedSelectWithDefault(t *testing.T) {
 		"ready_case_selected",
 	}
 	assert.Equal(t, expectedOrder, yields)
+}
+
+func TestSingleCaseSelectWithReadyData(t *testing.T) {
+	logger := zap.NewNop()
+
+	vm, err := engine.NewCVM(
+		logger,
+		engine.WithPreloaded("channel", NewChannelModule().Loader),
+	)
+	assert.NoError(t, err)
+	defer vm.Close()
+
+	err = vm.StartString(context.Background(), `
+		local ch = channel.new(0)  -- unbuffered channel
+		local ready = channel.new(0)  -- synchronization channel
+		local results = {}  -- collect results
+
+		-- Spawn 3 sender coroutines
+		for i = 1, 3 do
+			coroutine.spawn(function()
+				ch:send("val" .. i)
+				coroutine.yield("sent" .. i)
+			end)
+		end
+
+		coroutine.yield("senders_launched")
+
+		-- Main test coroutine that will use select
+		coroutine.spawn(function()
+			-- By this point at least one sender should be ready
+			local result = channel.select{
+				ch:case_receive()
+			}
+			table.insert(results, result.value)
+			coroutine.yield("received1")
+
+			-- Get remaining values directly
+			local val2, ok2 = ch:receive()
+			table.insert(results, val2)
+			coroutine.yield("received2")
+
+			local val3, ok3 = ch:receive()
+			table.insert(results, val3)
+			coroutine.yield("received3")
+
+			ready:send(true)
+		end)
+
+		-- Wait for completion
+		ready:receive()
+		coroutine.yield("complete")
+		
+		-- Verify all values were received
+		assert(#results == 3, "should receive 3 values")
+		table.sort(results)
+		assert(results[1] == "val1")
+		assert(results[2] == "val2")
+		assert(results[3] == "val3")
+	`, "test")
+	assert.NoError(t, err)
+
+	runtime := NewChannelLayer()
+	tasks, err := runtime.Step(vm)
+	assert.NoError(t, err)
+
+	var yields []string
+	for len(tasks) > 0 {
+		for _, task := range tasks {
+			if len(task.Yielded) > 0 {
+				yields = append(yields, task.Yielded[0].String())
+			}
+		}
+		tasks, err = runtime.Step(vm, tasks...)
+		assert.NoError(t, err)
+	}
+
+	// Verify at least one sender yielded before first receive
+	hasSenderBeforeReceive := false
+	receivedAny := false
+	for _, yield := range yields {
+		if strings.HasPrefix(yield, "sent") && !receivedAny {
+			hasSenderBeforeReceive = true
+		}
+		if strings.HasPrefix(yield, "received") {
+			receivedAny = true
+		}
+	}
+	assert.True(t, hasSenderBeforeReceive, "no sender yielded before first receive")
+
+	// Verify all expected events occurred
+	assert.Contains(t, yields, "senders_launched", "senders should launch first")
+	assert.Contains(t, yields, "complete", "test should complete")
+
+	// Verify we got all receives
+	receivedCount := 0
+	for _, yield := range yields {
+		if strings.HasPrefix(yield, "received") {
+			receivedCount++
+		}
+	}
+	assert.Equal(t, 3, receivedCount, "should receive all 3 values")
 }

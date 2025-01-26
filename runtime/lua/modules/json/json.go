@@ -13,10 +13,11 @@ var (
 	errInvalidKeys = errors.New("cannot encode mixed or invalid key types")
 )
 
+// Module represents JSON bindings to Lua VM.
 type Module struct{}
 
-// NewJsonModule creates a new JSON module.
-func NewJsonModule() *Module {
+// NewJSONModule creates a new JSON module.
+func NewJSONModule() *Module {
 	return &Module{}
 }
 

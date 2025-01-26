@@ -1,0 +1,21 @@
+name: default_terminal
+kind: terminal.lua
+meta:
+  comment: "Simple terminal text editor"
+
+source: file://default.lua
+method: App
+
+options:
+  alt_screen: true
+  title: "Simple Terminal Editor"
+  mouse: "none"
+  disable_signals: false
+
+lifecycle:
+  auto_start: true
+  startup_timeout: "5s"
+  shutdown_timeout: "3s"
+  retry_policy:
+    max_retries: 0
+    initial_delay: "10s"

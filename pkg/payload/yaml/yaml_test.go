@@ -17,19 +17,19 @@ func TestYamlToGolangTranscoder_Transcode(t *testing.T) {
 	}{
 		{
 			name:    "Valid YAML string",
-			payload: payload.NewPayload("key: value", payload.Yaml),
+			payload: payload.NewPayload("key: value", payload.YAML),
 			want:    payload.NewPayload(map[string]interface{}{"key": "value"}, payload.Golang),
 			wantErr: false,
 		},
 		{
 			name:    "Valid YAML bytes",
-			payload: payload.NewPayload([]byte("key: value"), payload.Yaml),
+			payload: payload.NewPayload([]byte("key: value"), payload.YAML),
 			want:    payload.NewPayload(map[string]interface{}{"key": "value"}, payload.Golang),
 			wantErr: false,
 		},
 		{
 			name:    "Invalid YAML",
-			payload: payload.NewPayload("key: value\ninvalid", payload.Yaml),
+			payload: payload.NewPayload("key: value\ninvalid", payload.YAML),
 			want:    nil,
 			wantErr: true,
 		},
@@ -41,13 +41,13 @@ func TestYamlToGolangTranscoder_Transcode(t *testing.T) {
 		},
 		{
 			name:    "Unsupported YAML data type",
-			payload: payload.NewPayload(123, payload.Yaml),
+			payload: payload.NewPayload(123, payload.YAML),
 			want:    nil,
 			wantErr: true,
 		},
 		{
 			name:    "Invalid YAML bytes",
-			payload: payload.NewPayload([]byte("key: value\ninvalid"), payload.Yaml),
+			payload: payload.NewPayload([]byte("key: value\ninvalid"), payload.YAML),
 			want:    nil,
 			wantErr: true,
 		},
@@ -85,21 +85,21 @@ func TestYamlToGolangTranscoder_Unmarshal(t *testing.T) {
 	}{
 		{
 			name:    "Valid YAML string to struct",
-			payload: payload.NewPayload("key: value", payload.Yaml),
+			payload: payload.NewPayload("key: value", payload.YAML),
 			target:  &TestStruct{},
 			want:    &TestStruct{Key: "value"},
 			wantErr: false,
 		},
 		{
 			name:    "Valid YAML bytes to struct",
-			payload: payload.NewPayload([]byte("key: value"), payload.Yaml),
+			payload: payload.NewPayload([]byte("key: value"), payload.YAML),
 			target:  &TestStruct{},
 			want:    &TestStruct{Key: "value"},
 			wantErr: false,
 		},
 		{
 			name:    "Invalid YAML",
-			payload: payload.NewPayload("key: value\ninvalid", payload.Yaml),
+			payload: payload.NewPayload("key: value\ninvalid", payload.YAML),
 			target:  &TestStruct{},
 			want:    &TestStruct{},
 			wantErr: true,
@@ -113,14 +113,14 @@ func TestYamlToGolangTranscoder_Unmarshal(t *testing.T) {
 		},
 		{
 			name:    "Unmarshal into wrong type",
-			payload: payload.NewPayload("key: value", payload.Yaml),
+			payload: payload.NewPayload("key: value", payload.YAML),
 			target:  "not a pointer",
 			want:    "",
 			wantErr: true,
 		},
 		{
 			name:    "Unsupported unmarshal data type",
-			payload: payload.NewPayload(123, payload.Yaml),
+			payload: payload.NewPayload(123, payload.YAML),
 			target:  &TestStruct{},
 			want:    &TestStruct{},
 			wantErr: true,
@@ -152,13 +152,13 @@ func TestGolangToYamlTranscoder_Transcode(t *testing.T) {
 		{
 			name:    "Valid struct",
 			payload: payload.NewPayload(struct{ Key string }{Key: "value"}, payload.Golang),
-			want:    payload.NewPayload("key: value\n", payload.Yaml),
+			want:    payload.NewPayload("key: value\n", payload.YAML),
 			wantErr: false,
 		},
 		{
 			name:    "Valid map",
 			payload: payload.NewPayload(map[string]string{"key": "value"}, payload.Golang),
-			want:    payload.NewPayload("key: value\n", payload.Yaml),
+			want:    payload.NewPayload("key: value\n", payload.YAML),
 			wantErr: false,
 		},
 		{

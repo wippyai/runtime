@@ -5,6 +5,7 @@ import (
 	"sync"
 )
 
+// Infinity represents an infinite cost in the graph
 const Infinity = -1
 
 type (

@@ -12,9 +12,9 @@ system and mesh networking capabilities.
 
 ```lua
 -- Static process properties
-local pid = process.self        -- Current process ID
-local info = process.info       -- Process information (PID, registered name, etc.)
-local args = process.args       -- Process start arguments, includes previous state during upgrades/migration
+local pid = process.self()        -- Current process ID
+local info = process.info()       -- Process information (PID, registered name, etc.)
+local args = process.args()       -- Process start arguments, includes previous state during upgrades/migration
 ```
 
 ## Process Identifiers (PIDs)
@@ -55,6 +55,7 @@ process.fail(error)          -- Fail with error, error delivered to all monitors
 
 -- Process migration/upgrade (required for hot updates, read migration protocols)
 process.upgrade(new_state)   -- Migrate process state if any, method called when source code has to be updated, no link or monitor messages are sent. Old process is terminated.
+-- todo: process name
 
 -- Process flags and priority
 process.set_flags({
@@ -88,6 +89,8 @@ perspective, they behave as read-only channels.
 -- Create system port for receiving input
 local input = process:port("input")      -- System input port
 local input = process:port("input", 10)  -- Input buffer size of 10 messages
+
+local value = input:receive()            -- Receive message from port
 
 -- System events channel for upgrades/migration, etc.
 local events = process:events()
@@ -284,24 +287,6 @@ Process files must export process functions that create process definitions. Arg
 start.
 
 The process name will be constructed from the definition name and export key via `.`. Make sure to use proper naming conventions.
-
-### Example Structure
-
-```lua
--- definition: processes.worker
-local function create()
-    -- Private state in closure
-    local state = {}
-    
-    return {
-        init = function(args) end,
-        handle = function(port, msg) end,
-        terminate = function(reason) end
-    }
-end
-
-return {create = create}  -- Available as "processes.worker.create"
-```
 
 ## Key Properties and Guarantees
 
