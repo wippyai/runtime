@@ -50,7 +50,7 @@ func NewLuaTerminal(
 }
 
 func (t *LuaTerminal) Run(ctx context.Context, in io.Reader, out io.Writer) error {
-	// Start the tasker with the configured function and args
+	// start the tasker with the configured function and args
 	resultChan, err := t.tasker.Start(ctx, t.funcName, t.args...)
 	if err != nil {
 		return fmt.Errorf("failed to start tasker: %w", err)

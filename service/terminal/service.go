@@ -14,102 +14,6 @@ import (
 	"sync"
 )
 
-type controlAction int
-
-const (
-	actionStart controlAction = iota
-	actionStop
-	actionUpdate
-)
-
-type controlOp struct {
-	action   controlAction
-	terminal api.Terminal
-	id       registry.ID
-	result   chan error
-}
-
-type operations struct {
-	terminal *terminalRunner
-	cfg      *api.ServiceConfig
-	bus      events.Bus
-	log      *zap.Logger
-	csw      *logs.ConfigSwitcher
-	statusCh chan<- any // Write-only channel
-}
-
-func newOperations(terminal *terminalRunner, bus events.Bus, log *zap.Logger, csw *logs.ConfigSwitcher, statusCh chan<- any) *operations {
-	return &operations{
-		terminal: terminal,
-		bus:      bus,
-		log:      log,
-		csw:      csw,
-		statusCh: statusCh,
-	}
-}
-
-func (o *operations) handleStart(ctx context.Context) error {
-	if err := o.csw.EnableTemporaryConfig(ctx, logsapi.Config{
-		MinLevel:       zap.DebugLevel,
-		StreamToEvents: true,
-	}); err != nil {
-		return err
-	}
-
-	if o.terminal != nil {
-		if err := o.terminal.Start(ctx); err != nil {
-			return err
-		}
-	}
-
-	o.sendStatus("running")
-	return nil
-}
-
-func (o *operations) handleStop(ctx context.Context) error {
-	if o.terminal != nil {
-		if err := o.terminal.stop(ctx); err != nil {
-			return err
-		}
-	}
-	o.sendStatus("stopped")
-	return nil
-}
-
-func (o *operations) handleUpdate(ctx context.Context, newTerminal api.Terminal, id registry.ID) error {
-	if o.terminal == nil {
-		return errors.New("service not running")
-	}
-
-	newRunner := newTerminalRunner(newTerminal, id, o.bus, o.log)
-
-	if err := o.terminal.stop(ctx); err != nil {
-		return err
-	}
-
-	if err := o.terminal.transferState(newRunner); err != nil {
-		return err
-	}
-
-	if err := newRunner.Start(ctx); err != nil {
-		return err
-	}
-
-	o.terminal = newRunner
-	o.sendStatus("terminal updated")
-	return nil
-}
-
-// sendStatus attempts to send status update, non-blocking
-func (o *operations) sendStatus(status any) {
-	// Use non-blocking send to prevent deadlocks
-	select {
-	case o.statusCh <- status:
-	default:
-		o.log.Warn("failed to send status update", zap.Any("status", status))
-	}
-}
-
 type service struct {
 	terminal *terminalRunner
 	mu       sync.Mutex
@@ -199,6 +103,8 @@ func (s *service) Stop(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		}
+	case <-s.done:
+		return errors.New("service is not running")
 	case <-ctx.Done():
 		return ctx.Err()
 	}
@@ -222,6 +128,8 @@ func (s *service) UpdateApp(ctx context.Context, term api.Terminal, id registry.
 			return ctx.Err()
 		}
 		return nil
+	case <-s.done:
+		return errors.New("service is not running")
 	case <-ctx.Done():
 		return ctx.Err()
 	}
@@ -231,13 +139,11 @@ func (s *service) run(ctx context.Context) {
 	defer func() {
 		s.mu.Lock()
 		s.ctx = nil
-		// Close channels we own
 		close(s.statusCh)
-		close(s.opCh)
 		close(s.done)
 		s.mu.Unlock()
 
-		s.csw.RestoreBaseConfig(context.Background())
+		s.csw.RestoreBaseConfig(ctx)
 	}()
 
 	for {
@@ -255,16 +161,26 @@ func (s *service) run(ctx context.Context) {
 
 			switch op.action {
 			case actionStart:
+				if err := s.redirectLogs(ctx); err != nil {
+					op.result <- err
+					s.ops.sendStatus(err)
+					return
+				}
 				err = s.ops.handleStart(ctx)
 			case actionStop:
 				err = s.ops.handleStop(ctx)
+				s.csw.RestoreBaseConfig(ctx)
 				if err == nil {
 					// After successful stop, exit the run loop
 					op.result <- nil
 					return
 				}
 			case actionUpdate:
+				s.csw.RestoreBaseConfig(ctx)
 				err = s.ops.handleUpdate(ctx, op.terminal, op.id)
+				if err := s.redirectLogs(ctx); err != nil {
+					err = fmt.Errorf("updated but, failed to redirect logs: %w", err)
+				}
 			}
 
 			op.result <- err
@@ -283,4 +199,14 @@ func (s *service) run(ctx context.Context) {
 			return
 		}
 	}
+}
+
+func (s *service) redirectLogs(ctx context.Context) error {
+	if s.cfg.HideLogs {
+		return s.csw.EnableTemporaryConfig(ctx, logsapi.Config{
+			MinLevel:       zap.DebugLevel,
+			StreamToEvents: true,
+		})
+	}
+	return nil
 }
