@@ -8,14 +8,13 @@ import (
 
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 )
 
 // newTestBus is a helper function from your provided code.
 // I'm including it here for completeness of the test.
 func newTestBusForEvents(t *testing.T) events.Bus {
 	t.Helper()
-	return NewBus(zap.NewNop())
+	return NewBus()
 }
 func TestEventListener_NewEventListener(t *testing.T) {
 	b := newTestBusForEvents(t)
@@ -48,7 +47,7 @@ func TestEventListener_NewEventListener(t *testing.T) {
 	b.Send(context.Background(), event2)
 	b.Send(context.Background(), event3)
 
-	// Wait for the eventListener goroutine to exit
+	// wait for the eventListener goroutine to exit
 	wg.Wait()
 
 	// Verify received eventbus
@@ -90,7 +89,7 @@ func TestEventListener_NewEventListener_NoKind(t *testing.T) {
 	b.Send(context.Background(), event2)
 	b.Send(context.Background(), event3)
 
-	// Wait for the eventListener goroutine to exit
+	// wait for the eventListener goroutine to exit
 	wg.Wait()
 
 	// Verify received eventbus

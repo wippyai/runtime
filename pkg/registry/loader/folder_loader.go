@@ -125,7 +125,7 @@ func (l *FolderLoader) register(p payload.Payload, relPath string) (registry.Ent
 	l.log.Debug(
 		"registering entry",
 		zap.String("path", string(fullID)),
-		zap.String("entryName", entry.Name),
+		zap.String("name", entry.Name),
 	)
 
 	return registry.Entry{

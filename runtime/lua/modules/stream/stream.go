@@ -98,7 +98,7 @@ func (s *Stream) readDirect(buffer []byte) ([]byte, error) {
 		}
 	}()
 
-	// Wait for either context cancellation or read completion
+	// wait for either context cancellation or read completion
 	select {
 	case <-s.ctx.Done():
 		return nil, fmt.Errorf("read cancelled: %w", s.ctx.Err())

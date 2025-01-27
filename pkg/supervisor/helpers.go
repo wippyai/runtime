@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -10,6 +11,16 @@ import (
 	"go.uber.org/zap"
 )
 
+// State represents the current state of a supervised service,
+// including its status, desired status, and retry attempt information.
+type State struct {
+	Status     supervisor.Status `json:"status"`
+	Details    any               `json:"details"`
+	Desired    supervisor.Status `json:"desired"`
+	RetryCount int32             `json:"retry_count"`
+	LastUpdate time.Time         `json:"last_update"`
+}
+
 type internalState struct {
 	mu         sync.Mutex
 	status     supervisor.Status
@@ -17,11 +28,20 @@ type internalState struct {
 	desired    supervisor.Status
 	retryCount int32
 	lastUpdate time.Time
-	ctx        context.Context
-	cancel     context.CancelFunc
 	mur        sync.Mutex
 	runCtx     context.Context
 	runCancel  context.CancelFunc
+}
+
+// isTerminalError determines if the error represents a terminal state
+// that should not be retried
+func isTerminalError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return errors.Is(err, context.Canceled) ||
+		errors.Is(err, supervisor.ErrTerminated) ||
+		errors.Is(err, supervisor.ErrExit)
 }
 
 // newServiceState creates a new internalState instance
@@ -60,33 +80,6 @@ func (s *internalState) publicState() State {
 	}
 }
 
-// setContext updates the context and cancel function
-func (s *internalState) setContext(ctx context.Context, cancel context.CancelFunc) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	s.ctx = ctx
-	s.cancel = cancel
-}
-
-// getContext returns the current context
-func (s *internalState) getContext() context.Context {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	return s.ctx
-}
-
-// cancelContext cancels the current context if it exists
-func (s *internalState) cancelContext() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.cancel != nil {
-		s.cancel()
-	}
-}
-
 // updateState updates the service state and returns current details
 func (s *internalState) updateState(status supervisor.Status, details any) (supervisor.Status, any) {
 	s.mu.Lock()
@@ -116,16 +109,20 @@ func (s *internalState) incRetryCount() int32 {
 	return s.retryCount
 }
 
-// canRecover checks if the service can be recovered based on current state
-func (s *internalState) canRecover(ctx context.Context, maxAttempts int) bool {
+// getRetryCount returns the current retry count
+func (s *internalState) getRetryCount() int32 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if ctx.Err() != nil {
-		return false
-	}
+	return s.retryCount
+}
 
-	return s.desired == supervisor.Running && int(s.retryCount) < maxAttempts
+// resetRetryCount resets the retry counter to zero
+func (s *internalState) resetRetryCount() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.retryCount = 0
 }
 
 // setDesiredStatus updates the desired state and returns if it changed

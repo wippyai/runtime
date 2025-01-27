@@ -66,7 +66,7 @@ func TestChannelPassingSimple(t *testing.T) {
 			done:send(true)
 		end)
 
-		-- Wait for completion
+		-- wait for completion
 		done:receive()
 		coroutine.yield("test_done")
 	`, "test")

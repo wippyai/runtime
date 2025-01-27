@@ -85,14 +85,14 @@ func streamReadAsync(l *lua.LState) int {
 	coroutine.Wrap(l, func() engine.Result {
 		chunk, err := stream.ReadChunk()
 		if err == io.EOF {
-			return engine.Result{Result: []lua.LValue{lua.LNil}}
+			return engine.Result{Result: []lua.LValue{lua.LNil, lua.LNil}}
 		}
 
 		if err != nil {
 			return engine.Result{Result: []lua.LValue{lua.LNil, lua.LString(err.Error())}}
 		}
 
-		return engine.Result{Result: []lua.LValue{lua.LString(chunk)}}
+		return engine.Result{Result: []lua.LValue{lua.LString(chunk), lua.LNil}}
 	})
 	return -1
 }

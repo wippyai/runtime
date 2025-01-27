@@ -295,7 +295,7 @@ func TestSelectLoopWithFeeds(t *testing.T) {
         ch2:send("val2")
         coroutine.yield("sent2")
         
-        -- Wait for completion
+        -- wait for completion
         done:receive()
         coroutine.yield("complete")
         
@@ -629,7 +629,7 @@ func TestMixedSelectBlocking(t *testing.T) {
 			coroutine.yield("helper_complete")
 		end)
 		
-		-- Wait for and verify select result
+		-- wait for and verify select result
 		local result = resultCh:receive()
 		assert(result.channel == ch2, "wrong channel selected")
 		assert(result.value == "value2", "wrong value received")
@@ -808,7 +808,7 @@ func TestSingleCaseSelectWithReadyData(t *testing.T) {
 			ready:send(true)
 		end)
 
-		-- Wait for completion
+		-- wait for completion
 		ready:receive()
 		coroutine.yield("complete")
 		
