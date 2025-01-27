@@ -42,5 +42,7 @@ jobs:
         run: go mod download
 
       - name: Run golang tests
+        env:
+          CGO_ENABLED: 1
         run: |
           go test -v -race ./...

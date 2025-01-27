@@ -17,7 +17,9 @@ jobs:
 
       - name: Run linter
         uses: golangci/golangci-lint-action@v6.2.0 # Action page: <https://github.com/golangci/golangci-lint-action>
+        env:
+          CGO_ENABLED: 1
         with:
-          version: v1.61 # without patch version
+          version: v1.63 # without patch version
           only-new-issues: false # show only new issues if it's a pull request
           args: --timeout=10m --build-tags=race ./...
