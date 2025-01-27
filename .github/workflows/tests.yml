@@ -23,6 +23,18 @@ jobs:
         with:
           go-version: ${{ matrix.go }}
 
+      - name: Configure Git for private modules
+        run: |
+          git config --global url."https://${{ secrets.GH_TOKEN }}@github.com".insteadOf "https://github.com"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Go private modules
+        run: |
+          go env -w GOPRIVATE=github.com/ponyruntime/*
+          go env -w GONOSUMDB=github.com/ponyruntime/*
+          go env -w GONOPROXY=github.com/ponyruntime/*
+
       - name: Check out code
         uses: actions/checkout@v4
 
