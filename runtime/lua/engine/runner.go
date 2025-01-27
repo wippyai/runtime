@@ -220,6 +220,11 @@ func (e *Runner) Run(ctx context.Context, exitCh <-chan Result) (lua.LValue, err
 	}
 }
 
+// Step processes tasks through the layer chain.
+func (e *Runner) Step(tasks ...*Task) ([]*Task, error) {
+	return e.getWrapped().Step(tasks...)
+}
+
 // Execute runs a function through the layer chain with provided context and arguments
 func (e *Runner) Execute(
 	ctx context.Context,
