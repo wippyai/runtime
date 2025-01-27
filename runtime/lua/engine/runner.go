@@ -197,13 +197,13 @@ func (e *Runner) Run(ctx context.Context, exitCh <-chan Result) (lua.LValue, err
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		default:
-			// Wait-Wait-Wait, are we deadlocked?
+			// wait-wait-wait, are we deadlocked?
 			if len(tasks) == 0 && e.taskGroup.GetTaskCount() == 0 {
 				return nil, &DeadlockError{Count: len(e.cvm.tasks)}
 			}
 		}
 
-		// Wait-Wait-Wait, are we deadlocked?
+		// wait-wait-wait, are we deadlocked?
 		if len(tasks) == 0 && e.taskGroup.GetTaskCount() == 0 {
 			return nil, &DeadlockError{Count: len(e.cvm.tasks)}
 		}

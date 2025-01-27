@@ -178,7 +178,7 @@ func TestAsyncHTTP(t *testing.T) {
                     error_msg = err
                 end)
 
-                -- Wait a bit to ensure request completes
+                -- wait a bit to ensure request completes
                 time.sleep(time.parse_duration("200ms"))	
                 return {result, error_msg}
             end

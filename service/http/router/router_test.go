@@ -183,7 +183,7 @@ func TestRouterComposition(t *testing.T) {
 			done <- true
 		}()
 
-		// Wait for operations to complete
+		// wait for operations to complete
 		<-done
 		<-done
 
@@ -368,7 +368,7 @@ func TestRouterConcurrencyStress(t *testing.T) {
 			done <- true
 		}()
 
-		// Wait for operations to complete
+		// wait for operations to complete
 		<-done
 		<-done
 	})
@@ -509,7 +509,7 @@ func TestRouter_ServeHTTP_Concurrency(t *testing.T) {
 		}()
 	}
 
-	// Wait for requests to finish
+	// wait for requests to finish
 	wg.Wait()
 }
 
@@ -540,7 +540,7 @@ func TestRouter_Endpoint_UUID(t *testing.T) {
 		if id, ok := key.(string); ok {
 			if _, err := uuid.Parse(id); err == nil {
 				foundEndpointID = id
-				return false // Stop iteration
+				return false // stop iteration
 			}
 		}
 		return true

@@ -88,6 +88,18 @@ func (c *testComponent) handleEvent(evt events.Event) {
 		})
 
 	case registry.Delete:
+		if entry.ID == "component/listener/lib1" {
+			// Reject deletion of lib1 if app1 still exists
+			c.rejectedConfigs[entry.ID] = true
+			c.bus.Send(context.Background(), events.Event{
+				System: registry.System,
+				Kind:   registry.Reject,
+				Path:   events.Path(entry.ID),
+				Data:   fmt.Errorf("listener %s is used by: [app1]", entry.ID),
+			})
+			return
+		}
+
 		if _, exists := c.config[entry.ID]; exists {
 			delete(c.config, entry.ID)
 			c.bus.Send(context.Background(), events.Event{
@@ -304,7 +316,7 @@ func TestBusRunner_Operations(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
-			bus := eventbus.NewBus(zap.NewNop())
+			bus := eventbus.NewBus()
 			busRunner := NewBusRunner(bus, zap.NewNop())
 			component := newTestComponent(bus)
 			componentClose := attachComponent(ctx, t, bus, component)
@@ -344,7 +356,7 @@ func TestBusRunner_RollbackOnSecondOperationFailure(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	bus := eventbus.NewBus(zap.NewNop())
+	bus := eventbus.NewBus()
 	busRunner := NewBusRunner(bus, zap.NewNop())
 	component := newTestComponent(bus)
 	componentClose := attachComponent(ctx, t, bus, component)
@@ -389,7 +401,7 @@ func TestBusRunner_BeginAndCommitEvents(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	bus := eventbus.NewBus(zap.NewNop())
+	bus := eventbus.NewBus()
 	busRunner := NewBusRunner(bus, zap.NewNop())
 	component := newTestComponent(bus)
 
@@ -437,7 +449,7 @@ func TestBusRunner_BeginAndCommitEvents(t *testing.T) {
 	_, err = busRunner.Transition(ctx, initialState, changeSet)
 	require.NoError(t, err)
 
-	// Wait for the listener to process the events
+	// wait for the listener to process the events
 	wg.Wait()
 
 	// Collect the received events
@@ -460,7 +472,7 @@ func TestBusRunner_BeginAndDiscardEvents(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	bus := eventbus.NewBus(zap.NewNop())
+	bus := eventbus.NewBus()
 	busRunner := NewBusRunner(bus, zap.NewNop())
 	component := newTestComponent(bus)
 
@@ -508,7 +520,7 @@ func TestBusRunner_BeginAndDiscardEvents(t *testing.T) {
 	_, err = busRunner.Transition(ctx, initialState, changeSet)
 	require.Error(t, err) // We expect an error because the operation is rejected
 
-	// Wait for the listener to process the events
+	// wait for the listener to process the events
 	wg.Wait()
 
 	// Collect the received events
@@ -531,7 +543,7 @@ func TestBusRunner_ErrorPropagation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	bus := eventbus.NewBus(zap.NewNop())
+	bus := eventbus.NewBus()
 	busRunner := NewBusRunner(bus, zap.NewNop())
 
 	expectedError := errors.New("component configuration not allowed")
@@ -592,4 +604,73 @@ func TestBusRunner_ErrorPropagation(t *testing.T) {
 	// Verify no config was stored
 	assert.Equal(t, 0, len(component.config),
 		"No config should be stored after rejection")
+}
+
+func TestBusRunner_RollbackOrder(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	bus := eventbus.NewBus()
+	busRunner := NewBusRunner(bus, zap.NewNop())
+	component := newTestComponent(bus)
+	componentClose := attachComponent(ctx, t, bus, component)
+	defer componentClose()
+
+	initialState := registry.State{}
+
+	// Create entries with dependencies
+	changeSet := registry.ChangeSet{
+		{
+			Kind: registry.Create,
+			Entry: registry.Entry{
+				ID:   "component/listener/lib1",
+				Kind: "listener",
+				Data: payload.NewString("lib-data"),
+				Meta: registry.Metadata{},
+			},
+		},
+		{
+			Kind: registry.Create,
+			Entry: registry.Entry{
+				ID:   "component/listener/app1",
+				Kind: "listener",
+				Data: payload.NewString("app-data"),
+				Meta: registry.Metadata{
+					registry.DependsOnTag: []string{"component/listener/lib1"},
+				},
+			},
+		},
+		{
+			Kind: registry.Create,
+			Entry: registry.Entry{
+				ID:   "component/listener/endpoint1",
+				Kind: "listener",
+				Data: payload.NewString("reject_this"), // This will trigger rejection
+				Meta: registry.Metadata{
+					registry.DependsOnTag: []string{"component/listener/app1"},
+				},
+			},
+		},
+	}
+
+	finalState, err := busRunner.Transition(ctx, initialState, changeSet)
+
+	// Should fail with dependency error
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "rejected", "Error should indicate dependency violation")
+
+	// The state should still contain lib1 and app1 since rollback failed
+	hasLib := false
+	hasApp := false
+	for _, entry := range finalState {
+		if entry.ID == "component/listener/lib1" {
+			hasLib = true
+		}
+		if entry.ID == "component/listener/app1" {
+			hasApp = true
+		}
+	}
+
+	assert.True(t, hasLib, "lib1 should remain since deletion would be rejected")
+	assert.False(t, hasApp, "app1 should be gone after rollback")
 }

@@ -897,7 +897,7 @@ func TestMapReducePattern(t *testing.T) {
 			coroutine.yield("reduce_complete")
 		end)
 
-		-- Wait for completion
+		-- wait for completion
 		doneCh:receive()
 		coroutine.yield("all_complete")
 	`, "test")
@@ -1006,7 +1006,7 @@ func TestFanOutPattern(t *testing.T) {
 			end)
 		end
 		
-		-- Wait for completion
+		-- wait for completion
 		doneCh:receive()
 		coroutine.yield("all_complete")
 	`, "test")
@@ -1168,7 +1168,7 @@ func TestFanInPattern(t *testing.T) {
 			coroutine.yield("consumer_complete")
 		end)
 		
-		-- Wait for completion
+		-- wait for completion
 		doneCh:receive()
 		coroutine.yield("all_complete")
 	`, "test")

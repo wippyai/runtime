@@ -1,14 +1,8 @@
 package manager
 
 import (
-	"context"
-	transcoder "github.com/ponyruntime/pony/pkg/payload"
-	"github.com/ponyruntime/pony/pkg/payload/json"
-	"github.com/ponyruntime/pony/pkg/payload/lua"
-	"github.com/ponyruntime/pony/pkg/payload/yaml"
 	"testing"
 
-	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	api "github.com/ponyruntime/pony/api/runtime/lua"
 	"github.com/stretchr/testify/assert"
@@ -16,30 +10,11 @@ import (
 	"go.uber.org/zap"
 )
 
-func makeTestTranscoder() payload.Transcoder {
-	dtt := transcoder.NewTranscoder()
-	json.Register(dtt)
-	lua.Register(dtt)
-	yaml.Register(dtt)
-
-	return dtt
-}
-
-func makeTestEntry(id string, cfg *api.LibraryConfig) registry.Entry {
-	return registry.Entry{
-		ID:   registry.ID(id),
-		Kind: api.KindLibrary,
-		Meta: registry.Metadata{},
-		Data: payload.NewPayload(cfg, payload.Golang),
-	}
-}
-
 func TestNewLibraries(t *testing.T) {
 	logger := zap.NewNop()
-	dtt := makeTestTranscoder()
 
 	t.Run("creates new instance", func(t *testing.T) {
-		libs := NewLibraries(dtt, logger)
+		libs := NewLibraries(logger)
 		assert.NotNil(t, libs)
 		assert.NotNil(t, libs.libraries)
 		assert.Empty(t, libs.libraries)
@@ -48,18 +23,15 @@ func TestNewLibraries(t *testing.T) {
 
 func TestLibraries_Add(t *testing.T) {
 	logger := zap.NewNop()
-	dtt := makeTestTranscoder()
-	libs := NewLibraries(dtt, logger)
-	ctx := context.Background()
+	libs := NewLibraries(logger)
 
 	t.Run("adds new library successfully", func(t *testing.T) {
 		cfg := &api.LibraryConfig{
 			Source: "return {test = function() return 'hello' end}",
 			Meta:   registry.Metadata{"name": "test1"},
 		}
-		entry := makeTestEntry("test1", cfg)
 
-		err := libs.Add(ctx, entry)
+		err := libs.Add("test1", cfg)
 		require.NoError(t, err)
 
 		// Verify library was stored
@@ -73,9 +45,8 @@ func TestLibraries_Add(t *testing.T) {
 			Source: "return {test = function() return 'hello' end}",
 			Meta:   registry.Metadata{"name": "test1"},
 		}
-		entry := makeTestEntry("test1", cfg)
 
-		err := libs.Add(ctx, entry)
+		err := libs.Add("test1", cfg)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "already exists")
 	})
@@ -90,9 +61,9 @@ func TestLibraries_Add(t *testing.T) {
 			Meta:   registry.Metadata{"name": "test3"},
 		}
 
-		err := libs.Add(ctx, makeTestEntry("test2", cfg2))
+		err := libs.Add("test2", cfg2)
 		require.NoError(t, err)
-		err = libs.Add(ctx, makeTestEntry("test3", cfg3))
+		err = libs.Add("test3", cfg3)
 		require.NoError(t, err)
 
 		// Verify both libraries exist
@@ -103,16 +74,14 @@ func TestLibraries_Add(t *testing.T) {
 
 func TestLibraries_Update(t *testing.T) {
 	logger := zap.NewNop()
-	dtt := makeTestTranscoder()
-	libs := NewLibraries(dtt, logger)
-	ctx := context.Background()
+	libs := NewLibraries(logger)
 
 	// First add a library
 	initialCfg := &api.LibraryConfig{
 		Source: "return {test = function() return 'hello' end}",
 		Meta:   registry.Metadata{"name": "test"},
 	}
-	err := libs.Add(ctx, makeTestEntry("test", initialCfg))
+	err := libs.Add("test", initialCfg)
 	require.NoError(t, err)
 
 	t.Run("updates existing library", func(t *testing.T) {
@@ -120,9 +89,8 @@ func TestLibraries_Update(t *testing.T) {
 			Source: "return {test = function() return 'updated' end}",
 			Meta:   registry.Metadata{"name": "test", "version": "2"},
 		}
-		entry := makeTestEntry("test", updatedCfg)
 
-		err := libs.Update(ctx, entry)
+		err := libs.Update("test", updatedCfg)
 		require.NoError(t, err)
 
 		// Verify library was updated
@@ -136,9 +104,8 @@ func TestLibraries_Update(t *testing.T) {
 			Source: "return {}",
 			Meta:   registry.Metadata{"name": "non-existent"},
 		}
-		entry := makeTestEntry("non-existent", cfg)
 
-		err := libs.Update(ctx, entry)
+		err := libs.Update("non-existent", cfg)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "not found")
 	})
@@ -146,20 +113,18 @@ func TestLibraries_Update(t *testing.T) {
 
 func TestLibraries_Delete(t *testing.T) {
 	logger := zap.NewNop()
-	dtt := makeTestTranscoder()
-	libs := NewLibraries(dtt, logger)
-	ctx := context.Background()
+	libs := NewLibraries(logger)
 
 	// First add a library
 	cfg := &api.LibraryConfig{
 		Source: "return {test = function() return 'hello' end}",
 		Meta:   registry.Metadata{"name": "test"},
 	}
-	err := libs.Add(ctx, makeTestEntry("test", cfg))
+	err := libs.Add("test", cfg)
 	require.NoError(t, err)
 
 	t.Run("deletes existing library", func(t *testing.T) {
-		err := libs.Delete(ctx, makeTestEntry("test", nil))
+		err := libs.Delete("test")
 		require.NoError(t, err)
 
 		// Verify library was deleted
@@ -167,7 +132,51 @@ func TestLibraries_Delete(t *testing.T) {
 	})
 
 	t.Run("fails deleting non-existent library", func(t *testing.T) {
-		err := libs.Delete(ctx, makeTestEntry("non-existent", nil))
+		err := libs.Delete("non-existent")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "not found")
+	})
+}
+
+func TestLibraries_Clone(t *testing.T) {
+	logger := zap.NewNop()
+	libs := NewLibraries(logger)
+
+	// Add a test library
+	cfg := &api.LibraryConfig{
+		Source: "return {test = function() return 'hello' end}",
+		Meta:   registry.Metadata{"name": "test"},
+	}
+	err := libs.Add("test", cfg)
+	require.NoError(t, err)
+
+	t.Run("creates exact copy of libraries", func(t *testing.T) {
+		cloned := libs.Clone()
+
+		// Verify cloned instance has same libraries
+		assert.Equal(t, len(libs.libraries), len(cloned.libraries))
+
+		original, err := libs.Get("test")
+		assert.NoError(t, err)
+
+		clonedCfg, err := cloned.Get("test")
+		assert.NoError(t, err)
+		assert.Equal(t, original, clonedCfg)
+	})
+
+	t.Run("modifications don't affect original", func(t *testing.T) {
+		cloned := libs.Clone()
+
+		// Modify cloned instance
+		err := cloned.Delete("test")
+		require.NoError(t, err)
+
+		// Verify original is unchanged
+		_, err = libs.Get("test")
+		assert.NoError(t, err)
+
+		// Verify cloned instance was modified
+		_, err = cloned.Get("test")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "not found")
 	})
@@ -175,9 +184,7 @@ func TestLibraries_Delete(t *testing.T) {
 
 func TestLibraries_Get(t *testing.T) {
 	logger := zap.NewNop()
-	dtt := makeTestTranscoder()
-	libs := NewLibraries(dtt, logger)
-	ctx := context.Background()
+	libs := NewLibraries(logger)
 
 	cfg := &api.LibraryConfig{
 		Source: "return {test = function() return 'hello' end}",
@@ -185,7 +192,7 @@ func TestLibraries_Get(t *testing.T) {
 	}
 
 	t.Run("gets existing library", func(t *testing.T) {
-		err := libs.Add(ctx, makeTestEntry("test", cfg))
+		err := libs.Add("test", cfg)
 		require.NoError(t, err)
 
 		stored, err := libs.Get("test")
@@ -203,9 +210,7 @@ func TestLibraries_Get(t *testing.T) {
 
 func TestLibraries_Has(t *testing.T) {
 	logger := zap.NewNop()
-	dtt := makeTestTranscoder()
-	libs := NewLibraries(dtt, logger)
-	ctx := context.Background()
+	libs := NewLibraries(logger)
 
 	cfg := &api.LibraryConfig{
 		Source: "return {test = function() return 'hello' end}",
@@ -213,7 +218,7 @@ func TestLibraries_Has(t *testing.T) {
 	}
 
 	t.Run("returns true for existing library", func(t *testing.T) {
-		err := libs.Add(ctx, makeTestEntry("test", cfg))
+		err := libs.Add("test", cfg)
 		require.NoError(t, err)
 
 		exists := libs.Has("test")

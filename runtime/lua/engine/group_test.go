@@ -147,10 +147,10 @@ func TestTaskGroup(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Empty(t, tasks)
 
-		// Test 2: Wait with context cancellation
+		// Test 2: wait with context cancellation
 		ctx, cancel := context.WithCancel(context.Background())
 
-		// Add a state to force Wait to block
+		// Add a state to force wait to block
 		group.Add(L)
 
 		var waitErr error
@@ -163,7 +163,7 @@ func TestTaskGroup(t *testing.T) {
 			_, waitErr = group.Wait(ctx, mockCVM, true)
 		}()
 
-		// Give the goroutine time to enter Wait
+		// Give the goroutine time to enter wait
 		cancel()
 		wg.Wait()
 

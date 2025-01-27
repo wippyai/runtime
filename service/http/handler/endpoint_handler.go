@@ -18,19 +18,19 @@ import (
 type EndpointHandler struct {
 	executor   runtime.Executor
 	transcoder payload.Transcoder
-	logger     *zap.Logger
+	log        *zap.Logger
 }
 
 // NewEndpointHandler creates a new EndpointHandler with the required dependencies.
 func NewEndpointHandler(
 	executor runtime.Executor,
 	transcoder payload.Transcoder,
-	logger *zap.Logger,
+	log *zap.Logger,
 ) *EndpointHandler {
 	return &EndpointHandler{
 		executor:   executor,
 		transcoder: transcoder,
-		logger:     logger,
+		log:        log,
 	}
 }
 
@@ -75,7 +75,7 @@ func (h *EndpointHandler) Handle(w http.ResponseWriter, r *http.Request) {
 func (h *EndpointHandler) getRouteInfo(r *http.Request) (*config.RouteInfo, error) {
 	routeInfo, ok := r.Context().Value(config.RouteCtx).(*config.RouteInfo)
 	if !ok {
-		h.logger.Error("route info not found in context")
+		h.log.Error("route info not found in context")
 		return nil, fmt.Errorf("route info not found")
 	}
 	return routeInfo, nil
@@ -177,7 +177,7 @@ func (h *EndpointHandler) writeJSONResponse(w http.ResponseWriter, p payload.Pay
 	w.WriteHeader(statusCode)
 
 	if _, err := w.Write(data); err != nil {
-		h.logger.Error("error writing JSON response", zap.Error(err))
+		h.log.Error("error writing JSON response", zap.Error(err))
 	}
 }
 
@@ -191,13 +191,13 @@ func (h *EndpointHandler) writeRawResponse(w http.ResponseWriter, p payload.Payl
 
 	if data, ok := p.Data().([]byte); ok {
 		if _, err := w.Write(data); err != nil {
-			h.logger.Error("error writing raw response", zap.Error(err))
+			h.log.Error("error writing raw response", zap.Error(err))
 		}
 	}
 }
 
 // handleError logs the error and writes it to the response.
 func (h *EndpointHandler) handleError(w http.ResponseWriter, err error, statusCode int) {
-	h.logger.Debug("request error", zap.Error(err), zap.Int("status_code", statusCode))
+	h.log.Debug("request error", zap.Error(err), zap.Int("status_code", statusCode))
 	http.Error(w, err.Error(), statusCode)
 }

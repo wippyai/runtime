@@ -131,7 +131,7 @@ func TestChannelRuntimeAsLayer(t *testing.T) {
 					coroutine.yield("ch2_sent")
 				end)
 	
-				-- Wait for all operations to complete
+				-- wait for all operations to complete
 				coroutine.yield("main_waiting")
 				return "done"
 			end
