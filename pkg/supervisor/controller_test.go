@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand"
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -80,11 +82,6 @@ func TestController_BasicLifecycle(t *testing.T) {
 		t.Fatalf("Failed to start supervisor: %v", err)
 	}
 
-	// Test transition to Running
-	if err := ctr.transitionTo(supervisor.Running); err != nil {
-		t.Fatalf("Failed to transition to Running: %v", err)
-	}
-
 	if state := ctr.state.getSnapshot(); state.status != supervisor.Running {
 		t.Errorf("Expected Status Running, got %v", state.status)
 	}
@@ -92,17 +89,12 @@ func TestController_BasicLifecycle(t *testing.T) {
 	time.Sleep(100 * time.Millisecond) // wait for service Details to propagate
 
 	// Test transition to Stopped
-	if err := ctr.transitionTo(supervisor.Stopped); err != nil {
+	if err := ctr.Stop(); err != nil {
 		t.Fatalf("Failed to transition to Stopped: %v", err)
 	}
 
 	if state := ctr.state.getSnapshot(); state.status != supervisor.Stopped {
 		t.Errorf("Expected Status Stopped, got %v", state.status)
-	}
-
-	// Stop supervisor
-	if err := ctr.Stop(); err != nil {
-		t.Fatalf("Failed to stop supervisor: %v", err)
 	}
 
 	// Get final states safely
@@ -117,7 +109,7 @@ func TestController_BasicLifecycle(t *testing.T) {
 	expectedStates := []supervisor.Status{
 		supervisor.Starting,
 		supervisor.Running,
-		supervisor.Running, // updated by service
+		supervisor.Running, // updated by service details
 		supervisor.Stopping,
 		supervisor.Stopped,
 	}
@@ -180,7 +172,7 @@ func TestController_ServiceFailure(t *testing.T) {
 		t.Fatalf("Failed to start supervisor: %v", err)
 	}
 
-	// Wait for service to reach Running state after recovery
+	// wait for service to reach Running state after recovery
 	<-stateReached
 
 	if state := ctr.state.getSnapshot(); state.status != supervisor.Running {
@@ -239,102 +231,6 @@ func TestController_StartupError(t *testing.T) {
 	}
 }
 
-func TestController_ContextCancellation(t *testing.T) {
-	detailsCh := make(chan any)
-	serviceStarted := make(chan struct{})
-	serviceStopped := make(chan struct{})
-
-	mock := &mockService{
-		startFunc: func(ctx context.Context) (<-chan any, error) {
-			defer close(serviceStarted)
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			default:
-				return detailsCh, nil
-			}
-		},
-		stopFunc: func(ctx context.Context) error {
-			defer close(serviceStopped)
-			close(detailsCh)
-			return nil
-		},
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	ctr := NewController(
-		ctx,
-		mock,
-		supervisor.LifecycleConfig{
-			StartTimeout: time.Second,
-			StopTimeout:  time.Second,
-			RetryPolicy:  supervisor.RetryPolicy{MaxAttempts: 3},
-		},
-		nil,
-	)
-
-	// Start the service
-	if err := ctr.Start(); err != nil {
-		t.Fatalf("Failed to start service: %v", err)
-	}
-
-	<-serviceStarted // Wait for service to start
-
-	time.Sleep(10 * time.Millisecond) // propagate monitor routine
-
-	// Cancel context
-	cancel()
-
-	// Wait for service to stop
-	select {
-	case <-serviceStopped:
-		time.Sleep(100 * time.Millisecond) // wait for stop to propagate in controller routine
-		// Expected behavior
-	case <-time.After(2 * time.Second):
-		t.Fatal("Lifecycle did not stop after context cancellation")
-	}
-
-	state := ctr.state.getSnapshot()
-	if state.status != supervisor.Stopped {
-		t.Errorf("Expected Status Stopped after context cancellation, got %v", state.status)
-	}
-}
-
-// todo: recover proper logic!
-//func TestController_StartTimeout(t *testing.T) {
-//	mock := &mockService{
-//		startFunc: func(ctx context.Context) (<-chan any, error) {
-//			// Simulate a slow start that should timeout
-//			time.Sleep(2 * time.Second)
-//			return make(chan any), nil
-//		},
-//		stopFunc: func(ctx context.Context) error {
-//			return nil
-//		},
-//	}
-//
-//	ctr := NewController(
-//		context.Background(),
-//		mock,
-//		supervisor.LifecycleConfig{
-//			StartTimeout: 100 * time.Millisecond, // Short timeout
-//			StopTimeout:  time.Second,
-//			RetryPolicy:  supervisor.RetryPolicy{MaxAttempts: 1},
-//		},
-//		nil,
-//	)
-//
-//	err := ctr.Start()
-//	if err == nil {
-//		t.Fatal("Expected timeout error, got nil")
-//	}
-//
-//	state := ctr.state.getSnapshot()
-//	if state.status != supervisor.Failed {
-//		t.Errorf("Expected Failed Status after timeout, got %v", state.status)
-//	}
-//}
-
 func TestController_ServiceRecoveryAfterFailure(t *testing.T) {
 	var currentChan chan any
 	var chanMutex sync.Mutex
@@ -382,7 +278,7 @@ func TestController_ServiceRecoveryAfterFailure(t *testing.T) {
 		t.Fatalf("Failed to start service: %v", err)
 	}
 
-	// Wait for initial startup and first Status update
+	// wait for initial startup and first Status update
 	time.Sleep(200 * time.Millisecond)
 
 	// Verify service is running
@@ -398,7 +294,7 @@ func TestController_ServiceRecoveryAfterFailure(t *testing.T) {
 	}
 	chanMutex.Unlock()
 
-	// Wait for recovery process
+	// wait for recovery process
 	time.Sleep(500 * time.Millisecond)
 
 	// Verify service recovered
@@ -407,10 +303,12 @@ func TestController_ServiceRecoveryAfterFailure(t *testing.T) {
 		t.Fatalf("Expected service to be Running after recovery, got %v", state.status)
 	}
 
-	// Stop the supervisor
+	// stop the supervisor
 	if err := ctr.Stop(); err != nil {
 		t.Fatalf("Failed to stop supervisor: %v", err)
 	}
+
+	time.Sleep(100 * time.Millisecond) // wait for final state update
 
 	// Get final state transitions
 	statesMutex.Lock()
@@ -515,7 +413,7 @@ func TestController_ServiceFailedRecovery(t *testing.T) {
 		t.Fatalf("Failed to start service: %v", err)
 	}
 
-	// Wait for initial startup and Details
+	// wait for initial startup and Details
 	time.Sleep(100 * time.Millisecond)
 
 	// Verify service is initially running
@@ -532,7 +430,7 @@ func TestController_ServiceFailedRecovery(t *testing.T) {
 	}
 	chanMutex.Unlock()
 
-	// Wait for service to reach final failed state
+	// wait for service to reach final failed state
 	select {
 	case <-stateChan:
 		// Lifecycle reached final failed state
@@ -561,7 +459,6 @@ func TestController_ServiceFailedRecovery(t *testing.T) {
 		supervisor.Failed,   // First recovery failure
 		supervisor.Starting, // Second recovery attempt
 		supervisor.Failed,   // Recovery failure
-		supervisor.Failed,   // Final failed state
 	}
 
 	if len(transitions) != len(expectedTransitions) {
@@ -583,40 +480,6 @@ func TestController_ServiceFailedRecovery(t *testing.T) {
 	expectedAttempts := maxRetries + 1 // Initial attempt + maxRetries
 	if attempts != expectedAttempts {
 		t.Errorf("Expected %d total attempts, got %d", expectedAttempts, attempts)
-	}
-}
-
-func TestController_ContextHandling(t *testing.T) {
-	state := newServiceState()
-
-	// Test initial context state
-	if state.getContext() != nil {
-		t.Error("Expected nil initial context")
-	}
-
-	// Test setting context
-	ctx, cancel := context.WithCancel(context.Background())
-	state.setContext(ctx, cancel)
-
-	if state.getContext() != ctx {
-		t.Error("Context not set correctly")
-	}
-
-	// Test cancelling context
-	state.cancelContext()
-	select {
-	case <-ctx.Done():
-		// Expected behavior
-	default:
-		t.Error("Context not cancelled")
-	}
-
-	// Test setting new context after cancellation
-	newCtx, newCancel := context.WithCancel(context.Background())
-	state.setContext(newCtx, newCancel)
-
-	if state.getContext() != newCtx {
-		t.Error("New context not set correctly")
 	}
 }
 
@@ -744,7 +607,7 @@ func TestController_CancelDuringTransition(t *testing.T) {
 	// Start second transition that will block on transitions channel
 	errChan := make(chan error, 1)
 	go func() {
-		errChan <- ctr.transitionTo(supervisor.Running)
+		errChan <- ctr.Start()
 	}()
 
 	// Give time for second transition to block on channel
@@ -753,7 +616,7 @@ func TestController_CancelDuringTransition(t *testing.T) {
 	// Cancel context
 	cancel()
 
-	// Wait a bit to ensure cancellation is processed
+	// wait a bit to ensure cancellation is processed
 	time.Sleep(100 * time.Millisecond)
 
 	// Now unblock the first transition
@@ -855,7 +718,7 @@ func TestController_StopAndRestart(t *testing.T) {
 		t.Fatalf("Failed initial start: %v", err)
 	}
 
-	// Wait for first running state (need two Running signals due to details update)
+	// wait for first running state (need two Running signals due to details update)
 	if err := waitForState(supervisor.Running, time.Second); err != nil {
 		t.Fatal(err)
 	}
@@ -867,12 +730,12 @@ func TestController_StopAndRestart(t *testing.T) {
 		t.Fatalf("Expected service to be Running after start, got %v", state.status)
 	}
 
-	// Stop the service
+	// stop the service
 	if err := ctr.Stop(); err != nil {
 		t.Fatalf("Failed to stop service: %v", err)
 	}
 
-	// Wait for service to stop
+	// wait for service to stop
 	if err := waitForState(supervisor.Stopping, time.Second); err != nil {
 		t.Fatal(err)
 	}
@@ -889,7 +752,7 @@ func TestController_StopAndRestart(t *testing.T) {
 		t.Fatalf("Failed to restart service: %v", err)
 	}
 
-	// Wait for second running state
+	// wait for second running state
 	if err := waitForState(supervisor.Starting, time.Second); err != nil {
 		t.Fatal(err)
 	}
@@ -909,7 +772,7 @@ func TestController_StopAndRestart(t *testing.T) {
 		t.Fatalf("Failed final stop: %v", err)
 	}
 
-	// Wait for final stopped state
+	// wait for final stopped state
 	if err := waitForState(supervisor.Stopping, time.Second); err != nil {
 		t.Fatal(err)
 	}
@@ -1002,6 +865,7 @@ func TestController_GracefulShutdown(t *testing.T) {
 
 			close(detailsCh)
 			shutdownCompleted.Done()
+
 			return nil
 		},
 	}
@@ -1031,7 +895,7 @@ func TestController_GracefulShutdown(t *testing.T) {
 		t.Fatalf("Failed to start service: %v", err)
 	}
 
-	// Wait for service to be running
+	// wait for service to be running
 	time.Sleep(100 * time.Millisecond)
 	if state := ctr.State(); state.Status != supervisor.Running {
 		t.Fatalf("Expected service to be Running, got %v", state.Status)
@@ -1043,10 +907,10 @@ func TestController_GracefulShutdown(t *testing.T) {
 		shutdownErr <- ctr.Stop()
 	}()
 
-	// Wait for shutdown to start
+	// wait for shutdown to start
 	shutdownStarted.Wait()
 
-	// Wait for shutdown to complete
+	// wait for shutdown to complete
 	shutdownCompleted.Wait()
 
 	// Check if shutdown completed successfully
@@ -1072,7 +936,7 @@ func TestController_GracefulShutdown(t *testing.T) {
 		status  supervisor.Status
 		details any
 	}{
-		{supervisor.Starting, "attempt 0"},
+		{supervisor.Starting, "attempt 1"},
 		{supervisor.Running, nil},
 		{supervisor.Running, "service running"},
 		{supervisor.Stopping, nil},
@@ -1139,7 +1003,7 @@ func TestController_ShutdownTimeout(t *testing.T) {
 		t.Fatalf("Failed to start service: %v", err)
 	}
 
-	// Wait for service to be running
+	// wait for service to be running
 	time.Sleep(100 * time.Millisecond)
 
 	// Start shutdown in a goroutine
@@ -1151,10 +1015,10 @@ func TestController_ShutdownTimeout(t *testing.T) {
 		shutdownErr = ctr.Stop()
 	}()
 
-	// Wait for shutdown to start
+	// wait for shutdown to start
 	<-shutdownStarted
 
-	// Wait for shutdown to complete
+	// wait for shutdown to complete
 	wg.Wait()
 
 	// Verify we got a timeout error
@@ -1166,7 +1030,406 @@ func TestController_ShutdownTimeout(t *testing.T) {
 
 	// Verify service ended up in stopped state
 	finalState := ctr.State()
-	if finalState.Status != supervisor.Stopped {
-		t.Errorf("Expected final state to be Stopped (since context was cancelled), got %v", finalState.Status)
+	if finalState.Status != supervisor.Failed {
+		t.Errorf("Expected final state to be Failed (since context was cancelled), got %v", finalState.Status)
+	}
+}
+
+func TestController_StopDuringFailedStart(t *testing.T) {
+	var startCalled int32                    // atomic counter
+	startAttempted := make(chan struct{}, 1) // buffered channel for signaling
+	startFinished := make(chan struct{})
+
+	mock := &mockService{
+		startFunc: func(ctx context.Context) (<-chan any, error) {
+			// Signal that we're in start (buffered channel won't block)
+			select {
+			case startAttempted <- struct{}{}:
+			default:
+			}
+
+			// Block until context is cancelled or long timeout
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(10 * time.Second):
+				return nil, errors.New("fake timeout")
+			}
+		},
+		stopFunc: func(ctx context.Context) error {
+			defer func() {
+				close(startFinished)
+			}()
+			return nil
+		},
+	}
+
+	ctr := NewController(
+		context.Background(),
+		mock,
+		supervisor.LifecycleConfig{
+			StartTimeout: 1 * time.Second,
+			StopTimeout:  1 * time.Second,
+			RetryPolicy: supervisor.RetryPolicy{
+				MaxAttempts:  3,
+				InitialDelay: 100 * time.Millisecond,
+			},
+		},
+		func(status supervisor.Status, details any) {
+		},
+	)
+
+	// Start in a goroutine since it will block
+	startErr := make(chan error, 1)
+	go func() {
+		err := ctr.Start()
+		startErr <- err
+	}()
+
+	// Wait for service to enter start
+	select {
+	case <-startAttempted:
+	case <-time.After(time.Second):
+		t.Fatal("Service did not enter start within timeout")
+	}
+
+	// Now try to stop while service is starting
+	err := ctr.Stop()
+	if err == nil {
+		t.Errorf("Expected stop timeout error, got nil")
+	}
+
+	// Verify the start error indicates cancellation
+	select {
+	case err := <-startErr:
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("Expected context.Canceled error, got: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Did not receive start error within timeout")
+	}
+
+	// Verify final state
+	state := ctr.State()
+	if state.Status != supervisor.Failed {
+		t.Errorf("Expected final status Failed, got: %v", state.Status)
+	}
+
+	// Verify retry count matches expectations
+	count := atomic.LoadInt32(&startCalled)
+	if count > 2 {
+		t.Errorf("Too many retry attempts: %d", count)
+	}
+}
+
+func TestController_StartTimeout(t *testing.T) {
+	startAttempted := make(chan struct{})
+	detailsCh := make(chan any)
+
+	mock := &mockService{
+		startFunc: func(ctx context.Context) (<-chan any, error) {
+			// Signal that we entered start
+			close(startAttempted)
+
+			// Block until context cancellation or timeout
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(2 * time.Second): // Simulate slow startup
+				return detailsCh, nil
+			}
+		},
+		stopFunc: func(ctx context.Context) error {
+			close(detailsCh)
+			return nil
+		},
+	}
+
+	stateTransitions := make([]supervisor.Status, 0)
+	var statesMutex sync.Mutex
+
+	ctr := NewController(
+		context.Background(),
+		mock,
+		supervisor.LifecycleConfig{
+			StartTimeout: 100 * time.Millisecond, // Short timeout
+			StopTimeout:  time.Second,
+			RetryPolicy: supervisor.RetryPolicy{
+				MaxAttempts: 1, // No retries for clearer testing
+			},
+		},
+		func(status supervisor.Status, details any) {
+			statesMutex.Lock()
+			defer statesMutex.Unlock()
+			stateTransitions = append(stateTransitions, status)
+		},
+	)
+
+	// Start the service
+	err := ctr.Start()
+
+	// Verify we get timeout error
+	if err == nil {
+		t.Fatal("Expected timeout error, got nil")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("Expected context.DeadlineExceeded error, got: %v", err)
+	}
+
+	// Verify the service attempted to start
+	select {
+	case <-startAttempted:
+		// Expected behavior
+	case <-time.After(time.Second):
+		t.Fatal("Service never attempted to start")
+	}
+
+	// Verify state transitions
+	statesMutex.Lock()
+	transitions := make([]supervisor.Status, len(stateTransitions))
+	copy(transitions, stateTransitions)
+	statesMutex.Unlock()
+
+	expectedTransitions := []supervisor.Status{
+		supervisor.Starting,
+		supervisor.Failed,
+	}
+
+	if !reflect.DeepEqual(transitions, expectedTransitions) {
+		t.Errorf("Expected state transitions %v, got %v", expectedTransitions, transitions)
+	}
+
+	// Verify final state
+	state := ctr.State()
+	if state.Status != supervisor.Failed {
+		t.Errorf("Expected final status Failed, got: %v", state.Status)
+	}
+
+	// Cleanup
+	if err := ctr.Stop(); err == nil {
+		t.Fatal("Expected error from stop, got nil")
+	}
+}
+
+func TestController_ServiceExitError(t *testing.T) {
+	stateTransitions := make([]supervisor.Status, 0)
+	var statesMutex sync.Mutex
+
+	mock := &mockService{
+		startFunc: func(ctx context.Context) (<-chan any, error) {
+			// Return ErrExit directly from start
+			return nil, supervisor.ErrExit
+		},
+		stopFunc: func(ctx context.Context) error {
+			return nil
+		},
+	}
+
+	ctr := NewController(
+		context.Background(),
+		mock,
+		supervisor.LifecycleConfig{
+			StartTimeout: 1 * time.Second,
+			StopTimeout:  1 * time.Second,
+			RetryPolicy: supervisor.RetryPolicy{
+				MaxAttempts: 3, // Should not retry on ErrExit
+			},
+		},
+		func(status supervisor.Status, details any) {
+			statesMutex.Lock()
+			defer statesMutex.Unlock()
+			stateTransitions = append(stateTransitions, status)
+		},
+	)
+
+	// Start the service
+	err := ctr.Start()
+
+	// Should get ErrExit
+	if !errors.Is(err, supervisor.ErrExit) {
+		t.Fatalf("Expected supervisor.ErrExit, got: %v", err)
+	}
+
+	// Get final state transitions
+	statesMutex.Lock()
+	transitions := make([]supervisor.Status, len(stateTransitions))
+	copy(transitions, stateTransitions)
+	statesMutex.Unlock()
+
+	// Expected state transition sequence
+	expectedTransitions := []supervisor.Status{
+		supervisor.Starting,
+		supervisor.Exited, // Should go directly to Exited on ErrExit
+	}
+
+	if len(transitions) != len(expectedTransitions) {
+		t.Errorf("Expected %d transitions, got %d", len(expectedTransitions), len(transitions))
+		t.Logf("Actual transitions: %v", transitions)
+		return
+	}
+
+	for i, expected := range expectedTransitions {
+		if transitions[i] != expected {
+			t.Errorf("Transition %d: expected %v, got %v", i, expected, transitions[i])
+		}
+	}
+
+	// Verify final state
+	state := ctr.State()
+	if state.Status != supervisor.Exited {
+		t.Errorf("Expected final status Exited, got: %v", state.Status)
+	}
+}
+
+func TestController_ServiceExitDuringOperation(t *testing.T) {
+	detailsCh := make(chan any, 1)
+	stateTransitions := make([]supervisor.Status, 0)
+	var statesMutex sync.Mutex
+
+	mock := &mockService{
+		startFunc: func(ctx context.Context) (<-chan any, error) {
+			return detailsCh, nil
+		},
+		stopFunc: func(ctx context.Context) error {
+			return nil
+		},
+	}
+
+	ctr := NewController(
+		context.Background(),
+		mock,
+		supervisor.LifecycleConfig{
+			StartTimeout: 1 * time.Second,
+			StopTimeout:  1 * time.Second,
+			RetryPolicy: supervisor.RetryPolicy{
+				MaxAttempts: 3, // Should not retry on ErrExit
+			},
+		},
+		func(status supervisor.Status, details any) {
+			statesMutex.Lock()
+			defer statesMutex.Unlock()
+			stateTransitions = append(stateTransitions, status)
+		},
+	)
+
+	// Start the service
+	err := ctr.Start()
+	if err != nil {
+		t.Fatalf("Failed to start service: %v", err)
+	}
+
+	// Send ErrExit through details channel
+	detailsCh <- supervisor.ErrExit
+
+	// Wait for processing
+	time.Sleep(100 * time.Millisecond)
+
+	// Get final state transitions
+	statesMutex.Lock()
+	transitions := make([]supervisor.Status, len(stateTransitions))
+	copy(transitions, stateTransitions)
+	statesMutex.Unlock()
+
+	// Expected state transition sequence
+	expectedTransitions := []supervisor.Status{
+		supervisor.Starting,
+		supervisor.Running,
+		supervisor.Exited, // Should transition to Exited on ErrExit
+	}
+
+	if len(transitions) != len(expectedTransitions) {
+		t.Errorf("Expected %d transitions, got %d", len(expectedTransitions), len(transitions))
+		t.Logf("Actual transitions: %v", transitions)
+		return
+	}
+
+	for i, expected := range expectedTransitions {
+		if transitions[i] != expected {
+			t.Errorf("Transition %d: expected %v, got %v", i, expected, transitions[i])
+		}
+	}
+
+	// Verify final state
+	state := ctr.State()
+	if state.Status != supervisor.Exited {
+		t.Errorf("Expected final status Exited, got: %v", state.Status)
+	}
+}
+
+func TestController_StressTestStartLast(t *testing.T) {
+	var currentChan chan any
+	var chanMutex sync.Mutex
+	startAttempts := atomic.Int32{}
+	stopAttempts := atomic.Int32{}
+
+	mock := &mockService{
+		startFunc: func(ctx context.Context) (<-chan any, error) {
+			startAttempts.Add(1)
+			chanMutex.Lock()
+			currentChan = make(chan any, 1)
+			ch := currentChan
+			ch <- "service started"
+			chanMutex.Unlock()
+
+			return ch, nil
+		},
+		stopFunc: func(ctx context.Context) error {
+			stopAttempts.Add(1)
+			chanMutex.Lock()
+			if currentChan != nil {
+				close(currentChan)
+				currentChan = nil
+			}
+			chanMutex.Unlock()
+			return nil
+		},
+	}
+
+	ctr := NewController(
+		context.Background(),
+		mock,
+		supervisor.LifecycleConfig{
+			StartTimeout: 1 * time.Second,
+			StopTimeout:  1 * time.Second,
+			RetryPolicy: supervisor.RetryPolicy{
+				MaxAttempts:  3,
+				InitialDelay: 50 * time.Millisecond,
+			},
+		},
+		nil,
+	)
+
+	const numOperations = 100
+	var wg sync.WaitGroup
+
+	// Launch random operations
+	for i := 0; i < numOperations-1; i++ {
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+			if rand.Float32() < 0.5 {
+				_ = ctr.Start()
+			} else {
+				_ = ctr.Stop()
+			}
+		}()
+	}
+
+	// wait for batch to complete
+	wg.Wait()
+
+	// Last operation is always Start
+	_ = ctr.Start()
+
+	// Verify final state is Running
+	state := ctr.State()
+	if state.Status != supervisor.Running {
+		t.Errorf("Expected final status Running, got: %v", state.Status)
+	}
+
+	// Cleanup
+	if err := ctr.Stop(); err != nil {
+		t.Errorf("Failed to stop controller: %v", err)
 	}
 }

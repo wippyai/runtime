@@ -1,13 +1,13 @@
 name: endpoints.get_time
 kind: http.endpoint
 meta:
-  server: service.web_server
-  router: service.api_router
+  server: web_server
+  router: api_router
   comment: "Returns the current time."
   depends_on:
     - functions.http_time
-    - service.web_server
-    - service.api_router
+    - web_server
+    - api_router
 
 # Endpoint configuration
 method: GET

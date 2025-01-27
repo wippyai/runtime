@@ -428,7 +428,7 @@ func TestHTTPModuleTimeouts(t *testing.T) {
 				// Signal that request has started
 				close(requestStarted)
 
-				// Wait until either canceled or test signals completion
+				// wait until either canceled or test signals completion
 				select {
 				case <-req.Context().Done():
 					return nil, req.Context().Err()
@@ -466,7 +466,7 @@ func TestHTTPModuleTimeouts(t *testing.T) {
 			}
 		}()
 
-		// Wait for request to start
+		// wait for request to start
 		<-requestStarted
 
 		// Give enough time for timeout to occur
@@ -476,7 +476,7 @@ func TestHTTPModuleTimeouts(t *testing.T) {
 		// Signal request to complete (though it should already be timed out)
 		close(requestCompleted)
 
-		// Wait for test goroutine to complete
+		// wait for test goroutine to complete
 		wg.Wait()
 	})
 
@@ -553,7 +553,7 @@ func TestHTTPModuleTimeouts(t *testing.T) {
 			done <- err
 		}()
 
-		// Wait for request to start
+		// wait for request to start
 		select {
 		case <-requestStarted:
 			// Request started, now cancel it
@@ -562,7 +562,7 @@ func TestHTTPModuleTimeouts(t *testing.T) {
 			t.Fatal("Request didn't start in time")
 		}
 
-		// Wait for completion
+		// wait for completion
 		select {
 		case err := <-done:
 			if err != nil {
@@ -585,7 +585,7 @@ func TestHTTPModuleTimeouts(t *testing.T) {
 				}
 
 				if req.URL.Path == "/slow" {
-					// Wait for context timeout for slow request
+					// wait for context timeout for slow request
 					<-req.Context().Done()
 					return nil, context.DeadlineExceeded
 				}
@@ -629,7 +629,7 @@ func TestHTTPModuleTimeouts(t *testing.T) {
 			done <- err
 		}()
 
-		// Wait for first request to start
+		// wait for first request to start
 		select {
 		case <-requestStarted:
 			// continue
@@ -637,7 +637,7 @@ func TestHTTPModuleTimeouts(t *testing.T) {
 			t.Fatal("Requests didn't start in time")
 		}
 
-		// Wait for completion
+		// wait for completion
 		select {
 		case err := <-done:
 			if err != nil {

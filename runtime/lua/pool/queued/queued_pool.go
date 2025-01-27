@@ -123,7 +123,7 @@ func (p *Pool) Execute(ctx context.Context, name string, args ...lua.LValue) (lu
 	case p.tasks <- t:
 	}
 
-	// Wait for result or cancellation
+	// wait for result or cancellation
 	select {
 	case res := <-t.result:
 		return res.value, res.err

@@ -4,6 +4,9 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"github.com/ponyruntime/pony/api/events"
+	logsapi "github.com/ponyruntime/pony/api/service/logs"
+	"github.com/ponyruntime/pony/service/logs"
 	"github.com/ponyruntime/pony/service/terminal"
 	httpbase "net/http"
 	"os"
@@ -39,6 +42,8 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+// This needs Endure or some other way to untangle it.
+
 func main() {
 	// Parse command line flags
 	verbose := flag.Bool("v", false, "enable verbose debug logging")
@@ -51,7 +56,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	log, terminalCore := initLogger(*verbose, *veryVerbose)
+	bus := eventbus.NewBus() // main configuration bus
+
+	log, core := initLogger(*verbose, *veryVerbose, bus)
 	if log == nil {
 		fmt.Println("Failed to initialize logger")
 		os.Exit(1)
@@ -65,8 +72,6 @@ func main() {
 	yaml.Register(dtt)
 	lua.Register(dtt)
 
-	bus := eventbus.NewBus(log.Named("events")) // main configuration bus
-
 	// application service supervisor
 	ctx, cancel := context.WithCancel(context.Background())
 	ctx = context.WithValue(ctx, contextapi.LoggerCtx, appLogger)
@@ -76,6 +81,13 @@ func main() {
 
 	// -- application state
 	appState, err := loadApplicationState(args, dtt, appLogger)
+
+	// -- observability application
+	logSrv := logs.NewManager(bus, core, log.Named("logs"))
+	if err := logSrv.Start(ctx); err != nil {
+		appLogger.Fatal("failed to start logs service", zap.Error(err))
+	}
+	defer func() { _ = logSrv.Stop(context.Background()) }()
 
 	// -- application core
 	reg := registry.NewRegistry(
@@ -89,7 +101,7 @@ func main() {
 	// -- end of application core
 
 	// -- additional services
-	term := terminal.NewManager(bus, log.Named("term"), terminalCore)
+	term := terminal.NewManager(bus, dtt, log.Named("term"))
 	if err := term.Start(ctx); err != nil {
 		appLogger.Fatal("failed to start executor", zap.Error(err))
 	}
@@ -123,6 +135,7 @@ func main() {
 	svc, err := services.NewRouter(ctx, bus,
 		services.WithListener("http.*", http.NewExecutingManager(bus, dtt, exec, log.Named("http"))),
 		services.WithListener("(function|library|terminal).lua", luaRuntime),
+		services.WithListener("terminal.*", term),
 	)
 
 	if err != nil {
@@ -151,7 +164,7 @@ func main() {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	// Wait for either shutdown signal or context cancellation
+	// wait for either shutdown signal or context cancellation
 	select {
 	case <-ctx.Done():
 		appLogger.Info("context cancelled, shutting down...")
@@ -198,7 +211,7 @@ func loadApplicationState(
 	return boot, err
 }
 
-func initLogger(verbose, veryVerbose bool) (*zap.Logger, *terminal.LoggerInterceptor) {
+func initLogger(verbose, veryVerbose bool, bus events.Bus) (*zap.Logger, logsapi.Core) {
 	config := zap.NewDevelopmentConfig()
 
 	// Set log level based on flags
@@ -221,8 +234,7 @@ func initLogger(verbose, veryVerbose bool) (*zap.Logger, *terminal.LoggerInterce
 		return nil, nil
 	}
 
-	terminalCore := terminal.NewLoggerInterceptor(log.Core())
-	log = zap.New(terminalCore)
+	core := logs.NewCore(log.Core(), bus)
 
-	return log, terminalCore
+	return zap.New(core), core
 }

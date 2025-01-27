@@ -19,7 +19,7 @@ import (
 
 func setupTest(t *testing.T) *ServerManager {
 	logger := zap.NewNop()
-	bus := eventbus.NewBus(logger)
+	bus := eventbus.NewBus()
 
 	tr := transcoder.NewTranscoder()
 	json.Register(tr)

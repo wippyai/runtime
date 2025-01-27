@@ -10,7 +10,7 @@ const Infinity = -1
 
 type (
 	// Node represents a vertex in the graph
-	Node string
+	Node string // todo: use template
 
 	// Edge represents a directed edge between two nodes with a weight
 	Edge struct {

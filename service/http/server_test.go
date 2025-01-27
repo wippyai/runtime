@@ -94,7 +94,7 @@ func TestSimpleHTTP(t *testing.T) {
 	// Get the actually assigned port from the service
 	port := server.server.Addr
 
-	// Wait for the success message from the status channel
+	// wait for the success message from the status channel
 	select {
 	case <-status:
 	case <-ctx.Done():
@@ -174,7 +174,7 @@ func TestHTTPServerUnderSupervisor(t *testing.T) {
 	// Verify the response
 	assert.Equal(t, "hello from supervised service", string(body))
 
-	// Stop the supervisor
+	// stop the supervisor
 	err = hsup.Stop()
 	require.NoError(t, err)
 

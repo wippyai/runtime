@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/internal/wildcard"
@@ -66,7 +65,7 @@ func NewRouter(ctx context.Context, bus events.Bus, opts ...Option) (*Router, er
 	r := &Router{
 		ctx: ctx,
 		bus: bus,
-		log: zap.NewNop(), // Default no-op logger
+		log: zap.NewNop(), // Default no-op logger, todo: let it set from outside?
 	}
 
 	// Apply options

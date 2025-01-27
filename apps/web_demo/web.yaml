@@ -1,4 +1,4 @@
-name: service.web_server
+name: web_server
 kind: http.service
 meta:
   comment: "Default http service."

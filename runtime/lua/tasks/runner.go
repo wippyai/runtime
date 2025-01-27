@@ -27,8 +27,8 @@ type TaskRunner struct {
 	cancel  context.CancelFunc
 }
 
-// NewTasker creates a new instance of the task manager
-func NewTasker(
+// NewTaskRunner creates a new instance of the task manager
+func NewTaskRunner(
 	log *zap.Logger,
 	cvm *engine.CoroutineVM,
 	channels *channel.Layer,
@@ -66,7 +66,7 @@ func (t *TaskRunner) Start(ctx context.Context, funcName string, args ...lua.LVa
 		}
 	}()
 
-	status := make(chan any, 9)
+	resultChan := make(chan any, 1)
 
 	// always isolate context
 	ctx, t.cancel = context.WithCancel(ctx)
@@ -78,25 +78,35 @@ func (t *TaskRunner) Start(ctx context.Context, funcName string, args ...lua.LVa
 		return nil, fmt.Errorf("failed to start engine: %v", err)
 	}
 
-	status <- "engine started"
-
 	// Start the main execution loop
 	t.wg.Add(1)
 	go func() {
 		defer t.wg.Done()
 		defer t.running.Store(false)
-		defer close(status)
+		defer close(resultChan)
 
 		// Run the engine with context
 		result, err := t.runner.Run(ctx, exitCh)
 		if err != nil {
-			status <- fmt.Sprintf("engine error: %v", err)
+			select {
+			case resultChan <- err:
+			case <-ctx.Done():
+			}
 			return
 		}
-		status <- fmt.Sprintf("engine exit: %v", result)
+
+		select {
+		case resultChan <- result:
+		case <-ctx.Done():
+		}
 	}()
 
-	return status, nil
+	return resultChan, nil
+}
+
+// State returns the underlying Lua state
+func (t *TaskRunner) State() *lua.LState {
+	return t.cvm.State()
 }
 
 // Execute submits a new task for execution
@@ -138,7 +148,7 @@ func (t *TaskRunner) Stop(ctx context.Context) error {
 	}
 	t.runner.GetTaskGroup().WakeUp()
 
-	// Wait for processing to complete with context deadline
+	// wait for processing to complete with context deadline
 	done := make(chan struct{})
 	go func() {
 		t.wg.Wait()
