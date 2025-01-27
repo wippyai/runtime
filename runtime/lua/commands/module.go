@@ -1,1 +1,111 @@
 package commands
+
+import (
+	"fmt"
+	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
+	lua "github.com/yuin/gopher-lua"
+)
+
+// Module represents command module
+type Module struct{}
+
+// NewModule creates a new command module instance
+func NewModule() *Module {
+	return &Module{}
+}
+
+// Name returns the module name
+func (m *Module) Name() string {
+	return "command"
+}
+
+// Loader registers the module functions
+func (m *Module) Loader(L *lua.LState) int {
+	// Create module table
+	mod := L.NewTable()
+
+	// Register functions
+	L.SetField(mod, "new", L.NewFunction(newCommandFunc))
+
+	// Command methods
+	commandMethods := map[string]lua.LGFunction{
+		"response": responseFunc,
+		"cancel":   cancelFunc,
+	}
+
+	// Command metatable
+	mt := L.NewTypeMetatable("command")
+	L.SetField(mt, "__index", L.SetFuncs(L.NewTable(), commandMethods))
+
+	// Register module
+	L.Push(mod)
+	return 1
+}
+
+// Wrap wraps a command into a Lua value
+func Wrap(L *lua.LState, cmd *Command) lua.LValue {
+	ud := L.NewUserData()
+	ud.Value = cmd
+	L.SetMetatable(ud, L.GetTypeMetatable("command"))
+	return ud
+}
+
+// Constructor functions
+func newCommandFunc(L *lua.LState) int {
+	cmdType := CommandType(L.CheckString(1))
+	if cmdType == "" {
+		L.RaiseError("command type cannot be empty")
+		return 0
+	}
+
+	// Get params table
+	params := make([]lua.LValue, 0)
+	if L.GetTop() > 1 {
+		paramTable := L.CheckTable(2)
+		paramTable.ForEach(func(key lua.LValue, value lua.LValue) {
+			params = append(params, value)
+		})
+	}
+
+	cmd, err := NewCommand(cmdType, params)
+	if err != nil {
+		L.RaiseError("failed to create command: %v", err)
+		return 0
+	}
+
+	L.Push(Wrap(L, cmd))
+	return 1
+}
+
+// Command methods
+func responseFunc(L *lua.LState) int {
+	cmd := checkCommand(L)
+	L.Push(channel.Wrap(L, cmd.response))
+	return 1
+}
+
+func cancelFunc(L *lua.LState) int {
+	cmd := checkCommand(L)
+	cmd.Cancel()
+	return 0
+}
+
+// Utility functions
+func checkCommand(L *lua.LState) *Command {
+	ud := L.CheckUserData(1)
+	if cmd, ok := ud.Value.(*Command); ok {
+		return cmd
+	}
+	L.ArgError(1, "command expected")
+	return nil
+}
+
+// String implements fmt.Stringer for Command
+func (c *Command) String() string {
+	return fmt.Sprintf("command{type=%s completed=%v}", c.cmdType, c.completed)
+}
+
+// Type implements lua.LValue interface
+func (c *Command) Type() lua.LValueType {
+	return lua.LTUserData
+}
