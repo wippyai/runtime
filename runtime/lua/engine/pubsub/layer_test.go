@@ -199,3 +199,119 @@ func TestPubSub(t *testing.T) {
 		assert.Equal(t, "one,two,three", result.(lua.LValue).String())
 	})
 }
+
+func TestLateSubscription(t *testing.T) {
+	vm, _, pubsubLayer, runner := setupTestVM(t)
+	defer vm.Close()
+
+	script := `
+		function test()
+			-- Subscribe to topic1 first
+			local sub1 = pubsub.subscribe("topic1")
+
+			-- Wait for message on topic1
+			local msg = sub1:receive()
+			
+			-- Only now subscribe to topic2
+			local sub2 = pubsub.subscribe("topic2")
+			
+			return msg
+		end
+	`
+	err := vm.Import(script, "test", "test")
+	require.NoError(t, err)
+
+	ctx := runner.WithContext(context.Background())
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	var result interface{}
+
+	go func() {
+		defer wg.Done()
+		exitCh, err := runner.Start(ctx, "test")
+		if err != nil {
+			result = err
+			return
+		}
+
+		// First publish to topic2 (no subscriber yet)
+		pubsubLayer.Publish("topic2", lua.LString("ignored"))
+		time.Sleep(50 * time.Millisecond)
+
+		// Then publish to topic1
+		pubsubLayer.Publish("topic1", lua.LString("saved"))
+
+		res, err := runner.Run(ctx, exitCh)
+		if err != nil {
+			result = err
+			return
+		}
+		result = res
+	}()
+
+	wg.Wait()
+
+	if err, ok := result.(error); ok {
+		t.Fatal(err)
+	}
+
+	assert.Equal(t, "saved", result.(lua.LValue).String())
+}
+
+func TestCrossTopicOrdering(t *testing.T) {
+	vm, _, pubsubLayer, runner := setupTestVM(t)
+	defer vm.Close()
+
+	script := `
+		function test()
+			-- Subscribe to both topics first
+			local sub1 = pubsub.subscribe("topic1")
+			local sub2 = pubsub.subscribe("topic2")
+			
+			-- Queue receives in reverse order of sends
+			local msg1 = sub1:receive()
+			local msg2 = sub2:receive()
+			
+			return msg1 .. "," .. msg2
+		end
+	`
+	err := vm.Import(script, "test", "test")
+	require.NoError(t, err)
+
+	ctx := runner.WithContext(context.Background())
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	var result interface{}
+
+	go func() {
+		defer wg.Done()
+		exitCh, err := runner.Start(ctx, "test")
+		if err != nil {
+			result = err
+			return
+		}
+
+		time.Sleep(50 * time.Millisecond) // Let subscriptions set up
+
+		// Send in reverse order of receives
+		pubsubLayer.Publish("topic2", lua.LString("second"))
+		pubsubLayer.Publish("topic1", lua.LString("first"))
+
+		res, err := runner.Run(ctx, exitCh)
+		if err != nil {
+			result = err
+			return
+		}
+		result = res
+	}()
+
+	wg.Wait()
+
+	if err, ok := result.(error); ok {
+		t.Fatal(err)
+	}
+
+	assert.Equal(t, "first,second", result.(lua.LValue).String())
+}
