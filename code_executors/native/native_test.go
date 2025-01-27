@@ -62,8 +62,13 @@ func TestExecutor_MegaCommand(t *testing.T) {
 		executor.Stop()
 	}()
 
+	sb := new(strings.Builder)
 	for output := range executor.Stdout() {
-		t.Log(string(output))
+		sb.WriteString(string(output))
+	}
+
+	if sb.Len() == 0 {
+		t.Fatal("no output")
 	}
 }
 
