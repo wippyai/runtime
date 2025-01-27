@@ -2,22 +2,17 @@ package time
 
 import (
 	"fmt"
+	"time"
+
 	"github.com/ponyruntime/pony/runtime/lua/engine/async"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	lua "github.com/yuin/gopher-lua"
-	"time"
 )
 
 // Ticker represents a Lua userdata object wrapping time.Ticker
 type Ticker struct {
 	ticker  *time.Ticker
 	chValue lua.LValue
-}
-
-// Ticker methods map
-var tickerMethods = map[string]lua.LGFunction{
-	"stop":    tickerStop,
-	"channel": tickerChannel,
 }
 
 // Constructor for ticker
@@ -66,7 +61,11 @@ func ticker(l *lua.LState) int {
 			select {
 			case t := <-ticker.C:
 				timeUD.Value = &Time{time: t}
-				async.Send(l, ch, timeUD, true)
+				errs := async.Send(l, ch, timeUD, true)
+				if errs != nil {
+					l.RaiseError("time.ticker: %s", errs)
+					return
+				}
 			case <-l.Context().Done():
 				return
 			}
@@ -114,7 +113,10 @@ func tickerChannel(l *lua.LState) int {
 // Register Ticker
 func registerTicker(l *lua.LState, mod *lua.LTable) {
 	mt := l.NewTypeMetatable("Ticker")
-	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), tickerMethods))
+	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
+		"stop":    tickerStop,
+		"channel": tickerChannel,
+	}))
 
 	// Register ticker constructor
 	l.SetField(mod, "ticker", l.NewFunction(ticker))

@@ -2,6 +2,7 @@ package terminal
 
 import (
 	"context"
+
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/registry"
 	api "github.com/ponyruntime/pony/api/service/terminal"
@@ -26,7 +27,6 @@ type controlOp struct {
 
 type operations struct {
 	terminal *terminalRunner
-	cfg      *api.ServiceConfig
 	bus      events.Bus
 	log      *zap.Logger
 	csw      *logs.ConfigSwitcher

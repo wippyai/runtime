@@ -41,7 +41,7 @@ func (m *mockModule) Name() string {
 	return m.name
 }
 
-func (m *mockModule) Loader(L *lua.LState) int {
+func (m *mockModule) Loader(_ *lua.LState) int {
 	return 0
 }
 

@@ -2,8 +2,9 @@ package supervisor
 
 import (
 	"errors"
-	"github.com/stretchr/testify/assert"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 
 	"github.com/ponyruntime/pony/api/supervisor"
 	"go.uber.org/zap"
@@ -98,7 +99,7 @@ func TestTransactionHelper_Commit_RemoveError(t *testing.T) {
 		return nil
 	}
 
-	registerFn := func(id string, entry *supervisor.Entry) error {
+	registerFn := func(string, *supervisor.Entry) error {
 		return nil
 	}
 
@@ -120,11 +121,11 @@ func TestTransactionHelper_Commit_RegisterError(t *testing.T) {
 	th := newTransactionHelper(noopLogger())
 	th.begin()
 
-	removeFn := func(id string) error {
+	removeFn := func(_ string) error {
 		return nil
 	}
 
-	registerFn := func(id string, entry *supervisor.Entry) error {
+	registerFn := func(id string, _ *supervisor.Entry) error {
 		if id == "service2" {
 			return errors.New("register error")
 		}
@@ -172,7 +173,7 @@ func TestTransactionHelper_Discard(t *testing.T) {
 	}
 }
 
-func TestTransactionHelper_Discard_NoTransaction(t *testing.T) {
+func TestTransactionHelper_Discard_NoTransaction(_ *testing.T) {
 	th := newTransactionHelper(noopLogger())
 	th.discard() // Should not panic or error
 }
@@ -195,7 +196,6 @@ func TestTransactionHelper_RegisterService(t *testing.T) {
 	if len(th.register) != 1 {
 		t.Error("service should still be registered")
 	}
-
 }
 
 func TestTransactionHelper_RegisterService_NoTransaction(t *testing.T) {

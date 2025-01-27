@@ -59,17 +59,17 @@ type testEventBus struct {
 	sendCalls []events.Event
 }
 
-func (t *testEventBus) Subscribe(ctx context.Context, system events.System, ch chan<- events.Event) (events.SubscriberID, error) {
-	return events.SubscriberID("test"), nil
+func (t *testEventBus) Subscribe(context.Context, events.System, chan<- events.Event) (events.SubscriberID, error) {
+	return "test", nil
 }
 
-func (t *testEventBus) SubscribeP(ctx context.Context, system events.System, kind events.Kind, ch chan<- events.Event) (events.SubscriberID, error) {
-	return events.SubscriberID("test"), nil
+func (t *testEventBus) SubscribeP(context.Context, events.System, events.Kind, chan<- events.Event) (events.SubscriberID, error) {
+	return "test", nil
 }
 
-func (t *testEventBus) Unsubscribe(ctx context.Context, id events.SubscriberID) {}
+func (t *testEventBus) Unsubscribe(context.Context, events.SubscriberID) {}
 
-func (t *testEventBus) Send(ctx context.Context, event events.Event) {
+func (t *testEventBus) Send(_ context.Context, event events.Event) {
 	t.sendCalls = append(t.sendCalls, event)
 }
 

@@ -2,13 +2,11 @@ package engine
 
 import (
 	"context"
-	lua "github.com/yuin/gopher-lua"
 	"sync/atomic"
+
+	capi "github.com/ponyruntime/pony/api/context"
+	lua "github.com/yuin/gopher-lua"
 )
-
-type contextKey struct{}
-
-var taskGroupKey = &contextKey{}
 
 // TaskGroup manages a group of related tasks, their states, and result collection
 type TaskGroup struct {
@@ -30,12 +28,12 @@ func NewTaskGroup(size int) *TaskGroup {
 
 // WithTaskGroup attaches a task group to the context
 func WithTaskGroup(ctx context.Context, group *TaskGroup) context.Context {
-	return context.WithValue(ctx, &taskGroupKey, group)
+	return context.WithValue(ctx, capi.TaskGroupKeyCtx, group)
 }
 
 // GetTaskGroup retrieves the TaskGroup from a context
 func GetTaskGroup(ctx context.Context) *TaskGroup {
-	if group, ok := ctx.Value(&taskGroupKey).(*TaskGroup); ok {
+	if group, ok := ctx.Value(capi.TaskGroupKeyCtx).(*TaskGroup); ok {
 		return group
 	}
 	return nil

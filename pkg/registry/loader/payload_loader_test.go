@@ -15,11 +15,13 @@ func TestPayloadLoader_Load_SingleFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		_ = os.RemoveAll(tempDir)
+	}()
 
 	testFilePath := filepath.Join(tempDir, "data.json")
 	testFileContent := `{"key": "value"}`
-	err = os.WriteFile(testFilePath, []byte(testFileContent), 0644)
+	err = os.WriteFile(testFilePath, []byte(testFileContent), 0600)
 	if err != nil {
 		t.Fatalf("failed to write test file: %v", err)
 	}
@@ -56,14 +58,16 @@ func TestPayloadLoader_Load_MultipleFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		_ = os.RemoveAll(tempDir)
+	}()
 
 	files := map[string]string{
 		"data1.json": `{"key": "json_value"}`,
 		"data2.yaml": "key: yaml_value",
 	}
 	for name, content := range files {
-		err = os.WriteFile(filepath.Join(tempDir, name), []byte(content), 0644)
+		err = os.WriteFile(filepath.Join(tempDir, name), []byte(content), 0600)
 		if err != nil {
 			t.Fatalf("failed to write test file %s: %v", name, err)
 		}
@@ -110,10 +114,12 @@ func TestPayloadLoader_Load_UnsupportedFileType(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		_ = os.RemoveAll(tempDir)
+	}()
 
 	testFilePath := filepath.Join(tempDir, "data.txt")
-	err = os.WriteFile(testFilePath, []byte("unsupported content"), 0644)
+	err = os.WriteFile(testFilePath, []byte("unsupported content"), 0600)
 	if err != nil {
 		t.Fatalf("failed to write test file: %v", err)
 	}
@@ -137,7 +143,10 @@ func TestPayloadLoader_Load_EmptyDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+
+	defer func() {
+		_ = os.RemoveAll(tempDir)
+	}()
 
 	// Load the files using PayloadLoader
 	loader := NewPayloadLoader(zap.NewNop())
@@ -158,7 +167,10 @@ func TestPayloadLoader_Load_NestedDirectories(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+
+	defer func() {
+		_ = os.RemoveAll(tempDir)
+	}()
 
 	// Create nested directories
 	nestedDir := filepath.Join(tempDir, "nested")
@@ -173,7 +185,7 @@ func TestPayloadLoader_Load_NestedDirectories(t *testing.T) {
 		filepath.Join(nestedDir, "nested.yaml"): "key: nested_value",
 	}
 	for path, content := range files {
-		err = os.WriteFile(path, []byte(content), 0644)
+		err = os.WriteFile(path, []byte(content), 0600)
 		if err != nil {
 			t.Fatalf("failed to write test file %s: %v", path, err)
 		}
@@ -218,14 +230,18 @@ func TestPayloadLoader_Load_NestedDirectories(t *testing.T) {
 func TestPayloadLoader_loadFileAsPayload_UnsupportedFormat(t *testing.T) {
 	loader := NewPayloadLoader(zap.NewNop())
 
-	// Create a dummy file (it won't be read in this case)
+	// Create a fake file (it won't be read in this case)
 	tempDir, err := os.MkdirTemp("", "entryloader_test")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+
+	defer func() {
+		_ = os.RemoveAll(tempDir)
+	}()
+
 	dummyFilePath := filepath.Join(tempDir, "dummy.txt")
-	_ = os.WriteFile(dummyFilePath, []byte("dummy content"), 0644)
+	_ = os.WriteFile(dummyFilePath, []byte("dummy content"), 0600)
 
 	_, err = loader.loadFileAsPayload(dummyFilePath, "unsupported") // Pass a path, but an unsupported format
 	if err == nil {

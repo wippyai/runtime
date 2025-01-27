@@ -3,13 +3,12 @@ package http
 import (
 	"context"
 	"errors"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"io"
 	"net/http"
 	"time"
 
 	"github.com/ponyruntime/pony/internal/closer"
-
+	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/modules/stream"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
@@ -236,7 +235,7 @@ func (m *Module) requestBatch(l *lua.LState) int {
 
 	// Validate, parse options, and build requests
 	requests := make([]*http.Request, 0, count)
-	requestsTable.ForEach(func(idx lua.LValue, value lua.LValue) {
+	requestsTable.ForEach(func(_ lua.LValue, value lua.LValue) {
 		if value.Type() != lua.LTTable {
 			l.ArgError(1, ErrInvalidRequest.Error())
 			return

@@ -1036,13 +1036,13 @@ func TestFanOutPattern(t *testing.T) {
 	assert.Contains(t, yields, "consumer_2_done")
 	assert.Contains(t, yields, "consumer_3_done")
 
-	// Verify round-robin distribution
-	distributionOrder := make([]string, 0)
-	for _, yield := range yields {
-		if strings.HasPrefix(yield, "distributed_") {
-			distributionOrder = append(distributionOrder, yield)
-		}
-	}
+	// TODO: Verify round-robin distribution (distribution order is not used or tested)
+	// distributionOrder := make([]string, 0)
+	// for _, yield := range yields {
+	//	if strings.HasPrefix(yield, "distributed_") {
+	//		distributionOrder = append(distributionOrder, yield)
+	//	}
+	// }
 
 	expectedDistribution := []string{
 		"distributed_1_to_1",

@@ -2,6 +2,7 @@ package manager
 
 import (
 	"fmt"
+
 	"github.com/ponyruntime/pony/api/registry"
 	api "github.com/ponyruntime/pony/api/runtime/lua"
 	"github.com/ponyruntime/pony/api/service/terminal"
@@ -112,7 +113,7 @@ func (m *Terminals) FindDependentOnLibrary(libraryID registry.ID) map[registry.I
 
 // MakeTerminal creates a new terminal factory using provided managers
 func (m *Terminals) MakeTerminal(
-	id registry.ID,
+	_ registry.ID,
 	app *api.TerminalConfig,
 	modules api.ModuleRegistry,
 	libraries api.LibraryRegistry,

@@ -1,6 +1,7 @@
 package router
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -223,24 +224,27 @@ func TestBuildRouter(t *testing.T) {
 	defer server.Close()
 
 	// Test successful route
-	resp, err := http.Get(server.URL + "/api/test")
+	resp, err := http.Get(server.URL + "/api/test") //nolint:noctx
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.NotNil(t, capturedRouteInfo)
 	assert.Equal(t, "test1", capturedRouteInfo.EndpointID)
 	assert.Equal(t, endpoint.Method, capturedRouteInfo.Endpoint.Method)
 	assert.Equal(t, endpoint.Path, capturedRouteInfo.Endpoint.Path)
+	assert.NoError(t, resp.Body.Close())
 
 	// Test 404 for non-existent route
-	resp, err = http.Get(server.URL + "/api/missing")
+	resp, err = http.Get(server.URL + "/api/missing") //nolint:noctx
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+	assert.NoError(t, resp.Body.Close())
 
 	// Test 405 for wrong method
-	req, _ := http.NewRequest(http.MethodPost, server.URL+"/api/test", nil)
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, server.URL+"/api/test", nil)
 	resp, err = http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode)
+	assert.NoError(t, resp.Body.Close())
 }
 
 func TestRouteContext(t *testing.T) {
@@ -266,11 +270,12 @@ func TestRouteContext(t *testing.T) {
 	server := httptest.NewServer(chiRouter)
 	defer server.Close()
 
-	resp, err := http.Get(server.URL + "/api/users/123")
+	resp, err := http.Get(server.URL + "/api/users/123") //nolint:noctx
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Equal(t, "user1", capturedRouteInfo.EndpointID)
 	assert.Equal(t, "123", capturedRouteInfo.Params["id"])
+	assert.NoError(t, resp.Body.Close())
 }
 
 func TestClone(t *testing.T) {
@@ -376,7 +381,7 @@ func TestRouteInfoContext(t *testing.T) {
 			server := httptest.NewServer(chiRouter)
 			defer server.Close()
 
-			resp, err := http.Get(server.URL + tt.requestPath)
+			resp, err := http.Get(server.URL + tt.requestPath) //nolint:noctx
 			require.NoError(t, err)
 			assert.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -385,6 +390,7 @@ func TestRouteInfoContext(t *testing.T) {
 			assert.Equal(t, tt.expectedParams, capturedRouteInfo.Params)
 			assert.Equal(t, endpoint.Path, capturedRouteInfo.Endpoint.Path)
 			assert.Equal(t, endpoint.Method, capturedRouteInfo.Endpoint.Method)
+			assert.NoError(t, resp.Body.Close())
 		})
 	}
 }

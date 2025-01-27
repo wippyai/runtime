@@ -3,10 +3,10 @@ package logs
 import (
 	"context"
 	"fmt"
-	"go.uber.org/zap"
 
 	"github.com/ponyruntime/pony/api/events"
 	logsapi "github.com/ponyruntime/pony/api/service/logs"
+	"go.uber.org/zap"
 )
 
 // ConfigSwitcher manages switching between different logging configurations
@@ -15,23 +15,25 @@ type ConfigSwitcher struct {
 	bus        events.Bus
 	log        *zap.Logger
 	baseConfig *logsapi.Config
+	cfgManager *ConfigurationManager
 }
 
 // NewConfigSwitcher creates a new ConfigSwitcher instance
 func NewConfigSwitcher(bus events.Bus, log *zap.Logger) *ConfigSwitcher {
 	return &ConfigSwitcher{
-		bus: bus,
-		log: log,
+		bus:        bus,
+		log:        log,
+		cfgManager: NewConfigurationManager(),
 	}
 }
 
 // EnableTemporaryConfig switches to a temporary logging configuration while
 // preserving the current config for later restoration
 func (c *ConfigSwitcher) EnableTemporaryConfig(ctx context.Context, tempConfig logsapi.Config) error {
-	// Only store base config on first switch
+	// Only store base config on the first switch
 	if c.baseConfig == nil {
 		// Get current config
-		cfg, err := GetConfig(ctx, c.bus)
+		cfg, err := c.cfgManager.GetConfig(ctx, c.bus)
 		if err != nil {
 			return fmt.Errorf("failed to get logging config: %w", err)
 		}
@@ -39,7 +41,7 @@ func (c *ConfigSwitcher) EnableTemporaryConfig(ctx context.Context, tempConfig l
 	}
 
 	// Apply temporary config
-	err := SetConfig(ctx, c.bus, tempConfig)
+	err := c.cfgManager.SetConfig(ctx, c.bus, tempConfig)
 	if err != nil {
 		return fmt.Errorf("failed to set temporary config: %w", err)
 	}
@@ -51,7 +53,7 @@ func (c *ConfigSwitcher) EnableTemporaryConfig(ctx context.Context, tempConfig l
 // RestoreBaseConfig reverts to the original logging configuration
 func (c *ConfigSwitcher) RestoreBaseConfig(ctx context.Context) {
 	if c.baseConfig != nil {
-		if err := SetConfig(ctx, c.bus, *c.baseConfig); err != nil {
+		if err := c.cfgManager.SetConfig(ctx, c.bus, *c.baseConfig); err != nil {
 			c.log.Error("failed to restore base logging config", zap.Error(err))
 		} else {
 			c.log.Debug("base logging config restored")

@@ -82,11 +82,11 @@ func TestEndpointHandler_Handle_SuccessfulJsonRequest(t *testing.T) {
 	}
 	close(resultChan)
 
-	executor.executeFunc = func(task runtime.Task) (chan *runtime.Result, error) {
+	executor.executeFunc = func(runtime.Task) (chan *runtime.Result, error) {
 		return resultChan, nil
 	}
 
-	transcoder.transcodeFunc = func(p payload.Payload, format payload.Format) (payload.Payload, error) {
+	transcoder.transcodeFunc = func(payload.Payload, payload.Format) (payload.Payload, error) {
 		return payload.NewPayload(expectedResponse, payload.JSON), nil
 	}
 
@@ -106,7 +106,7 @@ func TestEndpointHandler_Handle_SuccessfulJsonRequest(t *testing.T) {
 		t.Error("response is not valid JSON")
 	}
 
-	if string(w.Body.Bytes()) != string(expectedResponse) {
+	if w.Body.String() != string(expectedResponse) {
 		t.Errorf("expected response %s, got %s", string(expectedResponse), w.Body.String())
 	}
 }
@@ -119,7 +119,7 @@ func TestEndpointHandler_Handle_ValidationError(t *testing.T) {
 
 	handler := NewEndpointHandler(executor, transcoder, logger)
 
-	// Create test request with invalid JSON
+	// Create a test request with invalid JSON
 	reqBody := []byte(`{invalid json}`)
 	req := httptest.NewRequest("POST", "/test", bytes.NewReader(reqBody))
 
@@ -176,7 +176,7 @@ func TestEndpointHandler_Handle_ExecutorError(t *testing.T) {
 
 	// Setup executor error
 	expectedError := "executor error"
-	executor.executeFunc = func(task runtime.Task) (chan *runtime.Result, error) {
+	executor.executeFunc = func(runtime.Task) (chan *runtime.Result, error) {
 		return nil, errors.New(expectedError)
 	}
 
@@ -224,7 +224,7 @@ func TestEndpointHandler_Handle_RawResponse(t *testing.T) {
 	}
 	close(resultChan)
 
-	executor.executeFunc = func(task runtime.Task) (chan *runtime.Result, error) {
+	executor.executeFunc = func(runtime.Task) (chan *runtime.Result, error) {
 		return resultChan, nil
 	}
 
@@ -248,13 +248,13 @@ func TestEndpointHandler_Handle_ContextCancellation(t *testing.T) {
 
 	handler := NewEndpointHandler(executor, transcoder, logger)
 
-	// Create test request with cancelled context
+	// Create test request with canceled context
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
 	req := httptest.NewRequest("GET", "/test", nil)
 
-	// Setup route info with correct context key
+	// Setup route info with a correct context key
 	routeInfo := &config.RouteInfo{
 		EndpointID: "test-endpoint",
 		Endpoint:   config.EndpointConfig{},
@@ -266,7 +266,7 @@ func TestEndpointHandler_Handle_ContextCancellation(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	// Setup executor response that will never complete due to cancellation
-	executor.executeFunc = func(task runtime.Task) (chan *runtime.Result, error) {
+	executor.executeFunc = func(runtime.Task) (chan *runtime.Result, error) {
 		return make(chan *runtime.Result), nil
 	}
 
@@ -277,7 +277,7 @@ func TestEndpointHandler_Handle_ContextCancellation(t *testing.T) {
 		t.Errorf("expected status code %d, got %d", http.StatusInternalServerError, w.Code)
 	}
 
-	if !strings.Contains(w.Body.String(), "request cancelled") {
+	if !strings.Contains(w.Body.String(), "request canceled") {
 		t.Errorf("expected error message containing 'request cancelled', got %q", w.Body.String())
 	}
 }
@@ -337,7 +337,7 @@ func TestEndpointHandler_Handle_CustomSuccessStatusCode(t *testing.T) {
 	}
 	close(resultChan)
 
-	executor.executeFunc = func(task runtime.Task) (chan *runtime.Result, error) {
+	executor.executeFunc = func(runtime.Task) (chan *runtime.Result, error) {
 		return resultChan, nil
 	}
 
@@ -380,12 +380,12 @@ func TestEndpointHandler_Handle_JsonTranscodingError(t *testing.T) {
 	}
 	close(resultChan)
 
-	executor.executeFunc = func(task runtime.Task) (chan *runtime.Result, error) {
+	executor.executeFunc = func(runtime.Task) (chan *runtime.Result, error) {
 		return resultChan, nil
 	}
 
 	// Setup transcoder to return error
-	transcoder.transcodeFunc = func(p payload.Payload, format payload.Format) (payload.Payload, error) {
+	transcoder.transcodeFunc = func(payload.Payload, payload.Format) (payload.Payload, error) {
 		return nil, errors.New("transcoding failed")
 	}
 
@@ -430,7 +430,7 @@ func TestEndpointHandler_Handle_NilPayload(t *testing.T) {
 	}
 	close(resultChan)
 
-	executor.executeFunc = func(task runtime.Task) (chan *runtime.Result, error) {
+	executor.executeFunc = func(runtime.Task) (chan *runtime.Result, error) {
 		return resultChan, nil
 	}
 
@@ -477,11 +477,11 @@ func TestEndpointHandler_Handle_InvalidPayloadType(t *testing.T) {
 	}
 	close(resultChan)
 
-	executor.executeFunc = func(task runtime.Task) (chan *runtime.Result, error) {
+	executor.executeFunc = func(runtime.Task) (chan *runtime.Result, error) {
 		return resultChan, nil
 	}
 
-	transcoder.transcodeFunc = func(p payload.Payload, format payload.Format) (payload.Payload, error) {
+	transcoder.transcodeFunc = func(p payload.Payload, _ payload.Format) (payload.Payload, error) {
 		return p, nil // Return the same invalid payload
 	}
 
@@ -524,7 +524,7 @@ func TestEndpointHandler_Handle_NilExecutorResult(t *testing.T) {
 	resultChan <- nil
 	close(resultChan)
 
-	executor.executeFunc = func(task runtime.Task) (chan *runtime.Result, error) {
+	executor.executeFunc = func(runtime.Task) (chan *runtime.Result, error) {
 		return resultChan, nil
 	}
 

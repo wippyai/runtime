@@ -2,6 +2,7 @@ package coroutine
 
 import (
 	"errors"
+
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -23,9 +24,9 @@ func (f *FuncWrapper) String() string {
 	return "async.func"
 }
 
-// Wrap wraps our Func into Lua-compatible format
-func Wrap(L *lua.LState, fn Func) {
-	L.Push(&FuncWrapper{fn: fn})
+// Wrap wraps our Func into the Lua-compatible format
+func Wrap(l *lua.LState, fn Func) {
+	l.Push(&FuncWrapper{fn: fn})
 }
 
 // Run runs the wrapped function and returns results/error
@@ -71,7 +72,7 @@ func (r *Layer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, err
 				return nil, errors.New("task group not found")
 			}
 			tg.Add(thread)
-			go func(t *engine.Task, w *FuncWrapper) {
+			go func(_ *engine.Task, w *FuncWrapper) {
 				res := w.Run()
 				res.State = thread
 				_ = tg.Send(thread.Context(), res)
@@ -82,7 +83,12 @@ func (r *Layer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, err
 		outTasks = append(outTasks, task) // not our tasks
 	}
 
-	tasks = []*engine.Task{}
+	// todo: not correct, tasks won't be removed this way
+	// tasks = []*engine.Task{}
+
+	for i := 0; i < len(tasks); i++ {
+		tasks[i] = nil
+	}
 
 	return outTasks, nil
 }

@@ -200,7 +200,8 @@ person:
 					if !reflect.DeepEqual(got, want) {
 						t.Errorf("transcoded payload data does not match expected data\ngot:  %v\nwant: %v", got, want)
 					}
-
+				case payload.YAML, payload.Golang, payload.Lua, payload.String, payload.Bytes, payload.Error:
+					fallthrough
 				default:
 					if !reflect.DeepEqual(transcodedPayload.Data(), tt.expectedPayload.Data()) {
 						t.Errorf("transcoded payload data does not match expected data\ngot:  %v\nwant: %v", transcodedPayload.Data(), tt.expectedPayload.Data())

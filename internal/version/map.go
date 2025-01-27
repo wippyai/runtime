@@ -109,7 +109,7 @@ func (vm *versionHistory) Len() int {
 
 func (vm *versionHistory) Range(f func(uint, registry.Version) bool) {
 	// Collect versions into a slice for sorting
-	var versions []registry.Version
+	versions := make([]registry.Version, 0, len(vm.versions))
 	for _, v := range vm.versions {
 		versions = append(versions, v)
 	}

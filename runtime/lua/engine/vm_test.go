@@ -260,8 +260,8 @@ func TestVM_Options(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("with global function", func(t *testing.T) {
-		vm, err := NewVM(logger, WithGlobalFunction("test", func(L *lua.LState) int {
-			L.Push(lua.LString("global"))
+		vm, err := NewVM(logger, WithGlobalFunction("test", func(l *lua.LState) int {
+			l.Push(lua.LString("global"))
 			return 1
 		}))
 		if err != nil {
@@ -269,7 +269,7 @@ func TestVM_Options(t *testing.T) {
 		}
 		defer vm.Close()
 
-		if err := vm.DoString(nil, `assert(test() == "global")`, "test"); err != nil {
+		if err := vm.DoString(context.Background(), `assert(test() == "global")`, "test"); err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -281,7 +281,7 @@ func TestVM_Options(t *testing.T) {
 		}
 		defer vm.Close()
 
-		if err := vm.DoString(nil, `assert(TEST_VALUE == "test")`, "test"); err != nil {
+		if err := vm.DoString(context.Background(), `assert(TEST_VALUE == "test")`, "test"); err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -301,7 +301,7 @@ func TestVM_Options(t *testing.T) {
 		}
 		defer vm.Close()
 
-		if err := vm.DoString(nil, `
+		if err := vm.DoString(context.Background(), `
 		local lib = require("testlib")
 		assert(lib.test() == "library")
 		`, "test"); err != nil {
@@ -368,8 +368,8 @@ func TestVM_GlobalState(t *testing.T) {
 	}
 	defer vm.Close()
 
-	// Set up initial global State
-	if err := vm.DoString(nil, `
+	// Set up an initial global State
+	if err := vm.DoString(context.Background(), `
 		State = {count = 0}
 		function increment()
 			State.count = State.count + 1
@@ -382,23 +382,23 @@ func TestVM_GlobalState(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// First increment should return 1
-	if err := vm.DoString(nil, `assert(increment() == 1)`, "test1"); err != nil {
+	// The first increment should return 1
+	if err := vm.DoString(context.Background(), `assert(increment() == 1)`, "test1"); err != nil {
 		t.Fatal(err)
 	}
 
-	// Second increment should return 2
-	if err := vm.DoString(nil, `assert(increment() == 2)`, "test2"); err != nil {
+	// The second increment should return 2
+	if err := vm.DoString(context.Background(), `assert(increment() == 2)`, "test2"); err != nil {
 		t.Fatal(err)
 	}
 
 	// Get count should return the current value (2)
-	if err := vm.DoString(nil, `assert(getCount() == 2)`, "test3"); err != nil {
+	if err := vm.DoString(context.Background(), `assert(getCount() == 2)`, "test3"); err != nil {
 		t.Fatal(err)
 	}
 
 	// Verify State persists even with new chunk execution
-	if err := vm.DoString(nil, `assert(State.count == 2)`, "test4"); err != nil {
+	if err := vm.DoString(context.Background(), `assert(State.count == 2)`, "test4"); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -492,7 +492,7 @@ func TestVM_ErrorTraceback(t *testing.T) {
 	defer vm.Close()
 
 	t.Run("error in Init with traceback", func(t *testing.T) {
-		err := vm.DoString(nil, `
+		err := vm.DoString(context.Background(), `
 			local function deep()
 				error("deep error")
 			end
@@ -589,7 +589,7 @@ func TestVM_SecurityRestrictions(t *testing.T) {
 	defer vm.Close()
 
 	t.Run("os library should not be available", func(t *testing.T) {
-		err := vm.DoString(nil, `
+		err := vm.DoString(context.Background(), `
 			if os then
 				error("os library should not be available")
 			end
@@ -599,20 +599,20 @@ func TestVM_SecurityRestrictions(t *testing.T) {
 		}
 
 		// Try to require os
-		err = vm.DoString(nil, `require("os")`, "os_require_test")
+		err = vm.DoString(context.Background(), `require("os")`, "os_require_test")
 		if err == nil {
 			t.Error("expected error when requiring os library")
 		}
 
 		// Verify specific os operations fail
-		err = vm.DoString(nil, `os.execute("echo test")`, "os_execute_test")
+		err = vm.DoString(context.Background(), `os.execute("echo test")`, "os_execute_test")
 		if err == nil {
 			t.Error("os.execute should not be available")
 		}
 	})
 
 	t.Run("io library should not be available", func(t *testing.T) {
-		err := vm.DoString(nil, `
+		err := vm.DoString(context.Background(), `
 			if io then
 				error("io library should not be available")
 			end
@@ -622,20 +622,20 @@ func TestVM_SecurityRestrictions(t *testing.T) {
 		}
 
 		// Try to require io
-		err = vm.DoString(nil, `require("io")`, "io_require_test")
+		err = vm.DoString(context.Background(), `require("io")`, "io_require_test")
 		if err == nil {
 			t.Error("expected error when requiring io library")
 		}
 
 		// Verify specific io operations fail
-		err = vm.DoString(nil, `io.open("test.txt", "r")`, "io_open_test")
+		err = vm.DoString(context.Background(), `io.open("test.txt", "r")`, "io_open_test")
 		if err == nil {
 			t.Error("io.open should not be available")
 		}
 	})
 
 	t.Run("loadlib operations should not work", func(t *testing.T) {
-		err := vm.DoString(nil, `
+		err := vm.DoString(context.Background(), `
 			-- Try to load a C library (should fail)
 			local ok, err = package.loadlib("test.so", "luaopen_test")
 			if ok then
@@ -661,7 +661,7 @@ func TestVM_SecurityRestrictions(t *testing.T) {
 		defer vm.Close()
 
 		// Verify we can load our preloaded module
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local t = require("testlib")
 			assert(t.test() == "ok")
 		`, "require_test")
@@ -670,13 +670,13 @@ func TestVM_SecurityRestrictions(t *testing.T) {
 		}
 
 		// Try to require a non-existent module
-		err = vm.DoString(nil, `require("nonexistent")`, "require_nonexistent_test")
+		err = vm.DoString(context.Background(), `require("nonexistent")`, "require_nonexistent_test")
 		if err == nil {
 			t.Error("expected error when requiring non-existent module")
 		}
 
 		// Try to require a system module
-		err = vm.DoString(nil, `require("socket")`, "require_system_test")
+		err = vm.DoString(context.Background(), `require("socket")`, "require_system_test")
 		if err == nil {
 			t.Error("expected error when requiring system module")
 		}
@@ -697,7 +697,7 @@ func TestVM_SecurityRestrictions(t *testing.T) {
 
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				err := vm.DoString(nil, tt.script, tt.name)
+				err := vm.DoString(context.Background(), tt.script, tt.name)
 				if err == nil {
 					t.Errorf("%s: expected error but got none", tt.name)
 				}
@@ -1247,13 +1247,13 @@ func TestVM_SharedLibraryProto(t *testing.T) {
     `
 
 	// Test VM1
-	err = vm1.DoString(nil, testScript, "test1")
+	err = vm1.DoString(context.Background(), testScript, "test1")
 	if err != nil {
 		t.Fatal("VM1 failed:", err)
 	}
 
 	// Test VM2 with different values
-	err = vm2.DoString(nil, testScript, "test2")
+	err = vm2.DoString(context.Background(), testScript, "test2")
 	if err != nil {
 		t.Fatal("VM2 failed:", err)
 	}
@@ -1266,13 +1266,13 @@ func TestVM_SharedLibraryProto(t *testing.T) {
         `
 
 		// Test on VM1
-		err := vm1.DoString(nil, script, "vm1_test")
+		err := vm1.DoString(context.Background(), script, "vm1_test")
 		if err != nil {
 			t.Fatal("VM1 specific call failed:", err)
 		}
 
 		// Test on VM2
-		err = vm2.DoString(nil, script, "vm2_test")
+		err = vm2.DoString(context.Background(), script, "vm2_test")
 		if err != nil {
 			t.Fatal("VM2 specific call failed:", err)
 		}
@@ -1290,17 +1290,17 @@ func TestVM_SharedLibraryProto(t *testing.T) {
         `
 
 		// Run on VM1 twice
-		err := vm1.DoString(nil, stateScript, "vm1_state")
+		err := vm1.DoString(context.Background(), stateScript, "vm1_state")
 		if err != nil {
 			t.Fatal("VM1 state test failed:", err)
 		}
-		err = vm1.DoString(nil, stateScript, "vm1_state")
+		err = vm1.DoString(context.Background(), stateScript, "vm1_state")
 		if err != nil {
 			t.Fatal("VM1 second state test failed:", err)
 		}
 
 		// Run on VM2 - should start from 0
-		err = vm2.DoString(nil, stateScript, "vm2_state")
+		err = vm2.DoString(context.Background(), stateScript, "vm2_state")
 		if err != nil {
 			t.Fatal("VM2 state test failed:", err)
 		}

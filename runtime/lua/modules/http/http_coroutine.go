@@ -2,14 +2,15 @@ package http
 
 import (
 	"context"
+	"io"
+	"net/http"
+
 	"github.com/ponyruntime/pony/internal/closer"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	"github.com/ponyruntime/pony/runtime/lua/modules/stream"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
-	"io"
-	"net/http"
 )
 
 // executeRequestYield performs HTTP request asynchronously using coroutines
@@ -40,7 +41,7 @@ func (m *Module) executeRequestYield(l *lua.LState, req *http.Request, opts *req
 	)
 
 	coroutine.Wrap(l, func() engine.Result {
-		resp, err := m.client.Do(req)
+		resp, err := m.client.Do(req) //nolint:bodyclose
 		if err != nil {
 			return engine.Result{Result: []lua.LValue{lua.LNil, lua.LString(err.Error())}}
 		}

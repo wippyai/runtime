@@ -84,7 +84,8 @@ func TestFactory_Build(t *testing.T) {
 		assert.NotNil(t, queuedPool)
 
 		// Give workers time to initialize
-		queuedPool.Execute(context.Background(), "test")
+		_, err = queuedPool.Execute(context.Background(), "test")
+		require.NoError(t, err)
 
 		// Verify the factory was called
 		assert.Eventually(t, mockLuaFactory.WasMakeVMCalled, 100*time.Millisecond, 10*time.Millisecond,

@@ -2,24 +2,25 @@ package coroutine
 
 import (
 	"context"
+	"testing"
+	"time"
+
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	"github.com/stretchr/testify/assert"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
-	"testing"
-	"time"
 )
 
 func TestRunner_AsLayer(t *testing.T) {
 	// Setup VM
 	log := zap.NewNop()
 	vm, err := engine.NewCVM(log,
-		engine.WithGlobalFunction("async_sleep", func(L *lua.LState) int {
+		engine.WithGlobalFunction("async_sleep", func(l *lua.LState) int {
 			// Validate and get duration upfront
-			ms := L.CheckNumber(1)
+			ms := l.CheckNumber(1)
 
-			Wrap(L, func() engine.Result {
+			Wrap(l, func() engine.Result {
 				time.Sleep(time.Duration(ms) * time.Millisecond)
 				return engine.Result{Result: []lua.LValue{lua.LString("slept"), ms}}
 			})

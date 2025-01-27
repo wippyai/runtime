@@ -2,7 +2,11 @@ package terminal
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
+	"sync/atomic"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"
@@ -11,8 +15,6 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/tasks"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
-	"io"
-	"sync/atomic"
 )
 
 /**
@@ -89,7 +91,6 @@ func (t *LuaTerminal) Run(ctx context.Context, in io.Reader, out io.Writer) erro
 				return
 			}
 		}
-
 	}()
 
 	result := make(chan any, 1)
@@ -124,7 +125,8 @@ func (t *LuaTerminal) Run(ctx context.Context, in io.Reader, out io.Writer) erro
 		}
 
 		if err, ok := result.(error); ok {
-			if leak, ok := err.(*engine.CoroutineLeak); ok {
+			var leak *engine.CoroutineLeak
+			if errors.As(err, &leak) {
 				t.log.Error("found coroutine leak, exiting", zap.Any("leak", leak))
 				return supervisor.ErrExit
 			}
@@ -142,35 +144,34 @@ func (t *LuaTerminal) Run(ctx context.Context, in io.Reader, out io.Writer) erro
 	return nil
 }
 
-func (t *LuaTerminal) Close(ctx context.Context) error {
+func (t *LuaTerminal) Close(context.Context) error {
 	return nil
 }
 
-func (t *LuaTerminal) Observe(ctx context.Context, bus events.Bus) error {
+func (t *LuaTerminal) Observe(context.Context, events.Bus) error {
 	return nil
 }
 
 func (t *LuaTerminal) State() payload.Payload {
-	if state := t.state.Load(); state != nil {
-		//return state
-	}
+	// if state := t.state.Load(); state != nil {
+	//	return state
+	// }
 
 	return nil
 }
 
-// todo: ctx
-func (t *LuaTerminal) SetState(ctx context.Context, state payload.Payload) error {
-	// todO: get bus and dtt from ctx
+func (t *LuaTerminal) SetState(_ context.Context, state payload.Payload) error {
+	// todo: get bus and dtt from ctx
 	if state == nil {
 		t.args = nil
 		return nil
 	}
 
-	//luaArgs, ok := state.([]lua.LValue)
-	//if !ok {
+	// luaArgs, ok := state.([]lua.LValue)
+	// if !ok {
 	//	return fmt.Errorf("invalid state type: expected []lua.LValue, got %T", state)
-	//}
+	// }
 	//
-	//t.args = luaArgs
+	// t.args = luaArgs
 	return nil
 }
