@@ -49,10 +49,26 @@ func (l *LuaWorkflowDefinition) Execute(env bindings.WorkflowEnvironment, header
 
 }
 
+var ready = false
+
 // OnWorkflowTaskStarted implements the WorkflowDefinition interface
 func (l *LuaWorkflowDefinition) OnWorkflowTaskStarted(deadlockDetectionTimeout time.Duration) {
+	if ready {
+		p, err := l.env.GetDataConverter().ToPayloads("Hello from Lua Temporal!2")
+		if err != nil {
+			log.Printf("Error serializing output: %v\n", err)
+			return
+		}
+		l.env.Complete(p, nil)
+		return
+	}
+
 	log.Printf("Workflow task started with deadline: %v\n", deadlockDetectionTimeout)
 
+	pi, err := l.env.GetDataConverter().ToPayloads(ActivityInput{Message: "Into termporal!"})
+	if err != nil {
+		log.Printf("Error serializing input: %v\n", err)
+	}
 	l.env.ExecuteActivity(bindings.ExecuteActivityParams{
 		ExecuteActivityOptions: bindings.ExecuteActivityOptions{
 			ActivityID:          "simple-activity",
@@ -60,17 +76,11 @@ func (l *LuaWorkflowDefinition) OnWorkflowTaskStarted(deadlockDetectionTimeout t
 			StartToCloseTimeout: time.Second * 5,
 		},
 		ActivityType: struct{ Name string }{Name: "simple-activity"},
+		Input:        pi,
 	}, func(result *commonpb.Payloads, err error) {
 		log.Printf("Activity result: %v\n", result)
+		ready = true
 	})
-
-	p, err := l.env.GetDataConverter().ToPayloads("Hello from Lua Temporal!2")
-	if err != nil {
-		log.Printf("Error serializing output: %v\n", err)
-		return
-	}
-
-	l.env.Complete(p, nil)
 }
 
 func (l *LuaWorkflowDefinition) StackTrace() string { return "" }
