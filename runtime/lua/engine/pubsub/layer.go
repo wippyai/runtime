@@ -10,7 +10,7 @@ import (
 	"sync"
 )
 
-type pendingMessage struct {
+type sendMessage struct {
 	topic string
 	value lua.LValue
 }
@@ -36,16 +36,27 @@ func (s *Layer) WithContext(ctx context.Context) context.Context {
 	return ctx
 }
 
-func (s *Layer) Publish(topic string, value lua.LValue) {
+func (s *Layer) Publish(topic string, value ...lua.LValue) {
 	s.mu.Lock()
-	s.messageQueue.PushBack(&pendingMessage{
-		topic: topic,
-		value: value,
-	})
+	for _, v := range value {
+		s.messageQueue.PushBack(&sendMessage{topic: topic, value: v})
+	}
 	if s.tg != nil {
 		s.tg.WakeUp()
 	}
 	s.mu.Unlock()
+}
+
+func (s *Layer) Slots(topic string) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	ch, exists := s.subs.get(topic)
+	if !exists {
+		return 0, fmt.Errorf("no subscribers for topic %s", topic)
+	}
+
+	return ch.channel.Slots(), nil
 }
 
 func (s *Layer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, error) {
@@ -63,6 +74,7 @@ func (s *Layer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, err
 		// Write messages to channels
 		for sub, messages := range pendingWrites {
 			if len(messages) > 0 {
+				// todo: we can add some backpressure management here
 				if err := s.channels.Send(cvm.State().Context(), sub.channel, messages...); err != nil {
 					return nil, fmt.Errorf("send error: %w", err)
 				}
@@ -139,14 +151,12 @@ func (s *Layer) processMessages() map[*subscription][]lua.LValue {
 	defer s.mu.Unlock()
 
 	for e := s.messageQueue.Front(); e != nil; {
-		msg := e.Value.(*pendingMessage)
+		msg := e.Value.(*sendMessage)
 		nextElem := e.Next()
 
 		if sub, exists := s.subs.get(msg.topic); exists {
-			if len(pendingWrites[sub]) < sub.channel.Slots() {
-				pendingWrites[sub] = append(pendingWrites[sub], msg.value)
-				s.messageQueue.Remove(e)
-			}
+			pendingWrites[sub] = append(pendingWrites[sub], msg.value)
+			s.messageQueue.Remove(e)
 		}
 		e = nextElem
 	}
