@@ -60,11 +60,6 @@ func (t *TaskRunner) Start(ctx context.Context, funcName string, args ...lua.LVa
 	}
 
 	ctx, cleanup := closer.WithContext(t.runner.WithContext(ctx))
-	defer func() {
-		if err := cleanup.Close(); err != nil {
-			t.log.Error("cleanup failed", zap.Error(err))
-		}
-	}()
 
 	resultChan := make(chan any, 1)
 
@@ -84,6 +79,11 @@ func (t *TaskRunner) Start(ctx context.Context, funcName string, args ...lua.LVa
 		defer t.wg.Done()
 		defer t.running.Store(false)
 		defer close(resultChan)
+		defer func() {
+			if err := cleanup.Close(); err != nil {
+				t.log.Error("cleanup failed", zap.Error(err))
+			}
+		}()
 
 		// Run the engine with context
 		result, err := t.runner.Run(ctx, exitCh)

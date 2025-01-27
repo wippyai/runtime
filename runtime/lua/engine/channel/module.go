@@ -179,9 +179,13 @@ func newChannelLua(L *lua.LState) int {
 
 // Channel methods
 func sendLua(L *lua.LState) int {
-	ch := checkChannel(L)
+	ch := CheckChannel(L)
 	value := L.CheckAny(2)
 
+	return Send(L, ch, value)
+}
+
+func Send(L *lua.LState, ch *Channel, value lua.LValue) int {
 	if ch.isNamed() {
 		L.RaiseError("cannot send to named channel")
 		return 0
@@ -209,7 +213,12 @@ func sendLua(L *lua.LState) int {
 }
 
 func receiveLua(L *lua.LState) int {
-	ch := checkChannel(L)
+	ch := CheckChannel(L)
+
+	return Receive(L, ch)
+}
+
+func Receive(L *lua.LState, ch *Channel) int {
 	next := ch.receive(L, nil)
 
 	if next.yields {
@@ -236,8 +245,12 @@ func receiveLua(L *lua.LState) int {
 }
 
 func closeLua(L *lua.LState) int {
-	ch := checkChannel(L)
+	ch := CheckChannel(L)
 
+	return Close(L, ch)
+}
+
+func Close(L *lua.LState, ch *Channel) int {
 	if ch.isNamed() {
 		L.RaiseError("cannot close named channel")
 		return 0
@@ -266,9 +279,13 @@ func closeLua(L *lua.LState) int {
 
 // Select case functions
 func caseSendLua(L *lua.LState) int {
-	ch := checkChannel(L)
+	ch := CheckChannel(L)
 	value := L.CheckAny(2)
 
+	return CaseSend(L, ch, value)
+}
+
+func CaseSend(L *lua.LState, ch *Channel, value lua.LValue) int {
 	// Check for invalid send operations
 	if ch.isNamed() {
 		L.RaiseError("cannot send to named channel")
@@ -280,8 +297,12 @@ func caseSendLua(L *lua.LState) int {
 }
 
 func caseReceiveLua(L *lua.LState) int {
-	ch := checkChannel(L)
+	ch := CheckChannel(L)
 
+	return CaseReceive(L, ch)
+}
+
+func CaseReceive(L *lua.LState, ch *Channel) int {
 	L.Push(&op{kind: receiveOp, ch: ch})
 	return 1
 }
@@ -398,8 +419,8 @@ func trySelect(L *lua.LState, selectOp *selectOp) *onNext {
 	return nNext
 }
 
-// Helper functions
-func checkChannel(L *lua.LState) *Channel {
+// CheckChannel checks if the first argument is a channel and returns it.
+func CheckChannel(L *lua.LState) *Channel {
 	ud := L.CheckUserData(1)
 	if ch, ok := ud.Value.(*Channel); ok {
 		return ch
@@ -410,19 +431,19 @@ func checkChannel(L *lua.LState) *Channel {
 
 // Debug methods
 func debugSizeLua(L *lua.LState) int {
-	ch := checkChannel(L)
+	ch := CheckChannel(L)
 	L.Push(lua.LNumber(ch.size))
 	return 1
 }
 
 func debugSendersLua(L *lua.LState) int {
-	ch := checkChannel(L)
+	ch := CheckChannel(L)
 	L.Push(lua.LNumber(ch.senders.Len()))
 	return 1
 }
 
 func debugReceiversLua(L *lua.LState) int {
-	ch := checkChannel(L)
+	ch := CheckChannel(L)
 	L.Push(lua.LNumber(ch.receivers.Len()))
 	return 1
 }
