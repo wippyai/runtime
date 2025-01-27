@@ -62,7 +62,7 @@ func (m *Manager) Start(ctx context.Context) error {
 }
 
 // Stop gracefully shuts down the service
-func (m *Manager) Stop(ctx context.Context) error {
+func (m *Manager) Stop(context.Context) error {
 	if m.sub != nil {
 		m.sub.Close()
 		m.sub = nil

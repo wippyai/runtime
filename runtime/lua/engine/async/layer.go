@@ -5,12 +5,12 @@ package async
 import (
 	"context"
 	"errors"
+
+	capi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	lua "github.com/yuin/gopher-lua"
 )
-
-type scheduleCtx struct{}
 
 type async struct {
 	from  *lua.LState
@@ -18,8 +18,6 @@ type async struct {
 	value lua.LValue
 	ok    bool
 }
-
-var scheduleKey = &scheduleCtx{}
 
 // getContext retrieves the async channel from context along with the task group.
 // Returns an error if either the task group is not present or the async channel
@@ -30,7 +28,7 @@ func getContext(ctx context.Context) (*engine.TaskGroup, chan async, error) {
 		return nil, nil, errors.New("cannot send from non-task context")
 	}
 
-	if ch, ok := ctx.Value(scheduleKey).(chan async); ok {
+	if ch, ok := ctx.Value(capi.ScheduleKeyCtx).(chan async); ok {
 		return tg, ch, nil
 	}
 
@@ -40,17 +38,17 @@ func getContext(ctx context.Context) (*engine.TaskGroup, chan async, error) {
 // Send sends a value through the async channel and wakes up the task group.
 // This function is used to schedule asynchronous operations from Lua state.
 // The 'ok' parameter determines if this is a send (true) or close (false) operation.
-func Send(L *lua.LState, ch *channel.Channel, value lua.LValue, ok bool) error {
-	tg, asyncCh, err := getContext(L.Context())
+func Send(l *lua.LState, ch *channel.Channel, value lua.LValue, ok bool) error {
+	tg, asyncCh, err := getContext(l.Context())
 	if err != nil {
 		return err
 	}
 
 	select {
-	case asyncCh <- async{from: L, ch: ch, value: value, ok: ok}:
+	case asyncCh <- async{from: l, ch: ch, value: value, ok: ok}:
 		tg.WakeUp()
-	case <-L.Context().Done():
-		return errors.New("context has been cancelled")
+	case <-l.Context().Done():
+		return errors.New("context has been canceled")
 	}
 	return nil
 }
@@ -76,7 +74,7 @@ func NewAsyncLayer(channels *channel.Layer, chanSize int) *Layer {
 // WithContext creates a new context containing the async scheduling channel.
 // This allows the Send function to access the scheduling channel through context.
 func (r *Layer) WithContext(ctx context.Context) context.Context {
-	return context.WithValue(ctx, scheduleKey, r.schedule)
+	return context.WithValue(ctx, capi.ScheduleKeyCtx, r.schedule)
 }
 
 // Step implements the engine.Layer interface by processing scheduled async

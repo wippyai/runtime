@@ -47,7 +47,6 @@ func (b *StateBuilder) BuildState(history registry.History, targetVersion regist
 		return nil, fmt.Errorf("failed to get path from root to version %v: %w", targetVersion, err)
 	}
 
-	state := make(registry.State, 0)
 	stateMap := make(map[registry.ID]registry.Entry) // Use a map for efficient lookups and overwrites
 
 	for _, ver := range path {
@@ -91,7 +90,7 @@ func (b *StateBuilder) BuildState(history registry.History, targetVersion regist
 	}
 
 	// Convert the state map back to a slice
-	state = make(registry.State, 0, len(stateMap))
+	state := make(registry.State, 0, len(stateMap))
 
 	// Extract keys for sorting
 	paths := make([]string, 0, len(stateMap))

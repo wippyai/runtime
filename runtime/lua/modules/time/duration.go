@@ -15,16 +15,6 @@ type Duration struct {
 	duration time.Duration
 }
 
-// Register duration methods
-var durationMethods = map[string]lua.LGFunction{
-	"nanoseconds":  durationNanoseconds,
-	"microseconds": durationMicroseconds,
-	"milliseconds": durationMilliseconds,
-	"seconds":      durationSeconds,
-	"minutes":      durationMinutes,
-	"hours":        durationHours,
-}
-
 // Duration methods implementations
 func durationNanoseconds(l *lua.LState) int {
 	ud := l.CheckUserData(1)
@@ -134,7 +124,14 @@ func parseDurationValue(value lua.LValue) (time.Duration, error) {
 
 func registerDuration(l *lua.LState, mod *lua.LTable) {
 	mt := l.NewTypeMetatable("Duration")
-	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), durationMethods))
+	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
+		"nanoseconds":  durationNanoseconds,
+		"microseconds": durationMicroseconds,
+		"milliseconds": durationMilliseconds,
+		"seconds":      durationSeconds,
+		"minutes":      durationMinutes,
+		"hours":        durationHours,
+	}))
 	l.SetField(mt, "__tostring", l.NewFunction(durationToString))
 
 	// Register duration constants

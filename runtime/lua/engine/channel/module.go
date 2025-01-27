@@ -122,13 +122,13 @@ func (m *Module) Name() string {
 }
 
 // Loader registers the module functions
-func (m *Module) Loader(L *lua.LState) int {
+func (m *Module) Loader(l *lua.LState) int {
 	// Create module table
-	mod := L.NewTable()
+	mod := l.NewTable()
 
 	// Register constructors
-	L.SetField(mod, "new", L.NewFunction(newChannelLua))
-	L.SetField(mod, "select", L.NewFunction(selectLua))
+	l.SetField(mod, "new", l.NewFunction(newChannelLua))
+	l.SetField(mod, "select", l.NewFunction(selectLua))
 
 	// Channel methods
 	channelMethods := map[string]lua.LGFunction{
@@ -143,121 +143,121 @@ func (m *Module) Loader(L *lua.LState) int {
 	}
 
 	// Channel metatable
-	mt := L.NewTypeMetatable("channel")
-	L.SetField(mt, "__index", L.SetFuncs(L.NewTable(), channelMethods))
+	mt := l.NewTypeMetatable("channel")
+	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), channelMethods))
 
 	// Register module
-	L.Push(mod)
+	l.Push(mod)
 	return 1
 }
 
 // Wrap wraps a channel into a Lua value.
-func Wrap(L *lua.LState, ch *Channel) lua.LValue {
-	ud := L.NewUserData()
+func Wrap(l *lua.LState, ch *Channel) lua.LValue {
+	ud := l.NewUserData()
 	ud.Value = ch
 	ch.value = ud // for select conditions they are always coupled
-	L.SetMetatable(ud, L.GetTypeMetatable("channel"))
+	l.SetMetatable(ud, l.GetTypeMetatable("channel"))
 	return ud
 }
 
 // Constructor functions
-func newChannelLua(L *lua.LState) int {
-	capacity := L.OptInt(1, 0)
+func newChannelLua(l *lua.LState) int {
+	capacity := l.OptInt(1, 0)
 	if capacity < 0 {
-		L.RaiseError("channel capacity must be >= 0")
+		l.RaiseError("channel capacity must be >= 0")
 		return 0
 	}
 
 	ch := newChannel(capacity)
-	ud := L.NewUserData()
+	ud := l.NewUserData()
 	ud.Value = ch
 	ch.value = ud // yep
-	L.SetMetatable(ud, L.GetTypeMetatable("channel"))
-	L.Push(ud)
+	l.SetMetatable(ud, l.GetTypeMetatable("channel"))
+	l.Push(ud)
 	return 1
 }
 
 // Channel methods
-func sendLua(L *lua.LState) int {
-	ch := checkChannel(L)
-	value := L.CheckAny(2)
+func sendLua(l *lua.LState) int {
+	ch := checkChannel(l)
+	value := l.CheckAny(2)
 
 	if ch.isNamed() {
-		L.RaiseError("cannot send to named channel")
+		l.RaiseError("cannot send to named channel")
 		return 0
 	}
 
 	if ch.closed {
-		L.RaiseError("attempt to send on closed channel")
+		l.RaiseError("attempt to send on closed channel")
 		return 0
 	}
 
-	next := ch.send(L, value, nil)
+	next := ch.send(l, value, nil)
 
 	if next.yields {
-		L.Push(next)
+		l.Push(next)
 		return -1
 	}
 
 	if len(next.next) > 0 && next.next[0].err != nil {
-		L.RaiseError(next.next[0].err.Error())
+		l.RaiseError("%s", next.next[0].err.Error())
 		return 0
 	}
 
-	L.Push(lua.LBool(true))
+	l.Push(lua.LBool(true))
 	return 1
 }
 
-func receiveLua(L *lua.LState) int {
-	ch := checkChannel(L)
-	next := ch.receive(L, nil)
+func receiveLua(l *lua.LState) int {
+	ch := checkChannel(l)
+	next := ch.receive(l, nil)
 
 	if next.yields {
-		L.Push(next)
+		l.Push(next)
 		return -1 // yield to scheduler
 	}
 
 	if len(next.next) > 0 {
 		result := next.next[0]
 		if result.err != nil {
-			L.RaiseError(result.err.Error())
+			l.RaiseError("%s", result.err.Error())
 			return 0
 		}
 
 		if len(result.values) == 2 {
-			L.Push(result.values[0]) // value
-			L.Push(result.values[1]) // ok
+			l.Push(result.values[0]) // value
+			l.Push(result.values[1]) // ok
 			return 2
 		}
 	}
 
-	L.RaiseError("invalid receive result")
+	l.RaiseError("invalid receive result")
 	return 0
 }
 
-func closeLua(L *lua.LState) int {
-	ch := checkChannel(L)
+func closeLua(l *lua.LState) int {
+	ch := checkChannel(l)
 
 	if ch.isNamed() {
-		L.RaiseError("cannot close named channel")
+		l.RaiseError("cannot close named channel")
 		return 0
 	}
 
 	if ch.closed {
-		L.RaiseError("attempt to close already closed channel")
+		l.RaiseError("attempt to close already closed channel")
 		return 0
 	}
 
-	next := ch.close(L)
+	next := ch.close(l)
 
 	if next.yields {
-		L.Push(next)
+		l.Push(next)
 		return -1 // yield to scheduler
 	}
 
 	// Handle immediate next
 	if len(next.next) > 0 && next.next[0].err != nil {
-		L.RaiseError(next.next[0].err.Error())
+		l.RaiseError("%s", next.next[0].err.Error())
 		return 0
 	}
 
@@ -265,32 +265,32 @@ func closeLua(L *lua.LState) int {
 }
 
 // Select case functions
-func caseSendLua(L *lua.LState) int {
-	ch := checkChannel(L)
-	value := L.CheckAny(2)
+func caseSendLua(l *lua.LState) int {
+	ch := checkChannel(l)
+	value := l.CheckAny(2)
 
 	// Check for invalid send operations
 	if ch.isNamed() {
-		L.RaiseError("cannot send to named channel")
+		l.RaiseError("cannot send to named channel")
 		return 0
 	}
 
-	L.Push(&op{kind: sendOp, ch: ch, value: value})
+	l.Push(&op{kind: sendOp, ch: ch, value: value})
 	return 1
 }
 
-func caseReceiveLua(L *lua.LState) int {
-	ch := checkChannel(L)
+func caseReceiveLua(l *lua.LState) int {
+	ch := checkChannel(l)
 
-	L.Push(&op{kind: receiveOp, ch: ch})
+	l.Push(&op{kind: receiveOp, ch: ch})
 	return 1
 }
 
 // Select function
-func selectLua(L *lua.LState) int {
+func selectLua(l *lua.LState) int {
 	// Check if the first argument is a table
-	casesTable := L.CheckTable(1)
-	hasDefault := L.OptBool(2, false)
+	casesTable := l.CheckTable(1)
+	hasDefault := l.OptBool(2, false)
 
 	var cases []*op
 	casesTable.ForEach(func(key, value lua.LValue) {
@@ -301,7 +301,7 @@ func selectLua(L *lua.LState) int {
 		} else if caseOp, ok := value.(*op); ok {
 			cases = append(cases, caseOp)
 		} else {
-			L.RaiseError("Invalid select case")
+			l.RaiseError("Invalid select case")
 		}
 	})
 
@@ -309,36 +309,36 @@ func selectLua(L *lua.LState) int {
 	selectOp := &selectOp{
 		cases:      cases,
 		hasDefault: hasDefault,
-		task:       L,
+		task:       l,
 	}
 
 	// Try to execute the select operation
-	next := trySelect(L, selectOp)
+	next := trySelect(l, selectOp)
 	if next.yields {
-		L.Push(next)
+		l.Push(next)
 		return -1
 	}
 
 	if len(next.next) > 0 {
 		result := next.next[0]
 		if result.err != nil {
-			L.RaiseError(result.err.Error())
+			l.RaiseError("%s", result.err.Error())
 			return 0
 		}
 		if len(result.values) > 0 {
-			L.Push(result.values[0])
+			l.Push(result.values[0])
 			return 1
 		}
 	}
 
-	L.RaiseError("invalid select result")
+	l.RaiseError("invalid select result")
 	return 0
 }
 
 // trySelects checks the ability of immediate select operation
-func trySelect(L *lua.LState, selectOp *selectOp) *onNext {
-	//waits := make([]*Channel, 0, len(selectOp.cases))
-	//next := make([]*opStep, 0)
+func trySelect(l *lua.LState, selectOp *selectOp) *onNext {
+	// waits := make([]*Channel, 0, len(selectOp.cases))
+	// next := make([]*opStep, 0)
 	nNext := &onNext{
 		yields:  true,
 		next:    make([]*opStep, 0),
@@ -346,29 +346,29 @@ func trySelect(L *lua.LState, selectOp *selectOp) *onNext {
 		release: make([]*Channel, 0),
 	}
 
-	// check if we can execute chan operation immediatelly
+	// check if we can execute chan operation immediately
 	for _, caseOp := range selectOp.cases {
 		switch caseOp.kind {
 		case sendOp:
 			if caseOp.ch.canSend() {
-				return caseOp.ch.send(L, caseOp.value, selectOp)
+				return caseOp.ch.send(l, caseOp.value, selectOp)
 			}
 		case receiveOp:
 			if caseOp.ch.canReceive() {
-				return caseOp.ch.receive(L, selectOp)
+				return caseOp.ch.receive(l, selectOp)
 			}
 		}
 	}
 
 	// Handle default case
 	if selectOp.hasDefault {
-		result := L.NewTable()
+		result := l.NewTable()
 		result.RawSetString("default", lua.LBool(true))
 		result.RawSetString("ok", lua.LBool(true))
 
 		return &onNext{
 			next: []*opStep{
-				{state: L, values: []lua.LValue{result}},
+				{state: l, values: []lua.LValue{result}},
 			},
 		}
 	}
@@ -378,14 +378,14 @@ func trySelect(L *lua.LState, selectOp *selectOp) *onNext {
 
 		switch caseOp.kind {
 		case sendOp:
-			m := caseOp.ch.send(L, caseOp.value, selectOp)
+			m := caseOp.ch.send(l, caseOp.value, selectOp)
 
 			// merge
 			nNext.next = append(nNext.next, m.next...)
 			nNext.block = append(nNext.block, m.block...)
 			nNext.release = append(nNext.release, m.release...)
 		case receiveOp:
-			m := caseOp.ch.receive(L, selectOp)
+			m := caseOp.ch.receive(l, selectOp)
 
 			// merge
 			nNext.next = append(nNext.next, m.next...)
@@ -399,30 +399,30 @@ func trySelect(L *lua.LState, selectOp *selectOp) *onNext {
 }
 
 // Helper functions
-func checkChannel(L *lua.LState) *Channel {
-	ud := L.CheckUserData(1)
+func checkChannel(l *lua.LState) *Channel {
+	ud := l.CheckUserData(1)
 	if ch, ok := ud.Value.(*Channel); ok {
 		return ch
 	}
-	L.ArgError(1, "channel expected")
+	l.ArgError(1, "channel expected")
 	return nil
 }
 
 // Debug methods
-func debugSizeLua(L *lua.LState) int {
-	ch := checkChannel(L)
-	L.Push(lua.LNumber(ch.size))
+func debugSizeLua(l *lua.LState) int {
+	ch := checkChannel(l)
+	l.Push(lua.LNumber(ch.size))
 	return 1
 }
 
-func debugSendersLua(L *lua.LState) int {
-	ch := checkChannel(L)
-	L.Push(lua.LNumber(ch.senders.Len()))
+func debugSendersLua(l *lua.LState) int {
+	ch := checkChannel(l)
+	l.Push(lua.LNumber(ch.senders.Len()))
 	return 1
 }
 
-func debugReceiversLua(L *lua.LState) int {
-	ch := checkChannel(L)
-	L.Push(lua.LNumber(ch.receivers.Len()))
+func debugReceiversLua(l *lua.LState) int {
+	ch := checkChannel(l)
+	l.Push(lua.LNumber(ch.receivers.Len()))
 	return 1
 }

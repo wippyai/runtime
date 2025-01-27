@@ -11,7 +11,7 @@ import (
 )
 
 func TestNewLibraries(t *testing.T) {
-	logger := zap.NewNop()
+	logger, _ := zap.NewDevelopment()
 
 	t.Run("creates new instance", func(t *testing.T) {
 		libs := NewLibraries(logger)
@@ -22,7 +22,7 @@ func TestNewLibraries(t *testing.T) {
 }
 
 func TestLibraries_Add(t *testing.T) {
-	logger := zap.NewNop()
+	logger, _ := zap.NewDevelopment()
 	libs := NewLibraries(logger)
 
 	t.Run("adds new library successfully", func(t *testing.T) {
@@ -73,7 +73,7 @@ func TestLibraries_Add(t *testing.T) {
 }
 
 func TestLibraries_Update(t *testing.T) {
-	logger := zap.NewNop()
+	logger, _ := zap.NewDevelopment()
 	libs := NewLibraries(logger)
 
 	// First add a library
@@ -112,7 +112,7 @@ func TestLibraries_Update(t *testing.T) {
 }
 
 func TestLibraries_Delete(t *testing.T) {
-	logger := zap.NewNop()
+	logger, _ := zap.NewDevelopment()
 	libs := NewLibraries(logger)
 
 	// First add a library
@@ -139,7 +139,7 @@ func TestLibraries_Delete(t *testing.T) {
 }
 
 func TestLibraries_Clone(t *testing.T) {
-	logger := zap.NewNop()
+	logger, _ := zap.NewDevelopment()
 	libs := NewLibraries(logger)
 
 	// Add a test library
@@ -183,7 +183,7 @@ func TestLibraries_Clone(t *testing.T) {
 }
 
 func TestLibraries_Get(t *testing.T) {
-	logger := zap.NewNop()
+	logger, _ := zap.NewDevelopment()
 	libs := NewLibraries(logger)
 
 	cfg := &api.LibraryConfig{
@@ -209,7 +209,7 @@ func TestLibraries_Get(t *testing.T) {
 }
 
 func TestLibraries_Has(t *testing.T) {
-	logger := zap.NewNop()
+	logger, _ := zap.NewDevelopment()
 	libs := NewLibraries(logger)
 
 	cfg := &api.LibraryConfig{

@@ -23,7 +23,7 @@ type mockExecutor struct {
 	err    error
 }
 
-func (m *mockExecutor) Execute(task runtime.Task) (chan *runtime.Result, error) {
+func (m *mockExecutor) Execute(runtime.Task) (chan *runtime.Result, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
@@ -259,7 +259,7 @@ func TestExecutorModule_ContextCancellation(t *testing.T) {
 		err = vm.DoString(ctx, `
 			local executor = require("executor")
 			local result, err = executor.call("test_function")
-			assert(err == "execution cancelled", "expected cancellation error but got: " .. tostring(err))
+			assert(err == "execution canceled", "expected cancellation error but got: " .. tostring(err))
 			assert(result == nil, "expected nil result on cancellation")
 		`, "test_context_cancellation")
 		require.Error(t, err)
@@ -301,7 +301,7 @@ func TestExecutorModule_MissingContext(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("nil context", func(t *testing.T) {
-		mod := NewExecutorModule(nil)
+		mod := NewExecutorModule(context.Background())
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()

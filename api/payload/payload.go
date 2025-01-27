@@ -13,7 +13,7 @@ const (
 	Lua Format = "lua/any"
 	// String represents a plain text payload
 	String Format = "text/plain"
-	// Bytes represents a raw binary payload
+	// Bytes represent a raw binary payload
 	Bytes Format = "application/octet-stream"
 	// Error represents a Go error payload
 	Error Format = "golang/error"

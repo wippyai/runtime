@@ -3,9 +3,6 @@ package lua
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/api/service/terminal"
-	"github.com/ponyruntime/pony/runtime/lua/manager"
-	terminalmng "github.com/ponyruntime/pony/runtime/lua/terminal"
 	"sync"
 
 	"github.com/ponyruntime/pony/api/events"
@@ -13,7 +10,10 @@ import (
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
 	api "github.com/ponyruntime/pony/api/runtime/lua"
+	"github.com/ponyruntime/pony/api/service/terminal"
+	"github.com/ponyruntime/pony/runtime/lua/manager"
 	"github.com/ponyruntime/pony/runtime/lua/pool"
+	terminalmng "github.com/ponyruntime/pony/runtime/lua/terminal"
 	"go.uber.org/zap"
 )
 

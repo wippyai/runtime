@@ -4,16 +4,17 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"github.com/ponyruntime/pony/api/events"
-	logsapi "github.com/ponyruntime/pony/api/service/logs"
-	"github.com/ponyruntime/pony/service/logs"
-	"github.com/ponyruntime/pony/service/terminal"
 	httpbase "net/http"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/ponyruntime/pony/api/events"
+	logsapi "github.com/ponyruntime/pony/api/service/logs"
+	"github.com/ponyruntime/pony/service/logs"
+	"github.com/ponyruntime/pony/service/terminal"
 
 	contextapi "github.com/ponyruntime/pony/api/context"
 	regapi "github.com/ponyruntime/pony/api/registry"
@@ -63,7 +64,9 @@ func main() {
 		fmt.Println("Failed to initialize logger")
 		os.Exit(1)
 	}
-	defer log.Sync()
+	defer func() {
+		_ = log.Sync()
+	}()
 
 	appLogger := log.Named("main")
 
@@ -81,6 +84,9 @@ func main() {
 
 	// -- application state
 	appState, err := loadApplicationState(args, dtt, appLogger)
+	if err != nil {
+		appLogger.Fatal("failed to load application state", zap.Error(err))
+	}
 
 	// -- observability application
 	logSrv := logs.NewManager(bus, core, log.Named("logs"))
@@ -167,7 +173,7 @@ func main() {
 	// wait for either shutdown signal or context cancellation
 	select {
 	case <-ctx.Done():
-		appLogger.Info("context cancelled, shutting down...")
+		appLogger.Info("context canceled, shutting down...")
 	case sig := <-sigChan:
 		appLogger.Info("received signal, shutting down...", zap.String("signal", sig.String()))
 	}

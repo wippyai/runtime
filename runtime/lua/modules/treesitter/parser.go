@@ -17,9 +17,9 @@ type ParserWrapper struct {
 	lang   *LanguageInfo
 }
 
-func registerParser(L *lua.LState) {
-	mt := L.NewTypeMetatable("treesitter.Parser")
-	L.SetField(mt, "__index", L.SetFuncs(L.NewTable(), map[string]lua.LGFunction{
+func registerParser(l *lua.LState) {
+	mt := l.NewTypeMetatable("treesitter.Parser")
+	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
 		"parse":        parserParse,
 		"set_language": parserSetLanguage,
 		"get_language": parserGetLanguage,
@@ -73,115 +73,115 @@ func (p *ParserWrapper) parseWithContext(ctx context.Context, code []byte, oldTr
 	return tree, nil
 }
 
-func parserSetLanguage(L *lua.LState) int {
-	p := checkParser(L)
-	langAlias := L.CheckString(2)
+func parserSetLanguage(l *lua.LState) int {
+	p := checkParser(l)
+	langAlias := l.CheckString(2)
 
 	langInfo := NewLanguages().GetLanguageInfo(langAlias)
 	if langInfo == nil {
-		L.RaiseError("language %s is not found", langAlias)
+		l.RaiseError("language %s is not found", langAlias)
 		return 0
 	}
 
 	if langInfo.Language == nil {
-		L.RaiseError("language %s does not have a Tree-sitter language binding", langAlias)
+		l.RaiseError("language %s does not have a Tree-sitter language binding", langAlias)
 		return 0
 	}
 
 	lang := langInfo.Language()
 	err := p.parser.SetLanguage(treesitter.NewLanguage(lang))
 	if err != nil {
-		L.Push(lua.LFalse)
-		L.Push(lua.LString(err.Error()))
+		l.Push(lua.LFalse)
+		l.Push(lua.LString(err.Error()))
 		return 2
 	}
 	p.lang = langInfo
 
-	L.Push(lua.LTrue)
+	l.Push(lua.LTrue)
 	return 1
 }
 
-func parserGetLanguage(L *lua.LState) int {
-	p := checkParser(L)
+func parserGetLanguage(l *lua.LState) int {
+	p := checkParser(l)
 
 	if p.lang == nil {
-		L.RaiseError("language is not set")
+		l.RaiseError("language is not set")
 		return 0
 	}
 
-	L.Push(lua.LString(p.lang.Name))
+	l.Push(lua.LString(p.lang.Name))
 	return 1
 }
 
-func parserParse(L *lua.LState) int {
-	parser := checkParser(L)
-	code := L.CheckString(2)
+func parserParse(l *lua.LState) int {
+	parser := checkParser(l)
+	code := l.CheckString(2)
 
 	if parser.parser.Language() == nil {
-		L.ArgError(1, "language is not set")
+		l.ArgError(1, "language is not set")
 		return 0
 	}
 
 	var oldTree *TreeWrapper
-	if L.GetTop() > 2 {
-		if ud := L.CheckUserData(3); ud != nil {
+	if l.GetTop() > 2 {
+		if ud := l.CheckUserData(3); ud != nil {
 			if tw, ok := ud.Value.(*TreeWrapper); ok {
 				oldTree = tw
 			} else {
-				L.ArgError(3, "tree expected")
+				l.ArgError(3, "tree expected")
 				return 0
 			}
 		}
 	}
 
-	ctx := L.Context()
+	ctx := l.Context()
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
 	tree, err := parser.parseWithContext(ctx, []byte(code), oldTree)
 	if err != nil {
-		L.Push(lua.LNil)
-		L.Push(lua.LString(err.Error()))
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
 		return 2
 	}
 
-	if L.Context() != nil {
-		cleanup := closer.FromContext(L.Context())
+	if l.Context() != nil {
+		cleanup := closer.FromContext(l.Context())
 		if cleanup != nil {
 			cleanup.Add(func() error { tree.Close(); return nil })
 		}
 	}
 
-	ud := L.NewUserData()
+	ud := l.NewUserData()
 	ud.Value = &TreeWrapper{tree: tree, source: code}
-	L.SetMetatable(ud, L.GetTypeMetatable("treesitter.Tree"))
-	L.Push(ud)
+	l.SetMetatable(ud, l.GetTypeMetatable("treesitter.Tree"))
+	l.Push(ud)
 	return 1
 }
 
-func parserReset(L *lua.LState) int {
-	p := checkParser(L)
+func parserReset(l *lua.LState) int {
+	p := checkParser(l)
 	p.parser.Reset()
 	return 0
 }
 
-func parserClose(L *lua.LState) int {
-	p := checkParser(L)
+func parserClose(l *lua.LState) int {
+	p := checkParser(l)
 	p.Close()
 	return 0
 }
 
-func parserSetTimeout(L *lua.LState) int {
-	p := checkParser(L)
-	timeout := L.CheckNumber(2)
+func parserSetTimeout(l *lua.LState) int {
+	p := checkParser(l)
+	timeout := l.CheckNumber(2)
 	p.parser.SetTimeoutMicros(uint64(timeout * 1000000)) // Convert seconds to microseconds
 	return 0
 }
 
-func parserSetRanges(L *lua.LState) int {
-	p := checkParser(L)
-	rangesTable := L.CheckTable(2)
+func parserSetRanges(l *lua.LState) int {
+	p := checkParser(l)
+	rangesTable := l.CheckTable(2)
 
 	var ranges []treesitter.Range
 	var parseError error
@@ -241,18 +241,18 @@ func parserSetRanges(L *lua.LState) int {
 	})
 
 	if parseError != nil {
-		L.Push(lua.LFalse)
-		L.Push(lua.LString(parseError.Error()))
+		l.Push(lua.LFalse)
+		l.Push(lua.LString(parseError.Error()))
 		return 2
 	}
 
 	if err := p.SetIncludedRanges(ranges); err != nil {
-		L.Push(lua.LFalse)
-		L.Push(lua.LString(err.Error()))
+		l.Push(lua.LFalse)
+		l.Push(lua.LString(err.Error()))
 		return 2
 	}
 
-	L.Push(lua.LTrue)
+	l.Push(lua.LTrue)
 	return 1
 }
 
@@ -277,11 +277,11 @@ func (p *ParserWrapper) Close() {
 	}
 }
 
-func checkParser(L *lua.LState) *ParserWrapper {
-	ud := L.CheckUserData(1)
+func checkParser(l *lua.LState) *ParserWrapper {
+	ud := l.CheckUserData(1)
 	if v, ok := ud.Value.(*ParserWrapper); ok {
 		return v
 	}
-	L.ArgError(1, "Parser expected")
+	l.ArgError(1, "Parser expected")
 	return nil
 }

@@ -11,11 +11,11 @@ import (
 	"go.uber.org/zap"
 )
 
-func assertLua(L *lua.LState) int {
-	if L.ToBool(1) {
+func assertLua(l *lua.LState) int {
+	if l.ToBool(1) {
 		return 0
 	}
-	L.RaiseError("%s", L.OptString(2, "assertion failed!"))
+	l.RaiseError("%s", l.OptString(2, "assertion failed!"))
 	return 0
 }
 

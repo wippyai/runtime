@@ -2,10 +2,11 @@ package engine
 
 import (
 	"fmt"
-	lua "github.com/yuin/gopher-lua"
-	"go.uber.org/zap"
 	"strings"
 	"testing"
+
+	lua "github.com/yuin/gopher-lua"
+	"go.uber.org/zap"
 )
 
 func TestVM_InvalidLibraryLoading(t *testing.T) {
@@ -340,10 +341,10 @@ func TestVM_WithPreloaded(t *testing.T) {
 
 	t.Run("successful preload", func(t *testing.T) {
 		// Create a simple loader that returns a table
-		loader := func(L *lua.LState) int {
-			tab := L.NewTable()
-			L.SetField(tab, "test", lua.LString("value"))
-			L.Push(tab)
+		loader := func(l *lua.LState) int {
+			tab := l.NewTable()
+			l.SetField(tab, "test", lua.LString("value"))
+			l.Push(tab)
 			return 1
 		}
 
@@ -368,15 +369,15 @@ func TestVM_WithPreloaded(t *testing.T) {
 
 	t.Run("preload with multiple return values", func(t *testing.T) {
 		// Loader that returns multiple values
-		loader := func(L *lua.LState) int {
+		loader := func(l *lua.LState) int {
 			// In actual usage, WithPreloaded only uses the last returned value
-			tab := L.NewTable()
-			L.SetField(tab, "first", lua.LString("one"))
-			L.Push(tab)
+			tab := l.NewTable()
+			l.SetField(tab, "first", lua.LString("one"))
+			l.Push(tab)
 
-			tab2 := L.NewTable()
-			L.SetField(tab2, "second", lua.LString("two"))
-			L.Push(tab2)
+			tab2 := l.NewTable()
+			l.SetField(tab2, "second", lua.LString("two"))
+			l.Push(tab2)
 			return 2
 		}
 
@@ -398,7 +399,7 @@ func TestVM_WithPreloaded(t *testing.T) {
 
 	t.Run("preload with no return value", func(t *testing.T) {
 		// Loader that returns nothing
-		loader := func(L *lua.LState) int {
+		loader := func(_ *lua.LState) int {
 			return 0
 		}
 
@@ -420,8 +421,8 @@ func TestVM_WithPreloaded(t *testing.T) {
 
 	t.Run("preload with error", func(t *testing.T) {
 		// Loader that raises an error
-		loader := func(L *lua.LState) int {
-			L.RaiseError("intentional loader error")
+		loader := func(l *lua.LState) int {
+			l.RaiseError("intentional loader error")
 			return 0
 		}
 
@@ -444,13 +445,13 @@ func TestVM_WithPreloaded(t *testing.T) {
 	})
 
 	t.Run("multiple preloaded modules", func(t *testing.T) {
-		loader1 := func(L *lua.LState) int {
-			L.Push(lua.LNumber(42))
+		loader1 := func(l *lua.LState) int {
+			l.Push(lua.LNumber(42))
 			return 1
 		}
 
-		loader2 := func(L *lua.LState) int {
-			L.Push(lua.LString("hello"))
+		loader2 := func(l *lua.LState) int {
+			l.Push(lua.LString("hello"))
 			return 1
 		}
 
@@ -477,12 +478,12 @@ func TestVM_WithPreloaded(t *testing.T) {
 
 	t.Run("preload with state modification", func(t *testing.T) {
 		// Loader that modifies state beyond just returning values
-		loader := func(L *lua.LState) int {
-			// Set a global directly
-			L.SetGlobal("direct_global", lua.LString("direct"))
+		loader := func(l *lua.LState) int {
+			// Set global directly
+			l.SetGlobal("direct_global", lua.LString("direct"))
 
 			// Return a value to be set as module
-			L.Push(lua.LString("return_value"))
+			l.Push(lua.LString("return_value"))
 			return 1
 		}
 

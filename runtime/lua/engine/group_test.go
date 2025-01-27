@@ -3,12 +3,13 @@ package engine
 import (
 	"context"
 	"fmt"
-	"github.com/stretchr/testify/assert"
-	lua "github.com/yuin/gopher-lua"
 	"sort"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	lua "github.com/yuin/gopher-lua"
 )
 
 func TestTaskGroup(t *testing.T) {
@@ -74,14 +75,14 @@ func TestTaskGroup(t *testing.T) {
 		err = group.Send(context.Background(), result)
 		assert.NoError(t, err)
 
-		// Test 2: send with cancelled context
+		// Test 2: send with canceled context
 		cancelCtx, cancel := context.WithCancel(context.Background())
 
 		var sendErr error
 		var wg sync.WaitGroup
 		wg.Add(1)
 
-		// Start goroutine that will try to send to full channel
+		// Start a goroutine that will try to send to a full channel
 		go func() {
 			defer wg.Done()
 			sendErr = group.Send(cancelCtx, result)
@@ -180,7 +181,7 @@ func TestTaskGroupProcessing(t *testing.T) {
 
 		mockTask := &Task{
 			thread: L,
-			// Initialize with nil Resumed to match expected state
+			// Initialize with nil Resumed to match the expected state
 			Resumed: nil,
 		}
 

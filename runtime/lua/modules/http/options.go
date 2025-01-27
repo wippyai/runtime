@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -115,7 +116,7 @@ func makeRequest(
 		return nil, errors.New("URL cannot be empty")
 	}
 
-	req, err := http.NewRequest(strings.ToUpper(method), url, nil)
+	req, err := http.NewRequestWithContext(context.Background(), strings.ToUpper(method), url, nil)
 	if err != nil {
 		return nil, err
 	}

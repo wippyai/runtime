@@ -81,12 +81,12 @@ func (rw *ChiRouter) Build(handler http.HandlerFunc) (*chi.Mux, error) {
 	router := chi.NewRouter()
 
 	// Set default handlers
-	router.NotFound(func(w http.ResponseWriter, r *http.Request) {
+	router.NotFound(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		_, _ = fmt.Fprintln(w, "404 page not found")
 	})
 
-	router.MethodNotAllowed(func(w http.ResponseWriter, r *http.Request) {
+	router.MethodNotAllowed(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		_, _ = fmt.Fprintln(w, "405 method not allowed")
 	})

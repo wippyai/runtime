@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"context"
 	"testing"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine"
@@ -20,7 +21,7 @@ func TestLoggerModule(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local logger = require("logger")
 			assert(type(logger) == "userdata")
 		`, "test")
@@ -39,7 +40,7 @@ func TestLoggerModule(t *testing.T) {
 		// Clear any initialization logs
 		logs.TakeAll()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local logger = require("logger")
 			logger:debug("debug message")
 			logger:info("info message")
@@ -72,7 +73,7 @@ func TestLoggerModule(t *testing.T) {
 		// Clear any initialization logs
 		logs.TakeAll()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local logger = require("logger")
 			logger:info("user logged in", {
 				user_id = 123,
@@ -103,7 +104,7 @@ func TestLoggerModule(t *testing.T) {
 		// Clear any initialization logs
 		logs.TakeAll()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local logger = require("logger")
 			local contextLogger = logger:with({
 				request_id = "req-123",
@@ -134,7 +135,7 @@ func TestLoggerModule(t *testing.T) {
 		// Clear any initialization logs
 		logs.TakeAll()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local logger = require("logger")
 			local authLogger = logger:named("auth")
 			authLogger:info("initializing auth service")
@@ -156,7 +157,7 @@ func TestLoggerModule(t *testing.T) {
 		defer vm.Close()
 
 		// Test empty name in named()
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local logger = require("logger")
 			local success, err = pcall(function()
 				logger:named("")
@@ -170,7 +171,7 @@ func TestLoggerModule(t *testing.T) {
 		vm.State().Pop(1)
 
 		// Test invalid logger userdata
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local logger = require("logger")
 			local fake_logger = "not a logger"
 			local success, err = pcall(function()
@@ -185,7 +186,7 @@ func TestLoggerModule(t *testing.T) {
 		vm.State().Pop(1)
 
 		// Test with() with non-table argument
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local logger = require("logger")
 			local success, err = pcall(function()
 				logger:with("not a table")
@@ -211,7 +212,7 @@ func TestLoggerModule(t *testing.T) {
 		// Clear any initialization logs
 		logs.TakeAll()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local logger = require("logger")
 			logger:error("operation failed", {
 				error = "database connection failed",  -- Changed from 'error' to 'err_msg'

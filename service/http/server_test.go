@@ -25,7 +25,7 @@ func TestNewServer(t *testing.T) {
 		},
 	}
 
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
+	handler := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})
 	server := NewServer(cfg, handler)
 
 	assert.NotNil(t, server)
@@ -35,7 +35,7 @@ func TestNewServer(t *testing.T) {
 
 func TestServer_Router(t *testing.T) {
 	cfg := config.ServerConfig{Addr: ":8080"}
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
+	handler := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})
 	server := NewServer(cfg, handler)
 
 	router := server.router
@@ -73,7 +73,7 @@ func TestServer_StopWithoutServe(t *testing.T) {
 
 func TestSimpleHTTP(t *testing.T) {
 	// Create service with a simple handler
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("hello"))
 	})
 
@@ -103,9 +103,12 @@ func TestSimpleHTTP(t *testing.T) {
 
 	// Make request
 	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Get("http://" + port)
+	resp, err := client.Get("http://" + port) //nolint:noctx
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() {
+		errcl := resp.Body.Close()
+		require.NoError(t, errcl)
+	}()
 
 	// Read response
 	body, err := io.ReadAll(resp.Body)
@@ -120,7 +123,7 @@ func TestSimpleHTTP(t *testing.T) {
 
 func TestHTTPServerUnderSupervisor(t *testing.T) {
 	// Define a simple Timeouts handler for testing
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("hello from supervised service"))
 	})
 
@@ -144,7 +147,7 @@ func TestHTTPServerUnderSupervisor(t *testing.T) {
 				InitialDelay: 100 * time.Millisecond,
 			},
 		},
-		func(status supervisor.Status, details any) {},
+		func(supervisor.Status, any) {},
 	)
 
 	// Start the supervisor
@@ -163,9 +166,12 @@ func TestHTTPServerUnderSupervisor(t *testing.T) {
 	// Make a request to the Timeouts service
 	port := httpServer.server.Addr
 	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Get("http://" + port)
+	resp, err := client.Get("http://" + port) //nolint:noctx
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() {
+		errcl := resp.Body.Close()
+		require.NoError(t, errcl)
+	}()
 
 	// Read the response
 	body, err := io.ReadAll(resp.Body)

@@ -2,6 +2,8 @@ package stream
 
 import (
 	"context"
+	"testing"
+
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
@@ -9,7 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
-	"testing"
 )
 
 func TestAsyncStreamRead(t *testing.T) {
@@ -25,7 +26,7 @@ func TestAsyncStreamRead(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		// Create wrapped VM with async runner
+		// Create a wrapped VM with async runner
 		wrapped := engine.NewRunner(
 			vm,
 			engine.WithLayer(channel.NewChannelLayer()),

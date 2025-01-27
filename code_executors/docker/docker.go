@@ -81,7 +81,11 @@ func (e *Executor) Execute(ctx context.Context, cmd string) error {
 		return err
 	}
 
-	stdcopy.StdCopy(os.Stdout, os.Stderr, waiter.Reader)
+	_, err = stdcopy.StdCopy(os.Stdout, os.Stderr, waiter.Reader)
+	if err != nil {
+		return err
+	}
+
 	status, errCh := e.cli.ContainerWait(ctx, resp.ID, container.WaitConditionNextExit)
 	e.log.Debug("waiting for the container to exit")
 	select {
@@ -98,8 +102,8 @@ func (e *Executor) Execute(ctx context.Context, cmd string) error {
 	return nil
 }
 
-func (e *Executor) Close(ctx context.Context) {
-	e.cli.Close()
+func (e *Executor) Close(context.Context) error {
+	return e.cli.Close()
 }
 
 // private -----------------------
@@ -109,7 +113,9 @@ func (e *Executor) pullImage(ctx context.Context, imageName string) error {
 	if err != nil {
 		return err
 	}
-	defer reader.Close()
+	defer func() {
+		_ = reader.Close()
+	}()
 
 	dec := json.NewDecoder(reader)
 	for {
@@ -124,7 +130,7 @@ func (e *Executor) pullImage(ctx context.Context, imageName string) error {
 				break
 			}
 
-			return fmt.Errorf("failed to decode pull status: %v", err)
+			return fmt.Errorf("failed to decode pull status: %w", err)
 		}
 
 		if ps.Error != "" {

@@ -17,8 +17,9 @@ type Transcoder struct {
 	transcodePath   *sync.Map // thread-safe cache for transcoder paths
 }
 
-var globalTranscoder *Transcoder
-var once sync.Once
+// todo: should not be global
+var globalTranscoder *Transcoder //nolint:gochecknoglobals
+var once sync.Once               //nolint:gochecknoglobals
 
 // GlobalTranscoder returns the global static transcoder instance.
 func GlobalTranscoder() *Transcoder {

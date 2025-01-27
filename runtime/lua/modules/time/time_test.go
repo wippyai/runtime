@@ -25,7 +25,7 @@ func TestTimeModule(t *testing.T) {
 			require.NoError(t, err)
 			defer vm.Close()
 
-			err = vm.DoString(nil, `
+			err = vm.DoString(context.Background(), `
 				local time = require("time")
 				local t = time.now()
 				assert(type(t) == "userdata")
@@ -47,7 +47,7 @@ func TestTimeModule(t *testing.T) {
 
 			t.Run("normal sleep", func(t *testing.T) {
 				start := time.Now()
-				err = vm.DoString(nil, `
+				err = vm.DoString(context.Background(), `
 					local time = require("time")
 					local duration = time.parse_duration("300ms")
 					time.sleep(duration)
@@ -100,7 +100,7 @@ func TestTimeModule(t *testing.T) {
 			require.NoError(t, err)
 			defer vm.Close()
 
-			err = vm.DoString(nil, `
+			err = vm.DoString(context.Background(), `
 				local time = require("time")
 				local t = time.date(2024, 12, 29, 15, 4, 5, 0, time.utc)
 				assert(t:year() == 2024)
@@ -123,7 +123,7 @@ func TestTimeModule(t *testing.T) {
 			require.NoError(t, err)
 			defer vm.Close()
 
-			err = vm.DoString(nil, `
+			err = vm.DoString(context.Background(), `
 				local time = require("time")
 				local t = time.unix(1735484645, 0)  -- 2024-12-29 15:04:05 UTC
 				local utc_t = t:utc() -- Convert to UTC
@@ -147,7 +147,7 @@ func TestTimeModule(t *testing.T) {
 			require.NoError(t, err)
 			defer vm.Close()
 
-			err = vm.DoString(nil, `
+			err = vm.DoString(context.Background(), `
 				local time = require("time")
 				local t = time.parse("2006-01-02 15:04:05", "2024-12-29 15:04:05")
 				assert(t:year() == 2024)
@@ -176,7 +176,7 @@ func TestTimeModule(t *testing.T) {
 			require.NoError(t, err)
 			defer vm.Close()
 
-			err = vm.DoString(nil, `
+			err = vm.DoString(context.Background(), `
 				local time = require("time")
 				local t = time.date(2024, 12, 29, 15, 0, 0, 0, time.utc)
 				local duration = time.parse_duration("1h")
@@ -196,7 +196,7 @@ func TestTimeModule(t *testing.T) {
 			require.NoError(t, err)
 			defer vm.Close()
 
-			err = vm.DoString(nil, `
+			err = vm.DoString(context.Background(), `
 				local time = require("time")
 				local t1 = time.date(2024, 12, 29, 15, 0, 0, 0, time.utc)
 				local t2 = time.date(2024, 12, 29, 14, 0, 0, 0, time.utc)
@@ -276,7 +276,7 @@ func TestTimeModule_TestBath(t *testing.T) {
 				require.NoError(t, err)
 				defer vm.Close()
 
-				err = vm.DoString(nil, tc.script, "test")
+				err = vm.DoString(context.Background(), tc.script, "test")
 				require.NoError(t, err)
 
 				// Handle multiple return values if needed
@@ -456,7 +456,7 @@ func TestTimeModule_TestBath(t *testing.T) {
 				require.NoError(t, err)
 				defer vm.Close()
 
-				err = vm.DoString(nil, tc.script, "test")
+				err = vm.DoString(context.Background(), tc.script, "test")
 				require.NoError(t, err)
 
 				// Handle multiple return values if needed
@@ -604,7 +604,7 @@ func TestTimeModule_TestBath(t *testing.T) {
 				require.NoError(t, err)
 				defer vm.Close()
 
-				err = vm.DoString(nil, tc.script, "test")
+				err = vm.DoString(context.Background(), tc.script, "test")
 				require.NoError(t, err)
 
 				success := vm.State().Get(-2).(lua.LBool)
@@ -684,7 +684,7 @@ func TestSleep(t *testing.T) {
 				defer vm.Close()
 
 				start := time.Now()
-				err = vm.DoString(nil, tc.script, "test")
+				err = vm.DoString(context.Background(), tc.script, "test")
 
 				if tc.expectError {
 					if tc.errorContains == "time: invalid duration" {

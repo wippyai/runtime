@@ -2,8 +2,9 @@ package channel
 
 import (
 	"context"
-	lua "github.com/yuin/gopher-lua"
 	"testing"
+
+	lua "github.com/yuin/gopher-lua"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/stretchr/testify/assert"
@@ -16,14 +17,14 @@ func TestChannelPassingSimple(t *testing.T) {
 	vm, err := engine.NewCVM(
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
-		engine.WithGlobalFunction("new_named", func(L *lua.LState) int {
-			name := L.CheckString(1)
-			capacity := L.OptInt(2, 0)
+		engine.WithGlobalFunction("new_named", func(l *lua.LState) int {
+			name := l.CheckString(1)
+			capacity := l.OptInt(2, 0)
 			if capacity < 0 {
-				L.RaiseError("channel capacity must be >= 0")
+				l.RaiseError("channel capacity must be >= 0")
 				return 0
 			}
-			L.Push(Wrap(L, Named(name, capacity)))
+			l.Push(Wrap(l, Named(name, capacity)))
 			return 1
 		}),
 	)
