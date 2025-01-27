@@ -222,11 +222,7 @@ func (e *Runner) Run(ctx context.Context, exitCh <-chan Result) (lua.LValue, err
 }
 
 // Execute runs a function through the layer chain with provided context and arguments
-func (e *Runner) Execute(
-	ctx context.Context,
-	funcName string,
-	args ...lua.LValue,
-) (lua.LValue, error) {
+func (e *Runner) Execute(ctx context.Context, funcName string, args ...lua.LValue) (lua.LValue, error) {
 	// we always have to ensure we run using the task group context!
 	ctx, cleanup := closer.WithContext(e.WithContext(ctx))
 	defer func() {
