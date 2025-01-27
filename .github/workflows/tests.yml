@@ -40,7 +40,7 @@ jobs:
 
       - name: Install Go dependencies
         run: |
-          go mod download -x
+          go mod download
 
       - name: Run golang tests
         env:
