@@ -318,7 +318,7 @@ func TestTaskGroupProcessing(t *testing.T) {
 
 		assert.NoError(t, err)
 		assert.Empty(t, tasks)
-		assert.Equal(t, int32(0), group.wakeCount)
+		assert.Equal(t, int32(0), group.wakeCount.Load())
 	})
 }
 
