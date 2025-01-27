@@ -152,7 +152,7 @@ func TestExecutor_ReadWithInvalidCommand(t *testing.T) {
 		sb.WriteString(string(output))
 	}
 	if runtime.GOOS == "linux" {
-		assert.Equal(t, "", sb.String())
+		assert.Contains(t, sb.String(), "sh: 1: invalidcommand: not found")
 	} else {
 		// macOS
 		assert.Contains(t, sb.String(), "sh: invalidcommand: command not found")
