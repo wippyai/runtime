@@ -46,7 +46,6 @@ func (l *LuaWorkflowDefinition) Execute(env bindings.WorkflowEnvironment, header
 
 	log.Printf("Workflow received input: %v\n", workflowInput)
 	log.Printf("Workflow info: %+v\n", env.WorkflowInfo())
-
 }
 
 var ready = false

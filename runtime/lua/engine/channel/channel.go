@@ -77,6 +77,11 @@ func (c *Channel) Slots() int {
 	return (c.capacity - c.size) + c.receivers.Len()
 }
 
+// Value returns the Lua value associated with the channel.
+func (c *Channel) Value() lua.LValue {
+	return c.value
+}
+
 func (c *Channel) send(senderTask *lua.LState, value lua.LValue, selectOp *selectOp) *onNext {
 	if c.closed {
 		return &onNext{

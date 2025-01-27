@@ -127,7 +127,7 @@ func (t *TaskRunner) Execute(ctx context.Context, id TaskID, input []lua.LValue)
 	case <-t.mixer.close:
 		return nil, fmt.Errorf("tasker closed")
 	case t.inbox <- schedule:
-		t.runner.GetTaskGroup().WakeUp()
+		t.runner.GetTaskGroup().WakeUp() // todo: we can do it from layer level too
 		return resultChan, nil
 	case <-ctx.Done():
 		close(resultChan)
