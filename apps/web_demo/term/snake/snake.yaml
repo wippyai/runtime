@@ -1,0 +1,16 @@
+name: snake.terminal
+kind: terminal.lua
+meta:
+  comment: "Snake"
+
+source: file://snake.lua
+method: App
+
+options:
+  alt_screen: true
+  title: "Snake game"
+
+lifecycle:
+  auto_start: true
+  startup_timeout: "5s"
+  shutdown_timeout: "3s"

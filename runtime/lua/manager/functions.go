@@ -2,7 +2,6 @@ package manager
 
 import (
 	"fmt"
-	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	api "github.com/ponyruntime/pony/api/runtime/lua"
 	"github.com/ponyruntime/pony/runtime/lua/factory"
@@ -12,75 +11,76 @@ import (
 // Functions handles Lua function configuration
 type Functions struct {
 	log       *zap.Logger
-	dtt       payload.Transcoder
 	functions map[registry.ID]*api.FunctionConfig
 }
 
 // NewFunctions creates a new function manager instance
-func NewFunctions(dtt payload.Transcoder, logger *zap.Logger) *Functions {
+func NewFunctions(logger *zap.Logger) *Functions {
 	return &Functions{
 		log:       logger,
-		dtt:       dtt,
 		functions: make(map[registry.ID]*api.FunctionConfig),
 	}
 }
 
 // Add adds a new function with required dependencies
 func (m *Functions) Add(
-	entry registry.Entry,
+	id registry.ID,
+	config *api.FunctionConfig,
 	modules api.ModuleRegistry,
 	libraries api.LibraryRegistry,
 ) error {
-	cfg := new(api.FunctionConfig)
-	if err := m.unmarshalAndValidate(entry.Data, cfg); err != nil {
+	if err := m.validateDependencies(config, modules, libraries); err != nil {
 		return err
 	}
 
-	if _, exists := m.functions[entry.ID]; exists {
-		return fmt.Errorf("function %s already exists", entry.ID)
-	}
-
-	if err := m.validateDependencies(cfg, modules, libraries); err != nil {
-		return err
-	}
-
-	m.functions[entry.ID] = cfg
-	m.log.Info("added function", zap.String("id", string(entry.ID)))
+	m.functions[id] = config
+	m.log.Info("added function", zap.String("id", string(id)))
 	return nil
 }
 
 // Update updates an existing function with required dependencies
 func (m *Functions) Update(
-	entry registry.Entry,
+	id registry.ID,
+	config *api.FunctionConfig,
 	modules api.ModuleRegistry,
 	libraries api.LibraryRegistry,
 ) error {
-	cfg := new(api.FunctionConfig)
-	if err := m.unmarshalAndValidate(entry.Data, cfg); err != nil {
+	if _, exists := m.functions[id]; !exists {
+		return fmt.Errorf("function %s not found", id)
+	}
+
+	if err := m.validateDependencies(config, modules, libraries); err != nil {
 		return err
 	}
 
-	if _, exists := m.functions[entry.ID]; !exists {
-		return fmt.Errorf("function %s not found", entry.ID)
-	}
-
-	if err := m.validateDependencies(cfg, modules, libraries); err != nil {
-		return err
-	}
-
-	m.functions[entry.ID] = cfg
-	m.log.Info("updated function", zap.String("id", string(entry.ID)))
+	m.functions[id] = config
+	m.log.Info("updated function", zap.String("id", string(id)))
 	return nil
 }
 
-// Delete removes a function
-func (m *Functions) Delete(entry registry.Entry) error {
-	if _, exists := m.functions[entry.ID]; !exists {
-		return fmt.Errorf("function %s not found", entry.ID)
+// Clone creates a new Functions instance with a copy of the functions map
+func (m *Functions) Clone() *Functions {
+	cloned := &Functions{
+		log:       m.log,
+		functions: make(map[registry.ID]*api.FunctionConfig, len(m.functions)),
 	}
 
-	delete(m.functions, entry.ID)
-	m.log.Info("deleted function", zap.String("id", string(entry.ID)))
+	// Copy map entries (pointers remain the same)
+	for id, config := range m.functions {
+		cloned.functions[id] = config
+	}
+
+	return cloned
+}
+
+// Delete removes a function
+func (m *Functions) Delete(id registry.ID) error {
+	if _, exists := m.functions[id]; !exists {
+		return fmt.Errorf("function %s not found", id)
+	}
+
+	delete(m.functions, id)
+	m.log.Info("deleted function", zap.String("id", string(id)))
 	return nil
 }
 
@@ -91,12 +91,12 @@ func (m *Functions) Get(id registry.ID) (*api.FunctionConfig, bool) {
 }
 
 // FindDependentOnLibrary finds all functions that depend on a given library
-func (m *Functions) FindDependentOnLibrary(libraryID registry.ID) []registry.ID {
-	var dependent []registry.ID
+func (m *Functions) FindDependentOnLibrary(libraryID registry.ID) map[registry.ID]*api.FunctionConfig {
+	dependent := make(map[registry.ID]*api.FunctionConfig)
 	for id, fn := range m.functions {
 		for _, lib := range fn.Libraries {
 			if registry.ID(lib) == libraryID {
-				dependent = append(dependent, id)
+				dependent[id] = fn
 				break
 			}
 		}
@@ -107,49 +107,70 @@ func (m *Functions) FindDependentOnLibrary(libraryID registry.ID) []registry.ID 
 // MakeFactory creates a new factory for function compilation using provided managers
 func (m *Functions) MakeFactory(
 	id registry.ID,
+	cfg *api.FunctionConfig,
 	logger *zap.Logger,
 	modules api.ModuleRegistry,
 	libraries api.LibraryRegistry,
 ) (api.Factory, error) {
-	fn, exists := m.Get(id)
-	if !exists {
-		return nil, fmt.Errorf("function %s not found", id)
+	if err := m.validateDependencies(cfg, modules, libraries); err != nil {
+		return nil, err
 	}
 
-	cfg := factory.NewFactory(logger.Named(fmt.Sprintf("vm.%s", id)))
+	fct := factory.NewFactory(logger.Named(fmt.Sprintf("vm.%s", id)))
+
+	knownModules := make(map[string]struct{})
 
 	// Add required modules
-	for _, modID := range fn.Modules {
+	for _, modID := range cfg.Modules {
 		module, err := modules.Get(modID)
 		if err != nil {
 			return nil, err
 		}
-		cfg.Modules = append(cfg.Modules, module)
+
+		if _, exists := knownModules[module.Name()]; exists {
+			continue
+		}
+
+		fct.Modules = append(fct.Modules, module)
+		knownModules[module.Name()] = struct{}{}
 	}
 
 	// Add required libraries
-	for _, libID := range fn.Libraries {
+	for _, libID := range cfg.Libraries {
 		lib, err := libraries.Get(registry.ID(libID))
 		if err != nil {
 			return nil, err
 		}
 
-		cfg.Libraries = append(cfg.Libraries, factory.Library{
+		fct.Libraries = append(fct.Libraries, factory.Library{
 			Name:   libID,
 			Script: lib.Source,
 		})
+
+		// todo: library also can depend on other libraries
+		for _, depID := range lib.Modules {
+			dep, err := modules.Get(depID)
+			if err != nil {
+				return nil, err
+			}
+
+			if _, exists := knownModules[dep.Name()]; exists {
+				continue
+			}
+
+			fct.Modules = append(fct.Modules, dep)
+			knownModules[dep.Name()] = struct{}{}
+		}
 	}
 
 	// Add the function itself
-	cfg.Functions = append(cfg.Functions, factory.Function{
-		Name:   fn.Method,
-		Script: fn.Source,
+	fct.Functions = append(fct.Functions, factory.Function{
+		Name:   cfg.Method,
+		Script: cfg.Source,
 	})
 
-	return cfg, nil
+	return fct, nil
 }
-
-// Internal methods
 
 func (m *Functions) validateDependencies(
 	cfg *api.FunctionConfig,
@@ -167,20 +188,6 @@ func (m *Functions) validateDependencies(
 	for _, libID := range cfg.Libraries {
 		if !libraries.Has(registry.ID(libID)) {
 			return fmt.Errorf("library %s not found", libID)
-		}
-	}
-
-	return nil
-}
-
-func (m *Functions) unmarshalAndValidate(data payload.Payload, cfg interface{}) error {
-	if err := m.dtt.Unmarshal(data, cfg); err != nil {
-		return fmt.Errorf("failed to unmarshal config: %w", err)
-	}
-
-	if validator, ok := cfg.(interface{ Validate() error }); ok {
-		if err := validator.Validate(); err != nil {
-			return fmt.Errorf("invalid configuration: %w", err)
 		}
 	}
 

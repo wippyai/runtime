@@ -13,8 +13,8 @@ type Transcoder struct {
 	graph           *graph.Graph
 	transcoders     map[graph.Node]map[graph.Node]payload.FormatTranscoder
 	unmarshalers    map[graph.Node]payload.Unmarshaler
-	unmarshalerPath sync.Map // thread-safe cache for unmarshaler paths
-	transcodePath   sync.Map // thread-safe cache for transcoder paths
+	unmarshalerPath *sync.Map // thread-safe cache for unmarshaler paths
+	transcodePath   *sync.Map // thread-safe cache for transcoder paths
 }
 
 var globalTranscoder *Transcoder
@@ -31,9 +31,11 @@ func GlobalTranscoder() *Transcoder {
 // NewTranscoder creates a new transcoder instance.
 func NewTranscoder() *Transcoder {
 	return &Transcoder{
-		graph:        graph.NewGraph(),
-		transcoders:  make(map[graph.Node]map[graph.Node]payload.FormatTranscoder),
-		unmarshalers: make(map[graph.Node]payload.Unmarshaler),
+		graph:           graph.NewGraph(),
+		transcoders:     make(map[graph.Node]map[graph.Node]payload.FormatTranscoder),
+		unmarshalers:    make(map[graph.Node]payload.Unmarshaler),
+		unmarshalerPath: new(sync.Map),
+		transcodePath:   new(sync.Map),
 	}
 }
 

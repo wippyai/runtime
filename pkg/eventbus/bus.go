@@ -4,12 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
-	"sync/atomic"
-
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/internal/wildcard"
-	"go.uber.org/zap"
+	"sync"
+	"sync/atomic"
 )
 
 type actionType int
@@ -22,11 +20,10 @@ const (
 )
 
 type action struct {
-	actionType   actionType
-	subscribe    sub
-	unsubscribe  unsub
-	event        sendEvent
-	stopDoneChan chan struct{} // opChan to signal stop completion
+	actionType  actionType
+	subscribe   sub
+	unsubscribe unsub
+	event       sendEvent
 }
 
 type sendEvent struct {
@@ -52,19 +49,19 @@ type unsub struct {
 // for subscribing, unsubscribing, and sending events.
 type Bus struct {
 	subscribers       map[events.SubscriberID]sub
-	logger            *zap.Logger
 	actions           chan action
 	wg                sync.WaitGroup
 	subscriberCounter uint64
+	closed            chan any
 }
 
 // NewBus creates a new event bus instance with the provided logger.
 // It initializes internal channels and starts the event handling goroutine.
-func NewBus(logger *zap.Logger) *Bus {
+func NewBus() *Bus {
 	b := &Bus{
 		subscribers: make(map[events.SubscriberID]sub),
-		logger:      logger,
 		actions:     make(chan action, 100), // Buffered channel for all actions
+		closed:      make(chan any),
 	}
 
 	b.wg.Add(1)
@@ -119,6 +116,8 @@ func (b *Bus) SubscribeP(
 
 	select {
 	case b.actions <- action{actionType: subscribe, subscribe: sub}:
+	case <-b.closed:
+		return "", errors.New("bus is closed")
 	case <-ctx.Done():
 		return "", ctx.Err()
 	}
@@ -126,6 +125,8 @@ func (b *Bus) SubscribeP(
 	select {
 	case <-ctx.Done():
 		return "", ctx.Err()
+	case <-b.closed:
+		return "", errors.New("bus is closed")
 	case <-sub.doneCh:
 		return subID, nil
 	}
@@ -146,12 +147,13 @@ func (b *Bus) Unsubscribe(ctx context.Context, subID events.SubscriberID) {
 
 	select {
 	case b.actions <- action{actionType: unsubscribe, unsubscribe: unsub}:
+	case <-b.closed:
 	case <-ctx.Done():
-		return
 	}
 
 	select {
 	case <-ctx.Done():
+	case <-b.closed:
 	case <-unsub.doneCh:
 	}
 }
@@ -161,26 +163,19 @@ func (b *Bus) Unsubscribe(ctx context.Context, subID events.SubscriberID) {
 func (b *Bus) Send(ctx context.Context, event events.Event) {
 	select {
 	case b.actions <- action{actionType: send, event: sendEvent{event: event, ctx: ctx}}:
-		if b.logger != nil {
-			b.logger.Debug(
-				"sending event",
-				zap.String("system", string(event.System)),
-				zap.String("kind", string(event.Kind)),
-				zap.String("path", string(event.Path)),
-				zap.Any("payload", event.Data),
-			)
-		}
+	case <-b.closed:
 	case <-ctx.Done():
-		return
 	}
 }
 
 // Stop gracefully shuts down the event bus by closing all subscriber channels
 // and stopping the event handling goroutine.
 func (b *Bus) Stop() {
-	done := make(chan struct{})
-	b.actions <- action{actionType: stop, stopDoneChan: done}
-	<-done // Wait for stop to complete
+	select {
+	case b.actions <- action{actionType: stop}:
+	case <-b.closed:
+	}
+
 	b.wg.Wait()
 }
 
@@ -188,6 +183,12 @@ func (b *Bus) handleActions() {
 	defer b.wg.Done()
 
 	for a := range b.actions {
+		select {
+		case <-b.closed:
+			return
+		default:
+		}
+
 		switch a.actionType {
 		case subscribe:
 			b.subscribers[a.subscribe.subID] = a.subscribe
@@ -211,7 +212,8 @@ func (b *Bus) handleActions() {
 
 				select {
 				case <-a.event.ctx.Done():
-					b.logger.Warn("context cancelled", zap.String("subscriber", string(s.subID)))
+					continue
+				case <-b.closed:
 					continue
 				case s.eventCh <- a.event.event:
 					continue
@@ -219,19 +221,18 @@ func (b *Bus) handleActions() {
 			}
 
 		case stop:
-			for _, s := range b.subscribers {
-				close(s.eventCh)
+			// todo: possibly have more strategies
+			for id := range b.subscribers {
+				b.handleUnsubscribe(id)
 			}
-			close(b.actions)
-			a.stopDoneChan <- struct{}{} // Signal stop completion
+			close(b.closed)
 			return
 		}
 	}
 }
 
 func (b *Bus) handleUnsubscribe(subID events.SubscriberID) {
-	if s, exists := b.subscribers[subID]; exists {
-		close(s.eventCh)
+	if _, exists := b.subscribers[subID]; exists {
 		delete(b.subscribers, subID)
 	}
 }

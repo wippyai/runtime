@@ -12,9 +12,9 @@ type (
 		// AutoStart determines if the service should start automatically when the supervisor starts.
 		AutoStart bool `json:"auto_start" yaml:"auto_start" default:"false"`
 		// StartTimeout specifies the maximum duration allowed for the service to start.
-		StartTimeout time.Duration `json:"start_timeout" yaml:"start_timeout" default:"30s"`
+		StartTimeout time.Duration `json:"start_timeout" yaml:"start_timeout" default:"10s"`
 		// StopTimeout specifies the maximum duration allowed for the service to stop.
-		StopTimeout time.Duration `json:"stop_timeout" yamal:"stop_timeout" default:"30s"`
+		StopTimeout time.Duration `json:"stop_timeout" yamal:"stop_timeout" default:"10s"`
 		// RetryPolicy defines the policy for retrying a failed service.
 		RetryPolicy RetryPolicy `json:"restart" yaml:"restart"`
 		// DependsOn specifies a list of service names that this service depends on.
@@ -26,7 +26,7 @@ type (
 		// InitialDelay specifies the initial delay before the first retry attempt.
 		InitialDelay time.Duration `json:"initial_delay" yaml:"initial_delay" default:"1s"`
 		// MaxDelay specifies the maximum delay between retry attempts.
-		MaxDelay time.Duration `json:"max_delay" yaml:"max_delay" default:"30s"`
+		MaxDelay time.Duration `json:"max_delay" yaml:"max_delay" default:"90s"`
 		// BackoffFactor determines the exponential backoff factor for increasing the delay between retries.
 		BackoffFactor float64 `json:"backoff_factor" yaml:"backoff_factor" default:"2.0"`
 		// Jitter introduces random variation to the retry delay to prevent synchronized retries.
@@ -106,11 +106,11 @@ func (p *RetryPolicy) UnmarshalJSON(data []byte) error {
 // This includes setting default timeouts, retry policies, and backoff parameters.
 func (cfg *LifecycleConfig) InitDefaults() {
 	if cfg.StartTimeout == 0 {
-		cfg.StartTimeout = 30 * time.Second
+		cfg.StartTimeout = 10 * time.Second
 	}
 
 	if cfg.StopTimeout == 0 {
-		cfg.StopTimeout = 30 * time.Second
+		cfg.StopTimeout = 10 * time.Second
 	}
 
 	if cfg.RetryPolicy.InitialDelay == 0 {
@@ -118,7 +118,7 @@ func (cfg *LifecycleConfig) InitDefaults() {
 	}
 
 	if cfg.RetryPolicy.MaxDelay == 0 {
-		cfg.RetryPolicy.MaxDelay = 30 * time.Second
+		cfg.RetryPolicy.MaxDelay = 90 * time.Second
 	}
 
 	if cfg.RetryPolicy.BackoffFactor == 0 {

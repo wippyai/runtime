@@ -23,10 +23,7 @@ func getCtxLogger(l *lua.LState) *zap.Logger {
 
 func apiChdir(l *lua.LState) int {
 	dir := l.CheckString(1)
-	log := getCtxLogger(l)
 	cwd := l.GetGlobal(globalFnName).String()
-
-	log.Debug("previous dir", zap.String("dir", cwd), zap.String("new", dir))
 
 	if dir == cwd {
 		l.Push(lua.LNil)
@@ -48,14 +45,10 @@ func apiChdir(l *lua.LState) int {
 	}
 	_ = f.Close()
 
-	// save the current directory
-	log.Debug("current dir", zap.String("dir", dir))
 	// save the new cwd
 	l.SetGlobal(globalFnName, lua.LString(dir))
 
-	closer := closer.FromContext(l.Context())
-	// TODO: closer should use some kind of ID to identify cases when we have multiple identical calls
-	closer.Add(func() error {
+	closer.FromContext(l.Context()).Add(func() error {
 		// clear the global variable
 		l.SetGlobal(globalFnName, lua.LString(""))
 		return nil
@@ -65,15 +58,13 @@ func apiChdir(l *lua.LState) int {
 	return 1
 }
 
-func apiLockdir(l *lua.LState) int {
+func apiLockDir(l *lua.LState) int {
 	l.RaiseError("unimplemented function")
 	return 0
 }
 
-func apiCurrentdir(l *lua.LState) int {
+func apiCurrentDir(l *lua.LState) int {
 	cwd := l.GetGlobal(globalFnName).String()
-	log := getCtxLogger(l)
-	log.Debug("current dir", zap.String("dir", cwd))
 
 	l.Push(lua.LString(cwd))
 	return 1
@@ -88,13 +79,10 @@ func apiDir(l *lua.LState) int {
 
 	cwd := l.GetGlobal(globalFnName).String()
 
-	log := getCtxLogger(l)
 	// if the path is relative, then concatenate it with the current directory
 	if isRelative(lp) {
 		lp = path.Join(cwd, lp)
 	}
-
-	log.Debug("dir", zap.String("path", lp))
 
 	f, err := os.Open(lp)
 	if err != nil {
@@ -117,8 +105,7 @@ func apiDir(l *lua.LState) int {
 	l.Push(ud)
 
 	// add the file to the cleanup
-	closer := closer.FromContext(l.Context())
-	closer.Add(func() error {
+	closer.FromContext(l.Context()).Add(func() error {
 		_ = f.Close()
 		return nil
 	})
@@ -168,7 +155,6 @@ func apiLink(l *lua.LState) int {
 
 func apiMkdir(l *lua.LState) int {
 	dir := l.CheckString(1)
-	log := getCtxLogger(l)
 	cwd := l.GetGlobal(globalFnName).String()
 
 	// if the path is relative, then concatenate it with the current directory
@@ -176,7 +162,6 @@ func apiMkdir(l *lua.LState) int {
 		dir = path.Join(cwd, dir)
 	}
 
-	log.Debug("mkdir", zap.String("dir", dir))
 	// 0644 - user: read, write; group: read; others: read
 	err := os.Mkdir(dir, 0644)
 	if err != nil {
@@ -192,14 +177,11 @@ func apiMkdir(l *lua.LState) int {
 func apiRmdir(l *lua.LState) int {
 	dir := l.CheckString(1)
 	cwd := l.GetGlobal(globalFnName).String()
-	log := getCtxLogger(l)
 
 	// if the path is relative, then concatenate it with the current directory
 	if isRelative(dir) {
 		dir = path.Join(cwd, dir)
 	}
-
-	log.Debug("rmdir", zap.String("dir", dir))
 
 	stat, err := os.Stat(dir)
 	if err != nil {
@@ -222,12 +204,12 @@ func apiRmdir(l *lua.LState) int {
 	return 1
 }
 
-func apiSetmode(l *lua.LState) int {
+func apiSetMode(l *lua.LState) int {
 	l.RaiseError("unimplemented function")
 	return 0
 }
 
-func apiSymlinkattributes(l *lua.LState) int {
+func apiSymlinkAttributes(l *lua.LState) int {
 	return attributes(l, os.Lstat)
 }
 

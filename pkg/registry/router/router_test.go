@@ -39,7 +39,7 @@ func (m *mockListener) Delete(ctx context.Context, entry registry.Entry) error {
 
 // setupRouterTest creates a new router with a mock bus for testing
 func setupRouterTest(t *testing.T) (*Router, *mockListener, *eventbus.Bus) {
-	bus := eventbus.NewBus(zap.NewNop())
+	bus := eventbus.NewBus()
 	mockListener := &mockListener{}
 
 	router, err := NewRouter(context.Background(), bus,
@@ -56,7 +56,7 @@ func setupRouterTest(t *testing.T) (*Router, *mockListener, *eventbus.Bus) {
 
 func TestNewRouter(t *testing.T) {
 	t.Run("successful creation", func(t *testing.T) {
-		bus := eventbus.NewBus(zap.NewNop())
+		bus := eventbus.NewBus()
 		router, err := NewRouter(context.Background(), bus)
 
 		require.NoError(t, err)
@@ -66,7 +66,7 @@ func TestNewRouter(t *testing.T) {
 	})
 
 	t.Run("with options", func(t *testing.T) {
-		bus := eventbus.NewBus(zap.NewNop())
+		bus := eventbus.NewBus()
 		mockListener := &mockListener{}
 		logger := zap.NewNop()
 
@@ -84,7 +84,7 @@ func TestNewRouter(t *testing.T) {
 	})
 
 	t.Run("with cancelled context", func(t *testing.T) {
-		bus := eventbus.NewBus(zap.NewNop())
+		bus := eventbus.NewBus()
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 
@@ -254,7 +254,7 @@ func TestRouter_FindListener(t *testing.T) {
 	})
 
 	t.Run("multiple patterns", func(t *testing.T) {
-		bus := eventbus.NewBus(zap.NewNop())
+		bus := eventbus.NewBus()
 		listener1 := &mockListener{}
 		listener2 := &mockListener{}
 

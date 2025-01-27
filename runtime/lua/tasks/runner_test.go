@@ -48,7 +48,7 @@ func TestTasker_BasicExecution(t *testing.T) {
 		assert.NoError(t, err)
 
 		// Create tasker with both layers
-		tasker := NewTasker(
+		tasker := NewTaskRunner(
 			logger,
 			vm,
 			channel.NewChannelLayer(),
@@ -58,14 +58,6 @@ func TestTasker_BasicExecution(t *testing.T) {
 		// Start the tasker
 		statusCh, err := tasker.Start(context.Background(), "test_handler")
 		assert.NoError(t, err)
-
-		// First status should be "engine started"
-		select {
-		case status := <-statusCh:
-			assert.Equal(t, "engine started", status)
-		case <-time.After(time.Second):
-			t.Fatal("timeout waiting for engine start")
-		}
 
 		// Execute a task
 		resultCh, err := tasker.Execute(context.Background(), "test", []lua.LValue{lua.LString("hello")})
@@ -83,14 +75,14 @@ func TestTasker_BasicExecution(t *testing.T) {
 
 		ctx, _ := context.WithTimeout(context.Background(), time.Second)
 
-		// Stop the tasker
+		// stop the tasker
 		err = tasker.Stop(ctx)
 		assert.NoError(t, err)
 
 		// Verify final status
 		select {
 		case status := <-statusCh:
-			assert.Contains(t, status.(string), "engine exit: exit")
+			assert.Contains(t, status, "exit")
 		case <-time.After(time.Second):
 			t.Fatal("timeout waiting for engine exit")
 		}
@@ -132,12 +124,9 @@ func TestTasker_ErrorHandling(t *testing.T) {
 		err = vm.Import(script, "test", "error_handler")
 		require.NoError(t, err)
 
-		tasker := NewTasker(logger, vm, channel.NewChannelLayer(), 10)
+		tasker := NewTaskRunner(logger, vm, channel.NewChannelLayer(), 10)
 		statusCh, err := tasker.Start(context.Background(), "error_handler")
 		require.NoError(t, err)
-
-		// Verify startup
-		assert.Equal(t, "engine started", <-statusCh)
 
 		// Test successful task
 		resultCh, err := tasker.Execute(context.Background(), "success_task", []lua.LValue{lua.LString("success")})
@@ -157,7 +146,7 @@ func TestTasker_ErrorHandling(t *testing.T) {
 
 		// Proper shutdown
 		require.NoError(t, tasker.Stop(context.Background()))
-		assert.Contains(t, (<-statusCh).(string), "engine exit: exit")
+		assert.Contains(t, <-statusCh, "exit")
 	})
 }
 
@@ -192,11 +181,9 @@ func TestTasker_ConcurrentExecution(t *testing.T) {
 		err = vm.Import(script, "test", "concurrent_handler")
 		require.NoError(t, err)
 
-		tasker := NewTasker(logger, vm, channel.NewChannelLayer(), 10)
+		tasker := NewTaskRunner(logger, vm, channel.NewChannelLayer(), 10)
 		statusCh, err := tasker.Start(context.Background(), "concurrent_handler")
 		require.NoError(t, err)
-
-		assert.Equal(t, "engine started", <-statusCh)
 
 		// Launch multiple concurrent tasks
 		resultChannels := make([]<-chan engine.Result, 5)
@@ -221,8 +208,8 @@ func TestTasker_ConcurrentExecution(t *testing.T) {
 		}
 
 		require.NoError(t, tasker.Stop(context.Background()))
-		status := (<-statusCh).(string)
-		assert.Contains(t, status, "engine exit: 5")
+		status := <-statusCh
+		assert.Equal(t, status, lua.LNumber(5))
 	})
 }
 
@@ -238,7 +225,7 @@ func TestConsecutiveTasks(t *testing.T) {
 	defer vm.Close()
 
 	// Create tasker
-	tasker := NewTasker(logger, vm, channel.NewChannelLayer(), 10)
+	tasker := NewTaskRunner(logger, vm, channel.NewChannelLayer(), 10)
 
 	script := `
 		function test_handler()
@@ -266,7 +253,6 @@ func TestConsecutiveTasks(t *testing.T) {
 	// Start tasker
 	statusCh, err := tasker.Start(context.Background(), "test_handler")
 	require.NoError(t, err)
-	assert.Equal(t, "engine started", <-statusCh)
 
 	// Send three consecutive tasks
 	outputs := make([]<-chan engine.Result, 3)
@@ -297,15 +283,17 @@ func TestConsecutiveTasks(t *testing.T) {
 	assert.Equal(t, "processed_B", results[1])
 	assert.Equal(t, "processed_C", results[2])
 
-	// Stop tasker
+	// stop tasker
 	err = tasker.Stop(context.Background())
 	assert.NoError(t, err)
 
 	// Verify final status
 	select {
 	case result := <-statusCh:
-		resultTable := result.(string)
-		assert.Contains(t, resultTable, "engine exit")
+		resultTable := result.(*lua.LTable)
+		assert.Equal(t, resultTable.RawGetInt(1), lua.LString("A"))
+		assert.Equal(t, resultTable.RawGetInt(2), lua.LString("B"))
+		assert.Equal(t, resultTable.RawGetInt(3), lua.LString("C"))
 	case <-time.After(time.Second):
 		t.Fatal("timeout waiting for handler completion")
 	}
@@ -327,7 +315,7 @@ func TestAsyncTasksWithTimers(t *testing.T) {
 	channels := channel.NewChannelLayer()
 
 	// Create tasker with async support
-	tasker := NewTasker(
+	tasker := NewTaskRunner(
 		logger,
 		vm,
 		channels,
@@ -347,7 +335,7 @@ func TestAsyncTasksWithTimers(t *testing.T) {
 					local task, ok = inbox:receive()
 					if not ok then return end
 
-					-- Wait for specified delay
+					-- wait for specified delay
 					time.after(task:input().delay):receive()
 
 					-- Record completion order
@@ -362,7 +350,7 @@ func TestAsyncTasksWithTimers(t *testing.T) {
 				end)
 			end
 
-			-- Wait for all tasks to complete
+			-- wait for all tasks to complete
 			for i = 1, 3 do
 				completed:receive()
 			end
@@ -376,7 +364,6 @@ func TestAsyncTasksWithTimers(t *testing.T) {
 	// Start tasker
 	statusCh, err := tasker.Start(context.Background(), "test_handler")
 	require.NoError(t, err)
-	assert.Equal(t, "engine started", <-statusCh)
 
 	// Send tasks with different delays
 	delays := []int{150, 50, 100} // Task A: 150ms, Task B: 50ms, Task C: 100ms
@@ -411,14 +398,17 @@ func TestAsyncTasksWithTimers(t *testing.T) {
 	assert.Equal(t, "done_B", results[1])
 	assert.Equal(t, "done_C", results[2])
 
-	// Stop tasker
+	// stop tasker
 	err = tasker.Stop(context.Background())
 	require.NoError(t, err)
 
 	// Verify completion order
 	select {
 	case result := <-statusCh:
-		assert.Contains(t, result.(string), "engine exit")
+		table := result.(*lua.LTable)
+		assert.Equal(t, "B", table.RawGetInt(1).(*lua.LTable).RawGetString("id").String())
+		assert.Equal(t, "C", table.RawGetInt(2).(*lua.LTable).RawGetString("id").String())
+		assert.Equal(t, "A", table.RawGetInt(3).(*lua.LTable).RawGetString("id").String())
 	case <-time.After(2 * time.Second):
 		t.Fatal("timeout waiting for completion")
 	}
@@ -436,7 +426,7 @@ func TestTasker_TaskSend(t *testing.T) {
 	defer vm.Close()
 
 	// Create tasker
-	tasker := NewTasker(logger, vm, channel.NewChannelLayer(), 10)
+	tasker := NewTaskRunner(logger, vm, channel.NewChannelLayer(), 10)
 
 	script := `
 		function send_handler()
@@ -465,7 +455,6 @@ func TestTasker_TaskSend(t *testing.T) {
 	// Start tasker
 	statusCh, err := tasker.Start(context.Background(), "send_handler")
 	require.NoError(t, err)
-	assert.Equal(t, "engine started", <-statusCh)
 
 	// Execute task
 	resultCh, err := tasker.Execute(context.Background(), "test_task", []lua.LValue{lua.LString("test")})
@@ -504,14 +493,14 @@ func TestTasker_TaskSend(t *testing.T) {
 	assert.Equal(t, "done", results[2][0].String())
 	assert.Equal(t, float64(100), float64(results[2][1].(lua.LNumber)))
 
-	// Stop tasker
+	// stop tasker
 	err = tasker.Stop(context.Background())
 	require.NoError(t, err)
 
 	// Verify final status
 	select {
 	case status := <-statusCh:
-		assert.Contains(t, status.(string), "engine exit: exit")
+		assert.Contains(t, status, "exit")
 	case <-time.After(time.Second):
 		t.Fatal("timeout waiting for exit")
 	}
@@ -528,7 +517,7 @@ func setupVM(b *testing.B) (*TaskRunner, func()) {
 		b.Fatal(err)
 	}
 
-	tasker := NewTasker(
+	tasker := NewTaskRunner(
 		logger,
 		vm,
 		channel.NewChannelLayer(),
@@ -577,7 +566,7 @@ func BenchmarkSingleTaskExecution(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		<-out // Wait for completion
+		<-out // wait for completion
 	}
 }
 
@@ -614,7 +603,7 @@ func BenchmarkParallelTaskExecution(b *testing.B) {
 			if err != nil {
 				b.Fatal(err)
 			}
-			<-out // Wait for completion
+			<-out // wait for completion
 		}
 	})
 }
@@ -657,6 +646,6 @@ func BenchmarkTaskWithData(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		<-out // Wait for completion
+		<-out // wait for completion
 	}
 }

@@ -144,7 +144,7 @@ func TestAsyncStreamIter(t *testing.T) {
                     sync:send(true)
                 end)
 
-                -- Wait for first coroutine to finish
+                -- wait for first coroutine to finish
                 sync:receive()
                 return results
             end

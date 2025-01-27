@@ -2,26 +2,23 @@ package eventbus
 
 import (
 	"context"
+	"fmt"
+	"math/rand"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
-	"go.uber.org/zap/zaptest/observer"
 )
 
-// Helper function to create a new Bus with an observed logger for testing
-func newTestBus(t *testing.T) (*Bus, *observer.ObservedLogs) {
+// Helper function to create a new Bus for testing
+func newTestBus(t *testing.T) *Bus {
 	t.Helper()
 
-	observedCore, observedLogs := observer.New(zapcore.DebugLevel)
-	logger := zap.New(observedCore)
-
-	return NewBus(logger), observedLogs
+	return NewBus()
 }
 
 // Helper function to generate test eventbus
@@ -53,7 +50,7 @@ func waitForEvents(t *testing.T, ch chan events.Event, numEvents int, timeout ti
 }
 
 func TestSubscribeAndSend(t *testing.T) {
-	bus, logs := newTestBus(t)
+	bus := newTestBus(t)
 	defer bus.Stop()
 
 	ch := make(chan events.Event, 10)
@@ -66,27 +63,10 @@ func TestSubscribeAndSend(t *testing.T) {
 
 	receivedEvents := waitForEvents(t, ch, 1, time.Second)
 	require.Equal(t, event, receivedEvents[0])
-
-	// Wait a bit for logs to be written
-	time.Sleep(50 * time.Millisecond)
-
-	entries := logs.All()
-	require.GreaterOrEqual(t, len(entries), 1) // Should see "sending" log
-
-	var foundSending bool
-	for _, entry := range entries {
-		if entry.Message == "sending event" {
-			foundSending = true
-			// Verify log fields
-			require.Equal(t, "test-system", entry.ContextMap()["system"])
-			require.Equal(t, "test-kind", entry.ContextMap()["kind"])
-		}
-	}
-	require.True(t, foundSending, "should find 'sending event' log")
 }
 
 func TestSubscribeWithPathAndSend(t *testing.T) {
-	bus, _ := newTestBus(t)
+	bus := newTestBus(t)
 	defer bus.Stop()
 
 	ch := make(chan events.Event, 10)
@@ -112,7 +92,7 @@ func TestSubscribeWithPathAndSend(t *testing.T) {
 }
 
 func TestWildcardSystem(t *testing.T) {
-	bus, _ := newTestBus(t)
+	bus := newTestBus(t)
 	defer bus.Stop()
 
 	ch := make(chan events.Event, 10)
@@ -133,7 +113,7 @@ func TestWildcardSystem(t *testing.T) {
 }
 
 func TestUnsubscribe(t *testing.T) {
-	bus, _ := newTestBus(t)
+	bus := newTestBus(t)
 	defer bus.Stop()
 
 	ch := make(chan events.Event, 10)
@@ -147,19 +127,22 @@ func TestUnsubscribe(t *testing.T) {
 	receivedEvents := waitForEvents(t, ch, 1, time.Second)
 	require.Len(t, receivedEvents, 1)
 
-	// Unsubscribe and verify no more eventbus are received
+	// Unsubscribe and verify no more events are received
 	bus.Unsubscribe(context.Background(), subID)
 
 	event2 := newTestEvent("test-system", "test-kind", "payload2")
 	bus.Send(context.Background(), event2)
 
-	// Verify channel is closed
-	_, ok := <-ch
-	require.False(t, ok, "channel should be closed after unsubscribe")
+	// Verify no new events are received
+	select {
+	case evt := <-ch:
+		t.Errorf("received unexpected event after unsubscribe: %v", evt)
+	case <-time.After(100 * time.Millisecond):
+		// Expected: no events received after unsubscribe
+	}
 }
-
 func TestBusStop(t *testing.T) {
-	bus, _ := newTestBus(t)
+	bus := newTestBus(t)
 
 	ch := make(chan events.Event, 10)
 	_, err := bus.Subscribe(context.Background(), "test-system", ch)
@@ -172,13 +155,12 @@ func TestBusStop(t *testing.T) {
 	receivedEvents := waitForEvents(t, ch, 1, time.Second)
 	require.Len(t, receivedEvents, 1)
 
-	// Stop the bus
+	// stop the bus
 	bus.Stop()
 }
 
 func TestSendWithNilPayload(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
-	b := NewBus(logger)
+	b := NewBus()
 	defer b.Stop()
 
 	event := events.Event{
@@ -191,8 +173,7 @@ func TestSendWithNilPayload(t *testing.T) {
 }
 
 func TestConcurrentSubscribeUnsubscribe(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
-	b := NewBus(logger)
+	b := NewBus()
 	defer b.Stop()
 
 	var wg sync.WaitGroup
@@ -217,7 +198,7 @@ func TestConcurrentSubscribeUnsubscribe(t *testing.T) {
 }
 
 func TestConcurrentSendSubscribe(t *testing.T) {
-	b := NewBus(zap.NewNop())
+	b := NewBus()
 	defer b.Stop()
 
 	var wg sync.WaitGroup
@@ -249,7 +230,7 @@ func TestConcurrentSendSubscribe(t *testing.T) {
 }
 
 func TestUnsubscribeClosesChannel(t *testing.T) {
-	b := NewBus(zap.NewNop())
+	b := NewBus()
 	defer b.Stop()
 
 	ch := make(chan events.Event)
@@ -257,18 +238,25 @@ func TestUnsubscribeClosesChannel(t *testing.T) {
 
 	b.Unsubscribe(context.Background(), subID)
 
+	// Send an event after unsubscribe
+	event := events.Event{
+		System: "test-system",
+		Kind:   "test-kind",
+		Data:   payload.New([]byte("test-data")),
+	}
+	b.Send(context.Background(), event)
+
+	// Verify no events are received after unsubscribe
 	select {
-	case _, ok := <-ch:
-		if ok {
-			t.Error("opChan should be closed after unsubscribe")
-		}
-	case <-time.After(time.Millisecond * 100):
-		t.Error("timeout waiting for channel closure")
+	case evt := <-ch:
+		t.Errorf("received event after unsubscribe: %v", evt)
+	case <-time.After(100 * time.Millisecond):
+		// Expected: no events received
 	}
 }
 
 func TestNoEventsAfterUnsubscribe(t *testing.T) {
-	b := NewBus(zap.NewNop())
+	b := NewBus()
 	defer b.Stop()
 
 	ch := make(chan events.Event)
@@ -294,53 +282,51 @@ func TestNoEventsAfterUnsubscribe(t *testing.T) {
 }
 
 func TestStopBusClosesInternalChannel(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
-	b := NewBus(logger)
+	b := NewBus()
 
 	b.Stop()
 }
 
 func TestStopWithActiveSubscribers(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
-	b := NewBus(logger)
+	b := NewBus()
 
 	ch1 := make(chan events.Event)
 	ch2 := make(chan events.Event)
 	_, err := b.Subscribe(context.Background(), "test-system", ch1)
-	if err != nil {
-		t.Error("Listen failed: ", err)
-	}
+	require.NoError(t, err)
 	_, err = b.Subscribe(context.Background(), "other-system", ch2)
-	if err != nil {
-		t.Error("Listen failed: ", err)
-	}
+	require.NoError(t, err)
 
 	b.Stop()
 
-	// Verify that subscriber channels are closed
-	_, ok1 := <-ch1
-	_, ok2 := <-ch2
+	// Send events after stop
+	event := newTestEvent("test-system", "test-kind", "test-data")
+	b.Send(context.Background(), event)
 
-	if ok1 || ok2 {
-		t.Error("Subscriber channels should be closed when the bus is stopped")
+	// Verify that no events are received after stop
+	select {
+	case evt := <-ch1:
+		t.Errorf("received unexpected event after stop on ch1: %v", evt)
+	case evt := <-ch2:
+		t.Errorf("received unexpected event after stop on ch2: %v", evt)
+	case <-time.After(100 * time.Millisecond):
+		// Expected: no events received after stop
 	}
 }
 
 func TestSubscribePEmptyKind(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
-	b := NewBus(logger)
+	b := NewBus()
 	defer b.Stop()
 
 	ch := make(chan events.Event)
 	_, err := b.SubscribeP(context.Background(), "test-system", "", ch)
 	if err != nil {
 		t.Errorf("SubscribeP with empty kind failed: %v", err)
-		// ...
 	}
 }
 
 func TestMultipleSubscribersSameSystemPath(t *testing.T) {
-	b := NewBus(zap.NewNop())
+	b := NewBus()
 	defer b.Stop()
 
 	ch1 := make(chan events.Event, 1)
@@ -361,7 +347,7 @@ func TestMultipleSubscribersSameSystemPath(t *testing.T) {
 }
 
 func TestMultipleSubscribersDifferentKinds(t *testing.T) {
-	b := NewBus(zap.NewNop())
+	b := NewBus()
 	defer b.Stop()
 
 	ch1 := make(chan events.Event, 10)
@@ -407,5 +393,487 @@ func TestMultipleSubscribersDifferentKinds(t *testing.T) {
 		t.Error("post subscriber should not have received another event")
 	case <-time.After(100 * time.Millisecond):
 		//OK
+	}
+}
+
+func TestStopWithPendingUnsubscribe(t *testing.T) {
+	b := NewBus()
+
+	// Create a subscriber
+	ch := make(chan events.Event)
+	subID, err := b.Subscribe(context.Background(), "test-system", ch)
+	require.NoError(t, err)
+
+	// Fill up the actions channel with unsubscribe requests
+	// The channel buffer is 100, so we'll add more than that
+	var wg sync.WaitGroup
+	for i := 0; i < 150; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			b.Unsubscribe(context.Background(), subID)
+		}()
+	}
+
+	// Call Stop() while unsubscribe requests are being processed
+	go func() {
+		time.Sleep(10 * time.Millisecond) // Give some time for unsubscribe requests to queue up
+		b.Stop()
+	}()
+
+	wg.Wait()
+}
+
+func TestMultipleUnsubscribeSameID(t *testing.T) {
+	b := NewBus()
+	defer b.Stop()
+
+	ch := make(chan events.Event)
+	subID, err := b.Subscribe(context.Background(), "test-system", ch)
+	require.NoError(t, err)
+
+	// Try to unsubscribe multiple times concurrently
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			b.Unsubscribe(context.Background(), subID)
+		}()
+	}
+
+	wg.Wait()
+}
+
+func TestUnsubscribeAfterStop(t *testing.T) {
+	b := NewBus()
+
+	ch := make(chan events.Event)
+	subID, err := b.Subscribe(context.Background(), "test-system", ch)
+	require.NoError(t, err)
+
+	b.Stop()
+
+	// Should not panic when unsubscribing after stop
+	b.Unsubscribe(context.Background(), subID)
+}
+
+func TestHighConcurrencyStress(t *testing.T) {
+	b := NewBus()
+	defer b.Stop()
+
+	var (
+		numPublishers  = 50
+		numSubscribers = 100
+		messagesPerPub = 1000
+		totalMessages  = numPublishers * messagesPerPub
+	)
+
+	// Track received messages
+	var receivedCount atomic.Int64
+	subscriberWg := sync.WaitGroup{}
+	publisherWg := sync.WaitGroup{}
+
+	// Start subscribers
+	channels := make([]chan events.Event, numSubscribers)
+	subscriberIDs := make([]events.SubscriberID, numSubscribers)
+
+	for i := 0; i < numSubscribers; i++ {
+		subscriberWg.Add(1)
+		channels[i] = make(chan events.Event, totalMessages) // Buffered channel to prevent blocking
+
+		var err error
+		subscriberIDs[i], err = b.Subscribe(context.Background(), "*", channels[i])
+		require.NoError(t, err)
+
+		go func(ch chan events.Event) {
+			defer subscriberWg.Done()
+			for {
+				select {
+				case _, ok := <-ch:
+					if !ok {
+						return
+					}
+					receivedCount.Add(1)
+				}
+			}
+		}(channels[i])
+	}
+
+	// Start publishers
+	for i := 0; i < numPublishers; i++ {
+		publisherWg.Add(1)
+		go func(pubID int) {
+			defer publisherWg.Done()
+			for j := 0; j < messagesPerPub; j++ {
+				event := events.Event{
+					System: "stress-test",
+					Kind:   events.Kind(fmt.Sprintf("event-%d-%d", pubID, j)),
+					Data:   payload.New(fmt.Sprintf("data-%d-%d", pubID, j)),
+				}
+				b.Send(context.Background(), event)
+			}
+		}(i)
+	}
+
+	// Wait for publishers to complete
+	publisherWg.Wait()
+
+	// Random unsubscribes while messages are being processed
+	unsubWg := sync.WaitGroup{}
+	for i := 0; i < numSubscribers/2; i++ {
+		unsubWg.Add(1)
+		go func(idx int) {
+			defer unsubWg.Done()
+			time.Sleep(time.Duration(rand.Intn(100)) * time.Millisecond)
+			b.Unsubscribe(context.Background(), subscriberIDs[idx])
+			close(channels[idx])
+		}(i)
+	}
+
+	unsubWg.Wait()
+
+	// Close remaining channels and unsubscribe
+	for i := numSubscribers / 2; i < numSubscribers; i++ {
+		b.Unsubscribe(context.Background(), subscriberIDs[i])
+		close(channels[i])
+	}
+
+	// Wait for all subscribers to finish processing
+	subscriberWg.Wait()
+
+	// Verify message count
+	// Note: We expect less than total due to unsubscribes
+	received := receivedCount.Load()
+	require.Greater(t, received, int64(totalMessages/2),
+		"Should have received at least half of total messages")
+}
+
+func TestConcurrentSubscribeWithFilter(t *testing.T) {
+	b := NewBus()
+	defer b.Stop()
+
+	var (
+		numSubscribers = 100
+		numSystems     = 10
+		numKinds       = 5
+		numMessages    = 1000
+	)
+
+	var wg sync.WaitGroup
+	subscriberChans := make([]chan events.Event, numSubscribers)
+	subscriberIDs := make([]events.SubscriberID, numSubscribers)
+
+	// Create subscribers with different filters
+	for i := 0; i < numSubscribers; i++ {
+		wg.Add(1)
+		subscriberChans[i] = make(chan events.Event, numMessages)
+		system := fmt.Sprintf("system-%d", i%numSystems)
+		kind := fmt.Sprintf("kind-%d.*", i%numKinds)
+
+		go func(idx int, sys string, k string) {
+			defer wg.Done()
+			var err error
+			subscriberIDs[idx], err = b.SubscribeP(context.Background(), events.System(sys), events.Kind(k), subscriberChans[idx])
+			require.NoError(t, err)
+		}(i, system, kind)
+	}
+
+	wg.Wait()
+
+	// Send messages concurrently
+	var sendWg sync.WaitGroup
+	for i := 0; i < numMessages; i++ {
+		sendWg.Add(1)
+		go func(msgID int) {
+			defer sendWg.Done()
+			system := fmt.Sprintf("system-%d", msgID%numSystems)
+			kind := fmt.Sprintf("kind-%d.test", msgID%numKinds)
+
+			event := events.Event{
+				System: events.System(system),
+				Kind:   events.Kind(kind),
+				Data:   payload.New(fmt.Sprintf("data-%d", msgID)),
+			}
+			b.Send(context.Background(), event)
+		}(i)
+	}
+
+	sendWg.Wait()
+
+	// Verify message distribution
+	timeout := time.After(5 * time.Second)
+	messageCount := make([]int, numSubscribers)
+
+	done := make(chan bool)
+	go func() {
+		for i, ch := range subscriberChans {
+		loop:
+			for {
+				select {
+				case _, ok := <-ch:
+					if !ok {
+						break loop
+					}
+					messageCount[i]++
+				default:
+					break loop
+				}
+			}
+		}
+		done <- true
+	}()
+
+	select {
+	case <-timeout:
+		t.Fatal("Timeout waiting for message processing")
+	case <-done:
+		// Continue
+	}
+
+	// Verify distribution
+	totalReceived := 0
+	for _, count := range messageCount {
+		totalReceived += count
+		// Each subscriber should receive messages matching their filter
+		require.Greater(t, count, 0, "Each subscriber should receive some messages")
+	}
+
+	require.Greater(t, totalReceived, numMessages/2,
+		"Total received messages should be significant")
+}
+
+func TestConcurrentBusClosing(t *testing.T) {
+	b := NewBus()
+
+	var (
+		numConcurrentOps = 100
+		wg               sync.WaitGroup
+		startSignal      = make(chan struct{})
+	)
+
+	// Start goroutines that will try to subscribe
+	for i := 0; i < numConcurrentOps; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			<-startSignal // Wait for signal to start
+
+			ch := make(chan events.Event, 10)
+			subID, err := b.Subscribe(context.Background(), events.System(fmt.Sprintf("system-%d", id)), ch)
+			if err != nil {
+				// Either got "bus is closed" error or succeeded
+				if err.Error() != "bus is closed" {
+					t.Errorf("unexpected error on subscribe: %v", err)
+				}
+				return
+			}
+
+			// If subscribe succeeded, try to unsubscribe
+			b.Unsubscribe(context.Background(), subID)
+		}(i)
+	}
+
+	// Start goroutines that will try to send events
+	for i := 0; i < numConcurrentOps; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			<-startSignal // Wait for signal to start
+
+			event := events.Event{
+				System: "test",
+				Kind:   "test",
+				Data:   payload.New(fmt.Sprintf("data-%d", id)),
+			}
+			b.Send(context.Background(), event)
+		}(i)
+	}
+
+	// Start a goroutine that will close the bus
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		<-startSignal // Wait for signal to start
+		b.Stop()
+	}()
+
+	// Signal all goroutines to start simultaneously
+	close(startSignal)
+
+	// Wait for all operations to complete
+	wg.Wait()
+}
+
+func TestStopDuringBackpressure(t *testing.T) {
+	b := NewBus()
+
+	// Create multiple subscribers with buffered channels to prevent complete blockage
+	numSubscribers := 10
+	subscribers := make([]chan events.Event, numSubscribers)
+	for i := 0; i < numSubscribers; i++ {
+		subscribers[i] = make(chan events.Event, 10) // Buffered channel
+		_, err := b.Subscribe(context.Background(), "*", subscribers[i])
+		require.NoError(t, err)
+	}
+
+	// Create one slow subscriber to simulate backpressure
+	slowCh := make(chan events.Event, 1) // Small buffer
+	_, err := b.Subscribe(context.Background(), "*", slowCh)
+	require.NoError(t, err)
+
+	var wg sync.WaitGroup
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Start the slow consumer
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-slowCh:
+				time.Sleep(10 * time.Millisecond) // Simulate slow processing
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	// Start multiple senders to create backpressure
+	numSenders := 50
+	for i := 0; i < numSenders; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			event := events.Event{
+				System: "test",
+				Kind:   "test",
+				Data:   payload.New(fmt.Sprintf("data-%d", id)),
+			}
+
+			// Try to send with timeout context to prevent permanent blocking
+			sendCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+			defer cancel()
+			b.Send(sendCtx, event)
+		}(i)
+	}
+
+	// Wait a bit to build up some backpressure
+	time.Sleep(100 * time.Millisecond)
+
+	// Stop the bus while under backpressure
+	stopDone := make(chan struct{})
+	go func() {
+		b.Stop()
+		close(stopDone)
+	}()
+
+	// Ensure Stop() completes within a reasonable timeout
+	select {
+	case <-stopDone:
+		// Success - bus stopped properly
+	case <-time.After(1 * time.Second): // Reduced timeout
+		t.Fatal("bus.Stop() took too long under backpressure")
+	}
+
+	// Cleanup
+	cancel() // Signal all goroutines to stop
+	wg.Wait()
+
+	// Verify channels are closed
+	for _, ch := range subscribers {
+		select {
+		case _, ok := <-ch:
+			require.False(t, ok, "subscriber channel should be closed")
+		default:
+		}
+	}
+}
+
+func TestConcurrentStopAndSubscribe(t *testing.T) {
+	for i := 0; i < 100; i++ { // Run multiple iterations to increase chance of race detection
+		b := NewBus()
+		var wg sync.WaitGroup
+
+		// Start multiple subscribe operations
+		for j := 0; j < 10; j++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				ch := make(chan events.Event)
+				_, err := b.Subscribe(context.Background(), "*", ch)
+				if err != nil && err.Error() != "bus is closed" {
+					t.Errorf("unexpected error: %v", err)
+				}
+			}()
+		}
+
+		// Concurrently stop the bus
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			b.Stop()
+		}()
+
+		wg.Wait()
+	}
+}
+
+func TestConcurrentContextCancellation(t *testing.T) {
+	b := NewBus()
+	defer b.Stop()
+
+	numOperations := 100
+	ctx, cancel := context.WithCancel(context.Background())
+
+	var wg sync.WaitGroup
+	errChan := make(chan error, numOperations)
+
+	// Start concurrent subscriptions
+	for i := 0; i < numOperations; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+
+			ch := make(chan events.Event)
+			subCtx, subCancel := context.WithTimeout(ctx, time.Duration(rand.Intn(100))*time.Millisecond)
+			defer subCancel()
+
+			_, err := b.Subscribe(subCtx, events.System(fmt.Sprintf("system-%d", id)), ch)
+			if err != nil && err != context.Canceled && err != context.DeadlineExceeded {
+				errChan <- fmt.Errorf("unexpected error on subscribe: %v", err)
+			}
+		}(i)
+	}
+
+	// Start concurrent sends
+	for i := 0; i < numOperations; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+
+			sendCtx, sendCancel := context.WithTimeout(ctx, time.Duration(rand.Intn(100))*time.Millisecond)
+			defer sendCancel()
+
+			event := events.Event{
+				System: "test",
+				Kind:   "test",
+				Data:   payload.New(fmt.Sprintf("data-%d", id)),
+			}
+			b.Send(sendCtx, event)
+		}(i)
+	}
+
+	// Randomly cancel the parent context
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	wg.Wait()
+	close(errChan)
+
+	// Check for unexpected errors
+	for err := range errChan {
+		t.Errorf("Unexpected error: %v", err)
 	}
 }

@@ -127,7 +127,7 @@ func TestNamedChannelSelectVisibility(t *testing.T) {
 		-- Ready for send
 		coroutine.yield("ready_for_send")
 
-		-- Wait for completion
+		-- wait for completion
 		local msg = done:receive()
 		coroutine.yield("done")
 		coroutine.yield(msg)
@@ -475,11 +475,11 @@ func TestBufferedNamedChannelWriteCapacity(t *testing.T) {
             coroutine.yield("reader_complete")
         end)
 
-        -- Wait for reader to be ready
+        -- wait for reader to be ready
         ready:receive()
         coroutine.yield("main_ready")
 
-        -- Wait for completion
+        -- wait for completion
         local result = done:receive()
         coroutine.yield("all_complete")
     `, "test")

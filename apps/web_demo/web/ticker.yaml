@@ -1,13 +1,13 @@
 name: endpoints.ticker
 kind: http.endpoint
 meta:
-  server: service.web_server
-  router: service.api_router
+  server: web_server
+  router: api_router
   comment: "Ticks time."
   depends_on:
     - functions.ticker
-    - service.web_server
-    - service.api_router
+    - web_server
+    - api_router
 
 # Endpoint configuration
 method: GET
