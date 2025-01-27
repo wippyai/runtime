@@ -1,12 +1,41 @@
 package pubsub
 
 import (
+	"fmt"
+	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	lua "github.com/yuin/gopher-lua"
+	"sync/atomic"
 )
 
-// Module represents pubsub Lua module
-type Module struct {
+var chanID = atomic.Uint64{}
+
+type subscribe struct {
+	topic   string
+	channel *channel.Channel
 }
+
+func (r *subscribe) String() string {
+	return "pubsub.subscribe{topic=" + r.topic + "}"
+}
+
+func (r *subscribe) Type() lua.LValueType {
+	return lua.LTUserData
+}
+
+type unsubscribe struct {
+	channel *channel.Channel
+}
+
+func (r *unsubscribe) String() string {
+	return "pubsub.unsubscribe{}"
+}
+
+func (r *unsubscribe) Type() lua.LValueType {
+	return lua.LTUserData
+}
+
+// Module represents pubsub Lua module
+type Module struct{}
 
 // NewModule creates a new pubsub module instance
 func NewModule() *Module {
@@ -24,22 +53,44 @@ func (m *Module) Loader(L *lua.LState) int {
 	mod := L.NewTable()
 
 	// Register functions
-	L.SetField(mod, "subscribe", L.NewFunction(m.subscribeFunc))
+	L.SetField(mod, "subscribe", L.NewFunction(subscribeFunc))
+	L.SetField(mod, "unsubscribe", L.NewFunction(unsubscribeFunc))
 
 	// Register module
 	L.Push(mod)
 	return 1
 }
 
-// subscribeFunc implements pubsub.subscribe(topic) -> yields subscription request
-func (m *Module) subscribeFunc(L *lua.LState) int {
+func subscribeFunc(L *lua.LState) int {
 	topic := L.CheckString(1)
 	if topic == "" {
 		L.RaiseError("topic cannot be empty")
 		return 0
 	}
 
-	// Create and yield subscription request
-	L.Push(NewRequest(topic))
-	return -1 // yield to scheduler
+	chName := fmt.Sprintf("pubsub.%s.%d", topic, chanID.Add(1))
+	ch := channel.Named(chName, 1)
+	return Subscribe(L, ch, topic)
+}
+
+func unsubscribeFunc(L *lua.LState) int {
+	ch := channel.CheckChannel(L)
+	return Unsubscribe(L, ch)
+}
+
+// Subscribe subscribes to a topic and returns a channel
+func Subscribe(L *lua.LState, ch *channel.Channel, topic string) int {
+	req := &subscribe{
+		topic:   topic,
+		channel: ch,
+	}
+	L.Push(req)
+	return -1
+}
+
+// Unsubscribe unsubscribes from a topic via channel
+func Unsubscribe(L *lua.LState, ch *channel.Channel) int {
+	req := &unsubscribe{channel: ch}
+	L.Push(req)
+	return -1
 }

@@ -6,53 +6,34 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	lua "github.com/yuin/gopher-lua"
+	"golang.org/x/net/context"
 	"sync"
 )
 
-// Subscribe represents a yield request for a subscription
-type Subscribe struct {
-	topic string
-}
-
-func (r *Subscribe) String() string {
-	return fmt.Sprintf("subscription.request{topic=%s}", r.topic)
-}
-
-func (r *Subscribe) Type() lua.LValueType {
-	return lua.LTUserData
-}
-
-func NewRequest(topic string) *Subscribe {
-	return &Subscribe{topic: topic}
-}
-
-// subscription tracks an active subscription
-type subscription struct {
-	topic   string
-	channel *channel.Channel
-	refs    int
-}
-
-// pendingMessage represents a message waiting to be sent
 type pendingMessage struct {
 	topic string
 	value lua.LValue
 }
 
-// Layer manages topic subscriptions
 type Layer struct {
 	mu           sync.Mutex
+	tg           *engine.TaskGroup
 	channels     *channel.Layer
-	subscribers  map[string]*subscription
+	subs         *subscriptionManager
 	messageQueue *list.List
 }
 
 func NewSubscriptionLayer(channels *channel.Layer) *Layer {
 	return &Layer{
 		channels:     channels,
-		subscribers:  make(map[string]*subscription),
+		subs:         newSubscriptionManager(),
 		messageQueue: list.New(),
 	}
+}
+
+func (s *Layer) WithContext(ctx context.Context) context.Context {
+	s.tg = engine.GetTaskGroup(ctx)
+	return ctx
 }
 
 func (s *Layer) Publish(topic string, value lua.LValue) {
@@ -61,38 +42,25 @@ func (s *Layer) Publish(topic string, value lua.LValue) {
 		topic: topic,
 		value: value,
 	})
+	if s.tg != nil {
+		s.tg.WakeUp()
+	}
 	s.mu.Unlock()
 }
 
-// Step implements the engine.Layer interface
 func (s *Layer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, error) {
 	processableTasks := tasks
 	var outTasks []*engine.Task
 
-	// 1. Prepare messages to write, grouping by subscription channel (we only write messages arrived before this step)
-	pendingWrites := make(map[*subscription][]lua.LValue)
-	s.mu.Lock()
-	for e := s.messageQueue.Front(); e != nil; {
-		msg := e.Value.(*pendingMessage)
-		nextElem := e.Next()
-
-		if sub, exists := s.subscribers[msg.topic]; exists {
-			// Group messages by subscription channel
-			if len(pendingWrites[sub]) < sub.channel.Slots() {
-				pendingWrites[sub] = append(pendingWrites[sub], msg.value)
-				s.messageQueue.Remove(e)
-			}
-		}
-		e = nextElem
-	}
-	s.mu.Unlock()
+	// Process messages
+	pendingWrites := s.processMessages()
 
 	// Process tasks with writes and yields in a loop
 	boot := true
 	for len(processableTasks) > 0 || boot {
 		boot = false
 
-		// 2. Write messages to channels and process CVM
+		// Write messages to channels
 		for sub, messages := range pendingWrites {
 			if len(messages) > 0 {
 				if err := s.channels.Send(cvm.State().Context(), sub.channel, messages...); err != nil {
@@ -110,26 +78,44 @@ func (s *Layer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, err
 		processableTasks = nil
 
 		// Process yields and collect tasks
-		hasSubscribeYields := false
+		hasYields := false
 		for _, task := range nextTasks {
 			if len(task.Yielded) == 0 {
 				outTasks = append(outTasks, task)
 				continue
 			}
 
+			lastYield := task.Yielded[len(task.Yielded)-1]
+
 			// Handle subscription requests
-			if req, ok := isSubscriptionRequest(task.Yielded[len(task.Yielded)-1]); ok {
-				hasSubscribeYields = true
+			if req, ok := isSubscriptionRequest(lastYield); ok {
+				hasYields = true
 				s.mu.Lock()
-				sub, err := s.getOrCreateSubscription(req.topic)
+				sub, err := s.subs.add(req.topic, req.channel)
+				s.mu.Unlock()
+
 				if err != nil {
-					s.mu.Unlock()
-					return nil, fmt.Errorf("subscription error: %w", err)
+					task.RaiseError = err
+				} else {
+					task.Resumed = []lua.LValue{channel.Wrap(task.Thread(), sub.channel)}
 				}
 
-				// clients will be round-robin'd
-				task.Resumed = []lua.LValue{channel.Wrap(task.Thread(), sub.channel)}
+				processableTasks = append(processableTasks, task)
+				continue
+			}
+
+			// Handle unsubscribe requests
+			if req, ok := isUnsubscribeRequest(lastYield); ok {
+				hasYields = true
+				s.mu.Lock()
+				err := s.subs.remove(req.channel)
 				s.mu.Unlock()
+
+				if err != nil {
+					task.RaiseError = err
+				} else {
+					task.Resumed = []lua.LValue{lua.LTrue}
+				}
 
 				processableTasks = append(processableTasks, task)
 				continue
@@ -138,8 +124,7 @@ func (s *Layer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, err
 			outTasks = append(outTasks, task)
 		}
 
-		// Continue loop only if we have subscription yields to process
-		if !hasSubscribeYields {
+		if !hasYields {
 			break
 		}
 	}
@@ -147,31 +132,37 @@ func (s *Layer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, err
 	return outTasks, nil
 }
 
-func (s *Layer) getOrCreateSubscription(topic string) (*subscription, error) {
-	sub, exists := s.subscribers[topic]
-	if exists {
-		sub.refs++
-		return sub, nil
+func (s *Layer) processMessages() map[*subscription][]lua.LValue {
+	pendingWrites := make(map[*subscription][]lua.LValue)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for e := s.messageQueue.Front(); e != nil; {
+		msg := e.Value.(*pendingMessage)
+		nextElem := e.Next()
+
+		if sub, exists := s.subs.get(msg.topic); exists {
+			if len(pendingWrites[sub]) < sub.channel.Slots() {
+				pendingWrites[sub] = append(pendingWrites[sub], msg.value)
+				s.messageQueue.Remove(e)
+			}
+		}
+		e = nextElem
 	}
 
-	// Create new subscription channel
-	ch := channel.Named(fmt.Sprintf("sub.%s", topic), 1) // Always buffer size 1
-	if ch == nil {
-		return nil, fmt.Errorf("failed to create subscription channel")
-	}
-
-	sub = &subscription{
-		topic:   topic,
-		channel: ch,
-		refs:    1,
-	}
-	s.subscribers[topic] = sub
-
-	return sub, nil
+	return pendingWrites
 }
 
-func isSubscriptionRequest(v lua.LValue) (*Subscribe, bool) {
-	if req, ok := v.(*Subscribe); ok {
+func isSubscriptionRequest(v lua.LValue) (*subscribe, bool) {
+	if req, ok := v.(*subscribe); ok {
+		return req, true
+	}
+	return nil, false
+}
+
+func isUnsubscribeRequest(v lua.LValue) (*unsubscribe, bool) {
+	if req, ok := v.(*unsubscribe); ok {
 		return req, true
 	}
 	return nil, false
