@@ -9,17 +9,31 @@ jobs:
     steps:
       - name: Check out code
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PAT_TOKEN }}  # Required for private modules
 
       - name: Set up Go
-        uses: actions/setup-go@v5 # action page: <https://github.com/actions/setup-go>
+        uses: actions/setup-go@v5
         with:
           go-version: stable
 
+      - name: Install C dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential
+
+      - name: Configure Go environment
+        run: |
+          git config --global url."https://${{ secrets.PAT_TOKEN }}@github.com/".insteadOf "https://github.com/"
+          go env -w GOPRIVATE=github.com/ponyruntime/*
+          go env -w GONOSUMDB=github.com/ponyruntime/*
+          go env -w CGO_ENABLED=1
+
       - name: Run linter
-        uses: golangci/golangci-lint-action@v6.2.0 # Action page: <https://github.com/golangci/golangci-lint-action>
+        uses: golangci/golangci-lint-action@v6.2.0
         env:
           CGO_ENABLED: 1
         with:
-          version: v1.63 # without patch version
-          only-new-issues: false # show only new issues if it's a pull request
+          version: v1.63
+          only-new-issues: false
           args: --timeout=10m --build-tags=race ./...
