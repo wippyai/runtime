@@ -43,12 +43,12 @@ func TestPubSub(t *testing.T) {
 		defer vm.Close()
 
 		script := `
-            function test()
-                local sub = pubsub.subscribe("test-topic")
-                local msg = sub:receive()
-                return msg
-            end
-        `
+	       function test()
+	           local sub = pubsub.subscribe("test-topic")
+	           local msg = sub:receive()
+	           return msg
+	       end
+	   `
 		err := vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
@@ -87,12 +87,12 @@ func TestPubSub(t *testing.T) {
 		defer vm.Close()
 
 		script := `
-            function test()
-                local sub1 = pubsub.subscribe("test-topic")
-                local sub2 = pubsub.subscribe("test-topic") -- should fail
-                return "shouldn't reach here"
-            end
-        `
+	       function test()
+	           local sub1 = pubsub.subscribe("test-topic")
+	           local sub2 = pubsub.subscribe("test-topic") -- should fail
+	           return "shouldn't reach here"
+	       end
+	   `
 		err := vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
@@ -110,13 +110,13 @@ func TestPubSub(t *testing.T) {
 		defer vm.Close()
 
 		script := `
-            function test()
-                local sub = pubsub.subscribe("test-topic")
-                local ok = pubsub.unsubscribe(sub)
-                -- Verify unsubscribe
-                return ok
-            end
-        `
+	       function test()
+	           local sub = pubsub.subscribe("test-topic")
+	           local ok = pubsub.unsubscribe(sub)
+	           -- Verify unsubscribe
+	           return ok
+	       end
+	   `
 		err := vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
@@ -134,11 +134,11 @@ func TestPubSub(t *testing.T) {
 		defer vm.Close()
 
 		script := `
-            function test()
-                local ch = channel.new()
-                pubsub.unsubscribe(ch)
-            end
-        `
+	       function test()
+	           local ch = channel.new()
+	           pubsub.unsubscribe(ch)
+	       end
+	   `
 		err := vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
@@ -191,7 +191,6 @@ func TestPubSub(t *testing.T) {
 			result = res
 		}()
 
-		time.Sleep(100 * time.Millisecond) // Let subscriber setup
 		pubsubLayer.Publish("test-topic", lua.LString("one"))
 		pubsubLayer.Publish("test-topic", lua.LString("two"))
 		pubsubLayer.Publish("test-topic", lua.LString("three"))
