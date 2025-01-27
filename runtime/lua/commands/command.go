@@ -32,7 +32,7 @@ func NewCommand(cmdType CommandType, params []lua.LValue) (*Command, error) {
 	}
 
 	return &Command{
-		Type:        cmdType,
+		cmdType:     cmdType,
 		Params:      params,
 		response:    ch,
 		responseVal: ch.Value(),
@@ -41,7 +41,7 @@ func NewCommand(cmdType CommandType, params []lua.LValue) (*Command, error) {
 
 // Command represents an async operation request
 type Command struct {
-	Type        CommandType
+	cmdType     CommandType
 	Params      []lua.LValue
 	response    *channel.Channel // Actual response channel
 	responseVal lua.LValue       // Lua channel value representation
