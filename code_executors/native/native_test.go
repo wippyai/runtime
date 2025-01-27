@@ -1,6 +1,7 @@
 package native
 
 import (
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -150,8 +151,12 @@ func TestExecutor_ReadWithInvalidCommand(t *testing.T) {
 	for output := range executor.Stderr() {
 		sb.WriteString(string(output))
 	}
-
-	assert.Contains(t, sb.String(), "sh: invalidcommand: command not found")
+	if runtime.GOOS == "linux" {
+		assert.Empty(t, sb.String())
+	} else {
+		// macOS
+		assert.Contains(t, sb.String(), "sh: invalidcommand: command not found")
+	}
 }
 
 func TestExecutor_WriteStdin(t *testing.T) {
