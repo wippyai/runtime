@@ -427,3 +427,182 @@ func TestCommand_LuaMethodsComplete(t *testing.T) {
 		assert.NoError(t, err)
 	}
 }
+
+func TestCommandLayer_SelectOperations(t *testing.T) {
+	var executionFlow []string
+	addToFlow := func(step string) {
+		executionFlow = append(executionFlow, step)
+	}
+
+	channelLayer := channel.NewChannelLayer()
+	commandLayer := NewCommandLayer(channelLayer)
+
+	vm, err := engine.NewCVM(
+		zap.NewNop(),
+		engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
+		engine.WithPreloaded("command", NewCommandModule().Loader),
+	)
+	assert.NoError(t, err)
+	defer vm.Close()
+
+	runner := engine.NewRunner(vm,
+		engine.WithLayer(channelLayer),
+		engine.WithLayer(commandLayer),
+	)
+
+	ctx := runner.WithContext(context.Background())
+	addToFlow("test_setup_complete")
+
+	err = vm.StartString(ctx, `
+		local cmd1 = command.new("select1", {value = "first"})
+		local cmd2 = command.new("select2", {value = "second"})
+		
+		local resp1 = cmd1:response()
+		local resp2 = cmd2:response()
+		local control_ch = channel.new()
+		
+		assert(not cmd1:is_complete(), "cmd1 should not be complete initially")
+		assert(not cmd2:is_complete(), "cmd2 should not be complete initially")
+		coroutine.yield("initial_state_verified")
+		
+		local result = channel.select{
+			resp1:case_receive(),
+			resp2:case_receive(),
+			control_ch:case_receive()
+		}
+		assert(result.channel == resp1, "First select should choose resp1")
+		assert(result.value == "result1", "Expected result1")
+		coroutine.yield("first_select_complete")
+		
+		result = channel.select{
+			resp2:case_receive(),
+			control_ch:case_receive()
+		}
+		assert(result.channel == resp2, "Second select should choose resp2")
+		assert(result.value == "result2", "Expected result2")
+		coroutine.yield("second_select_complete")
+		
+		result = channel.select{
+			control_ch:case_receive(),
+			default = true
+		}
+		assert(result.default, "Should hit default case when no messages available")
+		coroutine.yield("default_select_complete")
+		
+		assert(cmd1:is_complete(), "cmd1 should be complete")
+		assert(cmd2:is_complete(), "cmd2 should be complete")
+		
+		local result1, err1 = cmd1:result()
+		assert(result1 == "result1", "cmd1 should have correct result")
+		assert(err1 == nil, "cmd1 should have no error")
+		
+		local result2, err2 = cmd2:result()
+		assert(result2 == "result2", "cmd2 should have correct result")
+		assert(err2 == nil, "cmd2 should have no error")
+		
+		coroutine.yield("final_verification_complete")
+	`, "test")
+	assert.NoError(t, err)
+	addToFlow("lua_script_loaded")
+
+	tasks, err := runner.Step()
+	assert.NoError(t, err)
+	addToFlow("initial_step_complete")
+
+	var commands []*Command
+	stepCount := 0
+
+	stateVerified := false
+	firstSelectDone := false
+	secondSelectDone := false
+	defaultSelectDone := false
+	finalVerificationDone := false
+
+	for len(tasks) > 0 {
+		stepCount++
+		addToFlow(fmt.Sprintf("starting_step_%d", stepCount))
+
+		for _, task := range tasks {
+			if len(task.Yielded) > 0 {
+				yield := task.Yielded[0].String()
+				addToFlow(fmt.Sprintf("yield_%s", yield))
+
+				switch yield {
+				case "initial_state_verified":
+					stateVerified = true
+					commands = commandLayer.GetPendingCommands()
+					assert.Equal(t, 2, len(commands))
+					assert.Equal(t, Type("select1"), commands[0].cmdType)
+					assert.Equal(t, Type("select2"), commands[1].cmdType)
+
+					commandLayer.QueueResult(commands[0], lua.LString("result1"))
+					addToFlow("first_result_queued")
+
+				case "first_select_complete":
+					firstSelectDone = true
+					assert.True(t, commands[0].IsComplete())
+					result, err := commands[0].Result()
+					assert.NoError(t, err)
+					assert.Equal(t, "result1", result.String())
+
+					commandLayer.QueueResult(commands[1], lua.LString("result2"))
+					addToFlow("second_result_queued")
+
+				case "second_select_complete":
+					secondSelectDone = true
+					assert.True(t, commands[1].IsComplete())
+					result, err := commands[1].Result()
+					assert.NoError(t, err)
+					assert.Equal(t, "result2", result.String())
+
+				case "default_select_complete":
+					defaultSelectDone = true
+					for _, cmd := range commands {
+						assert.True(t, cmd.IsComplete())
+					}
+
+				case "final_verification_complete":
+					finalVerificationDone = true
+					addToFlow("final_verification_done")
+
+					for i, cmd := range commands {
+						assert.True(t, cmd.IsComplete())
+						result, err := cmd.Result()
+						assert.NoError(t, err)
+						assert.Equal(t, fmt.Sprintf("result%d", i+1), result.String())
+					}
+				}
+			}
+		}
+
+		tasks, err = runner.Step(tasks...)
+		assert.NoError(t, err)
+		addToFlow(fmt.Sprintf("step_%d_complete", stepCount))
+	}
+
+	assert.True(t, stateVerified)
+	assert.True(t, firstSelectDone)
+	assert.True(t, secondSelectDone)
+	assert.True(t, defaultSelectDone)
+	assert.True(t, finalVerificationDone)
+
+	requiredSteps := []string{
+		"test_setup_complete",
+		"lua_script_loaded",
+		"initial_step_complete",
+		"first_result_queued",
+		"second_result_queued",
+		"final_verification_done",
+	}
+
+	for _, step := range requiredSteps {
+		found := false
+		for _, executedStep := range executionFlow {
+			if executedStep == step {
+				found = true
+				break
+			}
+		}
+		assert.True(t, found)
+	}
+}
