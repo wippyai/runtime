@@ -1,4 +1,4 @@
-package commands
+package command
 
 import (
 	"errors"
@@ -8,8 +8,8 @@ import (
 	"sync/atomic"
 )
 
-// CommandType represents the type of command operation
-type CommandType string
+// Type represents the type of command operation
+type Type string
 
 var (
 	ErrCommandCanceled = errors.New("command canceled")
@@ -17,7 +17,7 @@ var (
 )
 
 // NewCommand creates a new command with a response channel
-func NewCommand(cmdType CommandType, params ...lua.LValue) (*Command, error) {
+func NewCommand(cmdType Type, params ...lua.LValue) (*Command, error) {
 	if cmdType == "" {
 		return nil, fmt.Errorf("command type cannot be empty")
 	}
@@ -41,7 +41,7 @@ func NewCommand(cmdType CommandType, params ...lua.LValue) (*Command, error) {
 
 // Command represents an async operation request
 type Command struct {
-	cmdType     CommandType
+	cmdType     Type
 	Params      []lua.LValue
 	response    *channel.Channel // Actual response channel
 	responseVal lua.LValue       // Lua channel value representation

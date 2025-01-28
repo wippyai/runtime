@@ -7,6 +7,7 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
+// todo: i think we need to rename this method according to what stream pipe we connected to
 func (m *Module) readProcess(l *lua.LState) int {
 	log := getCtxLogger(l)
 	executor := getProcessExecutor(l)
