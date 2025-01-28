@@ -9,8 +9,8 @@ import (
 // Module represents command module
 type Module struct{}
 
-// NewModule creates a new command module instance
-func NewModule() *Module {
+// NewCommandModule creates a new command module instance
+func NewCommandModule() *Module {
 	return &Module{}
 }
 
@@ -67,31 +67,38 @@ func newCommandFunc(L *lua.LState) int {
 		})
 	}
 
-	cmd, err := NewCommand(cmdType, params)
+	cmd, err := NewCommand(cmdType, params...)
 	if err != nil {
 		L.RaiseError("failed to create command: %v", err)
 		return 0
 	}
 
+	cmdBus := GetCommandContext(L.Context())
+	if cmdBus == nil {
+		L.RaiseError("command context not found")
+		return 0
+	}
+
+	cmdBus.Schedule(cmd)
 	L.Push(Wrap(L, cmd))
 	return 1
 }
 
 // Command methods
 func responseFunc(L *lua.LState) int {
-	cmd := checkCommand(L)
+	cmd := CheckCommand(L)
 	L.Push(channel.Wrap(L, cmd.response))
 	return 1
 }
 
 func cancelFunc(L *lua.LState) int {
-	cmd := checkCommand(L)
+	cmd := CheckCommand(L)
 	cmd.Cancel()
 	return 0
 }
 
-// Utility functions
-func checkCommand(L *lua.LState) *Command {
+// CheckCommand checks if the first argument is a Command
+func CheckCommand(L *lua.LState) *Command {
 	ud := L.CheckUserData(1)
 	if cmd, ok := ud.Value.(*Command); ok {
 		return cmd

@@ -17,7 +17,7 @@ var (
 )
 
 // NewCommand creates a new command with a response channel
-func NewCommand(cmdType CommandType, params []lua.LValue) (*Command, error) {
+func NewCommand(cmdType CommandType, params ...lua.LValue) (*Command, error) {
 	if cmdType == "" {
 		return nil, fmt.Errorf("command type cannot be empty")
 	}
