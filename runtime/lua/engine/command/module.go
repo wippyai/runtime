@@ -62,12 +62,10 @@ func newCommandFunc(L *lua.LState) int {
 	}
 
 	// Get params table
-	params := make([]lua.LValue, 0)
-	if L.GetTop() > 1 {
-		paramTable := L.CheckTable(2)
-		paramTable.ForEach(func(key lua.LValue, value lua.LValue) {
-			params = append(params, value)
-		})
+	numArgs := L.GetTop() - 1 // -1 for cmdType
+	params := make([]lua.LValue, numArgs)
+	for i := 0; i < numArgs; i++ {
+		params[i] = L.Get(i + 2) // +2 to skip function and cmdType
 	}
 
 	cmd, err := NewCommand(cmdType, params...)
