@@ -389,3 +389,211 @@ func TestWorkflowRunner_ConcurrentCommandsWithSelect(t *testing.T) {
 	assert.Equal(t, "world", resultTable.RawGetInt(1).String(), "first result should be from second command")
 	assert.Equal(t, "hello", resultTable.RawGetInt(2).String(), "second result should be from first command")
 }
+
+func TestWorkflowRunner_CommandWithSignal(t *testing.T) {
+	logger := zap.NewNop()
+
+	// Create VM with required modules
+	vm, err := engine.NewCVM(
+		logger,
+		engine.WithPreloaded("command", command.NewCommandModule().Loader),
+		engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
+		engine.WithPreloaded("pubsub", pubsub.NewModule().Loader),
+	)
+	require.NoError(t, err)
+	defer vm.Close()
+
+	// Create layers
+	channels := channel.NewChannelLayer()
+	cmdLayer := command.NewCommandLayer(channels)
+	pubLayer := pubsub.NewSubscriptionLayer(channels)
+
+	// Create runner with layers
+	runner := engine.NewRunner(vm,
+		engine.WithLayer(channels),
+		engine.WithLayer(cmdLayer),
+		engine.WithLayer(pubLayer),
+	)
+
+	// Create workflow runner
+	workflow := NewWorkflowRunner(runner, cmdLayer, pubLayer)
+
+	// Define test script that waits for both command and signal
+	script := `
+        function test_workflow()
+            -- Schedule command first
+            local cmd = command.new("test_command")
+            local resp = cmd:response()
+            
+            -- Subscribe to signal
+            local signal = pubsub.subscribe("test.signal")
+            
+            -- Wait for signal first
+            local signal_value = signal:receive()
+            
+            -- Then get command result
+            local cmd_result = resp:receive()
+            
+            return cmd_result .. " - " .. signal_value
+        end
+    `
+
+	// Import script
+	err = vm.Import(script, "test", "test_workflow")
+	require.NoError(t, err)
+
+	// Start workflow
+	err = workflow.Start(context.Background(), "test_workflow")
+	require.NoError(t, err)
+
+	var processedCmd *command.Command
+
+	// First step should give us the command
+	cmds, err := workflow.Step()
+	require.NoError(t, err)
+	require.Len(t, cmds, 1)
+
+	processedCmd = cmds[0]
+	assert.Equal(t, command.Type("test_command"), processedCmd.CmdType())
+
+	// Set command result
+	err = workflow.SetCommandResult(processedCmd, lua.LString("hello"))
+	require.NoError(t, err)
+
+	// Step to process command result
+	cmds, err = workflow.Step()
+	require.NoError(t, err)
+	require.Empty(t, cmds)
+
+	// Send signal
+	err = workflow.SendValue("test.signal", lua.LString("world"))
+	require.NoError(t, err)
+
+	// Run until completion
+	for !workflow.IsComplete() {
+		cmds, err = workflow.Step()
+		require.NoError(t, err)
+		require.Empty(t, cmds)
+	}
+
+	// Verify completion and result
+	assert.True(t, workflow.IsComplete())
+	result, err := workflow.GetCompletionResult()
+	require.NoError(t, err)
+	assert.Equal(t, "hello - world", result.String())
+}
+
+func TestWorkflowRunner_CommandWithSignalCounter(t *testing.T) {
+	logger := zap.NewNop()
+
+	// Create VM with required modules
+	vm, err := engine.NewCVM(
+		logger,
+		engine.WithPreloaded("command", command.NewCommandModule().Loader),
+		engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
+		engine.WithPreloaded("pubsub", pubsub.NewModule().Loader),
+	)
+	require.NoError(t, err)
+	defer vm.Close()
+
+	// Create layers
+	channels := channel.NewChannelLayer()
+	cmdLayer := command.NewCommandLayer(channels)
+	pubLayer := pubsub.NewSubscriptionLayer(channels)
+
+	// Create runner with layers
+	runner := engine.NewRunner(vm,
+		engine.WithLayer(channels),
+		engine.WithLayer(cmdLayer),
+		engine.WithLayer(pubLayer),
+	)
+
+	// Create workflow runner
+	workflow := NewWorkflowRunner(runner, cmdLayer, pubLayer)
+
+	// Define test script with parallel signal counting
+	script := `
+        function test_workflow() 
+            local signal_count = 0
+            
+            -- Start signal counter coroutine
+            coroutine.spawn(function()
+                local count = 0
+                local signals = pubsub.subscribe("test.signal")
+                
+                -- Count signals until channel is closed
+                while true do
+                    local value, ok = signals:receive()
+                    if not ok then break end
+                    signal_count = signal_count + 1
+                end
+            end)
+            
+            -- Main flow: handle command
+            local cmd = command.new("test_command")
+            local resp = cmd:response()
+            local cmd_result = resp:receive()
+            
+            return {
+                command_result = cmd_result,
+                signal_count = signal_count
+            }
+        end
+    `
+
+	// Import script
+	err = vm.Import(script, "test", "test_workflow")
+	require.NoError(t, err)
+
+	// Start workflow
+	err = workflow.Start(context.Background(), "test_workflow")
+	require.NoError(t, err)
+
+	var processedCmd *command.Command
+
+	// First step should give us the command
+	cmds, err := workflow.Step()
+	require.NoError(t, err)
+	require.Len(t, cmds, 1)
+
+	processedCmd = cmds[0]
+	assert.Equal(t, command.Type("test_command"), processedCmd.CmdType())
+
+	// Send a few signals
+	err = workflow.SendValue("test.signal", lua.LString("signal1"))
+	require.NoError(t, err)
+
+	err = workflow.SendValue("test.signal", lua.LString("signal2"))
+	require.NoError(t, err)
+
+	// Step to process signals
+	cmds, err = workflow.Step()
+	require.NoError(t, err)
+	require.Empty(t, cmds)
+
+	// Set command result
+	err = workflow.SetCommandResult(processedCmd, lua.LString("hello"))
+	require.NoError(t, err)
+
+	// Send one more signal
+	err = workflow.SendValue("test.signal", lua.LString("signal3"))
+	require.NoError(t, err)
+
+	// Run until completion
+	for !workflow.IsComplete() {
+		cmds, err = workflow.Step()
+		require.NoError(t, err)
+		require.Empty(t, cmds)
+	}
+
+	// Verify completion and results
+	assert.True(t, workflow.IsComplete())
+	result, err := workflow.GetCompletionResult()
+	require.NoError(t, err)
+
+	resultTable := result.(*lua.LTable)
+	assert.Equal(t, "hello", resultTable.RawGetString("command_result").String(),
+		"should have correct command result")
+	assert.Equal(t, float64(3), float64(resultTable.RawGetString("signal_count").(lua.LNumber)),
+		"should have counted 3 signals")
+}
