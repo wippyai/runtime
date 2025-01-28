@@ -29,8 +29,11 @@ func (m *Module) Loader(L *lua.LState) int {
 
 	// Command methods
 	commandMethods := map[string]lua.LGFunction{
-		"response": responseFunc,
-		"cancel":   cancelFunc,
+		"response":    responseFunc,
+		"error":       errorFunc,
+		"is_complete": isCompleteFunc,
+		"result":      resultFunc,
+		"is_canceled": isCanceledFunc,
 	}
 
 	// Command metatable
@@ -91,10 +94,46 @@ func responseFunc(L *lua.LState) int {
 	return 1
 }
 
-func cancelFunc(L *lua.LState) int {
+// Check if command was canceled
+func isCanceledFunc(L *lua.LState) int {
 	cmd := CheckCommand(L)
-	cmd.Cancel()
-	return 0
+	isCanceled := cmd.Err() == ErrCommandCanceled
+	L.Push(lua.LBool(isCanceled))
+	return 1
+}
+
+// Get command error if any
+func errorFunc(L *lua.LState) int {
+	cmd := CheckCommand(L)
+	if err := cmd.Err(); err != nil {
+		L.Push(lua.LString(err.Error()))
+	} else {
+		L.Push(lua.LNil)
+	}
+	return 1
+}
+
+// Check if command is complete
+func isCompleteFunc(L *lua.LState) int {
+	cmd := CheckCommand(L)
+	L.Push(lua.LBool(cmd.IsComplete()))
+	return 1
+}
+
+// Get command result
+func resultFunc(L *lua.LState) int {
+	cmd := CheckCommand(L)
+	result, err := cmd.Result()
+	if err != nil {
+		// Return nil + error message if there was an error
+		L.Push(lua.LNil)
+		L.Push(lua.LString(err.Error()))
+		return 2
+	}
+	// Return result + nil if successful
+	L.Push(result)
+	L.Push(lua.LNil)
+	return 2
 }
 
 // CheckCommand checks if the first argument is a Command
