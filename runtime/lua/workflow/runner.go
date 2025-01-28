@@ -64,6 +64,43 @@ func (b *WorkflowRunner) Start(ctx context.Context, funcName string, args ...lua
 	return nil
 }
 
+// checkCompletion checks if workflow has completed and updates state accordingly
+func (b *WorkflowRunner) checkCompletion() (bool, error) {
+	select {
+	case result, ok := <-b.exitCh:
+		if !ok {
+			b.complete = true
+			return true, nil
+		}
+
+		if result.Error != nil {
+			b.err = result.Error
+			b.complete = true
+			return true, result.Error
+		}
+
+		if len(result.Result) > 0 {
+			b.result = result.Result[0]
+		}
+		b.complete = true
+		return true, nil
+	default:
+		return false, nil
+	}
+}
+
+// processMoreTasks gets next batch of tasks if available
+func (b *WorkflowRunner) processMoreTasks(tasks []*engine.Task) ([]*engine.Task, error) {
+	if len(tasks) == 0 && b.runner.GetTaskGroup().GetTaskCount() > 0 {
+		moreTasks, err := b.runner.GetTaskGroup().Wait(b.ctx, b.runner.GetCVM(), false)
+		if err != nil {
+			return nil, err
+		}
+		return moreTasks, nil
+	}
+	return tasks, nil
+}
+
 // Step advances execution and returns any commands needing external processing
 // Returns:
 // - commands that need to be processed
@@ -80,62 +117,41 @@ func (b *WorkflowRunner) Step() ([]*command.Command, error) {
 	var tasks []*engine.Task
 
 	for {
-		// Check for completion
-		select {
-		case result, ok := <-b.exitCh:
-			if !ok {
-				b.complete = true
-				return nil, nil
-			}
-
-			if result.Error != nil {
-				b.err = result.Error
-				b.complete = true
-				return nil, result.Error
-			}
-
-			if len(result.Result) > 0 {
-				b.result = result.Result[0]
-			}
-			b.complete = true
-			return nil, nil
-		default:
-			// Continue processing
-		}
-
 		// Run a step of the engine
 		moreTasks, err := b.runner.Step(tasks...)
 		if err != nil {
 			return nil, fmt.Errorf("step error: %w", err)
 		}
 
-		// Get any pending commands after processing
-		commands := b.cmdLayer.GetPendingCommands()
-		if len(commands) > 0 {
-			// We have commands to process externally
+		if completed, err := b.checkCompletion(); completed {
+			return nil, err
+		}
+
+		// Check for pending commands
+		if commands := b.cmdLayer.GetPendingCommands(); len(commands) > 0 {
 			return commands, nil
 		}
 
-		// If no more tasks and no commands, we're done with this step
+		// If no more tasks and no commands, check completion one more time
 		if len(moreTasks) == 0 && b.runner.GetTaskGroup().GetTaskCount() == 0 {
 			return nil, nil
 		}
 
-		if len(moreTasks) == 0 && b.runner.GetTaskGroup().GetTaskCount() > 0 {
-			moreTasks, err = b.runner.GetTaskGroup().Wait(b.ctx, b.runner.GetCVM(), false)
-			if err != nil {
-				return nil, err
-			}
-
-			if len(moreTasks) == 0 {
-				return nil, nil
-			}
+		// Process more tasks if available
+		moreTasks, err = b.processMoreTasks(moreTasks)
+		if err != nil {
+			return nil, err
 		}
 
-		for i, _ := range tasks {
+		// No tasks available, exit step
+		if len(moreTasks) == 0 {
+			return nil, nil
+		}
+
+		// Clear and update task list
+		for i := range tasks {
 			tasks[i] = nil
 		}
-
 		tasks = moreTasks
 	}
 }
@@ -157,8 +173,8 @@ func (b *WorkflowRunner) GetCompletionResult() (lua.LValue, error) {
 	return b.result, b.err
 }
 
-// SetCommandResult sets the result for a processed command
-func (b *WorkflowRunner) SetCommandResult(cmd *command.Command, result lua.LValue) error {
+// SendResult sets the result for a processed command
+func (b *WorkflowRunner) SendResult(cmd *command.Command, result lua.LValue) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -170,8 +186,8 @@ func (b *WorkflowRunner) SetCommandResult(cmd *command.Command, result lua.LValu
 	return nil
 }
 
-// SetCommandError sets an error for a failed command
-func (b *WorkflowRunner) SetCommandError(cmd *command.Command, err error) error {
+// SendError sets an error for a failed command
+func (b *WorkflowRunner) SendError(cmd *command.Command, err error) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -183,7 +199,7 @@ func (b *WorkflowRunner) SetCommandError(cmd *command.Command, err error) error 
 	return nil
 }
 
-// SendValue sends a message via pubsub
+// SendValue sends a message via pubsub, values will be send as individual arguments.
 func (b *WorkflowRunner) SendValue(topic string, value ...lua.LValue) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()

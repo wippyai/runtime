@@ -79,7 +79,7 @@ func TestWorkflowRunner_BasicFlow(t *testing.T) {
 
 		// Set command result if we have a processed command
 		if processedCmd != nil {
-			err = workflow.SetCommandResult(processedCmd, lua.LString("hello"))
+			err = workflow.SendResult(processedCmd, lua.LString("hello"))
 			require.NoError(t, err)
 			processedCmd = nil
 		}
@@ -158,12 +158,12 @@ func TestWorkflowRunner_SequentialCommands(t *testing.T) {
 			switch cmd.CmdType() {
 			case "first_command":
 				assert.Equal(t, 1, commandCount, "first command should be processed first")
-				err = workflow.SetCommandResult(cmd, lua.LString("hello"))
+				err = workflow.SendResult(cmd, lua.LString("hello"))
 				require.NoError(t, err)
 
 			case "second_command":
 				assert.Equal(t, 2, commandCount, "second command should be processed second")
-				err = workflow.SetCommandResult(cmd, lua.LString("world"))
+				err = workflow.SendResult(cmd, lua.LString("world"))
 				require.NoError(t, err)
 
 			default:
@@ -245,7 +245,7 @@ func TestWorkflowRunner_CommandFailure(t *testing.T) {
 			assert.Equal(t, command.Type("failing_command"), cmd.CmdType())
 
 			// Simulate command failure
-			err = workflow.SetCommandError(cmd, fmt.Errorf("simulated error"))
+			err = workflow.SendError(cmd, fmt.Errorf("simulated error"))
 			require.NoError(t, err)
 		}
 	}
@@ -360,7 +360,7 @@ func TestWorkflowRunner_ConcurrentCommandsWithSelect(t *testing.T) {
 	require.NotNil(t, secondCmd, "should have second command")
 
 	// Send response to second command first
-	err = workflow.SetCommandResult(secondCmd, lua.LString("world"))
+	err = workflow.SendResult(secondCmd, lua.LString("world"))
 	require.NoError(t, err)
 
 	// Step to process first response
@@ -369,7 +369,7 @@ func TestWorkflowRunner_ConcurrentCommandsWithSelect(t *testing.T) {
 	require.Empty(t, cmds)
 
 	// Send response to first command
-	err = workflow.SetCommandResult(firstCmd, lua.LString("hello"))
+	err = workflow.SendResult(firstCmd, lua.LString("hello"))
 	require.NoError(t, err)
 
 	// Run until completion
@@ -457,7 +457,7 @@ func TestWorkflowRunner_CommandWithSignal(t *testing.T) {
 	assert.Equal(t, command.Type("test_command"), processedCmd.CmdType())
 
 	// Set command result
-	err = workflow.SetCommandResult(processedCmd, lua.LString("hello"))
+	err = workflow.SendResult(processedCmd, lua.LString("hello"))
 	require.NoError(t, err)
 
 	// Step to process command result
@@ -572,7 +572,7 @@ func TestWorkflowRunner_CommandWithSignalCounter(t *testing.T) {
 	require.Empty(t, cmds)
 
 	// Set command result
-	err = workflow.SetCommandResult(processedCmd, lua.LString("hello"))
+	err = workflow.SendResult(processedCmd, lua.LString("hello"))
 	require.NoError(t, err)
 
 	// Send one more signal
@@ -596,4 +596,60 @@ func TestWorkflowRunner_CommandWithSignalCounter(t *testing.T) {
 		"should have correct command result")
 	assert.Equal(t, float64(3), float64(resultTable.RawGetString("signal_count").(lua.LNumber)),
 		"should have counted 3 signals")
+}
+
+func TestWorkflowRunner_ExitFromFunction(t *testing.T) {
+	logger := zap.NewNop()
+
+	vm, err := engine.NewCVM(
+		logger,
+		engine.WithPreloaded("command", command.NewCommandModule().Loader),
+		engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
+	)
+	require.NoError(t, err)
+	defer vm.Close()
+
+	channels := channel.NewChannelLayer()
+	cmdLayer := command.NewCommandLayer(channels)
+	pubLayer := pubsub.NewSubscriptionLayer(channels)
+
+	runner := engine.NewRunner(vm,
+		engine.WithLayer(channels),
+		engine.WithLayer(cmdLayer),
+		engine.WithLayer(pubLayer),
+	)
+
+	workflow := NewWorkflowRunner(runner, cmdLayer, pubLayer)
+
+	script := `
+        function test_workflow()
+            local cmd = command.new("test_command")
+            local resp = cmd:response()
+            local result = resp:receive()
+            return result
+        end
+    `
+
+	err = vm.Import(script, "test", "test_workflow")
+	require.NoError(t, err)
+
+	err = workflow.Start(context.Background(), "test_workflow")
+	require.NoError(t, err)
+
+	// First step should give us the command
+	cmds, err := workflow.Step()
+	require.NoError(t, err)
+	require.Len(t, cmds, 1)
+
+	// Process command
+	err = workflow.SendResult(cmds[0], lua.LString("TEST"))
+	require.NoError(t, err)
+
+	// This step should process the command result and complete
+	cmds, err = workflow.Step()
+	require.NoError(t, err)
+	require.Empty(t, cmds)
+
+	// Check completion - THIS FAILS
+	assert.True(t, workflow.IsComplete(), "workflow should be complete")
 }
