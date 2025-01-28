@@ -86,3 +86,32 @@ func contains(slice []string, item string) bool {
 	}
 	return false
 }
+
+func TestCommandLayer_Context(t *testing.T) {
+	// Create channel layer and command layer
+	channelLayer := channel.NewChannelLayer()
+	commandLayer := NewCommandLayer(channelLayer)
+
+	// Test WithContext
+	ctx := context.Background()
+	enrichedCtx := commandLayer.WithContext(ctx)
+	assert.NotNil(t, enrichedCtx, "context enrichment should succeed")
+
+	// Test GetCommandContext with valid context
+	retrievedLayer := GetCommandContext(enrichedCtx)
+	assert.NotNil(t, retrievedLayer, "should retrieve command layer from context")
+	assert.Same(t, commandLayer, retrievedLayer, "should retrieve the same command layer instance")
+
+	// Test GetCommandContext with nil context
+	nilCtxLayer := GetCommandContext(nil)
+	assert.Nil(t, nilCtxLayer, "should return nil for nil context")
+
+	// Test GetCommandContext with context missing command layer
+	emptyCtxLayer := GetCommandContext(context.Background())
+	assert.Nil(t, emptyCtxLayer, "should return nil for context without command layer")
+
+	// Test GetCommandContext with context containing wrong value type
+	wrongCtx := context.WithValue(ctx, cmdCtxKey, "not a layer")
+	wrongTypeLayer := GetCommandContext(wrongCtx)
+	assert.Nil(t, wrongTypeLayer, "should return nil for context with wrong value type")
+}
