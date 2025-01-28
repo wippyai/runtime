@@ -2,21 +2,22 @@ package async
 
 import (
 	"context"
+	"testing"
+	"time"
+
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
-	"testing"
-	"time"
 )
 
 // after is a simple async function that sends a value after a delay
-func after(L *lua.LState) int {
-	delay := L.CheckInt(1)
+func after(l *lua.LState) int {
+	delay := l.CheckInt(1)
 	if delay <= 0 {
-		L.RaiseError("delay must be positive")
+		l.RaiseError("delay must be positive")
 		return 0
 	}
 
@@ -24,14 +25,14 @@ func after(L *lua.LState) int {
 	go func() {
 		select {
 		case <-time.After(time.Duration(delay) * time.Millisecond):
-			_ = Send(L, ch, lua.LTrue, true)
-			_ = Send(L, ch, lua.LNil, false)
-		case <-L.Context().Done():
+			_ = Send(l, ch, lua.LTrue, true)
+			_ = Send(l, ch, lua.LNil, false)
+		case <-l.Context().Done():
 			return
 		}
 	}()
 
-	L.Push(channel.Wrap(L, ch))
+	l.Push(channel.Wrap(l, ch))
 	return 1
 }
 

@@ -18,17 +18,32 @@ jobs:
         go: [stable]
         os: ["ubuntu-latest"]
     steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PAT_TOKEN }}  # Use Personal Access Token
+
       - name: Set up Go ${{ matrix.go }}
-        uses: actions/setup-go@v5 # action page: <https://github.com/actions/setup-go>
+        uses: actions/setup-go@v5
         with:
           go-version: ${{ matrix.go }}
 
-      - name: Check out code
-        uses: actions/checkout@v4
+      - name: Configure Git and Go for private modules
+        run: |
+          # Configure Git to use PAT for authentication
+          git config --global url."https://${{ secrets.PAT_TOKEN }}@github.com/".insteadOf "https://github.com/"
+          
+          # Configure Go to skip verification for private modules
+          go env -w GOPRIVATE=github.com/ponyruntime/*
+          go env -w GONOSUMDB=github.com/ponyruntime/*
+          go env -w GONOPROXY=github.com/ponyruntime/*
 
       - name: Install Go dependencies
-        run: go mod download
+        run: |
+          go mod download
 
       - name: Run golang tests
+        env:
+          CGO_ENABLED: 1
         run: |
           go test -v -race ./...

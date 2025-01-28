@@ -4,10 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/ponyruntime/pony/api/events"
-	"github.com/ponyruntime/pony/internal/wildcard"
 	"sync"
 	"sync/atomic"
+
+	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/internal/wildcard"
 )
 
 type actionType int
@@ -130,7 +131,6 @@ func (b *Bus) SubscribeP(
 	case <-sub.doneCh:
 		return subID, nil
 	}
-
 }
 
 // Unsubscribe removes the subscription identified by the given subscriber ID.
@@ -232,9 +232,7 @@ func (b *Bus) handleActions() {
 }
 
 func (b *Bus) handleUnsubscribe(subID events.SubscriberID) {
-	if _, exists := b.subscribers[subID]; exists {
-		delete(b.subscribers, subID)
-	}
+	delete(b.subscribers, subID)
 }
 
 func (b *Bus) generateSubscriberID() events.SubscriberID {

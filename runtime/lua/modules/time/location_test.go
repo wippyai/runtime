@@ -1,6 +1,7 @@
 package time
 
 import (
+	"context"
 	"testing"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine"
@@ -22,7 +23,7 @@ func TestLocation(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local time = require("time")
 			assert(time.utc ~= nil)
 			assert(time.localtz ~= nil)
@@ -76,7 +77,7 @@ func TestLocation(t *testing.T) {
 					return loc, err
 				`
 
-				err = vm.DoString(nil, script, "test")
+				err = vm.DoString(context.Background(), script, "test")
 
 				if tc.expectError {
 					errStr := vm.State().Get(-1).String()
@@ -102,7 +103,7 @@ func TestLocation(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local time = require("time")
 			local loc = time.fixed_zone("TEST", 3600)  -- UTC+1
 			assert(tostring(loc) == "TEST")

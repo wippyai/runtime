@@ -17,8 +17,8 @@ import (
 	"go.uber.org/zap"
 )
 
-func setupTest(t *testing.T) (*Executor, events.Bus) {
-	logger := zap.NewNop()
+func setupTest() (*Executor, events.Bus) {
+	logger, _ := zap.NewDevelopment()
 	bus := eventbus.NewBus()
 	executor := NewExecutor(bus, logger)
 	return executor, bus
@@ -26,7 +26,7 @@ func setupTest(t *testing.T) (*Executor, events.Bus) {
 
 func TestExecutor_StartStop(t *testing.T) {
 	ctx := context.Background()
-	executor, _ := setupTest(t)
+	executor, _ := setupTest()
 
 	// Test Start
 	err := executor.Start(ctx)
@@ -40,14 +40,16 @@ func TestExecutor_StartStop(t *testing.T) {
 
 func TestExecutor_HandlerRegistrationOverBus(t *testing.T) {
 	ctx := context.Background()
-	executor, bus := setupTest(t)
+	executor, bus := setupTest()
 	require.NoError(t, executor.Start(ctx))
-	defer executor.Stop()
+	defer func() {
+		require.NoError(t, executor.Stop())
+	}()
 
 	target := registry.ID("test.handler")
 
 	// Create a test handler
-	handler := func(task runtime.Task) (chan *runtime.Result, error) {
+	handler := func(_ runtime.Task) (chan *runtime.Result, error) {
 		resultChan := make(chan *runtime.Result, 1)
 		resultChan <- &runtime.Result{
 			Payload: payload.New("test result"),
@@ -90,9 +92,11 @@ func TestExecutor_HandlerRegistrationOverBus(t *testing.T) {
 
 func TestExecutor_Execute(t *testing.T) {
 	ctx := context.Background()
-	executor, bus := setupTest(t)
+	executor, bus := setupTest()
 	require.NoError(t, executor.Start(ctx))
-	defer executor.Stop()
+	defer func() {
+		require.NoError(t, executor.Stop())
+	}()
 
 	tests := []struct {
 		name          string
@@ -104,7 +108,7 @@ func TestExecutor_Execute(t *testing.T) {
 		{
 			name: "successful execution",
 			setupHandler: func(bus events.Bus) {
-				handler := func(task runtime.Task) (chan *runtime.Result, error) {
+				handler := func(_ runtime.Task) (chan *runtime.Result, error) {
 					resultChan := make(chan *runtime.Result, 1)
 					resultChan <- &runtime.Result{
 						Payload: payload.New("success"),
@@ -139,7 +143,7 @@ func TestExecutor_Execute(t *testing.T) {
 		{
 			name: "handler returns error",
 			setupHandler: func(bus events.Bus) {
-				handler := func(task runtime.Task) (chan *runtime.Result, error) {
+				handler := func(_ runtime.Task) (chan *runtime.Result, error) {
 					return nil, fmt.Errorf("handler error")
 				}
 				bus.Send(ctx, events.Event{
@@ -203,9 +207,11 @@ func TestExecutor_Execute(t *testing.T) {
 
 func TestExecutor_ConcurrentHandlerRegistration(t *testing.T) {
 	ctx := context.Background()
-	executor, bus := setupTest(t)
+	executor, bus := setupTest()
 	require.NoError(t, executor.Start(ctx))
-	defer executor.Stop()
+	defer func() {
+		require.NoError(t, executor.Stop())
+	}()
 
 	const numHandlers = 10
 	var wg sync.WaitGroup
@@ -216,7 +222,7 @@ func TestExecutor_ConcurrentHandlerRegistration(t *testing.T) {
 		go func(idx int) {
 			defer wg.Done()
 			target := registry.ID(fmt.Sprintf("test.handler.%d", idx))
-			handler := func(task runtime.Task) (chan *runtime.Result, error) {
+			handler := func(_ runtime.Task) (chan *runtime.Result, error) {
 				resultChan := make(chan *runtime.Result, 1)
 				resultChan <- &runtime.Result{
 					Payload: payload.New(fmt.Sprintf("result %d", idx)),
@@ -241,7 +247,7 @@ func TestExecutor_ConcurrentHandlerRegistration(t *testing.T) {
 
 	// Verify all handlers were registered
 	var count int
-	executor.handlers.Range(func(key, value interface{}) bool {
+	executor.handlers.Range(func(_, _ any) bool {
 		count++
 		return true
 	})
@@ -255,15 +261,17 @@ func TestExecutor_ConcurrentHandlerRegistration(t *testing.T) {
 			Payloads: []payload.Payload{payload.New("test")},
 		})
 		require.NoError(t, err)
-		_ = <-resultChan
+		<-resultChan
 	}
 }
 
 func TestExecutor_InvalidEvents(t *testing.T) {
 	ctx := context.Background()
-	executor, bus := setupTest(t)
+	executor, bus := setupTest()
 	require.NoError(t, executor.Start(ctx))
-	defer executor.Stop()
+	defer func() {
+		require.NoError(t, executor.Stop())
+	}()
 
 	tests := []struct {
 		name string
@@ -296,7 +304,7 @@ func TestExecutor_InvalidEvents(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+		t.Run(tt.name, func(_ *testing.T) {
 			// Just verify no panic occurs
 			bus.Send(ctx, tt.evt)
 			time.Sleep(1 * time.Millisecond)

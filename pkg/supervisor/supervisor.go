@@ -146,7 +146,6 @@ func (s *Supervisor) Stop() error {
 			defer wg.Done()
 			s.logger.Info("stopping controller", zap.String("serviceID", id))
 			if err := c.Stop(); err != nil {
-
 				s.logger.Error("failed to stop controller",
 					zap.String("serviceID", id),
 					zap.Error(err),
@@ -161,7 +160,7 @@ func (s *Supervisor) Stop() error {
 	wg.Wait()
 	close(errCh)
 
-	var errs []error
+	errs := make([]error, 0, 2)
 	for err := range errCh {
 		errs = append(errs, err)
 	}
@@ -242,7 +241,7 @@ func (s *Supervisor) run(ctx context.Context) {
 		case actionRegister:
 			if err := s.tx.registerService(action.serviceID, action.entry); err != nil {
 				s.logger.Error("failed to register service",
-					zap.String("serviceID", string(action.serviceID)),
+					zap.String("serviceID", action.serviceID),
 					zap.Error(err),
 				)
 			}
@@ -286,25 +285,26 @@ func (s *Supervisor) registerService(id string, entry *supervisor.Entry) error {
 	defer s.mu.Unlock()
 
 	if _, exists := s.controllers[id]; exists {
-		//return current.updateConfig(entry.Config) todo: implement later
+		// return current.updateConfig(entry.Config) todo: implement later
 		return fmt.Errorf("service %s already registered", id)
 	}
 
 	stateHandler := func(status supervisor.Status, details any) {
 		if err, ok := details.(error); ok {
-			if errors.Is(err, supervisor.ErrExit) {
+			switch {
+			case errors.Is(err, supervisor.ErrExit):
 				s.logger.Info(fmt.Sprintf("service %s is %s", id, status),
 					zap.String("serviceID", id),
 					zap.String("status", string(status)),
 					zap.Error(err),
 				)
-			} else if errors.Is(err, supervisor.ErrTerminated) || errors.Is(err, context.Canceled) {
+			case errors.Is(err, supervisor.ErrTerminated) || errors.Is(err, context.Canceled):
 				s.logger.Warn(fmt.Sprintf("service %s is %s", id, status),
 					zap.String("serviceID", id),
 					zap.String("status", string(status)),
 					zap.Error(err),
 				)
-			} else {
+			default:
 				s.logger.Error(fmt.Sprintf("service %s is %s", id, status),
 					zap.String("serviceID", id),
 					zap.String("status", string(status)),

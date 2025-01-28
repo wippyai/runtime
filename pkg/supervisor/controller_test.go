@@ -2,9 +2,10 @@ package supervisor
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
-	"math/rand"
+	"math/big"
 	"reflect"
 	"strings"
 	"sync"
@@ -38,13 +39,13 @@ func TestController_BasicLifecycle(t *testing.T) {
 	var statesMutex sync.Mutex
 
 	mock := &mockService{
-		startFunc: func(ctx context.Context) (<-chan any, error) {
+		startFunc: func(context.Context) (<-chan any, error) {
 			time.Sleep(100 * time.Millisecond)
 			detailsCh <- "service running"
 			time.Sleep(100 * time.Millisecond)
 			return detailsCh, nil
 		},
-		stopFunc: func(ctx context.Context) error {
+		stopFunc: func(context.Context) error {
 			time.Sleep(100 * time.Millisecond)
 			close(detailsCh)
 			time.Sleep(100 * time.Millisecond)
@@ -133,14 +134,14 @@ func TestController_ServiceFailure(t *testing.T) {
 	stateReached := make(chan struct{}, 1)
 
 	mock := &mockService{
-		startFunc: func(ctx context.Context) (<-chan any, error) {
+		startFunc: func(_ context.Context) (<-chan any, error) {
 			attempts++
 			if attempts == 1 {
 				return nil, errors.New("initial failure")
 			}
 			return detailsCh, nil
 		},
-		stopFunc: func(ctx context.Context) error {
+		stopFunc: func(_ context.Context) error {
 			close(detailsCh)
 			return nil
 		},
@@ -157,7 +158,7 @@ func TestController_ServiceFailure(t *testing.T) {
 				InitialDelay: 100 * time.Millisecond,
 			},
 		},
-		func(status supervisor.Status, details any) {
+		func(status supervisor.Status, _ any) {
 			if status == supervisor.Running {
 				select {
 				case stateReached <- struct{}{}:
@@ -193,10 +194,10 @@ func TestController_StartupError(t *testing.T) {
 	expectedErr := errors.New("startup failed")
 
 	mock := &mockService{
-		startFunc: func(ctx context.Context) (<-chan any, error) {
+		startFunc: func(_ context.Context) (<-chan any, error) {
 			return nil, expectedErr
 		},
-		stopFunc: func(ctx context.Context) error {
+		stopFunc: func(context.Context) error {
 			return nil
 		},
 	}
@@ -208,7 +209,7 @@ func TestController_StartupError(t *testing.T) {
 			StartTimeout: time.Second,
 			RetryPolicy:  supervisor.RetryPolicy{MaxAttempts: 1},
 		},
-		func(status supervisor.Status, details any) {
+		func(status supervisor.Status, _ any) {
 			if status == supervisor.Failed {
 				select {
 				case stateReached <- struct{}{}:
@@ -238,7 +239,7 @@ func TestController_ServiceRecoveryAfterFailure(t *testing.T) {
 	var statesMutex sync.Mutex
 
 	mock := &mockService{
-		startFunc: func(ctx context.Context) (<-chan any, error) {
+		startFunc: func(context.Context) (<-chan any, error) {
 			chanMutex.Lock()
 			// Create a new channel each time the service starts
 			currentChan = make(chan any, 1)
@@ -250,7 +251,7 @@ func TestController_ServiceRecoveryAfterFailure(t *testing.T) {
 
 			return ch, nil
 		},
-		stopFunc: func(ctx context.Context) error {
+		stopFunc: func(context.Context) error {
 			return nil
 		},
 	}
@@ -266,7 +267,7 @@ func TestController_ServiceRecoveryAfterFailure(t *testing.T) {
 				InitialDelay: 100 * time.Millisecond,
 			},
 		},
-		func(status supervisor.Status, details any) {
+		func(status supervisor.Status, _ any) {
 			statesMutex.Lock()
 			stateTransitions = append(stateTransitions, status)
 			statesMutex.Unlock()
@@ -353,13 +354,13 @@ func TestController_ServiceFailedRecovery(t *testing.T) {
 	var once sync.Once
 
 	mock := &mockService{
-		startFunc: func(ctx context.Context) (<-chan any, error) {
+		startFunc: func(context.Context) (<-chan any, error) {
 			attempts++
 			chanMutex.Lock()
 			defer chanMutex.Unlock()
 
 			if attempts == 1 {
-				// First attempt succeeds
+				// The first attempt succeeds
 				currentChan = make(chan any, 1)
 				currentChan <- "service started"
 				return currentChan, nil
@@ -368,7 +369,7 @@ func TestController_ServiceFailedRecovery(t *testing.T) {
 			// All subsequent attempts fail immediately
 			return nil, fmt.Errorf("start attempt %d failed", attempts)
 		},
-		stopFunc: func(ctx context.Context) error {
+		stopFunc: func(context.Context) error {
 			return nil
 		},
 	}
@@ -387,7 +388,7 @@ func TestController_ServiceFailedRecovery(t *testing.T) {
 				InitialDelay: 100 * time.Millisecond,
 			},
 		},
-		func(status supervisor.Status, details any) {
+		func(status supervisor.Status, _ any) {
 			statesMutex.Lock()
 			defer statesMutex.Unlock()
 
@@ -579,7 +580,7 @@ func TestController_CancelDuringTransition(t *testing.T) {
 				return nil, ctx.Err()
 			}
 		},
-		stopFunc: func(ctx context.Context) error {
+		stopFunc: func(context.Context) error {
 			return nil
 		},
 	}
@@ -626,7 +627,7 @@ func TestController_CancelDuringTransition(t *testing.T) {
 	select {
 	case err := <-errChan:
 		if err == nil {
-			t.Fatal("Expected error from cancelled transition, got nil")
+			t.Fatal("Expected error from canceled transition, got nil")
 		}
 		if !strings.Contains(err.Error(), "supervisor is stopped") {
 			t.Errorf("Expected 'supervisor is stopped' error, got: %v", err)
@@ -647,7 +648,7 @@ func TestController_StopAndRestart(t *testing.T) {
 	stateSignals := make(chan supervisor.Status, 10)
 
 	mock := &mockService{
-		startFunc: func(ctx context.Context) (<-chan any, error) {
+		startFunc: func(context.Context) (<-chan any, error) {
 			startAttempts++
 
 			chanMutex.Lock()
@@ -659,7 +660,7 @@ func TestController_StopAndRestart(t *testing.T) {
 
 			return ch, nil
 		},
-		stopFunc: func(ctx context.Context) error {
+		stopFunc: func(context.Context) error {
 			chanMutex.Lock()
 			if currentChan != nil {
 				close(currentChan)
@@ -684,7 +685,7 @@ func TestController_StopAndRestart(t *testing.T) {
 				InitialDelay: 100 * time.Millisecond,
 			},
 		},
-		func(status supervisor.Status, details any) {
+		func(status supervisor.Status, _ any) {
 			statesMutex.Lock()
 			stateTransitions = append(stateTransitions, status)
 			statesMutex.Unlock()
@@ -831,7 +832,7 @@ func TestController_GracefulShutdown(t *testing.T) {
 	var statesMutex sync.Mutex
 
 	mock := &mockService{
-		startFunc: func(ctx context.Context) (<-chan any, error) {
+		startFunc: func(context.Context) (<-chan any, error) {
 			detailsCh <- "service running"
 			return detailsCh, nil
 		},
@@ -969,7 +970,7 @@ func TestController_ShutdownTimeout(t *testing.T) {
 	detailsCh := make(chan any)
 
 	mock := &mockService{
-		startFunc: func(ctx context.Context) (<-chan any, error) {
+		startFunc: func(context.Context) (<-chan any, error) {
 			return detailsCh, nil
 		},
 		stopFunc: func(ctx context.Context) error {
@@ -1028,10 +1029,10 @@ func TestController_ShutdownTimeout(t *testing.T) {
 		t.Errorf("Expected 'failed to stop service' error, got: %v", shutdownErr)
 	}
 
-	// Verify service ended up in stopped state
+	// Verify service ended up in a stopped state
 	finalState := ctr.State()
 	if finalState.Status != supervisor.Failed {
-		t.Errorf("Expected final state to be Failed (since context was cancelled), got %v", finalState.Status)
+		t.Errorf("Expected final state to be Failed (since context was canceled), got %v", finalState.Status)
 	}
 }
 
@@ -1042,13 +1043,13 @@ func TestController_StopDuringFailedStart(t *testing.T) {
 
 	mock := &mockService{
 		startFunc: func(ctx context.Context) (<-chan any, error) {
-			// Signal that we're in start (buffered channel won't block)
+			// Signal that we're in start (a buffered channel won't block)
 			select {
 			case startAttempted <- struct{}{}:
 			default:
 			}
 
-			// Block until context is cancelled or long timeout
+			// Block until context is canceled or long timeout
 			select {
 			case <-ctx.Done():
 				return nil, ctx.Err()
@@ -1056,7 +1057,7 @@ func TestController_StopDuringFailedStart(t *testing.T) {
 				return nil, errors.New("fake timeout")
 			}
 		},
-		stopFunc: func(ctx context.Context) error {
+		stopFunc: func(context.Context) error {
 			defer func() {
 				close(startFinished)
 			}()
@@ -1075,7 +1076,7 @@ func TestController_StopDuringFailedStart(t *testing.T) {
 				InitialDelay: 100 * time.Millisecond,
 			},
 		},
-		func(status supervisor.Status, details any) {
+		func(_ supervisor.Status, _ any) {
 		},
 	)
 
@@ -1139,7 +1140,7 @@ func TestController_StartTimeout(t *testing.T) {
 				return detailsCh, nil
 			}
 		},
-		stopFunc: func(ctx context.Context) error {
+		stopFunc: func(context.Context) error {
 			close(detailsCh)
 			return nil
 		},
@@ -1158,7 +1159,7 @@ func TestController_StartTimeout(t *testing.T) {
 				MaxAttempts: 1, // No retries for clearer testing
 			},
 		},
-		func(status supervisor.Status, details any) {
+		func(status supervisor.Status, _ any) {
 			statesMutex.Lock()
 			defer statesMutex.Unlock()
 			stateTransitions = append(stateTransitions, status)
@@ -1216,11 +1217,11 @@ func TestController_ServiceExitError(t *testing.T) {
 	var statesMutex sync.Mutex
 
 	mock := &mockService{
-		startFunc: func(ctx context.Context) (<-chan any, error) {
-			// Return ErrExit directly from start
+		startFunc: func(context.Context) (<-chan any, error) {
+			// Return ErrExit directly from the start
 			return nil, supervisor.ErrExit
 		},
-		stopFunc: func(ctx context.Context) error {
+		stopFunc: func(context.Context) error {
 			return nil
 		},
 	}
@@ -1235,7 +1236,7 @@ func TestController_ServiceExitError(t *testing.T) {
 				MaxAttempts: 3, // Should not retry on ErrExit
 			},
 		},
-		func(status supervisor.Status, details any) {
+		func(status supervisor.Status, _ any) {
 			statesMutex.Lock()
 			defer statesMutex.Unlock()
 			stateTransitions = append(stateTransitions, status)
@@ -1287,10 +1288,10 @@ func TestController_ServiceExitDuringOperation(t *testing.T) {
 	var statesMutex sync.Mutex
 
 	mock := &mockService{
-		startFunc: func(ctx context.Context) (<-chan any, error) {
+		startFunc: func(context.Context) (<-chan any, error) {
 			return detailsCh, nil
 		},
-		stopFunc: func(ctx context.Context) error {
+		stopFunc: func(context.Context) error {
 			return nil
 		},
 	}
@@ -1305,7 +1306,7 @@ func TestController_ServiceExitDuringOperation(t *testing.T) {
 				MaxAttempts: 3, // Should not retry on ErrExit
 			},
 		},
-		func(status supervisor.Status, details any) {
+		func(status supervisor.Status, _ any) {
 			statesMutex.Lock()
 			defer statesMutex.Unlock()
 			stateTransitions = append(stateTransitions, status)
@@ -1363,7 +1364,7 @@ func TestController_StressTestStartLast(t *testing.T) {
 	stopAttempts := atomic.Int32{}
 
 	mock := &mockService{
-		startFunc: func(ctx context.Context) (<-chan any, error) {
+		startFunc: func(context.Context) (<-chan any, error) {
 			startAttempts.Add(1)
 			chanMutex.Lock()
 			currentChan = make(chan any, 1)
@@ -1373,7 +1374,7 @@ func TestController_StressTestStartLast(t *testing.T) {
 
 			return ch, nil
 		},
-		stopFunc: func(ctx context.Context) error {
+		stopFunc: func(context.Context) error {
 			stopAttempts.Add(1)
 			chanMutex.Lock()
 			if currentChan != nil {
@@ -1408,7 +1409,12 @@ func TestController_StressTestStartLast(t *testing.T) {
 
 		go func() {
 			defer wg.Done()
-			if rand.Float32() < 0.5 {
+			// use crypto package instead of weak math or math/v2
+			b, err := rand.Int(rand.Reader, big.NewInt(10))
+			if err != nil {
+				return
+			}
+			if b.Int64() < 1 {
 				_ = ctr.Start()
 			} else {
 				_ = ctr.Stop()
@@ -1416,13 +1422,13 @@ func TestController_StressTestStartLast(t *testing.T) {
 		}()
 	}
 
-	// wait for batch to complete
+	// wait for the batch to complete
 	wg.Wait()
 
-	// Last operation is always Start
+	// The last operation is always Start
 	_ = ctr.Start()
 
-	// Verify final state is Running
+	// Verify the final state is Running
 	state := ctr.State()
 	if state.Status != supervisor.Running {
 		t.Errorf("Expected final status Running, got: %v", state.Status)

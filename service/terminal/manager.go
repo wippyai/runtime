@@ -3,6 +3,8 @@ package terminal
 import (
 	"context"
 	"fmt"
+	"sync"
+
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
@@ -10,7 +12,6 @@ import (
 	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/ponyruntime/pony/pkg/eventbus"
 	"go.uber.org/zap"
-	"sync"
 )
 
 type Manager struct {

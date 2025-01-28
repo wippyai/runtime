@@ -3,6 +3,11 @@ package terminal
 import (
 	"context"
 	"errors"
+	"io"
+	"sync"
+	"testing"
+	"time"
+
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
@@ -10,10 +15,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
-	"io"
-	"sync"
-	"testing"
-	"time"
 )
 
 // mockTerminal implements the basic Terminal interface
@@ -34,7 +35,7 @@ func newMockTerminal() *mockTerminal {
 	}
 }
 
-func (m *mockTerminal) Run(ctx context.Context, in io.Reader, out io.Writer) error {
+func (m *mockTerminal) Run(ctx context.Context, _ io.Reader, _ io.Writer) error {
 	if ctx == nil {
 		return errors.New("nil context")
 	}
@@ -54,7 +55,7 @@ func (m *mockTerminal) Run(ctx context.Context, in io.Reader, out io.Writer) err
 	}
 }
 
-func (m *mockTerminal) Close(ctx context.Context) error {
+func (m *mockTerminal) Close(context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.closeCalled = true
@@ -74,7 +75,7 @@ func newMockDebugTerminal() *mockDebugTerminal {
 	}
 }
 
-func (m *mockDebugTerminal) Observe(ctx context.Context, bus events.Bus) error {
+func (m *mockDebugTerminal) Observe(context.Context, events.Bus) error {
 	m.observeCalled = true
 	return m.observeErr
 }

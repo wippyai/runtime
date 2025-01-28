@@ -2,6 +2,7 @@ package terminal
 
 import (
 	"fmt"
+
 	"github.com/ponyruntime/pony/api/registry"
 	api "github.com/ponyruntime/pony/api/runtime/lua"
 	"github.com/ponyruntime/pony/api/service/terminal"

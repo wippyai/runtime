@@ -73,7 +73,6 @@ func TestLoadVars(t *testing.T) {
 }
 
 func TestLoadFile(t *testing.T) {
-
 	files := map[string]string{
 		"listener/listener.yaml": "listener content",
 		"template/template.html": "template content",

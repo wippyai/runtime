@@ -128,19 +128,22 @@ func (v *VM) DoString(ctx context.Context, s string, name string, args ...lua.LV
 		return fmt.Errorf("load error: %w", err)
 	}
 
-	if ctx != nil {
-		ctx, cleanup := closer.WithContext(ctx)
-		defer func() {
-			v.state.RemoveContext()
-			if err := cleanup.Close(); err != nil {
-				v.log.Error("cleanup failed",
-					zap.String("do_string", name),
-					zap.Error(err))
-			}
-		}()
-		v.state.SetContext(ctx)
+	// always create context
+	if ctx == nil {
+		ctx = context.Background()
 	}
 
+	ctx, cleanup := closer.WithContext(ctx)
+	defer func() {
+		v.state.RemoveContext()
+		if err := cleanup.Close(); err != nil {
+			v.log.Error("cleanup failed",
+				zap.String("do_string", name),
+				zap.Error(err))
+		}
+	}()
+
+	v.state.SetContext(ctx)
 	v.state.Push(fn)
 	for _, arg := range args {
 		v.state.Push(arg)

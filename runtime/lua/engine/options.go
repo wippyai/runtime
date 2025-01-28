@@ -51,40 +51,40 @@ func WithLibrary(name string, source interface{}) Option {
 		}
 
 		// Add library to preload
-		vm.state.PreloadModule(name, func(L *lua.LState) int {
+		vm.state.PreloadModule(name, func(l *lua.LState) int {
 			var fn *lua.LFunction
 
 			switch s := source.(type) {
 			case string:
 				var err error
-				fn, err = L.Load(strings.NewReader(s), fmt.Sprintf("<%s>", name))
+				fn, err = l.Load(strings.NewReader(s), fmt.Sprintf("<%s>", name))
 				if err != nil {
-					vm.initErrors = append(vm.initErrors, fmt.Errorf("failed to load library '%s': %v", name, err))
-					L.RaiseError("failed to load library: %v", err)
+					vm.initErrors = append(vm.initErrors, fmt.Errorf("failed to load library '%s': %w", name, err))
+					l.RaiseError("failed to load library: %v", err)
 					return 0
 				}
 			case *lua.FunctionProto:
-				fn = L.NewFunctionFromProto(s)
+				fn = l.NewFunctionFromProto(s)
 			}
 
-			L.Push(fn)
-			if err := L.PCall(0, lua.MultRet, nil); err != nil {
-				vm.initErrors = append(vm.initErrors, fmt.Errorf("failed to initialize library '%s': %v", name, err))
-				L.RaiseError("failed to initialize library: %v", err)
+			l.Push(fn)
+			if err := l.PCall(0, lua.MultRet, nil); err != nil {
+				vm.initErrors = append(vm.initErrors, fmt.Errorf("failed to initialize library '%s': %w", name, err))
+				l.RaiseError("failed to initialize library: %v", err)
 				return 0
 			}
 
-			if L.GetTop() == 0 {
+			if l.GetTop() == 0 {
 				err := fmt.Errorf("library '%s' must return a value", name)
 				vm.initErrors = append(vm.initErrors, err)
-				L.RaiseError(err.Error())
+				l.RaiseError("%s", err.Error())
 				return 0
 			}
 
-			if L.Get(-1).Type() != lua.LTTable {
-				err := fmt.Errorf("library '%s' must return a table, got %s", name, L.Get(-1).Type().String())
+			if l.Get(-1).Type() != lua.LTTable {
+				err := fmt.Errorf("library '%s' must return a table, got %s", name, l.Get(-1).Type().String())
 				vm.initErrors = append(vm.initErrors, err)
-				L.RaiseError(err.Error())
+				l.RaiseError("%s", err.Error())
 				return 0
 			}
 
@@ -93,7 +93,7 @@ func WithLibrary(name string, source interface{}) Option {
 
 		// Try to load the library immediately to catch any errors
 		if err := vm.state.DoString(fmt.Sprintf("require('%s')", name)); err != nil {
-			vm.initErrors = append(vm.initErrors, fmt.Errorf("library '%s' load test failed: %v", name, err))
+			vm.initErrors = append(vm.initErrors, fmt.Errorf("library '%s' load test failed: %w", name, err))
 		}
 	}
 }

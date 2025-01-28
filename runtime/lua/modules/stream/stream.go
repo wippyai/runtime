@@ -3,6 +3,7 @@ package stream
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"sync"
@@ -67,7 +68,7 @@ func (s *Stream) ReadChunk() ([]byte, error) {
 	buffer := make([]byte, s.config.bufferSize)
 	data, err := s.readDirect(buffer)
 	if err != nil {
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			return nil, err
 		}
 		return nil, fmt.Errorf("read error: %w", err)
@@ -94,14 +95,14 @@ func (s *Stream) readDirect(buffer []byte) ([]byte, error) {
 			err error
 		}{n, err}:
 		case <-s.ctx.Done():
-			// Read completed but context was cancelled before we could send
+			// Read completed but context was canceled before we could send
 		}
 	}()
 
 	// wait for either context cancellation or read completion
 	select {
 	case <-s.ctx.Done():
-		return nil, fmt.Errorf("read cancelled: %w", s.ctx.Err())
+		return nil, fmt.Errorf("read canceled: %w", s.ctx.Err())
 	case result := <-resultCh:
 		if result.err != nil {
 			return nil, fmt.Errorf("direct read error: %w", result.err)

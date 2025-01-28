@@ -2,9 +2,10 @@ package time
 
 import (
 	"context"
+	"time"
+
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
-	"time"
 
 	lua "github.com/yuin/gopher-lua"
 )
@@ -12,38 +13,6 @@ import (
 // Time represents a Lua userdata object wrapping time.Time
 type Time struct {
 	time time.Time
-}
-
-// Time methods map
-var timeMethods = map[string]lua.LGFunction{
-	"add":            timeAdd,
-	"sub":            timeSub,
-	"add_date":       timeAddDate,
-	"after":          timeAfter,
-	"before":         timeBefore,
-	"equal":          timeEqual,
-	"format":         timeFormat,
-	"format_rfc3339": timeFormatRFC3339,
-	"unix":           timeUnix,
-	"unix_nano":      timeUnixNano,
-	"date":           timeDate,
-	"clock":          timeClock,
-	"year":           timeYear,
-	"month":          timeMonth,
-	"day":            timeDay,
-	"hour":           timeHour,
-	"minute":         timeMinute,
-	"second":         timeSecond,
-	"nanosecond":     timeNanosecond,
-	"weekday":        timeWeekday,
-	"year_day":       timeYearDay,
-	"is_zero":        timeIsZero,
-	"in_location":    timeIn,
-	"location":       timeLocation,
-	"utc":            timeUTC,
-	"in_local":       timeLocal,
-	"round":          timeRound,
-	"truncate":       timeTruncate,
 }
 
 func isTime(l *lua.LState, n int) (*Time, bool) {
@@ -107,12 +76,12 @@ func sleep(l *lua.LState) int {
 			l.RaiseError("duration or string expected")
 			return 0
 		}
-		l.RaiseError(err.Error())
+		l.RaiseError("%s", err.Error())
 		return 1
 	}
 
-	if err := performSleep(l.Context(), duration); err != nil {
-		l.RaiseError(err.Error())
+	if err = performSleep(l.Context(), duration); err != nil {
+		l.RaiseError("%s", err.Error())
 		return 1
 	}
 	return 0
@@ -125,7 +94,7 @@ func sleepCoroutine(l *lua.LState) int {
 			l.RaiseError("duration or string expected")
 			return 0
 		}
-		l.RaiseError(err.Error())
+		l.RaiseError("%s", err.Error())
 		return 1
 	}
 
@@ -634,7 +603,36 @@ func timeToString(l *lua.LState) int {
 func registerTime(l *lua.LState, mod *lua.LTable) {
 	// Register Time metatable
 	mt := l.NewTypeMetatable("Time")
-	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), timeMethods))
+	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
+		"add":            timeAdd,
+		"sub":            timeSub,
+		"add_date":       timeAddDate,
+		"after":          timeAfter,
+		"before":         timeBefore,
+		"equal":          timeEqual,
+		"format":         timeFormat,
+		"format_rfc3339": timeFormatRFC3339,
+		"unix":           timeUnix,
+		"unix_nano":      timeUnixNano,
+		"date":           timeDate,
+		"clock":          timeClock,
+		"year":           timeYear,
+		"month":          timeMonth,
+		"day":            timeDay,
+		"hour":           timeHour,
+		"minute":         timeMinute,
+		"second":         timeSecond,
+		"nanosecond":     timeNanosecond,
+		"weekday":        timeWeekday,
+		"year_day":       timeYearDay,
+		"is_zero":        timeIsZero,
+		"in_location":    timeIn,
+		"location":       timeLocation,
+		"utc":            timeUTC,
+		"in_local":       timeLocal,
+		"round":          timeRound,
+		"truncate":       timeTruncate,
+	}))
 	l.SetField(mt, "__tostring", l.NewFunction(timeToString))
 
 	l.SetField(mod, "RFC3339", lua.LString(time.RFC3339))

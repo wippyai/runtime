@@ -3,6 +3,7 @@ package channel
 import (
 	"container/list"
 	"errors"
+
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -306,8 +307,7 @@ func flushSelects(s *selectOp) []*Channel {
 		return nil
 	}
 
-	var releases []*Channel
-
+	releases := make([]*Channel, 0, len(s.cases))
 	for _, caseOp := range s.cases {
 		if caseOp.ch == nil {
 			continue
@@ -320,7 +320,8 @@ func flushSelects(s *selectOp) []*Channel {
 	return releases
 }
 
-func (c *Channel) reset() {
+// todo: unused
+func (c *Channel) reset() { //nolint:unused
 	c.size = 0
 	c.senders.Init()
 	c.receivers.Init()
@@ -350,8 +351,8 @@ func makeResult(task *lua.LState, selectOp *selectOp, chValue, value lua.LValue,
 	return []lua.LValue{value, lua.LBool(ok)}
 }
 
-func selectResult(L *lua.LState, chValue, value lua.LValue, ok bool) []lua.LValue {
-	result := L.NewTable()
+func selectResult(l *lua.LState, chValue, value lua.LValue, ok bool) []lua.LValue {
+	result := l.NewTable()
 	result.RawSetString("channel", chValue)
 	result.RawSetString("value", value)
 	result.RawSetString("ok", lua.LBool(ok))

@@ -2,9 +2,10 @@ package logs
 
 import (
 	"context"
-	"go.uber.org/zap/zaptest/observer"
 	"testing"
 	"time"
+
+	"go.uber.org/zap/zaptest/observer"
 
 	logsapi "github.com/ponyruntime/pony/api/service/logs"
 	"github.com/ponyruntime/pony/pkg/eventbus"
@@ -13,10 +14,10 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-func setupConfigSwitcherTest(t *testing.T) (*ConfigSwitcher, *Manager, *eventbus.Bus, *zap.Logger) {
+func setupConfigSwitcherTest(t *testing.T) (*ConfigSwitcher, *Manager, *eventbus.Bus) {
 	t.Helper()
 	bus := eventbus.NewBus()
-	logger := zap.NewNop()
+	logger, _ := zap.NewDevelopment()
 
 	// Create downstream core for the manager
 	downstream := &testDownstreamCore{enabledResponse: true}
@@ -36,11 +37,11 @@ func setupConfigSwitcherTest(t *testing.T) (*ConfigSwitcher, *Manager, *eventbus
 		bus.Stop()
 	})
 
-	return switcher, manager, bus, logger
+	return switcher, manager, bus
 }
 
 func TestConfigSwitcher_EnableTemporaryConfig(t *testing.T) {
-	switcher, manager, _, _ := setupConfigSwitcherTest(t)
+	switcher, manager, _ := setupConfigSwitcherTest(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -72,7 +73,7 @@ func TestConfigSwitcher_EnableTemporaryConfig(t *testing.T) {
 }
 
 func TestConfigSwitcher_RestoreBaseConfig(t *testing.T) {
-	switcher, manager, _, _ := setupConfigSwitcherTest(t)
+	switcher, manager, _ := setupConfigSwitcherTest(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -100,7 +101,7 @@ func TestConfigSwitcher_RestoreBaseConfig(t *testing.T) {
 }
 
 func TestConfigSwitcher_Clear(t *testing.T) {
-	switcher, manager, _, _ := setupConfigSwitcherTest(t)
+	switcher, manager, _ := setupConfigSwitcherTest(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -131,7 +132,7 @@ func TestConfigSwitcher_Clear(t *testing.T) {
 }
 
 func TestConfigSwitcher_EnableTemporaryConfigError(t *testing.T) {
-	switcher, _, bus, _ := setupConfigSwitcherTest(t)
+	switcher, _, bus := setupConfigSwitcherTest(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -151,15 +152,13 @@ func TestConfigSwitcher_EnableTemporaryConfigError(t *testing.T) {
 }
 
 func TestConfigSwitcher_RestoreWithoutEnable(t *testing.T) {
-	switcher, _, _, logger := setupConfigSwitcherTest(t)
-
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	// Set up a test observer for the logger
 	core, observedLogs := observer.New(zap.DebugLevel)
-	logger = zap.New(core)
-	switcher = NewConfigSwitcher(&testEventBus{}, logger)
+	logger := zap.New(core)
+	switcher := NewConfigSwitcher(&testEventBus{}, logger)
 
 	// Attempt to restore without enabling first
 	switcher.RestoreBaseConfig(ctx)
@@ -169,7 +168,7 @@ func TestConfigSwitcher_RestoreWithoutEnable(t *testing.T) {
 }
 
 func TestConfigSwitcher_MultipleTemporaryConfigs(t *testing.T) {
-	switcher, manager, _, _ := setupConfigSwitcherTest(t)
+	switcher, manager, _ := setupConfigSwitcherTest(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

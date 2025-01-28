@@ -2,10 +2,11 @@ package time
 
 import (
 	"fmt"
+	"time"
+
 	"github.com/ponyruntime/pony/runtime/lua/engine/async"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	lua "github.com/yuin/gopher-lua"
-	"time"
 )
 
 func after(l *lua.LState) int {

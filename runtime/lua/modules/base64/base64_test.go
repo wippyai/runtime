@@ -20,7 +20,7 @@ func TestBase64ModuleWithVM(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local base64 = require("base64")
 			assert(type(base64) == "table")
 			assert(type(base64.encode) == "function")

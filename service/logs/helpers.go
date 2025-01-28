@@ -13,17 +13,25 @@ import (
 	"github.com/ponyruntime/pony/pkg/eventbus"
 )
 
-const defaultTimeout = 20 * time.Second
+type ConfigurationManager struct {
+	opCounter      atomic.Uint64
+	defaultTimeout time.Duration
+}
 
-var operationCounter atomic.Uint64
+// NewConfigurationManager does not have a state except for the default timeout and the operation counter
+func NewConfigurationManager() *ConfigurationManager {
+	return &ConfigurationManager{
+		defaultTimeout: time.Second * 20,
+	}
+}
 
 // GetConfig requests and waits for logging configuration from the event bus
-func GetConfig(ctx context.Context, bus events.Bus) (api.Config, error) {
-	// Create response channel with buffer to prevent blocking
+func (c *ConfigurationManager) GetConfig(ctx context.Context, bus events.Bus) (api.Config, error) {
+	// Create a response channel with buffer to prevent blocking
 	configCh := make(chan api.Config, 1)
 
 	// Set up subscription first
-	path := fmt.Sprintf("get-logs-config-%d", operationCounter.Add(1))
+	path := fmt.Sprintf("get-logs-config-%d", c.opCounter.Add(1))
 	sub, err := eventbus.NewSubscriber(ctx, bus, api.System, api.ConfigStateEvent, func(e events.Event) {
 		if string(e.Path) == path {
 			if cfg, ok := e.Data.(api.Config); ok {
@@ -50,20 +58,20 @@ func GetConfig(ctx context.Context, bus events.Bus) (api.Config, error) {
 	select {
 	case cfg := <-configCh:
 		return cfg, nil
-	case <-time.After(defaultTimeout):
+	case <-time.After(c.defaultTimeout):
 		return api.Config{}, fmt.Errorf("timeout waiting for log config")
 	case <-ctx.Done():
-		return api.Config{}, fmt.Errorf("context cancelled: %w", ctx.Err())
+		return api.Config{}, fmt.Errorf("context canceled: %w", ctx.Err())
 	}
 }
 
 // SetConfig sets logging configuration and waits for confirmation
-func SetConfig(ctx context.Context, bus events.Bus, cfg api.Config) error {
-	// Create response channel with buffer to prevent blocking
+func (c *ConfigurationManager) SetConfig(ctx context.Context, bus events.Bus, cfg api.Config) error {
+	// Create a response channel with buffer to prevent blocking
 	confirmCh := make(chan api.Config, 1)
 
 	// Set up subscription first
-	path := fmt.Sprintf("set-logs-config-%d", operationCounter.Add(1))
+	path := fmt.Sprintf("set-logs-config-%d", c.opCounter.Add(1))
 	sub, err := eventbus.NewSubscriber(ctx, bus, api.System, api.ConfigStateEvent, func(e events.Event) {
 		if string(e.Path) == path {
 			if confirm, ok := e.Data.(api.Config); ok {
@@ -94,9 +102,9 @@ func SetConfig(ctx context.Context, bus events.Bus, cfg api.Config) error {
 			return fmt.Errorf("config mismatch - requested: %+v, got: %+v", cfg, confirm)
 		}
 		return nil
-	case <-time.After(defaultTimeout):
+	case <-time.After(c.defaultTimeout):
 		return fmt.Errorf("timeout waiting for config confirmation")
 	case <-ctx.Done():
-		return fmt.Errorf("context cancelled: %w", ctx.Err())
+		return fmt.Errorf("context canceled: %w", ctx.Err())
 	}
 }

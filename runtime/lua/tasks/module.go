@@ -2,6 +2,8 @@ package tasks
 
 import (
 	"errors"
+	"fmt"
+
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -20,7 +22,7 @@ func (r *channelRequest) Type() lua.LValueType {
 }
 
 func (t *taskSchedule) String() string {
-	return "tasks.task." + string(t.id)
+	return fmt.Sprintf("tasks.task.%s", t.id)
 }
 
 func (t *taskSchedule) Type() lua.LValueType {
@@ -42,16 +44,16 @@ func (m *Module) Name() string {
 }
 
 // Loader registers the module functions
-func (m *Module) Loader(L *lua.LState) int {
+func (m *Module) Loader(l *lua.LState) int {
 	// Create module table
-	mod := L.NewTable()
+	mod := l.NewTable()
 
 	// Register functions
-	L.SetField(mod, "channel", L.NewFunction(channelFunc))
+	l.SetField(mod, "channel", l.NewFunction(channelFunc))
 
 	// Register task methods
-	mt := L.NewTypeMetatable("tasks.Task")
-	L.SetField(mt, "__index", L.SetFuncs(L.NewTable(), map[string]lua.LGFunction{
+	mt := l.NewTypeMetatable("tasks.Task")
+	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
 		"input":    m.taskInput,
 		"complete": m.taskComplete,
 		"fail":     m.taskFail,
@@ -59,93 +61,93 @@ func (m *Module) Loader(L *lua.LState) int {
 	}))
 
 	// Register module
-	L.Push(mod)
+	l.Push(mod)
 	return 1
 }
 
-func newTask(L *lua.LState, schedule *taskSchedule) lua.LValue {
-	ud := L.NewUserData()
+func newTask(l *lua.LState, schedule *taskSchedule) lua.LValue {
+	ud := l.NewUserData()
 	ud.Value = schedule
-	L.SetMetatable(ud, L.GetTypeMetatable("tasks.Task"))
+	l.SetMetatable(ud, l.GetTypeMetatable("tasks.Task"))
 
 	return ud
 }
 
 // channelFunc implements tasks.channel(buffer_size) -> yields channel request
-func channelFunc(L *lua.LState) int {
-	// Get buffer size with default of 1
-	bufferSize := L.OptInt(1, 1)
+func channelFunc(l *lua.LState) int {
+	// Get buffer size with a default of 1
+	bufferSize := l.OptInt(1, 1)
 	if bufferSize < 0 {
-		L.RaiseError("buffer size must be >= 0")
+		l.RaiseError("buffer size must be >= 0")
 		return 0
 	}
 
 	// Create and yield channel request
-	L.Push(&channelRequest{bufferSize: bufferSize})
+	l.Push(&channelRequest{bufferSize: bufferSize})
 	return -1 // yield to scheduler
 }
 
 // taskComplete implements task:complete(values...)
-func (m *Module) taskComplete(L *lua.LState) int {
-	handle := checkTask(L)
+func (m *Module) taskComplete(l *lua.LState) int {
+	handle := checkTask(l)
 
 	// Collect all values
-	values := make([]lua.LValue, 0, L.GetTop()-1)
-	for i := 2; i <= L.GetTop(); i++ {
-		values = append(values, L.Get(i))
+	values := make([]lua.LValue, 0, l.GetTop()-1)
+	for i := 2; i <= l.GetTop(); i++ {
+		values = append(values, l.Get(i))
 	}
 
 	// send completion result directly to task channel
-	handle.channel <- engine.Result{State: L, Result: values}
+	handle.channel <- engine.Result{State: l, Result: values}
 	close(handle.channel) // closeChannel channel after completion
 	return 0
 }
 
 // taskFail implements task:fail(error)
-func (m *Module) taskFail(L *lua.LState) int {
-	handle := checkTask(L)
-	errMsg := L.CheckString(2)
+func (m *Module) taskFail(l *lua.LState) int {
+	handle := checkTask(l)
+	errMsg := l.CheckString(2)
 
 	// send error result directly to task channel
-	handle.channel <- engine.Result{State: L, Error: errors.New(errMsg)}
+	handle.channel <- engine.Result{State: l, Error: errors.New(errMsg)}
 	close(handle.channel) // closeChannel channel after failure
 	return 0
 }
 
 // taskSend implements task:send(values...)
-func (m *Module) taskSend(L *lua.LState) int {
-	handle := checkTask(L)
+func (m *Module) taskSend(l *lua.LState) int {
+	handle := checkTask(l)
 
 	// Collect all values
-	values := make([]lua.LValue, 0, L.GetTop()-1)
-	for i := 2; i <= L.GetTop(); i++ {
-		values = append(values, L.Get(i))
+	values := make([]lua.LValue, 0, l.GetTop()-1)
+	for i := 2; i <= l.GetTop(); i++ {
+		values = append(values, l.Get(i))
 	}
 
-	// send values directly to task channel
-	handle.channel <- engine.Result{State: L, Result: values}
+	// send values directly to the task channel
+	handle.channel <- engine.Result{State: l, Result: values}
 	return 0
 }
 
 // taskInput implements task:value() -> values...
-func (m *Module) taskInput(L *lua.LState) int {
-	handle := checkTask(L)
+func (m *Module) taskInput(l *lua.LState) int {
+	handle := checkTask(l)
 
 	// Push input values to stack
 	for _, v := range handle.input {
-		L.Push(v)
+		l.Push(v)
 	}
 
 	return len(handle.input)
 }
 
 // checkTask validates and returns the task handle from Lua stack
-func checkTask(L *lua.LState) *taskSchedule {
-	ud := L.CheckUserData(1)
+func checkTask(l *lua.LState) *taskSchedule {
+	ud := l.CheckUserData(1)
 	if v, ok := ud.Value.(*taskSchedule); ok {
 		return v
 	}
-	L.ArgError(1, "task handle expected")
+	l.ArgError(1, "task handle expected")
 	return nil
 }
 

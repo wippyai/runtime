@@ -20,16 +20,6 @@ type Logger struct {
 	logger *zap.Logger
 }
 
-// Register logger methods
-var loggerMethods = map[string]lua.LGFunction{
-	"debug": loggerDebug,
-	"info":  loggerInfo,
-	"warn":  loggerWarn,
-	"error": loggerError,
-	"with":  loggerWith,
-	"named": loggerNamed,
-}
-
 // NewLoggerModule creates a new logger module
 func NewLoggerModule(log *zap.Logger) *Module {
 	return &Module{
@@ -50,7 +40,14 @@ func (m *Module) Loader(l *lua.LState) int {
 
 	// Set up the metatable
 	mt := l.NewTypeMetatable("Logger")
-	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), loggerMethods))
+	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
+		"debug": loggerDebug,
+		"info":  loggerInfo,
+		"warn":  loggerWarn,
+		"error": loggerError,
+		"with":  loggerWith,
+		"named": loggerNamed,
+	}))
 	l.SetMetatable(ud, mt)
 
 	l.Push(ud)
@@ -58,7 +55,7 @@ func (m *Module) Loader(l *lua.LState) int {
 }
 
 // Helper function to convert Lua table to zap fields
-func tableToFields(l *lua.LState, table *lua.LTable) []zap.Field {
+func tableToFields(table *lua.LTable) []zap.Field {
 	fields := make([]zap.Field, 0)
 	table.ForEach(func(k, v lua.LValue) {
 		key, ok := k.(lua.LString)
@@ -73,10 +70,13 @@ func tableToFields(l *lua.LState, table *lua.LTable) []zap.Field {
 			fields = append(fields, zap.Float64(string(key), float64(v.(lua.LNumber))))
 		case lua.LTBool:
 			fields = append(fields, zap.Bool(string(key), bool(v.(lua.LBool))))
+		case lua.LTNil, lua.LTFunction, lua.LTUserData, lua.LTThread, lua.LTTable, lua.LTChannel:
+			fallthrough
 		default:
 			fields = append(fields, zap.Any(string(key), transcoder.ToGoAny(v)))
 		}
 	})
+
 	return fields
 }
 
@@ -94,7 +94,7 @@ func loggerDebug(l *lua.LState) int {
 
 	if l.GetTop() > 2 {
 		if tbl := l.CheckTable(3); tbl != nil {
-			fields = tableToFields(l, tbl)
+			fields = tableToFields(tbl)
 		}
 	}
 
@@ -115,7 +115,7 @@ func loggerInfo(l *lua.LState) int {
 
 	if l.GetTop() > 2 {
 		if tbl := l.CheckTable(3); tbl != nil {
-			fields = tableToFields(l, tbl)
+			fields = tableToFields(tbl)
 		}
 	}
 
@@ -136,7 +136,7 @@ func loggerWarn(l *lua.LState) int {
 
 	if l.GetTop() > 2 {
 		if tbl := l.CheckTable(3); tbl != nil {
-			fields = tableToFields(l, tbl)
+			fields = tableToFields(tbl)
 		}
 	}
 
@@ -162,7 +162,8 @@ func loggerError(l *lua.LState) int {
 				fields = append(fields, zap.Error(errors.New(errValue.String())))
 				tbl.RawSetString("error", lua.LNil) // Remove error from table
 			}
-			fields = append(fields, tableToFields(l, tbl)...)
+
+			fields = append(fields, tableToFields(tbl)...)
 		}
 	}
 
@@ -185,7 +186,7 @@ func loggerWith(l *lua.LState) int {
 	}
 
 	// Create new logger with fields
-	newLogger := logger.logger.With(tableToFields(l, fields)...)
+	newLogger := logger.logger.With(tableToFields(fields)...)
 
 	// Create new userdata
 	newUd := l.NewUserData()

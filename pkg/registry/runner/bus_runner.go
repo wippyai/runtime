@@ -5,9 +5,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/registry"
-	registry2 "github.com/ponyruntime/pony/pkg/registry"
+	pkgreg "github.com/ponyruntime/pony/pkg/registry"
 	"go.uber.org/zap"
 )
 
@@ -92,9 +93,9 @@ func (br *BusRunner) Transition(
 
 func (br *BusRunner) applyOperation(ctx context.Context, state stateMap, op registry.Operation) (stateMap, error) {
 	// todo: uncomment and properly test
-	//if err := br.stateHelper.validateOperation(state, op); err != nil {
+	// if err := br.stateHelper.validateOperation(state, op); err != nil {
 	//	return state, fmt.Errorf("invalid operation: %w", err)
-	//}
+	// }
 
 	br.log.Debug("starting operation",
 		zap.String("kind", string(op.Kind)),
@@ -154,7 +155,8 @@ func (br *BusRunner) applyOperation(ctx context.Context, state stateMap, op regi
 	}
 }
 
-func (br *BusRunner) rollback(ctx context.Context, originalState, currentState stateMap, appliedOperations []registry.Operation) stateMap {
+// todo: appliedOperations (last arg) is not used
+func (br *BusRunner) rollback(ctx context.Context, originalState, currentState stateMap, _ []registry.Operation) stateMap {
 	br.log.Debug("starting rollback",
 		zap.Any("current_state", currentState),
 		zap.Any("original_state", originalState))
@@ -164,7 +166,7 @@ func (br *BusRunner) rollback(ctx context.Context, originalState, currentState s
 	toState := br.stateHelper.toSlice(originalState)
 
 	// Use BuildDelta to generate ordered operations
-	stateBuilder := registry2.NewStateBuilder(br.log)
+	stateBuilder := pkgreg.NewStateBuilder(br.log)
 	delta, err := stateBuilder.BuildDelta(fromState, toState)
 
 	if err != nil {

@@ -53,7 +53,9 @@ data: file://../e_data.txt
 	// Create a transcoder and logger for testing
 	dtt := createTestTranscoder()
 	logger, _ := zap.NewProduction()
-	defer logger.Sync()
+	defer func() {
+		_ = logger.Sync()
+	}()
 
 	// Create FolderLoader with variables
 	vars := Variables{
@@ -146,7 +148,9 @@ func TestFolderLoader_Load_NoFiles(t *testing.T) {
 	// Initialize FolderLoader, transcoder, and logger
 	dtt := createTestTranscoder()
 	logger, _ := zap.NewProduction()
-	defer logger.Sync()
+	defer func() {
+		_ = logger.Sync()
+	}()
 	folderLoader := NewFolderLoader(dtt, logger)
 
 	vars := Variables{
@@ -175,7 +179,9 @@ func TestFolderLoader_Load_UnsupportedFiles(t *testing.T) {
 	// Initialize FolderLoader, transcoder, and logger
 	dtt := createTestTranscoder()
 	logger, _ := zap.NewProduction()
-	defer logger.Sync()
+	defer func() {
+		_ = logger.Sync()
+	}()
 
 	folderLoader := NewFolderLoader(dtt, logger)
 
@@ -193,7 +199,6 @@ func TestFolderLoader_Load_UnsupportedFiles(t *testing.T) {
 	if len(entries) != 0 {
 		t.Fatalf("expected empty entry list, got %d", len(entries))
 	}
-
 }
 
 func TestFolderLoader_Load_InvalidYaml(t *testing.T) {
@@ -255,7 +260,9 @@ data: value
 	dtt := createTestTranscoder()
 	core, obs := observer.New(zap.DebugLevel)
 	logger := zap.New(core)
-	defer logger.Sync()
+	defer func() {
+		_ = logger.Sync()
+	}()
 
 	folderLoader := NewFolderLoader(dtt, logger)
 	vars := Variables{}
@@ -311,7 +318,9 @@ data: value
 	dtt := createTestTranscoder()
 	core, obs := observer.New(zap.DebugLevel)
 	logger := zap.New(core)
-	defer logger.Sync()
+	defer func() {
+		_ = logger.Sync()
+	}()
 
 	folderLoader := NewFolderLoader(dtt, logger)
 	vars := Variables{}

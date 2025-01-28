@@ -2,11 +2,12 @@ package async
 
 import (
 	"context"
+	"testing"
+
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	"github.com/stretchr/testify/assert"
 	lua "github.com/yuin/gopher-lua"
-	"testing"
 )
 
 func TestSend(t *testing.T) {
@@ -22,7 +23,7 @@ func TestSend(t *testing.T) {
 
 		L.SetContext(ctx)
 
-		// Create test channel and value
+		// Create a test channel and value
 		ch := channel.Named("test", 0)
 		value := lua.LString("test")
 
@@ -41,7 +42,7 @@ func TestSend(t *testing.T) {
 		}
 	})
 
-	t.Run("send with invalid context", func(t *testing.T) {
+	t.Run("send with invalid context", func(*testing.T) {
 		L := lua.NewState()
 		defer L.Close()
 

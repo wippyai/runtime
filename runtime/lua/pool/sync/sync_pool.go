@@ -3,10 +3,11 @@ package sync
 import (
 	"context"
 	"fmt"
-	api "github.com/ponyruntime/pony/api/runtime/lua"
-	"github.com/yuin/gopher-lua"
-	"go.uber.org/zap"
 	"sync"
+
+	api "github.com/ponyruntime/pony/api/runtime/lua"
+	lua "github.com/yuin/gopher-lua"
+	"go.uber.org/zap"
 )
 
 // Option represents a pool configuration option
@@ -89,7 +90,7 @@ func (p *Pool) init() error {
 // Execute runs the specified Lua function with the given arguments using a VM from the pool.
 // It manages VM lifecycle, handles errors, and ensures proper cleanup.
 // Returns the function result and any error that occurred during execution.
-// If the pool is closed or the context is cancelled, returns an appropriate error.
+// If the pool is closed or the context is canceled, returns an appropriate error.
 func (p *Pool) Execute(ctx context.Context, name string, args ...lua.LValue) (lua.LValue, error) {
 	select {
 	case <-p.done:

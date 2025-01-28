@@ -88,7 +88,7 @@ func (m *Module) extractDependencies(l *lua.LState) (runtime.Executor, payload.T
 func (m *Module) new(l *lua.LState) int {
 	exec, dtt, err := m.extractDependencies(l)
 	if err != nil {
-		l.RaiseError(err.Error())
+		l.RaiseError("%s", err.Error())
 		return 0
 	}
 
@@ -110,7 +110,7 @@ func (m *Module) new(l *lua.LState) int {
 func (m *Module) globalCall(l *lua.LState) int {
 	executor, err := m.makeExecutor(l)
 	if err != nil {
-		l.RaiseError(err.Error())
+		l.RaiseError("%s", err.Error())
 		return 0
 	}
 
@@ -120,7 +120,7 @@ func (m *Module) globalCall(l *lua.LState) int {
 func (m *Module) globalRun(l *lua.LState) int {
 	executor, err := m.makeExecutor(l)
 	if err != nil {
-		l.RaiseError(err.Error())
+		l.RaiseError("%s", err.Error())
 		return 0
 	}
 
@@ -242,7 +242,7 @@ func (e *Executor) executeSync(l *lua.LState, task runtime.Task) int {
 		result = r
 	case <-task.Context.Done():
 		l.Push(lua.LNil)
-		l.Push(lua.LString("execution cancelled"))
+		l.Push(lua.LString("execution canceled"))
 		return 2
 	}
 

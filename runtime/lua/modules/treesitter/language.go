@@ -12,125 +12,123 @@ type LanguageWrapper struct {
 }
 
 // Register the Language type to Lua
-func registerLanguage(L *lua.LState) {
-	mt := L.NewTypeMetatable("treesitter.Language")
-	L.SetField(mt, "__index", L.SetFuncs(L.NewTable(), languageMethods))
+func registerLanguage(l *lua.LState) {
+	mt := l.NewTypeMetatable("treesitter.Language")
+	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
+		"version":            languageVersion,
+		"node_kind_count":    languageNodeKindCount,
+		"parse_state_count":  languageParseStateCount,
+		"node_kind_for_id":   languageNodeKindForID,
+		"id_for_node_kind":   languageIDForNodeKind,
+		"node_kind_is_named": languageNodeKindIsNamed,
+		"field_count":        languageFieldCount,
+		"field_name_for_id":  languageFieldNameForID,
+		"field_id_for_name":  languageFieldIDForName,
+	}))
 }
 
-var languageMethods = map[string]lua.LGFunction{
-	"version":            languageVersion,
-	"node_kind_count":    languageNodeKindCount,
-	"parse_state_count":  languageParseStateCount,
-	"node_kind_for_id":   languageNodeKindForID,
-	"id_for_node_kind":   languageIDForNodeKind,
-	"node_kind_is_named": languageNodeKindIsNamed,
-	"field_count":        languageFieldCount,
-	"field_name_for_id":  languageFieldNameForID,
-	"field_id_for_name":  languageFieldIDForName,
-}
-
-func checkLanguage(L *lua.LState) *LanguageWrapper {
-	ud := L.CheckUserData(1)
+func checkLanguage(l *lua.LState) *LanguageWrapper {
+	ud := l.CheckUserData(1)
 	if v, ok := ud.Value.(*LanguageWrapper); ok {
 		return v
 	}
-	L.ArgError(1, "Language expected")
+	l.ArgError(1, "Language expected")
 	return nil
 }
 
 // Language methods implementation
-func languageVersion(L *lua.LState) int {
-	lang := checkLanguage(L)
+func languageVersion(l *lua.LState) int {
+	lang := checkLanguage(l)
 	if lang.lang == nil {
-		L.Push(lua.LNil)
+		l.Push(lua.LNil)
 		return 1
 	}
-	L.Push(lua.LNumber(lang.lang.Version()))
+	l.Push(lua.LNumber(lang.lang.Version()))
 	return 1
 }
 
-func languageNodeKindCount(L *lua.LState) int {
-	lang := checkLanguage(L)
+func languageNodeKindCount(l *lua.LState) int {
+	lang := checkLanguage(l)
 	if lang.lang == nil {
-		L.Push(lua.LNil)
+		l.Push(lua.LNil)
 		return 1
 	}
-	L.Push(lua.LNumber(lang.lang.NodeKindCount()))
+	l.Push(lua.LNumber(lang.lang.NodeKindCount()))
 	return 1
 }
 
-func languageParseStateCount(L *lua.LState) int {
-	lang := checkLanguage(L)
+func languageParseStateCount(l *lua.LState) int {
+	lang := checkLanguage(l)
 	if lang.lang == nil {
-		L.Push(lua.LNil)
+		l.Push(lua.LNil)
 		return 1
 	}
-	L.Push(lua.LNumber(lang.lang.ParseStateCount()))
+	l.Push(lua.LNumber(lang.lang.ParseStateCount()))
 	return 1
 }
 
-func languageNodeKindForID(L *lua.LState) int {
-	lang := checkLanguage(L)
+func languageNodeKindForID(l *lua.LState) int {
+	lang := checkLanguage(l)
 	if lang.lang == nil {
-		L.Push(lua.LNil)
+		l.Push(lua.LNil)
 		return 1
 	}
-	id := uint16(L.CheckNumber(2))
-	L.Push(lua.LString(lang.lang.NodeKindForId(id)))
+	id := uint16(l.CheckNumber(2))
+	l.Push(lua.LString(lang.lang.NodeKindForId(id)))
 	return 1
 }
 
-func languageIDForNodeKind(L *lua.LState) int {
-	lang := checkLanguage(L)
+func languageIDForNodeKind(l *lua.LState) int {
+	lang := checkLanguage(l)
 	if lang.lang == nil {
-		L.Push(lua.LNil)
+		l.Push(lua.LNil)
 		return 1
 	}
-	kind := L.CheckString(2)
-	named := L.CheckBool(3)
-	L.Push(lua.LNumber(lang.lang.IdForNodeKind(kind, named)))
+	kind := l.CheckString(2)
+	named := l.CheckBool(3)
+	l.Push(lua.LNumber(lang.lang.IdForNodeKind(kind, named)))
 	return 1
 }
 
-func languageNodeKindIsNamed(L *lua.LState) int {
-	lang := checkLanguage(L)
+func languageNodeKindIsNamed(l *lua.LState) int {
+	lang := checkLanguage(l)
 	if lang.lang == nil {
-		L.Push(lua.LNil)
+		l.Push(lua.LNil)
 		return 1
 	}
-	id := uint16(L.CheckNumber(2))
-	L.Push(lua.LBool(lang.lang.NodeKindIsNamed(id)))
+	id := uint16(l.CheckNumber(2))
+	l.Push(lua.LBool(lang.lang.NodeKindIsNamed(id)))
 	return 1
 }
 
-func languageFieldCount(L *lua.LState) int {
-	lang := checkLanguage(L)
+func languageFieldCount(l *lua.LState) int {
+	lang := checkLanguage(l)
 	if lang.lang == nil {
-		L.Push(lua.LNil)
+		l.Push(lua.LNil)
 		return 1
 	}
-	L.Push(lua.LNumber(lang.lang.FieldCount()))
+	l.Push(lua.LNumber(lang.lang.FieldCount()))
 	return 1
 }
 
-func languageFieldNameForID(L *lua.LState) int {
-	lang := checkLanguage(L)
+func languageFieldNameForID(l *lua.LState) int {
+	lang := checkLanguage(l)
 	if lang.lang == nil {
-		L.Push(lua.LNil)
+		l.Push(lua.LNil)
 		return 1
 	}
-	id := uint16(L.CheckNumber(2))
-	L.Push(lua.LString(lang.lang.FieldNameForId(id)))
+	id := uint16(l.CheckNumber(2))
+	l.Push(lua.LString(lang.lang.FieldNameForId(id)))
 	return 1
 }
 
-func languageFieldIDForName(L *lua.LState) int {
-	lang := checkLanguage(L)
+func languageFieldIDForName(l *lua.LState) int {
+	lang := checkLanguage(l)
 	if lang.lang == nil {
-		L.Push(lua.LNil)
+		l.Push(lua.LNil)
 		return 1
 	}
-	name := L.CheckString(2)
-	L.Push(lua.LNumber(lang.lang.FieldIdForName(name)))
+	name := l.CheckString(2)
+	l.Push(lua.LNumber(lang.lang.FieldIdForName(name)))
 	return 1
 }

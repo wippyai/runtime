@@ -1,8 +1,8 @@
 package hash
 
 import (
-	"crypto/md5"
-	"crypto/sha1"
+	"crypto/md5"  //nolint:gosec
+	"crypto/sha1" //nolint:gosec
 	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/hex"
@@ -59,7 +59,7 @@ func (m *Module) md5(l *lua.LState) int {
 		return 1
 	}
 
-	result, err := computeHash(md5.New(), str)
+	result, err := computeHash(md5.New(), str) //nolint:gosec
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
@@ -81,7 +81,7 @@ func (m *Module) sha1(l *lua.LState) int {
 		return 1
 	}
 
-	result, err := computeHash(sha1.New(), str)
+	result, err := computeHash(sha1.New(), str) //nolint:gosec
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
