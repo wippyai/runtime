@@ -127,7 +127,7 @@ func TestUnsubscribe(t *testing.T) {
 	receivedEvents := waitForEvents(t, ch, 1, time.Second)
 	require.Len(t, receivedEvents, 1)
 
-	// Unsubscribe and verify no more events are received
+	// Release and verify no more events are received
 	bus.Unsubscribe(context.Background(), subID)
 
 	event2 := newTestEvent("test-system", "test-kind", "payload2")

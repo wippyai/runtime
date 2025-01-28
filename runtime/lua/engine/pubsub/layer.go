@@ -10,8 +10,9 @@ import (
 	"sync"
 )
 
-type sendMessage struct {
+type op struct {
 	topic string
+	unsub bool
 	value lua.LValue
 }
 
@@ -39,8 +40,20 @@ func (s *Layer) WithContext(ctx context.Context) context.Context {
 func (s *Layer) Publish(topic string, value ...lua.LValue) {
 	s.mu.Lock()
 	for _, v := range value {
-		s.messageQueue.PushBack(&sendMessage{topic: topic, value: v})
+		s.messageQueue.PushBack(&op{topic: topic, value: v})
 	}
+	if s.tg != nil {
+		s.tg.WakeUp()
+	}
+	s.mu.Unlock()
+}
+
+// Release removes a subscription from the topic if such exists and closes attached channel. Does not
+// remove messages from the queue, they can be re-consumed. Messages send prior to the release will be
+// delivered to the channel.
+func (s *Layer) Release(topic string) {
+	s.mu.Lock()
+	s.messageQueue.PushBack(&op{topic: topic, unsub: true})
 	if s.tg != nil {
 		s.tg.WakeUp()
 	}
@@ -51,34 +64,55 @@ func (s *Layer) Slots(topic string) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	ch, exists := s.subs.get(topic)
+	sub, exists := s.subs.get(topic)
 	if !exists {
 		return 0, fmt.Errorf("no subscribers for topic %s", topic)
 	}
 
-	return ch.channel.Slots(), nil
+	return sub.channel.Slots(), nil
 }
 
 func (s *Layer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, error) {
 	processableTasks := tasks
 	var outTasks []*engine.Task
 
-	// Process messages
-	pendingWrites := s.processMessages()
-
-	// Process tasks with writes and yields in a loop
 	boot := true
 	for len(processableTasks) > 0 || boot {
-		boot = false
+		if boot {
+			boot = false
 
-		// Write messages to channels
-		for sub, messages := range pendingWrites {
-			if len(messages) > 0 {
-				// todo: we can add some backpressure management here
-				if err := s.channels.Send(cvm.State().Context(), sub.channel, messages...); err != nil {
-					return nil, fmt.Errorf("send error: %w", err)
+			// Process message queue in boot stage
+			s.mu.Lock()
+			messages := make(map[*subscription][]lua.LValue)
+
+			for e := s.messageQueue.Front(); e != nil; {
+				msg := e.Value.(*op)
+				nextElem := e.Next()
+
+				if sub, exists := s.subs.get(msg.topic); exists {
+					if msg.unsub {
+						if err := s.channels.Close(cvm.State().Context(), sub.channel); err != nil {
+							s.mu.Unlock()
+							return nil, fmt.Errorf("close error: %w", err)
+						}
+
+						// we are fine to ignore this error since channel might not be subscribed yet
+						_ = s.subs.remove(sub.channel)
+					} else {
+						messages[sub] = append(messages[sub], msg.value)
+						if len(messages[sub]) > 0 {
+							if err := s.channels.Send(cvm.State().Context(), sub.channel, messages[sub]...); err != nil {
+								s.mu.Unlock()
+								return nil, fmt.Errorf("send error: %w", err)
+							}
+							messages[sub] = nil
+						}
+					}
+					s.messageQueue.Remove(e)
 				}
+				e = nextElem
 			}
+			s.mu.Unlock()
 		}
 
 		// Process through CVM
@@ -126,7 +160,11 @@ func (s *Layer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, err
 				if err != nil {
 					task.RaiseError = err
 				} else {
-					task.Resumed = []lua.LValue{lua.LTrue}
+					if err := s.channels.Close(cvm.State().Context(), req.channel); err != nil {
+						task.RaiseError = err
+					} else {
+						task.Resumed = []lua.LValue{lua.LTrue}
+					}
 				}
 
 				processableTasks = append(processableTasks, task)
@@ -142,26 +180,6 @@ func (s *Layer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, err
 	}
 
 	return outTasks, nil
-}
-
-func (s *Layer) processMessages() map[*subscription][]lua.LValue {
-	pendingWrites := make(map[*subscription][]lua.LValue)
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	for e := s.messageQueue.Front(); e != nil; {
-		msg := e.Value.(*sendMessage)
-		nextElem := e.Next()
-
-		if sub, exists := s.subs.get(msg.topic); exists {
-			pendingWrites[sub] = append(pendingWrites[sub], msg.value)
-			s.messageQueue.Remove(e)
-		}
-		e = nextElem
-	}
-
-	return pendingWrites
 }
 
 func isSubscriptionRequest(v lua.LValue) (*subscribe, bool) {
