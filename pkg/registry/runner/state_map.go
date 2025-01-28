@@ -100,7 +100,8 @@ func (sh *stateHelper) getInverseOperation(state stateMap, op registry.Operation
 	}
 }
 
-func (sh *stateHelper) validateOperation(state stateMap, op registry.Operation) error {
+// todo: unused
+func (sh *stateHelper) validateOperation(state stateMap, op registry.Operation) error { //nolint:unused
 	switch op.Kind {
 	case registry.Create:
 		if _, exists := state[op.Entry.ID]; exists {

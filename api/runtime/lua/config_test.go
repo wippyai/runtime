@@ -1,10 +1,11 @@
 package lua
 
 import (
+	"testing"
+
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"testing"
 )
 
 func TestFunctionConfig_Validate(t *testing.T) {

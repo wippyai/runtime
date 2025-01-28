@@ -225,10 +225,10 @@ func TestStreamLuaEdgeCases(t *testing.T) {
 
 		l := vm.State()
 		mt := l.NewTypeMetatable("Stream")
-		l.SetField(mt, "__index", l.NewFunction(func(L *lua.LState) int {
-			method := L.ToString(2)
+		l.SetField(mt, "__index", l.NewFunction(func(l *lua.LState) int {
+			method := l.ToString(2)
 			if method == "read" {
-				L.Push(l.NewFunction(streamRead))
+				l.Push(l.NewFunction(streamRead))
 				return 1
 			}
 			return 0

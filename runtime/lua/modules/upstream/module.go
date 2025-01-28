@@ -22,25 +22,25 @@ func (m *Module) Name() string {
 }
 
 // Loader registers the module functions
-func (m *Module) Loader(L *lua.LState) int {
+func (m *Module) Loader(l *lua.LState) int {
 	// Create module table
-	mod := L.NewTable()
+	mod := l.NewTable()
 
 	// Register functions
-	L.SetField(mod, "send", L.NewFunction(m.send))
+	l.SetField(mod, "send", l.NewFunction(m.send))
 
 	// Register module
-	L.Push(mod)
+	l.Push(mod)
 	return 1
 }
 
 // send implements upstream.send(value)
-func (m *Module) send(L *lua.LState) int {
+func (m *Module) send(l *lua.LState) int {
 	select {
-	case m.out <- L.CheckAny(1):
-		L.Push(lua.LTrue)
+	case m.out <- l.CheckAny(1):
+		l.Push(lua.LTrue)
 	default:
-		L.Push(lua.LFalse)
+		l.Push(lua.LFalse)
 	}
 
 	return 1

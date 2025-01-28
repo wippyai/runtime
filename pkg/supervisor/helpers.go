@@ -28,9 +28,6 @@ type internalState struct {
 	desired    supervisor.Status
 	retryCount int32
 	lastUpdate time.Time
-	mur        sync.Mutex
-	runCtx     context.Context
-	runCancel  context.CancelFunc
 }
 
 // isTerminalError determines if the error represents a terminal state
@@ -126,16 +123,10 @@ func (s *internalState) resetRetryCount() {
 }
 
 // setDesiredStatus updates the desired state and returns if it changed
-func (s *internalState) setDesiredStatus(desired supervisor.Status) bool {
+func (s *internalState) setDesiredStatus(desired supervisor.Status) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
-	if desired == s.desired {
-		return false
-	}
 	s.desired = desired
-
-	return true
 }
 
 // getCurrentStatus returns the current status

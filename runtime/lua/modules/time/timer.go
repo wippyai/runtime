@@ -2,23 +2,17 @@ package time
 
 import (
 	"fmt"
+	"time"
+
 	"github.com/ponyruntime/pony/runtime/lua/engine/async"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	lua "github.com/yuin/gopher-lua"
-	"time"
 )
 
 // Timer represents a Lua userdata object wrapping time.Timer
 type Timer struct {
 	timer   *time.Timer
 	chValue lua.LValue
-}
-
-// Timer methods map
-var timerMethods = map[string]lua.LGFunction{
-	"stop":    timerStop,
-	"reset":   timerReset,
-	"channel": timerChannel,
 }
 
 // Constructor for timer
@@ -54,7 +48,7 @@ func timer(l *lua.LState) int {
 
 	// Create channel and timer
 	ch := channel.Named(fmt.Sprintf("timer_%s", duration), 1)
-	timer := time.NewTimer(duration)
+	tmr := time.NewTimer(duration)
 
 	// Create userdata for time value upfront
 	timeUD := l.NewUserData()
@@ -63,11 +57,15 @@ func timer(l *lua.LState) int {
 
 	// Start goroutine to handle timer
 	go func() {
-		defer timer.Stop()
+		defer tmr.Stop()
 		select {
-		case t := <-timer.C:
+		case t := <-tmr.C:
 			timeUD.Value = &Time{time: t}
-			async.Send(l, ch, timeUD, true)
+			errs := async.Send(l, ch, timeUD, true)
+			if errs != nil {
+				l.RaiseError("time.timer: %s", errs)
+				return
+			}
 		case <-l.Context().Done():
 			return
 		}
@@ -75,7 +73,7 @@ func timer(l *lua.LState) int {
 
 	// Create and return Timer userdata
 	ud := l.NewUserData()
-	ud.Value = &Timer{timer: timer, chValue: channel.Wrap(l, ch)}
+	ud.Value = &Timer{timer: tmr, chValue: channel.Wrap(l, ch)}
 	l.SetMetatable(ud, l.GetTypeMetatable("Timer"))
 	l.Push(ud)
 	return 1
@@ -156,7 +154,11 @@ func timerChannel(l *lua.LState) int {
 // Register Timer
 func registerTimer(l *lua.LState, mod *lua.LTable) {
 	mt := l.NewTypeMetatable("Timer")
-	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), timerMethods))
+	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
+		"stop":    timerStop,
+		"reset":   timerReset,
+		"channel": timerChannel,
+	}))
 
 	// Register timer constructor
 	l.SetField(mod, "timer", l.NewFunction(timer))

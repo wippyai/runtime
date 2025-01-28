@@ -27,7 +27,9 @@ type MockRunner struct {
 	RunFunc       func(state registry.State, changes registry.ChangeSet) (registry.State, error)
 }
 
-func (m *MockRunner) Transition(ctx context.Context, state registry.State, changes registry.ChangeSet) (registry.State, error) {
+// Transition calls the custom RunFunc if set, otherwise returns the new state or an error.
+// TODO: ctx is not used
+func (m *MockRunner) Transition(_ context.Context, state registry.State, changes registry.ChangeSet) (registry.State, error) {
 	m.callStack = append(m.callStack, "Transition")
 	m.lastState = state
 	m.lastChangeSet = changes
@@ -47,19 +49,19 @@ func NewMockRunner() *MockRunner {
 }
 
 func TestNewRegistry(t *testing.T) {
-	history := history.NewMemory()
+	hist := history.NewMemory()
 	runner := NewMockRunner()
 	stateBuilder := NewStateBuilder(zap.NewNop())
 
-	r := NewRegistry(history, runner, stateBuilder, zap.NewNop())
+	r := NewRegistry(hist, runner, stateBuilder, zap.NewNop())
 
 	if _, ok := r.(*reg); !ok {
 		t.Errorf("Expected type *reg, got %T", r)
 	}
 
 	reg := r.(*reg)
-	if reg.history != history {
-		t.Errorf("Expected history to be %v, got %v", history, reg.history)
+	if reg.history != hist {
+		t.Errorf("Expected hist to be %v, got %v", hist, reg.history)
 	}
 
 	if reg.runner != runner {
@@ -149,12 +151,12 @@ func TestInMemoryRegistry_GetEntry(t *testing.T) {
 
 func TestInMemoryRegistry_Apply(t *testing.T) {
 	v0 := version.New(registry.RootVersion)
-	history := history.NewMemory()
-	_ = history.Save(v0, registry.ChangeSet{}, true)
+	hist := history.NewMemory()
+	_ = hist.Save(v0, registry.ChangeSet{}, true)
 	runner := NewMockRunner()
 	stateBuilder := NewStateBuilder(zap.NewNop())
 
-	reg := NewRegistry(history, runner, stateBuilder, zap.NewNop()).(*reg)
+	reg := NewRegistry(hist, runner, stateBuilder, zap.NewNop()).(*reg)
 
 	changes := registry.ChangeSet{
 		{
@@ -175,7 +177,7 @@ func TestInMemoryRegistry_Apply(t *testing.T) {
 		t.Fatalf("Unexpected error: %v", err)
 	}
 
-	head, _ := history.Head()
+	head, _ := hist.Head()
 	if newVersion.ID() != 1 {
 		t.Errorf("Expected new version to be v1, got: %v", newVersion)
 	}
@@ -184,7 +186,7 @@ func TestInMemoryRegistry_Apply(t *testing.T) {
 		t.Errorf("Expected new version to be head: %v, got: %v", head, newVersion)
 	}
 
-	savedChanges, _ := history.Get(newVersion)
+	savedChanges, _ := hist.Get(newVersion)
 	if !reflect.DeepEqual(savedChanges, changes) {
 		t.Errorf("Expected saved changes: %v, got: %v", changes, savedChanges)
 	}
@@ -206,12 +208,12 @@ func TestInMemoryRegistry_Apply(t *testing.T) {
 
 func TestInMemoryRegistry_Apply_RunnerError(t *testing.T) {
 	v0 := version.New(registry.RootVersion)
-	history := history.NewMemory()
-	_ = history.Save(v0, registry.ChangeSet{}, true)
+	hist := history.NewMemory()
+	_ = hist.Save(v0, registry.ChangeSet{}, true)
 	runner := NewMockRunner()
 	stateBuilder := NewStateBuilder(zap.NewNop())
 
-	reg := NewRegistry(history, runner, stateBuilder, zap.NewNop()).(*reg)
+	reg := NewRegistry(hist, runner, stateBuilder, zap.NewNop()).(*reg)
 	runner.err = errors.New("runner error, failed to rollback: runner error")
 
 	_, err := reg.Apply(context.Background(), registry.ChangeSet{})
@@ -231,19 +233,19 @@ func TestInMemoryRegistry_ApplyVersion(t *testing.T) {
 	v1 := version.FromParent(v0, 1)
 	v2 := version.FromParent(v1, 2)
 
-	history := history.NewMemory()
-	_ = history.Save(v0, registry.ChangeSet{}, true)
-	_ = history.Save(v1, registry.ChangeSet{
+	hist := history.NewMemory()
+	_ = hist.Save(v0, registry.ChangeSet{}, true)
+	_ = hist.Save(v1, registry.ChangeSet{
 		{Kind: registry.Create, Entry: registry.Entry{ID: "/foo", Kind: "test", Data: payload.New("data1")}},
 	}, false)
-	_ = history.Save(v2, registry.ChangeSet{
+	_ = hist.Save(v2, registry.ChangeSet{
 		{Kind: registry.Update, Entry: registry.Entry{ID: "/foo", Kind: "test", Data: payload.New("data2")}},
 	}, false)
 
 	runner := NewMockRunner()
 	stateBuilder := NewStateBuilder(zap.NewNop())
 
-	reg := NewRegistry(history, runner, stateBuilder, zap.NewNop()).(*reg)
+	reg := NewRegistry(hist, runner, stateBuilder, zap.NewNop()).(*reg)
 	reg.currentVersion = v2 // Set current version to v2
 	// Set initial state to v2 state
 	reg.state = registry.State{
@@ -297,8 +299,8 @@ type ErrorHistory struct {
 }
 
 // Override Save to return an error
-func (h *ErrorHistory) Save(v registry.Version, cs registry.ChangeSet, head bool) error {
-	// Also save to versions map
+func (h *ErrorHistory) Save(v registry.Version, cs registry.ChangeSet, _ bool) error {
+	// Also save to the version map
 	if h.versions == nil {
 		h.versions = make(map[registry.Version]registry.ChangeSet)
 	}
@@ -309,7 +311,7 @@ func (h *ErrorHistory) Save(v registry.Version, cs registry.ChangeSet, head bool
 
 // Implement Versions()
 func (h *ErrorHistory) Versions() ([]registry.Version, error) {
-	var vs []registry.Version
+	vs := make([]registry.Version, 0, len(h.versions))
 	for v := range h.versions {
 		vs = append(vs, v)
 	}
@@ -347,19 +349,19 @@ func NewErrorHistory() *ErrorHistory {
 
 func TestInMemoryRegistry_Apply_HistorySaveError(t *testing.T) {
 	v0 := version.New(registry.RootVersion)
-	history := NewErrorHistory()
-	_ = history.Save(v0, registry.ChangeSet{}, true) // Set up an initial head version
+	hist := NewErrorHistory()
+	_ = hist.Save(v0, registry.ChangeSet{}, true) // Set up an initial head version
 	runner := NewMockRunner()
 	stateBuilder := NewStateBuilder(zap.NewNop())
 
-	reg := NewRegistry(history, runner, stateBuilder, zap.NewNop()).(*reg)
+	reg := NewRegistry(hist, runner, stateBuilder, zap.NewNop()).(*reg)
 
 	// Mock the runner to return a new state (so we can test rollback)
 	runner.newState = registry.State{
 		{ID: "/foo", Kind: "test", Data: payload.New("data")},
 	}
 
-	// Attempt to apply changes, which should fail due to the history error
+	// Attempt to apply changes, which should fail due to the hist error
 	_, err := reg.Apply(context.Background(), registry.ChangeSet{
 		{
 			Kind: registry.Create,
@@ -404,11 +406,11 @@ func (m *CustomizableMockRunner) Transition(_ context.Context, state registry.St
 
 func TestInMemoryRegistry_ConcurrentApply(t *testing.T) {
 	v0 := version.New(registry.RootVersion)
-	history := history.NewMemory()
-	_ = history.Save(v0, registry.ChangeSet{}, true)
+	hist := history.NewMemory()
+	_ = hist.Save(v0, registry.ChangeSet{}, true)
 	runner := &CustomizableMockRunner{} // Use the new customizable mock
 	stateBuilder := NewStateBuilder(zap.NewNop())
-	reg := NewRegistry(history, runner, stateBuilder, zap.NewNop()).(*reg)
+	reg := NewRegistry(hist, runner, stateBuilder, zap.NewNop()).(*reg)
 
 	var wg sync.WaitGroup
 	numGoroutines := 10
@@ -448,7 +450,7 @@ func TestInMemoryRegistry_ConcurrentApply(t *testing.T) {
 
 	wg.Wait()
 
-	// Verify final state
+	// Verify the final state
 	finalState, err := reg.GetAllEntries()
 	if err != nil {
 		t.Fatalf("Error getting final state: %v", err)
@@ -464,7 +466,8 @@ func TestInMemoryRegistry_ConcurrentApply(t *testing.T) {
 		t.Fatalf("Error getting current version: %v", err)
 	}
 
-	if currentVersion.ID() != uint(numGoroutines*changesPerRoutine) {
+	// precision
+	if int(currentVersion.ID()) != numGoroutines*changesPerRoutine { //nolint:gosec
 		t.Errorf("Expected current version Name %d, got %d", numGoroutines*changesPerRoutine, currentVersion.ID())
 	}
 }
@@ -474,12 +477,12 @@ func TestInMemoryRegistry_ConcurrentApply(t *testing.T) {
 func TestInMemoryRegistry_Apply_Rollback_Success(t *testing.T) {
 	v0 := version.New(registry.RootVersion)
 	// Use ErrorHistory to simulate a history save error
-	history := NewErrorHistory()
-	_ = history.Save(v0, registry.ChangeSet{}, true)
+	hist := NewErrorHistory()
+	_ = hist.Save(v0, registry.ChangeSet{}, true)
 
 	runner := NewMockRunner()
 	stateBuilder := NewStateBuilder(zap.NewNop()) // Use the real StateBuilder
-	reg := NewRegistry(history, runner, stateBuilder, zap.NewNop()).(*reg)
+	reg := NewRegistry(hist, runner, stateBuilder, zap.NewNop()).(*reg)
 
 	// Initial state
 	initialState := registry.State{
@@ -501,7 +504,7 @@ func TestInMemoryRegistry_Apply_Rollback_Success(t *testing.T) {
 	}
 
 	// Mock the runner to return a new state that includes the changes
-	newState := append(initialState, changes[0].Entry)
+	newState := append(initialState, changes[0].Entry) //nolint:gocritic
 	runner.newState = newState
 
 	// Mock the runner's Transition to apply the rollback changeset correctly
@@ -520,7 +523,7 @@ func TestInMemoryRegistry_Apply_Rollback_Success(t *testing.T) {
 		return state, fmt.Errorf("unexpected Transition call with state: %v, changeset: %v", state, cs)
 	}
 
-	// Attempt to apply changes, which should fail due to the history error
+	// Attempt to apply changes, which should fail due to the hist error
 	_, err := reg.Apply(context.Background(), changes)
 	if err == nil {
 		t.Errorf("Expected error, got nil")
@@ -553,12 +556,12 @@ func TestInMemoryRegistry_Apply_Rollback_Success(t *testing.T) {
 // itself fails after a history save error.
 func TestInMemoryRegistry_Apply_Rollback_Failure(t *testing.T) {
 	v0 := version.New(registry.RootVersion)
-	history := NewErrorHistory()
-	_ = history.Save(v0, registry.ChangeSet{}, true)
+	hist := NewErrorHistory()
+	_ = hist.Save(v0, registry.ChangeSet{}, true)
 
 	runner := NewMockRunner()
 	stateBuilder := NewStateBuilder(zap.NewNop())
-	reg := NewRegistry(history, runner, stateBuilder, zap.NewNop()).(*reg)
+	reg := NewRegistry(hist, runner, stateBuilder, zap.NewNop()).(*reg)
 
 	initialState := registry.State{
 		{ID: "/initial", Kind: "test", Data: payload.New("initial_data")},
@@ -577,7 +580,7 @@ func TestInMemoryRegistry_Apply_Rollback_Failure(t *testing.T) {
 		},
 	}
 
-	newState := append(initialState, changes[0].Entry)
+	newState := append(initialState, changes[0].Entry) //nolint:gocritic
 
 	rollbackErr := errors.New("rollback failed")
 	runner.RunFunc = func(state registry.State, cs registry.ChangeSet) (registry.State, error) {

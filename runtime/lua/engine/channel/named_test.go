@@ -2,12 +2,13 @@ package channel
 
 import (
 	"context"
+	"strings"
+	"testing"
+
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/stretchr/testify/assert"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
-	"strings"
-	"testing"
 )
 
 func TestNamedChannelSend(t *testing.T) {
@@ -18,18 +19,18 @@ func TestNamedChannelSend(t *testing.T) {
 	vm, err := engine.NewCVM(
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
-		engine.WithGlobalFunction("new_named", func(L *lua.LState) int {
-			name := L.CheckString(1)
-			capacity := L.OptInt(2, 0)
+		engine.WithGlobalFunction("new_named", func(l *lua.LState) int {
+			name := l.CheckString(1)
+			capacity := l.OptInt(2, 0)
 			if capacity < 0 {
-				L.RaiseError("channel capacity must be >= 0")
+				l.RaiseError("channel capacity must be >= 0")
 				return 0
 			}
 
 			ch := Named(name, capacity)
 			named[name] = ch
 
-			L.Push(Wrap(L, ch))
+			l.Push(Wrap(l, ch))
 			return 1
 		}),
 	)
@@ -69,6 +70,7 @@ func TestNamedChannelSend(t *testing.T) {
 
 	// Step again
 	group, err := tg.Wait(ctx, vm, false)
+	assert.NoError(t, err)
 
 	tasks, err = runtime.Step(vm, group...)
 	assert.NoError(t, err)
@@ -85,18 +87,18 @@ func TestNamedChannelSelectVisibility(t *testing.T) {
 	vm, err := engine.NewCVM(
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
-		engine.WithGlobalFunction("new_named", func(L *lua.LState) int {
-			name := L.CheckString(1)
-			capacity := L.OptInt(2, 0)
+		engine.WithGlobalFunction("new_named", func(l *lua.LState) int {
+			name := l.CheckString(1)
+			capacity := l.OptInt(2, 0)
 			if capacity < 0 {
-				L.RaiseError("channel capacity must be >= 0")
+				l.RaiseError("channel capacity must be >= 0")
 				return 0
 			}
 
 			ch := Named(name, capacity)
 			named[name] = ch
 
-			L.Push(Wrap(L, ch))
+			l.Push(Wrap(l, ch))
 			return 1
 		}),
 	)
@@ -197,18 +199,18 @@ func TestNamedChannelSelectDefaultCase(t *testing.T) {
 	vm, err := engine.NewCVM(
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
-		engine.WithGlobalFunction("new_named", func(L *lua.LState) int {
-			name := L.CheckString(1)
-			capacity := L.OptInt(2, 0)
+		engine.WithGlobalFunction("new_named", func(l *lua.LState) int {
+			name := l.CheckString(1)
+			capacity := l.OptInt(2, 0)
 			if capacity < 0 {
-				L.RaiseError("channel capacity must be >= 0")
+				l.RaiseError("channel capacity must be >= 0")
 				return 0
 			}
 
 			ch := Named(name, capacity)
 			named[name] = ch
 
-			L.Push(Wrap(L, ch))
+			l.Push(Wrap(l, ch))
 			return 1
 		}),
 	)
@@ -268,18 +270,18 @@ func TestNamedChannelMultipleReceivers(t *testing.T) {
 	vm, err := engine.NewCVM(
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
-		engine.WithGlobalFunction("new_named", func(L *lua.LState) int {
-			name := L.CheckString(1)
-			capacity := L.OptInt(2, 0)
+		engine.WithGlobalFunction("new_named", func(l *lua.LState) int {
+			name := l.CheckString(1)
+			capacity := l.OptInt(2, 0)
 			if capacity < 0 {
-				L.RaiseError("channel capacity must be >= 0")
+				l.RaiseError("channel capacity must be >= 0")
 				return 0
 			}
 
 			ch := Named(name, capacity)
 			named[name] = ch
 
-			L.Push(Wrap(L, ch))
+			l.Push(Wrap(l, ch))
 			return 1
 		}),
 	)
@@ -432,18 +434,18 @@ func TestBufferedNamedChannelWriteCapacity(t *testing.T) {
 	vm, err := engine.NewCVM(
 		logger,
 		engine.WithPreloaded("channel", NewChannelModule().Loader),
-		engine.WithGlobalFunction("new_named", func(L *lua.LState) int {
-			name := L.CheckString(1)
-			capacity := L.OptInt(2, 0)
+		engine.WithGlobalFunction("new_named", func(l *lua.LState) int {
+			name := l.CheckString(1)
+			capacity := l.OptInt(2, 0)
 			if capacity < 0 {
-				L.RaiseError("channel capacity must be >= 0")
+				l.RaiseError("channel capacity must be >= 0")
 				return 0
 			}
 
 			ch := Named(name, capacity)
 			named[name] = ch
 
-			L.Push(Wrap(L, ch))
+			l.Push(Wrap(l, ch))
 			return 1
 		}),
 	)

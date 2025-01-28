@@ -30,7 +30,8 @@ func matchSegments(pattern, str []string) bool {
 	p, s := 0, 0
 
 	for p < pLen && s < sLen {
-		if pattern[p] == "**" {
+		switch {
+		case pattern[p] == "**":
 			// If '**' is the last pattern, it matches the rest of the string
 			if p == pLen-1 {
 				return true
@@ -42,11 +43,11 @@ func matchSegments(pattern, str []string) bool {
 				}
 			}
 			return false
-		} else if pattern[p] == "*" {
+		case pattern[p] == "*":
 			// '*' matches exactly one segment
 			p++
 			s++
-		} else {
+		default:
 			// Handle exact match or alternations
 			if !matchSegment(pattern[p], str[s]) {
 				return false
@@ -56,7 +57,7 @@ func matchSegments(pattern, str []string) bool {
 		}
 	}
 
-	// Handle trailing '**' in pattern
+	// Handle trailing '**' in the pattern
 	for p < pLen && pattern[p] == "**" {
 		p++
 	}

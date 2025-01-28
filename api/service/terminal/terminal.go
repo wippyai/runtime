@@ -2,10 +2,11 @@ package terminal
 
 import (
 	"context"
+	"io"
+
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
-	"io"
 )
 
 const (

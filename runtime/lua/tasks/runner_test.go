@@ -3,6 +3,9 @@ package tasks
 import (
 	"context"
 	"fmt"
+	"testing"
+	"time"
+
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/async"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
@@ -11,8 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
-	"testing"
-	"time"
 )
 
 func TestTasker_BasicExecution(t *testing.T) {
@@ -73,7 +74,8 @@ func TestTasker_BasicExecution(t *testing.T) {
 			t.Fatal("timeout waiting for task result")
 		}
 
-		ctx, _ := context.WithTimeout(context.Background(), time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
 
 		// stop the tasker
 		err = tasker.Stop(ctx)
@@ -258,7 +260,7 @@ func TestConsecutiveTasks(t *testing.T) {
 	outputs := make([]<-chan engine.Result, 3)
 	for i := 0; i < 3; i++ {
 		taskData := lua.LTable{}
-		taskData.RawSetString("data", lua.LString(string([]byte{byte('A' + i)})))
+		taskData.RawSetString("data", lua.LString([]byte{byte('A' + i)}))
 
 		out, err := tasker.Execute(context.Background(), "task"+string([]byte{byte('1' + i)}), []lua.LValue{&taskData})
 		assert.NoError(t, err)
@@ -371,7 +373,7 @@ func TestAsyncTasksWithTimers(t *testing.T) {
 
 	for i := 0; i < 3; i++ {
 		taskData := lua.LTable{}
-		taskData.RawSetString("id", lua.LString(string([]byte{byte('A' + i)})))
+		taskData.RawSetString("id", lua.LString([]byte{byte('A' + i)}))
 		taskData.RawSetString("delay", lua.LNumber(delays[i]))
 		taskData.RawSetString("order", lua.LNumber(i+1))
 
@@ -462,7 +464,7 @@ func TestTasker_TaskSend(t *testing.T) {
 
 	// Collect all results (both intermediate and final)
 	var results [][]lua.LValue
-	var isChannelOpen bool = true
+	var isChannelOpen = true
 
 	for isChannelOpen {
 		select {

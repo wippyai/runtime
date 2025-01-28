@@ -339,34 +339,34 @@ func queryCaptureQuantifier(l *lua.LState) int {
 
 // Helper methods
 
-func queryPatternCount(L *lua.LState) int {
-	query := checkQuery(L)
-	L.Push(lua.LNumber(query.query.PatternCount()))
+func queryPatternCount(l *lua.LState) int {
+	query := checkQuery(l)
+	l.Push(lua.LNumber(query.query.PatternCount()))
 	return 1
 }
 
-func queryCaptureCount(L *lua.LState) int {
-	query := checkQuery(L)
-	L.Push(lua.LNumber(len(query.query.CaptureNames())))
+func queryCaptureCount(l *lua.LState) int {
+	query := checkQuery(l)
+	l.Push(lua.LNumber(len(query.query.CaptureNames())))
 	return 1
 }
 
-func queryStringCount(L *lua.LState) int {
+func queryStringCount(l *lua.LState) int {
 	// Note: This is a placeholder as the upstream API doesn't expose string count
-	L.Push(lua.LNumber(0))
+	l.Push(lua.LNumber(0))
 	return 1
 }
 
-func queryStartByteForPattern(L *lua.LState) int {
-	query := checkQuery(L)
-	pattern := uint(L.CheckNumber(2))
-	L.Push(lua.LNumber(query.query.StartByteForPattern(pattern)))
+func queryStartByteForPattern(l *lua.LState) int {
+	query := checkQuery(l)
+	pattern := uint(l.CheckNumber(2))
+	l.Push(lua.LNumber(query.query.StartByteForPattern(pattern)))
 	return 1
 }
 
 // Garbage collection
-func queryClose(L *lua.LState) int {
-	query := checkQuery(L)
+func queryClose(l *lua.LState) int {
+	query := checkQuery(l)
 	if query.cursor != nil {
 		query.cursor.Close()
 		query.cursor = nil
@@ -379,23 +379,23 @@ func queryClose(L *lua.LState) int {
 }
 
 // Sets the maximum start depth for query traversal
-func querySetMaxStartDepth(L *lua.LState) int {
-	query := checkQuery(L)
-	depth := uint(L.CheckNumber(2))
+func querySetMaxStartDepth(l *lua.LState) int {
+	query := checkQuery(l)
+	depth := uint(l.CheckNumber(2))
 	query.cursor.SetMaxStartDepth(&depth)
 	return 0
 }
 
 // Gets property predicates for a given pattern index
-func queryGetPropertyPredicates(L *lua.LState) int {
-	query := checkQuery(L)
-	pattern := uint(L.CheckNumber(2))
+func queryGetPropertyPredicates(l *lua.LState) int {
+	query := checkQuery(l)
+	pattern := uint(l.CheckNumber(2))
 
 	predicates := query.query.PropertyPredicates(pattern)
-	result := L.NewTable()
+	result := l.NewTable()
 
 	for i, pred := range predicates {
-		predTable := L.NewTable()
+		predTable := l.NewTable()
 		predTable.RawSetString("key", lua.LString(pred.Property.Key))
 		if pred.Property.Value != nil {
 			predTable.RawSetString("value", lua.LString(*pred.Property.Value))
@@ -407,20 +407,20 @@ func queryGetPropertyPredicates(L *lua.LState) int {
 		result.RawSetInt(i+1, predTable)
 	}
 
-	L.Push(result)
+	l.Push(result)
 	return 1
 }
 
 // Gets property settings for a given pattern index
-func queryGetPropertySettings(L *lua.LState) int {
-	query := checkQuery(L)
-	pattern := uint(L.CheckNumber(2))
+func queryGetPropertySettings(l *lua.LState) int {
+	query := checkQuery(l)
+	pattern := uint(l.CheckNumber(2))
 
 	settings := query.query.PropertySettings(pattern)
-	result := L.NewTable()
+	result := l.NewTable()
 
 	for i, setting := range settings {
-		settingTable := L.NewTable()
+		settingTable := l.NewTable()
 		settingTable.RawSetString("key", lua.LString(setting.Key))
 		if setting.Value != nil {
 			settingTable.RawSetString("value", lua.LString(*setting.Value))
@@ -431,48 +431,48 @@ func queryGetPropertySettings(L *lua.LState) int {
 		result.RawSetInt(i+1, settingTable)
 	}
 
-	L.Push(result)
+	l.Push(result)
 	return 1
 }
 
 // Checks if a pattern is guaranteed at a given byte offset
-func queryIsPatternGuaranteed(L *lua.LState) int {
-	query := checkQuery(L)
-	byteOffset := uint(L.CheckNumber(2))
-	L.Push(lua.LBool(query.query.IsPatternGuaranteedAtStep(byteOffset)))
+func queryIsPatternGuaranteed(l *lua.LState) int {
+	query := checkQuery(l)
+	byteOffset := uint(l.CheckNumber(2))
+	l.Push(lua.LBool(query.query.IsPatternGuaranteedAtStep(byteOffset)))
 	return 1
 }
 
 // Gets the capture index for a given name
-func queryCaptureIndexForName(L *lua.LState) int {
-	query := checkQuery(L)
-	name := L.CheckString(2)
+func queryCaptureIndexForName(l *lua.LState) int {
+	query := checkQuery(l)
+	name := l.CheckString(2)
 	if index, ok := query.query.CaptureIndexForName(name); ok {
-		L.Push(lua.LNumber(index))
+		l.Push(lua.LNumber(index))
 		return 1
 	}
-	L.Push(lua.LNil)
+	l.Push(lua.LNil)
 	return 1
 }
 
 // Gets the end byte for a given pattern
-func queryEndByteForPattern(L *lua.LState) int {
-	query := checkQuery(L)
-	pattern := uint(L.CheckNumber(2))
-	L.Push(lua.LNumber(query.query.EndByteForPattern(pattern)))
+func queryEndByteForPattern(l *lua.LState) int {
+	query := checkQuery(l)
+	pattern := uint(l.CheckNumber(2))
+	l.Push(lua.LNumber(query.query.EndByteForPattern(pattern)))
 	return 1
 }
 
 // Gets text predicates for a given pattern
-func queryGetTextPredicates(L *lua.LState) int {
-	query := checkQuery(L)
-	pattern := uint(L.CheckNumber(2))
+func queryGetTextPredicates(l *lua.LState) int {
+	query := checkQuery(l)
+	pattern := uint(l.CheckNumber(2))
 
 	predicates := query.query.TextPredicates[pattern]
-	result := L.NewTable()
+	result := l.NewTable()
 
 	for i, pred := range predicates {
-		predTable := L.NewTable()
+		predTable := l.NewTable()
 		predTable.RawSetString("type", lua.LNumber(pred.Type))
 		predTable.RawSetString("capture_id", lua.LNumber(pred.CaptureId))
 		predTable.RawSetString("positive", lua.LBool(pred.Positive))
@@ -487,7 +487,7 @@ func queryGetTextPredicates(L *lua.LState) int {
 		case *regexp.Regexp:
 			predTable.RawSetString("value", lua.LString(v.String()))
 		case []string:
-			valueTable := L.NewTable()
+			valueTable := l.NewTable()
 			for j, s := range v {
 				valueTable.RawSetInt(j+1, lua.LString(s))
 			}
@@ -497,18 +497,18 @@ func queryGetTextPredicates(L *lua.LState) int {
 		result.RawSetInt(i+1, predTable)
 	}
 
-	L.Push(result)
+	l.Push(result)
 	return 1
 }
 
 // Helper functions
 
-func checkQuery(L *lua.LState) *QueryWrapper {
-	ud := L.CheckUserData(1)
+func checkQuery(l *lua.LState) *QueryWrapper {
+	ud := l.CheckUserData(1)
 	if v, ok := ud.Value.(*QueryWrapper); ok {
 		return v
 	}
-	L.ArgError(1, "Query expected")
+	l.ArgError(1, "Query expected")
 	return nil
 }
 

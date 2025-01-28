@@ -45,16 +45,15 @@ func SortEntriesByDependency(entries []registry.Entry) []registry.Entry {
 	if err != nil {
 		// If there's a cycle, fall back to lexicographical sorting
 		sorted := make([]registry.Entry, 0, len(entries))
-		for _, entry := range entries {
-			sorted = append(sorted, entry)
-		}
+		sorted = append(sorted, entries...)
+
 		sort.Slice(sorted, func(i, j int) bool {
 			return sorted[i].ID < sorted[j].ID
 		})
 		return sorted
 	}
 
-	// Build sorted list based on dependency levels
+	// Build a sorted list based on dependency levels
 	result := make([]registry.Entry, 0, len(entries))
 
 	start, end, step := 0, levels.LevelCount(), 1

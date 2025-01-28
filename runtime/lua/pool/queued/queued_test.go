@@ -3,12 +3,13 @@ package queued
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/runtime/lua/factory"
 	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/ponyruntime/pony/runtime/lua/factory"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

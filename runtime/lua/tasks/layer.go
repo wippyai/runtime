@@ -1,10 +1,11 @@
 package tasks
 
 import (
+	"sync/atomic"
+
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	lua "github.com/yuin/gopher-lua"
-	"sync/atomic"
 )
 
 // taskSchedule represents a message that can be sent through the task layer
@@ -128,10 +129,8 @@ func (m *mixerLayer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task
 	return outTasks, nil
 }
 
-func (m *mixerLayer) closeChannel() error {
+func (m *mixerLayer) closeChannel() {
 	if atomic.CompareAndSwapInt32(&m.closed, 0, 1) {
 		close(m.close)
 	}
-
-	return nil
 }
