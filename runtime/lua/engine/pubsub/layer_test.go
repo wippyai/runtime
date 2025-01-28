@@ -315,3 +315,190 @@ func TestCrossTopicOrdering(t *testing.T) {
 
 	assert.Equal(t, "first,second", result.(lua.LValue).String())
 }
+
+func TestUnsubscribeWithPendingMessages(t *testing.T) {
+	vm, _, pubsubLayer, runner := setupTestVM(t)
+	defer vm.Close()
+
+	script := `
+		function test()
+			local sub = pubsub.subscribe("test-topic")
+			local results = {}
+			
+			-- Receive first message
+			results[1] = sub:receive()
+			
+			-- Try to receive after external unsubscribe
+			local value, ok = sub:receive()
+			results[2] = ok and "received" or "closed"
+			
+			return table.concat(results, ",")
+		end
+	`
+	err := vm.Import(script, "test", "test")
+	require.NoError(t, err)
+
+	ctx := runner.WithContext(context.Background())
+	var wg sync.WaitGroup
+	wg.Add(1)
+	var result interface{}
+
+	go func() {
+		defer wg.Done()
+
+		exitCh, err := runner.Start(ctx, "test")
+		if err != nil {
+			result = err
+			return
+		}
+
+		time.Sleep(50 * time.Millisecond) // Let subscriber setup
+
+		// Send message before unsubscribe
+		pubsubLayer.Publish("test-topic", lua.LString("before"))
+		time.Sleep(50 * time.Millisecond)
+
+		// Send unsubscribe
+		pubsubLayer.Release("test-topic")
+
+		res, err := runner.Run(ctx, exitCh)
+		if err != nil {
+			result = err
+			return
+		}
+		result = res
+	}()
+
+	wg.Wait()
+	if err, ok := result.(error); ok {
+		t.Fatal(err)
+	}
+	assert.Equal(t, "before,closed", result.(lua.LValue).String())
+}
+
+func TestMultipleTopicsUnsubscribe(t *testing.T) {
+	vm, _, pubsubLayer, runner := setupTestVM(t)
+	defer vm.Close()
+
+	script := `
+		function test()
+			local sub1 = pubsub.subscribe("topic1")
+			local sub2 = pubsub.subscribe("topic2")
+			local results = {}
+			
+			-- Get first messages
+			results[1] = sub1:receive()
+			results[2] = sub2:receive()
+			
+			-- Get second message from topic2
+			results[3] = sub2:receive()
+			
+			-- Try receive from unsubscribed topic1
+			local value, ok = sub1:receive()
+			results[4] = ok and "received" or "closed"
+			
+			return table.concat(results, ",")
+		end
+	`
+	err := vm.Import(script, "test", "test")
+	require.NoError(t, err)
+
+	ctx := runner.WithContext(context.Background())
+	var wg sync.WaitGroup
+	wg.Add(1)
+	var result interface{}
+
+	go func() {
+		defer wg.Done()
+
+		exitCh, err := runner.Start(ctx, "test")
+		if err != nil {
+			result = err
+			return
+		}
+
+		time.Sleep(50 * time.Millisecond) // Let subscribers setup
+
+		// Send initial messages
+		pubsubLayer.Publish("topic1", lua.LString("t1.first"))
+		pubsubLayer.Publish("topic2", lua.LString("t2.first"))
+
+		time.Sleep(50 * time.Millisecond)
+
+		// Release topic1
+		pubsubLayer.Release("topic1")
+
+		// Send message to topic2 after topic1 unsubscribe
+		pubsubLayer.Publish("topic2", lua.LString("t2.second"))
+
+		res, err := runner.Run(ctx, exitCh)
+		if err != nil {
+			result = err
+			return
+		}
+		result = res
+	}()
+
+	wg.Wait()
+	if err, ok := result.(error); ok {
+		t.Fatal(err)
+	}
+	assert.Equal(t, "t1.first,t2.first,t2.second,closed", result.(lua.LValue).String())
+}
+
+func TestUnsubscribeResubscribe(t *testing.T) {
+	vm, _, pubsubLayer, runner := setupTestVM(t)
+	defer vm.Close()
+
+	script := `
+		function test()
+			local results = {}
+			
+			-- First subscription and message
+			local sub1 = pubsub.subscribe("test-topic")
+			results[1] = sub1:receive()
+			
+			-- First unsubscribe
+			pubsub.unsubscribe(sub1)
+			
+			-- Try receive after unsubscribe to verify closure
+			local value, ok = sub1:receive()
+			results[2] = ok and "received" or "closed"
+			
+			return table.concat(results, ",")
+		end
+	`
+	err := vm.Import(script, "test", "test")
+	require.NoError(t, err)
+
+	ctx := runner.WithContext(context.Background())
+	var wg sync.WaitGroup
+	wg.Add(1)
+	var result interface{}
+
+	go func() {
+		defer wg.Done()
+
+		exitCh, err := runner.Start(ctx, "test")
+		if err != nil {
+			result = err
+			return
+		}
+
+		time.Sleep(50 * time.Millisecond)
+		pubsubLayer.Publish("test-topic", lua.LString("first"))
+
+		res, err := runner.Run(ctx, exitCh)
+		if err != nil {
+			result = err
+			return
+		}
+		result = res
+	}()
+
+	wg.Wait()
+	if err, ok := result.(error); ok {
+		t.Fatal(err)
+	}
+	assert.Equal(t, "first,closed", result.(lua.LValue).String())
+}
