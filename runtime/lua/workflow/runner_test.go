@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"fmt"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	"github.com/ponyruntime/pony/runtime/lua/engine/command"
@@ -10,7 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
-	"log"
 	"testing"
 )
 
@@ -70,8 +70,6 @@ func TestWorkflowRunner_BasicFlow(t *testing.T) {
 
 		require.NoError(t, err)
 
-		log.Printf("cmds: %v\n", cmds)
-
 		// Process commands if any
 		for _, cmd := range cmds {
 			// Verify command type and value
@@ -92,4 +90,302 @@ func TestWorkflowRunner_BasicFlow(t *testing.T) {
 	result, err := workflow.GetCompletionResult()
 	require.NoError(t, err)
 	assert.Equal(t, "hello world", result.String())
+}
+
+func TestWorkflowRunner_SequentialCommands(t *testing.T) {
+	logger := zap.NewNop()
+
+	// Create VM with required modules
+	vm, err := engine.NewCVM(
+		logger,
+		engine.WithPreloaded("command", command.NewCommandModule().Loader),
+		engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
+	)
+	require.NoError(t, err)
+	defer vm.Close()
+
+	// Create layers
+	channels := channel.NewChannelLayer()
+	cmdLayer := command.NewCommandLayer(channels)
+	pubLayer := pubsub.NewSubscriptionLayer(channels)
+
+	// Create runner with layers
+	runner := engine.NewRunner(vm,
+		engine.WithLayer(channels),
+		engine.WithLayer(cmdLayer),
+		engine.WithLayer(pubLayer),
+	)
+
+	// Create workflow runner
+	workflow := NewWorkflowRunner(runner, cmdLayer, pubLayer)
+
+	// Define test script with sequential commands
+	script := `
+        function test_workflow()
+            -- First command
+            local cmd1 = command.new("first_command", {value = "step1"})
+            local resp1 = cmd1:response()
+            local result1 = resp1:receive()
+            
+            -- Second command using result from first
+            local cmd2 = command.new("second_command", {value = result1})
+            local resp2 = cmd2:response()
+            local result2 = resp2:receive()
+            
+            return result1 .. " -> " .. result2
+        end
+    `
+
+	// Import script
+	err = vm.Import(script, "test", "test_workflow")
+	require.NoError(t, err)
+
+	// Start workflow
+	err = workflow.Start(context.Background(), "test_workflow")
+	require.NoError(t, err)
+
+	var commandCount int
+
+	// Run workflow until completion
+	for !workflow.IsComplete() {
+		cmds, err := workflow.Step()
+		require.NoError(t, err)
+
+		// Process commands if any
+		for _, cmd := range cmds {
+			commandCount++
+
+			switch cmd.CmdType() {
+			case "first_command":
+				assert.Equal(t, 1, commandCount, "first command should be processed first")
+				err = workflow.SetCommandResult(cmd, lua.LString("hello"))
+				require.NoError(t, err)
+
+			case "second_command":
+				assert.Equal(t, 2, commandCount, "second command should be processed second")
+				err = workflow.SetCommandResult(cmd, lua.LString("world"))
+				require.NoError(t, err)
+
+			default:
+				t.Fatalf("unexpected command type: %s", cmd.CmdType())
+			}
+		}
+	}
+
+	// Verify completion and result
+	assert.True(t, workflow.IsComplete())
+	assert.Equal(t, 2, commandCount, "should process exactly two commands")
+
+	result, err := workflow.GetCompletionResult()
+	require.NoError(t, err)
+	assert.Equal(t, "hello -> world", result.String())
+}
+
+func TestWorkflowRunner_CommandFailure(t *testing.T) {
+	logger := zap.NewNop()
+
+	// Create VM with required modules
+	vm, err := engine.NewCVM(
+		logger,
+		engine.WithPreloaded("command", command.NewCommandModule().Loader),
+		engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
+	)
+	require.NoError(t, err)
+	defer vm.Close()
+
+	// Create layers
+	channels := channel.NewChannelLayer()
+	cmdLayer := command.NewCommandLayer(channels)
+	pubLayer := pubsub.NewSubscriptionLayer(channels)
+
+	// Create runner with layers
+	runner := engine.NewRunner(vm,
+		engine.WithLayer(channels),
+		engine.WithLayer(cmdLayer),
+		engine.WithLayer(pubLayer),
+	)
+
+	// Create workflow runner
+	workflow := NewWorkflowRunner(runner, cmdLayer, pubLayer)
+
+	// Define test script that handles command errors
+	script := `
+        function test_workflow()
+            -- First command that will fail
+            local cmd1 = command.new("failing_command")
+            local resp1 = cmd1:response()
+            
+            -- Check for error
+            local result, ok = resp1:receive()
+            if not ok then
+                -- Command failed, get error message
+                local err = cmd1:error()
+                return "Command failed: " .. err
+            end
+            
+            return "Should not reach here"
+        end
+    `
+
+	// Import script
+	err = vm.Import(script, "test", "test_workflow")
+	require.NoError(t, err)
+
+	// Start workflow
+	err = workflow.Start(context.Background(), "test_workflow")
+	require.NoError(t, err)
+
+	// Run workflow until completion
+	for !workflow.IsComplete() {
+		cmds, err := workflow.Step()
+		require.NoError(t, err)
+
+		// Process commands if any
+		for _, cmd := range cmds {
+			assert.Equal(t, command.Type("failing_command"), cmd.CmdType())
+
+			// Simulate command failure
+			err = workflow.SetCommandError(cmd, fmt.Errorf("simulated error"))
+			require.NoError(t, err)
+		}
+	}
+
+	// Verify completion and result
+	assert.True(t, workflow.IsComplete())
+	result, err := workflow.GetCompletionResult()
+	require.NoError(t, err)
+	assert.Equal(t, "Command failed: simulated error", result.String())
+}
+
+func TestWorkflowRunner_ConcurrentCommandsWithSelect(t *testing.T) {
+	logger := zap.NewNop()
+
+	// Create VM with required modules
+	vm, err := engine.NewCVM(
+		logger,
+		engine.WithPreloaded("command", command.NewCommandModule().Loader),
+		engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
+	)
+	require.NoError(t, err)
+	defer vm.Close()
+
+	// Create layers
+	channels := channel.NewChannelLayer()
+	cmdLayer := command.NewCommandLayer(channels)
+	pubLayer := pubsub.NewSubscriptionLayer(channels)
+
+	// Create runner with layers
+	runner := engine.NewRunner(vm,
+		engine.WithLayer(channels),
+		engine.WithLayer(cmdLayer),
+		engine.WithLayer(pubLayer),
+	)
+
+	// Create workflow runner
+	workflow := NewWorkflowRunner(runner, cmdLayer, pubLayer)
+
+	// Define test script with concurrent commands and select
+	script := `
+        function test_workflow()
+            -- Schedule both commands upfront
+            local cmd1 = command.new("first_command")
+            local cmd2 = command.new("second_command")
+            
+            local resp1 = cmd1:response()
+            local resp2 = cmd2:response()
+            
+            local results = {}
+            local pending = {
+                resp1 = true,
+                resp2 = true
+            }
+            
+            -- Loop until we get both results
+            while #results < 2 do
+                local cases = {}
+                
+                -- Only add channels that haven't completed
+                if pending.resp1 then
+                    table.insert(cases, resp1:case_receive())
+                end
+                if pending.resp2 then
+                    table.insert(cases, resp2:case_receive())
+                end
+                
+                local result = channel.select(cases)
+                
+                -- Identify which response we got and remove it from pending
+                if result.channel == resp1 then
+                    pending.resp1 = false
+                    table.insert(results, result.value)
+                elseif result.channel == resp2 then
+                    pending.resp2 = false
+                    table.insert(results, result.value)
+                end
+            end
+            
+            return results
+        end
+    `
+
+	// Import script
+	err = vm.Import(script, "test", "test_workflow")
+	require.NoError(t, err)
+
+	// Start workflow
+	err = workflow.Start(context.Background(), "test_workflow")
+	require.NoError(t, err)
+
+	var (
+		firstCmd  *command.Command
+		secondCmd *command.Command
+	)
+
+	// First step should give us both commands
+	cmds, err := workflow.Step()
+	require.NoError(t, err)
+	require.Len(t, cmds, 2)
+
+	// Store commands by type
+	for _, cmd := range cmds {
+		switch cmd.CmdType() {
+		case "first_command":
+			firstCmd = cmd
+		case "second_command":
+			secondCmd = cmd
+		}
+	}
+
+	require.NotNil(t, firstCmd, "should have first command")
+	require.NotNil(t, secondCmd, "should have second command")
+
+	// Send response to second command first
+	err = workflow.SetCommandResult(secondCmd, lua.LString("world"))
+	require.NoError(t, err)
+
+	// Step to process first response
+	cmds, err = workflow.Step()
+	require.NoError(t, err)
+	require.Empty(t, cmds)
+
+	// Send response to first command
+	err = workflow.SetCommandResult(firstCmd, lua.LString("hello"))
+	require.NoError(t, err)
+
+	// Run until completion
+	for !workflow.IsComplete() {
+		cmds, err = workflow.Step()
+		require.NoError(t, err)
+		require.Empty(t, cmds)
+	}
+
+	// Verify completion and results
+	assert.True(t, workflow.IsComplete())
+	result, err := workflow.GetCompletionResult()
+	require.NoError(t, err)
+
+	// Results should be in order of responses, not command creation
+	resultTable := result.(*lua.LTable)
+	assert.Equal(t, "world", resultTable.RawGetInt(1).String(), "first result should be from second command")
+	assert.Equal(t, "hello", resultTable.RawGetInt(2).String(), "second result should be from first command")
 }
