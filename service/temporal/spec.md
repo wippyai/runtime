@@ -1,11 +1,11 @@
 ```lua
 -- Example of how it would work in Lua
 function process_data()
--- Create a command channel
-local cmd = command.new("http_request", {
-method = "GET",
-url = "https://api.example.com/data"
-})
+    -- Create a command channel
+    local cmd = command.new("http_request", {
+        method = "GET",
+        url = "https://api.example.com/data"
+    })
 
     -- Commands automatically create a response channel
     local response = cmd:response()
