@@ -122,6 +122,10 @@ func NewRunner(cvm *CoroutineVM, opts ...RunnerOption) *Runner {
 	return w
 }
 
+func (e *Runner) GetCVM() CVM {
+	return e.cvm
+}
+
 // getWrapped returns cached or builds new wrapped chain
 func (e *Runner) getWrapped() CVM {
 	// Return cached if available and valid
