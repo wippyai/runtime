@@ -36,14 +36,16 @@ func (l *Layer) WithContext(ctx context.Context) context.Context {
 	return context.WithValue(ctx, cmdCtxKey, l)
 }
 
-// GetFromContext retrieves the command layer from context
-func GetFromContext(ctx context.Context) *Layer {
+// GetCommandContext retrieves the command layer from context
+func GetCommandContext(ctx context.Context) *Layer {
 	if ctx == nil {
 		return nil
 	}
+
 	if l, ok := ctx.Value(cmdCtxKey).(*Layer); ok {
 		return l
 	}
+
 	return nil
 }
 
@@ -95,6 +97,7 @@ func (l *Layer) GetPendingCommands() []*Command {
 // Step implements the engine.Layer interface
 func (l *Layer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, error) {
 	l.mu.Lock()
+
 	// First process any queued results
 	for e := l.results.Front(); e != nil; {
 		cmd := e.Value.(*Command)
@@ -112,6 +115,12 @@ func (l *Layer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, err
 			if err := l.channels.Send(cvm.State().Context(), cmd.response, cmd.result); err != nil {
 				l.mu.Unlock()
 				return nil, fmt.Errorf("send error: %w", err)
+			}
+
+			// And close channel
+			if err := l.channels.Close(cvm.State().Context(), cmd.response); err != nil {
+				l.mu.Unlock()
+				return nil, fmt.Errorf("close error: %w", err)
 			}
 		}
 		e = nextElem
@@ -152,5 +161,6 @@ func isCommand(v lua.LValue) (*Command, bool) {
 			return cmd, true
 		}
 	}
+
 	return nil, false
 }
