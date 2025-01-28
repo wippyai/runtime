@@ -2,24 +2,26 @@ package coroutine
 
 import (
 	"context"
+	"testing"
+	"time"
+
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
-	"testing"
-	"time"
 )
 
 func TestRunner_AsLayer(t *testing.T) {
 	// Setup VM
 	log := zap.NewNop()
 	vm, err := engine.NewCVM(log,
-		engine.WithGlobalFunction("async_sleep", func(L *lua.LState) int {
+		engine.WithGlobalFunction("async_sleep", func(l *lua.LState) int {
 			// Validate and get duration upfront
-			ms := L.CheckNumber(1)
+			ms := l.CheckNumber(1)
 
-			Wrap(L, func() engine.Result {
+			Wrap(l, func() engine.Result {
 				time.Sleep(time.Duration(ms) * time.Millisecond)
 				return engine.Result{Result: []lua.LValue{lua.LString("slept"), ms}}
 			})
@@ -58,32 +60,29 @@ func TestRunner_AsLayer(t *testing.T) {
 }
 
 func TestAsyncCoroutines(t *testing.T) {
-	t.Run("concurrent coroutines with different sleep durations", func(t *testing.T) {
-		log := zap.NewNop()
+	log, _ := zap.NewDevelopment()
 
-		// Create base VM with sleep function
-		vm, err := engine.NewCVM(log,
-			engine.WithGlobalFunction("async_sleep", func(l *lua.LState) int {
-				// Validate and get duration upfront
-				ms := l.CheckNumber(1)
+	// Create base VM with sleep function
+	vm, err := engine.NewCVM(log,
+		engine.WithGlobalFunction("async_sleep", func(l *lua.LState) int {
+			// Validate and get duration upfront
+			ms := l.CheckNumber(1)
 
-				Wrap(l, func() engine.Result {
-					time.Sleep(time.Duration(ms) * time.Millisecond)
-					return engine.Result{Result: []lua.LValue{lua.LString("slept"), ms}}
-				})
-				return -1
-			}),
-		)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer vm.Close()
+			Wrap(l, func() engine.Result {
+				time.Sleep(time.Duration(ms) * time.Millisecond)
+				return engine.Result{Result: []lua.LValue{lua.LString("slept"), ms}}
+			})
+			return -1
+		}),
+	)
+	require.NoError(t, err)
+	defer vm.Close()
 
-		// Create wrapped VM with async runner
-		wrapped := engine.NewRunner(vm, engine.WithLayer(NewCoroutineLayer()))
+	// Create a wrapped VM with async runner
+	wrapped := engine.NewRunner(vm, engine.WithLayer(NewCoroutineLayer()))
 
-		// Import test script with two coroutines
-		err = vm.Import(`
+	// Import test script with two coroutines
+	err = vm.Import(`
           function test_sleep()
               local results = {}
 
@@ -105,54 +104,51 @@ func TestAsyncCoroutines(t *testing.T) {
               return results
           end
       `, "test", "test_sleep")
+	require.NoError(t, err)
 
-		if err != nil {
-			t.Fatal(err)
-		}
+	start := time.Now()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*1000)
+	defer cancel()
 
-		start := time.Now()
-		result, err := wrapped.Execute(context.Background(), "test_sleep")
-		duration := time.Since(start)
-		if err != nil {
-			t.Fatal(err)
-		}
+	result, err := wrapped.Execute(ctx, "test_sleep")
+	duration := time.Since(start)
+	require.NoError(t, err)
 
-		// Verify results
-		resultTable := result.(*lua.LTable)
+	// Verify results
+	resultTable := result.(*lua.LTable)
 
-		// Check first coroutine results
-		firstRes := resultTable.RawGetString("first").(*lua.LTable)
-		if firstRes.RawGetInt(1).String() != "slept" {
-			t.Error("unexpected result from first coroutine")
-		}
-		if firstRes.RawGetInt(2).(lua.LNumber) != 75 {
-			t.Error("unexpected duration from first coroutine")
-		}
+	// Check first coroutine results
+	firstRes := resultTable.RawGetString("first").(*lua.LTable)
+	if firstRes.RawGetInt(1).String() != "slept" {
+		t.Error("unexpected result from first coroutine")
+	}
+	if firstRes.RawGetInt(2).(lua.LNumber) != 75 {
+		t.Error("unexpected duration from first coroutine")
+	}
 
-		// Check second coroutine results
-		secondRes := resultTable.RawGetString("second").(*lua.LTable)
-		if secondRes.RawGetInt(1).String() != "slept" {
-			t.Error("unexpected result from second coroutine")
-		}
-		if secondRes.RawGetInt(2).(lua.LNumber) != 25 {
-			t.Error("unexpected duration from second coroutine")
-		}
+	// Check second coroutine results
+	secondRes := resultTable.RawGetString("second").(*lua.LTable)
+	if secondRes.RawGetInt(1).String() != "slept" {
+		t.Error("unexpected result from second coroutine")
+	}
+	if secondRes.RawGetInt(2).(lua.LNumber) != 25 {
+		t.Error("unexpected duration from second coroutine")
+	}
 
-		// Check second coroutine results
-		thirdRes := resultTable.RawGetString("third").(*lua.LTable)
-		if thirdRes.RawGetInt(1).String() != "slept" {
-			t.Error("unexpected result from third result")
-		}
-		if thirdRes.RawGetInt(2).(lua.LNumber) != 100 {
-			t.Error("unexpected duration from third result")
-		}
+	// Check second coroutine results
+	thirdRes := resultTable.RawGetString("third").(*lua.LTable)
+	if thirdRes.RawGetInt(1).String() != "slept" {
+		t.Error("unexpected result from third result")
+	}
+	if thirdRes.RawGetInt(2).(lua.LNumber) != 100 {
+		t.Error("unexpected duration from third result")
+	}
 
-		// Verify execution time - should be closer to 100ms than 150ms
-		// since coroutines run concurrently
-		if duration >= 150*time.Millisecond {
-			t.Errorf("coroutines appear to be running sequentially, took %v", duration)
-		}
-	})
+	// Verify execution time - should be closer to 100ms than 150ms
+	// since coroutines run concurrently
+	if duration >= 150*time.Millisecond {
+		t.Errorf("coroutines appear to be running sequentially, took %v", duration)
+	}
 }
 
 func createVM(t *testing.T) *engine.CoroutineVM {

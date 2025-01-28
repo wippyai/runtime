@@ -44,7 +44,7 @@ func TestToGoAny(t *testing.T) {
 		},
 		{
 			"Other",
-			l.NewFunction(func(l *lua.LState) int { return 0 }),
+			l.NewFunction(func(*lua.LState) int { return 0 }),
 			"function", // We'll just check if the result is a string (and optionally contains "function")
 		},
 	}
@@ -155,7 +155,6 @@ func TestGoToLua(t *testing.T) {
 						t.Errorf("GoToLua() table value for key %v = %v, want %v", k, ToGoAny(gotValue), ToGoAny(v))
 					}
 				})
-
 			} else if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("GoToLua() = %v, want %v", got, tt.want)
 			}

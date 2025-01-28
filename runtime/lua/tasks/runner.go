@@ -3,13 +3,14 @@ package tasks
 import (
 	"context"
 	"fmt"
+	"sync"
+	"sync/atomic"
+
 	"github.com/ponyruntime/pony/internal/closer"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
-	"sync"
-	"sync/atomic"
 )
 
 /**
@@ -80,7 +81,7 @@ func (t *TaskRunner) Start(ctx context.Context, funcName string, args ...lua.LVa
 	exitCh, err := t.runner.Start(ctx, funcName, args...)
 	if err != nil {
 		t.running.Store(false)
-		return nil, fmt.Errorf("failed to start engine: %v", err)
+		return nil, fmt.Errorf("failed to start engine: %w", err)
 	}
 
 	// Start the main execution loop
@@ -147,10 +148,7 @@ func (t *TaskRunner) Stop(ctx context.Context) error {
 	}
 
 	// closeChannel inbox to signal shutdown
-	err := t.mixer.closeChannel()
-	if err != nil {
-		return fmt.Errorf("failed to close tasks queue: %v", err)
-	}
+	t.mixer.closeChannel()
 	t.runner.GetTaskGroup().WakeUp()
 
 	// wait for processing to complete with context deadline

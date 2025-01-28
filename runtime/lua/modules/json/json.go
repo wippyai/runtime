@@ -148,6 +148,8 @@ func (j jsonValue) MarshalJSON() ([]byte, error) {
 				key, value = converted.Next(key)
 			}
 			return json.Marshal(obj)
+		case lua.LTBool, lua.LTFunction, lua.LTUserData, lua.LTThread, lua.LTTable, lua.LTChannel:
+			fallthrough
 		default:
 			return nil, errInvalidKeys
 		}

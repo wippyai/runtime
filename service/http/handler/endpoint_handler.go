@@ -94,7 +94,9 @@ func (h *EndpointHandler) createTask(r *http.Request, info *config.RouteInfo) (r
 	if err != nil {
 		return runtime.Task{}, fmt.Errorf("reading request body: %w", err)
 	}
-	defer r.Body.Close()
+	defer func() {
+		_ = r.Body.Close()
+	}()
 
 	if err := h.validateJSONInput(body, info.Endpoint.JSONSchema); err != nil {
 		return runtime.Task{}, fmt.Errorf("validation failed: %w", err)
@@ -135,7 +137,7 @@ func (h *EndpointHandler) executeTask(task runtime.Task) (*runtime.Result, error
 		}
 		return result, nil
 	case <-task.Context.Done():
-		return nil, fmt.Errorf("request cancelled: %w", task.Context.Err())
+		return nil, fmt.Errorf("request canceled: %w", task.Context.Err())
 	}
 }
 

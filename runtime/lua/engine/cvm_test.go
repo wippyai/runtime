@@ -3,9 +3,11 @@ package engine
 import (
 	"context"
 	"fmt"
-	"github.com/yuin/gopher-lua/parse"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
+	"github.com/yuin/gopher-lua/parse"
 
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
@@ -51,7 +53,7 @@ func TestCoroutineVM_Basic(t *testing.T) {
 			t.Fatalf("unexpected yield values: %v", vals)
 		}
 
-		// Step and check second yield
+		// Step and check the second yield
 		tasks, err = vm.Step(task)
 		if err != nil {
 			t.Fatal(err)
@@ -292,10 +294,10 @@ func TestCoroutineVM_ContextPropagation(t *testing.T) {
 		// Cancel context
 		cancel()
 
-		// Attempting to step should fail due to cancelled context
+		// Attempting to step should fail due to canceled context
 		_, err = vm.Step(tasks[0])
 		if err == nil {
-			t.Fatal("expected error due to cancelled context")
+			t.Fatal("expected error due to canceled context")
 		}
 		if !strings.Contains(err.Error(), "context canceled") {
 			t.Fatalf("unexpected error message: %v", err)
@@ -461,7 +463,7 @@ func TestCoroutineVM_NativeCoroutines(t *testing.T) {
 
 		err = vm.StartString(context.Background(), `assert(error_caught == true)`, "verify")
 		if err != nil {
-			t.Fatal(fmt.Sprintf("assertion failed: %v", err))
+			t.Fatalf("assertion failed: %v", err)
 		}
 	})
 }
@@ -723,7 +725,7 @@ func TestCoroutineVM_AdditionalCoverage(t *testing.T) {
 		}
 
 		task := tasks[0]
-		tasks, err = vm.Step(task)
+		_, err = vm.Step(task)
 		if err == nil {
 			t.Fatal("expected error when resuming task")
 		}
@@ -757,13 +759,14 @@ func TestCoroutineVM_AdditionalCoverage(t *testing.T) {
 		}
 		defer vm.Close()
 
-		vm.StartString(context.Background(), `
+		err = vm.StartString(context.Background(), `
 			-- Create a function that will error when called
 			local badFunc = function()
 				error("coroutine creation error")
 			end
 			coroutine.spawn(badFunc)
 		`, "test")
+		require.NoError(t, err)
 
 		_, err = vm.Step()
 		if err == nil {
@@ -949,11 +952,12 @@ func TestCoroutineVM_SharedBuffer(t *testing.T) {
 			}
 
 			val := vals[0].String()
-			if val == "ready_for_input" {
+			switch val {
+			case "ready_for_input":
 				writerTask = task
-			} else if val == "waiting" {
+			case "waiting":
 				flusherTask = task
-			} else {
+			default:
 				t.Fatalf("unexpected yield value: %s", val)
 			}
 		}
@@ -1351,7 +1355,7 @@ func TestCoroutineVM_MonitorStatus(t *testing.T) {
 		}
 		if len(tasks) == 1 {
 			monitorTask = tasks[0]
-			tasks, err = vm.Step(monitorTask)
+			_, err = vm.Step(monitorTask)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1445,9 +1449,9 @@ func TestCoroutineVM_ClosedCoroutines(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		// Check initial task count
+		// Check the initial task count
 		if len(vm.tasks) != 0 {
-			t.Fatalf("expected all tasks immediatelly done")
+			t.Fatalf("expected all tasks immediately done")
 		}
 	})
 
@@ -1514,9 +1518,9 @@ func TestCoroutineVM_CustomValue(t *testing.T) {
 		defer vm.Close()
 
 		// Register a function that creates our custom value
-		vm.vm.state.SetGlobal("createCustomValue", vm.vm.state.NewFunction(func(L *lua.LState) int {
+		vm.vm.state.SetGlobal("createCustomValue", vm.vm.state.NewFunction(func(l *lua.LState) int {
 			val := &customValue{value: "custom_data"}
-			L.Push(val)
+			l.Push(val)
 			return 1
 		}))
 
@@ -1579,8 +1583,8 @@ func TestCoroutineVM_CustomValue(t *testing.T) {
 		defer vm.Close()
 
 		// Register a function that creates our custom value
-		vm.vm.state.SetGlobal("createCustomValue", vm.vm.state.NewFunction(func(L *lua.LState) int {
-			L.Push(&customValue{value: "custom_data"})
+		vm.vm.state.SetGlobal("createCustomValue", vm.vm.state.NewFunction(func(l *lua.LState) int {
+			l.Push(&customValue{value: "custom_data"})
 			return -1
 		}))
 
@@ -1642,8 +1646,8 @@ func TestCoroutineVM_CustomValue(t *testing.T) {
 		defer vm.Close()
 
 		// Register a function that creates our custom value
-		vm.vm.state.SetGlobal("createCustomValue", vm.vm.state.NewFunction(func(L *lua.LState) int {
-			L.Push(&customValue{value: "custom_data"})
+		vm.vm.state.SetGlobal("createCustomValue", vm.vm.state.NewFunction(func(l *lua.LState) int {
+			l.Push(&customValue{value: "custom_data"})
 			return -1
 		}))
 
@@ -1700,8 +1704,8 @@ func TestCoroutineVM_CustomValue(t *testing.T) {
 		defer vm.Close()
 
 		// Register a function that creates our custom value
-		vm.vm.state.SetGlobal("createCustomValue", vm.vm.state.NewFunction(func(L *lua.LState) int {
-			L.Push(&customValue{value: "custom_data"})
+		vm.vm.state.SetGlobal("createCustomValue", vm.vm.state.NewFunction(func(l *lua.LState) int {
+			l.Push(&customValue{value: "custom_data"})
 			return -1
 		}))
 
@@ -1800,9 +1804,9 @@ func BenchmarkCoroutineVM(b *testing.B) {
 
 			task := tasks[0]
 			if len(task.Yielded) > 0 && task.Yielded[0].String() == "layerNotify" {
-				// send test message
+				// send a test message
 				task.Resumed = []lua.LValue{lua.LString("ping")}
-				tasks, err = vm.Step(task)
+				_, err = vm.Step(task)
 				if err != nil {
 					b.Fatal(err)
 				}
@@ -2222,7 +2226,7 @@ func TestCoroutineVM_StartWithArguments(t *testing.T) {
 		}
 
 		// Complete the coroutine
-		tasks, err = vm.Step(tasks[0])
+		_, err = vm.Step(tasks[0])
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2289,7 +2293,7 @@ func TestCoroutineVM_StartWithArguments(t *testing.T) {
 		}
 
 		// Complete the coroutine
-		tasks, err = vm.Step(tasks[0])
+		_, err = vm.Step(tasks[0])
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2469,7 +2473,7 @@ func TestCoroutineVM_Import(t *testing.T) {
 		}
 
 		// Complete task
-		tasks, err = vm.Step(tasks[0])
+		_, err = vm.Step(tasks[0])
 		if err != nil {
 			t.Fatal(err)
 		}

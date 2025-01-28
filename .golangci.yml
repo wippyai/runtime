@@ -38,7 +38,6 @@ linters: # All available linters list: <https://golangci-lint.run/usage/linters/
     - copyloopvar # checks for pointers to enclosing loop variables
     - gochecknoglobals # Checks that no globals are present in Go code
     - gochecknoinits # Checks that no init functions are present in Go code
-    - goconst # Finds repeated strings that could be replaced by a constant
     - gocritic # The most opinionated Go source code linter
     - gofmt # Gofmt checks whether code was gofmt-ed. By default this tool runs with -s option to check for code simplification
     - goimports # Goimports does everything that gofmt does. Additionally it checks unused imports

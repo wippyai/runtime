@@ -1,6 +1,7 @@
 package json
 
 import (
+	"context"
 	"testing"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine"
@@ -10,11 +11,11 @@ import (
 	"go.uber.org/zap"
 )
 
-func assertLua(L *lua.LState) int {
-	if L.ToBool(1) {
+func assertLua(l *lua.LState) int {
+	if l.ToBool(1) {
 		return 0
 	}
-	L.RaiseError(L.OptString(2, "assertion failed!"))
+	l.RaiseError("%s", l.OptString(2, "assertion failed!"))
 	return 0
 }
 
@@ -30,7 +31,7 @@ func TestJsonModule(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local json = require("json")
 			assert(type(json) == "table")
 			assert(type(json.encode) == "function")
@@ -126,7 +127,7 @@ func TestJsonModule(t *testing.T) {
 				require.NoError(t, err)
 				defer vm.Close()
 
-				err = vm.DoString(nil, tc.script, "test")
+				err = vm.DoString(context.Background(), tc.script, "test")
 				require.NoError(t, err)
 
 				result := vm.State().Get(-1)
@@ -221,7 +222,7 @@ func TestJsonModule(t *testing.T) {
 				require.NoError(t, err)
 				defer vm.Close()
 
-				err = vm.DoString(nil, tc.script, "test")
+				err = vm.DoString(context.Background(), tc.script, "test")
 				require.NoError(t, err)
 			})
 		}
@@ -289,7 +290,7 @@ func TestJsonModule(t *testing.T) {
 				require.NoError(t, err)
 				defer vm.Close()
 
-				err = vm.DoString(nil, tc.script, "test")
+				err = vm.DoString(context.Background(), tc.script, "test")
 				require.NoError(t, err)
 
 				errStr := vm.State().Get(-1).String()
@@ -336,7 +337,7 @@ func TestJsonModule(t *testing.T) {
 			return encoded
 		`
 
-		err = vm.DoString(nil, script, "test")
+		err = vm.DoString(context.Background(), script, "test")
 		require.NoError(t, err)
 	})
 }

@@ -1,6 +1,7 @@
 package time
 
 import (
+	"context"
 	"testing"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine"
@@ -10,11 +11,11 @@ import (
 	"go.uber.org/zap"
 )
 
-func assertLua(L *lua.LState) int {
-	if L.ToBool(1) {
+func assertLua(l *lua.LState) int {
+	if l.ToBool(1) {
 		return 0
 	}
-	L.RaiseError(L.OptString(2, "assertion failed!"))
+	l.RaiseError("%s", l.OptString(2, "assertion failed!"))
 	return 0
 }
 
@@ -30,7 +31,7 @@ func TestDuration(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local time = require("time")
 			assert(type(time) == "table")
 			assert(time.NANOSECOND == 1)
@@ -115,7 +116,7 @@ func TestDuration(t *testing.T) {
 				require.NoError(t, err)
 				defer vm.Close()
 
-				err = vm.DoString(nil, tc.script, "test")
+				err = vm.DoString(context.Background(), tc.script, "test")
 				require.NoError(t, err)
 
 				result := vm.State().Get(-1)
@@ -184,7 +185,7 @@ func TestDuration(t *testing.T) {
 					return d:nanoseconds()
 				`
 
-				err = vm.DoString(nil, script, "test")
+				err = vm.DoString(context.Background(), script, "test")
 				require.NoError(t, err)
 
 				result := vm.State().Get(-1)
@@ -243,7 +244,7 @@ func TestDuration(t *testing.T) {
 					return tostring(d)
 				`
 
-				err = vm.DoString(nil, script, "test")
+				err = vm.DoString(context.Background(), script, "test")
 				require.NoError(t, err)
 
 				result := vm.State().Get(-1).String()
@@ -300,7 +301,7 @@ func TestDuration(t *testing.T) {
 				require.NoError(t, err)
 				defer vm.Close()
 
-				err = vm.DoString(nil, tc.script, "test")
+				err = vm.DoString(context.Background(), tc.script, "test")
 				require.NoError(t, err)
 
 				if tc.name == "invalid duration string" {

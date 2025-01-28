@@ -2,8 +2,10 @@ package eventbus
 
 import (
 	"context"
+	"crypto/rand"
+	"errors"
 	"fmt"
-	"math/rand"
+	"math/big"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -31,7 +33,7 @@ func newTestEvent(system events.System, kind events.Kind, data any) events.Event
 }
 
 // Helper function to wait for a specified number of eventbus or timeout
-func waitForEvents(t *testing.T, ch chan events.Event, numEvents int, timeout time.Duration) []events.Event {
+func waitForEvents(t *testing.T, ch chan events.Event, numEvents int, timeout time.Duration) []events.Event { //nolint:unparam
 	t.Helper()
 	receivedEvents := make([]events.Event, 0, numEvents)
 	timer := time.NewTimer(timeout)
@@ -159,7 +161,7 @@ func TestBusStop(t *testing.T) {
 	bus.Stop()
 }
 
-func TestSendWithNilPayload(t *testing.T) {
+func TestSendWithNilPayload(_ *testing.T) {
 	b := NewBus()
 	defer b.Stop()
 
@@ -281,10 +283,8 @@ func TestNoEventsAfterUnsubscribe(t *testing.T) {
 	}
 }
 
-func TestStopBusClosesInternalChannel(t *testing.T) {
-	b := NewBus()
-
-	b.Stop()
+func TestStopBusClosesInternalChannel(_ *testing.T) {
+	NewBus().Stop()
 }
 
 func TestStopWithActiveSubscribers(t *testing.T) {
@@ -325,7 +325,7 @@ func TestSubscribePEmptyKind(t *testing.T) {
 	}
 }
 
-func TestMultipleSubscribersSameSystemPath(t *testing.T) {
+func TestMultipleSubscribersSameSystemPath(_ *testing.T) {
 	b := NewBus()
 	defer b.Stop()
 
@@ -392,7 +392,7 @@ func TestMultipleSubscribersDifferentKinds(t *testing.T) {
 	case <-ch2:
 		t.Error("post subscriber should not have received another event")
 	case <-time.After(100 * time.Millisecond):
-		//OK
+		// OK
 	}
 }
 
@@ -488,14 +488,9 @@ func TestHighConcurrencyStress(t *testing.T) {
 
 		go func(ch chan events.Event) {
 			defer subscriberWg.Done()
-			for {
-				select {
-				case _, ok := <-ch:
-					if !ok {
-						return
-					}
-					receivedCount.Add(1)
-				}
+			// on close will exit automatically
+			for range ch {
+				receivedCount.Add(1)
 			}
 		}(channels[i])
 	}
@@ -525,7 +520,8 @@ func TestHighConcurrencyStress(t *testing.T) {
 		unsubWg.Add(1)
 		go func(idx int) {
 			defer unsubWg.Done()
-			time.Sleep(time.Duration(rand.Intn(100)) * time.Millisecond)
+			r, _ := rand.Int(rand.Reader, big.NewInt(100))
+			time.Sleep(time.Duration(r.Int64()) * time.Millisecond)
 			b.Unsubscribe(context.Background(), subscriberIDs[idx])
 			close(channels[idx])
 		}(i)
@@ -837,12 +833,13 @@ func TestConcurrentContextCancellation(t *testing.T) {
 			defer wg.Done()
 
 			ch := make(chan events.Event)
-			subCtx, subCancel := context.WithTimeout(ctx, time.Duration(rand.Intn(100))*time.Millisecond)
+			r, _ := rand.Int(rand.Reader, big.NewInt(100))
+			subCtx, subCancel := context.WithTimeout(ctx, time.Duration(r.Int64())*time.Millisecond)
 			defer subCancel()
 
 			_, err := b.Subscribe(subCtx, events.System(fmt.Sprintf("system-%d", id)), ch)
-			if err != nil && err != context.Canceled && err != context.DeadlineExceeded {
-				errChan <- fmt.Errorf("unexpected error on subscribe: %v", err)
+			if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+				errChan <- fmt.Errorf("unexpected error on subscribe: %w", err)
 			}
 		}(i)
 	}
@@ -853,7 +850,8 @@ func TestConcurrentContextCancellation(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 
-			sendCtx, sendCancel := context.WithTimeout(ctx, time.Duration(rand.Intn(100))*time.Millisecond)
+			r, _ := rand.Int(rand.Reader, big.NewInt(100))
+			sendCtx, sendCancel := context.WithTimeout(ctx, time.Duration(r.Int64())*time.Millisecond)
 			defer sendCancel()
 
 			event := events.Event{

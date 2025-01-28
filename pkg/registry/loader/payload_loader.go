@@ -92,6 +92,8 @@ func (l *PayloadLoader) loadFileAsPayload(path string, format payload.Format) (p
 		return payload.NewPayload(data, payload.JSON), nil
 	case payload.YAML:
 		return payload.NewPayload(data, payload.YAML), nil
+	case payload.Golang, payload.Lua, payload.String, payload.Bytes, payload.Error:
+		fallthrough
 	default:
 		return nil, fmt.Errorf("unsupported file format: %s", format)
 	}

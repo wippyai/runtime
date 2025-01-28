@@ -3,14 +3,15 @@ package terminal
 import (
 	"context"
 	"fmt"
+	"io"
+	"time"
+
 	tea "github.com/charmbracelet/bubbletea"
 	transcode "github.com/ponyruntime/pony/pkg/payload/lua"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/tasks"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
-	"io"
-	"time"
 )
 
 /**
@@ -39,6 +40,7 @@ func (m bubbleModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.quitting = true
 			return m, tea.Quit
 		}
+	default:
 	}
 
 	mappedMsg := m.mapMessage(msg)

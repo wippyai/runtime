@@ -1,7 +1,7 @@
 package backoff
 
 import (
-	"math/rand"
+	"math/rand/v2"
 	"sync"
 	"time"
 
@@ -84,7 +84,7 @@ func (b *Calculator) calculateIntervalWithJitter() time.Duration {
 
 	// Calculate jitter as a random value between -jitter and +jitter
 	jitterRange := float64(b.baseBackoff) * b.policy.Jitter
-	jitter := (rand.Float64() * 2 * jitterRange) - jitterRange
+	jitter := (rand.Float64() * 2 * jitterRange) - jitterRange //nolint:gosec
 
 	interval := b.baseBackoff + time.Duration(jitter)
 	if interval < 0 {

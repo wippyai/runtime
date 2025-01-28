@@ -31,14 +31,16 @@ func createTranscoder() payload.Transcoder {
 func main() {
 	// 1. Configure Logger and Transcoder:
 	logger := initDevelopmentLogger()
-	defer logger.Sync()
+	defer func() {
+		_ = logger.Sync()
+	}()
 
 	dtt := createTranscoder()
 
 	// 2. Get Folder Name from Kind-Line Argument:
 	if len(os.Args) < 2 {
 		fmt.Println("Usage: go run main.go <folder_path> [namespace]")
-		os.Exit(1)
+		return
 	}
 	folderPath := os.Args[1]
 
@@ -84,7 +86,7 @@ func main() {
 		fmt.Printf("Name: \x1b[32m%s\x1b[0m\n", entry.ID)
 		fmt.Printf("Kind: \x1b[35m%s\x1b[0m\n", entry.Kind)
 		fmt.Println("Data:")
-		fmt.Printf("\x1b[33m%s\x1b[0m", string(p.Data().(string)))
+		fmt.Printf("\x1b[33m%s\x1b[0m", p.Data().(string))
 	}
 }
 

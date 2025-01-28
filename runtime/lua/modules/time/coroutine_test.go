@@ -2,12 +2,13 @@ package time
 
 import (
 	"context"
+	"testing"
+	"time"
+
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
-	"testing"
-	"time"
 )
 
 func TestSleepInCoroutines(t *testing.T) {
@@ -91,5 +92,4 @@ func TestSleepInCoroutines(t *testing.T) {
 			t.Errorf("coroutines appear to be running sequentially, took %v", duration)
 		}
 	})
-
 }

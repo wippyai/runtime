@@ -58,7 +58,7 @@ func TestHTTPResponse(t *testing.T) {
 			assert(response.headers["Non-Existent"] == nil, "Non-existent header should be nil")
 		`
 
-		err = vm.DoString(nil, script, "test")
+		err = vm.DoString(context.Background(), script, "test")
 		assert.NoError(t, err)
 	})
 
@@ -103,7 +103,7 @@ func TestHTTPResponse(t *testing.T) {
 			assert(response.cookies["non-existent"] == nil, "Non-existent cookie should be nil")
 		`
 
-		err = vm.DoString(nil, script, "test")
+		err = vm.DoString(context.Background(), script, "test")
 		assert.NoError(t, err)
 	})
 
@@ -165,7 +165,7 @@ func TestHTTPResponse(t *testing.T) {
 					assert(response.body_size == %d, string.format("Body size mismatch: expected %%d, got %%d", %d, response.body_size))
 				`, tc.expected, tc.expected)
 
-				err = vm.DoString(nil, script, "test")
+				err = vm.DoString(context.Background(), script, "test")
 				assert.NoError(t, err)
 			})
 		}
@@ -232,7 +232,7 @@ func TestHTTPResponse(t *testing.T) {
 					assert(response.url == "%s", string.format("URL mismatch: expected %%s, got %%s", "%s", response.url))
 				`, tc.requestURL, tc.expectedFinal, tc.expectedFinal)
 
-				err = vm.DoString(nil, script, "test")
+				err = vm.DoString(context.Background(), script, "test")
 				assert.NoError(t, err)
 			})
 		}
@@ -302,7 +302,7 @@ func TestHTTPResponse(t *testing.T) {
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
 				mockClient := &mockHTTPClient{
-					doFunc: func(req *http.Request) (*http.Response, error) {
+					doFunc: func(*http.Request) (*http.Response, error) {
 						return tc.setupMock()
 					},
 				}
@@ -312,7 +312,7 @@ func TestHTTPResponse(t *testing.T) {
 				require.NoError(t, err)
 				defer vm.Close()
 
-				err = vm.DoString(nil, tc.luaScript, "test")
+				err = vm.DoString(context.Background(), tc.luaScript, "test")
 				if tc.shouldError {
 					assert.Error(t, err)
 				} else {

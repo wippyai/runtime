@@ -23,7 +23,7 @@ func TestInterpolator_Interpolate_NoReplacements(t *testing.T) {
 }
 
 func TestInterpolator_Interpolate_StringReplacement_Simple(t *testing.T) {
-	replaceFunc := func(s string, ctx interface{}) (string, error) {
+	replaceFunc := func(s string, _ any) (string, error) {
 		if s == "test" {
 			return "replaced", nil
 		}
@@ -43,7 +43,7 @@ func TestInterpolator_Interpolate_StringReplacement_Simple(t *testing.T) {
 }
 
 func TestInterpolator_Interpolate_StringReplacement_Nested(t *testing.T) {
-	replaceFunc := func(s string, ctx interface{}) (string, error) {
+	replaceFunc := func(s string, _ any) (string, error) {
 		if s == "test" {
 			return "replaced", nil
 		}
@@ -97,13 +97,13 @@ func TestInterpolator_Interpolate_StringReplacement_Nested(t *testing.T) {
 }
 
 func TestInterpolator_Interpolate_MultipleReplacers(t *testing.T) {
-	replaceFunc1 := func(s string, ctx interface{}) (string, error) {
+	replaceFunc1 := func(s string, _ any) (string, error) {
 		if s == "test" {
 			return "replaced1", nil
 		}
 		return s, nil
 	}
-	replaceFunc2 := func(s string, ctx interface{}) (string, error) {
+	replaceFunc2 := func(s string, _ any) (string, error) {
 		if s == "replaced1" {
 			return "replaced2", nil
 		}
@@ -218,7 +218,7 @@ func TestInterpolator_Interpolate_NilData(t *testing.T) {
 
 func TestInterpolator_Interpolate_NilPointer(t *testing.T) {
 	i := NewInterpolator()
-	var data *map[string]string = nil
+	var data *map[string]string
 	result, err := i.Interpolate(data, nil)
 
 	if err != nil {
@@ -249,7 +249,7 @@ func TestInterpolator_Interpolate_EmptyStructures(t *testing.T) {
 }
 
 func TestInterpolator_Interpolate_ReplacerErrorHandling(t *testing.T) {
-	replaceFunc := func(s string, ctx interface{}) (string, error) {
+	replaceFunc := func(s string, _ any) (string, error) {
 		if s == "test" {
 			return "", fmt.Errorf("test error")
 		}
@@ -272,18 +272,19 @@ func TestInterpolator_Interpolate_File_Replacement(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		_ = os.RemoveAll(tempDir)
+	}()
 
 	// Create a test file
 	testFilePath := filepath.Join(tempDir, "test.txt")
 	testFileContent := "This is the file content."
-	err = os.WriteFile(testFilePath, []byte(testFileContent), 0644)
+	err = os.WriteFile(testFilePath, []byte(testFileContent), 0600)
 	if err != nil {
 		t.Fatalf("failed to write test file: %v", err)
 	}
 
-	fileReadFunc := func(path string, ctx interface{}) (string, error) {
-
+	fileReadFunc := func(path string, _ any) (string, error) {
 		// Prepend tempDir to path for testing
 		fullPath := filepath.Join(tempDir, path)
 		data, err := os.ReadFile(fullPath)
@@ -310,15 +311,13 @@ func TestInterpolator_Interpolate_File_Replacement(t *testing.T) {
 
 	// Expected payload after interpolation
 	expected := map[string]interface{}{"content": testFileContent}
-
 	if !reflect.DeepEqual(result, expected) {
 		t.Errorf("expected data: %v, got: %v", expected, result)
 	}
 }
 
 func TestInterpolator_Interpolate_File_Missing(t *testing.T) {
-
-	fileReadFunc := func(path string, ctx interface{}) (string, error) {
+	fileReadFunc := func(path string, _ any) (string, error) {
 		return "", fmt.Errorf("file not found: %s", path)
 	}
 	fileReplacer := func(s string, ctx interface{}) (string, error) {

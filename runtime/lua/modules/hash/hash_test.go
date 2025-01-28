@@ -2,8 +2,8 @@ package hash
 
 import (
 	"context"
-	"crypto/md5"
-	"crypto/sha1"
+	"crypto/md5"  //nolint:gosec
+	"crypto/sha1" //nolint:gosec
 	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/hex"
@@ -20,11 +20,11 @@ func calculateHash(data string, hashType string) string {
 	var sum []byte
 	switch hashType {
 	case "md5":
-		h := md5.New()
+		h := md5.New() //nolint:gosec
 		h.Write([]byte(data))
 		sum = h.Sum(nil)
 	case "sha1":
-		h := sha1.New()
+		h := sha1.New() //nolint:gosec
 		h.Write([]byte(data))
 		sum = h.Sum(nil)
 	case "sha256":
@@ -48,7 +48,7 @@ func TestHashModuleWithVM(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local hash = require("hash")
 			assert(type(hash) == "table")
 			assert(type(hash.md5) == "function")

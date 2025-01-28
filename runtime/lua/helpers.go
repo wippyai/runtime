@@ -3,6 +3,7 @@ package lua
 import (
 	"context"
 	"fmt"
+
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
@@ -69,7 +70,7 @@ func (m *RuntimeManager) registerHandler(ctx context.Context, id registry.ID) {
 	})
 }
 
-func (m *RuntimeManager) unregisterHandler(ctx context.Context, id registry.ID) {
+func (m *RuntimeManager) unregisterHandler(ctx context.Context, id registry.ID) { //nolint:unused
 	m.bus.Send(ctx, events.Event{
 		System: runtime.System,
 		Kind:   runtime.DeleteHandlerEvent,
@@ -87,7 +88,7 @@ func (m *RuntimeManager) registerTerminal(ctx context.Context, id registry.ID, a
 	})
 }
 
-func (m *RuntimeManager) unregisterTerminal(ctx context.Context, id registry.ID) {
+func (m *RuntimeManager) unregisterTerminal(ctx context.Context, id registry.ID) { //nolint:unused
 	m.bus.Send(ctx, events.Event{
 		System: terminal.System,
 		Kind:   terminal.DeleteTerminalEvent,

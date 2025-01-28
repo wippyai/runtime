@@ -36,11 +36,11 @@ type mockTerminal struct {
 	closed bool
 }
 
-func (m *mockTerminal) Run(ctx context.Context, in io.Reader, out io.Writer) error {
+func (m *mockTerminal) Run(_ context.Context, _ io.Reader, _ io.Writer) error {
 	return nil
 }
 
-func (m *mockTerminal) Close(ctx context.Context) error {
+func (m *mockTerminal) Close(context.Context) error {
 	m.closed = true
 	return nil
 }
@@ -263,9 +263,9 @@ func TestTerminals_MakeTerminal(t *testing.T) {
 			Meta:      registry.Metadata{},
 		}
 
-		terminal, err := terminals.MakeTerminal("test_terminal", cfg, modules, libraries)
+		term, err := terminals.MakeTerminal("test_terminal", cfg, modules, libraries)
 		require.NoError(t, err)
-		assert.NotNil(t, terminal)
+		assert.NotNil(t, term)
 	})
 
 	t.Run("fails with invalid dependencies", func(t *testing.T) {
@@ -276,16 +276,16 @@ func TestTerminals_MakeTerminal(t *testing.T) {
 			Meta:      registry.Metadata{},
 		}
 
-		terminal, err := terminals.MakeTerminal("test_terminal", cfg, modules, libraries)
+		term, err := terminals.MakeTerminal("test_terminal", cfg, modules, libraries)
 		assert.Error(t, err)
-		assert.Nil(t, terminal)
+		assert.Nil(t, term)
 		assert.Contains(t, err.Error(), "library non_existent_lib not found")
 	})
 
 	t.Run("factory error is propagated", func(t *testing.T) {
 		factoryErr := fmt.Errorf("factory error")
 		terminals.factory = &mockTerminalFactory{
-			makeTerminalFunc: func(log *zap.Logger, app *api.TerminalConfig, modules api.ModuleRegistry, libraries api.LibraryRegistry) (terminal.Terminal, error) {
+			makeTerminalFunc: func(_ *zap.Logger, _ *api.TerminalConfig, _ api.ModuleRegistry, _ api.LibraryRegistry) (terminal.Terminal, error) {
 				return nil, factoryErr
 			},
 		}
@@ -297,9 +297,9 @@ func TestTerminals_MakeTerminal(t *testing.T) {
 			Meta:      registry.Metadata{},
 		}
 
-		terminal, err := terminals.MakeTerminal("test_terminal", cfg, modules, libraries)
+		term, err := terminals.MakeTerminal("test_terminal", cfg, modules, libraries)
 		assert.Error(t, err)
-		assert.Nil(t, terminal)
+		assert.Nil(t, term)
 		assert.Equal(t, factoryErr, err)
 	})
 }

@@ -22,23 +22,23 @@ type mockListener struct {
 	returnError  error
 }
 
-func (m *mockListener) Add(ctx context.Context, entry registry.Entry) error {
+func (m *mockListener) Add(context.Context, registry.Entry) error {
 	m.addCalled = true
 	return m.returnError
 }
 
-func (m *mockListener) Update(ctx context.Context, entry registry.Entry) error {
+func (m *mockListener) Update(context.Context, registry.Entry) error {
 	m.updateCalled = true
 	return m.returnError
 }
 
-func (m *mockListener) Delete(ctx context.Context, entry registry.Entry) error {
+func (m *mockListener) Delete(context.Context, registry.Entry) error {
 	m.deleteCalled = true
 	return m.returnError
 }
 
 // setupRouterTest creates a new router with a mock bus for testing
-func setupRouterTest(t *testing.T) (*Router, *mockListener, *eventbus.Bus) {
+func setupRouterTest(t *testing.T) (*Router, *mockListener) {
 	bus := eventbus.NewBus()
 	mockListener := &mockListener{}
 
@@ -51,7 +51,7 @@ func setupRouterTest(t *testing.T) (*Router, *mockListener, *eventbus.Bus) {
 	require.NoError(t, err)
 	require.NotNil(t, router)
 
-	return router, mockListener, bus
+	return router, mockListener
 }
 
 func TestNewRouter(t *testing.T) {
@@ -83,7 +83,7 @@ func TestNewRouter(t *testing.T) {
 		assert.Len(t, router.routes, 1)
 	})
 
-	t.Run("with cancelled context", func(t *testing.T) {
+	t.Run("with canceled context", func(t *testing.T) {
 		bus := eventbus.NewBus()
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
@@ -96,7 +96,7 @@ func TestNewRouter(t *testing.T) {
 }
 
 func TestRouter_Stop(t *testing.T) {
-	router, _, _ := setupRouterTest(t)
+	router, _ := setupRouterTest(t)
 
 	err := router.Stop()
 	assert.NoError(t, err)
@@ -104,7 +104,7 @@ func TestRouter_Stop(t *testing.T) {
 
 func TestRouter_HandleEvent(t *testing.T) {
 	t.Run("successful create event", func(t *testing.T) {
-		router, listener, _ := setupRouterTest(t)
+		router, listener := setupRouterTest(t)
 
 		entry := registry.Entry{
 			ID:   "test-1",
@@ -127,7 +127,7 @@ func TestRouter_HandleEvent(t *testing.T) {
 	})
 
 	t.Run("successful update event", func(t *testing.T) {
-		router, listener, _ := setupRouterTest(t)
+		router, listener := setupRouterTest(t)
 
 		entry := registry.Entry{
 			ID:   "test-1",
@@ -148,7 +148,7 @@ func TestRouter_HandleEvent(t *testing.T) {
 	})
 
 	t.Run("successful delete event", func(t *testing.T) {
-		router, listener, _ := setupRouterTest(t)
+		router, listener := setupRouterTest(t)
 
 		entry := registry.Entry{
 			ID:   "test-1",
@@ -168,7 +168,7 @@ func TestRouter_HandleEvent(t *testing.T) {
 	})
 
 	t.Run("invalid event data", func(t *testing.T) {
-		router, listener, _ := setupRouterTest(t)
+		router, listener := setupRouterTest(t)
 
 		router.handleEvent(events.Event{
 			System: registry.System,
@@ -183,7 +183,7 @@ func TestRouter_HandleEvent(t *testing.T) {
 	})
 
 	t.Run("create/update without data", func(t *testing.T) {
-		router, listener, _ := setupRouterTest(t)
+		router, listener := setupRouterTest(t)
 
 		entry := registry.Entry{
 			ID:   "test-1",
@@ -202,7 +202,7 @@ func TestRouter_HandleEvent(t *testing.T) {
 	})
 
 	t.Run("listener error", func(t *testing.T) {
-		router, listener, _ := setupRouterTest(t)
+		router, listener := setupRouterTest(t)
 		listener.returnError = errors.New("listener error")
 
 		entry := registry.Entry{
@@ -220,7 +220,7 @@ func TestRouter_HandleEvent(t *testing.T) {
 	})
 
 	t.Run("skip operation", func(t *testing.T) {
-		router, listener, _ := setupRouterTest(t)
+		router, listener := setupRouterTest(t)
 		listener.returnError = ErrSkipOperation
 
 		entry := registry.Entry{
@@ -240,14 +240,14 @@ func TestRouter_HandleEvent(t *testing.T) {
 
 func TestRouter_FindListener(t *testing.T) {
 	t.Run("matching pattern", func(t *testing.T) {
-		router, listener, _ := setupRouterTest(t)
+		router, listener := setupRouterTest(t)
 
 		found := router.findListener("test.resource")
 		assert.Equal(t, listener, found)
 	})
 
 	t.Run("non-matching pattern", func(t *testing.T) {
-		router, listener, _ := setupRouterTest(t)
+		router, listener := setupRouterTest(t)
 
 		found := router.findListener("other.resource")
 		assert.Equal(t, listener, found) // Should return default listener

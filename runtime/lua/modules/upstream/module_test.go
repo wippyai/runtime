@@ -1,6 +1,7 @@
 package upstream
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"testing"
@@ -23,7 +24,7 @@ func TestUpstreamModule(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local upstream = require("upstream")
 			assert(type(upstream) == "table")
 			assert(type(upstream.send) == "function")
@@ -82,7 +83,7 @@ func TestUpstreamModule(t *testing.T) {
 				// Run the script in a goroutine
 				done := make(chan error)
 				go func() {
-					err := vm.DoString(nil, tc.script, "test")
+					err := vm.DoString(context.Background(), tc.script, "test")
 					done <- err
 				}()
 
@@ -132,7 +133,7 @@ func TestUpstreamModule(t *testing.T) {
 			local upstream = require("upstream")
 			return upstream.send("should fail")
 		`
-		err = vm.DoString(nil, script, "test")
+		err = vm.DoString(context.Background(), script, "test")
 		require.NoError(t, err)
 
 		// Check that false was returned
@@ -178,7 +179,7 @@ func TestUpstreamModule(t *testing.T) {
 					return upstream.send("%c")
 				`, rune('A'+n))
 
-				err = vm.DoString(nil, script, "test")
+				err = vm.DoString(context.Background(), script, "test")
 				if err != nil {
 					mutex.Lock()
 					errors = append(errors, err)

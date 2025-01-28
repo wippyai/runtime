@@ -2,11 +2,12 @@ package channel
 
 import (
 	"context"
+	"testing"
+
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/stretchr/testify/assert"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
-	"testing"
 )
 
 // Simple validation layer that enforces a max value rule on yields
