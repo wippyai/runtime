@@ -50,6 +50,10 @@ type Command struct {
 	completed   bool
 }
 
+func (c *Command) CmdType() Type {
+	return c.cmdType
+}
+
 // IsComplete returns whether the command has completed (success or failure)
 func (c *Command) IsComplete() bool {
 	return c.completed

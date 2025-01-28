@@ -14,6 +14,7 @@ import (
 // WorkflowRunner provides an interface between external systems and the Lua runtime
 type WorkflowRunner struct {
 	mu       sync.Mutex
+	ctx      context.Context
 	runner   *engine.Runner
 	cmdLayer *command.Layer
 	pubLayer *pubsub.Layer
@@ -24,8 +25,12 @@ type WorkflowRunner struct {
 	err      error
 }
 
-// NewBridgeRunner creates a new bridge runner instance
-func NewBridgeRunner(runner *engine.Runner, cmdLayer *command.Layer, pubLayer *pubsub.Layer) *WorkflowRunner {
+// NewWorkflowRunner creates a new bridge runner instance
+func NewWorkflowRunner(
+	runner *engine.Runner,
+	cmdLayer *command.Layer,
+	pubLayer *pubsub.Layer,
+) *WorkflowRunner {
 	return &WorkflowRunner{
 		runner:   runner,
 		cmdLayer: cmdLayer,
@@ -50,6 +55,7 @@ func (b *WorkflowRunner) Start(ctx context.Context, funcName string, args ...lua
 		return fmt.Errorf("failed to start runner: %w", err)
 	}
 
+	b.ctx = ctx
 	b.exitCh = exitCh
 	b.running = true
 	b.complete = false
@@ -61,14 +67,14 @@ func (b *WorkflowRunner) Start(ctx context.Context, funcName string, args ...lua
 // Step advances execution and returns any commands needing external processing
 // Returns:
 // - commands that need to be processed
-// - whether there are still tasks running
+// - whether we are ready to exit
 // - any error that occurred
-func (b *WorkflowRunner) Step() ([]*command.Command, bool, error) {
+func (b *WorkflowRunner) Step() ([]*command.Command, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	if !b.running {
-		return nil, false, fmt.Errorf("runner not started")
+		return nil, fmt.Errorf("runner not started")
 	}
 
 	var tasks []*engine.Task
@@ -79,20 +85,20 @@ func (b *WorkflowRunner) Step() ([]*command.Command, bool, error) {
 		case result, ok := <-b.exitCh:
 			if !ok {
 				b.complete = true
-				return nil, false, nil
+				return nil, nil
 			}
 
 			if result.Error != nil {
 				b.err = result.Error
 				b.complete = true
-				return nil, false, result.Error
+				return nil, result.Error
 			}
 
 			if len(result.Result) > 0 {
 				b.result = result.Result[0]
 			}
 			b.complete = true
-			return nil, false, nil
+			return nil, nil
 		default:
 			// Continue processing
 		}
@@ -100,19 +106,27 @@ func (b *WorkflowRunner) Step() ([]*command.Command, bool, error) {
 		// Run a step of the engine
 		moreTasks, err := b.runner.Step(tasks...)
 		if err != nil {
-			return nil, false, fmt.Errorf("step error: %w", err)
+			return nil, fmt.Errorf("step error: %w", err)
 		}
 
 		// Get any pending commands after processing
 		commands := b.cmdLayer.GetPendingCommands()
 		if len(commands) > 0 {
 			// We have commands to process externally
-			return commands, true, nil
+			return commands, nil
 		}
 
 		// If no more tasks and no commands, we're done with this step
 		if len(moreTasks) == 0 && b.runner.GetTaskGroup().GetTaskCount() == 0 {
-			return nil, len(tasks) > 0, nil
+			return nil, nil
+		}
+
+		if len(moreTasks) == 0 && b.runner.GetTaskGroup().GetTaskCount() > 0 {
+			// wait for results
+			moreTasks, err = b.runner.GetTaskGroup().Wait(b.ctx, b.runner.GetCVM(), true)
+			if err != nil {
+				return nil, err
+			}
 		}
 
 		for i, _ := range tasks {
