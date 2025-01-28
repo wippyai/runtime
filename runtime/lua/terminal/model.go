@@ -69,7 +69,7 @@ func (m bubbleModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m bubbleModel) mapMessage(msg tea.Msg) lua.LValue {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		return transcode.GoToLua(m.state, map[string]any{
+		return transcode.GoToLua(map[string]any{
 			"type": "update",
 			"key": map[string]any{
 				"Type":   msg.Type.String(),
@@ -79,7 +79,7 @@ func (m bubbleModel) mapMessage(msg tea.Msg) lua.LValue {
 			},
 		})
 	default:
-		return transcode.GoToLua(m.state, map[string]any{
+		return transcode.GoToLua(map[string]any{
 			"type": "update",
 			"msg":  fmt.Sprintf("%v", msg),
 		})
@@ -94,7 +94,7 @@ func (m bubbleModel) View() string {
 
 	go func() {
 		resultCh, err := m.tasker.Execute(m.ctx, "view", []lua.LValue{
-			transcode.GoToLua(m.state, map[string]any{"type": "view"}),
+			transcode.GoToLua(map[string]any{"type": "view"}),
 		})
 		if err != nil {
 			m.logger.Error("failed to execute view task", zap.Error(err))
