@@ -1,4 +1,4 @@
-package commands
+package command
 
 import (
 	"context"
@@ -65,7 +65,7 @@ func TestCommandLayer_BasicOperations(t *testing.T) {
 		if contains(yields, "command_created") {
 			pending := commandLayer.GetPendingCommands()
 			assert.Equal(t, 1, len(pending), "should have one pending command")
-			assert.Equal(t, CommandType("test"), pending[0].cmdType)
+			assert.Equal(t, Type("test"), pending[0].cmdType)
 		}
 
 		// Get next batch of tasks through task group

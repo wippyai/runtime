@@ -1,4 +1,4 @@
-package commands
+package command
 
 import (
 	"fmt"
@@ -52,7 +52,7 @@ func Wrap(L *lua.LState, cmd *Command) lua.LValue {
 
 // Constructor functions
 func newCommandFunc(L *lua.LState) int {
-	cmdType := CommandType(L.CheckString(1))
+	cmdType := Type(L.CheckString(1))
 	if cmdType == "" {
 		L.RaiseError("command type cannot be empty")
 		return 0
