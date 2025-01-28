@@ -192,7 +192,6 @@ func (e *Runner) Run(ctx context.Context, exitCh <-chan Result) (lua.LValue, err
 					// soft-error, we let parent to decide
 					return result.Result[0], &CoroutineLeak{Count: stuck}
 				}
-
 				return result.Result[0], nil
 			}
 		case <-ctx.Done():
