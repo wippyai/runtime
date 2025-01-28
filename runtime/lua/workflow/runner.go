@@ -197,14 +197,11 @@ func (b *WorkflowRunner) SendValue(topic string, value ...lua.LValue) error {
 }
 
 // Stop gracefully shuts down the runner
-func (b *WorkflowRunner) Stop(ctx context.Context) error {
+func (b *WorkflowRunner) Stop() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if !b.running {
-		return nil
+	if b.running {
+		b.running = false
 	}
-
-	b.running = false
-	return nil
 }
