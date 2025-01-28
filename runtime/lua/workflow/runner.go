@@ -122,10 +122,13 @@ func (b *WorkflowRunner) Step() ([]*command.Command, error) {
 		}
 
 		if len(moreTasks) == 0 && b.runner.GetTaskGroup().GetTaskCount() > 0 {
-			// wait for results
-			moreTasks, err = b.runner.GetTaskGroup().Wait(b.ctx, b.runner.GetCVM(), true)
+			moreTasks, err = b.runner.GetTaskGroup().Wait(b.ctx, b.runner.GetCVM(), false)
 			if err != nil {
 				return nil, err
+			}
+
+			if len(moreTasks) == 0 {
+				return nil, nil
 			}
 		}
 
