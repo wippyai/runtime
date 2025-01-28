@@ -30,7 +30,7 @@ func (t *ToGolang) Transcode(p payload.Payload) (payload.Payload, error) {
 		return nil, fmt.Errorf("Lua=>Golang can only transcode from Lua format, got %s", p.Format())
 	}
 
-	l := lua.NewState()
+	l := lua.NewState() // todo: we can reuse it
 	defer l.Close()
 
 	lv, ok := p.Data().(lua.LValue)
@@ -206,10 +206,7 @@ func (t *FromGolang) Transcode(p payload.Payload) (payload.Payload, error) {
 		return nil, fmt.Errorf("Golang=>Lua can only transcode from Golang format, got %s", p.Format())
 	}
 
-	l := lua.NewState()
-	defer l.Close()
-
-	lv := GoToLua(l, p.Data())
+	lv := GoToLua(p.Data())
 
 	return payload.NewPayload(lv, payload.Lua), nil
 }

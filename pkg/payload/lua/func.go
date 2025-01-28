@@ -5,6 +5,7 @@ import (
 )
 
 // Helper functions for Lua transcoding
+var lState *lua.LState = lua.NewState()
 
 // ToGoAny converts a lua.LValue to its Go equivalent.
 func ToGoAny(v lua.LValue) any {
@@ -46,7 +47,9 @@ func tableToSlice(tbl *lua.LTable, maxn int) []any {
 }
 
 // GoToLua converts a Go value to its Lua equivalent.
-func GoToLua(l *lua.LState, v any) lua.LValue {
+func GoToLua(v any) lua.LValue {
+	// todo: handle errors
+
 	switch v := v.(type) {
 	case string:
 		return lua.LString(v)
@@ -59,33 +62,33 @@ func GoToLua(l *lua.LState, v any) lua.LValue {
 	case nil:
 		return lua.LNil
 	case []int:
-		table := l.NewTable()
+		table := lState.NewTable()
 		for i, v := range v {
-			l.SetTable(table, lua.LNumber(i+1), lua.LNumber(v))
+			lState.SetTable(table, lua.LNumber(i+1), lua.LNumber(v))
 		}
 		return table
 	case []string:
-		table := l.NewTable()
+		table := lState.NewTable()
 		for i, v := range v {
-			l.SetTable(table, lua.LNumber(i+1), lua.LString(v))
+			lState.SetTable(table, lua.LNumber(i+1), lua.LString(v))
 		}
 		return table
 	case map[string]any:
-		table := l.NewTable()
+		table := lState.NewTable()
 		for k, v := range v {
-			l.SetTable(table, lua.LString(k), GoToLua(l, v))
+			lState.SetTable(table, lua.LString(k), GoToLua(v))
 		}
 		return table
 	case map[string]string:
-		table := l.NewTable()
+		table := lState.NewTable()
 		for k, v := range v {
-			l.SetTable(table, lua.LString(k), lua.LString(v))
+			lState.SetTable(table, lua.LString(k), lua.LString(v))
 		}
 		return table
 	case []any:
-		table := l.NewTable()
+		table := lState.NewTable()
 		for i, v := range v {
-			l.SetTable(table, lua.LNumber(i+1), GoToLua(l, v))
+			lState.SetTable(table, lua.LNumber(i+1), GoToLua(v))
 		}
 		return table
 	default:

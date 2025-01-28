@@ -132,7 +132,7 @@ func TestGoToLua(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := GoToLua(l, tt.input)
+			got := GoToLua(tt.input)
 
 			// Deep comparison for tables, otherwise use reflect.DeepEqual
 			if tt.want.Type() == lua.LTTable {

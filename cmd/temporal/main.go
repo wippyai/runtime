@@ -129,7 +129,7 @@ func (l *LuaWorkflowDefinition) OnWorkflowTaskStarted(deadlockDetectionTimeout t
 		case "SimpleActivity":
 			log.Printf("Processing activity command: %v\n", lua.ToGoAny(cmd.Params[0]))
 
-			ip, err := dt.ToPayloads(cmd.Params)
+			ip, err := dt.ToPayloads(lua.ToGoAny(cmd.Params[0]))
 			if err != nil {
 				l.env.Complete(nil, err)
 				return
@@ -145,28 +145,39 @@ func (l *LuaWorkflowDefinition) OnWorkflowTaskStarted(deadlockDetectionTimeout t
 				ActivityType: struct{ Name string }{Name: "simple-activity"},
 				Input:        ip,
 			}, func(result *commonpb.Payloads, err error) {
-				log.Printf("Activity result: %v %v\n", result, err)
+				//log.Printf("Activity result: %v %v\n", result, err)
 
-				//if err != nil {
-				//	l.runner.SetCommandError(cmd, err)
-				//	return
-				//}
-				//
-				//var resultStr string
-				//if err := l.env.GetDataConverter().FromPayloads(result, &resultStr); err != nil {
-				//	l.runner.SetCommandError(cmd, err)
-				//	return
-				//}
-				//
-				//l.runner.SetCommandResult(cmd, lua.LString(resultStr))
+				if err != nil {
+					err := l.runner.SetCommandError(cmd, err)
+					if err != nil {
+						// todo: for real?
+						l.env.Complete(nil, err)
+						return
+					}
+					return
+				}
 
-				// todO: fail workflow execution
+				var value = new(any)
+				if err := dt.FromPayloads(result, value); err != nil {
+					l.env.Complete(nil, err)
+					return
+				}
+
+				log.Printf("Activity result: %v\n", *value)
+
+				// todo: use our transcoder
+				err = l.runner.SetCommandResult(cmd, lua.GoToLua(*value))
+				if err != nil {
+					l.env.Complete(nil, err)
+					return
+				}
 			})
 		}
 	}
 
 	// Check if workflow is complete
 	if l.runner.IsComplete() {
+		log.Printf("!!!!!!!!Workflow is complete\n")
 		result, err := l.runner.GetCompletionResult()
 		if err != nil {
 			l.env.Complete(nil, err)

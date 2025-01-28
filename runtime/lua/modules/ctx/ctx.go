@@ -67,7 +67,7 @@ func (m *Module) get(l *lua.LState) int {
 		return 2
 	}
 
-	l.Push(transcoder.GoToLua(l, vv))
+	l.Push(transcoder.GoToLua(vv))
 	l.Push(lua.LNil)
 
 	return 2
