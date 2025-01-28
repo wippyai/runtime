@@ -17,14 +17,14 @@ import (
 	"go.uber.org/zap"
 )
 
-func setupTest(t *testing.T) *ServerManager {
+func setupTest(*testing.T) *ServerManager {
 	logger := zap.NewNop()
 	bus := eventbus.NewBus()
 
 	tr := transcoder.NewTranscoder()
 	json.Register(tr)
 
-	manager := NewManager(bus, tr, func(writer httpbase.ResponseWriter, request *httpbase.Request) {
+	manager := NewManager(bus, tr, func(writer httpbase.ResponseWriter, _ *httpbase.Request) {
 		_, _ = writer.Write([]byte("Hello, World!"))
 	}, logger)
 

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/ponyruntime/pony/api/supervisor"
@@ -41,7 +40,6 @@ type Controller struct {
 	cancel context.CancelFunc
 
 	// active ops
-	mu  sync.Mutex
 	ops chan controlOp
 }
 

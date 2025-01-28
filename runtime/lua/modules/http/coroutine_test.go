@@ -3,6 +3,11 @@ package http
 import (
 	"bytes"
 	"context"
+	"io"
+	"net/http"
+	"testing"
+	"time"
+
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	timemod "github.com/ponyruntime/pony/runtime/lua/modules/time"
@@ -10,10 +15,6 @@ import (
 	"github.com/stretchr/testify/require"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
-	"io"
-	"net/http"
-	"testing"
-	"time"
 )
 
 func TestAsyncHTTP(t *testing.T) {

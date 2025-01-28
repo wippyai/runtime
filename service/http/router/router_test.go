@@ -56,16 +56,18 @@ func TestRouterComposition(t *testing.T) {
 		defer server.Close()
 
 		// Test router1 endpoint
-		resp, err := http.Get(server.URL + "/api/v1/test")
+		resp, err := http.Get(server.URL + "/api/v1/test") //nolint:noctx
 		require.NoError(t, err)
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 		assert.Equal(t, "router1", resp.Header.Get("X-Router-ID"))
+		assert.NoError(t, resp.Body.Close())
 
 		// Test default router endpoint
-		resp, err = http.Get(server.URL + "/default")
+		resp, err = http.Get(server.URL + "/default") //nolint:noctx
 		require.NoError(t, err)
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 		assert.Equal(t, "", resp.Header.Get("X-Router-ID"))
+		assert.NoError(t, resp.Body.Close())
 	})
 
 	t.Run("multiple routers", func(t *testing.T) {
@@ -111,10 +113,11 @@ func TestRouterComposition(t *testing.T) {
 		}
 
 		for _, tt := range tests {
-			resp, err := http.Get(server.URL + tt.path)
+			resp, err := http.Get(server.URL + tt.path) //nolint:noctx
 			require.NoError(t, err)
 			assert.Equal(t, http.StatusOK, resp.StatusCode)
 			assert.Equal(t, tt.routerID, resp.Header.Get("X-Router-ID"))
+			assert.NoError(t, resp.Body.Close())
 		}
 	})
 
@@ -147,15 +150,17 @@ func TestRouterComposition(t *testing.T) {
 		defer server.Close()
 
 		// Old path should not work
-		resp, err := http.Get(server.URL + "/api/v1/test")
+		resp, err := http.Get(server.URL + "/api/v1/test") //nolint:noctx
 		require.NoError(t, err)
 		assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+		assert.NoError(t, resp.Body.Close())
 
 		// New path should work
-		resp, err = http.Get(server.URL + "/api/v2/test")
+		resp, err = http.Get(server.URL + "/api/v2/test") //nolint:noctx
 		require.NoError(t, err)
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 		assert.Equal(t, "router1", resp.Header.Get("X-Router-ID"))
+		assert.NoError(t, resp.Body.Close())
 	})
 
 	t.Run("concurrent router operations", func(t *testing.T) {
@@ -197,9 +202,10 @@ func TestRouterComposition(t *testing.T) {
 			Meta:   registry.Metadata{config.RouterID: "router1"},
 		})
 
-		resp, err := http.Get(server.URL + "/api/v2/test")
+		resp, err := http.Get(server.URL + "/api/v2/test") //nolint:noctx
 		require.NoError(t, err)
 		assert.True(t, resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusOK, "Expected status code 404 or 200, got %d", resp.StatusCode)
+		assert.NoError(t, resp.Body.Close())
 	})
 
 	t.Run("middleware composition", func(t *testing.T) {
@@ -224,19 +230,20 @@ func TestRouterComposition(t *testing.T) {
 		server := httptest.NewServer(router)
 		defer server.Close()
 
-		resp, err := http.Get(server.URL + "/api/v1/test")
+		resp, err := http.Get(server.URL + "/api/v1/test") //nolint:noctx
 		require.NoError(t, err)
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 		assert.NotEmpty(t, resp.Header.Get("X-Router-ID"), "Request Name middleware should be applied")
 		assert.Equal(t, "router1", resp.Header.Get("X-Router-ID"))
+		assert.NoError(t, resp.Body.Close())
 	})
 }
 
 // ---------------------------
 
 func TestRouterEndpointOperations(t *testing.T) {
-	handler := func(w http.ResponseWriter, r *http.Request) {
+	handler := func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}
 
@@ -284,7 +291,7 @@ func TestRouterEndpointOperations(t *testing.T) {
 }
 
 func TestRouterDefaultRouterOperations(t *testing.T) {
-	handler := func(w http.ResponseWriter, r *http.Request) {
+	handler := func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}
 
@@ -304,7 +311,7 @@ func TestRouterDefaultRouterOperations(t *testing.T) {
 }
 
 func TestRouterErrorCases(t *testing.T) {
-	handler := func(w http.ResponseWriter, r *http.Request) {
+	handler := func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}
 
@@ -335,7 +342,7 @@ func TestRouterErrorCases(t *testing.T) {
 }
 
 func TestRouterConcurrencyStress(t *testing.T) {
-	handler := func(w http.ResponseWriter, r *http.Request) {
+	handler := func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}
 
@@ -375,7 +382,7 @@ func TestRouterConcurrencyStress(t *testing.T) {
 }
 
 func TestRouterMiddlewareConfiguration(t *testing.T) {
-	handler := func(w http.ResponseWriter, r *http.Request) {
+	handler := func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}
 
@@ -409,9 +416,10 @@ func TestRouterMiddlewareConfiguration(t *testing.T) {
 		server := httptest.NewServer(router)
 		defer server.Close()
 
-		resp, err := http.Get(server.URL + "/api/v1/test")
+		resp, err := http.Get(server.URL + "/api/v1/test") //nolint:noctx
 		require.NoError(t, err)
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		assert.NoError(t, resp.Body.Close())
 
 		// Test invalid timeout duration
 		err = router.AddRouter("router2", config.RouterConfig{
@@ -428,7 +436,7 @@ func TestRouterMiddlewareConfiguration(t *testing.T) {
 }
 
 func TestRouter_RebuildRouter_ErrorHandling(t *testing.T) {
-	handler := func(w http.ResponseWriter, r *http.Request) {
+	handler := func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}
 
@@ -461,13 +469,14 @@ func TestRouter_RebuildRouter_ErrorHandling(t *testing.T) {
 	server := httptest.NewServer(router)
 	defer server.Close()
 
-	resp, err := http.Get(server.URL + "/api/v1/test")
+	resp, err := http.Get(server.URL + "/api/v1/test") //nolint:noctx
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, resp.StatusCode) // Endpoint should still be reachable
+	assert.NoError(t, resp.Body.Close())
 }
 
 func TestRouter_ServeHTTP_Concurrency(t *testing.T) {
-	handler := func(w http.ResponseWriter, r *http.Request) {
+	handler := func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}
 
@@ -501,9 +510,11 @@ func TestRouter_ServeHTTP_Concurrency(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			resp, err := http.Get(server.URL + "/api/v1/test")
+			resp, err := http.Get(server.URL + "/api/v1/test") //nolint:noctx
 			if err == nil {
-				defer resp.Body.Close()
+				defer func() {
+					_ = resp.Body.Close()
+				}()
 				assert.Equal(t, http.StatusOK, resp.StatusCode)
 			}
 		}()
@@ -514,7 +525,7 @@ func TestRouter_ServeHTTP_Concurrency(t *testing.T) {
 }
 
 func TestRouter_Endpoint_UUID(t *testing.T) {
-	handler := func(w http.ResponseWriter, r *http.Request) {
+	handler := func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}
 
@@ -560,7 +571,7 @@ func TestRouter_Endpoint_UUID(t *testing.T) {
 }
 
 func TestRouterEdgeCases(t *testing.T) {
-	handler := func(w http.ResponseWriter, r *http.Request) {
+	handler := func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}
 
@@ -641,9 +652,10 @@ func TestRouterEdgeCases(t *testing.T) {
 		server := httptest.NewServer(router)
 		defer server.Close()
 
-		resp, err := http.Get(server.URL + "/api/v2/test")
+		resp, err := http.Get(server.URL + "/api/v2/test") //nolint:noctx
 		require.NoError(t, err)
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		assert.NoError(t, resp.Body.Close())
 
 		// Test updating endpoint with invalid router ID
 		err = router.UpdateEndpoint("test-ep", config.EndpointConfig{
@@ -671,7 +683,7 @@ func TestRouterEdgeCases(t *testing.T) {
 }
 
 func TestRouterUpdateScenarios(t *testing.T) {
-	handler := func(w http.ResponseWriter, r *http.Request) {
+	handler := func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}
 
@@ -703,14 +715,16 @@ func TestRouterUpdateScenarios(t *testing.T) {
 		server := httptest.NewServer(router)
 		defer server.Close()
 
-		// Test if endpoint is accessible at new path
-		resp, err := http.Get(server.URL + "/v2/test")
+		// Test if the endpoint is accessible at a new path
+		resp, err := http.Get(server.URL + "/v2/test") //nolint:noctx
 		require.NoError(t, err)
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		assert.NoError(t, resp.Body.Close())
 
-		// Test if old path is no longer accessible
-		resp, err = http.Get(server.URL + "/v1/test")
+		// Test if an old path is no longer accessible
+		resp, err = http.Get(server.URL + "/v1/test") //nolint:noctx
 		require.NoError(t, err)
 		assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+		assert.NoError(t, resp.Body.Close())
 	})
 }

@@ -2,20 +2,18 @@ package engine
 
 import (
 	"context"
-	lua "github.com/yuin/gopher-lua"
 	"sync/atomic"
+
+	capi "github.com/ponyruntime/pony/api/context"
+	lua "github.com/yuin/gopher-lua"
 )
-
-type contextKey struct{}
-
-var taskGroupKey = &contextKey{}
 
 // TaskGroup manages a group of related tasks, their states, and result collection
 type TaskGroup struct {
 	results   chan Result
 	wakeup    chan struct{}
-	wakeCount int32
-	taskCount int32
+	wakeCount atomic.Int32
+	taskCount atomic.Int32
 	states    map[*lua.LState]struct{}
 }
 
@@ -30,12 +28,12 @@ func NewTaskGroup(size int) *TaskGroup {
 
 // WithTaskGroup attaches a task group to the context
 func WithTaskGroup(ctx context.Context, group *TaskGroup) context.Context {
-	return context.WithValue(ctx, &taskGroupKey, group)
+	return context.WithValue(ctx, capi.TaskGroupKeyCtx, group)
 }
 
 // GetTaskGroup retrieves the TaskGroup from a context
 func GetTaskGroup(ctx context.Context) *TaskGroup {
-	if group, ok := ctx.Value(&taskGroupKey).(*TaskGroup); ok {
+	if group, ok := ctx.Value(capi.TaskGroupKeyCtx).(*TaskGroup); ok {
 		return group
 	}
 	return nil
@@ -54,7 +52,7 @@ func (g *TaskGroup) Send(ctx context.Context, result Result) error {
 // Add registers a new Lua state for tracking, not thread safe
 // This is always called synchronously from the main thread
 func (g *TaskGroup) Add(state *lua.LState) {
-	g.taskCount++
+	g.taskCount.Add(1)
 	if state != nil {
 		g.states[state] = struct{}{} // make th read safe
 	}
@@ -62,7 +60,7 @@ func (g *TaskGroup) Add(state *lua.LState) {
 
 // Remove unregisters a Lua state from tracking, not thread safe
 func (g *TaskGroup) Remove(state *lua.LState) {
-	g.taskCount--
+	g.taskCount.Add(^(int32(0)))
 	if state != nil {
 		delete(g.states, state) // make th read safe
 	}
@@ -71,7 +69,7 @@ func (g *TaskGroup) Remove(state *lua.LState) {
 // WakeUp increments the wake count and sends a wakeup signal, thread safe
 func (g *TaskGroup) WakeUp() {
 	// we can optimize it a bit by skipping channel send if there is already a wakeup signal
-	atomic.AddInt32(&g.wakeCount, 1)
+	g.wakeCount.Add(1)
 	select {
 	case g.wakeup <- struct{}{}:
 	default:
@@ -80,7 +78,7 @@ func (g *TaskGroup) WakeUp() {
 
 // GetTaskCount returns the current number of tasks
 func (g *TaskGroup) GetTaskCount() int {
-	return int(g.taskCount)
+	return int(g.taskCount.Load())
 }
 
 // Wait processes all available results and returns tasks ready for resumption
@@ -88,7 +86,7 @@ func (g *TaskGroup) Wait(ctx context.Context, cvm CVM, block bool) ([]*Task, err
 	tasks := make([]*Task, 0)
 
 	// Process all available results
-	for g.taskCount > 0 {
+	for g.taskCount.Load() > 0 {
 		if block {
 			select {
 			case result := <-g.results:
@@ -99,12 +97,12 @@ func (g *TaskGroup) Wait(ctx context.Context, cvm CVM, block bool) ([]*Task, err
 				if task != nil {
 					tasks = append(tasks, task)
 				}
-				g.taskCount--
+				g.taskCount.Add(^int32(0))
 				delete(g.states, result.State)
 				block = false
 				continue
 			case <-g.wakeup:
-				atomic.AddInt32(&g.wakeCount, -1)
+				g.wakeCount.Add(^int32(0))
 				// WakeUp up and continue processing
 				block = false
 				continue
@@ -123,10 +121,10 @@ func (g *TaskGroup) Wait(ctx context.Context, cvm CVM, block bool) ([]*Task, err
 			if task != nil {
 				tasks = append(tasks, task)
 			}
-			g.taskCount--
+			g.taskCount.Add(^int32(0))
 			delete(g.states, result.State)
 		case <-g.wakeup:
-			atomic.AddInt32(&g.wakeCount, -1)
+			g.wakeCount.Add(^int32(0))
 			// WakeUp up and continue processing
 		default:
 			return tasks, nil
@@ -153,12 +151,12 @@ func (g *TaskGroup) processResult(cvm CVM, result Result) (*Task, error) {
 }
 
 func (g *TaskGroup) clean() {
-	if g.taskCount == 0 {
+	if g.taskCount.Load() == 0 {
 		return
 	}
 
-	g.taskCount = 0
-	g.wakeCount = 0
+	g.taskCount.Store(0)
+	g.wakeCount.Store(0)
 	g.states = make(map[*lua.LState]struct{})
 
 	// drain

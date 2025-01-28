@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+
 	"github.com/ponyruntime/pony/internal/closer"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
@@ -191,7 +192,6 @@ func (e *Runner) Run(ctx context.Context, exitCh <-chan Result) (lua.LValue, err
 					// soft-error, we let parent to decide
 					return result.Result[0], &CoroutineLeak{Count: stuck}
 				}
-
 				return result.Result[0], nil
 			}
 		case <-ctx.Done():
@@ -221,11 +221,7 @@ func (e *Runner) Run(ctx context.Context, exitCh <-chan Result) (lua.LValue, err
 }
 
 // Execute runs a function through the layer chain with provided context and arguments
-func (e *Runner) Execute(
-	ctx context.Context,
-	funcName string,
-	args ...lua.LValue,
-) (lua.LValue, error) {
+func (e *Runner) Execute(ctx context.Context, funcName string, args ...lua.LValue) (lua.LValue, error) {
 	// we always have to ensure we run using the task group context!
 	ctx, cleanup := closer.WithContext(e.WithContext(ctx))
 	defer func() {

@@ -21,7 +21,7 @@ func NewMockTranscoder() *MockTranscoder {
 	}
 }
 
-func (m *MockTranscoder) RegisterTranscoder(from, to payload.Format, weight int, tt payload.FormatTranscoder) {
+func (m *MockTranscoder) RegisterTranscoder(from, to payload.Format, _ int, tt payload.FormatTranscoder) {
 	if _, ok := m.registeredTranscoders[from]; !ok {
 		m.registeredTranscoders[from] = make(map[payload.Format]payload.FormatTranscoder)
 	}

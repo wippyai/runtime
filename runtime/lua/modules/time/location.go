@@ -11,10 +11,6 @@ type Location struct {
 	location *time.Location
 }
 
-var locationMethods = map[string]lua.LGFunction{
-	"string": locationString,
-}
-
 // locationString returns the name of the location
 func locationString(l *lua.LState) int {
 	ud := l.CheckUserData(1)
@@ -67,7 +63,9 @@ func fixedZone(l *lua.LState) int {
 // Register the Location methods and create UTC/Local constants
 func registerLocation(l *lua.LState, mod *lua.LTable) {
 	locationMt := l.NewTypeMetatable("Location")
-	l.SetField(locationMt, "__index", l.SetFuncs(l.NewTable(), locationMethods))
+	l.SetField(locationMt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
+		"string": locationString,
+	}))
 	l.SetField(locationMt, "__tostring", l.NewFunction(locationString))
 
 	// Register location-related functions

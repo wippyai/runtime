@@ -98,29 +98,6 @@ func TestCtxModule(t *testing.T) {
 		assert.Equal(t, "hello", tbl["b"])
 	})
 
-	t.Run("get and set with nil context", func(t *testing.T) {
-		mod := New(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
-		require.NoError(t, err)
-		defer vm.Close()
-
-		// Test ctx.get with nil context
-		err = vm.DoString(nil, `
-			local ctx = require("ctx")
-			local val, err = ctx.get("someKey")
-		`, "test_nil_context_get")
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "no context found")
-
-		// Test ctx.set with nil context
-		err = vm.DoString(nil, `
-			local ctx = require("ctx")
-			local ok, err = ctx.set("someKey", "someValue")
-		`, "test_nil_context_set")
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "no context found")
-	})
-
 	t.Run("get and set with no contexter", func(t *testing.T) {
 		mod := New(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))

@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"net/http"
 	"testing"
 
@@ -202,7 +203,7 @@ func TestHelperFunctionsInVM(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			-- Store the module in a local variable
 			local http = require("http")
 
@@ -242,7 +243,7 @@ func TestHelperFunctionsInVM(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local http = require("http")
 
 			-- Test basic decoding
@@ -287,7 +288,7 @@ func TestHelperFunctionsInVM(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local http = require("http")
 
 			-- Test valid methods
@@ -335,7 +336,7 @@ func TestHelperFunctionsInVM(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(context.Background(), `
 			local http = require("http")
 
 			-- Test valid URL

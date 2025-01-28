@@ -28,7 +28,7 @@ type RequestConfig struct {
 }
 
 // checkRequest gets and verifies Request userdata from Lua state
-func checkRequest(l *lua.LState, n int) (*Request, error) {
+func checkRequest(l *lua.LState, n int) (*Request, error) { //nolint:unparam
 	ud := l.CheckUserData(n)
 	if ud == nil {
 		return nil, fmt.Errorf("argument %d must be a Request", n)
@@ -63,24 +63,6 @@ func parseRequestOptions(l *lua.LState, idx int) RequestConfig {
 	}
 
 	return cfg
-}
-
-// Declare request methods map
-var requestMethods = map[string]lua.LGFunction{
-	"method":          requestMethod,
-	"path":            requestPath,
-	"query":           requestQuery,
-	"header":          requestHeader,
-	"content_type":    requestContentType,
-	"content_length":  requestContentLength,
-	"host":            requestHost,
-	"remote_addr":     requestRemoteAddr,
-	"body":            requestBody,
-	"body_json":       requestBodyJSON,
-	"has_body":        requestHasBody,
-	"accepts":         requestAccepts,
-	"is_content_type": requestIsContentType,
-	"stream_body":     requestStreamBody,
 }
 
 // requestMethod returns the HTTP method
@@ -523,7 +505,22 @@ func newRequest(l *lua.LState) int {
 // registerRequest registers the Request type and its methods
 func registerRequest(l *lua.LState, mod *lua.LTable) {
 	mt := l.NewTypeMetatable("Request")
-	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), requestMethods))
+	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
+		"method":          requestMethod,
+		"path":            requestPath,
+		"query":           requestQuery,
+		"header":          requestHeader,
+		"content_type":    requestContentType,
+		"content_length":  requestContentLength,
+		"host":            requestHost,
+		"remote_addr":     requestRemoteAddr,
+		"body":            requestBody,
+		"body_json":       requestBodyJSON,
+		"has_body":        requestHasBody,
+		"accepts":         requestAccepts,
+		"is_content_type": requestIsContentType,
+		"stream_body":     requestStreamBody,
+	}))
 	l.SetField(mt, "__tostring", l.NewFunction(requestToString))
 
 	// Register constructor

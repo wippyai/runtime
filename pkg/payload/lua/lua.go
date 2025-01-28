@@ -93,12 +93,13 @@ func unmarshalRecursive(val interface{}, targetValue reflect.Value) error {
 
 			// Determine the key to use for lookup in the map
 			var keyToUse string
-			if luaTag != "" {
+			switch {
+			case luaTag != "":
 				keyToUse = luaTag
-			} else if jsonTag != "" {
+			case jsonTag != "":
 				// Handle json tag with options (e.g., ",omitempty")
 				keyToUse = strings.Split(jsonTag, ",")[0]
-			} else {
+			default:
 				keyToUse = field.Name // Fallback to field name
 			}
 
@@ -168,7 +169,8 @@ func unmarshalRecursive(val interface{}, targetValue reflect.Value) error {
 	case reflect.Interface:
 		// Handle interfaces by assigning the value directly
 		targetValue.Set(reflect.ValueOf(val))
-
+	case reflect.Invalid, reflect.Bool, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64, reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr, reflect.Float32, reflect.Float64, reflect.Complex64, reflect.Complex128, reflect.Array, reflect.Chan, reflect.Func, reflect.String, reflect.UnsafePointer:
+		fallthrough
 	default:
 		// Handle primitive types and other cases not covered above
 		sourceValue := reflect.ValueOf(val)

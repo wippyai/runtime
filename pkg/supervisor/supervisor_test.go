@@ -205,6 +205,8 @@ func (h *testSupervisorHarness) waitForAllServices(state supervisor.Status) {
 		case supervisor.Stopped:
 			svc.WaitForStop(h.t)
 			require.True(h.t, svc.IsStopped(), "Lifecycle %s should be stopped", id)
+		case supervisor.Unknown, supervisor.Starting, supervisor.Stopping, supervisor.Exited, supervisor.Failed:
+			panic("not implemented")
 		}
 	}
 }
@@ -589,7 +591,7 @@ func TestSupervisor_InvalidRegistrationPayload(t *testing.T) {
 	}
 
 	for _, tc := range invalidPayloads {
-		t.Run(tc.name, func(t *testing.T) {
+		t.Run(tc.name, func(_ *testing.T) {
 			h.sup.handleEvent(events.Event{
 				System: supervisor.System,
 				Kind:   supervisor.Register,

@@ -11,20 +11,23 @@ type CoreLib struct {
 }
 
 // coreLuaLibs defines the core Lua libraries to load
-var coreLuaLibs = []CoreLib{
-	{lua.LoadLibName, lua.OpenPackage}, // Must be first
-	{lua.BaseLibName, lua.OpenBase},
-	{lua.TabLibName, lua.OpenTable},
-	{lua.StringLibName, lua.OpenString},
-	{lua.MathLibName, lua.OpenMath},
-	{lua.DebugLibName, lua.OpenDebug},
-	{lua.CoroutineLibName, lua.OpenCoroutine},
-	// never os or io
+
+func getCoreLibs() []CoreLib {
+	return []CoreLib{
+		{lua.LoadLibName, lua.OpenPackage}, // Must be first
+		{lua.BaseLibName, lua.OpenBase},
+		{lua.TabLibName, lua.OpenTable},
+		{lua.StringLibName, lua.OpenString},
+		{lua.MathLibName, lua.OpenMath},
+		{lua.DebugLibName, lua.OpenDebug},
+		{lua.CoroutineLibName, lua.OpenCoroutine},
+		// never os or io
+	}
 }
 
 // loadCoreLuaLibs loads the core Lua libraries into the State
 func loadCoreLuaLibs(state *lua.LState) error {
-	for _, lib := range coreLuaLibs {
+	for _, lib := range getCoreLibs() {
 		if err := state.CallByParam(lua.P{
 			Fn:      state.NewFunction(lib.fn),
 			NRet:    0,

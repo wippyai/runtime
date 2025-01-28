@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
+
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/registry"
 	logsapi "github.com/ponyruntime/pony/api/service/logs"
@@ -11,7 +13,6 @@ import (
 	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/ponyruntime/pony/service/logs"
 	"go.uber.org/zap"
-	"sync"
 )
 
 type service struct {
@@ -157,6 +158,8 @@ func (s *service) run(ctx context.Context) {
 			return
 
 		case op := <-s.opCh:
+			// TODO: rewrite error handling, currently it's not clear what to do with errors
+			// many errors are overwritten by the next operation
 			var err error
 
 			switch op.action {
@@ -171,15 +174,17 @@ func (s *service) run(ctx context.Context) {
 				err = s.ops.handleStop(ctx)
 				s.csw.RestoreBaseConfig(ctx)
 				if err == nil {
-					// After successful stop, exit the run loop
+					// After a successful stop, exit the run loop
 					op.result <- nil
 					return
 				}
 			case actionUpdate:
 				s.csw.RestoreBaseConfig(ctx)
+				// TODO: handle correctly
 				err = s.ops.handleUpdate(ctx, op.terminal, op.id)
-				if err := s.redirectLogs(ctx); err != nil {
-					err = fmt.Errorf("updated but, failed to redirect logs: %w", err)
+				// should not overwrite the error if there was an error
+				if err2 := s.redirectLogs(ctx); err2 != nil {
+					err = fmt.Errorf("updated but, failed to redirect logs: %w", err2)
 				}
 			}
 

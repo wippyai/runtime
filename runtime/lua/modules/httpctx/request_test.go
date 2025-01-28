@@ -63,9 +63,9 @@ func (r *errorReader) Close() error {
 	return nil // Nothing to close in this example
 }
 
-func print(L *lua.LState) int {
+func lprint(l *lua.LState) int {
 	// print msg
-	msg := L.CheckString(1)
+	msg := l.CheckString(1)
 	println(msg)
 	return 0
 }
@@ -933,7 +933,7 @@ func TestRequest_JSONWithEmptyBody(t *testing.T) {
 		vm, err := engine.NewVM(
 			logger,
 			engine.WithLoader(mod.Name(), mod.Loader),
-			engine.WithGlobalFunction("print", print),
+			engine.WithGlobalFunction("print", lprint),
 		)
 		require.NoError(t, err)
 		defer vm.Close()

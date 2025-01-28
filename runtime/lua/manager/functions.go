@@ -2,6 +2,7 @@ package manager
 
 import (
 	"fmt"
+
 	"github.com/ponyruntime/pony/api/registry"
 	api "github.com/ponyruntime/pony/api/runtime/lua"
 	"github.com/ponyruntime/pony/runtime/lua/factory"

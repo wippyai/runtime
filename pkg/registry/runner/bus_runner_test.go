@@ -15,7 +15,7 @@ import (
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
-	eventbus "github.com/ponyruntime/pony/pkg/eventbus"
+	"github.com/ponyruntime/pony/pkg/eventbus"
 )
 
 // testComponent represents a component that can be configured via registry eventbus.
@@ -55,13 +55,7 @@ func (c *testComponent) handleEvent(evt events.Event) {
 
 	switch evt.Kind {
 	case registry.Create, registry.Update:
-		p, ok := entry.Data.(payload.Payload)
-		if !ok {
-			fmt.Printf("entry.Data is not of type payload.Payload, got %T\n", entry.Data)
-			return
-		}
-
-		data, ok := p.Data().(string)
+		data, ok := entry.Data.Data().(string)
 		if !ok {
 			fmt.Printf("payload.Data is not of type string, got %T\n", entry.Data)
 			return
@@ -154,7 +148,7 @@ func attachComponent(ctx context.Context, t *testing.T, bus events.Bus, componen
 }
 
 // createEntry creates registry entries with string payloads for tests.
-func createEntry(path registry.ID, kind registry.Kind, data string) registry.Entry {
+func createEntry(path registry.ID, kind registry.Kind, data string) registry.Entry { //nolint:unparam
 	return registry.Entry{
 		ID:   path,
 		Kind: kind,
@@ -453,7 +447,7 @@ func TestBusRunner_BeginAndCommitEvents(t *testing.T) {
 	wg.Wait()
 
 	// Collect the received events
-	var receivedEvents []events.Event
+	receivedEvents := make([]events.Event, 0, 2)
 	for evt := range eventChan {
 		receivedEvents = append(receivedEvents, evt)
 	}
@@ -524,7 +518,7 @@ func TestBusRunner_BeginAndDiscardEvents(t *testing.T) {
 	wg.Wait()
 
 	// Collect the received events
-	var receivedEvents []events.Event
+	receivedEvents := make([]events.Event, 0, 2)
 	for evt := range eventChan {
 		receivedEvents = append(receivedEvents, evt)
 	}

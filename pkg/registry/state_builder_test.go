@@ -21,7 +21,7 @@ type MockHistory struct {
 
 func (m *MockHistory) Versions() ([]registry.Version, error) {
 	m.callStack = append(m.callStack, "Versions")
-	var vs []registry.Version
+	vs := make([]registry.Version, 0, len(m.versions))
 	for v := range m.versions {
 		vs = append(vs, v)
 	}

@@ -4,6 +4,7 @@ package channel
 import (
 	"context"
 	"fmt"
+
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	lua "github.com/yuin/gopher-lua"
 )

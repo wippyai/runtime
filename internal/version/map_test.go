@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/ponyruntime/pony/api/registry"
+	"github.com/stretchr/testify/require"
 )
 
 // TestVersionMap_Path_Simple tests a simple linear path.
@@ -16,9 +17,9 @@ func TestVersionMap_Path_Simple(t *testing.T) {
 	v3 := FromParent(v2, 3)
 
 	vm := NewVersionMap()
-	vm.Add(v1)
-	vm.Add(v2)
-	vm.Add(v3)
+	require.NoError(t, vm.Add(v1))
+	require.NoError(t, vm.Add(v2))
+	require.NoError(t, vm.Add(v3))
 
 	from := v1
 	to := v3
@@ -37,9 +38,9 @@ func TestVersionMap_Path_Backwards(t *testing.T) {
 	v3 := FromParent(v2, 3)
 
 	vm := NewVersionMap()
-	vm.Add(v1)
-	vm.Add(v2)
-	vm.Add(v3)
+	require.NoError(t, vm.Add(v1))
+	require.NoError(t, vm.Add(v2))
+	require.NoError(t, vm.Add(v3))
 
 	// Go from v3 back to v1
 	from := v3
@@ -60,10 +61,10 @@ func TestVersionMap_Path_Branches(t *testing.T) {
 	v4 := FromParent(v2, 4) // v4 branches from v2
 
 	vm := NewVersionMap()
-	vm.Add(v1)
-	vm.Add(v2)
-	vm.Add(v3)
-	vm.Add(v4)
+	require.NoError(t, vm.Add(v1))
+	require.NoError(t, vm.Add(v2))
+	require.NoError(t, vm.Add(v3))
+	require.NoError(t, vm.Add(v4))
 
 	// Go from v3 to v4 (across the branch)
 	from := v3
@@ -96,10 +97,10 @@ func TestVersionMap(t *testing.T) {
 		{
 			name: "Name within a branch",
 			setup: func(vm Map) {
-				vm.Add(v1)
-				vm.Add(v2)
-				vm.Add(v3)
-				vm.Add(v4)
+				require.NoError(t, vm.Add(v1))
+				require.NoError(t, vm.Add(v2))
+				require.NoError(t, vm.Add(v3))
+				require.NoError(t, vm.Add(v4))
 			},
 			from:     v1,
 			to:       v4,
@@ -108,10 +109,10 @@ func TestVersionMap(t *testing.T) {
 		{
 			name: "Name to the past",
 			setup: func(vm Map) {
-				vm.Add(v1)
-				vm.Add(v2)
-				vm.Add(v3)
-				vm.Add(v4)
+				require.NoError(t, vm.Add(v1))
+				require.NoError(t, vm.Add(v2))
+				require.NoError(t, vm.Add(v3))
+				require.NoError(t, vm.Add(v4))
 			},
 			from:     v4,
 			to:       v1,
@@ -120,11 +121,11 @@ func TestVersionMap(t *testing.T) {
 		{
 			name: "Name across branches",
 			setup: func(vm Map) {
-				vm.Add(v1)
-				vm.Add(v2)
-				vm.Add(v3)
-				vm.Add(v4)
-				vm.Add(v5)
+				require.NoError(t, vm.Add(v1))
+				require.NoError(t, vm.Add(v2))
+				require.NoError(t, vm.Add(v3))
+				require.NoError(t, vm.Add(v4))
+				require.NoError(t, vm.Add(v5))
 			},
 			from:     v3,
 			to:       v5,
@@ -133,7 +134,7 @@ func TestVersionMap(t *testing.T) {
 		{
 			name: "From and to are identical",
 			setup: func(vm Map) {
-				vm.Add(v1)
+				require.NoError(t, vm.Add(v1))
 			},
 			from:     v1,
 			to:       v1,
@@ -142,7 +143,7 @@ func TestVersionMap(t *testing.T) {
 		{
 			name: "From version not found",
 			setup: func(vm Map) {
-				vm.Add(v1)
+				require.NoError(t, vm.Add(v1))
 			},
 			from:        v2,
 			to:          v1,
@@ -152,7 +153,7 @@ func TestVersionMap(t *testing.T) {
 		{
 			name: "To version not found",
 			setup: func(vm Map) {
-				vm.Add(v1)
+				require.NoError(t, vm.Add(v1))
 			},
 			from:        v1,
 			to:          v2,
@@ -162,8 +163,8 @@ func TestVersionMap(t *testing.T) {
 		{
 			name: "No path exists",
 			setup: func(vm Map) {
-				vm.Add(v1)
-				vm.Add(New(2)) // Create an unrelated version
+				require.NoError(t, vm.Add(v1))
+				require.NoError(t, vm.Add(New(2))) // Create an unrelated version
 			},
 			from:        v1,
 			to:          New(2),
@@ -173,7 +174,7 @@ func TestVersionMap(t *testing.T) {
 		{
 			name: "Add and Get version",
 			setup: func(vm Map) {
-				vm.Add(v1)
+				require.NoError(t, vm.Add(v1))
 			},
 			from:     v1,
 			to:       v1,
@@ -181,7 +182,7 @@ func TestVersionMap(t *testing.T) {
 		},
 		{
 			name: "Get non-existent version",
-			setup: func(vm Map) {
+			setup: func(Map) {
 				// No versions added
 			},
 			from:        v1,
@@ -191,7 +192,7 @@ func TestVersionMap(t *testing.T) {
 		},
 		{
 			name: "Len of empty version map",
-			setup: func(vm Map) {
+			setup: func(Map) {
 				// No versions added
 			},
 			from:     nil,
@@ -201,9 +202,9 @@ func TestVersionMap(t *testing.T) {
 		{
 			name: "Range over versions",
 			setup: func(vm Map) {
-				vm.Add(v1)
-				vm.Add(v2)
-				vm.Add(v3)
+				require.NoError(t, vm.Add(v1))
+				require.NoError(t, vm.Add(v2))
+				require.NoError(t, vm.Add(v3))
 			},
 			from:     nil,
 			to:       nil,
@@ -212,10 +213,10 @@ func TestVersionMap(t *testing.T) {
 		{
 			name: "Range over versions",
 			setup: func(vm Map) {
-				vm.Add(v3)
-				vm.Add(v2)
-				vm.Add(v5)
-				vm.Add(v1)
+				require.NoError(t, vm.Add(v3))
+				require.NoError(t, vm.Add(v2))
+				require.NoError(t, vm.Add(v5))
+				require.NoError(t, vm.Add(v1))
 			},
 			from:     nil,
 			to:       nil,
@@ -238,7 +239,7 @@ func TestVersionMap(t *testing.T) {
 				}
 			case "Range over versions":
 				var got []registry.Version
-				vm.Range(func(id uint, v registry.Version) bool {
+				vm.Range(func(_ uint, v registry.Version) bool {
 					got = append(got, v)
 					return true
 				})

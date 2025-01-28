@@ -168,7 +168,7 @@ func TestGolangToJsonTranscoder_Transcode(t *testing.T) {
 		},
 		{
 			name:    "Marshal error",
-			payload: payload.NewPayload(make(chan int), payload.Golang), // Channels cannot be marshalled
+			payload: payload.NewPayload(make(chan int), payload.Golang), // Channels cannot be marshaled
 			want:    nil,
 			wantErr: true,
 		},

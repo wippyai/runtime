@@ -1,12 +1,14 @@
 package stream
 
 import (
+	"errors"
 	"fmt"
+	"io"
+
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
-	"io"
 )
 
 // LuaStream wraps Stream for Lua
@@ -84,7 +86,7 @@ func streamReadAsync(l *lua.LState) int {
 
 	coroutine.Wrap(l, func() engine.Result {
 		chunk, err := stream.ReadChunk()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			return engine.Result{Result: []lua.LValue{lua.LNil, lua.LNil}}
 		}
 
@@ -107,7 +109,7 @@ func streamRead(l *lua.LState) int {
 	}
 
 	chunk, err := stream.ReadChunk()
-	if err == io.EOF {
+	if errors.Is(err, io.EOF) {
 		l.Push(lua.LNil)
 		return 1
 	}
@@ -157,13 +159,13 @@ func streamIter(l *lua.LState) int {
 		return 0
 	}
 
-	l.Push(l.NewFunction(func(L *lua.LState) int {
+	l.Push(l.NewFunction(func(l *lua.LState) int {
 		data, err := s.ReadChunk()
 		if err != nil {
-			L.Push(lua.LNil)
+			l.Push(lua.LNil)
 			return 1
 		}
-		L.Push(lua.LString(data))
+		l.Push(lua.LString(data))
 		return 1
 	}))
 

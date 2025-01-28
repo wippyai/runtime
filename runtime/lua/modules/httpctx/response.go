@@ -18,7 +18,7 @@ type Response struct {
 }
 
 // checkResponse gets and verifies Response userdata from Lua state
-func checkResponse(l *lua.LState, n int) (*Response, error) {
+func checkResponse(l *lua.LState, n int) (*Response, error) { //nolint:unparam
 	ud := l.CheckUserData(n)
 	if ud == nil {
 		return nil, fmt.Errorf("argument %d must be a Response", n)
@@ -28,18 +28,6 @@ func checkResponse(l *lua.LState, n int) (*Response, error) {
 		return resp, nil
 	}
 	return nil, fmt.Errorf("argument %d must be a Response, got %T", n, ud.Value)
-}
-
-// Declare response methods map
-var responseMethods = map[string]lua.LGFunction{
-	"set_status":       responseSetStatus,
-	"set_header":       responseSetHeader,
-	"write":            responseWrite,
-	"flush":            responseFlush,
-	"write_json":       responseWriteJSON,
-	"set_content_type": responseSetContentType,
-	"write_event":      responseWriteEvent,
-	"set_transfer":     responseSetTransfer,
 }
 
 // responseSetStatus sets the HTTP status code
@@ -206,15 +194,15 @@ func responseSetTransfer(l *lua.LState) int {
 	transferType := l.CheckString(2)
 
 	switch transferType {
-	case transferConstants["CHUNKED"]:
+	case getTransferConstants()["CHUNKED"]:
 		resp.writer.Header().Set("Transfer-Encoding", "chunked")
-		resp.transferMode = transferConstants["CHUNKED"]
+		resp.transferMode = getTransferConstants()["CHUNKED"]
 
-	case transferConstants["SSE"]:
+	case getTransferConstants()["SSE"]:
 		resp.writer.Header().Set("Content-Type", "text/event-stream")
 		resp.writer.Header().Set("Cache-Control", "no-cache")
 		resp.writer.Header().Set("Connection", "keep-alive")
-		resp.transferMode = transferConstants["SSE"]
+		resp.transferMode = getTransferConstants()["SSE"]
 
 	default:
 		l.ArgError(2, "invalid transfer type")
@@ -233,7 +221,7 @@ func responseWriteEvent(l *lua.LState) int {
 	}
 
 	// Check if transfer mode is SSE
-	if resp.transferMode != transferConstants["SSE"] {
+	if resp.transferMode != getTransferConstants()["SSE"] {
 		if resp.headersSent {
 			l.Push(lua.LString("cannot switch to SSE mode after headers are sent"))
 			return 1
@@ -242,7 +230,7 @@ func responseWriteEvent(l *lua.LState) int {
 		resp.writer.Header().Set("Content-Type", "text/event-stream")
 		resp.writer.Header().Set("Cache-Control", "no-cache")
 		resp.writer.Header().Set("Connection", "keep-alive")
-		resp.transferMode = transferConstants["SSE"]
+		resp.transferMode = getTransferConstants()["SSE"]
 	}
 
 	eventTable := l.CheckTable(2)
@@ -334,7 +322,16 @@ func newResponse(l *lua.LState) int {
 // registerResponse registers the Response type and its methods
 func registerResponse(l *lua.LState, mod *lua.LTable) {
 	mt := l.NewTypeMetatable("Response")
-	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), responseMethods))
+	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
+		"set_status":       responseSetStatus,
+		"set_header":       responseSetHeader,
+		"write":            responseWrite,
+		"flush":            responseFlush,
+		"write_json":       responseWriteJSON,
+		"set_content_type": responseSetContentType,
+		"write_event":      responseWriteEvent,
+		"set_transfer":     responseSetTransfer,
+	}))
 	l.SetField(mt, "__tostring", l.NewFunction(responseToString))
 
 	// Register constructor
