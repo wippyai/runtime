@@ -77,9 +77,7 @@ func (l *LuaWorkflowDefinition) Execute(env bindings.WorkflowEnvironment, header
 			local result1, ok = resp1:receive()
 			
 			-- Create timer command (10 seconds)
-			local timer = command.new("Sleep", {duration = 10000})
-			local timerResp = timer:response()
-			timerResp:receive()
+			command.new("Sleep", {duration = 10000}):response():receive()
 			
 			-- Create second activity command
 			local cmd2 = command.new("SimpleActivity", {message = "Second activity after sleep!"})
