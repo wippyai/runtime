@@ -71,16 +71,22 @@ func (l *LuaWorkflowDefinition) Execute(env bindings.WorkflowEnvironment, header
 
 	luaScript := `
 		function test_workflow()
-			-- Create a command to process activity
-			local cmd = command.new("SimpleActivity", {message = "Hello from Lua!"})
-			local resp = cmd:response()
+			-- Create first activity command
+			local cmd1 = command.new("SimpleActivity", {message = "First activity!"})
+			local resp1 = cmd1:response()
+			local result1, ok = resp1:receive()
 			
-			-- Wait for response
-			local result, ok = resp:receive()
-			print("Activity result inside lua: " .. result)
+			-- Create timer command (10 seconds)
+			local timer = command.new("Sleep", {duration = 10000})
+			local timerResp = timer:response()
+			timerResp:receive()
+			
+			-- Create second activity command
+			local cmd2 = command.new("SimpleActivity", {message = "Second activity after sleep!"})
+			local resp2 = cmd2:response()
+			local result2, ok = resp2:receive()
 
-print("EXITING")
-			return result .. "YO"
+			return result2
 		end
 	`
 
@@ -117,7 +123,6 @@ print("EXITING")
 
 // OnWorkflowTaskStarted implements the WorkflowDefinition interface
 func (l *LuaWorkflowDefinition) OnWorkflowTaskStarted(deadlockDetectionTimeout time.Duration) {
-	log.Printf("------------------Workflow task started with deadline: %v\n", deadlockDetectionTimeout)
 	// Process workflow steps
 	cmds, err := l.runner.Step()
 	if err != nil {
@@ -164,8 +169,6 @@ func (l *LuaWorkflowDefinition) OnWorkflowTaskStarted(deadlockDetectionTimeout t
 					return
 				}
 
-				log.Printf("Activity result: %v\n", *value)
-
 				// todo: use our transcoder
 				err = l.runner.SendResult(cmd, lua.GoToLua(*value))
 				if err != nil {
@@ -173,14 +176,34 @@ func (l *LuaWorkflowDefinition) OnWorkflowTaskStarted(deadlockDetectionTimeout t
 					return
 				}
 			})
+		case "Sleep":
+			duration := int(lua.ToGoAny(cmd.Params[0]).(map[string]interface{})["duration"].(float64))
+			l.env.NewTimer(
+				time.Duration(duration)*time.Millisecond,
+				workflow.TimerOptions{},
+				func(result *commonpb.Payloads, err error) {
+					if err != nil {
+						err := l.runner.SendError(cmd, err)
+						if err != nil {
+							l.env.Complete(nil, err)
+							return
+						}
+						return
+					}
+
+					// todo: add encoding, todo
+
+					err = l.runner.SendResult(cmd, lua.GoToLua(true))
+					if err != nil {
+						l.env.Complete(nil, err)
+						return
+					}
+				})
 		}
 	}
 
-	log.Printf("!!!!!!!!!completed step %+v\n", l.runner)
-
 	// Check if workflow is complete
 	if l.runner.IsComplete() {
-		log.Printf("!!!!!!!!Workflow is complete\n")
 		result, err := l.runner.GetCompletionResult()
 		if err != nil {
 			l.env.Complete(nil, err)
@@ -244,11 +267,11 @@ func main() {
 	workflowOptions := client.StartWorkflowOptions{
 		ID:                 "lua-workflow",
 		TaskQueue:          "lua-task-queue",
-		WorkflowRunTimeout: time.Second,
+		WorkflowRunTimeout: time.Second * 15,
 	}
 	input := ActivityInput{Message: "Hello from Temporal!"}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
 	we, err := c.ExecuteWorkflow(ctx, workflowOptions, "lua-workflow", input)
