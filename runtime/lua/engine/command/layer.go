@@ -104,21 +104,23 @@ func (l *Layer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, err
 		nextElem := e.Next() // Store next before removal
 		l.results.Remove(e)  // Remove returns the element but we already have cmd
 
+		ctx := l.getSharedContext(cvm)
+
 		if cmd.err != nil {
 			// Send error by closing channel
-			if err := l.channels.Close(cvm.State().Context(), cmd.response); err != nil {
+			if err := l.channels.Close(ctx, cmd.response); err != nil {
 				l.mu.Unlock()
 				return nil, fmt.Errorf("close error: %w", err)
 			}
 		} else {
 			// Send success result
-			if err := l.channels.Send(cvm.State().Context(), cmd.response, cmd.result); err != nil {
+			if err := l.channels.Send(ctx, cmd.response, cmd.result); err != nil {
 				l.mu.Unlock()
 				return nil, fmt.Errorf("send error: %w", err)
 			}
 
 			// And close channel
-			if err := l.channels.Close(cvm.State().Context(), cmd.response); err != nil {
+			if err := l.channels.Close(ctx, cmd.response); err != nil {
 				l.mu.Unlock()
 				return nil, fmt.Errorf("close error: %w", err)
 			}
@@ -152,6 +154,16 @@ func (l *Layer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, err
 	}
 
 	return processableTasks, nil
+}
+
+func (l *Layer) getSharedContext(cvm engine.CVM) context.Context {
+	for _, task := range cvm.GetTasks() {
+		if task.Thread().Context() != nil {
+			return task.Thread().Context()
+		}
+	}
+
+	return nil
 }
 
 // isCommand checks if a value is a Command instance
