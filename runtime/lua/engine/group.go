@@ -97,7 +97,7 @@ func (g *TaskGroup) Wait(ctx context.Context, cvm CVM, block bool) ([]*Task, err
 				if task != nil {
 					tasks = append(tasks, task)
 				}
-				g.taskCount.Store(^int32(0))
+				g.taskCount.Add(^int32(0))
 				delete(g.states, result.State)
 				block = false
 				continue
