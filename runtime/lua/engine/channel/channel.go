@@ -71,6 +71,11 @@ func newChannel(capacity int) *Channel {
 	}
 }
 
+// Name returns the name of the channel.
+func (c *Channel) Name() string {
+	return c.name
+}
+
 // Slots returns the number of available slots for sending.
 // This includes both buffer capacity and any waiting receivers.
 func (c *Channel) Slots() int {
