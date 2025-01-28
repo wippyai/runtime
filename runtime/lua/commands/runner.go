@@ -55,7 +55,7 @@ func WithHandler(cmdType CommandType, handler Handler) RunnerOption {
 
 // processCommand handles a single command execution
 func (r *Runner) processCommand(ctx context.Context, cmd *Command) {
-	handler, ok := r.handlers[cmd.Type]
+	handler, ok := r.handlers[cmd.cmdType]
 	if !ok {
 		r.layer.QueueError(cmd, fmt.Errorf("no handler for command type: %s", cmd.Type))
 		return
