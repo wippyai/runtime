@@ -14,7 +14,7 @@ import (
 )
 
 /**
- * There are potential we can refactor this code to use pubsub layer.
+ * todo: There are potential we can refactor this code to use pubsub layer.
  */
 
 // TaskID represents a unique identifier for a task
