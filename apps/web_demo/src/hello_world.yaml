@@ -1,0 +1,10 @@
+name: functions.hello_world
+kind: function.lua
+meta:
+  comment: "Returns a hello world message."
+
+source: file://hello_world.lua
+method: hello_world
+pool:
+  size: 2
+  workers: 8

@@ -168,6 +168,8 @@ func (b *Bus) Send(ctx context.Context, event events.Event) {
 	}
 }
 
+// todo: add send and block for critical events
+
 // Stop gracefully shuts down the event bus by closing all subscriber channels
 // and stopping the event handling goroutine.
 func (b *Bus) Stop() {

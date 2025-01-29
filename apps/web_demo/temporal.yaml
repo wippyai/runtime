@@ -1,0 +1,7 @@
+name: temporal
+kind: temporal.client
+meta:
+  comment: "Default Temporal service."
+
+address: "localhost:7233"
+namespace: "default"
