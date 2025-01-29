@@ -5,7 +5,7 @@ meta:
   router: api_router
   comment: "Returns the ollama response."
   depends_on:
-    - functions.http_time
+    - functions.ollama
     - web_server
     - api_router
 

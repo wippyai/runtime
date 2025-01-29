@@ -215,7 +215,7 @@ func Send(l *lua.LState, ch *Channel, value lua.LValue) int {
 func receiveLua(l *lua.LState) int {
 	ch := CheckChannel(l)
 
-	return Receive(L, ch)
+	return Receive(l, ch)
 }
 
 func Receive(l *lua.LState, ch *Channel) int {
