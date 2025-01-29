@@ -1,0 +1,5 @@
+"serviceID": "terminal", "status": "running", "error": "terminal app error: vm step failed: error resuming task: App:5: module http not found:\n\tno field package.preload['http']\n\tstat ./http.lua: no such file or directory\n\tstat /usr/local/share/lua/5.1/http.lua: no such file or directory\n\tstat /usr/local/share/lua/5.1/http/init.lua: no such file or directory, "}
+2025-01-25 01:15:47     INFO    core    service terminal is failed      {"serviceID": "terminal", "status": "failed", "details": "unexpected failure"}
+
+
+HIDE THIS ERROR
