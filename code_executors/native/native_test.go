@@ -1,6 +1,9 @@
 package native
 
 import (
+	"errors"
+	"io"
+	"io/fs"
 	"runtime"
 	"strings"
 	"testing"
@@ -64,8 +67,20 @@ func TestExecutor_MegaCommand(t *testing.T) {
 	}()
 
 	sb := new(strings.Builder)
-	for output := range executor.Stdout() {
-		sb.WriteString(string(output))
+	for {
+		// we don't care about the perf here
+		buf := make([]byte, 65536)
+		_, err = executor.StdoutReader().Read(buf)
+		if err != nil {
+			// fs.ErrClosed is returned when the process is stopped (the file is already closed)
+			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, fs.ErrClosed) {
+				break
+			}
+
+			t.Fatal(err)
+		}
+
+		sb.Write(buf)
 	}
 
 	if sb.Len() == 0 {
@@ -89,8 +104,19 @@ func TestExecutor_Stdout(t *testing.T) {
 
 	sb := new(strings.Builder)
 
-	for output := range executor.Stdout() {
-		sb.WriteString(string(output))
+	for {
+		// we don't care about the perf here
+		buf := make([]byte, 65536)
+		_, err = executor.StdoutReader().Read(buf)
+		if err != nil {
+			// fs.ErrClosed is returned when the process is stopped (the file is already closed)
+			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, fs.ErrClosed) {
+				break
+			}
+			t.Fatal(err)
+		}
+
+		sb.Write(buf)
 	}
 
 	assert.Contains(t, sb.String(), "hello world")
@@ -108,8 +134,19 @@ func TestExecutor_EmptyCmd(t *testing.T) {
 
 	sb := new(strings.Builder)
 
-	for output := range executor.Stderr() {
-		sb.WriteString(string(output))
+	for {
+		// we don't care about the perf here
+		buf := make([]byte, 65536)
+		_, err = executor.StderrReader().Read(buf)
+		if err != nil {
+			// fs.ErrClosed is returned when the process is stopped (the file is already closed)
+			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, fs.ErrClosed) {
+				break
+			}
+			t.Fatal(err)
+		}
+
+		sb.Write(buf)
 	}
 
 	assert.Contains(t, sb.String(), "")
@@ -127,8 +164,19 @@ func TestExecutor_Stderr(t *testing.T) {
 
 	sb := new(strings.Builder)
 
-	for output := range executor.Stderr() {
-		sb.WriteString(string(output))
+	for {
+		// we don't care about the perf here
+		buf := make([]byte, 65536)
+		_, err = executor.StderrReader().Read(buf)
+		if err != nil {
+			// fs.ErrClosed is returned when the process is stopped (the file is already closed)
+			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, fs.ErrClosed) {
+				break
+			}
+			t.Fatal(err)
+		}
+
+		sb.Write(buf)
 	}
 
 	assert.Contains(t, sb.String(), "error message")
@@ -148,9 +196,22 @@ func TestExecutor_ReadWithInvalidCommand(t *testing.T) {
 	// Wait for an error message in stderr
 	sb := new(strings.Builder)
 
-	for output := range executor.Stderr() {
-		sb.WriteString(string(output))
+	for {
+		// we don't care about the perf here
+		buf := make([]byte, 65536)
+		_, err = executor.StderrReader().Read(buf)
+		if err != nil {
+			// fs.ErrClosed is returned when the process is stopped (the file is already closed)
+			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, fs.ErrClosed) {
+				break
+			}
+
+			t.Fatal(err)
+		}
+
+		sb.Write(buf)
 	}
+
 	if runtime.GOOS == "linux" {
 		assert.Contains(t, sb.String(), "sh: 1: invalidcommand: not found")
 	} else {
@@ -202,8 +263,21 @@ func TestExecutor_WriteStdin(t *testing.T) {
 				}()
 
 				sb := new(strings.Builder)
-				for output := range executor.Stdout() {
-					sb.WriteString(string(output))
+
+				for {
+					// we don't care about the perf here
+					buf := make([]byte, 65536)
+					_, err = executor.StdoutReader().Read(buf)
+					if err != nil {
+						// fs.ErrClosed is returned when the process is stopped (the file is already closed)
+						if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, fs.ErrClosed) {
+							break
+						}
+
+						t.Fatal(err)
+					}
+
+					sb.Write(buf)
 					executor.Stop()
 				}
 
