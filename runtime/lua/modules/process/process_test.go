@@ -52,5 +52,3 @@ func TestProcessBasic(t *testing.T) {
 
 	assert.NoError(t, err)
 }
-
-// todO: fix
