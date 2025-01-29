@@ -1111,7 +1111,7 @@ func TestStateBuilder_BuildDelta_TreeTransformation(t *testing.T) {
 		Data: payload.New("v1"),
 	}
 
-	// Target state entries (updated and new)
+	// Function state entries (updated and new)
 	aV2 := registry.Entry{
 		ID:   "a",
 		Kind: "service",

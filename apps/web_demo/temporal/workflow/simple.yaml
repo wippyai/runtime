@@ -1,0 +1,9 @@
+name: simple_workflow
+kind: temporal.workflow_definition
+meta:
+  comment: "Simple workflow demo."
+  task_queue: "default_tq"
+  depends_on: [ "default_tq", "hello_world.activity" ]
+
+source: file://simple.lua
+method: execute_workflow
