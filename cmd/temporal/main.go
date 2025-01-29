@@ -5,6 +5,7 @@ import (
 	"github.com/ponyruntime/pony/pkg/payload/lua"
 	runtime "github.com/ponyruntime/pony/runtime/lua/workflow"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine"
@@ -263,7 +264,6 @@ func main() {
 
 	// Execute workflow
 	workflowOptions := client.StartWorkflowOptions{
-		ID:                 "lua-workflow",
 		TaskQueue:          "lua-task-queue",
 		WorkflowRunTimeout: time.Second * 15,
 	}
@@ -272,18 +272,25 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	we, err := c.ExecuteWorkflow(ctx, workflowOptions, "lua-workflow", input)
-	if err != nil {
-		log.Fatalln("Unable to execute workflow", err)
-	}
+	wg := sync.WaitGroup{}
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			we, err := c.ExecuteWorkflow(ctx, workflowOptions, "lua-workflow", input)
+			if err != nil {
+				log.Fatalln("Unable to execute workflow", err)
+			}
 
-	var result string
-	if err := we.Get(ctx, &result); err != nil {
-		log.Fatalln("Unable to get workflow result", err)
-	}
+			var result string
+			if err := we.Get(ctx, &result); err != nil {
+				log.Fatalln("Unable to get workflow result", err)
+			}
 
-	log.Printf("Workflow result: %s\n", result)
+			log.Printf("Workflow result: %s\n", result)
+		}()
+	}
 
 	// Keep the program running to observe logs
-	time.Sleep(1 * time.Second)
+	wg.Wait()
 }
