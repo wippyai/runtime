@@ -57,6 +57,7 @@ type (
 // and logger. The supervisor is initially inactive and must be started with
 // the Start method.
 func NewSupervisor(bus events.Bus, logger *zap.Logger) *Supervisor {
+	// todo: add support for graph bases launch and stop sequence
 	return &Supervisor{
 		bus:         bus,
 		logger:      logger,
