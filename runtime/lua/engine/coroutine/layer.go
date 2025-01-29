@@ -8,7 +8,7 @@ import (
 )
 
 // Func is our simplified function format that just returns a Result
-type Func func() engine.Result
+type Func func() *engine.Result
 
 // FuncWrapper encapsulates an asynchronous function that can be executed in Lua context
 type FuncWrapper struct {
@@ -30,9 +30,9 @@ func Wrap(l *lua.LState, fn Func) {
 }
 
 // Run runs the wrapped function and returns results/error
-func (f *FuncWrapper) Run() engine.Result {
+func (f *FuncWrapper) Run() *engine.Result {
 	if f.fn == nil {
-		return engine.Result{Error: errors.New("function has already been executed")}
+		return engine.NewResult(nil, nil, errors.New("function has already been executed"))
 	}
 
 	r := f.fn()
@@ -72,19 +72,16 @@ func (r *Layer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, err
 				return nil, errors.New("task group not found")
 			}
 			tg.Add(thread)
-			go func(_ *engine.Task, w *FuncWrapper) {
+			go func(w *FuncWrapper) {
 				res := w.Run()
 				res.State = thread
 				_ = tg.Send(thread.Context(), res)
-			}(task, fw)
+			}(fw)
 			continue
 		}
 
 		outTasks = append(outTasks, task) // not our tasks
 	}
-
-	// todo: not correct, tasks won't be removed this way
-	// tasks = []*engine.Task{}
 
 	for i := 0; i < len(tasks); i++ {
 		tasks[i] = nil
