@@ -45,6 +45,8 @@ func (br *BusRunner) Transition(
 	initialState registry.State,
 	cs registry.ChangeSet,
 ) (registry.State, error) {
+	// todo: add support for group dependencies
+
 	currentState := br.stateHelper.toMap(initialState)
 	originalState := br.stateHelper.toMap(initialState) // Keep a copy of the original state for rollbacks
 	appliedOperations := make([]registry.Operation, 0)
