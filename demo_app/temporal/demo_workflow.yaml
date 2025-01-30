@@ -2,7 +2,7 @@ name: demo_workflow
 kind: temporal.workflow_binding
 meta:
   comment: "Our default workflow."
-  depends_on: [ "default_tq" ]
+  depends_on: [ "default_tq", "simple.workflow" ]
 
 task_queue: "default_tq"
 workflow: "simple.workflow"

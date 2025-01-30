@@ -149,6 +149,9 @@ func main() {
 
 	// -- temporal (uses app context but can be isolated)
 	temporalSvc := temporal.NewManager(bus, dtt, exec, workflowReg, log.Named("temporal"))
+	if err := temporalSvc.Start(ctx); err != nil {
+		appLogger.Fatal("failed to start temporal service", zap.Error(err))
+	}
 
 	// basically for clients
 	ctx = context.WithValue(ctx, contextapi.TemporalCtx, temporalSvc)

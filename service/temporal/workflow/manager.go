@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"context"
 	"fmt"
 	"sync"
 
@@ -28,7 +29,7 @@ func NewWorkflowManager(log *zap.Logger, reg runtime.WorkflowRegistry) *Manager 
 }
 
 // GetWorkflow retrieves a workflow handler for the given ID
-func (m *Manager) GetWorkflow(id registry.ID) (any, error) {
+func (m *Manager) GetWorkflow(ctx context.Context, id registry.ID) (any, error) {
 	m.mu.RLock()
 	cfg, exists := m.configs[id]
 	m.mu.RUnlock()
@@ -43,11 +44,12 @@ func (m *Manager) GetWorkflow(id registry.ID) (any, error) {
 		return nil, fmt.Errorf("failed to get workflow handler %s: %w", id, err)
 	}
 
-	return m.wrapWorkflow(w)
+	return m.wrapWorkflow(ctx, w)
 }
 
-// AddWorkflow initializes a new workflow configuration
-func (m *Manager) AddWorkflow(
+// InitWorkflow initializes a new workflow configuration
+func (m *Manager) InitWorkflow(
+	ctx context.Context,
 	id registry.ID,
 	cfg *api.WorkflowDefinition,
 ) (interface{}, error) {
@@ -65,11 +67,11 @@ func (m *Manager) AddWorkflow(
 		return nil, fmt.Errorf("failed to get workflow handler %s: %w", id, err)
 	}
 
-	return m.wrapWorkflow(w)
+	return m.wrapWorkflow(ctx, w)
 }
 
-func (m *Manager) wrapWorkflow(w func() any) (any, error) {
-	return newDefinitionFactory(w), nil
+func (m *Manager) wrapWorkflow(ctx context.Context, w func() any) (any, error) {
+	return newDefinitionFactory(ctx, w), nil
 }
 
 // GetConfig retrieves a workflow configuration
