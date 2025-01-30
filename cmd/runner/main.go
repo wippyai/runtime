@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"github.com/ponyruntime/pony/runtime/workflow"
 	"github.com/ponyruntime/pony/service/temporal"
 	httpbase "net/http"
 	"os"
@@ -125,6 +126,16 @@ func main() {
 
 	ctx = context.WithValue(ctx, contextapi.ExecutorCtx, exec)
 
+	// -- workflow registry
+	workflowReg := workflow.NewRegistry(bus, log.Named("workflow"))
+	if err := workflowReg.Start(ctx); err != nil {
+		appLogger.Fatal("failed to start workflow registry", zap.Error(err))
+	}
+	defer func() { _ = workflowReg.Stop() }()
+
+	ctx = context.WithValue(ctx, contextapi.ExecutorCtx, exec)
+	ctx = context.WithValue(ctx, contextapi.WorkflowCtx, workflowReg)
+
 	// -- lua lang and modules
 	luaRuntime := luaruntime.NewRuntimeManager(
 		bus, dtt, log.Named("lua"),
@@ -139,7 +150,10 @@ func main() {
 	// -- end of lua lang and modules
 
 	// -- temporal (uses app context but can be isolated)
-	temporalSvc := temporal.NewManager(bus, dtt, exec, log.Named("temporal"))
+	temporalSvc := temporal.NewManager(bus, dtt, exec, workflowReg, log.Named("temporal"))
+
+	// basically for clients
+	ctx = context.WithValue(ctx, contextapi.TemporalCtx, temporalSvc)
 
 	// -- end of temporal
 

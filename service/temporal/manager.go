@@ -3,6 +3,7 @@ package temporal
 import (
 	"context"
 	"fmt"
+
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
@@ -35,6 +36,7 @@ func NewManager(
 	bus events.Bus,
 	dtt payload.Transcoder,
 	exec runtime.Executor,
+	workflows runtime.WorkflowRegistry,
 	logger *zap.Logger,
 ) *Manager {
 	return &Manager{
@@ -45,10 +47,11 @@ func NewManager(
 		clients:    client.NewClientManager(logger),
 		taskQueues: tq.NewTaskQueueManager(logger),
 		activities: activity.NewActivityManager(logger, exec),
-		workflows:  workflow.NewWorkflowManager(logger),
+		workflows:  workflow.NewWorkflowManager(logger, workflows),
 	}
 }
 
+// Helper methods
 func (m *Manager) unmarshalAndValidate(data payload.Payload, cfg interface{}) error {
 	if err := m.dtt.Unmarshal(data, cfg); err != nil {
 		return fmt.Errorf("failed to unmarshal config: %w", err)
@@ -63,6 +66,35 @@ func (m *Manager) unmarshalAndValidate(data payload.Payload, cfg interface{}) er
 	return nil
 }
 
+func (m *Manager) registerWithSupervisor(
+	ctx context.Context,
+	id registry.ID,
+	service supervisor.Service,
+	config supervisor.LifecycleConfig,
+) {
+	m.bus.Send(ctx, events.Event{
+		System: supervisor.System,
+		Kind:   supervisor.Register,
+		Path:   events.Path(id),
+		Data: &supervisor.Entry{
+			Service: service,
+			Config:  config,
+		},
+	})
+}
+
+func (m *Manager) unregisterFromSupervisor(
+	ctx context.Context,
+	id registry.ID,
+) {
+	m.bus.Send(ctx, events.Event{
+		System: supervisor.System,
+		Kind:   supervisor.Remove,
+		Path:   events.Path(id),
+	})
+}
+
+// Add handles registration of new temporal components
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Data == nil {
 		return fmt.Errorf("configuration data is required")
@@ -70,118 +102,121 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 
 	switch entry.Kind {
 	case api.KindClient:
-		cfg := new(api.ClientConfig)
-		if err := m.unmarshalAndValidate(entry.Data, cfg); err != nil {
-			return err
-		}
-
-		if err := m.clients.Add(entry.ID, cfg); err != nil {
-			return err
-		}
-
-		// Create and register service with supervisor
-		service, err := m.clients.GetClient(entry.ID, m.dc)
-		if err != nil {
-			return err
-		}
-
-		m.bus.Send(ctx, events.Event{
-			System: supervisor.System,
-			Kind:   supervisor.Register,
-			Path:   events.Path(entry.ID),
-			Data: &supervisor.Entry{
-				Service: service,
-				Config:  supervisor.LifecycleConfig{AutoStart: false}, // supervisor will start client when needed
-			},
-		})
-
-		return nil
-
+		return m.addClient(ctx, entry)
 	case api.KindTaskQueue:
-		cfg := new(api.TaskQueueConfig)
-		if err := m.unmarshalAndValidate(entry.Data, cfg); err != nil {
-			return err
-		}
-
-		// Check if referenced client exists
-		if !m.clients.Has(cfg.Client) {
-			return fmt.Errorf("client %s not found", cfg.Client)
-		}
-
-		if err := m.taskQueues.Add(entry.ID, cfg); err != nil {
-			return err
-		}
-
-		// Get client for the task queue
-		c, err := m.clients.GetClient(cfg.Client, m.dc) // todo: split this funcs
-		if err != nil {
-			return fmt.Errorf("failed to get client connection: %w", err)
-		}
-
-		// Get task queue service instance
-		service, err := m.taskQueues.GetTaskQueue(entry.ID, c)
-		if err != nil {
-			return fmt.Errorf("failed to create task queue service: %w", err)
-		}
-
-		// Register task queue with supervisor
-		m.bus.Send(ctx, events.Event{
-			System: supervisor.System,
-			Kind:   supervisor.Register,
-			Path:   events.Path(entry.ID),
-			Data: &supervisor.Entry{
-				Service: service,
-				Config:  service.GetLifecycleConfig(),
-			},
-		})
-
-		return nil
-
+		return m.addTaskQueue(ctx, entry)
 	case api.KindWorkflow:
-		m.log.Info("workflow registration not implemented", zap.String("id", string(entry.ID)))
-		return nil
-
+		return m.addWorkflow(ctx, entry)
 	case api.KindFunction:
-		cfg := new(api.FunctionActivity) // We'll need to define this
-		if err := m.unmarshalAndValidate(entry.Data, cfg); err != nil {
-			return err
-		}
-
-		// Check if referenced client exists
-		if !m.taskQueues.Has(cfg.TaskQueue) {
-			return fmt.Errorf("task queue %s not found", cfg.TaskQueue)
-		}
-
-		// We except task queue to be already defined
-		taskQueue, err := m.taskQueues.GetTaskQueue(cfg.TaskQueue, nil)
-		if err != nil {
-			return fmt.Errorf("failed to get task queue: %w", err)
-		}
-
-		// Register activity with activity manager
-		handler, err := m.activities.Register(entry.ID, cfg, taskQueue.GetClient())
-		if err != nil {
-			return fmt.Errorf("failed to cretate activity handler: %w", err)
-		}
-
-		// Register activity handler with task queue
-		if err := taskQueue.RegisterActivity(string(entry.ID), handler); err != nil {
-			return fmt.Errorf("failed to register activity with task queue: %w", err)
-		}
-
-		m.log.Info("activity registered successfully",
-			zap.String("id", string(entry.ID)),
-			zap.String("task_queue", string(cfg.TaskQueue)),
-		)
-
-		return nil
-
+		return m.addFunction(ctx, entry)
 	default:
 		m.log.Debug("ignoring entry kind", zap.String("kind", string(entry.Kind)))
 		return nil
 	}
 }
 
+func (m *Manager) addClient(ctx context.Context, entry registry.Entry) error {
+	cfg := new(api.ClientConfig)
+	if err := m.unmarshalAndValidate(entry.Data, cfg); err != nil {
+		return err
+	}
+
+	c, err := m.clients.InitClient(entry.ID, m.dc)
+	if err != nil {
+		return err
+	}
+
+	m.registerWithSupervisor(ctx, entry.ID, c, supervisor.LifecycleConfig{AutoStart: false})
+	return nil
+}
+
+func (m *Manager) addTaskQueue(ctx context.Context, entry registry.Entry) error {
+	cfg := new(api.TaskQueueConfig)
+	if err := m.unmarshalAndValidate(entry.Data, cfg); err != nil {
+		return err
+	}
+
+	if !m.clients.Has(cfg.Client) {
+		return fmt.Errorf("client %s not found", cfg.Client)
+	}
+
+	c, err := m.clients.GetClient(cfg.Client)
+	if err != nil {
+		return fmt.Errorf("failed to get client: %w", err)
+	}
+
+	service, err := m.taskQueues.InitTaskQueue(entry.ID, cfg, c)
+	if err != nil {
+		return fmt.Errorf("failed to init task queue: %w", err)
+	}
+
+	m.registerWithSupervisor(ctx, entry.ID, service, service.GetLifecycleConfig())
+	return nil
+}
+
+func (m *Manager) addWorkflow(ctx context.Context, entry registry.Entry) error {
+	cfg := new(api.WorkflowDefinition)
+	if err := m.unmarshalAndValidate(entry.Data, cfg); err != nil {
+		return err
+	}
+
+	if !m.taskQueues.Has(cfg.TaskQueue) {
+		return fmt.Errorf("task queue %s not found", cfg.TaskQueue)
+	}
+
+	taskQueue, err := m.taskQueues.Get(cfg.TaskQueue)
+	if err != nil {
+		return fmt.Errorf("failed to get task queue: %w", err)
+	}
+
+	w, err := m.workflows.InitWorkflow(entry.ID, cfg)
+	if err != nil {
+		return fmt.Errorf("failed to initialize workflow: %w", err)
+	}
+
+	if err := taskQueue.RegisterWorkflow(string(entry.ID), w); err != nil {
+		return fmt.Errorf("failed to register workflow with task queue: %w", err)
+	}
+
+	m.log.Info("workflow registered successfully",
+		zap.String("id", string(entry.ID)),
+		zap.String("task_queue", string(cfg.TaskQueue)),
+	)
+	return nil
+}
+
+func (m *Manager) addFunction(ctx context.Context, entry registry.Entry) error {
+	cfg := new(api.ActivityDefinition)
+	if err := m.unmarshalAndValidate(entry.Data, cfg); err != nil {
+		return err
+	}
+
+	if !m.taskQueues.Has(cfg.TaskQueue) {
+		return fmt.Errorf("task queue %s not found", cfg.TaskQueue)
+	}
+
+	taskQueue, err := m.taskQueues.Get(cfg.TaskQueue)
+	if err != nil {
+		return fmt.Errorf("failed to get task queue: %w", err)
+	}
+
+	handler, err := m.activities.InitHandler(entry.ID, cfg, taskQueue.GetClient())
+	if err != nil {
+		return fmt.Errorf("failed to create activity handler: %w", err)
+	}
+
+	if err := taskQueue.RegisterActivity(string(entry.ID), handler); err != nil {
+		return fmt.Errorf("failed to register activity with task queue: %w", err)
+	}
+
+	m.log.Info("activity registered successfully",
+		zap.String("id", string(entry.ID)),
+		zap.String("task_queue", string(cfg.TaskQueue)),
+	)
+	return nil
+}
+
+// Update handles updates to existing temporal components
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	if entry.Data == nil {
 		return fmt.Errorf("configuration data is required")
@@ -190,131 +225,117 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	switch entry.Kind {
 	case api.KindClient:
 		return fmt.Errorf("temporal clients cannot be updated at runtime, flush and re-add")
-
 	case api.KindTaskQueue:
-		cfg := new(api.TaskQueueConfig)
-		if err := m.unmarshalAndValidate(entry.Data, cfg); err != nil {
-			return err
-		}
-
-		// Get old config to check if client reference changed
-		oldCfg, exists := m.taskQueues.GetConfig(entry.ID)
-		if !exists {
-			return fmt.Errorf("task queue %s not found", entry.ID)
-		}
-
-		// Cannot change client reference
-		if oldCfg.Client != cfg.Client {
-			return fmt.Errorf("cannot change task queue client reference")
-		}
-
-		if err := m.taskQueues.Update(entry.ID, cfg); err != nil {
-			return err
-		}
-
-		// Update supervisor with new lifecycle config
-		m.bus.Send(ctx, events.Event{
-			System: supervisor.System,
-			Kind:   supervisor.Update,
-			Path:   events.Path(entry.ID),
-			Data: &supervisor.Entry{
-				Config: cfg.Lifecycle,
-			},
-		})
-
-		return nil
-
+		return m.updateTaskQueue(ctx, entry)
 	case api.KindWorkflow:
-		m.log.Info("workflow update not implemented", zap.String("id", string(entry.ID)))
-		return nil
-
+		return m.updateWorkflow(ctx, entry)
 	case api.KindFunction:
-		cfg := new(api.FunctionActivity) // We'll need to define this
-		if err := m.unmarshalAndValidate(entry.Data, cfg); err != nil {
-			return err
-		}
-
-		// Check if referenced client exists
-		if !m.taskQueues.Has(cfg.TaskQueue) {
-			return fmt.Errorf("task queue %s not found", cfg.TaskQueue)
-		}
-
-		// We except task queue to be already defined
-		taskQueue, err := m.taskQueues.GetTaskQueue(cfg.TaskQueue, nil)
-		if err != nil {
-			return fmt.Errorf("failed to get task queue: %w", err)
-		}
-
-		// Register activity with activity manager
-		handler, err := m.activities.Register(entry.ID, cfg, taskQueue.GetClient())
-		if err != nil {
-			return fmt.Errorf("failed to cretate activity handler: %w", err)
-		}
-
-		// Register activity handler with task queue
-		if err := taskQueue.RegisterActivity(string(entry.ID), handler); err != nil {
-			return fmt.Errorf("failed to register activity with task queue: %w", err)
-		}
-
-		m.log.Info("activity updated successfully",
-			zap.String("id", string(entry.ID)),
-			zap.String("task_queue", string(cfg.TaskQueue)),
-		)
-
-		return nil
-
+		return m.updateFunction(ctx, entry)
 	default:
 		m.log.Debug("ignoring entry kind", zap.String("kind", string(entry.Kind)))
 		return nil
 	}
 }
 
+func (m *Manager) updateTaskQueue(ctx context.Context, entry registry.Entry) error {
+	cfg := new(api.TaskQueueConfig)
+	if err := m.unmarshalAndValidate(entry.Data, cfg); err != nil {
+		return err
+	}
+
+	oldCfg, exists := m.taskQueues.GetConfig(entry.ID)
+	if !exists {
+		return fmt.Errorf("task queue %s not found", entry.ID)
+	}
+
+	if oldCfg.Client != cfg.Client {
+		return fmt.Errorf("cannot change task queue client reference")
+	}
+
+	if err := m.taskQueues.Update(entry.ID, cfg); err != nil {
+		return err
+	}
+
+	taskQueue, err := m.taskQueues.Get(entry.ID)
+	if err != nil {
+		return fmt.Errorf("failed to get task queue: %w", err)
+	}
+
+	m.bus.Send(ctx, events.Event{
+		System: supervisor.System,
+		Kind:   supervisor.Update,
+		Path:   events.Path(entry.ID),
+		Data: &supervisor.Entry{
+			Config: taskQueue.GetLifecycleConfig(),
+		},
+	})
+
+	return nil
+}
+
+func (m *Manager) updateWorkflow(ctx context.Context, entry registry.Entry) error {
+	m.log.Info("workflow update not implemented", zap.String("id", string(entry.ID)))
+	return nil
+}
+
+func (m *Manager) updateFunction(ctx context.Context, entry registry.Entry) error {
+	return m.addFunction(ctx, entry) // Function updates are handled the same as adds for now
+}
+
+// Delete handles removal of temporal components
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	switch entry.Kind {
 	case api.KindClient:
-		// Check if any task queues still reference this client
-		activeQueues := m.taskQueues.GetActiveTaskQueues(entry.ID)
-		if activeQueues > 0 {
-			return fmt.Errorf("client %s still has %d active task queues", entry.ID, activeQueues)
-		}
-
-		if err := m.clients.Delete(entry.ID); err != nil {
-			return err
-		}
-
-		// Unregister from supervisor
-		m.bus.Send(ctx, events.Event{
-			System: supervisor.System,
-			Kind:   supervisor.Remove,
-			Path:   events.Path(entry.ID),
-		})
-
-		return nil
-
+		return m.deleteClient(ctx, entry)
 	case api.KindTaskQueue:
-		if err := m.taskQueues.Delete(entry.ID); err != nil {
-			return err
-		}
-
-		// Unregister from supervisor
-		m.bus.Send(ctx, events.Event{
-			System: supervisor.System,
-			Kind:   supervisor.Remove,
-			Path:   events.Path(entry.ID),
-		})
-
-		return nil
-
+		return m.deleteTaskQueue(ctx, entry)
 	case api.KindWorkflow:
-		m.log.Info("workflow deletion not implemented", zap.String("id", string(entry.ID)))
-		return nil
-
+		return m.deleteWorkflow(ctx, entry)
 	case api.KindFunction:
-		m.log.Info("activity deletion not implemented", zap.String("id", string(entry.ID)))
-		return nil
-
+		return m.deleteFunction(ctx, entry)
 	default:
 		m.log.Debug("ignoring entry kind", zap.String("kind", string(entry.Kind)))
 		return nil
 	}
+}
+
+func (m *Manager) deleteClient(ctx context.Context, entry registry.Entry) error {
+	activeQueues := m.taskQueues.GetActiveTaskQueues(entry.ID)
+	if activeQueues > 0 {
+		return fmt.Errorf("client %s still has %d active task queues", entry.ID, activeQueues)
+	}
+
+	if err := m.clients.Delete(entry.ID); err != nil {
+		return err
+	}
+
+	m.unregisterFromSupervisor(ctx, entry.ID)
+	return nil
+}
+
+func (m *Manager) deleteTaskQueue(ctx context.Context, entry registry.Entry) error {
+	if err := m.taskQueues.Delete(entry.ID); err != nil {
+		return err
+	}
+
+	m.unregisterFromSupervisor(ctx, entry.ID)
+	return nil
+}
+
+func (m *Manager) deleteWorkflow(ctx context.Context, entry registry.Entry) error {
+	if err := m.workflows.Delete(entry.ID); err != nil {
+		return fmt.Errorf("failed to delete workflow: %w", err)
+	}
+
+	m.log.Info("workflow deleted successfully", zap.String("id", string(entry.ID)))
+	return nil
+}
+
+func (m *Manager) deleteFunction(ctx context.Context, entry registry.Entry) error {
+	if err := m.activities.Delete(entry.ID); err != nil {
+		return fmt.Errorf("failed to delete activity handler: %w", err)
+	}
+
+	m.log.Info("activity deleted successfully", zap.String("id", string(entry.ID)))
+	return nil
 }

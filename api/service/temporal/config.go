@@ -16,7 +16,7 @@ const (
 	KindClient    registry.Kind = "temporal.client"
 	KindTaskQueue registry.Kind = "temporal.task_queue"
 	KindFunction  registry.Kind = "temporal.function"
-	KindWorkflow  registry.Kind = "temporal.workflow" // todo: points to workflow registry
+	KindWorkflow  registry.Kind = "temporal.workflow_definition"
 )
 
 type ClientAuthType string
@@ -48,7 +48,7 @@ type TLSConfig struct {
 	UseH2C     bool           `json:"use_h2c"`
 }
 
-type FunctionActivity struct {
+type ActivityDefinition struct {
 	Name      string      `json:"name"`
 	TaskQueue registry.ID `json:"task_queue"`
 	Function  registry.ID `json:"function"`
@@ -241,9 +241,9 @@ func (c *TaskQueueConfig) ToWorkerOptions() worker.Options {
 	}
 }
 
-// UnmarshalJSON provides custom unmarshaling for FunctionActivity
-func (c *FunctionActivity) UnmarshalJSON(data []byte) error {
-	type Alias FunctionActivity
+// UnmarshalJSON provides custom unmarshaling for ActivityDefinition
+func (c *ActivityDefinition) UnmarshalJSON(data []byte) error {
+	type Alias ActivityDefinition
 	aux := &struct {
 		TaskQueue string `json:"task_queue"`
 		Function  string `json:"function"`
@@ -267,9 +267,9 @@ func (c *FunctionActivity) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// MarshalJSON provides custom marshaling for FunctionActivity
-func (c *FunctionActivity) MarshalJSON() ([]byte, error) {
-	type Alias FunctionActivity
+// MarshalJSON provides custom marshaling for ActivityDefinition
+func (c *ActivityDefinition) MarshalJSON() ([]byte, error) {
+	type Alias ActivityDefinition
 	return json.Marshal(&struct {
 		TaskQueue string `json:"task_queue"`
 		Function  string `json:"function"`
@@ -281,14 +281,67 @@ func (c *FunctionActivity) MarshalJSON() ([]byte, error) {
 	})
 }
 
-// Validate validates the FunctionActivity
-func (c *FunctionActivity) Validate() error {
+// Validate validates the ActivityDefinition
+func (c *ActivityDefinition) Validate() error {
 	if c.TaskQueue == "" {
 		return fmt.Errorf("task_queue is required")
 	}
 
 	if c.Function == "" {
 		return fmt.Errorf("function is required")
+	}
+
+	return nil
+}
+
+// UnmarshalJSON provides custom unmarshaling for WorkflowDefinition
+func (c *WorkflowDefinition) UnmarshalJSON(data []byte) error {
+	type Alias WorkflowDefinition
+	aux := &struct {
+		TaskQueue string `json:"task_queue"`
+		Workflow  string `json:"workflow"`
+		*Alias
+	}{
+		Alias: (*Alias)(c),
+	}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	// Convert string to registry.ID
+	if aux.TaskQueue != "" {
+		c.TaskQueue = registry.ID(aux.TaskQueue)
+	}
+	if aux.Workflow != "" {
+		c.Workflow = registry.ID(aux.Workflow)
+	}
+
+	return nil
+}
+
+// MarshalJSON provides custom marshaling for WorkflowDefinition
+func (c *WorkflowDefinition) MarshalJSON() ([]byte, error) {
+	type Alias WorkflowDefinition
+	return json.Marshal(&struct {
+		TaskQueue string `json:"task_queue"`
+		Workflow  string `json:"workflow"`
+		*Alias
+	}{
+		TaskQueue: string(c.TaskQueue),
+		Workflow:  string(c.Workflow),
+		Alias:     (*Alias)(c),
+	})
+}
+
+// Validate validates the WorkflowDefinition
+func (c *WorkflowDefinition) Validate() error {
+	if c.TaskQueue == "" {
+		return fmt.Errorf("task_queue is required")
+	}
+
+	if c.Workflow == "" {
+		return fmt.Errorf("workflow is required")
 	}
 
 	return nil
