@@ -2,15 +2,20 @@ package workflow
 
 import (
 	"context"
+	contextapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/runtime/lua/engine/command"
 	"github.com/ponyruntime/pony/runtime/lua/workflow"
+	"github.com/ponyruntime/pony/service/temporal/workflow/options"
+	lua2 "github.com/yuin/gopher-lua"
 	commonpb "go.temporal.io/api/common/v1"
 	"go.temporal.io/sdk/converter"
 	bindings "go.temporal.io/sdk/internalbindings"
 	"log"
 	"time"
 )
+
+var envCtx = &contextapi.Key{Name: "temporal.env"}
 
 // DefinitionFactory creates new workflow definition instances
 type DefinitionFactory struct {
@@ -51,12 +56,12 @@ type Definition struct {
 func (w *Definition) Execute(env bindings.WorkflowEnvironment, header *commonpb.Header, input *commonpb.Payloads) {
 	w.env = env
 	w.dc = env.GetDataConverter()
-
 	w.dtt = payload.GetTranscoder(w.ctx)
+
 	// todo: encapsulate this! => execute_workflow
 
 	// Start the workflow using the runner
-	if err := w.runner.Start(w.ctx, "execute_workflow"); err != nil {
+	if err := w.runner.Start(context.WithValue(w.ctx, envCtx, env), "execute_workflow"); err != nil {
 		// Handle error appropriately
 		w.env.Complete(nil, err)
 		return
@@ -131,79 +136,57 @@ func (w *Definition) Close() {
 // executeActivity handles the execution of an activity command
 func (w *Definition) executeActivity(cmd *command.Command) error {
 	name := cmd.Params[0]
-	log.Printf("Executing activity: %s\n", name)
 
-	opts := cmd.Params[1]
-	log.Printf("Options: %s\n", opts)
+	var activityOptions = new(options.ActivityOptions)
+	if err := w.dtt.Unmarshal(payload.NewPayload(cmd.Params[1], payload.Lua), activityOptions); err != nil {
+		return err
+	}
+
+	tOps, err := activityOptions.ToExecuteActivityOptions()
+	if err != nil {
+		return err
+	}
 
 	// get all args
-	args := cmd.Params[2:]
-	log.Printf("Args: %v\n", args)
+	args, err := w.toPayloads(cmd.Params[2:])
+	if err != nil {
+		return err
+	}
 
-	//bindings.ExecuteActivityParams{
-	//	ExecuteActivityOptions: bindings.ExecuteActivityOptions{
-	//		ActivityID:             "", // optional
-	//		TaskQueueName:          "",
-	//		ScheduleToCloseTimeout: 0,
-	//		ScheduleToStartTimeout: 0,
-	//		StartToCloseTimeout:    0, // at least one interval
-	//		HeartbeatTimeout:       0,
-	//		WaitForCancellation:    false,
-	//		OriginalTaskQueueName:  "",
-	//		RetryPolicy:            nil,
-	//		DisableEagerExecution:  false,
-	//		VersioningIntent:       0,
-	//		Summary:                "",
-	//	},
-	//	ActivityType:  struct{ Name string }{Name: "simple-activity"},
-	//	Input:         nil,
-	//	DataConverter: nil,
-	//	Header:        nil,
-	//}
+	log.Printf("Activity name: %v\n", name)
+	log.Printf("Activity options: %v\n", activityOptions)
+	log.Printf("Activity args: %v\n", args)
 
-	/*
-		ip, err := dt.ToPayloads(lua.ToGoAny(cmd.Params[0]))
-					if err != nil {
-						l.env.Complete(nil, err)
-						return
-					}
-
-					// execute activity
-					l.env.ExecuteActivity(bindings.ExecuteActivityParams{
-						ExecuteActivityOptions: bindings.ExecuteActivityOptions{
-							ActivityID:          "simple-activity",
-							TaskQueueName:       l.env.WorkflowInfo().TaskQueueName,
-							StartToCloseTimeout: time.Second * 5,
-						},
-						ActivityType: struct{ Name string }{Name: "simple-activity"},
-						Input:        ip,
-					}, func(result *commonpb.Payloads, err error) {
-						//log.Printf("Activity result: %v %v\n", result, err)
-
-						if err != nil {
-							err := l.runner.SendError(cmd, err)
-							if err != nil {
-								// todo: for real?
-								l.env.Complete(nil, err)
-								return
-							}
-							return
-						}
-
-						var value = new(any)
-						if err := dt.FromPayloads(result, value); err != nil {
-							l.env.Complete(nil, err)
-							return
-						}
-
-						// todo: use our transcoder
-						err = l.runner.SendResult(cmd, lua.GoToLua(*value))
-						if err != nil {
-							l.env.Complete(nil, err)
-							return
-						}
-					})
-	*/
+	w.env.ExecuteActivity(bindings.ExecuteActivityParams{
+		ExecuteActivityOptions: tOps,
+		ActivityType:           struct{ Name string }{Name: name.String()},
+		Input:                  args,
+	}, func(result *commonpb.Payloads, err error) {
+		log.Printf("Activity result: %v %v\n", result, err)
+		//
+		//	//if err != nil {
+		//	//	err := w.runner.SendError(cmd, err)
+		//	//	if err != nil {
+		//	//		// todo: for real?
+		//	//		w.env.Complete(nil, err)
+		//	//		return
+		//	//	}
+		//	//	return
+		//	//}
+		//	//
+		//	//var value = new(any)
+		//	//if err := w.dc.FromPayloads(result, value); err != nil {
+		//	//	w.env.Complete(nil, err)
+		//	//	return
+		//	//}
+		//	//
+		//	//// todo: use our transcoder
+		//	//err = w.runner.SendResult(cmd, lua.GoToLua(*value))
+		//	//if err != nil {
+		//	//	w.env.Complete(nil, err)
+		//	//	return
+		//	//}
+	})
 
 	return nil
 }
@@ -211,4 +194,13 @@ func (w *Definition) executeActivity(cmd *command.Command) error {
 // executeTimer handles the execution of a timer command
 func (w *Definition) executeTimer(cmd *command.Command) error {
 	return nil
+}
+
+func (w *Definition) toPayloads(args []lua2.LValue) (*commonpb.Payloads, error) {
+	argPayloads := make(payload.Payloads, len(args))
+	for i, arg := range args {
+		argPayloads[i] = payload.NewPayload(arg, payload.Lua)
+	}
+
+	return w.dc.ToPayloads(argPayloads)
 }

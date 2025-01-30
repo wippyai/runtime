@@ -22,7 +22,7 @@ func StabWorkflow(ctx workflow.Context) error {
 	ctx = workflow.WithActivityOptions(ctx, ao)
 
 	// Get the stab activity
-	err := workflow.ExecuteActivity(ctx, "hello_world.activity", "hello world").Get(ctx, nil)
+	err := workflow.ExecuteActivity(ctx, "hello_world.activity", "hello", "world").Get(ctx, nil)
 	if err != nil {
 		logger.Error("Failed to execute stab activity", "error", err)
 		return err
@@ -46,7 +46,9 @@ func main() {
 	w := worker.New(c, "wippy_demos_wf", worker.Options{})
 
 	// Register workflow
-	w.RegisterWorkflow(StabWorkflow)
+	w.RegisterWorkflowWithOptions(StabWorkflow, workflow.RegisterOptions{
+		Name: "demo_workflow",
+	})
 
 	// Start worker
 	err = w.Run(worker.InterruptCh())
