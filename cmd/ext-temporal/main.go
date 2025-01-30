@@ -21,7 +21,7 @@ func StabWorkflow(ctx workflow.Context) error {
 	}
 	ctx = workflow.WithActivityOptions(ctx, ao)
 
-	// Execute the stab activity
+	// Get the stab activity
 	err := workflow.ExecuteActivity(ctx, "hello_world.activity", "hello world").Get(ctx, nil)
 	if err != nil {
 		logger.Error("Failed to execute stab activity", "error", err)
