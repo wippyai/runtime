@@ -23,6 +23,8 @@ type (
 	// Format represents the data format of a payload (e.g., JSON, YAML, etc.).
 	Format string
 
+	Payloads []*Payload
+
 	// Payload is an interface representing a data payload with an associated format.
 	Payload interface {
 		// Format returns the format of the payload.

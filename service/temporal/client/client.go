@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"github.com/ponyruntime/pony/api/registry"
 	api "github.com/ponyruntime/pony/api/service/temporal"
+	"github.com/ponyruntime/pony/service/temporal/data_converter"
+	"go.temporal.io/sdk/converter"
 	"sync"
 	"time"
 
@@ -54,9 +56,10 @@ func (s *Client) Start(ctx context.Context) (<-chan any, error) {
 
 	// Create temporal client
 	c, err := client.Dial(client.Options{
-		HostPort:  s.config.Address,
-		Namespace: s.config.Namespace,
-		Logger:    newZapLogger(s.log),
+		HostPort:      s.config.Address,
+		Namespace:     s.config.Namespace,
+		Logger:        newZapLogger(s.log),
+		DataConverter: data_converter.NewDataConverter(converter.GetDefaultDataConverter()),
 		// todo: add other client options from config as needed
 		// todo: add context propagation
 	})

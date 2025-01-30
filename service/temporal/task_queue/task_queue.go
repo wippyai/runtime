@@ -3,10 +3,12 @@ package task_queue
 import (
 	"context"
 	"fmt"
+	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	api "github.com/ponyruntime/pony/api/service/temporal"
 	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/ponyruntime/pony/service/temporal/client"
+	commonpb "go.temporal.io/api/common/v1"
 	tmact "go.temporal.io/sdk/activity"
 	tmwfl "go.temporal.io/sdk/workflow"
 	"log"
@@ -36,7 +38,12 @@ type TaskQueue struct {
 }
 
 // NewTaskQueue creates a new task queue service instance
-func NewTaskQueue(logger *zap.Logger, id registry.ID, config *api.TaskQueueConfig, client *client.Client) *TaskQueue {
+func NewTaskQueue(
+	logger *zap.Logger,
+	id registry.ID,
+	config *api.TaskQueueConfig,
+	client *client.Client,
+) *TaskQueue {
 	return &TaskQueue{
 		log:        logger,
 		id:         id,
@@ -100,10 +107,20 @@ func (s *TaskQueue) Start(ctx context.Context) (<-chan any, error) {
 
 	// TODO: _____________________ YES
 	w.RegisterActivityWithOptions(
-		func(ctx context.Context) error {
+		func(ctx context.Context, args *payload.Payload) (*commonpb.Payloads, error) {
+			// todo: we simply can pass client over context actually
+			actInfo := tmact.GetInfo(ctx)
+
+			// todo: convert and send to executor actually
+			// todo: do we actually want to perform transcode to wippy payloads?
+			// todo: probably yes
 			s.log.Info("stab activity executed")
-			return nil
-		}, tmact.RegisterOptions{Name: "stab-activity"})
+			log.Printf("%+v %+v", args, actInfo)
+			log.Printf("Activity result: %v\n", ctx)
+			return nil, nil
+		}, tmact.RegisterOptions{
+			Name: "stab-activity",
+		})
 	log.Printf("Registered activity: stab-activity\n")
 	// TODO: _____________________ YES
 
