@@ -1,8 +1,7 @@
 name: hello_world.activity
-kind: temporal.function
+kind: temporal.function_binding
 meta:
   comment: "Simple Hello World Activity."
-  task_queue: "default_tq"
   depends_on: [ "default_tq" ]
 
 task_queue: "default_tq"

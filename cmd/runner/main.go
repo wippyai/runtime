@@ -158,7 +158,7 @@ func main() {
 	// -- configuration bus
 	svc, err := services.NewRouter(ctx, bus,
 		services.WithListener("http.*", http.NewExecutingManager(bus, dtt, exec, log.Named("http"))),
-		services.WithListener("(function|library|terminal).lua", luaRuntime),
+		services.WithListener("(function|library|terminal|workflow).lua", luaRuntime),
 		services.WithListener("terminal.*", term),
 		services.WithListener("temporal.*", temporalSvc), // Add this line
 	)

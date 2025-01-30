@@ -113,7 +113,7 @@ func (m *RuntimeManager) unregisterTerminal(ctx context.Context, id registry.ID)
 	})
 }
 
-func (m *RuntimeManager) registerWorkflow(ctx context.Context, id registry.ID, runner any) {
+func (m *RuntimeManager) registerWorkflow(ctx context.Context, id registry.ID, runner func() any) {
 	m.bus.Send(ctx, events.Event{
 		System: runtime.WorkflowSystem,
 		Kind:   runtime.RegisterWorkflowEvent,

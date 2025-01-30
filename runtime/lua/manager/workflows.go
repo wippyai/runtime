@@ -98,7 +98,7 @@ func (m *Workflows) GetFactory(
 	cfg *api.WorkflowConfig,
 	modules api.ModuleRegistry,
 	libraries api.LibraryRegistry,
-) (func() *workflow.Runner, error) {
+) (func() any, error) {
 	if err := m.validateDependencies(cfg, modules, libraries); err != nil {
 		return nil, err
 	}
