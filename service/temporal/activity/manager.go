@@ -3,6 +3,7 @@ package activity
 import (
 	"context"
 	"fmt"
+	"github.com/ponyruntime/pony/api/payload"
 	api "github.com/ponyruntime/pony/api/service/temporal"
 	"log"
 	"sync"
@@ -10,7 +11,6 @@ import (
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
 	"github.com/ponyruntime/pony/service/temporal/client"
-	commonpb "go.temporal.io/api/common/v1"
 	"go.uber.org/zap"
 )
 
@@ -45,12 +45,12 @@ func (m *Manager) Register(id registry.ID, cfg *api.ActivityConfig, client *clie
 	m.configs[id] = cfg
 
 	// Create handler function with client context binding
-	handler := func(ctx context.Context, args *commonpb.Payloads) (*commonpb.Payloads, error) {
+	handler := func(ctx context.Context, args payload.Payloads) (payload.Payloads, error) {
 		m.log.Info("executing activity", zap.String("activity_id", string(id)))
 		log.Printf("Activity received input: %v \n", ctx)
 		// todo: merge contexts or move temporal specific one to our thread
 
-		for _, a := range args.GetPayloads() {
+		for _, a := range args {
 			log.Printf("Activity received input: %v \n", a)
 		}
 

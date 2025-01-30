@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/ponyruntime/pony/api/registry"
 	api "github.com/ponyruntime/pony/api/service/temporal"
-	"github.com/ponyruntime/pony/service/temporal/data_converter"
 	"go.temporal.io/sdk/converter"
 	"sync"
 	"time"
@@ -26,6 +25,7 @@ type Client struct {
 	ctx    context.Context
 	log    *zap.Logger
 	id     registry.ID
+	dc     converter.DataConverter
 	config *api.ClientConfig
 	client client.Client
 
@@ -35,10 +35,16 @@ type Client struct {
 }
 
 // NewClient creates a new client service instance
-func NewClient(logger *zap.Logger, id registry.ID, config *api.ClientConfig) *Client {
+func NewClient(
+	logger *zap.Logger,
+	id registry.ID,
+	dc converter.DataConverter,
+	config *api.ClientConfig,
+) *Client {
 	return &Client{
 		log:    logger,
 		id:     id,
+		dc:     dc,
 		config: config,
 	}
 }
@@ -64,9 +70,8 @@ func (s *Client) Start(ctx context.Context) (<-chan any, error) {
 		HostPort:      s.config.Address,
 		Namespace:     s.config.Namespace,
 		Logger:        newZapLogger(s.log),
-		DataConverter: data_converter.NewDataConverter(converter.GetDefaultDataConverter()),
+		DataConverter: s.dc,
 		// todo: add other client options from config as needed
-		// todo: add context propagation
 	})
 	if err != nil {
 		s.mu.Unlock()

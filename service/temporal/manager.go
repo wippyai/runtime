@@ -11,8 +11,10 @@ import (
 	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/ponyruntime/pony/service/temporal/activity"
 	"github.com/ponyruntime/pony/service/temporal/client"
+	"github.com/ponyruntime/pony/service/temporal/data_converter"
 	tq "github.com/ponyruntime/pony/service/temporal/task_queue"
 	"github.com/ponyruntime/pony/service/temporal/workflow"
+	"go.temporal.io/sdk/converter"
 	"go.uber.org/zap"
 )
 
@@ -21,6 +23,7 @@ type Manager struct {
 	log        *zap.Logger
 	bus        events.Bus
 	dtt        payload.Transcoder
+	dc         converter.DataConverter
 	clients    *client.Manager
 	taskQueues *tq.Manager
 	activities *activity.Manager
@@ -38,6 +41,7 @@ func NewManager(
 		log:        logger,
 		bus:        bus,
 		dtt:        dtt,
+		dc:         data_converter.NewDataConverter(dtt, converter.GetDefaultDataConverter()),
 		clients:    client.NewClientManager(logger),
 		taskQueues: tq.NewTaskQueueManager(logger),
 		activities: activity.NewActivityManager(logger, exec),
@@ -76,7 +80,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		}
 
 		// Create and register service with supervisor
-		service, err := m.clients.GetClient(entry.ID)
+		service, err := m.clients.GetClient(entry.ID, m.dc)
 		if err != nil {
 			return err
 		}
@@ -109,7 +113,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		}
 
 		// Get client for the task queue
-		c, err := m.clients.GetClient(cfg.Client)
+		c, err := m.clients.GetClient(cfg.Client, m.dc) // todo: split this funcs
 		if err != nil {
 			return fmt.Errorf("failed to get client connection: %w", err)
 		}
