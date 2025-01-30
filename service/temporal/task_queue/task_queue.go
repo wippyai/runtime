@@ -9,6 +9,7 @@ import (
 	"github.com/ponyruntime/pony/service/temporal/client"
 	tmact "go.temporal.io/sdk/activity"
 	tmwfl "go.temporal.io/sdk/workflow"
+	"log"
 	"sync"
 
 	"go.temporal.io/sdk/worker"
@@ -94,6 +95,17 @@ func (s *TaskQueue) Start(ctx context.Context) (<-chan any, error) {
 	s.statusChan = make(chan any, 3)
 	s.exit = make(chan struct{})
 	s.mu.Unlock()
+
+	// register stab activity
+
+	// TODO: _____________________ YES
+	w.RegisterActivityWithOptions(
+		func(ctx context.Context) error {
+			s.log.Info("stab activity executed")
+			return nil
+		}, tmact.RegisterOptions{Name: "stab-activity"})
+	log.Printf("Registered activity: stab-activity\n")
+	// TODO: _____________________ YES
 
 	// Start worker
 	if err := w.Start(); err != nil {
