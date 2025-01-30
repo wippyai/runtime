@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/ponyruntime/pony/api/registry"
 	api "github.com/ponyruntime/pony/api/service/temporal"
+	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/ponyruntime/pony/service/temporal/client"
 	tmact "go.temporal.io/sdk/activity"
 	tmwfl "go.temporal.io/sdk/workflow"
@@ -184,4 +185,27 @@ func (s *TaskQueue) GetRegisteredActivities() []string {
 		names = append(names, name)
 	}
 	return names
+}
+
+func (s *TaskQueue) GetLifecycleConfig() supervisor.LifecycleConfig {
+	cfg := s.config.Lifecycle
+
+	// check if depends on contains client
+	if cfg.DependsOn == nil {
+		cfg.DependsOn = make([]string, 0)
+	}
+
+	found := false
+	for _, dep := range cfg.DependsOn {
+		if dep == string(api.KindClient) {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		cfg.DependsOn = append(cfg.DependsOn, string(api.KindClient))
+	}
+
+	return cfg
 }

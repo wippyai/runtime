@@ -72,7 +72,6 @@ func (s *Client) Start(ctx context.Context) (<-chan any, error) {
 
 	// verify client connectivity
 	if i, err := s.client.WorkflowService().GetSystemInfo(ctx, nil); err != nil {
-		s.mu.Unlock()
 		return nil, fmt.Errorf("failed to verify client connectivity: %w", err)
 	} else {
 		s.log.Info("temporal client started")

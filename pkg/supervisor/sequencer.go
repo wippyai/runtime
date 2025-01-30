@@ -3,6 +3,7 @@ package supervisor
 import (
 	"context"
 	"fmt"
+	"log"
 	"sync"
 
 	"github.com/ponyruntime/pony/internal/graph"
@@ -42,6 +43,8 @@ func (sp *Sequencer) Transition(ctx context.Context, operations ...Operation) er
 	if len(operations) == 0 {
 		return nil
 	}
+
+	log.Printf("Processing %+v operations", operations)
 
 	// Separate start and stop operations
 	var startOps, stopOps []Operation
