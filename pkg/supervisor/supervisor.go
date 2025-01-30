@@ -242,10 +242,7 @@ func (s *Supervisor) run(ctx context.Context) {
 					zap.Error(err),
 				)
 			}
-			s.logger.Info("service registered",
-				zap.String("serviceID", action.serviceID),
-				zap.Any("entry", action.entry),
-			)
+			s.logger.Info("service registered", zap.String("serviceID", action.serviceID))
 
 		case actionRemove:
 			if err := s.tx.removeService(action.serviceID); err != nil {
