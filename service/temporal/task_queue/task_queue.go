@@ -63,7 +63,10 @@ func (s *TaskQueue) constructWorker(ctx context.Context) (worker.Worker, error) 
 		return nil, err
 	}
 
-	w := worker.New(c, s.config.TaskQueue, s.config.ToWorkerOptions())
+	cfg := s.config.ToWorkerOptions()
+	cfg.BackgroundActivityContext = ctx
+
+	w := worker.New(c, s.config.TaskQueue, cfg)
 
 	// Mount all registered workflows
 	for name, workflow := range s.workflows {

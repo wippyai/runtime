@@ -138,7 +138,7 @@ func main() {
 	)
 	// -- end of lua lang and modules
 
-	// -- temporal
+	// -- temporal (uses app context but can be isolated)
 	temporalSvc := temporal.NewManager(bus, dtt, exec, log.Named("temporal"))
 
 	// -- end of temporal
