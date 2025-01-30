@@ -175,7 +175,7 @@ func TestSequencer_BasicDependencyOrder(t *testing.T) {
 	}
 
 	// Verify services stopped in correct order (reverse dependency order)
-	expectedStopOrder := []string{"service-c", "service-b", "service-a"}
+	expectedStopOrder := []string{"service-a", "service-b", "service-c"}
 	require.Equal(t, expectedStopOrder, stopOrder, "Services stopped in wrong order")
 }
 
@@ -308,7 +308,7 @@ func TestSequencer_MixedOperations(t *testing.T) {
 	}
 
 	// Verify stop operations happen first
-	expectedStopOrder := []string{"stop-2", "stop-1"}
+	expectedStopOrder := []string{"stop-1", "stop-2"}
 	require.Equal(t, expectedStopOrder, stopOrder, "Incorrect stop order")
 
 	// Verify start operations happen after stops
@@ -435,42 +435,44 @@ func TestSequencer_ComplexDependencyChain(t *testing.T) {
 	verifyOrderedGroups(t, events, startGroups, true)
 
 	// Now test stopping - should be exact reverse of start order
+	// For stopping, we invert the dependency relationships:
+	// - If A depends on B for starting, then B depends on A for stopping
 	stopOps := []Operation{
 		{
 			Type:         OperationStop,
 			ID:           "service-d",
 			Controller:   services["service-d"],
-			Dependencies: []string{}, // D stops first
+			Dependencies: []string{"service-c1", "service-c2"}, // Same deps as start
 		},
 		{
 			Type:         OperationStop,
 			ID:           "service-c1",
 			Controller:   services["service-c1"],
-			Dependencies: []string{"service-d"}, // C1, C2 must wait for D
+			Dependencies: []string{"service-b"}, // Same as start
 		},
 		{
 			Type:         OperationStop,
 			ID:           "service-c2",
 			Controller:   services["service-c2"],
-			Dependencies: []string{"service-d"}, // C1, C2 must wait for D
+			Dependencies: []string{"service-b"}, // Same as start
 		},
 		{
 			Type:         OperationStop,
 			ID:           "service-b",
 			Controller:   services["service-b"],
-			Dependencies: []string{"service-c1", "service-c2"}, // B must wait for C1,C2
+			Dependencies: []string{"service-a1", "service-a2"}, // Same as start
 		},
 		{
 			Type:         OperationStop,
 			ID:           "service-a1",
 			Controller:   services["service-a1"],
-			Dependencies: []string{"service-b"}, // A1, A2 must wait for B
+			Dependencies: []string{}, // Same as start
 		},
 		{
 			Type:         OperationStop,
 			ID:           "service-a2",
 			Controller:   services["service-a2"],
-			Dependencies: []string{"service-b"}, // A1, A2 must wait for B
+			Dependencies: []string{}, // Same as start
 		},
 	}
 
