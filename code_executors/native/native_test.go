@@ -169,13 +169,14 @@ func TestExecutor_Stderr(t *testing.T) {
 	for {
 		// we don't care about the perf here
 		buf := make([]byte, 65536)
-		time.Sleep(time.Second)
 		_, err = executor.StderrReader().Read(buf)
 		if err != nil {
 			// fs.ErrClosed is returned when the process is stopped (the file is already closed)
 			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, fs.ErrClosed) {
+				sb.Write(buf)
 				break
 			}
+
 			t.Fatal(err)
 		}
 
