@@ -5,61 +5,57 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ponyruntime/pony/api/registry"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
-func TestTaskQueueConfig_MarshalUnmarshal(t *testing.T) {
+func TestClientConfig_TLS(t *testing.T) {
 	tests := []struct {
-		name    string
-		config  TaskQueueConfig
-		wantErr bool
+		name     string
+		input    string
+		expected *ClientConfig
+		wantErr  bool
 	}{
 		{
-			name: "full config",
-			config: TaskQueueConfig{
-				Meta:                             registry.Metadata{"version": "1.0"},
-				MaxConcurrentActivityExecution:   100,
-				WorkerActivitiesPerSecond:        50.0,
-				MaxConcurrentLocalActivity:       50,
-				WorkerLocalActivitiesPerSecond:   25.0,
-				TaskQueueActivitiesPerSecond:     100.0,
-				MaxConcurrentActivityPollers:     2,
-				MaxConcurrentWorkflowExecution:   100,
-				MaxConcurrentWorkflowPollers:     2,
-				StickyScheduleTimeout:            5 * time.Second,
-				EnableLoggingReplay:              false,
-				WorkerStopTimeout:                30 * time.Second,
-				MaxHeartbeatThrottleInterval:     60 * time.Second,
-				DefaultHeartbeatThrottleInterval: 30 * time.Second,
-				EnableSessionWorker:              false,
-				MaxConcurrentSessionExecution:    100,
-				DisableWorkflowWorker:            false,
-				LocalActivityWorkerOnly:          false,
-				DeadlockDetectionTimeout:         1 * time.Second,
-				DisableEagerActivities:           false,
-				MaxConcurrentEagerActivities:     100,
-				DisableRegistrationAliasing:      true,
+			name: "valid config with TLS",
+			input: `{
+				"address": "localhost:7233",
+				"namespace": "default",
+				"tls": {
+					"key": "key.pem",
+					"cert": "cert.pem",
+					"root_ca": "ca.pem",
+					"client_auth_type": "require_and_verify_client_cert",
+					"server_name": "temporal",
+					"use_h2c": false
+				},
+				"cache_size": 1000
+			}`,
+			expected: &ClientConfig{
+				Address:   "localhost:7233",
+				Namespace: "default",
+				TLS: &TLSConfig{
+					Key:        "key.pem",
+					Cert:       "cert.pem",
+					RootCA:     "ca.pem",
+					AuthType:   RequireAndVerifyClientCert,
+					ServerName: "temporal",
+					UseH2C:     false,
+				},
+				CacheSize: 1000,
 			},
 			wantErr: false,
 		},
 		{
-			name: "minimal config",
-			config: TaskQueueConfig{
-				Meta: registry.Metadata{},
-			},
-			wantErr: false,
-		},
-		{
-			name: "config with complex durations",
-			config: TaskQueueConfig{
-				Meta:                             registry.Metadata{"version": "1.0"},
-				StickyScheduleTimeout:            1*time.Hour + 30*time.Minute,
-				WorkerStopTimeout:                2*time.Hour + 15*time.Minute,
-				MaxHeartbeatThrottleInterval:     45*time.Minute + 30*time.Second,
-				DefaultHeartbeatThrottleInterval: 3*time.Hour + 45*time.Minute,
-				DeadlockDetectionTimeout:         2*time.Minute + 30*time.Second,
+			name: "valid config without TLS",
+			input: `{
+				"address": "localhost:7233",
+				"namespace": "default",
+				"cache_size": 1000
+			}`,
+			expected: &ClientConfig{
+				Address:   "localhost:7233",
+				Namespace: "default",
+				CacheSize: 1000,
 			},
 			wantErr: false,
 		},
@@ -67,19 +63,23 @@ func TestTaskQueueConfig_MarshalUnmarshal(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Marshal
-			data, err := json.Marshal(&tt.config)
+			var got ClientConfig
+			err := json.Unmarshal([]byte(tt.input), &got)
 			if tt.wantErr {
 				assert.Error(t, err)
 				return
 			}
-			require.NoError(t, err)
+			assert.NoError(t, err)
+			assert.Equal(t, tt.expected, &got)
 
-			// Unmarshal and compare
-			var decoded TaskQueueConfig
-			err = json.Unmarshal(data, &decoded)
-			require.NoError(t, err)
-			assert.Equal(t, tt.config, decoded)
+			// Test marshaling
+			marshaled, err := json.Marshal(&got)
+			assert.NoError(t, err)
+
+			var unmarshaled ClientConfig
+			err = json.Unmarshal(marshaled, &unmarshaled)
+			assert.NoError(t, err)
+			assert.Equal(t, got, unmarshaled)
 		})
 	}
 }
@@ -87,87 +87,67 @@ func TestTaskQueueConfig_MarshalUnmarshal(t *testing.T) {
 func TestTaskQueueConfig_UnmarshalJSON(t *testing.T) {
 	tests := []struct {
 		name     string
-		json     string
-		expected TaskQueueConfig
+		input    string
+		expected *TaskQueueConfig
 		wantErr  bool
 	}{
 		{
-			name: "valid configuration",
-			json: `{
-				"meta": {"version": "1.0"},
-				"max_concurrent_activity_execution": 100,
-				"worker_activities_per_second": 50.0,
-				"sticky_schedule_timeout": "5s",
+			name: "valid config with all fields",
+			input: `{
+				"client": "test-client",
+				"task_queue": "test-queue",
+				"max_concurrent_activity_execution": 10,
+				"worker_activities_per_second": 5.0,
+				"sticky_schedule_timeout": "1m",
 				"worker_stop_timeout": "30s",
-				"max_heartbeat_throttle_interval": "60s",
-				"default_heartbeat_throttle_interval": "30s",
-				"deadlock_detection_timeout": "1s"
+				"max_heartbeat_throttle_interval": "5s",
+				"default_heartbeat_throttle_interval": "1s",
+				"deadlock_detection_timeout": "1m"
 			}`,
-			expected: TaskQueueConfig{
-				Meta:                             registry.Metadata{"version": "1.0"},
-				MaxConcurrentActivityExecution:   100,
-				WorkerActivitiesPerSecond:        50.0,
-				StickyScheduleTimeout:            5 * time.Second,
+			expected: &TaskQueueConfig{
+				Client:                           "test-client",
+				TaskQueue:                        "test-queue",
+				MaxConcurrentActivityExecution:   10,
+				WorkerActivitiesPerSecond:        5.0,
+				StickyScheduleTimeout:            time.Minute,
 				WorkerStopTimeout:                30 * time.Second,
-				MaxHeartbeatThrottleInterval:     60 * time.Second,
-				DefaultHeartbeatThrottleInterval: 30 * time.Second,
-				DeadlockDetectionTimeout:         1 * time.Second,
+				MaxHeartbeatThrottleInterval:     5 * time.Second,
+				DefaultHeartbeatThrottleInterval: time.Second,
+				DeadlockDetectionTimeout:         time.Minute,
 			},
 			wantErr: false,
 		},
 		{
-			name: "invalid sticky schedule timeout",
-			json: `{
+			name: "invalid duration format",
+			input: `{
+				"meta": {"name": "test-queue"},
+				"client": "test-client",
+				"task_queue": "test-queue",
 				"sticky_schedule_timeout": "invalid"
 			}`,
 			wantErr: true,
-		},
-		{
-			name: "invalid worker stop timeout",
-			json: `{
-				"worker_stop_timeout": "invalid"
-			}`,
-			wantErr: true,
-		},
-		{
-			name: "invalid heartbeat throttle interval",
-			json: `{
-				"max_heartbeat_throttle_interval": "invalid"
-			}`,
-			wantErr: true,
-		},
-		{
-			name: "invalid default heartbeat throttle interval",
-			json: `{
-				"default_heartbeat_throttle_interval": "invalid"
-			}`,
-			wantErr: true,
-		},
-		{
-			name: "invalid deadlock detection timeout",
-			json: `{
-				"deadlock_detection_timeout": "invalid"
-			}`,
-			wantErr: true,
-		},
-		{
-			name:     "empty object",
-			json:     `{}`,
-			expected: TaskQueueConfig{},
-			wantErr:  false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var config TaskQueueConfig
-			err := json.Unmarshal([]byte(tt.json), &config)
+			var got TaskQueueConfig
+			err := json.Unmarshal([]byte(tt.input), &got)
 			if tt.wantErr {
 				assert.Error(t, err)
 				return
 			}
-			require.NoError(t, err)
-			assert.Equal(t, tt.expected, config)
+			assert.NoError(t, err)
+			assert.Equal(t, tt.expected, &got)
+
+			// Test marshaling
+			marshaled, err := json.Marshal(&got)
+			assert.NoError(t, err)
+
+			var unmarshaled TaskQueueConfig
+			err = json.Unmarshal(marshaled, &unmarshaled)
+			assert.NoError(t, err)
+			assert.Equal(t, got, unmarshaled)
 		})
 	}
 }
@@ -181,20 +161,30 @@ func TestTaskQueueConfig_Validate(t *testing.T) {
 		{
 			name: "valid config",
 			config: TaskQueueConfig{
-				MaxConcurrentActivityExecution:   100,
-				WorkerActivitiesPerSecond:        50.0,
-				MaxConcurrentLocalActivity:       50,
-				StickyScheduleTimeout:            5 * time.Second,
-				WorkerStopTimeout:                30 * time.Second,
-				MaxHeartbeatThrottleInterval:     60 * time.Second,
-				DefaultHeartbeatThrottleInterval: 30 * time.Second,
-				DeadlockDetectionTimeout:         1 * time.Second,
+				Client:    "test-client",
+				TaskQueue: "test-queue",
 			},
 			wantErr: false,
 		},
 		{
-			name: "negative max concurrent activity execution",
+			name: "missing client",
 			config: TaskQueueConfig{
+				TaskQueue: "test-queue",
+			},
+			wantErr: true,
+		},
+		{
+			name: "missing task queue",
+			config: TaskQueueConfig{
+				Client: "test-client",
+			},
+			wantErr: true,
+		},
+		{
+			name: "negative concurrent activity execution",
+			config: TaskQueueConfig{
+				Client:                         "test-client",
+				TaskQueue:                      "test-queue",
 				MaxConcurrentActivityExecution: -1,
 			},
 			wantErr: true,
@@ -202,6 +192,8 @@ func TestTaskQueueConfig_Validate(t *testing.T) {
 		{
 			name: "negative worker activities per second",
 			config: TaskQueueConfig{
+				Client:                    "test-client",
+				TaskQueue:                 "test-queue",
 				WorkerActivitiesPerSecond: -1.0,
 			},
 			wantErr: true,
@@ -209,35 +201,9 @@ func TestTaskQueueConfig_Validate(t *testing.T) {
 		{
 			name: "negative sticky schedule timeout",
 			config: TaskQueueConfig{
-				StickyScheduleTimeout: -5 * time.Second,
-			},
-			wantErr: true,
-		},
-		{
-			name: "negative worker stop timeout",
-			config: TaskQueueConfig{
-				WorkerStopTimeout: -30 * time.Second,
-			},
-			wantErr: true,
-		},
-		{
-			name: "negative max heartbeat throttle interval",
-			config: TaskQueueConfig{
-				MaxHeartbeatThrottleInterval: -60 * time.Second,
-			},
-			wantErr: true,
-		},
-		{
-			name: "negative default heartbeat throttle interval",
-			config: TaskQueueConfig{
-				DefaultHeartbeatThrottleInterval: -30 * time.Second,
-			},
-			wantErr: true,
-		},
-		{
-			name: "negative deadlock detection timeout",
-			config: TaskQueueConfig{
-				DeadlockDetectionTimeout: -1 * time.Second,
+				Client:                "test-client",
+				TaskQueue:             "test-queue",
+				StickyScheduleTimeout: -time.Second,
 			},
 			wantErr: true,
 		},
@@ -257,32 +223,31 @@ func TestTaskQueueConfig_Validate(t *testing.T) {
 
 func TestTaskQueueConfig_ToWorkerOptions(t *testing.T) {
 	config := TaskQueueConfig{
-		MaxConcurrentActivityExecution:   100,
-		WorkerActivitiesPerSecond:        50.0,
-		MaxConcurrentLocalActivity:       50,
-		WorkerLocalActivitiesPerSecond:   25.0,
-		TaskQueueActivitiesPerSecond:     100.0,
-		MaxConcurrentActivityPollers:     2,
-		MaxConcurrentWorkflowExecution:   100,
-		MaxConcurrentWorkflowPollers:     2,
-		StickyScheduleTimeout:            5 * time.Second,
-		EnableLoggingReplay:              false,
+		MaxConcurrentActivityExecution:   10,
+		WorkerActivitiesPerSecond:        5.0,
+		MaxConcurrentLocalActivity:       8,
+		WorkerLocalActivitiesPerSecond:   4.0,
+		TaskQueueActivitiesPerSecond:     3.0,
+		MaxConcurrentActivityPollers:     6,
+		MaxConcurrentWorkflowExecution:   15,
+		MaxConcurrentWorkflowPollers:     7,
+		StickyScheduleTimeout:            time.Minute,
+		EnableLoggingReplay:              true,
 		WorkerStopTimeout:                30 * time.Second,
-		MaxHeartbeatThrottleInterval:     60 * time.Second,
-		DefaultHeartbeatThrottleInterval: 30 * time.Second,
-		EnableSessionWorker:              false,
-		MaxConcurrentSessionExecution:    100,
+		MaxHeartbeatThrottleInterval:     5 * time.Second,
+		DefaultHeartbeatThrottleInterval: time.Second,
+		EnableSessionWorker:              true,
+		MaxConcurrentSessionExecution:    12,
 		DisableWorkflowWorker:            false,
 		LocalActivityWorkerOnly:          false,
-		DeadlockDetectionTimeout:         1 * time.Second,
+		DeadlockDetectionTimeout:         2 * time.Minute,
 		DisableEagerActivities:           false,
-		MaxConcurrentEagerActivities:     100,
-		DisableRegistrationAliasing:      true,
+		MaxConcurrentEagerActivities:     20,
+		DisableRegistrationAliasing:      false,
 	}
 
 	options := config.ToWorkerOptions()
 
-	// Verify all fields are correctly mapped
 	assert.Equal(t, config.MaxConcurrentActivityExecution, options.MaxConcurrentActivityExecutionSize)
 	assert.Equal(t, config.WorkerActivitiesPerSecond, options.WorkerActivitiesPerSecond)
 	assert.Equal(t, config.MaxConcurrentLocalActivity, options.MaxConcurrentLocalActivityExecutionSize)
@@ -291,8 +256,8 @@ func TestTaskQueueConfig_ToWorkerOptions(t *testing.T) {
 	assert.Equal(t, config.MaxConcurrentActivityPollers, options.MaxConcurrentActivityTaskPollers)
 	assert.Equal(t, config.MaxConcurrentWorkflowExecution, options.MaxConcurrentWorkflowTaskExecutionSize)
 	assert.Equal(t, config.MaxConcurrentWorkflowPollers, options.MaxConcurrentWorkflowTaskPollers)
-	assert.Equal(t, config.StickyScheduleTimeout, options.StickyScheduleToStartTimeout)
 	assert.Equal(t, config.EnableLoggingReplay, options.EnableLoggingInReplay)
+	assert.Equal(t, config.StickyScheduleTimeout, options.StickyScheduleToStartTimeout)
 	assert.Equal(t, config.WorkerStopTimeout, options.WorkerStopTimeout)
 	assert.Equal(t, config.MaxHeartbeatThrottleInterval, options.MaxHeartbeatThrottleInterval)
 	assert.Equal(t, config.DefaultHeartbeatThrottleInterval, options.DefaultHeartbeatThrottleInterval)

@@ -18,7 +18,7 @@ type (
 		// RetryPolicy defines the policy for retrying a failed service.
 		RetryPolicy RetryPolicy `json:"restart" yaml:"restart"`
 		// DependsOn specifies a list of service names that this service depends on.
-		DependsOn []string `json:"depends_on" yaml:"depends_on" default:"[]"` // Empty array
+		DependsOn []string `json:"depends_on" yaml:"depends_on" default:"[]"` // Empty array todo: make it work
 	}
 
 	// RetryPolicy defines the parameters for retrying a service after a failure.
