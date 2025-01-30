@@ -167,15 +167,14 @@ func (s *TaskQueue) RegisterActivity(name string, activity interface{}) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if _, exists := s.activities[name]; exists {
-		return fmt.Errorf("activity '%s' already registered", name)
-	}
-
 	s.activities[name] = activity
 	s.log.Debug("registered activity",
 		zap.String("task_queue", s.config.TaskQueue),
 		zap.String("activity", name),
 	)
+
+	// todo: trigger delayed rebuild?
+
 	return nil
 }
 

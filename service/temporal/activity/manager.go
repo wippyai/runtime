@@ -82,10 +82,6 @@ func (m *Manager) Register(
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if _, exists := m.configs[id]; exists {
-		return nil, fmt.Errorf("activity %s already registered", id)
-	}
-
 	// Store the config
 	m.configs[id] = cfg
 

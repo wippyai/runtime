@@ -229,7 +229,38 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		return nil
 
 	case api.KindActivity:
-		m.log.Info("activity update not implemented", zap.String("id", string(entry.ID)))
+		cfg := new(api.ActivityConfig) // We'll need to define this
+		if err := m.unmarshalAndValidate(entry.Data, cfg); err != nil {
+			return err
+		}
+
+		// Check if referenced client exists
+		if !m.taskQueues.Has(cfg.TaskQueue) {
+			return fmt.Errorf("task queue %s not found", cfg.TaskQueue)
+		}
+
+		// We except task queue to be already defined
+		taskQueue, err := m.taskQueues.GetTaskQueue(cfg.TaskQueue, nil)
+		if err != nil {
+			return fmt.Errorf("failed to get task queue: %w", err)
+		}
+
+		// Register activity with activity manager
+		handler, err := m.activities.Register(entry.ID, cfg, taskQueue.GetClient())
+		if err != nil {
+			return fmt.Errorf("failed to cretate activity handler: %w", err)
+		}
+
+		// Register activity handler with task queue
+		if err := taskQueue.RegisterActivity(string(entry.ID), handler); err != nil {
+			return fmt.Errorf("failed to register activity with task queue: %w", err)
+		}
+
+		m.log.Info("activity updated successfully",
+			zap.String("id", string(entry.ID)),
+			zap.String("task_queue", string(cfg.TaskQueue)),
+		)
+
 		return nil
 
 	default:
