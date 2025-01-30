@@ -3,6 +3,7 @@ package graph
 import (
 	"fmt"
 	"sort"
+	"strings"
 )
 
 // DependencyLevels represents nodes grouped by their dependency relationships,
@@ -62,7 +63,12 @@ func (g *Graph) DependencyLevels() (*DependencyLevels, error) {
 
 		// If no nodes with in-degree 0 are found, but we still have nodes, we have a cycle
 		if !foundZeroDegreeNode && len(inDegree) > 0 {
-			return nil, fmt.Errorf("cycle detected in graph, cannot create dependency levels")
+			str := ""
+			for k := range inDegree {
+				str += fmt.Sprintf("%s ", k)
+			}
+
+			return nil, fmt.Errorf("cycle (~%s) detected in graph, cannot create dependency levels", strings.Trim(str, " "))
 		}
 
 		// Remove the nodes in the current level from consideration

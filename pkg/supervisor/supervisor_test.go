@@ -195,6 +195,27 @@ func (h *testSupervisorHarness) registerServices(services map[string]bool) {
 	h.sup.handleEvent(events.Event{System: registry.System, Kind: registry.Commit})
 }
 
+func (h *testSupervisorHarness) registerServiceWithDeps(serviceID string, autoStart bool, dependencies []string) {
+	h.sup.handleEvent(events.Event{
+		System: supervisor.System,
+		Kind:   supervisor.Register,
+		Path:   events.Path(serviceID),
+		Data: &supervisor.Entry{
+			Service: h.service(serviceID),
+			Config: supervisor.LifecycleConfig{
+				AutoStart:    autoStart,
+				DependsOn:    dependencies,
+				StartTimeout: 5 * time.Second,
+				StopTimeout:  5 * time.Second,
+				RetryPolicy: supervisor.RetryPolicy{
+					MaxAttempts:  3,
+					InitialDelay: 100 * time.Millisecond,
+				},
+			},
+		},
+	})
+}
+
 func (h *testSupervisorHarness) waitForAllServices(state supervisor.Status) {
 	h.t.Helper()
 	for id, svc := range h.services {
