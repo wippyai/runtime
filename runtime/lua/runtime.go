@@ -3,6 +3,7 @@ package lua
 import (
 	"context"
 	"fmt"
+	"github.com/ponyruntime/pony/runtime/lua/workflow"
 	"sync"
 
 	"github.com/ponyruntime/pony/api/events"
@@ -27,6 +28,7 @@ type RuntimeManager struct {
 	functions *manager.Functions
 	libraries *manager.Libraries
 	terminals *manager.Terminals
+	workflows *manager.Workflows
 	modules   *manager.Modules
 	pools     *pool.Factory
 	callable  sync.Map
@@ -46,6 +48,7 @@ func NewRuntimeManager(
 		functions: manager.NewFunctions(logger),
 		libraries: manager.NewLibraries(logger),
 		terminals: manager.NewTerminals(logger, terminalmng.NewFactory()),
+		workflows: manager.NewWorkflows(logger, workflow.NewFactory()),
 		modules:   manager.NewModules(logger),
 		callable:  sync.Map{},
 	}
@@ -95,6 +98,24 @@ func (m *RuntimeManager) Add(ctx context.Context, entry registry.Entry) error {
 
 		return m.libraries.Add(entry.ID, cfg)
 
+	case api.KindWorkflow:
+		cfg, err := m.unpackWorkflow(entry.Data)
+		if err != nil {
+			return err
+		}
+
+		runner, err := m.compileWorkflow(entry.ID, cfg)
+		if err != nil {
+			return err
+		}
+
+		if err := m.workflows.Add(entry.ID, cfg, m.modules, m.libraries); err != nil {
+			return err
+		}
+
+		m.registerWorkflow(ctx, entry.ID, runner)
+		return nil
+
 	case api.KindTerminal:
 		cfg, err := m.unpackTerminal(entry.Data)
 		if err != nil {
@@ -112,6 +133,7 @@ func (m *RuntimeManager) Add(ctx context.Context, entry registry.Entry) error {
 
 		m.registerTerminal(ctx, entry.ID, app)
 		return nil
+
 	default:
 		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
 	}
@@ -147,7 +169,7 @@ func (m *RuntimeManager) Update(ctx context.Context, entry registry.Entry) error
 		}
 
 		// validate dependencies can be compiled
-		funcs, terminals, err := m.validateLibraryUpdateDependencies(entry.ID, cfg)
+		funcs, terminals, wfls, err := m.validateLibraryUpdateDependencies(entry.ID, cfg)
 		if err != nil {
 			return err
 		}
@@ -172,6 +194,21 @@ func (m *RuntimeManager) Update(ctx context.Context, entry registry.Entry) error
 			m.registerHandler(ctx, id)
 		}
 
+		// workflows
+		for id, wf := range wfls {
+			// recompile
+			runner, err := m.compileWorkflow(id, wf)
+			if err != nil {
+				return err
+			}
+
+			if err := m.workflows.Update(id, wf, m.modules, m.libraries); err != nil {
+				return err
+			}
+
+			m.registerWorkflow(ctx, id, runner)
+		}
+
 		// terminals
 		for id, term := range terminals {
 			// recompile
@@ -187,6 +224,24 @@ func (m *RuntimeManager) Update(ctx context.Context, entry registry.Entry) error
 			m.registerTerminal(ctx, id, app)
 		}
 
+		return nil
+
+	case api.KindWorkflow:
+		cfg, err := m.unpackWorkflow(entry.Data)
+		if err != nil {
+			return err
+		}
+
+		runner, err := m.compileWorkflow(entry.ID, cfg)
+		if err != nil {
+			return err
+		}
+
+		if err := m.workflows.Update(entry.ID, cfg, m.modules, m.libraries); err != nil {
+			return err
+		}
+
+		m.registerWorkflow(ctx, entry.ID, runner)
 		return nil
 
 	case api.KindTerminal:
@@ -231,6 +286,11 @@ func (m *RuntimeManager) Delete(ctx context.Context, entry registry.Entry) error
 			return fmt.Errorf("library %s is used by functions: %v", entry.ID, dependent)
 		}
 
+		dependentWorkflows := m.workflows.FindDependentOnLibrary(entry.ID)
+		if len(dependentWorkflows) > 0 {
+			return fmt.Errorf("library %s is used by workflows: %v", entry.ID, dependentWorkflows)
+		}
+
 		// Check for dependent terminals
 		dependentTerms := m.terminals.FindDependentOnLibrary(entry.ID)
 		if len(dependentTerms) > 0 {
@@ -238,6 +298,11 @@ func (m *RuntimeManager) Delete(ctx context.Context, entry registry.Entry) error
 		}
 
 		return m.libraries.Delete(entry.ID)
+
+	case api.KindWorkflow:
+		m.unregisterWorkflow(ctx, entry.ID)
+
+		return m.workflows.Delete(entry.ID)
 
 	case api.KindTerminal:
 		m.bus.Send(ctx, events.Event{

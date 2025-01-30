@@ -40,7 +40,6 @@ type (
 		Source    string            `json:"source"`    // Lua source code
 		Method    string            `json:"method"`    // Name of the Lua method to execute
 		Libraries []string          `json:"libraries"` // Required Lua libraries, only selected subset allowed
-		Flavor    string            `json:"flavor"`    // Workflow flavor (e.g., "temporal")
 	}
 
 	// TerminalConfig defines the configuration for a Lua terminal component.

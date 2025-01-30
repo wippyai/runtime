@@ -35,7 +35,7 @@ func SimpleActivity(ctx context.Context, input ActivityInput) (string, error) {
 // LuaWorkflowDefinition represents our workflow implementation
 type LuaWorkflowDefinition struct {
 	env    bindings.WorkflowEnvironment
-	runner *runtime.WorkflowRunner
+	runner *runtime.Runner
 	ctx    context.Context
 }
 

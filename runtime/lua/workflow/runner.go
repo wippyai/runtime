@@ -1,4 +1,4 @@
-package runtime
+package workflow
 
 import (
 	"context"
@@ -11,8 +11,8 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-// WorkflowRunner provides an interface between external systems and the Lua runtime
-type WorkflowRunner struct {
+// Runner provides an interface between external systems and the Lua runtime
+type Runner struct {
 	mu       sync.Mutex
 	ctx      context.Context
 	runner   *engine.Runner
@@ -30,8 +30,8 @@ func NewWorkflowRunner(
 	runner *engine.Runner,
 	cmdLayer *command.Layer,
 	pubLayer *pubsub.Layer,
-) *WorkflowRunner {
-	return &WorkflowRunner{
+) *Runner {
+	return &Runner{
 		runner:   runner,
 		cmdLayer: cmdLayer,
 		pubLayer: pubLayer,
@@ -39,7 +39,7 @@ func NewWorkflowRunner(
 }
 
 // Start begins the runner with the specified function and arguments
-func (b *WorkflowRunner) Start(ctx context.Context, funcName string, args ...lua.LValue) error {
+func (b *Runner) Start(ctx context.Context, funcName string, args ...lua.LValue) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -65,7 +65,7 @@ func (b *WorkflowRunner) Start(ctx context.Context, funcName string, args ...lua
 }
 
 // checkCompletion checks if workflow has completed and updates state accordingly
-func (b *WorkflowRunner) checkCompletion() (bool, error) {
+func (b *Runner) checkCompletion() (bool, error) {
 	select {
 	case result, ok := <-b.exitCh:
 		if !ok {
@@ -90,7 +90,7 @@ func (b *WorkflowRunner) checkCompletion() (bool, error) {
 }
 
 // processMoreTasks gets next batch of tasks if available
-func (b *WorkflowRunner) processMoreTasks(tasks []*engine.Task) ([]*engine.Task, error) {
+func (b *Runner) processMoreTasks(tasks []*engine.Task) ([]*engine.Task, error) {
 	if len(tasks) == 0 && b.runner.GetTaskGroup().GetTaskCount() > 0 {
 		moreTasks, err := b.runner.GetTaskGroup().Wait(b.ctx, b.runner.GetCVM(), false)
 		if err != nil {
@@ -106,7 +106,7 @@ func (b *WorkflowRunner) processMoreTasks(tasks []*engine.Task) ([]*engine.Task,
 // - commands that need to be processed
 // - whether we are ready to exit
 // - any error that occurred
-func (b *WorkflowRunner) Step() ([]*command.Command, error) {
+func (b *Runner) Step() ([]*command.Command, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -157,7 +157,7 @@ func (b *WorkflowRunner) Step() ([]*command.Command, error) {
 }
 
 // IsComplete returns whether the workflow has completed
-func (b *WorkflowRunner) IsComplete() bool {
+func (b *Runner) IsComplete() bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -166,7 +166,7 @@ func (b *WorkflowRunner) IsComplete() bool {
 
 // GetCompletionResult returns the final result and any error
 // Should only be called after IsComplete returns true
-func (b *WorkflowRunner) GetCompletionResult() (lua.LValue, error) {
+func (b *Runner) GetCompletionResult() (lua.LValue, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -174,7 +174,7 @@ func (b *WorkflowRunner) GetCompletionResult() (lua.LValue, error) {
 }
 
 // SendResult sets the result for a processed command
-func (b *WorkflowRunner) SendResult(cmd *command.Command, result lua.LValue) error {
+func (b *Runner) SendResult(cmd *command.Command, result lua.LValue) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -187,7 +187,7 @@ func (b *WorkflowRunner) SendResult(cmd *command.Command, result lua.LValue) err
 }
 
 // SendError sets an error for a failed command
-func (b *WorkflowRunner) SendError(cmd *command.Command, err error) error {
+func (b *Runner) SendError(cmd *command.Command, err error) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -200,7 +200,7 @@ func (b *WorkflowRunner) SendError(cmd *command.Command, err error) error {
 }
 
 // SendValue sends a message via pubsub, values will be send as individual arguments.
-func (b *WorkflowRunner) SendValue(topic string, value ...lua.LValue) error {
+func (b *Runner) SendValue(topic string, value ...lua.LValue) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -213,7 +213,7 @@ func (b *WorkflowRunner) SendValue(topic string, value ...lua.LValue) error {
 }
 
 // Stop gracefully shuts down the runner
-func (b *WorkflowRunner) Stop() {
+func (b *Runner) Stop() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 

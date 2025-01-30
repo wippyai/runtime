@@ -44,6 +44,22 @@ func (m *RuntimeManager) unpackLibrary(data payload.Payload) (*api.LibraryConfig
 	return cfg, nil
 }
 
+func (m *RuntimeManager) unpackWorkflow(data payload.Payload) (*api.WorkflowConfig, error) {
+	cfg := new(api.WorkflowConfig)
+
+	if err := m.dtt.Unmarshal(data, cfg); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal workflow config: %w", err)
+	}
+
+	if validator, ok := interface{}(cfg).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return nil, fmt.Errorf("invalid workflow configuration: %w", err)
+		}
+	}
+
+	return cfg, nil
+}
+
 func (m *RuntimeManager) unpackTerminal(data payload.Payload) (*api.TerminalConfig, error) {
 	cfg := new(api.TerminalConfig)
 
@@ -94,5 +110,26 @@ func (m *RuntimeManager) unregisterTerminal(ctx context.Context, id registry.ID)
 		Kind:   terminal.DeleteTerminalEvent,
 		Path:   events.Path(id),
 		Data:   id,
+	})
+}
+
+func (m *RuntimeManager) registerWorkflow(ctx context.Context, id registry.ID, runner any) {
+	m.bus.Send(ctx, events.Event{
+		System: runtime.WorkflowSystem,
+		Kind:   runtime.RegisterWorkflowEvent,
+		Path:   events.Path(id),
+		Data: runtime.RegisterWorkflow{
+			Target:  id,
+			Handler: runner,
+		},
+	})
+}
+
+func (m *RuntimeManager) unregisterWorkflow(ctx context.Context, id registry.ID) {
+	m.bus.Send(ctx, events.Event{
+		System: runtime.WorkflowSystem,
+		Kind:   runtime.DeleteWorkflowEvent,
+		Path:   events.Path(id),
+		Data:   runtime.DeleteWorkflow{Target: id},
 	})
 }
