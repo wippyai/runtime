@@ -1,0 +1,8 @@
+name: simple.workflow
+kind: workflow.lua
+meta:
+  comment: "Simple workflow."
+
+source: file://simple.lua
+method: execute_workflow
+flavor: "temporal"
