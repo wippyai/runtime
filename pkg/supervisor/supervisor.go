@@ -335,7 +335,6 @@ func (s *Supervisor) createStateHandler(id string) func(supervisor.Status, any) 
 	}
 }
 
-// execute performs the transition of services based on registry changes
 // execute processes the transaction by creating new services,
 // stopping removed services, and starting auto-start services
 func (s *Supervisor) execute(ctx context.Context, tx *registryTX) error {
@@ -364,18 +363,43 @@ func (s *Supervisor) execute(ctx context.Context, tx *registryTX) error {
 		}
 	}
 
-	// Queue start operations for new auto-start services
-	for id, entry := range tx.register {
-		if !entry.Config.AutoStart {
-			continue
+	// Build start operations for new auto-start services and their dependencies
+	visited := make(map[string]bool)
+	var buildStartOps func(id string) error
+	buildStartOps = func(id string) error {
+		if visited[id] {
+			return nil
 		}
-		if ctrl, exists := s.controllers[id]; exists {
-			operations = append(operations, Operation{
-				Type:         OperationStart,
-				ID:           id,
-				Controller:   ctrl,
-				Dependencies: ctrl.config.DependsOn,
-			})
+		visited[id] = true
+
+		ctrl, exists := s.controllers[id]
+		if !exists {
+			return fmt.Errorf("service %s not found", id)
+		}
+
+		// Visit dependencies first
+		for _, depID := range ctrl.config.DependsOn {
+			if err := buildStartOps(depID); err != nil {
+				return err
+			}
+		}
+
+		operations = append(operations, Operation{
+			Type:         OperationStart,
+			ID:           id,
+			Controller:   ctrl,
+			Dependencies: ctrl.config.DependsOn,
+		})
+
+		return nil
+	}
+
+	// Find autostart services and build their start chains
+	for id, entry := range tx.register {
+		if entry.Config.AutoStart {
+			if err := buildStartOps(id); err != nil {
+				return fmt.Errorf("failed to build start operations: %w", err)
+			}
 		}
 	}
 
