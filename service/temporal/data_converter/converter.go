@@ -2,8 +2,6 @@ package data_converter
 
 import (
 	"fmt"
-	"log"
-
 	"github.com/ponyruntime/pony/api/payload"
 	commonpb "go.temporal.io/api/common/v1"
 	"go.temporal.io/sdk/converter"
@@ -46,7 +44,6 @@ func (c *DataConverter) ToPayloads(values ...any) (*commonpb.Payloads, error) {
 			}
 			return result, nil
 		}
-		log.Printf("ToPayloads: %v\n", values[0])
 	}
 
 	result := &commonpb.Payloads{
@@ -141,10 +138,7 @@ func (c *DataConverter) ToPayload(value any) (*commonpb.Payload, error) {
 
 	// we need some common format, and for now it's JSON
 	jValue, err := c.dtt.Transcode(pValue, payload.JSON)
-	if err == nil {
-		return nil, fmt.Errorf("error transcoding value: %w", err)
-	}
-	if jValue == nil {
+	if err != nil {
 		return nil, fmt.Errorf("error transcoding value: %w", err)
 	}
 
