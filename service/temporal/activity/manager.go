@@ -3,13 +3,12 @@ package activity
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/api/payload"
-	api "github.com/ponyruntime/pony/api/service/temporal"
-	"log"
 	"sync"
 
+	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
+	api "github.com/ponyruntime/pony/api/service/temporal"
 	"github.com/ponyruntime/pony/service/temporal/client"
 	"go.uber.org/zap"
 )
@@ -31,9 +30,55 @@ func NewActivityManager(log *zap.Logger, executor runtime.Executor) *Manager {
 	}
 }
 
+// executeActivity handles the actual execution of an activity through the runtime executor
+func (m *Manager) executeActivity(ctx context.Context, id registry.ID, inputs payload.Payloads) (payload.Payloads, error) {
+	cfg, exists := m.Get(id)
+	if !exists {
+		return nil, fmt.Errorf("activity configuration %s not found", id)
+	}
+
+	// Create a task for the executor
+	task := runtime.Task{
+		Context:  ctx,
+		Target:   registry.ID(cfg.Function), // Use the function target from config
+		Payloads: inputs,                    // Pass through the input payloads
+	}
+
+	// Execute the task
+	resultCh, err := m.executor.Execute(task)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute activity task: %w", err)
+	}
+
+	// Wait for result with context cancellation handling
+	select {
+	case result := <-resultCh:
+		if result == nil {
+			return nil, fmt.Errorf("received nil result from executor")
+		}
+		if result.Error != nil {
+			return nil, fmt.Errorf("activity execution failed: %w", result.Error)
+		}
+
+		// Convert single payload to payloads slice if needed
+		if result.Payload != nil {
+			return payload.Payloads{result.Payload}, nil
+		}
+
+		return payload.Payloads{}, nil
+
+	case <-ctx.Done():
+		return nil, fmt.Errorf("activity execution cancelled: %w", ctx.Err())
+	}
+}
+
 // Register creates an activity handler function
 // The client is used only for context binding in the returned handler
-func (m *Manager) Register(id registry.ID, cfg *api.ActivityConfig, client *client.Client) (interface{}, error) {
+func (m *Manager) Register(
+	id registry.ID,
+	cfg *api.ActivityConfig,
+	client *client.Client,
+) (interface{}, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -41,53 +86,33 @@ func (m *Manager) Register(id registry.ID, cfg *api.ActivityConfig, client *clie
 		return nil, fmt.Errorf("activity %s already registered", id)
 	}
 
-	// Store just the config
+	// Store the config
 	m.configs[id] = cfg
 
-	// Create handler function with client context binding
+	// Create handler function with execution logic
 	handler := func(ctx context.Context, args payload.Payloads) (payload.Payloads, error) {
-		m.log.Info("executing activity", zap.String("activity_id", string(id)))
-		// todo: merge contexts or move temporal specific one to our thread
+		m.log.Info("executing activity",
+			zap.String("activity_id", string(id)),
+			zap.String("function_target", string(cfg.Function)),
+		)
 
-		for _, a := range args {
-			log.Printf("Activity received input: %+v \n", a)
+		// Execute the activity and return results
+		results, err := m.executeActivity(ctx, id, args)
+		if err != nil {
+			m.log.Error("activity execution failed",
+				zap.String("activity_id", string(id)),
+				zap.Error(err),
+			)
+			return nil, err
 		}
 
-		// TODO: Later we will:
-		// 1. Create a runtime.Task from the activity input
-		// 2. Execute through the executor
-		// 3. Convert the result to temporal payloads
-		// 4. Handle proper error mapping
-
-		return payload.Payloads{
-			payload.New("well well well"),
-		}, nil
+		m.log.Info("activity executed successfully",
+			zap.String("activity_id", string(id)),
+		)
+		return results, nil
 	}
 
-	/*
-
-		// TODO: _____________________ YES
-		w.RegisterActivityWithOptions(
-			func(ctx context.Context, args *payload.Payload) (*commonpb.Payloads, error) {
-				// todo: we simply can pass client over context actually
-				actInfo := tmact.GetInfo(ctx)
-
-				// todo: convert and send to executor actually
-				// todo: do we actually want to perform transcode to wippy payloads?
-				// todo: probably yes
-				s.log.Info("stab activity executed")
-				log.Printf("%+v %+v", args, actInfo)
-				log.Printf("Activity result: %v\n", ctx)
-				return nil, nil
-			}, tmact.RegisterOptions{
-				Name: "stab-activity",
-			})
-		log.Printf("Registered activity: stab-activity\n")
-		// TODO: _____________________ YES
-
-	*/
 	m.log.Info("registered activity handler", zap.String("id", string(id)))
-
 	return handler, nil
 }
 
