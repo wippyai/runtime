@@ -72,7 +72,7 @@ func (s *Client) Start(ctx context.Context) (<-chan any, error) {
 		s.statusChan <- fmt.Sprintf("client connected to %s, server version: %s, capabilities: %s",
 			s.config.Address,
 			i.ServerVersion,
-			i.GetCapabilities().String(),
+			i.GetCapabilities().String(), // todo: expose for consumers
 		)
 	}
 
