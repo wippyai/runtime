@@ -10,12 +10,40 @@ import (
 
 func (m *Module) newProcess(l *lua.LState) int {
 	log := getCtxLogger(l)
-	log.Debug("creating new process")
 
+	// cmd should always be a non-empty string
 	cmd := l.CheckString(1)
 	ud := l.NewUserData()
 
-	executor := native.NewNativeExecutor(log.Named("native_exec"), native.WithCmd(cmd))
+	// table with the process options
+	opts := l.CheckTable(2)
+
+	log.Debug("creating new process", zap.String("cmd", cmd), zap.Any("opts", opts))
+
+	// native process options
+	nopts := make([]native.Options, 0, 3)
+
+	// parse working directory
+	wd := l.GetField(opts, "work_dir")
+	if workdir, ok := wd.(lua.LString); ok {
+		nopts = append(nopts, native.WithWorkingDir(workdir.String()))
+	}
+
+	// parse table with the environment variables
+	// envs should be in the form of KEY=VALUE
+	lenvs := l.GetField(opts, "env")
+	if lenvst, ok := lenvs.(*lua.LTable); ok {
+		goenvs := make(map[string]string)
+		lenvst.ForEach(func(k lua.LValue, v lua.LValue) {
+			goenvs[k.String()] = v.String()
+		})
+
+		nopts = append(nopts, native.WithEnv(goenvs))
+	}
+
+	nopts = append(nopts, native.WithCmd(cmd))
+
+	executor := native.NewNativeExecutor(log.Named("native_exec"), nopts...)
 	closer.FromContext(l.Context()).Add(func() error {
 		// stop the executor
 		executor.Stop()
@@ -83,11 +111,41 @@ func (m *Module) startProcess(l *lua.LState) int {
 	return 0
 }
 
-func (m *Module) closeProcess(l *lua.LState) int {
+func (m *Module) signalProcess(l *lua.LState) int {
+	sig := l.CheckInt(1)
 	log := getCtxLogger(l)
-	log.Debug("closing process")
+	log.Debug("signaling process")
 	executor := getProcessExecutor(l)
-	executor.Stop()
+	err := executor.Signal(sig)
+	if err != nil {
+		log.Error("failed to signal the process", zap.Error(err))
+		l.RaiseError("failed to signal the process: %s", err.Error())
+		return 0
+	}
+
+	return 0
+}
+
+func (m *Module) writeStdin(l *lua.LState) int {
+	// first arg is userdata
+	// 2-nd arg is the data to write
+	data := l.CheckString(2)
+	log := getCtxLogger(l)
+	log.Debug("sending data to the process stdin", zap.String("data", data))
+
+	executor := getProcessExecutor(l)
+	if executor == nil {
+		log.Error("executor is nil")
+		l.RaiseError("executor is nil")
+		return 0
+	}
+
+	err := executor.WriteStdin([]byte(data))
+	if err != nil {
+		log.Error("failed to write to stdin", zap.Error(err))
+		l.RaiseError("failed to write to stdin: %s", err.Error())
+		return 0
+	}
 
 	return 0
 }

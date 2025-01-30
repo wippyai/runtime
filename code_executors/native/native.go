@@ -121,34 +121,35 @@ func (e *Executor) WriteStdin(data []byte) error {
 	return nil
 }
 
-func (e *Executor) Signal(sig int) {
+func (e *Executor) Signal(sig int) error {
 	e.rwm.RLock()
 	defer e.rwm.RUnlock()
 
 	if e.state != running {
 		e.log.Error("process is not running", zap.String("state", e.state))
-		return
+		return errors.New("process is not running")
 	}
 
 	if e.pid <= 0 {
 		e.log.Error("pid is not a positive int", zap.Int("pid", e.pid))
-		return
+		return errors.New("pid is not a positive int, process is possibly not running")
 	}
 
 	// we're using os.FindProcess to avoid touching e.cmd
 	pp, err := os.FindProcess(e.pid)
 	if err != nil {
 		e.log.Error("error finding process", zap.Error(err))
-		return
+		return err
 	}
 
 	err = pp.Signal(syscall.Signal(sig))
 	if err != nil {
 		e.log.Error("error sending signal", zap.Error(err))
-		return
+		return err
 	}
 
 	e.stopped.Store(p(true))
+	return nil
 }
 
 func (e *Executor) StderrReader() io.ReadCloser {
@@ -170,7 +171,7 @@ func (e *Executor) Stop() {
 	defer e.rwm.Unlock()
 
 	if e.pid <= 0 {
-		e.log.Error("pid is not a positive int", zap.Int("pid", e.pid))
+		e.log.Warn("pid is not a positive int", zap.Int("pid", e.pid))
 		return
 	}
 
