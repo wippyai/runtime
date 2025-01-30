@@ -13,3 +13,4 @@ lifecycle:
   restart:
     initial_delay: 1s
     max_attempts: 3
+  depends_on: [ "temporal" ]

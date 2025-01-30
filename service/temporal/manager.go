@@ -47,26 +47,6 @@ func (m *Manager) unmarshalAndValidate(data payload.Payload, cfg interface{}) er
 	return nil
 }
 
-// updateClientLifecycle updates client service lifecycle based on task queue count
-func (m *Manager) updateClientLifecycle(ctx context.Context, clientID registry.ID) {
-	activeTaskQueues := m.taskQueues.GetActiveTaskQueues(clientID)
-
-	// Only start client if there are active task queues
-	lifecycle := supervisor.LifecycleConfig{
-		AutoStart: activeTaskQueues > 0,
-	}
-
-	// won't affect running clients but will start idle ones
-	m.bus.Send(ctx, events.Event{
-		System: supervisor.System,
-		Kind:   supervisor.Register,
-		Path:   events.Path(clientID),
-		Data: &supervisor.Entry{
-			Config: lifecycle,
-		},
-	})
-}
-
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Data == nil {
 		return fmt.Errorf("configuration data is required")
@@ -95,7 +75,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 			Path:   events.Path(entry.ID),
 			Data: &supervisor.Entry{
 				Service: service,
-				Config:  supervisor.LifecycleConfig{AutoStart: false}, // Start only when task queues are registered
+				Config:  supervisor.LifecycleConfig{AutoStart: true},
 			},
 		})
 
@@ -135,12 +115,9 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 			Path:   events.Path(entry.ID),
 			Data: &supervisor.Entry{
 				Service: service,
-				Config:  cfg.Lifecycle,
+				Config:  service.GetLifecycleConfig(),
 			},
 		})
-
-		// Update client lifecycle
-		m.updateClientLifecycle(ctx, cfg.Client)
 
 		return nil
 
@@ -198,9 +175,6 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 			},
 		})
 
-		// Update client lifecycle as auto-start setting might have changed
-		m.updateClientLifecycle(ctx, cfg.Client)
-
 		return nil
 
 	case api.KindWorkflow:
@@ -240,14 +214,6 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 		return nil
 
 	case api.KindTaskQueue:
-		// Get config to get client reference before deletion
-		cfg, exists := m.taskQueues.GetConfig(entry.ID)
-		if !exists {
-			return fmt.Errorf("task queue %s not found", entry.ID)
-		}
-
-		clientID := cfg.Client
-
 		if err := m.taskQueues.Delete(entry.ID); err != nil {
 			return err
 		}
@@ -258,9 +224,6 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 			Kind:   supervisor.Remove,
 			Path:   events.Path(entry.ID),
 		})
-
-		// Update client lifecycle
-		m.updateClientLifecycle(ctx, clientID)
 
 		return nil
 

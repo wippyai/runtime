@@ -134,9 +134,10 @@ func (s *Supervisor) Stop() error {
 	var operations []Operation
 	for id, ctrl := range s.controllers {
 		operations = append(operations, Operation{
-			Type:       OperationStop,
-			ID:         id,
-			Controller: ctrl,
+			Type:         OperationStop,
+			ID:           id,
+			Controller:   ctrl,
+			Dependencies: ctrl.config.DependsOn,
 		})
 	}
 	s.mu.RUnlock()
@@ -264,9 +265,10 @@ func (s *Supervisor) run(ctx context.Context) {
 
 			if ctrl, exists := s.controllers[action.serviceID]; exists {
 				op := Operation{
-					Type:       opType,
-					ID:         action.serviceID,
-					Controller: ctrl,
+					Type:         opType,
+					ID:           action.serviceID,
+					Controller:   ctrl,
+					Dependencies: ctrl.config.DependsOn,
 				}
 				pendingOps = append(pendingOps, op)
 				// execute pending operations
@@ -347,9 +349,10 @@ func (s *Supervisor) execute(ctx context.Context, tx *registryTX) error {
 	for id := range tx.remove {
 		if ctrl, exists := s.controllers[id]; exists {
 			operations = append(operations, Operation{
-				Type:       OperationStop,
-				ID:         id,
-				Controller: ctrl,
+				Type:         OperationStop,
+				ID:           id,
+				Controller:   ctrl,
+				Dependencies: ctrl.config.DependsOn,
 			})
 		}
 	}
@@ -361,9 +364,10 @@ func (s *Supervisor) execute(ctx context.Context, tx *registryTX) error {
 		}
 		if ctrl, exists := s.controllers[id]; exists {
 			operations = append(operations, Operation{
-				Type:       OperationStart,
-				ID:         id,
-				Controller: ctrl,
+				Type:         OperationStart,
+				ID:           id,
+				Controller:   ctrl,
+				Dependencies: ctrl.config.DependsOn,
 			})
 		}
 	}
