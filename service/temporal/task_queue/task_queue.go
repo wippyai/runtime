@@ -197,14 +197,14 @@ func (s *TaskQueue) GetLifecycleConfig() supervisor.LifecycleConfig {
 
 	found := false
 	for _, dep := range cfg.DependsOn {
-		if dep == string(api.KindClient) {
+		if dep == string(s.client.ID()) {
 			found = true
 			break
 		}
 	}
 
 	if !found {
-		cfg.DependsOn = append(cfg.DependsOn, string(api.KindClient))
+		cfg.DependsOn = append(cfg.DependsOn, string(s.client.ID()))
 	}
 
 	return cfg
