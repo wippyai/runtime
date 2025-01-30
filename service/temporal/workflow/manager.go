@@ -1,10 +1,13 @@
 package workflow
 
-import "go.uber.org/zap"
+import (
+	"go.uber.org/zap"
+)
 
 type Manager struct {
 }
 
 func NewWorkflowManager(log *zap.Logger) *Manager {
+
 	return &Manager{}
 }

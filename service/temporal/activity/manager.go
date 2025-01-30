@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	api "github.com/ponyruntime/pony/api/service/temporal"
+	"log"
 	"sync"
 
 	"github.com/ponyruntime/pony/api/registry"
@@ -46,6 +47,8 @@ func (m *Manager) Register(id registry.ID, cfg *api.ActivityConfig, client *clie
 	// Create handler function with client context binding
 	handler := func(ctx context.Context, args *commonpb.Payloads) (*commonpb.Payloads, error) {
 		m.log.Info("executing activity", zap.String("activity_id", string(id)))
+		log.Printf("Activity received input: %v \n", ctx)
+		// todo: merge contexts or move temporal specific one to our thread
 
 		// TODO: Later we will:
 		// 1. Create a runtime.Task from the activity input

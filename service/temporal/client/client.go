@@ -23,6 +23,7 @@ const (
 // Client implements supervisor.Service interface for Temporal client
 type Client struct {
 	mu     sync.RWMutex
+	ctx    context.Context
 	log    *zap.Logger
 	id     registry.ID
 	config *api.ClientConfig
@@ -44,6 +45,10 @@ func NewClient(logger *zap.Logger, id registry.ID, config *api.ClientConfig) *Cl
 
 func (s *Client) ID() registry.ID {
 	return s.id
+}
+
+func (s *Client) Context() context.Context {
+	return s.ctx
 }
 
 // Start implements supervisor.Service interface
@@ -68,6 +73,7 @@ func (s *Client) Start(ctx context.Context) (<-chan any, error) {
 		return nil, fmt.Errorf("failed to create temporal client: %w", err)
 	}
 
+	s.ctx = ctx
 	s.client = c
 	s.statusChan = make(chan any, 3) // Buffer for status updates
 	s.exit = make(chan struct{})
