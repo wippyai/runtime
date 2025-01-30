@@ -50,6 +50,10 @@ func (m *Manager) Register(id registry.ID, cfg *api.ActivityConfig, client *clie
 		log.Printf("Activity received input: %v \n", ctx)
 		// todo: merge contexts or move temporal specific one to our thread
 
+		for _, a := range args.GetPayloads() {
+			log.Printf("Activity received input: %v \n", a)
+		}
+
 		// TODO: Later we will:
 		// 1. Create a runtime.Task from the activity input
 		// 2. Execute through the executor
