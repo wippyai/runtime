@@ -24,10 +24,40 @@ func NewClientManager(logger *zap.Logger) *Manager {
 	}
 }
 
+// GetClient retrieves an existing client by ID
+func (m *Manager) GetClient(id registry.ID) (*Client, error) {
+	service, exists := m.services[id]
+	if !exists {
+		return nil, fmt.Errorf("client %s not initialized", id)
+	}
+	return service, nil
+}
+
+// InitClient initializes a new client instance with the given configuration
+func (m *Manager) InitClient(id registry.ID, dc converter.DataConverter) (*Client, error) {
+	// Check if client already exists
+	if _, exists := m.services[id]; exists {
+		return nil, fmt.Errorf("client %s already initialized", id)
+	}
+
+	// Get config
+	config, exists := m.configs[id]
+	if !exists {
+		return nil, fmt.Errorf("client config %s not found", id)
+	}
+
+	// Create new service
+	service := NewClient(m.log, id, dc, config)
+	m.services[id] = service
+
+	m.log.Info("initialized client", zap.String("id", string(id)))
+	return service, nil
+}
+
 // Add adds a new client configuration
 func (m *Manager) Add(id registry.ID, config *api.ClientConfig) error {
 	if _, exists := m.configs[id]; exists {
-		return fmt.Errorf("client %s already exists", id)
+		return fmt.Errorf("client config %s already exists", id)
 	}
 
 	m.configs[id] = config
@@ -39,7 +69,7 @@ func (m *Manager) Add(id registry.ID, config *api.ClientConfig) error {
 // Note: This will not affect already created service instances
 func (m *Manager) Update(id registry.ID, config *api.ClientConfig) error {
 	if _, exists := m.configs[id]; !exists {
-		return fmt.Errorf("client %s not found", id)
+		return fmt.Errorf("client config %s not found", id)
 	}
 
 	m.configs[id] = config
@@ -50,7 +80,7 @@ func (m *Manager) Update(id registry.ID, config *api.ClientConfig) error {
 // Delete removes a client configuration and service if it exists
 func (m *Manager) Delete(id registry.ID) error {
 	if _, exists := m.configs[id]; !exists {
-		return fmt.Errorf("client %s not found", id)
+		return fmt.Errorf("client config %s not found", id)
 	}
 
 	delete(m.configs, id)
@@ -65,27 +95,7 @@ func (m *Manager) GetConfig(id registry.ID) (*api.ClientConfig, bool) {
 	return config, exists
 }
 
-// GetClient returns an existing service or creates a new one
-func (m *Manager) GetClient(id registry.ID, dc converter.DataConverter) (*Client, error) { // todo: refactor and split?
-	// Check for existing service
-	if service, exists := m.services[id]; exists {
-		return service, nil
-	}
-
-	// Get config
-	config, exists := m.configs[id]
-	if !exists {
-		return nil, fmt.Errorf("client %s not found", id)
-	}
-
-	// Create new service
-	service := NewClient(m.log, id, dc, config)
-	m.services[id] = service
-
-	return service, nil
-}
-
-// Has checks if a client exists
+// Has checks if a client config exists
 func (m *Manager) Has(id registry.ID) bool {
 	_, exists := m.configs[id]
 	return exists

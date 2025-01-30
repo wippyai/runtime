@@ -2,9 +2,10 @@ package task_queue
 
 import (
 	"fmt"
+	"sync"
+
 	api "github.com/ponyruntime/pony/api/service/temporal"
 	"github.com/ponyruntime/pony/service/temporal/client"
-	"sync"
 
 	"github.com/ponyruntime/pony/api/registry"
 	"go.uber.org/zap"
@@ -27,13 +28,13 @@ func NewTaskQueueManager(logger *zap.Logger) *Manager {
 	}
 }
 
-// Add adds a new task queue configuration
-func (m *Manager) Add(id registry.ID, config *api.TaskQueueConfig) error {
+// InitTaskQueue initializes a new task queue configuration and service if needed
+func (m *Manager) InitTaskQueue(id registry.ID, config *api.TaskQueueConfig, client *client.Client) (*TaskQueue, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if _, exists := m.configs[id]; exists {
-		return fmt.Errorf("task queue %s already exists", id)
+		return nil, fmt.Errorf("task queue config %s already exists", id)
 	}
 
 	m.configs[id] = config
@@ -41,7 +42,15 @@ func (m *Manager) Add(id registry.ID, config *api.TaskQueueConfig) error {
 		zap.String("id", string(id)),
 		zap.String("task_queue", config.TaskQueue),
 	)
-	return nil
+
+	if client == nil {
+		return nil, fmt.Errorf("client is required for task queue creation")
+	}
+
+	service := NewTaskQueue(m.log, id, config, client)
+	m.services[id] = service
+	m.log.Info("created task queue service", zap.String("id", string(id)))
+	return service, nil
 }
 
 // Update updates an existing task queue configuration
@@ -50,7 +59,7 @@ func (m *Manager) Update(id registry.ID, config *api.TaskQueueConfig) error {
 	defer m.mu.Unlock()
 
 	if _, exists := m.configs[id]; !exists {
-		return fmt.Errorf("task queue %s not found", id)
+		return fmt.Errorf("task queue config %s not found", id)
 	}
 
 	m.configs[id] = config
@@ -59,7 +68,7 @@ func (m *Manager) Update(id registry.ID, config *api.TaskQueueConfig) error {
 		zap.String("task_queue", config.TaskQueue),
 	)
 
-	// todo: we probably want to propagate this change to the service
+	// todo: we probably want to propagate this change to the service and ask for restart
 
 	return nil
 }
@@ -70,12 +79,12 @@ func (m *Manager) Delete(id registry.ID) error {
 	defer m.mu.Unlock()
 
 	if _, exists := m.configs[id]; !exists {
-		return fmt.Errorf("task queue %s not found", id)
+		return fmt.Errorf("task queue config %s not found", id)
 	}
 
 	delete(m.configs, id)
 	delete(m.services, id) // Controller cleanup should be handled by supervisor
-	m.log.Info("deleted task queue", zap.String("id", string(id)))
+	m.log.Info("deleted task queue config and service", zap.String("id", string(id)))
 	return nil
 }
 
@@ -88,31 +97,17 @@ func (m *Manager) GetConfig(id registry.ID) (*api.TaskQueueConfig, bool) {
 	return config, exists
 }
 
-// GetTaskQueue returns an existing service or creates a new one
-func (m *Manager) GetTaskQueue(id registry.ID, client *client.Client) (*TaskQueue, error) {
+// Get returns task queue by ID
+func (m *Manager) Get(id registry.ID) (*TaskQueue, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Check for existing service
-	if service, exists := m.services[id]; exists {
+	service, exists := m.services[id]
+	if exists {
 		return service, nil
 	}
 
-	if client == nil {
-		return nil, fmt.Errorf("client is required for ad-hoc task queue creation")
-	}
-
-	// Get config
-	config, exists := m.configs[id]
-	if !exists {
-		return nil, fmt.Errorf("task queue %s not found", id)
-	}
-
-	// Create new service
-	service := NewTaskQueue(m.log, id, config, client)
-	m.services[id] = service
-
-	return service, nil
+	return nil, fmt.Errorf("task queue service %s not found", id)
 }
 
 // GetActiveTaskQueues returns the number of task queues configured for a specific client
@@ -130,7 +125,7 @@ func (m *Manager) GetActiveTaskQueues(clientID registry.ID) int {
 	return count
 }
 
-// Has checks if a task queue exists
+// Has checks if a task queue config exists
 func (m *Manager) Has(id registry.ID) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

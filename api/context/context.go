@@ -28,6 +28,8 @@ var (
 	TaskCtx         = &Key{Name: "task"}         //nolint:gochecknoglobals
 	TaskGroupKeyCtx = &Key{Name: "taskgroupkey"} //nolint:gochecknoglobals
 	ScheduleKeyCtx  = &Key{Name: "schedulekey"}  //nolint:gochecknoglobals
+	WorkflowCtx     = &Key{Name: "workflow"}     //nolint:gochecknoglobals
+	TemporalCtx     = &Key{Name: "temporal"}     //nolint:gochecknoglobals
 )
 
 // Contexter provides a generic type-safe context value store.
