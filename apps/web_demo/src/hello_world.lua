@@ -1,3 +1,3 @@
-function hello_world()
-    return { message = "Hello, World!" }
+function hello_world(arg)
+    return { message = "Hello, World!" .. arg }
 end
