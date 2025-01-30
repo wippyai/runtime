@@ -49,8 +49,8 @@ func (m *Manager) GetHandler(id registry.ID) (interface{}, error) {
 	return ah.handler, nil
 }
 
-// InitHandler initializes a new activity handler
-func (m *Manager) InitHandler(
+// AddHandler initializes a new activity handler
+func (m *Manager) AddHandler(
 	id registry.ID,
 	cfg *api.ActivityDefinition,
 	client *client.Client,

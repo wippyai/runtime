@@ -18,6 +18,7 @@ var (
 	TranscoderCtx = &Key{Name: "transcoder"} //nolint:gochecknoglobals
 	// ExecutorCtx is the context key for the task executor
 	ExecutorCtx = &Key{Name: "executor"} //nolint:gochecknoglobals
+	WorkflowCtx = &Key{Name: "workflow"} //nolint:gochecknoglobals
 	// LoggerCtx is the context key for the application logger
 	LoggerCtx = &Key{Name: "logger"} //nolint:gochecknoglobals
 	// ValuesCtx is the context key for storing arbitrary values
@@ -28,7 +29,6 @@ var (
 	TaskCtx         = &Key{Name: "task"}         //nolint:gochecknoglobals
 	TaskGroupKeyCtx = &Key{Name: "taskgroupkey"} //nolint:gochecknoglobals
 	ScheduleKeyCtx  = &Key{Name: "schedulekey"}  //nolint:gochecknoglobals
-	WorkflowCtx     = &Key{Name: "workflow"}     //nolint:gochecknoglobals
 	TemporalCtx     = &Key{Name: "temporal"}     //nolint:gochecknoglobals
 )
 

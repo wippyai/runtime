@@ -491,7 +491,7 @@ func TestVM_ErrorTraceback(t *testing.T) {
 	}
 	defer vm.Close()
 
-	t.Run("error in InitTaskQueue with traceback", func(t *testing.T) {
+	t.Run("error in AddTaskQueue with traceback", func(t *testing.T) {
 		err := vm.DoString(context.Background(), `
 			local function deep()
 				error("deep error")
