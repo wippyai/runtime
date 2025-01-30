@@ -35,6 +35,7 @@ type Client struct {
 func NewClient(logger *zap.Logger, id registry.ID, config *api.ClientConfig) *Client {
 	return &Client{
 		log:    logger,
+		id:     id,
 		config: config,
 	}
 }
