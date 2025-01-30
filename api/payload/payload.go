@@ -4,9 +4,9 @@ package payload
 // These formats determine how the payload data should be interpreted and processed.
 const (
 	// JSON represents a JSON-formatted payload
-	JSON Format = "application/json"
+	JSON Format = "json/plain"
 	// YAML represents a YAML-formatted payload
-	YAML Format = "application/x-yaml"
+	YAML Format = "yaml/plain"
 	// Golang represents a raw Go value payload
 	Golang Format = "golang/any"
 	// Lua represents a Lua script or value payload
