@@ -68,7 +68,7 @@ func (g *Graph) DependencyLevels() (*DependencyLevels, error) {
 				str += fmt.Sprintf("%s ", k)
 			}
 
-			return nil, fmt.Errorf("cycle (~%s) detected in graph, cannot create dependency levels", strings.Trim(str, " "))
+			return nil, fmt.Errorf("invalid node (~%s) detected in graph", strings.Trim(str, " "))
 		}
 
 		// Remove the nodes in the current level from consideration

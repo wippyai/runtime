@@ -38,7 +38,6 @@ func TestSupervisor_DependencyOrdering(t *testing.T) {
 	h.assertServiceState("service-b", supervisor.Running)
 	h.assertServiceState("service-a", supervisor.Running)
 }
-
 func TestSupervisor_DependencyFailure(t *testing.T) {
 	h := newTestHarness(t)
 	ctx := context.Background()
@@ -78,11 +77,18 @@ func TestSupervisor_DependencyFailure(t *testing.T) {
 		Path:   "service-a",
 	})
 
-	time.Sleep(200 * time.Millisecond)
+	// Wait a bit longer for retries and full failure
+	time.Sleep(500 * time.Millisecond)
 
-	// Verify states
+	// First verify service C is running
 	h.assertServiceState("service-c", supervisor.Running)
-	h.assertServiceState("service-b", supervisor.Failed)  // B should fail to start
+
+	// Then verify B has fully failed (after retries)
+	state, err := h.sup.GetState("service-b")
+	require.NoError(t, err)
+	require.Equal(t, supervisor.Failed, state.Status, "service-b should be in failed state")
+
+	// Finally verify A didn't start
 	h.assertServiceState("service-a", supervisor.Unknown) // A shouldn't start if B fails
 }
 
@@ -190,4 +196,118 @@ func TestSupervisor_MissingDependencies(t *testing.T) {
 	state, err := h.sup.GetState("service-a")
 	require.NoError(t, err)
 	require.NotEqual(t, supervisor.Running, state.Status)
+}
+
+func TestSupervisor_AddDependencyToExistingService(t *testing.T) {
+	h := newTestHarness(t)
+	ctx := context.Background()
+	h.start(ctx)
+
+	// First register service B (not autostarted)
+	h.sup.handleEvent(events.Event{System: registry.System, Kind: registry.Begin})
+	h.registerServiceWithDeps("service-b", false, nil)
+	h.sup.handleEvent(events.Event{System: registry.System, Kind: registry.Commit})
+
+	// Wait for registration to complete and verify B is registered but not running
+	time.Sleep(100 * time.Millisecond)
+	state, err := h.sup.GetState("service-b")
+	require.NoError(t, err)
+	require.Equal(t, supervisor.Unknown, state.Status)
+
+	// Now register service A that depends on B
+	h.sup.handleEvent(events.Event{System: registry.System, Kind: registry.Begin})
+	h.registerServiceWithDeps("service-a", true, []string{"service-b"})
+	h.sup.handleEvent(events.Event{System: registry.System, Kind: registry.Commit})
+
+	time.Sleep(200 * time.Millisecond)
+
+	// Both services should now be running because A's autostart triggered B
+	h.assertServiceState("service-b", supervisor.Running)
+	h.assertServiceState("service-a", supervisor.Running)
+
+	// Stop A and verify B keeps running (since it was started as dependency)
+	h.sup.handleEvent(events.Event{
+		System: supervisor.System,
+		Kind:   supervisor.Stop,
+		Path:   "service-a",
+	})
+
+	time.Sleep(200 * time.Millisecond)
+
+	h.assertServiceState("service-b", supervisor.Running)
+	h.assertServiceState("service-a", supervisor.Stopped)
+}
+
+func TestSupervisor_ComplexDependencyChain_WithPreexisting(t *testing.T) {
+	h := newTestHarness(t)
+	ctx := context.Background()
+	h.start(ctx)
+
+	// First register and start service-base
+	h.sup.handleEvent(events.Event{System: registry.System, Kind: registry.Begin})
+	h.registerServiceWithDeps("service-base", true, nil) // autostart true
+	h.sup.handleEvent(events.Event{System: registry.System, Kind: registry.Commit})
+
+	time.Sleep(100 * time.Millisecond)
+	h.assertServiceState("service-base", supervisor.Running)
+
+	// Register service-middle that depends on service-base but don't autostart
+	h.sup.handleEvent(events.Event{System: registry.System, Kind: registry.Begin})
+	h.registerServiceWithDeps("service-middle", false, []string{"service-base"})
+	h.sup.handleEvent(events.Event{System: registry.System, Kind: registry.Commit})
+
+	time.Sleep(100 * time.Millisecond)
+	h.assertServiceState("service-middle", supervisor.Unknown) // Should not be started
+
+	// Now register service-top with autostart that depends on service-middle
+	// This should trigger starting both service-middle and service-top
+	h.sup.handleEvent(events.Event{System: registry.System, Kind: registry.Begin})
+	h.registerServiceWithDeps("service-top", true, []string{"service-middle"})
+	h.sup.handleEvent(events.Event{System: registry.System, Kind: registry.Commit})
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify all services are running
+	h.assertServiceState("service-base", supervisor.Running)
+	h.assertServiceState("service-middle", supervisor.Running)
+	h.assertServiceState("service-top", supervisor.Running)
+
+	// Now stop service-middle - this should stop service-top but leave service-base running
+	h.sup.handleEvent(events.Event{
+		System: supervisor.System,
+		Kind:   supervisor.Stop,
+		Path:   "service-middle",
+	})
+
+	time.Sleep(100 * time.Millisecond)
+
+	h.assertServiceState("service-base", supervisor.Running)   // Should still be running
+	h.assertServiceState("service-middle", supervisor.Stopped) // Should be stopped
+	h.assertServiceState("service-top", supervisor.Stopped)    // Should be stopped due to dependency
+
+	// Finally stop service-base
+	h.sup.handleEvent(events.Event{
+		System: supervisor.System,
+		Kind:   supervisor.Stop,
+		Path:   "service-base",
+	})
+
+	time.Sleep(100 * time.Millisecond)
+
+	// All services should be stopped
+	h.assertServiceState("service-base", supervisor.Stopped)
+	h.assertServiceState("service-middle", supervisor.Stopped)
+	h.assertServiceState("service-top", supervisor.Stopped)
+
+	// Now try to start service-top - this should fail since dependencies are not started
+	h.sup.handleEvent(events.Event{
+		System: supervisor.System,
+		Kind:   supervisor.Start,
+		Path:   "service-top",
+	})
+
+	time.Sleep(100 * time.Millisecond)
+	h.assertServiceState("service-base", supervisor.Running)   // Should still be running
+	h.assertServiceState("service-middle", supervisor.Running) // Should still be running
+	h.assertServiceState("service-top", supervisor.Running)    // Should not start due to missing deps
 }

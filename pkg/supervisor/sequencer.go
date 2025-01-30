@@ -152,36 +152,34 @@ func (sp *Sequencer) processStartOperations(ctx context.Context, operations []Op
 }
 
 func (sp *Sequencer) processStopOperations(ctx context.Context, operations []Operation) error {
-	// Build dependency graph for stops (edges reversed from start)
 	g := graph.NewGraph()
+	opMap := make(map[string]Operation)
 
-	// Add all services as nodes
+	// Add all nodes first
 	for _, op := range operations {
 		g.AddNode(graph.Node(op.ID))
+		opMap[op.ID] = op
 	}
 
-	// Add dependency edges (reversed from start)
+	// For stop operations, if A depends on B, we need to stop A before B
+	// So we add edges from dependent to dependency
 	for _, op := range operations {
-		for _, dep := range op.Dependencies {
-			// Add edge from dependent to dependency
-			g.AddEdge(graph.Edge{
-				From:   graph.Node(dep),
-				To:     graph.Node(op.ID),
-				Weight: 1,
-			})
+		for _, depID := range op.Dependencies {
+			if _, exists := opMap[depID]; exists {
+				// Add edge FROM dependent TO dependency
+				// This ensures dependent is processed before its dependencies
+				g.AddEdge(graph.Edge{
+					From:   graph.Node(depID), // Dependency
+					To:     graph.Node(op.ID), // Dependent
+					Weight: 1,
+				})
+			}
 		}
 	}
 
-	// Get dependency levels (will be in reverse order due to reversed edges)
 	levels, err := g.DependencyLevels()
 	if err != nil {
 		return fmt.Errorf("failed to determine stop dependency levels: %w", err)
-	}
-
-	// Create operation lookup map
-	opMap := make(map[string]Operation)
-	for _, op := range operations {
-		opMap[op.ID] = op
 	}
 
 	// Process each level in sequence
@@ -213,11 +211,9 @@ func (sp *Sequencer) processStopOperations(ctx context.Context, operations []Ope
 			}
 		}
 
-		// Wait for current level to complete
 		wg.Wait()
 		close(errChan)
 
-		// Check for any errors
 		for err := range errChan {
 			if err != nil {
 				return err
