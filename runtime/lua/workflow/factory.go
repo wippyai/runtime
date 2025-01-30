@@ -25,7 +25,7 @@ func (f *Factory) ForWorkflow(
 	cfg *api.WorkflowConfig,
 	modules api.ModuleRegistry,
 	libraries api.LibraryRegistry,
-) (func() *Runner, error) {
+) (func() any, error) {
 
 	// Collect engine options
 	opts := []engine.Option{
@@ -71,7 +71,7 @@ func (f *Factory) ForWorkflow(
 
 	// todo: we can pre-compile it here
 
-	return func() *Runner {
+	return func() any {
 		// Create VM with configured modules
 		vm, err := engine.NewCVM(log, opts...)
 		if err != nil {

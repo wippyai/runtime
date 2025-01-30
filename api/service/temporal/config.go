@@ -15,8 +15,8 @@ const (
 	System        events.System = "temporal"
 	KindClient    registry.Kind = "temporal.client"
 	KindTaskQueue registry.Kind = "temporal.task_queue"
-	KindFunction  registry.Kind = "temporal.function"
-	KindWorkflow  registry.Kind = "temporal.workflow_definition"
+	KindFunction  registry.Kind = "temporal.function_binding"
+	KindWorkflow  registry.Kind = "temporal.workflow_binding"
 )
 
 type ClientAuthType string

@@ -27,8 +27,8 @@ func NewWorkflowManager(log *zap.Logger, reg runtime.WorkflowRegistry) *Manager 
 	}
 }
 
-// GetHandler retrieves a workflow handler for the given ID
-func (m *Manager) GetHandler(id registry.ID) (interface{}, error) {
+// GetWorkflow retrieves a workflow handler for the given ID
+func (m *Manager) GetWorkflow(id registry.ID) (any, error) {
 	m.mu.RLock()
 	cfg, exists := m.configs[id]
 	m.mu.RUnlock()
@@ -38,12 +38,12 @@ func (m *Manager) GetHandler(id registry.ID) (interface{}, error) {
 	}
 
 	// Always get fresh handler from registry
-	handler, err := m.workflow.Get(cfg.Workflow)
+	w, err := m.workflow.Get(cfg.Workflow)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get workflow handler %s: %w", id, err)
 	}
 
-	return handler, nil
+	return m.wrapWorkflow(w)
 }
 
 // AddWorkflow initializes a new workflow configuration
@@ -52,16 +52,24 @@ func (m *Manager) AddWorkflow(
 	cfg *api.WorkflowDefinition,
 ) (interface{}, error) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	if _, exists := m.configs[id]; exists {
 		return nil, fmt.Errorf("workflow configuration %s already exists", id)
 	}
-
 	m.configs[id] = cfg
+	m.mu.Unlock()
+
 	m.log.Info("initialized workflow configuration", zap.String("id", string(id)))
 
-	return m.workflow.Get(cfg.Workflow)
+	w, err := m.workflow.Get(cfg.Workflow)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get workflow handler %s: %w", id, err)
+	}
+
+	return m.wrapWorkflow(w)
+}
+
+func (m *Manager) wrapWorkflow(w func() any) (any, error) {
+	return newDefinitionFactory(w), nil
 }
 
 // GetConfig retrieves a workflow configuration

@@ -26,7 +26,7 @@ type (
 	// flexible workflow implementations that can be type-checked at higher levels.
 	RegisterWorkflow struct {
 		Target  registry.ID
-		Handler any
+		Handler func() any
 	}
 
 	// DeleteWorkflow represents a request to remove a workflow handler
@@ -44,6 +44,6 @@ type (
 		// Get retrieves a registered workflow handler for the given ID.
 		// Returns the handler as type any for flexible workflow implementations,
 		// and an error if no handler is found or if retrieval fails.
-		Get(id registry.ID) (any, error)
+		Get(id registry.ID) (func() any, error)
 	}
 )

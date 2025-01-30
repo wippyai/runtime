@@ -36,7 +36,7 @@ func (m *RuntimeManager) compileFunction(id registry.ID, cfg *api.FunctionConfig
 	return handler, nil
 }
 
-func (m *RuntimeManager) compileWorkflow(id registry.ID, cfg *api.WorkflowConfig) (any, error) {
+func (m *RuntimeManager) compileWorkflow(id registry.ID, cfg *api.WorkflowConfig) (func() any, error) {
 	runner, err := m.workflows.GetFactory(id, cfg, m.modules, m.libraries)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create workflow: %w", err)

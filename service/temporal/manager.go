@@ -16,6 +16,7 @@ import (
 	"github.com/ponyruntime/pony/service/temporal/workflow"
 	"go.temporal.io/sdk/converter"
 	"go.uber.org/zap"
+	"log"
 )
 
 // Manager handles temporal service registration and lifecycle
@@ -166,6 +167,8 @@ func (m *Manager) addWorkflow(ctx context.Context, entry registry.Entry) error {
 	if err != nil {
 		return fmt.Errorf("failed to initialize workflow: %w", err)
 	}
+
+	log.Printf("!!workflow registered successfully: %+v", w)
 
 	if err := taskQueue.RegisterWorkflow(string(entry.ID), w); err != nil {
 		return fmt.Errorf("failed to register workflow with task queue: %w", err)

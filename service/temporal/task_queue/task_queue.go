@@ -8,7 +8,6 @@ import (
 	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/ponyruntime/pony/service/temporal/client"
 	tmact "go.temporal.io/sdk/activity"
-	tmwfl "go.temporal.io/sdk/workflow"
 	"sync"
 
 	"go.temporal.io/sdk/worker"
@@ -69,9 +68,10 @@ func (s *TaskQueue) constructWorker(ctx context.Context) (worker.Worker, error) 
 	w := worker.New(c, s.config.TaskQueue, cfg)
 
 	// Mount all registered workflows
-	for name, workflow := range s.workflows {
-		w.RegisterWorkflowWithOptions(workflow, tmwfl.RegisterOptions{Name: name})
-	}
+	//for name, workflow := range s.workflows {
+	// todo: FIX IT
+	//	w.RegisterWorkflowWithOptions(workflow, tmwfl.RegisterOptions{Name: name})
+	//}
 
 	// Mount all registered activities
 	for name, activity := range s.activities {

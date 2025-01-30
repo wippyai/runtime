@@ -69,13 +69,13 @@ func (r *Registry) handleEvent(evt events.Event) {
 				return
 			}
 			r.handlers.Store(data.Target, data.Handler)
-			r.logger.Debug("workflow handler registered",
+			r.logger.Info("workflow handler registered",
 				zap.String("target", string(data.Target)))
 		}
 	case runtime.DeleteWorkflowEvent:
 		if data, ok := evt.Data.(runtime.DeleteWorkflow); ok {
 			r.handlers.Delete(data.Target)
-			r.logger.Debug("workflow handler removed",
+			r.logger.Info("workflow handler removed",
 				zap.String("target", string(data.Target)))
 		}
 	}
@@ -83,12 +83,13 @@ func (r *Registry) handleEvent(evt events.Event) {
 
 // Get retrieves a registered workflow handler for the given target ID.
 // Returns an error if no handler is registered for the target.
-func (r *Registry) Get(id registry.ID) (any, error) {
+func (r *Registry) Get(id registry.ID) (func() any, error) {
 	handler, exists := r.handlers.Load(id)
 	if !exists {
 		return nil, fmt.Errorf("no workflow handler registered for target: %s", id)
 	}
-	return handler, nil
+
+	return handler.(func() any), nil
 }
 
 // Ensure Registry implements WorkflowRegistry interface
