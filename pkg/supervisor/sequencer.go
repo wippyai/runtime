@@ -169,8 +169,8 @@ func (sp *Sequencer) processStopOperations(ctx context.Context, operations []Ope
 				// Add edge FROM dependent TO dependency
 				// This ensures dependent is processed before its dependencies
 				g.AddEdge(graph.Edge{
-					From:   graph.Node(depID), // Dependency
-					To:     graph.Node(op.ID), // Dependent
+					From:   graph.Node(op.ID), // Dependent
+					To:     graph.Node(depID), // Dependency
 					Weight: 1,
 				})
 			}
