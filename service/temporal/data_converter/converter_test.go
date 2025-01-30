@@ -1,8 +1,9 @@
 package data_converter
 
 import (
-	"github.com/ponyruntime/pony/pkg/payload/json"
-	"github.com/ponyruntime/pony/pkg/payload/yaml"
+	"encoding/json"
+	jpayload "github.com/ponyruntime/pony/pkg/payload/json"
+	ypayload "github.com/ponyruntime/pony/pkg/payload/yaml"
 	"strconv"
 	"testing"
 
@@ -15,8 +16,8 @@ import (
 
 func TestInternalDataConverter_PayloadsHandling(t *testing.T) {
 	dtt := transcoder.NewTranscoder()
-	json.Register(dtt)
-	yaml.Register(dtt)
+	jpayload.Register(dtt)
+	ypayload.Register(dtt)
 
 	defaultConverter := converter.GetDefaultDataConverter()
 	conv := NewDataConverter(dtt, defaultConverter)
@@ -163,8 +164,8 @@ func TestInternalDataConverter_PayloadsHandling(t *testing.T) {
 
 func TestInternalDataConverter_ErrorCases(t *testing.T) {
 	dtt := transcoder.NewTranscoder()
-	json.Register(dtt)
-	yaml.Register(dtt)
+	jpayload.Register(dtt)
+	ypayload.Register(dtt)
 
 	defaultConverter := converter.GetDefaultDataConverter()
 	conv := NewDataConverter(dtt, defaultConverter)
@@ -217,5 +218,49 @@ func TestInternalDataConverter_ErrorCases(t *testing.T) {
 		err := conv.FromPayloads(input, &str1, &str2, &str3)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "number of payloads")
+	})
+}
+
+func TestDataConverter_PayloadNewTranscoding(t *testing.T) {
+	// Create a transcoder and register JSON support
+	dtt := transcoder.NewTranscoder()
+	jpayload.Register(dtt)
+	ypayload.Register(dtt)
+
+	defaultConverter := converter.GetDefaultDataConverter()
+	conv := NewDataConverter(dtt, defaultConverter)
+
+	t.Run("ToPayload with payload.New needing transcoding", func(t *testing.T) {
+		// Create a payload using payload.New (will be Golang format)
+		data := map[string]interface{}{
+			"key": "value",
+			"num": float64(42),
+		}
+		p := payload.New(data)
+
+		// Convert to Temporal payload
+		result, err := conv.ToPayload(p)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+
+		// Should be transcoded to JSON
+		assert.Equal(t, []byte(converter.MetadataEncodingJSON), result.Metadata[converter.MetadataEncoding])
+
+		// Verify content
+		var decodedData map[string]interface{}
+		err = json.Unmarshal(result.Data, &decodedData)
+		assert.NoError(t, err)
+		assert.Equal(t, data["key"], decodedData["key"])
+		assert.Equal(t, data["num"], decodedData["num"])
+	})
+
+	t.Run("ToPayload with non-transcodable value", func(t *testing.T) {
+		// Create a payload with a value that can't be transcoded to JSON
+		p := payload.New(make(chan int))
+
+		// Should fail with transcoding error
+		_, err := conv.ToPayload(p)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "error transcoding value")
 	})
 }
