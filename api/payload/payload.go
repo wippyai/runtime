@@ -7,12 +7,12 @@ const (
 	JSON Format = "json/plain"
 	// YAML represents a YAML-formatted payload
 	YAML Format = "yaml/plain"
+	// String represents a plain text payload
+	String Format = "text/plain"
 	// Golang represents a raw Go value payload
 	Golang Format = "golang/any"
 	// Lua represents a Lua script or value payload
 	Lua Format = "lua/any"
-	// String represents a plain text payload
-	String Format = "text/plain"
 	// Bytes represent a raw binary payload
 	Bytes Format = "application/octet-stream"
 	// Error represents a Go error payload

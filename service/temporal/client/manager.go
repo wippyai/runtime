@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/ponyruntime/pony/api/registry"
 	api "github.com/ponyruntime/pony/api/service/temporal"
+	"go.temporal.io/sdk/converter"
 	"go.uber.org/zap"
 )
 
@@ -65,7 +66,7 @@ func (m *Manager) GetConfig(id registry.ID) (*api.ClientConfig, bool) {
 }
 
 // GetClient returns an existing service or creates a new one
-func (m *Manager) GetClient(id registry.ID) (*Client, error) { // todo: refactor and split?
+func (m *Manager) GetClient(id registry.ID, dc converter.DataConverter) (*Client, error) { // todo: refactor and split?
 	// Check for existing service
 	if service, exists := m.services[id]; exists {
 		return service, nil
@@ -78,7 +79,7 @@ func (m *Manager) GetClient(id registry.ID) (*Client, error) { // todo: refactor
 	}
 
 	// Create new service
-	service := NewClient(m.log, id, config)
+	service := NewClient(m.log, id, dc, config)
 	m.services[id] = service
 
 	return service, nil
