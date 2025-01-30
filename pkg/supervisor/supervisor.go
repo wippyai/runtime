@@ -231,6 +231,10 @@ func (s *Supervisor) run(ctx context.Context) {
 					zap.Error(err),
 				)
 			}
+			s.logger.Info("service registered",
+				zap.String("serviceID", action.serviceID),
+				zap.Any("entry", action.entry),
+			)
 
 		case actionRemove:
 			if err := s.tx.removeService(action.serviceID); err != nil {
@@ -240,23 +244,25 @@ func (s *Supervisor) run(ctx context.Context) {
 				)
 			}
 
+			s.logger.Info("service removed", zap.String("serviceID", action.serviceID))
+
 		case actionStart, actionStop:
 			if s.tx.open {
 				s.logger.Warn("transaction already open") // todo: can we add it to tx?
 				continue
 			}
 
-			if ctrl, exists := s.controllers[action.serviceID]; exists {
-				var opType OperationType
-				switch action.kind {
-				case actionStart:
-					opType = OperationStart
-				case actionStop:
-					opType = OperationStop
-				default:
-					// impossible
-				}
+			l := s.logger.With(zap.String("serviceID", action.serviceID))
+			var opType OperationType
+			if action.kind == actionStart {
+				opType = OperationStart
+				l.Info("service start requested")
+			} else {
+				opType = OperationStop
+				l.Info("service stop requested")
+			}
 
+			if ctrl, exists := s.controllers[action.serviceID]; exists {
 				op := Operation{
 					Type:       opType,
 					ID:         action.serviceID,

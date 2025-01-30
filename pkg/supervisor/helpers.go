@@ -211,12 +211,8 @@ func (th *registryTX) registerService(id string, entry *supervisor.Entry) error 
 		return fmt.Errorf("received register action outside of transaction")
 	}
 
-	if _, exists := th.register[id]; exists {
-		return nil
-	}
-
 	delete(th.remove, id)
-	th.register[id] = entry
+	th.register[id] = entry // always use the latest entry
 	return nil
 }
 

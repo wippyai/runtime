@@ -3,6 +3,7 @@ package task_queue
 import (
 	"context"
 	"fmt"
+	"github.com/ponyruntime/pony/api/registry"
 	api "github.com/ponyruntime/pony/api/service/temporal"
 	"github.com/ponyruntime/pony/service/temporal/client"
 	tmact "go.temporal.io/sdk/activity"
@@ -16,7 +17,9 @@ import (
 // TaskQueue implements supervisor.Service interface for Temporal task queue workers
 type TaskQueue struct {
 	mu     sync.RWMutex
+	ctx    context.Context
 	log    *zap.Logger
+	id     registry.ID
 	config *api.TaskQueueConfig
 	client *client.Client
 	worker worker.Worker
@@ -31,9 +34,10 @@ type TaskQueue struct {
 }
 
 // NewTaskQueue creates a new task queue service instance
-func NewTaskQueue(logger *zap.Logger, config *api.TaskQueueConfig, client *client.Client) *TaskQueue {
+func NewTaskQueue(logger *zap.Logger, id registry.ID, config *api.TaskQueueConfig, client *client.Client) *TaskQueue {
 	return &TaskQueue{
 		log:        logger,
+		id:         id,
 		config:     config,
 		client:     client,
 		workflows:  make(map[string]interface{}),
@@ -41,8 +45,12 @@ func NewTaskQueue(logger *zap.Logger, config *api.TaskQueueConfig, client *clien
 	}
 }
 
+func (s *TaskQueue) ID() registry.ID {
+	return s.id
+}
+
 // constructWorker creates a new worker with all registered workflows and activities
-func (s *TaskQueue) constructWorker() (worker.Worker, error) {
+func (s *TaskQueue) constructWorker(ctx context.Context) (worker.Worker, error) {
 	c, err := s.client.GetClient()
 	if err != nil {
 		s.log.Error("failed to get client", zap.Error(err))
@@ -72,8 +80,10 @@ func (s *TaskQueue) Start(ctx context.Context) (<-chan any, error) {
 		return nil, fmt.Errorf("worker already started")
 	}
 
+	s.ctx = ctx
+
 	// Create and mount worker with all registered components
-	w, err := s.constructWorker()
+	w, err := s.constructWorker(ctx)
 	if err != nil {
 		s.mu.Unlock()
 		return nil, fmt.Errorf("failed to construct worker: %w", err)
