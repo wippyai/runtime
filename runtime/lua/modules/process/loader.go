@@ -23,10 +23,10 @@ func (m *Module) Loader(l *lua.LState) int {
 
 	mt := l.NewTypeMetatable(metatableName)
 	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
-		"start":      m.startProcess,
-		"get_stderr": m.getStderr,
-		"get_stdout": m.getStdout,
-		"close":      m.closeProcess,
+		"start":         m.startProcess,
+		"stderr_stream": m.getStderr,
+		"stdout_stream": m.getStdout,
+		"close":         m.closeProcess,
 	}))
 
 	l.Push(t)

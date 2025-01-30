@@ -8,11 +8,8 @@ import (
 )
 
 const (
-	metatableName     = "proc"
-	processStreamName = "process_stream"
+	metatableName = "Process"
 )
-
-// TODO: process.new(name) // args not needed
 
 type Module struct{}
 

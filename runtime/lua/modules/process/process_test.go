@@ -29,6 +29,7 @@ func TestProcessBasic(t *testing.T) {
 		engine.WithPreloaded("stream", stream.NewStreamModule(logger).Loader),
 		engine.WithPreloaded("time", time.NewTimeModule().Loader),
 	)
+
 	require.NoError(t, err)
 	defer vm.Close()
 	chans := channel.NewChannelLayer()
