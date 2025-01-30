@@ -19,13 +19,22 @@ const (
 	KindWorkflow  registry.Kind = "temporal.workflow_definition"
 )
 
+type ClientAuthType string
+
+const (
+	NoClientCert               ClientAuthType = "no_client_cert"
+	RequestClientCert          ClientAuthType = "request_client_cert"
+	RequireAnyClientCert       ClientAuthType = "require_any_client_cert"
+	VerifyClientCertIfGiven    ClientAuthType = "verify_client_cert_if_given"
+	RequireAndVerifyClientCert ClientAuthType = "require_and_verify_client_cert"
+)
+
 // ClientConfig represents configuration for a Temporal client connection
 type ClientConfig struct {
-	Meta      registry.Metadata `json:"meta"`
-	Address   string            `json:"address"`
-	Namespace string            `json:"namespace"`
-	TLS       *TLSConfig        `json:"tls,omitempty"`
-	CacheSize int               `json:"cache_size"`
+	Address   string     `json:"address"`
+	Namespace string     `json:"namespace"`
+	TLS       *TLSConfig `json:"tls,omitempty"`
+	CacheSize int        `json:"cache_size"`
 }
 
 // TLSConfig represents TLS/SSL configuration
@@ -38,21 +47,15 @@ type TLSConfig struct {
 	UseH2C     bool           `json:"use_h2c"`
 }
 
-type ClientAuthType string
-
-const (
-	NoClientCert               ClientAuthType = "no_client_cert"
-	RequestClientCert          ClientAuthType = "request_client_cert"
-	RequireAnyClientCert       ClientAuthType = "require_any_client_cert"
-	VerifyClientCertIfGiven    ClientAuthType = "verify_client_cert_if_given"
-	RequireAndVerifyClientCert ClientAuthType = "require_and_verify_client_cert"
-)
+type ActivityConfig struct {
+	TaskQueue registry.ID `json:"task_queue"`
+	Function  registry.ID `json:"function"`
+}
 
 // TaskQueueConfig represents configuration for a Temporal task queue
 type TaskQueueConfig struct {
-	Meta                             registry.Metadata          `json:"meta"`
 	Client                           registry.ID                `json:"client"`
-	TaskQueue                        string                     `json:"task_queue"`
+	TaskQueue                        string                     `json:"task_queue"` // temporal level task queue
 	MaxConcurrentActivityExecution   int                        `json:"max_concurrent_activity_execution"`
 	WorkerActivitiesPerSecond        float64                    `json:"worker_activities_per_second"`
 	MaxConcurrentLocalActivity       int                        `json:"max_concurrent_local_activity"`
@@ -227,4 +230,57 @@ func (c *TaskQueueConfig) ToWorkerOptions() worker.Options {
 		MaxConcurrentEagerActivityExecutionSize: c.MaxConcurrentEagerActivities,
 		DisableRegistrationAliasing:             c.DisableRegistrationAliasing,
 	}
+}
+
+// UnmarshalJSON provides custom unmarshaling for ActivityConfig
+func (c *ActivityConfig) UnmarshalJSON(data []byte) error {
+	type Alias ActivityConfig
+	aux := &struct {
+		TaskQueue string `json:"task_queue"`
+		Function  string `json:"function"`
+		*Alias
+	}{
+		Alias: (*Alias)(c),
+	}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	// Convert string to registry.ID
+	if aux.TaskQueue != "" {
+		c.TaskQueue = registry.ID(aux.TaskQueue)
+	}
+	if aux.Function != "" {
+		c.Function = registry.ID(aux.Function)
+	}
+
+	return nil
+}
+
+// MarshalJSON provides custom marshaling for ActivityConfig
+func (c *ActivityConfig) MarshalJSON() ([]byte, error) {
+	type Alias ActivityConfig
+	return json.Marshal(&struct {
+		TaskQueue string `json:"task_queue"`
+		Function  string `json:"function"`
+		*Alias
+	}{
+		TaskQueue: string(c.TaskQueue),
+		Function:  string(c.Function),
+		Alias:     (*Alias)(c),
+	})
+}
+
+// Validate validates the ActivityConfig
+func (c *ActivityConfig) Validate() error {
+	if c.TaskQueue == "" {
+		return fmt.Errorf("task_queue is required")
+	}
+
+	if c.Function == "" {
+		return fmt.Errorf("function is required")
+	}
+
+	return nil
 }

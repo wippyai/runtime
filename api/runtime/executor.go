@@ -39,7 +39,7 @@ type (
 	Task struct {
 		Context  context.Context
 		Target   registry.ID
-		Payloads []payload.Payload
+		Payloads payload.Payloads
 	}
 
 	// Result represents the outcome of an executed task.

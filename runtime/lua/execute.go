@@ -39,6 +39,7 @@ func (m *RuntimeManager) Execute(task runtime.Task) (chan *runtime.Result, error
 		}
 
 		for _, p := range task.Payloads {
+
 			local, err := dtt.Transcode(p, payload.Lua)
 			if err != nil {
 				return nil, fmt.Errorf("failed to transcode payload: %w", err)

@@ -53,6 +53,7 @@ type (
 
 	// EndpointConfig represents the configuration for a single endpoint.
 	EndpointConfig struct {
+		// todo: move server from meta?
 		Meta              registry.Metadata `json:"meta"`                // Metadata
 		Path              string            `json:"path"`                // URL path
 		Method            string            `json:"method"`              // Timeouts method

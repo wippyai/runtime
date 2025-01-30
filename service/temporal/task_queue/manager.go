@@ -98,6 +98,10 @@ func (m *Manager) GetTaskQueue(id registry.ID, client *client.Client) (*TaskQueu
 		return service, nil
 	}
 
+	if client == nil {
+		return nil, fmt.Errorf("client is required for ad-hoc task queue creation")
+	}
+
 	// Get config
 	config, exists := m.configs[id]
 	if !exists {
