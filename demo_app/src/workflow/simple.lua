@@ -1,13 +1,13 @@
 function execute_workflow()
     -- Execute the hello world activity
     local activity_cmd = command.new(
-        "activity",           -- command type
-        "hello_world",       -- activity name
-        {                    -- activity options
+        "activity",             -- command type
+        "hello_world.activity", -- activity name
+        {                       -- activity options
             taskQueue = "default_tq",
             startToCloseTimeout = "5s"
         },
-        { message = "Hello from workflow!" }  -- activity arguments
+        { message = "Hello from workflow!" } -- activity arguments
     )
 
     -- Wait for activity response
@@ -20,8 +20,8 @@ function execute_workflow()
 
     -- Create a timer command (wait for 2 seconds)
     local timer_cmd = command.new(
-        "timer",             -- command type
-        {                    -- timer options
+        "timer", -- command type
+        {        -- timer options
             duration = "2s"
         }
     )
