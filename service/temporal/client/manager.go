@@ -64,8 +64,8 @@ func (m *Manager) GetConfig(id registry.ID) (*api.ClientConfig, bool) {
 	return config, exists
 }
 
-// GetConnection returns an existing service or creates a new one
-func (m *Manager) GetConnection(id registry.ID) (*Client, error) {
+// GetClient returns an existing service or creates a new one
+func (m *Manager) GetClient(id registry.ID) (*Client, error) {
 	// Check for existing service
 	if service, exists := m.services[id]; exists {
 		return service, nil
