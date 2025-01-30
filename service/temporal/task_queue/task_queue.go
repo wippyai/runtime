@@ -3,15 +3,12 @@ package task_queue
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	api "github.com/ponyruntime/pony/api/service/temporal"
 	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/ponyruntime/pony/service/temporal/client"
-	commonpb "go.temporal.io/api/common/v1"
 	tmact "go.temporal.io/sdk/activity"
 	tmwfl "go.temporal.io/sdk/workflow"
-	"log"
 	"sync"
 
 	"go.temporal.io/sdk/worker"
@@ -81,6 +78,14 @@ func (s *TaskQueue) constructWorker(ctx context.Context) (worker.Worker, error) 
 	return w, nil
 }
 
+func (s *TaskQueue) GetConfig() *api.TaskQueueConfig {
+	return s.config
+}
+
+func (s *TaskQueue) GetClient() *client.Client {
+	return s.client
+}
+
 // Start implements supervisor.Service interface
 func (s *TaskQueue) Start(ctx context.Context) (<-chan any, error) {
 	s.mu.Lock()
@@ -102,27 +107,6 @@ func (s *TaskQueue) Start(ctx context.Context) (<-chan any, error) {
 	s.statusChan = make(chan any, 3)
 	s.exit = make(chan struct{})
 	s.mu.Unlock()
-
-	// register stab activity
-
-	// TODO: _____________________ YES
-	w.RegisterActivityWithOptions(
-		func(ctx context.Context, args *payload.Payload) (*commonpb.Payloads, error) {
-			// todo: we simply can pass client over context actually
-			actInfo := tmact.GetInfo(ctx)
-
-			// todo: convert and send to executor actually
-			// todo: do we actually want to perform transcode to wippy payloads?
-			// todo: probably yes
-			s.log.Info("stab activity executed")
-			log.Printf("%+v %+v", args, actInfo)
-			log.Printf("Activity result: %v\n", ctx)
-			return nil, nil
-		}, tmact.RegisterOptions{
-			Name: "stab-activity",
-		})
-	log.Printf("Registered activity: stab-activity\n")
-	// TODO: _____________________ YES
 
 	// Start worker
 	if err := w.Start(); err != nil {

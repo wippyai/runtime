@@ -65,7 +65,7 @@ func (m *Manager) GetConfig(id registry.ID) (*api.ClientConfig, bool) {
 }
 
 // GetClient returns an existing service or creates a new one
-func (m *Manager) GetClient(id registry.ID) (*Client, error) {
+func (m *Manager) GetClient(id registry.ID) (*Client, error) { // todo: refactor and split?
 	// Check for existing service
 	if service, exists := m.services[id]; exists {
 		return service, nil
