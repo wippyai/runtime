@@ -6,10 +6,13 @@ import (
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
+	"github.com/ponyruntime/pony/api/runtime"
 	api "github.com/ponyruntime/pony/api/service/temporal"
 	"github.com/ponyruntime/pony/api/supervisor"
+	"github.com/ponyruntime/pony/service/temporal/activity"
 	"github.com/ponyruntime/pony/service/temporal/client"
 	tq "github.com/ponyruntime/pony/service/temporal/task_queue"
+	"github.com/ponyruntime/pony/service/temporal/workflow"
 	"go.uber.org/zap"
 )
 
@@ -20,16 +23,25 @@ type Manager struct {
 	dtt        payload.Transcoder
 	clients    *client.Manager
 	taskQueues *tq.Manager
+	activities *activity.Manager
+	workflows  *workflow.Manager
 }
 
 // NewManager creates a new temporal service manager
-func NewManager(bus events.Bus, dtt payload.Transcoder, logger *zap.Logger) *Manager {
+func NewManager(
+	bus events.Bus,
+	dtt payload.Transcoder,
+	exec runtime.Executor,
+	logger *zap.Logger,
+) *Manager {
 	return &Manager{
 		log:        logger,
 		bus:        bus,
 		dtt:        dtt,
 		clients:    client.NewClientManager(logger),
 		taskQueues: tq.NewTaskQueueManager(logger),
+		activities: activity.NewActivityManager(logger, exec),
+		workflows:  workflow.NewWorkflowManager(logger),
 	}
 }
 
