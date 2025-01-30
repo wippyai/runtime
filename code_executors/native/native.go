@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"sync"
+	"sync/atomic"
 	"syscall"
 
 	"go.uber.org/zap"
@@ -26,6 +27,7 @@ type Executor struct {
 	pid     int
 	state   string
 	command string
+	stopped atomic.Pointer[bool]
 
 	cmd *exec.Cmd
 
@@ -39,6 +41,8 @@ func NewNativeExecutor(log *zap.Logger, opts ...Options) *Executor {
 		state: notStarted,
 		log:   log,
 	}
+
+	e.stopped.Store(p(false))
 
 	for _, opt := range opts {
 		opt(e)
@@ -82,6 +86,7 @@ func (e *Executor) Start() error {
 	// execute command
 	err := e.cmd.Start()
 	if err != nil {
+		e.stopped.Store(p(true))
 		return err
 	}
 
@@ -131,17 +136,19 @@ func (e *Executor) Signal(sig int) {
 	}
 
 	// we're using os.FindProcess to avoid touching e.cmd
-	p, err := os.FindProcess(e.pid)
+	pp, err := os.FindProcess(e.pid)
 	if err != nil {
 		e.log.Error("error finding process", zap.Error(err))
 		return
 	}
 
-	err = p.Signal(syscall.Signal(sig))
+	err = pp.Signal(syscall.Signal(sig))
 	if err != nil {
 		e.log.Error("error sending signal", zap.Error(err))
 		return
 	}
+
+	e.stopped.Store(p(true))
 }
 
 func (e *Executor) StderrReader() io.ReadCloser {
@@ -167,19 +174,26 @@ func (e *Executor) Stop() {
 		return
 	}
 
-	p, err := os.FindProcess(e.pid)
+	// todo: potential NPE?
+	if *e.stopped.Load() {
+		e.log.Warn("process already stopped")
+		return
+	}
+
+	pp, err := os.FindProcess(e.pid)
 	if err != nil {
 		e.log.Error("error finding process", zap.Error(err))
 		return
 	}
 
 	// kill the process
-	_ = p.Kill()
+	_ = pp.Kill()
 	// to prevent multiple calls to Stop()
 	e.pid = 0
 	e.state = terminated
 	_ = e.stdoutp.Close()
 	_ = e.stderrp.Close()
+	e.stopped.Store(p(true))
 }
 
 func (e *Executor) Wait() {
@@ -192,5 +206,10 @@ func (e *Executor) Wait() {
 	e.state = terminated
 	e.rwm.Unlock()
 
+	e.stopped.Store(p(true))
 	e.log.Debug("command finished")
+}
+
+func p[T any](val T) *T {
+	return &val
 }

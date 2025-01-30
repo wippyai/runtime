@@ -2,6 +2,7 @@ package process
 
 import (
 	"github.com/ponyruntime/pony/code_executors/native"
+	"github.com/ponyruntime/pony/internal/closer"
 	"github.com/ponyruntime/pony/runtime/lua/modules/stream"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
@@ -14,7 +15,14 @@ func (m *Module) newProcess(l *lua.LState) int {
 	cmd := l.CheckString(1)
 	ud := l.NewUserData()
 
-	ud.Value = native.NewNativeExecutor(log.Named("native_exec"), native.WithCmd(cmd))
+	executor := native.NewNativeExecutor(log.Named("native_exec"), native.WithCmd(cmd))
+	closer.FromContext(l.Context()).Add(func() error {
+		// stop the executor
+		executor.Stop()
+		return nil
+	})
+
+	ud.Value = executor
 	l.SetMetatable(ud, l.GetTypeMetatable(metatableName))
 
 	l.Push(ud)
