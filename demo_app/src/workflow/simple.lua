@@ -27,5 +27,14 @@ function execute_workflow()
         return { error = "Activity failed" }
     end
 
+    -- Create a timer command for 5 seconds
+    local timer_cmd = command.new(
+        "timer",            -- command type
+        { duration = "5s" } -- timer configuration
+    )
+
+    -- Wait for timer completion
+    timer_cmd:response():receive()
+
     return result
 end
