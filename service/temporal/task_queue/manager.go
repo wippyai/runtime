@@ -105,7 +105,7 @@ func (m *Manager) GetTaskQueue(id registry.ID, client *client.Client) (*TaskQueu
 	}
 
 	// Create new service
-	service := NewTaskQueue(m.log, config, client)
+	service := NewTaskQueue(m.log, id, config, client)
 	m.services[id] = service
 
 	return service, nil

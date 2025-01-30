@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"fmt"
+	"github.com/ponyruntime/pony/api/registry"
 	api "github.com/ponyruntime/pony/api/service/temporal"
 	"sync"
 	"time"
@@ -21,6 +22,7 @@ const (
 type Client struct {
 	mu     sync.RWMutex
 	log    *zap.Logger
+	id     registry.ID
 	config *api.ClientConfig
 	client client.Client
 
@@ -30,11 +32,15 @@ type Client struct {
 }
 
 // NewClient creates a new client service instance
-func NewClient(logger *zap.Logger, config *api.ClientConfig) *Client {
+func NewClient(logger *zap.Logger, id registry.ID, config *api.ClientConfig) *Client {
 	return &Client{
 		log:    logger,
 		config: config,
 	}
+}
+
+func (s *Client) ID() registry.ID {
+	return s.id
 }
 
 // Start implements supervisor.Service interface

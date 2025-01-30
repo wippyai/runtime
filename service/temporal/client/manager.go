@@ -78,7 +78,7 @@ func (m *Manager) GetClient(id registry.ID) (*Client, error) {
 	}
 
 	// Create new service
-	service := NewClient(m.log, config)
+	service := NewClient(m.log, id, config)
 	m.services[id] = service
 
 	return service, nil

@@ -59,7 +59,7 @@ func (m *Manager) updateClientLifecycle(ctx context.Context, clientID registry.I
 	// won't affect running clients but will start idle ones
 	m.bus.Send(ctx, events.Event{
 		System: supervisor.System,
-		Kind:   supervisor.Update,
+		Kind:   supervisor.Register,
 		Path:   events.Path(clientID),
 		Data: &supervisor.Entry{
 			Config: lifecycle,
