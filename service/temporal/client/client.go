@@ -48,6 +48,17 @@ func NewClient(
 	}
 }
 
+func (s *Client) OnContext(ctx context.Context) context.Context {
+	return context.WithValue(ctx, api.ClientCtx, s)
+}
+
+func FromContext(ctx context.Context) *Client {
+	if c, ok := ctx.Value(api.ClientCtx).(*Client); ok {
+		return c
+	}
+	return nil
+}
+
 func (s *Client) ID() registry.ID {
 	return s.id
 }

@@ -18,7 +18,7 @@ type Manager struct {
 	mu       sync.RWMutex
 	log      *zap.Logger
 	executor runtime.Executor
-	configs  map[registry.ID]*api.ActivityConfig
+	configs  map[registry.ID]*api.FunctionActivity
 }
 
 // NewActivityManager creates a new activity manager instance
@@ -26,7 +26,7 @@ func NewActivityManager(log *zap.Logger, executor runtime.Executor) *Manager {
 	return &Manager{
 		log:      log,
 		executor: executor,
-		configs:  make(map[registry.ID]*api.ActivityConfig),
+		configs:  make(map[registry.ID]*api.FunctionActivity),
 	}
 }
 
@@ -76,7 +76,7 @@ func (m *Manager) executeActivity(ctx context.Context, id registry.ID, inputs pa
 // The client is used only for context binding in the returned handler
 func (m *Manager) Register(
 	id registry.ID,
-	cfg *api.ActivityConfig,
+	cfg *api.FunctionActivity,
 	client *client.Client,
 ) (interface{}, error) {
 	m.mu.Lock()
@@ -87,6 +87,7 @@ func (m *Manager) Register(
 
 	// Create handler function with execution logic
 	handler := func(ctx context.Context, args payload.Payloads) (payload.Payloads, error) {
+		ctx = client.OnContext(ctx)
 		m.log.Debug("executing activity",
 			zap.String("activity_id", string(id)),
 			zap.String("function_target", string(cfg.Function)),
@@ -110,7 +111,7 @@ func (m *Manager) Register(
 }
 
 // Get retrieves an activity configuration
-func (m *Manager) Get(id registry.ID) (*api.ActivityConfig, bool) {
+func (m *Manager) Get(id registry.ID) (*api.FunctionActivity, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
