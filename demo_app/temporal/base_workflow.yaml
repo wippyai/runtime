@@ -1,0 +1,8 @@
+name: workflow_binding
+kind: temporal.workflow
+meta:
+  comment: "Our default workflow."
+  task_queue: "default_tq"
+
+task_queue: "default_tq"
+workflow: "simple.workflow"
