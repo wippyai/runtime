@@ -12,12 +12,11 @@ import (
 )
 
 const (
-	System events.System = "temporal"
-
-	// Registry kinds
-	KindClient   registry.Kind = "temporal.client"
-	KindActivity registry.Kind = "temporal.activity_definition"
-	KindWorkflow registry.Kind = "temporal.workflow_definition"
+	System        events.System = "temporal"
+	KindClient    registry.Kind = "temporal.client"
+	KindTaskQueue registry.Kind = "temporal.task_queue"
+	KindActivity  registry.Kind = "temporal.activity_definition"
+	KindWorkflow  registry.Kind = "temporal.workflow_definition"
 )
 
 // ClientConfig represents configuration for a Temporal client connection
