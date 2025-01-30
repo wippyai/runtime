@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
-	"go.temporal.io/sdk/workflow"
+	"fmt"
 	"log"
+	"sync"
 	"time"
 
 	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/workflow"
 )
 
 // StabWorkflow is a simple workflow that executes the stab activity
@@ -32,6 +34,33 @@ func StabWorkflow(ctx workflow.Context) error {
 	return nil
 }
 
+func executeWorkflow(c client.Client, wg *sync.WaitGroup, index int) {
+	defer wg.Done()
+
+	// Configure workflow options with unique ID
+	options := client.StartWorkflowOptions{
+		ID:                 fmt.Sprintf("stab-workflow-%d-%s", index, time.Now().Format("2006-01-02-15-04-05")),
+		TaskQueue:          "wippy_demos_wf",
+		WorkflowRunTimeout: time.Minute,
+	}
+
+	// Execute workflow
+	we, err := c.ExecuteWorkflow(context.Background(), options, StabWorkflow)
+	if err != nil {
+		log.Printf("Failed to execute workflow %d: %v\n", index, err)
+		return
+	}
+
+	// Wait for workflow completion
+	err = we.Get(context.Background(), nil)
+	if err != nil {
+		log.Printf("Workflow %d failed: %v\n", index, err)
+		return
+	}
+
+	log.Printf("Workflow %d completed! WorkflowID: %s RunID: %s\n", index, we.GetID(), we.GetRunID())
+}
+
 func main() {
 	// Create temporal client
 	c, err := client.Dial(client.Options{
@@ -42,24 +71,16 @@ func main() {
 	}
 	defer c.Close()
 
-	// Configure workflow options
-	options := client.StartWorkflowOptions{
-		ID:                 "stab-workflow-" + time.Now().Format("2006-01-02-15-04-05"),
-		TaskQueue:          "wippy_demos_wf",
-		WorkflowRunTimeout: time.Minute,
+	// Create wait group to track workflow completion
+	var wg sync.WaitGroup
+
+	// Launch 100 workflows in parallel
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go executeWorkflow(c, &wg, i)
 	}
 
-	// Execute workflow
-	we, err := c.ExecuteWorkflow(context.Background(), options, StabWorkflow)
-	if err != nil {
-		log.Fatalln("Unable to execute workflow", err)
-	}
-
-	// Wait for workflow completion
-	err = we.Get(context.Background(), nil)
-	if err != nil {
-		log.Fatalln("Unable to get workflow result", err)
-	}
-
-	log.Printf("Workflow completed! WorkflowID: %s RunID: %s\n", we.GetID(), we.GetRunID())
+	// Wait for all workflows to complete
+	wg.Wait()
+	log.Println("All workflows completed!")
 }

@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ponyruntime/pony/api/supervisor"
 	"go.temporal.io/sdk/client"
 	"go.uber.org/zap"
 )
@@ -89,10 +88,9 @@ func (s *Client) Start(ctx context.Context) (<-chan any, error) {
 		return nil, fmt.Errorf("failed to verify client connectivity: %w", err)
 	} else {
 		s.log.Info("temporal client started")
-		s.statusChan <- fmt.Sprintf("client connected to %s, server version: %s, capabilities: %s",
+		s.statusChan <- fmt.Sprintf("client connected to %s, server version: %s",
 			s.config.Address,
 			i.ServerVersion,
-			i.GetCapabilities().String(), // todo: expose for consumers
 		)
 	}
 
@@ -128,13 +126,6 @@ func (s *Client) GetClient() (client.Client, error) {
 	}
 
 	return s.client, nil
-}
-
-// GetLifecycleConfig returns supervisor lifecycle configuration
-func (s *Client) GetLifecycleConfig() supervisor.LifecycleConfig {
-	return supervisor.LifecycleConfig{
-		AutoStart: true,
-	}
 }
 
 // healthCheck periodically verifies client connectivity
