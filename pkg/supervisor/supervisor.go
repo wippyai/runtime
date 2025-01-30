@@ -1,6 +1,3 @@
-// Package supervisor provides service lifecycle management and supervision
-// functionality for the Pony runtime environment. It handles service registration,
-// state transitions, and failure recovery.
 package supervisor
 
 import (
@@ -50,6 +47,7 @@ type (
 		actions     chan action
 		wg          sync.WaitGroup
 		tx          *registryTX
+		sequencer   *Sequencer
 	}
 )
 
@@ -57,13 +55,13 @@ type (
 // and logger. The supervisor is initially inactive and must be started with
 // the Start method.
 func NewSupervisor(bus events.Bus, logger *zap.Logger) *Supervisor {
-	// todo: add support for graph bases launch and stop sequence
 	return &Supervisor{
 		bus:         bus,
 		logger:      logger,
 		controllers: make(map[string]*Controller),
-		actions:     make(chan action, 100),
+		actions:     make(chan action, 1024),
 		tx:          newTransactionHelper(logger),
+		sequencer:   NewSequencer(logger),
 	}
 }
 
@@ -131,44 +129,25 @@ func (s *Supervisor) Stop() error {
 		s.subscriber = nil
 	}
 
+	// Get all controllers under lock
+	s.mu.RLock()
+	var operations []Operation
+	for id, ctrl := range s.controllers {
+		operations = append(operations, Operation{
+			Type:       OperationStop,
+			ID:         id,
+			Controller: ctrl,
+		})
+	}
+	s.mu.RUnlock()
+
+	// Stop all controllers in proper dependency order
+	if err := s.sequencer.Transition(s.ctx, operations...); err != nil {
+		s.logger.Error("failed to stop controllers during shutdown", zap.Error(err))
+	}
+
 	close(s.actions)
 	s.wg.Wait()
-
-	// stop all controllers
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	var wg sync.WaitGroup
-	errCh := make(chan error, len(s.controllers))
-
-	for id, controller := range s.controllers {
-		wg.Add(1)
-		go func(id string, c *Controller) {
-			defer wg.Done()
-			s.logger.Info("stopping controller", zap.String("serviceID", id))
-			if err := c.Stop(); err != nil {
-				s.logger.Error("failed to stop controller",
-					zap.String("serviceID", id),
-					zap.Error(err),
-				)
-				errCh <- fmt.Errorf("failed to stop controller %s: %w", id, err)
-			}
-
-			s.logger.Info("controller stopped", zap.String("serviceID", id))
-		}(id, controller)
-	}
-
-	wg.Wait()
-	close(errCh)
-
-	errs := make([]error, 0, 2)
-	for err := range errCh {
-		errs = append(errs, err)
-	}
-
-	if len(errs) > 0 {
-		return fmt.Errorf("failed to stop some controllers: %v", errs)
-	}
 
 	s.logger.Info("supervisor stopped")
 	return nil
@@ -207,6 +186,7 @@ func (s *Supervisor) handleEvent(e events.Event) {
 			kind:      actionRegister,
 			entry:     entry,
 		}
+
 	case e.Kind == supervisor.Remove:
 		s.actions <- action{serviceID: string(e.Path), kind: actionRemove}
 
@@ -224,6 +204,7 @@ func (s *Supervisor) run(ctx context.Context) {
 
 	s.ctx = ctx
 
+	var pendingOps []Operation
 	for action := range s.actions {
 		switch action.kind {
 		case actionBegin:
@@ -233,15 +214,19 @@ func (s *Supervisor) run(ctx context.Context) {
 			s.tx.discard()
 
 		case actionCommit:
-			if err := s.tx.commit(s.removeService, s.registerService); err != nil {
-				s.logger.Error("failed to commit transaction", zap.Error(err))
-			} else {
-				s.startPending()
+			// execute commit protocol
+			err := s.execute(ctx, s.tx)
+			if err != nil {
+				s.logger.Error("failed to execute commit protocol", zap.Error(err))
+				s.tx.reset()
+				continue
 			}
+
+			s.tx.reset()
 
 		case actionRegister:
 			if err := s.tx.registerService(action.serviceID, action.entry); err != nil {
-				s.logger.Error("failed to register service",
+				s.logger.Error("failed to register service in transaction",
 					zap.String("serviceID", action.serviceID),
 					zap.Error(err),
 				)
@@ -249,48 +234,48 @@ func (s *Supervisor) run(ctx context.Context) {
 
 		case actionRemove:
 			if err := s.tx.removeService(action.serviceID); err != nil {
-				s.logger.Error("failed to remove service",
+				s.logger.Error("failed to remove service from transaction",
 					zap.String("serviceID", action.serviceID),
 					zap.Error(err),
 				)
-			} else {
-				s.logger.Info("service removed", zap.String("serviceID", action.serviceID))
 			}
 
-		case actionStart:
-			s.mu.Lock()
-			controller, exists := s.controllers[action.serviceID]
-			s.mu.Unlock()
-			if !exists {
-				s.logger.Error("service not found", zap.String("serviceID", action.serviceID))
-				continue
-			}
-			go s.startController(action.serviceID, controller)
-		case actionStop:
-			s.mu.Lock()
-			controller, exists := s.controllers[action.serviceID]
-			s.mu.Unlock()
-
-			if !exists {
-				s.logger.Error("service not found", zap.String("serviceID", action.serviceID))
+		case actionStart, actionStop:
+			if s.tx.open {
+				s.logger.Warn("transaction already open") // todo: can we add it to tx?
 				continue
 			}
 
-			go s.stopController(action.serviceID, controller)
+			if ctrl, exists := s.controllers[action.serviceID]; exists {
+				var opType OperationType
+				switch action.kind {
+				case actionStart:
+					opType = OperationStart
+				case actionStop:
+					opType = OperationStop
+				default:
+					// impossible
+				}
+
+				op := Operation{
+					Type:       opType,
+					ID:         action.serviceID,
+					Controller: ctrl,
+				}
+				pendingOps = append(pendingOps, op)
+				// execute pending operations
+				if err := s.sequencer.Transition(ctx, pendingOps...); err != nil {
+					s.logger.Error("failed to execute operations", zap.Error(err))
+				}
+				pendingOps = pendingOps[:0] // Clear after execution
+			}
 		}
 	}
 }
 
-func (s *Supervisor) registerService(id string, entry *supervisor.Entry) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if _, exists := s.controllers[id]; exists {
-		// return current.updateConfig(entry.Config) todo: implement later
-		return fmt.Errorf("service %s already registered", id)
-	}
-
-	stateHandler := func(status supervisor.Status, details any) {
+// createStateHandler returns a state change handler function for a service
+func (s *Supervisor) createStateHandler(id string) func(supervisor.Status, any) {
+	return func(status supervisor.Status, details any) {
 		if err, ok := details.(error); ok {
 			switch {
 			case errors.Is(err, supervisor.ErrExit):
@@ -333,71 +318,59 @@ func (s *Supervisor) registerService(id string, entry *supervisor.Entry) error {
 			},
 		})
 	}
-
-	entry.Config.InitDefaults()
-	s.controllers[id] = NewController(s.ctx, entry.Service, entry.Config, stateHandler)
-
-	s.logger.Info("service registered",
-		zap.String("serviceID", id),
-		zap.Bool("auto_start", entry.Config.AutoStart),
-	)
-
-	return nil
 }
 
-func (s *Supervisor) removeService(id string) error {
+// execute performs the transition of services based on registry changes
+// execute processes the transaction by creating new services,
+// stopping removed services, and starting auto-start services
+func (s *Supervisor) execute(ctx context.Context, tx *registryTX) error {
+	// Lock during the entire execution
 	s.mu.Lock()
-	controller, exists := s.controllers[id]
-	if !exists {
-		return fmt.Errorf("service %s not found", id)
+	defer s.mu.Unlock()
+
+	// Create new services first
+	for id, entry := range tx.register {
+		if _, exists := s.controllers[id]; !exists {
+			s.controllers[id] = NewController(s.ctx, entry.Service, entry.Config, s.createStateHandler(id))
+		}
 	}
-	delete(s.controllers, id)
-	s.mu.Unlock()
 
-	s.logger.Info("removing service", zap.String("serviceID", id))
-	go s.stopController(id, controller)
+	var operations []Operation
 
-	return nil
-}
+	// Queue stop operations for services being removed
+	for id := range tx.remove {
+		if ctrl, exists := s.controllers[id]; exists {
+			operations = append(operations, Operation{
+				Type:       OperationStop,
+				ID:         id,
+				Controller: ctrl,
+			})
+		}
+	}
 
-func (s *Supervisor) startPending() {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	for id, controller := range s.controllers {
-
-		// slice what we depends on (ids)
-		//controller.config.DependsOn
-
-		state := controller.State()
-		if state.Desired == supervisor.Running || (!controller.config.AutoStart && state.Desired != supervisor.Running) {
+	// Queue start operations for new auto-start services
+	for id, entry := range tx.register {
+		if !entry.Config.AutoStart {
 			continue
 		}
-
-		s.logger.Info("starting service",
-			zap.String("serviceID", id),
-		)
-
-		go s.startController(id, controller)
+		if ctrl, exists := s.controllers[id]; exists {
+			operations = append(operations, Operation{
+				Type:       OperationStart,
+				ID:         id,
+				Controller: ctrl,
+			})
+		}
 	}
-}
 
-func (s *Supervisor) startController(id string, c *Controller) {
-	if err := c.Start(); err != nil {
-		s.logger.Error("failed to start service",
-			zap.String("serviceID", id),
-			zap.Error(err))
-	} else {
-		s.logger.Info("service started", zap.String("service", id))
+	// Execute transitions
+	if err := s.sequencer.Transition(ctx, operations...); err != nil {
+		return fmt.Errorf("failed to execute transitions: %w", err)
 	}
-}
 
-func (s *Supervisor) stopController(id string, c *Controller) {
-	if err := c.Stop(); err != nil {
-		s.logger.Error("failed to stop service",
-			zap.String("serviceID", id),
-			zap.Error(err))
-	} else {
-		s.logger.Info("service stopped", zap.String("service", id))
+	// Remove stopped services
+	for id := range tx.remove {
+		delete(s.controllers, id)
 	}
+
+	return nil
 }

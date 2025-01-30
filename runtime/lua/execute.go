@@ -54,7 +54,7 @@ func (m *RuntimeManager) Execute(task runtime.Task) (chan *runtime.Result, error
 	)
 	defer cancel()
 
-	// Execute the function
+	// execute the function
 	result, err := handler.Execute(ctx, fn.Method, args...)
 
 	// Create result channel with buffer size 1

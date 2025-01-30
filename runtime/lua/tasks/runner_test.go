@@ -60,7 +60,7 @@ func TestTasker_BasicExecution(t *testing.T) {
 		statusCh, err := tasker.Start(context.Background(), "test_handler")
 		assert.NoError(t, err)
 
-		// Execute a task
+		// execute a task
 		resultCh, err := tasker.Execute(context.Background(), "test", []lua.LValue{lua.LString("hello")})
 		assert.NoError(t, err)
 
@@ -458,7 +458,7 @@ func TestTasker_TaskSend(t *testing.T) {
 	statusCh, err := tasker.Start(context.Background(), "send_handler")
 	require.NoError(t, err)
 
-	// Execute task
+	// execute task
 	resultCh, err := tasker.Execute(context.Background(), "test_task", []lua.LValue{lua.LString("test")})
 	require.NoError(t, err)
 

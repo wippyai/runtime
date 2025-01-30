@@ -1091,7 +1091,7 @@ func TestController_StopDuringFailedStart(t *testing.T) {
 	select {
 	case <-startAttempted:
 	case <-time.After(time.Second):
-		t.Fatal("Service did not enter start within timeout")
+		t.Fatal("Controller did not enter start within timeout")
 	}
 
 	// Now try to stop while service is starting
@@ -1182,7 +1182,7 @@ func TestController_StartTimeout(t *testing.T) {
 	case <-startAttempted:
 		// Expected behavior
 	case <-time.After(time.Second):
-		t.Fatal("Service never attempted to start")
+		t.Fatal("Controller never attempted to start")
 	}
 
 	// Verify state transitions

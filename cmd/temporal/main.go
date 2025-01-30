@@ -140,7 +140,7 @@ func (l *LuaWorkflowDefinition) OnWorkflowTaskStarted(deadlockDetectionTimeout t
 				return
 			}
 
-			// Execute activity
+			// execute activity
 			l.env.ExecuteActivity(bindings.ExecuteActivityParams{
 				ExecuteActivityOptions: bindings.ExecuteActivityOptions{
 					ActivityID:          "simple-activity",
@@ -262,7 +262,7 @@ func main() {
 		}
 	}()
 
-	// Execute workflow
+	// execute workflow
 	workflowOptions := client.StartWorkflowOptions{
 		TaskQueue:          "lua-task-queue",
 		WorkflowRunTimeout: time.Second * 15,

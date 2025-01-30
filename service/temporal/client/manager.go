@@ -53,7 +53,7 @@ func (m *Manager) Delete(id registry.ID) error {
 	}
 
 	delete(m.configs, id)
-	delete(m.services, id) // Service cleanup should be handled by supervisor
+	delete(m.services, id) // Controller cleanup should be handled by supervisor
 	m.log.Info("deleted client", zap.String("id", string(id)))
 	return nil
 }

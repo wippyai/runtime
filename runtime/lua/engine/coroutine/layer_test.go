@@ -48,7 +48,7 @@ func TestRunner_AsLayer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Execute through layer
+	// execute through layer
 	result, err := wrapped.Execute(context.Background(), "test_coroutine")
 	if err != nil {
 		t.Fatal(err)
@@ -280,7 +280,7 @@ func TestDistributedWorkers(t *testing.T) {
 		err := vm.Import(testScript, "test", "test_distributed_workers")
 		assert.NoError(t, err)
 
-		// Execute and time the operation
+		// execute and time the operation
 		start := time.Now()
 		result, err := wrapped.Execute(context.Background(), "test_distributed_workers")
 		duration := time.Since(start)
@@ -403,7 +403,7 @@ func TestWorkerPool(t *testing.T) {
 		err := vm.Import(testScript, "test", "test_worker_pool")
 		assert.NoError(t, err)
 
-		// Execute and time the operation
+		// execute and time the operation
 		start := time.Now()
 		result, err := wrapped.Execute(context.Background(), "test_worker_pool")
 		duration := time.Since(start)

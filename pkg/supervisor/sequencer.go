@@ -3,7 +3,6 @@ package supervisor
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/api/supervisor"
 	"sync"
 
 	"github.com/ponyruntime/pony/internal/graph"
@@ -21,25 +20,25 @@ const (
 type Operation struct {
 	Type         OperationType
 	ID           string
-	Service      supervisor.Service
+	Controller   Controllable
 	Dependencies []string
 }
 
-// SequenceProcessor handles ordered processing of service operations based on dependencies
-type SequenceProcessor struct {
+// Sequencer handles ordered processing of service operations based on dependencies
+type Sequencer struct {
 	logger *zap.Logger
 	mu     sync.RWMutex
 }
 
 // NewSequencer creates a new sequence processor
-func NewSequencer(logger *zap.Logger) *SequenceProcessor {
-	return &SequenceProcessor{
+func NewSequencer(logger *zap.Logger) *Sequencer {
+	return &Sequencer{
 		logger: logger,
 	}
 }
 
 // Transition executes a set of service operations in the correct dependency order
-func (sp *SequenceProcessor) Transition(ctx context.Context, operations ...Operation) error {
+func (sp *Sequencer) Transition(ctx context.Context, operations ...Operation) error {
 	if len(operations) == 0 {
 		return nil
 	}
@@ -72,7 +71,7 @@ func (sp *SequenceProcessor) Transition(ctx context.Context, operations ...Opera
 	return nil
 }
 
-func (sp *SequenceProcessor) processStartOperations(ctx context.Context, operations []Operation) error {
+func (sp *Sequencer) processStartOperations(ctx context.Context, operations []Operation) error {
 	// Build dependency graph for starts
 	g := graph.NewGraph()
 
@@ -127,7 +126,7 @@ func (sp *SequenceProcessor) processStartOperations(ctx context.Context, operati
 						zap.String("service_id", op.ID),
 						zap.Int("level", i))
 
-					if _, err := op.Service.Start(ctx); err != nil {
+					if err := op.Controller.Start(); err != nil {
 						errChan <- fmt.Errorf("failed to start service %s: %w", op.ID, err)
 					}
 				}(op)
@@ -149,7 +148,7 @@ func (sp *SequenceProcessor) processStartOperations(ctx context.Context, operati
 	return nil
 }
 
-func (sp *SequenceProcessor) processStopOperations(ctx context.Context, operations []Operation) error {
+func (sp *Sequencer) processStopOperations(ctx context.Context, operations []Operation) error {
 	// Build dependency graph for stops (edges reversed from start)
 	g := graph.NewGraph()
 
@@ -204,7 +203,7 @@ func (sp *SequenceProcessor) processStopOperations(ctx context.Context, operatio
 						zap.String("service_id", op.ID),
 						zap.Int("level", i))
 
-					if err := op.Service.Stop(ctx); err != nil {
+					if err := op.Controller.Stop(); err != nil {
 						errChan <- fmt.Errorf("failed to stop service %s: %w", op.ID, err)
 					}
 				}(op)
