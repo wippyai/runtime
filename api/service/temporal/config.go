@@ -15,8 +15,10 @@ const (
 	System        events.System = "temporal"
 	KindClient    registry.Kind = "temporal.client"
 	KindTaskQueue registry.Kind = "temporal.task_queue"
-	KindActivity  registry.Kind = "temporal.activity_definition"
-	KindWorkflow  registry.Kind = "temporal.workflow_definition"
+	KindFunction  registry.Kind = "temporal.function"
+
+	// todo: move away to lua
+	KindWorkflow registry.Kind = "temporal_workflow.lua"
 )
 
 type ClientAuthType string
@@ -31,6 +33,7 @@ const (
 
 // ClientConfig represents configuration for a Temporal client connection
 type ClientConfig struct {
+	Name      string     `json:"name"`
 	Address   string     `json:"address"`
 	Namespace string     `json:"namespace"`
 	TLS       *TLSConfig `json:"tls,omitempty"`
@@ -47,13 +50,21 @@ type TLSConfig struct {
 	UseH2C     bool           `json:"use_h2c"`
 }
 
-type ActivityConfig struct {
+type FunctionActivity struct {
+	Name      string      `json:"name"`
 	TaskQueue registry.ID `json:"task_queue"`
 	Function  registry.ID `json:"function"`
 }
 
+type WorkflowDefinition struct {
+	Name      string      `json:"name"`
+	TaskQueue registry.ID `json:"task_queue"`
+	Workflow  interface{} `json:"workflow"`
+}
+
 // TaskQueueConfig represents configuration for a Temporal task queue
 type TaskQueueConfig struct {
+	Name                             string                     `json:"name"`
 	Client                           registry.ID                `json:"client"`
 	TaskQueue                        string                     `json:"task_queue"` // temporal level task queue
 	MaxConcurrentActivityExecution   int                        `json:"max_concurrent_activity_execution"`
@@ -232,9 +243,9 @@ func (c *TaskQueueConfig) ToWorkerOptions() worker.Options {
 	}
 }
 
-// UnmarshalJSON provides custom unmarshaling for ActivityConfig
-func (c *ActivityConfig) UnmarshalJSON(data []byte) error {
-	type Alias ActivityConfig
+// UnmarshalJSON provides custom unmarshaling for FunctionActivity
+func (c *FunctionActivity) UnmarshalJSON(data []byte) error {
+	type Alias FunctionActivity
 	aux := &struct {
 		TaskQueue string `json:"task_queue"`
 		Function  string `json:"function"`
@@ -258,9 +269,9 @@ func (c *ActivityConfig) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// MarshalJSON provides custom marshaling for ActivityConfig
-func (c *ActivityConfig) MarshalJSON() ([]byte, error) {
-	type Alias ActivityConfig
+// MarshalJSON provides custom marshaling for FunctionActivity
+func (c *FunctionActivity) MarshalJSON() ([]byte, error) {
+	type Alias FunctionActivity
 	return json.Marshal(&struct {
 		TaskQueue string `json:"task_queue"`
 		Function  string `json:"function"`
@@ -272,8 +283,8 @@ func (c *ActivityConfig) MarshalJSON() ([]byte, error) {
 	})
 }
 
-// Validate validates the ActivityConfig
-func (c *ActivityConfig) Validate() error {
+// Validate validates the FunctionActivity
+func (c *FunctionActivity) Validate() error {
 	if c.TaskQueue == "" {
 		return fmt.Errorf("task_queue is required")
 	}

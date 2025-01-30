@@ -141,8 +141,8 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		m.log.Info("workflow registration not implemented", zap.String("id", string(entry.ID)))
 		return nil
 
-	case api.KindActivity:
-		cfg := new(api.ActivityConfig) // We'll need to define this
+	case api.KindFunction:
+		cfg := new(api.FunctionActivity) // We'll need to define this
 		if err := m.unmarshalAndValidate(entry.Data, cfg); err != nil {
 			return err
 		}
@@ -228,8 +228,8 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		m.log.Info("workflow update not implemented", zap.String("id", string(entry.ID)))
 		return nil
 
-	case api.KindActivity:
-		cfg := new(api.ActivityConfig) // We'll need to define this
+	case api.KindFunction:
+		cfg := new(api.FunctionActivity) // We'll need to define this
 		if err := m.unmarshalAndValidate(entry.Data, cfg); err != nil {
 			return err
 		}
@@ -309,7 +309,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 		m.log.Info("workflow deletion not implemented", zap.String("id", string(entry.ID)))
 		return nil
 
-	case api.KindActivity:
+	case api.KindFunction:
 		m.log.Info("activity deletion not implemented", zap.String("id", string(entry.ID)))
 		return nil
 
