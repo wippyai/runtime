@@ -65,6 +65,15 @@ func NewSupervisor(bus events.Bus, logger *zap.Logger) *Supervisor {
 	}
 }
 
+// executeOperations executes a list of operations using the sequencer
+func (s *Supervisor) executeOperations(ctx context.Context, operations []Operation) error {
+	if len(operations) == 0 {
+		return nil
+	}
+
+	return s.sequencer.Transition(ctx, operations...)
+}
+
 // GetState returns the current state of a service identified by its ID.
 // Returns an error if the service is not found.
 func (s *Supervisor) GetState(id string) (State, error) {
@@ -205,7 +214,6 @@ func (s *Supervisor) run(ctx context.Context) {
 
 	s.ctx = ctx
 
-	var pendingOps []Operation
 	for action := range s.actions {
 		switch action.kind {
 		case actionBegin:
@@ -247,35 +255,34 @@ func (s *Supervisor) run(ctx context.Context) {
 
 			s.logger.Info("service removed", zap.String("serviceID", action.serviceID))
 
-		case actionStart, actionStop:
+		case actionStart:
 			if s.tx.open {
-				s.logger.Warn("transaction already open") // todo: can we add it to tx?
+				s.logger.Warn("transaction already open")
 				continue
 			}
 
 			l := s.logger.With(zap.String("serviceID", action.serviceID))
-			var opType OperationType
-			if action.kind == actionStart {
-				opType = OperationStart
+			if _, exists := s.controllers[action.serviceID]; exists {
 				l.Info("service start requested")
-			} else {
-				opType = OperationStop
-				l.Info("service stop requested")
+				ops := s.buildStartOperations(action.serviceID)
+				if err := s.executeOperations(ctx, ops); err != nil {
+					s.logger.Error("failed to execute start operations", zap.Error(err))
+				}
 			}
 
-			if ctrl, exists := s.controllers[action.serviceID]; exists {
-				op := Operation{
-					Type:         opType,
-					ID:           action.serviceID,
-					Controller:   ctrl,
-					Dependencies: ctrl.config.DependsOn,
+		case actionStop:
+			if s.tx.open {
+				s.logger.Warn("transaction already open")
+				continue
+			}
+
+			l := s.logger.With(zap.String("serviceID", action.serviceID))
+			if _, exists := s.controllers[action.serviceID]; exists {
+				l.Info("service stop requested")
+				ops := s.buildStopOperations(action.serviceID)
+				if err := s.executeOperations(ctx, ops); err != nil {
+					s.logger.Error("failed to execute stop operations", zap.Error(err))
 				}
-				pendingOps = append(pendingOps, op)
-				// execute pending operations
-				if err := s.sequencer.Transition(ctx, pendingOps...); err != nil {
-					s.logger.Error("failed to execute operations", zap.Error(err))
-				}
-				pendingOps = pendingOps[:0] // Clear after execution
 			}
 		}
 	}
@@ -372,7 +379,7 @@ func (s *Supervisor) execute(ctx context.Context, tx *registryTX) error {
 		}
 	}
 
-	// Execute transitions
+	// Execute transitions in dependency order
 	if err := s.sequencer.Transition(ctx, operations...); err != nil {
 		return fmt.Errorf("failed to execute transitions: %w", err)
 	}
@@ -383,4 +390,79 @@ func (s *Supervisor) execute(ctx context.Context, tx *registryTX) error {
 	}
 
 	return nil
+}
+
+// buildStartOperations creates a list of operations for starting a service and its dependencies
+func (s *Supervisor) buildStartOperations(serviceID string) []Operation {
+	visited := make(map[string]bool)
+	var operations []Operation
+
+	var visit func(id string)
+	visit = func(id string) {
+		if visited[id] {
+			return
+		}
+		visited[id] = true
+
+		ctrl, exists := s.controllers[id]
+		if !exists {
+			return
+		}
+
+		// Visit dependencies first
+		for _, depID := range ctrl.config.DependsOn {
+			visit(depID)
+		}
+
+		// Add operation after dependencies
+		operations = append(operations, Operation{
+			Type:         OperationStart,
+			ID:           id,
+			Controller:   ctrl,
+			Dependencies: ctrl.config.DependsOn,
+		})
+	}
+
+	visit(serviceID)
+	return operations
+}
+
+// buildStopOperations creates a list of operations for stopping a service and its dependents
+func (s *Supervisor) buildStopOperations(serviceID string) []Operation {
+	visited := make(map[string]bool)
+	var operations []Operation
+
+	// First, build a reverse dependency map
+	dependedOnBy := make(map[string][]string)
+	for id, ctrl := range s.controllers {
+		for _, depID := range ctrl.config.DependsOn {
+			dependedOnBy[depID] = append(dependedOnBy[depID], id)
+		}
+	}
+
+	var visit func(id string)
+	visit = func(id string) {
+		if visited[id] {
+			return
+		}
+		visited[id] = true
+
+		// Visit services that depend on this one first
+		for _, depID := range dependedOnBy[id] {
+			visit(depID)
+		}
+
+		// Add operation after dependents
+		if ctrl, exists := s.controllers[id]; exists {
+			operations = append(operations, Operation{
+				Type:         OperationStop,
+				ID:           id,
+				Controller:   ctrl,
+				Dependencies: ctrl.config.DependsOn,
+			})
+		}
+	}
+
+	visit(serviceID)
+	return operations
 }
