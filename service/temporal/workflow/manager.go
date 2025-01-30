@@ -46,8 +46,8 @@ func (m *Manager) GetHandler(id registry.ID) (interface{}, error) {
 	return handler, nil
 }
 
-// InitWorkflow initializes a new workflow configuration
-func (m *Manager) InitWorkflow(
+// AddWorkflow initializes a new workflow configuration
+func (m *Manager) AddWorkflow(
 	id registry.ID,
 	cfg *api.WorkflowDefinition,
 ) (interface{}, error) {

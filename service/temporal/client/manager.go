@@ -24,6 +24,25 @@ func NewClientManager(logger *zap.Logger) *Manager {
 	}
 }
 
+// AddClient initializes a new client instance with the given configuration
+func (m *Manager) AddClient(id registry.ID, cfg *api.ClientConfig, dc converter.DataConverter) (*Client, error) {
+	// Check if client already exists
+	if _, exists := m.services[id]; exists {
+		return nil, fmt.Errorf("client %s already initialized", id)
+	}
+
+	if _, exists := m.configs[id]; exists {
+		return nil, fmt.Errorf("client config %s already exists", id)
+	}
+
+	// Create new service
+	service := NewClient(m.log, id, dc, cfg)
+	m.services[id] = service
+
+	m.log.Info("initialized client", zap.String("id", string(id)))
+	return service, nil
+}
+
 // GetClient retrieves an existing client by ID
 func (m *Manager) GetClient(id registry.ID) (*Client, error) {
 	service, exists := m.services[id]
@@ -31,38 +50,6 @@ func (m *Manager) GetClient(id registry.ID) (*Client, error) {
 		return nil, fmt.Errorf("client %s not initialized", id)
 	}
 	return service, nil
-}
-
-// InitClient initializes a new client instance with the given configuration
-func (m *Manager) InitClient(id registry.ID, dc converter.DataConverter) (*Client, error) {
-	// Check if client already exists
-	if _, exists := m.services[id]; exists {
-		return nil, fmt.Errorf("client %s already initialized", id)
-	}
-
-	// Get config
-	config, exists := m.configs[id]
-	if !exists {
-		return nil, fmt.Errorf("client config %s not found", id)
-	}
-
-	// Create new service
-	service := NewClient(m.log, id, dc, config)
-	m.services[id] = service
-
-	m.log.Info("initialized client", zap.String("id", string(id)))
-	return service, nil
-}
-
-// Add adds a new client configuration
-func (m *Manager) Add(id registry.ID, config *api.ClientConfig) error {
-	if _, exists := m.configs[id]; exists {
-		return fmt.Errorf("client config %s already exists", id)
-	}
-
-	m.configs[id] = config
-	m.log.Info("added client config", zap.String("id", string(id)))
-	return nil
 }
 
 // Update updates an existing client configuration

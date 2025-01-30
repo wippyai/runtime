@@ -28,8 +28,8 @@ func NewTaskQueueManager(logger *zap.Logger) *Manager {
 	}
 }
 
-// InitTaskQueue initializes a new task queue configuration and service if needed
-func (m *Manager) InitTaskQueue(id registry.ID, config *api.TaskQueueConfig, client *client.Client) (*TaskQueue, error) {
+// AddTaskQueue initializes a new task queue configuration and service if needed
+func (m *Manager) AddTaskQueue(id registry.ID, config *api.TaskQueueConfig, client *client.Client) (*TaskQueue, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 

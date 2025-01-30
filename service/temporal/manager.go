@@ -3,7 +3,6 @@ package temporal
 import (
 	"context"
 	"fmt"
-
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
@@ -121,12 +120,13 @@ func (m *Manager) addClient(ctx context.Context, entry registry.Entry) error {
 		return err
 	}
 
-	c, err := m.clients.InitClient(entry.ID, m.dc)
+	c, err := m.clients.AddClient(entry.ID, cfg, m.dc)
 	if err != nil {
 		return err
 	}
 
 	m.registerWithSupervisor(ctx, entry.ID, c, supervisor.LifecycleConfig{AutoStart: false})
+
 	return nil
 }
 
@@ -136,21 +136,18 @@ func (m *Manager) addTaskQueue(ctx context.Context, entry registry.Entry) error 
 		return err
 	}
 
-	if !m.clients.Has(cfg.Client) {
-		return fmt.Errorf("client %s not found", cfg.Client)
-	}
-
 	c, err := m.clients.GetClient(cfg.Client)
 	if err != nil {
 		return fmt.Errorf("failed to get client: %w", err)
 	}
 
-	service, err := m.taskQueues.InitTaskQueue(entry.ID, cfg, c)
+	service, err := m.taskQueues.AddTaskQueue(entry.ID, cfg, c)
 	if err != nil {
 		return fmt.Errorf("failed to init task queue: %w", err)
 	}
 
 	m.registerWithSupervisor(ctx, entry.ID, service, service.GetLifecycleConfig())
+
 	return nil
 }
 
@@ -160,16 +157,12 @@ func (m *Manager) addWorkflow(ctx context.Context, entry registry.Entry) error {
 		return err
 	}
 
-	if !m.taskQueues.Has(cfg.TaskQueue) {
-		return fmt.Errorf("task queue %s not found", cfg.TaskQueue)
-	}
-
 	taskQueue, err := m.taskQueues.Get(cfg.TaskQueue)
 	if err != nil {
 		return fmt.Errorf("failed to get task queue: %w", err)
 	}
 
-	w, err := m.workflows.InitWorkflow(entry.ID, cfg)
+	w, err := m.workflows.AddWorkflow(entry.ID, cfg)
 	if err != nil {
 		return fmt.Errorf("failed to initialize workflow: %w", err)
 	}
@@ -191,26 +184,22 @@ func (m *Manager) addFunction(ctx context.Context, entry registry.Entry) error {
 		return err
 	}
 
-	if !m.taskQueues.Has(cfg.TaskQueue) {
-		return fmt.Errorf("task queue %s not found", cfg.TaskQueue)
-	}
-
 	taskQueue, err := m.taskQueues.Get(cfg.TaskQueue)
 	if err != nil {
 		return fmt.Errorf("failed to get task queue: %w", err)
 	}
 
-	handler, err := m.activities.InitHandler(entry.ID, cfg, taskQueue.GetClient())
+	handler, err := m.activities.AddHandler(entry.ID, cfg, taskQueue.GetClient())
 	if err != nil {
 		return fmt.Errorf("failed to create activity handler: %w", err)
 	}
 
-	if err := taskQueue.RegisterActivity(string(entry.ID), handler); err != nil {
+	if err := taskQueue.RegisterActivity(cfg.Name, handler); err != nil {
 		return fmt.Errorf("failed to register activity with task queue: %w", err)
 	}
 
 	m.log.Info("activity registered successfully",
-		zap.String("id", string(entry.ID)),
+		zap.String("id", cfg.Name),
 		zap.String("task_queue", string(cfg.TaskQueue)),
 	)
 	return nil
@@ -274,12 +263,13 @@ func (m *Manager) updateTaskQueue(ctx context.Context, entry registry.Entry) err
 }
 
 func (m *Manager) updateWorkflow(ctx context.Context, entry registry.Entry) error {
-	m.log.Info("workflow update not implemented", zap.String("id", string(entry.ID)))
+	// todo: implement and fix
 	return nil
 }
 
 func (m *Manager) updateFunction(ctx context.Context, entry registry.Entry) error {
-	return m.addFunction(ctx, entry) // Function updates are handled the same as adds for now
+	// todo: implement and fix
+	return nil
 }
 
 // Delete handles removal of temporal components
@@ -327,6 +317,8 @@ func (m *Manager) deleteWorkflow(ctx context.Context, entry registry.Entry) erro
 		return fmt.Errorf("failed to delete workflow: %w", err)
 	}
 
+	// todo: update task queue
+
 	m.log.Info("workflow deleted successfully", zap.String("id", string(entry.ID)))
 	return nil
 }
@@ -335,6 +327,8 @@ func (m *Manager) deleteFunction(ctx context.Context, entry registry.Entry) erro
 	if err := m.activities.Delete(entry.ID); err != nil {
 		return fmt.Errorf("failed to delete activity handler: %w", err)
 	}
+
+	// todo: update task queue
 
 	m.log.Info("activity deleted successfully", zap.String("id", string(entry.ID)))
 	return nil
