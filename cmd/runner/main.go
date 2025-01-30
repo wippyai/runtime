@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"github.com/ponyruntime/pony/service/temporal"
 	httpbase "net/http"
 	"os"
 	"os/signal"
@@ -137,11 +138,17 @@ func main() {
 	)
 	// -- end of lua lang and modules
 
+	// -- temporal
+	temporalSvc := temporal.NewManager(bus, dtt, log.Named("temporal"))
+
+	// -- end of temporal
+
 	// -- configuration bus
 	svc, err := services.NewRouter(ctx, bus,
 		services.WithListener("http.*", http.NewExecutingManager(bus, dtt, exec, log.Named("http"))),
 		services.WithListener("(function|library|terminal).lua", luaRuntime),
 		services.WithListener("terminal.*", term),
+		services.WithListener("temporal.*", temporalSvc), // Add this line
 	)
 
 	if err != nil {

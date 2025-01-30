@@ -1,5 +1,5 @@
 name: default_tq
-kind: temporal.client
+kind: temporal.task_queue
 meta:
   comment: "Default Temporal service."
   depends_on: [ "temporal" ]

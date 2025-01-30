@@ -64,6 +64,7 @@ type (
 	Service interface {
 		// Start initiates the service. Service can post current status to the returned channel.
 		// The context passed into start method is primary service context, service must exit if context is done.
+		// The status channel needs to stay open while the service is running and only be closed when it's fully stopped or failed.
 		Start(ctx context.Context) (<-chan any, error)
 		// Stop terminates the service. The context passed into stop method is only for graceful stop, service must return error
 		// if it cannot stop within the context deadline.
