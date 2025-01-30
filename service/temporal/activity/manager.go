@@ -91,7 +91,7 @@ func (m *Manager) Register(
 
 	// Create handler function with execution logic
 	handler := func(ctx context.Context, args payload.Payloads) (payload.Payloads, error) {
-		m.log.Info("executing activity",
+		m.log.Debug("executing activity",
 			zap.String("activity_id", string(id)),
 			zap.String("function_target", string(cfg.Function)),
 		)
@@ -99,16 +99,13 @@ func (m *Manager) Register(
 		// Execute the activity and return results
 		results, err := m.executeActivity(ctx, id, args)
 		if err != nil {
-			m.log.Error("activity execution failed",
+			m.log.Warn("activity execution failed",
 				zap.String("activity_id", string(id)),
 				zap.Error(err),
 			)
 			return nil, err
 		}
 
-		m.log.Info("activity executed successfully",
-			zap.String("activity_id", string(id)),
-		)
 		return results, nil
 	}
 
