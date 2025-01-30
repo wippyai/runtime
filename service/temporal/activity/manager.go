@@ -44,7 +44,7 @@ func (m *Manager) executeActivity(ctx context.Context, id registry.ID, inputs pa
 		Payloads: inputs,                    // Pass through the input payloads
 	}
 
-	// Execute the task
+	// Get the task
 	resultCh, err := m.executor.Execute(task)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute activity task: %w", err)
@@ -93,7 +93,7 @@ func (m *Manager) Register(
 			zap.String("function_target", string(cfg.Function)),
 		)
 
-		// Execute the activity and return results
+		// Get the activity and return results
 		results, err := m.executeActivity(ctx, id, args)
 		if err != nil {
 			m.log.Warn("activity execution failed",

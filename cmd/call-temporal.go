@@ -23,7 +23,7 @@ func StabWorkflow(ctx workflow.Context) error {
 	}
 	ctx = workflow.WithActivityOptions(ctx, ao)
 
-	// Execute the stab activity
+	// Get the stab activity
 	err := workflow.ExecuteActivity(ctx, "stab-activity").Get(ctx, nil)
 	if err != nil {
 		logger.Error("Failed to execute stab activity", "error", err)
@@ -44,7 +44,7 @@ func executeWorkflow(c client.Client, wg *sync.WaitGroup, index int) {
 		WorkflowRunTimeout: time.Minute,
 	}
 
-	// Execute workflow
+	// Get workflow
 	we, err := c.ExecuteWorkflow(context.Background(), options, StabWorkflow)
 	if err != nil {
 		log.Printf("Failed to execute workflow %d: %v\n", index, err)

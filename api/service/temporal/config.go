@@ -16,9 +16,7 @@ const (
 	KindClient    registry.Kind = "temporal.client"
 	KindTaskQueue registry.Kind = "temporal.task_queue"
 	KindFunction  registry.Kind = "temporal.function"
-
-	// todo: move away to lua
-	KindWorkflow registry.Kind = "temporal_workflow.lua"
+	KindWorkflow  registry.Kind = "temporal.workflow" // todo: points to workflow registry
 )
 
 type ClientAuthType string
@@ -59,7 +57,7 @@ type FunctionActivity struct {
 type WorkflowDefinition struct {
 	Name      string      `json:"name"`
 	TaskQueue registry.ID `json:"task_queue"`
-	Workflow  interface{} `json:"workflow"`
+	Workflow  registry.ID `json:"workflow"`
 }
 
 // TaskQueueConfig represents configuration for a Temporal task queue

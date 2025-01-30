@@ -402,7 +402,7 @@ func (s *Supervisor) execute(ctx context.Context, tx *registryTX) error {
 		}
 	}
 
-	// Execute transitions in dependency order
+	// Get transitions in dependency order
 	if err := s.sequencer.Transition(ctx, operations...); err != nil {
 		return fmt.Errorf("failed to execute transitions: %w", err)
 	}
