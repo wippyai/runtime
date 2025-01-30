@@ -124,8 +124,6 @@ func main() {
 	defer func() { _ = exec.Stop() }()
 	// -- end of core function executor
 
-	ctx = context.WithValue(ctx, contextapi.ExecutorCtx, exec)
-
 	// -- workflow registry
 	workflowReg := workflow.NewRegistry(bus, log.Named("workflow"))
 	if err := workflowReg.Start(ctx); err != nil {
