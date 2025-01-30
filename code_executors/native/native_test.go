@@ -9,7 +9,9 @@ import (
 	"testing"
 	"time"
 
+	mocklogger "github.com/ponyruntime/pony/tests/mock"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
 
@@ -183,8 +185,8 @@ func TestExecutor_Stderr(t *testing.T) {
 }
 
 func TestExecutor_ReadWithInvalidCommand(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
-	executor := NewNativeExecutor(logger, WithCmd("invalidcommand"))
+	l, oLogger := mocklogger.ZapTestLogger(zap.DebugLevel)
+	executor := NewNativeExecutor(l, WithCmd("invalidcommand"))
 
 	err := executor.Start()
 	assert.NoError(t, err)
@@ -213,7 +215,7 @@ func TestExecutor_ReadWithInvalidCommand(t *testing.T) {
 	}
 
 	if runtime.GOOS == "linux" {
-		assert.Contains(t, sb.String(), "sh: 1: invalidcommand: not found")
+		require.Equal(t, 1, oLogger.FilterMessageSnippet("command wait error").Len())
 	} else {
 		// macOS
 		assert.Contains(t, sb.String(), "sh: invalidcommand: command not found")
