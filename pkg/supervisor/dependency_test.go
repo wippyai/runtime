@@ -19,57 +19,19 @@ func TestSupervisor_DependencyOrdering(t *testing.T) {
 
 	// Register services with dependencies: A -> B -> C
 	h.sup.handleEvent(events.Event{System: registry.System, Kind: registry.Begin})
-
-	// Register C first (no dependencies)
-	h.sup.handleEvent(events.Event{
-		System: supervisor.System,
-		Kind:   supervisor.Register,
-		Path:   "service-c",
-		Data: &supervisor.Entry{
-			Service: h.service("service-c"),
-			Config: supervisor.LifecycleConfig{
-				DependsOn: []string{},
-			},
-		},
-	})
-
-	// Register B (depends on C)
-	h.sup.handleEvent(events.Event{
-		System: supervisor.System,
-		Kind:   supervisor.Register,
-		Path:   "service-b",
-		Data: &supervisor.Entry{
-			Service: h.service("service-b"),
-			Config: supervisor.LifecycleConfig{
-				DependsOn: []string{"service-c"},
-			},
-		},
-	})
-
-	// Register A (depends on B)
-	h.sup.handleEvent(events.Event{
-		System: supervisor.System,
-		Kind:   supervisor.Register,
-		Path:   "service-a",
-		Data: &supervisor.Entry{
-			Service: h.service("service-a"),
-			Config: supervisor.LifecycleConfig{
-				DependsOn: []string{"service-b"},
-			},
-		},
-	})
-
+	h.registerServiceWithDeps("service-c", false, nil)                   // no deps
+	h.registerServiceWithDeps("service-b", false, []string{"service-c"}) // depends on C
+	h.registerServiceWithDeps("service-a", false, []string{"service-b"}) // depends on B
 	h.sup.handleEvent(events.Event{System: registry.System, Kind: registry.Commit})
 
-	// Start service A
+	// Start service A, which should trigger starting dependencies first
 	h.sup.handleEvent(events.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Start,
 		Path:   "service-a",
 	})
 
-	// Wait for all services to start
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 
 	// Verify states
 	h.assertServiceState("service-c", supervisor.Running)
@@ -88,21 +50,7 @@ func TestSupervisor_DependencyFailure(t *testing.T) {
 
 	// Register services with dependencies: A -> B -> C
 	h.sup.handleEvent(events.Event{System: registry.System, Kind: registry.Begin})
-
-	// Register C first (no dependencies)
-	h.sup.handleEvent(events.Event{
-		System: supervisor.System,
-		Kind:   supervisor.Register,
-		Path:   "service-c",
-		Data: &supervisor.Entry{
-			Service: h.service("service-c"),
-			Config: supervisor.LifecycleConfig{
-				DependsOn: []string{},
-			},
-		},
-	})
-
-	// Register B (depends on C)
+	h.registerServiceWithDeps("service-c", false, nil)
 	h.sup.handleEvent(events.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Register,
@@ -110,24 +58,17 @@ func TestSupervisor_DependencyFailure(t *testing.T) {
 		Data: &supervisor.Entry{
 			Service: svcB,
 			Config: supervisor.LifecycleConfig{
-				DependsOn: []string{"service-c"},
+				DependsOn:    []string{"service-c"},
+				StartTimeout: 5 * time.Second,
+				StopTimeout:  5 * time.Second,
+				RetryPolicy: supervisor.RetryPolicy{
+					MaxAttempts:  3,
+					InitialDelay: 100 * time.Millisecond,
+				},
 			},
 		},
 	})
-
-	// Register A (depends on B)
-	h.sup.handleEvent(events.Event{
-		System: supervisor.System,
-		Kind:   supervisor.Register,
-		Path:   "service-a",
-		Data: &supervisor.Entry{
-			Service: h.service("service-a"),
-			Config: supervisor.LifecycleConfig{
-				DependsOn: []string{"service-b"},
-			},
-		},
-	})
-
+	h.registerServiceWithDeps("service-a", false, []string{"service-b"})
 	h.sup.handleEvent(events.Event{System: registry.System, Kind: registry.Commit})
 
 	// Start service A
@@ -137,11 +78,11 @@ func TestSupervisor_DependencyFailure(t *testing.T) {
 		Path:   "service-a",
 	})
 
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 
 	// Verify states
 	h.assertServiceState("service-c", supervisor.Running)
-	h.assertServiceState("service-b", supervisor.Failed)
+	h.assertServiceState("service-b", supervisor.Failed)  // B should fail to start
 	h.assertServiceState("service-a", supervisor.Unknown) // A shouldn't start if B fails
 }
 
@@ -158,41 +99,9 @@ func TestSupervisor_ParallelDependencyStart(t *testing.T) {
 
 	// Register services with parallel dependencies: A -> (B,C)
 	h.sup.handleEvent(events.Event{System: registry.System, Kind: registry.Begin})
-
-	// Register B and C (no dependencies)
-	h.sup.handleEvent(events.Event{
-		System: supervisor.System,
-		Kind:   supervisor.Register,
-		Path:   "service-b",
-		Data: &supervisor.Entry{
-			Service: svcB,
-			Config:  supervisor.LifecycleConfig{},
-		},
-	})
-
-	h.sup.handleEvent(events.Event{
-		System: supervisor.System,
-		Kind:   supervisor.Register,
-		Path:   "service-c",
-		Data: &supervisor.Entry{
-			Service: svcC,
-			Config:  supervisor.LifecycleConfig{},
-		},
-	})
-
-	// Register A (depends on both B and C)
-	h.sup.handleEvent(events.Event{
-		System: supervisor.System,
-		Kind:   supervisor.Register,
-		Path:   "service-a",
-		Data: &supervisor.Entry{
-			Service: h.service("service-a"),
-			Config: supervisor.LifecycleConfig{
-				DependsOn: []string{"service-b", "service-c"},
-			},
-		},
-	})
-
+	h.registerServiceWithDeps("service-b", false, nil)
+	h.registerServiceWithDeps("service-c", false, nil)
+	h.registerServiceWithDeps("service-a", false, []string{"service-b", "service-c"})
 	h.sup.handleEvent(events.Event{System: registry.System, Kind: registry.Commit})
 
 	startTime := time.Now()
@@ -224,54 +133,19 @@ func TestSupervisor_DependencyStopOrder(t *testing.T) {
 
 	// Register services with dependencies: A -> B -> C
 	h.sup.handleEvent(events.Event{System: registry.System, Kind: registry.Begin})
-
-	// Register C (no dependencies)
-	h.sup.handleEvent(events.Event{
-		System: supervisor.System,
-		Kind:   supervisor.Register,
-		Path:   "service-c",
-		Data: &supervisor.Entry{
-			Service: h.service("service-c"),
-			Config:  supervisor.LifecycleConfig{},
-		},
-	})
-
-	// Register B (depends on C)
-	h.sup.handleEvent(events.Event{
-		System: supervisor.System,
-		Kind:   supervisor.Register,
-		Path:   "service-b",
-		Data: &supervisor.Entry{
-			Service: h.service("service-b"),
-			Config: supervisor.LifecycleConfig{
-				DependsOn: []string{"service-c"},
-			},
-		},
-	})
-
-	// Register A (depends on B)
-	h.sup.handleEvent(events.Event{
-		System: supervisor.System,
-		Kind:   supervisor.Register,
-		Path:   "service-a",
-		Data: &supervisor.Entry{
-			Service: h.service("service-a"),
-			Config: supervisor.LifecycleConfig{
-				DependsOn: []string{"service-b"},
-			},
-		},
-	})
-
+	h.registerServiceWithDeps("service-c", false, nil)
+	h.registerServiceWithDeps("service-b", false, []string{"service-c"})
+	h.registerServiceWithDeps("service-a", false, []string{"service-b"})
 	h.sup.handleEvent(events.Event{System: registry.System, Kind: registry.Commit})
 
-	// Start all services
+	// Start all services by starting A
 	h.sup.handleEvent(events.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Start,
 		Path:   "service-a",
 	})
 
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 
 	// Verify all services started
 	h.assertServiceState("service-c", supervisor.Running)
@@ -285,7 +159,7 @@ func TestSupervisor_DependencyStopOrder(t *testing.T) {
 		Path:   "service-c",
 	})
 
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 
 	// Verify all services stopped in correct order
 	h.assertServiceState("service-a", supervisor.Stopped)
@@ -300,17 +174,7 @@ func TestSupervisor_MissingDependencies(t *testing.T) {
 
 	// Register service A with missing dependency
 	h.sup.handleEvent(events.Event{System: registry.System, Kind: registry.Begin})
-	h.sup.handleEvent(events.Event{
-		System: supervisor.System,
-		Kind:   supervisor.Register,
-		Path:   "service-a",
-		Data: &supervisor.Entry{
-			Service: h.service("service-a"),
-			Config: supervisor.LifecycleConfig{
-				DependsOn: []string{"missing-service"},
-			},
-		},
-	})
+	h.registerServiceWithDeps("service-a", false, []string{"missing-service"})
 	h.sup.handleEvent(events.Event{System: registry.System, Kind: registry.Commit})
 
 	// Try to start service A
