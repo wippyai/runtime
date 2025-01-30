@@ -17,6 +17,8 @@ const (
 	KindLibrary registry.Kind = "library.lua"
 	// KindTerminal identifies a Lua terminal component in the registry
 	KindTerminal registry.Kind = "terminal.lua"
+	// KindWorkflow identifies a Lua workflow component in the registry
+	KindWorkflow registry.Kind = "workflow.lua"
 )
 
 type (
@@ -30,6 +32,15 @@ type (
 		Libraries []string          `json:"libraries"` // Required Lua libraries
 		Modules   []string          `json:"modules"`   // Required Lua modules
 		Pool      PoolConfig        `json:"pool"`      // VM pool configuration
+	}
+
+	// WorkflowConfig defines the configuration for a Lua workflow component.
+	WorkflowConfig struct {
+		Meta      registry.Metadata `json:"meta"`      // Metadata for the function
+		Source    string            `json:"source"`    // Lua source code
+		Method    string            `json:"method"`    // Name of the Lua method to execute
+		Libraries []string          `json:"libraries"` // Required Lua libraries, only selected subset allowed
+		Flavor    string            `json:"flavor"`    // Workflow flavor (e.g., "temporal")
 	}
 
 	// TerminalConfig defines the configuration for a Lua terminal component.

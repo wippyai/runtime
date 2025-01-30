@@ -3,7 +3,7 @@ kind: temporal.function
 meta:
   comment: "Simple Hello World Activity."
   task_queue: "default_tq"
-  depends_on: [ "functions.hello_world", "default_tq" ]
+  depends_on: [ "default_tq" ]
 
 task_queue: "default_tq"
 function: "functions.hello_world"
