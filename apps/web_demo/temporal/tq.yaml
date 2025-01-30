@@ -4,44 +4,12 @@ meta:
   comment: "Default Temporal service."
   depends_on: [ "temporal" ]
 
-# Activity execution settings
-max_concurrent_activity_execution: 100    # default: 1000
-worker_activities_per_second: 50.0        # default: 100000
-max_concurrent_local_activity: 50         # default: 1000
-worker_local_activities_per_second: 25.0  # default: 100000
-task_queue_activities_per_second: 100.0   # default: 100000
-max_concurrent_activity_pollers: 2        # default: 2
+client: "temporal"
+task_queue: "wippy_demos"
 
-# Workflow execution settings
-max_concurrent_workflow_execution: 100     # default: 1000
-max_concurrent_workflow_pollers: 2        # default: 2
-
-# Sticky execution settings
-sticky_schedule_timeout: "5s"             # default: 5s
-enable_logging_replay: false              # default: false
-
-# Worker settings
-worker_stop_timeout: "30s"                # default: 0s
-max_heartbeat_throttle_interval: "60s"    # default: 60s
-default_heartbeat_throttle_interval: "30s" # default: 30s
-
-# Session settings
-enable_session_worker: false              # default: false
-max_concurrent_session_execution: 100     # default: 1000
-
-# Worker type settings
-disable_workflow_worker: false            # default: false
-local_activity_worker_only: false         # default: false
-
-# Task execution settings
-deadlock_detection_timeout: "1s"          # default: 1s
-
-# Activity execution mode
-disable_eager_activities: false           # default: false
-max_concurrent_eager_activities: 100      # default: 0 (unlimited)
-
-# Registration settings
-disable_registration_aliasing: true       # Recommended: true for clarity
-
-# Identity can be left empty to use client identity
-# identity: ""                           # default: uses client identity
+lifecycle:
+  auto_start: true
+  start_timeout: 5s
+  restart:
+    initial_delay: 1s
+    max_attempts: 3

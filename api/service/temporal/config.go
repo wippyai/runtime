@@ -7,6 +7,7 @@ import (
 
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/registry"
+	"github.com/ponyruntime/pony/api/supervisor"
 	"go.temporal.io/sdk/worker"
 )
 
@@ -26,47 +27,6 @@ type ClientConfig struct {
 	Namespace string            `json:"namespace"`
 	TLS       *TLSConfig        `json:"tls,omitempty"`
 	CacheSize int               `json:"cache_size"`
-}
-
-// ActivityDefinitionConfig represents configuration for a Temporal activity definition
-type ActivityDefinitionConfig struct {
-	Meta      registry.Metadata `json:"meta"`
-	Function  string            `json:"function"`   // Points to function
-	TaskQueue string            `json:"task_queue"` // Task queue name
-}
-
-// WorkflowDefinitionConfig represents configuration for a Temporal workflow definition
-type WorkflowDefinitionConfig struct {
-	Meta      registry.Metadata `json:"meta"`
-	Source    string            `json:"source"`     // Path to source file
-	Method    string            `json:"method"`     // Method name to execute
-	TaskQueue string            `json:"task_queue"` // Task queue name
-}
-
-// TaskQueueConfig represents configuration for a Temporal task queue
-type TaskQueueConfig struct {
-	Meta                             registry.Metadata `json:"meta"`
-	MaxConcurrentActivityExecution   int               `json:"max_concurrent_activity_execution"`
-	WorkerActivitiesPerSecond        float64           `json:"worker_activities_per_second"`
-	MaxConcurrentLocalActivity       int               `json:"max_concurrent_local_activity"`
-	WorkerLocalActivitiesPerSecond   float64           `json:"worker_local_activities_per_second"`
-	TaskQueueActivitiesPerSecond     float64           `json:"task_queue_activities_per_second"`
-	MaxConcurrentActivityPollers     int               `json:"max_concurrent_activity_pollers"`
-	MaxConcurrentWorkflowExecution   int               `json:"max_concurrent_workflow_execution"`
-	MaxConcurrentWorkflowPollers     int               `json:"max_concurrent_workflow_pollers"`
-	StickyScheduleTimeout            time.Duration     `json:"sticky_schedule_timeout"`
-	EnableLoggingReplay              bool              `json:"enable_logging_replay"`
-	WorkerStopTimeout                time.Duration     `json:"worker_stop_timeout"`
-	MaxHeartbeatThrottleInterval     time.Duration     `json:"max_heartbeat_throttle_interval"`
-	DefaultHeartbeatThrottleInterval time.Duration     `json:"default_heartbeat_throttle_interval"`
-	EnableSessionWorker              bool              `json:"enable_session_worker"`
-	MaxConcurrentSessionExecution    int               `json:"max_concurrent_session_execution"`
-	DisableWorkflowWorker            bool              `json:"disable_workflow_worker"`
-	LocalActivityWorkerOnly          bool              `json:"local_activity_worker_only"`
-	DeadlockDetectionTimeout         time.Duration     `json:"deadlock_detection_timeout"`
-	DisableEagerActivities           bool              `json:"disable_eager_activities"`
-	MaxConcurrentEagerActivities     int               `json:"max_concurrent_eager_activities"`
-	DisableRegistrationAliasing      bool              `json:"disable_registration_aliasing"`
 }
 
 // TLSConfig represents TLS/SSL configuration
@@ -89,10 +49,40 @@ const (
 	RequireAndVerifyClientCert ClientAuthType = "require_and_verify_client_cert"
 )
 
+// TaskQueueConfig represents configuration for a Temporal task queue
+type TaskQueueConfig struct {
+	Meta                             registry.Metadata          `json:"meta"`
+	Client                           registry.ID                `json:"client"`
+	TaskQueue                        string                     `json:"task_queue"`
+	MaxConcurrentActivityExecution   int                        `json:"max_concurrent_activity_execution"`
+	WorkerActivitiesPerSecond        float64                    `json:"worker_activities_per_second"`
+	MaxConcurrentLocalActivity       int                        `json:"max_concurrent_local_activity"`
+	WorkerLocalActivitiesPerSecond   float64                    `json:"worker_local_activities_per_second"`
+	TaskQueueActivitiesPerSecond     float64                    `json:"task_queue_activities_per_second"`
+	MaxConcurrentActivityPollers     int                        `json:"max_concurrent_activity_pollers"`
+	MaxConcurrentWorkflowExecution   int                        `json:"max_concurrent_workflow_execution"`
+	MaxConcurrentWorkflowPollers     int                        `json:"max_concurrent_workflow_pollers"`
+	StickyScheduleTimeout            time.Duration              `json:"sticky_schedule_timeout"`
+	EnableLoggingReplay              bool                       `json:"enable_logging_replay"`
+	WorkerStopTimeout                time.Duration              `json:"worker_stop_timeout"`
+	MaxHeartbeatThrottleInterval     time.Duration              `json:"max_heartbeat_throttle_interval"`
+	DefaultHeartbeatThrottleInterval time.Duration              `json:"default_heartbeat_throttle_interval"`
+	EnableSessionWorker              bool                       `json:"enable_session_worker"`
+	MaxConcurrentSessionExecution    int                        `json:"max_concurrent_session_execution"`
+	DisableWorkflowWorker            bool                       `json:"disable_workflow_worker"`
+	LocalActivityWorkerOnly          bool                       `json:"local_activity_worker_only"`
+	DeadlockDetectionTimeout         time.Duration              `json:"deadlock_detection_timeout"`
+	DisableEagerActivities           bool                       `json:"disable_eager_activities"`
+	MaxConcurrentEagerActivities     int                        `json:"max_concurrent_eager_activities"`
+	DisableRegistrationAliasing      bool                       `json:"disable_registration_aliasing"`
+	Lifecycle                        supervisor.LifecycleConfig `json:"lifecycle"`
+}
+
 // UnmarshalJSON provides custom unmarshaling for TaskQueueConfig
 func (c *TaskQueueConfig) UnmarshalJSON(data []byte) error {
 	type Alias TaskQueueConfig
 	aux := &struct {
+		Client                           string `json:"client"`
 		StickyScheduleTimeout            string `json:"sticky_schedule_timeout"`
 		WorkerStopTimeout                string `json:"worker_stop_timeout"`
 		MaxHeartbeatThrottleInterval     string `json:"max_heartbeat_throttle_interval"`
@@ -105,6 +95,11 @@ func (c *TaskQueueConfig) UnmarshalJSON(data []byte) error {
 
 	if err := json.Unmarshal(data, &aux); err != nil {
 		return err
+	}
+
+	// Handle client ID conversion
+	if aux.Client != "" {
+		c.Client = registry.ID(aux.Client)
 	}
 
 	var err error
@@ -145,6 +140,7 @@ func (c *TaskQueueConfig) UnmarshalJSON(data []byte) error {
 func (c *TaskQueueConfig) MarshalJSON() ([]byte, error) {
 	type Alias TaskQueueConfig
 	return json.Marshal(&struct {
+		Client                           string `json:"client"`
 		StickyScheduleTimeout            string `json:"sticky_schedule_timeout"`
 		WorkerStopTimeout                string `json:"worker_stop_timeout"`
 		MaxHeartbeatThrottleInterval     string `json:"max_heartbeat_throttle_interval"`
@@ -152,6 +148,7 @@ func (c *TaskQueueConfig) MarshalJSON() ([]byte, error) {
 		DeadlockDetectionTimeout         string `json:"deadlock_detection_timeout"`
 		*Alias
 	}{
+		Client:                           string(c.Client),
 		StickyScheduleTimeout:            c.StickyScheduleTimeout.String(),
 		WorkerStopTimeout:                c.WorkerStopTimeout.String(),
 		MaxHeartbeatThrottleInterval:     c.MaxHeartbeatThrottleInterval.String(),
@@ -163,6 +160,14 @@ func (c *TaskQueueConfig) MarshalJSON() ([]byte, error) {
 
 // Validate validates the TaskQueueConfig
 func (c *TaskQueueConfig) Validate() error {
+	if c.Client == "" {
+		return fmt.Errorf("client is required")
+	}
+
+	if c.TaskQueue == "" {
+		return fmt.Errorf("task_queue is required")
+	}
+
 	if c.MaxConcurrentActivityExecution < 0 {
 		return fmt.Errorf("max_concurrent_activity_execution must be non-negative")
 	}
