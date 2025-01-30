@@ -1,4 +1,4 @@
-package options
+package workflow
 
 import (
 	commonpb "go.temporal.io/api/common/v1"

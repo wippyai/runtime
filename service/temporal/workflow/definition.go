@@ -7,12 +7,11 @@ import (
 	"github.com/ponyruntime/pony/pkg/payload/lua"
 	"github.com/ponyruntime/pony/runtime/lua/engine/command"
 	"github.com/ponyruntime/pony/runtime/lua/workflow"
-	"github.com/ponyruntime/pony/service/temporal/workflow/options"
 	lua2 "github.com/yuin/gopher-lua"
 	commonpb "go.temporal.io/api/common/v1"
 	"go.temporal.io/sdk/converter"
 	bindings "go.temporal.io/sdk/internalbindings"
-	"log"
+	workflow2 "go.temporal.io/sdk/workflow"
 	"time"
 )
 
@@ -80,24 +79,22 @@ func (w *Definition) OnWorkflowTaskStarted(deadlockDetectionTimeout time.Duratio
 
 	// Process commands and handle completion
 	if err := w.processCommands(cmds); err != nil {
-		w.env.Complete(nil, err)
-		return
+		panic(err)
 	}
 
 	// Check if workflow is complete
 	if w.runner.IsComplete() {
 		result, err := w.runner.GetCompletionResult()
 		if err != nil {
-			w.env.Complete(nil, err)
-			return
+			panic(err)
 		}
 
 		// todo: also encapsulate!
 		p, err := w.env.GetDataConverter().ToPayloads(result)
 		if err != nil {
-			w.env.Complete(nil, err)
-			return
+			panic(err)
 		}
+
 		w.env.Complete(p, nil)
 	}
 }
@@ -138,7 +135,7 @@ func (w *Definition) Close() {
 func (w *Definition) executeActivity(cmd *command.Command) error {
 	name := cmd.Params[0]
 
-	var activityOptions = new(options.ActivityOptions)
+	var activityOptions = new(ActivityOptions)
 	if err := w.dtt.Unmarshal(payload.NewPayload(cmd.Params[1], payload.Lua), activityOptions); err != nil {
 		return err
 	}
@@ -154,47 +151,35 @@ func (w *Definition) executeActivity(cmd *command.Command) error {
 		return err
 	}
 
-	log.Printf("Activity name: %v\n", name)
-	log.Printf("Activity options: %v\n", activityOptions)
-	log.Printf("Activity args: %v\n", args)
-
 	w.env.ExecuteActivity(bindings.ExecuteActivityParams{
 		ExecuteActivityOptions: tOps,
 		ActivityType:           struct{ Name string }{Name: name.String()},
 		Input:                  args,
 	}, func(result *commonpb.Payloads, err error) {
-		log.Printf("Activity result: %v %v\n", result, err)
-
 		if err != nil {
 			err := w.runner.SendError(cmd, err)
 			if err != nil {
-				// todo: not to notify error, remind me
-				w.env.Complete(nil, err)
-				return
+				panic(err) // must never happen
 			}
 			return
 		}
 
 		values, err := w.fromPayloads(result)
 		if err != nil {
-			w.env.Complete(nil, err)
-			return
+			panic(err)
 		}
 
 		if len(values) == 0 {
 			err = w.runner.SendResult(cmd, lua2.LNil)
 			if err != nil {
-				w.env.Complete(nil, err)
-				return
+				panic(err)
 			}
 			return
 		}
 
 		err = w.runner.SendResult(cmd, values[0])
 		if err != nil {
-			// panic?
-			w.env.Complete(nil, err)
-			return
+			panic(err)
 		}
 	})
 
@@ -203,6 +188,38 @@ func (w *Definition) executeActivity(cmd *command.Command) error {
 
 // executeTimer handles the execution of a timer command
 func (w *Definition) executeTimer(cmd *command.Command) error {
+	// Get duration from the timer parameters
+	var timerOptions = new(struct {
+		Duration string `json:"duration"`
+	})
+
+	if err := w.dtt.Unmarshal(payload.NewPayload(cmd.Params[0], payload.Lua), timerOptions); err != nil {
+		return err
+	}
+
+	// Parse duration string to time.Duration
+	duration, err := time.ParseDuration(timerOptions.Duration)
+	if err != nil {
+		return err
+	}
+
+	// Create and start the timer using workflow environment
+	w.env.NewTimer(duration, workflow2.TimerOptions{Summary: ""}, func(result *commonpb.Payloads, err error) {
+		if err != nil {
+			err := w.runner.SendError(cmd, err)
+			if err != nil {
+				panic(err) // must never happen
+			}
+			return
+		}
+
+		// Send success result back to Lua
+		err = w.runner.SendResult(cmd, lua2.LBool(true))
+		if err != nil {
+			panic(err)
+		}
+	})
+
 	return nil
 }
 
