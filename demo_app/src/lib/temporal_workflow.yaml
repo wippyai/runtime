@@ -1,0 +1,7 @@
+name: temporal_workflow
+kind: library.lua
+meta:
+  comment: "Temporal workflow helpers"
+  version: "0.1.0"
+
+source: file://temporal_workflow.lua

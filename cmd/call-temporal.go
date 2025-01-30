@@ -40,12 +40,12 @@ func executeWorkflow(c client.Client, wg *sync.WaitGroup, index int) {
 	// Configure workflow options with unique ID
 	options := client.StartWorkflowOptions{
 		ID:                 fmt.Sprintf("stab-workflow-%d-%s", index, time.Now().Format("2006-01-02-15-04-05")),
-		TaskQueue:          "wippy_demos_wf",
+		TaskQueue:          "wippy_demos",
 		WorkflowRunTimeout: time.Minute,
 	}
 
 	// Get workflow
-	we, err := c.ExecuteWorkflow(context.Background(), options, StabWorkflow)
+	we, err := c.ExecuteWorkflow(context.Background(), options, "demo_workflow")
 	if err != nil {
 		log.Printf("Failed to execute workflow %d: %v\n", index, err)
 		return
@@ -75,7 +75,7 @@ func main() {
 	var wg sync.WaitGroup
 
 	// Launch 100 workflows in parallel
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 1; i++ {
 		wg.Add(1)
 		go executeWorkflow(c, &wg, i)
 	}

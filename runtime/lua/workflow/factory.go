@@ -64,7 +64,7 @@ func (f *Factory) ForWorkflow(
 			allowed = true
 		}
 
-		if allowed {
+		if allowed || len(lib.Modules) == 0 {
 			opts = append(opts, engine.WithLibrary(libName, lib.Source))
 		}
 	}
@@ -75,11 +75,13 @@ func (f *Factory) ForWorkflow(
 		// Create VM with configured modules
 		vm, err := engine.NewCVM(log, opts...)
 		if err != nil {
+			log.Warn("failed to create VM", zap.Error(err))
 			return nil
 		}
 
 		// Import the workflow function
 		if err := vm.Import(cfg.Source, cfg.Method, cfg.Method); err != nil {
+			log.Warn("failed to import workflow", zap.Error(err))
 			vm.Close()
 			return nil
 		}

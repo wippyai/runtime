@@ -2,6 +2,7 @@ package events
 
 import (
 	"context"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 )
 
 type (
@@ -42,3 +43,7 @@ type (
 		Send(context.Context, Event)
 	}
 )
+
+func GetBus(ctx context.Context) Bus {
+	return ctx.Value(ctxapi.BusCtx).(Bus)
+}

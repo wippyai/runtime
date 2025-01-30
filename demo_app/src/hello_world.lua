@@ -1,3 +1,3 @@
 return function(arg)
-    return { message = "Hello, World!" .. arg }
+    return { message = "Hello, " .. arg }
 end

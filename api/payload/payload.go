@@ -1,5 +1,10 @@
 package payload
 
+import (
+	"context"
+	ctxapi "github.com/ponyruntime/pony/api/context"
+)
+
 // Format constants define the supported payload formats.
 // These formats determine how the payload data should be interpreted and processed.
 const (
@@ -66,6 +71,10 @@ type (
 		Transcode(Payload) (Payload, error)
 	}
 )
+
+func GetTranscoder(ctx context.Context) Transcoder {
+	return ctx.Value(ctxapi.TranscoderCtx).(Transcoder)
+}
 
 // payload is a concrete implementation of the Payload interface.
 type payload struct {
