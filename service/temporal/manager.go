@@ -75,7 +75,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 			Path:   events.Path(entry.ID),
 			Data: &supervisor.Entry{
 				Service: service,
-				Config:  supervisor.LifecycleConfig{AutoStart: true},
+				Config:  supervisor.LifecycleConfig{AutoStart: false}, // supervisor will start client when needed
 			},
 		})
 
