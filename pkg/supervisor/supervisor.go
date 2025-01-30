@@ -234,6 +234,8 @@ func (s *Supervisor) run(ctx context.Context) {
 			s.tx.reset()
 
 		case actionRegister:
+			action.entry.Config.InitDefaults()
+
 			if err := s.tx.registerService(action.serviceID, action.entry); err != nil {
 				s.logger.Error("failed to register service in transaction",
 					zap.String("serviceID", action.serviceID),
