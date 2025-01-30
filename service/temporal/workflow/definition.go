@@ -4,6 +4,7 @@ import (
 	"context"
 	contextapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/payload"
+	"github.com/ponyruntime/pony/pkg/payload/lua"
 	"github.com/ponyruntime/pony/runtime/lua/engine/command"
 	"github.com/ponyruntime/pony/runtime/lua/workflow"
 	"github.com/ponyruntime/pony/service/temporal/workflow/options"
@@ -163,29 +164,38 @@ func (w *Definition) executeActivity(cmd *command.Command) error {
 		Input:                  args,
 	}, func(result *commonpb.Payloads, err error) {
 		log.Printf("Activity result: %v %v\n", result, err)
-		//
-		//	//if err != nil {
-		//	//	err := w.runner.SendError(cmd, err)
-		//	//	if err != nil {
-		//	//		// todo: for real?
-		//	//		w.env.Complete(nil, err)
-		//	//		return
-		//	//	}
-		//	//	return
-		//	//}
-		//	//
-		//	//var value = new(any)
-		//	//if err := w.dc.FromPayloads(result, value); err != nil {
-		//	//	w.env.Complete(nil, err)
-		//	//	return
-		//	//}
-		//	//
-		//	//// todo: use our transcoder
-		//	//err = w.runner.SendResult(cmd, lua.GoToLua(*value))
-		//	//if err != nil {
-		//	//	w.env.Complete(nil, err)
-		//	//	return
-		//	//}
+
+		if err != nil {
+			err := w.runner.SendError(cmd, err)
+			if err != nil {
+				// todo: not to notify error, remind me
+				w.env.Complete(nil, err)
+				return
+			}
+			return
+		}
+
+		values, err := w.fromPayloads(result)
+		if err != nil {
+			w.env.Complete(nil, err)
+			return
+		}
+
+		if len(values) == 0 {
+			err = w.runner.SendResult(cmd, lua2.LNil)
+			if err != nil {
+				w.env.Complete(nil, err)
+				return
+			}
+			return
+		}
+
+		err = w.runner.SendResult(cmd, values[0])
+		if err != nil {
+			// panic?
+			w.env.Complete(nil, err)
+			return
+		}
 	})
 
 	return nil
@@ -203,4 +213,17 @@ func (w *Definition) toPayloads(args []lua2.LValue) (*commonpb.Payloads, error) 
 	}
 
 	return w.dc.ToPayloads(argPayloads)
+}
+
+func (w *Definition) fromPayloads(payloads *commonpb.Payloads) ([]lua2.LValue, error) {
+	var args = make([]lua2.LValue, len(payloads.GetPayloads()))
+	for i, p := range payloads.GetPayloads() {
+		var value = new(any)
+		if err := w.dc.FromPayload(p, value); err != nil {
+			return nil, err
+		}
+		args[i] = lua.GoToLua(*value)
+	}
+
+	return args, nil
 }
