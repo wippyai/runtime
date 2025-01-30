@@ -80,7 +80,7 @@ func TestAsyncStreamRead(t *testing.T) {
         `, "test", "test_stream_read")
 		require.NoError(t, err)
 
-		// Execute test and verify results
+		// execute test and verify results
 		result, err := wrapped.Execute(context.Background(), "test_stream_read")
 		require.NoError(t, err)
 
@@ -152,7 +152,7 @@ func TestAsyncStreamIter(t *testing.T) {
         `, "test", "test_stream_iter")
 		require.NoError(t, err)
 
-		// Execute test and verify results
+		// execute test and verify results
 		result, err := wrapped.Execute(context.Background(), "test_stream_iter")
 		require.NoError(t, err)
 

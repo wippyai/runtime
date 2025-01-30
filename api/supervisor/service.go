@@ -18,14 +18,14 @@ const (
 	// Update represents an event for updating service status
 	Update events.Kind = "supervisor.service.status"
 
-	// Service lifecycle event constants define the different lifecycle states
+	// Controller lifecycle event constants define the different lifecycle states
 
 	// Start represents an event to start a service
 	Start events.Kind = "supervisor.service.start"
 	// Stop represents an event to stop a service
 	Stop events.Kind = "supervisor.service.stop"
 
-	// Service status constants define the possible operational states of a service
+	// Controller status constants define the possible operational states of a service
 
 	// Unknown indicates the service status is currently unknown
 	Unknown Status = "unknown"

@@ -173,7 +173,7 @@ func TestUpstreamModule(t *testing.T) {
 				}
 				defer vm.Close()
 
-				// Execute the script with properly quoted string
+				// execute the script with properly quoted string
 				script := fmt.Sprintf(`
 					local upstream = require("upstream")
 					return upstream.send("%c")

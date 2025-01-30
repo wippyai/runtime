@@ -51,7 +51,7 @@ func TestCommandLayer_BasicOperations(t *testing.T) {
     `, "test")
 	assert.NoError(t, err)
 
-	// Execute and collect yields
+	// execute and collect yields
 	var yields []string
 	tasks, err := runner.Step()
 	assert.NoError(t, err)
@@ -169,7 +169,7 @@ func TestLayer_MultipleConcurrentCommands(t *testing.T) {
 	`, "test")
 	assert.NoError(t, err)
 
-	// Execute and collect yields
+	// execute and collect yields
 	var yields []string
 	tasks, err := runner.Step()
 	assert.NoError(t, err)

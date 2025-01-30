@@ -19,6 +19,11 @@ const (
 	controlExit
 )
 
+type Controllable interface {
+	Start() error
+	Stop() error
+}
+
 type controlOp struct {
 	kind    controlAction
 	attempt int
@@ -79,6 +84,10 @@ func (c *Controller) Start() error {
 func (c *Controller) Stop() error {
 	c.state.setDesiredStatus(supervisor.Stopped)
 	return c.runCommand(controlOp{kind: controlStop})
+}
+
+func (c *Controller) CanRestart() bool {
+	return c.state.getDesiredStatus() != supervisor.Exited
 }
 
 func (c *Controller) runCommand(op controlOp) error {

@@ -24,7 +24,7 @@ func TestExecutor_Execute(t *testing.T) {
 		{
 			name:    "invalid command",
 			command: "invalidcommand",
-			wantErr: false, // Execute() doesn't return error for invalid commands
+			wantErr: false, // execute() doesn't return error for invalid commands
 		},
 	}
 

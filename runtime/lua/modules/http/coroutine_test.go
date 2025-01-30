@@ -100,7 +100,7 @@ func TestAsyncHTTP(t *testing.T) {
 	   `, "test", "test_http_requests")
 		require.NoError(t, err)
 
-		// Execute test and verify results
+		// execute test and verify results
 		start := time.Now()
 		result, err := wrapped.Execute(context.Background(), "test_http_requests")
 		duration := time.Since(start)
@@ -186,7 +186,7 @@ func TestAsyncHTTP(t *testing.T) {
         `, "test", "test_timeout")
 		require.NoError(t, err)
 
-		// Execute test
+		// execute test
 		results, err := wrapped.Execute(context.Background(), "test_timeout")
 		require.NoError(t, err)
 

@@ -51,7 +51,7 @@ func TestExecutor_Execute(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 			defer cancel()
 
-			// Execute the command
+			// execute the command
 			err = executor.Execute(ctx, tt.cmd)
 
 			if tt.wantErr {
@@ -83,7 +83,7 @@ func TestExecutor_ExecuteWithTimeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
-	// Execute a long-running command
+	// execute a long-running command
 	err = executor.Execute(ctx, "sleep 5")
 
 	// Expect an error due to context timeout

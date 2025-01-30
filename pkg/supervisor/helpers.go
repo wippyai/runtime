@@ -211,6 +211,10 @@ func (th *registryTX) registerService(id string, entry *supervisor.Entry) error 
 		return fmt.Errorf("received register action outside of transaction")
 	}
 
+	if _, exists := th.register[id]; exists {
+		return nil
+	}
+
 	delete(th.remove, id)
 	th.register[id] = entry
 	return nil
@@ -219,6 +223,11 @@ func (th *registryTX) registerService(id string, entry *supervisor.Entry) error 
 func (th *registryTX) removeService(id string) error {
 	if !th.open {
 		return fmt.Errorf("received remove action outside of transaction")
+	}
+
+	// duplicate check
+	if _, exists := th.remove[id]; exists {
+		return nil
 	}
 
 	delete(th.register, id)

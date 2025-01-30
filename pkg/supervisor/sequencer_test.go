@@ -20,7 +20,7 @@ type executableService struct {
 	eventChan chan<- operationEvent
 }
 
-func newExecutableService(id string, eventChan chan<- operationEvent) *executableService {
+func newTestController(id string, eventChan chan<- operationEvent) *executableService {
 	return &executableService{
 		testService: newTestService(),
 		id:          id,
@@ -28,14 +28,19 @@ func newExecutableService(id string, eventChan chan<- operationEvent) *executabl
 	}
 }
 
-func (s *executableService) Start(ctx context.Context) (<-chan any, error) {
+func (s *executableService) Start() error {
 	s.eventChan <- operationEvent{id: s.id, isStart: true}
-	return s.testService.Start(ctx)
+	_, err := s.testService.Start(context.Background())
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
-func (s *executableService) Stop(ctx context.Context) error {
+func (s *executableService) Stop() error {
 	s.eventChan <- operationEvent{id: s.id, isStart: false}
-	return s.testService.Stop(ctx)
+	return s.testService.Stop(context.Background())
 }
 
 // Collect events for exact number of expected events
@@ -93,33 +98,33 @@ func TestSequencer_BasicDependencyOrder(t *testing.T) {
 	// Create test services with dependencies:
 	// A -> B -> C (A depends on B, B depends on C)
 	services := map[string]*executableService{
-		"service-a": newExecutableService("service-a", events),
-		"service-b": newExecutableService("service-b", events),
-		"service-c": newExecutableService("service-c", events),
+		"service-a": newTestController("service-a", events),
+		"service-b": newTestController("service-b", events),
+		"service-c": newTestController("service-c", events),
 	}
 
 	ops := []Operation{
 		{
 			Type:         OperationStart,
 			ID:           "service-a",
-			Service:      services["service-a"],
+			Controller:   services["service-a"],
 			Dependencies: []string{"service-b"},
 		},
 		{
 			Type:         OperationStart,
 			ID:           "service-b",
-			Service:      services["service-b"],
+			Controller:   services["service-b"],
 			Dependencies: []string{"service-c"},
 		},
 		{
 			Type:         OperationStart,
 			ID:           "service-c",
-			Service:      services["service-c"],
+			Controller:   services["service-c"],
 			Dependencies: []string{},
 		},
 	}
 
-	// Execute operations
+	// execute operations
 	ctx := context.Background()
 	err := sp.Transition(ctx, ops...)
 	require.NoError(t, err)
@@ -141,19 +146,19 @@ func TestSequencer_BasicDependencyOrder(t *testing.T) {
 		{
 			Type:         OperationStop,
 			ID:           "service-a",
-			Service:      services["service-a"],
+			Controller:   services["service-a"],
 			Dependencies: []string{"service-b"},
 		},
 		{
 			Type:         OperationStop,
 			ID:           "service-b",
-			Service:      services["service-b"],
+			Controller:   services["service-b"],
 			Dependencies: []string{"service-c"},
 		},
 		{
 			Type:         OperationStop,
 			ID:           "service-c",
-			Service:      services["service-c"],
+			Controller:   services["service-c"],
 			Dependencies: []string{},
 		},
 	}
@@ -185,33 +190,33 @@ func TestSequencer_ParallelExecution(t *testing.T) {
 	// B -> C
 	// (A and B can start in parallel, C must start last)
 	services := map[string]*executableService{
-		"service-a": newExecutableService("service-a", events),
-		"service-b": newExecutableService("service-b", events),
-		"service-c": newExecutableService("service-c", events),
+		"service-a": newTestController("service-a", events),
+		"service-b": newTestController("service-b", events),
+		"service-c": newTestController("service-c", events),
 	}
 
 	ops := []Operation{
 		{
 			Type:         OperationStart,
 			ID:           "service-c",
-			Service:      services["service-c"],
+			Controller:   services["service-c"],
 			Dependencies: []string{"service-a", "service-b"},
 		},
 		{
 			Type:         OperationStart,
 			ID:           "service-a",
-			Service:      services["service-a"],
+			Controller:   services["service-a"],
 			Dependencies: []string{},
 		},
 		{
 			Type:         OperationStart,
 			ID:           "service-b",
-			Service:      services["service-b"],
+			Controller:   services["service-b"],
 			Dependencies: []string{},
 		},
 	}
 
-	// Execute operations
+	// execute operations
 	ctx := context.Background()
 	err := sp.Transition(ctx, ops...)
 	require.NoError(t, err)
@@ -243,10 +248,10 @@ func TestSequencer_MixedOperations(t *testing.T) {
 
 	// Create services for mixed start/stop operations
 	services := map[string]*executableService{
-		"start-1": newExecutableService("start-1", events),
-		"start-2": newExecutableService("start-2", events),
-		"stop-1":  newExecutableService("stop-1", events),
-		"stop-2":  newExecutableService("stop-2", events),
+		"start-1": newTestController("start-1", events),
+		"start-2": newTestController("start-2", events),
+		"stop-1":  newTestController("stop-1", events),
+		"stop-2":  newTestController("stop-2", events),
 	}
 
 	// Pre-start services that need to be stopped
@@ -260,25 +265,25 @@ func TestSequencer_MixedOperations(t *testing.T) {
 		{
 			Type:         OperationStart,
 			ID:           "start-1",
-			Service:      services["start-1"],
+			Controller:   services["start-1"],
 			Dependencies: []string{},
 		},
 		{
 			Type:         OperationStart,
 			ID:           "start-2",
-			Service:      services["start-2"],
+			Controller:   services["start-2"],
 			Dependencies: []string{"start-1"},
 		},
 		{
 			Type:         OperationStop,
 			ID:           "stop-1",
-			Service:      services["stop-1"],
+			Controller:   services["stop-1"],
 			Dependencies: []string{"stop-2"},
 		},
 		{
 			Type:         OperationStop,
 			ID:           "stop-2",
-			Service:      services["stop-2"],
+			Controller:   services["stop-2"],
 			Dependencies: []string{},
 		},
 	}
@@ -320,33 +325,33 @@ func TestSequencer_OutOfOrderDependencies(t *testing.T) {
 	// Actual dependency chain: A -> B -> C
 	// Registration order: C, A, B
 	services := map[string]*executableService{
-		"service-c": newExecutableService("service-c", events),
-		"service-a": newExecutableService("service-a", events),
-		"service-b": newExecutableService("service-b", events),
+		"service-c": newTestController("service-c", events),
+		"service-a": newTestController("service-a", events),
+		"service-b": newTestController("service-b", events),
 	}
 
 	ops := []Operation{
 		{
 			Type:         OperationStart,
 			ID:           "service-c",
-			Service:      services["service-c"],
+			Controller:   services["service-c"],
 			Dependencies: []string{},
 		},
 		{
 			Type:         OperationStart,
 			ID:           "service-a",
-			Service:      services["service-a"],
+			Controller:   services["service-a"],
 			Dependencies: []string{"service-b"},
 		},
 		{
 			Type:         OperationStart,
 			ID:           "service-b",
-			Service:      services["service-b"],
+			Controller:   services["service-b"],
 			Dependencies: []string{"service-c"},
 		},
 	}
 
-	// Execute operations
+	// execute operations
 	ctx := context.Background()
 	err := sp.Transition(ctx, ops...)
 	require.NoError(t, err)
@@ -368,12 +373,12 @@ func TestSequencer_ComplexDependencyChain(t *testing.T) {
 	// Level 3 (parallel): C1, C2 (both depend on B)
 	// Level 4: D (depends on C1, C2)
 	services := map[string]*executableService{
-		"service-a1": newExecutableService("service-a1", events),
-		"service-a2": newExecutableService("service-a2", events),
-		"service-b":  newExecutableService("service-b", events),
-		"service-c1": newExecutableService("service-c1", events),
-		"service-c2": newExecutableService("service-c2", events),
-		"service-d":  newExecutableService("service-d", events),
+		"service-a1": newTestController("service-a1", events),
+		"service-a2": newTestController("service-a2", events),
+		"service-b":  newTestController("service-b", events),
+		"service-c1": newTestController("service-c1", events),
+		"service-c2": newTestController("service-c2", events),
+		"service-d":  newTestController("service-d", events),
 	}
 
 	// Register in mixed order
@@ -381,37 +386,37 @@ func TestSequencer_ComplexDependencyChain(t *testing.T) {
 		{
 			Type:         OperationStart,
 			ID:           "service-d",
-			Service:      services["service-d"],
+			Controller:   services["service-d"],
 			Dependencies: []string{"service-c1", "service-c2"},
 		},
 		{
 			Type:         OperationStart,
 			ID:           "service-c1",
-			Service:      services["service-c1"],
+			Controller:   services["service-c1"],
 			Dependencies: []string{"service-b"},
 		},
 		{
 			Type:         OperationStart,
 			ID:           "service-b",
-			Service:      services["service-b"],
+			Controller:   services["service-b"],
 			Dependencies: []string{"service-a1", "service-a2"},
 		},
 		{
 			Type:         OperationStart,
 			ID:           "service-c2",
-			Service:      services["service-c2"],
+			Controller:   services["service-c2"],
 			Dependencies: []string{"service-b"},
 		},
 		{
 			Type:         OperationStart,
 			ID:           "service-a1",
-			Service:      services["service-a1"],
+			Controller:   services["service-a1"],
 			Dependencies: []string{},
 		},
 		{
 			Type:         OperationStart,
 			ID:           "service-a2",
-			Service:      services["service-a2"],
+			Controller:   services["service-a2"],
 			Dependencies: []string{},
 		},
 	}
@@ -434,37 +439,37 @@ func TestSequencer_ComplexDependencyChain(t *testing.T) {
 		{
 			Type:         OperationStop,
 			ID:           "service-d",
-			Service:      services["service-d"],
+			Controller:   services["service-d"],
 			Dependencies: []string{}, // D stops first
 		},
 		{
 			Type:         OperationStop,
 			ID:           "service-c1",
-			Service:      services["service-c1"],
+			Controller:   services["service-c1"],
 			Dependencies: []string{"service-d"}, // C1, C2 must wait for D
 		},
 		{
 			Type:         OperationStop,
 			ID:           "service-c2",
-			Service:      services["service-c2"],
+			Controller:   services["service-c2"],
 			Dependencies: []string{"service-d"}, // C1, C2 must wait for D
 		},
 		{
 			Type:         OperationStop,
 			ID:           "service-b",
-			Service:      services["service-b"],
+			Controller:   services["service-b"],
 			Dependencies: []string{"service-c1", "service-c2"}, // B must wait for C1,C2
 		},
 		{
 			Type:         OperationStop,
 			ID:           "service-a1",
-			Service:      services["service-a1"],
+			Controller:   services["service-a1"],
 			Dependencies: []string{"service-b"}, // A1, A2 must wait for B
 		},
 		{
 			Type:         OperationStop,
 			ID:           "service-a2",
-			Service:      services["service-a2"],
+			Controller:   services["service-a2"],
 			Dependencies: []string{"service-b"}, // A1, A2 must wait for B
 		},
 	}
