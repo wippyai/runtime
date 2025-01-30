@@ -33,7 +33,6 @@ func NewManager(bus events.Bus, dtt payload.Transcoder, logger *zap.Logger) *Man
 	}
 }
 
-// unmarshalAndValidate handles configuration deserialization and validation
 func (m *Manager) unmarshalAndValidate(data payload.Payload, cfg interface{}) error {
 	if err := m.dtt.Unmarshal(data, cfg); err != nil {
 		return fmt.Errorf("failed to unmarshal config: %w", err)
@@ -46,6 +45,26 @@ func (m *Manager) unmarshalAndValidate(data payload.Payload, cfg interface{}) er
 	}
 
 	return nil
+}
+
+// updateClientLifecycle updates client service lifecycle based on task queue count
+func (m *Manager) updateClientLifecycle(ctx context.Context, clientID registry.ID) {
+	activeTaskQueues := m.taskQueues.GetActiveTaskQueues(clientID)
+
+	// Only start client if there are active task queues
+	lifecycle := supervisor.LifecycleConfig{
+		AutoStart: activeTaskQueues > 0,
+	}
+
+	// won't affect running clients but will start idle ones
+	m.bus.Send(ctx, events.Event{
+		System: supervisor.System,
+		Kind:   supervisor.Update,
+		Path:   events.Path(clientID),
+		Data: &supervisor.Entry{
+			Config: lifecycle,
+		},
+	})
 }
 
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
@@ -65,7 +84,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		}
 
 		// Create and register service with supervisor
-		service, err := m.clients.GetConnection(entry.ID)
+		service, err := m.clients.GetClient(entry.ID)
 		if err != nil {
 			return err
 		}
@@ -76,14 +95,53 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 			Path:   events.Path(entry.ID),
 			Data: &supervisor.Entry{
 				Service: service,
-				Config:  service.GetLifecycleConfig(), // todo: based on number of references from tasks_queues
+				Config:  supervisor.LifecycleConfig{AutoStart: false}, // Start only when task queues are registered
 			},
 		})
 
 		return nil
 
 	case api.KindTaskQueue:
-		m.log.Info("task queue registration not implemented", zap.String("id", string(entry.ID)))
+		cfg := new(api.TaskQueueConfig)
+		if err := m.unmarshalAndValidate(entry.Data, cfg); err != nil {
+			return err
+		}
+
+		// Check if referenced client exists
+		if !m.clients.Has(cfg.Client) {
+			return fmt.Errorf("client %s not found", cfg.Client)
+		}
+
+		if err := m.taskQueues.Add(entry.ID, cfg); err != nil {
+			return err
+		}
+
+		// Get client for the task queue
+		c, err := m.clients.GetClient(cfg.Client)
+		if err != nil {
+			return fmt.Errorf("failed to get client connection: %w", err)
+		}
+
+		// Get task queue service instance
+		service, err := m.taskQueues.GetTaskQueue(entry.ID, c)
+		if err != nil {
+			return fmt.Errorf("failed to create task queue service: %w", err)
+		}
+
+		// Register task queue with supervisor
+		m.bus.Send(ctx, events.Event{
+			System: supervisor.System,
+			Kind:   supervisor.Register,
+			Path:   events.Path(entry.ID),
+			Data: &supervisor.Entry{
+				Service: service,
+				Config:  cfg.Lifecycle,
+			},
+		})
+
+		// Update client lifecycle
+		m.updateClientLifecycle(ctx, cfg.Client)
+
 		return nil
 
 	case api.KindWorkflow:
@@ -107,11 +165,42 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 	switch entry.Kind {
 	case api.KindClient:
-		return fmt.Errorf("temporal clients cannot be updated at runtime")
+		return fmt.Errorf("temporal clients cannot be updated at runtime, flush and re-add")
 
 	case api.KindTaskQueue:
-		m.log.Info("task queue update not implemented", zap.String("id", string(entry.ID)))
-		// todo: can change client lifecycle config based on number of references
+		cfg := new(api.TaskQueueConfig)
+		if err := m.unmarshalAndValidate(entry.Data, cfg); err != nil {
+			return err
+		}
+
+		// Get old config to check if client reference changed
+		oldCfg, exists := m.taskQueues.GetConfig(entry.ID)
+		if !exists {
+			return fmt.Errorf("task queue %s not found", entry.ID)
+		}
+
+		// Cannot change client reference
+		if oldCfg.Client != cfg.Client {
+			return fmt.Errorf("cannot change task queue client reference")
+		}
+
+		if err := m.taskQueues.Update(entry.ID, cfg); err != nil {
+			return err
+		}
+
+		// Update supervisor with new lifecycle config
+		m.bus.Send(ctx, events.Event{
+			System: supervisor.System,
+			Kind:   supervisor.Update,
+			Path:   events.Path(entry.ID),
+			Data: &supervisor.Entry{
+				Config: cfg.Lifecycle,
+			},
+		})
+
+		// Update client lifecycle as auto-start setting might have changed
+		m.updateClientLifecycle(ctx, cfg.Client)
+
 		return nil
 
 	case api.KindWorkflow:
@@ -131,6 +220,12 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	switch entry.Kind {
 	case api.KindClient:
+		// Check if any task queues still reference this client
+		activeQueues := m.taskQueues.GetActiveTaskQueues(entry.ID)
+		if activeQueues > 0 {
+			return fmt.Errorf("client %s still has %d active task queues", entry.ID, activeQueues)
+		}
+
 		if err := m.clients.Delete(entry.ID); err != nil {
 			return err
 		}
@@ -145,7 +240,28 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 		return nil
 
 	case api.KindTaskQueue:
-		m.log.Info("task queue deletion not implemented", zap.String("id", string(entry.ID)))
+		// Get config to get client reference before deletion
+		cfg, exists := m.taskQueues.GetConfig(entry.ID)
+		if !exists {
+			return fmt.Errorf("task queue %s not found", entry.ID)
+		}
+
+		clientID := cfg.Client
+
+		if err := m.taskQueues.Delete(entry.ID); err != nil {
+			return err
+		}
+
+		// Unregister from supervisor
+		m.bus.Send(ctx, events.Event{
+			System: supervisor.System,
+			Kind:   supervisor.Remove,
+			Path:   events.Path(entry.ID),
+		})
+
+		// Update client lifecycle
+		m.updateClientLifecycle(ctx, clientID)
+
 		return nil
 
 	case api.KindWorkflow:

@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 	api "github.com/ponyruntime/pony/api/service/temporal"
+	"github.com/ponyruntime/pony/service/temporal/client"
 	tmact "go.temporal.io/sdk/activity"
 	tmwfl "go.temporal.io/sdk/workflow"
 	"sync"
 
-	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
 	"go.uber.org/zap"
 )
@@ -18,7 +18,7 @@ type TaskQueue struct {
 	mu     sync.RWMutex
 	log    *zap.Logger
 	config *api.TaskQueueConfig
-	client client.Client
+	client *client.Client
 	worker worker.Worker
 
 	// Internal registries
@@ -31,7 +31,7 @@ type TaskQueue struct {
 }
 
 // NewTaskQueue creates a new task queue service instance
-func NewTaskQueue(logger *zap.Logger, config *api.TaskQueueConfig, client client.Client) *TaskQueue {
+func NewTaskQueue(logger *zap.Logger, config *api.TaskQueueConfig, client *client.Client) *TaskQueue {
 	return &TaskQueue{
 		log:        logger,
 		config:     config,
@@ -42,8 +42,14 @@ func NewTaskQueue(logger *zap.Logger, config *api.TaskQueueConfig, client client
 }
 
 // constructWorker creates a new worker with all registered workflows and activities
-func (s *TaskQueue) constructWorker() worker.Worker {
-	w := worker.New(s.client, s.config.TaskQueue, s.config.ToWorkerOptions())
+func (s *TaskQueue) constructWorker() (worker.Worker, error) {
+	c, err := s.client.GetClient()
+	if err != nil {
+		s.log.Error("failed to get client", zap.Error(err))
+		return nil, err
+	}
+
+	w := worker.New(c, s.config.TaskQueue, s.config.ToWorkerOptions())
 
 	// Mount all registered workflows
 	for name, workflow := range s.workflows {
@@ -55,7 +61,7 @@ func (s *TaskQueue) constructWorker() worker.Worker {
 		w.RegisterActivityWithOptions(activity, tmact.RegisterOptions{Name: name})
 	}
 
-	return w
+	return w, nil
 }
 
 // Start implements supervisor.Service interface
@@ -67,7 +73,12 @@ func (s *TaskQueue) Start(ctx context.Context) (<-chan any, error) {
 	}
 
 	// Create and mount worker with all registered components
-	w := s.constructWorker()
+	w, err := s.constructWorker()
+	if err != nil {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("failed to construct worker: %w", err)
+	}
+
 	s.worker = w
 	s.statusChan = make(chan any, 3)
 	s.exit = make(chan struct{})

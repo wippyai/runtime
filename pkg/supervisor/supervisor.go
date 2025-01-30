@@ -365,6 +365,10 @@ func (s *Supervisor) startPending() {
 	defer s.mu.RUnlock()
 
 	for id, controller := range s.controllers {
+
+		// slice what we depends on (ids)
+		//controller.config.DependsOn
+
 		state := controller.State()
 		if state.Desired == supervisor.Running || (!controller.config.AutoStart && state.Desired != supervisor.Running) {
 			continue

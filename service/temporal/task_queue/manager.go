@@ -3,10 +3,10 @@ package task_queue
 import (
 	"fmt"
 	api "github.com/ponyruntime/pony/api/service/temporal"
+	"github.com/ponyruntime/pony/service/temporal/client"
 	"sync"
 
 	"github.com/ponyruntime/pony/api/registry"
-	"go.temporal.io/sdk/client"
 	"go.uber.org/zap"
 )
 
@@ -58,6 +58,9 @@ func (m *Manager) Update(id registry.ID, config *api.TaskQueueConfig) error {
 		zap.String("id", string(id)),
 		zap.String("task_queue", config.TaskQueue),
 	)
+
+	// todo: we probably want to propagate this change to the service
+
 	return nil
 }
 
@@ -86,7 +89,7 @@ func (m *Manager) GetConfig(id registry.ID) (*api.TaskQueueConfig, bool) {
 }
 
 // GetTaskQueue returns an existing service or creates a new one
-func (m *Manager) GetTaskQueue(id registry.ID, client client.Client) (*TaskQueue, error) {
+func (m *Manager) GetTaskQueue(id registry.ID, client *client.Client) (*TaskQueue, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
