@@ -131,12 +131,14 @@ func main() {
 	}
 	defer func() { _ = workflowReg.Stop() }()
 
+	// todo: should we just PUT everything into Wippy?
 	ctx = context.WithValue(ctx, contextapi.ExecutorCtx, exec)
 	ctx = context.WithValue(ctx, contextapi.WorkflowCtx, workflowReg)
 
 	// -- lua lang and modules
 	luaRuntime := luaruntime.NewRuntimeManager(
 		bus, dtt, log.Named("lua"),
+		// todo :temporal one
 		timelib.NewTimeModule(),
 		logglib.NewLoggerModule(log.Named("app")),
 		b64mlib.NewBase64Module(),
