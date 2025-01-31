@@ -1,0 +1,14 @@
+name: endpoints.temporal_debug
+kind: http.endpoint
+meta:
+  server: web_server
+  router: api_router
+  depends_on:
+    - functions.temporal_debug
+    - web_server
+    - api_router
+
+method: GET
+path: /debug/temporal
+target: functions.temporal_debug
+json_output: true
