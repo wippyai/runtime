@@ -47,53 +47,14 @@ func (m *Module) newProcess(l *lua.LState) int {
 	closer.FromContext(l.Context()).Add(func() error {
 		// stop the executor
 		executor.Stop()
+		m.once = nil
 		return nil
 	})
 
 	ud.Value = executor
 	l.SetMetatable(ud, l.GetTypeMetatable(metatableName))
-
 	l.Push(ud)
 
-	return 1
-}
-
-func (m *Module) getStderr(l *lua.LState) int {
-	log := getCtxLogger(l)
-	log.Debug("getting process stderr")
-	executor := getProcessExecutor(l)
-
-	s, errs := stream.NewStream(l.Context(), executor.StderrReader(), stream.NewStreamConfig(65536))
-	if errs != nil {
-		l.RaiseError("failed to create stream: %s", errs.Error())
-	}
-
-	luaStream := &stream.LuaStream{Stream: s}
-	ud := l.NewUserData()
-	ud.Value = luaStream
-
-	l.SetMetatable(ud, l.GetTypeMetatable("Stream"))
-
-	l.Push(ud)
-	return 1
-}
-
-func (m *Module) getStdout(l *lua.LState) int {
-	log := getCtxLogger(l)
-	log.Debug("getting process stderr")
-	executor := getProcessExecutor(l)
-
-	s, errs := stream.NewStream(l.Context(), executor.StdoutReader(), stream.NewStreamConfig(65536))
-	if errs != nil {
-		l.RaiseError("failed to create stream: %s", errs.Error())
-	}
-
-	luaStream := &stream.LuaStream{Stream: s}
-	ud := l.NewUserData()
-	ud.Value = luaStream
-	l.SetMetatable(ud, l.GetTypeMetatable("Stream"))
-
-	l.Push(ud)
 	return 1
 }
 
@@ -109,6 +70,62 @@ func (m *Module) startProcess(l *lua.LState) int {
 	}
 
 	return 0
+}
+
+func (m *Module) getStderr(l *lua.LState) int {
+	log := getCtxLogger(l)
+	log.Debug("[sync.Once operation]: getting process stderr stream")
+
+	m.once.once.Do(func() {
+		executor := getProcessExecutor(l)
+		log.Debug("[sync.Once]: creating a new stderr stream")
+
+		s, errs := stream.NewStream(l.Context(), executor.StderrReader(), stream.NewStreamConfig(65536))
+		if errs != nil {
+			l.RaiseError("failed to create stderr stream: %s", errs.Error())
+			return
+		}
+
+		luaStream := &stream.LuaStream{Stream: s}
+		ud := l.NewUserData()
+		ud.Value = luaStream
+		l.SetMetatable(ud, l.GetTypeMetatable("Stream"))
+		// save the userdata
+		m.once.value = ud
+	})
+
+	// push the saved userdata
+	l.Push(m.once.value)
+
+	return 1
+}
+
+func (m *Module) getStdout(l *lua.LState) int {
+	log := getCtxLogger(l)
+	log.Debug("[sync.Once operation]: getting process stdout stream")
+
+	m.once.once.Do(func() {
+		executor := getProcessExecutor(l)
+		log.Debug("[sync.Once]: creating a new stdout stream")
+
+		s, errs := stream.NewStream(l.Context(), executor.StdoutReader(), stream.NewStreamConfig(65536))
+		if errs != nil {
+			l.RaiseError("failed to create stdout stream: %s", errs.Error())
+			return
+		}
+
+		luaStream := &stream.LuaStream{Stream: s}
+		ud := l.NewUserData()
+		ud.Value = luaStream
+		l.SetMetatable(ud, l.GetTypeMetatable("Stream"))
+		// save the userdata
+		m.once.value = ud
+	})
+
+	// push the saved userdata
+	l.Push(m.once.value)
+
+	return 1
 }
 
 func (m *Module) signalProcess(l *lua.LState) int {
