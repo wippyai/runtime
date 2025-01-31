@@ -42,7 +42,8 @@ func loadCoreLuaLibs(state *lua.LState) error {
 // newLuaState creates a new Lua State with core libraries
 func newLuaState() (*lua.LState, error) {
 	state := lua.NewState(lua.Options{
-		SkipOpenLibs: true,
+		SkipOpenLibs:    true,
+		RegistryMaxSize: 256 * 200,
 	})
 
 	if err := loadCoreLuaLibs(state); err != nil {

@@ -41,7 +41,7 @@ func executeWorkflow(c client.Client, wg *sync.WaitGroup, index int) {
 	options := client.StartWorkflowOptions{
 		ID:                 fmt.Sprintf("stab-workflow-%d-%s", index, time.Now().Format("2006-01-02-15-04-05")),
 		TaskQueue:          "wippy_demos",
-		WorkflowRunTimeout: time.Minute,
+		WorkflowRunTimeout: time.Minute * 10,
 	}
 
 	// Get workflow

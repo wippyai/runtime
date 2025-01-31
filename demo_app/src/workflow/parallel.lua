@@ -28,7 +28,7 @@ function execute_workflow()
             }
 
             -- Exit if either done signal or main timer completed
-            if result.channel == done_channel or result.channel == main_timer:response() then
+            if result.channel == done_channel then
                 break
             end
         end

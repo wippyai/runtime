@@ -27,8 +27,8 @@ local function worker(work_channel, results_channel, worker_id)
 end
 
 function execute_workflow()
-    local NUM_WORKERS = 5
-    local NUM_TASKS = 50
+    local NUM_WORKERS = 200
+    local NUM_TASKS = 5000
 
     -- Create channels for work distribution and result collection
     local work_channel = channel.new(NUM_TASKS)  -- Buffered channel for work items
