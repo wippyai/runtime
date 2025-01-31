@@ -161,3 +161,101 @@ Methods:
 - `await()`: Blocks until command completes and returns the result
 - `response()`: Returns the command's response channel
 - `error()`: Returns the command's error information
+
+# Activity Results Guide
+
+## Understanding Activity Results
+
+Activities in temporal workflows can return various types of data. It's essential to understand and properly handle
+these results to avoid common errors.
+
+### Activity Return Types
+
+Activities can return:
+
+- Simple values (strings, numbers)
+- Tables/objects
+- Complex nested structures
+- nil values
+
+### Common Patterns
+
+#### Table Results
+
+Many activities return table structures for flexibility:
+
+```lua
+-- Activity implementation
+function some_activity(input)
+    return {
+        status = "success",
+        message = "Process completed",
+        data = input
+    }
+end
+
+-- Usage in workflow
+local result = activities.some_activity("input"):await()
+-- Access specific fields
+local message = result.message
+```
+
+#### String Results
+
+For simple text outputs:
+
+```lua
+-- Activity implementation
+function simple_activity(input)
+    return "Processed: " .. input
+end
+
+-- Usage in workflow
+local result = activities.simple_activity("input"):await()
+-- Result is directly usable as string
+```
+
+### Debugging Activity Results
+
+#### Basic Result Inspection
+
+```lua
+function execute_workflow()
+    local result = activities.some_activity():await()
+    
+    -- Print type and structure
+    print("Result type:", type(result))
+    if type(result) == "table" then
+        for k, v in pairs(result) do
+            print(k, "=", v)
+        end
+    end
+end
+```
+
+#### Common Issues
+
+1. **Type Mismatch**
+    - Issue: Attempting string operations on tables
+    - Solution: Check result type and extract needed fields
+   ```lua
+   local result = activity:await()
+   local text = type(result) == "table" and result.message or tostring(result)
+   ```
+
+2. **Missing Fields**
+    - Issue: Accessing non-existent table fields
+    - Solution: Validate field existence
+   ```lua
+   local result = activity:await()
+   if result and result.message then
+       -- use result.message
+   end
+   ```
+
+3. **Nil Results**
+    - Issue: Activity returns nil unexpectedly
+    - Solution: Add nil checks
+   ```lua
+   local result = activity:await() or {}
+   ```
