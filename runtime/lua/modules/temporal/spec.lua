@@ -1,11 +1,22 @@
 -- Execute workflow and get instance
-local wf = temporal.client("default.temporal_client").execute("demo_workflow", {
-    task_queue = "demo_queue"
-})
+local wf = temporal.client("temporal_client)_name").execute(
+    "demo_workflow",
+    {
+        task_queue = "demo_queue"
+    },
+    args...
+)
+
+wf:info().workflow_id -- id
+wf:info().run_id -- run id
+
+-- get exiting workflow
+local wf = temporal.client("temporal_client)_name").get_workflow(wf:run_info().workflow_id)
 
 -- Core instance interface
 wf:signal("counter", 1)          -- send signal
 
+-- channel!
 local response = wf:response() -- get workflow completion channel
 
 -- Example usage with timeout
