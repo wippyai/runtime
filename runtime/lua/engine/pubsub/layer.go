@@ -101,6 +101,7 @@ func (s *Layer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, err
 					} else {
 						messages[sub] = append(messages[sub], msg.value)
 						if len(messages[sub]) > 0 {
+
 							if err := s.channels.Send(cvm.State().Context(), sub.channel, messages[sub]...); err != nil {
 								s.mu.Unlock()
 								return nil, fmt.Errorf("send error: %w", err)

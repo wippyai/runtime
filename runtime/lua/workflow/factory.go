@@ -30,6 +30,7 @@ func (f *Factory) ForWorkflow(
 	// Collect engine options
 	opts := []engine.Option{
 		// todo: redefine time functions!
+		engine.WithPreloaded("pubsub", pubsub.NewModule().Loader),
 		engine.WithPreloaded("time", time.NewTimeModule().Loader),
 		engine.WithPreloaded("command", command.NewCommandModule().Loader),
 		engine.WithPreloaded("channel", channel.NewChannelModule().Loader),

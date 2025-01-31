@@ -8,31 +8,7 @@ import (
 	"time"
 
 	"go.temporal.io/sdk/client"
-	"go.temporal.io/sdk/workflow"
 )
-
-// StabWorkflow is a simple workflow that executes the stab activity
-func StabWorkflow(ctx workflow.Context) error {
-	logger := workflow.GetLogger(ctx)
-	logger.Info("Stab workflow started")
-
-	// Configure activity options
-	ao := workflow.ActivityOptions{
-		TaskQueue:           "wippy_demos",
-		StartToCloseTimeout: time.Second * 5,
-	}
-	ctx = workflow.WithActivityOptions(ctx, ao)
-
-	// Get the stab activity
-	err := workflow.ExecuteActivity(ctx, "stab-activity").Get(ctx, nil)
-	if err != nil {
-		logger.Error("Failed to execute stab activity", "error", err)
-		return err
-	}
-
-	logger.Info("Stab workflow completed successfully")
-	return nil
-}
 
 func executeWorkflow(c client.Client, wg *sync.WaitGroup, index int) {
 	defer wg.Done()
@@ -44,11 +20,22 @@ func executeWorkflow(c client.Client, wg *sync.WaitGroup, index int) {
 		WorkflowRunTimeout: time.Minute * 10,
 	}
 
-	// Get workflow
+	// Start workflow
 	we, err := c.ExecuteWorkflow(context.Background(), options, "demo_workflow")
 	if err != nil {
 		log.Printf("Failed to execute workflow %d: %v\n", index, err)
 		return
+	}
+
+	// Send 10 signals with 100ms intervals
+	for i := 0; i < 10; i++ {
+		err = c.SignalWorkflow(context.Background(), we.GetID(), we.GetRunID(), "signal", fmt.Sprintf("Signal %d", i))
+		if err != nil {
+			log.Printf("Failed to send signal %d to workflow %d: %v\n", i, index, err)
+			continue
+		}
+		log.Printf("Sent signal %d to workflow %d\n", i, index)
+		time.Sleep(100 * time.Millisecond)
 	}
 
 	// Wait for workflow completion
@@ -74,13 +61,11 @@ func main() {
 	// Create wait group to track workflow completion
 	var wg sync.WaitGroup
 
-	// Launch 100 workflows in parallel
-	for i := 0; i < 1; i++ {
-		wg.Add(1)
-		go executeWorkflow(c, &wg, i)
-	}
+	// Launch workflow
+	wg.Add(1)
+	go executeWorkflow(c, &wg, 0)
 
-	// Wait for all workflows to complete
+	// Wait for workflow to complete
 	wg.Wait()
 	log.Println("All workflows completed!")
 }
