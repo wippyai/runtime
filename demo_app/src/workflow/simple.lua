@@ -1,40 +1,22 @@
 local wf = require "temporal_workflow"
 
-function execute_workflow()
-    -- Create an activity command with required parameters
-    local activity_cmd = command.new(
-        "activity",             -- command type
-        "hello_world.activity", -- activity name
-        {
+local activities = wf.init_activities({
+    hello_world = {
+        name = "hello_world.activity",
+        config = {
             task_queue = "wippy_demos",
-            start_to_close_timeout = "5s",
-            schedule_to_close_timeout = "10s",
-            retry_policy = {
-                initial_interval = "1s",
-                backoff_coefficient = 2.0,
-                maximum_interval = "100s",
-                maximum_attempts = 3
-            }
-        },
-        "Hello", "World" -- activity arguments
-    )
+            schedule_to_close_timeout = "10s"
+        }
+    },
+})
 
-    -- Wait for activity response
-    local response = activity_cmd:response()
-    local result, ok = response:receive()
+function execute_workflow()
+    wf.sleep("5s")
 
-    if not ok then
-        return { error = "Activity failed" }
-    end
+    local first = wf.race({
+        activities.hello_world("Hello", "World"),
+        wf.sleep("5s")
+    })
 
-    -- Create a timer command for 5 seconds
-    local timer_cmd = command.new(
-        "timer",            -- command type
-        { duration = "5s" } -- timer configuration
-    )
-
-    -- Wait for timer completion
-    timer_cmd:response():receive()
-
-    return result
+    return first
 end
