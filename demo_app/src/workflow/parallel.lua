@@ -24,7 +24,6 @@ function execute_workflow()
             -- Check if we should continue after a small sleep
             local result = channel.select {
                 done_channel:case_receive(),
-                main_timer:response():case_receive(),
                 wf.sleep("100ms"):response():case_receive(),
             }
 
