@@ -23,7 +23,20 @@ function CommandHandle.new(cmd)
 end
 
 function CommandHandle:await()
-    local value = self.cmd:response():receive()
+    -- Get both value and channel status
+    local value, ok = self.cmd:response():receive()
+
+    -- Check if channel was closed
+    if not ok then
+        -- Check if command failed
+        local err = self.cmd:error()
+        if err then
+            error(err) -- Throw error if command failed
+        end
+        -- Return nil if channel was closed normally
+        return nil
+    end
+
     return value
 end
 
@@ -48,17 +61,12 @@ end
 function T.activity(name, config)
     local activity_config = merge(DEFAULT_CONFIG, config)
 
-    -- Return callable function that creates new command each time
     return function(...)
-        -- Create command with proper parameter structure:
-        -- Param[0]: activity name
-        -- Param[1]: activity options/config
-        -- Param[2:]: activity arguments
         local cmd = command.new(
             "activity",
-            name,          -- activity name as first param
-            activity_config, -- config as second param
-            ...           -- rest are activity args
+            name,
+            activity_config,
+            ...
         )
         return CommandHandle.new(cmd)
     end
@@ -103,6 +111,15 @@ function T.race(handles)
         return nil
     end
 
+    -- Check if channel was closed
+    if not result.ok then
+        local err = completed:error()
+        if err then
+            error(err)
+        end
+        return nil
+    end
+
     return result.value
 end
 
@@ -135,7 +152,20 @@ function T.parallel(handles)
         if idx then
             -- Remove from remaining commands
             remaining_commands[result.channel] = nil
-            results[idx] = result.value
+
+            -- Check if channel was closed
+            if not result.ok then
+                -- Get the original command handle
+                local cmd = handles[idx]
+                local err = cmd:error()
+                if err then
+                    error(err)
+                end
+                results[idx] = nil
+            else
+                results[idx] = result.value
+            end
+
             remaining = remaining - 1
         end
     end
