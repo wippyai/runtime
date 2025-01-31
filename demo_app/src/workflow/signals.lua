@@ -19,7 +19,8 @@ function execute_workflow()
     -- Process messages until timeout
     local workflow_ch = wf.sleep("10s"):response()
 
-    pretty_print(workflow_ch)
+    -- count of messages received
+    local count = 0
 
     -- Main message processing loop
     while true do
@@ -37,15 +38,19 @@ function execute_workflow()
         -- Process received message
         if result.value then
             table.insert(messages_received, result.value)
+            count = count + 1
 
             print("Processed message: " .. result.value)
         end
     end
 
+    print("Received " .. count .. " messages")
+
     -- Prepare final result
     local result = {
         total_messages = #messages_received,
-        messages = messages_received
+        messages = messages_received,
+        count = count
     }
 
     return result
