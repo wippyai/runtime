@@ -13,10 +13,10 @@ local activities = wf.init_activities({
 function execute_workflow()
     wf.sleep("5s"):await()
 
-    local first = wf.race({
+    local first = wf.race{
         activities.hello_world("Hello", "World"),
         wf.sleep("5s")
-    })
+    }
 
     return first
 end
