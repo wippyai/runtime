@@ -2,7 +2,8 @@ package temporal
 
 import (
 	ctxapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/runtime/temporal"
+	"github.com/ponyruntime/pony/api/registry"
+	tempsrv "github.com/ponyruntime/pony/service/temporal"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
@@ -24,11 +25,14 @@ func (m *Module) Name() string {
 	return "temporal"
 }
 
-// Loader is the entry point for loading the module into Lua
+// Loader registers the module into Lua state
 func (m *Module) Loader(l *lua.LState) int {
 	mod := l.NewTable()
 
-	// Register core functions
+	// Register client type
+	registerClient(l, mod)
+
+	// Register module functions
 	l.SetFuncs(mod, map[string]lua.LGFunction{
 		"client": m.getClient,
 	})
@@ -37,9 +41,8 @@ func (m *Module) Loader(l *lua.LState) int {
 	return 1
 }
 
-// getClient implements temporal.client() in Lua
+// getClient implements temporal.client() constructor
 func (m *Module) getClient(l *lua.LState) int {
-	// Get client ID from arguments
 	clientID := l.CheckString(1)
 	if clientID == "" {
 		l.Push(lua.LNil)
@@ -47,7 +50,6 @@ func (m *Module) getClient(l *lua.LState) int {
 		return 2
 	}
 
-	// Get temporal service from context
 	ctx := l.Context()
 	if ctx == nil {
 		l.Push(lua.LNil)
@@ -55,22 +57,26 @@ func (m *Module) getClient(l *lua.LState) int {
 		return 2
 	}
 
-	temporalSvc, ok := ctx.Value(ctxapi.TemporalCtx).(temporal.Service)
+	temporalSvc, ok := ctx.Value(ctxapi.TemporalCtx).(*tempsrv.Manager)
 	if !ok || temporalSvc == nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString("temporal service not available"))
 		return 2
 	}
 
-	// Get the client
-	client, err := temporalSvc.GetClient(clientID)
+	client, err := temporalSvc.GetClient(registry.ID(clientID))
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
 		return 2
 	}
 
-	// Create and return client wrapper
-	l.Push(newClient(l, client, m.log.With(zap.String("client_id", clientID))))
+	ud := l.NewUserData()
+	ud.Value = &Client{
+		client: client,
+		log:    m.log.With(zap.String("client_id", clientID)),
+	}
+	l.SetMetatable(ud, l.GetTypeMetatable("Temporal.Client"))
+	l.Push(ud)
 	return 1
 }

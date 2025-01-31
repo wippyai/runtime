@@ -1,19 +1,19 @@
 package temporal
 
 import (
-	"github.com/ponyruntime/pony/api/runtime/temporal"
+	"github.com/ponyruntime/pony/service/temporal/client"
 	lua "github.com/yuin/gopher-lua"
+	temporal "go.temporal.io/sdk/client"
 	"go.uber.org/zap"
 )
 
 // Client wraps a temporal client for Lua access
 type Client struct {
-	client temporal.Client
+	client *client.Client
 	log    *zap.Logger
 }
 
-// checkClient ensures argument is a temporal client userdata
-func checkClient(l *lua.LState) *Client {
+func CheckClient(l *lua.LState) *Client {
 	ud := l.CheckUserData(1)
 	if v, ok := ud.Value.(*Client); ok {
 		return v
@@ -22,50 +22,40 @@ func checkClient(l *lua.LState) *Client {
 	return nil
 }
 
-// Creates new client userdata
-func newClient(l *lua.LState, client temporal.Client, log *zap.Logger) *lua.LUserData {
-	ud := l.NewUserData()
-	ud.Value = &Client{
-		client: client,
-		log:    log,
+func CheckTemporalClient(l *lua.LState) temporal.Client {
+	c := CheckClient(l)
+	if c == nil {
+		l.ArgError(1, "temporal client not initialized")
+		return nil
 	}
 
-	// Set client methods
-	mt := l.NewTable()
-	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
-		"execute": executeWorkflow,
-	}))
-	l.SetMetatable(ud, mt)
+	tClient, err := c.client.GetClient()
+	if err != nil {
+		l.ArgError(1, err.Error())
+		return nil
+	}
 
-	return ud
+	return tClient
 }
 
-// executeWorkflow implements client:execute() in Lua
-// returns workflow execution or (nil, error)
-func executeWorkflow(l *lua.LState) int {
-	c := checkClient(l)
-	workflowID := l.CheckString(2)
-	opts := l.CheckTable(3)
-
-	// Extract task queue option
-	taskQueue := opts.RawGetString("task_queue").String()
-	if taskQueue == "" {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("task_queue is required"))
-		return 2
-	}
-
-	// Start workflow execution
-	execution, err := c.client.ExecuteWorkflow(l.Context(), workflowID, map[string]interface{}{
-		"task_queue": taskQueue,
-	})
+// Client methods
+func healthcheck(l *lua.LState) int {
+	c := CheckTemporalClient(l)
+	_, err := c.CheckHealth(l.Context(), &temporal.CheckHealthRequest{})
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
 		return 2
 	}
 
-	// Return workflow execution userdata
-	l.Push(newWorkflow(l, execution, c.log.With(zap.String("workflow_id", workflowID))))
+	l.Push(lua.LBool(true))
 	return 1
+}
+
+// Register client methods
+func registerClient(l *lua.LState, mod *lua.LTable) {
+	mt := l.NewTypeMetatable("Temporal.Client")
+	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
+		"healthcheck": healthcheck,
+	}))
 }
