@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/ponyruntime/pony/api/registry"
-	api "github.com/ponyruntime/pony/api/service/temporal"
+	api "github.com/ponyruntime/pony/api/runtime/temporal"
 	"go.temporal.io/sdk/converter"
 	"sync"
 	"time"
