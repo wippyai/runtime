@@ -1,6 +1,8 @@
 package temporal
 
 import (
+	"fmt"
+	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/service/temporal/client"
 	lua "github.com/yuin/gopher-lua"
 	temporal "go.temporal.io/sdk/client"
@@ -52,10 +54,101 @@ func healthcheck(l *lua.LState) int {
 	return 1
 }
 
+// Client methods
+func execute(l *lua.LState) int {
+	c := CheckClient(l)
+	if c == nil {
+		return 0
+	}
+
+	workflowType := l.CheckString(2)
+	if workflowType == "" {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("workflow type required"))
+		return 2
+	}
+
+	options := l.CheckTable(3)
+	if options == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("options table required"))
+		return 2
+	}
+
+	startOptions := temporal.StartWorkflowOptions{
+		TaskQueue: options.RawGetString("task_queue").String(),
+	}
+
+	dtt := payload.GetTranscoder(l.Context())
+	args := make([]interface{}, l.GetTop()-3)
+	for i := 4; i <= l.GetTop(); i++ {
+		val, err := dtt.Transcode(payload.NewPayload(l.Get(i), payload.Lua), payload.Golang)
+		if err != nil {
+			l.Push(lua.LNil)
+			l.Push(lua.LString(fmt.Sprintf("failed to convert argument %d: %v", i-3, err)))
+			return 2
+		}
+		args[i-4] = val.Data()
+	}
+
+	tClient := CheckTemporalClient(l)
+	execution, err := tClient.ExecuteWorkflow(l.Context(), startOptions, workflowType, args...)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	ud := l.NewUserData()
+	ud.Value = &Workflow{
+		log:        c.log,
+		client:     tClient,
+		workflowID: execution.GetID(),
+		runID:      execution.GetRunID(),
+		execution:  execution,
+	}
+	l.SetMetatable(ud, l.GetTypeMetatable("Temporal.Workflow"))
+	l.Push(ud)
+	return 1
+}
+
+func getWorkflow(l *lua.LState) int {
+	c := CheckClient(l)
+	if c == nil {
+		return 0
+	}
+
+	workflowID := l.CheckString(2)
+	if workflowID == "" {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("workflow ID required"))
+		return 2
+	}
+
+	runID := l.OptString(3, "")
+
+	tClient := CheckTemporalClient(l)
+	handle := tClient.GetWorkflow(l.Context(), workflowID, runID)
+
+	ud := l.NewUserData()
+	ud.Value = &Workflow{
+		log:        c.log,
+		client:     tClient,
+		workflowID: workflowID,
+		runID:      runID,
+		execution:  handle,
+	}
+	l.SetMetatable(ud, l.GetTypeMetatable("Temporal.Workflow"))
+	l.Push(ud)
+	return 1
+}
+
 // Register client methods
-func registerClient(l *lua.LState, mod *lua.LTable) {
+func registerClient(l *lua.LState) {
 	mt := l.NewTypeMetatable("Temporal.Client")
 	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
-		"healthcheck": healthcheck,
+		"healthcheck":  healthcheck,
+		"execute":      execute,
+		"get_workflow": getWorkflow,
 	}))
 }

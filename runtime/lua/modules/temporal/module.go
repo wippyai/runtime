@@ -30,7 +30,8 @@ func (m *Module) Loader(l *lua.LState) int {
 	mod := l.NewTable()
 
 	// Register client type
-	registerClient(l, mod)
+	registerClient(l)
+	registerWorkflow(l)
 
 	// Register module functions
 	l.SetFuncs(mod, map[string]lua.LGFunction{
