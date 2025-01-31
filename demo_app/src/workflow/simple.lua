@@ -11,7 +11,7 @@ local activities = wf.init_activities({
 })
 
 function execute_workflow()
-    wf.sleep("5s")
+    wf.sleep("5s"):await()
 
     local first = wf.race({
         activities.hello_world("Hello", "World"),

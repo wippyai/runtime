@@ -12,6 +12,29 @@ local DEFAULT_CONFIG = {
     }
 }
 
+-- Command wrapper
+local CommandHandle = {}
+CommandHandle.__index = CommandHandle
+
+function CommandHandle.new(cmd)
+    local self = setmetatable({}, CommandHandle)
+    self.cmd = cmd
+    return self
+end
+
+function CommandHandle:await()
+    local value = self.cmd:response():receive()
+    return value
+end
+
+function CommandHandle:response()
+    return self.cmd:response()
+end
+
+function CommandHandle:error()
+    return self.cmd:error()
+end
+
 -- Helper to merge tables
 local function merge(t1, t2)
     if not t2 then return t1 end
@@ -27,95 +50,92 @@ function T.activity(name, config)
 
     -- Return callable function that creates new command each time
     return function(...)
+        -- Create command with proper parameter structure:
+        -- Param[0]: activity name
+        -- Param[1]: activity options/config
+        -- Param[2:]: activity arguments
         local cmd = command.new(
             "activity",
-            name,
-            activity_config,
-            ...
+            name,          -- activity name as first param
+            activity_config, -- config as second param
+            ...           -- rest are activity args
         )
-        return cmd
+        return CommandHandle.new(cmd)
     end
 end
 
 -- Create a timer command
 function T.sleep(duration)
-    return command.new(
+    return CommandHandle.new(command.new(
         "timer",
         { duration = duration }
-    )
+    ))
 end
 
--- Helper to wait for command with timeout
-function T.with_timeout(cmd, timeout)
-    local timer = T.sleep(timeout)
-
-    local result = channel.select{
-        cmd:response():case_receive(),
-        timer:response():case_receive()
-    }
-
-    -- If timer case was selected, activity didn't complete in time
-    if result.case == timer:response():case_receive() then
-        return nil, false
+-- Helper to find command by response channel
+local function find_command_by_channel(commands, channel)
+    for _, cmd in ipairs(commands) do
+        if cmd:response() == channel then
+            return cmd
+        end
     end
-
-    -- Activity completed in time
-    if not result.ok then
-        error("Activity failed")
-    end
-
-    return result.value, true
+    return nil
 end
 
 -- Helper to wait for first command to complete
-function T.race(commands)
+function T.race(handles)
+    if not handles or #handles == 0 then
+        return nil
+    end
+
     local cases = {}
-    for _, cmd in ipairs(commands) do
-        table.insert(cases, cmd:response():case_receive())
+    local commands = {}
+    for _, handle in ipairs(handles) do
+        table.insert(cases, handle:response():case_receive())
+        table.insert(commands, handle)
     end
 
     local result = channel.select(cases)
-    if not result.ok then
-        error("Activity failed in race")
+
+    -- Find which command completed
+    local completed = find_command_by_channel(commands, result.channel)
+    if not completed then
+        return nil
     end
+
     return result.value
 end
 
 -- Helper to wait for all commands to complete
-function T.parallel(commands)
+function T.parallel(handles)
+    if not handles or #handles == 0 then
+        return {}
+    end
+
     local results = {}
-    local remaining = #commands
+    local remaining = #handles
 
-    -- Create receiving channels array
-    local cases = {}
-    local cmd_map = {} -- Map cases back to command indices
-
-    for i, cmd in ipairs(commands) do
-        local case = cmd:response():case_receive()
-        table.insert(cases, case)
-        cmd_map[case] = i
+    -- Track remaining commands and their indices
+    local remaining_commands = {}
+    for i, handle in ipairs(handles) do
+        remaining_commands[handle:response()] = i
     end
 
     -- Wait for all commands to complete
     while remaining > 0 do
+        local cases = {}
+        for cmd, _ in pairs(remaining_commands) do
+            table.insert(cases, cmd:case_receive())
+        end
+
         local result = channel.select(cases)
 
-        -- Find which command completed
-        local cmd_idx = cmd_map[result.case]
-        if cmd_idx then
-            if not result.ok then
-                error("Activity failed in parallel execution")
-            end
-
-            -- Store result and remove the case
-            results[cmd_idx] = result.value
-            for i, case in ipairs(cases) do
-                if case == result.case then
-                    table.remove(cases, i)
-                    break
-                end
-            end
-
+        -- Get index from remaining_commands using the channel
+        local idx = remaining_commands[result.channel]
+        if idx then
+            -- Remove from remaining commands
+            remaining_commands[result.channel] = nil
+            results[idx] = result.value
             remaining = remaining - 1
         end
     end
