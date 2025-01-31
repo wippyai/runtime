@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sync"
 
-	api "github.com/ponyruntime/pony/api/service/temporal"
+	api "github.com/ponyruntime/pony/api/runtime/temporal"
 	"github.com/ponyruntime/pony/service/temporal/client"
 
 	"github.com/ponyruntime/pony/api/registry"

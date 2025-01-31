@@ -7,7 +7,7 @@ import (
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
-	api "github.com/ponyruntime/pony/api/service/temporal"
+	api "github.com/ponyruntime/pony/api/runtime/temporal"
 	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/ponyruntime/pony/service/temporal/activity"
 	"github.com/ponyruntime/pony/service/temporal/client"
