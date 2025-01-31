@@ -28,7 +28,7 @@ func executeWorkflow(c client.Client, wg *sync.WaitGroup, index int) {
 	}
 
 	// Send 10 signals with 100ms intervals
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 50; i++ {
 		err = c.SignalWorkflow(context.Background(), we.GetID(), we.GetRunID(), "signal", fmt.Sprintf("Signal %d", i))
 		if err != nil {
 			log.Printf("Failed to send signal %d to workflow %d: %v\n", i, index, err)
