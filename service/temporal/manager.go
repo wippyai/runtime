@@ -295,6 +295,10 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	}
 }
 
+func (m *Manager) GetClient(id registry.ID) (*client.Client, error) {
+	return m.clients.GetClient(id)
+}
+
 func (m *Manager) deleteClient(ctx context.Context, entry registry.Entry) error {
 	activeQueues := m.taskQueues.GetActiveTaskQueues(entry.ID)
 	if activeQueues > 0 {
