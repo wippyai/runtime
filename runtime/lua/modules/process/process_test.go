@@ -11,6 +11,7 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	"github.com/ponyruntime/pony/runtime/lua/modules/stream"
 	"github.com/ponyruntime/pony/runtime/lua/modules/time"
+	mocklogger "github.com/ponyruntime/pony/tests/mock"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
@@ -291,4 +292,126 @@ func TestWriteStdin(t *testing.T) {
 
 	_, err = wrapped.Execute(ctx, "test_process_stdin")
 	require.NoError(t, err)
+}
+
+func TestMultiplyCallsToStream(t *testing.T) {
+	// Setup logger and context
+	l, oLogger := mocklogger.ZapTestLogger(zap.DebugLevel)
+	ctx := context.Background()
+	ctx = context.WithValue(ctx, apic.LoggerCtx, l)
+
+	mod := NewModule()
+	vm, err := engine.NewCVM(
+		l,
+		engine.WithPreloaded("process", mod.Loader),
+		engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
+		engine.WithPreloaded("stream", stream.NewStreamModule(l).Loader),
+		engine.WithPreloaded("time", time.NewTimeModule().Loader),
+	)
+
+	require.NoError(t, err)
+	defer vm.Close()
+	chans := channel.NewChannelLayer()
+	// Create a wrapped VM with async runner
+	wrapped := engine.NewRunner(
+		vm,
+		engine.WithLayer(chans),
+		engine.WithLayer(async.NewAsyncLayer(chans, 10)),
+		engine.WithLayer(coroutine.NewCoroutineLayer()),
+	)
+	err = vm.Import(`
+			function test_process_env_workdir()
+			    -- Create a new process with env vars and working dir
+			    local env = {
+			        TEST_VAR = "hello_world",
+			        PATH = "/usr/local/bin:/usr/bin:/bin"  -- Ensure basic PATH is set
+			    }
+			    
+			    -- Create a process that echoes an env var and prints working dir
+			    local proc = process.new('sh -c "echo $TEST_VAR && pwd"', {
+			        work_dir = "/tmp",
+			        env = env
+			    })
+			    assert(proc ~= nil, "Process creation should succeed")
+			    
+			    -- Create done channel for synchronization
+			    local done = channel.new()
+			    
+			    -- Create timer for timeout
+			    local timeout = time.timer("2s")
+			    
+			    -- Start the process
+			    proc:start()
+			    
+			    -- Spawn reader coroutine
+			    coroutine.spawn(function()
+			        -- Get stdout stream
+			        local stream = proc:stdout_stream()
+			        local stream = proc:stdout_stream()
+			        local stream = proc:stdout_stream()
+			        local stream = proc:stdout_stream()
+			        local stream = proc:stdout_stream()
+			        local stream = proc:stdout_stream()
+
+			        assert(stream ~= nil, "Stream creation should succeed")
+			        
+			        local output = {}
+			        
+			        -- Read from stream in a loop
+			        while true do
+			            -- Check for either new data or timeout
+			            local result = channel.select{
+			                timeout:channel():case_receive(),
+			                default = true  -- Make the select non-blocking
+			            }
+			            
+			            if result.default then
+			                -- No timeout yet, try to read
+			                local chunk = stream:read()
+			                if not chunk then
+			                    break
+			                end
+			                table.insert(output, chunk)
+			            else
+			                -- Timeout occurred
+			                error("Timeout occurred while reading output")
+			            end
+			        end
+			        
+			        -- Join all output chunks
+			        local full_output = table.concat(output, "")
+			        
+			        -- Verify environment variable was correctly set
+			        assert(string.match(full_output, "hello_world"), 
+			            "Environment variable TEST_VAR not found in output")
+			        
+			        -- Verify working directory was correctly set
+			        assert(string.match(full_output, "/tmp"), 
+			            "Working directory not set to /tmp")
+			        
+			        -- Close the stream
+			        stream:close()
+			        
+			        -- Signal completion
+			        done:send(true)
+			    end)
+			    
+			    -- Wait for completion
+			    local _, ok = done:receive()
+			    assert(ok, "Done channel should receive completion signal")
+			    
+			    -- Cleanup
+			    timeout:stop()
+			    done:close()
+			    
+			    print("Environment and working directory test completed successfully")
+			end
+`, "test", "test_process_env_workdir")
+	require.NoError(t, err)
+
+	_, err = wrapped.Execute(ctx, "test_process_env_workdir")
+	require.NoError(t, err)
+
+	// should be only 1 log entry confirming that the stream was created only once
+	require.Equal(t, 1, oLogger.FilterMessageSnippet("[sync.Once]: creating a new stdout stream").Len())
 }

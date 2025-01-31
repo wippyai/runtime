@@ -11,18 +11,41 @@ const (
 	metatableName = "Process"
 )
 
-type Module struct{}
+type Module struct {
+	once *onceStream
+}
 
 func NewModule() *Module {
-	return &Module{}
+	return &Module{
+		once: newOnceStream(),
+	}
 }
 
 func getProcessExecutor(l *lua.LState) *native.Executor {
 	ud := l.CheckUserData(1)
-	return ud.Value.(*native.Executor)
+	if ud == nil {
+		return nil
+	}
+
+	switch tt := ud.Value.(type) {
+	case *native.Executor:
+		return tt
+	default:
+		return nil
+	}
 }
 
+// no need to check for nil
 func getCtxLogger(l *lua.LState) *zap.Logger {
 	ctx := l.Context()
-	return ctx.Value(apic.LoggerCtx).(*zap.Logger)
+	if ctx == nil {
+		return zap.NewNop()
+	}
+
+	switch tt := ctx.Value(apic.LoggerCtx).(type) {
+	case *zap.Logger:
+		return tt
+	default:
+		return zap.NewNop()
+	}
 }
