@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	tempmod "github.com/ponyruntime/pony/runtime/lua/modules/temporal"
 	"github.com/ponyruntime/pony/runtime/workflow"
 	"github.com/ponyruntime/pony/service/temporal"
 	httpbase "net/http"
@@ -146,6 +147,7 @@ func main() {
 		httplib.NewHTTPModule(httpbase.DefaultClient, log.Named("http")),
 		httpctx.NewHTTPContextModule(log.Named("http")),
 		tsitter.NewTreeSitterModule(log.Named("treesitter")),
+		tempmod.NewTemporalModule(log.Named("temporal")),
 	)
 	// -- end of lua lang and modules
 
