@@ -98,18 +98,20 @@ func sleepCoroutine(l *lua.LState) int {
 		return 1
 	}
 
-	coroutine.Wrap(l, func() engine.Result {
+	coroutine.Wrap(l, func() *engine.Result {
 		if err := performSleep(l.Context(), duration); err != nil {
-			return engine.Result{
-				State:  l,
-				Result: []lua.LValue{lua.LNil},
-				Error:  err,
-			}
+			return engine.NewResult(
+				l,
+				[]lua.LValue{lua.LNil},
+				err,
+			)
 		}
-		return engine.Result{
-			State:  l,
-			Result: []lua.LValue{lua.LString("ok")},
-		}
+
+		return engine.NewResult(
+			l,
+			[]lua.LValue{lua.LString("ok")},
+			nil,
+		)
 	})
 	return -1
 }

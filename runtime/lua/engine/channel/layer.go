@@ -72,11 +72,11 @@ func (r *Layer) Send(ctx context.Context, ch *Channel, values ...lua.LValue) err
 				}
 
 				tg.Add(result.state)
-				err := tg.Send(ctx, engine.Result{
-					State:  result.state,
-					Result: result.values,
-					Error:  result.err,
-				})
+				err := tg.Send(ctx, engine.NewResult(
+					result.state,
+					result.values,
+					result.err,
+				))
 
 				if err != nil {
 					return err
@@ -90,7 +90,7 @@ func (r *Layer) Send(ctx context.Context, ch *Channel, values ...lua.LValue) err
 
 // Close closes a channel within the context of a task group.
 // This method is NOT thread safe and should only be called by another layer
-// during execution step.
+// during an execution step.
 func (r *Layer) Close(ctx context.Context, ch *Channel) error {
 	tg := engine.GetTaskGroup(ctx)
 	if tg == nil {
@@ -110,11 +110,11 @@ func (r *Layer) Close(ctx context.Context, ch *Channel) error {
 			}
 
 			tg.Add(result.state)
-			err := tg.Send(ctx, engine.Result{
-				State:  result.state,
-				Result: result.values,
-				Error:  result.err,
-			})
+			err := tg.Send(ctx, engine.NewResult(
+				result.state,
+				result.values,
+				result.err,
+			))
 
 			if err != nil {
 				return err

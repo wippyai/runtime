@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"sync"
 )
 
@@ -38,12 +39,12 @@ type Stream struct {
 	reader    io.ReadCloser
 	config    *Options
 	bytesRead int64
-	mu        sync.Mutex
+	rwmu      sync.RWMutex
 	ctx       context.Context
 }
 
 // NewStream creates a new Stream with the provided context, reader and configuration.
-// Returns an error if reader is nil or if configuration is invalid.
+// Returns an error if the reader is nil or if the configuration is invalid.
 func NewStream(ctx context.Context, reader io.ReadCloser, cfg *Options) (*Stream, error) {
 	if reader == nil {
 		return nil, fmt.Errorf("%w: nil reader", ErrInvalidConfig)
@@ -62,25 +63,31 @@ func NewStream(ctx context.Context, reader io.ReadCloser, cfg *Options) (*Stream
 // ReadChunk reads the next chunk of data based on the configured buffer size.
 // Returns EOF when the stream is exhausted.
 func (s *Stream) ReadChunk() ([]byte, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.rwmu.Lock()
+	defer s.rwmu.Unlock()
 
+	// TODO: sync pool
 	buffer := make([]byte, s.config.bufferSize)
-	data, err := s.readDirect(buffer)
+	n, err := s.readDirect(buffer)
 	if err != nil {
-		if errors.Is(err, io.EOF) {
+		// fs.ErrClosed is returned when the process is stopped (the file is already closed)
+		// all these errors are not critical and happen when the process (for example) is stopped
+		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, fs.ErrClosed) {
 			return nil, err
 		}
 		return nil, fmt.Errorf("read error: %w", err)
 	}
 
-	n := len(data)
 	s.bytesRead += int64(n)
-	return data, nil
+	resp := make([]byte, n)
+	copy(resp, buffer)
+
+	return resp, nil
 }
 
-func (s *Stream) readDirect(buffer []byte) ([]byte, error) {
+func (s *Stream) readDirect(buffer []byte) (int, error) {
 	// Create a channel to receive read results
+	// todo: sync.Pool
 	resultCh := make(chan struct {
 		n   int
 		err error
@@ -95,6 +102,7 @@ func (s *Stream) readDirect(buffer []byte) ([]byte, error) {
 			err error
 		}{n, err}:
 		case <-s.ctx.Done():
+			// todo: log
 			// Read completed but context was canceled before we could send
 		}
 	}()
@@ -102,20 +110,21 @@ func (s *Stream) readDirect(buffer []byte) ([]byte, error) {
 	// wait for either context cancellation or read completion
 	select {
 	case <-s.ctx.Done():
-		return nil, fmt.Errorf("read canceled: %w", s.ctx.Err())
+		return 0, fmt.Errorf("read canceled: %w", s.ctx.Err())
 	case result := <-resultCh:
 		if result.err != nil {
-			return nil, fmt.Errorf("direct read error: %w", result.err)
+			return 0, fmt.Errorf("direct read error: %w", result.err)
 		}
-		return buffer[:result.n], nil
+
+		return result.n, nil
 	}
 }
 
 // BytesRead returns the total number of bytes read from the stream so far.
 // This operation is concurrent-safe.
 func (s *Stream) BytesRead() int64 {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.rwmu.RLock()
+	defer s.rwmu.RUnlock()
 
 	return s.bytesRead
 }
@@ -123,8 +132,8 @@ func (s *Stream) BytesRead() int64 {
 // Close closes the underlying reader and releases associated resources.
 // Returns an error if the close operation fails.
 func (s *Stream) Close() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.rwmu.Lock()
+	defer s.rwmu.Unlock()
 
 	if err := s.reader.Close(); err != nil {
 		return fmt.Errorf("stream close error: %w", err)

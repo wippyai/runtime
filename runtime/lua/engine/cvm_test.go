@@ -1771,9 +1771,8 @@ func BenchmarkCoroutineVM(b *testing.B) {
 	b.Run("send_message", func(b *testing.B) {
 		ctx := context.Background()
 		vm, err := NewCVM(logger)
-		if err != nil {
-			b.Fatal(err)
-		}
+		require.NoError(b, err)
+
 		defer vm.Close()
 
 		script := `

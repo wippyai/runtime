@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"sync"
+	"sync/atomic"
 	"syscall"
 
 	"go.uber.org/zap"
@@ -26,21 +27,22 @@ type Executor struct {
 	pid     int
 	state   string
 	command string
+	stopped atomic.Pointer[bool]
 
 	cmd *exec.Cmd
 
-	stderrCh  chan []byte
-	stdoutCh  chan []byte
+	stderrp   io.ReadCloser
+	stdoutp   io.ReadCloser
 	stdinPipe io.WriteCloser
 }
 
 func NewNativeExecutor(log *zap.Logger, opts ...Options) *Executor {
 	e := &Executor{
-		stderrCh: make(chan []byte, 100),
-		stdoutCh: make(chan []byte, 100),
-		state:    notStarted,
-		log:      log,
+		state: notStarted,
+		log:   log,
 	}
+
+	e.stopped.Store(p(false))
 
 	for _, opt := range opts {
 		opt(e)
@@ -63,17 +65,14 @@ func NewNativeExecutor(log *zap.Logger, opts ...Options) *Executor {
 
 	// we can safely skip the error here
 	// because we don't initialize stderrpipe twice or after the process was already started
-	ep, _ := command.StderrPipe()
+	e.stderrp, _ = command.StderrPipe()
 
 	// we can safely skip the error here
 	// because we don't initialize stdoutpipe twice or after the process was already started
-	op, _ := command.StdoutPipe()
+	e.stdoutp, _ = command.StdoutPipe()
 
 	ip, _ := command.StdinPipe()
 
-	// start listening to stderr and stdout
-	e.listen(ep, e.stderrCh)
-	e.listen(op, e.stdoutCh)
 	e.stdinPipe = ip
 	e.cmd = command
 
@@ -87,6 +86,7 @@ func (e *Executor) Start() error {
 	// execute command
 	err := e.cmd.Start()
 	if err != nil {
+		e.stopped.Store(p(true))
 		return err
 	}
 
@@ -121,70 +121,80 @@ func (e *Executor) WriteStdin(data []byte) error {
 	return nil
 }
 
-func (e *Executor) Signal(sig int) {
+func (e *Executor) Signal(sig int) error {
 	e.rwm.RLock()
 	defer e.rwm.RUnlock()
 
 	if e.state != running {
 		e.log.Error("process is not running", zap.String("state", e.state))
-		return
+		return errors.New("process is not running")
 	}
 
 	if e.pid <= 0 {
 		e.log.Error("pid is not a positive int", zap.Int("pid", e.pid))
-		return
+		return errors.New("pid is not a positive int, process is possibly not running")
 	}
 
 	// we're using os.FindProcess to avoid touching e.cmd
-	p, err := os.FindProcess(e.pid)
+	pp, err := os.FindProcess(e.pid)
 	if err != nil {
 		e.log.Error("error finding process", zap.Error(err))
-		return
+		return err
 	}
 
-	err = p.Signal(syscall.Signal(sig))
+	err = pp.Signal(syscall.Signal(sig))
 	if err != nil {
 		e.log.Error("error sending signal", zap.Error(err))
-		return
+		return err
 	}
+
+	e.stopped.Store(p(true))
+	return nil
 }
 
 func (e *Executor) StderrReader() io.ReadCloser {
-	return newReader(e.stderrCh)
-}
-
-func (e *Executor) StdoutReader() io.ReadCloser {
-	return newReader(e.stdoutCh)
-}
-
-func (e *Executor) Stderr() <-chan []byte {
-	return e.stderrCh
-}
-
-func (e *Executor) Stdout() <-chan []byte {
-	return e.stdoutCh
-}
-
-func (e *Executor) Stop() {
 	e.rwm.RLock()
 	defer e.rwm.RUnlock()
 
+	return e.stderrp
+}
+
+func (e *Executor) StdoutReader() io.ReadCloser {
+	e.rwm.RLock()
+	defer e.rwm.RUnlock()
+
+	return e.stdoutp
+}
+
+func (e *Executor) Stop() {
+	e.rwm.Lock()
+	defer e.rwm.Unlock()
+
 	if e.pid <= 0 {
-		e.log.Error("pid is not a positive int", zap.Int("pid", e.pid))
+		e.log.Warn("pid is not a positive int", zap.Int("pid", e.pid))
 		return
 	}
 
-	p, err := os.FindProcess(e.pid)
+	// todo: potential NPE?
+	if *e.stopped.Load() {
+		e.log.Warn("process already stopped")
+		return
+	}
+
+	pp, err := os.FindProcess(e.pid)
 	if err != nil {
 		e.log.Error("error finding process", zap.Error(err))
 		return
 	}
 
 	// kill the process
-	_ = p.Kill()
+	_ = pp.Kill()
 	// to prevent multiple calls to Stop()
 	e.pid = 0
 	e.state = terminated
+	_ = e.stdoutp.Close()
+	_ = e.stderrp.Close()
+	e.stopped.Store(p(true))
 }
 
 func (e *Executor) Wait() {
@@ -197,45 +207,10 @@ func (e *Executor) Wait() {
 	e.state = terminated
 	e.rwm.Unlock()
 
+	e.stopped.Store(p(true))
 	e.log.Debug("command finished")
 }
 
-func (e *Executor) listen(rc io.ReadCloser, ch chan []byte) {
-	// https://linux.die.net/man/7/pipe
-	// see pipe capacity
-	buf := make([]byte, 65536)
-	go func() {
-		for {
-			n, err := rc.Read(buf)
-			if err != nil {
-				if errors.Is(err, io.EOF) {
-					// the problem is that we can't send a subslice of buf to the channel
-					// because it will be overwritten by the next read
-					// so we need to copy the slice
-					chunk := buf[:n]
-					send := make([]byte, len(chunk))
-					copy(send, chunk)
-					select {
-					case ch <- send:
-					default:
-					}
-				}
-
-				// close the channel when we're done
-				close(ch)
-				break
-			}
-
-			// the problem is that we can't send a subslice of buf to the channel
-			// because it will be overwritten by the next read
-			// so we need to copy the slice
-			chunk := buf[:n]
-			send := make([]byte, len(chunk))
-			copy(send, chunk)
-			select {
-			case ch <- send:
-			default:
-			}
-		}
-	}()
+func p[T any](val T) *T {
+	return &val
 }
