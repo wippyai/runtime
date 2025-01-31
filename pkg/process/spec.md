@@ -25,6 +25,10 @@ PIDs uniquely identify processes within a runtime session. They follow the forma
 node_id@host:app_id:namespace.name:type.pid
 ```
 
+```
+temproral@workflow_name
+```
+
 Components:
 
 - Static part (process location):
