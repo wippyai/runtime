@@ -151,3 +151,13 @@ local results = wf.parallel({
     activities.activity2()
 })
 ```
+
+### Command Handle
+
+A wrapper around workflow commands that provides a consistent interface for handling responses and errors.
+
+Methods:
+
+- `await()`: Blocks until command completes and returns the result
+- `response()`: Returns the command's response channel
+- `error()`: Returns the command's error information
