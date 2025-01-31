@@ -47,6 +47,14 @@ type Result struct {
 	Error  error
 }
 
+func NewResult(l *lua.LState, res []lua.LValue, err error) *Result {
+	return &Result{
+		State:  l,
+		Result: res,
+		Error:  err,
+	}
+}
+
 // TaskQueue manages a queue of coroutine tasks waiting for execution.
 type TaskQueue struct {
 	active *list.List

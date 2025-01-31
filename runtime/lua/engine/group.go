@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 
 	capi "github.com/ponyruntime/pony/api/context"
@@ -10,7 +11,7 @@ import (
 
 // TaskGroup manages a group of related tasks, their states, and result collection
 type TaskGroup struct {
-	results   chan Result
+	results   chan *Result
 	wakeup    chan struct{}
 	wakeCount atomic.Int32
 	taskCount atomic.Int32
@@ -20,9 +21,10 @@ type TaskGroup struct {
 // NewTaskGroup creates a new TaskGroup instance
 func NewTaskGroup(size int) *TaskGroup {
 	return &TaskGroup{
-		results: make(chan Result, size),
+		results: make(chan *Result, size),
 		wakeup:  make(chan struct{}, size),
-		states:  make(map[*lua.LState]struct{}),
+		// todo: not pointers as keys
+		states: make(map[*lua.LState]struct{}),
 	}
 }
 
@@ -40,7 +42,7 @@ func GetTaskGroup(ctx context.Context) *TaskGroup {
 }
 
 // Send pushes a result into the group's channel, thread safe
-func (g *TaskGroup) Send(ctx context.Context, result Result) error {
+func (g *TaskGroup) Send(ctx context.Context, result *Result) error {
 	select {
 	case g.results <- result:
 		return nil
@@ -135,7 +137,11 @@ func (g *TaskGroup) Wait(ctx context.Context, cvm CVM, block bool) ([]*Task, err
 }
 
 // processResult converts a Result into a Task ready for resumption
-func (g *TaskGroup) processResult(cvm CVM, result Result) (*Task, error) {
+func (g *TaskGroup) processResult(cvm CVM, result *Result) (*Task, error) {
+	if result == nil {
+		return nil, errors.New("nil result received")
+	}
+
 	task, err := cvm.GetTask(result.State)
 	if err != nil {
 		return nil, err
