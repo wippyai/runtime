@@ -66,6 +66,19 @@ func (w *Definition) Execute(env bindings.WorkflowEnvironment, header *commonpb.
 		w.env.Complete(nil, err)
 		return
 	}
+
+	env.RegisterSignalHandler(func(name string, input *commonpb.Payloads, header *commonpb.Header) error {
+		values, err := w.fromPayloads(input)
+		if err != nil {
+			return err
+		}
+
+		if len(values) == 0 {
+			return w.runner.SendValue(name, lua2.LNil)
+		}
+
+		return w.runner.SendValue(name, values[0])
+	})
 }
 
 // OnWorkflowTaskStarted implements the Definition interface
