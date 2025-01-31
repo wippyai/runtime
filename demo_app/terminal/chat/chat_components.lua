@@ -3,7 +3,7 @@ local M = {}
 M.LLMClient = {
     new = function(model, endpoint)
         return {
-            model = model or "deepseek-r1:14b",
+            model = model or "mistral:latest",
             endpoint = endpoint or "http://100.70.10.9:11434/api/chat", -- Changed to chat endpoint
 
             query = function(self, prompt, history, update_channel)

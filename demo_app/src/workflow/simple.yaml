@@ -4,6 +4,6 @@ meta:
   comment: "Simple workflow."
   depends_on: [ "temporal_workflow" ]
 
-source: file://signals.lua
+source: file://dynamic_fanout.lua
 method: execute_workflow
 libraries: [ "temporal_workflow" ]

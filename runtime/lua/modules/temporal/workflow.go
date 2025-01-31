@@ -8,6 +8,7 @@ import (
 	lua "github.com/yuin/gopher-lua"
 	"go.temporal.io/sdk/client"
 	"go.uber.org/zap"
+	"log"
 )
 
 // Workflow wraps a temporal workflow execution
@@ -73,7 +74,9 @@ func signal(l *lua.LState) int {
 		w.log.Debug("signal arg", zap.Any("arg", args[i-3]))
 	}
 
-	err := w.client.SignalWorkflow(l.Context(), w.workflowID, w.runID, signalName, args)
+	log.Printf("args: %v", args)
+
+	err := w.client.SignalWorkflow(l.Context(), w.workflowID, w.runID, signalName, args[0]) // todo: i dont like it
 	if err != nil {
 		w.log.Error("signal failed",
 			zap.String("workflow_id", w.workflowID),
@@ -112,6 +115,8 @@ func response(l *lua.LState) int {
 			_ = async.Send(l, ch, lua.LNil, false)
 			return
 		}
+
+		log.Printf("result: %v", result)
 
 		dtt := payload.GetTranscoder(l.Context())
 		luaValue, err := dtt.Transcode(payload.NewPayload(result, payload.Golang), payload.Lua)

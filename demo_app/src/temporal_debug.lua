@@ -14,8 +14,6 @@ function handle()
         return
     end
 
-    print("Got client")
-
     -- Start workflow
     local wf, err = client:execute("demo_workflow", {
         task_queue = "wippy_demos",
@@ -42,10 +40,10 @@ function handle()
         local ok, err = wf:signal("signal", "Signal " .. i)
         if err then
             res:write("Failed to send signal " .. i .. ": " .. err .. "\n")
-         res:flush()
+            res:flush()
         else
             res:write("Sent signal " .. i .. "\n")
-         res:flush()
+            res:flush()
         end
         res:flush()
         time.sleep("100ms")
@@ -60,7 +58,7 @@ function handle()
 
     if result.channel == ch then
         if result.ok then
-            res:write("Workflow completed successfully\n")
+            res:write("Workflow completed successfully: \n")
         else
             res:write("Workflow failed: " .. wf:error() .. "\n")
         end
