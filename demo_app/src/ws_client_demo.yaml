@@ -3,8 +3,8 @@ kind: function.lua
 meta:
   comment: "WebSocket demo with echo server."
 
-source: file://ws_demo.lua
+source: file://ws_client_demo.lua
 method: websocket_demo
-modules: [ "httpctx", "time", "json", "websocket" ]
+modules: [ "httpctx", "time", "json", "websocket", "logger" ]
 pool:
   size: 4

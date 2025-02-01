@@ -1,18 +1,19 @@
 local time = require("time")
 local json = require("json")
 local httpctx = require("httpctx")
+local logger = require("logger")
 local websocket = require("websocket")
 
 function websocket_demo()
-    -- Get request context
+    local log = logger:named("websocket_demo")
     local res = httpctx.response()
+    log:info("Starting WebSocket demo handler")
 
-    -- Create channel for communication
     local ws_channel = channel.new(1)
 
-    -- Spawn WebSocket client coroutine
     coroutine.spawn(function()
-        -- Connect to WebSocket server
+        log:info("Attempting to connect to WebSocket server", {url = "wss://echo.websocket.org"})
+
         local client, err = websocket.connect("wss://echo.websocket.org", {
             headers = { ["User-Agent"] = "Lua WebSocket Demo" },
             dial_timeout = "5s",
@@ -21,75 +22,74 @@ function websocket_demo()
         })
 
         if not client then
+            log:error("WebSocket connection failed", {error = err})
             ws_channel:send({ error = "Failed to connect: " .. err })
             ws_channel:close()
             return
         end
 
-        -- Start receiver coroutine for WebSocket messages
+        log:info("WebSocket connection established")
+
+        -- Start receiver for echo responses
         coroutine.spawn(function()
             local ch = client:receive()
             while true do
                 local msg, ok = ch:receive()
                 if not ok then
+                    log:warn("WebSocket receive channel closed")
                     ws_channel:send({ status = "closed", message = "Connection closed" })
                     break
                 end
 
                 if msg.type == websocket.TYPE_TEXT then
-                    -- Forward received message to main channel
+                    log:info("Received echo response", {data = msg.data})
                     ws_channel:send({ status = "received", data = msg.data })
                 elseif msg.type == websocket.TYPE_CLOSE then
+                    log:info("Received WebSocket close frame", {code = msg.code, reason = msg.reason})
                     ws_channel:send({ status = "closed", code = msg.code, reason = msg.reason })
                     break
                 end
             end
         end)
 
-        -- Ticker logic
-        local start_time = time.now()
-        local ticks = 0
-        local max_ticks = 10 -- Reduced for demo
+        -- Send test messages
+        local messages = {
+            "Hello from Lua!",
+            "This is a test message",
+            "Testing WebSocket send",
+        }
 
-        while ticks < max_ticks do
-            -- Create tick data
-            local elapsed = time.now():sub(start_time)
-            local data = {
-                tick = ticks,
-                elapsed = tostring(elapsed)
-            }
-
-            -- Send data over WebSocket
-            local ok, err = client:send(json.encode(data))
+        for i, msg in ipairs(messages) do
+            log:info("Sending test message", {message = msg})
+            local ok, err = client:send(msg)
             if not ok then
-                ws_channel:send({ error = "Failed to send: " .. err })
+                log:error("Failed to send message", {error = err})
                 break
             end
-
             time.sleep(time.parse_duration("1s"))
-            ticks = ticks + 1
         end
 
-        -- Clean up
-        client:close(websocket.CLOSE_CODES.NORMAL, "Demo completed")
+        log:info("Closing WebSocket connection")
+        client:close(websocket.CLOSE_CODES.NORMAL, "Test completed")
         ws_channel:close()
     end)
 
-    -- Consumer coroutine (main thread)
+    -- Consumer loop for responses
     while true do
-        -- Receive data from channel
         local data, ok = ws_channel:receive()
-
         if not ok then
-            -- Channel closed, exit
+            log:info("Channel closed, exiting consumer loop")
             break
         end
 
-        -- Write JSON response
         local packed, err = json.encode(data)
         if packed then
             res:write(packed .. "\n")
             res:flush()
+        else
+            log:error("Failed to encode JSON response", {error = err})
         end
     end
+
+    log:info("WebSocket demo handler completed")
 end
