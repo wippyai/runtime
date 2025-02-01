@@ -1,0 +1,10 @@
+name: functions.websocket_demo
+kind: function.lua
+meta:
+  comment: "WebSocket demo with echo server."
+
+source: file://ws_demo.lua
+method: websocket_demo
+modules: [ "httpctx", "time", "json", "websocket" ]
+pool:
+  size: 4
