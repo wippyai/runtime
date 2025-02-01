@@ -1,3 +1,4 @@
+-- app.lua
 local components = require("chat_components")
 
 function App()
@@ -5,14 +6,13 @@ function App()
     local done = channel.new()
     local update_channel = channel.new()
 
-    local window_width = 80
-    local window_height = 24
+    local window_width = 104
+    local window_height = 48
 
     local llm = components.LLMClient.new()
     local session = components.ChatSession.new()
     local ui = components.ChatUI.new(window_width, window_height)
 
-    -- helper for logging messages in the UI
     local function add_log(msg)
         ui:add_log_entry(msg)
         upstream.send("refresh")
@@ -58,7 +58,6 @@ function App()
         end
 
         local msg = task:input()
-
         if msg.type == "update" then
             if msg.key then
                 if msg.key.String == "enter" and #ui.input_text > 0 then
@@ -67,7 +66,6 @@ function App()
                     add_log("User prompt: " .. prompt)
                     ui.input_text = ""
                     session:start_response()
-                    -- Pass the full message history to the LLM client along with our log callback
                     llm:query(prompt, session:get_history(), update_channel, add_log)
                 elseif msg.key.String == "backspace" then
                     ui.input_text = ui.input_text:sub(1, -2)
