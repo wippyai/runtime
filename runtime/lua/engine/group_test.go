@@ -66,7 +66,7 @@ func TestTaskGroup(t *testing.T) {
 	t.Run("result sending with context", func(t *testing.T) {
 		// Create a TaskGroup with small buffer
 		group := NewTaskGroup(2)
-		result := Result{State: lua.NewState(), Result: []lua.LValue{lua.LString("test")}}
+		result := &Result{State: lua.NewState(), Result: []lua.LValue{lua.LString("test")}}
 
 		// Test 1: Successful send with active context
 		err := group.Send(context.Background(), result)
@@ -120,7 +120,7 @@ func TestTaskGroup(t *testing.T) {
 		defer L.Close()
 
 		group.Add(L)
-		result := Result{State: L, Result: []lua.LValue{lua.LString("test")}}
+		result := &Result{State: L, Result: []lua.LValue{lua.LString("test")}}
 		_ = group.Send(context.Background(), result)
 
 		group.clean()
@@ -193,7 +193,7 @@ func TestTaskGroupProcessing(t *testing.T) {
 		}
 
 		// Test successful result processing
-		result := Result{
+		result := &Result{
 			State:  L,
 			Result: []lua.LValue{lua.LString("success")},
 		}
@@ -206,7 +206,7 @@ func TestTaskGroupProcessing(t *testing.T) {
 
 		// Test error result processing
 		testErr := fmt.Errorf("test error")
-		errorResult := Result{
+		errorResult := &Result{
 			State: L,
 			Error: testErr,
 		}
@@ -261,14 +261,14 @@ func TestTaskGroupProcessing(t *testing.T) {
 			defer wg.Done()
 
 			// send the first result immediately
-			result1 := Result{
+			result1 := &Result{
 				State:  L1,
 				Result: []lua.LValue{lua.LString("result1")},
 			}
 			require.NoError(t, group.Send(ctx, result1))
 
 			// send the second result immediately after
-			result2 := Result{
+			result2 := &Result{
 				State:  L2,
 				Result: []lua.LValue{lua.LString("result2")},
 			}

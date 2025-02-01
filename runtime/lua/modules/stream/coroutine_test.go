@@ -15,7 +15,7 @@ import (
 
 func TestAsyncStreamRead(t *testing.T) {
 	t.Run("async stream reading", func(t *testing.T) {
-		log := zap.NewNop()
+		log, _ := zap.NewDevelopment()
 
 		// Create base VM with stream module
 		vm, err := engine.NewCVM(

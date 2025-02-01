@@ -40,10 +40,10 @@ func (m *Module) executeRequestYield(l *lua.LState, req *http.Request, opts *req
 		zap.String("url", req.URL.String()),
 	)
 
-	coroutine.Wrap(l, func() engine.Result {
+	coroutine.Wrap(l, func() *engine.Result {
 		resp, err := m.client.Do(req) //nolint:bodyclose
 		if err != nil {
-			return engine.Result{Result: []lua.LValue{lua.LNil, lua.LString(err.Error())}}
+			return engine.NewResult(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
 		}
 		cleanup.Add(resp.Body.Close)
 
@@ -56,15 +56,10 @@ func (m *Module) executeRequestYield(l *lua.LState, req *http.Request, opts *req
 	return -1
 }
 
-func (m *Module) handleStreamResponseAsync(
-	ctx context.Context,
-	l *lua.LState,
-	resp *http.Response,
-	streamOpts *stream.Options,
-) engine.Result {
-	s, err := stream.NewStream(ctx, resp.Body, streamOpts)
+func (m *Module) handleStreamResponseAsync(ctx context.Context, l *lua.LState, r *http.Response, streamOpts *stream.Options) *engine.Result {
+	s, err := stream.NewStream(ctx, r.Body, streamOpts)
 	if err != nil {
-		return engine.Result{Result: []lua.LValue{lua.LNil, lua.LString(err.Error())}}
+		return engine.NewResult(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
 	}
 
 	luaStream := &stream.LuaStream{Stream: s}
@@ -72,14 +67,14 @@ func (m *Module) handleStreamResponseAsync(
 	ud.Value = luaStream
 	l.SetMetatable(ud, l.GetTypeMetatable("Stream"))
 
-	return engine.Result{Result: []lua.LValue{newResponseWithStream(resp, ud, l), lua.LNil}}
+	return engine.NewResult(nil, []lua.LValue{newResponseWithStream(r, ud, l), lua.LNil}, nil)
 }
 
-func (m *Module) handleRegularResponseAsync(l *lua.LState, resp *http.Response) engine.Result {
+func (m *Module) handleRegularResponseAsync(l *lua.LState, resp *http.Response) *engine.Result {
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return engine.Result{Result: []lua.LValue{lua.LNil, lua.LString(err.Error())}}
+		return engine.NewResult(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
 	}
 
-	return engine.Result{Result: []lua.LValue{newResponse(resp, &body, len(body), l), lua.LNil}}
+	return engine.NewResult(nil, []lua.LValue{newResponse(resp, &body, len(body), l), lua.LNil}, nil)
 }
