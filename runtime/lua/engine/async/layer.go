@@ -53,6 +53,10 @@ func Send(l *lua.LState, ch *channel.Channel, value lua.LValue, ok bool) error {
 	return nil
 }
 
+func Close(l *lua.LState, ch *channel.Channel) error {
+	return Send(l, ch, lua.LNil, false)
+}
+
 // Layer processes scheduled asynchronous operations by managing communication
 // between Lua states and channels. It implements the engine.Layer interface
 // for integration with the VM execution pipeline.

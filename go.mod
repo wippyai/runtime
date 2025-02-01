@@ -6,6 +6,7 @@ toolchain go1.23.4
 
 require (
 	github.com/charmbracelet/bubbletea v1.2.4
+	github.com/coder/websocket v1.8.12
 	github.com/docker/docker v27.5.1+incompatible
 	github.com/go-chi/chi/v5 v5.2.0
 	github.com/google/uuid v1.6.0
@@ -27,6 +28,7 @@ require (
 	go.temporal.io/sdk v1.32.1
 	go.uber.org/zap v1.27.0
 	golang.org/x/net v0.34.0
+	google.golang.org/protobuf v1.36.3
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -90,6 +92,5 @@ require (
 	google.golang.org/genproto/googleapis/api v0.0.0-20250115164207-1a7da9e5054f // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250115164207-1a7da9e5054f // indirect
 	google.golang.org/grpc v1.69.4 // indirect
-	google.golang.org/protobuf v1.36.3 // indirect
 	gotest.tools/v3 v3.5.1 // indirect
 )
