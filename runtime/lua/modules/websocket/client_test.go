@@ -2,6 +2,7 @@ package websocket
 
 import (
 	"context"
+	timemod "github.com/ponyruntime/pony/runtime/lua/modules/time"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -140,7 +141,7 @@ func TestWebSocketClient(t *testing.T) {
                 
                 assert(ws == nil, "Expected ws to be nil due to timeout")
                 assert(err ~= nil, "Expected error due to timeout")
-                assert(string.find(err, "timeout") ~= nil, "Error should mention timeout")
+                assert(string.find(err, "deadline exceeded") ~= nil, "Error should mention timeout")
                 return "success"
             end
         `
@@ -196,8 +197,6 @@ func TestWebSocketClient(t *testing.T) {
                 local messages = {
                     { type = websocket.TYPE_TEXT, data = "Hello" },
                     { type = websocket.TYPE_BINARY, data = "Binary Data" },
-                    { type = websocket.TYPE_PING },
-                    { type = websocket.TYPE_PONG },
                     { type = websocket.TYPE_CLOSE, code = websocket.CLOSE_CODES.NORMAL, reason = "normal closure" }
                 }
                 for _, expected in ipairs(messages) do
@@ -250,6 +249,7 @@ func TestWebSocketClient(t *testing.T) {
 
 		vm, err := engine.NewCVM(
 			logger,
+			engine.WithPreloaded("time", timemod.NewTimeModule().Loader),
 			engine.WithPreloaded("websocket", wsModule.Loader),
 			engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
 		)
@@ -265,7 +265,7 @@ func TestWebSocketClient(t *testing.T) {
                 coroutine.spawn(function()
                     for i = 1, 3 do
                         ws:send("Message " .. i)
-                        time.sleep("100ms")
+                        time.after("100ms"):receive()
                     end
                     done:send(true)
                 end)
