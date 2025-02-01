@@ -12,6 +12,12 @@ function App()
     local session = components.ChatSession.new()
     local ui = components.ChatUI.new(window_width, window_height)
 
+    -- helper for logging messages in the UI
+    local function add_log(msg)
+        ui:add_log_entry(msg)
+        upstream.send("refresh")
+    end
+
     coroutine.spawn(function()
         local ticker = time.ticker("0.5s")
         while true do
@@ -35,7 +41,10 @@ function App()
                 upstream.send("refresh")
             elseif msg.type == "done" then
                 session:finish_response()
+                add_log("Response complete")
                 upstream.send("refresh")
+            elseif msg.type == "error" then
+                add_log("Error: " .. tostring(msg.error))
             end
         end
     end)
@@ -55,10 +64,11 @@ function App()
                 if msg.key.String == "enter" and #ui.input_text > 0 then
                     local prompt = ui.input_text
                     session:add_message("user", prompt)
+                    add_log("User prompt: " .. prompt)
                     ui.input_text = ""
                     session:start_response()
-                    -- Pass the full message history to the LLM client
-                    llm:query(prompt, session:get_history(), update_channel)
+                    -- Pass the full message history to the LLM client along with our log callback
+                    llm:query(prompt, session:get_history(), update_channel, add_log)
                 elseif msg.key.String == "backspace" then
                     ui.input_text = ui.input_text:sub(1, -2)
                 elseif #msg.key.String == 1 then
