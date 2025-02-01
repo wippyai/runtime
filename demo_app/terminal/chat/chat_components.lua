@@ -1,12 +1,15 @@
+local openai_key = "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"
+
 local M = {}
 
 M.LLMClient = {
     new = function(model, endpoint)
         return {
-            model = model or "mistral:latest",
-            endpoint = endpoint or "http://100.70.10.9:11434/api/chat", -- Changed to chat endpoint
+            model = model or "o3-mini",
+            endpoint = endpoint or "https://api.openai.com/v1/chat/completions",
 
-            query = function(self, prompt, history, update_channel)
+            query = function(self, prompt, history, update_channel, log_fn)
+                if log_fn then log_fn("LLMClient: starting query") end
                 coroutine.spawn(function()
                     -- Convert history into messages array
                     local messages = {}
@@ -23,6 +26,10 @@ M.LLMClient = {
                     })
 
                     local headers = { ["Content-Type"] = "application/json" }
+                    if openai_key then
+                        headers["Authorization"] = "Bearer " .. openai_key
+                    end
+
                     local body = json.encode({
                         model = self.model,
                         messages = messages,
@@ -36,6 +43,7 @@ M.LLMClient = {
                     })
 
                     if err then
+                        if log_fn then log_fn("LLMClient error: " .. tostring(err)) end
                         update_channel:send({ type = "error", error = err })
                         return
                     end
@@ -64,6 +72,7 @@ M.LLMClient = {
                         end
                         stream:close()
                         update_channel:send({ type = "done" })
+                        if log_fn then log_fn("LLMClient: query finished") end
                     end
                 end)
             end
@@ -94,7 +103,6 @@ M.ChatSession = {
 
             update_response = function(self, text)
                 self.current_response = self.current_response .. text
-                -- Update the current message's content
                 if self.current_message then
                     self.current_message.content = self.current_response
                 end
@@ -125,81 +133,58 @@ M.ChatSession = {
 
 M.ChatUI = {
     new = function(width, height)
-        -- ANSI escape codes for colors
         local COLORS = {
             THINKING = "\27[33m", -- Yellow for thinking
             RESET = "\27[0m"
         }
 
-        -- Helper function to process thinking sections
         local function process_thinking_sections(text)
             local result = ""
             local pos = 1
-
             while pos <= #text do
                 local think_start = text:find("<think>", pos)
                 if not think_start then
-                    -- No more thinking sections, add remaining text
                     result = result .. text:sub(pos)
                     break
                 end
-
-                -- Add text before thinking section
                 result = result .. text:sub(pos, think_start - 1)
-
-                -- Find end of thinking section
                 local think_end = text:find("</think>", think_start)
                 if not think_end then
-                    -- Unclosed thinking tag, treat rest as thinking
                     result = result .. COLORS.THINKING .. text:sub(think_start + 7) .. COLORS.RESET
                     break
                 end
-
-                -- Add thinking section with color
                 local thinking_text = text:sub(think_start + 7, think_end - 1)
                 result = result .. COLORS.THINKING .. thinking_text .. COLORS.RESET
-
-                pos = think_end + 8 -- Move past </think>
+                pos = think_end + 8
             end
-
             return result
         end
 
         local function wrap_text(text, max_width)
-            -- First process any thinking sections
             text = process_thinking_sections(text)
-
             local lines = {}
             local current_line = ""
             local current_color = ""
-
-            -- Helper to calculate visible length (excluding ANSI sequences)
             local function visible_length(str)
                 return #(str:gsub("\27%[[%d;]+m", ""))
             end
-
             for word in text:gmatch("%S+") do
-                -- Preserve color codes at word boundaries
                 local word_start_color = ""
                 if word:match("^\27%[[%d;]+m") then
                     word_start_color = word:match("^(\27%[[%d;]+m)")
                     current_color = word_start_color
                 end
-
                 local potential_line = current_line == "" and word or current_line .. " " .. word
                 if visible_length(potential_line) <= max_width then
                     current_line = potential_line
                 else
                     table.insert(lines, current_line)
-                    -- Start new line with current color state
                     current_line = current_color .. word
                 end
             end
-
             if #current_line > 0 then
                 table.insert(lines, current_line)
             end
-
             return lines
         end
 
@@ -208,39 +193,88 @@ M.ChatUI = {
             height = height,
             input_text = "",
             cursor_visible = true,
+            log_entries = {}, -- new property for action log
+
+            add_log_entry = function(self, entry)
+                table.insert(self.log_entries, os.date("%H:%M:%S") .. " - " .. entry)
+                -- Limit log history to the most recent 50 entries
+                if #self.log_entries > 50 then
+                    table.remove(self.log_entries, 1)
+                end
+            end,
 
             render = function(self, session)
-                local lines = {
-                    "┌" .. string.rep("─", self.width - 2) .. "┐",
-                    "│" ..
-                    string.rep(" ", math.floor((self.width - 14) / 2)) ..
-                    "Chat Session" .. string.rep(" ", self.width - 14 - math.floor((self.width - 14) / 2)) .. "│",
-                    "│" .. string.rep("─", self.width - 2) .. "│"
-                }
+                local total_height = self.height
+                local log_panel_height = 3 -- fixed height for log panel
+                local fixed_lines = 11     -- borders, headers, input etc.
+                local chat_area_height = total_height - fixed_lines
 
-                -- Display all messages
+                local lines = {}
+
+                -- Top border and title for chat panel
+                table.insert(lines, "┌" .. string.rep("─", self.width - 2) .. "┐")
+                local title = " Chat Session "
+                local pad_left = math.floor((self.width - 2 - #title) / 2)
+                local pad_right = self.width - 2 - #title - pad_left
+                table.insert(lines, "│" .. string.rep(" ", pad_left) .. title .. string.rep(" ", pad_right) .. "│")
+                table.insert(lines, "├" .. string.rep("─", self.width - 2) .. "┤")
+
+                -- Prepare chat messages (wrap and limit to chat_area_height lines)
+                local chat_lines = {}
                 for _, msg in ipairs(session:get_history()) do
                     local prefix = msg.role == "user" and "You: " or "AI: "
                     local wrapped = wrap_text(prefix .. msg.content, self.width - 4)
                     for _, line in ipairs(wrapped) do
-                        -- Calculate padding taking into account ANSI escape sequences
-                        local visible_length = line:gsub("\27%[[%d;]+m", "")
-                        local padding = self.width - 3 - #visible_length
-                        table.insert(lines, "│ " .. line .. COLORS.RESET .. string.rep(" ", padding) .. "│")
+                        table.insert(chat_lines,
+                            "│ " .. line .. string.rep(" ", self.width - 3 - #(line:gsub("\27%[[%d;]+m", ""))) .. "│")
                     end
+                    table.insert(chat_lines, "│" .. string.rep(" ", self.width - 2) .. "│")
+                end
+                -- Show only the last chat_area_height lines
+                if #chat_lines > chat_area_height then
+                    chat_lines = { unpack(chat_lines, #chat_lines - chat_area_height + 1, #chat_lines) }
+                else
+                    while #chat_lines < chat_area_height do
+                        table.insert(chat_lines, "│" .. string.rep(" ", self.width - 2) .. "│")
+                    end
+                end
+                for _, line in ipairs(chat_lines) do
+                    table.insert(lines, line)
+                end
+
+                table.insert(lines, "├" .. string.rep("─", self.width - 2) .. "┤")
+                -- Log panel header
+                local log_title = " Action Log "
+                local pad_left_log = math.floor((self.width - 2 - #log_title) / 2)
+                local pad_right_log = self.width - 2 - #log_title - pad_left_log
+                table.insert(lines,
+                    "│" .. string.rep(" ", pad_left_log) .. log_title .. string.rep(" ", pad_right_log) .. "│")
+
+                -- Render log panel (show last log_panel_height entries)
+                local log_lines = {}
+                for _, entry in ipairs(self.log_entries) do
+                    local wrapped = wrap_text(entry, self.width - 4)
+                    for _, line in ipairs(wrapped) do
+                        table.insert(log_lines,
+                            "│ " .. line .. string.rep(" ", self.width - 3 - #(line:gsub("\27%[[%d;]+m", ""))) .. "│")
+                    end
+                end
+                local start_log = math.max(1, #log_lines - log_panel_height + 1)
+                for i = start_log, #log_lines do
+                    table.insert(lines, log_lines[i])
+                end
+                while #lines < total_height - 2 do
                     table.insert(lines, "│" .. string.rep(" ", self.width - 2) .. "│")
                 end
 
-                while #lines < self.height - 3 do
-                    table.insert(lines, "│" .. string.rep(" ", self.width - 2) .. "│")
-                end
-
-                table.insert(lines, "│" .. string.rep("─", self.width - 2) .. "│")
+                -- Input line
                 local input_line = "│> " .. self.input_text
                 if self.cursor_visible then
                     input_line = input_line .. "▋"
                 end
-                input_line = input_line .. string.rep(" ", self.width - 3 - #self.input_text) .. "│"
+                local visible_len = #(input_line:gsub("\27%[[%d;]+m", ""))
+                input_line = input_line .. string.rep(" ", self.width - 2 - visible_len) .. "│"
+                table.insert(lines, "├" .. string.rep("─", self.width - 2) .. "┤")
                 table.insert(lines, input_line)
                 table.insert(lines, "└" .. string.rep("─", self.width - 2) .. "┘")
 

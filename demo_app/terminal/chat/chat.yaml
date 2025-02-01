@@ -12,6 +12,7 @@ options:
   title: "Chat with LLM"
 
 libraries: [ "chat_components" ]
+modules: ["time"]
 
 lifecycle:
   auto_start: true
