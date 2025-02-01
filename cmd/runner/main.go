@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	tempmod "github.com/ponyruntime/pony/runtime/lua/modules/temporal"
+	"github.com/ponyruntime/pony/runtime/lua/modules/websocket"
 	"github.com/ponyruntime/pony/runtime/workflow"
 	"github.com/ponyruntime/pony/service/temporal"
 	httpbase "net/http"
@@ -139,12 +140,12 @@ func main() {
 	// -- lua lang and modules
 	luaRuntime := luaruntime.NewRuntimeManager(
 		bus, dtt, log.Named("lua"),
-		// todo :temporal one
 		timelib.NewTimeModule(),
 		logglib.NewLoggerModule(log.Named("app")),
 		b64mlib.NewBase64Module(),
 		jsonlib.NewJSONModule(),
 		httplib.NewHTTPModule(httpbase.DefaultClient, log.Named("http")),
+		websocket.NewWebSocketModule(log.Named("websocket")),
 		httpctx.NewHTTPContextModule(log.Named("http")),
 		tsitter.NewTreeSitterModule(log.Named("treesitter")),
 		tempmod.NewTemporalModule(log.Named("temporal")),
