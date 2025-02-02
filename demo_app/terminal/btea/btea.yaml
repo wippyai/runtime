@@ -2,6 +2,7 @@ name: btea.terminal
 kind: terminal.lua
 meta:
   comment: "Simple btea example"
+  groups: [ "apps" ]
   depends_on: [ "terminal_ui", "discord_client" ]
 
 source: file://discord.lua
