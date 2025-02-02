@@ -38,7 +38,9 @@ const (
 	RootVersion uint = 0
 
 	// DependsOnTag is used to mark dependencies between registry entries
-	DependsOnTag = "depends_on"
+	DependsOnTag       = "depends_on"
+	GroupsTag          = "groups"
+	DependsOnGroupsTag = "depends_on_groups"
 )
 
 type (

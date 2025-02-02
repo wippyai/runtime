@@ -7,30 +7,35 @@ import (
 	"github.com/ponyruntime/pony/internal/graph"
 )
 
-// SortEntriesByDependency sorts entries based on their dependencies.
-// If reverseOrder is true, it sorts in reverse dependency order (useful for deletes).
+// SortEntriesByDependency sorts entries based on both individual and group-level dependencies.
+// It uses the pluralized metadata keys "groups" and "depends_on_groups".
 func SortEntriesByDependency(entries []registry.Entry) []registry.Entry {
 	if len(entries) == 0 {
 		return nil
 	}
 
-	// Build dependency graph
+	// Build dependency graph and group mapping.
 	g := graph.NewGraph()
 	entryMap := make(map[registry.ID]registry.Entry, len(entries))
+	groupMap := make(map[string][]registry.ID)
 
-	// Add all entries as nodes and build entry map
+	// Add all entries as nodes and build the group mapping.
 	for _, entry := range entries {
 		g.AddNode(graph.Node(entry.ID))
 		entryMap[entry.ID] = entry
+
+		groups := entry.Meta.TagValue(registry.GroupsTag)
+		for _, group := range groups {
+			groupMap[group] = append(groupMap[group], entry.ID)
+		}
 	}
 
-	// Add dependency edges
+	// Add individual dependency edges.
 	for _, entry := range entries {
 		dependsOn := entry.Meta.TagValue(registry.DependsOnTag)
 		for _, dep := range dependsOn {
-			// Only consider dependencies within the set of entries we're sorting
 			if _, exists := entryMap[registry.ID(dep)]; exists {
-				// Normal order: if A depends on B, add edge B->A so B gets processed before A
+				// If A depends on B, add edge B -> A so B gets processed first.
 				g.AddEdge(graph.Edge{
 					From:   graph.Node(dep),
 					To:     graph.Node(entry.ID),
@@ -40,33 +45,46 @@ func SortEntriesByDependency(entries []registry.Entry) []registry.Entry {
 		}
 	}
 
-	// Get dependency levels
+	// Add group dependency edges.
+	for _, entry := range entries {
+		dependsOnGroups := entry.Meta.TagValue(registry.DependsOnGroupsTag)
+		for _, depGroup := range dependsOnGroups {
+			if members, exists := groupMap[depGroup]; exists {
+				for _, memberID := range members {
+					// Avoid self-dependency.
+					if memberID == entry.ID {
+						continue
+					}
+					g.AddEdge(graph.Edge{
+						From:   graph.Node(memberID),
+						To:     graph.Node(entry.ID),
+						Weight: 1,
+					})
+				}
+			}
+		}
+	}
+
+	// Compute dependency levels.
 	levels, err := g.DependencyLevels()
 	if err != nil {
-		// If there's a cycle, fall back to lexicographical sorting
+		// On cycle detection, fall back to lexicographical sort.
 		sorted := make([]registry.Entry, 0, len(entries))
 		sorted = append(sorted, entries...)
-
 		sort.Slice(sorted, func(i, j int) bool {
 			return sorted[i].ID < sorted[j].ID
 		})
 		return sorted
 	}
 
-	// Build a sorted list based on dependency levels
+	// Build sorted list based on dependency levels.
 	result := make([]registry.Entry, 0, len(entries))
-
-	start, end, step := 0, levels.LevelCount(), 1
-
-	for i := start; i != end; i += step {
+	for i := 0; i < levels.LevelCount(); i++ {
 		levelNodes, _ := levels.GetLevel(i)
-
-		// Sort nodes within each level lexicographically
+		// Sort nodes within the level lexicographically.
 		sort.Slice(levelNodes, func(i, j int) bool {
 			return string(levelNodes[i]) < string(levelNodes[j])
 		})
-
-		// Add entries from this level
 		for _, node := range levelNodes {
 			entryID := registry.ID(node)
 			if entry, exists := entryMap[entryID]; exists {
@@ -78,8 +96,8 @@ func SortEntriesByDependency(entries []registry.Entry) []registry.Entry {
 	return result
 }
 
-// CreateChangeSetFromEntries creates a ChangeSet of create operations from a list of entries,
-// sorted by dependencies and path.
+// CreateChangeSetFromEntries creates a ChangeSet consisting of create operations from a list of entries.
+// The entries are sorted taking into account individual and group dependencies.
 func CreateChangeSetFromEntries(entries []registry.Entry) registry.ChangeSet {
 	sorted := SortEntriesByDependency(entries)
 	if len(sorted) == 0 {
