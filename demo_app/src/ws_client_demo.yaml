@@ -5,6 +5,6 @@ meta:
 
 source: file://ws_client_demo.lua
 method: websocket_demo
-modules: [ "httpctx", "time", "json", "websocket", "logger" ]
+modules: [ "httpctx", "time", "json", "websocket", "logger", "env" ]
 pool:
   size: 4

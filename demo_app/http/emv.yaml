@@ -1,0 +1,15 @@
+name: endpoints.envdump
+kind: http.endpoint
+meta:
+  server: web_server
+  router: api_router
+  comment: "Streams environment variables as JSON"
+  depends_on:
+    - functions.envdump
+    - web_server
+    - api_router
+
+method: GET
+path: /env
+target: functions.envdump
+json_output: true

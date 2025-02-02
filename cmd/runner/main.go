@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"github.com/ponyruntime/pony/runtime/lua/modules/env"
 	tempmod "github.com/ponyruntime/pony/runtime/lua/modules/temporal"
 	"github.com/ponyruntime/pony/runtime/lua/modules/websocket"
 	"github.com/ponyruntime/pony/runtime/workflow"
@@ -144,6 +145,7 @@ func main() {
 		logglib.NewLoggerModule(log.Named("app")),
 		b64mlib.NewBase64Module(),
 		jsonlib.NewJSONModule(),
+		env.NewEnvModule(log.Named("env")),
 		httplib.NewHTTPModule(httpbase.DefaultClient, log.Named("http")),
 		websocket.NewWebSocketModule(log.Named("websocket")),
 		httpctx.NewHTTPContextModule(log.Named("http")),
@@ -162,6 +164,17 @@ func main() {
 	ctx = context.WithValue(ctx, contextapi.TemporalCtx, temporalSvc)
 
 	// -- end of temporal
+
+	// -- env
+	envCtx := contextapi.NewContexter[string]()
+	for _, env := range os.Environ() {
+		pair := strings.SplitN(env, "=", 2)
+		if len(pair) == 2 {
+			envCtx.WithValue(pair[0], pair[1])
+		}
+	}
+	ctx = context.WithValue(ctx, contextapi.EnvCtx, envCtx)
+	// -- end of env
 
 	// -- configuration bus
 	svc, err := services.NewRouter(ctx, bus,

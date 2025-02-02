@@ -50,6 +50,7 @@ func LoadVars(s string, ctx interface{}) (string, error) {
 // If the file is successfully read, it returns the file's content; otherwise,
 // it returns the original string appended with an error message.
 func LoadFile(s string, ctx interface{}) (string, error) {
+	// todo: use proper context and make complex loading easier with ---
 	rctx, ok := ctx.(EntryContext)
 	if !ok {
 		return s, nil // Invalid context, skip

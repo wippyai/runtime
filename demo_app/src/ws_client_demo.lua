@@ -2,23 +2,25 @@ local time = require("time")
 local json = require("json")
 local logger = require("logger")
 local websocket = require("websocket")
+local env = require("env")
 
 local DISCORD_GATEWAY = "wss://gateway.discord.gg/?v=10&encoding=json"
-local INTENTS = 33281  -- GUILDS + GUILD_MESSAGES + MESSAGE_CONTENT
+local INTENTS = 33281 -- GUILDS + GUILD_MESSAGES + MESSAGE_CONTENT
 
 function websocket_demo()
     local log = logger:named("discord_bot")
     log:info("Starting Discord bot handler")
 
     -- Get bot token from environment
-    local token = "MTMzNTQ1NTMzODY0ODA0NzcxOA.GjgVAf.4aJWl-FVi6LeJSL-IuELs4uCW6W0_R8BDvpcXY"
+    local token = env.get("DISCORD_BOT_TOKEN")
     if not token then
-        log:error("No Discord token found in environment")
+        log:error("No DISCORD_TOKEN found in environment")
         return
     end
 
-    log:info("Token validation", {length = #token})
+    log:info("Token validation", { length = #token })
 
+    -- Rest of the implementation remains the same
     local ws_channel = channel.new(100)
     local should_reconnect = true
     local active = true
@@ -37,7 +39,7 @@ function websocket_demo()
         })
 
         if not client then
-            log:error("WebSocket connection failed", {error = err})
+            log:error("WebSocket connection failed", { error = err })
             time.sleep(time.parse_duration("5s"))
             goto continue
         end
@@ -66,20 +68,20 @@ function websocket_demo()
                     },
                     presence = {
                         status = "online",
-                        activities = {{
+                        activities = { {
                             name = "messages",
-                            type = 3  -- Watching
-                        }}
+                            type = 3 -- Watching
+                        } }
                     }
                 }
             }
 
             local payload_str = json.encode(identify_payload)
-            log:info("Sending identify payload", {payload_length = #payload_str})
+            log:info("Sending identify payload", { payload_length = #payload_str })
 
             local ok, err = client:send(payload_str)
             if not ok then
-                log:error("Failed to send identify", {error = err})
+                log:error("Failed to send identify", { error = err })
                 return false
             end
 
@@ -88,7 +90,7 @@ function websocket_demo()
         end
 
         local function start_heartbeat(interval)
-            log:info("Starting heartbeat with interval", {interval_ms = interval})
+            log:info("Starting heartbeat with interval", { interval_ms = interval })
 
             if heartbeat_timer then
                 heartbeat_timer:stop()
@@ -114,7 +116,7 @@ function websocket_demo()
                     end
 
                     last_heartbeat_ack = false
-                    log:debug("Sending heartbeat", {sequence = sequence})
+                    log:debug("Sending heartbeat", { sequence = sequence })
 
                     local ok, err = client:send(json.encode({
                         op = 1,
@@ -122,7 +124,7 @@ function websocket_demo()
                     }))
 
                     if not ok then
-                        log:error("Failed to send heartbeat", {error = err})
+                        log:error("Failed to send heartbeat", { error = err })
                         connection_alive = false
                         should_reconnect = true
                         break
@@ -152,10 +154,10 @@ function websocket_demo()
             })
 
             if msg.type == websocket.TYPE_TEXT then
-                log:debug("Raw message data", {data = msg.data})
+                log:debug("Raw message data", { data = msg.data })
                 local success, data = pcall(json.decode, msg.data)
                 if not success then
-                    log:error("Failed to decode message", {error = data, raw = msg.data})
+                    log:error("Failed to decode message", { error = data, raw = msg.data })
                     goto continue
                 end
 
@@ -165,8 +167,8 @@ function websocket_demo()
                     seq = data.s
                 })
 
-                if data.op == 10 then  -- Hello
-                    log:info("Received Hello from gateway", {heartbeat_interval = data.d.heartbeat_interval})
+                if data.op == 10 then -- Hello
+                    log:info("Received Hello from gateway", { heartbeat_interval = data.d.heartbeat_interval })
                     heartbeat_interval = data.d.heartbeat_interval
                     start_heartbeat(heartbeat_interval)
                     if not identified then
@@ -176,13 +178,11 @@ function websocket_demo()
                             break
                         end
                     end
-
-                elseif data.op == 11 then  -- Heartbeat ACK
+                elseif data.op == 11 then -- Heartbeat ACK
                     log:debug("Heartbeat ACK received")
                     last_heartbeat_ack = true
-
-                elseif data.op == 9 then  -- Invalid Session
-                    log:warn("Invalid session received, will need to re-identify", {resumable = data.d})
+                elseif data.op == 9 then -- Invalid Session
+                    log:warn("Invalid session received, will need to re-identify", { resumable = data.d })
                     time.sleep(time.parse_duration("1s"))
                     identified = false
                     if not send_identify() then
@@ -190,14 +190,12 @@ function websocket_demo()
                         should_reconnect = true
                         break
                     end
-
-                elseif data.op == 7 then  -- Reconnect
+                elseif data.op == 7 then -- Reconnect
                     log:info("Discord requested reconnect")
                     connection_alive = false
                     should_reconnect = true
                     break
-
-                elseif data.op == 0 then  -- Dispatch
+                elseif data.op == 0 then -- Dispatch
                     sequence = data.s
 
                     if data.t == "READY" then
@@ -224,7 +222,7 @@ function websocket_demo()
                     end
                 end
             elseif msg.type == websocket.TYPE_CLOSE then
-                log:info("Received WebSocket close frame", {code = msg.code, reason = msg.reason})
+                log:info("Received WebSocket close frame", { code = msg.code, reason = msg.reason })
                 connection_alive = false
                 should_reconnect = true
                 break
@@ -245,7 +243,7 @@ function websocket_demo()
 
         if should_reconnect then
             log:info("Waiting before reconnect attempt")
-            time.sleep(time.parse_duration("5s"))
+            time:sleep(time.parse_duration("5s"))
         end
 
         ::continue::
