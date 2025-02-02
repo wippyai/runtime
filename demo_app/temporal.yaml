@@ -2,6 +2,7 @@ name: temporal
 kind: temporal.client
 meta:
   comment: "Default Temporal service."
+  groups: [ "system" ]
 
 address: "localhost:7233"
 namespace: "default"

@@ -2,8 +2,8 @@ name: terminal
 kind: terminal.service
 meta:
   comment: "Default terminal service."
-  depends_on:
-    - "btea.terminal"
+  groups: [ "system" ]
+  depends_on_groups: [ "apps" ]
 
 target: "btea.terminal"
 hide_logs: false

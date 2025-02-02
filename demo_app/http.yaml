@@ -2,6 +2,7 @@ name: web_server
 kind: http.service
 meta:
   comment: "Default http service."
+  groups: [ "system" ]
 
 addr: ":8081"
 timeouts:
