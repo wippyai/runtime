@@ -37,7 +37,7 @@ type Module struct {
 }
 
 // NewHTTPModule creates a new HTTP module instance with the given client and logger
-func NewHTTPModule(client Client, log *zap.Logger) *Module {
+func NewHTTPModule(log *zap.Logger, client Client) *Module {
 	return &Module{log: log, client: client}
 }
 

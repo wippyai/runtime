@@ -11,8 +11,3 @@ options:
   title: "Paris Information Demo"
 
 modules: [ "time", "json", "http" ]
-
-lifecycle:
-  auto_start: true
-  startup_timeout: "5s"
-  shutdown_timeout: "3s"

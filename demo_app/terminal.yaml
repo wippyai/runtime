@@ -3,16 +3,13 @@ kind: terminal.service
 meta:
   comment: "Default terminal service."
   depends_on:
-    - "counter.terminal"
-    - "snake.terminal"
-    - "basic.terminal"
-    - "chat.terminal"
+    - "btea.terminal"
 
-target: "chat.terminal"
+target: "btea.terminal"
 hide_logs: true
 
 lifecycle:
-  auto_start: false
+  auto_start: true
   start_timeout: 5s
   restart:
     initial_delay: 1s
