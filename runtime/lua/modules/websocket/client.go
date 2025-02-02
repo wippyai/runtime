@@ -252,8 +252,14 @@ func (c *wsClient) readLoop(l *lua.LState) {
 				l.SetField(msgTbl, "code", lua.LNumber(CloseCodeNormal))
 				l.SetField(msgTbl, "reason", lua.LString("normal closure"))
 				_ = async.Send(l, c.recvCh, msgTbl, true)
-				_ = async.Close(l, c.recvCh)
+			} else {
+				msgTbl := l.NewTable()
+				l.SetField(msgTbl, "type", lua.LString(websocket.CloseStatus(err).String()))
+				l.SetField(msgTbl, "code", lua.LNumber(websocket.CloseStatus(err)))
+				l.SetField(msgTbl, "reason", lua.LString(err.Error()))
+				_ = async.Send(l, c.recvCh, msgTbl, true)
 			}
+			_ = async.Close(l, c.recvCh)
 			break
 		}
 

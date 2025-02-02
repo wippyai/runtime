@@ -1,0 +1,11 @@
+name: terminal_ui
+kind: library.lua
+meta:
+  comment: "Terminal UI components for creating full-screen terminal applications"
+  version: "0.1.0"
+
+source: file://terminal_ui.lua
+modules:
+  - time
+  - json
+  - btea
