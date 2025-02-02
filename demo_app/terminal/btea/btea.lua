@@ -14,8 +14,6 @@ function App()
         upstream.send(cmd)
     end
 
-
-
     local styles = {
         box = btea.new_style()
             :border(btea.borders.ROUNDED)
