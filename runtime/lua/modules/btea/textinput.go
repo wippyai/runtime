@@ -84,30 +84,22 @@ func textInputUpdate(l *lua.LState) int {
 		return 0
 	}
 
-	// Get message from argument
-	msg := l.CheckAny(2)
-
-	// Convert Lua message to tea.Msg
-	var teaMsg tea.Msg
-	switch v := msg.(type) {
-	case lua.LString:
-		teaMsg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(string(v))}
-	case *lua.LTable:
-		// Handle more complex messages like key presses
-		if typ := v.RawGetString("type"); typ == lua.LString("key") {
-			key := v.RawGetString("key")
-			if key != lua.LNil {
-				teaMsg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key.String())}
-			}
-		}
+	// Get message table from argument
+	msgValue := l.CheckAny(2)
+	teaMsg, err := FromLua(msgValue)
+	if err != nil {
+		l.RaiseError("failed to convert message: %v", err)
+		return 0
 	}
 
 	// Update model
 	var cmd tea.Cmd
 	ti.model, cmd = ti.model.Update(teaMsg)
 
-	// TODO: Handle command if needed
-	_ = cmd
+	// Return command message if any
+	if cmd != nil {
+		// todo: push cmd upward!
+	}
 
 	return 0
 }
@@ -117,7 +109,9 @@ func textInputView(l *lua.LState) int {
 	if ti == nil {
 		return 0
 	}
+
 	l.Push(lua.LString(ti.model.View()))
+
 	return 1
 }
 
