@@ -11,5 +11,5 @@ options:
   alt_screen: true
   title: "Simple btea App"
 
-modules: [ "time", "btea", "json", "lfs", "env", "websocket" ]
+modules: [ "time", "btea", "json", "lfs", "env", "websocket", "http" ]
 libraries: [ "terminal_ui", "discord_client" ]
