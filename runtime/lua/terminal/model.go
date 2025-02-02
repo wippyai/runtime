@@ -72,7 +72,7 @@ func (m bubbleModel) mapMessage(msg tea.Msg) lua.LValue {
 		return lv
 	}
 	// Otherwise convert using btea
-	return btea.ToLua(msg)
+	return btea.MsgToLua(msg)
 }
 
 func (m bubbleModel) View() string {

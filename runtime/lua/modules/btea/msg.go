@@ -11,7 +11,7 @@ var (
 	staticState = lua.NewState()
 )
 
-func ToLua(msg tea.Msg) lua.LValue {
+func MsgToLua(msg tea.Msg) lua.LValue {
 	tbl := staticState.NewTable()
 	tbl.RawSetString("type", lua.LString("update"))
 
@@ -71,7 +71,7 @@ func ToLua(msg tea.Msg) lua.LValue {
 	return tbl
 }
 
-func FromLua(value lua.LValue) (tea.Msg, error) {
+func LuaToMsg(value lua.LValue) (tea.Msg, error) {
 	if tbl, ok := value.(*lua.LTable); ok {
 		if opaque := tbl.RawGetString("opaque"); opaque != lua.LNil {
 			if ud, ok := opaque.(*lua.LUserData); ok {

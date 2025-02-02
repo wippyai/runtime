@@ -3,9 +3,9 @@ kind: terminal.lua
 meta:
   comment: "Simple btea example"
   groups: [ "apps" ]
-  depends_on: [ "terminal_ui", "discord_client" ]
+  depends_on_groups: [ "libs" ]
 
-source: file://discord.lua
+source: file://btea.lua
 method: App
 
 options:

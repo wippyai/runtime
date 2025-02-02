@@ -182,7 +182,7 @@ func tableUpdate(l *lua.LState) int {
 	}
 
 	msgValue := l.CheckAny(2)
-	teaMsg, err := FromLua(msgValue)
+	teaMsg, err := LuaToMsg(msgValue)
 	if err != nil {
 		l.RaiseError("failed to convert message: %v", err)
 		return 0
