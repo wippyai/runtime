@@ -93,8 +93,12 @@ local function App()
             :render(table.concat(display_content, "\n"))
     end
 
+    local client = nil
+
     -- Create Discord client
-    local client = discord.Client.new(env.get("DISCORD_BOT_TOKEN"))
+    client = discord.Client.new(env.get("DISCORD_BOT_TOKEN"))
+
+    client
         :on("connect", function()
             table.insert(messages, format_message("Connected to Discord gateway", "system"))
             connection_status = "Connected"
@@ -111,7 +115,9 @@ local function App()
             table.insert(messages, format_message("Bot is ready! Logged in as " .. data.user.username, "system"))
             connection_status = "Ready"
 
-            if #data.guilds > 0 then
+            table.insert(messages, format_message("Log info " .. json.encode(data), "system"))
+
+            if data.guilds and #data.guilds > 0 then
                 active_guild = data.guilds[1].id
                 local channels = client:get_channels(active_guild)
                 if channels then

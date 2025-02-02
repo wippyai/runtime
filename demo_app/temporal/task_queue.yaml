@@ -8,7 +8,7 @@ client: "temporal"
 task_queue: "wippy_demos"
 
 lifecycle:
-  auto_start: true
+  auto_start: false
   start_timeout: 5s
   restart:
     initial_delay: 1s

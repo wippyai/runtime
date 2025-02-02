@@ -40,12 +40,17 @@ M.Client = {
             }
 
             local url = DISCORD_API .. endpoint
-            local response = http.send(method, url, {
+
+            local response, err = http.request(method, url, {
                 headers = headers,
                 body = body and json.encode(body) or nil
             })
 
-            if response.status >= 200 and response.status < 300 then
+            if err then
+                return nil, err
+            end
+
+            if response.status_code >= 200 and response.status_code < 300 then
                 return json.decode(response.body), nil
             else
                 return nil, response.body

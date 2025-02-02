@@ -8,5 +8,6 @@ source: file://discord_client.lua
 modules:
   - time
   - json
+  - http
   - btea
   - websocket
