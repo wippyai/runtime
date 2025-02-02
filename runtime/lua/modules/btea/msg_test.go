@@ -52,13 +52,13 @@ func TestKeyMessageConversion(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Convert to Lua
-			luaVal := ToLua(tt.msg)
+			luaVal := MsgToLua(tt.msg)
 			if luaVal.Type() != lua.LTTable {
 				t.Fatalf("expected lua table, got %v", luaVal.Type())
 			}
 
 			// Convert back to KeyMsg
-			msg, err := FromLua(luaVal)
+			msg, err := LuaToMsg(luaVal)
 			if err != nil {
 				t.Fatalf("error converting back: %v", err)
 			}
@@ -134,13 +134,13 @@ func TestMouseMessageConversion(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Convert to Lua
-			luaVal := ToLua(tt.msg)
+			luaVal := MsgToLua(tt.msg)
 			if luaVal.Type() != lua.LTTable {
 				t.Fatalf("expected lua table, got %v", luaVal.Type())
 			}
 
 			// Convert back to MouseMsg
-			msg, err := FromLua(luaVal)
+			msg, err := LuaToMsg(luaVal)
 			if err != nil {
 				t.Fatalf("error converting back: %v", err)
 			}
@@ -198,13 +198,13 @@ func TestWindowSizeMessageConversion(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Convert to Lua
-			luaVal := ToLua(tt.msg)
+			luaVal := MsgToLua(tt.msg)
 			if luaVal.Type() != lua.LTTable {
 				t.Fatalf("expected lua table, got %v", luaVal.Type())
 			}
 
 			// Convert back to WindowSizeMsg
-			msg, err := FromLua(luaVal)
+			msg, err := LuaToMsg(luaVal)
 			if err != nil {
 				t.Fatalf("error converting back: %v", err)
 			}
@@ -231,7 +231,7 @@ func TestOpaqueMessageHandling(t *testing.T) {
 	msg := customMsg{value: "test"}
 
 	// Convert to Lua
-	luaVal := ToLua(msg)
+	luaVal := MsgToLua(msg)
 	if luaVal.Type() != lua.LTTable {
 		t.Fatalf("expected lua table, got %v", luaVal.Type())
 	}
@@ -243,7 +243,7 @@ func TestOpaqueMessageHandling(t *testing.T) {
 	}
 
 	// Convert back
-	result, err := FromLua(luaVal)
+	result, err := LuaToMsg(luaVal)
 	if err != nil {
 		t.Fatalf("error converting back: %v", err)
 	}
