@@ -11,8 +11,8 @@ type Module struct {
 	log *zap.Logger
 }
 
-// New creates a new environment module
-func New(log *zap.Logger) *Module {
+// NewEnvModule creates a new environment module
+func NewEnvModule(log *zap.Logger) *Module {
 	return &Module{
 		log: log,
 	}
