@@ -192,3 +192,47 @@ func TestContexter_Key_String(t *testing.T) {
 		})
 	}
 }
+
+func TestContexter_Iterate(t *testing.T) {
+	t.Run("iterate over string values", func(t *testing.T) {
+		ctx := NewContexter[string]()
+		expected := map[string]string{
+			"key1": "value1",
+			"key2": "value2",
+			"key3": "value3",
+		}
+
+		// Add test values
+		for k, v := range expected {
+			ctx.WithValue(k, v)
+		}
+
+		// Collect values during iteration
+		collected := make(map[string]string)
+		ctx.Iterate(func(key string, value string) {
+			collected[key] = value
+		})
+
+		// Compare maps
+		if len(collected) != len(expected) {
+			t.Errorf("Iterate() collected %d items, want %d", len(collected), len(expected))
+		}
+
+		for k, v := range expected {
+			if collected[k] != v {
+				t.Errorf("Iterate() value for key %s = %v, want %v", k, collected[k], v)
+			}
+		}
+	})
+
+	t.Run("iterate over empty contexter", func(t *testing.T) {
+		ctx := NewContexter[string]()
+		count := 0
+		ctx.Iterate(func(key string, value string) {
+			count++
+		})
+		if count != 0 {
+			t.Errorf("Iterate() called function %d times on empty contexter, want 0", count)
+		}
+	})
+}
