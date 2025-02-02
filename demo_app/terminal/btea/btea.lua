@@ -8,74 +8,110 @@ function App()
     -- Initialize text input
     local input = btea.new_textinput()
     input:placeholder("Type something...")
+    input:set_width(window_width - 8)
     local cmd = input:focus()
     if cmd then
         upstream.send(cmd)
     end
 
-    local ESC = string.char(27)
-    local c = {
-        reset = ESC .. "[0m",
-        bold = ESC .. "[1m",
-        dim = ESC .. "[2m",
-        cyan = ESC .. "[36m",
-        yellow = ESC .. "[33m",
-        magenta = ESC .. "[35m",
-        blue = ESC .. "[34m",
-        green = ESC .. "[32m",
+
+
+    local styles = {
+        box = btea.new_style()
+            :border(btea.borders.ROUNDED)
+            :padding(1, 2)
+            :foreground("#89B4FA")
+            :background("#1E1E2E"), -- Dark background for contrast
+
+        header = btea.new_style()
+            :bold()
+            :foreground("#CBA6F7")
+            :padding(0, 1)
+            :underline(), -- Added underline for better header visibility
+
+        -- Messages styling
+        key = btea.new_style():foreground("#F9E2AF"):bold(),
+        mouse = btea.new_style():foreground("#94E2D5"):bold(),
+        size = btea.new_style():foreground("#A6E3A1"):bold(),
+        tick = btea.new_style():foreground("#89B4FA"),
+        timestamp = btea.new_style():foreground("#6C7086"),
+        command = btea.new_style():foreground("#F38BA8"):italic(),
+
+        -- Input field styling
+        input = btea.new_style()
+            :foreground("#F5C2E7")
+            :background("#313244") -- Subtle background for input area
+            :padding(0, 1)
+            :margin(1, 0)
     }
 
-    local function format_msg(msg)
-        if msg.key then
-            return string.format("KEY %s%s [%s]%s",
-                c.yellow, msg.key.string, msg.key.key_type, c.reset)
-        elseif msg.mouse then
-            return string.format("MOUSE %s%s at %d,%d%s",
-                c.yellow, msg.mouse.action, msg.mouse.x, msg.mouse.y, c.reset)
-        elseif msg.window_size then
-            return string.format("SIZE %s%d×%d%s",
-                c.yellow, msg.window_size.width, msg.window_size.height, c.reset)
-        elseif msg.msg == "tick" then
-            return c.green .. "TICK" .. c.reset
-        else
-            return c.dim .. "UNKNOWN MSG" .. c.reset
-        end
-    end
-
+    -- Update the create_box function for better spacing
     local function create_box(content, input_view)
-        local w = window_width - 4
-        local h = window_height - 2
-        local lines = {
-            "┌" .. string.rep("─", w - 2) .. "┐"
+        local content_width = window_width - 6
+        local header_divider = string.rep("─", content_width)
+
+        local display_content = {
+            styles.header:render("Debug View"),
+            styles.timestamp:render(header_divider),
+            styles.header:render("Recent messages:")
         }
 
-        -- Calculate how many messages we can show
-        local max_visible = h - 7  -- Header + empty line + borders + input
+        -- Calculate visible messages area
+        local max_visible = window_height - 8
         local start_idx = math.max(1, #content - max_visible)
 
+        -- Add spacing before messages
+        table.insert(display_content, "")
+
+        -- Add messages with improved formatting
         for i = start_idx, #content do
             local line = content[i]
-            if #line > w - 4 then
-                line = line:sub(1, w - 7) .. "..."
+            if #line > content_width then
+                line = line:sub(1, content_width - 3) .. "..."
             end
-            line = line .. string.rep(" ", w - #line - 3)
-            table.insert(lines, "│ " .. line .. "│")
+            table.insert(display_content, " " .. line)
         end
 
-        -- Fill remaining space with empty lines
-        while #lines < h - 1 do
-            table.insert(lines, "│" .. string.rep(" ", w - 2) .. "│")
-        end
+        -- Add input field with better visual separation
+        table.insert(display_content, "")
+        table.insert(display_content, styles.input:render(input_view or ""))
 
-        -- Add input line
-        local input_line = "│ " .. input_view
-        input_line = input_line .. string.rep(" ", w - #input_line - 1) .. "│"
-        table.insert(lines, input_line)
-
-        table.insert(lines, "└" .. string.rep("─", w - 2) .. "┘")
-        return table.concat(lines, "\n")
+        return styles.box
+            :width(window_width - 2)
+            :height(window_height - 2)
+            :render(table.concat(display_content, "\n"))
     end
 
+    local function format_msg(msg)
+        if not msg then return styles.command:render("INVALID MSG") end
+
+        if msg.key then
+            return styles.key:render(string.format(
+                "KEY %s [%s]",
+                msg.key.string or "",
+                msg.key.key_type or "unknown"
+            ))
+        elseif msg.mouse then
+            return styles.mouse:render(string.format(
+                "MOUSE %s at %d,%d",
+                msg.mouse.action or "unknown",
+                msg.mouse.x or 0,
+                msg.mouse.y or 0
+            ))
+        elseif msg.window_size then
+            return styles.size:render(string.format(
+                "SIZE %d×%d",
+                msg.window_size.width or 80,
+                msg.window_size.height or 24
+            ))
+        elseif msg.msg == "tick" then
+            return styles.tick:render("TICK")
+        else
+            return styles.command:render("UNKNOWN MSG")
+        end
+    end
+
+    -- Start ticker
     coroutine.spawn(function()
         local ticker = time.ticker("1s")
         while true do
@@ -97,12 +133,12 @@ function App()
 
         local msg = task:input()
 
-        if msg.type == "update" then
-            -- Update window size if we get that message
-            if msg.window_size then
-                window_width = msg.window_size.width
-                window_height = msg.window_size.height
-                input:set_width(window_width - 6)  -- Adjust input width
+        if type(msg) == "table" and msg.type == "update" then
+            -- Update window size if message is valid
+            if msg.window_size and type(msg.window_size) == "table" then
+                window_width = msg.window_size.width or window_width
+                window_height = msg.window_size.height or window_height
+                input:set_width(window_width - 10)
             end
 
             -- Update text input
@@ -111,39 +147,25 @@ function App()
                 task:complete(cmd)
             else
                 local now = time.now()
-                local formatted = string.format("%s%s%s %s",
-                    c.dim,
-                    now:format("15:04:05"),
-                    c.reset,
+                local formatted = string.format("%s %s",
+                    styles.timestamp:render(now:format("15:04:05")),
                     format_msg(msg)
                 )
 
                 if msg.key and msg.key.key_type == "enter" then
-                    -- Add input value to operations when Enter is pressed
                     local value = input:value()
                     if value ~= "" then
-                        table.insert(operations, c.cyan .. "INPUT: " .. value .. c.reset)
+                        table.insert(operations,
+                            styles.command:render("INPUT: " .. value)
+                        )
                         input:set_value("")
                     end
                 end
                 table.insert(operations, formatted)
                 task:complete("ok")
             end
-        elseif msg.type == "view" then
-            local content = {
-                c.bold .. "Debug View" .. c.reset,
-                "",
-                "Recent messages:",
-                ""
-            }
-
-            local max_ops = window_height - 12
-            local start_idx = math.max(1, #operations - max_ops)
-            for i = start_idx, #operations do
-                table.insert(content, operations[i])
-            end
-
-            task:complete(create_box(content, input:view()))
+        elseif type(msg) == "table" and msg.type == "view" then
+            task:complete(create_box(operations, input:view()))
         else
             task:complete("ok")
         end

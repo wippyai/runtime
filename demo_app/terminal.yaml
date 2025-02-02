@@ -3,9 +3,9 @@ kind: terminal.service
 meta:
   comment: "Default terminal service."
   depends_on:
-    - "btea.terminal"
+    - "chat.terminal"
 
-target: "btea.terminal"
+target: "chat.terminal"
 hide_logs: true
 
 lifecycle:
