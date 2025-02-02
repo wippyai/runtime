@@ -28,6 +28,7 @@ func RegisterStyle(l *lua.LState, mod *lua.LTable) {
 		"padding":       stylePadding,
 		"margin":        styleMargin,
 		"border":        styleBorder,
+		"custom_border": styleCustomBorder,
 		"width":         styleWidth,
 		"height":        styleHeight,
 		"align":         styleAlign,
@@ -207,9 +208,9 @@ func styleMargin(l *lua.LState) int {
 
 func styleBorder(l *lua.LState) int {
 	s := checkStyle(l)
-	style := l.CheckString(2)
+	styleStr := l.CheckString(2)
 	var border lipgloss.Border
-	switch style {
+	switch styleStr {
 	case "normal":
 		border = lipgloss.NormalBorder()
 	case "rounded":
@@ -222,6 +223,46 @@ func styleBorder(l *lua.LState) int {
 		border = lipgloss.NormalBorder()
 	}
 	newStyle := &Style{style: s.style.Copy().Border(border)}
+	ud := l.NewUserData()
+	ud.Value = newStyle
+	l.SetMetatable(ud, l.GetTypeMetatable("btea.Style"))
+	l.Push(ud)
+	return 1
+}
+
+// styleCustomBorder allows the user to specify a custom border via a Lua table.
+// Expected keys (all optional) are: top, bottom, left, right, topleft, topright, bottomleft, bottomright.
+func styleCustomBorder(l *lua.LState) int {
+	s := checkStyle(l)
+	borderTbl := l.CheckTable(2)
+
+	var b lipgloss.Border
+
+	// Optional keys: "top", "bottom", "left", "right", "topleft", "topright", "bottomleft", "bottomright"
+	borderTbl.ForEach(func(key, value lua.LValue) {
+		keyStr := lua.LVAsString(key)
+		valStr := lua.LVAsString(value)
+		switch keyStr {
+		case "top":
+			b.Top = valStr
+		case "bottom":
+			b.Bottom = valStr
+		case "left":
+			b.Left = valStr
+		case "right":
+			b.Right = valStr
+		case "top_left":
+			b.TopLeft = valStr
+		case "top_right":
+			b.TopRight = valStr
+		case "bottom_left":
+			b.BottomLeft = valStr
+		case "bottom_right":
+			b.BottomRight = valStr
+		}
+	})
+
+	newStyle := &Style{style: s.style.Copy().Border(b)}
 	ud := l.NewUserData()
 	ud.Value = newStyle
 	l.SetMetatable(ud, l.GetTypeMetatable("btea.Style"))
