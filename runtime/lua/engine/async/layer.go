@@ -28,7 +28,7 @@ func getContext(ctx context.Context) (*engine.TaskGroup, chan async, error) {
 		return nil, nil, errors.New("cannot send from non-task context")
 	}
 
-	if ch, ok := ctx.Value(capi.ScheduleKeyCtx).(chan async); ok {
+	if ch, ok := ctx.Value(capi.AsyncCtx).(chan async); ok {
 		return tg, ch, nil
 	}
 
@@ -78,7 +78,7 @@ func NewAsyncLayer(channels *channel.Layer, chanSize int) *Layer {
 // WithContext creates a new context containing the async scheduling channel.
 // This allows the Send function to access the scheduling channel through context.
 func (r *Layer) WithContext(ctx context.Context) context.Context {
-	return context.WithValue(ctx, capi.ScheduleKeyCtx, r.schedule)
+	return context.WithValue(ctx, capi.AsyncCtx, r.schedule)
 }
 
 // Step implements the engine.Layer interface by processing scheduled async

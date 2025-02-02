@@ -30,12 +30,12 @@ func NewTaskGroup(size int) *TaskGroup {
 
 // WithTaskGroup attaches a task group to the context
 func WithTaskGroup(ctx context.Context, group *TaskGroup) context.Context {
-	return context.WithValue(ctx, capi.TaskGroupKeyCtx, group)
+	return context.WithValue(ctx, capi.RunnerCtx, group)
 }
 
 // GetTaskGroup retrieves the TaskGroup from a context
 func GetTaskGroup(ctx context.Context) *TaskGroup {
-	if group, ok := ctx.Value(capi.TaskGroupKeyCtx).(*TaskGroup); ok {
+	if group, ok := ctx.Value(capi.RunnerCtx).(*TaskGroup); ok {
 		return group
 	}
 	return nil
