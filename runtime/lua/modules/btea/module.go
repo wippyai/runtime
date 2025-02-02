@@ -26,6 +26,8 @@ func (m *Module) Loader(l *lua.LState) int {
 	mod := l.NewTable()
 
 	RegisterTextInput(l, mod)
+	RegisterStyle(l, mod)
+	RegisterTable(l, mod)
 
 	// Set the module
 	l.Push(mod)

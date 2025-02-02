@@ -5,4 +5,4 @@ meta:
   version: "0.1.0"
 
 source: file://chat_components.lua
-modules: [ "time", "json", "http" ]
+modules: [ "time", "json", "http", "btea" ]
