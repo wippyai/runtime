@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea"
 	"github.com/ponyruntime/pony/runtime/lua/modules/env"
+	"github.com/ponyruntime/pony/runtime/lua/modules/lfs"
 	tempmod "github.com/ponyruntime/pony/runtime/lua/modules/temporal"
 	"github.com/ponyruntime/pony/runtime/lua/modules/websocket"
 	"github.com/ponyruntime/pony/runtime/workflow"
@@ -146,6 +147,7 @@ func main() {
 		logglib.NewLoggerModule(log.Named("app")),
 		b64mlib.NewBase64Module(),
 		jsonlib.NewJSONModule(),
+		lfs.NewLFSModule(),
 		env.NewEnvModule(log.Named("env")),
 		httplib.NewHTTPModule(log.Named("http"), httpbase.DefaultClient),
 		websocket.NewWebSocketModule(log.Named("websocket")),

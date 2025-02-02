@@ -1,0 +1,12 @@
+name: discord_client
+kind: library.lua
+meta:
+  comment: "discord_client"
+  version: "0.1.0"
+
+source: file://discord_client.lua
+modules:
+  - time
+  - json
+  - btea
+  - websocket

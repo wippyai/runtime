@@ -2,13 +2,14 @@ name: btea.terminal
 kind: terminal.lua
 meta:
   comment: "Simple btea example"
+  depends_on: [ "terminal_ui", "discord_client" ]
 
-source: file://btea.lua
+source: file://discord.lua
 method: App
 
 options:
   alt_screen: true
   title: "Simple btea App"
 
-modules: [ "time", "btea" ]
-libraries: [ ]
+modules: [ "time", "btea", "json", "lfs", "env", "websocket" ]
+libraries: [ "terminal_ui", "discord_client" ]

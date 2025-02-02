@@ -73,11 +73,12 @@ func (t *LuaTerminal) Run(ctx context.Context, in io.Reader, out io.Writer) erro
 		model,
 		tea.WithInput(in),
 		tea.WithOutput(out),
-		tea.WithMouseCellMotion(), // Enable mouse movement
-		tea.WithMouseAllMotion(),  // Enable high resolution mouse movement
-		//tea.WithAltScreen(),       // Use alternate screen
 
+		//tea.WithMouseCellMotion(), // Enable mouse movement
+		//tea.WithMouseAllMotion(),  // Enable high resolution mouse movement
+		//tea.WithAltScreen(),       // Use alternate screen
 		//	tea.WithAltScreen(),
+
 	)
 
 	// Handle context cancellation
