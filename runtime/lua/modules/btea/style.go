@@ -231,14 +231,14 @@ func styleBorder(l *lua.LState) int {
 }
 
 // styleCustomBorder allows the user to specify a custom border via a Lua table.
-// Expected keys (all optional) are: top, bottom, left, right, topleft, topright, bottomleft, bottomright.
+// Expected keys (all optional) are: top, bottom, left, right, top_left, top_right, bottom_left, bottom_right.
 func styleCustomBorder(l *lua.LState) int {
 	s := checkStyle(l)
 	borderTbl := l.CheckTable(2)
 
 	var b lipgloss.Border
 
-	// Optional keys: "top", "bottom", "left", "right", "topleft", "topright", "bottomleft", "bottomright"
+	// Optional keys: "top", "bottom", "left", "right", "top_left", "top_right", "bottom_left", "bottom_right"
 	borderTbl.ForEach(func(key, value lua.LValue) {
 		keyStr := lua.LVAsString(key)
 		valStr := lua.LVAsString(value)
