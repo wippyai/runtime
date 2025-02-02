@@ -2,7 +2,7 @@ package terminal
 
 import (
 	"context"
-	"fmt"
+	"github.com/ponyruntime/pony/runtime/lua/modules/btea"
 	"io"
 	"time"
 
@@ -67,23 +67,12 @@ func (m bubbleModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m bubbleModel) mapMessage(msg tea.Msg) lua.LValue {
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		return transcode.GoToLua(map[string]any{
-			"type": "update",
-			"key": map[string]any{
-				"Type":   msg.Type.String(),
-				"String": msg.String(),
-				"Alt":    msg.Alt,
-				"Runes":  string(msg.Runes),
-			},
-		})
-	default:
-		return transcode.GoToLua(map[string]any{
-			"type": "update",
-			"msg":  fmt.Sprintf("%v", msg),
-		})
+	// If it's already LValue, pass through
+	if lv, ok := msg.(lua.LValue); ok {
+		return lv
 	}
+	// Otherwise convert using btea
+	return btea.ToLua(msg)
 }
 
 func (m bubbleModel) View() string {
