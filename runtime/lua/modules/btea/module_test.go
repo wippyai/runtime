@@ -19,7 +19,7 @@ func TestBteaModule(t *testing.T) {
 
 		err = vm.DoString(nil, `
 			local btea = require("btea")
-			assert(type(btea) == "table", "btea module should be a table")
+			assert(type(btea) == "table", "btea module should be a table")	
 		`, "test_load")
 		require.NoError(t, err)
 	})
