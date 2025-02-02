@@ -13,8 +13,3 @@ options:
 
 libraries: [ "chat_components" ]
 modules: ["time"]
-
-lifecycle:
-  auto_start: true
-  startup_timeout: "5s"
-  shutdown_timeout: "3s"

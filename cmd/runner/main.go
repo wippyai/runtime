@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"github.com/ponyruntime/pony/runtime/lua/modules/btea"
 	"github.com/ponyruntime/pony/runtime/lua/modules/env"
 	tempmod "github.com/ponyruntime/pony/runtime/lua/modules/temporal"
 	"github.com/ponyruntime/pony/runtime/lua/modules/websocket"
@@ -146,11 +147,12 @@ func main() {
 		b64mlib.NewBase64Module(),
 		jsonlib.NewJSONModule(),
 		env.NewEnvModule(log.Named("env")),
-		httplib.NewHTTPModule(httpbase.DefaultClient, log.Named("http")),
+		httplib.NewHTTPModule(log.Named("http"), httpbase.DefaultClient),
 		websocket.NewWebSocketModule(log.Named("websocket")),
 		httpctx.NewHTTPContextModule(log.Named("http")),
 		tsitter.NewTreeSitterModule(log.Named("treesitter")),
 		tempmod.NewTemporalModule(log.Named("temporal")),
+		btea.NewBteaModule(log.Named("btea")),
 	)
 	// -- end of lua lang and modules
 
