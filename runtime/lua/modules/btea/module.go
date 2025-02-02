@@ -25,10 +25,7 @@ func (m *Module) Loader(l *lua.LState) int {
 	// Create main module table
 	mod := l.NewTable()
 
-	// Register module functions
-	l.SetFuncs(mod, map[string]lua.LGFunction{
-		// We'll add functions here later
-	})
+	RegisterTextInput(l, mod)
 
 	// Set the module
 	l.Push(mod)

@@ -10,5 +10,5 @@ options:
   alt_screen: true
   title: "Simple btea App"
 
-modules: [ "time","btea" ]
+modules: [ "time", "btea" ]
 libraries: [ ]
