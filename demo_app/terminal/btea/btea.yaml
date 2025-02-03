@@ -5,7 +5,7 @@ meta:
   groups: [ "apps" ]
   depends_on_groups: [ "libs" ]
 
-source: file://btea.lua
+source: file://move.lua
 method: App
 
 options:

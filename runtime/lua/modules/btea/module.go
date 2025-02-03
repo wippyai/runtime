@@ -26,8 +26,16 @@ func (m *Module) Loader(l *lua.LState) int {
 	mod := l.NewTable()
 
 	RegisterCmd(l, mod)
-	RegisterTextInput(l, mod)
+	RegisterTextUtils(l, mod)
+	RegisterBinding(l, mod)
+
+	// styling
 	RegisterStyle(l, mod)
+
+	// editable elements
+	RegisterTextInput(l, mod)
+
+	// extended visuals
 	RegisterTable(l, mod)
 	RegisterTree(l, mod)
 
