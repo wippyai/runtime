@@ -1,4 +1,4 @@
-package component
+package btea
 
 import (
 	"github.com/charmbracelet/bubbles/table"
@@ -156,17 +156,17 @@ func tableSetStyles(l *lua.LState) int {
 
 	if s := stylesTable.RawGetString("selected"); s != lua.LNil {
 		if style, ok := s.(*lua.LUserData).Value.(*Style); ok {
-			styles.Selected = style.style
+			styles.Selected = style.Style
 		}
 	}
 	if s := stylesTable.RawGetString("header"); s != lua.LNil {
 		if style, ok := s.(*lua.LUserData).Value.(*Style); ok {
-			styles.Header = style.style
+			styles.Header = style.Style
 		}
 	}
 	if s := stylesTable.RawGetString("cell"); s != lua.LNil {
 		if style, ok := s.(*lua.LUserData).Value.(*Style); ok {
-			styles.Cell = style.style
+			styles.Cell = style.Style
 		}
 	}
 

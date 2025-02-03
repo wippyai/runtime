@@ -121,11 +121,11 @@ func RegisterTextUtils(l *lua.LState, mod *lua.LTable) {
 		unmatched, ok2 := l.CheckUserData(4).Value.(*Style)
 
 		if !ok1 || !ok2 {
-			l.ArgError(3, "style expected for matched and unmatched parameters")
+			l.ArgError(3, "Style expected for matched and unmatched parameters")
 			return 0
 		}
 
-		result := lipgloss.StyleRunes(str, indices, matched.style, unmatched.style)
+		result := lipgloss.StyleRunes(str, indices, matched.Style, unmatched.Style)
 		l.Push(lua.LString(result))
 		return 1
 	}))
