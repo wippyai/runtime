@@ -5,7 +5,7 @@ meta:
   groups: [ "apps" ]
   depends_on_groups: [ "libs" ]
 
-source: file://text_input.lua
+source: file://help.lua
 method: App
 
 options:
