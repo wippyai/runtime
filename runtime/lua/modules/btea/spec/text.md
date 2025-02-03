@@ -161,6 +161,39 @@ local result = btea.text.style_runes(
     - Invalid style objects will raise type errors
     - Nil style objects are not allowed
 
+## Text Sanitization
+
+### Sanitize Control Characters
+
+```lua
+local clean = btea.text.sanitize_runes(str [, newline_repl [, tab_repl]])
+```
+
+Processes input string to handle control characters:
+- Removes invalid UTF-8 sequences
+- Removes control characters
+- Optionally replaces newlines and tabs with custom strings
+- Preserves all other valid characters
+
+Parameters:
+- `str`: Input string to sanitize
+- `newline_repl`: (optional) String to replace newlines with, defaults to "\n"
+- `tab_repl`: (optional) String to replace tabs with, defaults to 4 spaces
+
+Example:
+
+```lua
+-- Basic usage - remove control chars
+local text = btea.text.sanitize_runes("some\x00text\nwith\tcontrol\rchars")
+
+-- Custom replacements
+local html = btea.text.sanitize_runes(
+    "Line 1\nLine 2\tIndented",
+    "<br>",     -- Replace newlines with HTML breaks
+    "&nbsp;&nbsp;"  -- Replace tabs with HTML spaces
+)
+```
+
 ## Example Usage
 
 ### Complex Text Layout

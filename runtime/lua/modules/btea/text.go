@@ -1,6 +1,7 @@
 package btea
 
 import (
+	"github.com/charmbracelet/bubbles/runeutil"
 	"github.com/charmbracelet/lipgloss"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -127,6 +128,28 @@ func RegisterTextUtils(l *lua.LState, mod *lua.LTable) {
 
 		result := lipgloss.StyleRunes(str, indices, matched.Style, unmatched.Style)
 		l.Push(lua.LString(result))
+		return 1
+	}))
+
+	l.SetField(utilsTbl, "sanitize_runes", l.NewFunction(func(l *lua.LState) int {
+		str := l.CheckString(1)
+		nlRepl := "\n"
+		tabRepl := "    "
+
+		if l.GetTop() > 1 {
+			nlRepl = l.OptString(2, "\n")
+		}
+		if l.GetTop() > 2 {
+			tabRepl = l.OptString(3, "    ")
+		}
+
+		sanitizer := runeutil.NewSanitizer(
+			runeutil.ReplaceNewlines(nlRepl),
+			runeutil.ReplaceTabs(tabRepl),
+		)
+
+		result := sanitizer.Sanitize([]rune(str))
+		l.Push(lua.LString(string(result)))
 		return 1
 	}))
 
