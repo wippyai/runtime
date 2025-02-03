@@ -99,9 +99,7 @@ function App()
                 local cmd = result.value
                 if cmd then
                     local msg = cmd:execute()
-                    if msg then
-                        upstream.send(msg)
-                    end
+                    if msg then upstream.send(msg) end
                 end
             end
         end
