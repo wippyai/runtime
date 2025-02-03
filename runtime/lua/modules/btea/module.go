@@ -34,6 +34,8 @@ func (m *Module) Loader(l *lua.LState) int {
 	RegisterTextInput(l, mod)
 	RegisterSpinner(l, mod)
 	RegisterProgress(l, mod)
+	RegisterViewport(l, mod)
+	RegisterHelp(l, mod)
 
 	// extended visuals
 	RegisterTable(l, mod)

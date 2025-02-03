@@ -17,6 +17,10 @@ type TextInput struct {
 	luaState *lua.LState    // Keep reference to Lua state for validation
 }
 
+func (ti *TextInput) Model() textinput.Model {
+	return ti.model
+}
+
 const (
 	EchoNormal   = "normal"
 	EchoPassword = "password"
