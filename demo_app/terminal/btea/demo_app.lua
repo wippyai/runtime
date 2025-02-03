@@ -39,7 +39,7 @@ function App()
 
     -- Initialize tabs
     app.tabs = bapp.create_tabs({
-        titles = {"Home", "Profile", "Settings", "Help"},
+        titles = { "Home", "Profile", "Settings", "Help" },
         content = {
             "Welcome to the Home tab!\nThis is a demo of the tab system.",
             "This is your Profile tab.\nHere you can see your information.",

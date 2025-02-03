@@ -1,63 +1,101 @@
+local bapp = require("base_app")
+
 function App()
-    local inbox = tasks.channel()
-    local window_width = 80
-    local window_height = 24
+    local app = bapp.new()
 
-    -- Initialize table with columns
-    local table = btea.new_table({
-        {title = "ID", width = 6},
-        {title = "Name", width = 20},
-        {title = "Email", width = 30},
-        {title = "Status", width = 15}
-    }, {
-        height = window_height - 4,
-        width = window_width - 4,
-        focused = true
+    -- Define colors
+    local colors = {
+        highlight   = "#7D56F4",
+        active_fg   = "#89B4FA",
+        inactive_fg = "#6C7086",
+        bg          = "#1E1E2E"
+    }
+
+    -- Create the table widget with columns and rows.
+    local tablewidget = btea.new_table {
+        cols = {
+            { title = "ID",   width = 5 },
+            { title = "Name", width = 20 },
+            { title = "Role", width = 15 }
+        },
+        rows = {
+            { "1",  "Alice", "Developer" },
+            { "2",  "Bob",   "Designer" },
+            { "3",  "Carol", "Manager" },
+            { "4",  "Dave",  "Tester" },
+            { "5",  "Eve",   "DevOps" },
+            { "6",  "Frank", "Support" },
+            { "7",  "Grace", "HR" },
+            { "8",  "Heidi", "QA" },
+            { "9",  "Ivan",  "Engineer" },
+            { "10", "Judy",  "Product" }
+        },
+        width = 50,
+        height = 10,
+        focused = true,
+        styles = {
+            header   = btea.new_style()
+                :bold()
+                :padding(0, 1)
+                :foreground("#FFFFFF")
+                :background(colors.highlight),
+            selected = btea.new_style()
+                :bold(true)
+                :foreground(colors.active_fg)
+                :background("#2E2E3E")
+        }
+    }
+
+    -- Assign the table widget to the app.
+    app.tablewidget = tablewidget
+
+    -- Setup key bindings using the base app helper.
+    app.keys = bapp.create_keys({
+        quit     = { "q", "ctrl+c" },
+        up       = { "up", "k" },
+        down     = { "down", "j" },
+        pageup   = { "pgup", "b" },
+        pagedown = { "pgdown", " " }
     })
 
-    -- Set some sample data
-    table:set_rows({
-        {"1", "John Smith", "john@example.com", "Active"},
-        {"2", "Jane Doe", "jane@example.com", "Inactive"},
-        {"3", "Bob Wilson", "bob@example.com", "Active"},
-        {"4", "Alice Brown", "alice@example.com", "Pending"},
-        {"5", "Charlie Davis", "charlie@example.com", "Active"},
-    })
+    -- Ensure the app has a command channel for propagating widget commands.
+    app.cmd_channel = app.cmd_channel or channel.new(128)
 
-    -- Set styles for the table
-    table:set_styles({
-        selected = btea.new_style():foreground("#ffd700"):bold(),
-        header = btea.new_style():foreground("#00ff00"):bold():underline(),
-        cell = btea.new_style():foreground("#ffffff")
-    })
-
-    while true do
-        local task, ok = inbox:receive()
-        if not ok then
-            break
-        end
-
-        local msg = task:input()
-
-        if type(msg) == "table" then
-            if msg.type == "update" then
-                -- Handle window resize
-                if msg.window_size then
-                    window_width = msg.window_size.width
-                    window_height = msg.window_size.height
-                    table:set_width(window_width - 4)
-                    table:set_height(window_height - 4)
-                end
-
-                -- Update table with any input (keyboard/mouse)
-                table:update(msg)
-                task:complete("ok")
-            elseif msg.type == "view" then
-                -- Render the table
-                task:complete(table:view())
+    -- Update function: process input messages and propagate any commands.
+    local function update(self, msg)
+        if msg.key then
+            if self.keys.quit:matches(msg) then
+                return true -- Signal to quit the app.
+            elseif self.keys.up:matches(msg) then
+                local cmd = self.tablewidget:move_up(1)
+                if cmd then self.cmd_channel:send(cmd) end
+            elseif self.keys.down:matches(msg) then
+                local cmd = self.tablewidget:move_down(1)
+                if cmd then self.cmd_channel:send(cmd) end
+            elseif self.keys.pageup:matches(msg) then
+                local cmd = self.tablewidget:page_up()
+                if cmd then self.cmd_channel:send(cmd) end
+            elseif self.keys.pagedown:matches(msg) then
+                local cmd = self.tablewidget:page_down()
+                if cmd then self.cmd_channel:send(cmd) end
             end
         end
+
+        local cmd = self.tablewidget:update(msg)
+        if cmd then
+            self.cmd_channel:send(cmd)
+        end
+
+        return false
     end
+
+    -- View function: return the table's rendered view.
+    local function view(self)
+        return self.tablewidget:view()
+    end
+
+    -- Run the app. This call starts the main loop and processes input.
+    app:run(update, view)
 end
 
 return App
