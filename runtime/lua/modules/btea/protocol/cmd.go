@@ -1,4 +1,4 @@
-package btea
+package protocol
 
 import (
 	tea "github.com/charmbracelet/bubbletea"
