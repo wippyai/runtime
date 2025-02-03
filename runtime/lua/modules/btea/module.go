@@ -35,6 +35,7 @@ func (m *Module) Loader(l *lua.LState) int {
 	// Styling
 	render.RegisterTextUtils(l, mod)
 	render.RegisterStyle(l, mod)
+	render.RegisterZone(l, mod)
 
 	// editable elements
 	models.RegisterTextInput(l, mod)

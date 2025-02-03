@@ -1,4 +1,3 @@
-```markdown
 # Lip Gloss Style Binding in Lua
 
 ## Overview
@@ -146,10 +145,10 @@ individual border segments (all keys are optional):
 - `bottom`
 - `left`
 - `right`
-- `topleft`
-- `topright`
-- `bottomleft`
-- `bottomright`
+- `top_left`
+- `top_right`
+- `bottom_left`
+- `bottom_right`
 
 ```lua
 local custom = {

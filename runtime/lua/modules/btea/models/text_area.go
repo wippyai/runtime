@@ -17,6 +17,20 @@ type TextArea struct {
 	model textarea.Model
 }
 
+func (t *TextArea) Init() tea.Cmd {
+	return t.Init()
+}
+
+func (t *TextArea) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	t.model, cmd = t.model.Update(msg)
+	return t, cmd
+}
+
+func (t *TextArea) View() string {
+	return t.View()
+}
+
 // RegisterTextArea registers the text area component to Lua.
 func RegisterTextArea(l *lua.LState, mod *lua.LTable) {
 	mt := l.NewTypeMetatable("btea.TextArea")

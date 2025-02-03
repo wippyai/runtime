@@ -14,6 +14,20 @@ type Help struct {
 	model help.Model
 }
 
+func (h *Help) Init() tea.Cmd {
+	return nil
+}
+
+func (h *Help) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	h.model, cmd = h.model.Update(msg)
+	return h, cmd
+}
+
+func (h *Help) View() string {
+	return ""
+}
+
 // luaKeyMap implements help.KeyMap interface for Lua tables
 type luaKeyMap struct {
 	l        *lua.LState

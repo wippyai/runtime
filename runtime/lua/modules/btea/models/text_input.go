@@ -19,8 +19,18 @@ type TextInput struct {
 	luaState *lua.LState    // Keep reference to Lua state for validation
 }
 
-func (ti *TextInput) Model() textinput.Model {
-	return ti.model
+func (ti *TextInput) Init() tea.Cmd {
+	return ti.Init()
+}
+
+func (ti *TextInput) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	ti.model, cmd = ti.model.Update(msg)
+	return ti, cmd
+}
+
+func (ti *TextInput) View() string {
+	return ti.View()
 }
 
 const (
