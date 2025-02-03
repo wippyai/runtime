@@ -1,4 +1,4 @@
-package component
+package btea
 
 import (
 	"github.com/charmbracelet/lipgloss/tree"
@@ -117,7 +117,7 @@ func treeEnumeratorStyle(l *lua.LState) int {
 	}
 
 	if ud, ok := l.CheckUserData(2).Value.(*Style); ok {
-		t.model.EnumeratorStyle(ud.style)
+		t.model.EnumeratorStyle(ud.Style)
 	}
 
 	l.Push(l.ToUserData(1)) // Return self for chaining
@@ -131,7 +131,7 @@ func treeItemStyle(l *lua.LState) int {
 	}
 
 	if ud, ok := l.CheckUserData(2).Value.(*Style); ok {
-		t.model.ItemStyle(ud.style)
+		t.model.ItemStyle(ud.Style)
 	}
 
 	l.Push(l.ToUserData(1)) // Return self for chaining
@@ -145,7 +145,7 @@ func treeRootStyle(l *lua.LState) int {
 	}
 
 	if ud, ok := l.CheckUserData(2).Value.(*Style); ok {
-		t.model.RootStyle(ud.style)
+		t.model.RootStyle(ud.Style)
 	}
 
 	l.Push(l.ToUserData(1)) // Return self for chaining
