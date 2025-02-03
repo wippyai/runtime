@@ -20,8 +20,9 @@ func RegisterCmd(l *lua.LState, mod *lua.LTable) {
 		"execute": cmdExecute,
 	}))
 
-	// Register batch function
+	// Register batch and sequence functions
 	l.SetField(mod, "batch", l.NewFunction(cmdBatch))
+	l.SetField(mod, "sequence", l.NewFunction(cmdSequence))
 }
 
 // newCmdWrapper creates a new command wrapper
@@ -32,7 +33,7 @@ func newCmdWrapper(l *lua.LState, cmd tea.Cmd) *lua.LUserData {
 	return ud
 }
 
-// cmdExecute executes the wrapped command in a coroutine
+// cmdExecute executes the wrapped command
 func cmdExecute(l *lua.LState) int {
 	ud := l.CheckUserData(1)
 	wrapper, ok := ud.Value.(*CmdWrapper)
@@ -51,7 +52,7 @@ func cmdExecute(l *lua.LState) int {
 		return engine.NewResult(nil, []lua.LValue{MsgToLua(msg)}, nil)
 	})
 
-	return -1 // Special return value that triggers Lua yield
+	return -1 // Yield
 }
 
 // cmdBatch creates a batch of commands that execute in parallel
@@ -77,5 +78,31 @@ func cmdBatch(l *lua.LState) int {
 
 	// Return a wrapped batch command
 	l.Push(newCmdWrapper(l, batchCmd))
+	return 1
+}
+
+// cmdSequence creates a sequence of commands that execute in order
+func cmdSequence(l *lua.LState) int {
+	tbl := l.CheckTable(1)
+	cmds := make([]tea.Cmd, 0)
+
+	// Collect commands from table
+	tbl.ForEach(func(_ lua.LValue, value lua.LValue) {
+		if ud, ok := value.(*lua.LUserData); ok {
+			if wrapper, ok := ud.Value.(*CmdWrapper); ok && wrapper.cmd != nil {
+				cmds = append(cmds, wrapper.cmd)
+			}
+		}
+	})
+
+	if len(cmds) == 0 {
+		return 0
+	}
+
+	// Create a sequence command
+	seqCmd := tea.Sequence(cmds...)
+
+	// Return a wrapped sequence command
+	l.Push(newCmdWrapper(l, seqCmd))
 	return 1
 }
