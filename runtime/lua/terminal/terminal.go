@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/ponyruntime/pony/runtime/lua/modules/btea"
+	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
 	"io"
 	"sync/atomic"
 
@@ -97,7 +97,7 @@ func (t *LuaTerminal) Run(ctx context.Context, in io.Reader, out io.Writer) erro
 					continue
 				}
 
-				msg, err := btea.LuaToMsg(msgLua.(*lua.LTable))
+				msg, err := protocol.LuaToMsg(msgLua.(*lua.LTable))
 				if err != nil {
 					t.log.Error("failed to convert upstream message", zap.Error(err))
 					continue
