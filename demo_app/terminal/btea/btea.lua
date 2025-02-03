@@ -154,7 +154,10 @@ function App()
             -- Update text input synchronously
             local cmd = input:update(msg)
             if cmd then
-                cmd_channel:send(cmd) -- Send command to processor
+                local batch = btea.sequence { cmd }
+                cmd_channel:send(batch)
+
+                --cmd_channel:send(cmd) -- Send command to processor
             end
 
             local now = time.now()

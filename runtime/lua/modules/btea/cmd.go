@@ -23,6 +23,62 @@ func RegisterCmd(l *lua.LState, mod *lua.LTable) {
 	// Register batch and sequence functions
 	l.SetField(mod, "batch", l.NewFunction(cmdBatch))
 	l.SetField(mod, "sequence", l.NewFunction(cmdSequence))
+
+	// Register standard commands table
+	cmdsTbl := l.NewTable()
+
+	// Screen management commands
+	l.SetField(cmdsTbl, "clear_screen", newCmdWrapper(l, func() tea.Msg {
+		return tea.ClearScreen()
+	}))
+	l.SetField(cmdsTbl, "enter_alt_screen", newCmdWrapper(l, func() tea.Msg {
+		return tea.EnterAltScreen()
+	}))
+	l.SetField(cmdsTbl, "exit_alt_screen", newCmdWrapper(l, func() tea.Msg {
+		return tea.ExitAltScreen()
+	}))
+
+	// Mouse control commands
+	l.SetField(cmdsTbl, "enable_mouse_cell_motion", newCmdWrapper(l, func() tea.Msg {
+		return tea.EnableMouseCellMotion()
+	}))
+	l.SetField(cmdsTbl, "enable_mouse_all_motion", newCmdWrapper(l, func() tea.Msg {
+		return tea.EnableMouseAllMotion()
+	}))
+	l.SetField(cmdsTbl, "disable_mouse", newCmdWrapper(l, func() tea.Msg {
+		return tea.DisableMouse()
+	}))
+
+	// Cursor control commands
+	l.SetField(cmdsTbl, "hide_cursor", newCmdWrapper(l, func() tea.Msg {
+		return tea.HideCursor()
+	}))
+	l.SetField(cmdsTbl, "show_cursor", newCmdWrapper(l, func() tea.Msg {
+		return tea.ShowCursor()
+	}))
+
+	// Paste mode commands
+	l.SetField(cmdsTbl, "enable_bracketed_paste", newCmdWrapper(l, func() tea.Msg {
+		return tea.EnableBracketedPaste()
+	}))
+	l.SetField(cmdsTbl, "disable_bracketed_paste", newCmdWrapper(l, func() tea.Msg {
+		return tea.DisableBracketedPaste()
+	}))
+
+	// Focus reporting commands
+	l.SetField(cmdsTbl, "enable_report_focus", newCmdWrapper(l, func() tea.Msg {
+		return tea.EnableReportFocus()
+	}))
+	l.SetField(cmdsTbl, "disable_report_focus", newCmdWrapper(l, func() tea.Msg {
+		return tea.DisableReportFocus()
+	}))
+
+	l.SetField(cmdsTbl, "quit", newCmdWrapper(l, func() tea.Msg {
+		return tea.Quit()
+	}))
+
+	// Set the commands table
+	l.SetField(mod, "commands", cmdsTbl)
 }
 
 // newCmdWrapper creates a new command wrapper
