@@ -23,7 +23,8 @@ function App()
     -- Initialize spinners with their types
     for _, s in ipairs(spinners) do
         local spinner = btea.new_spinner {
-            type = btea.spinners[string.upper(s.name)]
+            type = btea.spinners[string.upper(s.name)],
+            interval = 10
         }
         s.spinner = spinner
 
