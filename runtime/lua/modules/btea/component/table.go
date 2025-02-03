@@ -1,4 +1,4 @@
-package btea
+package component
 
 import (
 	"github.com/charmbracelet/bubbles/table"

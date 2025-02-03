@@ -1,6 +1,8 @@
 package btea
 
 import (
+	"github.com/ponyruntime/pony/runtime/lua/modules/btea/component"
+	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
@@ -25,19 +27,18 @@ func (m *Module) Loader(l *lua.LState) int {
 	// Create main module table
 	mod := l.NewTable()
 
-	RegisterCmd(l, mod)
 	RegisterTextUtils(l, mod)
-	RegisterBinding(l, mod)
-
-	// styling
 	RegisterStyle(l, mod)
 
+	protocol.RegisterCmd(l, mod)
+	protocol.RegisterBinding(l, mod)
+
 	// editable elements
-	RegisterTextInput(l, mod)
+	component.RegisterTextInput(l, mod)
 
 	// extended visuals
-	RegisterTable(l, mod)
-	RegisterTree(l, mod)
+	component.RegisterTable(l, mod)
+	component.RegisterTree(l, mod)
 
 	// Set the module
 	l.Push(mod)

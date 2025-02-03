@@ -1,4 +1,4 @@
-package btea
+package protocol
 
 import (
 	"github.com/charmbracelet/bubbles/key"
