@@ -1,10 +1,10 @@
 package btea
 
 import (
+	"github.com/ponyruntime/pony/runtime/lua/modules/btea/lipgloss"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/models"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/render"
-	"github.com/ponyruntime/pony/runtime/lua/modules/btea/views"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
@@ -45,10 +45,12 @@ func (m *Module) Loader(l *lua.LState) int {
 	models.RegisterTable(l, mod)
 
 	// additional view components
-	views.RegisterHelp(l, mod)
-	views.RegisterSpinner(l, mod)
-	views.RegisterProgress(l, mod)
-	views.RegisterTree(l, mod)
+	models.RegisterHelp(l, mod)
+	models.RegisterSpinner(l, mod)
+	models.RegisterProgress(l, mod)
+
+	// additional components
+	lipgloss.RegisterTree(l, mod)
 
 	// Set the module
 	l.Push(mod)

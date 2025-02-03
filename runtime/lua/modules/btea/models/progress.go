@@ -1,4 +1,4 @@
-package views
+package models
 
 import (
 	"github.com/charmbracelet/bubbles/progress"

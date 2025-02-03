@@ -1,4 +1,4 @@
-package views
+package models
 
 import (
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"

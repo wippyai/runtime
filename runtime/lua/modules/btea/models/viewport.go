@@ -54,6 +54,26 @@ func RegisterViewport(l *lua.LState, mod *lua.LTable) {
 		// Content info
 		"total_lines":   viewportTotalLines,
 		"visible_lines": viewportVisibleLines,
+
+		// todo: normalize
+		"width": func(L *lua.LState) int {
+			v := checkViewport(L)
+			if v == nil {
+				return 0
+			}
+			L.Push(lua.LNumber(v.model.Width))
+			return 1
+		},
+
+		"height": func(L *lua.LState) int {
+			v := checkViewport(L)
+			if v == nil {
+				return 0
+			}
+
+			L.Push(lua.LNumber(v.model.Height))
+			return 1
+		},
 	}))
 
 	// Register constructor
