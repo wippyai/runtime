@@ -204,6 +204,7 @@ func zoneInfoInBounds(l *lua.LState) int {
 	z := checkZoneInfo(l)
 	msgValue := l.CheckAny(2)
 	msg, err := protocol.LuaToMsg(msgValue)
+
 	if err != nil {
 		l.RaiseError("failed to convert message: %v", err)
 		return 0

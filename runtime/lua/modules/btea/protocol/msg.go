@@ -91,6 +91,7 @@ func LuaToMsg(value lua.LValue) (tea.Msg, error) {
 			return luaToWindowSizeMsg(size.(*lua.LTable))
 		}
 	}
+
 	return nil, nil
 }
 
