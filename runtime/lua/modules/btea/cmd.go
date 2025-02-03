@@ -73,8 +73,19 @@ func RegisterCmd(l *lua.LState, mod *lua.LTable) {
 		return tea.DisableReportFocus()
 	}))
 
+	// Control commands
 	l.SetField(cmdsTbl, "quit", newCmdWrapper(l, func() tea.Msg {
 		return tea.Quit()
+	}))
+	l.SetField(cmdsTbl, "suspend", newCmdWrapper(l, func() tea.Msg {
+		return tea.Suspend()
+	}))
+
+	// Window
+	l.SetField(cmdsTbl, "set_window_title", l.NewFunction(setWindowTitleCmd))
+
+	l.SetField(cmdsTbl, "window_size", newCmdWrapper(l, func() tea.Msg {
+		return tea.WindowSize()
 	}))
 
 	// Set the commands table
@@ -160,5 +171,14 @@ func cmdSequence(l *lua.LState) int {
 
 	// Return a wrapped sequence command
 	l.Push(newCmdWrapper(l, seqCmd))
+	return 1
+}
+
+func setWindowTitleCmd(l *lua.LState) int {
+	title := l.CheckString(1) // Get title argument from Lua
+	cmd := func() tea.Msg {
+		return tea.SetWindowTitle(title)
+	}
+	l.Push(newCmdWrapper(l, cmd))
 	return 1
 }
