@@ -13,8 +13,18 @@ type Viewport struct {
 	model viewport.Model
 }
 
-func (v *Viewport) Model() viewport.Model {
-	return v.model
+func (v *Viewport) Init() tea.Cmd {
+	return v.Init()
+}
+
+func (v *Viewport) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	v.model, cmd = v.model.Update(msg)
+	return v, cmd
+}
+
+func (v *Viewport) View() string {
+	return v.View()
 }
 
 // RegisterViewport registers the viewport component

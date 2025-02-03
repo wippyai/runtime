@@ -13,6 +13,24 @@ type Progress struct {
 	model progress.Model
 }
 
+func (p *Progress) Init() tea.Cmd {
+	return p.Init()
+}
+
+func (p *Progress) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	model, cmd := p.model.Update(msg)
+
+	if m, ok := model.(progress.Model); ok {
+		p.model = m
+	}
+
+	return p, cmd
+}
+
+func (p *Progress) View() string {
+	return p.View()
+}
+
 // RegisterProgress registers the progress component
 func RegisterProgress(l *lua.LState, mod *lua.LTable) {
 	// Create and register the progress metatable

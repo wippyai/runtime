@@ -14,6 +14,20 @@ type Table struct {
 	model table.Model
 }
 
+func (t *Table) Init() tea.Cmd {
+	return t.Init()
+}
+
+func (t *Table) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	t.model, cmd = t.model.Update(msg)
+	return t, cmd
+}
+
+func (t *Table) View() string {
+	return t.View()
+}
+
 // RegisterTable registers the table widget to Lua.
 func RegisterTable(l *lua.LState, mod *lua.LTable) {
 	// Create and register the table metatable.

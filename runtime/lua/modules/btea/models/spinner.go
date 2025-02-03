@@ -15,6 +15,20 @@ type Spinner struct {
 	model spinner.Model
 }
 
+func (s *Spinner) Init() tea.Cmd {
+	return s.Init()
+}
+
+func (s *Spinner) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	s.model, cmd = s.model.Update(msg)
+	return s, cmd
+}
+
+func (s *Spinner) View() string {
+	return s.View()
+}
+
 // RegisterSpinner registers the spinner component
 func RegisterSpinner(l *lua.LState, mod *lua.LTable) {
 	// Create and register the spinner metatable

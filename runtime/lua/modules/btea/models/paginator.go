@@ -12,6 +12,20 @@ type Paginator struct {
 	model paginator.Model
 }
 
+func (p *Paginator) Init() tea.Cmd {
+	return p.Init()
+}
+
+func (p *Paginator) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	p.model, cmd = p.model.Update(msg)
+	return p, cmd
+}
+
+func (p *Paginator) View() string {
+	return p.View()
+}
+
 // RegisterPaginator registers the paginator component
 func RegisterPaginator(l *lua.LState, mod *lua.LTable) {
 	// Create and register the paginator metatable
