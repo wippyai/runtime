@@ -1,0 +1,14 @@
+name: base_app
+kind: library.lua
+meta:
+  comment: "base_app"
+  version: "0.1.0"
+  groups: [ "libs" ]
+
+source: file://base_app.lua
+modules:
+  - time
+  - json
+  - http
+  - btea
+  - websocket
