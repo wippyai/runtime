@@ -6,6 +6,8 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	lua "github.com/yuin/gopher-lua"
+	"log"
+	"time"
 )
 
 // TextInput wraps textinput.Model with validation
@@ -96,14 +98,10 @@ func RegisterTextInput(l *lua.LState, mod *lua.LTable) {
 
 func newTextInput(l *lua.LState) int {
 	opts := l.CheckTable(1)
-
 	model := textinput.New()
-	ti := &TextInput{
-		model:    model,
-		luaState: l,
-	}
+	ti := &TextInput{luaState: l}
 
-	// Process options
+	// Process all options in a single pass
 	opts.ForEach(func(k, v lua.LValue) {
 		switch k.String() {
 		case "prompt":
@@ -129,45 +127,61 @@ func newTextInput(l *lua.LState) int {
 			if s := lua.LVAsString(v); len(s) > 0 {
 				model.EchoCharacter = []rune(s)[0]
 			}
-		case "show_suggestions":
-			model.ShowSuggestions = lua.LVAsBool(v)
 		case "validate":
 			if fn, ok := v.(*lua.LFunction); ok {
 				ti.validate = fn
 				model.Validate = ti.validateWrapper
 			}
+		case "show_suggestions":
+			model.ShowSuggestions = lua.LVAsBool(v)
+		case "suggestions":
+			if tbl, ok := v.(*lua.LTable); ok {
+				suggestions := []string{}
+				tbl.ForEach(func(_, v lua.LValue) {
+					suggestions = append(suggestions, lua.LVAsString(v))
+				})
+				model.SetSuggestions(suggestions)
+			}
+		case "prompt_style":
+			if s, ok := v.(*lua.LUserData); ok {
+				if style, ok := s.Value.(*Style); ok {
+					model.PromptStyle = style.Style
+				}
+			}
+		case "text_style":
+			if s, ok := v.(*lua.LUserData); ok {
+				if style, ok := s.Value.(*Style); ok {
+					model.TextStyle = style.Style
+				}
+			}
+		case "placeholder_style":
+			if s, ok := v.(*lua.LUserData); ok {
+				if style, ok := s.Value.(*Style); ok {
+					model.PlaceholderStyle = style.Style
+				}
+			}
+		case "completion_style":
+			if s, ok := v.(*lua.LUserData); ok {
+				if style, ok := s.Value.(*Style); ok {
+					model.CompletionStyle = style.Style
+				}
+			}
+		case "cursor_style":
+			if s, ok := v.(*lua.LUserData); ok {
+				if style, ok := s.Value.(*Style); ok {
+					model.Cursor.Style = style.Style
+				}
+			}
+		case "blink_speed":
+			// todo; unify parse duration
+			model.Cursor.BlinkSpeed = time.Duration(lua.LVAsNumber(v)) * time.Millisecond
+		case "key_map":
+			model.KeyMap = processInputKeyMap(v)
 		}
 	})
 
-	// Handle styles
-	if style := opts.RawGetString("prompt_style"); style != lua.LNil {
-		if s, ok := style.(*lua.LUserData); ok {
-			if promptStyle, ok := s.Value.(*Style); ok {
-				model.PromptStyle = promptStyle.Style
-			}
-		}
-	}
-	if style := opts.RawGetString("text_style"); style != lua.LNil {
-		if s, ok := style.(*lua.LUserData); ok {
-			if textStyle, ok := s.Value.(*Style); ok {
-				model.TextStyle = textStyle.Style
-			}
-		}
-	}
-	if style := opts.RawGetString("placeholder_style"); style != lua.LNil {
-		if s, ok := style.(*lua.LUserData); ok {
-			if placeholderStyle, ok := s.Value.(*Style); ok {
-				model.PlaceholderStyle = placeholderStyle.Style
-			}
-		}
-	}
+	ti.model = model
 
-	// Handle key map if present
-	if keyMap := opts.RawGetString("key_map"); keyMap != lua.LNil {
-		model.KeyMap = processInputKeyMap(keyMap)
-	}
-
-	// Create and return userdata
 	ud := l.NewUserData()
 	ud.Value = ti
 	l.SetMetatable(ud, l.GetTypeMetatable("btea.TextInput"))
@@ -180,7 +194,7 @@ func checkTextInput(l *lua.LState) *TextInput {
 	if v, ok := ud.Value.(*TextInput); ok {
 		return v
 	}
-	l.ArgError(1, "textinput expected")
+	l.ArgError(1, "text input expected")
 	return nil
 }
 
@@ -213,6 +227,7 @@ func textInputView(l *lua.LState) int {
 	if ti == nil {
 		return 0
 	}
+
 	l.Push(lua.LString(ti.model.View()))
 	return 1
 }
@@ -473,6 +488,7 @@ func processInputKeyMap(keyMapValue lua.LValue) textinput.KeyMap {
 	// Process each binding field
 	for fieldName, bindingPtr := range bindingPtrs {
 		if fieldValue := keyMapTable.RawGetString(fieldName); fieldValue != lua.LNil {
+			log.Printf("Field: %s, Value: %v", fieldName, fieldValue)
 			if ud, ok := fieldValue.(*lua.LUserData); ok {
 				if b, ok := ud.Value.(*Binding); ok {
 					*bindingPtr = b.binding
