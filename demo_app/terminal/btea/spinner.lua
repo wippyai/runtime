@@ -24,11 +24,9 @@ function App()
     for _, s in ipairs(spinners) do
         local spinner = btea.new_spinner {
             type = btea.spinners[string.upper(s.name)],
-            interval = 10
+            interval = 1000000
         }
         s.spinner = spinner
-
-        cmd_channel:send(spinner:tick({}))
 
         -- Apply style
         local style = btea.new_style()
@@ -36,6 +34,8 @@ function App()
             :bold()
 
         s.spinner:style(style)
+
+        cmd_channel:send(spinner:tick())
     end
 
     -- Define key bindings
