@@ -109,7 +109,7 @@ func (f *Factory) MakeTerminal(
 
 	// Create runner with all layers
 	// Order: coroutine -> async -> channel -> base VM
-	runner := tasks.NewTaskRunner(
+	runner := tasks.NewTaskRunner( // this is engine actually!
 		log, vm, channels, 1024,
 		engine.WithLayer(asyncLayer),
 		engine.WithLayer(coroutineLayer),

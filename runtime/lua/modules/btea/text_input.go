@@ -13,7 +13,7 @@ type TextInput struct {
 
 // RegisterTextInput registers the textinput component
 func RegisterTextInput(l *lua.LState, mod *lua.LTable) {
-	// Create and register the textinput metatable
+	// Create and register the text input metatable
 	mt := l.NewTypeMetatable("btea.TextInput")
 	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
 		"focus":          textInputFocus,
@@ -60,15 +60,6 @@ func checkTextInput(l *lua.LState) *TextInput {
 
 // TextInput methods
 
-func textInputFocus(l *lua.LState) int {
-	ti := checkTextInput(l)
-	if ti == nil {
-		return 0
-	}
-	ti.model.Focus()
-	return 0
-}
-
 func textInputBlur(l *lua.LState) int {
 	ti := checkTextInput(l)
 	if ti == nil {
@@ -96,9 +87,25 @@ func textInputUpdate(l *lua.LState) int {
 	var cmd tea.Cmd
 	ti.model, cmd = ti.model.Update(teaMsg)
 
-	// Return command message if any
+	// Return command wrapped in CmdWrapper if any
 	if cmd != nil {
-		// todo: push cmd upward!
+		l.Push(newCmdWrapper(l, cmd))
+		return 1
+	}
+
+	return 0
+}
+
+func textInputFocus(l *lua.LState) int {
+	ti := checkTextInput(l)
+	if ti == nil {
+		return 0
+	}
+	cmd := ti.model.Focus()
+
+	if cmd != nil {
+		l.Push(newCmdWrapper(l, cmd))
+		return 1
 	}
 
 	return 0
