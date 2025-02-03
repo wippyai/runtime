@@ -1,8 +1,9 @@
-package btea
+package views
 
 import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/lipgloss/tree"
+	"github.com/ponyruntime/pony/runtime/lua/modules/btea/render"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -286,7 +287,7 @@ func treeRootStyle(l *lua.LState) int {
 		return 0
 	}
 
-	style := checkStyle(l)
+	style := render.CheckStyle(l)
 	if style == nil {
 		return 0
 	}
@@ -302,7 +303,7 @@ func treeItemStyle(l *lua.LState) int {
 		return 0
 	}
 
-	style := checkStyle(l)
+	style := render.CheckStyle(l)
 	if style == nil {
 		return 0
 	}
@@ -331,7 +332,7 @@ func treeEnumeratorStyle(l *lua.LState) int {
 		return 0
 	}
 
-	style := checkStyle(l)
+	style := render.CheckStyle(l)
 	if style == nil {
 		return 0
 	}
@@ -397,19 +398,19 @@ func newTree(l *lua.LState) int {
 				}
 			case "root_style":
 				if ud, ok := v.(*lua.LUserData); ok {
-					if style, ok := ud.Value.(*Style); ok {
+					if style, ok := ud.Value.(*render.Style); ok {
 						t.model.RootStyle(style.Style)
 					}
 				}
 			case "item_style":
 				if ud, ok := v.(*lua.LUserData); ok {
-					if style, ok := ud.Value.(*Style); ok {
+					if style, ok := ud.Value.(*render.Style); ok {
 						t.model.ItemStyle(style.Style)
 					}
 				}
 			case "enumerator_style":
 				if ud, ok := v.(*lua.LUserData); ok {
-					if style, ok := ud.Value.(*Style); ok {
+					if style, ok := ud.Value.(*render.Style); ok {
 						t.model.EnumeratorStyle(style.Style)
 					}
 				}
@@ -473,7 +474,7 @@ func (t *TreeView) makeStyleFunc(fn *lua.LFunction) func(tree.Children, int) lip
 		t.luaState.Pop(1)
 
 		if ud, ok := ret.(*lua.LUserData); ok {
-			if style, ok := ud.Value.(*Style); ok {
+			if style, ok := ud.Value.(*render.Style); ok {
 				return style.Style
 			}
 		}

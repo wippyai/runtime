@@ -1,8 +1,10 @@
-package btea
+package models
 
 import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
+	"github.com/ponyruntime/pony/runtime/lua/modules/btea/render"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -81,7 +83,7 @@ func newViewport(l *lua.LState) int {
 			v.model.SetContent(lua.LVAsString(val))
 		case "style":
 			if s, ok := val.(*lua.LUserData); ok {
-				if style, ok := s.Value.(*Style); ok {
+				if style, ok := s.Value.(*render.Style); ok {
 					v.model.Style = style.Style
 				}
 			}
@@ -113,7 +115,7 @@ func viewportUpdate(l *lua.LState) int {
 	}
 
 	msgValue := l.CheckAny(2)
-	msg, err := LuaToMsg(msgValue)
+	msg, err := protocol.LuaToMsg(msgValue)
 	if err != nil {
 		l.RaiseError("failed to convert message: %v", err)
 		return 0
@@ -123,7 +125,7 @@ func viewportUpdate(l *lua.LState) int {
 	v.model, cmd = v.model.Update(msg)
 
 	if cmd != nil {
-		l.Push(newCmdWrapper(l, cmd))
+		l.Push(protocol.WrapCommand(l, cmd))
 		return 1
 	}
 	return 0
@@ -157,7 +159,7 @@ func viewportGotoTop(l *lua.LState) int {
 	}
 	lines := v.model.GotoTop()
 	if v.model.HighPerformanceRendering && len(lines) > 0 {
-		l.Push(newCmdWrapper(l, func() tea.Msg {
+		l.Push(protocol.WrapCommand(l, func() tea.Msg {
 			return viewport.ViewUp(v.model, lines)
 		}))
 		return 1
@@ -172,7 +174,7 @@ func viewportGotoBottom(l *lua.LState) int {
 	}
 	lines := v.model.GotoBottom()
 	if v.model.HighPerformanceRendering && len(lines) > 0 {
-		l.Push(newCmdWrapper(l, func() tea.Msg {
+		l.Push(protocol.WrapCommand(l, func() tea.Msg {
 			return viewport.ViewDown(v.model, lines)
 		}))
 		return 1
@@ -197,7 +199,7 @@ func viewportLineUp(l *lua.LState) int {
 	n := l.OptInt(2, 1)
 	lines := v.model.LineUp(n)
 	if v.model.HighPerformanceRendering && len(lines) > 0 {
-		l.Push(newCmdWrapper(l, func() tea.Msg {
+		l.Push(protocol.WrapCommand(l, func() tea.Msg {
 			return viewport.ViewUp(v.model, lines)
 		}))
 		return 1
@@ -213,7 +215,7 @@ func viewportLineDown(l *lua.LState) int {
 	n := l.OptInt(2, 1)
 	lines := v.model.LineDown(n)
 	if v.model.HighPerformanceRendering && len(lines) > 0 {
-		l.Push(newCmdWrapper(l, func() tea.Msg {
+		l.Push(protocol.WrapCommand(l, func() tea.Msg {
 			return viewport.ViewDown(v.model, lines)
 		}))
 		return 1
@@ -228,7 +230,7 @@ func viewportViewUp(l *lua.LState) int {
 	}
 	lines := v.model.ViewUp()
 	if v.model.HighPerformanceRendering && len(lines) > 0 {
-		l.Push(newCmdWrapper(l, func() tea.Msg {
+		l.Push(protocol.WrapCommand(l, func() tea.Msg {
 			return viewport.ViewUp(v.model, lines)
 		}))
 		return 1
@@ -243,7 +245,7 @@ func viewportViewDown(l *lua.LState) int {
 	}
 	lines := v.model.ViewDown()
 	if v.model.HighPerformanceRendering && len(lines) > 0 {
-		l.Push(newCmdWrapper(l, func() tea.Msg {
+		l.Push(protocol.WrapCommand(l, func() tea.Msg {
 			return viewport.ViewDown(v.model, lines)
 		}))
 		return 1
@@ -258,7 +260,7 @@ func viewportHalfViewUp(l *lua.LState) int {
 	}
 	lines := v.model.HalfViewUp()
 	if v.model.HighPerformanceRendering && len(lines) > 0 {
-		l.Push(newCmdWrapper(l, func() tea.Msg {
+		l.Push(protocol.WrapCommand(l, func() tea.Msg {
 			return viewport.ViewUp(v.model, lines)
 		}))
 		return 1
@@ -273,7 +275,7 @@ func viewportHalfViewDown(l *lua.LState) int {
 	}
 	lines := v.model.HalfViewDown()
 	if v.model.HighPerformanceRendering && len(lines) > 0 {
-		l.Push(newCmdWrapper(l, func() tea.Msg {
+		l.Push(protocol.WrapCommand(l, func() tea.Msg {
 			return viewport.ViewDown(v.model, lines)
 		}))
 		return 1
@@ -327,7 +329,7 @@ func viewportSetStyle(l *lua.LState) int {
 	if v == nil {
 		return 0
 	}
-	style := checkStyle(l)
+	style := render.CheckStyle(l) // todo: wrong
 	if style == nil {
 		return 0
 	}

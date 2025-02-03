@@ -1,9 +1,11 @@
-package btea
+package views
 
 import (
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
+	"github.com/ponyruntime/pony/runtime/lua/modules/btea/render"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -37,7 +39,7 @@ func (lk *luaKeyMap) ShortHelp() []key.Binding {
 		if tbl, ok := ret.(*lua.LTable); ok {
 			bindings := make([]key.Binding, 0)
 			tbl.ForEach(func(_, v lua.LValue) {
-				if b, ok := ToGoBinding(v); ok {
+				if b, ok := protocol.ToGoKeyBinding(v); ok {
 					bindings = append(bindings, b)
 				}
 			})
@@ -68,7 +70,7 @@ func (lk *luaKeyMap) FullHelp() [][]key.Binding {
 				if groupTbl, ok := v.(*lua.LTable); ok {
 					group := make([]key.Binding, 0)
 					groupTbl.ForEach(func(_, b lua.LValue) {
-						if binding, ok := ToGoBinding(b); ok {
+						if binding, ok := protocol.ToGoKeyBinding(b); ok {
 							group = append(group, binding)
 						}
 					})
@@ -154,7 +156,7 @@ func helpUpdate(l *lua.LState) int {
 	}
 
 	msgValue := l.CheckAny(2)
-	msg, err := LuaToMsg(msgValue)
+	msg, err := protocol.LuaToMsg(msgValue)
 	if err != nil {
 		l.RaiseError("failed to convert message: %v", err)
 		return 0
@@ -164,7 +166,7 @@ func helpUpdate(l *lua.LState) int {
 	h.model, cmd = h.model.Update(msg)
 
 	if cmd != nil {
-		l.Push(newCmdWrapper(l, cmd))
+		l.Push(protocol.WrapCommand(l, cmd))
 		return 1
 	}
 	return 0
@@ -202,7 +204,7 @@ func helpView(l *lua.LState) int {
 func (h *Help) setStylesFromTable(l *lua.LState, styles *lua.LTable) {
 	styles.ForEach(func(k, v lua.LValue) {
 		if style, ok := v.(*lua.LUserData); ok {
-			if s, ok := style.Value.(*Style); ok {
+			if s, ok := style.Value.(*render.Style); ok {
 				switch k.String() {
 				case "short_key":
 					h.model.Styles.ShortKey = s.Style
@@ -302,7 +304,7 @@ func helpGetShortHelp(l *lua.LState) int {
 
 	tbl := l.NewTable()
 	for i, b := range bindings {
-		tbl.RawSetInt(i+1, ToLuaBinding(l, b))
+		tbl.RawSetInt(i+1, protocol.ToLuaKeyBinding(l, b))
 	}
 	l.Push(tbl)
 	return 1
@@ -335,7 +337,7 @@ func helpGetFullHelp(l *lua.LState) int {
 	for i, group := range groups {
 		groupTbl := l.NewTable()
 		for j, b := range group {
-			groupTbl.RawSetInt(j+1, ToLuaBinding(l, b))
+			groupTbl.RawSetInt(j+1, protocol.ToLuaKeyBinding(l, b))
 		}
 		tbl.RawSetInt(i+1, groupTbl)
 	}

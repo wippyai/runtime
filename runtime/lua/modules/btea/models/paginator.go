@@ -1,8 +1,9 @@
-package btea
+package models
 
 import (
 	"github.com/charmbracelet/bubbles/paginator"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -109,7 +110,7 @@ func paginatorUpdate(l *lua.LState) int {
 	}
 
 	msgValue := l.CheckAny(2)
-	msg, err := LuaToMsg(msgValue)
+	msg, err := protocol.LuaToMsg(msgValue)
 	if err != nil {
 		l.RaiseError("failed to convert message: %v", err)
 		return 0
@@ -119,7 +120,7 @@ func paginatorUpdate(l *lua.LState) int {
 	p.model, cmd = p.model.Update(msg)
 
 	if cmd != nil {
-		l.Push(newCmdWrapper(l, cmd))
+		l.Push(protocol.WrapCommand(l, cmd))
 		return 1
 	}
 	return 0
