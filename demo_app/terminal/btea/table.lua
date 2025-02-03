@@ -12,7 +12,7 @@ function App()
     }
 
     -- Create the table widget with columns and rows.
-    local tablewidget = btea.new_table {
+    local table_widget = btea.new_table {
         cols = {
             { title = "ID",   width = 5 },
             { title = "Name", width = 20 },
@@ -47,7 +47,7 @@ function App()
     }
 
     -- Assign the table widget to the app.
-    app.tablewidget = tablewidget
+    app.tablewidget = table_widget
 
     -- Setup key bindings using the base app helper.
     app.keys = bapp.create_keys({
