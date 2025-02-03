@@ -6,7 +6,7 @@ meta:
   depends_on_groups: [ "apps" ]
 
 target: "btea.terminal"
-hide_logs: false
+hide_logs: true
 
 lifecycle:
   auto_start: true

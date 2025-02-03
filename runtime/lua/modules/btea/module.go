@@ -32,6 +32,7 @@ func (m *Module) Loader(l *lua.LState) int {
 
 	// editable elements
 	RegisterTextInput(l, mod)
+	RegisterTextArea(l, mod)
 	RegisterSpinner(l, mod)
 	RegisterProgress(l, mod)
 	RegisterViewport(l, mod)
