@@ -104,13 +104,14 @@ func newCmdWrapper(l *lua.LState, cmd tea.Cmd) *lua.LUserData {
 func cmdExecute(l *lua.LState) int {
 	ud := l.CheckUserData(1)
 	wrapper, ok := ud.Value.(*CmdWrapper)
+
 	if !ok || wrapper.cmd == nil {
 		return 0
 	}
-
 	// Create an async function that executes the command
 	coroutine.Wrap(l, func() *engine.Result {
 		msg := wrapper.cmd()
+
 		if msg == nil {
 			return engine.NewResult(nil, nil, nil)
 		}
