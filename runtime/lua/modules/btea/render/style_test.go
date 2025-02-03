@@ -1,4 +1,4 @@
-package btea
+package render
 
 import (
 	"github.com/muesli/termenv"

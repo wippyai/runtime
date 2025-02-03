@@ -1,9 +1,10 @@
-// file: text_area.go
-package btea
+package models
 
 import (
 	"fmt"
 	"github.com/charmbracelet/bubbles/textarea"
+	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
+	"github.com/ponyruntime/pony/runtime/lua/modules/btea/render"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -136,7 +137,7 @@ func luaTableToStyle(tbl *lua.LTable) (textarea.Style, error) {
 		if !ok {
 			return fmt.Errorf("expected userdata for %s", key)
 		}
-		style, ok := ud.Value.(*Style)
+		style, ok := ud.Value.(*render.Style)
 		if !ok {
 			return fmt.Errorf("expected btea.Style for %s", key)
 		}
@@ -183,7 +184,7 @@ func checkTextArea(l *lua.LState) *TextArea {
 func textAreaUpdate(l *lua.LState) int {
 	ta := checkTextArea(l)
 	msgLV := l.CheckAny(2)
-	msg, err := LuaToMsg(msgLV)
+	msg, err := protocol.LuaToMsg(msgLV)
 	if err != nil {
 		l.RaiseError("failed to convert message: %v", err)
 		return 0
@@ -191,7 +192,7 @@ func textAreaUpdate(l *lua.LState) int {
 	var cmd tea.Cmd
 	ta.model, cmd = ta.model.Update(msg)
 	if cmd != nil {
-		l.Push(newCmdWrapper(l, cmd))
+		l.Push(protocol.WrapCommand(l, cmd))
 		return 1
 	}
 	return 0
@@ -220,7 +221,7 @@ func textAreaFocus(l *lua.LState) int {
 	ta := checkTextArea(l)
 	cmd := ta.model.Focus()
 	if cmd != nil {
-		l.Push(newCmdWrapper(l, cmd))
+		l.Push(protocol.WrapCommand(l, cmd))
 		return 1
 	}
 	return 0
@@ -248,10 +249,10 @@ func processTextareaKeyMap(tbl *lua.LTable) textarea.KeyMap {
 	for field, bindingPtr := range bindingMap {
 		if lv := tbl.RawGetString(field); lv != lua.LNil {
 			if ud, ok := lv.(*lua.LUserData); ok {
-				if b, ok := ud.Value.(*Binding); ok {
-					*bindingPtr = b.binding
+				if b, ok := ud.Value.(*protocol.KeyBinding); ok {
+					*bindingPtr = b.Binding
 				} else {
-					fmt.Printf("Expected btea.Binding for field %s\n", field)
+					fmt.Printf("Expected btea.KeyBinding for field %s\n", field)
 				}
 			}
 		}

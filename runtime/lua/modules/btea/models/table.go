@@ -1,9 +1,11 @@
 // file: table.go
-package btea
+package models
 
 import (
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbletea"
+	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
+	"github.com/ponyruntime/pony/runtime/lua/modules/btea/render"
 	"github.com/yuin/gopher-lua"
 )
 
@@ -116,7 +118,7 @@ func luaTableToStyles(l *lua.LState, tbl *lua.LTable) table.Styles {
 	// Map the "header" style.
 	if headerLV := tbl.RawGetString("header"); headerLV != lua.LNil {
 		if ud, ok := headerLV.(*lua.LUserData); ok {
-			if style, ok := ud.Value.(*Style); ok {
+			if style, ok := ud.Value.(*render.Style); ok {
 				s.Header = style.Style
 			} else {
 				l.RaiseError("expected btea.Style for header style")
@@ -127,7 +129,7 @@ func luaTableToStyles(l *lua.LState, tbl *lua.LTable) table.Styles {
 	// Map the "cell" style.
 	if cellLV := tbl.RawGetString("cell"); cellLV != lua.LNil {
 		if ud, ok := cellLV.(*lua.LUserData); ok {
-			if style, ok := ud.Value.(*Style); ok {
+			if style, ok := ud.Value.(*render.Style); ok {
 				s.Cell = style.Style
 			} else {
 				l.RaiseError("expected btea.Style for cell style")
@@ -138,7 +140,7 @@ func luaTableToStyles(l *lua.LState, tbl *lua.LTable) table.Styles {
 	// Map the "selected" style.
 	if selectedLV := tbl.RawGetString("selected"); selectedLV != lua.LNil {
 		if ud, ok := selectedLV.(*lua.LUserData); ok {
-			if style, ok := ud.Value.(*Style); ok {
+			if style, ok := ud.Value.(*render.Style); ok {
 				s.Selected = style.Style
 			} else {
 				l.RaiseError("expected btea.Style for selected style")
@@ -164,7 +166,7 @@ func checkTable(l *lua.LState) *Table {
 func tableUpdate(l *lua.LState) int {
 	tbl := checkTable(l)
 	msgLV := l.CheckAny(2)
-	msg, err := LuaToMsg(msgLV)
+	msg, err := protocol.LuaToMsg(msgLV)
 	if err != nil {
 		l.RaiseError("failed to convert message: %v", err)
 		return 0
@@ -172,7 +174,7 @@ func tableUpdate(l *lua.LState) int {
 	var cmd tea.Cmd
 	tbl.model, cmd = tbl.model.Update(msg)
 	if cmd != nil {
-		l.Push(newCmdWrapper(l, cmd))
+		l.Push(protocol.WrapCommand(l, cmd))
 		return 1
 	}
 	return 0

@@ -1,8 +1,9 @@
-package btea
+package views
 
 import (
 	"github.com/charmbracelet/bubbles/progress"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
 	lua "github.com/yuin/gopher-lua"
 	"time"
 )
@@ -115,7 +116,7 @@ func progressUpdate(l *lua.LState) int {
 	}
 
 	msgValue := l.CheckAny(2)
-	msg, err := LuaToMsg(msgValue)
+	msg, err := protocol.LuaToMsg(msgValue)
 	if err != nil {
 		l.RaiseError("failed to convert message: %v", err)
 		return 0
@@ -129,7 +130,7 @@ func progressUpdate(l *lua.LState) int {
 	}
 
 	if cmd != nil {
-		l.Push(newCmdWrapper(l, cmd))
+		l.Push(protocol.WrapCommand(l, cmd))
 		return 1
 	}
 	return 0
@@ -163,7 +164,7 @@ func progressSetPercent(l *lua.LState) int {
 	percent := float64(l.CheckNumber(2))
 	cmd := p.model.SetPercent(percent)
 	if cmd != nil {
-		l.Push(newCmdWrapper(l, cmd))
+		l.Push(protocol.WrapCommand(l, cmd))
 		return 1
 	}
 	return 0
@@ -177,7 +178,7 @@ func progressIncrPercent(l *lua.LState) int {
 	amount := float64(l.CheckNumber(2))
 	cmd := p.model.IncrPercent(amount)
 	if cmd != nil {
-		l.Push(newCmdWrapper(l, cmd))
+		l.Push(protocol.WrapCommand(l, cmd))
 		return 1
 	}
 	return 0
@@ -191,7 +192,7 @@ func progressDecrPercent(l *lua.LState) int {
 	amount := float64(l.CheckNumber(2))
 	cmd := p.model.DecrPercent(amount)
 	if cmd != nil {
-		l.Push(newCmdWrapper(l, cmd))
+		l.Push(protocol.WrapCommand(l, cmd))
 		return 1
 	}
 	return 0

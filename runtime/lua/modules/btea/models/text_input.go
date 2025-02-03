@@ -1,10 +1,12 @@
-package btea
+package models
 
 import (
 	"errors"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
+	"github.com/ponyruntime/pony/runtime/lua/modules/btea/render"
 	lua "github.com/yuin/gopher-lua"
 	"log"
 	"time"
@@ -148,31 +150,31 @@ func newTextInput(l *lua.LState) int {
 			}
 		case "prompt_style":
 			if s, ok := v.(*lua.LUserData); ok {
-				if style, ok := s.Value.(*Style); ok {
+				if style, ok := s.Value.(*render.Style); ok {
 					model.PromptStyle = style.Style
 				}
 			}
 		case "text_style":
 			if s, ok := v.(*lua.LUserData); ok {
-				if style, ok := s.Value.(*Style); ok {
+				if style, ok := s.Value.(*render.Style); ok {
 					model.TextStyle = style.Style
 				}
 			}
 		case "placeholder_style":
 			if s, ok := v.(*lua.LUserData); ok {
-				if style, ok := s.Value.(*Style); ok {
+				if style, ok := s.Value.(*render.Style); ok {
 					model.PlaceholderStyle = style.Style
 				}
 			}
 		case "completion_style":
 			if s, ok := v.(*lua.LUserData); ok {
-				if style, ok := s.Value.(*Style); ok {
+				if style, ok := s.Value.(*render.Style); ok {
 					model.CompletionStyle = style.Style
 				}
 			}
 		case "cursor_style":
 			if s, ok := v.(*lua.LUserData); ok {
-				if style, ok := s.Value.(*Style); ok {
+				if style, ok := s.Value.(*render.Style); ok {
 					model.Cursor.Style = style.Style
 				}
 			}
@@ -210,7 +212,7 @@ func textInputUpdate(l *lua.LState) int {
 	}
 
 	msgValue := l.CheckAny(2)
-	teaMsg, err := LuaToMsg(msgValue)
+	teaMsg, err := protocol.LuaToMsg(msgValue)
 	if err != nil {
 		l.RaiseError("failed to convert message: %v", err)
 		return 0
@@ -220,7 +222,7 @@ func textInputUpdate(l *lua.LState) int {
 	ti.model, cmd = ti.model.Update(teaMsg)
 
 	if cmd != nil {
-		l.Push(newCmdWrapper(l, cmd))
+		l.Push(protocol.WrapCommand(l, cmd))
 		return 1
 	}
 	return 0
@@ -243,7 +245,7 @@ func textInputFocus(l *lua.LState) int {
 	}
 	cmd := ti.model.Focus()
 	if cmd != nil {
-		l.Push(newCmdWrapper(l, cmd))
+		l.Push(protocol.WrapCommand(l, cmd))
 		return 1
 	}
 	return 0
@@ -397,7 +399,7 @@ func textInputSetStyle(l *lua.LState) int {
 	}
 
 	styleType := l.CheckString(2)
-	style := checkStyle(l)
+	style := render.CheckStyle(l) // todo: bad use
 	if style == nil {
 		return 0
 	}
@@ -494,8 +496,8 @@ func processInputKeyMap(keyMapValue lua.LValue) textinput.KeyMap {
 		if fieldValue := keyMapTable.RawGetString(fieldName); fieldValue != lua.LNil {
 			log.Printf("Field: %s, Value: %v", fieldName, fieldValue)
 			if ud, ok := fieldValue.(*lua.LUserData); ok {
-				if b, ok := ud.Value.(*Binding); ok {
-					*bindingPtr = b.binding
+				if b, ok := ud.Value.(*protocol.KeyBinding); ok {
+					*bindingPtr = b.Binding
 				}
 			}
 		}

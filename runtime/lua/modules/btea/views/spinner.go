@@ -1,6 +1,8 @@
-package btea
+package views
 
 import (
+	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
+	"github.com/ponyruntime/pony/runtime/lua/modules/btea/render"
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -84,9 +86,9 @@ func checkSpinner(l *lua.LState) *Spinner {
 	return nil
 }
 
-func checkSpinnerStyle(l *lua.LState, idx int) (*Style, bool) {
+func checkSpinnerStyle(l *lua.LState, idx int) (*render.Style, bool) {
 	ud := l.CheckUserData(idx)
-	if v, ok := ud.Value.(*Style); ok {
+	if v, ok := ud.Value.(*render.Style); ok {
 		return v, true
 	}
 	return nil, false
@@ -99,7 +101,7 @@ func spinnerTick(l *lua.LState) int {
 	if s == nil {
 		return 0
 	}
-	l.Push(newCmdWrapper(l, s.model.Tick))
+	l.Push(protocol.WrapCommand(l, s.model.Tick))
 	return 1
 }
 
@@ -111,7 +113,7 @@ func spinnerUpdate(l *lua.LState) int {
 
 	// Get message argument and convert to tea.Msg
 	msgValue := l.CheckAny(2)
-	msg, err := LuaToMsg(msgValue)
+	msg, err := protocol.LuaToMsg(msgValue)
 	if err != nil {
 		l.RaiseError("failed to convert message: %v", err)
 		return 0
@@ -122,7 +124,7 @@ func spinnerUpdate(l *lua.LState) int {
 
 	// Return command if any
 	if cmd != nil {
-		l.Push(newCmdWrapper(l, cmd))
+		l.Push(protocol.WrapCommand(l, cmd))
 		return 1
 	}
 

@@ -1,4 +1,4 @@
-package btea
+package protocol
 
 import (
 	tea "github.com/charmbracelet/bubbletea"
@@ -28,63 +28,63 @@ func RegisterCmd(l *lua.LState, mod *lua.LTable) {
 	cmdsTbl := l.NewTable()
 
 	// Screen management commands
-	l.SetField(cmdsTbl, "clear_screen", newCmdWrapper(l, func() tea.Msg {
+	l.SetField(cmdsTbl, "clear_screen", WrapCommand(l, func() tea.Msg {
 		return tea.ClearScreen()
 	}))
-	l.SetField(cmdsTbl, "enter_alt_screen", newCmdWrapper(l, func() tea.Msg {
+	l.SetField(cmdsTbl, "enter_alt_screen", WrapCommand(l, func() tea.Msg {
 		return tea.EnterAltScreen()
 	}))
-	l.SetField(cmdsTbl, "exit_alt_screen", newCmdWrapper(l, func() tea.Msg {
+	l.SetField(cmdsTbl, "exit_alt_screen", WrapCommand(l, func() tea.Msg {
 		return tea.ExitAltScreen()
 	}))
 
 	// Mouse control commands
-	l.SetField(cmdsTbl, "enable_mouse_cell_motion", newCmdWrapper(l, func() tea.Msg {
+	l.SetField(cmdsTbl, "enable_mouse_cell_motion", WrapCommand(l, func() tea.Msg {
 		return tea.EnableMouseCellMotion()
 	}))
-	l.SetField(cmdsTbl, "enable_mouse_all_motion", newCmdWrapper(l, func() tea.Msg {
+	l.SetField(cmdsTbl, "enable_mouse_all_motion", WrapCommand(l, func() tea.Msg {
 		return tea.EnableMouseAllMotion()
 	}))
-	l.SetField(cmdsTbl, "disable_mouse", newCmdWrapper(l, func() tea.Msg {
+	l.SetField(cmdsTbl, "disable_mouse", WrapCommand(l, func() tea.Msg {
 		return tea.DisableMouse()
 	}))
 
 	// Cursor control commands
-	l.SetField(cmdsTbl, "hide_cursor", newCmdWrapper(l, func() tea.Msg {
+	l.SetField(cmdsTbl, "hide_cursor", WrapCommand(l, func() tea.Msg {
 		return tea.HideCursor()
 	}))
-	l.SetField(cmdsTbl, "show_cursor", newCmdWrapper(l, func() tea.Msg {
+	l.SetField(cmdsTbl, "show_cursor", WrapCommand(l, func() tea.Msg {
 		return tea.ShowCursor()
 	}))
 
 	// Paste mode commands
-	l.SetField(cmdsTbl, "enable_bracketed_paste", newCmdWrapper(l, func() tea.Msg {
+	l.SetField(cmdsTbl, "enable_bracketed_paste", WrapCommand(l, func() tea.Msg {
 		return tea.EnableBracketedPaste()
 	}))
-	l.SetField(cmdsTbl, "disable_bracketed_paste", newCmdWrapper(l, func() tea.Msg {
+	l.SetField(cmdsTbl, "disable_bracketed_paste", WrapCommand(l, func() tea.Msg {
 		return tea.DisableBracketedPaste()
 	}))
 
 	// Focus reporting commands
-	l.SetField(cmdsTbl, "enable_report_focus", newCmdWrapper(l, func() tea.Msg {
+	l.SetField(cmdsTbl, "enable_report_focus", WrapCommand(l, func() tea.Msg {
 		return tea.EnableReportFocus()
 	}))
-	l.SetField(cmdsTbl, "disable_report_focus", newCmdWrapper(l, func() tea.Msg {
+	l.SetField(cmdsTbl, "disable_report_focus", WrapCommand(l, func() tea.Msg {
 		return tea.DisableReportFocus()
 	}))
 
 	// Control commands
-	l.SetField(cmdsTbl, "quit", newCmdWrapper(l, func() tea.Msg {
+	l.SetField(cmdsTbl, "quit", WrapCommand(l, func() tea.Msg {
 		return tea.Quit()
 	}))
-	l.SetField(cmdsTbl, "suspend", newCmdWrapper(l, func() tea.Msg {
+	l.SetField(cmdsTbl, "suspend", WrapCommand(l, func() tea.Msg {
 		return tea.Suspend()
 	}))
 
 	// Window
 	l.SetField(cmdsTbl, "set_window_title", l.NewFunction(setWindowTitleCmd))
 
-	l.SetField(cmdsTbl, "window_size", newCmdWrapper(l, func() tea.Msg {
+	l.SetField(cmdsTbl, "window_size", WrapCommand(l, func() tea.Msg {
 		return tea.WindowSize()
 	}))
 
@@ -92,8 +92,8 @@ func RegisterCmd(l *lua.LState, mod *lua.LTable) {
 	l.SetField(mod, "commands", cmdsTbl)
 }
 
-// newCmdWrapper creates a new command wrapper
-func newCmdWrapper(l *lua.LState, cmd tea.Cmd) *lua.LUserData {
+// WrapCommand creates a new command wrapper
+func WrapCommand(l *lua.LState, cmd tea.Cmd) *lua.LUserData {
 	ud := l.NewUserData()
 	ud.Value = &CmdWrapper{cmd: cmd}
 	l.SetMetatable(ud, l.GetTypeMetatable("btea.Cmd"))
@@ -145,7 +145,7 @@ func cmdBatch(l *lua.LState) int {
 	batchCmd := tea.Batch(cmds...)
 
 	// Return a wrapped batch command
-	l.Push(newCmdWrapper(l, batchCmd))
+	l.Push(WrapCommand(l, batchCmd))
 	return 1
 }
 
@@ -171,7 +171,7 @@ func cmdSequence(l *lua.LState) int {
 	seqCmd := tea.Sequence(cmds...)
 
 	// Return a wrapped sequence command
-	l.Push(newCmdWrapper(l, seqCmd))
+	l.Push(WrapCommand(l, seqCmd))
 	return 1
 }
 
@@ -180,6 +180,6 @@ func setWindowTitleCmd(l *lua.LState) int {
 	cmd := func() tea.Msg {
 		return tea.SetWindowTitle(title)
 	}
-	l.Push(newCmdWrapper(l, cmd))
+	l.Push(WrapCommand(l, cmd))
 	return 1
 }
