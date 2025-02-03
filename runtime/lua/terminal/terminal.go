@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ponyruntime/pony/runtime/lua/modules/btea"
 	"io"
 	"sync/atomic"
 
@@ -90,7 +91,17 @@ func (t *LuaTerminal) Run(ctx context.Context, in io.Reader, out io.Writer) erro
 	go func() {
 		for {
 			select {
-			case msg := <-t.upstream:
+			case msgLua := <-t.upstream:
+				// for lua tables only
+				if _, ok := msgLua.(*lua.LTable); !ok {
+					continue
+				}
+
+				msg, err := btea.LuaToMsg(msgLua.(*lua.LTable))
+				if err != nil {
+					t.log.Error("failed to convert upstream message", zap.Error(err))
+					continue
+				}
 				p.Send(msg)
 			case <-ctx.Done():
 				return
