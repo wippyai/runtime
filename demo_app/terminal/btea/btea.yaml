@@ -5,7 +5,7 @@ meta:
   groups: [ "apps" ]
   depends_on_groups: [ "libs" ]
 
-source: file://paginator.lua
+source: file://table.lua
 method: App
 
 options:
