@@ -1,44 +1,50 @@
 local bapp = require("base_app")
 
 function App()
-    -- Create app instance
     local app = bapp.new()
 
-    -- Setup state
-    app.inputs = {
-        {
-            name = "Default",
-            input = btea.new_text_input({
-                prompt = "> ",
-                placeholder = "Basic input...",
-                width = 40
-            })
-        },
-        {
-            name = "Password",
-            input = btea.new_text_input({
-                prompt = "🔒 ",
-                placeholder = "Enter password...",
-                echo_mode = btea.ECHO_PASSWORD,
-                width = 40
-            })
-        }
+    -- Define colors
+    local colors = {
+        highlight = "#7D56F4",
+        active_fg = "#89B4FA",
+        inactive_fg = "#6C7086",
+        bg = "#1E1E2E"
     }
-    local cmd = app.inputs[1].input:focus()
-    if cmd then app.cmd_channel:send(cmd) end
 
-    app.current = 1
-    app.results = {}
+    -- Create base styles
+    local tab_base = btea.new_style()
+        :padding(0, 1)
+        :margin(0, 1)
+        :border(btea.borders.ROUNDED)
+        :background(colors.bg)
 
-    -- Setup key bindings
-    app.keys = bapp.create_keys({
-        next = {
-            keys = { "tab", "down" },
-            help = { key = "tab/↓", desc = "next input" }
-        },
-        prev = {
-            keys = { "shift+tab", "up" },
-            help = { key = "shift+tab/↑", desc = "prev input" }
+    local active_tab = tab_base:copy()
+        :foreground(colors.active_fg)
+        :bold(true)
+
+    local inactive_tab = tab_base:copy()
+        :foreground(colors.inactive_fg)
+
+    -- Window style
+    local window_style = btea.new_style()
+        :padding(1)
+        :margin(0, 1)
+        :border(btea.borders.NORMAL)
+        :border_foreground(colors.highlight)
+        :background(colors.bg)
+
+    -- Container style
+    local container_style = btea.new_style()
+        :padding(1)
+
+    -- Initialize tabs
+    app.tabs = bapp.create_tabs({
+        titles = {"Home", "Profile", "Settings", "Help"},
+        content = {
+            "Welcome to the Home tab!\nThis is a demo of the tab system.",
+            "This is your Profile tab.\nHere you can see your information.",
+            "Configure your Settings here.\nLots of options to choose from!",
+            "Need Help? You're in the right place!\nCheck out our documentation."
         }
     })
 
@@ -47,50 +53,35 @@ function App()
         if msg.key then
             if self.keys.quit:matches(msg) then
                 return true -- quit
-            elseif self.keys.next:matches(msg) then
-                self.inputs[self.current].input:blur()
-                self.current = (self.current % #self.inputs) + 1
-                local cmd = self.inputs[self.current].input:focus()
-                if cmd then self.cmd_channel:send(cmd) end
-            elseif self.keys.prev:matches(msg) then
-                self.inputs[self.current].input:blur()
-                self.current = ((self.current - 2) % #self.inputs) + 1
-                local cmd = self.inputs[self.current].input:focus()
-                if cmd then self.cmd_channel:send(cmd) end
-            elseif msg.key.key_type == "enter" then
-                self.results[self.current] = self.inputs[self.current].input:value()
-                self.inputs[self.current].input:set_value("")
             end
+            self.tabs:handle_key(msg)
         end
-
-        -- Update current input
-        local cmd = self.inputs[self.current].input:update(msg)
-        if cmd then self.cmd_channel:send(cmd) end
-        return false -- continue
+        return false
     end
 
     -- View function
     local function view(self)
-        local lines = {
-            bapp.styles.title:render("Text Input Demo"),
-            ""
-        }
-
-        for i, input in ipairs(self.inputs) do
-            table.insert(lines, input.name)
-            table.insert(lines, input.input:view())
-            if self.results[i] then
-                table.insert(lines, "→ " .. self.results[i])
-            end
-            table.insert(lines, "")
+        -- Render tabs
+        local rendered_tabs = {}
+        for i, title in ipairs(self.tabs.titles) do
+            local style = i == self.tabs.active and active_tab or inactive_tab
+            table.insert(rendered_tabs, style:render(" " .. title .. " "))
         end
 
-        table.insert(lines, bapp.styles.help:render(
-            "Tab/↓ next | Shift+Tab/↑ prev | Enter submit | q/^C quit"
-        ))
+        -- Join tabs with spacing
+        local tab_bar = btea.text.join_horizontal(btea.text.position.TOP, unpack(rendered_tabs))
 
-        return bapp.styles.base:render(table.concat(lines, "\n"))
+        -- Create content window
+        local window = window_style
+            :width(self.tabs.window_size.width - 4)
+            :render(self.tabs.content[self.tabs.active])
+
+        -- Combine everything
+        return container_style:render(tab_bar .. "\n" .. window)
     end
+
+    -- Setup key bindings
+    app.keys = bapp.create_keys({})
 
     -- Run the app
     app:run(update, view)

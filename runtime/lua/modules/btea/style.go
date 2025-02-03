@@ -38,6 +38,38 @@ func RegisterStyle(l *lua.LState, mod *lua.LTable) {
 		"tab_width":     styleTabWidth,
 		"copy":          styleCopy,
 		"inherit":       styleInherit,
+
+		// Border styling
+		"border_foreground": styleBorderForeground,
+		"border_background": styleBorderBackground,
+
+		// Individual border edge styling
+		"border_top_foreground":    styleBorderTopForeground,
+		"border_bottom_foreground": styleBorderBottomForeground,
+		"border_left_foreground":   styleBorderLeftForeground,
+		"border_right_foreground":  styleBorderRightForeground,
+
+		"border_top_background":    styleBorderTopBackground,
+		"border_bottom_background": styleBorderBottomBackground,
+		"border_left_background":   styleBorderLeftBackground,
+		"border_right_background":  styleBorderRightBackground,
+
+		// Alignment
+		"align_vertical": styleAlignVertical,
+
+		// Space handling
+		"underline_spaces":     styleUnderlineSpaces,
+		"strikethrough_spaces": styleStrikethroughSpaces,
+
+		// Whitespace coloring
+		"color_whitespace": styleColorWhitespace,
+
+		// Margin background
+		"margin_background": styleMarginBackground,
+
+		// String operations
+		"set_string": styleSetString,
+		"get_value":  styleGetValue,
 	}))
 
 	// Register constructor
@@ -60,7 +92,6 @@ func RegisterStyle(l *lua.LState, mod *lua.LTable) {
 }
 
 func newStyle(l *lua.LState) int {
-	// Create new Style
 	ud := l.NewUserData()
 	ud.Value = &Style{Style: lipgloss.NewStyle()}
 	l.SetMetatable(ud, l.GetTypeMetatable("btea.Style"))
@@ -77,8 +108,6 @@ func checkStyle(l *lua.LState) *Style {
 	return nil
 }
 
-// Style methods
-
 func styleRender(l *lua.LState) int {
 	s := checkStyle(l)
 	str := l.CheckString(2)
@@ -89,7 +118,7 @@ func styleRender(l *lua.LState) int {
 func styleForeground(l *lua.LState) int {
 	s := checkStyle(l)
 	color := l.CheckString(2)
-	newStyle := &Style{Style: s.Style.Copy().Foreground(lipgloss.Color(color))}
+	newStyle := &Style{Style: s.Style.Foreground(lipgloss.Color(color))}
 	ud := l.NewUserData()
 	ud.Value = newStyle
 	l.SetMetatable(ud, l.GetTypeMetatable("btea.Style"))
@@ -100,7 +129,7 @@ func styleForeground(l *lua.LState) int {
 func styleBackground(l *lua.LState) int {
 	s := checkStyle(l)
 	color := l.CheckString(2)
-	newStyle := &Style{Style: s.Style.Copy().Background(lipgloss.Color(color))}
+	newStyle := &Style{Style: s.Style.Background(lipgloss.Color(color))}
 	ud := l.NewUserData()
 	ud.Value = newStyle
 	l.SetMetatable(ud, l.GetTypeMetatable("btea.Style"))
@@ -110,7 +139,7 @@ func styleBackground(l *lua.LState) int {
 
 func styleBold(l *lua.LState) int {
 	s := checkStyle(l)
-	newStyle := &Style{Style: s.Style.Copy().Bold(true)}
+	newStyle := &Style{Style: s.Style.Bold(true)}
 	ud := l.NewUserData()
 	ud.Value = newStyle
 	l.SetMetatable(ud, l.GetTypeMetatable("btea.Style"))
@@ -120,7 +149,7 @@ func styleBold(l *lua.LState) int {
 
 func styleItalic(l *lua.LState) int {
 	s := checkStyle(l)
-	newStyle := &Style{Style: s.Style.Copy().Italic(true)}
+	newStyle := &Style{Style: s.Style.Italic(true)}
 	ud := l.NewUserData()
 	ud.Value = newStyle
 	l.SetMetatable(ud, l.GetTypeMetatable("btea.Style"))
@@ -130,7 +159,7 @@ func styleItalic(l *lua.LState) int {
 
 func styleUnderline(l *lua.LState) int {
 	s := checkStyle(l)
-	newStyle := &Style{Style: s.Style.Copy().Underline(true)}
+	newStyle := &Style{Style: s.Style.Underline(true)}
 	ud := l.NewUserData()
 	ud.Value = newStyle
 	l.SetMetatable(ud, l.GetTypeMetatable("btea.Style"))
@@ -140,7 +169,7 @@ func styleUnderline(l *lua.LState) int {
 
 func styleStrikethrough(l *lua.LState) int {
 	s := checkStyle(l)
-	newStyle := &Style{Style: s.Style.Copy().Strikethrough(true)}
+	newStyle := &Style{Style: s.Style.Strikethrough(true)}
 	ud := l.NewUserData()
 	ud.Value = newStyle
 	l.SetMetatable(ud, l.GetTypeMetatable("btea.Style"))
@@ -150,7 +179,7 @@ func styleStrikethrough(l *lua.LState) int {
 
 func styleFaint(l *lua.LState) int {
 	s := checkStyle(l)
-	newStyle := &Style{Style: s.Style.Copy().Faint(true)}
+	newStyle := &Style{Style: s.Style.Faint(true)}
 	ud := l.NewUserData()
 	ud.Value = newStyle
 	l.SetMetatable(ud, l.GetTypeMetatable("btea.Style"))
@@ -160,7 +189,7 @@ func styleFaint(l *lua.LState) int {
 
 func styleBlink(l *lua.LState) int {
 	s := checkStyle(l)
-	newStyle := &Style{Style: s.Style.Copy().Blink(true)}
+	newStyle := &Style{Style: s.Style.Blink(true)}
 	ud := l.NewUserData()
 	ud.Value = newStyle
 	l.SetMetatable(ud, l.GetTypeMetatable("btea.Style"))
@@ -170,7 +199,7 @@ func styleBlink(l *lua.LState) int {
 
 func styleReverse(l *lua.LState) int {
 	s := checkStyle(l)
-	newStyle := &Style{Style: s.Style.Copy().Reverse(true)}
+	newStyle := &Style{Style: s.Style.Reverse(true)}
 	ud := l.NewUserData()
 	ud.Value = newStyle
 	l.SetMetatable(ud, l.GetTypeMetatable("btea.Style"))
@@ -184,7 +213,7 @@ func stylePadding(l *lua.LState) int {
 	right := l.OptInt(3, top)
 	bottom := l.OptInt(4, top)
 	left := l.OptInt(5, right)
-	newStyle := &Style{Style: s.Style.Copy().Padding(top, right, bottom, left)}
+	newStyle := &Style{Style: s.Style.Padding(top, right, bottom, left)}
 	ud := l.NewUserData()
 	ud.Value = newStyle
 	l.SetMetatable(ud, l.GetTypeMetatable("btea.Style"))
@@ -198,7 +227,7 @@ func styleMargin(l *lua.LState) int {
 	right := l.OptInt(3, top)
 	bottom := l.OptInt(4, top)
 	left := l.OptInt(5, right)
-	newStyle := &Style{Style: s.Style.Copy().Margin(top, right, bottom, left)}
+	newStyle := &Style{Style: s.Style.Margin(top, right, bottom, left)}
 	ud := l.NewUserData()
 	ud.Value = newStyle
 	l.SetMetatable(ud, l.GetTypeMetatable("btea.Style"))
@@ -222,7 +251,7 @@ func styleBorder(l *lua.LState) int {
 	default:
 		border = lipgloss.NormalBorder()
 	}
-	newStyle := &Style{Style: s.Style.Copy().Border(border)}
+	newStyle := &Style{Style: s.Style.Border(border)}
 	ud := l.NewUserData()
 	ud.Value = newStyle
 	l.SetMetatable(ud, l.GetTypeMetatable("btea.Style"))
@@ -230,39 +259,36 @@ func styleBorder(l *lua.LState) int {
 	return 1
 }
 
-// styleCustomBorder allows the user to specify a custom border via a Lua table.
-// Expected keys (all optional) are: top, bottom, left, right, top_left, top_right, bottom_left, bottom_right.
 func styleCustomBorder(l *lua.LState) int {
 	s := checkStyle(l)
 	borderTbl := l.CheckTable(2)
 
-	var b lipgloss.Border
+	border := lipgloss.Border{}
 
-	// Optional keys: "top", "bottom", "left", "right", "top_left", "top_right", "bottom_left", "bottom_right"
 	borderTbl.ForEach(func(key, value lua.LValue) {
 		keyStr := lua.LVAsString(key)
 		valStr := lua.LVAsString(value)
 		switch keyStr {
 		case "top":
-			b.Top = valStr
+			border.Top = valStr
 		case "bottom":
-			b.Bottom = valStr
+			border.Bottom = valStr
 		case "left":
-			b.Left = valStr
+			border.Left = valStr
 		case "right":
-			b.Right = valStr
+			border.Right = valStr
 		case "top_left":
-			b.TopLeft = valStr
+			border.TopLeft = valStr
 		case "top_right":
-			b.TopRight = valStr
+			border.TopRight = valStr
 		case "bottom_left":
-			b.BottomLeft = valStr
+			border.BottomLeft = valStr
 		case "bottom_right":
-			b.BottomRight = valStr
+			border.BottomRight = valStr
 		}
 	})
 
-	newStyle := &Style{Style: s.Style.Copy().Border(b)}
+	newStyle := &Style{Style: s.Style.Border(border)}
 	ud := l.NewUserData()
 	ud.Value = newStyle
 	l.SetMetatable(ud, l.GetTypeMetatable("btea.Style"))
@@ -273,7 +299,7 @@ func styleCustomBorder(l *lua.LState) int {
 func styleWidth(l *lua.LState) int {
 	s := checkStyle(l)
 	width := l.CheckInt(2)
-	newStyle := &Style{Style: s.Style.Copy().Width(width)}
+	newStyle := &Style{Style: s.Style.Width(width)}
 	ud := l.NewUserData()
 	ud.Value = newStyle
 	l.SetMetatable(ud, l.GetTypeMetatable("btea.Style"))
@@ -284,7 +310,7 @@ func styleWidth(l *lua.LState) int {
 func styleHeight(l *lua.LState) int {
 	s := checkStyle(l)
 	height := l.CheckInt(2)
-	newStyle := &Style{Style: s.Style.Copy().Height(height)}
+	newStyle := &Style{Style: s.Style.Height(height)}
 	ud := l.NewUserData()
 	ud.Value = newStyle
 	l.SetMetatable(ud, l.GetTypeMetatable("btea.Style"))
@@ -295,7 +321,7 @@ func styleHeight(l *lua.LState) int {
 func styleAlign(l *lua.LState) int {
 	s := checkStyle(l)
 	align := lipgloss.Position(l.CheckInt(2))
-	newStyle := &Style{Style: s.Style.Copy().Align(align)}
+	newStyle := &Style{Style: s.Style.Align(align)}
 	ud := l.NewUserData()
 	ud.Value = newStyle
 	l.SetMetatable(ud, l.GetTypeMetatable("btea.Style"))
@@ -306,7 +332,7 @@ func styleAlign(l *lua.LState) int {
 func styleInline(l *lua.LState) int {
 	s := checkStyle(l)
 	inline := l.CheckBool(2)
-	newStyle := &Style{Style: s.Style.Copy().Inline(inline)}
+	newStyle := &Style{Style: s.Style.Inline(inline)}
 	ud := l.NewUserData()
 	ud.Value = newStyle
 	l.SetMetatable(ud, l.GetTypeMetatable("btea.Style"))
@@ -317,7 +343,7 @@ func styleInline(l *lua.LState) int {
 func styleMaxWidth(l *lua.LState) int {
 	s := checkStyle(l)
 	width := l.CheckInt(2)
-	newStyle := &Style{Style: s.Style.Copy().MaxWidth(width)}
+	newStyle := &Style{Style: s.Style.MaxWidth(width)}
 	ud := l.NewUserData()
 	ud.Value = newStyle
 	l.SetMetatable(ud, l.GetTypeMetatable("btea.Style"))
@@ -328,7 +354,7 @@ func styleMaxWidth(l *lua.LState) int {
 func styleMaxHeight(l *lua.LState) int {
 	s := checkStyle(l)
 	height := l.CheckInt(2)
-	newStyle := &Style{Style: s.Style.Copy().MaxHeight(height)}
+	newStyle := &Style{Style: s.Style.MaxHeight(height)}
 	ud := l.NewUserData()
 	ud.Value = newStyle
 	l.SetMetatable(ud, l.GetTypeMetatable("btea.Style"))
@@ -338,8 +364,8 @@ func styleMaxHeight(l *lua.LState) int {
 
 func styleTabWidth(l *lua.LState) int {
 	s := checkStyle(l)
-	tabWidth := l.CheckInt(2)
-	newStyle := &Style{Style: s.Style.Copy().TabWidth(tabWidth)}
+	width := l.CheckInt(2)
+	newStyle := &Style{Style: s.Style.TabWidth(width)}
 	ud := l.NewUserData()
 	ud.Value = newStyle
 	l.SetMetatable(ud, l.GetTypeMetatable("btea.Style"))
@@ -359,11 +385,205 @@ func styleCopy(l *lua.LState) int {
 
 func styleInherit(l *lua.LState) int {
 	s := checkStyle(l)
-	other := checkStyle(l)
-	newStyle := &Style{Style: s.Style.Copy().Inherit(other.Style)}
+	if ud, ok := l.Get(2).(*lua.LUserData); ok {
+		if other, ok := ud.Value.(*Style); ok {
+			newStyle := &Style{Style: s.Style.Inherit(other.Style)}
+			ud := l.NewUserData()
+			ud.Value = newStyle
+			l.SetMetatable(ud, l.GetTypeMetatable("btea.Style"))
+			l.Push(ud)
+			return 1
+		}
+	}
+	l.ArgError(2, "Style expected")
+	return 0
+}
+
+// Border styling methods
+func styleBorderForeground(l *lua.LState) int {
+	s := checkStyle(l)
+	color := l.CheckString(2)
+	newStyle := &Style{Style: s.Style.BorderForeground(lipgloss.Color(color))}
 	ud := l.NewUserData()
 	ud.Value = newStyle
 	l.SetMetatable(ud, l.GetTypeMetatable("btea.Style"))
 	l.Push(ud)
+	return 1
+}
+
+func styleBorderBackground(l *lua.LState) int {
+	s := checkStyle(l)
+	color := l.CheckString(2)
+	newStyle := &Style{Style: s.Style.BorderBackground(lipgloss.Color(color))}
+	ud := l.NewUserData()
+	ud.Value = newStyle
+	l.SetMetatable(ud, l.GetTypeMetatable("btea.Style"))
+	l.Push(ud)
+	return 1
+}
+
+// Individual border edge styling
+func styleBorderTopForeground(l *lua.LState) int {
+	s := checkStyle(l)
+	color := l.CheckString(2)
+	newStyle := &Style{Style: s.Style.BorderTopForeground(lipgloss.Color(color))}
+	ud := l.NewUserData()
+	ud.Value = newStyle
+	l.SetMetatable(ud, l.GetTypeMetatable("btea.Style"))
+	l.Push(ud)
+	return 1
+}
+
+func styleBorderBottomForeground(l *lua.LState) int {
+	s := checkStyle(l)
+	color := l.CheckString(2)
+	newStyle := &Style{Style: s.Style.BorderBottomForeground(lipgloss.Color(color))}
+	ud := l.NewUserData()
+	ud.Value = newStyle
+	l.SetMetatable(ud, l.GetTypeMetatable("btea.Style"))
+	l.Push(ud)
+	return 1
+}
+
+func styleBorderLeftForeground(l *lua.LState) int {
+	s := checkStyle(l)
+	color := l.CheckString(2)
+	newStyle := &Style{Style: s.Style.BorderLeftForeground(lipgloss.Color(color))}
+	ud := l.NewUserData()
+	ud.Value = newStyle
+	l.SetMetatable(ud, l.GetTypeMetatable("btea.Style"))
+	l.Push(ud)
+	return 1
+}
+
+func styleBorderRightForeground(l *lua.LState) int {
+	s := checkStyle(l)
+	color := l.CheckString(2)
+	newStyle := &Style{Style: s.Style.BorderRightForeground(lipgloss.Color(color))}
+	ud := l.NewUserData()
+	ud.Value = newStyle
+	l.SetMetatable(ud, l.GetTypeMetatable("btea.Style"))
+	l.Push(ud)
+	return 1
+}
+
+func styleBorderTopBackground(l *lua.LState) int {
+	s := checkStyle(l)
+	color := l.CheckString(2)
+	newStyle := &Style{Style: s.Style.BorderTopBackground(lipgloss.Color(color))}
+	ud := l.NewUserData()
+	ud.Value = newStyle
+	l.SetMetatable(ud, l.GetTypeMetatable("btea.Style"))
+	l.Push(ud)
+	return 1
+}
+
+func styleBorderBottomBackground(l *lua.LState) int {
+	s := checkStyle(l)
+	color := l.CheckString(2)
+	newStyle := &Style{Style: s.Style.BorderBottomBackground(lipgloss.Color(color))}
+	ud := l.NewUserData()
+	ud.Value = newStyle
+	l.SetMetatable(ud, l.GetTypeMetatable("btea.Style"))
+	l.Push(ud)
+	return 1
+}
+
+func styleBorderLeftBackground(l *lua.LState) int {
+	s := checkStyle(l)
+	color := l.CheckString(2)
+	newStyle := &Style{Style: s.Style.BorderLeftBackground(lipgloss.Color(color))}
+	ud := l.NewUserData()
+	ud.Value = newStyle
+	l.SetMetatable(ud, l.GetTypeMetatable("btea.Style"))
+	l.Push(ud)
+	return 1
+}
+
+func styleBorderRightBackground(l *lua.LState) int {
+	s := checkStyle(l)
+	color := l.CheckString(2)
+	newStyle := &Style{Style: s.Style.BorderRightBackground(lipgloss.Color(color))}
+	ud := l.NewUserData()
+	ud.Value = newStyle
+	l.SetMetatable(ud, l.GetTypeMetatable("btea.Style"))
+	l.Push(ud)
+	return 1
+}
+
+// Alignment methods
+func styleAlignVertical(l *lua.LState) int {
+	s := checkStyle(l)
+	align := lipgloss.Position(l.CheckInt(2))
+	newStyle := &Style{Style: s.Style.AlignVertical(align)}
+	ud := l.NewUserData()
+	ud.Value = newStyle
+	l.SetMetatable(ud, l.GetTypeMetatable("btea.Style"))
+	l.Push(ud)
+	return 1
+}
+
+// Space handling methods
+func styleUnderlineSpaces(l *lua.LState) int {
+	s := checkStyle(l)
+	enabled := l.CheckBool(2)
+	newStyle := &Style{Style: s.Style.UnderlineSpaces(enabled)}
+	ud := l.NewUserData()
+	ud.Value = newStyle
+	l.SetMetatable(ud, l.GetTypeMetatable("btea.Style"))
+	l.Push(ud)
+	return 1
+}
+
+func styleStrikethroughSpaces(l *lua.LState) int {
+	s := checkStyle(l)
+	enabled := l.CheckBool(2)
+	newStyle := &Style{Style: s.Style.StrikethroughSpaces(enabled)}
+	ud := l.NewUserData()
+	ud.Value = newStyle
+	l.SetMetatable(ud, l.GetTypeMetatable("btea.Style"))
+	l.Push(ud)
+	return 1
+}
+
+// Whitespace coloring
+func styleColorWhitespace(l *lua.LState) int {
+	s := checkStyle(l)
+	enabled := l.CheckBool(2)
+	newStyle := &Style{Style: s.Style.ColorWhitespace(enabled)}
+	ud := l.NewUserData()
+	ud.Value = newStyle
+	l.SetMetatable(ud, l.GetTypeMetatable("btea.Style"))
+	l.Push(ud)
+	return 1
+}
+
+// Margin background
+func styleMarginBackground(l *lua.LState) int {
+	s := checkStyle(l)
+	color := l.CheckString(2)
+	newStyle := &Style{Style: s.Style.MarginBackground(lipgloss.Color(color))}
+	ud := l.NewUserData()
+	ud.Value = newStyle
+	l.SetMetatable(ud, l.GetTypeMetatable("btea.Style"))
+	l.Push(ud)
+	return 1
+}
+
+// Text transformation
+func styleSetString(l *lua.LState) int {
+	s := checkStyle(l)
+	str := l.CheckString(2)
+	newStyle := &Style{Style: s.Style.SetString(str)}
+	ud := l.NewUserData()
+	ud.Value = newStyle
+	l.SetMetatable(ud, l.GetTypeMetatable("btea.Style"))
+	l.Push(ud)
+	return 1
+}
+
+func styleGetValue(l *lua.LState) int {
+	s := checkStyle(l)
+	l.Push(lua.LString(s.Style.Value()))
 	return 1
 }

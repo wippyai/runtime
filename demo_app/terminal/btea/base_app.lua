@@ -1,21 +1,5 @@
 local bapp = {}
 
--- Default styles that can be used across apps
-bapp.styles = {
-    base = btea.new_style()
-        :border(btea.borders.ROUNDED)
-        :padding(1)
-        :background("#1E1E2E"),
-
-    title = btea.new_style()
-        :foreground("#CDD6F4")
-        :bold(),
-
-    help = btea.new_style()
-        :foreground("#6C7086")
-        :italic()
-}
-
 -- Helper to create common key bindings
 function bapp.create_keys(bindings)
     local keys = {}
@@ -33,6 +17,52 @@ function bapp.create_keys(bindings)
     end
 
     return keys
+end
+
+-- Helper to create tabbed layout
+function bapp.create_tabs(tabs_config)
+    local tabs = {
+        titles = tabs_config.titles or {},
+        content = tabs_config.content or {},
+        active = 1,
+        window_size = { width = 80, height = 24 },
+        keys = {
+            next = btea.new_binding({
+                keys = { "right", "l", "n", "tab" },
+                help = { key = "→/tab", desc = "next tab" }
+            }),
+            prev = btea.new_binding({
+                keys = { "left", "h", "p", "shift+tab" },
+                help = { key = "←/shift+tab", desc = "prev tab" }
+            })
+        }
+    }
+
+    -- Add tab navigation methods
+    function tabs:next()
+        self.active = math.min(self.active + 1, #self.titles)
+    end
+
+    function tabs:prev()
+        self.active = math.max(self.active - 1, 1)
+    end
+
+    function tabs:handle_key(msg)
+        if self.keys.next:matches(msg) then
+            self:next()
+            return true
+        elseif self.keys.prev:matches(msg) then
+            self:prev()
+            return true
+        end
+        return false
+    end
+
+    function tabs:update_window_size(size)
+        self.window_size = size
+    end
+
+    return tabs
 end
 
 -- Create a new base app with channels setup
@@ -99,6 +129,11 @@ function bapp.new()
             local msg = task:input()
             if type(msg) == "table" then
                 if msg.type == "update" then
+                    -- Handle window size updates
+                    if msg.window_size and self.tabs then
+                        self.tabs:update_window_size(msg.window_size)
+                    end
+
                     local should_quit = update_fn(self, msg)
                     if should_quit then break end
                     task:complete(view_fn(self))
