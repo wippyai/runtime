@@ -7,7 +7,7 @@ local function App()
     local window_height = 24
 
     -- Initialize text input
-    local input = btea.new_textinput()
+    local input = btea.new_text_input()
     input:placeholder("Type a message or command (!help, !channels, !listen)...")
     input:set_width(window_width - 8)
     local current_cmd = input:focus() -- Get initial focus

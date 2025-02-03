@@ -3,6 +3,7 @@ kind: temporal.task_queue
 meta:
   comment: "Default Temporal service."
   depends_on: [ "temporal" ]
+  groups: [ "system" ]
 
 client: "temporal"
 task_queue: "wippy_demos"

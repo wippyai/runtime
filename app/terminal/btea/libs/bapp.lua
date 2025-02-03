@@ -71,23 +71,57 @@ function bapp.new()
         inbox = tasks.channel(),
         done = channel.new(),
         cmd_channel = channel.new(128),
-        is_running = false
+        is_running = false,
+        window = {
+            width = 80, -- Default width
+            height = 24 -- Default height
+        }
     }
+
+    -- Dispatch command helper - handles nil commands gracefully
+    function app:dispatch(cmd)
+        if cmd then
+            self.cmd_channel:send(cmd)
+        end
+    end
+
+    -- Dispatch multiple commands
+    function app:dispatch_many(cmds)
+        if cmds and #cmds > 0 then
+            self.cmd_channel:send(btea.batch(cmds))
+        end
+    end
+
+    -- Update window size and notify components
+    function app:update_window_size(size)
+        self.window.width = size.width
+        self.window.height = size.height
+
+        -- Update any components that need window size
+        if self.tabs then
+            self.tabs:update_window_size(size)
+        end
+
+        -- Viewport if exists
+        if self.viewport then
+            self:dispatch(self.viewport:resize(size))
+        end
+    end
 
     -- Initialize terminal
     function app:init_terminal()
-        self.cmd_channel:send(btea.batch({
+        self:dispatch_many({
             btea.commands.enter_alt_screen,
             btea.commands.hide_cursor
-        }))
+        })
     end
 
     -- Cleanup terminal
     function app:cleanup_terminal()
-        self.cmd_channel:send(btea.batch({
+        self:dispatch_many({
             btea.commands.show_cursor,
             btea.commands.exit_alt_screen
-        }))
+        })
         self.done:close()
     end
 
@@ -130,8 +164,8 @@ function bapp.new()
             if type(msg) == "table" then
                 if msg.type == "update" then
                     -- Handle window size updates
-                    if msg.window_size and self.tabs then
-                        self.tabs:update_window_size(msg.window_size)
+                    if msg.window_size then
+                        self:update_window_size(msg.window_size)
                     end
 
                     local should_quit = update_fn(self, msg)
@@ -148,6 +182,14 @@ function bapp.new()
         end
 
         self:cleanup_terminal()
+    end
+
+    -- Mouse support helper
+    function app:enable_mouse(options)
+        options = options or {}
+        if options.all_motion or options.all_motion == nil then
+            self:dispatch(btea.commands.enable_mouse_all_motion)
+        end
     end
 
     return app
