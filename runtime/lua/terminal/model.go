@@ -2,7 +2,7 @@ package terminal
 
 import (
 	"context"
-	"github.com/ponyruntime/pony/runtime/lua/modules/btea"
+	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
 	"io"
 	"time"
 
@@ -72,7 +72,7 @@ func (m bubbleModel) mapMessage(msg tea.Msg) lua.LValue {
 		return lv
 	}
 	// Otherwise convert using btea
-	return btea.MsgToLua(msg)
+	return protocol.MsgToLua(msg)
 }
 
 func (m bubbleModel) View() string {
