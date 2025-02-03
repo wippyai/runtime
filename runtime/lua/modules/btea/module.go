@@ -36,6 +36,7 @@ func (m *Module) Loader(l *lua.LState) int {
 	RegisterProgress(l, mod)
 	RegisterViewport(l, mod)
 	RegisterHelp(l, mod)
+	RegisterPaginator(l, mod)
 
 	// extended visuals
 	RegisterTable(l, mod)

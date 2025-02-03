@@ -6,6 +6,8 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
+// todo: finish it
+
 // LuaChildren wraps tree.Children for Lua integration
 type LuaChildren struct {
 	children tree.Children
