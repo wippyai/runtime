@@ -18,10 +18,11 @@ func RegisterSpinner(l *lua.LState, mod *lua.LTable) {
 	// Create and register the spinner metatable
 	mt := l.NewTypeMetatable("btea.Spinner")
 	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
-		"update": spinnerUpdate,
-		"tick":   spinnerTick,
-		"view":   spinnerView,
-		"style":  spinnerStyle,
+		"update":       spinnerUpdate,
+		"tick":         spinnerTick,
+		"view":         spinnerView,
+		"style":        spinnerStyle,
+		"set_interval": spinnerSetInterval,
 	}))
 
 	// Register constructor
@@ -53,14 +54,22 @@ func newSpinner(l *lua.LState) int {
 		spinnerType = luaSpinnerFromGo(l, spinner.Line)
 	}
 
-	// Create spinner model
-	model := spinner.New(
+	// Create spinner s
+	s := spinner.New(
 		spinner.WithSpinner(goSpinnerFromLua(spinnerType)),
 	)
 
+	interval := opts.RawGetString("interval")
+	if interval != lua.LNil {
+		ms := lua.LVAsNumber(interval)
+		if ms > 0 {
+			s.Spinner.FPS = time.Duration(ms) * time.Millisecond
+		}
+	}
+
 	// Create userdata
 	ud := l.NewUserData()
-	ud.Value = &Spinner{model: model}
+	ud.Value = &Spinner{model: s}
 	l.SetMetatable(ud, l.GetTypeMetatable("btea.Spinner"))
 	l.Push(ud)
 	return 1
@@ -142,6 +151,24 @@ func spinnerStyle(l *lua.LState) int {
 	}
 
 	s.model.Style = style.Style
+	return 0
+}
+
+func spinnerSetInterval(l *lua.LState) int {
+	s := checkSpinner(l)
+	if s == nil {
+		return 0
+	}
+
+	// Get interval in milliseconds
+	ms := l.CheckNumber(2)
+	if ms <= 0 {
+		l.ArgError(2, "interval must be greater than 0")
+		return 0
+	}
+
+	// Convert milliseconds to time.Duration FPS
+	s.model.Spinner.FPS = time.Duration(ms) * time.Millisecond
 	return 0
 }
 
