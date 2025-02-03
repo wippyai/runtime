@@ -176,5 +176,6 @@ func goSpinnerFromLua(v lua.LValue) spinner.Spinner {
 			FPS:    time.Duration(interval) * time.Millisecond,
 		}
 	}
+
 	return spinner.Line
 }
