@@ -1,7 +1,6 @@
 package btea
 
 import (
-	"github.com/ponyruntime/pony/runtime/lua/modules/btea/lipgloss"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/models"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/render"
@@ -48,9 +47,6 @@ func (m *Module) Loader(l *lua.LState) int {
 	models.RegisterHelp(l, mod)
 	models.RegisterSpinner(l, mod)
 	models.RegisterProgress(l, mod)
-
-	// additional components
-	lipgloss.RegisterTree(l, mod)
 
 	// Set the module
 	l.Push(mod)

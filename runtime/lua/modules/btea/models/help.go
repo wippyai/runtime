@@ -138,7 +138,7 @@ func newHelp(l *lua.LState) int {
 	return 1
 }
 
-func checkHelp(l *lua.LState) *Help {
+func CheckHelp(l *lua.LState) *Help {
 	ud := l.CheckUserData(1)
 	if v, ok := ud.Value.(*Help); ok {
 		return v
@@ -150,7 +150,7 @@ func checkHelp(l *lua.LState) *Help {
 // Help methods
 
 func helpUpdate(l *lua.LState) int {
-	h := checkHelp(l)
+	h := CheckHelp(l)
 	if h == nil {
 		return 0
 	}
@@ -173,7 +173,7 @@ func helpUpdate(l *lua.LState) int {
 }
 
 func helpView(l *lua.LState) int {
-	h := checkHelp(l)
+	h := CheckHelp(l)
 	if h == nil {
 		return 0
 	}
@@ -227,7 +227,7 @@ func (h *Help) setStylesFromTable(l *lua.LState, styles *lua.LTable) {
 }
 
 func helpSetStyles(l *lua.LState) int {
-	h := checkHelp(l)
+	h := CheckHelp(l)
 	if h == nil {
 		return 0
 	}
@@ -238,7 +238,7 @@ func helpSetStyles(l *lua.LState) int {
 }
 
 func helpSetWidth(l *lua.LState) int {
-	h := checkHelp(l)
+	h := CheckHelp(l)
 	if h == nil {
 		return 0
 	}
@@ -248,7 +248,7 @@ func helpSetWidth(l *lua.LState) int {
 }
 
 func helpSetShowAll(l *lua.LState) int {
-	h := checkHelp(l)
+	h := CheckHelp(l)
 	if h == nil {
 		return 0
 	}
@@ -258,7 +258,7 @@ func helpSetShowAll(l *lua.LState) int {
 }
 
 func helpSetSeparators(l *lua.LState) int {
-	h := checkHelp(l)
+	h := CheckHelp(l)
 	if h == nil {
 		return 0
 	}
@@ -270,7 +270,7 @@ func helpSetSeparators(l *lua.LState) int {
 }
 
 func helpSetEllipsis(l *lua.LState) int {
-	h := checkHelp(l)
+	h := CheckHelp(l)
 	if h == nil {
 		return 0
 	}
@@ -280,7 +280,7 @@ func helpSetEllipsis(l *lua.LState) int {
 }
 
 func helpGetShortHelp(l *lua.LState) int {
-	h := checkHelp(l)
+	h := CheckHelp(l)
 	if h == nil {
 		return 0
 	}
@@ -311,7 +311,7 @@ func helpGetShortHelp(l *lua.LState) int {
 }
 
 func helpGetFullHelp(l *lua.LState) int {
-	h := checkHelp(l)
+	h := CheckHelp(l)
 	if h == nil {
 		return 0
 	}
