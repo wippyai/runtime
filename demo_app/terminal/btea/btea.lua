@@ -1,6 +1,7 @@
 function App()
-     inbox = tasks.channel()
+    inbox = tasks.channel()
     local done = channel.new()
+    local cmd_channel = channel.new(128)
     local operations = {}
     local window_width = 80
     local window_height = 24
@@ -9,9 +10,11 @@ function App()
     local input = btea.new_textinput()
     input:placeholder("Type something...")
     input:set_width(window_width - 8)
-    local cmd = input:focus()
-    if cmd then
-        upstream.send(cmd)
+
+    -- Initial focus command
+    local focus_cmd = input:focus()
+    if focus_cmd then
+        cmd_channel:send(focus_cmd)
     end
 
     local styles = {
@@ -19,13 +22,13 @@ function App()
             :border(btea.borders.ROUNDED)
             :padding(1, 2)
             :foreground("#89B4FA")
-            :background("#1E1E2E"), -- Dark background for contrast
+            :background("#1E1E2E"),
 
         header = btea.new_style()
             :bold()
             :foreground("#CBA6F7")
             :padding(0, 1)
-            :underline(), -- Added underline for better header visibility
+            :underline(),
 
         -- Messages styling
         key = btea.new_style():foreground("#F9E2AF"):bold(),
@@ -38,12 +41,11 @@ function App()
         -- Input field styling
         input = btea.new_style()
             :foreground("#F5C2E7")
-            :background("#313244") -- Subtle background for input area
+            :background("#313244")
             :padding(0, 1)
             :margin(1, 0)
     }
 
-    -- Update the create_box function for better spacing
     local function create_box(content, input_view)
         local content_width = window_width - 6
         local header_divider = string.rep("─", content_width)
@@ -105,20 +107,30 @@ function App()
         elseif msg.msg == "tick" then
             return styles.tick:render("TICK")
         else
-            return styles.command:render("UNKNOWN MSG")
+            return styles.command:render("UNKNOWN MSG: " .. msg.type)
         end
     end
 
-    -- Start ticker
+    -- Command processor coroutine
     coroutine.spawn(function()
-        local ticker = time.ticker("1s")
         while true do
             local result = channel.select {
-                ticker:channel():case_receive(),
-                done:case_receive()
+                cmd_channel:case_receive(), -- Handle commands
+                done:case_receive()         -- Handle done signal
             }
-            if result.channel == done then break end
-            upstream.send("tick")
+
+            if result.channel == done then
+                break
+            else -- Command channel
+                local cmd = result.value
+                if cmd then
+                    local msg = cmd:execute()
+                    if msg then
+                        --table.insert(operations, styles.command:render("Command result: " .. msg.type))
+                        upstream.send(msg)
+                    end
+                end
+            end
         end
     end)
 
@@ -139,29 +151,29 @@ function App()
                 input:set_width(window_width - 10)
             end
 
-            -- Update text input
+            -- Update text input synchronously
             local cmd = input:update(msg)
             if cmd then
-                task:complete(cmd)
-            else
-                local now = time.now()
-                local formatted = string.format("%s %s",
-                    styles.timestamp:render(now:format("15:04:05")),
-                    format_msg(msg)
-                )
-
-                if msg.key and msg.key.key_type == "enter" then
-                    local value = input:value()
-                    if value ~= "" then
-                        table.insert(operations,
-                            styles.command:render("INPUT: " .. value)
-                        )
-                        input:set_value("")
-                    end
-                end
-                table.insert(operations, formatted)
-                task:complete("ok")
+                cmd_channel:send(cmd) -- Send command to processor
             end
+
+            local now = time.now()
+            local formatted = string.format("%s %s",
+                styles.timestamp:render(now:format("15:04:05")),
+                format_msg(msg)
+            )
+
+            if msg.key and msg.key.key_type == "enter" then
+                local value = input:value()
+                if value ~= "" then
+                    table.insert(operations,
+                        styles.command:render("INPUT: " .. value)
+                    )
+                    input:set_value("")
+                end
+            end
+            --table.insert(operations, formatted)
+            task:complete("ok")
         elseif type(msg) == "table" and msg.type == "view" then
             task:complete(create_box(operations, input:view()))
         else
