@@ -5,7 +5,7 @@ meta:
   groups: [ "apps" ]
   depends_on_groups: [ "libs" ]
 
-source: file://mouse.lua
+source: file://log.lua
 method: App
 
 options:
@@ -13,4 +13,4 @@ options:
   title: "Simple btea App"
 
 modules: [ "time", "btea", "json", "lfs", "env", "websocket", "http" ]
-libraries: [ "terminal_ui", "discord_client", "base_app" ]
+libraries: [ "terminal_ui", "discord_client", "bapp" ]

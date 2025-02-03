@@ -1,11 +1,11 @@
-name: base_app
+name: bapp
 kind: library.lua
 meta:
   comment: "base_app"
   version: "0.1.0"
   groups: [ "libs" ]
 
-source: file://base_app.lua
+source: file://bapp.lua
 modules:
   - time
   - json

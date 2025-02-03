@@ -1,4 +1,4 @@
-local bapp = require("base_app")
+local bapp = require("bapp")
 
 function App()
     local app = bapp.new()
