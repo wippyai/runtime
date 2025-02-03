@@ -5,7 +5,7 @@ meta:
   groups: [ "apps" ]
   depends_on_groups: [ "libs" ]
 
-source: file://table.lua
+source: file://text_area.lua
 method: App
 
 options:
