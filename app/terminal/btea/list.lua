@@ -117,15 +117,15 @@ function App()
 
     local function update(self, msg)
         if msg.key then
-            --if self.keys.quit:matches(msg) then
-            --    return true
-            --elseif self.keys.up:matches(msg) then
-            --    self.list:cursor_up()
-            --elseif self.keys.down:matches(msg) then
-            --    self.list:cursor_down()
-            --elseif self.keys.toggle_filter:matches(msg) and not self.list:setting_filter() then
-            --    self.list:toggle_filter()
-            --end
+            if self.keys.quit:matches(msg) then
+                return true
+            elseif self.keys.up:matches(msg) then
+                self.list:cursor_up()
+            elseif self.keys.down:matches(msg) then
+                self.list:cursor_down()
+            elseif self.keys.toggle_filter:matches(msg) and not self.list:setting_filter() then
+                self.list:toggle_filter()
+            end
 
            self:dispatch(self.list:update(msg))
         end
