@@ -22,6 +22,7 @@ function App()
             description = "First item description",
             is_active = true,
             filter_value = function(self)
+            print(self.title)
                 return self.title .. " " .. self.description
             end
         },
