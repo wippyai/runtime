@@ -3,8 +3,10 @@ package list
 import (
 	"fmt"
 	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
 	lua "github.com/yuin/gopher-lua"
+	"time"
 )
 
 // Item is an item that appears in the list.
@@ -38,6 +40,7 @@ func RegisterList(l *lua.LState, mod *lua.LTable) {
 		"matches_for_item": listMatchesForItem,
 
 		// Navigation
+		"cursor":         listCursor,
 		"cursor_up":      listCursorUp,
 		"cursor_down":    listCursorDown,
 		"prev_page":      listPrevPage,
@@ -62,6 +65,7 @@ func RegisterList(l *lua.LState, mod *lua.LTable) {
 		"set_show_help":            listSetShowHelp,
 		"set_status_bar_item_name": listSetStatusBarItemName,
 		"disable_quit_keybindings": listDisableQuitKeybindings,
+		"set_key_map":              listSetKeyMap,
 
 		// Spinner
 		"start_spinner":  listStartSpinner,
@@ -239,6 +243,12 @@ func listMatchesForItem(l *lua.LState) int {
 
 // Navigation
 
+func listCursor(l *lua.LState) int {
+	li := CheckList(l)
+	l.Push(lua.LNumber(li.model.Cursor()))
+	return 0
+}
+
 func listCursorUp(l *lua.LState) int {
 	li := CheckList(l)
 	li.model.CursorUp()
@@ -388,6 +398,14 @@ func listToggleSpinner(l *lua.LState) int {
 	return 1
 }
 
+func listSetKeyMap(l *lua.LState) int {
+	li := CheckList(l)
+	keyMapTable := l.CheckTable(2)
+
+	li.model.KeyMap = luaTableToKeyMap(l, keyMapTable)
+	return 0
+}
+
 // Status
 
 func listNewStatusMessage(l *lua.LState) int {
@@ -398,54 +416,135 @@ func listNewStatusMessage(l *lua.LState) int {
 }
 
 func newList(l *lua.LState) int {
-	if l.GetTop() < 1 {
-		l.RaiseError("newList requires a configuration table")
-		return 0
-	}
-
 	cfg := l.CheckTable(1)
 	if cfg == nil {
-		l.RaiseError("configuration must be a table")
+		l.RaiseError("configuration table is required")
 		return 0
 	}
 
-	if err := validateListConfig(l, cfg); err != nil {
-		l.RaiseError("invalid list configuration: %v", err)
-		return 0
+	// Get required width/height with defaults
+	width := getIntOrDefault(l, cfg, "width", 80)
+	height := getIntOrDefault(l, cfg, "height", 24)
+
+	// Create base model
+	model := list.New([]list.Item{}, list.NewDefaultDelegate(), width, height)
+
+	// Apply basic settings first
+	model.Title = getStringOrDefault(l, cfg, "title", "List")
+	model.InfiniteScrolling = getBoolOrDefault(l, cfg, "infinite_scrolling", false)
+
+	// Apply visibility settings
+	if v := cfg.RawGetString("show_title"); v.Type() != lua.LTNil {
+		model.SetShowTitle(lua.LVAsBool(v))
+	}
+	if v := cfg.RawGetString("show_filter"); v.Type() != lua.LTNil {
+		model.SetShowFilter(lua.LVAsBool(v))
+	}
+	if v := cfg.RawGetString("show_status_bar"); v.Type() != lua.LTNil {
+		model.SetShowStatusBar(lua.LVAsBool(v))
+	}
+	if v := cfg.RawGetString("show_pagination"); v.Type() != lua.LTNil {
+		model.SetShowPagination(lua.LVAsBool(v))
+	}
+	if v := cfg.RawGetString("show_help"); v.Type() != lua.LTNil {
+		model.SetShowHelp(lua.LVAsBool(v))
 	}
 
-	// Get and validate width/height with defaults
-	width := 80  // default width
-	height := 24 // default height
+	// Apply filtering settings
+	if v := cfg.RawGetString("filtering_enabled"); v.Type() != lua.LTNil {
+		model.SetFilteringEnabled(lua.LVAsBool(v))
+	}
 
-	if w := cfg.RawGetString("width"); w.Type() != lua.LTNil {
-		if wNum, ok := w.(lua.LNumber); ok {
-			if int(wNum) <= 0 {
-				l.RaiseError("width must be positive")
-				return 0
+	// Set status bar item names if provided
+	if v := cfg.RawGetString("item_name"); v.Type() != lua.LTNil {
+		singular := lua.LVAsString(v)
+		plural := singular + "s" // Default plural
+		if p := cfg.RawGetString("item_name_plural"); p.Type() != lua.LTNil {
+			plural = lua.LVAsString(p)
+		}
+		model.SetStatusBarItemName(singular, plural)
+	}
+
+	// Set status message lifetime if provided
+	if v := cfg.RawGetString("status_message_lifetime"); v.Type() == lua.LTNumber {
+		duration := time.Duration(float64(v.(lua.LNumber)) * float64(time.Second))
+		model.StatusMessageLifetime = duration
+	}
+
+	// Set spinner if provided
+	if spinnerVal := cfg.RawGetString("spinner"); spinnerVal.Type() != lua.LTNil {
+		if spinnerTable, ok := spinnerVal.(*lua.LTable); ok {
+			if styleVal := spinnerTable.RawGetString("style"); styleVal.Type() == lua.LTUserData {
+				if style, ok := getStyleFromUserData(l, styleVal); ok {
+					model.Styles.Spinner = style
+				}
 			}
-			width = int(wNum)
-		} else {
-			l.RaiseError("width must be a number")
-			return 0
+			if typeVal := spinnerTable.RawGetString("type"); typeVal.Type() == lua.LTString {
+				model.SetSpinner(spinner.Spinner{
+					Frames: []string{lua.LVAsString(typeVal)},
+				})
+			}
 		}
 	}
 
-	if h := cfg.RawGetString("height"); h.Type() != lua.LTNil {
-		if hNum, ok := h.(lua.LNumber); ok {
-			if int(hNum) <= 0 {
-				l.RaiseError("height must be positive")
-				return 0
-			}
-			height = int(hNum)
-		} else {
-			l.RaiseError("height must be a number")
-			return 0
+	// Set delegate if provided
+	if delegateVal := cfg.RawGetString("delegate"); delegateVal.Type() != lua.LTNil {
+		if delegateTable, ok := delegateVal.(*lua.LTable); ok {
+			model.SetDelegate(&LuaDelegate{luaDelegate: delegateTable, luaState: l})
 		}
 	}
 
-	// Get and validate items
-	var items []list.Item
+	// Set key map if provided
+	if keysVal := cfg.RawGetString("keys"); keysVal.Type() != lua.LTNil {
+		if keysTable, ok := keysVal.(*lua.LTable); ok {
+			model.KeyMap = luaTableToKeyMap(l, keysTable)
+		}
+	}
+
+	// Set styles if provided
+	if stylesVal := cfg.RawGetString("styles"); stylesVal.Type() != lua.LTNil {
+		if stylesTable, ok := stylesVal.(*lua.LTable); ok {
+			model.Styles = luaTableToStyles(l, stylesTable)
+		}
+	}
+
+	// Set filter function if provided
+	if filterVal := cfg.RawGetString("filter"); filterVal.Type() == lua.LTFunction {
+		model.Filter = func(term string, targets []string) []list.Rank {
+			if err := l.CallByParam(lua.P{
+				Fn:      filterVal.(*lua.LFunction),
+				NRet:    1,
+				Protect: true,
+			}, lua.LString(term), stringsToLuaTable(l, targets)); err != nil {
+				l.RaiseError("error calling filter function: %v", err)
+				return nil
+			}
+			ret := l.Get(-1)
+			l.Pop(1)
+
+			ranks := make([]list.Rank, 0)
+			if t, ok := ret.(*lua.LTable); ok {
+				t.ForEach(func(_, v lua.LValue) {
+					if rankTable, ok := v.(*lua.LTable); ok {
+						rank := list.Rank{
+							Index: int(lua.LVAsNumber(rankTable.RawGetString("index"))),
+						}
+						if matchesVal := rankTable.RawGetString("matches"); matchesVal.Type() == lua.LTTable {
+							matchesTable := matchesVal.(*lua.LTable)
+							rank.MatchedIndexes = make([]int, matchesTable.Len())
+							matchesTable.ForEach(func(i, v lua.LValue) {
+								rank.MatchedIndexes[int(i.(lua.LNumber))-1] = int(v.(lua.LNumber))
+							})
+						}
+						ranks = append(ranks, rank)
+					}
+				})
+			}
+			return ranks
+		}
+	}
+
+	// Set items if provided (do this last as it may trigger filtering)
 	if itemsVal := cfg.RawGetString("items"); itemsVal.Type() != lua.LTNil {
 		itemsTable, ok := itemsVal.(*lua.LTable)
 		if !ok {
@@ -453,13 +552,8 @@ func newList(l *lua.LState) int {
 			return 0
 		}
 
-		items = make([]list.Item, 0, itemsTable.Len())
-		var itemError error
-		itemsTable.ForEach(func(_ lua.LValue, v lua.LValue) {
-			if itemError != nil {
-				return
-			}
-
+		items := make([]list.Item, 0, itemsTable.Len())
+		itemsTable.ForEach(func(_, v lua.LValue) {
 			switch v.Type() {
 			case lua.LTTable:
 				item := &LuaItem{value: v.(*lua.LTable), luaState: l}
@@ -468,75 +562,18 @@ func newList(l *lua.LState) int {
 				if itemUD, ok := v.(*lua.LUserData); ok {
 					if item, ok := itemUD.Value.(list.Item); ok {
 						items = append(items, item)
-					} else {
-						itemError = fmt.Errorf("invalid item type: expected list.Item interface")
 					}
 				}
 			default:
-				itemError = fmt.Errorf("invalid item type: expected table or userdata")
 			}
 		})
-
-		if itemError != nil {
-			l.RaiseError("error processing items: %v", itemError)
-			return 0
-		}
+		model.SetItems(items)
 	}
 
-	// Get and validate delegate
-	var delegate list.ItemDelegate
-	if delegateVal := cfg.RawGetString("delegate"); delegateVal.Type() != lua.LTNil {
-		delegateTable, ok := delegateVal.(*lua.LTable)
-		if !ok {
-			l.RaiseError("delegate must be a table")
-			return 0
-		}
-		delegate = &LuaDelegate{luaDelegate: delegateTable, luaState: l}
-	} else {
-		delegate = list.NewDefaultDelegate()
-	}
-
-	// Create the list model with validated parameters
-	m := list.New(items, delegate, width, height)
-
-	// Set optional title if provided
-	if titleVal := cfg.RawGetString("title"); titleVal.Type() != lua.LTNil {
-		if title, ok := titleVal.(lua.LString); ok {
-			m.Title = string(title)
-		} else {
-			l.RaiseError("title must be a string")
-			return 0
-		}
-	}
-
-	// Create and set optional styles if provided
-	if stylesVal := cfg.RawGetString("styles"); stylesVal.Type() != lua.LTNil {
-		if stylesTable, ok := stylesVal.(*lua.LTable); ok {
-			m.Styles = luaTableToStyles(l, stylesTable)
-		} else {
-			l.RaiseError("styles must be a table")
-			return 0
-		}
-	}
-
-	// Set optional additional settings
-	if showTitle := cfg.RawGetString("show_title"); showTitle.Type() == lua.LTBool {
-		m.SetShowTitle(bool(showTitle.(lua.LBool)))
-	}
-
-	if showFilter := cfg.RawGetString("show_filter"); showFilter.Type() == lua.LTBool {
-		m.SetShowFilter(bool(showFilter.(lua.LBool)))
-	}
-
-	if showHelp := cfg.RawGetString("show_help"); showHelp.Type() == lua.LTBool {
-		m.SetShowHelp(bool(showHelp.(lua.LBool)))
-	}
-
-	// Create and return the wrapped model with tracking for Lua items
+	// Create and return the wrapped model
 	ud := l.NewUserData()
 	ud.Value = &List{
-		model:    m,
-		items:    make([]*lua.LUserData, len(items)),
+		model:    model,
 		luaState: l,
 	}
 	l.SetMetatable(ud, l.GetTypeMetatable("btea.List"))
@@ -544,16 +581,34 @@ func newList(l *lua.LState) int {
 	return 1
 }
 
-// Helper function to safely convert Lua value to int with validation
-func luaToInt(l *lua.LState, v lua.LValue, name string) (int, error) {
-	if v.Type() != lua.LTNumber {
-		return 0, fmt.Errorf("%s must be a number", name)
+// Helper functions for configuration
+func getIntOrDefault(l *lua.LState, t *lua.LTable, key string, def int) int {
+	if v := t.RawGetString(key); v.Type() == lua.LTNumber {
+		return int(lua.LVAsNumber(v))
 	}
-	num := int(v.(lua.LNumber))
-	if num <= 0 {
-		return 0, fmt.Errorf("%s must be positive", name)
+	return def
+}
+
+func getStringOrDefault(l *lua.LState, t *lua.LTable, key string, def string) string {
+	if v := t.RawGetString(key); v.Type() == lua.LTString {
+		return lua.LVAsString(v)
 	}
-	return num, nil
+	return def
+}
+
+func getBoolOrDefault(l *lua.LState, t *lua.LTable, key string, def bool) bool {
+	if v := t.RawGetString(key); v.Type() == lua.LTBool {
+		return lua.LVAsBool(v)
+	}
+	return def
+}
+
+func stringsToLuaTable(l *lua.LState, strings []string) *lua.LTable {
+	t := l.NewTable()
+	for _, s := range strings {
+		t.Append(lua.LString(s))
+	}
+	return t
 }
 
 // CheckList checks if the first argument is a *List and returns it.
