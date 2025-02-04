@@ -117,7 +117,7 @@ func TestRegistry_Get(t *testing.T) {
 			},
 			target: "test.workflow",
 			validateValue: func(t *testing.T, value any) {
-				handler, ok := value.(func() string)
+				handler, ok := value.(func() any)
 				require.True(t, ok)
 				assert.Equal(t, "success", handler())
 			},
