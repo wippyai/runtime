@@ -55,7 +55,7 @@ function App()
         end,
 
         render = function(model, index, item)
-            local is_selected = model:cursor() == index - 1
+            local is_selected = model:cursor() == index
             local is_multi_selected = selected_items[index] ~= nil
 
             -- Build indicators

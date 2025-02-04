@@ -245,7 +245,7 @@ func listMatchesForItem(l *lua.LState) int {
 func listCursor(l *lua.LState) int {
 	li := CheckList(l)
 	l.Push(lua.LNumber(li.model.Cursor()))
-	return 0
+	return 1
 }
 
 func listCursorUp(l *lua.LState) int {
