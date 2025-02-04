@@ -77,13 +77,6 @@ type LuaItem struct {
 	luaState *lua.LState
 }
 
-func NewLuaItem(l *lua.LState, value lua.LValue) *LuaItem {
-	return &LuaItem{
-		value:    value,
-		luaState: l,
-	}
-}
-
 func (li *LuaItem) FilterValue() string {
 	if fv := GetLuaField(li.luaState, li.value, "filter_value"); fv != lua.LNil {
 		return lua.LVAsString(fv)
