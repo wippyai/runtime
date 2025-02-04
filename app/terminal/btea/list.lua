@@ -49,7 +49,7 @@ function App()
         end,
 
         update = function(msg, model)
-            if msg.key and app.keys.select:matches(msg) then
+            if app.keys.select:matches(msg) then
                 local cursor = model:cursor()
                 if cursor >= 0 then  -- Ensure valid cursor
                     local idx = cursor + 1
@@ -57,7 +57,6 @@ function App()
                     app.list:select(cursor)
                 end
             end
-            return nil
         end
     }
 

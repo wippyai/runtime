@@ -4,6 +4,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	lua "github.com/yuin/gopher-lua"
+	"log"
 )
 
 // KeyBinding wraps key.Binding for Lua
@@ -90,6 +91,10 @@ func bindingMatches(l *lua.LState) int {
 	// Get message argument and convert to tea.Msg
 	msgValue := l.CheckAny(2)
 	msg, err := LuaToMsg(msgValue)
+
+	tv := msgValue.(*lua.LTable)
+	log.Printf("type: %v", tv.RawGetString("type"))
+
 	if err != nil {
 		l.RaiseError("failed to convert message: %v", err)
 		return 0

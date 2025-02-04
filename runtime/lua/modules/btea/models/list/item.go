@@ -20,6 +20,39 @@ func TryGetMethodValue(v interface{}, methodName string) (string, bool) {
 	return "", false
 }
 
+func FetchMethod(l *lua.LState, value lua.LValue, field string) lua.LValue {
+	var fieldValue lua.LValue
+
+	// Then try regular Lua value access
+	switch v := value.(type) {
+	case *lua.LTable:
+		fieldValue = v.RawGetString(field)
+	case *lua.LUserData:
+		// Try metatable __index
+		if mt := l.GetMetatable(value); mt != nil {
+			if index, ok := mt.(*lua.LTable); ok {
+				if indexVal := index.RawGetString("__index"); indexVal != lua.LNil {
+					switch indexVal := indexVal.(type) {
+					case *lua.LFunction:
+						l.Push(indexVal)
+						l.Push(value)
+						l.Push(lua.LString(field))
+						if err := l.PCall(2, 1, nil); err == nil {
+							fieldValue = l.Get(-1)
+							l.Pop(1)
+						}
+					case *lua.LTable:
+						fieldValue = indexVal.RawGetString(field)
+					}
+				}
+			}
+		}
+	}
+
+	return fieldValue
+}
+
+// todo: this is bad!
 // GetLuaField gets a field from any Lua value, handling both direct values and functions
 func GetLuaField(l *lua.LState, value lua.LValue, field string) lua.LValue {
 	// First try Go method if it's userdata
@@ -58,6 +91,7 @@ func GetLuaField(l *lua.LState, value lua.LValue, field string) lua.LValue {
 	}
 
 	// If fieldValue is a function, call it with value as self
+	// TODO: THIS IS WRONG!!!!!!!
 	if fn, ok := fieldValue.(*lua.LFunction); ok {
 		l.Push(fn)
 		l.Push(value)

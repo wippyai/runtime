@@ -34,3 +34,4 @@ TODO Items:
 - otel
 - python sdk
 - wippy cloud and integration
+- clean exit is not working! http server stucks! need to collapse ctx when exiting
