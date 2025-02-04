@@ -1,7 +1,6 @@
 package list
 
 import (
-	"fmt"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
@@ -618,50 +617,5 @@ func CheckList(l *lua.LState) *List {
 		return v
 	}
 	l.ArgError(1, "btea.List expected")
-	return nil
-}
-
-func validateListConfig(l *lua.LState, cfg *lua.LTable) error {
-	// Validate required fields
-	if cfg == nil {
-		return fmt.Errorf("configuration table is required")
-	}
-
-	// Validate width/height
-	if w := cfg.RawGetString("width"); w.Type() != lua.LTNil {
-		if wNum, ok := w.(lua.LNumber); !ok || int(wNum) <= 0 {
-			return fmt.Errorf("width must be a positive number")
-		}
-	}
-
-	if h := cfg.RawGetString("height"); h.Type() != lua.LTNil {
-		if hNum, ok := h.(lua.LNumber); !ok || int(hNum) <= 0 {
-			return fmt.Errorf("height must be a positive number")
-		}
-	}
-
-	// Validate delegate if present
-	if delegateVal := cfg.RawGetString("delegate"); delegateVal.Type() != lua.LTNil {
-		delegateTable, ok := delegateVal.(*lua.LTable)
-		if !ok {
-			return fmt.Errorf("delegate must be a table")
-		}
-
-		// Validate required delegate methods
-		required := []string{"height", "spacing", "render"}
-		for _, method := range required {
-			if delegateTable.RawGetString(method).Type() == lua.LTNil {
-				return fmt.Errorf("delegate must implement %s method", method)
-			}
-		}
-	}
-
-	// Validate styles if present
-	if stylesVal := cfg.RawGetString("styles"); stylesVal.Type() != lua.LTNil {
-		if _, ok := stylesVal.(*lua.LTable); !ok {
-			return fmt.Errorf("styles must be a table")
-		}
-	}
-
 	return nil
 }
