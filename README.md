@@ -4,7 +4,7 @@ The Pony Runtime is a powerful Golang-based system where AI agents autonomously 
 TODO Items:
 - security layer 1w
 - testing runner 1w
-- process system 2w
+- process system 2w (!!!!)
 - process interface and layers 2d
 - re terminal registration 6h
 - add factory flavors 6h
@@ -23,7 +23,14 @@ TODO Items:
 - redo graph ? 1d
 - sql 4d
 - graph 4d 
+- memory system 1w
 - cli charts 1d
 - terminal restart fails 4h
 - TESTS MORE TESTS! 10d
-- space char (only " " works) 1h
+- space char (only " " works) 1h 
+- uuid lib also 1h
+- do we preload modules or not?
+- normalize function definitions (? or hook into vm)
+- otel
+- python sdk
+- wippy cloud and integration
