@@ -28,9 +28,6 @@ function App()
             local is_selected = current_cursor == index
             local is_multi_selected = selected_items[index + 1]
 
-           -- print(string.format("Render - Index: %d, Cursor: %d, Is_Selected: %s",
-           --         index, current_cursor, tostring(is_selected)))
-
             local cursor = is_selected and "→" or " "
             local checkbox = is_multi_selected and "[×]" or "[ ]"
             local status = item.is_active and "●" or "○"
@@ -52,16 +49,12 @@ function App()
         end,
 
         update = function(msg, model)
-            print("UPDATE" .. json.encode(msg))
             if msg.key and app.keys.select:matches(msg) then
-                print("SELECT PRESSED")
                 local cursor = model:cursor()
                 if cursor >= 0 then  -- Ensure valid cursor
                     local idx = cursor + 1
-                    print(string.format("Selection attempt - cursor: %d, idx: %d", cursor, idx))
-                    --selected_items[idx] = not selected_items[idx]
-                    --app.list.select(cursor)
-                    -- no command to return for now
+                    selected_items[idx] = not selected_items[idx]
+                    app.list:select(cursor)
                 end
             end
             return nil
