@@ -9,7 +9,7 @@ function App()
         quit = { keys = { "q", "ctrl+c" } },
         up = { keys = { "up", "k" } },
         down = { keys = { "down", "j" } },
-        select = { keys = { " ", "space", "s" } },
+        select = { keys = { "space", " " } },
         toggle_filter = { keys = { "/" } }
     })
 
@@ -52,14 +52,16 @@ function App()
         end,
 
         update = function(msg, model)
+            print("UPDATE" .. json.encode(msg))
             if msg.key and app.keys.select:matches(msg) then
+                print("SELECT PRESSED")
                 local cursor = model:cursor()
                 if cursor >= 0 then  -- Ensure valid cursor
                     local idx = cursor + 1
                     print(string.format("Selection attempt - cursor: %d, idx: %d", cursor, idx))
-                    selected_items[idx] = not selected_items[idx]
-                    app.list.select(cursor)
-                    return true  -- Return true to trigger re-render
+                    --selected_items[idx] = not selected_items[idx]
+                    --app.list.select(cursor)
+                    -- no command to return for now
                 end
             end
             return nil
