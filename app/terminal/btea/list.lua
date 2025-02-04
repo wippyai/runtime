@@ -18,11 +18,7 @@ function App()
         height = function() return 1 end,
         spacing = function() return 1 end,
         render = function(m, index, item)
-
             return item.title .. " - " .. item.description
-        end,
-        filter_value = function(item)
-            return item.title
         end
     }
 
