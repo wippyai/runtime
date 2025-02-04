@@ -1,15 +1,21 @@
 package list
 
 import (
+	"fmt"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
 	lua "github.com/yuin/gopher-lua"
 )
 
+// Item is an item that appears in the list.
+type Item interface {
+	FilterValue() string
+}
+
 // List wraps list.Model for Lua
 type List struct {
 	model    list.Model
-	delegate *lua.LFunction // Delegate function reference
+	delegate *lua.LTable
 	items    []*lua.LUserData
 	luaState *lua.LState
 }
@@ -72,14 +78,14 @@ func RegisterList(l *lua.LState, mod *lua.LTable) {
 // Core Methods
 
 func listUpdate(l *lua.LState) int {
-	list := checkList(l)
+	li := CheckList(l)
 	msg, err := protocol.LuaToMsg(l.Get(2))
 	if err != nil {
 		l.RaiseError("Error converting Lua value to message: %v", err)
 	}
 
-	newModel, cmd := list.model.Update(msg)
-	list.model = newModel
+	newModel, cmd := li.model.Update(msg)
+	li.model = newModel
 
 	if cmd != nil {
 		l.Push(protocol.WrapCommand(l, cmd))
@@ -90,17 +96,17 @@ func listUpdate(l *lua.LState) int {
 }
 
 func listView(l *lua.LState) int {
-	list := checkList(l)
-	l.Push(lua.LString(list.model.View()))
+	li := CheckList(l)
+	l.Push(lua.LString(li.model.View()))
 	return 1
 }
 
 // Item Management
 
 func listItems(l *lua.LState) int {
-	list := checkList(l)
+	li := CheckList(l)
 	itemsTable := l.NewTable()
-	for _, itemUD := range list.items {
+	for _, itemUD := range li.items {
 		itemsTable.Append(itemUD)
 	}
 	l.Push(itemsTable)
@@ -108,26 +114,30 @@ func listItems(l *lua.LState) int {
 }
 
 func listSetItems(l *lua.LState) int {
-	list := checkList(l)
+	li := CheckList(l)
 	itemsTable := l.CheckTable(2)
 	var items []list.Item
-	list.items = make([]*lua.LUserData, 0) // Clear existing items
+	li.items = make([]*lua.LUserData, 0) // Clear existing items
 	itemsTable.ForEach(func(_ lua.LValue, v lua.LValue) {
 		if item, ok := v.(*lua.LTable); ok {
 			itemUD := l.NewUserData()
 			itemUD.Value = &LuaItem{luaItem: item, luaState: l}
 			l.SetMetatable(itemUD, l.GetTypeMetatable("btea.Item"))
 			items = append(items, itemUD.Value.(list.Item))
-
-			list.items = append(list.items, itemUD)
-		} else if item, ok := v.(*lua.LUserData); ok {
-			items = append(items, item.Value.(list.Item))
-
-			list.items = append(list.items, item)
+			li.items = append(li.items, itemUD)
+		} else if itemUD, ok := v.(*lua.LUserData); ok {
+			if _, ok := itemUD.Value.(list.Item); ok {
+				items = append(items, itemUD.Value.(list.Item))
+				li.items = append(li.items, itemUD)
+			} else {
+				l.RaiseError("Invalid item type")
+			}
+		} else {
+			l.RaiseError("Invalid item type")
 		}
 	})
 
-	cmd := list.model.SetItems(items)
+	cmd := li.model.SetItems(items)
 	if cmd != nil {
 		l.Push(protocol.WrapCommand(l, cmd))
 		return 1
@@ -136,7 +146,7 @@ func listSetItems(l *lua.LState) int {
 }
 
 func listSetItem(l *lua.LState) int {
-	list := checkList(l)
+	li := CheckList(l)
 	index := l.CheckInt(2)
 	itemTable := l.CheckTable(3)
 
@@ -144,16 +154,14 @@ func listSetItem(l *lua.LState) int {
 	itemUD.Value = &LuaItem{luaItem: itemTable, luaState: l}
 	l.SetMetatable(itemUD, l.GetTypeMetatable("btea.Item"))
 
-	// Check if the index is within the range of the items slice
-	if index >= 0 && index < len(list.items) {
-		// Update the item in the list.items slice
-		list.items[index] = itemUD
+	if index >= 0 && index < len(li.items) {
+		li.items[index] = itemUD
 	} else {
 		l.RaiseError("Index out of range for listSetItem")
-		return 0 // Return early if the index is out of range
+		return 0
 	}
 
-	cmd := list.model.SetItem(index, itemUD.Value.(list.Item))
+	cmd := li.model.SetItem(index, itemUD.Value.(list.Item))
 	if cmd != nil {
 		l.Push(protocol.WrapCommand(l, cmd))
 		return 1
@@ -162,7 +170,7 @@ func listSetItem(l *lua.LState) int {
 }
 
 func listInsertItem(l *lua.LState) int {
-	list := checkList(l)
+	li := CheckList(l)
 	index := l.CheckInt(2)
 	itemTable := l.CheckTable(3)
 
@@ -170,19 +178,14 @@ func listInsertItem(l *lua.LState) int {
 	itemUD.Value = &LuaItem{luaItem: itemTable, luaState: l}
 	l.SetMetatable(itemUD, l.GetTypeMetatable("btea.Item"))
 
-	// Adjust the index for 0-based indexing in Go
-	goIndex := index
-
-	// Insert the item into the list.items slice
-	if goIndex >= 0 && goIndex <= len(list.items) {
-		list.items = append(list.items[:goIndex], append([]*lua.LUserData{itemUD}, list.items[goIndex:]...)...)
+	if index >= 0 && index <= len(li.items) {
+		li.items = append(li.items[:index], append([]*lua.LUserData{itemUD}, li.items[index:]...)...)
 	} else {
 		l.RaiseError("Index out of range for listInsertItem")
-		return 0 // Return early if the index is out of range
+		return 0
 	}
 
-	// Call the underlying Go method to insert the item
-	cmd := list.model.InsertItem(goIndex, itemUD.Value.(list.Item))
+	cmd := li.model.InsertItem(index, itemUD.Value.(list.Item))
 	if cmd != nil {
 		l.Push(protocol.WrapCommand(l, cmd))
 		return 1
@@ -191,33 +194,28 @@ func listInsertItem(l *lua.LState) int {
 }
 
 func listRemoveItem(l *lua.LState) int {
-	list := checkList(l)
+	li := CheckList(l)
 	index := l.CheckInt(2)
-	// Adjust the index for 0-based indexing in Go
-	goIndex := index
 
-	// Remove the item from the list.items slice
-	if goIndex >= 0 && goIndex < len(list.items) {
-		list.items = append(list.items[:goIndex], list.items[goIndex+1:]...)
+	if index >= 0 && index < len(li.items) {
+		li.items = append(li.items[:index], li.items[index+1:]...)
 	} else {
 		l.RaiseError("Index out of range for listRemoveItem")
-		return 0 // Return early if the index is out of range
+		return 0
 	}
 
-	// Call the underlying Go method to remove the item
-	list.model.RemoveItem(goIndex)
+	li.model.RemoveItem(index)
 	return 0
 }
 
 func listSelectedItem(l *lua.LState) int {
-	list := checkList(l)
-	selected := list.model.SelectedItem()
+	li := CheckList(l)
+	selected := li.model.SelectedItem()
 	if selected == nil {
 		return 0
 	}
 
-	// Find the corresponding Lua item in list.items
-	for _, itemUD := range list.items {
+	for _, itemUD := range li.items {
 		if itemUD.Value == selected {
 			l.Push(itemUD)
 			return 1
@@ -228,9 +226,9 @@ func listSelectedItem(l *lua.LState) int {
 }
 
 func listMatchesForItem(l *lua.LState) int {
-	list := checkList(l)
+	li := CheckList(l)
 	index := l.CheckInt(2)
-	matches := list.model.MatchesForItem(index)
+	matches := li.model.MatchesForItem(index)
 	matchesTable := l.NewTable()
 	for _, match := range matches {
 		matchesTable.Append(lua.LNumber(match))
@@ -242,249 +240,303 @@ func listMatchesForItem(l *lua.LState) int {
 // Navigation
 
 func listCursorUp(l *lua.LState) int {
-	list := checkList(l)
-	list.model.CursorUp()
+	li := CheckList(l)
+	li.model.CursorUp()
 	return 0
 }
 
 func listCursorDown(l *lua.LState) int {
-	list := checkList(l)
-	list.model.CursorDown()
+	li := CheckList(l)
+	li.model.CursorDown()
 	return 0
 }
 
 func listPrevPage(l *lua.LState) int {
-	list := checkList(l)
-	list.model.PrevPage()
+	li := CheckList(l)
+	li.model.PrevPage()
 	return 0
 }
 
 func listNextPage(l *lua.LState) int {
-	list := checkList(l)
-	list.model.NextPage()
+	li := CheckList(l)
+	li.model.NextPage()
 	return 0
 }
 
 func listSelect(l *lua.LState) int {
-	list := checkList(l)
+	li := CheckList(l)
 	index := l.CheckInt(2)
-	list.model.Select(index)
+	li.model.Select(index)
 	return 0
 }
 
 func listResetSelected(l *lua.LState) int {
-	list := checkList(l)
-	list.model.ResetSelected()
+	li := CheckList(l)
+	li.model.ResetSelected()
 	return 0
 }
 
 // Filtering
 
 func listFilterState(l *lua.LState) int {
-	list := checkList(l)
-	state := list.model.FilterState()
+	li := CheckList(l)
+	state := li.model.FilterState()
 	l.Push(lua.LString(state.String()))
 	return 1
 }
 
 func listFilterValue(l *lua.LState) int {
-	list := checkList(l)
-	value := list.model.FilterValue()
+	li := CheckList(l)
+	value := li.model.FilterValue()
 	l.Push(lua.LString(value))
 	return 1
 }
 
 func listSettingFilter(l *lua.LState) int {
-	list := checkList(l)
-	l.Push(lua.LBool(list.model.SettingFilter()))
+	li := CheckList(l)
+	l.Push(lua.LBool(li.model.SettingFilter()))
 	return 1
 }
 
 func listIsFiltered(l *lua.LState) int {
-	list := checkList(l)
-	l.Push(lua.LBool(list.model.IsFiltered()))
+	li := CheckList(l)
+	l.Push(lua.LBool(li.model.IsFiltered()))
 	return 1
 }
 
 func listResetFilter(l *lua.LState) int {
-	list := checkList(l)
-	list.model.ResetFilter()
+	li := CheckList(l)
+	li.model.ResetFilter()
 	return 0
 }
 
 // Display Control
 
 func listSetWidth(l *lua.LState) int {
-	list := checkList(l)
-	list.model.SetWidth(l.CheckInt(2))
+	li := CheckList(l)
+	li.model.SetWidth(l.CheckInt(2))
 	return 0
 }
 
 func listSetHeight(l *lua.LState) int {
-	list := checkList(l)
-	list.model.SetHeight(l.CheckInt(2))
+	li := CheckList(l)
+	li.model.SetHeight(l.CheckInt(2))
 	return 0
 }
 
 func listSetShowTitle(l *lua.LState) int {
-	list := checkList(l)
-	list.model.SetShowTitle(l.CheckBool(2))
+	li := CheckList(l)
+	li.model.SetShowTitle(l.CheckBool(2))
 	return 0
 }
 
 func listSetShowFilter(l *lua.LState) int {
-	list := checkList(l)
-	list.model.SetShowFilter(l.CheckBool(2))
+	li := CheckList(l)
+	li.model.SetShowFilter(l.CheckBool(2))
 	return 0
 }
 
 func listSetShowStatusBar(l *lua.LState) int {
-	list := checkList(l)
-	list.model.SetShowStatusBar(l.CheckBool(2))
+	li := CheckList(l)
+	li.model.SetShowStatusBar(l.CheckBool(2))
 	return 0
 }
 
 func listSetShowPagination(l *lua.LState) int {
-	list := checkList(l)
-	list.model.SetShowPagination(l.CheckBool(2))
+	li := CheckList(l)
+	li.model.SetShowPagination(l.CheckBool(2))
 	return 0
 }
 
 func listSetShowHelp(l *lua.LState) int {
-	list := checkList(l)
-	list.model.SetShowHelp(l.CheckBool(2))
+	li := CheckList(l)
+	li.model.SetShowHelp(l.CheckBool(2))
 	return 0
 }
 
 func listSetStatusBarItemName(l *lua.LState) int {
-	list := checkList(l)
+	li := CheckList(l)
 	singular := l.CheckString(2)
 	plural := l.CheckString(3)
-	list.model.SetStatusBarItemName(singular, plural)
+	li.model.SetStatusBarItemName(singular, plural)
 	return 0
 }
 
 func listDisableQuitKeybindings(l *lua.LState) int {
-	list := checkList(l)
-	list.model.DisableQuitKeybindings()
+	li := CheckList(l)
+	li.model.DisableQuitKeybindings()
 	return 0
 }
 
 // Spinner
 
 func listStartSpinner(l *lua.LState) int {
-	list := checkList(l)
-	l.Push(protocol.WrapCommand(l, list.model.StartSpinner()))
+	li := CheckList(l)
+	l.Push(protocol.WrapCommand(l, li.model.StartSpinner()))
 	return 1
 }
 
 func listStopSpinner(l *lua.LState) int {
-	list := checkList(l)
-	list.model.StopSpinner()
+	li := CheckList(l)
+	li.model.StopSpinner()
 	return 0
 }
 
 func listToggleSpinner(l *lua.LState) int {
-	list := checkList(l)
-	l.Push(protocol.WrapCommand(l, list.model.ToggleSpinner()))
+	li := CheckList(l)
+	l.Push(protocol.WrapCommand(l, li.model.ToggleSpinner()))
 	return 1
 }
 
 // Status
 
 func listNewStatusMessage(l *lua.LState) int {
-	list := checkList(l)
+	li := CheckList(l)
 	message := l.CheckString(2)
-	l.Push(protocol.WrapCommand(l, list.model.NewStatusMessage(message)))
+	l.Push(protocol.WrapCommand(l, li.model.NewStatusMessage(message)))
 	return 1
 }
 
 func newList(l *lua.LState) int {
+	if l.GetTop() < 1 {
+		l.RaiseError("newList requires a configuration table")
+		return 0
+	}
+
 	cfg := l.CheckTable(1)
-	width := int(cfg.RawGetString("width").(lua.LNumber))
-	height := int(cfg.RawGetString("height").(lua.LNumber))
+	if cfg == nil {
+		l.RaiseError("configuration must be a table")
+		return 0
+	}
 
-	// Get items
+	if err := validateListConfig(l, cfg); err != nil {
+		l.RaiseError("invalid list configuration: %v", err)
+		return 0
+	}
+
+	// Get and validate width/height with defaults
+	width := 80  // default width
+	height := 24 // default height
+
+	if w := cfg.RawGetString("width"); w.Type() != lua.LTNil {
+		if wNum, ok := w.(lua.LNumber); ok {
+			if int(wNum) <= 0 {
+				l.RaiseError("width must be positive")
+				return 0
+			}
+			width = int(wNum)
+		} else {
+			l.RaiseError("width must be a number")
+			return 0
+		}
+	}
+
+	if h := cfg.RawGetString("height"); h.Type() != lua.LTNil {
+		if hNum, ok := h.(lua.LNumber); ok {
+			if int(hNum) <= 0 {
+				l.RaiseError("height must be positive")
+				return 0
+			}
+			height = int(hNum)
+		} else {
+			l.RaiseError("height must be a number")
+			return 0
+		}
+	}
+
+	// Get and validate items
 	var items []list.Item
-	itemsTable := cfg.RawGetString("items").(*lua.LTable)
-	itemsTable.ForEach(func(_ lua.LValue, v lua.LValue) {
-		if item, ok := v.(*lua.LTable); ok {
-			items = append(items, &LuaItem{luaItem: item, luaState: l})
-		}
-	})
-
-	// Get delegate
-	var delegate list.ItemDelegate
-	lv := cfg.RawGetString("delegate")
-	if lv.Type() != lua.LTNil {
-		luaDelegate, ok := lv.(*lua.LFunction)
+	if itemsVal := cfg.RawGetString("items"); itemsVal.Type() != lua.LTNil {
+		itemsTable, ok := itemsVal.(*lua.LTable)
 		if !ok {
-			l.RaiseError("delegate must be a function")
+			l.RaiseError("items must be a table")
+			return 0
 		}
-		delegate = &LuaDelegate{luaDelegate: luaDelegate, luaState: l}
+
+		items = make([]list.Item, 0, itemsTable.Len())
+		var itemError error
+		itemsTable.ForEach(func(_ lua.LValue, v lua.LValue) {
+			if itemError != nil {
+				return
+			}
+
+			switch v.Type() {
+			case lua.LTTable:
+				item := &LuaItem{luaItem: v.(*lua.LTable), luaState: l}
+				items = append(items, item)
+			case lua.LTUserData:
+				if itemUD, ok := v.(*lua.LUserData); ok {
+					if item, ok := itemUD.Value.(list.Item); ok {
+						items = append(items, item)
+					} else {
+						itemError = fmt.Errorf("invalid item type: expected list.Item interface")
+					}
+				}
+			default:
+				itemError = fmt.Errorf("invalid item type: expected table or userdata")
+			}
+		})
+
+		if itemError != nil {
+			l.RaiseError("error processing items: %v", itemError)
+			return 0
+		}
+	}
+
+	// Get and validate delegate
+	var delegate list.ItemDelegate
+	if delegateVal := cfg.RawGetString("delegate"); delegateVal.Type() != lua.LTNil {
+		delegateTable, ok := delegateVal.(*lua.LTable)
+		if !ok {
+			l.RaiseError("delegate must be a table")
+			return 0
+		}
+		delegate = &LuaDelegate{luaDelegate: delegateTable, luaState: l}
 	} else {
 		delegate = list.NewDefaultDelegate()
 	}
 
-	// Create the list model
+	// Create the list model with validated parameters
 	m := list.New(items, delegate, width, height)
 
-	// Set title
-	if title := cfg.RawGetString("title").(lua.LString); title != "" {
-		m.Title = string(title)
-	}
-
-	// Configuration Options
-	if lv := cfg.RawGetString("show_title"); lv != lua.LNil {
-		m.SetShowTitle(lua.LVAsBool(lv))
-	}
-	if lv := cfg.RawGetString("show_filter"); lv != lua.LNil {
-		m.SetShowFilter(lua.LVAsBool(lv))
-	}
-	if lv := cfg.RawGetString("show_status_bar"); lv != lua.LNil {
-		m.SetShowStatusBar(lua.LVAsBool(lv))
-	}
-	if lv := cfg.RawGetString("show_pagination"); lv != lua.LNil {
-		m.SetShowPagination(lua.LVAsBool(lv))
-	}
-	if lv := cfg.RawGetString("show_help"); lv != lua.LNil {
-		m.SetShowHelp(lua.LVAsBool(lv))
-	}
-	if lv := cfg.RawGetString("filtering_enabled"); lv != lua.LNil {
-		m.SetFilteringEnabled(lua.LVAsBool(lv))
-	}
-	if lv := cfg.RawGetString("infinite_scrolling"); lv != lua.LNil {
-		m.InfiniteScrolling = lua.LVAsBool(lv)
-	}
-
-	// Status Bar Customization
-	if itemNames := cfg.RawGetString("item_name"); itemNames != lua.LNil {
-		if itemNamesTbl, ok := itemNames.(*lua.LTable); ok {
-			singular := lua.LVAsString(itemNamesTbl.RawGetString("singular"))
-			plural := lua.LVAsString(itemNamesTbl.RawGetString("plural"))
-			m.SetStatusBarItemName(singular, plural)
+	// Set optional title if provided
+	if titleVal := cfg.RawGetString("title"); titleVal.Type() != lua.LTNil {
+		if title, ok := titleVal.(lua.LString); ok {
+			m.Title = string(title)
+		} else {
+			l.RaiseError("title must be a string")
+			return 0
 		}
 	}
 
-	// Styling
-	if styles := cfg.RawGetString("styles"); styles != lua.LNil {
-		if stylesTbl, ok := styles.(*lua.LTable); ok {
-			m.Styles = luaTableToStyles(l, stylesTbl)
+	// Create and set optional styles if provided
+	if stylesVal := cfg.RawGetString("styles"); stylesVal.Type() != lua.LTNil {
+		if stylesTable, ok := stylesVal.(*lua.LTable); ok {
+			m.Styles = luaTableToStyles(l, stylesTable)
+		} else {
+			l.RaiseError("styles must be a table")
+			return 0
 		}
 	}
 
-	// Key bindings
-	if keys := cfg.RawGetString("keys"); keys != lua.LNil {
-		if keysTbl, ok := keys.(*lua.LTable); ok {
-			m.KeyMap = luaTableToKeyMap(l, keysTbl)
-		}
+	// Set optional additional settings
+	if showTitle := cfg.RawGetString("show_title"); showTitle.Type() == lua.LTBool {
+		m.SetShowTitle(bool(showTitle.(lua.LBool)))
 	}
 
-	// Wrap the model for Lua
+	if showFilter := cfg.RawGetString("show_filter"); showFilter.Type() == lua.LTBool {
+		m.SetShowFilter(bool(showFilter.(lua.LBool)))
+	}
+
+	if showHelp := cfg.RawGetString("show_help"); showHelp.Type() == lua.LTBool {
+		m.SetShowHelp(bool(showHelp.(lua.LBool)))
+	}
+
+	// Create and return the wrapped model with tracking for Lua items
 	ud := l.NewUserData()
 	ud.Value = &List{
 		model:    m,
-		items:    make([]*lua.LUserData, 0),
+		items:    make([]*lua.LUserData, len(items)),
 		luaState: l,
 	}
 	l.SetMetatable(ud, l.GetTypeMetatable("btea.List"))
@@ -492,11 +544,105 @@ func newList(l *lua.LState) int {
 	return 1
 }
 
-func checkList(l *lua.LState) *List {
+// Helper function to safely convert Lua value to int with validation
+func luaToInt(l *lua.LState, v lua.LValue, name string) (int, error) {
+	if v.Type() != lua.LTNumber {
+		return 0, fmt.Errorf("%s must be a number", name)
+	}
+	num := int(v.(lua.LNumber))
+	if num <= 0 {
+		return 0, fmt.Errorf("%s must be positive", name)
+	}
+	return num, nil
+}
+
+// CheckList checks if the first argument is a *List and returns it.
+func CheckList(l *lua.LState) *List {
 	ud := l.CheckUserData(1)
 	if v, ok := ud.Value.(*List); ok {
 		return v
 	}
 	l.ArgError(1, "btea.List expected")
+	return nil
+}
+
+func validateListConfig(l *lua.LState, cfg *lua.LTable) error {
+	// Validate required fields
+	if cfg == nil {
+		return fmt.Errorf("configuration table is required")
+	}
+
+	// Validate width/height
+	if w := cfg.RawGetString("width"); w.Type() != lua.LTNil {
+		if wNum, ok := w.(lua.LNumber); !ok || int(wNum) <= 0 {
+			return fmt.Errorf("width must be a positive number")
+		}
+	}
+
+	if h := cfg.RawGetString("height"); h.Type() != lua.LTNil {
+		if hNum, ok := h.(lua.LNumber); !ok || int(hNum) <= 0 {
+			return fmt.Errorf("height must be a positive number")
+		}
+	}
+
+	// Validate items if present
+	if itemsVal := cfg.RawGetString("items"); itemsVal.Type() != lua.LTNil {
+		itemsTable, ok := itemsVal.(*lua.LTable)
+		if !ok {
+			return fmt.Errorf("items must be a table")
+		}
+
+		var err error
+		itemsTable.ForEach(func(_ lua.LValue, v lua.LValue) {
+			if err != nil {
+				return
+			}
+
+			switch v.Type() {
+			case lua.LTTable:
+				// Validate required item methods
+				item := v.(*lua.LTable)
+				if item.RawGetString("filter_value").Type() == lua.LTNil {
+					err = fmt.Errorf("items must implement filter_value method")
+				}
+			case lua.LTUserData:
+				if itemUD, ok := v.(*lua.LUserData); !ok {
+					err = fmt.Errorf("invalid item type")
+				} else if _, ok := itemUD.Value.(list.Item); !ok {
+					err = fmt.Errorf("items must implement list.Item interface")
+				}
+			default:
+				err = fmt.Errorf("invalid item type: expected table or userdata")
+			}
+		})
+
+		if err != nil {
+			return fmt.Errorf("invalid items: %w", err)
+		}
+	}
+
+	// Validate delegate if present
+	if delegateVal := cfg.RawGetString("delegate"); delegateVal.Type() != lua.LTNil {
+		delegateTable, ok := delegateVal.(*lua.LTable)
+		if !ok {
+			return fmt.Errorf("delegate must be a table")
+		}
+
+		// Validate required delegate methods
+		required := []string{"height", "spacing", "render"}
+		for _, method := range required {
+			if delegateTable.RawGetString(method).Type() == lua.LTNil {
+				return fmt.Errorf("delegate must implement %s method", method)
+			}
+		}
+	}
+
+	// Validate styles if present
+	if stylesVal := cfg.RawGetString("styles"); stylesVal.Type() != lua.LTNil {
+		if _, ok := stylesVal.(*lua.LTable); !ok {
+			return fmt.Errorf("styles must be a table")
+		}
+	}
+
 	return nil
 }

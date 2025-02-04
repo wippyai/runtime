@@ -2,6 +2,7 @@ package btea
 
 import (
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/models"
+	"github.com/ponyruntime/pony/runtime/lua/modules/btea/models/list"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/render"
 	lua "github.com/yuin/gopher-lua"
@@ -43,6 +44,9 @@ func (m *Module) Loader(l *lua.LState) int {
 	models.RegisterPaginator(l, mod)
 	models.RegisterViewport(l, mod)
 	models.RegisterTable(l, mod)
+
+	// this one is special
+	list.RegisterList(l, mod)
 
 	// additional view components
 	models.RegisterHelp(l, mod)

@@ -1,117 +1,115 @@
 package list
 
 import (
+	"fmt"
+	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
 	"io"
-	"strings"
 
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
 	lua "github.com/yuin/gopher-lua"
 )
 
 // LuaDelegate is a wrapper to make Lua functions act as list.ItemDelegate
 type LuaDelegate struct {
-	luaDelegate *lua.LFunction
+	luaDelegate *lua.LTable
 	luaState    *lua.LState
 }
 
 func (ld *LuaDelegate) Height() int {
 	l := ld.luaState
+	fn := l.GetField(ld.luaDelegate, "height")
+	if fn.Type() != lua.LTFunction {
+		return 0 // Default height
+	}
+
 	if err := l.CallByParam(lua.P{
-		Fn:      ld.luaDelegate,
+		Fn:      fn.(*lua.LFunction),
 		NRet:    1,
 		Protect: true,
-	}, lua.LString("height")); err != nil {
+	}); err != nil {
 		l.RaiseError("error calling delegate height: %v", err)
-		return 0 // Default height
+		return 0
 	}
 	ret := l.Get(-1)
 	l.Pop(1)
-
 	return int(lua.LVAsNumber(ret))
 }
 
 func (ld *LuaDelegate) Spacing() int {
 	l := ld.luaState
+	fn := l.GetField(ld.luaDelegate, "spacing")
+	if fn.Type() != lua.LTFunction {
+		return 0 // Default spacing
+	}
+
 	if err := l.CallByParam(lua.P{
-		Fn:      ld.luaDelegate,
+		Fn:      fn.(*lua.LFunction),
 		NRet:    1,
 		Protect: true,
-	}, lua.LString("spacing")); err != nil {
+	}); err != nil {
 		l.RaiseError("error calling delegate spacing: %v", err)
-		return 0 // Default spacing
+		return 0
 	}
 	ret := l.Get(-1)
 	l.Pop(1)
-
 	return int(lua.LVAsNumber(ret))
-}
-
-// LuaListWriter is used to capture output from Go to Lua strings.
-type LuaListWriter struct {
-	L     *lua.LState
-	parts []string
-}
-
-// Write appends byte slices to the writer's parts.
-func (w *LuaListWriter) Write(p []byte) (int, error) {
-	w.parts = append(w.parts, string(p))
-	return len(p), nil
-}
-
-// String joins all parts into a single string.
-func (w *LuaListWriter) String() string {
-	return strings.Join(w.parts, "")
 }
 
 func (ld *LuaDelegate) Render(w io.Writer, m list.Model, index int, listItem list.Item) {
 	l := ld.luaState
-
-	wrappedModel := wrapModelForLua(l, &m)
-	wrappedItem := wrapItemForLua(l, listItem)
-
-	lw, ok := w.(*LuaListWriter)
-	if !ok {
-		l.RaiseError("io.Writer is not a LuaListWriter")
+	fn := l.GetField(ld.luaDelegate, "render")
+	if fn.Type() != lua.LTFunction {
 		return
 	}
 
+	wrappedModel := wrapModelForLua(l, &m)
+	wrappedItem := wrapItemForLua(l, listItem)
 	if err := l.CallByParam(lua.P{
-		Fn:      ld.luaDelegate,
-		NRet:    0,
+		Fn:      fn.(*lua.LFunction),
+		NRet:    1,
 		Protect: true,
-	}, lua.LString("render"), lw, wrappedModel, lua.LNumber(index), wrappedItem); err != nil {
+	}, wrappedModel, lua.LNumber(index), wrappedItem); err != nil {
 		l.RaiseError("error calling delegate render: %v", err)
+		return
+	}
+	ret := l.Get(-1)
+	l.Pop(1)
+
+	if str, ok := ret.(lua.LString); ok {
+		_, err := fmt.Fprint(w, string(str))
+		if err != nil {
+			l.RaiseError("error writing to output: %v", err)
+		}
+	} else {
+		l.RaiseError("render must return a string")
 	}
 }
 
 func (ld *LuaDelegate) Update(msg tea.Msg, m *list.Model) tea.Cmd {
 	l := ld.luaState
-	luaMsg := protocol.MsgToLua(msg)
-
-	// Wrap the model for Lua
-	wrappedModel := wrapModelForLua(l, m)
-
-	if err := l.CallByParam(lua.P{
-		Fn:      ld.luaDelegate,
-		NRet:    1,
-		Protect: true,
-	}, lua.LString("update"), luaMsg, wrappedModel); err != nil {
-		l.RaiseError("error calling delegate update: %v", err)
+	fn := l.GetField(ld.luaDelegate, "update")
+	if fn.Type() != lua.LTFunction {
 		return nil
 	}
 
+	luaMsg := protocol.MsgToLua(msg)
+	wrappedModel := wrapModelForLua(l, m)
+	if err := l.CallByParam(lua.P{
+		Fn:      fn.(*lua.LFunction),
+		NRet:    1,
+		Protect: true,
+	}, luaMsg, wrappedModel); err != nil {
+		l.RaiseError("error calling delegate update: %v", err)
+		return nil
+	}
 	ret := l.Get(-1)
 	l.Pop(1)
 
 	if ret == lua.LNil {
 		return nil
 	}
-
-	// Convert Lua command back to tea.Cmd
-	cmd := protocol.UnwrapCommand(l, ret)
-	return cmd
+	return protocol.UnwrapCommand(l, ret)
 }
 
 func wrapModelForLua(l *lua.LState, m *list.Model) *lua.LUserData {
@@ -124,9 +122,10 @@ func wrapModelForLua(l *lua.LState, m *list.Model) *lua.LUserData {
 	return ud
 }
 
-func wrapItemForLua(l *lua.LState, item list.Item) *lua.LUserData {
-	ud := l.NewUserData()
-	ud.Value = item
-	l.SetMetatable(ud, l.GetTypeMetatable("btea.ListItem"))
-	return ud
+func wrapItemForLua(l *lua.LState, item list.Item) lua.LValue {
+	if li, ok := item.(*LuaItem); ok {
+		return li.luaItem // Return the underlying table directly
+	}
+	// Fallback for non-LuaItems
+	return lua.LNil
 }
