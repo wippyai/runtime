@@ -48,7 +48,7 @@ func TestRegistry_HandlerRegistrationOverBus(t *testing.T) {
 	target := registry.ID("test.workflow")
 
 	// Create a test handler
-	handler := func() string {
+	handler := func() any {
 		return "test result"
 	}
 
@@ -104,7 +104,7 @@ func TestRegistry_Get(t *testing.T) {
 		{
 			name: "successful retrieval",
 			setupHandler: func(bus events.Bus) {
-				handler := func() string { return "success" }
+				handler := func() any { return "success" }
 				bus.Send(ctx, events.Event{
 					System: runtime.WorkflowSystem,
 					Kind:   runtime.RegisterWorkflowEvent,
@@ -186,7 +186,7 @@ func TestRegistry_ConcurrentHandlerRegistration(t *testing.T) {
 		go func(idx int) {
 			defer wg.Done()
 			target := fmt.Sprintf("test.workflow.%d", idx)
-			handler := func() string {
+			handler := func() any {
 				return fmt.Sprintf("result %d", idx)
 			}
 
@@ -218,12 +218,7 @@ func TestRegistry_ConcurrentHandlerRegistration(t *testing.T) {
 		handler, err := reg.Get(registry.ID(target))
 		require.NoError(t, err)
 		require.NotNil(t, handler)
-
-		if h, ok := handler.(func() string); ok {
-			assert.Equal(t, fmt.Sprintf("result %d", i), h())
-		} else {
-			t.Errorf("handler %d is not of expected type", i)
-		}
+		assert.Equal(t, fmt.Sprintf("result %d", i), handler())
 	}
 }
 
