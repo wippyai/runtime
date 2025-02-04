@@ -3,7 +3,7 @@ package lua
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/api/executor"
+	"github.com/ponyruntime/pony/api/runtime"
 
 	contextapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/payload"
@@ -12,7 +12,7 @@ import (
 )
 
 // Execute executes a Lua function with the given arguments
-func (m *RuntimeManager) Execute(task executor.Task) (chan *executor.Result, error) {
+func (m *RuntimeManager) Execute(task runtime.Task) (chan *runtime.Result, error) {
 	// Get the callable from the sync map
 	cl, ok := m.callable.Load(task.Target)
 	if !ok {
@@ -59,8 +59,8 @@ func (m *RuntimeManager) Execute(task executor.Task) (chan *executor.Result, err
 	result, err := handler.Execute(ctx, fn.Method, args...)
 
 	// Create result channel with buffer size 1
-	resultChan := make(chan *executor.Result, 1)
-	resultChan <- &executor.Result{
+	resultChan := make(chan *runtime.Result, 1)
+	resultChan <- &runtime.Result{
 		Payload: payload.NewPayload(result, payload.Lua),
 		Error:   err,
 	}

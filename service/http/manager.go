@@ -3,7 +3,7 @@ package http
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/api/executor"
+	"github.com/ponyruntime/pony/api/runtime"
 	"net/http"
 
 	"github.com/ponyruntime/pony/api/events"
@@ -49,7 +49,7 @@ func NewManager(
 func NewExecutingManager(
 	bus events.Bus,
 	dtt payload.Transcoder,
-	exec executor.Executor,
+	exec runtime.Executor,
 	logger *zap.Logger,
 ) *ServerManager {
 	return &ServerManager{

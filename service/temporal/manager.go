@@ -4,10 +4,9 @@ import (
 	"context"
 	"fmt"
 	"github.com/ponyruntime/pony/api/events"
-	"github.com/ponyruntime/pony/api/executor"
 	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/registry"
+	"github.com/ponyruntime/pony/api/runtime"
 	api "github.com/ponyruntime/pony/api/service/temporal"
 	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/ponyruntime/pony/service/temporal/activity"
@@ -36,8 +35,8 @@ type Manager struct {
 func NewManager(
 	bus events.Bus,
 	dtt payload.Transcoder,
-	exec executor.Executor,
-	workflows process.WorkflowRegistry,
+	exec runtime.Executor,
+	workflows runtime.WorkflowRegistry,
 	logger *zap.Logger,
 ) *Manager {
 	return &Manager{

@@ -3,7 +3,7 @@ package executor
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/api/executor"
+	"github.com/ponyruntime/pony/api/runtime"
 	"sync"
 
 	"github.com/ponyruntime/pony/api/events"
@@ -38,7 +38,7 @@ func (e *Executor) Start(ctx context.Context) error {
 	sub, err := eventbus.NewSubscriber(
 		e.ctx,
 		e.bus,
-		executor.System,
+		runtime.System,
 		"executor.*",
 		e.handleEvent,
 	)
@@ -60,8 +60,8 @@ func (e *Executor) Stop() error {
 
 func (e *Executor) handleEvent(evt events.Event) {
 	switch evt.Kind {
-	case executor.RegisterHandlerEvent:
-		if data, ok := evt.Data.(executor.RegisterHandler); ok {
+	case runtime.RegisterHandlerEvent:
+		if data, ok := evt.Data.(runtime.RegisterHandler); ok {
 			if data.Handler == nil {
 				e.logger.Warn("handler is nil", zap.String("target", string(data.Target)))
 				return
@@ -70,8 +70,8 @@ func (e *Executor) handleEvent(evt events.Event) {
 			e.logger.Debug("handler registered",
 				zap.String("target", string(data.Target)))
 		}
-	case executor.DeleteHandlerEvent:
-		if data, ok := evt.Data.(executor.DeleteHandler); ok {
+	case runtime.DeleteHandlerEvent:
+		if data, ok := evt.Data.(runtime.DeleteHandler); ok {
 			e.handlers.Delete(data.Target)
 			e.logger.Debug("handler removed",
 				zap.String("target", string(data.Target)))
@@ -82,13 +82,13 @@ func (e *Executor) handleEvent(evt events.Event) {
 // Execute runs the given task using its registered handler and returns a channel
 // for receiving the execution result(s). Returns an error if no handler is registered
 // for the task's target or if the handler type is invalid.
-func (e *Executor) Execute(task executor.Task) (chan *executor.Result, error) {
+func (e *Executor) Execute(task runtime.Task) (chan *runtime.Result, error) {
 	handler, exists := e.handlers.Load(task.Target)
 	if !exists {
 		return nil, fmt.Errorf("no handler registered for target: %s", task.Target)
 	}
 
-	if execHandler, ok := handler.(executor.ExecutorHandler); ok {
+	if execHandler, ok := handler.(runtime.ExecutorHandler); ok {
 		return execHandler(task)
 	}
 

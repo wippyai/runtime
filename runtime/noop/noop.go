@@ -3,7 +3,7 @@ package noop
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/api/executor"
+	"github.com/ponyruntime/pony/api/runtime"
 
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"
@@ -26,9 +26,9 @@ func NewNoopRuntime(bus events.Bus, logger *zap.Logger) *Runtime {
 }
 
 // Execute implements the runtime.Executor interface, does not do anything.
-func (n *Runtime) Execute(task executor.Task) (chan *executor.Result, error) {
-	rspChan := make(chan *executor.Result, 1)
-	rspChan <- &executor.Result{
+func (n *Runtime) Execute(task runtime.Task) (chan *runtime.Result, error) {
+	rspChan := make(chan *runtime.Result, 1)
+	rspChan <- &runtime.Result{
 		Payload: payload.New(fmt.Sprintf("noop runtime: task %s executed", task.Target)),
 	}
 
@@ -42,9 +42,9 @@ func (n *Runtime) Add(ctx context.Context, entry registry.Entry) error {
 		zap.String("kind", string(entry.Kind)))
 
 	n.bus.Send(ctx, events.Event{
-		System: executor.System,
-		Kind:   executor.RegisterHandlerEvent,
-		Data:   executor.RegisterHandler{Target: entry.ID, Handler: n.Execute},
+		System: runtime.System,
+		Kind:   runtime.RegisterHandlerEvent,
+		Data:   runtime.RegisterHandler{Target: entry.ID, Handler: n.Execute},
 	})
 
 	return nil
@@ -65,9 +65,9 @@ func (n *Runtime) Delete(ctx context.Context, entry registry.Entry) error {
 		zap.String("kind", string(entry.Kind)))
 
 	n.bus.Send(ctx, events.Event{
-		System: executor.System,
-		Kind:   executor.DeleteHandlerEvent,
-		Data:   executor.DeleteHandler{Target: entry.ID},
+		System: runtime.System,
+		Kind:   runtime.DeleteHandlerEvent,
+		Data:   runtime.DeleteHandler{Target: entry.ID},
 	})
 
 	return nil
