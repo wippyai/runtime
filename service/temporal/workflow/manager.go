@@ -3,7 +3,7 @@ package workflow
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/api/process"
+	"github.com/ponyruntime/pony/api/runtime"
 	api "github.com/ponyruntime/pony/api/service/temporal"
 	"sync"
 
@@ -16,11 +16,11 @@ type Manager struct {
 	mu       sync.RWMutex
 	log      *zap.Logger
 	configs  map[registry.ID]*api.WorkflowDefinition
-	workflow process.WorkflowRegistry
+	workflow runtime.WorkflowRegistry
 }
 
 // NewWorkflowManager creates a new workflow manager instance
-func NewWorkflowManager(log *zap.Logger, reg process.WorkflowRegistry) *Manager {
+func NewWorkflowManager(log *zap.Logger, reg runtime.WorkflowRegistry) *Manager {
 	return &Manager{
 		log:      log,
 		configs:  make(map[registry.ID]*api.WorkflowDefinition),

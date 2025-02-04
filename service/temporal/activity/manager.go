@@ -3,7 +3,7 @@ package activity
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/api/executor"
+	"github.com/ponyruntime/pony/api/runtime"
 	api "github.com/ponyruntime/pony/api/service/temporal"
 	"sync"
 
@@ -23,12 +23,12 @@ type activityHandler struct {
 type Manager struct {
 	mu       sync.RWMutex
 	log      *zap.Logger
-	executor executor.Executor
+	executor runtime.Executor
 	handlers map[registry.ID]*activityHandler
 }
 
 // NewActivityManager creates a new activity manager instance
-func NewActivityManager(log *zap.Logger, executor executor.Executor) *Manager {
+func NewActivityManager(log *zap.Logger, executor runtime.Executor) *Manager {
 	return &Manager{
 		log:      log,
 		executor: executor,

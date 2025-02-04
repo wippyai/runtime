@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/ponyruntime/pony/api/executor"
+	"github.com/ponyruntime/pony/api/runtime"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -18,10 +18,10 @@ import (
 
 // MockExecutor is a simple mock implementation of runtime.Executor
 type MockExecutor struct {
-	executeFunc func(executor.Task) (chan *executor.Result, error)
+	executeFunc func(runtime.Task) (chan *runtime.Result, error)
 }
 
-func (m *MockExecutor) Execute(task executor.Task) (chan *executor.Result, error) {
+func (m *MockExecutor) Execute(task runtime.Task) (chan *runtime.Result, error) {
 	if m.executeFunc != nil {
 		return m.executeFunc(task)
 	}

@@ -3,8 +3,7 @@ package lua
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/api/executor"
-	"github.com/ponyruntime/pony/api/process"
+	"github.com/ponyruntime/pony/api/runtime"
 
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"
@@ -80,19 +79,19 @@ func (m *RuntimeManager) unpackTerminal(data payload.Payload) (*api.TerminalConf
 // Helper methods for event handling
 func (m *RuntimeManager) registerHandler(ctx context.Context, id registry.ID) {
 	m.bus.Send(ctx, events.Event{
-		System: executor.System,
-		Kind:   executor.RegisterHandlerEvent,
+		System: runtime.System,
+		Kind:   runtime.RegisterHandlerEvent,
 		Path:   events.Path(id),
-		Data:   executor.RegisterHandler{Target: id, Handler: m.Execute},
+		Data:   runtime.RegisterHandler{Target: id, Handler: m.Execute},
 	})
 }
 
 func (m *RuntimeManager) unregisterHandler(ctx context.Context, id registry.ID) { //nolint:unused
 	m.bus.Send(ctx, events.Event{
-		System: executor.System,
-		Kind:   executor.DeleteHandlerEvent,
+		System: runtime.System,
+		Kind:   runtime.DeleteHandlerEvent,
 		Path:   events.Path(id),
-		Data:   executor.DeleteHandler{Target: id},
+		Data:   runtime.DeleteHandler{Target: id},
 	})
 }
 
@@ -116,10 +115,10 @@ func (m *RuntimeManager) unregisterTerminal(ctx context.Context, id registry.ID)
 
 func (m *RuntimeManager) registerWorkflow(ctx context.Context, id registry.ID, runner func() any) {
 	m.bus.Send(ctx, events.Event{
-		System: process.WorkflowSystem,
-		Kind:   process.RegisterWorkflowEvent,
+		System: runtime.WorkflowSystem,
+		Kind:   runtime.RegisterWorkflowEvent,
 		Path:   events.Path(id),
-		Data: process.RegisterWorkflow{
+		Data: runtime.RegisterWorkflow{
 			Target:  id,
 			Handler: runner,
 		},
@@ -128,9 +127,9 @@ func (m *RuntimeManager) registerWorkflow(ctx context.Context, id registry.ID, r
 
 func (m *RuntimeManager) unregisterWorkflow(ctx context.Context, id registry.ID) {
 	m.bus.Send(ctx, events.Event{
-		System: process.WorkflowSystem,
-		Kind:   process.DeleteWorkflowEvent,
+		System: runtime.WorkflowSystem,
+		Kind:   runtime.DeleteWorkflowEvent,
 		Path:   events.Path(id),
-		Data:   process.DeleteWorkflow{Target: id},
+		Data:   runtime.DeleteWorkflow{Target: id},
 	})
 }

@@ -3,7 +3,7 @@ package exec
 import (
 	"context"
 	"errors"
-	"github.com/ponyruntime/pony/api/executor"
+	"github.com/ponyruntime/pony/api/runtime"
 
 	contextapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/payload"
@@ -28,7 +28,7 @@ type Module struct {
 // proper context propagation and payload transcoding.
 type Executor struct {
 	dtt           payload.Transcoder
-	exec          executor.Executor
+	exec          runtime.Executor
 	appContext    context.Context
 	threadContext context.Context
 	contextValues map[contextKey]interface{}
@@ -66,13 +66,13 @@ func (m *Module) Loader(l *lua.LState) int {
 	return 1
 }
 
-func (m *Module) extractDependencies(l *lua.LState) (executor.Executor, payload.Transcoder, error) {
+func (m *Module) extractDependencies(l *lua.LState) (runtime.Executor, payload.Transcoder, error) {
 	ctx := l.Context()
 	if ctx == nil {
 		return nil, nil, errors.New("no context found")
 	}
 
-	exec, ok := ctx.Value(contextapi.ExecutorCtx).(executor.Executor)
+	exec, ok := ctx.Value(contextapi.ExecutorCtx).(runtime.Executor)
 	if !ok {
 		return nil, nil, errors.New("executor not found in context")
 	}
@@ -196,7 +196,7 @@ func (e *Executor) handleRun(l *lua.LState) int {
 	return e.executeAsync(l, e.createTask(e.appContext, l))
 }
 
-func (e *Executor) createTask(ctx context.Context, l *lua.LState) executor.Task {
+func (e *Executor) createTask(ctx context.Context, l *lua.LState) runtime.Task {
 	targetIndex := 1
 	if l.Get(1).Type() == lua.LTUserData {
 		targetIndex = 2
@@ -221,14 +221,14 @@ func (e *Executor) createTask(ctx context.Context, l *lua.LState) executor.Task 
 		}
 	}
 
-	return executor.Task{
+	return runtime.Task{
 		Context:  ctx,
 		Target:   registry.ID(target),
 		Payloads: payloads,
 	}
 }
 
-func (e *Executor) executeSync(l *lua.LState, task executor.Task) int {
+func (e *Executor) executeSync(l *lua.LState, task runtime.Task) int {
 	resultChan, err := e.exec.Execute(task)
 	if err != nil {
 		l.Push(lua.LNil)
@@ -236,7 +236,7 @@ func (e *Executor) executeSync(l *lua.LState, task executor.Task) int {
 		return 2
 	}
 
-	var result *executor.Result
+	var result *runtime.Result
 	select {
 	case r := <-resultChan:
 		result = r
@@ -267,7 +267,7 @@ func (e *Executor) executeSync(l *lua.LState, task executor.Task) int {
 	return 2
 }
 
-func (e *Executor) executeAsync(l *lua.LState, task executor.Task) int {
+func (e *Executor) executeAsync(l *lua.LState, task runtime.Task) int {
 	_, err := e.exec.Execute(task)
 	if err != nil {
 		l.Push(lua.LString(err.Error()))

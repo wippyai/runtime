@@ -3,7 +3,7 @@ package exec
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/api/executor"
+	"github.com/ponyruntime/pony/api/runtime"
 	"testing"
 
 	contextapi "github.com/ponyruntime/pony/api/context"
@@ -19,16 +19,16 @@ import (
 )
 
 type mockExecutor struct {
-	result *executor.Result
+	result *runtime.Result
 	err    error
 }
 
-func (m *mockExecutor) Execute(executor.Task) (chan *executor.Result, error) {
+func (m *mockExecutor) Execute(runtime.Task) (chan *runtime.Result, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
 
-	resultChan := make(chan *executor.Result, 1)
+	resultChan := make(chan *runtime.Result, 1)
 	resultChan <- m.result
 	close(resultChan)
 
@@ -51,7 +51,7 @@ func TestExecutorModule(t *testing.T) {
 
 	t.Run("call with single argument", func(t *testing.T) {
 		mockExec := &mockExecutor{
-			result: &executor.Result{
+			result: &runtime.Result{
 				Payload: payload.New("success"),
 				Error:   nil,
 			},
@@ -75,7 +75,7 @@ func TestExecutorModule(t *testing.T) {
 
 	t.Run("call with multiple arguments", func(t *testing.T) {
 		mockExec := &mockExecutor{
-			result: &executor.Result{
+			result: &runtime.Result{
 				Payload: payload.New("multi_success"),
 				Error:   nil,
 			},
@@ -99,7 +99,7 @@ func TestExecutorModule(t *testing.T) {
 
 	t.Run("run returns only scheduling error", func(t *testing.T) {
 		mockExec := &mockExecutor{
-			result: &executor.Result{
+			result: &runtime.Result{
 				Payload: payload.New("bg_success"),
 				Error:   nil,
 			},
@@ -142,7 +142,7 @@ func TestExecutorModule(t *testing.T) {
 
 	t.Run("call without arguments", func(t *testing.T) {
 		mockExec := &mockExecutor{
-			result: &executor.Result{
+			result: &runtime.Result{
 				Payload: payload.New("no_args"),
 				Error:   nil,
 			},
@@ -190,7 +190,7 @@ func TestExecutorModule_WithContext(t *testing.T) {
 
 	t.Run("with valid context values", func(t *testing.T) {
 		mockExec := &mockExecutor{
-			result: &executor.Result{
+			result: &runtime.Result{
 				Payload: payload.New("success"),
 				Error:   nil,
 			},
@@ -237,7 +237,7 @@ func TestExecutorModule_ContextCancellation(t *testing.T) {
 
 	t.Run("cancellation during execution", func(t *testing.T) {
 		mockExec := &mockExecutor{
-			result: &executor.Result{
+			result: &runtime.Result{
 				Payload: payload.New("should not receive"),
 				Error:   nil,
 			},
@@ -274,7 +274,7 @@ func TestExecutorModule_ResultError(t *testing.T) {
 
 	t.Run("executor returns error in result", func(t *testing.T) {
 		mockExec := &mockExecutor{
-			result: &executor.Result{
+			result: &runtime.Result{
 				Payload: nil,
 				Error:   fmt.Errorf("execution failed"),
 			},
@@ -335,7 +335,7 @@ func TestExecutorModule_MissingContext(t *testing.T) {
 
 	t.Run("missing transcoder in context", func(t *testing.T) {
 		mockExec := &mockExecutor{
-			result: &executor.Result{
+			result: &runtime.Result{
 				Payload: payload.New("test"),
 				Error:   nil,
 			},
@@ -366,7 +366,7 @@ func TestExecutorModule_NilPayload(t *testing.T) {
 
 	t.Run("nil payload in result", func(t *testing.T) {
 		mockExec := &mockExecutor{
-			result: &executor.Result{
+			result: &runtime.Result{
 				Payload: nil,
 				Error:   nil,
 			},
@@ -396,7 +396,7 @@ func TestExecutorModule_InstanceIsolation(t *testing.T) {
 
 	t.Run("separate instances have independent contexts", func(t *testing.T) {
 		mockExec := &mockExecutor{
-			result: &executor.Result{
+			result: &runtime.Result{
 				Payload: payload.New("success"),
 				Error:   nil,
 			},
@@ -439,7 +439,7 @@ func TestExecutorModule_InstanceIsolation(t *testing.T) {
 
 	t.Run("new instances start with empty context", func(t *testing.T) {
 		mockExec := &mockExecutor{
-			result: &executor.Result{
+			result: &runtime.Result{
 				Payload: payload.New("success"),
 				Error:   nil,
 			},
@@ -474,7 +474,7 @@ func TestExecutorModule_InstanceIsolation(t *testing.T) {
 
 	t.Run("context updates preserve independence", func(t *testing.T) {
 		mockExec := &mockExecutor{
-			result: &executor.Result{
+			result: &runtime.Result{
 				Payload: payload.New("success"),
 				Error:   nil,
 			},
@@ -519,7 +519,7 @@ func TestExecutorModule_InstanceIsolation(t *testing.T) {
 
 	t.Run("nested context updates", func(t *testing.T) {
 		mockExec := &mockExecutor{
-			result: &executor.Result{
+			result: &runtime.Result{
 				Payload: payload.New("success"),
 				Error:   nil,
 			},

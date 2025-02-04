@@ -3,7 +3,7 @@ package handler
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/api/executor"
+	"github.com/ponyruntime/pony/api/runtime"
 	"io"
 	"net/http"
 
@@ -16,14 +16,14 @@ import (
 // EndpointHandler processes HTTP requests for specific endpoints.
 // It handles request validation, execution, and response formatting.
 type EndpointHandler struct {
-	executor   executor.Executor
+	executor   runtime.Executor
 	transcoder payload.Transcoder
 	log        *zap.Logger
 }
 
 // NewEndpointHandler creates a new EndpointHandler with the required dependencies.
 func NewEndpointHandler(
-	executor executor.Executor,
+	executor runtime.Executor,
 	transcoder payload.Transcoder,
 	log *zap.Logger,
 ) *EndpointHandler {
@@ -82,9 +82,9 @@ func (h *EndpointHandler) getRouteInfo(r *http.Request) (*config.RouteInfo, erro
 }
 
 // createTask builds a task from the HTTP request and route information.
-func (h *EndpointHandler) createTask(r *http.Request, info *config.RouteInfo) (executor.Task, error) {
+func (h *EndpointHandler) createTask(r *http.Request, info *config.RouteInfo) (runtime.Task, error) {
 	if !info.Endpoint.JSONInput {
-		return executor.Task{
+		return runtime.Task{
 			Context: r.Context(),
 			Target:  registry.ID(info.Endpoint.Target),
 		}, nil
@@ -92,17 +92,17 @@ func (h *EndpointHandler) createTask(r *http.Request, info *config.RouteInfo) (e
 
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		return executor.Task{}, fmt.Errorf("reading request body: %w", err)
+		return runtime.Task{}, fmt.Errorf("reading request body: %w", err)
 	}
 	defer func() {
 		_ = r.Body.Close()
 	}()
 
 	if err := h.validateJSONInput(body, info.Endpoint.JSONSchema); err != nil {
-		return executor.Task{}, fmt.Errorf("validation failed: %w", err)
+		return runtime.Task{}, fmt.Errorf("validation failed: %w", err)
 	}
 
-	return executor.Task{
+	return runtime.Task{
 		Context:  r.Context(),
 		Target:   registry.ID(info.Endpoint.Target),
 		Payloads: []payload.Payload{payload.NewPayload(body, payload.JSON)},
@@ -124,7 +124,7 @@ func (h *EndpointHandler) validateJSONInput(body []byte, schema interface{}) err
 }
 
 // executeTask runs the task and handles context cancellation.
-func (h *EndpointHandler) executeTask(task executor.Task) (*executor.Result, error) {
+func (h *EndpointHandler) executeTask(task runtime.Task) (*runtime.Result, error) {
 	resultCh, err := h.executor.Execute(task)
 	if err != nil {
 		return nil, fmt.Errorf("executing task: %w", err)
@@ -142,7 +142,7 @@ func (h *EndpointHandler) executeTask(task executor.Task) (*executor.Result, err
 }
 
 // writeResponse formats and writes the task result to the HTTP response.
-func (h *EndpointHandler) writeResponse(w http.ResponseWriter, result *executor.Result, cfg config.EndpointConfig) {
+func (h *EndpointHandler) writeResponse(w http.ResponseWriter, result *runtime.Result, cfg config.EndpointConfig) {
 	if result.Error != nil {
 		h.handleError(w, result.Error, http.StatusInternalServerError)
 		return
