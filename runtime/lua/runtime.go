@@ -3,13 +3,13 @@ package lua
 import (
 	"context"
 	"fmt"
+	"github.com/ponyruntime/pony/api/executor"
 	"github.com/ponyruntime/pony/runtime/lua/workflow"
 	"sync"
 
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/runtime"
 	api "github.com/ponyruntime/pony/api/runtime/lua"
 	"github.com/ponyruntime/pony/api/service/terminal"
 	"github.com/ponyruntime/pony/runtime/lua/manager"
@@ -271,10 +271,10 @@ func (m *RuntimeManager) Delete(ctx context.Context, entry registry.Entry) error
 	switch entry.Kind {
 	case api.KindFunction:
 		m.bus.Send(ctx, events.Event{
-			System: runtime.System,
-			Kind:   runtime.DeleteHandlerEvent,
+			System: executor.System,
+			Kind:   executor.DeleteHandlerEvent,
 			Path:   events.Path(entry.ID),
-			Data:   runtime.DeleteHandler{Target: entry.ID},
+			Data:   executor.DeleteHandler{Target: entry.ID},
 		})
 		m.callable.Delete(entry.ID)
 		return m.functions.Delete(entry.ID)

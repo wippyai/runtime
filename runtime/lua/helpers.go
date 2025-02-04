@@ -3,11 +3,12 @@ package lua
 import (
 	"context"
 	"fmt"
+	"github.com/ponyruntime/pony/api/executor"
+	"github.com/ponyruntime/pony/api/process"
 
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/runtime"
 	api "github.com/ponyruntime/pony/api/runtime/lua"
 	"github.com/ponyruntime/pony/api/service/terminal"
 )
@@ -79,19 +80,19 @@ func (m *RuntimeManager) unpackTerminal(data payload.Payload) (*api.TerminalConf
 // Helper methods for event handling
 func (m *RuntimeManager) registerHandler(ctx context.Context, id registry.ID) {
 	m.bus.Send(ctx, events.Event{
-		System: runtime.System,
-		Kind:   runtime.RegisterHandlerEvent,
+		System: executor.System,
+		Kind:   executor.RegisterHandlerEvent,
 		Path:   events.Path(id),
-		Data:   runtime.RegisterHandler{Target: id, Handler: m.Execute},
+		Data:   executor.RegisterHandler{Target: id, Handler: m.Execute},
 	})
 }
 
 func (m *RuntimeManager) unregisterHandler(ctx context.Context, id registry.ID) { //nolint:unused
 	m.bus.Send(ctx, events.Event{
-		System: runtime.System,
-		Kind:   runtime.DeleteHandlerEvent,
+		System: executor.System,
+		Kind:   executor.DeleteHandlerEvent,
 		Path:   events.Path(id),
-		Data:   runtime.DeleteHandler{Target: id},
+		Data:   executor.DeleteHandler{Target: id},
 	})
 }
 
@@ -115,10 +116,10 @@ func (m *RuntimeManager) unregisterTerminal(ctx context.Context, id registry.ID)
 
 func (m *RuntimeManager) registerWorkflow(ctx context.Context, id registry.ID, runner func() any) {
 	m.bus.Send(ctx, events.Event{
-		System: runtime.WorkflowSystem,
-		Kind:   runtime.RegisterWorkflowEvent,
+		System: process.WorkflowSystem,
+		Kind:   process.RegisterWorkflowEvent,
 		Path:   events.Path(id),
-		Data: runtime.RegisterWorkflow{
+		Data: process.RegisterWorkflow{
 			Target:  id,
 			Handler: runner,
 		},
@@ -127,9 +128,9 @@ func (m *RuntimeManager) registerWorkflow(ctx context.Context, id registry.ID, r
 
 func (m *RuntimeManager) unregisterWorkflow(ctx context.Context, id registry.ID) {
 	m.bus.Send(ctx, events.Event{
-		System: runtime.WorkflowSystem,
-		Kind:   runtime.DeleteWorkflowEvent,
+		System: process.WorkflowSystem,
+		Kind:   process.DeleteWorkflowEvent,
 		Path:   events.Path(id),
-		Data:   runtime.DeleteWorkflow{Target: id},
+		Data:   process.DeleteWorkflow{Target: id},
 	})
 }

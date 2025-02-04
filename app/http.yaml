@@ -4,7 +4,7 @@ meta:
   comment: "Default http service."
   groups: [ "system" ]
 
-addr: ":8081"
+addr: ":8082"
 timeouts:
   idle: 60s
 

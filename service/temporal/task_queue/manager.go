@@ -2,9 +2,9 @@ package task_queue
 
 import (
 	"fmt"
+	api "github.com/ponyruntime/pony/api/service/temporal"
 	"sync"
 
-	api "github.com/ponyruntime/pony/api/runtime/temporal"
 	"github.com/ponyruntime/pony/service/temporal/client"
 
 	"github.com/ponyruntime/pony/api/registry"

@@ -1,8 +1,9 @@
-package runtime
+package executor
 
 import (
 	"context"
 	"fmt"
+	"github.com/ponyruntime/pony/api/executor"
 	"sync"
 	"testing"
 	"time"
@@ -10,7 +11,6 @@ import (
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/runtime"
 	"github.com/ponyruntime/pony/pkg/eventbus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -49,9 +49,9 @@ func TestExecutor_HandlerRegistrationOverBus(t *testing.T) {
 	target := registry.ID("test.handler")
 
 	// Create a test handler
-	handler := func(_ runtime.Task) (chan *runtime.Result, error) {
-		resultChan := make(chan *runtime.Result, 1)
-		resultChan <- &runtime.Result{
+	handler := func(_ executor.Task) (chan *executor.Result, error) {
+		resultChan := make(chan *executor.Result, 1)
+		resultChan <- &executor.Result{
 			Payload: payload.New("test result"),
 		}
 		close(resultChan)
@@ -60,9 +60,9 @@ func TestExecutor_HandlerRegistrationOverBus(t *testing.T) {
 
 	// Test handler registration
 	bus.Send(ctx, events.Event{
-		System: runtime.System,
-		Kind:   runtime.RegisterHandlerEvent,
-		Data: runtime.RegisterHandler{
+		System: executor.System,
+		Kind:   executor.RegisterHandlerEvent,
+		Data: executor.RegisterHandler{
 			Target:  target,
 			Handler: handler,
 		},
@@ -76,9 +76,9 @@ func TestExecutor_HandlerRegistrationOverBus(t *testing.T) {
 
 	// Test handler removal
 	bus.Send(ctx, events.Event{
-		System: runtime.System,
-		Kind:   runtime.DeleteHandlerEvent,
-		Data: runtime.DeleteHandler{
+		System: executor.System,
+		Kind:   executor.DeleteHandlerEvent,
+		Data: executor.DeleteHandler{
 			Target: target,
 		},
 	})
@@ -101,32 +101,32 @@ func TestExecutor_Execute(t *testing.T) {
 	tests := []struct {
 		name          string
 		setupHandler  func(bus events.Bus)
-		task          runtime.Task
+		task          executor.Task
 		expectedErr   string
 		expectedValue string
 	}{
 		{
 			name: "successful execution",
 			setupHandler: func(bus events.Bus) {
-				handler := func(_ runtime.Task) (chan *runtime.Result, error) {
-					resultChan := make(chan *runtime.Result, 1)
-					resultChan <- &runtime.Result{
+				handler := func(_ executor.Task) (chan *executor.Result, error) {
+					resultChan := make(chan *executor.Result, 1)
+					resultChan <- &executor.Result{
 						Payload: payload.New("success"),
 					}
 					close(resultChan)
 					return resultChan, nil
 				}
 				bus.Send(ctx, events.Event{
-					System: runtime.System,
-					Kind:   runtime.RegisterHandlerEvent,
-					Data: runtime.RegisterHandler{
+					System: executor.System,
+					Kind:   executor.RegisterHandlerEvent,
+					Data: executor.RegisterHandler{
 						Target:  "test.handler",
 						Handler: handler,
 					},
 				})
 				time.Sleep(1 * time.Millisecond)
 			},
-			task: runtime.Task{
+			task: executor.Task{
 				Target:   "test.handler",
 				Payloads: []payload.Payload{payload.New("test input")},
 			},
@@ -134,7 +134,7 @@ func TestExecutor_Execute(t *testing.T) {
 		},
 		{
 			name: "handler not found",
-			task: runtime.Task{
+			task: executor.Task{
 				Target:   "nonexistent.handler",
 				Payloads: []payload.Payload{payload.New("test input")},
 			},
@@ -143,20 +143,20 @@ func TestExecutor_Execute(t *testing.T) {
 		{
 			name: "handler returns error",
 			setupHandler: func(bus events.Bus) {
-				handler := func(_ runtime.Task) (chan *runtime.Result, error) {
+				handler := func(_ executor.Task) (chan *executor.Result, error) {
 					return nil, fmt.Errorf("handler error")
 				}
 				bus.Send(ctx, events.Event{
-					System: runtime.System,
-					Kind:   runtime.RegisterHandlerEvent,
-					Data: runtime.RegisterHandler{
+					System: executor.System,
+					Kind:   executor.RegisterHandlerEvent,
+					Data: executor.RegisterHandler{
 						Target:  "error.handler",
 						Handler: handler,
 					},
 				})
 				time.Sleep(1 * time.Millisecond)
 			},
-			task: runtime.Task{
+			task: executor.Task{
 				Target:   "error.handler",
 				Payloads: []payload.Payload{payload.New("test input")},
 			},
@@ -166,15 +166,15 @@ func TestExecutor_Execute(t *testing.T) {
 			name: "invalid handler type",
 			setupHandler: func(bus events.Bus) {
 				bus.Send(ctx, events.Event{
-					System: runtime.System,
-					Kind:   runtime.RegisterHandlerEvent,
-					Data: runtime.RegisterHandler{
+					System: executor.System,
+					Kind:   executor.RegisterHandlerEvent,
+					Data: executor.RegisterHandler{
 						Target: "invalid.handler",
 					},
 				})
 				time.Sleep(1 * time.Millisecond)
 			},
-			task: runtime.Task{
+			task: executor.Task{
 				Target:   "invalid.handler",
 				Payloads: []payload.Payload{payload.New("test input")},
 			},
@@ -222,9 +222,9 @@ func TestExecutor_ConcurrentHandlerRegistration(t *testing.T) {
 		go func(idx int) {
 			defer wg.Done()
 			target := registry.ID(fmt.Sprintf("test.handler.%d", idx))
-			handler := func(_ runtime.Task) (chan *runtime.Result, error) {
-				resultChan := make(chan *runtime.Result, 1)
-				resultChan <- &runtime.Result{
+			handler := func(_ executor.Task) (chan *executor.Result, error) {
+				resultChan := make(chan *executor.Result, 1)
+				resultChan <- &executor.Result{
 					Payload: payload.New(fmt.Sprintf("result %d", idx)),
 				}
 				close(resultChan)
@@ -232,9 +232,9 @@ func TestExecutor_ConcurrentHandlerRegistration(t *testing.T) {
 			}
 
 			bus.Send(ctx, events.Event{
-				System: runtime.System,
-				Kind:   runtime.RegisterHandlerEvent,
-				Data: runtime.RegisterHandler{
+				System: executor.System,
+				Kind:   executor.RegisterHandlerEvent,
+				Data: executor.RegisterHandler{
 					Target:  target,
 					Handler: handler,
 				},
@@ -256,7 +256,7 @@ func TestExecutor_ConcurrentHandlerRegistration(t *testing.T) {
 	// Test executing all handlers
 	for i := 0; i < numHandlers; i++ {
 		target := registry.ID(fmt.Sprintf("test.handler.%d", i))
-		resultChan, err := executor.Execute(runtime.Task{
+		resultChan, err := executor.Execute(executor.Task{
 			Target:   target,
 			Payloads: []payload.Payload{payload.New("test")},
 		})
@@ -280,23 +280,23 @@ func TestExecutor_InvalidEvents(t *testing.T) {
 		{
 			name: "invalid register handler data",
 			evt: events.Event{
-				System: runtime.System,
-				Kind:   runtime.RegisterHandlerEvent,
+				System: executor.System,
+				Kind:   executor.RegisterHandlerEvent,
 				Data:   "invalid data",
 			},
 		},
 		{
 			name: "invalid delete handler data",
 			evt: events.Event{
-				System: runtime.System,
-				Kind:   runtime.DeleteHandlerEvent,
+				System: executor.System,
+				Kind:   executor.DeleteHandlerEvent,
 				Data:   "invalid data",
 			},
 		},
 		{
 			name: "unknown event kind",
 			evt: events.Event{
-				System: runtime.System,
+				System: executor.System,
 				Kind:   "unknown.event",
 				Data:   nil,
 			},

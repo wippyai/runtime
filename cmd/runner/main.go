@@ -4,12 +4,13 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"github.com/ponyruntime/pony/pkg/executor"
+	"github.com/ponyruntime/pony/pkg/process"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea"
 	"github.com/ponyruntime/pony/runtime/lua/modules/env"
 	"github.com/ponyruntime/pony/runtime/lua/modules/lfs"
 	tempmod "github.com/ponyruntime/pony/runtime/lua/modules/temporal"
 	"github.com/ponyruntime/pony/runtime/lua/modules/websocket"
-	"github.com/ponyruntime/pony/runtime/workflow"
 	"github.com/ponyruntime/pony/service/temporal"
 	httpbase "net/http"
 	"os"
@@ -36,7 +37,6 @@ import (
 	services "github.com/ponyruntime/pony/pkg/registry/router"
 	"github.com/ponyruntime/pony/pkg/registry/runner"
 	"github.com/ponyruntime/pony/pkg/supervisor"
-	"github.com/ponyruntime/pony/runtime"
 	luaruntime "github.com/ponyruntime/pony/runtime/lua"
 	b64mlib "github.com/ponyruntime/pony/runtime/lua/modules/base64"
 	httplib "github.com/ponyruntime/pony/runtime/lua/modules/http"
@@ -122,7 +122,7 @@ func main() {
 	// -- end of additional services
 
 	// -- core function executor, this service listens and builds routes to call functions between runtimes
-	exec := runtime.NewExecutor(bus, log.Named("exec"))
+	exec := executor.NewExecutor(bus, log.Named("exec"))
 	if err := exec.Start(ctx); err != nil {
 		appLogger.Fatal("failed to start executor", zap.Error(err))
 	}
@@ -130,7 +130,7 @@ func main() {
 	// -- end of core function executor
 
 	// -- workflow registry
-	workflowReg := workflow.NewRegistry(bus, log.Named("workflow"))
+	workflowReg := process.NewRegistry(bus, log.Named("workflow"))
 	if err := workflowReg.Start(ctx); err != nil {
 		appLogger.Fatal("failed to start workflow registry", zap.Error(err))
 	}

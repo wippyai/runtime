@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/ponyruntime/pony/api/registry"
-	api "github.com/ponyruntime/pony/api/runtime/temporal"
+	"github.com/ponyruntime/pony/api/service/temporal"
 	"go.temporal.io/sdk/converter"
 	"sync"
 	"time"
@@ -25,7 +25,7 @@ type Client struct {
 	log    *zap.Logger
 	id     registry.ID
 	dc     converter.DataConverter
-	config *api.ClientConfig
+	config *temporal.ClientConfig
 	client client.Client
 
 	// Internal status channel
@@ -38,7 +38,7 @@ func NewClient(
 	logger *zap.Logger,
 	id registry.ID,
 	dc converter.DataConverter,
-	config *api.ClientConfig,
+	config *temporal.ClientConfig,
 ) *Client {
 	return &Client{
 		log:    logger,
@@ -49,11 +49,11 @@ func NewClient(
 }
 
 func (s *Client) OnContext(ctx context.Context) context.Context {
-	return context.WithValue(ctx, api.ClientCtx, s)
+	return context.WithValue(ctx, temporal.ClientCtx, s)
 }
 
 func FromContext(ctx context.Context) *Client {
-	if c, ok := ctx.Value(api.ClientCtx).(*Client); ok {
+	if c, ok := ctx.Value(temporal.ClientCtx).(*Client); ok {
 		return c
 	}
 	return nil

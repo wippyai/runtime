@@ -3,12 +3,12 @@ package activity
 import (
 	"context"
 	"fmt"
+	"github.com/ponyruntime/pony/api/executor"
+	api "github.com/ponyruntime/pony/api/service/temporal"
 	"sync"
 
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/runtime"
-	api "github.com/ponyruntime/pony/api/runtime/temporal"
 	"github.com/ponyruntime/pony/service/temporal/client"
 	"go.uber.org/zap"
 )
@@ -23,12 +23,12 @@ type activityHandler struct {
 type Manager struct {
 	mu       sync.RWMutex
 	log      *zap.Logger
-	executor runtime.Executor
+	executor executor.Executor
 	handlers map[registry.ID]*activityHandler
 }
 
 // NewActivityManager creates a new activity manager instance
-func NewActivityManager(log *zap.Logger, executor runtime.Executor) *Manager {
+func NewActivityManager(log *zap.Logger, executor executor.Executor) *Manager {
 	return &Manager{
 		log:      log,
 		executor: executor,

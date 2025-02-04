@@ -66,21 +66,10 @@ func (t *LuaTerminal) Run(ctx context.Context, in io.Reader, out io.Writer) erro
 		tasker: t.tasker,
 		logger: t.log,
 		ctx:    ctx,
-		state:  t.tasker.State(),
 		out:    out,
 	}
 
-	p := tea.NewProgram(
-		model,
-		tea.WithInput(in),
-		tea.WithOutput(out),
-
-		//tea.WithMouseCellMotion(), // Enable mouse movement
-		//tea.WithMouseAllMotion(),  // Enable high resolution mouse movement
-		//tea.WithAltScreen(),       // Use alternate screen
-		//	tea.WithAltScreen(),
-
-	)
+	p := tea.NewProgram(model, tea.WithInput(in), tea.WithOutput(out))
 
 	// Handle context cancellation
 	go func() {
