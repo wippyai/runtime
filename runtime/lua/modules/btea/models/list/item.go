@@ -85,21 +85,21 @@ func NewLuaItem(l *lua.LState, value lua.LValue) *LuaItem {
 }
 
 func (li *LuaItem) FilterValue() string {
-	if fv := GetLuaField(li.luaState, li.value, "FilterValue"); fv != lua.LNil {
+	if fv := GetLuaField(li.luaState, li.value, "filter_value"); fv != lua.LNil {
 		return lua.LVAsString(fv)
 	}
 	return ""
 }
 
 func (li *LuaItem) Title() string {
-	if title := GetLuaField(li.luaState, li.value, "Title"); title != lua.LNil {
+	if title := GetLuaField(li.luaState, li.value, "title"); title != lua.LNil {
 		return lua.LVAsString(title)
 	}
 	return ""
 }
 
 func (li *LuaItem) Description() string {
-	if desc := GetLuaField(li.luaState, li.value, "Description"); desc != lua.LNil {
+	if desc := GetLuaField(li.luaState, li.value, "description"); desc != lua.LNil {
 		return lua.LVAsString(desc)
 	}
 	return ""
