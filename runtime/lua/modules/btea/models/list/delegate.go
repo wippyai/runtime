@@ -2,13 +2,13 @@ package list
 
 import (
 	"fmt"
-	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
-	"io"
-
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
 	lua "github.com/yuin/gopher-lua"
+	"io"
+	"log"
 )
 
 // LuaDelegate is a wrapper to make Lua functions act as list.ItemDelegate
@@ -58,10 +58,21 @@ func (ld *LuaDelegate) Render(w io.Writer, m list.Model, index int, listItem lis
 }
 
 func (ld *LuaDelegate) Update(msg tea.Msg, m *list.Model) tea.Cmd {
+	log.Printf("got: `%+v`", msg)
 	luaMsg := protocol.MsgToLua(msg)
-	wrappedModel := wrapModelForLua(ld.luaState, m)
+	tv := luaMsg.(*lua.LTable)
 
-	if update := GetLuaField(ld.luaState, ld.luaDelegate, "update"); update != lua.LNil {
+	// todo: reuse?
+	wrappedModel := wrapModelForLua(ld.luaState, m)
+	// todo: this is weird
+
+	// todo: make proper lua helpers, do not use string result for expected methods
+	// todo: can be nil!
+	if update := FetchMethod(ld.luaState, ld.luaDelegate, "update"); update != lua.LNil {
+
+		log.Printf("converted: %v", tv.RawGetString("type"))
+
+		// todo: check if this is func
 		if err := ld.luaState.CallByParam(lua.P{
 			Fn:      update.(*lua.LFunction),
 			NRet:    1,
@@ -70,6 +81,7 @@ func (ld *LuaDelegate) Update(msg tea.Msg, m *list.Model) tea.Cmd {
 			ld.luaState.RaiseError("error calling delegate update: %v", err)
 			return nil
 		}
+
 		ret := ld.luaState.Get(-1)
 		ld.luaState.Pop(1)
 
@@ -78,6 +90,7 @@ func (ld *LuaDelegate) Update(msg tea.Msg, m *list.Model) tea.Cmd {
 		}
 		return protocol.UnwrapCommand(ld.luaState, ret)
 	}
+
 	return nil
 }
 
