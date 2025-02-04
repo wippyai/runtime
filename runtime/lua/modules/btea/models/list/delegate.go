@@ -12,7 +12,7 @@ import (
 
 // LuaDelegate is a wrapper to make Lua functions act as list.ItemDelegate
 type LuaDelegate struct {
-	luaDelegate *lua.LTable
+	luaDelegate lua.LValue
 	luaState    *lua.LState
 }
 
@@ -124,8 +124,9 @@ func wrapModelForLua(l *lua.LState, m *list.Model) *lua.LUserData {
 
 func wrapItemForLua(l *lua.LState, item list.Item) lua.LValue {
 	if li, ok := item.(*LuaItem); ok {
-		return li.luaItem // Return the underlying table directly
+		return li.value
 	}
+
 	// Fallback for non-LuaItems
 	return lua.LNil
 }

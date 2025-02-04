@@ -121,7 +121,7 @@ func listSetItems(l *lua.LState) int {
 	itemsTable.ForEach(func(_ lua.LValue, v lua.LValue) {
 		if item, ok := v.(*lua.LTable); ok {
 			itemUD := l.NewUserData()
-			itemUD.Value = &LuaItem{luaItem: item, luaState: l}
+			itemUD.Value = &LuaItem{value: item, luaState: l}
 			l.SetMetatable(itemUD, l.GetTypeMetatable("btea.Item"))
 			items = append(items, itemUD.Value.(list.Item))
 			li.items = append(li.items, itemUD)
@@ -151,7 +151,7 @@ func listSetItem(l *lua.LState) int {
 	itemTable := l.CheckTable(3)
 
 	itemUD := l.NewUserData()
-	itemUD.Value = &LuaItem{luaItem: itemTable, luaState: l}
+	itemUD.Value = &LuaItem{value: itemTable, luaState: l}
 	l.SetMetatable(itemUD, l.GetTypeMetatable("btea.Item"))
 
 	if index >= 0 && index < len(li.items) {
@@ -175,7 +175,7 @@ func listInsertItem(l *lua.LState) int {
 	itemTable := l.CheckTable(3)
 
 	itemUD := l.NewUserData()
-	itemUD.Value = &LuaItem{luaItem: itemTable, luaState: l}
+	itemUD.Value = &LuaItem{value: itemTable, luaState: l}
 	l.SetMetatable(itemUD, l.GetTypeMetatable("btea.Item"))
 
 	if index >= 0 && index <= len(li.items) {
@@ -462,7 +462,7 @@ func newList(l *lua.LState) int {
 
 			switch v.Type() {
 			case lua.LTTable:
-				item := &LuaItem{luaItem: v.(*lua.LTable), luaState: l}
+				item := &LuaItem{value: v.(*lua.LTable), luaState: l}
 				items = append(items, item)
 			case lua.LTUserData:
 				if itemUD, ok := v.(*lua.LUserData); ok {
@@ -582,42 +582,6 @@ func validateListConfig(l *lua.LState, cfg *lua.LTable) error {
 	if h := cfg.RawGetString("height"); h.Type() != lua.LTNil {
 		if hNum, ok := h.(lua.LNumber); !ok || int(hNum) <= 0 {
 			return fmt.Errorf("height must be a positive number")
-		}
-	}
-
-	// Validate items if present
-	if itemsVal := cfg.RawGetString("items"); itemsVal.Type() != lua.LTNil {
-		itemsTable, ok := itemsVal.(*lua.LTable)
-		if !ok {
-			return fmt.Errorf("items must be a table")
-		}
-
-		var err error
-		itemsTable.ForEach(func(_ lua.LValue, v lua.LValue) {
-			if err != nil {
-				return
-			}
-
-			switch v.Type() {
-			case lua.LTTable:
-				// Validate required item methods
-				item := v.(*lua.LTable)
-				if item.RawGetString("filter_value").Type() == lua.LTNil {
-					err = fmt.Errorf("items must implement filter_value method")
-				}
-			case lua.LTUserData:
-				if itemUD, ok := v.(*lua.LUserData); !ok {
-					err = fmt.Errorf("invalid item type")
-				} else if _, ok := itemUD.Value.(list.Item); !ok {
-					err = fmt.Errorf("items must implement list.Item interface")
-				}
-			default:
-				err = fmt.Errorf("invalid item type: expected table or userdata")
-			}
-		})
-
-		if err != nil {
-			return fmt.Errorf("invalid items: %w", err)
 		}
 	}
 
