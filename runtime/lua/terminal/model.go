@@ -22,7 +22,6 @@ type bubbleModel struct {
 	tasker   *tasks.TaskRunner
 	logger   *zap.Logger
 	ctx      context.Context
-	state    *lua.LState
 	out      io.Writer
 	quitting bool
 }

@@ -2,7 +2,7 @@ local http = require("http")
 local json = require("json")
 local httpctx = require("httpctx")
 
-local default_ollama_url = "http://100.70.10.9:11434/api/generate"
+local default_ollama_url = "http://127.0.0.1:11434/api/generate"
 
 function ollama_handler()
     local res = httpctx.response()

@@ -5,23 +5,23 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/ponyruntime/pony/api/executor"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/runtime"
 	config "github.com/ponyruntime/pony/api/service/http"
 	"go.uber.org/zap"
 )
 
 // MockExecutor is a simple mock implementation of runtime.Executor
 type MockExecutor struct {
-	executeFunc func(runtime.Task) (chan *runtime.Result, error)
+	executeFunc func(executor.Task) (chan *executor.Result, error)
 }
 
-func (m *MockExecutor) Execute(task runtime.Task) (chan *runtime.Result, error) {
+func (m *MockExecutor) Execute(task executor.Task) (chan *executor.Result, error) {
 	if m.executeFunc != nil {
 		return m.executeFunc(task)
 	}
@@ -75,14 +75,14 @@ func TestEndpointHandler_Handle_SuccessfulJsonRequest(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	// Setup executor response
-	resultChan := make(chan *runtime.Result, 1)
+	resultChan := make(chan *executor.Result, 1)
 	expectedResponse := []byte(`{"result":"success"}`)
-	resultChan <- &runtime.Result{
+	resultChan <- &executor.Result{
 		Payload: payload.NewPayload(expectedResponse, payload.JSON),
 	}
 	close(resultChan)
 
-	executor.executeFunc = func(runtime.Task) (chan *runtime.Result, error) {
+	executor.executeFunc = func(executor.Task) (chan *executor.Result, error) {
 		return resultChan, nil
 	}
 
@@ -176,7 +176,7 @@ func TestEndpointHandler_Handle_ExecutorError(t *testing.T) {
 
 	// Setup executor error
 	expectedError := "executor error"
-	executor.executeFunc = func(runtime.Task) (chan *runtime.Result, error) {
+	executor.executeFunc = func(executor.Task) (chan *executor.Result, error) {
 		return nil, errors.New(expectedError)
 	}
 
@@ -217,14 +217,14 @@ func TestEndpointHandler_Handle_RawResponse(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	// Setup executor response
-	resultChan := make(chan *runtime.Result, 1)
+	resultChan := make(chan *executor.Result, 1)
 	expectedResponse := []byte("raw data")
-	resultChan <- &runtime.Result{
+	resultChan <- &executor.Result{
 		Payload: payload.NewPayload(expectedResponse, payload.Bytes),
 	}
 	close(resultChan)
 
-	executor.executeFunc = func(runtime.Task) (chan *runtime.Result, error) {
+	executor.executeFunc = func(executor.Task) (chan *executor.Result, error) {
 		return resultChan, nil
 	}
 
@@ -266,8 +266,8 @@ func TestEndpointHandler_Handle_ContextCancellation(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	// Setup executor response that will never complete due to cancellation
-	executor.executeFunc = func(runtime.Task) (chan *runtime.Result, error) {
-		return make(chan *runtime.Result), nil
+	executor.executeFunc = func(executor.Task) (chan *executor.Result, error) {
+		return make(chan *executor.Result), nil
 	}
 
 	// Run
@@ -331,13 +331,13 @@ func TestEndpointHandler_Handle_CustomSuccessStatusCode(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	// Setup executor response
-	resultChan := make(chan *runtime.Result, 1)
-	resultChan <- &runtime.Result{
+	resultChan := make(chan *executor.Result, 1)
+	resultChan <- &executor.Result{
 		Payload: payload.NewPayload([]byte("success"), payload.Bytes),
 	}
 	close(resultChan)
 
-	executor.executeFunc = func(runtime.Task) (chan *runtime.Result, error) {
+	executor.executeFunc = func(executor.Task) (chan *executor.Result, error) {
 		return resultChan, nil
 	}
 
@@ -374,13 +374,13 @@ func TestEndpointHandler_Handle_JsonTranscodingError(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	// Setup executor response
-	resultChan := make(chan *runtime.Result, 1)
-	resultChan <- &runtime.Result{
+	resultChan := make(chan *executor.Result, 1)
+	resultChan <- &executor.Result{
 		Payload: payload.NewPayload([]byte("raw data"), payload.Bytes),
 	}
 	close(resultChan)
 
-	executor.executeFunc = func(runtime.Task) (chan *runtime.Result, error) {
+	executor.executeFunc = func(executor.Task) (chan *executor.Result, error) {
 		return resultChan, nil
 	}
 
@@ -424,13 +424,13 @@ func TestEndpointHandler_Handle_NilPayload(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	// Setup executor response with nil payload
-	resultChan := make(chan *runtime.Result, 1)
-	resultChan <- &runtime.Result{
+	resultChan := make(chan *executor.Result, 1)
+	resultChan <- &executor.Result{
 		Payload: nil,
 	}
 	close(resultChan)
 
-	executor.executeFunc = func(runtime.Task) (chan *runtime.Result, error) {
+	executor.executeFunc = func(executor.Task) (chan *executor.Result, error) {
 		return resultChan, nil
 	}
 
@@ -471,13 +471,13 @@ func TestEndpointHandler_Handle_InvalidPayloadType(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	// Setup executor response
-	resultChan := make(chan *runtime.Result, 1)
-	resultChan <- &runtime.Result{
+	resultChan := make(chan *executor.Result, 1)
+	resultChan <- &executor.Result{
 		Payload: payload.NewPayload("invalid type", payload.JSON), // String instead of []byte
 	}
 	close(resultChan)
 
-	executor.executeFunc = func(runtime.Task) (chan *runtime.Result, error) {
+	executor.executeFunc = func(executor.Task) (chan *executor.Result, error) {
 		return resultChan, nil
 	}
 
@@ -520,11 +520,11 @@ func TestEndpointHandler_Handle_NilExecutorResult(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	// Setup executor to return nil result
-	resultChan := make(chan *runtime.Result, 1)
+	resultChan := make(chan *executor.Result, 1)
 	resultChan <- nil
 	close(resultChan)
 
-	executor.executeFunc = func(runtime.Task) (chan *runtime.Result, error) {
+	executor.executeFunc = func(executor.Task) (chan *executor.Result, error) {
 		return resultChan, nil
 	}
 

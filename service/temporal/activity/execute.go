@@ -3,9 +3,9 @@ package activity
 import (
 	"context"
 	"fmt"
+	"github.com/ponyruntime/pony/api/executor"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/runtime"
 )
 
 // executeActivity handles the actual execution of an activity through the runtime executor
@@ -19,7 +19,7 @@ func (m *Manager) executeActivity(ctx context.Context, id registry.ID, inputs pa
 	}
 
 	// Create a task for the executor
-	task := runtime.Task{
+	task := executor.Task{
 		Context:  ctx,
 		Target:   registry.ID(ah.config.Function), // Use the function target from config
 		Payloads: inputs,                          // Pass through the input payloads

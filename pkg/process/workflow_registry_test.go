@@ -1,10 +1,10 @@
-package workflow
+package process
 
 import (
 	"context"
 	"fmt"
+	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/runtime"
 	"sync"
 	"testing"
 	"time"
@@ -54,9 +54,9 @@ func TestRegistry_HandlerRegistrationOverBus(t *testing.T) {
 
 	// Test handler registration
 	bus.Send(ctx, events.Event{
-		System: runtime.WorkflowSystem,
-		Kind:   runtime.RegisterWorkflowEvent,
-		Data: runtime.RegisterWorkflow{
+		System: process.WorkflowSystem,
+		Kind:   process.RegisterWorkflowEvent,
+		Data: process.RegisterWorkflow{
 			Target:  target,
 			Handler: handler,
 		},
@@ -71,9 +71,9 @@ func TestRegistry_HandlerRegistrationOverBus(t *testing.T) {
 
 	// Test handler removal
 	bus.Send(ctx, events.Event{
-		System: runtime.WorkflowSystem,
-		Kind:   runtime.DeleteWorkflowEvent,
-		Data: runtime.DeleteWorkflow{
+		System: process.WorkflowSystem,
+		Kind:   process.DeleteWorkflowEvent,
+		Data: process.DeleteWorkflow{
 			Target: target,
 		},
 	})
@@ -106,9 +106,9 @@ func TestRegistry_Get(t *testing.T) {
 			setupHandler: func(bus events.Bus) {
 				handler := func() string { return "success" }
 				bus.Send(ctx, events.Event{
-					System: runtime.WorkflowSystem,
-					Kind:   runtime.RegisterWorkflowEvent,
-					Data: runtime.RegisterWorkflow{
+					System: process.WorkflowSystem,
+					Kind:   process.RegisterWorkflowEvent,
+					Data: process.RegisterWorkflow{
 						Target:  "test.workflow",
 						Handler: handler,
 					},
@@ -131,9 +131,9 @@ func TestRegistry_Get(t *testing.T) {
 			name: "nil handler registration",
 			setupHandler: func(bus events.Bus) {
 				bus.Send(ctx, events.Event{
-					System: runtime.WorkflowSystem,
-					Kind:   runtime.RegisterWorkflowEvent,
-					Data: runtime.RegisterWorkflow{
+					System: process.WorkflowSystem,
+					Kind:   process.RegisterWorkflowEvent,
+					Data: process.RegisterWorkflow{
 						Target:  "nil.workflow",
 						Handler: nil,
 					},
@@ -191,9 +191,9 @@ func TestRegistry_ConcurrentHandlerRegistration(t *testing.T) {
 			}
 
 			bus.Send(ctx, events.Event{
-				System: runtime.WorkflowSystem,
-				Kind:   runtime.RegisterWorkflowEvent,
-				Data: runtime.RegisterWorkflow{
+				System: process.WorkflowSystem,
+				Kind:   process.RegisterWorkflowEvent,
+				Data: process.RegisterWorkflow{
 					Target:  registry.ID(target),
 					Handler: handler,
 				},
@@ -242,23 +242,23 @@ func TestRegistry_InvalidEvents(t *testing.T) {
 		{
 			name: "invalid register workflow data",
 			evt: events.Event{
-				System: runtime.WorkflowSystem,
-				Kind:   runtime.RegisterWorkflowEvent,
+				System: process.WorkflowSystem,
+				Kind:   process.RegisterWorkflowEvent,
 				Data:   "invalid data",
 			},
 		},
 		{
 			name: "invalid delete workflow data",
 			evt: events.Event{
-				System: runtime.WorkflowSystem,
-				Kind:   runtime.DeleteWorkflowEvent,
+				System: process.WorkflowSystem,
+				Kind:   process.DeleteWorkflowEvent,
 				Data:   "invalid data",
 			},
 		},
 		{
 			name: "unknown event kind",
 			evt: events.Event{
-				System: runtime.WorkflowSystem,
+				System: process.WorkflowSystem,
 				Kind:   "unknown.event",
 				Data:   nil,
 			},

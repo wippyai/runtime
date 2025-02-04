@@ -1,9 +1,9 @@
-package workflow
+package process
 
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/api/runtime"
+	"github.com/ponyruntime/pony/api/process"
 	"sync"
 
 	"github.com/ponyruntime/pony/api/events"
@@ -39,7 +39,7 @@ func (r *Registry) Start(ctx context.Context) error {
 	sub, err := eventbus.NewSubscriber(
 		r.ctx,
 		r.bus,
-		runtime.WorkflowSystem,
+		process.WorkflowSystem,
 		"workflow.*",
 		r.handleEvent,
 	)
@@ -62,8 +62,8 @@ func (r *Registry) Stop() error {
 // handleEvent processes incoming workflow events for handler registration and deletion.
 func (r *Registry) handleEvent(evt events.Event) {
 	switch evt.Kind {
-	case runtime.RegisterWorkflowEvent:
-		if data, ok := evt.Data.(runtime.RegisterWorkflow); ok {
+	case process.RegisterWorkflowEvent:
+		if data, ok := evt.Data.(process.RegisterWorkflow); ok {
 			if data.Handler == nil {
 				r.logger.Warn("handler is nil", zap.String("target", string(data.Target)))
 				return
@@ -72,8 +72,8 @@ func (r *Registry) handleEvent(evt events.Event) {
 			r.logger.Info("workflow handler registered",
 				zap.String("target", string(data.Target)))
 		}
-	case runtime.DeleteWorkflowEvent:
-		if data, ok := evt.Data.(runtime.DeleteWorkflow); ok {
+	case process.DeleteWorkflowEvent:
+		if data, ok := evt.Data.(process.DeleteWorkflow); ok {
 			r.handlers.Delete(data.Target)
 			r.logger.Info("workflow handler removed",
 				zap.String("target", string(data.Target)))
@@ -93,4 +93,4 @@ func (r *Registry) Get(id registry.ID) (func() any, error) {
 }
 
 // Ensure Registry implements WorkflowRegistry interface
-var _ runtime.WorkflowRegistry = (*Registry)(nil)
+var _ process.WorkflowRegistry = (*Registry)(nil)
