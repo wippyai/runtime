@@ -19,6 +19,13 @@ function App()
         return val
     end
 
+    local spinner = btea.new_spinner {
+        type = "LINE",
+        interval = 10
+    }
+
+    app:dispatch(spinner:tick())
+
     local delegate = {
         height = function() return 2 end,
         spacing = function() return 1 end,
@@ -95,10 +102,11 @@ function App()
         if msg.key then
             self:dispatch(self.list:update(msg))
         end
-        return false
+
+        self:dispatch(spinner:update(msg))
     end
 
-    app:run(update, function(self) return self.list:view() end)
+    app:run(update, function(self) return self.list:view() .. spinner:view() end)
     return app
 end
 
