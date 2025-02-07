@@ -1,9 +1,7 @@
 package runtime
 
 import (
-	"context"
 	"github.com/ponyruntime/pony/api/events"
-	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 )
 
@@ -30,7 +28,7 @@ const (
 
 type (
 	Process interface {
-		Start(context.Context, payload.Payloads) (chan payload.Payloads, error)
+		Start(task Task) (chan *Result, error)
 		GetLayer(any) any
 		Step() error
 		Stop() error

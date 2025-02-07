@@ -61,6 +61,7 @@ func (f *Factory) MakeTerminal(
 		if err != nil {
 			return nil, err
 		}
+		// todo: this is kinda bad
 		opts = append(opts, engine.WithPreloaded(mod.Name(), mod.Loader))
 		knownModules[modName] = struct{}{}
 	}
