@@ -1,109 +1,9 @@
 package list
 
 import (
+	"github.com/ponyruntime/pony/runtime/lua/engine"
 	lua "github.com/yuin/gopher-lua"
-	"reflect"
 )
-
-// TryGetMethodValue attempts to call a method on a Go value if it exists
-func TryGetMethodValue(v interface{}, methodName string) (string, bool) {
-	val := reflect.ValueOf(v)
-	method := val.MethodByName(methodName)
-	if !method.IsValid() {
-		return "", false
-	}
-
-	ret := method.Call(nil)
-	if len(ret) == 1 && ret[0].Kind() == reflect.String {
-		return ret[0].String(), true
-	}
-	return "", false
-}
-
-func FetchMethod(l *lua.LState, value lua.LValue, field string) lua.LValue {
-	var fieldValue lua.LValue
-
-	// Then try regular Lua value access
-	switch v := value.(type) {
-	case *lua.LTable:
-		fieldValue = v.RawGetString(field)
-	case *lua.LUserData:
-		// Try metatable __index
-		if mt := l.GetMetatable(value); mt != nil {
-			if index, ok := mt.(*lua.LTable); ok {
-				if indexVal := index.RawGetString("__index"); indexVal != lua.LNil {
-					switch indexVal := indexVal.(type) {
-					case *lua.LFunction:
-						l.Push(indexVal)
-						l.Push(value)
-						l.Push(lua.LString(field))
-						if err := l.PCall(2, 1, nil); err == nil {
-							fieldValue = l.Get(-1)
-							l.Pop(1)
-						}
-					case *lua.LTable:
-						fieldValue = indexVal.RawGetString(field)
-					}
-				}
-			}
-		}
-	}
-
-	return fieldValue
-}
-
-// todo: this is bad!
-// GetLuaField gets a field from any Lua value, handling both direct values and functions
-func GetLuaField(l *lua.LState, value lua.LValue, field string) lua.LValue {
-	// First try Go method if it's userdata
-	if ud, ok := value.(*lua.LUserData); ok && ud.Value != nil {
-		if str, ok := TryGetMethodValue(ud.Value, field); ok {
-			return lua.LString(str)
-		}
-	}
-
-	var fieldValue lua.LValue
-
-	// Then try regular Lua value access
-	switch v := value.(type) {
-	case *lua.LTable:
-		fieldValue = v.RawGetString(field)
-	case *lua.LUserData:
-		// Try metatable __index
-		if mt := l.GetMetatable(value); mt != nil {
-			if index, ok := mt.(*lua.LTable); ok {
-				if indexVal := index.RawGetString("__index"); indexVal != lua.LNil {
-					switch indexVal := indexVal.(type) {
-					case *lua.LFunction:
-						l.Push(indexVal)
-						l.Push(value)
-						l.Push(lua.LString(field))
-						if err := l.PCall(2, 1, nil); err == nil {
-							fieldValue = l.Get(-1)
-							l.Pop(1)
-						}
-					case *lua.LTable:
-						fieldValue = indexVal.RawGetString(field)
-					}
-				}
-			}
-		}
-	}
-
-	// If fieldValue is a function, call it with value as self
-	// TODO: THIS IS WRONG!!!!!!!
-	if fn, ok := fieldValue.(*lua.LFunction); ok {
-		l.Push(fn)
-		l.Push(value)
-		if err := l.PCall(1, 1, nil); err == nil {
-			ret := l.Get(-1)
-			l.Pop(1)
-			return ret
-		}
-	}
-
-	return fieldValue
-}
 
 // LuaItem wraps any Lua value to implement list.Item
 type LuaItem struct {
@@ -112,22 +12,76 @@ type LuaItem struct {
 }
 
 func (li *LuaItem) FilterValue() string {
-	if fv := GetLuaField(li.luaState, li.value, "filter_value"); fv != lua.LNil {
-		return lua.LVAsString(fv)
+	// First check if value directly implements FilterValue
+	if ud, ok := li.value.(*lua.LUserData); ok {
+		if item, ok := ud.Value.(interface{ FilterValue() string }); ok {
+			return item.FilterValue()
+		}
+	}
+
+	if fieldValue, ok := engine.GetField(li.luaState, li.value, "filter_value"); ok {
+		switch v := fieldValue.(type) {
+		case lua.LString:
+			return string(v)
+		case *lua.LFunction:
+			li.luaState.Push(v)
+			li.luaState.Push(li.value) // self
+			if err := li.luaState.PCall(1, 1, nil); err == nil {
+				ret := li.luaState.Get(-1)
+				li.luaState.Pop(1)
+				return lua.LVAsString(ret)
+			}
+		}
 	}
 	return ""
 }
 
 func (li *LuaItem) Title() string {
-	if title := GetLuaField(li.luaState, li.value, "title"); title != lua.LNil {
-		return lua.LVAsString(title)
+	// First check if value directly implements Title
+	if ud, ok := li.value.(*lua.LUserData); ok {
+		if item, ok := ud.Value.(interface{ Title() string }); ok {
+			return item.Title()
+		}
+	}
+
+	if fieldValue, ok := engine.GetField(li.luaState, li.value, "title"); ok {
+		switch v := fieldValue.(type) {
+		case lua.LString:
+			return string(v)
+		case *lua.LFunction:
+			li.luaState.Push(v)
+			li.luaState.Push(li.value) // self
+			if err := li.luaState.PCall(1, 1, nil); err == nil {
+				ret := li.luaState.Get(-1)
+				li.luaState.Pop(1)
+				return lua.LVAsString(ret)
+			}
+		}
 	}
 	return ""
 }
 
 func (li *LuaItem) Description() string {
-	if desc := GetLuaField(li.luaState, li.value, "description"); desc != lua.LNil {
-		return lua.LVAsString(desc)
+	// First check if value directly implements Description
+	if ud, ok := li.value.(*lua.LUserData); ok {
+		if item, ok := ud.Value.(interface{ Description() string }); ok {
+			return item.Description()
+		}
+	}
+
+	if fieldValue, ok := engine.GetField(li.luaState, li.value, "description"); ok {
+		switch v := fieldValue.(type) {
+		case lua.LString:
+			return string(v)
+		case *lua.LFunction:
+			li.luaState.Push(v)
+			li.luaState.Push(li.value) // self
+			if err := li.luaState.PCall(1, 1, nil); err == nil {
+				ret := li.luaState.Get(-1)
+				li.luaState.Pop(1)
+				return lua.LVAsString(ret)
+			}
+		}
 	}
 	return ""
 }

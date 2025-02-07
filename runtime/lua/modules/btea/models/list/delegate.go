@@ -5,10 +5,10 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
 	lua "github.com/yuin/gopher-lua"
 	"io"
-	"log"
 )
 
 // LuaDelegate is a wrapper to make Lua functions act as list.ItemDelegate
@@ -18,85 +18,136 @@ type LuaDelegate struct {
 }
 
 func (ld *LuaDelegate) Height() int {
-	if height := GetLuaField(ld.luaState, ld.luaDelegate, "height"); height != lua.LNil {
-		return int(lua.LVAsNumber(height))
+	if ud, ok := ld.luaDelegate.(*lua.LUserData); ok {
+		if delegate, ok := ud.Value.(interface{ Height() int }); ok {
+			return delegate.Height()
+		}
 	}
-	return 0 // Default height
+
+	if fieldValue, ok := engine.GetField(ld.luaState, ld.luaDelegate, "height"); ok {
+		switch v := fieldValue.(type) {
+		case lua.LNumber:
+			return int(v)
+		case *lua.LFunction:
+			ld.luaState.Push(v)
+			ld.luaState.Push(ld.luaDelegate) // self
+			if err := ld.luaState.PCall(1, 1, nil); err == nil {
+				ret := ld.luaState.Get(-1)
+				ld.luaState.Pop(1)
+				return int(lua.LVAsNumber(ret))
+			}
+		}
+	}
+	return 0
 }
 
 func (ld *LuaDelegate) Spacing() int {
-	if spacing := GetLuaField(ld.luaState, ld.luaDelegate, "spacing"); spacing != lua.LNil {
-		return int(lua.LVAsNumber(spacing))
+	if ud, ok := ld.luaDelegate.(*lua.LUserData); ok {
+		if delegate, ok := ud.Value.(interface{ Spacing() int }); ok {
+			return delegate.Spacing()
+		}
 	}
-	return 0 // Default spacing
+
+	if fieldValue, ok := engine.GetField(ld.luaState, ld.luaDelegate, "spacing"); ok {
+		switch v := fieldValue.(type) {
+		case lua.LNumber:
+			return int(v)
+		case *lua.LFunction:
+			ld.luaState.Push(v)
+			ld.luaState.Push(ld.luaDelegate) // self
+			if err := ld.luaState.PCall(1, 1, nil); err == nil {
+				ret := ld.luaState.Get(-1)
+				ld.luaState.Pop(1)
+				return int(lua.LVAsNumber(ret))
+			}
+		}
+	}
+	return 0
 }
 
 func (ld *LuaDelegate) Render(w io.Writer, m list.Model, index int, listItem list.Item) {
+	if ud, ok := ld.luaDelegate.(*lua.LUserData); ok {
+		if delegate, ok := ud.Value.(interface {
+			Render(io.Writer, list.Model, int, list.Item)
+		}); ok {
+			delegate.Render(w, m, index, listItem)
+			return
+		}
+	}
+
+	render, ok := engine.GetField(ld.luaState, ld.luaDelegate, "render")
+	if !ok {
+		return
+	}
+
 	wrappedModel := wrapModelForLua(ld.luaState, &m)
 	wrappedItem := wrapItemForLua(ld.luaState, listItem)
 
-	if render := GetLuaField(ld.luaState, ld.luaDelegate, "render"); render != lua.LNil {
-		if err := ld.luaState.CallByParam(lua.P{
-			Fn:      render.(*lua.LFunction),
-			NRet:    1,
-			Protect: true,
-		}, wrappedModel, lua.LNumber(index), wrappedItem); err != nil {
-			ld.luaState.RaiseError("error calling delegate render: %v", err)
-			return
-		}
-		ret := ld.luaState.Get(-1)
-		ld.luaState.Pop(1)
+	if err := ld.luaState.CallByParam(lua.P{
+		Fn:      render.(*lua.LFunction),
+		NRet:    1,
+		Protect: true,
+	}, wrappedModel, lua.LNumber(index), wrappedItem); err != nil {
+		ld.luaState.RaiseError("error calling delegate render: %v", err)
+		return
+	}
 
-		if str, ok := ret.(lua.LString); ok {
-			if _, err := fmt.Fprint(w, string(str)); err != nil {
-				ld.luaState.RaiseError("error writing to output: %v", err)
-			}
-		} else {
-			ld.luaState.RaiseError("render must return a string")
+	ret := ld.luaState.Get(-1)
+	ld.luaState.Pop(1)
+
+	if str, ok := ret.(lua.LString); ok {
+		if _, err := fmt.Fprint(w, string(str)); err != nil {
+			ld.luaState.RaiseError("error writing to output: %v", err)
 		}
+	} else {
+		ld.luaState.RaiseError("render must return a string")
 	}
 }
 
 func (ld *LuaDelegate) Update(msg tea.Msg, m *list.Model) tea.Cmd {
-	log.Printf("got: `%+v`", msg)
-	luaMsg := protocol.MsgToLua(msg)
-	tv := luaMsg.(*lua.LTable)
-
-	// todo: reuse?
-	wrappedModel := wrapModelForLua(ld.luaState, m)
-	// todo: this is weird
-
-	// todo: make proper lua helpers, do not use string result for expected methods
-	// todo: can be nil!
-	if update := FetchMethod(ld.luaState, ld.luaDelegate, "update"); update != lua.LNil {
-
-		log.Printf("converted: %v", tv.RawGetString("type"))
-
-		// todo: check if this is func
-		if err := ld.luaState.CallByParam(lua.P{
-			Fn:      update.(*lua.LFunction),
-			NRet:    1,
-			Protect: true,
-		}, luaMsg, wrappedModel); err != nil {
-			ld.luaState.RaiseError("error calling delegate update: %v", err)
-			return nil
+	if ud, ok := ld.luaDelegate.(*lua.LUserData); ok {
+		if delegate, ok := ud.Value.(interface {
+			Update(tea.Msg, *list.Model) tea.Cmd
+		}); ok {
+			return delegate.Update(msg, m)
 		}
-
-		ret := ld.luaState.Get(-1)
-		ld.luaState.Pop(1)
-
-		if ret == lua.LNil {
-			return nil
-		}
-		return protocol.UnwrapCommand(ld.luaState, ret)
 	}
 
-	return nil
+	update, ok := engine.GetField(ld.luaState, ld.luaDelegate, "update")
+	if !ok {
+		return nil
+	}
+
+	luaMsg := protocol.MsgToLua(msg)
+	wrappedModel := wrapModelForLua(ld.luaState, m)
+
+	if err := ld.luaState.CallByParam(lua.P{
+		Fn:      update.(*lua.LFunction),
+		NRet:    1,
+		Protect: true,
+	}, luaMsg, wrappedModel); err != nil {
+		ld.luaState.RaiseError("error calling delegate update: %v", err)
+		return nil
+	}
+
+	ret := ld.luaState.Get(-1)
+	ld.luaState.Pop(1)
+
+	if ret == lua.LNil {
+		return nil
+	}
+	return protocol.UnwrapCommand(ld.luaState, ret)
 }
 
 func (ld *LuaDelegate) ShortHelp() []key.Binding {
-	if shortHelp := GetLuaField(ld.luaState, ld.luaDelegate, "short_help"); shortHelp != lua.LNil {
-		if t, ok := shortHelp.(*lua.LTable); ok {
+	if ud, ok := ld.luaDelegate.(*lua.LUserData); ok {
+		if delegate, ok := ud.Value.(interface{ ShortHelp() []key.Binding }); ok {
+			return delegate.ShortHelp()
+		}
+	}
+
+	if fieldValue, ok := engine.GetField(ld.luaState, ld.luaDelegate, "short_help"); ok {
+		if t, ok := fieldValue.(*lua.LTable); ok {
 			bindings := make([]key.Binding, 0)
 			t.ForEach(func(_, v lua.LValue) {
 				if binding, ok := getKeyBindingFromUserData(ld.luaState, v); ok {
@@ -108,10 +159,15 @@ func (ld *LuaDelegate) ShortHelp() []key.Binding {
 	}
 	return nil
 }
-
 func (ld *LuaDelegate) FullHelp() [][]key.Binding {
-	if fullHelp := GetLuaField(ld.luaState, ld.luaDelegate, "full_help"); fullHelp != lua.LNil {
-		if t, ok := fullHelp.(*lua.LTable); ok {
+	if ud, ok := ld.luaDelegate.(*lua.LUserData); ok {
+		if delegate, ok := ud.Value.(interface{ FullHelp() [][]key.Binding }); ok {
+			return delegate.FullHelp()
+		}
+	}
+
+	if fieldValue, ok := engine.GetField(ld.luaState, ld.luaDelegate, "full_help"); ok {
+		if t, ok := fieldValue.(*lua.LTable); ok {
 			groupedBindings := make([][]key.Binding, 0)
 			t.ForEach(func(_, group lua.LValue) {
 				if groupTable, ok := group.(*lua.LTable); ok {
