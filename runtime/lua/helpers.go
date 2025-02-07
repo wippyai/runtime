@@ -79,8 +79,8 @@ func (m *RuntimeManager) unpackTerminal(data payload.Payload) (*api.TerminalConf
 // Helper methods for event handling
 func (m *RuntimeManager) registerHandler(ctx context.Context, id registry.ID) {
 	m.bus.Send(ctx, events.Event{
-		System: runtime.System,
-		Kind:   runtime.RegisterFunctionEvent,
+		System: runtime.FunctionSystem,
+		Kind:   runtime.RegisterFunction,
 		Path:   events.Path(id), // todo: ns?
 		Data:   m.Execute,
 	})
@@ -88,8 +88,8 @@ func (m *RuntimeManager) registerHandler(ctx context.Context, id registry.ID) {
 
 func (m *RuntimeManager) unregisterHandler(ctx context.Context, id registry.ID) { //nolint:unused
 	m.bus.Send(ctx, events.Event{
-		System: runtime.System,
-		Kind:   runtime.DeleteFunctionEvent,
+		System: runtime.FunctionSystem,
+		Kind:   runtime.DeleteFunction,
 		Path:   events.Path(id),
 	})
 }

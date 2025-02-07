@@ -3,6 +3,7 @@ package registry
 import (
 	"context"
 	"fmt"
+	"github.com/ponyruntime/pony/tests/temp_files"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -10,7 +11,6 @@ import (
 
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/internal/test_utils"
 	transcoder "github.com/ponyruntime/pony/system/payload"
 	"github.com/ponyruntime/pony/system/payload/json"
 	"github.com/ponyruntime/pony/system/payload/yaml"
@@ -52,7 +52,7 @@ data:
   url: http://localhost:8080
 `,
 	}
-	rootDir, cleanup := test_utils.TempDirWithFiles(t, "registry_init_test", files)
+	rootDir, cleanup := temp_files.TempDirWithFiles(t, "registry_init_test", files)
 	defer cleanup()
 
 	// 2. Initialize components:

@@ -271,8 +271,8 @@ func (m *RuntimeManager) Delete(ctx context.Context, entry registry.Entry) error
 	switch entry.Kind {
 	case api.KindFunction:
 		m.bus.Send(ctx, events.Event{
-			System: runtime.System,
-			Kind:   runtime.DeleteFunctionEvent,
+			System: runtime.FunctionSystem,
+			Kind:   runtime.DeleteFunction,
 			Path:   events.Path(entry.ID),
 		})
 		m.callable.Delete(entry.ID)

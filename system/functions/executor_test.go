@@ -17,8 +17,8 @@ import (
 	"go.uber.org/zap"
 )
 
-func setupTest() (*Executor, events.Bus) {
-	logger, _ := zap.NewDevelopment()
+func setupTest() (*FunctionExecutor, events.Bus) {
+	logger := zap.NewNop()
 	bus := eventbus.NewBus()
 	executor := NewExecutor(bus, logger)
 	return executor, bus
@@ -60,8 +60,8 @@ func TestExecutor_HandlerRegistrationOverBus(t *testing.T) {
 
 	// Test handler registration
 	bus.Send(ctx, events.Event{
-		System: runtime.System,
-		Kind:   runtime.RegisterFunctionEvent,
+		System: runtime.FunctionSystem,
+		Kind:   runtime.RegisterFunction,
 		Path:   events.Path(target),
 		Data:   handler,
 	})
@@ -74,8 +74,8 @@ func TestExecutor_HandlerRegistrationOverBus(t *testing.T) {
 
 	// Test handler removal
 	bus.Send(ctx, events.Event{
-		System: runtime.System,
-		Kind:   runtime.DeleteFunctionEvent,
+		System: runtime.FunctionSystem,
+		Kind:   runtime.DeleteFunction,
 		Path:   events.Path(target),
 	})
 
@@ -113,8 +113,8 @@ func TestExecutor_Execute(t *testing.T) {
 					return resultChan, nil
 				}
 				bus.Send(ctx, events.Event{
-					System: runtime.System,
-					Kind:   runtime.RegisterFunctionEvent,
+					System: runtime.FunctionSystem,
+					Kind:   runtime.RegisterFunction,
 					Path:   events.Path("test.handler"),
 					Data:   handler,
 				})
@@ -141,8 +141,8 @@ func TestExecutor_Execute(t *testing.T) {
 					return nil, fmt.Errorf("handler error")
 				}
 				bus.Send(ctx, events.Event{
-					System: runtime.System,
-					Kind:   runtime.RegisterFunctionEvent,
+					System: runtime.FunctionSystem,
+					Kind:   runtime.RegisterFunction,
 					Path:   events.Path("error.handler"),
 					Data:   handler,
 				})
@@ -158,8 +158,8 @@ func TestExecutor_Execute(t *testing.T) {
 			name: "invalid handler type",
 			setupHandler: func(bus events.Bus) {
 				bus.Send(ctx, events.Event{
-					System: runtime.System,
-					Kind:   runtime.RegisterFunctionEvent,
+					System: runtime.FunctionSystem,
+					Kind:   runtime.RegisterFunction,
 					Path:   events.Path("invalid.handler"),
 				})
 				time.Sleep(1 * time.Millisecond)
@@ -222,8 +222,8 @@ func TestExecutor_ConcurrentHandlerRegistration(t *testing.T) {
 			}
 
 			bus.Send(ctx, events.Event{
-				System: runtime.System,
-				Kind:   runtime.RegisterFunctionEvent,
+				System: runtime.FunctionSystem,
+				Kind:   runtime.RegisterFunction,
 				Path:   events.Path(target),
 				Data:   handler,
 			})
@@ -268,23 +268,23 @@ func TestExecutor_InvalidEvents(t *testing.T) {
 		{
 			name: "invalid register handler data",
 			evt: events.Event{
-				System: runtime.System,
-				Kind:   runtime.RegisterFunctionEvent,
+				System: runtime.FunctionSystem,
+				Kind:   runtime.RegisterFunction,
 				Data:   "invalid data",
 			},
 		},
 		{
 			name: "invalid delete handler data",
 			evt: events.Event{
-				System: runtime.System,
-				Kind:   runtime.DeleteFunctionEvent,
+				System: runtime.FunctionSystem,
+				Kind:   runtime.DeleteFunction,
 				Data:   "invalid data",
 			},
 		},
 		{
 			name: "unknown event kind",
 			evt: events.Event{
-				System: runtime.System,
+				System: runtime.FunctionSystem,
 				Kind:   "unknown.event",
 				Data:   nil,
 			},
@@ -296,6 +296,125 @@ func TestExecutor_InvalidEvents(t *testing.T) {
 			// Just verify no panic occurs
 			bus.Send(ctx, tt.evt)
 			time.Sleep(1 * time.Millisecond)
+		})
+	}
+}
+
+func TestExecutor_EventResponses(t *testing.T) {
+	ctx := context.Background()
+	executor, bus := setupTest()
+	require.NoError(t, executor.Start(ctx))
+	defer func() {
+		require.NoError(t, executor.Stop())
+	}()
+
+	// Create a subscriber to listen for Accept/Reject events
+	var responses []events.Event
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	// Listen to all events from the function system
+	sub, err := eventbus.NewSubscriber(
+		ctx,
+		bus,
+		runtime.FunctionSystem,
+		"functions.*", // Changed to match all function events
+		func(evt events.Event) {
+			// Only process accept/reject events
+			if evt.Kind == runtime.AcceptFunctionEvent || evt.Kind == runtime.RejectFunctionEvent {
+				mu.Lock()
+				responses = append(responses, evt)
+				mu.Unlock()
+				wg.Done()
+			}
+		},
+	)
+	require.NoError(t, err)
+	defer sub.Close()
+
+	tests := []struct {
+		name         string
+		event        events.Event
+		expectedKind events.Kind
+		expectedPath events.Path
+	}{
+		{
+			name: "valid function registration",
+			event: events.Event{
+				System: runtime.FunctionSystem,
+				Kind:   runtime.RegisterFunction,
+				Path:   "test.handler",
+				Data: func(task runtime.Task) (chan *runtime.Result, error) {
+					return make(chan *runtime.Result), nil
+				},
+			},
+			expectedKind: runtime.AcceptFunctionEvent,
+			expectedPath: "test.handler",
+		},
+		{
+			name: "invalid function registration",
+			event: events.Event{
+				System: runtime.FunctionSystem,
+				Kind:   runtime.RegisterFunction,
+				Path:   "invalid.handler",
+				Data:   "not a function",
+			},
+			expectedKind: runtime.RejectFunctionEvent,
+			expectedPath: "invalid.handler",
+		},
+		{
+			name: "delete existing function",
+			event: events.Event{
+				System: runtime.FunctionSystem,
+				Kind:   runtime.DeleteFunction,
+				Path:   "test.handler",
+			},
+			expectedKind: runtime.AcceptFunctionEvent,
+			expectedPath: "test.handler",
+		},
+		{
+			name: "delete non-existent function",
+			event: events.Event{
+				System: runtime.FunctionSystem,
+				Kind:   runtime.DeleteFunction,
+				Path:   "nonexistent.handler",
+			},
+			expectedKind: runtime.RejectFunctionEvent,
+			expectedPath: "nonexistent.handler",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			responses = nil // Clear previous responses
+			wg.Add(1)       // Expect one response event
+
+			// Send the test event
+			bus.Send(ctx, tt.event)
+
+			// Wait for response with timeout
+			done := make(chan struct{})
+			go func() {
+				wg.Wait()
+				close(done)
+			}()
+
+			select {
+			case <-done:
+				// Success - continue with checks
+			case <-time.After(time.Second):
+				t.Fatal("timeout waiting for response event")
+			}
+
+			// Check the response
+			mu.Lock()
+			require.NotEmpty(t, responses, "no response received")
+			lastResponse := responses[len(responses)-1]
+			mu.Unlock()
+
+			assert.Equal(t, runtime.FunctionSystem, lastResponse.System)
+			assert.Equal(t, tt.expectedKind, lastResponse.Kind)
+			assert.Equal(t, tt.expectedPath, lastResponse.Path)
 		})
 	}
 }
