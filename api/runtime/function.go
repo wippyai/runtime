@@ -19,7 +19,10 @@ const (
 	// DeleteFunction is the event kind for removing an existing handler
 	DeleteFunction events.Kind = "functions.remove"
 
+	// AcceptFunctionEvent is the event kind for accepting a new handler
 	AcceptFunctionEvent events.Kind = "functions.accept"
+
+	// RejectFunctionEvent is the event kind for rejecting a new handler
 	RejectFunctionEvent events.Kind = "functions.reject"
 )
 
