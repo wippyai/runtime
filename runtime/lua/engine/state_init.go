@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"github.com/ponyruntime/pony/runtime/lua/engine/loadlib"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -14,7 +15,7 @@ type CoreLib struct {
 
 func getCoreLibs() []CoreLib {
 	return []CoreLib{
-		{lua.LoadLibName, lua.OpenPackage}, // Must be first
+		{lua.LoadLibName, loadlib.OpenRestrictedPackage},
 		{lua.BaseLibName, lua.OpenBase},
 		{lua.TabLibName, lua.OpenTable},
 		{lua.StringLibName, lua.OpenString},
