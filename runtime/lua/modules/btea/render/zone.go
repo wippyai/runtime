@@ -151,34 +151,28 @@ func managerAnyInBounds(l *lua.LState) int {
 
 func managerAnyInBoundsAndUpdate(l *lua.LState) int {
 	m := checkManager(l)
+	if m == nil {
+		return 0
+	}
 
-	// Get the model UserData and ensure it's a tea.Model
-	modelUD := l.CheckUserData(2)
-	tModel, ok := modelUD.Value.(tea.Model)
+	modelValue := l.CheckAny(2)
+	model, ok := protocol.TryGetModel(l, modelValue)
 	if !ok {
 		l.ArgError(2, "model expected")
 		return 0
 	}
 
-	// Handle mouse message
 	msgValue := l.CheckAny(3)
 	msg, err := protocol.LuaToMsg(msgValue)
 	if err != nil {
 		l.RaiseError("failed to convert message: %v", err)
 		return 0
 	}
-	mouseMsg, ok := msg.(tea.MouseMsg)
-	if !ok {
-		l.ArgError(3, "mouse message expected")
-		return 0
-	}
 
-	// Call AnyInBoundsAndUpdate
-	newModel, cmd := m.model.AnyInBoundsAndUpdate(tModel, mouseMsg)
-	modelUD.Value = newModel
+	newModel, cmd := m.model.AnyInBoundsAndUpdate(model, msg.(tea.MouseMsg))
 
-	// Return the same UserData since the model was updated in-place
-	l.Push(modelUD)
+	// Convert back to Lua - handles both Go models and LuaModelWrapper
+	l.Push(protocol.WrapModel(l, newModel))
 
 	if cmd != nil {
 		l.Push(protocol.WrapCommand(l, cmd))

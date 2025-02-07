@@ -1,4 +1,4 @@
-local bapp = require("base_app")
+local bapp = require("bapp")
 
 -- Button helper (included in app file)
 local function create_button(zone_manager, id, label, styles)
