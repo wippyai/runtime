@@ -104,7 +104,8 @@ function bapp.new()
 
         -- Viewport if exists
         if self.viewport then
-            self:dispatch(self.viewport:resize(size))
+            self.viewport:set_width(size.width)
+            self.viewport:set_height(size.height)
         end
     end
 

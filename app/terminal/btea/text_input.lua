@@ -106,7 +106,7 @@ function App()
     })
 
     -- Focus first input
-    app.inputs[app.current].input:focus()
+    app:dispatch(app.inputs[app.current].input:focus())
 
     -- Update function
     local function update(self, msg)

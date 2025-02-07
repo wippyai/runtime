@@ -41,7 +41,7 @@ func (m *Module) Loader(l *lua.LState) int {
 	models.RegisterTextInput(l, mod)
 	//models.RegisterTextArea(l, mod)
 	//models.RegisterPaginator(l, mod)
-	//models.RegisterViewport(l, mod)
+	models.RegisterViewport(l, mod)
 	//models.RegisterTable(l, mod)
 
 	// lists of elements

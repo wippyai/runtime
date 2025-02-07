@@ -1,4 +1,4 @@
-package _redo_
+package models
 
 import (
 	"github.com/charmbracelet/bubbles/viewport"
@@ -359,7 +359,7 @@ func viewportSetStyle(l *lua.LState) int {
 	if v == nil {
 		return 0
 	}
-	style := render.CheckStyle(l) // todo: wrong
+	style := render.CheckStyle(l, 2)
 	if style == nil {
 		return 0
 	}
