@@ -45,8 +45,6 @@ func (br *BusRunner) Transition(
 	initialState registry.State,
 	cs registry.ChangeSet,
 ) (registry.State, error) {
-	// todo: add support for group dependencies
-
 	currentState := br.stateHelper.toMap(initialState)
 	originalState := br.stateHelper.toMap(initialState) // Keep a copy of the original state for rollbacks
 	appliedOperations := make([]registry.Operation, 0)
@@ -69,7 +67,7 @@ func (br *BusRunner) Transition(
 			}
 
 			br.log.Warn("operation failed, initiating rollback", zap.Any("operation", op), zap.Error(err))
-			newState = br.rollback(ctx, originalState, newState, appliedOperations)
+			newState = br.rollback(ctx, originalState, newState)
 
 			// Only send Discard if there was an error, and rollback already happened
 			br.bus.Send(ctx, events.Event{
@@ -94,10 +92,9 @@ func (br *BusRunner) Transition(
 }
 
 func (br *BusRunner) applyOperation(ctx context.Context, state stateMap, op registry.Operation) (stateMap, error) {
-	// todo: uncomment and properly test
-	// if err := br.stateHelper.validateOperation(state, op); err != nil {
-	//	return state, fmt.Errorf("invalid operation: %w", err)
-	// }
+	if err := br.stateHelper.validateOperation(state, op); err != nil {
+		return state, fmt.Errorf("invalid operation: %w", err)
+	}
 
 	br.log.Debug("starting operation",
 		zap.String("kind", string(op.Kind)),
@@ -157,8 +154,7 @@ func (br *BusRunner) applyOperation(ctx context.Context, state stateMap, op regi
 	}
 }
 
-// todo: appliedOperations (last arg) is not used
-func (br *BusRunner) rollback(ctx context.Context, originalState, currentState stateMap, _ []registry.Operation) stateMap {
+func (br *BusRunner) rollback(ctx context.Context, originalState, currentState stateMap) stateMap {
 	br.log.Debug("starting rollback",
 		zap.Any("current_state", currentState),
 		zap.Any("original_state", originalState))
@@ -176,8 +172,7 @@ func (br *BusRunner) rollback(ctx context.Context, originalState, currentState s
 		return currentState
 	}
 
-	br.log.Debug("rollback delta calculated",
-		zap.Any("delta", delta))
+	br.log.Debug("rollback delta calculated", zap.Any("delta", delta))
 
 	// Apply rollback operations
 	for _, op := range delta {

@@ -254,19 +254,6 @@ func TestBusRunner_Operations(t *testing.T) {
 			finalState:  registry.State{},
 		},
 		{
-			name: "DeleteRejected",
-			changeSet: registry.ChangeSet{
-				{
-					Kind:  registry.Delete,
-					Entry: registry.Entry{ID: "component/listener/nonexistent", Kind: "listener"},
-				},
-			},
-			expectError: true, // Expect an error because deletion is rejected.
-			finalConfig: map[registry.ID]string{},
-			rejected:    []registry.ID{"component/listener/nonexistent"},
-			finalState:  registry.State{}, // State should remain unchanged.
-		},
-		{
 			name: "MixedOperations",
 			changeSet: registry.ChangeSet{
 				{
@@ -301,6 +288,69 @@ func TestBusRunner_Operations(t *testing.T) {
 			expectError: true, // Expect an error because of the rejection
 			finalConfig: map[registry.ID]string{},
 			rejected:    []registry.ID{"component/listener/b"},
+			finalState:  registry.State{},
+		},
+		{
+			name: "DuplicateCreate",
+			changeSet: registry.ChangeSet{
+				{
+					Kind: registry.Create,
+					Entry: createEntry(
+						"component/listener/dup",
+						"listener",
+						"value1",
+					),
+				},
+				{
+					Kind: registry.Create,
+					Entry: createEntry(
+						"component/listener/dup",
+						"listener",
+						"value2",
+					),
+				},
+			},
+			expectError: true,
+			finalConfig: map[registry.ID]string{},
+			rejected:    []registry.ID{}, // does not reach component
+			finalState:  registry.State{},
+		},
+		{
+			name: "UpdateWithKindChange",
+			changeSet: registry.ChangeSet{
+				{
+					Kind: registry.Create,
+					Entry: createEntry(
+						"component/listener/key1",
+						"listener",
+						"value1",
+					),
+				},
+				{
+					Kind: registry.Update,
+					Entry: registry.Entry{
+						ID:   "component/listener/key1",
+						Kind: "different_kind",
+						Data: payload.NewString("value2"),
+					},
+				},
+			},
+			expectError: true,
+			finalConfig: map[registry.ID]string{},
+			rejected:    []registry.ID{}, // does not reach component
+			finalState:  registry.State{},
+		},
+		{
+			name: "DeleteNonExistent",
+			changeSet: registry.ChangeSet{
+				{
+					Kind:  registry.Delete,
+					Entry: registry.Entry{ID: "component/listener/nonexistent", Kind: "listener"},
+				},
+			},
+			expectError: true, // expect an error because deletion fails
+			finalConfig: map[registry.ID]string{},
+			rejected:    []registry.ID{}, // does not reach component
 			finalState:  registry.State{},
 		},
 	}
