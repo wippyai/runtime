@@ -39,7 +39,7 @@ func (r *Registry) Start(ctx context.Context) error {
 	sub, err := eventbus.NewSubscriber(
 		r.ctx,
 		r.bus,
-		runtime.WorkflowSystem,
+		runtime.ProcessSystem,
 		"workflow.*",
 		r.handleEvent,
 	)
@@ -62,7 +62,7 @@ func (r *Registry) Stop() error {
 // handleEvent processes incoming workflow events for handler registration and deletion.
 func (r *Registry) handleEvent(evt events.Event) {
 	switch evt.Kind {
-	case runtime.RegisterWorkflowEvent:
+	case runtime.RegisterProcessPrototype:
 		if data, ok := evt.Data.(runtime.RegisterWorkflow); ok {
 			if data.Handler == nil {
 				r.logger.Warn("handler is nil", zap.String("target", string(data.Target)))
@@ -72,7 +72,7 @@ func (r *Registry) handleEvent(evt events.Event) {
 			r.logger.Info("workflow handler registered",
 				zap.String("target", string(data.Target)))
 		}
-	case runtime.DeleteWorkflowEvent:
+	case runtime.DeleteProcessPrototype:
 		if data, ok := evt.Data.(runtime.DeleteWorkflow); ok {
 			r.handlers.Delete(data.Target)
 			r.logger.Info("workflow handler removed",
@@ -92,5 +92,5 @@ func (r *Registry) Get(id registry.ID) (func() any, error) {
 	return handler.(func() any), nil
 }
 
-// Ensure Registry implements WorkflowRegistry interface
-var _ runtime.WorkflowRegistry = (*Registry)(nil)
+// Ensure Registry implements ProcessRegistry interface
+var _ runtime.ProcessRegistry = (*Registry)(nil)

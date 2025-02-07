@@ -54,8 +54,8 @@ func TestRegistry_HandlerRegistrationOverBus(t *testing.T) {
 
 	// Test handler registration
 	bus.Send(ctx, events.Event{
-		System: runtime.WorkflowSystem,
-		Kind:   runtime.RegisterWorkflowEvent,
+		System: runtime.ProcessSystem,
+		Kind:   runtime.RegisterProcessPrototype,
 		Data: runtime.RegisterWorkflow{
 			Target:  target,
 			Handler: handler,
@@ -71,8 +71,8 @@ func TestRegistry_HandlerRegistrationOverBus(t *testing.T) {
 
 	// Test handler removal
 	bus.Send(ctx, events.Event{
-		System: runtime.WorkflowSystem,
-		Kind:   runtime.DeleteWorkflowEvent,
+		System: runtime.ProcessSystem,
+		Kind:   runtime.DeleteProcessPrototype,
 		Data: runtime.DeleteWorkflow{
 			Target: target,
 		},
@@ -106,8 +106,8 @@ func TestRegistry_Get(t *testing.T) {
 			setupHandler: func(bus events.Bus) {
 				handler := func() any { return "success" }
 				bus.Send(ctx, events.Event{
-					System: runtime.WorkflowSystem,
-					Kind:   runtime.RegisterWorkflowEvent,
+					System: runtime.ProcessSystem,
+					Kind:   runtime.RegisterProcessPrototype,
 					Data: runtime.RegisterWorkflow{
 						Target:  "test.workflow",
 						Handler: handler,
@@ -131,8 +131,8 @@ func TestRegistry_Get(t *testing.T) {
 			name: "nil handler registration",
 			setupHandler: func(bus events.Bus) {
 				bus.Send(ctx, events.Event{
-					System: runtime.WorkflowSystem,
-					Kind:   runtime.RegisterWorkflowEvent,
+					System: runtime.ProcessSystem,
+					Kind:   runtime.RegisterProcessPrototype,
 					Data: runtime.RegisterWorkflow{
 						Target:  "nil.workflow",
 						Handler: nil,
@@ -191,8 +191,8 @@ func TestRegistry_ConcurrentHandlerRegistration(t *testing.T) {
 			}
 
 			bus.Send(ctx, events.Event{
-				System: runtime.WorkflowSystem,
-				Kind:   runtime.RegisterWorkflowEvent,
+				System: runtime.ProcessSystem,
+				Kind:   runtime.RegisterProcessPrototype,
 				Data: runtime.RegisterWorkflow{
 					Target:  registry.ID(target),
 					Handler: handler,
@@ -237,23 +237,23 @@ func TestRegistry_InvalidEvents(t *testing.T) {
 		{
 			name: "invalid register workflow data",
 			evt: events.Event{
-				System: runtime.WorkflowSystem,
-				Kind:   runtime.RegisterWorkflowEvent,
+				System: runtime.ProcessSystem,
+				Kind:   runtime.RegisterProcessPrototype,
 				Data:   "invalid data",
 			},
 		},
 		{
 			name: "invalid delete workflow data",
 			evt: events.Event{
-				System: runtime.WorkflowSystem,
-				Kind:   runtime.DeleteWorkflowEvent,
+				System: runtime.ProcessSystem,
+				Kind:   runtime.DeleteProcessPrototype,
 				Data:   "invalid data",
 			},
 		},
 		{
 			name: "unknown event kind",
 			evt: events.Event{
-				System: runtime.WorkflowSystem,
+				System: runtime.ProcessSystem,
 				Kind:   "unknown.event",
 				Data:   nil,
 			},

@@ -114,8 +114,8 @@ func (m *RuntimeManager) unregisterTerminal(ctx context.Context, id registry.ID)
 
 func (m *RuntimeManager) registerWorkflow(ctx context.Context, id registry.ID, runner func() any) {
 	m.bus.Send(ctx, events.Event{
-		System: runtime.WorkflowSystem,
-		Kind:   runtime.RegisterWorkflowEvent,
+		System: runtime.ProcessSystem,
+		Kind:   runtime.RegisterProcessPrototype,
 		Path:   events.Path(id),
 		Data: runtime.RegisterWorkflow{
 			Target:  id,
@@ -126,8 +126,8 @@ func (m *RuntimeManager) registerWorkflow(ctx context.Context, id registry.ID, r
 
 func (m *RuntimeManager) unregisterWorkflow(ctx context.Context, id registry.ID) {
 	m.bus.Send(ctx, events.Event{
-		System: runtime.WorkflowSystem,
-		Kind:   runtime.DeleteWorkflowEvent,
+		System: runtime.ProcessSystem,
+		Kind:   runtime.DeleteProcessPrototype,
 		Path:   events.Path(id),
 		Data:   runtime.DeleteWorkflow{Target: id},
 	})
