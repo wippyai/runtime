@@ -15,13 +15,13 @@ func SortEntriesByDependency(entries []registry.Entry) []registry.Entry {
 	}
 
 	// Build dependency graph and group mapping.
-	g := graph.NewGraph()
+	g := graph.New[registry.ID]()
 	entryMap := make(map[registry.ID]registry.Entry, len(entries))
 	groupMap := make(map[string][]registry.ID)
 
 	// Add all entries as nodes and build the group mapping.
 	for _, entry := range entries {
-		g.AddNode(graph.Node(entry.ID))
+		g.AddNode(entry.ID)
 		entryMap[entry.ID] = entry
 
 		groups := entry.Meta.TagValue(registry.GroupsTag)
@@ -36,11 +36,7 @@ func SortEntriesByDependency(entries []registry.Entry) []registry.Entry {
 		for _, dep := range dependsOn {
 			if _, exists := entryMap[registry.ID(dep)]; exists {
 				// If A depends on B, add edge B -> A so B gets processed first.
-				g.AddEdge(graph.Edge{
-					From:   graph.Node(dep),
-					To:     graph.Node(entry.ID),
-					Weight: 1,
-				})
+				g.AddEdge(registry.ID(dep), entry.ID, 1)
 			}
 		}
 	}
@@ -55,11 +51,7 @@ func SortEntriesByDependency(entries []registry.Entry) []registry.Entry {
 					if memberID == entry.ID {
 						continue
 					}
-					g.AddEdge(graph.Edge{
-						From:   graph.Node(memberID),
-						To:     graph.Node(entry.ID),
-						Weight: 1,
-					})
+					g.AddEdge(memberID, entry.ID, 1)
 				}
 			}
 		}
@@ -79,15 +71,14 @@ func SortEntriesByDependency(entries []registry.Entry) []registry.Entry {
 
 	// Build sorted list based on dependency levels.
 	result := make([]registry.Entry, 0, len(entries))
-	for i := 0; i < levels.LevelCount(); i++ {
-		levelNodes, _ := levels.GetLevel(i)
+	allLevels := levels.AllLevels()
+	for _, levelNodes := range allLevels {
 		// Sort nodes within the level lexicographically.
 		sort.Slice(levelNodes, func(i, j int) bool {
-			return string(levelNodes[i]) < string(levelNodes[j])
+			return levelNodes[i] < levelNodes[j]
 		})
 		for _, node := range levelNodes {
-			entryID := registry.ID(node)
-			if entry, exists := entryMap[entryID]; exists {
+			if entry, exists := entryMap[node]; exists {
 				result = append(result, entry)
 			}
 		}

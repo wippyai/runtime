@@ -3,141 +3,123 @@ package graph
 import (
 	"fmt"
 	"sort"
-	"strings"
 )
 
-// DependencyLevels represents nodes grouped by their dependency relationships,
-// where each level contains nodes that only depend on nodes in previous levels.
-type DependencyLevels struct {
-	Levels [][]Node // Each slice contains nodes at the same dependency level
+// Infinity represents an infinite cost in the graph
+const Infinity = -1
+
+// DependencyLevels represents nodes grouped into levels based on their dependencies.
+// Each level contains nodes that only depend on nodes in previous levels,
+// allowing for topological organization of the graph's nodes.
+type DependencyLevels[T comparable] struct {
+	levels [][]T
 }
 
-// DependencyLevels performs a topological sort of the graph and groups nodes by dependency levels.
-//
-// Pre-conditions:
-//   - The graph is a directed acyclic graph (DAG).
-//
-// Post-conditions:
-//   - Returns a `DependencyLevels` struct where `DependencyLevels` contains a slice of nodes for each dependency level.
-//   - The nodes within each level are sorted lexicographically.
-//   - Returns an error if the graph contains a cycle.
-func (g *Graph) DependencyLevels() (*DependencyLevels, error) {
-	g.mutex.RLock()
-	defer g.mutex.RUnlock()
+// DependencyLevels returns the dependency levels of the graph organized in topological order.
+// Each level contains nodes that only depend on nodes in previous levels.
+// Returns an error if the graph contains a cycle, as cyclic dependencies cannot
+// be organized into levels.
+func (g *Graph[T]) DependencyLevels() (*DependencyLevels[T], error) {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
 
-	// Create a map to store in-degree (number of incoming edges) for each node
-	inDegree := make(map[Node]int)
-
-	// Initialize in-degree counts
+	// Calculate in-degree for each node
+	inDegree := make(map[T]int)
 	for node := range g.nodes {
 		inDegree[node] = 0
 	}
-
-	// Calculate in-degree for each node
 	for _, edges := range g.edges {
 		for to := range edges {
 			inDegree[to]++
 		}
 	}
 
-	// Initialize result structure
-	result := &DependencyLevels{
-		Levels: make([][]Node, 0),
+	result := &DependencyLevels[T]{
+		levels: make([][]T, 0),
 	}
 
-	// Track if any nodes with in-degree 0 were found in an iteration
-	foundZeroDegreeNode := true
-
-	// Continue processing until all nodes are assigned to levels or no more nodes with in-degree 0 are found
-	for len(inDegree) > 0 && foundZeroDegreeNode {
-		// Find all nodes with no incoming edges (in-degree = 0)
-		currentLevel := make([]Node, 0)
-		foundZeroDegreeNode = false // Reset flag for the current iteration
+	// Continue until all nodes are processed
+	foundNodes := true
+	for len(inDegree) > 0 && foundNodes {
+		// Find all nodes with no dependencies (in-degree = 0)
+		currentLevel := make([]T, 0)
+		foundNodes = false
 
 		for node, degree := range inDegree {
 			if degree == 0 {
 				currentLevel = append(currentLevel, node)
-				foundZeroDegreeNode = true // Found at least one node with in-degree 0
+				foundNodes = true
 			}
 		}
 
-		// If no nodes with in-degree 0 are found, but we still have nodes, we have a cycle
-		if !foundZeroDegreeNode && len(inDegree) > 0 {
-			str := ""
-			for k := range inDegree {
-				str += fmt.Sprintf("%s ", k)
+		// If we have nodes but none with in-degree 0, we have a cycle
+		if !foundNodes && len(inDegree) > 0 {
+			remaining := make([]T, 0, len(inDegree))
+			for node := range inDegree {
+				remaining = append(remaining, node)
 			}
-
-			return nil, fmt.Errorf("invalid node (~%s) detected in graph", strings.Trim(str, " "))
+			// Sort for stable error message
+			sort.Slice(remaining, func(i, j int) bool {
+				return fmt.Sprintf("%v", remaining[i]) < fmt.Sprintf("%v", remaining[j])
+			})
+			return nil, fmt.Errorf("cycle detected with nodes: %v", remaining)
 		}
 
-		// Remove the nodes in the current level from consideration
+		// Remove current level nodes from consideration
 		for _, node := range currentLevel {
-			// Decrease in-degree for all neighbors
 			if edges, exists := g.edges[node]; exists {
 				for neighbor := range edges {
 					inDegree[neighbor]--
 				}
 			}
-			// Remove the node from in-degree map
 			delete(inDegree, node)
 		}
 
-		// Add the current level to the result (if it's not empty)
+		// Sort current level for consistent output
+		sort.Slice(currentLevel, func(i, j int) bool {
+			return fmt.Sprintf("%v", currentLevel[i]) < fmt.Sprintf("%v", currentLevel[j])
+		})
+
 		if len(currentLevel) > 0 {
-			// Sort nodes within the level for stable test output and better readability
-			sort.Slice(currentLevel, func(i, j int) bool {
-				return string(currentLevel[i]) < string(currentLevel[j])
-			})
-			result.Levels = append(result.Levels, currentLevel)
+			result.levels = append(result.levels, currentLevel)
 		}
 	}
 
 	return result, nil
 }
 
-// GetLevel returns all nodes in a specific dependency level.
-//
-// Pre-conditions:
-//   - `level` is a valid level within the `DependencyLevels` struct (0 <= level < LevelCount()).
-//
-// Post-conditions:
-//   - Returns a slice of nodes at the specified `level`.
-//   - Returns an error if the `level` is invalid.
-func (dl *DependencyLevels) GetLevel(level int) ([]Node, error) {
-	if level < 0 || level >= len(dl.Levels) {
-		return nil, fmt.Errorf("dependency level %d does not exist", level)
+// GetLevel returns a slice containing all nodes at the specified level.
+// Returns an error if the level is out of range.
+// Level numbering starts at 0.
+func (d *DependencyLevels[T]) GetLevel(level int) ([]T, error) {
+	if level < 0 || level >= len(d.levels) {
+		return nil, fmt.Errorf("invalid level: %d", level)
 	}
-	return dl.Levels[level], nil
+	return d.levels[level], nil
 }
 
-// LevelCount returns the total number of dependency levels.
-//
-// Pre-conditions:
-//   - None
-//
-// Post-conditions:
-//   - Returns the number of dependency levels.
-func (dl *DependencyLevels) LevelCount() int {
-	return len(dl.Levels)
+// LevelCount returns the total number of dependency levels in the graph.
+func (d *DependencyLevels[T]) LevelCount() int {
+	return len(d.levels)
 }
 
-// GetNodeLevel returns the dependency level number (0-based) for a given node.
-//
-// Pre-conditions:
-//   - None
-//
-// Post-conditions:
-//   - Returns the dependency level of the `node` if found.
-//   - Returns Infinity if the `node` is not found in any level.
-func (dl *DependencyLevels) GetNodeLevel(node Node) int {
-	for i, level := range dl.Levels {
-		for _, n := range level {
+// GetNodeLevel returns the level number for a given node.
+// Returns -1 if the node is not found in any level.
+// Level numbering starts at 0.
+func (d *DependencyLevels[T]) GetNodeLevel(node T) int {
+	for level, nodes := range d.levels {
+		for _, n := range nodes {
 			if n == node {
-				return i
+				return level
 			}
 		}
 	}
+	return -1
+}
 
-	return Infinity
+// AllLevels returns all dependency levels as a slice of slices.
+// Each inner slice contains the nodes at that level, with level
+// numbering starting at 0.
+func (d *DependencyLevels[T]) AllLevels() [][]T {
+	return d.levels
 }

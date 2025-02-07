@@ -1,4 +1,4 @@
-package graph2
+package graph
 
 import (
 	"container/heap"

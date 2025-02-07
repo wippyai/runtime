@@ -58,29 +58,18 @@ func (vm *versionHistory) Path(from, to registry.Version) ([]registry.Version, e
 	}
 
 	// Construct the graph on demand
-	g := graph.NewGraph()
+	g := graph.New[string]()
 	for _, v := range vm.versions {
-		g.AddNode(graph.Node(v.String()))
+		g.AddNode(v.String())
 		if prev := v.Previous(); prev != nil {
-			g.AddEdge(graph.Edge{
-				From:   graph.Node(prev.String()),
-				To:     graph.Node(v.String()),
-				Weight: 1,
-			})
-
-			g.AddEdge(graph.Edge{
-				From:   graph.Node(v.String()),
-				To:     graph.Node(prev.String()),
-				Weight: 2,
-			})
+			// Add bidirectional edges with different weights
+			g.AddEdge(prev.String(), v.String(), 1) // Forward edge
+			g.AddEdge(v.String(), prev.String(), 2) // Backward edge
 		}
 	}
 
 	// Find the shortest path using the graph
-	path, err := g.ShortestPath(
-		graph.Node(from.String()),
-		graph.Node(to.String()),
-	)
+	path, err := g.ShortestPath(from.String(), to.String())
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +77,7 @@ func (vm *versionHistory) Path(from, to registry.Version) ([]registry.Version, e
 	// Convert the graph path to a version path
 	versionPath := make([]registry.Version, len(path.Nodes))
 	for i, node := range path.Nodes {
-		versionPath[i] = vm.versions[string(node)]
+		versionPath[i] = vm.versions[node]
 	}
 
 	return versionPath, nil
