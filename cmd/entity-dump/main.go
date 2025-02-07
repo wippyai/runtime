@@ -6,16 +6,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ponyruntime/pony/pkg/payload/lua"
+	"github.com/ponyruntime/pony/system/payload/lua"
 	"go.uber.org/zap/zapcore"
 
 	"go.uber.org/zap"
 
 	"github.com/ponyruntime/pony/api/payload"
-	transcoder "github.com/ponyruntime/pony/pkg/payload"
-	"github.com/ponyruntime/pony/pkg/payload/json"
-	"github.com/ponyruntime/pony/pkg/payload/yaml"
-	"github.com/ponyruntime/pony/pkg/registry/loader"
+	transcoder "github.com/ponyruntime/pony/system/payload"
+	"github.com/ponyruntime/pony/system/payload/json"
+	"github.com/ponyruntime/pony/system/payload/yaml"
+	"github.com/ponyruntime/pony/system/registry/loader"
 )
 
 func createTranscoder() payload.Transcoder {

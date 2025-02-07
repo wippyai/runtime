@@ -8,7 +8,7 @@ import (
 
 	"go.uber.org/zap/zaptest/observer"
 
-	"github.com/ponyruntime/pony/pkg/eventbus"
+	"github.com/ponyruntime/pony/system/eventbus"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"

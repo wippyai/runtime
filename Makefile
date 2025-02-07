@@ -10,10 +10,15 @@ test-clean:
 test:
 	go test ./internal/... -v -race
 	go test ./api/... -v -race
-	go test ./pkg/... -v -race
+	go test ./system/... -v -race
 	go test ./service/... -v -race
 	go test ./runtime/... -v -race
 
+test-system:
+	go test ./internal/... -v -race
+	go test ./api/... -v -race
+	go test ./system/... -v -race
+	
 test-runtime:
 	go test ./internal/... -v -race
 	go test ./api/... -v -race

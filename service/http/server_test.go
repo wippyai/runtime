@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/ponyruntime/pony/api/supervisor"
-	sup "github.com/ponyruntime/pony/pkg/supervisor"
+	sup "github.com/ponyruntime/pony/system/supervisor"
 
 	config "github.com/ponyruntime/pony/api/service/http"
 	"github.com/stretchr/testify/assert"

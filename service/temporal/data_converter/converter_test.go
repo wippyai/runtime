@@ -2,13 +2,13 @@ package data_converter
 
 import (
 	"encoding/json"
-	jpayload "github.com/ponyruntime/pony/pkg/payload/json"
-	ypayload "github.com/ponyruntime/pony/pkg/payload/yaml"
+	jpayload "github.com/ponyruntime/pony/system/payload/json"
+	ypayload "github.com/ponyruntime/pony/system/payload/yaml"
 	"strconv"
 	"testing"
 
 	"github.com/ponyruntime/pony/api/payload"
-	transcoder "github.com/ponyruntime/pony/pkg/payload"
+	transcoder "github.com/ponyruntime/pony/system/payload"
 	"github.com/stretchr/testify/assert"
 	commonpb "go.temporal.io/api/common/v1"
 	"go.temporal.io/sdk/converter"

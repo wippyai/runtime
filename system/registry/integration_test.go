@@ -11,11 +11,11 @@ import (
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/internal/utils"
-	transcoder "github.com/ponyruntime/pony/pkg/payload"
-	"github.com/ponyruntime/pony/pkg/payload/json"
-	"github.com/ponyruntime/pony/pkg/payload/yaml"
-	"github.com/ponyruntime/pony/pkg/registry/history"
-	"github.com/ponyruntime/pony/pkg/registry/loader"
+	transcoder "github.com/ponyruntime/pony/system/payload"
+	"github.com/ponyruntime/pony/system/payload/json"
+	"github.com/ponyruntime/pony/system/payload/yaml"
+	"github.com/ponyruntime/pony/system/registry/history"
+	"github.com/ponyruntime/pony/system/registry/loader"
 )
 
 func createTestTranscoder() payload.Transcoder {
