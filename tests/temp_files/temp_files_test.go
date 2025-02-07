@@ -1,4 +1,4 @@
-package test_utils
+package temp_files
 
 import (
 	"os"

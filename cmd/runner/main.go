@@ -23,7 +23,6 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/modules/uuid"
 	"github.com/ponyruntime/pony/runtime/lua/modules/websocket"
 	"github.com/ponyruntime/pony/service/http"
-	"github.com/ponyruntime/pony/service/temporal"
 	"github.com/ponyruntime/pony/service/terminal"
 	"github.com/ponyruntime/pony/system/eventbus"
 	"github.com/ponyruntime/pony/system/functions"
@@ -158,15 +157,6 @@ func main() {
 	)
 	// -- end of lua lang and modules
 
-	// -- temporal (uses app context but can be isolated)
-	temporalSvc := temporal.NewManager(bus, dtt, execReg, processReg, log.Named("temporal"))
-	if err := temporalSvc.Start(ctx); err != nil {
-		appLogger.Fatal("failed to start temporal service", zap.Error(err))
-	}
-
-	// basically for clients
-	ctx = context.WithValue(ctx, contextapi.TemporalCtx, temporalSvc)
-
 	// -- end of temporal
 
 	// -- env
@@ -185,7 +175,6 @@ func main() {
 		services.WithListener("http.*", http.NewExecutingManager(bus, dtt, execReg, log.Named("http"))),
 		services.WithListener("(function|library|terminal|workflow).lua", luaRuntime),
 		services.WithListener("terminal.*", term),
-		services.WithListener("temporal.*", temporalSvc), // Add this line
 	)
 
 	if err != nil {
