@@ -152,9 +152,9 @@ func managerAnyInBounds(l *lua.LState) int {
 func managerAnyInBoundsAndUpdate(l *lua.LState) int {
 	m := checkManager(l)
 
-	// Check if model parameter has Model() method
-	model := l.CheckUserData(2)
-	tModel, ok := model.Value.(tea.Model)
+	// Get the model UserData and ensure it's a tea.Model
+	modelUD := l.CheckUserData(2)
+	tModel, ok := modelUD.Value.(tea.Model)
 	if !ok {
 		l.ArgError(2, "model expected")
 		return 0
@@ -173,15 +173,13 @@ func managerAnyInBoundsAndUpdate(l *lua.LState) int {
 		return 0
 	}
 
+	// Call AnyInBoundsAndUpdate
 	newModel, cmd := m.model.AnyInBoundsAndUpdate(tModel, mouseMsg)
+	modelUD.Value = newModel
 
-	luaModel, ok := newModel.(lua.LValue)
-	if !ok {
-		l.RaiseError("model must be a lua.LValue")
-		return 0
-	}
+	// Return the same UserData since the model was updated in-place
+	l.Push(modelUD)
 
-	l.Push(luaModel)
 	if cmd != nil {
 		l.Push(protocol.WrapCommand(l, cmd))
 		return 2

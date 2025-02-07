@@ -18,7 +18,7 @@ import (
 
 func TestProcessBasic(t *testing.T) {
 	// Setup logger and context
-	logger, _ := zap.NewDevelopment()
+	logger := zap.NewNop()
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, apic.LoggerCtx, logger)
 
@@ -124,7 +124,7 @@ func TestProcessBasic(t *testing.T) {
 
 func TestWorkingDir(t *testing.T) {
 	// Setup logger and context
-	logger, _ := zap.NewDevelopment()
+	logger := zap.NewNop()
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, apic.LoggerCtx, logger)
 
@@ -237,7 +237,7 @@ func TestWorkingDir(t *testing.T) {
 
 func TestWriteStdin(t *testing.T) {
 	// Setup logger and context
-	logger, _ := zap.NewDevelopment()
+	logger := zap.NewNop()
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, apic.LoggerCtx, logger)
 
@@ -283,9 +283,7 @@ func TestWriteStdin(t *testing.T) {
 			    assert(output == test_data, string.format("Output '%s' doesn't match input '%s'", output, test_data))
 			    
 			    -- Cleanup
-			    stream:close()
-			    
-			    print("Stdin write test completed successfully")
+			    stream:close()	
 			end
 `, "test", "test_process_stdin")
 	require.NoError(t, err)

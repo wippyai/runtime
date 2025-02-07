@@ -2,6 +2,7 @@ package terminal
 
 import (
 	"fmt"
+	upstream2 "github.com/ponyruntime/pony/runtime/lua/engine/upstream"
 
 	"github.com/ponyruntime/pony/api/registry"
 	api "github.com/ponyruntime/pony/api/runtime/lua"
@@ -10,7 +11,6 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/engine/async"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
-	"github.com/ponyruntime/pony/runtime/lua/modules/upstream"
 	"github.com/ponyruntime/pony/runtime/lua/tasks"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
@@ -37,7 +37,7 @@ func (f *Factory) MakeTerminal(
 ) (terminal.Terminal, error) {
 	up := make(chan any, 1024)
 	opts := []engine.Option{
-		engine.WithPreloaded("upstream", upstream.NewUpstreamModule(up).Loader),
+		engine.WithPreloaded("upstream", upstream2.NewUpstreamModule(up).Loader),
 		engine.WithPreloaded("tasks", tasks.NewTaskModule().Loader),
 		engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
 		engine.WithGlobalFunction("print", func(l *lua.LState) int {
