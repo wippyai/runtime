@@ -209,6 +209,12 @@ func main() {
 		appLogger.Info("received signal, shutting down...", zap.String("signal", sig.String()))
 	}
 
+	go func() {
+		// hard stop
+		time.Sleep(15 * time.Second)
+		cancel()
+	}()
+
 	if err := app.Stop(); err != nil {
 		appLogger.Error("failed to stop supervisor gracefully", zap.Error(err))
 	} else {

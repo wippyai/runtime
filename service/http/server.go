@@ -75,10 +75,10 @@ func (s *Server) Start(ctx context.Context) (<-chan any, error) {
 	s.server = &http.Server{
 		Addr:         s.config.Addr,
 		Handler:      s.router,
-		ReadTimeout:  s.config.Timeouts.ReadTimeout, // todo: remove nested one?
+		ReadTimeout:  s.config.Timeouts.ReadTimeout,
 		WriteTimeout: s.config.Timeouts.WriteTimeout,
 		IdleTimeout:  s.config.Timeouts.IdleTimeout,
-		BaseContext:  func(net.Listener) context.Context { return ctx }, // todo: listener is unused
+		BaseContext:  func(l net.Listener) context.Context { return ctx }, // todo: listener is unused
 	}
 	s.server.RegisterOnShutdown(func() {
 		close(s.statusChan)
