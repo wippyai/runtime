@@ -40,7 +40,7 @@ func TestHTTPResponse(t *testing.T) {
 			},
 		}
 
-		mod := NewHTTPModule(mockClient, logger)
+		mod := NewHTTPModule(logger, mockClient)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -86,7 +86,7 @@ func TestHTTPResponse(t *testing.T) {
 			},
 		}
 
-		mod := NewHTTPModule(mockClient, logger)
+		mod := NewHTTPModule(logger, mockClient)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -153,7 +153,7 @@ func TestHTTPResponse(t *testing.T) {
 					},
 				}
 
-				mod := NewHTTPModule(mockClient, logger)
+				mod := NewHTTPModule(logger, mockClient)
 				vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 				require.NoError(t, err)
 				defer vm.Close()
@@ -220,7 +220,7 @@ func TestHTTPResponse(t *testing.T) {
 					},
 				}
 
-				mod := NewHTTPModule(mockClient, logger)
+				mod := NewHTTPModule(logger, mockClient)
 				vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 				require.NoError(t, err)
 				defer vm.Close()
@@ -307,7 +307,7 @@ func TestHTTPResponse(t *testing.T) {
 					},
 				}
 
-				mod := NewHTTPModule(mockClient, logger)
+				mod := NewHTTPModule(logger, mockClient)
 				vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 				require.NoError(t, err)
 				defer vm.Close()
@@ -386,7 +386,7 @@ func TestStreamedResponseBodyHandling(t *testing.T) {
 			},
 		}
 
-		mod := NewHTTPModule(mockClient, logger)
+		mod := NewHTTPModule(logger, mockClient)
 		vm, err := engine.NewVM(
 			logger,
 			engine.WithLoader(mod.Name(), mod.Loader),
@@ -439,7 +439,7 @@ func TestStreamedResponseBodyHandling(t *testing.T) {
 			},
 		}
 
-		mod := NewHTTPModule(mockClient, logger)
+		mod := NewHTTPModule(logger, mockClient)
 		vm, err := engine.NewVM(
 			logger,
 			engine.WithLoader(mod.Name(), mod.Loader),
@@ -479,7 +479,7 @@ func TestStreamedResponseBodyHandling(t *testing.T) {
 			},
 		}
 
-		mod := NewHTTPModule(mockClient, logger)
+		mod := NewHTTPModule(logger, mockClient)
 		vm, err := engine.NewVM(
 			logger,
 			engine.WithLoader(mod.Name(), mod.Loader),
@@ -520,7 +520,7 @@ func TestStreamedResponseBodyHandling(t *testing.T) {
 			},
 		}
 
-		mod := NewHTTPModule(mockClient, logger)
+		mod := NewHTTPModule(logger, mockClient)
 		vm, err := engine.NewVM(
 			logger,
 			engine.WithLoader(mod.Name(), mod.Loader),
@@ -558,7 +558,7 @@ func TestStreamedResponseBodyHandling(t *testing.T) {
 			},
 		}
 
-		mod := NewHTTPModule(mockClient, logger)
+		mod := NewHTTPModule(logger, mockClient)
 		vm, err := engine.NewVM(
 			logger,
 			engine.WithLoader(mod.Name(), mod.Loader),

@@ -2,7 +2,7 @@ package manager
 
 import (
 	"fmt"
-	"github.com/ponyruntime/pony/runtime/lua/workflow"
+	"github.com/ponyruntime/pony/runtime/lua/process"
 
 	"github.com/ponyruntime/pony/api/registry"
 	api "github.com/ponyruntime/pony/api/runtime/lua"
@@ -12,12 +12,12 @@ import (
 // Workflows handles Lua workflow operations
 type Workflows struct {
 	log       *zap.Logger
-	factory   *workflow.Factory
+	factory   *process.Factory
 	workflows map[registry.ID]*api.WorkflowConfig
 }
 
 // NewWorkflows creates a new workflow manager instance
-func NewWorkflows(logger *zap.Logger, factory *workflow.Factory) *Workflows {
+func NewWorkflows(logger *zap.Logger, factory *process.Factory) *Workflows {
 	return &Workflows{
 		log:       logger,
 		factory:   factory,

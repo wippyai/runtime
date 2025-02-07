@@ -46,7 +46,7 @@ func TestHTTPModule(t *testing.T) {
 			},
 		}
 
-		mod := NewHTTPModule(mockClient, logger)
+		mod := NewHTTPModule(logger, mockClient)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -88,7 +88,7 @@ func TestHTTPModule(t *testing.T) {
 			},
 		}
 
-		mod := NewHTTPModule(mockClient, logger)
+		mod := NewHTTPModule(logger, mockClient)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -128,7 +128,7 @@ func TestHTTPModule(t *testing.T) {
 			},
 		}
 
-		mod := NewHTTPModule(mockClient, logger)
+		mod := NewHTTPModule(logger, mockClient)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -170,7 +170,7 @@ func TestHTTPModule(t *testing.T) {
 			},
 		}
 
-		mod := NewHTTPModule(mockClient, logger)
+		mod := NewHTTPModule(logger, mockClient)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -196,7 +196,7 @@ func TestHTTPModule(t *testing.T) {
 			},
 		}
 
-		mod := NewHTTPModule(mockClient, logger)
+		mod := NewHTTPModule(logger, mockClient)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -230,7 +230,7 @@ func TestHTTPModule(t *testing.T) {
 			},
 		}
 
-		mod := NewHTTPModule(mockClient, logger)
+		mod := NewHTTPModule(logger, mockClient)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -250,7 +250,7 @@ func TestHTTPModule(t *testing.T) {
 	})
 
 	t.Run("URL component encoding/decoding", func(t *testing.T) {
-		mod := NewHTTPModule(nil, logger) // client not needed for this test
+		mod := NewHTTPModule(logger, nil) // client not needed for this test
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -282,7 +282,7 @@ func TestHTTPModule(t *testing.T) {
 			},
 		}
 
-		mod := NewHTTPModule(mockClient, logger)
+		mod := NewHTTPModule(logger, mockClient)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -311,7 +311,7 @@ func TestHTTPModuleValidation(t *testing.T) {
 		},
 	}
 
-	mod := NewHTTPModule(mockClient, logger)
+	mod := NewHTTPModule(logger, mockClient)
 
 	t.Run("validation errors", func(t *testing.T) {
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -439,7 +439,7 @@ func TestHTTPModuleTimeouts(t *testing.T) {
 			},
 		}
 
-		mod := NewHTTPModule(mockClient, logger)
+		mod := NewHTTPModule(logger, mockClient)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -492,7 +492,7 @@ func TestHTTPModuleTimeouts(t *testing.T) {
 			},
 		}
 
-		mod := NewHTTPModule(mockClient, logger)
+		mod := NewHTTPModule(logger, mockClient)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -527,7 +527,7 @@ func TestHTTPModuleTimeouts(t *testing.T) {
 			},
 		}
 
-		mod := NewHTTPModule(mockClient, logger)
+		mod := NewHTTPModule(logger, mockClient)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -596,7 +596,7 @@ func TestHTTPModuleTimeouts(t *testing.T) {
 			},
 		}
 
-		mod := NewHTTPModule(mockClient, logger)
+		mod := NewHTTPModule(logger, mockClient)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -664,7 +664,7 @@ func TestHTTPModuleTimeouts(t *testing.T) {
 			},
 		}
 
-		mod := NewHTTPModule(mockClient, logger)
+		mod := NewHTTPModule(logger, mockClient)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()

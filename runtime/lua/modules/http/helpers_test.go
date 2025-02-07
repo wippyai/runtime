@@ -198,7 +198,7 @@ func TestHelperFunctionsInVM(t *testing.T) {
 	t.Run("encodeURI in VM", func(t *testing.T) {
 		// Create a new VM for this test
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader("http", NewHTTPModule(nil, logger).Loader),
+			engine.WithLoader("http", NewHTTPModule(logger, nil).Loader),
 		)
 		require.NoError(t, err)
 		defer vm.Close()
@@ -238,7 +238,7 @@ func TestHelperFunctionsInVM(t *testing.T) {
 
 	t.Run("decodeURI in VM", func(t *testing.T) {
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader("http", NewHTTPModule(nil, logger).Loader),
+			engine.WithLoader("http", NewHTTPModule(logger, nil).Loader),
 		)
 		require.NoError(t, err)
 		defer vm.Close()
@@ -283,7 +283,7 @@ func TestHelperFunctionsInVM(t *testing.T) {
 
 	t.Run("method validation in VM", func(t *testing.T) {
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader("http", NewHTTPModule(http.DefaultClient, logger).Loader),
+			engine.WithLoader("http", NewHTTPModule(logger, http.DefaultClient).Loader),
 		)
 		require.NoError(t, err)
 		defer vm.Close()
@@ -331,7 +331,7 @@ func TestHelperFunctionsInVM(t *testing.T) {
 
 	t.Run("URL validation in VM", func(t *testing.T) {
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader("http", NewHTTPModule(http.DefaultClient, logger).Loader),
+			engine.WithLoader("http", NewHTTPModule(logger, http.DefaultClient).Loader),
 		)
 		require.NoError(t, err)
 		defer vm.Close()
