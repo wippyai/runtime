@@ -7,20 +7,27 @@ import (
 
 // Event system and kind constants for the workflow package
 const (
-	// WorkflowSystem identifies the workflow system in the event bus.
+	// ProcessSystem identifies the workflow system in the event bus.
 	// This system handles registration and management of workflow handlers.
-	WorkflowSystem events.System = "workflow"
+	ProcessSystem events.System = "processes"
 
-	// RegisterWorkflowEvent is the event kind for registering a new workflow handler.
+	// RegisterProcessPrototype is the event kind for registering a new workflow handler.
 	// This event is used to dynamically add new workflow implementations at runtime.
-	RegisterWorkflowEvent events.Kind = "workflow.set_handler"
+	RegisterProcessPrototype events.Kind = "workflow.set_handler"
 
-	// DeleteWorkflowEvent is the event kind for removing an existing workflow handler.
+	// DeleteProcessPrototype is the event kind for removing an existing workflow handler.
 	// This event allows for dynamic removal of workflow implementations.
-	DeleteWorkflowEvent events.Kind = "workflow.remove_handler"
+	DeleteProcessPrototype events.Kind = "workflow.remove_handler"
+
+	// AcceptProcessPrototype is the event kind for accepting a new workflow handler.
+	AcceptProcessPrototype events.Kind = "workflow.accept_handler"
+
+	// RejectProcessPrototype is the event kind for rejecting a new workflow handler.
+	RejectProcessPrototype events.Kind = "workflow.reject_handler"
 )
 
 type (
+	// todo: kill
 	// RegisterWorkflow represents a request to register a new workflow handler
 	// for a specific target ID. The handler can be any type, allowing for
 	// flexible workflow implementations that can be type-checked at higher levels.
@@ -29,6 +36,7 @@ type (
 		Handler func() any
 	}
 
+	// todo: kill
 	// DeleteWorkflow represents a request to remove a workflow handler
 	// for a specific target ID. This enables dynamic workflow management
 	// by allowing handlers to be removed at runtime.
@@ -36,11 +44,11 @@ type (
 		Target registry.ID
 	}
 
-	// WorkflowRegistry is the interface for managing workflow handlers.
+	// ProcessRegistry is the interface for managing workflow handlers.
 	// It provides the core functionality for retrieving registered workflow
 	// implementations. The interface uses 'any' return type to allow for
 	// flexible workflow types that can be properly type-asserted by callers.
-	WorkflowRegistry interface {
+	ProcessRegistry interface {
 		// Get retrieves a registered workflow handler for the given ID.
 		// Returns the handler as type any for flexible workflow implementations,
 		// and an error if no handler is found or if retrieval fails.
