@@ -35,7 +35,7 @@ type Manager struct {
 func NewManager(
 	bus events.Bus,
 	dtt payload.Transcoder,
-	exec runtime.Executor,
+	exec runtime.FunctionRegistry,
 	workflows runtime.WorkflowRegistry,
 	logger *zap.Logger,
 ) *Manager {

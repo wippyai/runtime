@@ -16,7 +16,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// MockExecutor is a simple mock implementation of runtime.Executor
+// MockExecutor is a simple mock implementation of runtime.FunctionRegistry
 type MockExecutor struct {
 	executeFunc func(runtime.Task) (chan *runtime.Result, error)
 }

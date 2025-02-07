@@ -16,14 +16,14 @@ import (
 // EndpointHandler processes HTTP requests for specific endpoints.
 // It handles request validation, execution, and response formatting.
 type EndpointHandler struct {
-	executor   runtime.Executor
+	executor   runtime.FunctionRegistry
 	transcoder payload.Transcoder
 	log        *zap.Logger
 }
 
 // NewEndpointHandler creates a new EndpointHandler with the required dependencies.
 func NewEndpointHandler(
-	executor runtime.Executor,
+	executor runtime.FunctionRegistry,
 	transcoder payload.Transcoder,
 	log *zap.Logger,
 ) *EndpointHandler {

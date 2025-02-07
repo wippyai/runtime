@@ -11,29 +11,16 @@ import (
 // Event system and kind constants for the executor package
 const (
 	// System identifies the executor system in the event bus
-	System events.System = "executor"
+	System events.System = "functions"
 
-	// RegisterHandlerEvent is the event kind for registering a new handler
-	RegisterHandlerEvent events.Kind = "executor.set_handler"
+	// RegisterFunctionEvent is the event kind for registering a new handler
+	RegisterFunctionEvent events.Kind = "functions.register"
 
-	// DeleteHandlerEvent is the event kind for removing an existing handler
-	DeleteHandlerEvent events.Kind = "executor.remove_handler"
+	// DeleteFunctionEvent is the event kind for removing an existing handler
+	DeleteFunctionEvent events.Kind = "functions.remove"
 )
 
 type (
-	// RegisterHandler represents a request to register a new executor handler
-	// for a specific target ID.
-	RegisterHandler struct {
-		Target  registry.ID
-		Handler ExecutorHandler
-	}
-
-	// DeleteHandler represents a request to remove an executor handler
-	// for a specific target ID.
-	DeleteHandler struct {
-		Target registry.ID
-	}
-
 	// Task represents a unit of work to be executed by the executor.
 	// It contains the execution context, target identifier, and input payloads.
 	Task struct {
@@ -49,14 +36,14 @@ type (
 		Error   error
 	}
 
-	// ExecutorHandler is a function type that processes a Task and returns
+	// Function is a function type that processes a Task and returns
 	// a channel for streaming result(s) and any immediate error that occurs
 	// during task initialization.
-	ExecutorHandler func(Task) (chan *Result, error)
+	Function func(Task) (chan *Result, error)
 
-	// Executor is the interface for executing tasks.
+	// FunctionRegistry is the interface for executing tasks using functions.
 	// It provides the core functionality for running tasks and obtaining their results.
-	Executor interface {
+	FunctionRegistry interface {
 		// Execute processes the given task and returns a channel for getting the result(s)
 		// and any immediate error that occurs during task initialization.
 		Execute(Task) (chan *Result, error)

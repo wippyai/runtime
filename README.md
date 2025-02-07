@@ -44,7 +44,8 @@ TODO Items:
 - finish list delegate 2h
 - do we preload modules or not?
 - stabilize system
-
+- update registry to support namespaces
+- update registry to add 2CP commits for compile phases
 
 - normalize function definitions (? or hook into vm)
 - otel

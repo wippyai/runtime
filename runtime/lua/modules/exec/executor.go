@@ -28,7 +28,7 @@ type Module struct {
 // proper context propagation and payload transcoding.
 type Executor struct {
 	dtt           payload.Transcoder
-	exec          runtime.Executor
+	exec          runtime.FunctionRegistry
 	appContext    context.Context
 	threadContext context.Context
 	contextValues map[contextKey]interface{}
@@ -55,7 +55,7 @@ func (m *Module) Loader(l *lua.LState) int {
 		"run":  m.globalRun,
 	})
 
-	mt := l.NewTypeMetatable("executor.Executor")
+	mt := l.NewTypeMetatable("executor.FunctionRegistry")
 	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
 		"with_context": m.withContext,
 		"call":         m.call,
@@ -66,13 +66,13 @@ func (m *Module) Loader(l *lua.LState) int {
 	return 1
 }
 
-func (m *Module) extractDependencies(l *lua.LState) (runtime.Executor, payload.Transcoder, error) {
+func (m *Module) extractDependencies(l *lua.LState) (runtime.FunctionRegistry, payload.Transcoder, error) {
 	ctx := l.Context()
 	if ctx == nil {
 		return nil, nil, errors.New("no context found")
 	}
 
-	exec, ok := ctx.Value(contextapi.ExecutorCtx).(runtime.Executor)
+	exec, ok := ctx.Value(contextapi.ExecutorCtx).(runtime.FunctionRegistry)
 	if !ok {
 		return nil, nil, errors.New("executor not found in context")
 	}
@@ -102,7 +102,7 @@ func (m *Module) new(l *lua.LState) int {
 
 	ud := l.NewUserData()
 	ud.Value = executor
-	l.SetMetatable(ud, l.GetTypeMetatable("executor.Executor"))
+	l.SetMetatable(ud, l.GetTypeMetatable("executor.FunctionRegistry"))
 	l.Push(ud)
 	return 1
 }
