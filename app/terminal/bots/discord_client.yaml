@@ -1,3 +1,5 @@
+version: 1.0/beta
+
 name: discord_client
 kind: library.lua
 meta:

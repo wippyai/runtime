@@ -1,3 +1,5 @@
+version: 1.0/beta
+
 name: terminal
 kind: terminal.service
 meta:

@@ -1,3 +1,5 @@
+version: 1.0/beta
+
 name: btea.terminal
 kind: terminal.lua
 meta:

@@ -1,3 +1,5 @@
+version: 1.0/beta
+
 name: chat.terminal
 kind: terminal.lua
 meta:

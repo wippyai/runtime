@@ -1,3 +1,5 @@
+version: 1.0/beta
+
 name: web_server
 kind: http.service
 meta:

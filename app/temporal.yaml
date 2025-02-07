@@ -1,3 +1,5 @@
+version: 1.0/beta
+
 name: temporal
 kind: temporal.client
 meta:

@@ -1,3 +1,5 @@
+version: 1.0/beta
+
 name: snake.terminal
 kind: terminal.lua # TODO: this is PROCESS IN NEW NOTATIONS!
 meta:

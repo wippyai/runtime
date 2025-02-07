@@ -86,14 +86,14 @@ PROCESS & RUNTIME:
 
 LUA SYSTEM & INTEGRATION:
 
-- ERROR PROPAGATION FROM LUA 2d
+_****- ERROR PROPAGATION FROM LUA 2d
 - stream in lua plus coro test
 - better lua dep manager 2d
 - do we preload modules or not? / we need clear require!
 - normalize function definitions (? or hook into vm)
 - import func 2h
 - library folder aliases 4h
-- ns support
+- ns support_****
 
 STATE & DATA MANAGEMENT:
 
@@ -125,6 +125,7 @@ EXTERNAL & SDK:
 - otel later
 - python sdk
 - wippy cloud and integration
+- add version to configs
 
 Want me to add estimated timelines for each category or reorganize any parts?
 
@@ -135,6 +136,7 @@ name: prod.eu
 meta:
   comment: "EU Production Environment"
 
+# shared config?
 modules: [ ]
 libraries: [ ]
 
@@ -146,4 +148,3 @@ options:
   strict_resolution: true # for cross-ns calls
   propagate_context: true # for process inheritance
 ```
-
