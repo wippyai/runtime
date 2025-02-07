@@ -32,14 +32,14 @@ func RegisterZone(l *lua.LState, mod *lua.LTable) {
 	// Register Manager type
 	mt := l.NewTypeMetatable("btea.ZoneManager")
 	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
-		"mark":          managerMark,
-		"get":           managerGet,
-		"scan":          managerScan,
-		"new_prefix":    managerNewPrefix,
-		"set_enabled":   managerSetEnabled,
-		"is_enabled":    managerIsEnabled,
-		"any_in_bounds": managerAnyInBounds,
-		//"any_in_bounds_update": managerAnyInBoundsAndUpdate,
+		"mark":                 managerMark,
+		"get":                  managerGet,
+		"scan":                 managerScan,
+		"new_prefix":           managerNewPrefix,
+		"set_enabled":          managerSetEnabled,
+		"is_enabled":           managerIsEnabled,
+		"any_in_bounds":        managerAnyInBounds,
+		"any_in_bounds_update": managerAnyInBoundsAndUpdate,
 	}))
 
 	// Register ZoneInfo type
@@ -149,38 +149,38 @@ func managerAnyInBounds(l *lua.LState) int {
 	return 0
 }
 
-//
-//func managerAnyInBoundsAndUpdate(l *lua.LState) int {
-//	m := checkManager(l)
-//	if m == nil {
-//		return 0
-//	}
-//
-//	modelValue := l.CheckAny(2)
-//	model, ok := protocol.TryGetModel(l, modelValue)
-//	if !ok {
-//		l.ArgError(2, "model expected")
-//		return 0
-//	}
-//
-//	msgValue := l.CheckAny(3)
-//	msg, err := protocol.LuaToMsg(msgValue)
-//	if err != nil {
-//		l.RaiseError("failed to convert message: %v", err)
-//		return 0
-//	}
-//
-//	newModel, cmd := m.model.AnyInBoundsAndUpdate(model, msg.(tea.MouseMsg))
-//
-//	// Convert back to Lua - handles both Go models and LuaModelWrapper
-//	l.Push(protocol.WrapModel(l, modelValue, newModel))
-//
-//	if cmd != nil {
-//		l.Push(protocol.WrapCommand(l, cmd))
-//		return 2
-//	}
-//	return 1
-//}
+func managerAnyInBoundsAndUpdate(l *lua.LState) int {
+	m := checkManager(l)
+	if m == nil {
+		return 0
+	}
+
+	modelValue := l.CheckAny(2)
+	model, ok := protocol.TryGetModel(modelValue)
+	if !ok {
+		l.ArgError(2, "model expected")
+		return 0
+	}
+
+	// Convert message
+	msgValue := l.CheckAny(3)
+	msg, err := protocol.LuaToMsg(msgValue)
+	if err != nil {
+		l.RaiseError("failed to convert message: %v", err)
+		return 0
+	}
+
+	// Update the model
+	newModel, cmd := m.model.AnyInBoundsAndUpdate(model, msg.(tea.MouseMsg))
+	protocol.UpdateModelValue(modelValue, newModel)
+
+	// Return just the command if there is one
+	if cmd != nil {
+		l.Push(protocol.WrapCommand(l, cmd))
+		return 1
+	}
+	return 0
+}
 
 // ZoneInfo methods
 
