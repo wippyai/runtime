@@ -18,9 +18,11 @@ func (v *Viewport) Init() tea.Cmd {
 }
 
 func (v *Viewport) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmd tea.Cmd
-	v.model, cmd = v.model.Update(msg)
-	return v, cmd
+	model, cmd := v.model.Update(msg)
+
+	return &Viewport{
+		model: model,
+	}, cmd
 }
 
 func (v *Viewport) View() string {
