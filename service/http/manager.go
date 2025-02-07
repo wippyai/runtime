@@ -11,7 +11,6 @@ import (
 	"github.com/ponyruntime/pony/api/registry"
 	config "github.com/ponyruntime/pony/api/service/http"
 	"github.com/ponyruntime/pony/api/supervisor"
-	"github.com/ponyruntime/pony/service/http/handler"
 	"go.uber.org/zap"
 )
 
@@ -55,7 +54,7 @@ func NewExecutingManager(
 	return &ServerManager{
 		log:             logger,
 		bus:             bus,
-		handler:         handler.NewEndpointHandler(exec, dtt, logger).Handle,
+		handler:         NewEndpointHandler(exec, dtt, logger).Handle,
 		dtt:             dtt,
 		servers:         make(map[registry.ID]*Server),
 		endpointServers: make(map[registry.ID]registry.ID),
@@ -178,7 +177,7 @@ func (s *ServerManager) deleteServer(ctx context.Context, entry registry.Entry) 
 		return fmt.Errorf("server %s not found", entry.ID)
 	}
 
-	// todo: move to bus context as well it's tests
+	// todo: move to bus context as well it's tests, add helper
 	s.bus.Send(ctx, events.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Remove,

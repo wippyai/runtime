@@ -1,14 +1,12 @@
-package handler
+package http
 
 import (
 	"context"
 	"fmt"
 	"github.com/ponyruntime/pony/api/runtime"
-	"io"
 	"net/http"
 
 	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
 	config "github.com/ponyruntime/pony/api/service/http"
 	"go.uber.org/zap"
 )
@@ -34,8 +32,6 @@ func NewEndpointHandler(
 	}
 }
 
-// todo: we want to connect to app context here to halt the request processing
-
 // Handle processes incoming HTTP requests.
 // It extracts route information, validates the request, executes the task,
 // and writes the response back to the client.
@@ -57,18 +53,14 @@ func (h *EndpointHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	rCtx := config.NewRequestContext(r, w)
 	task.Context = context.WithValue(task.Context, config.RequestCtx, rCtx)
 
-	result, err := h.executeTask(task)
-	if err != nil {
+	if _, err = h.executeTask(task); err != nil {
 		if !rCtx.ResponseHandled() {
 			h.handleError(w, err, http.StatusInternalServerError)
 		}
 		return
 	}
 
-	if !rCtx.ResponseHandled() {
-		// only send if handler hasn't already sent headers
-		h.writeResponse(w, result, routeInfo.Endpoint)
-	}
+	// we never write results to the response directly, use context wrapper instead
 }
 
 // getRouteInfo extracts route information from the request context.
@@ -83,44 +75,10 @@ func (h *EndpointHandler) getRouteInfo(r *http.Request) (*config.RouteInfo, erro
 
 // createTask builds a task from the HTTP request and route information.
 func (h *EndpointHandler) createTask(r *http.Request, info *config.RouteInfo) (runtime.Task, error) {
-	if !info.Endpoint.JSONInput {
-		return runtime.Task{
-			Context: r.Context(),
-			Target:  registry.ID(info.Endpoint.Target),
-		}, nil
-	}
-
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		return runtime.Task{}, fmt.Errorf("reading request body: %w", err)
-	}
-	defer func() {
-		_ = r.Body.Close()
-	}()
-
-	if err := h.validateJSONInput(body, info.Endpoint.JSONSchema); err != nil {
-		return runtime.Task{}, fmt.Errorf("validation failed: %w", err)
-	}
-
 	return runtime.Task{
-		Context:  r.Context(),
-		Target:   registry.ID(info.Endpoint.Target),
-		Payloads: []payload.Payload{payload.NewPayload(body, payload.JSON)},
+		Context: r.Context(),
+		Target:  info.Endpoint.Target,
 	}, nil
-}
-
-// validateJSONInput validates JSON input against the provided schema.
-func (h *EndpointHandler) validateJSONInput(body []byte, schema interface{}) error {
-	if schema == nil {
-		return nil
-	}
-
-	validator, err := newJSONValidator(schema)
-	if err != nil {
-		return fmt.Errorf("creating JSON validator: %w", err)
-	}
-
-	return validator.Validate(body)
 }
 
 // executeTask runs the task and handles context cancellation.
@@ -138,63 +96,6 @@ func (h *EndpointHandler) executeTask(task runtime.Task) (*runtime.Result, error
 		return result, nil
 	case <-task.Context.Done():
 		return nil, fmt.Errorf("request canceled: %w", task.Context.Err())
-	}
-}
-
-// writeResponse formats and writes the task result to the HTTP response.
-func (h *EndpointHandler) writeResponse(w http.ResponseWriter, result *runtime.Result, cfg config.EndpointConfig) {
-	if result.Error != nil {
-		h.handleError(w, result.Error, http.StatusInternalServerError)
-		return
-	}
-
-	statusCode := http.StatusOK
-	if cfg.SuccessStatusCode != 0 {
-		statusCode = cfg.SuccessStatusCode
-	}
-
-	if cfg.JSONOutput {
-		h.writeJSONResponse(w, result.Payload, statusCode)
-		return
-	}
-
-	h.writeRawResponse(w, result.Payload, statusCode)
-}
-
-// writeJSONResponse writes a JSON response with proper headers.
-func (h *EndpointHandler) writeJSONResponse(w http.ResponseWriter, p payload.Payload, statusCode int) {
-	out, err := h.transcoder.Transcode(p, payload.JSON)
-	if err != nil {
-		h.handleError(w, fmt.Errorf("transcoding to JSON: %w", err), http.StatusInternalServerError)
-		return
-	}
-
-	data, ok := out.Data().([]byte)
-	if !ok {
-		h.handleError(w, fmt.Errorf("invalid payload type: %T", out.Data()), http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(statusCode)
-
-	if _, err := w.Write(data); err != nil {
-		h.log.Error("error writing JSON response", zap.Error(err))
-	}
-}
-
-// writeRawResponse writes a raw response with the given status code.
-func (h *EndpointHandler) writeRawResponse(w http.ResponseWriter, p payload.Payload, statusCode int) {
-	w.WriteHeader(statusCode)
-
-	if p == nil {
-		return // No content case
-	}
-
-	if data, ok := p.Data().([]byte); ok {
-		if _, err := w.Write(data); err != nil {
-			h.log.Error("error writing raw response", zap.Error(err))
-		}
 	}
 }
 
