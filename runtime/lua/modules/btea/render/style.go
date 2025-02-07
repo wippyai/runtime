@@ -61,9 +61,6 @@ func RegisterStyle(l *lua.LState, mod *lua.LTable) {
 		"underline_spaces":     styleUnderlineSpaces,
 		"strikethrough_spaces": styleStrikethroughSpaces,
 
-		// Whitespace coloring
-		"color_whitespace": styleColorWhitespace,
-
 		// Margin background
 		"margin_background": styleMarginBackground,
 
@@ -394,7 +391,7 @@ func styleTabWidth(l *lua.LState) int {
 
 func styleCopy(l *lua.LState) int {
 	s := CheckStyle(l, 1)
-	newStyle := &Style{Style: s.Style.Copy()}
+	newStyle := &Style{Style: s.Style}
 	ud := l.NewUserData()
 	ud.Value = newStyle
 	l.SetMetatable(ud, l.GetTypeMetatable("btea.Style"))
@@ -558,18 +555,6 @@ func styleStrikethroughSpaces(l *lua.LState) int {
 	s := CheckStyle(l, 1)
 	enabled := l.CheckBool(2)
 	newStyle := &Style{Style: s.Style.StrikethroughSpaces(enabled)}
-	ud := l.NewUserData()
-	ud.Value = newStyle
-	l.SetMetatable(ud, l.GetTypeMetatable("btea.Style"))
-	l.Push(ud)
-	return 1
-}
-
-// Whitespace coloring
-func styleColorWhitespace(l *lua.LState) int {
-	s := CheckStyle(l, 1)
-	enabled := l.CheckBool(2)
-	newStyle := &Style{Style: s.Style.ColorWhitespace(enabled)}
 	ud := l.NewUserData()
 	ud.Value = newStyle
 	l.SetMetatable(ud, l.GetTypeMetatable("btea.Style"))

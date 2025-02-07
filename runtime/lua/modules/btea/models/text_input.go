@@ -416,7 +416,7 @@ func textInputSetStyle(l *lua.LState) int {
 	}
 
 	styleType := l.CheckString(2)
-	style := render.CheckStyle(l, 2)
+	style := render.CheckStyle(l, 3)
 	if style == nil {
 		return 0
 	}
