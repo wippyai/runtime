@@ -61,11 +61,9 @@ func TestExecutor_HandlerRegistrationOverBus(t *testing.T) {
 	// Test handler registration
 	bus.Send(ctx, events.Event{
 		System: runtime.System,
-		Kind:   runtime.RegisterHandlerEvent,
-		Data: runtime.RegisterHandler{
-			Target:  target,
-			Handler: handler,
-		},
+		Kind:   runtime.RegisterFunctionEvent,
+		Path:   events.Path(target),
+		Data:   handler,
 	})
 
 	time.Sleep(1 * time.Millisecond) // let event to propagate
@@ -77,10 +75,8 @@ func TestExecutor_HandlerRegistrationOverBus(t *testing.T) {
 	// Test handler removal
 	bus.Send(ctx, events.Event{
 		System: runtime.System,
-		Kind:   runtime.DeleteHandlerEvent,
-		Data: runtime.DeleteHandler{
-			Target: target,
-		},
+		Kind:   runtime.DeleteFunctionEvent,
+		Path:   events.Path(target),
 	})
 
 	time.Sleep(1 * time.Millisecond) // let event to propagate
@@ -118,11 +114,9 @@ func TestExecutor_Execute(t *testing.T) {
 				}
 				bus.Send(ctx, events.Event{
 					System: runtime.System,
-					Kind:   runtime.RegisterHandlerEvent,
-					Data: runtime.RegisterHandler{
-						Target:  "test.handler",
-						Handler: handler,
-					},
+					Kind:   runtime.RegisterFunctionEvent,
+					Path:   events.Path("test.handler"),
+					Data:   handler,
 				})
 				time.Sleep(1 * time.Millisecond)
 			},
@@ -148,11 +142,9 @@ func TestExecutor_Execute(t *testing.T) {
 				}
 				bus.Send(ctx, events.Event{
 					System: runtime.System,
-					Kind:   runtime.RegisterHandlerEvent,
-					Data: runtime.RegisterHandler{
-						Target:  "error.handler",
-						Handler: handler,
-					},
+					Kind:   runtime.RegisterFunctionEvent,
+					Path:   events.Path("error.handler"),
+					Data:   handler,
 				})
 				time.Sleep(1 * time.Millisecond)
 			},
@@ -167,10 +159,8 @@ func TestExecutor_Execute(t *testing.T) {
 			setupHandler: func(bus events.Bus) {
 				bus.Send(ctx, events.Event{
 					System: runtime.System,
-					Kind:   runtime.RegisterHandlerEvent,
-					Data: runtime.RegisterHandler{
-						Target: "invalid.handler",
-					},
+					Kind:   runtime.RegisterFunctionEvent,
+					Path:   events.Path("invalid.handler"),
 				})
 				time.Sleep(1 * time.Millisecond)
 			},
@@ -233,11 +223,9 @@ func TestExecutor_ConcurrentHandlerRegistration(t *testing.T) {
 
 			bus.Send(ctx, events.Event{
 				System: runtime.System,
-				Kind:   runtime.RegisterHandlerEvent,
-				Data: runtime.RegisterHandler{
-					Target:  target,
-					Handler: handler,
-				},
+				Kind:   runtime.RegisterFunctionEvent,
+				Path:   events.Path(target),
+				Data:   handler,
 			})
 		}(i)
 	}
@@ -281,7 +269,7 @@ func TestExecutor_InvalidEvents(t *testing.T) {
 			name: "invalid register handler data",
 			evt: events.Event{
 				System: runtime.System,
-				Kind:   runtime.RegisterHandlerEvent,
+				Kind:   runtime.RegisterFunctionEvent,
 				Data:   "invalid data",
 			},
 		},
@@ -289,7 +277,7 @@ func TestExecutor_InvalidEvents(t *testing.T) {
 			name: "invalid delete handler data",
 			evt: events.Event{
 				System: runtime.System,
-				Kind:   runtime.DeleteHandlerEvent,
+				Kind:   runtime.DeleteFunctionEvent,
 				Data:   "invalid data",
 			},
 		},

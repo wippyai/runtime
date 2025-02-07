@@ -49,7 +49,7 @@ func NewManager(
 func NewExecutingManager(
 	bus events.Bus,
 	dtt payload.Transcoder,
-	exec runtime.Executor,
+	exec runtime.FunctionRegistry,
 	logger *zap.Logger,
 ) *ServerManager {
 	return &ServerManager{

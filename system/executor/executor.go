@@ -60,22 +60,16 @@ func (e *Executor) Stop() error {
 
 func (e *Executor) handleEvent(evt events.Event) {
 	switch evt.Kind {
-	case runtime.RegisterHandlerEvent:
-		if data, ok := evt.Data.(runtime.RegisterHandler); ok {
-			if data.Handler == nil {
-				e.logger.Warn("handler is nil", zap.String("target", string(data.Target)))
-				return
-			}
-			e.handlers.Store(data.Target, data.Handler)
-			e.logger.Debug("handler registered",
-				zap.String("target", string(data.Target)))
+	case runtime.RegisterFunctionEvent:
+		if data, ok := evt.Data.(runtime.Function); ok {
+			e.handlers.Store(evt.Path, data)
+			e.logger.Debug("function registered",
+				zap.String("function", string(evt.Path)))
 		}
-	case runtime.DeleteHandlerEvent:
-		if data, ok := evt.Data.(runtime.DeleteHandler); ok {
-			e.handlers.Delete(data.Target)
-			e.logger.Debug("handler removed",
-				zap.String("target", string(data.Target)))
-		}
+	case runtime.DeleteFunctionEvent:
+		e.handlers.Delete(evt.Path)
+		e.logger.Debug("function removed",
+			zap.String("function", string(evt.Path)))
 	}
 }
 
@@ -88,7 +82,7 @@ func (e *Executor) Execute(task runtime.Task) (chan *runtime.Result, error) {
 		return nil, fmt.Errorf("no handler registered for target: %s", task.Target)
 	}
 
-	if execHandler, ok := handler.(runtime.ExecutorHandler); ok {
+	if execHandler, ok := handler.(runtime.Function); ok {
 		return execHandler(task)
 	}
 
