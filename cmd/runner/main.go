@@ -26,7 +26,7 @@ import (
 	"github.com/ponyruntime/pony/service/temporal"
 	"github.com/ponyruntime/pony/service/terminal"
 	"github.com/ponyruntime/pony/system/eventbus"
-	"github.com/ponyruntime/pony/system/executor"
+	"github.com/ponyruntime/pony/system/functions"
 	"github.com/ponyruntime/pony/system/logs"
 	transcoder "github.com/ponyruntime/pony/system/payload"
 	"github.com/ponyruntime/pony/system/payload/json"
@@ -121,7 +121,7 @@ func main() {
 	// -- end of additional services
 
 	// -- core function executor, this service listens and builds routes to call functions between runtimes
-	execReg := executor.NewExecutor(bus, log.Named("execReg"))
+	execReg := functions.NewExecutor(bus, log.Named("execReg"))
 	if err := execReg.Start(ctx); err != nil {
 		appLogger.Fatal("failed to start executor", zap.Error(err))
 	}
