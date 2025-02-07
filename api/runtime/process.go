@@ -1,7 +1,9 @@
 package runtime
 
 import (
+	"context"
 	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 )
 
@@ -27,6 +29,15 @@ const (
 )
 
 type (
+	Process interface {
+		Start(context.Context, payload.Payloads) (chan payload.Payloads, error)
+		GetLayer(any) any
+		Step() error
+		Stop() error
+	}
+
+	// todo: flavors
+
 	// todo: kill
 	// RegisterWorkflow represents a request to register a new workflow handler
 	// for a specific target ID. The handler can be any type, allowing for
@@ -34,6 +45,7 @@ type (
 	RegisterWorkflow struct {
 		Target  registry.ID
 		Handler func() any
+		Flavor  string
 	}
 
 	// todo: kill
@@ -53,5 +65,7 @@ type (
 		// Returns the handler as type any for flexible workflow implementations,
 		// and an error if no handler is found or if retrieval fails.
 		Get(id registry.ID) (func() any, error)
+
+		Make(id registry.ID, flavor string) (Process, error)
 	}
 )
