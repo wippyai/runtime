@@ -18,7 +18,7 @@ type DependencyLevels struct {
 //   - The graph is a directed acyclic graph (DAG).
 //
 // Post-conditions:
-//   - Returns a `DependencyLevels` struct where `Levels` contains a slice of nodes for each dependency level.
+//   - Returns a `DependencyLevels` struct where `DependencyLevels` contains a slice of nodes for each dependency level.
 //   - The nodes within each level are sorted lexicographically.
 //   - Returns an error if the graph contains a cycle.
 func (g *Graph) DependencyLevels() (*DependencyLevels, error) {

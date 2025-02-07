@@ -4,48 +4,50 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	contextapi "github.com/ponyruntime/pony/api/context"
+	"github.com/ponyruntime/pony/api/events"
 	logsapi "github.com/ponyruntime/pony/api/logs"
+	regapi "github.com/ponyruntime/pony/api/registry"
+	luaruntime "github.com/ponyruntime/pony/runtime/lua"
+	b64mlib "github.com/ponyruntime/pony/runtime/lua/modules/base64"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea"
 	"github.com/ponyruntime/pony/runtime/lua/modules/env"
-	"github.com/ponyruntime/pony/runtime/lua/modules/lfs"
-	tempmod "github.com/ponyruntime/pony/runtime/lua/modules/temporal"
-	"github.com/ponyruntime/pony/runtime/lua/modules/websocket"
-	"github.com/ponyruntime/pony/service/temporal"
-	"github.com/ponyruntime/pony/system/ex
-	httpbase "net/http"
-	"os"
-	"os/signal"
-	"strings"
-	"syscall"
-	"time"
-
-	"github.com/ponyruntime/pony/api/events"
-	"github.com/ponyruntime/pony/service/terminal"
-
-	contextapi "github.com/ponyruntime/pony/api/context"
-	regapi "github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/system/eventbus"
-	transcoder "github.com/ponyruntime/pony/system/payload"
-uaruntime "github.com/ponyruntime/pony/runtime/lua"
-	b64mlib "github.com/ponyruntime/pony/runtime/lua/modules/base64"
 	httplib "github.com/ponyruntime/pony/runtime/lua/modules/http"
 	"github.com/ponyruntime/pony/runtime/lua/modules/httpctx"
 	jsonlib "github.com/ponyruntime/pony/runtime/lua/modules/json"
+	"github.com/ponyruntime/pony/runtime/lua/modules/lfs"
 	logglib "github.com/ponyruntime/pony/runtime/lua/modules/logger"
+	tempmod "github.com/ponyruntime/pony/runtime/lua/modules/temporal"
 	timelib "github.com/ponyruntime/pony/runtime/lua/modules/time"
-	tsitter "github.com/ponyruntime/pony/
+	"github.com/ponyruntime/pony/runtime/lua/modules/treesitter"
+	"github.com/ponyruntime/pony/runtime/lua/modules/uuid"
+	"github.com/ponyruntime/pony/runtime/lua/modules/websocket"
+	"github.com/ponyruntime/pony/service/http"
+	"github.com/ponyruntime/pony/service/temporal"
+	"github.com/ponyruntime/pony/service/terminal"
+	"github.com/ponyruntime/pony/system/eventbus"
+	"github.com/ponyruntime/pony/system/executor"
+	"github.com/ponyruntime/pony/system/logs"
+	transcoder "github.com/ponyruntime/pony/system/payload"
 	"github.com/ponyruntime/pony/system/payload/json"
 	"github.com/ponyruntime/pony/system/payload/lua"
 	"github.com/ponyruntime/pony/system/payload/yaml"
+	"github.com/ponyruntime/pony/system/process"
 	"github.com/ponyruntime/pony/system/registry"
 	"github.com/ponyruntime/pony/system/registry/history"
 	"github.com/ponyruntime/pony/system/registry/loader"
 	services "github.com/ponyruntime/pony/system/registry/router"
 	"github.com/ponyruntime/pony/system/registry/runner"
 	"github.com/ponyruntime/pony/system/supervisor"
-	luaruntime "github.com/ponyruntime/pony/runtime/lua"
-	b64mlib "github.com/ponyruntime/pony/runtime/lua/modules/base64"
-	httplib "github.com/ponyruntime/pony/runtime/lua/modules/http"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	httpbase "net/http"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+	"time"
+)
 
 // This needs Endure or some other way to untangle it.
 
@@ -93,7 +95,7 @@ func main() {
 	}
 
 	// -- observability application
-	logSrv := logs2.NewManager(bus, core, log.Named("logs"))
+	logSrv := logs.NewManager(bus, core, log.Named("logs"))
 	if err := logSrv.Start(ctx); err != nil {
 		appLogger.Fatal("failed to start logs service", zap.Error(err))
 	}
@@ -119,23 +121,23 @@ func main() {
 	// -- end of additional services
 
 	// -- core function executor, this service listens and builds routes to call functions between runtimes
-	exec := executor.NewExecutor(bus, log.Named("exec"))
-	if err := exec.Start(ctx); err != nil {
+	execReg := executor.NewExecutor(bus, log.Named("execReg"))
+	if err := execReg.Start(ctx); err != nil {
 		appLogger.Fatal("failed to start executor", zap.Error(err))
 	}
-	defer func() { _ = exec.Stop() }()
+	defer func() { _ = execReg.Stop() }()
 	// -- end of core function executor
 
 	// -- workflow registry
-	workflowReg := process.NewRegistry(bus, log.Named("workflow"))
-	if err := workflowReg.Start(ctx); err != nil {
+	processReg := process.NewRegistry(bus, log.Named("workflow"))
+	if err := processReg.Start(ctx); err != nil {
 		appLogger.Fatal("failed to start workflow registry", zap.Error(err))
 	}
-	defer func() { _ = workflowReg.Stop() }()
+	defer func() { _ = processReg.Stop() }()
 
 	// todo: should we just PUT everything into Wippy?
-	ctx = context.WithValue(ctx, contextapi.ExecutorCtx, exec)
-	ctx = context.WithValue(ctx, contextapi.WorkflowCtx, workflowReg)
+	ctx = context.WithValue(ctx, contextapi.ExecutorCtx, execReg)
+	ctx = context.WithValue(ctx, contextapi.ProcessCtx, processReg)
 
 	// -- lua lang and modules
 	luaRuntime := luaruntime.NewRuntimeManager(
@@ -145,18 +147,19 @@ func main() {
 		b64mlib.NewBase64Module(),
 		jsonlib.NewJSONModule(),
 		lfs.NewLFSModule(),
+		uuid.NewUUIDModule(),
 		env.NewEnvModule(log.Named("env")),
 		httplib.NewHTTPModule(log.Named("http"), httpbase.DefaultClient),
 		websocket.NewWebSocketModule(log.Named("websocket")),
 		httpctx.NewHTTPContextModule(log.Named("http")),
-		tsitter.NewTreeSitterModule(log.Named("treesitter")),
+		treesitter.NewTreeSitterModule(log.Named("treesitter")),
 		tempmod.NewTemporalModule(log.Named("temporal")),
 		btea.NewBteaModule(log.Named("btea")),
 	)
 	// -- end of lua lang and modules
 
 	// -- temporal (uses app context but can be isolated)
-	temporalSvc := temporal.NewManager(bus, dtt, exec, workflowReg, log.Named("temporal"))
+	temporalSvc := temporal.NewManager(bus, dtt, execReg, processReg, log.Named("temporal"))
 	if err := temporalSvc.Start(ctx); err != nil {
 		appLogger.Fatal("failed to start temporal service", zap.Error(err))
 	}
@@ -168,8 +171,8 @@ func main() {
 
 	// -- env
 	envCtx := contextapi.NewContexter[string]()
-	for _, env := range os.Environ() {
-		pair := strings.SplitN(env, "=", 2)
+	for _, en := range os.Environ() {
+		pair := strings.SplitN(en, "=", 2)
 		if len(pair) == 2 {
 			envCtx.WithValue(pair[0], pair[1])
 		}
@@ -179,7 +182,7 @@ func main() {
 
 	// -- configuration bus
 	svc, err := services.NewRouter(ctx, bus,
-		services.WithListener("http.*", http.NewExecutingManager(bus, dtt, exec, log.Named("http"))),
+		services.WithListener("http.*", http.NewExecutingManager(bus, dtt, execReg, log.Named("http"))),
 		services.WithListener("(function|library|terminal|workflow).lua", luaRuntime),
 		services.WithListener("terminal.*", term),
 		services.WithListener("temporal.*", temporalSvc), // Add this line
@@ -239,8 +242,8 @@ func loadApplicationState(
 
 	folderLoader := loader.NewFolderLoader(dtt, mainLogger)
 	vars := loader.Variables{}
-	for _, env := range os.Environ() {
-		pair := strings.SplitN(env, "=", 2)
+	for _, en := range os.Environ() {
+		pair := strings.SplitN(en, "=", 2)
 		vars[pair[0]] = pair[1]
 	}
 
@@ -281,7 +284,7 @@ func initLogger(verbose, veryVerbose bool, bus events.Bus) (*zap.Logger, logsapi
 		return nil, nil
 	}
 
-	core := logs2.NewCore(log.Core(), bus)
+	core := logs.NewCore(log.Core(), bus)
 
 	return zap.New(core), core
 }
