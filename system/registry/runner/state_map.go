@@ -100,19 +100,28 @@ func (sh *stateHelper) getInverseOperation(state stateMap, op registry.Operation
 	}
 }
 
-// todo: unused
-func (sh *stateHelper) validateOperation(state stateMap, op registry.Operation) error { //nolint:unused
+func (sh *stateHelper) validateOperation(state stateMap, op registry.Operation) error {
 	switch op.Kind {
 	case registry.Create:
 		if _, exists := state[op.Entry.ID]; exists {
 			return fmt.Errorf("entry already exists: %s", op.Entry.ID)
 		}
 
-	case registry.Update, registry.Delete:
-		if _, exists := state[op.Entry.ID]; !exists {
+	case registry.Update:
+		existingEntry, exists := state[op.Entry.ID]
+		if !exists {
 			return fmt.Errorf("entry does not exist: %s", op.Entry.ID)
 		}
-	}
+		// Prevent kind changes during update
+		if existingEntry.Kind != op.Entry.Kind {
+			return fmt.Errorf("cannot change entry kind from %s to %s for %s",
+				existingEntry.Kind, op.Entry.Kind, op.Entry.ID)
+		}
 
+	case registry.Delete:
+		if _, exists := state[op.Entry.ID]; !exists {
+			return fmt.Errorf("cannot delete non-existent entry: %s", op.Entry.ID)
+		}
+	}
 	return nil
 }
