@@ -348,3 +348,59 @@ func TestDependencyLevelsMethodsExtended(t *testing.T) {
 		}
 	})
 }
+
+func TestNodeLevelInfinity(t *testing.T) {
+	t.Run("get level of non-existent node", func(t *testing.T) {
+		g := New[string]()
+		g.AddNode("A")
+		g.AddNode("B")
+		g.AddEdge("A", "B", 1)
+
+		levels, err := g.DependencyLevels()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// Test non-existent node returns Infinity
+		if level := levels.GetNodeLevel("X"); level != Infinity {
+			t.Errorf("expected Infinity for non-existent node, got %d", level)
+		}
+
+		// Remove node and get new levels
+		err = g.RemoveNode("B")
+		if err != nil {
+			t.Fatalf("unexpected error removing node: %v", err)
+		}
+
+		// Need to get new levels after modification
+		levels, err = g.DependencyLevels()
+		if err != nil {
+			t.Fatalf("unexpected error getting new levels: %v", err)
+		}
+
+		// B should now return Infinity in new levels as it's no longer in the graph
+		if level := levels.GetNodeLevel("B"); level != Infinity {
+			t.Errorf("expected Infinity for removed node, got %d", level)
+		}
+	})
+
+	t.Run("level validation", func(t *testing.T) {
+		g := New[string]()
+		g.AddNode("A")
+		g.AddNode("B")
+		g.AddEdge("A", "B", 1)
+
+		levels, err := g.DependencyLevels()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// Test that valid nodes don't return Infinity
+		if level := levels.GetNodeLevel("A"); level == Infinity {
+			t.Error("unexpected Infinity for existing node A")
+		}
+		if level := levels.GetNodeLevel("B"); level == Infinity {
+			t.Error("unexpected Infinity for existing node B")
+		}
+	})
+}

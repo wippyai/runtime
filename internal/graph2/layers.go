@@ -5,6 +5,9 @@ import (
 	"sort"
 )
 
+// Infinity represents an infinite cost in the graph
+const Infinity = -1
+
 // DependencyLevels represents nodes grouped into levels based on their dependencies.
 // Each level contains nodes that only depend on nodes in previous levels,
 // allowing for topological organization of the graph's nodes.
