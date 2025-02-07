@@ -1,4 +1,4 @@
-package models
+package _redo_
 
 import (
 	"fmt"
@@ -258,8 +258,8 @@ func processTextareaKeyMap(tbl *lua.LTable) textarea.KeyMap {
 		"delete_character_backward": &keyMap.DeleteCharacterBackward,
 		"delete_character_forward":  &keyMap.DeleteCharacterForward,
 		"insert_newline":            &keyMap.InsertNewline,
-		// Add additional bindings as needed.
 	}
+
 	for field, bindingPtr := range bindingMap {
 		if lv := tbl.RawGetString(field); lv != lua.LNil {
 			if ud, ok := lv.(*lua.LUserData); ok {

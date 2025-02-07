@@ -1,5 +1,5 @@
 // file: table.go
-package models
+package _redo_
 
 import (
 	"github.com/charmbracelet/bubbles/table"

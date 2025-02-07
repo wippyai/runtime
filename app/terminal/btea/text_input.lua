@@ -137,8 +137,7 @@ function App()
         end
 
         -- Update current input only if we haven't handled the key
-        local new_input, cmd = self.inputs[self.current].input:update(msg)
-        self.inputs[self.current].input = new_input
+        local cmd = self.inputs[self.current].input:update(msg)
         if cmd then self:dispatch(cmd) end
         return false
     end
