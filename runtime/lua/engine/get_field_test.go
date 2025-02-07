@@ -1,9 +1,9 @@
 package engine
 
 import (
-	"testing"
-
+	"github.com/stretchr/testify/assert"
 	lua "github.com/yuin/gopher-lua"
+	"testing"
 )
 
 func TestGetField(t *testing.T) {
@@ -11,91 +11,220 @@ func TestGetField(t *testing.T) {
 	defer L.Close()
 
 	t.Run("direct table access", func(t *testing.T) {
-		// Create a table with a field
 		tbl := L.CreateTable(0, 1)
 		tbl.RawSetString("test", lua.LString("value"))
 
-		// Test successful retrieval
 		if value, ok := GetField(L, tbl, "test"); !ok || value != lua.LString("value") {
 			t.Errorf("GetField(tbl, \"test\") = %v, %v, want %v, true", value, ok, lua.LString("value"))
-		}
-
-		// Test non-existent field
-		if value, ok := GetField(L, tbl, "nonexistent"); ok || value != lua.LNil {
-			t.Errorf("GetField(tbl, \"nonexistent\") = %v, %v, want nil, false", value, ok)
 		}
 	})
 
 	t.Run("metatable with __index function", func(t *testing.T) {
-		// Create test table and metatable
-		tbl := L.CreateTable(0, 0)
-		mt := L.CreateTable(0, 1)
+		assert.NoError(t, L.DoString(`
+            local tbl = {}
+            local mt = {
+                __index = function(t, k)
+                    return k .. "_value"
+                end
+            }
+            setmetatable(tbl, mt)
+            return tbl
+        `))
+		tbl := L.Get(-1)
+		L.Pop(1)
 
-		// Create __index function that returns uppercase of field name
-		indexFn := L.NewFunction(func(L *lua.LState) int {
-			field := L.ToString(2)
-			L.Push(lua.LString(field + "_value"))
-			return 1
-		})
-		mt.RawSetString("__index", indexFn)
-		L.SetMetatable(tbl, mt)
-
-		// Test field access through metatable
 		if value, ok := GetField(L, tbl, "test"); !ok || value != lua.LString("test_value") {
 			t.Errorf("GetField(tbl, \"test\") = %v, %v, want %v, true", value, ok, lua.LString("test_value"))
 		}
 	})
 
 	t.Run("metatable with __index table", func(t *testing.T) {
-		// Create main table and metatable
-		tbl := L.CreateTable(0, 0)
-		mt := L.CreateTable(0, 1)
+		assert.NoError(t, L.DoString(`
+            local tbl = {}
+            local mt = {
+                __index = {
+                    test = "inherited"
+                }
+            }
+            setmetatable(tbl, mt)
+            return tbl
+        `))
+		tbl := L.Get(-1)
+		L.Pop(1)
 
-		// Create __index table with values
-		indexTbl := L.CreateTable(0, 1)
-		indexTbl.RawSetString("test", lua.LString("inherited"))
-		mt.RawSetString("__index", indexTbl)
-		L.SetMetatable(tbl, mt)
-
-		// Test field access through metatable
 		if value, ok := GetField(L, tbl, "test"); !ok || value != lua.LString("inherited") {
 			t.Errorf("GetField(tbl, \"test\") = %v, %v, want %v, true", value, ok, lua.LString("inherited"))
 		}
+	})
 
-		// Test non-existent field
-		if value, ok := GetField(L, tbl, "nonexistent"); ok || value != lua.LNil {
-			t.Errorf("GetField(tbl, \"nonexistent\") = %v, %v, want nil, false", value, ok)
+	// Edge Cases
+	t.Run("recursive metatable", func(t *testing.T) {
+		assert.NoError(t, L.DoString(`
+            local tbl = {}
+            local mt = {__index = tbl}  -- recursive reference
+            setmetatable(tbl, mt)
+            tbl.test = "recursive"
+            return tbl
+        `))
+		tbl := L.Get(-1)
+		L.Pop(1)
+
+		if value, ok := GetField(L, tbl, "test"); !ok || value != lua.LString("recursive") {
+			t.Errorf("GetField(tbl, \"test\") = %v, %v, want %v, true", value, ok, lua.LString("recursive"))
 		}
 	})
 
-	t.Run("non-table value", func(t *testing.T) {
-		// Test with string value
-		str := lua.LString("test")
-		if value, ok := GetField(L, str, "anything"); ok || value != lua.LNil {
-			t.Errorf("GetField(str, \"anything\") = %v, %v, want nil, false", value, ok)
-		}
+	t.Run("chained metatables", func(t *testing.T) {
+		assert.NoError(t, L.DoString(`
+            local tbl1 = {}
+            local tbl2 = {test = "chain2"}
+            local tbl3 = {test = "chain3"}
+            
+            local mt1 = {__index = tbl2}
+            local mt2 = {__index = tbl3}
+            
+            setmetatable(tbl1, mt1)
+            setmetatable(tbl2, mt2)
+            return tbl1
+        `))
+		tbl := L.Get(-1)
+		L.Pop(1)
 
-		// Test with nil value
-		if value, ok := GetField(L, lua.LNil, "anything"); ok || value != lua.LNil {
-			t.Errorf("GetField(nil, \"anything\") = %v, %v, want nil, false", value, ok)
+		if value, ok := GetField(L, tbl, "test"); !ok || value != lua.LString("chain2") {
+			t.Errorf("GetField(tbl, \"test\") = %v, %v, want %v, true", value, ok, lua.LString("chain2"))
 		}
 	})
 
-	t.Run("metatable error handling", func(t *testing.T) {
-		// Create table with metatable that has __index function that errors
-		tbl := L.CreateTable(0, 0)
-		mt := L.CreateTable(0, 1)
+	t.Run("__index function returns nil", func(t *testing.T) {
+		assert.NoError(t, L.DoString(`
+            local tbl = {}
+            local mt = {
+                __index = function() return nil end
+            }
+            setmetatable(tbl, mt)
+            return tbl
+        `))
+		tbl := L.Get(-1)
+		L.Pop(1)
 
-		indexFn := L.NewFunction(func(L *lua.LState) int {
-			L.RaiseError("test error")
-			return 0
-		})
-		mt.RawSetString("__index", indexFn)
-		L.SetMetatable(tbl, mt)
-
-		// Test that error in __index function is handled correctly
 		if value, ok := GetField(L, tbl, "test"); ok || value != lua.LNil {
 			t.Errorf("GetField(tbl, \"test\") = %v, %v, want nil, false", value, ok)
+		}
+	})
+
+	t.Run("__index function errors", func(t *testing.T) {
+		assert.NoError(t, L.DoString(`
+            local tbl = {}
+            local mt = {
+                __index = function() error("intentional error") end
+            }
+            setmetatable(tbl, mt)
+            return tbl
+        `))
+		tbl := L.Get(-1)
+		L.Pop(1)
+
+		if value, ok := GetField(L, tbl, "test"); ok || value != lua.LNil {
+			t.Errorf("GetField(tbl, \"test\") = %v, %v, want nil, false", value, ok)
+		}
+	})
+
+	t.Run("non-function non-table __index", func(t *testing.T) {
+		assert.NoError(t, L.DoString(`
+            local tbl = {}
+            local mt = {
+                __index = "not a function or table"
+            }
+            setmetatable(tbl, mt)
+            return tbl
+        `))
+		tbl := L.Get(-1)
+		L.Pop(1)
+
+		if value, ok := GetField(L, tbl, "test"); ok || value != lua.LNil {
+			t.Errorf("GetField(tbl, \"test\") = %v, %v, want nil, false", value, ok)
+		}
+	})
+
+	t.Run("nil metatable", func(t *testing.T) {
+		tbl := L.CreateTable(0, 0)
+		// Explicitly ensure no metatable is set
+		L.SetMetatable(tbl, lua.LNil)
+
+		if value, ok := GetField(L, tbl, "test"); ok || value != lua.LNil {
+			t.Errorf("GetField(tbl, \"test\") = %v, %v, want nil, false", value, ok)
+		}
+	})
+
+	t.Run("metatable without __index", func(t *testing.T) {
+		assert.NoError(t, L.DoString(`
+            local tbl = {}
+            local mt = {
+                __newindex = function() end  -- some other metamethod
+            }
+            setmetatable(tbl, mt)
+            return tbl
+        `))
+		tbl := L.Get(-1)
+		L.Pop(1)
+
+		if value, ok := GetField(L, tbl, "test"); ok || value != lua.LNil {
+			t.Errorf("GetField(tbl, \"test\") = %v, %v, want nil, false", value, ok)
+		}
+	})
+
+	t.Run("primitive values", func(t *testing.T) {
+		values := []lua.LValue{
+			lua.LNumber(42),
+			lua.LString("string"),
+			lua.LBool(true),
+			lua.LNil,
+		}
+
+		for _, v := range values {
+			if value, ok := GetField(L, v, "anything"); ok || value != lua.LNil {
+				t.Errorf("GetField(%v, \"anything\") = %v, %v, want nil, false", v, value, ok)
+			}
+		}
+	})
+}
+
+func TestGetField_Userdata(t *testing.T) {
+	L := lua.NewState()
+	defer L.Close()
+
+	t.Run("userdata with __index table", func(t *testing.T) {
+		// Create test userdata with metatable
+		assert.NoError(t, L.DoString(`
+            local ud = newproxy(true)  -- creates userdata with empty metatable
+            local mt = getmetatable(ud)
+            mt.__index = {
+                test = "userdata_value"
+            }
+            return ud
+        `))
+		ud := L.Get(-1)
+		L.Pop(1)
+
+		if value, ok := GetField(L, ud, "test"); !ok || value != lua.LString("userdata_value") {
+			t.Errorf("GetField(userdata, \"test\") = %v, %v, want userdata_value, true", value, ok)
+		}
+	})
+
+	t.Run("userdata with __index function", func(t *testing.T) {
+		assert.NoError(t, L.DoString(`
+            local ud = newproxy(true)
+            local mt = getmetatable(ud)
+            mt.__index = function(t, k)
+                return "userdata_" .. k
+            end
+            return ud
+        `))
+		ud := L.Get(-1)
+		L.Pop(1)
+
+		if value, ok := GetField(L, ud, "test"); !ok || value != lua.LString("userdata_test") {
+			t.Errorf("GetField(userdata, \"test\") = %v, %v, want userdata_test, true", value, ok)
 		}
 	})
 }
