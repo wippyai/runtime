@@ -79,3 +79,34 @@ func GetField(L *lua.LState, value lua.LValue, field string) (lua.LValue, bool) 
 
 	return lua.LNil, false
 }
+
+// GetFunc retrieves a function from a Lua value following Lua's field access rules.
+// It works similar to GetField but specifically returns only functions.
+//
+// The lookup follows these steps:
+//  1. If the value is a table, attempts direct field access
+//  2. If the field is not found or value is not a table (including userdata),
+//     and the value has a metatable with __index:
+//     - If __index is a function, calls it with (value, field)
+//     - If __index is a table, looks up the field in that table
+//
+// Parameters:
+//   - L: The Lua state
+//   - value: The Lua value to get the function from
+//   - field: The field name to look up
+//
+// Returns:
+//   - The function and true if found and is a function
+//   - nil and false if not found or value is not a function
+//
+// This function never panics and safely handles all error conditions.
+func GetFunc(L *lua.LState, value lua.LValue, field string) (*lua.LFunction, bool) {
+	// Get the field using standard field access
+	if v, ok := GetField(L, value, field); ok {
+		// Check if it's a function
+		if fn, ok := v.(*lua.LFunction); ok {
+			return fn, true
+		}
+	}
+	return nil, false
+}

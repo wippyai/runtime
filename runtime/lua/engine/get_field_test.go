@@ -228,3 +228,146 @@ func TestGetField_Userdata(t *testing.T) {
 		}
 	})
 }
+
+func TestGetFunc(t *testing.T) {
+	L := lua.NewState()
+	defer L.Close()
+
+	t.Run("direct table function", func(t *testing.T) {
+		assert.NoError(t, L.DoString(`
+            local tbl = {
+                fn = function() return "direct" end
+            }
+            return tbl
+        `))
+		tbl := L.Get(-1)
+		L.Pop(1)
+
+		fn, ok := GetFunc(L, tbl, "fn")
+		if !ok {
+			t.Fatal("expected to find function")
+		}
+
+		L.Push(fn)
+		if err := L.PCall(0, 1, nil); err != nil {
+			t.Fatal(err)
+		}
+		if result := L.ToString(-1); result != "direct" {
+			t.Errorf("got %v, want 'direct'", result)
+		}
+		L.Pop(1)
+	})
+
+	t.Run("metatable __index function returning function", func(t *testing.T) {
+		assert.NoError(t, L.DoString(`
+            local tbl = {}
+            local mt = {
+                __index = function(t, k)
+                    if k == "fn" then
+                        return function() return "meta" end
+                    end
+                end
+            }
+            setmetatable(tbl, mt)
+            return tbl
+        `))
+		tbl := L.Get(-1)
+		L.Pop(1)
+
+		fn, ok := GetFunc(L, tbl, "fn")
+		if !ok {
+			t.Fatal("expected to find function")
+		}
+
+		L.Push(fn)
+		if err := L.PCall(0, 1, nil); err != nil {
+			t.Fatal(err)
+		}
+		if result := L.ToString(-1); result != "meta" {
+			t.Errorf("got %v, want 'meta'", result)
+		}
+		L.Pop(1)
+	})
+
+	t.Run("metatable __index table with function", func(t *testing.T) {
+		assert.NoError(t, L.DoString(`
+            local tbl = {}
+            local mt = {
+                __index = {
+                    fn = function() return "index_table" end
+                }
+            }
+            setmetatable(tbl, mt)
+            return tbl
+        `))
+		tbl := L.Get(-1)
+		L.Pop(1)
+
+		fn, ok := GetFunc(L, tbl, "fn")
+		if !ok {
+			t.Fatal("expected to find function")
+		}
+
+		L.Push(fn)
+		if err := L.PCall(0, 1, nil); err != nil {
+			t.Fatal(err)
+		}
+		if result := L.ToString(-1); result != "index_table" {
+			t.Errorf("got %v, want 'index_table'", result)
+		}
+		L.Pop(1)
+	})
+
+	t.Run("non-function field", func(t *testing.T) {
+		assert.NoError(t, L.DoString(`
+            local tbl = {
+                notfn = "string"
+            }
+            return tbl
+        `))
+		tbl := L.Get(-1)
+		L.Pop(1)
+
+		if fn, ok := GetFunc(L, tbl, "notfn"); ok || fn != nil {
+			t.Error("expected not to find function")
+		}
+	})
+
+	t.Run("userdata with function", func(t *testing.T) {
+		// Create userdata
+		ud := L.NewUserData()
+
+		// Create metatable with __index function
+		mt := L.CreateTable(0, 1)
+		indexTbl := L.CreateTable(0, 1)
+		fn := L.NewFunction(func(L *lua.LState) int {
+			L.Push(lua.LString("userdata"))
+			return 1
+		})
+		indexTbl.RawSetString("fn", fn)
+		mt.RawSetString("__index", indexTbl)
+
+		L.SetMetatable(ud, mt)
+
+		gotFn, ok := GetFunc(L, ud, "fn")
+		if !ok || gotFn == nil {
+			t.Fatal("expected to find function")
+		}
+
+		L.Push(gotFn)
+		if err := L.PCall(0, 1, nil); err != nil {
+			t.Fatal(err)
+		}
+		if result := L.ToString(-1); result != "userdata" {
+			t.Errorf("got %v, want 'userdata'", result)
+		}
+		L.Pop(1)
+	})
+
+	t.Run("non-existent field", func(t *testing.T) {
+		tbl := L.CreateTable(0, 0)
+		if fn, ok := GetFunc(L, tbl, "nonexistent"); ok || fn != nil {
+			t.Error("expected not to find function")
+		}
+	})
+}
