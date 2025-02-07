@@ -20,13 +20,18 @@ type TextInput struct {
 }
 
 func (ti *TextInput) Init() tea.Cmd {
-	return ti.Init()
+	return nil
 }
 
 func (ti *TextInput) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmd tea.Cmd
-	ti.model, cmd = ti.model.Update(msg)
-	return ti, cmd
+	newModel, cmd := ti.model.Update(msg)
+
+	// Create new instance with updated model
+	return &TextInput{
+		model:    newModel,
+		validate: ti.validate,
+		luaState: ti.luaState,
+	}, cmd
 }
 
 func (ti *TextInput) View() string {
@@ -228,14 +233,26 @@ func textInputUpdate(l *lua.LState) int {
 		return 0
 	}
 
-	var cmd tea.Cmd
-	ti.model, cmd = ti.model.Update(teaMsg)
+	newModel, cmd := ti.model.Update(teaMsg)
+
+	// Wrap the new model value in TextInput
+	newTi := &TextInput{
+		model:    newModel,
+		validate: ti.validate,
+		luaState: ti.luaState,
+	}
+
+	// Create new userdata with the updated model
+	ud := l.NewUserData()
+	ud.Value = newTi
+	l.SetMetatable(ud, l.GetTypeMetatable("btea.TextInput"))
+	l.Push(ud)
 
 	if cmd != nil {
 		l.Push(protocol.WrapCommand(l, cmd))
-		return 1
+		return 2
 	}
-	return 0
+	return 1
 }
 
 func textInputView(l *lua.LState) int {

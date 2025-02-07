@@ -53,7 +53,7 @@ function App()
                 placeholder = "Type command...",
                 width = 40,
                 show_suggestions = true,
-                suggestions = {"help", "status", "quit", "clear", "restart"}
+                suggestions = { "help", "status", "quit", "clear", "restart" }
             })
         }
     }
@@ -92,16 +92,16 @@ function App()
     -- Setup key bindings
     app.keys = bapp.create_keys({
         next = {
-            keys = {"tab", "down"},
-            help = {key = "tab/↓", desc = "next input"}
+            keys = { "tab", "down" },
+            help = { key = "tab/↓", desc = "next input" }
         },
         prev = {
-            keys = {"shift+tab", "up"},
-            help = {key = "shift+tab/↑", desc = "prev input"}
+            keys = { "shift+tab", "up" },
+            help = { key = "shift+tab/↑", desc = "prev input" }
         },
         quit = {
-            keys = {"ctrl+c", "esc"},
-            help = {key = "^C/esc", desc = "quit"}
+            keys = { "ctrl+c", "esc" },
+            help = { key = "^C/esc", desc = "quit" }
         }
     })
 
@@ -119,24 +119,26 @@ function App()
                 self.current = (self.current % #self.inputs) + 1
                 local cmd = self.inputs[self.current].input:focus()
                 if cmd then self:dispatch(cmd) end
-                return false -- Consume the key event
+                return false
             elseif self.keys.prev:matches(msg) then
                 -- Move to previous input
                 self.inputs[self.current].input:blur()
                 self.current = ((self.current - 2) % #self.inputs) + 1
                 local cmd = self.inputs[self.current].input:focus()
                 if cmd then self:dispatch(cmd) end
-                return false -- Consume the key event
+                return false
             elseif msg.key.key_type == "enter" then
                 -- Store input result
                 self.results[self.current] = self.inputs[self.current].input:value()
-                self.inputs[self.current].input:set_value("")
-                return false -- Consume enter key event
+                local cmd = self.inputs[self.current].input:set_value("")
+                if cmd then self:dispatch(cmd) end
+                return false
             end
         end
 
         -- Update current input only if we haven't handled the key
-        local cmd = self.inputs[self.current].input:update(msg)
+        local new_input, cmd = self.inputs[self.current].input:update(msg)
+        self.inputs[self.current].input = new_input
         if cmd then self:dispatch(cmd) end
         return false
     end
@@ -151,8 +153,9 @@ function App()
         for i, input in ipairs(self.inputs) do
             -- Add input label
             table.insert(lines, self.styles.label:render(input.name))
-            -- Add the input itself
-            table.insert(lines, input.input:view())
+            -- Add the input itself - view now returns string directly
+            local input_view = input.input:view()
+            table.insert(lines, input_view)
             -- Add result or error if any
             if self.results[i] then
                 table.insert(lines, self.styles.result:render("→ " .. self.results[i]))
