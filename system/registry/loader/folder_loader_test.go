@@ -6,7 +6,7 @@ import (
 
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/internal/utils"
+	"github.com/ponyruntime/pony/internal/test_utils"
 	transcoder "github.com/ponyruntime/pony/system/payload"
 	"github.com/ponyruntime/pony/system/payload/json"
 	"github.com/ponyruntime/pony/system/payload/yaml"
@@ -47,7 +47,7 @@ data: file://../e_data.txt
 		"e_data.txt": "value_e",
 	}
 
-	rootDir, cleanup := utils.TempDirWithFiles(t, "folderloader_test", files)
+	rootDir, cleanup := test_utils.TempDirWithFiles(t, "folderloader_test", files)
 	defer cleanup()
 
 	// Create a transcoder and logger for testing
@@ -142,7 +142,7 @@ data: file://../e_data.txt
 
 func TestFolderLoader_Load_NoFiles(t *testing.T) {
 	// Create a temporary directory
-	rootDir, cleanup := utils.TempDirWithFiles(t, "folderloader_empty", nil)
+	rootDir, cleanup := test_utils.TempDirWithFiles(t, "folderloader_empty", nil)
 	defer cleanup()
 
 	// Initialize FolderLoader, transcoder, and logger
@@ -174,7 +174,7 @@ func TestFolderLoader_Load_UnsupportedFiles(t *testing.T) {
 		"a.txt": "unsupported content",
 	}
 
-	rootDir, cleanup := utils.TempDirWithFiles(t, "folderloader_test", files)
+	rootDir, cleanup := test_utils.TempDirWithFiles(t, "folderloader_test", files)
 	defer cleanup()
 	// Initialize FolderLoader, transcoder, and logger
 	dtt := createTestTranscoder()
@@ -206,7 +206,7 @@ func TestFolderLoader_Load_InvalidYaml(t *testing.T) {
 	files := map[string]string{
 		"a.yaml": "invalid yaml content",
 	}
-	rootDir, cleanup := utils.TempDirWithFiles(t, "folderloader_invalid_yaml", files)
+	rootDir, cleanup := test_utils.TempDirWithFiles(t, "folderloader_invalid_yaml", files)
 	defer cleanup()
 
 	// Initialize FolderLoader, transcoder, and logger
@@ -254,7 +254,7 @@ data: value
 `,
 	}
 
-	rootDir, cleanup := utils.TempDirWithFiles(t, "folderloader_missing", files)
+	rootDir, cleanup := test_utils.TempDirWithFiles(t, "folderloader_missing", files)
 	defer cleanup()
 
 	dtt := createTestTranscoder()
@@ -312,7 +312,7 @@ kind: listener
 data: value
 `,
 	}
-	rootDir, cleanup := utils.TempDirWithFiles(t, "folderloader_invalid", files)
+	rootDir, cleanup := test_utils.TempDirWithFiles(t, "folderloader_invalid", files)
 	defer cleanup()
 
 	dtt := createTestTranscoder()

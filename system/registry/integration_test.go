@@ -10,7 +10,7 @@ import (
 
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/internal/utils"
+	"github.com/ponyruntime/pony/internal/test_utils"
 	transcoder "github.com/ponyruntime/pony/system/payload"
 	"github.com/ponyruntime/pony/system/payload/json"
 	"github.com/ponyruntime/pony/system/payload/yaml"
@@ -52,7 +52,7 @@ data:
   url: http://localhost:8080
 `,
 	}
-	rootDir, cleanup := utils.TempDirWithFiles(t, "registry_init_test", files)
+	rootDir, cleanup := test_utils.TempDirWithFiles(t, "registry_init_test", files)
 	defer cleanup()
 
 	// 2. Initialize components:
