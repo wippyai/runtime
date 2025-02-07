@@ -54,7 +54,7 @@ func TestAsyncHTTP(t *testing.T) {
 		// Create base VM with HTTP module
 		vm, err := engine.NewCVM(
 			log,
-			engine.WithPreloaded("http", NewHTTPModule(mockClient, log).Loader),
+			engine.WithPreloaded("http", NewHTTPModule(log, mockClient).Loader),
 		)
 		require.NoError(t, err)
 		defer vm.Close()
@@ -152,7 +152,7 @@ func TestAsyncHTTP(t *testing.T) {
 		// Create base VM with HTTP module
 		vm, err := engine.NewCVM(
 			log,
-			engine.WithPreloaded("http", NewHTTPModule(mockClient, log).Loader),
+			engine.WithPreloaded("http", NewHTTPModule(log, mockClient).Loader),
 			engine.WithPreloaded("time", timemod.NewTimeModule().Loader),
 		)
 		require.NoError(t, err)

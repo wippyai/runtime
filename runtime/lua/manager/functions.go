@@ -106,6 +106,7 @@ func (m *Functions) FindDependentOnLibrary(libraryID registry.ID) map[registry.I
 }
 
 // MakeFactory creates a new factory for function compilation using provided managers
+// todo: this is also must be abstracted generally speaking
 func (m *Functions) MakeFactory(
 	id registry.ID,
 	cfg *api.FunctionConfig,

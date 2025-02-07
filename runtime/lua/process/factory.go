@@ -1,4 +1,4 @@
-package workflow
+package process
 
 import (
 	"github.com/ponyruntime/pony/api/registry"

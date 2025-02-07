@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/ponyruntime/pony/api/runtime"
-	"github.com/ponyruntime/pony/runtime/lua/workflow"
+	"github.com/ponyruntime/pony/runtime/lua/process"
 	"sync"
 
 	"github.com/ponyruntime/pony/api/events"
@@ -48,7 +48,7 @@ func NewRuntimeManager(
 		functions: manager.NewFunctions(logger),
 		libraries: manager.NewLibraries(logger),
 		terminals: manager.NewTerminals(logger, terminalmng.NewFactory()),
-		workflows: manager.NewWorkflows(logger, workflow.NewFactory()),
+		workflows: manager.NewWorkflows(logger, process.NewFactory()),
 		modules:   manager.NewModules(logger),
 		callable:  sync.Map{},
 	}
@@ -162,6 +162,7 @@ func (m *RuntimeManager) Update(ctx context.Context, entry registry.Entry) error
 
 		return nil
 
+		// todo: dep graph!
 	case api.KindLibrary:
 		cfg, err := m.unpackLibrary(entry.Data)
 		if err != nil {
@@ -298,11 +299,10 @@ func (m *RuntimeManager) Delete(ctx context.Context, entry registry.Entry) error
 
 		return m.libraries.Delete(entry.ID)
 
+		// -- todo: merge
 	case api.KindWorkflow:
 		m.unregisterWorkflow(ctx, entry.ID)
-
 		return m.workflows.Delete(entry.ID)
-
 	case api.KindTerminal:
 		m.bus.Send(ctx, events.Event{
 			System: terminal.System,
@@ -310,8 +310,8 @@ func (m *RuntimeManager) Delete(ctx context.Context, entry registry.Entry) error
 			Path:   events.Path(entry.ID),
 			Data:   entry.ID,
 		})
-
 		return m.terminals.Delete(entry.ID)
+		// -- todo: unmerge
 
 	default:
 		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
