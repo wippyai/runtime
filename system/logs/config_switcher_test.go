@@ -17,7 +17,7 @@ import (
 func setupConfigSwitcherTest(t *testing.T) (*ConfigSwitcher, *Manager, *eventbus.Bus) {
 	t.Helper()
 	bus := eventbus.NewBus()
-	logger, _ := zap.NewDevelopment()
+	logger := zap.NewNop()
 
 	// Create downstream core for the manager
 	downstream := &testDownstreamCore{enabledResponse: true}

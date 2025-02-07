@@ -10,14 +10,17 @@ import (
 
 // Event system and kind constants for the executor package
 const (
-	// System identifies the executor system in the event bus
-	System events.System = "functions"
+	// FunctionSystem identifies the executor system in the event bus
+	FunctionSystem events.System = "functions"
 
-	// RegisterFunctionEvent is the event kind for registering a new handler
-	RegisterFunctionEvent events.Kind = "functions.register"
+	// RegisterFunction is the event kind for registering a new handler
+	RegisterFunction events.Kind = "functions.register"
 
-	// DeleteFunctionEvent is the event kind for removing an existing handler
-	DeleteFunctionEvent events.Kind = "functions.remove"
+	// DeleteFunction is the event kind for removing an existing handler
+	DeleteFunction events.Kind = "functions.remove"
+
+	AcceptFunctionEvent events.Kind = "functions.accept"
+	RejectFunctionEvent events.Kind = "functions.reject"
 )
 
 type (

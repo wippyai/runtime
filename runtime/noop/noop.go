@@ -42,8 +42,8 @@ func (n *Runtime) Add(ctx context.Context, entry registry.Entry) error {
 		zap.String("kind", string(entry.Kind)))
 
 	n.bus.Send(ctx, events.Event{
-		System: runtime.System,
-		Kind:   runtime.RegisterFunctionEvent,
+		System: runtime.FunctionSystem,
+		Kind:   runtime.RegisterFunction,
 		Path:   events.Path(entry.ID),
 		Data:   n.Execute,
 	})
@@ -66,8 +66,8 @@ func (n *Runtime) Delete(ctx context.Context, entry registry.Entry) error {
 		zap.String("kind", string(entry.Kind)))
 
 	n.bus.Send(ctx, events.Event{
-		System: runtime.System,
-		Kind:   runtime.DeleteFunctionEvent,
+		System: runtime.FunctionSystem,
+		Kind:   runtime.DeleteFunction,
 		Path:   events.Path(entry.ID),
 	})
 

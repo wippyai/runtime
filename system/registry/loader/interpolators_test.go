@@ -2,11 +2,11 @@ package loader
 
 import (
 	"fmt"
+	"github.com/ponyruntime/pony/tests/temp_files"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/ponyruntime/pony/internal/test_utils"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -79,7 +79,7 @@ func TestLoadFile(t *testing.T) {
 		"main.yaml":              "main content",
 	}
 
-	rootDir, cleanup := test_utils.TempDirWithFiles(t, "test-load-file", files)
+	rootDir, cleanup := temp_files.TempDirWithFiles(t, "test-load-file", files)
 	defer cleanup()
 
 	configFile := filepath.Join(rootDir, "listener", "listener.yaml")

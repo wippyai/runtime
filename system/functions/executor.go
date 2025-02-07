@@ -3,6 +3,7 @@ package functions
 import (
 	"context"
 	"fmt"
+	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
 	"sync"
 
@@ -11,9 +12,9 @@ import (
 	"go.uber.org/zap"
 )
 
-// Executor manages the execution of tasks by registered handlers in the runtime system.
+// FunctionExecutor manages the execution of tasks by registered handlers in the runtime system.
 // It uses an event bus for communication and supports dynamic handler registration.
-type Executor struct {
+type FunctionExecutor struct {
 	ctx        context.Context
 	logger     *zap.Logger
 	bus        events.Bus
@@ -21,9 +22,9 @@ type Executor struct {
 	subscriber *eventbus.Subscriber
 }
 
-// NewExecutor creates a new Executor instance with the provided event bus and logger.
-func NewExecutor(bus events.Bus, logger *zap.Logger) *Executor {
-	return &Executor{
+// NewExecutor creates a new FunctionExecutor instance with the provided event bus and logger.
+func NewExecutor(bus events.Bus, logger *zap.Logger) *FunctionExecutor {
+	return &FunctionExecutor{
 		bus:    bus,
 		logger: logger,
 	}
@@ -31,15 +32,15 @@ func NewExecutor(bus events.Bus, logger *zap.Logger) *Executor {
 
 // Start initializes the executor and begins listening for executor events.
 // It sets up a subscriber for handling executor-related events on the event bus.
-func (e *Executor) Start(ctx context.Context) error {
+func (e *FunctionExecutor) Start(ctx context.Context) error {
 	e.ctx = ctx
 
 	// Subscribe to executor events
 	sub, err := eventbus.NewSubscriber(
 		e.ctx,
 		e.bus,
-		runtime.System,
-		"executor.*",
+		runtime.FunctionSystem,
+		"functions.*",
 		e.handleEvent,
 	)
 	if err != nil {
@@ -51,38 +52,70 @@ func (e *Executor) Start(ctx context.Context) error {
 }
 
 // Stop cleanly shuts down the executor by closing its event subscriber.
-func (e *Executor) Stop() error {
+func (e *FunctionExecutor) Stop() error {
 	if e.subscriber != nil {
 		e.subscriber.Close()
 	}
 	return nil
 }
 
-func (e *Executor) handleEvent(evt events.Event) {
+func (e *FunctionExecutor) handleEvent(evt events.Event) {
 	switch evt.Kind {
-	case runtime.RegisterFunctionEvent:
-		if data, ok := evt.Data.(runtime.Function); ok {
-			e.handlers.Store(evt.Path, data)
-			e.logger.Debug("function registered",
-				zap.String("function", string(evt.Path)))
+	case runtime.RegisterFunction:
+		// Just try to assert directly to the function signature
+		if handler, ok := evt.Data.(func(runtime.Task) (chan *runtime.Result, error)); ok {
+			e.handlers.Store(registry.ID(evt.Path), handler)
+			e.logger.Debug("function registered", zap.String("function", string(evt.Path)))
+			e.bus.Send(e.ctx, events.Event{
+				System: runtime.FunctionSystem,
+				Kind:   runtime.AcceptFunctionEvent,
+				Path:   evt.Path,
+			})
+		} else {
+			e.logger.Error("invalid handler type",
+				zap.String("function", string(evt.Path)),
+				zap.String("type", fmt.Sprintf("%T", evt.Data)))
+
+			e.bus.Send(e.ctx, events.Event{
+				System: runtime.FunctionSystem,
+				Kind:   runtime.RejectFunctionEvent,
+				Path:   evt.Path,
+			})
 		}
-	case runtime.DeleteFunctionEvent:
-		e.handlers.Delete(evt.Path)
+	case runtime.DeleteFunction:
+		// check if the handler exists before removing it
+		_, exists := e.handlers.Load(registry.ID(evt.Path))
+		if !exists {
+			e.logger.Warn("function not found", zap.String("function", string(evt.Path)))
+			e.bus.Send(e.ctx, events.Event{
+				System: runtime.FunctionSystem,
+				Kind:   runtime.RejectFunctionEvent,
+				Path:   evt.Path,
+			})
+			return
+		}
+
+		e.handlers.Delete(registry.ID(evt.Path))
 		e.logger.Debug("function removed",
 			zap.String("function", string(evt.Path)))
+		e.bus.Send(e.ctx, events.Event{
+			System: runtime.FunctionSystem,
+			Kind:   runtime.AcceptFunctionEvent,
+			Path:   evt.Path,
+		})
 	}
 }
 
 // Execute runs the given task using its registered handler and returns a channel
 // for receiving the execution result(s). Returns an error if no handler is registered
 // for the task's target or if the handler type is invalid.
-func (e *Executor) Execute(task runtime.Task) (chan *runtime.Result, error) {
+func (e *FunctionExecutor) Execute(task runtime.Task) (chan *runtime.Result, error) {
 	handler, exists := e.handlers.Load(task.Target)
 	if !exists {
 		return nil, fmt.Errorf("no handler registered for target: %s", task.Target)
 	}
 
-	if execHandler, ok := handler.(runtime.Function); ok {
+	if execHandler, ok := handler.(func(runtime.Task) (chan *runtime.Result, error)); ok {
 		return execHandler(task)
 	}
 
