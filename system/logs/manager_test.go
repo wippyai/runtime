@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/ponyruntime/pony/api/events"
-	"github.com/ponyruntime/pony/pkg/eventbus"
+	"github.com/ponyruntime/pony/system/eventbus"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"

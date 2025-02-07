@@ -14,7 +14,7 @@ import (
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/internal/version"
-	"github.com/ponyruntime/pony/pkg/registry/history"
+	"github.com/ponyruntime/pony/system/registry/history"
 )
 
 // MockRunner is a mock implementation of the registry.Runner interface for testing.

@@ -9,9 +9,9 @@ import (
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/service/http"
 
-	"github.com/ponyruntime/pony/pkg/eventbus"
-	transcoder "github.com/ponyruntime/pony/pkg/payload"
-	"github.com/ponyruntime/pony/pkg/payload/json"
+	"github.com/ponyruntime/pony/system/eventbus"
+	transcoder "github.com/ponyruntime/pony/system/payload"
+	"github.com/ponyruntime/pony/system/payload/json"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"

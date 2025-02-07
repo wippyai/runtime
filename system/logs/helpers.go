@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/ponyruntime/pony/api/events"
-	"github.com/ponyruntime/pony/pkg/eventbus"
+	"github.com/ponyruntime/pony/system/eventbus"
 )
 
 type ConfigurationManager struct {

@@ -2,7 +2,7 @@ package terminal
 
 import (
 	"context"
-	"github.com/ponyruntime/pony/pkg/logs"
+	"github.com/ponyruntime/pony/system/logs"
 
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/registry"

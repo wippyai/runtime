@@ -8,7 +8,7 @@ import (
 
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/registry"
-	pkgreg "github.com/ponyruntime/pony/pkg/registry"
+	pkgreg "github.com/ponyruntime/pony/system/registry"
 	"go.uber.org/zap"
 )
 

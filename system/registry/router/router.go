@@ -8,7 +8,7 @@ import (
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/internal/wildcard"
-	"github.com/ponyruntime/pony/pkg/eventbus"
+	"github.com/ponyruntime/pony/system/eventbus"
 	"go.uber.org/zap"
 )
 

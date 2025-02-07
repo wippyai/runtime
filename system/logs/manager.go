@@ -7,7 +7,7 @@ import (
 	"sync"
 
 	"github.com/ponyruntime/pony/api/events"
-	"github.com/ponyruntime/pony/pkg/eventbus"
+	"github.com/ponyruntime/pony/system/eventbus"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )

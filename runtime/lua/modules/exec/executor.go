@@ -8,7 +8,7 @@ import (
 	contextapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
-	transcode "github.com/ponyruntime/pony/pkg/payload/lua"
+	transcode "github.com/ponyruntime/pony/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
 )
 

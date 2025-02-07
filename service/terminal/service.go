@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	logsapi "github.com/ponyruntime/pony/api/logs"
-	"github.com/ponyruntime/pony/pkg/logs"
+	"github.com/ponyruntime/pony/system/logs"
 	"sync"
 
 	"github.com/ponyruntime/pony/api/events"
