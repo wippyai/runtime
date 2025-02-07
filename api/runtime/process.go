@@ -56,11 +56,11 @@ type (
 		Target registry.ID
 	}
 
-	// ProcessRegistry is the interface for managing workflow handlers.
+	// ProcessFactory is the interface for managing workflow handlers.
 	// It provides the core functionality for retrieving registered workflow
 	// implementations. The interface uses 'any' return type to allow for
 	// flexible workflow types that can be properly type-asserted by callers.
-	ProcessRegistry interface {
+	ProcessFactory interface {
 		// Get retrieves a registered workflow handler for the given ID.
 		// Returns the handler as type any for flexible workflow implementations,
 		// and an error if no handler is found or if retrieval fails.

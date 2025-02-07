@@ -92,5 +92,5 @@ func (r *Registry) Get(id registry.ID) (func() any, error) {
 	return handler.(func() any), nil
 }
 
-// Ensure Registry implements ProcessRegistry interface
-//var _ runtime.ProcessRegistry = (*Registry)(nil)
+// Ensure Registry implements ProcessFactory interface
+//var _ runtime.ProcessFactory = (*Registry)(nil)
