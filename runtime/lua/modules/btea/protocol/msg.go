@@ -25,10 +25,12 @@ func MsgToLua(msg tea.Msg) lua.LValue {
 
 		if keyStr, ok := keyTypeMap[msg.Type]; ok {
 			keyTbl.RawSetString("key_type", lua.LString(keyStr))
-			if msg.Type == tea.KeyRunes || msg.Type == tea.KeySpace {
-				keyTbl.RawSetString("runes", lua.LString(msg.Runes))
-			}
 		}
+
+		if len(msg.Runes) > 0 {
+			keyTbl.RawSetString("runes", lua.LString(msg.Runes))
+		}
+
 		tbl.RawSetString("key", keyTbl)
 
 	case tea.MouseMsg:
@@ -99,19 +101,16 @@ func luaToKeyMsg(tbl *lua.LTable) (tea.KeyMsg, error) {
 	msg := tea.KeyMsg{
 		Alt:   lua.LVAsBool(tbl.RawGetString("alt")),
 		Paste: lua.LVAsBool(tbl.RawGetString("paste")),
+		Runes: []rune(tbl.RawGetString("string").String()),
 	}
 
 	keyTypeStr := tbl.RawGetString("key_type").String()
 	if keyType, ok := keyTypeFromStr[keyTypeStr]; ok {
 		msg.Type = keyType
-		if keyType == tea.KeyRunes {
-			msg.Runes = []rune(tbl.RawGetString("runes").String())
-		} else if keyType == tea.KeySpace {
-			msg.Runes = []rune{' '}
-		}
 	} else {
 		return msg, fmt.Errorf("unknown key type: %s", keyTypeStr)
 	}
+
 	return msg, nil
 }
 
