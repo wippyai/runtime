@@ -6,27 +6,33 @@ TODO Items:
 - testing runner 1w
 - process system 2w (!!!!)
 - process interface and layers 2d
-- re terminal registration 6h
+- redo terminal registration 6h
 - add factory flavors 6h
 - redo temporal integration POC to working model (after process model) 1w
 - terminating flow 5h - deal with http actually
-- update flow 2d
+- update flow 2d (flush and get funcs on demand)
 - ns support 1d - executor and processes + ctx
 - import app support 3d
 - export state support 2d
 - metrics 4d (cut later or expose module)
 - reg api 1d (internal after update and hot reload and export)
+- ERROR PROPAGATION FROM LUA 2d
+- stream in lua plus coro test
+- connector to process system from functions
 - import func 2h 
 - library folder aliases 4h 
+
 - better lua dep manager 2d
 - redo graph ? 1d
 - sql 4d
+- migrations
 - graph 4d 
 - memory system 1w
 - terminal restart fails 4h
 - TESTS MORE TESTS! 10d
 - space char (only " " works) 1h 
-- uuid lib also 1h
+- uuid lib also 1h (DONE)
+- finish list delegate 2h
 - do we preload modules or not?
 
 

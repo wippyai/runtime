@@ -4,7 +4,9 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	logsapi "github.com/ponyruntime/pony/api/logs"
 	"github.com/ponyruntime/pony/pkg/executor"
+	logs2 "github.com/ponyruntime/pony/pkg/logs"
 	"github.com/ponyruntime/pony/pkg/process"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea"
 	"github.com/ponyruntime/pony/runtime/lua/modules/env"
@@ -20,8 +22,6 @@ import (
 	"time"
 
 	"github.com/ponyruntime/pony/api/events"
-	logsapi "github.com/ponyruntime/pony/api/service/logs"
-	"github.com/ponyruntime/pony/service/logs"
 	"github.com/ponyruntime/pony/service/terminal"
 
 	contextapi "github.com/ponyruntime/pony/api/context"
@@ -96,7 +96,7 @@ func main() {
 	}
 
 	// -- observability application
-	logSrv := logs.NewManager(bus, core, log.Named("logs"))
+	logSrv := logs2.NewManager(bus, core, log.Named("logs"))
 	if err := logSrv.Start(ctx); err != nil {
 		appLogger.Fatal("failed to start logs service", zap.Error(err))
 	}
@@ -284,7 +284,7 @@ func initLogger(verbose, veryVerbose bool, bus events.Bus) (*zap.Logger, logsapi
 		return nil, nil
 	}
 
-	core := logs.NewCore(log.Core(), bus)
+	core := logs2.NewCore(log.Core(), bus)
 
 	return zap.New(core), core
 }
