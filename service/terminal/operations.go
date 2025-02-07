@@ -2,11 +2,11 @@ package terminal
 
 import (
 	"context"
+	"github.com/ponyruntime/pony/pkg/logs"
 
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/registry"
 	api "github.com/ponyruntime/pony/api/service/terminal"
-	"github.com/ponyruntime/pony/service/logs"
 	"go.uber.org/zap"
 )
 

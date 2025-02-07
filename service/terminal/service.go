@@ -4,14 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	logsapi "github.com/ponyruntime/pony/api/logs"
+	"github.com/ponyruntime/pony/pkg/logs"
 	"sync"
 
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/registry"
-	logsapi "github.com/ponyruntime/pony/api/service/logs"
 	api "github.com/ponyruntime/pony/api/service/terminal"
 	"github.com/ponyruntime/pony/api/supervisor"
-	"github.com/ponyruntime/pony/service/logs"
 	"go.uber.org/zap"
 )
 

@@ -3,10 +3,10 @@ package logs
 import (
 	"context"
 	"fmt"
+	api "github.com/ponyruntime/pony/api/logs"
 	"sync"
 
 	"github.com/ponyruntime/pony/api/events"
-	api "github.com/ponyruntime/pony/api/service/logs"
 	"github.com/ponyruntime/pony/pkg/eventbus"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
