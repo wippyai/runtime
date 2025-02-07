@@ -3,13 +3,14 @@ package terminal
 import (
 	"context"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
+	transcode "github.com/ponyruntime/pony/system/payload/lua"
 	"io"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/tasks"
-	transcode "github.com/ponyruntim
+
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
