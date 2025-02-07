@@ -386,11 +386,11 @@ func TestMultipleTopicsUnsubscribe(t *testing.T) {
 			local sub2 = pubsub.subscribe("topic2")
 			local results = {}
 			
-			-- Get first messages
+			-- GetField first messages
 			results[1] = sub1:receive()
 			results[2] = sub2:receive()
 			
-			-- Get second message from topic2
+			-- GetField second message from topic2
 			results[3] = sub2:receive()
 			
 			-- Try receive from unsubscribed topic1

@@ -188,7 +188,7 @@ func cmdSequence(l *lua.LState) int {
 }
 
 func setWindowTitleCmd(l *lua.LState) int {
-	title := l.CheckString(1) // Get title argument from Lua
+	title := l.CheckString(1) // GetField title argument from Lua
 	cmd := func() tea.Msg {
 		return tea.SetWindowTitle(title)
 	}

@@ -58,7 +58,7 @@ func TestProcessBasic(t *testing.T) {
 			    
 			    -- Spawn reader coroutine
 			    coroutine.spawn(function()
-			        -- Get stdout stream
+			        -- GetField stdout stream
 			        local stream, err = proc:stdout_stream()
 			        if err then
 			            error("Failed to create read stream: " .. err)
@@ -173,7 +173,7 @@ func TestWorkingDir(t *testing.T) {
 			    
 			    -- Spawn reader coroutine
 			    coroutine.spawn(function()
-			        -- Get stdout stream
+			        -- GetField stdout stream
 			        local stream = proc:stdout_stream()
 			        assert(stream ~= nil, "Stream creation should succeed")
 			        
@@ -275,7 +275,7 @@ func TestWriteStdin(t *testing.T) {
 			    -- Write to stdin
 			    proc:write_stdin(test_data)
 			    
-			    -- Get stdout stream and read the output
+			    -- GetField stdout stream and read the output
 			    local stream = proc:stdout_stream()
 			    local output = stream:read()
 			    
@@ -345,7 +345,7 @@ func TestMultiplyCallsToStream(t *testing.T) {
 			    
 			    -- Spawn reader coroutine
 			    coroutine.spawn(function()
-			        -- Get stdout stream
+			        -- GetField stdout stream
 			        local stream = proc:stdout_stream()
 			        local stream = proc:stdout_stream()
 			        local stream = proc:stdout_stream()

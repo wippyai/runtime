@@ -115,7 +115,7 @@ func TestCursorMethods(t *testing.T) {
 			local depth = cursor:current_depth()
 			assert(depth > 0, "cursor should have moved down")
 			
-			-- Get the root node from the tree for resetting
+			-- GetField the root node from the tree for resetting
 			local root = tree:root_node()
 			assert(root ~= nil, "should have valid root node")
 			

@@ -796,7 +796,7 @@ func TestSingleCaseSelectWithReadyData(t *testing.T) {
 			table.insert(results, result.value)
 			coroutine.yield("received1")
 
-			-- Get remaining values directly
+			-- GetField remaining values directly
 			local val2, ok2 = ch:receive()
 			table.insert(results, val2)
 			coroutine.yield("received2")

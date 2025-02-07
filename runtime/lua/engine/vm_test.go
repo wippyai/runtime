@@ -392,7 +392,7 @@ func TestVM_GlobalState(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Get count should return the current value (2)
+	// GetField count should return the current value (2)
 	if err := vm.DoString(context.Background(), `assert(getCount() == 2)`, "test3"); err != nil {
 		t.Fatal(err)
 	}

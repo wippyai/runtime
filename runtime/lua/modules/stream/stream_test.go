@@ -141,7 +141,7 @@ func TestStreamLua(t *testing.T) {
 			local chunk = test_stream:read()
 			assert(chunk == "Hello from mocked Stream!")
 
-			-- Get bytes read
+			-- GetField bytes read
 			local bytes = test_stream:bytes_read()
 			assert(type(bytes) == "number")
 			assert(bytes == #chunk)

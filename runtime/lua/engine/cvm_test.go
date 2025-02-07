@@ -37,7 +37,7 @@ func TestCoroutineVM_Basic(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		// Get yielded tasks
+		// GetField yielded tasks
 		tasks, _ := vm.Step()
 		if len(tasks) != 1 {
 			t.Fatalf("expected 1 yielded task, got %d", len(tasks))
@@ -107,7 +107,7 @@ func TestCoroutineVM_ParallelTasks(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		// Get initial yielded tasks
+		// GetField initial yielded tasks
 		tasks, err := vm.Step()
 		if err != nil {
 			t.Fatal(err)
@@ -937,7 +937,7 @@ func TestCoroutineVM_SharedBuffer(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		// Get initial tasks
+		// GetField initial tasks
 		tasks, _ := vm.Step()
 		if len(tasks) != 2 {
 			t.Fatalf("expected 2 yielded tasks, got %d", len(tasks))
@@ -986,7 +986,7 @@ func TestCoroutineVM_SharedBuffer(t *testing.T) {
 				t.Fatalf("unexpected write output: %v", writeResult)
 			}
 
-			// Get layerNotify for next value
+			// GetField layerNotify for next value
 			tasks, err = vm.Step(tasks[0])
 			if err != nil {
 				t.Fatal(err)
