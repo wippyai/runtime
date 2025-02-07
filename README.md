@@ -20,7 +20,7 @@ TODO Items:
 - terminating flow 5h - deal with http actually
 - update flow 2d (flush and get funcs on demand)
 - ns support 1d - executor and processes + ctx
-- import app support 3d
+- import app support 3d - need registry api contract
 - export state support 2d
 - metrics 4d (cut later or expose module)
 - reg api 1d (internal after update and hot reload and export)
@@ -35,7 +35,7 @@ TODO Items:
 - sql 4d
 - migrations
 - graph 4d
-- graph refactor or replacement 4h
+  DONE - graph refactor or replacement 4h
 - memory system 1w
 - terminal restart fails 4h
 - TESTS MORE TESTS! 10d
