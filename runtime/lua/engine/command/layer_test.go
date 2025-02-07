@@ -186,7 +186,7 @@ func TestLayer_MultipleConcurrentCommands(t *testing.T) {
 
 		// After commands are created, verify pending commands and process them
 		if contains(yields, "commands_created") {
-			// Get and verify pending commands
+			// GetField and verify pending commands
 			pendingCommands = commandLayer.GetPendingCommands()
 			assert.Equal(t, 3, len(pendingCommands), "should have three pending commands")
 
@@ -282,7 +282,7 @@ func TestCommandLayer_ErrorPropagation(t *testing.T) {
 	for len(tasks) > 0 {
 		for _, task := range tasks {
 			if len(task.Yielded) > 0 && task.Yielded[0].String() == "command_created" {
-				// Get the command and queue an error
+				// GetField the command and queue an error
 				pending := commandLayer.GetPendingCommands()
 				assert.Equal(t, 1, len(pending), "should have one pending command")
 
@@ -399,21 +399,21 @@ func TestCommand_LuaMethodsComplete(t *testing.T) {
 
 				switch yield {
 				case "initial_checks_done":
-					// Get first command and set success result
+					// GetField first command and set success result
 					pending := commandLayer.GetPendingCommands()
 					assert.Equal(t, 1, len(pending))
 					currentCmd = pending[0]
 					commandLayer.QueueResult(currentCmd, lua.LString("success"))
 
 				case "error_command_created":
-					// Get error command and queue error
+					// GetField error command and queue error
 					pending := commandLayer.GetPendingCommands()
 					assert.Equal(t, 1, len(pending))
 					currentCmd = pending[0]
 					commandLayer.QueueError(currentCmd, fmt.Errorf("test error"))
 
 				case "cancel_command_created":
-					// Get cancel command and mark as canceled
+					// GetField cancel command and mark as canceled
 					pending := commandLayer.GetPendingCommands()
 					assert.Equal(t, 1, len(pending))
 					currentCmd = pending[0]

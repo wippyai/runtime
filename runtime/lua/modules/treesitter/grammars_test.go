@@ -21,7 +21,7 @@ func TestGetLanguageInfo(t *testing.T) {
 		wantFound bool
 	}{
 		{
-			name:  "Get existing language (primary alias)",
+			name:  "GetField existing language (primary alias)",
 			alias: "go",
 			want: &LanguageInfo{
 				Name:     "go",
@@ -31,7 +31,7 @@ func TestGetLanguageInfo(t *testing.T) {
 			wantFound: true,
 		},
 		{
-			name:  "Get existing language (alternative alias)",
+			name:  "GetField existing language (alternative alias)",
 			alias: "js",
 			want: &LanguageInfo{
 				Name:     "javascript",
@@ -41,13 +41,13 @@ func TestGetLanguageInfo(t *testing.T) {
 			wantFound: true,
 		},
 		{
-			name:      "Get non-existing language",
+			name:      "GetField non-existing language",
 			alias:     "xyz",
 			want:      nil,
 			wantFound: false,
 		},
 		{
-			name:  "Get language with nil Language function",
+			name:  "GetField language with nil Language function",
 			alias: "foo",
 			want: &LanguageInfo{
 				Name:     "bar",

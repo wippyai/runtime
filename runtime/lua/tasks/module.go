@@ -75,7 +75,7 @@ func newTask(l *lua.LState, schedule *taskSchedule) lua.LValue {
 
 // channelFunc implements tasks.channel(buffer_size) -> yields channel request
 func channelFunc(l *lua.LState) int {
-	// Get buffer size with a default of 1
+	// GetField buffer size with a default of 1
 	bufferSize := l.OptInt(1, 1)
 	if bufferSize < 0 {
 		l.RaiseError("buffer size must be >= 0")

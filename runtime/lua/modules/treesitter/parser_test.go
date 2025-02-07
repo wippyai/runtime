@@ -501,7 +501,7 @@ func TestParserResetAndClose(t *testing.T) {
 		err = vm.DoString(context.Background(), `
 			local treesitter = require("treesitter")
 			
-			-- Get a parser and parse some code
+			-- GetField a parser and parse some code
 			local parser = treesitter.parser()
 			assert(parser:set_language("go"), "should set language")
 			

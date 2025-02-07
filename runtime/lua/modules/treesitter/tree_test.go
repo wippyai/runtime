@@ -467,7 +467,7 @@ func TestComplexTreeOperations(t *testing.T) {
 			]]
 			local tree = treesitter.parse("go", code)
 			
-			-- Get root node with offset to foo function
+			-- GetField root node with offset to foo function
 			local offset = {
 				row = 6,    -- 0-based row index
 				column = 0  -- start of line

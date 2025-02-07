@@ -600,12 +600,12 @@ func TestBufferedChannelClose(t *testing.T) {
 		ch:close() 
 		coroutine.yield("closed")
 
-		-- Get buffered value after close
+		-- GetField buffered value after close
 		local msg, ok = ch:receive()
 		assert(msg == "msg1" and ok == true, "should get buffered value")
 		coroutine.yield("received_buffered")
 
-		-- Get closed signal
+		-- GetField closed signal
 		local msg2, ok2 = ch:receive()
 		assert(msg2 == nil and ok2 == false, "should get closed signal")
 		coroutine.yield("received_closed")
