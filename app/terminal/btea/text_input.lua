@@ -119,20 +119,23 @@ function App()
                 self.current = (self.current % #self.inputs) + 1
                 local cmd = self.inputs[self.current].input:focus()
                 if cmd then self:dispatch(cmd) end
+                return false -- Consume the key event
             elseif self.keys.prev:matches(msg) then
                 -- Move to previous input
                 self.inputs[self.current].input:blur()
                 self.current = ((self.current - 2) % #self.inputs) + 1
                 local cmd = self.inputs[self.current].input:focus()
                 if cmd then self:dispatch(cmd) end
+                return false -- Consume the key event
             elseif msg.key.key_type == "enter" then
                 -- Store input result
                 self.results[self.current] = self.inputs[self.current].input:value()
                 self.inputs[self.current].input:set_value("")
+                return false -- Consume enter key event
             end
         end
 
-        -- Update current input
+        -- Update current input only if we haven't handled the key
         local cmd = self.inputs[self.current].input:update(msg)
         if cmd then self:dispatch(cmd) end
         return false

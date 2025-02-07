@@ -21,14 +21,20 @@ func MsgToLua(msg tea.Msg) lua.LValue {
 		keyTbl.RawSetString("type", lua.LString("key"))
 		keyTbl.RawSetString("alt", lua.LBool(msg.Alt))
 		keyTbl.RawSetString("paste", lua.LBool(msg.Paste))
-		keyTbl.RawSetString("string", lua.LString(msg.String()))
+
+		// Only set runes for actual text input, not for special keys
+		if msg.Type == tea.KeyRunes {
+			keyTbl.RawSetString("runes", lua.LString(string(msg.Runes)))
+			keyTbl.RawSetString("string", lua.LString(msg.String()))
+		} else {
+			// For special keys, don't set runes
+			keyTbl.RawSetString("string", lua.LString(""))
+		}
 
 		if keyStr, ok := keyTypeMap[msg.Type]; ok {
 			keyTbl.RawSetString("key_type", lua.LString(keyStr))
-		}
-
-		if len(msg.Runes) > 0 {
-			keyTbl.RawSetString("runes", lua.LString(msg.Runes))
+		} else if msg.Type == tea.KeyRunes {
+			keyTbl.RawSetString("key_type", lua.LString("char"))
 		}
 
 		tbl.RawSetString("key", keyTbl)

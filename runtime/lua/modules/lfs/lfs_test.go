@@ -25,7 +25,7 @@ func assertLua(l *lua.LState) int {
 
 func TestLFS(t *testing.T) {
 	// Test to verify that AddTaskQueue cannot handle arguments yet
-	logger, _ := zap.NewDevelopment()
+	logger := zap.NewNop()
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, apic.LoggerCtx, logger)
 
@@ -66,7 +66,7 @@ func TestLFS(t *testing.T) {
 
 func TestLFSModuleDoString(t *testing.T) {
 	// Test to verify that AddTaskQueue cannot handle arguments yet
-	logger, _ := zap.NewDevelopment()
+	logger := zap.NewNop()
 
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, apic.LoggerCtx, logger)

@@ -13,6 +13,8 @@ import (
 )
 
 // todo: we might need some whitelist of what can actually be called from Lua
+// todo: add security policies
+// todo: refactor to use the new runtime API
 
 // contextKey is a custom type for context keys to avoid string collisions
 type contextKey string
@@ -43,7 +45,9 @@ func NewExecutorModule(appContext context.Context) *Module {
 // Name returns the module name that will be used in Lua.
 func (m *Module) Name() string {
 	return "executor"
-}
+} // todo: rename to functions
+// todo: or maybe... keep api compatible, which it is basically?
+// todo: no
 
 // Loader implements the Lua module loader interface.
 // It registers the executor creation and management functions in the Lua state.
