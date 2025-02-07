@@ -248,7 +248,7 @@ while true do
         local event = result.value
         if event.type == "migrate" then         
             -- if you have no state simply confirm migration
-            process.migrate()
+            process.upgrade()
         end
         
     elseif result.channel == exits_ch then
@@ -280,7 +280,7 @@ end
 local state = {counter=0}
 
 -- to migrate process state
-process.migrate(state)
+process.upgrade(state) -- todo clarify naming
 ```
 
 > Process migration is equivalent to process starting new version of process with state as args. PID remains same.
