@@ -17,7 +17,6 @@ import (
 	jsonlib "github.com/ponyruntime/pony/runtime/lua/modules/json"
 	"github.com/ponyruntime/pony/runtime/lua/modules/lfs"
 	logglib "github.com/ponyruntime/pony/runtime/lua/modules/logger"
-	tempmod "github.com/ponyruntime/pony/runtime/lua/modules/temporal"
 	timelib "github.com/ponyruntime/pony/runtime/lua/modules/time"
 	"github.com/ponyruntime/pony/runtime/lua/modules/treesitter"
 	"github.com/ponyruntime/pony/runtime/lua/modules/uuid"
@@ -152,7 +151,6 @@ func main() {
 		websocket.NewWebSocketModule(log.Named("websocket")),
 		httpctx.NewHTTPContextModule(log.Named("http")),
 		treesitter.NewTreeSitterModule(log.Named("treesitter")),
-		tempmod.NewTemporalModule(log.Named("temporal")),
 		btea.NewBteaModule(log.Named("btea")),
 	)
 	// -- end of lua lang and modules
