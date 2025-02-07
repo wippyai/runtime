@@ -1,3 +1,5 @@
+version: 1.0/beta
+
 name: chart.terminal
 kind: terminal.lua
 meta:

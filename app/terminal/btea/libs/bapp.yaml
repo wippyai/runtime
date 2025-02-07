@@ -1,3 +1,5 @@
+version: 1.0/beta
+
 name: bapp
 kind: library.lua
 meta:

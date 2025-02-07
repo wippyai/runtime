@@ -1,3 +1,5 @@
+version: 1.0/beta
+
 name: chat_components
 kind: library.lua
 meta:
