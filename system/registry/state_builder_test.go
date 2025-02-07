@@ -287,7 +287,7 @@ func TestStateBuilder_BuildState_UnreachableVersion(t *testing.T) {
 		t.Fatalf("expected error, got nil")
 	}
 
-	expectedErrMsg := fmt.Sprintf("failed to get path from root to version %v: no path found", v2)
+	expectedErrMsg := fmt.Sprintf("failed to get path from root to version %v: no path exists from v0 to v2", v2)
 	if err.Error() != expectedErrMsg {
 		t.Errorf("unexpected error message.\ngot: %v\nwant: %v", err, expectedErrMsg)
 	}

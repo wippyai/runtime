@@ -73,22 +73,18 @@ func (sp *Sequencer) Transition(ctx context.Context, operations ...Operation) er
 
 func (sp *Sequencer) processStartOperations(ctx context.Context, operations []Operation) error {
 	// Build dependency graph for starts
-	g := graph.NewGraph()
+	g := graph.New[string]()
 
 	// Add all services as nodes
 	for _, op := range operations {
-		g.AddNode(graph.Node(op.ID))
+		g.AddNode(op.ID)
 	}
 
 	// Add dependency edges
 	for _, op := range operations {
 		for _, dep := range op.Dependencies {
 			// Add edge from dependency to dependent
-			g.AddEdge(graph.Edge{
-				From:   graph.Node(dep),
-				To:     graph.Node(op.ID),
-				Weight: 1,
-			})
+			g.AddEdge(dep, op.ID, 1)
 		}
 	}
 
@@ -105,18 +101,13 @@ func (sp *Sequencer) processStartOperations(ctx context.Context, operations []Op
 	}
 
 	// Process each level in sequence
-	for i := 0; i < levels.LevelCount(); i++ {
-		levelNodes, err := levels.GetLevel(i)
-		if err != nil {
-			return fmt.Errorf("failed to get level %d: %w", i, err)
-		}
-
+	allLevels := levels.AllLevels()
+	for i, levelNodes := range allLevels {
 		var wg sync.WaitGroup
 		errChan := make(chan error, len(levelNodes))
 
 		// Start services in current level in parallel
-		for _, node := range levelNodes {
-			serviceID := string(node)
+		for _, serviceID := range levelNodes {
 			if op, exists := opMap[serviceID]; exists {
 				wg.Add(1)
 				go func(op Operation) {
@@ -149,12 +140,12 @@ func (sp *Sequencer) processStartOperations(ctx context.Context, operations []Op
 }
 
 func (sp *Sequencer) processStopOperations(ctx context.Context, operations []Operation) error {
-	g := graph.NewGraph()
+	g := graph.New[string]()
 	opMap := make(map[string]Operation)
 
 	// Add all nodes first
 	for _, op := range operations {
-		g.AddNode(graph.Node(op.ID))
+		g.AddNode(op.ID)
 		opMap[op.ID] = op
 	}
 
@@ -165,11 +156,7 @@ func (sp *Sequencer) processStopOperations(ctx context.Context, operations []Ope
 			if _, exists := opMap[depID]; exists {
 				// Add edge FROM dependent TO dependency
 				// This ensures dependent is processed before its dependencies
-				g.AddEdge(graph.Edge{
-					From:   graph.Node(op.ID), // Dependent
-					To:     graph.Node(depID), // Dependency
-					Weight: 1,
-				})
+				g.AddEdge(op.ID, depID, 1)
 			}
 		}
 	}
@@ -180,18 +167,13 @@ func (sp *Sequencer) processStopOperations(ctx context.Context, operations []Ope
 	}
 
 	// Process each level in sequence
-	for i := 0; i < levels.LevelCount(); i++ {
-		levelNodes, err := levels.GetLevel(i)
-		if err != nil {
-			return fmt.Errorf("failed to get level %d: %w", i, err)
-		}
-
+	allLevels := levels.AllLevels()
+	for i, levelNodes := range allLevels {
 		var wg sync.WaitGroup
 		errChan := make(chan error, len(levelNodes))
 
 		// Stop services in current level in parallel
-		for _, node := range levelNodes {
-			serviceID := string(node)
+		for _, serviceID := range levelNodes {
 			if op, exists := opMap[serviceID]; exists {
 				wg.Add(1)
 				go func(op Operation) {

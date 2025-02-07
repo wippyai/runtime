@@ -169,7 +169,7 @@ func TestVersionMap(t *testing.T) {
 			from:        v1,
 			to:          New(2),
 			expected:    nil,
-			expectError: errors.New("no path found"),
+			expectError: errors.New("no path exists from v1 to v2"),
 		},
 		{
 			name: "Add and Get version",
