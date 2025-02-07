@@ -99,25 +99,43 @@ func newStyle(l *lua.LState) int {
 	return 1
 }
 
-// todo: find who is using it improperly
-func CheckStyle(l *lua.LState) *Style {
-	ud := l.CheckUserData(1)
+// CheckStyle checks and returns a Style from the Lua state at the given index
+func CheckStyle(l *lua.LState, index int) *Style {
+	ud := l.CheckUserData(index)
 	if v, ok := ud.Value.(*Style); ok {
 		return v
 	}
-	l.ArgError(1, "Style expected")
+	l.ArgError(index, "Style expected")
 	return nil
 }
 
+// ToStyle converts a Lua value to a Style if possible
+func ToStyle(value lua.LValue) (*Style, bool) {
+	if ud, ok := value.(*lua.LUserData); ok {
+		if style, ok := ud.Value.(*Style); ok {
+			return style, true
+		}
+	}
+	return nil, false
+}
+
+// PushStyle creates a new Style userdata and pushes it onto the stack
+func PushStyle(l *lua.LState, style *Style) {
+	ud := l.NewUserData()
+	ud.Value = style
+	l.SetMetatable(ud, l.GetTypeMetatable("btea.Style"))
+	l.Push(ud)
+}
+
 func styleRender(l *lua.LState) int {
-	s := CheckStyle(l)
+	s := CheckStyle(l, 1)
 	str := l.CheckString(2)
 	l.Push(lua.LString(s.Style.Render(str)))
 	return 1
 }
 
 func styleForeground(l *lua.LState) int {
-	s := CheckStyle(l)
+	s := CheckStyle(l, 1)
 	color := l.CheckString(2)
 	newStyle := &Style{Style: s.Style.Foreground(lipgloss.Color(color))}
 	ud := l.NewUserData()
@@ -128,7 +146,7 @@ func styleForeground(l *lua.LState) int {
 }
 
 func styleBackground(l *lua.LState) int {
-	s := CheckStyle(l)
+	s := CheckStyle(l, 1)
 	color := l.CheckString(2)
 	newStyle := &Style{Style: s.Style.Background(lipgloss.Color(color))}
 	ud := l.NewUserData()
@@ -139,7 +157,7 @@ func styleBackground(l *lua.LState) int {
 }
 
 func styleBold(l *lua.LState) int {
-	s := CheckStyle(l)
+	s := CheckStyle(l, 1)
 	newStyle := &Style{Style: s.Style.Bold(true)}
 	ud := l.NewUserData()
 	ud.Value = newStyle
@@ -149,7 +167,7 @@ func styleBold(l *lua.LState) int {
 }
 
 func styleItalic(l *lua.LState) int {
-	s := CheckStyle(l)
+	s := CheckStyle(l, 1)
 	newStyle := &Style{Style: s.Style.Italic(true)}
 	ud := l.NewUserData()
 	ud.Value = newStyle
@@ -159,7 +177,7 @@ func styleItalic(l *lua.LState) int {
 }
 
 func styleUnderline(l *lua.LState) int {
-	s := CheckStyle(l)
+	s := CheckStyle(l, 1)
 	newStyle := &Style{Style: s.Style.Underline(true)}
 	ud := l.NewUserData()
 	ud.Value = newStyle
@@ -169,7 +187,7 @@ func styleUnderline(l *lua.LState) int {
 }
 
 func styleStrikethrough(l *lua.LState) int {
-	s := CheckStyle(l)
+	s := CheckStyle(l, 1)
 	newStyle := &Style{Style: s.Style.Strikethrough(true)}
 	ud := l.NewUserData()
 	ud.Value = newStyle
@@ -179,7 +197,7 @@ func styleStrikethrough(l *lua.LState) int {
 }
 
 func styleFaint(l *lua.LState) int {
-	s := CheckStyle(l)
+	s := CheckStyle(l, 1)
 	newStyle := &Style{Style: s.Style.Faint(true)}
 	ud := l.NewUserData()
 	ud.Value = newStyle
@@ -189,7 +207,7 @@ func styleFaint(l *lua.LState) int {
 }
 
 func styleBlink(l *lua.LState) int {
-	s := CheckStyle(l)
+	s := CheckStyle(l, 1)
 	newStyle := &Style{Style: s.Style.Blink(true)}
 	ud := l.NewUserData()
 	ud.Value = newStyle
@@ -199,7 +217,7 @@ func styleBlink(l *lua.LState) int {
 }
 
 func styleReverse(l *lua.LState) int {
-	s := CheckStyle(l)
+	s := CheckStyle(l, 1)
 	newStyle := &Style{Style: s.Style.Reverse(true)}
 	ud := l.NewUserData()
 	ud.Value = newStyle
@@ -209,7 +227,7 @@ func styleReverse(l *lua.LState) int {
 }
 
 func stylePadding(l *lua.LState) int {
-	s := CheckStyle(l)
+	s := CheckStyle(l, 1)
 	top := l.CheckInt(2)
 	right := l.OptInt(3, top)
 	bottom := l.OptInt(4, top)
@@ -223,7 +241,7 @@ func stylePadding(l *lua.LState) int {
 }
 
 func styleMargin(l *lua.LState) int {
-	s := CheckStyle(l)
+	s := CheckStyle(l, 1)
 	top := l.CheckInt(2)
 	right := l.OptInt(3, top)
 	bottom := l.OptInt(4, top)
@@ -237,7 +255,7 @@ func styleMargin(l *lua.LState) int {
 }
 
 func styleBorder(l *lua.LState) int {
-	s := CheckStyle(l)
+	s := CheckStyle(l, 1)
 	styleStr := l.CheckString(2)
 	var border lipgloss.Border
 	switch styleStr {
@@ -261,7 +279,7 @@ func styleBorder(l *lua.LState) int {
 }
 
 func styleCustomBorder(l *lua.LState) int {
-	s := CheckStyle(l)
+	s := CheckStyle(l, 1)
 	borderTbl := l.CheckTable(2)
 
 	border := lipgloss.Border{}
@@ -298,7 +316,7 @@ func styleCustomBorder(l *lua.LState) int {
 }
 
 func styleWidth(l *lua.LState) int {
-	s := CheckStyle(l)
+	s := CheckStyle(l, 1)
 	width := l.CheckInt(2)
 	newStyle := &Style{Style: s.Style.Width(width)}
 	ud := l.NewUserData()
@@ -309,7 +327,7 @@ func styleWidth(l *lua.LState) int {
 }
 
 func styleHeight(l *lua.LState) int {
-	s := CheckStyle(l)
+	s := CheckStyle(l, 1)
 	height := l.CheckInt(2)
 	newStyle := &Style{Style: s.Style.Height(height)}
 	ud := l.NewUserData()
@@ -320,7 +338,7 @@ func styleHeight(l *lua.LState) int {
 }
 
 func styleAlign(l *lua.LState) int {
-	s := CheckStyle(l)
+	s := CheckStyle(l, 1)
 	align := lipgloss.Position(l.CheckInt(2))
 	newStyle := &Style{Style: s.Style.Align(align)}
 	ud := l.NewUserData()
@@ -331,7 +349,7 @@ func styleAlign(l *lua.LState) int {
 }
 
 func styleInline(l *lua.LState) int {
-	s := CheckStyle(l)
+	s := CheckStyle(l, 1)
 	inline := l.CheckBool(2)
 	newStyle := &Style{Style: s.Style.Inline(inline)}
 	ud := l.NewUserData()
@@ -342,7 +360,7 @@ func styleInline(l *lua.LState) int {
 }
 
 func styleMaxWidth(l *lua.LState) int {
-	s := CheckStyle(l)
+	s := CheckStyle(l, 1)
 	width := l.CheckInt(2)
 	newStyle := &Style{Style: s.Style.MaxWidth(width)}
 	ud := l.NewUserData()
@@ -353,7 +371,7 @@ func styleMaxWidth(l *lua.LState) int {
 }
 
 func styleMaxHeight(l *lua.LState) int {
-	s := CheckStyle(l)
+	s := CheckStyle(l, 1)
 	height := l.CheckInt(2)
 	newStyle := &Style{Style: s.Style.MaxHeight(height)}
 	ud := l.NewUserData()
@@ -364,7 +382,7 @@ func styleMaxHeight(l *lua.LState) int {
 }
 
 func styleTabWidth(l *lua.LState) int {
-	s := CheckStyle(l)
+	s := CheckStyle(l, 1)
 	width := l.CheckInt(2)
 	newStyle := &Style{Style: s.Style.TabWidth(width)}
 	ud := l.NewUserData()
@@ -375,7 +393,7 @@ func styleTabWidth(l *lua.LState) int {
 }
 
 func styleCopy(l *lua.LState) int {
-	s := CheckStyle(l)
+	s := CheckStyle(l, 1)
 	newStyle := &Style{Style: s.Style.Copy()}
 	ud := l.NewUserData()
 	ud.Value = newStyle
@@ -385,7 +403,7 @@ func styleCopy(l *lua.LState) int {
 }
 
 func styleInherit(l *lua.LState) int {
-	s := CheckStyle(l)
+	s := CheckStyle(l, 1)
 	if ud, ok := l.Get(2).(*lua.LUserData); ok {
 		if other, ok := ud.Value.(*Style); ok {
 			newStyle := &Style{Style: s.Style.Inherit(other.Style)}
@@ -402,7 +420,7 @@ func styleInherit(l *lua.LState) int {
 
 // Border styling methods
 func styleBorderForeground(l *lua.LState) int {
-	s := CheckStyle(l)
+	s := CheckStyle(l, 1)
 	color := l.CheckString(2)
 	newStyle := &Style{Style: s.Style.BorderForeground(lipgloss.Color(color))}
 	ud := l.NewUserData()
@@ -413,7 +431,7 @@ func styleBorderForeground(l *lua.LState) int {
 }
 
 func styleBorderBackground(l *lua.LState) int {
-	s := CheckStyle(l)
+	s := CheckStyle(l, 1)
 	color := l.CheckString(2)
 	newStyle := &Style{Style: s.Style.BorderBackground(lipgloss.Color(color))}
 	ud := l.NewUserData()
@@ -425,7 +443,7 @@ func styleBorderBackground(l *lua.LState) int {
 
 // Individual border edge styling
 func styleBorderTopForeground(l *lua.LState) int {
-	s := CheckStyle(l)
+	s := CheckStyle(l, 1)
 	color := l.CheckString(2)
 	newStyle := &Style{Style: s.Style.BorderTopForeground(lipgloss.Color(color))}
 	ud := l.NewUserData()
@@ -436,7 +454,7 @@ func styleBorderTopForeground(l *lua.LState) int {
 }
 
 func styleBorderBottomForeground(l *lua.LState) int {
-	s := CheckStyle(l)
+	s := CheckStyle(l, 1)
 	color := l.CheckString(2)
 	newStyle := &Style{Style: s.Style.BorderBottomForeground(lipgloss.Color(color))}
 	ud := l.NewUserData()
@@ -447,7 +465,7 @@ func styleBorderBottomForeground(l *lua.LState) int {
 }
 
 func styleBorderLeftForeground(l *lua.LState) int {
-	s := CheckStyle(l)
+	s := CheckStyle(l, 1)
 	color := l.CheckString(2)
 	newStyle := &Style{Style: s.Style.BorderLeftForeground(lipgloss.Color(color))}
 	ud := l.NewUserData()
@@ -458,7 +476,7 @@ func styleBorderLeftForeground(l *lua.LState) int {
 }
 
 func styleBorderRightForeground(l *lua.LState) int {
-	s := CheckStyle(l)
+	s := CheckStyle(l, 1)
 	color := l.CheckString(2)
 	newStyle := &Style{Style: s.Style.BorderRightForeground(lipgloss.Color(color))}
 	ud := l.NewUserData()
@@ -469,7 +487,7 @@ func styleBorderRightForeground(l *lua.LState) int {
 }
 
 func styleBorderTopBackground(l *lua.LState) int {
-	s := CheckStyle(l)
+	s := CheckStyle(l, 1)
 	color := l.CheckString(2)
 	newStyle := &Style{Style: s.Style.BorderTopBackground(lipgloss.Color(color))}
 	ud := l.NewUserData()
@@ -480,7 +498,7 @@ func styleBorderTopBackground(l *lua.LState) int {
 }
 
 func styleBorderBottomBackground(l *lua.LState) int {
-	s := CheckStyle(l)
+	s := CheckStyle(l, 1)
 	color := l.CheckString(2)
 	newStyle := &Style{Style: s.Style.BorderBottomBackground(lipgloss.Color(color))}
 	ud := l.NewUserData()
@@ -491,7 +509,7 @@ func styleBorderBottomBackground(l *lua.LState) int {
 }
 
 func styleBorderLeftBackground(l *lua.LState) int {
-	s := CheckStyle(l)
+	s := CheckStyle(l, 1)
 	color := l.CheckString(2)
 	newStyle := &Style{Style: s.Style.BorderLeftBackground(lipgloss.Color(color))}
 	ud := l.NewUserData()
@@ -502,7 +520,7 @@ func styleBorderLeftBackground(l *lua.LState) int {
 }
 
 func styleBorderRightBackground(l *lua.LState) int {
-	s := CheckStyle(l)
+	s := CheckStyle(l, 1)
 	color := l.CheckString(2)
 	newStyle := &Style{Style: s.Style.BorderRightBackground(lipgloss.Color(color))}
 	ud := l.NewUserData()
@@ -514,7 +532,7 @@ func styleBorderRightBackground(l *lua.LState) int {
 
 // Alignment methods
 func styleAlignVertical(l *lua.LState) int {
-	s := CheckStyle(l)
+	s := CheckStyle(l, 1)
 	align := lipgloss.Position(l.CheckInt(2))
 	newStyle := &Style{Style: s.Style.AlignVertical(align)}
 	ud := l.NewUserData()
@@ -526,7 +544,7 @@ func styleAlignVertical(l *lua.LState) int {
 
 // Space handling methods
 func styleUnderlineSpaces(l *lua.LState) int {
-	s := CheckStyle(l)
+	s := CheckStyle(l, 1)
 	enabled := l.CheckBool(2)
 	newStyle := &Style{Style: s.Style.UnderlineSpaces(enabled)}
 	ud := l.NewUserData()
@@ -537,7 +555,7 @@ func styleUnderlineSpaces(l *lua.LState) int {
 }
 
 func styleStrikethroughSpaces(l *lua.LState) int {
-	s := CheckStyle(l)
+	s := CheckStyle(l, 1)
 	enabled := l.CheckBool(2)
 	newStyle := &Style{Style: s.Style.StrikethroughSpaces(enabled)}
 	ud := l.NewUserData()
@@ -549,7 +567,7 @@ func styleStrikethroughSpaces(l *lua.LState) int {
 
 // Whitespace coloring
 func styleColorWhitespace(l *lua.LState) int {
-	s := CheckStyle(l)
+	s := CheckStyle(l, 1)
 	enabled := l.CheckBool(2)
 	newStyle := &Style{Style: s.Style.ColorWhitespace(enabled)}
 	ud := l.NewUserData()
@@ -561,7 +579,7 @@ func styleColorWhitespace(l *lua.LState) int {
 
 // Margin background
 func styleMarginBackground(l *lua.LState) int {
-	s := CheckStyle(l)
+	s := CheckStyle(l, 1)
 	color := l.CheckString(2)
 	newStyle := &Style{Style: s.Style.MarginBackground(lipgloss.Color(color))}
 	ud := l.NewUserData()
@@ -573,7 +591,7 @@ func styleMarginBackground(l *lua.LState) int {
 
 // Text transformation
 func styleSetString(l *lua.LState) int {
-	s := CheckStyle(l)
+	s := CheckStyle(l, 1)
 	str := l.CheckString(2)
 	newStyle := &Style{Style: s.Style.SetString(str)}
 	ud := l.NewUserData()
@@ -584,7 +602,7 @@ func styleSetString(l *lua.LState) int {
 }
 
 func styleGetValue(l *lua.LState) int {
-	s := CheckStyle(l)
+	s := CheckStyle(l, 1)
 	l.Push(lua.LString(s.Style.Value()))
 	return 1
 }

@@ -9,7 +9,6 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/render"
 	lua "github.com/yuin/gopher-lua"
 	"log"
-	"time"
 )
 
 // TextInput wraps textinput.Model with validation
@@ -194,8 +193,11 @@ func newTextInput(l *lua.LState) int {
 				}
 			}
 		case "blink_speed":
-			// todo; unify parse duration
-			model.Cursor.BlinkSpeed = time.Duration(lua.LVAsNumber(v)) * time.Millisecond
+			d, err := protocol.ParseDuration(v)
+			if err == nil {
+				model.Cursor.BlinkSpeed = d
+			}
+
 		case "key_map":
 			model.KeyMap = processInputKeyMap(v)
 		}
@@ -234,25 +236,13 @@ func textInputUpdate(l *lua.LState) int {
 	}
 
 	newModel, cmd := ti.model.Update(teaMsg)
-
-	// Wrap the new model value in TextInput
-	newTi := &TextInput{
-		model:    newModel,
-		validate: ti.validate,
-		luaState: ti.luaState,
-	}
-
-	// Create new userdata with the updated model
-	ud := l.NewUserData()
-	ud.Value = newTi
-	l.SetMetatable(ud, l.GetTypeMetatable("btea.TextInput"))
-	l.Push(ud)
+	ti.model = newModel // we are consistently mutable
 
 	if cmd != nil {
 		l.Push(protocol.WrapCommand(l, cmd))
-		return 2
+		return 1
 	}
-	return 1
+	return 0
 }
 
 func textInputView(l *lua.LState) int {
@@ -426,7 +416,7 @@ func textInputSetStyle(l *lua.LState) int {
 	}
 
 	styleType := l.CheckString(2)
-	style := render.CheckStyle(l) // todo: bad use
+	style := render.CheckStyle(l, 2)
 	if style == nil {
 		return 0
 	}
