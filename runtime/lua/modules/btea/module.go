@@ -45,7 +45,7 @@ func (m *Module) Loader(l *lua.LState) int {
 	models.RegisterViewport(l, mod)
 	models.RegisterTable(l, mod)
 
-	// this one is special
+	// lists of elements
 	list.RegisterList(l, mod)
 
 	// additional view components
