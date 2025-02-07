@@ -35,15 +35,25 @@ func newBinding(l *lua.LState) int {
 		if t, ok := keysTable.(*lua.LTable); ok {
 			t.ForEach(func(_, v lua.LValue) {
 				if str, ok := v.(lua.LString); ok {
-					keys = append(keys, string(str))
+					k := string(str)
+					keys = append(keys, k)
+					// Special case: when "space" is specified, also add the actual space character
+					if k == "space" {
+						keys = append(keys, " ")
+					}
 				}
 			})
 		} else if str, ok := keysTable.(lua.LString); ok {
-			keys = append(keys, string(str))
+			k := string(str)
+			keys = append(keys, k)
+			// Handle single string case for space as well
+			if k == "space" {
+				keys = append(keys, " ")
+			}
 		}
 	}
 
-	// Get help info
+	// Rest of the code remains the same...
 	var helpKey, helpDesc string
 	if helpTable := opts.RawGetString("help"); helpTable != lua.LNil {
 		if t, ok := helpTable.(*lua.LTable); ok {

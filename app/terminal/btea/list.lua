@@ -9,7 +9,7 @@ function App()
         quit = { keys = { "q", "ctrl+c" } },
         up = { keys = { "up", "k" } },
         down = { keys = { "down", "j" } },
-        select = { keys = { "space", " " } },
+        select = { keys = { "space" } },
         toggle_filter = { keys = { "/" } }
     })
 
