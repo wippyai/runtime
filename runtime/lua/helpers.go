@@ -119,7 +119,7 @@ func (m *RuntimeManager) registerWorkflow(ctx context.Context, id registry.ID, r
 		Path:   events.Path(id),
 		Data: runtime.RegisterWorkflow{
 			Target:  id,
-			Handler: runner,
+			Factory: runner,
 		},
 	})
 }

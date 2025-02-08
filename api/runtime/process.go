@@ -34,6 +34,8 @@ type (
 		Stop() error
 	}
 
+	Flavor string
+
 	// todo: flavors
 
 	// todo: kill
@@ -41,8 +43,8 @@ type (
 	// for a specific target ID. The handler can be any type, allowing for
 	// flexible workflow implementations that can be type-checked at higher levels.
 	RegisterWorkflow struct {
-		Target  registry.ID
-		Handler func() any
+		Target  Target
+		Factory func() Process
 		Flavor  string
 	}
 
@@ -51,7 +53,7 @@ type (
 	// for a specific target ID. This enables dynamic workflow management
 	// by allowing handlers to be removed at runtime.
 	DeleteWorkflow struct {
-		Target registry.ID
+		Target Target
 	}
 
 	// ProcessFactory is the interface for managing workflow handlers.

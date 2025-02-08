@@ -1,11 +1,7 @@
 package runtime
 
 import (
-	"context"
-
 	"github.com/ponyruntime/pony/api/events"
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
 )
 
 // Event system and kind constants for the executor package
@@ -27,21 +23,6 @@ const (
 )
 
 type (
-	// Task represents a unit of work to be executed by the executor.
-	// It contains the execution context, target identifier, and input payloads.
-	Task struct {
-		Context  context.Context
-		Target   registry.ID
-		Payloads payload.Payloads
-	}
-
-	// Result represents the outcome of an executed task.
-	// It contains either a successful payload or an error.
-	Result struct {
-		Payload payload.Payload
-		Error   error
-	}
-
 	// Function is a function type that processes a Task and returns
 	// a channel for streaming result(s) and any immediate error that occurs
 	// during task initialization.
