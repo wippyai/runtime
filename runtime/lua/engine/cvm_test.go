@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/ponyruntime/pony/runtime/lua/engine/errors"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -2943,6 +2944,162 @@ func TestCoroutineVM_GoErrorPropagation(t *testing.T) {
 		}
 		if !strings.Contains(stack, "go_produce_error") { // Go frame
 			t.Fatal("stack trace missing Go frames")
+		}
+	})
+}
+
+func TestCoroutineVM_PcallErrorHandling(t *testing.T) {
+	logger := zap.NewNop()
+
+	t.Run("coroutine pcall error wrapping", func(t *testing.T) {
+		vm, err := NewCVM(logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm.Close()
+
+		errors.RegisterErrorsModule(vm.vm.state)
+
+		// Register a function that creates a wrapped Go error
+		vm.vm.state.SetGlobal("go_produce_error", vm.vm.state.NewFunction(func(l *lua.LState) int {
+			// Create a Go error
+			goErr := fmt.Errorf("test go error")
+
+			// Wrap it to capture Go stack trace
+			wrappedErr := errors.WrapError(l, goErr, "error context")
+
+			// Create userdata with error metatable
+			ud := l.NewUserData()
+			ud.Value = wrappedErr
+			l.SetMetatable(ud, l.GetTypeMetatable("error"))
+
+			l.Push(ud)
+			return 1
+		}))
+
+		// Start coroutines - one produces error, other handles with pcall
+		err = vm.StartString(context.Background(), `
+			-- First coroutine that creates and yields a Go error
+			function error_producer()
+				local err = go_produce_error()  -- Will be injected by CVM
+				coroutine.yield(err)
+				return "producer_done"
+			end
+
+			-- Second coroutine that receives error and handles with pcall
+			function error_consumer()
+				local err = coroutine.yield("ready")  -- First yield to get error
+				
+				-- Use pcall to handle the error and add our own context
+				local ok, result = pcall(function()
+					error(err)  -- This will fail with the original error
+				end)
+				
+				if not ok then
+					-- Add our own context by wrapping the error
+					local wrapped = errors.wrap(result, "consumer wrapper")
+					error(wrapped)  -- Re-raise with our additional context
+				end
+				
+				return "consumer_done"  -- Should never reach here
+			end
+
+			-- Spawn both coroutines
+			coroutine.spawn(error_producer)
+			coroutine.spawn(error_consumer)
+		`, "error_test")
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// First Step - both coroutines should yield
+		tasks, err := vm.Step()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(tasks) != 2 {
+			t.Fatalf("expected 2 yielded tasks, got %d", len(tasks))
+		}
+
+		// Find producer and consumer tasks
+		var producerTask, consumerTask *Task
+		for _, task := range tasks {
+			if len(task.Yielded) == 1 {
+				if ud, ok := task.Yielded[0].(*lua.LUserData); ok {
+					if _, ok := ud.Value.(*errors.WrappedError); ok {
+						producerTask = task
+					}
+				} else if task.Yielded[0].String() == "ready" {
+					consumerTask = task
+				}
+			}
+		}
+
+		if producerTask == nil || consumerTask == nil {
+			t.Fatal("failed to identify both tasks")
+		}
+
+		// Send error from producer to consumer
+		consumerTask.Resumed = producerTask.Yielded
+
+		// Step consumer - should fail with wrapped error that includes both contexts
+		tasks, err = vm.Step(consumerTask)
+		if err == nil {
+			t.Fatal("expected error when resuming with Go error")
+		}
+		// Verify error is a wrapped error
+		wrappedErr := errors.GetWrappedError(err)
+		if wrappedErr == nil {
+			t.Fatal("expected wrapped error")
+		}
+
+		// Verify error message contains both contexts
+		errMsg := wrappedErr.Error()
+		if !strings.Contains(errMsg, "consumer wrapper") {
+			t.Error("error missing consumer context")
+		}
+		if !strings.Contains(errMsg, "error context") {
+			t.Error("error missing original context")
+		}
+
+		// Verify error stack contains all relevant frames
+		stack := wrappedErr.Stack()
+
+		requiredFrames := []string{
+			"consumer wrapper", // Consumer wrapper
+			"go_produce_error", // Original Go function
+			"error_test:20",    // error() call
+			"error_test:4",     // coroutine.yield
+		}
+
+		for _, frame := range requiredFrames {
+			if !strings.Contains(stack, frame) {
+				t.Errorf("stack missing required frame: %s", frame)
+			}
+		}
+
+		// Verify error chain preserves both wrapper contexts
+		var contexts []string
+		current := wrappedErr
+		for current != nil {
+			if current.Context != "" {
+				contexts = append(contexts, current.Context)
+			}
+			if next := errors.GetWrappedError(current.Unwrap()); next != nil {
+				current = next
+			} else {
+				break
+			}
+		}
+
+		expectedContexts := []string{
+			"consumer wrapper",
+			"error context",
+		}
+
+		if !reflect.DeepEqual(contexts, expectedContexts) {
+			t.Errorf("wrong context order:\nwant: %v\ngot: %v", expectedContexts, contexts)
 		}
 	})
 }

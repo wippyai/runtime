@@ -258,7 +258,7 @@ func TestWrappedErrorReturnAndLuaError(t *testing.T) {
 	// Return wrapped error directly without raising
 	testFunc := func(L *lua.LState) int {
 		err := fmt.Errorf("test error from Go")
-		wrapped := WrapError(L, err, "") // Empty context for direct error
+		wrapped := WrapError(L, err, "") // Empty Context for direct error
 
 		// Create userdata and return it (don't raise)
 		ud := L.NewUserData()
@@ -300,7 +300,7 @@ func TestErrorToString(t *testing.T) {
 
 	testFunc := func(L *lua.LState) int {
 		err := fmt.Errorf("test error message")
-		wrapped := WrapError(L, err, "") // Empty context for simple error
+		wrapped := WrapError(L, err, "") // Empty Context for simple error
 
 		ud := L.NewUserData()
 		ud.Value = wrapped
@@ -441,15 +441,15 @@ func TestLuaErrorWrappingWithPcall(t *testing.T) {
 	var contexts []string
 	current := wrapped
 	for current != nil {
-		if current.context != "" {
-			contexts = append(contexts, current.context)
+		if current.Context != "" {
+			contexts = append(contexts, current.Context)
 		}
 		current = GetWrappedError(current.Unwrap())
 	}
 
 	expectedContexts := []string{"top error", "middle error"}
 	if !reflect.DeepEqual(contexts, expectedContexts) {
-		t.Errorf("wrong context order:\nwant: %v\ngot:  %v", expectedContexts, contexts)
+		t.Errorf("wrong Context order:\nwant: %v\ngot:  %v", expectedContexts, contexts)
 	}
 }
 
@@ -578,8 +578,8 @@ func TestComplexInteropErrorWrapping(t *testing.T) {
 	var contexts []string
 	var current = wrapped
 	for current != nil {
-		if current.context != "" {
-			contexts = append(contexts, current.context)
+		if current.Context != "" {
+			contexts = append(contexts, current.Context)
 		}
 		if next := GetWrappedError(current.Unwrap()); next != nil {
 			current = next
@@ -599,7 +599,7 @@ func TestComplexInteropErrorWrapping(t *testing.T) {
 	} else {
 		for i, expected := range expectedOrder {
 			if contexts[i] != expected {
-				t.Errorf("wrong context at position %d: expected %q, got %q", i, expected, contexts[i])
+				t.Errorf("wrong Context at position %d: expected %q, got %q", i, expected, contexts[i])
 			}
 		}
 	}
