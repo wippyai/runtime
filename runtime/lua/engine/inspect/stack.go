@@ -85,27 +85,26 @@ func GetStackTrace(L *lua.LState) *StackTrace {
 
 // getStackFrame captures information about a single stack frame
 func getStackFrame(L *lua.LState, level int) (StackFrame, bool) {
-	// Get basic debug info
 	ar, ok := L.GetStack(level)
 	if !ok {
 		return StackFrame{}, false
 	}
 
-	frame := StackFrame{Level: level}
-
-	// Create table for function info
+	// Get debug info with function
 	funcTable := L.NewTable()
-	if _, err := L.GetInfo("Slnuf", ar, funcTable); err != nil {
-		return frame, false
+	if _, err := L.GetInfo("nSluf", ar, funcTable); err != nil {
+		return StackFrame{}, false
 	}
 
-	// Fill in basic frame info
-	frame.Source = ar.Source
-	frame.CurrentLine = ar.CurrentLine
-	frame.Name = ar.Name
-	frame.FuncType = ar.What
+	frame := StackFrame{
+		Level:       level,
+		Source:      ar.Source,
+		CurrentLine: ar.CurrentLine,
+		Name:        ar.Name,
+		FuncType:    ar.What,
+	}
 
-	// Get local variables
+	// Get locals (parameters and local vars)
 	for i := 1; ; i++ {
 		name, value := L.GetLocal(ar, i)
 		if name == "" {
@@ -114,7 +113,7 @@ func getStackFrame(L *lua.LState, level int) (StackFrame, bool) {
 		frame.Locals = append(frame.Locals, Local{name, value})
 	}
 
-	// Get upvalues if we have function
+	// Only get upvalues for Lua functions
 	if fn := funcTable.RawGet(lua.LString("f")); fn != lua.LNil {
 		if luaFn, ok := fn.(*lua.LFunction); ok {
 			for i := 1; ; i++ {
@@ -144,24 +143,6 @@ func GetAllCoroutineStacks(L *lua.LState) []*StackTrace {
 			trace := GetStackTrace(co)
 			// Only add if it has frames (active/yielded coroutine)
 			if len(trace.Frames) > 0 {
-				traces = append(traces, trace)
-			}
-		}
-	})
-
-	// Also check the registry for any additional coroutines
-	registry := L.Get(lua.RegistryIndex).(*lua.LTable)
-	registry.ForEach(func(_, value lua.LValue) {
-		if co, ok := value.(*lua.LState); ok {
-			trace := GetStackTrace(co)
-			// Only add if it has frames (active/yielded coroutine)
-			if len(trace.Frames) > 0 {
-				// Avoid duplicates - check if we already have this thread
-				for _, existing := range traces {
-					if existing.ThreadID == fmt.Sprintf("%p", co) {
-						return
-					}
-				}
 				traces = append(traces, trace)
 			}
 		}

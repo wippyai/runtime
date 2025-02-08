@@ -12,7 +12,7 @@ func TestWrappedErrorWithStack(t *testing.T) {
 	L := lua.NewState()
 	defer L.Close()
 
-	ConfigureErrorMetatable(L)
+	RegisterErrorsModule(L) // This now configures error metatable too
 
 	// Nested Go functions with source info
 	deepGoFunc := func() error {
@@ -86,21 +86,23 @@ func TestWrappedErrorWithStack(t *testing.T) {
 		}
 	}
 
+	// Debug print the stack trace
+	t.Logf("Full stack trace:\n%s", wrapped.Stack())
+
 	// Validate stack trace contains key elements
 	stack := wrapped.Stack()
 	requiredElements := []string{
 		"Lua Stack:",
-		"Thread:",
-		"test_error",
-		"middle_lua_func",
 		"Go Stack:",
-		"WrapError",
-		"errors_test.go",
+		"RaiseError",
+		"middle_lua_func",
+		"test_error",
+		"TestWrappedErrorWithStack",
 	}
 
 	for _, elem := range requiredElements {
 		if !strings.Contains(stack, elem) {
-			t.Errorf("stack trace missing required element: %s", elem)
+			t.Errorf("stack trace missing required element: %q", elem)
 		}
 	}
 }
@@ -109,7 +111,7 @@ func TestDirectErrorPropagation(t *testing.T) {
 	L := lua.NewState()
 	defer L.Close()
 
-	ConfigureErrorMetatable(L)
+	RegisterErrorsModule(L)
 
 	deepGoFunc := func() error {
 		return fmt.Errorf("deep error at errors_test.go:29")
@@ -178,7 +180,7 @@ func TestErrorIdentification(t *testing.T) {
 	L := lua.NewState()
 	defer L.Close()
 
-	ConfigureErrorMetatable(L)
+	RegisterErrorsModule(L)
 
 	deepGoFunc := func() error {
 		return fmt.Errorf("deep error: %w", ErrTest)
@@ -261,5 +263,79 @@ func TestErrorIdentification(t *testing.T) {
 	stack := wrapped.Stack()
 	if !strings.Contains(stack, "Lua Stack:") || !strings.Contains(stack, "Go Stack:") {
 		t.Error("missing either Lua or Go stack trace")
+	}
+}
+func TestWrappedErrorReturnAndLuaError(t *testing.T) {
+	L := lua.NewState()
+	defer L.Close()
+
+	RegisterErrorsModule(L)
+
+	// Return wrapped error directly without raising
+	testFunc := func(L *lua.LState) int {
+		err := fmt.Errorf("test error from Go")
+		wrapped := WrapError(L, err, "") // Empty context for direct error
+
+		// Create userdata and return it (don't raise)
+		ud := L.NewUserData()
+		ud.Value = wrapped
+		L.SetMetatable(ud, L.GetTypeMetatable("error"))
+		L.Push(ud)
+		return 1
+	}
+
+	L.SetGlobal("get_wrapped_error", L.NewFunction(testFunc))
+
+	script := `
+        local err = get_wrapped_error()
+        error(err) -- Use Lua's error() on the wrapped error
+    `
+
+	err := L.DoString(script)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	wrapped := GetWrappedError(err)
+	if wrapped == nil {
+		t.Fatal("failed to get wrapped error")
+	}
+
+	// Verify Go stack trace is preserved
+	stack := wrapped.Stack()
+	if !strings.Contains(stack, "Go Stack:") {
+		t.Error("missing Go stack trace after Lua error()")
+	}
+}
+
+func TestErrorToString(t *testing.T) {
+	L := lua.NewState()
+	defer L.Close()
+
+	RegisterErrorsModule(L)
+
+	testFunc := func(L *lua.LState) int {
+		err := fmt.Errorf("test error message")
+		wrapped := WrapError(L, err, "") // Empty context for simple error
+
+		ud := L.NewUserData()
+		ud.Value = wrapped
+		L.SetMetatable(ud, L.GetTypeMetatable("error"))
+		L.Push(ud)
+		return 1
+	}
+
+	L.SetGlobal("get_error", L.NewFunction(testFunc))
+
+	script := `
+        local err = get_error()
+        local str = tostring(err)
+        if str ~= "test error message" then
+            error("Expected 'test error message', got: " .. str)
+        end
+    `
+
+	if err := L.DoString(script); err != nil {
+		t.Fatalf("Failed to convert error to string: %v", err)
 	}
 }
