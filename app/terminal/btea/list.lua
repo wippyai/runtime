@@ -1,22 +1,5 @@
 local bapp = require("bapp")
 
-local function dump_table(tbl, indent)
-  indent = indent or 0
-  local formatting = string.rep("  ", indent)
-  local result = "{\n"
-  for k, v in pairs(tbl) do
-    local key = tostring(k)
-    if type(v) == "table" then
-      result = result .. formatting .. "  " .. key .. " = " .. dump_table(v, indent + 1) .. ",\n"
-    else
-      result = result .. formatting .. "  " .. key .. " = " .. tostring(v) .. ",\n"
-    end
-  end
-  result = result .. formatting .. "}"
-  return result
-end
-
-
 function App()
     local app = bapp.new()
     local current_cursor = 0
@@ -113,7 +96,7 @@ function App()
             local results = {}
             for i, target in ipairs(targets) do
                 if target:find(term, 1, true) then
-                    table.insert(results, { index = i - 1, matches = {1, #target} })
+                    table.insert(results, { index = i - 1, matches = { 1, #target } })
                 end
             end
             return results
