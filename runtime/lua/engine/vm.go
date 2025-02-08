@@ -2,9 +2,8 @@ package engine
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	errormod "github.com/ponyruntime/pony/runtime/lua/engine/errors"
+	errors2 "github.com/ponyruntime/pony/runtime/lua/engine/errors"
 	"strings"
 
 	"github.com/ponyruntime/pony/internal/closer"
@@ -218,14 +217,9 @@ func (v *VM) callFunction(fn lua.LValue, args []lua.LValue) (lua.LValue, error) 
 	}
 
 	if err := v.state.PCall(len(args), 1, nil); err != nil {
-		var apiErr *lua.ApiError
-		if errors.As(err, &apiErr) {
-			if ud, ok := apiErr.Object.(*lua.LUserData); ok {
-				if wrapped, ok := ud.Value.(*errormod.WrappedError); ok {
-					return nil, wrapped
-				}
-			}
-			return nil, apiErr
+		wrapped := errors2.GetWrappedError(err)
+		if wrapped != nil {
+			return nil, wrapped
 		}
 		return nil, err
 	}

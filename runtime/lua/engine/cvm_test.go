@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"github.com/ponyruntime/pony/runtime/lua/engine/errors"
 	"strings"
 	"testing"
 
@@ -2838,6 +2839,110 @@ func TestCoroutineVM_Import(t *testing.T) {
 		result2 := <-ch2
 		if result2.Error != nil || result2.Result[0].(lua.LNumber) != 1 {
 			t.Fatal("unexpected get_state result")
+		}
+	})
+}
+
+func TestCoroutineVM_GoErrorPropagation(t *testing.T) {
+	logger := zap.NewNop()
+
+	t.Run("wrapped go error propagation through resume", func(t *testing.T) {
+		vm, err := NewCVM(logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm.Close()
+
+		// Register a function that creates a wrapped Go error
+		vm.vm.state.SetGlobal("go_produce_error", vm.vm.state.NewFunction(func(l *lua.LState) int {
+			// Create a Go error
+			goErr := fmt.Errorf("test go error")
+
+			// Wrap it to capture Go stack trace
+			wrappedErr := errors.WrapError(l, goErr, "error context")
+
+			// Create userdata with error metatable
+			ud := l.NewUserData()
+			ud.Value = wrappedErr
+			l.SetMetatable(ud, l.GetTypeMetatable("error"))
+
+			l.Push(ud)
+			return 1
+		}))
+
+		// Start a coroutine that will receive and try to use an error
+		err = vm.StartString(context.Background(), `
+			-- First coroutine that creates and yields a Go error
+			function error_producer()
+				local err = go_produce_error()  -- Call to Go function that produces error
+				coroutine.yield(err)
+				return "producer_done"
+			end
+
+			-- Second coroutine that receives and uses the error
+			function error_consumer()
+				local err = coroutine.yield("ready")  -- First yield to get error
+				error(err)  -- Try to use the error, should fail
+			end
+
+			-- Spawn both coroutines
+			coroutine.spawn(error_producer)
+			coroutine.spawn(error_consumer)
+		`, "error_test")
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// First Step - both coroutines should yield
+		tasks, err := vm.Step()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(tasks) != 2 {
+			t.Fatalf("expected 2 yielded tasks, got %d", len(tasks))
+		}
+
+		// Find producer and consumer tasks
+		var producerTask, consumerTask *Task
+		for _, task := range tasks {
+			if len(task.Yielded) == 1 {
+				if ud, ok := task.Yielded[0].(*lua.LUserData); ok {
+					if _, ok := ud.Value.(*errors.WrappedError); ok {
+						producerTask = task
+					}
+				} else if task.Yielded[0].String() == "ready" {
+					consumerTask = task
+				}
+			}
+		}
+
+		if producerTask == nil || consumerTask == nil {
+			t.Fatal("failed to identify both tasks")
+		}
+
+		// Send error from producer to consumer
+		consumerTask.Resumed = producerTask.Yielded
+
+		// Step consumer - should fail with wrapped error
+		tasks, err = vm.Step(consumerTask)
+		if err == nil {
+			t.Fatal("expected error when resuming with Go error")
+		}
+
+		// Verify error is a wrapped error
+		wrappedErr := errors.GetWrappedError(err)
+		if wrappedErr == nil {
+			t.Fatal("expected wrapped error")
+		}
+
+		// Verify error contains both Go and Lua frames
+		stack := wrappedErr.Stack()
+		if !strings.Contains(stack, "error_test:4") { // Lua frame
+			t.Fatal("stack trace missing Lua frames")
+		}
+		if !strings.Contains(stack, "go_produce_error") { // Go frame
+			t.Fatal("stack trace missing Go frames")
 		}
 	})
 }
