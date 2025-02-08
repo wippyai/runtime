@@ -29,8 +29,10 @@ func RegisterKeyBinding(l *lua.LState, mod *lua.LTable) {
 func newBinding(l *lua.LState) int {
 	opts := l.CheckTable(1)
 
-	// Get keys from the table
+	// Initialize empty key slice
 	var keys []string
+
+	// Get keys from the table, handling both nil and empty cases
 	if keysTable := opts.RawGetString("keys"); keysTable != lua.LNil {
 		if t, ok := keysTable.(*lua.LTable); ok {
 			t.ForEach(func(_, v lua.LValue) {
@@ -53,7 +55,7 @@ func newBinding(l *lua.LState) int {
 		}
 	}
 
-	// Rest of the code remains the same...
+	// Get help text, falling back to empty strings
 	var helpKey, helpDesc string
 	if helpTable := opts.RawGetString("help"); helpTable != lua.LNil {
 		if t, ok := helpTable.(*lua.LTable); ok {
@@ -66,7 +68,11 @@ func newBinding(l *lua.LState) int {
 		}
 	}
 
-	// Create the KeyBinding
+	// Create the KeyBinding with at least one empty string key if none provided
+	if len(keys) == 0 {
+		keys = []string{""}
+	}
+
 	binding := key.NewBinding(
 		key.WithKeys(keys...),
 		key.WithHelp(helpKey, helpDesc),
