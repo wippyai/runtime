@@ -107,7 +107,7 @@ func UnwrapCommand(l *lua.LState, value lua.LValue) tea.Cmd {
 			return v.cmd
 		}
 	default:
-		l.RaiseError("Expected a command, but got %s", cmd.Type().String())
+		l.RaiseError("expected a command, but got %s", cmd.Type().String())
 	}
 	return nil
 }

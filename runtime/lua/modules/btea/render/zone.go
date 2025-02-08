@@ -156,7 +156,7 @@ func managerAnyInBoundsAndUpdate(l *lua.LState) int {
 	}
 
 	modelValue := l.CheckAny(2)
-	model, ok := protocol.TryGetModel(modelValue)
+	model, ok := protocol.TryGetModel(l, modelValue)
 	if !ok {
 		l.ArgError(2, "model expected")
 		return 0
@@ -172,7 +172,7 @@ func managerAnyInBoundsAndUpdate(l *lua.LState) int {
 
 	// Update the model
 	newModel, cmd := m.model.AnyInBoundsAndUpdate(model, msg.(tea.MouseMsg))
-	protocol.UpdateModelValue(modelValue, newModel)
+	protocol.UpdateModelValue(l, modelValue, newModel)
 
 	// Return just the command if there is one
 	if cmd != nil {
