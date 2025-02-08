@@ -4,7 +4,6 @@ package channel
 import (
 	"context"
 	"fmt"
-
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -146,7 +145,7 @@ func (r *Layer) Step(vm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, erro
 
 		vmTasks, err := vm.Step(batch...)
 		if err != nil {
-			return nil, fmt.Errorf("vm step failed: %w", err)
+			return nil, err
 		}
 
 		for _, task := range vmTasks {

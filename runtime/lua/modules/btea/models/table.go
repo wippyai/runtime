@@ -1,5 +1,5 @@
 // file: table.go
-package _redo_
+package models
 
 import (
 	"github.com/charmbracelet/bubbles/table"
@@ -15,7 +15,7 @@ type Table struct {
 }
 
 func (t *Table) Init() tea.Cmd {
-	return t.Init()
+	return nil
 }
 
 func (t *Table) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
