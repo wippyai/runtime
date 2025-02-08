@@ -80,11 +80,11 @@ function App()
             :foreground("#A6E3A1")
             :italic(),
 
-        error = btea.new_style()
+        error = btea.style()
             :foreground("#F38BA8")
             :italic(),
 
-        help = btea.new_style()
+        help = btea.style()
             :foreground("#6C7086")
             :italic()
     }

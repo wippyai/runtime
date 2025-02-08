@@ -44,7 +44,7 @@ function App()
             short_separator = btea.style():foreground("#45475A"),
             full_key = btea.style():foreground("#89B4FA"):bold(),
             full_desc = btea.style():foreground("#CDD6F4"),
-            full_separator = btea.new_style():foreground("#45475A")
+            full_separator = btea.style():foreground("#45475A")
         }
     })
 
@@ -91,19 +91,19 @@ function App()
 
     -- Styles for demo layout
     app.styles = {
-        base = btea.new_style()
+        base = btea.style()
             :border(btea.borders.ROUNDED)
             :padding(1)
             :background("#1E1E2E"),
 
-        title = btea.new_style()
+        title = btea.style()
             :foreground("#CBA6F7")
             :bold(),
 
-        content = btea.new_style()
+        content = btea.style()
             :foreground("#CDD6F4"),
 
-        action = btea.new_style()
+        action = btea.style()
             :foreground("#F9E2AF")
             :italic()
     }

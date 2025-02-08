@@ -43,8 +43,8 @@ function App()
         info = btea.style():foreground("#89B4FA"),
         warn = btea.style():foreground("#FAB387"),
         error = btea.style():foreground("#F38BA8"),
-        debug = btea.new_style():foreground("#A6E3A1"),
-        help = btea.new_style():foreground("#6C7086"):italic()
+        debug = btea.style():foreground("#A6E3A1"),
+        help = btea.style():foreground("#6C7086"):italic()
     }
 
     -- Sample log levels and messages for random generation

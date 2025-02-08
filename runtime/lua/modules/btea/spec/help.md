@@ -19,12 +19,12 @@ local help = btea.help({
     ellipsis = "...",             -- Optional: truncation indicator
     styles = {                     -- Optional: custom styles
         short_key = btea.style():foreground("#909090"),
-        short_desc = btea.new_style():foreground("#B2B2B2"),
-        short_separator = btea.new_style():foreground("#DDDADA"),
-        full_key = btea.new_style():foreground("#909090"),
-        full_desc = btea.new_style():foreground("#B2B2B2"),
-        full_separator = btea.new_style():foreground("#DDDADA"),
-        ellipsis = btea.new_style():foreground("#DDDADA"),
+        short_desc = btea.style():foreground("#B2B2B2"),
+        short_separator = btea.style():foreground("#DDDADA"),
+        full_key = btea.style():foreground("#909090"),
+        full_desc = btea.style():foreground("#B2B2B2"),
+        full_separator = btea.style():foreground("#DDDADA"),
+        ellipsis = btea.style():foreground("#DDDADA"),
     }
 })
 ```
@@ -148,10 +148,10 @@ local function create_help()
     return btea.help({
         width = 80,
         styles = {
-            short_key = btea.new_style()
+            short_key = btea.style()
                 :foreground("#909090")
                 :bold(),
-            short_desc = btea.new_style()
+            short_desc = btea.style()
                 :foreground("#B2B2B2"),
         }
     })

@@ -20,25 +20,25 @@ function App()
                 :foreground("#FFFFFF"),
             cursor_line = btea.style():background("#0000A0"),
             cursor_line_number = btea.style():foreground("#FFFF00"),
-            end_of_buffer = btea.new_style():foreground("#AAAAAA"),
-            line_number = btea.new_style():foreground("#FFFFFF"),
-            placeholder = btea.new_style():italic(true):foreground("#CCCCCC"),
-            prompt = btea.new_style():bold(true):foreground("#FFFF00"),
-            text = btea.new_style():foreground("#FFFFFF")
+            end_of_buffer = btea.style():foreground("#AAAAAA"),
+            line_number = btea.style():foreground("#FFFFFF"),
+            placeholder = btea.style():italic(true):foreground("#CCCCCC"),
+            prompt = btea.style():bold(true):foreground("#FFFF00"),
+            text = btea.style():foreground("#FFFFFF")
         },
         blurred_style = {
-            base = btea.new_style()
+            base = btea.style()
                 :border("double")
                 :padding(1)
                 :background("#000080")
                 :foreground("#FFFFFF"),
-            cursor_line = btea.new_style():background("#000060"),
-            cursor_line_number = btea.new_style():foreground("#FFFF00"),
-            end_of_buffer = btea.new_style():foreground("#AAAAAA"),
-            line_number = btea.new_style():foreground("#FFFFFF"),
-            placeholder = btea.new_style():italic(true):foreground("#CCCCCC"),
-            prompt = btea.new_style():bold(true):foreground("#FFFF00"),
-            text = btea.new_style():foreground("#FFFFFF")
+            cursor_line = btea.style():background("#000060"),
+            cursor_line_number = btea.style():foreground("#FFFF00"),
+            end_of_buffer = btea.style():foreground("#AAAAAA"),
+            line_number = btea.style():foreground("#FFFFFF"),
+            placeholder = btea.style():italic(true):foreground("#CCCCCC"),
+            prompt = btea.style():bold(true):foreground("#FFFF00"),
+            text = btea.style():foreground("#FFFFFF")
         },
         key_map = {
             character_forward = btea.bind({ keys = {"right", "ctrl+f"} }),

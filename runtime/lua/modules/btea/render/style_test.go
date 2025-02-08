@@ -113,7 +113,7 @@ func TestStyleDimensions(t *testing.T) {
 	defer L.Close()
 
 	script := `
-		local s = btea.new_style()
+		local s = btea.style()
 		local widthed = s:width(50)
 		local heighted = s:height(10)
 		local maxWidthed = s:max_width(60)
@@ -133,7 +133,7 @@ func TestStyleAlignmentAndInline(t *testing.T) {
 	defer L.Close()
 
 	script := `
-		local s = btea.new_style()
+		local s = btea.style()
 		local aligned = s:align(btea.align.CENTER)
 		local inlined = s:inline(true)
 		assert(type(aligned) == "userdata", "align should return a Style")
@@ -147,7 +147,7 @@ func TestStyleCopyAndInherit(t *testing.T) {
 	defer L.Close()
 
 	script := `
-		local s = btea.new_style()
+		local s = btea.style()
 		local s_copy = s:copy()
 		assert(type(s_copy) == "userdata", "copy should return a Style")
 		
@@ -170,7 +170,7 @@ func TestStyleBorderColors(t *testing.T) {
 	defer L.Close()
 
 	script := `
-		local s = btea.new_style()
+		local s = btea.style()
 		local bf = s:border_foreground("red")
 		local bb = s:border_background("blue")
 		
@@ -204,7 +204,7 @@ func TestStyleVerticalAlignment(t *testing.T) {
 	defer L.Close()
 
 	script := `
-		local s = btea.new_style()
+		local s = btea.style()
 		local v_aligned = s:align_vertical(btea.align.CENTER)
 		assert(type(v_aligned) == "userdata", "align_vertical should return a Style")
 		
@@ -222,7 +222,7 @@ func TestStyleSpaceHandling(t *testing.T) {
 	defer L.Close()
 
 	script := `
-		local s = btea.new_style()
+		local s = btea.style()
 		local underline_spaces = s:underline_spaces(true)
 		local strikethrough_spaces = s:strikethrough_spaces(true)
 		
@@ -244,7 +244,7 @@ func TestStyleMarginBackground(t *testing.T) {
 	defer L.Close()
 
 	script := `
-		local s = btea.new_style()
+		local s = btea.style()
 		local with_margin_bg = s:margin_background("red")
 		assert(type(with_margin_bg) == "userdata", "margin_background should return a Style")
 		

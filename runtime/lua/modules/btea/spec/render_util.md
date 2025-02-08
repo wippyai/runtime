@@ -204,7 +204,7 @@ local header = btea.text.style_runes(
     "DASHBOARD",
     {0, 4, 8},
     btea.style():bold():foreground("red"),
-    btea.new_style():foreground("blue")
+    btea.style():foreground("blue")
 )
 
 -- Create two columns
@@ -241,7 +241,7 @@ local width = btea.text.max_width(items)
 -- Create uniform width items
 local formatted = {}
 for _, item in ipairs(items) do
-    local style = btea.new_style():width(width):padding(0, 1)
+    local style = btea.style():width(width):padding(0, 1)
     table.insert(formatted, style:render(item))
 end
 ```

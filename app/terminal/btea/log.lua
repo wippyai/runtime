@@ -31,12 +31,12 @@ function App()
         key = btea.style():foreground("#F9E2AF"):bold(),
         mouse = btea.style():foreground("#94E2D5"):bold(),
         size = btea.style():foreground("#A6E3A1"):bold(),
-        tick = btea.new_style():foreground("#89B4FA"),
-        timestamp = btea.new_style():foreground("#6C7086"),
-        command = btea.new_style():foreground("#F38BA8"):italic(),
+        tick = btea.style():foreground("#89B4FA"),
+        timestamp = btea.style():foreground("#6C7086"),
+        command = btea.style():foreground("#F38BA8"):italic(),
 
         -- Input field styling
-        input = btea.new_style()
+        input = btea.style()
             :foreground("#F5C2E7")
             :background("#313244")
             :padding(0, 1)

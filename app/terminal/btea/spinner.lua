@@ -56,7 +56,7 @@ function App()
             :foreground("#CDD6F4")
             :bold(),
 
-        help = btea.new_style()
+        help = btea.style()
             :foreground("#6C7086")
             :italic()
     }

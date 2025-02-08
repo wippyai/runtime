@@ -267,7 +267,7 @@ Predefined border style strings are also provided:
 2. **Method Chaining:** Since operations are immutable, you can chain methods for concise configuration:
 
     ```lua
-    local styled = lipgloss.new_style()
+    local styled = lipgloss.style()
       :foreground("#FAFAFA")
       :background("#7D56F4")
       :bold()
@@ -285,7 +285,7 @@ Predefined border style strings are also provided:
 ## Example Usage
 
 ```lua
-local style = lipgloss.new_style()
+local style = lipgloss.style()
   :foreground("#FAFAFA")
   :background("#7D56F4")
   :bold()

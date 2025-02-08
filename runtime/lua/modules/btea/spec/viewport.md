@@ -185,7 +185,7 @@ local log_viewer = {
 1. The `line_up` and `line_down` methods require a line count parameter. Omitting it will result in an error.
 2. Mouse wheel support requires both `mouse_wheel_enabled = true` and terminal mouse support.
 3. Scroll percentage is returned as a number from 0 to 100, not 0 to 1.
-4. Style objects must be valid btea style objects created with `btea.new_style()`.
+4. Style objects must be valid btea style objects created with `btea.style()`.
 5. The viewport's high performance mode is recommended for large content or frequent updates.
 6. When setting content, the viewport maintains its scroll position unless explicitly changed.
 7. Mouse wheel events automatically respect the configured `mouse_wheel_delta` value.
