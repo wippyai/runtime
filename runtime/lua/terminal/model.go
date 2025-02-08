@@ -5,6 +5,7 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
 	transcode "github.com/ponyruntime/pony/system/payload/lua"
 	"io"
+	"log"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -34,6 +35,7 @@ func (m bubbleModel) Init() tea.Cmd {
 }
 
 func (m bubbleModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	log.Printf("%T", msg)
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		if msg.String() == "q" || msg.String() == "ctrl+c" {

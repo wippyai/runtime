@@ -34,6 +34,8 @@ require (
 
 // replace github.com/ponyruntime/tree-sitter-sql => ../tree-sitter-sql
 
+replace github.com/charmbracelet/bubbles => ./bubbles
+
 require (
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect

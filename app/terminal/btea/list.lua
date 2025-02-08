@@ -1,5 +1,22 @@
 local bapp = require("bapp")
 
+local function dump_table(tbl, indent)
+  indent = indent or 0
+  local formatting = string.rep("  ", indent)
+  local result = "{\n"
+  for k, v in pairs(tbl) do
+    local key = tostring(k)
+    if type(v) == "table" then
+      result = result .. formatting .. "  " .. key .. " = " .. dump_table(v, indent + 1) .. ",\n"
+    else
+      result = result .. formatting .. "  " .. key .. " = " .. tostring(v) .. ",\n"
+    end
+  end
+  result = result .. formatting .. "}"
+  return result
+end
+
+
 function App()
     local app = bapp.new()
     local current_cursor = 0
@@ -68,17 +85,20 @@ function App()
             {
                 title = "Item 1",
                 description = "First item",
-                is_active = true
+                is_active = true,
+                filter_value = "item 1"
             },
             {
                 title = "Item 2",
                 description = "Second item",
-                is_active = false
+                is_active = false,
+                filter_value = "item 2"
             },
             {
                 title = "Item 3",
                 description = "Third item",
-                is_active = true
+                is_active = true,
+                filter_value = "item 3"
             }
         },
         delegate = delegate,
@@ -89,12 +109,20 @@ function App()
             filter_prompt = btea.style():foreground("#89B4FA"),
             filter_cursor = btea.style():foreground("#F5C2E7")
         },
+        filter = function(term, targets)
+            local results = {}
+            for i, target in ipairs(targets) do
+                if target:find(term, 1, true) then
+                    table.insert(results, { index = i - 1, matches = {1, #target} })
+                end
+            end
+            return results
+        end,
+
     })
 
     local function update(self, msg)
-        if msg.key then
-            self:dispatch(self.list:update(msg))
-        end
+        self:dispatch(self.list:update(msg))
     end
 
     app:run(update, function(self) return self.list:view() end)
