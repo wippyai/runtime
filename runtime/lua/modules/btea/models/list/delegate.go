@@ -103,7 +103,7 @@ func (ld *LuaDelegate) Update(msg tea.Msg, m *list.Model) tea.Cmd {
 		Fn:      update,
 		NRet:    1,
 		Protect: true,
-	}, ld.luaDelegate, luaMsg, wrappedModel); err != nil {
+	}, luaMsg, wrappedModel); err != nil {
 		ld.luaState.RaiseError("error calling delegate update: %v", err)
 		return nil
 	}

@@ -1,5 +1,43 @@
 local bapp = require("bapp")
 
+function dump_table(tbl, indent)
+    indent = indent or "" -- Default to no indentation
+
+    local result = "{\n"
+    local first = true
+
+    for k, v in pairs(tbl) do
+        if not first then
+            result = result .. ",\n"
+        else
+            first = false
+        end
+
+        result = result .. indent .. "  ["
+
+        if type(k) == "number" then
+            result = result .. k
+        elseif type(k) == "string" then
+            result = result .. string.format("%q", k) -- Quote strings
+        else
+            result = result .. tostring(k)      -- Use tostring for other key types (be careful!)
+        end
+
+        result = result .. "] = "
+
+        if type(v) == "table" then
+            result = result .. dump_table(v, indent .. "  ")
+        elseif type(v) == "string" then
+            result = result .. string.format("%q", v) -- Quote strings
+        else
+            result = result .. tostring(v)
+        end
+    end
+
+    result = result .. "\n" .. indent .. "}"
+    return result
+end
+
 function App()
     local app = bapp.new()
     local current_cursor = 0
