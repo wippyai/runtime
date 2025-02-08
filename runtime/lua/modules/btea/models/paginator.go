@@ -13,7 +13,7 @@ type Paginator struct {
 }
 
 func (p *Paginator) Init() tea.Cmd {
-	return p.Init()
+	return nil
 }
 
 func (p *Paginator) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
