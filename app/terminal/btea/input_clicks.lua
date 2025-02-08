@@ -4,7 +4,7 @@ function App()
     local app = bapp.new()
 
     -- Create zone manager for handling mouse interactions
-    local zone_manager = btea.new_zone_manager()
+    local zone_manager = btea.zone_manager()
 
     -- Create inputs with different configurations
     app.inputs = {

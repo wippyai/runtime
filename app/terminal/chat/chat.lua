@@ -8,7 +8,7 @@ function App()
     local window_height = 24
 
     -- Initialize text input
-    local input = btea.new_textinput()
+    local input = btea.text_input()
     input:placeholder("Type something...")
     input:set_width(window_width - 8)
     local cmd = input:focus()

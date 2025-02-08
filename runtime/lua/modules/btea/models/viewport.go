@@ -72,7 +72,7 @@ func RegisterViewport(l *lua.LState, mod *lua.LTable) {
 	}))
 
 	// Register constructor
-	l.SetField(mod, "new_viewport", l.NewFunction(newViewport))
+	l.SetField(mod, "viewport", l.NewFunction(newViewport))
 }
 
 func newViewport(l *lua.LState) int {

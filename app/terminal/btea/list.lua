@@ -60,7 +60,7 @@ function App()
         end
     }
 
-    app.list = btea.new_list({
+    app.list = btea.list({
         title = "List Demo",
         width = app.window.width,
         height = app.window.height,

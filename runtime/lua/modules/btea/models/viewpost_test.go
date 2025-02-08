@@ -30,7 +30,7 @@ func TestViewport(t *testing.T) {
 			local btea = require("btea")
 			
 			-- Test default constructor
-			local v1 = btea.new_viewport({
+			local v1 = btea.viewport({
 				width = 80,
 				height = 40
 			})
@@ -46,7 +46,7 @@ func TestViewport(t *testing.T) {
 			assert(type(view) == "string", "view should return a string")
 			
 			-- Test with mouse wheel options
-			local v2 = btea.new_viewport({
+			local v2 = btea.viewport({
 				width = 60,
 				height = 30,
 				mouse_wheel_enabled = true,
@@ -54,7 +54,7 @@ func TestViewport(t *testing.T) {
 			})
 			
 			-- Test high performance mode
-			local v3 = btea.new_viewport({
+			local v3 = btea.viewport({
 				width = 40,
 				height = 20,
 				high_performance = true
@@ -72,7 +72,7 @@ func TestViewport(t *testing.T) {
 		err = vm.DoString(nil, `
 			local btea = require("btea")
 			
-			local viewport = btea.new_viewport({
+			local viewport = btea.viewport({
 				width = 40,
 				height = 10
 			})
@@ -132,7 +132,7 @@ func TestViewport(t *testing.T) {
 		err = vm.DoString(nil, `
 			local btea = require("btea")
 			
-			local viewport = btea.new_viewport({
+			local viewport = btea.viewport({
 				width = 40,
 				height = 10
 			})
@@ -165,7 +165,7 @@ func TestViewportMouseInteraction(t *testing.T) {
 	cvm.State().SetGlobal("btea", mod)
 
 	err = cvm.StartString(context.Background(), `
-		local viewport = btea.new_viewport({
+		local viewport = btea.viewport({
 			width = 40,
 			height = 5,
 			mouse_wheel_enabled = true,
@@ -257,7 +257,7 @@ func TestViewportUpdate(t *testing.T) {
 	cvm.State().SetGlobal("btea", mod)
 
 	err = cvm.StartString(context.Background(), `
-		local viewport = btea.new_viewport({
+		local viewport = btea.viewport({
 			width = 40,
 			height = 10,
 			high_performance = true
