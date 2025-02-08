@@ -19,13 +19,6 @@ function App()
         return val
     end
 
-    local spinner = btea.new_spinner {
-        type = "LINE",
-        interval = 10
-    }
-
-    app:dispatch(spinner:tick())
-
     local delegate = {
         height = function() return 2 end,
         spacing = function() return 1 end,

@@ -15,6 +15,10 @@ func MsgToLua(msg tea.Msg) lua.LValue {
 	tbl := staticState.NewTable()
 	tbl.RawSetString("type", lua.LString("update"))
 
+	ud := staticState.NewUserData()
+	ud.Value = msg
+	tbl.RawSetString("opaque", ud)
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		keyTbl := staticState.NewTable()
@@ -24,7 +28,7 @@ func MsgToLua(msg tea.Msg) lua.LValue {
 
 		// Only set runes for actual text input, not for special keys
 		if msg.Type == tea.KeyRunes {
-			keyTbl.RawSetString("runes", lua.LString(string(msg.Runes)))
+			keyTbl.RawSetString("runes", lua.LString(msg.Runes))
 			keyTbl.RawSetString("string", lua.LString(msg.String()))
 		} else {
 			// For special keys, don't set runes
@@ -70,9 +74,6 @@ func MsgToLua(msg tea.Msg) lua.LValue {
 		tbl.RawSetString("window_size", sizeTbl)
 
 	default:
-		ud := staticState.NewUserData()
-		ud.Value = msg
-		tbl.RawSetString("opaque", ud)
 		tbl.RawSetString("go_type", lua.LString(reflect.TypeOf(msg).String()))
 		tbl.RawSetString("string", lua.LString(fmt.Sprintf("%v", msg)))
 	}
