@@ -588,6 +588,7 @@ func newList(l *lua.LState) int {
 						rank := list.Rank{
 							Index: int(lua.LVAsNumber(rankTable.RawGetString("index"))),
 						}
+
 						if matchesVal := rankTable.RawGetString("matches"); matchesVal.Type() == lua.LTTable {
 							matchesTable := matchesVal.(*lua.LTable)
 							rank.MatchedIndexes = make([]int, matchesTable.Len())
@@ -595,6 +596,7 @@ func newList(l *lua.LState) int {
 								rank.MatchedIndexes[int(i.(lua.LNumber))-1] = int(v.(lua.LNumber))
 							})
 						}
+
 						ranks = append(ranks, rank)
 					}
 				})

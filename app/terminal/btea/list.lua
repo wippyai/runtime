@@ -88,7 +88,7 @@ function App()
             title = btea.style():foreground("#CDD6F4"):bold(),
             filter_prompt = btea.style():foreground("#89B4FA"),
             filter_cursor = btea.style():foreground("#F5C2E7")
-        }
+        },
     })
 
     local function update(self, msg)
