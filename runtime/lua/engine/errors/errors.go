@@ -119,17 +119,10 @@ func ConfigureErrorMetatable(L *lua.LState) {
 	}))
 }
 
-// WrapError creates a new WrappedError or updates an existing one with current stack information.
-// It captures both Go and Lua stack traces at the point of error creation.
+// WrapError captures both Go and Lua stack traces at the point of error creation.
 func WrapError(L *lua.LState, err error) *WrappedError {
 	if err == nil {
 		return nil
-	}
-
-	var we *WrappedError
-	if errors.As(err, &we) {
-		we.stack = inspect.GetStackTrace(L)
-		return we
 	}
 
 	// Capture Go stack
@@ -146,10 +139,8 @@ func WrapError(L *lua.LState, err error) *WrappedError {
 // RaiseError wraps a Go error and raises it in the Lua state.
 // This is the primary method for propagating Go errors into Lua code.
 func RaiseError(L *lua.LState, err error) {
-	// Only wrap once at the entry point
 	wrapped := WrapError(L, err)
 
-	// Store in registry for error persistence across pcall
 	key := fmt.Sprintf("__error_%p", wrapped)
 	L.SetField(L.Get(lua.RegistryIndex).(*lua.LTable), key, lua.LString(wrapped.Error()))
 
