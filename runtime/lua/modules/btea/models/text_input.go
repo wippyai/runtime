@@ -8,7 +8,6 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/render"
 	lua "github.com/yuin/gopher-lua"
-	"log"
 )
 
 // TextInput wraps textinput.Model with validation
@@ -511,7 +510,6 @@ func processInputKeyMap(keyMapValue lua.LValue) textinput.KeyMap {
 	// Process each binding field
 	for fieldName, bindingPtr := range bindingPtrs {
 		if fieldValue := keyMapTable.RawGetString(fieldName); fieldValue != lua.LNil {
-			log.Printf("Field: %s, Value: %v", fieldName, fieldValue)
 			if ud, ok := fieldValue.(*lua.LUserData); ok {
 				if b, ok := ud.Value.(*protocol.KeyBinding); ok {
 					*bindingPtr = b.Binding
