@@ -49,7 +49,7 @@ func RegisterZone(l *lua.LState, mod *lua.LTable) {
 	}))
 
 	// Register constructor in the module
-	l.SetField(mod, "new_zone_manager", l.NewFunction(newManager))
+	l.SetField(mod, "zone_manager", l.NewFunction(newManager))
 }
 
 // Manager methods

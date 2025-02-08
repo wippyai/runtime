@@ -69,7 +69,7 @@ function App()
     local app = bapp.new()
 
     -- Create zone manager
-    local zone_manager = btea.new_zone_manager()
+    local zone_manager = btea.zone_manager()
 
     -- App state
     app.state = {
@@ -78,7 +78,7 @@ function App()
     }
 
     -- Create viewport
-    app.viewport = btea.new_viewport({
+    app.viewport = btea.viewport({
         width = 60,
         height = 20,
         mouse_wheel_enabled = true,

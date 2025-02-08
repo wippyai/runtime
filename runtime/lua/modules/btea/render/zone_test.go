@@ -69,7 +69,7 @@ func TestZoneManagerBasics(t *testing.T) {
 			return true
 		end
 
-		local manager = btea.new_zone_manager()
+		local manager = btea.zone_manager()
 		
 		-- Test enable/disable with explicit checks
 		manager:set_enabled(true)
@@ -159,7 +159,7 @@ func TestZoneManagerMouseInteraction(t *testing.T) {
 	L.SetGlobal("test_msg", msgTbl)
 
 	script := `
-		local manager = btea.new_zone_manager()
+		local manager = btea.zone_manager()
 		manager:set_enabled(true)
 		
 		-- Create a zone with specific bounds
@@ -204,7 +204,7 @@ func TestZoneInfo(t *testing.T) {
 	L.SetGlobal("test_msg", msgTbl)
 
 	script := `
-		local manager = btea.new_zone_manager()
+		local manager = btea.zone_manager()
 		manager:set_enabled(true)
 		
 		-- Create and scan specific content to ensure zone registration
@@ -240,7 +240,7 @@ func TestZoneManagerErrors(t *testing.T) {
 		{
 			name: "invalid mouse message",
 			script: `
-				local manager = btea.new_zone_manager()
+				local manager = btea.zone_manager()
 				local invalid_msg = {type = "invalid"}
 				manager:any_in_bounds({}, invalid_msg)
 			`,
@@ -248,7 +248,7 @@ func TestZoneManagerErrors(t *testing.T) {
 		{
 			name: "invalid model",
 			script: `
-				local manager = btea.new_zone_manager()
+				local manager = btea.zone_manager()
 				local mouse_msg = {mouse = {type = "mouse", x = 0, y = 0, action = "press", button = "left"}}
 				manager:any_in_bounds("not a model", mouse_msg)
 			`,
@@ -256,7 +256,7 @@ func TestZoneManagerErrors(t *testing.T) {
 		{
 			name: "nil zone info",
 			script: `
-				local manager = btea.new_zone_manager()
+				local manager = btea.zone_manager()
 				local info = manager:get("non-existing")
 				assert(info == nil, "should return nil for non-existing zones")
 			`,
@@ -294,7 +294,7 @@ func TestZoneInfoEdgeCases(t *testing.T) {
 	L.SetGlobal("test_msg", msgTbl)
 
 	script := `
-        local manager = btea.new_zone_manager()
+        local manager = btea.zone_manager()
         manager:set_enabled(true)
         
         -- Test with empty content

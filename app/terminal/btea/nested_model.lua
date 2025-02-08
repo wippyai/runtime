@@ -29,7 +29,7 @@ end
 
 function App()
     local app = bapp.new()
-    local zone_manager = btea.new_zone_manager()
+    local zone_manager = btea.zone_manager()
 
     app.clicks = 0
 

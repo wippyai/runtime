@@ -4,7 +4,7 @@ function App()
     local app = bapp.new()
 
     -- Create a viewport for our log viewer
-    app.log_view = btea.new_viewport {
+    app.log_view = btea.viewport {
         width = 60,
         height = 20,
         mouse_wheel_enabled = true,

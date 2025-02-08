@@ -43,7 +43,7 @@ func TestList(t *testing.T) {
             local btea = require("btea")
             
             -- Create basic list
-            local list = btea.new_list({
+            local list = btea.list({
                 width = 40,
                 height = 20,
                 title = "Test List",
@@ -60,6 +60,8 @@ func TestList(t *testing.T) {
                     }
                 }
             })
+
+			print(list:items())
 
             -- Test basic properties
             assert(list ~= nil, "list should be created")
@@ -103,7 +105,7 @@ func TestList(t *testing.T) {
             local btea = require("btea")
             
             -- Create list with multiple pages
-            local list = btea.new_list({
+            local list = btea.list({
                 width = 40,
                 height = 10,  -- Small height to force pagination
                 items = {
@@ -144,7 +146,7 @@ func TestList(t *testing.T) {
 		err := vm.DoString(ctx, `
             local btea = require("btea")
             
-            local list = btea.new_list({
+            local list = btea.list({
                 width = 40,
                 height = 20,
                 items = {
@@ -180,7 +182,7 @@ func TestList(t *testing.T) {
 		err := vm.DoString(ctx, `
             local btea = require("btea")
             
-            local list = btea.new_list({
+            local list = btea.list({
                 width = 40,
                 height = 20,
                 show_title = true,
@@ -231,7 +233,7 @@ func TestListUpdate(t *testing.T) {
 	cvm.State().SetGlobal("btea", mod)
 
 	err = cvm.StartString(context.Background(), `
-        local list = btea.new_list({
+        local list = btea.list({
             width = 40,
             height = 20,
             items = {

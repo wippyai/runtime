@@ -8,10 +8,10 @@ keyboard and mouse-based scrolling.
 
 ## Viewport Creation
 
-A viewport is created using the `btea.new_viewport` constructor:
+A viewport is created using the `btea.viewport` constructor:
 
 ```lua
-local viewport = btea.new_viewport {
+local viewport = btea.viewport {
     width = 40,                     -- Required: viewport width
     height = 20,                    -- Required: viewport height
     content = "Multi-line text...", -- Optional: initial content
@@ -125,7 +125,7 @@ local function create_viewport()
         :foreground("#FFFFFF")
         :background("#000000")
         
-    return btea.new_viewport {
+    return btea.viewport {
         width = 40,
         height = 20,
         style = style,
@@ -154,7 +154,7 @@ end
 
 ```lua
 local log_viewer = {
-    viewport = btea.new_viewport {
+    viewport = btea.viewport {
         width = 80,
         height = 24,
         high_performance = true,

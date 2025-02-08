@@ -16,8 +16,6 @@ type Item interface {
 // List wraps list.Model for Lua
 type List struct {
 	model    list.Model
-	delegate *lua.LTable
-	items    []*lua.LUserData
 	luaState *lua.LState
 }
 
@@ -66,6 +64,16 @@ func RegisterList(l *lua.LState, mod *lua.LTable) {
 		"disable_quit_keybindings": listDisableQuitKeybindings,
 		"set_key_map":              listSetKeyMap,
 
+		"filtering_enabled":     listFilteringEnabled,
+		"set_filtering_enabled": listSetFilteringEnabled,
+		"show_title":            listShowTitle,
+		"show_filter":           listShowFilter,
+		"show_status_bar":       listShowStatusBar,
+		"show_pagination":       listShowPagination,
+		"show_help":             listShowHelp,
+		"width":                 listWidth,
+		"height":                listHeight,
+
 		// Spinner
 		"start_spinner":  listStartSpinner,
 		"stop_spinner":   listStopSpinner,
@@ -75,7 +83,7 @@ func RegisterList(l *lua.LState, mod *lua.LTable) {
 		"new_status_message": listNewStatusMessage,
 	}))
 
-	l.SetField(mod, "new_list", l.NewFunction(newList))
+	l.SetField(mod, "list", l.NewFunction(newList))
 }
 
 // Core Methods
@@ -109,8 +117,11 @@ func listView(l *lua.LState) int {
 func listItems(l *lua.LState) int {
 	li := CheckList(l)
 	itemsTable := l.NewTable()
-	for _, itemUD := range li.items {
-		itemsTable.Append(itemUD)
+
+	for _, item := range li.model.Items() {
+		if luaItem, ok := item.(*LuaItem); ok {
+			itemsTable.Append(luaItem.value)
+		}
 	}
 	l.Push(itemsTable)
 	return 1
@@ -120,23 +131,21 @@ func listSetItems(l *lua.LState) int {
 	li := CheckList(l)
 	itemsTable := l.CheckTable(2)
 	var items []list.Item
-	li.items = make([]*lua.LUserData, 0) // Clear existing items
+
 	itemsTable.ForEach(func(_ lua.LValue, v lua.LValue) {
-		if item, ok := v.(*lua.LTable); ok {
+		switch v.Type() {
+		case lua.LTTable:
 			itemUD := l.NewUserData()
-			itemUD.Value = &LuaItem{value: item, luaState: l}
+			itemUD.Value = &LuaItem{value: v, luaState: l}
 			l.SetMetatable(itemUD, l.GetTypeMetatable("btea.Item"))
 			items = append(items, itemUD.Value.(list.Item))
-			li.items = append(li.items, itemUD)
-		} else if itemUD, ok := v.(*lua.LUserData); ok {
-			if _, ok := itemUD.Value.(list.Item); ok {
-				items = append(items, itemUD.Value.(list.Item))
-				li.items = append(li.items, itemUD)
-			} else {
-				l.RaiseError("Invalid item type")
+		case lua.LTUserData:
+			if itemUD, ok := v.(*lua.LUserData); ok {
+				if item, ok := itemUD.Value.(*LuaItem); ok {
+					items = append(items, item)
+				}
 			}
-		} else {
-			l.RaiseError("Invalid item type")
+		default:
 		}
 	})
 
@@ -157,9 +166,7 @@ func listSetItem(l *lua.LState) int {
 	itemUD.Value = &LuaItem{value: itemTable, luaState: l}
 	l.SetMetatable(itemUD, l.GetTypeMetatable("btea.Item"))
 
-	if index >= 0 && index < len(li.items) {
-		li.items[index] = itemUD
-	} else {
+	if index < 0 || index >= len(li.model.Items()) {
 		l.RaiseError("Index out of range for listSetItem")
 		return 0
 	}
@@ -181,9 +188,7 @@ func listInsertItem(l *lua.LState) int {
 	itemUD.Value = &LuaItem{value: itemTable, luaState: l}
 	l.SetMetatable(itemUD, l.GetTypeMetatable("btea.Item"))
 
-	if index >= 0 && index <= len(li.items) {
-		li.items = append(li.items[:index], append([]*lua.LUserData{itemUD}, li.items[index:]...)...)
-	} else {
+	if index < 0 || index > len(li.model.Items()) {
 		l.RaiseError("Index out of range for listInsertItem")
 		return 0
 	}
@@ -200,9 +205,7 @@ func listRemoveItem(l *lua.LState) int {
 	li := CheckList(l)
 	index := l.CheckInt(2)
 
-	if index >= 0 && index < len(li.items) {
-		li.items = append(li.items[:index], li.items[index+1:]...)
-	} else {
+	if index < 0 || index >= len(li.model.Items()) {
 		l.RaiseError("Index out of range for listRemoveItem")
 		return 0
 	}
@@ -218,11 +221,9 @@ func listSelectedItem(l *lua.LState) int {
 		return 0
 	}
 
-	for _, itemUD := range li.items {
-		if itemUD.Value == selected {
-			l.Push(itemUD)
-			return 1
-		}
+	if luaItem, ok := selected.(*LuaItem); ok {
+		l.Push(luaItem.value)
+		return 1
 	}
 
 	return 0
@@ -250,13 +251,17 @@ func listCursor(l *lua.LState) int {
 
 func listCursorUp(l *lua.LState) int {
 	li := CheckList(l)
-	li.model.CursorUp()
+	if li.model.Cursor() > 0 {
+		li.model.CursorUp()
+	}
 	return 0
 }
 
 func listCursorDown(l *lua.LState) int {
 	li := CheckList(l)
-	li.model.CursorDown()
+	if li.model.Cursor() < len(li.model.Items())-1 {
+		li.model.CursorDown()
+	}
 	return 0
 }
 
@@ -286,6 +291,13 @@ func listResetSelected(l *lua.LState) int {
 }
 
 // Filtering
+
+func listSetFilteringEnabled(l *lua.LState) int {
+	li := CheckList(l)
+	enabled := l.CheckBool(2)
+	li.model.SetFilteringEnabled(enabled)
+	return 0
+}
 
 func listFilterState(l *lua.LState) int {
 	li := CheckList(l)
@@ -317,6 +329,54 @@ func listResetFilter(l *lua.LState) int {
 	li := CheckList(l)
 	li.model.ResetFilter()
 	return 0
+}
+
+func listFilteringEnabled(l *lua.LState) int {
+	li := CheckList(l)
+	l.Push(lua.LBool(li.model.FilteringEnabled()))
+	return 1
+}
+
+func listShowTitle(l *lua.LState) int {
+	li := CheckList(l)
+	l.Push(lua.LBool(li.model.ShowTitle()))
+	return 1
+}
+
+func listShowFilter(l *lua.LState) int {
+	li := CheckList(l)
+	l.Push(lua.LBool(li.model.ShowFilter()))
+	return 1
+}
+
+func listShowStatusBar(l *lua.LState) int {
+	li := CheckList(l)
+	l.Push(lua.LBool(li.model.ShowStatusBar()))
+	return 1
+}
+
+func listShowPagination(l *lua.LState) int {
+	li := CheckList(l)
+	l.Push(lua.LBool(li.model.ShowPagination()))
+	return 1
+}
+
+func listShowHelp(l *lua.LState) int {
+	li := CheckList(l)
+	l.Push(lua.LBool(li.model.ShowHelp()))
+	return 1
+}
+
+func listWidth(l *lua.LState) int {
+	li := CheckList(l)
+	l.Push(lua.LNumber(li.model.Width()))
+	return 1
+}
+
+func listHeight(l *lua.LState) int {
+	li := CheckList(l)
+	l.Push(lua.LNumber(li.model.Height()))
+	return 1
 }
 
 // Display Control
@@ -566,6 +626,7 @@ func newList(l *lua.LState) int {
 			default:
 			}
 		})
+
 		model.SetItems(items)
 	}
 

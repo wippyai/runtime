@@ -176,7 +176,7 @@ func TestDelegateUpdate(t *testing.T) {
 	cvm.State().SetGlobal("btea", mod)
 
 	err = cvm.StartString(context.Background(), `
-        local list = btea.new_list({
+        local list = btea.list({
             width = 40,
             height = 20,
             delegate = {

@@ -15,7 +15,7 @@ Zones are regions in your terminal UI that can:
 Create a zone manager to track interactive regions:
 
 ```lua
-local manager = btea.new_zone_manager()
+local manager = btea.zone_manager()
 
 -- Enable/disable zone tracking
 manager:set_enabled(true)  -- or false
@@ -89,7 +89,7 @@ local M = {}
 
 function M.initial()
     return {
-        manager = btea.new_zone_manager(),
+        manager = btea.zone_manager(),
         prefix = nil,
         items = {"Item 1", "Item 2", "Item 3"},
         selected = nil
