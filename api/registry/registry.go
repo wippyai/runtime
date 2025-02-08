@@ -52,6 +52,9 @@ type (
 	// This helps categorize entries for different purposes.
 	Kind string
 
+	// Namespace represents a unique identifier for a registry namespace bounding components within a specific context.
+	Namespace string
+
 	// Version represents a specific version of the registry's state.
 	Version interface {
 		// ID returns the unique identifier of the version. This is typically an auto-incrementing number.
@@ -67,6 +70,8 @@ type (
 
 	// Entry represents a single entry in the registry.
 	Entry struct {
+		// NS is the namespace of the entry, which helps categorize it within the registry.
+		NS Namespace `json:"namespace"`
 		// ID is the unique identifier for the entry.
 		ID ID `json:"id"`
 		// Kind is the type/category of the entry.
