@@ -110,7 +110,7 @@ func TestLuaDelegate(t *testing.T) {
 	t.Run("delegate styling", func(t *testing.T) {
 		err := vm.DoString(nil, `
             local delegate = {
-                render = function(model, index, item)
+                render = function(self, model, index, item)
                     local style = btea.style()
                     if index == 0 then
                         style = style:foreground("#00ff00")
@@ -119,7 +119,7 @@ func TestLuaDelegate(t *testing.T) {
                 end
             }
 
-            local result = delegate.render({}, 0, {title = "Test"})
+            local result = delegate.render(nil, {}, 0, {title = "Test"})
             assert(type(result) == "string", "styled render should return string")
         `, "test_delegate_styling")
 		require.NoError(t, err)
@@ -189,7 +189,7 @@ func TestDelegateUpdate(t *testing.T) {
                         end
                     end
                 end,
-                render = function(w, m, index, item)
+                render = function(self, w, m, index, item)
                     return item.title
                 end
             },

@@ -75,7 +75,8 @@ func (ld *LuaDelegate) Render(w io.Writer, m list.Model, index int, listItem lis
 		Fn:      render,
 		NRet:    1,
 		Protect: true,
-	}, wrapModelForLua(ld.luaState, &m),
+	}, ld.luaDelegate,
+		wrapModelForLua(ld.luaState, &m),
 		lua.LNumber(index),
 		wrapItemForLua(ld.luaState, listItem)); err != nil {
 		ld.luaState.RaiseError("error calling delegate render: %v", err)
@@ -103,7 +104,7 @@ func (ld *LuaDelegate) Update(msg tea.Msg, m *list.Model) tea.Cmd {
 		Fn:      update,
 		NRet:    1,
 		Protect: true,
-	}, luaMsg, wrappedModel); err != nil {
+	}, ld.luaDelegate, luaMsg, wrappedModel); err != nil {
 		ld.luaState.RaiseError("error calling delegate update: %v", err)
 		return nil
 	}
