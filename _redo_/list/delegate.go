@@ -75,7 +75,7 @@ func (ld *LuaDelegate) Render(w io.Writer, m list.Model, index int, listItem lis
 		}
 	}
 
-	render, ok := engine.GetField(ld.luaState, ld.luaDelegate, "render")
+	render, ok := engine.GetFunc(ld.luaState, ld.luaDelegate, "render")
 	if !ok {
 		return
 	}
@@ -84,7 +84,7 @@ func (ld *LuaDelegate) Render(w io.Writer, m list.Model, index int, listItem lis
 	wrappedItem := wrapItemForLua(ld.luaState, listItem)
 
 	if err := ld.luaState.CallByParam(lua.P{
-		Fn:      render.(*lua.LFunction),
+		Fn:      render,
 		NRet:    1,
 		Protect: true,
 	}, wrappedModel, lua.LNumber(index), wrappedItem); err != nil {
@@ -113,7 +113,7 @@ func (ld *LuaDelegate) Update(msg tea.Msg, m *list.Model) tea.Cmd {
 		}
 	}
 
-	update, ok := engine.GetField(ld.luaState, ld.luaDelegate, "update")
+	update, ok := engine.GetFunc(ld.luaState, ld.luaDelegate, "update")
 	if !ok {
 		return nil
 	}
@@ -122,7 +122,7 @@ func (ld *LuaDelegate) Update(msg tea.Msg, m *list.Model) tea.Cmd {
 	wrappedModel := wrapModelForLua(ld.luaState, m)
 
 	if err := ld.luaState.CallByParam(lua.P{
-		Fn:      update.(*lua.LFunction),
+		Fn:      update,
 		NRet:    1,
 		Protect: true,
 	}, luaMsg, wrappedModel); err != nil {
