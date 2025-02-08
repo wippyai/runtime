@@ -10,22 +10,22 @@ M.TerminalUI = {
 
         -- Create default styles
         local styles = {
-            box = btea.new_style()
+            box = btea.style()
                 :border(btea.borders.ROUNDED)
                 :padding(1, 2)
                 :foreground("#89B4FA")
                 :background("#1E1E2E"),
 
-            header = btea.new_style()
+            header = btea.style()
                 :bold()
                 :foreground("#CBA6F7")
                 :padding(0, 1),
 
-            error = btea.new_style()
+            error = btea.style()
                 :foreground("#F38BA8")
                 :bold(),
 
-            success = btea.new_style()
+            success = btea.style()
                 :foreground("#A6E3A1")
                 :bold(),
 

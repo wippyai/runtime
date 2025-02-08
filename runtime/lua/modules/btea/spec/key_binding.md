@@ -7,10 +7,10 @@ keyboard input to actions and help text, with support for key combinations and m
 
 ## Key Binding Creation
 
-Key bindings are created using the `btea.new_binding` constructor:
+Key bindings are created using the `btea.bind` constructor:
 
 ```lua
-local binding = btea.new_binding {
+local binding = btea.bind {
     keys = {"up", "k"},           -- Single key or array of keys
     help = {
         key = "↑/k",             -- Display text for keys in help menu
@@ -64,25 +64,25 @@ end
 
 ```lua
 -- Navigation
-local up = btea.new_binding {
+local up = btea.bind {
     keys = {"up", "k"},
     help = {key = "↑/k", desc = "up"}
 }
 
 -- Control combinations
-local save = btea.new_binding {
+local save = btea.bind {
     keys = {"ctrl+s"},
     help = {key = "^S", desc = "save"}
 }
 
 -- Alt combinations
-local word = btea.new_binding {
+local word = btea.bind {
     keys = {"alt+right", "alt+f"},
     help = {key = "M-→/f", desc = "word forward"}
 }
 
 -- Multiple alternatives
-local quit = btea.new_binding {
+local quit = btea.bind {
     keys = {"q", "ctrl+c"}, 
     help = {key = "q/^C", desc = "quit"}
 }
@@ -112,7 +112,7 @@ local quit = btea.new_binding {
 
 ```lua
 -- Create a binding
-local binding = btea.new_binding {
+local binding = btea.bind {
     keys = {"enter", "ctrl+m"},
     help = {key = "enter", desc = "confirm"}
 }
@@ -131,19 +131,19 @@ end
 ```lua
 -- Define related bindings
 local keys = {
-    up = btea.new_binding {
+    up = btea.bind {
         keys = {"up", "k"},
         help = {key = "↑/k", desc = "move up"}
     },
-    down = btea.new_binding {
+    down = btea.bind {
         keys = {"down", "j"},
         help = {key = "↓/j", desc = "move down"}
     },
-    confirm = btea.new_binding {
+    confirm = btea.bind {
         keys = {"enter"},
         help = {key = "enter", desc = "confirm"}
     },
-    cancel = btea.new_binding {
+    cancel = btea.bind {
         keys = {"esc"},
         help = {key = "esc", desc = "cancel"}
     }

@@ -74,9 +74,9 @@ func TestTextInput(t *testing.T) {
 				
 			-- Test with styles
 			local input = btea.text_input({
-				prompt_style = btea.new_style():foreground("#00FF00"):bold(),
-				text_style = btea.new_style():foreground("#FFFFFF"),
-				placeholder_style = btea.new_style():foreground("#666666"),
+				prompt_style = btea.style():foreground("#00FF00"):bold(),
+				text_style = btea.style():foreground("#FFFFFF"),
+				placeholder_style = btea.style():foreground("#666666"),
 				completion_style = btea.new_style():foreground("#888888"),
 				cursor_style = btea.new_style():foreground("#FFFF00")
 			})
@@ -205,7 +205,7 @@ func TestTextInput(t *testing.T) {
 			
 			-- Create bindings helper function
 			local function bind(keys, help_key, help_desc)
-				return btea.new_binding({
+				return btea.bind({
 					keys = keys,
 					help = {key = help_key, desc = help_desc}
 				})
@@ -263,7 +263,7 @@ func TestTextInput(t *testing.T) {
 			}
 			input:update(msg)
 			assert(input:position() == 1, "cursor should move right")
-		`, "test_text_input_key_bindings")
+		`, "test_text_input_binds")
 
 		require.NoError(t, err)
 	})

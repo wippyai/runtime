@@ -51,21 +51,21 @@ local tablewidget = btea.table {
 
 ## Style Creation
 
-Styles are created with `btea.new_style()`. The style binding allows you to chain transformations such as `:bold()`, `:padding()`, `:foreground()`, and `:background()`. For example:
+Styles are created with `btea.style()`. The style binding allows you to chain transformations such as `:bold()`, `:padding()`, `:foreground()`, and `:background()`. For example:
 
 ```lua
-local header_style = btea.new_style()
+local header_style = btea.style()
     :bold()
     :padding(0, 1)
     :foreground("#FFFFFF")
     :background("#7D56F4")
 
-local cell_style = btea.new_style()
+local cell_style = btea.style()
     :padding(0, 1)
     :foreground("#C0CAF5")
     :background("#1E1E2E")
 
-local selected_style = btea.new_style()
+local selected_style = btea.style()
     :bold(true)
     :foreground("#89B4FA")
     :background("#2E2E3E")

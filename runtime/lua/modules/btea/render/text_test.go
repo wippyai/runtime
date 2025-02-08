@@ -90,8 +90,8 @@ func TestTextStyleRunes(t *testing.T) {
 		local text = btea.text
 		
 		-- Create test styles
-		local matched_style = btea.new_style():bold()
-		local unmatched_style = btea.new_style()
+		local matched_style = btea.style():bold()
+		local unmatched_style = btea.style()
 		
 		-- Test styling specific runes
 		local result = text.style_runes(

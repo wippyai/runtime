@@ -13,17 +13,17 @@ function App()
 
     -- Create styles
     app.styles = {
-        container = btea.new_style()
+        container = btea.style()
             :padding(1)
             :background(app.colors.bg)
             :border(btea.borders.ROUNDED)
             :border_foreground(app.colors.highlight),
 
-        title = btea.new_style()
+        title = btea.style()
             :foreground(app.colors.fg)
             :bold(),
 
-        help = btea.new_style()
+        help = btea.style()
             :foreground(app.colors.muted)
             :italic()
     }

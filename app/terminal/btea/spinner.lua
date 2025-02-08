@@ -28,7 +28,7 @@ function App()
         s.spinner = spinner
 
         -- Apply style
-        local style = btea.new_style()
+        local style = btea.style()
             :foreground(s.color)
             :bold()
 
@@ -47,12 +47,12 @@ function App()
 
     -- Styles for layout
     app.styles = {
-        base = btea.new_style()
+        base = btea.style()
             :border(btea.borders.ROUNDED)
             :padding(1)
             :background("#1E1E2E"),
 
-        title = btea.new_style()
+        title = btea.style()
             :foreground("#CDD6F4")
             :bold(),
 

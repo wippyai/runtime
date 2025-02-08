@@ -32,8 +32,8 @@ function App()
             local checkbox = is_multi_selected and "[×]" or "[ ]"
             local status = item.is_active and "●" or "○"
 
-            local title_style = btea.new_style()
-            local desc_style = btea.new_style():foreground("#666666")
+            local title_style = btea.style()
+            local desc_style = btea.style():foreground("#666666")
 
             if is_selected then
                 title_style = title_style:foreground("#89B4FA"):bold()
@@ -85,9 +85,9 @@ function App()
         show_filter = true,
         filtering_enabled = true,
         styles = {
-            title = btea.new_style():foreground("#CDD6F4"):bold(),
-            filter_prompt = btea.new_style():foreground("#89B4FA"),
-            filter_cursor = btea.new_style():foreground("#F5C2E7")
+            title = btea.style():foreground("#CDD6F4"):bold(),
+            filter_prompt = btea.style():foreground("#89B4FA"),
+            filter_cursor = btea.style():foreground("#F5C2E7")
         }
     })
 

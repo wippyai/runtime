@@ -13,13 +13,13 @@ function App()
         char_limit = 2000,
         show_line_numbers = true,
         focused_style = {
-            base = btea.new_style()
+            base = btea.style()
                 :border("double")
                 :padding(1)
                 :background("#000080")  -- deep navy blue
                 :foreground("#FFFFFF"),
-            cursor_line = btea.new_style():background("#0000A0"),
-            cursor_line_number = btea.new_style():foreground("#FFFF00"),
+            cursor_line = btea.style():background("#0000A0"),
+            cursor_line_number = btea.style():foreground("#FFFF00"),
             end_of_buffer = btea.new_style():foreground("#AAAAAA"),
             line_number = btea.new_style():foreground("#FFFFFF"),
             placeholder = btea.new_style():italic(true):foreground("#CCCCCC"),
@@ -41,13 +41,13 @@ function App()
             text = btea.new_style():foreground("#FFFFFF")
         },
         key_map = {
-            character_forward = btea.new_binding({ keys = {"right", "ctrl+f"} }),
-            character_backward = btea.new_binding({ keys = {"left", "ctrl+b"} }),
-            word_forward = btea.new_binding({ keys = {"alt+right", "alt+f"} }),
-            word_backward = btea.new_binding({ keys = {"alt+left", "alt+b"} }),
-            delete_character_backward = btea.new_binding({ keys = {"backspace", "ctrl+h"} }),
-            delete_character_forward = btea.new_binding({ keys = {"delete", "ctrl+d"} }),
-            insert_newline = btea.new_binding({ keys = {"enter"} })
+            character_forward = btea.bind({ keys = {"right", "ctrl+f"} }),
+            character_backward = btea.bind({ keys = {"left", "ctrl+b"} }),
+            word_forward = btea.bind({ keys = {"alt+right", "alt+f"} }),
+            word_backward = btea.bind({ keys = {"alt+left", "alt+b"} }),
+            delete_character_backward = btea.bind({ keys = {"backspace", "ctrl+h"} }),
+            delete_character_forward = btea.bind({ keys = {"delete", "ctrl+d"} }),
+            insert_newline = btea.bind({ keys = {"enter"} })
         }
     })
 

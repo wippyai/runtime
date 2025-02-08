@@ -67,16 +67,16 @@ function App()
 
     -- Styles for layout
     app.styles = {
-        base = btea.new_style()
+        base = btea.style()
             :border(btea.borders.ROUNDED)
             :padding(1)
             :background("#1E1E2E"),
 
-        title = btea.new_style()
+        title = btea.style()
             :foreground("#CDD6F4")
             :bold(),
 
-        help = btea.new_style()
+        help = btea.style()
             :foreground("#6C7086")
             :italic()
     }

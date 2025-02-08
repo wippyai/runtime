@@ -34,12 +34,12 @@ function App()
         height = 10,
         focused = true,
         styles = {
-            header = btea.new_style()
+            header = btea.style()
                 :bold()
                 :padding(0, 1)
                 :foreground("#FFFFFF")
                 :background(app.colors.highlight),
-            selected = btea.new_style()
+            selected = btea.style()
                 :bold(true)
                 :foreground(app.colors.active_fg)
                 :background("#2E2E3E")
@@ -68,7 +68,7 @@ function App()
 
     -- Add help text style
     app.styles = {
-        help = btea.new_style()
+        help = btea.style()
             :foreground(app.colors.inactive_fg)
             :italic()
     }

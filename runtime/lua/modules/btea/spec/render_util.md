@@ -123,8 +123,8 @@ Applies different styles to specific characters in a string:
 Example:
 
 ```lua
-local matched = btea.new_style():foreground("red")
-local unmatched = btea.new_style():foreground("blue")
+local matched = btea.style():foreground("red")
+local unmatched = btea.style():foreground("blue")
 
 local result = btea.text.style_runes(
     "Hello World",
@@ -203,7 +203,7 @@ local html = btea.text.sanitize_runes(
 local header = btea.text.style_runes(
     "DASHBOARD",
     {0, 4, 8},
-    btea.new_style():bold():foreground("red"),
+    btea.style():bold():foreground("red"),
     btea.new_style():foreground("blue")
 )
 
