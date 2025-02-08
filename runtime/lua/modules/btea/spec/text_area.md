@@ -198,8 +198,8 @@ local my_cursor_line_number_style = btea.style():foreground("#00FF00")
 local my_end_buffer_style      = btea.style():foreground("#666666")
 local my_line_number_style     = btea.style():foreground("#999999")
 local my_placeholder_style     = btea.style():italic(true)
-local my_prompt_style          = btea.new_style():bold(true)
-local my_text_style            = btea.new_style()
+local my_prompt_style          = btea.style():bold(true)
+local my_text_style            = btea.style()
 
 -- Create a text_area with basic options and full key bindings.
 local text_area = btea.text_area({

@@ -77,14 +77,14 @@ func TestTextInput(t *testing.T) {
 				prompt_style = btea.style():foreground("#00FF00"):bold(),
 				text_style = btea.style():foreground("#FFFFFF"),
 				placeholder_style = btea.style():foreground("#666666"),
-				completion_style = btea.new_style():foreground("#888888"),
-				cursor_style = btea.new_style():foreground("#FFFF00")
+				completion_style = btea.style():foreground("#888888"),
+				cursor_style = btea.style():foreground("#FFFF00")
 			})
 			
 			-- Test style updates
-			input:set_style("prompt", btea.new_style():foreground("#FF0000"))
-			input:set_style("text", btea.new_style():bold())
-			input:set_style("placeholder", btea.new_style():italic())
+			input:set_style("prompt", btea.style():foreground("#FF0000"))
+			input:set_style("text", btea.style():bold())
+			input:set_style("placeholder", btea.style():italic())
 		`, "test_text_input_styling")
 
 		require.NoError(t, err)

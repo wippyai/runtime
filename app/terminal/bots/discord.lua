@@ -41,14 +41,14 @@ local function App()
         message = btea.style()
             :foreground("#89B4FA"),
 
-        system = btea.new_style()
+        system = btea.style()
             :foreground("#F38BA8")
             :bold(),
 
-        timestamp = btea.new_style()
+        timestamp = btea.style()
             :foreground("#6C7086"),
 
-        input_area = btea.new_style()
+        input_area = btea.style()
             :background("#313244")
             :padding(0, 1)
             :margin(1, 0)

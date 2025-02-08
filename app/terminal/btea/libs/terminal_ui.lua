@@ -29,19 +29,19 @@ M.TerminalUI = {
                 :foreground("#A6E3A1")
                 :bold(),
 
-            info = btea.new_style()
+            info = btea.style()
                 :foreground("#89B4FA"),
 
-            warning = btea.new_style()
+            warning = btea.style()
                 :foreground("#F9E2AF"),
 
-            debug = btea.new_style()
+            debug = btea.style()
                 :foreground("#7F849C"),
 
-            timestamp = btea.new_style()
+            timestamp = btea.style()
                 :foreground("#6C7086"),
 
-            status = btea.new_style()
+            status = btea.style()
                 :background("#313244")
                 :padding(0, 1)
                 :margin(1, 0)
