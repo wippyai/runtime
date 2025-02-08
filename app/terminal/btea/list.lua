@@ -1,43 +1,5 @@
 local bapp = require("bapp")
 
-function dump_table(tbl, indent)
-    indent = indent or "" -- Default to no indentation
-
-    local result = "{\n"
-    local first = true
-
-    for k, v in pairs(tbl) do
-        if not first then
-            result = result .. ",\n"
-        else
-            first = false
-        end
-
-        result = result .. indent .. "  ["
-
-        if type(k) == "number" then
-            result = result .. k
-        elseif type(k) == "string" then
-            result = result .. string.format("%q", k) -- Quote strings
-        else
-            result = result .. tostring(k)      -- Use tostring for other key types (be careful!)
-        end
-
-        result = result .. "] = "
-
-        if type(v) == "table" then
-            result = result .. dump_table(v, indent .. "  ")
-        elseif type(v) == "string" then
-            result = result .. string.format("%q", v) -- Quote strings
-        else
-            result = result .. tostring(v)
-        end
-    end
-
-    result = result .. "\n" .. indent .. "}"
-    return result
-end
-
 function App()
     local app = bapp.new()
     local current_cursor = 0
@@ -61,7 +23,7 @@ function App()
         height = function() return 2 end,
         spacing = function() return 1 end,
 
-        render = function(model, index, item)
+        render = function(self, model, index, item)
             current_cursor = limit_cursor(model:cursor(), 2)
             local is_selected = current_cursor == index
             local is_multi_selected = selected_items[index + 1]
@@ -86,7 +48,7 @@ function App()
             return title_line .. "\n" .. desc_line
         end,
 
-        update = function(msg, model)
+        update = function(self, msg, model)
             if app.keys.select:matches(msg) then
                 local cursor = model:cursor()
                 if cursor >= 0 then -- Ensure valid cursor

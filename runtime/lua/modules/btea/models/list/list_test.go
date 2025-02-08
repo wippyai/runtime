@@ -826,7 +826,7 @@ func TestListDelegate(t *testing.T) {
                     spacing = function() return 0 end,
                     render = function(self, list_model, index, item)
                         if not item then return "" end
-                        local cursor = list:cursor()
+                        local cursor = list_model:cursor()
                         local style = btea.style()
                         if index == cursor then
                             style = style:foreground("blue"):bold()
