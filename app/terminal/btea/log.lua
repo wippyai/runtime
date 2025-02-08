@@ -15,22 +15,22 @@ function App()
 
     -- Define styles
     app.styles = {
-        box = btea.new_style()
+        box = btea.style()
             :border(btea.borders.ROUNDED)
             :padding(1, 2)
             :foreground("#89B4FA")
             :background("#1E1E2E"),
 
-        header = btea.new_style()
+        header = btea.style()
             :bold()
             :foreground("#CBA6F7")
             :padding(0, 1)
             :underline(),
 
         -- Messages styling
-        key = btea.new_style():foreground("#F9E2AF"):bold(),
-        mouse = btea.new_style():foreground("#94E2D5"):bold(),
-        size = btea.new_style():foreground("#A6E3A1"):bold(),
+        key = btea.style():foreground("#F9E2AF"):bold(),
+        mouse = btea.style():foreground("#94E2D5"):bold(),
+        size = btea.style():foreground("#A6E3A1"):bold(),
         tick = btea.new_style():foreground("#89B4FA"),
         timestamp = btea.new_style():foreground("#6C7086"),
         command = btea.new_style():foreground("#F38BA8"):italic(),

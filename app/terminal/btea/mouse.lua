@@ -3,19 +3,19 @@ local bapp = require("bapp")
 -- Button helper (included in app file)
 local function create_button(zone_manager, id, label, styles)
     styles = styles or {
-        normal = btea.new_style()
+        normal = btea.style()
             :padding(1, 2)
             :border("rounded")
             :background("#45475A")
             :foreground("#FFFFFF"),
 
-        hover = btea.new_style()
+        hover = btea.style()
             :padding(1, 2)
             :border("rounded")
             :background("#FF79C6")
             :foreground("#000000"),
 
-        active = btea.new_style()
+        active = btea.style()
             :padding(1, 2)
             :border("rounded")
             :background("#89B4FA")
@@ -82,7 +82,7 @@ function App()
         width = 60,
         height = 20,
         mouse_wheel_enabled = true,
-        style = btea.new_style()
+        style = btea.style()
             :border("rounded")
             :padding(1)
             :background("#1E1E2E")
@@ -177,7 +177,7 @@ function App()
         local clear_btn = self.buttons.clear:render()
 
         -- Help text style
-        local help_style = btea.new_style()
+        local help_style = btea.style()
             :foreground("#6C7086")
             :italic()
 

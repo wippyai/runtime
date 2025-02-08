@@ -26,7 +26,7 @@ func TestKeyBinding(t *testing.T) {
 
 		err = vm.DoString(nil, `
             -- Create a key binding
-            local binding = btea.new_binding({
+            local binding = btea.bind({
                 keys = {"ctrl+c", "esc"},
                 help = {
                     key = "ctrl+c/esc",
@@ -58,7 +58,7 @@ func TestKeyBinding(t *testing.T) {
 
 		err = vm.DoString(nil, `
             -- Create a binding for space key
-            local binding = btea.new_binding({
+            local binding = btea.bind({
                 keys = {"space"},
                 help = {key = "space", desc = "select"}
             })
@@ -105,19 +105,19 @@ func TestKeyBinding(t *testing.T) {
 
 		err = vm.DoString(nil, `
             -- Test empty keys
-            local binding = btea.new_binding({
+            local binding = btea.bind({
                 keys = {} -- empty but valid keys table
             })
             assert(binding:is_enabled(), "binding should be enabled with empty keys")
 
             -- Test with multiple keys
-            local multi = btea.new_binding({
+            local multi = btea.bind({
                 keys = {"ctrl+x", "ctrl+w", "q"}
             })
             assert(multi:is_enabled(), "multi-key binding should work")
 
             -- Test with just help
-            local help_only = btea.new_binding({
+            local help_only = btea.bind({
                 help = {key = "test", desc = "test binding"}
             })
             local help = help_only:help()

@@ -18,7 +18,7 @@ local help = btea.help({
     full_separator = "    ",       -- Optional: separator for full help
     ellipsis = "...",             -- Optional: truncation indicator
     styles = {                     -- Optional: custom styles
-        short_key = btea.new_style():foreground("#909090"),
+        short_key = btea.style():foreground("#909090"),
         short_desc = btea.new_style():foreground("#B2B2B2"),
         short_separator = btea.new_style():foreground("#DDDADA"),
         full_key = btea.new_style():foreground("#909090"),
@@ -175,15 +175,15 @@ end
 local app_keymap = {
     -- Define bindings
     bindings = {
-        quit = btea.new_binding({
+        quit = btea.bind({
             keys = {"q", "ctrl+c"},
             help = {key = "q/ctrl+c", desc = "quit"}
         }),
-        help = btea.new_binding({
+        help = btea.bind({
             keys = {"?"},
             help = {key = "?", desc = "toggle help"}
         }),
-        save = btea.new_binding({
+        save = btea.bind({
             keys = {"ctrl+s"},
             help = {key = "ctrl+s", desc = "save"}
         })

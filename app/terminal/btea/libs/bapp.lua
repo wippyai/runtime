@@ -4,7 +4,7 @@ local bapp = {}
 function bapp.create_keys(bindings)
     local keys = {}
     -- Always include quit binding
-    keys.quit = btea.new_binding({
+    keys.quit = btea.bind({
         keys = bindings.quit or { "q", "ctrl+c" },
         help = { key = "q/^C", desc = "quit" }
     })
@@ -12,7 +12,7 @@ function bapp.create_keys(bindings)
     -- Add additional bindings
     for name, binding in pairs(bindings) do
         if name ~= "quit" then
-            keys[name] = btea.new_binding(binding)
+            keys[name] = btea.bind(binding)
         end
     end
 
@@ -27,11 +27,11 @@ function bapp.create_tabs(tabs_config)
         active = 1,
         window_size = { width = 80, height = 24 },
         keys = {
-            next = btea.new_binding({
+            next = btea.bind({
                 keys = { "right", "l", "n", "tab" },
                 help = { key = "→/tab", desc = "next tab" }
             }),
-            prev = btea.new_binding({
+            prev = btea.bind({
                 keys = { "left", "h", "p", "shift+tab" },
                 help = { key = "←/shift+tab", desc = "prev tab" }
             })

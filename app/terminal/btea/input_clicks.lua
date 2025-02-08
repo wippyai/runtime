@@ -44,25 +44,25 @@ function App()
 
     -- Style definitions
     app.styles = {
-        container = btea.new_style()
+        container = btea.style()
             :border("rounded")
             :padding(1)
             :background("#1E1E2E"),
 
-        input_normal = btea.new_style()
+        input_normal = btea.style()
             :border("rounded")
             :padding(0, 1)
             :background("#313244"),
 
-        input_focused = btea.new_style()
+        input_focused = btea.style()
             :border("rounded")
             :padding(0, 1)
             :background("#45475A"),
 
-        label = btea.new_style()
+        label = btea.style()
             :foreground("#89B4FA"),
 
-        help = btea.new_style()
+        help = btea.style()
             :foreground("#6C7086")
             :italic()
     }

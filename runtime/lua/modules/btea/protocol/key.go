@@ -23,7 +23,7 @@ func RegisterKeyBinding(l *lua.LState, mod *lua.LTable) {
 	}))
 
 	// Register constructor
-	l.SetField(mod, "new_binding", l.NewFunction(newBinding))
+	l.SetField(mod, "bind", l.NewFunction(newBinding))
 }
 
 func newBinding(l *lua.LState) int {

@@ -42,12 +42,12 @@ function App()
 
     -- Style for the clickable areas
     app.styles = {
-        normal = btea.new_style()
+        normal = btea.style()
             :padding(1, 2)
             :border("rounded")
             :background("#45475A"),
 
-        container = btea.new_style()
+        container = btea.style()
             :border("rounded")
             :padding(1)
             :background("#1E1E2E")

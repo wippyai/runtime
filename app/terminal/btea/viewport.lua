@@ -8,7 +8,7 @@ function App()
         width = 60,
         height = 20,
         mouse_wheel_enabled = true,
-        style = btea.new_style()
+        style = btea.style()
             :border(btea.borders.ROUNDED)
             :padding(1)
             :background("#1E1E2E")
@@ -40,9 +40,9 @@ function App()
 
     -- Styles for different log levels
     app.styles = {
-        info = btea.new_style():foreground("#89B4FA"),
-        warn = btea.new_style():foreground("#FAB387"),
-        error = btea.new_style():foreground("#F38BA8"),
+        info = btea.style():foreground("#89B4FA"),
+        warn = btea.style():foreground("#FAB387"),
+        error = btea.style():foreground("#F38BA8"),
         debug = btea.new_style():foreground("#A6E3A1"),
         help = btea.new_style():foreground("#6C7086"):italic()
     }

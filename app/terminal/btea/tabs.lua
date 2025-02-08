@@ -12,7 +12,7 @@ function App()
     }
 
     -- Create base styles
-    local tab_base = btea.new_style()
+    local tab_base = btea.style()
         :padding(0, 1)
         :margin(0, 1)
         :border(btea.borders.ROUNDED)
@@ -26,7 +26,7 @@ function App()
         :foreground(colors.inactive_fg)
 
     -- Window style
-    local window_style = btea.new_style()
+    local window_style = btea.style()
         :padding(1)
         :margin(0, 1)
         :border(btea.borders.NORMAL)
@@ -34,7 +34,7 @@ function App()
         :background(colors.bg)
 
     -- Container style
-    local container_style = btea.new_style()
+    local container_style = btea.style()
         :padding(1)
 
     -- Initialize tabs

@@ -33,17 +33,17 @@ function App()
 
     -- Define styles
     app.styles = {
-        base = btea.new_style()
+        base = btea.style()
             :border(btea.borders.ROUNDED)
             :padding(1)
             :foreground("#89B4FA")
             :background("#1E1E2E"),
 
-        player = btea.new_style()
+        player = btea.style()
             :foreground("#F5C2E7")
             :bold(),
 
-        help = btea.new_style()
+        help = btea.style()
             :foreground("#6C7086")
             :italic()
     }

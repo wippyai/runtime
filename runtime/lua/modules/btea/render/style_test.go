@@ -28,7 +28,7 @@ func TestStyleBasicRender(t *testing.T) {
 	defer L.Close()
 
 	script := `
-		local s = btea.new_style()
+		local s = btea.style()
 		local output = s:render("hello")
 		assert(type(output) == "string", "render should return a string")
 	`
@@ -40,7 +40,7 @@ func TestStyleColors(t *testing.T) {
 	defer L.Close()
 
 	script := `
-		local s = btea.new_style()
+		local s = btea.style()
 		local s_fg = s:foreground("red")
 		local s_bg = s:background("blue")
 		assert(type(s_fg) == "userdata", "foreground should return a Style")
@@ -54,7 +54,7 @@ func TestStyleTextModifiers(t *testing.T) {
 	defer L.Close()
 
 	script := `
-		local s = btea.new_style()
+		local s = btea.style()
 		local bold   = s:bold()
 		local italic = s:italic()
 		local underline = s:underline()
@@ -85,7 +85,7 @@ func TestStyleLayout(t *testing.T) {
 	defer L.Close()
 
 	script := `
-		local s = btea.new_style()
+		local s = btea.style()
 		local padded = s:padding(1, 2, 3, 4)
 		local margined = s:margin(1, 2, 3, 4)
 		assert(type(padded) == "userdata", "padding should return a Style")
@@ -99,7 +99,7 @@ func TestStyleBorders(t *testing.T) {
 	defer L.Close()
 
 	script := `
-		local s = btea.new_style()
+		local s = btea.style()
 		local rounded = s:border("rounded")
 		local custom = s:custom_border({ top = "-", bottom = "-", left = "|", right = "|" })
 		assert(type(rounded) == "userdata", "border should return a Style")

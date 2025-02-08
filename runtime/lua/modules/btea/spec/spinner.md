@@ -130,7 +130,7 @@ local spinner = btea.spinner {
 }
 
 -- Apply styling
-local style = btea.new_style()
+local style = btea.style()
     :foreground("#89B4FA")
     :bold()
 spinner:style(style)

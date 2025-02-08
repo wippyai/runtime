@@ -70,7 +70,7 @@ func RegisterStyle(l *lua.LState, mod *lua.LTable) {
 	}))
 
 	// Register constructor
-	l.SetField(mod, "new_style", l.NewFunction(newStyle))
+	l.SetField(mod, "style", l.NewFunction(newStyle))
 
 	// Register border constants
 	bordersTbl := l.NewTable()

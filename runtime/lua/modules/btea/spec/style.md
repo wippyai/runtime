@@ -11,7 +11,7 @@ properties. All style modification methods are immutable – they return a new s
 A style object is created via the constructor:
 
 ```lua
-local style = btea.new_style()
+local style = btea.style()
 ```
 
 Internally, the style object provides a set of methods that mirror the Lip Gloss API, enabling expressive, chainable

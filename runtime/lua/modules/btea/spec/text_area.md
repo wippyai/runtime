@@ -43,13 +43,13 @@ local text_area = btea.text_area({
       text = my_text_style,
   },
   key_map = {                         -- Custom key bindings (all available bindings are listed below)
-      character_forward         = btea.new_binding({ keys = {"right", "ctrl+f"} }),
-      character_backward        = btea.new_binding({ keys = {"left", "ctrl+b"} }),
-      word_forward              = btea.new_binding({ keys = {"alt+right", "alt+f"} }),
-      word_backward             = btea.new_binding({ keys = {"alt+left", "alt+b"} }),
-      delete_character_backward = btea.new_binding({ keys = {"backspace", "ctrl+h"} }),
-      delete_character_forward  = btea.new_binding({ keys = {"delete", "ctrl+d"} }),
-      insert_newline            = btea.new_binding({ keys = {"enter"} }),
+      character_forward         = btea.bind({ keys = {"right", "ctrl+f"} }),
+      character_backward        = btea.bind({ keys = {"left", "ctrl+b"} }),
+      word_forward              = btea.bind({ keys = {"alt+right", "alt+f"} }),
+      word_backward             = btea.bind({ keys = {"alt+left", "alt+b"} }),
+      delete_character_backward = btea.bind({ keys = {"backspace", "ctrl+h"} }),
+      delete_character_forward  = btea.bind({ keys = {"delete", "ctrl+d"} }),
+      insert_newline            = btea.bind({ keys = {"enter"} }),
       -- Additional bindings can be added here if needed.
   }
 })
@@ -192,12 +192,12 @@ Below is a complete example showing how to integrate and use the text_area compo
 
 ```lua
 -- Define your styles (assumed to be valid btea.Style userdata)
-local my_base_style            = btea.new_style():foreground("#FFFFFF")
-local my_cursor_line_style     = btea.new_style():background("#333333")
-local my_cursor_line_number_style = btea.new_style():foreground("#00FF00")
-local my_end_buffer_style      = btea.new_style():foreground("#666666")
-local my_line_number_style     = btea.new_style():foreground("#999999")
-local my_placeholder_style     = btea.new_style():italic(true)
+local my_base_style            = btea.style():foreground("#FFFFFF")
+local my_cursor_line_style     = btea.style():background("#333333")
+local my_cursor_line_number_style = btea.style():foreground("#00FF00")
+local my_end_buffer_style      = btea.style():foreground("#666666")
+local my_line_number_style     = btea.style():foreground("#999999")
+local my_placeholder_style     = btea.style():italic(true)
 local my_prompt_style          = btea.new_style():bold(true)
 local my_text_style            = btea.new_style()
 
@@ -230,13 +230,13 @@ local text_area = btea.text_area({
       text = my_text_style,
   },
   key_map = {
-      character_forward         = btea.new_binding({ keys = {"right", "ctrl+f"} }),
-      character_backward        = btea.new_binding({ keys = {"left", "ctrl+b"} }),
-      word_forward              = btea.new_binding({ keys = {"alt+right", "alt+f"} }),
-      word_backward             = btea.new_binding({ keys = {"alt+left", "alt+b"} }),
-      delete_character_backward = btea.new_binding({ keys = {"backspace", "ctrl+h"} }),
-      delete_character_forward  = btea.new_binding({ keys = {"delete", "ctrl+d"} }),
-      insert_newline            = btea.new_binding({ keys = {"enter"} }),
+      character_forward         = btea.bind({ keys = {"right", "ctrl+f"} }),
+      character_backward        = btea.bind({ keys = {"left", "ctrl+b"} }),
+      word_forward              = btea.bind({ keys = {"alt+right", "alt+f"} }),
+      word_backward             = btea.bind({ keys = {"alt+left", "alt+b"} }),
+      delete_character_backward = btea.bind({ keys = {"backspace", "ctrl+h"} }),
+      delete_character_forward  = btea.bind({ keys = {"delete", "ctrl+d"} }),
+      insert_newline            = btea.bind({ keys = {"enter"} }),
   }
 })
 

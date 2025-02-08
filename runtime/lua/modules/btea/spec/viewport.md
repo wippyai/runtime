@@ -121,7 +121,7 @@ local str = viewport:view()
 
 ```lua
 local function create_viewport()
-    local style = btea.new_style()
+    local style = btea.style()
         :foreground("#FFFFFF")
         :background("#000000")
         

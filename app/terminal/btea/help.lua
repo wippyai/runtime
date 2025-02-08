@@ -39,11 +39,11 @@ function App()
     app.help = btea.help({
         width = 60,
         styles = {
-            short_key = btea.new_style():foreground("#89B4FA"):bold(),
-            short_desc = btea.new_style():foreground("#CDD6F4"),
-            short_separator = btea.new_style():foreground("#45475A"),
-            full_key = btea.new_style():foreground("#89B4FA"):bold(),
-            full_desc = btea.new_style():foreground("#CDD6F4"),
+            short_key = btea.style():foreground("#89B4FA"):bold(),
+            short_desc = btea.style():foreground("#CDD6F4"),
+            short_separator = btea.style():foreground("#45475A"),
+            full_key = btea.style():foreground("#89B4FA"):bold(),
+            full_desc = btea.style():foreground("#CDD6F4"),
             full_separator = btea.new_style():foreground("#45475A")
         }
     })
