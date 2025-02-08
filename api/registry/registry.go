@@ -2,6 +2,9 @@ package registry
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
 
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"
@@ -54,6 +57,13 @@ type (
 
 	// Namespace represents a unique identifier for a registry namespace bounding components within a specific context.
 	Namespace string
+
+	PublicID struct {
+		// Namespace is the namespace of the target.
+		NS Namespace `json:"namespace"`
+		// ID is the unique identifier of the target.
+		ID ID `json:"id"`
+	}
 
 	// Version represents a specific version of the registry's state.
 	Version interface {
@@ -157,3 +167,33 @@ type (
 		Delete(context.Context, Entry) error
 	}
 )
+
+func (t PublicID) String() string {
+	return fmt.Sprintf("%s:%s", t.NS, t.ID)
+}
+
+func (t *PublicID) UnmarshalJSON(data []byte) error {
+	// Check if the data is a JSON string.
+	if len(data) > 0 && data[0] == '"' {
+		var s string
+		if err := json.Unmarshal(data, &s); err != nil {
+			return err
+		}
+		parts := strings.SplitN(s, ":", 2)
+		if len(parts) != 2 {
+			return fmt.Errorf("invalid public id format, expected ns:id")
+		}
+		t.NS = Namespace(parts[0])
+		t.ID = ID(parts[1])
+		return nil
+	}
+
+	// Otherwise, assume it's an object.
+	type alias PublicID // prevent infinite recursion
+	var tmp alias
+	if err := json.Unmarshal(data, &tmp); err != nil {
+		return err
+	}
+	*t = PublicID(tmp)
+	return nil
+}

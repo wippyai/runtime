@@ -65,18 +65,19 @@ func (r *Registry) handleEvent(evt events.Event) {
 	case runtime.RegisterProcessPrototype:
 		if data, ok := evt.Data.(runtime.RegisterWorkflow); ok {
 			if data.Factory == nil {
-				r.logger.Warn("handler is nil", zap.String("target", string(data.Target)))
+				// todo: redo and add ns support
+				r.logger.Warn("handler is nil", zap.String("target", string(data.Target.ID)))
 				return
 			}
 			r.handlers.Store(data.Target, data.Factory)
 			r.logger.Info("workflow handler registered",
-				zap.String("target", string(data.Target)))
+				zap.String("target", string(data.Target.ID)))
 		}
 	case runtime.DeleteProcessPrototype:
 		if data, ok := evt.Data.(runtime.DeleteWorkflow); ok {
 			r.handlers.Delete(data.Target)
 			r.logger.Info("workflow handler removed",
-				zap.String("target", string(data.Target)))
+				zap.String("target", string(data.Target.ID)))
 		}
 	}
 }
