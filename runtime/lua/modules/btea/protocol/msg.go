@@ -3,7 +3,9 @@ package protocol
 import (
 	"fmt"
 	tea "github.com/charmbracelet/bubbletea"
+	zone "github.com/lrstanley/bubblezone"
 	lua "github.com/yuin/gopher-lua"
+	"log"
 	"reflect"
 )
 
@@ -68,6 +70,49 @@ func MsgToLua(msg tea.Msg) lua.LValue {
 		sizeTbl.RawSetString("width", lua.LNumber(msg.Width))
 		sizeTbl.RawSetString("height", lua.LNumber(msg.Height))
 		tbl.RawSetString("window_size", sizeTbl)
+
+	case zone.MsgZoneInBounds:
+		log.Printf("zone.MsgZoneInBounds: %+v", msg.Zone)
+		zoneTbl := staticState.NewTable()
+		zoneTbl.RawSetString("type", lua.LString("zone_in_bounds"))
+
+		ud := staticState.NewUserData()
+		ud.Value = msg
+		zoneTbl.RawSetString("opaque", ud)
+
+		// Add zone info
+		if msg.Zone != nil {
+			zoneInfoTbl := staticState.NewTable()
+			zoneInfoTbl.RawSetString("start_x", lua.LNumber(msg.Zone.StartX))
+			zoneInfoTbl.RawSetString("start_y", lua.LNumber(msg.Zone.StartY))
+			zoneInfoTbl.RawSetString("end_x", lua.LNumber(msg.Zone.EndX))
+			zoneInfoTbl.RawSetString("end_y", lua.LNumber(msg.Zone.EndY))
+			zoneTbl.RawSetString("zone", zoneInfoTbl)
+		}
+
+		// Add mouse event
+		mouseTbl := staticState.NewTable()
+		mouseTbl.RawSetString("x", lua.LNumber(msg.Event.X))
+		mouseTbl.RawSetString("y", lua.LNumber(msg.Event.Y))
+		mouseTbl.RawSetString("alt", lua.LBool(msg.Event.Alt))
+		mouseTbl.RawSetString("ctrl", lua.LBool(msg.Event.Ctrl))
+		mouseTbl.RawSetString("shift", lua.LBool(msg.Event.Shift))
+
+		switch msg.Event.Action {
+		case tea.MouseActionPress:
+			mouseTbl.RawSetString("action", lua.LString("press"))
+		case tea.MouseActionRelease:
+			mouseTbl.RawSetString("action", lua.LString("release"))
+		case tea.MouseActionMotion:
+			mouseTbl.RawSetString("action", lua.LString("motion"))
+		}
+
+		if buttonStr, ok := mouseButtonMap[msg.Event.Button]; ok {
+			mouseTbl.RawSetString("button", lua.LString(buttonStr))
+		}
+		zoneTbl.RawSetString("event", mouseTbl)
+
+		tbl.RawSetString("zone_in_bounds", zoneTbl)
 
 	default:
 		ud := staticState.NewUserData()

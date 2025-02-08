@@ -5,6 +5,7 @@ import (
 	zone "github.com/lrstanley/bubblezone"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
 	lua "github.com/yuin/gopher-lua"
+	"log"
 )
 
 // Manager wraps zone.Manager for Lua
@@ -170,12 +171,21 @@ func managerAnyInBoundsAndUpdate(l *lua.LState) int {
 		return 0
 	}
 
+	mouseMsg, ok := msg.(tea.MouseMsg)
+	if !ok {
+		l.ArgError(3, "mouse message expected")
+		return 0
+	}
+
+	//log.Printf("Updating model: %+v", m.model)
+
 	// Update the model
-	newModel, cmd := m.model.AnyInBoundsAndUpdate(model, msg.(tea.MouseMsg))
+	newModel, cmd := m.model.AnyInBoundsAndUpdate(model, mouseMsg)
 	protocol.UpdateModelValue(l, modelValue, newModel)
 
 	// Return just the command if there is one
 	if cmd != nil {
+		log.Printf("Pushing command: %v", cmd)
 		l.Push(protocol.WrapCommand(l, cmd))
 		return 1
 	}
