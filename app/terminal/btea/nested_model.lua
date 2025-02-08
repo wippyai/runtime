@@ -1,18 +1,5 @@
 local bapp = require("bapp")
 
-function dump(o)
-    if type(o) == 'table' then
-        local s = '{ '
-        for k, v in pairs(o) do
-            if type(k) ~= 'number' then k = '"' .. k .. '"' end
-            s = s .. '[' .. k .. '] = ' .. dump(v) .. ','
-        end
-        return s .. '} '
-    else
-        return tostring(o)
-    end
-end
-
 -- Custom model that implements tea.Model interface
 local function create_click_model(zone_id, initial_text)
     return {
@@ -26,16 +13,10 @@ local function create_click_model(zone_id, initial_text)
         end,
 
         update = function(self, msg)
-            --print(dump(msg))
-
-            -- Handle zone_in_bounds messages
-            if msg.zone_in_bounds and msg.zone_in_bounds.type == "zone_in_bounds" then
-                -- Check if the mouse event is a press
-                if msg.zone_in_bounds.event.action == "press" then
-                    self.clicks = self.clicks + 1
-                    self.text = string.format("Clicked %d times!", self.clicks)
-                    return btea.commands.refresh
-                end
+            if msg.mouse and msg.mouse.action == "press" then
+                self.clicks = self.clicks + 1
+                self.text = string.format("Clicked %d times!", self.clicks)
+                return btea.commands.refresh
             end
             return nil
         end,
@@ -81,10 +62,17 @@ function App()
             return true
         end
 
-        -- Handle mouse events using any_in_bounds_update
+        -- Handle mouse events using zone manager
         if msg.mouse and msg.mouse.type == "mouse" then
             for _, model in ipairs(self.click_models) do
-                self:dispatch(zone_manager:any_in_bounds_update(model, msg))
+                local zone = zone_manager:get(model.zone_id)
+                if zone and zone:in_bounds(msg) then
+                    local cmd = model:update(msg)
+                    if cmd then
+                        self:dispatch(cmd)
+                    end
+                    break
+                end
             end
         end
 
