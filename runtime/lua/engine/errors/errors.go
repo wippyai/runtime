@@ -15,7 +15,7 @@ import (
 // preserving stack traces from both environments.
 type WrappedError struct {
 	err      error               // Points to parent error
-	luaStack *inspect.StackTrace // Lua stack at this wrap point
+	LuaStack *inspect.StackTrace // Lua stack at this wrap point
 	goStack  []uintptr           // Go stack at this wrap point
 	context  string              // Context for this wrap
 }
@@ -51,8 +51,8 @@ func (e *WrappedError) Stack() string {
 		}
 
 		// Add this level's Lua stack if present
-		if current.luaStack != nil {
-			luaFrames := current.luaStack.String()
+		if current.LuaStack != nil {
+			luaFrames := current.LuaStack.String()
 			if !seenFrames[luaFrames] {
 				result.WriteString(luaFrames)
 				result.WriteString("\n")
@@ -123,7 +123,7 @@ func WrapError(L *lua.LState, err error, context string) *WrappedError {
 			// Even with no new context, create new wrapper to capture current stacks
 			return &WrappedError{
 				err:      we.err,      // Link to original inner error
-				luaStack: luaStack,    // New Lua stack
+				LuaStack: luaStack,    // New Lua stack
 				goStack:  goStack[:n], // New Go stack
 				context:  we.context,  // Preserve context
 			}
@@ -131,7 +131,7 @@ func WrapError(L *lua.LState, err error, context string) *WrappedError {
 
 		return &WrappedError{
 			err:      we,
-			luaStack: inspect.GetStackTrace(L),
+			LuaStack: inspect.GetStackTrace(L),
 			goStack:  goStack[:n],
 			context:  context,
 		}
@@ -140,7 +140,7 @@ func WrapError(L *lua.LState, err error, context string) *WrappedError {
 	// Create new wrapped error
 	return &WrappedError{
 		err:      err,
-		luaStack: inspect.GetStackTrace(L),
+		LuaStack: inspect.GetStackTrace(L),
 		goStack:  goStack[:n],
 		context:  context,
 	}
@@ -158,6 +158,10 @@ func RaiseError(L *lua.LState, err error) {
 
 // GetWrappedError attempts to extract a WrappedError from a Lua error value.
 func GetWrappedError(err error) *WrappedError {
+	if err == nil {
+		return nil
+	}
+
 	var we *WrappedError
 	if errors.As(err, &we) {
 		return we

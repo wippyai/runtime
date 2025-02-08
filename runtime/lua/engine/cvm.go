@@ -4,6 +4,7 @@ import (
 	"container/list"
 	"context"
 	"fmt"
+	"github.com/ponyruntime/pony/runtime/lua/engine/errors"
 	"strings"
 
 	lua "github.com/yuin/gopher-lua"
@@ -227,25 +228,40 @@ func (e *CoroutineVM) Step(tasks ...*Task) (result []*Task, finalErr error) {
 
 		if task.State == lua.ResumeYield {
 			if task.RaiseError != nil {
+				var rErr error
+				rErr = task.RaiseError
+
+				if wrapped := errors.GetWrappedError(rErr); wrapped != nil {
+					rErr = wrapped
+				}
+
 				if task.output != nil {
-					task.output <- Result{State: task.l, Error: task.RaiseError}
+					task.output <- Result{State: task.l, Error: rErr}
 					close(task.output)
 					task.output = nil
 				}
 				_ = e.removeTask(task)
-				return nil, task.RaiseError
+				return nil, rErr
 			}
 
 			state, err, values = e.vm.state.Resume(task.thread, task.fn, task.Resumed...)
 			if err != nil {
+				var rErr error
+				rErr = err
+
+				if wrapped := errors.GetWrappedError(rErr); wrapped != nil {
+					rErr = wrapped
+				}
+
 				if task.output != nil {
-					task.output <- Result{State: task.l, Error: err}
+					task.output <- Result{State: task.l, Error: rErr}
 					close(task.output)
 					task.output = nil
 				}
 
 				_ = e.removeTask(task)
-				return nil, fmt.Errorf("error resuming task: %w", err)
+
+				return nil, fmt.Errorf("error resuming task: %w", rErr)
 			}
 
 			task.State = state
