@@ -31,7 +31,7 @@ func (p *Progress) View() string {
 // RegisterProgress registers the progress component
 func RegisterProgress(l *lua.LState, mod *lua.LTable) {
 	// Create and register the progress metatable
-	mt := l.NewTypeMetatable("btea.Paginator")
+	mt := l.NewTypeMetatable("btea.Progress")
 	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
 		"update":       progressUpdate,
 		"view":         progressView,
