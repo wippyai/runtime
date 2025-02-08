@@ -98,9 +98,13 @@ func TestCmdSequence(t *testing.T) {
 
 	t.Run("sequence multiple commands", func(t *testing.T) {
 		var order []int
+		done := make(chan struct{})
 		makeCmd := func(i int) func() tea.Msg {
 			return func() tea.Msg {
 				order = append(order, i)
+				if i == 2 {
+					close(done)
+				}
 				return nil
 			}
 		}
@@ -119,23 +123,48 @@ func TestCmdSequence(t *testing.T) {
 		seqCmd := UnwrapCommand(l, l.Get(-1))
 		require.NotNil(t, seqCmd)
 
-		// For sequence, we need to execute repeatedly until we get nil
-		cmd := seqCmd
-		for {
-			msg := cmd()
-			if msg == nil {
-				break
-			}
-			if nextCmd, ok := msg.(tea.Cmd); ok {
-				cmd = nextCmd
-			} else {
-				break
-			}
+		// Execute the sequence command to get the sequenceMsg
+		msg := seqCmd()
+		require.NotNil(t, msg, "sequence should return a message")
+
+		// Instead of trying to type assert or access internals,
+		// we'll verify the functionality by running it through a minimal tea.Program
+		p := tea.NewProgram(testModel{cmds: []tea.Cmd{seqCmd}})
+		if _, err := p.Run(); err != nil {
+			t.Fatal(err)
 		}
+
+		<-done
 		assert.Equal(t, []int{0, 1, 2}, order, "commands should execute in sequence")
 	})
 }
 
+type testModel struct {
+	cmds []tea.Cmd
+}
+
+func (m testModel) Init() tea.Cmd {
+	if len(m.cmds) > 0 {
+		return m.cmds[0]
+	}
+	return nil
+}
+
+func (m testModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg.(type) {
+	case tea.QuitMsg:
+		return m, nil
+	default:
+		if len(m.cmds) > 0 {
+			return m, tea.Quit
+		}
+		return m, nil
+	}
+}
+
+func (m testModel) View() string {
+	return ""
+}
 func TestStandardCommands(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
