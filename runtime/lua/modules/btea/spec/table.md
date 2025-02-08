@@ -1,16 +1,15 @@
-Below is an updated specification that now incorporates style support for table widgets, along with an updated demo that shows how to create and configure a table with custom styles.
-
----
-
 # Bubble Tea Table Widget in Lua
 
 ## Overview
 
-The table widget provides a way to display tabular data with customizable columns, rows, cursor navigation, and styles. The widget supports basic interaction (moving the selection, scrolling, etc.) and is fully configurable through Lua. Under the hood it leverages a Bubble Tea model, so you can update and render it in your application.
+The table widget provides a way to display tabular data with customizable columns, rows, cursor navigation, and styles.
+The widget supports basic interaction (moving the selection, scrolling, etc.) and is fully configurable through Lua.
+Under the hood it leverages a Bubble Tea model, so you can update and render it in your application.
 
 ## Table Creation
 
-A table widget is created with the `btea.table` constructor. The constructor accepts a Lua table of options. The supported options include:
+A table widget is created with the `btea.table` constructor. The constructor accepts a Lua table of options. The
+supported options include:
 
 - **cols**: A list of column definitions. Each column is represented by a Lua table with:
     - `title` (string): The header text.
@@ -42,31 +41,29 @@ local tablewidget = btea.table {
   height = 20,
   focused = true,
   styles = {
-    header   = header_style,   -- see Style section below
-    cell     = cell_style,
-    selected = selected_style,
+    header   = btea.style():bold():foreground("#FFFFFF"):background("#7D56F4"),
+    cell     = btea.style():foreground("#C0CAF5"),
+    selected = btea.style():bold():foreground("#89B4FA"):background("#2E2E3E"),
   },
 }
 ```
 
 ## Style Creation
 
-Styles are created with `btea.style()`. The style binding allows you to chain transformations such as `:bold()`, `:padding()`, `:foreground()`, and `:background()`. For example:
+Styles are created with `btea.style()`. The style binding allows you to chain transformations such as `:bold()`,
+`:foreground()`, and `:background()`. For example:
 
 ```lua
 local header_style = btea.style()
     :bold()
-    :padding(0, 1)
     :foreground("#FFFFFF")
     :background("#7D56F4")
 
 local cell_style = btea.style()
-    :padding(0, 1)
     :foreground("#C0CAF5")
-    :background("#1E1E2E")
 
 local selected_style = btea.style()
-    :bold(true)
+    :bold()
     :foreground("#89B4FA")
     :background("#2E2E3E")
 ```
@@ -77,64 +74,80 @@ local selected_style = btea.style()
 
 - **Setting Rows and Columns**
     - `tablewidget:set_rows(rows)`  
-      _Rows_ is a Lua table where each element is a table of strings.
+      Sets the table rows. _rows_ must be a Lua table where each element is a table of strings.
     - `tablewidget:set_columns(cols)`  
-      _Columns_ is a Lua table where each element is a table with keys `"title"` and `"width"`.
+      Sets the table columns. _cols_ must be a Lua table where each element is a table with keys `"title"` and
+      `"width"`.
 
 - **Retrieving Data**
-    - `local rows = tablewidget:get_rows()`
-    - `local cols = tablewidget:get_columns()`
+    - `local rows = tablewidget:get_rows()`  
+      Returns the current rows as a Lua table of tables.
+    - `local cols = tablewidget:get_columns()`  
+      Returns the current columns as a Lua table of column definitions.
 
 ### Navigation and Selection
 
 - **Cursor Control**
     - `tablewidget:set_cursor(n)`  
-      Sets the selected row index (zero-based).
+      Sets the selected row index (zero-based). The cursor will be clamped to valid row indices.
     - `local idx = tablewidget:cursor()`  
-      Retrieves the current cursor index.
+      Returns the current cursor index (zero-based).
 
 - **Movement**
     - `tablewidget:move_up([n])`  
-      Moves the selection up by _n_ rows (default is 1).
+      Moves the selection up by _n_ rows (default is 1). Won't move past the first row.
     - `tablewidget:move_down([n])`  
-      Moves the selection down by _n_ rows (default is 1).
+      Moves the selection down by _n_ rows (default is 1). Won't move past the last row.
     - `tablewidget:goto_top()`  
-      Moves the selection to the first row.
+      Moves the selection to the first row (index 0).
     - `tablewidget:goto_bottom()`  
       Moves the selection to the last row.
     - `local row = tablewidget:selected_row()`  
-      Returns the currently selected row as a Lua table.
+      Returns the currently selected row as a Lua table, or nil if no row is selected.
 
 ### Focus Management
 
 - **Focusing and Blurring**
     - `tablewidget:focus()`  
-      Puts the table in focus so that user input will affect it.
+      Puts the table in focus for user input handling.
     - `tablewidget:blur()`  
-      Removes focus from the table, preventing selection movement.
+      Removes focus from the table.
 
 ### Rendering
 
 - **Display and Help**
     - `local s = tablewidget:view()`  
-      Returns the current rendered view of the table (headers and visible rows).
+      Returns the current rendered view of the table.
     - `local help = tablewidget:help_view()`  
-      Returns a help text showing the key bindings.
+      Returns a help text showing available key bindings.
 
 ### Dimension Configuration
 
 - **Viewport Adjustments**
     - `tablewidget:set_width(n)`  
-      Sets the viewport width.
+      Sets the viewport width. Must be called after table creation if not set in options.
     - `tablewidget:set_height(n)`  
-      Sets the viewport height.
-    - `local width = tablewidget:width()`
-    - `local height = tablewidget:height()`
+      Sets the viewport height. Must be called after table creation if not set in options.
+    - `local width = tablewidget:width()`  
+      Returns the current viewport width.
+    - `local height = tablewidget:height()`  
+      Returns the current viewport height.
 
 ### Data Parsing
 
 - **Creating Rows from a String**
     - `tablewidget:from_values(value, [separator])`  
-      Parses a multi-line string into rows and columns.
-        - _value_: the string containing the data (rows separated by newline).
-        - _separator_: the field delimiter (default is comma if not provided).
+      Parses a multi-line string into rows. Each line becomes a row, split by the separator.
+        - _value_: String containing the data (rows separated by newline)
+        - _separator_: Field delimiter (defaults to comma if not provided)
+
+### Update Handling
+
+The table widget implements the Bubble Tea update pattern:
+
+```lua
+function on_update(msg)
+    local cmd = tablewidget:update(msg)
+    -- Handle any returned command if needed
+end
+```

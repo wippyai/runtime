@@ -4,6 +4,7 @@ import (
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/render"
 	lua "github.com/yuin/gopher-lua"
@@ -31,71 +32,93 @@ func (h *Help) View() string {
 // luaKeyMap implements help.KeyMap interface for Lua tables
 type luaKeyMap struct {
 	l        *lua.LState
-	keymap   *lua.LTable
+	keymap   lua.LValue
 	bindings []key.Binding
 	groups   [][]key.Binding
 }
 
 func (lk *luaKeyMap) ShortHelp() []key.Binding {
-	if fn := lk.keymap.RawGetString("short_help"); fn != lua.LNil {
-		err := lk.l.CallByParam(lua.P{
-			Fn:      fn,
-			NRet:    1,
-			Protect: true,
-		})
-		if err != nil {
-			return nil
-		}
+	// Try to get short_help field using engine.GetField
+	if fieldValue, ok := engine.GetField(lk.l, lk.keymap, "short_help"); ok {
+		switch v := fieldValue.(type) {
+		case *lua.LFunction:
+			// If it's a function, call it
+			lk.l.Push(v)
+			if err := lk.l.PCall(0, 1, nil); err != nil {
+				return nil
+			}
+			ret := lk.l.Get(-1)
+			lk.l.Pop(1)
+			return lk.processBindingsTable(ret)
 
-		ret := lk.l.Get(-1)
-		lk.l.Pop(1)
-
-		if tbl, ok := ret.(*lua.LTable); ok {
-			bindings := make([]key.Binding, 0)
-			tbl.ForEach(func(_, v lua.LValue) {
-				if b, ok := protocol.ToGoKeyBinding(v); ok {
-					bindings = append(bindings, b)
-				}
-			})
-			lk.bindings = bindings
-			return bindings
+		case *lua.LTable:
+			// If it's directly a table, process it
+			return lk.processBindingsTable(v)
 		}
 	}
+
 	return lk.bindings
 }
 
 func (lk *luaKeyMap) FullHelp() [][]key.Binding {
-	if fn := lk.keymap.RawGetString("full_help"); fn != lua.LNil {
-		err := lk.l.CallByParam(lua.P{
-			Fn:      fn,
-			NRet:    1,
-			Protect: true,
-		})
-		if err != nil {
-			return nil
-		}
+	// Try to get full_help field using engine.GetField
+	if fieldValue, ok := engine.GetField(lk.l, lk.keymap, "full_help"); ok {
+		switch v := fieldValue.(type) {
+		case *lua.LFunction:
+			// If it's a function, call it
+			lk.l.Push(v)
+			if err := lk.l.PCall(0, 1, nil); err != nil {
+				return nil
+			}
+			ret := lk.l.Get(-1)
+			lk.l.Pop(1)
+			return lk.processBindingGroups(ret)
 
-		ret := lk.l.Get(-1)
-		lk.l.Pop(1)
-
-		if tbl, ok := ret.(*lua.LTable); ok {
-			groups := make([][]key.Binding, 0)
-			tbl.ForEach(func(_, v lua.LValue) {
-				if groupTbl, ok := v.(*lua.LTable); ok {
-					group := make([]key.Binding, 0)
-					groupTbl.ForEach(func(_, b lua.LValue) {
-						if binding, ok := protocol.ToGoKeyBinding(b); ok {
-							group = append(group, binding)
-						}
-					})
-					groups = append(groups, group)
-				}
-			})
-			lk.groups = groups
-			return groups
+		case *lua.LTable:
+			// If it's directly a table, process it
+			return lk.processBindingGroups(v)
 		}
 	}
+
 	return lk.groups
+}
+
+// processBindingsTable converts a Lua table of key bindings to a Go slice
+func (lk *luaKeyMap) processBindingsTable(value lua.LValue) []key.Binding {
+	if tbl, ok := value.(*lua.LTable); ok {
+		bindings := make([]key.Binding, 0)
+		tbl.ForEach(func(_, v lua.LValue) {
+			if b, ok := protocol.ToGoKeyBinding(v); ok {
+				bindings = append(bindings, b)
+			}
+		})
+		lk.bindings = bindings
+		return bindings
+	}
+	return nil
+}
+
+// processBindingGroups converts a Lua table of binding groups to a Go slice of slices
+func (lk *luaKeyMap) processBindingGroups(value lua.LValue) [][]key.Binding {
+	if tbl, ok := value.(*lua.LTable); ok {
+		groups := make([][]key.Binding, 0)
+		tbl.ForEach(func(_, v lua.LValue) {
+			if groupTbl, ok := v.(*lua.LTable); ok {
+				group := make([]key.Binding, 0)
+				groupTbl.ForEach(func(_, b lua.LValue) {
+					if binding, ok := protocol.ToGoKeyBinding(b); ok {
+						group = append(group, binding)
+					}
+				})
+				if len(group) > 0 {
+					groups = append(groups, group)
+				}
+			}
+		})
+		lk.groups = groups
+		return groups
+	}
+	return nil
 }
 
 // RegisterHelp registers the help component
@@ -198,8 +221,17 @@ func helpView(l *lua.LState) int {
 	switch v := keymap.(type) {
 	case *lua.LTable:
 		// Handle Lua table implementing KeyMap interface
-		lkm := &luaKeyMap{l: l, keymap: v}
-		helpStr = h.model.View(lkm)
+		lkm := &luaKeyMap{
+			l:      l,
+			keymap: v,
+		}
+
+		// Call the appropriate view based on ShowAll
+		if h.model.ShowAll {
+			helpStr = h.model.FullHelpView(lkm.FullHelp())
+		} else {
+			helpStr = h.model.ShortHelpView(lkm.ShortHelp())
+		}
 	case *lua.LUserData:
 		// Try to get underlying model that implements KeyMap
 		if km, ok := v.Value.(help.KeyMap); ok {
