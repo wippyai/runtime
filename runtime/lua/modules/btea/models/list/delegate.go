@@ -66,28 +66,18 @@ func (ld *LuaDelegate) Spacing() int {
 }
 
 func (ld *LuaDelegate) Render(w io.Writer, m list.Model, index int, listItem list.Item) {
-	if ud, ok := ld.luaDelegate.(*lua.LUserData); ok {
-		if delegate, ok := ud.Value.(interface {
-			Render(io.Writer, list.Model, int, list.Item)
-		}); ok {
-			delegate.Render(w, m, index, listItem)
-			return
-		}
-	}
-
 	render, ok := engine.GetFunc(ld.luaState, ld.luaDelegate, "render")
 	if !ok {
 		return
 	}
 
-	wrappedModel := wrapModelForLua(ld.luaState, &m)
-	wrappedItem := wrapItemForLua(ld.luaState, listItem)
-
 	if err := ld.luaState.CallByParam(lua.P{
 		Fn:      render,
 		NRet:    1,
 		Protect: true,
-	}, wrappedModel, lua.LNumber(index), wrappedItem); err != nil {
+	}, wrapModelForLua(ld.luaState, &m),
+		lua.LNumber(index),
+		wrapItemForLua(ld.luaState, listItem)); err != nil {
 		ld.luaState.RaiseError("error calling delegate render: %v", err)
 		return
 	}
@@ -96,23 +86,11 @@ func (ld *LuaDelegate) Render(w io.Writer, m list.Model, index int, listItem lis
 	ld.luaState.Pop(1)
 
 	if str, ok := ret.(lua.LString); ok {
-		if _, err := fmt.Fprint(w, string(str)); err != nil {
-			ld.luaState.RaiseError("error writing to output: %v", err)
-		}
-	} else {
-		ld.luaState.RaiseError("render must return a string")
+		_, _ = fmt.Fprint(w, string(str))
 	}
 }
 
 func (ld *LuaDelegate) Update(msg tea.Msg, m *list.Model) tea.Cmd {
-	if ud, ok := ld.luaDelegate.(*lua.LUserData); ok {
-		if delegate, ok := ud.Value.(interface {
-			Update(tea.Msg, *list.Model) tea.Cmd
-		}); ok {
-			return delegate.Update(msg, m)
-		}
-	}
-
 	update, ok := engine.GetFunc(ld.luaState, ld.luaDelegate, "update")
 	if !ok {
 		return nil
@@ -125,7 +103,7 @@ func (ld *LuaDelegate) Update(msg tea.Msg, m *list.Model) tea.Cmd {
 		Fn:      update,
 		NRet:    1,
 		Protect: true,
-	}, luaMsg, wrappedModel); err != nil {
+	}, ld.luaDelegate, luaMsg, wrappedModel); err != nil {
 		ld.luaState.RaiseError("error calling delegate update: %v", err)
 		return nil
 	}
@@ -136,6 +114,7 @@ func (ld *LuaDelegate) Update(msg tea.Msg, m *list.Model) tea.Cmd {
 	if ret == lua.LNil {
 		return nil
 	}
+
 	return protocol.UnwrapCommand(ld.luaState, ret)
 }
 
@@ -159,6 +138,7 @@ func (ld *LuaDelegate) ShortHelp() []key.Binding {
 	}
 	return nil
 }
+
 func (ld *LuaDelegate) FullHelp() [][]key.Binding {
 	if ud, ok := ld.luaDelegate.(*lua.LUserData); ok {
 		if delegate, ok := ud.Value.(interface{ FullHelp() [][]key.Binding }); ok {

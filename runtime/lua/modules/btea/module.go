@@ -2,6 +2,7 @@ package btea
 
 import (
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/models"
+	"github.com/ponyruntime/pony/runtime/lua/modules/btea/models/list"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/render"
 	lua "github.com/yuin/gopher-lua"
@@ -45,7 +46,7 @@ func (m *Module) Loader(l *lua.LState) int {
 	models.RegisterTable(l, mod)
 
 	// lists of elements
-	//list.RegisterList(l, mod)
+	list.RegisterList(l, mod)
 
 	// additional view components
 	models.RegisterHelp(l, mod)
