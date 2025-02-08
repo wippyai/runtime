@@ -225,11 +225,9 @@ func TestStyleSpaceHandling(t *testing.T) {
 		local s = btea.new_style()
 		local underline_spaces = s:underline_spaces(true)
 		local strikethrough_spaces = s:strikethrough_spaces(true)
-		local color_whitespace = s:color_whitespace(true)
 		
 		assert(type(underline_spaces) == "userdata", "underline_spaces should return a Style")
 		assert(type(strikethrough_spaces) == "userdata", "strikethrough_spaces should return a Style")
-		assert(type(color_whitespace) == "userdata", "color_whitespace should return a Style")
 		
 		-- Test output differences
 		local base = s:render("  test  ")

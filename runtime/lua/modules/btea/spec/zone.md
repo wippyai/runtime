@@ -80,18 +80,6 @@ if zone_info:is_zero() then
 end
 ```
 
-## Mouse Interaction Helpers
-
-The zone manager provides utilities for handling mouse interactions:
-
-```lua
--- Send events to model for all zones under mouse
-manager:any_in_bounds(model, mouse_msg)
-
--- Same as above but returns updated model and commands
-local new_model, cmd = manager:any_in_bounds_and_update(model, mouse_msg)
-```
-
 ## Complete Example
 
 Here's a complete example of using zones in a component:

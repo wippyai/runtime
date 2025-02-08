@@ -173,10 +173,7 @@ func TestZoneManagerMouseInteraction(t *testing.T) {
 			local bounds = info:in_bounds(test_msg)
 			-- Continue regardless of bounds check result
 		end
-		
-		-- Test any_in_bounds (which shouldn't raise errors)
-		manager:any_in_bounds(test_model, test_msg)
-		
+			
 		-- Success if we reach here without errors
 		assert(true, "mouse interaction completed")
 	`
@@ -276,59 +273,6 @@ func TestZoneManagerErrors(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestZoneManagerAnyInBoundsAndUpdate(t *testing.T) {
-	L := setupZoneState(t)
-	defer L.Close()
-
-	// Create a mock model that properly converts to lua.LValue
-	model := newMockLuaModel(L)
-	L.SetGlobal("test_model", model.ud)
-
-	// Create test mouse message
-	mouseTbl := L.NewTable()
-	mouseTbl.RawSetString("type", lua.LString("mouse"))
-	mouseTbl.RawSetString("x", lua.LNumber(10))
-	mouseTbl.RawSetString("y", lua.LNumber(10))
-	mouseTbl.RawSetString("action", lua.LString("press"))
-	mouseTbl.RawSetString("button", lua.LString("left"))
-	mouseTbl.RawSetString("alt", lua.LBool(false))
-	mouseTbl.RawSetString("ctrl", lua.LBool(false))
-	mouseTbl.RawSetString("shift", lua.LBool(false))
-
-	msgTbl := L.NewTable()
-	msgTbl.RawSetString("mouse", mouseTbl)
-	msgTbl.RawSetString("type", lua.LString("update"))
-
-	L.SetGlobal("test_msg", msgTbl)
-
-	script := `
-        local manager = btea.new_zone_manager()
-        manager:set_enabled(true)
-        
-        -- Create and register a zone
-        local content = manager:mark("test-zone", "clickable content")
-        manager:scan(content)
-        
-        -- Test AnyInBoundsAndUpdate
-        local new_model, cmd = manager:any_in_bounds_update(test_model, test_msg)
-        assert(new_model ~= nil, "should return model")
-        
-        -- Test with nil values
-        local success, err = pcall(function()
-            manager:any_in_bounds_update(nil, test_msg)
-        end)
-        assert(not success, "should fail with nil model")
-        
-        -- Test with invalid message
-        local success2, err2 = pcall(function()
-            manager:any_in_bounds_update(test_model, {type="invalid"})
-        end)
-        assert(not success2, "should fail with invalid message")
-    `
-
-	require.NoError(t, L.DoString(script))
 }
 
 func TestZoneInfoEdgeCases(t *testing.T) {
