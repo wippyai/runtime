@@ -34,16 +34,6 @@ func (e *WrappedError) Unwrap() error {
 	return e.err
 }
 
-// Is reports whether the error matches a specific error value in the chain.
-func (e *WrappedError) Is(target error) bool {
-	return errors.Is(e.err, target)
-}
-
-// As attempts to convert the error to a specific type.
-func (e *WrappedError) As(target any) bool {
-	return errors.As(e.err, target)
-}
-
 // Stack returns a formatted string containing both Lua and Go stack traces
 // with filtering of redundant and internal frames.
 func (e *WrappedError) Stack() string {
@@ -132,16 +122,17 @@ func (e *WrappedError) Format(s fmt.State, verb rune) {
 // ConfigureErrorMetatable sets up the error metatable in the Lua state
 // to properly handle Go errors when converting them to strings in Lua.
 func ConfigureErrorMetatable(L *lua.LState) {
-	mt := L.NewTypeMetatable("error")
-	L.SetField(mt, "__tostring", L.NewFunction(func(L *lua.LState) int {
-		if ud := L.CheckUserData(1); ud != nil {
-			if err, ok := ud.Value.(error); ok {
-				L.Push(lua.LString(err.Error()))
-				return 1
-			}
-		}
-		return 0
-	}))
+	// todo: why we need this?
+	//mt := L.NewTypeMetatable("error")
+	//L.SetField(mt, "__tostring", L.NewFunction(func(L *lua.LState) int {
+	//	if ud := L.CheckUserData(1); ud != nil {
+	//		if err, ok := ud.Value.(error); ok {
+	//			L.Push(lua.LString(err.Error()))
+	//			return 1
+	//		}
+	//	}
+	//	return 0
+	//}))
 }
 
 // WrapError captures both Go and Lua stack traces at the point of error creation.
