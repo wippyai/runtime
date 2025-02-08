@@ -166,9 +166,6 @@ func WrapError(L *lua.LState, err error) *WrappedError {
 func RaiseError(L *lua.LState, err error) {
 	wrapped := WrapError(L, err)
 
-	key := fmt.Sprintf("__error_%p", wrapped)
-	L.SetField(L.Get(lua.RegistryIndex).(*lua.LTable), key, lua.LString(wrapped.Error()))
-
 	// Create user data and raise
 	ud := L.NewUserData()
 	ud.Value = wrapped
