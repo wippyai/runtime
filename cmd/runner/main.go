@@ -268,7 +268,6 @@ func initLogger(verbose, veryVerbose bool, bus events.Bus) (*zap.Logger, logsapi
 		config.Level = zap.NewAtomicLevelAt(zapcore.InfoLevel)
 		config.DisableStacktrace = true
 	}
-
 	config.EncoderConfig.EncodeTime = zapcore.TimeEncoderOfLayout(time.DateTime)
 
 	log, err := config.Build()

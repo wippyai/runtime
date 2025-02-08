@@ -102,6 +102,8 @@ func WrapCommand(l *lua.LState, cmd tea.Cmd) *lua.LUserData {
 
 func UnwrapCommand(l *lua.LState, value lua.LValue) tea.Cmd {
 	switch cmd := value.(type) {
+	case *lua.LNilType:
+		return nil
 	case *lua.LUserData:
 		if v, ok := cmd.Value.(*CmdWrapper); ok {
 			return v.cmd

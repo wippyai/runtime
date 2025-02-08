@@ -32,12 +32,19 @@ func (m *LuaModelWrapper) Init() tea.Cmd {
 
 func (m *LuaModelWrapper) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if fn, ok := engine.GetFunc(m.luaState, m.value, "update"); ok {
+		mouseMsg, ok := msg.(tea.MouseMsg)
+		if ok {
+			log.Printf("MOUSE MSG: %v", mouseMsg)
+		}
+
 		luaMsg := MsgToLua(msg)
+
 		err := m.luaState.CallByParam(lua.P{
 			Fn:      fn,
 			NRet:    2,
 			Protect: true,
 		}, m.value, luaMsg)
+
 		if err == nil {
 			cmdRet := m.luaState.Get(-1)
 			modelRet := m.luaState.Get(-2)
