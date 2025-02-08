@@ -38,28 +38,28 @@ type StackTrace struct {
 
 func (st StackTrace) String() string {
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "Thread: %s\n", st.ThreadID)
+	_, _ = fmt.Fprintf(&sb, "Thread: %s\n", st.ThreadID)
 	for _, frame := range st.Frames {
-		fmt.Fprintf(&sb, "  %s\n", frame.String())
+		_, _ = fmt.Fprintf(&sb, "  %s\n", frame.String())
 	}
 	return sb.String()
 }
 
 func (sf StackFrame) String() string {
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "[%d] %s:%d (%s)", sf.Level, sf.Source, sf.CurrentLine, sf.Name)
+	_, _ = fmt.Fprintf(&sb, "[%d] %s:%d (%s)", sf.Level, sf.Source, sf.CurrentLine, sf.Name)
 
 	if len(sf.Locals) > 0 {
 		sb.WriteString("\n    Locals:")
 		for _, local := range sf.Locals {
-			fmt.Fprintf(&sb, "\n      %s = %v", local.Name, local.Value)
+			_, _ = fmt.Fprintf(&sb, "\n      %s = %v", local.Name, local.Value)
 		}
 	}
 
 	if len(sf.Upvalues) > 0 {
 		sb.WriteString("\n    Upvalues:")
 		for _, upvalue := range sf.Upvalues {
-			fmt.Fprintf(&sb, "\n      %s = %v", upvalue.Name, upvalue.Value)
+			_, _ = fmt.Fprintf(&sb, "\n      %s = %v", upvalue.Name, upvalue.Value)
 		}
 	}
 
