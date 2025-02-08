@@ -113,7 +113,7 @@ func RegisterTextInput(l *lua.LState, mod *lua.LTable) {
 	l.SetField(mod, "ECHO_NONE", lua.LString(EchoNone))
 
 	// Register constructor
-	l.SetField(mod, "new_text_input", l.NewFunction(newTextInput))
+	l.SetField(mod, "text_input", l.NewFunction(newTextInput))
 }
 
 func newTextInput(l *lua.LState) int {

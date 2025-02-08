@@ -11,10 +11,10 @@ input widget that supports a variety of configuration options and methods to con
 
 ## Creating a Text Area
 
-Instantiate a new text_area using the `btea.new_text_area` Lua constructor. The constructor accepts a table of options:
+Instantiate a new text_area using the `btea.text_area` Lua constructor. The constructor accepts a table of options:
 
 ```lua
-local text_area = btea.new_text_area({
+local text_area = btea.text_area({
   prompt = "> ",                      -- Optional prompt displayed before user input
   placeholder = "type something...",  -- Placeholder text when empty
   value = "",                         -- Initial content
@@ -202,7 +202,7 @@ local my_prompt_style          = btea.new_style():bold(true)
 local my_text_style            = btea.new_style()
 
 -- Create a text_area with basic options and full key bindings.
-local text_area = btea.new_text_area({
+local text_area = btea.text_area({
   prompt = "> ",
   placeholder = "type your message...",
   width = 60,

@@ -6,10 +6,10 @@ The spinner component provides an animated loading indicator with various styles
 
 ## Creating a Spinner
 
-Spinners are created using the `btea.new_spinner` constructor:
+Spinners are created using the `btea.spinner` constructor:
 
 ```lua
-local spinner = btea.new_spinner {
+local spinner = btea.spinner {
     type = btea.spinners.DOT  -- Optional, defaults to LINE
 }
 ```
@@ -62,7 +62,7 @@ Sets the style for the spinner using a Lip Gloss style object.
 Basic usage:
 
 ```lua
-local spinner = btea.new_spinner {
+local spinner = btea.spinner {
     type = btea.spinners.DOT
 }
 

@@ -1,4 +1,4 @@
-package _redo_
+package models
 
 import (
 	"fmt"
@@ -35,16 +35,18 @@ func (t *TextArea) View() string {
 func RegisterTextArea(l *lua.LState, mod *lua.LTable) {
 	mt := l.NewTypeMetatable("btea.TextArea")
 	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
-		"update":    textAreaUpdate,
-		"view":      textAreaView,
-		"set_value": textAreaSetValue,
-		"value":     textAreaValue,
-		"focus":     textAreaFocus,
-		"blur":      textAreaBlur,
-		// Additional methods as needed.
+		"update":     textAreaUpdate,
+		"view":       textAreaView,
+		"set_value":  textAreaSetValue,
+		"value":      textAreaValue,
+		"focus":      textAreaFocus,
+		"blur":       textAreaBlur,
+		"length":     textAreaLength,
+		"line_count": textAreaLineCount,
+		"line":       textAreaLine,
 	}))
 
-	l.SetField(mod, "new_text_area", l.NewFunction(newTextArea))
+	l.SetField(mod, "text_area", l.NewFunction(newTextArea))
 }
 
 // newTextArea is the Lua constructor for a text area.
@@ -272,4 +274,32 @@ func processTextareaKeyMap(tbl *lua.LTable) textarea.KeyMap {
 		}
 	}
 	return keyMap
+}
+
+// Missing Methods from BubbleTea that we should add
+func textAreaLength(l *lua.LState) int {
+	ta := checkTextArea(l)
+	if ta == nil {
+		return 0
+	}
+	l.Push(lua.LNumber(ta.model.Length()))
+	return 1
+}
+
+func textAreaLineCount(l *lua.LState) int {
+	ta := checkTextArea(l)
+	if ta == nil {
+		return 0
+	}
+	l.Push(lua.LNumber(ta.model.LineCount()))
+	return 1
+}
+
+func textAreaLine(l *lua.LState) int {
+	ta := checkTextArea(l)
+	if ta == nil {
+		return 0
+	}
+	l.Push(lua.LNumber(ta.model.Line()))
+	return 1
 }

@@ -36,7 +36,7 @@ function App()
     })
 
     -- Create help component
-    app.help = btea.new_help({
+    app.help = btea.help({
         width = 60,
         styles = {
             short_key = btea.new_style():foreground("#89B4FA"):bold(),

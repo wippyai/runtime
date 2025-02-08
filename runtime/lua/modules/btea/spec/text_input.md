@@ -6,7 +6,7 @@ The most basic usage of text input in Lua looks like this:
 
 ```lua
 -- Create a new text input instance
-local input = btea.new_text_input({
+local input = btea.text_input({
     prompt = "> ",                    -- Optional prompt prefix
     placeholder = "Enter text...",    -- Optional placeholder text
     value = "",                       -- Initial value
@@ -37,7 +37,7 @@ end
 Text input supports various configuration options:
 
 ```lua
-local input = btea.new_text_input({
+local input = btea.text_input({
     -- Basic options
     prompt = "$ ",
     placeholder = "Type command...",
@@ -134,7 +134,7 @@ local bindings = {
 }
 
 -- Create input with custom bindings
-local input = btea.new_text_input({
+local input = btea.text_input({
     key_map = bindings
 })
 ```
@@ -148,7 +148,7 @@ local M = {}
 
 M.initial = function()
     return {
-        input = btea.new_text_input({
+        input = btea.text_input({
             prompt = "> ",
             placeholder = "Type command...",
             show_suggestions = true,
@@ -227,11 +227,11 @@ return M
 ### Form Input
 ```lua
 local form = {
-    username = btea.new_text_input({
+    username = btea.text_input({
         prompt = "Username: ",
         validate = function(v) return #v >= 3 end
     }),
-    password = btea.new_text_input({
+    password = btea.text_input({
         prompt = "Password: ",
         echo_mode = "password",
         validate = function(v) return #v >= 8 end
@@ -241,7 +241,7 @@ local form = {
 
 ### Command Input
 ```lua
-local cmd_input = btea.new_text_input({
+local cmd_input = btea.text_input({
     prompt = "$ ",
     show_suggestions = true,
     suggestions = {"help", "status", "quit"},
@@ -257,7 +257,7 @@ local cmd_input = btea.new_text_input({
 
 ### Search Input
 ```lua
-local search = btea.new_text_input({
+local search = btea.text_input({
     prompt = "🔍 ",
     placeholder = "Search...",
     key_map = {

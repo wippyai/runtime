@@ -12,7 +12,7 @@ function App()
     }
 
     -- Create the table widget with columns and rows
-    app.table = btea.new_table {
+    app.table = btea.table {
         cols = {
             { title = "ID",   width = 5 },
             { title = "Name", width = 20 },
