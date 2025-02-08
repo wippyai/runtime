@@ -40,7 +40,7 @@ func (m *Module) Loader(l *lua.LState) int {
 	// editable elements
 	models.RegisterTextInput(l, mod)
 	//models.RegisterTextArea(l, mod)
-	//models.RegisterPaginator(l, mod)
+	models.RegisterPaginator(l, mod)
 	models.RegisterViewport(l, mod)
 	//models.RegisterTable(l, mod)
 
@@ -49,8 +49,8 @@ func (m *Module) Loader(l *lua.LState) int {
 
 	// additional view components
 	//models.RegisterHelp(l, mod)
-	//models.RegisterSpinner(l, mod)
-	//models.RegisterProgress(l, mod)
+	models.RegisterSpinner(l, mod)
+	models.RegisterProgress(l, mod)
 
 	// Set the module
 	l.Push(mod)

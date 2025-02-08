@@ -1,4 +1,4 @@
-package _redo_
+package models
 
 import (
 	"github.com/charmbracelet/bubbles/paginator"

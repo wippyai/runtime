@@ -23,7 +23,7 @@ function App()
     for _, s in ipairs(app.spinners) do
         local spinner = btea.new_spinner {
             type = btea.spinners[string.upper(s.name)],
-            interval = 10
+            interval = 100
         }
         s.spinner = spinner
 

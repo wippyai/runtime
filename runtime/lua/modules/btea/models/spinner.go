@@ -1,4 +1,4 @@
-package _redo_
+package models
 
 import (
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
@@ -75,11 +75,10 @@ func newSpinner(l *lua.LState) int {
 		spinner.WithSpinner(goSpinnerFromLua(spinnerType)),
 	)
 
-	interval := opts.RawGetString("interval")
-	if interval != lua.LNil {
-		ms := lua.LVAsNumber(interval)
-		if ms > 0 {
-			s.Spinner.FPS = time.Duration(ms) * time.Millisecond
+	// Parse interval using protocol.ParseDuration if provided
+	if interval := opts.RawGetString("interval"); interval != lua.LNil {
+		if duration, err := protocol.ParseDuration(interval); err == nil {
+			s.Spinner.FPS = duration
 		}
 	}
 
@@ -176,15 +175,14 @@ func spinnerSetInterval(l *lua.LState) int {
 		return 0
 	}
 
-	// Get interval in milliseconds
-	ms := l.CheckNumber(2)
-	if ms <= 0 {
+	// Use CheckDuration for interval validation
+	duration := protocol.CheckDuration(l, 2)
+	if duration <= 0 {
 		l.ArgError(2, "interval must be greater than 0")
 		return 0
 	}
 
-	// Convert milliseconds to time.Duration FPS
-	s.model.Spinner.FPS = time.Duration(ms) * time.Millisecond
+	s.model.Spinner.FPS = duration
 	return 0
 }
 
@@ -197,7 +195,9 @@ func luaSpinnerFromGo(l *lua.LState, s spinner.Spinner) lua.LValue {
 		frames.RawSetInt(i+1, lua.LString(frame))
 	}
 	tbl.RawSetString("frames", frames)
-	tbl.RawSetString("interval", lua.LNumber(float64(s.FPS)/float64(time.Millisecond)))
+	protocol.PushDuration(l, s.FPS)
+	tbl.RawSetString("interval", l.Get(-1))
+	l.Pop(1)
 	return tbl
 }
 
@@ -213,10 +213,17 @@ func goSpinnerFromLua(v lua.LValue) spinner.Spinner {
 				})
 			}
 		}
-		interval := lua.LVAsNumber(tbl.RawGetString("interval"))
+
+		var interval time.Duration
+		if intervalValue := tbl.RawGetString("interval"); intervalValue != lua.LNil {
+			if duration, err := protocol.ParseDuration(intervalValue); err == nil {
+				interval = duration
+			}
+		}
+
 		return spinner.Spinner{
 			Frames: frames,
-			FPS:    time.Duration(interval) * time.Millisecond,
+			FPS:    interval,
 		}
 	}
 
