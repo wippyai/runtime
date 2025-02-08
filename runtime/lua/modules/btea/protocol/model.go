@@ -102,8 +102,6 @@ func TryGetModel(l *lua.LState, v lua.LValue) (tea.Model, bool) {
 		return &LuaModelWrapper{value: v, luaState: l}, true
 	}
 
-	log.Printf("MODEL CAN NOT BE EXTRACTED FROM %v", v)
-
 	return nil, false
 }
 

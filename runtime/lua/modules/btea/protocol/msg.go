@@ -12,6 +12,10 @@ var (
 )
 
 func MsgToLua(msg tea.Msg) lua.LValue {
+	if msg == nil {
+		return lua.LNil
+	}
+
 	tbl := staticState.NewTable()
 	tbl.RawSetString("type", lua.LString("update"))
 
