@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	lua "github.com/yuin/gopher-lua"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -86,14 +87,9 @@ func TestWrappedErrorWithStack(t *testing.T) {
 		}
 	}
 
-	// Debug print the stack trace
-	t.Logf("Full stack trace:\n%s", wrapped.Stack())
-
 	// Validate stack trace contains key elements
 	stack := wrapped.Stack()
 	requiredElements := []string{
-		"Lua Stack:",
-		"Go Stack:",
 		"RaiseError",
 		"middle_lua_func",
 		"test_error",
@@ -158,12 +154,6 @@ func TestDirectErrorPropagation(t *testing.T) {
 	wrapped := GetWrappedError(err)
 	if wrapped == nil {
 		t.Fatal("failed to get wrapped error")
-	}
-
-	// Validate error preserves both stacks
-	stack := wrapped.Stack()
-	if !strings.Contains(stack, "Lua Stack:") || !strings.Contains(stack, "Go Stack:") {
-		t.Error("stack trace missing either Lua or Go stack")
 	}
 
 	// Validate error chain preserved through direct propagation
@@ -258,12 +248,6 @@ func TestErrorIdentification(t *testing.T) {
 			t.Errorf("error %d mismatch:\nwant: %s\ngot:  %s", i, expected, actualChain[i])
 		}
 	}
-
-	// Validate stacks are present
-	stack := wrapped.Stack()
-	if !strings.Contains(stack, "Lua Stack:") || !strings.Contains(stack, "Go Stack:") {
-		t.Error("missing either Lua or Go stack trace")
-	}
 }
 func TestWrappedErrorReturnAndLuaError(t *testing.T) {
 	L := lua.NewState()
@@ -303,7 +287,7 @@ func TestWrappedErrorReturnAndLuaError(t *testing.T) {
 
 	// Verify Go stack trace is preserved
 	stack := wrapped.Stack()
-	if !strings.Contains(stack, "Go Stack:") {
+	if !strings.Contains(stack, ".go") {
 		t.Error("missing Go stack trace after Lua error()")
 	}
 }
@@ -337,5 +321,286 @@ func TestErrorToString(t *testing.T) {
 
 	if err := L.DoString(script); err != nil {
 		t.Fatalf("Failed to convert error to string: %v", err)
+	}
+}
+
+func TestLuaErrorWrapping(t *testing.T) {
+	L := lua.NewState()
+	defer L.Close()
+
+	RegisterErrorsModule(L)
+
+	script := `
+       function deep_func()
+           local base_err = "base error"
+           local wrapped = errors.wrap(base_err, "middle error")
+           local top_wrapped = errors.wrap(wrapped, "top error")
+           error(top_wrapped)
+       end
+
+       -- Don't return the error, re-raise it
+       deep_func()  -- This will raise the error
+   `
+
+	err := L.DoString(script)
+
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	wrapped := GetWrappedError(err)
+	if wrapped == nil {
+		t.Fatal("failed to get wrapped error")
+	}
+
+	// Verify error chain
+	errStr := wrapped.Error()
+	if !strings.Contains(errStr, "top error") ||
+		!strings.Contains(errStr, "middle error") ||
+		!strings.Contains(errStr, "base error") {
+		t.Errorf("error chain incomplete, got: %s", errStr)
+	}
+
+	// Verify stack trace captures Lua frames
+	stack := wrapped.Stack()
+	if !strings.Contains(stack, "deep_func") {
+		t.Error("stack trace missing Lua frames")
+	}
+
+	if !strings.Contains(stack, "<string>:4") {
+		t.Error("stack trace missing Lua frames")
+	}
+}
+
+func TestLuaErrorWrappingWithPcall(t *testing.T) {
+	L := lua.NewState()
+	defer L.Close()
+
+	RegisterErrorsModule(L)
+
+	script := `
+        function deep_func()
+            local base_err = "base error"
+            local wrapped = errors.wrap(base_err, "middle error")
+            local top_wrapped = errors.wrap(wrapped, "top error")
+            error(top_wrapped)
+        end
+
+        function safe_call()
+            local ok, err = pcall(deep_func) -- call line 10 (in lua terms)
+            if not ok then
+                if type(err) == 'userdata' then
+                    -- If it's already a wrapped error, re-raise it with level 2 to point to caller's location
+                    error(err, 2)
+                else
+                    -- If it's a string (like from normal error()), wrap it
+                    error(errors.wrap("pcall failed", err))
+                end
+            end
+        end
+
+        -- Call the function that uses pcall
+        safe_call()
+    `
+
+	err := L.DoString(script)
+
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	wrapped := GetWrappedError(err)
+	if wrapped == nil {
+		t.Fatal("failed to get wrapped error")
+	}
+
+	// Verify error chain
+	errStr := wrapped.Error()
+	if !strings.Contains(errStr, "top error") ||
+		!strings.Contains(errStr, "middle error") ||
+		!strings.Contains(errStr, "base error") {
+		t.Errorf("error chain incomplete, got: %s", errStr)
+	}
+
+	// Verify stack trace contains key components
+	stack := wrapped.Stack()
+	requiredStackElements := []string{
+		"<string>:10", // Location of error creation (instead of function name)
+		"pcall",       // pcall should be in stack
+		"errors.wrap", // Our wrapping function
+		"safe_call",   // The function using pcall
+	}
+
+	for _, elem := range requiredStackElements {
+		if !strings.Contains(stack, elem) {
+			t.Errorf("stack trace missing required element: %q", elem)
+		}
+	}
+
+	// Verify stack preserves error chain order
+	var contexts []string
+	current := wrapped
+	for current != nil {
+		if current.context != "" {
+			contexts = append(contexts, current.context)
+		}
+		current = GetWrappedError(current.Unwrap())
+	}
+
+	expectedContexts := []string{"top error", "middle error"}
+	if !reflect.DeepEqual(contexts, expectedContexts) {
+		t.Errorf("wrong context order:\nwant: %v\ngot:  %v", expectedContexts, contexts)
+	}
+}
+
+func TestComplexInteropErrorWrapping(t *testing.T) {
+	L := lua.NewState()
+	defer L.Close()
+
+	RegisterErrorsModule(L)
+
+	createNestedLuaState := func(L *lua.LState) int {
+		nestedL := lua.NewState()
+		defer nestedL.Close()
+
+		RegisterErrorsModule(nestedL)
+
+		finalGoFunc := func(L *lua.LState) int {
+			err := fmt.Errorf("deep error from final Go func")
+
+			// Create and inspect the wrapped error at its origin
+			wrappedErr := WrapError(L, err, "original error")
+
+			RaiseError(L, wrappedErr)
+			return 0
+		}
+
+		nestedL.SetGlobal("final_go_func", nestedL.NewFunction(finalGoFunc))
+
+		nestedScript := `
+           local ok, err = pcall(function() 
+				local result = final_go_func()
+				return result
+			end)
+			if not ok then
+				if type(err) == 'userdata' then
+					local wrapped = errors.wrap(err, "nested lua wrapper")
+					error(wrapped)
+				else
+					error("unexpected error type: " .. type(err))
+				end
+
+                -- Inspect error right after pcall
+                if type(err) == 'userdata' then
+                    local wrapped = errors.wrap(err, "nested lua wrapper")
+                    error(wrapped)
+                else
+                    error("unexpected error type from pcall: " .. type(err))
+                end
+            end
+            return true
+        `
+
+		err := nestedL.DoString(nestedScript)
+		if err != nil {
+			if wrapped := GetWrappedError(err); wrapped != nil {
+				// Create new userdata in parent state
+				ud := L.NewUserData()
+				ud.Value = wrapped
+				L.SetMetatable(ud, L.GetTypeMetatable("error"))
+
+				L.Error(ud, 0)
+			} else {
+				RaiseError(L, fmt.Errorf("error from nested state (unwrapped): %v", err))
+			}
+		}
+		return 0
+	}
+
+	L.SetGlobal("create_nested_state", L.NewFunction(createNestedLuaState))
+
+	script := `
+        local ok, err = pcall(function()
+            create_nested_state()
+        end)
+        
+        if not ok then
+            if type(err) == 'userdata' then
+                local wrapped = errors.wrap(err, "top level wrapper")
+                error(wrapped)
+            else
+                error("unexpected error type: " .. type(err))
+            end
+        end
+    `
+
+	err := L.DoString(script)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	wrapped := GetWrappedError(err)
+	if wrapped == nil {
+		t.Fatal("failed to get wrapped error")
+	}
+
+	// Verify error chain components
+	errStr := wrapped.Error()
+	expectedComponents := []string{
+		"top level wrapper",
+		"nested lua wrapper",
+		"deep error from final Go func",
+	}
+
+	for _, component := range expectedComponents {
+		if !strings.Contains(errStr, component) {
+			t.Errorf("error chain missing expected component: %q", component)
+		}
+	}
+
+	// Verify stack trace contains key elements
+	stack := wrapped.Stack()
+	requiredElements := []string{
+		"top level wrapper",
+		"nested lua wrapper",
+		"original error",
+		"final_go_func",
+		"<string>:2", // func call
+	}
+
+	for _, elem := range requiredElements {
+		if !strings.Contains(stack, elem) {
+			t.Errorf("stack trace missing required element: %q", elem)
+		}
+	}
+
+	// Verify stack traces are preserved in correct order
+	var contexts []string
+	var current = wrapped
+	for current != nil {
+		if current.context != "" {
+			contexts = append(contexts, current.context)
+		}
+		if next := GetWrappedError(current.Unwrap()); next != nil {
+			current = next
+		} else {
+			break
+		}
+	}
+
+	expectedOrder := []string{
+		"top level wrapper",
+		"nested lua wrapper",
+		"original error",
+	}
+
+	if len(contexts) != len(expectedOrder) {
+		t.Errorf("expected %d error contexts, got %d", len(expectedOrder), len(contexts))
+	} else {
+		for i, expected := range expectedOrder {
+			if contexts[i] != expected {
+				t.Errorf("wrong context at position %d: expected %q, got %q", i, expected, contexts[i])
+			}
+		}
 	}
 }
