@@ -14,15 +14,14 @@ type Viewport struct {
 }
 
 func (v *Viewport) Init() tea.Cmd {
-	return v.Init()
+	return v.model.Init()
 }
 
 func (v *Viewport) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	model, cmd := v.model.Update(msg)
+	v.model = model
 
-	return &Viewport{
-		model: model,
-	}, cmd
+	return v, cmd
 }
 
 func (v *Viewport) View() string {

@@ -14,15 +14,12 @@ type Progress struct {
 }
 
 func (p *Progress) Init() tea.Cmd {
-	return p.Init()
+	return p.model.Init()
 }
 
 func (p *Progress) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	model, cmd := p.model.Update(msg)
-
-	if m, ok := model.(progress.Model); ok {
-		p.model = m
-	}
+	p.model = model.(progress.Model)
 
 	return p, cmd
 }

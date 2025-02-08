@@ -16,7 +16,7 @@ type Spinner struct {
 }
 
 func (s *Spinner) Init() tea.Cmd {
-	return s.Init()
+	return nil
 }
 
 func (s *Spinner) Update(msg tea.Msg) (tea.Model, tea.Cmd) {

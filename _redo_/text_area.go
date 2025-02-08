@@ -18,7 +18,7 @@ type TextArea struct {
 }
 
 func (t *TextArea) Init() tea.Cmd {
-	return t.Init()
+	return nil
 }
 
 func (t *TextArea) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
