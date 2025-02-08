@@ -2,6 +2,9 @@ package engine
 
 import (
 	"context"
+	errors2 "errors"
+	"fmt"
+	"github.com/ponyruntime/pony/runtime/lua/engine/errors"
 	"strings"
 	"testing"
 
@@ -1415,4 +1418,80 @@ func TestVM_Context_Cancellation(t *testing.T) {
 	} else if !strings.Contains(err.Error(), "context canceled") && !strings.Contains(err.Error(), "interrupted") {
 		t.Errorf("expected error message to contain 'context canceled' or 'interrupted', got: %v", err)
 	}
+}
+
+func TestVM_ErrorHandling(t *testing.T) {
+	logger := zap.NewNop()
+
+	t.Run("lua api error handling", func(t *testing.T) {
+		vm, err := NewVM(logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm.Close()
+
+		script := `
+            function test_error()
+                error("lua error")
+            end
+        `
+
+		if err := vm.Import(script, "test", "test_error"); err != nil {
+			t.Fatal(err)
+		}
+
+		_, err = vm.Execute(context.Background(), "test_error")
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+
+		var apiErr *lua.ApiError
+		if !errors2.As(err, &apiErr) {
+			t.Fatal("error was not a Lua ApiError")
+		}
+
+		if !strings.Contains(apiErr.Error(), "lua error") {
+			t.Errorf("unexpected error message: %v", apiErr.Error())
+		}
+	})
+
+	t.Run("wrapped error from go", func(t *testing.T) {
+		vm, err := NewVM(logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm.Close()
+
+		testFunc := func(L *lua.LState) int {
+			err := fmt.Errorf("error from go")
+			errors.RaiseError(L, err)
+			return 0
+		}
+
+		vm.state.SetGlobal("go_error_func", vm.state.NewFunction(testFunc))
+
+		script := `
+            function test_error()
+                return go_error_func()
+            end
+        `
+
+		if err := vm.Import(script, "test", "test_error"); err != nil {
+			t.Fatal(err)
+		}
+
+		_, err = vm.Execute(context.Background(), "test_error")
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+
+		var wrapped *errors.WrappedError
+		if !errors2.As(err, &wrapped) {
+			t.Fatal("error was not a WrappedError")
+		}
+
+		if !strings.Contains(wrapped.Error(), "error from go") {
+			t.Errorf("unexpected error message: %v", wrapped.Error())
+		}
+	})
 }
