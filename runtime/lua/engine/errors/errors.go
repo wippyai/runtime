@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"github.com/ponyruntime/pony/runtime/lua/engine/inspect"
 	lua "github.com/yuin/gopher-lua"
+	"io"
 	"runtime"
 	"strings"
 )
@@ -102,6 +103,30 @@ func (e *WrappedError) Stack() string {
 	}
 
 	return result.String()
+}
+
+// Format implements the fmt.Formatter interface for WrappedError.
+// It supports various formatting verbs:
+//
+//	%v (default) - prints only the error message,
+//	%+v        - prints the error message along with the stack trace,
+//	%s         - prints just the error message,
+//	%q         - prints the error message as a quoted string.
+func (e *WrappedError) Format(s fmt.State, verb rune) {
+	switch verb {
+	case 'v':
+		if s.Flag('+') {
+			_, _ = io.WriteString(s, e.Error())
+			_, _ = io.WriteString(s, "\n")
+			_, _ = io.WriteString(s, e.Stack())
+			return
+		}
+		fallthrough
+	case 's':
+		_, _ = io.WriteString(s, e.Error())
+	case 'q':
+		_, _ = fmt.Fprintf(s, "%q", e.Error())
+	}
 }
 
 // ConfigureErrorMetatable sets up the error metatable in the Lua state
