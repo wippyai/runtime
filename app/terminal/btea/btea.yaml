@@ -7,7 +7,7 @@ meta:
   groups: [ "apps" ]
   depends_on_groups: [ "libs" ]
 
-source: file://help.lua
+source: file://list.lua
 method: App
 
 options:

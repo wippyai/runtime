@@ -48,10 +48,12 @@ func getStyleFromUserData(l *lua.LState, styleUD lua.LValue) (lipgloss.Style, bo
 		l.RaiseError("Expected a btea.Style userdata")
 		return lipgloss.Style{}, false
 	}
+
 	style, ok := ud.Value.(*render.Style)
 	if !ok {
 		l.RaiseError("Expected a btea.Style userdata")
 		return lipgloss.Style{}, false
 	}
+
 	return style.Style, true
 }

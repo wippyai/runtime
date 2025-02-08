@@ -41,8 +41,8 @@ function App()
             end
 
             local title_line = string.format("%s %s %s [%d/%d] %s",
-                    cursor, checkbox, status, index, current_cursor,
-                    title_style:render(item.title))
+                cursor, checkbox, status, index, current_cursor,
+                title_style:render(item.title))
             local desc_line = "    " .. desc_style:render(item.description)
 
             return title_line .. "\n" .. desc_line
@@ -51,7 +51,7 @@ function App()
         update = function(msg, model)
             if app.keys.select:matches(msg) then
                 local cursor = model:cursor()
-                if cursor >= 0 then  -- Ensure valid cursor
+                if cursor >= 0 then -- Ensure valid cursor
                     local idx = cursor + 1
                     selected_items[idx] = not selected_items[idx]
                     app.list:select(cursor)
@@ -95,11 +95,9 @@ function App()
         if msg.key then
             self:dispatch(self.list:update(msg))
         end
-
-        self:dispatch(spinner:update(msg))
     end
 
-    app:run(update, function(self) return self.list:view() .. spinner:view() end)
+    app:run(update, function(self) return self.list:view() end)
     return app
 end
 
