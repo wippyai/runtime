@@ -49,7 +49,7 @@ func newBinding(l *lua.LState) int {
 			k := string(str)
 			keys = append(keys, k)
 			// Handle single string case for space as well
-			if k == "space" {
+			if k == "space" { // todo: double check we need it
 				keys = append(keys, " ")
 			}
 		}
