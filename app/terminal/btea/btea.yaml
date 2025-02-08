@@ -7,7 +7,7 @@ meta:
   groups: [ "apps" ]
   depends_on_groups: [ "libs" ]
 
-source: file://progress.lua
+source: file://table.lua
 method: App
 
 options:

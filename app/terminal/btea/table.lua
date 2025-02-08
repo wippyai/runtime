@@ -1,4 +1,4 @@
-local bapp = require("bapp")  -- Change to correct bapp import
+local bapp = require("bapp") -- Change to correct bapp import
 
 function App()
     local app = bapp.new()
@@ -49,20 +49,20 @@ function App()
     -- Setup key bindings with help text
     app.keys = bapp.create_keys({
         up = {
-            keys = {"up", "k"},
-            help = {key = "↑/k", desc = "move up"}
+            keys = { "up", "k" },
+            help = { key = "↑/k", desc = "move up" }
         },
         down = {
-            keys = {"down", "j"},
-            help = {key = "↓/j", desc = "move down"}
+            keys = { "down", "j" },
+            help = { key = "↓/j", desc = "move down" }
         },
         pageup = {
-            keys = {"pgup", "b"},
-            help = {key = "pgup/b", desc = "page up"}
+            keys = { "pgup", "b" },
+            help = { key = "pgup/b", desc = "page up" }
         },
         pagedown = {
-            keys = {"pgdown", " "},
-            help = {key = "pgdn/space", desc = "page down"}
+            keys = { "pgdown", " " },
+            help = { key = "pgdn/space", desc = "page down" }
         }
     })
 
@@ -85,10 +85,10 @@ function App()
                 local cmd = self.table:move_down(1)
                 if cmd then self:dispatch(cmd) end
             elseif self.keys.pageup:matches(msg) then
-                local cmd = self.table:page_up()
+                local cmd = self.table:move_up(self.table:height())
                 if cmd then self:dispatch(cmd) end
             elseif self.keys.pagedown:matches(msg) then
-                local cmd = self.table:page_down()
+                local cmd = self.table:move_down(self.table:height())
                 if cmd then self:dispatch(cmd) end
             end
         end
