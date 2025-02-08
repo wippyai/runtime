@@ -7,7 +7,7 @@ function App()
     app.operations = {}
 
     -- Initialize text input
-    app.input = btea.new_text_input({
+    app.input = btea.text_input({
         placeholder = "Type something...",
         width = app.window.width - 8
     })

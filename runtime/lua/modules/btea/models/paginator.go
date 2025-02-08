@@ -54,7 +54,7 @@ func RegisterPaginator(l *lua.LState, mod *lua.LTable) {
 	l.SetField(mod, "paginator_types", typesTbl)
 
 	// Register constructor
-	l.SetField(mod, "new_paginator", l.NewFunction(newPaginator))
+	l.SetField(mod, "paginator", l.NewFunction(newPaginator))
 }
 
 func newPaginator(l *lua.LState) int {

@@ -8,10 +8,10 @@ status.
 
 ## Paginator Creation
 
-A paginator is created using the `btea.new_paginator` constructor:
+A paginator is created using the `btea.paginator` constructor:
 
 ```lua
-local paginator = btea.new_paginator {
+local paginator = btea.paginator {
     type = btea.paginator_types.ARABIC,       -- Display type (ARABIC or DOTS)
     page = 0,                       -- Current page (0-based index)
     per_page = 10,                  -- Items per page
@@ -106,7 +106,7 @@ local str = paginator:view()
 local function create_paginated_list()
     local model = {
         items = {},  -- Your list items
-        paginator = btea.new_paginator {
+        paginator = btea.paginator {
             type = btea.paginator_types.ARABIC,
             per_page = 10
         }
@@ -144,7 +144,7 @@ end
 
 ```lua
 local search_results = {
-    paginator = btea.new_paginator {
+    paginator = btea.paginator {
         type = btea.paginator_types.DOTS,
         per_page = 5,
         active_dot = "●",
@@ -174,7 +174,7 @@ local search_results = {
 
 ```lua
 local table_view = {
-    paginator = btea.new_paginator {
+    paginator = btea.paginator {
         type = btea.paginator_types.ARABIC,
         per_page = 15,
         arabic_format = "Page %d of %d"

@@ -26,7 +26,7 @@ func (s *Spinner) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (s *Spinner) View() string {
-	return s.View()
+	return s.model.View()
 }
 
 // RegisterSpinner registers the spinner component
@@ -42,7 +42,7 @@ func RegisterSpinner(l *lua.LState, mod *lua.LTable) {
 	}))
 
 	// Register constructor
-	l.SetField(mod, "new_spinner", l.NewFunction(newSpinner))
+	l.SetField(mod, "spinner", l.NewFunction(newSpinner))
 
 	// Register spinner types
 	spinnersTbl := l.NewTable()

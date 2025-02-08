@@ -7,13 +7,13 @@ function App()
     app.progress_bars = {
         {
             name = "Default",
-            progress = btea.new_progress {
+            progress = btea.progress {
                 width = 40
             }
         },
         {
             name = "Solid Blue",
-            progress = btea.new_progress {
+            progress = btea.progress {
                 width = 40,
                 fill_type = "solid",
                 color = "#89B4FA"
@@ -21,14 +21,14 @@ function App()
         },
         {
             name = "Default Gradient",
-            progress = btea.new_progress {
+            progress = btea.progress {
                 width = 40,
                 fill_type = "gradient"
             }
         },
         {
             name = "Custom Gradient",
-            progress = btea.new_progress {
+            progress = btea.progress {
                 width = 40,
                 gradient = {
                     from = "#F5C2E7",
@@ -38,7 +38,7 @@ function App()
         },
         {
             name = "No Percentage",
-            progress = btea.new_progress {
+            progress = btea.progress {
                 width = 40,
                 show_percentage = false,
                 fill_type = "solid",

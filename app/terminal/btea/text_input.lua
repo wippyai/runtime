@@ -7,7 +7,7 @@ function App()
     app.inputs = {
         {
             name = "Default",
-            input = btea.new_text_input({
+            input = btea.text_input({
                 prompt = "> ",
                 placeholder = "Basic input...",
                 width = 40
@@ -15,7 +15,7 @@ function App()
         },
         {
             name = "Password",
-            input = btea.new_text_input({
+            input = btea.text_input({
                 prompt = "🔒 ",
                 placeholder = "Enter password...",
                 echo_mode = btea.ECHO_PASSWORD,
@@ -25,7 +25,7 @@ function App()
         },
         {
             name = "Limited",
-            input = btea.new_text_input({
+            input = btea.text_input({
                 prompt = "# ",
                 placeholder = "Max 10 chars...",
                 char_limit = 10,
@@ -34,7 +34,7 @@ function App()
         },
         {
             name = "With Validation",
-            input = btea.new_text_input({
+            input = btea.text_input({
                 prompt = "$ ",
                 placeholder = "Numbers only...",
                 width = 40,
@@ -48,7 +48,7 @@ function App()
         },
         {
             name = "With Suggestions",
-            input = btea.new_text_input({
+            input = btea.text_input({
                 prompt = "cmd: ",
                 placeholder = "Type command...",
                 width = 40,

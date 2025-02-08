@@ -8,10 +8,10 @@ comprehensive help information.
 
 ## Help Creation
 
-A help component is created using the `btea.new_help` constructor:
+A help component is created using the `btea.help` constructor:
 
 ```lua
-local help = btea.new_help({
+local help = btea.help({
     width = 80,                    -- Optional: display width
     show_all = false,             -- Optional: show full help by default
     short_separator = " • ",       -- Optional: separator for short help
@@ -145,7 +145,7 @@ local help_text = help:view(viewport)  -- Works directly with components
 
 ```lua
 local function create_help()
-    return btea.new_help({
+    return btea.help({
         width = 80,
         styles = {
             short_key = btea.new_style()
@@ -215,9 +215,9 @@ local app_keymap = {
 
 ```lua
 local app = {
-    help = btea.new_help({width = 80}),
+    help = btea.help({width = 80}),
     viewport = btea.new_viewport({...}),
-    input = btea.new_text_input({...}),
+    input = btea.text_input({...}),
     
     view = function(self)
         local output = {

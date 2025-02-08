@@ -10,7 +10,7 @@ function App()
     app.inputs = {
         {
             name = "Name",
-            input = btea.new_text_input({
+            input = btea.text_input({
                 prompt = "👤 ",
                 placeholder = "Enter your name...",
                 width = 40
@@ -19,7 +19,7 @@ function App()
         },
         {
             name = "Email",
-            input = btea.new_text_input({
+            input = btea.text_input({
                 prompt = "📧 ",
                 placeholder = "Enter your email...",
                 width = 40
@@ -28,7 +28,7 @@ function App()
         },
         {
             name = "Password",
-            input = btea.new_text_input({
+            input = btea.text_input({
                 prompt = "🔒 ",
                 placeholder = "Enter password...",
                 echo_mode = btea.ECHO_PASSWORD,

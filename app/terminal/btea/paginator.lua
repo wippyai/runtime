@@ -48,7 +48,7 @@ function App()
     }
 
     -- Create paginator
-    app.paginator = btea.new_paginator({
+    app.paginator = btea.paginator({
         type = btea.paginator_types.DOTS,
         per_page = 5,
         active_dot = "●",

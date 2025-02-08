@@ -56,7 +56,7 @@ func RegisterTable(l *lua.LState, mod *lua.LTable) {
 		"height":       tableHeight,
 	}))
 	// Register the constructor.
-	l.SetField(mod, "new_table", l.NewFunction(newTable))
+	l.SetField(mod, "table", l.NewFunction(newTable))
 }
 
 // newTable is the Lua constructor for a table.

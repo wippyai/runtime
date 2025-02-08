@@ -10,7 +10,7 @@ The table widget provides a way to display tabular data with customizable column
 
 ## Table Creation
 
-A table widget is created with the `btea.new_table` constructor. The constructor accepts a Lua table of options. The supported options include:
+A table widget is created with the `btea.table` constructor. The constructor accepts a Lua table of options. The supported options include:
 
 - **cols**: A list of column definitions. Each column is represented by a Lua table with:
     - `title` (string): The header text.
@@ -27,7 +27,7 @@ A table widget is created with the `btea.new_table` constructor. The constructor
 ### Example:
 
 ```lua
-local tablewidget = btea.new_table {
+local tablewidget = btea.table {
   cols = {
     { title = "ID", width = 10 },
     { title = "Name", width = 20 },

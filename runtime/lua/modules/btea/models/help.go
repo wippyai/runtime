@@ -1,4 +1,4 @@
-package _redo_
+package models
 
 import (
 	"github.com/charmbracelet/bubbles/help"
@@ -115,7 +115,7 @@ func RegisterHelp(l *lua.LState, mod *lua.LTable) {
 	}))
 
 	// Register constructor
-	l.SetField(mod, "new_help", l.NewFunction(newHelp))
+	l.SetField(mod, "help", l.NewFunction(newHelp))
 }
 
 func newHelp(l *lua.LState) int {

@@ -4,7 +4,7 @@ function App()
     local app = bapp.new()
 
     -- Create text area with Norton Commander styling
-    app.text_area = btea.new_text_area({
+    app.text_area = btea.text_area({
         prompt = "NC> ",
         placeholder = "Enter commands or text here...",
         value = "",
