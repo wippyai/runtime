@@ -64,11 +64,11 @@ func (r *Registry) handleEvent(evt events.Event) {
 	switch evt.Kind {
 	case runtime.RegisterProcessPrototype:
 		if data, ok := evt.Data.(runtime.RegisterWorkflow); ok {
-			if data.Handler == nil {
+			if data.Factory == nil {
 				r.logger.Warn("handler is nil", zap.String("target", string(data.Target)))
 				return
 			}
-			r.handlers.Store(data.Target, data.Handler)
+			r.handlers.Store(data.Target, data.Factory)
 			r.logger.Info("workflow handler registered",
 				zap.String("target", string(data.Target)))
 		}

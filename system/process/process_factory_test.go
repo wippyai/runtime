@@ -58,7 +58,7 @@ func TestRegistry_HandlerRegistrationOverBus(t *testing.T) {
 		Kind:   runtime.RegisterProcessPrototype,
 		Data: runtime.RegisterWorkflow{
 			Target:  target,
-			Handler: handler,
+			Factory: handler,
 		},
 	})
 
@@ -110,7 +110,7 @@ func TestRegistry_Get(t *testing.T) {
 					Kind:   runtime.RegisterProcessPrototype,
 					Data: runtime.RegisterWorkflow{
 						Target:  "test.workflow",
-						Handler: handler,
+						Factory: handler,
 					},
 				})
 				time.Sleep(1 * time.Millisecond)
@@ -135,7 +135,7 @@ func TestRegistry_Get(t *testing.T) {
 					Kind:   runtime.RegisterProcessPrototype,
 					Data: runtime.RegisterWorkflow{
 						Target:  "nil.workflow",
-						Handler: nil,
+						Factory: nil,
 					},
 				})
 				time.Sleep(1 * time.Millisecond)
@@ -195,7 +195,7 @@ func TestRegistry_ConcurrentHandlerRegistration(t *testing.T) {
 				Kind:   runtime.RegisterProcessPrototype,
 				Data: runtime.RegisterWorkflow{
 					Target:  registry.ID(target),
-					Handler: handler,
+					Factory: handler,
 				},
 			})
 		}(i)
