@@ -91,7 +91,6 @@ func TestTerminals_Add(t *testing.T) {
 			Source:    "function init() return 'hello' end",
 			Libraries: []string{"test_lib"},
 			Modules:   []string{"test_module"},
-			Meta:      registry.Metadata{},
 		}
 
 		err := terminals.Add("test_terminal", cfg, modules, libraries)
@@ -108,7 +107,6 @@ func TestTerminals_Add(t *testing.T) {
 			Source:    "function init() return 'hello' end",
 			Libraries: []string{"test_lib"},
 			Modules:   []string{"test_module"},
-			Meta:      registry.Metadata{},
 		}
 
 		err := terminals.Add("test_terminal", cfg, modules, libraries)
@@ -121,7 +119,6 @@ func TestTerminals_Add(t *testing.T) {
 			Source:    "function init() return 'hello' end",
 			Libraries: []string{"test_lib"},
 			Modules:   []string{"non_existent_module"},
-			Meta:      registry.Metadata{},
 		}
 
 		err := terminals.Add("new_terminal", cfg, modules, libraries)
@@ -134,7 +131,6 @@ func TestTerminals_Add(t *testing.T) {
 			Source:    "function init() return 'hello' end",
 			Libraries: []string{"non_existent_lib"},
 			Modules:   []string{"test_module"},
-			Meta:      registry.Metadata{},
 		}
 
 		err := terminals.Add("new_terminal", cfg, modules, libraries)
@@ -151,7 +147,6 @@ func TestTerminals_Update(t *testing.T) {
 		Source:    "function init() return 'hello' end",
 		Libraries: []string{"test_lib"},
 		Modules:   []string{"test_module"},
-		Meta:      registry.Metadata{},
 	}
 	err := terminals.Add("test_terminal", initialCfg, modules, libraries)
 	require.NoError(t, err)
@@ -161,7 +156,6 @@ func TestTerminals_Update(t *testing.T) {
 			Source:    "function init() return 'updated' end",
 			Libraries: []string{"test_lib"},
 			Modules:   []string{"test_module"},
-			Meta:      registry.Metadata{"version": "2"},
 		}
 
 		err := terminals.Update("test_terminal", updatedCfg, modules, libraries)
@@ -178,7 +172,6 @@ func TestTerminals_Update(t *testing.T) {
 			Source:    "function init() return 'hello' end",
 			Libraries: []string{"test_lib"},
 			Modules:   []string{"test_module"},
-			Meta:      registry.Metadata{},
 		}
 
 		err := terminals.Update("non_existent", cfg, modules, libraries)
@@ -195,7 +188,6 @@ func TestTerminals_Delete(t *testing.T) {
 		Source:    "function init() return 'hello' end",
 		Libraries: []string{"test_lib"},
 		Modules:   []string{"test_module"},
-		Meta:      registry.Metadata{},
 	}
 	err := terminals.Add("test_terminal", cfg, modules, libraries)
 	require.NoError(t, err)
@@ -224,13 +216,11 @@ func TestTerminals_FindDependentOnLibrary(t *testing.T) {
 		Source:    "function init() return 'hello' end",
 		Libraries: []string{"test_lib"},
 		Modules:   []string{"test_module"},
-		Meta:      registry.Metadata{},
 	}
 	cfg2 := &api.TerminalConfig{
 		Source:    "function init() return 'world' end",
 		Libraries: []string{},
 		Modules:   []string{"test_module"},
-		Meta:      registry.Metadata{},
 	}
 
 	err := terminals.Add("terminal1", cfg1, modules, libraries)
@@ -260,7 +250,6 @@ func TestTerminals_MakeTerminal(t *testing.T) {
 			Source:    "function init() return 'hello' end",
 			Libraries: []string{"test_lib"},
 			Modules:   []string{"test_module"},
-			Meta:      registry.Metadata{},
 		}
 
 		term, err := terminals.MakeTerminal("test_terminal", cfg, modules, libraries)
@@ -273,7 +262,6 @@ func TestTerminals_MakeTerminal(t *testing.T) {
 			Source:    "function init() return 'hello' end",
 			Libraries: []string{"non_existent_lib"},
 			Modules:   []string{"test_module"},
-			Meta:      registry.Metadata{},
 		}
 
 		term, err := terminals.MakeTerminal("test_terminal", cfg, modules, libraries)
@@ -294,7 +282,6 @@ func TestTerminals_MakeTerminal(t *testing.T) {
 			Source:    "function init() return 'hello' end",
 			Libraries: []string{"test_lib"},
 			Modules:   []string{"test_module"},
-			Meta:      registry.Metadata{},
 		}
 
 		term, err := terminals.MakeTerminal("test_terminal", cfg, modules, libraries)

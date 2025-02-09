@@ -55,7 +55,6 @@ func TestFunctions_Add(t *testing.T) {
 			Libraries: []string{"test_lib"},
 			Modules:   []string{"test_module"},
 			Pool:      api.PoolConfig{Size: 1, Workers: 1},
-			Meta:      registry.Metadata{},
 		}
 		err := function.Add("test_func", cfg, modules, libraries)
 		require.NoError(t, err)
@@ -73,7 +72,6 @@ func TestFunctions_Add(t *testing.T) {
 			Libraries: []string{"test_lib"},
 			Modules:   []string{"non_existent_module"},
 			Pool:      api.PoolConfig{Size: 1, Workers: 1},
-			Meta:      registry.Metadata{},
 		}
 		err := function.Add("new_func", cfg, modules, libraries)
 		assert.Error(t, err)
@@ -87,7 +85,6 @@ func TestFunctions_Add(t *testing.T) {
 			Libraries: []string{"non_existent_lib"},
 			Modules:   []string{"test_module"},
 			Pool:      api.PoolConfig{Size: 1, Workers: 1},
-			Meta:      registry.Metadata{},
 		}
 		err := function.Add("new_func", cfg, modules, libraries)
 		assert.Error(t, err)
@@ -105,7 +102,6 @@ func TestFunctions_Update(t *testing.T) {
 		Libraries: []string{"test_lib"},
 		Modules:   []string{"test_module"},
 		Pool:      api.PoolConfig{Size: 1, Workers: 1},
-		Meta:      registry.Metadata{},
 	}
 	err := function.Add("test_func", initialCfg, modules, libraries)
 	require.NoError(t, err)
@@ -117,7 +113,6 @@ func TestFunctions_Update(t *testing.T) {
 			Libraries: []string{"test_lib"},
 			Modules:   []string{"test_module"},
 			Pool:      api.PoolConfig{Size: 2, Workers: 2},
-			Meta:      registry.Metadata{},
 		}
 		err := function.Update("test_func", updatedCfg, modules, libraries)
 		require.NoError(t, err)
@@ -135,7 +130,6 @@ func TestFunctions_Update(t *testing.T) {
 			Libraries: []string{"test_lib"},
 			Modules:   []string{"test_module"},
 			Pool:      api.PoolConfig{Size: 1, Workers: 1},
-			Meta:      registry.Metadata{},
 		}
 		err := function.Update("non_existent", cfg, modules, libraries)
 		assert.Error(t, err)
@@ -153,7 +147,6 @@ func TestFunctions_Delete(t *testing.T) {
 		Libraries: []string{"test_lib"},
 		Modules:   []string{"test_module"},
 		Pool:      api.PoolConfig{Size: 1, Workers: 1},
-		Meta:      registry.Metadata{},
 	}
 	err := function.Add("test_func", cfg, modules, libraries)
 	require.NoError(t, err)
@@ -184,7 +177,6 @@ func TestFunctions_Clone(t *testing.T) {
 		Libraries: []string{"test_lib"},
 		Modules:   []string{"test_module"},
 		Pool:      api.PoolConfig{Size: 1, Workers: 1},
-		Meta:      registry.Metadata{},
 	}
 	err := function.Add("test_func", cfg, modules, libraries)
 	require.NoError(t, err)
@@ -230,7 +222,6 @@ func TestFunctions_FindDependentOnLibrary(t *testing.T) {
 		Libraries: []string{"test_lib"},
 		Modules:   []string{"test_module"},
 		Pool:      api.PoolConfig{Size: 1, Workers: 1},
-		Meta:      registry.Metadata{},
 	}
 	cfg2 := &api.FunctionConfig{
 		Source:    "function test2() return 'world' end",
@@ -238,7 +229,6 @@ func TestFunctions_FindDependentOnLibrary(t *testing.T) {
 		Libraries: []string{},
 		Modules:   []string{"test_module"},
 		Pool:      api.PoolConfig{Size: 1, Workers: 1},
-		Meta:      registry.Metadata{},
 	}
 
 	err := function.Add("func1", cfg1, modules, libraries)
@@ -271,7 +261,6 @@ func TestFunctions_MakeFactory(t *testing.T) {
 		Libraries: []string{"test_lib"},
 		Modules:   []string{"test_module"},
 		Pool:      api.PoolConfig{Size: 1, Workers: 1},
-		Meta:      registry.Metadata{},
 	}
 
 	t.Run("creates factory successfully", func(t *testing.T) {
@@ -287,7 +276,6 @@ func TestFunctions_MakeFactory(t *testing.T) {
 			Libraries: []string{"non_existent_lib"},
 			Modules:   []string{"test_module"},
 			Pool:      api.PoolConfig{Size: 1, Workers: 1},
-			Meta:      registry.Metadata{},
 		}
 
 		factory, err := function.MakeFactory("test_func", invalidCfg, logger, modules, libraries)
