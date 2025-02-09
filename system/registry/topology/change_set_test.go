@@ -1,4 +1,4 @@
-package loader
+package topology
 
 import (
 	"fmt"

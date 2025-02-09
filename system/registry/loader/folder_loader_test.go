@@ -123,7 +123,7 @@ data: file://../e_data.txt
 
 	// Compare loaded entries
 	for _, entry := range entries {
-		expected, ok := expectedEntries[string(entry.ID)]
+		expected, ok := expectedEntries[entry.ID.String()]
 		if !ok {
 			t.Fatalf("expected entry with path '%s' not found", entry.ID)
 		}
@@ -276,7 +276,7 @@ data: value
 		t.Fatalf("expected 1 entry, got %d", len(entries))
 	}
 
-	if string(entries[0].ID) != "valid_setting" {
+	if entries[0].ID.Name != "valid_setting" {
 		t.Fatalf("expected entry with path '%s' not found", "valid_setting")
 	}
 
@@ -334,7 +334,7 @@ data: value
 		t.Fatalf("expected 1 entry, got %d", len(entries))
 	}
 
-	if string(entries[0].ID) != "valid_setting" {
+	if entries[0].ID.Name != "valid_setting" {
 		t.Fatalf("expected entry with path '%s' not found", "valid_setting")
 	}
 	// Check logs for errors

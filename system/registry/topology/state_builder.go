@@ -1,4 +1,4 @@
-package registry
+package topology
 
 import (
 	"fmt"
@@ -147,7 +147,7 @@ func (b *StateBuilder) BuildDelta(from, to registry.State) (registry.ChangeSet, 
 	delta := make(registry.ChangeSet, 0, len(creates)+len(updates)+len(deletes))
 
 	// 1. Handle Deletes - in reverse dependency order
-	sortedDeletes := loader.SortEntriesByDependency(deletes)
+	sortedDeletes := SortEntriesByDependency(deletes)
 	// Process deletes in reverse order to ensure dependents are deleted first
 	for i := len(sortedDeletes) - 1; i >= 0; i-- {
 		delta = append(delta, registry.Operation{
@@ -157,7 +157,7 @@ func (b *StateBuilder) BuildDelta(from, to registry.State) (registry.ChangeSet, 
 	}
 
 	// 2. Handle Updates - dependency order based on final state
-	sortedUpdates := loader.SortEntriesByDependency(updates)
+	sortedUpdates := SortEntriesByDependency(updates)
 	for _, entry := range sortedUpdates {
 		delta = append(delta, registry.Operation{
 			Kind:  registry.Update,
