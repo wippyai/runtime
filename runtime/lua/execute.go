@@ -14,9 +14,9 @@ import (
 // Execute executes a Lua function with the given arguments
 func (m *RuntimeManager) Execute(task runtime.Task) (chan *runtime.Result, error) {
 	// Create the callable from the sync map
-	cl, ok := m.callable.Load(task.Handler)
+	cl, ok := m.callable.Load(task.Target)
 	if !ok {
-		return nil, fmt.Errorf("handler not found for target: %s", task.Handler)
+		return nil, fmt.Errorf("handler not found for target: %s", task.Target)
 	}
 
 	handler, ok := cl.(api.Callable)
@@ -25,9 +25,9 @@ func (m *RuntimeManager) Execute(task runtime.Task) (chan *runtime.Result, error
 	}
 
 	// Create the function configuration
-	fn, exists := m.functions.Get(task.Handler)
+	fn, exists := m.functions.Get(task.Target)
 	if !exists {
-		return nil, fmt.Errorf("function configuration not found for target: %s", task.Handler)
+		return nil, fmt.Errorf("function configuration not found for target: %s", task.Target)
 	}
 
 	// Convert payloads to Lua values
