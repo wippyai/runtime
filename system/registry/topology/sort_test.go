@@ -772,3 +772,214 @@ func TestCreateChangeSetFromEntries_ImplicitNamespaceGroup(t *testing.T) {
 		})
 	}
 }
+
+func TestCreateChangeSetFromEntries_NamespaceInheritance(t *testing.T) {
+	tests := []struct {
+		name     string
+		entries  []registry.Entry
+		validate func(registry.ChangeSet) error
+	}{
+		{
+			name: "non-qualified dependencies inherit source namespace",
+			entries: []registry.Entry{
+				makeEntryWithMeta(
+					nsID("backend", "api"),
+					"service",
+					"api",
+					map[string]any{
+						registry.TagDependsOn: []string{
+							"db",           // should inherit backend ns
+							"cache",        // should inherit backend ns
+							"ns2:external", // explicit other ns
+						},
+					},
+				),
+				makeEntryWithMeta(
+					nsID("ns2", "external"), // Put this before dependencies to test sorting
+					"service",
+					"external",
+					map[string]any{},
+				),
+				makeEntryWithMeta(
+					nsID("backend", "cache"),
+					"service",
+					"cache",
+					map[string]any{},
+				),
+				makeEntryWithMeta(
+					nsID("backend", "db"),
+					"service",
+					"db",
+					map[string]any{},
+				),
+			},
+			validate: func(cs registry.ChangeSet) error {
+				posMap := make(map[string]int)
+				for i, op := range cs {
+					key := op.Entry.ID.String()
+					posMap[key] = i
+				}
+
+				// Check that dependencies come before api
+				apiKey := "backend:api"
+				dbKey := "backend:db"
+				cacheKey := "backend:cache"
+				externalKey := "ns2:external"
+
+				if posMap[dbKey] > posMap[apiKey] {
+					return fmt.Errorf("'db' should appear before 'api'")
+				}
+				if posMap[cacheKey] > posMap[apiKey] {
+					return fmt.Errorf("'cache' should appear before 'api'")
+				}
+				if posMap[externalKey] > posMap[apiKey] {
+					return fmt.Errorf("'external' should appear before 'api'")
+				}
+				return nil
+			},
+		},
+		{
+			name: "non-qualified dependencies with dots inherit source namespace",
+			entries: []registry.Entry{
+				makeEntryWithMeta(
+					nsID("ns2", "service.ext"), // Put this first to test sorting
+					"service",
+					"ext",
+					map[string]any{},
+				),
+				makeEntryWithMeta(
+					nsID("backend", "service.api"),
+					"service",
+					"api",
+					map[string]any{
+						registry.TagDependsOn: []string{
+							"service.db",      // should inherit backend ns
+							"service.cache",   // should inherit backend ns
+							"ns2:service.ext", // explicit other ns
+						},
+					},
+				),
+				makeEntryWithMeta(
+					nsID("backend", "service.cache"),
+					"service",
+					"cache",
+					map[string]any{},
+				),
+				makeEntryWithMeta(
+					nsID("backend", "service.db"),
+					"service",
+					"db",
+					map[string]any{},
+				),
+			},
+			validate: func(cs registry.ChangeSet) error {
+				posMap := make(map[string]int)
+				for i, op := range cs {
+					key := op.Entry.ID.String()
+					posMap[key] = i
+				}
+
+				// Check dependencies come before api
+				apiKey := "backend:service.api"
+				dbKey := "backend:service.db"
+				cacheKey := "backend:service.cache"
+				extKey := "ns2:service.ext"
+
+				if posMap[dbKey] > posMap[apiKey] {
+					return fmt.Errorf("'service.db' should appear before 'service.api'")
+				}
+				if posMap[cacheKey] > posMap[apiKey] {
+					return fmt.Errorf("'service.cache' should appear before 'service.api'")
+				}
+				if posMap[extKey] > posMap[apiKey] {
+					return fmt.Errorf("'service.ext' should appear before 'service.api'")
+				}
+				return nil
+			},
+		},
+		{
+			name: "non-qualified dependencies mixed with group and ns dependencies",
+			entries: []registry.Entry{
+				makeEntryWithMeta(
+					nsID("backend", "service.api"),
+					"service",
+					"api",
+					map[string]any{
+						registry.TagDependsOn: []string{
+							"service.db",        // should inherit backend ns
+							"group:public-apis", // group reference
+							"ns:frontend",       // namespace reference
+						},
+					},
+				),
+				makeEntryWithMeta(
+					nsID("frontend", "app"),
+					"webapp",
+					"app",
+					map[string]any{},
+				),
+				makeEntryWithMeta(
+					nsID("backend", "service.db"),
+					"service",
+					"db",
+					map[string]any{
+						registry.TagGroups: []string{"public-apis"},
+					},
+				),
+			},
+			validate: func(cs registry.ChangeSet) error {
+				posMap := make(map[string]int)
+				for i, op := range cs {
+					key := op.Entry.ID.String()
+					posMap[key] = i
+				}
+
+				apiKey := "backend:service.api"
+				dbKey := "backend:service.db"
+				appKey := "frontend:app"
+
+				if posMap[dbKey] > posMap[apiKey] {
+					return fmt.Errorf("'service.db' should appear before 'service.api'")
+				}
+				if posMap[appKey] > posMap[apiKey] {
+					return fmt.Errorf("frontend app should appear before 'service.api'")
+				}
+				return nil
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cs := CreateChangeSetFromEntries(tt.entries)
+
+			// Verify changeset length matches input
+			if len(cs) != len(tt.entries) {
+				t.Errorf("expected changeset length %d, got %d", len(tt.entries), len(cs))
+				return
+			}
+
+			// Run the validation function
+			if err := tt.validate(cs); err != nil {
+				t.Errorf("validation failed: %v", err)
+			}
+
+			// Verify all entries are present
+			expectedIDs := make(map[registry.ID]bool)
+			for _, entry := range tt.entries {
+				expectedIDs[entry.ID] = false
+			}
+			for _, op := range cs {
+				if _, exists := expectedIDs[op.Entry.ID]; !exists {
+					t.Errorf("unexpected entry ID in result: %v", op.Entry.ID)
+				}
+				expectedIDs[op.Entry.ID] = true
+			}
+			for id, found := range expectedIDs {
+				if !found {
+					t.Errorf("missing entry ID in result: %v", id)
+				}
+			}
+		})
+	}
+}
