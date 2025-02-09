@@ -26,10 +26,16 @@ func TestID_UnmarshalJSON(t *testing.T) {
 			wantErr:  false,
 		},
 		{
+			name:     "name-only format",
+			input:    `"test-name"`,
+			expected: ID{NS: "", Name: "test-name"},
+			wantErr:  false,
+		},
+		{
 			name:     "invalid string format - missing colon",
 			input:    `"test-ns-test-name"`,
-			expected: ID{},
-			wantErr:  true,
+			expected: ID{NS: "", Name: "test-ns-test-name"},
+			wantErr:  false,
 		},
 		{
 			name:     "invalid string format - empty namespace",
@@ -59,6 +65,12 @@ func TestID_UnmarshalJSON(t *testing.T) {
 			name:     "complex namespace and name",
 			input:    `"my.complex.namespace:my/complex/name"`,
 			expected: ID{NS: "my.complex.namespace", Name: "my/complex/name"},
+			wantErr:  false,
+		},
+		{
+			name:     "complex name only",
+			input:    `"my/complex/name/with/slashes"`,
+			expected: ID{NS: "", Name: "my/complex/name/with/slashes"},
 			wantErr:  false,
 		},
 	}
@@ -115,6 +127,15 @@ func TestID_UnmarshalJSON_RealWorld(t *testing.T) {
 			}`,
 			expected: ID{
 				NS:   "config.prod-env",
+				Name: "auth.jwt.secret@v2",
+			},
+			wantErr: false,
+		},
+		{
+			name:  "name-only configuration",
+			input: `"auth.jwt.secret@v2"`,
+			expected: ID{
+				NS:   "",
 				Name: "auth.jwt.secret@v2",
 			},
 			wantErr: false,
