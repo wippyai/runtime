@@ -1,7 +1,6 @@
 package terminal
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/ponyruntime/pony/api/registry"
@@ -17,17 +16,13 @@ const (
 
 // ServiceConfig represents the configuration for a terminal service
 type ServiceConfig struct {
-	Meta      registry.Metadata          `json:"meta"`
-	Target    registry.ID                `json:"target"`    // Name of the terminal app to use
+	Process   registry.ID                `json:"target"`    // Name of the terminal app to use
 	HideLogs  bool                       `json:"hide_logs"` // Redirect logs (all) to the event bus, releases io.Output
 	Lifecycle supervisor.LifecycleConfig `json:"lifecycle"` // Lifecycle management config
 }
 
 // Validate checks if the service configuration is valid
 func (c *ServiceConfig) Validate() error {
-	if c.Meta == nil {
-		return fmt.Errorf("metadata cannot be nil")
-	}
 	//if c.Handler == "" {
 	//	return fmt.Errorf("target cannot be empty")
 	//}

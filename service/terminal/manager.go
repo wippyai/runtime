@@ -73,9 +73,9 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	app, exists := m.apps[cfg.Target.String()]
+	app, exists := m.apps[cfg.Process.String()]
 	if !exists {
-		return fmt.Errorf("terminal app %s not found", cfg.Target)
+		return fmt.Errorf("terminal app %s not found", cfg.Process)
 	}
 
 	svc := newService(*app, entry.ID, cfg, m.bus, m.log)
@@ -109,12 +109,12 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		return fmt.Errorf("service %s not found", entry.ID)
 	}
 
-	app, exists := m.apps[cfg.Target.String()]
+	app, exists := m.apps[cfg.Process.String()]
 	if !exists {
-		return fmt.Errorf("terminal app %s not found", cfg.Target)
+		return fmt.Errorf("terminal app %s not found", cfg.Process)
 	}
 
-	if err := svc.UpdateApp(ctx, *app, cfg.Target.String()); err != nil {
+	if err := svc.UpdateApp(ctx, *app, cfg.Process.String()); err != nil {
 		return fmt.Errorf("failed to update service: %w", err)
 	}
 
