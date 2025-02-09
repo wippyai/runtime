@@ -15,9 +15,9 @@ func SortEntriesByDependency(entries []registry.Entry) []registry.Entry {
 	}
 
 	// Build dependency graph and group mapping.
-	g := graph.New[registry.Name]()
-	entryMap := make(map[registry.Name]registry.Entry, len(entries))
-	groupMap := make(map[string][]registry.Name)
+	g := graph.New[registry.ID]()
+	entryMap := make(map[registry.ID]registry.Entry, len(entries))
+	groupMap := make(map[string][]registry.ID)
 
 	// Add all entries as nodes and build the group mapping.
 	for _, entry := range entries {
@@ -34,9 +34,11 @@ func SortEntriesByDependency(entries []registry.Entry) []registry.Entry {
 	for _, entry := range entries {
 		dependsOn := entry.Meta.TagValue(registry.DependsOnTag)
 		for _, dep := range dependsOn {
-			if _, exists := entryMap[registry.Name(dep)]; exists {
+			// parse
+
+			if _, exists := entryMap[registry.ParseID(dep)]; exists {
 				// If A depends on B, add edge B -> A so B gets processed first.
-				g.AddEdge(registry.Name(dep), entry.ID, 1)
+				g.AddEdge(registry.ParseID(dep), entry.ID, 1)
 			}
 		}
 	}
@@ -64,7 +66,7 @@ func SortEntriesByDependency(entries []registry.Entry) []registry.Entry {
 		sorted := make([]registry.Entry, 0, len(entries))
 		sorted = append(sorted, entries...)
 		sort.Slice(sorted, func(i, j int) bool {
-			return sorted[i].ID < sorted[j].ID
+			return sorted[i].ID.String() < sorted[j].ID.String()
 		})
 		return sorted
 	}
@@ -75,7 +77,7 @@ func SortEntriesByDependency(entries []registry.Entry) []registry.Entry {
 	for _, levelNodes := range allLevels {
 		// Sort nodes within the level lexicographically.
 		sort.Slice(levelNodes, func(i, j int) bool {
-			return levelNodes[i] < levelNodes[j]
+			return levelNodes[i].String() < levelNodes[j].String()
 		})
 		for _, node := range levelNodes {
 			if entry, exists := entryMap[node]; exists {
