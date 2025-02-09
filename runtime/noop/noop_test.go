@@ -52,14 +52,14 @@ func TestNoopRuntime_Execute(t *testing.T) {
 		{
 			name: "basic execution",
 			task: runtime.Task{
-				Target: "test-function",
+				Handler: "test-function",
 			},
 			wantErr: false,
 		},
 		{
 			name: "empty target",
 			task: runtime.Task{
-				Target: "",
+				Handler: "",
 			},
 			wantErr: false,
 		},
@@ -79,7 +79,7 @@ func TestNoopRuntime_Execute(t *testing.T) {
 			result := <-resultCh
 			require.NotNil(t, result)
 			require.NotNil(t, result.Payload)
-			require.Contains(t, result.Payload.Data(), tt.task.Target)
+			require.Contains(t, result.Payload.Data(), tt.task.Handler)
 		})
 	}
 }
@@ -127,7 +127,7 @@ func TestNoopRuntime_Add(t *testing.T) {
 			// Verify event was sent
 			require.Equal(t, 1, bus.sendCount)
 			require.Equal(t, runtime.FunctionSystem, bus.lastEvent.System)
-			require.Equal(t, runtime.RegisterFunction, bus.lastEvent.Kind)
+			require.Equal(t, runtime.RegisterFunctionCommand, bus.lastEvent.Kind)
 			require.Equal(t, events.Path(tt.entry.ID), bus.lastEvent.Path)
 		})
 	}
@@ -219,7 +219,7 @@ func TestNoopRuntime_Delete(t *testing.T) {
 			// Verify event was sent
 			require.Equal(t, 1, bus.sendCount)
 			require.Equal(t, runtime.FunctionSystem, bus.lastEvent.System)
-			require.Equal(t, runtime.DeleteFunction, bus.lastEvent.Kind)
+			require.Equal(t, runtime.DeleteFunctionCommand, bus.lastEvent.Kind)
 			require.Equal(t, events.Path(tt.entry.ID), bus.lastEvent.Path)
 		})
 	}

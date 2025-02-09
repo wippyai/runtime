@@ -1,4 +1,4 @@
-name: functions.ollama
+name: function.ollama
 kind: function.lua
 meta:
   comment: "Calls ollama."

@@ -777,7 +777,7 @@ func TestSingleCaseSelectWithReadyData(t *testing.T) {
 		local ready = channel.new(0)  -- synchronization channel
 		local results = {}  -- collect results
 
-		-- Spawn 3 sender coroutines
+		-- Create 3 sender coroutines
 		for i = 1, 3 do
 			coroutine.spawn(function()
 				ch:send("val" .. i)

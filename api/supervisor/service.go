@@ -37,7 +37,7 @@ const (
 	Stopping Status = "stopping"
 	// Stopped indicates the service has stopped and is no longer running
 	Stopped Status = "stopped"
-	// Stopped indicates the service has stopped and is no longer running
+	// Exited indicates the service has exited on its own
 	Exited Status = "exited"
 	// Failed indicates the service has failed and is not running
 	Failed Status = "failed"
@@ -58,7 +58,7 @@ type (
 	}
 
 	// Status represents the operational status of a service.
-	Status string
+	Status = string
 
 	// Service defines the interface that must be implemented by any service managed by the supervisor.
 	Service interface {

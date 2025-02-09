@@ -4,11 +4,11 @@ meta:
   server: web_server
   router: api_router
   depends_on:
-    - functions.temporal_debug
+    - function.temporal_debug
     - web_server
     - api_router
 
 method: GET
 path: /debug/temporal
-target: functions.temporal_debug
+target: function.temporal_debug
 json_output: true

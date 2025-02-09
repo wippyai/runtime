@@ -47,7 +47,7 @@ func (b *StateBuilder) BuildState(history registry.History, targetVersion regist
 		return nil, fmt.Errorf("failed to get path from root to version %v: %w", targetVersion, err)
 	}
 
-	stateMap := make(map[registry.ID]registry.Entry) // Use a map for efficient lookups and overwrites
+	stateMap := make(map[registry.Name]registry.Entry) // Use a map for efficient lookups and overwrites
 
 	for _, ver := range path {
 		b.log.Debug("building version transition", zap.String("version", ver.String()))
@@ -103,7 +103,7 @@ func (b *StateBuilder) BuildState(history registry.History, targetVersion regist
 
 	// Append entries to state in sorted order
 	for _, path := range paths {
-		state = append(state, stateMap[registry.ID(path)])
+		state = append(state, stateMap[registry.Name(path)])
 	}
 
 	return state, nil
@@ -113,12 +113,12 @@ func (b *StateBuilder) BuildState(history registry.History, targetVersion regist
 // It returns a ChangeSet containing create, update, and delete operations in dependency order.
 func (b *StateBuilder) BuildDelta(from, to registry.State) (registry.ChangeSet, error) {
 	// Convert the states to maps for easier lookup
-	fromStateMap := make(map[registry.ID]registry.Entry)
+	fromStateMap := make(map[registry.Name]registry.Entry)
 	for _, entry := range from {
 		fromStateMap[entry.ID] = entry
 	}
 
-	toStateMap := make(map[registry.ID]registry.Entry)
+	toStateMap := make(map[registry.Name]registry.Entry)
 	for _, entry := range to {
 		toStateMap[entry.ID] = entry
 	}

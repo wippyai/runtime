@@ -12,20 +12,20 @@ import (
 // Functions handles Lua function configuration
 type Functions struct {
 	log       *zap.Logger
-	functions map[registry.ID]*api.FunctionConfig
+	functions map[registry.Name]*api.FunctionConfig
 }
 
 // NewFunctions creates a new function manager instance
 func NewFunctions(logger *zap.Logger) *Functions {
 	return &Functions{
 		log:       logger,
-		functions: make(map[registry.ID]*api.FunctionConfig),
+		functions: make(map[registry.Name]*api.FunctionConfig),
 	}
 }
 
 // Add adds a new function with required dependencies
 func (m *Functions) Add(
-	id registry.ID,
+	id registry.Name,
 	config *api.FunctionConfig,
 	modules api.ModuleRegistry,
 	libraries api.LibraryRegistry,
@@ -41,7 +41,7 @@ func (m *Functions) Add(
 
 // Update updates an existing function with required dependencies
 func (m *Functions) Update(
-	id registry.ID,
+	id registry.Name,
 	config *api.FunctionConfig,
 	modules api.ModuleRegistry,
 	libraries api.LibraryRegistry,
@@ -63,7 +63,7 @@ func (m *Functions) Update(
 func (m *Functions) Clone() *Functions {
 	cloned := &Functions{
 		log:       m.log,
-		functions: make(map[registry.ID]*api.FunctionConfig, len(m.functions)),
+		functions: make(map[registry.Name]*api.FunctionConfig, len(m.functions)),
 	}
 
 	// Copy map entries (pointers remain the same)
@@ -75,7 +75,7 @@ func (m *Functions) Clone() *Functions {
 }
 
 // Delete removes a function
-func (m *Functions) Delete(id registry.ID) error {
+func (m *Functions) Delete(id registry.Name) error {
 	if _, exists := m.functions[id]; !exists {
 		return fmt.Errorf("function %s not found", id)
 	}
@@ -85,18 +85,18 @@ func (m *Functions) Delete(id registry.ID) error {
 	return nil
 }
 
-// Get returns a function config by ID
+// Get returns a function config by Name
 func (m *Functions) Get(id registry.ID) (*api.FunctionConfig, bool) {
 	fn, exists := m.functions[id]
 	return fn, exists
 }
 
 // FindDependentOnLibrary finds all functions that depend on a given library
-func (m *Functions) FindDependentOnLibrary(libraryID registry.ID) map[registry.ID]*api.FunctionConfig {
-	dependent := make(map[registry.ID]*api.FunctionConfig)
+func (m *Functions) FindDependentOnLibrary(libraryID registry.Name) map[registry.Name]*api.FunctionConfig {
+	dependent := make(map[registry.Name]*api.FunctionConfig)
 	for id, fn := range m.functions {
 		for _, lib := range fn.Libraries {
-			if registry.ID(lib) == libraryID {
+			if registry.Name(lib) == libraryID {
 				dependent[id] = fn
 				break
 			}
@@ -108,7 +108,7 @@ func (m *Functions) FindDependentOnLibrary(libraryID registry.ID) map[registry.I
 // MakeFactory creates a new factory for function compilation using provided managers
 // todo: this is also must be abstracted generally speaking
 func (m *Functions) MakeFactory(
-	id registry.ID,
+	id registry.Name,
 	cfg *api.FunctionConfig,
 	logger *zap.Logger,
 	modules api.ModuleRegistry,
@@ -139,7 +139,7 @@ func (m *Functions) MakeFactory(
 
 	// Add required libraries
 	for _, libID := range cfg.Libraries {
-		lib, err := libraries.Get(registry.ID(libID))
+		lib, err := libraries.Get(registry.Name(libID))
 		if err != nil {
 			return nil, err
 		}
@@ -188,7 +188,7 @@ func (m *Functions) validateDependencies(
 
 	// Validate libraries
 	for _, libID := range cfg.Libraries {
-		if !libraries.Has(registry.ID(libID)) {
+		if !libraries.Has(registry.Name(libID)) {
 			return fmt.Errorf("library %s not found", libID)
 		}
 	}

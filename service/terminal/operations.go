@@ -21,7 +21,7 @@ const (
 type controlOp struct {
 	action   controlAction
 	terminal api.Terminal
-	id       registry.ID
+	id       registry.Name
 	result   chan error
 }
 
@@ -67,7 +67,7 @@ func (o *operations) handleStop(ctx context.Context) error {
 	return nil
 }
 
-func (o *operations) handleUpdate(ctx context.Context, newTerminal api.Terminal, id registry.ID) error {
+func (o *operations) handleUpdate(ctx context.Context, newTerminal api.Terminal, id registry.Name) error {
 	newRunner := newTerminalRunner(newTerminal, id, o.bus, o.log)
 
 	// todo: introduce context and timeout

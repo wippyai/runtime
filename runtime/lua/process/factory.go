@@ -45,7 +45,7 @@ func (f *Factory) ForWorkflow(
 
 	// Add libraries and their dependencies
 	for _, libName := range cfg.Libraries {
-		lib, err := libraries.Get(registry.ID(libName))
+		lib, err := libraries.Get(registry.Name(libName))
 		if err != nil {
 			return nil, err
 		}

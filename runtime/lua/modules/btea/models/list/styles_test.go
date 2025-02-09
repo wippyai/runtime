@@ -225,7 +225,7 @@ func TestIntegrationWithLuaVM(t *testing.T) {
 		t.Fatalf("Failed to execute Lua script: %v", err)
 	}
 
-	// Get the returned styles table
+	// Create the returned styles table
 	stylesTable := l.Get(-1).(*lua.LTable)
 	l.Pop(1)
 

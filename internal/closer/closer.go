@@ -16,7 +16,7 @@ type Cleanup struct {
 }
 
 // NewCleanup creates a new Cleanup instance with an initial capacity
-// for storing cleanup functions.
+// for storing cleanup function.
 func NewCleanup() *Cleanup {
 	return &Cleanup{
 		closers: make([]func() error, 0, 4),

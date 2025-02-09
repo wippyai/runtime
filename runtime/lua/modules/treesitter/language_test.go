@@ -199,7 +199,7 @@ func TestLanguageEdgeCases(t *testing.T) {
 			local tree = treesitter.parse("go", code)
 			local lang = tree:language()
 			
-			-- Test with invalid node kind ID
+			-- Test with invalid node kind Name
 			local kind = lang:node_kind_for_id(65535)  -- Max uint16
 			assert(type(kind) == "string", "should handle max uint16")
 			

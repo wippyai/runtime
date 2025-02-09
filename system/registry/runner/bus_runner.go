@@ -112,7 +112,7 @@ func (br *BusRunner) applyOperation(ctx context.Context, state stateMap, op regi
 	for {
 		select {
 		case confirmation := <-br.acceptChan:
-			id := registry.ID(confirmation.Path)
+			id := registry.Name(confirmation.Path)
 			br.log.Debug("received accept event",
 				zap.String("id", string(id)),
 				zap.String("expected", string(op.Entry.ID)))
@@ -131,7 +131,7 @@ func (br *BusRunner) applyOperation(ctx context.Context, state stateMap, op regi
 
 			return newState, nil
 		case rejection := <-br.rejectChan:
-			id := registry.ID(rejection.Path)
+			id := registry.Name(rejection.Path)
 			br.log.Debug("received reject event",
 				zap.String("id", string(id)),
 				zap.String("expected", string(op.Entry.ID)),

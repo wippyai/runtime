@@ -11,7 +11,7 @@ type (
 	// It contains the execution context, target identifier, and input payloads.
 	Task struct {
 		Context  context.Context
-		Target   registry.PublicID
+		Handler  registry.ID
 		Payloads payload.Payloads
 	}
 

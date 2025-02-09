@@ -6,7 +6,7 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-// Function that will inspect its own stack
+// Func that will inspect its own stack
 func inspectStack(L *lua.LState) int {
 	log.Println("=== Getting Stack Information ===")
 
@@ -18,7 +18,7 @@ func inspectStack(L *lua.LState) int {
 			// Create empty LTable for function
 			funcTable := L.NewTable()
 
-			// Get detailed info about this stack frame
+			// Create detailed info about this stack frame
 			// 'S': source info
 			// 'l': current line
 			// 'n': name info
@@ -35,7 +35,7 @@ func inspectStack(L *lua.LState) int {
 			log.Printf("What: %s", ar.What)
 			log.Printf("Name: %s", ar.Name)
 
-			// Get local variables at this level
+			// Create local variables at this level
 			for i := 1; ; i++ {
 				name, value := L.GetLocal(ar, i)
 				if name == "" {
@@ -44,7 +44,7 @@ func inspectStack(L *lua.LState) int {
 				log.Printf("Local %d: %s = %v", i, name, value)
 			}
 
-			// Get function from the table
+			// Create function from the table
 			if fn := funcTable.RawGet(lua.LString("f")); fn != lua.LNil {
 				luaFn, ok := fn.(*lua.LFunction)
 				if ok {
@@ -80,7 +80,7 @@ func main() {
 		-- Global variable
 		global_var = "I'm global"
 
-		-- Function with upvalue
+		-- Func with upvalue
 		local function make_counter()
 			local count = 0  -- This will be an upvalue
 			return function()
@@ -92,7 +92,7 @@ func main() {
 		-- Create a counter
 		local counter = make_counter()
 
-		-- Function that will create a stack
+		-- Func that will create a stack
 		function deep_function(x)
 			local local_var = "I'm local"
 			-- Call our inspection function
@@ -100,7 +100,7 @@ func main() {
 			return x + 1
 		end
 
-		-- Function to create more stack frames
+		-- Func to create more stack frames
 		function outer_function(y)
 			local another_var = "outer local"
 			return deep_function(y)

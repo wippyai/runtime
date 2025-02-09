@@ -62,7 +62,7 @@ func TestExecutorModule(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		ctx := context.WithValue(baseCtx, contextapi.ExecutorCtx, mockExec)
+		ctx := context.WithValue(baseCtx, contextapi.FunctionsCtx, mockExec)
 
 		err = vm.DoString(ctx, `
 			local executor = require("executor")
@@ -86,7 +86,7 @@ func TestExecutorModule(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		ctx := context.WithValue(baseCtx, contextapi.ExecutorCtx, mockExec)
+		ctx := context.WithValue(baseCtx, contextapi.FunctionsCtx, mockExec)
 
 		err = vm.DoString(ctx, `
 			local executor = require("executor")
@@ -110,7 +110,7 @@ func TestExecutorModule(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		ctx := context.WithValue(baseCtx, contextapi.ExecutorCtx, mockExec)
+		ctx := context.WithValue(baseCtx, contextapi.FunctionsCtx, mockExec)
 
 		err = vm.DoString(ctx, `
 			local executor = require("executor")
@@ -130,7 +130,7 @@ func TestExecutorModule(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		ctx := context.WithValue(baseCtx, contextapi.ExecutorCtx, mockExec)
+		ctx := context.WithValue(baseCtx, contextapi.FunctionsCtx, mockExec)
 
 		err = vm.DoString(ctx, `
 			local executor = require("executor")
@@ -153,7 +153,7 @@ func TestExecutorModule(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		ctx := context.WithValue(baseCtx, contextapi.ExecutorCtx, mockExec)
+		ctx := context.WithValue(baseCtx, contextapi.FunctionsCtx, mockExec)
 
 		err = vm.DoString(ctx, `
 			local executor = require("executor")
@@ -170,7 +170,7 @@ func TestExecutorModule(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		ctx := context.WithValue(baseCtx, contextapi.ExecutorCtx, &mockExecutor{})
+		ctx := context.WithValue(baseCtx, contextapi.FunctionsCtx, &mockExecutor{})
 
 		err = vm.DoString(ctx, `
 			local executor = require("executor")
@@ -201,7 +201,7 @@ func TestExecutorModule_WithContext(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		ctx := context.WithValue(baseCtx, contextapi.ExecutorCtx, mockExec)
+		ctx := context.WithValue(baseCtx, contextapi.FunctionsCtx, mockExec)
 
 		err = vm.DoString(ctx, `
 			local executor = require("executor")
@@ -219,7 +219,7 @@ func TestExecutorModule_WithContext(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		ctx := context.WithValue(baseCtx, contextapi.ExecutorCtx, &mockExecutor{})
+		ctx := context.WithValue(baseCtx, contextapi.FunctionsCtx, &mockExecutor{})
 
 		err = vm.DoString(ctx, `
 			local executor = require("executor")
@@ -249,7 +249,7 @@ func TestExecutorModule_ContextCancellation(t *testing.T) {
 		defer vm.Close()
 
 		ctx, cancel := context.WithCancel(baseCtx)
-		ctx = context.WithValue(ctx, contextapi.ExecutorCtx, mockExec)
+		ctx = context.WithValue(ctx, contextapi.FunctionsCtx, mockExec)
 
 		// Cancel context immediately after starting execution
 		go func() {
@@ -285,7 +285,7 @@ func TestExecutorModule_ResultError(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		ctx := context.WithValue(baseCtx, contextapi.ExecutorCtx, mockExec)
+		ctx := context.WithValue(baseCtx, contextapi.FunctionsCtx, mockExec)
 
 		err = vm.DoString(ctx, `
 			local executor = require("executor")
@@ -346,7 +346,7 @@ func TestExecutorModule_MissingContext(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		ctx := context.WithValue(context.Background(), contextapi.ExecutorCtx, mockExec)
+		ctx := context.WithValue(context.Background(), contextapi.FunctionsCtx, mockExec)
 
 		err = vm.DoString(ctx, `
 			local executor = require("executor")
@@ -377,7 +377,7 @@ func TestExecutorModule_NilPayload(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		ctx := context.WithValue(baseCtx, contextapi.ExecutorCtx, mockExec)
+		ctx := context.WithValue(baseCtx, contextapi.FunctionsCtx, mockExec)
 
 		err = vm.DoString(ctx, `
 			local executor = require("executor")
@@ -407,7 +407,7 @@ func TestExecutorModule_InstanceIsolation(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		ctx := context.WithValue(baseCtx, contextapi.ExecutorCtx, mockExec)
+		ctx := context.WithValue(baseCtx, contextapi.FunctionsCtx, mockExec)
 
 		err = vm.DoString(ctx, `
 			local executor = require("executor")
@@ -450,7 +450,7 @@ func TestExecutorModule_InstanceIsolation(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		ctx := context.WithValue(baseCtx, contextapi.ExecutorCtx, mockExec)
+		ctx := context.WithValue(baseCtx, contextapi.FunctionsCtx, mockExec)
 
 		err = vm.DoString(ctx, `
 			local executor = require("executor")
@@ -485,7 +485,7 @@ func TestExecutorModule_InstanceIsolation(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		ctx := context.WithValue(baseCtx, contextapi.ExecutorCtx, mockExec)
+		ctx := context.WithValue(baseCtx, contextapi.FunctionsCtx, mockExec)
 
 		err = vm.DoString(ctx, `
 			local executor = require("executor")
@@ -530,7 +530,7 @@ func TestExecutorModule_InstanceIsolation(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		ctx := context.WithValue(baseCtx, contextapi.ExecutorCtx, mockExec)
+		ctx := context.WithValue(baseCtx, contextapi.FunctionsCtx, mockExec)
 
 		err = vm.DoString(ctx, `
 			local executor = require("executor")

@@ -5,11 +5,11 @@ meta:
   router: api_router
   comment: "Streams environment variables as JSON"
   depends_on:
-    - functions.envdump
+    - function.envdump
     - web_server
     - api_router
 
 method: GET
 path: /env
-target: functions.envdump
+target: function.envdump
 json_output: true

@@ -128,7 +128,7 @@ func responseWriteJSON(l *lua.LState) int {
 		return 0
 	}
 
-	// Get the Lua value to encode
+	// Create the Lua value to encode
 	luaValue := l.CheckAny(2)
 
 	// Encode Lua value to JSON
@@ -239,7 +239,7 @@ func responseWriteEvent(l *lua.LState) int {
 		return 0
 	}
 
-	// Get event name and data
+	// Create event name and data
 	name := lua.LVAsString(l.GetField(eventTable, "name"))
 	if name == "" {
 		l.ArgError(2, "missing event name")
@@ -285,14 +285,14 @@ func responseToString(l *lua.LState) int {
 
 // newResponse creates a new Response from the context
 func newResponse(l *lua.LState) int {
-	// Get HTTP context from Lua state context
+	// Create HTTP context from Lua state context
 	ctx := l.Context()
 	if ctx == nil {
 		l.ArgError(1, "no context available")
 		return 0
 	}
 
-	// Get HTTP request context
+	// Create HTTP request context
 	val := ctx.Value(http.RequestCtx)
 	if val == nil {
 		l.ArgError(1, "no HTTP request context found")

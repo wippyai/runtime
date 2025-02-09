@@ -64,7 +64,7 @@ func RegisterSpinner(l *lua.LState, mod *lua.LTable) {
 func newSpinner(l *lua.LState) int {
 	opts := l.CheckTable(1)
 
-	// Get spinner type from options
+	// Create spinner type from options
 	spinnerType := opts.RawGetString("type")
 	if spinnerType == lua.LNil {
 		spinnerType = luaSpinnerFromGo(l, spinner.Line)
@@ -124,7 +124,7 @@ func spinnerUpdate(l *lua.LState) int {
 		return 0
 	}
 
-	// Get message argument and convert to tea.Msg
+	// Create message argument and convert to tea.Msg
 	msgValue := l.CheckAny(2)
 	msg, err := protocol.LuaToMsg(msgValue)
 	if err != nil {

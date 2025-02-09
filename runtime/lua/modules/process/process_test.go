@@ -56,7 +56,7 @@ func TestProcessBasic(t *testing.T) {
 			    -- Start the process
 			    proc:start()
 			    
-			    -- Spawn reader coroutine
+			    -- Create reader coroutine
 			    coroutine.spawn(function()
 			        -- GetField stdout stream
 			        local stream, err = proc:stdout_stream()
@@ -69,7 +69,7 @@ func TestProcessBasic(t *testing.T) {
 			            -- Check for either new data or timeout
 			            local result = channel.select{
 			                timeout:channel():case_receive(),
-			                default = true  -- Make the select non-blocking
+			                default = true  -- Create the select non-blocking
 			            }
 			            
 			            if result.default then
@@ -117,7 +117,7 @@ func TestProcessBasic(t *testing.T) {
 			end        `, "test", "test_process_simple")
 	require.NoError(t, err)
 
-	// Execute test
+	// Call test
 	_, err = wrapped.Execute(ctx, "test_process_simple")
 	require.NoError(t, err)
 }
@@ -171,7 +171,7 @@ func TestWorkingDir(t *testing.T) {
 			    -- Start the process
 			    proc:start()
 			    
-			    -- Spawn reader coroutine
+			    -- Create reader coroutine
 			    coroutine.spawn(function()
 			        -- GetField stdout stream
 			        local stream = proc:stdout_stream()
@@ -184,7 +184,7 @@ func TestWorkingDir(t *testing.T) {
 			            -- Check for either new data or timeout
 			            local result = channel.select{
 			                timeout:channel():case_receive(),
-			                default = true  -- Make the select non-blocking
+			                default = true  -- Create the select non-blocking
 			            }
 			            
 			            if result.default then
@@ -341,7 +341,7 @@ func TestMultiplyCallsToStream(t *testing.T) {
 			    -- Start the process
 			    proc:start()
 			    
-			    -- Spawn reader coroutine
+			    -- Create reader coroutine
 			    coroutine.spawn(function()
 			        -- GetField stdout stream
 			        local stream = proc:stdout_stream()
@@ -360,7 +360,7 @@ func TestMultiplyCallsToStream(t *testing.T) {
 			            -- Check for either new data or timeout
 			            local result = channel.select{
 			                timeout:channel():case_receive(),
-			                default = true  -- Make the select non-blocking
+			                default = true  -- Create the select non-blocking
 			            }
 			            
 			            if result.default then

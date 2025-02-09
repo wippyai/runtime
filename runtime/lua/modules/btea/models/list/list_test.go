@@ -240,7 +240,7 @@ func TestListUpdate(t *testing.T) {
             }
         })
 
-        -- Get initial state
+        -- Create initial state
         local initial_cursor = list:cursor()
         assert(initial_cursor == 0, "should start at first item")
         
@@ -424,7 +424,7 @@ func TestItemManagement(t *testing.T) {
             })
             assert(#list:items() == 2, "should accept minimal item")
             
-            -- Get the minimal item
+            -- Create the minimal item
             local minimal_item = list:items()[2]
             -- The title/description can be nil or an empty string, what matters is that we can still use the item
             assert(minimal_item.filter_value == "minimal", "should preserve filter value for minimal item")

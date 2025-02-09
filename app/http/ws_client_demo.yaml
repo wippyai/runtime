@@ -5,12 +5,12 @@ meta:
   router: api_router
   comment: "WebSocket demo with echo server."
   depends_on:
-    - functions.websocket_demo
+    - function.websocket_demo
     - web_server
     - api_router
 
 # Endpoint configuration
 method: GET
 path: /ws-demo
-target: functions.websocket_demo
+target: function.websocket_demo
 json_output: true

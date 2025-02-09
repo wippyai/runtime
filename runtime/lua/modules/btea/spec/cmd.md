@@ -3,7 +3,7 @@
 ## Overview
 
 This specification defines how Bubble Tea commands are represented and used in Lua. Commands are operations that can be
-executed to perform various terminal manipulations and control functions. Typically, commands received from updated
+executed to perform various terminal manipulations and control function. Typically, commands received from updated
 models.
 
 ## Command Structure

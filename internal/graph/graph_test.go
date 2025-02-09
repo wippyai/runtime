@@ -295,7 +295,7 @@ func TestGraphNeighborOperations(t *testing.T) {
 		g.AddEdge("A", "B", 2)
 		g.AddEdge("A", "D", 3)
 
-		// Get neighbors and verify they can be sorted
+		// Create neighbors and verify they can be sorted
 		neighbors, err := g.GetNeighbors("A")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)

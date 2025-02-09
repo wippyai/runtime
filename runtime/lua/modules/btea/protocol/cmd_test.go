@@ -81,7 +81,7 @@ func TestCmdBatching(t *testing.T) {
 		batchMsg, ok := batchCmd().(tea.BatchMsg)
 		require.True(t, ok, "expected batch message")
 
-		// Execute each command in the batch
+		// Call each command in the batch
 		for _, cmd := range batchMsg {
 			cmd()
 		}

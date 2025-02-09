@@ -31,7 +31,7 @@ func (i *Interpolator) Interpolate(in interface{}, ctx interface{}) (interface{}
 // replaceContext holds the Replacers and context for a single replacement operation.
 // It is used by the helpers replacer.
 type replaceContext struct {
-	replacers []Replacer  // List of replacer functions.
+	replacers []Replacer  // List of replacer function.
 	ctx       interface{} // Context passed to the replacers.
 }
 

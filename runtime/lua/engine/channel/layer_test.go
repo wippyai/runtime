@@ -196,7 +196,7 @@ func TestCloseChannelWithPendingOperations(t *testing.T) {
 			-- Create a channel
 			local ch = channel.new()
 
-			-- Spawn blocking receiver first
+			-- Create blocking receiver first
 			coroutine.spawn(function()
 				coroutine.yield("receiver_start")
 				local msg, ok = ch:receive()  -- This will block

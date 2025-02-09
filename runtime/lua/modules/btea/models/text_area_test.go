@@ -202,7 +202,7 @@ func TestTextAreaUpdate(t *testing.T) {
 		local cmd = text_area:focus()
 		assert(cmd ~= nil, "focus should return a command")
 		
-		-- Get initial view
+		-- Create initial view
 		local initial_view = text_area:view()
 		
 		-- Yield for first input message

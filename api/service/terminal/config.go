@@ -18,7 +18,7 @@ const (
 // ServiceConfig represents the configuration for a terminal service
 type ServiceConfig struct {
 	Meta      registry.Metadata          `json:"meta"`
-	Target    registry.ID                `json:"target"`    // ID of the terminal app to use
+	Target    registry.ID                `json:"target"`    // Name of the terminal app to use
 	HideLogs  bool                       `json:"hide_logs"` // Redirect logs (all) to the event bus, releases io.Output
 	Lifecycle supervisor.LifecycleConfig `json:"lifecycle"` // Lifecycle management config
 }
@@ -28,9 +28,10 @@ func (c *ServiceConfig) Validate() error {
 	if c.Meta == nil {
 		return fmt.Errorf("metadata cannot be nil")
 	}
-	if c.Target == "" {
-		return fmt.Errorf("target cannot be empty")
-	}
+	//if c.Handler == "" {
+	//	return fmt.Errorf("target cannot be empty")
+	//}
+	// todo: fix it
 	return nil
 }
 

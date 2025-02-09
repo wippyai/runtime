@@ -481,7 +481,7 @@ func newList(l *lua.LState) int {
 		return 0
 	}
 
-	// Get required width/height with defaults
+	// Create required width/height with defaults
 	width := getIntOrDefault(l, cfg, "width", 80)
 	height := getIntOrDefault(l, cfg, "height", 24)
 

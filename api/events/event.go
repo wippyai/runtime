@@ -7,16 +7,16 @@ import (
 
 type (
 	// SubscriberID represents a unique identifier for a subscriber.
-	SubscriberID string
+	SubscriberID = string
 
 	// System represents a system or module that eventbus belong to (e.g., "listener", "runtime", etc).
-	System string
+	System = string
 
 	// Kind represents the specific type of an event within a system (e.g., "listener.created", "supervisor.online").
-	Kind string
+	Kind = string
 
-	// Path contains unique ID of related entity or system.
-	Path string
+	// Path contains unique Name of related entity or system.
+	Path = string
 
 	// Event is the fundamental structure representing an event.
 	Event struct {

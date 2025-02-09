@@ -77,7 +77,7 @@ The module returns errors in the following cases:
 ## Best Practices
 
 1. **Always check for errors:** When using `decode`, always check the returned `error` value to handle potential decoding failures.
-2. **Validate input:** Ensure that the input to `encode` and `decode` is of the correct type (string) before calling the functions.
+2. **Validate input:** Ensure that the input to `encode` and `decode` is of the correct type (string) before calling the function.
 3. **Handle empty strings:** Be aware that empty strings are valid input and will result in empty string output for both `encode` and `decode`.
 
 ## Example Usage

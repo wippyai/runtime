@@ -74,7 +74,7 @@ func (s *Supervisor) executeOperations(ctx context.Context, operations []Operati
 	return s.sequencer.Transition(ctx, operations...)
 }
 
-// GetState returns the current state of a service identified by its ID.
+// GetState returns the current state of a service identified by its Name.
 // Returns an error if the service is not found.
 func (s *Supervisor) GetState(id string) (State, error) {
 	s.mu.RLock()
@@ -138,7 +138,7 @@ func (s *Supervisor) Stop() error {
 		s.subscriber = nil
 	}
 
-	// Get all controllers under lock
+	// Create all controllers under lock
 	s.mu.RLock()
 	var operations []Operation
 	for id, ctrl := range s.controllers {
@@ -402,7 +402,7 @@ func (s *Supervisor) execute(ctx context.Context, tx *registryTX) error {
 		}
 	}
 
-	// Get transitions in dependency order
+	// Create transitions in dependency order
 	if err := s.sequencer.Transition(ctx, operations...); err != nil {
 		return fmt.Errorf("failed to execute transitions: %w", err)
 	}

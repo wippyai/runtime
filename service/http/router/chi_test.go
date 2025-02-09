@@ -53,7 +53,7 @@ func TestAddEndpoint(t *testing.T) {
 			wantError: true,
 		},
 		{
-			name: "different ID same path and method",
+			name: "different Name same path and method",
 			id:   "test2",
 			endpoint: config.EndpointConfig{
 				Method: http.MethodGet,
@@ -167,7 +167,7 @@ func TestUpdateEndpoint(t *testing.T) {
 			wantError: true,
 		},
 		{
-			name: "non-existent endpoint ID",
+			name: "non-existent endpoint Name",
 			id:   "missing",
 			endpoint: config.EndpointConfig{
 				Method: http.MethodGet,

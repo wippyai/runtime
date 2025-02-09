@@ -9,7 +9,7 @@ import (
 )
 
 // stateMap is an helpers representation of the state using a map for faster lookups.
-type stateMap map[registry.ID]registry.Entry
+type stateMap map[registry.Name]registry.Entry
 
 // stateHelper encapsulates state-related operations.
 type stateHelper struct {

@@ -57,11 +57,11 @@ func TestFunctions_Add(t *testing.T) {
 			Pool:      api.PoolConfig{Size: 1, Workers: 1},
 			Meta:      registry.Metadata{},
 		}
-		err := functions.Add("test_func", cfg, modules, libraries)
+		err := function.Add("test_func", cfg, modules, libraries)
 		require.NoError(t, err)
 
 		// Verify function was stored
-		stored, exists := functions.Get("test_func")
+		stored, exists := function.Get("test_func")
 		assert.True(t, exists)
 		assert.Equal(t, cfg, stored)
 	})
@@ -75,7 +75,7 @@ func TestFunctions_Add(t *testing.T) {
 			Pool:      api.PoolConfig{Size: 1, Workers: 1},
 			Meta:      registry.Metadata{},
 		}
-		err := functions.Add("new_func", cfg, modules, libraries)
+		err := function.Add("new_func", cfg, modules, libraries)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "module non_existent_module not found")
 	})
@@ -89,7 +89,7 @@ func TestFunctions_Add(t *testing.T) {
 			Pool:      api.PoolConfig{Size: 1, Workers: 1},
 			Meta:      registry.Metadata{},
 		}
-		err := functions.Add("new_func", cfg, modules, libraries)
+		err := function.Add("new_func", cfg, modules, libraries)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "library non_existent_lib not found")
 	})
@@ -107,7 +107,7 @@ func TestFunctions_Update(t *testing.T) {
 		Pool:      api.PoolConfig{Size: 1, Workers: 1},
 		Meta:      registry.Metadata{},
 	}
-	err := functions.Add("test_func", initialCfg, modules, libraries)
+	err := function.Add("test_func", initialCfg, modules, libraries)
 	require.NoError(t, err)
 
 	t.Run("updates existing function", func(t *testing.T) {
@@ -119,11 +119,11 @@ func TestFunctions_Update(t *testing.T) {
 			Pool:      api.PoolConfig{Size: 2, Workers: 2},
 			Meta:      registry.Metadata{},
 		}
-		err := functions.Update("test_func", updatedCfg, modules, libraries)
+		err := function.Update("test_func", updatedCfg, modules, libraries)
 		require.NoError(t, err)
 
 		// Verify function was updated
-		stored, exists := functions.Get("test_func")
+		stored, exists := function.Get("test_func")
 		assert.True(t, exists)
 		assert.Equal(t, updatedCfg, stored)
 	})
@@ -137,7 +137,7 @@ func TestFunctions_Update(t *testing.T) {
 			Pool:      api.PoolConfig{Size: 1, Workers: 1},
 			Meta:      registry.Metadata{},
 		}
-		err := functions.Update("non_existent", cfg, modules, libraries)
+		err := function.Update("non_existent", cfg, modules, libraries)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "not found")
 	})
@@ -155,20 +155,20 @@ func TestFunctions_Delete(t *testing.T) {
 		Pool:      api.PoolConfig{Size: 1, Workers: 1},
 		Meta:      registry.Metadata{},
 	}
-	err := functions.Add("test_func", cfg, modules, libraries)
+	err := function.Add("test_func", cfg, modules, libraries)
 	require.NoError(t, err)
 
 	t.Run("deletes existing function", func(t *testing.T) {
-		err := functions.Delete("test_func")
+		err := function.Delete("test_func")
 		require.NoError(t, err)
 
 		// Verify function was deleted
-		_, exists := functions.Get("test_func")
+		_, exists := function.Get("test_func")
 		assert.False(t, exists)
 	})
 
 	t.Run("fails deleting non-existent function", func(t *testing.T) {
-		err := functions.Delete("non_existent")
+		err := function.Delete("non_existent")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "not found")
 	})
@@ -186,16 +186,16 @@ func TestFunctions_Clone(t *testing.T) {
 		Pool:      api.PoolConfig{Size: 1, Workers: 1},
 		Meta:      registry.Metadata{},
 	}
-	err := functions.Add("test_func", cfg, modules, libraries)
+	err := function.Add("test_func", cfg, modules, libraries)
 	require.NoError(t, err)
 
 	t.Run("creates exact copy of functions", func(t *testing.T) {
-		cloned := functions.Clone()
+		cloned := function.Clone()
 
 		// Verify cloned instance has same functions
-		assert.Equal(t, len(functions.functions), len(cloned.functions))
+		assert.Equal(t, len(function.functions), len(cloned.functions))
 
-		original, exists := functions.Get("test_func")
+		original, exists := function.Get("test_func")
 		assert.True(t, exists)
 
 		clonedCfg, exists := cloned.Get("test_func")
@@ -204,14 +204,14 @@ func TestFunctions_Clone(t *testing.T) {
 	})
 
 	t.Run("modifications don't affect original", func(t *testing.T) {
-		cloned := functions.Clone()
+		cloned := function.Clone()
 
 		// Modify cloned instance
 		err := cloned.Delete("test_func")
 		require.NoError(t, err)
 
 		// Verify original is unchanged
-		_, exists := functions.Get("test_func")
+		_, exists := function.Get("test_func")
 		assert.True(t, exists)
 
 		// Verify cloned instance was modified
@@ -241,13 +241,13 @@ func TestFunctions_FindDependentOnLibrary(t *testing.T) {
 		Meta:      registry.Metadata{},
 	}
 
-	err := functions.Add("func1", cfg1, modules, libraries)
+	err := function.Add("func1", cfg1, modules, libraries)
 	require.NoError(t, err)
-	err = functions.Add("func2", cfg2, modules, libraries)
+	err = function.Add("func2", cfg2, modules, libraries)
 	require.NoError(t, err)
 
 	t.Run("finds dependent functions", func(t *testing.T) {
-		dependent := functions.FindDependentOnLibrary("test_lib")
+		dependent := function.FindDependentOnLibrary("test_lib")
 		assert.Len(t, dependent, 1)
 		fn, exists := dependent["func1"]
 		assert.True(t, exists)
@@ -255,7 +255,7 @@ func TestFunctions_FindDependentOnLibrary(t *testing.T) {
 	})
 
 	t.Run("returns empty map for no dependents", func(t *testing.T) {
-		dependent := functions.FindDependentOnLibrary("non_existent_lib")
+		dependent := function.FindDependentOnLibrary("non_existent_lib")
 		assert.Empty(t, dependent)
 	})
 }
@@ -275,7 +275,7 @@ func TestFunctions_MakeFactory(t *testing.T) {
 	}
 
 	t.Run("creates factory successfully", func(t *testing.T) {
-		factory, err := functions.MakeFactory("test_func", cfg, logger, modules, libraries)
+		factory, err := function.MakeFactory("test_func", cfg, logger, modules, libraries)
 		require.NoError(t, err)
 		assert.NotNil(t, factory)
 	})
@@ -290,7 +290,7 @@ func TestFunctions_MakeFactory(t *testing.T) {
 			Meta:      registry.Metadata{},
 		}
 
-		factory, err := functions.MakeFactory("test_func", invalidCfg, logger, modules, libraries)
+		factory, err := function.MakeFactory("test_func", invalidCfg, logger, modules, libraries)
 		assert.Error(t, err)
 		assert.Nil(t, factory)
 		assert.Contains(t, err.Error(), "library non_existent_lib not found")

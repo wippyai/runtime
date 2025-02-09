@@ -21,9 +21,9 @@ type ServerManager struct {
 	handler http.HandlerFunc
 	dtt     payload.Transcoder
 
-	servers         map[registry.ID]*Server
-	endpointServers map[registry.ID]registry.ID // endpoint ID -> server ID
-	routerServers   map[registry.ID]registry.ID // router ID -> server ID
+	servers         map[registry.Name]*Server
+	endpointServers map[registry.Name]registry.Name // endpoint Name -> server Name
+	routerServers   map[registry.Name]registry.Name // router Name -> server Name
 }
 
 // NewManager creates a new HTTP service instance
@@ -38,9 +38,9 @@ func NewManager(
 		bus:             bus,
 		handler:         handler,
 		dtt:             dtt,
-		servers:         make(map[registry.ID]*Server),
-		endpointServers: make(map[registry.ID]registry.ID),
-		routerServers:   make(map[registry.ID]registry.ID),
+		servers:         make(map[registry.Name]*Server),
+		endpointServers: make(map[registry.Name]registry.Name),
+		routerServers:   make(map[registry.Name]registry.Name),
 	}
 }
 
@@ -48,7 +48,7 @@ func NewManager(
 func NewExecutingManager(
 	bus events.Bus,
 	dtt payload.Transcoder,
-	exec runtime.FunctionRegistry,
+	exec runtime.FuncRegistry,
 	logger *zap.Logger,
 ) *ServerManager {
 	return &ServerManager{
@@ -56,9 +56,9 @@ func NewExecutingManager(
 		bus:             bus,
 		handler:         NewEndpointHandler(exec, dtt, logger).Handle,
 		dtt:             dtt,
-		servers:         make(map[registry.ID]*Server),
-		endpointServers: make(map[registry.ID]registry.ID),
-		routerServers:   make(map[registry.ID]registry.ID),
+		servers:         make(map[registry.Name]*Server),
+		endpointServers: make(map[registry.Name]registry.Name),
+		routerServers:   make(map[registry.Name]registry.Name),
 	}
 }
 
@@ -207,7 +207,7 @@ func (s *ServerManager) addRouter(entry registry.Entry) error {
 		return err
 	}
 
-	serverID := registry.ID(cfg.Meta.StringValue(config.ServerID))
+	serverID := registry.Name(cfg.Meta.StringValue(config.ServerID))
 	server, exists := s.servers[serverID]
 	if !exists {
 		return fmt.Errorf("target server %s not found", serverID)
@@ -232,7 +232,7 @@ func (s *ServerManager) updateRouter(entry registry.Entry) error {
 		return fmt.Errorf("router %s not found", entry.ID)
 	}
 
-	targetServerID := registry.ID(cfg.Meta.StringValue(config.ServerID))
+	targetServerID := registry.Name(cfg.Meta.StringValue(config.ServerID))
 	if _, exists := s.servers[targetServerID]; !exists {
 		return fmt.Errorf("target server %s not found", targetServerID)
 	}
@@ -271,7 +271,7 @@ func (s *ServerManager) addEndpoint(entry registry.Entry) error {
 		return err
 	}
 
-	serverID := registry.ID(cfg.Meta.StringValue(config.ServerID))
+	serverID := registry.Name(cfg.Meta.StringValue(config.ServerID))
 	server, exists := s.servers[serverID]
 	if !exists {
 		return fmt.Errorf("target server %s not found", serverID)
@@ -296,7 +296,7 @@ func (s *ServerManager) updateEndpoint(entry registry.Entry) error {
 		return fmt.Errorf("endpoint %s not found", entry.ID)
 	}
 
-	targetServerID := registry.ID(cfg.Meta.StringValue(config.ServerID))
+	targetServerID := registry.Name(cfg.Meta.StringValue(config.ServerID))
 	if _, exists := s.servers[targetServerID]; !exists {
 		return fmt.Errorf("target server %s not found", targetServerID)
 	}

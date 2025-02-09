@@ -1,7 +1,10 @@
 package logs
 
 import (
+	"context"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/events"
+	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
 
@@ -46,3 +49,5 @@ type (
 		GetConfig() Config
 	}
 )
+
+func GetLogger(ctx context.Context) zap.Logger { return ctx.Value(ctxapi.LoggerCtx).(zap.Logger) }

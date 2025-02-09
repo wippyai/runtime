@@ -466,7 +466,7 @@ func newRequest(l *lua.LState) int {
 		cfg = parseRequestOptions(l, 1)
 	}
 
-	// Get HTTP context from Lua state context
+	// Create HTTP context from Lua state context
 	ctx := l.Context()
 	if ctx == nil {
 		l.Push(lua.LNil)
@@ -474,7 +474,7 @@ func newRequest(l *lua.LState) int {
 		return 2
 	}
 
-	// Get HTTP request context
+	// Create HTTP request context
 	val := ctx.Value(http.RequestCtx)
 	if val == nil {
 		l.Push(lua.LNil)

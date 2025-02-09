@@ -1,4 +1,4 @@
-name: functions.http_time
+name: function.http_time
 kind: function.lua
 meta:
   comment: "Returns the current time."

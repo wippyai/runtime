@@ -172,7 +172,7 @@ These functions are currently unimplemented and will raise an error if called.
 
 ## Best Practices
 
-- Always check for errors returned by `lfs` functions.
+- Always check for errors returned by `lfs` function.
 - Use the iterator returned by `lfs.dir()` to efficiently process directory contents.
 - Be aware that creating symbolic links might require appropriate permissions.
 - Use absolute paths when possible to avoid ambiguity.

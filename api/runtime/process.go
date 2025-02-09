@@ -1,6 +1,8 @@
 package runtime
 
 import (
+	"context"
+	contextapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/registry"
 )
@@ -8,64 +10,63 @@ import (
 // Event system and kind constants for the workflow package
 const (
 	// ProcessSystem identifies the workflow system in the event bus.
-	// This system handles registration and management of workflow handlers.
 	ProcessSystem events.System = "processes"
 
-	// RegisterProcessPrototype is the event kind for registering a new workflow handler.
-	// This event is used to dynamically add new workflow implementations at runtime.
-	RegisterProcessPrototype events.Kind = "workflow.set_handler"
+	// RegisterSpawnCommand is the event kind for registering a new workflow handler.
+	RegisterSpawnCommand events.Kind = "processes.set_spawn"
 
-	// DeleteProcessPrototype is the event kind for removing an existing workflow handler.
-	// This event allows for dynamic removal of workflow implementations.
-	DeleteProcessPrototype events.Kind = "workflow.remove_handler"
+	// DeleteSpawnCommand is the event kind for removing an existing workflow handler.
+	DeleteSpawnCommand events.Kind = "processes.remove_spawn"
 
-	// AcceptProcessPrototype is the event kind for accepting a new workflow handler.
-	AcceptProcessPrototype events.Kind = "workflow.accept_handler"
+	// AcceptSpawn is the event kind for accepting a new workflow handler.
+	AcceptSpawn events.Kind = "processes.accept_spawn"
 
-	// RejectProcessPrototype is the event kind for rejecting a new workflow handler.
-	RejectProcessPrototype events.Kind = "workflow.reject_handler"
+	// RejectSpawn is the event kind for rejecting a new workflow handler.
+	RejectSpawn events.Kind = "processes.reject_spawn"
 )
 
 type (
-	Process interface {
-		Start(task Task) (chan *Result, error)
-		GetLayer(any) any
-		Step() error
-		Stop() error
-	}
+	// LayerName identifies a specific interface that a process provides
+	LayerName string
 
+	// Flavor represents a specific variant of process implementation
 	Flavor string
 
-	// todo: flavors
-
-	// todo: kill
-	// RegisterWorkflow represents a request to register a new workflow handler
-	// for a specific target ID. The handler can be any type, allowing for
-	// flexible workflow implementations that can be type-checked at higher levels.
-	RegisterWorkflow struct {
-		Target  Target
-		Factory func() Process
-		Flavor  string
+	// RegisterSpawn represents a request to register a new process spawner
+	RegisterSpawn struct {
+		// Global ID of the process.
+		ID registry.ID
+		// Spawn creates process of given flavor or returns error if flavor not supported
+		Spawn func(Flavor) (Process, error)
 	}
 
-	// todo: kill
-	// DeleteWorkflow represents a request to remove a workflow handler
-	// for a specific target ID. This enables dynamic workflow management
-	// by allowing handlers to be removed at runtime.
-	DeleteWorkflow struct {
-		Target Target
+	// DeleteSpawn represents a request to remove a process spawner
+	DeleteSpawn struct {
+		Target registry.ID
 	}
 
-	// ProcessFactory is the interface for managing workflow handlers.
-	// It provides the core functionality for retrieving registered workflow
-	// implementations. The interface uses 'any' return type to allow for
-	// flexible workflow types that can be properly type-asserted by callers.
-	ProcessFactory interface {
-		// Get retrieves a registered workflow handler for the given ID.
-		// Returns the handler as type any for flexible workflow implementations,
-		// and an error if no handler is found or if retrieval fails.
-		Get(id registry.ID) (func() any, error)
+	// ProcessRegistry manages process spawners and handles process creation
+	ProcessRegistry interface {
+		// Create creates new process instance with specified flavor
+		Create(registry.ID, Flavor) (Process, error)
+	}
 
-		Make(id registry.ID, flavor string) (Process, error)
+	// Process represents a long-running workflow that can be controlled
+	// through various layer interfaces, stepping can be used to batch
+	// internal state changes between external interactions
+	Process interface {
+		// Start begins process execution with given task
+		Start(task Task) (chan *Result, error)
+
+		// GetLayer retrieves specific interface layer from process
+		// Layer type is determined by process's Flavor and capabilities
+		GetLayer(LayerName) any
+
+		// Step advances process state by one iteration
+		Step() error
 	}
 )
+
+func GetProcesses(ctx context.Context) ProcessRegistry {
+	return ctx.Value(contextapi.ProcessesCtx).(ProcessRegistry)
+}

@@ -21,8 +21,8 @@ type Manager struct {
 	dtt      payload.Transcoder
 	sub      *eventbus.Subscriber
 	mu       sync.RWMutex
-	services map[registry.ID]*service
-	apps     map[registry.ID]*api.Terminal
+	services map[string]*service
+	apps     map[string]*api.Terminal
 }
 
 func NewManager(bus events.Bus, dtt payload.Transcoder, logger *zap.Logger) *Manager {
@@ -30,8 +30,8 @@ func NewManager(bus events.Bus, dtt payload.Transcoder, logger *zap.Logger) *Man
 		log:      logger,
 		bus:      bus,
 		dtt:      dtt,
-		services: make(map[registry.ID]*service),
-		apps:     make(map[registry.ID]*api.Terminal),
+		services: make(map[string]*service),
+		apps:     make(map[string]*api.Terminal),
 	}
 }
 
@@ -73,19 +73,19 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	app, exists := m.apps[cfg.Target]
+	app, exists := m.apps[cfg.Target.String()]
 	if !exists {
 		return fmt.Errorf("terminal app %s not found", cfg.Target)
 	}
 
 	svc := newService(*app, entry.ID, cfg, m.bus, m.log)
-	m.services[entry.ID] = svc
+	m.services[entry.ID.String()] = svc
 
 	// Register with supervisor
 	m.bus.Send(ctx, events.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Register,
-		Path:   events.Path(entry.ID),
+		Path:   events.Path(entry.ID.String()),
 		Data: &supervisor.Entry{
 			Service: svc,
 			Config:  cfg.Lifecycle,
@@ -104,17 +104,17 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		return err
 	}
 
-	svc, exists := m.services[entry.ID]
+	svc, exists := m.services[entry.ID.String()]
 	if !exists {
 		return fmt.Errorf("service %s not found", entry.ID)
 	}
 
-	app, exists := m.apps[cfg.Target]
+	app, exists := m.apps[cfg.Target.String()]
 	if !exists {
 		return fmt.Errorf("terminal app %s not found", cfg.Target)
 	}
 
-	if err := svc.UpdateApp(ctx, *app, cfg.Target); err != nil {
+	if err := svc.UpdateApp(ctx, *app, cfg.Target.String()); err != nil {
 		return fmt.Errorf("failed to update service: %w", err)
 	}
 
@@ -143,7 +143,7 @@ func (m *Manager) fetchConfig(entry registry.Entry) (*api.ServiceConfig, error) 
 
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	m.mu.Lock()
-	delete(m.services, entry.ID)
+	delete(m.services, entry.ID.String())
 	m.mu.Unlock()
 
 	m.bus.Send(ctx, events.Event{
@@ -165,13 +165,13 @@ func (m *Manager) handleEvent(e events.Event) {
 		}
 
 		m.mu.Lock()
-		m.apps[registry.ID(e.Path)] = &app
+		m.apps[registry.Name(e.Path)] = &app
 
 		// Update any running services using this app
 		found := false
 		for _, svc := range m.services {
-			if svc.terminal.id == registry.ID(e.Path) {
-				err := svc.UpdateApp(m.ctx, app, registry.ID(e.Path))
+			if svc.terminal.id == registry.Name(e.Path) {
+				err := svc.UpdateApp(m.ctx, app, registry.Name(e.Path))
 				if err != nil {
 					m.log.Error("failed to update service",
 						zap.String("id", string(e.Path)),
@@ -189,7 +189,7 @@ func (m *Manager) handleEvent(e events.Event) {
 		}
 	case api.DeleteTerminalEvent:
 		m.mu.Lock()
-		delete(m.apps, registry.ID(e.Path))
+		delete(m.apps, registry.Name(e.Path))
 		m.mu.Unlock()
 
 		m.log.Info("deleted terminal application", zap.String("id", string(e.Path)))

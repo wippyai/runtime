@@ -228,7 +228,7 @@ func TestKeysIntegrationWithLuaVM(t *testing.T) {
 		t.Fatalf("Failed to execute Lua script: %v", err)
 	}
 
-	// Get the returned keys table
+	// Create the returned keys table
 	keysTable := l.Get(-1).(*lua.LTable)
 	l.Pop(1)
 

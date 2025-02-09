@@ -98,7 +98,7 @@ func TestController_BasicLifecycle(t *testing.T) {
 		t.Errorf("Expected Status Stopped, got %v", state.status)
 	}
 
-	// Get final states safely
+	// Create final states safely
 	statesMutex.Lock()
 	finalStates := make([]struct {
 		status  supervisor.Status
@@ -311,7 +311,7 @@ func TestController_ServiceRecoveryAfterFailure(t *testing.T) {
 
 	time.Sleep(100 * time.Millisecond) // wait for final state update
 
-	// Get final state transitions
+	// Create final state transitions
 	statesMutex.Lock()
 	transitions := make([]supervisor.Status, len(stateTransitions))
 	copy(transitions, stateTransitions)
@@ -440,7 +440,7 @@ func TestController_ServiceFailedRecovery(t *testing.T) {
 		t.Fatal("timeout waiting for service to reach final failed state")
 	}
 
-	// Get state transitions before cleanup
+	// Create state transitions before cleanup
 	statesMutex.Lock()
 	transitions := make([]supervisor.Status, len(stateTransitions))
 	copy(transitions, stateTransitions)
@@ -623,7 +623,7 @@ func TestController_CancelDuringTransition(t *testing.T) {
 	// Now unblock the first transition
 	close(blockChan)
 
-	// Get result from second transition
+	// Create result from second transition
 	select {
 	case err := <-errChan:
 		if err == nil {
@@ -786,7 +786,7 @@ func TestController_StopAndRestart(t *testing.T) {
 		t.Errorf("Expected 2 start attempts, got %d", startAttempts)
 	}
 
-	// Get final state transitions
+	// Create final state transitions
 	statesMutex.Lock()
 	transitions := make([]supervisor.Status, len(stateTransitions))
 	copy(transitions, stateTransitions)
@@ -1251,7 +1251,7 @@ func TestController_ServiceExitError(t *testing.T) {
 		t.Fatalf("Expected supervisor.ErrExit, got: %v", err)
 	}
 
-	// Get final state transitions
+	// Create final state transitions
 	statesMutex.Lock()
 	transitions := make([]supervisor.Status, len(stateTransitions))
 	copy(transitions, stateTransitions)
@@ -1325,7 +1325,7 @@ func TestController_ServiceExitDuringOperation(t *testing.T) {
 	// Wait for processing
 	time.Sleep(100 * time.Millisecond)
 
-	// Get final state transitions
+	// Create final state transitions
 	statesMutex.Lock()
 	transitions := make([]supervisor.Status, len(stateTransitions))
 	copy(transitions, stateTransitions)

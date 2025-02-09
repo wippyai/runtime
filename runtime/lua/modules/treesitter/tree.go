@@ -63,7 +63,7 @@ func treeRootNodeWithOffset(l *lua.LState) int {
 		return 0
 	}
 
-	// Get offset parameters
+	// Create offset parameters
 	offsetBytes := int(l.CheckNumber(2))
 	offsetTable := l.CheckTable(3)
 

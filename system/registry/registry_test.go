@@ -433,7 +433,7 @@ func TestInMemoryRegistry_ConcurrentApply(t *testing.T) {
 					{
 						Kind: registry.Create,
 						Entry: registry.Entry{
-							ID:   registry.ID(fmt.Sprintf("/entry/%d/%d", routineID, j)),
+							ID:   registry.Name(fmt.Sprintf("/entry/%d/%d", routineID, j)),
 							Kind: "test",
 							Data: payload.New(fmt.Sprintf("data-%d-%d", routineID, j)),
 						},

@@ -160,7 +160,7 @@ func TestModules_List(t *testing.T) {
 		err = modules.Register(module2)
 		require.NoError(t, err)
 
-		// Get the list
+		// Create the list
 		names := modules.List()
 		assert.Len(t, names, 2)
 		assert.Contains(t, names, "test1")

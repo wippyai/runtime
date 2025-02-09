@@ -13,7 +13,7 @@ import (
 type Workflows struct {
 	log       *zap.Logger
 	factory   *process.Factory
-	workflows map[registry.ID]*api.WorkflowConfig
+	workflows map[registry.Name]*api.WorkflowConfig
 }
 
 // NewWorkflows creates a new workflow manager instance
@@ -21,13 +21,13 @@ func NewWorkflows(logger *zap.Logger, factory *process.Factory) *Workflows {
 	return &Workflows{
 		log:       logger,
 		factory:   factory,
-		workflows: make(map[registry.ID]*api.WorkflowConfig),
+		workflows: make(map[registry.Name]*api.WorkflowConfig),
 	}
 }
 
 // Add adds a new workflow with required dependencies
 func (m *Workflows) Add(
-	id registry.ID,
+	id registry.Name,
 	config *api.WorkflowConfig,
 	modules api.ModuleRegistry,
 	libraries api.LibraryRegistry,
@@ -43,7 +43,7 @@ func (m *Workflows) Add(
 
 // Update updates an existing workflow with required dependencies
 func (m *Workflows) Update(
-	id registry.ID,
+	id registry.Name,
 	config *api.WorkflowConfig,
 	modules api.ModuleRegistry,
 	libraries api.LibraryRegistry,
@@ -62,7 +62,7 @@ func (m *Workflows) Update(
 }
 
 // Delete removes a workflow
-func (m *Workflows) Delete(id registry.ID) error {
+func (m *Workflows) Delete(id registry.Name) error {
 	if _, exists := m.workflows[id]; !exists {
 		return fmt.Errorf("workflow %s not found", id)
 	}
@@ -72,18 +72,18 @@ func (m *Workflows) Delete(id registry.ID) error {
 	return nil
 }
 
-// Get returns a workflow config by ID
-func (m *Workflows) Get(id registry.ID) (*api.WorkflowConfig, bool) {
+// Get returns a workflow config by Name
+func (m *Workflows) Get(id registry.Name) (*api.WorkflowConfig, bool) {
 	wf, exists := m.workflows[id]
 	return wf, exists
 }
 
 // FindDependentOnLibrary finds all workflows that depend on a given library
-func (m *Workflows) FindDependentOnLibrary(libraryID registry.ID) map[registry.ID]*api.WorkflowConfig {
-	dependent := make(map[registry.ID]*api.WorkflowConfig)
+func (m *Workflows) FindDependentOnLibrary(libraryID registry.Name) map[registry.Name]*api.WorkflowConfig {
+	dependent := make(map[registry.Name]*api.WorkflowConfig)
 	for id, wf := range m.workflows {
 		for _, lib := range wf.Libraries {
-			if registry.ID(lib) == libraryID {
+			if registry.Name(lib) == libraryID {
 				dependent[id] = wf
 				break
 			}
@@ -94,7 +94,7 @@ func (m *Workflows) FindDependentOnLibrary(libraryID registry.ID) map[registry.I
 
 // GetFactory creates a new factory for workflow compilation using provided managers
 func (m *Workflows) GetFactory(
-	id registry.ID,
+	id registry.Name,
 	cfg *api.WorkflowConfig,
 	modules api.ModuleRegistry,
 	libraries api.LibraryRegistry,
@@ -114,7 +114,7 @@ func (m *Workflows) validateDependencies(
 ) error {
 	// Validate libraries
 	for _, libID := range cfg.Libraries {
-		if !libraries.Has(registry.ID(libID)) {
+		if !libraries.Has(registry.Name(libID)) {
 			return fmt.Errorf("library %s not found", libID)
 		}
 	}

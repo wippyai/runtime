@@ -538,7 +538,7 @@ func TestRouter_Endpoint_UUID(t *testing.T) {
 		return true
 	})
 
-	// Add an endpoint without providing an ID
+	// Add an endpoint without providing an Name
 	err := router.AddEndpoint("", config.EndpointConfig{
 		Method: http.MethodGet,
 		Path:   "/test",
@@ -567,7 +567,7 @@ func TestRouter_Endpoint_UUID(t *testing.T) {
 	assert.Equal(t, initialCount+1, finalCount, "Expected exactly one new endpoint")
 	assert.NotEmpty(t, foundEndpointID, "Expected to find an endpoint with UUID")
 	_, err = uuid.Parse(foundEndpointID)
-	assert.NoError(t, err, "Expected endpoint ID to be a valid UUID")
+	assert.NoError(t, err, "Expected endpoint Name to be a valid UUID")
 }
 
 func TestRouterEdgeCases(t *testing.T) {
@@ -657,7 +657,7 @@ func TestRouterEdgeCases(t *testing.T) {
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 		assert.NoError(t, resp.Body.Close())
 
-		// Test updating endpoint with invalid router ID
+		// Test updating endpoint with invalid router Name
 		err = router.UpdateEndpoint("test-ep", config.EndpointConfig{
 			Method: http.MethodGet,
 			Path:   "/test",

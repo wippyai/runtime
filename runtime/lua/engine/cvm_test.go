@@ -1436,7 +1436,7 @@ func TestCoroutineVM_ClosedCoroutines(t *testing.T) {
 				return "done"
 			end
 
-			-- Spawn multiple coroutines
+			-- Create multiple coroutines
 			for i = 1, 3 do
 				coroutine.spawn(test_cleanup)
 			end
@@ -2886,7 +2886,7 @@ func TestCoroutineVM_GoErrorPropagation(t *testing.T) {
 				error(err)  -- Try to use the error, should fail
 			end
 
-			-- Spawn both coroutines
+			-- Create both coroutines
 			coroutine.spawn(error_producer)
 			coroutine.spawn(error_consumer)
 		`, "error_test")
@@ -3004,7 +3004,7 @@ func TestCoroutineVM_PcallErrorHandling(t *testing.T) {
 				return "consumer_done"  -- Should never reach here
 			end
 
-			-- Spawn both coroutines
+			-- Create both coroutines
 			coroutine.spawn(error_producer)
 			coroutine.spawn(error_consumer)
 		`, "error_test")
