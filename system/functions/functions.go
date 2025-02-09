@@ -133,10 +133,10 @@ func (f *FunctionRegistry) sendReject(path events.Path, reason string) {
 	})
 }
 
-// Execute runs the given task using its registered handler and returns a channel
+// Call runs the given task using its registered handler and returns a channel
 // for receiving the execution result(s). Returns an error if no handler is registered
 // for the task's target or if the handler type is invalid.
-func (f *FunctionRegistry) Execute(task runtime.Task) (chan *runtime.Result, error) {
+func (f *FunctionRegistry) Call(task runtime.Task) (chan *runtime.Result, error) {
 	handler, exists := f.handlers.Load(task.Target.String())
 	if !exists {
 		return nil, fmt.Errorf("no handler registered for target: %s", task.Target)

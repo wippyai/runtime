@@ -1,4 +1,4 @@
-package registry
+package topology
 
 import (
 	"fmt"

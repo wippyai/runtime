@@ -316,7 +316,7 @@ func TestFunctions_Execute(t *testing.T) {
 				wg.Wait() // Wait for handler registration to complete
 			}
 
-			resultChan, err := executor.Execute(tt.task)
+			resultChan, err := executor.Call(tt.task)
 
 			if tt.expectedErr != "" {
 				require.Error(t, err)
@@ -417,7 +417,7 @@ func TestFunctions_ConcurrentHandlerRegistration(t *testing.T) {
 			NS:   "test",
 			Name: fmt.Sprintf("handler.%d", i),
 		}
-		resultChan, err := executor.Execute(runtime.Task{
+		resultChan, err := executor.Call(runtime.Task{
 			Target:   target,
 			Payloads: []payload.Payload{payload.New("test")},
 		})

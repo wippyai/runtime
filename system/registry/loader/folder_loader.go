@@ -26,6 +26,7 @@ type FolderLoader struct {
 
 // FileEntry is an helpers struct used for unmarshalling entry data.
 type FileEntry struct {
+	NS   string            `json:"ns" yaml:"ns"`
 	Name string            `json:"name" yaml:"name"`
 	Kind string            `json:"kind" yaml:"kind"`
 	Meta registry.Metadata `json:"meta" yaml:"meta"`
@@ -120,11 +121,11 @@ func (l *FolderLoader) register(p payload.Payload, relPath string) (registry.Ent
 	}
 
 	// Calculate full Name (prefix + entry path)
-	fullID := l.calculateFullID(filepath.Dir(relPath), entry.Name)
+	fullID := l.cleanID(filepath.Dir(relPath), entry.Name)
 
 	l.log.Debug(
 		"registering entry",
-		zap.String("path", string(fullID)),
+		zap.String("id", fullID.String()),
 		zap.String("name", entry.Name),
 	)
 
@@ -136,9 +137,9 @@ func (l *FolderLoader) register(p payload.Payload, relPath string) (registry.Ent
 	}, nil
 }
 
-// calculateFullID determines the full registry path based on file path, and entry path. relPath must point to filename.
+// cleanID determines the full registry path based on file path, and entry path. relPath must point to filename.
 // TODO: first argument is not used, consider removing it.
-func (l *FolderLoader) calculateFullID(_ string, entryName string) registry.Name {
+func (l *FolderLoader) cleanID(_ string, entryName string) registry.ID {
 	fullID := entryName
 	fullID = strings.ReplaceAll(fullID, "\\", ".")
 	fullID = strings.ReplaceAll(fullID, "/", ".")
@@ -146,6 +147,7 @@ func (l *FolderLoader) calculateFullID(_ string, entryName string) registry.Name
 	fullID = strings.TrimPrefix(fullID, ".")
 
 	if l.namespace != "" {
+		// set as default!
 		fullID = l.namespace + ":" + fullID
 	}
 
