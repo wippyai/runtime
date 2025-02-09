@@ -107,7 +107,7 @@ func TestRouter_HandleEvent(t *testing.T) {
 		router, listener := setupRouterTest(t)
 
 		entry := registry.Entry{
-			ID:   "test-1",
+			ID:   registry.ID{Name: "test-1"},
 			Kind: "test.resource",
 			Data: payload.New([]byte("test-data")),
 		}
@@ -130,7 +130,7 @@ func TestRouter_HandleEvent(t *testing.T) {
 		router, listener := setupRouterTest(t)
 
 		entry := registry.Entry{
-			ID:   "test-1",
+			ID:   registry.ID{Name: "test-1"},
 			Kind: "test.resource",
 			Data: payload.New([]byte("test-data")),
 		}
@@ -151,7 +151,7 @@ func TestRouter_HandleEvent(t *testing.T) {
 		router, listener := setupRouterTest(t)
 
 		entry := registry.Entry{
-			ID:   "test-1",
+			ID:   registry.ID{Name: "test-1"},
 			Kind: "test.resource",
 		}
 
@@ -186,7 +186,7 @@ func TestRouter_HandleEvent(t *testing.T) {
 		router, listener := setupRouterTest(t)
 
 		entry := registry.Entry{
-			ID:   "test-1",
+			ID:   registry.ID{Name: "test-1"},
 			Kind: "test.resource",
 			Data: nil, // Missing required data
 		}
@@ -206,7 +206,7 @@ func TestRouter_HandleEvent(t *testing.T) {
 		listener.returnError = errors.New("listener error")
 
 		entry := registry.Entry{
-			ID:   "test-1",
+			ID:   registry.ID{Name: "test-1"},
 			Kind: "test.resource",
 			Data: payload.New([]byte("test-data")),
 		}
@@ -224,7 +224,7 @@ func TestRouter_HandleEvent(t *testing.T) {
 		listener.returnError = ErrSkipOperation
 
 		entry := registry.Entry{
-			ID:   "test-1",
+			ID:   registry.ID{Name: "test-1"},
 			Kind: "test.resource",
 			Data: payload.New([]byte("test-data")),
 		}

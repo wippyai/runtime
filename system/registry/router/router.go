@@ -107,9 +107,9 @@ func (r *Router) handleEvent(evt events.Event) {
 	}
 
 	r.log.Debug("processing registry event",
-		zap.String("id", string(entry.ID)),
-		zap.String("kind", string(evt.Kind)),
-		zap.String("type", string(entry.Kind)))
+		zap.String("id", entry.ID.String()),
+		zap.String("kind", evt.Kind),
+		zap.String("type", entry.Kind))
 
 	// For create/update operations, ensure we have valid data
 	if evt.Kind != registry.Delete && entry.Data == nil {
@@ -162,19 +162,19 @@ func (r *Router) processWithListener(kind events.Kind, entry registry.Entry, lis
 	}
 }
 
-func (r *Router) accept(id registry.Name) {
+func (r *Router) accept(id registry.ID) {
 	r.bus.Send(r.ctx, events.Event{
 		System: registry.System,
 		Kind:   registry.Accept,
-		Path:   events.Path(id),
+		Path:   id.String(),
 	})
 }
 
-func (r *Router) reject(id registry.Name, err error) {
+func (r *Router) reject(id registry.ID, err error) {
 	r.bus.Send(r.ctx, events.Event{
 		System: registry.System,
 		Kind:   registry.Reject,
-		Path:   events.Path(id),
+		Path:   id.String(),
 		Data:   err,
 	})
 }
