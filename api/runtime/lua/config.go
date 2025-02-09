@@ -26,26 +26,23 @@ type (
 	// It includes the source code, execution method, required libraries and modules,
 	// and VM pool settings.
 	FunctionConfig struct {
-		Meta      registry.Metadata `json:"meta"`      // Metadata for the function
-		Source    string            `json:"source"`    // Lua source code
-		Method    string            `json:"method"`    // Name of the Lua method to execute
-		Libraries []string          `json:"libraries"` // Required Lua libraries
-		Modules   []string          `json:"modules"`   // Required Lua modules
-		Pool      PoolConfig        `json:"pool"`      // VM pool configuration
+		Source    string     `json:"source"`    // Lua source code
+		Method    string     `json:"method"`    // Name of the Lua method to execute
+		Libraries []string   `json:"libraries"` // Required Lua libraries
+		Modules   []string   `json:"modules"`   // Required Lua modules
+		Pool      PoolConfig `json:"pool"`      // VM pool configuration
 	}
 
 	// WorkflowConfig defines the configuration for a Lua workflow component.
 	WorkflowConfig struct {
-		Meta      registry.Metadata `json:"meta"`      // Metadata for the function
-		Source    string            `json:"source"`    // Lua source code
-		Method    string            `json:"method"`    // Name of the Lua method to execute
-		Libraries []string          `json:"libraries"` // Required Lua libraries, only selected subset allowed
+		Source    string   `json:"source"`    // Lua source code
+		Method    string   `json:"method"`    // Name of the Lua method to execute
+		Libraries []string `json:"libraries"` // Required Lua libraries, only selected subset allowed
 	}
 
 	// TerminalConfig defines the configuration for a Lua terminal component.
 	// It extends FunctionConfig with terminal-specific options and lifecycle management.
 	TerminalConfig struct {
-		Meta      registry.Metadata          `json:"meta"`      // Metadata for the terminal
 		Source    string                     `json:"source"`    // Lua source code
 		Method    string                     `json:"method"`    // Name of the Lua method to execute
 		Libraries []string                   `json:"libraries"` // Required Lua libraries
