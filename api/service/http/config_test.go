@@ -144,7 +144,6 @@ func TestServerConfig_MarshalUnmarshal(t *testing.T) {
 		{
 			name: "full config",
 			config: ServerConfig{
-				Meta: registry.Metadata{"version": "1.0"},
 				Addr: ":8080",
 				Timeouts: TimeoutConfig{
 					ReadTimeout:  30 * time.Second,
@@ -169,7 +168,6 @@ func TestServerConfig_MarshalUnmarshal(t *testing.T) {
 		{
 			name: "minimal config",
 			config: ServerConfig{
-				Meta: registry.Metadata{},
 				Addr: ":8080",
 			},
 			wantErr: false,
@@ -345,7 +343,7 @@ func TestEndpointConfig_Validate(t *testing.T) {
 				Meta:   registry.Metadata{ServerID: "test-server"},
 				Path:   "/test",
 				Method: "GET",
-				Target: "test_handler",
+				Target: registry.ID{Name: "test_handler"},
 			},
 			wantErr: false,
 		},
