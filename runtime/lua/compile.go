@@ -9,7 +9,7 @@ import (
 	"github.com/ponyruntime/pony/api/service/terminal"
 )
 
-func (m *RuntimeManager) compileTerminal(id registry.ID, cfg *api.TerminalConfig) (terminal.Terminal, error) {
+func (m *RuntimeManager) compileTerminal(id registry.Name, cfg *api.TerminalConfig) (terminal.Terminal, error) {
 	instance, err := m.terminals.MakeTerminal(id, cfg, m.modules, m.libraries)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create terminal: %w", err)
@@ -18,8 +18,8 @@ func (m *RuntimeManager) compileTerminal(id registry.ID, cfg *api.TerminalConfig
 	return instance, nil
 }
 
-func (m *RuntimeManager) compileFunction(id registry.ID, cfg *api.FunctionConfig) (api.Callable, error) {
-	factory, err := m.functions.MakeFactory(id, cfg, m.log, m.modules, m.libraries)
+func (m *RuntimeManager) compileFunction(id registry.Name, cfg *api.FunctionConfig) (api.Callable, error) {
+	factory, err := m.function.MakeFactory(id, cfg, m.log, m.modules, m.libraries)
 	if err != nil {
 		return nil, fmt.Errorf("factory creation failed: %w", err)
 	}
@@ -36,7 +36,7 @@ func (m *RuntimeManager) compileFunction(id registry.ID, cfg *api.FunctionConfig
 	return handler, nil
 }
 
-func (m *RuntimeManager) compileWorkflow(id registry.ID, cfg *api.WorkflowConfig) (func() any, error) {
+func (m *RuntimeManager) compileWorkflow(id registry.Name, cfg *api.WorkflowConfig) (func() any, error) {
 	runner, err := m.workflows.GetFactory(id, cfg, m.modules, m.libraries)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create workflow: %w", err)
@@ -46,10 +46,10 @@ func (m *RuntimeManager) compileWorkflow(id registry.ID, cfg *api.WorkflowConfig
 }
 
 func (m *RuntimeManager) validateWorkflowDependencies(
-	libraryID registry.ID,
+	libraryID registry.Name,
 	newLibConfig *api.LibraryConfig,
 	tempLibraries *manager.Libraries,
-) (map[registry.ID]*api.WorkflowConfig, error) {
+) (map[registry.Name]*api.WorkflowConfig, error) {
 	// Find dependent workflows
 	dependentWorkflows := m.workflows.FindDependentOnLibrary(libraryID)
 	//for id, wfCfg := range dependentWorkflows {
@@ -74,9 +74,9 @@ func (m *RuntimeManager) validateWorkflowDependencies(
 // validateLibraryUpdateDependencies checks if all dependent functions and terminals
 // can still be compiled after a library update
 func (m *RuntimeManager) validateLibraryUpdateDependencies(
-	libraryID registry.ID,
+	libraryID registry.Name,
 	newLibConfig *api.LibraryConfig,
-) (map[registry.ID]*api.FunctionConfig, map[registry.ID]*api.TerminalConfig, map[registry.ID]*api.WorkflowConfig, error) {
+) (map[registry.Name]*api.FunctionConfig, map[registry.Name]*api.TerminalConfig, map[registry.Name]*api.WorkflowConfig, error) {
 	// Temporarily apply the new library config to test compilation
 	if !m.libraries.Has(libraryID) {
 		return nil, nil, nil, fmt.Errorf("library %s not found", libraryID)
@@ -89,9 +89,9 @@ func (m *RuntimeManager) validateLibraryUpdateDependencies(
 	}
 
 	// Check dependent functions
-	dependentFuncs := m.functions.FindDependentOnLibrary(libraryID)
+	dependentFuncs := m.function.FindDependentOnLibrary(libraryID)
 	for id, fnCfg := range dependentFuncs {
-		factory, err := m.functions.MakeFactory(
+		factory, err := m.function.MakeFactory(
 			id,
 			fnCfg,
 			m.log,

@@ -17,7 +17,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func setupTest() (*FunctionExecutor, events.Bus) {
+func setupTest() (*FunctionRegistry, events.Bus) {
 	logger := zap.NewNop()
 	bus := eventbus.NewBus()
 	executor := NewExecutor(bus, logger)
@@ -28,12 +28,10 @@ func TestExecutor_StartStop(t *testing.T) {
 	ctx := context.Background()
 	executor, _ := setupTest()
 
-	// Test Start
 	err := executor.Start(ctx)
 	require.NoError(t, err)
 	assert.NotNil(t, executor.subscriber)
 
-	// Test stop
 	err = executor.Stop()
 	require.NoError(t, err)
 }
@@ -46,7 +44,7 @@ func TestExecutor_HandlerRegistrationOverBus(t *testing.T) {
 		require.NoError(t, executor.Stop())
 	}()
 
-	target := registry.ID("test.handler")
+	target := registry.ID{Name: "test.handler"}
 
 	// Create a test handler
 	handler := func(_ runtime.Task) (chan *runtime.Result, error) {
@@ -61,28 +59,34 @@ func TestExecutor_HandlerRegistrationOverBus(t *testing.T) {
 	// Test handler registration
 	bus.Send(ctx, events.Event{
 		System: runtime.FunctionSystem,
-		Kind:   runtime.RegisterFunction,
-		Path:   events.Path(target),
-		Data:   handler,
+		Kind:   runtime.RegisterFunctionCommand,
+		Path:   events.Path(target.String()),
+		Data: runtime.RegisterFunc{
+			ID:   target,
+			Func: handler,
+		},
 	})
 
-	time.Sleep(1 * time.Millisecond) // let event to propagate
+	time.Sleep(1 * time.Millisecond) // let event propagate
 
 	// Verify handler was registered
-	_, exists := executor.handlers.Load(target)
+	_, exists := executor.handlers.Load(target.String())
 	assert.True(t, exists)
 
 	// Test handler removal
 	bus.Send(ctx, events.Event{
 		System: runtime.FunctionSystem,
-		Kind:   runtime.DeleteFunction,
-		Path:   events.Path(target),
+		Kind:   runtime.DeleteFunctionCommand,
+		Path:   events.Path(target.String()),
+		Data: runtime.DeleteFunc{
+			ID: target,
+		},
 	})
 
-	time.Sleep(1 * time.Millisecond) // let event to propagate
+	time.Sleep(1 * time.Millisecond) // let event propagate
 
 	// Verify handler was removed
-	_, exists = executor.handlers.Load(target)
+	_, exists = executor.handlers.Load(target.String())
 	assert.False(t, exists)
 }
 
@@ -112,16 +116,20 @@ func TestExecutor_Execute(t *testing.T) {
 					close(resultChan)
 					return resultChan, nil
 				}
+				target := registry.ID{Name: "test.handler"}
 				bus.Send(ctx, events.Event{
 					System: runtime.FunctionSystem,
-					Kind:   runtime.RegisterFunction,
-					Path:   events.Path("test.handler"),
-					Data:   handler,
+					Kind:   runtime.RegisterFunctionCommand,
+					Path:   events.Path(target.String()),
+					Data: runtime.RegisterFunc{
+						ID:   target,
+						Func: handler,
+					},
 				})
 				time.Sleep(1 * time.Millisecond)
 			},
 			task: runtime.Task{
-				Target:   "test.handler",
+				Handler:  registry.ID{Name: "test.handler"},
 				Payloads: []payload.Payload{payload.New("test input")},
 			},
 			expectedValue: "success",
@@ -129,10 +137,10 @@ func TestExecutor_Execute(t *testing.T) {
 		{
 			name: "handler not found",
 			task: runtime.Task{
-				Target:   "nonexistent.handler",
+				Handler:  registry.ID{Name: "nonexistent.handler"},
 				Payloads: []payload.Payload{payload.New("test input")},
 			},
-			expectedErr: "no handler registered for target: nonexistent.handler",
+			expectedErr: "no handler registered for target",
 		},
 		{
 			name: "handler returns error",
@@ -140,35 +148,23 @@ func TestExecutor_Execute(t *testing.T) {
 				handler := func(_ runtime.Task) (chan *runtime.Result, error) {
 					return nil, fmt.Errorf("handler error")
 				}
+				target := registry.ID{Name: "error.handler"}
 				bus.Send(ctx, events.Event{
 					System: runtime.FunctionSystem,
-					Kind:   runtime.RegisterFunction,
-					Path:   events.Path("error.handler"),
-					Data:   handler,
+					Kind:   runtime.RegisterFunctionCommand,
+					Path:   events.Path(target.String()),
+					Data: runtime.RegisterFunc{
+						ID:   target,
+						Func: handler,
+					},
 				})
 				time.Sleep(1 * time.Millisecond)
 			},
 			task: runtime.Task{
-				Target:   "error.handler",
+				Handler:  registry.ID{Name: "error.handler"},
 				Payloads: []payload.Payload{payload.New("test input")},
 			},
 			expectedErr: "handler error",
-		},
-		{
-			name: "invalid handler type",
-			setupHandler: func(bus events.Bus) {
-				bus.Send(ctx, events.Event{
-					System: runtime.FunctionSystem,
-					Kind:   runtime.RegisterFunction,
-					Path:   events.Path("invalid.handler"),
-				})
-				time.Sleep(1 * time.Millisecond)
-			},
-			task: runtime.Task{
-				Target:   "invalid.handler",
-				Payloads: []payload.Payload{payload.New("test input")},
-			},
-			expectedErr: "no handler registered for target",
 		},
 	}
 
@@ -191,6 +187,9 @@ func TestExecutor_Execute(t *testing.T) {
 
 			result := <-resultChan
 			require.NotNil(t, result)
+			if tt.expectedValue != "" {
+				assert.Equal(t, tt.expectedValue, result.Payload.String())
+			}
 		})
 	}
 }
@@ -211,7 +210,7 @@ func TestExecutor_ConcurrentHandlerRegistration(t *testing.T) {
 	for i := 0; i < numHandlers; i++ {
 		go func(idx int) {
 			defer wg.Done()
-			target := registry.ID(fmt.Sprintf("test.handler.%d", idx))
+			target := registry.ID{Name: fmt.Sprintf("test.handler.%d", idx)}
 			handler := func(_ runtime.Task) (chan *runtime.Result, error) {
 				resultChan := make(chan *runtime.Result, 1)
 				resultChan <- &runtime.Result{
@@ -223,9 +222,12 @@ func TestExecutor_ConcurrentHandlerRegistration(t *testing.T) {
 
 			bus.Send(ctx, events.Event{
 				System: runtime.FunctionSystem,
-				Kind:   runtime.RegisterFunction,
-				Path:   events.Path(target),
-				Data:   handler,
+				Kind:   runtime.RegisterFunctionCommand,
+				Path:   events.Path(target.String()),
+				Data: runtime.RegisterFunc{
+					ID:   target,
+					Func: handler,
+				},
 			})
 		}(i)
 	}
@@ -243,13 +245,14 @@ func TestExecutor_ConcurrentHandlerRegistration(t *testing.T) {
 
 	// Test executing all handlers
 	for i := 0; i < numHandlers; i++ {
-		target := registry.ID(fmt.Sprintf("test.handler.%d", i))
+		target := registry.ID{Name: fmt.Sprintf("test.handler.%d", i)}
 		resultChan, err := executor.Execute(runtime.Task{
-			Target:   target,
+			Handler:  target,
 			Payloads: []payload.Payload{payload.New("test")},
 		})
 		require.NoError(t, err)
-		<-resultChan
+		result := <-resultChan
+		assert.Equal(t, fmt.Sprintf("result %d", i), result.Payload.String())
 	}
 }
 
@@ -269,7 +272,8 @@ func TestExecutor_InvalidEvents(t *testing.T) {
 			name: "invalid register handler data",
 			evt: events.Event{
 				System: runtime.FunctionSystem,
-				Kind:   runtime.RegisterFunction,
+				Kind:   runtime.RegisterFunctionCommand,
+				Path:   "test.handler",
 				Data:   "invalid data",
 			},
 		},
@@ -277,7 +281,8 @@ func TestExecutor_InvalidEvents(t *testing.T) {
 			name: "invalid delete handler data",
 			evt: events.Event{
 				System: runtime.FunctionSystem,
-				Kind:   runtime.DeleteFunction,
+				Kind:   runtime.DeleteFunctionCommand,
+				Path:   "test.handler",
 				Data:   "invalid data",
 			},
 		},
@@ -292,7 +297,7 @@ func TestExecutor_InvalidEvents(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(_ *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			// Just verify no panic occurs
 			bus.Send(ctx, tt.evt)
 			time.Sleep(1 * time.Millisecond)
@@ -313,15 +318,13 @@ func TestExecutor_EventResponses(t *testing.T) {
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 
-	// Listen to all events from the function system
 	sub, err := eventbus.NewSubscriber(
 		ctx,
 		bus,
 		runtime.FunctionSystem,
-		"functions.*", // Changed to match all function events
+		"functions.*",
 		func(evt events.Event) {
-			// Only process accept/reject events
-			if evt.Kind == runtime.AcceptFunctionEvent || evt.Kind == runtime.RejectFunctionEvent {
+			if evt.Kind == runtime.AcceptFunction || evt.Kind == runtime.RejectFunction {
 				mu.Lock()
 				responses = append(responses, evt)
 				mu.Unlock()
@@ -342,44 +345,53 @@ func TestExecutor_EventResponses(t *testing.T) {
 			name: "valid function registration",
 			event: events.Event{
 				System: runtime.FunctionSystem,
-				Kind:   runtime.RegisterFunction,
+				Kind:   runtime.RegisterFunctionCommand,
 				Path:   "test.handler",
-				Data: func(task runtime.Task) (chan *runtime.Result, error) {
-					return make(chan *runtime.Result), nil
+				Data: runtime.RegisterFunc{
+					ID: registry.ID{Name: "test.handler"},
+					Func: func(task runtime.Task) (chan *runtime.Result, error) {
+						return make(chan *runtime.Result), nil
+					},
 				},
 			},
-			expectedKind: runtime.AcceptFunctionEvent,
+			expectedKind: runtime.AcceptFunction,
 			expectedPath: "test.handler",
 		},
 		{
 			name: "invalid function registration",
 			event: events.Event{
 				System: runtime.FunctionSystem,
-				Kind:   runtime.RegisterFunction,
+				Kind:   runtime.RegisterFunctionCommand,
 				Path:   "invalid.handler",
 				Data:   "not a function",
 			},
-			expectedKind: runtime.RejectFunctionEvent,
+			expectedKind: runtime.RejectFunction,
 			expectedPath: "invalid.handler",
 		},
 		{
 			name: "delete existing function",
 			event: events.Event{
 				System: runtime.FunctionSystem,
-				Kind:   runtime.DeleteFunction,
+				Kind:   runtime.DeleteFunctionCommand,
 				Path:   "test.handler",
+				Data: runtime.DeleteFunc{
+					ID: registry.ID{Name: "test.handler"},
+				},
 			},
-			expectedKind: runtime.AcceptFunctionEvent,
+			expectedKind: runtime.AcceptFunction,
 			expectedPath: "test.handler",
 		},
 		{
 			name: "delete non-existent function",
 			event: events.Event{
 				System: runtime.FunctionSystem,
-				Kind:   runtime.DeleteFunction,
+				Kind:   runtime.DeleteFunctionCommand,
 				Path:   "nonexistent.handler",
+				Data: runtime.DeleteFunc{
+					ID: registry.ID{Name: "nonexistent.handler"},
+				},
 			},
-			expectedKind: runtime.RejectFunctionEvent,
+			expectedKind: runtime.RejectFunction,
 			expectedPath: "nonexistent.handler",
 		},
 	}

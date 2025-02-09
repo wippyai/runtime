@@ -153,11 +153,6 @@ func TestContexter_Key_String(t *testing.T) {
 			want: "transcoder",
 		},
 		{
-			name: "executor context key",
-			key:  ExecutorCtx,
-			want: "executor",
-		},
-		{
 			name: "logger context key",
 			key:  LoggerCtx,
 			want: "logger",
@@ -171,11 +166,6 @@ func TestContexter_Key_String(t *testing.T) {
 			name: "cleanup context key",
 			key:  CleanupCtx,
 			want: "cleanup",
-		},
-		{
-			name: "task context key",
-			key:  TaskCtx,
-			want: "task",
 		},
 		{
 			name: "custom key",

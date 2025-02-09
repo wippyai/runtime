@@ -117,7 +117,7 @@ func RegisterTextUtils(l *lua.LState, mod *lua.LTable) {
 			}
 		})
 
-		// Get matched and unmatched styles
+		// Create matched and unmatched styles
 		matched, ok1 := l.CheckUserData(3).Value.(*Style)
 		unmatched, ok2 := l.CheckUserData(4).Value.(*Style)
 

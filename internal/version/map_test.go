@@ -88,7 +88,7 @@ func TestVersionMap(t *testing.T) {
 	// Test Cases
 	testCases := []struct {
 		name        string
-		setup       func(vm Map) // Function to set up the versionHistory
+		setup       func(vm Map) // Func to set up the versionHistory
 		from        registry.Version
 		to          registry.Version
 		expected    []registry.Version
@@ -172,7 +172,7 @@ func TestVersionMap(t *testing.T) {
 			expectError: errors.New("no path exists from v1 to v2"),
 		},
 		{
-			name: "Add and Get version",
+			name: "Add and Create version",
 			setup: func(vm Map) {
 				require.NoError(t, vm.Add(v1))
 			},
@@ -181,7 +181,7 @@ func TestVersionMap(t *testing.T) {
 			expected: []registry.Version{v1},
 		},
 		{
-			name: "Get non-existent version",
+			name: "Create non-existent version",
 			setup: func(Map) {
 				// No versions added
 			},

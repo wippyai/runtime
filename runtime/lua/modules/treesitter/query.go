@@ -61,7 +61,7 @@ func newQuery(l *lua.LState) int {
 	languageStr := l.CheckString(1)
 	pattern := l.CheckString(2)
 
-	// Get language from string
+	// Create language from string
 	langInfo := NewLanguages().GetLanguageInfo(languageStr)
 	if langInfo == nil {
 		l.Push(lua.LNil)
@@ -131,7 +131,7 @@ func matchToLuaTable(l *lua.LState, query *treesitter.Query, match *treesitter.Q
 		captureTable.RawSetString("node", nodeUD)
 		captureTable.RawSetString("index", lua.LNumber(capture.Index))
 
-		// Get capture name from query pattern
+		// Create capture name from query pattern
 		name := query.CaptureNames()[capture.Index]
 		if name != "" {
 			captureTable.RawSetString("name", lua.LString(name))
@@ -207,7 +207,7 @@ func queryCaptures(l *lua.LState) int {
 			captureTable.RawSetString("name", lua.LString(name))
 		}
 
-		// Get the text of the captured node
+		// Create the text of the captured node
 		start := capture.Node.StartByte()
 		end := capture.Node.EndByte()
 		if end <= uint(len(source)) {

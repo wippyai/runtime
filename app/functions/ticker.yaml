@@ -1,4 +1,4 @@
-name: functions.ticker
+name: function.ticker
 kind: function.lua
 meta:
   comment: "Ticks."

@@ -1,7 +1,10 @@
 package runtime
 
 import (
+	"context"
+	contextapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/registry"
 )
 
 // Event system and kind constants for the executor package
@@ -9,30 +12,43 @@ const (
 	// FunctionSystem identifies the executor system in the event bus
 	FunctionSystem events.System = "functions"
 
-	// RegisterFunction is the event kind for registering a new handler
-	RegisterFunction events.Kind = "functions.register"
+	// RegisterFunctionCommand is the event kind for registering a new handler
+	RegisterFunctionCommand events.Kind = "functions.register"
 
-	// DeleteFunction is the event kind for removing an existing handler
-	DeleteFunction events.Kind = "functions.remove"
+	// DeleteFunctionCommand is the event kind for removing an existing handler
+	DeleteFunctionCommand events.Kind = "functions.remove"
 
-	// AcceptFunctionEvent is the event kind for accepting a new handler
-	AcceptFunctionEvent events.Kind = "functions.accept"
+	// AcceptFunction is the event kind for accepting a new handler
+	AcceptFunction events.Kind = "functions.accept"
 
-	// RejectFunctionEvent is the event kind for rejecting a new handler
-	RejectFunctionEvent events.Kind = "functions.reject"
+	// RejectFunction is the event kind for rejecting a new handler
+	RejectFunction events.Kind = "functions.reject"
 )
 
 type (
-	// Function is a function type that processes a Task and returns
-	// a channel for streaming result(s) and any immediate error that occurs
-	// during task initialization.
-	Function func(Task) (chan *Result, error)
+	// RegisterFunc represents a request to register a new function handler
+	// with the runtime system
+	RegisterFunc struct {
+		ID   registry.ID // Unique identifier for the function
+		Func Func        // The actual function implementation
+	}
 
-	// FunctionRegistry is the interface for executing tasks using functions.
-	// It provides the core functionality for running tasks and obtaining their results.
-	FunctionRegistry interface {
-		// Execute processes the given task and returns a channel for getting the result(s)
-		// and any immediate error that occurs during task initialization.
-		Execute(Task) (chan *Result, error)
+	// DeleteFunc represents a request to remove a function handler
+	DeleteFunc struct {
+		ID registry.ID // ID of the function to remove
+	}
+
+	// Func is the core function type that processes tasks
+	// It returns a channel for streaming results and any immediate initialization errors
+	Func func(Task) (chan *Result, error)
+
+	// FuncRegistry provides the interface for executing functions
+	// It abstracts the function lookup and execution process
+	FuncRegistry interface {
+		Call(Task) (chan *Result, error)
 	}
 )
+
+func GetFunctions(ctx context.Context) FuncRegistry {
+	return ctx.Value(contextapi.FunctionsCtx).(FuncRegistry)
+}

@@ -22,7 +22,7 @@ type TerminalFactory interface {
 // Terminals handles Lua terminal app operations
 type Terminals struct {
 	log       *zap.Logger
-	terminals map[registry.ID]*api.TerminalConfig
+	terminals map[registry.Name]*api.TerminalConfig
 	factory   TerminalFactory
 }
 
@@ -33,14 +33,14 @@ func NewTerminals(
 ) *Terminals {
 	return &Terminals{
 		log:       log,
-		terminals: make(map[registry.ID]*api.TerminalConfig),
+		terminals: make(map[registry.Name]*api.TerminalConfig),
 		factory:   factory,
 	}
 }
 
 // Add adds a new terminal configuration
 func (m *Terminals) Add(
-	id registry.ID,
+	id registry.Name,
 	config *api.TerminalConfig,
 	modules api.ModuleRegistry,
 	libraries api.LibraryRegistry,
@@ -61,7 +61,7 @@ func (m *Terminals) Add(
 
 // Update updates an existing terminal configuration
 func (m *Terminals) Update(
-	id registry.ID,
+	id registry.Name,
 	config *api.TerminalConfig,
 	modules api.ModuleRegistry,
 	libraries api.LibraryRegistry,
@@ -81,7 +81,7 @@ func (m *Terminals) Update(
 }
 
 // Delete removes a terminal configuration
-func (m *Terminals) Delete(id registry.ID) error {
+func (m *Terminals) Delete(id registry.Name) error {
 	if _, exists := m.terminals[id]; !exists {
 		return fmt.Errorf("terminal %s not found", id)
 	}
@@ -91,18 +91,18 @@ func (m *Terminals) Delete(id registry.ID) error {
 	return nil
 }
 
-// GetTerminal retrieves a terminal config by ID
-func (m *Terminals) GetTerminal(id registry.ID) (*api.TerminalConfig, bool) {
+// GetTerminal retrieves a terminal config by Name
+func (m *Terminals) GetTerminal(id registry.Name) (*api.TerminalConfig, bool) {
 	term, exists := m.terminals[id]
 	return term, exists
 }
 
 // FindDependentOnLibrary finds all terminals that depend on a given library
-func (m *Terminals) FindDependentOnLibrary(libraryID registry.ID) map[registry.ID]*api.TerminalConfig {
-	var dependent = make(map[registry.ID]*api.TerminalConfig)
+func (m *Terminals) FindDependentOnLibrary(libraryID registry.Name) map[registry.Name]*api.TerminalConfig {
+	var dependent = make(map[registry.Name]*api.TerminalConfig)
 	for id, term := range m.terminals {
 		for _, lib := range term.Libraries {
-			if registry.ID(lib) == libraryID {
+			if registry.Name(lib) == libraryID {
 				dependent[id] = term
 				break
 			}
@@ -113,7 +113,7 @@ func (m *Terminals) FindDependentOnLibrary(libraryID registry.ID) map[registry.I
 
 // MakeTerminal creates a new terminal factory using provided managers
 func (m *Terminals) MakeTerminal(
-	_ registry.ID,
+	_ registry.Name,
 	app *api.TerminalConfig,
 	modules api.ModuleRegistry,
 	libraries api.LibraryRegistry,
@@ -140,7 +140,7 @@ func (m *Terminals) validateDependencies(
 
 	// Validate libraries
 	for _, libID := range cfg.Libraries {
-		if !libraries.Has(registry.ID(libID)) {
+		if !libraries.Has(registry.Name(libID)) {
 			return fmt.Errorf("library %s not found", libID)
 		}
 	}

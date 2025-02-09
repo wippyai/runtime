@@ -30,7 +30,7 @@ type Module struct {
 // proper context propagation and payload transcoding.
 type Executor struct {
 	dtt           payload.Transcoder
-	exec          runtime.FunctionRegistry
+	exec          runtime.FuncRegistry
 	appContext    context.Context
 	threadContext context.Context
 	contextValues map[contextKey]interface{}
@@ -59,7 +59,7 @@ func (m *Module) Loader(l *lua.LState) int {
 		"run":  m.globalRun,
 	})
 
-	mt := l.NewTypeMetatable("executor.FunctionRegistry")
+	mt := l.NewTypeMetatable("executor.FuncRegistry")
 	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
 		"with_context": m.withContext,
 		"call":         m.call,
@@ -70,13 +70,13 @@ func (m *Module) Loader(l *lua.LState) int {
 	return 1
 }
 
-func (m *Module) extractDependencies(l *lua.LState) (runtime.FunctionRegistry, payload.Transcoder, error) {
+func (m *Module) extractDependencies(l *lua.LState) (runtime.FuncRegistry, payload.Transcoder, error) {
 	ctx := l.Context()
 	if ctx == nil {
 		return nil, nil, errors.New("no context found")
 	}
 
-	exec, ok := ctx.Value(contextapi.ExecutorCtx).(runtime.FunctionRegistry)
+	exec, ok := ctx.Value(contextapi.FunctionsCtx).(runtime.FuncRegistry)
 	if !ok {
 		return nil, nil, errors.New("executor not found in context")
 	}
@@ -106,7 +106,7 @@ func (m *Module) new(l *lua.LState) int {
 
 	ud := l.NewUserData()
 	ud.Value = executor
-	l.SetMetatable(ud, l.GetTypeMetatable("executor.FunctionRegistry"))
+	l.SetMetatable(ud, l.GetTypeMetatable("executor.FuncRegistry"))
 	l.Push(ud)
 	return 1
 }
@@ -227,13 +227,13 @@ func (e *Executor) createTask(ctx context.Context, l *lua.LState) runtime.Task {
 
 	return runtime.Task{
 		Context:  ctx,
-		Target:   registry.ID(target),
+		Handler:  registry.Name(target),
 		Payloads: payloads,
 	}
 }
 
 func (e *Executor) executeSync(l *lua.LState, task runtime.Task) int {
-	resultChan, err := e.exec.Execute(task)
+	resultChan, err := e.exec.Call(task)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
@@ -272,7 +272,7 @@ func (e *Executor) executeSync(l *lua.LState, task runtime.Task) int {
 }
 
 func (e *Executor) executeAsync(l *lua.LState, task runtime.Task) int {
-	_, err := e.exec.Execute(task)
+	_, err := e.exec.Call(task)
 	if err != nil {
 		l.Push(lua.LString(err.Error()))
 		return 1

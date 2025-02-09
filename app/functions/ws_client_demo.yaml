@@ -1,4 +1,4 @@
-name: functions.websocket_demo
+name: function.websocket_demo
 kind: function.lua
 meta:
   comment: "WebSocket demo with echo server."

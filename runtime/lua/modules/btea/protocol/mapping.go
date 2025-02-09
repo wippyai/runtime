@@ -81,7 +81,7 @@ var (
 		tea.KeyCtrlShiftHome:  "ctrl+shift+home",
 		tea.KeyCtrlShiftEnd:   "ctrl+shift+end",
 
-		// Function keys
+		// Func keys
 		tea.KeyF1:  "f1",
 		tea.KeyF2:  "f2",
 		tea.KeyF3:  "f3",

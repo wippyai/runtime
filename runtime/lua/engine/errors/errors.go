@@ -251,7 +251,7 @@ func wrapError(L *lua.LState) int {
 		return 0
 	}
 
-	// Get Context from new error
+	// Create Context from new error
 	var context string
 	switch v := newErr.(type) {
 	case *lua.LUserData:

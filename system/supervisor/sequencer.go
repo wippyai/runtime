@@ -88,7 +88,7 @@ func (sp *Sequencer) processStartOperations(ctx context.Context, operations []Op
 		}
 	}
 
-	// Get dependency levels
+	// Create dependency levels
 	levels, err := g.DependencyLevels()
 	if err != nil {
 		return fmt.Errorf("failed to determine start dependency levels: %w", err)

@@ -105,7 +105,7 @@ func (m *mockStatefulTerminal) SetState(p payload.Payload) error {
 func TestTerminalRunner_Start(t *testing.T) {
 	logger := zap.NewNop()
 	bus := &mockEventBus{}
-	id := registry.ID("test-terminal")
+	id := registry.Name("test-terminal")
 
 	tests := []struct {
 		name      string
@@ -189,7 +189,7 @@ func TestTerminalRunner_Start(t *testing.T) {
 func TestTerminalRunner_Stop(t *testing.T) {
 	logger := zap.NewNop()
 	bus := &mockEventBus{}
-	id := registry.ID("test-terminal")
+	id := registry.Name("test-terminal")
 
 	tests := []struct {
 		name        string
@@ -274,7 +274,7 @@ func TestTerminalRunner_Stop(t *testing.T) {
 func TestTerminalRunner_TransferState(t *testing.T) {
 	logger := zap.NewNop()
 	bus := &mockEventBus{}
-	id := registry.ID("test-terminal")
+	id := registry.Name("test-terminal")
 
 	tests := []struct {
 		name      string

@@ -22,16 +22,16 @@ import (
 type testComponent struct {
 	bus             events.Bus
 	mu              sync.RWMutex
-	config          map[registry.ID]string
-	rejectedConfigs map[registry.ID]bool
+	config          map[registry.Name]string
+	rejectedConfigs map[registry.Name]bool
 }
 
 // newTestComponent creates a new testComponent.
 func newTestComponent(bus events.Bus) *testComponent {
 	return &testComponent{
 		bus:             bus,
-		config:          make(map[registry.ID]string),
-		rejectedConfigs: make(map[registry.ID]bool),
+		config:          make(map[registry.Name]string),
+		rejectedConfigs: make(map[registry.Name]bool),
 	}
 }
 
@@ -119,7 +119,7 @@ func (c *testComponent) handleEvent(evt events.Event) {
 }
 
 // getConfig returns the current configuration value for a given path.
-func (c *testComponent) getConfig(path registry.ID) (string, bool) {
+func (c *testComponent) getConfig(path registry.Name) (string, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	val, ok := c.config[path]
@@ -127,7 +127,7 @@ func (c *testComponent) getConfig(path registry.ID) (string, bool) {
 }
 
 // wasRejected checks if a configuration was rejected.
-func (c *testComponent) wasRejected(path registry.ID) bool {
+func (c *testComponent) wasRejected(path registry.Name) bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	_, ok := c.rejectedConfigs[path]
@@ -148,7 +148,7 @@ func attachComponent(ctx context.Context, t *testing.T, bus events.Bus, componen
 }
 
 // createEntry creates registry entries with string payloads for tests.
-func createEntry(path registry.ID, kind registry.Kind, data string) registry.Entry { //nolint:unparam
+func createEntry(path registry.Name, kind registry.Kind, data string) registry.Entry { //nolint:unparam
 	return registry.Entry{
 		ID:   path,
 		Kind: kind,
@@ -161,8 +161,8 @@ func TestBusRunner_Operations(t *testing.T) {
 		name        string
 		changeSet   registry.ChangeSet
 		expectError bool
-		finalConfig map[registry.ID]string
-		rejected    []registry.ID
+		finalConfig map[registry.Name]string
+		rejected    []registry.Name
 		finalState  registry.State
 	}{
 		{
@@ -178,10 +178,10 @@ func TestBusRunner_Operations(t *testing.T) {
 				},
 			},
 			expectError: false,
-			finalConfig: map[registry.ID]string{
+			finalConfig: map[registry.Name]string{
 				"component/listener/key1": "value1",
 			},
-			rejected: []registry.ID{},
+			rejected: []registry.Name{},
 			finalState: registry.State{
 				createEntry("component/listener/key1", "listener", "value1"),
 			},
@@ -199,8 +199,8 @@ func TestBusRunner_Operations(t *testing.T) {
 				},
 			},
 			expectError: true,
-			finalConfig: map[registry.ID]string{},
-			rejected:    []registry.ID{"component/listener/key2"},
+			finalConfig: map[registry.Name]string{},
+			rejected:    []registry.Name{"component/listener/key2"},
 			finalState:  registry.State{},
 		},
 		{
@@ -224,10 +224,10 @@ func TestBusRunner_Operations(t *testing.T) {
 				},
 			},
 			expectError: false,
-			finalConfig: map[registry.ID]string{
+			finalConfig: map[registry.Name]string{
 				"component/listener/key3": "updatedValue3",
 			},
-			rejected: []registry.ID{},
+			rejected: []registry.Name{},
 			finalState: registry.State{
 				createEntry("component/listener/key3", "listener", "updatedValue3"),
 			},
@@ -249,8 +249,8 @@ func TestBusRunner_Operations(t *testing.T) {
 				},
 			},
 			expectError: false,
-			finalConfig: map[registry.ID]string{},
-			rejected:    []registry.ID{},
+			finalConfig: map[registry.Name]string{},
+			rejected:    []registry.Name{},
 			finalState:  registry.State{},
 		},
 		{
@@ -286,8 +286,8 @@ func TestBusRunner_Operations(t *testing.T) {
 				},
 			},
 			expectError: true, // Expect an error because of the rejection
-			finalConfig: map[registry.ID]string{},
-			rejected:    []registry.ID{"component/listener/b"},
+			finalConfig: map[registry.Name]string{},
+			rejected:    []registry.Name{"component/listener/b"},
 			finalState:  registry.State{},
 		},
 		{
@@ -311,8 +311,8 @@ func TestBusRunner_Operations(t *testing.T) {
 				},
 			},
 			expectError: true,
-			finalConfig: map[registry.ID]string{},
-			rejected:    []registry.ID{}, // does not reach component
+			finalConfig: map[registry.Name]string{},
+			rejected:    []registry.Name{}, // does not reach component
 			finalState:  registry.State{},
 		},
 		{
@@ -336,8 +336,8 @@ func TestBusRunner_Operations(t *testing.T) {
 				},
 			},
 			expectError: true,
-			finalConfig: map[registry.ID]string{},
-			rejected:    []registry.ID{}, // does not reach component
+			finalConfig: map[registry.Name]string{},
+			rejected:    []registry.Name{}, // does not reach component
 			finalState:  registry.State{},
 		},
 		{
@@ -349,8 +349,8 @@ func TestBusRunner_Operations(t *testing.T) {
 				},
 			},
 			expectError: true, // expect an error because deletion fails
-			finalConfig: map[registry.ID]string{},
-			rejected:    []registry.ID{}, // does not reach component
+			finalConfig: map[registry.Name]string{},
+			rejected:    []registry.Name{}, // does not reach component
 			finalState:  registry.State{},
 		},
 	}
@@ -595,8 +595,8 @@ func TestBusRunner_ErrorPropagation(t *testing.T) {
 	// Create a test component with modified behavior
 	component := &testComponent{
 		bus:             bus,
-		config:          make(map[registry.ID]string),
-		rejectedConfigs: make(map[registry.ID]bool),
+		config:          make(map[registry.Name]string),
+		rejectedConfigs: make(map[registry.Name]bool),
 	}
 
 	// Set up event listener with modified behavior for this test

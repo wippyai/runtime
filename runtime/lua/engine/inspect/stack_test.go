@@ -15,7 +15,7 @@ func TestStackInspector(t *testing.T) {
 		-- Global variable
 		global_var = "global"
 
-		-- Function with upvalue
+		-- Func with upvalue
 		local function make_counter()
 			local count = 0
 			return function()

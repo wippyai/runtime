@@ -14,14 +14,14 @@ import (
 // EndpointHandler processes HTTP requests for specific endpoints.
 // It handles request validation, execution, and response formatting.
 type EndpointHandler struct {
-	executor   runtime.FunctionRegistry
+	executor   runtime.FuncRegistry
 	transcoder payload.Transcoder
 	log        *zap.Logger
 }
 
 // NewEndpointHandler creates a new EndpointHandler with the required dependencies.
 func NewEndpointHandler(
-	executor runtime.FunctionRegistry,
+	executor runtime.FuncRegistry,
 	transcoder payload.Transcoder,
 	log *zap.Logger,
 ) *EndpointHandler {
@@ -77,13 +77,13 @@ func (h *EndpointHandler) getRouteInfo(r *http.Request) (*config.RouteInfo, erro
 func (h *EndpointHandler) createTask(r *http.Request, info *config.RouteInfo) (runtime.Task, error) {
 	return runtime.Task{
 		Context: r.Context(),
-		Target:  info.Endpoint.Target,
+		Handler: info.Endpoint.Target,
 	}, nil
 }
 
 // executeTask runs the task and handles context cancellation.
 func (h *EndpointHandler) executeTask(task runtime.Task) (*runtime.Result, error) {
-	resultCh, err := h.executor.Execute(task)
+	resultCh, err := h.executor.Call(task)
 	if err != nil {
 		return nil, fmt.Errorf("executing task: %w", err)
 	}

@@ -1,4 +1,4 @@
-name: functions.hello_world
+name: function.hello_world
 kind: function.lua
 meta:
   comment: "Returns a hello world message."

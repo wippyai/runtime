@@ -45,7 +45,7 @@ func TestRegistry_HandlerRegistrationOverBus(t *testing.T) {
 		require.NoError(t, reg.Stop())
 	}()
 
-	target := registry.ID("test.workflow")
+	target := registry.Name("test.workflow")
 
 	// Create a test handler
 	handler := func() any {
@@ -55,10 +55,10 @@ func TestRegistry_HandlerRegistrationOverBus(t *testing.T) {
 	// Test handler registration
 	bus.Send(ctx, events.Event{
 		System: runtime.ProcessSystem,
-		Kind:   runtime.RegisterProcessPrototype,
-		Data: runtime.RegisterWorkflow{
-			Target:  target,
-			Factory: handler,
+		Kind:   runtime.RegisterSpawnCommand,
+		Data: runtime.RegisterSpawn{
+			ID:    target,
+			Spawn: handler,
 		},
 	})
 
@@ -72,8 +72,8 @@ func TestRegistry_HandlerRegistrationOverBus(t *testing.T) {
 	// Test handler removal
 	bus.Send(ctx, events.Event{
 		System: runtime.ProcessSystem,
-		Kind:   runtime.DeleteProcessPrototype,
-		Data: runtime.DeleteWorkflow{
+		Kind:   runtime.DeleteSpawnCommand,
+		Data: runtime.DeleteSpawn{
 			Target: target,
 		},
 	})
@@ -107,10 +107,10 @@ func TestRegistry_Get(t *testing.T) {
 				handler := func() any { return "success" }
 				bus.Send(ctx, events.Event{
 					System: runtime.ProcessSystem,
-					Kind:   runtime.RegisterProcessPrototype,
-					Data: runtime.RegisterWorkflow{
-						Target:  "test.workflow",
-						Factory: handler,
+					Kind:   runtime.RegisterSpawnCommand,
+					Data: runtime.RegisterSpawn{
+						ID:    "test.workflow",
+						Spawn: handler,
 					},
 				})
 				time.Sleep(1 * time.Millisecond)
@@ -132,10 +132,10 @@ func TestRegistry_Get(t *testing.T) {
 			setupHandler: func(bus events.Bus) {
 				bus.Send(ctx, events.Event{
 					System: runtime.ProcessSystem,
-					Kind:   runtime.RegisterProcessPrototype,
-					Data: runtime.RegisterWorkflow{
-						Target:  "nil.workflow",
-						Factory: nil,
+					Kind:   runtime.RegisterSpawnCommand,
+					Data: runtime.RegisterSpawn{
+						ID:    "nil.workflow",
+						Spawn: nil,
 					},
 				})
 				time.Sleep(1 * time.Millisecond)
@@ -151,7 +151,7 @@ func TestRegistry_Get(t *testing.T) {
 				tt.setupHandler(bus)
 			}
 
-			result, err := reg.Get(registry.ID(tt.target))
+			result, err := reg.Get(registry.Name(tt.target))
 
 			if tt.expectedErr != "" {
 				require.Error(t, err)
@@ -192,10 +192,10 @@ func TestRegistry_ConcurrentHandlerRegistration(t *testing.T) {
 
 			bus.Send(ctx, events.Event{
 				System: runtime.ProcessSystem,
-				Kind:   runtime.RegisterProcessPrototype,
-				Data: runtime.RegisterWorkflow{
-					Target:  registry.ID(target),
-					Factory: handler,
+				Kind:   runtime.RegisterSpawnCommand,
+				Data: runtime.RegisterSpawn{
+					ID:    registry.Name(target),
+					Spawn: handler,
 				},
 			})
 		}(i)
@@ -215,7 +215,7 @@ func TestRegistry_ConcurrentHandlerRegistration(t *testing.T) {
 	// Test retrieving all handlers
 	for i := 0; i < numHandlers; i++ {
 		target := fmt.Sprintf("test.workflow.%d", i)
-		handler, err := reg.Get(registry.ID(target))
+		handler, err := reg.Get(registry.Name(target))
 		require.NoError(t, err)
 		require.NotNil(t, handler)
 		assert.Equal(t, fmt.Sprintf("result %d", i), handler())
@@ -238,7 +238,7 @@ func TestRegistry_InvalidEvents(t *testing.T) {
 			name: "invalid register workflow data",
 			evt: events.Event{
 				System: runtime.ProcessSystem,
-				Kind:   runtime.RegisterProcessPrototype,
+				Kind:   runtime.RegisterSpawnCommand,
 				Data:   "invalid data",
 			},
 		},
@@ -246,7 +246,7 @@ func TestRegistry_InvalidEvents(t *testing.T) {
 			name: "invalid delete workflow data",
 			evt: events.Event{
 				System: runtime.ProcessSystem,
-				Kind:   runtime.DeleteProcessPrototype,
+				Kind:   runtime.DeleteSpawnCommand,
 				Data:   "invalid data",
 			},
 		},

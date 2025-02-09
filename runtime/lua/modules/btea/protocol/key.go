@@ -32,7 +32,7 @@ func newBinding(l *lua.LState) int {
 	// Initialize empty key slice
 	var keys []string
 
-	// Get keys from the table, handling both nil and empty cases
+	// Create keys from the table, handling both nil and empty cases
 	if keysTable := opts.RawGetString("keys"); keysTable != lua.LNil {
 		if t, ok := keysTable.(*lua.LTable); ok {
 			t.ForEach(func(_, v lua.LValue) {
@@ -55,7 +55,7 @@ func newBinding(l *lua.LState) int {
 		}
 	}
 
-	// Get help text, falling back to empty strings
+	// Create help text, falling back to empty strings
 	var helpKey, helpDesc string
 	if helpTable := opts.RawGetString("help"); helpTable != lua.LNil {
 		if t, ok := helpTable.(*lua.LTable); ok {
@@ -103,7 +103,7 @@ func bindingMatches(l *lua.LState) int {
 		return 0
 	}
 
-	// Get message argument and convert to tea.Msg
+	// Create message argument and convert to tea.Msg
 	msgValue := l.CheckAny(2)
 	msg, err := LuaToMsg(msgValue)
 

@@ -444,7 +444,7 @@ func TestCreateChangeSetFromEntries_Dependencies(t *testing.T) {
 					t.Errorf("CreateChangeSetFromEntries()[%d].Kind = %v, want %v", i, got[i].Kind, tt.want[i].Kind)
 				}
 				if got[i].Entry.ID != tt.want[i].Entry.ID {
-					t.Errorf("CreateChangeSetFromEntries()[%d].Entry.ID = %v, want %v", i, got[i].Entry.ID, tt.want[i].Entry.ID)
+					t.Errorf("CreateChangeSetFromEntries()[%d].Entry.Name = %v, want %v", i, got[i].Entry.ID, tt.want[i].Entry.ID)
 				}
 				if !reflect.DeepEqual(got[i].Entry.Meta, tt.want[i].Entry.Meta) {
 					t.Errorf("CreateChangeSetFromEntries()[%d].Entry.Meta = %v, want %v", i, got[i].Entry.Meta, tt.want[i].Entry.Meta)

@@ -36,21 +36,21 @@ type (
 	}
 
 	// FunctionProvider manages access to Lua function configurations in the system.
-	// It allows looking up function configurations by their registry ID.
+	// It allows looking up function configurations by their registry Name.
 	FunctionProvider interface {
-		// Get retrieves the function configuration for the given registry ID.
-		Get(name registry.ID) (*FunctionConfig, error)
-		// Has checks if a function configuration exists for the given registry ID.
-		Has(name registry.ID) bool
+		// Get retrieves the function configuration for the given registry Name.
+		Get(name registry.Name) (*FunctionConfig, error)
+		// Has checks if a function configuration exists for the given registry Name.
+		Has(name registry.Name) bool
 	}
 
 	// LibraryRegistry manages access to Lua library configurations in the system.
-	// It allows looking up library configurations by their registry ID.
+	// It allows looking up library configurations by their registry Name.
 	LibraryRegistry interface {
-		// Get retrieves the library configuration for the given registry ID.
-		Get(name registry.ID) (*LibraryConfig, error)
-		// Has checks if a library configuration exists for the given registry ID.
-		Has(name registry.ID) bool
+		// Get retrieves the library configuration for the given registry Name.
+		Get(name registry.Name) (*LibraryConfig, error)
+		// Has checks if a library configuration exists for the given registry Name.
+		Has(name registry.Name) bool
 	}
 
 	// ModuleRegistry manages the set of available Lua modules in the system.

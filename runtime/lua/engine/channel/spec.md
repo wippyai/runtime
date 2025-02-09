@@ -1,7 +1,7 @@
 # Channel System Documentation for Pony Coroutine VM
 
 ⚠️ **Important:** The channel system can only be used inside Pony processes. It is not available in other parts of the
-system like functions.
+system like function.
 
 ## Overview
 

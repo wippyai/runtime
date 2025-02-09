@@ -15,9 +15,9 @@ func SortEntriesByDependency(entries []registry.Entry) []registry.Entry {
 	}
 
 	// Build dependency graph and group mapping.
-	g := graph.New[registry.ID]()
-	entryMap := make(map[registry.ID]registry.Entry, len(entries))
-	groupMap := make(map[string][]registry.ID)
+	g := graph.New[registry.Name]()
+	entryMap := make(map[registry.Name]registry.Entry, len(entries))
+	groupMap := make(map[string][]registry.Name)
 
 	// Add all entries as nodes and build the group mapping.
 	for _, entry := range entries {
@@ -34,9 +34,9 @@ func SortEntriesByDependency(entries []registry.Entry) []registry.Entry {
 	for _, entry := range entries {
 		dependsOn := entry.Meta.TagValue(registry.DependsOnTag)
 		for _, dep := range dependsOn {
-			if _, exists := entryMap[registry.ID(dep)]; exists {
+			if _, exists := entryMap[registry.Name(dep)]; exists {
 				// If A depends on B, add edge B -> A so B gets processed first.
-				g.AddEdge(registry.ID(dep), entry.ID, 1)
+				g.AddEdge(registry.Name(dep), entry.ID, 1)
 			}
 		}
 	}

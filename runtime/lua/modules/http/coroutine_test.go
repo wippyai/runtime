@@ -70,7 +70,7 @@ func TestAsyncHTTP(t *testing.T) {
 	       function test_http_requests()
 	           local results = {}
 	
-	           -- Spawn first coroutine (fast request)
+	           -- Create first coroutine (fast request)
 	           coroutine.spawn(function()
 	               local response = http.get("https://api.example.com/fast")
 	               results.fast = {
@@ -79,7 +79,7 @@ func TestAsyncHTTP(t *testing.T) {
 	               }
 	           end)
 	
-	           -- Spawn second coroutine (slow request)
+	           -- Create second coroutine (slow request)
 	           coroutine.spawn(function()
 	               local response = http.get("https://api.example.com/slow")
 	               results.slow = {
@@ -88,7 +88,7 @@ func TestAsyncHTTP(t *testing.T) {
 	               }
 	           end)
 	
-	           -- Make slowest request in main flow
+	           -- Create slowest request in main flow
 	           local response = http.get("https://api.example.com/slower")
 	           results.slower = {
 	               status = response.status_code,
@@ -170,7 +170,7 @@ func TestAsyncHTTP(t *testing.T) {
                 local result
                 local error_msg
                 
-                -- Make request with short timeout
+                -- Create request with short timeout
                 coroutine.spawn(function()
                     local response, err = http.get("https://api.example.com/slow", {
                         timeout = "100ms"

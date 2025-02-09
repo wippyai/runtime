@@ -1,4 +1,4 @@
-name: functions.local_time_func
+name: function.local_time_func
 kind: function.lua
 meta:
   comment: "Returns the current time using local func."

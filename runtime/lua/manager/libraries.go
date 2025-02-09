@@ -11,19 +11,19 @@ import (
 // Libraries handles Lua library operations
 type Libraries struct {
 	log       *zap.Logger
-	libraries map[registry.ID]*api.LibraryConfig
+	libraries map[registry.Name]*api.LibraryConfig
 }
 
 // NewLibraries creates a new library manager instance
 func NewLibraries(logger *zap.Logger) *Libraries {
 	return &Libraries{
 		log:       logger,
-		libraries: make(map[registry.ID]*api.LibraryConfig),
+		libraries: make(map[registry.Name]*api.LibraryConfig),
 	}
 }
 
 // Add adds a new library
-func (m *Libraries) Add(id registry.ID, config *api.LibraryConfig) error {
+func (m *Libraries) Add(id registry.Name, config *api.LibraryConfig) error {
 	if _, exists := m.libraries[id]; exists {
 		return fmt.Errorf("library %s already exists", id)
 	}
@@ -34,7 +34,7 @@ func (m *Libraries) Add(id registry.ID, config *api.LibraryConfig) error {
 }
 
 // Update updates an existing library
-func (m *Libraries) Update(id registry.ID, config *api.LibraryConfig) error {
+func (m *Libraries) Update(id registry.Name, config *api.LibraryConfig) error {
 	if _, exists := m.libraries[id]; !exists {
 		return fmt.Errorf("library %s not found", id)
 	}
@@ -45,7 +45,7 @@ func (m *Libraries) Update(id registry.ID, config *api.LibraryConfig) error {
 }
 
 // Delete removes a library
-func (m *Libraries) Delete(id registry.ID) error {
+func (m *Libraries) Delete(id registry.Name) error {
 	if _, exists := m.libraries[id]; !exists {
 		return fmt.Errorf("library %s not found", id)
 	}
@@ -59,7 +59,7 @@ func (m *Libraries) Delete(id registry.ID) error {
 func (m *Libraries) Clone() *Libraries {
 	cloned := &Libraries{
 		log:       m.log,
-		libraries: make(map[registry.ID]*api.LibraryConfig, len(m.libraries)),
+		libraries: make(map[registry.Name]*api.LibraryConfig, len(m.libraries)),
 	}
 
 	// Copy map entries (pointers remain the same)
@@ -70,8 +70,8 @@ func (m *Libraries) Clone() *Libraries {
 	return cloned
 }
 
-// Get retrieves a library by ID
-func (m *Libraries) Get(id registry.ID) (*api.LibraryConfig, error) {
+// Get retrieves a library by Name
+func (m *Libraries) Get(id registry.Name) (*api.LibraryConfig, error) {
 	lib, exists := m.libraries[id]
 	if !exists {
 		return nil, fmt.Errorf("library %s not found", id)
@@ -81,7 +81,7 @@ func (m *Libraries) Get(id registry.ID) (*api.LibraryConfig, error) {
 }
 
 // Has checks if a library exists
-func (m *Libraries) Has(id registry.ID) bool {
+func (m *Libraries) Has(id registry.Name) bool {
 	_, exists := m.libraries[id]
 	return exists
 }

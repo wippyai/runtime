@@ -138,7 +138,7 @@ func (l *FolderLoader) register(p payload.Payload, relPath string) (registry.Ent
 
 // calculateFullID determines the full registry path based on file path, and entry path. relPath must point to filename.
 // TODO: first argument is not used, consider removing it.
-func (l *FolderLoader) calculateFullID(_ string, entryName string) registry.ID {
+func (l *FolderLoader) calculateFullID(_ string, entryName string) registry.Name {
 	fullID := entryName
 	fullID = strings.ReplaceAll(fullID, "\\", ".")
 	fullID = strings.ReplaceAll(fullID, "/", ".")
@@ -149,5 +149,5 @@ func (l *FolderLoader) calculateFullID(_ string, entryName string) registry.ID {
 		fullID = l.namespace + ":" + fullID
 	}
 
-	return registry.ID(fullID)
+	return registry.Name(fullID)
 }

@@ -13,10 +13,10 @@ import (
 
 // Execute executes a Lua function with the given arguments
 func (m *RuntimeManager) Execute(task runtime.Task) (chan *runtime.Result, error) {
-	// Get the callable from the sync map
-	cl, ok := m.callable.Load(task.Target)
+	// Create the callable from the sync map
+	cl, ok := m.callable.Load(task.Handler)
 	if !ok {
-		return nil, fmt.Errorf("handler not found for target: %s", task.Target)
+		return nil, fmt.Errorf("handler not found for target: %s", task.Handler)
 	}
 
 	handler, ok := cl.(api.Callable)
@@ -24,10 +24,10 @@ func (m *RuntimeManager) Execute(task runtime.Task) (chan *runtime.Result, error
 		return nil, fmt.Errorf("handler is not a callable")
 	}
 
-	// Get the function configuration
-	fn, exists := m.functions.Get(task.Target)
+	// Create the function configuration
+	fn, exists := m.functions.Get(task.Handler)
 	if !exists {
-		return nil, fmt.Errorf("function configuration not found for target: %s", task.Target)
+		return nil, fmt.Errorf("function configuration not found for target: %s", task.Handler)
 	}
 
 	// Convert payloads to Lua values
@@ -49,10 +49,8 @@ func (m *RuntimeManager) Execute(task runtime.Task) (chan *runtime.Result, error
 		}
 	}
 
-	// Create execution context with task ID
-	ctx, cancel := context.WithCancel(
-		context.WithValue(task.Context, contextapi.TaskCtx, task.Target),
-	)
+	// Create execution context with task Name
+	ctx, cancel := context.WithCancel(task.Context)
 	defer cancel()
 
 	// execute the function

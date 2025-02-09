@@ -29,7 +29,7 @@ func (m *MockHistory) Versions() ([]registry.Version, error) {
 }
 
 func (m *MockHistory) Get(v registry.Version) (registry.ChangeSet, error) {
-	m.callStack = append(m.callStack, fmt.Sprintf("Get(%d)", v.ID()))
+	m.callStack = append(m.callStack, fmt.Sprintf("Create(%d)", v.ID()))
 	return m.versions[v], nil
 }
 
@@ -98,7 +98,7 @@ func TestStateBuilder_BuildState_HappyPath(t *testing.T) {
 	}
 
 	// Also very call stack
-	expectedCallStack := []string{"Save", "Save", "Save", "Save", "Versions", "Get(0)", "Get(1)", "Get(2)", "Get(3)"}
+	expectedCallStack := []string{"Save", "Save", "Save", "Save", "Versions", "Create(0)", "Create(1)", "Create(2)", "Create(3)"}
 	if !reflect.DeepEqual(history.callStack, expectedCallStack) {
 		t.Errorf("unexpected call stack.\ngot: %v\nwant: %v", history.callStack, expectedCallStack)
 	}
@@ -123,7 +123,7 @@ func TestStateBuilder_BuildState_EmptyHistory(t *testing.T) {
 		t.Errorf("unexpected state.\ngot: %v\nwant: %v", state, expectedState)
 	}
 
-	expectedCallStack := []string{"Save", "Versions", "Get(0)"}
+	expectedCallStack := []string{"Save", "Versions", "Create(0)"}
 	if !reflect.DeepEqual(history.callStack, expectedCallStack) {
 		t.Errorf("unexpected call stack.\ngot: %v\nwant: %v", history.callStack, expectedCallStack)
 	}
@@ -158,7 +158,7 @@ func TestStateBuilder_BuildState_UpdateDeleteNonExistent(t *testing.T) {
 		t.Errorf("unexpected state.\ngot: %v\nwant: %v", state, expectedState)
 	}
 
-	expectedCallStack := []string{"Save", "Save", "Save", "Versions", "Get(0)", "Get(1)", "Get(2)"}
+	expectedCallStack := []string{"Save", "Save", "Save", "Versions", "Create(0)", "Create(1)", "Create(2)"}
 	if !reflect.DeepEqual(history.callStack, expectedCallStack) {
 		t.Errorf("unexpected call stack.\ngot: %v\nwant: %v", history.callStack, expectedCallStack)
 	}
@@ -222,7 +222,7 @@ func TestStateBuilder_BuildState_ConflictingCreates(t *testing.T) {
 		t.Errorf("unexpected state.\ngot: %v\nwant: %v", state, expectedState)
 	}
 
-	expectedCallStack := []string{"Save", "Save", "Save", "Versions", "Get(0)", "Get(1)", "Get(2)"}
+	expectedCallStack := []string{"Save", "Save", "Save", "Versions", "Create(0)", "Create(1)", "Create(2)"}
 	if !reflect.DeepEqual(history.callStack, expectedCallStack) {
 		t.Errorf("unexpected call stack.\ngot: %v\nwant: %v", history.callStack, expectedCallStack)
 	}
@@ -263,7 +263,7 @@ func TestStateBuilder_BuildState_IntermediateVersion(t *testing.T) {
 		t.Errorf("unexpected state.\ngot: %v\nwant: %v", state, expectedState)
 	}
 
-	expectedCallStack := []string{"Save", "Save", "Save", "Save", "Versions", "Get(0)", "Get(1)", "Get(2)"}
+	expectedCallStack := []string{"Save", "Save", "Save", "Save", "Versions", "Create(0)", "Create(1)", "Create(2)"}
 	if !reflect.DeepEqual(history.callStack, expectedCallStack) {
 		t.Errorf("unexpected call stack.\ngot: %v\nwant: %v", history.callStack, expectedCallStack)
 	}
@@ -328,7 +328,7 @@ func TestStateBuilder_BuildState_GetError(t *testing.T) {
 
 	builder := NewStateBuilder(zap.NewNop())
 
-	// Attempt to build state, expecting an error from history.Get()
+	// Attempt to build state, expecting an error from history.Create()
 	_, err := builder.BuildState(history, v1)
 	if err == nil {
 		t.Fatalf("expected error, got nil")
@@ -1111,7 +1111,7 @@ func TestStateBuilder_BuildDelta_TreeTransformation(t *testing.T) {
 		Data: payload.New("v1"),
 	}
 
-	// Function state entries (updated and new)
+	// Func state entries (updated and new)
 	aV2 := registry.Entry{
 		ID:   "a",
 		Kind: "service",

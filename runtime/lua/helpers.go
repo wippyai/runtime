@@ -77,24 +77,25 @@ func (m *RuntimeManager) unpackTerminal(data payload.Payload) (*api.TerminalConf
 }
 
 // Helper methods for event handling
-func (m *RuntimeManager) registerHandler(ctx context.Context, id registry.ID) {
+func (m *RuntimeManager) registerHandler(ctx context.Context, id registry.Name) {
 	m.bus.Send(ctx, events.Event{
 		System: runtime.FunctionSystem,
-		Kind:   runtime.RegisterFunction,
+		Kind:   runtime.RegisterFunctionCommand,
 		Path:   events.Path(id), // todo: ns?
 		Data:   m.Execute,
+		// todo: use itnernal map to set
 	})
 }
 
-func (m *RuntimeManager) unregisterHandler(ctx context.Context, id registry.ID) { //nolint:unused
+func (m *RuntimeManager) unregisterHandler(ctx context.Context, id registry.Name) { //nolint:unused
 	m.bus.Send(ctx, events.Event{
 		System: runtime.FunctionSystem,
-		Kind:   runtime.DeleteFunction,
+		Kind:   runtime.DeleteFunctionCommand,
 		Path:   events.Path(id),
 	})
 }
 
-func (m *RuntimeManager) registerTerminal(ctx context.Context, id registry.ID, app terminal.Terminal) {
+func (m *RuntimeManager) registerTerminal(ctx context.Context, id registry.Name, app terminal.Terminal) {
 	m.bus.Send(ctx, events.Event{
 		System: terminal.System,
 		Kind:   terminal.RegisterTerminalEvent,
@@ -103,7 +104,7 @@ func (m *RuntimeManager) registerTerminal(ctx context.Context, id registry.ID, a
 	})
 }
 
-func (m *RuntimeManager) unregisterTerminal(ctx context.Context, id registry.ID) { //nolint:unused
+func (m *RuntimeManager) unregisterTerminal(ctx context.Context, id registry.Name) { //nolint:unused
 	m.bus.Send(ctx, events.Event{
 		System: terminal.System,
 		Kind:   terminal.DeleteTerminalEvent,
@@ -112,23 +113,23 @@ func (m *RuntimeManager) unregisterTerminal(ctx context.Context, id registry.ID)
 	})
 }
 
-func (m *RuntimeManager) registerWorkflow(ctx context.Context, id registry.ID, runner func() any) {
+func (m *RuntimeManager) registerWorkflow(ctx context.Context, id registry.Name, runner func() any) {
 	m.bus.Send(ctx, events.Event{
 		System: runtime.ProcessSystem,
-		Kind:   runtime.RegisterProcessPrototype,
+		Kind:   runtime.RegisterSpawnCommand,
 		Path:   events.Path(id),
-		Data: runtime.RegisterWorkflow{
-			Target:  id,
-			Factory: runner,
+		Data: runtime.RegisterSpawn{
+			ID:    id,
+			Spawn: runner,
 		},
 	})
 }
 
-func (m *RuntimeManager) unregisterWorkflow(ctx context.Context, id registry.ID) {
+func (m *RuntimeManager) unregisterWorkflow(ctx context.Context, id registry.Name) {
 	m.bus.Send(ctx, events.Event{
 		System: runtime.ProcessSystem,
-		Kind:   runtime.DeleteProcessPrototype,
+		Kind:   runtime.DeleteSpawnCommand,
 		Path:   events.Path(id),
-		Data:   runtime.DeleteWorkflow{Target: id},
+		Data:   runtime.DeleteSpawn{Target: id},
 	})
 }

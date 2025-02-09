@@ -162,7 +162,7 @@ func (r *Router) processWithListener(kind events.Kind, entry registry.Entry, lis
 	}
 }
 
-func (r *Router) accept(id registry.ID) {
+func (r *Router) accept(id registry.Name) {
 	r.bus.Send(r.ctx, events.Event{
 		System: registry.System,
 		Kind:   registry.Accept,
@@ -170,7 +170,7 @@ func (r *Router) accept(id registry.ID) {
 	})
 }
 
-func (r *Router) reject(id registry.ID, err error) {
+func (r *Router) reject(id registry.Name, err error) {
 	r.bus.Send(r.ctx, events.Event{
 		System: registry.System,
 		Kind:   registry.Reject,

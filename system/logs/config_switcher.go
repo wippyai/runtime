@@ -32,7 +32,7 @@ func NewConfigSwitcher(bus events.Bus, log *zap.Logger) *ConfigSwitcher {
 func (c *ConfigSwitcher) EnableTemporaryConfig(ctx context.Context, tempConfig logsapi.Config) error {
 	// Only store base config on the first switch
 	if c.baseConfig == nil {
-		// Get current config
+		// Create current config
 		cfg, err := c.cfgManager.GetConfig(ctx, c.bus)
 		if err != nil {
 			return fmt.Errorf("failed to get logging config: %w", err)

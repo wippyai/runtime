@@ -30,7 +30,7 @@ import (
 	"github.com/ponyruntime/pony/system/payload/json"
 	"github.com/ponyruntime/pony/system/payload/lua"
 	"github.com/ponyruntime/pony/system/payload/yaml"
-	"github.com/ponyruntime/pony/system/process"
+	//"github.com/ponyruntime/pony/system/process"
 	"github.com/ponyruntime/pony/system/registry"
 	"github.com/ponyruntime/pony/system/registry/history"
 	"github.com/ponyruntime/pony/system/registry/loader"
@@ -119,7 +119,7 @@ func main() {
 	// -- end of additional services
 
 	// -- core function executor, this service listens and builds routes to call functions between runtimes
-	execReg := functions.NewExecutor(bus, log.Named("execReg"))
+	execReg := function.NewExecutor(bus, log.Named("execReg"))
 	if err := execReg.Start(ctx); err != nil {
 		appLogger.Fatal("failed to start executor", zap.Error(err))
 	}
@@ -127,15 +127,15 @@ func main() {
 	// -- end of core function executor
 
 	// -- workflow registry
-	processReg := process.NewRegistry(bus, log.Named("workflow"))
-	if err := processReg.Start(ctx); err != nil {
-		appLogger.Fatal("failed to start workflow registry", zap.Error(err))
-	}
-	defer func() { _ = processReg.Stop() }()
+	//processReg := process.NewRegistry(bus, log.Named("workflow"))
+	//if err := processReg.Start(ctx); err != nil {
+	//	appLogger.Fatal("failed to start workflow registry", zap.Error(err))
+	//}
+	//defer func() { _ = processReg.Stop() }()
 
 	// todo: should we just PUT everything into Wippy?
-	ctx = context.WithValue(ctx, contextapi.ExecutorCtx, execReg)
-	ctx = context.WithValue(ctx, contextapi.ProcessCtx, processReg)
+	ctx = context.WithValue(ctx, contextapi.FunctionsCtx, execReg)
+	//ctx = context.WithValue(ctx, contextapi.ProcessCtx, processReg)
 
 	// -- lua lang and modules
 	luaRuntime := luaruntime.NewRuntimeManager(

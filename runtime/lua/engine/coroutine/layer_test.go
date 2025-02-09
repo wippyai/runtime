@@ -178,7 +178,7 @@ func TestRunner_ChannelLayer(t *testing.T) {
            -- Channel for communication
            local ch = channel.new(1)
 
-           -- Spawn worker that does async operation
+           -- Create worker that does async operation
            coroutine.spawn(function()
                local doubled = async_double(5)
                ch:send(doubled)
@@ -303,7 +303,7 @@ func TestDistributedWorkers(t *testing.T) {
 			// Verify the doubled value is correct
 			assert.Equal(t, task*2, value)
 
-			// Verify worker ID is in valid range
+			// Verify worker Name is in valid range
 			assert.GreaterOrEqual(t, int(worker), 1)
 			assert.LessOrEqual(t, int(worker), 5)
 		})
@@ -329,7 +329,7 @@ func TestWorkerPool(t *testing.T) {
            local result_ch = channel.new(NUM_TASKS)
            local done_ch = channel.new(NUM_WORKERS) -- Channel to track worker completion
 
-           -- Spawn workers
+           -- Create workers
            for i = 1, NUM_WORKERS do
                coroutine.spawn(function()
                    local worker_id = i
@@ -426,7 +426,7 @@ func TestWorkerPool(t *testing.T) {
 		results.ForEach(func(_, value lua.LValue) {
 			result := value.(*lua.LTable)
 
-			// Verify worker ID is in valid range
+			// Verify worker Name is in valid range
 			worker := result.RawGetString("worker").(lua.LNumber)
 			assert.GreaterOrEqual(t, int(worker), 1)
 			assert.LessOrEqual(t, int(worker), 20)

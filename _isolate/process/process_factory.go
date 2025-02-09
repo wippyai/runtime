@@ -62,29 +62,29 @@ func (r *Registry) Stop() error {
 // handleEvent processes incoming workflow events for handler registration and deletion.
 func (r *Registry) handleEvent(evt events.Event) {
 	switch evt.Kind {
-	case runtime.RegisterProcessPrototype:
-		if data, ok := evt.Data.(runtime.RegisterWorkflow); ok {
-			if data.Factory == nil {
+	case runtime.RegisterSpawnCommand:
+		if data, ok := evt.Data.(runtime.RegisterSpawn); ok {
+			if data.Spawn == nil {
 				// todo: redo and add ns support
-				r.logger.Warn("handler is nil", zap.String("target", string(data.Target.ID)))
+				r.logger.Warn("handler is nil", zap.String("target", string(data.ID.Name)))
 				return
 			}
-			r.handlers.Store(data.Target, data.Factory)
+			r.handlers.Store(data.ID, data.Spawn)
 			r.logger.Info("workflow handler registered",
-				zap.String("target", string(data.Target.ID)))
+				zap.String("target", string(data.ID.Name)))
 		}
-	case runtime.DeleteProcessPrototype:
-		if data, ok := evt.Data.(runtime.DeleteWorkflow); ok {
+	case runtime.DeleteSpawnCommand:
+		if data, ok := evt.Data.(runtime.DeleteSpawn); ok {
 			r.handlers.Delete(data.Target)
 			r.logger.Info("workflow handler removed",
-				zap.String("target", string(data.Target.ID)))
+				zap.String("target", string(data.Target.Name)))
 		}
 	}
 }
 
-// Get retrieves a registered workflow handler for the given target ID.
+// Get retrieves a registered workflow handler for the given target Name.
 // Returns an error if no handler is registered for the target.
-func (r *Registry) Get(id registry.ID) (func() any, error) {
+func (r *Registry) Get(id registry.Name) (func() any, error) {
 	handler, exists := r.handlers.Load(id)
 	if !exists {
 		return nil, fmt.Errorf("no workflow handler registered for target: %s", id)
@@ -93,5 +93,5 @@ func (r *Registry) Get(id registry.ID) (func() any, error) {
 	return handler.(func() any), nil
 }
 
-// Ensure Registry implements ProcessFactory interface
-//var _ runtime.ProcessFactory = (*Registry)(nil)
+// Ensure Registry implements ProcessRegistry interface
+//var _ runtime.ProcessRegistry = (*Registry)(nil)

@@ -66,7 +66,7 @@ func TestChannelRuntimeAsLayer(t *testing.T) {
 			function test()
 				local ch = channel.new(0) -- unbuffered channel
 				
-				-- Spawn sender
+				-- Create sender
 				coroutine.spawn(function()
 					coroutine.yield("sender_start")
 					ch:send("hello")
@@ -162,7 +162,7 @@ func TestChannelRuntimeAsLayer(t *testing.T) {
 			function test()
 				local ch = channel.new(0)
 	
-				-- Spawn blocked receiver
+				-- Create blocked receiver
 				coroutine.spawn(function()
 					local msg, ok = ch:receive()
 				end)

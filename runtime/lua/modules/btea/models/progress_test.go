@@ -151,7 +151,7 @@ func TestProgressUpdate(t *testing.T) {
 		assert(cmd ~= nil, "set_percent should return a command")
 		assert(progress:percent() == 0.5, "progress should be set to 0.5")
 		
-		-- Get initial view
+		-- Create initial view
 		local initial_view = progress:view()
 		
 		-- Yield command and wait for its result
@@ -181,7 +181,7 @@ func TestProgressUpdate(t *testing.T) {
 	require.Equal(t, 1, len(tasks))
 	require.Equal(t, "ready_for_tick", tasks[0].Yielded[0].String())
 
-	// Get command and execute it
+	// Create command and execute it
 	cmd := protocol.UnwrapCommand(cvm.State(), tasks[0].Yielded[1])
 	msg := cmd()
 
@@ -194,7 +194,7 @@ func TestProgressUpdate(t *testing.T) {
 	require.Equal(t, 1, len(tasks))
 	require.Equal(t, "next_frame", tasks[0].Yielded[0].String())
 
-	// Get next frame command
+	// Create next frame command
 	cmd = protocol.UnwrapCommand(cvm.State(), tasks[0].Yielded[1])
 	msg = cmd()
 

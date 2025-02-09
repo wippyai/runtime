@@ -841,12 +841,12 @@ func ProcessData(data string) error {
     return validateResult(result)
 }
 
-type Factory struct {
+type Create struct {
     Name string
-    ID   int
+    Name   int
 }
 
-func (h *Factory) Process() {
+func (h *Create) Process() {
     fmt.Println("Processing with:", h.Name)
 }
 ]]
@@ -866,7 +866,7 @@ local query = treesitter.query("go", [[
   (#eq? @type "string"))
 
 (type_identifier) @type
-  (#eq? @type "Factory")
+  (#eq? @type "Create")
 ]])
 
 assert(query ~= nil, "query creation failed")

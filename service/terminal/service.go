@@ -31,7 +31,7 @@ type service struct {
 
 func newService(
 	app api.Terminal,
-	id registry.ID,
+	id registry.Name,
 	cfg *api.ServiceConfig,
 	bus events.Bus,
 	log *zap.Logger,

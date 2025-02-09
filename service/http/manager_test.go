@@ -148,7 +148,7 @@ func TestServerManager_RouterOperations(t *testing.T) {
 		// Create two servers
 		for i, id := range []string{"server1", "server2"} {
 			require.NoError(t, manager.Add(ctx, registry.Entry{
-				ID:   registry.ID(id),
+				ID:   registry.Name(id),
 				Kind: http.KindServer,
 				Data: payload.New(map[string]interface{}{
 					"addr": ":808" + string(rune('0'+i)),
@@ -168,7 +168,7 @@ func TestServerManager_RouterOperations(t *testing.T) {
 			}),
 		}
 		require.NoError(t, manager.Add(ctx, routerEntry))
-		assert.Equal(t, registry.ID("server1"), manager.routerServers[routerEntry.ID])
+		assert.Equal(t, registry.Name("server1"), manager.routerServers[routerEntry.ID])
 
 		// Migrate to server2
 		routerEntry.Data = payload.New(map[string]interface{}{
@@ -178,7 +178,7 @@ func TestServerManager_RouterOperations(t *testing.T) {
 			},
 		})
 		require.NoError(t, manager.Update(ctx, routerEntry))
-		assert.Equal(t, registry.ID("server2"), manager.routerServers[routerEntry.ID])
+		assert.Equal(t, registry.Name("server2"), manager.routerServers[routerEntry.ID])
 	})
 }
 
@@ -232,7 +232,7 @@ func TestServerManager_EndpointOperations(t *testing.T) {
 		// Create two servers
 		for i, id := range []string{"server1", "server2"} {
 			require.NoError(t, manager.Add(ctx, registry.Entry{
-				ID:   registry.ID(id),
+				ID:   registry.Name(id),
 				Kind: http.KindServer,
 				Data: payload.New(map[string]interface{}{
 					"addr": ":808" + string(rune('0'+i)),
@@ -253,7 +253,7 @@ func TestServerManager_EndpointOperations(t *testing.T) {
 			}),
 		}
 		require.NoError(t, manager.Add(ctx, endpointEntry))
-		assert.Equal(t, registry.ID("server1"), manager.endpointServers[endpointEntry.ID])
+		assert.Equal(t, registry.Name("server1"), manager.endpointServers[endpointEntry.ID])
 
 		// Migrate to server2
 		endpointEntry.Data = payload.New(map[string]interface{}{
@@ -264,7 +264,7 @@ func TestServerManager_EndpointOperations(t *testing.T) {
 			},
 		})
 		require.NoError(t, manager.Update(ctx, endpointEntry))
-		assert.Equal(t, registry.ID("server2"), manager.endpointServers[endpointEntry.ID])
+		assert.Equal(t, registry.Name("server2"), manager.endpointServers[endpointEntry.ID])
 	})
 }
 

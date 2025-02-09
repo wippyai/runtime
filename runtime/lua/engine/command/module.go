@@ -61,7 +61,7 @@ func newCommandFunc(L *lua.LState) int {
 		return 0
 	}
 
-	// Get params table
+	// Create params table
 	numArgs := L.GetTop() - 1 // -1 for cmdType
 	params := make([]lua.LValue, numArgs)
 	for i := 0; i < numArgs; i++ {
@@ -100,7 +100,7 @@ func isCanceledFunc(L *lua.LState) int {
 	return 1
 }
 
-// Get command error if any
+// Create command error if any
 func errorFunc(L *lua.LState) int {
 	cmd := CheckCommand(L)
 	if err := cmd.Err(); err != nil {
@@ -118,7 +118,7 @@ func isCompleteFunc(L *lua.LState) int {
 	return 1
 }
 
-// Get command result
+// Create command result
 func resultFunc(L *lua.LState) int {
 	cmd := CheckCommand(L)
 	result, err := cmd.Result()

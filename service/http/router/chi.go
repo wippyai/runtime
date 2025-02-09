@@ -33,33 +33,33 @@ func (rw *ChiRouter) AddEndpoint(endpointID string, cfg config.EndpointConfig) e
 	defer rw.mu.Unlock()
 
 	if _, exists := rw.endpoints[endpointID]; exists {
-		return fmt.Errorf("endpoint with ID %s already exists", endpointID)
+		return fmt.Errorf("endpoint with Name %s already exists", endpointID)
 	}
 
 	rw.endpoints[endpointID] = cfg
 	return nil
 }
 
-// DeleteEndpoint removes an endpoint configuration by ID
+// DeleteEndpoint removes an endpoint configuration by Name
 func (rw *ChiRouter) DeleteEndpoint(endpointID string) error {
 	rw.mu.Lock()
 	defer rw.mu.Unlock()
 
 	if _, exists := rw.endpoints[endpointID]; !exists {
-		return fmt.Errorf("endpoint with ID %s not found", endpointID)
+		return fmt.Errorf("endpoint with Name %s not found", endpointID)
 	}
 
 	delete(rw.endpoints, endpointID)
 	return nil
 }
 
-// UpdateEndpoint updates an existing endpoint configuration by ID
+// UpdateEndpoint updates an existing endpoint configuration by Name
 func (rw *ChiRouter) UpdateEndpoint(endpointID string, cfg config.EndpointConfig) error {
 	rw.mu.Lock()
 	defer rw.mu.Unlock()
 
 	if _, exists := rw.endpoints[endpointID]; !exists {
-		return fmt.Errorf("endpoint with ID %s not found", endpointID)
+		return fmt.Errorf("endpoint with Name %s not found", endpointID)
 	}
 
 	// Check for conflicts with other endpoints
@@ -151,7 +151,7 @@ func (rw *ChiRouter) wrapHandlerWithRouteInfo(
 			}
 		}
 
-		// Create route info with endpoint ID
+		// Create route info with endpoint Name
 		routeInfo := &config.RouteInfo{
 			Params:     params,
 			Endpoint:   endpoint,

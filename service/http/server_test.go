@@ -91,7 +91,7 @@ func TestSimpleHTTP(t *testing.T) {
 	status, err := server.Start(ctx)
 	require.NoError(t, err)
 
-	// Get the actually assigned port from the service
+	// Create the actually assigned port from the service
 	port := server.server.Addr
 
 	// wait for the success message from the status channel
@@ -101,7 +101,7 @@ func TestSimpleHTTP(t *testing.T) {
 		t.Fatal("timeout waiting for service to start")
 	}
 
-	// Make request
+	// Create request
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Get("http://" + port) //nolint:noctx
 	require.NoError(t, err)
@@ -163,7 +163,7 @@ func TestHTTPServerUnderSupervisor(t *testing.T) {
 	// Give the service a moment to fully start
 	time.Sleep(200 * time.Millisecond)
 
-	// Make a request to the Timeouts service
+	// Create a request to the Timeouts service
 	port := httpServer.server.Addr
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Get("http://" + port) //nolint:noctx

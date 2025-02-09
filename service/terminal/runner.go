@@ -16,7 +16,7 @@ import (
 // terminalRunner encapsulates terminal execution and lifecycle
 type terminalRunner struct {
 	terminal api.Terminal
-	id       registry.ID
+	id       registry.Name
 	bus      events.Bus
 	log      *zap.Logger
 
@@ -29,7 +29,7 @@ type terminalRunner struct {
 
 func newTerminalRunner(
 	app api.Terminal,
-	id registry.ID,
+	id registry.Name,
 	bus events.Bus,
 	log *zap.Logger,
 ) *terminalRunner {

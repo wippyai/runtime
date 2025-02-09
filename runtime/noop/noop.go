@@ -25,11 +25,11 @@ func NewNoopRuntime(bus events.Bus, logger *zap.Logger) *Runtime {
 	}
 }
 
-// Execute implements the runtime.FunctionRegistry interface, does not do anything.
+// Execute implements the runtime.FuncRegistry interface, does not do anything.
 func (n *Runtime) Execute(task runtime.Task) (chan *runtime.Result, error) {
 	rspChan := make(chan *runtime.Result, 1)
 	rspChan <- &runtime.Result{
-		Payload: payload.New(fmt.Sprintf("noop runtime: task %s executed", task.Target)),
+		Payload: payload.New(fmt.Sprintf("noop runtime: task %s executed", task.Handler)),
 	}
 
 	return rspChan, nil
@@ -43,7 +43,7 @@ func (n *Runtime) Add(ctx context.Context, entry registry.Entry) error {
 
 	n.bus.Send(ctx, events.Event{
 		System: runtime.FunctionSystem,
-		Kind:   runtime.RegisterFunction,
+		Kind:   runtime.RegisterFunctionCommand,
 		Path:   events.Path(entry.ID),
 		Data:   n.Execute,
 	})
@@ -67,7 +67,7 @@ func (n *Runtime) Delete(ctx context.Context, entry registry.Entry) error {
 
 	n.bus.Send(ctx, events.Event{
 		System: runtime.FunctionSystem,
-		Kind:   runtime.DeleteFunction,
+		Kind:   runtime.DeleteFunctionCommand,
 		Path:   events.Path(entry.ID),
 	})
 
