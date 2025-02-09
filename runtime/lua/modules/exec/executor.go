@@ -227,7 +227,7 @@ func (e *Executor) createTask(ctx context.Context, l *lua.LState) runtime.Task {
 
 	return runtime.Task{
 		Context:  ctx,
-		Handler:  registry.Name(target),
+		Target:   registry.Name(target),
 		Payloads: payloads,
 	}
 }

@@ -83,16 +83,6 @@ func (f *FunctionRegistry) handleRegisterFunction(e events.Event) {
 		return
 	}
 
-	// Validate the function ID matches the path
-	if reg.ID.String() != string(e.Path) {
-		f.logger.Error("function ID mismatch",
-			zap.String("path", string(e.Path)),
-			zap.String("id", reg.ID.String()))
-
-		f.sendReject(e.Path, "function ID mismatch")
-		return
-	}
-
 	// Store the function
 	f.handlers.Store(reg.ID.String(), reg.Func)
 	f.logger.Debug("function registered", zap.String("function", reg.ID.String()))
@@ -108,16 +98,6 @@ func (f *FunctionRegistry) handleDeleteFunction(e events.Event) {
 			zap.String("type", fmt.Sprintf("%T", e.Data)))
 
 		f.sendReject(e.Path, "invalid delete function payload")
-		return
-	}
-
-	// Validate the function ID matches the path
-	if del.ID.String() != string(e.Path) {
-		f.logger.Error("function ID mismatch",
-			zap.String("path", string(e.Path)),
-			zap.String("id", del.ID.String()))
-
-		f.sendReject(e.Path, "function ID mismatch")
 		return
 	}
 
@@ -157,16 +137,21 @@ func (f *FunctionRegistry) sendReject(path events.Path, reason string) {
 // for receiving the execution result(s). Returns an error if no handler is registered
 // for the task's target or if the handler type is invalid.
 func (f *FunctionRegistry) Execute(task runtime.Task) (chan *runtime.Result, error) {
-	handler, exists := f.handlers.Load(task.Handler)
+	handler, exists := f.handlers.Load(task.Target.String())
 	if !exists {
-		return nil, fmt.Errorf("no handler registered for target: %s", task.Handler)
+		return nil, fmt.Errorf("no handler registered for target: %s", task.Target)
 	}
 
-	task.Context = context.WithValue(task.Context, contextapi.HandlerCtx, task.Handler)
+	// keep context boundaries
+	if task.Context == nil {
+		task.Context = context.Background()
+	}
+
+	task.Context = context.WithValue(task.Context, contextapi.HandlerCtx, task.Target)
 
 	execHandler, ok := handler.(runtime.Func)
 	if !ok {
-		return nil, fmt.Errorf("invalid handler type for target: %s", task.Handler)
+		return nil, fmt.Errorf("invalid handler type for target: %s", task.Target)
 	}
 
 	return execHandler(task)

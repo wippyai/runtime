@@ -52,14 +52,14 @@ func TestNoopRuntime_Execute(t *testing.T) {
 		{
 			name: "basic execution",
 			task: runtime.Task{
-				Handler: "test-function",
+				Target: "test-function",
 			},
 			wantErr: false,
 		},
 		{
 			name: "empty target",
 			task: runtime.Task{
-				Handler: "",
+				Target: "",
 			},
 			wantErr: false,
 		},
@@ -79,7 +79,7 @@ func TestNoopRuntime_Execute(t *testing.T) {
 			result := <-resultCh
 			require.NotNil(t, result)
 			require.NotNil(t, result.Payload)
-			require.Contains(t, result.Payload.Data(), tt.task.Handler)
+			require.Contains(t, result.Payload.Data(), tt.task.Target)
 		})
 	}
 }
