@@ -1,4 +1,5 @@
 version: 1.0/beta
+ns: default
 
 name: web_server
 kind: http.service
