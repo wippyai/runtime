@@ -1,4 +1,4 @@
-package topology
+package __isolate
 
 import (
 	"fmt"
@@ -885,7 +885,7 @@ func TestStateBuilder_BuildDelta_SimpleCreateDependencies(t *testing.T) {
 		ID:   "service.database",
 		Kind: "component",
 		Meta: map[string]any{
-			registry.DependsOnTag: []string{"service"},
+			registry.TagDependsOn: []string{"service"},
 		},
 		Data: payload.New(""),
 	}
@@ -942,7 +942,7 @@ func TestStateBuilder_BuildDelta_DeleteDependencies(t *testing.T) {
 		ID:   "service.database",
 		Kind: "component",
 		Meta: map[string]any{
-			registry.DependsOnTag: []string{"service"},
+			registry.TagDependsOn: []string{"service"},
 		},
 		Data: payload.New(""),
 	}
@@ -1009,7 +1009,7 @@ func TestStateBuilder_BuildDelta_UpdateDependencies(t *testing.T) {
 		ID:   "service.database",
 		Kind: "component",
 		Meta: map[string]any{
-			registry.DependsOnTag: []string{"service"},
+			registry.TagDependsOn: []string{"service"},
 		},
 		Data: payload.New("v1"),
 	}
@@ -1025,7 +1025,7 @@ func TestStateBuilder_BuildDelta_UpdateDependencies(t *testing.T) {
 		ID:   "service.database",
 		Kind: "component",
 		Meta: map[string]any{
-			registry.DependsOnTag: []string{"service"},
+			registry.TagDependsOn: []string{"service"},
 		},
 		Data: payload.New("v2"),
 	}
@@ -1082,7 +1082,7 @@ func TestStateBuilder_BuildDelta_TreeTransformation(t *testing.T) {
 		ID:   "b",
 		Kind: "component",
 		Meta: map[string]any{
-			registry.DependsOnTag: []string{"a"},
+			registry.TagDependsOn: []string{"a"},
 		},
 		Data: payload.New("v1"),
 	}
@@ -1090,7 +1090,7 @@ func TestStateBuilder_BuildDelta_TreeTransformation(t *testing.T) {
 		ID:   "c",
 		Kind: "component",
 		Meta: map[string]any{
-			registry.DependsOnTag: []string{"b"},
+			registry.TagDependsOn: []string{"b"},
 		},
 		Data: payload.New("v1"),
 	}
@@ -1098,7 +1098,7 @@ func TestStateBuilder_BuildDelta_TreeTransformation(t *testing.T) {
 		ID:   "d",
 		Kind: "component",
 		Meta: map[string]any{
-			registry.DependsOnTag: []string{"a"},
+			registry.TagDependsOn: []string{"a"},
 		},
 		Data: payload.New("v1"),
 	}
@@ -1106,7 +1106,7 @@ func TestStateBuilder_BuildDelta_TreeTransformation(t *testing.T) {
 		ID:   "e",
 		Kind: "component",
 		Meta: map[string]any{
-			registry.DependsOnTag: []string{"d"},
+			registry.TagDependsOn: []string{"d"},
 		},
 		Data: payload.New("v1"),
 	}
@@ -1122,7 +1122,7 @@ func TestStateBuilder_BuildDelta_TreeTransformation(t *testing.T) {
 		ID:   "b",
 		Kind: "component",
 		Meta: map[string]any{
-			registry.DependsOnTag: []string{"a"},
+			registry.TagDependsOn: []string{"a"},
 		},
 		Data: payload.New("v2"),
 	}
@@ -1130,7 +1130,7 @@ func TestStateBuilder_BuildDelta_TreeTransformation(t *testing.T) {
 		ID:   "c",
 		Kind: "component",
 		Meta: map[string]any{
-			registry.DependsOnTag: []string{"b"},
+			registry.TagDependsOn: []string{"b"},
 		},
 		Data: payload.New("v2"),
 	}
@@ -1138,7 +1138,7 @@ func TestStateBuilder_BuildDelta_TreeTransformation(t *testing.T) {
 		ID:   "f",
 		Kind: "component",
 		Meta: map[string]any{
-			registry.DependsOnTag: []string{"a"},
+			registry.TagDependsOn: []string{"a"},
 		},
 		Data: payload.New("v1"),
 	}
@@ -1146,7 +1146,7 @@ func TestStateBuilder_BuildDelta_TreeTransformation(t *testing.T) {
 		ID:   "g",
 		Kind: "component",
 		Meta: map[string]any{
-			registry.DependsOnTag: []string{"f"},
+			registry.TagDependsOn: []string{"f"},
 		},
 		Data: payload.New("v1"),
 	}
@@ -1194,7 +1194,7 @@ func formatDelta(cs registry.ChangeSet) string {
 		result.WriteString(fmt.Sprintf("  %s %s (deps: %v)\n",
 			op.Kind,
 			op.Entry.ID,
-			op.Entry.Meta[registry.DependsOnTag],
+			op.Entry.Meta[registry.TagDependsOn],
 		))
 	}
 	return result.String()

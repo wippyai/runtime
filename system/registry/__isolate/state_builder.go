@@ -1,4 +1,4 @@
-package topology
+package __isolate
 
 import (
 	"fmt"
@@ -7,7 +7,6 @@ import (
 
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/internal/version"
-	"github.com/ponyruntime/pony/system/registry/loader"
 	"go.uber.org/zap"
 )
 

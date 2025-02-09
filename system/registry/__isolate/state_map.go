@@ -1,4 +1,4 @@
-package topology
+package __isolate
 
 import (
 	"fmt"
