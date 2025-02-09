@@ -680,7 +680,7 @@ func TestBusRunner_RollbackOrder(t *testing.T) {
 				Kind: "listener",
 				Data: payload.NewString("app-data"),
 				Meta: registry.Metadata{
-					registry.DependsOnTag: []string{"component/listener/lib1"},
+					registry.TagDependsOn: []string{"component/listener/lib1"},
 				},
 			},
 		},
@@ -691,7 +691,7 @@ func TestBusRunner_RollbackOrder(t *testing.T) {
 				Kind: "listener",
 				Data: payload.NewString("reject_this"), // This will trigger rejection
 				Meta: registry.Metadata{
-					registry.DependsOnTag: []string{"component/listener/app1"},
+					registry.TagDependsOn: []string{"component/listener/app1"},
 				},
 			},
 		},
