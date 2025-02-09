@@ -2,6 +2,7 @@ package topology
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/ponyruntime/pony/api/payload"
@@ -965,6 +966,184 @@ func TestCreateChangeSetFromEntries_NamespaceInheritance(t *testing.T) {
 			}
 
 			// Verify all entries are present
+			expectedIDs := make(map[registry.ID]bool)
+			for _, entry := range tt.entries {
+				expectedIDs[entry.ID] = false
+			}
+			for _, op := range cs {
+				if _, exists := expectedIDs[op.Entry.ID]; !exists {
+					t.Errorf("unexpected entry ID in result: %v", op.Entry.ID)
+				}
+				expectedIDs[op.Entry.ID] = true
+			}
+			for id, found := range expectedIDs {
+				if !found {
+					t.Errorf("missing entry ID in result: %v", id)
+				}
+			}
+		})
+	}
+}
+
+func TestNamespaceDependencyOrdering(t *testing.T) {
+	tests := []struct {
+		name     string
+		entries  []registry.Entry
+		validate func(registry.ChangeSet) error
+	}{
+		{
+			name: "multiple namespace dependency chains",
+			entries: []registry.Entry{
+				// Frontend app depending on both backend and shared
+				makeEntryWithMeta(
+					nsID("frontend", "app"),
+					"webapp",
+					"app",
+					map[string]any{
+						registry.TagDependsOn: []string{"ns:backend", "ns:shared"},
+					},
+				),
+				// Backend entries
+				makeEntryWithMeta(
+					nsID("backend", "service.db"),
+					"service",
+					"db",
+					map[string]any{
+						registry.TagDependsOn: []string{"ns:shared"}, // backend also depends on shared
+					},
+				),
+				makeEntryWithMeta(
+					nsID("backend", "service.api"),
+					"service",
+					"api",
+					map[string]any{
+						registry.TagDependsOn: []string{"service.db"}, // internal backend dependency
+					},
+				),
+				// Shared entries
+				makeEntryWithMeta(
+					nsID("shared", "config"),
+					"config",
+					"config",
+					map[string]any{},
+				),
+				makeEntryWithMeta(
+					nsID("shared", "logger"),
+					"service",
+					"logger",
+					map[string]any{},
+				),
+			},
+			validate: func(cs registry.ChangeSet) error {
+				posMap := make(map[string]int)
+				for i, op := range cs {
+					key := op.Entry.ID.String()
+					posMap[key] = i
+				}
+
+				// First check: shared namespace entries should come first
+				// because both frontend and backend depend on them
+				for _, sharedEntry := range []string{"shared:config", "shared:logger"} {
+					sharedPos := posMap[sharedEntry]
+					for key, pos := range posMap {
+						if !strings.HasPrefix(key, "shared:") && pos < sharedPos {
+							return fmt.Errorf("entry %s appears before shared entry %s", key, sharedEntry)
+						}
+					}
+				}
+
+				// Second check: backend entries should come before frontend
+				// because frontend depends on backend namespace
+				backendEntries := []string{"backend:service.db", "backend:service.api"}
+				frontendApp := "frontend:app"
+				for _, backendEntry := range backendEntries {
+					if posMap[backendEntry] > posMap[frontendApp] {
+						return fmt.Errorf("backend entry %s should appear before frontend app", backendEntry)
+					}
+				}
+
+				// Third check: within backend namespace, db should come before api
+				if posMap["backend:service.db"] > posMap["backend:service.api"] {
+					return fmt.Errorf("db should appear before api within backend namespace")
+				}
+
+				return nil
+			},
+		},
+		{
+			name: "namespace dependency with late additions",
+			entries: []registry.Entry{
+				// First define an entry depending on a namespace
+				makeEntryWithMeta(
+					nsID("app", "frontend"),
+					"webapp",
+					"frontend",
+					map[string]any{
+						registry.TagDependsOn: []string{"ns:services"},
+					},
+				),
+				// Then add namespace entries in non-sequential order
+				makeEntryWithMeta(
+					nsID("services", "service.c"),
+					"service",
+					"svc-c",
+					map[string]any{},
+				),
+				makeEntryWithMeta(
+					nsID("services", "service.a"),
+					"service",
+					"svc-a",
+					map[string]any{},
+				),
+				makeEntryWithMeta(
+					nsID("services", "service.b"),
+					"service",
+					"svc-b",
+					map[string]any{},
+				),
+			},
+			validate: func(cs registry.ChangeSet) error {
+				// All services should come before app
+				appPos := -1
+				servicePositions := make(map[string]int)
+
+				for i, op := range cs {
+					if op.Entry.ID.NS == "app" {
+						appPos = i
+					} else if op.Entry.ID.NS == "services" {
+						servicePositions[op.Entry.ID.String()] = i
+					}
+				}
+
+				if appPos == -1 {
+					return fmt.Errorf("app entry not found")
+				}
+
+				for svc, pos := range servicePositions {
+					if pos > appPos {
+						return fmt.Errorf("service %s should appear before app", svc)
+					}
+				}
+
+				return nil
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cs := CreateChangeSetFromEntries(tt.entries)
+
+			if len(cs) != len(tt.entries) {
+				t.Errorf("expected changeset length %d, got %d", len(tt.entries), len(cs))
+				return
+			}
+
+			if err := tt.validate(cs); err != nil {
+				t.Errorf("validation failed: %v", err)
+			}
+
+			// Verify all entries present
 			expectedIDs := make(map[registry.ID]bool)
 			for _, entry := range tt.entries {
 				expectedIDs[entry.ID] = false

@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
-
+	contextapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"
+	"strings"
 )
 
 // Registry system constants define the various event types and identifiers used throughout the registry.
@@ -40,29 +40,30 @@ const (
 	// RootVersion represents the initial version of the registry
 	RootVersion uint = 0
 
-	// DependsOnTag is used to mark dependencies between registry entries
-	DependsOnTag       = "depends_on"
-	GroupsTag          = "groups"
-	DependsOnGroupsTag = "depends_on_groups"
+	// TagDependsOn is used to mark dependencies between registry entries, groups and ns.
+	TagDependsOn = "depends_on"
+
+	// TagGroups is used to mark group membership of registry entries.
+	TagGroups = "groups"
 )
 
 type (
-	// ID represents a unique identifier for a registry entry. Most entity events are identified by this ID.
-	// It typically uses a hierarchical structure (e.g., "service.database.url").
-	ID string
-
 	// Kind is a string representing the type of an entry (e.g., "listener", "service", "endpoint").
 	// This helps categorize entries for different purposes.
-	Kind string
+	Kind = string
 
 	// Namespace represents a unique identifier for a registry namespace bounding components within a specific context.
-	Namespace string
+	Namespace = string
 
-	PublicID struct {
+	// Name represents a unique identifier for a registry entry within a single namespace. Most entity events are identified by this Name.
+	// It typically uses a hierarchical structure (e.g., "service.database.url").
+	Name = string
+
+	ID struct {
 		// Namespace is the namespace of the target.
-		NS Namespace `json:"namespace"`
-		// ID is the unique identifier of the target.
-		ID ID `json:"id"`
+		NS Namespace `json:"ns"`
+		// Name is the unique (within ns) identifier of the target.
+		Name Name `json:"name"`
 	}
 
 	// Version represents a specific version of the registry's state.
@@ -80,9 +81,7 @@ type (
 
 	// Entry represents a single entry in the registry.
 	Entry struct {
-		// NS is the namespace of the entry, which helps categorize it within the registry.
-		NS Namespace `json:"namespace"`
-		// ID is the unique identifier for the entry.
+		// ID is the unique identifier of the entry.
 		ID ID `json:"id"`
 		// Kind is the type/category of the entry.
 		Kind Kind `json:"kind"`
@@ -99,7 +98,7 @@ type (
 	Operation struct {
 		// Kind is the type of operation.
 		Kind events.Kind `json:"kind"`
-		// Entry is the entry affected by the operation. For Delete operations, only the ID field might be relevant.
+		// Entry is the entry affected by the operation. For Delete operations, only the Name field might be relevant.
 		Entry Entry `json:"entry"`
 	}
 
@@ -168,32 +167,68 @@ type (
 	}
 )
 
-func (t PublicID) String() string {
-	return fmt.Sprintf("%s:%s", t.NS, t.ID)
+func GetRegistry(ctx context.Context) Registry {
+	return ctx.Value(contextapi.RegistryCtx).(Registry)
 }
 
-func (t *PublicID) UnmarshalJSON(data []byte) error {
-	// Check if the data is a JSON string.
+func (t ID) String() string {
+	return fmt.Sprintf("%s:%s", t.NS, t.Name)
+}
+
+func (t *ID) UnmarshalJSON(data []byte) error {
+	// Check if the data is a JSON string
 	if len(data) > 0 && data[0] == '"' {
 		var s string
 		if err := json.Unmarshal(data, &s); err != nil {
 			return err
 		}
+
+		// Handle string format - split on first colon
 		parts := strings.SplitN(s, ":", 2)
-		if len(parts) != 2 {
-			return fmt.Errorf("invalid public id format, expected ns:id")
+		if len(parts) == 1 {
+			// Name-only format
+			t.NS = ""
+			t.Name = Name(parts[0])
+			return nil
 		}
+		// Has colon - parse as ns:name
 		t.NS = Namespace(parts[0])
-		t.ID = ID(parts[1])
+		t.Name = Name(parts[1])
 		return nil
 	}
 
-	// Otherwise, assume it's an object.
-	type alias PublicID // prevent infinite recursion
-	var tmp alias
-	if err := json.Unmarshal(data, &tmp); err != nil {
+	// Handle object format
+	var obj struct {
+		NS Namespace `json:"ns"`
+		ID Name      `json:"id"`
+	}
+	if err := json.Unmarshal(data, &obj); err != nil {
 		return err
 	}
-	*t = PublicID(tmp)
+	if obj.ID == "" {
+		return fmt.Errorf("missing required field 'id'")
+	}
+	t.NS = obj.NS
+	t.Name = obj.ID
 	return nil
+}
+
+// ParseID creates an ID from a string in either "namespace:name" or "name-only" format.
+// For "namespace:name" format, the first colon is used as the separator.
+// For "name-only" format, an empty namespace is used.
+func ParseID(s string) ID {
+	// Split on first colon
+	parts := strings.SplitN(s, ":", 2)
+	if len(parts) == 1 {
+		// Name-only format
+		return ID{
+			NS:   "",
+			Name: Name(parts[0]),
+		}
+	}
+	// Has colon - parse as ns:name
+	return ID{
+		NS:   Namespace(parts[0]),
+		Name: Name(parts[1]),
+	}
 }

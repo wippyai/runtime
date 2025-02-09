@@ -45,7 +45,7 @@ func (r *reg) GetAllEntries() ([]registry.Entry, error) {
 	return r.state, nil
 }
 
-func (r *reg) GetEntry(path registry.Name) (registry.Entry, error) {
+func (r *reg) GetEntry(path registry.ID) (registry.Entry, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
