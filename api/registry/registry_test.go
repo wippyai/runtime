@@ -156,3 +156,59 @@ func TestID_UnmarshalJSON_RealWorld(t *testing.T) {
 		})
 	}
 }
+
+func TestParseID(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected ID
+	}{
+		{
+			name:     "namespace and name",
+			input:    "test-ns:test-name",
+			expected: ID{NS: "test-ns", Name: "test-name"},
+		},
+		{
+			name:     "name only",
+			input:    "test-name",
+			expected: ID{NS: "", Name: "test-name"},
+		},
+		{
+			name:     "empty namespace",
+			input:    ":test-name",
+			expected: ID{NS: "", Name: "test-name"},
+		},
+		{
+			name:     "empty name",
+			input:    "test-ns:",
+			expected: ID{NS: "test-ns", Name: ""},
+		},
+		{
+			name:     "complex namespace and name",
+			input:    "my.complex.namespace:my/complex/name",
+			expected: ID{NS: "my.complex.namespace", Name: "my/complex/name"},
+		},
+		{
+			name:     "complex name only",
+			input:    "my/complex/name/with/slashes",
+			expected: ID{NS: "", Name: "my/complex/name/with/slashes"},
+		},
+		{
+			name:     "multiple colons",
+			input:    "ns:name:with:colons",
+			expected: ID{NS: "ns", Name: "name:with:colons"},
+		},
+		{
+			name:     "empty string",
+			input:    "",
+			expected: ID{NS: "", Name: ""},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ParseID(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
