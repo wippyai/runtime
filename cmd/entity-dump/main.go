@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/ponyruntime/pony/system/registry/loader/interpolate"
 	"github.com/ponyruntime/pony/system/registry/topology"
 	"os"
 	"strings"
@@ -45,23 +46,21 @@ func main() {
 	}
 	folderPath := os.Args[1]
 
-	namespace := ""
-	if len(os.Args) > 2 {
-		namespace = os.Args[2]
-	}
-
 	// 3. Create Loader:
-	folderLoader := loader.NewFolderLoader(dtt, logger)
+	folderLoader := loader.NewLoader(dtt, logger, interpolate.NewEntryInterpolator(dtt,
+		interpolate.WithInterpolator(interpolate.LoadVars),
+		interpolate.WithInterpolator(interpolate.LoadFile),
+	))
 
 	// --- Load Environment Variables into Variables map ---
-	vars := loader.Variables{}
+	vars := interpolate.Variables{}
 	for _, env := range os.Environ() {
 		pair := strings.SplitN(env, "=", 2)
 		vars[pair[0]] = pair[1]
 	}
 
 	// 4. Load List:
-	entries, err := folderLoader.Load(folderPath, namespace, vars) // Pass vars to Load
+	entries, err := folderLoader.LoadFolder(folderPath, vars) // Pass vars to Load
 	if err != nil {
 		logger.Fatal("Failed to load entries", zap.Error(err))
 	}

@@ -8,25 +8,18 @@ import (
 
 type FileContent struct {
 	Version   string            `json:"version,omitempty" yaml:"version,omitempty"`
-	Namespace string            `json:"namespace" yaml:"namespace"` // Required field now
+	Namespace string            `json:"namespace"`
 	Meta      registry.Metadata `json:"meta,omitempty" yaml:"meta,omitempty"`
-	Entries   []EntryData       `json:"entries,omitempty" yaml:"entries,omitempty"`
+
+	// Store raw entries as map slice
+	RawEntries []map[string]interface{} `json:"entries,omitempty" yaml:"entries,omitempty"`
 
 	// Single-entry format fields
 	Name string                 `json:"name,omitempty" yaml:"name,omitempty"`
 	Kind string                 `json:"kind,omitempty" yaml:"kind,omitempty"`
-	Data map[string]interface{} `json:",inline" yaml:",inline"`
+	Data map[string]interface{} `json:",inline"`
 }
 
-type EntryData struct {
-	Name string                 `json:"name" yaml:"name"`
-	Kind string                 `json:"kind" yaml:"kind"`
-	Meta registry.Metadata      `json:"meta,omitempty" yaml:"meta,omitempty"`
-	Data map[string]interface{} `json:",inline" yaml:",inline"`
-}
-
-// ExtractEntries processes the payload and returns registry entries.
-// Returns error if namespace is empty.
 func ExtractEntries(p payload.Payload, dtt payload.Transcoder) ([]registry.Entry, error) {
 	var content FileContent
 	if err := dtt.Unmarshal(p, &content); err != nil {
@@ -38,7 +31,7 @@ func ExtractEntries(p payload.Payload, dtt payload.Transcoder) ([]registry.Entry
 	}
 
 	// Handle single entry case
-	if content.Entries == nil && content.Name != "" && content.Kind != "" {
+	if content.RawEntries == nil && content.Name != "" && content.Kind != "" {
 		entry := registry.Entry{
 			ID: registry.ID{
 				NS:   content.Namespace,
@@ -51,17 +44,25 @@ func ExtractEntries(p payload.Payload, dtt payload.Transcoder) ([]registry.Entry
 		return []registry.Entry{entry}, nil
 	}
 
-	// Handle multi-entry case
-	entries := make([]registry.Entry, 0, len(content.Entries))
-	for _, e := range content.Entries {
+	// For batch entries, we already have them as maps
+	entries := make([]registry.Entry, 0, len(content.RawEntries))
+	for _, rawEntry := range content.RawEntries {
+		// Extract standard fields
+		name, _ := rawEntry["name"].(string)
+		kind, _ := rawEntry["kind"].(string)
+		meta, _ := rawEntry["meta"].(registry.Metadata)
+
+		// Create entry payload
+		entryData := payload.New(rawEntry)
+
 		entry := registry.Entry{
 			ID: registry.ID{
 				NS:   content.Namespace,
-				Name: e.Name,
+				Name: name,
 			},
-			Kind: e.Kind,
-			Meta: mergeMeta(content.Meta, e.Meta),
-			Data: payload.New(e.Data),
+			Kind: kind,
+			Meta: mergeMeta(content.Meta, meta),
+			Data: entryData,
 		}
 		entries = append(entries, entry)
 	}

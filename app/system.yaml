@@ -1,0 +1,27 @@
+version: "1.0"
+namespace: system
+
+# System services configuration
+entries:
+  - name: web_server
+    kind: http.service
+    meta:
+      comment: "Default http service."
+      groups: [ "system" ]
+    addr: ":8082"
+    timeouts:
+      idle: 60s
+    lifecycle:
+      auto_start: true
+      restart:
+        initial_delay: 5s
+        max_attempts: 3
+
+  - name: api_router
+    kind: http.router
+    meta:
+      comment: "Main API router"
+      server: "web_server"
+      depends_on:
+        - web_server
+    prefix: /api/v1

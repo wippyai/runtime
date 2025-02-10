@@ -36,8 +36,8 @@ func WithInterpolator(fn InterpolatorFunc) Option {
 	}
 }
 
-// NewHelper creates a new Helper instance with the provided options
-func NewHelper(dtt payload.Transcoder, opts ...Option) *Helper {
+// NewEntryInterpolator creates a new Helper instance with the provided options
+func NewEntryInterpolator(dtt payload.Transcoder, opts ...Option) *Helper {
 	h := &Helper{
 		dtt:           dtt,
 		interpolators: make([]InterpolatorFunc, 0),
