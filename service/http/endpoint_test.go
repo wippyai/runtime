@@ -189,6 +189,7 @@ func TestEndpointHandler_Handle_SuccessfulResponse(t *testing.T) {
 
 		// Simulate successful response through context wrapper
 		_, _ = rCtx.ResponseWriter().Write([]byte("test response"))
+		rCtx.MarkHandled()
 		return resultCh, nil
 	}
 
