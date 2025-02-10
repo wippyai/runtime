@@ -8,19 +8,7 @@ import (
 	"github.com/ponyruntime/pony/api/events"
 	logsapi "github.com/ponyruntime/pony/api/logs"
 	regapi "github.com/ponyruntime/pony/api/registry"
-	luaruntime "github.com/ponyruntime/pony/runtime/lua"
-	b64mlib "github.com/ponyruntime/pony/runtime/lua/modules/base64"
-	"github.com/ponyruntime/pony/runtime/lua/modules/btea"
-	"github.com/ponyruntime/pony/runtime/lua/modules/env"
-	httplib "github.com/ponyruntime/pony/runtime/lua/modules/http"
-	"github.com/ponyruntime/pony/runtime/lua/modules/httpctx"
-	jsonlib "github.com/ponyruntime/pony/runtime/lua/modules/json"
-	"github.com/ponyruntime/pony/runtime/lua/modules/lfs"
-	logglib "github.com/ponyruntime/pony/runtime/lua/modules/logger"
-	timelib "github.com/ponyruntime/pony/runtime/lua/modules/time"
-	"github.com/ponyruntime/pony/runtime/lua/modules/treesitter"
-	"github.com/ponyruntime/pony/runtime/lua/modules/uuid"
-	"github.com/ponyruntime/pony/runtime/lua/modules/websocket"
+	"github.com/ponyruntime/pony/runtime/noop"
 	"github.com/ponyruntime/pony/service/http"
 	"github.com/ponyruntime/pony/system/eventbus"
 	"github.com/ponyruntime/pony/system/functions"
@@ -39,7 +27,6 @@ import (
 	"github.com/ponyruntime/pony/system/supervisor"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
-	httpbase "net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -155,7 +142,7 @@ func (a *App) Start(folderPath string) error {
 	var err error
 	a.services, err = services.NewRouter(ctx, a.eventBus,
 		withHTTPService(a),
-		withLuaService(a),
+		withNoopRuntime(a),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create router: %w", err)
@@ -353,23 +340,31 @@ func withHTTPService(a *App) services.Option {
 	))
 }
 
-func withLuaService(a *App) services.Option {
-	return services.WithListener("(function|library|process).lua",
-		luaruntime.NewRuntimeManager(
+//func withLuaRuntime(a *App) services.Option {
+//	return services.WithListener("(function|library|process).lua",
+//		luaruntime.NewRuntimeManager(
+//			a.eventBus,
+//			a.dtt,
+//			a.logger.Named("lua"),
+//			timelib.NewTimeModule(),
+//			logglib.NewLoggerModule(a.logger.Named("app")),
+//			b64mlib.NewBase64Module(),
+//			jsonlib.NewJSONModule(),
+//			lfs.NewLFSModule(),
+//			uuid.NewUUIDModule(),
+//			env.NewEnvModule(a.logger.Named("env")),
+//			httplib.NewHTTPModule(a.logger.Named("http"), httpbase.DefaultClient),
+//			websocket.NewWebSocketModule(a.logger.Named("websocket")),
+//			httpctx.NewHTTPContextModule(a.logger.Named("http")),
+//			treesitter.NewTreeSitterModule(a.logger.Named("treesitter")),
+//			btea.NewBteaModule(a.logger.Named("btea")),
+//		))
+//}
+
+func withNoopRuntime(a *App) services.Option {
+	return services.WithListener("(function|process|library).*",
+		noop.NewNoopRuntime(
 			a.eventBus,
-			a.dtt,
-			a.logger.Named("lua"),
-			timelib.NewTimeModule(),
-			logglib.NewLoggerModule(a.logger.Named("app")),
-			b64mlib.NewBase64Module(),
-			jsonlib.NewJSONModule(),
-			lfs.NewLFSModule(),
-			uuid.NewUUIDModule(),
-			env.NewEnvModule(a.logger.Named("env")),
-			httplib.NewHTTPModule(a.logger.Named("http"), httpbase.DefaultClient),
-			websocket.NewWebSocketModule(a.logger.Named("websocket")),
-			httpctx.NewHTTPContextModule(a.logger.Named("http")),
-			treesitter.NewTreeSitterModule(a.logger.Named("treesitter")),
-			btea.NewBteaModule(a.logger.Named("btea")),
+			a.logger.Named("noop"),
 		))
 }

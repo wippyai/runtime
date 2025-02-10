@@ -2,13 +2,12 @@ package noop
 
 import (
 	"context"
-	"testing"
-
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"testing"
 )
 
 // mockEventBus is a mock implementation of the events.Bus interface for testing
@@ -39,7 +38,6 @@ func (m *mockEventBus) reset() {
 }
 
 func TestNoopRuntime_Execute(t *testing.T) {
-	// Setup
 	logger := zap.NewNop()
 	bus := &mockEventBus{}
 	n := NewNoopRuntime(bus, logger)
@@ -52,14 +50,14 @@ func TestNoopRuntime_Execute(t *testing.T) {
 		{
 			name: "basic execution",
 			task: runtime.Task{
-				Handler: "test-function",
+				Handler: registry.ParseID("test-function"),
 			},
 			wantErr: false,
 		},
 		{
 			name: "empty target",
 			task: runtime.Task{
-				Handler: "",
+				Handler: registry.ParseID(""),
 			},
 			wantErr: false,
 		},
@@ -75,7 +73,6 @@ func TestNoopRuntime_Execute(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, resultCh)
 
-			// Verify the result
 			result := <-resultCh
 			require.NotNil(t, result)
 			require.NotNil(t, result.Payload)
@@ -85,7 +82,6 @@ func TestNoopRuntime_Execute(t *testing.T) {
 }
 
 func TestNoopRuntime_Add(t *testing.T) {
-	// Setup
 	logger := zap.NewNop()
 	bus := &mockEventBus{}
 	n := NewNoopRuntime(bus, logger)
@@ -98,7 +94,10 @@ func TestNoopRuntime_Add(t *testing.T) {
 		{
 			name: "add function entry",
 			entry: registry.Entry{
-				ID:   "test-function",
+				ID: registry.ID{
+					NS:   "test-ns",
+					Name: "test-function",
+				},
 				Kind: "function",
 			},
 			wantErr: false,
@@ -106,7 +105,10 @@ func TestNoopRuntime_Add(t *testing.T) {
 		{
 			name: "add empty entry",
 			entry: registry.Entry{
-				ID:   "",
+				ID: registry.ID{
+					NS:   "",
+					Name: "",
+				},
 				Kind: "",
 			},
 			wantErr: false,
@@ -115,7 +117,7 @@ func TestNoopRuntime_Add(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			bus.reset() // Reset mock state before each test case
+			bus.reset()
 
 			err := n.Add(context.Background(), tt.entry)
 			if tt.wantErr {
@@ -124,17 +126,15 @@ func TestNoopRuntime_Add(t *testing.T) {
 			}
 			require.NoError(t, err)
 
-			// Verify event was sent
 			require.Equal(t, 1, bus.sendCount)
 			require.Equal(t, runtime.FunctionSystem, bus.lastEvent.System)
 			require.Equal(t, runtime.RegisterFunctionCommand, bus.lastEvent.Kind)
-			require.Equal(t, events.Path(tt.entry.ID), bus.lastEvent.Path)
+			require.Equal(t, events.Path(tt.entry.ID.String()), bus.lastEvent.Path)
 		})
 	}
 }
 
 func TestNoopRuntime_Update(t *testing.T) {
-	// Setup
 	logger := zap.NewNop()
 	bus := &mockEventBus{}
 	n := NewNoopRuntime(bus, logger)
@@ -147,7 +147,10 @@ func TestNoopRuntime_Update(t *testing.T) {
 		{
 			name: "update function entry",
 			entry: registry.Entry{
-				ID:   "test-function",
+				ID: registry.ID{
+					NS:   "test-ns",
+					Name: "test-function",
+				},
 				Kind: "function",
 			},
 			wantErr: false,
@@ -155,7 +158,10 @@ func TestNoopRuntime_Update(t *testing.T) {
 		{
 			name: "update empty entry",
 			entry: registry.Entry{
-				ID:   "",
+				ID: registry.ID{
+					NS:   "",
+					Name: "",
+				},
 				Kind: "",
 			},
 			wantErr: false,
@@ -164,7 +170,7 @@ func TestNoopRuntime_Update(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			bus.reset() // Reset mock state before each test case
+			bus.reset()
 
 			err := n.Update(context.Background(), tt.entry)
 			if tt.wantErr {
@@ -177,7 +183,6 @@ func TestNoopRuntime_Update(t *testing.T) {
 }
 
 func TestNoopRuntime_Delete(t *testing.T) {
-	// Setup
 	logger := zap.NewNop()
 	bus := &mockEventBus{}
 	n := NewNoopRuntime(bus, logger)
@@ -190,7 +195,10 @@ func TestNoopRuntime_Delete(t *testing.T) {
 		{
 			name: "delete function entry",
 			entry: registry.Entry{
-				ID:   "test-function",
+				ID: registry.ID{
+					NS:   "test-ns",
+					Name: "test-function",
+				},
 				Kind: "function",
 			},
 			wantErr: false,
@@ -198,7 +206,10 @@ func TestNoopRuntime_Delete(t *testing.T) {
 		{
 			name: "delete empty entry",
 			entry: registry.Entry{
-				ID:   "",
+				ID: registry.ID{
+					NS:   "",
+					Name: "",
+				},
 				Kind: "",
 			},
 			wantErr: false,
@@ -207,7 +218,7 @@ func TestNoopRuntime_Delete(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			bus.reset() // Reset mock state before each test case
+			bus.reset()
 
 			err := n.Delete(context.Background(), tt.entry)
 			if tt.wantErr {
@@ -216,11 +227,10 @@ func TestNoopRuntime_Delete(t *testing.T) {
 			}
 			require.NoError(t, err)
 
-			// Verify event was sent
 			require.Equal(t, 1, bus.sendCount)
 			require.Equal(t, runtime.FunctionSystem, bus.lastEvent.System)
 			require.Equal(t, runtime.DeleteFunctionCommand, bus.lastEvent.Kind)
-			require.Equal(t, events.Path(tt.entry.ID), bus.lastEvent.Path)
+			require.Equal(t, events.Path(tt.entry.ID.String()), bus.lastEvent.Path)
 		})
 	}
 }
