@@ -3,11 +3,10 @@ package noop
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/api/runtime"
-
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
+	"github.com/ponyruntime/pony/api/runtime"
 	"go.uber.org/zap"
 )
 
@@ -31,20 +30,19 @@ func (n *Runtime) Execute(task runtime.Task) (chan *runtime.Result, error) {
 	rspChan <- &runtime.Result{
 		Payload: payload.New(fmt.Sprintf("noop runtime: task %s executed", task.Handler)),
 	}
-
 	return rspChan, nil
 }
 
 // Add implements EntryListener.Add - does nothing and returns nil
 func (n *Runtime) Add(ctx context.Context, entry registry.Entry) error {
 	n.logger.Debug("noop runtime: add called",
-		zap.String("id", string(entry.ID)),
+		zap.String("id", entry.ID.String()),
 		zap.String("kind", string(entry.Kind)))
 
 	n.bus.Send(ctx, events.Event{
 		System: runtime.FunctionSystem,
 		Kind:   runtime.RegisterFunctionCommand,
-		Path:   events.Path(entry.ID),
+		Path:   events.Path(entry.ID.String()),
 		Data:   n.Execute,
 	})
 
@@ -54,7 +52,7 @@ func (n *Runtime) Add(ctx context.Context, entry registry.Entry) error {
 // Update implements EntryListener.Update - does nothing and returns nil
 func (n *Runtime) Update(_ context.Context, entry registry.Entry) error {
 	n.logger.Debug("noop runtime: update called",
-		zap.String("id", string(entry.ID)),
+		zap.String("id", entry.ID.String()),
 		zap.String("kind", string(entry.Kind)))
 	return nil
 }
@@ -62,13 +60,13 @@ func (n *Runtime) Update(_ context.Context, entry registry.Entry) error {
 // Delete implements EntryListener.Delete - does nothing and returns nil
 func (n *Runtime) Delete(ctx context.Context, entry registry.Entry) error {
 	n.logger.Debug("noop runtime: delete called",
-		zap.String("id", string(entry.ID)),
+		zap.String("id", entry.ID.String()),
 		zap.String("kind", string(entry.Kind)))
 
 	n.bus.Send(ctx, events.Event{
 		System: runtime.FunctionSystem,
 		Kind:   runtime.DeleteFunctionCommand,
-		Path:   events.Path(entry.ID),
+		Path:   events.Path(entry.ID.String()),
 	})
 
 	return nil
