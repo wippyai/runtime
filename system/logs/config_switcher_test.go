@@ -24,16 +24,14 @@ func setupConfigSwitcherTest(t *testing.T) (*ConfigSwitcher, *Manager, *eventbus
 	core := NewCore(downstream, bus)
 
 	// Create and start the manager
-	manager := NewManager(bus, core, logger)
+	manager := NewManager(bus, core, logger, zapcore.InfoLevel)
 	err := manager.Start(context.Background())
 	require.NoError(t, err)
 
 	switcher := NewConfigSwitcher(bus, logger)
 
 	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		defer cancel()
-		_ = manager.Stop(ctx)
+		_ = manager.Stop()
 		bus.Stop()
 	})
 
