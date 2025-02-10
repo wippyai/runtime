@@ -55,8 +55,8 @@ func TestResponse_Basic(t *testing.T) {
 		l.SetContext(ctx)
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local res = httpctx.response()
+			local http = require("http")
+			local res = http.response()
 			assert(res ~= nil, "response should not be nil")
 		`, "test")
 		assert.NoError(t, err)
@@ -74,9 +74,9 @@ func TestResponse_Basic(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local res = httpctx.response()
-			res:set_status(httpctx.STATUS.CREATED)
+			local http = require("http")
+			local res = http.response()
+			res:set_status(http.STATUS.CREATED)
 		`, "test")
 		assert.NoError(t, err)
 		assert.Equal(t, basehttp.StatusCreated, recorder.Code)
@@ -94,10 +94,10 @@ func TestResponse_Basic(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local res = httpctx.response()
+			local http = require("http")
+			local res = http.response()
 			res:set_header("X-Test", "value")
-			res:set_content_type(httpctx.CONTENT.JSON)
+			res:set_content_type(http.CONTENT.JSON)
 		`, "test")
 		assert.NoError(t, err)
 		assert.Equal(t, "value", recorder.Header().Get("X-Test"))
@@ -116,8 +116,8 @@ func TestResponse_Basic(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local res = httpctx.response()
+			local http = require("http")
+			local res = http.response()
 			res:write("Hello, World!")
 		`, "test")
 		assert.NoError(t, err)
@@ -136,8 +136,8 @@ func TestResponse_Basic(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local res = httpctx.response()
+			local http = require("http")
+			local res = http.response()
 			res:write_json({
 				message = "Hello, JSON!",
 				nested = {
@@ -185,9 +185,9 @@ func TestResponse_ServerSentEvents(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local res = httpctx.response()
-			res:set_transfer(httpctx.TRANSFER.SSE)
+			local http = require("http")
+			local res = http.response()
+			res:set_transfer(http.TRANSFER.SSE)
 		`, "test")
 		assert.NoError(t, err)
 		assert.Equal(t, "text/event-stream", recorder.Header().Get("Content-Type"))
@@ -207,9 +207,9 @@ func TestResponse_ServerSentEvents(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local res = httpctx.response()
-			res:set_transfer(httpctx.TRANSFER.SSE)
+			local http = require("http")
+			local res = http.response()
+			res:set_transfer(http.TRANSFER.SSE)
 			res:write_event({
 				name = "update",
 				data = {progress = 50}
@@ -239,9 +239,9 @@ func TestResponse_TransferEncoding(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local res = httpctx.response()
-			res:set_transfer(httpctx.TRANSFER.CHUNKED)
+			local http = require("http")
+			local res = http.response()
+			res:set_transfer(http.TRANSFER.CHUNKED)
 			res:write("chunk1")
 			res:write("chunk2")
 			res:write("chunk3")
@@ -263,10 +263,10 @@ func TestResponse_TransferEncoding(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local res = httpctx.response()
+			local http = require("http")
+			local res = http.response()
 			res:write("test")
-			local err = res:set_transfer(httpctx.TRANSFER.CHUNKED)
+			local err = res:set_transfer(http.TRANSFER.CHUNKED)
 			assert(err ~= nil, "should error when changing transfer mode after write")
 		`, "test")
 		assert.NoError(t, err)
@@ -288,10 +288,10 @@ func TestResponse_ContentTypeHandling(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local res = httpctx.response()
+			local http = require("http")
+			local res = http.response()
 			res:write("test")
-			local err = res:set_content_type(httpctx.CONTENT.JSON)
+			local err = res:set_content_type(http.CONTENT.JSON)
 			assert(err ~= nil, "should error when setting content type after write")
 		`, "test")
 		assert.NoError(t, err)
@@ -309,8 +309,8 @@ func TestResponse_ContentTypeHandling(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local res = httpctx.response()
+			local http = require("http")
+			local res = http.response()
 			local status, err = pcall(function()
 				res:set_content_type("")
 			end)
@@ -336,8 +336,8 @@ func TestResponse_JSONHandling(t *testing.T) {
 
 		// Try to encode userdata which can't be converted to JSON
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local res = httpctx.response()
+			local http = require("http")
+			local res = http.response()
 			
 			-- Create userdata which can't be JSON encoded
 			local ud = newproxy()
@@ -363,8 +363,8 @@ func TestResponse_JSONHandling(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local res = httpctx.response()
+			local http = require("http")
+			local res = http.response()
 			local data = {
 				message = "Hello, JSON!",
 				nested = {
@@ -431,8 +431,8 @@ func TestResponse_ErrorCases(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local res = httpctx.response()
+			local http = require("http")
+			local res = http.response()
 			res:write("test")
 			local err = res:set_header("X-Test", "value")
 			assert(err ~= nil, "should error when setting header after write")
@@ -452,10 +452,10 @@ func TestResponse_ErrorCases(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local res = httpctx.response()
+			local http = require("http")
+			local res = http.response()
 			res:write("test")
-			local err = res:set_status(httpctx.STATUS.OK)
+			local err = res:set_status(http.STATUS.OK)
 			assert(err ~= nil, "should error when setting status after write")
 		`, "test")
 		assert.NoError(t, err)
@@ -473,8 +473,8 @@ func TestResponse_ErrorCases(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local res = httpctx.response()
+			local http = require("http")
+			local res = http.response()
 			local status, err = pcall(function()
 				res:set_status(999)
 			end)
@@ -499,8 +499,8 @@ func TestResponse_Flush(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local res = httpctx.response()
+			local http = require("http")
+			local res = http.response()
 			res:write("chunk1")
 			res:flush()
 			res:write("chunk2")
@@ -524,7 +524,7 @@ func TestResponse_Flush(t *testing.T) {
 
 		// Test with invalid response userdata
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
+			local http = require("http")
 			local res = newproxy() -- Create invalid userdata
 			local status, err = pcall(function()
 				res:flush()
@@ -546,9 +546,9 @@ func TestResponse_Flush(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local res = httpctx.response()
-			res:set_transfer(httpctx.TRANSFER.CHUNKED)
+			local http = require("http")
+			local res = http.response()
+			res:set_transfer(http.TRANSFER.CHUNKED)
 			res:write("chunk1")
 			res:flush()
 			res:write("chunk2")

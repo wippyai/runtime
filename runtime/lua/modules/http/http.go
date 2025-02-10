@@ -6,7 +6,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// Module represents the httpctx Lua module
+// Module represents the http Lua module
 type Module struct {
 	log *zap.Logger
 }
@@ -25,7 +25,7 @@ func NewHTTPContextModule(log *zap.Logger) *Module {
 
 // Name returns the module name
 func (m *Module) Name() string {
-	return "httpctx"
+	return "http"
 }
 
 // Loader registers the module functions and constants

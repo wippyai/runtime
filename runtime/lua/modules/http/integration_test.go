@@ -36,18 +36,18 @@ func TestHttpHandler_Integration(t *testing.T) {
 
 		// Lua script that handles both request and response
 		script := `
-			local httpctx = require("httpctx")
+			local http = require("http")
 			
 			-- Create request and response objects
-			local req = httpctx.request()
-			local res = httpctx.response()
+			local req = http.request()
+			local res = http.response()
 			
 			-- Verify request properties
 			assert(req:method() == "POST", "incorrect method")
 			assert(req:path() == "/api/users", "incorrect path")
 			assert(req:query("role") == "admin", "incorrect query param")
 			assert(req:header("X-Request-Id") == "test-123", "incorrect header") -- Headers are canonicalized
-			assert(req:is_content_type(httpctx.CONTENT.JSON), "should be JSON content type")
+			assert(req:is_content_type(http.CONTENT.JSON), "should be JSON content type")
 			
 			-- Parse and verify request body
 			local body = req:body_json()
@@ -56,11 +56,11 @@ func TestHttpHandler_Integration(t *testing.T) {
 			
 			-- Prepare and send response
 			-- Headers must be set before status code
-			res:set_header("Content-type", httpctx.CONTENT.JSON)
-			res:set_header("X-Response-Name", "resp-456")
+			res:set_header("Content-type", http.CONTENT.JSON)
+			res:set_header("X-Response-ID", "resp-456")
 			
 			-- Set status last before writing
-			res:set_status(httpctx.STATUS.CREATED)
+			res:set_status(http.STATUS.CREATED)
 			
 			-- Write JSON response
 			res:write_json({
@@ -70,6 +70,7 @@ func TestHttpHandler_Integration(t *testing.T) {
 				role = req:query("role"),
 				status = "created"
 			})
+		    res:flush()
 		`
 
 		err = vm.DoString(ctx, script, "test")
@@ -107,14 +108,14 @@ func TestHttpHandler_Integration(t *testing.T) {
 		defer vm.Close()
 
 		script := `
-			local httpctx = require("httpctx")
+			local http = require("http")
 			
-			local req = httpctx.request()
-			local res = httpctx.response()
+			local req = http.request()
+			local res = http.response()
 			
 			-- Set up chunked transfer encoding
-			res:set_transfer(httpctx.TRANSFER.CHUNKED)
-			res:set_content_type(httpctx.CONTENT.TEXT)
+			res:set_transfer(http.TRANSFER.CHUNKED)
+			res:set_content_type(http.CONTENT.TEXT)
 			
 			-- Process request body in chunks
 			local chunks = {}
@@ -156,10 +157,10 @@ func TestHttpHandler_Integration(t *testing.T) {
 		defer vm.Close()
 
 		script := `
-			local httpctx = require("httpctx")
+			local http = require("http")
 			
-			local req = httpctx.request()
-			local res = httpctx.response()
+			local req = http.request()
+			local res = http.response()
 			
 			-- Try to parse invalid JSON
 			local body, err = req:body_json()
@@ -167,10 +168,10 @@ func TestHttpHandler_Integration(t *testing.T) {
 			assert(err ~= nil, "should have error for invalid JSON")
 			
 			-- send error response
-			res:set_content_type(httpctx.CONTENT.JSON)
-			res:set_status(httpctx.STATUS.BAD_REQUEST)
+			res:set_content_type(http.CONTENT.JSON)
+			res:set_status(http.STATUS.BAD_REQUEST)
 			res:write_json({
-				error = httpctx.ERROR.PARSE_FAILED,
+				error = http.ERROR.PARSE_FAILED,
 				message = "Invalid JSON in request body"
 			})
 		`
@@ -203,13 +204,13 @@ func TestHttpHandler_Integration(t *testing.T) {
 		defer vm.Close()
 
 		script := `
-			local httpctx = require("httpctx")
+			local http = require("http")
 			
-			local req = httpctx.request()
-			local res = httpctx.response()
+			local req = http.request()
+			local res = http.response()
 			
 			-- Set up SSE
-			res:set_transfer(httpctx.TRANSFER.SSE)
+			res:set_transfer(http.TRANSFER.SSE)
 			
 			-- send multiple events
 			res:write_event({

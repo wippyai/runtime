@@ -22,7 +22,7 @@ type luaHTTPResponse struct {
 func registerHTTPResponseType(module *lua.LTable, l *lua.LState) {
 	mt := l.NewTypeMetatable(luaHTTPResponseTypeName)
 	l.SetField(mt, "__index", l.NewFunction(httpResponseIndex))
-	l.SetField(module, "response", mt)
+	l.SetField(module, "http.Response", mt)
 }
 
 // newResponse creates a new HTTP response userdata with the given response,
@@ -57,7 +57,7 @@ func checkHTTPResponse(l *lua.LState) *luaHTTPResponse {
 	if v, ok := ud.Value.(*luaHTTPResponse); ok {
 		return v
 	}
-	l.ArgError(1, "http.response expected")
+	l.ArgError(1, "http.Response expected")
 	return nil
 }
 

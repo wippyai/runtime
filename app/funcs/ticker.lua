@@ -1,10 +1,10 @@
 local time = require("time")
 local json = require("json")
-local httpctx = require("httpctx")
+local http = require("http")
 
 function ticker()
     -- Get request context
-    local res = httpctx.response()
+    local res = http.response()
 
     -- Create channel for communication
     local tick_channel = channel.new(1)

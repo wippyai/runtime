@@ -198,14 +198,14 @@ func TestHelperFunctionsInVM(t *testing.T) {
 	t.Run("encodeURI in VM", func(t *testing.T) {
 		// Create a new VM for this test
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader("http", NewHTTPModule(logger, nil).Loader),
+			engine.WithLoader("http_client", NewHTTPClientModule(logger, nil).Loader),
 		)
 		require.NoError(t, err)
 		defer vm.Close()
 
 		err = vm.DoString(context.Background(), `
 			-- Store the module in a local variable
-			local http = require("http")
+			local http = require("http_client")
 
 			-- Test basic encoding
 			assert(http.encode_uri("hello world") == "hello+world", "Basic encoding failed")
@@ -238,13 +238,13 @@ func TestHelperFunctionsInVM(t *testing.T) {
 
 	t.Run("decodeURI in VM", func(t *testing.T) {
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader("http", NewHTTPModule(logger, nil).Loader),
+			engine.WithLoader("http_client", NewHTTPClientModule(logger, nil).Loader),
 		)
 		require.NoError(t, err)
 		defer vm.Close()
 
 		err = vm.DoString(context.Background(), `
-			local http = require("http")
+			local http = require("http_client")
 
 			-- Test basic decoding
 			assert(http.decode_uri("hello+world") == "hello world", "Basic decoding failed")
@@ -283,13 +283,13 @@ func TestHelperFunctionsInVM(t *testing.T) {
 
 	t.Run("method validation in VM", func(t *testing.T) {
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader("http", NewHTTPModule(logger, http.DefaultClient).Loader),
+			engine.WithLoader("http_client", NewHTTPClientModule(logger, http.DefaultClient).Loader),
 		)
 		require.NoError(t, err)
 		defer vm.Close()
 
 		err = vm.DoString(context.Background(), `
-			local http = require("http")
+			local http = require("http_client")
 
 			-- Test valid methods
 			local function test_method(method)
@@ -331,13 +331,13 @@ func TestHelperFunctionsInVM(t *testing.T) {
 
 	t.Run("URL validation in VM", func(t *testing.T) {
 		vm, err := engine.NewVM(logger,
-			engine.WithLoader("http", NewHTTPModule(logger, http.DefaultClient).Loader),
+			engine.WithLoader("http_client", NewHTTPClientModule(logger, http.DefaultClient).Loader),
 		)
 		require.NoError(t, err)
 		defer vm.Close()
 
 		err = vm.DoString(context.Background(), `
-			local http = require("http")
+			local http = require("http_client")
 
 			-- Test valid URL
 			local success = pcall(function()

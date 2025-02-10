@@ -2,7 +2,8 @@
 
 ## Overview
 
-The `http` module provides functions for performing HTTP requests in Lua. It supports various HTTP methods, request
+The `http_client` module provides functions for performing HTTP requests in Lua. It supports various HTTP methods,
+request
 options (headers, cookies, body, query parameters, timeout, authentication), and batch requests. It also handles
 response data, including headers, cookies, status code, URL, and body. Additionally, it supports streaming responses for
 handling large data efficiently.
@@ -12,12 +13,12 @@ handling large data efficiently.
 ### Module Loading
 
 ```lua
-local http = require("http")
+local http_client = require("http_client")
 ```
 
 ### Global Functions
 
-#### `http.get(url: string, options: table)`
+#### `http_client.get(url: string, options: table)`
 
 Sends an HTTP GET request.
 
@@ -31,7 +32,7 @@ Returns:
 - `response`: An `http.response` object (or nil on error).
 - `error`: An error message string (or nil on success).
 
-#### `http.post(url: string, options: table)`
+#### `http_client.post(url: string, options: table)`
 
 Sends an HTTP POST request.
 
@@ -45,7 +46,7 @@ Returns:
 - `response`: An `http.response` object (or nil on error).
 - `error`: An error message string (or nil on success).
 
-#### `http.put(url: string, options: table)`
+#### `http_client.put(url: string, options: table)`
 
 Sends an HTTP PUT request.
 
@@ -59,7 +60,7 @@ Returns:
 - `response`: An `http.response` object (or nil on error).
 - `error`: An error message string (or nil on success).
 
-#### `http.delete(url: string, options: table)`
+#### `http_client.delete(url: string, options: table)`
 
 Sends an HTTP DELETE request.
 
@@ -73,7 +74,7 @@ Returns:
 - `response`: An `http.response` object (or nil on error).
 - `error`: An error message string (or nil on success).
 
-#### `http.head(url: string, options: table)`
+#### `http_client.head(url: string, options: table)`
 
 Sends an HTTP HEAD request.
 
@@ -87,7 +88,7 @@ Returns:
 - `response`: An `http.response` object (or nil on error).
 - `error`: An error message string (or nil on success).
 
-#### `http.patch(url: string, options: table)`
+#### `http_client.patch(url: string, options: table)`
 
 Sends an HTTP PATCH request.
 
@@ -101,7 +102,7 @@ Returns:
 - `response`: An `http.response` object (or nil on error).
 - `error`: An error message string (or nil on success).
 
-#### `http.request(method: string, url: string, options: table)`
+#### `http_client.request(method: string, url: string, options: table)`
 
 Sends an HTTP request with the specified method.
 
@@ -116,7 +117,7 @@ Returns:
 - `response`: An `http.response` object (or nil on error).
 - `error`: An error message string (or nil on success).
 
-#### `http.request_batch(requests: table)`
+#### `http_client.request_batch(requests: table)`
 
 Sends multiple HTTP requests concurrently.
 
@@ -132,7 +133,7 @@ Returns:
 - `responses`: A table of `http.response` objects, indexed in the same order as the requests.
 - `errors`: A table of error messages, indexed in the same order as the requests (or nil if no errors occurred).
 
-#### `http.encode_uri(str: string)`
+#### `http_client.encode_uri(str: string)`
 
 Encodes a string for use in a URL.
 
@@ -144,7 +145,7 @@ Returns:
 
 - `encoded`: The encoded string.
 
-#### `http.decode_uri(str: string)`
+#### `http_client.decode_uri(str: string)`
 
 Decodes a URL-encoded string.
 
@@ -173,7 +174,7 @@ The `options` table can contain the following fields:
 
 ## HTTP Response Object
 
-The `http.response` object has the following fields:
+The `http_client.Response` object has the following fields:
 
 - `headers`: A table of response headers (key-value pairs).
 - `cookies`: A table of response cookies (key-value pairs).
@@ -208,8 +209,8 @@ The `http.response` object has the following fields:
 
 ## Thread Safety
 
-- The `http` module is not inherently thread-safe for concurrent access to the same `http.response` object from multiple
-  threads.
+- The `http_client` module is not inherently thread-safe for concurrent access to the same `http_client.Response` object
+  from multiple threads.
 - Streamed responses using the same `Stream` object from multiple threads will lead to undefined behavior.
 
 ## Best Practices
@@ -224,10 +225,10 @@ The `http.response` object has the following fields:
 ## Example Usage
 
 ```lua
-local http = require("http")
+local http_client = require("http_client")
 
 -- GET request
-local response, err = http.get("https://api.example.com/data", {
+local response, err = http_client.get("https://api.example.com/data", {
   headers = {
     ["User-Agent"] = "Lua HTTP Client"
   },
@@ -241,7 +242,7 @@ else
 end
 
 -- POST request with form data
-local response, err = http.post("https://api.example.com/submit", {
+local response, err = http_client.post("https://api.example.com/submit", {
   form = "name=John+Doe&age=30"
 })
 if err then
@@ -255,7 +256,7 @@ local requests = {
   { "GET", "https://api.example.com/users" },
   { "GET", "https://api.example.com/posts", { timeout = 2 } }
 }
-local responses, errors = http.request_batch(requests)
+local responses, errors = http_client.request_batch(requests)
 for i, res in ipairs(responses) do
   if res then
     print("Request", i, "Status:", res.status_code)
@@ -265,7 +266,7 @@ for i, res in ipairs(responses) do
 end
 
 -- Streaming response
-local response, err = http.get("https://api.example.com/largefile", { stream = { buffer_size = 4096 } })
+local response, err = http_client.get("https://api.example.com/largefile", { stream = { buffer_size = 4096 } })
 if err then
   print("Streaming request failed:", err)
 else
