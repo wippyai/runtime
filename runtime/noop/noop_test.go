@@ -65,7 +65,7 @@ func TestNoopRuntime_Execute(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resultCh, err := n.Execute(tt.task)
+			resultCh, err := n.Execute(context.Background(), tt.task)
 			if tt.wantErr {
 				require.Error(t, err)
 				return
