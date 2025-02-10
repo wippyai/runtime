@@ -1,279 +1,425 @@
-# Lua HTTP Module Specification
+# Lua HTTP Context Module Specification
 
 ## Overview
 
-The `http` module provides functions for performing HTTP requests in Lua. It supports various HTTP methods, request
-options (headers, cookies, body, query parameters, timeout, authentication), and batch requests. It also handles
-response data, including headers, cookies, status code, URL, and body. Additionally, it supports streaming responses for
-handling large data efficiently.
+The `httpctx` module provides access to the current HTTP request and response within a Lua environment, typically in the context of a web server handler. It allows reading request data (method, path, headers, query parameters, body) and writing response data (status, headers, body). It also supports advanced features like streaming request bodies, chunked transfer encoding, and server-sent events.
 
 ## Module Interface
 
 ### Module Loading
 
 ```lua
-local http = require("http")
+local httpctx = require("httpctx")
 ```
 
-### Global Functions
+### Constants
 
-#### `http.get(url: string, options: table)`
+The module provides several tables containing constants for common HTTP elements:
 
-Sends an HTTP GET request.
+#### `httpctx.METHOD`
+
+- `GET`
+- `POST`
+- `PUT`
+- `DELETE`
+- `PATCH`
+- `HEAD`
+- `OPTIONS`
+
+#### `httpctx.STATUS`
+
+- `OK` (200)
+- `CREATED` (201)
+- `NO_CONTENT` (204)
+- `BAD_REQUEST` (400)
+- `UNAUTHORIZED` (401)
+- `NOT_FOUND` (404)
+- `INTERNAL_ERROR` (500)
+
+#### `httpctx.CONTENT`
+
+- `JSON` ("application/json")
+- `FORM` ("application/x-www-form-urlencoded")
+- `MULTIPART` ("multipart/form-data")
+- `TEXT` ("text/plain")
+- `STREAM` ("application/octet-stream")
+
+#### `httpctx.TRANSFER`
+
+- `CHUNKED` ("chunked")
+- `SSE` ("sse")
+
+#### `httpctx.ERROR`
+
+- `PARSE_FAILED`
+- `INVALID_STATE`
+- `WRITE_FAILED`
+- `STREAM_ERROR`
+
+### Request Object
+
+The `httpctx.request()` function creates a new `Request` object representing the current HTTP request.
+
+#### `httpctx.request(options: table)`
+
+Creates a new `Request` object.
 
 Parameters:
 
-- `url`: The URL to request.
-- `options`: (Optional) A table of request options.
+- `options`: (Optional) A table with the following optional fields:
+    - `timeout`: Request timeout in milliseconds (number).
+    - `max_body`: Maximum request body size in bytes (number).
 
 Returns:
 
-- `response`: An `http.response` object (or nil on error).
+- `request`: A `Request` object (or nil on error).
 - `error`: An error message string (or nil on success).
 
-#### `http.post(url: string, options: table)`
+#### Request Methods
 
-Sends an HTTP POST request.
+##### `request:method()`
 
-Parameters:
-
-- `url`: The URL to request.
-- `options`: (Optional) A table of request options.
+Returns the HTTP method of the request.
 
 Returns:
 
-- `response`: An `http.response` object (or nil on error).
-- `error`: An error message string (or nil on success).
+- `method`: The HTTP method (string).
+- `error`: nil
 
-#### `http.put(url: string, options: table)`
+##### `request:path()`
 
-Sends an HTTP PUT request.
-
-Parameters:
-
-- `url`: The URL to request.
-- `options`: (Optional) A table of request options.
+Returns the path of the request.
 
 Returns:
 
-- `response`: An `http.response` object (or nil on error).
-- `error`: An error message string (or nil on success).
+- `path`: The request path (string).
+- `error`: nil
 
-#### `http.delete(url: string, options: table)`
+##### `request:query(key: string)`
 
-Sends an HTTP DELETE request.
-
-Parameters:
-
-- `url`: The URL to request.
-- `options`: (Optional) A table of request options.
-
-Returns:
-
-- `response`: An `http.response` object (or nil on error).
-- `error`: An error message string (or nil on success).
-
-#### `http.head(url: string, options: table)`
-
-Sends an HTTP HEAD request.
+Returns the value of the specified query parameter.
 
 Parameters:
 
-- `url`: The URL to request.
-- `options`: (Optional) A table of request options.
+- `key`: The query parameter name.
 
 Returns:
 
-- `response`: An `http.response` object (or nil on error).
-- `error`: An error message string (or nil on success).
+- `value`: The value of the query parameter (string, or nil if not found).
+- `error`: Error message (string, or nil on success).
 
-#### `http.patch(url: string, options: table)`
+##### `request:header(key: string)`
 
-Sends an HTTP PATCH request.
+Returns the value of the specified header.
 
 Parameters:
 
-- `url`: The URL to request.
-- `options`: (Optional) A table of request options.
+- `key`: The header name.
 
 Returns:
 
-- `response`: An `http.response` object (or nil on error).
-- `error`: An error message string (or nil on success).
+- `value`: The value of the header (string, or nil if not found).
+- `error`: Error message (string, or nil on success).
 
-#### `http.request(method: string, url: string, options: table)`
+##### `request:content_type()`
 
-Sends an HTTP request with the specified method.
+Returns the Content-Type of the request.
+
+Returns:
+
+- `content_type`: The Content-Type header value (string, or nil if not set).
+- `error`: nil
+
+##### `request:content_length()`
+
+Returns the Content-Length of the request.
+
+Returns:
+
+- `content_length`: The Content-Length header value (number).
+- `error`: nil
+
+##### `request:host()`
+
+Returns the Host header of the request.
+
+Returns:
+
+- `host`: The Host header value (string).
+- `error`: nil
+
+##### `request:remote_addr()`
+
+Returns the remote address of the client.
+
+Returns:
+
+- `remote_addr`: The remote address (string).
+- `error`: nil
+
+##### `request:body()`
+
+Returns the raw request body.
+
+Returns:
+
+- `body`: The request body (string, or nil if no body or error).
+- `error`: Error message (string, or nil on success).
+
+##### `request:body_json()`
+
+Parses the request body as JSON and returns the decoded value.
+
+Returns:
+
+- `value`: The decoded JSON value (Lua table, or nil on error).
+- `error`: Error message (string, or nil on success).
+
+##### `request:has_body()`
+
+Checks if the request has a body.
+
+Returns:
+
+- `has_body`: True if the request has a body, false otherwise.
+- `error`: nil
+
+##### `request:accepts(content_type: string)`
+
+Checks if the request accepts the specified content type.
 
 Parameters:
 
-- `method`: The HTTP method (e.g., "GET", "POST").
-- `url`: The URL to request.
-- `options`: (Optional) A table of request options.
+- `content_type`: The content type to check.
 
 Returns:
 
-- `response`: An `http.response` object (or nil on error).
-- `error`: An error message string (or nil on success).
+- `accepts`: True if the content type is accepted, false otherwise.
+- `error`: Error message (string, or nil on success).
 
-#### `http.request_batch(requests: table)`
+##### `request:is_content_type(content_type: string)`
 
-Sends multiple HTTP requests concurrently.
+Checks if the request's Content-Type matches the specified content type.
 
 Parameters:
 
-- `requests`: A table of request tables. Each request table contains:
-    1. `method`: The HTTP method.
-    2. `url`: The URL.
-    3. `options`: (Optional) A table of request options.
+- `content_type`: The content type to check.
 
 Returns:
 
-- `responses`: A table of `http.response` objects, indexed in the same order as the requests.
-- `errors`: A table of error messages, indexed in the same order as the requests (or nil if no errors occurred).
+- `is_content_type`: True if the Content-Type matches, false otherwise.
+- `error`: Error message (string, or nil on success).
 
-#### `http.encode_uri(str: string)`
+##### `request:stream_body(options: table)`
 
-Encodes a string for use in a URL.
+Returns an iterator function for streaming the request body.
 
 Parameters:
 
-- `str`: The string to encode.
+- `options`: (Optional) A table with the following optional fields:
+    - `buffer_size`: The buffer size to use for reading (number, defaults to 32KB).
 
 Returns:
 
-- `encoded`: The encoded string.
+- `iterator`: An iterator function that returns the next chunk of the body (string) on each call, and nil when the body is exhausted.
+- `error`: Error message (string, or nil on success).
 
-#### `http.decode_uri(str: string)`
+### Response Object
 
-Decodes a URL-encoded string.
+The `httpctx.response()` function creates a new `Response` object representing the current HTTP response.
+
+#### `httpctx.response()`
+
+Creates a new `Response` object.
+
+Returns:
+
+- `response`: A `Response` object.
+
+#### Response Methods
+
+##### `response:set_status(code: number)`
+
+Sets the HTTP status code.
 
 Parameters:
 
-- `str`: The string to decode.
+- `code`: The HTTP status code.
 
 Returns:
 
-- `decoded`: The decoded string (or nil on error).
-- `error`: An error message string (or nil on success).
+- `error`: Error message (string, or nil on success).
 
-## Request Options
+##### `response:set_header(key: string, value: string)`
 
-The `options` table can contain the following fields:
+Sets a response header.
 
-- `headers`: A table of HTTP headers (key-value pairs).
-- `cookies`: A table of cookies (key-value pairs).
-- `body`: The request body (string).
-- `form`: Form data (string, will set `Content-Type` to `application/x-www-form-urlencoded`).
-- `query`: The query string to append to the URL.
-- `timeout`: The request timeout (number in seconds or string parsable by `time.ParseDuration`).
-- `auth`: A table with `user` and `pass` fields for basic authentication.
-- `stream`: A table for stream configuration for streaming requests:
-    - `buffer_size`: (Optional) buffer size for stream `read()`
+Parameters:
 
-## HTTP Response Object
+- `key`: The header name.
+- `value`: The header value.
 
-The `http.response` object has the following fields:
+Returns:
 
-- `headers`: A table of response headers (key-value pairs).
-- `cookies`: A table of response cookies (key-value pairs).
-- `status_code`: The HTTP status code (number).
-- `url`: The final URL of the response (after redirects).
-- `body`: The response body (string, nil if streaming is used).
-- `body_size`: The size of the response body in bytes (-1 if streaming is used).
-- `stream`: A `Stream` object for streamed responses (or nil if not a streaming response).
+- `error`: Error message (string, or nil on success).
 
-## Streamed Responses
+##### `response:write(data: string)`
 
-- When the `stream` option is used, the response body will be `nil`, and `body_size` will be `-1`.
-- The `stream` field will contain a `Stream` object that can be used to read the response body in chunks.
-- The `read()` method of the `Stream` object will return chunks of data.
-- The `close()` method of the `Stream` object should be called when finished to release resources.
+Writes data to the response body.
+
+Parameters:
+
+- `data`: The data to write.
+
+Returns:
+
+- `error`: Error message (string, or nil on success).
+
+##### `response:flush()`
+
+Flushes the response writer.
+
+Returns:
+- `error`: Error message (string, or nil on success).
+
+##### `response:write_json(value: any)`
+
+Encodes the given Lua value as JSON and writes it to the response body. Sets the `Content-Type` to `application/json` if not already set.
+
+Parameters:
+
+- `value`: The Lua value to encode (typically a table).
+
+Returns:
+
+- `error`: Error message (string, or nil on success).
+
+##### `response:set_content_type(content_type: string)`
+
+Sets the Content-Type of the response.
+
+Parameters:
+
+- `content_type`: The Content-Type to set.
+
+Returns:
+
+- `error`: Error message (string, or nil on success).
+
+##### `response:write_event(event: table)`
+
+Writes a Server-Sent Event to the response.
+
+Parameters:
+
+- `event`: A table with the following fields:
+    - `name`: The event name (string).
+    - `data`: The event data (any).
+
+Returns:
+
+- `error`: Error message (string, or nil on success).
+
+##### `response:set_transfer(transfer_type: string)`
+
+Sets the transfer encoding for the response.
+
+Parameters:
+
+- `transfer_type`: The transfer type (`httpctx.TRANSFER.CHUNKED` or `httpctx.TRANSFER.SSE`).
+
+Returns:
+
+- `error`: Error message (string, or nil on success).
 
 ## Error Handling
 
-- Functions return an error message as the second return value if an error occurs.
-- The `request_batch` function returns a table of error messages as the second return value.
-- For streamed responses, errors during reading will be returned by the `read()` method of the `Stream` object.
+- Most methods return an error message as their last return value if an error occurs.
+- Errors typically occur due to invalid input, invalid state (e.g., setting headers after they have been sent), or I/O errors.
+- `request:stream_body` iterator function returns chunks of data until the body is exhausted, then it returns `nil`. Any error during reading will be returned by the `read()` method of the underlying `Stream` object.
 
 ## Behavior
 
-- The module handles encoding of request bodies, headers, and cookies.
-- It parses response headers and cookies.
-- It supports concurrent requests with `request_batch`.
-- It allows setting a timeout for requests.
-- It supports basic authentication.
-- For `request_batch`, it validates each request entry and builds requests with provided options.
-- `request_batch` processes requests concurrently and returns results in order.
-
-## Thread Safety
-
-- The `http` module is not inherently thread-safe for concurrent access to the same `http.response` object from multiple
-  threads.
-- Streamed responses using the same `Stream` object from multiple threads will lead to undefined behavior.
+- The module provides a way to interact with the underlying HTTP request and response objects.
+- Request methods provide read-only access to request data.
+- Response methods allow writing to the response.
+- `response:set_status`, `response:set_header`, and `response:set_content_type` must be called before any data is written to the response body.
+- `response:write_json` automatically sets the `Content-Type` to `application/json` if it hasn't already been set.
+- `response:set_transfer` can be used to enable chunked transfer encoding or server-sent events.
+- `response:write_event` is used for sending server-sent events. It automatically sets the necessary headers for SSE if `set_transfer` hasn't been called with `httpctx.TRANSFER.SSE`.
+- The `request:stream_body` method allows streaming the request body in chunks.
+- The `options` parameter in `httpctx.request()` and `request:stream_body()` allows configuring request handling behavior.
 
 ## Best Practices
 
-- Check for errors after each function call.
-- Use `request_batch` for efficient concurrent requests.
-- Set appropriate timeouts for requests.
-- Use the `stream` option for handling large responses efficiently.
-- Close the stream when finished to release resources.
-- Use `encode_uri` and `decode_uri` for proper URL handling.
+- Always check for errors returned by methods.
+- Set response headers and status code before writing any body data.
+- Use `request:stream_body` for efficiently handling large request bodies.
+- Use `response:set_transfer` and `response:write_event` for implementing server-sent events.
+- Be mindful of potential concurrency issues if accessing `Request` or `Response` objects from multiple threads.
 
 ## Example Usage
 
 ```lua
-local http = require("http")
+local httpctx = require("httpctx")
 
--- GET request
-local response, err = http.get("https://api.example.com/data", {
-  headers = {
-    ["User-Agent"] = "Lua HTTP Client"
-  },
-  timeout = 5
-})
-if err then
-  print("GET request failed:", err)
-else
-  print("Status:", response.status_code)
-  print("Body:", response.body)
-end
+-- Get request and response objects
+local req = httpctx.request()
+local res = httpctx.response()
 
--- POST request with form data
-local response, err = http.post("https://api.example.com/submit", {
-  form = "name=John+Doe&age=30"
-})
-if err then
-  print("POST request failed:", err)
-else
-  print("Response:", response.body)
-end
-
--- Batch requests
-local requests = {
-  { "GET", "https://api.example.com/users" },
-  { "GET", "https://api.example.com/posts", { timeout = 2 } }
-}
-local responses, errors = http.request_batch(requests)
-for i, res in ipairs(responses) do
-  if res then
-    print("Request", i, "Status:", res.status_code)
+-- Handle GET request
+if req:method() == httpctx.METHOD.GET then
+  local name = req:query("name")
+  if name then
+    res:set_status(httpctx.STATUS.OK)
+    res:write("Hello, " .. name .. "!")
   else
-    print("Request", i, "Error:", errors[i])
+    res:set_status(httpctx.STATUS.BAD_REQUEST)
+    res:write("Missing 'name' parameter")
   end
 end
 
--- Streaming response
-local response, err = http.get("https://api.example.com/largefile", { stream = { buffer_size = 4096 } })
-if err then
-  print("Streaming request failed:", err)
-else
-  local stream = response.stream
-  for chunk in stream() do
-    -- Process each chunk
-    print("Chunk:", chunk)
+-- Handle POST request with JSON body
+if req:method() == httpctx.METHOD.POST and req:is_content_type(httpctx.CONTENT.JSON) then
+  local data, err = req:body_json()
+  if err then
+    res:set_status(httpctx.STATUS.BAD_REQUEST)
+    res:write_json({ error = httpctx.ERROR.PARSE_FAILED, message = err })
+  else
+    res:set_status(httpctx.STATUS.CREATED)
+    res:write_json({ message = "Received data", data = data })
   end
-  stream:close()
+end
+
+-- Handle large request body with streaming
+if req:method() == httpctx.METHOD.POST and req:content_type() == httpctx.CONTENT.STREAM then
+    local iterator, err = req:stream_body({ buffer_size = 4096 })
+    if err then
+      res:set_status(httpctx.STATUS.INTERNAL_ERROR)
+      res:write(err)
+    else
+      res:set_status(httpctx.STATUS.OK)
+      res:set_transfer(httpctx.TRANSFER.CHUNKED)
+
+      for chunk in iterator do
+        if chunk == nil then break end
+        -- Process each chunk (e.g., calculate a checksum, store, etc.)
+        res:write("Received chunk: " .. chunk .. "\n")
+      end
+    end
+end
+
+-- Handle server-sent events
+if req:method() == httpctx.METHOD.GET and req:path() == "/events" then
+  res:set_transfer(httpctx.TRANSFER.SSE)
+
+  res:write_event({ name = "start", data = { message = "Starting event stream" } })
+
+  for i = 1, 5 do
+    res:write_event({ name = "progress", data = { percent = i * 20 } })
+    res:flush() -- Important to send the event immediately
+  end
+
+  res:write_event({ name = "end", data = { message = "Event stream finished" } })
 end
 ```
