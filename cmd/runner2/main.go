@@ -356,7 +356,7 @@ func withHTTPService(a *App) services.Option {
 }
 
 func withLuaService(a *App) services.Option {
-	return services.WithListener("(function|library|terminal|workflow).lua",
+	return services.WithListener("(function|library|process).lua",
 		luaruntime.NewRuntimeManager(
 			a.eventBus,
 			a.dtt,
@@ -378,5 +378,6 @@ func withLuaService(a *App) services.Option {
 
 func withTerminalService(a *App) services.Option {
 	return services.WithListener("terminal.*",
-		terminal.NewManager(a.eventBus, a.dtt, a.logger.Named("term")))
+		terminal.NewManager(a.eventBus, a.dtt, a.logger.Named("term")),
+	)
 }
