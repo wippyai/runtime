@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	contextapi "github.com/ponyruntime/pony/api/context"
+	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
 	"sync"
 
@@ -67,16 +68,16 @@ func (f *FunctionRegistry) handleEvent(e events.Event) {
 		f.handleDeleteFunction(e)
 	default:
 		f.logger.Warn("unknown event kind",
-			zap.String("kind", string(e.Kind)),
-			zap.String("path", string(e.Path)))
+			zap.String("kind", e.Kind),
+			zap.String("path", e.Path))
 	}
 }
 
 func (f *FunctionRegistry) handleRegisterFunction(e events.Event) {
-	reg, ok := e.Data.(runtime.RegisterFunc)
+	fn, ok := e.Data.(runtime.Func)
 	if !ok {
 		f.logger.Error("invalid register function payload",
-			zap.String("function", string(e.Path)),
+			zap.String("function", e.Path),
 			zap.String("type", fmt.Sprintf("%T", e.Data)))
 
 		f.sendReject(e.Path, "invalid register function payload")
@@ -84,34 +85,24 @@ func (f *FunctionRegistry) handleRegisterFunction(e events.Event) {
 	}
 
 	// Store the function
-	f.handlers.Store(reg.ID.String(), reg.Func)
-	f.logger.Debug("function registered", zap.String("function", reg.ID.String()))
+	f.handlers.Store(registry.ParseID(e.Path), fn)
+	f.logger.Debug("function registered", zap.String("function", e.Path))
 
 	f.sendAccept(e.Path)
 }
 
 func (f *FunctionRegistry) handleDeleteFunction(e events.Event) {
-	del, ok := e.Data.(runtime.DeleteFunc)
-	if !ok {
-		f.logger.Error("invalid delete function payload",
-			zap.String("function", e.Path),
-			zap.String("type", fmt.Sprintf("%T", e.Data)))
-
-		f.sendReject(e.Path, "invalid delete function payload")
-		return
-	}
-
 	// Check if the function exists before removing
-	_, exists := f.handlers.Load(del.ID.String())
+	_, exists := f.handlers.Load(e.Path)
 	if !exists {
-		f.logger.Warn("function not found", zap.String("function", del.ID.String()))
+		f.logger.Warn("function not found", zap.String("function", e.Path))
 		f.sendReject(e.Path, "function not found")
 		return
 	}
 
 	// Remove the function
-	f.handlers.Delete(del.ID.String())
-	f.logger.Debug("function removed", zap.String("function", del.ID.String()))
+	f.handlers.Delete(e.Path)
+	f.logger.Debug("function removed", zap.String("function", e.Path))
 
 	f.sendAccept(e.Path)
 }
