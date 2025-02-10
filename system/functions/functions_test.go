@@ -128,53 +128,44 @@ func TestFunctions_EventResponses(t *testing.T) {
 			event: events.Event{
 				System: runtime.FunctionSystem,
 				Kind:   runtime.RegisterFunctionCommand,
-				Path:   "default:test.handler", // Fixed: Include namespace
-				Data: runtime.RegisterFunc{
-					ID: registry.ID{NS: "default", Name: "test.handler"},
-					Func: func(task runtime.Task) (chan *runtime.Result, error) {
-						return make(chan *runtime.Result), nil
-					},
-				},
+				Path:   "default:test.handler",
+				Data: runtime.Func(func(ctx context.Context, task runtime.Task) (chan *runtime.Result, error) {
+					return make(chan *runtime.Result), nil
+				}),
 			},
 			expectedKind: runtime.AcceptFunction,
-			expectedPath: "default:test.handler", // Fixed: Include namespace
+			expectedPath: "default:test.handler",
 		},
 		{
 			name: "invalid function registration",
 			event: events.Event{
 				System: runtime.FunctionSystem,
 				Kind:   runtime.RegisterFunctionCommand,
-				Path:   "invalid:handler", // Fixed: Include namespace
+				Path:   "invalid:handler",
 				Data:   "not a function",
 			},
 			expectedKind: runtime.RejectFunction,
-			expectedPath: "invalid:handler", // Fixed: Include namespace
+			expectedPath: "invalid:handler",
 		},
 		{
 			name: "delete existing function",
 			event: events.Event{
 				System: runtime.FunctionSystem,
 				Kind:   runtime.DeleteFunctionCommand,
-				Path:   "default:test.handler", // Fixed: Include namespace
-				Data: runtime.DeleteFunc{
-					ID: registry.ID{NS: "default", Name: "test.handler"},
-				},
+				Path:   "default:test.handler",
 			},
 			expectedKind: runtime.AcceptFunction,
-			expectedPath: "default:test.handler", // Fixed: Include namespace
+			expectedPath: "default:test.handler",
 		},
 		{
 			name: "delete non-existent function",
 			event: events.Event{
 				System: runtime.FunctionSystem,
 				Kind:   runtime.DeleteFunctionCommand,
-				Path:   "nonexistent:handler", // Fixed: Include namespace
-				Data: runtime.DeleteFunc{
-					ID: registry.ID{NS: "nonexistent", Name: "handler"},
-				},
+				Path:   "nonexistent:handler",
 			},
 			expectedKind: runtime.RejectFunction,
-			expectedPath: "nonexistent:handler", // Fixed: Include namespace
+			expectedPath: "nonexistent:handler",
 		},
 	}
 
@@ -248,7 +239,7 @@ func TestFunctions_Execute(t *testing.T) {
 			name: "successful execution",
 			setupHandler: func(bus events.Bus, wg *sync.WaitGroup) {
 				target := registry.ID{NS: "test", Name: "handler"}
-				handler := func(_ runtime.Task) (chan *runtime.Result, error) {
+				handler := func(ctx context.Context, _ runtime.Task) (chan *runtime.Result, error) {
 					resultChan := make(chan *runtime.Result, 1)
 					resultChan <- &runtime.Result{
 						Payload: payload.New("success"),
@@ -261,11 +252,8 @@ func TestFunctions_Execute(t *testing.T) {
 				bus.Send(ctx, events.Event{
 					System: runtime.FunctionSystem,
 					Kind:   runtime.RegisterFunctionCommand,
-					Path:   events.Path(target.String()),
-					Data: runtime.RegisterFunc{
-						ID:   target,
-						Func: handler,
-					},
+					Path:   target.String(),
+					Data:   runtime.Func(handler),
 				})
 			},
 			task: runtime.Task{
@@ -286,7 +274,7 @@ func TestFunctions_Execute(t *testing.T) {
 			name: "handler returns error",
 			setupHandler: func(bus events.Bus, wg *sync.WaitGroup) {
 				target := registry.ID{NS: "error", Name: "handler"}
-				handler := func(_ runtime.Task) (chan *runtime.Result, error) {
+				handler := func(ctx context.Context, _ runtime.Task) (chan *runtime.Result, error) {
 					return nil, fmt.Errorf("handler error")
 				}
 
@@ -294,11 +282,8 @@ func TestFunctions_Execute(t *testing.T) {
 				bus.Send(ctx, events.Event{
 					System: runtime.FunctionSystem,
 					Kind:   runtime.RegisterFunctionCommand,
-					Path:   events.Path(target.String()),
-					Data: runtime.RegisterFunc{
-						ID:   target,
-						Func: handler,
-					},
+					Path:   target.String(),
+					Data:   runtime.Func(handler),
 				})
 			},
 			task: runtime.Task{
@@ -369,7 +354,7 @@ func TestFunctions_ConcurrentHandlerRegistration(t *testing.T) {
 				Name: fmt.Sprintf("handler.%d", idx),
 			}
 
-			handler := func(_ runtime.Task) (chan *runtime.Result, error) {
+			handler := func(ctx context.Context, _ runtime.Task) (chan *runtime.Result, error) {
 				resultChan := make(chan *runtime.Result, 1)
 				resultChan <- &runtime.Result{
 					Payload: payload.New(fmt.Sprintf("result %d", idx)),
@@ -381,11 +366,8 @@ func TestFunctions_ConcurrentHandlerRegistration(t *testing.T) {
 			bus.Send(ctx, events.Event{
 				System: runtime.FunctionSystem,
 				Kind:   runtime.RegisterFunctionCommand,
-				Path:   events.Path(target.String()),
-				Data: runtime.RegisterFunc{
-					ID:   target,
-					Func: handler,
-				},
+				Path:   target.String(),
+				Data:   runtime.Func(handler),
 			})
 		}(i)
 	}
