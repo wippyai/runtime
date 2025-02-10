@@ -45,7 +45,7 @@ type (
 	// FuncRegistry provides the interface for executing functions
 	// It abstracts the function lookup and execution process
 	FuncRegistry interface {
-		Call(Task) (chan *Result, error)
+		Call(context.Context, Task) (chan *Result, error)
 	}
 )
 

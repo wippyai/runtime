@@ -1,7 +1,6 @@
 package runtime
 
 import (
-	"context"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 )
@@ -10,8 +9,7 @@ type (
 	// Task represents a unit of work to be executed by the executor.
 	// It contains the execution context, target identifier, and input payloads.
 	Task struct {
-		Context  context.Context
-		Target   registry.ID
+		Handler  registry.ID
 		Payloads payload.Payloads
 	}
 
