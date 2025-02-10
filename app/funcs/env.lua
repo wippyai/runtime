@@ -1,10 +1,10 @@
 local json = require("json")
-local httpctx = require("httpctx")
+local http = require("httpctx")
 local env = require("env")
 
 function envdump()
     -- Get request context
-    local res = httpctx.response()
+    local res = http.response()
 
     -- Create a channel for communication
     local env_channel = channel.new(1)
