@@ -144,5 +144,5 @@ func (f *FunctionRegistry) Call(ctx context.Context, task runtime.Task) (chan *r
 		return nil, fmt.Errorf("invalid handler type for target: %s", task.Handler)
 	}
 
-	return execHandler(task)
+	return execHandler(ctx, task)
 }
