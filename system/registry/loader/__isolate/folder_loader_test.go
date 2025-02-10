@@ -1,4 +1,4 @@
-package loader
+package __isolate
 
 import (
 	"github.com/ponyruntime/pony/tests/temp_files"

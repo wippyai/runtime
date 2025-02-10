@@ -1,22 +1,18 @@
-package loader
+package __isolate
 
 import (
 	"fmt"
-	"path/filepath"
-	"strings"
-
 	"github.com/ponyruntime/pony/internal/interpolator"
+	"github.com/ponyruntime/pony/system/registry/loader/interpolate"
+	"path/filepath"
 
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	"go.uber.org/zap"
 )
 
-// Variables is a map of key-value pairs for variable interpolation
-type Variables map[string]string
-
-// FolderLoader manages the loading of registry entries from a directory.
-type FolderLoader struct {
+// Loader manages the loading of registry entries from a directory.
+type Loader struct {
 	rootPath  string
 	namespace string
 	dtt       payload.Transcoder
@@ -32,12 +28,12 @@ type FileEntry struct {
 	Meta registry.Metadata `json:"meta" yaml:"meta"`
 }
 
-// NewFolderLoader creates a new FolderLoader.
-func NewFolderLoader(dtt payload.Transcoder, log *zap.Logger) *FolderLoader {
-	l := &FolderLoader{
+// NewFolderLoader creates a new Loader.
+func NewFolderLoader(dtt payload.Transcoder, log *zap.Logger) *Loader {
+	l := &Loader{
 		dtt:  dtt,
 		log:  log,
-		i11p: interpolator.NewInterpolator(LoadFile, LoadVars),
+		i11p: interpolator.NewInterpolator(interpolate.LoadFile, interpolate.LoadVars),
 	}
 
 	if l.log == nil {
@@ -48,11 +44,15 @@ func NewFolderLoader(dtt payload.Transcoder, log *zap.Logger) *FolderLoader {
 }
 
 // Load scans the root directory, loads all supported files, and returns a slice of entries
-func (l *FolderLoader) Load(rootPath string, namespace string, vars Variables) ([]registry.Entry, error) {
+func (l *Loader) Load(
+	rootPath string,
+	namespace string,
+	vars interpolate.Variables,
+) ([]registry.Entry, error) {
 	l.namespace = namespace
 	l.rootPath = rootPath
 
-	entryLoader := NewPayloadLoader(l.log)
+	entryLoader := NewFileLoader(l.log)
 	payloads, err := entryLoader.Load(rootPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load entries: %w", err)
@@ -73,8 +73,8 @@ func (l *FolderLoader) Load(rootPath string, namespace string, vars Variables) (
 	return entries, nil
 }
 
-func (l *FolderLoader) processEntry(relPath string, p payload.Payload, vars Variables) (registry.Entry, error) {
-	interpolatedPayload, err := l.interpolate(p, EntryContext{
+func (l *Loader) processEntry(relPath string, p payload.Payload, vars interpolate.Variables) (registry.Entry, error) {
+	interpolatedPayload, err := l.interpolate(p, interpolate.EntryContext{
 		Vars:     vars,
 		RootDir:  l.rootPath,
 		Filename: filepath.Join(l.rootPath, relPath),
@@ -87,7 +87,7 @@ func (l *FolderLoader) processEntry(relPath string, p payload.Payload, vars Vari
 	return l.register(interpolatedPayload, relPath)
 }
 
-func (l *FolderLoader) interpolate(p payload.Payload, ctx EntryContext) (payload.Payload, error) {
+func (l *Loader) interpolate(p payload.Payload, ctx interpolate.EntryContext) (payload.Payload, error) {
 	var data interface{}
 	err := l.dtt.Unmarshal(p, &data)
 
@@ -104,7 +104,7 @@ func (l *FolderLoader) interpolate(p payload.Payload, ctx EntryContext) (payload
 }
 
 // register processes the payloads and extracts configuration entries.
-func (l *FolderLoader) register(p payload.Payload, relPath string) (registry.Entry, error) {
+func (l *Loader) register(p payload.Payload, relPath string) (registry.Entry, error) {
 	var entry FileEntry
 	err := l.dtt.Unmarshal(p, &entry)
 
@@ -120,9 +120,6 @@ func (l *FolderLoader) register(p payload.Payload, relPath string) (registry.Ent
 		return registry.Entry{}, fmt.Errorf("missing Kind in registry entry")
 	}
 
-	// Calculate full Name (prefix + entry path)
-	fullID := l.cleanID(filepath.Dir(relPath), entry.Name)
-
 	l.log.Debug(
 		"registering entry",
 		zap.String("id", fullID.String()),
@@ -135,21 +132,4 @@ func (l *FolderLoader) register(p payload.Payload, relPath string) (registry.Ent
 		Meta: entry.Meta,
 		Data: p,
 	}, nil
-}
-
-// cleanID determines the full registry path based on file path, and entry path. relPath must point to filename.
-// TODO: first argument is not used, consider removing it.
-func (l *FolderLoader) cleanID(_ string, entryName string) registry.ID {
-	fullID := entryName
-	fullID = strings.ReplaceAll(fullID, "\\", ".")
-	fullID = strings.ReplaceAll(fullID, "/", ".")
-	fullID = strings.ReplaceAll(fullID, "..", ".")
-	fullID = strings.TrimPrefix(fullID, ".")
-
-	if l.namespace != "" {
-		// set as default!
-		fullID = l.namespace + ":" + fullID
-	}
-
-	return registry.Name(fullID)
 }

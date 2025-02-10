@@ -59,7 +59,7 @@ data:
 	//    - History (using history.Memory)
 	//    - Runner (with logic to apply loaded entries)
 	//    - StateBuilder
-	//    - FolderLoader
+	//    - Loader
 	//    - Registry
 	history := history.NewMemory()
 	runner := &CustomizableMockRunner{}

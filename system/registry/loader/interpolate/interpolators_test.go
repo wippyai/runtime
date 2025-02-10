@@ -1,4 +1,4 @@
-package loader
+package interpolate
 
 import (
 	"fmt"

@@ -1,4 +1,4 @@
-package loader
+package __isolate
 
 import (
 	"os"
