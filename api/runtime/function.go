@@ -4,7 +4,6 @@ import (
 	"context"
 	contextapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/events"
-	"github.com/ponyruntime/pony/api/registry"
 )
 
 // Event system and kind constants for the executor package
@@ -26,18 +25,6 @@ const (
 )
 
 type (
-	// RegisterFunc represents a request to register a new function handler
-	// with the runtime system
-	RegisterFunc struct {
-		ID   registry.ID // Unique identifier for the function
-		Func Func        // The actual function implementation
-	}
-
-	// DeleteFunc represents a request to remove a function handler
-	DeleteFunc struct {
-		ID registry.ID // ID of the function to remove
-	}
-
 	// Func is the core function type that processes tasks
 	// It returns a channel for streaming results and any immediate initialization errors
 	Func func(Task) (chan *Result, error)
