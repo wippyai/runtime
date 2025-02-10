@@ -44,13 +44,27 @@ func ExtractEntries(p payload.Payload, dtt payload.Transcoder) ([]registry.Entry
 		return []registry.Entry{entry}, nil
 	}
 
-	// For batch entries, we already have them as maps
+	// For batch entries
 	entries := make([]registry.Entry, 0, len(content.RawEntries))
-	for _, rawEntry := range content.RawEntries {
-		// Extract standard fields
-		name, _ := rawEntry["name"].(string)
-		kind, _ := rawEntry["kind"].(string)
-		meta, _ := rawEntry["meta"].(registry.Metadata)
+	for i, rawEntry := range content.RawEntries {
+		// Validate required fields
+		name, ok := rawEntry["name"].(string)
+		if !ok || name == "" {
+			return nil, fmt.Errorf("entry[%d]: name is required", i)
+		}
+
+		kind, ok := rawEntry["kind"].(string)
+		if !ok || kind == "" {
+			return nil, fmt.Errorf("entry[%d]: kind is required", i)
+		}
+
+		// Convert meta map to registry.Metadata
+		var entryMeta registry.Metadata
+		if metaRaw, ok := rawEntry["meta"]; ok && metaRaw != nil {
+			if metaMap, ok := metaRaw.(map[string]any); ok {
+				entryMeta = metaMap
+			}
+		}
 
 		// Create entry payload
 		entryData := payload.New(rawEntry)
@@ -61,7 +75,7 @@ func ExtractEntries(p payload.Payload, dtt payload.Transcoder) ([]registry.Entry
 				Name: name,
 			},
 			Kind: kind,
-			Meta: mergeMeta(content.Meta, meta),
+			Meta: mergeMeta(content.Meta, entryMeta),
 			Data: entryData,
 		}
 		entries = append(entries, entry)
@@ -82,79 +96,13 @@ func mergeMeta(baseMeta, overrideMeta registry.Metadata) registry.Metadata {
 
 	// Copy base metadata
 	for k, v := range baseMeta {
-		if isSlice(v) {
-			merged[k] = mergeSlices(v, overrideMeta[k])
-			continue
-		}
 		merged[k] = v
 	}
 
-	// Merge/override with override metadata
+	// Override with override metadata
 	for k, v := range overrideMeta {
-		if _, exists := merged[k]; !exists {
-			merged[k] = v
-			continue
-		}
-		if isSlice(v) && isSlice(merged[k]) {
-			merged[k] = mergeSlices(merged[k], v)
-			continue
-		}
-		merged[k] = v
+		merged[k] = v // Simply override any existing values
 	}
 
 	return merged
-}
-
-func isSlice(v interface{}) bool {
-	switch v.(type) {
-	case []string, []any:
-		return true
-	}
-	return false
-}
-
-func mergeSlices(base, override interface{}) []string {
-	var baseSlice, overrideSlice []string
-
-	switch v := base.(type) {
-	case []string:
-		baseSlice = v
-	case []any:
-		baseSlice = convertToStringSlice(v)
-	case string:
-		baseSlice = []string{v}
-	}
-
-	if override != nil {
-		switch v := override.(type) {
-		case []string:
-			overrideSlice = v
-		case []any:
-			overrideSlice = convertToStringSlice(v)
-		case string:
-			overrideSlice = []string{v}
-		}
-	}
-
-	seen := make(map[string]bool)
-	merged := make([]string, 0)
-
-	for _, s := range append(baseSlice, overrideSlice...) {
-		if !seen[s] {
-			seen[s] = true
-			merged = append(merged, s)
-		}
-	}
-
-	return merged
-}
-
-func convertToStringSlice(slice []interface{}) []string {
-	result := make([]string, 0, len(slice))
-	for _, v := range slice {
-		if s, ok := v.(string); ok {
-			result = append(result, s)
-		}
-	}
-	return result
 }

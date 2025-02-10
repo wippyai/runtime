@@ -1,13 +1,11 @@
 version: "1.0"
 namespace: system
 
-# System services configuration
 entries:
-  - name: web_server
+  - name: gateway
     kind: http.service
     meta:
-      comment: "Default http service."
-      groups: [ "system" ]
+      comment: "Main HTTP gateway service"
     addr: ":8082"
     timeouts:
       idle: 60s
@@ -17,11 +15,23 @@ entries:
         initial_delay: 5s
         max_attempts: 3
 
-  - name: api_router
+  - name: router
     kind: http.router
     meta:
-      comment: "Main API router"
-      server: "web_server"
+      comment: "API router for v1 endpoints"
+      server: "gateway"
       depends_on:
-        - web_server
+        - gateway
     prefix: /api/v1
+
+  - name: shell
+    kind: terminal.service
+    meta:
+      comment: "System shell service"
+    hide_logs: false
+    lifecycle:
+      auto_start: false
+      start_timeout: 5s
+      restart:
+        initial_delay: 1s
+        max_attempts: 3
