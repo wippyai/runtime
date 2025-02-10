@@ -1,10 +1,10 @@
 local time = require("time")
 local json = require("json")
-local httpctx = require("httpctx")
+local http = require("httpctx")
 
 function ticker()
     -- Get request context
-    local res = httpctx.response()
+    local res = http.response()
 
     -- Start ticker coroutine
     local start_time = time.now()

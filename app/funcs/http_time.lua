@@ -1,11 +1,11 @@
-local http = require("http")
+local http_client = require("http")
 local json = require("json")
 
 function get_time()
     local api_url = "http://worldtimeapi.org/api/timezone/Etc/UTC"
 
     -- Make the HTTP GET request
-    local response, err = http.get(api_url)
+    local response, err = http_client.get(api_url)
     if err then
         return { error = "Failed to fetch time: " .. err }
     end

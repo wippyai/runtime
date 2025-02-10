@@ -1,12 +1,12 @@
-local http = require("http")
+local http_client = require("http")
 local json = require("json")
-local httpctx = require("httpctx")
+local http = require("httpctx")
 
 local default_ollama_url = "http://127.0.0.1:11434/api/generate"
 
 function ollama_handler()
-    local res = httpctx.response()
-    local req = httpctx.request()
+    local res = http.response()
+    local req = http.request()
 
     -- Extract parameters from the incoming request (you can modify how these are obtained)
     local model = req:query("model") or "mistral:latest" -- Get model from query parameter, default to phi3:14b
@@ -38,7 +38,7 @@ function ollama_handler()
             stream = true -- Always stream from Ollama
         })
 
-        local ollama_response, err = http.post(ollama_url, {
+        local ollama_response, err = http_client.post(ollama_url, {
             headers = headers,
             body = request_body,
             stream = {
@@ -60,7 +60,7 @@ function ollama_handler()
         end
 
         -- Set up chunked transfer encoding for the user's response
-        response:set_transfer(httpctx.TRANSFER.CHUNKED)
+        response:set_transfer(http.TRANSFER.CHUNKED)
         response:set_header("Content-Type", "application/json") -- Or text/plain if you want to stream raw text
 
         -- Stream the response from Ollama back to the user
