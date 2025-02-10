@@ -38,7 +38,10 @@ func TestServerManager_ServerOperations(t *testing.T) {
 		manager := setupTest(t)
 
 		entry := registry.Entry{
-			ID:   "test-server",
+			ID: registry.ID{
+				NS:   "test",
+				Name: "test-server",
+			},
 			Kind: http.KindServer,
 			Data: payload.New(map[string]interface{}{
 				"addr": ":8080",
@@ -62,8 +65,9 @@ func TestServerManager_ServerOperations(t *testing.T) {
 		manager := setupTest(t)
 
 		// First create the server
+		serverID := registry.ID{NS: "test", Name: "test-server"}
 		entry := registry.Entry{
-			ID:   "test-server",
+			ID:   serverID,
 			Kind: http.KindServer,
 			Data: payload.New(map[string]interface{}{
 				"addr": ":8080",
@@ -82,8 +86,9 @@ func TestServerManager_ServerOperations(t *testing.T) {
 	t.Run("delete server", func(t *testing.T) {
 		manager := setupTest(t)
 
+		serverID := registry.ID{NS: "test", Name: "test-server"}
 		entry := registry.Entry{
-			ID:   "test-server",
+			ID:   serverID,
 			Kind: http.KindServer,
 			Data: payload.New(map[string]interface{}{
 				"addr": ":8080",
@@ -107,8 +112,9 @@ func TestServerManager_RouterOperations(t *testing.T) {
 		manager := setupTest(t)
 
 		// Create server first
+		serverID := registry.ID{NS: "test", Name: "test-server"}
 		serverEntry := registry.Entry{
-			ID:   "test-server",
+			ID:   serverID,
 			Kind: http.KindServer,
 			Data: payload.New(map[string]interface{}{
 				"addr": ":8080",
@@ -117,13 +123,14 @@ func TestServerManager_RouterOperations(t *testing.T) {
 		require.NoError(t, manager.Add(ctx, serverEntry))
 
 		// Create router
+		routerID := registry.ID{NS: "test", Name: "test-router"}
 		routerEntry := registry.Entry{
-			ID:   "test-router",
+			ID:   routerID,
 			Kind: http.KindRouter,
 			Data: payload.New(map[string]interface{}{
 				"prefix": "/api",
 				"meta": map[string]interface{}{
-					"server": "test-server",
+					"server": "test:test-server",
 				},
 			}),
 		}
@@ -133,7 +140,7 @@ func TestServerManager_RouterOperations(t *testing.T) {
 		routerEntry.Data = payload.New(map[string]interface{}{
 			"prefix": "/api/v2",
 			"meta": map[string]interface{}{
-				"server": "test-server",
+				"server": "test:test-server",
 			},
 		})
 		require.NoError(t, manager.Update(ctx, routerEntry))
@@ -146,39 +153,48 @@ func TestServerManager_RouterOperations(t *testing.T) {
 		manager := setupTest(t)
 
 		// Create two servers
-		for i, id := range []string{"server1", "server2"} {
+		for _, server := range []struct {
+			id   registry.ID
+			addr string
+		}{
+			{registry.ID{NS: "test", Name: "server1"}, ":8080"},
+			{registry.ID{NS: "test", Name: "server2"}, ":8081"},
+		} {
 			require.NoError(t, manager.Add(ctx, registry.Entry{
-				ID:   registry.Name(id),
+				ID:   server.id,
 				Kind: http.KindServer,
 				Data: payload.New(map[string]interface{}{
-					"addr": ":808" + string(rune('0'+i)),
+					"addr": server.addr,
 				}),
 			}))
 		}
 
 		// Create router on server1
+		routerID := registry.ID{NS: "test", Name: "test-router"}
 		routerEntry := registry.Entry{
-			ID:   "test-router",
+			ID:   routerID,
 			Kind: http.KindRouter,
 			Data: payload.New(map[string]interface{}{
 				"prefix": "/api",
 				"meta": map[string]interface{}{
-					"server": "server1",
+					"server": "test:server1",
 				},
 			}),
 		}
 		require.NoError(t, manager.Add(ctx, routerEntry))
-		assert.Equal(t, registry.Name("server1"), manager.routerServers[routerEntry.ID])
+		server1ID := registry.ID{NS: "test", Name: "server1"}
+		assert.Equal(t, server1ID, manager.routerServers[routerEntry.ID])
 
 		// Migrate to server2
 		routerEntry.Data = payload.New(map[string]interface{}{
 			"prefix": "/api",
 			"meta": map[string]interface{}{
-				"server": "server2",
+				"server": "test:server2",
 			},
 		})
 		require.NoError(t, manager.Update(ctx, routerEntry))
-		assert.Equal(t, registry.Name("server2"), manager.routerServers[routerEntry.ID])
+		server2ID := registry.ID{NS: "test", Name: "server2"}
+		assert.Equal(t, server2ID, manager.routerServers[routerEntry.ID])
 	})
 }
 
@@ -189,8 +205,9 @@ func TestServerManager_EndpointOperations(t *testing.T) {
 		manager := setupTest(t)
 
 		// Create server first
+		serverID := registry.ID{NS: "test", Name: "test-server"}
 		serverEntry := registry.Entry{
-			ID:   "test-server",
+			ID:   serverID,
 			Kind: http.KindServer,
 			Data: payload.New(map[string]interface{}{
 				"addr": ":8080",
@@ -199,14 +216,15 @@ func TestServerManager_EndpointOperations(t *testing.T) {
 		require.NoError(t, manager.Add(ctx, serverEntry))
 
 		// Create endpoint
+		endpointID := registry.ID{NS: "test", Name: "test-endpoint"}
 		endpointEntry := registry.Entry{
-			ID:   "test-endpoint",
+			ID:   endpointID,
 			Kind: http.KindEndpoint,
 			Data: payload.New(map[string]interface{}{
 				"path":   "/test",
 				"method": "GET",
 				"meta": map[string]interface{}{
-					"server": "test-server",
+					"server": "test:test-server",
 				},
 			}),
 		}
@@ -217,7 +235,7 @@ func TestServerManager_EndpointOperations(t *testing.T) {
 			"path":   "/test/v2",
 			"method": "POST",
 			"meta": map[string]interface{}{
-				"server": "test-server",
+				"server": "test:test-server",
 			},
 		})
 		require.NoError(t, manager.Update(ctx, endpointEntry))
@@ -230,41 +248,50 @@ func TestServerManager_EndpointOperations(t *testing.T) {
 		manager := setupTest(t)
 
 		// Create two servers
-		for i, id := range []string{"server1", "server2"} {
+		for _, server := range []struct {
+			id   registry.ID
+			addr string
+		}{
+			{registry.ID{NS: "test", Name: "server1"}, ":8080"},
+			{registry.ID{NS: "test", Name: "server2"}, ":8081"},
+		} {
 			require.NoError(t, manager.Add(ctx, registry.Entry{
-				ID:   registry.Name(id),
+				ID:   server.id,
 				Kind: http.KindServer,
 				Data: payload.New(map[string]interface{}{
-					"addr": ":808" + string(rune('0'+i)),
+					"addr": server.addr,
 				}),
 			}))
 		}
 
 		// Create endpoint on server1
+		endpointID := registry.ID{NS: "test", Name: "test-endpoint"}
 		endpointEntry := registry.Entry{
-			ID:   "test-endpoint",
+			ID:   endpointID,
 			Kind: http.KindEndpoint,
 			Data: payload.New(map[string]interface{}{
 				"path":   "/test",
 				"method": "GET",
 				"meta": map[string]interface{}{
-					"server": "server1",
+					"server": "test:server1",
 				},
 			}),
 		}
 		require.NoError(t, manager.Add(ctx, endpointEntry))
-		assert.Equal(t, registry.Name("server1"), manager.endpointServers[endpointEntry.ID])
+		server1ID := registry.ID{NS: "test", Name: "server1"}
+		assert.Equal(t, server1ID, manager.endpointServers[endpointEntry.ID])
 
 		// Migrate to server2
 		endpointEntry.Data = payload.New(map[string]interface{}{
 			"path":   "/test",
 			"method": "GET",
 			"meta": map[string]interface{}{
-				"server": "server2",
+				"server": "test:server2",
 			},
 		})
 		require.NoError(t, manager.Update(ctx, endpointEntry))
-		assert.Equal(t, registry.Name("server2"), manager.endpointServers[endpointEntry.ID])
+		server2ID := registry.ID{NS: "test", Name: "server2"}
+		assert.Equal(t, server2ID, manager.endpointServers[endpointEntry.ID])
 	})
 }
 
@@ -275,7 +302,7 @@ func TestServerManager_ErrorCases(t *testing.T) {
 		manager := setupTest(t)
 
 		entry := registry.Entry{
-			ID:   "test-server",
+			ID:   registry.ID{NS: "test", Name: "test-server"},
 			Kind: http.KindServer,
 			Data: payload.New(map[string]interface{}{
 				"invalid": "config",
@@ -290,7 +317,7 @@ func TestServerManager_ErrorCases(t *testing.T) {
 		manager := setupTest(t)
 
 		entry := registry.Entry{
-			ID:   "test-server",
+			ID:   registry.ID{NS: "test", Name: "test-server"},
 			Kind: http.KindServer,
 		}
 
@@ -302,12 +329,12 @@ func TestServerManager_ErrorCases(t *testing.T) {
 		manager := setupTest(t)
 
 		entry := registry.Entry{
-			ID:   "test-router",
+			ID:   registry.ID{NS: "test", Name: "test-router"},
 			Kind: http.KindRouter,
 			Data: payload.New(map[string]interface{}{
 				"prefix": "/api",
 				"meta": map[string]interface{}{
-					"server": "nonexistent-server",
+					"server": "test:nonexistent-server",
 				},
 			}),
 		}
