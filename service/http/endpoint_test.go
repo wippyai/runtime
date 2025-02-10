@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"errors"
+	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
 	"net/http"
 	"net/http/httptest"
@@ -16,12 +17,12 @@ import (
 
 // MockExecutor is a simple mock implementation of runtime.FuncRegistry
 type MockExecutor struct {
-	executeFunc func(runtime.Task) (chan *runtime.Result, error)
+	executeFunc func(context.Context, runtime.Task) (chan *runtime.Result, error)
 }
 
-func (m *MockExecutor) Execute(task runtime.Task) (chan *runtime.Result, error) {
+func (m *MockExecutor) Call(ctx context.Context, task runtime.Task) (chan *runtime.Result, error) {
 	if m.executeFunc != nil {
-		return m.executeFunc(task)
+		return m.executeFunc(ctx, task)
 	}
 	return nil, errors.New("no execute function set")
 }
@@ -70,7 +71,7 @@ func TestEndpointHandler_Handle_ExecutorError(t *testing.T) {
 
 	// Setup executor error
 	expectedError := "executor error"
-	executor.executeFunc = func(runtime.Task) (chan *runtime.Result, error) {
+	executor.executeFunc = func(context.Context, runtime.Task) (chan *runtime.Result, error) {
 		return nil, errors.New(expectedError)
 	}
 
@@ -112,7 +113,7 @@ func TestEndpointHandler_Handle_ContextCancellation(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	// Setup executor response that will never complete due to cancellation
-	executor.executeFunc = func(runtime.Task) (chan *runtime.Result, error) {
+	executor.executeFunc = func(context.Context, runtime.Task) (chan *runtime.Result, error) {
 		return make(chan *runtime.Result), nil
 	}
 
@@ -168,7 +169,7 @@ func TestEndpointHandler_Handle_SuccessfulResponse(t *testing.T) {
 	routeInfo := &config.RouteInfo{
 		EndpointID: "test-endpoint",
 		Endpoint: config.EndpointConfig{
-			Target: "test.function",
+			Handler: registry.ParseID("test.function"),
 		},
 	}
 	ctx := context.WithValue(req.Context(), config.RouteCtx, routeInfo)
@@ -179,9 +180,9 @@ func TestEndpointHandler_Handle_SuccessfulResponse(t *testing.T) {
 	resultCh <- &runtime.Result{} // Empty result since we're using context for response
 	close(resultCh)
 
-	executor.executeFunc = func(task runtime.Task) (chan *runtime.Result, error) {
+	executor.executeFunc = func(ctx context.Context, task runtime.Task) (chan *runtime.Result, error) {
 		// Verify the RequestContext was properly set
-		rCtx, ok := task.Context.Value(config.RequestCtx).(*config.RequestContext)
+		rCtx, ok := ctx.Value(config.RequestCtx).(*config.RequestContext)
 		if !ok {
 			t.Error("RequestContext not set in task context")
 		}

@@ -13,8 +13,7 @@ entries:
       comment: "Streams environment variables as JSON"
     method: GET
     path: /env
-    target: "functions:system.env"
-    json_output: true
+    handler: "functions:system.env"
 
   - name: ai.ollama
     kind: http.endpoint
@@ -22,7 +21,7 @@ entries:
       comment: "Returns the ollama response"
     method: GET
     path: /ollama
-    target: "functions:ai.ollama"
+    handler: "functions:ai.ollama"
 
   - name: time.ticker
     kind: http.endpoint
@@ -30,8 +29,7 @@ entries:
       comment: "Ticks time"
     method: GET
     path: /ticker
-    target: "functions:time.ticker"
-    json_output: true
+    handler: "functions:time.ticker"
 
   - name: time.current
     kind: http.endpoint
@@ -39,8 +37,7 @@ entries:
       comment: "Returns the current time"
     method: GET
     path: /time
-    target: "functions:time.current"
-    json_output: true
+    handler: "functions:time.current"
 
   - name: demo.websocket
     kind: http.endpoint
@@ -48,5 +45,4 @@ entries:
       comment: "WebSocket demo with echo server"
     method: GET
     path: /ws-demo
-    target: "functions:demo.websocket"
-    json_output: true
+    handler: "functions:demo.websocket"
