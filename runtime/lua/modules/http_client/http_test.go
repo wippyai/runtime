@@ -46,13 +46,13 @@ func TestHTTPModule(t *testing.T) {
 			},
 		}
 
-		mod := NewHTTPModule(logger, mockClient)
+		mod := NewHTTPClientModule(logger, mockClient)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
 		err = vm.DoString(context.Background(), `
-			local http = require("http")
+			local http = require("http_client")
 			local response = http.get("https://api.example.com/test", {
 				headers = {
 					["User-Agent"] = "Test Client"
@@ -88,13 +88,13 @@ func TestHTTPModule(t *testing.T) {
 			},
 		}
 
-		mod := NewHTTPModule(logger, mockClient)
+		mod := NewHTTPClientModule(logger, mockClient)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
 		err = vm.DoString(context.Background(), `
-			local http = require("http")
+			local http = require("http_client")
 			local response = http.post(
 				"https://api.example.com/data",
 				{
@@ -128,13 +128,13 @@ func TestHTTPModule(t *testing.T) {
 			},
 		}
 
-		mod := NewHTTPModule(logger, mockClient)
+		mod := NewHTTPClientModule(logger, mockClient)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
 		err = vm.DoString(context.Background(), `
-			local http = require("http")
+			local http = require("http_client")
 			local response = http.get("https://api.example.com/secure", {
 				auth = {
 					user = "testuser",
@@ -170,13 +170,13 @@ func TestHTTPModule(t *testing.T) {
 			},
 		}
 
-		mod := NewHTTPModule(logger, mockClient)
+		mod := NewHTTPClientModule(logger, mockClient)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
 		err = vm.DoString(context.Background(), `
-			local http = require("http")
+			local http = require("http_client")
 			local response = http.get("https://api.example.com/withcookies", {
 				cookies = {
 					session = "abc123",
@@ -196,13 +196,13 @@ func TestHTTPModule(t *testing.T) {
 			},
 		}
 
-		mod := NewHTTPModule(logger, mockClient)
+		mod := NewHTTPClientModule(logger, mockClient)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
 		err = vm.DoString(context.Background(), `
-			local http = require("http")
+			local http = require("http_client")
 			local response, err = http.get("https://api.example.com/error")
 			assert(response == nil)
 			assert(err:find("network error") ~= nil)
@@ -230,13 +230,13 @@ func TestHTTPModule(t *testing.T) {
 			},
 		}
 
-		mod := NewHTTPModule(logger, mockClient)
+		mod := NewHTTPClientModule(logger, mockClient)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
 		err = vm.DoString(context.Background(), `
-			local http = require("http")
+			local http = require("http_client")
 			local responses = http.request_batch({
 				{"GET", "https://api.example.com/one"},
 				{"GET", "https://api.example.com/two"}
@@ -250,13 +250,13 @@ func TestHTTPModule(t *testing.T) {
 	})
 
 	t.Run("URL component encoding/decoding", func(t *testing.T) {
-		mod := NewHTTPModule(logger, nil) // client not needed for this test
+		mod := NewHTTPClientModule(logger, nil) // client not needed for this test
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
 		err = vm.DoString(context.Background(), `
-			local http = require("http")
+			local http = require("http_client")
 			
 			-- Test encoding
 			local encoded = http.encode_uri("hello world & more")
@@ -282,13 +282,13 @@ func TestHTTPModule(t *testing.T) {
 			},
 		}
 
-		mod := NewHTTPModule(logger, mockClient)
+		mod := NewHTTPClientModule(logger, mockClient)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
 		err = vm.DoString(context.Background(), `
-			local http = require("http")
+			local http = require("http_client")
 			local response = http.get("https://api.example.com/query", {
 				query = "param1=value1&param2=value2"
 			})
@@ -311,7 +311,7 @@ func TestHTTPModuleValidation(t *testing.T) {
 		},
 	}
 
-	mod := NewHTTPModule(logger, mockClient)
+	mod := NewHTTPClientModule(logger, mockClient)
 
 	t.Run("validation errors", func(t *testing.T) {
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
@@ -326,7 +326,7 @@ func TestHTTPModuleValidation(t *testing.T) {
 			{
 				name: "get with empty URL",
 				code: `
-					local http = require("http")
+					local http = require("http_client")
 					local response = http.get("")
 				`,
 				errorMsg: "URL cannot be empty",
@@ -334,7 +334,7 @@ func TestHTTPModuleValidation(t *testing.T) {
 			{
 				name: "get with non-string URL",
 				code: `
-					local http = require("http")
+					local http = require("http_client")
 					local response = http.get(123)
 				`,
 				errorMsg: "URL must be a string",
@@ -342,7 +342,7 @@ func TestHTTPModuleValidation(t *testing.T) {
 			{
 				name: "post with invalid auth table",
 				code: `
-					local http = require("http")
+					local http = require("http_client")
 					local response = http.post("https://example.com", {
 						auth = {
 							user = false,
@@ -355,7 +355,7 @@ func TestHTTPModuleValidation(t *testing.T) {
 			{
 				name: "request_batch with empty table",
 				code: `
-					local http = require("http")
+					local http = require("http_client")
 					local responses = http.request_batch({})
 				`,
 				errorMsg: "requests table cannot be empty",
@@ -363,7 +363,7 @@ func TestHTTPModuleValidation(t *testing.T) {
 			{
 				name: "request_batch with invalid request entry",
 				code: `
-					local http = require("http")
+					local http = require("http_client")
 					local responses = http.request_batch({
 						"not a table"
 					})
@@ -373,7 +373,7 @@ func TestHTTPModuleValidation(t *testing.T) {
 			{
 				name: "request with empty method",
 				code: `
-					local http = require("http")
+					local http = require("http_client")
 					local response = http.request("", "https://example.com")
 				`,
 				errorMsg: "method cannot be empty",
@@ -381,7 +381,7 @@ func TestHTTPModuleValidation(t *testing.T) {
 			{
 				name: "request with non-string method",
 				code: `
-					local http = require("http")
+					local http = require("http_client")
 					local response = http.request(123, "https://example.com")
 				`,
 				errorMsg: "invalid method",
@@ -389,7 +389,7 @@ func TestHTTPModuleValidation(t *testing.T) {
 			{
 				name: "encode_uri with no arguments",
 				code: `
-					local http = require("http")
+					local http = require("http_client")
 					local encoded = http.encode_uri()
 				`,
 				errorMsg: "encode_uri requires exactly 1 string argument",
@@ -397,7 +397,7 @@ func TestHTTPModuleValidation(t *testing.T) {
 			{
 				name: "decode_uri with non-string argument",
 				code: `
-					local http = require("http")
+					local http = require("http_client")
 					local decoded = http.decode_uri(123)
 				`,
 				errorMsg: "string expected",
@@ -439,7 +439,7 @@ func TestHTTPModuleTimeouts(t *testing.T) {
 			},
 		}
 
-		mod := NewHTTPModule(logger, mockClient)
+		mod := NewHTTPClientModule(logger, mockClient)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -451,7 +451,7 @@ func TestHTTPModuleTimeouts(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			err := vm.DoString(context.Background(), `
-				local http = require("http")
+				local http = require("http_client")
 				local response, err = http.get("https://api.example.com/test", {
 					timeout = "100ms"  -- Very short timeout
 				})
@@ -492,13 +492,13 @@ func TestHTTPModuleTimeouts(t *testing.T) {
 			},
 		}
 
-		mod := NewHTTPModule(logger, mockClient)
+		mod := NewHTTPClientModule(logger, mockClient)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
 		err = vm.DoString(context.Background(), `
-			local http = require("http")
+			local http = require("http_client")
 			local response, err = http.get("https://api.example.com/test", {
 				timeout = 2  -- 2 second timeout
 			})
@@ -527,7 +527,7 @@ func TestHTTPModuleTimeouts(t *testing.T) {
 			},
 		}
 
-		mod := NewHTTPModule(logger, mockClient)
+		mod := NewHTTPClientModule(logger, mockClient)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -540,8 +540,8 @@ func TestHTTPModuleTimeouts(t *testing.T) {
 		done := make(chan error, 1)
 		go func() {
 			err := vm.DoString(ctx, `
-                local http = require("http")
-                local response, err = http.get("https://api.example.com/test")
+                local http_client = require("http_client")
+                local response, err = http_client.get("https://api.example.com/test")
                 -- Just check if response is nil and we got any error back
                 assert(response == nil)
                 assert(err ~= nil)
@@ -562,9 +562,7 @@ func TestHTTPModuleTimeouts(t *testing.T) {
 		// wait for completion
 		select {
 		case err := <-done:
-			if err != nil {
-				t.Logf("Got error from test (this is expected): %v", err)
-			}
+			assert.Error(t, err)
 		case <-time.After(time.Second):
 			t.Fatal("Test didn't complete in time")
 		}
@@ -596,7 +594,7 @@ func TestHTTPModuleTimeouts(t *testing.T) {
 			},
 		}
 
-		mod := NewHTTPModule(logger, mockClient)
+		mod := NewHTTPClientModule(logger, mockClient)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -605,7 +603,7 @@ func TestHTTPModuleTimeouts(t *testing.T) {
 		done := make(chan error, 1)
 		go func() {
 			err := vm.DoString(context.Background(), `
-                local http = require("http")
+                local http = require("http_client")
                 local responses, errors = http.request_batch({
                     {"GET", "https://api.example.com/fast"},
                     {"GET", "https://api.example.com/slow", {timeout = "100ms"}},
@@ -664,13 +662,13 @@ func TestHTTPModuleTimeouts(t *testing.T) {
 			},
 		}
 
-		mod := NewHTTPModule(logger, mockClient)
+		mod := NewHTTPClientModule(logger, mockClient)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
 		err = vm.DoString(context.Background(), `
-			local http = require("http")
+			local http = require("http_client")
 			local response = http.get("https://api.example.com/test")
 			assert(response ~= nil)
 			assert(response.status_code == 200)

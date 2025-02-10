@@ -30,8 +30,8 @@ func TestRequest_StreamBody_Simple(t *testing.T) {
 		defer vm.Close()
 
 		script := `
-			local httpctx = require("httpctx")
-			local req = httpctx.request()
+			local http = require("http")
+			local req = http.request()
 			local chunks = {}
 			for chunk in req:stream_body() do
 				if chunk == nil then
@@ -69,8 +69,8 @@ func TestRequest_StreamBody(t *testing.T) {
 		defer vm.Close()
 
 		script := `
-			local httpctx = require("httpctx")
-			local req = httpctx.request()
+			local http = require("http")
+			local req = http.request()
 			local chunks = {}
 			local iter, err = req:stream_body()
 			if err ~= nil then
@@ -109,8 +109,8 @@ func TestRequest_StreamBody(t *testing.T) {
 		defer vm.Close()
 
 		script := `
-			local httpctx = require("httpctx")
-			local req = httpctx.request()
+			local http = require("http")
+			local req = http.request()
 			local chunks = {}
 			local bufferSize = 10
 			local iter, err = req:stream_body({buffer_size = bufferSize})
@@ -153,8 +153,8 @@ func TestRequest_StreamBody(t *testing.T) {
 		defer vm.Close()
 
 		script := `
-			local httpctx = require("httpctx")
-			local req = httpctx.request()
+			local http = require("http")
+			local req = http.request()
 			local iter, err = req:stream_body()
 			if err ~= nil then
 				error("stream_body failed: " .. err)
@@ -191,8 +191,8 @@ func TestRequest_StreamBody(t *testing.T) {
 		defer vm.Close()
 
 		script := `
-			local httpctx = require("httpctx")
-			local req = httpctx.request()
+			local http = require("http")
+			local req = http.request()
 			local chunks = {}
 			local iter, err = req:stream_body()
 			if err ~= nil then

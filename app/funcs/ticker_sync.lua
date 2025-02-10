@@ -1,6 +1,6 @@
 local time = require("time")
 local json = require("json")
-local http = require("httpctx")
+local http = require("http")
 
 function ticker()
     -- Get request context

@@ -85,8 +85,8 @@ func TestRequest_Creation(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local req = httpctx.request()
+			local http = require("http")
+			local req = http.request()
 			assert(req ~= nil, "request should not be nil")
 		`, "test")
 		assert.NoError(t, err)
@@ -104,8 +104,8 @@ func TestRequest_Creation(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local req = httpctx.request({timeout = 5000})
+			local http = require("http")
+			local req = http.request({timeout = 5000})
 			assert(req ~= nil, "request should not be nil")
 		`, "test")
 		assert.NoError(t, err)
@@ -123,8 +123,8 @@ func TestRequest_Creation(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local req = httpctx.request({max_body = 1024})
+			local http = require("http")
+			local req = http.request({max_body = 1024})
 			assert(req ~= nil, "request should not be nil")
 		`, "test")
 		assert.NoError(t, err)
@@ -146,8 +146,8 @@ func TestRequest_BasicInfo(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local req = httpctx.request()
+			local http = require("http")
+			local req = http.request()
 			local method = req:method()
 			assert(method == "POST", "incorrect request method")
 		`, "test")
@@ -166,8 +166,8 @@ func TestRequest_BasicInfo(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local req = httpctx.request()
+			local http = require("http")
+			local req = http.request()
 			local path = req:path()
 			assert(path == "/api/users", "incorrect request path")
 		`, "test")
@@ -187,8 +187,8 @@ func TestRequest_BasicInfo(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local req = httpctx.request()
+			local http = require("http")
+			local req = http.request()
 			local host = req:host()
 			assert(host == "example.com", "incorrect request host")
 		`, "test")
@@ -211,8 +211,8 @@ func TestRequest_Query(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local req = httpctx.request()
+			local http = require("http")
+			local req = http.request()
 			local name = req:query("name")
 			assert(name == "john", "incorrect query value for name")
 			local age = req:query("age")
@@ -233,8 +233,8 @@ func TestRequest_Query(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local req = httpctx.request()
+			local http = require("http")
+			local req = http.request()
 			local value = req:query("nonexistent")
 			assert(value == nil, "non-existent query parameter should return nil")
 		`, "test")
@@ -253,8 +253,8 @@ func TestRequest_Query(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local req = httpctx.request()
+			local http = require("http")
+			local req = http.request()
 			local value, err = req:query("")
 			assert(value == nil, "empty query key should return nil")
 			assert(err ~= nil, "empty query key should return error")
@@ -279,8 +279,8 @@ func TestRequest_Body(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local req = httpctx.request()
+			local http = require("http")
+			local req = http.request()
 			local body = req:body()
 			assert(body == "Hello, World!", "incorrect body content")
 		`, "test")
@@ -301,8 +301,8 @@ func TestRequest_Body(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local req = httpctx.request()
+			local http = require("http")
+			local req = http.request()
 			local data = req:body_json()
 			assert(data.name == "john", "incorrect JSON name field")
 			assert(data.age == 25, "incorrect JSON age field")
@@ -323,8 +323,8 @@ func TestRequest_Body(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local req = httpctx.request()
+			local http = require("http")
+			local req = http.request()
 			local has_body = req:has_body()
 			assert(has_body == true, "should have body")
 		`, "test")
@@ -344,8 +344,8 @@ func TestRequest_Body(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local req = httpctx.request()
+			local http = require("http")
+			local req = http.request()
 			local length = req:content_length()
 			assert(length == 5, "incorrect content length")
 		`, "test")
@@ -369,9 +369,9 @@ func TestRequest_ContentType(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local req = httpctx.request()
-			local is_json = req:is_content_type(httpctx.CONTENT.JSON)
+			local http = require("http")
+			local req = http.request()
+			local is_json = req:is_content_type(http.CONTENT.JSON)
 			assert(is_json == true, "should match JSON content type")
 		`, "test")
 		assert.NoError(t, err)
@@ -390,9 +390,9 @@ func TestRequest_ContentType(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local req = httpctx.request()
-			local is_json = req:is_content_type(httpctx.CONTENT.JSON)
+			local http = require("http")
+			local req = http.request()
+			local is_json = req:is_content_type(http.CONTENT.JSON)
 			assert(is_json == true, "should match JSON content type with charset")
 		`, "test")
 		assert.NoError(t, err)
@@ -411,11 +411,11 @@ func TestRequest_ContentType(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local req = httpctx.request()
-			local accepts_json = req:accepts(httpctx.CONTENT.JSON)
+			local http = require("http")
+			local req = http.request()
+			local accepts_json = req:accepts(http.CONTENT.JSON)
 			assert(accepts_json == true, "should accept JSON")
-			local accepts_text = req:accepts(httpctx.CONTENT.TEXT)
+			local accepts_text = req:accepts(http.CONTENT.TEXT)
 			assert(accepts_text == false, "should not accept plain text")
 		`, "test")
 		assert.NoError(t, err)
@@ -438,8 +438,8 @@ func TestRequest_Headers(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local req = httpctx.request()
+			local http = require("http")
+			local req = http.request()
 			local value = req:header("X-Custom")
 			assert(value == "test-value", "incorrect header value")
 		`, "test")
@@ -458,8 +458,8 @@ func TestRequest_Headers(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local req = httpctx.request()
+			local http = require("http")
+			local req = http.request()
 			local value = req:header("X-NonExistent")
 			assert(value == nil, "non-existent header should return nil")
 		`, "test")
@@ -479,8 +479,8 @@ func TestRequest_Headers(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local req = httpctx.request()
+			local http = require("http")
+			local req = http.request()
 			local ctype = req:content_type()
 			assert(ctype == "application/json", "incorrect content type")
 		`, "test")
@@ -509,8 +509,8 @@ func TestRequest_BodyReadingErrors(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local req = httpctx.request({timeout = 1000}) -- 1 second timeout
+			local http = require("http")
+			local req = http.request({timeout = 1000}) -- 1 second timeout
 			local body, err = req:body()
 			assert(body == nil, "body should be nil on timeout")
 			assert(string.find(err, "timeout") ~= nil, "error should contain timeout message")
@@ -531,8 +531,8 @@ func TestRequest_BodyReadingErrors(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local req = httpctx.request({max_body = 5}) -- Max body size of 5 bytes
+			local http = require("http")
+			local req = http.request({max_body = 5}) -- Max body size of 5 bytes
 			local body, err = req:body()
 			assert(body == nil, "body should be nil when max_body is exceeded")
 			assert(string.find(err, "too large") ~= nil, "error should indicate body too large")
@@ -559,8 +559,8 @@ func TestRequest_BodyReadingErrors(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local req = httpctx.request({timeout = 1000}) -- 1 second timeout
+			local http = require("http")
+			local req = http.request({timeout = 1000}) -- 1 second timeout
 			local data, err = req:body_json()
 			assert(data == nil, "data should be nil on timeout")
 			assert(string.find(err, "timeout") ~= nil, "error should contain timeout message")
@@ -585,8 +585,8 @@ func TestRequest_BodyReadingErrors(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local req = httpctx.request({max_body = 10}) -- Max body size of 10 bytes
+			local http = require("http")
+			local req = http.request({max_body = 10}) -- Max body size of 10 bytes
 			local data, err = req:body_json()
 			assert(data == nil, "data should be nil when max_body is exceeded")
 			assert(string.find(err, "too large") ~= nil, "error should indicate body too large")
@@ -608,8 +608,8 @@ func TestRequest_BodyReadingErrors(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local req = httpctx.request()
+			local http = require("http")
+			local req = http.request()
 			local data, err = req:body_json()
 			assert(data == nil, "data should be nil on invalid JSON")
 			assert(string.find(err, "invalid JSON") ~= nil, "error should indicate invalid JSON")
@@ -633,8 +633,8 @@ func TestRequest_InvalidInput(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local req = httpctx.request()
+			local http = require("http")
+			local req = http.request()
 			local value, err = req:header(nil)
 		`, "test")
 		assert.Error(t, err)
@@ -652,8 +652,8 @@ func TestRequest_InvalidInput(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local req = httpctx.request()
+			local http = require("http")
+			local req = http.request()
 			local value, err = req:is_content_type(nil)
 		`, "test")
 		assert.Error(t, err)
@@ -671,8 +671,8 @@ func TestRequest_InvalidInput(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local req = httpctx.request()
+			local http = require("http")
+			local req = http.request()
 			local value, err = req:accepts(nil)
 		`, "test")
 		assert.Error(t, err)
@@ -694,8 +694,8 @@ func TestRequest_EdgeCases(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local req = httpctx.request()
+			local http = require("http")
+			local req = http.request()
 			local body, err = req:body()
 
 			assert(body == "", "body should be '' for empty body")
@@ -716,8 +716,8 @@ func TestRequest_EdgeCases(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local req = httpctx.request()
+			local http = require("http")
+			local req = http.request()
 			local is_json = req:is_content_type("application/json")
 			assert(is_json == false, "is_content_type should return false when no content-type header")
 		`, "test")
@@ -736,8 +736,8 @@ func TestRequest_EdgeCases(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local req = httpctx.request()
+			local http = require("http")
+			local req = http.request()
 			local value = req:query("key")
 			assert(value == "value1", "query should return the first value for multiple keys")
 		`, "test")
@@ -758,8 +758,8 @@ func TestRequest_EdgeCases(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local req = httpctx.request()
+			local http = require("http")
+			local req = http.request()
 			local value = req:header("X-Custom")
 
 			-- net/http returns the values joined by a comma and space
@@ -781,8 +781,8 @@ func TestRequest_EdgeCases(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local req = httpctx.request()
+			local http = require("http")
+			local req = http.request()
 			local name = req:query("name")
 			local city = req:query("city")
 			local special = req:header("X-Special")
@@ -821,8 +821,8 @@ func TestRequest_ContextCancellation(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local req = httpctx.request({timeout = 2000}) -- Request timeout longer than parent context timeout
+			local http = require("http")
+			local req = http.request({timeout = 2000}) -- Request timeout longer than parent context timeout
 			local body, err = req:body()
 			assert(body == nil, "body should be nil on cancellation")
 			assert(string.find(err, "context canceled") ~= nil, "error should contain context canceled message")
@@ -848,8 +848,8 @@ func TestRequest_RemoteAddr(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local req = httpctx.request()
+			local http = require("http")
+			local req = http.request()
 			local addr = req:remote_addr()
 			assert(addr == "192.168.1.1:12345", "incorrect remote address")
 		`, "test")
@@ -869,8 +869,8 @@ func TestRequest_ContextErrors(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local req, err = httpctx.request()
+			local http = require("http")
+			local req, err = http.request()
 			assert(req == nil, "request should be nil when no HTTP request context is found")
 			assert(err == "no HTTP request context found", "incorrect error message")
 		`, "test")
@@ -886,8 +886,8 @@ func TestRequest_ContextErrors(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local req, err = httpctx.request()
+			local http = require("http")
+			local req, err = http.request()
 			assert(req == nil, "request should be nil when invalid HTTP request context type")
 			assert(err == "invalid HTTP request context type", "incorrect error message")
 		`, "test")
@@ -910,8 +910,8 @@ func TestRequest_ToString(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local req = httpctx.request()
+			local http = require("http")
+			local req = http.request()
 			local str = tostring(req)
 			assert(str == "http.Request{method=PUT, path=/resource/123}", "incorrect string representation")
 		`, "test")
@@ -939,8 +939,8 @@ func TestRequest_JSONWithEmptyBody(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.DoString(ctx, `
-			local httpctx = require("httpctx")
-			local req = httpctx.request()
+			local http = require("http")
+			local req = http.request()
 			local data, err = req:body_json()
 			assert(data == nil, "data should be nil for empty JSON body")
 			assert(err ~= nil, "expected error")

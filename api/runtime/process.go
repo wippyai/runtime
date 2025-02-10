@@ -55,7 +55,7 @@ type (
 	// through various layer interfaces, stepping can be used to batch
 	// internal state changes between external interactions
 	Process interface {
-		// Start begins process execution with given task
+		// Start begins process execution with given task.
 		Start(task Task) (chan *Result, error)
 
 		// GetLayer retrieves specific interface layer from process
@@ -64,6 +64,12 @@ type (
 
 		// Step advances process state by one iteration
 		Step() error
+
+		// Done returns a channel that is closed when the process is complete or exited.
+		Done() <-chan struct{}
+
+		// Result returns the final result of the process execution.
+		Result() *Result
 	}
 )
 

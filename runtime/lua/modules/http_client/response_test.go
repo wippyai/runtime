@@ -40,13 +40,13 @@ func TestHTTPResponse(t *testing.T) {
 			},
 		}
 
-		mod := NewHTTPModule(logger, mockClient)
+		mod := NewHTTPClientModule(logger, mockClient)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
 		script := `
-			local http = require("http")
+			local http = require("http_client")
 			local response = http.get("https://api.example.com/test")
 			assert(response ~= nil, "Response should not be nil")
 			assert(response.headers ~= nil, "Headers should not be nil")
@@ -86,13 +86,13 @@ func TestHTTPResponse(t *testing.T) {
 			},
 		}
 
-		mod := NewHTTPModule(logger, mockClient)
+		mod := NewHTTPClientModule(logger, mockClient)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
 		script := `
-			local http = require("http")
+			local http = require("http_client")
 			local response = http.get("https://api.example.com/test")
 			assert(response ~= nil, "Response should not be nil")
 			assert(response.cookies ~= nil, "Cookies should not be nil")
@@ -153,13 +153,13 @@ func TestHTTPResponse(t *testing.T) {
 					},
 				}
 
-				mod := NewHTTPModule(logger, mockClient)
+				mod := NewHTTPClientModule(logger, mockClient)
 				vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 				require.NoError(t, err)
 				defer vm.Close()
 
 				script := fmt.Sprintf(`
-					local http = require("http")
+					local http = require("http_client")
 					local response = http.get("https://api.example.com/test")
 					assert(response ~= nil, "Response should not be nil")
 					assert(response.body_size == %d, string.format("Body size mismatch: expected %%d, got %%d", %d, response.body_size))
@@ -220,13 +220,13 @@ func TestHTTPResponse(t *testing.T) {
 					},
 				}
 
-				mod := NewHTTPModule(logger, mockClient)
+				mod := NewHTTPClientModule(logger, mockClient)
 				vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 				require.NoError(t, err)
 				defer vm.Close()
 
 				script := fmt.Sprintf(`
-					local http = require("http")
+					local http = require("http_client")
 					local response = http.get("%s")
 					assert(response ~= nil, "Response should not be nil")
 					assert(response.url == "%s", string.format("URL mismatch: expected %%s, got %%s", "%s", response.url))
@@ -256,7 +256,7 @@ func TestHTTPResponse(t *testing.T) {
 					}, nil
 				},
 				luaScript: `
-					local http = require("http")
+					local http = require("http_client")
 					local response = http.get("https://api.example.com/test")
 					local headers = response.headers
 					assert(headers == nil, "Headers should be nil when response headers are nil")
@@ -269,7 +269,7 @@ func TestHTTPResponse(t *testing.T) {
 					return nil, fmt.Errorf("mock error")
 				},
 				luaScript: `
-					local http = require("http")
+					local http = require("http_client")
 					local response, err = http.get("https://api.example.com/test")
 					assert(response == nil, "Response should be nil")
 					assert(err ~= nil, "Error should not be nil")
@@ -289,7 +289,7 @@ func TestHTTPResponse(t *testing.T) {
 					return resp, nil
 				},
 				luaScript: `
-					local http = require("http")
+					local http = require("http_client")
 					local response = http.get("https://api.example.com/test")
 					assert(response ~= nil, "Response should not be nil")
 					local success, err = pcall(function() return response.url end)
@@ -307,7 +307,7 @@ func TestHTTPResponse(t *testing.T) {
 					},
 				}
 
-				mod := NewHTTPModule(logger, mockClient)
+				mod := NewHTTPClientModule(logger, mockClient)
 				vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 				require.NoError(t, err)
 				defer vm.Close()
@@ -386,7 +386,7 @@ func TestStreamedResponseBodyHandling(t *testing.T) {
 			},
 		}
 
-		mod := NewHTTPModule(logger, mockClient)
+		mod := NewHTTPClientModule(logger, mockClient)
 		vm, err := engine.NewVM(
 			logger,
 			engine.WithLoader(mod.Name(), mod.Loader),
@@ -395,7 +395,7 @@ func TestStreamedResponseBodyHandling(t *testing.T) {
 		defer vm.Close()
 
 		script := `
-		local http = require("http")
+		local http = require("http_client")
 
 		local response = http.get("https://api.example.com/test", { stream = { buffer_size = 6 } })
 		assert(response ~= nil, "Response should not be nil")
@@ -439,7 +439,7 @@ func TestStreamedResponseBodyHandling(t *testing.T) {
 			},
 		}
 
-		mod := NewHTTPModule(logger, mockClient)
+		mod := NewHTTPClientModule(logger, mockClient)
 		vm, err := engine.NewVM(
 			logger,
 			engine.WithLoader(mod.Name(), mod.Loader),
@@ -448,7 +448,7 @@ func TestStreamedResponseBodyHandling(t *testing.T) {
 		defer vm.Close()
 
 		script := `
-		local http = require("http")
+		local http = require("http_client")
 
 		local response = http.get("https://api.example.com/test", { timeout = "100ms", stream = {} })
 		assert(response ~= nil, "Response should not be nil")
@@ -479,7 +479,7 @@ func TestStreamedResponseBodyHandling(t *testing.T) {
 			},
 		}
 
-		mod := NewHTTPModule(logger, mockClient)
+		mod := NewHTTPClientModule(logger, mockClient)
 		vm, err := engine.NewVM(
 			logger,
 			engine.WithLoader(mod.Name(), mod.Loader),
@@ -488,7 +488,7 @@ func TestStreamedResponseBodyHandling(t *testing.T) {
 		defer vm.Close()
 
 		script := `
-		local http = require("http")
+		local http = require("http_client")
 
 		local response = http.get("https://api.example.com/test", { stream = { buffer_size = 6 } })
 		assert(response ~= nil, "Response should not be nil")
@@ -520,7 +520,7 @@ func TestStreamedResponseBodyHandling(t *testing.T) {
 			},
 		}
 
-		mod := NewHTTPModule(logger, mockClient)
+		mod := NewHTTPClientModule(logger, mockClient)
 		vm, err := engine.NewVM(
 			logger,
 			engine.WithLoader(mod.Name(), mod.Loader),
@@ -529,7 +529,7 @@ func TestStreamedResponseBodyHandling(t *testing.T) {
 		defer vm.Close()
 
 		script := `
-		local http = require("http")
+		local http = require("http_client")
 
 		local response = http.get("https://api.example.com/test", { stream = {} })
 		assert(response ~= nil, "Response should not be nil")
@@ -558,7 +558,7 @@ func TestStreamedResponseBodyHandling(t *testing.T) {
 			},
 		}
 
-		mod := NewHTTPModule(logger, mockClient)
+		mod := NewHTTPClientModule(logger, mockClient)
 		vm, err := engine.NewVM(
 			logger,
 			engine.WithLoader(mod.Name(), mod.Loader),
@@ -567,7 +567,7 @@ func TestStreamedResponseBodyHandling(t *testing.T) {
 		defer vm.Close()
 
 		script := `
-    local http = require("http")
+    local http = require("http_client")
 
     local response = http.get("https://api.example.com/test", { stream = { buffer_size = 5 } })
     assert(response ~= nil, "Response should not be nil")

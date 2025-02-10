@@ -2,21 +2,21 @@
 
 ## Overview
 
-The `httpctx` module provides access to the current HTTP request and response within a Lua environment, typically in the context of a web server handler. It allows reading request data (method, path, headers, query parameters, body) and writing response data (status, headers, body). It also supports advanced features like streaming request bodies, chunked transfer encoding, and server-sent events.
+The `http` module provides access to the current HTTP request and response within a Lua environment, typically in the context of a web server handler. It allows reading request data (method, path, headers, query parameters, body) and writing response data (status, headers, body). It also supports advanced features like streaming request bodies, chunked transfer encoding, and server-sent events.
 
 ## Module Interface
 
 ### Module Loading
 
 ```lua
-local httpctx = require("httpctx")
+local http = require("http")
 ```
 
 ### Constants
 
 The module provides several tables containing constants for common HTTP elements:
 
-#### `httpctx.METHOD`
+#### `http.METHOD`
 
 - `GET`
 - `POST`
@@ -26,7 +26,7 @@ The module provides several tables containing constants for common HTTP elements
 - `HEAD`
 - `OPTIONS`
 
-#### `httpctx.STATUS`
+#### `http.STATUS`
 
 - `OK` (200)
 - `CREATED` (201)
@@ -36,7 +36,7 @@ The module provides several tables containing constants for common HTTP elements
 - `NOT_FOUND` (404)
 - `INTERNAL_ERROR` (500)
 
-#### `httpctx.CONTENT`
+#### `http.CONTENT`
 
 - `JSON` ("application/json")
 - `FORM` ("application/x-www-form-urlencoded")
@@ -44,12 +44,12 @@ The module provides several tables containing constants for common HTTP elements
 - `TEXT` ("text/plain")
 - `STREAM` ("application/octet-stream")
 
-#### `httpctx.TRANSFER`
+#### `http.TRANSFER`
 
 - `CHUNKED` ("chunked")
 - `SSE` ("sse")
 
-#### `httpctx.ERROR`
+#### `http.ERROR`
 
 - `PARSE_FAILED`
 - `INVALID_STATE`
@@ -58,9 +58,9 @@ The module provides several tables containing constants for common HTTP elements
 
 ### Request Object
 
-The `httpctx.request()` function creates a new `Request` object representing the current HTTP request.
+The `http.request()` function creates a new `Request` object representing the current HTTP request.
 
-#### `httpctx.request(options: table)`
+#### `http.request(options: table)`
 
 Creates a new `Request` object.
 
@@ -226,9 +226,9 @@ Returns:
 
 ### Response Object
 
-The `httpctx.response()` function creates a new `Response` object representing the current HTTP response.
+The `http.response()` function creates a new `Response` object representing the current HTTP response.
 
-#### `httpctx.response()`
+#### `http.response()`
 
 Creates a new `Response` object.
 
@@ -326,7 +326,7 @@ Sets the transfer encoding for the response.
 
 Parameters:
 
-- `transfer_type`: The transfer type (`httpctx.TRANSFER.CHUNKED` or `httpctx.TRANSFER.SSE`).
+- `transfer_type`: The transfer type (`http.TRANSFER.CHUNKED` or `http.TRANSFER.SSE`).
 
 Returns:
 
@@ -346,9 +346,9 @@ Returns:
 - `response:set_status`, `response:set_header`, and `response:set_content_type` must be called before any data is written to the response body.
 - `response:write_json` automatically sets the `Content-Type` to `application/json` if it hasn't already been set.
 - `response:set_transfer` can be used to enable chunked transfer encoding or server-sent events.
-- `response:write_event` is used for sending server-sent events. It automatically sets the necessary headers for SSE if `set_transfer` hasn't been called with `httpctx.TRANSFER.SSE`.
+- `response:write_event` is used for sending server-sent events. It automatically sets the necessary headers for SSE if `set_transfer` hasn't been called with `http.TRANSFER.SSE`.
 - The `request:stream_body` method allows streaming the request body in chunks.
-- The `options` parameter in `httpctx.request()` and `request:stream_body()` allows configuring request handling behavior.
+- The `options` parameter in `http.request()` and `request:stream_body()` allows configuring request handling behavior.
 
 ## Best Practices
 
@@ -361,45 +361,45 @@ Returns:
 ## Example Usage
 
 ```lua
-local httpctx = require("httpctx")
+local http = require("http")
 
 -- Get request and response objects
-local req = httpctx.request()
-local res = httpctx.response()
+local req = http.request()
+local res = http.response()
 
 -- Handle GET request
-if req:method() == httpctx.METHOD.GET then
+if req:method() == http.METHOD.GET then
   local name = req:query("name")
   if name then
-    res:set_status(httpctx.STATUS.OK)
+    res:set_status(http.STATUS.OK)
     res:write("Hello, " .. name .. "!")
   else
-    res:set_status(httpctx.STATUS.BAD_REQUEST)
+    res:set_status(http.STATUS.BAD_REQUEST)
     res:write("Missing 'name' parameter")
   end
 end
 
 -- Handle POST request with JSON body
-if req:method() == httpctx.METHOD.POST and req:is_content_type(httpctx.CONTENT.JSON) then
+if req:method() == http.METHOD.POST and req:is_content_type(http.CONTENT.JSON) then
   local data, err = req:body_json()
   if err then
-    res:set_status(httpctx.STATUS.BAD_REQUEST)
-    res:write_json({ error = httpctx.ERROR.PARSE_FAILED, message = err })
+    res:set_status(http.STATUS.BAD_REQUEST)
+    res:write_json({ error = http.ERROR.PARSE_FAILED, message = err })
   else
-    res:set_status(httpctx.STATUS.CREATED)
+    res:set_status(http.STATUS.CREATED)
     res:write_json({ message = "Received data", data = data })
   end
 end
 
 -- Handle large request body with streaming
-if req:method() == httpctx.METHOD.POST and req:content_type() == httpctx.CONTENT.STREAM then
+if req:method() == http.METHOD.POST and req:content_type() == http.CONTENT.STREAM then
     local iterator, err = req:stream_body({ buffer_size = 4096 })
     if err then
-      res:set_status(httpctx.STATUS.INTERNAL_ERROR)
+      res:set_status(http.STATUS.INTERNAL_ERROR)
       res:write(err)
     else
-      res:set_status(httpctx.STATUS.OK)
-      res:set_transfer(httpctx.TRANSFER.CHUNKED)
+      res:set_status(http.STATUS.OK)
+      res:set_transfer(http.TRANSFER.CHUNKED)
 
       for chunk in iterator do
         if chunk == nil then break end
@@ -410,8 +410,8 @@ if req:method() == httpctx.METHOD.POST and req:content_type() == httpctx.CONTENT
 end
 
 -- Handle server-sent events
-if req:method() == httpctx.METHOD.GET and req:path() == "/events" then
-  res:set_transfer(httpctx.TRANSFER.SSE)
+if req:method() == http.METHOD.GET and req:path() == "/events" then
+  res:set_transfer(http.TRANSFER.SSE)
 
   res:write_event({ name = "start", data = { message = "Starting event stream" } })
 

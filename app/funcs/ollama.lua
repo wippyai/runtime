@@ -1,6 +1,6 @@
 local http_client = require("http")
 local json = require("json")
-local http = require("httpctx")
+local http = require("http")
 
 local default_ollama_url = "http://127.0.0.1:11434/api/generate"
 

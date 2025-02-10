@@ -54,7 +54,7 @@ func TestAsyncHTTP(t *testing.T) {
 		// Create base VM with HTTP module
 		vm, err := engine.NewCVM(
 			log,
-			engine.WithPreloaded("http", NewHTTPModule(log, mockClient).Loader),
+			engine.WithPreloaded("http_client", NewHTTPClientModule(log, mockClient).Loader),
 		)
 		require.NoError(t, err)
 		defer vm.Close()
@@ -72,7 +72,7 @@ func TestAsyncHTTP(t *testing.T) {
 	
 	           -- Create first coroutine (fast request)
 	           coroutine.spawn(function()
-	               local response = http.get("https://api.example.com/fast")
+	               local response = http_client.get("https://api.example.com/fast")
 	               results.fast = {
 	                   status = response.status_code,
 	                   body = response.body
@@ -81,7 +81,7 @@ func TestAsyncHTTP(t *testing.T) {
 	
 	           -- Create second coroutine (slow request)
 	           coroutine.spawn(function()
-	               local response = http.get("https://api.example.com/slow")
+	               local response = http_client.get("https://api.example.com/slow")
 	               results.slow = {
 	                   status = response.status_code,
 	                   body = response.body
@@ -89,7 +89,7 @@ func TestAsyncHTTP(t *testing.T) {
 	           end)
 	
 	           -- Create slowest request in main flow
-	           local response = http.get("https://api.example.com/slower")
+	           local response = http_client.get("https://api.example.com/slower")
 	           results.slower = {
 	               status = response.status_code,
 	               body = response.body
@@ -152,7 +152,7 @@ func TestAsyncHTTP(t *testing.T) {
 		// Create base VM with HTTP module
 		vm, err := engine.NewCVM(
 			log,
-			engine.WithPreloaded("http", NewHTTPModule(log, mockClient).Loader),
+			engine.WithPreloaded("http_client", NewHTTPClientModule(log, mockClient).Loader),
 			engine.WithPreloaded("time", timemod.NewTimeModule().Loader),
 		)
 		require.NoError(t, err)
@@ -172,7 +172,7 @@ func TestAsyncHTTP(t *testing.T) {
                 
                 -- Create request with short timeout
                 coroutine.spawn(function()
-                    local response, err = http.get("https://api.example.com/slow", {
+                    local response, err = http_client.get("https://api.example.com/slow", {
                         timeout = "100ms"
                     })
                     result = response

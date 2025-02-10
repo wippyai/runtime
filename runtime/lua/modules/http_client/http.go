@@ -25,7 +25,7 @@ var (
 	ErrInvalidRequest = errors.New("request must be a table")
 )
 
-// Client interface abstracts the http_client.Client
+// Client interface abstracts the http.Client
 type Client interface {
 	Do(req *http.Request) (*http.Response, error)
 }
@@ -36,14 +36,14 @@ type Module struct {
 	client Client
 }
 
-// NewHTTPModule creates a new HTTP module instance with the given client and logger
-func NewHTTPModule(log *zap.Logger, client Client) *Module {
+// NewHTTPClientModule creates a new HTTP module instance with the given client and logger
+func NewHTTPClientModule(log *zap.Logger, client Client) *Module {
 	return &Module{log: log, client: client}
 }
 
 // Name returns the module name
 func (m *Module) Name() string {
-	return "http"
+	return "http_client"
 }
 
 // Loader implements the module loader
