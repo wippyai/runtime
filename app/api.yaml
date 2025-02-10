@@ -3,10 +3,10 @@ namespace: api
 
 meta:
   depends_on:
-    - "ns:functions"
-    - "ns:system"
-  server: "system:gateway"
-  router: "system:router"
+    - ns:functions
+    - ns:system
+  server: system:gateway
+  router: system:router
 
 entries:
   - name: system.env
@@ -23,7 +23,7 @@ entries:
       comment: "Returns the ollama response"
     method: GET
     path: /ollama
-    handler: "functions:ai.ollama"
+    handler: functions:ai.ollama
 
   - name: time.ticker
     kind: http.endpoint
@@ -31,7 +31,7 @@ entries:
       comment: "Ticks time"
     method: GET
     path: /ticker
-    handler: "functions:time.ticker"
+    handler: functions:time.ticker
 
   - name: time.current
     kind: http.endpoint
@@ -39,7 +39,7 @@ entries:
       comment: "Returns the local current time"
     method: GET
     path: /time
-    handler: "functions:time.local"
+    handler: functions:time.local
 
   - name: demo.websocket
     kind: http.endpoint
@@ -47,4 +47,4 @@ entries:
       comment: "WebSocket demo with echo server"
     method: GET
     path: /ws-demo
-    handler: "functions:demo.websocket"
+    handler: functions:demo.websocket
