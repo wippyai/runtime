@@ -2,13 +2,13 @@ package runner
 
 import (
 	"context"
-	"errors"
+	errors2 "errors"
 	"fmt"
+	"github.com/stretchr/testify/assert"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
@@ -18,24 +18,24 @@ import (
 	"github.com/ponyruntime/pony/system/eventbus"
 )
 
-// testComponent represents a component that can be configured via registry eventbus.
+// testComponent represents a component that can be configured via registry events.
 type testComponent struct {
 	bus             events.Bus
 	mu              sync.RWMutex
-	config          map[registry.Name]string
-	rejectedConfigs map[registry.Name]bool
+	config          map[registry.ID]string
+	rejectedConfigs map[registry.ID]bool
 }
 
 // newTestComponent creates a new testComponent.
 func newTestComponent(bus events.Bus) *testComponent {
 	return &testComponent{
 		bus:             bus,
-		config:          make(map[registry.Name]string),
-		rejectedConfigs: make(map[registry.Name]bool),
+		config:          make(map[registry.ID]string),
+		rejectedConfigs: make(map[registry.ID]bool),
 	}
 }
 
-// handleEvent handles registry eventbus and updates the component's configuration.
+// handleEvent handles registry events and updates the component's configuration.
 func (c *testComponent) handleEvent(evt events.Event) {
 	if evt.System != registry.System {
 		return // Ignore events from other systems.
@@ -67,7 +67,7 @@ func (c *testComponent) handleEvent(evt events.Event) {
 			c.bus.Send(context.Background(), events.Event{
 				System: registry.System,
 				Kind:   registry.Reject,
-				Path:   events.Path(entry.ID), // Add Path field
+				Path:   entry.ID.String(),
 				Data:   entry,
 			})
 			return
@@ -77,18 +77,19 @@ func (c *testComponent) handleEvent(evt events.Event) {
 		c.bus.Send(context.Background(), events.Event{
 			System: registry.System,
 			Kind:   registry.Accept,
-			Path:   events.Path(entry.ID), // Add Path field
+			Path:   entry.ID.String(),
 			Data:   entry,
 		})
 
 	case registry.Delete:
-		if entry.ID == "component/listener/lib1" {
+		id := registry.ParseID("component/listener/lib1")
+		if entry.ID == id {
 			// Reject deletion of lib1 if app1 still exists
 			c.rejectedConfigs[entry.ID] = true
 			c.bus.Send(context.Background(), events.Event{
 				System: registry.System,
 				Kind:   registry.Reject,
-				Path:   events.Path(entry.ID),
+				Path:   entry.ID.String(),
 				Data:   fmt.Errorf("listener %s is used by: [app1]", entry.ID),
 			})
 			return
@@ -99,7 +100,7 @@ func (c *testComponent) handleEvent(evt events.Event) {
 			c.bus.Send(context.Background(), events.Event{
 				System: registry.System,
 				Kind:   registry.Accept,
-				Path:   events.Path(entry.ID), // Add Path field
+				Path:   entry.ID.String(),
 				Data:   entry,
 			})
 		} else {
@@ -108,29 +109,26 @@ func (c *testComponent) handleEvent(evt events.Event) {
 			c.bus.Send(context.Background(), events.Event{
 				System: registry.System,
 				Kind:   registry.Reject,
-				Path:   events.Path(entry.ID), // Add Path field
+				Path:   entry.ID.String(),
 				Data:   entry,
 			})
 		}
-
-	default:
-		return
 	}
 }
 
-// getConfig returns the current configuration value for a given path.
-func (c *testComponent) getConfig(path registry.Name) (string, bool) {
+// getConfig returns the current configuration value for a given ID.
+func (c *testComponent) getConfig(id registry.ID) (string, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	val, ok := c.config[path]
+	val, ok := c.config[id]
 	return val, ok
 }
 
 // wasRejected checks if a configuration was rejected.
-func (c *testComponent) wasRejected(path registry.Name) bool {
+func (c *testComponent) wasRejected(id registry.ID) bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	_, ok := c.rejectedConfigs[path]
+	_, ok := c.rejectedConfigs[id]
 	return ok
 }
 
@@ -138,9 +136,7 @@ func (c *testComponent) wasRejected(path registry.Name) bool {
 func attachComponent(ctx context.Context, t *testing.T, bus events.Bus, component *testComponent) func() {
 	// Listen for all kinds within the registry system.
 	listener, err := eventbus.NewSubscriber(ctx, bus, registry.System, "", component.handleEvent)
-	if err != nil {
-		t.Fatalf("Failed to create event listener for component: %v", err)
-	}
+	require.NoError(t, err, "Failed to create event listener for component")
 
 	return func() {
 		listener.Close()
@@ -148,12 +144,70 @@ func attachComponent(ctx context.Context, t *testing.T, bus events.Bus, componen
 }
 
 // createEntry creates registry entries with string payloads for tests.
-func createEntry(path registry.Name, kind registry.Kind, data string) registry.Entry { //nolint:unparam
+func createEntry(id registry.ID, kind registry.Kind, data string) registry.Entry {
 	return registry.Entry{
-		ID:   path,
+		ID:   id,
 		Kind: kind,
 		Data: payload.NewString(data),
 	}
+}
+
+// setupTestEnvironment prepares a test environment with necessary components.
+func setupTestEnvironment(t *testing.T) (context.Context, events.Bus, *BusRunner, *testComponent, func()) {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	bus := eventbus.NewBus()
+	busRunner := NewBusRunner(bus, zap.NewNop())
+	component := newTestComponent(bus)
+
+	componentCleanup := attachComponent(ctx, t, bus, component)
+
+	cleanup := func() {
+		componentCleanup()
+		cancel()
+	}
+
+	return ctx, bus, busRunner, component, cleanup
+}
+
+// setupEventListener creates an event listener for specific event kinds.
+func setupEventListener(
+	ctx context.Context,
+	t *testing.T,
+	bus events.Bus,
+	kinds []events.Kind,
+	wg *sync.WaitGroup,
+	eventChan chan<- events.Event,
+) func() {
+	listener, err := eventbus.NewSubscriber(
+		ctx, bus, registry.System, "registry.*",
+		func(evt events.Event) {
+			if evt.System == registry.System {
+				for _, kind := range kinds {
+					if evt.Kind == kind {
+						eventChan <- evt
+						wg.Done()
+						return
+					}
+				}
+			}
+		},
+	)
+	require.NoError(t, err)
+
+	return listener.Close
+}
+
+// waitForEvents waits for a specific number of events and returns them.
+func waitForEvents(wg *sync.WaitGroup, eventChan chan events.Event) []events.Event {
+	wg.Wait()
+	close(eventChan)
+
+	var events []events.Event
+	for evt := range eventChan {
+		events = append(events, evt)
+	}
+	return events
 }
 
 func TestBusRunner_Operations(t *testing.T) {
@@ -161,8 +215,8 @@ func TestBusRunner_Operations(t *testing.T) {
 		name        string
 		changeSet   registry.ChangeSet
 		expectError bool
-		finalConfig map[registry.Name]string
-		rejected    []registry.Name
+		finalConfig map[registry.ID]string
+		rejected    []registry.ID
 		finalState  registry.State
 	}{
 		{
@@ -171,19 +225,19 @@ func TestBusRunner_Operations(t *testing.T) {
 				{
 					Kind: registry.Create,
 					Entry: createEntry(
-						"component/listener/key1",
+						registry.ParseID("component/listener/key1"),
 						"listener",
 						"value1",
 					),
 				},
 			},
 			expectError: false,
-			finalConfig: map[registry.Name]string{
-				"component/listener/key1": "value1",
+			finalConfig: map[registry.ID]string{
+				registry.ParseID("component/listener/key1"): "value1",
 			},
-			rejected: []registry.Name{},
+			rejected: []registry.ID{},
 			finalState: registry.State{
-				createEntry("component/listener/key1", "listener", "value1"),
+				createEntry(registry.ParseID("component/listener/key1"), "listener", "value1"),
 			},
 		},
 		{
@@ -192,15 +246,15 @@ func TestBusRunner_Operations(t *testing.T) {
 				{
 					Kind: registry.Create,
 					Entry: createEntry(
-						"component/listener/key2",
+						registry.ParseID("component/listener/key2"),
 						"listener",
 						"reject_this",
 					),
 				},
 			},
 			expectError: true,
-			finalConfig: map[registry.Name]string{},
-			rejected:    []registry.Name{"component/listener/key2"},
+			finalConfig: map[registry.ID]string{},
+			rejected:    []registry.ID{registry.ParseID("component/listener/key2")},
 			finalState:  registry.State{},
 		},
 		{
@@ -209,7 +263,7 @@ func TestBusRunner_Operations(t *testing.T) {
 				{
 					Kind: registry.Create,
 					Entry: createEntry(
-						"component/listener/key3",
+						registry.ParseID("component/listener/key3"),
 						"listener",
 						"value3",
 					),
@@ -217,19 +271,19 @@ func TestBusRunner_Operations(t *testing.T) {
 				{
 					Kind: registry.Update,
 					Entry: createEntry(
-						"component/listener/key3",
+						registry.ParseID("component/listener/key3"),
 						"listener",
 						"updatedValue3",
 					),
 				},
 			},
 			expectError: false,
-			finalConfig: map[registry.Name]string{
-				"component/listener/key3": "updatedValue3",
+			finalConfig: map[registry.ID]string{
+				registry.ParseID("component/listener/key3"): "updatedValue3",
 			},
-			rejected: []registry.Name{},
+			rejected: []registry.ID{},
 			finalState: registry.State{
-				createEntry("component/listener/key3", "listener", "updatedValue3"),
+				createEntry(registry.ParseID("component/listener/key3"), "listener", "updatedValue3"),
 			},
 		},
 		{
@@ -238,19 +292,19 @@ func TestBusRunner_Operations(t *testing.T) {
 				{
 					Kind: registry.Create,
 					Entry: createEntry(
-						"component/listener/key4",
+						registry.ParseID("component/listener/key4"),
 						"listener",
 						"value4",
 					),
 				},
 				{
 					Kind:  registry.Delete,
-					Entry: registry.Entry{ID: "component/listener/key4", Kind: "listener"},
+					Entry: registry.Entry{ID: registry.ParseID("component/listener/key4"), Kind: "listener"},
 				},
 			},
 			expectError: false,
-			finalConfig: map[registry.Name]string{},
-			rejected:    []registry.Name{},
+			finalConfig: map[registry.ID]string{},
+			rejected:    []registry.ID{},
 			finalState:  registry.State{},
 		},
 		{
@@ -259,7 +313,7 @@ func TestBusRunner_Operations(t *testing.T) {
 				{
 					Kind: registry.Create,
 					Entry: createEntry(
-						"component/listener/a",
+						registry.ParseID("component/listener/a"),
 						"listener",
 						"valueA",
 					),
@@ -267,7 +321,7 @@ func TestBusRunner_Operations(t *testing.T) {
 				{
 					Kind: registry.Update,
 					Entry: createEntry(
-						"component/listener/a",
+						registry.ParseID("component/listener/a"),
 						"listener",
 						"updatedA",
 					),
@@ -275,19 +329,19 @@ func TestBusRunner_Operations(t *testing.T) {
 				{
 					Kind: registry.Create,
 					Entry: createEntry(
-						"component/listener/b",
+						registry.ParseID("component/listener/b"),
 						"listener",
 						"reject_B",
 					),
 				},
 				{
 					Kind:  registry.Delete,
-					Entry: registry.Entry{ID: "component/listener/a", Kind: "listener"},
+					Entry: registry.Entry{ID: registry.ParseID("component/listener/a"), Kind: "listener"},
 				},
 			},
 			expectError: true, // Expect an error because of the rejection
-			finalConfig: map[registry.Name]string{},
-			rejected:    []registry.Name{"component/listener/b"},
+			finalConfig: map[registry.ID]string{},
+			rejected:    []registry.ID{registry.ParseID("component/listener/b")},
 			finalState:  registry.State{},
 		},
 		{
@@ -296,7 +350,7 @@ func TestBusRunner_Operations(t *testing.T) {
 				{
 					Kind: registry.Create,
 					Entry: createEntry(
-						"component/listener/dup",
+						registry.ParseID("component/listener/dup"),
 						"listener",
 						"value1",
 					),
@@ -304,15 +358,15 @@ func TestBusRunner_Operations(t *testing.T) {
 				{
 					Kind: registry.Create,
 					Entry: createEntry(
-						"component/listener/dup",
+						registry.ParseID("component/listener/dup"),
 						"listener",
 						"value2",
 					),
 				},
 			},
 			expectError: true,
-			finalConfig: map[registry.Name]string{},
-			rejected:    []registry.Name{}, // does not reach component
+			finalConfig: map[registry.ID]string{},
+			rejected:    []registry.ID{}, // does not reach component
 			finalState:  registry.State{},
 		},
 		{
@@ -321,7 +375,7 @@ func TestBusRunner_Operations(t *testing.T) {
 				{
 					Kind: registry.Create,
 					Entry: createEntry(
-						"component/listener/key1",
+						registry.ParseID("component/listener/key1"),
 						"listener",
 						"value1",
 					),
@@ -329,89 +383,80 @@ func TestBusRunner_Operations(t *testing.T) {
 				{
 					Kind: registry.Update,
 					Entry: registry.Entry{
-						ID:   "component/listener/key1",
+						ID:   registry.ParseID("component/listener/key1"),
 						Kind: "different_kind",
 						Data: payload.NewString("value2"),
 					},
 				},
 			},
 			expectError: true,
-			finalConfig: map[registry.Name]string{},
-			rejected:    []registry.Name{}, // does not reach component
+			finalConfig: map[registry.ID]string{},
+			rejected:    []registry.ID{}, // does not reach component
 			finalState:  registry.State{},
 		},
 		{
 			name: "DeleteNonExistent",
 			changeSet: registry.ChangeSet{
 				{
-					Kind:  registry.Delete,
-					Entry: registry.Entry{ID: "component/listener/nonexistent", Kind: "listener"},
+					Kind: registry.Delete,
+					Entry: registry.Entry{
+						ID:   registry.ParseID("component/listener/nonexistent"),
+						Kind: "listener",
+					},
 				},
 			},
-			expectError: true, // expect an error because deletion fails
-			finalConfig: map[registry.Name]string{},
-			rejected:    []registry.Name{}, // does not reach component
+			expectError: true,
+			finalConfig: map[registry.ID]string{},
+			rejected:    []registry.ID{}, // does not reach component
 			finalState:  registry.State{},
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-
-			bus := eventbus.NewBus()
-			busRunner := NewBusRunner(bus, zap.NewNop())
-			component := newTestComponent(bus)
-			componentClose := attachComponent(ctx, t, bus, component)
-			defer componentClose()
+			ctx, _, busRunner, component, cleanup := setupTestEnvironment(t)
+			defer cleanup()
 
 			initialState := registry.State{}
-
 			finalState, err := busRunner.Transition(ctx, initialState, tc.changeSet)
+
 			if tc.expectError {
 				require.Error(t, err)
 			} else {
 				require.NoError(t, err)
 			}
 
-			// Verify the component's listener.
-			for path, expectedValue := range tc.finalConfig {
-				actualValue, ok := component.getConfig(path)
-				assert.True(t, ok, "Expected listener not found: %s", path)
-				assert.Equal(t, expectedValue, actualValue, "Incorrect value for listener: %s", path)
+			// Verify the component's configuration
+			for id, expectedValue := range tc.finalConfig {
+				actualValue, ok := component.getConfig(id)
+				assert.True(t, ok, "Expected configuration not found: %s", id)
+				assert.Equal(t, expectedValue, actualValue, "Incorrect value for configuration: %s", id)
 			}
 
-			// Verify rejected configs.
-			for _, rejectedPath := range tc.rejected {
-				assert.True(t, component.wasRejected(rejectedPath), "Expected listener to be rejected: %s", rejectedPath)
+			// Verify rejected configs
+			for _, rejectedID := range tc.rejected {
+				assert.True(t, component.wasRejected(rejectedID), "Expected configuration to be rejected: %s", rejectedID)
 			}
 
-			// Verify the number of configs.
-			assert.Equal(t, len(tc.finalConfig), len(component.config), "Unexpected number of configs")
+			// Verify the number of configs
+			assert.Equal(t, len(tc.finalConfig), len(component.config), "Unexpected number of configurations")
 
-			// Verify the final state.
+			// Verify the final state
 			assert.ElementsMatch(t, tc.finalState, finalState, "Final state does not match expected state")
 		})
 	}
 }
 
 func TestBusRunner_RollbackOnSecondOperationFailure(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	ctx, _, busRunner, component, cleanup := setupTestEnvironment(t)
+	defer cleanup()
 
-	bus := eventbus.NewBus()
-	busRunner := NewBusRunner(bus, zap.NewNop())
-	component := newTestComponent(bus)
-	componentClose := attachComponent(ctx, t, bus, component)
-	defer componentClose()
-
-	initialState := registry.State{} // StartComponent with an empty state
+	initialState := registry.State{} // Start with an empty state
 	changeSet := registry.ChangeSet{
 		{
 			Kind: registry.Create,
 			Entry: createEntry(
-				"component/listener/key1",
+				registry.ParseID("component/listener/key1"),
 				"listener",
 				"value1",
 			),
@@ -419,7 +464,7 @@ func TestBusRunner_RollbackOnSecondOperationFailure(t *testing.T) {
 		{
 			Kind: registry.Create,
 			Entry: createEntry(
-				"component/listener/key2",
+				registry.ParseID("component/listener/key2"),
 				"listener",
 				"reject_this", // This operation will be rejected
 			),
@@ -431,56 +476,41 @@ func TestBusRunner_RollbackOnSecondOperationFailure(t *testing.T) {
 	// 1. Expect an error because the second operation is rejected
 	require.Error(t, err)
 
-	// 2. Verify the component's listener is empty (rolled back)
+	// 2. Verify the component's configuration is empty (rolled back)
 	assert.Equal(t, 0, len(component.config), "Config should be empty after rollback")
 
 	// 3. Verify that key2 was rejected
-	assert.True(t, component.wasRejected("component/listener/key2"), "component/listener/key2 should be rejected")
+	assert.True(t, component.wasRejected(registry.ParseID("component/listener/key2")),
+		"component/listener/key2 should be rejected")
 
 	// 4. Verify the final state is empty (rolled back)
 	assert.Empty(t, finalState, "Final state should be empty after rollback")
 }
 
 func TestBusRunner_BeginAndCommitEvents(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	ctx, bus, busRunner, _, cleanup := setupTestEnvironment(t)
+	defer cleanup()
 
-	bus := eventbus.NewBus()
-	busRunner := NewBusRunner(bus, zap.NewNop())
-	component := newTestComponent(bus)
-
-	// Use a WaitGroup to wait for the listener to process events
 	var wg sync.WaitGroup
-
-	// opChan to receive events in the listener
 	eventChan := make(chan events.Event, 10)
 
-	// Attach the listener to the bus
-	listener, err := eventbus.NewSubscriber(
-		ctx, bus, registry.System, "registry.*",
-		func(evt events.Event) {
-			if evt.System == registry.System && (evt.Kind == registry.Begin || evt.Kind == registry.Commit) {
-				eventChan <- evt
-				wg.Done()
-
-				if evt.Kind == registry.Commit || evt.Kind == registry.Discard {
-					close(eventChan)
-				}
-			}
-		},
+	// Listen for Begin and Commit events
+	listenerCleanup := setupEventListener(
+		ctx,
+		t,
+		bus,
+		[]events.Kind{registry.Begin, registry.Commit},
+		&wg,
+		eventChan,
 	)
-	require.NoError(t, err)
-	defer listener.Close()
-
-	componentClose := attachComponent(ctx, t, bus, component)
-	defer componentClose()
+	defer listenerCleanup()
 
 	initialState := registry.State{}
 	changeSet := registry.ChangeSet{
 		{
 			Kind: registry.Create,
 			Entry: createEntry(
-				"component/listener/key1",
+				registry.ParseID("component/listener/key1"),
 				"listener",
 				"value1",
 			),
@@ -490,68 +520,152 @@ func TestBusRunner_BeginAndCommitEvents(t *testing.T) {
 	// Expect 2 events: Begin and Commit
 	wg.Add(2)
 
-	_, err = busRunner.Transition(ctx, initialState, changeSet)
+	_, err := busRunner.Transition(ctx, initialState, changeSet)
 	require.NoError(t, err)
 
-	// wait for the listener to process the events
-	wg.Wait()
+	receivedEvents := waitForEvents(&wg, eventChan)
 
-	// Collect the received events
-	receivedEvents := make([]events.Event, 0, 2)
-	for evt := range eventChan {
-		receivedEvents = append(receivedEvents, evt)
-	}
-
-	// Assert that we received exactly 2 events
 	assert.Equal(t, 2, len(receivedEvents), "Expected 2 events (Begin and Commit)")
-
-	// Verify that the first event is Begin
 	assert.Equal(t, registry.Begin, receivedEvents[0].Kind, "First event should be Begin")
-
-	// Verify that the second event is Commit
 	assert.Equal(t, registry.Commit, receivedEvents[1].Kind, "Second event should be Commit")
 }
 
-func TestBusRunner_BeginAndDiscardEvents(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+func TestBusRunner_RollbackOrder(t *testing.T) {
+	ctx, _, busRunner, _, cleanup := setupTestEnvironment(t)
+	defer cleanup()
 
-	bus := eventbus.NewBus()
-	busRunner := NewBusRunner(bus, zap.NewNop())
-	component := newTestComponent(bus)
+	lib1ID := registry.ParseID("component/listener/lib1")
+	app1ID := registry.ParseID("component/listener/app1")
+	endpoint1ID := registry.ParseID("component/listener/endpoint1")
 
-	// Use a WaitGroup to wait for the listener to process events
-	var wg sync.WaitGroup
-
-	// opChan to receive events in the listener, buffered to prevent blocking
-	eventChan := make(chan events.Event, 10)
-
-	// Attach the listener to the bus to listen for Begin and Discard events
-	listener, err := eventbus.NewSubscriber(
-		ctx, bus, registry.System, "registry.*",
-		func(evt events.Event) {
-			if evt.System == registry.System && (evt.Kind == registry.Begin || evt.Kind == registry.Discard) {
-				eventChan <- evt
-				wg.Done()
-
-				if evt.Kind == registry.Commit || evt.Kind == registry.Discard {
-					close(eventChan)
-				}
-			}
+	initialState := registry.State{}
+	changeSet := registry.ChangeSet{
+		{
+			Kind: registry.Create,
+			Entry: registry.Entry{
+				ID:   lib1ID,
+				Kind: "listener",
+				Data: payload.NewString("lib-data"),
+				Meta: registry.Metadata{},
+			},
 		},
-	)
+		{
+			Kind: registry.Create,
+			Entry: registry.Entry{
+				ID:   app1ID,
+				Kind: "listener",
+				Data: payload.NewString("app-data"),
+				Meta: registry.Metadata{
+					registry.TagDependsOn: []string{lib1ID.String()},
+				},
+			},
+		},
+		{
+			Kind: registry.Create,
+			Entry: registry.Entry{
+				ID:   endpoint1ID,
+				Kind: "listener",
+				Data: payload.NewString("reject_this"), // This will trigger rejection
+				Meta: registry.Metadata{
+					registry.TagDependsOn: []string{app1ID.String()},
+				},
+			},
+		},
+	}
+
+	finalState, err := busRunner.Transition(ctx, initialState, changeSet)
+	require.Error(t, err)
+
+	// Check that lib1 remains but app1 is gone after rollback
+	var hasLib, hasApp bool
+	for _, entry := range finalState {
+		if entry.ID == lib1ID {
+			hasLib = true
+		}
+		if entry.ID == app1ID {
+			hasApp = true
+		}
+	}
+
+	assert.True(t, hasLib, "lib1 should remain since deletion would be rejected")
+	assert.False(t, hasApp, "app1 should be gone after rollback")
+}
+
+func TestBusRunner_ErrorPropagation(t *testing.T) {
+	ctx, bus, busRunner, _, cleanup := setupTestEnvironment(t)
+	defer cleanup()
+
+	expectedError := errors2.New("component configuration not allowed")
+	testID := registry.ParseID("component/listener/error-test")
+
+	// Set up dedicated subscriber for error testing
+	listener, err := eventbus.NewSubscriber(ctx, bus, registry.System, "", func(evt events.Event) {
+		if evt.System != registry.System || evt.Kind != registry.Create {
+			return
+		}
+
+		entry, ok := evt.Data.(registry.Entry)
+		if !ok {
+			return
+		}
+
+		// Immediately reject with our custom error
+		bus.Send(context.Background(), events.Event{
+			System: registry.System,
+			Kind:   registry.Reject,
+			Path:   entry.ID.String(),
+			Data:   expectedError,
+		})
+	})
 	require.NoError(t, err)
 	defer listener.Close()
-
-	componentClose := attachComponent(ctx, t, bus, component)
-	defer componentClose()
 
 	initialState := registry.State{}
 	changeSet := registry.ChangeSet{
 		{
 			Kind: registry.Create,
 			Entry: createEntry(
-				"component/listener/key1",
+				testID,
+				"listener",
+				"test-value",
+			),
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, time.Millisecond*100)
+	defer cancel()
+
+	_, err = busRunner.Transition(ctx, initialState, changeSet)
+
+	// Verify error propagation
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), expectedError.Error())
+}
+
+func TestBusRunner_BeginAndDiscardEvents(t *testing.T) {
+	ctx, bus, busRunner, _, cleanup := setupTestEnvironment(t)
+	defer cleanup()
+
+	var wg sync.WaitGroup
+	eventChan := make(chan events.Event, 10)
+
+	// Listen for Begin and Discard events
+	listenerCleanup := setupEventListener(
+		ctx,
+		t,
+		bus,
+		[]events.Kind{registry.Begin, registry.Discard},
+		&wg,
+		eventChan,
+	)
+	defer listenerCleanup()
+
+	initialState := registry.State{}
+	changeSet := registry.ChangeSet{
+		{
+			Kind: registry.Create,
+			Entry: createEntry(
+				registry.ParseID("component/listener/key1"),
 				"listener",
 				"reject_this", // This will cause a rejection and thus a Discard event
 			),
@@ -561,160 +675,12 @@ func TestBusRunner_BeginAndDiscardEvents(t *testing.T) {
 	// Expect 2 events: Begin and Discard
 	wg.Add(2)
 
-	_, err = busRunner.Transition(ctx, initialState, changeSet)
+	_, err := busRunner.Transition(ctx, initialState, changeSet)
 	require.Error(t, err) // We expect an error because the operation is rejected
 
-	// wait for the listener to process the events
-	wg.Wait()
+	receivedEvents := waitForEvents(&wg, eventChan)
 
-	// Collect the received events
-	receivedEvents := make([]events.Event, 0, 2)
-	for evt := range eventChan {
-		receivedEvents = append(receivedEvents, evt)
-	}
-
-	// Assert that we received exactly 2 events
 	assert.Equal(t, 2, len(receivedEvents), "Expected 2 events (Begin and Discard)")
-
-	// Verify that the first event is Begin
 	assert.Equal(t, registry.Begin, receivedEvents[0].Kind, "First event should be Begin")
-
-	// Verify that the second event is Discard
 	assert.Equal(t, registry.Discard, receivedEvents[1].Kind, "Second event should be Discard")
-}
-
-func TestBusRunner_ErrorPropagation(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	bus := eventbus.NewBus()
-	busRunner := NewBusRunner(bus, zap.NewNop())
-
-	expectedError := errors.New("component configuration not allowed")
-
-	// Create a test component with modified behavior
-	component := &testComponent{
-		bus:             bus,
-		config:          make(map[registry.Name]string),
-		rejectedConfigs: make(map[registry.Name]bool),
-	}
-
-	// Set up event listener with modified behavior for this test
-	listener, err := eventbus.NewSubscriber(ctx, bus, registry.System, "", func(evt events.Event) {
-		if evt.System == registry.System && evt.Kind == registry.Create {
-			entry, ok := evt.Data.(registry.Entry)
-			if !ok {
-				return
-			}
-
-			// Reject with custom error message
-			component.rejectedConfigs[entry.ID] = true
-			bus.Send(context.Background(), events.Event{
-				System: registry.System,
-				Kind:   registry.Reject,
-				Path:   events.Path(entry.ID),
-				Data:   expectedError, // send error instead of entry
-			})
-			return
-		}
-	})
-	require.NoError(t, err)
-	defer listener.Close()
-
-	// Create a changeset that should trigger the rejection
-	initialState := registry.State{}
-	changeSet := registry.ChangeSet{
-		{
-			Kind: registry.Create,
-			Entry: createEntry(
-				"component/listener/error-test",
-				"listener",
-				"test-value",
-			),
-		},
-	}
-
-	// Run the transition
-	_, err = busRunner.Transition(ctx, initialState, changeSet)
-
-	// Verify that an error occurred and contains our message
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), expectedError.Error())
-
-	// Verify the error was propagated
-	assert.True(t, component.wasRejected("component/listener/error-test"),
-		"Expected component/listener/error-test to be rejected")
-
-	// Verify no config was stored
-	assert.Equal(t, 0, len(component.config),
-		"No config should be stored after rejection")
-}
-
-func TestBusRunner_RollbackOrder(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	bus := eventbus.NewBus()
-	busRunner := NewBusRunner(bus, zap.NewNop())
-	component := newTestComponent(bus)
-	componentClose := attachComponent(ctx, t, bus, component)
-	defer componentClose()
-
-	initialState := registry.State{}
-
-	// Create entries with dependencies
-	changeSet := registry.ChangeSet{
-		{
-			Kind: registry.Create,
-			Entry: registry.Entry{
-				ID:   "component/listener/lib1",
-				Kind: "listener",
-				Data: payload.NewString("lib-data"),
-				Meta: registry.Metadata{},
-			},
-		},
-		{
-			Kind: registry.Create,
-			Entry: registry.Entry{
-				ID:   "component/listener/app1",
-				Kind: "listener",
-				Data: payload.NewString("app-data"),
-				Meta: registry.Metadata{
-					registry.TagDependsOn: []string{"component/listener/lib1"},
-				},
-			},
-		},
-		{
-			Kind: registry.Create,
-			Entry: registry.Entry{
-				ID:   "component/listener/endpoint1",
-				Kind: "listener",
-				Data: payload.NewString("reject_this"), // This will trigger rejection
-				Meta: registry.Metadata{
-					registry.TagDependsOn: []string{"component/listener/app1"},
-				},
-			},
-		},
-	}
-
-	finalState, err := busRunner.Transition(ctx, initialState, changeSet)
-
-	// Should fail with dependency error
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "rejected", "Error should indicate dependency violation")
-
-	// The state should still contain lib1 and app1 since rollback failed
-	hasLib := false
-	hasApp := false
-	for _, entry := range finalState {
-		if entry.ID == "component/listener/lib1" {
-			hasLib = true
-		}
-		if entry.ID == "component/listener/app1" {
-			hasApp = true
-		}
-	}
-
-	assert.True(t, hasLib, "lib1 should remain since deletion would be rejected")
-	assert.False(t, hasApp, "app1 should be gone after rollback")
 }
