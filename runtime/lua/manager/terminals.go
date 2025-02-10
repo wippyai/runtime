@@ -5,7 +5,7 @@ import (
 
 	"github.com/ponyruntime/pony/api/registry"
 	api "github.com/ponyruntime/pony/api/runtime/lua"
-	"github.com/ponyruntime/pony/api/service/terminal"
+	"github.com/ponyruntime/pony/api/service/shell"
 	"go.uber.org/zap"
 )
 
@@ -16,7 +16,7 @@ type TerminalFactory interface {
 		app *api.TerminalConfig,
 		modules api.ModuleRegistry,
 		libraries api.LibraryRegistry,
-	) (terminal.Terminal, error)
+	) (shell.Terminal, error)
 }
 
 // Terminals handles Lua terminal app operations
@@ -117,7 +117,7 @@ func (m *Terminals) MakeTerminal(
 	app *api.TerminalConfig,
 	modules api.ModuleRegistry,
 	libraries api.LibraryRegistry,
-) (terminal.Terminal, error) {
+) (shell.Terminal, error) {
 	if err := m.validateDependencies(app, modules, libraries); err != nil {
 		return nil, err
 	}

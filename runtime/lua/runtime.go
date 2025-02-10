@@ -11,7 +11,7 @@ import (
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	api "github.com/ponyruntime/pony/api/runtime/lua"
-	"github.com/ponyruntime/pony/api/service/terminal"
+	"github.com/ponyruntime/pony/api/service/shell"
 	"github.com/ponyruntime/pony/runtime/lua/manager"
 	"github.com/ponyruntime/pony/runtime/lua/pool"
 	terminalmng "github.com/ponyruntime/pony/runtime/lua/terminal"
@@ -305,8 +305,8 @@ func (m *RuntimeManager) Delete(ctx context.Context, entry registry.Entry) error
 		return m.workflows.Delete(entry.ID)
 	case api.KindTerminal:
 		m.bus.Send(ctx, events.Event{
-			System: terminal.System,
-			Kind:   terminal.DeleteTerminalEvent,
+			System: shell.System,
+			Kind:   shell.DeleteTerminalEvent,
 			Path:   events.Path(entry.ID),
 			Data:   entry.ID,
 		})

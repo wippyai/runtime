@@ -1,4 +1,4 @@
-package terminal
+package shell
 
 import (
 	"time"

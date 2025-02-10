@@ -11,7 +11,7 @@ import (
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/service/terminal"
+	"github.com/ponyruntime/pony/api/service/shell"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -109,16 +109,16 @@ func TestTerminalRunner_Start(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		terminal  terminal.Terminal
+		terminal  shell.Terminal
 		wantErr   bool
-		setupFunc func(*testing.T, terminal.Terminal)
-		checkFunc func(*testing.T, terminal.Terminal)
+		setupFunc func(*testing.T, shell.Terminal)
+		checkFunc func(*testing.T, shell.Terminal)
 	}{
 		{
 			name:     "basic terminal starts successfully",
 			terminal: newMockTerminal(),
 			wantErr:  false,
-			checkFunc: func(t *testing.T, term terminal.Terminal) {
+			checkFunc: func(t *testing.T, term shell.Terminal) {
 				mt := term.(*mockTerminal)
 				<-mt.started // Wait for Run to actually start
 				assert.True(t, mt.runCalled, "Run should be called")
@@ -128,7 +128,7 @@ func TestTerminalRunner_Start(t *testing.T) {
 			name:     "debug terminal starts with observation",
 			terminal: newMockDebugTerminal(),
 			wantErr:  false,
-			checkFunc: func(t *testing.T, term terminal.Terminal) {
+			checkFunc: func(t *testing.T, term shell.Terminal) {
 				mt := term.(*mockDebugTerminal)
 				<-mt.started // Wait for Run to actually start
 				assert.True(t, mt.observeCalled, "Observe should be called")
@@ -137,7 +137,7 @@ func TestTerminalRunner_Start(t *testing.T) {
 		},
 		{
 			name: "debug terminal fails observation",
-			terminal: func() terminal.Terminal {
+			terminal: func() shell.Terminal {
 				mt := newMockDebugTerminal()
 				mt.observeErr = errors.New("observe error")
 				return mt
@@ -147,7 +147,7 @@ func TestTerminalRunner_Start(t *testing.T) {
 		{
 			name:     "cannot start already running terminal",
 			terminal: newMockTerminal(),
-			setupFunc: func(t *testing.T, term terminal.Terminal) {
+			setupFunc: func(t *testing.T, term shell.Terminal) {
 				runner := newTerminalRunner(term, id, bus, logger)
 				ctx := context.Background()
 				err := runner.start(ctx)
@@ -193,7 +193,7 @@ func TestTerminalRunner_Stop(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		terminal    terminal.Terminal
+		terminal    shell.Terminal
 		wantErr     bool
 		setup       func(*terminalRunner)
 		makeContext func() (context.Context, context.CancelFunc) // Add context factory
@@ -226,7 +226,7 @@ func TestTerminalRunner_Stop(t *testing.T) {
 		},
 		{
 			name: "stop with context timeout",
-			terminal: func() terminal.Terminal {
+			terminal: func() shell.Terminal {
 				mt := newMockTerminal()
 				// Never close runBlock to make Run block indefinitely
 				mt.runBlock = make(chan struct{})
@@ -278,10 +278,10 @@ func TestTerminalRunner_TransferState(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		current   terminal.Terminal
-		next      terminal.Terminal
+		current   shell.Terminal
+		next      shell.Terminal
 		wantErr   bool
-		checkFunc func(*testing.T, terminal.Terminal, terminal.Terminal)
+		checkFunc func(*testing.T, shell.Terminal, shell.Terminal)
 	}{
 		{
 			name:    "transfer between non-stateful terminals",
@@ -291,7 +291,7 @@ func TestTerminalRunner_TransferState(t *testing.T) {
 		},
 		{
 			name: "transfer from stateful to non-stateful",
-			current: func() terminal.Terminal {
+			current: func() shell.Terminal {
 				mt := newMockStatefulTerminal()
 				mt.state = payload.New([]byte("test state"))
 				return mt
@@ -301,14 +301,14 @@ func TestTerminalRunner_TransferState(t *testing.T) {
 		},
 		{
 			name: "successful state transfer",
-			current: func() terminal.Terminal {
+			current: func() shell.Terminal {
 				mt := newMockStatefulTerminal()
 				mt.state = payload.New([]byte("test state"))
 				return mt
 			}(),
 			next:    newMockStatefulTerminal(),
 			wantErr: false,
-			checkFunc: func(t *testing.T, current, next terminal.Terminal) {
+			checkFunc: func(t *testing.T, current, next shell.Terminal) {
 				currentSt := current.(*mockStatefulTerminal)
 				nextSt := next.(*mockStatefulTerminal)
 				assert.Equal(t, currentSt.state, nextSt.state)
@@ -316,12 +316,12 @@ func TestTerminalRunner_TransferState(t *testing.T) {
 		},
 		{
 			name: "failed state transfer",
-			current: func() terminal.Terminal {
+			current: func() shell.Terminal {
 				mt := newMockStatefulTerminal()
 				mt.state = payload.New([]byte("test state"))
 				return mt
 			}(),
-			next: func() terminal.Terminal {
+			next: func() shell.Terminal {
 				mt := newMockStatefulTerminal()
 				mt.stateErr = errors.New("state transfer error")
 				return mt

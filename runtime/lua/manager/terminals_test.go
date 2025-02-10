@@ -8,7 +8,7 @@ import (
 
 	"github.com/ponyruntime/pony/api/registry"
 	api "github.com/ponyruntime/pony/api/runtime/lua"
-	"github.com/ponyruntime/pony/api/service/terminal"
+	"github.com/ponyruntime/pony/api/service/shell"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -16,7 +16,7 @@ import (
 
 // mockTerminalFactory implements TerminalFactory for testing
 type mockTerminalFactory struct {
-	makeTerminalFunc func(log *zap.Logger, app *api.TerminalConfig, modules api.ModuleRegistry, libraries api.LibraryRegistry) (terminal.Terminal, error)
+	makeTerminalFunc func(log *zap.Logger, app *api.TerminalConfig, modules api.ModuleRegistry, libraries api.LibraryRegistry) (shell.Terminal, error)
 }
 
 func (m *mockTerminalFactory) MakeTerminal(
@@ -24,7 +24,7 @@ func (m *mockTerminalFactory) MakeTerminal(
 	app *api.TerminalConfig,
 	modules api.ModuleRegistry,
 	libraries api.LibraryRegistry,
-) (terminal.Terminal, error) {
+) (shell.Terminal, error) {
 	if m.makeTerminalFunc != nil {
 		return m.makeTerminalFunc(log, app, modules, libraries)
 	}
@@ -273,7 +273,7 @@ func TestTerminals_MakeTerminal(t *testing.T) {
 	t.Run("factory error is propagated", func(t *testing.T) {
 		factoryErr := fmt.Errorf("factory error")
 		terminals.factory = &mockTerminalFactory{
-			makeTerminalFunc: func(_ *zap.Logger, _ *api.TerminalConfig, _ api.ModuleRegistry, _ api.LibraryRegistry) (terminal.Terminal, error) {
+			makeTerminalFunc: func(_ *zap.Logger, _ *api.TerminalConfig, _ api.ModuleRegistry, _ api.LibraryRegistry) (shell.Terminal, error) {
 				return nil, factoryErr
 			},
 		}
