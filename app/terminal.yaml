@@ -1,15 +1,14 @@
 version: 1.0/beta
+namespace: system/terminal
 
 name: terminal
 kind: terminal.service
 meta:
   comment: "Default terminal service."
-  groups: [ "system" ]
-  depends_on_groups: [ "apps" ]
-
+  groups: ["system"]
+  depends_on_groups: ["apps"]
 target: "btea.terminal"
 hide_logs: false
-
 lifecycle:
   auto_start: true
   start_timeout: 5s

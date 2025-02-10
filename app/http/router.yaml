@@ -1,9 +1,0 @@
-name: api_router
-kind: http.router
-meta:
-  comment: "Main API router"
-  server: "web_server"
-  depends_on:
-    - web_server
-
-prefix: /api/v1

@@ -12,21 +12,22 @@
 
 ```yaml
 version: "1.0"                      # Optional, file version
-namespace: "company/product/env"    # Required, namespace using forward slashes
+namespace: "company.product.env"    # Required, namespace using dots or slashes
+                                   # Examples: "company/product/env" or "company.product.env"
 
-meta: { ... }                         # Optional, shared metadata
-entries: [ ... ]                      # Optional, multiple components
+meta: { ... }                      # Optional, shared metadata
+entries: [ ... ]                   # Optional, multiple components
 ```
 
 Or single component format:
 
 ```yaml
 version: "1.0"                      # Optional, file version
-namespace: "company/product/env"    # Required, namespace using forward slashes
+namespace: "company.product.env"    # Required, namespace using dots or slashes
 
-name: "component/path"              # Required when not using entries
+name: "component.path"              # Required when not using entries
 kind: "component.type"              # Required
-meta: { ... }                         # Optional
+meta: { ... }                      # Optional
 
 # Component specific configuration
 ```
@@ -50,29 +51,40 @@ config/
 
 ### 2.1 Separator Rules
 
-- Use `/` for all hierarchical paths:
-    - Namespace hierarchy
-    - Component paths
-- Use `:` only to separate namespace from component reference
+- Use either `/` or `.` for hierarchical paths:
+   - Namespace hierarchy
+   - Component paths
+- Use `:` only as a system separator between namespace and component reference
+- Cannot use `:` in namespace or component names
 
 ### 2.2 Naming Patterns
 
 ```
-Namespace path:      ^[a-z0-9]+(/[a-z0-9]+)*$
-Component path:      ^[a-z0-9]+(/[a-z0-9]+)*$
-Fully qualified:     ^[a-z0-9]+(/[a-z0-9]+)*:[a-z0-9]+(/[a-z0-9]+)*$
+Basic naming:         ^[a-z0-9]+([/.][a-z0-9]+)*$
+Component path:       ^[a-z0-9]+([/.][a-z0-9]+)*$
+Fully qualified:     ^[a-z0-9]+([/.][a-z0-9]+)*:[a-z0-9]+([/.][a-z0-9]+)*$
+```
+
+Examples of valid names:
+```yaml
+namespace: company/product/env
+namespace: company.product.env
+name: service/api/v1
+name: service.api.v1
+reference: company.product.env:service.api.v1
+reference: company/product/env:service/api/v1
 ```
 
 ### 2.3 Reference Format
 
 ```yaml
 meta:
-  dependency: "company/product/env:component/path"   # Full reference
+  dependency: "company.product.env:component.path"   # Full reference
   depends_on: # Dependencies
-    - "company/product/env:component/path"           # Direct reference
-    - "other/product/env:component/path"             # Cross-namespace
-    - "group:service/type"                           # Group reference
-    - "ns:company/product"                           # Namespace reference
+    - "company/product/env:component/path"          # Direct reference (slash style)
+    - "other.product.env:component.path"            # Cross-namespace (dot style)
+    - "group:service.type"                          # Group reference
+    - "ns:company.product"                          # Namespace reference
 ```
 
 ## 3. Meta Fields
@@ -100,17 +112,17 @@ meta:
 
 1. Direct Dependencies
    ```yaml
-   depends_on: ["company/product/env:component/path"]
+   depends_on: ["company.product.env:component.path"]
    ```
 
 2. Group Dependencies
    ```yaml
-   depends_on: ["group:service/type"]
+   depends_on: ["group:service.type"]
    ```
 
 3. Namespace Dependencies
    ```yaml
-   depends_on: ["ns:company/product"]
+   depends_on: ["ns:company.product"]
    ```
 
 ### 4.2 Resolution Rules
