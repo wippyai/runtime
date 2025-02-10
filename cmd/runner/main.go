@@ -63,7 +63,7 @@ func NewApp(verbose, veryVerbose bool) (*App, error) {
 		cancel()
 		return nil, fmt.Errorf("failed to initialize logger")
 	}
-	appLogger := logger.Named("main")
+	appLogger := logger.Named("")
 
 	level := zapcore.InfoLevel
 	if verbose || veryVerbose {
