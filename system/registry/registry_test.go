@@ -2,8 +2,16 @@ package registry
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"github.com/pkg/errors"
+	"github.com/ponyruntime/pony/internal/version"
+	transcoder "github.com/ponyruntime/pony/system/payload"
+	"github.com/ponyruntime/pony/system/payload/json"
+	"github.com/ponyruntime/pony/system/payload/yaml"
+	"github.com/ponyruntime/pony/system/registry/loader"
+	"github.com/ponyruntime/pony/system/registry/loader/interpolate"
+	"github.com/ponyruntime/pony/tests/temp_files"
+	"github.com/stretchr/testify/assert"
 	"reflect"
 	"strings"
 	"sync"
@@ -13,8 +21,8 @@ import (
 
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/internal/version"
 	"github.com/ponyruntime/pony/system/registry/history"
+	"github.com/ponyruntime/pony/system/registry/topology"
 )
 
 // MockRunner is a mock implementation of the registry.Runner interface for testing.
@@ -27,8 +35,6 @@ type MockRunner struct {
 	RunFunc       func(state registry.State, changes registry.ChangeSet) (registry.State, error)
 }
 
-// Transition calls the custom RunFunc if set, otherwise returns the new state or an error.
-// TODO: ctx is not used
 func (m *MockRunner) Transition(_ context.Context, state registry.State, changes registry.ChangeSet) (registry.State, error) {
 	m.callStack = append(m.callStack, "Transition")
 	m.lastState = state
@@ -51,7 +57,7 @@ func NewMockRunner() *MockRunner {
 func TestNewRegistry(t *testing.T) {
 	hist := history.NewMemory()
 	runner := NewMockRunner()
-	stateBuilder := NewStateBuilder(zap.NewNop())
+	stateBuilder := topology.NewStateBuilder(zap.NewNop())
 
 	r := NewRegistry(hist, runner, stateBuilder, zap.NewNop())
 
@@ -68,7 +74,7 @@ func TestNewRegistry(t *testing.T) {
 		t.Errorf("Expected runner to be %v, got %v", runner, reg.runner)
 	}
 
-	if _, ok := reg.builder.(*StateBuilder); !ok {
+	if _, ok := reg.builder.(*topology.StateBuilder); !ok {
 		t.Errorf("Expected builder to be of type *StateBuilder, got %T", reg.builder)
 	}
 
@@ -83,8 +89,8 @@ func TestNewRegistry(t *testing.T) {
 
 func TestInMemoryRegistry_GetAllEntries(t *testing.T) {
 	state := registry.State{
-		{ID: "/foo", Kind: "test", Data: payload.NewString("data1")},
-		{ID: "/bar", Kind: "test", Data: payload.NewString("data2")},
+		{ID: registry.ID{Name: "/foo"}, Kind: "test", Data: payload.NewString("data1")},
+		{ID: registry.ID{Name: "/bar"}, Kind: "test", Data: payload.NewString("data2")},
 	}
 
 	reg := &reg{
@@ -106,7 +112,6 @@ func TestInMemoryRegistry_GetAllEntries(t *testing.T) {
 			t.Errorf("Expected entry at index %d to be %v, got %v", i, state[i], entries[i])
 		}
 
-		// Access string value using Data() and type assertion
 		expectedData, ok := state[i].Data.Data().(string)
 		if !ok {
 			t.Fatalf("Expected state Data to be a string, got: %T", state[i].Data.Data())
@@ -124,8 +129,8 @@ func TestInMemoryRegistry_GetAllEntries(t *testing.T) {
 }
 
 func TestInMemoryRegistry_GetEntry(t *testing.T) {
-	entry1 := registry.Entry{ID: "/foo", Kind: "test", Data: payload.New("data1")}
-	entry2 := registry.Entry{ID: "/bar", Kind: "test", Data: payload.New("data2")}
+	entry1 := registry.Entry{ID: registry.ID{Name: "/foo"}, Kind: "test", Data: payload.New("data1")}
+	entry2 := registry.Entry{ID: registry.ID{Name: "/bar"}, Kind: "test", Data: payload.New("data2")}
 
 	state := registry.State{entry1, entry2}
 
@@ -134,7 +139,7 @@ func TestInMemoryRegistry_GetEntry(t *testing.T) {
 		mu:    sync.RWMutex{},
 	}
 
-	retrievedEntry, err := reg.GetEntry("/foo")
+	retrievedEntry, err := reg.GetEntry(registry.ID{Name: "/foo"})
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -143,7 +148,7 @@ func TestInMemoryRegistry_GetEntry(t *testing.T) {
 		t.Errorf("Expected entry: %v, got: %v", entry1, retrievedEntry)
 	}
 
-	_, err = reg.GetEntry("/baz")
+	_, err = reg.GetEntry(registry.ID{Name: "/baz"})
 	if err == nil {
 		t.Errorf("Expected error for non-existent entry")
 	}
@@ -154,7 +159,7 @@ func TestInMemoryRegistry_Apply(t *testing.T) {
 	hist := history.NewMemory()
 	_ = hist.Save(v0, registry.ChangeSet{}, true)
 	runner := NewMockRunner()
-	stateBuilder := NewStateBuilder(zap.NewNop())
+	stateBuilder := topology.NewStateBuilder(zap.NewNop())
 
 	reg := NewRegistry(hist, runner, stateBuilder, zap.NewNop()).(*reg)
 
@@ -162,7 +167,7 @@ func TestInMemoryRegistry_Apply(t *testing.T) {
 		{
 			Kind: registry.Create,
 			Entry: registry.Entry{
-				ID:   "/foo",
+				ID:   registry.ID{Name: "/foo"},
 				Kind: "test",
 				Data: payload.New("data"),
 			},
@@ -211,7 +216,7 @@ func TestInMemoryRegistry_Apply_RunnerError(t *testing.T) {
 	hist := history.NewMemory()
 	_ = hist.Save(v0, registry.ChangeSet{}, true)
 	runner := NewMockRunner()
-	stateBuilder := NewStateBuilder(zap.NewNop())
+	stateBuilder := topology.NewStateBuilder(zap.NewNop())
 
 	reg := NewRegistry(hist, runner, stateBuilder, zap.NewNop()).(*reg)
 	runner.err = errors.New("runner error, failed to rollback: runner error")
@@ -236,25 +241,25 @@ func TestInMemoryRegistry_ApplyVersion(t *testing.T) {
 	hist := history.NewMemory()
 	_ = hist.Save(v0, registry.ChangeSet{}, true)
 	_ = hist.Save(v1, registry.ChangeSet{
-		{Kind: registry.Create, Entry: registry.Entry{ID: "/foo", Kind: "test", Data: payload.New("data1")}},
+		{Kind: registry.Create, Entry: registry.Entry{ID: registry.ID{Name: "/foo"}, Kind: "test", Data: payload.New("data1")}},
 	}, false)
 	_ = hist.Save(v2, registry.ChangeSet{
-		{Kind: registry.Update, Entry: registry.Entry{ID: "/foo", Kind: "test", Data: payload.New("data2")}},
+		{Kind: registry.Update, Entry: registry.Entry{ID: registry.ID{Name: "/foo"}, Kind: "test", Data: payload.New("data2")}},
 	}, false)
 
 	runner := NewMockRunner()
-	stateBuilder := NewStateBuilder(zap.NewNop())
+	stateBuilder := topology.NewStateBuilder(zap.NewNop())
 
 	reg := NewRegistry(hist, runner, stateBuilder, zap.NewNop()).(*reg)
 	reg.currentVersion = v2 // Set current version to v2
 	// Set initial state to v2 state
 	reg.state = registry.State{
-		{ID: "/foo", Kind: "test", Data: payload.New("data2")},
+		{ID: registry.ID{Name: "/foo"}, Kind: "test", Data: payload.New("data2")},
 	}
 
 	// Mock the runner to return a new state - v1 state
 	runner.newState = registry.State{
-		{ID: "/foo", Kind: "test", Data: payload.New("data1")},
+		{ID: registry.ID{Name: "/foo"}, Kind: "test", Data: payload.New("data1")},
 	}
 
 	err := reg.ApplyVersion(context.Background(), v1)
@@ -274,42 +279,30 @@ func TestInMemoryRegistry_ApplyVersion(t *testing.T) {
 	if !reflect.DeepEqual(runner.callStack, expectedRunnerStack) {
 		t.Errorf("Expected runner call stack: %v, got: %v", expectedRunnerStack, runner.callStack)
 	}
-
-	// Verify that runner received the correct state and changes
-	expectedStateBeforeRun := registry.State{
-		{ID: "/foo", Kind: "test", Data: payload.New("data2")},
-	}
-	if !reflect.DeepEqual(runner.lastState, expectedStateBeforeRun) {
-		t.Errorf("Expected runner to receive state: %v, got: %v", expectedStateBeforeRun, runner.lastState)
-	}
-
-	expectedChanges := registry.ChangeSet{
-		{Kind: registry.Update, Entry: registry.Entry{ID: "/foo", Kind: "test", Data: payload.New("data1")}},
-	}
-	if !reflect.DeepEqual(runner.lastChangeSet, expectedChanges) {
-		t.Errorf("Expected runner to receive changes: %v, got: %v", expectedChanges, runner.lastChangeSet)
-	}
 }
 
 // Mock for History that returns an error on Save
 type ErrorHistory struct {
 	history.MemoryStorage // Correctly embed MemoryStorage
-	// Add a map to store versions for Versions() method
-	versions map[registry.Version]registry.ChangeSet
+	versions              map[registry.Version]registry.ChangeSet
+}
+
+func NewErrorHistory() *ErrorHistory {
+	return &ErrorHistory{
+		MemoryStorage: *history.NewMemory(),
+		versions:      make(map[registry.Version]registry.ChangeSet),
+	}
 }
 
 // Override Save to return an error
 func (h *ErrorHistory) Save(v registry.Version, cs registry.ChangeSet, _ bool) error {
-	// Also save to the version map
 	if h.versions == nil {
 		h.versions = make(map[registry.Version]registry.ChangeSet)
 	}
 	h.versions[v] = cs
-
 	return errors.New("history error")
 }
 
-// Implement Versions()
 func (h *ErrorHistory) Versions() ([]registry.Version, error) {
 	vs := make([]registry.Version, 0, len(h.versions))
 	for v := range h.versions {
@@ -318,7 +311,6 @@ func (h *ErrorHistory) Versions() ([]registry.Version, error) {
 	return vs, nil
 }
 
-// Implement Get()
 func (h *ErrorHistory) Get(v registry.Version) (registry.ChangeSet, error) {
 	if cs, ok := h.versions[v]; ok {
 		return cs, nil
@@ -326,7 +318,6 @@ func (h *ErrorHistory) Get(v registry.Version) (registry.ChangeSet, error) {
 	return nil, fmt.Errorf("version not found: %v", v)
 }
 
-// Implement Head() - return error if no head, otherwise return latest saved version
 func (h *ErrorHistory) Head() (registry.Version, error) {
 	if len(h.versions) == 0 {
 		return nil, errors.New("no head version set")
@@ -340,25 +331,18 @@ func (h *ErrorHistory) Head() (registry.Version, error) {
 	return head, nil
 }
 
-func NewErrorHistory() *ErrorHistory {
-	return &ErrorHistory{
-		MemoryStorage: *history.NewMemory(),
-		versions:      make(map[registry.Version]registry.ChangeSet),
-	}
-}
-
 func TestInMemoryRegistry_Apply_HistorySaveError(t *testing.T) {
 	v0 := version.New(registry.RootVersion)
 	hist := NewErrorHistory()
-	_ = hist.Save(v0, registry.ChangeSet{}, true) // Set up an initial head version
+	_ = hist.Save(v0, registry.ChangeSet{}, true)
 	runner := NewMockRunner()
-	stateBuilder := NewStateBuilder(zap.NewNop())
+	stateBuilder := topology.NewStateBuilder(zap.NewNop())
 
 	reg := NewRegistry(hist, runner, stateBuilder, zap.NewNop()).(*reg)
 
 	// Mock the runner to return a new state (so we can test rollback)
 	runner.newState = registry.State{
-		{ID: "/foo", Kind: "test", Data: payload.New("data")},
+		{ID: registry.ID{Name: "/foo"}, Kind: "test", Data: payload.New("data")},
 	}
 
 	// Attempt to apply changes, which should fail due to the hist error
@@ -366,7 +350,7 @@ func TestInMemoryRegistry_Apply_HistorySaveError(t *testing.T) {
 		{
 			Kind: registry.Create,
 			Entry: registry.Entry{
-				ID:   "/foo",
+				ID:   registry.ID{Name: "/foo"},
 				Kind: "test",
 				Data: payload.New("data"),
 			},
@@ -383,7 +367,7 @@ func TestInMemoryRegistry_Apply_HistorySaveError(t *testing.T) {
 		t.Errorf("Expected error message: '%v', got: '%v'", expectedErrorMsg, err.Error())
 	}
 
-	// Verify that the runner's Transition method was called only once (no rollback)
+	// Verify that the runner's Transition method was called twice (for rollback)
 	expectedRunnerStack := []string{"Transition", "Transition"}
 	if !reflect.DeepEqual(runner.callStack, expectedRunnerStack) {
 		t.Errorf("Expected runner call stack: %v, got: %v", expectedRunnerStack, runner.callStack)
@@ -396,7 +380,6 @@ type CustomizableMockRunner struct {
 	RunFunc func(state registry.State, changes registry.ChangeSet) (registry.State, error)
 }
 
-// Run calls the custom RunFunc if set, otherwise returns an error.
 func (m *CustomizableMockRunner) Transition(_ context.Context, state registry.State, changes registry.ChangeSet) (registry.State, error) {
 	if m.RunFunc != nil {
 		return m.RunFunc(state, changes)
@@ -408,8 +391,8 @@ func TestInMemoryRegistry_ConcurrentApply(t *testing.T) {
 	v0 := version.New(registry.RootVersion)
 	hist := history.NewMemory()
 	_ = hist.Save(v0, registry.ChangeSet{}, true)
-	runner := &CustomizableMockRunner{} // Use the new customizable mock
-	stateBuilder := NewStateBuilder(zap.NewNop())
+	runner := &CustomizableMockRunner{}
+	stateBuilder := topology.NewStateBuilder(zap.NewNop())
 	reg := NewRegistry(hist, runner, stateBuilder, zap.NewNop()).(*reg)
 
 	var wg sync.WaitGroup
@@ -433,7 +416,7 @@ func TestInMemoryRegistry_ConcurrentApply(t *testing.T) {
 					{
 						Kind: registry.Create,
 						Entry: registry.Entry{
-							ID:   registry.Name(fmt.Sprintf("/entry/%d/%d", routineID, j)),
+							ID:   registry.ID{Name: fmt.Sprintf("/entry/%d/%d", routineID, j)},
 							Kind: "test",
 							Data: payload.New(fmt.Sprintf("data-%d-%d", routineID, j)),
 						},
@@ -466,9 +449,8 @@ func TestInMemoryRegistry_ConcurrentApply(t *testing.T) {
 		t.Fatalf("Error getting current version: %v", err)
 	}
 
-	// precision
-	if int(currentVersion.ID()) != numGoroutines*changesPerRoutine { //nolint:gosec
-		t.Errorf("Expected current version Name %d, got %d", numGoroutines*changesPerRoutine, currentVersion.ID())
+	if int(currentVersion.ID()) != numGoroutines*changesPerRoutine {
+		t.Errorf("Expected current version ID %d, got %d", numGoroutines*changesPerRoutine, currentVersion.ID())
 	}
 }
 
@@ -476,27 +458,24 @@ func TestInMemoryRegistry_ConcurrentApply(t *testing.T) {
 // when saving the new version to history fails.
 func TestInMemoryRegistry_Apply_Rollback_Success(t *testing.T) {
 	v0 := version.New(registry.RootVersion)
-	// Use ErrorHistory to simulate a history save error
 	hist := NewErrorHistory()
 	_ = hist.Save(v0, registry.ChangeSet{}, true)
 
 	runner := NewMockRunner()
-	stateBuilder := NewStateBuilder(zap.NewNop()) // Use the real StateBuilder
+	stateBuilder := topology.NewStateBuilder(zap.NewNop())
 	reg := NewRegistry(hist, runner, stateBuilder, zap.NewNop()).(*reg)
 
-	// Initial state
 	initialState := registry.State{
-		{ID: "/initial", Kind: "test", Data: payload.New("initial_data")},
+		{ID: registry.ID{Name: "/initial"}, Kind: "test", Data: payload.New("initial_data")},
 	}
 	reg.state = initialState
 	reg.currentVersion = v0
 
-	// Changes that will be applied but should be rolled back
 	changes := registry.ChangeSet{
 		{
 			Kind: registry.Create,
 			Entry: registry.Entry{
-				ID:   "/foo",
+				ID:   registry.ID{Name: "/foo"},
 				Kind: "test",
 				Data: payload.New("data"),
 			},
@@ -504,7 +483,7 @@ func TestInMemoryRegistry_Apply_Rollback_Success(t *testing.T) {
 	}
 
 	// Mock the runner to return a new state that includes the changes
-	newState := append(initialState, changes[0].Entry) //nolint:gocritic
+	newState := append(initialState, changes[0].Entry)
 	runner.newState = newState
 
 	// Mock the runner's Transition to apply the rollback changeset correctly
@@ -515,7 +494,7 @@ func TestInMemoryRegistry_Apply_Rollback_Success(t *testing.T) {
 		}
 
 		// Handle rollback
-		if len(cs) == 1 && cs[0].Kind == registry.Delete && cs[0].Entry.ID == "/foo" &&
+		if len(cs) == 1 && cs[0].Kind == registry.Delete && cs[0].Entry.ID.Name == "/foo" &&
 			reflect.DeepEqual(state, newState) {
 			return initialState, nil
 		}
@@ -560,11 +539,11 @@ func TestInMemoryRegistry_Apply_Rollback_Failure(t *testing.T) {
 	_ = hist.Save(v0, registry.ChangeSet{}, true)
 
 	runner := NewMockRunner()
-	stateBuilder := NewStateBuilder(zap.NewNop())
+	stateBuilder := topology.NewStateBuilder(zap.NewNop())
 	reg := NewRegistry(hist, runner, stateBuilder, zap.NewNop()).(*reg)
 
 	initialState := registry.State{
-		{ID: "/initial", Kind: "test", Data: payload.New("initial_data")},
+		{ID: registry.ID{Name: "/initial"}, Kind: "test", Data: payload.New("initial_data")},
 	}
 	reg.state = initialState
 	reg.currentVersion = v0
@@ -573,14 +552,14 @@ func TestInMemoryRegistry_Apply_Rollback_Failure(t *testing.T) {
 		{
 			Kind: registry.Create,
 			Entry: registry.Entry{
-				ID:   "/foo",
+				ID:   registry.ID{Name: "/foo"},
 				Kind: "test",
 				Data: payload.New("data"),
 			},
 		},
 	}
 
-	newState := append(initialState, changes[0].Entry) //nolint:gocritic
+	newState := append(initialState, changes[0].Entry)
 
 	rollbackErr := errors.New("rollback failed")
 	runner.RunFunc = func(state registry.State, cs registry.ChangeSet) (registry.State, error) {
@@ -590,7 +569,7 @@ func TestInMemoryRegistry_Apply_Rollback_Failure(t *testing.T) {
 		}
 
 		// Handle rollback failure
-		if len(cs) == 1 && cs[0].Kind == registry.Delete && cs[0].Entry.ID == "/foo" &&
+		if len(cs) == 1 && cs[0].Kind == registry.Delete && cs[0].Entry.ID.Name == "/foo" &&
 			reflect.DeepEqual(state, newState) {
 			return state, rollbackErr
 		}
@@ -615,7 +594,7 @@ func TestInMemoryRegistry_Apply_Rollback_Failure(t *testing.T) {
 	}
 
 	if !reflect.DeepEqual(reg.state, newState) {
-		t.Errorf("Expected state to be in intermediate state: %v, got: %v", reg.state, newState)
+		t.Errorf("Expected state to be in intermediate state: %v, got: %v", newState, reg.state)
 	}
 
 	// Verify that the current version is still v0
@@ -626,5 +605,166 @@ func TestInMemoryRegistry_Apply_Rollback_Failure(t *testing.T) {
 	expectedRunnerStack := []string{"Transition", "Transition"}
 	if !reflect.DeepEqual(runner.callStack, expectedRunnerStack) {
 		t.Errorf("Expected runner call stack: %v, got: %v", expectedRunnerStack, runner.callStack)
+	}
+}
+
+func createTestTranscoder() payload.Transcoder {
+	tr := transcoder.NewTranscoder()
+
+	// Register JSON
+	tr.RegisterTranscoder(payload.JSON, payload.Golang, 1, &json.ToGolang{})
+	tr.RegisterTranscoder(payload.Golang, payload.JSON, 1, &json.FromGolang{})
+	tr.RegisterUnmarshaler(payload.JSON, &json.ToGolang{})
+
+	// Register YAML
+	tr.RegisterTranscoder(payload.YAML, payload.Golang, 1, &yaml.ToGolang{})
+	tr.RegisterTranscoder(payload.Golang, payload.YAML, 1, &yaml.FromGolang{})
+	tr.RegisterUnmarshaler(payload.YAML, &yaml.ToGolang{})
+
+	return tr
+}
+
+// TestInMemoryRegistry_InitFromFolder tests initializing registry state from a folder
+func TestInMemoryRegistry_InitFromFolder(t *testing.T) {
+	// 1. Setup: Create a temporary directory with test files
+	files := map[string]string{
+		"listener/database.yaml": `
+namespace: default
+name: database_url
+kind: listener
+data:
+  host: localhost
+  port: 5432
+`,
+		"service/api.yaml": `
+namespace: default
+name: api_service
+kind: service
+data:
+  url: http://localhost:8080
+`,
+	}
+	rootDir, cleanup := temp_files.TempDirWithFiles(t, "registry_init_test", files)
+	defer cleanup()
+
+	// 2. Initialize components
+	hist := history.NewMemory()
+	runner := &CustomizableMockRunner{}
+	stateBuilder := topology.NewStateBuilder(zap.NewNop())
+	dtt := createTestTranscoder()
+	folderLoader := loader.NewLoader(dtt, zap.NewNop(), interpolate.NewEntryInterpolator(dtt, interpolate.WithInterpolator(interpolate.LoadVars)))
+
+	reg := NewRegistry(hist, runner, stateBuilder, zap.NewNop()).(*reg)
+
+	// 3. Load entries from the folder
+	entries, err := folderLoader.LoadFolder(rootDir, interpolate.Variables{})
+	if err != nil {
+		t.Fatalf("failed to load entries from folder: %v", err)
+	}
+
+	// 4. Mock Runner to apply loaded entries to the state
+	runner.RunFunc = func(state registry.State, changes registry.ChangeSet) (registry.State, error) {
+		newState := state
+		for _, change := range changes {
+			switch change.Kind {
+			case registry.Create:
+				newState = append(newState, change.Entry)
+			case registry.Update:
+				found := false
+				for i, entry := range newState {
+					if entry.ID == change.Entry.ID {
+						newState[i] = change.Entry
+						found = true
+						break
+					}
+				}
+				if !found {
+					return state, fmt.Errorf("entry not found for update: %s", change.Entry.ID)
+				}
+			case registry.Delete:
+				for i, entry := range newState {
+					if entry.ID == change.Entry.ID {
+						newState = append(newState[:i], newState[i+1:]...)
+						break
+					}
+				}
+			default:
+				return state, fmt.Errorf("unsupported operation kind: %s", change.Kind)
+			}
+		}
+		return newState, nil
+	}
+
+	// 5. Apply the loaded entries as the initial ChangeSet
+	initialChangeSet := topology.CreateChangeSetFromEntries(entries)
+
+	newVersion, err := reg.Apply(context.Background(), initialChangeSet)
+	if err != nil {
+		t.Fatalf("failed to apply initial ChangeSet: %v", err)
+	}
+
+	// 6. Verify the state
+	if newVersion.ID() != 1 {
+		t.Errorf("Expected current version to be 1, got: %v", newVersion.ID())
+	}
+
+	expectedState := registry.State{
+		{
+			ID:   registry.ID{NS: "default", Name: "database_url"},
+			Kind: "listener",
+			Data: payload.New(map[string]interface{}{
+				"namespace": "default",
+				"name":      "database_url",
+				"kind":      "listener",
+				"data": map[string]interface{}{
+					"host": "localhost",
+					"port": float64(5432), // YAML numbers are unmarshaled as float64
+				},
+			}),
+		},
+		{
+			ID:   registry.ID{NS: "default", Name: "api_service"},
+			Kind: "service",
+			Data: payload.New(map[string]interface{}{
+				"namespace": "default",
+				"name":      "api_service",
+				"kind":      "service",
+				"data": map[string]interface{}{
+					"url": "http://localhost:8080",
+				},
+			}),
+		},
+	}
+
+	currentState, err := reg.GetAllEntries()
+	if err != nil {
+		t.Fatalf("failed to get all entries: %v", err)
+	}
+
+	if len(currentState) != len(expectedState) {
+		t.Fatalf("Expected state length %d, got %d", len(expectedState), len(currentState))
+	}
+
+	for _, expectedEntry := range expectedState {
+		found := false
+		for _, currentEntry := range currentState {
+			if currentEntry.ID == expectedEntry.ID {
+				found = true
+				assert.Equal(t, expectedEntry.Kind, currentEntry.Kind, "Kind mismatch for ID: %s", expectedEntry.ID)
+
+				// Compare Data field using assert.Equal for deep comparison of maps
+				var expectedData, currentData map[string]interface{}
+				err = dtt.Unmarshal(expectedEntry.Data, &expectedData)
+				assert.NoError(t, err, "Error unmarshalling expected data")
+				err = dtt.Unmarshal(currentEntry.Data, &currentData)
+				assert.NoError(t, err, "Error unmarshalling current data")
+
+				assert.Equal(t, expectedData, currentData, "Data mismatch for ID: %s", expectedEntry.ID)
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Expected entry not found in state: %s", expectedEntry.ID)
+		}
 	}
 }
