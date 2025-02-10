@@ -340,10 +340,10 @@ func TestEndpointConfig_Validate(t *testing.T) {
 		{
 			name: "valid config",
 			config: EndpointConfig{
-				Meta:   registry.Metadata{ServerID: "test-server"},
-				Path:   "/test",
-				Method: "GET",
-				Target: registry.ID{Name: "test_handler"},
+				Meta:    registry.Metadata{ServerID: "test-server"},
+				Path:    "/test",
+				Method:  "GET",
+				Handler: registry.ID{Name: "test_handler"},
 			},
 			wantErr: false,
 		},

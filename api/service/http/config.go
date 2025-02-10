@@ -53,10 +53,10 @@ type (
 
 	// EndpointConfig represents the configuration for a single endpoint.
 	EndpointConfig struct {
-		Meta   registry.Metadata `json:"meta"`   // Metadata
-		Path   string            `json:"path"`   // URL path
-		Method string            `json:"method"` // Timeouts method
-		Target registry.ID       `json:"target"` // Target function
+		Meta    registry.Metadata `json:"meta"`    // Metadata
+		Path    string            `json:"path"`    // URL path
+		Method  string            `json:"method"`  // Timeouts method
+		Handler registry.ID       `json:"handler"` // Handler function
 	}
 )
 

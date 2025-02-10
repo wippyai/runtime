@@ -42,25 +42,21 @@ func (h *EndpointHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	task, err := h.createTask(r, routeInfo)
-	if err != nil {
-		statusCode := http.StatusBadRequest
-		h.handleError(w, err, statusCode)
-		return
-	}
+	task := runtime.Task{Handler: routeInfo.Endpoint.Handler}
 
-	// allows internal funcs to work with the request directly
 	rCtx := config.NewRequestContext(r, w)
-	task.Context = context.WithValue(task.Context, config.RequestCtx, rCtx)
+	ctx := context.WithValue(r.Context(), config.RequestCtx, rCtx)
 
-	if _, err = h.executeTask(task); err != nil {
+	if _, err = h.executeTask(ctx, task); err != nil {
 		if !rCtx.ResponseHandled() {
 			h.handleError(w, err, http.StatusInternalServerError)
 		}
 		return
 	}
 
-	// we never write results to the response directly, use context wrapper instead
+	if !rCtx.ResponseHandled() {
+		http.Error(w, "no response sent by endpoint", http.StatusInternalServerError)
+	}
 }
 
 // getRouteInfo extracts route information from the request context.
@@ -73,17 +69,9 @@ func (h *EndpointHandler) getRouteInfo(r *http.Request) (*config.RouteInfo, erro
 	return routeInfo, nil
 }
 
-// createTask builds a task from the HTTP request and route information.
-func (h *EndpointHandler) createTask(r *http.Request, info *config.RouteInfo) (runtime.Task, error) {
-	return runtime.Task{
-		Context: r.Context(),
-		Handler: info.Endpoint.Target,
-	}, nil
-}
-
 // executeTask runs the task and handles context cancellation.
-func (h *EndpointHandler) executeTask(task runtime.Task) (*runtime.Result, error) {
-	resultCh, err := h.executor.Call(task)
+func (h *EndpointHandler) executeTask(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
+	resultCh, err := h.executor.Call(ctx, task)
 	if err != nil {
 		return nil, fmt.Errorf("executing task: %w", err)
 	}
@@ -94,8 +82,8 @@ func (h *EndpointHandler) executeTask(task runtime.Task) (*runtime.Result, error
 			return nil, fmt.Errorf("received nil result from executor")
 		}
 		return result, nil
-	case <-task.Context.Done():
-		return nil, fmt.Errorf("request canceled: %w", task.Context.Err())
+	case <-ctx.Done():
+		return nil, fmt.Errorf("request canceled: %w", ctx.Err())
 	}
 }
 
