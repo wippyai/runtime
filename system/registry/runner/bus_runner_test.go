@@ -5,12 +5,11 @@ import (
 	errors2 "errors"
 	"fmt"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"
@@ -592,13 +591,21 @@ func TestBusRunner_RollbackOrder(t *testing.T) {
 }
 
 func TestBusRunner_ErrorPropagation(t *testing.T) {
-	ctx, bus, busRunner, _, cleanup := setupTestEnvironment(t)
-	defer cleanup()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	defer cancel()
 
+	bus := eventbus.NewBus()
+	busRunner := NewBusRunner(bus, zap.NewNop())
 	expectedError := errors2.New("component configuration not allowed")
-	testID := registry.ParseID("component/listener/error-test")
 
-	// Set up dedicated subscriber for error testing
+	// Create a test component specifically for error testing
+	component := &testComponent{
+		bus:             bus,
+		config:          make(map[registry.ID]string),
+		rejectedConfigs: make(map[registry.ID]bool),
+	}
+
+	// Set up dedicated error-testing listener
 	listener, err := eventbus.NewSubscriber(ctx, bus, registry.System, "", func(evt events.Event) {
 		if evt.System != registry.System || evt.Kind != registry.Create {
 			return
@@ -609,7 +616,11 @@ func TestBusRunner_ErrorPropagation(t *testing.T) {
 			return
 		}
 
-		// Immediately reject with our custom error
+		// Reject with custom error message
+		component.mu.Lock()
+		component.rejectedConfigs[entry.ID] = true
+		component.mu.Unlock()
+
 		bus.Send(context.Background(), events.Event{
 			System: registry.System,
 			Kind:   registry.Reject,
@@ -620,26 +631,33 @@ func TestBusRunner_ErrorPropagation(t *testing.T) {
 	require.NoError(t, err)
 	defer listener.Close()
 
+	// Create a changeset that should trigger the rejection
 	initialState := registry.State{}
 	changeSet := registry.ChangeSet{
 		{
 			Kind: registry.Create,
 			Entry: createEntry(
-				testID,
+				registry.ParseID("component/listener/error-test"),
 				"listener",
 				"test-value",
 			),
 		},
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, time.Millisecond*100)
-	defer cancel()
-
+	// Run the transition
 	_, err = busRunner.Transition(ctx, initialState, changeSet)
 
 	// Verify error propagation
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), expectedError.Error())
+
+	// Verify the error was recorded
+	assert.True(t, component.wasRejected(registry.ParseID("component/listener/error-test")),
+		"Expected component/listener/error-test to be rejected")
+
+	// Verify no config was stored
+	assert.Equal(t, 0, len(component.config),
+		"No config should be stored after rejection")
 }
 
 func TestBusRunner_BeginAndDiscardEvents(t *testing.T) {
