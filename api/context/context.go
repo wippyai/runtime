@@ -25,13 +25,14 @@ var (
 	// ValuesCtx is the context key for storing arbitrary values
 	ValuesCtx = &Key{Name: "values"} //nolint:gochecknoglobals
 	// CleanupCtx is the context key for cleanup operations
-	CleanupCtx  = &Key{Name: "cleanup"}      //nolint:gochecknoglobals
-	RunnerCtx   = &Key{Name: "taskgroupkey"} //nolint:gochecknoglobals
-	AsyncCtx    = &Key{Name: "schedulekey"}  //nolint:gochecknoglobals
-	EnvCtx      = &Key{Name: "env"}          //nolint:gochecknoglobals
-	SecurityCtx = &Key{Name: "security"}     //nolint:gochecknoglobals
-	MetricsCtx  = &Key{Name: "metrics"}      //nolint:gochecknoglobals
-	TemporalCtx = &Key{Name: "temporal"}     //nolint:gochecknoglobals
-	HandlerCtx  = &Key{Name: "handler"}      //nolint:gochecknoglobals
-	RegistryCtx = &Key{Name: "registry"}     //nolint:gochecknoglobals
+	CleanupCtx   = &Key{Name: "cleanup"}      //nolint:gochecknoglobals
+	RunnerCtx    = &Key{Name: "taskgroupkey"} //nolint:gochecknoglobals
+	AsyncCtx     = &Key{Name: "schedulekey"}  //nolint:gochecknoglobals
+	EnvCtx       = &Key{Name: "env"}          //nolint:gochecknoglobals
+	SecurityCtx  = &Key{Name: "security"}     //nolint:gochecknoglobals
+	MetricsCtx   = &Key{Name: "metrics"}      //nolint:gochecknoglobals
+	TemporalCtx  = &Key{Name: "temporal"}     //nolint:gochecknoglobals
+	HandlerCtx   = &Key{Name: "handler"}      //nolint:gochecknoglobals
+	RegistryCtx  = &Key{Name: "registry"}     //nolint:gochecknoglobals
+	ResourcesCtx = &Key{Name: "resources"}    //nolint:gochecknoglobals
 )
