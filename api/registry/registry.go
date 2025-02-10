@@ -175,6 +175,18 @@ func (t ID) String() string {
 	return fmt.Sprintf("%s:%s", t.NS, t.Name)
 }
 
+// WithDefaultNS returns a new ID with the given default namespace if one is not already set.
+// If the ID already has a namespace, it returns the ID unchanged.
+func (t ID) WithDefaultNS(defaultNS Namespace) ID {
+	if t.NS != "" {
+		return t
+	}
+	return ID{
+		NS:   defaultNS,
+		Name: t.Name,
+	}
+}
+
 func (t *ID) UnmarshalJSON(data []byte) error {
 	// Check if the data is a JSON string
 	if len(data) > 0 && data[0] == '"' {

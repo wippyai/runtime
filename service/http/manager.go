@@ -21,9 +21,9 @@ type ServerManager struct {
 	handler http.HandlerFunc
 	dtt     payload.Transcoder
 
-	servers         map[registry.Name]*Server
-	endpointServers map[registry.Name]registry.Name // endpoint Name -> server Name
-	routerServers   map[registry.Name]registry.Name // router Name -> server Name
+	servers         map[registry.ID]*Server
+	endpointServers map[registry.ID]registry.ID // endpoint ID -> server ID
+	routerServers   map[registry.ID]registry.ID // router ID -> server ID
 }
 
 // NewManager creates a new HTTP service instance
@@ -38,9 +38,9 @@ func NewManager(
 		bus:             bus,
 		handler:         handler,
 		dtt:             dtt,
-		servers:         make(map[registry.Name]*Server),
-		endpointServers: make(map[registry.Name]registry.Name),
-		routerServers:   make(map[registry.Name]registry.Name),
+		servers:         make(map[registry.ID]*Server),
+		endpointServers: make(map[registry.ID]registry.ID),
+		routerServers:   make(map[registry.ID]registry.ID),
 	}
 }
 
@@ -56,9 +56,9 @@ func NewHTTPManager(
 		bus:             bus,
 		handler:         NewEndpointHandler(exec, dtt, logger).Handle,
 		dtt:             dtt,
-		servers:         make(map[registry.Name]*Server),
-		endpointServers: make(map[registry.Name]registry.Name),
-		routerServers:   make(map[registry.Name]registry.Name),
+		servers:         make(map[registry.ID]*Server),
+		endpointServers: make(map[registry.ID]registry.ID),
+		routerServers:   make(map[registry.ID]registry.ID),
 	}
 }
 
@@ -142,7 +142,7 @@ func (s *ServerManager) addServer(ctx context.Context, entry registry.Entry) err
 	s.bus.Send(ctx, events.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Register,
-		Path:   events.Path(entry.ID),
+		Path:   entry.ID.String(),
 		Data:   &supervisor.Entry{Service: server, Config: cfg.Lifecycle},
 	})
 
@@ -165,7 +165,7 @@ func (s *ServerManager) updateServer(ctx context.Context, entry registry.Entry) 
 	s.bus.Send(ctx, events.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Update,
-		Path:   events.Path(entry.ID),
+		Path:   entry.ID.String(),
 		Data:   &supervisor.Entry{Config: cfg.Lifecycle},
 	})
 
@@ -177,11 +177,10 @@ func (s *ServerManager) deleteServer(ctx context.Context, entry registry.Entry) 
 		return fmt.Errorf("server %s not found", entry.ID)
 	}
 
-	// todo: move to bus context as well it's tests, add helper
 	s.bus.Send(ctx, events.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Remove,
-		Path:   events.Path(entry.ID),
+		Path:   entry.ID.String(),
 	})
 
 	// Clean up associated endpoints and routers
@@ -207,13 +206,14 @@ func (s *ServerManager) addRouter(entry registry.Entry) error {
 		return err
 	}
 
-	serverID := registry.Name(cfg.Meta.StringValue(config.ServerID))
+	serverIDStr := cfg.Meta.StringValue(config.ServerID)
+	serverID := registry.ParseID(serverIDStr).WithDefaultNS(entry.ID.NS)
 	server, exists := s.servers[serverID]
 	if !exists {
 		return fmt.Errorf("target server %s not found", serverID)
 	}
 
-	if err := server.router.AddRouter(string(entry.ID), *cfg); err != nil {
+	if err := server.router.AddRouter(entry.ID.String(), *cfg); err != nil {
 		return fmt.Errorf("failed to add router: %w", err)
 	}
 
@@ -232,22 +232,23 @@ func (s *ServerManager) updateRouter(entry registry.Entry) error {
 		return fmt.Errorf("router %s not found", entry.ID)
 	}
 
-	targetServerID := registry.Name(cfg.Meta.StringValue(config.ServerID))
+	targetServerIDStr := cfg.Meta.StringValue(config.ServerID)
+	targetServerID := registry.ParseID(targetServerIDStr).WithDefaultNS(entry.ID.NS)
 	if _, exists := s.servers[targetServerID]; !exists {
 		return fmt.Errorf("target server %s not found", targetServerID)
 	}
 
 	if currentServerID == targetServerID {
-		return s.servers[currentServerID].router.UpdateRouter(string(entry.ID), *cfg)
+		return s.servers[currentServerID].router.UpdateRouter(entry.ID.String(), *cfg)
 	}
 
 	// Handle server migration
-	if err := s.servers[targetServerID].router.AddRouter(string(entry.ID), *cfg); err != nil {
+	if err := s.servers[targetServerID].router.AddRouter(entry.ID.String(), *cfg); err != nil {
 		return err
 	}
 
 	s.routerServers[entry.ID] = targetServerID
-	_ = s.servers[currentServerID].router.DeleteRouter(string(entry.ID))
+	_ = s.servers[currentServerID].router.DeleteRouter(entry.ID.String())
 	return nil
 }
 
@@ -257,7 +258,7 @@ func (s *ServerManager) deleteRouter(entry registry.Entry) error {
 		return fmt.Errorf("router %s not found", entry.ID)
 	}
 
-	if err := s.servers[serverID].router.DeleteRouter(string(entry.ID)); err != nil {
+	if err := s.servers[serverID].router.DeleteRouter(entry.ID.String()); err != nil {
 		return fmt.Errorf("failed to delete router: %w", err)
 	}
 
@@ -271,13 +272,14 @@ func (s *ServerManager) addEndpoint(entry registry.Entry) error {
 		return err
 	}
 
-	serverID := registry.Name(cfg.Meta.StringValue(config.ServerID))
+	serverIDStr := cfg.Meta.StringValue(config.ServerID)
+	serverID := registry.ParseID(serverIDStr).WithDefaultNS(entry.ID.NS)
 	server, exists := s.servers[serverID]
 	if !exists {
 		return fmt.Errorf("target server %s not found", serverID)
 	}
 
-	if err := server.router.AddEndpoint(string(entry.ID), *cfg); err != nil {
+	if err := server.router.AddEndpoint(entry.ID.String(), *cfg); err != nil {
 		return fmt.Errorf("failed to add endpoint: %w", err)
 	}
 
@@ -296,22 +298,23 @@ func (s *ServerManager) updateEndpoint(entry registry.Entry) error {
 		return fmt.Errorf("endpoint %s not found", entry.ID)
 	}
 
-	targetServerID := registry.Name(cfg.Meta.StringValue(config.ServerID))
+	targetServerIDStr := cfg.Meta.StringValue(config.ServerID)
+	targetServerID := registry.ParseID(targetServerIDStr).WithDefaultNS(entry.ID.NS)
 	if _, exists := s.servers[targetServerID]; !exists {
 		return fmt.Errorf("target server %s not found", targetServerID)
 	}
 
 	if currentServerID == targetServerID {
-		return s.servers[currentServerID].router.UpdateEndpoint(string(entry.ID), *cfg)
+		return s.servers[currentServerID].router.UpdateEndpoint(entry.ID.String(), *cfg)
 	}
 
 	// Handle server migration
-	if err := s.servers[targetServerID].router.AddEndpoint(string(entry.ID), *cfg); err != nil {
+	if err := s.servers[targetServerID].router.AddEndpoint(entry.ID.String(), *cfg); err != nil {
 		return err
 	}
 
 	s.endpointServers[entry.ID] = targetServerID
-	_ = s.servers[currentServerID].router.DeleteEndpoint(string(entry.ID))
+	_ = s.servers[currentServerID].router.DeleteEndpoint(entry.ID.String())
 	return nil
 }
 
@@ -321,7 +324,7 @@ func (s *ServerManager) deleteEndpoint(entry registry.Entry) error {
 		return fmt.Errorf("endpoint %s not found", entry.ID)
 	}
 
-	if err := s.servers[serverID].router.DeleteEndpoint(string(entry.ID)); err != nil {
+	if err := s.servers[serverID].router.DeleteEndpoint(entry.ID.String()); err != nil {
 		return fmt.Errorf("failed to delete endpoint: %w", err)
 	}
 

@@ -124,6 +124,4 @@ func (s *Server) UpdateConfig(config config.ServerConfig) {
 	defer s.mu.Unlock()
 
 	s.config = config
-
-	// no changes to the server instance
 }

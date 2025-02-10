@@ -19,19 +19,7 @@ entries:
     kind: http.router
     meta:
       comment: "API router for v1 endpoints"
-      server: "gateway"
+      server: gateway
       depends_on:
         - gateway
     prefix: /api/v1
-
-  - name: shell
-    kind: terminal.service
-    meta:
-      comment: "System shell service"
-    hide_logs: false
-    lifecycle:
-      auto_start: false
-      start_timeout: 5s
-      restart:
-        initial_delay: 1s
-        max_attempts: 3
