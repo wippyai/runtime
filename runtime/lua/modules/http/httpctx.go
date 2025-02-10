@@ -1,4 +1,4 @@
-package httpctx
+package http
 
 import (
 	"github.com/ponyruntime/pony/runtime/lua/modules/stream"

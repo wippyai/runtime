@@ -1,590 +1,562 @@
 package http
 
 import (
-	"bytes"
 	"context"
-	"errors"
-	"fmt"
-	"io"
-	"net/http"
-	"sync"
+	"encoding/json"
+	basehttp "net/http"
+	"net/http/httptest"
 	"testing"
-	"time"
 
+	"github.com/ponyruntime/pony/api/service/http"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
 
-func TestHTTPResponse(t *testing.T) {
+// mockResponseWriter wraps httptest.ResponseRecorder to track header sent state
+type mockResponseWriter struct {
+	*httptest.ResponseRecorder
+	headersSent bool
+}
+
+func newMockResponseWriter() *mockResponseWriter {
+	return &mockResponseWriter{
+		ResponseRecorder: httptest.NewRecorder(),
+		headersSent:      false,
+	}
+}
+
+func (m *mockResponseWriter) WriteHeader(code int) {
+	m.headersSent = true
+	m.ResponseRecorder.WriteHeader(code)
+}
+
+func (m *mockResponseWriter) Write(b []byte) (int, error) {
+	m.headersSent = true
+	return m.ResponseRecorder.Write(b)
+}
+
+func TestResponse_Basic(t *testing.T) {
 	logger := zap.NewNop()
 
-	t.Run("response headers handling", func(t *testing.T) {
-		mockClient := &mockHTTPClient{
-			doFunc: func(req *http.Request) (*http.Response, error) {
-				return &http.Response{
-					StatusCode: 200,
-					Body:       io.NopCloser(bytes.NewBufferString(`{"test":"data"}`)),
-					Header: http.Header{
-						"Content-Type":     []string{"application/json"},
-						"X-Custom-Header":  []string{"custom-value"},
-						"X-Empty-Header":   []string{},
-						"X-Multi-Header":   []string{"value1", "value2"},
-						"X-Special-Chars":  []string{"value with spaces & symbols"},
-						"X-Unicode-Header": []string{"こんにちは"},
-					},
-					Request: req,
-				}, nil
-			},
-		}
+	t.Run("create new response", func(t *testing.T) {
+		recorder := newMockResponseWriter()
+		req := httptest.NewRequest("GET", "/test", nil)
+		reqCtx := http.NewRequestContext(req, recorder)
+		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		mod := NewHTTPModule(logger, mockClient)
+		mod := NewHTTPContextModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
-		script := `
-			local http = require("http")
-			local response = http.get("https://api.example.com/test")
-			assert(response ~= nil, "Response should not be nil")
-			assert(response.headers ~= nil, "Headers should not be nil")
-			assert(response.headers["Content-Type"] == "application/json", "Content-type mismatch")
-			assert(response.headers["X-Custom-Header"] == "custom-value", "Custom header mismatch")
-			assert(response.headers["X-Multi-Header"] == "value1", "Multi-value header mismatch")
-			assert(response.headers["X-Special-Chars"] == "value with spaces & symbols", "Special chars header mismatch")
-			assert(response.headers["X-Unicode-Header"] == "こんにちは", "Unicode header mismatch")
-			assert(response.headers["Non-Existent"] == nil, "Non-existent header should be nil")
-		`
+		l := vm.State()
+		l.SetContext(ctx)
 
-		err = vm.DoString(context.Background(), script, "test")
+		err = vm.DoString(ctx, `
+			local httpctx = require("httpctx")
+			local res = httpctx.response()
+			assert(res ~= nil, "response should not be nil")
+		`, "test")
 		assert.NoError(t, err)
 	})
 
-	t.Run("response cookies handling", func(t *testing.T) {
-		mockClient := &mockHTTPClient{
-			doFunc: func(req *http.Request) (*http.Response, error) {
-				resp := &http.Response{
-					StatusCode: 200,
-					Body:       io.NopCloser(bytes.NewBufferString(`{}`)),
-					Request:    req,
-				}
-				resp.Header = make(http.Header)
-				// Create cookies with proper encoding
-				cookies := []*http.Cookie{
-					{Name: "session", Value: "abc123", Path: "/"},
-					{Name: "theme", Value: "dark", Path: "/"},
-					{Name: "empty", Value: "", Path: "/"},
+	t.Run("set status code", func(t *testing.T) {
+		recorder := newMockResponseWriter()
+		req := httptest.NewRequest("GET", "/test", nil)
+		reqCtx := http.NewRequestContext(req, recorder)
+		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-					{Name: "special", Value: "value with spaces & symbols", Path: "/"},
-				}
-				for _, cookie := range cookies {
-					resp.Header.Add("Set-Cookie", cookie.String())
-				}
-				return resp, nil
-			},
-		}
-
-		mod := NewHTTPModule(logger, mockClient)
+		mod := NewHTTPContextModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
-		script := `
-			local http = require("http")
-			local response = http.get("https://api.example.com/test")
-			assert(response ~= nil, "Response should not be nil")
-			assert(response.cookies ~= nil, "Cookies should not be nil")
-			assert(response.cookies["session"] == "abc123", "Session cookie mismatch: " .. tostring(response.cookies["session"]))
-			assert(response.cookies["theme"] == "dark", "Theme cookie mismatch: " .. tostring(response.cookies["theme"]))
-			assert(response.cookies["empty"] == "", "Empty cookie mismatch: " .. tostring(response.cookies["empty"]))
-			assert(response.cookies["special"] == "value with spaces & symbols", "Special chars cookie mismatch")
-			assert(response.cookies["non-existent"] == nil, "Non-existent cookie should be nil")
-		`
-
-		err = vm.DoString(context.Background(), script, "test")
+		err = vm.DoString(ctx, `
+			local httpctx = require("httpctx")
+			local res = httpctx.response()
+			res:set_status(httpctx.STATUS.CREATED)
+		`, "test")
 		assert.NoError(t, err)
+		assert.Equal(t, basehttp.StatusCreated, recorder.Code)
 	})
 
-	t.Run("response body size handling", func(t *testing.T) {
-		testCases := []struct {
-			name     string
-			body     string
-			expected int
-		}{
-			{
-				name:     "empty body",
-				body:     "",
-				expected: 0,
-			},
-			{
-				name:     "small body",
-				body:     "test",
-				expected: 4,
-			},
-			{
-				name:     "json body",
-				body:     `{"key":"value"}`,
-				expected: 15,
-			},
-			{
-				name:     "unicode body",
-				body:     "Hello, 世界",
-				expected: 13,
-			},
-			{
-				name:     "body with special chars",
-				body:     "line1\nline2\r\ntab\there",
-				expected: 21, // Corrected size accounting for all special chars
-			},
-		}
+	t.Run("set headers", func(t *testing.T) {
+		recorder := newMockResponseWriter()
+		req := httptest.NewRequest("GET", "/test", nil)
+		reqCtx := http.NewRequestContext(req, recorder)
+		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		for _, tc := range testCases {
-			t.Run(tc.name, func(t *testing.T) {
-				mockClient := &mockHTTPClient{
-					doFunc: func(req *http.Request) (*http.Response, error) {
-						body := []byte(tc.body)
-						return &http.Response{
-							StatusCode: 200,
-							Body:       io.NopCloser(bytes.NewReader(body)),
-							Request:    req,
-						}, nil
-					},
-				}
+		mod := NewHTTPContextModule(logger)
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		require.NoError(t, err)
+		defer vm.Close()
 
-				mod := NewHTTPModule(logger, mockClient)
-				vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
-				require.NoError(t, err)
-				defer vm.Close()
-
-				script := fmt.Sprintf(`
-					local http = require("http")
-					local response = http.get("https://api.example.com/test")
-					assert(response ~= nil, "Response should not be nil")
-					assert(response.body_size == %d, string.format("Body size mismatch: expected %%d, got %%d", %d, response.body_size))
-				`, tc.expected, tc.expected)
-
-				err = vm.DoString(context.Background(), script, "test")
-				assert.NoError(t, err)
-			})
-		}
+		err = vm.DoString(ctx, `
+			local httpctx = require("httpctx")
+			local res = httpctx.response()
+			res:set_header("X-Test", "value")
+			res:set_content_type(httpctx.CONTENT.JSON)
+		`, "test")
+		assert.NoError(t, err)
+		assert.Equal(t, "value", recorder.Header().Get("X-Test"))
+		assert.Equal(t, "application/json", recorder.Header().Get("Content-Type"))
 	})
 
-	t.Run("response URL handling", func(t *testing.T) {
-		testCases := []struct {
-			name           string
-			requestURL     string
-			responseURL    string
-			expectedFinal  string
-			followRedirect bool
-		}{
-			{
-				name:          "basic URL",
-				requestURL:    "https://api.example.com/test",
-				expectedFinal: "https://api.example.com/test",
-			},
-			{
-				name:          "URL with query parameters",
-				requestURL:    "https://api.example.com/test?key=value&other=123",
-				expectedFinal: "https://api.example.com/test?key=value&other=123",
-			},
-			{
-				name:          "URL with special characters",
-				requestURL:    "https://api.example.com/test path/with space",
-				expectedFinal: "https://api.example.com/test%20path/with%20space",
-			},
-			{
-				name:           "URL with redirect",
-				requestURL:     "https://api.example.com/old",
-				responseURL:    "https://api.example.com/new",
-				expectedFinal:  "https://api.example.com/new",
-				followRedirect: true,
-			},
-		}
+	t.Run("write response body", func(t *testing.T) {
+		recorder := newMockResponseWriter()
+		req := httptest.NewRequest("GET", "/test", nil)
+		reqCtx := http.NewRequestContext(req, recorder)
+		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		for _, tc := range testCases {
-			t.Run(tc.name, func(t *testing.T) {
-				mockClient := &mockHTTPClient{
-					doFunc: func(req *http.Request) (*http.Response, error) {
-						resp := &http.Response{
-							StatusCode: 200,
-							Body:       io.NopCloser(bytes.NewBufferString(`{}`)),
-							Request:    req,
-						}
-						if tc.followRedirect && tc.responseURL != "" {
-							redirectURL, _ := req.URL.Parse(tc.responseURL)
-							resp.Request.URL = redirectURL
-						}
-						return resp, nil
-					},
-				}
+		mod := NewHTTPContextModule(logger)
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		require.NoError(t, err)
+		defer vm.Close()
 
-				mod := NewHTTPModule(logger, mockClient)
-				vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
-				require.NoError(t, err)
-				defer vm.Close()
-
-				script := fmt.Sprintf(`
-					local http = require("http")
-					local response = http.get("%s")
-					assert(response ~= nil, "Response should not be nil")
-					assert(response.url == "%s", string.format("URL mismatch: expected %%s, got %%s", "%s", response.url))
-				`, tc.requestURL, tc.expectedFinal, tc.expectedFinal)
-
-				err = vm.DoString(context.Background(), script, "test")
-				assert.NoError(t, err)
-			})
-		}
+		err = vm.DoString(ctx, `
+			local httpctx = require("httpctx")
+			local res = httpctx.response()
+			res:write("Hello, World!")
+		`, "test")
+		assert.NoError(t, err)
+		assert.Equal(t, "Hello, World!", recorder.Body.String())
 	})
 
-	t.Run("response error cases", func(t *testing.T) {
-		testCases := []struct {
-			name        string
-			setupMock   func() (*http.Response, error)
-			luaScript   string
-			shouldError bool
-		}{
-			{
-				name: "nil headers",
-				setupMock: func() (*http.Response, error) {
-					return &http.Response{
-						StatusCode: 200,
-						Body:       io.NopCloser(bytes.NewBufferString(`{}`)),
-						Header:     nil,
-						Request:    &http.Request{},
-					}, nil
-				},
-				luaScript: `
-					local http = require("http")
-					local response = http.get("https://api.example.com/test")
-					local headers = response.headers
-					assert(headers == nil, "Headers should be nil when response headers are nil")
-				`,
-				shouldError: false,
-			},
-			{
-				name: "nil response",
-				setupMock: func() (*http.Response, error) {
-					return nil, fmt.Errorf("mock error")
-				},
-				luaScript: `
-					local http = require("http")
-					local response, err = http.get("https://api.example.com/test")
-					assert(response == nil, "Response should be nil")
-					assert(err ~= nil, "Error should not be nil")
-					assert(string.find(err, "mock error") ~= nil, "Error message mismatch")
-				`,
-				shouldError: false,
-			},
-			{
-				name: "nil request in response",
-				setupMock: func() (*http.Response, error) {
-					resp := &http.Response{
-						StatusCode: 200,
-						Body:       io.NopCloser(bytes.NewBufferString(`{}`)),
-						Header:     make(http.Header),
-						Request:    nil,
-					}
-					return resp, nil
-				},
-				luaScript: `
-					local http = require("http")
-					local response = http.get("https://api.example.com/test")
-					assert(response ~= nil, "Response should not be nil")
-					local success, err = pcall(function() return response.url end)
-					assert(not success, "Should error when accessing url on nil request")
-				`,
-				shouldError: false,
-			},
-		}
+	t.Run("write JSON response", func(t *testing.T) {
+		recorder := newMockResponseWriter()
+		req := httptest.NewRequest("GET", "/test", nil)
+		reqCtx := http.NewRequestContext(req, recorder)
+		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		for _, tc := range testCases {
-			t.Run(tc.name, func(t *testing.T) {
-				mockClient := &mockHTTPClient{
-					doFunc: func(*http.Request) (*http.Response, error) {
-						return tc.setupMock()
-					},
-				}
+		mod := NewHTTPContextModule(logger)
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		require.NoError(t, err)
+		defer vm.Close()
 
-				mod := NewHTTPModule(logger, mockClient)
-				vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
-				require.NoError(t, err)
-				defer vm.Close()
-
-				err = vm.DoString(context.Background(), tc.luaScript, "test")
-				if tc.shouldError {
-					assert.Error(t, err)
-				} else {
-					assert.NoError(t, err)
+		err = vm.DoString(ctx, `
+			local httpctx = require("httpctx")
+			local res = httpctx.response()
+			res:write_json({
+				message = "Hello, JSON!",
+				nested = {
+					number = 42,
+					bool = true,
+					array = {1, 2, 3}
 				}
 			})
-		}
+		`, "test")
+		assert.NoError(t, err)
+
+		// Verify it's valid JSON
+		var result map[string]interface{}
+		err = json.Unmarshal(recorder.Body.Bytes(), &result)
+		assert.NoError(t, err)
+		assert.Equal(t, "Hello, JSON!", result["message"])
+
+		// Check nested structure
+		nested, ok := result["nested"].(map[string]interface{})
+		assert.True(t, ok, "should have nested object")
+		assert.Equal(t, float64(42), nested["number"])
+		assert.Equal(t, true, nested["bool"])
+
+		// Check array
+		array, ok := nested["array"].([]interface{})
+		assert.True(t, ok, "should have array")
+		assert.Equal(t, []interface{}{float64(1), float64(2), float64(3)}, array)
+
+		assert.Equal(t, "application/json", recorder.Header().Get("Content-Type"))
 	})
 }
 
-// mockReadCloser implements io.ReadCloser for testing
-type mockReadCloser struct {
-	reader    *bytes.Reader
-	mu        sync.Mutex
-	closed    bool
-	delay     time.Duration
-	errAfter  int
-	bytesRead int
-	injectErr error
-}
-
-func newMockReadCloser(data []byte, delay time.Duration) *mockReadCloser {
-	return &mockReadCloser{
-		reader:    bytes.NewReader(data),
-		delay:     delay,
-		injectErr: errors.New("mock error"),
-	}
-}
-
-func (m *mockReadCloser) Read(p []byte) (n int, err error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if m.closed {
-		return 0, io.ErrClosedPipe
-	}
-
-	if m.delay > 0 {
-		time.Sleep(m.delay)
-	}
-
-	if m.errAfter > 0 && m.bytesRead >= m.errAfter {
-		return 0, m.injectErr
-	}
-
-	n, err = m.reader.Read(p)
-	m.bytesRead += n
-	return n, err
-}
-
-func (m *mockReadCloser) Close() error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	m.closed = true
-	return nil
-}
-
-func TestStreamedResponseBodyHandling(t *testing.T) {
+func TestResponse_ServerSentEvents(t *testing.T) {
 	logger := zap.NewNop()
 
-	t.Run("read by chunk", func(t *testing.T) {
-		mockClient := &mockHTTPClient{
-			doFunc: func(req *http.Request) (*http.Response, error) {
-				body := []byte("chunk1chunk2chunk3")
-				return &http.Response{
-					StatusCode: 200,
-					Body:       io.NopCloser(bytes.NewReader(body)),
-					Request:    req,
-				}, nil
-			},
-		}
+	t.Run("setup SSE response", func(t *testing.T) {
+		recorder := newMockResponseWriter()
+		req := httptest.NewRequest("GET", "/test", nil)
+		reqCtx := http.NewRequestContext(req, recorder)
+		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		mod := NewHTTPModule(logger, mockClient)
-		vm, err := engine.NewVM(
-			logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
-		)
+		mod := NewHTTPContextModule(logger)
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
-		script := `
-		local http = require("http")
+		err = vm.DoString(ctx, `
+			local httpctx = require("httpctx")
+			local res = httpctx.response()
+			res:set_transfer(httpctx.TRANSFER.SSE)
+		`, "test")
+		assert.NoError(t, err)
+		assert.Equal(t, "text/event-stream", recorder.Header().Get("Content-Type"))
+		assert.Equal(t, "no-cache", recorder.Header().Get("Cache-Control"))
+		assert.Equal(t, "keep-alive", recorder.Header().Get("Connection"))
+	})
 
-		local response = http.get("https://api.example.com/test", { stream = { buffer_size = 6 } })
-		assert(response ~= nil, "Response should not be nil")
-		assert(response.stream ~= nil, "Response stream should not be nil")
-		assert(response.body == nil, "Response body should be nil")
-		assert(response.body_size == -1, "Body size should be -1 when streaming")
+	t.Run("write SSE event", func(t *testing.T) {
+		recorder := newMockResponseWriter()
+		req := httptest.NewRequest("GET", "/test", nil)
+		reqCtx := http.NewRequestContext(req, recorder)
+		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		local s = response.stream
-		local expected = {"chunk1", "chunk2", "chunk3"}
-		local idx = 1
+		mod := NewHTTPContextModule(logger)
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		require.NoError(t, err)
+		defer vm.Close()
 
-		for chunk in s() do
-			assert(chunk == expected[idx], string.format("chunk %d mismatch", idx))
-			idx = idx + 1
-		end
+		err = vm.DoString(ctx, `
+			local httpctx = require("httpctx")
+			local res = httpctx.response()
+			res:set_transfer(httpctx.TRANSFER.SSE)
+			res:write_event({
+				name = "update",
+				data = {progress = 50}
+			})
+		`, "test")
+		assert.NoError(t, err)
 
-		-- Verify we got all expected chunks
-		assert(idx - 1 == #expected, "wrong number of iterations")
+		body := recorder.Body.String()
+		assert.Contains(t, body, "event: update\n")
+		assert.Contains(t, body, `data: {"progress":50}`)
+		assert.Contains(t, body, "\n\n")
+	})
+}
 
-		-- Try one more iteration to ensure proper EOF handling
-		local iter = s()
-		local final = iter()
-		assert(final == nil, "expected nil after all chunks read")
-	`
+func TestResponse_TransferEncoding(t *testing.T) {
+	logger := zap.NewNop()
 
-		err = vm.DoString(context.Background(), script, "test")
+	t.Run("chunked transfer encoding", func(t *testing.T) {
+		recorder := newMockResponseWriter()
+		req := httptest.NewRequest("GET", "/test", nil)
+		reqCtx := http.NewRequestContext(req, recorder)
+		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+
+		mod := NewHTTPContextModule(logger)
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		require.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.DoString(ctx, `
+			local httpctx = require("httpctx")
+			local res = httpctx.response()
+			res:set_transfer(httpctx.TRANSFER.CHUNKED)
+			res:write("chunk1")
+			res:write("chunk2")
+			res:write("chunk3")
+		`, "test")
+		assert.NoError(t, err)
+		assert.Equal(t, "chunked", recorder.Header().Get("Transfer-Encoding"))
+		assert.Equal(t, "chunk1chunk2chunk3", recorder.Body.String())
+	})
+
+	t.Run("change transfer mode after headers", func(t *testing.T) {
+		recorder := newMockResponseWriter()
+		req := httptest.NewRequest("GET", "/test", nil)
+		reqCtx := http.NewRequestContext(req, recorder)
+		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+
+		mod := NewHTTPContextModule(logger)
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		require.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.DoString(ctx, `
+			local httpctx = require("httpctx")
+			local res = httpctx.response()
+			res:write("test")
+			local err = res:set_transfer(httpctx.TRANSFER.CHUNKED)
+			assert(err ~= nil, "should error when changing transfer mode after write")
+		`, "test")
+		assert.NoError(t, err)
+	})
+}
+
+func TestResponse_ContentTypeHandling(t *testing.T) {
+	logger := zap.NewNop()
+
+	t.Run("set content type after headers", func(t *testing.T) {
+		recorder := newMockResponseWriter()
+		req := httptest.NewRequest("GET", "/test", nil)
+		reqCtx := http.NewRequestContext(req, recorder)
+		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+
+		mod := NewHTTPContextModule(logger)
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		require.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.DoString(ctx, `
+			local httpctx = require("httpctx")
+			local res = httpctx.response()
+			res:write("test")
+			local err = res:set_content_type(httpctx.CONTENT.JSON)
+			assert(err ~= nil, "should error when setting content type after write")
+		`, "test")
 		assert.NoError(t, err)
 	})
 
-	t.Run("timeout during read", func(t *testing.T) {
-		mockClient := &mockHTTPClient{
-			doFunc: func(req *http.Request) (*http.Response, error) {
-				// Simulate a slow response that will cause a timeout
-				body := []byte("data")
-				reader := newMockReadCloser(body, 200*time.Millisecond)
-				return &http.Response{
-					StatusCode: 200,
-					Body:       reader,
-					Request:    req,
-				}, nil
-			},
-		}
+	t.Run("empty content type", func(t *testing.T) {
+		recorder := newMockResponseWriter()
+		req := httptest.NewRequest("GET", "/test", nil)
+		reqCtx := http.NewRequestContext(req, recorder)
+		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		mod := NewHTTPModule(logger, mockClient)
-		vm, err := engine.NewVM(
-			logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
-		)
+		mod := NewHTTPContextModule(logger)
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
-		script := `
-		local http = require("http")
+		err = vm.DoString(ctx, `
+			local httpctx = require("httpctx")
+			local res = httpctx.response()
+			local status, err = pcall(function()
+				res:set_content_type("")
+			end)
+			assert(not status, "should fail with empty content type")
+		`, "test")
+		assert.NoError(t, err)
+	})
+}
 
-		local response = http.get("https://api.example.com/test", { timeout = "100ms", stream = {} })
-		assert(response ~= nil, "Response should not be nil")
+func TestResponse_JSONHandling(t *testing.T) {
+	logger := zap.NewNop()
 
-		local s = response.stream
+	t.Run("invalid JSON value", func(t *testing.T) {
+		recorder := newMockResponseWriter()
+		req := httptest.NewRequest("GET", "/test", nil)
+		reqCtx := http.NewRequestContext(req, recorder)
+		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		local chunk, err = s:read()
-		assert(chunk == nil, "Chunk should be nil due to timeout")
-		assert(string.find(err, "context deadline"), "Error should indicate a timeout or canceled context")
-	`
+		mod := NewHTTPContextModule(logger)
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		require.NoError(t, err)
+		defer vm.Close()
 
-		err = vm.DoString(context.Background(), script, "test")
+		// Try to encode userdata which can't be converted to JSON
+		err = vm.DoString(ctx, `
+			local httpctx = require("httpctx")
+			local res = httpctx.response()
+			
+			-- Create userdata which can't be JSON encoded
+			local ud = newproxy()
+			
+			local err = res:write_json(ud)
+			assert(err ~= nil, "writing userdata should return error")
+		`, "test")
+		assert.NoError(t, err)
+
+		// The response should be empty since JSON encoding failed
+		assert.Empty(t, recorder.Body.String())
+	})
+
+	t.Run("write complex JSON response", func(t *testing.T) {
+		recorder := newMockResponseWriter()
+		req := httptest.NewRequest("GET", "/test", nil)
+		reqCtx := http.NewRequestContext(req, recorder)
+		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+
+		mod := NewHTTPContextModule(logger)
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		require.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.DoString(ctx, `
+			local httpctx = require("httpctx")
+			local res = httpctx.response()
+			local data = {
+				message = "Hello, JSON!",
+				nested = {
+					number = 42,
+					boolean = true,
+					array = {1, 2, 3}
+				},
+				tags = {"first", "second", "third"},
+				metadata = {
+					created = 1234567890,
+					status = "active"
+				}
+			}
+			local err = res:write_json(data)
+			assert(err == nil, "writing valid table should succeed")
+		`, "test")
+		assert.NoError(t, err)
+
+		// Verify it's valid JSON
+		var result map[string]interface{}
+		err = json.Unmarshal(recorder.Body.Bytes(), &result)
+		assert.NoError(t, err)
+		assert.Equal(t, "Hello, JSON!", result["message"])
+
+		// Check nested structure
+		nested, ok := result["nested"].(map[string]interface{})
+		assert.True(t, ok, "should have nested object")
+		assert.Equal(t, float64(42), nested["number"])
+		assert.Equal(t, true, nested["boolean"])
+
+		// Check array
+		array, ok := nested["array"].([]interface{})
+		assert.True(t, ok, "should have array")
+		assert.Equal(t, []interface{}{float64(1), float64(2), float64(3)}, array)
+
+		// Check tags array
+		tags, ok := result["tags"].([]interface{})
+		assert.True(t, ok, "should have tags array")
+		assert.Equal(t, []interface{}{"first", "second", "third"}, tags)
+
+		// Check metadata
+		metadata, ok := result["metadata"].(map[string]interface{})
+		assert.True(t, ok, "should have metadata object")
+		assert.Equal(t, float64(1234567890), metadata["created"])
+		assert.Equal(t, "active", metadata["status"])
+
+		// Verify content type
+		assert.Equal(t, "application/json", recorder.Header().Get("Content-Type"))
+	})
+}
+
+func TestResponse_ErrorCases(t *testing.T) {
+	logger := zap.NewNop()
+
+	t.Run("set headers after write", func(t *testing.T) {
+		recorder := newMockResponseWriter()
+		req := httptest.NewRequest("GET", "/test", nil)
+		reqCtx := http.NewRequestContext(req, recorder)
+		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+
+		mod := NewHTTPContextModule(logger)
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		require.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.DoString(ctx, `
+			local httpctx = require("httpctx")
+			local res = httpctx.response()
+			res:write("test")
+			local err = res:set_header("X-Test", "value")
+			assert(err ~= nil, "should error when setting header after write")
+		`, "test")
 		assert.NoError(t, err)
 	})
 
-	t.Run("error during read", func(t *testing.T) {
-		mockClient := &mockHTTPClient{
-			doFunc: func(req *http.Request) (*http.Response, error) {
-				// Simulate an error after reading some data
-				body := []byte("chunk1chunk2")
-				reader := newMockReadCloser(body, 0)
-				reader.errAfter = 6 // Inject error after 6 bytes
-				return &http.Response{
-					StatusCode: 200,
-					Body:       reader,
-					Request:    req,
-				}, nil
-			},
-		}
+	t.Run("set status after write", func(t *testing.T) {
+		recorder := newMockResponseWriter()
+		req := httptest.NewRequest("GET", "/test", nil)
+		reqCtx := http.NewRequestContext(req, recorder)
+		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		mod := NewHTTPModule(logger, mockClient)
-		vm, err := engine.NewVM(
-			logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
-		)
+		mod := NewHTTPContextModule(logger)
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
-		script := `
-		local http = require("http")
-
-		local response = http.get("https://api.example.com/test", { stream = { buffer_size = 6 } })
-		assert(response ~= nil, "Response should not be nil")
-
-		local s = response.stream
-		local chunk, err = s:read()
-		assert(chunk == "chunk1", "First chunk should be read successfully")
-		assert(err == nil, "Error should be nil for the first chunk")
-
-		chunk, err = s:read()
-		assert(chunk == nil, "Chunk should be nil due to error")
-		assert(string.find(err, "mock error"), "Error should indicate the injected error")
-	`
-
-		err = vm.DoString(context.Background(), script, "test")
+		err = vm.DoString(ctx, `
+			local httpctx = require("httpctx")
+			local res = httpctx.response()
+			res:write("test")
+			local err = res:set_status(httpctx.STATUS.OK)
+			assert(err ~= nil, "should error when setting status after write")
+		`, "test")
 		assert.NoError(t, err)
 	})
 
-	t.Run("close stream", func(t *testing.T) {
-		mockClient := &mockHTTPClient{
-			doFunc: func(req *http.Request) (*http.Response, error) {
-				body := []byte("data")
-				reader := newMockReadCloser(body, 0)
-				return &http.Response{
-					StatusCode: 200,
-					Body:       reader,
-					Request:    req,
-				}, nil
-			},
-		}
+	t.Run("invalid status code", func(t *testing.T) {
+		recorder := newMockResponseWriter()
+		req := httptest.NewRequest("GET", "/test", nil)
+		reqCtx := http.NewRequestContext(req, recorder)
+		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		mod := NewHTTPModule(logger, mockClient)
-		vm, err := engine.NewVM(
-			logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
-		)
+		mod := NewHTTPContextModule(logger)
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
-		script := `
-		local http = require("http")
+		err = vm.DoString(ctx, `
+			local httpctx = require("httpctx")
+			local res = httpctx.response()
+			local status, err = pcall(function()
+				res:set_status(999)
+			end)
+			assert(not status, "should fail with invalid status code")
+		`, "test")
+		assert.NoError(t, err)
+	})
+}
 
-		local response = http.get("https://api.example.com/test", { stream = {} })
-		assert(response ~= nil, "Response should not be nil")
+func TestResponse_Flush(t *testing.T) {
+	logger := zap.NewNop()
 
-		local s = response.stream
-		s:close()
+	t.Run("successful flush", func(t *testing.T) {
+		recorder := newMockResponseWriter()
+		req := httptest.NewRequest("GET", "/test", nil)
+		reqCtx := http.NewRequestContext(req, recorder)
+		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		local chunk, err = s:read()
-		assert(chunk == nil, "Chunk should be nil after closing")
-		assert(string.find(err, "closed"), "Error should indicate stream is closed")
-	`
+		mod := NewHTTPContextModule(logger)
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		require.NoError(t, err)
+		defer vm.Close()
 
-		err = vm.DoString(context.Background(), script, "test")
+		err = vm.DoString(ctx, `
+			local httpctx = require("httpctx")
+			local res = httpctx.response()
+			res:write("chunk1")
+			res:flush()
+			res:write("chunk2")
+			res:flush()
+		`, "test")
+		assert.NoError(t, err)
+		assert.Equal(t, "chunk1chunk2", recorder.Body.String())
+		assert.True(t, recorder.headersSent)
+	})
+
+	t.Run("flush with invalid response", func(t *testing.T) {
+		recorder := newMockResponseWriter()
+		req := httptest.NewRequest("GET", "/test", nil)
+		reqCtx := http.NewRequestContext(req, recorder)
+		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+
+		mod := NewHTTPContextModule(logger)
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		require.NoError(t, err)
+		defer vm.Close()
+
+		// Test with invalid response userdata
+		err = vm.DoString(ctx, `
+			local httpctx = require("httpctx")
+			local res = newproxy() -- Create invalid userdata
+			local status, err = pcall(function()
+				res:flush()
+			end)
+			assert(not status, "flush should fail with invalid response object")
+		`, "test")
 		assert.NoError(t, err)
 	})
 
-	t.Run("buffer size and chunk sizes", func(t *testing.T) {
-		mockClient := &mockHTTPClient{
-			doFunc: func(req *http.Request) (*http.Response, error) {
-				body := []byte("chunk1chunk2chunk3") // 18 bytes total
-				return &http.Response{
-					StatusCode: 200,
-					Body:       io.NopCloser(bytes.NewReader(body)),
-					Request:    req,
-				}, nil
-			},
-		}
+	t.Run("flush in chunked transfer mode", func(t *testing.T) {
+		recorder := newMockResponseWriter()
+		req := httptest.NewRequest("GET", "/test", nil)
+		reqCtx := http.NewRequestContext(req, recorder)
+		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		mod := NewHTTPModule(logger, mockClient)
-		vm, err := engine.NewVM(
-			logger,
-			engine.WithLoader(mod.Name(), mod.Loader),
-		)
+		mod := NewHTTPContextModule(logger)
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
-		script := `
-    local http = require("http")
-
-    local response = http.get("https://api.example.com/test", { stream = { buffer_size = 5 } })
-    assert(response ~= nil, "Response should not be nil")
-
-    local s = response.stream
-    local expected_chunks = {"chunk", "1chun", "k2chu", "nk3"}
-    local idx = 1
-
-    for chunk in s() do
-        assert(chunk == expected_chunks[idx], string.format("Chunk %d mismatch: expected '%s', got '%s'", idx, expected_chunks[idx], chunk))
-        idx = idx + 1
-    end
-
-    assert(idx - 1 == #expected_chunks, "Wrong number of chunks received")
-    `
-
-		err = vm.DoString(context.Background(), script, "test")
+		err = vm.DoString(ctx, `
+			local httpctx = require("httpctx")
+			local res = httpctx.response()
+			res:set_transfer(httpctx.TRANSFER.CHUNKED)
+			res:write("chunk1")
+			res:flush()
+			res:write("chunk2")
+			res:flush()
+		`, "test")
 		assert.NoError(t, err)
+		assert.Equal(t, "chunked", recorder.Header().Get("Transfer-Encoding"))
+		assert.Equal(t, "chunk1chunk2", recorder.Body.String())
+		assert.True(t, recorder.headersSent)
 	})
 }

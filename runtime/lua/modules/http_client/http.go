@@ -1,4 +1,4 @@
-package http
+package http_client
 
 import (
 	"context"
@@ -25,7 +25,7 @@ var (
 	ErrInvalidRequest = errors.New("request must be a table")
 )
 
-// Client interface abstracts the http.Client
+// Client interface abstracts the http_client.Client
 type Client interface {
 	Do(req *http.Request) (*http.Response, error)
 }
