@@ -22,7 +22,6 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/modules/uuid"
 	"github.com/ponyruntime/pony/runtime/lua/modules/websocket"
 	"github.com/ponyruntime/pony/service/http"
-	"github.com/ponyruntime/pony/service/terminal"
 	"github.com/ponyruntime/pony/system/eventbus"
 	"github.com/ponyruntime/pony/system/functions"
 	"github.com/ponyruntime/pony/system/logs"
@@ -157,7 +156,6 @@ func (a *App) Start(folderPath string) error {
 	a.services, err = services.NewRouter(ctx, a.eventBus,
 		withHTTPService(a),
 		withLuaService(a),
-		withTerminalService(a),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create router: %w", err)
@@ -374,10 +372,4 @@ func withLuaService(a *App) services.Option {
 			treesitter.NewTreeSitterModule(a.logger.Named("treesitter")),
 			btea.NewBteaModule(a.logger.Named("btea")),
 		))
-}
-
-func withTerminalService(a *App) services.Option {
-	return services.WithListener("terminal.*",
-		terminal.NewManager(a.eventBus, a.dtt, a.logger.Named("term")),
-	)
 }
