@@ -27,7 +27,7 @@ const (
 type (
 	// Func is the core function type that processes tasks
 	// It returns a channel for streaming results and any immediate initialization errors
-	Func func(Task) (chan *Result, error)
+	Func func(context.Context, Task) (chan *Result, error)
 
 	// FuncRegistry provides the interface for executing functions
 	// It abstracts the function lookup and execution process
