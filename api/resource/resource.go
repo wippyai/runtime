@@ -47,9 +47,9 @@ func (m AccessMode) IsValid() bool {
 type (
 	// Entry represents a registered resource with its metadata
 	Entry struct {
-		ID       registry.ID       // Unique identifier for the resource
-		Meta     registry.Metadata // Associated metadata
-		Resource any               // The actual resource instance
+		ID      registry.ID
+		Meta    registry.Metadata
+		Acquire func(ctx context.Context, id registry.ID) (ManagedResource[any], error)
 	}
 
 	// ManagedResource provides controlled access to a resource instance
@@ -63,9 +63,6 @@ type (
 		// After Release is called, subsequent Get() calls will panic.
 		// It's safe to call Release multiple times.
 		Release()
-
-		// AccessMode returns the current access mode granted for this resource
-		AccessMode() AccessMode
 	}
 
 	// Registry manages resources.
