@@ -5,7 +5,6 @@ import (
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/internal/version"
 	"go.uber.org/zap"
-	"log"
 	"reflect"
 	"strings"
 	"testing"
@@ -1038,7 +1037,7 @@ func TestBuildDelta_Groups(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		log.Printf("delta: %v", delta)
+
 		// Verify operations maintain group dependencies
 		validateDependencyOrder(t, delta, []struct {
 			entry           registry.Entry

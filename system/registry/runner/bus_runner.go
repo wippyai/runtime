@@ -8,7 +8,7 @@ import (
 
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/registry"
-	pkgreg "github.com/ponyruntime/pony/system/registry"
+	"github.com/ponyruntime/pony/system/registry/topology"
 	"go.uber.org/zap"
 )
 
@@ -22,17 +22,17 @@ type BusRunner struct {
 	rejectChan  chan events.Event
 	acceptSubID events.SubscriberID
 	rejectSubID events.SubscriberID
-	stateHelper *stateHelper
+	builder     *topology.StateBuilder
 }
 
 // NewBusRunner creates a new BusRunner. This is a sequential bus, order of operations matter.
 func NewBusRunner(bus events.Bus, log *zap.Logger) *BusRunner {
 	return &BusRunner{
-		bus:         bus,
-		log:         log,
-		acceptChan:  make(chan events.Event),
-		rejectChan:  make(chan events.Event),
-		stateHelper: newStateHelper(log),
+		bus:        bus,
+		log:        log,
+		acceptChan: make(chan events.Event),
+		rejectChan: make(chan events.Event),
+		builder:    topology.NewStateBuilder(log),
 	}
 }
 
@@ -45,9 +45,8 @@ func (br *BusRunner) Transition(
 	initialState registry.State,
 	cs registry.ChangeSet,
 ) (registry.State, error) {
-	currentState := br.stateHelper.toMap(initialState)
-	originalState := br.stateHelper.toMap(initialState) // Keep a copy of the original state for rollbacks
-	appliedOperations := make([]registry.Operation, 0)
+	currentState := topology.NewStateMap(initialState)
+	originalState := topology.NewStateMap(initialState) // Keep a copy of the original state for rollbacks
 
 	if err := br.subscribeToEvents(ctx); err != nil {
 		return nil, err
@@ -76,11 +75,10 @@ func (br *BusRunner) Transition(
 				Data:   err,
 			})
 
-			return br.stateHelper.toSlice(newState), fmt.Errorf("operation failed: %w", err)
+			return newState.ToSlice(), fmt.Errorf("operation failed: %w", err)
 		}
 
 		currentState = newState
-		appliedOperations = append(appliedOperations, op)
 	}
 
 	br.bus.Send(ctx, events.Event{
@@ -88,53 +86,56 @@ func (br *BusRunner) Transition(
 		Kind:   registry.Commit,
 	})
 
-	return br.stateHelper.toSlice(currentState), nil
+	return currentState.ToSlice(), nil
 }
 
-func (br *BusRunner) applyOperation(ctx context.Context, state stateMap, op registry.Operation) (stateMap, error) {
-	if err := br.stateHelper.validateOperation(state, op); err != nil {
+func (br *BusRunner) applyOperation(
+	ctx context.Context,
+	state topology.StateMap,
+	op registry.Operation,
+) (topology.StateMap, error) {
+	if err := br.builder.ValidateOperation(state, op); err != nil {
 		return state, fmt.Errorf("invalid operation: %w", err)
 	}
 
 	br.log.Debug("starting operation",
-		zap.String("kind", string(op.Kind)),
-		zap.String("id", string(op.Entry.ID)),
+		zap.String("kind", op.Kind),
+		zap.String("id", op.Entry.ID.String()),
 		zap.Any("meta", op.Entry.Meta))
 
 	// send the operation event
 	br.bus.Send(ctx, events.Event{
 		System: registry.System,
 		Kind:   op.Kind,
-		Path:   events.Path(op.Entry.ID),
+		Path:   op.Entry.ID.String(),
 		Data:   op.Entry,
 	})
 
 	for {
 		select {
 		case confirmation := <-br.acceptChan:
-			id := registry.Name(confirmation.Path)
+			id := registry.ParseID(confirmation.Path)
 			br.log.Debug("received accept event",
-				zap.String("id", string(id)),
-				zap.String("expected", string(op.Entry.ID)))
+				zap.String("id", id.String()),
+				zap.String("expected", op.Entry.ID.String()))
 
 			if id != op.Entry.ID {
 				return state, errors.New("unrelated accept event")
 			}
 
 			// Apply the change to the state
-			var err error
-			newState, err := br.stateHelper.applyChangeToState(state, op)
+			newState, err := br.builder.ApplyOperation(state, op)
 			if err != nil {
-				// Even if applyChangeToState fails, we return the original state to maintain consistency
 				return state, fmt.Errorf("applying change to state: %w", err)
 			}
 
 			return newState, nil
+
 		case rejection := <-br.rejectChan:
-			id := registry.Name(rejection.Path)
+			id := registry.ParseID(rejection.Path)
 			br.log.Debug("received reject event",
-				zap.String("id", string(id)),
-				zap.String("expected", string(op.Entry.ID)),
+				zap.String("id", id.String()),
+				zap.String("expected", op.Entry.ID.String()),
 				zap.Any("data", rejection.Data))
 
 			if id != op.Entry.ID {
@@ -148,25 +149,25 @@ func (br *BusRunner) applyOperation(ctx context.Context, state stateMap, op regi
 			return state, err
 
 		case <-ctx.Done():
-			// Return the original state in case of timeout/cancellation to maintain consistency
 			return state, fmt.Errorf("failed to apply operation %s (%s): %w", op.Entry.ID, op.Entry.Kind, ctx.Err())
 		}
 	}
 }
 
-func (br *BusRunner) rollback(ctx context.Context, originalState, currentState stateMap) stateMap {
+func (br *BusRunner) rollback(
+	ctx context.Context,
+	originalState, currentState topology.StateMap,
+) topology.StateMap {
 	br.log.Debug("starting rollback",
 		zap.Any("current_state", currentState),
 		zap.Any("original_state", originalState))
 
-	// Convert states to registry.State format
-	fromState := br.stateHelper.toSlice(currentState)
-	toState := br.stateHelper.toSlice(originalState)
+	// Convert states to registry.State format for BuildDelta
+	fromState := currentState.ToSlice()
+	toState := originalState.ToSlice()
 
 	// Use BuildDelta to generate ordered operations
-	stateBuilder := pkgreg.NewStateBuilder(br.log)
-	delta, err := stateBuilder.BuildDelta(fromState, toState)
-
+	delta, err := br.builder.BuildDelta(fromState, toState)
 	if err != nil {
 		br.log.Error("failed to build rollback delta", zap.Error(err))
 		return currentState
@@ -177,8 +178,8 @@ func (br *BusRunner) rollback(ctx context.Context, originalState, currentState s
 	// Apply rollback operations
 	for _, op := range delta {
 		br.log.Debug("applying rollback operation",
-			zap.String("kind", string(op.Kind)),
-			zap.String("id", string(op.Entry.ID)),
+			zap.String("kind", op.Kind),
+			zap.String("id", op.Entry.ID.String()),
 			zap.Any("meta", op.Entry.Meta))
 
 		newState, err := br.applyOperation(ctx, currentState, op)
