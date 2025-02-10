@@ -94,7 +94,7 @@ func (f *FunctionRegistry) handleDeleteFunction(e events.Event) {
 	del, ok := e.Data.(runtime.DeleteFunc)
 	if !ok {
 		f.logger.Error("invalid delete function payload",
-			zap.String("function", string(e.Path)),
+			zap.String("function", e.Path),
 			zap.String("type", fmt.Sprintf("%T", e.Data)))
 
 		f.sendReject(e.Path, "invalid delete function payload")
@@ -136,22 +136,21 @@ func (f *FunctionRegistry) sendReject(path events.Path, reason string) {
 // Call runs the given task using its registered handler and returns a channel
 // for receiving the execution result(s). Returns an error if no handler is registered
 // for the task's target or if the handler type is invalid.
-func (f *FunctionRegistry) Call(task runtime.Task) (chan *runtime.Result, error) {
-	handler, exists := f.handlers.Load(task.Target.String())
+func (f *FunctionRegistry) Call(ctx context.Context, task runtime.Task) (chan *runtime.Result, error) {
+	handler, exists := f.handlers.Load(task.Handler.String())
 	if !exists {
-		return nil, fmt.Errorf("no handler registered for target: %s", task.Target)
+		return nil, fmt.Errorf("no handler registered for target: %s", task.Handler)
 	}
 
 	// keep context boundaries
-	if task.Context == nil {
-		task.Context = context.Background()
+	if ctx == nil {
+		ctx = context.Background()
 	}
 
-	task.Context = context.WithValue(task.Context, contextapi.HandlerCtx, task.Target)
-
+	ctx = context.WithValue(ctx, contextapi.HandlerCtx, task.Handler)
 	execHandler, ok := handler.(runtime.Func)
 	if !ok {
-		return nil, fmt.Errorf("invalid handler type for target: %s", task.Target)
+		return nil, fmt.Errorf("invalid handler type for target: %s", task.Handler)
 	}
 
 	return execHandler(task)

@@ -25,7 +25,7 @@ type Manager struct {
 }
 
 // NewManager creates a new logging service instance
-func NewManager(bus events.Bus, core api.Core, logger *zap.Logger) *Manager {
+func NewManager(bus events.Bus, core api.Core, logger *zap.Logger, level zapcore.Level) *Manager {
 	return &Manager{
 		log:  logger,
 		bus:  bus,
@@ -33,7 +33,7 @@ func NewManager(bus events.Bus, core api.Core, logger *zap.Logger) *Manager {
 		config: api.Config{
 			PropagateDownstream: true,
 			StreamToEvents:      false,
-			MinLevel:            zapcore.InfoLevel, // todo: pass from outside
+			MinLevel:            level,
 		},
 	}
 }
@@ -62,7 +62,7 @@ func (m *Manager) Start(ctx context.Context) error {
 }
 
 // Stop gracefully shuts down the service
-func (m *Manager) Stop(context.Context) error {
+func (m *Manager) Stop() error {
 	if m.sub != nil {
 		m.sub.Close()
 		m.sub = nil

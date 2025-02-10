@@ -77,7 +77,7 @@ func (h *EndpointHandler) getRouteInfo(r *http.Request) (*config.RouteInfo, erro
 func (h *EndpointHandler) createTask(r *http.Request, info *config.RouteInfo) (runtime.Task, error) {
 	return runtime.Task{
 		Context: r.Context(),
-		Target:  info.Endpoint.Target,
+		Handler: info.Endpoint.Target,
 	}, nil
 }
 

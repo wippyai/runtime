@@ -20,12 +20,10 @@ func setupManagerTest(t *testing.T) (*Manager, *eventbus.Bus) {
 	logger := zap.NewNop()
 
 	core := NewCore(downstream, bus)
-	manager := NewManager(bus, core, logger)
+	manager := NewManager(bus, core, logger, zapcore.InfoLevel)
 
 	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		defer cancel()
-		_ = manager.Stop(ctx)
+		_ = manager.Stop()
 		bus.Stop()
 	})
 
@@ -47,7 +45,7 @@ func TestManager_StartStop(t *testing.T) {
 	require.False(t, cfg.StreamToEvents, "StreamToEvents should be false by default")
 	require.Equal(t, zapcore.InfoLevel, cfg.MinLevel, "Default level should be Info")
 
-	err = manager.Stop(ctx)
+	err = manager.Stop()
 	require.NoError(t, err, "Manager should stop without error")
 }
 
@@ -214,7 +212,7 @@ func TestManager_StopBehavior(t *testing.T) {
 	require.NoError(t, manager.Start(ctx))
 
 	// Stop the manager
-	require.NoError(t, manager.Stop(ctx))
+	require.NoError(t, manager.Stop())
 	cfgm := NewConfigurationManager()
 
 	// Verify get/set operations fail after stop

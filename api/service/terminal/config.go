@@ -23,7 +23,7 @@ type ServiceConfig struct {
 
 // Validate checks if the service configuration is valid
 func (c *ServiceConfig) Validate() error {
-	//if c.Target == "" {
+	//if c.Handler == "" {
 	//	return fmt.Errorf("target cannot be empty")
 	//}
 	// todo: fix it
