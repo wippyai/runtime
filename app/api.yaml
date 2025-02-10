@@ -5,8 +5,8 @@ meta:
   depends_on:
     - "ns:functions"
     - "ns:system"
-  server: gateway
-  router: router
+  server: "system:gateway"
+  router: "system:router"
 
 entries:
   - name: system.env

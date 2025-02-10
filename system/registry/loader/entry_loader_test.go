@@ -412,3 +412,135 @@ func TestMergeMeta(t *testing.T) {
 		})
 	}
 }
+
+func TestMetadataMergingInData(t *testing.T) {
+	// Create a test transcoder that handles JSON
+	transcoder := tr.NewTranscoder()
+	jsonRegister := json.Register
+	jsonRegister(transcoder)
+
+	tests := []struct {
+		name    string
+		input   string
+		want    []registry.Entry
+		wantErr bool
+	}{
+		{
+			name: "metadata should merge into data field",
+			input: `{
+                "namespace": "test",
+                "meta": {
+                    "server": "system:gateway",
+                    "router": "system:router",
+                    "depends_on": ["ns:functions", "ns:system"]
+                },
+                "entries": [
+                    {
+                        "name": "api.endpoint",
+                        "kind": "http.endpoint",
+                        "meta": {
+                            "comment": "Test endpoint"
+                        },
+                        "method": "GET",
+                        "path": "/test",
+                        "handler": "functions:test.handler"
+                    }
+                ]
+            }`,
+			want: []registry.Entry{
+				{
+					ID: registry.ID{
+						NS:   "test",
+						Name: "api.endpoint",
+					},
+					Kind: "http.endpoint",
+					Meta: registry.Metadata{
+						"comment":    "Test endpoint",
+						"server":     "system:gateway",
+						"router":     "system:router",
+						"depends_on": []interface{}{"ns:functions", "ns:system"},
+					},
+					Data: payload.New(map[string]interface{}{
+						"meta": map[string]interface{}{
+							"comment":    "Test endpoint",
+							"server":     "system:gateway",
+							"router":     "system:router",
+							"depends_on": []interface{}{"ns:functions", "ns:system"},
+						},
+						"method":  "GET",
+						"path":    "/test",
+						"handler": "functions:test.handler",
+					}),
+				},
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create JSON payload
+			p := payload.NewPayload(tt.input, payload.JSON)
+
+			got, err := ExtractEntries(p, transcoder)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ExtractEntries() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			if !tt.wantErr {
+				if len(got) != len(tt.want) {
+					t.Errorf("ExtractEntries() got %d entries, want %d", len(got), len(tt.want))
+					return
+				}
+
+				for i := range got {
+					// Check ID
+					if !reflect.DeepEqual(got[i].ID, tt.want[i].ID) {
+						t.Errorf("Entry[%d].ID = %v, want %v", i, got[i].ID, tt.want[i].ID)
+					}
+
+					// Check Kind
+					if got[i].Kind != tt.want[i].Kind {
+						t.Errorf("Entry[%d].Kind = %v, want %v", i, got[i].Kind, tt.want[i].Kind)
+					}
+
+					// Check Meta
+					if !equalMetadata(got[i].Meta, tt.want[i].Meta) {
+						t.Errorf("Entry[%d].Meta = %+v, want %+v", i, got[i].Meta, tt.want[i].Meta)
+					}
+
+					// Check Data content including metadata
+					gotData := make(map[string]interface{})
+					if err := transcoder.Unmarshal(got[i].Data, &gotData); err != nil {
+						t.Errorf("Failed to unmarshal got data: %v", err)
+						continue
+					}
+
+					wantData := make(map[string]interface{})
+					if err := transcoder.Unmarshal(tt.want[i].Data, &wantData); err != nil {
+						t.Errorf("Failed to unmarshal want data: %v", err)
+						continue
+					}
+
+					// Check if metadata is properly merged in data
+					gotMeta, ok := gotData["meta"].(map[string]interface{})
+					if !ok {
+						t.Errorf("Entry[%d].Data.meta is not a map", i)
+						continue
+					}
+
+					wantMeta, ok := wantData["meta"].(map[string]interface{})
+					if !ok {
+						t.Errorf("Want Entry[%d].Data.meta is not a map", i)
+						continue
+					}
+
+					if !equalMetadata(registry.Metadata(gotMeta), registry.Metadata(wantMeta)) {
+						t.Errorf("Entry[%d].Data.meta = %+v, want %+v", i, gotMeta, wantMeta)
+					}
+				}
+			}
+		})
+	}
+}
