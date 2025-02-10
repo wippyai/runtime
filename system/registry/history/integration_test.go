@@ -1,4 +1,4 @@
-package registry
+package history
 
 import (
 	"context"
@@ -14,7 +14,6 @@ import (
 	transcoder "github.com/ponyruntime/pony/system/payload"
 	"github.com/ponyruntime/pony/system/payload/json"
 	"github.com/ponyruntime/pony/system/payload/yaml"
-	"github.com/ponyruntime/pony/system/registry/history"
 	"github.com/ponyruntime/pony/system/registry/loader"
 )
 
@@ -61,7 +60,7 @@ data:
 	//    - StateBuilder
 	//    - Loader
 	//    - Registry
-	history := history.NewMemory()
+	history := NewMemory()
 	runner := &CustomizableMockRunner{}
 	stateBuilder := NewStateBuilder(zap.NewNop())
 	dtt := createTestTranscoder()
