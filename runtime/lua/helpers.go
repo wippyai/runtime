@@ -9,7 +9,7 @@ import (
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	api "github.com/ponyruntime/pony/api/runtime/lua"
-	"github.com/ponyruntime/pony/api/service/terminal"
+	"github.com/ponyruntime/pony/api/service/shell"
 )
 
 func (m *RuntimeManager) unpackFunction(data payload.Payload) (*api.FunctionConfig, error) {
@@ -95,10 +95,10 @@ func (m *RuntimeManager) unregisterHandler(ctx context.Context, id registry.Name
 	})
 }
 
-func (m *RuntimeManager) registerTerminal(ctx context.Context, id registry.Name, app terminal.Terminal) {
+func (m *RuntimeManager) registerTerminal(ctx context.Context, id registry.Name, app shell.Terminal) {
 	m.bus.Send(ctx, events.Event{
-		System: terminal.System,
-		Kind:   terminal.RegisterTerminalEvent,
+		System: shell.System,
+		Kind:   shell.RegisterTerminalEvent,
 		Path:   events.Path(id),
 		Data:   app,
 	})
@@ -106,8 +106,8 @@ func (m *RuntimeManager) registerTerminal(ctx context.Context, id registry.Name,
 
 func (m *RuntimeManager) unregisterTerminal(ctx context.Context, id registry.Name) { //nolint:unused
 	m.bus.Send(ctx, events.Event{
-		System: terminal.System,
-		Kind:   terminal.DeleteTerminalEvent,
+		System: shell.System,
+		Kind:   shell.DeleteTerminalEvent,
 		Path:   events.Path(id),
 		Data:   id,
 	})

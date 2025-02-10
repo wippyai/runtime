@@ -6,7 +6,7 @@ import (
 
 	"github.com/ponyruntime/pony/api/registry"
 	api "github.com/ponyruntime/pony/api/runtime/lua"
-	"github.com/ponyruntime/pony/api/service/terminal"
+	"github.com/ponyruntime/pony/api/service/shell"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/async"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
@@ -34,7 +34,7 @@ func (f *Factory) MakeTerminal(
 	cfg *api.TerminalConfig,
 	modules api.ModuleRegistry,
 	libraries api.LibraryRegistry,
-) (terminal.Terminal, error) {
+) (shell.Terminal, error) {
 	up := make(chan any, 1024)
 	opts := []engine.Option{
 		engine.WithPreloaded("upstream", upstream2.NewUpstreamModule(up).Loader),

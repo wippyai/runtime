@@ -6,10 +6,10 @@ import (
 
 	"github.com/ponyruntime/pony/api/registry"
 	api "github.com/ponyruntime/pony/api/runtime/lua"
-	"github.com/ponyruntime/pony/api/service/terminal"
+	"github.com/ponyruntime/pony/api/service/shell"
 )
 
-func (m *RuntimeManager) compileTerminal(id registry.Name, cfg *api.TerminalConfig) (terminal.Terminal, error) {
+func (m *RuntimeManager) compileTerminal(id registry.Name, cfg *api.TerminalConfig) (shell.Terminal, error) {
 	instance, err := m.terminals.MakeTerminal(id, cfg, m.modules, m.libraries)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create terminal: %w", err)
