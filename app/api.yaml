@@ -36,10 +36,10 @@ entries:
   - name: time.current
     kind: http.endpoint
     meta:
-      comment: "Returns the current time"
+      comment: "Returns the local current time"
     method: GET
     path: /time
-    handler: "functions:time.current"
+    handler: "functions:time.local"
 
   - name: demo.websocket
     kind: http.endpoint

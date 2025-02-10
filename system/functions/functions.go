@@ -41,7 +41,7 @@ func (f *FunctionRegistry) Start(ctx context.Context) error {
 		f.ctx,
 		f.bus,
 		runtime.FunctionSystem,
-		"functions.*",
+		"functions.(register|remove)",
 		f.handleEvent,
 	)
 	if err != nil {
@@ -63,9 +63,9 @@ func (f *FunctionRegistry) Stop() error {
 func (f *FunctionRegistry) handleEvent(e events.Event) {
 	switch e.Kind {
 	case runtime.RegisterFunctionCommand:
-		f.handleRegisterFunction(e)
+		f.registerFunction(e)
 	case runtime.DeleteFunctionCommand:
-		f.handleDeleteFunction(e)
+		f.deleteFunction(e)
 	default:
 		f.logger.Warn("unknown event kind",
 			zap.String("kind", e.Kind),
@@ -73,7 +73,7 @@ func (f *FunctionRegistry) handleEvent(e events.Event) {
 	}
 }
 
-func (f *FunctionRegistry) handleRegisterFunction(e events.Event) {
+func (f *FunctionRegistry) registerFunction(e events.Event) {
 	fn, ok := e.Data.(runtime.Func)
 	if !ok {
 		f.logger.Error("invalid register function payload",
@@ -91,9 +91,9 @@ func (f *FunctionRegistry) handleRegisterFunction(e events.Event) {
 	f.sendAccept(e.Path)
 }
 
-func (f *FunctionRegistry) handleDeleteFunction(e events.Event) {
+func (f *FunctionRegistry) deleteFunction(e events.Event) {
 	// Check if the function exists before removing
-	_, exists := f.handlers.Load(e.Path)
+	_, exists := f.handlers.Load(registry.ParseID(e.Path))
 	if !exists {
 		f.logger.Warn("function not found", zap.String("function", e.Path))
 		f.sendReject(e.Path, "function not found")
@@ -101,7 +101,7 @@ func (f *FunctionRegistry) handleDeleteFunction(e events.Event) {
 	}
 
 	// Remove the function
-	f.handlers.Delete(e.Path)
+	f.handlers.Delete(registry.ParseID(e.Path))
 	f.logger.Debug("function removed", zap.String("function", e.Path))
 
 	f.sendAccept(e.Path)
@@ -128,7 +128,7 @@ func (f *FunctionRegistry) sendReject(path events.Path, reason string) {
 // for receiving the execution result(s). Returns an error if no handler is registered
 // for the task's target or if the handler type is invalid.
 func (f *FunctionRegistry) Call(ctx context.Context, task runtime.Task) (chan *runtime.Result, error) {
-	handler, exists := f.handlers.Load(task.Handler.String())
+	handler, exists := f.handlers.Load(task.Handler)
 	if !exists {
 		return nil, fmt.Errorf("no handler registered for target: %s", task.Handler)
 	}
