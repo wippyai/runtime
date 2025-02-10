@@ -25,7 +25,7 @@ func NewNoopRuntime(bus events.Bus, logger *zap.Logger) *Runtime {
 }
 
 // Execute implements the runtime.FuncRegistry interface, does not do anything.
-func (n *Runtime) Execute(task runtime.Task) (chan *runtime.Result, error) {
+func (n *Runtime) Execute(ctx context.Context, task runtime.Task) (chan *runtime.Result, error) {
 	rspChan := make(chan *runtime.Result, 1)
 	rspChan <- &runtime.Result{
 		Payload: payload.New(fmt.Sprintf("noop runtime: task %s executed", task.Handler)),
@@ -42,8 +42,8 @@ func (n *Runtime) Add(ctx context.Context, entry registry.Entry) error {
 	n.bus.Send(ctx, events.Event{
 		System: runtime.FunctionSystem,
 		Kind:   runtime.RegisterFunctionCommand,
-		Path:   events.Path(entry.ID.String()),
-		Data:   n.Execute,
+		Path:   entry.ID.String(),
+		Data:   runtime.Func(n.Execute),
 	})
 
 	return nil
@@ -53,7 +53,7 @@ func (n *Runtime) Add(ctx context.Context, entry registry.Entry) error {
 func (n *Runtime) Update(_ context.Context, entry registry.Entry) error {
 	n.logger.Debug("noop runtime: update called",
 		zap.String("id", entry.ID.String()),
-		zap.String("kind", string(entry.Kind)))
+		zap.String("kind", entry.Kind))
 	return nil
 }
 
@@ -61,12 +61,12 @@ func (n *Runtime) Update(_ context.Context, entry registry.Entry) error {
 func (n *Runtime) Delete(ctx context.Context, entry registry.Entry) error {
 	n.logger.Debug("noop runtime: delete called",
 		zap.String("id", entry.ID.String()),
-		zap.String("kind", string(entry.Kind)))
+		zap.String("kind", entry.Kind))
 
 	n.bus.Send(ctx, events.Event{
 		System: runtime.FunctionSystem,
 		Kind:   runtime.DeleteFunctionCommand,
-		Path:   events.Path(entry.ID.String()),
+		Path:   entry.ID.String(),
 	})
 
 	return nil
