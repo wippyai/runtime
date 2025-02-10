@@ -2,10 +2,10 @@ package shell
 
 import (
 	"context"
+	"github.com/ponyruntime/pony/api/supervisor"
 	"io"
 
 	"github.com/ponyruntime/pony/api/events"
-	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 )
 
@@ -30,19 +30,14 @@ type (
 		Close(ctx context.Context) error
 	}
 
-	// DebugTerminal extends Terminal with debugging capabilities
-	DebugTerminal interface {
-		Terminal
-		// Observe starts observing the terminal for debugging purposes, called before Run
-		Observe(ctx context.Context, bus events.Bus) error
-	}
-
-	// StatefulTerminal extends Terminal with state management capabilities
-	StatefulTerminal interface {
-		Terminal
-		// State returns the current terminal state
-		State() payload.Payload
-		// SetState attempts to restore terminal to given state, set prior to Run
-		SetState(payload.Payload) error
+	// ServiceConfig represents the configuration for a terminal service
+	ServiceConfig struct {
+		HideLogs  bool                       `json:"hide_logs"` // Redirect logs (all) to the event bus, releases io.Output
+		Lifecycle supervisor.LifecycleConfig `json:"lifecycle"` // Lifecycle management config
 	}
 )
+
+// InitDefaults initializes the ServiceConfig with default values
+func (c *ServiceConfig) InitDefaults() {
+	c.Lifecycle.InitDefaults()
+}
