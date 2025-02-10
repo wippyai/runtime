@@ -144,8 +144,8 @@ func (c *RouterConfig) Validate() error {
 		return fmt.Errorf("metadata cannot be nil")
 	}
 
-	routerID := c.Meta.StringValue(ServerID)
-	if routerID == "" {
+	serverID := c.Meta.StringValue(ServerID)
+	if serverID == "" {
 		return fmt.Errorf("server in metadata cannot be empty")
 	}
 
