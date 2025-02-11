@@ -16,10 +16,10 @@ import (
 var ErrSkipOperation = errors.New("skip operation")
 
 // WithRegistryHandler adapts a registry listener with pattern matching to event router
-func WithRegistryHandler(kinds registry.Kind, listener registry.EntryListener) eventbus.RouterOption {
+func WithRegistryHandler(kinds registry.Kind, listener registry.EntryListener) eventbus.EventHandler {
 	w := wildcard.NewWildcard(kinds)
 
-	return eventbus.WithHandlers(eventbus.NewBaseHandler(
+	return eventbus.NewBaseHandler(
 		eventbus.Pattern{System: registry.System, Kind: registry.AllEvents},
 		func(ctx context.Context, evt events.Event) error {
 			bus := ctx.Value(contextapi.BusCtx).(events.Bus)
@@ -82,7 +82,7 @@ func WithRegistryHandler(kinds registry.Kind, listener registry.EntryListener) e
 			accept(ctx, bus, entry.ID)
 			return nil
 		},
-	))
+	)
 }
 
 func accept(ctx context.Context, bus events.Bus, id registry.ID) {
