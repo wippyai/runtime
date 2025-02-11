@@ -31,9 +31,9 @@ type (
 		ID      registry.ID
 		Kind    registry.Kind
 		Version Version
-		Source  string
-		Method  string
-		Module  runtime.Module
+		Source  string         // Code and libs has this
+		Method  string         // Processes and functions has this
+		Module  runtime.Module // Modules only has this
 	}
 
 	Edge struct {
