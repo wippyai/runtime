@@ -369,7 +369,7 @@ func TestMemoryGraph_BuildRuntime(t *testing.T) {
 
 	// Assign a dummy module to nodeC.
 	var mod runtime.Module = &dummyModule{name: "dummyMod"}
-	nodeC.Module = &mod
+	nodeC.Module = mod
 
 	t.Run("ValidRuntime", func(t *testing.T) {
 		rt, err := mg.Build(nodeA.ID)
@@ -393,8 +393,8 @@ func TestMemoryGraph_BuildRuntime(t *testing.T) {
 		// Check that modules include the one from nodeC.
 		if len(rt.Modules) != 1 {
 			t.Errorf("expected 1 module, got %d", len(rt.Modules))
-		} else if (*rt.Modules[0]).Name() != "dummyMod" {
-			t.Errorf("expected module name 'dummyMod', got '%s'", (*rt.Modules[0]).Name())
+		} else if (rt.Modules[0]).Name() != "dummyMod" {
+			t.Errorf("expected module name 'dummyMod', got '%s'", (rt.Modules[0]).Name())
 		}
 	})
 
@@ -490,9 +490,9 @@ func TestMemoryGraph_Build_TransitiveModules(t *testing.T) {
 	var leafMod runtime.Module = &dummyModule{name: "leafMod"}
 
 	// Assign modules to nodes
-	mainNode.Module = &mainMod
-	middleNode.Module = &middleMod
-	leafNode.Module = &leafMod
+	mainNode.Module = mainMod
+	middleNode.Module = middleMod
+	leafNode.Module = leafMod
 
 	// Add all nodes to the graph
 	if err := mg.AddNode(mainNode); err != nil {
@@ -527,7 +527,7 @@ func TestMemoryGraph_Build_TransitiveModules(t *testing.T) {
 	// Create a map of module names for easy checking
 	moduleNames := make(map[string]bool)
 	for _, mod := range rt.Modules {
-		moduleNames[(*mod).Name()] = true
+		moduleNames[mod.Name()] = true
 	}
 
 	// Verify each expected module is present
@@ -590,9 +590,9 @@ func TestMemoryGraph_Build_ModuleDeduplication(t *testing.T) {
 	var uniqueMod runtime.Module = &dummyModule{name: "uniqueModule"}
 
 	// Both dep1 and dep2 depend on commonDep which uses sharedModule
-	commonDepNode.Module = &sharedMod
+	commonDepNode.Module = sharedMod
 	// dep1 also uses a unique module
-	dep1Node.Module = &uniqueMod
+	dep1Node.Module = uniqueMod
 
 	// Add all nodes to the graph
 	nodes := []*Node{mainNode, dep1Node, dep2Node, commonDepNode}
@@ -634,7 +634,7 @@ func TestMemoryGraph_Build_ModuleDeduplication(t *testing.T) {
 	// Create a map of module names for verification
 	moduleNames := make(map[string]bool)
 	for _, mod := range rt.Modules {
-		moduleNames[(*mod).Name()] = true
+		moduleNames[mod.Name()] = true
 	}
 
 	// Verify expected modules are present exactly once
@@ -716,13 +716,13 @@ func TestMemoryGraph_Build_AliasCollision(t *testing.T) {
 			ID:     registry.ID{Name: "Module1"},
 			Kind:   "module.lua",
 			Source: "module1 source",
-			Module: &mod1,
+			Module: mod1,
 		},
 		"mod2": &Node{
 			ID:     registry.ID{Name: "Module2"},
 			Kind:   "module.lua",
 			Source: "module2 source",
-			Module: &mod2,
+			Module: mod2,
 		},
 	}
 
@@ -780,13 +780,13 @@ func TestMemoryGraph_Build_SharedDependency(t *testing.T) {
 			ID:     registry.ID{Name: "Module1"},
 			Kind:   "module.lua",
 			Source: "module1 source",
-			Module: &mod1,
+			Module: mod1,
 		},
 		"shared": &Node{
 			ID:     registry.ID{Name: "Shared"},
 			Kind:   "module.lua",
 			Source: "shared module source",
-			Module: &sharedMod,
+			Module: sharedMod,
 		},
 	}
 
