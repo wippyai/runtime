@@ -9,8 +9,6 @@ import (
 	glua "github.com/yuin/gopher-lua"
 )
 
-const defaultCapacity = 9000
-
 // CompiledProto represents a compiled Lua prototype with its optional alias
 type CompiledProto struct {
 	Alias string
@@ -27,14 +25,14 @@ type CompiledMain struct {
 	Dependencies []CompiledProto
 
 	// Required modules (not compiled, just referenced)
-	Modules []*runtime.Module
+	Modules []runtime.Module
 }
 
 // NewCompiledMain creates a new CompiledMain instance
 func NewCompiledMain() *CompiledMain {
 	return &CompiledMain{
 		Dependencies: make([]CompiledProto, 0),
-		Modules:      make([]*runtime.Module, 0),
+		Modules:      make([]runtime.Module, 0),
 	}
 }
 
@@ -50,17 +48,18 @@ type Compiler struct {
 // 'compileFn' is provided by the caller and is used to compile Lua Source code.
 func NewCompiler(
 	compileFn func(source string) (*glua.FunctionProto, error),
+	cacheCapacity int,
 ) *Compiler {
 	return &Compiler{
 		memGraph:  NewMemoryGraph(),
-		cache:     lru.New[string, *glua.FunctionProto](lru.WithCapacity(defaultCapacity)),
+		cache:     lru.New[string, *glua.FunctionProto](lru.WithCapacity(cacheCapacity)),
 		compileFn: compileFn,
 	}
 }
 
 // getCompiledProto retrieves a node's compiled function prototype from cache or compiles it.
 func (c *Compiler) getCompiledProto(node *Node) (*glua.FunctionProto, error) {
-	if proto, ok := c.cache.Get(node.Hash); ok {
+	if proto, ok := c.cache.Get(node.Version.Hash); ok {
 		return proto, nil
 	}
 
@@ -68,17 +67,28 @@ func (c *Compiler) getCompiledProto(node *Node) (*glua.FunctionProto, error) {
 	if err != nil {
 		return nil, err
 	}
-	c.cache.Set(node.Hash, compiled)
+
+	c.cache.Set(node.Version.Hash, compiled)
 	return compiled, nil
 }
 
-// Compile builds the runtime using MemoryGraph.Build, compiles the main node and all its dependencies,
-// and returns a CompiledMain containing all compiled components and required modules.
-func (c *Compiler) Compile(entrypoint registry.ID) (*CompiledMain, error) {
+// Compile builds the runtime using MemoryGraph.Build, validates modules against BuildOptions,
+// compiles the main node and all its dependencies, and returns a CompiledMain containing
+// all compiled components and required modules.
+func (c *Compiler) Compile(entrypoint registry.ID, options *BuildOptions) (*CompiledMain, error) {
+	if options == nil {
+		options = NewBuildOptions() // Use default options if none provided
+	}
+
 	// Build the runtime configuration
 	rt, err := c.memGraph.Build(entrypoint)
 	if err != nil {
 		return nil, err
+	}
+
+	// Validate modules against build options before proceeding
+	if err := options.validateModules(rt.Modules); err != nil {
+		return nil, fmt.Errorf("module validation failed: %w", err)
 	}
 
 	// Create new CompiledMain instance
@@ -97,13 +107,14 @@ func (c *Compiler) Compile(entrypoint registry.ID) (*CompiledMain, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to compile dependency node %v: %w", aliased.Node.ID, err)
 		}
+
 		compiled.Dependencies = append(compiled.Dependencies, CompiledProto{
 			Alias: aliased.Alias,
 			Proto: depProto,
 		})
 	}
 
-	// Copy over the modules (not compiled)
+	// Copy over the validated modules
 	compiled.Modules = rt.Modules
 
 	return compiled, nil

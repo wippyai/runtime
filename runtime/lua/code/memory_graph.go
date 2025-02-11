@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"github.com/ponyruntime/pony/runtime/lua/modules/time"
 	"sort"
 
 	"github.com/ponyruntime/pony/api/registry"
@@ -12,6 +13,12 @@ import (
 )
 
 type (
+	// Version tracks changes to nodes
+	Version struct {
+		Hash    string    // Content hash
+		Created time.Time // Creation timestamp
+	}
+
 	// AliasedNode represents a named Lua function prototype.
 	AliasedNode struct {
 		Alias string
@@ -21,12 +28,12 @@ type (
 	// Node represents a code unit in the dependency graph.
 	// A node may contain either a Lua prototype (Proto) or a module reference.
 	Node struct {
-		ID     registry.ID
-		Kind   registry.Kind
-		Hash   string
-		Source string
-		Method string
-		Module *runtime.Module
+		ID      registry.ID
+		Kind    registry.Kind
+		Version Version
+		Source  string
+		Method  string
+		Module  runtime.Module
 	}
 
 	Edge struct {
@@ -38,7 +45,7 @@ type (
 	Main struct {
 		Main      *Node
 		DepProtos []AliasedNode
-		Modules   []*runtime.Module
+		Modules   []runtime.Module
 	}
 )
 
@@ -286,19 +293,19 @@ func (m *MemoryGraph) Build(entrypoint registry.ID) (*Main, error) {
 	rt.DepProtos = depNodes
 
 	// Collect unique modules from all nodes in dependency order
-	modMap := make(map[*runtime.Module]bool)
+	modMap := make(map[runtime.Module]bool)
 	for _, node := range ordered {
 		if node.Module != nil {
 			modMap[node.Module] = true
 		}
 	}
-	var modules []*runtime.Module
+	var modules []runtime.Module
 	for mod := range modMap {
 		modules = append(modules, mod)
 	}
 	// Sort modules by name for consistent ordering
 	sort.Slice(modules, func(i, j int) bool {
-		return (*modules[i]).Name() < (*modules[j]).Name()
+		return modules[i].Name() < modules[j].Name()
 	})
 	rt.Modules = modules
 
