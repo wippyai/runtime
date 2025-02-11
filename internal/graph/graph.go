@@ -7,47 +7,58 @@ import (
 	"sync"
 )
 
-// Graph represents a generic directed graph with weighted edges.
-// It is safe for concurrent use through its embedded mutex.
-type Graph[T comparable] struct {
+// Edge represents a custom edge type that can store arbitrary properties
+type Edge[T comparable, E any] struct {
+	To     T
+	Weight int
+	Data   E
+}
+
+// Graph represents a generic directed graph with custom edge types
+type Graph[T comparable, E any] struct {
 	nodes map[T]bool
-	edges map[T]map[T]int
+	edges map[T]map[T]Edge[T, E]
 	mu    sync.RWMutex
 }
 
-// New creates and returns a new empty directed graph.
-// The graph is initialized with empty node and edge maps.
-func New[T comparable]() *Graph[T] {
-	return &Graph[T]{
+// New creates and returns a new empty directed graph
+func New[T comparable, E any]() *Graph[T, E] {
+	return &Graph[T, E]{
 		nodes: make(map[T]bool),
-		edges: make(map[T]map[T]int),
+		edges: make(map[T]map[T]Edge[T, E]),
 	}
 }
 
 // AddNode adds a new node to the graph.
 // If the node already exists, it will not modify the graph.
-func (g *Graph[T]) AddNode(n T) {
+func (g *Graph[T, E]) AddNode(n T) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.nodes[n] = true
 }
 
-// AddEdge adds a directed edge from the 'from' node to the 'to' node with the specified weight.
-// If the edge already exists, it will update the weight.
-// If either node doesn't exist, it will be automatically added to the graph.
-func (g *Graph[T]) AddEdge(from, to T, weight int) {
+// AddEdge adds a directed edge with custom data
+func (g *Graph[T, E]) AddEdge(from, to T, weight int, data E) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
+	// Ensure nodes exist
+	g.nodes[from] = true
+	g.nodes[to] = true
+
 	if _, ok := g.edges[from]; !ok {
-		g.edges[from] = make(map[T]int)
+		g.edges[from] = make(map[T]Edge[T, E])
 	}
-	g.edges[from][to] = weight
+	g.edges[from][to] = Edge[T, E]{
+		To:     to,
+		Weight: weight,
+		Data:   data,
+	}
 }
 
 // RemoveNode removes the specified node and all its associated edges from the graph.
 // It returns an error if the node doesn't exist.
-func (g *Graph[T]) RemoveNode(n T) error {
+func (g *Graph[T, E]) RemoveNode(n T) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
@@ -70,14 +81,14 @@ func (g *Graph[T]) RemoveNode(n T) error {
 }
 
 // HasNode returns true if the specified node exists in the graph.
-func (g *Graph[T]) HasNode(n T) bool {
+func (g *Graph[T, E]) HasNode(n T) bool {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	return g.nodes[n]
 }
 
 // HasEdge returns true if there exists a directed edge from the 'from' node to the 'to' node.
-func (g *Graph[T]) HasEdge(from, to T) bool {
+func (g *Graph[T, E]) HasEdge(from, to T) bool {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 
@@ -88,9 +99,22 @@ func (g *Graph[T]) HasEdge(from, to T) bool {
 	return false
 }
 
+// GetEdge returns the edge data between two nodes if it exists
+func (g *Graph[T, E]) GetEdge(from, to T) (Edge[T, E], bool) {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+
+	if edges, exists := g.edges[from]; exists {
+		if edge, hasEdge := edges[to]; hasEdge {
+			return edge, true
+		}
+	}
+	return Edge[T, E]{}, false
+}
+
 // GetNodes returns a slice containing all nodes currently in the graph.
 // The order of nodes in the returned slice is not guaranteed.
-func (g *Graph[T]) GetNodes() []T {
+func (g *Graph[T, E]) GetNodes() []T {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 
@@ -104,7 +128,7 @@ func (g *Graph[T]) GetNodes() []T {
 // GetNeighbors returns a slice containing all nodes that have incoming edges from the specified node.
 // Returns an error if the specified node doesn't exist in the graph.
 // Returns an empty slice if the node has no outgoing edges.
-func (g *Graph[T]) GetNeighbors(n T) ([]T, error) {
+func (g *Graph[T, E]) GetNeighbors(n T) ([]T, error) {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 
@@ -128,7 +152,7 @@ func (g *Graph[T]) GetNeighbors(n T) ([]T, error) {
 // Each level contains nodes that only depend on nodes in previous levels.
 // Returns an error if the graph contains a cycle, as cyclic dependencies cannot
 // be organized into levels.
-func (g *Graph[T]) DependencyLevels() (*DependencyLevels[T], error) {
+func (g *Graph[T, E]) DependencyLevels() (*DependencyLevels[T], error) {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 
@@ -200,19 +224,7 @@ func (g *Graph[T]) DependencyLevels() (*DependencyLevels[T], error) {
 // ShortestPath finds the shortest path between two nodes using Dijkstra's algorithm.
 // It returns a Path containing the sequence of nodes and the total cost of the path.
 // The algorithm assumes all edge weights are non-negative.
-//
-// Parameters:
-//   - from: The starting node
-//   - to: The destination node
-//
-// Returns:
-//   - *Path[T]: A path object containing the sequence of nodes and total cost
-//   - error: An error if no path exists or if either node is missing from the graph
-//
-// The returned path will be the shortest possible path by total edge weight.
-// If multiple paths have the same total weight, the algorithm makes no guarantees
-// about which one will be returned.
-func (g *Graph[T]) ShortestPath(from, to T) (*Path[T], error) {
+func (g *Graph[T, E]) ShortestPath(from, to T) (*Path[T], error) {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 
@@ -249,8 +261,8 @@ func (g *Graph[T]) ShortestPath(from, to T) (*Path[T], error) {
 		}
 
 		// Process all neighbors
-		for neighbor, weight := range g.edges[current.node] {
-			newDist := distances[current.node] + weight
+		for neighbor, edge := range g.edges[current.node] {
+			newDist := distances[current.node] + edge.Weight
 
 			// Update distance if we found a better path
 			if distances[neighbor] == -1 || newDist < distances[neighbor] {

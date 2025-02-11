@@ -3,6 +3,7 @@ package lua
 import (
 	"fmt"
 	"github.com/ponyruntime/pony/runtime/lua/manager"
+	lua "github.com/yuin/gopher-lua"
 
 	"github.com/ponyruntime/pony/api/registry"
 	api "github.com/ponyruntime/pony/api/runtime/lua"

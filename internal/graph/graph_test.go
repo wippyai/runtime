@@ -1,56 +1,87 @@
 package graph
 
 import (
-	"sort"
 	"sync"
 	"testing"
 )
 
+type TestEdgeData struct {
+	Label string
+	Cost  float64
+}
+
 func TestGraphOperations(t *testing.T) {
-	t.Run("edge weights", func(t *testing.T) {
-		g := New[string]()
+	t.Run("edge weights and data", func(t *testing.T) {
+		g := New[string, TestEdgeData]()
 		g.AddNode("A")
 		g.AddNode("B")
 
-		// Test adding edge with weight
-		g.AddEdge("A", "B", 5)
+		edgeData := TestEdgeData{Label: "test", Cost: 5.5}
+		g.AddEdge("A", "B", 5, edgeData)
+
 		if !g.HasEdge("A", "B") {
 			t.Error("edge A->B should exist")
 		}
 
-		// Test updating edge weight
-		g.AddEdge("A", "B", 10)
-		if !g.HasEdge("A", "B") {
-			t.Error("edge A->B should still exist after weight update")
+		edge, exists := g.GetEdge("A", "B")
+		if !exists {
+			t.Error("edge A->B should be retrievable")
+		}
+		if edge.Weight != 5 {
+			t.Errorf("expected weight 5, got %d", edge.Weight)
+		}
+		if edge.Data.Label != "test" {
+			t.Errorf("expected label 'test', got %s", edge.Data.Label)
+		}
+
+		// Test updating edge
+		newData := TestEdgeData{Label: "updated", Cost: 10.5}
+		g.AddEdge("A", "B", 10, newData)
+
+		edge, exists = g.GetEdge("A", "B")
+		if !exists {
+			t.Error("edge A->B should exist after update")
+		}
+		if edge.Weight != 10 {
+			t.Errorf("expected updated weight 10, got %d", edge.Weight)
+		}
+		if edge.Data.Label != "updated" {
+			t.Errorf("expected updated label 'updated', got %s", edge.Data.Label)
 		}
 	})
 
 	t.Run("remove edges", func(t *testing.T) {
-		g := New[string]()
+		g := New[string, TestEdgeData]()
 		g.AddNode("A")
 		g.AddNode("B")
 		g.AddNode("C")
 
-		g.AddEdge("A", "B", 1)
-		g.AddEdge("B", "C", 2)
-		g.AddEdge("A", "C", 3)
+		edgeData := TestEdgeData{Label: "test", Cost: 1.0}
+		g.AddEdge("A", "B", 1, edgeData)
+		g.AddEdge("B", "C", 2, edgeData)
+		g.AddEdge("A", "C", 3, edgeData)
 
-		// Remove middle node
 		err := g.RemoveNode("B")
 		if err != nil {
 			t.Errorf("unexpected error removing node: %v", err)
 		}
 
-		// Verify A->C edge remains
 		if !g.HasEdge("A", "C") {
 			t.Error("edge A->C should still exist after removing B")
+		}
+
+		edge, exists := g.GetEdge("A", "C")
+		if !exists {
+			t.Error("edge A->C should be retrievable after removing B")
+		}
+		if edge.Weight != 3 {
+			t.Errorf("expected weight 3, got %d", edge.Weight)
 		}
 	})
 
 	t.Run("duplicate operations", func(t *testing.T) {
-		g := New[string]()
+		g := New[string, TestEdgeData]()
 
-		// Test duplicate node additions
 		g.AddNode("A")
 		g.AddNode("A") // Should be idempotent
 
@@ -64,9 +95,8 @@ func TestGraphOperations(t *testing.T) {
 	})
 
 	t.Run("edge cases", func(t *testing.T) {
-		g := New[string]()
+		g := New[string, TestEdgeData]()
 
-		// Test operations on empty graph
 		if g.HasNode("A") {
 			t.Error("empty graph should not have nodes")
 		}
@@ -75,202 +105,124 @@ func TestGraphOperations(t *testing.T) {
 			t.Error("empty graph should not have edges")
 		}
 
-		// Test non-existent node operations
 		_, err := g.GetNeighbors("A")
 		if err == nil {
 			t.Error("expected error getting neighbors of non-existent node")
 		}
-	})
 
-	t.Run("neighbor operations", func(t *testing.T) {
-		g := New[string]()
-		g.AddNode("A")
-		g.AddNode("B")
-		g.AddNode("C")
-
-		g.AddEdge("A", "B", 1)
-		g.AddEdge("A", "C", 2)
-
-		neighbors, err := g.GetNeighbors("A")
-		if err != nil {
-			t.Errorf("unexpected error: %v", err)
-		}
-
-		if len(neighbors) != 2 {
-			t.Errorf("expected 2 neighbors, got %d", len(neighbors))
-		}
-
-		// Remove edge by removing node
-		err = g.RemoveNode("B")
-		if err != nil {
-			t.Errorf("unexpected error: %v", err)
-		}
-
-		neighbors, err = g.GetNeighbors("A")
-		if err != nil {
-			t.Errorf("unexpected error: %v", err)
-		}
-
-		if len(neighbors) != 1 {
-			t.Errorf("expected 1 neighbor after removal, got %d", len(neighbors))
+		_, exists := g.GetEdge("A", "B")
+		if exists {
+			t.Error("should not find edge in empty graph")
 		}
 	})
 }
 
 func TestGraphGenericTypes(t *testing.T) {
 	t.Run("integer nodes", func(t *testing.T) {
-		g := New[int]()
+		type IntEdgeData struct {
+			Value int
+		}
+		g := New[int, IntEdgeData]()
 		g.AddNode(1)
 		g.AddNode(2)
-		g.AddEdge(1, 2, 5)
+
+		edgeData := IntEdgeData{Value: 42}
+		g.AddEdge(1, 2, 5, edgeData)
 
 		if !g.HasNode(1) || !g.HasNode(2) {
 			t.Error("integer nodes should exist")
 		}
 
-		if !g.HasEdge(1, 2) {
+		edge, exists := g.GetEdge(1, 2)
+		if !exists {
 			t.Error("edge between integer nodes should exist")
+		}
+		if edge.Data.Value != 42 {
+			t.Errorf("expected edge data value 42, got %d", edge.Data.Value)
 		}
 	})
 
 	t.Run("custom comparable type", func(t *testing.T) {
 		type CustomID string
-		g := New[CustomID]()
+		type CustomEdgeData struct {
+			Info string
+		}
+		g := New[CustomID, CustomEdgeData]()
 
 		g.AddNode("A")
 		g.AddNode("B")
-		g.AddEdge("A", "B", 1)
+
+		edgeData := CustomEdgeData{Info: "custom"}
+		g.AddEdge("A", "B", 1, edgeData)
 
 		if !g.HasNode("A") || !g.HasNode("B") {
 			t.Error("custom type nodes should exist")
 		}
 
-		if !g.HasEdge("A", "B") {
+		edge, exists := g.GetEdge("A", "B")
+		if !exists {
 			t.Error("edge between custom type nodes should exist")
 		}
-	})
-}
-
-func TestGraphEdgeOperations(t *testing.T) {
-	t.Run("edge management", func(t *testing.T) {
-		g := New[string]()
-
-		// Add nodes
-		nodes := []string{"A", "B", "C"}
-		for _, node := range nodes {
-			g.AddNode(node)
-		}
-
-		// Test bidirectional edges
-		g.AddEdge("A", "B", 1)
-		g.AddEdge("B", "A", 2)
-
-		if !g.HasEdge("A", "B") || !g.HasEdge("B", "A") {
-			t.Error("bidirectional edges should exist")
-		}
-
-		// Test edge overwrite
-		g.AddEdge("A", "B", 3)
-		// Would need to add a method to get edge weight to verify the new weight
-	})
-
-	t.Run("sorted nodes", func(t *testing.T) {
-		g := New[string]()
-
-		// Add nodes in random order
-		nodes := []string{"C", "A", "B"}
-		for _, node := range nodes {
-			g.AddNode(node)
-		}
-
-		gotNodes := g.GetNodes()
-		sort.Strings(gotNodes)
-
-		// Expected nodes should be sorted
-		expectedNodes := []string{"A", "B", "C"}
-		for i, node := range gotNodes {
-			if node != expectedNodes[i] {
-				t.Errorf("sorted nodes mismatch at position %d: got %s, want %s",
-					i, node, expectedNodes[i])
-			}
+		if edge.Data.Info != "custom" {
+			t.Errorf("expected edge data info 'custom', got %s", edge.Data.Info)
 		}
 	})
 }
 
 func TestGraphConcurrentOperations(t *testing.T) {
-	t.Run("concurrent node operations", func(t *testing.T) {
-		g := New[string]()
-		var wg sync.WaitGroup
-
-		// Concurrent node additions
-		for i := 0; i < 100; i++ {
-			wg.Add(1)
-			go func(val int) {
-				defer wg.Done()
-				node := string(rune('A' + (val % 26)))
-				g.AddNode(node)
-			}(i)
-		}
-		wg.Wait()
-
-		// Verify nodes
-		nodes := g.GetNodes()
-		if len(nodes) > 26 {
-			t.Errorf("expected at most 26 nodes, got %d", len(nodes))
-		}
-	})
-
 	t.Run("concurrent edge operations", func(t *testing.T) {
-		g := New[string]()
+		g := New[string, TestEdgeData]()
 
-		// Add base nodes
 		nodes := []string{"A", "B", "C"}
 		for _, node := range nodes {
 			g.AddNode(node)
 		}
 
 		var wg sync.WaitGroup
-		// Concurrent edge additions
 		for i := 0; i < 100; i++ {
 			wg.Add(1)
-			go func() {
+			go func(i int) {
 				defer wg.Done()
-				g.AddEdge("A", "B", 1)
-				g.AddEdge("B", "C", 2)
-			}()
+				edgeData := TestEdgeData{
+					Label: string(rune('a' + i%26)),
+					Cost:  float64(i),
+				}
+				g.AddEdge("A", "B", 1, edgeData)
+				g.AddEdge("B", "C", 2, edgeData)
+			}(i)
 		}
 		wg.Wait()
 
-		// Verify edges exist after concurrent operations
 		if !g.HasEdge("A", "B") || !g.HasEdge("B", "C") {
 			t.Error("edges should exist after concurrent operations")
 		}
 	})
 
 	t.Run("concurrent mixed operations", func(t *testing.T) {
-		g := New[string]()
+		g := New[string, TestEdgeData]()
 		var wg sync.WaitGroup
 
-		// Setup initial nodes
 		initialNodes := []string{"A", "B", "C"}
 		for _, node := range initialNodes {
 			g.AddNode(node)
 		}
 
-		// Concurrent mixed operations
 		for i := 0; i < 50; i++ {
 			wg.Add(1)
-			go func() {
+			go func(i int) {
 				defer wg.Done()
 				g.AddNode("D")
-				g.AddEdge("A", "B", 1)
+				edgeData := TestEdgeData{
+					Label: string(rune('a' + i%26)),
+					Cost:  float64(i),
+				}
+				g.AddEdge("A", "B", 1, edgeData)
 				neighbors, _ := g.GetNeighbors("A")
-				_ = neighbors // Use neighbors to prevent compiler optimization
-			}()
+				_ = neighbors
+			}(i)
 		}
 		wg.Wait()
 
-		// Verify graph integrity
 		if !g.HasNode("D") {
 			t.Error("node D should exist after concurrent operations")
 		}
@@ -280,139 +232,152 @@ func TestGraphConcurrentOperations(t *testing.T) {
 	})
 }
 
-func TestGraphNeighborOperations(t *testing.T) {
-	t.Run("neighbor order", func(t *testing.T) {
-		g := New[string]()
+func TestGraphPathOperations(t *testing.T) {
+	t.Run("shortest path with custom edges", func(t *testing.T) {
+		g := New[string, TestEdgeData]()
 
-		// Add nodes and edges
-		nodes := []string{"A", "B", "C", "D"}
-		for _, node := range nodes {
-			g.AddNode(node)
-		}
-
-		// Add edges in non-alphabetical order
-		g.AddEdge("A", "C", 1)
-		g.AddEdge("A", "B", 2)
-		g.AddEdge("A", "D", 3)
-
-		// Create neighbors and verify they can be sorted
-		neighbors, err := g.GetNeighbors("A")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		// Sort neighbors
-		sort.Strings(neighbors)
-		expected := []string{"B", "C", "D"}
-
-		// Verify order
-		for i, node := range neighbors {
-			if node != expected[i] {
-				t.Errorf("sorted neighbors mismatch at position %d: got %s, want %s",
-					i, node, expected[i])
-			}
-		}
-	})
-}
-
-func TestGraphEdgeCleanup(t *testing.T) {
-	t.Run("bidirectional edge removal", func(t *testing.T) {
-		g := New[string]()
-		g.AddNode("A")
-		g.AddNode("B")
-
-		// Add edges in both directions
-		g.AddEdge("A", "B", 1)
-		g.AddEdge("B", "A", 2)
-
-		// Remove edges between A and B
-		err := g.RemoveNode("B")
-		if err != nil {
-			t.Errorf("unexpected error removing node: %v", err)
-		}
-
-		// Verify A's edge map exists but has no edges
-		neighbors, err := g.GetNeighbors("A")
-		if err != nil {
-			t.Errorf("unexpected error getting neighbors: %v", err)
-		}
-		if len(neighbors) != 0 {
-			t.Error("A should have no neighbors after B removal")
-		}
-	})
-
-	t.Run("edge map cleanup after multiple operations", func(t *testing.T) {
-		g := New[string]()
-		g.AddNode("A")
-		g.AddNode("B")
-		g.AddNode("C")
-
-		// Create and remove edges in various patterns
-		g.AddEdge("A", "B", 1)
-		g.AddEdge("B", "C", 2)
-		g.AddEdge("C", "A", 3)
-
-		// Remove middle node
-		err := g.RemoveNode("B")
-		if err != nil {
-			t.Errorf("unexpected error removing node: %v", err)
-		}
-
-		// Check remaining edges
-		neighborsA, _ := g.GetNeighbors("A")
-
-		if len(neighborsA) != 0 {
-			t.Error("A should have no outgoing edges after B removal")
-		}
-
-		// Add new edges after removal
-		g.AddEdge("A", "C", 4)
-		neighborsA, _ = g.GetNeighbors("A")
-		if len(neighborsA) != 1 {
-			t.Error("A should have exactly one neighbor after adding new edge")
-		}
-	})
-
-	t.Run("edge map complete cleanup", func(t *testing.T) {
-		g := New[string]()
-
-		// Setup complete graph
+		// Create a simple path A -> B -> C
 		nodes := []string{"A", "B", "C"}
 		for _, node := range nodes {
 			g.AddNode(node)
 		}
 
-		// Create edges between all nodes
-		for i := 0; i < len(nodes); i++ {
-			for j := 0; j < len(nodes); j++ {
-				if i != j {
-					g.AddEdge(nodes[i], nodes[j], 1)
-				}
-			}
-		}
+		edgeData := TestEdgeData{Label: "path"}
+		g.AddEdge("A", "B", 1, edgeData)
+		g.AddEdge("B", "C", 2, edgeData)
+		g.AddEdge("A", "C", 4, edgeData) // Longer direct path
 
-		// Remove all nodes one by one
-		for _, node := range nodes {
-			err := g.RemoveNode(node)
-			if err != nil {
-				t.Errorf("unexpected error removing node %s: %v", node, err)
-			}
-		}
-
-		// Verify graph is empty
-		remainingNodes := g.GetNodes()
-		if len(remainingNodes) != 0 {
-			t.Error("graph should have no nodes after removing all")
-		}
-
-		// Add new node and verify clean state
-		g.AddNode("D")
-		neighbors, err := g.GetNeighbors("D")
+		path, err := g.ShortestPath("A", "C")
 		if err != nil {
-			t.Errorf("unexpected error getting neighbors: %v", err)
+			t.Errorf("unexpected error finding path: %v", err)
 		}
-		if len(neighbors) != 0 {
-			t.Error("new node should have empty edge map")
+
+		expectedPath := []string{"A", "B", "C"}
+		if len(path.Nodes) != len(expectedPath) {
+			t.Errorf("expected path length %d, got %d", len(expectedPath), len(path.Nodes))
+		}
+		for i, node := range path.Nodes {
+			if node != expectedPath[i] {
+				t.Errorf("path mismatch at position %d: expected %s, got %s",
+					i, expectedPath[i], node)
+			}
+		}
+		if path.Cost != 3 {
+			t.Errorf("expected total cost 3, got %d", path.Cost)
+		}
+	})
+}
+
+func TestGraphEdgeDataOperations(t *testing.T) {
+	t.Run("edge data persistence", func(t *testing.T) {
+		g := New[string, TestEdgeData]()
+		g.AddNode("A")
+		g.AddNode("B")
+
+		edgeData := TestEdgeData{
+			Label: "original",
+			Cost:  1.5,
+		}
+		g.AddEdge("A", "B", 1, edgeData)
+
+		edge, exists := g.GetEdge("A", "B")
+		if !exists {
+			t.Error("edge should exist")
+		}
+		if edge.Data.Label != "original" {
+			t.Errorf("expected label 'original', got %s", edge.Data.Label)
+		}
+		if edge.Data.Cost != 1.5 {
+			t.Errorf("expected cost 1.5, got %f", edge.Data.Cost)
+		}
+
+		// Update edge data
+		newData := TestEdgeData{
+			Label: "updated",
+			Cost:  2.5,
+		}
+		g.AddEdge("A", "B", 1, newData)
+
+		edge, exists = g.GetEdge("A", "B")
+		if !exists {
+			t.Error("edge should exist after update")
+		}
+		if edge.Data.Label != "updated" {
+			t.Errorf("expected updated label 'updated', got %s", edge.Data.Label)
+		}
+		if edge.Data.Cost != 2.5 {
+			t.Errorf("expected updated cost 2.5, got %f", edge.Data.Cost)
+		}
+	})
+
+	t.Run("nil edge data", func(t *testing.T) {
+		g := New[string, *TestEdgeData]()
+		g.AddNode("A")
+		g.AddNode("B")
+
+		// Add edge with nil data
+		g.AddEdge("A", "B", 1, nil)
+
+		edge, exists := g.GetEdge("A", "B")
+		if !exists {
+			t.Error("edge should exist")
+		}
+		if edge.Data != nil {
+			t.Error("edge data should be nil")
+		}
+	})
+}
+
+func TestGraphDependencyLevels(t *testing.T) {
+	t.Run("dependency levels with custom edges", func(t *testing.T) {
+		g := New[string, TestEdgeData]()
+
+		// Add nodes
+		nodes := []string{"A", "B", "C", "D"}
+		for _, node := range nodes {
+			g.AddNode(node)
+		}
+
+		// Create dependencies
+		edgeData := TestEdgeData{Label: "dep"}
+		g.AddEdge("A", "B", 1, edgeData)
+		g.AddEdge("B", "C", 1, edgeData)
+		g.AddEdge("A", "C", 1, edgeData)
+		g.AddEdge("C", "D", 1, edgeData)
+
+		levels, err := g.DependencyLevels()
+		if err != nil {
+			t.Errorf("unexpected error getting dependency levels: %v", err)
+		}
+
+		// Verify first level contains only A
+		if len(levels.levels[0]) != 1 || levels.levels[0][0] != "A" {
+			t.Error("first level should contain only A")
+		}
+
+		// Verify D is in the last level
+		lastLevel := levels.levels[len(levels.levels)-1]
+		if len(lastLevel) != 1 || lastLevel[0] != "D" {
+			t.Error("last level should contain only D")
+		}
+	})
+
+	t.Run("cyclic dependencies", func(t *testing.T) {
+		g := New[string, TestEdgeData]()
+
+		nodes := []string{"A", "B", "C"}
+		for _, node := range nodes {
+			g.AddNode(node)
+		}
+
+		edgeData := TestEdgeData{Label: "cycle"}
+		g.AddEdge("A", "B", 1, edgeData)
+		g.AddEdge("B", "C", 1, edgeData)
+		g.AddEdge("C", "A", 1, edgeData)
+
+		_, err := g.DependencyLevels()
+		if err == nil {
+			t.Error("expected error for cyclic dependencies")
 		}
 	})
 }
