@@ -303,7 +303,7 @@ func TestDistributedWorkers(t *testing.T) {
 			// Verify the doubled value is correct
 			assert.Equal(t, task*2, value)
 
-			// Verify worker Name is in valid range
+			// Verify worker Alias is in valid range
 			assert.GreaterOrEqual(t, int(worker), 1)
 			assert.LessOrEqual(t, int(worker), 5)
 		})
@@ -426,7 +426,7 @@ func TestWorkerPool(t *testing.T) {
 		results.ForEach(func(_, value lua.LValue) {
 			result := value.(*lua.LTable)
 
-			// Verify worker Name is in valid range
+			// Verify worker Alias is in valid range
 			worker := result.RawGetString("worker").(lua.LNumber)
 			assert.GreaterOrEqual(t, int(worker), 1)
 			assert.LessOrEqual(t, int(worker), 20)

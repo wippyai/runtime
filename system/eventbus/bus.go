@@ -72,7 +72,7 @@ func NewBus() *Bus {
 }
 
 // Subscribe creates a new subscription for events from the specified system.
-// It returns a unique subscriber Name that can be used to unsubscribe later.
+// It returns a unique subscriber Alias that can be used to unsubscribe later.
 func (b *Bus) Subscribe(
 	ctx context.Context,
 	system events.System,
@@ -133,7 +133,7 @@ func (b *Bus) SubscribeP(
 	}
 }
 
-// Unsubscribe removes the subscription identified by the given subscriber Name.
+// Unsubscribe removes the subscription identified by the given subscriber Alias.
 // It closes the associated event channel.
 func (b *Bus) Unsubscribe(ctx context.Context, subID events.SubscriberID) {
 	if ctx.Err() != nil {

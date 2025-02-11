@@ -409,3 +409,197 @@ func TestGraphMissingDependencyNotAutoAdded(t *testing.T) {
 		}
 	}
 }
+
+func TestGraphRemoveEdge(t *testing.T) {
+	t.Run("basic edge removal", func(t *testing.T) {
+		g := New[string, TestEdgeData]()
+		g.AddNode("A")
+		g.AddNode("B")
+		g.AddNode("C")
+
+		edgeData := TestEdgeData{Label: "test", Cost: 1.0}
+		g.AddEdge("A", "B", 1, edgeData)
+		g.AddEdge("B", "C", 2, edgeData)
+
+		// Remove edge A->B
+		err := g.RemoveEdge("A", "B")
+		if err != nil {
+			t.Errorf("unexpected error removing edge: %v", err)
+		}
+
+		// Verify edge was removed
+		if g.HasEdge("A", "B") {
+			t.Error("edge A->B should not exist after removal")
+		}
+
+		// Verify other edge still exists
+		if !g.HasEdge("B", "C") {
+			t.Error("edge B->C should still exist")
+		}
+	})
+
+	t.Run("remove non-existent edge", func(t *testing.T) {
+		g := New[string, TestEdgeData]()
+		g.AddNode("A")
+		g.AddNode("B")
+
+		err := g.RemoveEdge("A", "B")
+		if err == nil {
+			t.Error("expected error when removing non-existent edge")
+		}
+	})
+
+	t.Run("remove edge with non-existent nodes", func(t *testing.T) {
+		g := New[string, TestEdgeData]()
+		g.AddNode("A")
+
+		err := g.RemoveEdge("A", "B")
+		if err == nil {
+			t.Error("expected error when removing edge with non-existent destination")
+		}
+
+		err = g.RemoveEdge("B", "A")
+		if err == nil {
+			t.Error("expected error when removing edge with non-existent source")
+		}
+	})
+
+	t.Run("concurrent edge removal", func(t *testing.T) {
+		g := New[string, TestEdgeData]()
+		g.AddNode("A")
+		g.AddNode("B")
+
+		edgeData := TestEdgeData{Label: "test", Cost: 1.0}
+		g.AddEdge("A", "B", 1, edgeData)
+
+		var wg sync.WaitGroup
+		wg.Add(2)
+
+		go func() {
+			defer wg.Done()
+			_ = g.RemoveEdge("A", "B")
+		}()
+
+		go func() {
+			defer wg.Done()
+			_ = g.RemoveEdge("A", "B")
+		}()
+
+		wg.Wait()
+		if g.HasEdge("A", "B") {
+			t.Error("edge A->B should not exist after concurrent removal attempts")
+		}
+	})
+}
+
+func TestGraphClone(t *testing.T) {
+	t.Run("basic graph cloning", func(t *testing.T) {
+		g := New[string, TestEdgeData]()
+		g.AddNode("A")
+		g.AddNode("B")
+		g.AddNode("C")
+
+		edgeData := TestEdgeData{Label: "test", Cost: 1.0}
+		g.AddEdge("A", "B", 1, edgeData)
+		g.AddEdge("B", "C", 2, edgeData)
+
+		// Clone the graph
+		cloned := g.Clone()
+
+		// Verify nodes exist in cloned graph
+		nodes := []string{"A", "B", "C"}
+		for _, node := range nodes {
+			if !cloned.HasNode(node) {
+				t.Errorf("cloned graph missing node %s", node)
+			}
+		}
+
+		// Verify edges and their data
+		edges := [][2]string{{"A", "B"}, {"B", "C"}}
+		for _, edge := range edges {
+			from, to := edge[0], edge[1]
+			if !cloned.HasEdge(from, to) {
+				t.Errorf("cloned graph missing edge %s->%s", from, to)
+			}
+
+			originalEdge, _ := g.GetEdge(from, to)
+			clonedEdge, _ := cloned.GetEdge(from, to)
+
+			if originalEdge.Weight != clonedEdge.Weight {
+				t.Errorf("edge weight mismatch for %s->%s: expected %d, got %d",
+					from, to, originalEdge.Weight, clonedEdge.Weight)
+			}
+
+			if originalEdge.Data.Label != clonedEdge.Data.Label {
+				t.Errorf("edge data label mismatch for %s->%s: expected %s, got %s",
+					from, to, originalEdge.Data.Label, clonedEdge.Data.Label)
+			}
+
+			if originalEdge.Data.Cost != clonedEdge.Data.Cost {
+				t.Errorf("edge data cost mismatch for %s->%s: expected %f, got %f",
+					from, to, originalEdge.Data.Cost, clonedEdge.Data.Cost)
+			}
+		}
+	})
+
+	t.Run("independence of cloned graph", func(t *testing.T) {
+		g := New[string, TestEdgeData]()
+		g.AddNode("A")
+		g.AddNode("B")
+
+		edgeData := TestEdgeData{Label: "test", Cost: 1.0}
+		g.AddEdge("A", "B", 1, edgeData)
+
+		// Clone the graph
+		cloned := g.Clone()
+
+		// Modify original graph
+		g.AddNode("C")
+		g.AddEdge("B", "C", 2, TestEdgeData{Label: "new", Cost: 2.0})
+		_ = g.RemoveEdge("A", "B")
+
+		// Verify cloned graph remains unchanged
+		if cloned.HasNode("C") {
+			t.Error("cloned graph should not have new node C")
+		}
+
+		if !cloned.HasEdge("A", "B") {
+			t.Error("cloned graph should still have edge A->B")
+		}
+
+		edge, _ := cloned.GetEdge("A", "B")
+		if edge.Data.Label != "test" || edge.Data.Cost != 1.0 {
+			t.Error("edge data in cloned graph should remain unchanged")
+		}
+	})
+
+	t.Run("clone empty graph", func(t *testing.T) {
+		g := New[string, TestEdgeData]()
+		cloned := g.Clone()
+
+		if len(cloned.GetNodes()) != 0 {
+			t.Error("cloned empty graph should have no nodes")
+		}
+	})
+
+	t.Run("concurrent cloning", func(t *testing.T) {
+		g := New[string, TestEdgeData]()
+		g.AddNode("A")
+		g.AddNode("B")
+		edgeData := TestEdgeData{Label: "test", Cost: 1.0}
+		g.AddEdge("A", "B", 1, edgeData)
+
+		var wg sync.WaitGroup
+		for i := 0; i < 10; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				cloned := g.Clone()
+				if !cloned.HasEdge("A", "B") {
+					t.Error("cloned graph missing edge A->B")
+				}
+			}()
+		}
+		wg.Wait()
+	})
+}

@@ -842,12 +842,12 @@ func ProcessData(data string) error {
 }
 
 type Create struct {
-    Name string
-    Name   int
+    Alias string
+    Alias   int
 }
 
 func (h *Create) Process() {
-    fmt.Println("Processing with:", h.Name)
+    fmt.Println("Processing with:", h.Alias)
 }
 ]]
 
