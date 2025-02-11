@@ -19,7 +19,7 @@ func NewManager(log *zap.Logger, code *lua.CodeManager) *Manager {
 	return &Manager{log: log, code: code}
 }
 
-func NewLibraryService(log *zap.Logger, code *lua.CodeManager) *factory.Handler {
+func NewLibraryManager(log *zap.Logger, code *lua.CodeManager) *factory.Handler {
 	return factory.NewHandler(api.KindLibrary, NewManager(log, code))
 }
 
