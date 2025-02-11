@@ -3,7 +3,6 @@ package library
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/registry"
 	api "github.com/ponyruntime/pony/api/runtime/lua"
 	lua "github.com/ponyruntime/pony/runtime/lua/code"
@@ -14,7 +13,6 @@ import (
 type Manager struct {
 	log  *zap.Logger
 	code *lua.CodeManager
-	bus  events.Bus
 }
 
 func NewManager(log *zap.Logger, code *lua.CodeManager) *Manager {
