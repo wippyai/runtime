@@ -1,3 +1,5 @@
+// package graph
+
 package graph
 
 import (
@@ -7,21 +9,21 @@ import (
 	"sync"
 )
 
-// Edge represents a custom edge type that can store arbitrary properties
+// Edge represents a custom edge type that can store arbitrary properties.
 type Edge[T comparable, E any] struct {
 	To     T
 	Weight int
 	Data   E
 }
 
-// Graph represents a generic directed graph with custom edge types
+// Graph represents a generic directed graph with custom edge types.
 type Graph[T comparable, E any] struct {
 	nodes map[T]bool
 	edges map[T]map[T]Edge[T, E]
 	mu    sync.RWMutex
 }
 
-// New creates and returns a new empty directed graph
+// New creates and returns a new empty directed graph.
 func New[T comparable, E any]() *Graph[T, E] {
 	return &Graph[T, E]{
 		nodes: make(map[T]bool),
@@ -37,14 +39,12 @@ func (g *Graph[T, E]) AddNode(n T) {
 	g.nodes[n] = true
 }
 
-// AddEdge adds a directed edge with custom data
+// AddEdge adds a directed edge with custom data.
+// NOTE: Unlike the previous (new) implementation, it does NOT auto-add missing nodes.
+// This reverts the behavior to that of the older graph package.
 func (g *Graph[T, E]) AddEdge(from, to T, weight int, data E) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-
-	// Ensure nodes exist
-	g.nodes[from] = true
-	g.nodes[to] = true
 
 	if _, ok := g.edges[from]; !ok {
 		g.edges[from] = make(map[T]Edge[T, E])
@@ -69,7 +69,7 @@ func (g *Graph[T, E]) RemoveNode(n T) error {
 	delete(g.nodes, n)
 	delete(g.edges, n)
 
-	// Remove all edges pointing to this node
+	// Remove all edges pointing to this node.
 	for from, edges := range g.edges {
 		delete(edges, n)
 		if len(edges) == 0 {
@@ -99,7 +99,7 @@ func (g *Graph[T, E]) HasEdge(from, to T) bool {
 	return false
 }
 
-// GetEdge returns the edge data between two nodes if it exists
+// GetEdge returns the edge data between two nodes if it exists.
 func (g *Graph[T, E]) GetEdge(from, to T) (Edge[T, E], bool) {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
@@ -125,7 +125,7 @@ func (g *Graph[T, E]) GetNodes() []T {
 	return nodes
 }
 
-// GetNeighbors returns a slice containing all nodes that have incoming edges from the specified node.
+// GetNeighbors returns a slice containing all nodes that have outgoing edges from the specified node.
 // Returns an error if the specified node doesn't exist in the graph.
 // Returns an empty slice if the node has no outgoing edges.
 func (g *Graph[T, E]) GetNeighbors(n T) ([]T, error) {
@@ -156,7 +156,7 @@ func (g *Graph[T, E]) DependencyLevels() (*DependencyLevels[T], error) {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 
-	// Calculate in-degree for each node
+	// Calculate in-degree for each node.
 	inDegree := make(map[T]int)
 	for node := range g.nodes {
 		inDegree[node] = 0
@@ -171,10 +171,10 @@ func (g *Graph[T, E]) DependencyLevels() (*DependencyLevels[T], error) {
 		levels: make([][]T, 0),
 	}
 
-	// Continue until all nodes are processed
+	// Continue until all nodes are processed.
 	foundNodes := true
 	for len(inDegree) > 0 && foundNodes {
-		// Find all nodes with no dependencies (in-degree = 0)
+		// Find all nodes with no dependencies (in-degree = 0).
 		currentLevel := make([]T, 0)
 		foundNodes = false
 
@@ -185,20 +185,20 @@ func (g *Graph[T, E]) DependencyLevels() (*DependencyLevels[T], error) {
 			}
 		}
 
-		// If we have nodes but none with in-degree 0, we have a cycle
+		// If we have nodes but none with in-degree 0, we have a cycle.
 		if !foundNodes && len(inDegree) > 0 {
 			remaining := make([]T, 0, len(inDegree))
 			for node := range inDegree {
 				remaining = append(remaining, node)
 			}
-			// Sort for stable error message
+			// Sort for stable error message.
 			sort.Slice(remaining, func(i, j int) bool {
 				return fmt.Sprintf("%v", remaining[i]) < fmt.Sprintf("%v", remaining[j])
 			})
 			return nil, fmt.Errorf("cycle detected with nodes: %v", remaining)
 		}
 
-		// Remove current level nodes from consideration
+		// Remove current level nodes from consideration.
 		for _, node := range currentLevel {
 			if edges, exists := g.edges[node]; exists {
 				for neighbor := range edges {
@@ -208,7 +208,7 @@ func (g *Graph[T, E]) DependencyLevels() (*DependencyLevels[T], error) {
 			delete(inDegree, node)
 		}
 
-		// Sort current level for consistent output
+		// Sort current level for consistent output.
 		sort.Slice(currentLevel, func(i, j int) bool {
 			return fmt.Sprintf("%v", currentLevel[i]) < fmt.Sprintf("%v", currentLevel[j])
 		})
@@ -235,36 +235,36 @@ func (g *Graph[T, E]) ShortestPath(from, to T) (*Path[T], error) {
 		return nil, fmt.Errorf("end node %v does not exist", to)
 	}
 
-	// Initialize Dijkstra's algorithm data structures
+	// Initialize Dijkstra's algorithm data structures.
 	distances := make(map[T]int)
 	previous := make(map[T]T)
 	pq := &priorityQueue[T]{items: make([]*item[T], 0)}
 	heap.Init(pq)
 
-	// Set initial distances
+	// Set initial distances.
 	for node := range g.nodes {
 		if node == from {
 			distances[node] = 0
 			heap.Push(pq, &item[T]{node: node, priority: 0})
 		} else {
-			distances[node] = -1 // -1 represents infinity
+			distances[node] = -1 // -1 represents infinity.
 		}
 	}
 
-	// Process nodes until queue is empty
+	// Process nodes until queue is empty.
 	for pq.Len() > 0 {
 		current := heap.Pop(pq).(*item[T])
 
-		// Skip if we've found a better path already
+		// Skip if we've found a better path already.
 		if current.priority > distances[current.node] {
 			continue
 		}
 
-		// Process all neighbors
+		// Process all neighbors.
 		for neighbor, edge := range g.edges[current.node] {
 			newDist := distances[current.node] + edge.Weight
 
-			// Update distance if we found a better path
+			// Update distance if we found a better path.
 			if distances[neighbor] == -1 || newDist < distances[neighbor] {
 				distances[neighbor] = newDist
 				previous[neighbor] = current.node
@@ -276,18 +276,18 @@ func (g *Graph[T, E]) ShortestPath(from, to T) (*Path[T], error) {
 		}
 	}
 
-	// Check if we found a path to destination
+	// Check if we found a path to destination.
 	if distances[to] == -1 {
 		return nil, fmt.Errorf("no path exists from %v to %v", from, to)
 	}
 
-	// Build path
+	// Build path.
 	path := &Path[T]{
 		Cost:  distances[to],
 		Nodes: make([]T, 0),
 	}
 
-	// Reconstruct path from destination to source
+	// Reconstruct path from destination to source.
 	for current := to; ; current = previous[current] {
 		path.Nodes = append([]T{current}, path.Nodes...)
 		if current == from {
