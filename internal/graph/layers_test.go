@@ -8,7 +8,7 @@ import (
 
 func TestLevels(t *testing.T) {
 	t.Run("basic dependency levels", func(t *testing.T) {
-		g := New[string]()
+		g := New[string, TestEdgeData]()
 
 		// Create a simple dependency graph
 		//     A   B
@@ -21,11 +21,12 @@ func TestLevels(t *testing.T) {
 			g.AddNode(node)
 		}
 
-		g.AddEdge("A", "C", 1)
-		g.AddEdge("A", "D", 1)
-		g.AddEdge("B", "D", 1)
-		g.AddEdge("C", "E", 1)
-		g.AddEdge("D", "E", 1)
+		edgeData := TestEdgeData{Label: "dep"}
+		g.AddEdge("A", "C", 1, edgeData)
+		g.AddEdge("A", "D", 1, edgeData)
+		g.AddEdge("B", "D", 1, edgeData)
+		g.AddEdge("C", "E", 1, edgeData)
+		g.AddEdge("D", "E", 1, edgeData)
 
 		levels, err := g.DependencyLevels()
 		if err != nil {
@@ -44,16 +45,17 @@ func TestLevels(t *testing.T) {
 	})
 
 	t.Run("cycle detection", func(t *testing.T) {
-		g := New[string]()
+		g := New[string, TestEdgeData]()
 		nodes := []string{"A", "B", "C"}
 		for _, node := range nodes {
 			g.AddNode(node)
 		}
 
 		// Create a cycle: A -> B -> C -> A
-		g.AddEdge("A", "B", 1)
-		g.AddEdge("B", "C", 1)
-		g.AddEdge("C", "A", 1)
+		edgeData := TestEdgeData{Label: "cycle"}
+		g.AddEdge("A", "B", 1, edgeData)
+		g.AddEdge("B", "C", 1, edgeData)
+		g.AddEdge("C", "A", 1, edgeData)
 
 		_, err := g.DependencyLevels()
 		if err == nil {
@@ -62,33 +64,33 @@ func TestLevels(t *testing.T) {
 	})
 
 	t.Run("empty graph", func(t *testing.T) {
-		g := New[string]()
+		g := New[string, TestEdgeData]()
 		levels, err := g.DependencyLevels()
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if levels.LevelCount() != 0 {
-			t.Errorf("expected 0 levels for empty graph, got %d", levels.LevelCount())
+		if len(levels.levels) != 0 {
+			t.Errorf("expected 0 levels for empty graph, got %d", len(levels.levels))
 		}
 	})
 
 	t.Run("single node", func(t *testing.T) {
-		g := New[string]()
+		g := New[string, TestEdgeData]()
 		g.AddNode("A")
 		levels, err := g.DependencyLevels()
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if levels.LevelCount() != 1 {
-			t.Errorf("expected 1 level for single node, got %d", levels.LevelCount())
+		if len(levels.levels) != 1 {
+			t.Errorf("expected 1 level for single node, got %d", len(levels.levels))
 		}
 	})
 
 	t.Run("level operations", func(t *testing.T) {
-		g := New[string]()
+		g := New[string, TestEdgeData]()
 		g.AddNode("A")
 		g.AddNode("B")
-		g.AddEdge("A", "B", 1)
+		g.AddEdge("A", "B", 1, TestEdgeData{Label: "op"})
 
 		levels, err := g.DependencyLevels()
 		if err != nil {
@@ -121,13 +123,13 @@ func TestLevels(t *testing.T) {
 
 	t.Run("generic type support", func(t *testing.T) {
 		// Test with integers
-		g := New[int]()
+		g := New[int, TestEdgeData]()
 		nodes := []int{1, 2, 3}
 		for _, node := range nodes {
 			g.AddNode(node)
 		}
-		g.AddEdge(1, 2, 1)
-		g.AddEdge(2, 3, 1)
+		g.AddEdge(1, 2, 1, TestEdgeData{Label: "int"})
+		g.AddEdge(2, 3, 1, TestEdgeData{Label: "int"})
 
 		levels, err := g.DependencyLevels()
 		if err != nil {
@@ -143,7 +145,7 @@ func TestLevels(t *testing.T) {
 
 func TestDependencyLevelsComplex(t *testing.T) {
 	t.Run("complex branching", func(t *testing.T) {
-		g := New[string]()
+		g := New[string, TestEdgeData]()
 
 		// Create a more complex dependency tree:
 		//     A   B   C
@@ -168,8 +170,9 @@ func TestDependencyLevelsComplex(t *testing.T) {
 			{"G", "H"},
 		}
 
+		edgeData := TestEdgeData{Label: "complex"}
 		for _, e := range edges {
-			g.AddEdge(e.from, e.to, 1)
+			g.AddEdge(e.from, e.to, 1, edgeData)
 		}
 
 		levels, err := g.DependencyLevels()
@@ -190,7 +193,7 @@ func TestDependencyLevelsComplex(t *testing.T) {
 	})
 
 	t.Run("multiple entry and exit points", func(t *testing.T) {
-		g := New[string]()
+		g := New[string, TestEdgeData]()
 
 		// Graph with multiple entry/exit points:
 		//   A   B
@@ -203,10 +206,11 @@ func TestDependencyLevelsComplex(t *testing.T) {
 			g.AddNode(node)
 		}
 
-		g.AddEdge("A", "C", 1)
-		g.AddEdge("B", "C", 1)
-		g.AddEdge("C", "D", 1)
-		g.AddEdge("C", "E", 1)
+		edgeData := TestEdgeData{Label: "multi"}
+		g.AddEdge("A", "C", 1, edgeData)
+		g.AddEdge("B", "C", 1, edgeData)
+		g.AddEdge("C", "D", 1, edgeData)
+		g.AddEdge("C", "E", 1, edgeData)
 
 		levels, err := g.DependencyLevels()
 		if err != nil {
@@ -225,7 +229,7 @@ func TestDependencyLevelsComplex(t *testing.T) {
 
 func TestDependencyLevelsEdgeCases(t *testing.T) {
 	t.Run("single chain dependencies", func(t *testing.T) {
-		g := New[string]()
+		g := New[string, TestEdgeData]()
 
 		// A -> B -> C -> D (linear chain)
 		nodes := []string{"A", "B", "C", "D"}
@@ -233,8 +237,9 @@ func TestDependencyLevelsEdgeCases(t *testing.T) {
 			g.AddNode(node)
 		}
 
+		edgeData := TestEdgeData{Label: "chain"}
 		for i := 0; i < len(nodes)-1; i++ {
-			g.AddEdge(nodes[i], nodes[i+1], 1)
+			g.AddEdge(nodes[i], nodes[i+1], 1, edgeData)
 		}
 
 		levels, err := g.DependencyLevels()
@@ -251,7 +256,7 @@ func TestDependencyLevelsEdgeCases(t *testing.T) {
 	})
 
 	t.Run("skip level dependencies", func(t *testing.T) {
-		g := New[string]()
+		g := New[string, TestEdgeData]()
 
 		// A -> B -> D
 		// A ------> D (skip B)
@@ -260,9 +265,10 @@ func TestDependencyLevelsEdgeCases(t *testing.T) {
 			g.AddNode(node)
 		}
 
-		g.AddEdge("A", "B", 1)
-		g.AddEdge("B", "D", 1)
-		g.AddEdge("A", "D", 1)
+		edgeData := TestEdgeData{Label: "skip"}
+		g.AddEdge("A", "B", 1, edgeData)
+		g.AddEdge("B", "D", 1, edgeData)
+		g.AddEdge("A", "D", 1, edgeData)
 
 		levels, err := g.DependencyLevels()
 		if err != nil {
@@ -277,7 +283,7 @@ func TestDependencyLevelsEdgeCases(t *testing.T) {
 }
 
 func TestDependencyLevelsConcurrent(t *testing.T) {
-	g := New[string]()
+	g := New[string, TestEdgeData]()
 
 	// Setup base graph
 	nodes := []string{"A", "B", "C", "D"}
@@ -285,9 +291,10 @@ func TestDependencyLevelsConcurrent(t *testing.T) {
 		g.AddNode(node)
 	}
 
-	g.AddEdge("A", "B", 1)
-	g.AddEdge("B", "C", 1)
-	g.AddEdge("C", "D", 1)
+	edgeData := TestEdgeData{Label: "concurrent"}
+	g.AddEdge("A", "B", 1, edgeData)
+	g.AddEdge("B", "C", 1, edgeData)
+	g.AddEdge("C", "D", 1, edgeData)
 
 	var wg sync.WaitGroup
 	for i := 0; i < 50; i++ {
@@ -300,8 +307,8 @@ func TestDependencyLevelsConcurrent(t *testing.T) {
 				return
 			}
 			// Verify basic properties remain consistent
-			if levels.LevelCount() != 4 {
-				t.Errorf("expected 4 levels in concurrent test, got %d", levels.LevelCount())
+			if len(levels.levels) != 4 {
+				t.Errorf("expected 4 levels in concurrent test, got %d", len(levels.levels))
 			}
 		}()
 	}
@@ -309,13 +316,13 @@ func TestDependencyLevelsConcurrent(t *testing.T) {
 }
 
 func TestDependencyLevelsMethodsExtended(t *testing.T) {
-	g := New[string]()
+	g := New[string, TestEdgeData]()
 	nodes := []string{"A", "B", "C"}
 	for _, node := range nodes {
 		g.AddNode(node)
 	}
-	g.AddEdge("A", "B", 1)
-	g.AddEdge("B", "C", 1)
+	g.AddEdge("A", "B", 1, TestEdgeData{Label: "ext"})
+	g.AddEdge("B", "C", 1, TestEdgeData{Label: "ext"})
 
 	levels, err := g.DependencyLevels()
 	if err != nil {
@@ -328,7 +335,7 @@ func TestDependencyLevelsMethodsExtended(t *testing.T) {
 			t.Error("expected error for negative level")
 		}
 
-		_, err = levels.GetLevel(levels.LevelCount())
+		_, err = levels.GetLevel(len(levels.levels))
 		if err == nil {
 			t.Error("expected error for out of bounds level")
 		}
@@ -336,9 +343,9 @@ func TestDependencyLevelsMethodsExtended(t *testing.T) {
 
 	t.Run("level count consistency", func(t *testing.T) {
 		allLevels := levels.AllLevels()
-		if len(allLevels) != levels.LevelCount() {
-			t.Errorf("inconsistent level count: AllLevels() len %d != LevelCount() %d",
-				len(allLevels), levels.LevelCount())
+		if len(allLevels) != len(levels.levels) {
+			t.Errorf("inconsistent level count: AllLevels() len %d != levels len %d",
+				len(allLevels), len(levels.levels))
 		}
 	})
 
@@ -351,10 +358,10 @@ func TestDependencyLevelsMethodsExtended(t *testing.T) {
 
 func TestNodeLevelInfinity(t *testing.T) {
 	t.Run("get level of non-existent node", func(t *testing.T) {
-		g := New[string]()
+		g := New[string, TestEdgeData]()
 		g.AddNode("A")
 		g.AddNode("B")
-		g.AddEdge("A", "B", 1)
+		g.AddEdge("A", "B", 1, TestEdgeData{Label: "inf"})
 
 		levels, err := g.DependencyLevels()
 		if err != nil {
@@ -385,10 +392,10 @@ func TestNodeLevelInfinity(t *testing.T) {
 	})
 
 	t.Run("level validation", func(t *testing.T) {
-		g := New[string]()
+		g := New[string, TestEdgeData]()
 		g.AddNode("A")
 		g.AddNode("B")
-		g.AddEdge("A", "B", 1)
+		g.AddEdge("A", "B", 1, TestEdgeData{Label: "valid"})
 
 		levels, err := g.DependencyLevels()
 		if err != nil {

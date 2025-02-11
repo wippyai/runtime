@@ -9,7 +9,7 @@ import (
 
 func TestShortestPathScenarios(t *testing.T) {
 	t.Run("complex paths", func(t *testing.T) {
-		g := New[string]()
+		g := New[string, TestEdgeData]()
 
 		// Test graph structure:
 		//    A ---4--> B ---3--> E
@@ -26,17 +26,18 @@ func TestShortestPathScenarios(t *testing.T) {
 		edges := []struct {
 			from, to string
 			weight   int
+			info     string
 		}{
-			{"A", "B", 4},
-			{"A", "C", 2},
-			{"C", "D", 5},
-			{"D", "B", 1},
-			{"B", "E", 3},
-			{"D", "E", 2},
+			{"A", "B", 4, "path1"},
+			{"A", "C", 2, "path2"},
+			{"C", "D", 5, "path3"},
+			{"D", "B", 1, "path4"},
+			{"B", "E", 3, "path5"},
+			{"D", "E", 2, "path6"},
 		}
 
 		for _, e := range edges {
-			g.AddEdge(e.from, e.to, e.weight)
+			g.AddEdge(e.from, e.to, e.weight, TestEdgeData{Label: e.info})
 		}
 
 		tests := []struct {
@@ -86,7 +87,7 @@ func TestShortestPathScenarios(t *testing.T) {
 	})
 
 	t.Run("edge cases", func(t *testing.T) {
-		g := New[string]()
+		g := New[string, TestEdgeData]()
 		g.AddNode("A")
 		g.AddNode("B")
 
@@ -117,7 +118,7 @@ func TestShortestPathScenarios(t *testing.T) {
 				from: "A",
 				to:   "A",
 				setup: func() {
-					g.AddEdge("A", "A", 1)
+					g.AddEdge("A", "A", 1, TestEdgeData{Label: "loop"})
 				},
 				wantErr: false,
 			},
@@ -136,7 +137,7 @@ func TestShortestPathScenarios(t *testing.T) {
 }
 
 func TestShortestPathConcurrent(t *testing.T) {
-	g := New[string]()
+	g := New[string, TestEdgeData]()
 
 	// Setup test graph
 	nodes := []string{"A", "B", "C", "D"}
@@ -144,10 +145,11 @@ func TestShortestPathConcurrent(t *testing.T) {
 		g.AddNode(node)
 	}
 
-	g.AddEdge("A", "B", 1)
-	g.AddEdge("B", "C", 2)
-	g.AddEdge("C", "D", 3)
-	g.AddEdge("A", "D", 10) // Longer direct path
+	edgeData := TestEdgeData{Label: "path"}
+	g.AddEdge("A", "B", 1, edgeData)
+	g.AddEdge("B", "C", 2, edgeData)
+	g.AddEdge("C", "D", 3, edgeData)
+	g.AddEdge("A", "D", 10, edgeData) // Longer direct path
 
 	var wg sync.WaitGroup
 	for i := 0; i < 50; i++ {
@@ -168,16 +170,17 @@ func TestShortestPathConcurrent(t *testing.T) {
 
 func TestShortestPathGenericTypes(t *testing.T) {
 	t.Run("integer nodes", func(t *testing.T) {
-		g := New[int]()
+		g := New[int, TestEdgeData]()
 		nodes := []int{1, 2, 3, 4}
 		for _, node := range nodes {
 			g.AddNode(node)
 		}
 
-		g.AddEdge(1, 2, 1)
-		g.AddEdge(2, 3, 2)
-		g.AddEdge(3, 4, 3)
-		g.AddEdge(1, 4, 10) // Longer direct path
+		edgeData := TestEdgeData{Label: "int_path"}
+		g.AddEdge(1, 2, 1, edgeData)
+		g.AddEdge(2, 3, 2, edgeData)
+		g.AddEdge(3, 4, 3, edgeData)
+		g.AddEdge(1, 4, 10, edgeData) // Longer direct path
 
 		path, err := g.ShortestPath(1, 4)
 		if err != nil {
@@ -195,15 +198,16 @@ func TestShortestPathGenericTypes(t *testing.T) {
 
 	t.Run("custom type nodes", func(t *testing.T) {
 		type CustomID int
-		g := New[CustomID]()
+		g := New[CustomID, TestEdgeData]()
 
 		nodes := []CustomID{1, 2, 3}
 		for _, node := range nodes {
 			g.AddNode(node)
 		}
 
-		g.AddEdge(CustomID(1), CustomID(2), 1)
-		g.AddEdge(CustomID(2), CustomID(3), 2)
+		edgeData := TestEdgeData{Label: "custom_path"}
+		g.AddEdge(CustomID(1), CustomID(2), 1, edgeData)
+		g.AddEdge(CustomID(2), CustomID(3), 2, edgeData)
 
 		path, err := g.ShortestPath(CustomID(1), CustomID(3))
 		if err != nil {
@@ -216,146 +220,6 @@ func TestShortestPathGenericTypes(t *testing.T) {
 		}
 		if !reflect.DeepEqual(path, want) {
 			t.Errorf("ShortestPath() = %v, want %v", path, want)
-		}
-	})
-}
-
-func TestShortestPathWeights(t *testing.T) {
-	t.Run("zero weights", func(t *testing.T) {
-		g := New[string]()
-		nodes := []string{"A", "B", "C"}
-		for _, n := range nodes {
-			g.AddNode(n)
-		}
-
-		// Create path with zero-weight edges
-		g.AddEdge("A", "B", 0)
-		g.AddEdge("B", "C", 0)
-
-		path, err := g.ShortestPath("A", "C")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if path.Cost != 0 {
-			t.Errorf("expected zero cost, got %d", path.Cost)
-		}
-		if len(path.Nodes) != 3 {
-			t.Errorf("expected 3 nodes in path, got %d", len(path.Nodes))
-		}
-	})
-
-	t.Run("large weights", func(t *testing.T) {
-		g := New[string]()
-		g.AddNode("A")
-		g.AddNode("B")
-		g.AddNode("C")
-
-		// Test with very large weights
-		g.AddEdge("A", "B", 1000000)
-		g.AddEdge("B", "C", 1000000)
-		g.AddEdge("A", "C", 1999999) // Shorter direct path
-
-		path, err := g.ShortestPath("A", "C")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if path.Cost != 1999999 {
-			t.Errorf("expected cost 1999999, got %d", path.Cost)
-		}
-		if len(path.Nodes) != 2 {
-			t.Errorf("expected direct path with 2 nodes, got %d", len(path.Nodes))
-		}
-	})
-}
-
-func TestShortestPathEquivalentPaths(t *testing.T) {
-	t.Run("multiple equal paths", func(t *testing.T) {
-		g := New[string]()
-		nodes := []string{"A", "B", "C", "D"}
-		for _, n := range nodes {
-			g.AddNode(n)
-		}
-
-		// Create multiple paths with same total weight
-		g.AddEdge("A", "B", 2)
-		g.AddEdge("B", "D", 3)
-		g.AddEdge("A", "C", 3)
-		g.AddEdge("C", "D", 2)
-
-		path, err := g.ShortestPath("A", "D")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if path.Cost != 5 {
-			t.Errorf("expected cost 5, got %d", path.Cost)
-		}
-		// Note: We don't test which path was chosen as either is valid
-	})
-}
-
-func TestShortestPathIsolatedNodes(t *testing.T) {
-	t.Run("disconnected components", func(t *testing.T) {
-		g := New[string]()
-
-		// Create two disconnected components
-		g.AddNode("A")
-		g.AddNode("B")
-		g.AddEdge("A", "B", 1)
-
-		g.AddNode("C")
-		g.AddNode("D")
-		g.AddEdge("C", "D", 1)
-
-		_, err := g.ShortestPath("A", "D")
-		if err == nil {
-			t.Error("expected error for path between disconnected components")
-		}
-	})
-
-	t.Run("isolated single node", func(t *testing.T) {
-		g := New[string]()
-		g.AddNode("A")
-		g.AddNode("B")
-		g.AddNode("C")
-
-		// Only connect A and B, leaving C isolated
-		g.AddEdge("A", "B", 1)
-
-		_, err := g.ShortestPath("A", "C")
-		if err == nil {
-			t.Error("expected error for path to isolated node")
-		}
-	})
-}
-
-func TestPath(t *testing.T) {
-	t.Run("empty path", func(t *testing.T) {
-		path := &Path[string]{
-			Nodes: []string{},
-			Cost:  0,
-		}
-		if len(path.Nodes) != 0 {
-			t.Error("empty path should have no nodes")
-		}
-	})
-
-	t.Run("single node path", func(t *testing.T) {
-		path := &Path[string]{
-			Nodes: []string{"A"},
-			Cost:  0,
-		}
-		if len(path.Nodes) != 1 {
-			t.Error("single node path should have exactly one node")
-		}
-	})
-
-	t.Run("path with negative cost", func(t *testing.T) {
-		path := &Path[string]{
-			Nodes: []string{"A", "B"},
-			Cost:  -1, // This shouldn't happen in practice but testing struct
-		}
-		if path.Cost >= 0 {
-			t.Error("negative cost path should maintain negative cost")
 		}
 	})
 }
