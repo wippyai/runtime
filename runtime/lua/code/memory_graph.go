@@ -19,12 +19,6 @@ type (
 		Created time.Time // Creation timestamp
 	}
 
-	// AliasedNode represents a named Lua function prototype.
-	AliasedNode struct {
-		Alias string
-		Node  *Node
-	}
-
 	// Node represents a code unit in the dependency graph.
 	// A node may contain either a Lua prototype (Proto) or a module reference.
 	Node struct {
@@ -36,6 +30,12 @@ type (
 		Module  runtime.Module // Modules only has this
 	}
 
+	// RequiredNode represents a named Lua function prototype.
+	RequiredNode struct {
+		Alias string
+		Node  *Node
+	}
+
 	Edge struct {
 		Alias string
 	}
@@ -43,16 +43,23 @@ type (
 	// Main aggregates a main function prototype, its method,
 	// all dependency prototypes, and any required modules.
 	Main struct {
-		Main      *Node
-		DepProtos []AliasedNode
-		Modules   []runtime.Module
+		Main         *Node
+		Dependencies []RequiredNode
 	}
 )
+
+// HashNode computes a hash key based on node.Source and node.Method.
+func HashNode(node *Node) string {
+	h := sha256.New()
+	h.Write([]byte(node.Source))
+	h.Write([]byte(node.Method))
+	return hex.EncodeToString(h.Sum(nil))
+}
 
 // MemoryGraph is an in‑memory implementation of the CodeGraph interface.
 // It maintains nodes (representing code units/modules) and their dependency edges.
 // Dependency edges (of type runtime.Edge) carry an alias, which is later propagated into
-// the final runtime configuration as part of the runtime.AliasedNode wrapper.
+// the final runtime configuration as part of the runtime.RequiredNode wrapper.
 type MemoryGraph struct {
 	graph *graph.Graph[registry.ID, Edge]
 	nodes map[registry.ID]*Node
@@ -267,48 +274,46 @@ func (m *MemoryGraph) Build(entrypoint registry.ID) (*Main, error) {
 		}
 	}
 
+	// Track modules we've already processed to avoid duplicates
+	processedModules := make(map[string]bool)
+
 	// Create dependency nodes in correct order
-	var depNodes []AliasedNode
+	var depNodes []RequiredNode
 	for _, node := range ordered {
 		if node.ID == entrypoint {
 			continue
 		}
 
+		// Get all aliases for this node
 		aliases := make([]string, 0)
 		for alias := range aliasMap[node.ID] {
 			aliases = append(aliases, alias)
 		}
 		sort.Strings(aliases) // Sort for consistent ordering
 
-		if len(aliases) == 0 {
-			// No aliases found, add node with empty alias
-			depNodes = append(depNodes, AliasedNode{Alias: "", Node: node})
-		} else {
+		// Process explicit aliases
+		if len(aliases) > 0 {
 			// Add node once for each unique alias
 			for _, alias := range aliases {
-				depNodes = append(depNodes, AliasedNode{Alias: alias, Node: node})
+				depNodes = append(depNodes, RequiredNode{
+					Alias: alias,
+					Node:  node,
+				})
 			}
+			// Mark module as processed if present
+			if node.Module != nil {
+				processedModules[node.Module.Name()] = true
+			}
+		} else {
+			// No aliases found and no module, add node with empty alias
+			depNodes = append(depNodes, RequiredNode{
+				Alias: node.ID.Name,
+				Node:  node,
+			})
 		}
 	}
-	rt.DepProtos = depNodes
 
-	// Collect unique modules from all nodes in dependency order
-	modMap := make(map[runtime.Module]bool)
-	for _, node := range ordered {
-		if node.Module != nil {
-			modMap[node.Module] = true
-		}
-	}
-	var modules []runtime.Module
-	for mod := range modMap {
-		modules = append(modules, mod)
-	}
-	// Sort modules by name for consistent ordering
-	sort.Slice(modules, func(i, j int) bool {
-		return modules[i].Name() < modules[j].Name()
-	})
-	rt.Modules = modules
-
+	rt.Dependencies = depNodes
 	return &rt, nil
 }
 
@@ -331,12 +336,4 @@ func (m *MemoryGraph) reachableFrom(entrypoint registry.ID) map[registry.ID]bool
 	}
 	dfs(entrypoint)
 	return visited
-}
-
-// NodeHash computes a hash key based on node.Source and node.Method.
-func NodeHash(node *Node) string {
-	h := sha256.New()
-	h.Write([]byte(node.Source))
-	h.Write([]byte(node.Method))
-	return hex.EncodeToString(h.Sum(nil))
 }

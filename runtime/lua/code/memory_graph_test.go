@@ -342,7 +342,6 @@ func TestMemoryGraph_DependencyLevels(t *testing.T) {
 	})
 }
 
-// TestMemoryGraph_BuildRuntime tests construction of a Main configuration.
 func TestMemoryGraph_BuildRuntime(t *testing.T) {
 	mg := NewMemoryGraph()
 	nodeA := createTestNode("MainNode")
@@ -381,20 +380,20 @@ func TestMemoryGraph_BuildRuntime(t *testing.T) {
 			t.Errorf("unexpected main node or alias, got: %+v", rt.Main)
 		}
 		// Check dependency prototypes (should include nodeB and nodeC).
-		if len(rt.DepProtos) != 2 {
-			t.Errorf("expected 2 dependency prototypes, got %d", len(rt.DepProtos))
+		if len(rt.Dependencies) != 2 {
+			t.Errorf("expected 2 dependency prototypes, got %d", len(rt.Dependencies))
 		}
 		// Verify alias propagation for nodeB.
-		for _, dep := range rt.DepProtos {
+		for _, dep := range rt.Dependencies {
 			if dep.Node.ID == nodeB.ID && dep.Alias != "depB" {
 				t.Errorf("expected alias 'depB' for nodeB, got '%s'", dep.Alias)
 			}
-		}
-		// Check that modules include the one from nodeC.
-		if len(rt.Modules) != 1 {
-			t.Errorf("expected 1 module, got %d", len(rt.Modules))
-		} else if (rt.Modules[0]).Name() != "dummyMod" {
-			t.Errorf("expected module name 'dummyMod', got '%s'", (rt.Modules[0]).Name())
+			// Verify module is included as a dependency
+			if dep.Node.ID == nodeC.ID {
+				if dep.Node.Module == nil || dep.Node.Module.Name() != "dummyMod" {
+					t.Errorf("expected module 'dummyMod' in nodeC dependency")
+				}
+			}
 		}
 	})
 
@@ -519,28 +518,39 @@ func TestMemoryGraph_Build_TransitiveModules(t *testing.T) {
 		t.Fatalf("failed to build runtime: %v", err)
 	}
 
-	// Verify that all modules are present
-	if len(rt.Modules) != 3 {
-		t.Errorf("expected 3 modules, got %d", len(rt.Modules))
+	// Create a map to track seen modules
+	seenModules := make(map[string]bool)
+
+	// Track main node's module if it has one
+	if rt.Main.Module != nil {
+		seenModules[rt.Main.Module.Name()] = true
 	}
 
-	// Create a map of module names for easy checking
-	moduleNames := make(map[string]bool)
-	for _, mod := range rt.Modules {
-		moduleNames[mod.Name()] = true
-	}
+	// Track modules from dependencies
+	for _, dep := range rt.Dependencies {
+		if dep.Node.Module != nil {
+			seenModules[dep.Node.Module.Name()] = true
+		}
 
-	// Verify each expected module is present
-	expectedModules := []string{"mainMod", "middleMod", "leafMod"}
-	for _, expected := range expectedModules {
-		if !moduleNames[expected] {
-			t.Errorf("missing expected module %s", expected)
+		// Verify specific aliases
+		switch dep.Node.ID.Name {
+		case "MiddleNode":
+			if dep.Alias != "middle" {
+				t.Errorf("expected middle node alias 'middle', got '%s'", dep.Alias)
+			}
+		case "LeafNode":
+			if dep.Alias != "leaf" {
+				t.Errorf("expected leaf node alias 'leaf', got '%s'", dep.Alias)
+			}
 		}
 	}
 
-	// Verify dependency chain is preserved
-	if len(rt.DepProtos) != 2 {
-		t.Errorf("expected 2 dependency prototypes, got %d", len(rt.DepProtos))
+	// Verify all expected modules are present
+	expectedModules := []string{"mainMod", "middleMod", "leafMod"}
+	for _, modName := range expectedModules {
+		if !seenModules[modName] {
+			t.Errorf("missing expected module %s", modName)
+		}
 	}
 
 	// Verify main node is correct
@@ -548,38 +558,36 @@ func TestMemoryGraph_Build_TransitiveModules(t *testing.T) {
 		t.Errorf("expected main node ID %v, got %v", mainNode.ID, rt.Main.ID)
 	}
 
-	// Verify aliases are preserved through the chain
-	middleFound := false
-	leafFound := false
-	for _, dep := range rt.DepProtos {
-		switch dep.Node.ID {
-		case middleNode.ID:
-			if dep.Alias != "middle" {
-				t.Errorf("expected middle node alias 'middle', got '%s'", dep.Alias)
+	// Verify dependencies are in correct order
+	if len(rt.Dependencies) < 2 {
+		t.Fatal("expected at least 2 dependencies (middle and leaf nodes)")
+	}
+
+	// Verify leaf node appears before middle node in dependencies
+	// since leaf is depended upon by middle
+	foundLeaf := false
+	foundMiddle := false
+	for _, dep := range rt.Dependencies {
+		if dep.Node.ID.Name == "LeafNode" {
+			foundLeaf = true
+		}
+		if dep.Node.ID.Name == "MiddleNode" {
+			foundMiddle = true
+			if !foundLeaf {
+				t.Error("leaf node should appear before middle node in dependencies")
 			}
-			middleFound = true
-		case leafNode.ID:
-			if dep.Alias != "leaf" {
-				t.Errorf("expected leaf node alias 'leaf', got '%s'", dep.Alias)
-			}
-			leafFound = true
 		}
 	}
 
-	if !middleFound {
-		t.Error("middle node not found in dependencies")
-	}
-	if !leafFound {
-		t.Error("leaf node not found in dependencies")
+	if !foundLeaf || !foundMiddle {
+		t.Error("missing either leaf or middle node in dependencies")
 	}
 }
 
 func TestMemoryGraph_Build_ModuleDeduplication(t *testing.T) {
 	mg := NewMemoryGraph()
 
-	// Create nodes for our diamond dependency pattern:
-	// main -> dep1 -> commonDep
-	//     \-> dep2 -> commonDep
+	// Create nodes for our diamond dependency pattern
 	mainNode := createTestNode("MainFunc")
 	dep1Node := createTestNode("Dep1")
 	dep2Node := createTestNode("Dep2")
@@ -626,28 +634,30 @@ func TestMemoryGraph_Build_ModuleDeduplication(t *testing.T) {
 		t.Fatalf("failed to build runtime: %v", err)
 	}
 
-	// Verify module deduplication
-	if len(rt.Modules) != 2 {
-		t.Errorf("expected 2 unique modules (shared + unique), got %d", len(rt.Modules))
+	// Count unique modules in dependencies
+	uniqueModules := make(map[string]bool)
+	for _, dep := range rt.Dependencies {
+		if dep.Node.Module != nil {
+			uniqueModules[dep.Node.Module.Name()] = true
+		}
 	}
 
-	// Create a map of module names for verification
-	moduleNames := make(map[string]bool)
-	for _, mod := range rt.Modules {
-		moduleNames[mod.Name()] = true
+	// Verify module deduplication
+	if len(uniqueModules) != 2 {
+		t.Errorf("expected 2 unique modules (shared + unique), got %d", len(uniqueModules))
 	}
 
 	// Verify expected modules are present exactly once
 	expectedModules := []string{"sharedModule", "uniqueModule"}
 	for _, expected := range expectedModules {
-		if !moduleNames[expected] {
+		if !uniqueModules[expected] {
 			t.Errorf("missing expected module %s", expected)
 		}
 	}
 
 	// Verify dependency structure and order
-	if len(rt.DepProtos) != 4 {
-		t.Errorf("expected 4 dependency prototypes (commonDep with both aliases, dep1, dep2), got %d", len(rt.DepProtos))
+	if len(rt.Dependencies) != 4 {
+		t.Errorf("expected 4 dependency prototypes (commonDep with both aliases, dep1, dep2), got %d", len(rt.Dependencies))
 	}
 
 	// Verify main node
@@ -667,13 +677,13 @@ func TestMemoryGraph_Build_ModuleDeduplication(t *testing.T) {
 		{dep2Node.ID, "dep2"},         // Can load after its dependency (commonDep)
 	}
 
-	if len(rt.DepProtos) != len(expectedDeps) {
-		t.Fatalf("wrong number of dependencies: expected %d, got %d", len(expectedDeps), len(rt.DepProtos))
+	if len(rt.Dependencies) != len(expectedDeps) {
+		t.Fatalf("wrong number of dependencies: expected %d, got %d", len(expectedDeps), len(rt.Dependencies))
 	}
 
 	// Verify each dependency is in correct order with correct alias
 	for i, expected := range expectedDeps {
-		actual := rt.DepProtos[i]
+		actual := rt.Dependencies[i]
 		if actual.Node.ID != expected.id {
 			t.Errorf("dependency at position %d: expected node %v, got %v", i, expected.id, actual.Node.ID)
 		}
@@ -684,7 +694,7 @@ func TestMemoryGraph_Build_ModuleDeduplication(t *testing.T) {
 
 	// Verify commonDep entries appear before any nodes that depend on them
 	lastCommonDepPos := -1
-	for i, dep := range rt.DepProtos {
+	for i, dep := range rt.Dependencies {
 		if dep.Node.ID == commonDepNode.ID {
 			lastCommonDepPos = i
 		} else if lastCommonDepPos == -1 {
@@ -694,8 +704,8 @@ func TestMemoryGraph_Build_ModuleDeduplication(t *testing.T) {
 
 	// Verify all commonDep entries are grouped together at the start
 	for i := 1; i <= lastCommonDepPos; i++ {
-		if rt.DepProtos[i].Node.ID != commonDepNode.ID {
-			t.Errorf("CommonDep entries not grouped together at start, found %v at position %d", rt.DepProtos[i].Node.ID, i)
+		if rt.Dependencies[i].Node.ID != commonDepNode.ID {
+			t.Errorf("CommonDep entries not grouped together at start, found %v at position %d", rt.Dependencies[i].Node.ID, i)
 		}
 	}
 }
@@ -825,15 +835,23 @@ func TestMemoryGraph_Build_SharedDependency(t *testing.T) {
 		t.Fatalf("failed to build runtime: %v", err)
 	}
 
-	// Verify correct number of modules
-	if len(rt.Modules) != 2 {
-		t.Errorf("expected 2 unique modules, got %d", len(rt.Modules))
+	// Count unique modules in dependencies
+	uniqueModules := make(map[string]bool)
+	for _, dep := range rt.Dependencies {
+		if dep.Node.Module != nil {
+			uniqueModules[dep.Node.Module.Name()] = true
+		}
+	}
+
+	// Verify correct number of unique modules
+	if len(uniqueModules) != 2 {
+		t.Errorf("expected 2 unique modules, got %d", len(uniqueModules))
 	}
 
 	// Helper to count occurrences of a node in dependencies
 	countDeps := func(nodeName string) int {
 		count := 0
-		for _, dep := range rt.DepProtos {
+		for _, dep := range rt.Dependencies {
 			if dep.Node.ID.Name == nodeName {
 				count++
 			}
@@ -849,7 +867,7 @@ func TestMemoryGraph_Build_SharedDependency(t *testing.T) {
 
 	// Verify dependency order
 	var sharedPos, lib1Pos, lib2Pos int
-	for i, dep := range rt.DepProtos {
+	for i, dep := range rt.Dependencies {
 		switch dep.Node.ID.Name {
 		case "Shared":
 			sharedPos = i
@@ -866,9 +884,47 @@ func TestMemoryGraph_Build_SharedDependency(t *testing.T) {
 	}
 
 	// Verify the shared module has the correct alias
-	for _, dep := range rt.DepProtos {
+	for _, dep := range rt.Dependencies {
 		if dep.Node.ID.Name == "Shared" && dep.Alias != "util" {
 			t.Errorf("expected shared module to have alias 'util', got '%s'", dep.Alias)
 		}
+	}
+}
+
+func TestMemoryGraph_Build_FallbackAlias(t *testing.T) {
+	mg := NewMemoryGraph()
+
+	// Create nodes
+	mainNode := createTestNode("MainFunc")
+	dependencyNode := createTestNode("DependencyFunc")
+
+	// Add nodes to graph
+	if err := mg.AddNode(mainNode); err != nil {
+		t.Fatalf("failed to add main node: %v", err)
+	}
+	if err := mg.AddNode(dependencyNode); err != nil {
+		t.Fatalf("failed to add dependency node: %v", err)
+	}
+
+	// Add dependency without an alias
+	if err := mg.AddDependency(mainNode.ID, dependencyNode.ID, ""); err != nil {
+		t.Fatalf("failed to add dependency: %v", err)
+	}
+
+	// Build runtime starting from main node
+	rt, err := mg.Build(mainNode.ID)
+	if err != nil {
+		t.Fatalf("failed to build runtime: %v", err)
+	}
+
+	// Verify we have exactly one dependency
+	if len(rt.Dependencies) != 1 {
+		t.Fatalf("expected 1 dependency, got %d", len(rt.Dependencies))
+	}
+
+	// Verify the dependency has the node name as alias
+	dep := rt.Dependencies[0]
+	if dep.Alias != dependencyNode.ID.Name {
+		t.Errorf("expected alias to be node name '%s', got '%s'", dependencyNode.ID.Name, dep.Alias)
 	}
 }

@@ -1,4 +1,4 @@
-package lua
+package 
 
 import (
 	runtime "github.com/ponyruntime/pony/api/runtime/lua"
