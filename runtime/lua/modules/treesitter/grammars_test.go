@@ -74,7 +74,7 @@ func TestGetLanguageInfo(t *testing.T) {
 
 			// Compare field by field, skipping the Language function
 			if got.Name != tt.want.Name {
-				t.Errorf("GetLanguageInfo() Name = %v, want %v", got.Name, tt.want.Name)
+				t.Errorf("GetLanguageInfo() Alias = %v, want %v", got.Name, tt.want.Name)
 			}
 			if !reflect.DeepEqual(got.Aliases, tt.want.Aliases) {
 				t.Errorf("GetLanguageInfo() Aliases = %v, want %v", got.Aliases, tt.want.Aliases)

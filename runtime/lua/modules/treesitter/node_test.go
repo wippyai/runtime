@@ -174,7 +174,7 @@ func TestNodeAdditionalMethods(t *testing.T) {
 			local treesitter = require("treesitter")
 			local code = [[
 				type Person struct {
-					Name string
+					Alias string
 					Age  int
 				}
 			]]
@@ -287,7 +287,7 @@ func TestNodeTextMethod(t *testing.T) {
             local code = [[package main
 
 type Person struct {
-    Name string
+    Alias string
     Age  int
 }]]
             local tree = treesitter.parse("go", code)
@@ -319,7 +319,7 @@ type Person struct {
             
             local field_node = cursor:current_node()
             local field_text = field_node:text()
-            assert(field_text:match("Name%s+string"), "field text should contain Name string")
+            assert(field_text:match("Alias%s+string"), "field text should contain Alias string")
             
             -- Test error handling with invalid source
             local ok, err = pcall(function()

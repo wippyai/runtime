@@ -112,6 +112,42 @@ func (g *Graph[T, E]) GetEdge(from, to T) (Edge[T, E], bool) {
 	return Edge[T, E]{}, false
 }
 
+// RemoveEdge removes a directed edge from the 'from' node to the 'to' node.
+// It returns an error if either node doesn't exist or if the edge doesn't exist.
+func (g *Graph[T, E]) RemoveEdge(from, to T) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	// Check if both nodes exist
+	if !g.nodes[from] {
+		return fmt.Errorf("source node %v does not exist", from)
+	}
+	if !g.nodes[to] {
+		return fmt.Errorf("destination node %v does not exist", to)
+	}
+
+	// Check if the edge exists
+	edges, exists := g.edges[from]
+	if !exists {
+		return fmt.Errorf("no edges exist from node %v", from)
+	}
+
+	if _, hasEdge := edges[to]; !hasEdge {
+		return fmt.Errorf("edge from %v to %v does not exist", from, to)
+	}
+
+	// Remove the edge
+	delete(g.edges[from], to)
+
+	// If this was the last edge from the source node, clean up the empty map
+	if len(g.edges[from]) == 0 {
+		delete(g.edges, from)
+	}
+
+	// todo; test it
+	return nil
+}
+
 // GetNodes returns a slice containing all nodes currently in the graph.
 // The order of nodes in the returned slice is not guaranteed.
 func (g *Graph[T, E]) GetNodes() []T {
@@ -123,6 +159,35 @@ func (g *Graph[T, E]) GetNodes() []T {
 		nodes = append(nodes, node)
 	}
 	return nodes
+}
+
+// Clone creates a deep copy of the graph.
+// The new graph contains copies of all nodes and edges with their associated data.
+func (g *Graph[T, E]) Clone() *Graph[T, E] {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+
+	// Create a new graph
+	cloned := New[T, E]()
+
+	// Copy nodes
+	for node := range g.nodes {
+		cloned.nodes[node] = true
+	}
+
+	// Copy edges and their data
+	for from, edges := range g.edges {
+		cloned.edges[from] = make(map[T]Edge[T, E])
+		for to, edge := range edges {
+			cloned.edges[from][to] = Edge[T, E]{
+				To:     edge.To,
+				Weight: edge.Weight,
+				Data:   edge.Data,
+			}
+		}
+	}
+
+	return cloned
 }
 
 // GetNeighbors returns a slice containing all nodes that have outgoing edges from the specified node.

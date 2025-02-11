@@ -72,7 +72,7 @@ func (m *Workflows) Delete(id registry.Name) error {
 	return nil
 }
 
-// Get returns a workflow config by Name
+// Get returns a workflow config by Alias
 func (m *Workflows) Get(id registry.Name) (*api.WorkflowConfig, bool) {
 	wf, exists := m.workflows[id]
 	return wf, exists

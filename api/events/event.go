@@ -15,7 +15,7 @@ type (
 	// Kind represents the specific type of an event within a system (e.g., "listener.created", "supervisor.online").
 	Kind = string
 
-	// Path contains unique Name of related entity or system.
+	// Path contains unique Alias of related entity or system.
 	Path = string
 
 	// Event is the fundamental structure representing an event.
