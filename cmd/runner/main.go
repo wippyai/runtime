@@ -42,7 +42,7 @@ type App struct {
 	logManager  *logs.Manager
 	eventBus    events.Bus
 	eventRouter *eventbus.EventRouter
-	services    []eventbus.RouterOption
+	services    eventbus.RouterOption
 	dtt         *transcoder.Transcoder
 	reg         regapi.Registry
 	supervisor  *supervisor.Supervisor
@@ -87,7 +87,7 @@ func NewApp(verbose, veryVerbose bool) (*App, error) {
 		logCore:       core,
 		logManager:    logManager,
 		eventBus:      bus,
-		services:      make([]eventbus.RouterOption, 0),
+		services:      nil,
 		dtt:           dtt,
 		forceShutdown: make(chan struct{}),
 	}
@@ -147,7 +147,7 @@ func (a *App) Start(folderPath string) error {
 	}
 
 	// Start secondary services
-	router, err := eventbus.StartRouter(ctx, a.eventBus, a.services...)
+	router, err := eventbus.StartRouter(ctx, a.eventBus, a.services)
 	if err != nil {
 		a.cancel()
 		return fmt.Errorf("failed to create event router: %w", err)
@@ -244,7 +244,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	app.services = append(app.services,
+	app.services = eventbus.WithHandlers(
 		WithHTTPService(app),
 		WithNoopRuntime(app),
 	)
@@ -341,7 +341,7 @@ func loadApplicationState(
 
 // ---- Services ----
 
-func WithHTTPService(a *App) eventbus.RouterOption {
+func WithHTTPService(a *App) eventbus.EventHandler {
 	return reghandler.WithRegistryHandler("http.*", http.NewHTTPManager(
 		a.eventBus,
 		a.dtt,
@@ -371,7 +371,7 @@ func WithHTTPService(a *App) eventbus.RouterOption {
 //		))
 //}
 
-func WithNoopRuntime(a *App) eventbus.RouterOption {
+func WithNoopRuntime(a *App) eventbus.EventHandler {
 	return reghandler.WithRegistryHandler("(function|process|library).*",
 		noop.NewNoopRuntime(
 			a.eventBus,
