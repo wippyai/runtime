@@ -699,3 +699,176 @@ func TestMemoryGraph_Build_ModuleDeduplication(t *testing.T) {
 		}
 	}
 }
+
+func TestMemoryGraph_Build_AliasCollision(t *testing.T) {
+	mg := NewMemoryGraph()
+
+	// Create modules
+	var mod1 runtime.Module = &dummyModule{name: "module1"}
+	var mod2 runtime.Module = &dummyModule{name: "module2"}
+
+	// Create nodes
+	nodes := map[string]*Node{
+		"main": createTestNode("MainFunc"),
+		"lib1": createTestNode("Lib1"),
+		"lib2": createTestNode("Lib2"),
+		"mod1": &Node{
+			ID:     registry.ID{Name: "Module1"},
+			Kind:   "module.lua",
+			Source: "module1 source",
+			Module: &mod1,
+		},
+		"mod2": &Node{
+			ID:     registry.ID{Name: "Module2"},
+			Kind:   "module.lua",
+			Source: "module2 source",
+			Module: &mod2,
+		},
+	}
+
+	// Add all nodes to graph
+	for _, node := range nodes {
+		if err := mg.AddNode(node); err != nil {
+			t.Fatalf("failed to add node %v: %v", node.ID, err)
+		}
+	}
+
+	// Define dependencies - attempting to use same alias for different libs
+	dependencies := []struct {
+		from  string
+		to    string
+		alias string
+	}{
+		{"main", "lib1", "helper"}, // First use of "helper" alias
+		{"main", "lib2", "helper"}, // Should fail - same alias for different lib
+		{"lib1", "mod1", ""},
+		{"lib2", "mod2", ""},
+	}
+
+	// Add dependencies and expect failure on collision
+	var collisionErr error
+	for _, dep := range dependencies {
+		from := nodes[dep.from]
+		to := nodes[dep.to]
+		if err := mg.AddDependency(from.ID, to.ID, dep.alias); err != nil {
+			if dep.from == "main" && dep.to == "lib2" {
+				collisionErr = err
+				break
+			}
+			t.Fatalf("unexpected error adding dependency %s->%s: %v", dep.from, dep.to, err)
+		}
+	}
+
+	if collisionErr == nil {
+		t.Error("expected error when adding dependency with duplicate alias, got nil")
+	}
+}
+
+func TestMemoryGraph_Build_SharedDependency(t *testing.T) {
+	mg := NewMemoryGraph()
+
+	// Create modules
+	var mod1 runtime.Module = &dummyModule{name: "module1"}
+	var sharedMod runtime.Module = &dummyModule{name: "shared"}
+
+	// Create nodes
+	nodes := map[string]*Node{
+		"main": createTestNode("MainFunc"),
+		"lib1": createTestNode("Lib1"),
+		"lib2": createTestNode("Lib2"),
+		"mod1": &Node{
+			ID:     registry.ID{Name: "Module1"},
+			Kind:   "module.lua",
+			Source: "module1 source",
+			Module: &mod1,
+		},
+		"shared": &Node{
+			ID:     registry.ID{Name: "Shared"},
+			Kind:   "module.lua",
+			Source: "shared module source",
+			Module: &sharedMod,
+		},
+	}
+
+	// Add all nodes to graph
+	for _, node := range nodes {
+		if err := mg.AddNode(node); err != nil {
+			t.Fatalf("failed to add node %v: %v", node.ID, err)
+		}
+	}
+
+	// Define dependencies - shared dependency referenced with same alias
+	dependencies := []struct {
+		from  string
+		to    string
+		alias string
+	}{
+		{"main", "lib1", "helper1"},
+		{"main", "lib2", "helper2"},
+		{"lib1", "shared", "util"}, // Both libs reference shared module
+		{"lib2", "shared", "util"}, // with same alias
+		{"lib1", "mod1", ""},
+	}
+
+	// Add all dependencies
+	for _, dep := range dependencies {
+		from := nodes[dep.from]
+		to := nodes[dep.to]
+		if err := mg.AddDependency(from.ID, to.ID, dep.alias); err != nil {
+			t.Fatalf("failed to add dependency %s->%s: %v", dep.from, dep.to, err)
+		}
+	}
+
+	// Build runtime starting from main node
+	rt, err := mg.Build(nodes["main"].ID)
+	if err != nil {
+		t.Fatalf("failed to build runtime: %v", err)
+	}
+
+	// Verify correct number of modules
+	if len(rt.Modules) != 2 {
+		t.Errorf("expected 2 unique modules, got %d", len(rt.Modules))
+	}
+
+	// Helper to count occurrences of a node in dependencies
+	countDeps := func(nodeName string) int {
+		count := 0
+		for _, dep := range rt.DepProtos {
+			if dep.Node.ID.Name == nodeName {
+				count++
+			}
+		}
+		return count
+	}
+
+	// Verify shared module appears exactly once
+	sharedCount := countDeps("Shared")
+	if sharedCount != 1 {
+		t.Errorf("expected shared module to appear once, got %d occurrences", sharedCount)
+	}
+
+	// Verify dependency order
+	var sharedPos, lib1Pos, lib2Pos int
+	for i, dep := range rt.DepProtos {
+		switch dep.Node.ID.Name {
+		case "Shared":
+			sharedPos = i
+		case "Lib1":
+			lib1Pos = i
+		case "Lib2":
+			lib2Pos = i
+		}
+	}
+
+	// Shared module should be initialized before both libraries
+	if sharedPos > lib1Pos || sharedPos > lib2Pos {
+		t.Error("shared module must be initialized before dependent libraries")
+	}
+
+	// Verify the shared module has the correct alias
+	for _, dep := range rt.DepProtos {
+		if dep.Node.ID.Name == "Shared" && dep.Alias != "util" {
+			t.Errorf("expected shared module to have alias 'util', got '%s'", dep.Alias)
+		}
+	}
+}

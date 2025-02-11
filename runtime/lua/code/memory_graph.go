@@ -106,6 +106,22 @@ func (m *MemoryGraph) AddDependency(from, to registry.ID, alias string) error {
 		return fmt.Errorf("dependency from %v to %v already exists", from, to)
 	}
 
+	// Check for alias collisions - if this node has other direct dependencies
+	// with the same alias but different target nodes
+	if alias != "" {
+		neighbors, err := m.graph.GetNeighbors(from)
+		if err != nil {
+			return err
+		}
+		for _, neighbor := range neighbors {
+			if edge, ok := m.graph.GetEdge(from, neighbor); ok {
+				if edge.Data.Alias == alias && neighbor != to {
+					return fmt.Errorf("alias collision: %s is already used for another dependency of %v", alias, from)
+				}
+			}
+		}
+	}
+
 	// Clone the graph and simulate the addition for cycle detection.
 	tmp := m.graph.Clone()
 	tmp.AddEdge(from, to, 1, Edge{Alias: ""})
@@ -225,24 +241,22 @@ func (m *MemoryGraph) Build(entrypoint registry.ID) (*Main, error) {
 	}
 
 	// Build map of all aliases for each node
-	nodeAliases := make(map[registry.ID][]string)
+	aliasMap := make(map[registry.ID]map[string]bool)
 	for _, node := range ordered {
 		if node.ID == entrypoint {
 			continue
 		}
+		// Initialize alias map for this node
+		aliasMap[node.ID] = make(map[string]bool)
+
 		// Look through all nodes that could depend on this one
 		for _, potentialParent := range ordered {
 			if m.graph.HasEdge(potentialParent.ID, node.ID) {
 				edge, _ := m.graph.GetEdge(potentialParent.ID, node.ID)
 				if edge.Data.Alias != "" {
-					nodeAliases[node.ID] = append(nodeAliases[node.ID], edge.Data.Alias)
+					aliasMap[node.ID][edge.Data.Alias] = true
 				}
 			}
-		}
-		// Sort aliases for consistent ordering
-		if aliases := nodeAliases[node.ID]; len(aliases) > 0 {
-			sort.Strings(aliases)
-			nodeAliases[node.ID] = aliases
 		}
 	}
 
@@ -252,12 +266,18 @@ func (m *MemoryGraph) Build(entrypoint registry.ID) (*Main, error) {
 		if node.ID == entrypoint {
 			continue
 		}
-		aliases := nodeAliases[node.ID]
+
+		aliases := make([]string, 0)
+		for alias := range aliasMap[node.ID] {
+			aliases = append(aliases, alias)
+		}
+		sort.Strings(aliases) // Sort for consistent ordering
+
 		if len(aliases) == 0 {
 			// No aliases found, add node with empty alias
 			depNodes = append(depNodes, AliasedNode{Alias: "", Node: node})
 		} else {
-			// Add node once for each alias
+			// Add node once for each unique alias
 			for _, alias := range aliases {
 				depNodes = append(depNodes, AliasedNode{Alias: alias, Node: node})
 			}
