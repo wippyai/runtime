@@ -40,9 +40,17 @@ func (m *MemoryGraph) AddNode(n *runtime.Node) error {
 }
 
 // RemoveNode deletes a node and its associated edges from the graph.
+// It returns an error if the node has any direct outgoing dependencies or incoming dependents.
 func (m *MemoryGraph) RemoveNode(id registry.ID) error {
 	if _, exists := m.nodes[id]; !exists {
 		return fmt.Errorf("node with ID %v not found", id)
+	}
+
+	// Check for incoming dependencies.
+	for nid := range m.nodes {
+		if m.graph.HasEdge(nid, id) {
+			return fmt.Errorf("cannot remove node %v: it has incoming dependencies from node %v", id, nid)
+		}
 	}
 	if err := m.graph.RemoveNode(id); err != nil {
 		return err
@@ -91,7 +99,7 @@ func (m *MemoryGraph) GetNode(id registry.ID) (*runtime.Node, error) {
 	return n, nil
 }
 
-// GetDirectDependencies returns all nodes that the node with the given ID depends on.
+// GetDirectDependencies returns all nodes that the node with the given ID depends on. Only direct dependencies are returned.
 func (m *MemoryGraph) GetDirectDependencies(id registry.ID) ([]*runtime.Node, error) {
 	if _, exists := m.nodes[id]; !exists {
 		return nil, fmt.Errorf("node with ID %v not found", id)
@@ -109,7 +117,7 @@ func (m *MemoryGraph) GetDirectDependencies(id registry.ID) ([]*runtime.Node, er
 	return deps, nil
 }
 
-// GetDirectDependents returns all nodes that depend on the node with the specified ID.
+// GetDirectDependents returns all nodes that depend on the node with the specified ID. Only direct dependents are returned.
 func (m *MemoryGraph) GetDirectDependents(id registry.ID) ([]*runtime.Node, error) {
 	if _, exists := m.nodes[id]; !exists {
 		return nil, fmt.Errorf("node with ID %v not found", id)
@@ -150,17 +158,17 @@ func (m *MemoryGraph) DependencyLevels() ([][]*runtime.Node, error) {
 	return levels, nil
 }
 
-// BuildRuntime resolves dependencies starting from the entrypoint node and builds a Runtime configuration.
-// The entrypoint becomes the main node (wrapped as a runtime.AliasedNode), and all other reachable nodes
-// are wrapped similarly. If an incoming dependency edge carries a non‑empty alias, that alias is used.
-func (m *MemoryGraph) BuildRuntime(entrypoint registry.ID) (runtime.Runtime, error) {
+// Build resolves dependencies starting from the entrypoint node and builds a Main configuration.
+// The entrypoint becomes the main node, and all other reachable nodes are wrapped as dependency prototypes.
+// If an incoming dependency edge carries a non‑empty alias, that alias is used.
+func (m *MemoryGraph) Build(entrypoint registry.ID) (runtime.Main, error) {
 	entryNode, err := m.GetNode(entrypoint)
 	if err != nil {
-		return runtime.Runtime{}, err
+		return runtime.Main{}, err
 	}
 	levels, err := m.DependencyLevels()
 	if err != nil {
-		return runtime.Runtime{}, err
+		return runtime.Main{}, err
 	}
 	// Determine reachable nodes from the entrypoint.
 	reachable := m.reachableFrom(entrypoint)
@@ -173,9 +181,8 @@ func (m *MemoryGraph) BuildRuntime(entrypoint registry.ID) (runtime.Runtime, err
 		}
 	}
 	// Assemble the runtime.
-	rt := runtime.Runtime{
-		Main:   runtime.AliasedNode{Alias: fmt.Sprintf("entry_%v", entryNode.ID), Node: entryNode},
-		Method: entryNode.Method,
+	rt := runtime.Main{
+		Main: entryNode,
 	}
 	var depNodes []runtime.AliasedNode
 	for i, node := range ordered {
