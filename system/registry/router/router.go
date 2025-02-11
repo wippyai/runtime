@@ -30,35 +30,46 @@ func WithLogger(log *zap.Logger) Option {
 func WithDefaultListener(l registry.EntryListener) Option {
 	return func(r *Router) {
 		r.defaultListener = l
+		// Check if the listener supports transactions
+		if _, ok := l.(registry.TransactionListener); ok {
+			r.defaultTransactional = true
+		}
 	}
 }
 
 // WithListener adds a new kind-based routing rule
 func WithListener(pattern string, listener registry.EntryListener) Option {
 	return func(r *Router) {
+		isTransactional := false
+		if _, ok := listener.(registry.TransactionListener); ok {
+			isTransactional = true
+		}
 		r.routes = append(r.routes, route{
-			pattern:  pattern,
-			listener: listener,
-			wildcard: wildcard.NewWildcard(pattern),
+			pattern:       pattern,
+			listener:      listener,
+			wildcard:      wildcard.NewWildcard(pattern),
+			transactional: isTransactional,
 		})
 	}
 }
 
 // route represents a single routing rule
 type route struct {
-	pattern  string
-	listener registry.EntryListener
-	wildcard *wildcard.Wildcard
+	pattern       string
+	listener      registry.EntryListener
+	wildcard      *wildcard.Wildcard
+	transactional bool
 }
 
 // Router handles registry events and routes them to appropriate listeners
 type Router struct {
-	ctx             context.Context
-	log             *zap.Logger
-	bus             events.Bus
-	subscriber      *eventbus.Subscriber
-	routes          []route
-	defaultListener registry.EntryListener
+	ctx                  context.Context
+	log                  *zap.Logger
+	bus                  events.Bus
+	subscriber           *eventbus.Subscriber
+	routes               []route
+	defaultListener      registry.EntryListener
+	defaultTransactional bool
 }
 
 // NewRouter creates a new Router instance with the provided options
@@ -66,7 +77,7 @@ func NewRouter(ctx context.Context, bus events.Bus, opts ...Option) (*Router, er
 	r := &Router{
 		ctx: ctx,
 		bus: bus,
-		log: zap.NewNop(), // Default no-op logger, todo: let it set from outside?
+		log: zap.NewNop(),
 	}
 
 	// Apply options
@@ -74,12 +85,24 @@ func NewRouter(ctx context.Context, bus events.Bus, opts ...Option) (*Router, er
 		opt(r)
 	}
 
+	// Log detected transaction listeners for debugging
+	for _, route := range r.routes {
+		if route.transactional {
+			r.log.Debug("detected transactional listener",
+				zap.String("pattern", route.pattern))
+		}
+	}
+
+	if r.defaultListener != nil && r.defaultTransactional {
+		r.log.Debug("detected transactional default listener")
+	}
+
 	// Subscribe to all registry changes
 	sub, err := eventbus.NewSubscriber(
 		ctx,
 		bus,
 		registry.System,
-		registry.Changes,
+		registry.AllEvents,
 		r.handleEvent,
 	)
 
@@ -100,6 +123,25 @@ func (r *Router) Stop() error {
 }
 
 func (r *Router) handleEvent(evt events.Event) {
+	// Handle transaction events
+	switch evt.Kind {
+	case registry.Begin:
+		r.handleTransactionBegin()
+		return
+	case registry.Commit:
+		r.handleTransactionCommit()
+		return
+	case registry.Discard:
+		r.handleTransactionDiscard()
+		return
+	}
+
+	// Handle regular entry events
+	if evt.Data == nil {
+		r.log.Debug("ignoring empty registry event", zap.Any("event", evt))
+		return
+	}
+
 	entry, ok := evt.Data.(registry.Entry)
 	if !ok {
 		r.log.Warn("invalid registry event data", zap.Any("event", evt))
@@ -111,20 +153,17 @@ func (r *Router) handleEvent(evt events.Event) {
 		zap.String("kind", evt.Kind),
 		zap.String("type", entry.Kind))
 
-	// For create/update operations, ensure we have valid data
 	if evt.Kind != registry.Delete && entry.Data == nil {
 		r.reject(entry.ID, fmt.Errorf("configuration data is required for create/update operations"))
 		return
 	}
 
-	// Find matching listener
 	listener := r.findListener(entry.Kind)
 	if listener == nil {
 		r.log.Debug("no listener found for entry kind", zap.String("kind", string(entry.Kind)))
 		return
 	}
 
-	// Process with found listener
 	if err := r.processWithListener(evt.Kind, entry, listener); err != nil {
 		if errors.Is(err, ErrSkipOperation) {
 			return
@@ -136,16 +175,72 @@ func (r *Router) handleEvent(evt events.Event) {
 	r.accept(entry.ID)
 }
 
-// findListener returns the first matching listener for the given kind
+func (r *Router) handleTransactionBegin() {
+	r.log.Debug("handling transaction begin")
+
+	// Notify all transactional listeners
+	for _, route := range r.routes {
+		if route.transactional {
+			if txListener, ok := route.listener.(registry.TransactionListener); ok {
+				txListener.Begin(r.ctx)
+			}
+		}
+	}
+
+	// Check default listener
+	if r.defaultTransactional {
+		if txListener, ok := r.defaultListener.(registry.TransactionListener); ok {
+			txListener.Begin(r.ctx)
+		}
+	}
+}
+
+func (r *Router) handleTransactionCommit() {
+	r.log.Debug("handling transaction commit")
+
+	// Notify all transactional listeners
+	for _, route := range r.routes {
+		if route.transactional {
+			if txListener, ok := route.listener.(registry.TransactionListener); ok {
+				txListener.Commit(r.ctx)
+			}
+		}
+	}
+
+	// Check default listener
+	if r.defaultTransactional {
+		if txListener, ok := r.defaultListener.(registry.TransactionListener); ok {
+			txListener.Commit(r.ctx)
+		}
+	}
+}
+
+func (r *Router) handleTransactionDiscard() {
+	r.log.Debug("handling transaction discard")
+
+	// Notify all transactional listeners
+	for _, route := range r.routes {
+		if route.transactional {
+			if txListener, ok := route.listener.(registry.TransactionListener); ok {
+				txListener.Discard(r.ctx)
+			}
+		}
+	}
+
+	// Check default listener
+	if r.defaultTransactional {
+		if txListener, ok := r.defaultListener.(registry.TransactionListener); ok {
+			txListener.Discard(r.ctx)
+		}
+	}
+}
+
 func (r *Router) findListener(kind registry.Kind) registry.EntryListener {
-	// Try to match routes
 	for _, route := range r.routes {
 		if route.wildcard.Match(string(kind)) {
 			return route.listener
 		}
 	}
-
-	// Return default listener if no routes matched
 	return r.defaultListener
 }
 

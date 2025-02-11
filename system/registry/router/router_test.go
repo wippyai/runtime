@@ -20,6 +20,10 @@ type mockListener struct {
 	updateCalled bool
 	deleteCalled bool
 	returnError  error
+	// Transaction tracking
+	beginCalled   bool
+	commitCalled  bool
+	discardCalled bool
 }
 
 func (m *mockListener) Add(context.Context, registry.Entry) error {
@@ -37,6 +41,23 @@ func (m *mockListener) Delete(context.Context, registry.Entry) error {
 	return m.returnError
 }
 
+// mockTransactionalListener extends mockListener to support transactions
+type mockTransactionalListener struct {
+	mockListener
+}
+
+func (m *mockTransactionalListener) Begin(context.Context) {
+	m.beginCalled = true
+}
+
+func (m *mockTransactionalListener) Commit(context.Context) {
+	m.commitCalled = true
+}
+
+func (m *mockTransactionalListener) Discard(context.Context) {
+	m.discardCalled = true
+}
+
 // setupRouterTest creates a new router with a mock bus for testing
 func setupRouterTest(t *testing.T) (*Router, *mockListener) {
 	bus := eventbus.NewBus()
@@ -52,6 +73,25 @@ func setupRouterTest(t *testing.T) (*Router, *mockListener) {
 	require.NotNil(t, router)
 
 	return router, mockListener
+}
+
+// setupTransactionalRouterTest creates a new router with both regular and transactional listeners
+func setupTransactionalRouterTest(t *testing.T) (*Router, *mockListener, *mockTransactionalListener) {
+	bus := eventbus.NewBus()
+	regularListener := &mockListener{}
+	txListener := &mockTransactionalListener{}
+
+	router, err := NewRouter(context.Background(), bus,
+		WithLogger(zap.NewNop()),
+		WithDefaultListener(regularListener),
+		WithListener("test.*", regularListener),
+		WithListener("tx.*", txListener),
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, router)
+
+	return router, regularListener, txListener
 }
 
 func TestNewRouter(t *testing.T) {
@@ -270,5 +310,145 @@ func TestRouter_FindListener(t *testing.T) {
 
 		found = router.findListener("other.resource")
 		assert.Equal(t, listener2, found)
+	})
+}
+
+func TestRouter_TransactionEvents(t *testing.T) {
+	t.Run("begin transaction", func(t *testing.T) {
+		router, regularListener, txListener := setupTransactionalRouterTest(t)
+
+		router.handleEvent(events.Event{
+			System: registry.System,
+			Kind:   registry.Begin,
+		})
+
+		// Regular listener should not receive transaction events
+		assert.False(t, regularListener.beginCalled)
+		assert.False(t, regularListener.commitCalled)
+		assert.False(t, regularListener.discardCalled)
+
+		// Transaction listener should receive begin event
+		assert.True(t, txListener.beginCalled)
+		assert.False(t, txListener.commitCalled)
+		assert.False(t, txListener.discardCalled)
+	})
+
+	t.Run("commit transaction", func(t *testing.T) {
+		router, regularListener, txListener := setupTransactionalRouterTest(t)
+
+		router.handleEvent(events.Event{
+			System: registry.System,
+			Kind:   registry.Commit,
+		})
+
+		// Regular listener should not receive transaction events
+		assert.False(t, regularListener.beginCalled)
+		assert.False(t, regularListener.commitCalled)
+		assert.False(t, regularListener.discardCalled)
+
+		// Transaction listener should receive commit event
+		assert.False(t, txListener.beginCalled)
+		assert.True(t, txListener.commitCalled)
+		assert.False(t, txListener.discardCalled)
+	})
+
+	t.Run("discard transaction", func(t *testing.T) {
+		router, regularListener, txListener := setupTransactionalRouterTest(t)
+
+		router.handleEvent(events.Event{
+			System: registry.System,
+			Kind:   registry.Discard,
+		})
+
+		// Regular listener should not receive transaction events
+		assert.False(t, regularListener.beginCalled)
+		assert.False(t, regularListener.commitCalled)
+		assert.False(t, regularListener.discardCalled)
+
+		// Transaction listener should receive discard event
+		assert.False(t, txListener.beginCalled)
+		assert.False(t, txListener.commitCalled)
+		assert.True(t, txListener.discardCalled)
+	})
+
+	t.Run("transaction with regular events", func(t *testing.T) {
+		router, regularListener, txListener := setupTransactionalRouterTest(t)
+
+		// Begin transaction
+		router.handleEvent(events.Event{
+			System: registry.System,
+			Kind:   registry.Begin,
+		})
+
+		// Regular event during transaction
+		entry := registry.Entry{
+			ID:   registry.ID{Name: "test-1"},
+			Kind: "test.resource",
+			Data: payload.New([]byte("test-data")),
+		}
+
+		router.handleEvent(events.Event{
+			System: registry.System,
+			Kind:   registry.Create,
+			Path:   "test-1",
+			Data:   entry,
+		})
+
+		// Commit transaction
+		router.handleEvent(events.Event{
+			System: registry.System,
+			Kind:   registry.Commit,
+		})
+
+		// Regular listener should receive only the regular event
+		assert.True(t, regularListener.addCalled)
+		assert.False(t, regularListener.beginCalled)
+		assert.False(t, regularListener.commitCalled)
+
+		// Transaction listener should receive begin and commit
+		assert.True(t, txListener.beginCalled)
+		assert.True(t, txListener.commitCalled)
+		assert.False(t, txListener.discardCalled)
+	})
+}
+
+func TestRouter_ListenerDetection(t *testing.T) {
+	t.Run("detect transaction listener in options", func(t *testing.T) {
+		bus := eventbus.NewBus()
+		txListener := &mockTransactionalListener{}
+
+		router, err := NewRouter(context.Background(), bus,
+			WithLogger(zap.NewNop()),
+			WithDefaultListener(txListener),
+			WithListener("tx.*", txListener),
+		)
+
+		require.NoError(t, err)
+		require.NotNil(t, router)
+
+		// Check if the router correctly detected the transaction listener
+		assert.True(t, router.defaultTransactional)
+		assert.True(t, router.routes[0].transactional)
+	})
+
+	t.Run("mix of regular and transaction listeners", func(t *testing.T) {
+		bus := eventbus.NewBus()
+		regularListener := &mockListener{}
+		txListener := &mockTransactionalListener{}
+
+		router, err := NewRouter(context.Background(), bus,
+			WithLogger(zap.NewNop()),
+			WithDefaultListener(regularListener),
+			WithListener("regular.*", regularListener),
+			WithListener("tx.*", txListener),
+		)
+
+		require.NoError(t, err)
+		require.NotNil(t, router)
+
+		// Check detection of different listener types
+		assert.False(t, router.defaultTransactional)
+		assert.False(t, router.routes[0].transactional)
+		assert.True(t, router.routes[1].transactional)
 	})
 }
