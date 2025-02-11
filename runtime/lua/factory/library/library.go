@@ -12,14 +12,14 @@ import (
 
 type Manager struct {
 	log  *zap.Logger
-	code *lua.CodeManager
+	code *lua.Manager
 }
 
-func NewManager(log *zap.Logger, code *lua.CodeManager) *Manager {
+func NewManager(log *zap.Logger, code *lua.Manager) *Manager {
 	return &Manager{log: log, code: code}
 }
 
-func NewLibraryManager(log *zap.Logger, code *lua.CodeManager) *factory.Handler {
+func NewLibraryManager(log *zap.Logger, code *lua.Manager) *factory.Handler {
 	return factory.NewHandler(api.KindLibrary, NewManager(log, code))
 }
 

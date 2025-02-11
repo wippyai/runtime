@@ -14,8 +14,8 @@ import (
 )
 
 type (
-	// CodeManager centralizes code and dependency management
-	CodeManager struct {
+	// Manager centralizes code and dependency management
+	Manager struct {
 		log      *zap.Logger
 		bus      events.Bus
 		memGraph *MemoryGraph
@@ -34,7 +34,7 @@ type (
 )
 
 // NewCodeManager creates a new code manager instance
-func NewCodeManager(log *zap.Logger, bus events.Bus, cfg *Config) (*CodeManager, error) {
+func NewCodeManager(log *zap.Logger, bus events.Bus, cfg *Config) (*Manager, error) {
 	if cfg == nil {
 		cfg = &Config{
 			ProtoCacheSize: 100,
@@ -42,7 +42,7 @@ func NewCodeManager(log *zap.Logger, bus events.Bus, cfg *Config) (*CodeManager,
 		}
 	}
 
-	cm := &CodeManager{
+	cm := &Manager{
 		log:      log,
 		bus:      bus,
 		memGraph: NewMemoryGraph(),
@@ -83,12 +83,12 @@ func NewCodeManager(log *zap.Logger, bus events.Bus, cfg *Config) (*CodeManager,
 }
 
 // Begin implements TransactionListener
-func (cm *CodeManager) Begin(_ context.Context) {
+func (cm *Manager) Begin(_ context.Context) {
 	cm.txNodes = make(map[registry.ID]bool)
 }
 
 // Commit implements TransactionListener
-func (cm *CodeManager) Commit(ctx context.Context) {
+func (cm *Manager) Commit(ctx context.Context) {
 	// Get all affected nodes
 	affected := make(map[registry.ID]bool)
 	for id := range cm.txNodes {
@@ -133,12 +133,12 @@ func (cm *CodeManager) Commit(ctx context.Context) {
 }
 
 // Discard implements TransactionListener
-func (cm *CodeManager) Discard(_ context.Context) {
+func (cm *Manager) Discard(_ context.Context) {
 	cm.txNodes = make(map[registry.ID]bool)
 }
 
 // Compile compiles a main entry point and its dependencies
-func (cm *CodeManager) Compile(
+func (cm *Manager) Compile(
 	entrypoint registry.ID,
 	options *BuildOptions,
 ) (*CompiledMain, error) {
@@ -146,7 +146,7 @@ func (cm *CodeManager) Compile(
 }
 
 // AddNode adds a new node with dependencies to the graph
-func (cm *CodeManager) AddNode(_ context.Context, node Node, deps []Import) error {
+func (cm *Manager) AddNode(_ context.Context, node Node, deps []Import) error {
 	// Create pointer from value
 	nodePtr := &Node{
 		ID:     node.ID,
@@ -180,7 +180,7 @@ func (cm *CodeManager) AddNode(_ context.Context, node Node, deps []Import) erro
 }
 
 // UpdateNode updates an existing node with new content and dependencies
-func (cm *CodeManager) UpdateNode(_ context.Context, node Node, deps []Import) error {
+func (cm *Manager) UpdateNode(_ context.Context, node Node, deps []Import) error {
 	// Get existing node
 	existing, err := cm.memGraph.GetNode(node.ID)
 	if err != nil {
@@ -221,7 +221,7 @@ func (cm *CodeManager) UpdateNode(_ context.Context, node Node, deps []Import) e
 }
 
 // DeleteNode removes a node and its dependencies from the graph
-func (cm *CodeManager) DeleteNode(_ context.Context, id registry.ID) error {
+func (cm *Manager) DeleteNode(_ context.Context, id registry.ID) error {
 	// Get node to verify it exists
 	if _, err := cm.memGraph.GetNode(id); err != nil {
 		return fmt.Errorf("node not found: %w", err)
