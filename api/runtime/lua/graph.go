@@ -25,11 +25,10 @@ type (
 		Alias string
 	}
 
-	// Runtime aggregates a main function prototype, its method,
+	// Main aggregates a main function prototype, its method,
 	// all dependency prototypes, and any required modules.
-	Runtime struct {
-		Main      AliasedNode
-		Method    string
+	Main struct {
+		Main      *Node
 		DepProtos []AliasedNode
 		Modules   []*Module
 	}

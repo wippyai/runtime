@@ -342,7 +342,7 @@ func TestMemoryGraph_DependencyLevels(t *testing.T) {
 	})
 }
 
-// TestMemoryGraph_BuildRuntime tests construction of a Runtime configuration.
+// TestMemoryGraph_BuildRuntime tests construction of a Main configuration.
 func TestMemoryGraph_BuildRuntime(t *testing.T) {
 	mg := NewMemoryGraph()
 	nodeA := createTestNode("MainNode")
@@ -372,13 +372,12 @@ func TestMemoryGraph_BuildRuntime(t *testing.T) {
 	nodeC.Module = &mod
 
 	t.Run("ValidRuntime", func(t *testing.T) {
-		rt, err := mg.BuildRuntime(nodeA.ID)
+		rt, err := mg.Build(nodeA.ID)
 		if err != nil {
 			t.Fatalf("failed to build runtime: %v", err)
 		}
 		// Verify main node.
-		expectedMainAlias := fmt.Sprintf("entry_%v", nodeA.ID)
-		if rt.Main.Node.ID != nodeA.ID || rt.Main.Alias != expectedMainAlias {
+		if rt.Main.ID != nodeA.ID {
 			t.Errorf("unexpected main node or alias, got: %+v", rt.Main)
 		}
 		// Check dependency prototypes (should include nodeB and nodeC).
@@ -400,9 +399,79 @@ func TestMemoryGraph_BuildRuntime(t *testing.T) {
 	})
 
 	t.Run("InvalidEntrypoint", func(t *testing.T) {
-		_, err := mg.BuildRuntime(registry.ID{Name: "NonExistent"})
+		_, err := mg.Build(registry.ID{Name: "NonExistent"})
 		if err == nil {
 			t.Errorf("expected error for non-existent entrypoint, got nil")
 		}
 	})
+}
+
+func TestMemoryGraph_RemoveNode_MultipleIncoming(t *testing.T) {
+	mg := NewMemoryGraph()
+	parent1 := createTestNode("Parent1")
+	parent2 := createTestNode("Parent2")
+	child := createTestNode("Child")
+	if err := mg.AddNode(parent1); err != nil {
+		t.Fatalf("failed to add Parent1: %v", err)
+	}
+	if err := mg.AddNode(parent2); err != nil {
+		t.Fatalf("failed to add Parent2: %v", err)
+	}
+	if err := mg.AddNode(child); err != nil {
+		t.Fatalf("failed to add Child: %v", err)
+	}
+	// Both Parent1 and Parent2 depend on Child.
+	if err := mg.AddDependency(parent1.ID, child.ID, "p1"); err != nil {
+		t.Fatalf("failed to add dependency Parent1->Child: %v", err)
+	}
+	if err := mg.AddDependency(parent2.ID, child.ID, "p2"); err != nil {
+		t.Fatalf("failed to add dependency Parent2->Child: %v", err)
+	}
+	// Removal should fail since Child has incoming dependencies.
+	if err := mg.RemoveNode(child.ID); err == nil {
+		t.Errorf("expected error when removing node with multiple incoming dependencies, got nil")
+	}
+	// Now remove one dependency at a time.
+	if err := mg.RemoveDependency(parent1.ID, child.ID); err != nil {
+		t.Fatalf("failed to remove dependency Parent1->Child: %v", err)
+	}
+	if err := mg.RemoveDependency(parent2.ID, child.ID); err != nil {
+		t.Fatalf("failed to remove dependency Parent2->Child: %v", err)
+	}
+	// After removing all incoming dependencies, removal should succeed.
+	if err := mg.RemoveNode(child.ID); err != nil {
+		t.Errorf("expected removal to succeed after dependencies removed, got: %v", err)
+	}
+}
+
+func TestMemoryGraph_RemoveNode_OutgoingDependencyAllowed(t *testing.T) {
+	mg := NewMemoryGraph()
+	// Node A depends on Node B, so A has an outgoing dependency,
+	// but no other node depends on A.
+	nodeA := createTestNode("A")
+	nodeB := createTestNode("B")
+	if err := mg.AddNode(nodeA); err != nil {
+		t.Fatalf("failed to add node A: %v", err)
+	}
+	if err := mg.AddNode(nodeB); err != nil {
+		t.Fatalf("failed to add node B: %v", err)
+	}
+	if err := mg.AddDependency(nodeA.ID, nodeB.ID, "aliasAtoB"); err != nil {
+		t.Fatalf("failed to add dependency A->B: %v", err)
+	}
+	// Removal of nodeA should succeed.
+	if err := mg.RemoveNode(nodeA.ID); err != nil {
+		t.Errorf("expected node with outgoing dependency to be removable, got: %v", err)
+	}
+}
+
+func TestMemoryGraph_RemoveNode_Isolated(t *testing.T) {
+	mg := NewMemoryGraph()
+	isolated := createTestNode("Isolated")
+	if err := mg.AddNode(isolated); err != nil {
+		t.Fatalf("failed to add isolated node: %v", err)
+	}
+	if err := mg.RemoveNode(isolated.ID); err != nil {
+		t.Errorf("expected isolated node to be removable, got: %v", err)
+	}
 }
