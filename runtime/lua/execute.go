@@ -3,10 +3,9 @@ package lua
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/api/runtime"
-
 	contextapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/payload"
+	"github.com/ponyruntime/pony/api/runtime"
 	api "github.com/ponyruntime/pony/api/runtime/lua"
 	lua "github.com/yuin/gopher-lua"
 )

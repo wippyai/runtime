@@ -1,4 +1,4 @@
-package process
+package factory
 
 import (
 	"github.com/ponyruntime/pony/api/registry"
