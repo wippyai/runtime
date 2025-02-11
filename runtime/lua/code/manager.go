@@ -10,6 +10,7 @@ import (
 	"github.com/yuin/gopher-lua/parse"
 	"go.uber.org/zap"
 	"strings"
+	"time"
 )
 
 type (
@@ -142,4 +143,97 @@ func (cm *CodeManager) Compile(
 	options *BuildOptions,
 ) (*CompiledMain, error) {
 	return cm.compiler.Compile(entrypoint, options)
+}
+
+// AddNode adds a new node with dependencies to the graph
+func (cm *CodeManager) AddNode(_ context.Context, node Node, deps []Dependency) error {
+	// Create pointer from value
+	nodePtr := &Node{
+		ID:     node.ID,
+		Kind:   node.Kind,
+		Source: node.Source,
+		Method: node.Method,
+		Module: node.Module,
+		Version: Version{
+			Hash:    HashNode(&node),
+			Created: time.Now(),
+		},
+	}
+
+	// Add node to graph
+	if err := cm.memGraph.AddNode(nodePtr); err != nil {
+		return fmt.Errorf("failed to add node: %w", err)
+	}
+
+	// Add dependencies
+	for _, dep := range deps {
+		if err := cm.memGraph.AddDependency(node.ID, dep.Node.ID, dep.Name); err != nil {
+			return fmt.Errorf("failed to add dependency %s -> %s: %w",
+				node.ID, dep.Node.ID, err)
+		}
+	}
+
+	// Mark node for transaction
+	cm.txNodes[node.ID] = true
+
+	return nil
+}
+
+// UpdateNode updates an existing node with new content and dependencies
+func (cm *CodeManager) UpdateNode(_ context.Context, node Node, deps []Dependency) error {
+	// Get existing node
+	existing, err := cm.memGraph.GetNode(node.ID)
+	if err != nil {
+		return fmt.Errorf("node not found: %w", err)
+	}
+
+	// Update fields
+	existing.Source = node.Source
+	existing.Method = node.Method
+	existing.Version = Version{
+		Hash:    HashNode(&node),
+		Created: time.Now(),
+	}
+
+	// Remove old dependencies
+	oldDeps, err := cm.memGraph.GetDirectDependencies(node.ID)
+	if err != nil {
+		return fmt.Errorf("failed to get old dependencies: %w", err)
+	}
+
+	for _, dep := range oldDeps {
+		if err := cm.memGraph.RemoveDependency(node.ID, dep.ID); err != nil {
+			return fmt.Errorf("failed to remove old dependency: %w", err)
+		}
+	}
+
+	// Add new dependencies
+	for _, dep := range deps {
+		if err := cm.memGraph.AddDependency(node.ID, dep.Node.ID, dep.Name); err != nil {
+			return fmt.Errorf("failed to add new dependency: %w", err)
+		}
+	}
+
+	// Mark node for transaction
+	cm.txNodes[node.ID] = true
+
+	return nil
+}
+
+// DeleteNode removes a node and its dependencies from the graph
+func (cm *CodeManager) DeleteNode(_ context.Context, id registry.ID) error {
+	// Get node to verify it exists
+	if _, err := cm.memGraph.GetNode(id); err != nil {
+		return fmt.Errorf("node not found: %w", err)
+	}
+
+	// Remove node (MemoryGraph handles dependency cleanup)
+	if err := cm.memGraph.RemoveNode(id); err != nil {
+		return fmt.Errorf("failed to remove node: %w", err)
+	}
+
+	// Mark node for transaction
+	cm.txNodes[id] = true
+
+	return nil
 }

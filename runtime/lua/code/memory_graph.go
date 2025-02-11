@@ -4,8 +4,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"github.com/ponyruntime/pony/runtime/lua/modules/time"
 	"sort"
+	"time"
 
 	"github.com/ponyruntime/pony/api/registry"
 	runtime "github.com/ponyruntime/pony/api/runtime/lua"
