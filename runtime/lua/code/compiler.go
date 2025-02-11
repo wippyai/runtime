@@ -1,8 +1,6 @@
 package lua
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	lru "github.com/ponyruntime/pony/internal/cache"
 
@@ -13,8 +11,35 @@ import (
 
 const defaultCapacity = 9000
 
+// CompiledProto represents a compiled Lua prototype with its optional alias
+type CompiledProto struct {
+	Alias string
+	Proto *glua.FunctionProto
+}
+
+// CompiledMain holds the compiled versions of the main function,
+// its dependencies, and any required modules
+type CompiledMain struct {
+	// The compiled main function prototype
+	Main *glua.FunctionProto
+
+	// All compiled dependency prototypes with their aliases
+	Dependencies []CompiledProto
+
+	// Required modules (not compiled, just referenced)
+	Modules []*runtime.Module
+}
+
+// NewCompiledMain creates a new CompiledMain instance
+func NewCompiledMain() *CompiledMain {
+	return &CompiledMain{
+		Dependencies: make([]CompiledProto, 0),
+		Modules:      make([]*runtime.Module, 0),
+	}
+}
+
 // Compiler composes a MemoryGraph with an LRU cache for compiled nodes.
-// compileFn is injected from outside to compile Lua source code into a *glua.FunctionProto.
+// compileFn is injected from outside to compile Lua Source code into a *glua.FunctionProto.
 type Compiler struct {
 	memGraph  *MemoryGraph
 	cache     *lru.Cache[string, *glua.FunctionProto]
@@ -22,8 +47,7 @@ type Compiler struct {
 }
 
 // NewCompiler returns a new Compiler with a MemoryGraph and an LRU cache.
-// 'compileFn' is provided by the caller and is used to compile Lua source code.
-// 'capacity' and 'ttl' configure the cache.
+// 'compileFn' is provided by the caller and is used to compile Lua Source code.
 func NewCompiler(
 	compileFn func(source string) (*glua.FunctionProto, error),
 ) *Compiler {
@@ -34,18 +58,9 @@ func NewCompiler(
 	}
 }
 
-// cacheKey computes a hash key based on node.Code and node.Method.
-func cacheKey(node *runtime.Node) string {
-	h := sha256.New()
-	h.Write([]byte(node.Source))
-	h.Write([]byte(node.Method))
-	return hex.EncodeToString(h.Sum(nil))
-}
-
 // getCompiledProto retrieves a node's compiled function prototype from cache or compiles it.
-func (c *Compiler) getCompiledProto(node *runtime.Node) (*glua.FunctionProto, error) {
-	key := cacheKey(node)
-	if proto, ok := c.cache.Get(key); ok {
+func (c *Compiler) getCompiledProto(node *Node) (*glua.FunctionProto, error) {
+	if proto, ok := c.cache.Get(node.Hash); ok {
 		return proto, nil
 	}
 
@@ -53,32 +68,43 @@ func (c *Compiler) getCompiledProto(node *runtime.Node) (*glua.FunctionProto, er
 	if err != nil {
 		return nil, err
 	}
-	c.cache.Set(key, compiled)
+	c.cache.Set(node.Hash, compiled)
 	return compiled, nil
 }
 
-// Compile builds the runtime using MemoryGraph.Build, compiles the main node and its dependencies,
-// and returns the compiled *glua.FunctionProto for the main node.
-// Note: In this simplified example, dependency linking is not performed;
-// dependencies are compiled and cached for potential later use.
-func (c *Compiler) Compile(entrypoint registry.ID) (*glua.FunctionProto, error) {
+// Compile builds the runtime using MemoryGraph.Build, compiles the main node and all its dependencies,
+// and returns a CompiledMain containing all compiled components and required modules.
+func (c *Compiler) Compile(entrypoint registry.ID) (*CompiledMain, error) {
+	// Build the runtime configuration
 	rt, err := c.memGraph.Build(entrypoint)
 	if err != nil {
 		return nil, err
 	}
 
+	// Create new CompiledMain instance
+	compiled := NewCompiledMain()
+
+	// Compile main node
 	mainProto, err := c.getCompiledProto(rt.Main)
 	if err != nil {
 		return nil, fmt.Errorf("failed to compile main node: %w", err)
 	}
+	compiled.Main = mainProto
 
-	// Compile dependencies to ensure they are cached.
+	// Compile all dependencies
 	for _, aliased := range rt.DepProtos {
-		if _, err := c.getCompiledProto(aliased.Node); err != nil {
+		depProto, err := c.getCompiledProto(aliased.Node)
+		if err != nil {
 			return nil, fmt.Errorf("failed to compile dependency node %v: %w", aliased.Node.ID, err)
 		}
+		compiled.Dependencies = append(compiled.Dependencies, CompiledProto{
+			Alias: aliased.Alias,
+			Proto: depProto,
+		})
 	}
 
-	// In this example, the final result is just the main node's compiled function proto.
-	return mainProto, nil
+	// Copy over the modules (not compiled)
+	compiled.Modules = rt.Modules
+
+	return compiled, nil
 }

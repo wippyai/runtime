@@ -1,6 +1,8 @@
 package lua
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"sort"
 
@@ -9,31 +11,63 @@ import (
 	"github.com/ponyruntime/pony/internal/graph"
 )
 
+type (
+	// AliasedNode represents a named Lua function prototype.
+	AliasedNode struct {
+		Alias string
+		Node  *Node
+	}
+
+	// Node represents a code unit in the dependency graph.
+	// A node may contain either a Lua prototype (Proto) or a module reference.
+	Node struct {
+		ID     registry.ID
+		Kind   registry.Kind
+		Hash   string
+		Source string
+		Method string
+		Module *runtime.Module
+	}
+
+	Edge struct {
+		Alias string
+	}
+
+	// Main aggregates a main function prototype, its method,
+	// all dependency prototypes, and any required modules.
+	Main struct {
+		Main      *Node
+		DepProtos []AliasedNode
+		Modules   []*runtime.Module
+	}
+)
+
 // MemoryGraph is an in‑memory implementation of the CodeGraph interface.
 // It maintains nodes (representing code units/modules) and their dependency edges.
 // Dependency edges (of type runtime.Edge) carry an alias, which is later propagated into
 // the final runtime configuration as part of the runtime.AliasedNode wrapper.
 type MemoryGraph struct {
-	graph *graph.Graph[registry.ID, runtime.Edge]
-	nodes map[registry.ID]*runtime.Node
+	graph *graph.Graph[registry.ID, Edge]
+	nodes map[registry.ID]*Node
 }
 
 // NewMemoryGraph creates a new MemoryGraph instance.
 func NewMemoryGraph() *MemoryGraph {
 	return &MemoryGraph{
-		graph: graph.New[registry.ID, runtime.Edge](),
-		nodes: make(map[registry.ID]*runtime.Node),
+		graph: graph.New[registry.ID, Edge](),
+		nodes: make(map[registry.ID]*Node),
 	}
 }
 
 // AddNode inserts a new node into the graph.
-func (m *MemoryGraph) AddNode(n *runtime.Node) error {
+func (m *MemoryGraph) AddNode(n *Node) error {
 	if n == nil {
 		return fmt.Errorf("node cannot be nil")
 	}
 	if _, exists := m.nodes[n.ID]; exists {
 		return fmt.Errorf("node with ID %v already exists", n.ID)
 	}
+
 	m.graph.AddNode(n.ID)
 	m.nodes[n.ID] = n
 	return nil
@@ -74,11 +108,11 @@ func (m *MemoryGraph) AddDependency(from, to registry.ID, alias string) error {
 
 	// Clone the graph and simulate the addition for cycle detection.
 	tmp := m.graph.Clone()
-	tmp.AddEdge(from, to, 1, runtime.Edge{Alias: ""})
+	tmp.AddEdge(from, to, 1, Edge{Alias: ""})
 	if _, err := tmp.DependencyLevels(); err != nil {
 		return fmt.Errorf("adding dependency would create a cycle: %w", err)
 	}
-	m.graph.AddEdge(from, to, 1, runtime.Edge{Alias: alias})
+	m.graph.AddEdge(from, to, 1, Edge{Alias: alias})
 	return nil
 }
 
@@ -91,7 +125,7 @@ func (m *MemoryGraph) RemoveDependency(from, to registry.ID) error {
 }
 
 // GetNode retrieves the node with the specified ID.
-func (m *MemoryGraph) GetNode(id registry.ID) (*runtime.Node, error) {
+func (m *MemoryGraph) GetNode(id registry.ID) (*Node, error) {
 	n, exists := m.nodes[id]
 	if !exists {
 		return nil, fmt.Errorf("node with ID %v not found", id)
@@ -100,7 +134,7 @@ func (m *MemoryGraph) GetNode(id registry.ID) (*runtime.Node, error) {
 }
 
 // GetDirectDependencies returns all nodes that the node with the given ID depends on. Only direct dependencies are returned.
-func (m *MemoryGraph) GetDirectDependencies(id registry.ID) ([]*runtime.Node, error) {
+func (m *MemoryGraph) GetDirectDependencies(id registry.ID) ([]*Node, error) {
 	if _, exists := m.nodes[id]; !exists {
 		return nil, fmt.Errorf("node with ID %v not found", id)
 	}
@@ -108,7 +142,7 @@ func (m *MemoryGraph) GetDirectDependencies(id registry.ID) ([]*runtime.Node, er
 	if err != nil {
 		return nil, err
 	}
-	var deps []*runtime.Node
+	var deps []*Node
 	for _, nid := range neighborIDs {
 		if node, ok := m.nodes[nid]; ok {
 			deps = append(deps, node)
@@ -118,11 +152,11 @@ func (m *MemoryGraph) GetDirectDependencies(id registry.ID) ([]*runtime.Node, er
 }
 
 // GetDirectDependents returns all nodes that depend on the node with the specified ID. Only direct dependents are returned.
-func (m *MemoryGraph) GetDirectDependents(id registry.ID) ([]*runtime.Node, error) {
+func (m *MemoryGraph) GetDirectDependents(id registry.ID) ([]*Node, error) {
 	if _, exists := m.nodes[id]; !exists {
 		return nil, fmt.Errorf("node with ID %v not found", id)
 	}
-	var dependents []*runtime.Node
+	var dependents []*Node
 	for nid, node := range m.nodes {
 		if m.graph.HasEdge(nid, id) {
 			dependents = append(dependents, node)
@@ -132,18 +166,18 @@ func (m *MemoryGraph) GetDirectDependents(id registry.ID) ([]*runtime.Node, erro
 }
 
 // DependencyLevels returns the nodes grouped in topological order (levels).
-func (m *MemoryGraph) DependencyLevels() ([][]*runtime.Node, error) {
+func (m *MemoryGraph) DependencyLevels() ([][]*Node, error) {
 	gl, err := m.graph.DependencyLevels()
 	if err != nil {
 		return nil, err
 	}
-	var levels [][]*runtime.Node
+	var levels [][]*Node
 	for i := 0; i < gl.LevelCount(); i++ {
 		levelIDs, err := gl.GetLevel(i)
 		if err != nil {
 			return nil, err
 		}
-		var level []*runtime.Node
+		var level []*Node
 		for _, id := range levelIDs {
 			if node, ok := m.nodes[id]; ok {
 				level = append(level, node)
@@ -161,61 +195,94 @@ func (m *MemoryGraph) DependencyLevels() ([][]*runtime.Node, error) {
 // Build resolves dependencies starting from the entrypoint node and builds a Main configuration.
 // The entrypoint becomes the main node, and all other reachable nodes are wrapped as dependency prototypes.
 // If an incoming dependency edge carries a non‑empty alias, that alias is used.
-func (m *MemoryGraph) Build(entrypoint registry.ID) (runtime.Main, error) {
+func (m *MemoryGraph) Build(entrypoint registry.ID) (*Main, error) {
 	entryNode, err := m.GetNode(entrypoint)
 	if err != nil {
-		return runtime.Main{}, err
+		return nil, err
 	}
 	levels, err := m.DependencyLevels()
 	if err != nil {
-		return runtime.Main{}, err
+		return nil, err
 	}
-	// Determine reachable nodes from the entrypoint.
+
+	// Determine reachable nodes from the entrypoint
 	reachable := m.reachableFrom(entrypoint)
-	var ordered []*runtime.Node
-	for _, level := range levels {
+
+	// Process levels in reverse order (deepest dependencies first)
+	var ordered []*Node
+	for i := len(levels) - 1; i >= 0; i-- {
+		level := levels[i]
 		for _, node := range level {
 			if reachable[node.ID] {
 				ordered = append(ordered, node)
 			}
 		}
 	}
-	// Assemble the runtime.
-	rt := runtime.Main{
+
+	// Assemble the runtime
+	rt := Main{
 		Main: entryNode,
 	}
-	var depNodes []runtime.AliasedNode
-	for i, node := range ordered {
+
+	// Build map of all aliases for each node
+	nodeAliases := make(map[registry.ID][]string)
+	for _, node := range ordered {
 		if node.ID == entrypoint {
 			continue
 		}
-		alias := ""
-		// Check earlier nodes (parents) for an incoming edge with a non‑empty alias.
-		for j := 0; j < i; j++ {
-			parent := ordered[j]
-			if m.graph.HasEdge(parent.ID, node.ID) {
-				edge, _ := m.graph.GetEdge(parent.ID, node.ID)
+		// Look through all nodes that could depend on this one
+		for _, potentialParent := range ordered {
+			if m.graph.HasEdge(potentialParent.ID, node.ID) {
+				edge, _ := m.graph.GetEdge(potentialParent.ID, node.ID)
 				if edge.Data.Alias != "" {
-					alias = edge.Data.Alias
-					break
+					nodeAliases[node.ID] = append(nodeAliases[node.ID], edge.Data.Alias)
 				}
 			}
 		}
-		depNodes = append(depNodes, runtime.AliasedNode{Alias: alias, Node: node})
+		// Sort aliases for consistent ordering
+		if aliases := nodeAliases[node.ID]; len(aliases) > 0 {
+			sort.Strings(aliases)
+			nodeAliases[node.ID] = aliases
+		}
+	}
+
+	// Create dependency nodes in correct order
+	var depNodes []AliasedNode
+	for _, node := range ordered {
+		if node.ID == entrypoint {
+			continue
+		}
+		aliases := nodeAliases[node.ID]
+		if len(aliases) == 0 {
+			// No aliases found, add node with empty alias
+			depNodes = append(depNodes, AliasedNode{Alias: "", Node: node})
+		} else {
+			// Add node once for each alias
+			for _, alias := range aliases {
+				depNodes = append(depNodes, AliasedNode{Alias: alias, Node: node})
+			}
+		}
 	}
 	rt.DepProtos = depNodes
 
-	// Collect unique modules from all nodes.
+	// Collect unique modules from all nodes in dependency order
 	modMap := make(map[*runtime.Module]bool)
 	for _, node := range ordered {
 		if node.Module != nil {
 			modMap[node.Module] = true
 		}
 	}
+	var modules []*runtime.Module
 	for mod := range modMap {
-		rt.Modules = append(rt.Modules, mod)
+		modules = append(modules, mod)
 	}
-	return rt, nil
+	// Sort modules by name for consistent ordering
+	sort.Slice(modules, func(i, j int) bool {
+		return (*modules[i]).Name() < (*modules[j]).Name()
+	})
+	rt.Modules = modules
+
+	return &rt, nil
 }
 
 // reachableFrom performs a DFS starting from the given entrypoint and returns a map of reachable node IDs.
@@ -237,4 +304,12 @@ func (m *MemoryGraph) reachableFrom(entrypoint registry.ID) map[registry.ID]bool
 	}
 	dfs(entrypoint)
 	return visited
+}
+
+// NodeHash computes a hash key based on node.Source and node.Method.
+func NodeHash(node *Node) string {
+	h := sha256.New()
+	h.Write([]byte(node.Source))
+	h.Write([]byte(node.Method))
+	return hex.EncodeToString(h.Sum(nil))
 }
