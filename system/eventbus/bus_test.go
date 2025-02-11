@@ -529,7 +529,7 @@ func TestHighConcurrencyStress(t *testing.T) {
 
 	unsubWg.Wait()
 
-	// Close remaining channels and unsubscribe
+	// Stop remaining channels and unsubscribe
 	for i := numSubscribers / 2; i < numSubscribers; i++ {
 		b.Unsubscribe(context.Background(), subscriberIDs[i])
 		close(channels[i])
@@ -776,6 +776,7 @@ func TestStopDuringBackpressure(t *testing.T) {
 	// Cleanup
 	cancel() // Signal all goroutines to stop
 	wg.Wait()
+	time.Sleep(10 * time.Millisecond) // Wait for all goroutines to exit
 
 	// Verify channels are closed
 	for _, ch := range subscribers {

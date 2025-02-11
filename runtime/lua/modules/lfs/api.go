@@ -235,7 +235,7 @@ func apiTouch(l *lua.LState) int {
 			l.Push(lua.LString(err.Error()))
 			return 2
 		}
-		file.Close() // Close the file immediately after creating it
+		file.Close() // Stop the file immediately after creating it
 	}
 
 	// Now that the file exists, change its timestamps

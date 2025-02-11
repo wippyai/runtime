@@ -197,7 +197,7 @@ func TestPool_JobCompletionOnClose(t *testing.T) {
 		// Give job time to start
 		time.Sleep(10 * time.Millisecond)
 
-		// Close the pool while job is running
+		// Stop the pool while job is running
 		p.Close()
 
 		// wait for result or error

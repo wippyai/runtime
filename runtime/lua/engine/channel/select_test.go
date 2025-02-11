@@ -150,7 +150,7 @@ func TestSelectBlockedClose(t *testing.T) {
 		
 		coroutine.yield("select_started")
 		
-		-- Close ch1, this should wake up select
+		-- Stop ch1, this should wake up select
 		ch1:close()
 		coroutine.yield("close_completed")
 	`, "test")

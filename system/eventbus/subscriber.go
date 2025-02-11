@@ -51,23 +51,32 @@ func NewSubscriber(
 	h.wg.Add(1)
 	go func() {
 		defer h.wg.Done()
+
 		for {
 			select {
 			case evt, ok := <-ch:
 				if !ok {
 					return
 				}
-				h.handlerFunc(evt)
+				select {
+				case <-h.ctx.Done():
+					return
+				default:
+					h.handlerFunc(evt)
+				}
 			case <-h.ctx.Done():
 				return
 			}
 		}
 	}()
 
+	h.wg.Add(1)
 	go func() {
+		defer h.wg.Done()
+
 		<-h.ctx.Done()
 		h.bus.Unsubscribe(context.Background(), h.subscriberID)
-		close(ch) // We own this channel, so we can close it
+		close(ch)
 	}()
 
 	return h, nil

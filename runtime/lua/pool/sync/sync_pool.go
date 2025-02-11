@@ -158,6 +158,6 @@ func (p *Pool) cleanupVMs() {
 func (p *Pool) Close() {
 	p.closeOnce.Do(func() {
 		close(p.done)  // Signal shutdown
-		p.cleanupVMs() // Close existing VMs
+		p.cleanupVMs() // Stop existing VMs
 	})
 }

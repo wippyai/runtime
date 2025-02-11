@@ -18,10 +18,10 @@ import (
 	"github.com/ponyruntime/pony/system/payload/lua"
 	"github.com/ponyruntime/pony/system/payload/yaml"
 	"github.com/ponyruntime/pony/system/registry"
+	reghandler "github.com/ponyruntime/pony/system/registry/events"
 	"github.com/ponyruntime/pony/system/registry/history"
 	"github.com/ponyruntime/pony/system/registry/loader"
 	"github.com/ponyruntime/pony/system/registry/loader/interpolate"
-	services "github.com/ponyruntime/pony/system/registry/router"
 	"github.com/ponyruntime/pony/system/registry/runner"
 	"github.com/ponyruntime/pony/system/registry/topology"
 	"github.com/ponyruntime/pony/system/supervisor"
@@ -35,17 +35,18 @@ import (
 )
 
 type App struct {
-	ctx        context.Context
-	cancel     context.CancelFunc
-	logger     *zap.Logger
-	logCore    logsapi.Core
-	logManager *logs.Manager
-	eventBus   events.Bus
-	dtt        *transcoder.Transcoder
-	reg        regapi.Registry
-	supervisor *supervisor.Supervisor
-	funcs      *functions.FunctionRegistry
-	services   *services.Router
+	ctx         context.Context
+	cancel      context.CancelFunc
+	logger      *zap.Logger
+	logCore     logsapi.Core
+	logManager  *logs.Manager
+	eventBus    events.Bus
+	eventRouter *eventbus.EventRouter
+	services    []eventbus.RouterOption
+	dtt         *transcoder.Transcoder
+	reg         regapi.Registry
+	supervisor  *supervisor.Supervisor
+	funcs       *functions.FunctionRegistry
 
 	shuttingDown  bool
 	forceShutdown chan struct{}
@@ -86,6 +87,7 @@ func NewApp(verbose, veryVerbose bool) (*App, error) {
 		logCore:       core,
 		logManager:    logManager,
 		eventBus:      bus,
+		services:      make([]eventbus.RouterOption, 0),
 		dtt:           dtt,
 		forceShutdown: make(chan struct{}),
 	}
@@ -138,24 +140,24 @@ func (a *App) Start(folderPath string) error {
 		return fmt.Errorf("failed to start function executor: %w", err)
 	}
 
-	// Initialize router with services
-	var err error
-	a.services, err = services.NewRouter(ctx, a.eventBus,
-		withHTTPService(a),
-		withNoopRuntime(a),
-	)
-	if err != nil {
-		return fmt.Errorf("failed to create router: %w", err)
-	}
-
 	// Start supervisor
 	if err := a.supervisor.Start(ctx); err != nil {
+		a.cancel()
 		return fmt.Errorf("failed to start supervisor: %w", err)
 	}
+
+	// Start secondary services
+	router, err := eventbus.StartRouter(ctx, a.eventBus, a.services...)
+	if err != nil {
+		a.cancel()
+		return fmt.Errorf("failed to create event router: %w", err)
+	}
+	a.eventRouter = router
 
 	// Load and apply initial state
 	appState, err := loadApplicationState(folderPath, a.dtt, a.logger)
 	if err != nil {
+		a.cancel()
 		return fmt.Errorf("failed to load application state: %w", err)
 	}
 
@@ -187,7 +189,7 @@ func (a *App) Stop() error {
 	}()
 
 	// Stop services in reverse order
-	if err := a.services.Stop(); err != nil {
+	if err := a.eventRouter.Stop(); err != nil {
 		a.logger.Error("failed to stop router", zap.Error(err))
 	}
 
@@ -228,11 +230,19 @@ func main() {
 	folderPath := args[0]
 
 	// Create and initialize application
-	app, err := NewApp(*verbose, *veryVerbose)
+	app, err := NewApp(
+		*verbose,
+		*veryVerbose,
+	)
 	if err != nil {
 		fmt.Printf("Failed to create application: %v\n", err)
 		os.Exit(1)
 	}
+
+	app.services = append(app.services,
+		WithHTTPService(app),
+		WithNoopRuntime(app),
+	)
 
 	if err := app.Initialize(); err != nil {
 		fmt.Printf("Failed to initialize application: %v\n", err)
@@ -331,8 +341,8 @@ func loadApplicationState(
 
 // ---- Services ----
 
-func withHTTPService(a *App) services.Option {
-	return services.WithListener("http.*", http.NewHTTPManager(
+func WithHTTPService(a *App) eventbus.RouterOption {
+	return reghandler.WithRegistryHandler("http.*", http.NewHTTPManager(
 		a.eventBus,
 		a.dtt,
 		a.funcs,
@@ -361,8 +371,8 @@ func withHTTPService(a *App) services.Option {
 //		))
 //}
 
-func withNoopRuntime(a *App) services.Option {
-	return services.WithListener("(function|process|library).*",
+func WithNoopRuntime(a *App) eventbus.RouterOption {
+	return reghandler.WithRegistryHandler("(function|process|library).*",
 		noop.NewNoopRuntime(
 			a.eventBus,
 			a.logger.Named("noop"),

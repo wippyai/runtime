@@ -360,7 +360,7 @@ func TestWorkerPool(t *testing.T) {
                task_ch:send(i)
            end
 
-           -- Close task channel to signal no more tasks
+           -- Stop task channel to signal no more tasks
            task_ch:close()
 
            -- Collect and sum all results
