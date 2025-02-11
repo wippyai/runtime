@@ -52,7 +52,7 @@ func SortEntriesByDependency(entries []registry.Entry) []registry.Entry {
 	}
 
 	// Build dependency graph and mappings
-	g := graph.New[registry.ID]()
+	g := graph.New[registry.ID, any]()
 	entryMap := make(map[registry.ID]registry.Entry, len(entries))
 	groupMap := make(map[string][]registry.ID)
 	nsMap := make(map[string][]registry.ID)
@@ -85,7 +85,7 @@ func SortEntriesByDependency(entries []registry.Entry) []registry.Entry {
 				// Handle direct dependency, respecting source namespace
 				targetID := resolveDependencyID(entry.ID.NS, value)
 				if _, exists := entryMap[targetID]; exists {
-					g.AddEdge(targetID, entry.ID, 1)
+					g.AddEdge(targetID, entry.ID, 1, nil)
 				}
 
 			case "group":
@@ -93,7 +93,7 @@ func SortEntriesByDependency(entries []registry.Entry) []registry.Entry {
 				if members, exists := groupMap[value]; exists {
 					for _, memberID := range members {
 						if memberID != entry.ID { // Avoid self-dependency
-							g.AddEdge(memberID, entry.ID, 1)
+							g.AddEdge(memberID, entry.ID, 1, nil)
 						}
 					}
 				}
@@ -103,7 +103,7 @@ func SortEntriesByDependency(entries []registry.Entry) []registry.Entry {
 				if members, exists := nsMap[value]; exists {
 					for _, memberID := range members {
 						if memberID != entry.ID { // Avoid self-dependency
-							g.AddEdge(memberID, entry.ID, 1)
+							g.AddEdge(memberID, entry.ID, 1, nil)
 						}
 					}
 				}

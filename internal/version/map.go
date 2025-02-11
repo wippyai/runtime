@@ -58,13 +58,13 @@ func (vm *versionHistory) Path(from, to registry.Version) ([]registry.Version, e
 	}
 
 	// Construct the graph on demand
-	g := graph.New[string]()
+	g := graph.New[string, any]()
 	for _, v := range vm.versions {
 		g.AddNode(v.String())
 		if prev := v.Previous(); prev != nil {
 			// Add bidirectional edges with different weights
-			g.AddEdge(prev.String(), v.String(), 1) // Forward edge
-			g.AddEdge(v.String(), prev.String(), 2) // Backward edge
+			g.AddEdge(prev.String(), v.String(), 1, nil) // Forward edge
+			g.AddEdge(v.String(), prev.String(), 2, nil) // Backward edge
 		}
 	}
 
