@@ -28,7 +28,8 @@ const (
 	Reject events.Kind = "entry.reject"
 
 	// Changes represents a pattern matching any create, update, or delete events
-	Changes events.Kind = "entry.(create|update|delete)"
+	Changes   events.Kind = "entry.(create|update|delete)"
+	AllEvents events.Kind = "(entry|registry).(create|update|delete|begin|commit|discard)"
 
 	// Begin represents the start of a registry transaction
 	Begin events.Kind = "registry.begin"
@@ -164,6 +165,12 @@ type (
 		Add(context.Context, Entry) error
 		Update(context.Context, Entry) error
 		Delete(context.Context, Entry) error
+	}
+
+	TransactionListener interface {
+		Begin(ctx context.Context)
+		Commit(ctx context.Context)
+		Discard(ctx context.Context)
 	}
 )
 
