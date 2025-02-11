@@ -22,7 +22,27 @@ func (t ID) WithDefaultNS(defaultNS Namespace) ID {
 	}
 }
 
-func (t ID) UnmarshalJSON(data []byte) error {
+// ParseID creates an ID from a string in either "namespace:name" or "name-only" format.
+// For "namespace:name" format, the first colon is used as the separator.
+// For "name-only" format, an empty namespace is used.
+func ParseID(s string) ID {
+	// Split on first colon
+	parts := strings.SplitN(s, ":", 2)
+	if len(parts) == 1 {
+		// Name-only format
+		return ID{
+			NS:   "",
+			Name: Name(parts[0]),
+		}
+	}
+	// Has colon - parse as ns:name
+	return ID{
+		NS:   Namespace(parts[0]),
+		Name: Name(parts[1]),
+	}
+}
+
+func (t *ID) UnmarshalJSON(data []byte) error {
 	// Check if the data is a JSON string
 	if len(data) > 0 && data[0] == '"' {
 		var s string
@@ -58,24 +78,4 @@ func (t ID) UnmarshalJSON(data []byte) error {
 	t.NS = obj.NS
 	t.Name = obj.ID
 	return nil
-}
-
-// ParseID creates an ID from a string in either "namespace:name" or "name-only" format.
-// For "namespace:name" format, the first colon is used as the separator.
-// For "name-only" format, an empty namespace is used.
-func ParseID(s string) ID {
-	// Split on first colon
-	parts := strings.SplitN(s, ":", 2)
-	if len(parts) == 1 {
-		// Name-only format
-		return ID{
-			NS:   "",
-			Name: Name(parts[0]),
-		}
-	}
-	// Has colon - parse as ns:name
-	return ID{
-		NS:   Namespace(parts[0]),
-		Name: Name(parts[1]),
-	}
 }
