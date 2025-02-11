@@ -239,15 +239,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	app.services = append(app.services,
-		WithHTTPService(app),
-		WithNoopRuntime(app),
-	)
-
 	if err := app.Initialize(); err != nil {
 		fmt.Printf("Failed to initialize application: %v\n", err)
 		os.Exit(1)
 	}
+
+	app.services = append(app.services,
+		WithHTTPService(app),
+		WithNoopRuntime(app),
+	)
 
 	// Start application
 	if err := app.Start(folderPath); err != nil {

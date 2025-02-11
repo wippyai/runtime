@@ -26,8 +26,9 @@ type FunctionRegistry struct {
 // NewExecutor creates a new FunctionRegistry instance with the provided event bus and logger.
 func NewExecutor(bus events.Bus, logger *zap.Logger) *FunctionRegistry {
 	return &FunctionRegistry{
-		bus:    bus,
-		logger: logger,
+		bus:      bus,
+		logger:   logger,
+		handlers: sync.Map{},
 	}
 }
 

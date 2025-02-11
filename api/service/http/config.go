@@ -173,6 +173,14 @@ func (c *RouterConfig) Validate() error {
 
 // Validate checks if the endpoint configuration is valid
 func (c *EndpointConfig) Validate() error {
+	if c.Handler.Name == "" {
+		return fmt.Errorf("handler name cannot be empty")
+	}
+
+	if c.Handler.NS == "" {
+		return fmt.Errorf("handler namespace cannot be empty")
+	}
+
 	if c.Path == "" {
 		return fmt.Errorf("endpoint path cannot be empty")
 	}
