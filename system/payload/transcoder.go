@@ -10,7 +10,7 @@ import (
 
 // Transcoder is the global instance of the json service.
 type Transcoder struct {
-	graph           *graph.Graph[string]
+	graph           *graph.Graph[string, any]
 	transcoders     map[string]map[string]payload.FormatTranscoder
 	unmarshalers    map[string]payload.Unmarshaler
 	unmarshalerPath *sync.Map // thread-safe cache for unmarshaler paths
@@ -32,7 +32,7 @@ func GlobalTranscoder() *Transcoder {
 // NewTranscoder creates a new transcoder instance.
 func NewTranscoder() *Transcoder {
 	return &Transcoder{
-		graph:           graph.New[string](),
+		graph:           graph.New[string, any](),
 		transcoders:     make(map[string]map[string]payload.FormatTranscoder),
 		unmarshalers:    make(map[string]payload.Unmarshaler),
 		unmarshalerPath: new(sync.Map),
@@ -48,7 +48,7 @@ func (t *Transcoder) RegisterTranscoder(from, to payload.Format, weight int, tt 
 
 	t.graph.AddNode(fromStr)
 	t.graph.AddNode(toStr)
-	t.graph.AddEdge(fromStr, toStr, weight)
+	t.graph.AddEdge(fromStr, toStr, weight, nil)
 
 	if _, ok := t.transcoders[fromStr]; !ok {
 		t.transcoders[fromStr] = make(map[string]payload.FormatTranscoder)

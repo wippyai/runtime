@@ -381,3 +381,31 @@ func TestGraphDependencyLevels(t *testing.T) {
 		}
 	})
 }
+
+func TestGraphMissingDependencyNotAutoAdded(t *testing.T) {
+	g := New[string, TestEdgeData]()
+
+	// Only add the source node.
+	g.AddNode("A")
+
+	edgeData := TestEdgeData{Label: "dependency", Cost: 1.0}
+	g.AddEdge("A", "B", 1, edgeData)
+
+	// The edge should exist.
+	if !g.HasEdge("A", "B") {
+		t.Error("expected edge A->B to exist")
+	}
+
+	// But since we did not explicitly add "B", it should NOT be registered as a node.
+	if g.HasNode("B") {
+		t.Error("expected 'B' not to be auto-added as a node")
+	}
+
+	// GetNodes should not include "B".
+	nodes := g.GetNodes()
+	for _, n := range nodes {
+		if n == "B" {
+			t.Error("node 'B' should not be present in the node list")
+		}
+	}
+}

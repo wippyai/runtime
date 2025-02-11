@@ -73,7 +73,7 @@ func (sp *Sequencer) Transition(ctx context.Context, operations ...Operation) er
 
 func (sp *Sequencer) processStartOperations(ctx context.Context, operations []Operation) error {
 	// Build dependency graph for starts
-	g := graph.New[string]()
+	g := graph.New[string, any]()
 
 	// Add all services as nodes
 	for _, op := range operations {
@@ -84,7 +84,7 @@ func (sp *Sequencer) processStartOperations(ctx context.Context, operations []Op
 	for _, op := range operations {
 		for _, dep := range op.Dependencies {
 			// Add edge from dependency to dependent
-			g.AddEdge(dep, op.ID, 1)
+			g.AddEdge(dep, op.ID, 1, nil)
 		}
 	}
 
@@ -140,7 +140,7 @@ func (sp *Sequencer) processStartOperations(ctx context.Context, operations []Op
 }
 
 func (sp *Sequencer) processStopOperations(ctx context.Context, operations []Operation) error {
-	g := graph.New[string]()
+	g := graph.New[string, any]()
 	opMap := make(map[string]Operation)
 
 	// Add all nodes first
@@ -156,7 +156,7 @@ func (sp *Sequencer) processStopOperations(ctx context.Context, operations []Ope
 			if _, exists := opMap[depID]; exists {
 				// Add edge FROM dependent TO dependency
 				// This ensures dependent is processed before its dependencies
-				g.AddEdge(op.ID, depID, 1)
+				g.AddEdge(op.ID, depID, 1, nil)
 			}
 		}
 	}
