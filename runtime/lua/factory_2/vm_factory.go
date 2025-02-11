@@ -1,6 +1,6 @@
 // Package factory provides a flexible configuration system for creating and
 // customizing Lua virtual machines in the Pony runtime environment
-package factory
+package factory_2
 
 import (
 	"fmt"

@@ -1,4 +1,4 @@
-package factory
+package factory_2
 
 import (
 	"testing"

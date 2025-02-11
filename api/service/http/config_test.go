@@ -289,7 +289,7 @@ func TestRouterConfig_Validate(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "missing server Name",
+			name: "missing server Alias",
 			config: RouterConfig{
 				Meta:   registry.Metadata{},
 				Prefix: "/api",
@@ -390,7 +390,7 @@ func TestEndpointConfig_Validate(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "missing server Name",
+			name: "missing server Alias",
 			config: EndpointConfig{
 				Meta:   registry.Metadata{},
 				Path:   "/test",

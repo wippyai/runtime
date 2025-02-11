@@ -39,7 +39,7 @@ func main() {
 
 	dtt := createTranscoder()
 
-	// 2. Get Folder Name from Kind-Line Argument:
+	// 2. Get Folder Alias from Kind-Line Argument:
 	if len(os.Args) < 2 {
 		fmt.Println("Usage: go run main.go <folder_path> [namespace]")
 		return
@@ -83,7 +83,7 @@ func main() {
 
 		// Print the entry:
 		fmt.Println("---")
-		fmt.Printf("Name: \x1b[32m%s\x1b[0m\n", entry.ID)
+		fmt.Printf("Alias: \x1b[32m%s\x1b[0m\n", entry.ID)
 		fmt.Printf("Kind: \x1b[35m%s\x1b[0m\n", entry.Kind)
 		fmt.Println("Data:")
 		fmt.Printf("\x1b[33m%s\x1b[0m", p.Data().(string))

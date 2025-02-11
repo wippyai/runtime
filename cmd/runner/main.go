@@ -342,7 +342,7 @@ func loadApplicationState(
 // ---- Services ----
 
 func WithHTTPService(a *App) eventbus.EventHandler {
-	return reghandler.WithRegistryHandler("http.*", http.NewHTTPManager(
+	return reghandler.NewRegistryHandler("http.*", http.NewHTTPManager(
 		a.eventBus,
 		a.dtt,
 		a.funcs,
@@ -372,7 +372,7 @@ func WithHTTPService(a *App) eventbus.EventHandler {
 //}
 
 func WithNoopRuntime(a *App) eventbus.EventHandler {
-	return reghandler.WithRegistryHandler("(function|process|library).*",
+	return reghandler.NewRegistryHandler("(function|process|library).*",
 		noop.NewNoopRuntime(
 			a.eventBus,
 			a.logger.Named("noop"),

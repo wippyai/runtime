@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ponyruntime/pony/runtime/lua/factory"
+	"github.com/ponyruntime/pony/runtime/lua/factory_2"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -19,17 +19,17 @@ import (
 
 func setupTestPool(t *testing.T, size, workers int) *Pool {
 	logger := zap.NewNop()
-	f := factory.NewFactory(logger)
+	f := factory_2.NewFactory(logger)
 
 	// Add test functions to VM config
-	factory.WithFunction("test", `
+	factory_2.WithFunction("test", `
 		function test(arg)
 			return arg
 		end
 		return test
 	`)(f)
 
-	factory.WithFunction("block", `
+	factory_2.WithFunction("block", `
 		function block()
 			while true do
 			end
@@ -38,14 +38,14 @@ func setupTestPool(t *testing.T, size, workers int) *Pool {
 		return block
 	`)(f)
 
-	factory.WithFunction("fail", `
+	factory_2.WithFunction("fail", `
 		function fail()
 			error("intentional failure")
 		end
 		return fail
 	`)(f)
 
-	factory.WithFunction("get_id", `
+	factory_2.WithFunction("get_id", `
 		local id = 0
 		function get_id()
 			id = id + 1
@@ -242,8 +242,8 @@ func TestQueuedPool_QueueBehavior(t *testing.T) {
 
 func BenchmarkQueuedPool_Execute(b *testing.B) {
 	logger := zap.NewNop()
-	vmConfig := factory.NewFactory(logger)
-	factory.WithFunction("bench", `
+	vmConfig := factory_2.NewFactory(logger)
+	factory_2.WithFunction("bench", `
 		function test(arg)
 			return arg
 		end

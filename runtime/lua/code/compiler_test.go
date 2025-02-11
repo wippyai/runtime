@@ -1,4 +1,4 @@
-package lua
+package code
 
 import (
 	"github.com/ponyruntime/pony/api/registry"

@@ -1,0 +1,94 @@
+package library
+
+import (
+	"context"
+	"fmt"
+	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/registry"
+	api "github.com/ponyruntime/pony/api/runtime/lua"
+	lua "github.com/ponyruntime/pony/runtime/lua/code"
+	"github.com/ponyruntime/pony/runtime/lua/factory"
+	"go.uber.org/zap"
+)
+
+type Manager struct {
+	log  *zap.Logger
+	code *lua.CodeManager
+	bus  events.Bus
+}
+
+func NewManager(log *zap.Logger, code *lua.CodeManager) *Manager {
+	return &Manager{log: log, code: code}
+}
+
+func NewLibraryService(log *zap.Logger, code *lua.CodeManager) *factory.Handler {
+	return factory.NewHandler(api.KindLibrary, NewManager(log, code))
+}
+
+func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
+	if entry.Kind != api.KindLibrary {
+		return fmt.Errorf("invalid entry kind %s, expected %s", entry.Kind, api.KindLibrary)
+	}
+
+	cfg, err := factory.UnpackConfig[api.LibraryConfig](ctx, entry)
+	if err != nil {
+		return fmt.Errorf("failed to unpack library config: %w", err)
+	}
+
+	node := lua.Node{
+		ID:     entry.ID,
+		Kind:   api.KindLibrary,
+		Source: cfg.Source,
+	}
+
+	imports := factory.BuildImports(append(cfg.Modules, cfg.Libraries...), cfg.ImportAliases)
+
+	if err := m.code.AddNode(ctx, node, imports); err != nil {
+		return fmt.Errorf("failed to add library node: %w", err)
+	}
+
+	return nil
+}
+
+func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
+	if entry.Kind != api.KindLibrary {
+		return fmt.Errorf("invalid entry kind %s, expected %s", entry.Kind, api.KindLibrary)
+	}
+
+	cfg, err := factory.UnpackConfig[api.LibraryConfig](ctx, entry)
+	if err != nil {
+		return fmt.Errorf("failed to unpack library config: %w", err)
+	}
+
+	node := lua.Node{
+		ID:     entry.ID,
+		Kind:   api.KindLibrary,
+		Source: cfg.Source,
+	}
+
+	imports := factory.BuildImports(append(cfg.Modules, cfg.Libraries...), cfg.ImportAliases)
+
+	if err := m.code.UpdateNode(ctx, node, imports); err != nil {
+		return fmt.Errorf("failed to update library node: %w", err)
+	}
+
+	return nil
+}
+
+func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
+	if entry.Kind != api.KindLibrary {
+		return fmt.Errorf("invalid entry kind %s, expected %s", entry.Kind, api.KindLibrary)
+	}
+
+	if err := m.code.DeleteNode(ctx, entry.ID); err != nil {
+		return fmt.Errorf("failed to delete library node: %w", err)
+	}
+
+	return nil
+}
+
+func (m *Manager) Invalidate(ids []registry.ID) {
+	for _, id := range ids {
+		m.log.Debug("invalidating library", zap.String("id", id.String()))
+	}
+}

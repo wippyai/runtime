@@ -12,7 +12,7 @@ import (
 	config "github.com/ponyruntime/pony/api/service/http"
 )
 
-// DefaultRouterID is the default router Name
+// DefaultRouterID is the default router Alias
 const DefaultRouterID = ""
 
 // GetRouteInfo retrieves route information from the context
@@ -56,7 +56,7 @@ func (rm *Router) AddRouter(routerID string, rcfg config.RouterConfig) error {
 
 	// Atomic store of the new router
 	if _, loaded := rm.routers.LoadOrStore(routerID, newRouter); loaded {
-		return fmt.Errorf("router with Name '%s' already exists", routerID)
+		return fmt.Errorf("router with Alias '%s' already exists", routerID)
 	}
 
 	rm.rebuildRouter()
@@ -72,7 +72,7 @@ func (rm *Router) DeleteRouter(routerID string) error {
 	// Create router before deletion
 	routerVal, exists := rm.routers.LoadAndDelete(routerID)
 	if !exists {
-		return fmt.Errorf("router with Name '%s' not found", routerID)
+		return fmt.Errorf("router with Alias '%s' not found", routerID)
 	}
 	router := routerVal.(*ChiRouter)
 
@@ -101,7 +101,7 @@ func (rm *Router) DeleteRouter(routerID string) error {
 func (rm *Router) UpdateRouter(routerID string, rcfg config.RouterConfig) error {
 	existingRouter, exists := rm.routers.Load(routerID)
 	if !exists {
-		return fmt.Errorf("router with Name '%s' not found", routerID)
+		return fmt.Errorf("router with Alias '%s' not found", routerID)
 	}
 
 	// Clone and update the existing router
@@ -130,7 +130,7 @@ func (rm *Router) AddEndpoint(endpointID string, cfg config.EndpointConfig) erro
 
 	router, exists := rm.routers.Load(routerID)
 	if !exists {
-		return fmt.Errorf("router with Name '%s' not found", routerID)
+		return fmt.Errorf("router with Alias '%s' not found", routerID)
 	}
 
 	// Add endpoint to Chi router
@@ -149,7 +149,7 @@ func (rm *Router) AddEndpoint(endpointID string, cfg config.EndpointConfig) erro
 func (rm *Router) DeleteEndpoint(endpointID string) error {
 	ecfg, exists := rm.endpoints.Load(endpointID)
 	if !exists {
-		return fmt.Errorf("endpoint with Name '%s' not found", endpointID)
+		return fmt.Errorf("endpoint with Alias '%s' not found", endpointID)
 	}
 
 	endpointConfig := ecfg.(config.EndpointConfig)
@@ -160,7 +160,7 @@ func (rm *Router) DeleteEndpoint(endpointID string) error {
 
 	router, exists := rm.routers.Load(routerID)
 	if !exists {
-		return fmt.Errorf("router with Name '%s' not found", routerID)
+		return fmt.Errorf("router with Alias '%s' not found", routerID)
 	}
 
 	// Delete endpoint from Chi router
@@ -179,7 +179,7 @@ func (rm *Router) DeleteEndpoint(endpointID string) error {
 func (rm *Router) UpdateEndpoint(endpointID string, cfg config.EndpointConfig) error {
 	oldEcfg, exists := rm.endpoints.Load(endpointID)
 	if !exists {
-		return fmt.Errorf("endpoint with Name '%s' not found", endpointID)
+		return fmt.Errorf("endpoint with Alias '%s' not found", endpointID)
 	}
 	oldEndpointConfig := oldEcfg.(config.EndpointConfig)
 
@@ -193,7 +193,7 @@ func (rm *Router) UpdateEndpoint(endpointID string, cfg config.EndpointConfig) e
 		newRouterID = DefaultRouterID
 	}
 
-	// If router Name changed, delete from old and add to new
+	// If router Alias changed, delete from old and add to new
 	if oldRouterID != newRouterID {
 		if err := rm.DeleteEndpoint(endpointID); err != nil {
 			return err
@@ -212,7 +212,7 @@ func (rm *Router) UpdateEndpoint(endpointID string, cfg config.EndpointConfig) e
 	// Update endpoint in the existing router
 	router, exists := rm.routers.Load(newRouterID)
 	if !exists {
-		return fmt.Errorf("router with Name '%s' not found", newRouterID)
+		return fmt.Errorf("router with Alias '%s' not found", newRouterID)
 	}
 
 	// Add updated endpoint to Chi router

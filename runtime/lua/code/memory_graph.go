@@ -1,4 +1,4 @@
-package lua
+package code
 
 import (
 	"crypto/sha256"
@@ -30,10 +30,14 @@ type (
 		Module  runtime.Module // Modules only has this
 	}
 
-	// Dependency represents a named Lua function prototype.
 	Dependency struct {
 		Name string
 		Node *Node
+	}
+
+	Import struct {
+		ID    registry.ID
+		Alias string
 	}
 
 	Edge struct {
