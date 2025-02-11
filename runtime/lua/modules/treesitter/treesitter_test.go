@@ -123,7 +123,7 @@ func TestLanguageOperations(t *testing.T) {
 			local treesitter = require("treesitter")
 			local lang = treesitter.language("go")
 			
-			-- Test with invalid node kind Alias
+			-- Test with invalid node kind Name
 			local invalid_kind = lang:node_kind_for_id(65535)  -- max uint16
 			assert(type(invalid_kind) == "string", "should handle max node kind id")
 			

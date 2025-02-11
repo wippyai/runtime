@@ -234,7 +234,7 @@ func TestRouterComposition(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-		assert.NotEmpty(t, resp.Header.Get("X-Router-ID"), "Request Alias middleware should be applied")
+		assert.NotEmpty(t, resp.Header.Get("X-Router-ID"), "Request Name middleware should be applied")
 		assert.Equal(t, "router1", resp.Header.Get("X-Router-ID"))
 		assert.NoError(t, resp.Body.Close())
 	})
@@ -538,7 +538,7 @@ func TestRouter_Endpoint_UUID(t *testing.T) {
 		return true
 	})
 
-	// Add an endpoint without providing an Alias
+	// Add an endpoint without providing an Name
 	err := router.AddEndpoint("", config.EndpointConfig{
 		Method: http.MethodGet,
 		Path:   "/test",
@@ -567,7 +567,7 @@ func TestRouter_Endpoint_UUID(t *testing.T) {
 	assert.Equal(t, initialCount+1, finalCount, "Expected exactly one new endpoint")
 	assert.NotEmpty(t, foundEndpointID, "Expected to find an endpoint with UUID")
 	_, err = uuid.Parse(foundEndpointID)
-	assert.NoError(t, err, "Expected endpoint Alias to be a valid UUID")
+	assert.NoError(t, err, "Expected endpoint Name to be a valid UUID")
 }
 
 func TestRouterEdgeCases(t *testing.T) {
@@ -657,7 +657,7 @@ func TestRouterEdgeCases(t *testing.T) {
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 		assert.NoError(t, resp.Body.Close())
 
-		// Test updating endpoint with invalid router Alias
+		// Test updating endpoint with invalid router Name
 		err = router.UpdateEndpoint("test-ep", config.EndpointConfig{
 			Method: http.MethodGet,
 			Path:   "/test",

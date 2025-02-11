@@ -385,8 +385,8 @@ func TestMemoryGraph_BuildRuntime(t *testing.T) {
 		}
 		// Verify alias propagation for nodeB.
 		for _, dep := range rt.Dependencies {
-			if dep.Node.ID == nodeB.ID && dep.Alias != "depB" {
-				t.Errorf("expected alias 'depB' for nodeB, got '%s'", dep.Alias)
+			if dep.Node.ID == nodeB.ID && dep.Name != "depB" {
+				t.Errorf("expected alias 'depB' for nodeB, got '%s'", dep.Name)
 			}
 			// Verify module is included as a dependency
 			if dep.Node.ID == nodeC.ID {
@@ -535,12 +535,12 @@ func TestMemoryGraph_Build_TransitiveModules(t *testing.T) {
 		// Verify specific aliases
 		switch dep.Node.ID.Name {
 		case "MiddleNode":
-			if dep.Alias != "middle" {
-				t.Errorf("expected middle node alias 'middle', got '%s'", dep.Alias)
+			if dep.Name != "middle" {
+				t.Errorf("expected middle node alias 'middle', got '%s'", dep.Name)
 			}
 		case "LeafNode":
-			if dep.Alias != "leaf" {
-				t.Errorf("expected leaf node alias 'leaf', got '%s'", dep.Alias)
+			if dep.Name != "leaf" {
+				t.Errorf("expected leaf node alias 'leaf', got '%s'", dep.Name)
 			}
 		}
 	}
@@ -687,8 +687,8 @@ func TestMemoryGraph_Build_ModuleDeduplication(t *testing.T) {
 		if actual.Node.ID != expected.id {
 			t.Errorf("dependency at position %d: expected node %v, got %v", i, expected.id, actual.Node.ID)
 		}
-		if actual.Alias != expected.alias {
-			t.Errorf("dependency at position %d: expected alias %s, got %s", i, expected.alias, actual.Alias)
+		if actual.Name != expected.alias {
+			t.Errorf("dependency at position %d: expected alias %s, got %s", i, expected.alias, actual.Name)
 		}
 	}
 
@@ -885,8 +885,8 @@ func TestMemoryGraph_Build_SharedDependency(t *testing.T) {
 
 	// Verify the shared module has the correct alias
 	for _, dep := range rt.Dependencies {
-		if dep.Node.ID.Name == "Shared" && dep.Alias != "util" {
-			t.Errorf("expected shared module to have alias 'util', got '%s'", dep.Alias)
+		if dep.Node.ID.Name == "Shared" && dep.Name != "util" {
+			t.Errorf("expected shared module to have alias 'util', got '%s'", dep.Name)
 		}
 	}
 }
@@ -924,7 +924,7 @@ func TestMemoryGraph_Build_FallbackAlias(t *testing.T) {
 
 	// Verify the dependency has the node name as alias
 	dep := rt.Dependencies[0]
-	if dep.Alias != dependencyNode.ID.Name {
-		t.Errorf("expected alias to be node name '%s', got '%s'", dependencyNode.ID.Name, dep.Alias)
+	if dep.Name != dependencyNode.ID.Name {
+		t.Errorf("expected alias to be node name '%s', got '%s'", dependencyNode.ID.Name, dep.Name)
 	}
 }

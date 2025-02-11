@@ -74,7 +74,7 @@ func (s *Supervisor) executeOperations(ctx context.Context, operations []Operati
 	return s.sequencer.Transition(ctx, operations...)
 }
 
-// GetState returns the current state of a service identified by its Alias.
+// GetState returns the current state of a service identified by its Name.
 // Returns an error if the service is not found.
 func (s *Supervisor) GetState(id string) (State, error) {
 	s.mu.RLock()

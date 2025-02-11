@@ -30,21 +30,21 @@ type (
 		Module  runtime.Module // Modules only has this
 	}
 
-	// RequiredNode represents a named Lua function prototype.
-	RequiredNode struct {
-		Alias string
-		Node  *Node
+	// Dependency represents a named Lua function prototype.
+	Dependency struct {
+		Name string
+		Node *Node
 	}
 
 	Edge struct {
-		Alias string
+		As string
 	}
 
 	// Main aggregates a main function prototype, its method,
 	// all dependency prototypes, and any required modules.
 	Main struct {
 		Main         *Node
-		Dependencies []RequiredNode
+		Dependencies []Dependency
 	}
 )
 
@@ -59,7 +59,7 @@ func HashNode(node *Node) string {
 // MemoryGraph is an in‑memory implementation of the CodeGraph interface.
 // It maintains nodes (representing code units/modules) and their dependency edges.
 // Dependency edges (of type runtime.Edge) carry an alias, which is later propagated into
-// the final runtime configuration as part of the runtime.RequiredNode wrapper.
+// the final runtime configuration as part of the runtime.Dependency wrapper.
 type MemoryGraph struct {
 	graph *graph.Graph[registry.ID, Edge]
 	nodes map[registry.ID]*Node
@@ -129,7 +129,7 @@ func (m *MemoryGraph) AddDependency(from, to registry.ID, alias string) error {
 		}
 		for _, neighbor := range neighbors {
 			if edge, ok := m.graph.GetEdge(from, neighbor); ok {
-				if edge.Data.Alias == alias && neighbor != to {
+				if edge.Data.As == alias && neighbor != to {
 					return fmt.Errorf("alias collision: %s is already used for another dependency of %v", alias, from)
 				}
 			}
@@ -138,11 +138,11 @@ func (m *MemoryGraph) AddDependency(from, to registry.ID, alias string) error {
 
 	// Clone the graph and simulate the addition for cycle detection.
 	tmp := m.graph.Clone()
-	tmp.AddEdge(from, to, 1, Edge{Alias: ""})
+	tmp.AddEdge(from, to, 1, Edge{As: ""})
 	if _, err := tmp.DependencyLevels(); err != nil {
 		return fmt.Errorf("adding dependency would create a cycle: %w", err)
 	}
-	m.graph.AddEdge(from, to, 1, Edge{Alias: alias})
+	m.graph.AddEdge(from, to, 1, Edge{As: alias})
 	return nil
 }
 
@@ -267,8 +267,8 @@ func (m *MemoryGraph) Build(entrypoint registry.ID) (*Main, error) {
 		for _, potentialParent := range ordered {
 			if m.graph.HasEdge(potentialParent.ID, node.ID) {
 				edge, _ := m.graph.GetEdge(potentialParent.ID, node.ID)
-				if edge.Data.Alias != "" {
-					aliasMap[node.ID][edge.Data.Alias] = true
+				if edge.Data.As != "" {
+					aliasMap[node.ID][edge.Data.As] = true
 				}
 			}
 		}
@@ -278,7 +278,7 @@ func (m *MemoryGraph) Build(entrypoint registry.ID) (*Main, error) {
 	processedModules := make(map[string]bool)
 
 	// Create dependency nodes in correct order
-	var depNodes []RequiredNode
+	var depNodes []Dependency
 	for _, node := range ordered {
 		if node.ID == entrypoint {
 			continue
@@ -295,9 +295,9 @@ func (m *MemoryGraph) Build(entrypoint registry.ID) (*Main, error) {
 		if len(aliases) > 0 {
 			// Add node once for each unique alias
 			for _, alias := range aliases {
-				depNodes = append(depNodes, RequiredNode{
-					Alias: alias,
-					Node:  node,
+				depNodes = append(depNodes, Dependency{
+					Name: alias,
+					Node: node,
 				})
 			}
 			// Mark module as processed if present
@@ -306,9 +306,9 @@ func (m *MemoryGraph) Build(entrypoint registry.ID) (*Main, error) {
 			}
 		} else {
 			// No aliases found and no module, add node with empty alias
-			depNodes = append(depNodes, RequiredNode{
-				Alias: node.ID.Name,
-				Node:  node,
+			depNodes = append(depNodes, Dependency{
+				Name: node.ID.Name,
+				Node: node,
 			})
 		}
 	}
