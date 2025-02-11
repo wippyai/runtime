@@ -152,7 +152,7 @@ func TestChannelEdgeCases(t *testing.T) {
 		// Add a blocked sender
 		ch.send(L1, lua.LString("test"), nil)
 
-		// Close the channel
+		// Stop the channel
 		next := ch.close(L1)
 		if len(next.next) != 2 {
 			t.Errorf("expected 2 next (sender error + closer), got %d", len(next.next))

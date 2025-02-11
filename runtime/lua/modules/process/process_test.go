@@ -93,7 +93,7 @@ func TestProcessBasic(t *testing.T) {
 			        -- Print total bytes read
 			        print("Total bytes read:", stream:bytes_read())
 			        
-			        -- Close the stream
+			        -- Stop the stream
 			        local err = stream:close()
 			        if err then
 			            error("Failed to close stream: " .. err)
@@ -211,7 +211,7 @@ func TestWorkingDir(t *testing.T) {
 			        assert(string.match(full_output, "/tmp"), 
 			            "Working directory not set to /tmp")
 			        
-			        -- Close the stream
+			        -- Stop the stream
 			        stream:close()
 			        
 			        -- Signal completion
@@ -387,7 +387,7 @@ func TestMultiplyCallsToStream(t *testing.T) {
 			        assert(string.match(full_output, "/tmp"), 
 			            "Working directory not set to /tmp")
 			        
-			        -- Close the stream
+			        -- Stop the stream
 			        stream:close()
 			        
 			        -- Signal completion
