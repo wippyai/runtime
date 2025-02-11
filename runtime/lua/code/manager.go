@@ -102,7 +102,7 @@ func (cm *CodeManager) Commit(ctx context.Context) {
 		affected[id] = true
 
 		// Get all dependents
-		deps, err := cm.memGraph.GetDirectDependents(id)
+		deps, err := cm.memGraph.GetAllDependents(id)
 		if err != nil {
 			cm.log.Error("failed to get dependents", zap.Error(err))
 			continue
@@ -112,8 +112,6 @@ func (cm *CodeManager) Commit(ctx context.Context) {
 		for _, dep := range deps {
 			affected[dep.ID] = true
 		}
-
-		// todo: in depth????
 	}
 
 	// Clear transaction nodes
