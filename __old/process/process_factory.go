@@ -82,7 +82,7 @@ func (r *Registry) handleEvent(evt events.Event) {
 	}
 }
 
-// Get retrieves a registered workflow handler for the given target Alias.
+// Get retrieves a registered workflow handler for the given target Name.
 // Returns an error if no handler is registered for the target.
 func (r *Registry) Get(id registry.Name) (func() any, error) {
 	handler, exists := r.handlers.Load(id)

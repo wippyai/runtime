@@ -48,7 +48,7 @@ func (m *RuntimeManager) Execute(task runtime.Task) (chan *runtime.Result, error
 		}
 	}
 
-	// Create execution context with task Alias
+	// Create execution context with task Name
 	ctx, cancel := context.WithCancel(task.Context)
 	defer cancel()
 

@@ -192,7 +192,7 @@ func TestTreeTraversal(t *testing.T) {
 				package main
 
 				type Person struct {
-					Alias string
+					Name string
 					Age  int
 				}
 
@@ -633,12 +633,12 @@ func TestTreeWalking(t *testing.T) {
                 package main
 
                 type Person struct {
-                    Alias string
+                    Name string
                     Age  int
                 }
 
                 func (p *Person) String() string {
-                    return p.Alias
+                    return p.Name
                 }
             ]]
 

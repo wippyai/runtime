@@ -105,7 +105,7 @@ func formatState(state registry.State) string {
 	var result strings.Builder
 	result.WriteString("\n")
 	for _, entry := range state {
-		result.WriteString(fmt.Sprintf("  {NS: %s, Alias: %s, Kind: %s, Data: %v, DependsOn: %v, Groups: %v}\n",
+		result.WriteString(fmt.Sprintf("  {NS: %s, Name: %s, Kind: %s, Data: %v, DependsOn: %v, Groups: %v}\n",
 			entry.ID.NS,
 			entry.ID.Name,
 			entry.Kind,
@@ -122,7 +122,7 @@ func formatDelta(cs registry.ChangeSet) string {
 	var result strings.Builder
 	result.WriteString("\n")
 	for _, op := range cs {
-		result.WriteString(fmt.Sprintf("  %s {NS: %s, Alias: %s} (deps: %v)\n",
+		result.WriteString(fmt.Sprintf("  %s {NS: %s, Name: %s} (deps: %v)\n",
 			op.Kind,
 			op.Entry.ID.NS,
 			op.Entry.ID.Name,

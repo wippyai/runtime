@@ -85,7 +85,7 @@ func (m *Functions) Delete(id registry.Name) error {
 	return nil
 }
 
-// Get returns a function config by Alias
+// Get returns a function config by Name
 func (m *Functions) Get(id registry.ID) (*api.FunctionConfig, bool) {
 	fn, exists := m.functions[id]
 	return fn, exists

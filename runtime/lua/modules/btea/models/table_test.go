@@ -39,7 +39,7 @@ func TestTable(t *testing.T) {
 			-- Test with columns and rows
 			local tbl2 = btea.table({
 				cols = {
-					{title = "Alias", width = 10},
+					{title = "Name", width = 10},
 					{title = "Age", width = 5},
 					{title = "City", width = 15}
 				},
@@ -78,7 +78,7 @@ func TestTable(t *testing.T) {
 			
 			local tbl = btea.table({
 				cols = {
-					{title = "Alias", width = 10},
+					{title = "Name", width = 10},
 					{title = "Age", width = 5}
 				},
 				rows = {
@@ -110,7 +110,7 @@ func TestTable(t *testing.T) {
 			
 			local tbl = btea.table({
 				cols = {
-					{title = "Alias", width = 10},
+					{title = "Name", width = 10},
 					{title = "Age", width = 5}
 				},
 				rows = {
@@ -166,7 +166,7 @@ func TestTable(t *testing.T) {
 			
 			local tbl = btea.table({
 				cols = {
-					{title = "Alias", width = 10},
+					{title = "Name", width = 10},
 					{title = "Age", width = 5}
 				}
 			})
@@ -174,7 +174,7 @@ func TestTable(t *testing.T) {
 			-- Test column getters
 			local cols = tbl:get_columns()
 			assert(#cols == 2, "should have 2 columns")
-			assert(cols[1].title == "Alias", "first column should be Alias")
+			assert(cols[1].title == "Name", "first column should be Name")
 			
 			-- Test column updates
 			local new_cols = {
@@ -202,7 +202,7 @@ func TestTable(t *testing.T) {
 			
 			local tbl = btea.table({
 				cols = {
-					{title = "Alias", width = 10},
+					{title = "Name", width = 10},
 					{title = "Age", width = 5},
 					{title = "City", width = 15}
 				}
@@ -244,7 +244,7 @@ func TestTableUpdate(t *testing.T) {
 	err = cvm.StartString(context.Background(), `
 		local table = btea.table({
 			cols = {
-				{title = "Alias", width = 10},
+				{title = "Name", width = 10},
 				{title = "Age", width = 5}
 			},
 			rows = {
