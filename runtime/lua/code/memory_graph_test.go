@@ -928,3 +928,182 @@ func TestMemoryGraph_Build_FallbackAlias(t *testing.T) {
 		t.Errorf("expected alias to be node name '%s', got '%s'", dependencyNode.ID.Name, dep.Name)
 	}
 }
+
+func TestMemoryGraph_GetAllDependents(t *testing.T) {
+	mg := NewMemoryGraph()
+
+	// Create nodes for a dependency chain: A -> B -> C -> D
+	nodeA := createTestNode("A")
+	nodeB := createTestNode("B")
+	nodeC := createTestNode("C")
+	nodeD := createTestNode("D")
+	nodeE := createTestNode("E") // E -> C (additional dependent on C)
+
+	// Add all nodes
+	nodes := []*Node{nodeA, nodeB, nodeC, nodeD, nodeE}
+	for _, node := range nodes {
+		if err := mg.AddNode(node); err != nil {
+			t.Fatalf("failed to add node %v: %v", node.ID, err)
+		}
+	}
+
+	// Create dependencies
+	dependencies := []struct {
+		from *Node
+		to   *Node
+	}{
+		{nodeA, nodeB}, // A depends on B
+		{nodeB, nodeC}, // B depends on C
+		{nodeC, nodeD}, // C depends on D
+		{nodeE, nodeC}, // E depends on C
+	}
+
+	for _, dep := range dependencies {
+		if err := mg.AddDependency(dep.from.ID, dep.to.ID, ""); err != nil {
+			t.Fatalf("failed to add dependency %v->%v: %v", dep.from.ID, dep.to.ID, err)
+		}
+	}
+
+	tests := []struct {
+		name     string
+		nodeID   registry.ID
+		expected []string // Expected dependent node names
+	}{
+		{
+			name:     "leaf node dependents",
+			nodeID:   nodeD.ID,
+			expected: []string{"A", "B", "C", "E"}, // E is affected through C
+		},
+		{
+			name:     "middle node dependents",
+			nodeID:   nodeC.ID,
+			expected: []string{"A", "B", "E"},
+		},
+		{
+			name:     "node with single dependent",
+			nodeID:   nodeB.ID,
+			expected: []string{"A"},
+		},
+		{
+			name:     "node with no dependents",
+			nodeID:   nodeA.ID,
+			expected: []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			deps, err := mg.GetAllDependents(tt.nodeID)
+			if err != nil {
+				t.Fatalf("GetAllDependents failed: %v", err)
+			}
+
+			// Convert result to map of names for easier comparison
+			got := make(map[string]bool)
+			for _, dep := range deps {
+				got[dep.ID.Name] = true
+			}
+
+			// Verify all expected dependents are present
+			for _, expected := range tt.expected {
+				if !got[expected] {
+					t.Errorf("missing expected dependent %s", expected)
+				}
+			}
+
+			// Verify no unexpected dependents
+			if len(deps) != len(tt.expected) {
+				// Create slices for better error output
+				var gotNames []string
+				for _, d := range deps {
+					gotNames = append(gotNames, d.ID.Name)
+				}
+				t.Errorf("wrong number of dependents:\n  got:  %d %v\n  want: %d %v",
+					len(deps), gotNames, len(tt.expected), tt.expected)
+			}
+		})
+	}
+
+	t.Run("nonexistent node", func(t *testing.T) {
+		_, err := mg.GetAllDependents(registry.ID{Name: "nonexistent"})
+		if err == nil {
+			t.Error("expected error for nonexistent node, got nil")
+		}
+	})
+}
+
+func TestMemoryGraph_GetAllDependents_NoDuplicates(t *testing.T) {
+	mg := NewMemoryGraph()
+
+	// Create nodes for diamond pattern with multiple aliases
+	// A depends on B and C
+	// B and C both depend on D
+	nodeA := createTestNode("A")
+	nodeB := createTestNode("B")
+	nodeC := createTestNode("C")
+	nodeD := createTestNode("D")
+
+	// Add all nodes
+	nodes := []*Node{nodeA, nodeB, nodeC, nodeD}
+	for _, node := range nodes {
+		if err := mg.AddNode(node); err != nil {
+			t.Fatalf("failed to add node %v: %v", node.ID, err)
+		}
+	}
+
+	// Create diamond dependency pattern with different aliases
+	dependencies := []struct {
+		from  *Node
+		to    *Node
+		alias string
+	}{
+		{nodeA, nodeB, "b1"},
+		{nodeA, nodeC, "c1"},
+		{nodeB, nodeD, "d1"},
+		{nodeC, nodeD, "d2"}, // D has two paths to A: through B and through C
+	}
+
+	for _, dep := range dependencies {
+		if err := mg.AddDependency(dep.from.ID, dep.to.ID, dep.alias); err != nil {
+			t.Fatalf("failed to add dependency %v->%v: %v", dep.from.ID, dep.to.ID, err)
+		}
+	}
+
+	// Test GetAllDependents for node D
+	deps, err := mg.GetAllDependents(nodeD.ID)
+	if err != nil {
+		t.Fatalf("GetAllDependents failed: %v", err)
+	}
+
+	// Check for duplicates using map
+	seen := make(map[string]bool)
+	duplicates := make(map[string]int)
+	for _, dep := range deps {
+		if seen[dep.ID.Name] {
+			duplicates[dep.ID.Name]++
+		}
+		seen[dep.ID.Name] = true
+	}
+
+	// Fail if any duplicates found
+	if len(duplicates) > 0 {
+		t.Errorf("found duplicate nodes in dependents: %v", duplicates)
+	}
+
+	// Verify we got exactly the expected nodes (A, B, C)
+	expectedNodes := map[string]bool{
+		"A": true,
+		"B": true,
+		"C": true,
+	}
+
+	if len(deps) != len(expectedNodes) {
+		t.Errorf("wrong number of dependents: got %d, want %d", len(deps), len(expectedNodes))
+	}
+
+	for _, dep := range deps {
+		if !expectedNodes[dep.ID.Name] {
+			t.Errorf("unexpected dependent: %v", dep.ID.Name)
+		}
+	}
+}
