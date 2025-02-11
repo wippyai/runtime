@@ -195,6 +195,57 @@ func (m *MemoryGraph) GetDirectDependents(id registry.ID) ([]*Node, error) {
 	return dependents, nil
 }
 
+// GetAllDependents returns all nodes that depend on the node with the specified ID, including transitive dependents.
+// GetAllDependents returns all nodes that depend on the node with the specified ID, including transitive dependents.
+func (m *MemoryGraph) GetAllDependents(id registry.ID) ([]*Node, error) {
+	if _, exists := m.nodes[id]; !exists {
+		return nil, fmt.Errorf("node with ID %v not found", id)
+	}
+
+	// Track both visited (for traversal) and added (for results)
+	visited := make(map[registry.ID]bool)
+	added := make(map[registry.ID]bool)
+	var dependents []*Node
+
+	var traverse func(currentID registry.ID) error
+	traverse = func(currentID registry.ID) error {
+		// Skip if already visited in traversal
+		if visited[currentID] {
+			return nil
+		}
+		visited[currentID] = true
+
+		// Get direct dependents
+		direct, err := m.GetDirectDependents(currentID)
+		if err != nil {
+			return err
+		}
+
+		// Add to results if not already added
+		for _, dep := range direct {
+			if !added[dep.ID] {
+				dependents = append(dependents, dep)
+				added[dep.ID] = true
+			}
+		}
+
+		// Recursively traverse each dependent
+		for _, dep := range direct {
+			if err := traverse(dep.ID); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}
+
+	if err := traverse(id); err != nil {
+		return nil, err
+	}
+
+	return dependents, nil
+}
+
 // DependencyLevels returns the nodes grouped in topological order (levels).
 func (m *MemoryGraph) DependencyLevels() ([][]*Node, error) {
 	gl, err := m.graph.DependencyLevels()

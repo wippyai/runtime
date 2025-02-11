@@ -2,9 +2,17 @@ package lua
 
 import (
 	"context"
+	"github.com/ponyruntime/pony/api/events"
 
 	"github.com/ponyruntime/pony/api/registry"
 	lua "github.com/yuin/gopher-lua"
+)
+
+const (
+	System events.System = "lua"
+
+	// data is []registry.ID
+	EventResetNodes events.Kind = "lua.reset_code"
 )
 
 type (
