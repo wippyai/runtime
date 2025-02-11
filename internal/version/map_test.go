@@ -46,7 +46,7 @@ func TestVersionMap_Path_Backwards(t *testing.T) {
 	from := v3
 	to := v1
 	actualPath, _ := vm.Path(from, to)
-	expectedPath := []registry.Version{v3, v2, v1} // Name in reverse
+	expectedPath := []registry.Version{v3, v2, v1} // Alias in reverse
 
 	if !reflect.DeepEqual(actualPath, expectedPath) {
 		t.Errorf("Expected path: %v, got: %v", expectedPath, actualPath)
@@ -95,7 +95,7 @@ func TestVersionMap(t *testing.T) {
 		expectError error
 	}{
 		{
-			name: "Name within a branch",
+			name: "Alias within a branch",
 			setup: func(vm Map) {
 				require.NoError(t, vm.Add(v1))
 				require.NoError(t, vm.Add(v2))
@@ -107,7 +107,7 @@ func TestVersionMap(t *testing.T) {
 			expected: []registry.Version{v1, v2, v3, v4},
 		},
 		{
-			name: "Name to the past",
+			name: "Alias to the past",
 			setup: func(vm Map) {
 				require.NoError(t, vm.Add(v1))
 				require.NoError(t, vm.Add(v2))
@@ -119,7 +119,7 @@ func TestVersionMap(t *testing.T) {
 			expected: []registry.Version{v4, v3, v2, v1},
 		},
 		{
-			name: "Name across branches",
+			name: "Alias across branches",
 			setup: func(vm Map) {
 				require.NoError(t, vm.Add(v1))
 				require.NoError(t, vm.Add(v2))

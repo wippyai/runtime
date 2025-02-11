@@ -70,7 +70,7 @@ func (m *Libraries) Clone() *Libraries {
 	return cloned
 }
 
-// Get retrieves a library by Name
+// Get retrieves a library by Alias
 func (m *Libraries) Get(id registry.Name) (*api.LibraryConfig, error) {
 	lib, exists := m.libraries[id]
 	if !exists {

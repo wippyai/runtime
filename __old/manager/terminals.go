@@ -91,7 +91,7 @@ func (m *Terminals) Delete(id registry.Name) error {
 	return nil
 }
 
-// GetTerminal retrieves a terminal config by Name
+// GetTerminal retrieves a terminal config by Alias
 func (m *Terminals) GetTerminal(id registry.Name) (*api.TerminalConfig, bool) {
 	term, exists := m.terminals[id]
 	return term, exists

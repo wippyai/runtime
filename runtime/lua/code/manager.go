@@ -1,4 +1,4 @@
-package lua
+package code
 
 import (
 	"context"
@@ -146,7 +146,7 @@ func (cm *CodeManager) Compile(
 }
 
 // AddNode adds a new node with dependencies to the graph
-func (cm *CodeManager) AddNode(_ context.Context, node Node, deps []Dependency) error {
+func (cm *CodeManager) AddNode(_ context.Context, node Node, deps []Import) error {
 	// Create pointer from value
 	nodePtr := &Node{
 		ID:     node.ID,
@@ -167,9 +167,9 @@ func (cm *CodeManager) AddNode(_ context.Context, node Node, deps []Dependency) 
 
 	// Add dependencies
 	for _, dep := range deps {
-		if err := cm.memGraph.AddDependency(node.ID, dep.Node.ID, dep.Name); err != nil {
+		if err := cm.memGraph.AddDependency(node.ID, dep.ID, dep.Alias); err != nil {
 			return fmt.Errorf("failed to add dependency %s -> %s: %w",
-				node.ID, dep.Node.ID, err)
+				node.ID, dep.ID, err)
 		}
 	}
 
@@ -180,7 +180,7 @@ func (cm *CodeManager) AddNode(_ context.Context, node Node, deps []Dependency) 
 }
 
 // UpdateNode updates an existing node with new content and dependencies
-func (cm *CodeManager) UpdateNode(_ context.Context, node Node, deps []Dependency) error {
+func (cm *CodeManager) UpdateNode(_ context.Context, node Node, deps []Import) error {
 	// Get existing node
 	existing, err := cm.memGraph.GetNode(node.ID)
 	if err != nil {
@@ -209,7 +209,7 @@ func (cm *CodeManager) UpdateNode(_ context.Context, node Node, deps []Dependenc
 
 	// Add new dependencies
 	for _, dep := range deps {
-		if err := cm.memGraph.AddDependency(node.ID, dep.Node.ID, dep.Name); err != nil {
+		if err := cm.memGraph.AddDependency(node.ID, dep.ID, dep.Alias); err != nil {
 			return fmt.Errorf("failed to add new dependency: %w", err)
 		}
 	}

@@ -11,7 +11,7 @@ import (
 
 	timemod "github.com/ponyruntime/pony/runtime/lua/modules/time"
 
-	cfg "github.com/ponyruntime/pony/runtime/lua/factory"
+	cfg "github.com/ponyruntime/pony/runtime/lua/factory_2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 

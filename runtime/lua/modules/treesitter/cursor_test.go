@@ -193,7 +193,7 @@ func TestCursorAdditionalMethods(t *testing.T) {
 			local treesitter = require("treesitter")
 			local code = [[
 				type Person struct {
-					Name string
+					Alias string
 					Age  int
 				}
 			]]

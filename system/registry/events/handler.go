@@ -15,8 +15,8 @@ import (
 // without triggering a reject event
 var ErrSkipOperation = errors.New("skip operation")
 
-// WithRegistryHandler adapts a registry listener with pattern matching to event router
-func WithRegistryHandler(kinds registry.Kind, listener registry.EntryListener) eventbus.EventHandler {
+// NewRegistryHandler adapts a registry listener with pattern matching to event router
+func NewRegistryHandler(kinds registry.Kind, listener registry.EntryListener) eventbus.EventHandler {
 	w := wildcard.NewWildcard(kinds)
 
 	return eventbus.NewBaseHandler(

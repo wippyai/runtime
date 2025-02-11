@@ -5,7 +5,7 @@ import (
 
 	"github.com/ponyruntime/pony/api/registry"
 	api "github.com/ponyruntime/pony/api/runtime/lua"
-	"github.com/ponyruntime/pony/runtime/lua/factory"
+	"github.com/ponyruntime/pony/runtime/lua/factory_2"
 	"go.uber.org/zap"
 )
 
@@ -85,7 +85,7 @@ func (m *Functions) Delete(id registry.Name) error {
 	return nil
 }
 
-// Get returns a function config by Name
+// Get returns a function config by Alias
 func (m *Functions) Get(id registry.ID) (*api.FunctionConfig, bool) {
 	fn, exists := m.functions[id]
 	return fn, exists
@@ -118,7 +118,7 @@ func (m *Functions) MakeFactory(
 		return nil, err
 	}
 
-	fct := factory.NewFactory(logger.Named(fmt.Sprintf("vm.%s", id)))
+	fct := factory_2.NewFactory(logger.Named(fmt.Sprintf("vm.%s", id)))
 
 	knownModules := make(map[string]struct{})
 
@@ -144,7 +144,7 @@ func (m *Functions) MakeFactory(
 			return nil, err
 		}
 
-		fct.Libraries = append(fct.Libraries, factory.Library{
+		fct.Libraries = append(fct.Libraries, factory_2.Library{
 			Name:   libID,
 			Script: lib.Source,
 		})
@@ -166,7 +166,7 @@ func (m *Functions) MakeFactory(
 	}
 
 	// Add the function itself
-	fct.Functions = append(fct.Functions, factory.Function{
+	fct.Functions = append(fct.Functions, factory_2.Function{
 		Name:   cfg.Method,
 		Script: cfg.Source,
 	})

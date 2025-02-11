@@ -1,4 +1,4 @@
-package factory
+package factory_2
 
 import (
 	"github.com/ponyruntime/pony/api/runtime/lua"

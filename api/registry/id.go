@@ -29,7 +29,7 @@ func ParseID(s string) ID {
 	// Split on first colon
 	parts := strings.SplitN(s, ":", 2)
 	if len(parts) == 1 {
-		// Name-only format
+		// Alias-only format
 		return ID{
 			NS:   "",
 			Name: Name(parts[0]),
@@ -53,7 +53,7 @@ func (t *ID) UnmarshalJSON(data []byte) error {
 		// Handle string format - split on first colon
 		parts := strings.SplitN(s, ":", 2)
 		if len(parts) == 1 {
-			// Name-only format
+			// Alias-only format
 			t.NS = ""
 			t.Name = Name(parts[0])
 			return nil
