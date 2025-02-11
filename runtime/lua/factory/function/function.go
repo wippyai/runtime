@@ -19,7 +19,7 @@ func NewManager(log *zap.Logger, code *lua.CodeManager) *Manager {
 	return &Manager{log: log, code: code}
 }
 
-func NewFunctionService(log *zap.Logger, code *lua.CodeManager) *factory.Handler {
+func NewFunctionManager(log *zap.Logger, code *lua.CodeManager) *factory.Handler {
 	return factory.NewHandler(api.KindFunction, NewManager(log, code))
 }
 
@@ -45,6 +45,8 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if err := m.code.AddNode(ctx, node, imports); err != nil {
 		return fmt.Errorf("failed to add function node: %w", err)
 	}
+
+	// todo: compile and register? or defer?
 
 	return nil
 }
@@ -90,5 +92,6 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 func (m *Manager) Invalidate(ids []registry.ID) {
 	for _, id := range ids {
 		m.log.Debug("invalidating function", zap.String("id", id.String()))
+		// todo: reset values in cache
 	}
 }
