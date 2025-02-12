@@ -81,6 +81,7 @@ func (q *TaskQueue) Pop() *Task {
 	}
 	e := q.active.Front()
 	q.active.Remove(e)
+
 	return e.Value.(*Task)
 }
 
