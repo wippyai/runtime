@@ -72,20 +72,11 @@ func UnpackConfig[T any](ctx context.Context, entry registry.Entry) (*T, error) 
 }
 
 // BuildImports creates imports from a list of IDs and their aliases
-func BuildImports(ids []registry.ID, importAliases map[string]registry.ID) []lua.Import {
-	// inverse the import map
-	aliases := make(map[registry.ID]string, len(importAliases))
-	for k, v := range importAliases {
-		aliases[v] = k
+func BuildImports(imports map[string]registry.ID) []lua.Import {
+	out := make([]lua.Import, 0, len(imports))
+	for k, v := range imports {
+		out = append(out, lua.Import{ID: v, Alias: k})
 	}
 
-	imports := make([]lua.Import, 0, len(ids))
-	for _, id := range ids {
-		imports = append(imports, lua.Import{
-			ID:    id,
-			Alias: aliases[id],
-		})
-	}
-
-	return imports
+	return out
 }

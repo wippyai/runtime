@@ -23,18 +23,6 @@ const (
 )
 
 type (
-	// FunctionConfig defines the configuration for a Lua function component.
-	// It includes the source code, execution method, required libraries and modules,
-	// and VM pool settings.
-	FunctionConfig struct {
-		Source        string                 `json:"source"`         // Lua source code
-		Method        string                 `json:"method"`         // Alias of the Lua method to execute
-		Libraries     []registry.ID          `json:"libraries"`      // Required Lua libraries
-		Modules       []registry.ID          `json:"modules"`        // Required Lua modules
-		Pool          PoolConfig             `json:"pool"`           // VM pool configuration
-		ImportAliases map[string]registry.ID `json:"import_aliases"` // Import aliases for the library
-	}
-
 	// PoolConfig defines settings for a pool of Lua VMs.
 	// It manages the number of VMs and workers available for executing Lua code.
 	PoolConfig struct {
@@ -42,33 +30,38 @@ type (
 		Workers int `json:"workers"` // Number of worker threads
 	}
 
+	// FunctionConfig defines the configuration for a Lua function component.
+	// It includes the source code, execution method, required libraries and modules,
+	// and VM pool settings.
+	FunctionConfig struct {
+		Source string                 `json:"source"` // Lua source code
+		Method string                 `json:"method"` // Alias of the Lua method to execute
+		Import map[string]registry.ID `json:"import"` // Import aliases for the library
+		Pool   PoolConfig             `json:"pool"`   // VM pool configuration
+	}
+
 	// LibraryConfig defines the configuration for a Lua library component.
 	// It includes the library source code and required modules.
 	LibraryConfig struct {
-		Meta          registry.Metadata      `json:"meta"`           // Metadata for the library
-		Source        string                 `json:"source"`         // Library source code
-		Libraries     []registry.ID          `json:"libraries"`      // Required Lua libraries
-		Modules       []registry.ID          `json:"modules"`        // Required Lua modules
-		ImportAliases map[string]registry.ID `json:"import_aliases"` // Import aliases for the library
+		Meta   registry.Metadata      `json:"meta"`   // Metadata for the library
+		Source string                 `json:"source"` // Library source code
+		Import map[string]registry.ID `json:"import"` // Import aliases for the library
 	}
 
 	// WorkflowConfig defines the configuration for a Lua workflow component.
 	WorkflowConfig struct {
-		Source        string                 `json:"source"`         // Lua source code
-		Method        string                 `json:"method"`         // Alias of the Lua method to execute
-		Libraries     []registry.ID          `json:"libraries"`      // Required Lua libraries, only selected subset allowed
-		ImportAliases map[string]registry.ID `json:"import_aliases"` // Import aliases for the library
+		Source string                 `json:"source"` // Lua source code
+		Method string                 `json:"method"` // Alias of the Lua method to execute
+		Import map[string]registry.ID `json:"import"` // Import aliases for the library
 	}
 
 	// TerminalConfig defines the configuration for a Lua terminal component.
 	// It extends FunctionConfig with terminal-specific options and lifecycle management.
 	TerminalConfig struct {
-		Source        string                     `json:"source"`         // Lua source code
-		Method        string                     `json:"method"`         // Alias of the Lua method to execute
-		Libraries     []registry.ID              `json:"libraries"`      // Required Lua libraries
-		Modules       []registry.ID              `json:"modules"`        // Required Lua modules
-		ImportAliases map[string]registry.ID     `json:"import_aliases"` // Import aliases for the library
-		Lifecycle     supervisor.LifecycleConfig `json:"lifecycle"`      // Lifecycle management config
+		Source    string                     `json:"source"`    // Lua source code
+		Method    string                     `json:"method"`    // Alias of the Lua method to execute
+		Import    map[string]registry.ID     `json:"import"`    // Import aliases for the library
+		Lifecycle supervisor.LifecycleConfig `json:"lifecycle"` // Lifecycle management config
 	}
 )
 

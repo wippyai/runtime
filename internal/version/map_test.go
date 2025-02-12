@@ -132,7 +132,7 @@ func TestVersionMap(t *testing.T) {
 			expected: []registry.Version{v3, v2, v5},
 		},
 		{
-			name: "From and to are identical",
+			name: "Target and to are identical",
 			setup: func(vm Map) {
 				require.NoError(t, vm.Add(v1))
 			},
@@ -141,7 +141,7 @@ func TestVersionMap(t *testing.T) {
 			expected: []registry.Version{v1},
 		},
 		{
-			name: "From version not found",
+			name: "Target version not found",
 			setup: func(vm Map) {
 				require.NoError(t, vm.Add(v1))
 			},

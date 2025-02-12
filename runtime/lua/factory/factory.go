@@ -7,38 +7,45 @@ import (
 	api "github.com/ponyruntime/pony/api/runtime/lua"
 	"github.com/ponyruntime/pony/runtime/lua/code"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
+	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
 
-type (
-	// RunnerFactory creates and manages VM instances with consistent configuration
-	RunnerFactory struct {
-		log           *zap.Logger
-		compiled      *code.CompiledMain
-		config        BuildConfig
-		engineOptions []engine.Option // Cached engine options
-		mu            sync.RWMutex
-		prepareOnce   sync.Once
-		prepared      bool
-	}
+// RunnerFactory creates and manages VM instances with consistent configuration
+type RunnerFactory struct {
+	log           *zap.Logger
+	compiled      *code.CompiledMain
+	engineOptions []engine.Option
+	runnerOptions []engine.RunnerOption
+	mu            sync.RWMutex
+}
 
-	// BuildConfig defines all configuration parameters for VM creation
-	BuildConfig struct {
-		runnerOptions []engine.RunnerOption
-		EngineOptions []engine.Option
-	}
-)
+// Option configures the RunnerFactory
+type Option func(*RunnerFactory)
 
-// DefaultBuildConfig returns a BuildConfig with default values
-func DefaultBuildConfig() BuildConfig {
-	return BuildConfig{
-		runnerOptions: make([]engine.RunnerOption, 0),
-		EngineOptions: make([]engine.Option, 0),
+// WithRunnerOption adds a runner option to the factory
+func WithRunnerOption(opt engine.RunnerOption) Option {
+	return func(f *RunnerFactory) {
+		f.runnerOptions = append(f.runnerOptions, opt)
 	}
 }
 
-// New creates a new RunnerFactory instance
-func New(log *zap.Logger, compiled *code.CompiledMain, cfg BuildConfig) (*RunnerFactory, error) {
+// WithEngineOption adds an engine option to the factory
+func WithEngineOption(opt engine.Option) Option {
+	return func(f *RunnerFactory) {
+		f.engineOptions = append(f.engineOptions, opt)
+	}
+}
+
+// WithGlobal adds a global variable to the factory
+func WithGlobal(name string, value lua.LValue) Option {
+	return func(f *RunnerFactory) {
+		f.engineOptions = append(f.engineOptions, engine.WithGlobalValue(name, value))
+	}
+}
+
+// NewRunnerFactory creates and prepares a new RunnerFactory instance
+func NewRunnerFactory(log *zap.Logger, compiled *code.CompiledMain, opts ...Option) (*RunnerFactory, error) {
 	if log == nil {
 		return nil, fmt.Errorf("logger cannot be nil")
 	}
@@ -46,23 +53,32 @@ func New(log *zap.Logger, compiled *code.CompiledMain, cfg BuildConfig) (*Runner
 		return nil, fmt.Errorf("compiled code cannot be nil")
 	}
 
-	return &RunnerFactory{
-		log:      log,
-		compiled: compiled,
-		config:   cfg,
-	}, nil
+	f := &RunnerFactory{
+		log:           log,
+		compiled:      compiled,
+		engineOptions: make([]engine.Option, 0),
+		runnerOptions: make([]engine.RunnerOption, 0),
+	}
+
+	// Apply options
+	for _, opt := range opts {
+		opt(f)
+	}
+
+	// Prepare immediately
+	if err := f.prepare(); err != nil {
+		return nil, fmt.Errorf("factory preparation failed: %w", err)
+	}
+
+	return f, nil
+}
+
+func (f *RunnerFactory) CreateVM() (api.VM, error) {
+	return f.CreateRunner()
 }
 
 // CreateRunner creates a new VM instance with the current configuration
 func (f *RunnerFactory) CreateRunner() (*engine.Runner, error) {
-	var prepareErr error
-	f.prepareOnce.Do(func() {
-		prepareErr = f.prepare()
-	})
-	if prepareErr != nil {
-		return nil, fmt.Errorf("preparation failed: %w", prepareErr)
-	}
-
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 
@@ -78,18 +94,16 @@ func (f *RunnerFactory) CreateRunner() (*engine.Runner, error) {
 		return nil, fmt.Errorf("failed to load main function: %w", err)
 	}
 
-	return engine.NewRunner(vm, f.config.runnerOptions...), nil
+	return engine.NewRunner(vm, f.runnerOptions...), nil
 }
 
-// prepare caches necessary components for VM creation (private implementation)
+// prepare sets up the factory's engine options with dependencies
 func (f *RunnerFactory) prepare() error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	// Build and cache engine options
+	// Process dependencies
 	var opts []engine.Option
-
-	// Process dependencies first
 	for _, dep := range f.compiled.Dependencies {
 		if dep.Node == nil {
 			continue
@@ -109,20 +123,9 @@ func (f *RunnerFactory) prepare() error {
 		}
 	}
 
-	// Cache the options
-	f.engineOptions = append(f.config.EngineOptions, opts...)
-	f.prepared = true
-
+	// Add prepared dependency options to existing engine options
+	f.engineOptions = append(f.engineOptions, opts...)
 	return nil
-}
-
-// Compile prepares the Lua code for execution
-func (f *RunnerFactory) Compile() error {
-	var prepareErr error
-	f.prepareOnce.Do(func() {
-		prepareErr = f.prepare()
-	})
-	return prepareErr
 }
 
 // Close performs any necessary cleanup
@@ -130,8 +133,7 @@ func (f *RunnerFactory) Close() error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	// Reset cached state
 	f.engineOptions = nil
-	f.prepared = false
+	f.runnerOptions = nil
 	return nil
 }

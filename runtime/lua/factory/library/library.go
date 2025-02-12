@@ -39,9 +39,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		Source: cfg.Source,
 	}
 
-	imports := factory.BuildImports(append(cfg.Modules, cfg.Libraries...), cfg.ImportAliases)
-
-	if err := m.code.AddNode(ctx, node, imports); err != nil {
+	if err := m.code.AddNode(ctx, node, factory.BuildImports(cfg.Import)); err != nil {
 		return fmt.Errorf("failed to add library node: %w", err)
 	}
 
@@ -64,9 +62,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		Source: cfg.Source,
 	}
 
-	imports := factory.BuildImports(append(cfg.Modules, cfg.Libraries...), cfg.ImportAliases)
-
-	if err := m.code.UpdateNode(ctx, node, imports); err != nil {
+	if err := m.code.UpdateNode(ctx, node, factory.BuildImports(cfg.Import)); err != nil {
 		return fmt.Errorf("failed to update library node: %w", err)
 	}
 

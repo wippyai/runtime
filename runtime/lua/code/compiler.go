@@ -1,6 +1,7 @@
 package code
 
 import (
+	"errors"
 	"fmt"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime/lua"
@@ -49,7 +50,7 @@ func NewCompiler(
 func (c *Compiler) getCompiledProto(node *Node) (*glua.FunctionProto, error) {
 	// Modules don't need compilation
 	if node.Kind == lua.KindModule {
-		return nil, nil
+		return nil, errors.New("module nodes are not compiled")
 	}
 
 	if proto, ok := c.protoCache.Get(node.ID); ok {
@@ -74,7 +75,10 @@ func (c *Compiler) Invalidate(ids []registry.ID) {
 }
 
 // Compile builds and compiles a main function and its dependencies
-func (c *Compiler) Compile(entrypoint registry.ID, options *BuildOptions) (*CompiledMain, error) {
+func (c *Compiler) Compile(
+	entrypoint registry.ID,
+	options *BuildOptions,
+) (*CompiledMain, error) {
 	if options == nil {
 		options = NewBuildOptions()
 	}
@@ -101,43 +105,35 @@ func (c *Compiler) Compile(entrypoint registry.ID, options *BuildOptions) (*Comp
 		return nil, fmt.Errorf("build options validation failed: %w", err)
 	}
 
-	// Main node cannot be a module
-	if rt.Main.Kind == "module.lua" {
-		return nil, fmt.Errorf("main node cannot be a module")
-	}
-
-	// Create new CompiledMain instance
-	compiled := &CompiledMain{}
-
 	// Compile main node
 	mainProto, err := c.getCompiledProto(rt.Main)
 	if err != nil {
 		return nil, fmt.Errorf("failed to compile main node: %w", err)
 	}
 
-	if mainProto == nil {
-		return nil, fmt.Errorf("main node is a module")
-	}
-
+	compiled := &CompiledMain{}
 	compiled.Main = mainProto
 	compiled.Method = rt.Main.Method
 
-	// Process preloaded dependencies first
-	for _, dep := range options.Preloaded {
-		proto, err := c.getCompiledProto(dep.Node)
+	for _, pre := range options.Preloaded {
+		node, err := c.memGraph.GetNode(pre.ModuleID)
 		if err != nil {
-			return nil, fmt.Errorf("failed to compile preloaded dependency %v: %w", dep.Node.ID, err)
+			return nil, fmt.Errorf("failed to preload %v: %w", pre, err)
 		}
 
+		// we can only preload modules
 		compiled.Dependencies = append(compiled.Dependencies, CompiledProto{
-			Name:  dep.Name,
-			Proto: proto,
-			Node:  dep.Node,
+			Name: pre.Name,
+			Node: node,
 		})
 	}
 
 	// Compile regular dependencies
 	for _, dep := range rt.Dependencies {
+		if dep.Node.Kind == lua.KindModule {
+			continue
+		}
+
 		proto, err := c.getCompiledProto(dep.Node)
 		if err != nil {
 			return nil, fmt.Errorf("failed to compile dependency node %v: %w", dep.Node.ID, err)
@@ -145,7 +141,7 @@ func (c *Compiler) Compile(entrypoint registry.ID, options *BuildOptions) (*Comp
 
 		compiled.Dependencies = append(compiled.Dependencies, CompiledProto{
 			Name:  dep.Name,
-			Proto: proto, // Will be nil for modules, which is OK
+			Proto: proto,
 			Node:  dep.Node,
 		})
 	}
