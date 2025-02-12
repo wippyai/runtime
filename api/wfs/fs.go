@@ -8,6 +8,8 @@ import (
 	"github.com/ponyruntime/pony/api/payload"
 )
 
+// todo: root fs
+
 type (
 	// AttributeReader provides access to file attributes.
 	AttributeReader interface {

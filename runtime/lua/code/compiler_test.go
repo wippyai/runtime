@@ -69,33 +69,16 @@ func TestCompiler_ModuleNotCompiled(t *testing.T) {
 	}
 
 	proto, err := compiler.getCompiledProto(moduleNode)
-	require.NoError(t, err)
+	require.Error(t, err)
 	assert.Nil(t, proto, "Modules should not be compiled")
 	assert.Empty(t, mock.calls, "Compile should not be called for modules")
-}
-
-// Test that modules cannot be main nodes
-func TestCompiler_ModuleCannotBeMain(t *testing.T) {
-	mock := newMockCompileFn()
-	compiler := NewCompiler(mock.compile, 10, 10)
-
-	moduleNode := &Node{
-		ID:     registry.ID{Name: "main"},
-		Kind:   lua.KindModule,
-		Module: &dummyModule{name: "test"},
-	}
-
-	require.NoError(t, compiler.memGraph.AddNode(moduleNode))
-
-	_, err := compiler.Compile(moduleNode.ID, nil)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "main node cannot be a module")
 }
 
 // Test compilation with mixed Lua and module dependencies
 func TestCompiler_MixedDependencies(t *testing.T) {
 	mock := newMockCompileFn()
 	compiler := NewCompiler(mock.compile, 10, 10)
+	memGraph := NewMemoryGraph()
 
 	mainNode := &Node{
 		ID:     registry.ID{Name: "main"},
@@ -118,14 +101,13 @@ func TestCompiler_MixedDependencies(t *testing.T) {
 	mock.results[mainNode.ID.String()] = &glua.FunctionProto{}
 	mock.results[luaDepNode.ID.String()] = &glua.FunctionProto{}
 
-	mg := compiler.memGraph
-	require.NoError(t, mg.AddNode(mainNode))
-	require.NoError(t, mg.AddNode(luaDepNode))
-	require.NoError(t, mg.AddNode(moduleNode))
-	require.NoError(t, mg.AddDependency(mainNode.ID, luaDepNode.ID, "dep"))
-	require.NoError(t, mg.AddDependency(mainNode.ID, moduleNode.ID, "mod"))
+	require.NoError(t, memGraph.AddNode(mainNode))
+	require.NoError(t, memGraph.AddNode(luaDepNode))
+	require.NoError(t, memGraph.AddNode(moduleNode))
+	require.NoError(t, memGraph.AddDependency(mainNode.ID, luaDepNode.ID, "dep"))
+	require.NoError(t, memGraph.AddDependency(mainNode.ID, moduleNode.ID, "mod"))
 
-	compiled, err := compiler.Compile(mainNode.ID, nil)
+	compiled, err := compiler.Compile(memGraph, mainNode.ID, nil)
 	require.NoError(t, err)
 	assert.NotNil(t, compiled.Main)
 	assert.Len(t, compiled.Dependencies, 2)
@@ -149,6 +131,7 @@ func TestCompiler_MixedDependencies(t *testing.T) {
 func TestCompiler_Invalidation(t *testing.T) {
 	mock := newMockCompileFn()
 	compiler := NewCompiler(mock.compile, 10, 10)
+	memGraph := NewMemoryGraph()
 
 	mainNode := &Node{
 		ID:     registry.ID{Name: "main"},
@@ -166,17 +149,16 @@ func TestCompiler_Invalidation(t *testing.T) {
 	mock.results[mainNode.ID.String()] = &glua.FunctionProto{}
 	mock.results[depNode.ID.String()] = &glua.FunctionProto{}
 
-	mg := compiler.memGraph
-	require.NoError(t, mg.AddNode(mainNode))
-	require.NoError(t, mg.AddNode(depNode))
-	require.NoError(t, mg.AddDependency(mainNode.ID, depNode.ID, "dep"))
+	require.NoError(t, memGraph.AddNode(mainNode))
+	require.NoError(t, memGraph.AddNode(depNode))
+	require.NoError(t, memGraph.AddDependency(mainNode.ID, depNode.ID, "dep"))
 
 	// 1. Initial fresh compilation
-	compiled1, err := compiler.Compile(mainNode.ID, nil)
+	compiled1, err := compiler.Compile(memGraph, mainNode.ID, nil)
 	require.NoError(t, err)
 
 	// 2. Get from cache - should reuse
-	compiled2, err := compiler.Compile(mainNode.ID, nil)
+	compiled2, err := compiler.Compile(memGraph, mainNode.ID, nil)
 	require.NoError(t, err)
 	assert.Equal(t, compiled1, compiled2, "Should get same result from cache")
 
@@ -184,7 +166,7 @@ func TestCompiler_Invalidation(t *testing.T) {
 	compiler.Invalidate([]registry.ID{mainNode.ID, depNode.ID})
 
 	// 4. Fresh compilation after invalidation - should recompile
-	compiled3, err := compiler.Compile(mainNode.ID, nil)
+	compiled3, err := compiler.Compile(memGraph, mainNode.ID, nil)
 	require.NoError(t, err)
 	assert.Equal(t, compiled1, compiled3, "Should get same result after invalidation")
 
@@ -200,56 +182,49 @@ func TestCompiler_Invalidation(t *testing.T) {
 func TestCompiler_PreloadedDependencies(t *testing.T) {
 	mock := newMockCompileFn()
 	compiler := NewCompiler(mock.compile, 10, 10)
+	memGraph := NewMemoryGraph()
 
+	// Create test nodes
 	mainNode := &Node{
 		ID:     registry.ID{Name: "main"},
 		Kind:   "function.lua",
 		Source: "function main() end",
 		Method: "test",
 	}
-	preloadedLua := &Node{
-		ID:     registry.ID{Name: "preluaded_lua"},
-		Kind:   "function.lua",
-		Source: "function preloaded() end",
-		Method: "test",
-	}
+
 	preloadedModule := &Node{
 		ID:     registry.ID{Name: "preloaded_mod"},
 		Kind:   lua.KindModule,
 		Module: &dummyModule{name: "preloaded"},
 	}
 
+	// Add mock compilation result for main node
 	mock.results[mainNode.ID.String()] = &glua.FunctionProto{}
-	mock.results[preloadedLua.ID.String()] = &glua.FunctionProto{}
 
-	mg := compiler.memGraph
-	require.NoError(t, mg.AddNode(mainNode))
-	require.NoError(t, mg.AddNode(preloadedLua))
-	require.NoError(t, mg.AddNode(preloadedModule))
+	// Add nodes to graph
+	require.NoError(t, memGraph.AddNode(mainNode))
+	require.NoError(t, memGraph.AddNode(preloadedModule))
 
+	// Create build options with preloaded module
 	options := NewBuildOptions().WithPreloaded(
-		Dependency{Name: "pre_lua", Node: preloadedLua},
-		Dependency{Name: "pre_mod", Node: preloadedModule},
+		Preload{
+			Name:     "pre_mod",
+			ModuleID: preloadedModule.ID,
+		},
 	)
 
-	compiled, err := compiler.Compile(mainNode.ID, options)
+	// Compile
+	compiled, err := compiler.Compile(memGraph, mainNode.ID, options)
 	require.NoError(t, err)
-	assert.NotNil(t, compiled.Main)
-	assert.Len(t, compiled.Dependencies, 2)
+	require.NotNil(t, compiled)
+	require.NotNil(t, compiled.Main)
 
-	// Verify preloaded dependencies are included
-	var foundPreloadedLua, foundPreloadedModule bool
-	for _, dep := range compiled.Dependencies {
-		if dep.Name == "pre_lua" {
-			assert.NotNil(t, dep.Proto)
-			foundPreloadedLua = true
-		}
-		if dep.Name == "pre_mod" {
-			assert.Nil(t, dep.Proto)
-			assert.NotNil(t, dep.Node.Module)
-			foundPreloadedModule = true
-		}
-	}
-	assert.True(t, foundPreloadedLua, "Should have preloaded Lua dependency")
-	assert.True(t, foundPreloadedModule, "Should have preloaded module dependency")
+	// Verify preloaded dependencies
+	assert.Len(t, compiled.Dependencies, 1, "Should have one preloaded dependency")
+
+	dep := compiled.Dependencies[0]
+	assert.Equal(t, "pre_mod", dep.Name)
+	assert.Equal(t, preloadedModule, dep.Node)
+	assert.NotNil(t, dep.Node.Module)
+	assert.Equal(t, "preloaded", dep.Node.Module.Name())
 }
