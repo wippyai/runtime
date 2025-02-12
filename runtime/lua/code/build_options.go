@@ -27,28 +27,28 @@ type BuildOptions struct {
 	Mode AccessMode
 
 	// Allowed defines which IDs are allowed to be used (when in AllowListed or StrictListed mode)
-	Allowed map[registry.ID]bool
+	Allowed []registry.ID
 
 	// Denied defines which IDs are not allowed to be used
 	// Takes precedence over Allowed and Required
-	Denied map[registry.ID]bool
+	Denied []registry.ID
 
 	// Required defines IDs that must be present in the build
 	// In StrictListed mode, these must also be in Allowed
-	Required map[registry.ID]bool
+	Required []registry.ID
 
 	// Preloaded contains dependencies that will be automatically included
-	Preloaded []Dependency
+	Preloaded []Preload
 }
 
 // NewBuildOptions creates a new BuildOptions with default settings
 func NewBuildOptions() *BuildOptions {
 	return &BuildOptions{
 		Mode:      AllowAll,
-		Allowed:   make(map[registry.ID]bool),
-		Denied:    make(map[registry.ID]bool),
-		Required:  make(map[registry.ID]bool),
-		Preloaded: make([]Dependency, 0),
+		Allowed:   make([]registry.ID, 0),
+		Denied:    make([]registry.ID, 0),
+		Required:  make([]registry.ID, 0),
+		Preloaded: make([]Preload, 0),
 	}
 }
 
@@ -60,40 +60,44 @@ func (o *BuildOptions) WithMode(mode AccessMode) *BuildOptions {
 
 // WithAllowed adds IDs to the allowed list
 func (o *BuildOptions) WithAllowed(ids ...registry.ID) *BuildOptions {
-	for _, id := range ids {
-		o.Allowed[id] = true
-	}
+	o.Allowed = append(o.Allowed, ids...)
 	return o
 }
 
 // WithDenied adds IDs to the denied list
 func (o *BuildOptions) WithDenied(ids ...registry.ID) *BuildOptions {
-	for _, id := range ids {
-		o.Denied[id] = true
-	}
+	o.Denied = append(o.Denied, ids...)
 	return o
 }
 
 // WithRequired adds IDs to the required list
 func (o *BuildOptions) WithRequired(ids ...registry.ID) *BuildOptions {
-	for _, id := range ids {
-		o.Required[id] = true
-	}
+	o.Required = append(o.Required, ids...)
 	return o
 }
 
 // WithPreloaded adds dependencies to the preloaded list
-func (o *BuildOptions) WithPreloaded(deps ...Dependency) *BuildOptions {
+func (o *BuildOptions) WithPreloaded(deps ...Preload) *BuildOptions {
 	o.Preloaded = append(o.Preloaded, deps...)
 	return o
+}
+
+// contains is a helper function to check if a slice contains an ID
+func contains(slice []registry.ID, item registry.ID) bool {
+	for _, id := range slice {
+		if id == item {
+			return true
+		}
+	}
+	return false
 }
 
 // Validate checks if the given nodes comply with the build constraints
 func (o *BuildOptions) Validate(nodes map[registry.ID]*Node) error {
 	// In StrictListed mode, verify all required IDs are also in allowed list
 	if o.Mode == StrictListed {
-		for required := range o.Required {
-			if !o.Allowed[required] {
+		for _, required := range o.Required {
+			if !contains(o.Allowed, required) {
 				return fmt.Errorf("required ID %v must also be in allowed list (StrictListed mode)", required)
 			}
 		}
@@ -101,22 +105,22 @@ func (o *BuildOptions) Validate(nodes map[registry.ID]*Node) error {
 
 	// Track required IDs
 	foundRequired := make(map[registry.ID]bool)
-	for required := range o.Required {
+	for _, required := range o.Required {
 		foundRequired[required] = false
 	}
 
 	// Validate nodes
 	for id := range nodes {
 		// Check denied IDs first (highest precedence)
-		if o.Denied[id] {
+		if contains(o.Denied, id) {
 			return fmt.Errorf("ID %v is not allowed in this build", id)
 		}
 
 		// Mark required IDs as found
-		if o.Required[id] {
+		if contains(o.Required, id) {
 			foundRequired[id] = true
 			// In StrictListed mode, required IDs must still be explicitly allowed
-			if o.Mode == StrictListed && !o.Allowed[id] {
+			if o.Mode == StrictListed && !contains(o.Allowed, id) {
 				return fmt.Errorf("ID %v is required but not allowed (StrictListed mode)", id)
 			}
 			continue
@@ -127,7 +131,7 @@ func (o *BuildOptions) Validate(nodes map[registry.ID]*Node) error {
 		case AllowAll:
 			// Allow anything not explicitly denied (already checked above)
 		case AllowListed, StrictListed:
-			if !o.Allowed[id] {
+			if !contains(o.Allowed, id) {
 				return fmt.Errorf("ID %v is not in the allowed IDs list", id)
 			}
 		case DenyAll:

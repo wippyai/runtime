@@ -758,7 +758,7 @@ func TestBuildDelta_Empty(t *testing.T) {
 		}
 	})
 
-	t.Run("From Empty", func(t *testing.T) {
+	t.Run("Target Empty", func(t *testing.T) {
 		entry := testEntry{
 			ns: "test", name: "service",
 			kind: "service", data: "data",

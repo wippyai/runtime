@@ -30,8 +30,14 @@ type (
 		Module  runtime.Module // Modules only has this
 	}
 
+	Preload struct {
+		Name     string
+		ModuleID registry.ID
+	}
+
 	Dependency struct {
 		Name string
+		ID   registry.ID
 		Node *Node
 	}
 

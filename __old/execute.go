@@ -1,4 +1,4 @@
-package function
+package __old
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 )
 
 // Execute executes a Lua function with the given arguments
-func (m *RuntimeManager) Execute(task runtime.Task) (chan *runtime.Result, error) {
+func (m *RuntimeManager) Execute(ctx context.Context, task runtime.Task) (chan *runtime.Result, error) {
 	// Create the callable from the sync map
 	cl, ok := m.callable.Load(task.Handler)
 	if !ok {
