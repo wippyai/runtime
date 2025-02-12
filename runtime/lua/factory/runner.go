@@ -53,8 +53,8 @@ func New(log *zap.Logger, compiled *code.CompiledMain, cfg BuildConfig) (*Runner
 	}, nil
 }
 
-// CreateVM creates a new VM instance with the current configuration
-func (f *RunnerFactory) CreateVM() (api.VM, error) {
+// CreateRunner creates a new VM instance with the current configuration
+func (f *RunnerFactory) CreateRunner() (*engine.Runner, error) {
 	var prepareErr error
 	f.prepareOnce.Do(func() {
 		prepareErr = f.prepare()
