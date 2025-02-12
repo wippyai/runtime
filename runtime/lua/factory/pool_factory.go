@@ -1,4 +1,4 @@
-package factory_2
+package factory
 
 import (
 	"github.com/ponyruntime/pony/api/runtime/lua"
@@ -7,15 +7,15 @@ import (
 	"go.uber.org/zap"
 )
 
-// Factory creates appropriate pool implementations based on configuration.
+// PoolFactory creates appropriate pool implementations based on configuration.
 // It supports both queued and synchronized pool types.
-type Factory struct {
+type PoolFactory struct {
 	log *zap.Logger
 }
 
-// NewFactory creates a new pool factory with the specified logger
-func NewFactory(log *zap.Logger) *Factory {
-	return &Factory{
+// NewPoolFactory creates a new pool factory with the specified logger
+func NewPoolFactory(log *zap.Logger) *PoolFactory {
+	return &PoolFactory{
 		log: log,
 	}
 }
@@ -23,7 +23,7 @@ func NewFactory(log *zap.Logger) *Factory {
 // Build creates a new pool based on the provided configuration.
 // It returns a queued pool if workers are specified, otherwise a synchronized pool.
 // The factory parameter provides VM creation capabilities, while luaCfg determines pool settings.
-func (c *Factory) Build(
+func (c *PoolFactory) Build(
 	factory lua.Factory,
 	luaCfg *lua.FunctionConfig,
 ) (lua.Callable, error) {

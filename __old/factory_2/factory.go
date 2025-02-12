@@ -11,10 +11,10 @@ import (
 	"go.uber.org/zap"
 )
 
-// Factory creates workflow runners
+// PoolFactory creates workflow runners
 type Factory struct{}
 
-// NewFactory creates a new workflow factory
+// NewPoolFactory creates a new workflow factory
 func NewFactory() *Factory {
 	return &Factory{}
 }

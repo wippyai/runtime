@@ -116,6 +116,15 @@ func (f *RunnerFactory) prepare() error {
 	return nil
 }
 
+// Compile prepares the Lua code for execution
+func (f *RunnerFactory) Compile() error {
+	var prepareErr error
+	f.prepareOnce.Do(func() {
+		prepareErr = f.prepare()
+	})
+	return prepareErr
+}
+
 // Close performs any necessary cleanup
 func (f *RunnerFactory) Close() error {
 	f.mu.Lock()

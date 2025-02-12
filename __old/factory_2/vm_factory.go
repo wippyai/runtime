@@ -14,7 +14,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// Factory holds configuration for Lua VM instances in the pool. It manages
+// PoolFactory holds configuration for Lua VM instances in the pool. It manages
 // modules, libraries, global variables, and functions that will be available
 // to each created VM instance.
 type Factory struct {
@@ -49,7 +49,7 @@ type Global struct {
 	Value lua.LValue // Variable value
 }
 
-// NewFactory creates a new Factory instance with default values.
+// NewPoolFactory creates a new PoolFactory instance with default values.
 // The provided logger will be used for all VMs created by this factory.
 func NewFactory(logger *zap.Logger) *Factory {
 	return &Factory{
@@ -63,11 +63,11 @@ func NewFactory(logger *zap.Logger) *Factory {
 	}
 }
 
-// VMConfigOption represents a configuration option function for Factory.
-// It follows the functional options pattern for configuring Factory instances.
+// VMConfigOption represents a configuration option function for PoolFactory.
+// It follows the functional options pattern for configuring PoolFactory instances.
 type VMConfigOption func(*Factory)
 
-// WithModule adds a Lua module to the Factory configuration.
+// WithModule adds a Lua module to the PoolFactory configuration.
 // Modules are loaded when new VM instances are created.
 func WithModule(module api.Module) VMConfigOption {
 	return func(cfg *Factory) {
@@ -76,7 +76,7 @@ func WithModule(module api.Module) VMConfigOption {
 	}
 }
 
-// WithLibrary adds a Lua library to the Factory configuration.
+// WithLibrary adds a Lua library to the PoolFactory configuration.
 // Libraries are pre-compiled and loaded into each new VM instance.
 func WithLibrary(name, script string) VMConfigOption {
 	return func(cfg *Factory) {
@@ -88,7 +88,7 @@ func WithLibrary(name, script string) VMConfigOption {
 	}
 }
 
-// WithGlobalValue adds a global variable to the Factory configuration.
+// WithGlobalValue adds a global variable to the PoolFactory configuration.
 // These variables will be available in the global scope of each new VM instance.
 func WithGlobalValue(name string, value lua.LValue) VMConfigOption {
 	return func(cfg *Factory) {
@@ -100,7 +100,7 @@ func WithGlobalValue(name string, value lua.LValue) VMConfigOption {
 	}
 }
 
-// WithFunction adds a Lua function to the Factory configuration.
+// WithFunction adds a Lua function to the PoolFactory configuration.
 // Functions are compiled and made available in each new VM instance.
 func WithFunction(name string, script string) VMConfigOption {
 	return func(cfg *Factory) {
@@ -112,7 +112,7 @@ func WithFunction(name string, script string) VMConfigOption {
 	}
 }
 
-// WithEngineOptions adds engine-specific options to the Factory configuration.
+// WithEngineOptions adds engine-specific options to the PoolFactory configuration.
 // These options are applied when creating new VM instances.
 func WithEngineOptions(opts ...engine.Option) VMConfigOption {
 	return func(cfg *Factory) {
@@ -121,14 +121,14 @@ func WithEngineOptions(opts ...engine.Option) VMConfigOption {
 	}
 }
 
-// Compile prepares the Factory for VM creation by pre-compiling libraries
+// Compile prepares the PoolFactory for VM creation by pre-compiling libraries
 // and validating configuration. Must be called before MakeVM.
 func (cfg *Factory) Compile() error {
 	// todo: implement
 	return nil
 }
 
-// MakeVM creates a new VM instance with the current Factory configuration.
+// MakeVM creates a new VM instance with the current PoolFactory configuration.
 // Returns an error if compilation fails or VM creation encounters issues.
 func (cfg *Factory) MakeVM() (api.VM, error) {
 	if !cfg.compiled {

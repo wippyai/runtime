@@ -20,10 +20,10 @@ import (
 @todo: this is draft in progress
 */
 
-// Factory is the default terminal factory.
+// PoolFactory is the default terminal factory.
 type Factory struct{}
 
-// NewFactory creates a new default terminal factory.
+// NewPoolFactory creates a new default terminal factory.
 func NewFactory() *Factory {
 	return &Factory{}
 }

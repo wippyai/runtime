@@ -31,7 +31,7 @@ func (m *mockVM) Close() {
 	m.closed = true
 }
 
-// Mock Factory implementation
+// Mock PoolFactory implementation
 type mockFactory struct {
 	mu            sync.Mutex
 	makeVMCalled  bool
