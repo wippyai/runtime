@@ -1,0 +1,66 @@
+version: "1.0"
+namespace: functions
+
+entries:
+  - name: system.env
+    kind: function.lua
+    meta:
+      comment: "Streams environment variables as JSON with prioritized output of PATH, HOME, USER, and PWD variables first"
+    source: file://env.lua
+    method: envdump
+    modules: [ http, json, env ]  # Added http module
+    pool:
+      size: 2
+
+  - name: time.http
+    kind: function.lua
+    meta:
+      comment: "Fetches current UTC time from worldtimeapi.org with error handling and JSON response formatting"
+    source: file://http_time.lua
+    method: get_time
+    modules: [ json, http_client, http, time ]
+    pool:
+      size: 4
+      workers: 16
+
+  - name: time.local
+    kind: function.lua
+    meta:
+      comment: "Returns local system time formatted according to RFC3339 standard as JSON response"
+    source: file://local_time.lua
+    method: get_time
+    modules: [ time, http ]
+    pool:
+      size: 4
+      workers: 16
+
+  - name: ai.ollama
+    kind: function.lua
+    meta:
+      comment: "Handles Ollama LLM API requests with streaming support, configurable models, and chunked transfer encoding"
+    source: file://ollama.lua
+    method: ollama_handler
+    modules: [ json, http_client, http, logger ]
+    pool:
+      size: 4
+      workers: 16
+
+  - name: time.ticker
+    kind: function.lua
+    meta:
+      comment: "Implements a 10-minute duration timer that emits JSON events every second with tick count and elapsed time"
+    source: file://ticker.lua
+    method: ticker
+    modules: [ http, time, json ]  # Added http module
+    pool:
+      size: 4
+
+  - name: demo.websocket
+    kind: function.lua
+    meta:
+      comment: "Discord bot implementation using WebSocket protocol with automatic reconnection and event handling"
+    source: file://ws_client_demo.lua
+    method: websocket_demo
+    modules: [ http, time, json, websocket, logger, env ]
+    pool:
+      size: 4

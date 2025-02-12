@@ -9,13 +9,29 @@ meta:
   router: system:router
 
 entries:
-#  - name: system.env
-#    kind: http.endpoint
-#    meta:
-#      comment: "Streams environment variables as JSON"
-#    method: GET
-#    path: /env
-#    handler: "functions:system.env"
+  - name: system.env
+    kind: http.endpoint
+    meta:
+      comment: "Streams environment variables as JSON"
+    method: GET
+    path: /env
+    handler: functions:system.env
+
+  - name: time.http
+    kind: http.endpoint
+    meta:
+      comment: "Returns current UTC time from worldtimeapi.org"
+    method: GET
+    path: /time/utc
+    handler: functions:time.http
+
+  - name: time.local
+    kind: http.endpoint
+    meta:
+      comment: "Returns the local current time"
+    method: GET
+    path: /time/local
+    handler: functions:time.local
 
   - name: ai.ollama
     kind: http.endpoint
@@ -25,26 +41,18 @@ entries:
     path: /ollama
     handler: functions:ai.ollama
 
-#  - name: time.ticker
-#    kind: http.endpoint
-#    meta:
-#      comment: "Ticks time"
-#    method: GET
-#    path: /ticker
-#    handler: functions:time.ticker
-#
-#  - name: time.current
-#    kind: http.endpoint
-#    meta:
-#      comment: "Returns the local current time"
-#    method: GET
-#    path: /time
-#    handler: functions:time.local
-#
-#  - name: demo.websocket
-#    kind: http.endpoint
-#    meta:
-#      comment: "WebSocket demo with echo server"
-#    method: GET
-#    path: /ws-demo
-#    handler: functions:demo.websocket
+  - name: time.ticker
+    kind: http.endpoint
+    meta:
+      comment: "Ticks time with events every second"
+    method: GET
+    path: /ticker
+    handler: functions:time.ticker
+
+  - name: demo.websocket
+    kind: http.endpoint
+    meta:
+      comment: "WebSocket demo with Discord bot implementation"
+    method: GET
+    path: /ws-demo
+    handler: functions:demo.websocket
