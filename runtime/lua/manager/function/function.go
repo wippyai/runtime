@@ -8,7 +8,7 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/engine/async"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
-	"github.com/ponyruntime/pony/runtime/lua/factory"
+	"github.com/ponyruntime/pony/runtime/lua/manager"
 	lua "github.com/yuin/gopher-lua"
 	"sync"
 
@@ -24,7 +24,7 @@ import (
 
 var (
 	functionBuild *code.BuildOptions
-	runnerBuild   []factory.Option
+	runnerBuild   []manager.Option
 )
 
 func init() {
@@ -37,10 +37,10 @@ func init() {
 
 	channels := channel.NewChannelLayer()
 
-	runnerBuild = []factory.Option{
-		factory.WithRunnerOption(engine.WithLayer(channels)),
-		factory.WithRunnerOption(engine.WithLayer(async.NewAsyncLayer(channels, 4096))),
-		factory.WithRunnerOption(engine.WithLayer(coroutine.NewCoroutineLayer())),
+	runnerBuild = []manager.Option{
+		manager.WithRunnerOption(engine.WithLayer(channels)),
+		manager.WithRunnerOption(engine.WithLayer(async.NewAsyncLayer(channels, 4096))),
+		manager.WithRunnerOption(engine.WithLayer(coroutine.NewCoroutineLayer())),
 	}
 }
 
@@ -99,7 +99,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	}
 
 	// Unpack config
-	cfg, err := factory.UnpackConfig[api.FunctionConfig](ctx, entry)
+	cfg, err := manager.UnpackConfig[api.FunctionConfig](ctx, entry)
 	if err != nil {
 		return fmt.Errorf("failed to unpack function config: %w", err)
 	}
@@ -113,7 +113,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	}
 
 	// Add to code manager
-	if err := m.code.AddNode(ctx, node, factory.BuildImports(cfg.Import, cfg.Modules)); err != nil {
+	if err := m.code.AddNode(ctx, node, manager.BuildImports(cfg.Import, cfg.Modules)); err != nil {
 		return fmt.Errorf("failed to add function: %w", err)
 	}
 
@@ -123,7 +123,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	}
 
 	// Register function caller
-	m.registerCaller(entry.ID, cfg.Method)
+	m.registerCaller(ctx, entry.ID, cfg.Method)
 
 	return nil
 }
@@ -135,7 +135,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	}
 
 	// Unpack config
-	cfg, err := factory.UnpackConfig[api.FunctionConfig](ctx, entry)
+	cfg, err := manager.UnpackConfig[api.FunctionConfig](ctx, entry)
 	if err != nil {
 		return fmt.Errorf("failed to unpack function config: %w", err)
 	}
@@ -149,7 +149,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	}
 
 	// Update in code manager
-	if err := m.code.UpdateNode(ctx, node, factory.BuildImports(cfg.Import, cfg.Modules)); err != nil {
+	if err := m.code.UpdateNode(ctx, node, manager.BuildImports(cfg.Import, cfg.Modules)); err != nil {
 		return fmt.Errorf("failed to update function node: %w", err)
 	}
 
@@ -185,7 +185,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	m.configs.Delete(entry.ID)
 
 	// Unregister function caller
-	m.unregisterCaller(entry.ID)
+	m.unregisterCaller(ctx, entry.ID)
 
 	return nil
 }
@@ -264,7 +264,6 @@ func (m *Manager) Execute(ctx context.Context, task runtime.Task) (chan *runtime
 			Payload: payload.NewPayload(result, payload.Lua),
 			Error:   err,
 		}
-		close(resultChan)
 	}()
 
 	return resultChan, nil
@@ -272,7 +271,7 @@ func (m *Manager) Execute(ctx context.Context, task runtime.Task) (chan *runtime
 
 // createVM creates a new pool based on config and compiled code
 func (m *Manager) createVM(cfg *api.FunctionConfig, compiled *code.CompiledMain) (api.VM, error) {
-	fvm, err := factory.NewRunnerFactory(m.log, compiled, runnerBuild...)
+	fvm, err := manager.NewRunnerFactory(m.log, compiled, runnerBuild...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to compile: %w", err)
 	}
@@ -298,20 +297,20 @@ func (m *Manager) createVM(cfg *api.FunctionConfig, compiled *code.CompiledMain)
 }
 
 // registerCaller registers function in the function system
-func (m *Manager) registerCaller(id registry.ID, method string) {
-	m.bus.Send(context.Background(), events.Event{
+func (m *Manager) registerCaller(ctx context.Context, id registry.ID, method string) {
+	m.bus.Send(ctx, events.Event{
 		System: runtime.FunctionSystem,
-		Kind:   runtime.RegisterFunctionCommand,
+		Kind:   runtime.RegisterFunctionHandler,
 		Path:   id.String(),
-		Data:   m.Execute,
+		Data:   runtime.Func(m.Execute),
 	})
 }
 
 // unregisterCaller removes function from the function system
-func (m *Manager) unregisterCaller(id registry.ID) {
-	m.bus.Send(context.Background(), events.Event{
+func (m *Manager) unregisterCaller(ctx context.Context, id registry.ID) {
+	m.bus.Send(ctx, events.Event{
 		System: runtime.FunctionSystem,
-		Kind:   runtime.DeleteFunctionCommand,
+		Kind:   runtime.DeleteFunctionHandler,
 		Path:   id.String(),
 	})
 }

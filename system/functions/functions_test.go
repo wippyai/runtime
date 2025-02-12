@@ -54,7 +54,7 @@ func TestFunctions_InvalidEvents(t *testing.T) {
 			name: "invalid register handler data",
 			evt: events.Event{
 				System: runtime.FunctionSystem,
-				Kind:   runtime.RegisterFunctionCommand,
+				Kind:   runtime.RegisterFunctionHandler,
 				Path:   "test.handler",
 				Data:   "invalid data",
 			},
@@ -63,7 +63,7 @@ func TestFunctions_InvalidEvents(t *testing.T) {
 			name: "invalid delete handler data",
 			evt: events.Event{
 				System: runtime.FunctionSystem,
-				Kind:   runtime.DeleteFunctionCommand,
+				Kind:   runtime.DeleteFunctionHandler,
 				Path:   "test.handler",
 				Data:   "invalid data",
 			},
@@ -127,7 +127,7 @@ func TestFunctions_EventResponses(t *testing.T) {
 			name: "valid function registration",
 			event: events.Event{
 				System: runtime.FunctionSystem,
-				Kind:   runtime.RegisterFunctionCommand,
+				Kind:   runtime.RegisterFunctionHandler,
 				Path:   "default:test.handler",
 				Data: runtime.Func(func(ctx context.Context, task runtime.Task) (chan *runtime.Result, error) {
 					return make(chan *runtime.Result), nil
@@ -140,7 +140,7 @@ func TestFunctions_EventResponses(t *testing.T) {
 			name: "invalid function registration",
 			event: events.Event{
 				System: runtime.FunctionSystem,
-				Kind:   runtime.RegisterFunctionCommand,
+				Kind:   runtime.RegisterFunctionHandler,
 				Path:   "invalid:handler",
 				Data:   "not a function",
 			},
@@ -151,7 +151,7 @@ func TestFunctions_EventResponses(t *testing.T) {
 			name: "delete existing function",
 			event: events.Event{
 				System: runtime.FunctionSystem,
-				Kind:   runtime.DeleteFunctionCommand,
+				Kind:   runtime.DeleteFunctionHandler,
 				Path:   "default:test.handler",
 			},
 			expectedKind: runtime.AcceptFunction,
@@ -161,7 +161,7 @@ func TestFunctions_EventResponses(t *testing.T) {
 			name: "delete non-existent function",
 			event: events.Event{
 				System: runtime.FunctionSystem,
-				Kind:   runtime.DeleteFunctionCommand,
+				Kind:   runtime.DeleteFunctionHandler,
 				Path:   "nonexistent:handler",
 			},
 			expectedKind: runtime.RejectFunction,
@@ -251,7 +251,7 @@ func TestFunctions_Execute(t *testing.T) {
 				wg.Add(1) // Wait for registration acceptance
 				bus.Send(ctx, events.Event{
 					System: runtime.FunctionSystem,
-					Kind:   runtime.RegisterFunctionCommand,
+					Kind:   runtime.RegisterFunctionHandler,
 					Path:   target.String(),
 					Data:   runtime.Func(handler),
 				})
@@ -281,7 +281,7 @@ func TestFunctions_Execute(t *testing.T) {
 				wg.Add(1) // Wait for registration acceptance
 				bus.Send(ctx, events.Event{
 					System: runtime.FunctionSystem,
-					Kind:   runtime.RegisterFunctionCommand,
+					Kind:   runtime.RegisterFunctionHandler,
 					Path:   target.String(),
 					Data:   runtime.Func(handler),
 				})
@@ -365,7 +365,7 @@ func TestFunctions_ConcurrentHandlerRegistration(t *testing.T) {
 
 			bus.Send(ctx, events.Event{
 				System: runtime.FunctionSystem,
-				Kind:   runtime.RegisterFunctionCommand,
+				Kind:   runtime.RegisterFunctionHandler,
 				Path:   target.String(),
 				Data:   runtime.Func(handler),
 			})

@@ -63,9 +63,9 @@ func (f *FunctionRegistry) Stop() error {
 
 func (f *FunctionRegistry) handleEvent(e events.Event) {
 	switch e.Kind {
-	case runtime.RegisterFunctionCommand:
+	case runtime.RegisterFunctionHandler:
 		f.registerFunction(e)
-	case runtime.DeleteFunctionCommand:
+	case runtime.DeleteFunctionHandler:
 		f.deleteFunction(e)
 	default:
 		f.logger.Warn("unknown event kind",
