@@ -56,7 +56,7 @@ function ticker()
 
         -- Close channel
         tick_channel:close()
-    end
+    end)
 
     -- Set initial response status
     res:set_status(http.STATUS.OK)

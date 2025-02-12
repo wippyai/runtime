@@ -24,7 +24,7 @@ function websocket_demo()
             error = "This endpoint requires a WebSocket upgrade"
         })
         return
-    }
+    end
 
     -- Get bot token from environment
     local token = env.get("DISCORD_BOT_TOKEN")
@@ -34,7 +34,7 @@ function websocket_demo()
             error = "No DISCORD_BOT_TOKEN found in environment"
         })
         return
-    }
+    end
 
     log:info("Token validation", { length = #token })
 
@@ -62,7 +62,7 @@ function websocket_demo()
             details = ws_err
         })
         return
-    }
+    end
 
     log:info("WebSocket connection established")
 
@@ -90,10 +90,12 @@ function websocket_demo()
                 },
                 presence = {
                     status = "online",
-                    activities = { {
-                        name = "messages",
-                        type = 3 -- Watching
-                    } }
+                    activities = {
+                        {
+                            name = "messages",
+                            type = 3 -- Watching
+                        }
+                    }
                 }
             }
         }
@@ -102,7 +104,7 @@ function websocket_demo()
         if encode_err then
             log:error("Failed to encode identify payload", { error = encode_err })
             return false
-        }
+        end
 
         log:info("Sending identify payload", { payload_length = #payload_str })
 
@@ -110,7 +112,7 @@ function websocket_demo()
         if not ok then
             log:error("Failed to send identify", { error = send_err })
             return false
-        }
+        end
 
         log:info("Identify payload sent successfully")
         return true
@@ -151,7 +153,7 @@ function websocket_demo()
                 })
 
                 local ok, err = client:send(heartbeat_payload)
-                if not err then
+                if err then
                     log:error("Failed to send heartbeat", { error = err })
                     connection_alive = false
                     break
@@ -191,7 +193,7 @@ function websocket_demo()
                 end
             elseif data.op == 11 then -- Heartbeat ACK
                 last_heartbeat_ack = true
-            elseif data.op == 0 then -- Dispatch
+            elseif data.op == 0 then  -- Dispatch
                 sequence = data.s
 
                 if data.t == "READY" then
