@@ -6,7 +6,7 @@ import (
 	"github.com/ponyruntime/pony/api/registry"
 	api "github.com/ponyruntime/pony/api/runtime/lua"
 	lua "github.com/ponyruntime/pony/runtime/lua/code"
-	"github.com/ponyruntime/pony/runtime/lua/factory"
+	"github.com/ponyruntime/pony/runtime/lua/manager"
 	"go.uber.org/zap"
 )
 
@@ -19,8 +19,8 @@ func NewManager(log *zap.Logger, code *lua.Manager) *Manager {
 	return &Manager{log: log, code: code}
 }
 
-func NewLibraryManager(log *zap.Logger, code *lua.Manager) *factory.Handler {
-	return factory.NewHandler(api.KindLibrary, NewManager(log, code))
+func NewLibraryManager(log *zap.Logger, code *lua.Manager) *manager.Handler {
+	return manager.NewHandler(api.KindLibrary, NewManager(log, code))
 }
 
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
@@ -28,7 +28,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		return fmt.Errorf("invalid entry kind %s, expected %s", entry.Kind, api.KindLibrary)
 	}
 
-	cfg, err := factory.UnpackConfig[api.LibraryConfig](ctx, entry)
+	cfg, err := manager.UnpackConfig[api.LibraryConfig](ctx, entry)
 	if err != nil {
 		return fmt.Errorf("failed to unpack library config: %w", err)
 	}
@@ -39,7 +39,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		Source: cfg.Source,
 	}
 
-	if err := m.code.AddNode(ctx, node, factory.BuildImports(cfg.Import, cfg.Modules)); err != nil {
+	if err := m.code.AddNode(ctx, node, manager.BuildImports(cfg.Import, cfg.Modules)); err != nil {
 		return fmt.Errorf("failed to add library node: %w", err)
 	}
 
@@ -51,7 +51,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		return fmt.Errorf("invalid entry kind %s, expected %s", entry.Kind, api.KindLibrary)
 	}
 
-	cfg, err := factory.UnpackConfig[api.LibraryConfig](ctx, entry)
+	cfg, err := manager.UnpackConfig[api.LibraryConfig](ctx, entry)
 	if err != nil {
 		return fmt.Errorf("failed to unpack library config: %w", err)
 	}
@@ -62,7 +62,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		Source: cfg.Source,
 	}
 
-	if err := m.code.UpdateNode(ctx, node, factory.BuildImports(cfg.Import, cfg.Modules)); err != nil {
+	if err := m.code.UpdateNode(ctx, node, manager.BuildImports(cfg.Import, cfg.Modules)); err != nil {
 		return fmt.Errorf("failed to update library node: %w", err)
 	}
 

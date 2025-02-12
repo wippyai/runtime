@@ -80,7 +80,7 @@ func (m *RuntimeManager) unpackTerminal(data payload.Payload) (*api.TerminalConf
 func (m *RuntimeManager) registerHandler(ctx context.Context, id registry.Name) {
 	m.bus.Send(ctx, events.Event{
 		System: runtime.FunctionSystem,
-		Kind:   runtime.RegisterFunctionCommand,
+		Kind:   runtime.RegisterFunctionHandler,
 		Path:   events.Path(id), // todo: ns?
 		Data:   m.Execute,
 		// todo: use itnernal map to set
@@ -90,7 +90,7 @@ func (m *RuntimeManager) registerHandler(ctx context.Context, id registry.Name) 
 func (m *RuntimeManager) unregisterHandler(ctx context.Context, id registry.Name) { //nolint:unused
 	m.bus.Send(ctx, events.Event{
 		System: runtime.FunctionSystem,
-		Kind:   runtime.DeleteFunctionCommand,
+		Kind:   runtime.DeleteFunctionHandler,
 		Path:   events.Path(id),
 	})
 }

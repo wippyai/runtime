@@ -11,11 +11,11 @@ const (
 	// FunctionSystem identifies the executor system in the event bus
 	FunctionSystem events.System = "functions"
 
-	// RegisterFunctionCommand is the event kind for registering a new handler
-	RegisterFunctionCommand events.Kind = "functions.register"
+	// RegisterFunctionHandler is the event kind for registering a new handler
+	RegisterFunctionHandler events.Kind = "functions.register"
 
-	// DeleteFunctionCommand is the event kind for removing an existing handler
-	DeleteFunctionCommand events.Kind = "functions.remove"
+	// DeleteFunctionHandler is the event kind for removing an existing handler
+	DeleteFunctionHandler events.Kind = "functions.remove"
 
 	// AcceptFunction is the event kind for accepting a new handler
 	AcceptFunction events.Kind = "functions.accept"

@@ -41,7 +41,7 @@ func (n *Runtime) Add(ctx context.Context, entry registry.Entry) error {
 
 	n.bus.Send(ctx, events.Event{
 		System: runtime.FunctionSystem,
-		Kind:   runtime.RegisterFunctionCommand,
+		Kind:   runtime.RegisterFunctionHandler,
 		Path:   entry.ID.String(),
 		Data:   runtime.Func(n.Execute),
 	})
@@ -65,7 +65,7 @@ func (n *Runtime) Delete(ctx context.Context, entry registry.Entry) error {
 
 	n.bus.Send(ctx, events.Event{
 		System: runtime.FunctionSystem,
-		Kind:   runtime.DeleteFunctionCommand,
+		Kind:   runtime.DeleteFunctionHandler,
 		Path:   entry.ID.String(),
 	})
 
