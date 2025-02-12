@@ -25,7 +25,6 @@ type CompiledMain struct {
 
 // Compiler handles the compilation of Lua code and caches results
 type Compiler struct {
-	memGraph   *MemoryGraph
 	protoCache *lru.Cache[registry.ID, *glua.FunctionProto] // Cache for individual function prototypes
 	mainCache  *lru.Cache[registry.ID, *CompiledMain]       // Cache for compiled mains
 	compileFn  func(*Node) (*glua.FunctionProto, error)
@@ -38,7 +37,6 @@ func NewCompiler(
 	mainCacheCapacity int,
 ) *Compiler {
 	return &Compiler{
-		memGraph:   NewMemoryGraph(),
 		protoCache: lru.New[registry.ID, *glua.FunctionProto](lru.WithCapacity(protoCacheCapacity)),
 		mainCache:  lru.New[registry.ID, *CompiledMain](lru.WithCapacity(mainCacheCapacity)),
 		compileFn:  compileFn,
@@ -76,6 +74,7 @@ func (c *Compiler) Invalidate(ids []registry.ID) {
 
 // Compile builds and compiles a main function and its dependencies
 func (c *Compiler) Compile(
+	memGraph *MemoryGraph,
 	entrypoint registry.ID,
 	options *BuildOptions,
 ) (*CompiledMain, error) {
@@ -89,7 +88,7 @@ func (c *Compiler) Compile(
 	}
 
 	// Build the runtime configuration
-	rt, err := c.memGraph.Build(entrypoint)
+	rt, err := memGraph.Build(entrypoint)
 	if err != nil {
 		return nil, err
 	}
@@ -116,21 +115,19 @@ func (c *Compiler) Compile(
 	compiled.Method = rt.Main.Method
 
 	for _, pre := range options.Preloaded {
-		node, err := c.memGraph.GetNode(pre.ModuleID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to preload %v: %w", pre, err)
+		main, err2 := c.preloadModule(memGraph, pre, compiled)
+		if err2 != nil {
+			return main, err2
 		}
-
-		// we can only preload modules
-		compiled.Dependencies = append(compiled.Dependencies, CompiledProto{
-			Name: pre.Name,
-			Node: node,
-		})
 	}
 
 	// Compile regular dependencies
 	for _, dep := range rt.Dependencies {
 		if dep.Node.Kind == lua.KindModule {
+			compiled.Dependencies = append(compiled.Dependencies, CompiledProto{
+				Name: dep.Name,
+				Node: dep.Node,
+			})
 			continue
 		}
 
@@ -150,4 +147,18 @@ func (c *Compiler) Compile(
 	c.mainCache.Set(entrypoint, compiled)
 
 	return compiled, nil
+}
+
+func (c *Compiler) preloadModule(memGraph *MemoryGraph, pre Preload, compiled *CompiledMain) (*CompiledMain, error) {
+	node, err := memGraph.GetNode(pre.ModuleID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to preload %v: %w", pre, err)
+	}
+
+	// we can only preload modules
+	compiled.Dependencies = append(compiled.Dependencies, CompiledProto{
+		Name: pre.Name,
+		Node: node,
+	})
+	return nil, nil
 }

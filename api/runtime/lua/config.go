@@ -2,8 +2,6 @@ package lua
 
 import (
 	"fmt"
-	"github.com/ponyruntime/pony/api/supervisor"
-
 	"github.com/ponyruntime/pony/api/registry"
 )
 
@@ -18,7 +16,7 @@ const (
 	KindTerminal registry.Kind = "terminal.lua"
 	// KindWorkflow identifies a Lua workflow component in the registry
 	KindWorkflow registry.Kind = "workflow.lua"
-
+	// KindModule identifies a Lua module component in the registry
 	KindModule registry.Kind = "module.lua"
 )
 
@@ -34,35 +32,37 @@ type (
 	// It includes the source code, execution method, required libraries and modules,
 	// and VM pool settings.
 	FunctionConfig struct {
-		Source string                 `json:"source"` // Lua source code
-		Method string                 `json:"method"` // Alias of the Lua method to execute
-		Import map[string]registry.ID `json:"import"` // Import aliases for the library
-		Pool   PoolConfig             `json:"pool"`   // VM pool configuration
+		Source  string                 `json:"source"`  // Lua source code
+		Method  string                 `json:"method"`  // Alias of the Lua method to execute
+		Import  map[string]registry.ID `json:"import"`  // Import aliases for the library
+		Pool    PoolConfig             `json:"pool"`    // VM pool configuration
+		Modules []string               `json:"modules"` // Shortcut for importing modules
 	}
 
 	// LibraryConfig defines the configuration for a Lua library component.
 	// It includes the library source code and required modules.
 	LibraryConfig struct {
-		Meta   registry.Metadata      `json:"meta"`   // Metadata for the library
-		Source string                 `json:"source"` // Library source code
-		Import map[string]registry.ID `json:"import"` // Import aliases for the library
+		Meta    registry.Metadata      `json:"meta"`    // Metadata for the library
+		Source  string                 `json:"source"`  // Library source code
+		Import  map[string]registry.ID `json:"import"`  // Import aliases for the library
+		Modules []string               `json:"modules"` // Shortcut for importing modules
 	}
 
-	// WorkflowConfig defines the configuration for a Lua workflow component.
-	WorkflowConfig struct {
-		Source string                 `json:"source"` // Lua source code
-		Method string                 `json:"method"` // Alias of the Lua method to execute
-		Import map[string]registry.ID `json:"import"` // Import aliases for the library
-	}
-
-	// TerminalConfig defines the configuration for a Lua terminal component.
-	// It extends FunctionConfig with terminal-specific options and lifecycle management.
-	TerminalConfig struct {
-		Source    string                     `json:"source"`    // Lua source code
-		Method    string                     `json:"method"`    // Alias of the Lua method to execute
-		Import    map[string]registry.ID     `json:"import"`    // Import aliases for the library
-		Lifecycle supervisor.LifecycleConfig `json:"lifecycle"` // Lifecycle management config
-	}
+	//// WorkflowConfig defines the configuration for a Lua workflow component.
+	//WorkflowConfig struct {
+	//	Source string                 `json:"source"` // Lua source code
+	//	Method string                 `json:"method"` // Alias of the Lua method to execute
+	//	Import map[string]registry.ID `json:"import"` // Import aliases for the library
+	//}
+	//
+	//// TerminalConfig defines the configuration for a Lua terminal component.
+	//// It extends FunctionConfig with terminal-specific options and lifecycle management.
+	//TerminalConfig struct {
+	//	Source    string                     `json:"source"`    // Lua source code
+	//	Method    string                     `json:"method"`    // Alias of the Lua method to execute
+	//	Import    map[string]registry.ID     `json:"import"`    // Import aliases for the library
+	//	Lifecycle supervisor.LifecycleConfig `json:"lifecycle"` // Lifecycle management config
+	//}
 )
 
 // Validate checks if the FunctionConfig has all required fields set to valid values.
@@ -78,6 +78,62 @@ func (c *FunctionConfig) Validate() error {
 
 	if c.Pool.Size <= 0 {
 		return fmt.Errorf("pool.num_vms must be greater than 0")
+	}
+
+	for alias, id := range c.Import {
+		if alias == "" {
+			return fmt.Errorf("import alias cannot be empty")
+		}
+		if id.NS == "" {
+			return fmt.Errorf("import ns: cannot be empty")
+		}
+		if id.Name == "" {
+			return fmt.Errorf("import :name cannot be empty")
+		}
+	}
+
+	for _, module := range c.Modules {
+		if module == "" {
+			return fmt.Errorf("module cannot be empty")
+		}
+
+		id := registry.ParseID(module)
+		if id.NS != "" {
+			return fmt.Errorf("module cannot have a namespace")
+		}
+	}
+
+	return nil
+}
+
+// Validate checks if the LibraryConfig has all required fields set to valid values.
+// It returns an error if any validation check fails.
+func (c *LibraryConfig) Validate() error {
+	if c.Source == "" {
+		return fmt.Errorf("source is required")
+	}
+
+	for alias, id := range c.Import {
+		if alias == "" {
+			return fmt.Errorf("import alias cannot be empty")
+		}
+		if id.NS == "" {
+			return fmt.Errorf("import ns: cannot be empty")
+		}
+		if id.Name == "" {
+			return fmt.Errorf("import :name cannot be empty")
+		}
+	}
+
+	for _, module := range c.Modules {
+		if module == "" {
+			return fmt.Errorf("module cannot be empty")
+		}
+
+		id := registry.ParseID(module)
+		if id.NS != "" {
+			return fmt.Errorf("module cannot have a namespace")
+		}
 	}
 
 	return nil

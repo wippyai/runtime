@@ -34,12 +34,13 @@ type (
 )
 
 // NewCodeManager creates a new code manager instance
-func NewCodeManager(log *zap.Logger, bus events.Bus, cfg *Config) (*Manager, error) {
-	if cfg == nil {
-		cfg = &Config{
-			ProtoCacheSize: 100,
-			MainCacheSize:  50,
-		}
+func NewCodeManager(log *zap.Logger, bus events.Bus, cfg Config) (*Manager, error) {
+	if cfg.ProtoCacheSize <= 0 {
+		cfg.ProtoCacheSize = 100
+	}
+
+	if cfg.MainCacheSize <= 0 {
+		cfg.MainCacheSize = 50
 	}
 
 	cm := &Manager{
@@ -73,6 +74,8 @@ func NewCodeManager(log *zap.Logger, bus events.Bus, cfg *Config) (*Manager, err
 			Kind:   api.KindModule,
 			Module: mod,
 		}
+
+		cm.log.Debug("adding built-in module", zap.String("name", mod.Name()))
 
 		if err := cm.memGraph.AddNode(node); err != nil {
 			return nil, fmt.Errorf("failed to add module node: %w", err)
@@ -142,7 +145,7 @@ func (cm *Manager) Compile(
 	entrypoint registry.ID,
 	options *BuildOptions,
 ) (*CompiledMain, error) {
-	return cm.compiler.Compile(entrypoint, options)
+	return cm.compiler.Compile(cm.memGraph, entrypoint, options)
 }
 
 // AddNode adds a new node with dependencies to the graph

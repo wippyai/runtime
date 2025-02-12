@@ -72,10 +72,14 @@ func UnpackConfig[T any](ctx context.Context, entry registry.Entry) (*T, error) 
 }
 
 // BuildImports creates imports from a list of IDs and their aliases
-func BuildImports(imports map[string]registry.ID) []lua.Import {
+func BuildImports(imports map[string]registry.ID, modules []string) []lua.Import {
 	out := make([]lua.Import, 0, len(imports))
 	for k, v := range imports {
 		out = append(out, lua.Import{ID: v, Alias: k})
+	}
+
+	for _, module := range modules {
+		out = append(out, lua.Import{ID: registry.ID{Name: module}, Alias: module})
 	}
 
 	return out

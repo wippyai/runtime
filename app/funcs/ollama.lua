@@ -1,4 +1,4 @@
-local http_client = require("http")
+local http_client = require("http_client")
 local json = require("json")
 local http = require("http")
 

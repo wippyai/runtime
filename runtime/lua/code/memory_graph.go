@@ -58,6 +58,10 @@ type (
 	}
 )
 
+func (p Preload) String() string {
+	return fmt.Sprintf("`%s` -> `%s`", p.Name, p.ModuleID)
+}
+
 // HashNode computes a hash key based on node.Source and node.Method.
 func HashNode(node *Node) string {
 	h := sha256.New()

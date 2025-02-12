@@ -158,9 +158,7 @@ func (br *BusRunner) rollback(
 	ctx context.Context,
 	originalState, currentState topology.StateMap,
 ) topology.StateMap {
-	br.log.Debug("starting rollback",
-		zap.Any("current_state", currentState),
-		zap.Any("original_state", originalState))
+	br.log.Debug("starting rollback")
 
 	// Convert states to registry.State format for BuildDelta
 	fromState := currentState.ToSlice()

@@ -1,4 +1,4 @@
-package factory
+package function
 
 import (
 	"context"
@@ -33,7 +33,7 @@ func init() {
 		WithMode(code.AllowAll).
 		WithDenied(registry.ID{Name: "command"}).
 		WithDenied(registry.ID{Name: "pubsub"}).
-		WithPreloaded(code.Preload{Name: "channel"})
+		WithPreloaded(code.Preload{Name: "channel", ModuleID: registry.ID{Name: "channel"}})
 
 	channels := channel.NewChannelLayer()
 
@@ -62,8 +62,8 @@ func NewManager(log *zap.Logger, code *code.Manager, bus events.Bus) *Manager {
 	}
 }
 
-// refreshVM creates or updates a pool for a function
-func (m *Manager) refreshVM(id registry.ID, cfg *api.FunctionConfig) error {
+// pushHandler creates or updates a pool for a function
+func (m *Manager) pushHandler(id registry.ID, cfg *api.FunctionConfig) error {
 	// Compile function using code manager
 	compiled, err := m.code.Compile(id, functionBuild)
 	if err != nil {
@@ -113,13 +113,13 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	}
 
 	// Add to code manager
-	if err := m.code.AddNode(ctx, node, factory.BuildImports(cfg.Import)); err != nil {
-		return fmt.Errorf("failed to add function node: %w", err)
+	if err := m.code.AddNode(ctx, node, factory.BuildImports(cfg.Import, cfg.Modules)); err != nil {
+		return fmt.Errorf("failed to add function: %w", err)
 	}
 
 	// Create and store pool
-	if err := m.refreshVM(entry.ID, cfg); err != nil {
-		return fmt.Errorf("failed to refresh pool: %w", err)
+	if err := m.pushHandler(entry.ID, cfg); err != nil {
+		return fmt.Errorf("failed to create function: %w", err)
 	}
 
 	// Register function caller
@@ -149,13 +149,13 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	}
 
 	// Update in code manager
-	if err := m.code.UpdateNode(ctx, node, factory.BuildImports(cfg.Import)); err != nil {
+	if err := m.code.UpdateNode(ctx, node, factory.BuildImports(cfg.Import, cfg.Modules)); err != nil {
 		return fmt.Errorf("failed to update function node: %w", err)
 	}
 
 	// Update pool
-	if err := m.refreshVM(entry.ID, cfg); err != nil {
-		return fmt.Errorf("failed to refresh pool: %w", err)
+	if err := m.pushHandler(entry.ID, cfg); err != nil {
+		return fmt.Errorf("failed to refresh function: %w", err)
 	}
 
 	return nil
@@ -176,7 +176,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	if pool, ok := m.vms.LoadAndDelete(entry.ID); ok {
 		if closer, ok := pool.(interface{ Close() error }); ok {
 			if err := closer.Close(); err != nil {
-				m.log.Error("failed to close pool", zap.Error(err))
+				m.log.Error("failed to close function", zap.Error(err))
 			}
 		}
 	}
@@ -203,7 +203,7 @@ func (m *Manager) Invalidate(ids []registry.ID) {
 		cfg := cfgAny.(*api.FunctionConfig)
 
 		// Refresh pool with existing config
-		if err := m.refreshVM(id, cfg); err != nil {
+		if err := m.pushHandler(id, cfg); err != nil {
 			m.log.Error("failed to refresh function", zap.Error(err))
 		}
 	}
@@ -213,12 +213,12 @@ func (m *Manager) Invalidate(ids []registry.ID) {
 func (m *Manager) getHandler(handler registry.ID) (string, api.VM, error) {
 	vmInterface, ok := m.vms.Load(handler)
 	if !ok {
-		return "", nil, fmt.Errorf("no function found for handler: %s", handler)
+		return "", nil, fmt.Errorf("no function found for function: %s", handler)
 	}
 
 	cfgInterface, ok := m.configs.Load(handler)
 	if !ok {
-		return "", nil, fmt.Errorf("no config found for handler: %s", handler)
+		return "", nil, fmt.Errorf("no config found for function: %s", handler)
 	}
 
 	return cfgInterface.(*api.FunctionConfig).Method, vmInterface.(api.VM), nil
@@ -273,9 +273,12 @@ func (m *Manager) Execute(ctx context.Context, task runtime.Task) (chan *runtime
 // createVM creates a new pool based on config and compiled code
 func (m *Manager) createVM(cfg *api.FunctionConfig, compiled *code.CompiledMain) (api.VM, error) {
 	fvm, err := factory.NewRunnerFactory(m.log, compiled, runnerBuild...)
-
 	if err != nil {
-		return nil, fmt.Errorf("failed to create runner factory: %w", err)
+		return nil, fmt.Errorf("failed to compile: %w", err)
+	}
+
+	if err := fvm.Compile(); err != nil {
+		return nil, fmt.Errorf("failed to compile: %w", err)
 	}
 
 	if cfg.Pool.Workers > 0 {
