@@ -136,6 +136,15 @@ func WithGlobalFunction(name string, function lua.LGFunction) Option {
 	}
 }
 
+func WithFunctionProto(name string, proto *lua.FunctionProto) Option {
+	return func(vm *VM) {
+		err := vm.Mount(proto, name)
+		if err != nil {
+			vm.initErrors = append(vm.initErrors, fmt.Errorf("failed to load main function: %w", err))
+		}
+	}
+}
+
 // WithGlobalValue adds a global value to the Lua state with the given name.
 func WithGlobalValue(name string, value lua.LValue) Option {
 	return func(vm *VM) {

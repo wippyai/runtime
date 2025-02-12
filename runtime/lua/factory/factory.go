@@ -1,4 +1,4 @@
-package manager
+package factory
 
 import (
 	"fmt"
@@ -93,7 +93,7 @@ func (f *RunnerFactory) CreateRunner() (*engine.Runner, error) {
 		return nil, fmt.Errorf("failed to create base VM: %w", err)
 	}
 
-	// Load main function
+	// Load main function todo: encapsulate into runner option and skip the need for main func
 	if err := vm.Mount(f.compiled.Main, f.compiled.Method); err != nil {
 		vm.Close()
 		return nil, fmt.Errorf("failed to load main function: %w", err)
