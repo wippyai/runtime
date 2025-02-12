@@ -2,77 +2,44 @@ local json = require("json")
 local http = require("http")
 local env = require("env")
 
-function envdump()
+local function envdump()
     -- Get request context and set up response
     local res = http.response()
+    if not res then
+        return nil, "Failed to create HTTP response"
+    end
+
     res:set_content_type(http.CONTENT.JSON)
-    res:set_transfer(http.TRANSFER.CHUNKED)
 
-    -- Create a channel for communication
-    local env_channel = channel.new(1)
+    -- Get all environment variables
+    local all_vars = env.get_all()
+    if not all_vars then
+        res:set_status(http.STATUS.INTERNAL_ERROR)
+        res:write_json({
+            error = "Failed to get environment variables"
+        })
+        return
+    end
 
-    -- Spawn producer coroutine
-    coroutine.spawn(function()
-        -- Get all environment variables
-        local vars = env.get_all()
-
-        -- Send specific important vars first
-        local important = {
+    -- Create response structure with commonly needed vars highlighted
+    local response = {
+        important = {
             path = env.get("PATH"),
             home = env.get("HOME"),
             user = env.get("USER"),
-            pwd = env.get("PWD")
-        }
+            pwd = env.get("PWD"),
+            shell = env.get("SHELL"),
+            term = env.get("TERM")
+        },
+        all = all_vars
+    }
 
-        -- Check for channel send success
-        local ok = env_channel:send({
-            type = "important",
-            vars = important
-        })
-
-        if not ok then
-            return
-        end
-
-        -- Send all variables
-        ok = env_channel:send({
-            type = "all",
-            vars = vars
-        })
-
-        if not ok then
-            return
-        end
-
-        -- Close channel
-        env_channel:close()
-    end)
-
-    -- Set initial response status
+    -- Send response
     res:set_status(http.STATUS.OK)
-
-    -- Consumer coroutine (main thread)
-    while true do
-        -- Receive data from channel
-        local data, ok = env_channel:receive()
-
-        if not ok then
-            -- Channel closed or error, exit
-            break
-        end
-
-        -- Write JSON response chunk
-        local packed, encode_err = json.encode(data)
-        if encode_err then
-            res:set_status(http.STATUS.INTERNAL_ERROR)
-            res:write_json({ error = "JSON encoding failed: " .. encode_err })
-            break
-        end
-
-        res:write(packed .. "\n")
-        res:flush()
-    end
-
-    -- Ensure the response is properly terminated
-    res:flush()
+    res:write_json(response)
 end
+
+-- Export the function
+return {
+    envdump = envdump
+}

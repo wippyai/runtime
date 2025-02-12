@@ -262,6 +262,9 @@ func (m *Manager) Execute(ctx context.Context, task runtime.Task) (chan *runtime
 		}
 
 		result, err := vm.Execute(ctx, method, args...)
+		if err != nil {
+			m.log.Error("failed to execute function", zap.Error(err))
+		}
 		resultChan <- &runtime.Result{
 			Payload: payload.NewPayload(result, payload.Lua),
 			Error:   err,

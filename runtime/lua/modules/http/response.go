@@ -187,7 +187,7 @@ func responseSetTransfer(l *lua.LState) int {
 	}
 
 	if resp.headersSent {
-		l.Push(lua.LString("cannot set transfer mode after headers are sent"))
+		l.RaiseError("cannot set transfer mode after headers are sent")
 		return 1
 	}
 
@@ -196,6 +196,7 @@ func responseSetTransfer(l *lua.LState) int {
 	switch transferType {
 	case getTransferConstants()["CHUNKED"]:
 		resp.writer.Header().Set("Transfer-Encoding", "chunked")
+		resp.writer.Header().Set("Cache-Control", "no-cache")
 		resp.transferMode = getTransferConstants()["CHUNKED"]
 
 	case getTransferConstants()["SSE"]:
