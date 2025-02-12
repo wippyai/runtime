@@ -26,7 +26,7 @@ type VM struct {
 
 // NewVM creates a new VM instance with the provided script and options
 func NewVM(log *zap.Logger, opts ...Option) (*VM, error) {
-	state, err := newLuaState()
+	state, err := newLuaState() // todo: pass options
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Lua State: %w", err)
 	}
