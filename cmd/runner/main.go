@@ -4,10 +4,26 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	contextapi "github.com/ponyruntime/pony/api/context"
+	apiCtx "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/events"
-	logsapi "github.com/ponyruntime/pony/api/logs"
-	regapi "github.com/ponyruntime/pony/api/registry"
+	apiLog "github.com/ponyruntime/pony/api/logs"
+	apiReg "github.com/ponyruntime/pony/api/registry"
+	apiLua "github.com/ponyruntime/pony/api/runtime/lua"
+	"github.com/ponyruntime/pony/runtime/lua/code"
+	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
+	"github.com/ponyruntime/pony/runtime/lua/factory/function"
+	"github.com/ponyruntime/pony/runtime/lua/modules/base64"
+	"github.com/ponyruntime/pony/runtime/lua/modules/btea"
+	"github.com/ponyruntime/pony/runtime/lua/modules/env"
+	httpMod "github.com/ponyruntime/pony/runtime/lua/modules/http"
+	httpClient "github.com/ponyruntime/pony/runtime/lua/modules/http_client"
+	jsonMod "github.com/ponyruntime/pony/runtime/lua/modules/json"
+	"github.com/ponyruntime/pony/runtime/lua/modules/lfs"
+	"github.com/ponyruntime/pony/runtime/lua/modules/logger"
+	timeMod "github.com/ponyruntime/pony/runtime/lua/modules/time"
+	"github.com/ponyruntime/pony/runtime/lua/modules/treesitter"
+	"github.com/ponyruntime/pony/runtime/lua/modules/uuid"
+	"github.com/ponyruntime/pony/runtime/lua/modules/websocket"
 	"github.com/ponyruntime/pony/runtime/noop"
 	"github.com/ponyruntime/pony/service/http"
 	"github.com/ponyruntime/pony/system/eventbus"
@@ -27,6 +43,7 @@ import (
 	"github.com/ponyruntime/pony/system/supervisor"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+	httpbase "net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -38,13 +55,13 @@ type App struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
 	logger      *zap.Logger
-	logCore     logsapi.Core
+	logCore     apiLog.Core
 	logManager  *logs.Manager
 	eventBus    events.Bus
 	eventRouter *eventbus.EventRouter
 	services    eventbus.RouterOption
 	dtt         *transcoder.Transcoder
-	reg         regapi.Registry
+	reg         apiReg.Registry
 	supervisor  *supervisor.Supervisor
 	funcs       *functions.FunctionRegistry
 
@@ -59,12 +76,12 @@ func NewApp(verbose, veryVerbose bool) (*App, error) {
 	bus := eventbus.NewBus()
 
 	// Initialize logger
-	logger, core := initLogger(verbose, veryVerbose, bus)
-	if logger == nil {
+	l, core := initLogger(verbose, veryVerbose, bus)
+	if l == nil {
 		cancel()
 		return nil, fmt.Errorf("failed to initialize logger")
 	}
-	appLogger := logger.Named("")
+	appLogger := l.Named("")
 
 	level := zapcore.InfoLevel
 	if verbose || veryVerbose {
@@ -72,7 +89,7 @@ func NewApp(verbose, veryVerbose bool) (*App, error) {
 	}
 
 	// Initialize log manager
-	logManager := logs.NewManager(bus, core, logger.Named("logs"), level)
+	logManager := logs.NewManager(bus, core, l.Named("logs"), level)
 
 	// Initialize transcoder
 	dtt := transcoder.GlobalTranscoder()
@@ -120,20 +137,20 @@ func (a *App) Initialize() error {
 func (a *App) Start(folderPath string) error {
 	// Create context with values
 	ctx := a.ctx
-	ctx = context.WithValue(ctx, contextapi.LoggerCtx, a.logger)
-	ctx = context.WithValue(ctx, contextapi.TranscoderCtx, a.dtt)
-	ctx = context.WithValue(ctx, contextapi.BusCtx, a.eventBus)
-	ctx = context.WithValue(ctx, contextapi.FunctionsCtx, a.funcs)
+	ctx = context.WithValue(ctx, apiCtx.LoggerCtx, a.logger)
+	ctx = context.WithValue(ctx, apiCtx.TranscoderCtx, a.dtt)
+	ctx = context.WithValue(ctx, apiCtx.BusCtx, a.eventBus)
+	ctx = context.WithValue(ctx, apiCtx.FunctionsCtx, a.funcs)
 
 	// Create environment context
-	envCtx := contextapi.NewContexter[string]()
+	envCtx := apiCtx.NewContexter[string]()
 	for _, en := range os.Environ() {
 		pair := strings.SplitN(en, "=", 2)
 		if len(pair) == 2 {
 			envCtx.WithValue(pair[0], pair[1])
 		}
 	}
-	ctx = context.WithValue(ctx, contextapi.EnvCtx, envCtx)
+	ctx = context.WithValue(ctx, apiCtx.EnvCtx, envCtx)
 
 	// Start core function registry
 	if err := a.funcs.Start(ctx); err != nil {
@@ -244,10 +261,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	app.services = eventbus.WithHandlers(
+	app.services = eventbus.WithHandlers(append(
+		WithLuaRuntime(app),
 		WithHTTPService(app),
-		WithNoopRuntime(app),
-	)
+	)...)
 
 	// Start application
 	if err := app.Start(folderPath); err != nil {
@@ -284,7 +301,7 @@ func main() {
 	}
 }
 
-func initLogger(verbose, veryVerbose bool, bus events.Bus) (*zap.Logger, logsapi.Core) {
+func initLogger(verbose, veryVerbose bool, bus events.Bus) (*zap.Logger, apiLog.Core) {
 	config := zap.NewDevelopmentConfig()
 
 	switch {
@@ -314,7 +331,7 @@ func loadApplicationState(
 	folderPath string,
 	dtt *transcoder.Transcoder,
 	mainLogger *zap.Logger,
-) (regapi.ChangeSet, error) {
+) (apiReg.ChangeSet, error) {
 	folderLoader := loader.NewLoader(dtt, mainLogger, interpolate.NewEntryInterpolator(dtt,
 		interpolate.WithInterpolator(interpolate.LoadVars),
 		interpolate.WithInterpolator(interpolate.LoadFile),
@@ -331,7 +348,7 @@ func loadApplicationState(
 		return nil, fmt.Errorf("failed to load entries: %w", err)
 	}
 
-	boot, err := topology.NewStateBuilder(mainLogger).BuildDelta(regapi.State{}, entries)
+	boot, err := topology.NewStateBuilder(mainLogger).BuildDelta(apiReg.State{}, entries)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build state delta: %w", err)
 	}
@@ -350,31 +367,45 @@ func WithHTTPService(a *App) eventbus.EventHandler {
 	))
 }
 
-//func withLuaRuntime(a *App) services.Option {
-//	return services.WithListener("(function|library|process).lua",
-//		luaruntime.NewRuntimeManager(
-//			a.eventBus,
-//			a.dtt,
-//			a.logger.Named("lua"),
-//			timelib.NewTimeModule(),
-//			logglib.NewLoggerModule(a.logger.Named("app")),
-//			b64mlib.NewBase64Module(),
-//			jsonlib.NewJSONModule(),
-//			lfs.NewLFSModule(),
-//			uuid.NewUUIDModule(),
-//			env.NewEnvModule(a.logger.Named("env")),
-//			httplib.NewHTTPModule(a.logger.Named("http"), httpbase.DefaultClient),
-//			websocket.NewWebSocketModule(a.logger.Named("websocket")),
-//			httpctx.NewHTTPContextModule(a.logger.Named("http")),
-//			treesitter.NewTreeSitterModule(a.logger.Named("treesitter")),
-//			btea.NewBteaModule(a.logger.Named("btea")),
-//		))
-//}
-
 func WithNoopRuntime(a *App) eventbus.EventHandler {
-	return reghandler.NewRegistryHandler("(function|process|library).*",
-		noop.NewNoopRuntime(
-			a.eventBus,
-			a.logger.Named("noop"),
-		))
+	return reghandler.NewRegistryHandler("(function|process|library).*", noop.NewNoopRuntime(
+		a.eventBus,
+		a.logger.Named("noop"),
+	))
+}
+
+func WithLuaRuntime(a *App) []eventbus.EventHandler {
+	codeManager, err := code.NewCodeManager(
+		a.logger.Named("lua"),
+		a.eventBus,
+		code.Config{
+			Modules: []apiLua.Module{
+				channel.NewChannelModule(),
+				timeMod.NewTimeModule(),
+				logger.NewLoggerModule(a.logger.Named("app")),
+				base64.NewBase64Module(),
+				jsonMod.NewJSONModule(),
+				lfs.NewLFSModule(),
+				uuid.NewUUIDModule(),
+				env.NewEnvModule(a.logger.Named("env")),
+				httpClient.NewHTTPClientModule(a.logger.Named("http"), httpbase.DefaultClient),
+				websocket.NewWebSocketModule(a.logger.Named("websocket")),
+				httpMod.NewHTTPContextModule(a.logger.Named("http")),
+				treesitter.NewTreeSitterModule(a.logger.Named("treesitter")),
+				btea.NewBteaModule(a.logger.Named("btea")),
+			},
+			ProtoCacheSize: 600,
+			MainCacheSize:  100,
+		},
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	funcManager := function.NewManager(a.logger.Named("lua.funcs"), codeManager, a.eventBus)
+
+	return []eventbus.EventHandler{
+		reghandler.NewTransactionHandler(codeManager),
+		reghandler.NewRegistryHandler("function.*", funcManager),
+	}
 }

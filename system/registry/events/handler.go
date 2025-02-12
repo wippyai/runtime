@@ -106,3 +106,25 @@ func reject(ctx context.Context, bus events.Bus, id registry.ID, err error) {
 		Data:   err,
 	})
 }
+
+// NewTransactionHandler creates an event handler that only processes transaction events
+func NewTransactionHandler(listener registry.TransactionListener) eventbus.EventHandler {
+	return eventbus.NewBaseHandler(
+		eventbus.Pattern{System: registry.System, Kind: registry.AllEvents},
+		func(ctx context.Context, evt events.Event) error {
+			switch evt.Kind {
+			case registry.Begin:
+				listener.Begin(ctx)
+				return nil
+			case registry.Commit:
+				listener.Commit(ctx)
+				return nil
+			case registry.Discard:
+				listener.Discard(ctx)
+				return nil
+			default:
+				return nil
+			}
+		},
+	)
+}

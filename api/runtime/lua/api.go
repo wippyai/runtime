@@ -23,6 +23,15 @@ type (
 		Name() string
 	}
 
+	// Factory creates new instances of the Lua virtual machine with compiled code.
+	// It handles the compilation and instantiation of Lua environments.
+	Factory interface {
+		// Compile prepares the Lua code for execution.
+		Compile() error
+		// CreateVM creates a new instance of the Lua virtual machine.
+		CreateVM() (VM, error)
+	}
+
 	// VM represents a Lua virtual machine instance that can execute Lua code.
 	// It provides methods to run Lua functions and manage the VM lifecycle.
 	VM interface {

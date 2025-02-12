@@ -140,7 +140,7 @@ func (p *Pool) worker() {
 	defer p.workerWait.Done() // Signal worker completion
 
 	// Create a VM for this worker
-	vm, err := p.factory.MakeVM()
+	vm, err := p.factory.CreateVM()
 	if err != nil {
 		p.logger.Error("failed to create VM for worker", zap.Error(err))
 		return

@@ -66,8 +66,6 @@ func (r *reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 
 	newVersion := version.FromParent(r.currentVersion, nextVersionID(r.currentVersion))
 
-	r.log.Debug("applying changes", zap.Any("changes", changes), zap.Any("new_version", newVersion))
-
 	newState, err := r.runner.Transition(ctx, r.state, changes)
 	if err != nil {
 		r.log.Error("failed to apply changes", zap.Error(err))

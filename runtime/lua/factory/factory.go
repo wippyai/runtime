@@ -73,6 +73,11 @@ func NewRunnerFactory(log *zap.Logger, compiled *code.CompiledMain, opts ...Opti
 	return f, nil
 }
 
+func (f *RunnerFactory) Compile() error {
+	_, err := f.CreateVM()
+	return err
+}
+
 func (f *RunnerFactory) CreateVM() (api.VM, error) {
 	return f.CreateRunner()
 }
