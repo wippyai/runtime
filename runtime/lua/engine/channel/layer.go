@@ -165,18 +165,18 @@ func (r *Layer) Step(vm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, erro
 
 			if opNext.yields && len(opNext.next) > 0 {
 				for _, result := range opNext.next {
-					task, err := vm.GetTask(result.state)
+					t, err := vm.GetTask(result.state)
 					if err != nil {
 						return nil, fmt.Errorf("state not found!: %w", err)
 					}
 
 					if result.err != nil {
-						task.RaiseError = result.err
+						t.RaiseError = result.err
 					} else {
-						task.Resumed = result.values
+						t.Resumed = result.values
 					}
 
-					r.queue.Push(task)
+					r.queue.Push(t)
 				}
 			}
 		}

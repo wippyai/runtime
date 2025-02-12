@@ -8,6 +8,7 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/engine/async"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
+	"github.com/ponyruntime/pony/runtime/lua/factory"
 	"github.com/ponyruntime/pony/runtime/lua/manager"
 	lua "github.com/yuin/gopher-lua"
 	"sync"
@@ -24,7 +25,7 @@ import (
 
 var (
 	functionBuild *code.BuildOptions
-	runnerBuild   []manager.Option
+	layers        factory.Option
 )
 
 func init() {
@@ -35,13 +36,14 @@ func init() {
 		WithDenied(registry.ID{Name: "pubsub"}).
 		WithPreloaded(code.Preload{Name: "channel", ModuleID: registry.ID{Name: "channel"}})
 
-	channels := channel.NewChannelLayer()
-
-	runnerBuild = []manager.Option{
-		manager.WithRunnerOption(engine.WithLayer(channels)),
-		manager.WithRunnerOption(engine.WithLayer(async.NewAsyncLayer(channels, 4096))),
-		manager.WithRunnerOption(engine.WithLayer(coroutine.NewCoroutineLayer())),
-	}
+	layers = factory.WithLayerInitializer(func() []engine.RunnerOption {
+		channels := channel.NewChannelLayer()
+		return []engine.RunnerOption{
+			engine.WithLayer(channels),
+			engine.WithLayer(async.NewAsyncLayer(channels, 4096)),
+			engine.WithLayer(coroutine.NewCoroutineLayer()),
+		}
+	})
 }
 
 // Manager handles Lua function compilation, pooling and execution
@@ -271,7 +273,7 @@ func (m *Manager) Execute(ctx context.Context, task runtime.Task) (chan *runtime
 
 // createVM creates a new pool based on config and compiled code
 func (m *Manager) createVM(cfg *api.FunctionConfig, compiled *code.CompiledMain) (api.VM, error) {
-	fvm, err := manager.NewRunnerFactory(m.log, compiled, runnerBuild...)
+	fvm, err := factory.NewRunnerFactory(m.log, compiled, layers)
 	if err != nil {
 		return nil, fmt.Errorf("failed to compile: %w", err)
 	}
