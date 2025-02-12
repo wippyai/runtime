@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"fmt"
-
 	"github.com/ponyruntime/pony/internal/closer"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"

@@ -92,13 +92,18 @@ func (r *Layer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, err
 
 	select {
 	case item := <-r.schedule:
+		ctx := item.from.Context()
+		if ctx.Err() != nil {
+			return outTasks, nil
+		}
+
 		if item.ok {
-			err := r.channels.Send(item.from.Context(), item.ch, item.value)
+			err := r.channels.Send(ctx, item.ch, item.value)
 			if err != nil {
 				return outTasks, nil // Log error but continue
 			}
 		} else {
-			err := r.channels.Close(item.from.Context(), item.ch)
+			err := r.channels.Close(ctx, item.ch)
 			if err != nil {
 				return outTasks, nil // Log error but continue
 			}

@@ -13,15 +13,26 @@ import (
 
 // RunnerFactory creates and manages VM instances with consistent configuration
 type RunnerFactory struct {
-	log           *zap.Logger
-	compiled      *code.CompiledMain
-	engineOptions []engine.Option
-	runnerOptions []engine.RunnerOption
-	mu            sync.RWMutex
+	log               *zap.Logger
+	compiled          *code.CompiledMain
+	engineOptions     []engine.Option
+	runnerOptions     []engine.RunnerOption
+	layerInitializers []LayerInitializer
+	mu                sync.RWMutex
 }
 
 // Option configures the RunnerFactory
 type Option func(*RunnerFactory)
+
+// LayerInitializer creates a new set of layers for a VM instance
+type LayerInitializer func() []engine.RunnerOption
+
+// WithLayerInitializer adds a layer initializer to the factory
+func WithLayerInitializer(init LayerInitializer) Option {
+	return func(f *RunnerFactory) {
+		f.layerInitializers = append(f.layerInitializers, init)
+	}
+}
 
 // WithRunnerOption adds a runner option to the factory
 func WithRunnerOption(opt engine.RunnerOption) Option {
@@ -54,10 +65,11 @@ func NewRunnerFactory(log *zap.Logger, compiled *code.CompiledMain, opts ...Opti
 	}
 
 	f := &RunnerFactory{
-		log:           log,
-		compiled:      compiled,
-		engineOptions: make([]engine.Option, 0),
-		runnerOptions: make([]engine.RunnerOption, 0),
+		log:               log,
+		compiled:          compiled,
+		engineOptions:     make([]engine.Option, 0),
+		runnerOptions:     make([]engine.RunnerOption, 0),
+		layerInitializers: make([]LayerInitializer, 0),
 	}
 
 	// Apply options
@@ -99,7 +111,15 @@ func (f *RunnerFactory) CreateRunner() (*engine.Runner, error) {
 		return nil, fmt.Errorf("failed to load main function: %w", err)
 	}
 
-	return engine.NewRunner(vm, f.runnerOptions...), nil
+	runnerOpts := make([]engine.RunnerOption, len(f.runnerOptions))
+	copy(runnerOpts, f.runnerOptions)
+
+	// Add dynamically created layers
+	for _, initializer := range f.layerInitializers {
+		runnerOpts = append(runnerOpts, initializer()...)
+	}
+
+	return engine.NewRunner(vm, runnerOpts...), nil
 }
 
 // prepare sets up the factory's engine options with dependencies

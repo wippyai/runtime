@@ -167,6 +167,7 @@ func (p *Pool) worker() {
 				vm = newVM
 			}
 		}
+
 		// Send the result (if the task context isn’t done).
 		select {
 		case <-t.ctx.Done():
