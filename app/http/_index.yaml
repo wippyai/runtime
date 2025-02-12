@@ -64,3 +64,14 @@ entries:
     modules: [ http, time, json, websocket, logger, env ]
     pool:
       size: 4
+
+  - name: demo.stream
+    kind: function.lua
+    meta:
+      comment: "Demonstrates different streaming formats (text, JSON, SSE) with configurable options"
+    source: file://demo_stream.lua
+    method: handler
+    modules: [ http, time, json, logger ]
+    pool:
+      size: 4
+      workers: 16

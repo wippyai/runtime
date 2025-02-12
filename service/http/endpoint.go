@@ -49,6 +49,7 @@ func (h *EndpointHandler) Handle(w http.ResponseWriter, r *http.Request) {
 
 	if _, err = h.executeTask(ctx, task); err != nil {
 		if !rCtx.ResponseHandled() {
+			// todo: can we have some way to enable or disable error logging?
 			h.handleError(w, err, http.StatusInternalServerError)
 		}
 		return
@@ -81,7 +82,7 @@ func (h *EndpointHandler) executeTask(ctx context.Context, task runtime.Task) (*
 		if result == nil {
 			return nil, fmt.Errorf("received nil result from executor")
 		}
-		return result, nil
+		return result, result.Error
 	case <-ctx.Done():
 		return nil, fmt.Errorf("request canceled: %w", ctx.Err())
 	}

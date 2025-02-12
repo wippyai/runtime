@@ -56,3 +56,11 @@ entries:
     method: GET
     path: /ws-demo
     handler: functions:demo.websocket
+
+  - name: demo.stream
+    kind: http.endpoint
+    meta:
+      comment: "Demonstrates different streaming formats (text, JSON, SSE)"
+    method: GET
+    path: /stream
+    handler: functions:demo.stream
