@@ -12,7 +12,7 @@ const (
 	System events.System = "lua"
 
 	// data is []registry.ID
-	EventResetNodes events.Kind = "lua.reset_code"
+	InvalidateNodes events.Kind = "lua.reset_code"
 )
 
 type (

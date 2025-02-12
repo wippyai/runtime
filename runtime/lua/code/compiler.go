@@ -18,6 +18,7 @@ type CompiledProto struct {
 // CompiledMain holds the compiled versions of the main function and its dependencies
 type CompiledMain struct {
 	Main         *glua.FunctionProto
+	Method       string
 	Dependencies []CompiledProto
 }
 
@@ -119,6 +120,7 @@ func (c *Compiler) Compile(entrypoint registry.ID, options *BuildOptions) (*Comp
 	}
 
 	compiled.Main = mainProto
+	compiled.Method = rt.Main.Method
 
 	// Process preloaded dependencies first
 	for _, dep := range options.Preloaded {

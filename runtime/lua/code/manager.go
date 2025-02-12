@@ -127,7 +127,7 @@ func (cm *Manager) Commit(ctx context.Context) {
 	// Emit reset signal with affected nodes
 	cm.bus.Send(ctx, events.Event{
 		System: api.System,
-		Kind:   api.EventResetNodes,
+		Kind:   api.InvalidateNodes,
 		Data:   affectedSlice,
 	})
 }

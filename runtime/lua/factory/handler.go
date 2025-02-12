@@ -12,26 +12,26 @@ import (
 	eventhandlers "github.com/ponyruntime/pony/system/registry/events"
 )
 
-type Factory interface {
+type EntityHandler interface {
 	registry.EntryListener
 	Invalidate([]registry.ID)
 }
 
 type Handler struct {
-	factory Factory
-	inner   eventbus.EventHandler
+	entity EntityHandler
+	inner  eventbus.EventHandler
 }
 
-func NewHandler(kinds registry.Kind, factory Factory) *Handler {
+func NewHandler(kinds registry.Kind, entityHandler EntityHandler) *Handler {
 	return &Handler{
-		factory: factory,
-		inner:   eventhandlers.NewRegistryHandler(kinds, factory),
+		entity: entityHandler,
+		inner:  eventhandlers.NewRegistryHandler(kinds, entityHandler),
 	}
 }
 
 func (h *Handler) Pattern() eventbus.Pattern {
 	return eventbus.Pattern{
-		System: "(inner|lua)",
+		System: "(registry|lua)",
 		Kind:   "(entry|lua).(create|update|delete|reset_code)",
 	}
 }
@@ -40,9 +40,9 @@ func (h *Handler) Handle(ctx context.Context, evt events.Event) error {
 	// Handle Lua events first
 	if evt.System == api.System {
 		switch evt.Kind {
-		case api.EventResetNodes:
+		case api.InvalidateNodes:
 			if ids, ok := evt.Data.([]registry.ID); ok {
-				h.factory.Invalidate(ids)
+				h.entity.Invalidate(ids)
 			}
 			return nil
 		}
