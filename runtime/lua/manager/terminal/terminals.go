@@ -10,6 +10,7 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/code"
 	"github.com/ponyruntime/pony/runtime/lua/manager"
 	"go.uber.org/zap"
+	"log"
 	"sync"
 )
 
@@ -52,7 +53,8 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	m.configs.Store(entry.ID, cfg)
 
 	// Register terminal prototype
-	m.registerPrototype(ctx, entry.ID)
+	m.upsertPrototype(ctx, entry.ID)
+	m.log.Debug("added terminal", zap.String("id", entry.ID.String()))
 
 	return nil
 }
@@ -81,7 +83,8 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	m.configs.Store(entry.ID, cfg)
 
 	// Re-register terminal prototype on update
-	m.registerPrototype(ctx, entry.ID)
+	m.upsertPrototype(ctx, entry.ID)
+	m.log.Debug("updated terminal", zap.String("id", entry.ID.String()))
 
 	return nil
 }
@@ -99,6 +102,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 
 	// Unregister terminal prototype
 	m.unregisterPrototype(ctx, entry.ID)
+	m.log.Debug("deleted terminal", zap.String("id", entry.ID.String()))
 
 	return nil
 }
@@ -109,19 +113,20 @@ func (m *Manager) Invalidate(ids []registry.ID) {
 
 		// Re-register prototype when terminal is invalidated
 		if _, exists := m.configs.Load(id); exists {
-			m.registerPrototype(context.Background(), id)
+			m.upsertPrototype(context.Background(), id)
 		}
 	}
 }
 
-// registerPrototype registers a terminal as a process prototype
-func (m *Manager) registerPrototype(ctx context.Context, id registry.ID) {
+// upsertPrototype registers a terminal as a process prototype
+func (m *Manager) upsertPrototype(ctx context.Context, id registry.ID) {
 	m.bus.Send(ctx, events.Event{
 		System: process.PrototypeSystem,
 		Kind:   process.RegisterPrototype,
 		Path:   id.String(),
 		// TODO: Replace with actual terminal prototype factory once implemented
 		Data: func() (process.Process, error) {
+			log.Printf("MAKING PROTOYPYER")
 			return nil, fmt.Errorf("terminal prototype creation not implemented")
 		},
 	})

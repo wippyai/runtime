@@ -1,0 +1,12 @@
+version: 1.0/beta
+
+namespace: terminal
+name: basic
+kind: terminal.lua
+meta:
+  comment: "Simple upstream example"
+
+source: file://basic.lua
+method: App
+
+modules: [ "time" ]

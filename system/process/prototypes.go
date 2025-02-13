@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	api "github.com/ponyruntime/pony/api/process"
+	"log"
+	"os"
 	"sync"
 
 	"github.com/ponyruntime/pony/api/events"
@@ -22,8 +24,8 @@ type PrototypeRegistry struct {
 	subscriber *eventbus.Subscriber
 }
 
-// NewProcessFactory creates a new PrototypeRegistry instance with the provided event bus and logger.
-func NewProcessFactory(bus events.Bus, logger *zap.Logger) *PrototypeRegistry {
+// NewPrototypeFactory creates a new PrototypeRegistry instance with the provided event bus and logger.
+func NewPrototypeFactory(bus events.Bus, logger *zap.Logger) *PrototypeRegistry {
 	return &PrototypeRegistry{
 		bus:        bus,
 		logger:     logger,
@@ -62,7 +64,8 @@ func (p *PrototypeRegistry) Stop() error {
 func (p *PrototypeRegistry) handleEvent(e events.Event) {
 	switch e.Kind {
 	case api.RegisterPrototype:
-		p.registerPrototype(e)
+		log.New(os.Stdout, "prototype", log.LstdFlags).Println("!!!!!!!!!!!prototype: %v", e)
+		p.upsertPrototype(e)
 	case api.DeletePrototype:
 		p.deletePrototype(e)
 	default:
@@ -72,7 +75,7 @@ func (p *PrototypeRegistry) handleEvent(e events.Event) {
 	}
 }
 
-func (p *PrototypeRegistry) registerPrototype(e events.Event) {
+func (p *PrototypeRegistry) upsertPrototype(e events.Event) {
 	prototype, ok := e.Data.(api.Prototype)
 	if !ok {
 		p.logger.Error("invalid register prototype payload",

@@ -68,6 +68,7 @@ type App struct {
 	reg         apiReg.Registry
 	supervisor  *supervisor.Supervisor
 	funcs       *functions.FunctionRegistry
+	processes   *process.ProcessManager
 	prototypes  *process.PrototypeRegistry
 	hosts       *process.HostRegistry
 
@@ -136,8 +137,9 @@ func (a *App) Initialize() error {
 
 	// Initialize core function registry
 	a.funcs = functions.NewExecutor(a.eventBus, a.logger.Named("funcs"))
-	a.prototypes = process.NewProcessFactory(a.eventBus, a.logger.Named("prototypes"))
+	a.prototypes = process.NewPrototypeFactory(a.eventBus, a.logger.Named("prototypes"))
 	a.hosts = process.NewHostRegistry(a.eventBus, a.logger.Named("hosts"))
+	a.processes = process.NewProcessManager(a.hosts, a.prototypes, a.logger.Named("processes"))
 
 	return nil
 }
@@ -150,10 +152,7 @@ func (a *App) Start(folderPath string) error {
 	ctx = context.WithValue(ctx, apiCtx.TranscoderCtx, a.dtt)
 	ctx = context.WithValue(ctx, apiCtx.BusCtx, a.eventBus)
 	ctx = context.WithValue(ctx, apiCtx.FunctionsCtx, a.funcs)
-	ctx = context.WithValue(ctx, apiCtx.PrototypesCtx, a.prototypes)
-	ctx = context.WithValue(ctx, apiCtx.HostsCtx, a.hosts)
-
-	// todo: launcher
+	ctx = context.WithValue(ctx, apiCtx.ProcessesCtx, a.processes)
 
 	// Spawn environment context
 	envCtx := apiCtx.NewContexter[string]()
@@ -205,6 +204,8 @@ func (a *App) Start(folderPath string) error {
 	if _, err := a.reg.Apply(bootCtx, appState); err != nil {
 		return fmt.Errorf("failed to apply initial state: %w", err)
 	}
+
+	// launch
 
 	return nil
 }
