@@ -39,7 +39,7 @@ func (p *ProcessFactory) Start(ctx context.Context) error {
 	sub, err := eventbus.NewSubscriber(
 		p.ctx,
 		p.bus,
-		process.System,
+		process.PrototypeSystem,
 		"processes.(register|remove)",
 		p.handleEvent,
 	)
@@ -115,7 +115,7 @@ func (p *ProcessFactory) deletePrototype(e events.Event) {
 
 func (p *ProcessFactory) sendAccept(path events.Path) {
 	p.bus.Send(p.ctx, events.Event{
-		System: process.System,
+		System: process.PrototypeSystem,
 		Kind:   process.AcceptPrototype,
 		Path:   path,
 	})
@@ -123,7 +123,7 @@ func (p *ProcessFactory) sendAccept(path events.Path) {
 
 func (p *ProcessFactory) sendReject(path events.Path, reason string) {
 	p.bus.Send(p.ctx, events.Event{
-		System: process.System,
+		System: process.PrototypeSystem,
 		Kind:   process.RejectPrototype,
 		Path:   path,
 		Data:   reason,
