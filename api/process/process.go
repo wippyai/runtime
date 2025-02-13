@@ -129,44 +129,47 @@ func GetProcesses(ctx context.Context) Manager {
 	return ctx.Value(contextapi.ProcessesCtx).(Manager)
 }
 
-// String formats PID as a string in the format: "[node@]host:id:name"
-// If node is empty, the node@ part is omitted
+// String formats the PID as a pipe-delimited string wrapped in curly braces.
+// Without a node it looks like: "{host|ns:name|procname}"
+// With a node it looks like: "{node@host|ns:name|procname}"
 func (p PID) String() string {
+	var formatted string
 	if p.Node == "" {
-		return fmt.Sprintf("%s:%s:%s", p.Host, p.ID.String(), p.Name)
+		formatted = fmt.Sprintf("%s|%s|%s", p.Host, p.ID.String(), p.Name)
+	} else {
+		formatted = fmt.Sprintf("%s@%s|%s|%s", p.Node, p.Host, p.ID.String(), p.Name)
 	}
-	return fmt.Sprintf("%s@%s:%s:%s", p.Node, p.Host, p.ID.String(), p.Name)
+	return fmt.Sprintf("{%s}", formatted)
 }
 
-// ParsePID parses a string representation back into a PID
-// Accepts formats:
-// - "node@host:ns:name:procname"
-// - "host:ns:name:procname"
+// ParsePID parses a pipe-delimited string wrapped in curly braces into a PID.
+// It accepts the following formats:
+//   - "{host|ns:name|procname}"
+//   - "{node@host|ns:name|procname}"
 func ParsePID(s string) (PID, error) {
-	var node, host string
-	var rest string
+	var pid PID
 
-	// Check if we have a node part (contains @)
-	if idx := strings.Index(s, "@"); idx >= 0 {
-		node = s[:idx]
-		rest = s[idx+1:]
-	} else {
-		rest = s
-	}
+	// Remove wrapping curly braces, if present.
+	s = strings.TrimPrefix(s, "{")
+	s = strings.TrimSuffix(s, "}")
 
-	// Split the remaining parts
-	parts := strings.SplitN(rest, ":", 4)
+	parts := strings.Split(s, "|")
 	if len(parts) != 3 {
-		return PID{}, fmt.Errorf("invalid PID format: expected 3 or 4 parts, got %d", len(parts))
+		return pid, fmt.Errorf("invalid PID format: expected 3 parts separated by '|', got %d", len(parts))
 	}
 
-	host = parts[0]
-	id := registry.ParseID(fmt.Sprintf("%s:%s", parts[1], parts[2]))
+	// Parse the host part which may include a node using the "node@host" format.
+	hostPart := parts[0]
+	if idx := strings.Index(hostPart, "@"); idx >= 0 {
+		pid.Node = hostPart[:idx]
+		pid.Host = hostPart[idx+1:]
+	} else {
+		pid.Host = hostPart
+	}
 
-	return PID{
-		Node: node,
-		Host: host,
-		ID:   id,
-		Name: parts[3],
-	}, nil
+	// Parse the composite ID and process name.
+	pid.ID = registry.ParseID(parts[1])
+	pid.Name = parts[2]
+
+	return pid, nil
 }
