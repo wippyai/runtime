@@ -143,7 +143,7 @@ func (p *ProcessFactory) Create(id registry.ID) (process.Process, error) {
 		return nil, fmt.Errorf("invalid prototype type for id: %v", id)
 	}
 
-	process, err := prototype()
+	proto, err := prototype()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create process from prototype: %w", err)
 	}
@@ -152,5 +152,5 @@ func (p *ProcessFactory) Create(id registry.ID) (process.Process, error) {
 		zap.String("ns", id.NS),
 		zap.String("name", id.Name))
 
-	return process, nil
+	return proto, nil
 }
