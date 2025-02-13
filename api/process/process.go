@@ -10,20 +10,20 @@ import (
 
 // Event system and kind constants for the workflow package
 const (
-	// System identifies the workflow system in the event bus.
-	System events.System = "processes"
+	// PrototypeSystem identifies the workflow system in the event bus.
+	PrototypeSystem events.System = "prototypes"
 
 	// RegisterPrototype is the event kind for registering a new process prototype.
-	RegisterPrototype events.Kind = "processes.register"
+	RegisterPrototype events.Kind = "prototypes.register"
 
 	// DeletePrototype is the event kind for removing an existing process prototype.
-	DeletePrototype events.Kind = "processes.remove"
+	DeletePrototype events.Kind = "prototypes.remove"
 
 	// AcceptPrototype is the event kind for accepting a new process prototype.
-	AcceptPrototype events.Kind = "processes.accept"
+	AcceptPrototype events.Kind = "prototypes.accept"
 
 	// RejectPrototype is the event kind for rejecting a new process prototype.
-	RejectPrototype events.Kind = "processes.reject"
+	RejectPrototype events.Kind = "prototypes.reject"
 )
 
 type (

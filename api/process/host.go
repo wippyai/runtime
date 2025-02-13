@@ -2,8 +2,18 @@ package process
 
 import (
 	"context"
+	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/runtime"
+)
+
+// Event system and kind constants for the workflow package
+const (
+	HostSystem   events.System = "hosts"
+	RegisterHost events.Kind   = "hosts.register"
+	DeleteHost   events.Kind   = "hosts.remove"
+	AcceptHost   events.Kind   = "hosts.accept"
+	RejectHost   events.Kind   = "hosts.reject"
 )
 
 type (
