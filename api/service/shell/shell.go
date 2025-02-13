@@ -1,18 +1,12 @@
 package shell
 
 import (
-	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/supervisor"
 )
 
-const (
-	// System identifies the terminal system in the event context
-	System events.System = "shell"
-
-	// KindHost identifies a terminal service component
-	KindHost registry.Kind = "shell.host"
-)
+// KindHost identifies a terminal service component
+const KindHost registry.Kind = "shell.host"
 
 type (
 	// HostConfig represents the configuration for a terminal service
@@ -25,4 +19,8 @@ type (
 // InitDefaults initializes the HostConfig with default values
 func (c *HostConfig) InitDefaults() {
 	c.Lifecycle.InitDefaults()
+}
+
+func (c *HostConfig) Validate() error {
+	return nil
 }
