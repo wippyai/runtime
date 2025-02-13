@@ -11,8 +11,8 @@ import (
 )
 
 type hostInfo struct {
-	host      api.Host
-	delegated bool
+	host    api.Host
+	managed bool
 }
 
 // HostRegistry manages process hosts and their lifecycle
@@ -84,12 +84,12 @@ func (r *HostRegistry) registerHost(e events.Event) {
 	}
 
 	// Determine host type
-	delegated := false
+	managed := false
 	switch h := host.(type) {
 	case api.Managed:
+		managed = true
 		_ = h // avoid unused variable warning
 	case api.Delegated:
-		delegated = true
 		_ = h // avoid unused variable warning
 	default:
 		r.log.Error("invalid host implementation",
@@ -99,12 +99,12 @@ func (r *HostRegistry) registerHost(e events.Event) {
 		return
 	}
 
-	info := hostInfo{host: host, delegated: delegated}
+	info := hostInfo{host: host, managed: managed}
 
 	r.hosts.Store(e.Path, info)
 	r.log.Debug("host registered",
 		zap.String("host", e.Path),
-		zap.Bool("delegated", delegated))
+		zap.Bool("managed", managed))
 
 	r.sendAccept(e.Path)
 }
