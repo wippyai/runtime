@@ -45,9 +45,6 @@ type (
 		// Start begins process execution with given task.
 		Start(ctx context.Context, task Task) error
 
-		// Step advances process state by one iteration
-		Step() error
-
 		// Done returns a channel that is closed when the process is complete or exited.
 		Done() <-chan struct{}
 
