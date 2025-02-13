@@ -3,6 +3,7 @@ package function
 import (
 	"context"
 	"fmt"
+	"github.com/ponyruntime/pony/api/function"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/async"
@@ -304,18 +305,18 @@ func (m *Manager) createVM(cfg *api.FunctionConfig, compiled *code.CompiledMain)
 // registerCaller registers function in the function system
 func (m *Manager) registerCaller(ctx context.Context, id registry.ID, method string) {
 	m.bus.Send(ctx, events.Event{
-		System: runtime.FunctionSystem,
-		Kind:   runtime.RegisterFunctionHandler,
+		System: function.System,
+		Kind:   function.RegisterFunctionHandler,
 		Path:   id.String(),
-		Data:   runtime.Func(m.Execute),
+		Data:   function.Func(m.Execute),
 	})
 }
 
 // unregisterCaller removes function from the function system
 func (m *Manager) unregisterCaller(ctx context.Context, id registry.ID) {
 	m.bus.Send(ctx, events.Event{
-		System: runtime.FunctionSystem,
-		Kind:   runtime.DeleteFunctionHandler,
+		System: function.System,
+		Kind:   function.DeleteFunctionHandler,
 		Path:   id.String(),
 	})
 }

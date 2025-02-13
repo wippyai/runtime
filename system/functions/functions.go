@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	contextapi "github.com/ponyruntime/pony/api/context"
+	"github.com/ponyruntime/pony/api/function"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
 	"sync"
@@ -41,8 +42,8 @@ func (f *FunctionRegistry) Start(ctx context.Context) error {
 	sub, err := eventbus.NewSubscriber(
 		f.ctx,
 		f.bus,
-		runtime.FunctionSystem,
-		"functions.(register|remove)",
+		function.System,
+		"function.(register|remove)",
 		f.handleEvent,
 	)
 	if err != nil {
@@ -63,9 +64,9 @@ func (f *FunctionRegistry) Stop() error {
 
 func (f *FunctionRegistry) handleEvent(e events.Event) {
 	switch e.Kind {
-	case runtime.RegisterFunctionHandler:
+	case function.RegisterFunctionHandler:
 		f.registerFunction(e)
-	case runtime.DeleteFunctionHandler:
+	case function.DeleteFunctionHandler:
 		f.deleteFunction(e)
 	default:
 		f.logger.Warn("unknown event kind",
@@ -75,7 +76,7 @@ func (f *FunctionRegistry) handleEvent(e events.Event) {
 }
 
 func (f *FunctionRegistry) registerFunction(e events.Event) {
-	fn, ok := e.Data.(runtime.Func)
+	fn, ok := e.Data.(function.Func)
 	if !ok {
 		f.logger.Error("invalid register function payload",
 			zap.String("function", e.Path),
@@ -110,16 +111,16 @@ func (f *FunctionRegistry) deleteFunction(e events.Event) {
 
 func (f *FunctionRegistry) sendAccept(path events.Path) {
 	f.bus.Send(f.ctx, events.Event{
-		System: runtime.FunctionSystem,
-		Kind:   runtime.AcceptFunction,
+		System: function.System,
+		Kind:   function.AcceptFunction,
 		Path:   path,
 	})
 }
 
 func (f *FunctionRegistry) sendReject(path events.Path, reason string) {
 	f.bus.Send(f.ctx, events.Event{
-		System: runtime.FunctionSystem,
-		Kind:   runtime.RejectFunction,
+		System: function.System,
+		Kind:   function.RejectFunction,
 		Path:   path,
 		Data:   reason,
 	})
@@ -140,7 +141,7 @@ func (f *FunctionRegistry) Call(ctx context.Context, task runtime.Task) (chan *r
 	}
 
 	ctx = context.WithValue(ctx, contextapi.HandlerCtx, task.Handler)
-	execHandler, ok := handler.(runtime.Func)
+	execHandler, ok := handler.(function.Func)
 	if !ok {
 		return nil, fmt.Errorf("invalid handler type for target: %s", task.Handler)
 	}
