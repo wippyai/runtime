@@ -3,6 +3,7 @@ package functions
 import (
 	"context"
 	"fmt"
+	"github.com/ponyruntime/pony/api/function"
 	"github.com/ponyruntime/pony/api/runtime"
 	"sync"
 	"testing"
@@ -53,8 +54,8 @@ func TestFunctions_InvalidEvents(t *testing.T) {
 		{
 			name: "invalid register handler data",
 			evt: events.Event{
-				System: runtime.FunctionSystem,
-				Kind:   runtime.RegisterFunctionHandler,
+				System: function.System,
+				Kind:   function.RegisterFunctionHandler,
 				Path:   "test.handler",
 				Data:   "invalid data",
 			},
@@ -62,8 +63,8 @@ func TestFunctions_InvalidEvents(t *testing.T) {
 		{
 			name: "invalid delete handler data",
 			evt: events.Event{
-				System: runtime.FunctionSystem,
-				Kind:   runtime.DeleteFunctionHandler,
+				System: function.System,
+				Kind:   function.DeleteFunctionHandler,
 				Path:   "test.handler",
 				Data:   "invalid data",
 			},
@@ -71,7 +72,7 @@ func TestFunctions_InvalidEvents(t *testing.T) {
 		{
 			name: "unknown event kind",
 			evt: events.Event{
-				System: runtime.FunctionSystem,
+				System: function.System,
 				Kind:   "unknown.event",
 				Data:   nil,
 			},
@@ -103,10 +104,10 @@ func TestFunctions_EventResponses(t *testing.T) {
 	sub, err := eventbus.NewSubscriber(
 		ctx,
 		bus,
-		runtime.FunctionSystem,
-		"functions.*",
+		function.System,
+		"function.*",
 		func(evt events.Event) {
-			if evt.Kind == runtime.AcceptFunction || evt.Kind == runtime.RejectFunction {
+			if evt.Kind == function.AcceptFunction || evt.Kind == function.RejectFunction {
 				mu.Lock()
 				responses = append(responses, evt)
 				mu.Unlock()
@@ -126,45 +127,45 @@ func TestFunctions_EventResponses(t *testing.T) {
 		{
 			name: "valid function registration",
 			event: events.Event{
-				System: runtime.FunctionSystem,
-				Kind:   runtime.RegisterFunctionHandler,
+				System: function.System,
+				Kind:   function.RegisterFunctionHandler,
 				Path:   "default:test.handler",
-				Data: runtime.Func(func(ctx context.Context, task runtime.Task) (chan *runtime.Result, error) {
+				Data: function.Func(func(ctx context.Context, task runtime.Task) (chan *runtime.Result, error) {
 					return make(chan *runtime.Result), nil
 				}),
 			},
-			expectedKind: runtime.AcceptFunction,
+			expectedKind: function.AcceptFunction,
 			expectedPath: "default:test.handler",
 		},
 		{
 			name: "invalid function registration",
 			event: events.Event{
-				System: runtime.FunctionSystem,
-				Kind:   runtime.RegisterFunctionHandler,
+				System: function.System,
+				Kind:   function.RegisterFunctionHandler,
 				Path:   "invalid:handler",
 				Data:   "not a function",
 			},
-			expectedKind: runtime.RejectFunction,
+			expectedKind: function.RejectFunction,
 			expectedPath: "invalid:handler",
 		},
 		{
 			name: "delete existing function",
 			event: events.Event{
-				System: runtime.FunctionSystem,
-				Kind:   runtime.DeleteFunctionHandler,
+				System: function.System,
+				Kind:   function.DeleteFunctionHandler,
 				Path:   "default:test.handler",
 			},
-			expectedKind: runtime.AcceptFunction,
+			expectedKind: function.AcceptFunction,
 			expectedPath: "default:test.handler",
 		},
 		{
 			name: "delete non-existent function",
 			event: events.Event{
-				System: runtime.FunctionSystem,
-				Kind:   runtime.DeleteFunctionHandler,
+				System: function.System,
+				Kind:   function.DeleteFunctionHandler,
 				Path:   "nonexistent:handler",
 			},
-			expectedKind: runtime.RejectFunction,
+			expectedKind: function.RejectFunction,
 			expectedPath: "nonexistent:handler",
 		},
 	}
@@ -197,7 +198,7 @@ func TestFunctions_EventResponses(t *testing.T) {
 			lastResponse := responses[len(responses)-1]
 			mu.Unlock()
 
-			assert.Equal(t, runtime.FunctionSystem, lastResponse.System)
+			assert.Equal(t, function.System, lastResponse.System)
 			assert.Equal(t, tt.expectedKind, lastResponse.Kind)
 			assert.Equal(t, tt.expectedPath, lastResponse.Path)
 		})
@@ -217,10 +218,10 @@ func TestFunctions_Execute(t *testing.T) {
 	sub, err := eventbus.NewSubscriber(
 		ctx,
 		bus,
-		runtime.FunctionSystem,
-		"functions.*",
+		function.System,
+		"function.*",
 		func(evt events.Event) {
-			if evt.Kind == runtime.AcceptFunction {
+			if evt.Kind == function.AcceptFunction {
 				wg.Done()
 			}
 		},
@@ -250,10 +251,10 @@ func TestFunctions_Execute(t *testing.T) {
 
 				wg.Add(1) // Wait for registration acceptance
 				bus.Send(ctx, events.Event{
-					System: runtime.FunctionSystem,
-					Kind:   runtime.RegisterFunctionHandler,
+					System: function.System,
+					Kind:   function.RegisterFunctionHandler,
 					Path:   target.String(),
-					Data:   runtime.Func(handler),
+					Data:   function.Func(handler),
 				})
 			},
 			task: runtime.Task{
@@ -280,10 +281,10 @@ func TestFunctions_Execute(t *testing.T) {
 
 				wg.Add(1) // Wait for registration acceptance
 				bus.Send(ctx, events.Event{
-					System: runtime.FunctionSystem,
-					Kind:   runtime.RegisterFunctionHandler,
+					System: function.System,
+					Kind:   function.RegisterFunctionHandler,
 					Path:   target.String(),
-					Data:   runtime.Func(handler),
+					Data:   function.Func(handler),
 				})
 			},
 			task: runtime.Task{
@@ -334,10 +335,10 @@ func TestFunctions_ConcurrentHandlerRegistration(t *testing.T) {
 	sub, err := eventbus.NewSubscriber(
 		ctx,
 		bus,
-		runtime.FunctionSystem,
-		"functions.*",
+		function.System,
+		"function.*",
 		func(evt events.Event) {
-			if evt.Kind == runtime.AcceptFunction {
+			if evt.Kind == function.AcceptFunction {
 				wg.Done()
 			}
 		},
@@ -364,10 +365,10 @@ func TestFunctions_ConcurrentHandlerRegistration(t *testing.T) {
 			}
 
 			bus.Send(ctx, events.Event{
-				System: runtime.FunctionSystem,
-				Kind:   runtime.RegisterFunctionHandler,
+				System: function.System,
+				Kind:   function.RegisterFunctionHandler,
 				Path:   target.String(),
-				Data:   runtime.Func(handler),
+				Data:   function.Func(handler),
 			})
 		}(i)
 	}
