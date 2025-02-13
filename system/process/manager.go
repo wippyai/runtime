@@ -25,30 +25,30 @@ func NewProcessManager(hosts *HostRegistry, prototypes *PrototypeRegistry, logge
 }
 
 // Launch creates and starts a new process instance on the specified host
-func (m *ProcessManager) Launch(ctx context.Context, p api.LaunchProcess) (api.PID, error) {
+func (m *ProcessManager) Launch(ctx context.Context, pl api.LaunchProcess) (api.PID, error) {
 	// Get the host
-	host, exists := m.hosts.GetHost(p.HostID)
+	host, exists := m.hosts.GetHost(pl.HostID)
 	if !exists {
-		return api.PID{}, fmt.Errorf("host not found: %s", p.HostID)
+		return api.PID{}, fmt.Errorf("host not found: %s", pl.HostID)
 	}
 
 	pid := api.PID{
-		Host: p.HostID,
-		ID:   p.ID,
-		Name: p.Name,
+		Host: pl.HostID,
+		ID:   pl.ID,
+		Name: pl.Name,
 	}
 
 	// Handle different host types
 	switch h := host.(type) {
 	case api.Managed:
 		// For managed hosts, we need to create the process first
-		process, err := m.prototypes.Create(p.ID)
+		process, err := m.initProcess(ctx, pl)
 		if err != nil {
 			return api.PID{}, fmt.Errorf("failed to create process: %w", err)
 		}
 
 		// Launch on managed host with process instance
-		newPid, err := h.Launch(ctx, pid, p.Task, process)
+		newPid, err := h.Launch(ctx, pid, pl.Task, process)
 		if err != nil {
 			return api.PID{}, fmt.Errorf("failed to launch process on managed host: %w", err)
 		}
@@ -56,7 +56,7 @@ func (m *ProcessManager) Launch(ctx context.Context, p api.LaunchProcess) (api.P
 
 	case api.Delegated:
 		// For delegated hosts, just pass the task
-		newPid, err := h.Launch(ctx, pid, p.Task)
+		newPid, err := h.Launch(ctx, pid, pl.Task)
 		if err != nil {
 			return api.PID{}, fmt.Errorf("failed to launch process on delegated host: %w", err)
 		}
@@ -65,6 +65,17 @@ func (m *ProcessManager) Launch(ctx context.Context, p api.LaunchProcess) (api.P
 	default:
 		return api.PID{}, fmt.Errorf("invalid host type: %T", host)
 	}
+}
+
+func (m *ProcessManager) initProcess(ctx context.Context, p api.LaunchProcess) (api.Process, error) {
+	prototype, err := m.prototypes.Create(p.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create process from prototype: %w", err)
+	}
+
+	// todo: perform various linkage operations
+
+	return prototype, nil
 }
 
 // Send delivers a message to a specific process
