@@ -66,7 +66,8 @@ type App struct {
 	reg         apiReg.Registry
 	supervisor  *supervisor.Supervisor
 	funcs       *functions.FunctionRegistry
-	processes   *processes.PrototypeFactory
+	prototypes  *processes.PrototypeRegistry
+	hosts       *processes.HostRegistry
 
 	shuttingDown  bool
 	forceShutdown chan struct{}
@@ -133,7 +134,8 @@ func (a *App) Initialize() error {
 
 	// Initialize core function registry
 	a.funcs = functions.NewExecutor(a.eventBus, a.logger.Named("funcs"))
-	a.processes = processes.NewProcessFactory(a.eventBus, a.logger.Named("processes"))
+	a.prototypes = processes.NewProcessFactory(a.eventBus, a.logger.Named("prototypes"))
+	a.hosts = processes.NewHostRegistry(a.eventBus, a.logger.Named("hosts"))
 
 	return nil
 }
@@ -146,7 +148,9 @@ func (a *App) Start(folderPath string) error {
 	ctx = context.WithValue(ctx, apiCtx.TranscoderCtx, a.dtt)
 	ctx = context.WithValue(ctx, apiCtx.BusCtx, a.eventBus)
 	ctx = context.WithValue(ctx, apiCtx.FunctionsCtx, a.funcs)
-	ctx = context.WithValue(ctx, apiCtx.ProcessFactoryCtx, a.processes)
+	ctx = context.WithValue(ctx, apiCtx.PrototypesCtx, a.prototypes)
+	ctx = context.WithValue(ctx, apiCtx.HostsCtx, a.hosts)
+
 	// todo: launcher
 
 	// Spawn environment context
@@ -162,6 +166,14 @@ func (a *App) Start(folderPath string) error {
 	// Start core function registry
 	if err := a.funcs.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start function executor: %w", err)
+	}
+
+	if err := a.prototypes.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start prototype registry: %w", err)
+	}
+
+	if err := a.hosts.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start host registry: %w", err)
 	}
 
 	// Start supervisor

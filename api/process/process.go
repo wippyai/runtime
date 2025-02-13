@@ -59,5 +59,5 @@ type (
 )
 
 func GetProcessFactory(ctx context.Context) Factory {
-	return ctx.Value(contextapi.ProcessFactoryCtx).(Factory)
+	return ctx.Value(contextapi.PrototypesCtx).(Factory)
 }
