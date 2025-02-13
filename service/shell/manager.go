@@ -23,8 +23,8 @@ type Manager struct {
 	shell *Shell
 }
 
-// NewManager creates a new shell manager instance
-func NewManager(bus events.Bus, dtt payload.Transcoder, logger *zap.Logger) *Manager {
+// NewShellManager creates a new shell manager instance
+func NewShellManager(bus events.Bus, dtt payload.Transcoder, logger *zap.Logger) *Manager {
 	return &Manager{log: logger, bus: bus, dtt: dtt}
 }
 
@@ -47,6 +47,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	defer m.mu.Unlock()
 
 	m.shell = NewShell(entry.ID, cfg)
+	m.log.Info("shell service created", zap.String("id", m.shell.id.String()))
 
 	// Register as process host
 	m.registerHost(ctx, m.shell)
@@ -78,6 +79,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 	// Update service configuration
 	m.shell.updateConfig(cfg)
+	m.log.Info("shell service updated", zap.String("id", m.shell.id.String()))
 
 	return nil
 }
@@ -89,6 +91,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 
 	m.removeHost(ctx, entry.ID)
 	m.shell = nil // stop controlled by supervisor
+	m.log.Info("shell service removed", zap.String("id", entry.ID.String()))
 
 	return nil
 }

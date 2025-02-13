@@ -12,9 +12,9 @@ import (
 	"go.uber.org/zap"
 )
 
-// ProcessFactory manages process prototypes and handles process creation in the runtime system.
+// PrototypeFactory manages process prototypes and handles process creation in the runtime system.
 // It uses an event bus for communication and supports dynamic prototype registration.
-type ProcessFactory struct {
+type PrototypeFactory struct {
 	ctx        context.Context
 	logger     *zap.Logger
 	bus        events.Bus
@@ -22,9 +22,9 @@ type ProcessFactory struct {
 	subscriber *eventbus.Subscriber
 }
 
-// NewProcessFactory creates a new ProcessFactory instance with the provided event bus and logger.
-func NewProcessFactory(bus events.Bus, logger *zap.Logger) *ProcessFactory {
-	return &ProcessFactory{
+// NewProcessFactory creates a new PrototypeFactory instance with the provided event bus and logger.
+func NewProcessFactory(bus events.Bus, logger *zap.Logger) *PrototypeFactory {
+	return &PrototypeFactory{
 		bus:        bus,
 		logger:     logger,
 		prototypes: sync.Map{},
@@ -32,7 +32,7 @@ func NewProcessFactory(bus events.Bus, logger *zap.Logger) *ProcessFactory {
 }
 
 // Start initializes the registry and begins listening for process-related events.
-func (p *ProcessFactory) Start(ctx context.Context) error {
+func (p *PrototypeFactory) Start(ctx context.Context) error {
 	p.ctx = ctx
 
 	// Subscribe to process events
@@ -40,7 +40,7 @@ func (p *ProcessFactory) Start(ctx context.Context) error {
 		p.ctx,
 		p.bus,
 		process.PrototypeSystem,
-		"processes.(register|remove)",
+		"prototype.(register|remove)",
 		p.handleEvent,
 	)
 	if err != nil {
@@ -52,14 +52,14 @@ func (p *ProcessFactory) Start(ctx context.Context) error {
 }
 
 // Stop cleanly shuts down the registry by closing its event subscriber.
-func (p *ProcessFactory) Stop() error {
+func (p *PrototypeFactory) Stop() error {
 	if p.subscriber != nil {
 		p.subscriber.Close()
 	}
 	return nil
 }
 
-func (p *ProcessFactory) handleEvent(e events.Event) {
+func (p *PrototypeFactory) handleEvent(e events.Event) {
 	switch e.Kind {
 	case process.RegisterPrototype:
 		p.registerPrototype(e)
@@ -72,7 +72,7 @@ func (p *ProcessFactory) handleEvent(e events.Event) {
 	}
 }
 
-func (p *ProcessFactory) registerPrototype(e events.Event) {
+func (p *PrototypeFactory) registerPrototype(e events.Event) {
 	prototype, ok := e.Data.(process.Prototype)
 	if !ok {
 		p.logger.Error("invalid register prototype payload",
@@ -90,7 +90,7 @@ func (p *ProcessFactory) registerPrototype(e events.Event) {
 	p.sendAccept(e.Path)
 }
 
-func (p *ProcessFactory) deletePrototype(e events.Event) {
+func (p *PrototypeFactory) deletePrototype(e events.Event) {
 	id := registry.ParseID(e.Path)
 	// Check if the prototype exists before removing
 	_, exists := p.prototypes.Load(id)
@@ -113,7 +113,7 @@ func (p *ProcessFactory) deletePrototype(e events.Event) {
 	p.sendAccept(e.Path)
 }
 
-func (p *ProcessFactory) sendAccept(path events.Path) {
+func (p *PrototypeFactory) sendAccept(path events.Path) {
 	p.bus.Send(p.ctx, events.Event{
 		System: process.PrototypeSystem,
 		Kind:   process.AcceptPrototype,
@@ -121,7 +121,7 @@ func (p *ProcessFactory) sendAccept(path events.Path) {
 	})
 }
 
-func (p *ProcessFactory) sendReject(path events.Path, reason string) {
+func (p *PrototypeFactory) sendReject(path events.Path, reason string) {
 	p.bus.Send(p.ctx, events.Event{
 		System: process.PrototypeSystem,
 		Kind:   process.RejectPrototype,
@@ -132,7 +132,7 @@ func (p *ProcessFactory) sendReject(path events.Path, reason string) {
 
 // Create instantiates a new process using the registered prototype for the given ID.
 // Returns an error if no prototype is registered for the ID or if process creation fails.
-func (p *ProcessFactory) Create(id registry.ID) (process.Process, error) {
+func (p *PrototypeFactory) Create(id registry.ID) (process.Process, error) {
 	prototypeVal, exists := p.prototypes.Load(id)
 	if !exists {
 		return nil, fmt.Errorf("no prototype registered for id: %v", id)
