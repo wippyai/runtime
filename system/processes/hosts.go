@@ -75,7 +75,7 @@ func (r *HostRegistry) handleEvent(e events.Event) {
 func (r *HostRegistry) registerHost(e events.Event) {
 	host, ok := e.Data.(process.Host)
 	if !ok {
-		r.log.Error("invalid register host payload",
+		r.log.Error("invalid host payload",
 			zap.String("host", e.Path),
 			zap.String("type", fmt.Sprintf("%T", e.Data)))
 
