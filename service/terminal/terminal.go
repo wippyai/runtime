@@ -24,15 +24,15 @@ const (
 )
 
 type op struct {
-	typ    opType
-	pid    process.PID
-	proc   process.Process
-	input  payload.Payloads
-	msg    *process.Message
-	cfg    *terminal.HostConfig
-	result chan error
-	// response is used only for opLaunch to return the new PID
-	response chan process.PID
+	typ        opType
+	pid        process.PID
+	proc       process.Process
+	input      payload.Payloads
+	msg        *process.Message
+	cfg        *terminal.HostConfig
+	result     chan error
+	response   chan process.PID
+	onComplete []process.OnComplete
 }
 
 type Terminal struct {
@@ -80,7 +80,7 @@ func (t *Terminal) run(ctx context.Context, status chan<- any) {
 
 			switch op.typ {
 			case opLaunch:
-				err = t.handleLaunch(op.pid, op.proc, op.input, op.response)
+				err = t.handleLaunch(op.pid, op.proc, op.input, op.response, op.onComplete)
 			case opTerminate:
 				err = t.handleTerminate()
 			case opSend:
@@ -101,7 +101,7 @@ func (t *Terminal) run(ctx context.Context, status chan<- any) {
 	}
 }
 
-func (t *Terminal) handleLaunch(pid process.PID, proc process.Process, input payload.Payloads, response chan process.PID) error {
+func (t *Terminal) handleLaunch(pid process.PID, proc process.Process, input payload.Payloads, response chan process.PID, parentOnComplete []process.OnComplete) error {
 	if t.runner.Load() != nil {
 		return process.ErrHostBusy
 	}
@@ -118,21 +118,23 @@ func (t *Terminal) handleLaunch(pid process.PID, proc process.Process, input pay
 		}
 	}
 
-	runner, err := NewRunner(t.ctx, cfg, t.log, process.Launch{
-		PID:     pid,
-		Process: proc,
-		Input:   input,
-		OnComplete: []process.OnComplete{
-			func(pid process.PID, result *runtime.Result) {
-				t.log.Info("process execution completed",
-					zap.String("pid", pid.String()),
-					zap.Any("result", result),
-				)
-				t.cleanup(result)
-			},
-		},
+	// Merge parent's onComplete callbacks with terminal's own callback.
+	mergedOnComplete := make([]process.OnComplete, 0, len(parentOnComplete)+1)
+	mergedOnComplete = append(mergedOnComplete, parentOnComplete...)
+	mergedOnComplete = append(mergedOnComplete, func(pid process.PID, result *runtime.Result) {
+		t.log.Info("terminal process execution completed",
+			zap.String("pid", pid.String()),
+			zap.Any("result", result),
+		)
+		t.cleanup(result)
 	})
 
+	runner, err := NewRunner(t.ctx, cfg, t.log, process.Launch{
+		PID:        pid,
+		Process:    proc,
+		Input:      input,
+		OnComplete: mergedOnComplete,
+	})
 	if err != nil {
 		t.cleanup(nil)
 		return err
@@ -202,15 +204,15 @@ func (t *Terminal) Send(ctx context.Context, pid process.PID, msg *process.Messa
 }
 
 func (t *Terminal) Launch(ctx context.Context, pl process.Launch) (process.PID, error) {
-	// Create a dedicated response channel to receive the new PID.
 	resp := make(chan process.PID, 1)
 	err := t.execOp(ctx, op{
-		typ:      opLaunch,
-		pid:      pl.PID,
-		proc:     pl.Process,
-		input:    pl.Input,
-		result:   make(chan error, 1),
-		response: resp,
+		typ:        opLaunch,
+		pid:        pl.PID,
+		proc:       pl.Process,
+		input:      pl.Input,
+		result:     make(chan error, 1),
+		response:   resp,
+		onComplete: pl.OnComplete,
 	})
 	if err != nil {
 		return process.PID{}, err
