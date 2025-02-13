@@ -84,7 +84,7 @@ func TestSimpleHTTP(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Start service
+	// Launch service
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -150,7 +150,7 @@ func TestHTTPServerUnderSupervisor(t *testing.T) {
 		func(supervisor.Status, any) {},
 	)
 
-	// Start the supervisor
+	// Launch the supervisor
 	err = hsup.Start()
 	require.NoError(t, err)
 

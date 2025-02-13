@@ -58,7 +58,7 @@ func TestWorkflowRunner_BasicFlow(t *testing.T) {
 	err = vm.Import(script, "test", "test_workflow")
 	require.NoError(t, err)
 
-	// Start workflow
+	// Launch workflow
 	err = workflow.Start(context.Background(), "test_workflow")
 	require.NoError(t, err)
 
@@ -140,7 +140,7 @@ func TestWorkflowRunner_SequentialCommands(t *testing.T) {
 	err = vm.Import(script, "test", "test_workflow")
 	require.NoError(t, err)
 
-	// Start workflow
+	// Launch workflow
 	err = workflow.Start(context.Background(), "test_workflow")
 	require.NoError(t, err)
 
@@ -231,7 +231,7 @@ func TestWorkflowRunner_CommandFailure(t *testing.T) {
 	err = vm.Import(script, "test", "test_workflow")
 	require.NoError(t, err)
 
-	// Start workflow
+	// Launch workflow
 	err = workflow.Start(context.Background(), "test_workflow")
 	require.NoError(t, err)
 
@@ -332,7 +332,7 @@ func TestWorkflowRunner_ConcurrentCommandsWithSelect(t *testing.T) {
 	err = vm.Import(script, "test", "test_workflow")
 	require.NoError(t, err)
 
-	// Start workflow
+	// Launch workflow
 	err = workflow.Start(context.Background(), "test_workflow")
 	require.NoError(t, err)
 
@@ -442,7 +442,7 @@ func TestWorkflowRunner_CommandWithSignal(t *testing.T) {
 	err = vm.Import(script, "test", "test_workflow")
 	require.NoError(t, err)
 
-	// Start workflow
+	// Launch workflow
 	err = workflow.Start(context.Background(), "test_workflow")
 	require.NoError(t, err)
 
@@ -516,7 +516,7 @@ func TestWorkflowRunner_CommandWithSignalCounter(t *testing.T) {
         function test_workflow() 
             local signal_count = 0
             
-            -- Start signal counter coroutine
+            -- Launch signal counter coroutine
             coroutine.spawn(function()
                 local count = 0
                 local signals = pubsub.subscribe("test.signal")
@@ -545,7 +545,7 @@ func TestWorkflowRunner_CommandWithSignalCounter(t *testing.T) {
 	err = vm.Import(script, "test", "test_workflow")
 	require.NoError(t, err)
 
-	// Start workflow
+	// Launch workflow
 	err = workflow.Start(context.Background(), "test_workflow")
 	require.NoError(t, err)
 

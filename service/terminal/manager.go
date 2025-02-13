@@ -1,16 +1,17 @@
-package shell
+package terminal
 
 import (
 	"context"
 	"fmt"
 	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/supervisor"
+	"github.com/ponyruntime/pony/system/logs"
 	"sync"
 
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
-	api "github.com/ponyruntime/pony/api/service/shell"
+	api "github.com/ponyruntime/pony/api/service/terminal"
 	"go.uber.org/zap"
 )
 
@@ -20,7 +21,7 @@ type Manager struct {
 	bus   events.Bus
 	dtt   payload.Transcoder
 	mu    sync.RWMutex
-	shell *Shell
+	shell *Terminal
 }
 
 // NewShellManager creates a new shell manager instance
@@ -46,8 +47,8 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.shell = NewShell(entry.ID, cfg)
-	m.log.Info("shell service created", zap.String("id", m.shell.id.String()))
+	m.shell = NewTerminal(entry.ID, cfg, logs.NewConfigSwitcher(m.bus, m.log), m.log)
+	m.log.Info("terminal service created", zap.String("id", m.shell.id.String()))
 
 	// Register as process host
 	m.registerHost(ctx, m.shell)
@@ -74,12 +75,16 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	defer m.mu.Unlock()
 
 	if m.shell == nil {
-		return fmt.Errorf("shell %s not found", entry.ID)
+		return fmt.Errorf("terminal %s not found", entry.ID)
 	}
 
 	// Update service configuration
-	m.shell.updateConfig(cfg)
-	m.log.Info("shell service updated", zap.String("id", m.shell.id.String()))
+	err := m.shell.UpdateConfig(ctx, cfg)
+	if err != nil {
+		return fmt.Errorf("failed to update terminal config: %w", err)
+	}
+
+	m.log.Info("terminal service updated", zap.String("id", m.shell.id.String()))
 
 	return nil
 }
@@ -91,27 +96,27 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 
 	m.removeHost(ctx, entry.ID)
 	m.shell = nil // stop controlled by supervisor
-	m.log.Info("shell service removed", zap.String("id", entry.ID.String()))
+	m.log.Info("terminal service removed", zap.String("id", entry.ID.String()))
 
 	return nil
 }
 
 // registerHost registers the shell service as a process host
-func (m *Manager) registerHost(ctx context.Context, shell *Shell) {
+func (m *Manager) registerHost(ctx context.Context, terminal *Terminal) {
 	m.bus.Send(ctx, events.Event{
 		System: process.HostSystem,
 		Kind:   process.RegisterHost,
-		Path:   shell.id.String(),
-		Data:   process.Managed(shell),
+		Path:   terminal.id.String(),
+		Data:   process.Managed(terminal),
 	})
 
 	m.bus.Send(ctx, events.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Register,
-		Path:   shell.id.String(),
+		Path:   terminal.id.String(),
 		Data: &supervisor.Entry{
-			Service: shell,
-			Config:  shell.cfg.Lifecycle,
+			Service: terminal,
+			Config:  terminal.cfg.Lifecycle,
 		},
 	})
 }

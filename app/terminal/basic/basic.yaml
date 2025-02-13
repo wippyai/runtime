@@ -5,6 +5,7 @@ name: basic
 kind: terminal.lua
 meta:
   comment: "Simple upstream example"
+  default_host: terminal
 
 source: file://basic.lua
 method: App

@@ -10,7 +10,7 @@ import (
 
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/registry"
-	api "github.com/ponyruntime/pony/api/service/shell"
+	api "github.com/ponyruntime/pony/api/service/terminal"
 	"github.com/ponyruntime/pony/api/supervisor"
 	"go.uber.org/zap"
 )

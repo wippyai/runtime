@@ -12,27 +12,21 @@ func (ck *Key) String() string {
 }
 
 var (
-	// BusCtx is the context key for the application's message bus
-	BusCtx = &Key{Name: "bus"} //nolint:gochecknoglobals
-	// TranscoderCtx is the context key for the media transcoder
-	TranscoderCtx = &Key{Name: "transcoder"} //nolint:gochecknoglobals
-	// FunctionsCtx is the context key for the task executor
-	FunctionsCtx = &Key{Name: "functions"} //nolint:gochecknoglobals
-	ProcessesCtx = &Key{Name: "processes"} //nolint:gochecknoglobals
-
-	// LoggerCtx is the context key for the application logger
-	LoggerCtx = &Key{Name: "logger"} //nolint:gochecknoglobals
-	// ValuesCtx is the context key for storing arbitrary values
-	ValuesCtx = &Key{Name: "values"} //nolint:gochecknoglobals
-	// CleanupCtx is the context key for cleanup operations
-	CleanupCtx   = &Key{Name: "cleanup"}      //nolint:gochecknoglobals
-	RunnerCtx    = &Key{Name: "taskgroupkey"} //nolint:gochecknoglobals
-	AsyncCtx     = &Key{Name: "schedulekey"}  //nolint:gochecknoglobals
-	EnvCtx       = &Key{Name: "env"}          //nolint:gochecknoglobals
-	SecurityCtx  = &Key{Name: "security"}     //nolint:gochecknoglobals
-	MetricsCtx   = &Key{Name: "metrics"}      //nolint:gochecknoglobals
-	TemporalCtx  = &Key{Name: "temporal"}     //nolint:gochecknoglobals
-	HandlerCtx   = &Key{Name: "handler"}      //nolint:gochecknoglobals
-	RegistryCtx  = &Key{Name: "registry"}     //nolint:gochecknoglobals
-	ResourcesCtx = &Key{Name: "resources"}    //nolint:gochecknoglobals
+	BusCtx        = &Key{Name: "bus"}          //nolint:gochecknoglobals
+	TranscoderCtx = &Key{Name: "transcoder"}   //nolint:gochecknoglobals
+	FunctionsCtx  = &Key{Name: "functions"}    //nolint:gochecknoglobals
+	ProcessesCtx  = &Key{Name: "processes"}    //nolint:gochecknoglobals
+	LoggerCtx     = &Key{Name: "logger"}       //nolint:gochecknoglobals
+	ValuesCtx     = &Key{Name: "values"}       //nolint:gochecknoglobals
+	CleanupCtx    = &Key{Name: "cleanup"}      //nolint:gochecknoglobals
+	RunnerCtx     = &Key{Name: "taskgroupkey"} //nolint:gochecknoglobals
+	AsyncCtx      = &Key{Name: "schedulekey"}  //nolint:gochecknoglobals
+	EnvCtx        = &Key{Name: "env"}          //nolint:gochecknoglobals
+	SecurityCtx   = &Key{Name: "security"}     //nolint:gochecknoglobals
+	MetricsCtx    = &Key{Name: "metrics"}      //nolint:gochecknoglobals
+	TemporalCtx   = &Key{Name: "temporal"}     //nolint:gochecknoglobals
+	HandlerCtx    = &Key{Name: "handler"}      //nolint:gochecknoglobals
+	RegistryCtx   = &Key{Name: "registry"}     //nolint:gochecknoglobals
+	ResourcesCtx  = &Key{Name: "resources"}    //nolint:gochecknoglobals
+	TerminalCtx   = &Key{Name: "terminal"}
 )

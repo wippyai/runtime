@@ -111,7 +111,7 @@ func (s *TaskQueue) Start(ctx context.Context) (<-chan any, error) {
 	s.exit = make(chan struct{})
 	s.mu.Unlock()
 
-	// Start worker
+	// Launch worker
 	if err := w.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start worker: %w", err)
 	}

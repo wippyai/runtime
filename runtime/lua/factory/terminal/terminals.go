@@ -9,6 +9,7 @@ import (
 	api "github.com/ponyruntime/pony/api/runtime/lua"
 	"github.com/ponyruntime/pony/runtime/lua/code"
 	"github.com/ponyruntime/pony/runtime/lua/factory"
+	"github.com/ponyruntime/pony/tests/stub_process"
 	"go.uber.org/zap"
 	"log"
 	"sync"
@@ -125,8 +126,8 @@ func (m *Manager) upsertPrototype(ctx context.Context, id registry.ID) {
 		Kind:   process.RegisterPrototype,
 		Path:   id.String(),
 		Data: process.Prototype(func() (process.Process, error) {
-			log.Printf("LAUNCHING SHIT!")
-			return nil, fmt.Errorf("terminal prototype creation not implemented")
+			log.Printf("LAUNCHING SHIT! REWRITE IT!")
+			return stub_process.NewTickerProcess(), nil
 		}),
 	})
 }

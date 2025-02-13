@@ -215,7 +215,7 @@ func wsConnect(l *lua.LState) int {
 		return nil
 	})
 
-	// Start read loop.
+	// Launch read loop.
 	go client.readLoop(l)
 
 	// Spawn userdata and set metatable.

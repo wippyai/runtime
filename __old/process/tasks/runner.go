@@ -77,14 +77,14 @@ func (t *TaskRunner) Start(ctx context.Context, funcName string, args ...lua.LVa
 	// always isolate context
 	ctx, t.cancel = context.WithCancel(ctx)
 
-	// Start the engine execution
+	// Launch the engine execution
 	exitCh, err := t.runner.Start(ctx, funcName, args...)
 	if err != nil {
 		t.running.Store(false)
 		return nil, fmt.Errorf("failed to start engine: %w", err)
 	}
 
-	// Start the main execution loop
+	// Launch the main execution loop
 	t.wg.Add(1)
 	go func() {
 		defer t.wg.Done()

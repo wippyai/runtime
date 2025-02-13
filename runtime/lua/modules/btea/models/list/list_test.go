@@ -377,11 +377,11 @@ func TestItemManagement(t *testing.T) {
             
             -- Test beginning insertion
             list:insert_item(0, {
-                title = "Start Item",
+                title = "Launch Item",
                 filter_value = "start"
             })
             assert(#list:items() == 5, "should have five items")
-            assert(list:items()[1].title == "Start Item", "start item should be first")
+            assert(list:items()[1].title == "Launch Item", "start item should be first")
             
             -- Test removal from different positions
             list:remove_item(2)  -- Remove from middle

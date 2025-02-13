@@ -105,7 +105,7 @@ func (s *Client) Start(ctx context.Context) (<-chan any, error) {
 		)
 	}
 
-	// Start health check goroutine
+	// Launch health check goroutine
 	go s.healthCheck(ctx)
 
 	return s.statusChan, nil

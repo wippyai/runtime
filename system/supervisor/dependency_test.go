@@ -24,7 +24,7 @@ func TestSupervisor_DependencyOrdering(t *testing.T) {
 	h.registerServiceWithDeps("service-a", false, []string{"service-b"}) // depends on B
 	h.sup.handleEvent(events.Event{System: registry.System, Kind: registry.Commit})
 
-	// Start service A, which should trigger starting dependencies first
+	// Launch service A, which should trigger starting dependencies first
 	h.sup.handleEvent(events.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Start,
@@ -70,7 +70,7 @@ func TestSupervisor_DependencyFailure(t *testing.T) {
 	h.registerServiceWithDeps("service-a", false, []string{"service-b"})
 	h.sup.handleEvent(events.Event{System: registry.System, Kind: registry.Commit})
 
-	// Start service A
+	// Launch service A
 	h.sup.handleEvent(events.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Start,
@@ -112,7 +112,7 @@ func TestSupervisor_ParallelDependencyStart(t *testing.T) {
 
 	startTime := time.Now()
 
-	// Start service A
+	// Launch service A
 	h.sup.handleEvent(events.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Start,
@@ -144,7 +144,7 @@ func TestSupervisor_DependencyStopOrder(t *testing.T) {
 	h.registerServiceWithDeps("service-a", false, []string{"service-b"})
 	h.sup.handleEvent(events.Event{System: registry.System, Kind: registry.Commit})
 
-	// Start all services by starting A
+	// Launch all services by starting A
 	h.sup.handleEvent(events.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Start,

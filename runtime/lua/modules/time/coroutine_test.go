@@ -35,13 +35,13 @@ func TestSleepInCoroutines(t *testing.T) {
            function test_sleep()
                local results = {}
 
-               -- Start first coroutine (longer sleep)
+               -- Launch first coroutine (longer sleep)
                coroutine.spawn(function()
                    time.sleep(time.parse_duration("75ms"))	
                    results.first = {"ok1"}
                end)
 
-               -- Start second coroutine (shorter sleep)
+               -- Launch second coroutine (shorter sleep)
                coroutine.spawn(function()
                    time.sleep(time.parse_duration("25ms"))
                    results.second = {"ok2"}

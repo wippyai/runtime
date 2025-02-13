@@ -87,7 +87,7 @@ func (s *Server) Start(ctx context.Context) (<-chan any, error) {
 	s.statusChan = make(chan any, 2) // 1 for initial boot message and extra for shutdown
 	s.mu.Unlock()
 
-	// Start service in a goroutine
+	// Launch service in a goroutine
 	go func() {
 		err := s.server.ListenAndServe()
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {

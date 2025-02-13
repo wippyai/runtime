@@ -60,7 +60,7 @@ func (w *Definition) Execute(env bindings.WorkflowEnvironment, header *commonpb.
 
 	// todo: encapsulate this! => execute_workflow
 
-	// Start the workflow using the runner
+	// Launch the workflow using the runner
 	if err := w.runner.Start(context.WithValue(w.ctx, envCtx, env), "execute_workflow"); err != nil {
 		// Handle error appropriately
 		w.env.Complete(nil, err)

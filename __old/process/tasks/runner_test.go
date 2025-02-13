@@ -56,7 +56,7 @@ func TestTasker_BasicExecution(t *testing.T) {
 			4096,
 		)
 
-		// Start the tasker
+		// Launch the tasker
 		statusCh, err := tasker.Start(context.Background(), "test_handler")
 		assert.NoError(t, err)
 
@@ -252,7 +252,7 @@ func TestConsecutiveTasks(t *testing.T) {
 	err = vm.Import(script, "test", "test_handler")
 	assert.NoError(t, err)
 
-	// Start tasker
+	// Launch tasker
 	statusCh, err := tasker.Start(context.Background(), "test_handler")
 	require.NoError(t, err)
 
@@ -331,7 +331,7 @@ func TestAsyncTasksWithTimers(t *testing.T) {
 			local results = {}
 			local completed = channel.new(3)  -- For tracking completion
 
-			-- Start three coroutines to handle tasks
+			-- Launch three coroutines to handle tasks
 			for i = 1, 3 do
 				coroutine.spawn(function()
 					local task, ok = inbox:receive()
@@ -363,7 +363,7 @@ func TestAsyncTasksWithTimers(t *testing.T) {
 	err = vm.Import(script, "test", "test_handler")
 	require.NoError(t, err)
 
-	// Start tasker
+	// Launch tasker
 	statusCh, err := tasker.Start(context.Background(), "test_handler")
 	require.NoError(t, err)
 
@@ -454,7 +454,7 @@ func TestTasker_TaskSend(t *testing.T) {
 	err = vm.Import(script, "test", "send_handler")
 	require.NoError(t, err)
 
-	// Start tasker
+	// Launch tasker
 	statusCh, err := tasker.Start(context.Background(), "send_handler")
 	require.NoError(t, err)
 

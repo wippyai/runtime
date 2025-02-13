@@ -154,7 +154,7 @@ func TestAfterTimers(t *testing.T) {
                 local results = {}
                 local done = channel.new(0)
 
-                -- Start three timers with different durations
+                -- Launch three timers with different durations
                 coroutine.spawn(function()
                     local t1 = time.after("50ms")
                     t1:receive()
@@ -231,7 +231,7 @@ func TestAfterTimers(t *testing.T) {
                 local results = {}
                 local done = channel.new(0)
 
-                -- Start three timers with different durations
+                -- Launch three timers with different durations
                 coroutine.spawn(function()
                     local t1 = time.after("50ms")
                     t1:receive()
@@ -326,7 +326,7 @@ func TestAfterTimers(t *testing.T) {
 		ctx, cancel := context.WithCancel(engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup()))
 		ctx = asyncRunner.WithContext(ctx)
 
-		// Start execution in a goroutine
+		// Launch execution in a goroutine
 		done := make(chan struct{})
 		var execErr error
 

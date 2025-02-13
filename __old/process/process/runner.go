@@ -49,7 +49,7 @@ func (b *Runner) Start(ctx context.Context, funcName string, args ...lua.LValue)
 
 	ctx = b.runner.WithContext(ctx)
 
-	// Start the engine
+	// Launch the engine
 	exitCh, err := b.runner.Start(ctx, funcName, args...)
 	if err != nil {
 		return fmt.Errorf("failed to start runner: %w", err)

@@ -53,7 +53,7 @@ func TestProcessBasic(t *testing.T) {
 			    -- Spawn timer for timeout
 			    local timeout = time.timer("2s")  -- 2 second timeout
 			    
-			    -- Start the process
+			    -- Launch the process
 			    proc:start()
 			    
 			    -- Spawn reader coroutine
@@ -168,7 +168,7 @@ func TestWorkingDir(t *testing.T) {
 			    -- Spawn timer for timeout
 			    local timeout = time.timer("2s")
 			    
-			    -- Start the process
+			    -- Launch the process
 			    proc:start()
 			    
 			    -- Spawn reader coroutine
@@ -266,7 +266,7 @@ func TestWriteStdin(t *testing.T) {
 			    local proc = process.new('cat', {})
 			    assert(proc ~= nil, "Process creation should succeed")
 			    
-			    -- Start the process
+			    -- Launch the process
 			    proc:start()
 			    
 			    -- Test data to write
@@ -338,7 +338,7 @@ func TestMultiplyCallsToStream(t *testing.T) {
 			    -- Spawn timer for timeout
 			    local timeout = time.timer("2s")
 			    
-			    -- Start the process
+			    -- Launch the process
 			    proc:start()
 			    
 			    -- Spawn reader coroutine

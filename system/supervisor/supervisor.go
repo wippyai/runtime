@@ -53,7 +53,7 @@ type (
 
 // NewSupervisor creates a new Supervisor instance with the provided event bus
 // and logger. The supervisor is initially inactive and must be started with
-// the Start method.
+// the Launch method.
 func NewSupervisor(bus events.Bus, logger *zap.Logger) *Supervisor {
 	return &Supervisor{
 		bus:         bus,
@@ -119,7 +119,7 @@ func (s *Supervisor) Start(ctx context.Context) error {
 	}
 	s.subscriber = sub
 
-	// Start main control loop
+	// Launch main control loop
 	s.wg.Add(1)
 	go s.run(ctx)
 

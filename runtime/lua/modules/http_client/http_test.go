@@ -444,7 +444,7 @@ func TestHTTPModuleTimeouts(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		// Start request in goroutine
+		// Launch request in goroutine
 		var wg sync.WaitGroup
 		wg.Add(1)
 
@@ -599,7 +599,7 @@ func TestHTTPModuleTimeouts(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		// Start request in goroutine
+		// Launch request in goroutine
 		done := make(chan error, 1)
 		go func() {
 			err := vm.DoString(context.Background(), `

@@ -2,6 +2,7 @@ package stub_process
 
 import (
 	"context"
+	"errors"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/runtime"
@@ -12,15 +13,18 @@ import (
 
 type TickerProcess struct {
 	pid        process.PID
-	onComplete func(process.PID, runtime.Result)
+	onComplete []process.OnComplete
 	ticker     *time.Ticker
 	count      int
 	mu         sync.Mutex
-	terminated bool
+	cancelled  bool
+	done       chan struct{}
 }
 
 func NewTickerProcess() process.Process {
-	return &TickerProcess{}
+	return &TickerProcess{
+		done: make(chan struct{}),
+	}
 }
 
 func NewTickerPrototype() process.Prototype {
@@ -29,10 +33,22 @@ func NewTickerPrototype() process.Prototype {
 	}
 }
 
-func (p *TickerProcess) Start(ctx context.Context, pid process.PID, input payload.Payloads) error {
-	p.pid = pid
+func (p *TickerProcess) Start(ctx context.Context, start process.StartProcess) error {
+	p.pid = start.PID
+	p.onComplete = start.OnComplete
 	p.ticker = time.NewTicker(time.Second)
-	log.Printf("ticker %v: started with input %v", pid, input)
+
+	// Keep ticker running even if context is done
+	go func() {
+		select {
+		case <-ctx.Done():
+			log.Printf("ticker %v: context done but keeping ticker alive", p.pid)
+		case <-p.done:
+			return
+		}
+	}()
+
+	log.Printf("ticker %v: started with input %v", start.PID, start.Input)
 	return nil
 }
 
@@ -40,42 +56,41 @@ func (p *TickerProcess) Step() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if p.terminated {
-		if p.onComplete != nil {
-			p.onComplete(p.pid, runtime.Result{})
+	if p.cancelled {
+		close(p.done)
+		for _, handler := range p.onComplete {
+			handler(p.pid, &runtime.Result{Payload: payload.NewString("cancelled")})
 		}
 		return nil
+	}
+
+	if p.count == 5 {
+		result := &runtime.Result{Error: errors.New("panic")}
+		for _, handler := range p.onComplete {
+			handler(p.pid, result)
+		}
+		return errors.New("panic")
 	}
 
 	select {
 	case <-p.ticker.C:
 		p.count++
-		log.Printf("ticker %v: tick %d", p.pid, p.count)
+		log.Printf("--- ticker %v: tick %d", p.pid, p.count)
 	default:
 	}
+
 	return nil
 }
 
-func (p *TickerProcess) Send(msg process.Message) error {
+func (p *TickerProcess) Send(msg *process.Message) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	log.Printf("ticker %v: received message topic=%s payload=%v", p.pid, msg.Topic, msg.Payload)
+	log.Printf("--- ticker %v: received message topic=%s payload=%v", p.pid, msg.Topic, msg.Payload)
 
-	if msg.Topic == "terminate" {
-		p.terminated = true
-		p.ticker.Stop()
+	if msg.Topic == process.TopicCancel {
+		p.cancelled = true
 	}
+
 	return nil
-}
-
-func (p *TickerProcess) OnComplete(fn func(process.PID, runtime.Result)) bool {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if p.terminated {
-		return false
-	}
-	p.onComplete = fn
-	return true
 }

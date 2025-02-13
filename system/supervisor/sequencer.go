@@ -106,7 +106,7 @@ func (sp *Sequencer) processStartOperations(ctx context.Context, operations []Op
 		var wg sync.WaitGroup
 		errChan := make(chan error, len(levelNodes))
 
-		// Start services in current level in parallel
+		// Launch services in current level in parallel
 		for _, serviceID := range levelNodes {
 			if op, exists := opMap[serviceID]; exists {
 				wg.Add(1)

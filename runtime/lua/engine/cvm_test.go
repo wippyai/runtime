@@ -1863,7 +1863,7 @@ func TestCoroutineVM_Mount(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		// Start coroutines in both VMs
+		// Launch coroutines in both VMs
 		ch1, err := vm1.Start(context.Background(), "test")
 		if err != nil {
 			t.Fatal(err)
@@ -2009,7 +2009,7 @@ func TestCoroutineVM_Mount(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		// Start both coroutines
+		// Launch both coroutines
 		ch1, err := vm.Start(context.Background(), "func1", lua.LString("arg1"))
 		if err != nil {
 			t.Fatal(err)
@@ -2121,7 +2121,7 @@ func TestCoroutineVM_StartWithArguments(t *testing.T) {
 			testTable,
 		}
 
-		// Start the function with arguments
+		// Launch the function with arguments
 		ch, err := vm.Start(context.Background(), "test_args", args...)
 		if err != nil {
 			t.Fatal(err)
@@ -2374,7 +2374,7 @@ func TestCoroutineVM_ImmediateErrors(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		// Start the function and get the channel
+		// Launch the function and get the channel
 		ch, err := vm.Start(context.Background(), "test_error")
 		if err != nil {
 			t.Fatal(err)
@@ -2454,7 +2454,7 @@ func TestCoroutineVM_Import(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		// Start the function and get output channel
+		// Launch the function and get output channel
 		ch, err := vm.Start(context.Background(), "test")
 		if err != nil {
 			t.Fatal(err)
@@ -2871,7 +2871,7 @@ func TestCoroutineVM_GoErrorPropagation(t *testing.T) {
 			return 1
 		}))
 
-		// Start a coroutine that will receive and try to use an error
+		// Launch a coroutine that will receive and try to use an error
 		err = vm.StartString(context.Background(), `
 			-- First coroutine that creates and yields a Go error
 			function error_producer()
@@ -2977,7 +2977,7 @@ func TestCoroutineVM_PcallErrorHandling(t *testing.T) {
 			return 1
 		}))
 
-		// Start coroutines - one produces error, other handles with pcall
+		// Launch coroutines - one produces error, other handles with pcall
 		err = vm.StartString(context.Background(), `
 			-- First coroutine that creates and yields a Go error
 			function error_producer()

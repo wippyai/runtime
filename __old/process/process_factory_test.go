@@ -27,7 +27,7 @@ func TestRegistry_StartStop(t *testing.T) {
 	ctx := context.Background()
 	reg, _ := setupRegistryTest()
 
-	// Test Start
+	// Test Launch
 	err := reg.Start(ctx)
 	require.NoError(t, err)
 	assert.NotNil(t, reg.subscriber)

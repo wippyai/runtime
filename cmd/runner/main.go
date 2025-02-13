@@ -14,7 +14,7 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	"github.com/ponyruntime/pony/runtime/lua/factory/function"
 	"github.com/ponyruntime/pony/runtime/lua/factory/library"
-	"github.com/ponyruntime/pony/runtime/lua/factory/terminal"
+	luaTerm "github.com/ponyruntime/pony/runtime/lua/factory/terminal"
 	"github.com/ponyruntime/pony/runtime/lua/modules/base64"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea"
 	"github.com/ponyruntime/pony/runtime/lua/modules/env"
@@ -29,7 +29,7 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/modules/websocket"
 	"github.com/ponyruntime/pony/runtime/noop"
 	"github.com/ponyruntime/pony/service/http"
-	"github.com/ponyruntime/pony/service/shell"
+	"github.com/ponyruntime/pony/service/terminal"
 	"github.com/ponyruntime/pony/system/eventbus"
 	"github.com/ponyruntime/pony/system/functions"
 	"github.com/ponyruntime/pony/system/logs"
@@ -121,7 +121,7 @@ func NewApp(verbose, veryVerbose bool) (*App, error) {
 }
 
 func (a *App) Initialize() error {
-	// Start log manager first for proper logging
+	// Launch log manager first for proper logging
 	if err := a.logManager.Start(a.ctx); err != nil {
 		return fmt.Errorf("failed to start log manager: %w", err)
 	}
@@ -165,7 +165,7 @@ func (a *App) Start(folderPath string) error {
 	}
 	ctx = context.WithValue(ctx, apiCtx.EnvCtx, envCtx)
 
-	// Start core function registry
+	// Launch core function registry
 	if err := a.funcs.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start function executor: %w", err)
 	}
@@ -178,13 +178,13 @@ func (a *App) Start(folderPath string) error {
 		return fmt.Errorf("failed to start host registry: %w", err)
 	}
 
-	// Start supervisor
+	// Launch supervisor
 	if err := a.supervisor.Start(ctx); err != nil {
 		a.cancel()
 		return fmt.Errorf("failed to start supervisor: %w", err)
 	}
 
-	// Start secondary services
+	// Launch secondary services
 	router, err := eventbus.StartRouter(ctx, a.eventBus, a.services)
 	if err != nil {
 		a.cancel()
@@ -207,8 +207,8 @@ func (a *App) Start(folderPath string) error {
 	}
 	time.Sleep(1 * time.Second)
 	// launch (todo: we also can retry or better delegate it to supervisor)
-	pid, err := a.processes.Launch(ctx, processapi.Launch{
-		HostID: "system:shell",
+	pid, err := a.processes.Start(ctx, processapi.Start{
+		HostID: "system:terminal",
 		ID:     apiReg.ID{NS: "terminal", Name: "basic"},
 		Name:   "root",
 	})
@@ -228,7 +228,7 @@ func (a *App) Stop() error {
 	ctx, cancel := context.WithTimeout(a.ctx, 15*time.Second)
 	defer cancel()
 
-	// Start a goroutine to handle force shutdown
+	// Launch a goroutine to handle force shutdown
 	go func() {
 		select {
 		case <-a.forceShutdown:
@@ -302,7 +302,7 @@ func main() {
 	)...)
 	// --------------------------------------------------
 
-	// Start application
+	// Launch application
 	if err := app.Start(folderPath); err != nil {
 		app.logger.Fatal("Failed to start application", zap.Error(err))
 	}
@@ -317,7 +317,7 @@ func main() {
 	sig := <-sigChan
 	app.logger.Info("received shutdown signal, starting graceful shutdown", zap.String("signal", sig.String()))
 
-	// Start goroutine to handle second signal
+	// Launch goroutine to handle second signal
 	go func() {
 		sig := <-sigChan
 		app.logger.Warn("received second shutdown signal, forcing immediate shutdown", zap.String("signal", sig.String()))
@@ -404,10 +404,10 @@ func WithHTTPService(a *App) eventbus.EventHandler {
 }
 
 func WithShellManager(a *App) eventbus.EventHandler {
-	return reghandler.NewRegistryHandler("shell.host", shell.NewShellManager(
+	return reghandler.NewRegistryHandler("terminal.host", terminal.NewShellManager(
 		a.eventBus,
 		a.dtt,
-		a.logger.Named("shell"),
+		a.logger.Named("terminal"),
 	))
 }
 
@@ -448,7 +448,7 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 
 	funcs := function.NewManager(a.logger.Named("lua.funcs"), codeManager, a.eventBus)
 	libraries := library.NewManager(a.logger.Named("lua.libs"), codeManager)
-	terminals := terminal.NewTerminalManager(a.logger.Named("lua.terminals"), codeManager, a.eventBus)
+	terminals := luaTerm.NewTerminalManager(a.logger.Named("lua.terminals"), codeManager, a.eventBus)
 
 	return []eventbus.EventHandler{
 		reghandler.NewTransactionHandler(codeManager),
