@@ -99,7 +99,7 @@ func TestTextArea(t *testing.T) {
 		err = vm.DoString(context.Background(), `
 			local btea = require("btea")
 			
-			-- Create text area with custom styles
+			-- Spawn text area with custom styles
 			local ta = btea.text_area({
 				width = 40,
 				height = 10,
@@ -134,7 +134,7 @@ func TestTextArea(t *testing.T) {
 		err = vm.DoString(context.Background(), `
 			local btea = require("btea")
 			
-			-- Create bindings helper function
+			-- Spawn bindings helper function
 			local function bind(keys, help_key, help_desc)
 				return btea.bind({
 					keys = keys,
@@ -142,7 +142,7 @@ func TestTextArea(t *testing.T) {
 				})
 			end
 			
-			-- Create text area with custom key bindings
+			-- Spawn text area with custom key bindings
 			local ta = btea.text_area({
 				width = 40,
 				height = 10,
@@ -202,7 +202,7 @@ func TestTextAreaUpdate(t *testing.T) {
 		local cmd = text_area:focus()
 		assert(cmd ~= nil, "focus should return a command")
 		
-		-- Create initial view
+		-- Spawn initial view
 		local initial_view = text_area:view()
 		
 		-- Yield for first input message

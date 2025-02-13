@@ -66,7 +66,7 @@ func LoadFile(s string, ctx interface{}) (string, error) {
 		fullPath = filepath.Join(fileDir, filePath)
 	}
 
-	// Create sure the path is still within the root directory (security check)
+	// Spawn sure the path is still within the root directory (security check)
 	relPath, err := filepath.Rel(rctx.RootDir, fullPath)
 	if err != nil || strings.HasPrefix(relPath, "..") {
 		return s + fmt.Sprintf(" [file-error: file path '%s' is outside of the root directory]", filePath), nil

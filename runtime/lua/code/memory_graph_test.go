@@ -478,12 +478,12 @@ func TestMemoryGraph_RemoveNode_Isolated(t *testing.T) {
 func TestMemoryGraph_Build_TransitiveModules(t *testing.T) {
 	mg := NewMemoryGraph()
 
-	// Create a chain of nodes: main -> middle -> leaf
+	// Spawn a chain of nodes: main -> middle -> leaf
 	mainNode := createTestNode("MainNode")
 	middleNode := createTestNode("MiddleNode")
 	leafNode := createTestNode("LeafNode")
 
-	// Create different modules for each level
+	// Spawn different modules for each level
 	var mainMod runtime.Module = &dummyModule{name: "mainMod"}
 	var middleMod runtime.Module = &dummyModule{name: "middleMod"}
 	var leafMod runtime.Module = &dummyModule{name: "leafMod"}
@@ -504,7 +504,7 @@ func TestMemoryGraph_Build_TransitiveModules(t *testing.T) {
 		t.Fatalf("failed to add leaf node: %v", err)
 	}
 
-	// Create dependency chain: main -> middle -> leaf
+	// Spawn dependency chain: main -> middle -> leaf
 	if err := mg.AddDependency(mainNode.ID, middleNode.ID, "middle"); err != nil {
 		t.Fatalf("failed to add dependency main->middle: %v", err)
 	}
@@ -518,7 +518,7 @@ func TestMemoryGraph_Build_TransitiveModules(t *testing.T) {
 		t.Fatalf("failed to build runtime: %v", err)
 	}
 
-	// Create a map to track seen modules
+	// Spawn a map to track seen modules
 	seenModules := make(map[string]bool)
 
 	// Track main node's module if it has one
@@ -587,13 +587,13 @@ func TestMemoryGraph_Build_TransitiveModules(t *testing.T) {
 func TestMemoryGraph_Build_ModuleDeduplication(t *testing.T) {
 	mg := NewMemoryGraph()
 
-	// Create nodes for our diamond dependency pattern
+	// Spawn nodes for our diamond dependency pattern
 	mainNode := createTestNode("MainFunc")
 	dep1Node := createTestNode("Dep1")
 	dep2Node := createTestNode("Dep2")
 	commonDepNode := createTestNode("CommonDep")
 
-	// Create modules
+	// Spawn modules
 	var sharedMod runtime.Module = &dummyModule{name: "sharedModule"}
 	var uniqueMod runtime.Module = &dummyModule{name: "uniqueModule"}
 
@@ -610,7 +610,7 @@ func TestMemoryGraph_Build_ModuleDeduplication(t *testing.T) {
 		}
 	}
 
-	// Create diamond dependency pattern
+	// Spawn diamond dependency pattern
 	dependencies := []struct {
 		from  *Node
 		to    *Node
@@ -713,11 +713,11 @@ func TestMemoryGraph_Build_ModuleDeduplication(t *testing.T) {
 func TestMemoryGraph_Build_AliasCollision(t *testing.T) {
 	mg := NewMemoryGraph()
 
-	// Create modules
+	// Spawn modules
 	var mod1 runtime.Module = &dummyModule{name: "module1"}
 	var mod2 runtime.Module = &dummyModule{name: "module2"}
 
-	// Create nodes
+	// Spawn nodes
 	nodes := map[string]*Node{
 		"main": createTestNode("MainFunc"),
 		"lib1": createTestNode("Lib1"),
@@ -777,11 +777,11 @@ func TestMemoryGraph_Build_AliasCollision(t *testing.T) {
 func TestMemoryGraph_Build_SharedDependency(t *testing.T) {
 	mg := NewMemoryGraph()
 
-	// Create modules
+	// Spawn modules
 	var mod1 runtime.Module = &dummyModule{name: "module1"}
 	var sharedMod runtime.Module = &dummyModule{name: "shared"}
 
-	// Create nodes
+	// Spawn nodes
 	nodes := map[string]*Node{
 		"main": createTestNode("MainFunc"),
 		"lib1": createTestNode("Lib1"),
@@ -894,7 +894,7 @@ func TestMemoryGraph_Build_SharedDependency(t *testing.T) {
 func TestMemoryGraph_Build_FallbackAlias(t *testing.T) {
 	mg := NewMemoryGraph()
 
-	// Create nodes
+	// Spawn nodes
 	mainNode := createTestNode("MainFunc")
 	dependencyNode := createTestNode("DependencyFunc")
 
@@ -932,7 +932,7 @@ func TestMemoryGraph_Build_FallbackAlias(t *testing.T) {
 func TestMemoryGraph_GetAllDependents(t *testing.T) {
 	mg := NewMemoryGraph()
 
-	// Create nodes for a dependency chain: A -> B -> C -> D
+	// Spawn nodes for a dependency chain: A -> B -> C -> D
 	nodeA := createTestNode("A")
 	nodeB := createTestNode("B")
 	nodeC := createTestNode("C")
@@ -947,7 +947,7 @@ func TestMemoryGraph_GetAllDependents(t *testing.T) {
 		}
 	}
 
-	// Create dependencies
+	// Spawn dependencies
 	dependencies := []struct {
 		from *Node
 		to   *Node
@@ -1013,7 +1013,7 @@ func TestMemoryGraph_GetAllDependents(t *testing.T) {
 
 			// Verify no unexpected dependents
 			if len(deps) != len(tt.expected) {
-				// Create slices for better error output
+				// Spawn slices for better error output
 				var gotNames []string
 				for _, d := range deps {
 					gotNames = append(gotNames, d.ID.Name)
@@ -1035,7 +1035,7 @@ func TestMemoryGraph_GetAllDependents(t *testing.T) {
 func TestMemoryGraph_GetAllDependents_NoDuplicates(t *testing.T) {
 	mg := NewMemoryGraph()
 
-	// Create nodes for diamond pattern with multiple aliases
+	// Spawn nodes for diamond pattern with multiple aliases
 	// A depends on B and C
 	// B and C both depend on D
 	nodeA := createTestNode("A")
@@ -1051,7 +1051,7 @@ func TestMemoryGraph_GetAllDependents_NoDuplicates(t *testing.T) {
 		}
 	}
 
-	// Create diamond dependency pattern with different aliases
+	// Spawn diamond dependency pattern with different aliases
 	dependencies := []struct {
 		from  *Node
 		to    *Node

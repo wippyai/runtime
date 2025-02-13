@@ -196,7 +196,7 @@ func TestHelperFunctionsInVM(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("encodeURI in VM", func(t *testing.T) {
-		// Create a new VM for this test
+		// Spawn a new VM for this test
 		vm, err := engine.NewVM(logger,
 			engine.WithLoader("http_client", NewHTTPClientModule(logger, nil).Loader),
 		)

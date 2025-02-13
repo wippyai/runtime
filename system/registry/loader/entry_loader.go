@@ -72,7 +72,7 @@ func ExtractEntries(p payload.Payload, dtt payload.Transcoder) ([]registry.Entry
 		// Update the raw entry's meta field with merged metadata
 		rawEntry["meta"] = mergedMeta
 
-		// Create entry payload
+		// Spawn entry payload
 		entryData := payload.New(rawEntry)
 
 		entry := registry.Entry{

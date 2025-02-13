@@ -146,7 +146,7 @@ func verifyDeltaWithinLevel(t *testing.T, got, want registry.ChangeSet) {
 		return
 	}
 
-	// Group operations by type (Create, Update, Delete)
+	// Group operations by type (Spawn, Update, Delete)
 	gotGroups := make(map[events.Kind]opGroup)
 	wantGroups := make(map[events.Kind]opGroup)
 
@@ -214,7 +214,7 @@ func TestValidateOperation(t *testing.T) {
 		data: "original",
 	}.toEntry()
 
-	t.Run("Create", func(t *testing.T) {
+	t.Run("Spawn", func(t *testing.T) {
 		state := NewStateMap(nil)
 
 		// Valid create
@@ -318,7 +318,7 @@ func TestApplyOperation(t *testing.T) {
 		data: "original",
 	}.toEntry()
 
-	t.Run("Create", func(t *testing.T) {
+	t.Run("Spawn", func(t *testing.T) {
 		state := NewStateMap(nil)
 
 		newState, err := builder.ApplyOperation(state, registry.Operation{
@@ -415,7 +415,7 @@ func TestGetInverseOperation(t *testing.T) {
 		data: "original",
 	}.toEntry()
 
-	t.Run("Create", func(t *testing.T) {
+	t.Run("Spawn", func(t *testing.T) {
 		state := NewStateMap(nil)
 
 		inverse, err := builder.GetInverseOperation(state, registry.Operation{
@@ -427,7 +427,7 @@ func TestGetInverseOperation(t *testing.T) {
 		}
 
 		if inverse.Kind != registry.Delete {
-			t.Error("inverse of Create should be Delete")
+			t.Error("inverse of Spawn should be Delete")
 		}
 		if !reflect.DeepEqual(inverse.Entry, baseEntry) {
 			t.Error("inverse operation entry doesn't match original")
@@ -470,7 +470,7 @@ func TestGetInverseOperation(t *testing.T) {
 		}
 
 		if inverse.Kind != registry.Create {
-			t.Error("inverse of Delete should be Create")
+			t.Error("inverse of Delete should be Spawn")
 		}
 		if !reflect.DeepEqual(inverse.Entry, baseEntry) {
 			t.Error("inverse operation should recreate original entry")
@@ -535,7 +535,7 @@ func TestBuildState_SingleVersion(t *testing.T) {
 	builder := NewStateBuilder(zap.NewNop())
 	history := NewMockHistory()
 
-	// Create test entries
+	// Spawn test entries
 	entry1 := testEntry{
 		ns: "test", name: "service.api",
 		kind: "service", data: "data1",
@@ -574,7 +574,7 @@ func TestBuildState_MultipleVersions(t *testing.T) {
 	builder := NewStateBuilder(zap.NewNop())
 	history := NewMockHistory()
 
-	// Create test entries
+	// Spawn test entries
 	entry1 := testEntry{
 		ns: "test", name: "service.api",
 		kind: "service", data: "data1",
@@ -669,7 +669,7 @@ func TestBuildState_UnreachableVersion(t *testing.T) {
 	builder := NewStateBuilder(zap.NewNop())
 	history := NewMockHistory()
 
-	// Create disconnected versions
+	// Spawn disconnected versions
 	v0 := version.New(registry.RootVersion)
 	v1 := version.FromParent(v0, 1)
 	v2 := version.New(2) // Disconnected version
@@ -699,7 +699,7 @@ func TestBuildState_IntermediateVersion(t *testing.T) {
 	builder := NewStateBuilder(zap.NewNop())
 	history := NewMockHistory()
 
-	// Create test entries
+	// Spawn test entries
 	entry1 := testEntry{
 		ns: "test", name: "service.api",
 		kind: "service", data: "data1",
@@ -812,7 +812,7 @@ func TestBuildDelta_SimpleOperations(t *testing.T) {
 		kind: "service", data: "data1-updated",
 	}.toEntry()
 
-	t.Run("Create", func(t *testing.T) {
+	t.Run("Spawn", func(t *testing.T) {
 		from := registry.State{entry1}
 		to := registry.State{entry1, entry2}
 
@@ -891,8 +891,8 @@ func verifyDelta(t *testing.T, got, want registry.ChangeSet) {
 func TestBuildDelta_Groups(t *testing.T) {
 	builder := NewStateBuilder(zap.NewNop())
 
-	t.Run("Create With Group Dependencies", func(t *testing.T) {
-		// Create entries with group dependencies
+	t.Run("Spawn With Group Dependencies", func(t *testing.T) {
+		// Spawn entries with group dependencies
 		service1 := testEntry{
 			ns: "test", name: "service1",
 			kind: "service", data: "service1",
@@ -944,7 +944,7 @@ func TestBuildDelta_Groups(t *testing.T) {
 	})
 
 	t.Run("Delete With Group Dependencies", func(t *testing.T) {
-		// Create entries with group dependencies
+		// Spawn entries with group dependencies
 		service1 := testEntry{
 			ns: "test", name: "service1",
 			kind: "service", data: "service1",
@@ -1068,7 +1068,7 @@ func TestBuildDelta_NamespaceDependencies(t *testing.T) {
 	builder := NewStateBuilder(zap.NewNop())
 
 	t.Run("Simple Namespace Dependencies", func(t *testing.T) {
-		// Create entries in different namespaces
+		// Spawn entries in different namespaces
 		infraDB := testEntry{
 			ns: "infra", name: "database",
 			kind: "service", data: "db",
@@ -1259,7 +1259,7 @@ func TestBuildDelta_Dependencies(t *testing.T) {
 	builder := NewStateBuilder(zap.NewNop())
 
 	t.Run("Simple Dependencies", func(t *testing.T) {
-		// Create entries with dependencies
+		// Spawn entries with dependencies
 		service := testEntry{
 			ns: "test", name: "service",
 			kind: "service", data: "service",
@@ -1306,7 +1306,7 @@ func TestBuildDelta_Dependencies(t *testing.T) {
 	})
 
 	t.Run("Chained Dependencies", func(t *testing.T) {
-		// Create entries with chained dependencies
+		// Spawn entries with chained dependencies
 		service := testEntry{
 			ns: "test", name: "service",
 			kind: "service", data: "service",
@@ -1356,7 +1356,7 @@ func TestBuildDelta_Dependencies(t *testing.T) {
 	})
 
 	t.Run("Delete With Dependencies", func(t *testing.T) {
-		// Create entries with dependencies
+		// Spawn entries with dependencies
 		service := testEntry{
 			ns: "test", name: "service",
 			kind: "service", data: "service",
@@ -1682,7 +1682,7 @@ func TestBuildDelta_ComplexTransformations(t *testing.T) {
 	})
 
 	t.Run("Complex Delete Scenario", func(t *testing.T) {
-		// Create a complex dependency tree
+		// Spawn a complex dependency tree
 		storage := testEntry{
 			ns: "infra", name: "storage",
 			kind: "service", data: "storage",

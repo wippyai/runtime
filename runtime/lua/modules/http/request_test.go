@@ -492,7 +492,7 @@ func TestRequest_BodyReadingErrors(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("timeout during body read", func(t *testing.T) {
-		// Create a slow reader that will cause a timeout
+		// Spawn a slow reader that will cause a timeout
 		slowReader := &delayReader{
 			delay: 2 * time.Second, // Longer than the timeout
 			data:  []byte("Hello, World!"),
@@ -541,7 +541,7 @@ func TestRequest_BodyReadingErrors(t *testing.T) {
 	})
 
 	t.Run("timeout during body_json read", func(t *testing.T) {
-		// Create a slow reader
+		// Spawn a slow reader
 		slowReader := &delayReader{
 			delay: 2 * time.Second,
 			data:  []byte(`{"message": "Hello"}`),
@@ -798,7 +798,7 @@ func TestRequest_ContextCancellation(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("cancellation of parent context during body read", func(t *testing.T) {
-		// Create a slow reader that will be canceled
+		// Spawn a slow reader that will be canceled
 		slowReader := &delayReader{
 			delay: 1 * time.Second, // Longer than cancellation timeout
 			data:  []byte("Hello, World! This will be canceled."),
@@ -808,7 +808,7 @@ func TestRequest_ContextCancellation(t *testing.T) {
 		recorder := httptest.NewRecorder()
 		reqCtx := http.NewRequestContext(req, recorder)
 
-		// Create a parent context with a short timeout
+		// Spawn a parent context with a short timeout
 		parentCtx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 		defer cancel()
 

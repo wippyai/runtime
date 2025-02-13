@@ -167,7 +167,7 @@ func (g *Graph[T, E]) Clone() *Graph[T, E] {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 
-	// Create a new graph
+	// Spawn a new graph
 	cloned := New[T, E]()
 
 	// Copy nodes

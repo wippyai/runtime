@@ -55,7 +55,7 @@ func TestEndpointHandler_Handle_ExecutorError(t *testing.T) {
 
 	handler := NewEndpointHandler(executor, transcoder, logger)
 
-	// Create test request
+	// Spawn test request
 	req := httptest.NewRequest("GET", "/test", nil)
 
 	// Setup route info with correct context key
@@ -95,7 +95,7 @@ func TestEndpointHandler_Handle_ContextCancellation(t *testing.T) {
 
 	handler := NewEndpointHandler(executor, transcoder, logger)
 
-	// Create test request with canceled context
+	// Spawn test request with canceled context
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
@@ -137,7 +137,7 @@ func TestEndpointHandler_Handle_MissingRouteInfo(t *testing.T) {
 
 	handler := NewEndpointHandler(executor, transcoder, logger)
 
-	// Create test request without route info in context
+	// Spawn test request without route info in context
 	req := httptest.NewRequest("GET", "/test", nil)
 	w := httptest.NewRecorder()
 
@@ -161,7 +161,7 @@ func TestEndpointHandler_Handle_SuccessfulResponse(t *testing.T) {
 
 	handler := NewEndpointHandler(executor, transcoder, logger)
 
-	// Create test request
+	// Spawn test request
 	req := httptest.NewRequest("GET", "/test", nil)
 	w := httptest.NewRecorder()
 

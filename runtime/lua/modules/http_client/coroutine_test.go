@@ -21,7 +21,7 @@ func TestAsyncHTTP(t *testing.T) {
 	t.Run("async http requests", func(t *testing.T) {
 		log := zap.NewNop()
 
-		// Create a mock client that simulates network delay
+		// Spawn a mock client that simulates network delay
 		mockClient := &mockHTTPClient{
 			doFunc: func(req *http.Request) (*http.Response, error) {
 				// Simulate network delay
@@ -51,7 +51,7 @@ func TestAsyncHTTP(t *testing.T) {
 			},
 		}
 
-		// Create base VM with HTTP module
+		// Spawn base VM with HTTP module
 		vm, err := engine.NewCVM(
 			log,
 			engine.WithPreloaded("http_client", NewHTTPClientModule(log, mockClient).Loader),
@@ -59,7 +59,7 @@ func TestAsyncHTTP(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		// Create wrapped VM with async runner
+		// Spawn wrapped VM with async runner
 		wrapped := engine.NewRunner(
 			vm,
 			engine.WithLayer(coroutine.NewCoroutineLayer()),
@@ -70,7 +70,7 @@ func TestAsyncHTTP(t *testing.T) {
 	       function test_http_requests()
 	           local results = {}
 	
-	           -- Create first coroutine (fast request)
+	           -- Spawn first coroutine (fast request)
 	           coroutine.spawn(function()
 	               local response = http_client.get("https://api.example.com/fast")
 	               results.fast = {
@@ -79,7 +79,7 @@ func TestAsyncHTTP(t *testing.T) {
 	               }
 	           end)
 	
-	           -- Create second coroutine (slow request)
+	           -- Spawn second coroutine (slow request)
 	           coroutine.spawn(function()
 	               local response = http_client.get("https://api.example.com/slow")
 	               results.slow = {
@@ -88,7 +88,7 @@ func TestAsyncHTTP(t *testing.T) {
 	               }
 	           end)
 	
-	           -- Create slowest request in main flow
+	           -- Spawn slowest request in main flow
 	           local response = http_client.get("https://api.example.com/slower")
 	           results.slower = {
 	               status = response.status_code,
@@ -133,7 +133,7 @@ func TestAsyncHTTP(t *testing.T) {
 	t.Run("async http request with timeout", func(t *testing.T) {
 		log := zap.NewNop()
 
-		// Create a mock client that simulates a slow response
+		// Spawn a mock client that simulates a slow response
 		mockClient := &mockHTTPClient{
 			doFunc: func(req *http.Request) (*http.Response, error) {
 				select {
@@ -149,7 +149,7 @@ func TestAsyncHTTP(t *testing.T) {
 			},
 		}
 
-		// Create base VM with HTTP module
+		// Spawn base VM with HTTP module
 		vm, err := engine.NewCVM(
 			log,
 			engine.WithPreloaded("http_client", NewHTTPClientModule(log, mockClient).Loader),
@@ -158,7 +158,7 @@ func TestAsyncHTTP(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		// Create wrapped VM with async runner
+		// Spawn wrapped VM with async runner
 		wrapped := engine.NewRunner(
 			vm,
 			engine.WithLayer(coroutine.NewCoroutineLayer()),
@@ -170,7 +170,7 @@ func TestAsyncHTTP(t *testing.T) {
                 local result
                 local error_msg
                 
-                -- Create request with short timeout
+                -- Spawn request with short timeout
                 coroutine.spawn(function()
                     local response, err = http_client.get("https://api.example.com/slow", {
                         timeout = "100ms"

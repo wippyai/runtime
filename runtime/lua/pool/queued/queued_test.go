@@ -105,7 +105,7 @@ func setupTestFactory(opts ...testOption) (api.Factory, error) {
 		cfg.functions[i].proto = proto
 	}
 
-	// Create compiled main
+	// Spawn compiled main
 	compiled := &code.CompiledMain{
 		Main:   cfg.functions[0].proto,
 		Method: cfg.functions[0].name,

@@ -398,7 +398,7 @@ func TestParserLifecycle(t *testing.T) {
 		err = vm.DoString(context.Background(), `
             local treesitter = require("treesitter")
             
-            -- Create parser and parse some code
+            -- Spawn parser and parse some code
             local parser = treesitter.parser()
             parser:set_language("go")
             
@@ -427,7 +427,7 @@ func TestParserLifecycle(t *testing.T) {
             -- Test double close should not crash
             parser:close()
             
-            -- Create new parser to verify we can still create and use parsers
+            -- Spawn new parser to verify we can still create and use parsers
             local parser2 = treesitter.parser()
             parser2:set_language("go")
             local tree3 = parser2:parse("package main")

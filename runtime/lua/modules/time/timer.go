@@ -46,11 +46,11 @@ func timer(l *lua.LState) int {
 		return 0
 	}
 
-	// Create channel and timer
+	// Spawn channel and timer
 	ch := channel.Named(fmt.Sprintf("timer_%s", duration), 1)
 	tmr := time.NewTimer(duration)
 
-	// Create userdata for time value upfront
+	// Spawn userdata for time value upfront
 	timeUD := l.NewUserData()
 	timeUD.Value = &Time{time: time.Now()} // initial value will be replaced
 	l.SetMetatable(timeUD, l.GetTypeMetatable("Time"))
@@ -71,7 +71,7 @@ func timer(l *lua.LState) int {
 		}
 	}()
 
-	// Create and return Timer userdata
+	// Spawn and return Timer userdata
 	ud := l.NewUserData()
 	ud.Value = &Timer{timer: tmr, chValue: channel.Wrap(l, ch)}
 	l.SetMetatable(ud, l.GetTypeMetatable("Timer"))

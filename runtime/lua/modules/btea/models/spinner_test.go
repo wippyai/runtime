@@ -29,7 +29,7 @@ func TestSpinner(t *testing.T) {
 		err = vm.DoString(nil, `
 			local btea = require("btea")
 			
-			-- Create a basic spinner
+			-- Spawn a basic spinner
 			local spinner = btea.spinner({
 				type = btea.spinners.LINE,
 				interval = "100ms"
@@ -139,7 +139,7 @@ func TestSpinner(t *testing.T) {
 			end
 			
 			-- Test negative interval during set_interval
-			local spinner = btea.spinner({})  -- Create with default interval
+			local spinner = btea.spinner({})  -- Spawn with default interval
 			ok, err = pcall(function()
 				spinner:set_interval("-100ms")
 			end)
@@ -208,7 +208,7 @@ func TestSpinnerUpdate(t *testing.T) {
 
 	cmd := protocol.UnwrapCommand(cvm.State(), tasks[0].Yielded[1])
 
-	// Create a tick message using protocol
+	// Spawn a tick message using protocol
 	tickMsg := protocol.MsgToLua(cmd())
 	tasks[0].Resumed = []lua.LValue{tickMsg}
 

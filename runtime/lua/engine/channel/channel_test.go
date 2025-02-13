@@ -298,7 +298,7 @@ func TestChannelReleaseLogic(t *testing.T) {
 		ch := newChannel(0)
 		L := lua.NewState()
 
-		// Create a direct send operation
+		// Spawn a direct send operation
 		op := &op{
 			kind: sendOp,
 			ch:   ch,
@@ -319,7 +319,7 @@ func TestChannelReleaseLogic(t *testing.T) {
 		ch2 := newChannel(0)
 		L := lua.NewState()
 
-		// Create a select operation with two cases
+		// Spawn a select operation with two cases
 		selectOp := &selectOp{
 			task: L,
 			cases: []*op{
@@ -364,7 +364,7 @@ func TestChannelReleaseLogic(t *testing.T) {
 		L1 := lua.NewState()
 		L2 := lua.NewState()
 
-		// Create two select operations
+		// Spawn two select operations
 		select1 := &selectOp{
 			task: L1,
 			cases: []*op{
@@ -457,7 +457,7 @@ func TestChannelBlockingScenarios(t *testing.T) {
 		L1 := lua.NewState()
 		L2 := lua.NewState()
 
-		// Create select operation watching both channels
+		// Spawn select operation watching both channels
 		selectOp := &selectOp{
 			task: L1,
 			cases: []*op{

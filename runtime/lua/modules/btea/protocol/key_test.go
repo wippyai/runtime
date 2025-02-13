@@ -25,7 +25,7 @@ func TestKeyBinding(t *testing.T) {
 		vm.State().SetGlobal("btea", mod)
 
 		err = vm.DoString(nil, `
-            -- Create a key binding
+            -- Spawn a key binding
             local binding = btea.bind({
                 keys = {"ctrl+c", "esc"},
                 help = {
@@ -57,13 +57,13 @@ func TestKeyBinding(t *testing.T) {
 		vm.State().SetGlobal("btea", mod)
 
 		err = vm.DoString(nil, `
-            -- Create a binding for space key
+            -- Spawn a binding for space key
             local binding = btea.bind({
                 keys = {"space"},
                 help = {key = "space", desc = "select"}
             })
 
-            -- Create a key message (this would come from the TUI normally)
+            -- Spawn a key message (this would come from the TUI normally)
             local msg = {
                 type = "update",
                 key = {
@@ -164,7 +164,7 @@ func TestKeyBindingConversion(t *testing.T) {
 	})
 
 	t.Run("ToGoKeyBinding success", func(t *testing.T) {
-		// Create a KeyBinding userdata
+		// Spawn a KeyBinding userdata
 		kb := &KeyBinding{
 			Binding: key.NewBinding(
 				key.WithKeys("enter"),

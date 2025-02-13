@@ -86,7 +86,7 @@ func (s *Stream) ReadChunk() ([]byte, error) {
 }
 
 func (s *Stream) readDirect(buffer []byte) (int, error) {
-	// Create a channel to receive read results
+	// Spawn a channel to receive read results
 	// todo: sync.Pool
 	resultCh := make(chan struct {
 		n   int

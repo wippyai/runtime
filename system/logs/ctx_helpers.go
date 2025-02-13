@@ -27,7 +27,7 @@ func NewConfigurationManager() *ConfigurationManager {
 
 // GetConfig requests and waits for logging configuration from the event bus
 func (c *ConfigurationManager) GetConfig(ctx context.Context, bus events.Bus) (api.Config, error) {
-	// Create a response channel with buffer to prevent blocking
+	// Spawn a response channel with buffer to prevent blocking
 	configCh := make(chan api.Config, 1)
 
 	// Set up subscription first
@@ -67,7 +67,7 @@ func (c *ConfigurationManager) GetConfig(ctx context.Context, bus events.Bus) (a
 
 // SetConfig sets logging configuration and waits for confirmation
 func (c *ConfigurationManager) SetConfig(ctx context.Context, bus events.Bus, cfg api.Config) error {
-	// Create a response channel with buffer to prevent blocking
+	// Spawn a response channel with buffer to prevent blocking
 	confirmCh := make(chan api.Config, 1)
 
 	// Set up subscription first

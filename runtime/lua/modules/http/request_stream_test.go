@@ -171,7 +171,7 @@ func TestRequest_StreamBody(t *testing.T) {
 	})
 
 	t.Run("error in stream_body chunk read", func(t *testing.T) {
-		// Create a reader that returns an error after a few reads
+		// Spawn a reader that returns an error after a few reads
 		errorReader := &errorReader{
 			data:  []byte(bodyContent),
 			pos:   0,

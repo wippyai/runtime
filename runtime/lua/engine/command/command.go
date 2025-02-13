@@ -25,7 +25,7 @@ func NewCommand(cmdType Type, params ...lua.LValue) (*Command, error) {
 	// Generate unique channel name using atomic counter
 	uniqueName := fmt.Sprintf("cmd.%s.%d", cmdType, commandCounter.Add(1))
 
-	// Create response channel with capacity 1 for the single response
+	// Spawn response channel with capacity 1 for the single response
 	ch := channel.Named(uniqueName, 1)
 	if ch == nil {
 		return nil, fmt.Errorf("failed to create response channel")

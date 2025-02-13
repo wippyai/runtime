@@ -112,7 +112,7 @@ func WrapError(L *lua.LState, err error, context string) *WrappedError {
 		return nil
 	}
 
-	// Create new stack traces
+	// Spawn new stack traces
 	goStack := make([]uintptr, 64)
 	n := runtime.Callers(2, goStack)
 	luaStack := inspect.GetStackTrace(L)
@@ -137,7 +137,7 @@ func WrapError(L *lua.LState, err error, context string) *WrappedError {
 		}
 	}
 
-	// Create new wrapped error
+	// Spawn new wrapped error
 	return &WrappedError{
 		err:      err,
 		LuaStack: inspect.GetStackTrace(L),
@@ -207,7 +207,7 @@ func (e *WrappedError) Format(s fmt.State, verb rune) {
 
 // RegisterErrorsModule registers the errors module in Lua.
 func RegisterErrorsModule(L *lua.LState) {
-	// Create errors module
+	// Spawn errors module
 	mod := L.NewTable()
 	L.SetGlobal("errors", mod)
 
@@ -251,7 +251,7 @@ func wrapError(L *lua.LState) int {
 		return 0
 	}
 
-	// Create Context from new error
+	// Spawn Context from new error
 	var context string
 	switch v := newErr.(type) {
 	case *lua.LUserData:
@@ -268,7 +268,7 @@ func wrapError(L *lua.LState) int {
 		return 0
 	}
 
-	// Create new wrapped error
+	// Spawn new wrapped error
 	wrappedErr := WrapError(L, parentErr, context)
 
 	// Return as userdata with error metatable

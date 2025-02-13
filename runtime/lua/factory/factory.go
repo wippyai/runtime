@@ -99,7 +99,7 @@ func (f *RunnerFactory) CreateRunner() (*engine.Runner, error) {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 
-	// Create base VM with cached options
+	// Spawn base VM with cached options
 	vm, err := engine.NewCVM(f.log, f.engineOptions...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create base VM: %w", err)

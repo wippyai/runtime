@@ -95,7 +95,7 @@ func TestSequencer_BasicDependencyOrder(t *testing.T) {
 
 	events := make(chan operationEvent, 10)
 
-	// Create test services with dependencies:
+	// Spawn test services with dependencies:
 	// A -> B -> C (A depends on B, B depends on C)
 	services := map[string]*executableService{
 		"service-a": newTestController("service-a", events),
@@ -185,7 +185,7 @@ func TestSequencer_ParallelExecution(t *testing.T) {
 
 	events := make(chan operationEvent, 10)
 
-	// Create test services:
+	// Spawn test services:
 	// A -> C
 	// B -> C
 	// (A and B can start in parallel, C must start last)
@@ -246,7 +246,7 @@ func TestSequencer_MixedOperations(t *testing.T) {
 
 	events := make(chan operationEvent, 10)
 
-	// Create services for mixed start/stop operations
+	// Spawn services for mixed start/stop operations
 	services := map[string]*executableService{
 		"start-1": newTestController("start-1", events),
 		"start-2": newTestController("start-2", events),
@@ -321,7 +321,7 @@ func TestSequencer_OutOfOrderDependencies(t *testing.T) {
 	sp := NewSequencer(logger)
 	events := make(chan operationEvent, 10)
 
-	// Create test services and register them in reverse dependency order
+	// Spawn test services and register them in reverse dependency order
 	// Actual dependency chain: A -> B -> C
 	// Registration order: C, A, B
 	services := map[string]*executableService{
@@ -367,7 +367,7 @@ func TestSequencer_ComplexDependencyChain(t *testing.T) {
 	sp := NewSequencer(logger)
 	events := make(chan operationEvent, 20)
 
-	// Create dependency chain with parallel groups:
+	// Spawn dependency chain with parallel groups:
 	// Level 1 (parallel): A1, A2
 	// Level 2: B (depends on A1, A2)
 	// Level 3 (parallel): C1, C2 (both depend on B)

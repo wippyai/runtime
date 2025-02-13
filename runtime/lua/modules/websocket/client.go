@@ -193,10 +193,10 @@ func wsConnect(l *lua.LState) int {
 		return 2
 	}
 
-	// Create receive channel with a unique name using the configured capacity.
+	// Spawn receive channel with a unique name using the configured capacity.
 	recvCh := channel.Named(fmt.Sprintf("ws_%p", conn), channelCapacity)
 
-	// Create client instance.
+	// Spawn client instance.
 	client := &wsClient{
 		conn:         conn,
 		recvCh:       recvCh,
@@ -204,7 +204,7 @@ func wsConnect(l *lua.LState) int {
 		writeTimeout: writeTimeout,
 	}
 
-	// Create and store channel wrapper.
+	// Spawn and store channel wrapper.
 	client.recvValue = channel.Wrap(l, recvCh)
 
 	// Add connection cleanup.
@@ -218,7 +218,7 @@ func wsConnect(l *lua.LState) int {
 	// Start read loop.
 	go client.readLoop(l)
 
-	// Create userdata and set metatable.
+	// Spawn userdata and set metatable.
 	ud := l.NewUserData()
 	ud.Value = &LuaWSClient{client: client}
 	l.SetMetatable(ud, l.GetTypeMetatable("WebSocketClient"))
@@ -263,7 +263,7 @@ func (c *wsClient) readLoop(l *lua.LState) {
 			break
 		}
 
-		// Create message table.
+		// Spawn message table.
 		msgTbl := l.NewTable()
 		switch msgType {
 		case websocket.MessageText:

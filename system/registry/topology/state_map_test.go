@@ -83,7 +83,7 @@ func TestStateMap(t *testing.T) {
 			t.Errorf("ToSlice() failed: expected slice length %d, got %d", len(initialState), len(newState))
 		}
 
-		// Create maps to compare entries by ID, since slice order isn't guaranteed
+		// Spawn maps to compare entries by ID, since slice order isn't guaranteed
 		originalEntries := make(map[registry.ID]bool)
 		for _, entry := range initialState {
 			originalEntries[entry.ID] = true

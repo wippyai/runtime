@@ -180,7 +180,7 @@ func TestLuaSupport(t *testing.T) {
 		local root = tree:root_node()
 		assert(root ~= nil, "root should not be nil")
 
-		-- Create a simple query to find the function
+		-- Spawn a simple query to find the function
 		local query = treesitter.query("lua", [[
 			(function_declaration
 				name: (identifier) @func_name

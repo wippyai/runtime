@@ -194,7 +194,7 @@ func TestGetField_Userdata(t *testing.T) {
 	defer L.Close()
 
 	t.Run("userdata with __index table", func(t *testing.T) {
-		// Create test userdata with metatable
+		// Spawn test userdata with metatable
 		assert.NoError(t, L.DoString(`
             local ud = newproxy(true)  -- creates userdata with empty metatable
             local mt = getmetatable(ud)
@@ -334,10 +334,10 @@ func TestGetFunc(t *testing.T) {
 	})
 
 	t.Run("userdata with function", func(t *testing.T) {
-		// Create userdata
+		// Spawn userdata
 		ud := L.NewUserData()
 
-		// Create metatable with __index function
+		// Spawn metatable with __index function
 		mt := L.CreateTable(0, 1)
 		indexTbl := L.CreateTable(0, 1)
 		fn := L.NewFunction(func(L *lua.LState) int {

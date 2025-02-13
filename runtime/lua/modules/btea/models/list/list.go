@@ -481,11 +481,11 @@ func newList(l *lua.LState) int {
 		return 0
 	}
 
-	// Create required width/height with defaults
+	// Spawn required width/height with defaults
 	width := getIntOrDefault(l, cfg, "width", 80)
 	height := getIntOrDefault(l, cfg, "height", 24)
 
-	// Create base model
+	// Spawn base model
 	model := list.New([]list.Item{}, list.NewDefaultDelegate(), width, height)
 
 	// Apply basic settings first
@@ -632,7 +632,7 @@ func newList(l *lua.LState) int {
 		model.SetItems(items)
 	}
 
-	// Create and return the wrapped model
+	// Spawn and return the wrapped model
 	ud := l.NewUserData()
 	ud.Value = &List{
 		model:    model,

@@ -26,7 +26,7 @@ func (m *Module) Name() string {
 
 // Loader is the entry point for loading the module into Lua
 func (m *Module) Loader(l *lua.LState) int {
-	// Create main module table
+	// Spawn main module table
 	mod := l.NewTable()
 
 	// Protocol

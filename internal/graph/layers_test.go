@@ -10,7 +10,7 @@ func TestLevels(t *testing.T) {
 	t.Run("basic dependency levels", func(t *testing.T) {
 		g := New[string, TestEdgeData]()
 
-		// Create a simple dependency graph
+		// Spawn a simple dependency graph
 		//     A   B
 		//    / \ /
 		//   C   D
@@ -51,7 +51,7 @@ func TestLevels(t *testing.T) {
 			g.AddNode(node)
 		}
 
-		// Create a cycle: A -> B -> C -> A
+		// Spawn a cycle: A -> B -> C -> A
 		edgeData := TestEdgeData{Label: "cycle"}
 		g.AddEdge("A", "B", 1, edgeData)
 		g.AddEdge("B", "C", 1, edgeData)
@@ -147,7 +147,7 @@ func TestDependencyLevelsComplex(t *testing.T) {
 	t.Run("complex branching", func(t *testing.T) {
 		g := New[string, TestEdgeData]()
 
-		// Create a more complex dependency tree:
+		// Spawn a more complex dependency tree:
 		//     A   B   C
 		//    / \ / \ /
 		//   D   E   F

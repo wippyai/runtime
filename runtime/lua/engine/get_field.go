@@ -101,7 +101,7 @@ func GetField(L *lua.LState, value lua.LValue, field string) (lua.LValue, bool) 
 //
 // This function never panics and safely handles all error conditions.
 func GetFunc(L *lua.LState, value lua.LValue, field string) (*lua.LFunction, bool) {
-	// Create the field using standard field access
+	// Spawn the field using standard field access
 	if v, ok := GetField(L, value, field); ok {
 		// Check if it's a function
 		if fn, ok := v.(*lua.LFunction); ok {

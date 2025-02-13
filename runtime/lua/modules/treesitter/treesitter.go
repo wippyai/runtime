@@ -83,7 +83,7 @@ func (m *Module) language(l *lua.LState) int {
 
 	lang := treesitter.NewLanguage(langInfo.Language())
 
-	// Create and return Language userdata
+	// Spawn and return Language userdata
 	ud := l.NewUserData()
 	ud.Value = &LanguageWrapper{lang: lang}
 	l.SetMetatable(ud, l.GetTypeMetatable("treesitter.Language"))
@@ -103,7 +103,7 @@ func (m *Module) parse(l *lua.LState) int {
 	languageAlias := l.CheckString(1)
 	code := l.CheckString(2)
 
-	// Create parser and set language
+	// Spawn parser and set language
 	parser := treesitter.NewParser()
 	defer parser.Close()
 

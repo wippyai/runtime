@@ -111,7 +111,7 @@ func TestServerManager_RouterOperations(t *testing.T) {
 	t.Run("router lifecycle", func(t *testing.T) {
 		manager := setupTest(t)
 
-		// Create server first
+		// Spawn server first
 		serverID := registry.ID{NS: "test", Name: "test-server"}
 		serverEntry := registry.Entry{
 			ID:   serverID,
@@ -122,7 +122,7 @@ func TestServerManager_RouterOperations(t *testing.T) {
 		}
 		require.NoError(t, manager.Add(ctx, serverEntry))
 
-		// Create router
+		// Spawn router
 		routerID := registry.ID{NS: "test", Name: "test-router"}
 		routerEntry := registry.Entry{
 			ID:   routerID,
@@ -152,7 +152,7 @@ func TestServerManager_RouterOperations(t *testing.T) {
 	t.Run("router server migration", func(t *testing.T) {
 		manager := setupTest(t)
 
-		// Create two servers
+		// Spawn two servers
 		for _, server := range []struct {
 			id   registry.ID
 			addr string
@@ -169,7 +169,7 @@ func TestServerManager_RouterOperations(t *testing.T) {
 			}))
 		}
 
-		// Create router on server1
+		// Spawn router on server1
 		routerID := registry.ID{NS: "test", Name: "test-router"}
 		routerEntry := registry.Entry{
 			ID:   routerID,
@@ -204,7 +204,7 @@ func TestServerManager_EndpointOperations(t *testing.T) {
 	t.Run("endpoint lifecycle", func(t *testing.T) {
 		manager := setupTest(t)
 
-		// Create server first
+		// Spawn server first
 		serverID := registry.ID{NS: "test", Name: "test-server"}
 		serverEntry := registry.Entry{
 			ID:   serverID,
@@ -215,7 +215,7 @@ func TestServerManager_EndpointOperations(t *testing.T) {
 		}
 		require.NoError(t, manager.Add(ctx, serverEntry))
 
-		// Create endpoint
+		// Spawn endpoint
 		endpointID := registry.ID{NS: "test", Name: "test-endpoint"}
 		endpointEntry := registry.Entry{
 			ID:   endpointID,
@@ -247,7 +247,7 @@ func TestServerManager_EndpointOperations(t *testing.T) {
 	t.Run("endpoint server migration", func(t *testing.T) {
 		manager := setupTest(t)
 
-		// Create two servers
+		// Spawn two servers
 		for _, server := range []struct {
 			id   registry.ID
 			addr string
@@ -264,7 +264,7 @@ func TestServerManager_EndpointOperations(t *testing.T) {
 			}))
 		}
 
-		// Create endpoint on server1
+		// Spawn endpoint on server1
 		endpointID := registry.ID{NS: "test", Name: "test-endpoint"}
 		endpointEntry := registry.Entry{
 			ID:   endpointID,

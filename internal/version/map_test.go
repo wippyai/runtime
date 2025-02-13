@@ -78,7 +78,7 @@ func TestVersionMap_Path_Branches(t *testing.T) {
 }
 
 func TestVersionMap(t *testing.T) {
-	// Create some versions.
+	// Spawn some versions.
 	v1 := New(1)
 	v2 := FromParent(v1, 2)
 	v3 := FromParent(v2, 3)
@@ -164,7 +164,7 @@ func TestVersionMap(t *testing.T) {
 			name: "No path exists",
 			setup: func(vm Map) {
 				require.NoError(t, vm.Add(v1))
-				require.NoError(t, vm.Add(New(2))) // Create an unrelated version
+				require.NoError(t, vm.Add(New(2))) // Spawn an unrelated version
 			},
 			from:        v1,
 			to:          New(2),
@@ -172,7 +172,7 @@ func TestVersionMap(t *testing.T) {
 			expectError: errors.New("no path exists from v1 to v2"),
 		},
 		{
-			name: "Add and Create version",
+			name: "Add and Spawn version",
 			setup: func(vm Map) {
 				require.NoError(t, vm.Add(v1))
 			},
@@ -181,7 +181,7 @@ func TestVersionMap(t *testing.T) {
 			expected: []registry.Version{v1},
 		},
 		{
-			name: "Create non-existent version",
+			name: "Spawn non-existent version",
 			setup: func(Map) {
 				// No versions added
 			},

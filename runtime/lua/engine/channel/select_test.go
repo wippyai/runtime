@@ -21,7 +21,7 @@ func TestSelectImmediate(t *testing.T) {
 	defer vm.Close()
 
 	err = vm.StartString(context.Background(), `
-		-- Create two buffered channels
+		-- Spawn two buffered channels
 		local ch1 = channel.new(1)
 		local ch2 = channel.new(1)
 
@@ -78,7 +78,7 @@ func TestSelectBlockedReceive(t *testing.T) {
 	defer vm.Close()
 
 	err = vm.StartString(context.Background(), `
-		-- Create two unbuffered channels
+		-- Spawn two unbuffered channels
 		local ch1 = channel.new(0)
 		local ch2 = channel.new(0)
 		
@@ -132,7 +132,7 @@ func TestSelectBlockedClose(t *testing.T) {
 	defer vm.Close()
 
 	err = vm.StartString(context.Background(), `
-		-- Create two unbuffered channels
+		-- Spawn two unbuffered channels
 		local ch1 = channel.new(0)
 		local ch2 = channel.new(0)
 		
@@ -200,7 +200,7 @@ func TestSelectWithDefaultImmediate(t *testing.T) {
             }
         end
 
-        -- Create two empty channels
+        -- Spawn two empty channels
         local ch1 = channel.new(0)
         local ch2 = channel.new(0)
 
@@ -528,7 +528,7 @@ func TestMixedSelectImmediate(t *testing.T) {
 			}
 		end
 
-		-- Create channels with different states
+		-- Spawn channels with different states
 		local readyCh = channel.new(1)    -- buffered, will have a value
 		local emptyCh = channel.new(1)    -- buffered, empty
 		local fullCh = channel.new(1)     -- buffered, full
@@ -607,7 +607,7 @@ func TestMixedSelectBlocking(t *testing.T) {
 	defer vm.Close()
 
 	err = vm.StartString(context.Background(), `
-		-- Create unbuffered channels
+		-- Spawn unbuffered channels
 		local ch1 = channel.new(0)
 		local ch2 = channel.new(0)
 		local resultCh = channel.new(1)  -- for test coordination
@@ -692,7 +692,7 @@ func TestMixedSelectWithDefault(t *testing.T) {
 	defer vm.Close()
 
 	err = vm.StartString(context.Background(), `
-		-- Create channels that would block
+		-- Spawn channels that would block
 		local sendCh = channel.new(0)   -- unbuffered
 		local recvCh = channel.new(0)   -- unbuffered
 		
@@ -777,7 +777,7 @@ func TestSingleCaseSelectWithReadyData(t *testing.T) {
 		local ready = channel.new(0)  -- synchronization channel
 		local results = {}  -- collect results
 
-		-- Create 3 sender coroutines
+		-- Spawn 3 sender coroutines
 		for i = 1, 3 do
 			coroutine.spawn(function()
 				ch:send("val" .. i)

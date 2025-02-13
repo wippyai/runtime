@@ -166,11 +166,11 @@ invalid: content
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create temporary directory with test files
+			// Spawn temporary directory with test files
 			rootDir, cleanup := temp_files.TempDirWithFiles(t, "loader-test", tt.files)
 			defer cleanup()
 
-			// Create loader
+			// Spawn loader
 			loader := NewLoader(transcoder, logger, interpolator)
 
 			// Load entries

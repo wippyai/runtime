@@ -319,7 +319,7 @@ func TestCoroutineVM_NativeCoroutines(t *testing.T) {
 
 		err = vm.StartString(context.Background(), `
 			function task_func()
-				-- Create a native coroutine
+				-- Spawn a native coroutine
 				local co = coroutine.create(function()
 					coroutine.yield("native_first")
 					return "native_done"
@@ -373,7 +373,7 @@ func TestCoroutineVM_NativeCoroutines(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.StartString(context.Background(), `
-			-- Create a shared native coroutine
+			-- Spawn a shared native coroutine
 			shared_co = coroutine.create(function(task_name)
 				for i = 1, 2 do
 					local val = task_name .. "_" .. i
@@ -743,7 +743,7 @@ func TestCoroutineVM_AdditionalCoverage(t *testing.T) {
 		}
 		defer vm.Close()
 
-		// Create a dummy task that's not in the VM
+		// Spawn a dummy task that's not in the VM
 		dummyTask := &Task{}
 		err = vm.removeTask(dummyTask)
 		if err == nil {
@@ -762,7 +762,7 @@ func TestCoroutineVM_AdditionalCoverage(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.StartString(context.Background(), `
-			-- Create a function that will error when called
+			-- Spawn a function that will error when called
 			local badFunc = function()
 				error("coroutine creation error")
 			end
@@ -792,7 +792,7 @@ func TestCoroutineVM_StatusAndWrap(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.StartString(context.Background(), `
-			-- Create a task that will check statuses
+			-- Spawn a task that will check statuses
 			local status_results = {}
 			
 			function check_status()
@@ -847,7 +847,7 @@ func TestCoroutineVM_StatusAndWrap(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.StartString(context.Background(), `
-			-- Create a vm coroutine
+			-- Spawn a vm coroutine
 			local vm = coroutine.wrap(function()
 				coroutine.yield("from_wrap")
 				return "wrap_done"
@@ -1436,7 +1436,7 @@ func TestCoroutineVM_ClosedCoroutines(t *testing.T) {
 				return "done"
 			end
 
-			-- Create multiple coroutines
+			-- Spawn multiple coroutines
 			for i = 1, 3 do
 				coroutine.spawn(test_cleanup)
 			end
@@ -1820,7 +1820,7 @@ func TestCoroutineVM_Mount(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("mount and execute coroutine function", func(t *testing.T) {
-		// Create first VM and compile function
+		// Spawn first VM and compile function
 		vm1, err := NewCVM(logger)
 		if err != nil {
 			t.Fatal(err)
@@ -1851,7 +1851,7 @@ func TestCoroutineVM_Mount(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		// Create second VM and mount same function
+		// Spawn second VM and mount same function
 		vm2, err := NewCVM(logger)
 		if err != nil {
 			t.Fatal(err)
@@ -2109,7 +2109,7 @@ func TestCoroutineVM_StartWithArguments(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		// Create test arguments of different types
+		// Spawn test arguments of different types
 		testTable := &lua.LTable{}
 		testTable.RawSetInt(1, lua.LString("item1"))
 		testTable.RawSetInt(2, lua.LString("item2"))
@@ -2856,13 +2856,13 @@ func TestCoroutineVM_GoErrorPropagation(t *testing.T) {
 
 		// Register a function that creates a wrapped Go error
 		vm.vm.state.SetGlobal("go_produce_error", vm.vm.state.NewFunction(func(l *lua.LState) int {
-			// Create a Go error
+			// Spawn a Go error
 			goErr := fmt.Errorf("test go error")
 
 			// Wrap it to capture Go stack trace
 			wrappedErr := errors.WrapError(l, goErr, "error context")
 
-			// Create userdata with error metatable
+			// Spawn userdata with error metatable
 			ud := l.NewUserData()
 			ud.Value = wrappedErr
 			l.SetMetatable(ud, l.GetTypeMetatable("error"))
@@ -2886,7 +2886,7 @@ func TestCoroutineVM_GoErrorPropagation(t *testing.T) {
 				error(err)  -- Try to use the error, should fail
 			end
 
-			-- Create both coroutines
+			-- Spawn both coroutines
 			coroutine.spawn(error_producer)
 			coroutine.spawn(error_consumer)
 		`, "error_test")
@@ -2962,13 +2962,13 @@ func TestCoroutineVM_PcallErrorHandling(t *testing.T) {
 
 		// Register a function that creates a wrapped Go error
 		vm.vm.state.SetGlobal("go_produce_error", vm.vm.state.NewFunction(func(l *lua.LState) int {
-			// Create a Go error
+			// Spawn a Go error
 			goErr := fmt.Errorf("test go error")
 
 			// Wrap it to capture Go stack trace
 			wrappedErr := errors.WrapError(l, goErr, "error context")
 
-			// Create userdata with error metatable
+			// Spawn userdata with error metatable
 			ud := l.NewUserData()
 			ud.Value = wrappedErr
 			l.SetMetatable(ud, l.GetTypeMetatable("error"))
@@ -3004,7 +3004,7 @@ func TestCoroutineVM_PcallErrorHandling(t *testing.T) {
 				return "consumer_done"  -- Should never reach here
 			end
 
-			-- Create both coroutines
+			-- Spawn both coroutines
 			coroutine.spawn(error_producer)
 			coroutine.spawn(error_consumer)
 		`, "error_test")

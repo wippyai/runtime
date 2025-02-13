@@ -16,7 +16,7 @@ import (
 func setupTestVM(t *testing.T) (*engine.CoroutineVM, *channel.Layer, *Layer, *engine.Runner) {
 	logger := zap.NewNop()
 
-	// Create VM with required modules
+	// Spawn VM with required modules
 	vm, err := engine.NewCVM(
 		logger,
 		engine.WithPreloaded("pubsub", NewModule().Loader),
@@ -28,7 +28,7 @@ func setupTestVM(t *testing.T) (*engine.CoroutineVM, *channel.Layer, *Layer, *en
 	channels := channel.NewChannelLayer()
 	pubsubLayer := NewSubscriptionLayer(channels)
 
-	// Create runner
+	// Spawn runner
 	runner := engine.NewRunner(vm,
 		engine.WithLayer(channels),
 		engine.WithLayer(pubsubLayer),

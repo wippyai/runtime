@@ -72,7 +72,7 @@ func equalValue(got, want interface{}) bool {
 }
 
 func TestExtractEntries(t *testing.T) {
-	// Create a test transcoder that handles JSON
+	// Spawn a test transcoder that handles JSON
 	transcoder := tr.NewTranscoder()
 	jsonRegister := json.Register
 	jsonRegister(transcoder)
@@ -304,7 +304,7 @@ func TestExtractEntries(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create JSON payload
+			// Spawn JSON payload
 			p := payload.NewPayload(tt.input, payload.JSON)
 
 			got, err := ExtractEntries(p, transcoder)
@@ -414,7 +414,7 @@ func TestMergeMeta(t *testing.T) {
 }
 
 func TestMetadataMergingInData(t *testing.T) {
-	// Create a test transcoder that handles JSON
+	// Spawn a test transcoder that handles JSON
 	transcoder := tr.NewTranscoder()
 	jsonRegister := json.Register
 	jsonRegister(transcoder)
@@ -479,7 +479,7 @@ func TestMetadataMergingInData(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create JSON payload
+			// Spawn JSON payload
 			p := payload.NewPayload(tt.input, payload.JSON)
 
 			got, err := ExtractEntries(p, transcoder)

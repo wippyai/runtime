@@ -22,14 +22,14 @@ func TestLuaTableToStyles(t *testing.T) {
 			setupLuaState: func(l *lua.LState) *lua.LTable {
 				stylesTable := l.CreateTable(0, 16)
 
-				// Create a sample style
+				// Spawn a sample style
 				style := &render.Style{
 					Style: lipgloss.NewStyle().
 						Bold(true).
 						Foreground(lipgloss.Color("#ff0000")),
 				}
 
-				// Create userdata for each style
+				// Spawn userdata for each style
 				for _, key := range []string{
 					"title_bar", "title", "spinner", "filter_prompt",
 					"filter_cursor", "status_bar", "status_empty",
@@ -225,7 +225,7 @@ func TestIntegrationWithLuaVM(t *testing.T) {
 		t.Fatalf("Failed to execute Lua script: %v", err)
 	}
 
-	// Create the returned styles table
+	// Spawn the returned styles table
 	stylesTable := l.Get(-1).(*lua.LTable)
 	l.Pop(1)
 

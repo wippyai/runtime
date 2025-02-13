@@ -135,7 +135,7 @@ func cursorGotoFirstChildForByte(l *lua.LState) int {
 func cursorGotoFirstChildForPoint(l *lua.LState) int {
 	cursor := checkCursor(l)
 
-	// Create point table argument
+	// Spawn point table argument
 	pointTbl := l.CheckTable(2)
 	row := uint(pointTbl.RawGetString("row").(lua.LNumber))
 	col := uint(pointTbl.RawGetString("column").(lua.LNumber))

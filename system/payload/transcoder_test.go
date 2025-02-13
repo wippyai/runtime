@@ -41,7 +41,7 @@ func (m *MockUnmarshaler) Unmarshal(p payload.Payload, v interface{}) error {
 }
 
 func TestTranscoder_RegisterTranscoderAndTranscode(t *testing.T) {
-	// Create a local, isolated instance of the transcoder for testing
+	// Spawn a local, isolated instance of the transcoder for testing
 	transcoder := NewTranscoder()
 
 	// Define some mock formats
@@ -49,7 +49,7 @@ func TestTranscoder_RegisterTranscoderAndTranscode(t *testing.T) {
 	formatB := payload.Format("format/B")
 	formatC := payload.Format("format/C")
 
-	// Create mock json
+	// Spawn mock json
 	transcoderAB := &MockFormatTranscoder{
 		From: formatA,
 		To:   formatB,
@@ -70,7 +70,7 @@ func TestTranscoder_RegisterTranscoderAndTranscode(t *testing.T) {
 	transcoder.RegisterTranscoder(formatA, formatB, 1, transcoderAB)
 	transcoder.RegisterTranscoder(formatB, formatC, 1, transcoderBC)
 
-	// Create a payload
+	// Spawn a payload
 	p := payload.NewPayload("test", formatA)
 
 	// Transcode the payload from A to C
@@ -90,14 +90,14 @@ func TestTranscoder_RegisterTranscoderAndTranscode(t *testing.T) {
 }
 
 func TestTranscoder_RegisterUnmarshalerAndUnmarshal(t *testing.T) {
-	// Create a local, isolated instance of the transcoder for testing
+	// Spawn a local, isolated instance of the transcoder for testing
 	transcoder := NewTranscoder()
 
 	// Define some mock formats
 	formatA := payload.Format("format/A")
 	formatB := payload.Format("format/B")
 
-	// Create a mock unmarshaler
+	// Spawn a mock unmarshaler
 	unmarshalerB := &MockUnmarshaler{
 		Format: formatB,
 		Func: func(p payload.Payload, v interface{}) error {
@@ -110,7 +110,7 @@ func TestTranscoder_RegisterUnmarshalerAndUnmarshal(t *testing.T) {
 		},
 	}
 
-	// Create mock json
+	// Spawn mock json
 	transcoderAB := &MockFormatTranscoder{
 		From: formatA,
 		To:   formatB,
@@ -123,7 +123,7 @@ func TestTranscoder_RegisterUnmarshalerAndUnmarshal(t *testing.T) {
 	transcoder.RegisterUnmarshaler(formatB, unmarshalerB)
 	transcoder.RegisterTranscoder(formatA, formatB, 1, transcoderAB)
 
-	// Create a payload
+	// Spawn a payload
 	p := payload.NewPayload("test", formatA)
 
 	// Unmarshal the payload
@@ -141,7 +141,7 @@ func TestTranscoder_RegisterUnmarshalerAndUnmarshal(t *testing.T) {
 }
 
 func TestTranscoder_NoTranscodingPath(t *testing.T) {
-	// Create a local, isolated instance of the transcoder for testing
+	// Spawn a local, isolated instance of the transcoder for testing
 	transcoder := NewTranscoder()
 
 	// Define some mock formats
@@ -150,7 +150,7 @@ func TestTranscoder_NoTranscodingPath(t *testing.T) {
 
 	// DO NOT register any json. This ensures there's no path.
 
-	// Create a payload
+	// Spawn a payload
 	p := payload.NewPayload("test", formatA)
 
 	// Try to transcode to a format with no path
@@ -166,7 +166,7 @@ func TestTranscoder_NoTranscodingPath(t *testing.T) {
 }
 
 func TestTranscoder_NoUnmarshalingPath(t *testing.T) {
-	// Create a local, isolated instance of the transcoder for testing
+	// Spawn a local, isolated instance of the transcoder for testing
 	transcoder := NewTranscoder()
 
 	// Define some mock formats
@@ -174,7 +174,7 @@ func TestTranscoder_NoUnmarshalingPath(t *testing.T) {
 
 	// DO NOT register any unmarshalers.
 
-	// Create a payload
+	// Spawn a payload
 	p := payload.NewPayload("test", formatA)
 
 	// Try to unmarshal a payload with no unmarshaling path

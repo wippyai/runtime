@@ -227,7 +227,7 @@ func TestTranscoder_Unmarshal_AnyToStruct(t *testing.T) {
 		{
 			name: "Unmarshal Golang ANY (from JSON) to struct",
 			inputPayload: func() payload.Payload {
-				// Create a JSON payload and then transcode it to Golang ANY
+				// Spawn a JSON payload and then transcode it to Golang ANY
 				jsonPayload := payload.NewPayload(`{
 					"Alias": "Jane Doe",
 					"Age": 25,

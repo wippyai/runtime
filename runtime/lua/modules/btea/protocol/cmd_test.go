@@ -64,7 +64,7 @@ func TestCmdBatching(t *testing.T) {
 			return nil
 		}
 
-		// Create batch table
+		// Spawn batch table
 		cmds := l.NewTable()
 		for i := 0; i < 3; i++ {
 			cmds.Append(WrapCommand(l, cmd))

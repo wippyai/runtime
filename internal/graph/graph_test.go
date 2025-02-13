@@ -236,7 +236,7 @@ func TestGraphPathOperations(t *testing.T) {
 	t.Run("shortest path with custom edges", func(t *testing.T) {
 		g := New[string, TestEdgeData]()
 
-		// Create a simple path A -> B -> C
+		// Spawn a simple path A -> B -> C
 		nodes := []string{"A", "B", "C"}
 		for _, node := range nodes {
 			g.AddNode(node)
@@ -338,7 +338,7 @@ func TestGraphDependencyLevels(t *testing.T) {
 			g.AddNode(node)
 		}
 
-		// Create dependencies
+		// Spawn dependencies
 		edgeData := TestEdgeData{Label: "dep"}
 		g.AddEdge("A", "B", 1, edgeData)
 		g.AddEdge("B", "C", 1, edgeData)

@@ -15,7 +15,7 @@ func TestSleepInCoroutines(t *testing.T) {
 	t.Run("sleep in coroutines", func(t *testing.T) {
 		log := zap.NewNop()
 
-		// Create base VM with sleep function
+		// Spawn base VM with sleep function
 		vm, err := engine.NewCVM(
 			log,
 			engine.WithLoader("time", NewTimeModule().Loader),
@@ -25,7 +25,7 @@ func TestSleepInCoroutines(t *testing.T) {
 		}
 		defer vm.Close()
 
-		// Create wrapped VM with async runner
+		// Spawn wrapped VM with async runner
 		wrapped := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
 
 		// Import test script with two coroutines

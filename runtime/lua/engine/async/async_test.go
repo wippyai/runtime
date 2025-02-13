@@ -23,7 +23,7 @@ func TestSend(t *testing.T) {
 
 		L.SetContext(ctx)
 
-		// Create a test channel and value
+		// Spawn a test channel and value
 		ch := channel.Named("test", 0)
 		value := lua.LString("test")
 

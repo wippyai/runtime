@@ -34,7 +34,7 @@ func (m *Module) Name() string {
 
 // Loader is the entry point for loading the plugin
 func (m *Module) Loader(l *lua.LState) int {
-	// Create logger userdata
+	// Spawn logger userdata
 	ud := l.NewUserData()
 	ud.Value = &Logger{logger: m.baseLogger}
 
@@ -185,10 +185,10 @@ func loggerWith(l *lua.LState) int {
 		return 0
 	}
 
-	// Create new logger with fields
+	// Spawn new logger with fields
 	newLogger := logger.logger.With(tableToFields(fields)...)
 
-	// Create new userdata
+	// Spawn new userdata
 	newUd := l.NewUserData()
 	newUd.Value = &Logger{logger: newLogger}
 	l.SetMetatable(newUd, l.GetTypeMetatable("Logger"))
@@ -211,10 +211,10 @@ func loggerNamed(l *lua.LState) int {
 		return 0
 	}
 
-	// Create new named logger
+	// Spawn new named logger
 	newLogger := logger.logger.Named(name)
 
-	// Create new userdata
+	// Spawn new userdata
 	newUd := l.NewUserData()
 	newUd.Value = &Logger{logger: newLogger}
 	l.SetMetatable(newUd, l.GetTypeMetatable("Logger"))

@@ -24,7 +24,7 @@ func TestStackInspector(t *testing.T) {
 			end
 		end
 
-		-- Create counter
+		-- Spawn counter
 		local counter = make_counter()
 
 		function test_func(x)
@@ -33,7 +33,7 @@ func TestStackInspector(t *testing.T) {
 			return x
 		end
 
-		-- Create a coroutine
+		-- Spawn a coroutine
 		local co = coroutine.create(function()
 			local co_var = "coroutine local"
 			inspect_co()

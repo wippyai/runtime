@@ -72,13 +72,13 @@ func registerLocation(l *lua.LState, mod *lua.LTable) {
 	l.SetField(mod, "load_location", l.NewFunction(loadLocation))
 	l.SetField(mod, "fixed_zone", l.NewFunction(fixedZone))
 
-	// Create and set UTC constant
+	// Spawn and set UTC constant
 	utcUD := l.NewUserData()
 	utcUD.Value = &Location{location: time.UTC}
 	l.SetMetatable(utcUD, locationMt)
 	l.SetField(mod, "utc", utcUD)
 
-	// Create and set Local constant
+	// Spawn and set Local constant
 	localUD := l.NewUserData()
 	localUD.Value = &Location{location: time.Local}
 	l.SetMetatable(localUD, locationMt)

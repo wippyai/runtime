@@ -33,6 +33,7 @@ import (
 	"github.com/ponyruntime/pony/system/payload/json"
 	"github.com/ponyruntime/pony/system/payload/lua"
 	"github.com/ponyruntime/pony/system/payload/yaml"
+	"github.com/ponyruntime/pony/system/processes"
 	"github.com/ponyruntime/pony/system/registry"
 	reghandler "github.com/ponyruntime/pony/system/registry/events"
 	"github.com/ponyruntime/pony/system/registry/history"
@@ -64,6 +65,7 @@ type App struct {
 	reg         apiReg.Registry
 	supervisor  *supervisor.Supervisor
 	funcs       *functions.FunctionRegistry
+	processes   *processes.ProcessFactory
 
 	shuttingDown  bool
 	forceShutdown chan struct{}
@@ -130,19 +132,22 @@ func (a *App) Initialize() error {
 
 	// Initialize core function registry
 	a.funcs = functions.NewExecutor(a.eventBus, a.logger.Named("funcs"))
+	a.processes = processes.NewProcessFactory(a.eventBus, a.logger.Named("processes"))
 
 	return nil
 }
 
 func (a *App) Start(folderPath string) error {
-	// Create context with values
+	// Spawn context with values
 	ctx := a.ctx
+	ctx = context.WithValue(ctx, apiCtx.RegistryCtx, a.reg)
 	ctx = context.WithValue(ctx, apiCtx.LoggerCtx, a.logger)
 	ctx = context.WithValue(ctx, apiCtx.TranscoderCtx, a.dtt)
 	ctx = context.WithValue(ctx, apiCtx.BusCtx, a.eventBus)
 	ctx = context.WithValue(ctx, apiCtx.FunctionsCtx, a.funcs)
+	ctx = context.WithValue(ctx, apiCtx.ProcessesCtx, a.processes)
 
-	// Create environment context
+	// Spawn environment context
 	envCtx := apiCtx.NewContexter[string]()
 	for _, en := range os.Environ() {
 		pair := strings.SplitN(en, "=", 2)
@@ -191,7 +196,7 @@ func (a *App) Start(folderPath string) error {
 func (a *App) Stop() error {
 	a.shuttingDown = true
 
-	// Create shutdown context with timeout
+	// Spawn shutdown context with timeout
 	ctx, cancel := context.WithTimeout(a.ctx, 15*time.Second)
 	defer cancel()
 
@@ -246,7 +251,7 @@ func main() {
 
 	folderPath := args[0]
 
-	// Create and initialize application
+	// Spawn and initialize application
 	app, err := NewApp(
 		*verbose,
 		*veryVerbose,

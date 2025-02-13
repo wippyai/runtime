@@ -150,7 +150,7 @@ func (cm *Manager) Compile(
 
 // AddNode adds a new node with dependencies to the graph
 func (cm *Manager) AddNode(_ context.Context, node Node, deps []Import) error {
-	// Create pointer from value
+	// Spawn pointer from value
 	nodePtr := &Node{
 		ID:     node.ID,
 		Kind:   node.Kind,

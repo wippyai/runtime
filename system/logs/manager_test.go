@@ -84,7 +84,7 @@ func TestManager_ConfigFlow(t *testing.T) {
 
 	require.NoError(t, manager.Start(ctx))
 	cfgm := NewConfigurationManager()
-	// Create initial config using helper
+	// Spawn initial config using helper
 	initialConfig, err := cfgm.GetConfig(ctx, bus)
 	require.NoError(t, err)
 	require.Equal(t, manager.GetConfig(), initialConfig)
@@ -102,7 +102,7 @@ func TestManager_ConfigFlow(t *testing.T) {
 	managerConfig := manager.GetConfig()
 	require.Equal(t, newConfig, managerConfig)
 
-	// Create config again using helper
+	// Spawn config again using helper
 	updatedConfig, err := cfgm.GetConfig(ctx, bus)
 	require.NoError(t, err)
 	require.Equal(t, newConfig, updatedConfig)

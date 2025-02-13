@@ -56,12 +56,12 @@ func registerQuery(l *lua.LState) {
 	}))
 }
 
-// Create a new Query
+// Spawn a new Query
 func newQuery(l *lua.LState) int {
 	languageStr := l.CheckString(1)
 	pattern := l.CheckString(2)
 
-	// Create language from string
+	// Spawn language from string
 	langInfo := NewLanguages().GetLanguageInfo(languageStr)
 	if langInfo == nil {
 		l.Push(lua.LNil)
@@ -83,7 +83,7 @@ func newQuery(l *lua.LState) int {
 		return 2
 	}
 
-	// Create query wrapper with cursor
+	// Spawn query wrapper with cursor
 	wrapper := &QueryWrapper{
 		query:  query,
 		cursor: treesitter.NewQueryCursor(),
@@ -123,7 +123,7 @@ func matchToLuaTable(l *lua.LState, query *treesitter.Query, match *treesitter.Q
 	for _, capture := range match.Captures {
 		captureTable := l.NewTable()
 
-		// Create Node wrapper for the specific capture's node
+		// Spawn Node wrapper for the specific capture's node
 		nodeUD := l.NewUserData()
 		nodeUD.Value = &NodeWrapper{node: &capture.Node, source: &source}
 		l.SetMetatable(nodeUD, l.GetTypeMetatable("treesitter.Node"))
@@ -131,7 +131,7 @@ func matchToLuaTable(l *lua.LState, query *treesitter.Query, match *treesitter.Q
 		captureTable.RawSetString("node", nodeUD)
 		captureTable.RawSetString("index", lua.LNumber(capture.Index))
 
-		// Create capture name from query pattern
+		// Spawn capture name from query pattern
 		name := query.CaptureNames()[capture.Index]
 		if name != "" {
 			captureTable.RawSetString("name", lua.LString(name))
@@ -193,7 +193,7 @@ func queryCaptures(l *lua.LState) int {
 		capture := match.Captures[index]
 		captureTable := l.NewTable()
 
-		// Create Node wrapper
+		// Spawn Node wrapper
 		nodeUD := l.NewUserData()
 		nodeUD.Value = &NodeWrapper{node: &capture.Node, source: &source}
 		l.SetMetatable(nodeUD, l.GetTypeMetatable("treesitter.Node"))
@@ -207,7 +207,7 @@ func queryCaptures(l *lua.LState) int {
 			captureTable.RawSetString("name", lua.LString(name))
 		}
 
-		// Create the text of the captured node
+		// Spawn the text of the captured node
 		start := capture.Node.StartByte()
 		end := capture.Node.EndByte()
 		if end <= uint(len(source)) {

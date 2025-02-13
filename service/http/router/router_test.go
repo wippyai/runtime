@@ -495,7 +495,7 @@ func TestRouter_ServeHTTP_Concurrency(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Create a wait group for concurrent requests
+	// Spawn a wait group for concurrent requests
 	var wg sync.WaitGroup
 
 	// Number of concurrent requests

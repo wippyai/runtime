@@ -112,7 +112,7 @@ func WithLoader(name string, loader lua.LGFunction) Option {
 // the result as a global variable with the given name.
 func WithPreloaded(name string, loader lua.LGFunction) Option {
 	return func(vm *VM) {
-		// Create module instance using loader
+		// Spawn module instance using loader
 		L := vm.state
 		L.Push(L.NewFunction(loader))
 		err := L.PCall(0, lua.MultRet, nil)

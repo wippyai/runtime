@@ -133,7 +133,7 @@ func TestZoneManagerMouseInteraction(t *testing.T) {
 	L := setupZoneState(t)
 	defer L.Close()
 
-	// Create a mouse message
+	// Spawn a mouse message
 	mouseTbl := L.NewTable()
 	mouseTbl.RawSetString("type", lua.LString("mouse"))
 	mouseTbl.RawSetString("x", lua.LNumber(5))
@@ -144,12 +144,12 @@ func TestZoneManagerMouseInteraction(t *testing.T) {
 	mouseTbl.RawSetString("ctrl", lua.LBool(false))
 	mouseTbl.RawSetString("shift", lua.LBool(false))
 
-	// Create wrapper table
+	// Spawn wrapper table
 	msgTbl := L.NewTable()
 	msgTbl.RawSetString("mouse", mouseTbl)
 	msgTbl.RawSetString("type", lua.LString("update"))
 
-	// Create model
+	// Spawn model
 	model := &mockTeaModel{}
 	modelUD := L.NewUserData()
 	modelUD.Value = model
@@ -162,7 +162,7 @@ func TestZoneManagerMouseInteraction(t *testing.T) {
 		local manager = btea.zone_manager()
 		manager:set_enabled(true)
 		
-		-- Create a zone with specific bounds
+		-- Spawn a zone with specific bounds
 		local test_content = "This is a test content"
 		local marked = manager:mark("test-zone", test_content)
 		manager:scan(marked) -- Register the zone
@@ -185,7 +185,7 @@ func TestZoneInfo(t *testing.T) {
 	L := setupZoneState(t)
 	defer L.Close()
 
-	// Create a mouse message
+	// Spawn a mouse message
 	mouseTbl := L.NewTable()
 	mouseTbl.RawSetString("type", lua.LString("mouse"))
 	mouseTbl.RawSetString("x", lua.LNumber(5))
@@ -196,7 +196,7 @@ func TestZoneInfo(t *testing.T) {
 	mouseTbl.RawSetString("ctrl", lua.LBool(false))
 	mouseTbl.RawSetString("shift", lua.LBool(false))
 
-	// Create wrapper table
+	// Spawn wrapper table
 	msgTbl := L.NewTable()
 	msgTbl.RawSetString("mouse", mouseTbl)
 	msgTbl.RawSetString("type", lua.LString("update"))
@@ -207,7 +207,7 @@ func TestZoneInfo(t *testing.T) {
 		local manager = btea.zone_manager()
 		manager:set_enabled(true)
 		
-		-- Create and scan specific content to ensure zone registration
+		-- Spawn and scan specific content to ensure zone registration
 		local content = manager:mark("test-zone", string.rep("test content", 5))
 		manager:scan(content)
 		
@@ -279,7 +279,7 @@ func TestZoneInfoEdgeCases(t *testing.T) {
 	L := setupZoneState(t)
 	defer L.Close()
 
-	// Create test mouse message with edge coordinates
+	// Spawn test mouse message with edge coordinates
 	mouseTbl := L.NewTable()
 	mouseTbl.RawSetString("type", lua.LString("mouse"))
 	mouseTbl.RawSetString("x", lua.LNumber(0)) // Edge case

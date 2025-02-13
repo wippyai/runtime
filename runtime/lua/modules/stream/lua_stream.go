@@ -33,7 +33,7 @@ func (m *Module) Name() string {
 
 // Loader registers the module functions and constants
 func (m *Module) Loader(l *lua.LState) int {
-	// Create module table
+	// Spawn module table
 	mod := l.NewTable()
 
 	RegisterStream(l)
@@ -49,7 +49,7 @@ func RegisterStream(l *lua.LState) {
 		return
 	}
 
-	// Create and register the Stream metatable
+	// Spawn and register the Stream metatable
 	mt := l.NewTypeMetatable("Stream")
 	l.SetField(mt, "__index", mt)
 

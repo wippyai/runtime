@@ -73,7 +73,7 @@ func (p *Pool) init() error {
 
 	p.vms = make(chan api.VM, p.size)
 
-	// Create initial VM pool
+	// Spawn initial VM pool
 	for i := 0; i < p.size; i++ {
 		vm, err := p.factory.CreateVM()
 		if err != nil {

@@ -748,7 +748,7 @@ func TestNodeSiblingNavigation(t *testing.T) {
             assert(not last:is_missing(), "last node should not be missing")
             assert(not root:is_missing(), "root should not be missing")
 
-            -- Create cursor just to test close
+            -- Spawn cursor just to test close
             local cursor = tree:walk()
             cursor:close()
             cursor:close() -- should not crash

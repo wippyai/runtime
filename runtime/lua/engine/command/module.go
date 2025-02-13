@@ -21,7 +21,7 @@ func (m *Module) Name() string {
 
 // Loader registers the module functions
 func (m *Module) Loader(L *lua.LState) int {
-	// Create module table
+	// Spawn module table
 	mod := L.NewTable()
 
 	// Register functions
@@ -61,7 +61,7 @@ func newCommandFunc(L *lua.LState) int {
 		return 0
 	}
 
-	// Create params table
+	// Spawn params table
 	numArgs := L.GetTop() - 1 // -1 for cmdType
 	params := make([]lua.LValue, numArgs)
 	for i := 0; i < numArgs; i++ {
@@ -100,7 +100,7 @@ func isCanceledFunc(L *lua.LState) int {
 	return 1
 }
 
-// Create command error if any
+// Spawn command error if any
 func errorFunc(L *lua.LState) int {
 	cmd := CheckCommand(L)
 	if err := cmd.Err(); err != nil {
@@ -118,7 +118,7 @@ func isCompleteFunc(L *lua.LState) int {
 	return 1
 }
 
-// Create command result
+// Spawn command result
 func resultFunc(L *lua.LState) int {
 	cmd := CheckCommand(L)
 	result, err := cmd.Result()

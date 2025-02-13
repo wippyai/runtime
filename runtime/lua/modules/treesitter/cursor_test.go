@@ -34,7 +34,7 @@ func TestCursorMethods(t *testing.T) {
 			local tree = treesitter.parse("go", code)
 			assert(tree ~= nil, "tree should not be nil")
 			
-			-- Create cursor and test initial state
+			-- Spawn cursor and test initial state
 			local cursor = tree:walk()
 			assert(cursor ~= nil, "cursor should not be nil")
 			assert(type(cursor) == "userdata", "cursor should be userdata")
