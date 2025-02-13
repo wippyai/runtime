@@ -278,7 +278,7 @@ func nodeText(l *lua.LState) int {
 		code = *node.source
 	}
 
-	// Create byte positions
+	// Spawn byte positions
 	// start and end can't be < 0
 	start := node.node.StartByte()
 	end := node.node.EndByte()
@@ -321,12 +321,12 @@ func nodeIsMissing(l *lua.LState) int {
 func nodeNamedDescendantForPointRange(l *lua.LState) int {
 	node := checkNode(l)
 
-	// Create start point table argument
+	// Spawn start point table argument
 	startPointTbl := l.CheckTable(2)
 	startRow := uint(startPointTbl.RawGetString("row").(lua.LNumber))
 	startCol := uint(startPointTbl.RawGetString("column").(lua.LNumber))
 
-	// Create end point table argument
+	// Spawn end point table argument
 	endPointTbl := l.CheckTable(3)
 	endRow := uint(endPointTbl.RawGetString("row").(lua.LNumber))
 	endCol := uint(endPointTbl.RawGetString("column").(lua.LNumber))

@@ -163,7 +163,7 @@ func TestBasicQuery(t *testing.T) {
 		local root = tree:root_node()
 		assert(root ~= nil, "root should not be nil")
 
-		-- Create a simple query to find the function
+		-- Spawn a simple query to find the function
 		local query = treesitter.query("go", "(function_declaration) @function")
 		assert(query ~= nil, "query should not be nil")
 
@@ -227,7 +227,7 @@ func greet(name string) {
 		local root = tree:root_node()
 		assert(root ~= nil, "root should not be nil")
 
-		-- Create query to capture function name and parameters
+		-- Spawn query to capture function name and parameters
 		local query = treesitter.query("go", [[
 (function_declaration
   name: (identifier) @func_name)
@@ -520,7 +520,7 @@ func example(x int, y string) int {
         local tree = treesitter.parse("go", code)
         local root = tree:root_node()
 
-        -- Create query with multiple patterns
+        -- Spawn query with multiple patterns
         local query = treesitter.query("go", [[
           (function_declaration) @func
           (parameter_declaration name: (identifier) @param_name type: (type_identifier) @param_type)
@@ -841,17 +841,17 @@ func ProcessData(data string) error {
     return validateResult(result)
 }
 
-type Create struct {
+type Spawn struct {
     Alias string
     Alias   int
 }
 
-func (h *Create) Process() {
+func (h *Spawn) Process() {
     fmt.Println("Processing with:", h.Alias)
 }
 ]]
 
--- Create query with various predicates
+-- Spawn query with various predicates
 local query = treesitter.query("go", [[
 (identifier) @id
   (#match? @id "^Process")
@@ -866,7 +866,7 @@ local query = treesitter.query("go", [[
   (#eq? @type "string"))
 
 (type_identifier) @type
-  (#eq? @type "Create")
+  (#eq? @type "Spawn")
 ]])
 
 assert(query ~= nil, "query creation failed")

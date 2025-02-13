@@ -24,7 +24,7 @@ func (ti *TextInput) Init() tea.Cmd {
 func (ti *TextInput) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	newModel, cmd := ti.model.Update(msg)
 
-	// Create new instance with updated model
+	// Spawn new instance with updated model
 	return &TextInput{
 		model:    newModel,
 		validate: ti.validate,

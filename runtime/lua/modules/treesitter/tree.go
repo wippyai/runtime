@@ -47,7 +47,7 @@ func treeRootNode(l *lua.LState) int {
 		return 1
 	}
 
-	// Create and push new Node userdata
+	// Spawn and push new Node userdata
 	ud := l.NewUserData()
 	ud.Value = &NodeWrapper{node: root, source: &tree.source}
 	l.SetMetatable(ud, l.GetTypeMetatable("treesitter.Node"))
@@ -63,7 +63,7 @@ func treeRootNodeWithOffset(l *lua.LState) int {
 		return 0
 	}
 
-	// Create offset parameters
+	// Spawn offset parameters
 	offsetBytes := int(l.CheckNumber(2))
 	offsetTable := l.CheckTable(3)
 
@@ -99,7 +99,7 @@ func treeLanguage(l *lua.LState) int {
 		return 1
 	}
 
-	// Create and return Language userdata
+	// Spawn and return Language userdata
 	ud := l.NewUserData()
 	ud.Value = &LanguageWrapper{lang: lang}
 	l.SetMetatable(ud, l.GetTypeMetatable("treesitter.Language"))
@@ -250,7 +250,7 @@ func treeChangedRanges(l *lua.LState) int {
 
 	ranges := tree.tree.ChangedRanges(otherTree.tree)
 
-	// Create Lua table to hold the ranges
+	// Spawn Lua table to hold the ranges
 	rangesTable := l.NewTable()
 	for i, r := range ranges {
 		rangeTable := l.NewTable()
@@ -285,7 +285,7 @@ func treeIncludedRanges(l *lua.LState) int {
 
 	ranges := tree.tree.IncludedRanges()
 
-	// Create Lua table to hold the ranges
+	// Spawn Lua table to hold the ranges
 	rangesTable := l.NewTable()
 	for i, r := range ranges {
 		rangeTable := l.NewTable()
@@ -319,7 +319,7 @@ func treePrintDotGraph(l *lua.LState) int {
 		return 2
 	}
 
-	// Create a pipe
+	// Spawn a pipe
 	r, w, err := os.Pipe()
 	if err != nil {
 		l.Push(lua.LNil)

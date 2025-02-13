@@ -409,11 +409,11 @@ func TestVM_GlobalState(t *testing.T) {
 func TestVM_CompiledGlobalState(t *testing.T) {
 	logger := zap.NewNop()
 
-	// Create initial State table
+	// Spawn initial State table
 	stateTable := &lua.LTable{}
 	stateTable.RawSetString("count", lua.LNumber(0))
 
-	// Create VM with global State
+	// Spawn VM with global State
 	vm, err := NewVM(logger, WithGlobalValue("State", stateTable))
 	if err != nil {
 		t.Fatal(err)
@@ -713,7 +713,7 @@ func TestVM_Mount(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("share bytecode between VMs", func(t *testing.T) {
-		// Create first VM and compile function
+		// Spawn first VM and compile function
 		vm1, err := NewVM(logger)
 		if err != nil {
 			t.Fatal(err)
@@ -742,7 +742,7 @@ func TestVM_Mount(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		// Create second VM
+		// Spawn second VM
 		vm2, err := NewVM(logger)
 		if err != nil {
 			t.Fatal(err)
@@ -778,7 +778,7 @@ func TestVM_Mount(t *testing.T) {
 	})
 
 	t.Run("mount function with state isolation", func(t *testing.T) {
-		// Create two VMs
+		// Spawn two VMs
 		vm1, err := NewVM(logger)
 		if err != nil {
 			t.Fatal(err)
@@ -1228,7 +1228,7 @@ func TestVM_SharedLibraryProto(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Create two VMs sharing the same library prototype
+	// Spawn two VMs sharing the same library prototype
 	vm1, err := NewVM(logger, WithLibrary("mathlib", proto))
 	if err != nil {
 		t.Fatal(err)

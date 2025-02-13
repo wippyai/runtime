@@ -17,7 +17,7 @@ import (
 func TestWorkflowRunner_BasicFlow(t *testing.T) {
 	logger := zap.NewNop()
 
-	// Create VM with required modules
+	// Spawn VM with required modules
 	vm, err := engine.NewCVM(
 		logger,
 		engine.WithPreloaded("command", command.NewCommandModule().Loader),
@@ -26,25 +26,25 @@ func TestWorkflowRunner_BasicFlow(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	// Create layers
+	// Spawn layers
 	channels := channel.NewChannelLayer()
 	cmdLayer := command.NewCommandLayer(channels)
 	pubLayer := pubsub.NewSubscriptionLayer(channels)
 
-	// Create runner with layers
+	// Spawn runner with layers
 	runner := engine.NewRunner(vm,
 		engine.WithLayer(channels),
 		engine.WithLayer(cmdLayer),
 		engine.WithLayer(pubLayer),
 	)
 
-	// Create workflow runner
+	// Spawn workflow runner
 	workflow := NewWorkflowRunner(runner, cmdLayer, pubLayer)
 
 	// Define test script
 	script := `
         function test_workflow()
-            -- Create a command to process
+            -- Spawn a command to process
             local cmd = command.new("test_command", {value = "hello"})
             local resp = cmd:response()
             
@@ -95,7 +95,7 @@ func TestWorkflowRunner_BasicFlow(t *testing.T) {
 func TestWorkflowRunner_SequentialCommands(t *testing.T) {
 	logger := zap.NewNop()
 
-	// Create VM with required modules
+	// Spawn VM with required modules
 	vm, err := engine.NewCVM(
 		logger,
 		engine.WithPreloaded("command", command.NewCommandModule().Loader),
@@ -104,19 +104,19 @@ func TestWorkflowRunner_SequentialCommands(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	// Create layers
+	// Spawn layers
 	channels := channel.NewChannelLayer()
 	cmdLayer := command.NewCommandLayer(channels)
 	pubLayer := pubsub.NewSubscriptionLayer(channels)
 
-	// Create runner with layers
+	// Spawn runner with layers
 	runner := engine.NewRunner(vm,
 		engine.WithLayer(channels),
 		engine.WithLayer(cmdLayer),
 		engine.WithLayer(pubLayer),
 	)
 
-	// Create workflow runner
+	// Spawn workflow runner
 	workflow := NewWorkflowRunner(runner, cmdLayer, pubLayer)
 
 	// Define test script with sequential commands
@@ -184,7 +184,7 @@ func TestWorkflowRunner_SequentialCommands(t *testing.T) {
 func TestWorkflowRunner_CommandFailure(t *testing.T) {
 	logger := zap.NewNop()
 
-	// Create VM with required modules
+	// Spawn VM with required modules
 	vm, err := engine.NewCVM(
 		logger,
 		engine.WithPreloaded("command", command.NewCommandModule().Loader),
@@ -193,19 +193,19 @@ func TestWorkflowRunner_CommandFailure(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	// Create layers
+	// Spawn layers
 	channels := channel.NewChannelLayer()
 	cmdLayer := command.NewCommandLayer(channels)
 	pubLayer := pubsub.NewSubscriptionLayer(channels)
 
-	// Create runner with layers
+	// Spawn runner with layers
 	runner := engine.NewRunner(vm,
 		engine.WithLayer(channels),
 		engine.WithLayer(cmdLayer),
 		engine.WithLayer(pubLayer),
 	)
 
-	// Create workflow runner
+	// Spawn workflow runner
 	workflow := NewWorkflowRunner(runner, cmdLayer, pubLayer)
 
 	// Define test script that handles command errors
@@ -260,7 +260,7 @@ func TestWorkflowRunner_CommandFailure(t *testing.T) {
 func TestWorkflowRunner_ConcurrentCommandsWithSelect(t *testing.T) {
 	logger := zap.NewNop()
 
-	// Create VM with required modules
+	// Spawn VM with required modules
 	vm, err := engine.NewCVM(
 		logger,
 		engine.WithPreloaded("command", command.NewCommandModule().Loader),
@@ -269,19 +269,19 @@ func TestWorkflowRunner_ConcurrentCommandsWithSelect(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	// Create layers
+	// Spawn layers
 	channels := channel.NewChannelLayer()
 	cmdLayer := command.NewCommandLayer(channels)
 	pubLayer := pubsub.NewSubscriptionLayer(channels)
 
-	// Create runner with layers
+	// Spawn runner with layers
 	runner := engine.NewRunner(vm,
 		engine.WithLayer(channels),
 		engine.WithLayer(cmdLayer),
 		engine.WithLayer(pubLayer),
 	)
 
-	// Create workflow runner
+	// Spawn workflow runner
 	workflow := NewWorkflowRunner(runner, cmdLayer, pubLayer)
 
 	// Define test script with concurrent commands and select
@@ -393,7 +393,7 @@ func TestWorkflowRunner_ConcurrentCommandsWithSelect(t *testing.T) {
 func TestWorkflowRunner_CommandWithSignal(t *testing.T) {
 	logger := zap.NewNop()
 
-	// Create VM with required modules
+	// Spawn VM with required modules
 	vm, err := engine.NewCVM(
 		logger,
 		engine.WithPreloaded("command", command.NewCommandModule().Loader),
@@ -403,19 +403,19 @@ func TestWorkflowRunner_CommandWithSignal(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	// Create layers
+	// Spawn layers
 	channels := channel.NewChannelLayer()
 	cmdLayer := command.NewCommandLayer(channels)
 	pubLayer := pubsub.NewSubscriptionLayer(channels)
 
-	// Create runner with layers
+	// Spawn runner with layers
 	runner := engine.NewRunner(vm,
 		engine.WithLayer(channels),
 		engine.WithLayer(cmdLayer),
 		engine.WithLayer(pubLayer),
 	)
 
-	// Create workflow runner
+	// Spawn workflow runner
 	workflow := NewWorkflowRunner(runner, cmdLayer, pubLayer)
 
 	// Define test script that waits for both command and signal
@@ -486,7 +486,7 @@ func TestWorkflowRunner_CommandWithSignal(t *testing.T) {
 func TestWorkflowRunner_CommandWithSignalCounter(t *testing.T) {
 	logger := zap.NewNop()
 
-	// Create VM with required modules
+	// Spawn VM with required modules
 	vm, err := engine.NewCVM(
 		logger,
 		engine.WithPreloaded("command", command.NewCommandModule().Loader),
@@ -496,19 +496,19 @@ func TestWorkflowRunner_CommandWithSignalCounter(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	// Create layers
+	// Spawn layers
 	channels := channel.NewChannelLayer()
 	cmdLayer := command.NewCommandLayer(channels)
 	pubLayer := pubsub.NewSubscriptionLayer(channels)
 
-	// Create runner with layers
+	// Spawn runner with layers
 	runner := engine.NewRunner(vm,
 		engine.WithLayer(channels),
 		engine.WithLayer(cmdLayer),
 		engine.WithLayer(pubLayer),
 	)
 
-	// Create workflow runner
+	// Spawn workflow runner
 	workflow := NewWorkflowRunner(runner, cmdLayer, pubLayer)
 
 	// Define test script with parallel signal counting

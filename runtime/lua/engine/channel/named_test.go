@@ -41,7 +41,7 @@ func TestNamedChannelSend(t *testing.T) {
 	ctx := engine.WithTaskGroup(context.Background(), tg)
 
 	err = vm.StartString(engine.WithTaskGroup(context.Background(), tg), `
-		-- Create two named channels
+		-- Spawn two named channels
 		local ch1 = new_named("channel1", 1)
 		local ch2 = new_named("channel2", 1)
 
@@ -109,7 +109,7 @@ func TestNamedChannelSelectVisibility(t *testing.T) {
 	ctx := engine.WithTaskGroup(context.Background(), tg)
 
 	err = vm.StartString(ctx, `
-		-- Create named channels with different capacities 
+		-- Spawn named channels with different capacities 
 		local ch1 = new_named("select_ch1", 0) -- unbuffered
 		local ch2 = new_named("select_ch2", 1) -- buffered
 		local done = channel.new(0) -- regular channel for coordination
@@ -221,7 +221,7 @@ func TestNamedChannelSelectDefaultCase(t *testing.T) {
 	ctx := engine.WithTaskGroup(context.Background(), tg)
 
 	err = vm.StartString(ctx, `
-		-- Create named channels
+		-- Spawn named channels
 		local ch1 = new_named("default_ch1", 0)
 		local ch2 = new_named("default_ch2", 0)
 
@@ -292,7 +292,7 @@ func TestNamedChannelMultipleReceivers(t *testing.T) {
 	ctx := engine.WithTaskGroup(context.Background(), tg)
 
 	err = vm.StartString(ctx, `
-		-- Create channels
+		-- Spawn channels
 		local ch = new_named("test_channel", 0)
 		local results = channel.new(3) -- To collect results in order
 		local order = 1 -- Track order of reception
@@ -456,7 +456,7 @@ func TestBufferedNamedChannelWriteCapacity(t *testing.T) {
 	ctx := engine.WithTaskGroup(context.Background(), tg)
 
 	err = vm.StartString(ctx, `
-        -- Create buffered channel and control channels
+        -- Spawn buffered channel and control channels
         local ch = new_named("buffered_channel", 3)
         local ready = channel.new(0)
         local done = channel.new(0)

@@ -63,7 +63,7 @@ func RegisterTextArea(l *lua.LState, mod *lua.LTable) {
 //   - key_map: table of key binding userdatas (optional)
 func newTextArea(l *lua.LState) int {
 	opts := l.CheckTable(1)
-	// Create a new Model (assume New() is defined in your package)
+	// Spawn a new Model (assume New() is defined in your package)
 	m := textarea.New()
 
 	// Process basic options.

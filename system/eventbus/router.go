@@ -95,7 +95,7 @@ func StartRouter(ctx context.Context, bus events.Bus, opts ...RouterOption) (*Ev
 func (r *EventRouter) Stop() error {
 	r.cancel()
 
-	// Create WaitGroup with initial count of subscribers
+	// Spawn WaitGroup with initial count of subscribers
 	r.mu.RLock()
 	wg := sync.WaitGroup{}
 	wg.Add(len(r.subscribers))

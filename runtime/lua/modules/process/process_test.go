@@ -34,7 +34,7 @@ func TestProcessBasic(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 	chans := channel.NewChannelLayer()
-	// Create a wrapped VM with async runner
+	// Spawn a wrapped VM with async runner
 	wrapped := engine.NewRunner(
 		vm,
 		engine.WithLayer(chans),
@@ -43,20 +43,20 @@ func TestProcessBasic(t *testing.T) {
 	)
 	err = vm.Import(`
 			function test_process_simple()
-			    -- Create a new process
+			    -- Spawn a new process
 			    local proc = process.new('cat /dev/urandom | hexdump -C', {})
 			    assert(proc ~= nil, "Process creation should succeed")
 			    
-			    -- Create done channel for synchronization
+			    -- Spawn done channel for synchronization
 			    local done = channel.new()
 			    
-			    -- Create timer for timeout
+			    -- Spawn timer for timeout
 			    local timeout = time.timer("2s")  -- 2 second timeout
 			    
 			    -- Start the process
 			    proc:start()
 			    
-			    -- Create reader coroutine
+			    -- Spawn reader coroutine
 			    coroutine.spawn(function()
 			        -- GetField stdout stream
 			        local stream, err = proc:stdout_stream()
@@ -69,7 +69,7 @@ func TestProcessBasic(t *testing.T) {
 			            -- Check for either new data or timeout
 			            local result = channel.select{
 			                timeout:channel():case_receive(),
-			                default = true  -- Create the select non-blocking
+			                default = true  -- Spawn the select non-blocking
 			            }
 			            
 			            if result.default then
@@ -140,7 +140,7 @@ func TestWorkingDir(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 	chans := channel.NewChannelLayer()
-	// Create a wrapped VM with async runner
+	// Spawn a wrapped VM with async runner
 	wrapped := engine.NewRunner(
 		vm,
 		engine.WithLayer(chans),
@@ -149,29 +149,29 @@ func TestWorkingDir(t *testing.T) {
 	)
 	err = vm.Import(`
 			function test_process_env_workdir()
-			    -- Create a new process with env vars and working dir
+			    -- Spawn a new process with env vars and working dir
 			    local env = {
 			        TEST_VAR = "hello_world",
 			        PATH = "/usr/local/bin:/usr/bin:/bin"  -- Ensure basic PATH is set
 			    }
 			    
-			    -- Create a process that echoes an env var and prints working dir
+			    -- Spawn a process that echoes an env var and prints working dir
 			    local proc = process.new('sh -c "echo $TEST_VAR && pwd"', {
 			        work_dir = "/tmp",
 			        env = env
 			    })
 			    assert(proc ~= nil, "Process creation should succeed")
 			    
-			    -- Create done channel for synchronization
+			    -- Spawn done channel for synchronization
 			    local done = channel.new()
 			    
-			    -- Create timer for timeout
+			    -- Spawn timer for timeout
 			    local timeout = time.timer("2s")
 			    
 			    -- Start the process
 			    proc:start()
 			    
-			    -- Create reader coroutine
+			    -- Spawn reader coroutine
 			    coroutine.spawn(function()
 			        -- GetField stdout stream
 			        local stream = proc:stdout_stream()
@@ -184,7 +184,7 @@ func TestWorkingDir(t *testing.T) {
 			            -- Check for either new data or timeout
 			            local result = channel.select{
 			                timeout:channel():case_receive(),
-			                default = true  -- Create the select non-blocking
+			                default = true  -- Spawn the select non-blocking
 			            }
 			            
 			            if result.default then
@@ -253,7 +253,7 @@ func TestWriteStdin(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 	chans := channel.NewChannelLayer()
-	// Create a wrapped VM with async runner
+	// Spawn a wrapped VM with async runner
 	wrapped := engine.NewRunner(
 		vm,
 		engine.WithLayer(chans),
@@ -262,7 +262,7 @@ func TestWriteStdin(t *testing.T) {
 	)
 	err = vm.Import(`
 			function test_process_stdin()
-			    -- Create a new process using 'cat' which will echo back whatever we write to stdin
+			    -- Spawn a new process using 'cat' which will echo back whatever we write to stdin
 			    local proc = process.new('cat', {})
 			    assert(proc ~= nil, "Process creation should succeed")
 			    
@@ -310,7 +310,7 @@ func TestMultiplyCallsToStream(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 	chans := channel.NewChannelLayer()
-	// Create a wrapped VM with async runner
+	// Spawn a wrapped VM with async runner
 	wrapped := engine.NewRunner(
 		vm,
 		engine.WithLayer(chans),
@@ -319,29 +319,29 @@ func TestMultiplyCallsToStream(t *testing.T) {
 	)
 	err = vm.Import(`
 			function test_process_env_workdir()
-			    -- Create a new process with env vars and working dir
+			    -- Spawn a new process with env vars and working dir
 			    local env = {
 			        TEST_VAR = "hello_world",
 			        PATH = "/usr/local/bin:/usr/bin:/bin"  -- Ensure basic PATH is set
 			    }
 			    
-			    -- Create a process that echoes an env var and prints working dir
+			    -- Spawn a process that echoes an env var and prints working dir
 			    local proc = process.new('sh -c "echo $TEST_VAR && pwd"', {
 			        work_dir = "/tmp",
 			        env = env
 			    })
 			    assert(proc ~= nil, "Process creation should succeed")
 			    
-			    -- Create done channel for synchronization
+			    -- Spawn done channel for synchronization
 			    local done = channel.new()
 			    
-			    -- Create timer for timeout
+			    -- Spawn timer for timeout
 			    local timeout = time.timer("2s")
 			    
 			    -- Start the process
 			    proc:start()
 			    
-			    -- Create reader coroutine
+			    -- Spawn reader coroutine
 			    coroutine.spawn(function()
 			        -- GetField stdout stream
 			        local stream = proc:stdout_stream()
@@ -360,7 +360,7 @@ func TestMultiplyCallsToStream(t *testing.T) {
 			            -- Check for either new data or timeout
 			            local result = channel.select{
 			                timeout:channel():case_receive(),
-			                default = true  -- Create the select non-blocking
+			                default = true  -- Spawn the select non-blocking
 			            }
 			            
 			            if result.default then

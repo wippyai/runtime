@@ -6,7 +6,7 @@ import (
 
 // OpenRestrictedPackage is our replacement for lua.OpenPackage
 func OpenRestrictedPackage(L *lua.LState) int {
-	// Create the package table
+	// Spawn the package table
 	packagemod := L.RegisterModule(lua.LoadLibName, packageFuncs)
 
 	// Set up the preload table

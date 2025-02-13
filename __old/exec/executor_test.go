@@ -412,7 +412,7 @@ func TestExecutorModule_InstanceIsolation(t *testing.T) {
 		err = vm.DoString(ctx, `
 			local executor = require("executor")
 			
-			-- Create two separate executor instances
+			-- Spawn two separate executor instances
 			local exec1 = executor.new()
 			local exec2 = executor.new()
 			
@@ -455,11 +455,11 @@ func TestExecutorModule_InstanceIsolation(t *testing.T) {
 		err = vm.DoString(ctx, `
 			local executor = require("executor")
 			
-			-- Create an executor and set its context
+			-- Spawn an executor and set its context
 			local exec1 = executor.new()
 			exec1 = exec1:with_context({user = "user1"})
 			
-			-- Create a new executor - it should start with an empty context
+			-- Spawn a new executor - it should start with an empty context
 			local exec2 = executor.new()
 			
 			-- Both should work but have different contexts
@@ -490,11 +490,11 @@ func TestExecutorModule_InstanceIsolation(t *testing.T) {
 		err = vm.DoString(ctx, `
 			local executor = require("executor")
 			
-			-- Create an executor and set initial context
+			-- Spawn an executor and set initial context
 			local exec1 = executor.new()
 			exec1 = exec1:with_context({value = "original"})
 			
-			-- Create a new instance with modified context
+			-- Spawn a new instance with modified context
 			local exec2 = exec1:with_context({value = "modified"})
 			
 			-- Both should work with their respective contexts
@@ -535,7 +535,7 @@ func TestExecutorModule_InstanceIsolation(t *testing.T) {
 		err = vm.DoString(ctx, `
 			local executor = require("executor")
 			
-			-- Create an executor and chain multiple context updates
+			-- Spawn an executor and chain multiple context updates
 			local exec = executor.new()
 			exec = exec:with_context({level = "1"})
 			exec = exec:with_context({level = "2"})

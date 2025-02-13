@@ -89,7 +89,7 @@ func TestTextStyleRunes(t *testing.T) {
 	script := `
 		local text = btea.text
 		
-		-- Create test styles
+		-- Spawn test styles
 		local matched_style = btea.style():bold()
 		local unmatched_style = btea.style()
 		

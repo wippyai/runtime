@@ -184,7 +184,7 @@ func TestCompiler_PreloadedDependencies(t *testing.T) {
 	compiler := NewCompiler(mock.compile, 10, 10)
 	memGraph := NewMemoryGraph()
 
-	// Create test nodes
+	// Spawn test nodes
 	mainNode := &Node{
 		ID:     registry.ID{Name: "main"},
 		Kind:   "function.lua",
@@ -205,7 +205,7 @@ func TestCompiler_PreloadedDependencies(t *testing.T) {
 	require.NoError(t, memGraph.AddNode(mainNode))
 	require.NoError(t, memGraph.AddNode(preloadedModule))
 
-	// Create build options with preloaded module
+	// Spawn build options with preloaded module
 	options := NewBuildOptions().WithPreloaded(
 		Preload{
 			Name:     "pre_mod",

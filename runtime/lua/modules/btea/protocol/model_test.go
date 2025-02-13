@@ -24,7 +24,7 @@ func TestLuaModelWrapper(t *testing.T) {
 	defer l.Close()
 
 	t.Run("basic wrapper functionality", func(t *testing.T) {
-		// Create a simple Lua model table
+		// Spawn a simple Lua model table
 		model := l.NewTable()
 		l.SetField(model, "init", l.NewFunction(func(l *lua.LState) int {
 			l.Push(lua.LNil)
@@ -118,7 +118,7 @@ func TestUpdateModelValue(t *testing.T) {
 	defer l.Close()
 
 	t.Run("model updates", func(t *testing.T) {
-		// Create two models of same type
+		// Spawn two models of same type
 		model1 := testModel{ViewStr: "model1"}
 		model2 := testModel{ViewStr: "model2"}
 

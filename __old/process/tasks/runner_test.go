@@ -20,7 +20,7 @@ func TestTasker_BasicExecution(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("simple task execution", func(t *testing.T) {
-		// Create base VM with tasks module
+		// Spawn base VM with tasks module
 		vm, err := engine.NewCVM(logger,
 			engine.WithPreloaded("tasks", NewTaskModule().Loader),
 			engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
@@ -48,7 +48,7 @@ func TestTasker_BasicExecution(t *testing.T) {
 		err = vm.Import(script, "test", "test_handler")
 		assert.NoError(t, err)
 
-		// Create tasker with both layers
+		// Spawn tasker with both layers
 		tasker := NewTaskRunner(
 			logger,
 			vm,
@@ -95,7 +95,7 @@ func TestTasker_ErrorHandling(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("task failure handling", func(t *testing.T) {
-		// Create VM with modules
+		// Spawn VM with modules
 		vm, err := engine.NewCVM(logger,
 			engine.WithPreloaded("tasks", NewTaskModule().Loader),
 			engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
@@ -218,7 +218,7 @@ func TestTasker_ConcurrentExecution(t *testing.T) {
 func TestConsecutiveTasks(t *testing.T) {
 	logger := zap.NewNop()
 
-	// Create base VM with tasks module and channels
+	// Spawn base VM with tasks module and channels
 	vm, err := engine.NewCVM(logger,
 		engine.WithPreloaded("tasks", NewTaskModule().Loader),
 		engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
@@ -226,7 +226,7 @@ func TestConsecutiveTasks(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	// Create tasker
+	// Spawn tasker
 	tasker := NewTaskRunner(logger, vm, channel.NewChannelLayer(), 10)
 
 	script := `
@@ -304,7 +304,7 @@ func TestConsecutiveTasks(t *testing.T) {
 func TestAsyncTasksWithTimers(t *testing.T) {
 	logger := zap.NewNop()
 
-	// Create base VM with required modules
+	// Spawn base VM with required modules
 	vm, err := engine.NewCVM(logger,
 		engine.WithPreloaded("tasks", NewTaskModule().Loader),
 		engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
@@ -313,10 +313,10 @@ func TestAsyncTasksWithTimers(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	// Create channel layer
+	// Spawn channel layer
 	channels := channel.NewChannelLayer()
 
-	// Create tasker with async support
+	// Spawn tasker with async support
 	tasker := NewTaskRunner(
 		logger,
 		vm,
@@ -419,7 +419,7 @@ func TestAsyncTasksWithTimers(t *testing.T) {
 func TestTasker_TaskSend(t *testing.T) {
 	logger := zap.NewNop()
 
-	// Create VM with required modules
+	// Spawn VM with required modules
 	vm, err := engine.NewCVM(logger,
 		engine.WithPreloaded("tasks", NewTaskModule().Loader),
 		engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
@@ -427,7 +427,7 @@ func TestTasker_TaskSend(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	// Create tasker
+	// Spawn tasker
 	tasker := NewTaskRunner(logger, vm, channel.NewChannelLayer(), 10)
 
 	script := `
@@ -637,7 +637,7 @@ func BenchmarkTaskWithData(b *testing.B) {
 	}
 	<-statusCh // wait for "engine started"
 
-	// Create test data table
+	// Spawn test data table
 	testData := &lua.LTable{}
 	testData.RawSetString("value", lua.LString("test"))
 	testData.RawSetString("number", lua.LNumber(123))

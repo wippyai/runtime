@@ -90,7 +90,7 @@ func getStackFrame(L *lua.LState, level int) (StackFrame, bool) {
 		return StackFrame{}, false
 	}
 
-	// Create debug info with function info
+	// Spawn debug info with function info
 	funcTable := L.NewTable()
 	if _, err := L.GetInfo("nSluf", ar, funcTable); err != nil {
 		return StackFrame{}, false
@@ -106,7 +106,7 @@ func getStackFrame(L *lua.LState, level int) (StackFrame, bool) {
 
 	// If no name is provided and this is a Go function, try to determine the name
 	if frame.Name == "" && (frame.FuncType == "Go" || frame.FuncType == "C") {
-		// Create the actual function from the debug info table
+		// Spawn the actual function from the debug info table
 		fn := funcTable.RawGet(lua.LString("f"))
 		if luaFn, ok := fn.(*lua.LFunction); ok {
 			// Iterate over globals and see if any key maps to this function
@@ -124,7 +124,7 @@ func getStackFrame(L *lua.LState, level int) (StackFrame, bool) {
 		}
 	}
 
-	// Create locals (parameters and local variables)
+	// Spawn locals (parameters and local variables)
 	for i := 1; ; i++ {
 		name, value := L.GetLocal(ar, i)
 		if name == "" {

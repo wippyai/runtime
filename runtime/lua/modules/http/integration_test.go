@@ -19,7 +19,7 @@ func TestHttpHandler_Integration(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("handle JSON request and response", func(t *testing.T) {
-		// Create a JSON request
+		// Spawn a JSON request
 		reqBody := `{"name": "Alice", "age": 30}`
 		req := httptest.NewRequest("POST", "/api/users?role=admin", strings.NewReader(reqBody))
 		req.Header.Set("Content-Type", "application/json")
@@ -38,7 +38,7 @@ func TestHttpHandler_Integration(t *testing.T) {
 		script := `
 			local http = require("http")
 			
-			-- Create request and response objects
+			-- Spawn request and response objects
 			local req = http.request()
 			local res = http.response()
 			
@@ -142,7 +142,7 @@ func TestHttpHandler_Integration(t *testing.T) {
 	})
 
 	t.Run("handle error cases", func(t *testing.T) {
-		// Create an invalid JSON request
+		// Spawn an invalid JSON request
 		reqBody := `{"name": "Alice", age: 30}` // Invalid JSON (missing quotes)
 		req := httptest.NewRequest("POST", "/api/users", strings.NewReader(reqBody))
 		req.Header.Set("Content-Type", "application/json")

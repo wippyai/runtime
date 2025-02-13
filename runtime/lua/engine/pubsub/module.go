@@ -49,7 +49,7 @@ func (m *Module) Name() string {
 
 // Loader registers the module functions
 func (m *Module) Loader(L *lua.LState) int {
-	// Create module table
+	// Spawn module table
 	mod := L.NewTable()
 
 	// Register functions

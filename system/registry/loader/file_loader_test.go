@@ -83,7 +83,7 @@ func TestFileLoader(t *testing.T) {
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
-				// Create temporary directory with test files using the helper
+				// Spawn temporary directory with test files using the helper
 				tmpDir, cleanup := temp_files.TempDirWithFiles(t, "fileloader-test", tc.files)
 				defer cleanup()
 

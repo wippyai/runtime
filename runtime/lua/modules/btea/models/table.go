@@ -30,7 +30,7 @@ func (t *Table) View() string {
 
 // RegisterTable registers the table widget to Lua.
 func RegisterTable(l *lua.LState, mod *lua.LTable) {
-	// Create and register the table metatable.
+	// Spawn and register the table metatable.
 	mt := l.NewTypeMetatable("btea.Table")
 	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
 		"update":       tableUpdate,
@@ -113,7 +113,7 @@ func newTable(l *lua.LState) int {
 		}
 	}
 
-	// Create the table widget.
+	// Spawn the table widget.
 	model := table.New(options...)
 	t := &Table{model: model}
 

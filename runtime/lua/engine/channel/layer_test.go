@@ -22,7 +22,7 @@ func TestUnbufferedChannelOperations(t *testing.T) {
 	defer vm.Close()
 
 	err = vm.StartString(context.Background(), `
-			-- Create an unbuffered channel
+			-- Spawn an unbuffered channel
 			local ch = channel.new()
 
 			-- Sender coroutine
@@ -79,7 +79,7 @@ func TestUnbufferedChannelOperationsMainCoroutine(t *testing.T) {
 	defer vm.Close()
 
 	err = vm.StartString(context.Background(), `
-			-- Create an unbuffered channel
+			-- Spawn an unbuffered channel
 			local ch = channel.new()
 
 			-- Sender coroutine
@@ -131,7 +131,7 @@ func TestClosedChannelOperations(t *testing.T) {
 	defer vm.Close()
 
 	err = vm.StartString(context.Background(), `
-			-- Create a channel and close it
+			-- Spawn a channel and close it
 			local ch = channel.new()
 			ch:close()
 
@@ -193,10 +193,10 @@ func TestCloseChannelWithPendingOperations(t *testing.T) {
 	defer vm.Close()
 
 	err = vm.StartString(context.Background(), `
-			-- Create a channel
+			-- Spawn a channel
 			local ch = channel.new()
 
-			-- Create blocking receiver first
+			-- Spawn blocking receiver first
 			coroutine.spawn(function()
 				coroutine.yield("receiver_start")
 				local msg, ok = ch:receive()  -- This will block
@@ -250,7 +250,7 @@ func TestBufferedChannelBasicOperations(t *testing.T) {
 	defer vm.Close()
 
 	err = vm.StartString(context.Background(), `
-			-- Create a buffered channel with capacity 2
+			-- Spawn a buffered channel with capacity 2
 			local ch = channel.new(2)
 
 			-- Test non-blocking sends up to capacity
@@ -311,7 +311,7 @@ func TestBufferedChannelBlockingBehavior(t *testing.T) {
 	defer vm.Close()
 
 	err = vm.StartString(context.Background(), `
-		-- Create a buffered channel with capacity 1
+		-- Spawn a buffered channel with capacity 1
 		local ch = channel.new(1)
 
 		-- Fill the buffer and attempt to send (should block)
@@ -376,7 +376,7 @@ func TestReadBufferedValues(t *testing.T) {
 	defer vm.Close()
 
 	err = vm.StartString(context.Background(), `
-		-- Create a buffered channel with capacity 1
+		-- Spawn a buffered channel with capacity 1
 		local ch = channel.new(1)
 		
 		ch:send("msg1") -- no block
@@ -522,7 +522,7 @@ func TestBufferedChannelCloseWithPendingOperations(t *testing.T) {
 	defer vm.Close()
 
 	err = vm.StartString(context.Background(), `
-		-- Create a buffered channel with capacity 2
+		-- Spawn a buffered channel with capacity 2
 		local ch = channel.new(2)
 
 		-- Fill the buffer (no blocking)
@@ -676,7 +676,7 @@ func TestMainCoroutineBlockingOnBufferedChannel(t *testing.T) {
 	defer vm.Close()
 
 	err = vm.StartString(context.Background(), `
-		-- Create a buffered channel with capacity 1
+		-- Spawn a buffered channel with capacity 1
 		local ch = channel.new(1)
 		
 		-- Fill the buffer
@@ -837,7 +837,7 @@ func TestMapReducePattern(t *testing.T) {
 	defer vm.Close()
 
 	err = vm.StartString(context.Background(), `
-		-- Create channels for work distribution and result collection
+		-- Spawn channels for work distribution and result collection
 		local workCh = channel.new(5)    -- Buffer some work items
 		local resultCh = channel.new(0)  -- Unbuffered next channel
 		local doneCh = channel.new(0)    -- Synchronization channel

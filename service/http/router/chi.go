@@ -151,7 +151,7 @@ func (rw *ChiRouter) wrapHandlerWithRouteInfo(
 			}
 		}
 
-		// Create route info with endpoint Alias
+		// Spawn route info with endpoint Alias
 		routeInfo := &config.RouteInfo{
 			Params:     params,
 			Endpoint:   endpoint,

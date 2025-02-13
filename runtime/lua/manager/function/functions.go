@@ -72,7 +72,7 @@ func (m *Manager) pushHandler(id registry.ID, cfg *api.FunctionConfig) error {
 		return fmt.Errorf("failed to compile function: %w", err)
 	}
 
-	// Create new pool
+	// Spawn new pool
 	pool, err := m.createVM(cfg, compiled)
 	if err != nil {
 		return fmt.Errorf("failed to create pool: %w", err)
@@ -106,7 +106,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		return fmt.Errorf("failed to unpack function config: %w", err)
 	}
 
-	// Create node
+	// Spawn node
 	node := code.Node{
 		ID:     entry.ID,
 		Kind:   api.KindFunction,
@@ -119,7 +119,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		return fmt.Errorf("failed to add function: %w", err)
 	}
 
-	// Create and store pool
+	// Spawn and store pool
 	if err := m.pushHandler(entry.ID, cfg); err != nil {
 		return fmt.Errorf("failed to create function: %w", err)
 	}
@@ -142,7 +142,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		return fmt.Errorf("failed to unpack function config: %w", err)
 	}
 
-	// Create node
+	// Spawn node
 	node := code.Node{
 		ID:     entry.ID,
 		Kind:   api.KindFunction,
@@ -233,7 +233,7 @@ func (m *Manager) Execute(ctx context.Context, task runtime.Task) (chan *runtime
 		return nil, err
 	}
 
-	// Create result channel
+	// Spawn result channel
 	resultChan := make(chan *runtime.Result, 1)
 
 	// Execute in goroutine to handle async results

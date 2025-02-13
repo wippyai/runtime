@@ -153,7 +153,7 @@ func TestHTTPModule(t *testing.T) {
 				cookies := req.Cookies()
 				assert.Len(t, cookies, 2)
 
-				// Create a map of cookie name to value for order-independent comparison
+				// Spawn a map of cookie name to value for order-independent comparison
 				cookieMap := make(map[string]string)
 				for _, cookie := range cookies {
 					cookieMap[cookie.Name] = cookie.Value
@@ -532,7 +532,7 @@ func TestHTTPModuleTimeouts(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		// Create a cancellable context
+		// Spawn a cancellable context
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 

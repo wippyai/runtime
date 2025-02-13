@@ -220,7 +220,7 @@ func TestEventRouter(t *testing.T) {
 		var handlers []EventHandler
 		wg.Add(numHandlers * eventsPerHandler)
 
-		// Create handlers
+		// Spawn handlers
 		for i := 0; i < numHandlers; i++ {
 			handlers = append(handlers, NewBaseHandler(
 				Pattern{
@@ -234,7 +234,7 @@ func TestEventRouter(t *testing.T) {
 			))
 		}
 
-		// Create router with all handlers
+		// Spawn router with all handlers
 		router, err := StartRouter(ctx, bus, WithHandlers(handlers...))
 		require.NoError(t, err)
 		defer router.Stop()

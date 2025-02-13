@@ -45,7 +45,7 @@ func (m *Module) Name() string {
 
 // Loader registers the module functions
 func (m *Module) Loader(l *lua.LState) int {
-	// Create module table
+	// Spawn module table
 	mod := l.NewTable()
 
 	// Register functions
@@ -82,7 +82,7 @@ func channelFunc(l *lua.LState) int {
 		return 0
 	}
 
-	// Create and yield channel request
+	// Spawn and yield channel request
 	l.Push(&channelRequest{bufferSize: bufferSize})
 	return -1 // yield to scheduler
 }

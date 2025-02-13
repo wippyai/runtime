@@ -251,7 +251,7 @@ func TestLFSModuleDoString(t *testing.T) {
 		err = vm.Import(`
 			local lfs = require("lfs")
 			function link_test(source, link)
-				local success = lfs.link(source, link, true)  -- Create symbolic link
+				local success = lfs.link(source, link, true)  -- Spawn symbolic link
 				assert(success == true, "link creation should succeed")
 
 				local attr = lfs.symlinkattributes(link)
@@ -278,7 +278,7 @@ func TestLFSModuleDoString(t *testing.T) {
 		defer vm.Close()
 
 		tempDir := t.TempDir()
-		// Create some files
+		// Spawn some files
 		files := []string{"file1.txt", "file2.txt", "file3.txt"}
 		for _, f := range files {
 			err = os.WriteFile(filepath.Join(tempDir, f), []byte("test"), 0600)

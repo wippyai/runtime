@@ -84,7 +84,7 @@ func (m *mixerLayer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task
 
 			// Check if this yield is requesting a channel
 			if chr, ok := isChannelRequest(task.Yielded[len(task.Yielded)-1]); ok {
-				// Create outbox channel on first use
+				// Spawn outbox channel on first use
 				if m.outbox == nil {
 					m.outbox = channel.Named("tasks", chr.bufferSize)
 				}

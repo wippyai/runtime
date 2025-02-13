@@ -256,7 +256,7 @@ func TestTerminalRunner_Stop(t *testing.T) {
 				tt.setup(runner)
 			}
 
-			// Create context based on test case
+			// Spawn context based on test case
 			ctx, cancel := tt.makeContext()
 			defer cancel()
 

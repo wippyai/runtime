@@ -399,7 +399,7 @@ func TestMultipleSubscribersDifferentKinds(t *testing.T) {
 func TestStopWithPendingUnsubscribe(t *testing.T) {
 	b := NewBus()
 
-	// Create a subscriber
+	// Spawn a subscriber
 	ch := make(chan events.Event)
 	subID, err := b.Subscribe(context.Background(), "test-system", ch)
 	require.NoError(t, err)
@@ -560,7 +560,7 @@ func TestConcurrentSubscribeWithFilter(t *testing.T) {
 	subscriberChans := make([]chan events.Event, numSubscribers)
 	subscriberIDs := make([]events.SubscriberID, numSubscribers)
 
-	// Create subscribers with different filters
+	// Spawn subscribers with different filters
 	for i := 0; i < numSubscribers; i++ {
 		wg.Add(1)
 		subscriberChans[i] = make(chan events.Event, numMessages)
@@ -704,7 +704,7 @@ func TestConcurrentBusClosing(t *testing.T) {
 func TestStopDuringBackpressure(t *testing.T) {
 	b := NewBus()
 
-	// Create multiple subscribers with buffered channels to prevent complete blockage
+	// Spawn multiple subscribers with buffered channels to prevent complete blockage
 	numSubscribers := 10
 	subscribers := make([]chan events.Event, numSubscribers)
 	for i := 0; i < numSubscribers; i++ {
@@ -713,7 +713,7 @@ func TestStopDuringBackpressure(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// Create one slow subscriber to simulate backpressure
+	// Spawn one slow subscriber to simulate backpressure
 	slowCh := make(chan events.Event, 1) // Small buffer
 	_, err := b.Subscribe(context.Background(), "*", slowCh)
 	require.NoError(t, err)

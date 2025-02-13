@@ -138,7 +138,7 @@ func (s *Supervisor) Stop() error {
 		s.subscriber = nil
 	}
 
-	// Create all controllers under lock
+	// Spawn all controllers under lock
 	s.mu.RLock()
 	var operations []Operation
 	for id, ctrl := range s.controllers {
@@ -341,7 +341,7 @@ func (s *Supervisor) execute(ctx context.Context, tx *registryTX) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Create new services first
+	// Spawn new services first
 	for id, entry := range tx.register {
 		if _, exists := s.controllers[id]; !exists {
 			s.controllers[id] = NewController(s.ctx, entry.Service, entry.Config, s.createStateHandler(id))
@@ -402,7 +402,7 @@ func (s *Supervisor) execute(ctx context.Context, tx *registryTX) error {
 		}
 	}
 
-	// Create transitions in dependency order
+	// Spawn transitions in dependency order
 	if err := s.sequencer.Transition(ctx, operations...); err != nil {
 		return fmt.Errorf("failed to execute transitions: %w", err)
 	}

@@ -51,7 +51,7 @@ func (s *testService) Start(ctx context.Context) (<-chan any, error) {
 		}
 	}
 
-	// Create new channel for status updates
+	// Spawn new channel for status updates
 	s.statusUpdates = make(chan any, 10)
 	s.started = true
 	s.stopped = false
@@ -436,7 +436,7 @@ func TestSupervisor_ServiceFailureAndRetry(t *testing.T) {
 	ctx := context.Background()
 	h.start(ctx)
 
-	// Create service that fails on first start attempt
+	// Spawn service that fails on first start attempt
 	svc := newTestService()
 	var startAttempts int32
 	svc.startErr = fmt.Errorf("startup failure")
@@ -654,7 +654,7 @@ func TestSupervisor_GetAllStates(t *testing.T) {
 	// wait for services to reach their states
 	time.Sleep(500 * time.Millisecond)
 
-	// Create all states
+	// Spawn all states
 	states := h.sup.GetAllStates()
 
 	// Verify expected states
@@ -675,7 +675,7 @@ func TestSupervisor_BusEventControl(t *testing.T) {
 	ctx := context.Background()
 	h.start(ctx)
 
-	// Create a service to be controlled via events
+	// Spawn a service to be controlled via events
 	svc := newTestService()
 	serviceID := "event-controlled-service"
 

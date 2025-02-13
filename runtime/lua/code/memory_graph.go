@@ -342,7 +342,7 @@ func (m *MemoryGraph) Build(entrypoint registry.ID) (*Main, error) {
 	// Track modules we've already processed to avoid duplicates
 	processedModules := make(map[string]bool)
 
-	// Create dependency nodes in correct order
+	// Spawn dependency nodes in correct order
 	var depNodes []Dependency
 	for _, node := range ordered {
 		if node.ID == entrypoint {

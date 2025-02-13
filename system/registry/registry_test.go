@@ -626,7 +626,7 @@ func createTestTranscoder() payload.Transcoder {
 
 // TestInMemoryRegistry_InitFromFolder tests initializing registry state from a folder
 func TestInMemoryRegistry_InitFromFolder(t *testing.T) {
-	// 1. Setup: Create a temporary directory with test files
+	// 1. Setup: Spawn a temporary directory with test files
 	files := map[string]string{
 		"listener/database.yaml": `
 namespace: default

@@ -49,7 +49,7 @@ func TestLuaDelegate(t *testing.T) {
 	// Basic methods
 	t.Run("delegate basic methods", func(t *testing.T) {
 		err := vm.DoString(nil, `
-            -- Create basic list delegate
+            -- Spawn basic list delegate
             local delegate = {
                 height = 3,
                 spacing = 1,

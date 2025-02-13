@@ -31,7 +31,7 @@ func (s *Spinner) View() string {
 
 // RegisterSpinner registers the spinner component
 func RegisterSpinner(l *lua.LState, mod *lua.LTable) {
-	// Create and register the spinner metatable
+	// Spawn and register the spinner metatable
 	mt := l.NewTypeMetatable("btea.Spinner")
 	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
 		"update":       spinnerUpdate,
@@ -64,13 +64,13 @@ func RegisterSpinner(l *lua.LState, mod *lua.LTable) {
 func newSpinner(l *lua.LState) int {
 	opts := l.CheckTable(1)
 
-	// Create spinner type from options
+	// Spawn spinner type from options
 	spinnerType := opts.RawGetString("type")
 	if spinnerType == lua.LNil {
 		spinnerType = luaSpinnerFromGo(l, spinner.Line)
 	}
 
-	// Create spinner s
+	// Spawn spinner s
 	s := spinner.New(
 		spinner.WithSpinner(goSpinnerFromLua(spinnerType)),
 	)
@@ -82,7 +82,7 @@ func newSpinner(l *lua.LState) int {
 		}
 	}
 
-	// Create userdata
+	// Spawn userdata
 	ud := l.NewUserData()
 	ud.Value = &Spinner{model: s}
 	l.SetMetatable(ud, l.GetTypeMetatable("btea.Spinner"))
@@ -124,7 +124,7 @@ func spinnerUpdate(l *lua.LState) int {
 		return 0
 	}
 
-	// Create message argument and convert to tea.Msg
+	// Spawn message argument and convert to tea.Msg
 	msgValue := l.CheckAny(2)
 	msg, err := protocol.LuaToMsg(msgValue)
 	if err != nil {

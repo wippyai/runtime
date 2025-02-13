@@ -64,7 +64,7 @@ func TestTaskGroup(t *testing.T) {
 	})
 
 	t.Run("result sending with context", func(t *testing.T) {
-		// Create a TaskGroup with small buffer
+		// Spawn a TaskGroup with small buffer
 		group := NewTaskGroup(2)
 		result := &Result{State: lua.NewState(), Result: []lua.LValue{lua.LString("test")}}
 
@@ -141,7 +141,7 @@ func TestTaskGroup(t *testing.T) {
 		L := lua.NewState()
 		defer L.Close()
 
-		// Create mock CVM
+		// Spawn mock CVM
 		mockCVM := &mockCVM{}
 
 		// Test 1: Non-blocking wait with no tasks
@@ -230,7 +230,7 @@ func TestTaskGroupProcessing(t *testing.T) {
 		defer L1.Close()
 		defer L2.Close()
 
-		// Create tasks for our test states with proper initialization
+		// Spawn tasks for our test states with proper initialization
 		task1 := &Task{
 			thread:  L1,
 			Resumed: nil,
@@ -251,7 +251,7 @@ func TestTaskGroupProcessing(t *testing.T) {
 		group.Add(L1)
 		group.Add(L2)
 
-		// Create a WaitGroup to coordinate our goroutines
+		// Spawn a WaitGroup to coordinate our goroutines
 		var wg sync.WaitGroup
 		ctx := context.Background()
 

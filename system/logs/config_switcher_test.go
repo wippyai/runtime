@@ -19,11 +19,11 @@ func setupConfigSwitcherTest(t *testing.T) (*ConfigSwitcher, *Manager, *eventbus
 	bus := eventbus.NewBus()
 	logger := zap.NewNop()
 
-	// Create downstream core for the manager
+	// Spawn downstream core for the manager
 	downstream := &testDownstreamCore{enabledResponse: true}
 	core := NewCore(downstream, bus)
 
-	// Create and start the manager
+	// Spawn and start the manager
 	manager := NewManager(bus, core, logger, zapcore.InfoLevel)
 	err := manager.Start(context.Background())
 	require.NoError(t, err)

@@ -95,7 +95,7 @@ func TestFunctions_EventResponses(t *testing.T) {
 		require.NoError(t, executor.Stop())
 	}()
 
-	// Create a subscriber to listen for Accept/Reject events
+	// Spawn a subscriber to listen for Accept/Reject events
 	var responses []events.Event
 	var mu sync.Mutex
 	var wg sync.WaitGroup

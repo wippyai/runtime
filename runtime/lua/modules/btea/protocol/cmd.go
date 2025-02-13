@@ -14,7 +14,7 @@ type CmdWrapper struct {
 
 // RegisterCmd registers command-related functions in the Lua environment
 func RegisterCmd(l *lua.LState, mod *lua.LTable) {
-	// Create and register the command metatable
+	// Spawn and register the command metatable
 	mt := l.NewTypeMetatable("btea.Cmd")
 	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
 		"execute": cmdExecute,
@@ -122,7 +122,7 @@ func cmdExecute(l *lua.LState) int {
 	if !ok || wrapper.cmd == nil {
 		return 0
 	}
-	// Create an async function that executes the command
+	// Spawn an async function that executes the command
 	coroutine.Wrap(l, func() *engine.Result {
 		msg := wrapper.cmd()
 
@@ -155,7 +155,7 @@ func cmdBatch(l *lua.LState) int {
 		return 0
 	}
 
-	// Create a batch command
+	// Spawn a batch command
 	batchCmd := tea.Batch(cmds...)
 
 	// Return a wrapped batch command
@@ -181,7 +181,7 @@ func cmdSequence(l *lua.LState) int {
 		return 0
 	}
 
-	// Create a sequence command
+	// Spawn a sequence command
 	seqCmd := tea.Sequence(cmds...)
 
 	// Return a wrapped sequence command

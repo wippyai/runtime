@@ -12,7 +12,7 @@ import (
 
 func TestExecutor_Execute(t *testing.T) {
 	t.Skip("not ready yet")
-	// Create a test logger
+	// Spawn a test logger
 	logger, err := zap.NewDevelopment()
 	require.NoError(t, err)
 	defer func() {
@@ -43,11 +43,11 @@ func TestExecutor_Execute(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create a new executor
+			// Spawn a new executor
 			executor, err := NewExecutor(logger)
 			require.NoError(t, err)
 
-			// Create context with timeout
+			// Spawn context with timeout
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 			defer cancel()
 
@@ -68,18 +68,18 @@ func TestExecutor_Execute(t *testing.T) {
 
 func TestExecutor_ExecuteWithTimeout(t *testing.T) {
 	t.Skip("not ready yet")
-	// Create a test logger
+	// Spawn a test logger
 	logger, err := zap.NewDevelopment()
 	require.NoError(t, err)
 	defer func() {
 		_ = logger.Sync()
 	}()
 
-	// Create a new executor
+	// Spawn a new executor
 	executor, err := NewExecutor(logger)
 	require.NoError(t, err)
 
-	// Create context with a very short timeout
+	// Spawn context with a very short timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 

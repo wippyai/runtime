@@ -12,7 +12,7 @@ type Style struct {
 
 // RegisterStyle registers the Style component
 func RegisterStyle(l *lua.LState, mod *lua.LTable) {
-	// Create and register the Style metatable
+	// Spawn and register the Style metatable
 	mt := l.NewTypeMetatable("btea.Style")
 	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
 		"render":        styleRender,

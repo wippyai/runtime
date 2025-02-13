@@ -28,7 +28,7 @@ func (p *Paginator) View() string {
 
 // RegisterPaginator registers the paginator component
 func RegisterPaginator(l *lua.LState, mod *lua.LTable) {
-	// Create and register the paginator metatable
+	// Spawn and register the paginator metatable
 	mt := l.NewTypeMetatable("btea.Paginator")
 	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
 		// Core methods
@@ -98,7 +98,7 @@ func newPaginator(l *lua.LState) int {
 		}
 	})
 
-	// Create userdata
+	// Spawn userdata
 	ud := l.NewUserData()
 	ud.Value = p
 	l.SetMetatable(ud, l.GetTypeMetatable("btea.Paginator"))

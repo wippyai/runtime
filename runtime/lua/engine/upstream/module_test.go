@@ -149,11 +149,11 @@ func TestUpstreamModule(t *testing.T) {
 		ch := make(chan any, 100)
 		const numGoroutines = 10
 
-		// Create a WaitGroup to track goroutine completion
+		// Spawn a WaitGroup to track goroutine completion
 		var wg sync.WaitGroup
 		wg.Add(numGoroutines)
 
-		// Create a slice to collect errors
+		// Spawn a slice to collect errors
 		var mutex sync.Mutex
 		var errors []error
 
@@ -162,7 +162,7 @@ func TestUpstreamModule(t *testing.T) {
 			go func(n int) {
 				defer wg.Done()
 
-				// Create a new VM instance for each goroutine
+				// Spawn a new VM instance for each goroutine
 				mod := NewUpstreamModule(ch)
 				vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 				if err != nil {

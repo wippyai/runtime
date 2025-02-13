@@ -30,7 +30,7 @@ func (p *Progress) View() string {
 
 // RegisterProgress registers the progress component
 func RegisterProgress(l *lua.LState, mod *lua.LTable) {
-	// Create and register the progress metatable
+	// Spawn and register the progress metatable
 	mt := l.NewTypeMetatable("btea.Progress")
 	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
 		"update":       progressUpdate,
@@ -51,7 +51,7 @@ func RegisterProgress(l *lua.LState, mod *lua.LTable) {
 func newProgress(l *lua.LState) int {
 	opts := l.CheckTable(1)
 
-	// Create progress model with base options
+	// Spawn progress model with base options
 	p := progress.New(
 		progress.WithSpringOptions(30, 2), // Adjust spring physics for smoother animation
 	)
@@ -107,7 +107,7 @@ func newProgress(l *lua.LState) int {
 		}
 	})
 
-	// Create userdata
+	// Spawn userdata
 	ud := l.NewUserData()
 	ud.Value = &Progress{model: p}
 	l.SetMetatable(ud, l.GetTypeMetatable("btea.Progress"))

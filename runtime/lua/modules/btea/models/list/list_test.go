@@ -42,7 +42,7 @@ func TestList(t *testing.T) {
 		err := vm.DoString(ctx, `
             local btea = require("btea")
             
-            -- Create basic list
+            -- Spawn basic list
             local list = btea.list({
                 width = 40,
                 height = 20,
@@ -102,7 +102,7 @@ func TestList(t *testing.T) {
 		err := vm.DoString(ctx, `
             local btea = require("btea")
             
-            -- Create list with multiple pages
+            -- Spawn list with multiple pages
             local list = btea.list({
                 width = 40,
                 height = 10,  -- Small height to force pagination
@@ -240,7 +240,7 @@ func TestListUpdate(t *testing.T) {
             }
         })
 
-        -- Create initial state
+        -- Spawn initial state
         local initial_cursor = list:cursor()
         assert(initial_cursor == 0, "should start at first item")
         
@@ -287,7 +287,7 @@ func TestItemManagement(t *testing.T) {
 		err := vm.DoString(ctx, `
             local btea = require("btea")
             
-            -- Create empty list
+            -- Spawn empty list
             local list = btea.list({
                 width = 40,
                 height = 20
@@ -424,7 +424,7 @@ func TestItemManagement(t *testing.T) {
             })
             assert(#list:items() == 2, "should accept minimal item")
             
-            -- Create the minimal item
+            -- Spawn the minimal item
             local minimal_item = list:items()[2]
             -- The title/description can be nil or an empty string, what matters is that we can still use the item
             assert(minimal_item.filter_value == "minimal", "should preserve filter value for minimal item")
@@ -530,7 +530,7 @@ func TestListStatusMessages(t *testing.T) {
 		err := vm.DoString(ctx, `
             local btea = require("btea")
             
-            -- Create list with default status message lifetime
+            -- Spawn list with default status message lifetime
             local list = btea.list({
                 width = 40,
                 height = 20,
@@ -545,7 +545,7 @@ func TestListStatusMessages(t *testing.T) {
             local view = list:view()
             assert(type(view) == "string", "should render view with status message")
             
-            -- Create list with custom status message lifetime
+            -- Spawn list with custom status message lifetime
             list = btea.list({
                 width = 40,
                 height = 20,

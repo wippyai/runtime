@@ -46,7 +46,7 @@ func ticker(l *lua.LState) int {
 		return 0
 	}
 
-	// Create channel and ticker
+	// Spawn channel and ticker
 	ch := channel.Named(fmt.Sprintf("ticker_%s", duration), 1)
 	ticker := time.NewTicker(duration)
 
@@ -72,7 +72,7 @@ func ticker(l *lua.LState) int {
 		}
 	}()
 
-	// Create and return Ticker userdata
+	// Spawn and return Ticker userdata
 	ud := l.NewUserData()
 	ud.Value = &Ticker{ticker: ticker, chValue: channel.Wrap(l, ch)}
 	l.SetMetatable(ud, l.GetTypeMetatable("Ticker"))

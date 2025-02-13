@@ -88,13 +88,13 @@ func (sp *Sequencer) processStartOperations(ctx context.Context, operations []Op
 		}
 	}
 
-	// Create dependency levels
+	// Spawn dependency levels
 	levels, err := g.DependencyLevels()
 	if err != nil {
 		return fmt.Errorf("failed to determine start dependency levels: %w", err)
 	}
 
-	// Create operation lookup map
+	// Spawn operation lookup map
 	opMap := make(map[string]Operation)
 	for _, op := range operations {
 		opMap[op.ID] = op

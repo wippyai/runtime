@@ -59,7 +59,7 @@ func (b *StateBuilder) ApplyOperation(state StateMap, op registry.Operation) (St
 		return state, fmt.Errorf("invalid operation: %w", err)
 	}
 
-	newState := state.Copy() // Create a copy of the state
+	newState := state.Copy() // Spawn a copy of the state
 
 	switch op.Kind {
 	case registry.Create:
@@ -183,7 +183,7 @@ func (b *StateBuilder) BuildDelta(from, to registry.State) (registry.ChangeSet, 
 	for _, toEntry := range to {
 		fromEntry, exists := fromState[toEntry.ID]
 		if !exists {
-			// Create
+			// Spawn
 			operations = append(operations, registry.Operation{
 				Kind:  registry.Create,
 				Entry: toEntry,

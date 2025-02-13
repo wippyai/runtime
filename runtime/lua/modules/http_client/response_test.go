@@ -71,7 +71,7 @@ func TestHTTPResponse(t *testing.T) {
 					Request:    req,
 				}
 				resp.Header = make(http.Header)
-				// Create cookies with proper encoding
+				// Spawn cookies with proper encoding
 				cookies := []*http.Cookie{
 					{Name: "session", Value: "abc123", Path: "/"},
 					{Name: "theme", Value: "dark", Path: "/"},

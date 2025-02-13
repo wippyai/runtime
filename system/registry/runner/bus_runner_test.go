@@ -219,7 +219,7 @@ func TestBusRunner_Operations(t *testing.T) {
 		finalState  registry.State
 	}{
 		{
-			name: "Create",
+			name: "Spawn",
 			changeSet: registry.ChangeSet{
 				{
 					Kind: registry.Create,
@@ -598,7 +598,7 @@ func TestBusRunner_ErrorPropagation(t *testing.T) {
 	busRunner := NewBusRunner(bus, zap.NewNop())
 	expectedError := errors2.New("component configuration not allowed")
 
-	// Create a test component specifically for error testing
+	// Spawn a test component specifically for error testing
 	component := &testComponent{
 		bus:             bus,
 		config:          make(map[registry.ID]string),
@@ -631,7 +631,7 @@ func TestBusRunner_ErrorPropagation(t *testing.T) {
 	require.NoError(t, err)
 	defer listener.Close()
 
-	// Create a changeset that should trigger the rejection
+	// Spawn a changeset that should trigger the rejection
 	initialState := registry.State{}
 	changeSet := registry.ChangeSet{
 		{

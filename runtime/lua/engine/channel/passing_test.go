@@ -32,14 +32,14 @@ func TestChannelPassingSimple(t *testing.T) {
 	defer vm.Close()
 
 	err = vm.StartString(context.Background(), `
-		-- Create test channels
+		-- Spawn test channels
 		local passCh = channel.new(0)    -- channel for passing other channels
 		local done = channel.new(0)      -- synchronization
 		local namedCh = new_named("test", 0)
 
 		-- Test passing regular channel
 		coroutine.spawn(function()
-			local ch = channel.new(0)    -- Create regular channel
+			local ch = channel.new(0)    -- Spawn regular channel
 			passCh:send(ch)              -- Pass it
 			ch:send("hello")             
 			coroutine.yield("regular_sent")

@@ -17,7 +17,7 @@ const (
 
 // RegisterTextUtils registers size and text manipulation related helper functions
 func RegisterTextUtils(l *lua.LState, mod *lua.LTable) {
-	// Create text utils table
+	// Spawn text utils table
 	utilsTbl := l.NewTable()
 
 	// Size functions
@@ -117,7 +117,7 @@ func RegisterTextUtils(l *lua.LState, mod *lua.LTable) {
 			}
 		})
 
-		// Create matched and unmatched styles
+		// Spawn matched and unmatched styles
 		matched, ok1 := l.CheckUserData(3).Value.(*Style)
 		unmatched, ok2 := l.CheckUserData(4).Value.(*Style)
 

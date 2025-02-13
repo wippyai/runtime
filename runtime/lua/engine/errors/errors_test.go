@@ -260,7 +260,7 @@ func TestWrappedErrorReturnAndLuaError(t *testing.T) {
 		err := fmt.Errorf("test error from Go")
 		wrapped := WrapError(L, err, "") // Empty Context for direct error
 
-		// Create userdata and return it (don't raise)
+		// Spawn userdata and return it (don't raise)
 		ud := L.NewUserData()
 		ud.Value = wrapped
 		L.SetMetatable(ud, L.GetTypeMetatable("error"))
@@ -468,7 +468,7 @@ func TestComplexInteropErrorWrapping(t *testing.T) {
 		finalGoFunc := func(L *lua.LState) int {
 			err := fmt.Errorf("deep error from final Go func")
 
-			// Create and inspect the wrapped error at its origin
+			// Spawn and inspect the wrapped error at its origin
 			wrappedErr := WrapError(L, err, "original error")
 
 			RaiseError(L, wrappedErr)
@@ -504,7 +504,7 @@ func TestComplexInteropErrorWrapping(t *testing.T) {
 		err := nestedL.DoString(nestedScript)
 		if err != nil {
 			if wrapped := GetWrappedError(err); wrapped != nil {
-				// Create new userdata in parent state
+				// Spawn new userdata in parent state
 				ud := L.NewUserData()
 				ud.Value = wrapped
 				L.SetMetatable(ud, L.GetTypeMetatable("error"))

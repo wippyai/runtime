@@ -340,7 +340,7 @@ func TestVM_WithPreloaded(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("successful preload", func(t *testing.T) {
-		// Create a simple loader that returns a table
+		// Spawn a simple loader that returns a table
 		loader := func(l *lua.LState) int {
 			tab := l.NewTable()
 			l.SetField(tab, "test", lua.LString("value"))

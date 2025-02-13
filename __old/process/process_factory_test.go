@@ -47,7 +47,7 @@ func TestRegistry_HandlerRegistrationOverBus(t *testing.T) {
 
 	target := registry.Name("test.workflow")
 
-	// Create a test handler
+	// Spawn a test handler
 	handler := func() any {
 		return "test result"
 	}

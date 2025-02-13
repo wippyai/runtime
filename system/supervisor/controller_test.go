@@ -98,7 +98,7 @@ func TestController_BasicLifecycle(t *testing.T) {
 		t.Errorf("Expected Status Stopped, got %v", state.status)
 	}
 
-	// Create final states safely
+	// Spawn final states safely
 	statesMutex.Lock()
 	finalStates := make([]struct {
 		status  supervisor.Status
@@ -241,7 +241,7 @@ func TestController_ServiceRecoveryAfterFailure(t *testing.T) {
 	mock := &mockService{
 		startFunc: func(context.Context) (<-chan any, error) {
 			chanMutex.Lock()
-			// Create a new channel each time the service starts
+			// Spawn a new channel each time the service starts
 			currentChan = make(chan any, 1)
 			ch := currentChan // local copy to return
 			chanMutex.Unlock()
@@ -311,7 +311,7 @@ func TestController_ServiceRecoveryAfterFailure(t *testing.T) {
 
 	time.Sleep(100 * time.Millisecond) // wait for final state update
 
-	// Create final state transitions
+	// Spawn final state transitions
 	statesMutex.Lock()
 	transitions := make([]supervisor.Status, len(stateTransitions))
 	copy(transitions, stateTransitions)
@@ -440,7 +440,7 @@ func TestController_ServiceFailedRecovery(t *testing.T) {
 		t.Fatal("timeout waiting for service to reach final failed state")
 	}
 
-	// Create state transitions before cleanup
+	// Spawn state transitions before cleanup
 	statesMutex.Lock()
 	transitions := make([]supervisor.Status, len(stateTransitions))
 	copy(transitions, stateTransitions)
@@ -623,7 +623,7 @@ func TestController_CancelDuringTransition(t *testing.T) {
 	// Now unblock the first transition
 	close(blockChan)
 
-	// Create result from second transition
+	// Spawn result from second transition
 	select {
 	case err := <-errChan:
 		if err == nil {
@@ -786,7 +786,7 @@ func TestController_StopAndRestart(t *testing.T) {
 		t.Errorf("Expected 2 start attempts, got %d", startAttempts)
 	}
 
-	// Create final state transitions
+	// Spawn final state transitions
 	statesMutex.Lock()
 	transitions := make([]supervisor.Status, len(stateTransitions))
 	copy(transitions, stateTransitions)
@@ -1251,7 +1251,7 @@ func TestController_ServiceExitError(t *testing.T) {
 		t.Fatalf("Expected supervisor.ErrExit, got: %v", err)
 	}
 
-	// Create final state transitions
+	// Spawn final state transitions
 	statesMutex.Lock()
 	transitions := make([]supervisor.Status, len(stateTransitions))
 	copy(transitions, stateTransitions)
@@ -1325,7 +1325,7 @@ func TestController_ServiceExitDuringOperation(t *testing.T) {
 	// Wait for processing
 	time.Sleep(100 * time.Millisecond)
 
-	// Create final state transitions
+	// Spawn final state transitions
 	statesMutex.Lock()
 	transitions := make([]supervisor.Status, len(stateTransitions))
 	copy(transitions, stateTransitions)

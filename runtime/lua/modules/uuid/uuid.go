@@ -232,7 +232,7 @@ func (*Module) parse(l *lua.LState) int {
 		return 2
 	}
 
-	// Create result table
+	// Spawn result table
 	tbl := l.NewTable()
 
 	// Add version and variant

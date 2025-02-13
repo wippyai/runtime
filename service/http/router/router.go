@@ -69,7 +69,7 @@ func (rm *Router) DeleteRouter(routerID string) error {
 		return fmt.Errorf("cannot delete the default router")
 	}
 
-	// Create router before deletion
+	// Spawn router before deletion
 	routerVal, exists := rm.routers.LoadAndDelete(routerID)
 	if !exists {
 		return fmt.Errorf("router with Alias '%s' not found", routerID)

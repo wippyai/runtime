@@ -46,7 +46,7 @@ func TestChannelRuntimeAsLayer(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("channel layer basic operations", func(t *testing.T) {
-		// Create base CVM
+		// Spawn base CVM
 		base, err := engine.NewCVM(
 			logger,
 			engine.WithPreloaded("channel", NewChannelModule().Loader),
@@ -54,7 +54,7 @@ func TestChannelRuntimeAsLayer(t *testing.T) {
 		assert.NoError(t, err)
 		defer base.Close()
 
-		// Create wrapped CVM with channel runtime as layer
+		// Spawn wrapped CVM with channel runtime as layer
 		channelRuntime := NewChannelLayer()
 		wrapped := engine.NewRunner(base,
 			engine.WithLayer(channelRuntime),
@@ -66,7 +66,7 @@ func TestChannelRuntimeAsLayer(t *testing.T) {
 			function test()
 				local ch = channel.new(0) -- unbuffered channel
 				
-				-- Create sender
+				-- Spawn sender
 				coroutine.spawn(function()
 					coroutine.yield("sender_start")
 					ch:send("hello")
@@ -162,7 +162,7 @@ func TestChannelRuntimeAsLayer(t *testing.T) {
 			function test()
 				local ch = channel.new(0)
 	
-				-- Create blocked receiver
+				-- Spawn blocked receiver
 				coroutine.spawn(function()
 					local msg, ok = ch:receive()
 				end)

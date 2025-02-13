@@ -123,7 +123,7 @@ func (m *Module) Name() string {
 
 // Loader registers the module functions
 func (m *Module) Loader(l *lua.LState) int {
-	// Create module table
+	// Spawn module table
 	mod := l.NewTable()
 
 	// Register constructors
@@ -326,7 +326,7 @@ func selectLua(l *lua.LState) int {
 		}
 	})
 
-	// Create a new select operation
+	// Spawn a new select operation
 	selectOp := &selectOp{
 		cases:      cases,
 		hasDefault: hasDefault,

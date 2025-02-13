@@ -63,7 +63,7 @@ func TestPaginator(t *testing.T) {
 		err = vm.DoString(nil, `
 			local btea = require("btea")
 			
-			-- Create paginator with 3 pages
+			-- Spawn paginator with 3 pages
 			local p = btea.paginator({
 				total_pages = 3
 			})
@@ -184,7 +184,7 @@ func TestPaginatorUpdate(t *testing.T) {
 	require.Equal(t, 1, len(tasks))
 	require.Equal(t, "ready_for_next", tasks[0].Yielded[0].String())
 
-	// Create a navigation message using protocol
+	// Spawn a navigation message using protocol
 	navMsg := protocol.MsgToLua(tea.KeyMsg{Type: tea.KeyRight})
 	tasks[0].Resumed = []lua.LValue{navMsg}
 

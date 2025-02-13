@@ -14,11 +14,11 @@ import (
 func TestCommandLayer_BasicOperations(t *testing.T) {
 	logger := zap.NewNop()
 
-	// Create channel layer first
+	// Spawn channel layer first
 	channelLayer := channel.NewChannelLayer()
 	commandLayer := NewCommandLayer(channelLayer)
 
-	// Create base VM with command module and layers
+	// Spawn base VM with command module and layers
 	vm, err := engine.NewCVM(
 		logger,
 		engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
@@ -27,7 +27,7 @@ func TestCommandLayer_BasicOperations(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	// Create runner with layers before starting any Lua code
+	// Spawn runner with layers before starting any Lua code
 	runner := engine.NewRunner(vm,
 		engine.WithLayer(channelLayer),
 		engine.WithLayer(commandLayer),
@@ -38,7 +38,7 @@ func TestCommandLayer_BasicOperations(t *testing.T) {
 
 	// starts (but does not run)
 	err = vm.StartString(ctx, `
-        -- Create and test a command
+        -- Spawn and test a command
         local cmd = command.new("test")
         assert(cmd ~= nil, "command creation failed")
         
@@ -87,7 +87,7 @@ func contains(slice []string, item string) bool {
 }
 
 func TestCommandLayer_Context(t *testing.T) {
-	// Create channel layer and command layer
+	// Spawn channel layer and command layer
 	channelLayer := channel.NewChannelLayer()
 	commandLayer := NewCommandLayer(channelLayer)
 
@@ -118,11 +118,11 @@ func TestCommandLayer_Context(t *testing.T) {
 func TestLayer_MultipleConcurrentCommands(t *testing.T) {
 	logger := zap.NewNop()
 
-	// Create channel and command layers
+	// Spawn channel and command layers
 	channelLayer := channel.NewChannelLayer()
 	commandLayer := NewCommandLayer(channelLayer)
 
-	// Create base VM with required modules
+	// Spawn base VM with required modules
 	vm, err := engine.NewCVM(
 		logger,
 		engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
@@ -131,7 +131,7 @@ func TestLayer_MultipleConcurrentCommands(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	// Create runner with layers
+	// Spawn runner with layers
 	runner := engine.NewRunner(vm,
 		engine.WithLayer(channelLayer),
 		engine.WithLayer(commandLayer),
@@ -142,7 +142,7 @@ func TestLayer_MultipleConcurrentCommands(t *testing.T) {
 
 	// Start VM with script that creates multiple commands
 	err = vm.StartString(ctx, `
-		-- Create multiple commands
+		-- Spawn multiple commands
 		local cmd1 = command.new("test1", {value = "first"})
 		local cmd2 = command.new("test2", {value = "second"})
 		local cmd3 = command.new("test3", {value = "third"})
@@ -231,11 +231,11 @@ func TestLayer_MultipleConcurrentCommands(t *testing.T) {
 func TestCommandLayer_ErrorPropagation(t *testing.T) {
 	logger := zap.NewNop()
 
-	// Create layers
+	// Spawn layers
 	channelLayer := channel.NewChannelLayer()
 	commandLayer := NewCommandLayer(channelLayer)
 
-	// Create VM with modules
+	// Spawn VM with modules
 	vm, err := engine.NewCVM(
 		logger,
 		engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
@@ -244,7 +244,7 @@ func TestCommandLayer_ErrorPropagation(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	// Create runner with layers
+	// Spawn runner with layers
 	runner := engine.NewRunner(vm,
 		engine.WithLayer(channelLayer),
 		engine.WithLayer(commandLayer),
@@ -310,11 +310,11 @@ func TestCommandLayer_ErrorPropagation(t *testing.T) {
 func TestCommand_LuaMethodsComplete(t *testing.T) {
 	logger := zap.NewNop()
 
-	// Create layers
+	// Spawn layers
 	channelLayer := channel.NewChannelLayer()
 	commandLayer := NewCommandLayer(channelLayer)
 
-	// Create VM with modules
+	// Spawn VM with modules
 	vm, err := engine.NewCVM(
 		logger,
 		engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
@@ -323,7 +323,7 @@ func TestCommand_LuaMethodsComplete(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	// Create runner with layers
+	// Spawn runner with layers
 	runner := engine.NewRunner(vm,
 		engine.WithLayer(channelLayer),
 		engine.WithLayer(commandLayer),
@@ -334,7 +334,7 @@ func TestCommand_LuaMethodsComplete(t *testing.T) {
 
 	// Start VM with script that tests all command methods
 	err = vm.StartString(ctx, `
-		-- Create test command
+		-- Spawn test command
 		local cmd = command.new("test_methods")
 		assert(cmd ~= nil, "command creation failed")
 		
@@ -358,7 +358,7 @@ func TestCommand_LuaMethodsComplete(t *testing.T) {
 		
 		coroutine.yield("success_checks_done")
 		
-		-- Create another command for error case
+		-- Spawn another command for error case
 		local cmd_err = command.new("test_error")
 		coroutine.yield("error_command_created")
 		
@@ -371,7 +371,7 @@ func TestCommand_LuaMethodsComplete(t *testing.T) {
 		
 		coroutine.yield("error_checks_done")
 		
-		-- Create command to test cancellation
+		-- Spawn command to test cancellation
 		local cmd_cancel = command.new("test_cancel")
 		coroutine.yield("cancel_command_created")
 		

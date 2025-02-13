@@ -339,7 +339,7 @@ func TestResponse_JSONHandling(t *testing.T) {
 			local http = require("http")
 			local res = http.response()
 			
-			-- Create userdata which can't be JSON encoded
+			-- Spawn userdata which can't be JSON encoded
 			local ud = newproxy()
 			
 			local err = res:write_json(ud)
@@ -525,7 +525,7 @@ func TestResponse_Flush(t *testing.T) {
 		// Test with invalid response userdata
 		err = vm.DoString(ctx, `
 			local http = require("http")
-			local res = newproxy() -- Create invalid userdata
+			local res = newproxy() -- Spawn invalid userdata
 			local status, err = pcall(function()
 				res:flush()
 			end)

@@ -87,7 +87,7 @@ func TestHelp(t *testing.T) {
 			help:set_separators(" - ", "  ")
 			help:set_ellipsis("…")
 			
-			-- Create test keymap
+			-- Spawn test keymap
 			local keymap = {
 				short_help = function()
 					return {
@@ -313,7 +313,7 @@ func TestHelp(t *testing.T) {
 			
 			local help = btea.help({})
 			
-			-- Create multiple keymaps
+			-- Spawn multiple keymaps
 			local keymap1 = {
 				short_help = {
 					btea.bind({

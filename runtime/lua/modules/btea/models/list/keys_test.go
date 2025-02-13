@@ -22,7 +22,7 @@ func TestLuaTableToKeyMap(t *testing.T) {
 			setupLuaState: func(l *lua.LState) *lua.LTable {
 				keysTable := l.CreateTable(0, 14)
 
-				// Create a sample key binding
+				// Spawn a sample key binding
 				binding := &protocol.KeyBinding{
 					Binding: key.NewBinding(
 						key.WithKeys("ctrl+n"),
@@ -30,7 +30,7 @@ func TestLuaTableToKeyMap(t *testing.T) {
 					),
 				}
 
-				// Create userdata for each key binding
+				// Spawn userdata for each key binding
 				for _, keyName := range []string{
 					"cursor_up", "cursor_down", "prev_page", "next_page",
 					"go_to_start", "go_to_end", "filter", "clear_filter",
@@ -228,7 +228,7 @@ func TestKeysIntegrationWithLuaVM(t *testing.T) {
 		t.Fatalf("Failed to execute Lua script: %v", err)
 	}
 
-	// Create the returned keys table
+	// Spawn the returned keys table
 	keysTable := l.Get(-1).(*lua.LTable)
 	l.Pop(1)
 

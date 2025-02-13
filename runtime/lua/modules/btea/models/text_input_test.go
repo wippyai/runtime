@@ -203,7 +203,7 @@ func TestTextInput(t *testing.T) {
 		err = vm.DoString(nil, `
 			local btea = require("btea")
 			
-			-- Create bindings helper function
+			-- Spawn bindings helper function
 			local function bind(keys, help_key, help_desc)
 				return btea.bind({
 					keys = keys,
@@ -211,7 +211,7 @@ func TestTextInput(t *testing.T) {
 				})
 			end
 			
-			-- Create custom key bindings
+			-- Spawn custom key bindings
 			local input = btea.text_input({
 				key_map = {
 					character_forward = bind(

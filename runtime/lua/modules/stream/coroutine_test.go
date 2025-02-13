@@ -17,7 +17,7 @@ func TestAsyncStreamRead(t *testing.T) {
 	t.Run("async stream reading", func(t *testing.T) {
 		log, _ := zap.NewDevelopment()
 
-		// Create base VM with stream module
+		// Spawn base VM with stream module
 		vm, err := engine.NewCVM(
 			log,
 			engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
@@ -26,14 +26,14 @@ func TestAsyncStreamRead(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		// Create a wrapped VM with async runner
+		// Spawn a wrapped VM with async runner
 		wrapped := engine.NewRunner(
 			vm,
 			engine.WithLayer(channel.NewChannelLayer()),
 			engine.WithLayer(coroutine.NewCoroutineLayer()),
 		)
 
-		// Create test data and stream
+		// Spawn test data and stream
 		testData := []byte("chunk1chunk2chunk3")
 		reader := newMockReadCloser(testData)
 		stream, err := NewStream(context.Background(), reader, NewStreamConfig(6))
@@ -100,7 +100,7 @@ func TestAsyncStreamIter(t *testing.T) {
 	t.Run("async stream iteration", func(t *testing.T) {
 		log := zap.NewNop()
 
-		// Create base VM with stream module
+		// Spawn base VM with stream module
 		vm, err := engine.NewCVM(
 			log,
 			engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
@@ -109,14 +109,14 @@ func TestAsyncStreamIter(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		// Create wrapped VM with async runner
+		// Spawn wrapped VM with async runner
 		wrapped := engine.NewRunner(
 			vm,
 			engine.WithLayer(channel.NewChannelLayer()),
 			engine.WithLayer(coroutine.NewCoroutineLayer()),
 		)
 
-		// Create test data and stream
+		// Spawn test data and stream
 		testData := []byte("chunk1chunk2chunk3")
 		reader := newMockReadCloser(testData)
 		stream, err := NewStream(context.Background(), reader, NewStreamConfig(6))

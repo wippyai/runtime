@@ -33,7 +33,7 @@ func TestRunner_AsLayer(t *testing.T) {
 	}
 	defer vm.Close()
 
-	// Create wrapped VM with runner layer
+	// Spawn wrapped VM with runner layer
 	wrapped := engine.NewRunner(vm, engine.WithLayer(NewCoroutineLayer()))
 
 	// Import test script
@@ -62,7 +62,7 @@ func TestRunner_AsLayer(t *testing.T) {
 func TestAsyncCoroutines(t *testing.T) {
 	log, _ := zap.NewDevelopment()
 
-	// Create base VM with sleep function
+	// Spawn base VM with sleep function
 	vm, err := engine.NewCVM(log,
 		engine.WithGlobalFunction("async_sleep", func(l *lua.LState) int {
 			// Validate and get duration upfront
@@ -78,7 +78,7 @@ func TestAsyncCoroutines(t *testing.T) {
 	require.NoError(t, err)
 	defer vm.Close()
 
-	// Create a wrapped VM with async runner
+	// Spawn a wrapped VM with async runner
 	wrapped := engine.NewRunner(vm, engine.WithLayer(NewCoroutineLayer()))
 
 	// Import test script with two coroutines
@@ -178,7 +178,7 @@ func TestRunner_ChannelLayer(t *testing.T) {
            -- Channel for communication
            local ch = channel.new(1)
 
-           -- Create worker that does async operation
+           -- Spawn worker that does async operation
            coroutine.spawn(function()
                local doubled = async_double(5)
                ch:send(doubled)
@@ -240,7 +240,7 @@ func TestDistributedWorkers(t *testing.T) {
            local NUM_TASKS = 10
            local results = {}
 
-           -- Create result channel with buffer size matching number of tasks
+           -- Spawn result channel with buffer size matching number of tasks
            local result_ch = channel.new(NUM_TASKS)
 
            -- Distribute work across workers
@@ -266,7 +266,7 @@ func TestDistributedWorkers(t *testing.T) {
    `
 
 	t.Run("distributed work across workers", func(t *testing.T) {
-		// Create VM with necessary modules
+		// Spawn VM with necessary modules
 		vm := createVM(t)
 		defer vm.Close()
 
@@ -324,12 +324,12 @@ func TestWorkerPool(t *testing.T) {
            local NUM_WORKERS = 20
            local NUM_TASKS = 20
 
-           -- Create channels for tasks and results
+           -- Spawn channels for tasks and results
            local task_ch = channel.new(NUM_TASKS)
            local result_ch = channel.new(NUM_TASKS)
            local done_ch = channel.new(NUM_WORKERS) -- Channel to track worker completion
 
-           -- Create workers
+           -- Spawn workers
            for i = 1, NUM_WORKERS do
                coroutine.spawn(function()
                    local worker_id = i
@@ -389,7 +389,7 @@ func TestWorkerPool(t *testing.T) {
    `
 
 	t.Run("worker pool with result aggregation", func(t *testing.T) {
-		// Create VM with necessary modules
+		// Spawn VM with necessary modules
 		vm := createVM(t)
 		defer vm.Close()
 

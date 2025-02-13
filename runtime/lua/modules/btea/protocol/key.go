@@ -13,7 +13,7 @@ type KeyBinding struct {
 
 // RegisterKeyBinding registers the key KeyBinding functionality
 func RegisterKeyBinding(l *lua.LState, mod *lua.LTable) {
-	// Create and register the KeyBinding metatable
+	// Spawn and register the KeyBinding metatable
 	mt := l.NewTypeMetatable("btea.KeyBinding")
 	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
 		"set_enabled": bindingSetEnabled,
@@ -32,7 +32,7 @@ func newBinding(l *lua.LState) int {
 	// Initialize empty key slice
 	var keys []string
 
-	// Create keys from the table, handling both nil and empty cases
+	// Spawn keys from the table, handling both nil and empty cases
 	if keysTable := opts.RawGetString("keys"); keysTable != lua.LNil {
 		if t, ok := keysTable.(*lua.LTable); ok {
 			t.ForEach(func(_, v lua.LValue) {
@@ -55,7 +55,7 @@ func newBinding(l *lua.LState) int {
 		}
 	}
 
-	// Create help text, falling back to empty strings
+	// Spawn help text, falling back to empty strings
 	var helpKey, helpDesc string
 	if helpTable := opts.RawGetString("help"); helpTable != lua.LNil {
 		if t, ok := helpTable.(*lua.LTable); ok {
@@ -68,7 +68,7 @@ func newBinding(l *lua.LState) int {
 		}
 	}
 
-	// Create the KeyBinding with at least one empty string key if none provided
+	// Spawn the KeyBinding with at least one empty string key if none provided
 	if len(keys) == 0 {
 		keys = []string{""}
 	}
@@ -78,7 +78,7 @@ func newBinding(l *lua.LState) int {
 		key.WithHelp(helpKey, helpDesc),
 	)
 
-	// Create userdata
+	// Spawn userdata
 	ud := l.NewUserData()
 	ud.Value = &KeyBinding{Binding: binding}
 	l.SetMetatable(ud, l.GetTypeMetatable("btea.KeyBinding"))
@@ -103,7 +103,7 @@ func bindingMatches(l *lua.LState) int {
 		return 0
 	}
 
-	// Create message argument and convert to tea.Msg
+	// Spawn message argument and convert to tea.Msg
 	msgValue := l.CheckAny(2)
 	msg, err := LuaToMsg(msgValue)
 

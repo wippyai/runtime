@@ -123,7 +123,7 @@ func (lk *luaKeyMap) processBindingGroups(value lua.LValue) [][]key.Binding {
 
 // RegisterHelp registers the help component
 func RegisterHelp(l *lua.LState, mod *lua.LTable) {
-	// Create and register the help metatable
+	// Spawn and register the help metatable
 	mt := l.NewTypeMetatable("btea.Help")
 	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
 		"update":         helpUpdate,

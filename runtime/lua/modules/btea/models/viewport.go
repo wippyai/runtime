@@ -30,7 +30,7 @@ func (v *Viewport) View() string {
 
 // RegisterViewport registers the viewport component
 func RegisterViewport(l *lua.LState, mod *lua.LTable) {
-	// Create and register the viewport metatable
+	// Spawn and register the viewport metatable
 	mt := l.NewTypeMetatable("btea.Viewport")
 	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
 		// Core methods
