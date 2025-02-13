@@ -38,7 +38,7 @@ func TestTranscoder_Unmarshal_Simple(t *testing.T) {
 		{
 			name: "Unmarshal JSON to struct",
 			inputPayload: payload.NewPayload(`{
-				"Alias": "John Doe",
+				"Name": "John Doe",
 				"Age": 30,
 				"Address": {
 					"Street": "123 Main St",
@@ -76,7 +76,7 @@ func TestTranscoder_Unmarshal_Simple(t *testing.T) {
 		{
 			name: "Unmarshal YAML to struct",
 			inputPayload: payload.NewPayload(`
-name: John Doe
+name: "John Doe"
 age: 30
 address:
   street: 123 Main St
@@ -229,7 +229,7 @@ func TestTranscoder_Unmarshal_AnyToStruct(t *testing.T) {
 			inputPayload: func() payload.Payload {
 				// Spawn a JSON payload and then transcode it to Golang ANY
 				jsonPayload := payload.NewPayload(`{
-					"Alias": "Jane Doe",
+					"Name": "Jane Doe",
 					"Age": 25,
 					"Address": {
 						"Street": "456 Oak Ave",
