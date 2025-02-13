@@ -55,7 +55,7 @@ func timer(l *lua.LState) int {
 	timeUD.Value = &Time{time: time.Now()} // initial value will be replaced
 	l.SetMetatable(timeUD, l.GetTypeMetatable("Time"))
 
-	// Start goroutine to handle timer
+	// Launch goroutine to handle timer
 	go func() {
 		defer tmr.Stop()
 		select {

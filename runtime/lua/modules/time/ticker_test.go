@@ -255,7 +255,7 @@ func TestTicker(t *testing.T) {
 				local done = channel.new(0)
 				local ticker = time.ticker("50ms")
 
-				-- Start a goroutine to send on a channel after delay
+				-- Launch a goroutine to send on a channel after delay
 				coroutine.spawn(function()
 					time.sleep("125ms")
 					done:send("done")

@@ -91,7 +91,7 @@ func NewPool(factory api.Factory, opts ...Option) (*Pool, error) {
 func (p *Pool) init(factory api.Factory) error {
 	p.factory = factory
 
-	// Start worker goroutines.
+	// Launch worker goroutines.
 	for i := 0; i < p.workers; i++ {
 		p.workerWait.Add(1)
 		go p.worker()

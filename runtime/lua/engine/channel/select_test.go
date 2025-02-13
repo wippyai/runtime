@@ -82,7 +82,7 @@ func TestSelectBlockedReceive(t *testing.T) {
 		local ch1 = channel.new(0)
 		local ch2 = channel.new(0)
 		
-		-- Start select operation that will block
+		-- Launch select operation that will block
 		coroutine.spawn(function()
 			local result = channel.select{
 				ch1:case_receive(),
@@ -136,7 +136,7 @@ func TestSelectBlockedClose(t *testing.T) {
 		local ch1 = channel.new(0)
 		local ch2 = channel.new(0)
 		
-		-- Start select operation that will block
+		-- Launch select operation that will block
 		coroutine.spawn(function()
 			local result = channel.select{
 				ch1:case_receive(),
@@ -272,7 +272,7 @@ func TestSelectLoopWithFeeds(t *testing.T) {
         local ch2 = channel.new(0)
         local done = channel.new(0)
         
-        -- Start select loop in goroutine
+        -- Launch select loop in goroutine
         coroutine.spawn(function()
             local count = 0
             while count < 2 do
@@ -355,7 +355,7 @@ func TestSelectCleanupOnReceive(t *testing.T) {
        local ch1 = channel.new(0)
        local ch2 = channel.new(0)
 
-       -- Start blocked select
+       -- Launch blocked select
        coroutine.spawn(function()
            local result = channel.select{
                ch1:case_receive(),
@@ -612,7 +612,7 @@ func TestMixedSelectBlocking(t *testing.T) {
 		local ch2 = channel.new(0)
 		local resultCh = channel.new(1)  -- for test coordination
 		
-		-- Start a goroutine that will do mixed select
+		-- Launch a goroutine that will do mixed select
 		coroutine.spawn(function()
 			local result = channel.select{
 				ch1:case_send("value1"),    -- might be selected
@@ -623,7 +623,7 @@ func TestMixedSelectBlocking(t *testing.T) {
 		
 		coroutine.yield("select_started")
 		
-		-- Start helper goroutine to trigger one of the cases
+		-- Launch helper goroutine to trigger one of the cases
 		coroutine.spawn(function()
 			ch2:send("value2")  -- trigger the receive case
 			coroutine.yield("helper_complete")

@@ -725,7 +725,7 @@ func TestMainCoroutinePanicHandling(t *testing.T) {
 	err = vm.StartString(context.Background(), `
 		local ch = channel.new(0)
 		
-		-- Start a goroutine that will be blocked
+		-- Launch a goroutine that will be blocked
 		coroutine.spawn(function()
 			ch:receive()
 		end)
@@ -777,7 +777,7 @@ func TestMainCoroutineChannelCascadingClose(t *testing.T) {
 		local ch = channel.new(0)
 		local next = channel.new(2) -- Collect next from goroutines
 		
-		-- Start two goroutines that will be blocked on receive
+		-- Launch two goroutines that will be blocked on receive
 		for i = 1, 2 do
 			coroutine.spawn(function()
 				local val, ok = ch:receive()
@@ -846,7 +846,7 @@ func TestMapReducePattern(t *testing.T) {
 		local input = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
 		local expectedSum = 385  -- Sum of squares of numbers 1-10
 
-		-- Start workers
+		-- Launch workers
 		for i = 1, 3 do
 			coroutine.spawn(function()
 				while true do

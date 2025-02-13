@@ -1,4 +1,4 @@
-package shell
+package terminal
 
 import (
 	"github.com/ponyruntime/pony/api/registry"
@@ -6,7 +6,7 @@ import (
 )
 
 // KindHost identifies a terminal service component
-const KindHost registry.Kind = "shell.host"
+const KindHost registry.Kind = "terminal.host"
 
 type (
 	// HostConfig represents the configuration for a terminal service

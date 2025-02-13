@@ -474,7 +474,7 @@ func TestHighConcurrencyStress(t *testing.T) {
 	subscriberWg := sync.WaitGroup{}
 	publisherWg := sync.WaitGroup{}
 
-	// Start subscribers
+	// Launch subscribers
 	channels := make([]chan events.Event, numSubscribers)
 	subscriberIDs := make([]events.SubscriberID, numSubscribers)
 
@@ -495,7 +495,7 @@ func TestHighConcurrencyStress(t *testing.T) {
 		}(channels[i])
 	}
 
-	// Start publishers
+	// Launch publishers
 	for i := 0; i < numPublishers; i++ {
 		publisherWg.Add(1)
 		go func(pubID int) {
@@ -648,7 +648,7 @@ func TestConcurrentBusClosing(t *testing.T) {
 		startSignal      = make(chan struct{})
 	)
 
-	// Start goroutines that will try to subscribe
+	// Launch goroutines that will try to subscribe
 	for i := 0; i < numConcurrentOps; i++ {
 		wg.Add(1)
 		go func(id int) {
@@ -670,7 +670,7 @@ func TestConcurrentBusClosing(t *testing.T) {
 		}(i)
 	}
 
-	// Start goroutines that will try to send events
+	// Launch goroutines that will try to send events
 	for i := 0; i < numConcurrentOps; i++ {
 		wg.Add(1)
 		go func(id int) {
@@ -686,7 +686,7 @@ func TestConcurrentBusClosing(t *testing.T) {
 		}(i)
 	}
 
-	// Start a goroutine that will close the bus
+	// Launch a goroutine that will close the bus
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -722,7 +722,7 @@ func TestStopDuringBackpressure(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Start the slow consumer
+	// Launch the slow consumer
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -736,7 +736,7 @@ func TestStopDuringBackpressure(t *testing.T) {
 		}
 	}()
 
-	// Start multiple senders to create backpressure
+	// Launch multiple senders to create backpressure
 	numSenders := 50
 	for i := 0; i < numSenders; i++ {
 		wg.Add(1)
@@ -793,7 +793,7 @@ func TestConcurrentStopAndSubscribe(t *testing.T) {
 		b := NewBus()
 		var wg sync.WaitGroup
 
-		// Start multiple subscribe operations
+		// Launch multiple subscribe operations
 		for j := 0; j < 10; j++ {
 			wg.Add(1)
 			go func() {
@@ -827,7 +827,7 @@ func TestConcurrentContextCancellation(t *testing.T) {
 	var wg sync.WaitGroup
 	errChan := make(chan error, numOperations)
 
-	// Start concurrent subscriptions
+	// Launch concurrent subscriptions
 	for i := 0; i < numOperations; i++ {
 		wg.Add(1)
 		go func(id int) {
@@ -845,7 +845,7 @@ func TestConcurrentContextCancellation(t *testing.T) {
 		}(i)
 	}
 
-	// Start concurrent sends
+	// Launch concurrent sends
 	for i := 0; i < numOperations; i++ {
 		wg.Add(1)
 		go func(id int) {

@@ -61,7 +61,7 @@ func TestTimeModule(t *testing.T) {
 			t.Run("sleep with context cancellation", func(t *testing.T) {
 				ctx, cancel := context.WithCancel(context.Background())
 
-				// Start long sleep in a goroutine
+				// Launch long sleep in a goroutine
 				done := make(chan struct{})
 				go func() {
 					defer close(done)
@@ -746,7 +746,7 @@ func TestSleep(t *testing.T) {
 
 				ctx, cancel := context.WithCancel(context.Background())
 
-				// Start long sleep in a goroutine
+				// Launch long sleep in a goroutine
 				done := make(chan struct{})
 				go func() {
 					defer close(done)

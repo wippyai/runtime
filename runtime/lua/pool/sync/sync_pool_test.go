@@ -294,11 +294,11 @@ func TestPool_ParallelExecution(t *testing.T) {
 // //		p, err := NewPool(f, WithSize(1), WithLogger(zap.NewNop()))
 // //		require.NoError(t, err)
 // //
-// //		// Start a job that will run for a known duration
+// //		// Launch a job that will run for a known duration
 // //		resultChan := make(chan lua.LValue, 1)
 // //		errorChan := make(chan error, 1)
 // //
-// //		// Start the job
+// //		// Launch the job
 // //		go func() {
 // //			result, err := p.Execute(context.Background(), "sleep_test", lua.LNil)
 // //			if err != nil {

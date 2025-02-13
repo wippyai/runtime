@@ -374,7 +374,7 @@ func TestTimerSelectAndCoroutine(t *testing.T) {
 				local results = {}
 				local done = channel.new(0)
 
-				-- Start timer in coroutine
+				-- Launch timer in coroutine
 				coroutine.spawn(function()
 					local t = time.timer("100ms")
 					local ch = channel.new(0)
@@ -466,7 +466,7 @@ func TestTimerSelectAndCoroutineInversedOrder(t *testing.T) {
 				local results = {}
 				local done = channel.new(0)
 
-				-- Start timer in coroutine
+				-- Launch timer in coroutine
 				coroutine.spawn(function()
 					local t = time.timer("100ms")
 					local ch = channel.new(0)

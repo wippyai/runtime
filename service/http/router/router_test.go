@@ -505,7 +505,7 @@ func TestRouter_ServeHTTP_Concurrency(t *testing.T) {
 	server := httptest.NewServer(router)
 	defer server.Close()
 
-	// Start concurrent requests
+	// Launch concurrent requests
 	for i := 0; i < numRequests; i++ {
 		wg.Add(1)
 		go func() {

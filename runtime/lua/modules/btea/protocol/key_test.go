@@ -209,7 +209,7 @@ func TestKeyBindingConversion(t *testing.T) {
 	})
 
 	t.Run("roundtrip conversion", func(t *testing.T) {
-		// Start with a Go binding
+		// Launch with a Go binding
 		original := key.NewBinding(
 			key.WithKeys("ctrl+x", "cmd+x"),
 			key.WithHelp("^X", "cut"),

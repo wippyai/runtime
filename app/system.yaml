@@ -25,8 +25,8 @@ entries:
     prefix: /api/v1
     entries:
 
-  - name: shell
-    kind: shell.host
+  - name: terminal
+    kind: terminal.host
     meta:
       comment: "System shell"
     hide_logs: false  # Keep logs visible, don't redirect to event bus

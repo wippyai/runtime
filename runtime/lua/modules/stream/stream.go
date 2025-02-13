@@ -93,7 +93,7 @@ func (s *Stream) readDirect(buffer []byte) (int, error) {
 		err error
 	}, 1)
 
-	// Start read operation in a goroutine
+	// Launch read operation in a goroutine
 	go func() {
 		n, err := s.reader.Read(buffer)
 		select {

@@ -86,13 +86,13 @@ func TestAsyncCoroutines(t *testing.T) {
           function test_sleep()
               local results = {}
 
-              -- Start first coroutine (longer sleep)
+              -- Launch first coroutine (longer sleep)
               coroutine.spawn(function()
                   local res1, dur1 = async_sleep(75)
                   results.first = {res1, dur1}
               end)
 
-              -- Start second coroutine (shorter sleep)
+              -- Launch second coroutine (shorter sleep)
               coroutine.spawn(function()
                   local res2, dur2 = async_sleep(25)
                   results.second = {res2, dur2}

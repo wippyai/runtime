@@ -450,7 +450,7 @@ func TestBusRunner_RollbackOnSecondOperationFailure(t *testing.T) {
 	ctx, _, busRunner, component, cleanup := setupTestEnvironment(t)
 	defer cleanup()
 
-	initialState := registry.State{} // Start with an empty state
+	initialState := registry.State{} // Launch with an empty state
 	changeSet := registry.ChangeSet{
 		{
 			Kind: registry.Create,

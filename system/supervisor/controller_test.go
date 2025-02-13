@@ -274,7 +274,7 @@ func TestController_ServiceRecoveryAfterFailure(t *testing.T) {
 		},
 	)
 
-	// Start the service
+	// Launch the service
 	if err := ctr.Start(); err != nil {
 		t.Fatalf("Failed to start service: %v", err)
 	}
@@ -408,7 +408,7 @@ func TestController_ServiceFailedRecovery(t *testing.T) {
 		},
 	)
 
-	// Start the service
+	// Launch the service
 	if err := ctr.Start(); err != nil {
 		cancel()
 		t.Fatalf("Failed to start service: %v", err)
@@ -596,7 +596,7 @@ func TestController_CancelDuringTransition(t *testing.T) {
 		nil,
 	)
 
-	// Start first transition that will block in handleTransition
+	// Launch first transition that will block in handleTransition
 	go func() {
 		_ = ctr.Start()
 		close(transitionStarted)
@@ -605,7 +605,7 @@ func TestController_CancelDuringTransition(t *testing.T) {
 	// Give time for first transition to be processed
 	time.Sleep(100 * time.Millisecond)
 
-	// Start second transition that will block on transitions channel
+	// Launch second transition that will block on transitions channel
 	errChan := make(chan error, 1)
 	go func() {
 		errChan <- ctr.Start()
@@ -891,7 +891,7 @@ func TestController_GracefulShutdown(t *testing.T) {
 		},
 	)
 
-	// Start the service
+	// Launch the service
 	if err := ctr.Start(); err != nil {
 		t.Fatalf("Failed to start service: %v", err)
 	}
@@ -902,7 +902,7 @@ func TestController_GracefulShutdown(t *testing.T) {
 		t.Fatalf("Expected service to be Running, got %v", state.Status)
 	}
 
-	// Start shutdown in a goroutine
+	// Launch shutdown in a goroutine
 	shutdownErr := make(chan error, 1)
 	go func() {
 		shutdownErr <- ctr.Stop()
@@ -999,7 +999,7 @@ func TestController_ShutdownTimeout(t *testing.T) {
 		nil,
 	)
 
-	// Start the service
+	// Launch the service
 	if err := ctr.Start(); err != nil {
 		t.Fatalf("Failed to start service: %v", err)
 	}
@@ -1007,7 +1007,7 @@ func TestController_ShutdownTimeout(t *testing.T) {
 	// wait for service to be running
 	time.Sleep(100 * time.Millisecond)
 
-	// Start shutdown in a goroutine
+	// Launch shutdown in a goroutine
 	var wg sync.WaitGroup
 	wg.Add(1)
 	var shutdownErr error
@@ -1080,7 +1080,7 @@ func TestController_StopDuringFailedStart(t *testing.T) {
 		},
 	)
 
-	// Start in a goroutine since it will block
+	// Launch in a goroutine since it will block
 	startErr := make(chan error, 1)
 	go func() {
 		err := ctr.Start()
@@ -1166,7 +1166,7 @@ func TestController_StartTimeout(t *testing.T) {
 		},
 	)
 
-	// Start the service
+	// Launch the service
 	err := ctr.Start()
 
 	// Verify we get timeout error
@@ -1243,7 +1243,7 @@ func TestController_ServiceExitError(t *testing.T) {
 		},
 	)
 
-	// Start the service
+	// Launch the service
 	err := ctr.Start()
 
 	// Should get ErrExit
@@ -1313,7 +1313,7 @@ func TestController_ServiceExitDuringOperation(t *testing.T) {
 		},
 	)
 
-	// Start the service
+	// Launch the service
 	err := ctr.Start()
 	if err != nil {
 		t.Fatalf("Failed to start service: %v", err)
@@ -1425,7 +1425,7 @@ func TestController_StressTestStartLast(t *testing.T) {
 	// wait for the batch to complete
 	wg.Wait()
 
-	// The last operation is always Start
+	// The last operation is always Launch
 	_ = ctr.Start()
 
 	// Verify the final state is Running

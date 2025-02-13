@@ -297,7 +297,7 @@ func (c *Controller) tryStart(ctx context.Context, cancel context.CancelFunc) (<
 		fmt.Sprintf("attempt %d", c.state.getRetryCount()+1),
 	)
 
-	// Start the service in a goroutine
+	// Launch the service in a goroutine
 	resultCh := make(chan struct {
 		ch  <-chan any
 		err error

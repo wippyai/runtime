@@ -65,7 +65,7 @@ func TestWrappedErrorWithStack(t *testing.T) {
 
 	// Build and print actual error chain for debugging
 	var actualChain []string
-	current := wrapped.err // Start with the wrapped error's inner error
+	current := wrapped.err // Launch with the wrapped error's inner error
 	for current != nil {
 		actualChain = append(actualChain, current.Error())
 		current = errors.Unwrap(current)
@@ -226,7 +226,7 @@ func TestErrorIdentification(t *testing.T) {
 
 	// Build and print actual error chain for debugging
 	var actualChain []string
-	current := wrapped.err // Start with the wrapped error's inner error
+	current := wrapped.err // Launch with the wrapped error's inner error
 	for current != nil {
 		actualChain = append(actualChain, current.Error())
 		current = errors.Unwrap(current)

@@ -126,7 +126,7 @@ func newTable(l *lua.LState) int {
 
 // luaTableToStyles converts a Lua table with style fields to a table.Styles.
 func luaTableToStyles(l *lua.LState, tbl *lua.LTable) table.Styles {
-	// Start with default styles.
+	// Launch with default styles.
 	s := table.DefaultStyles()
 
 	// Map the "header" style.

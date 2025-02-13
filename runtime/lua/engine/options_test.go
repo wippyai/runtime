@@ -246,7 +246,7 @@ func TestVM_LibraryStackTrace(t *testing.T) {
 				lib.middle()
 			end
 			
-			lib.top()  -- Start the chain of calls
+			lib.top()  -- Launch the chain of calls
 			return lib
 		`
 		vm, err := NewVM(logger, WithLibrary("stacklib", libSource))

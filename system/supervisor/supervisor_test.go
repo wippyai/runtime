@@ -269,7 +269,7 @@ func (h *testSupervisorHarness) assertServiceNotFound(serviceID string) {
 func TestSupervisor_BasicLifecycle(t *testing.T) {
 	h := newTestHarness(t)
 
-	// Start supervisor and register service
+	// Launch supervisor and register service
 	ctx := context.Background()
 	h.start(ctx)
 	h.registerServices(map[string]bool{
@@ -310,7 +310,7 @@ func TestSupervisor_MultipleServices(t *testing.T) {
 	svc2 := h.services["service-2"]
 	require.False(t, svc2.IsStarted(), "Lifecycle 2 should not be started automatically")
 
-	// Start service-2 manually
+	// Launch service-2 manually
 	h.sup.actions <- action{
 		kind:      actionStart,
 		serviceID: "service-2",
@@ -393,7 +393,7 @@ func TestSupervisor_TargetedServiceControl(t *testing.T) {
 		"service-2": false,
 	})
 
-	// Start both services manually
+	// Launch both services manually
 	h.sup.actions <- action{
 		kind:      actionStart,
 		serviceID: "service-1",
@@ -420,7 +420,7 @@ func TestSupervisor_TargetedServiceControl(t *testing.T) {
 	require.True(t, svc1.IsStopped(), "Lifecycle 1 should be stopped")
 	require.True(t, svc2.IsStarted(), "Lifecycle 2 should still be running")
 
-	// Start service-1 again
+	// Launch service-1 again
 	h.sup.actions <- action{
 		kind:      actionStart,
 		serviceID: "service-1",
@@ -515,7 +515,7 @@ func TestSupervisor_ConcurrentTransactions(t *testing.T) {
 	ctx := context.Background()
 	h.start(ctx)
 
-	// Start first transaction
+	// Launch first transaction
 	h.sup.handleEvent(events.Event{System: registry.System, Kind: registry.Begin})
 
 	// Attempt to start another transaction while first is open
@@ -645,7 +645,7 @@ func TestSupervisor_GetAllStates(t *testing.T) {
 	failingSvc.startErr = fmt.Errorf("startup failure")
 	failingSvc.mu.Unlock()
 
-	// Start manual service
+	// Launch manual service
 	h.sup.actions <- action{
 		kind:      actionStart,
 		serviceID: "manual-start",
@@ -717,7 +717,7 @@ func TestSupervisor_BusEventControl(t *testing.T) {
 	require.Equal(t, supervisor.Unknown, state.Status, "Lifecycle should be in Unknown state")
 	require.False(t, svc.IsStarted(), "Lifecycle should not be started")
 
-	// Start the service via bus event
+	// Launch the service via bus event
 	h.sup.bus.Send(ctx, events.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Start,

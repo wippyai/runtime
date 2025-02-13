@@ -83,7 +83,7 @@ func TestTaskGroup(t *testing.T) {
 		var wg sync.WaitGroup
 		wg.Add(1)
 
-		// Start a goroutine that will try to send to a full channel
+		// Launch a goroutine that will try to send to a full channel
 		go func() {
 			defer wg.Done()
 			sendErr = group.Send(cancelCtx, result)
@@ -159,7 +159,7 @@ func TestTaskGroup(t *testing.T) {
 		var wg sync.WaitGroup
 		wg.Add(1)
 
-		// Start waiting in a goroutine
+		// Launch waiting in a goroutine
 		go func() {
 			defer wg.Done()
 			_, waitErr = group.Wait(ctx, mockCVM, true)
@@ -255,7 +255,7 @@ func TestTaskGroupProcessing(t *testing.T) {
 		var wg sync.WaitGroup
 		ctx := context.Background()
 
-		// Start a goroutine to send results
+		// Launch a goroutine to send results
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -275,7 +275,7 @@ func TestTaskGroupProcessing(t *testing.T) {
 			require.NoError(t, group.Send(ctx, result2))
 		}()
 
-		// Start waiting for results - use a timeout context
+		// Launch waiting for results - use a timeout context
 		timeoutCtx, cancel := context.WithTimeout(ctx, time.Second*100)
 		defer cancel()
 

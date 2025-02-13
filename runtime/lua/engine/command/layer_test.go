@@ -140,7 +140,7 @@ func TestLayer_MultipleConcurrentCommands(t *testing.T) {
 	// Setup context with task group
 	ctx := runner.WithContext(context.Background())
 
-	// Start VM with script that creates multiple commands
+	// Launch VM with script that creates multiple commands
 	err = vm.StartString(ctx, `
 		-- Spawn multiple commands
 		local cmd1 = command.new("test1", {value = "first"})
@@ -253,7 +253,7 @@ func TestCommandLayer_ErrorPropagation(t *testing.T) {
 	// Setup context
 	ctx := runner.WithContext(context.Background())
 
-	// Start VM with script that creates a command and waits for result
+	// Launch VM with script that creates a command and waits for result
 	err = vm.StartString(ctx, `
 		local cmd = command.new("test_error")
 		assert(cmd ~= nil, "command creation failed")
@@ -332,7 +332,7 @@ func TestCommand_LuaMethodsComplete(t *testing.T) {
 	// Setup context
 	ctx := runner.WithContext(context.Background())
 
-	// Start VM with script that tests all command methods
+	// Launch VM with script that tests all command methods
 	err = vm.StartString(ctx, `
 		-- Spawn test command
 		local cmd = command.new("test_methods")
