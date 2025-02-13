@@ -61,7 +61,7 @@ func (m *Manager) Stop() error {
 }
 
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != api.KindTerminal {
+	if entry.Kind != api.KindHost {
 		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
 	}
 
@@ -128,8 +128,8 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	return nil
 }
 
-func (m *Manager) fetchConfig(entry registry.Entry) (*api.ServiceConfig, error) {
-	cfg := new(api.ServiceConfig)
+func (m *Manager) fetchConfig(entry registry.Entry) (*api.HostConfig, error) {
+	cfg := new(api.HostConfig)
 	if err := m.dtt.Unmarshal(entry.Data, cfg); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal cfg: %w", err)
 	}
@@ -157,7 +157,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 
 func (m *Manager) handleEvent(e events.Event) {
 	switch e.Kind {
-	case api.RegisterTerminalEvent:
+	case api.RegisterShell:
 		app, ok := e.Data.(api.Terminal)
 		if !ok {
 			m.log.Error("invalid register terminal data", zap.String("id", string(e.Path)))
@@ -187,7 +187,7 @@ func (m *Manager) handleEvent(e events.Event) {
 		if !found {
 			m.log.Info("registered terminal application", zap.String("id", string(e.Path)))
 		}
-	case api.DeleteTerminalEvent:
+	case api.DeleteShell:
 		m.mu.Lock()
 		delete(m.apps, registry.Name(e.Path))
 		m.mu.Unlock()

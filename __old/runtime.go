@@ -306,7 +306,7 @@ func (m *RuntimeManager) Delete(ctx context.Context, entry registry.Entry) error
 	case api.KindTerminal:
 		m.bus.Send(ctx, events.Event{
 			System: shell.System,
-			Kind:   shell.DeleteTerminalEvent,
+			Kind:   shell.DeleteShell,
 			Path:   events.Path(entry.ID),
 			Data:   entry.ID,
 		})

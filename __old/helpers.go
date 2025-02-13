@@ -98,7 +98,7 @@ func (m *RuntimeManager) unregisterHandler(ctx context.Context, id registry.Name
 func (m *RuntimeManager) registerTerminal(ctx context.Context, id registry.Name, app shell.Terminal) {
 	m.bus.Send(ctx, events.Event{
 		System: shell.System,
-		Kind:   shell.RegisterTerminalEvent,
+		Kind:   shell.RegisterShell,
 		Path:   events.Path(id),
 		Data:   app,
 	})
@@ -107,7 +107,7 @@ func (m *RuntimeManager) registerTerminal(ctx context.Context, id registry.Name,
 func (m *RuntimeManager) unregisterTerminal(ctx context.Context, id registry.Name) { //nolint:unused
 	m.bus.Send(ctx, events.Event{
 		System: shell.System,
-		Kind:   shell.DeleteTerminalEvent,
+		Kind:   shell.DeleteShell,
 		Path:   events.Path(id),
 		Data:   id,
 	})

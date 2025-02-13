@@ -23,7 +23,7 @@ type service struct {
 	statusCh chan any
 	bus      events.Bus
 	log      *zap.Logger
-	cfg      *api.ServiceConfig
+	cfg      *api.HostConfig
 	csw      *logs.ConfigSwitcher
 	ops      *operations
 	done     chan struct{} // Signal for complete shutdown
@@ -32,7 +32,7 @@ type service struct {
 func newService(
 	app api.Terminal,
 	id registry.Name,
-	cfg *api.ServiceConfig,
+	cfg *api.HostConfig,
 	bus events.Bus,
 	log *zap.Logger,
 ) *service {
