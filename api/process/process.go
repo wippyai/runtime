@@ -11,19 +11,19 @@ import (
 // Event system and kind constants for the workflow package
 const (
 	// PrototypeSystem identifies the workflow system in the event bus.
-	PrototypeSystem events.System = "prototypes"
+	PrototypeSystem events.System = "prototype"
 
 	// RegisterPrototype is the event kind for registering a new process prototype.
-	RegisterPrototype events.Kind = "prototypes.register"
+	RegisterPrototype events.Kind = "prototype.register"
 
 	// DeletePrototype is the event kind for removing an existing process prototype.
-	DeletePrototype events.Kind = "prototypes.remove"
+	DeletePrototype events.Kind = "prototype.remove"
 
 	// AcceptPrototype is the event kind for accepting a new process prototype.
-	AcceptPrototype events.Kind = "prototypes.accept"
+	AcceptPrototype events.Kind = "prototype.accept"
 
 	// RejectPrototype is the event kind for rejecting a new process prototype.
-	RejectPrototype events.Kind = "prototypes.reject"
+	RejectPrototype events.Kind = "prototype.reject"
 )
 
 type (
@@ -56,8 +56,20 @@ type (
 		// Result returns the final result of the process execution. Only call after done.
 		Result() *runtime.Result
 	}
+
+	LaunchProcess struct {
+		HostID HostID
+		ID     registry.ID
+		Name   string
+		Task   runtime.Task
+	}
+
+	Manager interface {
+		// Launch creates and starts a new process instance on the specified host
+		Launch(ctx context.Context, process LaunchProcess) (PID, error)
+	}
 )
 
-func GetProcessFactory(ctx context.Context) Factory {
-	return ctx.Value(contextapi.PrototypesCtx).(Factory)
+func GetProcesses(ctx context.Context) Manager {
+	return ctx.Value(contextapi.ProcessesCtx).(Manager)
 }

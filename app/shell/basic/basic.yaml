@@ -1,6 +1,7 @@
 version: 1.0/beta
 
-name: basic.terminal
+namespace: terminal
+name: basic
 kind: terminal.lua
 meta:
   comment: "Simple upstream example"
@@ -8,9 +9,4 @@ meta:
 source: file://basic.lua
 method: App
 
-options:
-  alt_screen: true
-  title: "Simple App"
-
 modules: [ "time" ]
-libraries: [ ]
