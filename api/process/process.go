@@ -62,6 +62,8 @@ type (
 		ID     registry.ID
 		Name   string
 		Task   runtime.Task
+		Parent *PID
+		Links  map[PID]any
 	}
 
 	Manager interface {
