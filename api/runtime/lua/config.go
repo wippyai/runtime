@@ -54,15 +54,14 @@ type (
 	//	Method string                 `json:"method"` // Alias of the Lua method to execute
 	//	Import map[string]registry.ID `json:"import"` // Import aliases for the library
 	//}
-	//
-	//// TerminalConfig defines the configuration for a Lua terminal component.
-	//// It extends FunctionConfig with terminal-specific options and lifecycle management.
-	//TerminalConfig struct {
-	//	Source    string                     `json:"source"`    // Lua source code
-	//	Method    string                     `json:"method"`    // Alias of the Lua method to execute
-	//	Import    map[string]registry.ID     `json:"import"`    // Import aliases for the library
-	//	Lifecycle supervisor.LifecycleConfig `json:"lifecycle"` // Lifecycle management config
-	//}
+
+	// TerminalConfig defines the configuration for a Lua terminal component.
+	TerminalConfig struct {
+		Meta   registry.Metadata      `json:"meta"`   // Metadata for the terminal
+		Source string                 `json:"source"` // Lua source code
+		Method string                 `json:"method"` // Alias of the Lua method to execute
+		Import map[string]registry.ID `json:"import"` // Import aliases for the library
+	}
 )
 
 // Validate checks if the FunctionConfig has all required fields set to valid values.
