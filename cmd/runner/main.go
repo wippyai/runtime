@@ -7,13 +7,14 @@ import (
 	apiCtx "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/events"
 	apiLog "github.com/ponyruntime/pony/api/logs"
+	processapi "github.com/ponyruntime/pony/api/process"
 	apiReg "github.com/ponyruntime/pony/api/registry"
 	apiLua "github.com/ponyruntime/pony/api/runtime/lua"
 	"github.com/ponyruntime/pony/runtime/lua/code"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
-	"github.com/ponyruntime/pony/runtime/lua/manager/function"
-	"github.com/ponyruntime/pony/runtime/lua/manager/library"
-	"github.com/ponyruntime/pony/runtime/lua/manager/terminal"
+	"github.com/ponyruntime/pony/runtime/lua/factory/function"
+	"github.com/ponyruntime/pony/runtime/lua/factory/library"
+	"github.com/ponyruntime/pony/runtime/lua/factory/terminal"
 	"github.com/ponyruntime/pony/runtime/lua/modules/base64"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea"
 	"github.com/ponyruntime/pony/runtime/lua/modules/env"
@@ -68,7 +69,7 @@ type App struct {
 	reg         apiReg.Registry
 	supervisor  *supervisor.Supervisor
 	funcs       *functions.FunctionRegistry
-	processes   *process.ProcessManager
+	processes   *process.Manager
 	prototypes  *process.PrototypeRegistry
 	hosts       *process.HostRegistry
 
@@ -204,8 +205,18 @@ func (a *App) Start(folderPath string) error {
 	if _, err := a.reg.Apply(bootCtx, appState); err != nil {
 		return fmt.Errorf("failed to apply initial state: %w", err)
 	}
+	time.Sleep(1 * time.Second)
+	// launch (todo: we also can retry or better delegate it to supervisor)
+	pid, err := a.processes.Launch(ctx, processapi.Launch{
+		HostID: "system:shell",
+		ID:     apiReg.ID{NS: "terminal", Name: "basic"},
+		Name:   "root",
+	})
+	if err != nil {
+		return fmt.Errorf("failed to launch root process: %w", err)
+	}
 
-	// launch
+	a.logger.Info("root process launched", zap.Any("pid", pid))
 
 	return nil
 }

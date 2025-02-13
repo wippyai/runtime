@@ -6,18 +6,6 @@ import (
 	"strings"
 )
 
-type (
-	NodeID = string
-	HostID = string
-
-	PID struct {
-		Node NodeID
-		Host HostID
-		ID   registry.ID
-		Name string
-	}
-)
-
 // String formats PID as a string in the format: "[node@]host:id:name"
 // If node is empty, the node@ part is omitted
 func (p PID) String() string {
