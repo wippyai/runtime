@@ -17,8 +17,8 @@ var (
 	// TranscoderCtx is the context key for the media transcoder
 	TranscoderCtx = &Key{Name: "transcoder"} //nolint:gochecknoglobals
 	// FunctionsCtx is the context key for the task executor
-	FunctionsCtx = &Key{Name: "functions"} //nolint:gochecknoglobals
-	ProcessesCtx = &Key{Name: "processes"} //nolint:gochecknoglobals
+	FunctionsCtx      = &Key{Name: "functions"} //nolint:gochecknoglobals
+	ProcessFactoryCtx = &Key{Name: "processes"} //nolint:gochecknoglobals
 
 	// LoggerCtx is the context key for the application logger
 	LoggerCtx = &Key{Name: "logger"} //nolint:gochecknoglobals

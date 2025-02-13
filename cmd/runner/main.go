@@ -145,7 +145,7 @@ func (a *App) Start(folderPath string) error {
 	ctx = context.WithValue(ctx, apiCtx.TranscoderCtx, a.dtt)
 	ctx = context.WithValue(ctx, apiCtx.BusCtx, a.eventBus)
 	ctx = context.WithValue(ctx, apiCtx.FunctionsCtx, a.funcs)
-	ctx = context.WithValue(ctx, apiCtx.ProcessesCtx, a.processes)
+	ctx = context.WithValue(ctx, apiCtx.ProcessFactoryCtx, a.processes)
 
 	// Spawn environment context
 	envCtx := apiCtx.NewContexter[string]()

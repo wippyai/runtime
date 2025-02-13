@@ -1,16 +1,17 @@
-package runtime
+package process
 
 import (
 	"context"
 	contextapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/registry"
+	"github.com/ponyruntime/pony/api/runtime"
 )
 
 // Event system and kind constants for the workflow package
 const (
-	// ProcessSystem identifies the workflow system in the event bus.
-	ProcessSystem events.System = "processes"
+	// System identifies the workflow system in the event bus.
+	System events.System = "processes"
 
 	// RegisterPrototype is the event kind for registering a new process prototype.
 	RegisterPrototype events.Kind = "processes.register"
@@ -26,13 +27,14 @@ const (
 )
 
 type (
-	// ProcessPrototype is a function that creates a new process instance.
+
+	// Prototype is a function that creates a new process instance.
 	// It follows the prototype pattern, where each call creates a new instance
 	// based on the prototype's template.
-	ProcessPrototype func() (Process, error)
+	Prototype func() (Process, error)
 
-	// ProcessFactory manages process prototypes and handles process creation
-	ProcessFactory interface {
+	// Factory manages process prototypes and handles process creation
+	Factory interface {
 		// Create instantiates a new process from the registered prototype.
 		// Returns error if prototype not found or creation fails.
 		Create(registry.ID) (Process, error)
@@ -43,7 +45,7 @@ type (
 	// internal state changes between external interactions.
 	Process interface {
 		// Start begins process execution with given task.
-		Start(ctx context.Context, task Task) error
+		Start(ctx context.Context, task runtime.Task) error
 
 		// Step advances process state by one iteration
 		Step() error
@@ -52,10 +54,10 @@ type (
 		Done() <-chan struct{}
 
 		// Result returns the final result of the process execution. Only call after done.
-		Result() *Result
+		Result() *runtime.Result
 	}
 )
 
-func GetProcessFactory(ctx context.Context) ProcessFactory {
-	return ctx.Value(contextapi.ProcessesCtx).(ProcessFactory)
+func GetProcessFactory(ctx context.Context) Factory {
+	return ctx.Value(contextapi.ProcessFactoryCtx).(Factory)
 }
