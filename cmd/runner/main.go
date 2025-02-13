@@ -34,7 +34,7 @@ import (
 	"github.com/ponyruntime/pony/system/payload/json"
 	"github.com/ponyruntime/pony/system/payload/lua"
 	"github.com/ponyruntime/pony/system/payload/yaml"
-	"github.com/ponyruntime/pony/system/processes"
+	"github.com/ponyruntime/pony/system/process"
 	"github.com/ponyruntime/pony/system/registry"
 	reghandler "github.com/ponyruntime/pony/system/registry/events"
 	"github.com/ponyruntime/pony/system/registry/history"
@@ -66,8 +66,8 @@ type App struct {
 	reg         apiReg.Registry
 	supervisor  *supervisor.Supervisor
 	funcs       *functions.FunctionRegistry
-	prototypes  *processes.PrototypeRegistry
-	hosts       *processes.HostRegistry
+	prototypes  *process.PrototypeRegistry
+	hosts       *process.HostRegistry
 
 	shuttingDown  bool
 	forceShutdown chan struct{}
@@ -134,8 +134,8 @@ func (a *App) Initialize() error {
 
 	// Initialize core function registry
 	a.funcs = functions.NewExecutor(a.eventBus, a.logger.Named("funcs"))
-	a.prototypes = processes.NewProcessFactory(a.eventBus, a.logger.Named("prototypes"))
-	a.hosts = processes.NewHostRegistry(a.eventBus, a.logger.Named("hosts"))
+	a.prototypes = process.NewProcessFactory(a.eventBus, a.logger.Named("prototypes"))
+	a.hosts = process.NewHostRegistry(a.eventBus, a.logger.Named("hosts"))
 
 	return nil
 }
