@@ -12,6 +12,8 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/code"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	"github.com/ponyruntime/pony/runtime/lua/manager/function"
+	"github.com/ponyruntime/pony/runtime/lua/manager/library"
+	"github.com/ponyruntime/pony/runtime/lua/manager/terminal"
 	"github.com/ponyruntime/pony/runtime/lua/modules/base64"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea"
 	"github.com/ponyruntime/pony/runtime/lua/modules/env"
@@ -432,10 +434,14 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 		panic(err)
 	}
 
-	funcManager := function.NewManager(a.logger.Named("lua.funcs"), codeManager, a.eventBus)
+	funcs := function.NewManager(a.logger.Named("lua.funcs"), codeManager, a.eventBus)
+	libraries := library.NewManager(a.logger.Named("lua.libs"), codeManager)
+	terminals := terminal.NewTerminalManager(a.logger.Named("lua.terminals"), codeManager, a.eventBus)
 
 	return []eventbus.EventHandler{
 		reghandler.NewTransactionHandler(codeManager),
-		reghandler.NewRegistryHandler("function.*", funcManager),
+		reghandler.NewRegistryHandler("function.lua", funcs),
+		reghandler.NewRegistryHandler("library.lua", libraries),
+		reghandler.NewRegistryHandler("terminal.lua", terminals),
 	}
 }
