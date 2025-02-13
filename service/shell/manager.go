@@ -3,8 +3,8 @@ package shell
 import (
 	"context"
 	"fmt"
+	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/supervisor"
-	"log"
 	"sync"
 
 	"github.com/ponyruntime/pony/api/events"
@@ -87,23 +87,21 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Unregister as process host
 	m.removeHost(ctx, entry.ID)
 	m.shell = nil // stop controlled by supervisor
+
 	return nil
 }
 
 // registerHost registers the shell service as a process host
 func (m *Manager) registerHost(ctx context.Context, shell *Shell) {
-	log.Printf("registering host %s", shell.id.String())
-	//m.bus.Send(ctx, events.Event{
-	//	System: process.HostSystem,
-	//	Kind:   process.RegisterHost,
-	//	Path:   id.String(),
-	//	Data:   shell,
-	//})
+	m.bus.Send(ctx, events.Event{
+		System: process.HostSystem,
+		Kind:   process.RegisterHost,
+		Path:   shell.id.String(),
+		Data:   shell,
+	})
 
-	// register as shell
 	m.bus.Send(ctx, events.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Register,
@@ -117,17 +115,15 @@ func (m *Manager) registerHost(ctx context.Context, shell *Shell) {
 
 // removeHost removes the shell service from process host system
 func (m *Manager) removeHost(ctx context.Context, id registry.ID) {
-	log.Printf("removing host %s", id.String())
-	//m.bus.Send(ctx, events.Event{
-	//	System: process.HostSystem,
-	//	Kind:   process.DeleteHost,
-	//	Path:   id.String(),
-	//})
-
-	// remove from supervisor
 	m.bus.Send(ctx, events.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Remove,
+		Path:   id.String(),
+	})
+
+	m.bus.Send(ctx, events.Event{
+		System: process.HostSystem,
+		Kind:   process.DeleteHost,
 		Path:   id.String(),
 	})
 }
