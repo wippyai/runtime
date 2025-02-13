@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/function"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
@@ -24,7 +25,7 @@ func NewNoopRuntime(bus events.Bus, logger *zap.Logger) *Runtime {
 	}
 }
 
-// Execute implements the runtime.FuncRegistry interface, does not do anything.
+// Execute implements the runtime.Registry interface, does not do anything.
 func (n *Runtime) Execute(ctx context.Context, task runtime.Task) (chan *runtime.Result, error) {
 	rspChan := make(chan *runtime.Result, 1)
 	rspChan <- &runtime.Result{
@@ -40,10 +41,10 @@ func (n *Runtime) Add(ctx context.Context, entry registry.Entry) error {
 		zap.String("kind", string(entry.Kind)))
 
 	n.bus.Send(ctx, events.Event{
-		System: runtime.FunctionSystem,
-		Kind:   runtime.RegisterFunctionHandler,
+		System: function.System,
+		Kind:   function.RegisterFunctionHandler,
 		Path:   entry.ID.String(),
-		Data:   runtime.Func(n.Execute),
+		Data:   function.Func(n.Execute),
 	})
 
 	return nil
@@ -64,8 +65,8 @@ func (n *Runtime) Delete(ctx context.Context, entry registry.Entry) error {
 		zap.String("kind", entry.Kind))
 
 	n.bus.Send(ctx, events.Event{
-		System: runtime.FunctionSystem,
-		Kind:   runtime.DeleteFunctionHandler,
+		System: function.System,
+		Kind:   function.DeleteFunctionHandler,
 		Path:   entry.ID.String(),
 	})
 

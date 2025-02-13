@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"fmt"
+	"github.com/ponyruntime/pony/api/function"
 	"github.com/ponyruntime/pony/api/runtime"
 	"net/http"
 
@@ -14,14 +15,14 @@ import (
 // EndpointHandler processes HTTP requests for specific endpoints.
 // It handles request validation, execution, and response formatting.
 type EndpointHandler struct {
-	executor   runtime.FuncRegistry
+	executor   function.Registry
 	transcoder payload.Transcoder
 	log        *zap.Logger
 }
 
 // NewEndpointHandler creates a new EndpointHandler with the required dependencies.
 func NewEndpointHandler(
-	executor runtime.FuncRegistry,
+	executor function.Registry,
 	transcoder payload.Transcoder,
 	log *zap.Logger,
 ) *EndpointHandler {
