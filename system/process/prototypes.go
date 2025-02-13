@@ -1,9 +1,9 @@
-package processes
+package process
 
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/api/process"
+	api "github.com/ponyruntime/pony/api/process"
 	"sync"
 
 	"github.com/ponyruntime/pony/api/events"
@@ -39,7 +39,7 @@ func (p *PrototypeRegistry) Start(ctx context.Context) error {
 	sub, err := eventbus.NewSubscriber(
 		p.ctx,
 		p.bus,
-		process.PrototypeSystem,
+		api.PrototypeSystem,
 		"prototype.(register|remove)",
 		p.handleEvent,
 	)
@@ -61,9 +61,9 @@ func (p *PrototypeRegistry) Stop() error {
 
 func (p *PrototypeRegistry) handleEvent(e events.Event) {
 	switch e.Kind {
-	case process.RegisterPrototype:
+	case api.RegisterPrototype:
 		p.registerPrototype(e)
-	case process.DeletePrototype:
+	case api.DeletePrototype:
 		p.deletePrototype(e)
 	default:
 		p.logger.Warn("unknown event kind",
@@ -73,7 +73,7 @@ func (p *PrototypeRegistry) handleEvent(e events.Event) {
 }
 
 func (p *PrototypeRegistry) registerPrototype(e events.Event) {
-	prototype, ok := e.Data.(process.Prototype)
+	prototype, ok := e.Data.(api.Prototype)
 	if !ok {
 		p.logger.Error("invalid register prototype payload",
 			zap.String("process", e.Path),
@@ -115,16 +115,16 @@ func (p *PrototypeRegistry) deletePrototype(e events.Event) {
 
 func (p *PrototypeRegistry) sendAccept(path events.Path) {
 	p.bus.Send(p.ctx, events.Event{
-		System: process.PrototypeSystem,
-		Kind:   process.AcceptPrototype,
+		System: api.PrototypeSystem,
+		Kind:   api.AcceptPrototype,
 		Path:   path,
 	})
 }
 
 func (p *PrototypeRegistry) sendReject(path events.Path, reason string) {
 	p.bus.Send(p.ctx, events.Event{
-		System: process.PrototypeSystem,
-		Kind:   process.RejectPrototype,
+		System: api.PrototypeSystem,
+		Kind:   api.RejectPrototype,
 		Path:   path,
 		Data:   reason,
 	})
@@ -132,13 +132,13 @@ func (p *PrototypeRegistry) sendReject(path events.Path, reason string) {
 
 // Create instantiates a new process using the registered prototype for the given ID.
 // Returns an error if no prototype is registered for the ID or if process creation fails.
-func (p *PrototypeRegistry) Create(id registry.ID) (process.Process, error) {
+func (p *PrototypeRegistry) Create(id registry.ID) (api.Process, error) {
 	prototypeVal, exists := p.prototypes.Load(id)
 	if !exists {
 		return nil, fmt.Errorf("no prototype registered for id: %v", id)
 	}
 
-	prototype, ok := prototypeVal.(process.Prototype)
+	prototype, ok := prototypeVal.(api.Prototype)
 	if !ok {
 		return nil, fmt.Errorf("invalid prototype type for id: %v", id)
 	}

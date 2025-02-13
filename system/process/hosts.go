@@ -1,17 +1,17 @@
-package processes
+package process
 
 import (
 	"context"
 	"fmt"
 	"github.com/ponyruntime/pony/api/events"
-	"github.com/ponyruntime/pony/api/process"
+	api "github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/system/eventbus"
 	"go.uber.org/zap"
 	"sync"
 )
 
 type hostInfo struct {
-	host      process.Host
+	host      api.Host
 	delegated bool
 }
 
@@ -39,7 +39,7 @@ func (r *HostRegistry) Start(ctx context.Context) error {
 	sub, err := eventbus.NewSubscriber(
 		r.ctx,
 		r.bus,
-		process.HostSystem,
+		api.HostSystem,
 		"hosts.(register|remove)",
 		r.handleEvent,
 	)
@@ -61,9 +61,9 @@ func (r *HostRegistry) Stop() error {
 
 func (r *HostRegistry) handleEvent(e events.Event) {
 	switch e.Kind {
-	case process.RegisterHost:
+	case api.RegisterHost:
 		r.registerHost(e)
-	case process.DeleteHost:
+	case api.DeleteHost:
 		r.deleteHost(e)
 	default:
 		r.log.Warn("unknown event kind",
@@ -73,7 +73,7 @@ func (r *HostRegistry) handleEvent(e events.Event) {
 }
 
 func (r *HostRegistry) registerHost(e events.Event) {
-	host, ok := e.Data.(process.Host)
+	host, ok := e.Data.(api.Host)
 	if !ok {
 		r.log.Error("invalid host payload",
 			zap.String("host", e.Path),
@@ -86,9 +86,9 @@ func (r *HostRegistry) registerHost(e events.Event) {
 	// Determine host type
 	delegated := false
 	switch h := host.(type) {
-	case process.Managed:
+	case api.Managed:
 		_ = h // avoid unused variable warning
-	case process.Delegated:
+	case api.Delegated:
 		delegated = true
 		_ = h // avoid unused variable warning
 	default:
@@ -122,23 +122,23 @@ func (r *HostRegistry) deleteHost(e events.Event) {
 
 func (r *HostRegistry) sendAccept(path events.Path) {
 	r.bus.Send(r.ctx, events.Event{
-		System: process.HostSystem,
-		Kind:   process.AcceptHost,
+		System: api.HostSystem,
+		Kind:   api.AcceptHost,
 		Path:   path,
 	})
 }
 
 func (r *HostRegistry) sendReject(path events.Path, reason string) {
 	r.bus.Send(r.ctx, events.Event{
-		System: process.HostSystem,
-		Kind:   process.RejectHost,
+		System: api.HostSystem,
+		Kind:   api.RejectHost,
 		Path:   path,
 		Data:   fmt.Errorf(reason),
 	})
 }
 
 // GetHost returns a host and its type by ID
-func (r *HostRegistry) GetHost(hostID string) (process.Host, bool) {
+func (r *HostRegistry) GetHost(hostID string) (api.Host, bool) {
 	if val, ok := r.hosts.Load(hostID); ok {
 		info := val.(hostInfo)
 		return info.host, true
