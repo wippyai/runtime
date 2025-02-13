@@ -102,7 +102,7 @@ func (m *Manager) registerHost(ctx context.Context, shell *Shell) {
 		System: process.HostSystem,
 		Kind:   process.RegisterHost,
 		Path:   shell.id.String(),
-		Data:   shell,
+		Data:   process.Managed(shell),
 	})
 
 	m.bus.Send(ctx, events.Event{
