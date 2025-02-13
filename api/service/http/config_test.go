@@ -343,7 +343,7 @@ func TestEndpointConfig_Validate(t *testing.T) {
 				Meta:    registry.Metadata{ServerID: "test-server"},
 				Path:    "/test",
 				Method:  "GET",
-				Handler: registry.ID{Name: "test_handler"},
+				Handler: registry.ID{NS: "default", Name: "test_handler"},
 			},
 			wantErr: false,
 		},
