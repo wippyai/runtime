@@ -269,7 +269,7 @@ func TestResponse_TransferEncoding(t *testing.T) {
 			local err = res:set_transfer(http.TRANSFER.CHUNKED)
 			assert(err ~= nil, "should error when changing transfer mode after write")
 		`, "test")
-		assert.NoError(t, err)
+		assert.Error(t, err)
 	})
 }
 

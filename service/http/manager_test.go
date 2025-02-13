@@ -226,6 +226,7 @@ func TestServerManager_EndpointOperations(t *testing.T) {
 				"meta": map[string]interface{}{
 					"server": "test:test-server",
 				},
+				"handler": "test:test-server",
 			}),
 		}
 		require.NoError(t, manager.Add(ctx, endpointEntry))
@@ -237,6 +238,7 @@ func TestServerManager_EndpointOperations(t *testing.T) {
 			"meta": map[string]interface{}{
 				"server": "test:test-server",
 			},
+			"handler": "test:test-server",
 		})
 		require.NoError(t, manager.Update(ctx, endpointEntry))
 
@@ -275,6 +277,7 @@ func TestServerManager_EndpointOperations(t *testing.T) {
 				"meta": map[string]interface{}{
 					"server": "test:server1",
 				},
+				"handler": "test:test-server",
 			}),
 		}
 		require.NoError(t, manager.Add(ctx, endpointEntry))
@@ -288,6 +291,7 @@ func TestServerManager_EndpointOperations(t *testing.T) {
 			"meta": map[string]interface{}{
 				"server": "test:server2",
 			},
+			"handler": "test:test-server",
 		})
 		require.NoError(t, manager.Update(ctx, endpointEntry))
 		server2ID := registry.ID{NS: "test", Name: "server2"}
