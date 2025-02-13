@@ -26,6 +26,7 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/modules/websocket"
 	"github.com/ponyruntime/pony/runtime/noop"
 	"github.com/ponyruntime/pony/service/http"
+	"github.com/ponyruntime/pony/service/shell"
 	"github.com/ponyruntime/pony/system/eventbus"
 	"github.com/ponyruntime/pony/system/functions"
 	"github.com/ponyruntime/pony/system/logs"
@@ -65,7 +66,7 @@ type App struct {
 	reg         apiReg.Registry
 	supervisor  *supervisor.Supervisor
 	funcs       *functions.FunctionRegistry
-	processes   *processes.ProcessFactory
+	processes   *processes.PrototypeFactory
 
 	shuttingDown  bool
 	forceShutdown chan struct{}
@@ -146,6 +147,7 @@ func (a *App) Start(folderPath string) error {
 	ctx = context.WithValue(ctx, apiCtx.BusCtx, a.eventBus)
 	ctx = context.WithValue(ctx, apiCtx.FunctionsCtx, a.funcs)
 	ctx = context.WithValue(ctx, apiCtx.ProcessFactoryCtx, a.processes)
+	// todo: launcher
 
 	// Spawn environment context
 	envCtx := apiCtx.NewContexter[string]()
@@ -266,10 +268,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	// ------ This is main service initiation point ------
 	app.services = eventbus.WithHandlers(append(
 		WithLuaRuntime(app),
 		WithHTTPService(app),
+		WithShellManager(app),
 	)...)
+	// --------------------------------------------------
 
 	// Start application
 	if err := app.Start(folderPath); err != nil {
@@ -369,6 +374,14 @@ func WithHTTPService(a *App) eventbus.EventHandler {
 		a.dtt,
 		a.funcs,
 		a.logger.Named("http"),
+	))
+}
+
+func WithShellManager(a *App) eventbus.EventHandler {
+	return reghandler.NewRegistryHandler("shell.host", shell.NewShellManager(
+		a.eventBus,
+		a.dtt,
+		a.logger.Named("shell"),
 	))
 }
 

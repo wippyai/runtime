@@ -23,3 +23,15 @@ entries:
       depends_on:
         - gateway
     prefix: /api/v1
+    entries:
+
+  - name: shell
+    kind: shell.host
+    meta:
+      comment: "System shell"
+    hide_logs: false  # Keep logs visible, don't redirect to event bus
+    lifecycle:
+      auto_start: true
+      restart:
+        initial_delay: 5s
+        max_attempts: 3
