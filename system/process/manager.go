@@ -5,19 +5,21 @@ import (
 	"fmt"
 	"github.com/ponyruntime/pony/api/payload"
 	api "github.com/ponyruntime/pony/api/process"
+	"github.com/ponyruntime/pony/api/runtime"
 	"go.uber.org/zap"
+	"log"
 )
 
-// ProcessManager provides a unified interface for process creation and management
-type ProcessManager struct {
+// Manager provides a unified interface for process creation and management
+type Manager struct {
 	hosts      *HostRegistry
 	prototypes *PrototypeRegistry
 	logger     *zap.Logger
 }
 
 // NewProcessManager creates a new process manager instance
-func NewProcessManager(hosts *HostRegistry, prototypes *PrototypeRegistry, logger *zap.Logger) *ProcessManager {
-	return &ProcessManager{
+func NewProcessManager(hosts *HostRegistry, prototypes *PrototypeRegistry, logger *zap.Logger) *Manager {
+	return &Manager{
 		hosts:      hosts,
 		prototypes: prototypes,
 		logger:     logger,
@@ -25,11 +27,11 @@ func NewProcessManager(hosts *HostRegistry, prototypes *PrototypeRegistry, logge
 }
 
 // Launch creates and starts a new process instance on the specified host
-func (m *ProcessManager) Launch(ctx context.Context, pl api.LaunchProcess) (api.PID, error) {
+func (m *Manager) Launch(ctx context.Context, pl api.Launch) (api.PID, error) {
 	// Get the host
 	host, exists := m.hosts.GetHost(pl.HostID)
 	if !exists {
-		return api.PID{}, fmt.Errorf("host not found: %s", pl.HostID)
+		return api.PID{}, fmt.Errorf("host not found: `%s`", pl.HostID)
 	}
 
 	pid := api.PID{
@@ -48,7 +50,7 @@ func (m *ProcessManager) Launch(ctx context.Context, pl api.LaunchProcess) (api.
 		}
 
 		// Launch on managed host with process instance
-		newPid, err := h.Launch(ctx, pid, pl.Task, process)
+		newPid, err := h.Launch(ctx, pid, process, pl.Payloads)
 		if err != nil {
 			return api.PID{}, fmt.Errorf("failed to launch process on managed host: %w", err)
 		}
@@ -56,7 +58,7 @@ func (m *ProcessManager) Launch(ctx context.Context, pl api.LaunchProcess) (api.
 
 	case api.Delegated:
 		// For delegated hosts, just pass the task
-		newPid, err := h.Launch(ctx, pid, pl.Task)
+		newPid, err := h.Launch(ctx, pid, pl.Payloads)
 		if err != nil {
 			return api.PID{}, fmt.Errorf("failed to launch process on delegated host: %w", err)
 		}
@@ -67,11 +69,21 @@ func (m *ProcessManager) Launch(ctx context.Context, pl api.LaunchProcess) (api.
 	}
 }
 
-func (m *ProcessManager) initProcess(ctx context.Context, p api.LaunchProcess) (api.Process, error) {
+func (m *Manager) initProcess(ctx context.Context, p api.Launch) (api.Process, error) {
 	prototype, err := m.prototypes.Create(p.ID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create process from prototype: %w", err)
+		return nil, err
 	}
+
+	prototype.OnComplete(func(pid api.PID, result runtime.Result) {
+		if result.Error != nil {
+			m.logger.Error("process failed", zap.String("id", p.ID.String()), zap.Error(result.Error))
+		} else {
+			m.logger.Info("process completed", zap.String("id", p.ID.String()))
+		}
+
+		log.Printf("%+v", result.Payload)
+	})
 
 	// todo: perform various linkage operations
 
@@ -79,7 +91,7 @@ func (m *ProcessManager) initProcess(ctx context.Context, p api.LaunchProcess) (
 }
 
 // Send delivers a message to a specific process
-func (m *ProcessManager) Send(ctx context.Context, pid api.PID, msg payload.Payloads) error {
+func (m *Manager) Send(ctx context.Context, pid api.PID, msg payload.Payloads) error {
 	host, exists := m.hosts.GetHost(pid.Host)
 	if !exists {
 		return fmt.Errorf("host not found: %s", pid.Host)
@@ -89,7 +101,7 @@ func (m *ProcessManager) Send(ctx context.Context, pid api.PID, msg payload.Payl
 }
 
 // Terminate stops a specific process
-func (m *ProcessManager) Terminate(ctx context.Context, pid api.PID) error {
+func (m *Manager) Terminate(ctx context.Context, pid api.PID) error {
 	host, exists := m.hosts.GetHost(pid.Host)
 	if !exists {
 		return fmt.Errorf("host not found: %s", pid.Host)

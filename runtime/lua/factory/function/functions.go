@@ -10,7 +10,6 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	"github.com/ponyruntime/pony/runtime/lua/factory"
-	"github.com/ponyruntime/pony/runtime/lua/manager"
 	lua "github.com/yuin/gopher-lua"
 	"sync"
 
@@ -102,7 +101,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	}
 
 	// Unpack config
-	cfg, err := manager.UnpackConfig[api.FunctionConfig](ctx, entry)
+	cfg, err := factory.UnpackConfig[api.FunctionConfig](ctx, entry)
 	if err != nil {
 		return fmt.Errorf("failed to unpack function config: %w", err)
 	}
@@ -116,7 +115,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	}
 
 	// Add to code manager
-	if err := m.code.AddNode(ctx, node, manager.BuildImports(cfg.Import, cfg.Modules)); err != nil {
+	if err := m.code.AddNode(ctx, node, factory.BuildImports(cfg.Import, cfg.Modules)); err != nil {
 		return fmt.Errorf("failed to add function: %w", err)
 	}
 
@@ -138,7 +137,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	}
 
 	// Unpack config
-	cfg, err := manager.UnpackConfig[api.FunctionConfig](ctx, entry)
+	cfg, err := factory.UnpackConfig[api.FunctionConfig](ctx, entry)
 	if err != nil {
 		return fmt.Errorf("failed to unpack function config: %w", err)
 	}
@@ -152,7 +151,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	}
 
 	// Update in code manager
-	if err := m.code.UpdateNode(ctx, node, manager.BuildImports(cfg.Import, cfg.Modules)); err != nil {
+	if err := m.code.UpdateNode(ctx, node, factory.BuildImports(cfg.Import, cfg.Modules)); err != nil {
 		return fmt.Errorf("failed to update function node: %w", err)
 	}
 

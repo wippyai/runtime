@@ -8,7 +8,7 @@ import (
 	"github.com/ponyruntime/pony/api/registry"
 	api "github.com/ponyruntime/pony/api/runtime/lua"
 	"github.com/ponyruntime/pony/runtime/lua/code"
-	"github.com/ponyruntime/pony/runtime/lua/manager"
+	"github.com/ponyruntime/pony/runtime/lua/factory"
 	"go.uber.org/zap"
 	"log"
 	"sync"
@@ -34,7 +34,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		return fmt.Errorf("invalid entry kind %s, expected %s", entry.Kind, api.KindTerminal)
 	}
 
-	cfg, err := manager.UnpackConfig[api.TerminalConfig](ctx, entry)
+	cfg, err := factory.UnpackConfig[api.TerminalConfig](ctx, entry)
 	if err != nil {
 		return fmt.Errorf("failed to unpack terminal config: %w", err)
 	}
@@ -46,7 +46,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		Method: cfg.Method,
 	}
 
-	if err := m.code.AddNode(ctx, node, manager.BuildImports(cfg.Import, nil)); err != nil {
+	if err := m.code.AddNode(ctx, node, factory.BuildImports(cfg.Import, nil)); err != nil {
 		return fmt.Errorf("failed to add terminal node: %w", err)
 	}
 
@@ -64,7 +64,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		return fmt.Errorf("invalid entry kind %s, expected %s", entry.Kind, api.KindTerminal)
 	}
 
-	cfg, err := manager.UnpackConfig[api.TerminalConfig](ctx, entry)
+	cfg, err := factory.UnpackConfig[api.TerminalConfig](ctx, entry)
 	if err != nil {
 		return fmt.Errorf("failed to unpack terminal config: %w", err)
 	}
@@ -76,7 +76,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		Method: cfg.Method,
 	}
 
-	if err := m.code.UpdateNode(ctx, node, manager.BuildImports(cfg.Import, nil)); err != nil {
+	if err := m.code.UpdateNode(ctx, node, factory.BuildImports(cfg.Import, nil)); err != nil {
 		return fmt.Errorf("failed to update terminal node: %w", err)
 	}
 
@@ -124,11 +124,10 @@ func (m *Manager) upsertPrototype(ctx context.Context, id registry.ID) {
 		System: process.PrototypeSystem,
 		Kind:   process.RegisterPrototype,
 		Path:   id.String(),
-		// TODO: Replace with actual terminal prototype factory once implemented
-		Data: func() (process.Process, error) {
-			log.Printf("MAKING PROTOYPYER")
+		Data: process.Prototype(func() (process.Process, error) {
+			log.Printf("LAUNCHING SHIT!")
 			return nil, fmt.Errorf("terminal prototype creation not implemented")
-		},
+		}),
 	})
 }
 

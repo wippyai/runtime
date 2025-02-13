@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	api "github.com/ponyruntime/pony/api/process"
-	"log"
-	"os"
 	"sync"
 
 	"github.com/ponyruntime/pony/api/events"
@@ -64,7 +62,6 @@ func (p *PrototypeRegistry) Stop() error {
 func (p *PrototypeRegistry) handleEvent(e events.Event) {
 	switch e.Kind {
 	case api.RegisterPrototype:
-		log.New(os.Stdout, "prototype", log.LstdFlags).Println("!!!!!!!!!!!prototype: %v", e)
 		p.upsertPrototype(e)
 	case api.DeletePrototype:
 		p.deletePrototype(e)

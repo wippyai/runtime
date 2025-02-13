@@ -4,6 +4,7 @@ import (
 	"context"
 	contextapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
 )
@@ -27,6 +28,15 @@ const (
 )
 
 type (
+	NodeID = string
+	HostID = string
+
+	PID struct {
+		Node NodeID
+		Host HostID
+		ID   registry.ID
+		Name string
+	}
 
 	// Prototype is a function that creates a new process instance.
 	// It follows the prototype pattern, where each call creates a new instance
@@ -40,35 +50,57 @@ type (
 		Create(registry.ID) (Process, error)
 	}
 
+	Message struct {
+		Topic   string
+		Payload payload.Payloads
+	}
+
 	// Process represents a long-running workflow that can be controlled
 	// through various layer interfaces. Stepping can be used to batch
 	// internal state changes between external interactions.
 	Process interface {
 		// Start begins process execution with given task.
-		Start(ctx context.Context, task runtime.Task) error
+		Start(ctx context.Context, pid PID, input payload.Payloads) error
 
 		// Step advances process state by one iteration
 		Step() error
 
-		// Done returns a channel that is closed when the process is complete or exited.
-		Done() <-chan struct{}
+		// Send delivers a message to the process instance.
+		Send(msg Message) error
 
-		// Result returns the final result of the process execution. Only call after done.
-		Result() *runtime.Result
+		// OnComplete registers a callback for process completion/failure
+		// Returns false if process already completed
+		OnComplete(func(PID, runtime.Result)) bool
 	}
 
-	LaunchProcess struct {
-		HostID HostID
-		ID     registry.ID
-		Name   string
-		Task   runtime.Task
-		Parent *PID
-		Links  map[PID]any
+	Launch struct {
+		HostID   HostID
+		ID       registry.ID
+		Name     string
+		Payloads payload.Payloads
 	}
 
 	Manager interface {
 		// Launch creates and starts a new process instance on the specified host
-		Launch(ctx context.Context, process LaunchProcess) (PID, error)
+		Launch(ctx context.Context, launch Launch) (PID, error)
+	}
+
+	// Host core interface for process control
+	Host interface {
+		Send(ctx context.Context, pid PID, msg payload.Payloads) error
+		Terminate(ctx context.Context, pid PID) error
+	}
+
+	// Managed handles local process operations
+	Managed interface {
+		Host
+		Launch(ctx context.Context, pid PID, prototype Process, input payload.Payloads) (PID, error)
+	}
+
+	// Delegated handles remote process operations
+	Delegated interface {
+		Host
+		Launch(ctx context.Context, pid PID, input payload.Payloads) (PID, error)
 	}
 )
 
