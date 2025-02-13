@@ -30,13 +30,13 @@ type (
 	// It returns a channel for streaming results and any immediate initialization errors
 	Func func(context.Context, runtime.Task) (chan *runtime.Result, error)
 
-	// FuncRegistry provides the interface for executing functions
+	// Registry provides the interface for executing functions
 	// It abstracts the function lookup and execution process
-	FuncRegistry interface {
+	Registry interface {
 		Call(context.Context, runtime.Task) (chan *runtime.Result, error)
 	}
 )
 
-func GetFunctions(ctx context.Context) FuncRegistry {
-	return ctx.Value(contextapi.FunctionsCtx).(FuncRegistry)
+func GetFunctions(ctx context.Context) Registry {
+	return ctx.Value(contextapi.FunctionsCtx).(Registry)
 }
