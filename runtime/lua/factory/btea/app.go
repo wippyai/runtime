@@ -259,10 +259,7 @@ func (p *App) processLoop(resultCh <-chan engine.Result) {
 				return
 			}
 		case msg := <-p.upstream:
-			p.log.Debug("received upstream message", zap.Any("msg", msg))
-
-			// todo: send to app
-			p.Update(msg)
+			p.program.Send(msg)
 
 		case <-p.ctx.Done():
 			err := p.ctx.Err()
