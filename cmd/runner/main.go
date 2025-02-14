@@ -12,6 +12,7 @@ import (
 	apiLua "github.com/ponyruntime/pony/api/runtime/lua"
 	"github.com/ponyruntime/pony/runtime/lua/code"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
+	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
 	bteaApps "github.com/ponyruntime/pony/runtime/lua/factory/btea"
 	luaFunc "github.com/ponyruntime/pony/runtime/lua/factory/function"
 	"github.com/ponyruntime/pony/runtime/lua/factory/library"
@@ -435,6 +436,7 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 				uuid.NewUUIDModule(),
 				upstream.NewUpstreamModule(),
 				tasks.NewTaskModule(),
+				subscribe.NewSubscribeModule(),
 				env.NewEnvModule(a.logger.Named("env")),
 				httpClient.NewHTTPClientModule(a.logger.Named("http"), httpbase.DefaultClient),
 				websocket.NewWebSocketModule(a.logger.Named("websocket")),

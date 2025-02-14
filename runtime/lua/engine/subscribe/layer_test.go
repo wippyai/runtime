@@ -1,4 +1,4 @@
-package pubsub
+package subscribe
 
 import (
 	"context"
@@ -19,14 +19,14 @@ func setupTestVM(t *testing.T) (*engine.CoroutineVM, *channel.Layer, *Layer, *en
 	// Spawn VM with required modules
 	vm, err := engine.NewCVM(
 		logger,
-		engine.WithPreloaded("pubsub", NewModule().Loader),
+		engine.WithPreloaded("pubsub", NewSubscribeModule().Loader),
 		engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
 	)
 	require.NoError(t, err)
 
 	// Setup layers
 	channels := channel.NewChannelLayer()
-	pubsubLayer := NewSubscriptionLayer(channels)
+	pubsubLayer := NewSubscribe(channels)
 
 	// Spawn runner
 	runner := engine.NewRunner(vm,

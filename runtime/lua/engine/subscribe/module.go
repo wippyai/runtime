@@ -1,4 +1,4 @@
-package pubsub
+package subscribe
 
 import (
 	"fmt"
@@ -37,14 +37,14 @@ func (r *unsubscribe) Type() lua.LValueType {
 // Module represents pubsub Lua module
 type Module struct{}
 
-// NewModule creates a new pubsub module instance
-func NewModule() *Module {
+// NewSubscribeModule creates a new pubsub module instance
+func NewSubscribeModule() *Module {
 	return &Module{}
 }
 
 // Name returns the module name
 func (m *Module) Name() string {
-	return "pubsub"
+	return "subscribe"
 }
 
 // Loader registers the module functions

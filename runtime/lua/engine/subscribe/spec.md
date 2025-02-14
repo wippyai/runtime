@@ -34,7 +34,7 @@ communicate through named topics, with support for dynamic subscriptions and mes
 
 ```lua
 -- Subscribe to a topic
-local subscriber = pubsub.subscribe("topic-name")
+local subscriber = subscribe.subscribe("topic-name")
 
 -- Receive messages
 local message = subscriber:receive()

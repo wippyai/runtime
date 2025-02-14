@@ -135,14 +135,14 @@ func (o *BuildOptions) Validate(nodes map[registry.ID]*Node) error {
 				return fmt.Errorf("ID %v is not in the allowed IDs list", id)
 			}
 		case DenyAll:
-			return fmt.Errorf("ID %v is not allowed (DenyAll mode)", id)
+			return fmt.Errorf("ID `%v` is not allowed (DenyAll mode)", id)
 		}
 	}
 
 	// Verify all required IDs were found
 	for id, found := range foundRequired {
 		if !found {
-			return fmt.Errorf("required ID %v was not found", id)
+			return fmt.Errorf("required ID `%v` was not found", id)
 		}
 	}
 

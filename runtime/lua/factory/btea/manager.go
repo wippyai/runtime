@@ -3,16 +3,48 @@ package btea
 import (
 	"context"
 	"fmt"
+	"github.com/ponyruntime/pony/api/payload"
+	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
+	"sync"
+
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/registry"
 	api "github.com/ponyruntime/pony/api/runtime/lua"
 	"github.com/ponyruntime/pony/runtime/lua/code"
+	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"github.com/ponyruntime/pony/runtime/lua/engine/async"
+	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
+	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	"github.com/ponyruntime/pony/runtime/lua/factory"
 	"go.uber.org/zap"
-	"sync"
 )
 
+var (
+	bteaBuild *code.BuildOptions
+	layers    factory.Option
+)
+
+func init() {
+	bteaBuild = code.NewBuildOptions().
+		WithMode(code.AllowAll).
+		WithPreloaded(code.Preload{Name: "channel", ModuleID: registry.ID{Name: "channel"}}).
+		WithPreloaded(code.Preload{Name: "pubsub", ModuleID: registry.ID{Name: "pubsub"}}).
+		WithPreloaded(code.Preload{Name: "upstream", ModuleID: registry.ID{Name: "upstream"}}).
+		WithPreloaded(code.Preload{Name: "tasks", ModuleID: registry.ID{Name: "tasks"}})
+
+	layers = factory.WithLayerInitializer(func() []engine.RunnerOption {
+		channels := channel.NewChannelLayer()
+		return []engine.RunnerOption{
+			engine.WithLayer(channels),
+			engine.WithLayer(async.NewAsyncLayer(channels, 4096)),
+			engine.WithLayer(subscribe.NewSubscribe(channels)),
+			engine.WithLayer(coroutine.NewCoroutineLayer()),
+		}
+	})
+}
+
+// Manager is responsible for handling Btea apps.
 type Manager struct {
 	log     *zap.Logger
 	code    *code.Manager
@@ -20,6 +52,7 @@ type Manager struct {
 	configs sync.Map // map[registry.ID]*api.BteaConfig
 }
 
+// NewBteaManager creates a new instance of Manager.
 func NewBteaManager(log *zap.Logger, code *code.Manager, bus events.Bus) *Manager {
 	return &Manager{
 		log:  log,
@@ -35,7 +68,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 
 	cfg, err := factory.UnpackConfig[api.BteaConfig](ctx, entry)
 	if err != nil {
-		return fmt.Errorf("failed to unpack terminal config: %w", err)
+		return fmt.Errorf("failed to unpack btea config: %w", err)
 	}
 
 	node := code.Node{
@@ -46,15 +79,16 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	}
 
 	if err := m.code.AddNode(ctx, node, factory.BuildImports(cfg.Import, nil)); err != nil {
-		return fmt.Errorf("failed to add terminal node: %w", err)
+		return fmt.Errorf("failed to add btea node: %w", err)
 	}
 
 	m.configs.Store(entry.ID, cfg)
 
-	// Register terminal prototype
-	m.upsertPrototype(ctx, entry.ID)
-	m.log.Debug("added terminal", zap.String("id", entry.ID.String()))
+	if err := m.createPrototype(ctx, entry.ID); err != nil {
+		return fmt.Errorf("failed to create prototype: %w", err)
+	}
 
+	m.log.Debug("added btea app", zap.String("id", entry.ID.String()))
 	return nil
 }
 
@@ -65,7 +99,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 	cfg, err := factory.UnpackConfig[api.BteaConfig](ctx, entry)
 	if err != nil {
-		return fmt.Errorf("failed to unpack terminal config: %w", err)
+		return fmt.Errorf("failed to unpack btea config: %w", err)
 	}
 
 	node := code.Node{
@@ -76,15 +110,16 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	}
 
 	if err := m.code.UpdateNode(ctx, node, factory.BuildImports(cfg.Import, nil)); err != nil {
-		return fmt.Errorf("failed to update terminal node: %w", err)
+		return fmt.Errorf("failed to update btea node: %w", err)
 	}
 
 	m.configs.Store(entry.ID, cfg)
 
-	// Re-register terminal prototype on update
-	m.upsertPrototype(ctx, entry.ID)
-	m.log.Debug("updated terminal", zap.String("id", entry.ID.String()))
+	if err := m.createPrototype(ctx, entry.ID); err != nil {
+		return fmt.Errorf("failed to update prototype: %w", err)
+	}
 
+	m.log.Debug("updated btea app", zap.String("id", entry.ID.String()))
 	return nil
 }
 
@@ -94,43 +129,76 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	}
 
 	if err := m.code.DeleteNode(ctx, entry.ID); err != nil {
-		return fmt.Errorf("failed to delete terminal node: %w", err)
+		return fmt.Errorf("failed to delete btea node: %w", err)
 	}
 
 	m.configs.Delete(entry.ID)
-
-	// Unregister terminal prototype
 	m.unregisterPrototype(ctx, entry.ID)
-	m.log.Debug("deleted terminal", zap.String("id", entry.ID.String()))
 
+	m.log.Debug("deleted btea app", zap.String("id", entry.ID.String()))
 	return nil
 }
 
 func (m *Manager) Invalidate(ctx context.Context, ids []registry.ID) {
 	for _, id := range ids {
-		m.log.Debug("invalidating terminal", zap.String("id", id.String()))
+		m.log.Debug("invalidating btea app", zap.String("id", id.String()))
 
-		// Re-register prototype when terminal is invalidated
 		if _, exists := m.configs.Load(id); exists {
-			m.upsertPrototype(ctx, id)
+			if err := m.createPrototype(ctx, id); err != nil {
+				m.log.Error("failed to recreate prototype", zap.Error(err))
+			}
 		}
 	}
 }
 
-// upsertPrototype registers a terminal as a process prototype
-func (m *Manager) upsertPrototype(ctx context.Context, id registry.ID) {
+// createRunner creates a new runner for a btea app
+func (m *Manager) createRunner(id registry.ID) (*engine.Runner, error) {
+	compiled, err := m.code.Compile(id, bteaBuild)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compile btea app: %w", err)
+	}
+
+	fvm, err := factory.NewRunnerFactory(m.log, compiled, layers)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create runner factory: %w", err)
+	}
+
+	if err := fvm.Compile(); err != nil {
+		return nil, fmt.Errorf("failed to compile runner: %w", err)
+	}
+
+	runner, err := fvm.CreateRunner()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create runner: %w", err)
+	}
+
+	return runner, nil
+}
+
+// createPrototype creates or updates a btea app prototype
+func (m *Manager) createPrototype(ctx context.Context, id registry.ID) error {
+	runner, err := m.createRunner(id)
+	if err != nil {
+		return err
+	}
+
+	m.registerPrototype(ctx, id, runner)
+	return nil
+}
+
+// registerPrototype registers a btea app as a process prototype
+func (m *Manager) registerPrototype(ctx context.Context, id registry.ID, runner *engine.Runner) {
 	m.bus.Send(ctx, events.Event{
 		System: process.PrototypeSystem,
 		Kind:   process.RegisterPrototype,
 		Path:   id.String(),
 		Data: process.Prototype(func() (process.Process, error) {
-
-			return NewTerminalProcess(), nil
+			return NewBteaProcess(m.log, payload.GetTranscoder(ctx), runner)
 		}),
 	})
 }
 
-// unregisterPrototype removes a terminal's process prototype registration
+// unregisterPrototype removes a btea app's process prototype registration
 func (m *Manager) unregisterPrototype(ctx context.Context, id registry.ID) {
 	m.bus.Send(ctx, events.Event{
 		System: process.PrototypeSystem,
