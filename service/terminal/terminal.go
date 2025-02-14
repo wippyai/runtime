@@ -3,12 +3,11 @@ package terminal
 import (
 	"context"
 	logsapi "github.com/ponyruntime/pony/api/logs"
-	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
 	"github.com/ponyruntime/pony/api/service/terminal"
-	logs2 "github.com/ponyruntime/pony/system/logs"
+	"github.com/ponyruntime/pony/system/logs"
 	"go.uber.org/zap"
 	"os"
 	"sync/atomic"
@@ -23,16 +22,15 @@ const (
 	opUpdateConfig
 )
 
+// op now carries only the necessary fields.
+// For opLaunch we carry a pointer to LaunchProcess, since we expect that structure to be unmodified.
 type op struct {
-	typ        opType
-	pid        process.PID
-	proc       process.Process
-	input      payload.Payloads
-	msg        *process.Message
-	cfg        *terminal.HostConfig
-	result     chan error
-	response   chan process.PID
-	onComplete []process.OnComplete
+	typ      opType
+	launch   *process.LaunchProcess
+	msg      []*process.Message
+	cfg      *terminal.HostConfig
+	result   chan error
+	response chan process.PID
 }
 
 type Terminal struct {
@@ -41,12 +39,12 @@ type Terminal struct {
 	cfg     *terminal.HostConfig
 	opCh    chan op
 	done    chan struct{}
-	logCtrl *logs2.ConfigSwitcher
+	logCtrl *logs.ConfigSwitcher
 	log     *zap.Logger
-	runner  atomic.Pointer[ProcessRunner]
+	runner  atomic.Pointer[Runner]
 }
 
-func NewTerminal(id registry.ID, cfg *terminal.HostConfig, logCtrl *logs2.ConfigSwitcher, log *zap.Logger) *Terminal {
+func NewTerminal(id registry.ID, cfg *terminal.HostConfig, logCtrl *logs.ConfigSwitcher, log *zap.Logger) *Terminal {
 	return &Terminal{
 		id:      id,
 		cfg:     cfg,
@@ -80,11 +78,11 @@ func (t *Terminal) run(ctx context.Context, status chan<- any) {
 
 			switch op.typ {
 			case opLaunch:
-				err = t.handleLaunch(op.pid, op.proc, op.input, op.response, op.onComplete)
+				err = t.handleLaunch(op.launch, op.response)
 			case opTerminate:
 				err = t.handleTerminate()
 			case opSend:
-				err = t.handleSend(op.msg)
+				err = t.handleSend(op.msg...)
 			case opUpdateConfig:
 				t.cfg = op.cfg
 				t.log.Info("config updated")
@@ -101,7 +99,7 @@ func (t *Terminal) run(ctx context.Context, status chan<- any) {
 	}
 }
 
-func (t *Terminal) handleLaunch(pid process.PID, proc process.Process, input payload.Payloads, response chan process.PID, parentOnComplete []process.OnComplete) error {
+func (t *Terminal) handleLaunch(pl *process.LaunchProcess, response chan process.PID) error {
 	if t.runner.Load() != nil {
 		return process.ErrHostBusy
 	}
@@ -118,31 +116,23 @@ func (t *Terminal) handleLaunch(pid process.PID, proc process.Process, input pay
 		}
 	}
 
-	// Merge parent's onComplete callbacks with terminal's own callback.
-	mergedOnComplete := make([]process.OnComplete, 0, len(parentOnComplete)+1)
-	mergedOnComplete = append(mergedOnComplete, parentOnComplete...)
-	mergedOnComplete = append(mergedOnComplete, func(pid process.PID, result *runtime.Result) {
+	// Define our internal onComplete callback to simply log completion and clean up.
+	onComplete := func(pid process.PID, result *runtime.Result) {
 		t.log.Info("terminal process execution completed",
 			zap.String("pid", pid.String()),
-			zap.Any("result", result),
-		)
-		t.cleanup(result)
-	})
+			zap.Any("result", result))
 
-	runner, err := NewRunner(t.ctx, cfg, t.log, process.Launch{
-		PID:        pid,
-		Process:    proc,
-		Input:      input,
-		OnComplete: mergedOnComplete,
-	})
+		t.cleanup(result)
+	}
+
+	runner, err := NewTerminalRunner(process.WithOnComplete(t.ctx, onComplete), cfg, t.log, pl)
 	if err != nil {
 		t.cleanup(nil)
 		return err
 	}
 
 	t.runner.Store(runner)
-	// Send back the new PID as the response
-	response <- pid
+	response <- pl.PID
 	return nil
 }
 
@@ -153,16 +143,17 @@ func (t *Terminal) handleTerminate() error {
 	return nil
 }
 
-func (t *Terminal) handleSend(msg *process.Message) error {
+func (t *Terminal) handleSend(msg ...*process.Message) error {
 	runner := t.runner.Load()
 	if runner == nil {
 		return process.ErrNoProcess
 	}
-	return runner.Send(msg)
+
+	return runner.Send(msg...)
 }
 
 func (t *Terminal) cleanup(result *runtime.Result) {
-	// Always restore logging config first
+	// Always restore logging config first.
 	t.logCtrl.RestoreBaseConfig(t.ctx)
 	if runner := t.runner.Swap(nil); runner != nil {
 		runner.Stop()
@@ -195,7 +186,7 @@ func (t *Terminal) execOp(ctx context.Context, op op) error {
 	}
 }
 
-func (t *Terminal) Send(ctx context.Context, pid process.PID, msg *process.Message) error {
+func (t *Terminal) Send(ctx context.Context, pid process.PID, msg ...*process.Message) error {
 	return t.execOp(ctx, op{
 		typ:    opSend,
 		msg:    msg,
@@ -203,16 +194,13 @@ func (t *Terminal) Send(ctx context.Context, pid process.PID, msg *process.Messa
 	})
 }
 
-func (t *Terminal) Launch(ctx context.Context, pl process.Launch) (process.PID, error) {
+func (t *Terminal) Launch(ctx context.Context, pl *process.LaunchProcess) (process.PID, error) {
 	resp := make(chan process.PID, 1)
 	err := t.execOp(ctx, op{
-		typ:        opLaunch,
-		pid:        pl.PID,
-		proc:       pl.Process,
-		input:      pl.Input,
-		result:     make(chan error, 1),
-		response:   resp,
-		onComplete: pl.OnComplete,
+		typ:      opLaunch,
+		launch:   pl,
+		result:   make(chan error, 1),
+		response: resp,
 	})
 	if err != nil {
 		return process.PID{}, err
