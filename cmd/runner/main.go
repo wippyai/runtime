@@ -454,6 +454,6 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 		reghandler.NewTransactionHandler(codeManager),
 		reghandler.NewRegistryHandler("function.lua", funcs),
 		reghandler.NewRegistryHandler("library.lua", libraries),
-		reghandler.NewRegistryHandler("terminal.lua", terminals),
+		reghandler.NewRegistryHandler("btea.app.lua", terminals),
 	}
 }
