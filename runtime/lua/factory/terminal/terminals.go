@@ -19,7 +19,7 @@ type Manager struct {
 	log     *zap.Logger
 	code    *code.Manager
 	bus     events.Bus
-	configs sync.Map // map[registry.ID]*api.TerminalConfig
+	configs sync.Map // map[registry.ID]*api.BteaConfig
 }
 
 func NewTerminalManager(log *zap.Logger, code *code.Manager, bus events.Bus) *Manager {
@@ -31,18 +31,18 @@ func NewTerminalManager(log *zap.Logger, code *code.Manager, bus events.Bus) *Ma
 }
 
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != api.KindTerminal {
-		return fmt.Errorf("invalid entry kind %s, expected %s", entry.Kind, api.KindTerminal)
+	if entry.Kind != api.KindBteaApp {
+		return fmt.Errorf("invalid entry kind %s, expected %s", entry.Kind, api.KindBteaApp)
 	}
 
-	cfg, err := factory.UnpackConfig[api.TerminalConfig](ctx, entry)
+	cfg, err := factory.UnpackConfig[api.BteaConfig](ctx, entry)
 	if err != nil {
 		return fmt.Errorf("failed to unpack terminal config: %w", err)
 	}
 
 	node := code.Node{
 		ID:     entry.ID,
-		Kind:   api.KindTerminal,
+		Kind:   api.KindBteaApp,
 		Source: cfg.Source,
 		Method: cfg.Method,
 	}
@@ -61,18 +61,18 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 }
 
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != api.KindTerminal {
-		return fmt.Errorf("invalid entry kind %s, expected %s", entry.Kind, api.KindTerminal)
+	if entry.Kind != api.KindBteaApp {
+		return fmt.Errorf("invalid entry kind %s, expected %s", entry.Kind, api.KindBteaApp)
 	}
 
-	cfg, err := factory.UnpackConfig[api.TerminalConfig](ctx, entry)
+	cfg, err := factory.UnpackConfig[api.BteaConfig](ctx, entry)
 	if err != nil {
 		return fmt.Errorf("failed to unpack terminal config: %w", err)
 	}
 
 	node := code.Node{
 		ID:     entry.ID,
-		Kind:   api.KindTerminal,
+		Kind:   api.KindBteaApp,
 		Source: cfg.Source,
 		Method: cfg.Method,
 	}
@@ -91,8 +91,8 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 }
 
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != api.KindTerminal {
-		return fmt.Errorf("invalid entry kind %s, expected %s", entry.Kind, api.KindTerminal)
+	if entry.Kind != api.KindBteaApp {
+		return fmt.Errorf("invalid entry kind %s, expected %s", entry.Kind, api.KindBteaApp)
 	}
 
 	if err := m.code.DeleteNode(ctx, entry.ID); err != nil {
