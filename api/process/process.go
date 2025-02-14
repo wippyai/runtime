@@ -70,7 +70,7 @@ type (
 	}
 
 	Receiver interface {
-		send(context.Context, ...*Message) error
+		Send(...*Message) error
 	}
 
 	Process interface {

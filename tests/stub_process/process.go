@@ -48,13 +48,13 @@ func (p *TickerProcess) Start(ctx context.Context, pid process.PID, input payloa
 	go func() {
 		select {
 		case <-ctx.Done():
-			log.Printf("ticker %v: context done but keeping ticker alive", p.pid)
+			log.Printf("--- ticker %v: context done but keeping ticker alive", p.pid)
 		case <-p.done:
 			return
 		}
 	}()
 
-	log.Printf("ticker %v: started with input %v", p.pid, input)
+	log.Printf("--- ticker %v: started with input %v", p.pid, input)
 	return nil
 }
 
