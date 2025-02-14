@@ -175,6 +175,11 @@ func (p *Process) Send(msg ...*process.Message) error {
 		return errors.New("process stopped")
 	default:
 		for _, m := range msg {
+			if m.Topic == process.TopicCancel {
+				p.subLayer.Release(m.Topic)
+				continue
+			}
+
 			luaValues := make([]lua.LValue, 0, len(m.Payloads))
 			for _, pp := range m.Payloads {
 				luaPayload, err := p.dtt.Transcode(pp, payload.Lua)
@@ -191,6 +196,7 @@ func (p *Process) Send(msg ...*process.Message) error {
 			if len(luaValues) > 0 {
 				p.subLayer.Publish(m.Topic, luaValues...)
 			}
+			p.log.Debug("sent message to process", zap.Any("msg", m))
 		}
 		return nil
 	}

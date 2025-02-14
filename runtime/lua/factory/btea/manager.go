@@ -29,7 +29,7 @@ func init() {
 	bteaBuild = code.NewBuildOptions().
 		WithMode(code.AllowAll).
 		WithPreloaded(code.Preload{Name: "channel", ModuleID: registry.ID{Name: "channel"}}).
-		WithPreloaded(code.Preload{Name: "subscribe", ModuleID: registry.ID{Name: "subscribe"}}).
+		WithPreloaded(code.Preload{Name: "pubsub", ModuleID: registry.ID{Name: "subscribe"}}). // todo: rename evewhere
 		WithPreloaded(code.Preload{Name: "upstream", ModuleID: registry.ID{Name: "upstream"}}).
 		WithPreloaded(code.Preload{Name: "tasks", ModuleID: registry.ID{Name: "tasks"}})
 
