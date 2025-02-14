@@ -9,7 +9,6 @@ import (
 	api "github.com/ponyruntime/pony/api/runtime/lua"
 	"github.com/ponyruntime/pony/runtime/lua/code"
 	"github.com/ponyruntime/pony/runtime/lua/factory"
-	"github.com/ponyruntime/pony/tests/stub_process"
 	"go.uber.org/zap"
 	"log"
 	"sync"
@@ -130,7 +129,7 @@ func (m *Manager) upsertPrototype(ctx context.Context, id registry.ID) {
 			// we need our own wrapper for runner process
 
 			log.Printf("LAUNCHING SHIT! REWRITE IT!")
-			return stub_process.NewTickerProcess(), nil
+			return NewTerminalProcess(), nil
 		}),
 	})
 }
