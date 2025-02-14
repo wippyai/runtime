@@ -21,6 +21,7 @@ type CompiledMain struct {
 	Main         *glua.FunctionProto
 	FuncName     string
 	Dependencies []CompiledProto
+	Preloaded    []CompiledProto
 }
 
 // Compiler handles the compilation of Lua code and caches results
@@ -115,9 +116,9 @@ func (c *Compiler) Compile(
 	compiled.FuncName = rt.Main.Method
 
 	for _, pre := range options.Preloaded {
-		main, err2 := c.preloadModule(memGraph, pre, compiled)
-		if err2 != nil {
-			return main, err2
+		main, pErr := c.preloadModule(memGraph, pre, compiled)
+		if pErr != nil {
+			return main, pErr
 		}
 	}
 
@@ -156,7 +157,7 @@ func (c *Compiler) preloadModule(memGraph *MemoryGraph, pre Preload, compiled *C
 	}
 
 	// we can only preload modules
-	compiled.Dependencies = append(compiled.Dependencies, CompiledProto{
+	compiled.Preloaded = append(compiled.Preloaded, CompiledProto{
 		Name: pre.Name,
 		Node: node,
 	})

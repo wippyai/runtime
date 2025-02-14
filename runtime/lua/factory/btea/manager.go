@@ -37,8 +37,8 @@ func init() {
 		channels := channel.NewChannelLayer()
 		return []engine.RunnerOption{
 			engine.WithLayer(channels),
-			engine.WithLayer(async.NewAsyncLayer(channels, 4096)),
 			engine.WithLayer(subscribe.NewSubscribe(channels)),
+			engine.WithLayer(async.NewAsyncLayer(channels, 4096)),
 			engine.WithLayer(coroutine.NewCoroutineLayer()),
 		}
 	})
@@ -162,16 +162,13 @@ func (m *Manager) createRunner(id registry.ID) (*engine.Runner, string, error) {
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to create runner factory: %w", err)
 	}
+
 	defer func() {
 		err := fvm.Close()
 		if err != nil {
 			m.log.Error("failed to close runner factory", zap.Error(err))
 		}
 	}()
-
-	if err := fvm.Compile(); err != nil {
-		return nil, "", fmt.Errorf("failed to compile runner: %w", err)
-	}
 
 	runner, err := fvm.CreateRunner()
 	if err != nil {

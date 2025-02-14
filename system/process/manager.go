@@ -32,7 +32,11 @@ func NewProcessManager(hosts *HostRegistry, prototypes *PrototypeRegistry, logge
 			logger.Info("process started", zap.String("pid", pid.String()))
 		},
 		func(pid api.PID, result *runtime.Result) {
-			logger.Info("process completed", zap.String("pid", pid.String()), zap.Any("result", result))
+			if result.Error != nil {
+				logger.Error("process failed", zap.String("pid", pid.String()), zap.Error(result.Error))
+			} else {
+				logger.Info("process completed", zap.String("pid", pid.String()), zap.Any("result", result.Payload))
+			}
 		},
 	)
 

@@ -189,7 +189,6 @@ func (e *Runner) Run(ctx context.Context, exitCh <-chan Result) (lua.LValue, err
 		select {
 		case result = <-exitCh:
 			stuck := len(e.cvm.tasks)
-
 			if result.Error != nil {
 				return nil, result.Error
 			}
