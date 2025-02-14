@@ -1,4 +1,4 @@
-package pubsub
+package subscribe
 
 import (
 	"container/list"
@@ -24,7 +24,7 @@ type Layer struct {
 	messageQueue *list.List
 }
 
-func NewSubscriptionLayer(channels *channel.Layer) *Layer {
+func NewSubscribe(channels *channel.Layer) *Layer {
 	return &Layer{
 		channels:     channels,
 		subs:         newSubscriptionManager(),

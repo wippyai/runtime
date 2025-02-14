@@ -7,7 +7,7 @@ import (
 
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/command"
-	"github.com/ponyruntime/pony/runtime/lua/engine/pubsub"
+	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -17,7 +17,7 @@ type Runner struct {
 	ctx      context.Context
 	runner   *engine.Runner
 	cmdLayer *command.Layer
-	pubLayer *pubsub.Layer
+	pubLayer *subscribe.Layer
 	running  bool
 	exitCh   <-chan engine.Result
 	complete bool
@@ -29,7 +29,7 @@ type Runner struct {
 func NewWorkflowRunner(
 	runner *engine.Runner,
 	cmdLayer *command.Layer,
-	pubLayer *pubsub.Layer,
+	pubLayer *subscribe.Layer,
 ) *Runner {
 	return &Runner{
 		runner:   runner,

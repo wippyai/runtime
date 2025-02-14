@@ -6,7 +6,7 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	"github.com/ponyruntime/pony/runtime/lua/engine/command"
-	"github.com/ponyruntime/pony/runtime/lua/engine/pubsub"
+	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	lua "github.com/yuin/gopher-lua"
@@ -29,7 +29,7 @@ func TestWorkflowRunner_BasicFlow(t *testing.T) {
 	// Spawn layers
 	channels := channel.NewChannelLayer()
 	cmdLayer := command.NewCommandLayer(channels)
-	pubLayer := pubsub.NewSubscriptionLayer(channels)
+	pubLayer := subscribe.NewSubscribe(channels)
 
 	// Spawn runner with layers
 	runner := engine.NewRunner(vm,
@@ -107,7 +107,7 @@ func TestWorkflowRunner_SequentialCommands(t *testing.T) {
 	// Spawn layers
 	channels := channel.NewChannelLayer()
 	cmdLayer := command.NewCommandLayer(channels)
-	pubLayer := pubsub.NewSubscriptionLayer(channels)
+	pubLayer := subscribe.NewSubscribe(channels)
 
 	// Spawn runner with layers
 	runner := engine.NewRunner(vm,
@@ -196,7 +196,7 @@ func TestWorkflowRunner_CommandFailure(t *testing.T) {
 	// Spawn layers
 	channels := channel.NewChannelLayer()
 	cmdLayer := command.NewCommandLayer(channels)
-	pubLayer := pubsub.NewSubscriptionLayer(channels)
+	pubLayer := subscribe.NewSubscribe(channels)
 
 	// Spawn runner with layers
 	runner := engine.NewRunner(vm,
@@ -272,7 +272,7 @@ func TestWorkflowRunner_ConcurrentCommandsWithSelect(t *testing.T) {
 	// Spawn layers
 	channels := channel.NewChannelLayer()
 	cmdLayer := command.NewCommandLayer(channels)
-	pubLayer := pubsub.NewSubscriptionLayer(channels)
+	pubLayer := subscribe.NewSubscribe(channels)
 
 	// Spawn runner with layers
 	runner := engine.NewRunner(vm,
@@ -398,7 +398,7 @@ func TestWorkflowRunner_CommandWithSignal(t *testing.T) {
 		logger,
 		engine.WithPreloaded("command", command.NewCommandModule().Loader),
 		engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
-		engine.WithPreloaded("pubsub", pubsub.NewModule().Loader),
+		engine.WithPreloaded("pubsub", subscribe.NewSubscribeModule().Loader),
 	)
 	require.NoError(t, err)
 	defer vm.Close()
@@ -406,7 +406,7 @@ func TestWorkflowRunner_CommandWithSignal(t *testing.T) {
 	// Spawn layers
 	channels := channel.NewChannelLayer()
 	cmdLayer := command.NewCommandLayer(channels)
-	pubLayer := pubsub.NewSubscriptionLayer(channels)
+	pubLayer := subscribe.NewSubscribe(channels)
 
 	// Spawn runner with layers
 	runner := engine.NewRunner(vm,
@@ -491,7 +491,7 @@ func TestWorkflowRunner_CommandWithSignalCounter(t *testing.T) {
 		logger,
 		engine.WithPreloaded("command", command.NewCommandModule().Loader),
 		engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
-		engine.WithPreloaded("pubsub", pubsub.NewModule().Loader),
+		engine.WithPreloaded("pubsub", subscribe.NewSubscribeModule().Loader),
 	)
 	require.NoError(t, err)
 	defer vm.Close()
@@ -499,7 +499,7 @@ func TestWorkflowRunner_CommandWithSignalCounter(t *testing.T) {
 	// Spawn layers
 	channels := channel.NewChannelLayer()
 	cmdLayer := command.NewCommandLayer(channels)
-	pubLayer := pubsub.NewSubscriptionLayer(channels)
+	pubLayer := subscribe.NewSubscribe(channels)
 
 	// Spawn runner with layers
 	runner := engine.NewRunner(vm,
@@ -611,7 +611,7 @@ func TestWorkflowRunner_ExitFromFunction(t *testing.T) {
 
 	channels := channel.NewChannelLayer()
 	cmdLayer := command.NewCommandLayer(channels)
-	pubLayer := pubsub.NewSubscriptionLayer(channels)
+	pubLayer := subscribe.NewSubscribe(channels)
 
 	runner := engine.NewRunner(vm,
 		engine.WithLayer(channels),

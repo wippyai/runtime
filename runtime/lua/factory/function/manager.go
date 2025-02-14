@@ -29,7 +29,6 @@ var (
 )
 
 func init() {
-
 	functionBuild = code.NewBuildOptions().
 		WithMode(code.AllowAll).
 		WithDenied(registry.ID{Name: "command"}).
