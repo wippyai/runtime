@@ -27,6 +27,7 @@ const (
 // For opLaunch we carry a pointer to LaunchProcess, since we expect that structure to be unmodified.
 type op struct {
 	typ      opType
+	ctx      context.Context
 	launch   *process.LaunchProcess
 	msg      []*process.Message
 	cfg      *terminal.HostConfig
@@ -68,7 +69,7 @@ func (t *Terminal) run(ctx context.Context, status chan<- any) {
 	defer close(status)
 	defer t.cleanup(nil) // Ensure logs are restored even on abnormal exit
 
-	// localizing the logger
+	// Localize the logger while preserving any values already in ctx.
 	t.ctx = context.WithValue(ctx, ctxapi.LoggerCtx, t.log)
 
 	for {
@@ -80,7 +81,7 @@ func (t *Terminal) run(ctx context.Context, status chan<- any) {
 
 			switch op.typ {
 			case opLaunch:
-				err = t.handleLaunch(op.launch, op.response)
+				err = t.handleLaunch(op.ctx, op.launch, op.response)
 			case opTerminate:
 				err = t.handleTerminate()
 			case opSend:
@@ -101,7 +102,7 @@ func (t *Terminal) run(ctx context.Context, status chan<- any) {
 	}
 }
 
-func (t *Terminal) handleLaunch(pl *process.LaunchProcess, response chan process.PID) error {
+func (t *Terminal) handleLaunch(ctx context.Context, pl *process.LaunchProcess, response chan process.PID) error {
 	if t.runner.Load() != nil {
 		return process.ErrHostBusy
 	}
@@ -118,16 +119,28 @@ func (t *Terminal) handleLaunch(pl *process.LaunchProcess, response chan process
 		}
 	}
 
-	// Define our internal onComplete callback to simply log completion and clean up.
-	onComplete := func(pid process.PID, result *runtime.Result) {
+	// we detach from parent context but carry context handlers
+	pCtx := t.ctx
+
+	origComplete := process.GetOnComplete(ctx)
+	if origComplete != nil {
+		pCtx = process.WithOnComplete(pCtx, origComplete)
+	}
+
+	origOnStart := process.GetOnStart(ctx)
+	if origOnStart != nil {
+		pCtx = process.WithOnStart(pCtx, origOnStart)
+	}
+
+	// Set up a new context with the terminal's log configuration.
+	pCtx = process.WithOnComplete(pCtx, func(pid process.PID, result *runtime.Result) {
 		t.log.Info("terminal process execution completed",
 			zap.String("pid", pid.String()),
 			zap.Any("result", result))
-
 		t.cleanup(result)
-	}
+	})
 
-	runner, err := NewTerminalRunner(process.WithOnComplete(t.ctx, onComplete), cfg, t.log, pl)
+	runner, err := NewTerminalRunner(pCtx, cfg, t.log, pl)
 	if err != nil {
 		t.cleanup(nil)
 		return err
@@ -150,12 +163,11 @@ func (t *Terminal) handleSend(msg ...*process.Message) error {
 	if runner == nil {
 		return process.ErrNoProcess
 	}
-
 	return runner.Send(msg...)
 }
 
 func (t *Terminal) cleanup(result *runtime.Result) {
-	// Always restore logging config first.
+	// Use the existing service context to restore base log configuration.
 	t.logCtrl.RestoreBaseConfig(t.ctx)
 	if runner := t.runner.Swap(nil); runner != nil {
 		runner.Stop()
@@ -199,6 +211,7 @@ func (t *Terminal) Send(ctx context.Context, pid process.PID, msg ...*process.Me
 func (t *Terminal) Launch(ctx context.Context, pl *process.LaunchProcess) (process.PID, error) {
 	resp := make(chan process.PID, 1)
 	err := t.execOp(ctx, op{
+		ctx:      ctx,
 		typ:      opLaunch,
 		launch:   pl,
 		result:   make(chan error, 1),
