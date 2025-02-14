@@ -105,7 +105,7 @@ func (f *RunnerFactory) CreateRunner() (*engine.Runner, error) {
 		return nil, fmt.Errorf("failed to create base VM: %w", err)
 	}
 
-	// Load main function todo: encapsulate into runner option and skip the need for main func
+	// Load main function
 	if err := vm.Mount(f.compiled.Main, f.compiled.FuncName); err != nil {
 		vm.Close()
 		return nil, fmt.Errorf("failed to load main function: %w", err)
@@ -129,6 +129,16 @@ func (f *RunnerFactory) prepare() error {
 
 	// Process dependencies
 	var opts []engine.Option
+	for _, dep := range f.compiled.Preloaded {
+		if dep.Node == nil {
+			continue
+		}
+
+		if dep.Node.Module != nil {
+			opts = append(opts, engine.WithPreloaded(dep.Name, dep.Node.Module.Loader))
+		}
+	}
+
 	for _, dep := range f.compiled.Dependencies {
 		if dep.Node == nil {
 			continue

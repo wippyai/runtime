@@ -1,7 +1,9 @@
+local time = require("time")
+
 function App()
-print("BOOT")
-    local inbox = subscribe.subscribe("tasks")
     local done = channel.new()
+    local inbox = subscribe.subscribe("tasks")
+
     local operations = {}
     local window_width = 80
     local window_height = 24
@@ -10,7 +12,7 @@ print("BOOT")
     coroutine.spawn(function()
         local ticker = time.ticker("1s")
         while true do
-            local result = channel.select{
+            local result = channel.select {
                 ticker:channel():case_receive(),
                 done:case_receive()
             }
@@ -27,18 +29,18 @@ print("BOOT")
     -- Render helpers
     local function create_box(w, h, content)
         local lines = {
-            "┌" .. string.rep("─", w-2) .. "┐"
+            "┌" .. string.rep("─", w - 2) .. "┐"
         }
 
         -- Add content lines
-        for i = 1, h-2 do
+        for i = 1, h - 2 do
             local content_line = content[i] or ""
             -- Pad content line to width
-            content_line = content_line .. string.rep(" ", w-2-#content_line)
+            content_line = content_line .. string.rep(" ", w - 2 - #content_line)
             table.insert(lines, "│" .. content_line .. "│")
         end
 
-        table.insert(lines, "└" .. string.rep("─", w-2) .. "┘")
+        table.insert(lines, "└" .. string.rep("─", w - 2) .. "┘")
         return table.concat(lines, "\n")
     end
 

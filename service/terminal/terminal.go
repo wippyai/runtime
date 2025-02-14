@@ -134,9 +134,15 @@ func (t *Terminal) handleLaunch(ctx context.Context, pl *process.LaunchProcess, 
 
 	// Set up a new context with the terminal's log configuration.
 	pCtx = process.WithOnComplete(pCtx, func(pid process.PID, result *runtime.Result) {
-		t.log.Info("terminal process execution completed",
-			zap.String("pid", pid.String()),
-			zap.Any("result", result))
+		if result.Error != nil {
+			t.log.Error("terminal process execution failed",
+				zap.String("pid", pid.String()),
+				zap.Error(result.Error))
+		} else {
+			t.log.Info("terminal process execution completed",
+				zap.String("pid", pid.String()),
+				zap.Any("result", result.Payload))
+		}
 		t.cleanup(result)
 	})
 

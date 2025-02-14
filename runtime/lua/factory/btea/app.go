@@ -3,6 +3,7 @@ package btea
 import (
 	"context"
 	"errors"
+	"log"
 	"sync"
 
 	"github.com/ponyruntime/pony/api/payload"
@@ -27,6 +28,7 @@ type Process struct {
 	done     chan struct{}
 	ctx      context.Context
 	pid      process.PID
+	exitErr  error
 }
 
 // NewBteaProcess constructs a new Process instance
@@ -99,8 +101,9 @@ func (p *Process) Start(ctx context.Context, pid process.PID, input payload.Payl
 		for {
 			select {
 			case result := <-resultCh:
+				log.Printf("result: %v", result)
 				if result.Error != nil {
-					p.log.Error("runner error", zap.Error(result.Error))
+					p.log.Error("!!!runner error", zap.Error(result.Error))
 					completeOnce.Do(func() {
 						if onComplete := process.GetOnComplete(p.ctx); onComplete != nil {
 							onComplete(p.pid, &runtime.Result{Error: result.Error})
@@ -109,7 +112,7 @@ func (p *Process) Start(ctx context.Context, pid process.PID, input payload.Payl
 					return
 				}
 				if len(result.Result) > 0 {
-					p.log.Debug("runner completed", zap.Any("result", result.Result[0]))
+					p.log.Debug("!!!runner completed", zap.Any("result", result.Result[0]))
 					completeOnce.Do(func() {
 						if onComplete := process.GetOnComplete(p.ctx); onComplete != nil {
 							onComplete(p.pid, &runtime.Result{
@@ -122,9 +125,13 @@ func (p *Process) Start(ctx context.Context, pid process.PID, input payload.Payl
 			case msg := <-p.upstream:
 				p.log.Debug("received upstream message", zap.Any("msg", msg))
 			case <-ctx.Done():
+				err := ctx.Err()
+				if p.exitErr != nil {
+					err = p.exitErr
+				}
 				completeOnce.Do(func() {
 					if onComplete := process.GetOnComplete(p.ctx); onComplete != nil {
-						onComplete(p.pid, &runtime.Result{Error: ctx.Err()})
+						onComplete(p.pid, &runtime.Result{Error: err})
 					}
 				})
 				return
@@ -146,6 +153,7 @@ func (p *Process) Step() error {
 		for {
 			tasks, err = p.runner.Step(tasks...)
 			if err != nil {
+				p.exitErr = err
 				return err
 			}
 			if len(tasks) == 0 {
