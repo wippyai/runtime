@@ -12,9 +12,9 @@ import (
 	apiLua "github.com/ponyruntime/pony/api/runtime/lua"
 	"github.com/ponyruntime/pony/runtime/lua/code"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
+	bteaApps "github.com/ponyruntime/pony/runtime/lua/factory/btea"
 	"github.com/ponyruntime/pony/runtime/lua/factory/function"
 	"github.com/ponyruntime/pony/runtime/lua/factory/library"
-	luaTerm "github.com/ponyruntime/pony/runtime/lua/factory/terminal"
 	"github.com/ponyruntime/pony/runtime/lua/modules/base64"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea"
 	"github.com/ponyruntime/pony/runtime/lua/modules/env"
@@ -448,12 +448,12 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 
 	funcs := function.NewManager(a.logger.Named("lua.funcs"), codeManager, a.eventBus)
 	libraries := library.NewManager(a.logger.Named("lua.libs"), codeManager)
-	terminals := luaTerm.NewTerminalManager(a.logger.Named("lua.terminals"), codeManager, a.eventBus)
+	terminalApps := bteaApps.NewBteaManager(a.logger.Named("lua.bteaApps"), codeManager, a.eventBus)
 
 	return []eventbus.EventHandler{
 		reghandler.NewTransactionHandler(codeManager),
 		reghandler.NewRegistryHandler("function.lua", funcs),
 		reghandler.NewRegistryHandler("library.lua", libraries),
-		reghandler.NewRegistryHandler("btea.app.lua", terminals),
+		reghandler.NewRegistryHandler("btea.app.lua", terminalApps),
 	}
 }

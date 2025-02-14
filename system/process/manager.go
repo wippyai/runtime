@@ -60,6 +60,7 @@ func (m *Manager) Start(ctx context.Context, ps api.StartProcess) (api.PID, erro
 	for _, cb := range m.onComplete {
 		ctx = api.WithOnComplete(ctx, cb)
 	}
+	// todo: optimize context carrying of handlers, maybe use some sort of list?
 
 	switch h := host.(type) {
 	case api.Managed:

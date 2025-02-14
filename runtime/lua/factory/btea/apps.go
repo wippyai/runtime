@@ -1,4 +1,4 @@
-package terminal
+package btea
 
 import (
 	"context"
@@ -22,7 +22,7 @@ type Manager struct {
 	configs sync.Map // map[registry.ID]*api.BteaConfig
 }
 
-func NewTerminalManager(log *zap.Logger, code *code.Manager, bus events.Bus) *Manager {
+func NewBteaManager(log *zap.Logger, code *code.Manager, bus events.Bus) *Manager {
 	return &Manager{
 		log:  log,
 		code: code,
