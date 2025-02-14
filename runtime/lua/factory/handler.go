@@ -14,7 +14,7 @@ import (
 
 type EntityHandler interface {
 	registry.EntryListener
-	Invalidate([]registry.ID)
+	Invalidate(context.Context, []registry.ID)
 }
 
 type Handler struct {
@@ -42,7 +42,7 @@ func (h *Handler) Handle(ctx context.Context, evt events.Event) error {
 		switch evt.Kind {
 		case api.InvalidateNodes:
 			if ids, ok := evt.Data.([]registry.ID); ok {
-				h.entity.Invalidate(ids)
+				h.entity.Invalidate(ctx, ids)
 			}
 			return nil
 		}
