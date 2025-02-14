@@ -5,7 +5,6 @@ package async
 import (
 	"context"
 	"errors"
-
 	capi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"

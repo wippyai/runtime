@@ -231,6 +231,37 @@ func (e *Runner) Step(tasks ...*Task) ([]*Task, error) {
 	return e.getWrapped().Step(tasks...)
 }
 
+// Continue advances all internal until no longer possible and external signals are needed.
+func (e *Runner) Continue(ctx context.Context) error {
+	wrapped := e.getWrapped()
+	for {
+		tasks, err := wrapped.Step(e.cvm.queue.Drain()...)
+		if err != nil {
+			return err
+		}
+
+		if len(tasks) > 0 {
+			// some tasks leaked out of the wrapped chain
+			return fmt.Errorf("unexpected tasks, missing VM layer: %v", tasks)
+		}
+
+		// wait-wait-wait, are we deadlocked?
+		if len(tasks) == 0 && e.taskGroup.GetTaskCount() == 0 {
+			return &DeadlockError{Count: len(e.cvm.tasks)}
+		}
+
+		// block for any pending task
+		tasks, err = e.taskGroup.Wait(ctx, e.cvm, false)
+		if err != nil {
+			return err
+		}
+
+		for _, task := range tasks {
+			e.cvm.queue.Push(task)
+		}
+	}
+}
+
 // Execute runs a function through the layer chain with provided context and arguments
 func (e *Runner) Execute(ctx context.Context, funcName string, args ...lua.LValue) (lua.LValue, error) {
 	// we always have to ensure we run using the task group context!
