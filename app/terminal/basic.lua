@@ -2,7 +2,9 @@ local time = require("time")
 
 function App()
     local done = channel.new()
-    local inbox = subscribe.subscribe("tasks")
+    -- Create subscriptions
+    local inbox = pubsub.subscribe("inbox")
+    local cancel = pubsub.subscribe("@cancel")
 
     local operations = {}
     local window_width = 80
@@ -12,13 +14,13 @@ function App()
     coroutine.spawn(function()
         local ticker = time.ticker("1s")
         while true do
-            print("Hello")
             local result = channel.select {
                 ticker:channel():case_receive(),
                 done:case_receive()
             }
-            print("Triggered")
             if result.channel == done then
+                -- Cleanup ticker on exit
+                ticker:stop()
                 break
             end
 
@@ -47,12 +49,27 @@ function App()
 
     -- Main loop
     while true do
-        local task, ok = inbox:receive()
-        if not ok then
+        -- Add cancel signal handling to select
+        local result = channel.select {
+            inbox:case_receive(),
+            cancel:case_receive()
+        }
+
+        -- Handle subscription closure
+        if not result.ok then
             done:send(true)
             break
         end
 
+        -- Check if cancel signal received
+        if result.channel == cancel then
+            print("Cancel signal received") -- Debug print
+            done:send(true)
+            break
+        end
+
+        -- Handle inbox messages
+        local task = result.value
         local msg = task:input()
         print("Received message:", msg.type) -- Debug print
 
@@ -89,7 +106,11 @@ function App()
         end
     end
 
+    -- Proper cleanup
     done:close()
+    -- Unsubscribe from topics
+    pubsub.unsubscribe(inbox)
+    pubsub.unsubscribe(cancel)
 end
 
 return App

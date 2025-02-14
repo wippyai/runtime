@@ -49,8 +49,8 @@ func (s *Layer) Publish(topic string, value ...lua.LValue) {
 }
 
 // Release removes a subscription from the topic if such exists and closes attached channel. Does not
-// remove messages from the queue, they can be re-consumed. Messages send prior to the release will be
-// delivered to the channel.
+// remove messages from the queue, they can be re-consumed with new subscribers.
+// Essentially you can use it as common cancel signal.
 func (s *Layer) Release(topic string) {
 	s.mu.Lock()
 	s.messageQueue.PushBack(&op{topic: topic, unsub: true})
@@ -111,6 +111,7 @@ func (s *Layer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, err
 					}
 					s.messageQueue.Remove(e)
 				}
+
 				e = nextElem
 			}
 			s.mu.Unlock()
