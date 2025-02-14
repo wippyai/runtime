@@ -23,6 +23,7 @@ import (
 	jsonMod "github.com/ponyruntime/pony/runtime/lua/modules/json"
 	"github.com/ponyruntime/pony/runtime/lua/modules/lfs"
 	"github.com/ponyruntime/pony/runtime/lua/modules/logger"
+	"github.com/ponyruntime/pony/runtime/lua/modules/tasks"
 	timeMod "github.com/ponyruntime/pony/runtime/lua/modules/time"
 	"github.com/ponyruntime/pony/runtime/lua/modules/treesitter"
 	"github.com/ponyruntime/pony/runtime/lua/modules/upstream"
@@ -433,6 +434,7 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 				lfs.NewLFSModule(),
 				uuid.NewUUIDModule(),
 				upstream.NewUpstreamModule(),
+				tasks.NewTaskModule(),
 				env.NewEnvModule(a.logger.Named("env")),
 				httpClient.NewHTTPClientModule(a.logger.Named("http"), httpbase.DefaultClient),
 				websocket.NewWebSocketModule(a.logger.Named("websocket")),
