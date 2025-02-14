@@ -6,6 +6,7 @@ import (
 	"github.com/ponyruntime/pony/api/service/terminal"
 	"io"
 	"os"
+	"sync"
 
 	"github.com/ponyruntime/pony/api/process"
 	"go.uber.org/zap"
@@ -34,6 +35,7 @@ type Runner struct {
 	cancel context.CancelFunc
 	log    *zap.Logger
 	cfg    *RunnerConfig
+	once   sync.Once
 }
 
 // NewTerminalRunner creates a new Runner. It derives a child context from the provided
@@ -105,10 +107,11 @@ func (r *Runner) Send(msg ...*process.Message) error {
 }
 
 func (r *Runner) Stop() {
-	if r.cancel != nil {
-		r.cancel()
-		r.cancel = nil
-	}
+	r.once.Do(func() {
+		if r.cancel != nil {
+			r.cancel()
+		}
+	})
 }
 
 func (r *Runner) Wait() <-chan struct{} {

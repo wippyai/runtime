@@ -15,21 +15,21 @@ import (
 	"go.uber.org/zap"
 )
 
-// Manager handles shell service lifecycle and registration
+// Manager handles terminal service lifecycle and registration
 type Manager struct {
-	log   *zap.Logger
-	bus   events.Bus
-	dtt   payload.Transcoder
-	mu    sync.RWMutex
-	shell *Terminal
+	log      *zap.Logger
+	bus      events.Bus
+	dtt      payload.Transcoder
+	mu       sync.RWMutex
+	terminal *Terminal
 }
 
-// NewShellManager creates a new shell manager instance
+// NewShellManager creates a new terminal manager instance
 func NewShellManager(bus events.Bus, dtt payload.Transcoder, logger *zap.Logger) *Manager {
 	return &Manager{log: logger, bus: bus, dtt: dtt}
 }
 
-// Add creates and registers a new shell service
+// Add creates and registers a new terminal service
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindHost {
 		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
@@ -47,16 +47,16 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.shell = NewTerminal(entry.ID, cfg, logs.NewConfigSwitcher(m.bus, m.log), m.log)
-	m.log.Info("terminal service created", zap.String("id", m.shell.id.String()))
+	m.terminal = NewTerminal(entry.ID, cfg, logs.NewConfigSwitcher(m.bus, m.log), m.log)
+	m.log.Info("terminal service created", zap.String("id", m.terminal.id.String()))
 
 	// Register as process host
-	m.registerHost(ctx, m.shell)
+	m.registerHost(ctx, m.terminal)
 
 	return nil
 }
 
-// Update updates an existing shell service
+// Update updates an existing terminal service
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != api.KindHost {
 		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
@@ -74,34 +74,34 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if m.shell == nil {
+	if m.terminal == nil {
 		return fmt.Errorf("terminal %s not found", entry.ID)
 	}
 
 	// Update service configuration
-	err := m.shell.UpdateConfig(ctx, cfg)
+	err := m.terminal.UpdateConfig(ctx, cfg)
 	if err != nil {
 		return fmt.Errorf("failed to update terminal config: %w", err)
 	}
 
-	m.log.Info("terminal service updated", zap.String("id", m.shell.id.String()))
+	m.log.Info("terminal service updated", zap.String("id", m.terminal.id.String()))
 
 	return nil
 }
 
-// Delete removes a shell service
+// Delete removes a terminal service
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	m.removeHost(ctx, entry.ID)
-	m.shell = nil // stop controlled by supervisor
+	m.terminal = nil // stop controlled by supervisor
 	m.log.Info("terminal service removed", zap.String("id", entry.ID.String()))
 
 	return nil
 }
 
-// registerHost registers the shell service as a process host
+// registerHost registers the terminal service as a process host
 func (m *Manager) registerHost(ctx context.Context, terminal *Terminal) {
 	m.bus.Send(ctx, events.Event{
 		System: process.HostSystem,
@@ -121,7 +121,7 @@ func (m *Manager) registerHost(ctx context.Context, terminal *Terminal) {
 	})
 }
 
-// removeHost removes the shell service from process host system
+// removeHost removes the terminal service from process host system
 func (m *Manager) removeHost(ctx context.Context, id registry.ID) {
 	m.bus.Send(ctx, events.Event{
 		System: supervisor.System,
