@@ -9,7 +9,6 @@ import (
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/registry"
-	"go.uber.org/zap"
 )
 
 // DummyProcess implements process.Process for testing purposes.
@@ -55,11 +54,10 @@ func TestTerminalRunnerStopsOnStepError(t *testing.T) {
 		Input:   nil,
 	}
 
-	logger := zap.NewNop()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	runner, err := NewTerminalRunner(ctx, DefaultRunnerConfig(), logger, lp)
+	runner, err := NewTerminalRunner(ctx, DefaultRunnerConfig(), lp)
 	if err != nil {
 		t.Fatalf("expected no error starting runner, got: %v", err)
 	}
@@ -89,11 +87,10 @@ func TestTerminalRunnerSendAndStop(t *testing.T) {
 		Input:   nil,
 	}
 
-	logger := zap.NewNop()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	runner, err := NewTerminalRunner(ctx, DefaultRunnerConfig(), logger, lp)
+	runner, err := NewTerminalRunner(ctx, DefaultRunnerConfig(), lp)
 	if err != nil {
 		t.Fatalf("expected no error starting runner, got: %v", err)
 	}
