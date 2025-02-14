@@ -1,4 +1,5 @@
 function App()
+print("BOOT")
     local inbox = subscribe.subscribe("tasks")
     local done = channel.new()
     local operations = {}

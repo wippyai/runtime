@@ -15,7 +15,7 @@ type subscribe struct {
 }
 
 func (r *subscribe) String() string {
-	return "pubsub.subscribe{topic=" + r.topic + "}"
+	return "subscribe.subscribe{topic=" + r.topic + "}"
 }
 
 func (r *subscribe) Type() lua.LValueType {
@@ -27,7 +27,7 @@ type unsubscribe struct {
 }
 
 func (r *unsubscribe) String() string {
-	return "pubsub.unsubscribe{}"
+	return "subscribe.unsubscribe{}"
 }
 
 func (r *unsubscribe) Type() lua.LValueType {
@@ -68,7 +68,7 @@ func subscribeFunc(L *lua.LState) int {
 		return 0
 	}
 
-	chName := fmt.Sprintf("pubsub.%s.%d", topic, chanID.Add(1))
+	chName := fmt.Sprintf("subscribe.%s.%d", topic, chanID.Add(1))
 	ch := channel.Named(chName, 1)
 	return Subscribe(L, ch, topic)
 }
