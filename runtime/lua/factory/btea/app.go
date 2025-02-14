@@ -3,6 +3,7 @@ package btea
 import (
 	"context"
 	"fmt"
+	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/process"
@@ -10,6 +11,17 @@ import (
 	"github.com/ponyruntime/pony/api/service/terminal"
 	"sync"
 )
+
+type keyMap struct {
+	Quit key.Binding
+}
+
+var keys = keyMap{
+	Quit: key.NewBinding(
+		key.WithKeys("esc"),
+		key.WithHelp("esc", "quit"),
+	),
+}
 
 // Model represents the terminal UI state
 type Model struct {
@@ -21,6 +33,7 @@ type Model struct {
 	ctx      context.Context
 	terminal *terminal.PipeContext
 	program  *tea.Program
+	keys     keyMap
 }
 
 // App represents a terminal application process with Bubble Tea
@@ -46,26 +59,28 @@ func (p *App) Start(ctx context.Context, pid process.PID, input payload.Payloads
 	p.ctx = ctx
 	p.pid = pid
 
-	// Get terminal context
 	term := terminal.FromContext(ctx)
 	if term == nil {
 		return fmt.Errorf("terminal context not found")
 	}
 	p.terminal = term
 
-	// Initialize model
 	model := &Model{
 		ctx:      ctx,
 		terminal: term,
+		keys:     keys,
 	}
 	p.model = model
 
-	// Create and start the Bubble Tea program
-	program := tea.NewProgram(model, tea.WithInput(term.Stdin), tea.WithOutput(term.Stdout))
+	program := tea.NewProgram(
+		model,
+		tea.WithInput(term.Stdin),
+		tea.WithOutput(term.Stdout),
+		tea.WithAltScreen(),
+	)
 	p.program = program
 	model.program = program
 
-	// Start the program in a goroutine
 	go func() {
 		if _, err := program.Run(); err != nil {
 			p.model.error = err
@@ -73,7 +88,6 @@ func (p *App) Start(ctx context.Context, pid process.PID, input payload.Payloads
 		close(p.done)
 	}()
 
-	// Notify process started
 	if onStart := process.GetOnStart(ctx); onStart != nil {
 		onStart(pid, p)
 	}
@@ -113,7 +127,6 @@ func (p *App) Send(msg ...*process.Message) error {
 			p.program.Quit()
 			return nil
 		}
-		// Handle other messages here
 	}
 
 	return nil
@@ -127,16 +140,15 @@ func (m *Model) Init() tea.Cmd {
 // Update handles events and updates the model
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch msg.String() {
-		case "q", "ctrl+c":
-			m.quitting = true
-			return m, tea.Quit
-		}
-
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+
+	case tea.KeyMsg:
+		if key.Matches(msg, m.keys.Quit) {
+			m.quitting = true
+			return m, tea.Quit
+		}
 	}
 
 	return m, nil
@@ -148,9 +160,8 @@ func (m *Model) View() string {
 		return "Goodbye!\n"
 	}
 
-	// Create a simple view with window dimensions
 	return fmt.Sprintf(
-		"Window size: %d x %d\n\nPress 'q' to quit",
+		"Window size: %d x %d\n\nPress 'q', 'esc', or 'ctrl+c' to quit",
 		m.width,
 		m.height,
 	)
