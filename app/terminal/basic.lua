@@ -2,8 +2,9 @@ local time = require("time")
 
 function App()
     local done = channel.new()
+
     -- Create subscriptions
-    local inbox = pubsub.subscribe("inbox")
+    local inbox = pubsub.subscribe("@btea/inbox")
     local cancel = pubsub.subscribe("@cancel")
 
     local operations = {}
@@ -47,6 +48,20 @@ function App()
         return table.concat(lines, "\n")
     end
 
+    -- Debug function to inspect object
+    local function dump_object(obj)
+        if type(obj) == "table" then
+            local s = "{"
+            for k,v in pairs(obj) do
+                if type(k) ~= "number" then k = '"'..k..'"' end
+                s = s .. "["..k.."] = " .. dump_object(v) .. ","
+            end
+            return s .. "}"
+        else
+            return tostring(obj)
+        end
+    end
+
     -- Main loop
     while true do
         -- Add cancel signal handling to select
@@ -70,40 +85,43 @@ function App()
 
         -- Handle inbox messages
         local task = result.value
-        local msg = task:input()
-        print("Received message:", msg.type) -- Debug print
+        local input = task:input()
 
-        if msg.type == "update" then
-            if msg.msg == "tick" then
-                local now = time.now()
-                table.insert(operations, now:format("15:04:05") .. " Tick received")
-            elseif msg.key then
-                local now = time.now()
-                table.insert(operations, now:format("15:04:05") .. " Key: " .. msg.key.String)
-            end
+        print("Message value:", dump_object(input))
+
+        --if msg.type == "update" then
+        --    if msg.msg == "tick" then
+        --        local now = time.now()
+        --        table.insert(operations, now:format("15:04:05") .. " Tick received")
+        --    elseif msg.key then
+        --        local now = time.now()
+        --        table.insert(operations, now:format("15:04:05") .. " Key: " .. msg.key.String)
+        --    end
+        --    task:complete("ok")
+        --elseif msg.type == "view" then
+        --    -- Prepare content
+        --    local content = {
+        --        "Simple App",
+        --        "",
+        --        "Operations Log:",
+        --        ""
+        --    }
+        --
+        --    -- Add last N operations
+        --    local max_ops = window_height - 8 -- Reserve space for borders and headers
+        --    local start_idx = math.max(1, #operations - max_ops)
+        --    for i = start_idx, #operations do
+        --        table.insert(content, "  " .. operations[i])
+        --    end
+        --
+        --    -- Create box with content
+        --    local view = create_box(window_width, window_height, content)
+        --    task:complete(view)
+        --else
             task:complete("ok")
-        elseif msg.type == "view" then
-            -- Prepare content
-            local content = {
-                "Simple App",
-                "",
-                "Operations Log:",
-                ""
-            }
+        --end
 
-            -- Add last N operations
-            local max_ops = window_height - 8 -- Reserve space for borders and headers
-            local start_idx = math.max(1, #operations - max_ops)
-            for i = start_idx, #operations do
-                table.insert(content, "  " .. operations[i])
-            end
-
-            -- Create box with content
-            local view = create_box(window_width, window_height, content)
-            task:complete(view)
-        else
-            task:complete("ok")
-        end
+        ::continue::
     end
 
     -- Proper cleanup

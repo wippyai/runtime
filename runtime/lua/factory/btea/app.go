@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"github.com/ponyruntime/pony/internal/closer"
+	"github.com/ponyruntime/pony/runtime/lua/modules/tasks"
 	"sync"
+	"time"
 
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/process"
@@ -16,6 +18,8 @@ import (
 	"go.uber.org/zap"
 )
 
+const ChannelInbox = "@btea/inbox"
+
 // Process implements process.Process with runner management
 type Process struct {
 	mu       sync.RWMutex
@@ -23,7 +27,7 @@ type Process struct {
 	dtt      payload.Transcoder
 	runner   *engine.Runner
 	funcName string
-	subLayer *subscribe.Layer
+	pubsub   *subscribe.Layer
 	upstream chan payload.Payload
 	done     chan struct{}
 	ctx      context.Context
@@ -68,7 +72,7 @@ func NewBteaProcess(
 		dtt:      dtt,
 		runner:   runner,
 		funcName: funcName,
-		subLayer: subLayer,
+		pubsub:   subLayer,
 		upstream: make(chan payload.Payload, 100),
 		done:     make(chan struct{}),
 	}, nil
@@ -150,6 +154,31 @@ func (p *Process) Start(ctx context.Context, pid process.PID, input payload.Payl
 		}
 	}()
 
+	go func() {
+		for {
+			select {
+			case <-p.done:
+				return
+			case <-time.After(1 * time.Second):
+				task, err := tasks.CreateTask(payload.NewPayload(lua.LNil, payload.Lua))
+				if err != nil {
+					p.log.Error("failed to create task",
+						zap.Error(err))
+					continue
+				}
+
+				p.pubsub.Publish(ChannelInbox, tasks.WrapTask(p.runner.GetCVM().State(), task))
+
+				select {
+				case <-p.done:
+				case rsp := <-task.Response:
+
+					p.log.Debug("received task response", zap.Any("rsp", rsp.Data()))
+				}
+			}
+		}
+	}()
+
 	return nil
 }
 
@@ -176,7 +205,7 @@ func (p *Process) Send(msg ...*process.Message) error {
 	default:
 		for _, m := range msg {
 			if m.Topic == process.TopicCancel {
-				p.subLayer.Release(m.Topic)
+				p.pubsub.Release(m.Topic) // we want all subscribers to be released at the same time
 				continue
 			}
 
@@ -194,7 +223,7 @@ func (p *Process) Send(msg ...*process.Message) error {
 				}
 			}
 			if len(luaValues) > 0 {
-				p.subLayer.Publish(m.Topic, luaValues...)
+				p.pubsub.Publish(m.Topic, luaValues...)
 			}
 			p.log.Debug("sent message to process", zap.Any("msg", m))
 		}
