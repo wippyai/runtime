@@ -126,6 +126,9 @@ func (m *Manager) upsertPrototype(ctx context.Context, id registry.ID) {
 		Kind:   process.RegisterPrototype,
 		Path:   id.String(),
 		Data: process.Prototype(func() (process.Process, error) {
+
+			// we need our own wrapper for runner process
+
 			log.Printf("LAUNCHING SHIT! REWRITE IT!")
 			return stub_process.NewTickerProcess(), nil
 		}),
