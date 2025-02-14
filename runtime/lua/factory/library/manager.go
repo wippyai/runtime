@@ -81,7 +81,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	return nil
 }
 
-func (m *Manager) Invalidate(ids []registry.ID) {
+func (m *Manager) Invalidate(ctx context.Context, ids []registry.ID) {
 	for _, id := range ids {
 		m.log.Debug("invalidating library", zap.String("id", id.String()))
 	}

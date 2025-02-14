@@ -106,13 +106,13 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	return nil
 }
 
-func (m *Manager) Invalidate(ids []registry.ID) {
+func (m *Manager) Invalidate(ctx context.Context, ids []registry.ID) {
 	for _, id := range ids {
 		m.log.Debug("invalidating terminal", zap.String("id", id.String()))
 
 		// Re-register prototype when terminal is invalidated
 		if _, exists := m.configs.Load(id); exists {
-			m.upsertPrototype(context.Background(), id)
+			m.upsertPrototype(ctx, id)
 		}
 	}
 }
