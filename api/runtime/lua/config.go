@@ -12,8 +12,8 @@ const (
 	KindFunction registry.Kind = "function.lua"
 	// KindLibrary identifies a Lua library component in the registry
 	KindLibrary registry.Kind = "library.lua"
-	// KindTerminal identifies a Lua terminal component in the registry
-	KindTerminal registry.Kind = "terminal.lua"
+	// KindBteaApp identifies a Lua terminal component in the registry
+	KindBteaApp registry.Kind = "btea.app.lua"
 	// KindWorkflow identifies a Lua workflow component in the registry
 	KindWorkflow registry.Kind = "workflow.lua"
 	// KindModule identifies a Lua module component in the registry
@@ -55,8 +55,8 @@ type (
 	//	Import map[string]registry.ID `json:"import"` // Import aliases for the library
 	//}
 
-	// TerminalConfig defines the configuration for a Lua terminal component.
-	TerminalConfig struct {
+	// BteaConfig defines the configuration for a Lua terminal component.
+	BteaConfig struct {
 		Meta   registry.Metadata      `json:"meta"`   // Metadata for the terminal
 		Source string                 `json:"source"` // Lua source code
 		Method string                 `json:"method"` // Alias of the Lua method to execute

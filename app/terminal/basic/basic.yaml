@@ -2,7 +2,7 @@ version: 1.0/beta
 
 namespace: terminal
 name: basic
-kind: terminal.lua
+kind: btea.app.lua
 meta:
   comment: "Simple upstream example"
   default_host: terminal
