@@ -10,7 +10,6 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/code"
 	"github.com/ponyruntime/pony/runtime/lua/factory"
 	"go.uber.org/zap"
-	"log"
 	"sync"
 )
 
@@ -126,9 +125,6 @@ func (m *Manager) upsertPrototype(ctx context.Context, id registry.ID) {
 		Path:   id.String(),
 		Data: process.Prototype(func() (process.Process, error) {
 
-			// we need our own wrapper for runner process
-
-			log.Printf("LAUNCHING SHIT! REWRITE IT!")
 			return NewTerminalProcess(), nil
 		}),
 	})
