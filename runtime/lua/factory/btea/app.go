@@ -23,8 +23,8 @@ type Model struct {
 	program  *tea.Program
 }
 
-// TerminalProcess represents a terminal application process with Bubble Tea
-type TerminalProcess struct {
+// App represents a terminal application process with Bubble Tea
+type App struct {
 	pid      process.PID
 	ctx      context.Context
 	model    *Model
@@ -36,13 +36,13 @@ type TerminalProcess struct {
 
 // NewTerminalProcess creates a new terminal process instance
 func NewTerminalProcess() process.Process {
-	return &TerminalProcess{
+	return &App{
 		done: make(chan struct{}),
 	}
 }
 
 // Start initializes the terminal process with Bubble Tea
-func (p *TerminalProcess) Start(ctx context.Context, pid process.PID, input payload.Payloads) error {
+func (p *App) Start(ctx context.Context, pid process.PID, input payload.Payloads) error {
 	p.ctx = ctx
 	p.pid = pid
 
@@ -61,12 +61,7 @@ func (p *TerminalProcess) Start(ctx context.Context, pid process.PID, input payl
 	p.model = model
 
 	// Create and start the Bubble Tea program
-	program := tea.NewProgram(
-		model,
-		tea.WithInput(term.Stdin),
-		tea.WithOutput(term.Stdout),
-		tea.WithAltScreen(),
-	)
+	program := tea.NewProgram(model, tea.WithInput(term.Stdin), tea.WithOutput(term.Stdout))
 	p.program = program
 	model.program = program
 
@@ -87,7 +82,7 @@ func (p *TerminalProcess) Start(ctx context.Context, pid process.PID, input payl
 }
 
 // Step handles the terminal process state updates
-func (p *TerminalProcess) Step() error {
+func (p *App) Step() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -109,7 +104,7 @@ func (p *TerminalProcess) Step() error {
 }
 
 // Send handles incoming messages
-func (p *TerminalProcess) Send(msg ...*process.Message) error {
+func (p *App) Send(msg ...*process.Message) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
