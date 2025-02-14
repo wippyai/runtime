@@ -58,7 +58,6 @@ func (r *Layer) Send(ctx context.Context, ch *Channel, values ...lua.LValue) err
 
 	for _, value := range values {
 		next := ch.send(nil, value, nil)
-
 		if next.yields && len(next.next) > 0 {
 			if len(next.release) > 0 {
 				r.updateChannelRefs(tg, next.block, next.release)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/ponyruntime/pony/api/payload"
+	"github.com/ponyruntime/pony/runtime/lua/engine/async"
 	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
 	"sync"
 
@@ -13,7 +14,6 @@ import (
 	api "github.com/ponyruntime/pony/api/runtime/lua"
 	"github.com/ponyruntime/pony/runtime/lua/code"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/async"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	"github.com/ponyruntime/pony/runtime/lua/factory"
@@ -37,8 +37,8 @@ func init() {
 		channels := channel.NewChannelLayer()
 		return []engine.RunnerOption{
 			engine.WithLayer(channels),
-			engine.WithLayer(subscribe.NewSubscribe(channels)),
 			engine.WithLayer(async.NewAsyncLayer(channels, 4096)),
+			engine.WithLayer(subscribe.NewSubscribe(channels)),
 			engine.WithLayer(coroutine.NewCoroutineLayer()),
 		}
 	})

@@ -3,7 +3,7 @@ package btea
 import (
 	"context"
 	"errors"
-	"log"
+	"github.com/ponyruntime/pony/internal/closer"
 	"sync"
 
 	"github.com/ponyruntime/pony/api/payload"
@@ -28,7 +28,8 @@ type Process struct {
 	done     chan struct{}
 	ctx      context.Context
 	pid      process.PID
-	exitErr  error
+	stepErr  error
+	closer   *closer.Cleanup
 }
 
 // NewBteaProcess constructs a new Process instance
@@ -79,6 +80,8 @@ func (p *Process) Start(ctx context.Context, pid process.PID, input payload.Payl
 	p.pid = pid
 
 	ctx = upstream.WithUpstreamChannel(ctx, p.upstream)
+	ctx = p.runner.WithContext(ctx)
+	ctx, p.closer = closer.WithContext(ctx)
 
 	resultCh, err := p.runner.Start(ctx, p.funcName, getLuaArgs(input)...)
 	if err != nil {
@@ -101,10 +104,13 @@ func (p *Process) Start(ctx context.Context, pid process.PID, input payload.Payl
 		for {
 			select {
 			case result := <-resultCh:
-				log.Printf("result: %v", result)
 				if result.Error != nil {
-					p.log.Error("!!!runner error", zap.Error(result.Error))
+					p.log.Error("runner error", zap.Error(result.Error))
 					completeOnce.Do(func() {
+						cErr := p.closer.Close()
+						if cErr != nil {
+							p.log.Error("failed to close resources", zap.Error(err))
+						}
 						if onComplete := process.GetOnComplete(p.ctx); onComplete != nil {
 							onComplete(p.pid, &runtime.Result{Error: result.Error})
 						}
@@ -112,8 +118,12 @@ func (p *Process) Start(ctx context.Context, pid process.PID, input payload.Payl
 					return
 				}
 				if len(result.Result) > 0 {
-					p.log.Debug("!!!runner completed", zap.Any("result", result.Result[0]))
+					p.log.Debug("runner completed", zap.Any("result", result.Result[0]))
 					completeOnce.Do(func() {
+						cErr := p.closer.Close()
+						if cErr != nil {
+							p.log.Error("failed to close resources", zap.Error(err))
+						}
 						if onComplete := process.GetOnComplete(p.ctx); onComplete != nil {
 							onComplete(p.pid, &runtime.Result{
 								Payload: payload.NewPayload(result.Result[0], payload.Lua),
@@ -126,10 +136,14 @@ func (p *Process) Start(ctx context.Context, pid process.PID, input payload.Payl
 				p.log.Debug("received upstream message", zap.Any("msg", msg))
 			case <-ctx.Done():
 				err := ctx.Err()
-				if p.exitErr != nil {
-					err = p.exitErr
+				if p.stepErr != nil {
+					err = p.stepErr
 				}
 				completeOnce.Do(func() {
+					cErr := p.closer.Close()
+					if cErr != nil {
+						p.log.Error("failed to close resources", zap.Error(err))
+					}
 					if onComplete := process.GetOnComplete(p.ctx); onComplete != nil {
 						onComplete(p.pid, &runtime.Result{Error: err})
 					}
@@ -148,21 +162,12 @@ func (p *Process) Step() error {
 	case <-p.done:
 		return nil
 	default:
-		var tasks []*engine.Task
-		var err error
-		for {
-			// todo: remove this loop
-			// todo: use internal queue, parent will control steps
-			tasks, err = p.runner.Step(tasks...)
-			if err != nil {
-				p.exitErr = err
-				return err
-			}
-			if len(tasks) == 0 {
-				break
-			}
+		err := p.runner.Continue(p.ctx)
+		if err != nil {
+			p.stepErr = err
 		}
-		return nil
+
+		return err
 	}
 }
 

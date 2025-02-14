@@ -12,11 +12,12 @@ function App()
     coroutine.spawn(function()
         local ticker = time.ticker("1s")
         while true do
+            print("Hello")
             local result = channel.select {
                 ticker:channel():case_receive(),
                 done:case_receive()
             }
-
+            print("Triggered")
             if result.channel == done then
                 break
             end

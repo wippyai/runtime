@@ -2,6 +2,7 @@ package time
 
 import (
 	"fmt"
+	closer "github.com/ponyruntime/pony/internal/closer"
 	"time"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine/async"
@@ -53,6 +54,14 @@ func ticker(l *lua.LState) int {
 	timeUD := l.NewUserData()
 	timeUD.Value = &Time{time: time.Now()} // initial value will be replaced
 	l.SetMetatable(timeUD, l.GetTypeMetatable("Time"))
+
+	clean := closer.FromContext(l.Context())
+	if clean != nil {
+		clean.Add(func() error {
+			ticker.Stop()
+			return nil
+		})
+	}
 
 	// Launch goroutine to handle ticker
 	go func() {
