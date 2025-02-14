@@ -29,7 +29,7 @@ entries:
     kind: terminal.host
     meta:
       comment: "System shell"
-    hide_logs: false  # Keep logs visible, don't redirect to event bus
+    hide_logs: true  # Keep logs visible, don't redirect to event bus
     lifecycle:
       auto_start: true
       restart:
