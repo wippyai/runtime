@@ -1,134 +1,145 @@
 local time = require("time")
 
 function App()
+    -- State management
+    local state = {
+        messages = {},
+        window = {
+            width = 80,
+            height = 24
+        }
+    }
+
+    -- Create a done channel for cleanup coordination
     local done = channel.new()
 
-    -- Create subscriptions
-    local inbox = pubsub.subscribe("@btea/inbox")
-    local cancel = pubsub.subscribe("@cancel")
+    -- Channel subscriptions
+    local view_ch = pubsub.subscribe("@btea/view")
+    local update_ch = pubsub.subscribe("@btea/update")
+    local cancel_ch = pubsub.subscribe("@cancel")
 
-    local operations = {}
-    local window_width = 80
-    local window_height = 24
+    -- Helper function to format messages
+    local function format_message(msg)
+        local timestamp = time.now():format("15:04:05")
+        if type(msg) == "table" and msg.String then
+            return string.format("%s: Key pressed - %s", timestamp, msg.String)
+        end
+        return string.format("%s: %s", timestamp, tostring(msg))
+    end
+
+    -- View rendering
+    local function render_view()
+        local lines = {
+            "BubbleTea App",
+            "",
+            "Message Log:",
+            ""
+        }
+
+        -- Show last N messages that fit in the window
+        local max_messages = state.window.height - 8
+        local start_idx = math.max(1, #state.messages - max_messages)
+        for i = start_idx, #state.messages do
+            table.insert(lines, "  " .. state.messages[i])
+        end
+
+        -- Create bordered box
+        local box = {
+            "┌" .. string.rep("─", state.window.width - 2) .. "┐"
+        }
+
+        for i = 1, state.window.height - 2 do
+            local content = lines[i] or ""
+            content = content .. string.rep(" ", state.window.width - 2 - #content)
+            table.insert(box, "│" .. content .. "│")
+        end
+
+        table.insert(box, "└" .. string.rep("─", state.window.width - 2) .. "┘")
+
+        return table.concat(box, "\n")
+    end
 
     -- Start ticker in background
     coroutine.spawn(function()
+        print("Starting ticker coroutine")
         local ticker = time.ticker("1s")
+
         while true do
             local result = channel.select {
                 ticker:channel():case_receive(),
                 done:case_receive()
             }
+
             if result.channel == done then
-                -- Cleanup ticker on exit
+                print("Stopping ticker")
                 ticker:stop()
                 break
             end
 
-            print("Tick") -- Debug print
+            print("Tick received")
             upstream.send("tick")
         end
     end)
 
-    -- Render helpers
-    local function create_box(w, h, content)
-        local lines = {
-            "┌" .. string.rep("─", w - 2) .. "┐"
-        }
-
-        -- Add content lines
-        for i = 1, h - 2 do
-            local content_line = content[i] or ""
-            -- Pad content line to width
-            content_line = content_line .. string.rep(" ", w - 2 - #content_line)
-            table.insert(lines, "│" .. content_line .. "│")
-        end
-
-        table.insert(lines, "└" .. string.rep("─", w - 2) .. "┘")
-        return table.concat(lines, "\n")
+    -- Message handlers
+    local function handle_init(task)
+        print("Init handler called")
+        table.insert(state.messages, format_message("Application initialized"))
+        task:complete("ok")
     end
 
-    -- Debug function to inspect object
-    local function dump_object(obj)
-        if type(obj) == "table" then
-            local s = "{"
-            for k,v in pairs(obj) do
-                if type(k) ~= "number" then k = '"'..k..'"' end
-                s = s .. "["..k.."] = " .. dump_object(v) .. ","
-            end
-            return s .. "}"
-        else
-            return tostring(obj)
-        end
+    local function handle_view(task)
+        print("View handler called")
+        task:complete(render_view())
     end
 
-    -- Main loop
-    while true do
-        -- Add cancel signal handling to select
-        local result = channel.select {
-            inbox:case_receive(),
-            cancel:case_receive()
-        }
-
-        -- Handle subscription closure
-        if not result.ok then
-            done:send(true)
-            break
-        end
-
-        -- Check if cancel signal received
-        if result.channel == cancel then
-            print("Cancel signal received") -- Debug print
-            done:send(true)
-            break
-        end
-
-        -- Handle inbox messages
-        local task = result.value
+    local function handle_update(task)
+        print("Update handler called")
         local input = task:input()
-
-        print("Message value:", dump_object(input))
-
-        --if msg.type == "update" then
-        --    if msg.msg == "tick" then
-        --        local now = time.now()
-        --        table.insert(operations, now:format("15:04:05") .. " Tick received")
-        --    elseif msg.key then
-        --        local now = time.now()
-        --        table.insert(operations, now:format("15:04:05") .. " Key: " .. msg.key.String)
-        --    end
-        --    task:complete("ok")
-        --elseif msg.type == "view" then
-        --    -- Prepare content
-        --    local content = {
-        --        "Simple App",
-        --        "",
-        --        "Operations Log:",
-        --        ""
-        --    }
-        --
-        --    -- Add last N operations
-        --    local max_ops = window_height - 8 -- Reserve space for borders and headers
-        --    local start_idx = math.max(1, #operations - max_ops)
-        --    for i = start_idx, #operations do
-        --        table.insert(content, "  " .. operations[i])
-        --    end
-        --
-        --    -- Create box with content
-        --    local view = create_box(window_width, window_height, content)
-        --    task:complete(view)
-        --else
-            task:complete("ok")
-        --end
-
-        ::continue::
+        if input then
+            table.insert(state.messages, format_message(input))
+        end
+        task:complete("ok")
     end
 
-    -- Proper cleanup
+    -- Main event loop
+    print("Starting main event loop")
+    while true do
+        local result = channel.select {
+            view_ch:case_receive(),
+            update_ch:case_receive(),
+            cancel_ch:case_receive()
+        }
+        print("Received message on channel")
+
+        -- Handle channel closure or errors
+        if not result.ok then
+            print("Channel error or closure")
+            break
+        end
+
+        -- Handle message based on channel
+        if result.channel == view_ch then
+            handle_view(result.value)
+        elseif result.channel == update_ch then
+            handle_update(result.value)
+        elseif result.channel == cancel_ch then
+            print("Received cancel signal")
+            break
+        end
+    end
+
+    -- Cleanup
+    print("Starting cleanup")
+    done:send(true)  -- Signal ticker to stop
     done:close()
-    -- Unsubscribe from topics
-    pubsub.unsubscribe(inbox)
-    pubsub.unsubscribe(cancel)
+
+    print("Unsubscribing from channels")
+    pubsub.unsubscribe(view_ch)
+    pubsub.unsubscribe(update_ch)
+    pubsub.unsubscribe(cancel_ch)
+
+    print("Cleanup complete")
 end
 
 return App

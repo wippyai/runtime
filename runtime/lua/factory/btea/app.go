@@ -3,41 +3,36 @@ package btea
 import (
 	"context"
 	"errors"
-	"github.com/ponyruntime/pony/internal/closer"
-	"github.com/ponyruntime/pony/runtime/lua/modules/tasks"
-	"sync"
-	"time"
-
+	"fmt"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/runtime"
+	"github.com/ponyruntime/pony/api/service/terminal"
+	"github.com/ponyruntime/pony/internal/closer"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
+	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
+	"github.com/ponyruntime/pony/runtime/lua/modules/tasks"
 	"github.com/ponyruntime/pony/runtime/lua/modules/upstream"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
+	"sync"
+	"time"
 )
 
-const ChannelInbox = "@btea/inbox"
+const (
+	ChannelView   = "@btea/view"
+	ChannelUpdate = "@btea/update"
 
-// Process implements process.Process with runner management
-type Process struct {
-	mu       sync.RWMutex
-	log      *zap.Logger
-	dtt      payload.Transcoder
-	runner   *engine.Runner
-	funcName string
-	pubsub   *subscribe.Layer
-	upstream chan payload.Payload
-	done     chan struct{}
-	ctx      context.Context
-	pid      process.PID
-	stepErr  error
-	closer   *closer.Cleanup
-}
+	// Timeout constants
+	taskTimeout = 3000 * time.Millisecond
+	viewTimeout = 12000 * time.Millisecond
 
-// NewBteaProcess constructs a new Process instance
-func NewBteaProcess(
+	ExitKey = "esc"
+)
+
+func NewApp(
 	log *zap.Logger,
 	dtt payload.Transcoder,
 	runner *engine.Runner,
@@ -67,7 +62,7 @@ func NewBteaProcess(
 		return nil, errors.New("subscribe layer not found in runner")
 	}
 
-	return &Process{
+	return &App{
 		log:      log,
 		dtt:      dtt,
 		runner:   runner,
@@ -78,14 +73,138 @@ func NewBteaProcess(
 	}, nil
 }
 
-// Start initializes the process
-func (p *Process) Start(ctx context.Context, pid process.PID, input payload.Payloads) error {
+type App struct {
+	// system layer
+	log    *zap.Logger
+	dtt    payload.Transcoder
+	pubsub *subscribe.Layer
+
+	// what we run
+	ctx      context.Context
+	pid      process.PID
+	runner   *engine.Runner
+	funcName string
+
+	// bubbletea integration
+	program  *tea.Program
+	terminal *terminal.PipeContext
+
+	// data from underlying lua application
+	upstream chan payload.Payload
+
+	// cleanup
+	done    chan struct{}
+	stepErr error
+	closer  *closer.Cleanup
+}
+
+func (p *App) Init() tea.Cmd {
+	return nil // delegated
+}
+
+func (p *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		if msg.String() == ExitKey {
+			_ = p.Send(&process.Message{Topic: process.TopicCancel})
+			return p, tea.Quit
+		}
+	}
+
+	p.publishTask(ChannelUpdate, protocol.MsgToLua(msg))
+	return p, nil
+}
+
+func (p *App) View() string {
+	response := p.publishTaskWithResponse(ChannelView, lua.LTrue, viewTimeout)
+	if response == nil {
+		return "view task failed"
+	}
+	return response.String()
+}
+
+// publishTask sends a task to a channel without waiting for response
+func (p *App) publishTask(channel string, value lua.LValue) {
+	task, err := p.createTask(value)
+	if err != nil {
+		p.log.Error("failed to create task",
+			zap.String("channel", channel),
+			zap.Error(err))
+		return
+	}
+
+	p.pubsub.Publish(channel, tasks.WrapTask(p.runner.GetCVM().State(), task))
+
+	// Handle response in background
+	go func() {
+		select {
+		case <-p.ctx.Done():
+			return
+		case rsp := <-task.Response:
+			if err, ok := rsp.Data().(error); ok {
+				p.log.Error("task failed",
+					zap.String("channel", channel),
+					zap.Error(err))
+			}
+		case <-time.After(taskTimeout):
+			p.log.Debug("task timeout", zap.String("channel", channel))
+		}
+	}()
+}
+
+// publishTaskWithResponse sends a task and waits for response
+func (p *App) publishTaskWithResponse(channel string, value lua.LValue, timeout time.Duration) lua.LValue {
+	task, err := p.createTask(value)
+	if err != nil {
+		p.log.Error("failed to create task",
+			zap.String("channel", channel),
+			zap.Error(err))
+		return nil
+	}
+
+	p.pubsub.Publish(channel, tasks.WrapTask(p.runner.GetCVM().State(), task))
+
+	select {
+	case rsp := <-task.Response:
+		if str, ok := rsp.Data().(lua.LValue); ok {
+			return str
+		}
+		p.log.Error("invalid response type", zap.String("channel", channel))
+		return nil
+	case <-time.After(timeout):
+		p.log.Debug("task timeout", zap.String("channel", channel))
+		return nil
+	case <-p.ctx.Done():
+		return nil
+	}
+}
+
+func (p *App) createTask(value lua.LValue) (*tasks.Task, error) {
+	return tasks.CreateTask(payload.NewPayload(value, payload.Lua))
+}
+
+func (p *App) Start(ctx context.Context, pid process.PID, input payload.Payloads) error {
 	p.ctx = ctx
 	p.pid = pid
+
+	// Get terminal from context
+	term := terminal.FromContext(ctx)
+	if term == nil {
+		return fmt.Errorf("terminal context not found")
+	}
+	p.terminal = term
+
+	p.program = tea.NewProgram(p, tea.WithInput(term.Stdin), tea.WithOutput(term.Stdout))
 
 	ctx = upstream.WithUpstreamChannel(ctx, p.upstream)
 	ctx = p.runner.WithContext(ctx)
 	ctx, p.closer = closer.WithContext(ctx)
+
+	go func() {
+		if _, err := p.program.Run(); err != nil {
+			p.log.Error("bubbletea program error", zap.Error(err))
+		}
+	}()
 
 	resultCh, err := p.runner.Start(ctx, p.funcName, getLuaArgs(input)...)
 	if err != nil {
@@ -96,94 +215,74 @@ func (p *Process) Start(ctx context.Context, pid process.PID, input payload.Payl
 		onStart(pid, p)
 	}
 
-	go func() {
-		defer func() {
-			close(p.done)
-			close(p.upstream)
-			p.runner.Close()
-		}()
+	go p.processLoop(resultCh)
 
-		completeOnce := sync.Once{}
+	return nil
+}
 
-		for {
-			select {
-			case result := <-resultCh:
-				if result.Error != nil {
-					p.log.Error("runner error", zap.Error(result.Error))
-					completeOnce.Do(func() {
-						if cErr := p.closer.Close(); cErr != nil {
-							p.log.Error("failed to close resources", zap.Error(cErr))
-						}
-						if onComplete := process.GetOnComplete(p.ctx); onComplete != nil {
-							onComplete(p.pid, &runtime.Result{Error: result.Error})
-						}
-					})
-					return
-				}
-				if len(result.Result) > 0 {
-					p.log.Debug("runner completed", zap.Any("result", result.Result[0]))
-					completeOnce.Do(func() {
-						if cErr := p.closer.Close(); cErr != nil {
-							p.log.Error("failed to close resources", zap.Error(cErr))
-						}
-						if onComplete := process.GetOnComplete(p.ctx); onComplete != nil {
-							onComplete(p.pid, &runtime.Result{
-								Payload: payload.NewPayload(result.Result[0], payload.Lua),
-							})
-						}
-					})
-					return
-				}
-			case msg := <-p.upstream:
-				p.log.Debug("received upstream message", zap.Any("msg", msg))
-			case <-ctx.Done():
-				err := ctx.Err()
-				if p.stepErr != nil {
-					err = p.stepErr
-				}
+func (p *App) processLoop(resultCh <-chan engine.Result) {
+	defer func() {
+		close(p.done)
+		close(p.upstream)
+		p.runner.Close()
+	}()
+
+	completeOnce := sync.Once{}
+
+	for {
+		select {
+		case result := <-resultCh:
+			if result.Error != nil {
+				p.log.Error("runner error", zap.Error(result.Error))
 				completeOnce.Do(func() {
 					if cErr := p.closer.Close(); cErr != nil {
 						p.log.Error("failed to close resources", zap.Error(cErr))
 					}
 					if onComplete := process.GetOnComplete(p.ctx); onComplete != nil {
-						onComplete(p.pid, &runtime.Result{Error: err})
+						onComplete(p.pid, &runtime.Result{Error: result.Error})
 					}
 				})
 				return
 			}
-		}
-	}()
-
-	go func() {
-		for {
-			select {
-			case <-p.done:
+			if len(result.Result) > 0 {
+				p.log.Debug("runner completed", zap.Any("result", result.Result[0]))
+				completeOnce.Do(func() {
+					if cErr := p.closer.Close(); cErr != nil {
+						p.log.Error("failed to close resources", zap.Error(cErr))
+					}
+					if onComplete := process.GetOnComplete(p.ctx); onComplete != nil {
+						onComplete(p.pid, &runtime.Result{
+							Payload: payload.NewPayload(result.Result[0], payload.Lua),
+						})
+					}
+				})
 				return
-			case <-time.After(1 * time.Second):
-				task, err := tasks.CreateTask(payload.NewPayload(lua.LString("hello world"), payload.Lua))
-				if err != nil {
-					p.log.Error("failed to create task",
-						zap.Error(err))
-					continue
-				}
-
-				p.pubsub.Publish(ChannelInbox, tasks.WrapTask(p.runner.GetCVM().State(), task))
-
-				select {
-				case <-p.done:
-				case rsp := <-task.Response:
-
-					p.log.Debug("received task response", zap.Any("rsp", rsp.Data()))
-				}
 			}
-		}
-	}()
+		case msg := <-p.upstream:
+			p.log.Debug("received upstream message", zap.Any("msg", msg))
 
-	return nil
+			// todo: send to app
+			p.Update(msg)
+
+		case <-p.ctx.Done():
+			err := p.ctx.Err()
+			if p.stepErr != nil {
+				err = p.stepErr
+			}
+			completeOnce.Do(func() {
+				if cErr := p.closer.Close(); cErr != nil {
+					p.log.Error("failed to close resources", zap.Error(cErr))
+				}
+				if onComplete := process.GetOnComplete(p.ctx); onComplete != nil {
+					onComplete(p.pid, &runtime.Result{Error: err})
+				}
+			})
+			return
+		}
+	}
 }
 
-// Step updates the process state
-func (p *Process) Step() error {
+func (p *App) Step() error {
 	select {
 	case <-p.done:
 		return nil
@@ -192,20 +291,18 @@ func (p *Process) Step() error {
 		if err != nil {
 			p.stepErr = err
 		}
-
 		return err
 	}
 }
 
-// Send routes messages to the process and publish to subscribers
-func (p *Process) Send(msg ...*process.Message) error {
+func (p *App) Send(msg ...*process.Message) error {
 	select {
 	case <-p.done:
 		return errors.New("process stopped")
 	default:
 		for _, m := range msg {
 			if m.Topic == process.TopicCancel {
-				p.pubsub.Release(m.Topic) // we want all subscribers to be released at the same time
+				p.pubsub.Release(m.Topic)
 				continue
 			}
 
