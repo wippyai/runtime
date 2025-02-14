@@ -140,7 +140,7 @@ func (t *Terminal) handleLaunch(ctx context.Context, pl *process.LaunchProcess, 
 		t.cleanup(result)
 	})
 
-	runner, err := NewTerminalRunner(pCtx, cfg, t.log, pl)
+	runner, err := NewTerminalRunner(pCtx, cfg, pl)
 	if err != nil {
 		t.cleanup(nil)
 		return err

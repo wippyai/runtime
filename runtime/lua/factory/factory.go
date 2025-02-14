@@ -106,7 +106,7 @@ func (f *RunnerFactory) CreateRunner() (*engine.Runner, error) {
 	}
 
 	// Load main function todo: encapsulate into runner option and skip the need for main func
-	if err := vm.Mount(f.compiled.Main, f.compiled.Method); err != nil {
+	if err := vm.Mount(f.compiled.Main, f.compiled.FuncName); err != nil {
 		vm.Close()
 		return nil, fmt.Errorf("failed to load main function: %w", err)
 	}

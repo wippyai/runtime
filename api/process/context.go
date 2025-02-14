@@ -22,8 +22,8 @@ var onStartKey = &onStartKeyType{}       //nolint:gochecknoglobals
 func WithOnComplete(ctx context.Context, cb OnComplete) context.Context {
 	if existing, ok := ctx.Value(onCompleteKey).(OnComplete); ok {
 		combined := func(pid PID, result *runtime.Result) {
-			existing(pid, result)
 			cb(pid, result)
+			existing(pid, result)
 		}
 		return context.WithValue(ctx, onCompleteKey, OnComplete(combined))
 	}
@@ -36,8 +36,8 @@ func WithOnComplete(ctx context.Context, cb OnComplete) context.Context {
 func WithOnStart(ctx context.Context, cb OnStart) context.Context {
 	if existing, ok := ctx.Value(onStartKey).(OnStart); ok {
 		combined := func(pid PID, proc Process) {
-			existing(pid, proc)
 			cb(pid, proc)
+			existing(pid, proc)
 		}
 		return context.WithValue(ctx, onStartKey, OnStart(combined))
 	}

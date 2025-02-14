@@ -19,7 +19,7 @@ type CompiledProto struct {
 // CompiledMain holds the compiled versions of the main function and its dependencies
 type CompiledMain struct {
 	Main         *glua.FunctionProto
-	Method       string
+	FuncName     string
 	Dependencies []CompiledProto
 }
 
@@ -112,7 +112,7 @@ func (c *Compiler) Compile(
 
 	compiled := &CompiledMain{}
 	compiled.Main = mainProto
-	compiled.Method = rt.Main.Method
+	compiled.FuncName = rt.Main.Method
 
 	for _, pre := range options.Preloaded {
 		main, err2 := c.preloadModule(memGraph, pre, compiled)

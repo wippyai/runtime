@@ -9,7 +9,6 @@ import (
 	"sync"
 
 	"github.com/ponyruntime/pony/api/process"
-	"go.uber.org/zap"
 )
 
 // RunnerConfig holds the configuration for a Runner.
@@ -33,7 +32,6 @@ type Runner struct {
 	proc   process.Process
 	ctx    context.Context
 	cancel context.CancelFunc
-	log    *zap.Logger
 	cfg    *RunnerConfig
 	once   sync.Once
 }
@@ -43,7 +41,6 @@ type Runner struct {
 func NewTerminalRunner(
 	ctx context.Context,
 	cfg *RunnerConfig,
-	log *zap.Logger,
 	launch *process.LaunchProcess,
 ) (*Runner, error) {
 	if cfg == nil {
@@ -66,7 +63,6 @@ func NewTerminalRunner(
 		proc:   launch.Process,
 		ctx:    runnerCtx,
 		cancel: cancel,
-		log:    log,
 		cfg:    cfg,
 	}
 
@@ -77,11 +73,11 @@ func NewTerminalRunner(
 	}
 
 	// Launch the runner loop.
-	go runner.run(launch.PID)
+	go runner.run()
 	return runner, nil
 }
 
-func (r *Runner) run(pid process.PID) {
+func (r *Runner) run() {
 	defer r.Stop()
 
 	for {
@@ -92,10 +88,6 @@ func (r *Runner) run(pid process.PID) {
 		}
 
 		if err := r.proc.Step(); err != nil {
-			r.log.Error("process execution failed",
-				zap.String("pid", pid.String()),
-				zap.Error(err),
-			)
 			r.Stop()
 			return
 		}

@@ -51,7 +51,7 @@ type (
 	//// WorkflowConfig defines the configuration for a Lua workflow component.
 	//WorkflowConfig struct {
 	//	Source string                 `json:"source"` // Lua source code
-	//	Method string                 `json:"method"` // Alias of the Lua method to execute
+	//	FuncName string                 `json:"method"` // Alias of the Lua method to execute
 	//	Import map[string]registry.ID `json:"import"` // Import aliases for the library
 	//}
 

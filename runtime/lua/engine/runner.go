@@ -152,6 +152,10 @@ func (e *Runner) GetTaskGroup() *TaskGroup {
 	return e.taskGroup
 }
 
+func (e *Runner) GetLayers() []Layer {
+	return e.layers
+}
+
 // Start initiates execution of a function with the given name and arguments.
 // It returns a channel that will receive the execution result.
 func (e *Runner) Start(ctx context.Context, funcName string, args ...lua.LValue) (<-chan Result, error) {

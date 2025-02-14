@@ -100,7 +100,7 @@ func (p *TickerProcess) Send(msg ...*process.Message) error {
 	defer p.mu.Unlock()
 
 	for _, m := range msg {
-		log.Printf("--- ticker %v: received message topic=%s payload=%v", p.pid, m.Topic, m.Payload)
+		log.Printf("--- ticker %v: received message topic=%s payload=%v", p.pid, m.Topic, m.Payloads)
 		if m.Topic == process.TopicCancel {
 			p.cancelled = true
 		}

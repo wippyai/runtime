@@ -29,7 +29,7 @@ func init() {
 	bteaBuild = code.NewBuildOptions().
 		WithMode(code.AllowAll).
 		WithPreloaded(code.Preload{Name: "channel", ModuleID: registry.ID{Name: "channel"}}).
-		WithPreloaded(code.Preload{Name: "pubsub", ModuleID: registry.ID{Name: "pubsub"}}).
+		WithPreloaded(code.Preload{Name: "subscribe", ModuleID: registry.ID{Name: "subscribe"}}).
 		WithPreloaded(code.Preload{Name: "upstream", ModuleID: registry.ID{Name: "upstream"}}).
 		WithPreloaded(code.Preload{Name: "tasks", ModuleID: registry.ID{Name: "tasks"}})
 
@@ -84,7 +84,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 
 	m.configs.Store(entry.ID, cfg)
 
-	if err := m.createPrototype(ctx, entry.ID); err != nil {
+	if err := m.upsertPrototype(ctx, entry.ID); err != nil {
 		return fmt.Errorf("failed to create prototype: %w", err)
 	}
 
@@ -115,7 +115,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 	m.configs.Store(entry.ID, cfg)
 
-	if err := m.createPrototype(ctx, entry.ID); err != nil {
+	if err := m.upsertPrototype(ctx, entry.ID); err != nil {
 		return fmt.Errorf("failed to update prototype: %w", err)
 	}
 
@@ -144,7 +144,7 @@ func (m *Manager) Invalidate(ctx context.Context, ids []registry.ID) {
 		m.log.Debug("invalidating btea app", zap.String("id", id.String()))
 
 		if _, exists := m.configs.Load(id); exists {
-			if err := m.createPrototype(ctx, id); err != nil {
+			if err := m.upsertPrototype(ctx, id); err != nil {
 				m.log.Error("failed to recreate prototype", zap.Error(err))
 			}
 		}
@@ -152,48 +152,54 @@ func (m *Manager) Invalidate(ctx context.Context, ids []registry.ID) {
 }
 
 // createRunner creates a new runner for a btea app
-func (m *Manager) createRunner(id registry.ID) (*engine.Runner, error) {
+func (m *Manager) createRunner(id registry.ID) (*engine.Runner, string, error) {
 	compiled, err := m.code.Compile(id, bteaBuild)
 	if err != nil {
-		return nil, fmt.Errorf("failed to compile btea app: %w", err)
+		return nil, "", fmt.Errorf("failed to compile btea app: %w", err)
 	}
 
 	fvm, err := factory.NewRunnerFactory(m.log, compiled, layers)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create runner factory: %w", err)
+		return nil, "", fmt.Errorf("failed to create runner factory: %w", err)
 	}
+	defer func() {
+		err := fvm.Close()
+		if err != nil {
+			m.log.Error("failed to close runner factory", zap.Error(err))
+		}
+	}()
 
 	if err := fvm.Compile(); err != nil {
-		return nil, fmt.Errorf("failed to compile runner: %w", err)
+		return nil, "", fmt.Errorf("failed to compile runner: %w", err)
 	}
 
 	runner, err := fvm.CreateRunner()
 	if err != nil {
-		return nil, fmt.Errorf("failed to create runner: %w", err)
+		return nil, "", fmt.Errorf("failed to create runner: %w", err)
 	}
 
-	return runner, nil
+	return runner, compiled.FuncName, nil
 }
 
-// createPrototype creates or updates a btea app prototype
-func (m *Manager) createPrototype(ctx context.Context, id registry.ID) error {
-	runner, err := m.createRunner(id)
+// upsertPrototype creates or updates a btea app prototype
+func (m *Manager) upsertPrototype(ctx context.Context, id registry.ID) error {
+	runner, funcName, err := m.createRunner(id)
 	if err != nil {
 		return err
 	}
 
-	m.registerPrototype(ctx, id, runner)
+	m.registerPrototype(ctx, id, runner, funcName)
 	return nil
 }
 
 // registerPrototype registers a btea app as a process prototype
-func (m *Manager) registerPrototype(ctx context.Context, id registry.ID, runner *engine.Runner) {
+func (m *Manager) registerPrototype(ctx context.Context, id registry.ID, runner *engine.Runner, funcName string) {
 	m.bus.Send(ctx, events.Event{
 		System: process.PrototypeSystem,
 		Kind:   process.RegisterPrototype,
 		Path:   id.String(),
 		Data: process.Prototype(func() (process.Process, error) {
-			return NewBteaProcess(m.log, payload.GetTranscoder(ctx), runner)
+			return NewBteaProcess(m.log, payload.GetTranscoder(ctx), runner, funcName)
 		}),
 	})
 }

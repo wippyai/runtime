@@ -65,8 +65,8 @@ type (
 	}
 
 	Message struct {
-		Topic   Topic
-		Payload payload.Payloads
+		Topic    Topic
+		Payloads payload.Payloads
 	}
 
 	Receiver interface {

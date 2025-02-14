@@ -2,162 +2,194 @@ package btea
 
 import (
 	"context"
-	"fmt"
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
+	"errors"
+	"sync"
+
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/runtime"
-	"github.com/ponyruntime/pony/api/service/terminal"
-	"sync"
+	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
+	"github.com/ponyruntime/pony/runtime/lua/modules/upstream"
+	lua "github.com/yuin/gopher-lua"
+	"go.uber.org/zap"
 )
 
-type keyMap struct {
-	Quit key.Binding
-}
-
-var keys = keyMap{
-	Quit: key.NewBinding(
-		key.WithKeys("esc"),
-		key.WithHelp("esc", "quit"),
-	),
-}
-
-// Model represents the terminal UI state
-type Model struct {
-	width    int
-	height   int
-	content  string
-	error    error
-	quitting bool
-	ctx      context.Context
-	terminal *terminal.PipeContext
-	program  *tea.Program
-	keys     keyMap
-}
-
-// App represents a terminal application process with Bubble Tea
-type App struct {
-	pid      process.PID
-	ctx      context.Context
-	model    *Model
-	program  *tea.Program
-	mu       sync.Mutex
+// Process implements process.Process with runner management
+type Process struct {
+	mu       sync.RWMutex
+	log      *zap.Logger
+	dtt      payload.Transcoder
+	runner   *engine.Runner
+	funcName string
+	subLayer *subscribe.Layer
+	upstream chan payload.Payload
 	done     chan struct{}
-	terminal *terminal.PipeContext
+	ctx      context.Context
+	pid      process.PID
 }
 
-// NewTerminalProcess creates a new terminal process instance
-func NewTerminalProcess() process.Process {
-	return &App{
-		done: make(chan struct{}),
+// NewBteaProcess constructs a new Process instance
+func NewBteaProcess(
+	log *zap.Logger,
+	dtt payload.Transcoder,
+	runner *engine.Runner,
+	funcName string,
+) (process.Process, error) {
+	if log == nil {
+		log = zap.NewNop()
 	}
+
+	if dtt == nil {
+		return nil, errors.New("transcoder is required")
+	}
+
+	if runner == nil {
+		return nil, errors.New("runner is required")
+	}
+
+	var subLayer *subscribe.Layer
+	for _, layer := range runner.GetLayers() {
+		if sl, ok := layer.(*subscribe.Layer); ok {
+			subLayer = sl
+			break
+		}
+	}
+
+	if subLayer == nil {
+		return nil, errors.New("subscribe layer not found in runner")
+	}
+
+	return &Process{
+		log:      log,
+		dtt:      dtt,
+		runner:   runner,
+		funcName: funcName,
+		subLayer: subLayer,
+		upstream: make(chan payload.Payload, 100),
+		done:     make(chan struct{}),
+	}, nil
 }
 
-// Start initializes the terminal process with Bubble Tea
-func (p *App) Start(ctx context.Context, pid process.PID, input payload.Payloads) error {
+// Start initializes the process
+func (p *Process) Start(ctx context.Context, pid process.PID, input payload.Payloads) error {
 	p.ctx = ctx
 	p.pid = pid
 
-	term := terminal.FromContext(ctx)
-	if term == nil {
-		return fmt.Errorf("terminal context not found")
+	ctx = upstream.WithUpstreamChannel(ctx, p.upstream)
+
+	resultCh, err := p.runner.Start(ctx, p.funcName, getLuaArgs(input)...)
+	if err != nil {
+		return err
 	}
-	p.terminal = term
-
-	model := &Model{
-		ctx:      ctx,
-		terminal: term,
-		keys:     keys,
-	}
-	p.model = model
-
-	program := tea.NewProgram(model, tea.WithInput(term.Stdin), tea.WithOutput(term.Stdout))
-	p.program = program
-	model.program = program
-
-	go func() {
-		if _, err := program.Run(); err != nil {
-			p.model.error = err
-		}
-		close(p.done)
-	}()
 
 	if onStart := process.GetOnStart(ctx); onStart != nil {
 		onStart(pid, p)
 	}
 
+	go func() {
+		defer func() {
+			close(p.done)
+			close(p.upstream)
+			p.runner.Close()
+		}()
+
+		completeOnce := sync.Once{}
+
+		for {
+			select {
+			case result := <-resultCh:
+				if result.Error != nil {
+					p.log.Error("runner error", zap.Error(result.Error))
+					completeOnce.Do(func() {
+						if onComplete := process.GetOnComplete(p.ctx); onComplete != nil {
+							onComplete(p.pid, &runtime.Result{Error: result.Error})
+						}
+					})
+					return
+				}
+				if len(result.Result) > 0 {
+					p.log.Debug("runner completed", zap.Any("result", result.Result[0]))
+					completeOnce.Do(func() {
+						if onComplete := process.GetOnComplete(p.ctx); onComplete != nil {
+							onComplete(p.pid, &runtime.Result{
+								Payload: payload.NewPayload(result.Result[0], payload.Lua),
+							})
+						}
+					})
+					return
+				}
+			case msg := <-p.upstream:
+				p.log.Debug("received upstream message", zap.Any("msg", msg))
+			case <-ctx.Done():
+				completeOnce.Do(func() {
+					if onComplete := process.GetOnComplete(p.ctx); onComplete != nil {
+						onComplete(p.pid, &runtime.Result{Error: ctx.Err()})
+					}
+				})
+				return
+			}
+		}
+	}()
+
 	return nil
 }
 
-// Step handles the terminal process state updates
-func (p *App) Step() error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
+// Step updates the process state
+func (p *Process) Step() error {
 	select {
 	case <-p.done:
-		if p.model.error != nil {
-			return p.model.error
-		}
-		if p.model.quitting {
-			if onComplete := process.GetOnComplete(p.ctx); onComplete != nil {
-				onComplete(p.pid, &runtime.Result{Payload: payload.NewString("quit")})
+		return nil
+	default:
+		var tasks []*engine.Task
+		var err error
+		for {
+			tasks, err = p.runner.Step(tasks...)
+			if err != nil {
+				return err
+			}
+			if len(tasks) == 0 {
+				break
 			}
 		}
 		return nil
+	}
+}
+
+// Send routes messages to the process and publish to subscribers
+func (p *Process) Send(msg ...*process.Message) error {
+	select {
+	case <-p.done:
+		return errors.New("process stopped")
 	default:
+		for _, m := range msg {
+			luaValues := make([]lua.LValue, 0, len(m.Payloads))
+			for _, pp := range m.Payloads {
+				luaPayload, err := p.dtt.Transcode(pp, payload.Lua)
+				if err != nil {
+					p.log.Error("failed to transcode payload",
+						zap.Error(err),
+						zap.String("topic", m.Topic))
+					continue
+				}
+				if luaValue, ok := luaPayload.Data().(lua.LValue); ok {
+					luaValues = append(luaValues, luaValue)
+				}
+			}
+			if len(luaValues) > 0 {
+				p.subLayer.Publish(m.Topic, luaValues...)
+			}
+		}
+		return nil
 	}
-
-	return nil
 }
 
-// Send handles incoming messages
-func (p *App) Send(msg ...*process.Message) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	for _, m := range msg {
-		if m.Topic == process.TopicCancel {
-			p.program.Quit()
-			return nil
+func getLuaArgs(payloads payload.Payloads) []lua.LValue {
+	args := make([]lua.LValue, 0, len(payloads))
+	for _, p := range payloads {
+		if lv, ok := p.Data().(lua.LValue); ok {
+			args = append(args, lv)
 		}
 	}
-
-	return nil
-}
-
-// Init initializes the Bubble Tea model
-func (m *Model) Init() tea.Cmd {
-	return nil
-}
-
-// Update handles events and updates the model
-func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
-
-	case tea.KeyMsg:
-		if key.Matches(msg, m.keys.Quit) {
-			m.quitting = true
-			return m, tea.Quit
-		}
-	}
-
-	return m, nil
-}
-
-// View renders the current state
-func (m *Model) View() string {
-	if m.quitting {
-		return "Goodbye!\n"
-	}
-
-	return fmt.Sprintf(
-		"Window size: %d x %d\n\nPress 'q', 'esc', or 'ctrl+c' to quit",
-		m.width,
-		m.height,
-	)
+	return args
 }

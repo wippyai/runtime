@@ -1,5 +1,5 @@
 function App()
-    local inbox = tasks.channel()
+    local inbox = subscribe.subscribe("tasks")
     local done = channel.new()
     local operations = {}
     local window_width = 80
