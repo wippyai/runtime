@@ -155,5 +155,6 @@ func WrapTask(l *lua.LState, task *Task) lua.LValue {
 	ud := l.NewUserData()
 	ud.Value = task
 	l.SetMetatable(ud, l.GetTypeMetatable("tasks.Task"))
+
 	return ud
 }

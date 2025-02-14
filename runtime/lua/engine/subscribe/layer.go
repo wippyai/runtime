@@ -110,6 +110,8 @@ func (s *Layer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, err
 						}
 					}
 					s.messageQueue.Remove(e)
+				} else {
+					//fmt.Println("no subscribers for topic"), find a good logger?
 				}
 
 				e = nextElem
