@@ -18,19 +18,59 @@ function App()
     local update_ch = pubsub.subscribe("@btea/update")
     local cancel_ch = pubsub.subscribe("@cancel")
 
-    -- Helper function to format messages
+    -- Message helper functions
+    local function format_key_message(key_msg)
+        return string.format(
+            "%s: Key %s%s%s%s",
+            time.now():format("15:04:05"),
+            key_msg.alt and "Alt+" or "",
+            key_msg.ctrl and "Ctrl+" or "",
+            key_msg.shift and "Shift+" or "",
+            key_msg.String or key_msg.key_type
+        )
+    end
+
+    local function format_mouse_message(mouse_msg)
+        return string.format(
+            "%s: Mouse %s at (%d,%d)%s%s%s",
+            time.now():format("15:04:05"),
+            mouse_msg.button,
+            mouse_msg.x, mouse_msg.y,
+            mouse_msg.alt and " +Alt" or "",
+            mouse_msg.ctrl and " +Ctrl" or "",
+            mouse_msg.shift and " +Shift" or ""
+        )
+    end
+
+    local function format_window_message(window_msg)
+        return string.format(
+            "%s: Window resized to %dx%d",
+            time.now():format("15:04:05"),
+            window_msg.width,
+            window_msg.height
+        )
+    end
+
     local function format_message(msg)
-        local timestamp = time.now():format("15:04:05")
-        if type(msg) == "table" and msg.String then
-            return string.format("%s: Key pressed - %s", timestamp, msg.String)
+        if msg.type == "update" then
+            if msg.key then
+                return format_key_message(msg.key)
+            elseif msg.mouse then
+                return format_mouse_message(msg.mouse)
+            elseif msg.window_size then
+                -- Update window size state
+                state.window.width = msg.window_size.width
+                state.window.height = msg.window_size.height
+                return format_window_message(msg.window_size)
+            end
         end
-        return string.format("%s: %s", timestamp, tostring(msg))
+        return string.format("%s: Unknown message type: %s", time.now():format("15:04:05"), msg.type or "nil")
     end
 
     -- View rendering
     local function render_view()
         local lines = {
-            "BubbleTea App",
+            "BubbleTea App (" .. state.window.width .. "x" .. state.window.height .. ")",
             "",
             "Message Log:",
             ""
@@ -61,7 +101,6 @@ function App()
 
     -- Start ticker in background
     coroutine.spawn(function()
-        print("Starting ticker coroutine")
         local ticker = time.ticker("1s")
 
         while true do
@@ -71,30 +110,20 @@ function App()
             }
 
             if result.channel == done then
-                print("Stopping ticker")
                 ticker:stop()
                 break
             end
 
-            print("Tick received")
             upstream.send("tick")
         end
     end)
 
     -- Message handlers
-    local function handle_init(task)
-        print("Init handler called")
-        table.insert(state.messages, format_message("Application initialized"))
-        task:complete("ok")
-    end
-
     local function handle_view(task)
-        print("View handler called")
         task:complete(render_view())
     end
 
     local function handle_update(task)
-        print("Update handler called")
         local input = task:input()
         if input then
             table.insert(state.messages, format_message(input))
@@ -103,18 +132,15 @@ function App()
     end
 
     -- Main event loop
-    print("Starting main event loop")
     while true do
         local result = channel.select {
             view_ch:case_receive(),
             update_ch:case_receive(),
             cancel_ch:case_receive()
         }
-        print("Received message on channel")
 
         -- Handle channel closure or errors
         if not result.ok then
-            print("Channel error or closure")
             break
         end
 
@@ -124,22 +150,17 @@ function App()
         elseif result.channel == update_ch then
             handle_update(result.value)
         elseif result.channel == cancel_ch then
-            print("Received cancel signal")
             break
         end
     end
 
     -- Cleanup
-    print("Starting cleanup")
     done:send(true)  -- Signal ticker to stop
     done:close()
 
-    print("Unsubscribing from channels")
     pubsub.unsubscribe(view_ch)
     pubsub.unsubscribe(update_ch)
     pubsub.unsubscribe(cancel_ch)
-
-    print("Cleanup complete")
 end
 
 return App
