@@ -161,6 +161,12 @@ func (t *Terminal) handleTerminate() error {
 func (t *Terminal) handleSend(msg ...*process.Message) error {
 	runner := t.runner.Load()
 	if runner == nil {
+		if len(msg) > 0 {
+			if msg[0].Topic == process.TopicCancel {
+				return nil
+			}
+		}
+
 		return process.ErrNoProcess
 	}
 	return runner.Send(msg...)
