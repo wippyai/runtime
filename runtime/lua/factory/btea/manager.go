@@ -29,9 +29,10 @@ func init() {
 	bteaBuild = code.NewBuildOptions().
 		WithMode(code.AllowAll).
 		WithPreloaded(code.Preload{Name: "channel", ModuleID: registry.ID{Name: "channel"}}).
-		WithPreloaded(code.Preload{Name: "pubsub", ModuleID: registry.ID{Name: "subscribe"}}). // todo: rename evewhere
+		WithPreloaded(code.Preload{Name: "pubsub", ModuleID: registry.ID{Name: "subscribe"}}).
 		WithPreloaded(code.Preload{Name: "upstream", ModuleID: registry.ID{Name: "upstream"}}).
-		WithPreloaded(code.Preload{Name: "tasks", ModuleID: registry.ID{Name: "tasks"}})
+		WithPreloaded(code.Preload{Name: "tasks", ModuleID: registry.ID{Name: "tasks"}}).
+		WithPreloaded(code.Preload{Name: "btea", ModuleID: registry.ID{Name: "btea"}})
 
 	layers = factory.WithLayerInitializer(func() []engine.RunnerOption {
 		channels := channel.NewChannelLayer()
@@ -196,7 +197,7 @@ func (m *Manager) registerPrototype(ctx context.Context, id registry.ID, runner 
 		Kind:   process.RegisterPrototype,
 		Path:   id.String(),
 		Data: process.Prototype(func() (process.Process, error) {
-			return NewBteaProcess(m.log, payload.GetTranscoder(ctx), runner, funcName)
+			return NewApp(m.log, payload.GetTranscoder(ctx), runner, funcName)
 		}),
 	})
 }
