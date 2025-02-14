@@ -160,7 +160,7 @@ func (p *Process) Start(ctx context.Context, pid process.PID, input payload.Payl
 			case <-p.done:
 				return
 			case <-time.After(1 * time.Second):
-				task, err := tasks.CreateTask(payload.NewPayload(lua.LNil, payload.Lua))
+				task, err := tasks.CreateTask(payload.NewPayload(lua.LString("hello world"), payload.Lua))
 				if err != nil {
 					p.log.Error("failed to create task",
 						zap.Error(err))
