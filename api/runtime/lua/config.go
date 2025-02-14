@@ -57,10 +57,11 @@ type (
 
 	// BteaConfig defines the configuration for a Lua terminal component.
 	BteaConfig struct {
-		Meta   registry.Metadata      `json:"meta"`   // Metadata for the terminal
-		Source string                 `json:"source"` // Lua source code
-		Method string                 `json:"method"` // Alias of the Lua method to execute
-		Import map[string]registry.ID `json:"import"` // Import aliases for the library
+		Meta    registry.Metadata      `json:"meta"`    // Metadata for the terminal
+		Source  string                 `json:"source"`  // Lua source code
+		Method  string                 `json:"method"`  // Alias of the Lua method to execute
+		Import  map[string]registry.ID `json:"import"`  // Import aliases for the library
+		Modules []string               `json:"modules"` // Shortcut for importing modules
 	}
 )
 

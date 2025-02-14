@@ -51,7 +51,7 @@ entries:
       comment: "Implements a 10-minute duration timer that emits JSON events every second with tick count and elapsed time"
     source: file://ticker.lua
     method: ticker
-    modules: [ http, time, json ]  # Added http module
+    modules: [ http, time, json ]
     pool:
       size: 4
 

@@ -2,6 +2,7 @@ package factory
 
 import (
 	"fmt"
+	"log"
 	"sync"
 
 	api "github.com/ponyruntime/pony/api/runtime/lua"
@@ -135,6 +136,8 @@ func (f *RunnerFactory) prepare() error {
 		}
 
 		if dep.Node.Module != nil {
+			log.Printf("!!!!!Preloading module %s", dep.Name)
+
 			opts = append(opts, engine.WithPreloaded(dep.Name, dep.Node.Module.Loader))
 		}
 	}
@@ -147,6 +150,7 @@ func (f *RunnerFactory) prepare() error {
 		switch dep.Node.Kind {
 		case api.KindModule:
 			if dep.Node.Module != nil {
+				log.Printf("!!!!!Adding module %s", dep.Name)
 				opts = append(opts, engine.WithLoader(dep.Name, dep.Node.Module.Loader))
 			}
 		case api.KindLibrary, api.KindFunction:
