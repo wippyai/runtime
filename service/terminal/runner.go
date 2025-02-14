@@ -56,6 +56,10 @@ func NewTerminalRunner(
 		terminal.NewTerminalContext(cfg.Stdin, cfg.Stdout, cfg.Stderr),
 	)
 
+	runnerCtx = process.WithOnComplete(runnerCtx, func(pid process.PID, result *runtime.Result) {
+		cancel()
+	})
+
 	runner := &Runner{
 		proc:   launch.Process,
 		ctx:    runnerCtx,
@@ -63,14 +67,6 @@ func NewTerminalRunner(
 		log:    log,
 		cfg:    cfg,
 	}
-
-	runnerCtx = process.WithOnComplete(runnerCtx, func(pid process.PID, result *runtime.Result) {
-		log.Info("!!!!!!!!!!!!!!!!!terminal process execution completed",
-			zap.String("pid", pid.String()),
-			zap.Any("result", result),
-		)
-
-	})
 
 	// Start the process with the runner's context.
 	if err := runner.proc.Start(runnerCtx, launch.PID, launch.Input); err != nil {
