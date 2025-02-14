@@ -101,7 +101,7 @@ func (c *DataConverter) FromPayloads(payloads *commonpb.Payloads, valuePtrs ...a
 
 // ToPayload converts a single value to Temporal payload.
 func (c *DataConverter) ToPayload(value any) (*commonpb.Payload, error) {
-	// check if our value instance of payload.Payload
+	// check if our value instance of payload.Payloads
 	pValue, ok := value.(payload.Payload)
 	if !ok {
 		return c.fallback.ToPayload(value)
@@ -163,7 +163,7 @@ func (c *DataConverter) FromPayload(p *commonpb.Payload, valuePtr any) error {
 		return nil
 	}
 
-	// are we trying to convert to payload.Payload?
+	// are we trying to convert to payload.Payloads?
 	ptr, ok := valuePtr.(*payload.Payload)
 	if !ok {
 		return c.fallback.FromPayload(p, valuePtr)
