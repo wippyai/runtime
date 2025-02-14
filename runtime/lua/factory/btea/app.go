@@ -72,12 +72,7 @@ func (p *App) Start(ctx context.Context, pid process.PID, input payload.Payloads
 	}
 	p.model = model
 
-	program := tea.NewProgram(
-		model,
-		tea.WithInput(term.Stdin),
-		tea.WithOutput(term.Stdout),
-		tea.WithAltScreen(),
-	)
+	program := tea.NewProgram(model, tea.WithInput(term.Stdin), tea.WithOutput(term.Stdout))
 	p.program = program
 	model.program = program
 
