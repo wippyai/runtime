@@ -251,7 +251,7 @@ func (e *Runner) Continue(ctx context.Context) error {
 		}
 
 		// block for any pending task
-		tasks, err = e.taskGroup.Wait(ctx, e.cvm, false)
+		tasks, err = e.taskGroup.Wait(ctx, e.cvm, true)
 		if err != nil {
 			return err
 		}
