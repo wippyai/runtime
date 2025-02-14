@@ -206,7 +206,7 @@ func TestSpinnerUpdate(t *testing.T) {
 	require.Equal(t, 1, len(tasks))
 	require.Equal(t, "ready_for_tick", tasks[0].Yielded[0].String())
 
-	cmd := protocol.UnwrapCommand(cvm.State(), tasks[0].Yielded[1])
+	cmd, _ := protocol.UnwrapCommand(tasks[0].Yielded[1])
 
 	// Spawn a tick message using protocol
 	tickMsg := protocol.MsgToLua(cmd())

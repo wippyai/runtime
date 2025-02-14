@@ -116,7 +116,13 @@ func (ld *LuaDelegate) Update(msg tea.Msg, m *list.Model) tea.Cmd {
 		return nil
 	}
 
-	return protocol.UnwrapCommand(ld.luaState, ret)
+	cmd, err := protocol.UnwrapCommand(ret)
+	if err != nil {
+		ld.luaState.RaiseError("error unwrapping command: %v", err)
+		return nil
+	}
+
+	return cmd
 }
 
 func (ld *LuaDelegate) ShortHelp() []key.Binding {
