@@ -8,7 +8,6 @@ import (
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/runtime"
 	"strings"
 )
 
@@ -70,24 +69,17 @@ type (
 		Payload payload.Payloads
 	}
 
-	StartProcess struct {
-		PID        PID
-		Input      payload.Payloads
-		OnComplete []OnComplete
-	}
-
 	Process interface {
-		// Start begins process execution with given task
-		Start(context.Context, StartProcess) error
+		Start(context.Context, PID, payload.Payloads) error
 
 		// Step advances process state by one iteration
 		Step() error
 
 		// Send delivers a message to the process instance
-		Send(msg *Message) error
+		Send(msg ...*Message) error // todo: we can decompose it actually
 	}
 
-	Start struct {
+	StartProcess struct {
 		HostID   HostID
 		ID       registry.ID
 		Name     string
@@ -95,28 +87,25 @@ type (
 	}
 
 	Manager interface {
-		Start(ctx context.Context, start Start) (PID, error)
-		Send(ctx context.Context, pid PID, msg *Message) error
+		Start(ctx context.Context, start *StartProcess) (PID, error)
+		Send(ctx context.Context, pid PID, msg ...*Message) error
 		Terminate(ctx context.Context, pid PID) error
 	}
 
 	Host interface {
-		Send(ctx context.Context, pid PID, msg *Message) error
+		Send(ctx context.Context, pid PID, msg ...*Message) error
 		Terminate(ctx context.Context, pid PID) error
 	}
 
-	OnComplete func(PID, *runtime.Result)
-
-	Launch struct {
-		PID        PID
-		Process    Process
-		Input      payload.Payloads
-		OnComplete []OnComplete
+	LaunchProcess struct {
+		PID     PID
+		Process Process
+		Input   payload.Payloads
 	}
 
 	Managed interface {
 		Host
-		Launch(ctx context.Context, launch Launch) (PID, error)
+		Launch(ctx context.Context, launch *LaunchProcess) (PID, error)
 	}
 
 	Delegated interface {

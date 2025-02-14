@@ -121,7 +121,7 @@ func NewApp(verbose, veryVerbose bool) (*App, error) {
 }
 
 func (a *App) Initialize() error {
-	// Launch log manager first for proper logging
+	// LaunchProcess log manager first for proper logging
 	if err := a.logManager.Start(a.ctx); err != nil {
 		return fmt.Errorf("failed to start log manager: %w", err)
 	}
@@ -165,7 +165,7 @@ func (a *App) Start(folderPath string) error {
 	}
 	ctx = context.WithValue(ctx, apiCtx.EnvCtx, envCtx)
 
-	// Launch core function registry
+	// LaunchProcess core function registry
 	if err := a.funcs.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start function executor: %w", err)
 	}
@@ -178,13 +178,13 @@ func (a *App) Start(folderPath string) error {
 		return fmt.Errorf("failed to start host registry: %w", err)
 	}
 
-	// Launch supervisor
+	// LaunchProcess supervisor
 	if err := a.supervisor.Start(ctx); err != nil {
 		a.cancel()
 		return fmt.Errorf("failed to start supervisor: %w", err)
 	}
 
-	// Launch secondary services
+	// LaunchProcess secondary services
 	router, err := eventbus.StartRouter(ctx, a.eventBus, a.services)
 	if err != nil {
 		a.cancel()
@@ -207,7 +207,7 @@ func (a *App) Start(folderPath string) error {
 	}
 	time.Sleep(1 * time.Second)
 	// launch (todo: we also can retry or better delegate it to supervisor)
-	pid, err := a.processes.Start(ctx, processapi.Start{
+	pid, err := a.processes.Start(ctx, processapi.StartProcess{
 		HostID: "system:terminal",
 		ID:     apiReg.ID{NS: "terminal", Name: "basic"},
 		Name:   "root",
@@ -228,7 +228,7 @@ func (a *App) Stop() error {
 	ctx, cancel := context.WithTimeout(a.ctx, 15*time.Second)
 	defer cancel()
 
-	// Launch a goroutine to handle force shutdown
+	// LaunchProcess a goroutine to handle force shutdown
 	go func() {
 		select {
 		case <-a.forceShutdown:
@@ -302,7 +302,7 @@ func main() {
 	)...)
 	// --------------------------------------------------
 
-	// Launch application
+	// LaunchProcess application
 	if err := app.Start(folderPath); err != nil {
 		app.logger.Fatal("Failed to start application", zap.Error(err))
 	}
@@ -317,7 +317,7 @@ func main() {
 	sig := <-sigChan
 	app.logger.Info("received shutdown signal, starting graceful shutdown", zap.String("signal", sig.String()))
 
-	// Launch goroutine to handle second signal
+	// LaunchProcess goroutine to handle second signal
 	go func() {
 		sig := <-sigChan
 		app.logger.Warn("received second shutdown signal, forcing immediate shutdown", zap.String("signal", sig.String()))
