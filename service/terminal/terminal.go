@@ -174,7 +174,7 @@ func (t *Terminal) handleSend(msg ...*process.Message) error {
 
 func (t *Terminal) cleanup(result *runtime.Result) {
 	// Use the existing service context to restore base log configuration.
-	t.logCtrl.RestoreBaseConfig(t.ctx)
+	t.logCtrl.RestoreBaseConfig(context.Background())
 	if runner := t.runner.Swap(nil); runner != nil {
 		runner.Stop()
 	}
