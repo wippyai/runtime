@@ -75,7 +75,7 @@ func TestCmdBatching(t *testing.T) {
 		l.Push(cmds)
 		l.Call(1, 1)
 
-		batchCmd := UnwrapCommand(l, l.Get(-1))
+		batchCmd, _ := UnwrapCommand(l.Get(-1))
 		require.NotNil(t, batchCmd)
 
 		batchMsg, ok := batchCmd().(tea.BatchMsg)

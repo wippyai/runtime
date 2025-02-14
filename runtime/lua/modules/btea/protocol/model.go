@@ -24,7 +24,11 @@ func (m *LuaModelWrapper) Init() tea.Cmd {
 		if err == nil {
 			ret := m.luaState.Get(-1)
 			m.luaState.Pop(1)
-			return UnwrapCommand(m.luaState, ret)
+			cmd, err := UnwrapCommand(ret)
+			if err != nil {
+				return nil
+			}
+			return cmd
 		}
 	}
 	return nil
@@ -55,7 +59,12 @@ func (m *LuaModelWrapper) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.value = modelRet
 			}
 
-			return m, UnwrapCommand(m.luaState, cmdRet)
+			cmd, err := UnwrapCommand(cmdRet)
+			if err != nil {
+				return m, nil
+			}
+
+			return m, cmd
 		}
 	}
 	return m, nil

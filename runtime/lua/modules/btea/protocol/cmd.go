@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"errors"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
@@ -100,18 +101,18 @@ func WrapCommand(l *lua.LState, cmd tea.Cmd) *lua.LUserData {
 	return ud
 }
 
-func UnwrapCommand(l *lua.LState, value lua.LValue) tea.Cmd {
+func UnwrapCommand(value lua.LValue) (tea.Cmd, error) {
 	switch cmd := value.(type) {
 	case *lua.LNilType:
-		return nil
+		return nil, nil
 	case *lua.LUserData:
 		if v, ok := cmd.Value.(*CmdWrapper); ok {
-			return v.cmd
+			return v.cmd, nil
 		}
+		return nil, errors.New("invalid command")
 	default:
-		l.RaiseError("expected a command, but got %s", cmd.Type().String())
+		return nil, errors.New("invalid command")
 	}
-	return nil
 }
 
 // cmdExecute executes the wrapped command

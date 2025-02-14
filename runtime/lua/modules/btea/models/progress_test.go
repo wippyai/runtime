@@ -182,7 +182,7 @@ func TestProgressUpdate(t *testing.T) {
 	require.Equal(t, "ready_for_tick", tasks[0].Yielded[0].String())
 
 	// Spawn command and execute it
-	cmd := protocol.UnwrapCommand(cvm.State(), tasks[0].Yielded[1])
+	cmd, _ := protocol.UnwrapCommand(tasks[0].Yielded[1])
 	msg := cmd()
 
 	// Pass message back to Lua
@@ -195,7 +195,7 @@ func TestProgressUpdate(t *testing.T) {
 	require.Equal(t, "next_frame", tasks[0].Yielded[0].String())
 
 	// Spawn next frame command
-	cmd = protocol.UnwrapCommand(cvm.State(), tasks[0].Yielded[1])
+	cmd, _ = protocol.UnwrapCommand(tasks[0].Yielded[1])
 	msg = cmd()
 
 	// Pass message back to Lua

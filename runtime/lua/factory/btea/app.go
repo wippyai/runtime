@@ -17,6 +17,7 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/modules/upstream"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
+	"log"
 	"sync"
 	"time"
 )
@@ -81,6 +82,7 @@ type App struct {
 
 	// what we run
 	ctx      context.Context
+	cancel   context.CancelFunc // todo: implement and use in cleanup
 	pid      process.PID
 	runner   *engine.Runner
 	funcName string
@@ -258,7 +260,21 @@ func (p *App) processLoop(resultCh <-chan engine.Result) {
 				})
 				return
 			}
-		case msg := <-p.upstream:
+		case pp := <-p.upstream:
+			value := pp.Data()
+
+			msg, err := protocol.LuaToMsg(value.(lua.LValue))
+			if msg == nil {
+				msg = value
+			}
+			log.Printf("%T", msg)
+
+			if err != nil {
+				p.log.Error("failed to convert upstream message", zap.Error(err))
+				continue
+			}
+			//msg.Data()
+			log.Printf("msg.Data() = %+v", msg)
 			p.program.Send(msg)
 
 		case <-p.ctx.Done():

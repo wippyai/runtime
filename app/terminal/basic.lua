@@ -10,8 +10,36 @@ function App()
         }
     }
 
+    -- Create box styles
+    local box_style = btea.style()
+        :border("rounded")
+        :padding(0, 1)
+        :width(state.window.width - 2)
+
+    local header_style = btea.style()
+        :bold()
+        :foreground("#7D56F4")
+
+    local log_style = btea.style()
+        :foreground("#666666")
+
     -- Create a done channel for cleanup coordination
     local done = channel.new()
+
+    -- Setup cleanup commands
+    local cleanup_cmd = btea.sequence({
+        btea.commands.show_cursor,
+        btea.commands.exit_alt_screen
+    })
+
+    -- Setup init commands
+    local init_cmd = btea.sequence({
+        btea.commands.enter_alt_screen,
+        btea.commands.hide_cursor
+    })
+
+    -- Execute init commands
+    init_cmd:execute()
 
     -- Channel subscriptions
     local view_ch = pubsub.subscribe("@btea/view")
@@ -20,59 +48,92 @@ function App()
 
     -- Message helper functions
     local function format_key_message(key_msg)
+        if key_msg.String then
+            return string.format(
+                "%s: Pressed '%s'",
+                time.now():format("15:04:05"),
+                key_msg.String
+            )
+        end
         return string.format(
-            "%s: Key %s%s%s%s",
+            "%s: Key '%s'",
             time.now():format("15:04:05"),
-            key_msg.alt and "Alt+" or "",
-            key_msg.ctrl and "Ctrl+" or "",
-            key_msg.shift and "Shift+" or "",
-            key_msg.String or key_msg.key_type
+            key_msg.key_type
         )
     end
 
     local function format_mouse_message(mouse_msg)
         return string.format(
-            "%s: Mouse %s at (%d,%d)%s%s%s",
+            "%s: Mouse %s at (%d,%d)",
             time.now():format("15:04:05"),
             mouse_msg.button,
-            mouse_msg.x, mouse_msg.y,
-            mouse_msg.alt and " +Alt" or "",
-            mouse_msg.ctrl and " +Ctrl" or "",
-            mouse_msg.shift and " +Shift" or ""
+            mouse_msg.x, mouse_msg.y
         )
     end
 
     local function format_window_message(window_msg)
+        if window_msg.width ~= state.window.width or
+           window_msg.height ~= state.window.height then
+            state.window.width = window_msg.width
+            state.window.height = window_msg.height
+            -- Update box style width
+            box_style = box_style:width(state.window.width - 2)
+            return string.format(
+                "%s: Window size: %dx%d",
+                time.now():format("15:04:05"),
+                window_msg.width,
+                window_msg.height
+            )
+        end
+        return nil
+    end
+
+    local function handle_ctrl_c()
+        -- Send ctrl+c upstream
+        upstream.send(btea.commands.quit)
+
         return string.format(
-            "%s: Window resized to %dx%d",
-            time.now():format("15:04:05"),
-            window_msg.width,
-            window_msg.height
+            "%s: Ctrl+C pressed, signaling exit...",
+            time.now():format("15:04:05")
         )
     end
 
     local function format_message(msg)
-        if msg.type == "update" then
+        -- Handle raw tick strings
+        if type(msg) == "string" and msg == "tick" then
+            return string.format("%s: Tick", time.now():format("15:04:05"))
+        end
+
+        -- Handle update messages
+        if type(msg) == "table" and msg.type == "update" then
             if msg.key then
+                -- Handle Ctrl+C specially
+                if msg.key.key_type == "ctrl+c" then
+                    return handle_ctrl_c()
+                end
                 return format_key_message(msg.key)
             elseif msg.mouse then
                 return format_mouse_message(msg.mouse)
             elseif msg.window_size then
-                -- Update window size state
-                state.window.width = msg.window_size.width
-                state.window.height = msg.window_size.height
                 return format_window_message(msg.window_size)
             end
         end
-        return string.format("%s: Unknown message type: %s", time.now():format("15:04:05"), msg.type or "nil")
+
+        return nil -- Skip unknown messages
     end
 
     -- View rendering
     local function render_view()
+        local title = header_style:render(
+            string.format("BubbleTea App (%dx%d)", state.window.width, state.window.height)
+        )
+        local subtitle = log_style:render("Press ESC or Ctrl+C to exit")
+
         local lines = {
-            "BubbleTea App (" .. state.window.width .. "x" .. state.window.height .. ")",
+            title,
+            subtitle,
             "",
-            "Message Log:",
+            header_style:render("Message Log:"),
             ""
         }
 
@@ -83,20 +144,7 @@ function App()
             table.insert(lines, "  " .. state.messages[i])
         end
 
-        -- Create bordered box
-        local box = {
-            "┌" .. string.rep("─", state.window.width - 2) .. "┐"
-        }
-
-        for i = 1, state.window.height - 2 do
-            local content = lines[i] or ""
-            content = content .. string.rep(" ", state.window.width - 2 - #content)
-            table.insert(box, "│" .. content .. "│")
-        end
-
-        table.insert(box, "└" .. string.rep("─", state.window.width - 2) .. "┘")
-
-        return table.concat(box, "\n")
+        return box_style:render(table.concat(lines, "\n"))
     end
 
     -- Start ticker in background
@@ -126,7 +174,10 @@ function App()
     local function handle_update(task)
         local input = task:input()
         if input then
-            table.insert(state.messages, format_message(input))
+            local msg = format_message(input)
+            if msg then
+                table.insert(state.messages, msg)
+            end
         end
         task:complete("ok")
     end
@@ -161,6 +212,9 @@ function App()
     pubsub.unsubscribe(view_ch)
     pubsub.unsubscribe(update_ch)
     pubsub.unsubscribe(cancel_ch)
+
+    -- Execute cleanup commands
+    cleanup_cmd:execute()
 end
 
 return App
