@@ -78,7 +78,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		Method: cfg.Method,
 	}
 
-	if err := m.code.AddNode(ctx, node, factory.BuildImports(cfg.Import, nil)); err != nil {
+	if err := m.code.AddNode(ctx, node, factory.BuildImports(cfg.Import, cfg.Modules)); err != nil {
 		return fmt.Errorf("failed to add btea node: %w", err)
 	}
 

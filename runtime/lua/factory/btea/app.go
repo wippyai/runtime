@@ -151,6 +151,8 @@ func (p *Process) Step() error {
 		var tasks []*engine.Task
 		var err error
 		for {
+			// todo: remove this loop
+			// todo: use internal queue, parent will control steps
 			tasks, err = p.runner.Step(tasks...)
 			if err != nil {
 				p.exitErr = err
