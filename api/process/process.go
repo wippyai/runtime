@@ -69,14 +69,17 @@ type (
 		Payload payload.Payloads
 	}
 
+	Receiver interface {
+		send(context.Context, ...*Message) error
+	}
+
 	Process interface {
+		Receiver
+
 		Start(context.Context, PID, payload.Payloads) error
 
 		// Step advances process state by one iteration
 		Step() error
-
-		// Send delivers a message to the process instance
-		Send(msg ...*Message) error // todo: we can decompose it actually
 	}
 
 	StartProcess struct {
