@@ -107,9 +107,8 @@ func (p *Process) Start(ctx context.Context, pid process.PID, input payload.Payl
 				if result.Error != nil {
 					p.log.Error("runner error", zap.Error(result.Error))
 					completeOnce.Do(func() {
-						cErr := p.closer.Close()
-						if cErr != nil {
-							p.log.Error("failed to close resources", zap.Error(err))
+						if cErr := p.closer.Close(); cErr != nil {
+							p.log.Error("failed to close resources", zap.Error(cErr))
 						}
 						if onComplete := process.GetOnComplete(p.ctx); onComplete != nil {
 							onComplete(p.pid, &runtime.Result{Error: result.Error})
@@ -120,9 +119,8 @@ func (p *Process) Start(ctx context.Context, pid process.PID, input payload.Payl
 				if len(result.Result) > 0 {
 					p.log.Debug("runner completed", zap.Any("result", result.Result[0]))
 					completeOnce.Do(func() {
-						cErr := p.closer.Close()
-						if cErr != nil {
-							p.log.Error("failed to close resources", zap.Error(err))
+						if cErr := p.closer.Close(); cErr != nil {
+							p.log.Error("failed to close resources", zap.Error(cErr))
 						}
 						if onComplete := process.GetOnComplete(p.ctx); onComplete != nil {
 							onComplete(p.pid, &runtime.Result{
@@ -140,9 +138,8 @@ func (p *Process) Start(ctx context.Context, pid process.PID, input payload.Payl
 					err = p.stepErr
 				}
 				completeOnce.Do(func() {
-					cErr := p.closer.Close()
-					if cErr != nil {
-						p.log.Error("failed to close resources", zap.Error(err))
+					if cErr := p.closer.Close(); cErr != nil {
+						p.log.Error("failed to close resources", zap.Error(cErr))
 					}
 					if onComplete := process.GetOnComplete(p.ctx); onComplete != nil {
 						onComplete(p.pid, &runtime.Result{Error: err})
