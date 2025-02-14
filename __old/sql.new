@@ -1,0 +1,55 @@
+-- Get detailed table info including types
+local schema = db:introspect("users")
+for _, col in ipairs(schema) do
+    print(col.name, col.type, col.nullable, col.length)
+end
+
+-- Query with automatic type conversion
+local users = db:table("users")
+    :select("id", "metadata", "created_at", "settings")
+    :where("active", true)
+    :get()
+
+-- Each field automatically converted to appropriate Lua type:
+for _, user in ipairs(users) do
+    -- Numbers come as numbers
+    print(user.id)  -- 42
+
+    -- JSON fields automatically parsed
+    print(user.metadata.preferences.theme)  -- "dark"
+
+    -- Timestamps as unix timestamps or formatted
+    print(user.created_at)  -- 1707811200
+
+    -- NULL becomes nil
+    if user.settings == nil then
+        print("No settings")
+    end
+end
+
+-- Works with all builder operations
+local stats = db:table("orders")
+    :select(db.raw("COUNT(*) as count"), "status")
+    :whereJsonContains("metadata->tags", "urgent")
+    :groupBy("status")
+    :get()
+
+for _, stat in ipairs(stats) do
+    print(stat.status, stat.count)
+end
+
+-- Even in transactions
+db:transaction(function(tx)
+    local order = tx:table("orders")
+        :where("id", 1)
+        :first()
+
+    -- JSON fields still parsed in transactions
+    order.metadata.status = "processed"
+
+    tx:table("orders")
+        :where("id", 1)
+        :update({
+            metadata = order.metadata
+        })
+end)

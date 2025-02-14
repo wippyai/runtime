@@ -13,7 +13,7 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/code"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	bteaApps "github.com/ponyruntime/pony/runtime/lua/factory/btea"
-	"github.com/ponyruntime/pony/runtime/lua/factory/function"
+	luaFunc "github.com/ponyruntime/pony/runtime/lua/factory/function"
 	"github.com/ponyruntime/pony/runtime/lua/factory/library"
 	"github.com/ponyruntime/pony/runtime/lua/modules/base64"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea"
@@ -33,7 +33,7 @@ import (
 	"github.com/ponyruntime/pony/service/http"
 	"github.com/ponyruntime/pony/service/terminal"
 	"github.com/ponyruntime/pony/system/eventbus"
-	"github.com/ponyruntime/pony/system/functions"
+	"github.com/ponyruntime/pony/system/function"
 	"github.com/ponyruntime/pony/system/logs"
 	transcoder "github.com/ponyruntime/pony/system/payload"
 	"github.com/ponyruntime/pony/system/payload/json"
@@ -70,7 +70,7 @@ type App struct {
 	dtt         *transcoder.Transcoder
 	reg         apiReg.Registry
 	supervisor  *supervisor.Supervisor
-	funcs       *functions.FunctionRegistry
+	funcs       *function.FunctionRegistry
 	processes   *process.Manager
 	prototypes  *process.PrototypeRegistry
 	hosts       *process.HostRegistry
@@ -139,7 +139,7 @@ func (a *App) Initialize() error {
 	a.supervisor = supervisor.NewSupervisor(a.eventBus, a.logger.Named("core"))
 
 	// Initialize core function registry
-	a.funcs = functions.NewExecutor(a.eventBus, a.logger.Named("funcs"))
+	a.funcs = function.NewExecutor(a.eventBus, a.logger.Named("funcs"))
 	a.prototypes = process.NewPrototypeFactory(a.eventBus, a.logger.Named("prototypes"))
 	a.hosts = process.NewHostRegistry(a.eventBus, a.logger.Named("hosts"))
 	a.processes = process.NewProcessManager(a.hosts, a.prototypes, a.logger.Named("processes"))
@@ -450,7 +450,7 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 		panic(err)
 	}
 
-	funcs := function.NewManager(a.logger.Named("lua.funcs"), codeManager, a.eventBus)
+	funcs := luaFunc.NewManager(a.logger.Named("lua.funcs"), codeManager, a.eventBus)
 	libraries := library.NewManager(a.logger.Named("lua.libs"), codeManager)
 	terminalApps := bteaApps.NewBteaManager(a.logger.Named("lua.bteaApps"), codeManager, a.eventBus)
 
