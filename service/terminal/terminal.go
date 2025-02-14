@@ -2,6 +2,7 @@ package terminal
 
 import (
 	"context"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	logsapi "github.com/ponyruntime/pony/api/logs"
 	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/registry"
@@ -67,7 +68,8 @@ func (t *Terminal) run(ctx context.Context, status chan<- any) {
 	defer close(status)
 	defer t.cleanup(nil) // Ensure logs are restored even on abnormal exit
 
-	t.ctx = ctx
+	// localizing the logger
+	t.ctx = context.WithValue(ctx, ctxapi.LoggerCtx, t.log)
 
 	for {
 		select {
