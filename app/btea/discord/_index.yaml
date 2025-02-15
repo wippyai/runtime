@@ -1,0 +1,27 @@
+version: "1.0"
+namespace: discord
+
+meta:
+  depends_on: [ "ns:system", "ns:btea.lib" ]
+
+entries:
+  - name: app
+    kind: btea.app.lua
+    meta:
+      comment: "Discord Bot Terminal UI"
+      default_host: terminal
+      depends_on: [ "client" ]
+    source: file://discord.lua
+    method: App
+    modules: [ "time", "json", "env", "channel", "tasks" ]
+    import:
+      "bapp": "btea.lib:bapp"
+      "discord_client": "discord:client"
+
+  - name: client
+    kind: library.lua
+    meta:
+      comment: "Discord client implementation"
+      version: "0.1.0"
+    source: file://client.lua
+    modules: [ "time", "json", "http_client", "websocket", "env" ]
