@@ -18,14 +18,13 @@ end
 -- Instantiate a new base app.
 function bapp.new()
     local app = {
-        inbox = channel.new(128),
-        done = channel.new(),
         cmd_channel = channel.new(128),
         is_running = false,
         window = { width = 80, height = 24 },
         view_ch = pubsub.subscribe("@btea/view"),
         update_ch = pubsub.subscribe("@btea/update"),
-        cancel_ch = pubsub.subscribe("@cancel")
+        cancel_ch = pubsub.subscribe("@cancel"),
+        done = channel.new()
     }
 
     -- Dispatch a single command.
@@ -69,7 +68,9 @@ function bapp.new()
                     self.cmd_channel:case_receive(),
                     self.done:case_receive()
                 })
+                if not result.ok then break end
                 if result.channel == self.done then break end
+
                 local cmd = result.value
                 if cmd then
                     local msg = cmd:execute()
@@ -79,54 +80,49 @@ function bapp.new()
         end)
     end
 
-    -- Subscribe to the dedicated channels and funnel tasks into the unified inbox.
-    function app:start_subscriptions()
-        coroutine.spawn(function()
-            while true do
-                local result = channel.select({
-                    self.view_ch:case_receive(),
-                    self.update_ch:case_receive(),
-                    self.cancel_ch:case_receive()
-                })
-                if not result.ok then break end
-                local task = result.value
-                self.inbox:send(task)
-            end
-        end)
-    end
-
-    -- Main run loop: processes tasks from the unified inbox.
+    -- Main run loop: processes tasks directly from channels
     function app:run(update_fn, view_fn)
         self.is_running = true
         self:init_terminal()
         self:start_command_processor()
-        self:start_subscriptions()
 
         while self.is_running do
-            local task, ok = self.inbox:receive()
-            if not ok then
+            local result = channel.select({
+                self.view_ch:case_receive(),
+                self.update_ch:case_receive(),
+                self.cancel_ch:case_receive()
+            })
+
+            -- Check if select operation was successful
+            if not result.ok then
                 self.done:send(true)
                 break
             end
 
-            local msg = task:input()
-            if type(msg) == "table" then
-                if msg.type == "cancel" then
-                    break
-                elseif msg.type == "update" then
+            -- Get the task from the selected channel
+            local task = result.value
+            if not task then
+                self.done:send(true)
+                break
+            end
+
+            -- Process the task based on channel
+            if result.channel == self.cancel_ch then
+                break
+            elseif result.channel == self.update_ch then
+                local msg = task:input()
+                if type(msg) == "table" then
                     if msg.window_size then
                         self:update_window_size(msg.window_size)
                     end
                     local should_quit = update_fn(self, msg)
                     if should_quit then break end
                     task:complete(view_fn(self))
-                elseif msg.type == "view" then
-                    task:complete(view_fn(self))
                 else
                     task:complete("ok")
                 end
-            else
-                task:complete("ok")
+            elseif result.channel == self.view_ch then
+                task:complete(view_fn(self))
             end
         end
 

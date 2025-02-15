@@ -13,6 +13,8 @@ entries:
     source: file://basic.lua
     method: App
     modules: [ time ]
+    import:
+      "bapp": "btea.lib:bapp"
 
   - name: snake
     kind: btea.app.lua
