@@ -1,0 +1,102 @@
+package metrics
+
+import (
+	"context"
+	"fmt"
+	contextapi "github.com/ponyruntime/pony/api/context"
+	"github.com/ponyruntime/pony/api/registry"
+	"github.com/ponyruntime/pony/api/supervisor"
+)
+
+const (
+	KindRegistry registry.Kind = "metrics.registry"
+)
+
+type (
+	Counter interface {
+		Inc(labels map[string]string)
+		Add(value float64, labels map[string]string)
+	}
+
+	Gauge interface {
+		Set(value float64, labels map[string]string)
+		Inc(labels map[string]string)
+		Dec(labels map[string]string)
+		Add(value float64, labels map[string]string)
+		Sub(value float64, labels map[string]string)
+	}
+
+	Histogram interface {
+		Observe(value float64, labels map[string]string)
+	}
+
+	Summary interface {
+		Observe(value float64, labels map[string]string)
+	}
+
+	Registry interface {
+		// Counter creates or gets existing counter
+		Counter(name, help string, labels ...string) Counter
+
+		// Gauge creates or gets existing gauge
+		Gauge(name, help string, labels ...string) Gauge
+
+		// Histogram creates or gets existing histogram
+		// Buckets must be provided when creating a new histogram
+		Histogram(name, help string, buckets []float64, labels ...string) Histogram
+
+		// Summary creates or gets existing summary
+		// Objectives must be provided when creating a new summary
+		Summary(name, help string, objectives map[float64]float64, labels ...string) Summary
+	}
+
+	RegistryConfig struct {
+		// Prefix for all metrics in this registry
+		Prefix string `json:"prefix"`
+
+		// Default labels applied to all metrics
+		Labels map[string]string `json:"labels"`
+
+		// IsDefault marks this registry as a default metrics provider
+		IsDefault bool `json:"is_default"`
+
+		// Address to expose prometheus metrics on
+		Address string `json:"address"`
+
+		// Path to expose metrics on
+		Path string `json:"path" default:"/metrics"`
+
+		// Lifecycle configuration
+		Lifecycle supervisor.LifecycleConfig `json:"lifecycle"`
+	}
+
+	Manager interface {
+		Get(id registry.ID) (Registry, error)
+		GetDefault() (Registry, error)
+	}
+)
+
+func GetMetrics(ctx context.Context) Manager {
+
+	return ctx.Value(contextapi.MetricsCtx).(Manager)
+}
+
+func (c *RegistryConfig) InitDefaults() {
+	c.Lifecycle.InitDefaults()
+}
+
+func (c *RegistryConfig) Validate() error {
+	if c.Prefix == "" {
+		return fmt.Errorf("prefix cannot be empty")
+	}
+
+	if c.Address == "" {
+		return fmt.Errorf("address cannot be empty")
+	}
+
+	if c.Path == "" {
+		c.Path = "/metrics"
+	}
+
+	return nil
+}
