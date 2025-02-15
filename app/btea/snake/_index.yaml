@@ -1,0 +1,17 @@
+version: "1.0"
+namespace: snake
+
+meta:
+  depends_on: [ "ns:system", "ns:btea.lib" ]
+
+entries:
+  - name: game
+    kind: btea.app.lua
+    meta:
+      comment: "Snake game"
+      default_host: terminal
+    source: file://snake.lua
+    method: App
+    modules: [ time ]
+    import:
+      "bapp": "btea.lib:bapp"

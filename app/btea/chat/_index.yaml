@@ -1,0 +1,35 @@
+version: "1.0"
+namespace: chat
+
+meta:
+  depends_on: [ "ns:system", "ns:btea.lib" ]
+
+entries:
+  - name: app
+    kind: btea.app.lua
+    meta:
+      comment: "Chat with LLM application"
+      default_host: terminal
+      depends_on: [ "llm", "components" ]
+    source: file://chat.lua
+    method: App
+    modules: [ "time" ]
+    import:
+      "bapp": "btea.lib:bapp"
+      "components": "chat:components"
+      "llm": "chat:llm"
+
+  - name: components
+    kind: library.lua
+    meta:
+      comment: "Chat UI components and session management"
+      version: "0.1.0"
+    source: file://components.lua
+
+  - name: llm
+    kind: library.lua
+    meta:
+      comment: "LLM client and API interaction"
+      version: "0.1.0"
+    source: file://llm.lua
+    modules: [ "time", "json", "http" ]

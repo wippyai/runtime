@@ -49,13 +49,25 @@ function App()
         }
     })
 
-    -- Define styles
+    -- Define styles with consistent colors
     app.styles = {
         box = btea.style()
             :border(btea.borders.ROUNDED)
             :padding(1, 2)
             :foreground("#89B4FA")
-            :background("#1E1E2E"),
+            :background("#1E1E2E")
+            :border_foreground("#89B4FA"),
+
+        game_area = btea.style()
+            :border(btea.borders.THICK)
+            :padding(0)
+            :foreground("#89B4FA")
+            :background("#1E1E2E")
+            :border_foreground("#89B4FA")
+            :border_top_foreground("#89B4FA")
+            :border_bottom_foreground("#89B4FA")
+            :border_left_foreground("#89B4FA")
+            :border_right_foreground("#89B4FA"),
 
         header = btea.style()
             :bold()
@@ -97,28 +109,28 @@ function App()
                     end
                 end
                 if is_empty then
-                    table.insert(empty_spots, {x = x, y = y})
+                    table.insert(empty_spots, { x = x, y = y })
                 end
             end
         end
 
         if #empty_spots > 0 then
             local spot = empty_spots[math.random(1, #empty_spots)]
-            self.food = {x = spot.x, y = spot.y}
+            self.food = { x = spot.x, y = spot.y }
         end
     end
 
     function app:check_collision(point)
         -- Check walls
         if point.x < 0 or point.x >= self.width or
-           point.y < 0 or point.y >= self.height then
+            point.y < 0 or point.y >= self.height then
             return true
         end
 
         -- Check self collision (skip head)
         for i = 2, #self.snake do
             if point.x == self.snake[i].x and
-               point.y == self.snake[i].y then
+                point.y == self.snake[i].y then
                 return true
             end
         end
@@ -171,7 +183,7 @@ function App()
     function app:reset_game()
         -- Initialize snake in the middle
         self.snake = {
-            { x = math.floor(self.width / 2), y = math.floor(self.height / 2) },
+            { x = math.floor(self.width / 2),     y = math.floor(self.height / 2) },
             { x = math.floor(self.width / 2) - 1, y = math.floor(self.height / 2) },
             { x = math.floor(self.width / 2) - 2, y = math.floor(self.height / 2) }
         }
@@ -187,30 +199,17 @@ function App()
 
     -- Start game ticker coroutine
     coroutine.spawn(function()
-        local ticker = time.ticker("500ms")
+        local ticker = time.ticker("250ms")
         while true do
             local result = ticker:channel():receive()
             if not result then break end
             app:upstream("tick")
         end
     end)
-function dump(o, indent)
-   indent = indent or ""
-   if type(o) == 'table' then
-      local s = '{\n'
-      for k,v in pairs(o) do
-         if type(k) ~= 'number' then k = '"'..k..'"' end
-         s = s .. indent .. '  ['..k..'] = ' .. dump(v, indent.."  ") .. ',\n'
-      end
-      return s .. indent .. '}'
-   else
-      return tostring(o)
-   end
-end
+
     -- Update handler
     local function update(self, msg)
-         print(dump(msg))
-        if msg.tick then
+        if msg.string == "tick" then
             self:move_snake()
         elseif msg.key then
             if self.keys.quit:matches(msg) then
@@ -247,7 +246,7 @@ end
         -- Draw snake
         for _, segment in ipairs(self.snake) do
             if segment.x >= 0 and segment.x < self.width and
-               segment.y >= 0 and segment.y < self.height then
+                segment.y >= 0 and segment.y < self.height then -- Fixed the typo here
                 board[segment.y][segment.x] = self.styles.snake:render("██")
             end
         end
@@ -267,13 +266,15 @@ end
             ""
         }
 
-        -- Game board
+        -- Game board with distinct border
         local board_lines = {}
         for y = 0, self.height - 1 do
             local line = table.concat(board[y])
             table.insert(board_lines, line)
         end
-        table.insert(content, table.concat(board_lines, "\n"))
+
+        -- Wrap the game board in its own bordered box
+        table.insert(content, self.styles.game_area:render(table.concat(board_lines, "\n")))
 
         -- Game state message
         if self.game_over then
