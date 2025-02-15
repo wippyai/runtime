@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ponyruntime/pony/api/supervisor"
 	"sync"
 	"time"
 
@@ -12,7 +13,6 @@ import (
 	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/runtime"
 	"github.com/ponyruntime/pony/api/service/terminal"
-	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/ponyruntime/pony/internal/closer"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
@@ -239,6 +239,12 @@ func (p *App) Start(ctx context.Context, pid process.PID, input payload.Payloads
 	ctx = p.runner.WithContext(ctx)
 	ctx, p.closer = closer.WithContext(ctx)
 
+	// Start the Lua function.
+	resultCh, err := p.runner.Start(ctx, p.funcName, getLuaArgs(input)...)
+	if err != nil {
+		return err
+	}
+
 	// Run the bubbletea program concurrently.
 	go func() {
 		if _, err := p.program.Run(); err != nil {
@@ -252,12 +258,6 @@ func (p *App) Start(ctx context.Context, pid process.PID, input payload.Payloads
 
 		p.cancel()
 	}()
-
-	// Start the Lua function.
-	resultCh, err := p.runner.Start(ctx, p.funcName, getLuaArgs(input)...)
-	if err != nil {
-		return err
-	}
 
 	p.runnerState = p.runner.GetCVM().State()
 	if p.runnerState == nil {
@@ -291,6 +291,7 @@ func (p *App) processLoop(resultCh <-chan engine.Result) {
 			if cerr := p.closer.Close(); cerr != nil {
 				p.log.Error("failed to close resources", zap.Error(cerr))
 			}
+
 			if onComplete := process.GetOnComplete(p.ctx); onComplete != nil {
 				if err != nil {
 					onComplete(p.pid, &runtime.Result{Error: err})
