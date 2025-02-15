@@ -6,8 +6,8 @@ local time = require("time")
 function App()
     -- Create app with proper init commands
     local init_commands = {
-       -- btea.commands.enter_alt_screen,
-       -- btea.commands.hide_cursor
+        btea.commands.enter_alt_screen,
+        btea.commands.hide_cursor
     }
 
     local app = bapp.new(init_commands)
@@ -31,12 +31,12 @@ function App()
     -- Define key bindings
     app.keys = {
         quit = btea.bind({
-            keys = {"ctrl+c", "esc"},
-            help = {key = "^C/esc", desc = "quit"}
+            keys = { "ctrl+c", "esc" },
+            help = { key = "^C/esc", desc = "quit" }
         }),
         submit = btea.bind({
-            keys = {"enter"},
-            help = {key = "enter", desc = "send message"}
+            keys = { "enter" },
+            help = { key = "enter", desc = "send message" }
         })
     }
 

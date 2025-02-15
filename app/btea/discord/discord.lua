@@ -1,10 +1,7 @@
 local bapp = require("bapp")
 local discord_client = require("discord_client")
 local time = require("time")
-local json = require("json")
 local env = require("env")
-local channel = require("channel")
-local tasks = require("tasks")
 
 function App()
     -- Create app with proper init commands
