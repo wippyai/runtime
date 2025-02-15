@@ -77,7 +77,7 @@ entries:
     method: App
     import:
       "bapp": "btea.lib:bapp"
-      
+
   - name: text_area
     kind: btea.app.lua
     meta:
@@ -85,5 +85,26 @@ entries:
       default_host: terminal
     source: file://text_area.lua
     method: App
+    import:
+      "bapp": "btea.lib:bapp"
+
+  - name: paginator
+    kind: btea.app.lua
+    meta:
+      comment: "Paginator component demo"
+      default_host: terminal
+    source: file://paginator.lua
+    method: App
+    import:
+      "bapp": "btea.lib:bapp"
+
+  - name: mouse
+    kind: btea.app.lua
+    meta:
+      comment: "Mouse interaction and viewport demo"
+      default_host: terminal
+    source: file://mouse.lua
+    method: App
+    modules: [ time ]
     import:
       "bapp": "btea.lib:bapp"

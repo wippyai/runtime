@@ -1,23 +1,24 @@
 local bapp = require("bapp")
+local time = require("time")
 
--- Button helper (included in app file)
+-- Button helper
 local function create_button(zone_manager, id, label, styles)
     styles = styles or {
         normal = btea.style()
             :padding(1, 2)
-            :border("rounded")
+            :border(btea.borders.ROUNDED)
             :background("#45475A")
             :foreground("#FFFFFF"),
 
         hover = btea.style()
             :padding(1, 2)
-            :border("rounded")
+            :border(btea.borders.ROUNDED)
             :background("#FF79C6")
             :foreground("#000000"),
 
         active = btea.style()
             :padding(1, 2)
-            :border("rounded")
+            :border(btea.borders.ROUNDED)
             :background("#89B4FA")
             :foreground("#1E1E2E")
     }
@@ -65,11 +66,25 @@ local function create_button(zone_manager, id, label, styles)
 end
 
 function App()
-    -- Create base app
-    local app = bapp.new()
+    -- Create app with custom init commands
+    local init_commands = {
+        btea.commands.enter_alt_screen,
+        btea.commands.hide_cursor,
+        btea.commands.enable_mouse_all_motion
+    }
+
+    local app = bapp.new(init_commands)
 
     -- Create zone manager
     local zone_manager = btea.zone_manager()
+
+    -- Define key bindings
+    app.keys = {
+        quit = btea.bind({
+            keys = {"ctrl+c", "q", "esc"},
+            help = {key = "^C/q/esc", desc = "quit"}
+        })
+    }
 
     -- App state
     app.state = {
@@ -83,7 +98,7 @@ function App()
         height = 20,
         mouse_wheel_enabled = true,
         style = btea.style()
-            :border("rounded")
+            :border(btea.borders.ROUNDED)
             :padding(1)
             :background("#1E1E2E")
     })
@@ -109,8 +124,7 @@ function App()
         app.viewport:set_content(content)
 
         if app.state.auto_scroll then
-            local cmd = app.viewport:scroll_to_bottom()
-            if cmd then app.cmd_channel:send(cmd) end
+            app:dispatch(app.viewport:scroll_to_bottom())
         end
     end
 
@@ -119,18 +133,22 @@ function App()
         add_log(string.format("Initial log message #%d", i))
     end
 
-    -- Enable mouse support in terminal
-    app.cmd_channel:send(btea.commands.enable_mouse_all_motion)
-
     -- Update function
     local function update(self, msg)
-        -- Handle key presses
-        if msg.key and self.keys.quit:matches(msg) then
-            return true
+        -- Update window size if changed
+        if msg.window_size then
+            self.viewport:set_width(math.min(60, self.window.width - 4))
+        end
+
+        -- Handle key bindings
+        if type(msg) == "table" and msg.type == "update" and msg.key then
+            if self.keys.quit:matches(msg) then
+                return true -- signal quit
+            end
         end
 
         -- Handle mouse events
-        if msg.mouse and msg.mouse.type == "mouse" then
+        if type(msg) == "table" and msg.type == "update" and msg.mouse then
             -- Check hover states
             for _, btn in pairs(self.buttons) do
                 btn:check_hover(msg)
@@ -139,11 +157,9 @@ function App()
             -- Handle scrolling
             if self.viewport.mouse_wheel_enabled then
                 if msg.mouse.button == "wheel_up" then
-                    local cmd = self.viewport:line_up(3)
-                    if cmd then self.cmd_channel:send(cmd) end
+                    self:dispatch(self.viewport:line_up(3))
                 elseif msg.mouse.button == "wheel_down" then
-                    local cmd = self.viewport:line_down(3)
-                    if cmd then self.cmd_channel:send(cmd) end
+                    self:dispatch(self.viewport:line_down(3))
                 end
             end
 
@@ -151,7 +167,7 @@ function App()
             if msg.mouse.action == "press" then
                 if self.buttons.add:check_click(msg) then
                     local now = time.now()
-                    add_log(string.format("New message added at %s!", now:format(time.TimeOnly)))
+                    add_log(string.format("New message added at %s!", now:format("15:04:05")))
                 elseif self.buttons.scroll:check_click(msg) then
                     self.state.auto_scroll = not self.state.auto_scroll
                     update_scroll_button()
@@ -164,9 +180,9 @@ function App()
 
         -- Update viewport
         local cmd = self.viewport:update(msg)
-        if cmd then self.cmd_channel:send(cmd) end
+        if cmd then self:dispatch(cmd) end
 
-        return false
+        return false -- continue running
     end
 
     -- View function

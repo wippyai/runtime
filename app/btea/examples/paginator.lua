@@ -1,10 +1,16 @@
-local bapp = require("bapp")  -- Change to correct bapp import
+local bapp = require("bapp")
 
 function App()
-    local app = bapp.new()
+    -- Create app with custom init commands
+    local init_commands = {
+        btea.commands.enter_alt_screen,
+        btea.commands.hide_cursor
+    }
+
+    local app = bapp.new(init_commands)
 
     -- Define colors
-    app.colors = {
+    local colors = {
         highlight = "#7D56F4",
         fg = "#CDD6F4",
         muted = "#6C7086",
@@ -15,17 +21,21 @@ function App()
     app.styles = {
         container = btea.style()
             :padding(1)
-            :background(app.colors.bg)
+            :background(colors.bg)
             :border(btea.borders.ROUNDED)
-            :border_foreground(app.colors.highlight),
+            :border_foreground(colors.highlight),
 
         title = btea.style()
-            :foreground(app.colors.fg)
+            :foreground(colors.fg)
             :bold(),
 
         help = btea.style()
-            :foreground(app.colors.muted)
-            :italic()
+            :foreground(colors.muted)
+            :italic(),
+
+        current_page = btea.style()
+            :foreground(colors.highlight)
+            :bold()
     }
 
     -- Sample data
@@ -47,42 +57,47 @@ function App()
         "Fifteenth item displayed",
     }
 
-    -- Create paginator
+    -- Create paginator with zero-based indexing
     app.paginator = btea.paginator({
         type = btea.paginator_types.DOTS,
-        per_page = 5,
-        active_dot = "●",
-        inactive_dot = "○"
+        page = 0,
+        per_page = 4
     })
+
+    -- Set the total pages based on item count
     app.paginator:set_total_pages(#app.items)
 
-    -- Setup key bindings with help text
-    app.keys = bapp.create_keys({
-        prev = {
+    -- Define key bindings
+    app.keys = {
+        quit = btea.bind({
+            keys = {"ctrl+c", "q", "esc"},
+            help = {key = "^C/q/esc", desc = "quit"}
+        }),
+        prev = btea.bind({
             keys = {"left", "h", "p"},
-            help = {key = "←/h", desc = "previous page"}
-        },
-        next = {
+            help = {key = "←/h/p", desc = "previous page"}
+        }),
+        next = btea.bind({
             keys = {"right", "l", "n"},
-            help = {key = "→/l", desc = "next page"}
-        },
-        toggle_style = {
+            help = {key = "→/l/n", desc = "next page"}
+        }),
+        toggle_style = btea.bind({
             keys = {"t"},
             help = {key = "t", desc = "toggle style"}
-        }
-    })
+        })
+    }
 
     -- Update function
     local function update(self, msg)
-        if msg.key then
+        -- Handle key events
+        if type(msg) == "table" and msg.type == "update" and msg.key then
             if self.keys.quit:matches(msg) then
-                return true
-            elseif self.keys.prev:matches(msg) then
+                return true -- signal quit
+            elseif self.keys.prev:matches(msg) and not self.paginator:on_first_page() then
                 self.paginator:prev_page()
-            elseif self.keys.next:matches(msg) then
+            elseif self.keys.next:matches(msg) and not self.paginator:on_last_page() then
                 self.paginator:next_page()
             elseif self.keys.toggle_style:matches(msg) then
-                -- Toggle between DOTS and ARABIC style
                 if self.paginator:get_type() == btea.paginator_types.DOTS then
                     self.paginator:set_type(btea.paginator_types.ARABIC)
                 else
@@ -90,27 +105,44 @@ function App()
                 end
             end
         end
-        return false
+
+        return false -- continue running
     end
 
     -- View function
     local function view(self)
-        -- Get current page items
-        local start, end_ = self.paginator:get_slice_bounds(#self.items)
+        -- Get current page bounds and items count
+        local start_idx, end_idx = self.paginator:get_slice_bounds(#self.items)
+        local items_on_page = self.paginator:items_on_page(#self.items)
+
+        -- Build items list for current page
         local current_items = {}
-        for i = start + 1, end_ do
+        for i = start_idx + 1, start_idx + items_on_page do
             table.insert(current_items, string.format("%d. %s", i, self.items[i]))
         end
+
+        -- Current page display (add 1 since we use 0-based indexing internally)
+        local current_page = self.paginator:get_current_page() + 1
+
+        -- Build navigation info
+        local nav_info = string.format("Page %s (Items %d-%d of %d)",
+            self.styles.current_page:render(tostring(current_page)),
+            start_idx + 1,
+            start_idx + items_on_page,
+            #self.items
+        )
 
         -- Build the view
         local lines = {
             self.styles.title:render("Paginator Demo"),
             "",
+            nav_info,
+            "",
             table.concat(current_items, "\n"),
             "",
             self.paginator:view(),
             "",
-            self.styles.help:render("←/h previous | →/l next | t toggle style | q quit")
+            self.styles.help:render("←/h/p previous | →/l/n next | t toggle style | ^C/q/esc quit")
         }
 
         return self.styles.container:render(table.concat(lines, "\n"))
