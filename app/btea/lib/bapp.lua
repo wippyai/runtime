@@ -125,10 +125,8 @@ function bapp.new(init_cmd)
                     end
                     local should_quit = update_fn(self, msg)
                     if should_quit then break end
-                    task:complete(view_fn(self))
-                else
-                    task:complete("ok")
                 end
+                task:complete("ok")
             elseif result.channel == self.view_ch then
                 task:complete(view_fn(self))
             end
