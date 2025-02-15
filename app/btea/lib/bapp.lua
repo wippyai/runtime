@@ -36,7 +36,7 @@ function bapp.new(init_cmd)
         upstream.send(msg)
     end
 
-    for _, cmd in ipairs(init_cmd) do
+    for _, cmd in ipairs(init_cmd or {}) do
         app:dispatch(cmd)
     end
 
