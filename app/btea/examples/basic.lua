@@ -21,6 +21,7 @@ function App()
         width = app.window.width - 8,
         prompt = "> "
     })
+    
     -- Focus the input immediately
     app:dispatch(app.input:focus())
 
@@ -61,7 +62,7 @@ function App()
             if msg.key then
                 return app.styles.key:render(string.format(
                     "KEY %s [%s]",
-                    msg.key.String or "",
+                    msg.key.string or "",
                     msg.key.key_type or "unknown"
                 ))
             elseif msg.mouse then

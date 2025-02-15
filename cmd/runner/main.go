@@ -213,7 +213,7 @@ func (a *App) Start(folderPath string) error {
 	// launch (todo: we also can retry or better delegate it to supervisor)
 	pid, err := a.processes.Start(ctx, processapi.StartProcess{
 		HostID: "system:terminal",
-		ID:     apiReg.ID{NS: "btea", Name: "snake"},
+		ID:     apiReg.ID{NS: "btea", Name: "basic"},
 		Name:   "root",
 	})
 	if err != nil {
