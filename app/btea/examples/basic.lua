@@ -6,7 +6,7 @@ function App()
     local init_commands = {
         btea.commands.enter_alt_screen,
         btea.commands.hide_cursor,
-        btea.commands.enable_mouse_all_motion
+        btea.commands.enable_mouse_all_motion,
     }
 
     local app = bapp.new(init_commands)
@@ -183,24 +183,6 @@ function App()
 
         return false -- continue running
     end
-
-    -- Start ticker in background
-    coroutine.spawn(function()
-        local ticker = time.ticker("1s")
-        while true do
-            local result = channel.select {
-                ticker:channel():case_receive(),
-                done:case_receive()
-            }
-
-            if result.channel == done then
-                ticker:stop()
-                break
-            end
-
-            upstream.send({ type = "update", tick = true })
-        end
-    end)
 
     -- Run the app (initialization and cleanup now handled automatically)
     app:run(update, view)
