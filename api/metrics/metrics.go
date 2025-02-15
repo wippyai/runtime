@@ -13,41 +13,29 @@ const (
 )
 
 type (
-	Counter interface {
-		Inc(labels map[string]string)
-		Add(value float64, labels map[string]string)
-	}
 
-	Gauge interface {
-		Set(value float64, labels map[string]string)
-		Inc(labels map[string]string)
-		Dec(labels map[string]string)
-		Add(value float64, labels map[string]string)
-		Sub(value float64, labels map[string]string)
-	}
-
-	Histogram interface {
-		Observe(value float64, labels map[string]string)
-	}
-
-	Summary interface {
-		Observe(value float64, labels map[string]string)
-	}
-
+	// Registry manages a collection of metrics
 	Registry interface {
-		// Counter creates or gets existing counter
+		// Counter creates or gets an existing counter
 		Counter(name, help string, labels ...string) Counter
 
-		// Gauge creates or gets existing gauge
+		// Gauge creates or gets an existing gauge
 		Gauge(name, help string, labels ...string) Gauge
 
-		// Histogram creates or gets existing histogram
-		// Buckets must be provided when creating a new histogram
+		// Histogram creates or gets an existing histogram
 		Histogram(name, help string, buckets []float64, labels ...string) Histogram
 
-		// Summary creates or gets existing summary
-		// Objectives must be provided when creating a new summary
+		// Summary creates or gets an existing summary
 		Summary(name, help string, objectives map[float64]float64, labels ...string) Summary
+
+		// Collectors returns all registered collectors
+		Collectors() []Collector
+
+		// Names returns all registered metric names
+		Names() []string
+
+		// Get returns a collector by name
+		Get(name string) (Collector, error)
 	}
 
 	RegistryConfig struct {
@@ -77,7 +65,6 @@ type (
 )
 
 func GetMetrics(ctx context.Context) Manager {
-
 	return ctx.Value(contextapi.MetricsCtx).(Manager)
 }
 
