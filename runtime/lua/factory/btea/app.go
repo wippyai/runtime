@@ -217,7 +217,7 @@ func (p *App) publishTaskWithResponse(channel string, value lua.LValue, timeout 
 
 // createTask wraps a value in a task payload.
 func (p *App) createTask(value lua.LValue) (*tasks.Task, error) {
-	// todo: track proper lalue
+	// todo: track proper value?
 
 	return tasks.CreateTask(payload.NewPayload(value, payload.Lua))
 }
