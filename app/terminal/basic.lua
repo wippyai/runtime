@@ -39,7 +39,8 @@ function App()
     })
 
     -- Execute init commands
-    init_cmd:execute()
+    -- todO: not properly used
+    local msgs = init_cmd:execute()
 
     -- Channel subscriptions
     local view_ch = pubsub.subscribe("@btea/view")
@@ -89,8 +90,13 @@ function App()
     end
 
     local function handle_ctrl_c()
+    local cmd = cleanup_cmd:execute()
+        if cmd then
+            upstream.send(cmd)
+        end
+
         -- Send ctrl+c upstream
-        upstream.send(btea.commands.quit)
+        upstream.send(btea.commands.quit:execute()) -- this WILL shutdown execuition from outside!!
 
         return string.format(
             "%s: Ctrl+C pressed, signaling exit...",
@@ -214,7 +220,10 @@ function App()
     pubsub.unsubscribe(cancel_ch)
 
     -- Execute cleanup commands
-    cleanup_cmd:execute()
+    local cmd = cleanup_cmd:execute()
+    if cmd then
+        upstream.send(cmd)
+    end
 end
 
 return App
