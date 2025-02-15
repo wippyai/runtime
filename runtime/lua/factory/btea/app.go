@@ -217,6 +217,8 @@ func (p *App) publishTaskWithResponse(channel string, value lua.LValue, timeout 
 
 // createTask wraps a value in a task payload.
 func (p *App) createTask(value lua.LValue) (*tasks.Task, error) {
+	// todo: track proper lalue
+
 	return tasks.CreateTask(payload.NewPayload(value, payload.Lua))
 }
 
@@ -333,6 +335,7 @@ func (p *App) processLoop(resultCh <-chan engine.Result) {
 			if msg == nil {
 				msg = value
 			}
+
 			if err != nil {
 				p.log.Error("failed to convert upstream message", zap.Error(err))
 				continue
