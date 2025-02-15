@@ -126,7 +126,6 @@ For custom message types not covered above, messages are converted to an opaque 
 {
   type = "update",
   opaque = userdata,     -- Original Go message stored as userdata
-  go_type = string,      -- Original Go type name
   string = string,       -- String representation of message
 }
 ```
