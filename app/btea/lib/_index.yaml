@@ -10,5 +10,3 @@ entries:
     meta:
       comment: "Unified btea app runner library"
     source: file://bapp.lua
-    method: new
-    modules: [ tasks, pubsub, channel, btea ]

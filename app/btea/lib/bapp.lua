@@ -18,7 +18,7 @@ end
 -- Instantiate a new base app.
 function bapp.new()
     local app = {
-        inbox = tasks.channel(),
+        inbox = channel.new(128),
         done = channel.new(),
         cmd_channel = channel.new(128),
         is_running = false,
