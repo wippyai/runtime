@@ -1,6 +1,7 @@
 local time = require("time")
 local json = require("json")
-local http = require("http")
+local http = require("http_client")
+local env = require("env")
 
 local M = {}
 
@@ -11,7 +12,6 @@ M.LLMClient = {
             endpoint = endpoint or "https://api.openai.com/v1/chat/completions",
 
             query = function(self, prompt, history, update_channel)
-            print("Querying LLM with prompt:", prompt)
                 coroutine.spawn(function()
                     -- Format messages
                     local messages = {}
@@ -25,21 +25,23 @@ M.LLMClient = {
                         role = "user",
                         content = prompt
                     })
+                    --
 
-                    -- Prepare headers
+                    ---- Prepare headers
                     local headers = {
                         ["Content-Type"] = "application/json",
-                        ["Authorization"] = "Bearer " .. (os.getenv("OPENAI_API_KEY") or "")
+                        ["Authorization"] = "Bearer " .. (env.get("OPENAI_KEY") or "")
                     }
+                    --
 
-                    -- Prepare request body
+                    ------ Prepare request body
                     local body = json.encode({
                         model = self.model,
                         messages = messages,
                         stream = true
                     })
-
-                    -- Make API request
+                    --
+                    ---- Make API request
                     local response, err = http.post(self.endpoint, {
                         headers = headers,
                         body = body,

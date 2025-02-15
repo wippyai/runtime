@@ -32,4 +32,4 @@ entries:
       comment: "LLM client and API interaction"
       version: "0.1.0"
     source: file://llm.lua
-    modules: [ "time", "json", "http" ]
+    modules: [ "time", "json", "http_client", "env" ]
