@@ -2,9 +2,11 @@ package process
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	api "github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/runtime"
+	"github.com/ponyruntime/pony/api/supervisor"
 	"go.uber.org/zap"
 )
 
@@ -33,7 +35,11 @@ func NewProcessManager(hosts *HostRegistry, prototypes *PrototypeRegistry, logge
 		},
 		func(pid api.PID, result *runtime.Result) {
 			if result.Error != nil {
-				logger.Error("process failed", zap.String("pid", pid.String()), zap.Error(result.Error))
+				if errors.Is(result.Error, supervisor.ErrExit) {
+					logger.Info("process exited", zap.String("pid", pid.String()))
+				} else {
+					logger.Error("process failed", zap.String("pid", pid.String()), zap.Error(result.Error))
+				}
 			} else {
 				logger.Info("process completed", zap.String("pid", pid.String()), zap.Any("result", result.Payload))
 			}
