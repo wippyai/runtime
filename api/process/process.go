@@ -47,7 +47,6 @@ var (
 type (
 	NodeID = string
 	HostID = string
-	Topic  = string
 
 	PID struct {
 		Node NodeID
@@ -62,11 +61,6 @@ type (
 	// Factory manages process prototypes and handles process creation
 	Factory interface {
 		Create(registry.ID) (Process, error)
-	}
-
-	Message struct {
-		Topic    Topic
-		Payloads payload.Payloads
 	}
 
 	Receiver interface {
