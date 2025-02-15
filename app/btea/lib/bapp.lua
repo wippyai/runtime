@@ -4,8 +4,8 @@ local bapp = {}
 function bapp.create_keys(bindings)
     local keys = {}
     keys.quit = btea.bind({
-        keys = bindings.quit or { "q", "ctrl+c" },
-        help = { key = "q/^C", desc = "quit" }
+        keys = bindings.quit or { "ctrl+c" },
+        help = { key = "^C", desc = "quit" }
     })
     for name, binding in pairs(bindings) do
         if name ~= "quit" then
@@ -130,13 +130,6 @@ function bapp.new()
         pubsub.unsubscribe(self.view_ch)
         pubsub.unsubscribe(self.update_ch)
         pubsub.unsubscribe(self.cancel_ch)
-    end
-
-    function app:enable_mouse(options)
-        options = options or {}
-        if options.all_motion == nil or options.all_motion then
-            self:dispatch(btea.commands.enable_mouse_all_motion)
-        end
     end
 
     return app

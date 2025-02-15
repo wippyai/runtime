@@ -2,10 +2,18 @@ local time = require("time")
 local bapp = require("bapp")
 
 function App()
-    local app = bapp.new()
+    -- Create app with custom init commands
+    local init_commands = {
+        btea.commands.enter_alt_screen,
+        btea.commands.hide_cursor,
+        btea.commands.enable_mouse_all_motion
+    }
+
+    local app = bapp.new(init_commands)
 
     -- Initialize app state
     app.messages = {}
+    app.cursor_blink = false
 
     -- Initialize text input
     app.input = btea.text_input({
@@ -65,11 +73,16 @@ function App()
                     msg.key.key_type or "unknown"
                 ))
             elseif msg.mouse then
+                -- Enhanced mouse event logging
                 return app.styles.mouse:render(string.format(
-                    "MOUSE %s at %d,%d",
+                    "MOUSE %s at %d,%d [btn: %s, mods: %s%s%s]",
                     msg.mouse.action or "unknown",
                     msg.mouse.x or 0,
-                    msg.mouse.y or 0
+                    msg.mouse.y or 0,
+                    msg.mouse.button or "none",
+                    msg.mouse.alt and "alt+" or "",
+                    msg.mouse.ctrl and "ctrl+" or "",
+                    msg.mouse.shift and "shift+" or ""
                 ))
             elseif msg.window_size then
                 return app.styles.size:render(string.format(
@@ -77,6 +90,9 @@ function App()
                     msg.window_size.width or 80,
                     msg.window_size.height or 24
                 ))
+            elseif msg.blink then
+                app.cursor_blink = not app.cursor_blink
+                return app.styles.tick:render("BLINK " .. (app.cursor_blink and "ON" or "OFF"))
             end
         end
 
@@ -108,9 +124,13 @@ function App()
             table.insert(display_content, " " .. line)
         end
 
-        -- Add input field with better visual separation
+        -- Add input field with cursor state
         table.insert(display_content, "")
-        table.insert(display_content, self.styles.input:render(self.input:view() or ""))
+        local input_view = self.input:view()
+        if self.cursor_blink then
+            input_view = input_view .. "▎" -- Add cursor when blink is on
+        end
+        table.insert(display_content, self.styles.input:render(input_view))
 
         return self.styles.box
             :width(self.window.width - 2)
@@ -149,7 +169,10 @@ function App()
             end
         end
 
-        table.insert(self.messages, formatted)
+        -- Add formatted message to log (except blink updates to reduce spam)
+        if type(msg) ~= "table" or not msg.blink then
+            table.insert(self.messages, formatted)
+        end
 
         -- Check for quit conditions
         if type(msg) == "table" and msg.type == "update" and msg.key then
@@ -179,8 +202,7 @@ function App()
         end
     end)
 
-    -- Initialize and run the app
-    app:init_terminal()
+    -- Run the app (initialization and cleanup now handled automatically)
     app:run(update, view)
 
     -- Cleanup
