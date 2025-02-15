@@ -2,7 +2,6 @@ local time = require("time")
 local json = require("json")
 local http = require("http_client")
 local websocket = require("websocket")
-local env = require("env")
 
 -- Discord protocol constants
 local DISCORD_GATEWAY = "wss://gateway.discord.gg/?v=10&encoding=json"
