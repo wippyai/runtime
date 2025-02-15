@@ -1,7 +1,13 @@
-local bapp = require("bapp") -- Change to correct bapp import
+local bapp = require("bapp")
 
 function App()
-    local app = bapp.new()
+    -- Create app with custom init commands
+    local init_commands = {
+        btea.commands.enter_alt_screen,
+        btea.commands.hide_cursor
+    }
+
+    local app = bapp.new(init_commands)
 
     -- Define colors
     app.colors = {
@@ -40,34 +46,43 @@ function App()
                 :foreground("#FFFFFF")
                 :background(app.colors.highlight),
             selected = btea.style()
-                :bold(true)
+                :bold()
                 :foreground(app.colors.active_fg)
                 :background("#2E2E3E")
         }
     }
 
-    -- Setup key bindings with help text
-    app.keys = bapp.create_keys({
-        up = {
-            keys = { "up", "k" },
-            help = { key = "↑/k", desc = "move up" }
-        },
-        down = {
-            keys = { "down", "j" },
-            help = { key = "↓/j", desc = "move down" }
-        },
-        pageup = {
-            keys = { "pgup", "b" },
-            help = { key = "pgup/b", desc = "page up" }
-        },
-        pagedown = {
-            keys = { "pgdown", " " },
-            help = { key = "pgdn/space", desc = "page down" }
-        }
-    })
+    -- Define key bindings
+    app.keys = {
+        quit = btea.bind({
+            keys = {"ctrl+c", "q", "esc"},
+            help = {key = "^C/q/esc", desc = "quit"}
+        }),
+        up = btea.bind({
+            keys = {"up", "k"},
+            help = {key = "↑/k", desc = "move up"}
+        }),
+        down = btea.bind({
+            keys = {"down", "j"},
+            help = {key = "↓/j", desc = "move down"}
+        }),
+        pageup = btea.bind({
+            keys = {"pgup", "b"},
+            help = {key = "pgup/b", desc = "page up"}
+        }),
+        pagedown = btea.bind({
+            keys = {"pgdown", " "},
+            help = {key = "pgdn/space", desc = "page down"}
+        })
+    }
 
     -- Add help text style
     app.styles = {
+        base = btea.style()
+            :padding(1)
+            :background(app.colors.bg)
+            :border(btea.borders.ROUNDED),
+
         help = btea.style()
             :foreground(app.colors.inactive_fg)
             :italic()
@@ -75,29 +90,27 @@ function App()
 
     -- Update function
     local function update(self, msg)
-        if msg.key then
+        -- Update window size if changed
+        if msg.window_size then
+            self.table:set_width(math.min(50, self.window.width - 4))
+        end
+
+        -- Handle key bindings
+        if type(msg) == "table" and msg.type == "update" and msg.key then
             if self.keys.quit:matches(msg) then
-                return true
+                return true -- signal quit
             elseif self.keys.up:matches(msg) then
-                local cmd = self.table:move_up(1)
-                if cmd then self:dispatch(cmd) end
+                self:dispatch(self.table:move_up(1))
             elseif self.keys.down:matches(msg) then
-                local cmd = self.table:move_down(1)
-                if cmd then self:dispatch(cmd) end
+                self:dispatch(self.table:move_down(1))
             elseif self.keys.pageup:matches(msg) then
-                local cmd = self.table:move_up(self.table:height())
-                if cmd then self:dispatch(cmd) end
+                self:dispatch(self.table:move_up(self.table:height()))
             elseif self.keys.pagedown:matches(msg) then
-                local cmd = self.table:move_down(self.table:height())
-                if cmd then self:dispatch(cmd) end
+                self:dispatch(self.table:move_down(self.table:height()))
             end
         end
 
-        -- Update table state
-        local cmd = self.table:update(msg)
-        if cmd then self:dispatch(cmd) end
-
-        return false
+        return false -- continue running
     end
 
     -- View function
@@ -107,10 +120,17 @@ function App()
 
         -- Add help text below table
         local help = self.styles.help:render(
-            "↑/k up | ↓/j down | pgup/b page up | pgdn/space page down | q/^C quit"
+            "↑/k up | ↓/j down | pgup/b page up | pgdn/space page down | ^C/q/esc quit"
         )
 
-        return table_view .. "\n" .. help
+        -- Combine view elements
+        local content = {
+            table_view,
+            "",
+            help
+        }
+
+        return self.styles.base:render(table.concat(content, "\n"))
     end
 
     -- Run the app

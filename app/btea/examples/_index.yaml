@@ -108,3 +108,13 @@ entries:
     modules: [ time ]
     import:
       "bapp": "btea.lib:bapp"
+
+  - name: table
+    kind: btea.app.lua
+    meta:
+      comment: "Interactive table component demo"
+      default_host: terminal
+    source: file://table.lua
+    method: App
+    import:
+      "bapp": "btea.lib:bapp"
