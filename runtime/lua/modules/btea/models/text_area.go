@@ -44,6 +44,8 @@ func RegisterTextArea(l *lua.LState, mod *lua.LTable) {
 		"length":     textAreaLength,
 		"line_count": textAreaLineCount,
 		"line":       textAreaLine,
+		"set_width":  textAreaSetWidth,
+		"set_height": textAreaSetHeight,
 	}))
 
 	l.SetField(mod, "text_area", l.NewFunction(newTextArea))
@@ -224,6 +226,20 @@ func textAreaSetValue(l *lua.LState) int {
 	ta := checkTextArea(l)
 	value := l.CheckString(2)
 	ta.model.SetValue(value)
+	return 0
+}
+
+func textAreaSetWidth(l *lua.LState) int {
+	ta := checkTextArea(l)
+	width := l.CheckInt(2)
+	ta.model.SetWidth(width)
+	return 0
+}
+
+func textAreaSetHeight(l *lua.LState) int {
+	ta := checkTextArea(l)
+	height := l.CheckInt(2)
+	ta.model.SetHeight(height)
 	return 0
 }
 

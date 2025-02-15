@@ -16,12 +16,74 @@ entries:
     import:
       "bapp": "btea.lib:bapp"
 
-  - name: snake
+  - name: tabs
     kind: btea.app.lua
     meta:
-      comment: "Snake game"
-    source: file://snake.lua
+      comment: "Tabbed interface example"
+      default_host: terminal
+    source: file://tabs.lua
     method: App
-    modules: [ time, json ]
+    import:
+      "bapp": "btea.lib:bapp"
+
+
+  - name: text_input
+    kind: btea.app.lua
+    meta:
+      comment: "Text input components demo"
+      default_host: terminal
+    source: file://text_input.lua
+    method: App
+    import:
+      "bapp": "btea.lib:bapp"
+
+  - name: spinner
+    kind: btea.app.lua
+    meta:
+      comment: "Spinner components demo"
+      default_host: terminal
+    source: file://spinner.lua
+    method: App
+    import:
+      "bapp": "btea.lib:bapp"
+
+  - name: progress
+    kind: btea.app.lua
+    meta:
+      comment: "Progress bar components demo"
+      default_host: terminal
+    source: file://progress.lua
+    method: App
+    import:
+      "bapp": "btea.lib:bapp"
+
+  - name: viewport
+    kind: btea.app.lua
+    meta:
+      comment: "Viewport and scrolling demo"
+      default_host: terminal
+    source: file://viewport.lua
+    method: App
+    modules: [ time ]
+    import:
+      "bapp": "btea.lib:bapp"
+
+  - name: help
+    kind: btea.app.lua
+    meta:
+      comment: "Help system demo"
+      default_host: terminal
+    source: file://help.lua
+    method: App
+    import:
+      "bapp": "btea.lib:bapp"
+      
+  - name: text_area
+    kind: btea.app.lua
+    meta:
+      comment: "Text area component demo"
+      default_host: terminal
+    source: file://text_area.lua
+    method: App
     import:
       "bapp": "btea.lib:bapp"
