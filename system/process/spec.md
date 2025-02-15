@@ -21,34 +21,40 @@ local args = process.args()       -- Process start arguments, includes previous 
 
 ## Process Identifiers (PIDs)
 
-PIDs uniquely identify processes within the runtime system. They follow the format:
+PIDs uniquely identify processes within the runtime system. They consist of the following components:
 
+- Node (optional) - Physical node identifier
+- Host (required) - Host identifier that determines process behavior and lifecycle
+- Registry ID (required) - Composite namespace and name identifier from registry
+   - Namespace - Process namespace (e.g., "vendor.apps.worker")
+   - Name - Hierarchical name within namespace (e.g., "task.subtask")
+- Process Name (required) - Unique instance identifier
+
+The string representation follows the format:
 ```
-{node@host|namespace:name|procname}
+{node@host|namespace:name|procname}     // With optional node
+{host|namespace:name|procname}          // Without node
 ```
 
 Where:
-
 - `node` - Optional physical node identifier (e.g., "node1")
-- `host` - Required host identifier where the process runs (i.e. temporal task queue, terminal, ephemeral process host,
-  etc)
-- `namespace:name` - Composite ID that uniquely identifies the process namespace and component name
-- `procname` - Process instance name, typically randomly generated but can be specified
+- `host` - Required host identifier that determines process behavior and lifecycle (e.g., temporal task queue, terminal, ephemeral process host)
+- `namespace:name` - Composite registry ID where name can be hierarchical (e.g., "app:worker.task.subtask")
+- `procname` - Unique process instance identifier
 
 Examples:
-
 ```
-{host1|app:worker|proc1}           // Local process on host1
-{node1@host1|app:worker|proc1}     // Process on node1 at host1
+{host1|app:worker.task|proc1}           // Local process on host1
+{node1@host1|app:worker.task|proc1}     // Process on node1 at host1
 ```
 
-### PID String Format Rules
+### PID Format Rules
 
-- Full PID is wrapped in curly braces
-- Components are separated by pipe (|) character
-- Node and host are separated by @ when node is present
-- The namespace:name represents the process type registration ID
-- Process name is the unique instance identifier
+- Components internally handled as structured fields
+- String format uses pipe (|) as separator
+- Node and host separated by @ when node present
+- Registry ID (namespace:name) provides structured hierarchical naming
+- Host component determines process behavior and lifecycle characteristics
 
 ## Process Lifecycle Management
 
