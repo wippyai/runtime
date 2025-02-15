@@ -1,7 +1,13 @@
 local bapp = require("bapp")
 
 function App()
-    local app = bapp.new()
+    -- Create app with custom init commands
+    local init_commands = {
+        btea.commands.enter_alt_screen,
+        btea.commands.hide_cursor
+    }
+
+    local app = bapp.new(init_commands)
 
     -- Initialize state
     app.state = {
@@ -11,25 +17,29 @@ function App()
         height = 20,
     }
 
-    -- Setup key bindings with help text
-    app.keys = bapp.create_keys({
-        up = {
+    -- Define key bindings
+    app.keys = {
+        quit = btea.bind({
+            keys = {"ctrl+c", "q", "esc"},
+            help = {key = "^C/q/esc", desc = "quit"}
+        }),
+        up = btea.bind({
             keys = {"up", "k"},
             help = {key = "↑/k", desc = "move up"}
-        },
-        down = {
+        }),
+        down = btea.bind({
             keys = {"down", "j"},
             help = {key = "↓/j", desc = "move down"}
-        },
-        left = {
+        }),
+        left = btea.bind({
             keys = {"left", "h"},
             help = {key = "←/h", desc = "move left"}
-        },
-        right = {
+        }),
+        right = btea.bind({
             keys = {"right", "l"},
             help = {key = "→/l", desc = "move right"}
-        }
-    })
+        })
+    }
 
     -- Define styles
     app.styles = {
@@ -49,7 +59,7 @@ function App()
     }
 
     -- Create help text
-    app.help_text = "Move with arrows/hjkl | q/^C to quit"
+    app.help_text = "Move with arrows/hjkl | ^C/q/esc to quit"
 
     -- Update function
     local function update(self, msg)
@@ -62,10 +72,10 @@ function App()
             self.state.y = math.min(self.state.y, self.state.height)
         end
 
-        -- Handle key presses
-        if msg.key then
+        -- Handle key bindings
+        if type(msg) == "table" and msg.type == "update" and msg.key then
             if self.keys.quit:matches(msg) then
-                return true
+                return true -- signal quit
             elseif self.keys.up:matches(msg) then
                 self.state.y = math.max(1, self.state.y - 1)
             elseif self.keys.down:matches(msg) then
@@ -77,7 +87,7 @@ function App()
             end
         end
 
-        return false
+        return false -- continue running
     end
 
     -- View function

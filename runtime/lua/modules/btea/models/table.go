@@ -12,6 +12,7 @@ import (
 // Table wraps tablewidget.Model for Lua.
 type Table struct {
 	model table.Model
+	// todo: expose keymap
 }
 
 func (t *Table) Init() tea.Cmd {

@@ -118,3 +118,43 @@ entries:
     method: App
     import:
       "bapp": "btea.lib:bapp"
+
+  - name: move
+    kind: btea.app.lua
+    meta:
+      comment: "Character movement demo"
+      default_host: terminal
+    source: file://move.lua
+    method: App
+    import:
+      "bapp": "btea.lib:bapp"
+
+  - name: input_clicks
+    kind: btea.app.lua
+    meta:
+      comment: "Text input with mouse interaction demo"
+      default_host: terminal
+    source: file://input_clicks.lua
+    method: App
+    import:
+      "bapp": "btea.lib:bapp"
+
+  - name: nested_model
+    kind: btea.app.lua
+    meta:
+      comment: "Nested Model with click tracking demo"
+      default_host: terminal
+    source: file://nested_model.lua
+    method: App
+    import:
+      "bapp": "btea.lib:bapp"
+
+  - name: list
+    kind: btea.app.lua
+    meta:
+      comment: "Interactive list with filtering demo"
+      default_host: terminal
+    source: file://list.lua
+    method: App
+    import:
+      "bapp": "btea.lib:bapp"

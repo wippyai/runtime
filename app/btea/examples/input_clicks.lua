@@ -1,7 +1,14 @@
 local bapp = require("bapp")
 
 function App()
-    local app = bapp.new()
+    -- Create app with custom init commands
+    local init_commands = {
+        btea.commands.enter_alt_screen,
+        btea.commands.hide_cursor,
+        btea.commands.enable_mouse_all_motion
+    }
+
+    local app = bapp.new(init_commands)
 
     -- Create zone manager for handling mouse interactions
     local zone_manager = btea.zone_manager()
@@ -42,20 +49,28 @@ function App()
     -- Track current focused input
     app.current = 1
 
+    -- Define key bindings
+    app.keys = {
+        quit = btea.bind({
+            keys = {"ctrl+c", "q", "esc"},
+            help = {key = "^C/q/esc", desc = "quit"}
+        })
+    }
+
     -- Style definitions
     app.styles = {
         container = btea.style()
-            :border("rounded")
+            :border(btea.borders.ROUNDED)
             :padding(1)
             :background("#1E1E2E"),
 
         input_normal = btea.style()
-            :border("rounded")
+            :border(btea.borders.ROUNDED)
             :padding(0, 1)
             :background("#313244"),
 
         input_focused = btea.style()
-            :border("rounded")
+            :border(btea.borders.ROUNDED)
             :padding(0, 1)
             :background("#45475A"),
 
@@ -67,33 +82,39 @@ function App()
             :italic()
     }
 
-    -- Enable mouse support
-    app.cmd_channel:send(btea.commands.enable_mouse_all_motion)
-
     -- Focus first input
     app:dispatch(app.inputs[app.current].input:focus())
 
     -- Update function
     local function update(self, msg)
-        if msg.key and msg.key.key_type == "ctrl+c" then
-            return true
+        -- Update window size if changed
+        if msg.window_size then
+            for _, input_data in ipairs(self.inputs) do
+                input_data.input:set_width(math.min(40, self.window.width - 4))
+            end
         end
 
-        -- Handle mouse events for zone detection
-        if msg.mouse and msg.mouse.type == "mouse" then
-            -- Use any_in_bounds_update to check and handle mouse interactions
-            for i, input_data in ipairs(self.inputs) do
-                if zone_manager:get(input_data.zone_id):in_bounds(msg) then
-                    if msg.mouse.action == "press" and i ~= self.current then
-                        -- Blur current input
-                        self.inputs[self.current].input:blur()
-                        -- Update current input index
-                        self.current = i
-                        -- Focus new input
-                        local cmd = self.inputs[self.current].input:focus()
-                        if cmd then self:dispatch(cmd) end
+        -- Handle key bindings
+        if type(msg) == "table" and msg.type == "update" then
+            if msg.key and self.keys.quit:matches(msg) then
+                return true -- signal quit
+            end
+
+            -- Handle mouse events for zone detection
+            if msg.mouse then
+                -- Use any_in_bounds_update to check and handle mouse interactions
+                for i, input_data in ipairs(self.inputs) do
+                    if zone_manager:get(input_data.zone_id):in_bounds(msg) then
+                        if msg.mouse.action == "press" and i ~= self.current then
+                            -- Blur current input
+                            self:dispatch(self.inputs[self.current].input:blur())
+                            -- Update current input index
+                            self.current = i
+                            -- Focus new input
+                            self:dispatch(self.inputs[self.current].input:focus())
+                        end
+                        break
                     end
-                    break
                 end
             end
         end
@@ -101,7 +122,8 @@ function App()
         -- Update current input
         local cmd = self.inputs[self.current].input:update(msg)
         if cmd then self:dispatch(cmd) end
-        return false
+
+        return false -- continue running
     end
 
     -- View function
@@ -122,7 +144,7 @@ function App()
         end
 
         -- Add help text
-        table.insert(lines, self.styles.help:render("Click to focus | ^C to quit"))
+        table.insert(lines, self.styles.help:render("Click to focus | ^C/q/esc to quit"))
 
         -- Combine everything and scan for zones
         return zone_manager:scan(
