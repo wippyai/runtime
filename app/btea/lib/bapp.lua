@@ -32,6 +32,10 @@ function bapp.new(init_cmd)
         if cmd then self.cmd_channel:send(cmd) end
     end
 
+    function app:upstream(msg)
+        upstream.send(msg)
+    end
+
     for _, cmd in ipairs(init_cmd) do
         app:dispatch(cmd)
     end

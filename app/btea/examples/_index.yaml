@@ -22,6 +22,6 @@ entries:
       comment: "Snake game"
     source: file://snake.lua
     method: App
-    modules: [ time ]
+    modules: [ time, json ]
     import:
       "bapp": "btea.lib:bapp"

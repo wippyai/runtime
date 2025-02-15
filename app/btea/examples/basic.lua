@@ -164,7 +164,8 @@ function App()
 
         -- Check for quit conditions
         if type(msg) == "table" and msg.type == "update" and msg.key then
-            if msg.key.key_type == "ctrl+c" or msg.key.String == "esc" then
+        -- todo: use matches
+            if msg.key.key_type == "ctrl+c" or msg.key.string == "esc" then
                 return true -- signal quit
             end
         end
