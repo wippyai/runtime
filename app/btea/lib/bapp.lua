@@ -16,7 +16,7 @@ function bapp.create_keys(bindings)
 end
 
 -- Instantiate a new base app.
-function bapp.new()
+function bapp.new(init_cmd)
     local app = {
         cmd_channel = channel.new(128),
         is_running = false,
@@ -30,6 +30,10 @@ function bapp.new()
     -- Dispatch a single command.
     function app:dispatch(cmd)
         if cmd then self.cmd_channel:send(cmd) end
+    end
+
+    for _, cmd in ipairs(init_cmd) do
+        app:dispatch(cmd)
     end
 
     -- Dispatch multiple commands.
