@@ -25,7 +25,7 @@ function App()
     app.input = btea.text_input({
         prompt = "> ",
         placeholder = "Type a message or command (!help, !channels, !listen)...",
-        width = app.window.width - 8
+        width = app.window.width - 1
     })
 
     -- Define styles
