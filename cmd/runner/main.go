@@ -236,7 +236,7 @@ func (a *App) Stop() error {
 		select {
 		case <-a.forceShutdown:
 			a.logger.Warn("force shutdown triggered, canceling context")
-			cancel()
+			a.cancel()
 		case <-ctx.Done():
 		}
 	}()
