@@ -29,9 +29,9 @@ const (
 	ChannelUpdate = "@btea/update"
 
 	// Timeout constants
-	taskTimeout = 3000 * time.Millisecond
-	viewTimeout = 12000 * time.Millisecond
-	stopTimeout = 5000 * time.Millisecond
+	stopTimeout = 500 * time.Millisecond
+	taskTimeout = 300 * time.Millisecond
+	viewTimeout = 200 * time.Millisecond
 
 	// ExitKey is used to trigger process cancellation.
 	ExitKey = "esc"
@@ -142,7 +142,8 @@ func (p *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	// Forward update messages to Lua.
-	p.publishTask(ChannelUpdate, protocol.MsgToLua(msg))
+	p.publishTask(ChannelUpdate, protocol.MsgToLua(msg)) // todo: deprecate?
+
 	return p, nil
 }
 
@@ -206,6 +207,8 @@ func (p *App) publishTaskWithResponse(channel string, value lua.LValue, timeout 
 		return nil
 	case <-time.After(timeout):
 		p.log.Debug("task timeout", zap.String("channel", channel))
+		return nil
+	case <-p.done:
 		return nil
 	case <-p.ctx.Done():
 		return nil

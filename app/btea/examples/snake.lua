@@ -20,6 +20,34 @@ function App()
     local width = 40
     local height = 20
 
+    -- Key bindings
+    local keys = {
+        up = btea.bind {
+            keys = {"up", "k"},
+            help = {key = "↑/k", desc = "move up"}
+        },
+        down = btea.bind {
+            keys = {"down", "j"},
+            help = {key = "↓/j", desc = "move down"}
+        },
+        left = btea.bind {
+            keys = {"left", "h"},
+            help = {key = "←/h", desc = "move left"}
+        },
+        right = btea.bind {
+            keys = {"right", "l"},
+            help = {key = "→/l", desc = "move right"}
+        },
+        restart = btea.bind {
+            keys = {"r"},
+            help = {key = "r", desc = "restart game"}
+        },
+        quit = btea.bind {
+            keys = {"q", "ctrl+c", "esc"},
+            help = {key = "q/^C/esc", desc = "quit game"}
+        }
+    }
+
     -- Game state
     local state = {
         snake = {},
@@ -88,24 +116,26 @@ function App()
         spawn_food()
     end
 
+    -- Initialize game
     reset_game()
 
-    -- Update function for bapp runner.
+    -- Update function for bapp runner
     local function update(self, msg)
         if msg.tick then
             move_snake()
         elseif msg.key then
-            local key = msg.key.String
-            if key == "r" and state.game_over then
+            if keys.quit:matches(msg.key) then
+                return true -- quit game
+            elseif keys.restart:matches(msg.key) and state.game_over then
                 reset_game()
             elseif not state.game_over then
-                if key == "up" and state.direction ~= "down" then
+                if keys.up:matches(msg.key) and state.direction ~= "down" then
                     state.direction = "up"
-                elseif key == "down" and state.direction ~= "up" then
+                elseif keys.down:matches(msg.key) and state.direction ~= "up" then
                     state.direction = "down"
-                elseif key == "left" and state.direction ~= "right" then
+                elseif keys.left:matches(msg.key) and state.direction ~= "right" then
                     state.direction = "left"
-                elseif key == "right" and state.direction ~= "left" then
+                elseif keys.right:matches(msg.key) and state.direction ~= "left" then
                     state.direction = "right"
                 end
             end
@@ -113,7 +143,7 @@ function App()
         return false -- continue running
     end
 
-    -- View function for bapp runner.
+    -- View function for bapp runner
     local function view(self)
         local board = {}
         for y = 0, height - 1 do
@@ -144,21 +174,28 @@ function App()
                 line = line .. board[y][x]
             end
             line = line .. "║"
-            table.insert(lines, line)
+            table.insert(lines, border_style:render(line))
         end
         -- Bottom border
         table.insert(lines, border_style:render("╚" .. string.rep("═", width * 2) .. "╝"))
         table.insert(lines, "")
+
+        -- Help text
         if state.game_over then
-            table.insert(lines, game_over_style:render("Game Over! Press 'r' to restart or 'q' to quit"))
+            table.insert(lines, game_over_style:render("Game Over!"))
+            table.insert(lines, keys.restart.help.key .. ": " .. keys.restart.help.desc)
         else
-            table.insert(lines, "Use arrow keys to move, 'q' to quit")
+            table.insert(lines, "Controls:")
+            for _, key in pairs({"up", "down", "left", "right"}) do
+                table.insert(lines, keys[key].help.key .. ": " .. keys[key].help.desc)
+            end
         end
+        table.insert(lines, keys.quit.help.key .. ": " .. keys.quit.help.desc)
 
         return table.concat(lines, "\n")
     end
 
-    -- Spawn a ticker coroutine that sends tick messages every 200ms.
+    -- Spawn a ticker coroutine that sends tick messages every 200ms
     coroutine.spawn(function()
         local ticker = time.ticker("200ms")
         while true do
@@ -168,6 +205,7 @@ function App()
         end
     end)
 
+    -- Run the game with our update and view functions
     app:run(update, view)
 end
 
