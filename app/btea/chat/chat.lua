@@ -7,7 +7,7 @@ function App()
     -- Create app with proper init commands
     local init_commands = {
        -- btea.commands.enter_alt_screen,
-      --  btea.commands.hide_cursor
+       -- btea.commands.hide_cursor
     }
 
     local app = bapp.new(init_commands)
