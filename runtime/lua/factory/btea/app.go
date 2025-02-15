@@ -306,6 +306,9 @@ func (p *App) processLoop(resultCh <-chan engine.Result) {
 					})
 				}
 			}
+
+			_ = p.program.ReleaseTerminal()
+			p.program.Quit()
 		})
 	}
 
@@ -364,9 +367,6 @@ func (p *App) Step() error {
 		err := p.runner.Continue(p.ctx)
 		if p.firstError != nil && err != nil {
 			p.firstError = err
-		}
-		if err != nil {
-			p.program.Quit()
 		}
 		return err
 	}
