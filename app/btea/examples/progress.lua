@@ -1,7 +1,13 @@
 local bapp = require("bapp")
 
 function App()
-    local app = bapp.new()
+    -- Create app with custom init commands
+    local init_commands = {
+        btea.commands.enter_alt_screen,
+        btea.commands.hide_cursor
+    }
+
+    local app = bapp.new(init_commands)
 
     -- Create different progress bars with various styles
     app.progress_bars = {
@@ -53,17 +59,21 @@ function App()
         app.progress_values[i] = 0
     end
 
-    -- Setup key bindings with help text
-    app.keys = bapp.create_keys({
-        space = {
+    -- Define key bindings
+    app.keys = {
+        quit = btea.bind({
+            keys = {"ctrl+c", "q", "esc"},
+            help = {key = "^C/q/esc", desc = "quit"}
+        }),
+        increment = btea.bind({
             keys = {" "},
             help = {key = "space", desc = "increment"}
-        },
-        reset = {
+        }),
+        reset = btea.bind({
             keys = {"r"},
             help = {key = "r", desc = "reset"}
-        }
-    })
+        })
+    }
 
     -- Styles for layout
     app.styles = {
@@ -81,31 +91,57 @@ function App()
             :italic()
     }
 
+    -- Helper functions
+    local function increment_progress(self)
+        -- Increment all progress bars by 10%
+        local cmds = {}
+        for i, bar in ipairs(self.progress_bars) do
+            if self.progress_values[i] < 1.0 then
+                self.progress_values[i] = math.min(1.0, self.progress_values[i] + 0.1)
+                local cmd = bar.progress:set_percent(self.progress_values[i])
+                if cmd then
+                    table.insert(cmds, cmd)
+                end
+            end
+        end
+        if #cmds > 0 then
+            self:dispatch(btea.batch(cmds))
+        end
+    end
+
+    local function reset_progress(self)
+        -- Reset all progress bars
+        local cmds = {}
+        for i, bar in ipairs(self.progress_bars) do
+            self.progress_values[i] = 0
+            local cmd = bar.progress:set_percent(0)
+            if cmd then
+                table.insert(cmds, cmd)
+            end
+        end
+        if #cmds > 0 then
+            self:dispatch(btea.batch(cmds))
+        end
+    end
+
     -- Update function
     local function update(self, msg)
-        if msg.key then
+        -- Update window size if changed
+        if msg.window_size then
+            -- Update progress bar widths based on new window size
+            for _, bar in ipairs(self.progress_bars) do
+                bar.progress:set_width(math.min(40, self.window.width - 4))
+            end
+        end
+
+        -- Handle key bindings
+        if type(msg) == "table" and msg.type == "update" and msg.key then
             if self.keys.quit:matches(msg) then
-                return true
-            elseif self.keys.space:matches(msg) then
-                -- Increment all progress bars by 10%
-                for i, bar in ipairs(self.progress_bars) do
-                    if self.progress_values[i] < 1.0 then
-                        self.progress_values[i] = math.min(1.0, self.progress_values[i] + 0.1)
-                        local cmd = bar.progress:set_percent(self.progress_values[i])
-                        if cmd then
-                            self:dispatch(cmd)
-                        end
-                    end
-                end
+                return true -- signal quit
+            elseif self.keys.increment:matches(msg) then
+                increment_progress(self)
             elseif self.keys.reset:matches(msg) then
-                -- Reset all progress bars
-                for i, bar in ipairs(self.progress_bars) do
-                    self.progress_values[i] = 0
-                    local cmd = bar.progress:set_percent(0)
-                    if cmd then
-                        self:dispatch(cmd)
-                    end
-                end
+                reset_progress(self)
             end
         end
 
@@ -123,7 +159,7 @@ function App()
             self:dispatch(btea.batch(cmds))
         end
 
-        return false
+        return false -- continue running
     end
 
     -- View function
@@ -140,8 +176,9 @@ function App()
             table.insert(lines, "")
         end
 
-        -- Add help text
-        table.insert(lines, self.styles.help:render("Space to increment | r to reset | q/^C to quit"))
+        -- Add help text with simple format
+        local help_text = "space to increment | r to reset | ^C/q/esc to quit"
+        table.insert(lines, self.styles.help:render(help_text))
 
         return self.styles.base:render(table.concat(lines, "\n"))
     end

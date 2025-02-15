@@ -1,43 +1,53 @@
 local bapp = require("bapp")
 
 function App()
-    local app = bapp.new()
+    -- Create app with custom init commands
+    local init_commands = {
+        btea.commands.enter_alt_screen,
+        btea.commands.hide_cursor
+    }
 
-    -- Setup key bindings using bapp
-    app.keys = bapp.create_keys({
-        toggle_help = {
-            keys = { "?" },
-            help = { key = "?", desc = "toggle help" }
-        },
-        nav_up = {
-            keys = { "up", "k" },
-            help = { key = "↑/k", desc = "move up" }
-        },
-        nav_down = {
-            keys = { "down", "j" },
-            help = { key = "↓/j", desc = "move down" }
-        },
-        action1 = {
-            keys = { "1" },
-            help = { key = "1", desc = "action one" }
-        },
-        action2 = {
-            keys = { "2" },
-            help = { key = "2", desc = "action two" }
-        },
-        save = {
-            keys = { "ctrl+s" },
-            help = { key = "^S", desc = "save" }
-        },
-        reload = {
-            keys = { "ctrl+r" },
-            help = { key = "^R", desc = "reload" }
-        }
-    })
+    local app = bapp.new(init_commands)
+
+    -- Define key bindings
+    app.keys = {
+        quit = btea.bind({
+            keys = {"ctrl+c", "q", "esc"},
+            help = {key = "^C/q/esc", desc = "quit"}
+        }),
+        toggle_help = btea.bind({
+            keys = {"?"},
+            help = {key = "?", desc = "toggle help"}
+        }),
+        nav_up = btea.bind({
+            keys = {"up", "k"},
+            help = {key = "↑/k", desc = "move up"}
+        }),
+        nav_down = btea.bind({
+            keys = {"down", "j"},
+            help = {key = "↓/j", desc = "move down"}
+        }),
+        action1 = btea.bind({
+            keys = {"1"},
+            help = {key = "1", desc = "action one"}
+        }),
+        action2 = btea.bind({
+            keys = {"2"},
+            help = {key = "2", desc = "action two"}
+        }),
+        save = btea.bind({
+            keys = {"ctrl+s"},
+            help = {key = "^S", desc = "save"}
+        }),
+        reload = btea.bind({
+            keys = {"ctrl+r"},
+            help = {key = "^R", desc = "reload"}
+        })
+    }
 
     -- Create help component
     app.help = btea.help({
-        width = 60,
+        width = app.window.width - 4,
         styles = {
             short_key = btea.style():foreground("#89B4FA"):bold(),
             short_desc = btea.style():foreground("#CDD6F4"),
@@ -48,7 +58,7 @@ function App()
         }
     })
 
-    -- Define our help keymap using a table
+    -- Define help keymap
     app.keymap = {
         show_full = false,
 
@@ -111,30 +121,42 @@ function App()
     -- Track last action
     app.last_action = "No action taken yet"
 
+    -- Helper to update last action
+    local function set_action(self, action)
+        self.last_action = action
+    end
+
     -- Update function
     local function update(self, msg)
-        if msg.key then
+        -- Update window size if changed
+        if msg.window_size then
+            self.help:set_width(self.window.width - 4)
+        end
+
+        -- Handle key bindings
+        if type(msg) == "table" and msg.type == "update" and msg.key then
             if self.keys.quit:matches(msg) then
-                self.last_action = "Quitting..."
-                return true
+                set_action(self, "Quitting...")
+                return true -- signal quit
             elseif self.keys.toggle_help:matches(msg) then
                 self.keymap.show_full = not self.keymap.show_full
-                self.last_action = "Toggled help view"
+                set_action(self, "Toggled help view")
             elseif self.keys.nav_up:matches(msg) then
-                self.last_action = "Moved up"
+                set_action(self, "Moved up")
             elseif self.keys.nav_down:matches(msg) then
-                self.last_action = "Moved down"
+                set_action(self, "Moved down")
             elseif self.keys.action1:matches(msg) then
-                self.last_action = "Performed action one"
+                set_action(self, "Performed action one")
             elseif self.keys.action2:matches(msg) then
-                self.last_action = "Performed action two"
+                set_action(self, "Performed action two")
             elseif self.keys.save:matches(msg) then
-                self.last_action = "Saved"
+                set_action(self, "Saved")
             elseif self.keys.reload:matches(msg) then
-                self.last_action = "Reloaded"
+                set_action(self, "Reloaded")
             end
         end
-        return false
+
+        return false -- continue running
     end
 
     -- View function
@@ -149,7 +171,7 @@ function App()
             ""
         }
 
-        -- Add help view
+        -- Add help view with current show_full state
         self.help:set_show_all(self.keymap.show_full)
         table.insert(lines, self.help:view(self.keymap))
 

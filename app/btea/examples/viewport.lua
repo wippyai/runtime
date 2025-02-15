@@ -1,12 +1,20 @@
 local bapp = require("bapp")
+local time = require("time")
 
 function App()
-    local app = bapp.new()
+    -- Create app with custom init commands
+    local init_commands = {
+        btea.commands.enter_alt_screen,
+        btea.commands.hide_cursor,
+        btea.commands.enable_mouse_all_motion
+    }
+
+    local app = bapp.new(init_commands)
 
     -- Create a viewport for our log viewer
     app.log_view = btea.viewport {
-        width = 60,
-        height = 20,
+        width = app.window.width - 4,
+        height = app.window.height - 2,
         mouse_wheel_enabled = true,
         style = btea.style()
             :border(btea.borders.ROUNDED)
@@ -14,29 +22,33 @@ function App()
             :background("#1E1E2E")
     }
 
-    -- Setup key bindings using bapp
-    app.keys = bapp.create_keys({
-        pagedown = {
-            keys = { "pgdown", " " },
-            help = { key = "pgdn/space", desc = "page down" }
-        },
-        pageup = {
-            keys = { "pgup", "b" },
-            help = { key = "pgup/b", desc = "page up" }
-        },
-        down = {
-            keys = { "down", "j" },
-            help = { key = "↓/j", desc = "down" }
-        },
-        up = {
-            keys = { "up", "k" },
-            help = { key = "↑/k", desc = "up" }
-        },
-        add = {
-            keys = { "a" },
-            help = { key = "a", desc = "add log" }
-        }
-    })
+    -- Define key bindings
+    app.keys = {
+        quit = btea.bind({
+            keys = {"ctrl+c", "q", "esc"},
+            help = {key = "^C/q/esc", desc = "quit"}
+        }),
+        pagedown = btea.bind({
+            keys = {"pgdown", " "},
+            help = {key = "pgdn/space", desc = "page down"}
+        }),
+        pageup = btea.bind({
+            keys = {"pgup", "b"},
+            help = {key = "pgup/b", desc = "page up"}
+        }),
+        down = btea.bind({
+            keys = {"down", "j"},
+            help = {key = "↓/j", desc = "down"}
+        }),
+        up = btea.bind({
+            keys = {"up", "k"},
+            help = {key = "↑/k", desc = "up"}
+        }),
+        add = btea.bind({
+            keys = {"a"},
+            help = {key = "a", desc = "add log"}
+        })
+    }
 
     -- Styles for different log levels
     app.styles = {
@@ -71,6 +83,11 @@ function App()
         return app.styles[level]:render(string.format("[%s] [%s] %s", timestamp, level:upper(), msg))
     end
 
+    -- Helper for viewport navigation
+    local function scroll_viewport(self, cmd)
+        if cmd then self:dispatch(cmd) end
+    end
+
     -- Initialize with some logs
     app.logs = {}
     for i = 1, 50 do
@@ -78,54 +95,50 @@ function App()
     end
     app.log_view:set_content(table.concat(app.logs, "\n"))
 
-    -- Enable mouse support
-    app:enable_mouse()
-
     -- Update function
     local function update(self, msg)
-        if msg.key then
+        -- Update window size if changed
+        if msg.window_size then
+            self.log_view:set_width(self.window.width - 4)
+            self.log_view:set_height(self.window.height - 2)
+        end
+
+        -- Handle key bindings
+        if type(msg) == "table" and msg.type == "update" and msg.key then
             if self.keys.quit:matches(msg) then
-                return true
+                return true -- signal quit
             elseif self.keys.pagedown:matches(msg) then
-                local cmd = self.log_view:page_down()
-                if cmd then self:dispatch(cmd) end
+                scroll_viewport(self, self.log_view:page_down())
             elseif self.keys.pageup:matches(msg) then
-                local cmd = self.log_view:page_up()
-                if cmd then self:dispatch(cmd) end
+                scroll_viewport(self, self.log_view:page_up())
             elseif self.keys.down:matches(msg) then
-                local cmd = self.log_view:line_down()
-                if cmd then self:dispatch(cmd) end
+                scroll_viewport(self, self.log_view:line_down())
             elseif self.keys.up:matches(msg) then
-                local cmd = self.log_view:line_up()
-                if cmd then self:dispatch(cmd) end
+                scroll_viewport(self, self.log_view:line_up())
             elseif self.keys.add:matches(msg) then
                 -- Add a new random log entry
                 table.insert(self.logs, random_log())
                 self.log_view:set_content(table.concat(self.logs, "\n"))
                 -- If we were at the bottom, scroll to new content
                 if self.log_view:at_bottom() then
-                    local cmd = self.log_view:scroll_to_bottom()
-                    if cmd then self:dispatch(cmd) end
+                    scroll_viewport(self, self.log_view:scroll_to_bottom())
                 end
             end
         end
 
         -- Handle mouse wheel events
-        if msg.mouse and self.log_view.mouse_wheel_enabled then
+        if type(msg) == "table" and msg.type == "update" and msg.mouse and self.log_view.mouse_wheel_enabled then
             if msg.mouse.button == "wheel_up" then
-                local cmd = self.log_view:line_up(3)
-                if cmd then self:dispatch(cmd) end
+                scroll_viewport(self, self.log_view:line_up(3))
             elseif msg.mouse.button == "wheel_down" then
-                local cmd = self.log_view:line_down(3)
-                if cmd then self:dispatch(cmd) end
+                scroll_viewport(self, self.log_view:line_down(3))
             end
         end
 
         -- Update viewport state
-        local cmd = self.log_view:update(msg)
-        if cmd then self:dispatch(cmd) end
+        scroll_viewport(self, self.log_view:update(msg))
 
-        return false
+        return false -- continue running
     end
 
     -- View function
@@ -134,9 +147,8 @@ function App()
         local viewport_view = self.log_view:view()
 
         -- Add help text below viewport
-        local help = self.styles.help:render(
-            "↑/k up | ↓/j down | pgup/b page up | pgdn/space page down | a add log | q/^C quit"
-        )
+        local help_text = "↑/k up | ↓/j down | pgup/b page up | pgdn/space page down | a add log | ^C/q/esc quit"
+        local help = self.styles.help:render(help_text)
 
         return viewport_view .. "\n" .. help
     end

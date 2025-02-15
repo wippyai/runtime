@@ -1,7 +1,13 @@
 local bapp = require("bapp")
 
 function App()
-    local app = bapp.new()
+    -- Create app with custom init commands
+    local init_commands = {
+        btea.commands.enter_alt_screen,
+        btea.commands.hide_cursor
+    }
+
+    local app = bapp.new(init_commands)
 
     -- Create different text inputs with various styles
     app.inputs = {
@@ -89,57 +95,78 @@ function App()
             :italic()
     }
 
-    -- Setup key bindings
-    app.keys = bapp.create_keys({
-        next = {
-            keys = { "tab", "down" },
-            help = { key = "tab/↓", desc = "next input" }
-        },
-        prev = {
-            keys = { "shift+tab", "up" },
-            help = { key = "shift+tab/↑", desc = "prev input" }
-        },
-        quit = {
-            keys = { "ctrl+c", "esc" },
-            help = { key = "^C/esc", desc = "quit" }
-        }
-    })
+    -- Define key bindings
+    app.keys = {
+        quit = btea.bind({
+            keys = {"ctrl+c", "esc"},
+            help = {key = "^C/esc", desc = "quit"}
+        }),
+        next = btea.bind({
+            keys = {"tab", "down"},
+            help = {key = "tab/↓", desc = "next"}
+        }),
+        prev = btea.bind({
+            keys = {"shift+tab", "up"},
+            help = {key = "↑/shift+tab", desc = "previous"}
+        }),
+        submit = btea.bind({
+            keys = {"enter"},
+            help = {key = "enter", desc = "submit"}
+        })
+    }
 
     -- Focus first input
     app:dispatch(app.inputs[app.current].input:focus())
 
+    -- Helper functions
+    local function next_input(self)
+        self.inputs[self.current].input:blur()
+        self.current = (self.current % #self.inputs) + 1
+        local cmd = self.inputs[self.current].input:focus()
+        if cmd then self:dispatch(cmd) end
+    end
+
+    local function prev_input(self)
+        self.inputs[self.current].input:blur()
+        self.current = ((self.current - 2) % #self.inputs) + 1
+        local cmd = self.inputs[self.current].input:focus()
+        if cmd then self:dispatch(cmd) end
+    end
+
+    local function submit_input(self)
+        self.results[self.current] = self.inputs[self.current].input:value()
+        local cmd = self.inputs[self.current].input:set_value("")
+        if cmd then self:dispatch(cmd) end
+    end
+
     -- Update function
     local function update(self, msg)
-        if msg.key then
-            if self.keys.quit:matches(msg) then
-                return true
-            elseif self.keys.next:matches(msg) then
-                -- Move to next input
-                self.inputs[self.current].input:blur()
-                self.current = (self.current % #self.inputs) + 1
-                local cmd = self.inputs[self.current].input:focus()
-                if cmd then self:dispatch(cmd) end
-                return false
-            elseif self.keys.prev:matches(msg) then
-                -- Move to previous input
-                self.inputs[self.current].input:blur()
-                self.current = ((self.current - 2) % #self.inputs) + 1
-                local cmd = self.inputs[self.current].input:focus()
-                if cmd then self:dispatch(cmd) end
-                return false
-            elseif msg.key.key_type == "enter" then
-                -- Store input result
-                self.results[self.current] = self.inputs[self.current].input:value()
-                local cmd = self.inputs[self.current].input:set_value("")
-                if cmd then self:dispatch(cmd) end
-                return false
+        -- Update window size if changed
+        if msg.window_size then
+            -- Update input widths based on new window size
+            for _, input in ipairs(self.inputs) do
+                input.input:set_width(math.min(40, self.window.width - 4))
             end
         end
 
-        -- Update current input only if we haven't handled the key
+        -- Handle key bindings
+        if type(msg) == "table" and msg.type == "update" and msg.key then
+            if self.keys.quit:matches(msg) then
+                return true -- signal quit
+            elseif self.keys.next:matches(msg) then
+                next_input(self)
+            elseif self.keys.prev:matches(msg) then
+                prev_input(self)
+            elseif self.keys.submit:matches(msg) then
+                submit_input(self)
+            end
+        end
+
+        -- Update current input
         local cmd = self.inputs[self.current].input:update(msg)
         if cmd then self:dispatch(cmd) end
-        return false
+
+        return false -- continue running
     end
 
     -- View function
@@ -152,7 +179,7 @@ function App()
         for i, input in ipairs(self.inputs) do
             -- Add input label
             table.insert(lines, self.styles.label:render(input.name))
-            -- Add the input itself - view now returns string directly
+            -- Add the input itself
             local input_view = input.input:view()
             table.insert(lines, input_view)
             -- Add result or error if any
@@ -165,8 +192,14 @@ function App()
             table.insert(lines, "")
         end
 
-        -- Add help text
-        table.insert(lines, self.styles.help:render("Tab/↓ next | Shift+Tab/↑ prev | Enter submit | ^C/Esc quit"))
+        -- Add help text with simpler formatting
+        local help_lines = {
+            "tab/↓ next",
+            "shift+tab/↑ previous",
+            "enter submit",
+            "^C/esc quit"
+        }
+        table.insert(lines, self.styles.help:render(table.concat(help_lines, " | ")))
 
         return self.styles.base:render(table.concat(lines, "\n"))
     end

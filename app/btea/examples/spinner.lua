@@ -1,7 +1,13 @@
 local bapp = require("bapp")
 
 function App()
-    local app = bapp.new()
+    -- Create app with custom init commands
+    local init_commands = {
+        btea.commands.enter_alt_screen,
+        btea.commands.hide_cursor
+    }
+
+    local app = bapp.new(init_commands)
 
     -- Initialize spinner configurations
     app.spinners = {
@@ -34,16 +40,17 @@ function App()
 
         s.spinner:style(style)
 
+        -- Start spinner ticking
         app:dispatch(spinner:tick())
     end
 
-    -- Setup key bindings with help text
-    app.keys = bapp.create_keys({
-        quit = {
-            keys = { "q", "ctrl+c" },
-            help = { key = "q/^C", desc = "quit" }
-        }
-    })
+    -- Define key bindings
+    app.keys = {
+        quit = btea.bind({
+            keys = {"ctrl+c", "q", "esc"},
+            help = {key = "^C/q/esc", desc = "quit"}
+        })
+    }
 
     -- Styles for layout
     app.styles = {
@@ -63,9 +70,15 @@ function App()
 
     -- Update function
     local function update(self, msg)
-        if msg.key then
+        -- Update window size if changed
+        if msg.window_size then
+            -- Could add window size-dependent logic here if needed
+        end
+
+        -- Handle key bindings
+        if type(msg) == "table" and msg.type == "update" and msg.key then
             if self.keys.quit:matches(msg) then
-                return true
+                return true -- signal quit
             end
         end
 
@@ -83,7 +96,7 @@ function App()
             self:dispatch(btea.batch(cmds))
         end
 
-        return false
+        return false -- continue running
     end
 
     -- View function
@@ -103,7 +116,7 @@ function App()
 
         -- Add help text
         table.insert(lines, "")
-        table.insert(lines, self.styles.help:render("Press q or ^C to quit"))
+        table.insert(lines, self.styles.help:render("Press q, ^C, or esc to quit"))
 
         return self.styles.base:render(table.concat(lines, "\n"))
     end
