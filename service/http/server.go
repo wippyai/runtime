@@ -81,7 +81,10 @@ func (s *Server) Start(ctx context.Context) (<-chan any, error) {
 		BaseContext:  func(l net.Listener) context.Context { return ctx }, // todo: listener is unused
 	}
 	s.server.RegisterOnShutdown(func() {
-		close(s.statusChan)
+		if s.statusChan != nil {
+			close(s.statusChan)
+		}
+		s.statusChan = nil
 	})
 
 	s.statusChan = make(chan any, 2) // 1 for initial boot message and extra for shutdown
@@ -99,6 +102,11 @@ func (s *Server) Start(ctx context.Context) (<-chan any, error) {
 	if err := s.ensureRunning(ctx); err != nil {
 		return nil, err
 	}
+
+	go func() {
+		<-ctx.Done()
+		_ = s.Stop(ctx)
+	}()
 
 	// we are running!
 	s.statusChan <- fmt.Sprint("service listening on ", s.config.Addr)
