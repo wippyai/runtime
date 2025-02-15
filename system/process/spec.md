@@ -17,38 +17,38 @@ local info = process.info()       -- Process information (PID, registered name, 
 local args = process.args()       -- Process start arguments, includes previous state during upgrades/migration
 ```
 
+# Process System Specification
+
 ## Process Identifiers (PIDs)
 
-PIDs uniquely identify processes within a runtime session. They follow the format:
+PIDs uniquely identify processes within the runtime system. They follow the format:
 
 ```
-node_id@host:app_id:namespace.name:type.pid
+{node@host|namespace:name|procname}
 ```
 
-```
-temproral@workflow_name
-```
+Where:
 
-Components:
-
-- Static part (process location):
-    - `node_id@host`: Physical node identifier and hostname where process runs (e.g., "node1@localhost")
-    - `app_id`: Application identifier (e.g., "myapp")
-    - `namespace.name`: Dot-separated path identifying process location and name (e.g., "workers.processor")
-- Dynamic part:
-    - `type` - Process type indicator:
-        - 't' - Temporal (uses Temporal.io engine)
-        - 'e' - ephemeral (default, temporary, short-lived)
-        - 'p' - persisted (local storage)
-    - `pid` - Global unique process identifier
+- `node` - Optional physical node identifier (e.g., "node1")
+- `host` - Required host identifier where the process runs (i.e. temporal task queue, terminal, ephemeral process host,
+  etc)
+- `namespace:name` - Composite ID that uniquely identifies the process namespace and component name
+- `procname` - Process instance name, typically randomly generated but can be specified
 
 Examples:
 
-```lua
-"node1@localhost:myapp:workers.processor:t.1234"    -- Temporal process (first version)
-"node1@localhost:myapp:workers.cache:e.5678"        -- Ephemeral process
-"node2@remote:myapp:workers.state:p.9012"          -- Persisted process
 ```
+{host1|app:worker|proc1}           // Local process on host1
+{node1@host1|app:worker|proc1}     // Process on node1 at host1
+```
+
+### PID String Format Rules
+
+- Full PID is wrapped in curly braces
+- Components are separated by pipe (|) character
+- Node and host are separated by @ when node is present
+- The namespace:name represents the process type registration ID
+- Process name is the unique instance identifier
 
 ## Process Lifecycle Management
 
@@ -133,7 +133,7 @@ local events = group:events()    -- Get group events channel
 -- Events format:
 {
     type = "join"|"leave",
-    pid = "node1@localhost:app1:workers.processor:p.1234"
+    pid = "{host1|app:worker|proc1}"
 }
 
 -- Group messaging
@@ -290,7 +290,8 @@ process.upgrade(state) -- todo clarify naming
 Process files must export process functions that create process definitions. Args will be passed to this function on
 start.
 
-The process name will be constructed from the definition name and export key via `.`. Make sure to use proper naming conventions.
+The process name will be constructed from the definition name and export key via `.`. Make sure to use proper naming
+conventions.
 
 ## Key Properties and Guarantees
 
