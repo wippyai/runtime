@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
+	"time"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/process"
@@ -18,11 +21,10 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/modules/upstream"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
-	"sync"
-	"time"
 )
 
 const (
+	// Channel identifiers for pubsub communication
 	ChannelView   = "@btea/view"
 	ChannelUpdate = "@btea/update"
 
@@ -31,15 +33,20 @@ const (
 	viewTimeout = 12000 * time.Millisecond
 	stopTimeout = 5000 * time.Millisecond
 
+	// ExitKey is used to trigger process cancellation.
 	ExitKey = "esc"
 )
 
+// NewApp creates and returns a new App instance.
+// It validates that the transcoder and runner are provided,
+// and finds the subscribe layer from the runner.
 func NewApp(
 	log *zap.Logger,
 	dtt payload.Transcoder,
 	runner *engine.Runner,
 	funcName string,
 ) (process.Process, error) {
+
 	if log == nil {
 		log = zap.NewNop()
 	}
@@ -65,23 +72,29 @@ func NewApp(
 	}
 
 	return &App{
-		log:      log,
-		dtt:      dtt,
+		// System fields
+		log:    log,
+		dtt:    dtt,
+		pubsub: subLayer,
+
+		// Runner and function information
 		runner:   runner,
 		funcName: funcName,
-		pubsub:   subLayer,
+
+		// Channels for upstream messages and process cleanup
 		upstream: make(chan payload.Payload, 100),
 		done:     make(chan struct{}),
 	}, nil
 }
 
+// App represents the main application, integrating bubbletea with the underlying Lua runtime.
 type App struct {
-	// system layer
+	// System fields
 	log    *zap.Logger
 	dtt    payload.Transcoder
 	pubsub *subscribe.Layer
 
-	// what we run
+	// Runner and Lua state
 	ctx         context.Context
 	cancel      context.CancelFunc
 	pid         process.PID
@@ -89,27 +102,30 @@ type App struct {
 	runnerState *lua.LState
 	funcName    string
 
-	// bubbletea integration
+	// Bubbletea integration
 	program  *tea.Program
 	terminal *terminal.PipeContext
 
-	// data from underlying lua application
+	// Data from the underlying Lua application
 	upstream chan payload.Payload
 
-	// cleanup
+	// Cleanup and error handling
 	done       chan struct{}
 	firstError error
 	closer     *closer.Cleanup
 }
 
+// Init is delegated to the bubbletea program.
 func (p *App) Init() tea.Cmd {
-	return nil // delegated
+	return nil
 }
 
+// Update processes bubbletea messages. It listens for the exit key and sends updates to Lua.
 func (p *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		if msg.String() == ExitKey {
+			// Send cancellation message and schedule context cancellation if needed.
 			_ = p.Send(&process.Message{Topic: process.TopicCancel})
 			go func() {
 				select {
@@ -121,15 +137,17 @@ func (p *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return
 				}
 			}()
-
 			return p, nil
 		}
 	}
 
+	// Forward update messages to Lua.
 	p.publishTask(ChannelUpdate, protocol.MsgToLua(msg))
 	return p, nil
 }
 
+// View retrieves the view from the Lua side.
+// If the view task fails, it returns an error string.
 func (p *App) View() string {
 	response := p.publishTaskWithResponse(ChannelView, lua.LTrue, viewTimeout)
 	if response == nil {
@@ -138,7 +156,7 @@ func (p *App) View() string {
 	return response.String()
 }
 
-// publishTask sends a task to a channel without waiting for a response.
+// publishTask sends a task to a specific channel without waiting for its response.
 func (p *App) publishTask(channel string, value lua.LValue) {
 	task, err := p.createTask(value)
 	if err != nil {
@@ -150,7 +168,7 @@ func (p *App) publishTask(channel string, value lua.LValue) {
 
 	p.pubsub.Publish(channel, tasks.WrapTask(p.runnerState, task))
 
-	// Handle response in background.
+	// Handle the task response in the background.
 	go func() {
 		select {
 		case <-p.ctx.Done():
@@ -167,7 +185,7 @@ func (p *App) publishTask(channel string, value lua.LValue) {
 	}()
 }
 
-// publishTaskWithResponse sends a task and waits for its response.
+// publishTaskWithResponse sends a task and waits for a response or timeout.
 func (p *App) publishTaskWithResponse(channel string, value lua.LValue, timeout time.Duration) lua.LValue {
 	task, err := p.createTask(value)
 	if err != nil {
@@ -181,8 +199,8 @@ func (p *App) publishTaskWithResponse(channel string, value lua.LValue, timeout 
 
 	select {
 	case rsp := <-task.Response:
-		if str, ok := rsp.Data().(lua.LValue); ok {
-			return str
+		if result, ok := rsp.Data().(lua.LValue); ok {
+			return result
 		}
 		p.log.Error("invalid response type", zap.String("channel", channel))
 		return nil
@@ -194,33 +212,40 @@ func (p *App) publishTaskWithResponse(channel string, value lua.LValue, timeout 
 	}
 }
 
+// createTask wraps a value in a task payload.
 func (p *App) createTask(value lua.LValue) (*tasks.Task, error) {
 	return tasks.CreateTask(payload.NewPayload(value, payload.Lua))
 }
 
+// Start initializes the app context, sets up terminal integration, launches the bubbletea program,
+// and starts the underlying Lua process.
 func (p *App) Start(ctx context.Context, pid process.PID, input payload.Payloads) error {
+	// Create a cancellable context.
 	p.ctx, p.cancel = context.WithCancel(ctx)
 	p.pid = pid
 
-	// Get terminal from context.
+	// Retrieve the terminal from context.
 	term := terminal.FromContext(ctx)
 	if term == nil {
 		return fmt.Errorf("terminal context not found")
 	}
 	p.terminal = term
 
+	// Initialize the bubbletea program.
 	p.program = tea.NewProgram(p, tea.WithInput(term.Stdin), tea.WithOutput(term.Stdout))
 
+	// Inject upstream channel into context and add cleanup handling.
 	ctx = upstream.WithUpstreamChannel(ctx, p.upstream)
 	ctx = p.runner.WithContext(ctx)
 	ctx, p.closer = closer.WithContext(ctx)
 
+	// Run the bubbletea program concurrently.
 	go func() {
 		if _, err := p.program.Run(); err != nil {
 			p.log.Error("btea program error", zap.Error(err))
 		}
 
-		// Removed print statements for program exit.
+		// Set firstError if no error has been set yet.
 		if p.firstError == nil {
 			p.firstError = supervisor.ErrExit
 		}
@@ -228,6 +253,7 @@ func (p *App) Start(ctx context.Context, pid process.PID, input payload.Payloads
 		p.cancel()
 	}()
 
+	// Start the Lua function.
 	resultCh, err := p.runner.Start(ctx, p.funcName, getLuaArgs(input)...)
 	if err != nil {
 		return err
@@ -238,15 +264,19 @@ func (p *App) Start(ctx context.Context, pid process.PID, input payload.Payloads
 		return errors.New("runner state is nil")
 	}
 
+	// Notify that the process has started.
 	if onStart := process.GetOnStart(ctx); onStart != nil {
 		onStart(pid, p)
 	}
 
+	// Start processing results and upstream messages.
 	go p.processLoop(resultCh)
 
 	return nil
 }
 
+// processLoop listens for Lua runner results and upstream messages,
+// and handles process completion and cleanup.
 func (p *App) processLoop(resultCh <-chan engine.Result) {
 	defer func() {
 		close(p.done)
@@ -256,18 +286,17 @@ func (p *App) processLoop(resultCh <-chan engine.Result) {
 	}()
 
 	var once sync.Once
-
-	handleCompletion := func(err error, payloadResult interface{}) {
+	completeProcess := func(err error, result interface{}) {
 		once.Do(func() {
-			if cErr := p.closer.Close(); cErr != nil {
-				p.log.Error("failed to close resources", zap.Error(cErr))
+			if cerr := p.closer.Close(); cerr != nil {
+				p.log.Error("failed to close resources", zap.Error(cerr))
 			}
 			if onComplete := process.GetOnComplete(p.ctx); onComplete != nil {
 				if err != nil {
 					onComplete(p.pid, &runtime.Result{Error: err})
 				} else {
 					onComplete(p.pid, &runtime.Result{
-						Payload: payload.NewPayload(payloadResult, payload.Lua),
+						Payload: payload.NewPayload(result, payload.Lua),
 					})
 				}
 			}
@@ -282,12 +311,12 @@ func (p *App) processLoop(resultCh <-chan engine.Result) {
 			}
 			if result.Error != nil {
 				p.log.Error("runner error", zap.Error(result.Error))
-				handleCompletion(result.Error, nil)
+				completeProcess(result.Error, nil)
 				return
 			}
 			if len(result.Result) > 0 {
 				p.log.Debug("runner completed", zap.Any("result", result.Result[0]))
-				handleCompletion(nil, result.Result[0])
+				completeProcess(nil, result.Result[0])
 				return
 			}
 
@@ -296,12 +325,10 @@ func (p *App) processLoop(resultCh <-chan engine.Result) {
 				continue
 			}
 			value := pp.Data()
-
 			msg, err := protocol.LuaToMsg(value.(lua.LValue))
 			if msg == nil {
 				msg = value
 			}
-
 			if err != nil {
 				p.log.Error("failed to convert upstream message", zap.Error(err))
 				continue
@@ -313,12 +340,13 @@ func (p *App) processLoop(resultCh <-chan engine.Result) {
 			if p.firstError != nil {
 				err = p.firstError
 			}
-			handleCompletion(err, nil)
+			completeProcess(err, nil)
 			return
 		}
 	}
 }
 
+// Step continues the runner. If an error occurs, it quits the bubbletea program.
 func (p *App) Step() error {
 	select {
 	case <-p.done:
@@ -337,14 +365,16 @@ func (p *App) Step() error {
 	}
 }
 
-func (p *App) Send(msg ...*process.Message) error {
+// Send transcodes and publishes messages to the Lua process.
+func (p *App) Send(msgs ...*process.Message) error {
 	select {
 	case <-p.ctx.Done():
 		return p.ctx.Err()
 	case <-p.done:
 		return errors.New("process stopped")
 	default:
-		for _, m := range msg {
+		for _, m := range msgs {
+			// For cancellation messages, release the channel.
 			if m.Topic == process.TopicCancel {
 				p.pubsub.Release(m.Topic)
 				continue
@@ -359,10 +389,11 @@ func (p *App) Send(msg ...*process.Message) error {
 						zap.String("topic", m.Topic))
 					continue
 				}
-				if luaValue, ok := luaPayload.Data().(lua.LValue); ok {
-					luaValues = append(luaValues, luaValue)
+				if lv, ok := luaPayload.Data().(lua.LValue); ok {
+					luaValues = append(luaValues, lv)
 				}
 			}
+
 			if len(luaValues) > 0 {
 				p.pubsub.Publish(m.Topic, luaValues...)
 			}
@@ -372,6 +403,7 @@ func (p *App) Send(msg ...*process.Message) error {
 	}
 }
 
+// getLuaArgs converts payloads to a slice of lua.LValue.
 func getLuaArgs(payloads payload.Payloads) []lua.LValue {
 	args := make([]lua.LValue, 0, len(payloads))
 	for _, p := range payloads {
