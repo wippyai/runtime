@@ -9,6 +9,7 @@ import (
 	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/runtime"
 	"github.com/ponyruntime/pony/api/service/terminal"
+	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/ponyruntime/pony/internal/closer"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
@@ -17,7 +18,6 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/modules/upstream"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
-	"log"
 	"sync"
 	"time"
 )
@@ -29,6 +29,7 @@ const (
 	// Timeout constants
 	taskTimeout = 3000 * time.Millisecond
 	viewTimeout = 12000 * time.Millisecond
+	stopTimeout = 5000 * time.Millisecond
 
 	ExitKey = "esc"
 )
@@ -81,11 +82,12 @@ type App struct {
 	pubsub *subscribe.Layer
 
 	// what we run
-	ctx      context.Context
-	cancel   context.CancelFunc // todo: implement and use in cleanup
-	pid      process.PID
-	runner   *engine.Runner
-	funcName string
+	ctx         context.Context
+	cancel      context.CancelFunc
+	pid         process.PID
+	runner      *engine.Runner
+	runnerState *lua.LState
+	funcName    string
 
 	// bubbletea integration
 	program  *tea.Program
@@ -95,9 +97,9 @@ type App struct {
 	upstream chan payload.Payload
 
 	// cleanup
-	done    chan struct{}
-	stepErr error
-	closer  *closer.Cleanup
+	done       chan struct{}
+	firstError error
+	closer     *closer.Cleanup
 }
 
 func (p *App) Init() tea.Cmd {
@@ -109,7 +111,18 @@ func (p *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		if msg.String() == ExitKey {
 			_ = p.Send(&process.Message{Topic: process.TopicCancel})
-			return p, tea.Quit
+			go func() {
+				select {
+				case <-time.After(stopTimeout):
+					p.cancel()
+				case <-p.done:
+					return
+				case <-p.ctx.Done():
+					return
+				}
+			}()
+
+			return p, nil
 		}
 	}
 
@@ -125,7 +138,7 @@ func (p *App) View() string {
 	return response.String()
 }
 
-// publishTask sends a task to a channel without waiting for response
+// publishTask sends a task to a channel without waiting for a response.
 func (p *App) publishTask(channel string, value lua.LValue) {
 	task, err := p.createTask(value)
 	if err != nil {
@@ -135,9 +148,9 @@ func (p *App) publishTask(channel string, value lua.LValue) {
 		return
 	}
 
-	p.pubsub.Publish(channel, tasks.WrapTask(p.runner.GetCVM().State(), task))
+	p.pubsub.Publish(channel, tasks.WrapTask(p.runnerState, task))
 
-	// Handle response in background
+	// Handle response in background.
 	go func() {
 		select {
 		case <-p.ctx.Done():
@@ -154,7 +167,7 @@ func (p *App) publishTask(channel string, value lua.LValue) {
 	}()
 }
 
-// publishTaskWithResponse sends a task and waits for response
+// publishTaskWithResponse sends a task and waits for its response.
 func (p *App) publishTaskWithResponse(channel string, value lua.LValue, timeout time.Duration) lua.LValue {
 	task, err := p.createTask(value)
 	if err != nil {
@@ -164,7 +177,7 @@ func (p *App) publishTaskWithResponse(channel string, value lua.LValue, timeout 
 		return nil
 	}
 
-	p.pubsub.Publish(channel, tasks.WrapTask(p.runner.GetCVM().State(), task))
+	p.pubsub.Publish(channel, tasks.WrapTask(p.runnerState, task))
 
 	select {
 	case rsp := <-task.Response:
@@ -186,10 +199,10 @@ func (p *App) createTask(value lua.LValue) (*tasks.Task, error) {
 }
 
 func (p *App) Start(ctx context.Context, pid process.PID, input payload.Payloads) error {
-	p.ctx = ctx
+	p.ctx, p.cancel = context.WithCancel(ctx)
 	p.pid = pid
 
-	// Get terminal from context
+	// Get terminal from context.
 	term := terminal.FromContext(ctx)
 	if term == nil {
 		return fmt.Errorf("terminal context not found")
@@ -204,13 +217,25 @@ func (p *App) Start(ctx context.Context, pid process.PID, input payload.Payloads
 
 	go func() {
 		if _, err := p.program.Run(); err != nil {
-			p.log.Error("bubbletea program error", zap.Error(err))
+			p.log.Error("btea program error", zap.Error(err))
 		}
+
+		// Removed print statements for program exit.
+		if p.firstError == nil {
+			p.firstError = supervisor.ErrExit
+		}
+
+		p.cancel()
 	}()
 
 	resultCh, err := p.runner.Start(ctx, p.funcName, getLuaArgs(input)...)
 	if err != nil {
 		return err
+	}
+
+	p.runnerState = p.runner.GetCVM().State()
+	if p.runnerState == nil {
+		return errors.New("runner state is nil")
 	}
 
 	if onStart := process.GetOnStart(ctx); onStart != nil {
@@ -227,69 +252,68 @@ func (p *App) processLoop(resultCh <-chan engine.Result) {
 		close(p.done)
 		close(p.upstream)
 		p.runner.Close()
+		p.cancel()
 	}()
 
-	completeOnce := sync.Once{}
+	var once sync.Once
+
+	handleCompletion := func(err error, payloadResult interface{}) {
+		once.Do(func() {
+			if cErr := p.closer.Close(); cErr != nil {
+				p.log.Error("failed to close resources", zap.Error(cErr))
+			}
+			if onComplete := process.GetOnComplete(p.ctx); onComplete != nil {
+				if err != nil {
+					onComplete(p.pid, &runtime.Result{Error: err})
+				} else {
+					onComplete(p.pid, &runtime.Result{
+						Payload: payload.NewPayload(payloadResult, payload.Lua),
+					})
+				}
+			}
+		})
+	}
 
 	for {
 		select {
-		case result := <-resultCh:
+		case result, ok := <-resultCh:
+			if !ok {
+				return
+			}
 			if result.Error != nil {
 				p.log.Error("runner error", zap.Error(result.Error))
-				completeOnce.Do(func() {
-					if cErr := p.closer.Close(); cErr != nil {
-						p.log.Error("failed to close resources", zap.Error(cErr))
-					}
-					if onComplete := process.GetOnComplete(p.ctx); onComplete != nil {
-						onComplete(p.pid, &runtime.Result{Error: result.Error})
-					}
-				})
+				handleCompletion(result.Error, nil)
 				return
 			}
 			if len(result.Result) > 0 {
 				p.log.Debug("runner completed", zap.Any("result", result.Result[0]))
-				completeOnce.Do(func() {
-					if cErr := p.closer.Close(); cErr != nil {
-						p.log.Error("failed to close resources", zap.Error(cErr))
-					}
-					if onComplete := process.GetOnComplete(p.ctx); onComplete != nil {
-						onComplete(p.pid, &runtime.Result{
-							Payload: payload.NewPayload(result.Result[0], payload.Lua),
-						})
-					}
-				})
+				handleCompletion(nil, result.Result[0])
 				return
 			}
-		case pp := <-p.upstream:
+
+		case pp, ok := <-p.upstream:
+			if !ok {
+				continue
+			}
 			value := pp.Data()
 
 			msg, err := protocol.LuaToMsg(value.(lua.LValue))
 			if msg == nil {
 				msg = value
 			}
-			log.Printf("%T", msg)
 
 			if err != nil {
 				p.log.Error("failed to convert upstream message", zap.Error(err))
 				continue
 			}
-			//msg.Data()
-			log.Printf("msg.Data() = %+v", msg)
 			p.program.Send(msg)
 
 		case <-p.ctx.Done():
 			err := p.ctx.Err()
-			if p.stepErr != nil {
-				err = p.stepErr
+			if p.firstError != nil {
+				err = p.firstError
 			}
-			completeOnce.Do(func() {
-				if cErr := p.closer.Close(); cErr != nil {
-					p.log.Error("failed to close resources", zap.Error(cErr))
-				}
-				if onComplete := process.GetOnComplete(p.ctx); onComplete != nil {
-					onComplete(p.pid, &runtime.Result{Error: err})
-				}
-			})
+			handleCompletion(err, nil)
 			return
 		}
 	}
@@ -299,10 +323,15 @@ func (p *App) Step() error {
 	select {
 	case <-p.done:
 		return nil
+	case <-p.ctx.Done():
+		return p.ctx.Err()
 	default:
 		err := p.runner.Continue(p.ctx)
+		if p.firstError != nil && err != nil {
+			p.firstError = err
+		}
 		if err != nil {
-			p.stepErr = err
+			p.program.Quit()
 		}
 		return err
 	}
@@ -310,6 +339,8 @@ func (p *App) Step() error {
 
 func (p *App) Send(msg ...*process.Message) error {
 	select {
+	case <-p.ctx.Done():
+		return p.ctx.Err()
 	case <-p.done:
 		return errors.New("process stopped")
 	default:
@@ -319,7 +350,7 @@ func (p *App) Send(msg ...*process.Message) error {
 				continue
 			}
 
-			luaValues := make([]lua.LValue, 0, len(m.Payloads))
+			var luaValues []lua.LValue
 			for _, pp := range m.Payloads {
 				luaPayload, err := p.dtt.Transcode(pp, payload.Lua)
 				if err != nil {

@@ -85,12 +85,6 @@ func MsgToLua(msg tea.Msg) lua.LValue {
 }
 
 func LuaToMsg(value lua.LValue) (tea.Msg, error) {
-	if ud, ok := value.(*lua.LUserData); ok {
-		if _, ok := ud.Value.(*CmdWrapper); ok {
-			return UnwrapCommand(value)
-		}
-	}
-
 	if tbl, ok := value.(*lua.LTable); ok {
 		if opaque := tbl.RawGetString("opaque"); opaque != lua.LNil {
 			if ud, ok := opaque.(*lua.LUserData); ok {
@@ -111,7 +105,7 @@ func LuaToMsg(value lua.LValue) (tea.Msg, error) {
 		}
 	}
 
-	return nil, nil
+	return value, nil
 }
 
 func luaToKeyMsg(tbl *lua.LTable) (tea.KeyMsg, error) {
