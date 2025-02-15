@@ -15,12 +15,14 @@ function App()
     app.messages = {}
     app.cursor_blink = false
 
-    -- Initialize text input
+    -- Initialize text input properly using btea's component
     app.input = btea.text_input({
         placeholder = "Type something...",
-        width = app.window.width - 8
+        width = app.window.width - 8,
+        prompt = "> "
     })
-    app.input:focus()
+    -- Focus the input immediately
+    app:dispatch(app.input:focus())
 
     -- Define styles
     app.styles = {
@@ -42,18 +44,8 @@ function App()
         size = btea.style():foreground("#A6E3A1"):bold(),
         tick = btea.style():foreground("#89B4FA"),
         timestamp = btea.style():foreground("#6C7086"),
-        command = btea.style():foreground("#F38BA8"):italic(),
-
-        -- Input field styling
-        input = btea.style()
-            :foreground("#F5C2E7")
-            :background("#313244")
-            :padding(0, 1)
-            :margin(1, 0)
+        command = btea.style():foreground("#F38BA8"):italic()
     }
-
-    -- Create a done channel for cleanup coordination
-    local done = channel.new()
 
     -- Message helper functions
     local function format_msg(msg)
@@ -124,13 +116,9 @@ function App()
             table.insert(display_content, " " .. line)
         end
 
-        -- Add input field with cursor state
+        -- Add input field
         table.insert(display_content, "")
-        local input_view = self.input:view()
-        if self.cursor_blink then
-            input_view = input_view .. "▎" -- Add cursor when blink is on
-        end
-        table.insert(display_content, self.styles.input:render(input_view))
+        table.insert(display_content, self.input:view())
 
         return self.styles.box
             :width(self.window.width - 2)
@@ -141,8 +129,8 @@ function App()
     -- Update handler
     local function update(self, msg)
         -- Update window size if needed
-        if msg.window_size and type(msg.window_size) == "table" then
-            self.input:set_width(self.window.width - 10)
+        if msg.window_size then
+            self.input:set_width(self.window.width - 8)
         end
 
         -- Update text input
@@ -184,11 +172,8 @@ function App()
         return false -- continue running
     end
 
-    -- Run the app (initialization and cleanup now handled automatically)
+    -- Run the app
     app:run(update, view)
-
-    -- Cleanup
-    done:close()
 end
 
 return App
