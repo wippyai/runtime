@@ -208,11 +208,12 @@ func (a *App) Start(folderPath string) error {
 	if _, err := a.reg.Apply(bootCtx, appState); err != nil {
 		return fmt.Errorf("failed to apply initial state: %w", err)
 	}
+
 	time.Sleep(1 * time.Second)
 	// launch (todo: we also can retry or better delegate it to supervisor)
 	pid, err := a.processes.Start(ctx, processapi.StartProcess{
 		HostID: "system:terminal",
-		ID:     apiReg.ID{NS: "terminal", Name: "basic"},
+		ID:     apiReg.ID{NS: "btea", Name: "snake"},
 		Name:   "root",
 	})
 	if err != nil {

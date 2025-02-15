@@ -1,6 +1,9 @@
 version: "1.0"
 namespace: functions
 
+meta:
+  depends_on: [ "ns:system" ]
+
 entries:
   - name: system.env
     kind: function.lua

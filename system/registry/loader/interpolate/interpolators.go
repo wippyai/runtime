@@ -69,12 +69,12 @@ func LoadFile(s string, ctx interface{}) (string, error) {
 	// Spawn sure the path is still within the root directory (security check)
 	relPath, err := filepath.Rel(rctx.RootDir, fullPath)
 	if err != nil || strings.HasPrefix(relPath, "..") {
-		return s + fmt.Sprintf(" [file-error: file path '%s' is outside of the root directory]", filePath), nil
+		return s + fmt.Sprintf(" [file-error: file path '%s' is outside of the root directory]", filePath), err
 	}
 
 	data, err := os.ReadFile(fullPath)
 	if err != nil {
-		return s + fmt.Sprintf(" [file-error: failed to read file '%s': %v]", filePath, err), nil
+		return s + fmt.Sprintf(" [file-error: failed to read file '%s': %v]", filePath, err), err
 	}
 
 	return string(data), nil
