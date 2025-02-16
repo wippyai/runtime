@@ -42,7 +42,7 @@ func TestNodeSendLocal(t *testing.T) {
 	dhost := &dummyHost{}
 	nodeID := "node1"
 	node := NewNode(nodeID, nil)
-	node.RegisterHost("host1", dhost)
+	node.registerHost("host1", dhost)
 
 	// Case 1: Local message with empty pid.Node.
 	pidLocalEmpty := api.PID{
@@ -133,7 +133,7 @@ func TestNodeAttachLocal(t *testing.T) {
 	dhost := &dummyHost{}
 	nodeID := "node1"
 	node := NewNode(nodeID, nil)
-	node.RegisterHost("host1", dhost)
+	node.registerHost("host1", dhost)
 
 	// Use a local PID.
 	pidLocal := api.PID{

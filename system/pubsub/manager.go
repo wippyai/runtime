@@ -74,24 +74,31 @@ func (m *Manager) handleRegisterHost(e events.Event) {
 		m.logger.Error("invalid host payload",
 			zap.String("host", e.Path),
 			zap.String("type", fmt.Sprintf("%T", e.Data)))
+
 		m.sendReject(e.Path, "invalid host payload")
 		return
 	}
 
 	// Register with the underlying node
-	m.node.RegisterHost(api.HostID(e.Path), host)
+	err := m.node.registerHost(e.Path, host)
+	if err != nil {
+		m.logger.Error("failed to register host",
+			zap.String("host", e.Path),
+			zap.Error(err))
 
-	m.logger.Info("host registered successfully",
-		zap.String("host", e.Path))
+		m.sendReject(e.Path, err.Error())
+		return
+	}
+
+	m.logger.Info("host registered successfully", zap.String("host", e.Path))
 	m.sendAccept(e.Path)
 }
 
 func (m *Manager) handleDeleteHost(e events.Event) {
 	// Unregister from the underlying node
-	m.node.UnregisterHost(api.HostID(e.Path))
+	m.node.unregisterHost(e.Path)
 
-	m.logger.Info("host unregistered successfully",
-		zap.String("host", e.Path))
+	m.logger.Info("host unregistered successfully", zap.String("host", e.Path))
 	m.sendAccept(e.Path)
 }
 
