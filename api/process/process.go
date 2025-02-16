@@ -3,16 +3,21 @@ package process
 import (
 	"context"
 	"errors"
+	"fmt"
 	contextapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
+	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/ponyruntime/pony/api/topology"
 )
 
 // Event system and kind constants for the workflow package
 const (
+	// Auto-supervision
+	KindProcessService = "process.service"
+
 	// PrototypeSystem identifies the workflow system in the event bus.
 	PrototypeSystem events.System = "prototype"
 
@@ -44,6 +49,19 @@ var (
 )
 
 type (
+	ServiceConfig struct {
+		// Process ID that will be used to start the process
+		ID registry.ID `json:"id" yaml:"id"`
+
+		// Host ID where the process should be started
+		HostID pubsub.HostID `json:"host" yaml:"host"`
+
+		// todo: payload ?
+
+		// Lifecycle configuration for supervisor
+		Lifecycle supervisor.LifecycleConfig `json:"lifecycle" yaml:"lifecycle"`
+	}
+
 	// Prototype is a function that creates a new process instance.
 	Prototype func() (Process, error)
 
@@ -70,6 +88,7 @@ type (
 
 	Manager interface {
 		Start(ctx context.Context, start *StartProcess) (pubsub.PID, error)
+		StartMonitored(context.Context, pubsub.PID, *StartProcess) (pubsub.PID, error)
 		Send(ctx context.Context, pid pubsub.PID, msg *pubsub.Batch) error
 		Terminate(ctx context.Context, pid pubsub.PID) error
 	}
@@ -98,4 +117,21 @@ type (
 
 func GetProcesses(ctx context.Context) Manager {
 	return ctx.Value(contextapi.ProcessesCtx).(Manager)
+}
+
+// Validate checks if the configuration is valid
+func (c *ServiceConfig) Validate() error {
+	if c.ID.Name == "" {
+		return fmt.Errorf("process ID is required")
+	}
+
+	if c.HostID == "" {
+		return fmt.Errorf("host ID is required")
+	}
+
+	if c.HostID == topology.ControlHost {
+		return fmt.Errorf("host ID cannot be %s", topology.ControlHost)
+	}
+
+	return nil
 }

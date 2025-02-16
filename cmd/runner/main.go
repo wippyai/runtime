@@ -35,6 +35,7 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/modules/websocket"
 	"github.com/ponyruntime/pony/runtime/noop"
 	"github.com/ponyruntime/pony/service/http"
+	service "github.com/ponyruntime/pony/service/process"
 	"github.com/ponyruntime/pony/service/terminal"
 	"github.com/ponyruntime/pony/system/eventbus"
 	"github.com/ponyruntime/pony/system/function"
@@ -456,7 +457,8 @@ func main() {
 	app.services = eventbus.WithHandlers(append(
 		WithLuaRuntime(app),
 		WithHTTPService(app),
-		WithShellManager(app),
+		WithTerminalManager(app),
+		WithProcessSupervisor(app),
 	)...)
 	// --------------------------------------------------
 
@@ -569,11 +571,19 @@ func WithHTTPService(a *App) eventbus.EventHandler {
 	))
 }
 
-func WithShellManager(a *App) eventbus.EventHandler {
+func WithTerminalManager(a *App) eventbus.EventHandler {
 	return reghandler.NewRegistryHandler("terminal.host", terminal.NewTerminalManager(
 		a.eventBus,
 		a.dtt,
 		a.logger.Named("terminal"),
+	))
+}
+
+func WithProcessSupervisor(a *App) eventbus.EventHandler {
+	return reghandler.NewRegistryHandler("process.service", service.NewProcessSupervisorManager(
+		a.eventBus,
+		a.processes,
+		a.logger.Named("supervisor"),
 	))
 }
 

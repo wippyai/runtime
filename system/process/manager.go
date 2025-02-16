@@ -45,7 +45,7 @@ func (m *Manager) Lifecycle() *Topology {
 }
 
 // preparePID creates and validates a PID for the process
-func (m *Manager) preparePID(ps api.StartProcess, managed bool) (pubsub.PID, error) {
+func (m *Manager) preparePID(ps *api.StartProcess, managed bool) (pubsub.PID, error) {
 	pid := pubsub.PID{
 		Host:   ps.HostID,
 		ID:     ps.ID,
@@ -64,7 +64,7 @@ func (m *Manager) preparePID(ps api.StartProcess, managed bool) (pubsub.PID, err
 }
 
 // launchOnHost handles the actual process launch on either managed or delegated hosts
-func (m *Manager) launchOnHost(ctx context.Context, host api.Host, pid pubsub.PID, ps api.StartProcess) (pubsub.PID, error) {
+func (m *Manager) launchOnHost(ctx context.Context, host api.Host, pid pubsub.PID, ps *api.StartProcess) (pubsub.PID, error) {
 	switch h := host.(type) {
 	case api.Managed:
 		proc, err := m.prototypes.Create(ps.ID)
@@ -92,7 +92,7 @@ func (m *Manager) launchOnHost(ctx context.Context, host api.Host, pid pubsub.PI
 }
 
 // Start launches a process with basic topology management
-func (m *Manager) Start(ctx context.Context, ps api.StartProcess) (pubsub.PID, error) {
+func (m *Manager) Start(ctx context.Context, ps *api.StartProcess) (pubsub.PID, error) {
 	host, exists := m.hosts.GetHost(ps.HostID)
 	if !exists {
 		return pubsub.PID{}, fmt.Errorf("host not found: `%s`", ps.HostID)
@@ -108,7 +108,7 @@ func (m *Manager) Start(ctx context.Context, ps api.StartProcess) (pubsub.PID, e
 }
 
 // StartMonitored launches a process with monitoring from another process
-func (m *Manager) StartMonitored(ctx context.Context, from pubsub.PID, ps api.StartProcess) (pubsub.PID, error) {
+func (m *Manager) StartMonitored(ctx context.Context, from pubsub.PID, ps *api.StartProcess) (pubsub.PID, error) {
 	host, exists := m.hosts.GetHost(ps.HostID)
 	if !exists {
 		return pubsub.PID{}, fmt.Errorf("host not found: `%s`", ps.HostID)
