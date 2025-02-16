@@ -312,11 +312,13 @@ func (s *Supervisor) createStateHandler(id string) func(supervisor.Status, any) 
 				)
 			}
 		} else {
-			s.logger.Info(fmt.Sprintf("service %s is %s", id, status),
-				zap.String("serviceID", id),
-				zap.String("status", string(status)),
-				zap.Any("details", details),
-			)
+			if details != nil {
+				s.logger.Info(fmt.Sprintf("service %s is %s", id, status),
+					zap.String("serviceID", id),
+					zap.String("status", string(status)),
+					zap.Any("details", details),
+				)
+			}
 		}
 
 		s.bus.Send(s.ctx, events.Event{
