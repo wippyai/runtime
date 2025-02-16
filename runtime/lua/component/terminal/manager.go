@@ -50,7 +50,7 @@ type Manager struct {
 	log     *zap.Logger
 	code    *code.Manager
 	bus     events.Bus
-	configs sync.Map // map[registry.Process]*api.BteaConfig
+	configs sync.Map // map[registry.ID]*api.BteaConfig
 }
 
 // NewBteaManager creates a new instance of Manager.
@@ -181,22 +181,29 @@ func (m *Manager) createRunner(id registry.ID) (*engine.Runner, string, error) {
 
 // upsertPrototype creates or updates a btea app prototype
 func (m *Manager) upsertPrototype(ctx context.Context, id registry.ID) error {
-	runner, funcName, err := m.createRunner(id)
+	_, _, err := m.createRunner(id)
 	if err != nil {
+		// compile check
 		return err
 	}
 
-	m.registerPrototype(ctx, id, runner, funcName)
+	m.registerPrototype(ctx, id)
 	return nil
 }
 
 // registerPrototype registers a btea app as a process prototype
-func (m *Manager) registerPrototype(ctx context.Context, id registry.ID, runner *engine.Runner, funcName string) {
+func (m *Manager) registerPrototype(ctx context.Context, id registry.ID) {
 	m.bus.Send(ctx, events.Event{
 		System: process.PrototypeSystem,
 		Kind:   process.RegisterPrototype,
 		Path:   id.String(),
 		Data: process.Prototype(func() (process.Process, error) {
+			runner, funcName, err := m.createRunner(id)
+			if err != nil {
+				// compile check
+				return nil, err
+			}
+
 			return NewApp(m.log, payload.GetTranscoder(ctx), runner, funcName)
 		}),
 	})

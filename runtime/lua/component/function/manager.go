@@ -50,8 +50,8 @@ type Manager struct {
 	log     *zap.Logger
 	code    *code.Manager
 	bus     events.Bus
-	vms     sync.Map // map[registry.Process]api.Callable
-	configs sync.Map // map[registry.Process]*api.FunctionConfig
+	vms     sync.Map // map[registry.ID]api.Callable
+	configs sync.Map // map[registry.ID]*api.FunctionConfig
 }
 
 // NewManager creates a new function manager instance

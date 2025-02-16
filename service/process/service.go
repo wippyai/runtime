@@ -7,6 +7,7 @@ import (
 	processApi "github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
+	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/ponyruntime/pony/api/topology"
 	"sync"
 	"time"
@@ -86,7 +87,12 @@ func (svc *Service) Start(ctx context.Context) (<-chan any, error) {
 			select {
 			case <-ctx.Done():
 				return
-			case batch := <-monitorCh:
+			case batch, ok := <-monitorCh:
+				if !ok {
+					svc.status <- supervisor.ErrExit
+					return
+				}
+
 				for _, msg := range *batch {
 					if msg.Topic == processApi.TopicEvents {
 						for _, p := range msg.Payloads {
@@ -94,9 +100,9 @@ func (svc *Service) Start(ctx context.Context) (<-chan any, error) {
 								if event.Result.Error != nil {
 									svc.status <- fmt.Errorf("process failed: %w", event.Result.Error)
 								} else {
-									svc.status <- event.Result.Payload
+									svc.status <- supervisor.ErrExit
 								}
-								return // Exit after receiving result
+								return
 							}
 						}
 					}

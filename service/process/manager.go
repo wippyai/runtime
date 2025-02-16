@@ -19,7 +19,7 @@ type Manager struct {
 	log      *zap.Logger
 	bus      events.Bus
 	proc     *process.Manager
-	services sync.Map // map[registry.Process]*ProcessService
+	services sync.Map // map[registry.ID]*ProcessService
 }
 
 // NewProcessSupervisorManager creates a new process service manager
