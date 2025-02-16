@@ -5,7 +5,7 @@ import (
 )
 
 // Helper functions for Lua transcoding
-var lState *lua.LState = lua.NewState()
+var lState = lua.NewState()
 
 // ToGoAny converts a lua.LValue to its Go equivalent.
 func ToGoAny(v lua.LValue) any {

@@ -10,6 +10,8 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
+// can be optimized
+
 // Register registers the Lua transcoders.
 func Register(transcoder payload.TranscoderRegister) {
 	to := &ToGolang{}
@@ -30,9 +32,6 @@ func (t *ToGolang) Transcode(p payload.Payload) (payload.Payload, error) {
 		return nil, fmt.Errorf("Lua=>Golang can only transcode from Lua format, got %s", p.Format())
 	}
 
-	l := lua.NewState() // todo: we can reuse it
-	defer l.Close()
-
 	lv, ok := p.Data().(lua.LValue)
 	if !ok {
 		return nil, fmt.Errorf("Lua=>Golang expects data to be of type lua.LValue, got %T", p.Data())
@@ -48,9 +47,6 @@ func (t *ToGolang) Unmarshal(p payload.Payload, v interface{}) error {
 	if p.Format() != payload.Lua {
 		return fmt.Errorf("Lua=>Golang can only unmarshal from Lua format, got %s", p.Format())
 	}
-
-	l := lua.NewState()
-	defer l.Close()
 
 	lv, ok := p.Data().(lua.LValue)
 	if !ok {
