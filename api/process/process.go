@@ -64,7 +64,7 @@ type (
 	StartProcess struct {
 		HostID   pubsub.HostID
 		ID       registry.ID
-		Name     string
+		UniqID   string
 		Payloads payload.Payloads
 	}
 

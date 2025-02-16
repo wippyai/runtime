@@ -20,6 +20,7 @@ type Manager struct {
 	logger     *zap.Logger
 	onStart    []api.OnStart
 	onComplete []api.OnComplete
+	generator  *UniqIDGenerator
 }
 
 // NewProcessManager creates a new Manager.
@@ -28,6 +29,7 @@ func NewProcessManager(hosts *HostRegistry, prototypes *PrototypeRegistry, logge
 		hosts:      hosts,
 		prototypes: prototypes,
 		logger:     logger,
+		generator:  NewUniqIDGenerator(),
 	}
 
 	m.registerLayer(
@@ -59,9 +61,14 @@ func (m *Manager) Start(ctx context.Context, ps api.StartProcess) (pubsub.PID, e
 	}
 
 	pid := pubsub.PID{
+		// todo: get current node
 		Host:   ps.HostID,
 		ID:     ps.ID,
-		UniqID: ps.Name,
+		UniqID: ps.UniqID,
+	}
+
+	if pid.UniqID == "" {
+		pid.UniqID = m.generator.Generate()
 	}
 
 	// Inject plugin callbacks into the context. todo: use composite one

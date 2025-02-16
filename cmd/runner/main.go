@@ -245,7 +245,6 @@ func (a *App) Start(folderPath string) error {
 	pid, err := a.processes.Start(ctx, processApi.StartProcess{
 		HostID: "system:terminal",
 		ID:     apiReg.ID{NS: "discord", Name: "app"},
-		Name:   "root",
 	})
 	if err != nil {
 		return fmt.Errorf("failed to launch root process: %w", err)
