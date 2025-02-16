@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"github.com/ponyruntime/pony/api/function"
 	"github.com/ponyruntime/pony/api/payload"
+	"github.com/ponyruntime/pony/runtime/lua/component"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/async"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
-	"github.com/ponyruntime/pony/runtime/lua/factory"
 	lua "github.com/yuin/gopher-lua"
 	"sync"
 
@@ -25,7 +25,7 @@ import (
 
 var (
 	functionBuild *code.BuildOptions
-	layers        factory.Option
+	layers        component.Option
 )
 
 func init() {
@@ -35,7 +35,7 @@ func init() {
 		WithDenied(registry.ID{Name: "pubsub"}).
 		WithPreloaded(code.Preload{Name: "channel", ModuleID: registry.ID{Name: "channel"}})
 
-	layers = factory.WithLayerInitializer(func() []engine.RunnerOption {
+	layers = component.WithLayerInitializer(func() []engine.RunnerOption {
 		channels := channel.NewChannelLayer()
 		return []engine.RunnerOption{
 			engine.WithLayer(channels),
@@ -100,7 +100,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	}
 
 	// Unpack config
-	cfg, err := factory.UnpackConfig[api.FunctionConfig](ctx, entry)
+	cfg, err := component.UnpackConfig[api.FunctionConfig](ctx, entry)
 	if err != nil {
 		return fmt.Errorf("failed to unpack function config: %w", err)
 	}
@@ -114,7 +114,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	}
 
 	// Add to code manager
-	if err := m.code.AddNode(ctx, node, factory.BuildImports(cfg.Import, cfg.Modules)); err != nil {
+	if err := m.code.AddNode(ctx, node, component.BuildImports(cfg.Import, cfg.Modules)); err != nil {
 		return fmt.Errorf("failed to add function: %w", err)
 	}
 
@@ -136,7 +136,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	}
 
 	// Unpack config
-	cfg, err := factory.UnpackConfig[api.FunctionConfig](ctx, entry)
+	cfg, err := component.UnpackConfig[api.FunctionConfig](ctx, entry)
 	if err != nil {
 		return fmt.Errorf("failed to unpack function config: %w", err)
 	}
@@ -150,7 +150,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	}
 
 	// Update in code manager
-	if err := m.code.UpdateNode(ctx, node, factory.BuildImports(cfg.Import, cfg.Modules)); err != nil {
+	if err := m.code.UpdateNode(ctx, node, component.BuildImports(cfg.Import, cfg.Modules)); err != nil {
 		return fmt.Errorf("failed to update function node: %w", err)
 	}
 
@@ -276,7 +276,7 @@ func (m *Manager) Execute(ctx context.Context, task runtime.Task) (chan *runtime
 
 // createVM creates a new pool based on config and compiled code
 func (m *Manager) createVM(cfg *api.FunctionConfig, compiled *code.CompiledMain) (api.VM, error) {
-	fvm, err := factory.NewRunnerFactory(m.log, compiled, layers)
+	fvm, err := component.NewRunnerFactory(m.log, compiled, layers)
 	if err != nil {
 		return nil, fmt.Errorf("failed to compile: %w", err)
 	}

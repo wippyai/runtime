@@ -8,15 +8,15 @@ import (
 	apiCtx "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/events"
 	apiLog "github.com/ponyruntime/pony/api/logs"
-	pubsubApi "github.com/ponyruntime/pony/api/pubsub"
+	processApi "github.com/ponyruntime/pony/api/process"
 	apiReg "github.com/ponyruntime/pony/api/registry"
 	apiLua "github.com/ponyruntime/pony/api/runtime/lua"
 	"github.com/ponyruntime/pony/runtime/lua/code"
+	bteaApps "github.com/ponyruntime/pony/runtime/lua/component/btea"
+	luaFunc "github.com/ponyruntime/pony/runtime/lua/component/function"
+	"github.com/ponyruntime/pony/runtime/lua/component/library"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
-	bteaApps "github.com/ponyruntime/pony/runtime/lua/factory/btea"
-	luaFunc "github.com/ponyruntime/pony/runtime/lua/factory/function"
-	"github.com/ponyruntime/pony/runtime/lua/factory/library"
 	"github.com/ponyruntime/pony/runtime/lua/modules/base64"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea"
 	"github.com/ponyruntime/pony/runtime/lua/modules/env"
@@ -81,8 +81,7 @@ type App struct {
 	hosts       *process.HostRegistry
 
 	// mesh
-	nodeID pubsubApi.NodeID
-	node   pubsubApi.Host
+	node *pubsub.Manager
 
 	shuttingDown  bool
 	forceShutdown chan struct{}
@@ -122,6 +121,13 @@ func NewApp(verbose, veryVerbose bool) (*App, error) {
 		return nil, err
 	}
 
+	// mesh layer: our node
+	node := pubsub.NewManager(
+		pubsub.NewNode(hostname, nil), // no upstream for now
+		bus,
+		appLogger.Named("pubsub"),
+	)
+
 	app := &App{
 		ctx:           ctx,
 		cancel:        cancel,
@@ -131,8 +137,7 @@ func NewApp(verbose, veryVerbose bool) (*App, error) {
 		eventBus:      bus,
 		services:      nil,
 		dtt:           dtt,
-		nodeID:        hostname,
-		node:          pubsub.NewNode(hostname, nil), // no upstream for now
+		node:          node,
 		forceShutdown: make(chan struct{}),
 	}
 
@@ -173,6 +178,7 @@ func (a *App) Start(folderPath string) error {
 	ctx = context.WithValue(ctx, apiCtx.BusCtx, a.eventBus)
 	ctx = context.WithValue(ctx, apiCtx.FunctionsCtx, a.funcs)
 	ctx = context.WithValue(ctx, apiCtx.ProcessesCtx, a.processes)
+	ctx = context.WithValue(ctx, apiCtx.NodeCtx, a.node.Node())
 
 	// Spawn environment context
 	envCtx := apiCtx.NewContexter[string]()
@@ -225,17 +231,17 @@ func (a *App) Start(folderPath string) error {
 		return fmt.Errorf("failed to apply initial state: %w", err)
 	}
 
-	//time.Sleep(1 * time.Second)
-	//// launch (todo: we also can retry or better delegate it to supervisor)
-	//pid, err := a.processes.Start(ctx, processapi.StartProcess{
-	//	HostID: "system:terminal",
-	//	ID:     apiReg.ID{NS: "discord", Name: "app"},
-	//	Name:   "root",
-	//})
-	//if err != nil {
-	//	return fmt.Errorf("failed to launch root process: %w", err)
-	//}
-	//a.logger.Info("root process launched", zap.Any("pid", pid))
+	time.Sleep(1 * time.Second)
+	//// launch todo: we also can retry or better delegate it to supervisor
+	pid, err := a.processes.Start(ctx, processApi.StartProcess{
+		HostID: "system:terminal",
+		ID:     apiReg.ID{NS: "discord", Name: "app"},
+		Name:   "root",
+	})
+	if err != nil {
+		return fmt.Errorf("failed to launch root process: %w", err)
+	}
+	a.logger.Info("root process launched", zap.Any("pid", pid))
 
 	return nil
 }
@@ -301,7 +307,11 @@ func (a *App) StartProfiler() {
 		a.logger.Error("failed to create CPU profile", zap.Error(err))
 		return
 	}
-	pprof.StartCPUProfile(cpuFile)
+	err = pprof.StartCPUProfile(cpuFile)
+	if err != nil {
+		a.logger.Error("failed to start CPU profile", zap.Error(err))
+		return
+	}
 	defer pprof.StopCPUProfile()
 
 	// Periodic heap profiling
@@ -319,8 +329,14 @@ func (a *App) StartProfiler() {
 					a.logger.Error("failed to create heap profile", zap.Error(err))
 					continue
 				}
-				pprof.WriteHeapProfile(heapFile)
-				heapFile.Close()
+				wErr := pprof.WriteHeapProfile(heapFile)
+				if wErr != nil {
+					a.logger.Error("failed to write heap profile", zap.Error(err))
+				}
+				cErr := heapFile.Close()
+				if cErr != nil {
+					a.logger.Error("failed to close heap profile file", zap.Error(err))
+				}
 			}
 		}
 	}()

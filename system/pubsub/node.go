@@ -24,6 +24,10 @@ func NewNode(nodeID api.NodeID, upstream *api.Upstream) *Node {
 	return n
 }
 
+func (n *Node) ID() api.NodeID {
+	return n.nodeID
+}
+
 func (n *Node) RegisterHost(hostID api.HostID, host api.Host) {
 	n.hosts.Store(hostID, host)
 }

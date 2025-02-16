@@ -3,12 +3,26 @@ package pubsub
 import (
 	"context"
 	"errors"
+	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"
 )
 
-// todo: split?
+// System constants for node management
+const (
+	// System identifies the node management system in the event context
+	System       events.System = "node"
+	RegisterHost events.Kind   = "node.register_host"
+	DeleteHost   events.Kind   = "node.remove_host"
+	AcceptHost   events.Kind   = "node.accept_host"
+	RejectHost   events.Kind   = "node.reject_host"
+)
 
-var ErrAlreadyAttached = errors.New("receiver already attached")
+var (
+	ErrAlreadyAttached   = errors.New("receiver already attached")
+	ErrHostNotFound      = errors.New("host not found")
+	ErrHostAlreadyExists = errors.New("host already exists")
+	ErrUpstreamNotFound  = errors.New("upstream not found")
+)
 
 type (
 	Topic = string
