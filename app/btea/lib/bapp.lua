@@ -23,7 +23,7 @@ function bapp.new(init_cmd)
         window = { width = 80, height = 24 },
         view_ch = pubsub.subscribe("@btea/view"),
         update_ch = pubsub.subscribe("@btea/update"),
-        cancel_ch = pubsub.subscribe("@process/cancel"),
+        events_ch = pubsub.subscribe("@pid/events"),
         done = channel.new()
     }
 
@@ -90,7 +90,7 @@ function bapp.new(init_cmd)
 
     function app:start_cancel_handler()
         coroutine.spawn(function()
-            self.cancel_ch:receive()
+            self.events_ch:receive()
             self.is_running = false
         end)
     end
