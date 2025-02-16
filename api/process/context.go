@@ -2,14 +2,15 @@ package process
 
 import (
 	"context"
+	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/runtime"
 )
 
 // OnComplete is the type for a completion callback.
-type OnComplete func(pid PID, result *runtime.Result)
+type OnComplete func(pid pubsub.PID, result *runtime.Result)
 
 // OnStart is the type for a start callback.
-type OnStart func(pid PID, proc Process)
+type OnStart func(pid pubsub.PID, proc Process)
 
 type onCompleteKeyType struct{}
 type onStartKeyType struct{}
@@ -17,11 +18,11 @@ type onStartKeyType struct{}
 var onCompleteKey = &onCompleteKeyType{} //nolint:gochecknoglobals
 var onStartKey = &onStartKeyType{}       //nolint:gochecknoglobals
 
-// WithOnComplete attaches an OnComplete callback to the context.
+// WithAddedOnComplete attaches an OnComplete callback to the context.
 // If there's already one present, it combines them so that both are called.
-func WithOnComplete(ctx context.Context, cb OnComplete) context.Context {
+func WithAddedOnComplete(ctx context.Context, cb OnComplete) context.Context {
 	if existing, ok := ctx.Value(onCompleteKey).(OnComplete); ok {
-		combined := func(pid PID, result *runtime.Result) {
+		combined := func(pid pubsub.PID, result *runtime.Result) {
 			cb(pid, result)
 			existing(pid, result)
 		}
@@ -31,11 +32,11 @@ func WithOnComplete(ctx context.Context, cb OnComplete) context.Context {
 	return context.WithValue(ctx, onCompleteKey, cb)
 }
 
-// WithOnStart attaches an OnStart callback to the context.
+// WithAddedOnStart attaches an OnStart callback to the context.
 // If there's already one present, it combines them so that both are called.
-func WithOnStart(ctx context.Context, cb OnStart) context.Context {
+func WithAddedOnStart(ctx context.Context, cb OnStart) context.Context {
 	if existing, ok := ctx.Value(onStartKey).(OnStart); ok {
-		combined := func(pid PID, proc Process) {
+		combined := func(pid pubsub.PID, proc Process) {
 			cb(pid, proc)
 			existing(pid, proc)
 		}

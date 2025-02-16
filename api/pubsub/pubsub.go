@@ -1,4 +1,4 @@
-package process
+package pubsub
 
 import (
 	"context"
@@ -20,7 +20,10 @@ type (
 
 	PubSub interface {
 		Send(ctx context.Context, pid PID, msg ...*Message) error
-		Attach(PID, Receiver) error
-		Detach(PID) error
+		Attach(PID, Receiver) (error, context.CancelFunc)
+	}
+
+	Receiver interface {
+		Send(...*Message) error
 	}
 )

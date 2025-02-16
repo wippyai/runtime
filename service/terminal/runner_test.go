@@ -3,6 +3,7 @@ package terminal
 import (
 	"context"
 	"errors"
+	"github.com/ponyruntime/pony/api/pubsub"
 	"testing"
 	"time"
 
@@ -32,7 +33,7 @@ func (dp *DummyProcess) Step() error {
 	return nil
 }
 
-func (dp *DummyProcess) Send(msg ...*process.Message) error {
+func (dp *DummyProcess) Send(msg ...*pubsub.Message) error {
 	// Accept all messages.
 	return nil
 }
@@ -43,9 +44,9 @@ func TestTerminalRunnerStopsOnStepError(t *testing.T) {
 
 	// Create a dummy PID. Note that registry.ID is typically a string.
 	dummyPID := process.PID{
-		Host: "dummy",
-		ID:   registry.ID{Name: "test-id"},
-		Name: "test",
+		Host:   "dummy",
+		ID:     registry.ID{Name: "test-id"},
+		UniqID: "test",
 	}
 
 	lp := &process.LaunchProcess{
@@ -76,9 +77,9 @@ func TestTerminalRunnerSendAndStop(t *testing.T) {
 	dp := &DummyProcess{maxSteps: 100}
 
 	dummyPID := process.PID{
-		Host: "dummy",
-		ID:   registry.ID{Name: "test-id"},
-		Name: "test",
+		Host:   "dummy",
+		ID:     registry.ID{Name: "test-id"},
+		UniqID: "test",
 	}
 
 	lp := &process.LaunchProcess{
@@ -96,7 +97,7 @@ func TestTerminalRunnerSendAndStop(t *testing.T) {
 	}
 
 	// Test the Send method.
-	err = runner.Send(&process.Message{Topic: "test"})
+	err = runner.Send(&pubsub.Message{Topic: "test"})
 	if err != nil {
 		t.Errorf("expected no error on Send, got: %v", err)
 	}
