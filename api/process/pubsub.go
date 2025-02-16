@@ -6,6 +6,8 @@ import (
 	"github.com/ponyruntime/pony/api/payload"
 )
 
+// todo: split?
+
 var ErrAlreadyAttached = errors.New("receiver already attached")
 
 type (
