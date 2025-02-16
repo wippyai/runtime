@@ -168,7 +168,7 @@ func (a *App) Initialize() error {
 	a.hosts = process.NewHostRegistry(a.eventBus, a.logger.Named("hosts"))
 
 	// groups, links, monitor and other topology level stuff
-	lifecycle := process.NewTopologyLifecycle(a.ctx, a.node)
+	lifecycle := process.NewTopology(a.ctx, a.node)
 
 	a.processes = process.NewProcessManager(
 		a.hosts,

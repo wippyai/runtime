@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/supervisor"
+	"github.com/ponyruntime/pony/api/topology"
 	"sync"
 	"time"
 
@@ -133,7 +134,7 @@ func (p *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		if msg.String() == ExitKey {
 			// Send cancellation message and schedule context cancellation if needed.
-			_ = p.Send(&pubsub.Batch{&pubsub.Message{Topic: process.TopicCancel}})
+			_ = p.Send(&pubsub.Batch{&pubsub.Message{Topic: topology.TopicCancel}})
 			go func() {
 				select {
 				case <-time.After(stopTimeout):
@@ -400,7 +401,7 @@ func (p *App) Send(msgs *pubsub.Batch) error {
 	default:
 		for _, m := range *msgs {
 			// For cancellation messages, release the channel.
-			if m.Topic == process.TopicCancel {
+			if m.Topic == topology.TopicCancel {
 				p.pubsub.Release(m.Topic)
 				continue
 			}

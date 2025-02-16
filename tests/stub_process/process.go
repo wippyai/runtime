@@ -3,17 +3,19 @@ package stub_process
 import (
 	"context"
 	"errors"
+	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/runtime"
+	"github.com/ponyruntime/pony/api/topology"
 	"log"
 	"sync"
 	"time"
 )
 
 type TickerProcess struct {
-	pid       process.PID
+	pid       pubsub.PID
 	ticker    *time.Ticker
 	count     int
 	mu        sync.Mutex
@@ -35,7 +37,7 @@ func NewTickerPrototype() process.Prototype {
 }
 
 // Updated Start now uses the current API: (context, PID, payloads)
-func (p *TickerProcess) Start(ctx context.Context, pid process.PID, input payload.Payloads) error {
+func (p *TickerProcess) Start(ctx context.Context, pid pubsub.PID, input payload.Payloads) error {
 	p.ctx = ctx
 	p.pid = pid
 	p.ticker = time.NewTicker(time.Second)
@@ -96,14 +98,18 @@ func (p *TickerProcess) Step() error {
 	return nil
 }
 
-func (p *TickerProcess) Send(msg ...*pubsub.Message) error {
+func (p *TickerProcess) Send(msg *pubsub.Batch) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	for _, m := range msg {
-		log.Printf("--- ticker %v: received message topic=%s payload=%v", p.pid, m.Topic, m.Payloads)
-		if m.Topic == process.TopicCancel {
-			p.cancelled = true
+	for _, m := range *msg {
+		if m.Topic == process.TopicEvents {
+			if len(m.Payloads) > 0 {
+				cmd := m.Payloads[0].Data()
+				if cmd.(events.Event).Kind == topology.KindCancel {
+					p.cancelled = true
+				}
+			}
 		}
 	}
 
