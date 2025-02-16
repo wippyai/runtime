@@ -92,7 +92,7 @@ function DiscordUI:start_clock_ticker()
 end
 
 function DiscordUI:render_header()
-    local bot_name = "Discord Bot"
+    local bot_name = "WippyR"
     local status = self.connection_status
     local channel = self.active_channel and "#" .. self.active_channel.name or "None"
     local clock = self.current_time
