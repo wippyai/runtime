@@ -26,6 +26,7 @@ var (
 	// -- Enviroment and boundaries
 	EnvCtx  = &Key{Name: "env"}  //nolint:gochecknoglobals
 	NodeCtx = &Key{Name: "node"} //nolint:gochecknoglobals
+	HostCtx = &Key{Name: "host"} //nolint:gochecknoglobals
 
 	// --- Execution path specific
 	HandlerCtx  = &Key{Name: "handler"}  //nolint:gochecknoglobals
