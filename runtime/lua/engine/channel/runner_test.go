@@ -73,7 +73,7 @@ func TestChannelRuntimeAsLayer(t *testing.T) {
 					coroutine.yield("sent")
 				end)
 				
-				-- Receive in main routine
+				-- Send in main routine
 				local msg, ok = ch:receive()
 				assert(msg == "hello", "wrong message received")
 				assert(ok == true, "receive should succeed")

@@ -325,7 +325,7 @@ func TestUnsubscribeWithPendingMessages(t *testing.T) {
 			local sub = pubsub.subscribe("test-topic")
 			local results = {}
 			
-			-- Receive first message
+			-- Send first message
 			results[1] = sub:receive()
 			
 			-- Try to receive after external unsubscribe

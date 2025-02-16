@@ -12,21 +12,26 @@ func (ck *Key) String() string {
 }
 
 var (
-	BusCtx        = &Key{Name: "bus"}          //nolint:gochecknoglobals
-	TranscoderCtx = &Key{Name: "transcoder"}   //nolint:gochecknoglobals
-	FunctionsCtx  = &Key{Name: "functions"}    //nolint:gochecknoglobals
-	ProcessesCtx  = &Key{Name: "processes"}    //nolint:gochecknoglobals
-	LoggerCtx     = &Key{Name: "logger"}       //nolint:gochecknoglobals
-	ValuesCtx     = &Key{Name: "values"}       //nolint:gochecknoglobals
-	CleanupCtx    = &Key{Name: "cleanup"}      //nolint:gochecknoglobals
-	RunnerCtx     = &Key{Name: "taskgroupkey"} //nolint:gochecknoglobals
-	AsyncCtx      = &Key{Name: "schedulekey"}  //nolint:gochecknoglobals
-	EnvCtx        = &Key{Name: "env"}          //nolint:gochecknoglobals
-	SecurityCtx   = &Key{Name: "security"}     //nolint:gochecknoglobals
-	MetricsCtx    = &Key{Name: "metrics"}      //nolint:gochecknoglobals
-	TemporalCtx   = &Key{Name: "temporal"}     //nolint:gochecknoglobals
-	HandlerCtx    = &Key{Name: "handler"}      //nolint:gochecknoglobals
-	RegistryCtx   = &Key{Name: "registry"}     //nolint:gochecknoglobals
-	ResourcesCtx  = &Key{Name: "resources"}    //nolint:gochecknoglobals
-	TerminalCtx   = &Key{Name: "terminal"}
+	BusCtx        = &Key{Name: "bus"}        //nolint:gochecknoglobals
+	TranscoderCtx = &Key{Name: "transcoder"} //nolint:gochecknoglobals
+	FunctionsCtx  = &Key{Name: "functions"}  //nolint:gochecknoglobals
+	ProcessesCtx  = &Key{Name: "processes"}  //nolint:gochecknoglobals
+	LoggerCtx     = &Key{Name: "logger"}     //nolint:gochecknoglobals
+	ValuesCtx     = &Key{Name: "values"}     //nolint:gochecknoglobals
+	CleanupCtx    = &Key{Name: "cleanup"}    //nolint:gochecknoglobals
+	EnvCtx        = &Key{Name: "env"}        //nolint:gochecknoglobals
+	NodeCtx       = &Key{Name: "node"}       //nolint:gochecknoglobals
+	SecurityCtx   = &Key{Name: "security"}   //nolint:gochecknoglobals
+	MetricsCtx    = &Key{Name: "metrics"}    //nolint:gochecknoglobals
+	TemporalCtx   = &Key{Name: "temporal"}   //nolint:gochecknoglobals
+	HandlerCtx    = &Key{Name: "handler"}    //nolint:gochecknoglobals
+	RegistryCtx   = &Key{Name: "registry"}   //nolint:gochecknoglobals
+	ResourcesCtx  = &Key{Name: "resources"}  //nolint:gochecknoglobals
+
+	// Runtime specific
+	TerminalCtx = &Key{Name: "terminal"}     //nolint:gochecknoglobals
+	RunnerCtx   = &Key{Name: "taskGroupKey"} //nolint:gochecknoglobals
+	AsyncCtx    = &Key{Name: "scheduleKey"}  //nolint:gochecknoglobals
 )
+
+// todo: use appctx, too much context values!

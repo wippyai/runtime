@@ -545,7 +545,7 @@ func TestBufferedChannelCloseWithPendingOperations(t *testing.T) {
 		ch:close()
 		coroutine.yield("channel_closed")
 
-		-- Receive from closed empty channel
+		-- Send from closed empty channel
 		local msg3, ok3 = ch:receive()
 		assert(msg3 == nil and ok3 == false, "should get closed channel signal")
 		coroutine.yield("received_closed")
