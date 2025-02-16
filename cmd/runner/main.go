@@ -9,6 +9,7 @@ import (
 	"github.com/ponyruntime/pony/api/events"
 	apiLog "github.com/ponyruntime/pony/api/logs"
 	processApi "github.com/ponyruntime/pony/api/process"
+	api "github.com/ponyruntime/pony/api/pubsub"
 	apiReg "github.com/ponyruntime/pony/api/registry"
 	apiLua "github.com/ponyruntime/pony/api/runtime/lua"
 	"github.com/ponyruntime/pony/runtime/lua/code"
@@ -51,6 +52,7 @@ import (
 	"github.com/ponyruntime/pony/system/registry/runner"
 	"github.com/ponyruntime/pony/system/registry/topology"
 	"github.com/ponyruntime/pony/system/supervisor"
+	"github.com/ponyruntime/pony/system/topology/helper"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	httpbase "net/http"
@@ -249,9 +251,21 @@ func (a *App) Start(folderPath string) error {
 		return fmt.Errorf("failed to apply initial state: %w", err)
 	}
 
+	// helper monitor
+	monitor, err := helper.AttachMonitor(a.node, a.node.Node().ID(), func(msg *api.Message) error {
+		a.logger.Debug("monitor message", zap.Any("msg", msg))
+		return nil
+	})
+
+	if err != nil {
+		a.cancel()
+		return fmt.Errorf("failed to attach monitor: %w", err)
+	}
+	defer monitor.Stop()
+
 	//time.Sleep(1 * time.Second)
 	////// launch todo: we also can retry or better delegate it to supervisor
-	pid, err := a.processes.Start(ctx, processApi.StartProcess{
+	pid, err := a.processes.StartMonitored(ctx, monitor.PID(), processApi.StartProcess{
 		HostID: "system:terminal",
 		ID:     apiReg.ID{NS: "discord", Name: "app"},
 	})
