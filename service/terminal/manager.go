@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/ponyruntime/pony/api/process"
+	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/ponyruntime/pony/system/logs"
 	"sync"
@@ -24,8 +25,8 @@ type Manager struct {
 	terminal *Terminal
 }
 
-// NewShellManager creates a new terminal manager instance
-func NewShellManager(bus events.Bus, dtt payload.Transcoder, logger *zap.Logger) *Manager {
+// NewTerminalManager creates a new terminal manager instance
+func NewTerminalManager(bus events.Bus, dtt payload.Transcoder, logger *zap.Logger) *Manager {
 	return &Manager{log: logger, bus: bus, dtt: dtt}
 }
 
@@ -103,6 +104,15 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 
 // registerHost registers the terminal service as a process host
 func (m *Manager) registerHost(ctx context.Context, terminal *Terminal) {
+	// connect to pubsub
+	m.bus.Send(ctx, events.Event{
+		System: pubsub.System,
+		Kind:   pubsub.RegisterHost,
+		Path:   terminal.id.String(),
+		Data:   pubsub.Host(terminal),
+	})
+
+	// we can host processes
 	m.bus.Send(ctx, events.Event{
 		System: process.HostSystem,
 		Kind:   process.RegisterHost,
@@ -110,6 +120,7 @@ func (m *Manager) registerHost(ctx context.Context, terminal *Terminal) {
 		Data:   process.Managed(terminal),
 	})
 
+	// we run!
 	m.bus.Send(ctx, events.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Register,
@@ -123,12 +134,21 @@ func (m *Manager) registerHost(ctx context.Context, terminal *Terminal) {
 
 // removeHost removes the terminal service from process host system
 func (m *Manager) removeHost(ctx context.Context, id registry.ID) {
+	// disconnect from pubsub
+	m.bus.Send(ctx, events.Event{
+		System: pubsub.System,
+		Kind:   pubsub.DeleteHost,
+		Path:   id.String(),
+	})
+
+	// we can no longer host processes
 	m.bus.Send(ctx, events.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Remove,
 		Path:   id.String(),
 	})
 
+	// we no longer run!
 	m.bus.Send(ctx, events.Event{
 		System: process.HostSystem,
 		Kind:   process.DeleteHost,

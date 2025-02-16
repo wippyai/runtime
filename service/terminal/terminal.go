@@ -22,10 +22,9 @@ const (
 	opTerminate
 	opSend
 	opUpdateConfig
+	opAttach
 )
 
-// op now carries only the necessary fields.
-// For opLaunch we carry a pointer to LaunchProcess, since we expect that structure to be unmodified.
 type op struct {
 	typ      opType
 	ctx      context.Context
@@ -34,6 +33,9 @@ type op struct {
 	cfg      *terminal.HostConfig
 	result   chan error
 	response chan pubsub.PID
+	// For attach operation
+	attachCh chan *pubsub.Batch
+	detach   chan context.CancelFunc
 }
 
 type Terminal struct {
@@ -68,9 +70,8 @@ func (t *Terminal) Start(ctx context.Context) (<-chan any, error) {
 func (t *Terminal) run(ctx context.Context, status chan<- any) {
 	defer close(t.done)
 	defer close(status)
-	defer t.cleanup(nil) // Ensure logs are restored even on abnormal exit
+	defer t.cleanup(nil)
 
-	// Localize the logger while preserving any values already in ctx.
 	t.ctx = context.WithValue(ctx, ctxapi.LoggerCtx, t.log)
 
 	for {
@@ -90,6 +91,12 @@ func (t *Terminal) run(ctx context.Context, status chan<- any) {
 			case opUpdateConfig:
 				t.cfg = op.cfg
 				t.log.Info("config updated")
+			case opAttach:
+				var cancel context.CancelFunc
+				err, cancel = t.handleAttach(op.attachCh)
+				if op.detach != nil {
+					op.detach <- cancel
+				}
 			}
 
 			if op.result != nil {
@@ -120,7 +127,6 @@ func (t *Terminal) handleLaunch(ctx context.Context, pl *process.LaunchProcess, 
 		}
 	}
 
-	// we detach from parent context but carry context handlers
 	pCtx := t.ctx
 
 	origComplete := process.GetOnComplete(ctx)
@@ -133,7 +139,6 @@ func (t *Terminal) handleLaunch(ctx context.Context, pl *process.LaunchProcess, 
 		pCtx = process.WithAddedOnStart(pCtx, origOnStart)
 	}
 
-	// Set up a new context with the terminal's log configuration.
 	pCtx = process.WithAddedOnComplete(pCtx, func(pid pubsub.PID, result *runtime.Result) {
 		if result.Error != nil {
 			t.log.Error("terminal process execution failed",
@@ -170,12 +175,37 @@ func (t *Terminal) handleSend(msgBatch *pubsub.Batch) error {
 	if runner == nil {
 		return process.ErrNoProcess
 	}
-
 	return runner.Send(msgBatch)
 }
 
+func (t *Terminal) handleAttach(ch chan *pubsub.Batch) (error, context.CancelFunc) {
+	runner := t.runner.Load()
+	if runner == nil {
+		return process.ErrNoProcess, nil
+	}
+
+	// Since we're a singleton host, we attach the channel directly to the current process
+	ctx, cancel := context.WithCancel(t.ctx)
+	go func() {
+		defer cancel()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case batch := <-ch:
+				if err := runner.Send(batch); err != nil {
+					t.log.Error("failed to forward message to process",
+						zap.Error(err))
+					return
+				}
+			}
+		}
+	}()
+
+	return nil, cancel
+}
+
 func (t *Terminal) cleanup(result *runtime.Result) {
-	// Use the existing service context to restore base log configuration.
 	t.logCtrl.RestoreBaseConfig(context.Background())
 	if runner := t.runner.Swap(nil); runner != nil {
 		runner.Stop()
@@ -208,6 +238,27 @@ func (t *Terminal) execOp(ctx context.Context, op op) error {
 	}
 }
 
+// Implementation of Host interface
+func (t *Terminal) Attach(pid pubsub.PID, ch chan *pubsub.Batch) (error, context.CancelFunc) {
+	detach := make(chan context.CancelFunc, 1)
+	err := t.execOp(t.ctx, op{
+		typ:      opAttach,
+		attachCh: ch,
+		result:   make(chan error, 1),
+		detach:   detach,
+	})
+	if err != nil {
+		return err, nil
+	}
+
+	select {
+	case cancel := <-detach:
+		return nil, cancel
+	case <-t.ctx.Done():
+		return t.ctx.Err(), nil
+	}
+}
+
 func (t *Terminal) Send(ctx context.Context, pid pubsub.PID, msg *pubsub.Batch) error {
 	return t.execOp(ctx, op{
 		typ:    opSend,
@@ -216,6 +267,7 @@ func (t *Terminal) Send(ctx context.Context, pid pubsub.PID, msg *pubsub.Batch) 
 	})
 }
 
+// Process management methods
 func (t *Terminal) Launch(ctx context.Context, pl *process.LaunchProcess) (pubsub.PID, error) {
 	resp := make(chan pubsub.PID, 1)
 	err := t.execOp(ctx, op{
