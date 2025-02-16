@@ -2,7 +2,7 @@ version: "1.0"
 namespace: discord
 
 meta:
-  depends_on: [ "ns:system", "ns:btea.lib", "ns:chat" ]  # Added chat namespace dependency
+  depends_on: [ "ns:system", "ns:btea.lib", "ns:chat" ]
 
 entries:
   - name: service
@@ -14,6 +14,9 @@ entries:
     host: system:terminal
     lifecycle:
       auto_start: true
+      restart:
+        initial_delay: 5s
+        max_attempts: 0
 
   - name: app
     kind: btea.app.lua

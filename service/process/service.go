@@ -9,13 +9,12 @@ import (
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/ponyruntime/pony/api/topology"
-	"sync"
+	"log"
 	"time"
 )
 
 // Service represents a running process service instance
 type Service struct {
-	mu            sync.Mutex
 	id            registry.ID
 	pid           pubsub.PID
 	supervisorPID pubsub.PID
@@ -116,9 +115,6 @@ func (svc *Service) Start(ctx context.Context) (<-chan any, error) {
 
 // Stop implements supervisor.Service
 func (svc *Service) Stop(ctx context.Context) error {
-	svc.mu.Lock()
-	defer svc.mu.Unlock()
-
 	if svc.pid.ID.Name == "" {
 		return nil // Not running
 	}
@@ -128,5 +124,6 @@ func (svc *Service) Stop(ctx context.Context) error {
 		return fmt.Errorf("no process manager found in context")
 	}
 
+	log.Printf("Stopping process %s", svc.pid.ID)
 	return processes.Terminate(ctx, svc.pid)
 }

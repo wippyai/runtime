@@ -322,12 +322,18 @@ func (p *App) processLoop(resultCh <-chan engine.Result) {
 			}
 
 			_ = p.program.ReleaseTerminal()
+			time.Sleep(stopTimeout) // we really want to propagate the release of terminal, or apps might overlap
 			p.program.Quit()
 		})
 	}
 
 	defer func() {
-		completeProcess(supervisor.ErrExit, nil)
+		if p.firstError != nil {
+			completeProcess(p.firstError, nil)
+		} else {
+			completeProcess(supervisor.ErrExit, nil)
+		}
+
 		close(p.done)
 		close(p.upstream)
 		p.runner.Close()
@@ -387,9 +393,10 @@ func (p *App) Step() error {
 		return p.ctx.Err()
 	default:
 		err := p.runner.Continue(p.ctx)
-		if p.firstError != nil && err != nil {
+		if p.firstError == nil && err != nil {
 			p.firstError = err
 		}
+
 		return err
 	}
 }
