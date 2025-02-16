@@ -18,7 +18,7 @@ type DummyProcess struct {
 	maxSteps  int
 }
 
-func (dp *DummyProcess) Start(ctx context.Context, pid process.PID, input payload.Payloads) error {
+func (dp *DummyProcess) Start(ctx context.Context, pid pubsub.PID, input payload.Payloads) error {
 	// No-op startup.
 	return nil
 }
@@ -33,7 +33,7 @@ func (dp *DummyProcess) Step() error {
 	return nil
 }
 
-func (dp *DummyProcess) Send(msg ...*pubsub.Message) error {
+func (dp *DummyProcess) Send(msg *pubsub.Batch) error {
 	// Accept all messages.
 	return nil
 }
@@ -43,7 +43,7 @@ func TestTerminalRunnerStopsOnStepError(t *testing.T) {
 	dp := &DummyProcess{maxSteps: 3}
 
 	// Create a dummy PID. Note that registry.ID is typically a string.
-	dummyPID := process.PID{
+	dummyPID := pubsub.PID{
 		Host:   "dummy",
 		ID:     registry.ID{Name: "test-id"},
 		UniqID: "test",
@@ -76,7 +76,7 @@ func TestTerminalRunnerSendAndStop(t *testing.T) {
 	// Set up a dummy process that will not error on steps.
 	dp := &DummyProcess{maxSteps: 100}
 
-	dummyPID := process.PID{
+	dummyPID := pubsub.PID{
 		Host:   "dummy",
 		ID:     registry.ID{Name: "test-id"},
 		UniqID: "test",
@@ -97,7 +97,7 @@ func TestTerminalRunnerSendAndStop(t *testing.T) {
 	}
 
 	// Test the Send method.
-	err = runner.Send(&pubsub.Message{Topic: "test"})
+	err = runner.Send(&pubsub.Batch{&pubsub.Message{Topic: "test"}})
 	if err != nil {
 		t.Errorf("expected no error on Send, got: %v", err)
 	}

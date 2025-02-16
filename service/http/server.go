@@ -18,24 +18,27 @@ const (
 	BootTimeout = 30 * time.Second
 	// CheckInterval defines how often to check service status during boot
 	CheckInterval = 100 * time.Millisecond
+	// StatusBuffer defines buffer size for status channel
+	StatusBuffer = 10
 )
 
-// Server manages a single Timeouts service instance and its associated router
+// Server manages a single HTTP service instance and its associated router
 type Server struct {
 	config config.ServerConfig
 	router *router.Router
 	server *http.Server
 	mu     sync.RWMutex
 
-	// Internal status channel
+	// Immutable channels for status updates and errors
 	statusChan chan any
 }
 
 // NewServer creates a new Server instance with the given configuration and handler
 func NewServer(config config.ServerConfig, handler http.HandlerFunc) *Server {
 	return &Server{
-		config: config,
-		router: router.NewRouter(handler),
+		config:     config,
+		router:     router.NewRouter(handler),
+		statusChan: make(chan any, StatusBuffer), // Created once, never closed
 	}
 }
 
@@ -47,18 +50,10 @@ func (s *Server) ensureRunning(ctx context.Context) error {
 
 	for {
 		select {
-		case err, ok := <-s.statusChan:
-			if !ok {
-				return errors.New("service failed to start")
-			}
-
-			if e, ok := err.(error); ok {
-				return e
-			}
 		case <-timeout:
-			return errors.New("service failed to start within timeout")
+			return fmt.Errorf("service failed to start within %v timeout", BootTimeout)
 		case <-ctx.Done():
-			return ctx.Err()
+			return fmt.Errorf("startup cancelled: %w", ctx.Err())
 		case <-ticker.C:
 			conn, err := net.DialTimeout("tcp", s.config.Addr, time.Second)
 			if err == nil {
@@ -78,38 +73,51 @@ func (s *Server) Start(ctx context.Context) (<-chan any, error) {
 		ReadTimeout:  s.config.Timeouts.ReadTimeout,
 		WriteTimeout: s.config.Timeouts.WriteTimeout,
 		IdleTimeout:  s.config.Timeouts.IdleTimeout,
-		BaseContext:  func(l net.Listener) context.Context { return ctx }, // todo: listener is unused
+		BaseContext: func(l net.Listener) context.Context {
+			// Inherit parent context and add listener info
+			return context.WithValue(ctx, "listener", l)
+		},
 	}
-	s.server.RegisterOnShutdown(func() {
-		if s.statusChan != nil {
-			close(s.statusChan)
-		}
-		s.statusChan = nil
-	})
-
-	s.statusChan = make(chan any, 2) // 1 for initial boot message and extra for shutdown
 	s.mu.Unlock()
 
 	// Launch service in a goroutine
 	go func() {
 		err := s.server.ListenAndServe()
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			s.statusChan <- err
+			select {
+			case s.statusChan <- fmt.Errorf("server error: %w", err):
+			default:
+				// Log could be added here if status channel is full
+			}
 		}
 	}()
 
 	// Check if service starts successfully
 	if err := s.ensureRunning(ctx); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("startup check failed: %w", err)
 	}
 
+	// Handle shutdown via context
 	go func() {
 		<-ctx.Done()
-		_ = s.Stop(ctx)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		if err := s.Stop(shutdownCtx); err != nil {
+			select {
+			case s.statusChan <- fmt.Errorf("shutdown error: %w", err):
+			default:
+				// Log could be added here if status channel is full
+			}
+		}
 	}()
 
-	// we are running!
-	s.statusChan <- fmt.Sprint("service listening on ", s.config.Addr)
+	// Signal successful start
+	select {
+	case s.statusChan <- fmt.Sprintf("service listening on %s", s.config.Addr):
+	default:
+		// Log could be added here if status channel is full
+	}
 
 	return s.statusChan, nil
 }
@@ -120,16 +128,18 @@ func (s *Server) Stop(ctx context.Context) error {
 	defer s.mu.Unlock()
 
 	if s.server != nil {
-		return s.server.Shutdown(ctx)
+		if err := s.server.Shutdown(ctx); err != nil {
+			return fmt.Errorf("graceful shutdown failed: %w", err)
+		}
+		s.server = nil
 	}
-
 	return nil
 }
 
 // UpdateConfig updates the service configuration
+// Note: Changes will only take effect on the next Start
 func (s *Server) UpdateConfig(config config.ServerConfig) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
 	s.config = config
 }
