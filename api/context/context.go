@@ -12,26 +12,31 @@ func (ck *Key) String() string {
 }
 
 var (
+	// --- Core layers
 	BusCtx        = &Key{Name: "bus"}        //nolint:gochecknoglobals
 	TranscoderCtx = &Key{Name: "transcoder"} //nolint:gochecknoglobals
 	FunctionsCtx  = &Key{Name: "functions"}  //nolint:gochecknoglobals
 	ProcessesCtx  = &Key{Name: "processes"}  //nolint:gochecknoglobals
-	LoggerCtx     = &Key{Name: "logger"}     //nolint:gochecknoglobals
-	ValuesCtx     = &Key{Name: "values"}     //nolint:gochecknoglobals
-	CleanupCtx    = &Key{Name: "cleanup"}    //nolint:gochecknoglobals
-	EnvCtx        = &Key{Name: "env"}        //nolint:gochecknoglobals
-	NodeCtx       = &Key{Name: "node"}       //nolint:gochecknoglobals
-	SecurityCtx   = &Key{Name: "security"}   //nolint:gochecknoglobals
-	MetricsCtx    = &Key{Name: "metrics"}    //nolint:gochecknoglobals
-	TemporalCtx   = &Key{Name: "temporal"}   //nolint:gochecknoglobals
-	HandlerCtx    = &Key{Name: "handler"}    //nolint:gochecknoglobals
 	RegistryCtx   = &Key{Name: "registry"}   //nolint:gochecknoglobals
-	ResourcesCtx  = &Key{Name: "resources"}  //nolint:gochecknoglobals
 
-	// Runtime specific
+	// --- System services
+	LoggerCtx    = &Key{Name: "logger"}    //nolint:gochecknoglobals
+	MetricsCtx   = &Key{Name: "metrics"}   //nolint:gochecknoglobals
+	ResourcesCtx = &Key{Name: "resources"} //nolint:gochecknoglobals
+
+	// -- Enviroment and boundaries
+	EnvCtx  = &Key{Name: "env"}  //nolint:gochecknoglobals
+	NodeCtx = &Key{Name: "node"} //nolint:gochecknoglobals
+
+	// --- Execution path specific
+	HandlerCtx  = &Key{Name: "handler"}  //nolint:gochecknoglobals
+	ValuesCtx   = &Key{Name: "values"}   //nolint:gochecknoglobals
+	CleanupCtx  = &Key{Name: "cleanup"}  //nolint:gochecknoglobals
+	SecurityCtx = &Key{Name: "security"} //nolint:gochecknoglobals
+
+	// --- Runtime and lifecycle specific
 	TerminalCtx = &Key{Name: "terminal"}     //nolint:gochecknoglobals
 	RunnerCtx   = &Key{Name: "taskGroupKey"} //nolint:gochecknoglobals
 	AsyncCtx    = &Key{Name: "scheduleKey"}  //nolint:gochecknoglobals
+	TemporalCtx = &Key{Name: "temporal"}     //nolint:gochecknoglobals
 )
-
-// todo: use appctx, too much context values!
