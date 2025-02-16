@@ -8,6 +8,7 @@ import (
 	apiCtx "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/events"
 	apiLog "github.com/ponyruntime/pony/api/logs"
+	pubsubApi "github.com/ponyruntime/pony/api/pubsub"
 	apiReg "github.com/ponyruntime/pony/api/registry"
 	apiLua "github.com/ponyruntime/pony/api/runtime/lua"
 	"github.com/ponyruntime/pony/runtime/lua/code"
@@ -41,6 +42,7 @@ import (
 	"github.com/ponyruntime/pony/system/payload/lua"
 	"github.com/ponyruntime/pony/system/payload/yaml"
 	"github.com/ponyruntime/pony/system/process"
+	pubsub "github.com/ponyruntime/pony/system/pubsub"
 	"github.com/ponyruntime/pony/system/registry"
 	reghandler "github.com/ponyruntime/pony/system/registry/events"
 	"github.com/ponyruntime/pony/system/registry/history"
@@ -78,6 +80,10 @@ type App struct {
 	prototypes  *process.PrototypeRegistry
 	hosts       *process.HostRegistry
 
+	// mesh
+	nodeID pubsubApi.NodeID
+	node   pubsubApi.Host
+
 	shuttingDown  bool
 	forceShutdown chan struct{}
 }
@@ -110,6 +116,12 @@ func NewApp(verbose, veryVerbose bool) (*App, error) {
 	yaml.Register(dtt)
 	lua.Register(dtt)
 
+	hostname, err := os.Hostname()
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+
 	app := &App{
 		ctx:           ctx,
 		cancel:        cancel,
@@ -119,6 +131,8 @@ func NewApp(verbose, veryVerbose bool) (*App, error) {
 		eventBus:      bus,
 		services:      nil,
 		dtt:           dtt,
+		nodeID:        hostname,
+		node:          pubsub.NewNode(hostname, nil), // no upstream for now
 		forceShutdown: make(chan struct{}),
 	}
 
