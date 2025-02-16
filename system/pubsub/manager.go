@@ -83,7 +83,7 @@ func (m *Manager) handleRegisterHost(e events.Event) {
 	}
 
 	// Register with the underlying node
-	err := m.node.registerHost(e.Path, host)
+	err := m.node.RegisterHost(e.Path, host)
 	if err != nil {
 		m.logger.Error("failed to register host",
 			zap.String("host", e.Path),
@@ -104,7 +104,7 @@ func (m *Manager) handleRegisterHost(e events.Event) {
 
 func (m *Manager) handleDeleteHost(e events.Event) {
 	// Unregister from the underlying node
-	m.node.unregisterHost(e.Path)
+	m.node.UnregisterHost(e.Path)
 
 	m.logger.Info("host unregistered successfully",
 		zap.String("host", e.Path),

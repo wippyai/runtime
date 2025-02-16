@@ -7,12 +7,10 @@ import (
 )
 
 const (
-	Host        pubsub.HostID = "@control"
+	ControlHost pubsub.HostID = "@control"
 	TopicEvents pubsub.Topic  = "@pid/events"
-	TopicCancel pubsub.Topic  = "@pid/cancel" // todo: deprecate
-
-	KindCancel  Kind = "pid.cancel"
-	KindMonitor Kind = "pid.result"
+	KindCancel  Kind          = "pid.cancel"
+	KindMonitor Kind          = "pid.result"
 )
 
 type (
