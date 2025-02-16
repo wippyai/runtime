@@ -269,10 +269,19 @@ func (a *App) Start(folderPath string) error {
 
 	// helper monitor
 	monitor, err := helper.AttachMonitor(a.node, a.node.Node().ID(), func(msg *api.Message) error {
-		go func() {
-			time.Sleep(5 * time.Second)
-			a.logger.Debug("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!monitor message", zap.Any("msg", msg))
-		}()
+		if msg.Topic == processApi.TopicEvents && len(msg.Payloads) == 1 {
+			p := msg.Payloads[0].Data()
+			if e, ok := p.(topologyApi.MonitorEvent); ok {
+				go func() {
+					time.Sleep(1 * time.Second)
+					if e.Result.Error != nil {
+						a.logger.Error("monitor error", zap.String("event", e.Result.Error.Error()))
+					} else {
+						a.logger.Error("monitor event", zap.Any("event", e))
+					}
+				}()
+			}
+		}
 
 		return nil
 	})

@@ -8,7 +8,6 @@ import (
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/runtime"
 	"github.com/ponyruntime/pony/api/topology"
-	"log"
 	"sync"
 	"time"
 )
@@ -89,9 +88,5 @@ func (m *monitor) Notify(pid pubsub.PID, result *runtime.Result) {
 }
 
 func (m *monitor) Remove(pid pubsub.PID) {
-	go func() {
-		time.Sleep(1 * time.Second)
-		log.Printf("REMOVE: %s", pid)
-	}()
 	m.monitors.Delete(pid.String())
 }
