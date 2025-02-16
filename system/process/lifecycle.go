@@ -9,14 +9,14 @@ import (
 	sharedTopology "github.com/ponyruntime/pony/system/topology"
 )
 
-// Lifecycle manages all topology-related aspects of process lifecycle
+// Lifecycle manages all topology-related aspects of process topology
 type Lifecycle struct {
 	monitor  topology.Monitor
 	nodeID   pubsub.NodeID
 	upstream pubsub.Upstream
 }
 
-// NewTopologyLifecycle creates a new lifecycle manager with the given node's upstream
+// NewTopologyLifecycle creates a new topology manager with the given node's upstream
 func NewTopologyLifecycle(
 	ctx context.Context,
 	upstream pubsub.Upstream,
@@ -27,27 +27,17 @@ func NewTopologyLifecycle(
 	}
 }
 
-// AttachToContext returns a context with all lifecycle callbacks attached
-func (l *Lifecycle) AttachToContext(ctx context.Context, pid pubsub.PID) context.Context {
+// AttachToContext returns a context with all topology callbacks attached
+func (l *Lifecycle) AttachToContext(ctx context.Context) context.Context {
 	// Monitor handling
 	ctx = process.WithAddedOnStart(ctx, func(startPid pubsub.PID, proc process.Process) {
-		l.monitor.Wait(startPid, pid)
-		// Will add Link and Group handling here
 	})
 
 	ctx = process.WithAddedOnComplete(ctx, func(completePid pubsub.PID, result *runtime.Result) {
 		// Handle completion/failure notification
 		l.monitor.Notify(completePid, result)
 		l.monitor.Remove(completePid)
-		// Will add Link and Group cleanup here
 	})
-
-	// Ensure cleanup on context cancellation
-	go func() {
-		<-ctx.Done()
-		l.monitor.Remove(pid)
-		// Will add Link and Group cleanup here
-	}()
 
 	return ctx
 }

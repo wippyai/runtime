@@ -15,7 +15,7 @@ type hostInfo struct {
 	managed bool
 }
 
-// HostRegistry manages process hosts and their lifecycle
+// HostRegistry manages process hosts and their topology
 type HostRegistry struct {
 	ctx        context.Context
 	log        *zap.Logger

@@ -3,18 +3,20 @@ package process
 import (
 	"context"
 	"fmt"
+	"github.com/ponyruntime/pony/api/payload"
 	api "github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/pubsub"
+	"github.com/ponyruntime/pony/api/topology"
 	"go.uber.org/zap"
+	"time"
 )
 
 // Manager orchestrates process launches by selecting hosts, instantiating prototypes,
-// and injecting lifecycle callbacks via context. In the future, plugins can register their
-// own onStart and onComplete callbacks which are added here.
+// and injecting topology callbacks via context.
 type Manager struct {
 	hosts      *HostRegistry
 	prototypes *PrototypeRegistry
-	lifecycle  *Lifecycle
+	topology   *Lifecycle
 	nodeID     pubsub.NodeID
 	logger     *zap.Logger
 	generator  *UniqIDGenerator
@@ -28,30 +30,22 @@ func NewProcessManager(
 	nodeID pubsub.NodeID,
 	logger *zap.Logger,
 ) *Manager {
-	m := &Manager{
+	return &Manager{
 		hosts:      hosts,
 		prototypes: prototypes,
-		lifecycle:  lifecycle,
+		topology:   lifecycle,
 		nodeID:     nodeID,
 		logger:     logger,
 		generator:  NewUniqIDGenerator(),
 	}
-
-	return m
 }
 
 func (m *Manager) Lifecycle() *Lifecycle {
-	return m.lifecycle
+	return m.topology
 }
 
-// Start launches a process. It updates the context with the manager's plugin callbacks,
-// then delegates the launch to the appropriate host.
-func (m *Manager) Start(ctx context.Context, ps api.StartProcess) (pubsub.PID, error) {
-	host, exists := m.hosts.GetHost(ps.HostID)
-	if !exists {
-		return pubsub.PID{}, fmt.Errorf("host not found: `%s`", ps.HostID)
-	}
-
+// preparePID creates and validates a PID for the process
+func (m *Manager) preparePID(ps api.StartProcess) (pubsub.PID, error) {
 	pid := pubsub.PID{
 		Host:   ps.HostID,
 		ID:     ps.ID,
@@ -62,6 +56,11 @@ func (m *Manager) Start(ctx context.Context, ps api.StartProcess) (pubsub.PID, e
 		pid.UniqID = m.generator.Generate()
 	}
 
+	return pid, nil
+}
+
+// launchOnHost handles the actual process launch on either managed or delegated hosts
+func (m *Manager) launchOnHost(ctx context.Context, host api.Host, pid pubsub.PID, ps api.StartProcess) (pubsub.PID, error) {
 	switch h := host.(type) {
 	case api.Managed:
 		pid.Node = m.nodeID
@@ -71,14 +70,11 @@ func (m *Manager) Start(ctx context.Context, ps api.StartProcess) (pubsub.PID, e
 			return pubsub.PID{}, fmt.Errorf("failed to init launch: %w", err)
 		}
 
-		// attach process into common lifecycle for node level processes and workflows
-		ctx = m.lifecycle.AttachToContext(ctx, pid)
+		ctx = m.topology.AttachToContext(ctx)
 		newPid, err := h.Launch(ctx, &api.LaunchProcess{PID: pid, Process: proc, Input: ps.Payloads})
-
 		if err != nil {
 			return pubsub.PID{}, fmt.Errorf("failed to launch process on managed host: %w", err)
 		}
-
 		return newPid, nil
 
 	case api.Delegated:
@@ -93,7 +89,61 @@ func (m *Manager) Start(ctx context.Context, ps api.StartProcess) (pubsub.PID, e
 	}
 }
 
-// Terminate stops a running process.
+// Start launches a process with basic topology management
+func (m *Manager) Start(ctx context.Context, ps api.StartProcess) (pubsub.PID, error) {
+	host, exists := m.hosts.GetHost(ps.HostID)
+	if !exists {
+		return pubsub.PID{}, fmt.Errorf("host not found: `%s`", ps.HostID)
+	}
+
+	pid, err := m.preparePID(ps)
+	if err != nil {
+		return pubsub.PID{}, err
+	}
+
+	return m.launchOnHost(ctx, host, pid, ps)
+}
+
+// StartMonitored launches a process with monitoring from another process
+func (m *Manager) StartMonitored(ctx context.Context, from pubsub.PID, ps api.StartProcess) (pubsub.PID, error) {
+	host, exists := m.hosts.GetHost(ps.HostID)
+	if !exists {
+		return pubsub.PID{}, fmt.Errorf("host not found: `%s`", ps.HostID)
+	}
+
+	pid, err := m.preparePID(ps)
+	if err != nil {
+		return pubsub.PID{}, err
+	}
+
+	// Set up monitoring before launch
+	if err = m.topology.monitor.Wait(from, pid); err != nil {
+		return pubsub.PID{}, fmt.Errorf("failed to monitor process: %w", err)
+	}
+
+	return m.launchOnHost(ctx, host, pid, ps)
+}
+
+// Cancel sends a cancellation event to the process and its monitors
+func (m *Manager) Cancel(ctx context.Context, pid pubsub.PID) error {
+	// Send cancel event to the process
+	batch := pubsub.NewBatch(
+		topology.TopicCancel,
+		payload.New(topology.CancelEvent{
+			Event: topology.Event{At: time.Now(), Kind: topology.KindCancel},
+		}),
+	)
+
+	if err := m.topology.upstream.Send(ctx, pid, batch); err != nil {
+		m.logger.Error("failed to send cancel event",
+			zap.String("pid", pid.String()),
+			zap.Error(err))
+	}
+
+	return nil
+}
+
+// Terminate forcefully stops a running process
 func (m *Manager) Terminate(ctx context.Context, pid pubsub.PID) error {
 	host, exists := m.hosts.GetHost(pid.Host)
 	if !exists {
