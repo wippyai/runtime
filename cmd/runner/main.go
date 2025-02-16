@@ -263,53 +263,6 @@ func (a *App) Start(folderPath string) error {
 		return fmt.Errorf("failed to apply initial state: %w", err)
 	}
 
-	// --- todo: ALL WILL BE GONE
-
-	// helper monitor
-	//monitor, err := helper.AttachMonitor(a.node, a.node.Node().Process(), func(msg *api.Message) error {
-	//	if msg.Topic == processApi.TopicEvents && len(msg.Payloads) == 1 {
-	//		p := msg.Payloads[0].Data()
-	//		if e, ok := p.(topologyApi.MonitorEvent); ok {
-	//			go func() {
-	//				time.Sleep(1 * time.Second)
-	//				if e.Result.Error != nil {
-	//					a.logger.Error("monitor error", zap.String("event", e.Result.Error.Error()))
-	//				} else {
-	//					a.logger.Error("monitor event", zap.Any("event", e))
-	//				}
-	//			}()
-	//		}
-	//	}
-	//
-	//	return nil
-	//})
-	//
-	//if err != nil {
-	//	a.cancel()
-	//	return fmt.Errorf("failed to attach monitor: %w", err)
-	//}
-
-	//time.Sleep(1 * time.Second)
-	////// launch todo: we also can retry or better delegate it to supervisor
-	//pid, err := a.processes.StartMonitored(ctx, monitor.PID(), &processApi.StartProcess{
-	//	HostID: "system:terminal",
-	//	Process:     apiReg.Process{NS: "discord", Name: "app"},
-	//})
-	//if err != nil {
-	//	return fmt.Errorf("failed to launch root process: %w", err)
-	//}
-	//a.logger.Info("root process launched", zap.Any("pid", pid))
-
-	//time.Sleep(5 * time.Second)
-	//
-	//// send cancel to process to make it exit
-	//err = a.node.Send(ctx, pid, pubsubApi.NewBatch(processApi.TopicCancel))
-	//if err != nil {
-	//	return fmt.Errorf("failed to send cancel message: %w", err)
-	//}
-
-	// --- todo: ALL WILL BE GONE
-
 	return nil
 }
 
