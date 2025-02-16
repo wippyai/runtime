@@ -5,6 +5,20 @@ meta:
   depends_on: [ "ns:system", "ns:btea.lib", "ns:chat" ]  # Added chat namespace dependency
 
 entries:
+  - name: service
+    kind: process.service
+    meta:
+      comment: "Discord Bot Service"
+      depends_on: [ "discord:app" ]
+    id:
+      ns: discord
+      name: app
+    host: system:terminal
+    lifecycle:
+      auto_start: true
+      restart:
+        max_attempts: 0
+
   - name: app
     kind: btea.app.lua
     meta:

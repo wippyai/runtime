@@ -3,6 +3,7 @@ package pubsub
 import (
 	"context"
 	"errors"
+	contextApi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"
 )
@@ -52,4 +53,8 @@ func NewBatch(topic Topic, payloads ...payload.Payload) *Batch {
 	return &Batch{
 		{Topic: topic, Payloads: payloads},
 	}
+}
+
+func GetNode(ctx context.Context) Host {
+	return ctx.Value(contextApi.NodeCtx).(Host)
 }
