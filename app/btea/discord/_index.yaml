@@ -2,7 +2,7 @@ version: "1.0"
 namespace: discord
 
 meta:
-  depends_on: [ "ns:system", "ns:btea.lib" ]
+  depends_on: [ "ns:system", "ns:btea.lib", "ns:chat" ]  # Added chat namespace dependency
 
 entries:
   - name: app
@@ -19,6 +19,8 @@ entries:
       "discord_client": "discord:client"
       "discord_commands": "discord:commands"
       "discord_ui": "discord:ui"
+      "llm": "chat:llm"  # Import LLM client from chat namespace
+      "components": "chat:components"  # Import chat components
 
   - name: client
     kind: library.lua
@@ -34,6 +36,9 @@ entries:
       comment: "Discord command handlers"
       version: "0.1.0"
     source: file://commands.lua
+    modules: [ "time", "channel" ]  # Added channel module for update channel
+    import:
+      "components": "chat:components"  # Import chat components for session management
 
   - name: ui
     kind: library.lua
