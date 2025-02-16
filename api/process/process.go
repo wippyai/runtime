@@ -33,8 +33,8 @@ const (
 	AcceptHost   events.Kind   = "hosts.accept"
 	RejectHost   events.Kind   = "hosts.reject"
 
-	TopicCancel pubsub.Topic = "@cancel"
-	TopicSystem pubsub.Topic = "@system"
+	TopicCancel pubsub.Topic = "@process/cancel"
+	TopicEvents pubsub.Topic = "@process/events"
 )
 
 var (

@@ -23,7 +23,7 @@ function bapp.new(init_cmd)
         window = { width = 80, height = 24 },
         view_ch = pubsub.subscribe("@btea/view"),
         update_ch = pubsub.subscribe("@btea/update"),
-        cancel_ch = pubsub.subscribe("@cancel"),
+        cancel_ch = pubsub.subscribe("@process/cancel"),
         done = channel.new()
     }
 
