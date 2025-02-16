@@ -16,7 +16,7 @@ import (
 type Manager struct {
 	hosts      *HostRegistry
 	prototypes *PrototypeRegistry
-	topology   *Lifecycle
+	topology   *Topology
 	nodeID     pubsub.NodeID
 	logger     *zap.Logger
 	generator  *UniqIDGenerator
@@ -26,7 +26,7 @@ type Manager struct {
 func NewProcessManager(
 	hosts *HostRegistry,
 	prototypes *PrototypeRegistry,
-	lifecycle *Lifecycle,
+	lifecycle *Topology,
 	nodeID pubsub.NodeID,
 	logger *zap.Logger,
 ) *Manager {
@@ -40,7 +40,7 @@ func NewProcessManager(
 	}
 }
 
-func (m *Manager) Lifecycle() *Lifecycle {
+func (m *Manager) Lifecycle() *Topology {
 	return m.topology
 }
 

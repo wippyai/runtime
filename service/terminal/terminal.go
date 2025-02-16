@@ -4,15 +4,18 @@ import (
 	"context"
 	ctxapi "github.com/ponyruntime/pony/api/context"
 	logsapi "github.com/ponyruntime/pony/api/logs"
+	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
 	"github.com/ponyruntime/pony/api/service/terminal"
+	"github.com/ponyruntime/pony/api/topology"
 	"github.com/ponyruntime/pony/system/logs"
 	"go.uber.org/zap"
 	"os"
 	"sync/atomic"
+	"time"
 )
 
 type opType int
@@ -296,7 +299,14 @@ func (t *Terminal) Terminate(ctx context.Context, pid pubsub.PID) error {
 }
 
 func (t *Terminal) Stop(ctx context.Context) error {
-	if err := t.Send(ctx, pubsub.PID{}, &pubsub.Batch{&pubsub.Message{Topic: process.TopicCancel}}); err != nil {
+	batch := pubsub.NewBatch(
+		process.TopicEvents,
+		payload.New(topology.MonitorEvent{
+			Event: topology.Event{At: time.Now(), Kind: topology.KindCancel},
+		}),
+	)
+
+	if err := t.Send(ctx, pubsub.PID{}, batch); err != nil {
 		t.log.Warn("failed to send cancel message", zap.Error(err))
 	}
 

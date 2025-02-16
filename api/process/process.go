@@ -34,7 +34,6 @@ const (
 	AcceptHost   events.Kind   = "hosts.accept"
 	RejectHost   events.Kind   = "hosts.reject"
 
-	TopicCancel = topology.TopicCancel
 	TopicEvents = topology.TopicEvents
 )
 
