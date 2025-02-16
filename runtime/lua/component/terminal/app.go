@@ -149,7 +149,7 @@ func (p *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	// Forward update messages to Lua.
-	p.publishTask(ChannelUpdate, protocol.MsgToLua(msg)) // todo: deprecate?
+	p.publishTask(ChannelUpdate, protocol.MsgToLua(msg))
 
 	return p, nil
 }
@@ -401,7 +401,7 @@ func (p *App) Send(msgs *pubsub.Batch) error {
 		for _, m := range *msgs {
 			// For cancellation messages, release the channel.
 			if m.Topic == process.TopicCancel {
-				p.pubsub.Release(m.Topic) // todo: not working!
+				p.pubsub.Release(m.Topic)
 				continue
 			}
 
