@@ -11,10 +11,11 @@ import (
 
 // HostConfig holds configuration for a Host.
 type HostConfig struct {
-	BufferSize   int           // Internal job channel buffer size.
-	WorkerCount  int           // Number of concurrent worker goroutines.
-	Logger       *zap.Logger   // Logger for operational events
-	RetryTimeout time.Duration // Timeout for retry attempt on send (default: 100ms)
+	BufferSize      int           // Internal job channel buffer size.
+	WorkerCount     int           // Number of concurrent worker goroutines.
+	Logger          *zap.Logger   // Logger for operational events.
+	RetryTimeout    time.Duration // Timeout for retry attempt on send (default: 100ms)
+	DeliveryTimeout time.Duration // Timeout for delivery to receiver (default: 30s)
 }
 
 // sendJob represents an asynchronous send operation.
@@ -45,6 +46,10 @@ func NewHost(ctx context.Context, config HostConfig) *Host {
 	if config.RetryTimeout == 0 {
 		config.RetryTimeout = 100 * time.Millisecond
 	}
+	// Set default delivery timeout if not provided
+	if config.DeliveryTimeout == 0 {
+		config.DeliveryTimeout = 30 * time.Second
+	}
 
 	h := &Host{
 		config: config,
@@ -65,30 +70,15 @@ func NewHost(ctx context.Context, config HostConfig) *Host {
 func (h *Host) Attach(pid api.PID, ch chan *api.Batch) (error, context.CancelFunc) {
 	_, loaded := h.receivers.LoadOrStore(pid, ch)
 	if loaded {
-		h.logger.Warn("attempt to attach already existing receiver",
-			zap.String("node", pid.Node),
-			zap.String("host", pid.Host),
-			zap.String("id", pid.ID.String()),
-			zap.String("uniq_id", pid.UniqID),
-		)
+		h.logger.Warn("attempt to attach already existing receiver", zap.String("pid", pid.String()))
 		return api.ErrAlreadyAttached, nil
 	}
 
-	h.logger.Debug("receiver attached",
-		zap.String("node", pid.Node),
-		zap.String("host", pid.Host),
-		zap.String("id", pid.ID.String()),
-		zap.String("uniq_id", pid.UniqID),
-	)
+	h.logger.Debug("receiver attached", zap.String("pid", pid.String()))
 
 	cancel := func() {
 		h.receivers.Delete(pid)
-		h.logger.Debug("receiver detached",
-			zap.String("node", pid.Node),
-			zap.String("host", pid.Host),
-			zap.String("id", pid.ID.String()),
-			zap.String("uniq_id", pid.UniqID),
-		)
+		h.logger.Debug("receiver detached", zap.String("pid", pid.String()))
 	}
 	return nil, cancel
 }
@@ -103,21 +93,15 @@ func (h *Host) Send(ctx context.Context, pid api.PID, batch *api.Batch) error {
 		ctx:   ctx,
 	}
 
-	// First attempt: immediate send
+	// First attempt: immediate send into the job channel.
 	select {
 	case h.jobCh <- job:
 		return nil
 	case <-ctx.Done():
-		h.logger.Warn("send cancelled by context",
-			zap.String("node", pid.Node),
-			zap.String("host", pid.Host),
-			zap.String("id", pid.ID.String()),
-			zap.String("uniq_id", pid.UniqID),
-			zap.Error(ctx.Err()),
-		)
+		h.logger.Warn("send cancelled by context", zap.String("pid", pid.String()), zap.Error(ctx.Err()))
 		return ctx.Err()
 	default:
-		// Channel is full, try again with timeout
+		// Channel is full, try again with a retry timeout.
 		timer := time.NewTimer(h.config.RetryTimeout)
 		defer timer.Stop()
 
@@ -125,22 +109,10 @@ func (h *Host) Send(ctx context.Context, pid api.PID, batch *api.Batch) error {
 		case h.jobCh <- job:
 			return nil
 		case <-ctx.Done():
-			h.logger.Warn("send cancelled by context during retry",
-				zap.String("node", pid.Node),
-				zap.String("host", pid.Host),
-				zap.String("id", pid.ID.String()),
-				zap.String("uniq_id", pid.UniqID),
-				zap.Error(ctx.Err()),
-			)
+			h.logger.Warn("send cancelled by context during retry", zap.String("pid", pid.String()), zap.Error(ctx.Err()))
 			return ctx.Err()
 		case <-timer.C:
-			h.logger.Warn("send failed after retry timeout",
-				zap.String("node", pid.Node),
-				zap.String("host", pid.Host),
-				zap.String("id", pid.ID.String()),
-				zap.String("uniq_id", pid.UniqID),
-				zap.Duration("timeout", h.config.RetryTimeout),
-			)
+			h.logger.Warn("send failed after retry timeout", zap.String("pid", pid.String()), zap.Duration("timeout", h.config.RetryTimeout))
 			return fmt.Errorf("send timeout exceeded after retry")
 		}
 	}
@@ -153,62 +125,42 @@ func (h *Host) worker() {
 		case <-h.ctx.Done():
 			return
 		case job := <-h.jobCh:
-			// Check if the job's context is still valid
+			// Check if the job's context is still valid.
 			if job.ctx.Err() != nil {
-				h.logger.Warn("job context expired before processing",
-					zap.String("node", job.pid.Node),
-					zap.String("host", job.pid.Host),
-					zap.String("id", job.pid.ID.String()),
-					zap.String("uniq_id", job.pid.UniqID),
-					zap.Error(job.ctx.Err()),
-				)
+				h.logger.Warn("job context expired before processing", zap.String("pid", job.pid.String()), zap.Error(job.ctx.Err()))
 				continue
 			}
 
-			// Retrieve the receiver channel for the PID
+			// Retrieve the receiver channel for the PID.
 			rec, ok := h.receivers.Load(job.pid)
 			if !ok {
-				h.logger.Warn("no receiver found for PID",
-					zap.String("node", job.pid.Node),
-					zap.String("host", job.pid.Host),
-					zap.String("id", job.pid.ID.String()),
-					zap.String("uniq_id", job.pid.UniqID),
-				)
+				h.logger.Warn("no receiver found for PID", zap.String("pid", job.pid.String()))
 				continue
 			}
 
 			ch, ok := rec.(chan *api.Batch)
 			if !ok {
-				h.logger.Error("invalid receiver type",
-					zap.String("node", job.pid.Node),
-					zap.String("host", job.pid.Host),
-					zap.String("id", job.pid.ID.String()),
-					zap.String("uniq_id", job.pid.UniqID),
-					zap.String("type", fmt.Sprintf("%T", rec)),
-				)
+				h.logger.Error("invalid receiver type", zap.String("pid", job.pid.String()), zap.String("type", fmt.Sprintf("%T", rec)))
 				continue
 			}
 
-			// Send the batch with context cancellation
+			// Attempt a non-blocking send first.
 			select {
 			case ch <- job.batch:
-				// Successfully sent
-			case <-job.ctx.Done():
-				h.logger.Warn("send cancelled while delivering to receiver",
-					zap.String("node", job.pid.Node),
-					zap.String("host", job.pid.Host),
-					zap.String("id", job.pid.ID.String()),
-					zap.String("uniq_id", job.pid.UniqID),
-					zap.Error(job.ctx.Err()),
-				)
-			case <-h.ctx.Done():
-				h.logger.Info("worker shutting down, dropping message",
-					zap.String("node", job.pid.Node),
-					zap.String("host", job.pid.Host),
-					zap.String("id", job.pid.ID.String()),
-					zap.String("uniq_id", job.pid.UniqID),
-				)
-				return
+				// Successfully sent immediately.
+			default:
+				// Use an inner select with delivery timeout.
+				select {
+				case ch <- job.batch:
+					// Successfully sent after waiting.
+				case <-job.ctx.Done():
+					h.logger.Warn("send cancelled while delivering to receiver", zap.String("pid", job.pid.String()), zap.Error(job.ctx.Err()))
+				case <-time.After(h.config.DeliveryTimeout):
+					h.logger.Warn("delivery timeout exceeded; dropping message", zap.String("pid", job.pid.String()), zap.Duration("delivery_timeout", h.config.DeliveryTimeout))
+				case <-h.ctx.Done():
+					h.logger.Info("worker shutting down, dropping message", zap.String("pid", job.pid.String()))
+					return
+				}
 			}
 		}
 	}
