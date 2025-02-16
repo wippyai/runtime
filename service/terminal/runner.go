@@ -94,8 +94,8 @@ func (r *Runner) run() {
 	}
 }
 
-func (r *Runner) Send(msg ...*pubsub.Message) error {
-	return r.proc.Send(msg...)
+func (r *Runner) Send(msgBatch *pubsub.Batch) error {
+	return r.proc.Send(msgBatch)
 }
 
 func (r *Runner) Stop() {

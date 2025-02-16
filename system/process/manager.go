@@ -122,7 +122,7 @@ func (m *Manager) registerLayer(onStart api.OnStart, onComplete api.OnComplete) 
 }
 
 // Send delivers a message to a running process.
-func (m *Manager) Send(ctx context.Context, pid pubsub.PID, msg *pubsub.Message) error {
+func (m *Manager) Send(ctx context.Context, pid pubsub.PID, msg *pubsub.Batch) error {
 	host, exists := m.hosts.GetHost(pid.Host)
 	if !exists {
 		return fmt.Errorf("host not found: %s", pid.Host)

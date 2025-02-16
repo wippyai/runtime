@@ -127,7 +127,7 @@ func (p *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		if msg.String() == ExitKey {
 			// Send cancellation message and schedule context cancellation if needed.
-			_ = p.Send(&pubsub.Message{Topic: process.TopicCancel})
+			_ = p.Send(&pubsub.Batch{&pubsub.Message{Topic: process.TopicCancel}})
 			go func() {
 				select {
 				case <-time.After(stopTimeout):
@@ -374,14 +374,18 @@ func (p *App) Step() error {
 }
 
 // Send transcodes and publishes messages to the Lua process.
-func (p *App) Send(msgs ...*pubsub.Message) error {
+func (p *App) Send(msgs *pubsub.Batch) error {
+	if msgs == nil {
+		return errors.New("messages are nil")
+	}
+
 	select {
 	case <-p.ctx.Done():
 		return p.ctx.Err()
 	case <-p.done:
 		return errors.New("process stopped")
 	default:
-		for _, m := range msgs {
+		for _, m := range *msgs {
 			// For cancellation messages, release the channel.
 			if m.Topic == process.TopicCancel {
 				p.pubsub.Release(m.Topic)
