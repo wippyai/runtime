@@ -116,6 +116,7 @@ function bapp.new(init_cmd)
 
             -- Process the task based on channel
             if result.channel == self.cancel_ch then
+                self.is_running = false
                 break
             elseif result.channel == self.update_ch then
                 local msg = task:input()

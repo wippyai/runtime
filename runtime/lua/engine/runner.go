@@ -232,7 +232,14 @@ func (e *Runner) Step(tasks ...*Task) ([]*Task, error) {
 }
 
 // Continue advances all internal until no longer possible and external signals are needed.
-func (e *Runner) Continue(ctx context.Context) error {
+func (e *Runner) Continue(ctx context.Context) error { // todo: test it
+	// Check if the context is already canceled.
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
 	wrapped := e.getWrapped()
 
 	tasks, err := wrapped.Step(e.cvm.queue.Drain()...)

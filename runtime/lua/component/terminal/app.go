@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/supervisor"
+	"log"
 	"sync"
 	"time"
 
@@ -35,6 +36,8 @@ const (
 	stopTimeout = 500 * time.Millisecond
 	taskTimeout = 300 * time.Millisecond
 	viewTimeout = 200 * time.Millisecond
+
+	maxViewRetries = 3
 
 	// ExitKey is used to trigger process cancellation.
 	ExitKey = "esc"
@@ -116,6 +119,8 @@ type App struct {
 	done       chan struct{}
 	firstError error
 	closer     *closer.Cleanup
+
+	numRetries int
 }
 
 // Init is delegated to the bubbletea program.
@@ -154,10 +159,18 @@ func (p *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // If the view task fails, it returns an error string.
 func (p *App) View() string {
 	response := p.publishTaskWithResponse(ChannelView, lua.LTrue, viewTimeout)
-	if response == nil {
-		return "view task failed"
+	if response == "" {
+		p.numRetries++
+		if p.numRetries < maxViewRetries {
+			return fmt.Sprintf("view task failed (retrying %d/%d)", p.numRetries, maxViewRetries)
+		}
+
+		p.cancel()
+		return "view task failed (exiting)"
 	}
-	return response.String()
+	p.numRetries = 0
+
+	return response
 }
 
 // publishTask sends a task to a specific channel without waiting for its response.
@@ -190,13 +203,13 @@ func (p *App) publishTask(channel string, value lua.LValue) {
 }
 
 // publishTaskWithResponse sends a task and waits for a response or timeout.
-func (p *App) publishTaskWithResponse(channel string, value lua.LValue, timeout time.Duration) lua.LValue {
+func (p *App) publishTaskWithResponse(channel string, value lua.LValue, timeout time.Duration) string {
 	task, err := p.createTask(value)
 	if err != nil {
 		p.log.Error("failed to create task",
 			zap.String("channel", channel),
 			zap.Error(err))
-		return nil
+		return "task creation failed"
 	}
 
 	p.pubsub.Publish(channel, tasks.WrapTask(p.runnerState, task))
@@ -204,25 +217,23 @@ func (p *App) publishTaskWithResponse(channel string, value lua.LValue, timeout 
 	select {
 	case rsp := <-task.Response:
 		if result, ok := rsp.Data().(lua.LValue); ok {
-			return result
+			return result.String()
 		}
 		p.log.Error("invalid response type", zap.String("channel", channel))
-		return nil
+		return "invalid response type"
 	case <-time.After(timeout):
 		p.log.Debug("task timeout", zap.String("channel", channel))
-		return nil
+		return "task timeout"
 	case <-p.done:
-		return nil
+		return "task cancelled"
 	case <-p.ctx.Done():
-		return nil
+		return "task cancelled"
 	}
 }
 
 // createTask wraps a value in a task payload.
 func (p *App) createTask(value lua.LValue) (*tasks.Task, error) {
-	// todo: track proper value?
-
-	return tasks.CreateTask(payload.NewPayload(value, payload.Lua))
+	return tasks.CreateTask(payload.NewPayload(value, payload.Lua)) // todo: track proper value?
 }
 
 // Start initializes the app context, sets up terminal integration, launches the bubbletea program,
@@ -259,6 +270,8 @@ func (p *App) Start(ctx context.Context, pid pubsub.PID, input payload.Payloads)
 			p.log.Error("btea program error", zap.Error(err))
 		}
 
+		log.Printf("EXITED PROGRAM!")
+
 		// Set firstError if no error has been set yet.
 		if p.firstError == nil {
 			p.firstError = supervisor.ErrExit
@@ -286,16 +299,10 @@ func (p *App) Start(ctx context.Context, pid pubsub.PID, input payload.Payloads)
 // processLoop listens for Lua runner results and upstream messages,
 // and handles process completion and cleanup.
 func (p *App) processLoop(resultCh <-chan engine.Result) {
-	defer func() {
-		close(p.done)
-		close(p.upstream)
-		p.runner.Close()
-		p.cancel()
-	}()
-
 	var once sync.Once
 	completeProcess := func(err error, result interface{}) {
 		once.Do(func() {
+			log.Printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!WE GOT ONCOMPLETE")
 			if cerr := p.closer.Close(); cerr != nil {
 				p.log.Error("failed to close resources", zap.Error(cerr))
 			}
@@ -315,9 +322,18 @@ func (p *App) processLoop(resultCh <-chan engine.Result) {
 		})
 	}
 
+	defer func() {
+		completeProcess(supervisor.ErrExit, nil)
+		close(p.done)
+		close(p.upstream)
+		p.runner.Close()
+		p.cancel()
+	}()
+
 	for {
 		select {
 		case result, ok := <-resultCh:
+			log.Printf("RESULT CHANNEL")
 			if !ok {
 				return
 			}
@@ -368,6 +384,7 @@ func (p *App) Step() error {
 		return p.ctx.Err()
 	default:
 		err := p.runner.Continue(p.ctx)
+		log.Printf("STEPPING %v", err)
 		if p.firstError != nil && err != nil {
 			p.firstError = err
 		}
@@ -390,6 +407,7 @@ func (p *App) Send(msgs *pubsub.Batch) error {
 		for _, m := range *msgs {
 			// For cancellation messages, release the channel.
 			if m.Topic == process.TopicCancel {
+				log.Printf("WE GOT CANCEL!!!! WE EXPECTE INTERNALL APP TO DIE SOON!")
 				p.pubsub.Release(m.Topic)
 				continue
 			}
