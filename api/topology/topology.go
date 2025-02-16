@@ -9,6 +9,9 @@ import (
 const (
 	TopicEvents pubsub.Topic = "@pid/events"
 	TopicCancel pubsub.Topic = "@pid/cancel"
+
+	KindCancel  Kind = "pid.cancel"
+	KindMonitor Kind = "pid.result"
 )
 
 type (
