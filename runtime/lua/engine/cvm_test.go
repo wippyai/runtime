@@ -153,7 +153,7 @@ func TestCoroutineVM_ParallelTasks(t *testing.T) {
 			t.Fatal("unexpected yield value from task1")
 		}
 
-		// Complete task2
+		// Notify task2
 		tasks, err = vm.Step(task2)
 		if err != nil {
 			t.Fatal(err)
@@ -162,7 +162,7 @@ func TestCoroutineVM_ParallelTasks(t *testing.T) {
 			t.Fatal("expected task2 to complete")
 		}
 
-		// Complete task1
+		// Notify task1
 		tasks, err = vm.Step(task1)
 		if err != nil {
 			t.Fatal(err)
@@ -807,7 +807,7 @@ func TestCoroutineVM_StatusAndWrap(t *testing.T) {
 				coroutine.resume(inner)
 				status_results[2] = coroutine.status(inner)
 				
-				-- Complete and check final status
+				-- Notify and check final status
 				coroutine.resume(inner)
 				status_results[3] = coroutine.status(inner)
 				
@@ -1019,7 +1019,7 @@ func TestCoroutineVM_SharedBuffer(t *testing.T) {
 			t.Fatalf("unexpected wait output: got %q, want %q", flushResult, expectedResult)
 		}
 
-		// Complete flusher
+		// Notify flusher
 		flusherTask = tasks[0]
 		tasks, err = vm.Step(flusherTask)
 		if err != nil {
@@ -1108,7 +1108,7 @@ func TestCoroutineVM_NestedSpawn(t *testing.T) {
 			t.Fatal("child task not found")
 		}
 
-		// Complete child task
+		// Notify child task
 		tasks, err = vm.Step(childTask)
 		if err != nil {
 			t.Fatal(err)
@@ -1117,7 +1117,7 @@ func TestCoroutineVM_NestedSpawn(t *testing.T) {
 			t.Fatal("expected child to complete")
 		}
 
-		// Complete parent task
+		// Notify parent task
 		tasks, err = vm.Step(parentTask)
 		if err != nil {
 			t.Fatal(err)
@@ -1340,7 +1340,7 @@ func TestCoroutineVM_MonitorStatus(t *testing.T) {
 		}
 		monitorTask = tasks[0]
 
-		// Complete target
+		// Notify target
 		targetTask.Resumed = []lua.LValue{lua.LString("resume2")}
 		tasks, err = vm.Step(targetTask)
 		if err != nil {
@@ -1566,7 +1566,7 @@ func TestCoroutineVM_CustomValue(t *testing.T) {
 			t.Fatalf("expected custom_data, got %s", customVal.value)
 		}
 
-		// Complete the coroutine
+		// Notify the coroutine
 		tasks, err = vm.Step(task)
 		if err != nil {
 			t.Fatal(err)
@@ -1629,7 +1629,7 @@ func TestCoroutineVM_CustomValue(t *testing.T) {
 			t.Fatalf("expected custom_data, got %s", customVal.value)
 		}
 
-		// Complete the coroutine
+		// Notify the coroutine
 		tasks, err = vm.Step(task)
 		if err != nil {
 			t.Fatal(err)
@@ -1687,7 +1687,7 @@ func TestCoroutineVM_CustomValue(t *testing.T) {
 			t.Fatalf("expected custom_data, got %s", customVal.value)
 		}
 
-		// Complete the coroutine
+		// Notify the coroutine
 		tasks, err = vm.Step(task)
 		if err != nil {
 			t.Fatal(err)
@@ -1755,7 +1755,7 @@ func TestCoroutineVM_CustomValue(t *testing.T) {
 			t.Fatalf("expected custom_data, got %s", customVal.value)
 		}
 
-		// Complete the coroutine
+		// Notify the coroutine
 		tasks, err = vm.Step(task)
 		if err != nil {
 			t.Fatal(err)
@@ -2159,7 +2159,7 @@ func TestCoroutineVM_StartWithArguments(t *testing.T) {
 			t.Fatalf("wrong argument values, got %q, want %q", valueCheck, expectedValues)
 		}
 
-		// Complete the coroutine
+		// Notify the coroutine
 		tasks, err = vm.Step(tasks[0])
 		if err != nil {
 			t.Fatal(err)
@@ -2226,7 +2226,7 @@ func TestCoroutineVM_StartWithArguments(t *testing.T) {
 			t.Fatal("function not called correctly")
 		}
 
-		// Complete the coroutine
+		// Notify the coroutine
 		_, err = vm.Step(tasks[0])
 		if err != nil {
 			t.Fatal(err)
@@ -2293,7 +2293,7 @@ func TestCoroutineVM_StartWithArguments(t *testing.T) {
 			t.Fatalf("expected nil arguments, got %s", nilCheck)
 		}
 
-		// Complete the coroutine
+		// Notify the coroutine
 		_, err = vm.Step(tasks[0])
 		if err != nil {
 			t.Fatal(err)
@@ -2473,7 +2473,7 @@ func TestCoroutineVM_Import(t *testing.T) {
 			t.Fatalf("unexpected yield value: %v", tasks[0].Yielded[0])
 		}
 
-		// Complete task
+		// Notify task
 		_, err = vm.Step(tasks[0])
 		if err != nil {
 			t.Fatal(err)

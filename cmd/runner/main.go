@@ -164,7 +164,17 @@ func (a *App) Initialize() error {
 	a.funcs = function.NewExecutor(a.eventBus, a.logger.Named("funcs"))
 	a.prototypes = process.NewPrototypeFactory(a.eventBus, a.logger.Named("prototypes"))
 	a.hosts = process.NewHostRegistry(a.eventBus, a.logger.Named("hosts"))
-	a.processes = process.NewProcessManager(a.hosts, a.prototypes, a.logger.Named("processes"))
+
+	// groups, links, monitor and other topology level stuff
+	lifecycle := process.NewTopologyLifecycle(a.ctx, a.node)
+
+	a.processes = process.NewProcessManager(
+		a.hosts,
+		a.prototypes,
+		lifecycle,
+		a.node.Node().ID(), // for pid generation of managed processes
+		a.logger.Named("processes"),
+	)
 
 	return nil
 }

@@ -267,7 +267,6 @@ func (t *Terminal) Send(ctx context.Context, pid pubsub.PID, msg *pubsub.Batch) 
 	})
 }
 
-// Process management methods
 func (t *Terminal) Launch(ctx context.Context, pl *process.LaunchProcess) (pubsub.PID, error) {
 	resp := make(chan pubsub.PID, 1)
 	err := t.execOp(ctx, op{
