@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	lua "github.com/yuin/gopher-lua"
-	"log"
 )
 
 // ActiveChannel represents a channel that currently blocks execution,
@@ -97,7 +96,6 @@ func (r *Layer) Close(ctx context.Context, ch *Channel) error {
 	}
 
 	next := ch.close(nil)
-	log.Printf("closing channel! %v", next)
 	if next.yields && len(next.next) > 0 {
 		if len(next.release) > 0 {
 			r.updateChannelRefs(tg, next.block, next.release)
@@ -110,7 +108,6 @@ func (r *Layer) Close(ctx context.Context, ch *Channel) error {
 			}
 
 			tg.Add(result.state)
-			log.Printf("releasing channel!")
 			err := tg.Send(ctx, engine.NewResult(
 				result.state,
 				result.values,
