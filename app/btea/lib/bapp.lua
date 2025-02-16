@@ -138,9 +138,6 @@ function bapp.new(init_cmd)
         end
 
         self:cleanup_terminal()
-        pubsub.unsubscribe(self.view_ch)
-        pubsub.unsubscribe(self.update_ch)
-        pubsub.unsubscribe(self.cancel_ch)
     end
 
     return app
