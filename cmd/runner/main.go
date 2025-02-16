@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	apiCtx "github.com/ponyruntime/pony/api/context"
@@ -54,6 +55,8 @@ import (
 	httpbase "net/http"
 	"os"
 	"os/signal"
+	"runtime"
+	"runtime/pprof"
 	"strings"
 	"syscall"
 	"time"
@@ -269,15 +272,69 @@ func (a *App) Stop() error {
 	return nil
 }
 
+// Add this method to your App struct
+func (a *App) StartProfiler() {
+	// Memory profiling
+	runtime.MemProfileRate = 1 // Profile all allocations
+
+	// Create directory for profiles if it doesn't exist
+	if err := os.MkdirAll("profiles", 0755); err != nil {
+		a.logger.Error("failed to create profiles directory", zap.Error(err))
+		return
+	}
+
+	// CPU profiling
+	cpuFile, err := os.Create("profiles/cpu.prof")
+	if err != nil {
+		a.logger.Error("failed to create CPU profile", zap.Error(err))
+		return
+	}
+	pprof.StartCPUProfile(cpuFile)
+	defer pprof.StopCPUProfile()
+
+	// Periodic heap profiling
+	go func() {
+		tick := time.NewTicker(30 * time.Second)
+		defer tick.Stop()
+
+		for i := 1; ; i++ {
+			select {
+			case <-a.ctx.Done():
+				return
+			case <-tick.C:
+				heapFile, err := os.Create(fmt.Sprintf("profiles/heap_%d.prof", i))
+				if err != nil {
+					a.logger.Error("failed to create heap profile", zap.Error(err))
+					continue
+				}
+				pprof.WriteHeapProfile(heapFile)
+				heapFile.Close()
+			}
+		}
+	}()
+
+	// HTTP server for live profiling
+	go func() {
+		profilerAddr := "localhost:6060"
+		a.logger.Info("starting pprof server", zap.String("address", profilerAddr))
+		if err := httpbase.ListenAndServe(profilerAddr, nil); err != nil {
+			if !errors.Is(err, httpbase.ErrServerClosed) {
+				a.logger.Error("pprof server failed", zap.Error(err))
+			}
+		}
+	}()
+}
+
 func main() {
 	// Parse command line flags
 	verbose := flag.Bool("v", false, "enable verbose debug logging")
 	veryVerbose := flag.Bool("vv", false, "enable very verbose debug logging with stack traces")
+	enableProfiling := flag.Bool("p", false, "enable performance profiling")
 	flag.Parse()
 
 	args := flag.Args()
 	if len(args) < 1 {
-		fmt.Println("Usage: go run main.go [-v] [-vv] <folder_path> [namespace]")
+		fmt.Println("Usage: go run main.go [-v] [-vv] [-p] <folder_path> [namespace]")
 		os.Exit(1)
 	}
 
@@ -305,6 +362,14 @@ func main() {
 		WithShellManager(app),
 	)...)
 	// --------------------------------------------------
+
+	// collect gc
+	runtime.GC()
+
+	// Start profiler if enabled
+	if *enableProfiling {
+		app.StartProfiler()
+	}
 
 	// LaunchProcess application
 	if err := app.Start(folderPath); err != nil {

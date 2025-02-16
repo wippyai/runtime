@@ -3,6 +3,7 @@ package json
 import (
 	"encoding/json"
 	"errors"
+	"sync"
 
 	lua "github.com/yuin/gopher-lua"
 )
@@ -12,6 +13,25 @@ var (
 	errSparseArray = errors.New("cannot encode sparse array")
 	errInvalidKeys = errors.New("cannot encode mixed or invalid key types")
 )
+
+var jsonValuePool = sync.Pool{
+	New: func() any {
+		return &jsonValue{}
+	},
+}
+
+func getJSONValue(lv lua.LValue, visited map[*lua.LTable]bool) *jsonValue {
+	jv := jsonValuePool.Get().(*jsonValue)
+	jv.LValue = lv
+	jv.visited = visited
+	return jv
+}
+
+func putJSONValue(jv *jsonValue) {
+	jv.LValue = nil
+	jv.visited = nil
+	jsonValuePool.Put(jv)
+}
 
 // Module represents JSON bindings to Lua VM.
 type Module struct{}
@@ -39,14 +59,12 @@ func (m *Module) Loader(l *lua.LState) int {
 
 // decode decodes JSON string to Lua value with input validation.
 func (*Module) decode(l *lua.LState) int {
-	// Input validation errors - use ArgError
 	if l.Get(1).Type() != lua.LTString {
 		l.ArgError(1, "string expected")
 		return 0
 	}
 
 	str := l.ToString(1)
-	// Empty string is not valid JSON
 	if str == "" {
 		l.ArgError(1, "empty string is not valid JSON")
 		return 0
@@ -54,7 +72,6 @@ func (*Module) decode(l *lua.LState) int {
 
 	value, err := Decode(l, []byte(str))
 	if err != nil {
-		// JSON processing errors - return nil and error
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
 		return 2
@@ -65,7 +82,6 @@ func (*Module) decode(l *lua.LState) int {
 
 // encode encodes Lua value to JSON string with input validation.
 func (*Module) encode(l *lua.LState) int {
-	// Input validation errors - use ArgError
 	if l.Get(1) == nil {
 		l.ArgError(1, "value expected")
 		return 0
@@ -74,7 +90,6 @@ func (*Module) encode(l *lua.LState) int {
 	value := l.Get(1)
 	data, err := Encode(value)
 	if err != nil {
-		// JSON processing errors - return nil and error
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
 		return 2
@@ -86,30 +101,31 @@ func (*Module) encode(l *lua.LState) int {
 type invalidTypeError lua.LValueType
 
 func (i invalidTypeError) Error() string {
-	return `cannot encode ` + lua.LValueType(i).String() + ` to JSON`
+	return "cannot encode " + lua.LValueType(i).String() + " to JSON"
 }
 
 // Encode returns the JSON encoding of value.
 func Encode(value lua.LValue) ([]byte, error) {
-	return json.Marshal(jsonValue{
-		LValue:  value,
-		visited: make(map[*lua.LTable]bool),
-	})
+	visited := make(map[*lua.LTable]bool)
+	jv := getJSONValue(value, visited)
+	b, err := json.Marshal(jv)
+	putJSONValue(jv)
+	return b, err
 }
 
 type jsonValue struct {
-	lua.LValue
+	LValue  lua.LValue
 	visited map[*lua.LTable]bool
 }
 
-func (j jsonValue) MarshalJSON() ([]byte, error) {
+func (j *jsonValue) MarshalJSON() ([]byte, error) {
 	switch converted := j.LValue.(type) {
 	case lua.LBool:
 		return json.Marshal(bool(converted))
 	case lua.LNumber:
 		return json.Marshal(float64(converted))
 	case *lua.LNilType:
-		return []byte(`null`), nil
+		return []byte("null"), nil
 	case lua.LString:
 		return json.Marshal(string(converted))
 	case *lua.LTable:
@@ -119,12 +135,11 @@ func (j jsonValue) MarshalJSON() ([]byte, error) {
 		j.visited[converted] = true
 
 		key, value := converted.Next(lua.LNil)
-
 		switch key.Type() {
 		case lua.LTNil:
-			return []byte(`[]`), nil
+			return []byte("[]"), nil
 		case lua.LTNumber:
-			arr := make([]jsonValue, 0, converted.Len())
+			arr := make([]*jsonValue, 0, converted.Len())
 			expectedKey := lua.LNumber(1)
 			for key != lua.LNil {
 				if key.Type() != lua.LTNumber {
@@ -133,21 +148,31 @@ func (j jsonValue) MarshalJSON() ([]byte, error) {
 				if expectedKey != key {
 					return nil, errSparseArray
 				}
-				arr = append(arr, jsonValue{value, j.visited})
+				child := getJSONValue(value, j.visited)
+				arr = append(arr, child)
 				expectedKey++
 				key, value = converted.Next(key)
 			}
-			return json.Marshal(arr)
+			b, err := json.Marshal(arr)
+			for _, child := range arr {
+				putJSONValue(child)
+			}
+			return b, err
 		case lua.LTString:
-			obj := make(map[string]jsonValue)
+			obj := make(map[string]*jsonValue, converted.Len())
 			for key != lua.LNil {
 				if key.Type() != lua.LTString {
 					return nil, errInvalidKeys
 				}
-				obj[key.String()] = jsonValue{value, j.visited}
+				child := getJSONValue(value, j.visited)
+				obj[key.String()] = child
 				key, value = converted.Next(key)
 			}
-			return json.Marshal(obj)
+			b, err := json.Marshal(obj)
+			for _, child := range obj {
+				putJSONValue(child)
+			}
+			return b, err
 		case lua.LTBool, lua.LTFunction, lua.LTUserData, lua.LTThread, lua.LTTable, lua.LTChannel:
 			fallthrough
 		default:
