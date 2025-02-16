@@ -75,7 +75,6 @@ func (m *monitor) Notify(pid pubsub.PID, result *runtime.Result) {
 			process.TopicEvents,
 			payload.New(topology.MonitorEvent{
 				Event:  topology.Event{At: time.Now(), Kind: topology.KindMonitor},
-				PID:    pid,
 				Result: result,
 			}),
 		)
