@@ -10,14 +10,12 @@ entries:
     meta:
       comment: "Discord Bot Service"
       depends_on: [ "discord:app" ]
-    id:
-      ns: discord
-      name: app
+    process: app
     host: system:terminal
     lifecycle:
       auto_start: true
       restart:
-        max_attempts: 0
+        max_attempts: 1
 
   - name: app
     kind: btea.app.lua

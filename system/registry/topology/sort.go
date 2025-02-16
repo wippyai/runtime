@@ -28,7 +28,7 @@ func parseDependency(dep string) (depType string, value string) {
 	return "direct", dep
 }
 
-// resolveDependencyID resolves a direct dependency string to an ID, considering the source namespace
+// resolveDependencyID resolves a direct dependency string to an Process, considering the source namespace
 func resolveDependencyID(sourceNS string, depStr string) registry.ID {
 	// If the dependency already has a namespace, use it as is
 	if strings.Contains(depStr, ":") {

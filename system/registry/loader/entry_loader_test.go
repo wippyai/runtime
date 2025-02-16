@@ -320,9 +320,9 @@ func TestExtractEntries(t *testing.T) {
 				}
 
 				for i := range got {
-					// Check ID
+					// Check Process
 					if !reflect.DeepEqual(got[i].ID, tt.want[i].ID) {
-						t.Errorf("Entry[%d].ID = %v, want %v", i, got[i].ID, tt.want[i].ID)
+						t.Errorf("Entry[%d].Process = %v, want %v", i, got[i].ID, tt.want[i].ID)
 					}
 
 					// Check Kind
@@ -495,9 +495,9 @@ func TestMetadataMergingInData(t *testing.T) {
 				}
 
 				for i := range got {
-					// Check ID
+					// Check Process
 					if !reflect.DeepEqual(got[i].ID, tt.want[i].ID) {
-						t.Errorf("Entry[%d].ID = %v, want %v", i, got[i].ID, tt.want[i].ID)
+						t.Errorf("Entry[%d].Process = %v, want %v", i, got[i].ID, tt.want[i].ID)
 					}
 
 					// Check Kind

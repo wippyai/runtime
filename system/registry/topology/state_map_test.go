@@ -36,13 +36,13 @@ func TestStateMap(t *testing.T) {
 			t.Errorf("NewStateMap() failed: expected map length %d, got %d", len(initialState), len(stateMap))
 		}
 
-		// Verify entries are correctly mapped by ID
+		// Verify entries are correctly mapped by Process
 		for _, entry := range initialState {
 			if mappedEntry, exists := stateMap[entry.ID]; !exists {
-				t.Errorf("NewStateMap() failed: entry with ID {ns: %s, name: %s} missing in map",
+				t.Errorf("NewStateMap() failed: entry with Process {ns: %s, name: %s} missing in map",
 					entry.ID.NS, entry.ID.Name)
 			} else if !reflect.DeepEqual(mappedEntry, entry) {
-				t.Errorf("NewStateMap() failed: entry mismatch for ID {ns: %s, name: %s}",
+				t.Errorf("NewStateMap() failed: entry mismatch for Process {ns: %s, name: %s}",
 					entry.ID.NS, entry.ID.Name)
 			}
 		}
@@ -59,10 +59,10 @@ func TestStateMap(t *testing.T) {
 		// Verify all entries are copied correctly
 		for id, entry := range originalMap {
 			if copiedEntry, exists := copiedMap[id]; !exists {
-				t.Errorf("Copy() failed: entry with ID {ns: %s, name: %s} missing in copied map",
+				t.Errorf("Copy() failed: entry with Process {ns: %s, name: %s} missing in copied map",
 					id.NS, id.Name)
 			} else if !reflect.DeepEqual(copiedEntry, entry) {
-				t.Errorf("Copy() failed: entry mismatch for ID {ns: %s, name: %s}",
+				t.Errorf("Copy() failed: entry mismatch for Process {ns: %s, name: %s}",
 					id.NS, id.Name)
 			}
 		}
@@ -83,7 +83,7 @@ func TestStateMap(t *testing.T) {
 			t.Errorf("ToSlice() failed: expected slice length %d, got %d", len(initialState), len(newState))
 		}
 
-		// Spawn maps to compare entries by ID, since slice order isn't guaranteed
+		// Spawn maps to compare entries by Process, since slice order isn't guaranteed
 		originalEntries := make(map[registry.ID]bool)
 		for _, entry := range initialState {
 			originalEntries[entry.ID] = true
@@ -102,7 +102,7 @@ func TestStateMap(t *testing.T) {
 				}
 			}
 			if !found {
-				t.Errorf("ToSlice() failed: unexpected entry with ID {ns: %s, name: %s} in result",
+				t.Errorf("ToSlice() failed: unexpected entry with Process {ns: %s, name: %s} in result",
 					entry.ID.NS, entry.ID.Name)
 			}
 		}
@@ -110,7 +110,7 @@ func TestStateMap(t *testing.T) {
 		// Verify all original entries are present
 		for id := range originalEntries {
 			if !newEntries[id] {
-				t.Errorf("ToSlice() failed: missing entry with ID {ns: %s, name: %s} in result",
+				t.Errorf("ToSlice() failed: missing entry with Process {ns: %s, name: %s} in result",
 					id.NS, id.Name)
 			}
 		}

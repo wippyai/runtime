@@ -42,7 +42,7 @@ func TestTerminalRunnerStopsOnStepError(t *testing.T) {
 	// Set up a dummy process that fails after 3 steps.
 	dp := &DummyProcess{maxSteps: 3}
 
-	// Create a dummy PID. Note that registry.ID is typically a string.
+	// Create a dummy PID. Note that registry.Process is typically a string.
 	dummyPID := pubsub.PID{
 		Host:   "dummy",
 		ID:     registry.ID{Name: "test-id"},

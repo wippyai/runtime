@@ -56,7 +56,7 @@ func ParsePID(s string) (PID, error) {
 		pid.Host = hostPart
 	}
 
-	// Parse the composite ID and process name.
+	// Parse the composite Process and process name.
 	pid.ID = registry.ParseID(parts[1])
 	pid.UniqID = parts[2]
 

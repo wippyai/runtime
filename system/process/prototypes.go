@@ -130,8 +130,8 @@ func (p *PrototypeRegistry) sendReject(path events.Path, reason string) {
 	})
 }
 
-// Create instantiates a new process using the registered prototype for the given ID.
-// Returns an error if no prototype is registered for the ID or if process creation fails.
+// Create instantiates a new process using the registered prototype for the given Process.
+// Returns an error if no prototype is registered for the Process or if process creation fails.
 func (p *PrototypeRegistry) Create(id registry.ID) (api.Process, error) {
 	prototypeVal, exists := p.prototypes.Load(id)
 	if !exists {

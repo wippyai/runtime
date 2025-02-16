@@ -8,8 +8,6 @@ import (
 	apiCtx "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/events"
 	apiLog "github.com/ponyruntime/pony/api/logs"
-	processApi "github.com/ponyruntime/pony/api/process"
-	api "github.com/ponyruntime/pony/api/pubsub"
 	apiReg "github.com/ponyruntime/pony/api/registry"
 	apiLua "github.com/ponyruntime/pony/api/runtime/lua"
 	topologyApi "github.com/ponyruntime/pony/api/topology"
@@ -54,7 +52,6 @@ import (
 	"github.com/ponyruntime/pony/system/registry/runner"
 	"github.com/ponyruntime/pony/system/registry/topology"
 	"github.com/ponyruntime/pony/system/supervisor"
-	"github.com/ponyruntime/pony/system/topology/helper"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	httpbase "net/http"
@@ -269,39 +266,39 @@ func (a *App) Start(folderPath string) error {
 	// --- todo: ALL WILL BE GONE
 
 	// helper monitor
-	monitor, err := helper.AttachMonitor(a.node, a.node.Node().ID(), func(msg *api.Message) error {
-		if msg.Topic == processApi.TopicEvents && len(msg.Payloads) == 1 {
-			p := msg.Payloads[0].Data()
-			if e, ok := p.(topologyApi.MonitorEvent); ok {
-				go func() {
-					time.Sleep(1 * time.Second)
-					if e.Result.Error != nil {
-						a.logger.Error("monitor error", zap.String("event", e.Result.Error.Error()))
-					} else {
-						a.logger.Error("monitor event", zap.Any("event", e))
-					}
-				}()
-			}
-		}
-
-		return nil
-	})
-
-	if err != nil {
-		a.cancel()
-		return fmt.Errorf("failed to attach monitor: %w", err)
-	}
+	//monitor, err := helper.AttachMonitor(a.node, a.node.Node().Process(), func(msg *api.Message) error {
+	//	if msg.Topic == processApi.TopicEvents && len(msg.Payloads) == 1 {
+	//		p := msg.Payloads[0].Data()
+	//		if e, ok := p.(topologyApi.MonitorEvent); ok {
+	//			go func() {
+	//				time.Sleep(1 * time.Second)
+	//				if e.Result.Error != nil {
+	//					a.logger.Error("monitor error", zap.String("event", e.Result.Error.Error()))
+	//				} else {
+	//					a.logger.Error("monitor event", zap.Any("event", e))
+	//				}
+	//			}()
+	//		}
+	//	}
+	//
+	//	return nil
+	//})
+	//
+	//if err != nil {
+	//	a.cancel()
+	//	return fmt.Errorf("failed to attach monitor: %w", err)
+	//}
 
 	//time.Sleep(1 * time.Second)
 	////// launch todo: we also can retry or better delegate it to supervisor
-	pid, err := a.processes.StartMonitored(ctx, monitor.PID(), processApi.StartProcess{
-		HostID: "system:terminal",
-		ID:     apiReg.ID{NS: "discord", Name: "app"},
-	})
-	if err != nil {
-		return fmt.Errorf("failed to launch root process: %w", err)
-	}
-	a.logger.Info("root process launched", zap.Any("pid", pid))
+	//pid, err := a.processes.StartMonitored(ctx, monitor.PID(), &processApi.StartProcess{
+	//	HostID: "system:terminal",
+	//	Process:     apiReg.Process{NS: "discord", Name: "app"},
+	//})
+	//if err != nil {
+	//	return fmt.Errorf("failed to launch root process: %w", err)
+	//}
+	//a.logger.Info("root process launched", zap.Any("pid", pid))
 
 	//time.Sleep(5 * time.Second)
 	//

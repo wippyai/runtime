@@ -137,7 +137,7 @@ func (r *HostRegistry) sendReject(path events.Path, reason string) {
 	})
 }
 
-// GetHost returns a host and its type by ID
+// GetHost returns a host and its type by Process
 func (r *HostRegistry) GetHost(hostID string) (api.Host, bool) {
 	if val, ok := r.hosts.Load(hostID); ok {
 		info := val.(hostInfo)

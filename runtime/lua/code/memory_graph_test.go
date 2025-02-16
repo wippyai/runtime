@@ -10,7 +10,7 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-// createTestNode creates a test node with the given ID.
+// createTestNode creates a test node with the given Process.
 func createTestNode(id string) *Node {
 	return &Node{
 		ID:     registry.ID{Name: id},
@@ -555,7 +555,7 @@ func TestMemoryGraph_Build_TransitiveModules(t *testing.T) {
 
 	// Verify main node is correct
 	if rt.Main.ID != mainNode.ID {
-		t.Errorf("expected main node ID %v, got %v", mainNode.ID, rt.Main.ID)
+		t.Errorf("expected main node Process %v, got %v", mainNode.ID, rt.Main.ID)
 	}
 
 	// Verify dependencies are in correct order
@@ -662,7 +662,7 @@ func TestMemoryGraph_Build_ModuleDeduplication(t *testing.T) {
 
 	// Verify main node
 	if rt.Main.ID != mainNode.ID {
-		t.Errorf("expected main node ID %v, got %v", mainNode.ID, rt.Main.ID)
+		t.Errorf("expected main node Process %v, got %v", mainNode.ID, rt.Main.ID)
 	}
 
 	// Verify dependencies are in correct order and have correct aliases

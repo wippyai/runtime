@@ -50,7 +50,7 @@ type Manager struct {
 	log     *zap.Logger
 	code    *code.Manager
 	bus     events.Bus
-	configs sync.Map // map[registry.ID]*api.BteaConfig
+	configs sync.Map // map[registry.Process]*api.BteaConfig
 }
 
 // NewBteaManager creates a new instance of Manager.

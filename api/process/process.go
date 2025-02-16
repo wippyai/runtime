@@ -50,13 +50,14 @@ var (
 
 type (
 	ServiceConfig struct {
-		// Process ID that will be used to start the process
-		ID registry.ID `json:"id" yaml:"id"`
+		// Process that will be used to start the process
+		Process registry.ID `json:"process" yaml:"process"`
 
-		// Host ID where the process should be started
+		// Host Process where the process should be started
 		HostID pubsub.HostID `json:"host" yaml:"host"`
 
-		// todo: payload ?
+		// Payloads to be passed to the process as input
+		Input []any `json:"input" yaml:"input"`
 
 		// Lifecycle configuration for supervisor
 		Lifecycle supervisor.LifecycleConfig `json:"lifecycle" yaml:"lifecycle"`
@@ -89,7 +90,6 @@ type (
 	Manager interface {
 		Start(ctx context.Context, start *StartProcess) (pubsub.PID, error)
 		StartMonitored(context.Context, pubsub.PID, *StartProcess) (pubsub.PID, error)
-		Send(ctx context.Context, pid pubsub.PID, msg *pubsub.Batch) error
 		Terminate(ctx context.Context, pid pubsub.PID) error
 	}
 
@@ -121,16 +121,16 @@ func GetProcesses(ctx context.Context) Manager {
 
 // Validate checks if the configuration is valid
 func (c *ServiceConfig) Validate() error {
-	if c.ID.Name == "" {
-		return fmt.Errorf("process ID is required")
+	if c.Process.Name == "" {
+		return fmt.Errorf("process Process is required")
 	}
 
 	if c.HostID == "" {
-		return fmt.Errorf("host ID is required")
+		return fmt.Errorf("host Process is required")
 	}
 
 	if c.HostID == topology.ControlHost {
-		return fmt.Errorf("host ID cannot be %s", topology.ControlHost)
+		return fmt.Errorf("host Process cannot be %s", topology.ControlHost)
 	}
 
 	return nil

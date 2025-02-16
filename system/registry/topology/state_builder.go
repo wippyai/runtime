@@ -93,7 +93,7 @@ func (b *StateBuilder) GetInverseOperation(state StateMap, op registry.Operation
 			b.log.Warn("Original entry not found for update operation, cannot create inverse",
 				zap.String("namespace", string(op.Entry.ID.NS)),
 				zap.String("name", string(op.Entry.ID.Name)))
-			return registry.Operation{}, fmt.Errorf("original entry not found for ID {ns: %s, name: %s}",
+			return registry.Operation{}, fmt.Errorf("original entry not found for Process {ns: %s, name: %s}",
 				op.Entry.ID.NS, op.Entry.ID.Name)
 		}
 		return registry.Operation{Kind: registry.Update, Entry: originalEntry}, nil
@@ -104,7 +104,7 @@ func (b *StateBuilder) GetInverseOperation(state StateMap, op registry.Operation
 			b.log.Warn("Original entry not found for delete operation, cannot create inverse",
 				zap.String("namespace", string(op.Entry.ID.NS)),
 				zap.String("name", string(op.Entry.ID.Name)))
-			return registry.Operation{}, fmt.Errorf("original entry not found for ID {ns: %s, name: %s}",
+			return registry.Operation{}, fmt.Errorf("original entry not found for Process {ns: %s, name: %s}",
 				op.Entry.ID.NS, op.Entry.ID.Name)
 		}
 		return registry.Operation{Kind: registry.Create, Entry: originalEntry}, nil

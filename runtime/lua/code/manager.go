@@ -121,7 +121,7 @@ func (cm *Manager) Commit(ctx context.Context) {
 	// Clear transaction nodes
 	cm.txNodes = make(map[registry.ID]bool)
 
-	// to slice of []registry.ID
+	// to slice of []registry.Process
 	affectedSlice := make([]registry.ID, 0, len(affected))
 	for id := range affected {
 		affectedSlice = append(affectedSlice, id)

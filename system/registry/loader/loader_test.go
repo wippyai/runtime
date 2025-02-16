@@ -196,7 +196,7 @@ invalid: content
 			// Compare entries
 			for i := range got {
 				if !reflect.DeepEqual(got[i].ID, tt.want[i].ID) {
-					t.Errorf("Entry[%d].ID = %v, want %v", i, got[i].ID, tt.want[i].ID)
+					t.Errorf("Entry[%d].Process = %v, want %v", i, got[i].ID, tt.want[i].ID)
 				}
 				if got[i].Kind != tt.want[i].Kind {
 					t.Errorf("Entry[%d].Kind = %v, want %v", i, got[i].Kind, tt.want[i].Kind)
