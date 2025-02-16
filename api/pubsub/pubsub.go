@@ -18,9 +18,13 @@ type (
 		Payloads payload.Payloads
 	}
 
-	PubSub interface {
-		Send(ctx context.Context, pid PID, msg ...*Message) error
+	Host interface {
+		Sender
 		Attach(PID, Receiver) (error, context.CancelFunc)
+	}
+
+	Sender interface {
+		Send(ctx context.Context, pid PID, msg ...*Message) error
 	}
 
 	Receiver interface {
