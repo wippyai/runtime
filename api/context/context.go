@@ -20,7 +20,6 @@ var (
 	RegistryCtx   = &Key{Name: "registry"}   //nolint:gochecknoglobals
 
 	// --- System services
-	LoggerCtx    = &Key{Name: "logger"}    //nolint:gochecknoglobals
 	MetricsCtx   = &Key{Name: "metrics"}   //nolint:gochecknoglobals
 	ResourcesCtx = &Key{Name: "resources"} //nolint:gochecknoglobals
 
@@ -33,6 +32,7 @@ var (
 	ValuesCtx   = &Key{Name: "values"}   //nolint:gochecknoglobals
 	CleanupCtx  = &Key{Name: "cleanup"}  //nolint:gochecknoglobals
 	SecurityCtx = &Key{Name: "security"} //nolint:gochecknoglobals
+	LoggerCtx   = &Key{Name: "logger"}   //nolint:gochecknoglobals
 
 	// --- Runtime and lifecycle specific
 	TerminalCtx = &Key{Name: "terminal"}     //nolint:gochecknoglobals
