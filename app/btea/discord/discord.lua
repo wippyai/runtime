@@ -25,16 +25,21 @@ function App()
     app.input = btea.text_input({
         prompt = "> ",
         placeholder = "Type a message or command (!help, !channels, !listen)...",
-        width = app.window.width - 1
+        width = app.window.width - 2
     })
 
     -- Define styles
     app.styles = {
         box = btea.style()
-            :border(btea.borders.ROUNDED)
-            :padding(1, 2)
-            :foreground("#89B4FA")
-            :background("#1E1E2E"),
+             :border(btea.borders.ROUNDED)
+             :padding(1, 2)
+             :foreground("#89B4FA")
+             :background("#1E1E2E")
+             :border_foreground("#89B4FA")
+             :border_top_foreground("#89B4FA")
+             :border_bottom_foreground("#89B4FA")
+             :border_left_foreground("#89B4FA")
+             :border_right_foreground("#89B4FA"),
 
         header = btea.style()
             :bold()
@@ -160,7 +165,7 @@ function App()
     local function update(self, msg)
         -- Update window size if changed
         if msg.window_size then
-            self.input:set_width(self.window.width - 8)
+            self.input:set_width(self.window.width - 10)
         end
 
         -- Handle key events
@@ -233,7 +238,7 @@ function App()
 
     -- View rendering
     local function view(self)
-        local content_width = self.window.width - 6
+        local content_width = self.window.width - 8
         local header_divider = string.rep("─", content_width)
 
         local content = {
