@@ -128,7 +128,7 @@ func (m *Manager) StartMonitored(ctx context.Context, from pubsub.PID, ps api.St
 func (m *Manager) Cancel(ctx context.Context, pid pubsub.PID) error {
 	// Send cancel event to the process
 	batch := pubsub.NewBatch(
-		topology.TopicCancel,
+		api.TopicEvents,
 		payload.New(topology.CancelEvent{
 			Event: topology.Event{At: time.Now(), Kind: topology.KindCancel},
 		}),

@@ -12,6 +12,7 @@ import (
 	api "github.com/ponyruntime/pony/api/pubsub"
 	apiReg "github.com/ponyruntime/pony/api/registry"
 	apiLua "github.com/ponyruntime/pony/api/runtime/lua"
+	topologyApi "github.com/ponyruntime/pony/api/topology"
 	"github.com/ponyruntime/pony/runtime/lua/code"
 	luaFunc "github.com/ponyruntime/pony/runtime/lua/component/function"
 	"github.com/ponyruntime/pony/runtime/lua/component/library"
@@ -169,6 +170,19 @@ func (a *App) Initialize() error {
 
 	// groups, links, monitor and other topology level stuff
 	lifecycle := process.NewTopology(a.ctx, a.node)
+
+	// this is host dedicated to internal control messages
+	err := a.node.Node().RegisterHost(topologyApi.ControlHost, pubsub.NewHost(a.ctx, pubsub.HostConfig{
+		BufferSize:      1024,
+		WorkerCount:     16,
+		Logger:          a.logger.Named("control"),
+		RetryTimeout:    500 * time.Millisecond,
+		DeliveryTimeout: 500 * time.Millisecond,
+	}))
+
+	if err != nil {
+		return fmt.Errorf("failed to register control host: %w", err)
+	}
 
 	a.processes = process.NewProcessManager(
 		a.hosts,

@@ -28,7 +28,6 @@ import (
 // todo: we have memory leak in this package
 
 const (
-	// Channel identifiers for pubsub communication
 	ChannelView   = "@btea/view"
 	ChannelUpdate = "@btea/update"
 
@@ -133,8 +132,16 @@ func (p *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		if msg.String() == ExitKey {
-			// Send cancellation message and schedule context cancellation if needed.
-			_ = p.Send(&pubsub.Batch{&pubsub.Message{Topic: topology.TopicCancel}})
+			err := p.Send(pubsub.NewBatch(
+				process.TopicEvents,
+				payload.New(topology.CancelEvent{
+					Event: topology.Event{At: time.Now(), Kind: topology.KindCancel},
+				}),
+			))
+			if err != nil {
+				p.log.Error("failed to send cancel event", zap.Error(err))
+			}
+
 			go func() {
 				select {
 				case <-time.After(stopTimeout):
@@ -400,12 +407,6 @@ func (p *App) Send(msgs *pubsub.Batch) error {
 		return errors.New("process stopped")
 	default:
 		for _, m := range *msgs {
-			// For cancellation messages, release the channel.
-			if m.Topic == topology.TopicCancel {
-				p.pubsub.Release(m.Topic)
-				continue
-			}
-
 			var luaValues []lua.LValue
 			for _, pp := range m.Payloads {
 				luaPayload, err := p.dtt.Transcode(pp, payload.Lua)

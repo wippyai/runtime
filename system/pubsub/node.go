@@ -28,7 +28,7 @@ func (n *Node) ID() api.NodeID {
 	return n.nodeID
 }
 
-func (n *Node) registerHost(hostID api.HostID, host api.Host) error {
+func (n *Node) RegisterHost(hostID api.HostID, host api.Host) error {
 	_, loaded := n.hosts.LoadOrStore(hostID, host)
 	if loaded {
 		return fmt.Errorf("host %s already exists in node %s", hostID, n.nodeID)
@@ -37,7 +37,7 @@ func (n *Node) registerHost(hostID api.HostID, host api.Host) error {
 	return nil
 }
 
-func (n *Node) unregisterHost(hostID api.HostID) {
+func (n *Node) UnregisterHost(hostID api.HostID) {
 	n.hosts.Delete(hostID)
 }
 
