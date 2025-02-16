@@ -53,13 +53,13 @@ func TestChannelPassingSimple(t *testing.T) {
 
 		-- Receiver for both channels
 		coroutine.spawn(function()
-			-- Receive and use regular channel
+			-- Send and use regular channel
 			local ch1 = passCh:receive()
 			local msg = ch1:receive()
 			assert(msg == "hello", "wrong message: " .. tostring(msg))
 			coroutine.yield("regular_received")
 
-			-- Receive named channel
+			-- Send named channel
 			local ch2 = passCh:receive()
 			assert(ch2 == namedCh, "received wrong named channel")
 			coroutine.yield("named_received")

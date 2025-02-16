@@ -22,7 +22,7 @@ func TestInternalDataConverter_PayloadsHandling(t *testing.T) {
 	defaultConverter := converter.GetDefaultDataConverter()
 	conv := NewDataConverter(dtt, defaultConverter)
 
-	t.Run("ToPayloads with single payload.Payloads", func(t *testing.T) {
+	t.Run("ToPayloads with single payload.Messages", func(t *testing.T) {
 		// Create test payloads
 		payloads := payload.Payloads{
 			payload.NewPayload([]byte("test1"), payload.JSON),
@@ -42,7 +42,7 @@ func TestInternalDataConverter_PayloadsHandling(t *testing.T) {
 		}
 	})
 
-	t.Run("FromPayloads with payload.Payloads pointer", func(t *testing.T) {
+	t.Run("FromPayloads with payload.Messages pointer", func(t *testing.T) {
 		// Create test Temporal payloads
 		input := &commonpb.Payloads{
 			Payloads: []*commonpb.Payload{
@@ -61,7 +61,7 @@ func TestInternalDataConverter_PayloadsHandling(t *testing.T) {
 			},
 		}
 
-		// Convert back to payload.Payloads
+		// Convert back to payload.Messages
 		var result payload.Payloads
 		err := conv.FromPayloads(input, &result)
 		assert.NoError(t, err)
@@ -74,7 +74,7 @@ func TestInternalDataConverter_PayloadsHandling(t *testing.T) {
 		assert.Equal(t, []byte("test2"), result[1].Data())
 	})
 
-	t.Run("ToPayloads with empty payload.Payloads", func(t *testing.T) {
+	t.Run("ToPayloads with empty payload.Messages", func(t *testing.T) {
 		empty := payload.Payloads{}
 		result, err := conv.ToPayloads(empty)
 		assert.NoError(t, err)
@@ -182,7 +182,7 @@ func TestInternalDataConverter_ErrorCases(t *testing.T) {
 			},
 		}
 
-		var wrongType string // Not a *payload.Payloads
+		var wrongType string // Not a *payload.Messages
 		err := conv.FromPayloads(input, &wrongType)
 		assert.Error(t, err)
 	})

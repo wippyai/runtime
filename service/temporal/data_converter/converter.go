@@ -29,7 +29,7 @@ func (c *DataConverter) ToPayloads(values ...any) (*commonpb.Payloads, error) {
 		return nil, nil
 	}
 
-	// Special handling for payload.Payloads
+	// Special handling for payload.Messages
 	if len(values) == 1 {
 		if payloads, ok := values[0].(payload.Payloads); ok {
 			result := &commonpb.Payloads{
@@ -67,7 +67,7 @@ func (c *DataConverter) FromPayloads(payloads *commonpb.Payloads, valuePtrs ...a
 		return nil
 	}
 
-	// Special handling for payload.Payloads pointer
+	// Special handling for payload.Messages pointer
 	if len(valuePtrs) == 1 {
 		if ptr, ok := valuePtrs[0].(*payload.Payloads); ok {
 			*ptr = make(payload.Payloads, len(payloads.Payloads))
@@ -101,7 +101,7 @@ func (c *DataConverter) FromPayloads(payloads *commonpb.Payloads, valuePtrs ...a
 
 // ToPayload converts a single value to Temporal payload.
 func (c *DataConverter) ToPayload(value any) (*commonpb.Payload, error) {
-	// check if our value instance of payload.Payloads
+	// check if our value instance of payload.Messages
 	pValue, ok := value.(payload.Payload)
 	if !ok {
 		return c.fallback.ToPayload(value)
@@ -163,7 +163,7 @@ func (c *DataConverter) FromPayload(p *commonpb.Payload, valuePtr any) error {
 		return nil
 	}
 
-	// are we trying to convert to payload.Payloads?
+	// are we trying to convert to payload.Messages?
 	ptr, ok := valuePtr.(*payload.Payload)
 	if !ok {
 		return c.fallback.FromPayload(p, valuePtr)

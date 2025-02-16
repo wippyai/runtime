@@ -5,20 +5,23 @@ import (
 	"fmt"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"sync"
+	"sync/atomic"
 )
 
 // Node is our nested pubsub that delegates messages to a host if the message is local,
 // or forwards to an upstream host if the node in the PID does not match.
 type Node struct {
-	nodeID   string
-	hosts    sync.Map      // stores mapping: pubsub.HostID -> Host
-	upstream pubsub.Sender // Parent plane
+	nodeID   pubsub.NodeID
+	hosts    sync.Map                        // stores mapping: pubsub.HostID -> Host
+	upstream atomic.Pointer[pubsub.Upstream] // Parent plane
 }
 
-// NewNodePubSub creates a new Node with our node's ID.
+// NewNode creates a new Node with our node's ID.
 // The upstream parameter can be nil if you don't have an upstream.
-func NewNodePubSub(nodeID string, upstream pubsub.Sender) *Node {
-	return &Node{nodeID: nodeID, upstream: upstream}
+func NewNode(nodeID pubsub.NodeID, upstream *pubsub.Upstream) *Node {
+	return &Node{
+		nodeID: nodeID,
+	}
 }
 
 // RegisterHost registers a host under a host ID.
@@ -49,7 +52,7 @@ func (n *Node) Send(ctx context.Context, pid pubsub.PID, msgs ...*pubsub.Message
 }
 
 // Attach delegates the receiver attachment in the same way as Send.
-func (n *Node) Attach(pid pubsub.PID, receiver pubsub.Receiver) (error, context.CancelFunc) {
+func (n *Node) Attach(pid pubsub.PID, receiver pubsub.Downstream) (error, context.CancelFunc) {
 	if pid.Node == "" || pid.Node == n.nodeID {
 		if h, ok := n.hosts.Load(pid.Host); ok {
 			host, ok := h.(Host)

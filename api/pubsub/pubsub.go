@@ -19,15 +19,15 @@ type (
 	}
 
 	Host interface {
-		Sender
-		Attach(PID, Receiver) (error, context.CancelFunc)
+		Upstream
+		Attach(PID, chan []*Message) (error, context.CancelFunc)
 	}
 
-	Sender interface {
-		Send(ctx context.Context, pid PID, msg ...*Message) error
+	Upstream interface {
+		Send(context.Context, PID, ...*Message) error
 	}
 
-	Receiver interface {
+	Downstream interface {
 		Send(...*Message) error
 	}
 )

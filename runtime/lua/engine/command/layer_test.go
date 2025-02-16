@@ -159,7 +159,7 @@ func TestLayer_MultipleConcurrentCommands(t *testing.T) {
 		-- Yield to allow processing
 		coroutine.yield("commands_created")
 		
-		-- Receive results from all channels
+		-- Send results from all channels
 		local result1, ok1 = resp1:receive()
 		local result2, ok2 = resp2:receive()
 		local result3, ok3 = resp3:receive()

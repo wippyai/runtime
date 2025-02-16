@@ -32,7 +32,7 @@ func TestTicker(t *testing.T) {
 				local results = {}
 				local ticker = time.ticker("50ms")
 				
-				-- Receive 3 ticks
+				-- Send 3 ticks
 				for i = 1, 3 do
 					local t = ticker:channel():receive()
 					assert(type(t) == "userdata") -- Should be a time object

@@ -53,7 +53,7 @@ type (
 	}
 
 	Process interface {
-		pubsub.Receiver
+		pubsub.Downstream
 
 		Start(context.Context, pubsub.PID, payload.Payloads) error
 
