@@ -70,12 +70,12 @@ type (
 
 	Manager interface {
 		Start(ctx context.Context, start *StartProcess) (pubsub.PID, error)
-		Send(ctx context.Context, pid pubsub.PID, msg ...*pubsub.Message) error
+		Send(ctx context.Context, pid pubsub.PID, msg *pubsub.Batch) error
 		Terminate(ctx context.Context, pid pubsub.PID) error
 	}
 
 	Host interface {
-		Send(ctx context.Context, pid pubsub.PID, msg ...*pubsub.Message) error
+		Send(ctx context.Context, pid pubsub.PID, msg *pubsub.Batch) error
 		Terminate(ctx context.Context, pid pubsub.PID) error
 	}
 

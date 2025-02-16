@@ -18,16 +18,18 @@ type (
 		Payloads payload.Payloads
 	}
 
+	Batch = []*Message
+
 	Host interface {
 		Upstream
-		Attach(PID, chan []*Message) (error, context.CancelFunc)
+		Attach(PID, chan *Batch) (error, context.CancelFunc)
 	}
 
 	Upstream interface {
-		Send(context.Context, PID, ...*Message) error
+		Send(context.Context, PID, *Batch) error
 	}
 
 	Downstream interface {
-		Send(...*Message) error
+		Send(*Batch) error
 	}
 )

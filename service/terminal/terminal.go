@@ -30,7 +30,7 @@ type op struct {
 	typ      opType
 	ctx      context.Context
 	launch   *process.LaunchProcess
-	msg      []*pubsub.Message
+	msg      *pubsub.Batch
 	cfg      *terminal.HostConfig
 	result   chan error
 	response chan pubsub.PID
@@ -86,7 +86,7 @@ func (t *Terminal) run(ctx context.Context, status chan<- any) {
 			case opTerminate:
 				err = t.handleTerminate()
 			case opSend:
-				err = t.handleSend(op.msg...)
+				err = t.handleSend(op.msg)
 			case opUpdateConfig:
 				t.cfg = op.cfg
 				t.log.Info("config updated")
@@ -165,18 +165,13 @@ func (t *Terminal) handleTerminate() error {
 	return nil
 }
 
-func (t *Terminal) handleSend(msg ...*pubsub.Message) error {
+func (t *Terminal) handleSend(msgBatch *pubsub.Batch) error {
 	runner := t.runner.Load()
 	if runner == nil {
-		if len(msg) > 0 {
-			if msg[0].Topic == process.TopicCancel {
-				return nil
-			}
-		}
-
 		return process.ErrNoProcess
 	}
-	return runner.Send(msg...)
+
+	return runner.Send(msgBatch)
 }
 
 func (t *Terminal) cleanup(result *runtime.Result) {
@@ -213,7 +208,7 @@ func (t *Terminal) execOp(ctx context.Context, op op) error {
 	}
 }
 
-func (t *Terminal) Send(ctx context.Context, pid pubsub.PID, msg ...*pubsub.Message) error {
+func (t *Terminal) Send(ctx context.Context, pid pubsub.PID, msg *pubsub.Batch) error {
 	return t.execOp(ctx, op{
 		typ:    opSend,
 		msg:    msg,
@@ -250,7 +245,7 @@ func (t *Terminal) Terminate(ctx context.Context, pid pubsub.PID) error {
 }
 
 func (t *Terminal) Stop(ctx context.Context) error {
-	if err := t.Send(ctx, pubsub.PID{}, &pubsub.Message{Topic: process.TopicCancel}); err != nil {
+	if err := t.Send(ctx, pubsub.PID{}, &pubsub.Batch{&pubsub.Message{Topic: process.TopicCancel}}); err != nil {
 		t.log.Warn("failed to send cancel message", zap.Error(err))
 	}
 
