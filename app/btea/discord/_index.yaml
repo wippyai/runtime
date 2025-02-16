@@ -10,13 +10,15 @@ entries:
     meta:
       comment: "Discord Bot Terminal UI"
       default_host: terminal
-      depends_on: [ "client" ]
-    source: file://discord.lua
+      depends_on: [ "client", "ui", "commands" ]
+    source: file://app.lua
     method: App
     modules: [ "time", "json", "env", "channel", "tasks" ]
     import:
       "bapp": "btea.lib:bapp"
       "discord_client": "discord:client"
+      "discord_commands": "discord:commands"
+      "discord_ui": "discord:ui"
 
   - name: client
     kind: library.lua
@@ -25,3 +27,18 @@ entries:
       version: "0.1.0"
     source: file://client.lua
     modules: [ "time", "json", "http_client", "websocket", "env" ]
+
+  - name: commands
+    kind: library.lua
+    meta:
+      comment: "Discord command handlers"
+      version: "0.1.0"
+    source: file://commands.lua
+
+  - name: ui
+    kind: library.lua
+    meta:
+      comment: "Discord UI"
+      version: "0.1.0"
+    source: file://ui.lua
+    modules: [ "time" ]
