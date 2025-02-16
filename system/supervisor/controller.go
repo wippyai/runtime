@@ -261,10 +261,12 @@ func (c *Controller) monitor(ctx context.Context, exitCh chan<- any, detailsCh <
 		case details, ok := <-detailsCh:
 			if !ok {
 				if c.state.getDesiredStatus() == supervisor.Running {
-					select {
-					case c.ops <- controlOp{kind: controlFailed}:
-						// immediate retry attempt
-					case <-ctx.Done():
+					if c.config.RetryPolicy.MaxAttempts > 0 {
+						select {
+						case c.ops <- controlOp{kind: controlFailed}:
+							// immediate retry attempt
+						case <-ctx.Done():
+						}
 					}
 				}
 				return
