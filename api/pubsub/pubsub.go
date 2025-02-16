@@ -47,3 +47,9 @@ type (
 		Send(*Batch) error
 	}
 )
+
+func NewMessage(topic Topic, payloads ...payload.Payload) *Batch {
+	return &Batch{
+		{Topic: topic, Payloads: payloads},
+	}
+}
