@@ -8,7 +8,6 @@ import (
 	apiCtx "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/events"
 	apiLog "github.com/ponyruntime/pony/api/logs"
-	processApi "github.com/ponyruntime/pony/api/process"
 	apiReg "github.com/ponyruntime/pony/api/registry"
 	apiLua "github.com/ponyruntime/pony/api/runtime/lua"
 	"github.com/ponyruntime/pony/runtime/lua/code"
@@ -122,7 +121,7 @@ func NewApp(verbose, veryVerbose bool) (*App, error) {
 	}
 
 	// mesh layer: our node
-	node := pubsub.NewManager(
+	node := pubsub.NewNodeManager(
 		pubsub.NewNode(hostname, nil), // no upstream for now
 		bus,
 		appLogger.Named("pubsub"),
@@ -192,15 +191,23 @@ func (a *App) Start(folderPath string) error {
 
 	// LaunchProcess core function registry
 	if err := a.funcs.Start(ctx); err != nil {
+		a.cancel()
 		return fmt.Errorf("failed to start function executor: %w", err)
 	}
 
 	if err := a.prototypes.Start(ctx); err != nil {
+		a.cancel()
 		return fmt.Errorf("failed to start prototype registry: %w", err)
 	}
 
 	if err := a.hosts.Start(ctx); err != nil {
+		a.cancel()
 		return fmt.Errorf("failed to start host registry: %w", err)
+	}
+
+	if err := a.node.Start(ctx); err != nil {
+		a.cancel()
+		return fmt.Errorf("failed to start node mesh: %w", err)
 	}
 
 	// LaunchProcess supervisor
@@ -231,17 +238,17 @@ func (a *App) Start(folderPath string) error {
 		return fmt.Errorf("failed to apply initial state: %w", err)
 	}
 
-	time.Sleep(1 * time.Second)
-	//// launch todo: we also can retry or better delegate it to supervisor
-	pid, err := a.processes.Start(ctx, processApi.StartProcess{
-		HostID: "system:terminal",
-		ID:     apiReg.ID{NS: "discord", Name: "app"},
-		Name:   "root",
-	})
-	if err != nil {
-		return fmt.Errorf("failed to launch root process: %w", err)
-	}
-	a.logger.Info("root process launched", zap.Any("pid", pid))
+	//time.Sleep(1 * time.Second)
+	////// launch todo: we also can retry or better delegate it to supervisor
+	//pid, err := a.processes.Start(ctx, processApi.StartProcess{
+	//	HostID: "system:terminal",
+	//	ID:     apiReg.ID{NS: "discord", Name: "app"},
+	//	Name:   "root",
+	//})
+	//if err != nil {
+	//	return fmt.Errorf("failed to launch root process: %w", err)
+	//}
+	//a.logger.Info("root process launched", zap.Any("pid", pid))
 
 	return nil
 }
@@ -501,7 +508,7 @@ func WithHTTPService(a *App) eventbus.EventHandler {
 }
 
 func WithShellManager(a *App) eventbus.EventHandler {
-	return reghandler.NewRegistryHandler("terminal.host", terminal.NewShellManager(
+	return reghandler.NewRegistryHandler("terminal.host", terminal.NewTerminalManager(
 		a.eventBus,
 		a.dtt,
 		a.logger.Named("terminal"),

@@ -18,12 +18,12 @@ type Manager struct {
 	subscriber *eventbus.Subscriber
 }
 
-// NewManager creates a new node manager instance that wraps a Node
-func NewManager(node *Node, bus events.Bus, logger *zap.Logger) *Manager {
+// NewNodeManager creates a new node manager instance that wraps a Node
+func NewNodeManager(node *Node, bus events.Bus, logger *zap.Logger) *Manager {
 	return &Manager{
 		node:   node,
 		bus:    bus,
-		logger: logger.Named("node-manager"),
+		logger: logger,
 	}
 }
 
