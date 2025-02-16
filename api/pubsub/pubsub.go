@@ -48,7 +48,7 @@ type (
 	}
 )
 
-func NewMessage(topic Topic, payloads ...payload.Payload) *Batch {
+func NewBatch(topic Topic, payloads ...payload.Payload) *Batch {
 	return &Batch{
 		{Topic: topic, Payloads: payloads},
 	}
