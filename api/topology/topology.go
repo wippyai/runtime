@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	ControlHost pubsub.HostID = "@control"
+	ControlHost pubsub.HostID = "node:control"
 	TopicEvents pubsub.Topic  = "@pid/events"
 	KindCancel  Kind          = "pid.cancel"
 	KindMonitor Kind          = "pid.result"

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"github.com/ponyruntime/pony/api/pubsub"
+	"github.com/ponyruntime/pony/api/topology"
+	"log"
 	"time"
 )
 
@@ -16,7 +18,6 @@ type Monitor struct {
 	handler MessageHandler
 	detach  context.CancelFunc
 	eventCh chan *pubsub.Batch
-	errCh   chan error
 	stopCh  chan struct{}
 }
 
@@ -27,7 +28,6 @@ func NewMonitor(node pubsub.Host, pid pubsub.PID, handler MessageHandler) *Monit
 		pid:     pid,
 		handler: handler,
 		eventCh: make(chan *pubsub.Batch, 10),
-		errCh:   make(chan error, 1),
 		stopCh:  make(chan struct{}),
 	}
 }
@@ -56,11 +56,6 @@ func (m *Monitor) Stop() {
 	close(m.stopCh)
 }
 
-// Errors returns a channel that will receive any errors from the handler
-func (m *Monitor) Errors() <-chan error {
-	return m.errCh
-}
-
 func (m *Monitor) run() {
 	for {
 		select {
@@ -69,11 +64,7 @@ func (m *Monitor) run() {
 		case batch := <-m.eventCh:
 			for _, msg := range *batch {
 				if err := m.handler(msg); err != nil {
-					select {
-					case m.errCh <- err:
-					default:
-						// Error channel is full, log or handle accordingly
-					}
+					log.Printf("failed to handle message: %v", err)
 				}
 			}
 		}
@@ -83,7 +74,7 @@ func (m *Monitor) run() {
 func AttachMonitor(node pubsub.Host, nodeID pubsub.NodeID, handler MessageHandler) (*Monitor, error) {
 	pid := pubsub.PID{
 		Node:   nodeID,
-		Host:   "@control",
+		Host:   topology.ControlHost,
 		UniqID: fmt.Sprintf("monitor-%d", time.Now().UnixNano()),
 	}
 
