@@ -1,4 +1,4 @@
-package btea
+package terminal
 
 import (
 	"context"
@@ -23,6 +23,8 @@ import (
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
+
+// todo: we have memory leak in this package
 
 const (
 	// Channel identifiers for pubsub communication

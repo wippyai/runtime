@@ -1,4 +1,4 @@
-package btea
+package terminal
 
 import (
 	"context"
