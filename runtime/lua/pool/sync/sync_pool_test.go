@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/ponyruntime/pony/runtime/lua/code"
+	"github.com/ponyruntime/pony/runtime/lua/component"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/factory"
 	timemod "github.com/ponyruntime/pony/runtime/lua/modules/time"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -33,7 +33,7 @@ type testFunction struct {
 type testFactoryConfig struct {
 	functions   []testFunction
 	engineOpts  []engine.Option
-	factoryOpts []factory.Option
+	factoryOpts []component.Option
 }
 
 // testOption configures the test factory
@@ -57,7 +57,7 @@ func withEngineOption(opt engine.Option) testOption {
 }
 
 // withFactoryOption adds a factory option to the configuration
-func withFactoryOption(opt factory.Option) testOption {
+func withFactoryOption(opt component.Option) testOption {
 	return func(cfg *testFactoryConfig) {
 		cfg.factoryOpts = append(cfg.factoryOpts, opt)
 	}
@@ -121,24 +121,24 @@ func setupTestFactory(opts ...testOption) (api.Factory, error) {
 	}
 
 	factoryOpts := append(cfg.factoryOpts,
-		factory.WithEngineOption(engine.WithGlobalValue("_VERSION", lua.LString("test"))),
+		component.WithEngineOption(engine.WithGlobalValue("_VERSION", lua.LString("test"))),
 	)
 
 	// all rest of the functions
 	for _, fn := range cfg.functions[1:] {
 
 		factoryOpts = append(cfg.factoryOpts,
-			factory.WithEngineOption(engine.WithFunctionProto(fn.name, fn.proto)),
+			component.WithEngineOption(engine.WithFunctionProto(fn.name, fn.proto)),
 		)
 	}
 
 	// Prepare engine options
 	engineOpts := cfg.engineOpts
 	for _, opt := range engineOpts {
-		factoryOpts = append(factoryOpts, factory.WithEngineOption(opt))
+		factoryOpts = append(factoryOpts, component.WithEngineOption(opt))
 	}
 
-	f, err := factory.NewRunnerFactory(logger, compiled, factoryOpts...)
+	f, err := component.NewRunnerFactory(logger, compiled, factoryOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create factory: %w", err)
 	}

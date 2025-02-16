@@ -1,4 +1,4 @@
-package factory
+package component
 
 import (
 	"fmt"

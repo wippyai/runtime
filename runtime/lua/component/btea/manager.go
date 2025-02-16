@@ -13,16 +13,16 @@ import (
 	"github.com/ponyruntime/pony/api/registry"
 	api "github.com/ponyruntime/pony/api/runtime/lua"
 	"github.com/ponyruntime/pony/runtime/lua/code"
+	"github.com/ponyruntime/pony/runtime/lua/component"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
-	"github.com/ponyruntime/pony/runtime/lua/factory"
 	"go.uber.org/zap"
 )
 
 var (
 	bteaBuild *code.BuildOptions
-	layers    factory.Option
+	layers    component.Option
 )
 
 func init() {
@@ -34,7 +34,7 @@ func init() {
 		WithPreloaded(code.Preload{Name: "tasks", ModuleID: registry.ID{Name: "tasks"}}).
 		WithPreloaded(code.Preload{Name: "btea", ModuleID: registry.ID{Name: "btea"}})
 
-	layers = factory.WithLayerInitializer(func() []engine.RunnerOption {
+	layers = component.WithLayerInitializer(func() []engine.RunnerOption {
 		channels := channel.NewChannelLayer()
 		return []engine.RunnerOption{
 			engine.WithLayer(channels),
@@ -67,7 +67,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		return fmt.Errorf("invalid entry kind %s, expected %s", entry.Kind, api.KindBteaApp)
 	}
 
-	cfg, err := factory.UnpackConfig[api.BteaConfig](ctx, entry)
+	cfg, err := component.UnpackConfig[api.BteaConfig](ctx, entry)
 	if err != nil {
 		return fmt.Errorf("failed to unpack btea config: %w", err)
 	}
@@ -79,7 +79,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		Method: cfg.Method,
 	}
 
-	if err := m.code.AddNode(ctx, node, factory.BuildImports(cfg.Import, cfg.Modules)); err != nil {
+	if err := m.code.AddNode(ctx, node, component.BuildImports(cfg.Import, cfg.Modules)); err != nil {
 		return fmt.Errorf("failed to add btea node: %w", err)
 	}
 
@@ -98,7 +98,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		return fmt.Errorf("invalid entry kind %s, expected %s", entry.Kind, api.KindBteaApp)
 	}
 
-	cfg, err := factory.UnpackConfig[api.BteaConfig](ctx, entry)
+	cfg, err := component.UnpackConfig[api.BteaConfig](ctx, entry)
 	if err != nil {
 		return fmt.Errorf("failed to unpack btea config: %w", err)
 	}
@@ -110,7 +110,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		Method: cfg.Method,
 	}
 
-	if err := m.code.UpdateNode(ctx, node, factory.BuildImports(cfg.Import, nil)); err != nil {
+	if err := m.code.UpdateNode(ctx, node, component.BuildImports(cfg.Import, nil)); err != nil {
 		return fmt.Errorf("failed to update btea node: %w", err)
 	}
 
@@ -159,7 +159,7 @@ func (m *Manager) createRunner(id registry.ID) (*engine.Runner, string, error) {
 		return nil, "", fmt.Errorf("failed to compile btea app: %w", err)
 	}
 
-	fvm, err := factory.NewRunnerFactory(m.log, compiled, layers)
+	fvm, err := component.NewRunnerFactory(m.log, compiled, layers)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to create runner factory: %w", err)
 	}
