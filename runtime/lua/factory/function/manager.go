@@ -227,6 +227,7 @@ func (m *Manager) getHandler(handler registry.ID) (string, api.VM, error) {
 
 // Execute runs a function with given arguments
 func (m *Manager) Execute(ctx context.Context, task runtime.Task) (chan *runtime.Result, error) {
+	// generally speaking we can offload cold handlers
 	method, vm, err := m.getHandler(task.Handler)
 	if err != nil {
 		return nil, err
