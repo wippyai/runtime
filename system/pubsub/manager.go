@@ -141,6 +141,6 @@ func (m *Manager) Attach(pid api.PID, ch chan *api.Batch) (error, context.Cancel
 }
 
 // Node returns the underlying Node instance
-func (m *Manager) Node() api.Host {
+func (m *Manager) Node() *Node {
 	return m.node
 }

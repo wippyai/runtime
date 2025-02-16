@@ -100,6 +100,9 @@ func (h *Host) Send(ctx context.Context, pid api.PID, batch *api.Batch) error {
 	case <-ctx.Done():
 		h.logger.Warn("send cancelled by context", zap.String("pid", pid.String()), zap.Error(ctx.Err()))
 		return ctx.Err()
+	case <-h.ctx.Done():
+		h.logger.Info("send cancelled by host shutdown", zap.String("pid", pid.String()))
+		return h.ctx.Err()
 	default:
 		// Channel is full, try again with a retry timeout.
 		timer := time.NewTimer(h.config.RetryTimeout)
@@ -111,6 +114,9 @@ func (h *Host) Send(ctx context.Context, pid api.PID, batch *api.Batch) error {
 		case <-ctx.Done():
 			h.logger.Warn("send cancelled by context during retry", zap.String("pid", pid.String()), zap.Error(ctx.Err()))
 			return ctx.Err()
+		case <-h.ctx.Done():
+			h.logger.Info("send cancelled by host shutdown", zap.String("pid", pid.String()))
+			return h.ctx.Err()
 		case <-timer.C:
 			h.logger.Warn("send failed after retry timeout", zap.String("pid", pid.String()), zap.Duration("timeout", h.config.RetryTimeout))
 			return fmt.Errorf("send timeout exceeded after retry")

@@ -8,6 +8,7 @@ import (
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
+	"github.com/ponyruntime/pony/api/topology"
 )
 
 // Event system and kind constants for the workflow package
@@ -33,8 +34,8 @@ const (
 	AcceptHost   events.Kind   = "hosts.accept"
 	RejectHost   events.Kind   = "hosts.reject"
 
-	TopicCancel pubsub.Topic = "@process/cancel"
-	TopicEvents pubsub.Topic = "@process/events"
+	TopicCancel = topology.TopicCancel
+	TopicEvents = topology.TopicEvents
 )
 
 var (

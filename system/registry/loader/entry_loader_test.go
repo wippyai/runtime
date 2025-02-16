@@ -398,7 +398,7 @@ func TestMergeMeta(t *testing.T) {
 				"tags": []interface{}{"override1"},
 			},
 			want: registry.Metadata{
-				"tags": []interface{}{"override1"}, // Complete replacement
+				"tags": []interface{}{"override1"}, // Notify replacement
 			},
 		},
 	}
