@@ -45,6 +45,8 @@ func newLuaState() (*lua.LState, error) {
 	state := lua.NewState(lua.Options{
 		SkipOpenLibs:    true,
 		RegistryMaxSize: 256 * 200,
+		// todo: other options can be exposed later
+		MinimizeStackMemory: true,
 	})
 
 	if err := loadCoreLuaLibs(state); err != nil {
