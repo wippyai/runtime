@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/supervisor"
-	"log"
 	"sync"
 	"time"
 
@@ -223,7 +222,7 @@ func (p *App) publishTaskWithResponse(channel string, value lua.LValue, timeout 
 		return "invalid response type"
 	case <-time.After(timeout):
 		p.log.Debug("task timeout", zap.String("channel", channel))
-		return "task timeout"
+		return ""
 	case <-p.done:
 		return "task cancelled"
 	case <-p.ctx.Done():
@@ -270,8 +269,6 @@ func (p *App) Start(ctx context.Context, pid pubsub.PID, input payload.Payloads)
 			p.log.Error("btea program error", zap.Error(err))
 		}
 
-		log.Printf("EXITED PROGRAM!")
-
 		// Set firstError if no error has been set yet.
 		if p.firstError == nil {
 			p.firstError = supervisor.ErrExit
@@ -302,7 +299,6 @@ func (p *App) processLoop(resultCh <-chan engine.Result) {
 	var once sync.Once
 	completeProcess := func(err error, result interface{}) {
 		once.Do(func() {
-			log.Printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!WE GOT ONCOMPLETE")
 			if cerr := p.closer.Close(); cerr != nil {
 				p.log.Error("failed to close resources", zap.Error(cerr))
 			}
@@ -333,7 +329,6 @@ func (p *App) processLoop(resultCh <-chan engine.Result) {
 	for {
 		select {
 		case result, ok := <-resultCh:
-			log.Printf("RESULT CHANNEL")
 			if !ok {
 				return
 			}
@@ -384,7 +379,6 @@ func (p *App) Step() error {
 		return p.ctx.Err()
 	default:
 		err := p.runner.Continue(p.ctx)
-		log.Printf("STEPPING %v", err)
 		if p.firstError != nil && err != nil {
 			p.firstError = err
 		}
@@ -407,8 +401,7 @@ func (p *App) Send(msgs *pubsub.Batch) error {
 		for _, m := range *msgs {
 			// For cancellation messages, release the channel.
 			if m.Topic == process.TopicCancel {
-				log.Printf("WE GOT CANCEL!!!! WE EXPECTE INTERNALL APP TO DIE SOON!")
-				p.pubsub.Release(m.Topic)
+				p.pubsub.Release(m.Topic) // todo: not working!
 				continue
 			}
 

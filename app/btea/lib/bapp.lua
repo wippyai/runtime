@@ -88,17 +88,24 @@ function bapp.new(init_cmd)
         end)
     end
 
+    function app:start_cancel_handler()
+        coroutine.spawn(function()
+            self.cancel_ch:receive()
+            self.is_running = false
+        end)
+    end
+
     -- Main run loop: processes tasks directly from channels
     function app:run(update_fn, view_fn)
         self.is_running = true
         self:init_terminal()
         self:start_command_processor()
+        self:start_cancel_handler()
 
         while self.is_running do
             local result = channel.select({
                 self.view_ch:case_receive(),
-                self.update_ch:case_receive(),
-                self.cancel_ch:case_receive()
+                self.update_ch:case_receive()
             })
 
             -- Check if select operation was successful
@@ -115,10 +122,7 @@ function bapp.new(init_cmd)
             end
 
             -- Process the task based on channel
-            if result.channel == self.cancel_ch then
-                self.is_running = false
-                break
-            elseif result.channel == self.update_ch then
+            if result.channel == self.update_ch then
                 local msg = task:input()
                 if type(msg) == "table" then
                     if msg.window_size then
