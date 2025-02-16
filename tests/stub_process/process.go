@@ -5,6 +5,7 @@ import (
 	"errors"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/process"
+	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/runtime"
 	"log"
 	"sync"
@@ -95,7 +96,7 @@ func (p *TickerProcess) Step() error {
 	return nil
 }
 
-func (p *TickerProcess) Send(msg ...*process.Message) error {
+func (p *TickerProcess) Send(msg ...*pubsub.Message) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 

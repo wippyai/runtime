@@ -5,6 +5,7 @@ import (
 	ctxapi "github.com/ponyruntime/pony/api/context"
 	logsapi "github.com/ponyruntime/pony/api/logs"
 	"github.com/ponyruntime/pony/api/process"
+	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
 	"github.com/ponyruntime/pony/api/service/terminal"
@@ -29,10 +30,10 @@ type op struct {
 	typ      opType
 	ctx      context.Context
 	launch   *process.LaunchProcess
-	msg      []*process.Message
+	msg      []*pubsub.Message
 	cfg      *terminal.HostConfig
 	result   chan error
-	response chan process.PID
+	response chan pubsub.PID
 }
 
 type Terminal struct {
@@ -102,7 +103,7 @@ func (t *Terminal) run(ctx context.Context, status chan<- any) {
 	}
 }
 
-func (t *Terminal) handleLaunch(ctx context.Context, pl *process.LaunchProcess, response chan process.PID) error {
+func (t *Terminal) handleLaunch(ctx context.Context, pl *process.LaunchProcess, response chan pubsub.PID) error {
 	if t.runner.Load() != nil {
 		return process.ErrHostBusy
 	}
@@ -124,16 +125,16 @@ func (t *Terminal) handleLaunch(ctx context.Context, pl *process.LaunchProcess, 
 
 	origComplete := process.GetOnComplete(ctx)
 	if origComplete != nil {
-		pCtx = process.WithOnComplete(pCtx, origComplete)
+		pCtx = process.WithAddedOnComplete(pCtx, origComplete)
 	}
 
 	origOnStart := process.GetOnStart(ctx)
 	if origOnStart != nil {
-		pCtx = process.WithOnStart(pCtx, origOnStart)
+		pCtx = process.WithAddedOnStart(pCtx, origOnStart)
 	}
 
 	// Set up a new context with the terminal's log configuration.
-	pCtx = process.WithOnComplete(pCtx, func(pid process.PID, result *runtime.Result) {
+	pCtx = process.WithAddedOnComplete(pCtx, func(pid pubsub.PID, result *runtime.Result) {
 		if result.Error != nil {
 			t.log.Error("terminal process execution failed",
 				zap.String("pid", pid.String()),
@@ -164,7 +165,7 @@ func (t *Terminal) handleTerminate() error {
 	return nil
 }
 
-func (t *Terminal) handleSend(msg ...*process.Message) error {
+func (t *Terminal) handleSend(msg ...*pubsub.Message) error {
 	runner := t.runner.Load()
 	if runner == nil {
 		if len(msg) > 0 {
@@ -212,7 +213,7 @@ func (t *Terminal) execOp(ctx context.Context, op op) error {
 	}
 }
 
-func (t *Terminal) Send(ctx context.Context, pid process.PID, msg ...*process.Message) error {
+func (t *Terminal) Send(ctx context.Context, pid pubsub.PID, msg ...*pubsub.Message) error {
 	return t.execOp(ctx, op{
 		typ:    opSend,
 		msg:    msg,
@@ -220,8 +221,8 @@ func (t *Terminal) Send(ctx context.Context, pid process.PID, msg ...*process.Me
 	})
 }
 
-func (t *Terminal) Launch(ctx context.Context, pl *process.LaunchProcess) (process.PID, error) {
-	resp := make(chan process.PID, 1)
+func (t *Terminal) Launch(ctx context.Context, pl *process.LaunchProcess) (pubsub.PID, error) {
+	resp := make(chan pubsub.PID, 1)
 	err := t.execOp(ctx, op{
 		ctx:      ctx,
 		typ:      opLaunch,
@@ -230,18 +231,18 @@ func (t *Terminal) Launch(ctx context.Context, pl *process.LaunchProcess) (proce
 		response: resp,
 	})
 	if err != nil {
-		return process.PID{}, err
+		return pubsub.PID{}, err
 	}
 
 	select {
 	case newPid := <-resp:
 		return newPid, nil
 	case <-ctx.Done():
-		return process.PID{}, ctx.Err()
+		return pubsub.PID{}, ctx.Err()
 	}
 }
 
-func (t *Terminal) Terminate(ctx context.Context, pid process.PID) error {
+func (t *Terminal) Terminate(ctx context.Context, pid pubsub.PID) error {
 	return t.execOp(ctx, op{
 		typ:    opTerminate,
 		result: make(chan error, 1),
@@ -249,7 +250,7 @@ func (t *Terminal) Terminate(ctx context.Context, pid process.PID) error {
 }
 
 func (t *Terminal) Stop(ctx context.Context) error {
-	if err := t.Send(ctx, process.PID{}, &process.Message{Topic: process.TopicCancel}); err != nil {
+	if err := t.Send(ctx, pubsub.PID{}, &pubsub.Message{Topic: process.TopicCancel}); err != nil {
 		t.log.Warn("failed to send cancel message", zap.Error(err))
 	}
 

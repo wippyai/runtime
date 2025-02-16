@@ -3,6 +3,7 @@ package terminal
 import (
 	"context"
 	"github.com/ponyruntime/pony/api/process"
+	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/runtime"
 	"github.com/ponyruntime/pony/api/service/terminal"
 	"io"
@@ -54,7 +55,7 @@ func NewTerminalRunner(
 		terminal.NewTerminalContext(cfg.Stdin, cfg.Stdout, cfg.Stderr),
 	)
 
-	runnerCtx = process.WithOnComplete(runnerCtx, func(pid process.PID, result *runtime.Result) {
+	runnerCtx = process.WithAddedOnComplete(runnerCtx, func(pid pubsub.PID, result *runtime.Result) {
 		cancel()
 	})
 
@@ -93,7 +94,7 @@ func (r *Runner) run() {
 	}
 }
 
-func (r *Runner) Send(msg ...*process.Message) error {
+func (r *Runner) Send(msg ...*pubsub.Message) error {
 	return r.proc.Send(msg...)
 }
 

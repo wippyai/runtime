@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/supervisor"
 	"sync"
 	"time"
@@ -97,7 +98,7 @@ type App struct {
 	// Runner and Lua state
 	ctx         context.Context
 	cancel      context.CancelFunc
-	pid         process.PID
+	pid         pubsub.PID
 	runner      *engine.Runner
 	runnerState *lua.LState
 	funcName    string
@@ -126,7 +127,7 @@ func (p *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		if msg.String() == ExitKey {
 			// Send cancellation message and schedule context cancellation if needed.
-			_ = p.Send(&process.Message{Topic: process.TopicCancel})
+			_ = p.Send(&pubsub.Message{Topic: process.TopicCancel})
 			go func() {
 				select {
 				case <-time.After(stopTimeout):
@@ -224,7 +225,7 @@ func (p *App) createTask(value lua.LValue) (*tasks.Task, error) {
 
 // Start initializes the app context, sets up terminal integration, launches the bubbletea program,
 // and starts the underlying Lua process.
-func (p *App) Start(ctx context.Context, pid process.PID, input payload.Payloads) error {
+func (p *App) Start(ctx context.Context, pid pubsub.PID, input payload.Payloads) error {
 	// Create a cancellable context.
 	p.ctx, p.cancel = context.WithCancel(ctx)
 	p.pid = pid
@@ -373,7 +374,7 @@ func (p *App) Step() error {
 }
 
 // Send transcodes and publishes messages to the Lua process.
-func (p *App) Send(msgs ...*process.Message) error {
+func (p *App) Send(msgs ...*pubsub.Message) error {
 	select {
 	case <-p.ctx.Done():
 		return p.ctx.Err()
