@@ -8,6 +8,8 @@ import (
 	apiCtx "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/events"
 	apiLog "github.com/ponyruntime/pony/api/logs"
+	processApi "github.com/ponyruntime/pony/api/process"
+	pubsubApi "github.com/ponyruntime/pony/api/pubsub"
 	apiReg "github.com/ponyruntime/pony/api/registry"
 	apiLua "github.com/ponyruntime/pony/api/runtime/lua"
 	"github.com/ponyruntime/pony/runtime/lua/code"
@@ -240,15 +242,23 @@ func (a *App) Start(folderPath string) error {
 
 	//time.Sleep(1 * time.Second)
 	////// launch todo: we also can retry or better delegate it to supervisor
-	//pid, err := a.processes.Start(ctx, processApi.StartProcess{
-	//	HostID: "system:terminal",
-	//	ID:     apiReg.ID{NS: "discord", Name: "app"},
-	//	Name:   "root",
-	//})
-	//if err != nil {
-	//	return fmt.Errorf("failed to launch root process: %w", err)
-	//}
-	//a.logger.Info("root process launched", zap.Any("pid", pid))
+	pid, err := a.processes.Start(ctx, processApi.StartProcess{
+		HostID: "system:terminal",
+		ID:     apiReg.ID{NS: "discord", Name: "app"},
+		Name:   "root",
+	})
+	if err != nil {
+		return fmt.Errorf("failed to launch root process: %w", err)
+	}
+	a.logger.Info("root process launched", zap.Any("pid", pid))
+
+	time.Sleep(5 * time.Second)
+
+	// send cancel to process to make it exit
+	err = a.node.Send(ctx, pid, pubsubApi.NewMessage(processApi.TopicCancel))
+	if err != nil {
+		return fmt.Errorf("failed to send cancel message: %w", err)
+	}
 
 	return nil
 }
