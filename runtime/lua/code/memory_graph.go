@@ -93,7 +93,7 @@ func (m *MemoryGraph) AddNode(n *Node) error {
 		return fmt.Errorf("node cannot be nil")
 	}
 	if _, exists := m.nodes[n.ID]; exists {
-		return fmt.Errorf("node with ID %v already exists", n.ID)
+		return fmt.Errorf("node with Process %v already exists", n.ID)
 	}
 
 	m.graph.AddNode(n.ID)
@@ -105,7 +105,7 @@ func (m *MemoryGraph) AddNode(n *Node) error {
 // It returns an error if the node has any direct outgoing dependencies or incoming dependents.
 func (m *MemoryGraph) RemoveNode(id registry.ID) error {
 	if _, exists := m.nodes[id]; !exists {
-		return fmt.Errorf("node with ID %v not found", id)
+		return fmt.Errorf("node with Process %v not found", id)
 	}
 
 	// Check for incoming dependencies.
@@ -121,7 +121,7 @@ func (m *MemoryGraph) RemoveNode(id registry.ID) error {
 	return nil
 }
 
-// AddDependency creates a dependency edge from the node with ID 'from' to the node with ID 'to'.
+// AddDependency creates a dependency edge from the node with Process 'from' to the node with Process 'to'.
 func (m *MemoryGraph) AddDependency(from, to registry.ID, alias string) error {
 	if _, exists := m.nodes[from]; !exists {
 		return fmt.Errorf("from node %v not found", from)
@@ -168,19 +168,19 @@ func (m *MemoryGraph) RemoveDependency(from, to registry.ID) error {
 	return m.graph.RemoveEdge(from, to)
 }
 
-// GetNode retrieves the node with the specified ID.
+// GetNode retrieves the node with the specified Process.
 func (m *MemoryGraph) GetNode(id registry.ID) (*Node, error) {
 	n, exists := m.nodes[id]
 	if !exists {
-		return nil, fmt.Errorf("node with ID %v not found", id)
+		return nil, fmt.Errorf("node with Process %v not found", id)
 	}
 	return n, nil
 }
 
-// GetDirectDependencies returns all nodes that the node with the given ID depends on. Only direct dependencies are returned.
+// GetDirectDependencies returns all nodes that the node with the given Process depends on. Only direct dependencies are returned.
 func (m *MemoryGraph) GetDirectDependencies(id registry.ID) ([]*Node, error) {
 	if _, exists := m.nodes[id]; !exists {
-		return nil, fmt.Errorf("node with ID %v not found", id)
+		return nil, fmt.Errorf("node with Process %v not found", id)
 	}
 	neighborIDs, err := m.graph.GetNeighbors(id)
 	if err != nil {
@@ -195,10 +195,10 @@ func (m *MemoryGraph) GetDirectDependencies(id registry.ID) ([]*Node, error) {
 	return deps, nil
 }
 
-// GetDirectDependents returns all nodes that depend on the node with the specified ID. Only direct dependents are returned.
+// GetDirectDependents returns all nodes that depend on the node with the specified Process. Only direct dependents are returned.
 func (m *MemoryGraph) GetDirectDependents(id registry.ID) ([]*Node, error) {
 	if _, exists := m.nodes[id]; !exists {
-		return nil, fmt.Errorf("node with ID %v not found", id)
+		return nil, fmt.Errorf("node with Process %v not found", id)
 	}
 	var dependents []*Node
 	for nid, node := range m.nodes {
@@ -209,11 +209,11 @@ func (m *MemoryGraph) GetDirectDependents(id registry.ID) ([]*Node, error) {
 	return dependents, nil
 }
 
-// GetAllDependents returns all nodes that depend on the node with the specified ID, including transitive dependents.
-// GetAllDependents returns all nodes that depend on the node with the specified ID, including transitive dependents.
+// GetAllDependents returns all nodes that depend on the node with the specified Process, including transitive dependents.
+// GetAllDependents returns all nodes that depend on the node with the specified Process, including transitive dependents.
 func (m *MemoryGraph) GetAllDependents(id registry.ID) ([]*Node, error) {
 	if _, exists := m.nodes[id]; !exists {
-		return nil, fmt.Errorf("node with ID %v not found", id)
+		return nil, fmt.Errorf("node with Process %v not found", id)
 	}
 
 	// Track both visited (for traversal) and added (for results)

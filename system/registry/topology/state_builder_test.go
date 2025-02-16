@@ -1527,13 +1527,13 @@ func TestBuildDelta_CircularDependencies(t *testing.T) {
 			}
 			for _, op := range delta {
 				if _, exists := expectedIDs[op.Entry.ID]; !exists {
-					t.Errorf("unexpected entry ID in result: %v", op.Entry.ID)
+					t.Errorf("unexpected entry Process in result: %v", op.Entry.ID)
 				}
 				expectedIDs[op.Entry.ID] = true
 			}
 			for id, found := range expectedIDs {
 				if !found {
-					t.Errorf("missing entry ID in result: %v", id)
+					t.Errorf("missing entry Process in result: %v", id)
 				}
 			}
 		})

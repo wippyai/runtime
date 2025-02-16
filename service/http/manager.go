@@ -22,8 +22,8 @@ type ServerManager struct {
 	dtt     payload.Transcoder
 
 	servers         map[registry.ID]*Server
-	endpointServers map[registry.ID]registry.ID // endpoint ID -> server ID
-	routerServers   map[registry.ID]registry.ID // router ID -> server ID
+	endpointServers map[registry.ID]registry.ID // endpoint Process -> server Process
+	routerServers   map[registry.ID]registry.ID // router Process -> server Process
 }
 
 // NewManager creates a new HTTP service instance

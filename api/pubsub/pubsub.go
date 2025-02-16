@@ -40,6 +40,11 @@ type (
 		Attach(PID, chan *Batch) (error, context.CancelFunc)
 	}
 
+	Node interface {
+		Host
+		ID() NodeID
+	}
+
 	Upstream interface {
 		Send(context.Context, PID, *Batch) error
 	}
@@ -55,6 +60,6 @@ func NewBatch(topic Topic, payloads ...payload.Payload) *Batch {
 	}
 }
 
-func GetNode(ctx context.Context) Host {
-	return ctx.Value(contextApi.NodeCtx).(Host)
+func GetNode(ctx context.Context) Node {
+	return ctx.Value(contextApi.NodeCtx).(Node)
 }

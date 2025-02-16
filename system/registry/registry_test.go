@@ -450,7 +450,7 @@ func TestInMemoryRegistry_ConcurrentApply(t *testing.T) {
 	}
 
 	if int(currentVersion.ID()) != numGoroutines*changesPerRoutine {
-		t.Errorf("Expected current version ID %d, got %d", numGoroutines*changesPerRoutine, currentVersion.ID())
+		t.Errorf("Expected current version Process %d, got %d", numGoroutines*changesPerRoutine, currentVersion.ID())
 	}
 }
 
@@ -750,7 +750,7 @@ data:
 		for _, currentEntry := range currentState {
 			if currentEntry.ID == expectedEntry.ID {
 				found = true
-				assert.Equal(t, expectedEntry.Kind, currentEntry.Kind, "Kind mismatch for ID: %s", expectedEntry.ID)
+				assert.Equal(t, expectedEntry.Kind, currentEntry.Kind, "Kind mismatch for Process: %s", expectedEntry.ID)
 
 				// Compare Data field using assert.Equal for deep comparison of maps
 				var expectedData, currentData map[string]interface{}
@@ -759,7 +759,7 @@ data:
 				err = dtt.Unmarshal(currentEntry.Data, &currentData)
 				assert.NoError(t, err, "Error unmarshalling current data")
 
-				assert.Equal(t, expectedData, currentData, "Data mismatch for ID: %s", expectedEntry.ID)
+				assert.Equal(t, expectedData, currentData, "Data mismatch for Process: %s", expectedEntry.ID)
 				break
 			}
 		}

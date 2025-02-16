@@ -9,12 +9,12 @@ import (
 	"github.com/ponyruntime/pony/api/registry"
 )
 
-// Helper function to create an ID with just a name (no namespace)
+// Helper function to create an Process with just a name (no namespace)
 func id(name string) registry.ID {
 	return registry.ID{Name: name}
 }
 
-// Helper function to create an ID with both namespace and name
+// Helper function to create an Process with both namespace and name
 func nsID(namespace, name string) registry.ID {
 	return registry.ID{NS: namespace, Name: name}
 }
@@ -70,7 +70,7 @@ func compareChangeSets(t *testing.T, got, want registry.ChangeSet) bool {
 		}
 
 		if got[i].Entry.ID != want[i].Entry.ID {
-			t.Errorf("Operation[%d].Entry.ID mismatch: got %v, want %v", i, got[i].Entry.ID, want[i].Entry.ID)
+			t.Errorf("Operation[%d].Entry.Process mismatch: got %v, want %v", i, got[i].Entry.ID, want[i].Entry.ID)
 			return false
 		}
 
@@ -577,13 +577,13 @@ func TestCreateChangeSetFromEntries_GroupDependencies(t *testing.T) {
 			}
 			for _, op := range cs {
 				if _, exists := expectedIDs[op.Entry.ID]; !exists {
-					t.Errorf("unexpected entry ID in result: %v", op.Entry.ID)
+					t.Errorf("unexpected entry Process in result: %v", op.Entry.ID)
 				}
 				expectedIDs[op.Entry.ID] = true
 			}
 			for id, found := range expectedIDs {
 				if !found {
-					t.Errorf("missing entry ID in result: %v", id)
+					t.Errorf("missing entry Process in result: %v", id)
 				}
 			}
 		})
@@ -761,13 +761,13 @@ func TestCreateChangeSetFromEntries_ImplicitNamespaceGroup(t *testing.T) {
 			}
 			for _, op := range cs {
 				if _, exists := expectedIDs[op.Entry.ID]; !exists {
-					t.Errorf("unexpected entry ID in result: %v", op.Entry.ID)
+					t.Errorf("unexpected entry Process in result: %v", op.Entry.ID)
 				}
 				expectedIDs[op.Entry.ID] = true
 			}
 			for id, found := range expectedIDs {
 				if !found {
-					t.Errorf("missing entry ID in result: %v", id)
+					t.Errorf("missing entry Process in result: %v", id)
 				}
 			}
 		})
@@ -972,13 +972,13 @@ func TestCreateChangeSetFromEntries_NamespaceInheritance(t *testing.T) {
 			}
 			for _, op := range cs {
 				if _, exists := expectedIDs[op.Entry.ID]; !exists {
-					t.Errorf("unexpected entry ID in result: %v", op.Entry.ID)
+					t.Errorf("unexpected entry Process in result: %v", op.Entry.ID)
 				}
 				expectedIDs[op.Entry.ID] = true
 			}
 			for id, found := range expectedIDs {
 				if !found {
-					t.Errorf("missing entry ID in result: %v", id)
+					t.Errorf("missing entry Process in result: %v", id)
 				}
 			}
 		})
@@ -1150,13 +1150,13 @@ func TestNamespaceDependencyOrdering(t *testing.T) {
 			}
 			for _, op := range cs {
 				if _, exists := expectedIDs[op.Entry.ID]; !exists {
-					t.Errorf("unexpected entry ID in result: %v", op.Entry.ID)
+					t.Errorf("unexpected entry Process in result: %v", op.Entry.ID)
 				}
 				expectedIDs[op.Entry.ID] = true
 			}
 			for id, found := range expectedIDs {
 				if !found {
-					t.Errorf("missing entry ID in result: %v", id)
+					t.Errorf("missing entry Process in result: %v", id)
 				}
 			}
 		})

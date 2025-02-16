@@ -115,7 +115,7 @@ func (c *testComponent) handleEvent(evt events.Event) {
 	}
 }
 
-// getConfig returns the current configuration value for a given ID.
+// getConfig returns the current configuration value for a given Process.
 func (c *testComponent) getConfig(id registry.ID) (string, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()

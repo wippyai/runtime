@@ -52,7 +52,7 @@ type (
 	//WorkflowConfig struct {
 	//	Source string                 `json:"source"` // Lua source code
 	//	FuncName string                 `json:"method"` // Alias of the Lua method to execute
-	//	Import map[string]registry.ID `json:"import"` // Import aliases for the library
+	//	Import map[string]registry.Process `json:"import"` // Import aliases for the library
 	//}
 
 	// BteaConfig defines the configuration for a Lua terminal component.

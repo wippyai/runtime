@@ -65,7 +65,7 @@ func TestBuildOptions_WithMethods(t *testing.T) {
 func TestBuildOptions_StateConsistency(t *testing.T) {
 	fooID := registry.ID{Name: "foo"}
 
-	t.Run("same ID in allowed and denied", func(t *testing.T) {
+	t.Run("same Process in allowed and denied", func(t *testing.T) {
 		opts := NewBuildOptions().
 			WithMode(AllowListed).
 			WithAllowed(fooID).
@@ -76,10 +76,10 @@ func TestBuildOptions_StateConsistency(t *testing.T) {
 		}
 		err := opts.Validate(nodes)
 		assert.Error(t, err)
-		assert.Equal(t, "ID `:foo` is not allowed in this build", err.Error())
+		assert.Equal(t, "Process `:foo` is not allowed in this build", err.Error())
 	})
 
-	t.Run("same ID in required and denied", func(t *testing.T) {
+	t.Run("same Process in required and denied", func(t *testing.T) {
 		opts := NewBuildOptions().
 			WithMode(AllowAll).
 			WithRequired(fooID).
@@ -90,13 +90,13 @@ func TestBuildOptions_StateConsistency(t *testing.T) {
 		}
 		err := opts.Validate(nodes)
 		assert.Error(t, err)
-		assert.Equal(t, "ID `:foo` is not allowed in this build", err.Error())
+		assert.Equal(t, "Process `:foo` is not allowed in this build", err.Error())
 	})
 
-	t.Run("same ID added multiple times to lists", func(t *testing.T) {
+	t.Run("same Process added multiple times to lists", func(t *testing.T) {
 		opts := NewBuildOptions()
 
-		// Add same ID multiple times to lists
+		// Add same Process multiple times to lists
 		opts.WithAllowed(fooID, fooID)
 		assert.True(t, contains(opts.Allowed, fooID))
 
@@ -174,7 +174,7 @@ func TestBuildOptions_EmptyNodes(t *testing.T) {
 				WithMode(AllowAll).
 				WithRequired(registry.ID{Name: "foo"}),
 			wantError: true,
-			errorMsg:  "required ID `:foo` was not found",
+			errorMsg:  "required Process `:foo` was not found",
 		},
 		{
 			name: "empty nodes in DenyAll mode",
@@ -189,7 +189,7 @@ func TestBuildOptions_EmptyNodes(t *testing.T) {
 				WithAllowed(registry.ID{Name: "foo"}).
 				WithRequired(registry.ID{Name: "foo"}),
 			wantError: true,
-			errorMsg:  "required ID `:foo` was not found",
+			errorMsg:  "required Process `:foo` was not found",
 		},
 	}
 
@@ -222,16 +222,16 @@ func TestBuildOptions_ModificationAfterSetup(t *testing.T) {
 	}
 	assert.NoError(t, opts.Validate(nodes))
 
-	// Add new allowed ID and test
+	// Add new allowed Process and test
 	opts.WithAllowed(barID)
 	nodes[barID] = &Node{ID: barID}
 	assert.NoError(t, opts.Validate(nodes))
 
-	// Add denied ID and test
+	// Add denied Process and test
 	opts.WithDenied(fooID)
 	err := opts.Validate(nodes)
 	assert.Error(t, err)
-	assert.Equal(t, "ID `:foo` is not allowed in this build", err.Error())
+	assert.Equal(t, "Process `:foo` is not allowed in this build", err.Error())
 }
 
 func TestBuildOptions_Validate(t *testing.T) {
@@ -263,7 +263,7 @@ func TestBuildOptions_Validate(t *testing.T) {
 			wantError: false,
 		},
 		{
-			name: "AllowAll mode with denied ID",
+			name: "AllowAll mode with denied Process",
 			opts: NewBuildOptions().
 				WithMode(AllowAll).
 				WithDenied(registry.ID{Name: "foo"}),
@@ -272,7 +272,7 @@ func TestBuildOptions_Validate(t *testing.T) {
 				registry.ID{Name: "bar"}: createNode("bar"),
 			},
 			wantError: true,
-			errorMsg:  "ID `:foo` is not allowed in this build",
+			errorMsg:  "Process `:foo` is not allowed in this build",
 		},
 		{
 			name: "AllowListed mode - only allow listed",
@@ -295,7 +295,7 @@ func TestBuildOptions_Validate(t *testing.T) {
 				registry.ID{Name: "bar"}: createNode("bar"),
 			},
 			wantError: true,
-			errorMsg:  "ID `:bar` is not in the allowed IDs list",
+			errorMsg:  "Process `:bar` is not in the allowed IDs list",
 		},
 		{
 			name: "DenyAll mode - only allow required",
@@ -317,7 +317,7 @@ func TestBuildOptions_Validate(t *testing.T) {
 				registry.ID{Name: "bar"}: createNode("bar"),
 			},
 			wantError: true,
-			errorMsg:  "ID `:bar` is not allowed (DenyAll mode)",
+			errorMsg:  "Process `:bar` is not allowed (DenyAll mode)",
 		},
 		{
 			name: "StrictListed mode - required must be allowed",
@@ -342,10 +342,10 @@ func TestBuildOptions_Validate(t *testing.T) {
 				registry.ID{Name: "bar"}: createNode("bar"),
 			},
 			wantError: true,
-			errorMsg:  "required ID `:foo` must also be in allowed list (StrictListed mode)",
+			errorMsg:  "required Process `:foo` must also be in allowed list (StrictListed mode)",
 		},
 		{
-			name: "Missing required ID",
+			name: "Missing required Process",
 			opts: NewBuildOptions().
 				WithMode(AllowAll).
 				WithRequired(registry.ID{Name: "foo"}),
@@ -353,7 +353,7 @@ func TestBuildOptions_Validate(t *testing.T) {
 				registry.ID{Name: "bar"}: createNode("bar"),
 			},
 			wantError: true,
-			errorMsg:  "required ID `:foo` was not found",
+			errorMsg:  "required Process `:foo` was not found",
 		},
 		{
 			name: "Denied takes precedence over required",
@@ -365,7 +365,7 @@ func TestBuildOptions_Validate(t *testing.T) {
 				registry.ID{Name: "foo"}: createNode("foo"),
 			},
 			wantError: true,
-			errorMsg:  "ID `:foo` is not allowed in this build",
+			errorMsg:  "Process `:foo` is not allowed in this build",
 		},
 	}
 

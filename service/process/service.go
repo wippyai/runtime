@@ -3,6 +3,7 @@ package process
 import (
 	"context"
 	"fmt"
+	"github.com/ponyruntime/pony/api/payload"
 	processApi "github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
@@ -13,11 +14,12 @@ import (
 
 // Service represents a running process service instance
 type Service struct {
-	mu     sync.Mutex
-	pid    pubsub.PID
-	id     registry.ID
-	config processApi.ServiceConfig
-	status chan any
+	mu            sync.Mutex
+	id            registry.ID
+	pid           pubsub.PID
+	supervisorPID pubsub.PID
+	config        processApi.ServiceConfig
+	status        chan any
 }
 
 // Start implements supervisor.Service
@@ -35,22 +37,16 @@ func (svc *Service) Start(ctx context.Context) (<-chan any, error) {
 	}
 
 	// Setup monitor PID
-	monitorPID := pubsub.PID{
+	svc.supervisorPID = pubsub.PID{
 		Node:   node.ID(),
 		Host:   topology.ControlHost,
-		UniqID: fmt.Sprintf("monitor-%d", time.Now().UnixNano()),
+		UniqID: fmt.Sprintf("supervisor.%d", time.Now().UnixNano()),
 	}
 
 	// Create monitoring channel
-	monitorCh := make(chan *pubsub.Batch, 10)
+	monitorCh := make(chan *pubsub.Batch, 1)
 
-	// Attach monitor to control host
-	controlHost := node.GetHost(topology.ControlHost)
-	if controlHost == nil {
-		return nil, fmt.Errorf("control host not found")
-	}
-
-	err, detach := controlHost.Attach(monitorPID, monitorCh)
+	err, detach := node.Attach(svc.supervisorPID, monitorCh)
 	if err != nil {
 		return nil, fmt.Errorf("failed to attach monitor: %w", err)
 	}
@@ -58,10 +54,21 @@ func (svc *Service) Start(ctx context.Context) (<-chan any, error) {
 	// Initialize status channel
 	svc.status = make(chan any, 1)
 
+	processID := svc.config.Process
+	if processID.NS == "" {
+		processID.NS = svc.id.NS
+	}
+
+	var payloads payload.Payloads
+	for _, p := range svc.config.Input {
+		payloads = append(payloads, payload.New(p))
+	}
+
 	// Launch monitored process
-	pid, err := proc.StartMonitored(ctx, monitorPID, processApi.StartProcess{
-		HostID: svc.config.HostID,
-		ID:     svc.config.ID,
+	pid, err := proc.StartMonitored(ctx, svc.supervisorPID, &processApi.StartProcess{
+		HostID:   svc.config.HostID,
+		ID:       processID,
+		Payloads: payloads,
 	})
 	if err != nil {
 		detach()
