@@ -45,11 +45,15 @@ func (m *Manager) Lifecycle() *Topology {
 }
 
 // preparePID creates and validates a PID for the process
-func (m *Manager) preparePID(ps api.StartProcess) (pubsub.PID, error) {
+func (m *Manager) preparePID(ps api.StartProcess, managed bool) (pubsub.PID, error) {
 	pid := pubsub.PID{
 		Host:   ps.HostID,
 		ID:     ps.ID,
 		UniqID: ps.UniqID,
+	}
+
+	if managed {
+		pid.Node = m.nodeID
 	}
 
 	if pid.UniqID == "" {
@@ -63,8 +67,6 @@ func (m *Manager) preparePID(ps api.StartProcess) (pubsub.PID, error) {
 func (m *Manager) launchOnHost(ctx context.Context, host api.Host, pid pubsub.PID, ps api.StartProcess) (pubsub.PID, error) {
 	switch h := host.(type) {
 	case api.Managed:
-		pid.Node = m.nodeID
-
 		proc, err := m.prototypes.Create(ps.ID)
 		if err != nil {
 			return pubsub.PID{}, fmt.Errorf("failed to init launch: %w", err)
@@ -96,7 +98,8 @@ func (m *Manager) Start(ctx context.Context, ps api.StartProcess) (pubsub.PID, e
 		return pubsub.PID{}, fmt.Errorf("host not found: `%s`", ps.HostID)
 	}
 
-	pid, err := m.preparePID(ps)
+	_, managed := host.(api.Managed)
+	pid, err := m.preparePID(ps, managed)
 	if err != nil {
 		return pubsub.PID{}, err
 	}
@@ -111,7 +114,8 @@ func (m *Manager) StartMonitored(ctx context.Context, from pubsub.PID, ps api.St
 		return pubsub.PID{}, fmt.Errorf("host not found: `%s`", ps.HostID)
 	}
 
-	pid, err := m.preparePID(ps)
+	_, managed := host.(api.Managed)
+	pid, err := m.preparePID(ps, managed)
 	if err != nil {
 		return pubsub.PID{}, err
 	}

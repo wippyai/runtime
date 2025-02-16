@@ -169,7 +169,7 @@ func (a *App) Initialize() error {
 	a.hosts = process.NewHostRegistry(a.eventBus, a.logger.Named("hosts"))
 
 	// groups, links, monitor and other topology level stuff
-	lifecycle := process.NewTopology(a.ctx, a.node)
+	control := process.NewTopology(a.ctx, a.logger.Named("control"), a.node)
 
 	// this is host dedicated to internal control messages
 	err := a.node.Node().RegisterHost(topologyApi.ControlHost, pubsub.NewHost(a.ctx, pubsub.HostConfig{
@@ -187,7 +187,7 @@ func (a *App) Initialize() error {
 	a.processes = process.NewProcessManager(
 		a.hosts,
 		a.prototypes,
-		lifecycle,
+		control,
 		a.node.Node().ID(), // for pid generation of managed processes
 		a.logger.Named("processes"),
 	)
@@ -265,9 +265,15 @@ func (a *App) Start(folderPath string) error {
 		return fmt.Errorf("failed to apply initial state: %w", err)
 	}
 
+	// --- todo: ALL WILL BE GONE
+
 	// helper monitor
 	monitor, err := helper.AttachMonitor(a.node, a.node.Node().ID(), func(msg *api.Message) error {
-		a.logger.Debug("monitor message", zap.Any("msg", msg))
+		go func() {
+			time.Sleep(5 * time.Second)
+			a.logger.Debug("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!monitor message", zap.Any("msg", msg))
+		}()
+
 		return nil
 	})
 
@@ -275,7 +281,6 @@ func (a *App) Start(folderPath string) error {
 		a.cancel()
 		return fmt.Errorf("failed to attach monitor: %w", err)
 	}
-	defer monitor.Stop()
 
 	//time.Sleep(1 * time.Second)
 	////// launch todo: we also can retry or better delegate it to supervisor
@@ -295,6 +300,8 @@ func (a *App) Start(folderPath string) error {
 	//if err != nil {
 	//	return fmt.Errorf("failed to send cancel message: %w", err)
 	//}
+
+	// --- todo: ALL WILL BE GONE
 
 	return nil
 }

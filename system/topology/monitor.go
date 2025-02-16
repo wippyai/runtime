@@ -8,6 +8,7 @@ import (
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/runtime"
 	"github.com/ponyruntime/pony/api/topology"
+	"log"
 	"sync"
 	"time"
 )
@@ -26,19 +27,19 @@ func NewMonitor(ctx context.Context, upstream pubsub.Upstream) topology.Monitor 
 }
 
 func (m *monitor) Wait(caller, pid pubsub.PID) error {
-	value, _ := m.monitors.LoadOrStore(pid.String(), &sync.Map{})
+	value, _ := m.monitors.LoadOrStore(pid, &sync.Map{})
 	watchers := value.(*sync.Map)
 
-	_, loaded := watchers.LoadOrStore(caller.String(), true)
+	_, loaded := watchers.LoadOrStore(caller, true)
 	if loaded {
-		return fmt.Errorf("already monitoring pid: %s", pid.String())
+		return fmt.Errorf("already monitoring pid: %s", pid)
 	}
 
 	return nil
 }
 
 func (m *monitor) Release(caller, pid pubsub.PID) error {
-	value, ok := m.monitors.Load(pid.String())
+	value, ok := m.monitors.Load(pid)
 	if !ok {
 		return nil
 	}
@@ -59,15 +60,15 @@ func (m *monitor) Release(caller, pid pubsub.PID) error {
 }
 
 func (m *monitor) Notify(pid pubsub.PID, result *runtime.Result) {
-	value, ok := m.monitors.Load(pid.String())
+
+	value, ok := m.monitors.Load(pid)
 	if !ok {
 		return
 	}
 	watchers := value.(*sync.Map)
-
 	watchers.Range(func(key, _ interface{}) bool {
-		watcherPID, err := pubsub.ParsePID(key.(string))
-		if err != nil {
+		watcherPID, ok := key.(pubsub.PID)
+		if !ok {
 			return true
 		}
 
@@ -79,14 +80,18 @@ func (m *monitor) Notify(pid pubsub.PID, result *runtime.Result) {
 			}),
 		)
 
-		err = m.upstream.Send(m.ctx, watcherPID, batch)
-		if err != nil {
+		if err := m.upstream.Send(m.ctx, watcherPID, batch); err != nil {
 			return true
 		}
 		return true
 	})
+
 }
 
 func (m *monitor) Remove(pid pubsub.PID) {
+	go func() {
+		time.Sleep(1 * time.Second)
+		log.Printf("REMOVE: %s", pid)
+	}()
 	m.monitors.Delete(pid.String())
 }
