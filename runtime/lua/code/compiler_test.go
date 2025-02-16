@@ -220,9 +220,10 @@ func TestCompiler_PreloadedDependencies(t *testing.T) {
 	require.NotNil(t, compiled.Main)
 
 	// Verify preloaded dependencies
-	assert.Len(t, compiled.Dependencies, 1, "Should have one preloaded dependency")
+	assert.Len(t, compiled.Dependencies, 0, "Should have no dependencies")
+	assert.Len(t, compiled.Preloaded, 1, "Should have one preloaded dependency")
 
-	dep := compiled.Dependencies[0]
+	dep := compiled.Preloaded[0]
 	assert.Equal(t, "pre_mod", dep.Name)
 	assert.Equal(t, preloadedModule, dep.Node)
 	assert.NotNil(t, dep.Node.Module)
