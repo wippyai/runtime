@@ -1,4 +1,4 @@
-package process
+package os_process
 
 import (
 	"github.com/ponyruntime/pony/code_executors/native"

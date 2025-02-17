@@ -1,4 +1,4 @@
-package process
+package os_process
 
 import (
 	apic "github.com/ponyruntime/pony/api/context"
