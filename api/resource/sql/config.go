@@ -46,7 +46,7 @@ type (
 
 	// SQLiteConfig defines SQLite-specific configuration
 	SQLiteConfig struct {
-		File      string            `json:"file"`    // Database file path
+		File      string            `json:"file"`    // Database file path, use memory for in-memory database
 		Pool      PoolConfig        `json:"pool"`    // Connection pool settings
 		Options   map[string]string `json:"options"` // SQLite-specific options
 		Lifecycle supervisor.LifecycleConfig
