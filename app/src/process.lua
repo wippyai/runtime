@@ -5,7 +5,7 @@ local function run()
     local events_ch = pubsub.subscribe("@pid/events")
     local done = channel.new()
     local is_running = true
-    local tick = time.ticker("1ms")
+    local tick = time.ticker("1ns")
     local tick_ch = tick:channel()
 
     while is_running do
