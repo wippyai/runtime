@@ -198,7 +198,7 @@ func (p *App) publishTask(channel string, value lua.LValue) {
 		case <-p.ctx.Done():
 			return
 		case rsp := <-task.Response:
-			if err, ok := rsp.Data().(error); ok {
+			if err, ok := rsp.(error); ok {
 				p.log.Error("task failed",
 					zap.String("channel", channel),
 					zap.Error(err))
@@ -223,9 +223,10 @@ func (p *App) publishTaskWithResponse(channel string, value lua.LValue, timeout 
 
 	select {
 	case rsp := <-task.Response:
-		if result, ok := rsp.Data().(lua.LValue); ok {
+		if result, ok := rsp.(lua.LValue); ok {
 			return result.String()
 		}
+
 		p.log.Error("invalid response type", zap.String("channel", channel))
 		return "invalid response type"
 	case <-time.After(timeout):
@@ -240,7 +241,7 @@ func (p *App) publishTaskWithResponse(channel string, value lua.LValue, timeout 
 
 // createTask wraps a value in a task payload.
 func (p *App) createTask(value lua.LValue) (*tasks.Task, error) {
-	return tasks.CreateTask(payload.NewPayload(value, payload.Lua)) // todo: track proper value?
+	return tasks.CreateTask(value)
 }
 
 // Start initializes the app context, sets up terminal integration, launches the bubbletea program,
