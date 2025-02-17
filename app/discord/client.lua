@@ -92,6 +92,28 @@ function Client:handle_heartbeat(ws_client)
     end
 end
 
+function Client:handle_attachments(message)
+    if message.attachments and #message.attachments > 0 then
+        for _, attachment in ipairs(message.attachments) do
+            -- Get the file extension
+            local filename = attachment.filename
+            local extension = filename:match("^.+(%..+)$")
+
+            if extension then
+                -- Log the file detection
+                self:trigger_callback("file_detected", {
+                    filename = filename,
+                    url = attachment.url,
+                    size = attachment.size,
+                    content_type = attachment.content_type,
+                    channel_id = message.channel_id,
+                    author = message.author.username
+                })
+            end
+        end
+    end
+end
+
 function Client:on(event, callback)
     self.callbacks[event] = callback
     return self
