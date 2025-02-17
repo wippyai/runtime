@@ -51,6 +51,7 @@ import (
 	"github.com/ponyruntime/pony/system/registry/loader/interpolate"
 	"github.com/ponyruntime/pony/system/registry/runner"
 	"github.com/ponyruntime/pony/system/registry/topology"
+	"github.com/ponyruntime/pony/system/resource"
 	"github.com/ponyruntime/pony/system/supervisor"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -80,6 +81,8 @@ type App struct {
 	processes   *process.Manager
 	prototypes  *process.PrototypeRegistry
 	hosts       *process.HostRegistry
+
+	resources *resource.Service
 
 	// mesh
 	node *pubsub.Manager
@@ -166,6 +169,8 @@ func (a *App) Initialize() error {
 	a.prototypes = process.NewPrototypeFactory(a.eventBus, a.logger.Named("prototypes"))
 	a.hosts = process.NewHostRegistry(a.eventBus, a.logger.Named("hosts"))
 
+	a.resources = resource.NewService(a.eventBus, a.reg, a.logger.Named("resources"))
+
 	// groups, links, monitor and other topology level stuff
 	control := process.NewTopology(a.ctx, a.logger.Named("control"), a.node)
 
@@ -202,6 +207,7 @@ func (a *App) Start(folderPath string) error {
 	ctx = context.WithValue(ctx, apiCtx.BusCtx, a.eventBus)
 	ctx = context.WithValue(ctx, apiCtx.FunctionsCtx, a.funcs)
 	ctx = context.WithValue(ctx, apiCtx.ProcessesCtx, a.processes)
+	ctx = context.WithValue(ctx, apiCtx.ResourcesCtx, a.resources)
 	ctx = context.WithValue(ctx, apiCtx.NodeCtx, a.node.Node())
 
 	// Spawn environment context
@@ -213,6 +219,11 @@ func (a *App) Start(folderPath string) error {
 		}
 	}
 	ctx = context.WithValue(ctx, apiCtx.EnvCtx, envCtx)
+
+	if err := a.resources.Start(ctx); err != nil {
+		a.cancel()
+		return fmt.Errorf("failed to start resource service: %w", err)
+	}
 
 	// LaunchProcess core function registry
 	if err := a.funcs.Start(ctx); err != nil {
@@ -296,6 +307,22 @@ func (a *App) Stop() error {
 	// Functions
 	if err := a.funcs.Stop(); err != nil {
 		a.logger.Error("failed to stop function executor", zap.Error(err))
+	}
+
+	if err := a.prototypes.Stop(); err != nil {
+		a.logger.Error("failed to stop prototype registry", zap.Error(err))
+	}
+
+	if err := a.node.Stop(); err != nil {
+		a.logger.Error("failed to stop node", zap.Error(err))
+	}
+
+	if err := a.hosts.Stop(); err != nil {
+		a.logger.Error("failed to stop hosts registry", zap.Error(err))
+	}
+
+	if err := a.resources.Stop(); err != nil {
+		a.logger.Error("failed to stop resource service", zap.Error(err))
 	}
 
 	// Stop log manager last
