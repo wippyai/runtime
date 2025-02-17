@@ -120,33 +120,69 @@ func DefaultConfig() *EntryConfig {
 
 func (cfg *EntryConfig) InitDefaults() {
 	cfg.Lifecycle.InitDefaults()
+
+	if cfg.HostConfig.Workers == 0 {
+		cfg.HostConfig.Workers = runtime.NumCPU()
+	}
+
+	// default buffer sizes
+	if cfg.HostConfig.MessageBuffer == 0 {
+		cfg.HostConfig.MessageBuffer = 10000
+	}
+
+	if cfg.HostConfig.ProcessQueueSize == 0 {
+		cfg.HostConfig.ProcessQueueSize = 10000
+	}
+
+	if cfg.HostConfig.StepQueueSize == 0 {
+		cfg.HostConfig.StepQueueSize = 10000
+	}
+
+	if cfg.HostConfig.StepTimeout == 0 {
+		cfg.HostConfig.StepTimeout = 30 * time.Second
+	}
+
+	if cfg.HostConfig.LaunchTimeout == 0 {
+		cfg.HostConfig.LaunchTimeout = 1 * time.Minute
+	}
+
+	if cfg.HostConfig.ShutdownTimeout == 0 {
+		cfg.HostConfig.ShutdownTimeout = 2 * time.Minute
+	}
 }
 
 // Validate checks if the configuration is valid
 func (cfg *EntryConfig) Validate() error {
 	c := cfg.HostConfig
 
-	if c.MaxProcesses <= 0 {
-		return fmt.Errorf("max_processes must be greater than 0")
+	if c.MaxProcesses < 0 {
+		return fmt.Errorf("max_processes must be greater or equal 0 (no limit)")
 	}
+
 	if c.Workers <= 0 {
 		return fmt.Errorf("workers must be greater than 0")
 	}
+
 	if c.MessageBuffer <= 0 {
 		return fmt.Errorf("message_buffer must be greater than 0")
 	}
+
 	if c.ProcessQueueSize <= 0 {
 		return fmt.Errorf("process_queue_size must be greater than 0")
 	}
+
 	if c.StepQueueSize <= 0 {
 		return fmt.Errorf("step_queue_size must be greater than 0")
 	}
+
 	if c.StepTimeout <= 0 {
 		return fmt.Errorf("step_timeout must be greater than 0")
 	}
+
 	if c.LaunchTimeout <= 0 {
 		return fmt.Errorf("launch_timeout must be greater than 0")
 	}
+
 	if c.ShutdownTimeout <= 0 {
 		return fmt.Errorf("shutdown_timeout must be greater than 0")
 	}

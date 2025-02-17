@@ -35,6 +35,7 @@ import (
 	"github.com/ponyruntime/pony/runtime/noop"
 	"github.com/ponyruntime/pony/service/http"
 	service "github.com/ponyruntime/pony/service/process"
+	"github.com/ponyruntime/pony/service/process/host"
 	"github.com/ponyruntime/pony/service/terminal"
 	"github.com/ponyruntime/pony/system/eventbus"
 	"github.com/ponyruntime/pony/system/function"
@@ -437,6 +438,7 @@ func main() {
 		WithHTTPService(app),
 		WithTerminalManager(app),
 		WithProcessSupervisor(app),
+		WithEphemeralHost(app),
 	)...)
 	// --------------------------------------------------
 
@@ -562,6 +564,14 @@ func WithProcessSupervisor(a *App) eventbus.EventHandler {
 		a.eventBus,
 		a.processes,
 		a.logger.Named("supervisor"),
+	))
+}
+
+func WithEphemeralHost(a *App) eventbus.EventHandler {
+	return reghandler.NewRegistryHandler("process.host", host.NewHostManager(
+		a.eventBus,
+		a.dtt,
+		a.logger.Named("hosts"),
 	))
 }
 
