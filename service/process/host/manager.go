@@ -68,47 +68,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 
 // Update updates an existing process host
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != process.KindHost {
-		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
-	}
-
-	cfg := new(process.EntryConfig)
-	if err := m.dtt.Unmarshal(entry.Data, cfg); err != nil {
-		return fmt.Errorf("failed to unmarshal config: %w", err)
-	}
-
-	cfg.InitDefaults()
-
-	if err := cfg.Validate(); err != nil {
-		return fmt.Errorf("invalid config: %w", err)
-	}
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	hostRaw, exists := m.hosts.Load(entry.ID)
-	if !exists {
-		return fmt.Errorf("host %s not found", entry.ID)
-	}
-
-	host := hostRaw.(*Host)
-	if err := host.UpdateConfig(ctx, cfg.HostConfig); err != nil {
-		return fmt.Errorf("failed to update host config: %w", err)
-	}
-
-	// Update supervisor config
-	m.bus.Send(ctx, events.Event{
-		System: supervisor.System,
-		Kind:   supervisor.Update,
-		Path:   entry.ID.String(),
-		Data: &supervisor.Entry{
-			Config: cfg.Lifecycle,
-		},
-	})
-
-	m.log.Info("process host updated", zap.String("id", entry.ID.String()))
-
-	return nil
+	return fmt.Errorf("unable to update process host")
 }
 
 // Delete removes a process host
