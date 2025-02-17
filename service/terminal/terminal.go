@@ -115,6 +115,7 @@ func (t *Terminal) run(ctx context.Context, status chan<- any) {
 
 func (t *Terminal) handleLaunch(ctx context.Context, pl *process.LaunchProcess, response chan pubsub.PID) error {
 	if t.runner.Load() != nil {
+		close(response)
 		return process.ErrHostBusy
 	}
 
@@ -126,6 +127,7 @@ func (t *Terminal) handleLaunch(ctx context.Context, pl *process.LaunchProcess, 
 
 	if t.cfg.HideLogs {
 		if err := t.setupLogging(); err != nil {
+			close(response)
 			return err
 		}
 	}
@@ -157,12 +159,17 @@ func (t *Terminal) handleLaunch(ctx context.Context, pl *process.LaunchProcess, 
 
 	runner, err := NewTerminalRunner(pCtx, cfg, pl)
 	if err != nil {
+		t.log.Error("failed to create terminal runner",
+			zap.Error(err))
+
 		t.cleanup(nil)
+		close(response)
 		return err
 	}
 
 	t.runner.Store(runner)
 	response <- pl.PID
+	close(response)
 	return nil
 }
 

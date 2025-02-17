@@ -74,6 +74,7 @@ func NewTerminalRunner(
 
 	// Launch the runner loop.
 	go runner.run()
+
 	return runner, nil
 }
 
