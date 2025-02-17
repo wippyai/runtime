@@ -3,6 +3,7 @@ local discord_client = require("discord_client")
 local env = require("env")
 local DiscordUI = require("discord_ui")
 local CommandHandler = require("discord_commands")
+local json = require("json")
 
 function App()
     -- Create app with proper init commands
@@ -60,6 +61,20 @@ function App()
             app.ui:set_active_channel(channel)
         end)
         :on("message", function(msg)
+          -- If message has attachments, display them nicely
+            if msg.attachments and #msg.attachments > 0 then
+                for _, attachment in ipairs(msg.attachments) do
+                    local attachment_info = string.format(
+                        "📎 File: %s (%.2f KB)\n   URL: %s",
+                        attachment.filename,
+                        attachment.size / 1024,
+                        attachment.url
+                    )
+                    app.ui:add_message(attachment_info, "system")
+                end
+            end
+
+
             if not msg.author.bot then
                 app.ui:add_message(string.format("<%s> %s", msg.author.username, msg.content), "message")
 
