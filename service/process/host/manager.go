@@ -10,7 +10,6 @@ import (
 	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
-	api "github.com/ponyruntime/pony/api/service/process"
 	"github.com/ponyruntime/pony/api/supervisor"
 	"go.uber.org/zap"
 )
@@ -35,11 +34,11 @@ func NewManager(bus events.Bus, dtt payload.Transcoder, logger *zap.Logger) *Man
 
 // Add creates and registers a new process host
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != api.KindHost {
+	if entry.Kind != process.KindHost {
 		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
 	}
 
-	cfg := new(api.EntryConfig)
+	cfg := new(process.EntryConfig)
 	if err := m.dtt.Unmarshal(entry.Data, cfg); err != nil {
 		return fmt.Errorf("failed to unmarshal config: %w", err)
 	}
@@ -67,11 +66,11 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 
 // Update updates an existing process host
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != api.KindHost {
+	if entry.Kind != process.KindHost {
 		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
 	}
 
-	cfg := new(api.EntryConfig)
+	cfg := new(process.EntryConfig)
 	if err := m.dtt.Unmarshal(entry.Data, cfg); err != nil {
 		return fmt.Errorf("failed to unmarshal config: %w", err)
 	}
@@ -110,7 +109,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 // Delete removes a process host
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != api.KindHost {
+	if entry.Kind != process.KindHost {
 		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
 	}
 
@@ -126,7 +125,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 }
 
 // registerHost registers the process host with necessary subsystems
-func (m *Manager) registerHost(ctx context.Context, id registry.ID, host *Host, cfg *api.EntryConfig) {
+func (m *Manager) registerHost(ctx context.Context, id registry.ID, host *Host, cfg *process.EntryConfig) {
 	// Register with pubsub
 	m.bus.Send(ctx, events.Event{
 		System: pubsub.System,
