@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -139,6 +140,7 @@ func (s *Supervisor) Stop() error {
 	}
 
 	// Spawn all controllers under lock
+	log.Printf("STOPPING ALL CONTROLLERS")
 	s.mu.RLock()
 	var operations []Operation
 	for id, ctrl := range s.controllers {
@@ -155,6 +157,7 @@ func (s *Supervisor) Stop() error {
 	if err := s.sequencer.Transition(s.ctx, operations...); err != nil {
 		s.logger.Error("failed to stop controllers during shutdown", zap.Error(err))
 	}
+	log.Printf("STOPPED ALL CONTROLLERS")
 
 	close(s.actions)
 	s.wg.Wait()

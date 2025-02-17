@@ -37,5 +37,6 @@ type (
 
 	CancelEvent struct {
 		Event
+		Deadline time.Time
 	}
 )

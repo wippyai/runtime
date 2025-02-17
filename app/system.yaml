@@ -29,7 +29,7 @@ entries:
     kind: terminal.host
     meta:
       comment: "System shell"
-    hide_logs: true
+    hide_logs: false
     lifecycle:
       auto_start: true
       restart:
