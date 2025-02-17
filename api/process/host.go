@@ -24,27 +24,25 @@ type EntryConfig struct {
 // HostConfig represents configuration for a process host service
 type HostConfig struct {
 	// Process execution settings
-	MaxProcesses  int `json:"max_processes"`  // Maximum number of concurrent processes
-	Workers       int `json:"workers"`        // Number of workers processing steps
-	MessageBuffer int `json:"message_buffer"` // Size of message buffer per process
+	MaxProcesses int `json:"max_processes"` // Maximum number of concurrent processes
+	Workers      int `json:"workers"`       // Number of workers processing steps
 
 	// Queue sizes
-	ProcessQueueSize int `json:"process_queue_size"` // Size of the process launch queue
-	StepQueueSize    int `json:"step_queue_size"`    // Size of the step execution queue
+	StepQueueSize int `json:"step_queue_size"` // Size of the step execution queue
 
-	// Timeouts
-	StepTimeout     time.Duration `json:"step_timeout"`     // Maximum time allowed for a single step execution
-	LaunchTimeout   time.Duration `json:"launch_timeout"`   // Timeout for process launch operations
-	ShutdownTimeout time.Duration `json:"shutdown_timeout"` // Timeout for graceful shutdown
+	// Messaging settings (from pubsub)
+	BufferSize      int           `json:"buffer_size"`      // Internal job channel buffer size
+	WorkerCount     int           `json:"worker_count"`     // Number of concurrent message workers
+	RetryTimeout    time.Duration `json:"retry_timeout"`    // Timeout for retry attempt on send
+	DeliveryTimeout time.Duration `json:"delivery_timeout"` // Timeout for delivery to receiver
 }
 
 // UnmarshalJSON implements custom unmarshaling for HostConfig to handle time.Duration fields
 func (c *HostConfig) UnmarshalJSON(data []byte) error {
 	type Alias HostConfig
 	aux := &struct {
-		StepTimeout     string `json:"step_timeout"`
-		LaunchTimeout   string `json:"launch_timeout"`
-		ShutdownTimeout string `json:"shutdown_timeout"`
+		RetryTimeout    string `json:"retry_timeout"`
+		DeliveryTimeout string `json:"delivery_timeout"`
 		*Alias
 	}{
 		Alias: (*Alias)(c),
@@ -55,24 +53,17 @@ func (c *HostConfig) UnmarshalJSON(data []byte) error {
 	}
 
 	var err error
-	if aux.StepTimeout != "" {
-		c.StepTimeout, err = time.ParseDuration(aux.StepTimeout)
+	if aux.RetryTimeout != "" {
+		c.RetryTimeout, err = time.ParseDuration(aux.RetryTimeout)
 		if err != nil {
-			return fmt.Errorf("invalid step_timeout duration format: %w", err)
+			return fmt.Errorf("invalid retry_timeout duration format: %w", err)
 		}
 	}
 
-	if aux.LaunchTimeout != "" {
-		c.LaunchTimeout, err = time.ParseDuration(aux.LaunchTimeout)
+	if aux.DeliveryTimeout != "" {
+		c.DeliveryTimeout, err = time.ParseDuration(aux.DeliveryTimeout)
 		if err != nil {
-			return fmt.Errorf("invalid launch_timeout duration format: %w", err)
-		}
-	}
-
-	if aux.ShutdownTimeout != "" {
-		c.ShutdownTimeout, err = time.ParseDuration(aux.ShutdownTimeout)
-		if err != nil {
-			return fmt.Errorf("invalid shutdown_timeout duration format: %w", err)
+			return fmt.Errorf("invalid delivery_timeout duration format: %w", err)
 		}
 	}
 
@@ -83,39 +74,14 @@ func (c *HostConfig) UnmarshalJSON(data []byte) error {
 func (c *HostConfig) MarshalJSON() ([]byte, error) {
 	type Alias HostConfig
 	return json.Marshal(&struct {
-		StepTimeout     string `json:"step_timeout"`
-		LaunchTimeout   string `json:"launch_timeout"`
-		ShutdownTimeout string `json:"shutdown_timeout"`
+		RetryTimeout    string `json:"retry_timeout"`
+		DeliveryTimeout string `json:"delivery_timeout"`
 		*Alias
 	}{
-		StepTimeout:     c.StepTimeout.String(),
-		LaunchTimeout:   c.LaunchTimeout.String(),
-		ShutdownTimeout: c.ShutdownTimeout.String(),
+		RetryTimeout:    c.RetryTimeout.String(),
+		DeliveryTimeout: c.DeliveryTimeout.String(),
 		Alias:           (*Alias)(c),
 	})
-}
-
-// DefaultConfig returns a HostConfig with sensible defaults
-func DefaultConfig() *EntryConfig {
-	// Initialize lifecycle defaults
-	lifecycle := supervisor.LifecycleConfig{}
-	lifecycle.InitDefaults()
-
-	return &EntryConfig{
-		HostConfig: HostConfig{
-			MaxProcesses:  100,
-			Workers:       runtime.NumCPU(),
-			MessageBuffer: 1000,
-
-			ProcessQueueSize: 1000,
-			StepQueueSize:    5000,
-
-			StepTimeout:     30 * time.Second,
-			LaunchTimeout:   1 * time.Minute,
-			ShutdownTimeout: 2 * time.Minute,
-		},
-		Lifecycle: lifecycle,
-	}
 }
 
 func (cfg *EntryConfig) InitDefaults() {
@@ -125,29 +91,25 @@ func (cfg *EntryConfig) InitDefaults() {
 		cfg.HostConfig.Workers = runtime.NumCPU()
 	}
 
-	// default buffer sizes
-	if cfg.HostConfig.MessageBuffer == 0 {
-		cfg.HostConfig.MessageBuffer = 10000
-	}
-
-	if cfg.HostConfig.ProcessQueueSize == 0 {
-		cfg.HostConfig.ProcessQueueSize = 10000
-	}
-
 	if cfg.HostConfig.StepQueueSize == 0 {
-		cfg.HostConfig.StepQueueSize = 10000
+		cfg.HostConfig.StepQueueSize = 50000
 	}
 
-	if cfg.HostConfig.StepTimeout == 0 {
-		cfg.HostConfig.StepTimeout = 30 * time.Second
+	// Messaging defaults
+	if cfg.HostConfig.BufferSize == 0 {
+		cfg.HostConfig.BufferSize = 1000
 	}
 
-	if cfg.HostConfig.LaunchTimeout == 0 {
-		cfg.HostConfig.LaunchTimeout = 1 * time.Minute
+	if cfg.HostConfig.WorkerCount == 0 {
+		cfg.HostConfig.WorkerCount = runtime.NumCPU()
 	}
 
-	if cfg.HostConfig.ShutdownTimeout == 0 {
-		cfg.HostConfig.ShutdownTimeout = 2 * time.Minute
+	if cfg.HostConfig.RetryTimeout == 0 {
+		cfg.HostConfig.RetryTimeout = 100 * time.Millisecond
+	}
+
+	if cfg.HostConfig.DeliveryTimeout == 0 {
+		cfg.HostConfig.DeliveryTimeout = 30 * time.Second
 	}
 }
 
@@ -163,28 +125,25 @@ func (cfg *EntryConfig) Validate() error {
 		return fmt.Errorf("workers must be greater than 0")
 	}
 
-	if c.MessageBuffer <= 0 {
-		return fmt.Errorf("message_buffer must be greater than 0")
-	}
-
-	if c.ProcessQueueSize <= 0 {
-		return fmt.Errorf("process_queue_size must be greater than 0")
-	}
-
 	if c.StepQueueSize <= 0 {
 		return fmt.Errorf("step_queue_size must be greater than 0")
 	}
 
-	if c.StepTimeout <= 0 {
-		return fmt.Errorf("step_timeout must be greater than 0")
+	// Validate messaging settings
+	if c.BufferSize <= 0 {
+		return fmt.Errorf("buffer_size must be greater than 0")
 	}
 
-	if c.LaunchTimeout <= 0 {
-		return fmt.Errorf("launch_timeout must be greater than 0")
+	if c.WorkerCount <= 0 {
+		return fmt.Errorf("worker_count must be greater than 0")
 	}
 
-	if c.ShutdownTimeout <= 0 {
-		return fmt.Errorf("shutdown_timeout must be greater than 0")
+	if c.RetryTimeout <= 0 {
+		return fmt.Errorf("retry_timeout must be greater than 0")
+	}
+
+	if c.DeliveryTimeout <= 0 {
+		return fmt.Errorf("delivery_timeout must be greater than 0")
 	}
 
 	return nil

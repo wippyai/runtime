@@ -248,7 +248,6 @@ func (t *Terminal) execOp(ctx context.Context, op op) error {
 	}
 }
 
-// Implementation of ControlHost interface
 func (t *Terminal) Attach(pid pubsub.PID, ch chan *pubsub.Batch) (error, context.CancelFunc) {
 	detach := make(chan context.CancelFunc, 1)
 	err := t.execOp(t.ctx, op{
