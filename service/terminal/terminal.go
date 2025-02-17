@@ -312,11 +312,11 @@ func (t *Terminal) Stop(ctx context.Context) error {
 		}),
 	)
 
-	if err := t.Send(ctx, pubsub.PID{}, batch); err != nil {
-		t.log.Warn("failed to send cancel message", zap.Error(err))
-	}
-
 	if runner := t.runner.Load(); runner != nil {
+		if err := t.Send(ctx, pubsub.PID{}, batch); err != nil {
+			t.log.Warn("failed to send cancel message", zap.Error(err))
+		}
+
 		select {
 		case <-runner.Wait():
 			return nil
