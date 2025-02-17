@@ -49,6 +49,7 @@ func Send(l *lua.LState, ch *channel.Channel, value lua.LValue, ok bool) error {
 	case <-l.Context().Done():
 		return errors.New("context has been canceled")
 	}
+
 	return nil
 }
 
