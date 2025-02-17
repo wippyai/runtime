@@ -13,8 +13,8 @@ const (
 	// KindLibrary identifies a Lua library component in the registry
 	KindLibrary registry.Kind = "library.lua"
 	// KindBteaApp identifies a Lua terminal component in the registry
-	KindBteaApp registry.Kind = "btea.app.lua"
-	// KindWorkflow identifies a Lua workflow component in the registry
+	KindBteaApp  registry.Kind = "btea.app.lua"
+	KindProcess  registry.Kind = "process.lua"
 	KindWorkflow registry.Kind = "workflow.lua"
 	// KindModule identifies a Lua module component in the registry
 	KindModule registry.Kind = "module.lua"
@@ -48,14 +48,24 @@ type (
 		Modules []string               `json:"modules"` // Shortcut for importing modules
 	}
 
-	//// WorkflowConfig defines the configuration for a Lua workflow component.
-	//WorkflowConfig struct {
-	//	Source string                 `json:"source"` // Lua source code
-	//	FuncName string                 `json:"method"` // Alias of the Lua method to execute
-	//	Import map[string]registry.Process `json:"import"` // Import aliases for the library
-	//}
+	// ProcessConfig defines the configuration for a Lua processes.
+	ProcessConfig struct {
+		Meta    registry.Metadata      `json:"meta"`    // Metadata for the terminal
+		Source  string                 `json:"source"`  // Lua source code
+		Method  string                 `json:"method"`  // Alias of the Lua method to execute
+		Import  map[string]registry.ID `json:"import"`  // Import aliases for the library
+		Modules []string               `json:"modules"` // Shortcut for importing modules
+	}
 
-	// BteaConfig defines the configuration for a Lua terminal component.
+	// WorkflowConfig defines the configuration for a Lua workflow.
+	WorkflowConfig struct {
+		Meta   registry.Metadata      `json:"meta"`   // Metadata for the terminal
+		Source string                 `json:"source"` // Lua source code
+		Method string                 `json:"method"` // Alias of the Lua method to execute
+		Import map[string]registry.ID `json:"import"` // Import aliases for the libraries (must not have deps)
+	}
+
+	// BteaConfig defines the configuration for a Lua terminal app, this is custom process with host expectations.
 	BteaConfig struct {
 		Meta    registry.Metadata      `json:"meta"`    // Metadata for the terminal
 		Source  string                 `json:"source"`  // Lua source code
