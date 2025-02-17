@@ -3,7 +3,6 @@ package host
 import (
 	"context"
 	"sync"
-	"time"
 
 	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/pubsub"
@@ -25,8 +24,9 @@ type Host struct {
 	processes  sync.Map // map[pubsub.PID]*processInfo
 	pidBatchCh chan *pubsub.PIDBatch
 
-	ctx  context.Context
-	done chan struct{}
+	workers *WorkerPool
+	ctx     context.Context
+	done    chan struct{}
 }
 
 func NewHost(id registry.ID, config process.HostConfig, log *zap.Logger) *Host {
@@ -35,6 +35,7 @@ func NewHost(id registry.ID, config process.HostConfig, log *zap.Logger) *Host {
 		config:     config,
 		log:        log,
 		pidBatchCh: make(chan *pubsub.PIDBatch, config.BufferSize),
+		workers:    NewWorkerPool(config.Workers, config.StepQueueSize, log),
 		done:       make(chan struct{}),
 	}
 
@@ -57,18 +58,19 @@ func (h *Host) Start(ctx context.Context) (<-chan any, error) {
 		h.processes.Delete(pid)
 	})
 
+	h.workers.Start()
 	go h.run(status)
 	return status, nil
 }
 
 func (h *Host) Stop(ctx context.Context) error {
+	h.workers.Stop()
+
 	select {
 	case <-h.done:
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
-		//case <-time.After(h.config.ShutdownTimeout):
-		//	return context.DeadlineExceeded
 	}
 }
 
@@ -87,7 +89,6 @@ func (h *Host) run(status chan<- any) {
 			if info, ok := h.processes.Load(pidBatch.PID); ok {
 				procInfo := info.(*processInfo)
 
-				// todo: we expect that process will wake up automatically!
 				if err := procInfo.process.Send(pidBatch.Batch); err != nil {
 					h.log.Error("failed to send message to process",
 						zap.String("pid", procInfo.pid.String()),
@@ -99,7 +100,6 @@ func (h *Host) run(status chan<- any) {
 }
 
 func (h *Host) cleanup() {
-	// todo: stop workers!
 	h.processes.Range(func(pid, _ interface{}) bool {
 		h.processes.Delete(pid)
 		return true
@@ -128,23 +128,17 @@ func (h *Host) Launch(ctx context.Context, launch *process.LaunchProcess) (pubsu
 	}
 	h.processes.Store(launch.PID, info)
 
-	go func() {
-		timer := time.NewTicker(time.Millisecond * 100)
-		defer timer.Stop()
-
-		for {
-			select {
-			case <-h.ctx.Done():
-				return
-			case <-timer.C:
-				if err := info.process.Step(); err != nil {
-					h.log.Error("initial process step failed",
-						zap.String("pid", launch.PID.String()),
-						zap.Error(err))
-				}
-			}
-		}
-	}()
+	// Schedule the process for execution using the worker pool
+	if err := h.workers.Schedule(WorkRequest{
+		PID:    launch.PID,
+		Runner: launch.Process,
+	}); err != nil {
+		h.log.Error("failed to schedule process",
+			zap.String("pid", launch.PID.String()),
+			zap.Error(err))
+		h.processes.Delete(launch.PID)
+		return pubsub.PID{}, err
+	}
 
 	h.log.Info("process launched", zap.String("pid", launch.PID.String()))
 	return launch.PID, nil
