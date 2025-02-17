@@ -39,7 +39,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
 	}
 
-	cfg := new(api.HostConfig)
+	cfg := new(api.EntryConfig)
 	if err := m.dtt.Unmarshal(entry.Data, cfg); err != nil {
 		return fmt.Errorf("failed to unmarshal config: %w", err)
 	}
@@ -52,7 +52,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	defer m.mu.Unlock()
 
 	// Create new host instance
-	host := NewHost(entry.ID, cfg, m.log.Named("host."+entry.ID.String()))
+	host := NewHost(entry.ID, cfg.HostConfig, m.log.Named("host."+entry.ID.String()))
 
 	// Store in hosts map
 	m.hosts.Store(entry.ID, host)
@@ -71,7 +71,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
 	}
 
-	cfg := new(api.HostConfig)
+	cfg := new(api.EntryConfig)
 	if err := m.dtt.Unmarshal(entry.Data, cfg); err != nil {
 		return fmt.Errorf("failed to unmarshal config: %w", err)
 	}
@@ -89,7 +89,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	}
 
 	host := hostRaw.(*Host)
-	if err := host.UpdateConfig(ctx, cfg); err != nil {
+	if err := host.UpdateConfig(ctx, cfg.HostConfig); err != nil {
 		return fmt.Errorf("failed to update host config: %w", err)
 	}
 
@@ -126,7 +126,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 }
 
 // registerHost registers the process host with necessary subsystems
-func (m *Manager) registerHost(ctx context.Context, id registry.ID, host *Host, cfg *api.HostConfig) {
+func (m *Manager) registerHost(ctx context.Context, id registry.ID, host *Host, cfg *api.EntryConfig) {
 	// Register with pubsub
 	m.bus.Send(ctx, events.Event{
 		System: pubsub.System,
