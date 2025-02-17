@@ -15,7 +15,7 @@ entries:
       auto_start: true
       restart:
         initial_delay: 5s
-        max_attempts: 0
+        max_attempts: 1
 
   - name: minimal
     kind: process.lua
