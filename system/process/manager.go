@@ -65,6 +65,11 @@ func (m *Manager) preparePID(ps *api.StartProcess, managed bool) (pubsub.PID, er
 
 // launchOnHost handles the actual process launch on either managed or delegated hosts
 func (m *Manager) launchOnHost(ctx context.Context, host api.Host, pid pubsub.PID, ps *api.StartProcess) (pubsub.PID, error) {
+	m.logger.Debug("launching process",
+		zap.String("host", ps.HostID),
+		zap.String("pid", pid.String()),
+	)
+
 	switch h := host.(type) {
 	case api.Managed:
 		proc, err := m.prototypes.Create(ps.ID)
