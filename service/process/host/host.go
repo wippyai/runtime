@@ -8,7 +8,6 @@ import (
 	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
-	api "github.com/ponyruntime/pony/api/service/process"
 	"go.uber.org/zap"
 )
 
@@ -39,7 +38,7 @@ type processInstance struct {
 
 type Host struct {
 	id     registry.ID
-	config api.HostConfig
+	config process.HostConfig
 	log    *zap.Logger
 
 	processes sync.Map // map[pubsub.PID]*processInstance
@@ -55,7 +54,7 @@ type Host struct {
 	done   chan struct{}
 }
 
-func NewHost(id registry.ID, config api.HostConfig, log *zap.Logger) *Host {
+func NewHost(id registry.ID, config process.HostConfig, log *zap.Logger) *Host {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	h := &Host{
@@ -91,7 +90,7 @@ func (h *Host) Stop(ctx context.Context) error {
 	}
 }
 
-func (h *Host) UpdateConfig(ctx context.Context, cfg api.HostConfig) error {
+func (h *Host) UpdateConfig(ctx context.Context, cfg process.HostConfig) error {
 	// Only update non-critical configuration
 	h.config = cfg
 	return nil
