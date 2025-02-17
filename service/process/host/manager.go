@@ -23,8 +23,8 @@ type Manager struct {
 	hosts sync.Map // map[registry.ID]*Host
 }
 
-// NewManager creates a new process host manager
-func NewManager(bus events.Bus, dtt payload.Transcoder, logger *zap.Logger) *Manager {
+// NewHostManager creates a new process host manager
+func NewHostManager(bus events.Bus, dtt payload.Transcoder, logger *zap.Logger) *Manager {
 	return &Manager{
 		log: logger,
 		bus: bus,
@@ -42,6 +42,8 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if err := m.dtt.Unmarshal(entry.Data, cfg); err != nil {
 		return fmt.Errorf("failed to unmarshal config: %w", err)
 	}
+
+	cfg.InitDefaults()
 
 	if err := cfg.Validate(); err != nil {
 		return fmt.Errorf("invalid config: %w", err)
@@ -74,6 +76,8 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	if err := m.dtt.Unmarshal(entry.Data, cfg); err != nil {
 		return fmt.Errorf("failed to unmarshal config: %w", err)
 	}
+
+	cfg.InitDefaults()
 
 	if err := cfg.Validate(); err != nil {
 		return fmt.Errorf("invalid config: %w", err)
