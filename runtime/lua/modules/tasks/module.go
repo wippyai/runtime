@@ -3,7 +3,6 @@ package tasks
 
 import (
 	"errors"
-	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	lua "github.com/yuin/gopher-lua"
@@ -11,8 +10,8 @@ import (
 
 // Task represents a task that can be executed and responded to
 type Task struct {
-	Input    payload.Payload
-	Response chan payload.Payload
+	Input    lua.LValue
+	Response chan any
 }
 
 func (t *Task) String() string {
@@ -55,7 +54,7 @@ func (m *Module) taskComplete(l *lua.LState) int {
 
 	coroutine.Wrap(l, func() *engine.Result {
 		select {
-		case task.Response <- payload.NewPayload(value, payload.Lua):
+		case task.Response <- value:
 			close(task.Response)
 			return engine.NewResult(l, []lua.LValue{lua.LTrue}, nil)
 		case <-l.Context().Done():
@@ -78,7 +77,7 @@ func (m *Module) taskSend(l *lua.LState) int {
 
 	coroutine.Wrap(l, func() *engine.Result {
 		select {
-		case task.Response <- payload.NewPayload(value, payload.Lua):
+		case task.Response <- value:
 			return engine.NewResult(l, []lua.LValue{lua.LTrue}, nil)
 		case <-l.Context().Done():
 			return engine.NewResult(l, nil, l.Context().Err())
@@ -95,7 +94,7 @@ func (m *Module) taskFail(l *lua.LState) int {
 
 	coroutine.Wrap(l, func() *engine.Result {
 		select {
-		case task.Response <- payload.NewError(errors.New(errMsg)):
+		case task.Response <- errors.New(errMsg):
 			close(task.Response)
 			return engine.NewResult(l, []lua.LValue{lua.LTrue}, nil)
 		case <-l.Context().Done():
@@ -110,25 +109,8 @@ func (m *Module) taskFail(l *lua.LState) int {
 func (m *Module) taskInput(l *lua.LState) int {
 	task := CheckTask(l, 1)
 
-	tr := payload.GetTranscoder(l.Context())
-	if tr == nil {
-		l.RaiseError("no transcoder in context")
-		return 0
-	}
-
-	luaPayload, err := tr.Transcode(task.Input, payload.Lua)
-	if err != nil {
-		l.RaiseError("failed to transcode input: %v", err)
-		return 0
-	}
-
-	if luaValue, ok := luaPayload.Data().(lua.LValue); ok {
-		l.Push(luaValue)
-		return 1
-	}
-
-	l.RaiseError("invalid payload data type")
-	return 0
+	l.Push(task.Input)
+	return 1
 }
 
 // CheckTask validates and returns the task handle from Lua stack
@@ -142,10 +124,10 @@ func CheckTask(l *lua.LState, n int) *Task {
 }
 
 // CreateTask creates a new task with payload-based input
-func CreateTask(input payload.Payload) (*Task, error) {
+func CreateTask(input lua.LValue) (*Task, error) {
 	task := &Task{
 		Input:    input,
-		Response: make(chan payload.Payload, 1),
+		Response: make(chan any, 1),
 	}
 	return task, nil
 }
