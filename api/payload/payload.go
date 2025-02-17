@@ -73,7 +73,11 @@ type (
 )
 
 func GetTranscoder(ctx context.Context) Transcoder {
-	return ctx.Value(ctxapi.TranscoderCtx).(Transcoder)
+	dtt, ok := ctx.Value(ctxapi.TranscoderCtx).(Transcoder)
+	if !ok {
+		return nil
+	}
+	return dtt
 }
 
 // payload is a concrete implementation of the Payload interface.

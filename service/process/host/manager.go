@@ -53,7 +53,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	defer m.mu.Unlock()
 
 	// Create new host instance
-	host := NewHost(entry.ID, cfg.HostConfig, m.log.Named("host."+entry.ID.String()))
+	host := NewHost(entry.ID, cfg.HostConfig, m.log)
 
 	// Store in hosts map
 	m.hosts.Store(entry.ID, host)

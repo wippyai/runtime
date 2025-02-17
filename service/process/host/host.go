@@ -25,21 +25,16 @@ type Host struct {
 	processes  sync.Map // map[pubsub.PID]*processInfo
 	pidBatchCh chan *pubsub.PIDBatch
 
-	ctx    context.Context
-	cancel context.CancelFunc
-	done   chan struct{}
+	ctx  context.Context
+	done chan struct{}
 }
 
 func NewHost(id registry.ID, config process.HostConfig, log *zap.Logger) *Host {
-	ctx, cancel := context.WithCancel(context.Background())
-
 	h := &Host{
 		id:         id,
 		config:     config,
 		log:        log,
 		pidBatchCh: make(chan *pubsub.PIDBatch, config.BufferSize),
-		ctx:        ctx,
-		cancel:     cancel,
 		done:       make(chan struct{}),
 	}
 
@@ -49,7 +44,7 @@ func NewHost(id registry.ID, config process.HostConfig, log *zap.Logger) *Host {
 func (h *Host) Start(ctx context.Context) (<-chan any, error) {
 	status := make(chan any, 1)
 
-	h.ctx = process.WithAddedOnComplete(h.ctx, func(pid pubsub.PID, result *runtime.Result) {
+	h.ctx = process.WithAddedOnComplete(ctx, func(pid pubsub.PID, result *runtime.Result) {
 		if result.Error != nil {
 			h.log.Error("process execution failed",
 				zap.String("pid", pid.String()),
@@ -67,7 +62,6 @@ func (h *Host) Start(ctx context.Context) (<-chan any, error) {
 }
 
 func (h *Host) Stop(ctx context.Context) error {
-	h.cancel()
 	select {
 	case <-h.done:
 		return nil
@@ -92,30 +86,13 @@ func (h *Host) run(status chan<- any) {
 		case pidBatch := <-h.pidBatchCh:
 			if info, ok := h.processes.Load(pidBatch.PID); ok {
 				procInfo := info.(*processInfo)
+
+				// todo: we expect that process will wake up automatically!
 				if err := procInfo.process.Send(pidBatch.Batch); err != nil {
 					h.log.Error("failed to send message to process",
 						zap.String("pid", procInfo.pid.String()),
 						zap.Error(err))
 				}
-
-				go func(pid pubsub.PID) {
-					timer := time.NewTimer(h.config.DeliveryTimeout)
-					defer timer.Stop()
-
-					select {
-					case <-h.ctx.Done():
-						return
-					case <-timer.C:
-						if info, ok := h.processes.Load(pid); ok {
-							procInfo := info.(*processInfo)
-							if err := procInfo.process.Step(); err != nil {
-								h.log.Error("process step failed",
-									zap.String("pid", pid.String()),
-									zap.Error(err))
-							}
-						}
-					}
-				}(pidBatch.PID)
 			}
 		}
 	}
