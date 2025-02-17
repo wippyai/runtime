@@ -16,6 +16,11 @@ const (
 	KindHost registry.Kind = "process.host"
 )
 
+type EntryConfig struct {
+	HostConfig HostConfig                 `json:"host_config"`
+	Lifecycle  supervisor.LifecycleConfig `json:"lifecycle"`
+}
+
 // HostConfig represents configuration for a process host service
 type HostConfig struct {
 	// Process execution settings
@@ -31,9 +36,6 @@ type HostConfig struct {
 	StepTimeout     time.Duration `json:"step_timeout"`     // Maximum time allowed for a single step execution
 	LaunchTimeout   time.Duration `json:"launch_timeout"`   // Timeout for process launch operations
 	ShutdownTimeout time.Duration `json:"shutdown_timeout"` // Timeout for graceful shutdown
-
-	// Lifecycle configuration
-	Lifecycle supervisor.LifecycleConfig `json:"lifecycle"` // Lifecycle management config
 }
 
 // UnmarshalJSON implements custom unmarshaling for HostConfig to handle time.Duration fields
@@ -94,32 +96,36 @@ func (c *HostConfig) MarshalJSON() ([]byte, error) {
 }
 
 // DefaultConfig returns a HostConfig with sensible defaults
-func DefaultConfig() *HostConfig {
-	cfg := &HostConfig{
-		MaxProcesses:  100,
-		Workers:       runtime.NumCPU(),
-		MessageBuffer: 1000,
-
-		ProcessQueueSize: 1000,
-		StepQueueSize:    5000,
-
-		StepTimeout:     30 * time.Second,
-		LaunchTimeout:   1 * time.Minute,
-		ShutdownTimeout: 2 * time.Minute,
-	}
-
+func DefaultConfig() *EntryConfig {
 	// Initialize lifecycle defaults
-	cfg.Lifecycle.InitDefaults()
+	lifecycle := supervisor.LifecycleConfig{}
+	lifecycle.InitDefaults()
 
-	return cfg
+	return &EntryConfig{
+		HostConfig: HostConfig{
+			MaxProcesses:  100,
+			Workers:       runtime.NumCPU(),
+			MessageBuffer: 1000,
+
+			ProcessQueueSize: 1000,
+			StepQueueSize:    5000,
+
+			StepTimeout:     30 * time.Second,
+			LaunchTimeout:   1 * time.Minute,
+			ShutdownTimeout: 2 * time.Minute,
+		},
+		Lifecycle: lifecycle,
+	}
 }
 
-func (c *HostConfig) InitDefaults() {
-	c.Lifecycle.InitDefaults()
+func (cfg *EntryConfig) InitDefaults() {
+	cfg.Lifecycle.InitDefaults()
 }
 
 // Validate checks if the configuration is valid
-func (c *HostConfig) Validate() error {
+func (cfg *EntryConfig) Validate() error {
+	c := cfg.HostConfig
+
 	if c.MaxProcesses <= 0 {
 		return fmt.Errorf("max_processes must be greater than 0")
 	}
