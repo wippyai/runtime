@@ -49,9 +49,9 @@ entries:
       comment: "Discord command handlers"
       version: "0.1.0"
     source: file://commands.lua
-    modules: [ "time", "channel" ]  # Added channel module for update channel
+    modules: [ "time" ]
     import:
-      "components": "chat:components"  # Import chat components for session management
+      "components": "chat:components"
 
   - name: ui
     kind: library.lua
