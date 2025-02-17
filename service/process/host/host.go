@@ -60,6 +60,7 @@ func (h *Host) Start(ctx context.Context) (<-chan any, error) {
 
 	h.workers.Start()
 	go h.run(status)
+
 	return status, nil
 }
 
@@ -116,6 +117,10 @@ func (h *Host) Launch(ctx context.Context, launch *process.LaunchProcess) (pubsu
 	// check if pid is busy
 	if _, loaded := h.processes.Load(launch.PID); loaded {
 		return pubsub.PID{}, process.ErrHostBusy
+	}
+
+	if h.ctx == nil {
+		return pubsub.PID{}, process.ErrHostDead
 	}
 
 	if err := launch.Process.Start(h.ctx, launch.PID, launch.Input); err != nil {
