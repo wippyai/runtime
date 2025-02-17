@@ -9,15 +9,11 @@ import (
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/ponyruntime/pony/api/topology"
 )
 
 // Event system and kind constants for the workflow package
 const (
-	// Auto-supervision
-	KindProcessService = "process.service"
-
 	// PrototypeSystem identifies the workflow system in the event bus.
 	PrototypeSystem events.System = "prototype"
 
@@ -49,20 +45,6 @@ var (
 )
 
 type (
-	ServiceConfig struct {
-		// Process that will be used to start the process
-		Process registry.ID `json:"process" yaml:"process"`
-
-		// Host Process where the process should be started
-		HostID pubsub.HostID `json:"host" yaml:"host"`
-
-		// Payloads to be passed to the process as input
-		Input []any `json:"input" yaml:"input"`
-
-		// Lifecycle configuration for supervisor
-		Lifecycle supervisor.LifecycleConfig `json:"lifecycle" yaml:"lifecycle"`
-	}
-
 	// Prototype is a function that creates a new process instance.
 	Prototype func() (Process, error)
 
