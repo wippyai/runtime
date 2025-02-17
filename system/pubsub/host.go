@@ -83,6 +83,24 @@ func (h *Host) Attach(pid api.PID, ch chan *api.Batch) (error, context.CancelFun
 	return nil, cancel
 }
 
+// AttachPIDBatch attaches a receiver channel for PIDBatch to a PID.
+// If a receiver is already attached, it returns ErrAlreadyAttached.
+func (h *Host) AttachPIDBatch(pid api.PID, ch chan *api.PIDBatch) (error, context.CancelFunc) {
+	_, loaded := h.receivers.LoadOrStore(pid, ch)
+	if loaded {
+		h.logger.Warn("attempt to attach already existing PIDBatch receiver", zap.String("pid", pid.String()))
+		return api.ErrAlreadyAttached, nil
+	}
+
+	h.logger.Debug("PIDBatch receiver attached", zap.String("pid", pid.String()))
+
+	cancel := func() {
+		h.receivers.Delete(pid)
+		h.logger.Debug("PIDBatch receiver detached", zap.String("pid", pid.String()))
+	}
+	return nil, cancel
+}
+
 // Send enqueues a send job for the given PID and batch.
 // It first attempts to send immediately, then falls back to a retry with timeout
 // if the channel is full. Returns error if both attempts fail or context expires.
@@ -131,43 +149,84 @@ func (h *Host) worker() {
 		case <-h.ctx.Done():
 			return
 		case job := <-h.jobCh:
-			// Check if the job's context is still valid.
 			if job.ctx.Err() != nil {
 				h.logger.Warn("job context expired before processing", zap.String("pid", job.pid.String()), zap.Error(job.ctx.Err()))
 				continue
 			}
 
-			// Retrieve the receiver channel for the PID.
 			rec, ok := h.receivers.Load(job.pid)
 			if !ok {
-				// nothing
 				continue
 			}
 
-			ch, ok := rec.(chan *api.Batch)
-			if !ok {
-				h.logger.Error("invalid receiver type", zap.String("pid", job.pid.String()), zap.String("type", fmt.Sprintf("%T", rec)))
-				continue
-			}
-
-			// Attempt a non-blocking send first.
-			select {
-			case ch <- job.batch:
-				// Successfully sent immediately.
+			// Handle both types of channels
+			switch ch := rec.(type) {
+			case chan *api.Batch:
+				h.deliverBatch(job, ch)
+			case chan *api.PIDBatch:
+				h.deliverPIDBatch(job, ch)
 			default:
-				// Use an inner select with delivery timeout.
-				select {
-				case ch <- job.batch:
-					// Successfully sent after waiting.
-				case <-job.ctx.Done():
-					h.logger.Warn("send cancelled while delivering to receiver", zap.String("pid", job.pid.String()), zap.Error(job.ctx.Err()))
-				case <-time.After(h.config.DeliveryTimeout):
-					h.logger.Warn("delivery timeout exceeded; dropping message", zap.String("pid", job.pid.String()), zap.Duration("delivery_timeout", h.config.DeliveryTimeout))
-				case <-h.ctx.Done():
-					h.logger.Info("worker shutting down, dropping message", zap.String("pid", job.pid.String()))
-					return
-				}
+				h.logger.Error("invalid receiver type",
+					zap.String("pid", job.pid.String()),
+					zap.String("type", fmt.Sprintf("%T", rec)))
 			}
+		}
+	}
+}
+
+// deliverBatch handles delivery to regular Batch channels
+func (h *Host) deliverBatch(job sendJob, ch chan *api.Batch) {
+	select {
+	case ch <- job.batch:
+		// Successfully sent immediately
+		return
+	default:
+		// Use timeout-based delivery
+		select {
+		case ch <- job.batch:
+			// Successfully sent after waiting
+		case <-job.ctx.Done():
+			h.logger.Warn("send cancelled while delivering to receiver",
+				zap.String("pid", job.pid.String()),
+				zap.Error(job.ctx.Err()))
+		case <-time.After(h.config.DeliveryTimeout):
+			h.logger.Warn("delivery timeout exceeded; dropping message",
+				zap.String("pid", job.pid.String()),
+				zap.Duration("delivery_timeout", h.config.DeliveryTimeout))
+		case <-h.ctx.Done():
+			h.logger.Info("worker shutting down, dropping message",
+				zap.String("pid", job.pid.String()))
+		}
+	}
+}
+
+// deliverPIDBatch handles delivery to PIDBatch channels
+func (h *Host) deliverPIDBatch(job sendJob, ch chan *api.PIDBatch) {
+	pidBatch := &api.PIDBatch{
+		PID:   job.pid,
+		Batch: job.batch,
+	}
+
+	select {
+	case ch <- pidBatch:
+		// Successfully sent immediately
+		return
+	default:
+		// Use timeout-based delivery
+		select {
+		case ch <- pidBatch:
+			// Successfully sent after waiting
+		case <-job.ctx.Done():
+			h.logger.Warn("send cancelled while delivering to PIDBatch receiver",
+				zap.String("pid", job.pid.String()),
+				zap.Error(job.ctx.Err()))
+		case <-time.After(h.config.DeliveryTimeout):
+			h.logger.Warn("delivery timeout exceeded; dropping PIDBatch message",
+				zap.String("pid", job.pid.String()),
+				zap.Duration("delivery_timeout", h.config.DeliveryTimeout))
+		case <-h.ctx.Done():
+			h.logger.Info("worker shutting down, dropping PIDBatch message",
+				zap.String("pid", job.pid.String()))
 		}
 	}
 }

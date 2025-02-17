@@ -33,6 +33,11 @@ type (
 		Payloads payload.Payloads
 	}
 
+	PIDBatch struct {
+		PID   PID
+		Batch *Batch
+	}
+
 	Batch = []*Message
 
 	Host interface {

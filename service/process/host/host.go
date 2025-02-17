@@ -2,6 +2,7 @@ package host
 
 import (
 	"context"
+	pubsubImpl "github.com/ponyruntime/pony/system/pubsub"
 	"sync"
 	"time"
 
@@ -42,6 +43,7 @@ type Host struct {
 	log    *zap.Logger
 
 	processes sync.Map // map[pubsub.PID]*processInstance
+	msgs      pubsub.Host
 
 	commandCh chan command
 	stepCh    chan stepWork
@@ -76,6 +78,14 @@ func NewHost(id registry.ID, config process.HostConfig, log *zap.Logger) *Host {
 
 func (h *Host) Start(ctx context.Context) (<-chan any, error) {
 	status := make(chan any, 1)
+	h.msgs = pubsubImpl.NewHost(ctx, pubsubImpl.HostConfig{
+		BufferSize:      0,
+		WorkerCount:     0,
+		Logger:          nil,
+		RetryTimeout:    0,
+		DeliveryTimeout: 0,
+	})
+
 	go h.run(status)
 	return status, nil
 }
@@ -205,20 +215,6 @@ func (h *Host) Launch(ctx context.Context, launch *process.LaunchProcess) (pubsu
 	}
 }
 
-func (h *Host) Send(ctx context.Context, pid pubsub.PID, batch *pubsub.Batch) error {
-	select {
-	case h.messageCh <- message{pid: pid, batch: batch}:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
-		// Drop message if channel is full
-		h.log.Warn("message channel full, dropping message",
-			zap.String("pid", pid.String()))
-		return nil
-	}
-}
-
 func (h *Host) Terminate(ctx context.Context, pid pubsub.PID) error {
 	select {
 	case h.commandCh <- stopCommand{pid: pid}:
@@ -228,4 +224,12 @@ func (h *Host) Terminate(ctx context.Context, pid pubsub.PID) error {
 	default:
 		return process.ErrHostBusy
 	}
+}
+
+func (h *Host) Send(ctx context.Context, pid pubsub.PID, batch *pubsub.Batch) error {
+	return h.msgs.Send(ctx, pid, batch)
+}
+
+func (h *Host) Attach(pid pubsub.PID, ch chan *pubsub.Batch) (error, context.CancelFunc) {
+	return h.msgs.Attach(pid, ch)
 }
