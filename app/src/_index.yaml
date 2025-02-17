@@ -10,7 +10,7 @@ entries:
     meta:
       comment: "Minimal Process Service"
     process: minimal
-    host: system:terminal
+    host: system:heap
     lifecycle:
       auto_start: true
       restart:
