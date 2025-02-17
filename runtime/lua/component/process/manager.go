@@ -1,11 +1,10 @@
-package terminal
+package process
 
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/runtime/lua/engine/async"
-	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
+	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	"sync"
 
 	"github.com/ponyruntime/pony/api/events"
@@ -16,25 +15,22 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/component"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
-	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
+	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
 	"go.uber.org/zap"
 )
 
 var (
-	bteaBuild *code.BuildOptions
-	layers    component.Option
+	processBuild  *code.BuildOptions
+	processLayers component.Option
 )
 
 func init() {
-	bteaBuild = code.NewBuildOptions().
+	processBuild = code.NewBuildOptions().
 		WithMode(code.AllowAll).
 		WithPreloaded(code.Preload{Name: "channel", ModuleID: registry.ID{Name: "channel"}}).
-		WithPreloaded(code.Preload{Name: "pubsub", ModuleID: registry.ID{Name: "subscribe"}}).
-		WithPreloaded(code.Preload{Name: "upstream", ModuleID: registry.ID{Name: "upstream"}}).
-		WithPreloaded(code.Preload{Name: "tasks", ModuleID: registry.ID{Name: "tasks"}}).
-		WithPreloaded(code.Preload{Name: "btea", ModuleID: registry.ID{Name: "btea"}})
+		WithPreloaded(code.Preload{Name: "pubsub", ModuleID: registry.ID{Name: "subscribe"}})
 
-	layers = component.WithLayerInitializer(func() []engine.RunnerOption {
+	processLayers = component.WithLayerInitializer(func() []engine.RunnerOption {
 		channels := channel.NewChannelLayer()
 		return []engine.RunnerOption{
 			engine.WithLayer(channels),
@@ -45,16 +41,16 @@ func init() {
 	})
 }
 
-// Manager is responsible for handling Btea apps.
+// Manager handles Lua process components
 type Manager struct {
 	log     *zap.Logger
 	code    *code.Manager
 	bus     events.Bus
-	configs sync.Map // map[registry.ID]*api.BteaConfig
+	configs sync.Map // map[registry.ID]*api.ProcessConfig
 }
 
-// NewBteaManager creates a new instance of Manager.
-func NewBteaManager(log *zap.Logger, code *code.Manager, bus events.Bus) *Manager {
+// NewProcessManager creates a new process manager instance
+func NewProcessManager(log *zap.Logger, code *code.Manager, bus events.Bus) *Manager {
 	return &Manager{
 		log:  log,
 		code: code,
@@ -63,24 +59,24 @@ func NewBteaManager(log *zap.Logger, code *code.Manager, bus events.Bus) *Manage
 }
 
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != api.KindBteaApp {
-		return fmt.Errorf("invalid entry kind %s, expected %s", entry.Kind, api.KindBteaApp)
+	if entry.Kind != api.KindProcess {
+		return fmt.Errorf("invalid entry kind %s, expected %s", entry.Kind, api.KindProcess)
 	}
 
-	cfg, err := component.UnpackConfig[api.BteaConfig](ctx, entry)
+	cfg, err := component.UnpackConfig[api.ProcessConfig](ctx, entry)
 	if err != nil {
-		return fmt.Errorf("failed to unpack btea config: %w", err)
+		return fmt.Errorf("failed to unpack process config: %w", err)
 	}
 
 	node := code.Node{
 		ID:     entry.ID,
-		Kind:   api.KindBteaApp,
+		Kind:   api.KindProcess,
 		Source: cfg.Source,
 		Method: cfg.Method,
 	}
 
 	if err := m.code.AddNode(ctx, node, component.BuildImports(cfg.Import, cfg.Modules)); err != nil {
-		return fmt.Errorf("failed to add btea node: %w", err)
+		return fmt.Errorf("failed to add process node: %w", err)
 	}
 
 	m.configs.Store(entry.ID, cfg)
@@ -89,29 +85,29 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		return fmt.Errorf("failed to create prototype: %w", err)
 	}
 
-	m.log.Debug("added btea app", zap.String("id", entry.ID.String()))
+	m.log.Debug("added process", zap.String("id", entry.ID.String()))
 	return nil
 }
 
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != api.KindBteaApp {
-		return fmt.Errorf("invalid entry kind %s, expected %s", entry.Kind, api.KindBteaApp)
+	if entry.Kind != api.KindProcess {
+		return fmt.Errorf("invalid entry kind %s, expected %s", entry.Kind, api.KindProcess)
 	}
 
-	cfg, err := component.UnpackConfig[api.BteaConfig](ctx, entry)
+	cfg, err := component.UnpackConfig[api.ProcessConfig](ctx, entry)
 	if err != nil {
-		return fmt.Errorf("failed to unpack btea config: %w", err)
+		return fmt.Errorf("failed to unpack process config: %w", err)
 	}
 
 	node := code.Node{
 		ID:     entry.ID,
-		Kind:   api.KindBteaApp,
+		Kind:   api.KindProcess,
 		Source: cfg.Source,
 		Method: cfg.Method,
 	}
 
-	if err := m.code.UpdateNode(ctx, node, component.BuildImports(cfg.Import, nil)); err != nil {
-		return fmt.Errorf("failed to update btea node: %w", err)
+	if err := m.code.UpdateNode(ctx, node, component.BuildImports(cfg.Import, cfg.Modules)); err != nil {
+		return fmt.Errorf("failed to update process node: %w", err)
 	}
 
 	m.configs.Store(entry.ID, cfg)
@@ -120,29 +116,29 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		return fmt.Errorf("failed to update prototype: %w", err)
 	}
 
-	m.log.Debug("updated btea app", zap.String("id", entry.ID.String()))
+	m.log.Debug("updated process", zap.String("id", entry.ID.String()))
 	return nil
 }
 
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != api.KindBteaApp {
-		return fmt.Errorf("invalid entry kind %s, expected %s", entry.Kind, api.KindBteaApp)
+	if entry.Kind != api.KindProcess {
+		return fmt.Errorf("invalid entry kind %s, expected %s", entry.Kind, api.KindProcess)
 	}
 
 	if err := m.code.DeleteNode(ctx, entry.ID); err != nil {
-		return fmt.Errorf("failed to delete btea node: %w", err)
+		return fmt.Errorf("failed to delete process node: %w", err)
 	}
 
 	m.configs.Delete(entry.ID)
 	m.unregisterPrototype(ctx, entry.ID)
 
-	m.log.Debug("deleted btea app", zap.String("id", entry.ID.String()))
+	m.log.Debug("deleted process", zap.String("id", entry.ID.String()))
 	return nil
 }
 
 func (m *Manager) Invalidate(ctx context.Context, ids []registry.ID) {
 	for _, id := range ids {
-		m.log.Debug("invalidating btea app", zap.String("id", id.String()))
+		m.log.Debug("invalidating process", zap.String("id", id.String()))
 
 		if _, exists := m.configs.Load(id); exists {
 			if err := m.upsertPrototype(ctx, id); err != nil {
@@ -152,21 +148,20 @@ func (m *Manager) Invalidate(ctx context.Context, ids []registry.ID) {
 	}
 }
 
-// createRunner creates a new runner for a btea app
+// createRunner creates a new runner for a process
 func (m *Manager) createRunner(id registry.ID) (*engine.Runner, string, error) {
-	compiled, err := m.code.Compile(id, bteaBuild)
+	compiled, err := m.code.Compile(id, processBuild)
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to compile btea app: %w", err)
+		return nil, "", fmt.Errorf("failed to compile process: %w", err)
 	}
 
-	fvm, err := component.NewRunnerFactory(m.log, compiled, layers)
+	fvm, err := component.NewRunnerFactory(m.log, compiled, processLayers)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to create runner factory: %w", err)
 	}
 
 	defer func() {
-		err := fvm.Close()
-		if err != nil {
+		if err := fvm.Close(); err != nil {
 			m.log.Error("failed to close runner factory", zap.Error(err))
 		}
 	}()
@@ -179,11 +174,10 @@ func (m *Manager) createRunner(id registry.ID) (*engine.Runner, string, error) {
 	return runner, compiled.FuncName, nil
 }
 
-// upsertPrototype creates or updates a btea app prototype
+// upsertPrototype creates or updates a process prototype
 func (m *Manager) upsertPrototype(ctx context.Context, id registry.ID) error {
 	_, _, err := m.createRunner(id)
 	if err != nil {
-		// compile check
 		return err
 	}
 
@@ -191,7 +185,7 @@ func (m *Manager) upsertPrototype(ctx context.Context, id registry.ID) error {
 	return nil
 }
 
-// registerPrototype registers a btea app as a process prototype
+// registerPrototype registers a process prototype
 func (m *Manager) registerPrototype(ctx context.Context, id registry.ID) {
 	m.bus.Send(ctx, events.Event{
 		System: process.PrototypeSystem,
@@ -200,16 +194,15 @@ func (m *Manager) registerPrototype(ctx context.Context, id registry.ID) {
 		Data: process.Prototype(func() (process.Process, error) {
 			runner, funcName, err := m.createRunner(id)
 			if err != nil {
-				// compile check
 				return nil, err
 			}
 
-			return NewApp(m.log, payload.GetTranscoder(ctx), runner, funcName)
+			return NewProcess(m.log, runner, funcName)
 		}),
 	})
 }
 
-// unregisterPrototype removes a btea app's process prototype registration
+// unregisterPrototype removes a process prototype registration
 func (m *Manager) unregisterPrototype(ctx context.Context, id registry.ID) {
 	m.bus.Send(ctx, events.Event{
 		System: process.PrototypeSystem,

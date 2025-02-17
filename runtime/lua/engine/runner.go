@@ -301,6 +301,19 @@ func (e *Runner) WithContext(ctx context.Context) context.Context {
 	return ctx
 }
 
+// WithUpstreamContext creates a new context with task group and preset wake callback.
+func (e *Runner) WithUpstreamContext(ctx context.Context, wake func()) context.Context {
+	// todo: implement
+	ctx = WithTaskGroup(ctx, e.taskGroup)
+	for _, l := range e.layers {
+		if c, ok := l.(Contexter); ok {
+			ctx = c.WithContext(ctx)
+		}
+	}
+
+	return ctx
+}
+
 // Close shuts down the runner and its underlying CVM.
 // This should be called when the runner is no longer needed.
 func (e *Runner) Close() {

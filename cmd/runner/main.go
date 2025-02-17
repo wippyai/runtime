@@ -14,6 +14,7 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/code"
 	luaFunc "github.com/ponyruntime/pony/runtime/lua/component/function"
 	"github.com/ponyruntime/pony/runtime/lua/component/library"
+	luaProcess "github.com/ponyruntime/pony/runtime/lua/component/process"
 	bteaApps "github.com/ponyruntime/pony/runtime/lua/component/terminal"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
@@ -565,7 +566,7 @@ func WithProcessSupervisor(a *App) eventbus.EventHandler {
 }
 
 func WithNoopRuntime(a *App) eventbus.EventHandler {
-	return reghandler.NewRegistryHandler("(function|process|library).*", noop.NewNoopRuntime(
+	return reghandler.NewRegistryHandler("(function|workflow|process|library).*", noop.NewNoopRuntime(
 		a.eventBus,
 		a.logger.Named("noop"),
 	))
@@ -604,12 +605,14 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 
 	funcs := luaFunc.NewManager(a.logger.Named("lua.funcs"), codeManager, a.eventBus)
 	libraries := library.NewManager(a.logger.Named("lua.libs"), codeManager)
+	processes := luaProcess.NewProcessManager(a.logger.Named("lua.proc"), codeManager, a.eventBus)
 	terminalApps := bteaApps.NewBteaManager(a.logger.Named("lua.bteaApps"), codeManager, a.eventBus)
 
 	return []eventbus.EventHandler{
 		reghandler.NewTransactionHandler(codeManager),
 		reghandler.NewRegistryHandler("function.lua", funcs),
 		reghandler.NewRegistryHandler("library.lua", libraries),
+		reghandler.NewRegistryHandler("process.lua", processes),
 		reghandler.NewRegistryHandler("btea.app.lua", terminalApps),
 	}
 }

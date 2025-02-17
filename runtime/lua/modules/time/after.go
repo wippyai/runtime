@@ -23,6 +23,7 @@ func after(l *lua.LState) int {
 
 	ch := channel.Named(fmt.Sprintf("timer_%s", duration), 1)
 	go func() {
+		// todo: in future we want to upstream all of that to keep control away from coroutines
 		select {
 		case <-time.After(duration):
 		case <-l.Context().Done():
