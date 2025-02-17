@@ -19,6 +19,11 @@ local function run()
             break
         end
 
+        if result.channel == events_ch then
+            local event = result.value
+            print("got event")
+        end
+
         if result.channel == done then
             break
         end
