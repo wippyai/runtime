@@ -63,7 +63,6 @@ func ticker(l *lua.LState) int {
 				timeUD.Value = &Time{time: t}
 				errs := async.Send(l, ch, timeUD, true)
 				if errs != nil {
-					l.RaiseError("time.ticker: %s", errs)
 					return
 				}
 			case <-l.Context().Done():

@@ -99,6 +99,7 @@ func (h *Host) run(status chan<- any) {
 }
 
 func (h *Host) cleanup() {
+	// todo: stop workers!
 	h.processes.Range(func(pid, _ interface{}) bool {
 		h.processes.Delete(pid)
 		return true
@@ -112,6 +113,11 @@ func (h *Host) cleanup() {
 }
 
 func (h *Host) Launch(ctx context.Context, launch *process.LaunchProcess) (pubsub.PID, error) {
+	// check if pid is busy
+	if _, loaded := h.processes.Load(launch.PID); loaded {
+		return pubsub.PID{}, process.ErrHostBusy
+	}
+
 	if err := launch.Process.Start(h.ctx, launch.PID, launch.Input); err != nil {
 		return pubsub.PID{}, err
 	}
@@ -120,22 +126,18 @@ func (h *Host) Launch(ctx context.Context, launch *process.LaunchProcess) (pubsu
 		pid:     launch.PID,
 		process: launch.Process,
 	}
-
-	if _, loaded := h.processes.LoadOrStore(launch.PID, info); loaded {
-		return pubsub.PID{}, process.ErrHostBusy
-	}
+	h.processes.Store(launch.PID, info)
 
 	go func() {
-		timer := time.NewTimer(h.config.DeliveryTimeout)
+		timer := time.NewTicker(time.Millisecond * 100)
 		defer timer.Stop()
 
-		select {
-		case <-h.ctx.Done():
-			return
-		case <-timer.C:
-			if info, ok := h.processes.Load(launch.PID); ok {
-				procInfo := info.(*processInfo)
-				if err := procInfo.process.Step(); err != nil {
+		for {
+			select {
+			case <-h.ctx.Done():
+				return
+			case <-timer.C:
+				if err := info.process.Step(); err != nil {
 					h.log.Error("initial process step failed",
 						zap.String("pid", launch.PID.String()),
 						zap.Error(err))
