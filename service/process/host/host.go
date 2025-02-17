@@ -129,7 +129,7 @@ func (h *Host) Launch(ctx context.Context, launch *process.LaunchProcess) (pubsu
 	h.processes.Store(launch.PID, info)
 
 	// Schedule the process for execution using the worker pool
-	if err := h.workers.Schedule(WorkRequest{
+	if err := h.workers.Schedule(&WorkRequest{
 		PID:    launch.PID,
 		Runner: launch.Process,
 	}); err != nil {

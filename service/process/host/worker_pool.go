@@ -25,7 +25,7 @@ type WorkRequest struct {
 type WorkerPool struct {
 	workers int
 	log     *zap.Logger
-	workCh  chan WorkRequest
+	workCh  chan *WorkRequest
 
 	wg     sync.WaitGroup
 	ctx    context.Context
@@ -39,7 +39,7 @@ func NewWorkerPool(workers int, queueSize int, log *zap.Logger) *WorkerPool {
 	return &WorkerPool{
 		workers: workers,
 		log:     log,
-		workCh:  make(chan WorkRequest, queueSize),
+		workCh:  make(chan *WorkRequest, queueSize),
 		ctx:     ctx,
 		cancel:  cancel,
 	}
@@ -60,7 +60,7 @@ func (p *WorkerPool) Stop() {
 }
 
 // Schedule adds a process step execution request to the work queue
-func (p *WorkerPool) Schedule(req WorkRequest) error {
+func (p *WorkerPool) Schedule(req *WorkRequest) error {
 	select {
 	case p.workCh <- req:
 		return nil
@@ -86,14 +86,14 @@ func (p *WorkerPool) worker() {
 					zap.String("pid", work.PID.String()),
 					zap.Error(err))
 			}
-
 			log.Printf("process step completed: %s", work.PID)
+
 			p.workCh <- work
 		}
 	}
 }
 
 // WorkChannel returns the channel for submitting work requests
-func (p *WorkerPool) WorkChannel() chan<- WorkRequest {
+func (p *WorkerPool) WorkChannel() chan<- *WorkRequest {
 	return p.workCh
 }
