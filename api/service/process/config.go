@@ -1,6 +1,7 @@
 package process
 
 import (
+	"encoding/json"
 	"fmt"
 	"runtime"
 	"time"
@@ -33,6 +34,63 @@ type HostConfig struct {
 
 	// Lifecycle configuration
 	Lifecycle supervisor.LifecycleConfig `json:"lifecycle"` // Lifecycle management config
+}
+
+// UnmarshalJSON implements custom unmarshaling for HostConfig to handle time.Duration fields
+func (c *HostConfig) UnmarshalJSON(data []byte) error {
+	type Alias HostConfig
+	aux := &struct {
+		StepTimeout     string `json:"step_timeout"`
+		LaunchTimeout   string `json:"launch_timeout"`
+		ShutdownTimeout string `json:"shutdown_timeout"`
+		*Alias
+	}{
+		Alias: (*Alias)(c),
+	}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	var err error
+	if aux.StepTimeout != "" {
+		c.StepTimeout, err = time.ParseDuration(aux.StepTimeout)
+		if err != nil {
+			return fmt.Errorf("invalid step_timeout duration format: %w", err)
+		}
+	}
+
+	if aux.LaunchTimeout != "" {
+		c.LaunchTimeout, err = time.ParseDuration(aux.LaunchTimeout)
+		if err != nil {
+			return fmt.Errorf("invalid launch_timeout duration format: %w", err)
+		}
+	}
+
+	if aux.ShutdownTimeout != "" {
+		c.ShutdownTimeout, err = time.ParseDuration(aux.ShutdownTimeout)
+		if err != nil {
+			return fmt.Errorf("invalid shutdown_timeout duration format: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements custom marshaling for HostConfig to handle time.Duration fields
+func (c *HostConfig) MarshalJSON() ([]byte, error) {
+	type Alias HostConfig
+	return json.Marshal(&struct {
+		StepTimeout     string `json:"step_timeout"`
+		LaunchTimeout   string `json:"launch_timeout"`
+		ShutdownTimeout string `json:"shutdown_timeout"`
+		*Alias
+	}{
+		StepTimeout:     c.StepTimeout.String(),
+		LaunchTimeout:   c.LaunchTimeout.String(),
+		ShutdownTimeout: c.ShutdownTimeout.String(),
+		Alias:           (*Alias)(c),
+	})
 }
 
 // DefaultConfig returns a HostConfig with sensible defaults
