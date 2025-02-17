@@ -9,7 +9,6 @@ import (
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/ponyruntime/pony/api/topology"
-	"log"
 	"time"
 )
 
@@ -124,6 +123,5 @@ func (svc *Service) Stop(ctx context.Context) error {
 		return fmt.Errorf("no process manager found in context")
 	}
 
-	log.Printf("Stopping process %s", svc.pid.ID)
 	return processes.Terminate(ctx, svc.pid)
 }

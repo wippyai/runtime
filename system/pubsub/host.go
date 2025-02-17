@@ -140,7 +140,7 @@ func (h *Host) worker() {
 			// Retrieve the receiver channel for the PID.
 			rec, ok := h.receivers.Load(job.pid)
 			if !ok {
-				h.logger.Warn("no receiver found for PID", zap.String("pid", job.pid.String()))
+				// nothing
 				continue
 			}
 
