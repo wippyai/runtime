@@ -41,6 +41,7 @@ const (
 var (
 	ErrNoProcess  = errors.New("no process running")
 	ErrHostBusy   = errors.New("process host is busy")
+	ErrHostDead   = errors.New("process host is dead")
 	ErrTerminated = errors.New("process terminated")
 )
 

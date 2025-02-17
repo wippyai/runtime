@@ -5,7 +5,7 @@ meta:
   depends_on: [ "ns:system" ]
 
 entries:
-  - name: minimal_process
+  - name: minimal_process1
     kind: process.service
     meta:
       comment: "Minimal Process Service"
@@ -16,6 +16,73 @@ entries:
       restart:
         initial_delay: 5s
         max_attempts: 1
+      depends_on:
+        - system:heap
+  - name: minimal_process2
+    kind: process.service
+    meta:
+      comment: "Minimal Process Service"
+    process: minimal
+    host: system:heap
+    lifecycle:
+      auto_start: true
+      restart:
+        initial_delay: 5s
+        max_attempts: 1
+      depends_on:
+        - system:heap
+  - name: minimal_process3
+    kind: process.service
+    meta:
+      comment: "Minimal Process Service"
+    process: minimal
+    host: system:heap
+    lifecycle:
+      auto_start: true
+      restart:
+        initial_delay: 5s
+        max_attempts: 1
+      depends_on:
+        - system:heap
+  - name: minimal_process4
+    kind: process.service
+    meta:
+      comment: "Minimal Process Service"
+    process: minimal
+    host: system:heap
+    lifecycle:
+      auto_start: true
+      restart:
+        initial_delay: 5s
+        max_attempts: 1
+      depends_on:
+        - system:heap
+  - name: minimal_process5
+    kind: process.service
+    meta:
+      comment: "Minimal Process Service"
+    process: minimal
+    host: system:heap
+    lifecycle:
+      auto_start: true
+      restart:
+        initial_delay: 5s
+        max_attempts: 1
+      depends_on:
+        - system:heap
+  - name: minimal_process6
+    kind: process.service
+    meta:
+      comment: "Minimal Process Service"
+    process: minimal
+    host: system:heap
+    lifecycle:
+      auto_start: true
+      restart:
+        initial_delay: 5s
+        max_attempts: 1
+      depends_on:
+        - system:heap
 
   - name: minimal
     kind: process.lua

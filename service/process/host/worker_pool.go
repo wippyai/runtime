@@ -2,7 +2,6 @@ package host
 
 import (
 	"context"
-	"log"
 	"sync"
 
 	"github.com/ponyruntime/pony/api/process"
@@ -86,7 +85,8 @@ func (p *WorkerPool) worker() {
 					zap.String("pid", work.PID.String()),
 					zap.Error(err))
 			}
-			log.Printf("process step completed: %s", work.PID)
+			// todo: to be updated
+			//log.Printf("process step completed: %s", work.PID)
 
 			p.workCh <- work
 		}
