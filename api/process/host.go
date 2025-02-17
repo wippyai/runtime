@@ -92,7 +92,7 @@ func (cfg *EntryConfig) InitDefaults() {
 	}
 
 	if cfg.HostConfig.StepQueueSize == 0 {
-		cfg.HostConfig.StepQueueSize = 50000
+		cfg.HostConfig.StepQueueSize = 5000
 	}
 
 	// Messaging defaults
