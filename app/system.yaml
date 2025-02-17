@@ -36,13 +36,13 @@ entries:
         initial_delay: 5s
         max_attempts: 3
 
-  - name: process_host
+  - name: heap
     kind: process.host
     meta:
       comment: "Process execution host"
     host:
-      max_processes: 100
-      workers: 8
+      max_processes: 500
+      workers: 16
       message_buffer: 1000
       process_queue_size: 1000
       step_queue_size: 5000

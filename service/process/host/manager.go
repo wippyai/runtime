@@ -132,7 +132,7 @@ func (m *Manager) registerHost(ctx context.Context, id registry.ID, host *Host, 
 		System: pubsub.System,
 		Kind:   pubsub.RegisterHost,
 		Path:   id.String(),
-		Data:   pubsub.Host(host),
+		Data:   process.Host(host),
 	})
 
 	// Register as process host

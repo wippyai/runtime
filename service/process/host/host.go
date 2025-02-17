@@ -93,7 +93,7 @@ func (h *Host) Stop(ctx context.Context) error {
 
 func (h *Host) UpdateConfig(ctx context.Context, cfg api.HostConfig) error {
 	// Only update non-critical configuration
-	h.config = &cfg
+	h.config = cfg
 	return nil
 }
 
