@@ -115,6 +115,8 @@ func (p *Process) Start(ctx context.Context, pid pubsub.PID, input payload.Paylo
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
+	default:
+		return nil
 	case result := <-p.resultCh:
 		if result.Error != nil {
 			p.complete(result.Error, result.Result[0])

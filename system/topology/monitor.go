@@ -26,6 +26,9 @@ func NewMonitor(ctx context.Context, upstream pubsub.Upstream) topology.Monitor 
 }
 
 func (m *monitor) Wait(caller, pid pubsub.PID) error {
+	// todo: must error if nothing to wait!
+	// todo: we must pre-register in our manager flow!
+
 	value, _ := m.monitors.LoadOrStore(pid, &sync.Map{})
 	watchers := value.(*sync.Map)
 
