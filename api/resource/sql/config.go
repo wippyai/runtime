@@ -3,6 +3,7 @@ package sql
 import (
 	"fmt"
 	"github.com/ponyruntime/pony/api/registry"
+	"github.com/ponyruntime/pony/api/supervisor"
 )
 
 // Registry kind constants for different SQL database types
@@ -33,20 +34,22 @@ type (
 
 	// DBConfig defines the base configuration for SQL databases
 	DBConfig struct {
-		Host     string            `json:"host"`     // Database host address
-		Port     int               `json:"port"`     // Database port number
-		Database string            `json:"database"` // Database name
-		Username string            `json:"username"` // Database user
-		Password string            `json:"password"` // Database password
-		Pool     PoolConfig        `json:"pool"`     // Connection pool settings
-		Options  map[string]string `json:"options"`  // Database-specific options
+		Host      string            `json:"host"`     // Database host address
+		Port      int               `json:"port"`     // Database port number
+		Database  string            `json:"database"` // Database name
+		Username  string            `json:"username"` // Database user
+		Password  string            `json:"password"` // Database password
+		Pool      PoolConfig        `json:"pool"`     // Connection pool settings
+		Options   map[string]string `json:"options"`  // Database-specific options
+		Lifecycle supervisor.LifecycleConfig
 	}
 
 	// SQLiteConfig defines SQLite-specific configuration
 	SQLiteConfig struct {
-		File    string            `json:"file"`    // Database file path
-		Pool    PoolConfig        `json:"pool"`    // Connection pool settings
-		Options map[string]string `json:"options"` // SQLite-specific options
+		File      string            `json:"file"`    // Database file path
+		Pool      PoolConfig        `json:"pool"`    // Connection pool settings
+		Options   map[string]string `json:"options"` // SQLite-specific options
+		Lifecycle supervisor.LifecycleConfig
 	}
 )
 
