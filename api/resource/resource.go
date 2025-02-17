@@ -47,22 +47,50 @@ func (m AccessMode) IsValid() bool {
 type (
 	// Entry represents a registered resource with its metadata
 	Entry struct {
-		ID      registry.ID
-		Meta    registry.Metadata
-		Acquire func(ctx context.Context, id registry.ID) (ManagedResource[any], error)
+		ID       registry.ID
+		Meta     registry.Metadata
+		Provider Provider
 	}
 
-	// ManagedResource provides controlled access to a resource instance
-	ManagedResource[T any] interface {
+	// Resource provides controlled access to a resource instance
+	Resource[T any] interface {
 		// Get returns the managed resource instance.
 		// The returned resource is valid until Release is called.
-		// Panics if called after Release.
-		Get() T
+		Get() (T, error)
 
 		// Release frees the resource and invalidates the access grant.
 		// After Release is called, subsequent Get() calls will panic.
 		// It's safe to call Release multiple times.
-		Release()
+		Release() error
+	}
+
+	// Provider defines an interface for components that can provide access to resources.
+	// Implementations are responsible for managing resource lifecycle and access control.
+	//
+	// The provider acts as a factory/manager for resources, handling:
+	// - Resource instantiation and initialization
+	// - Access mode validation and enforcement
+	// - Resource state management
+	// - Cleanup and release of resources
+	//
+	// Providers must ensure thread-safety when handling concurrent access requests.
+	// They should also properly handle context cancellation for long-running operations.
+	Provider interface {
+		// Acquire attempts to obtain access to a resource identified by id with the specified access mode.
+		//
+		// The context can be used to cancel long-running acquire operations or pass deadlines.
+		// The id uniquely identifies the resource being requested.
+		// The mode specifies the type of access being requested (read, write, exclusive).
+		//
+		// Returns:
+		// - A Resource providing controlled access to the resource
+		// - ErrResourceNotFound if the requested resource doesn't exist
+		// - ErrResourceLocked if the resource is currently locked for exclusive access
+		// - ErrInvalidAccessMode if the requested access mode is invalid
+		// - Other implementation-specific errors that may occur during acquisition
+		//
+		// The returned Resource must be released when no longer needed by calling Release().
+		Acquire(ctx context.Context, id registry.ID, mode AccessMode) (Resource[any], error)
 	}
 
 	// Registry manages resources.
@@ -74,7 +102,7 @@ type (
 		// - ErrInvalidAccessMode if the requested mode is invalid
 		// - ErrRegistryUnavailable if the registry cannot be accessed
 		// The context can be used to cancel long-running acquire operations.
-		Acquire(ctx context.Context, id registry.ID, mode AccessMode) (ManagedResource[any], error)
+		Acquire(ctx context.Context, id registry.ID, mode AccessMode) (Resource[any], error)
 
 		// List returns all registered resource IDs.
 		// Returns ErrRegistryUnavailable if the registry cannot be accessed.
