@@ -87,7 +87,7 @@ type App struct {
 	resources *resource.Registry
 
 	// mesh
-	node *pubsub.Manager
+	node *pubsub.NodeManager
 
 	shuttingDown  bool
 	forceShutdown chan struct{}

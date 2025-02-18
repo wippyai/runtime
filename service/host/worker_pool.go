@@ -58,6 +58,11 @@ func (p *WorkerPool) Stop() {
 	p.wg.Wait()
 }
 
+// Stop gracefully shuts down the worker pool
+func (p *WorkerPool) Terminate(pid pubsub.PID) {
+	// todo: to be updated
+}
+
 // Schedule adds a process step execution request to the work queue
 func (p *WorkerPool) Schedule(req *WorkRequest) error {
 	select {
@@ -70,7 +75,7 @@ func (p *WorkerPool) Schedule(req *WorkRequest) error {
 	}
 }
 
-// worker runs in its own goroutine and processes work requests
+// worker runs in its own goroutine and processChannels work requests
 func (p *WorkerPool) worker() {
 	defer p.wg.Done()
 

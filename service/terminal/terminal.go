@@ -188,7 +188,7 @@ func (t *Terminal) handleSend(msgBatch *pubsub.Batch) error {
 	return runner.Send(msgBatch)
 }
 
-func (t *Terminal) handleAttach(ch chan *pubsub.Batch) (error, context.CancelFunc) {
+func (t *Terminal) handleAttach(ch chan *pubsub.Batch) (context.CancelFunc, error) {
 	runner := t.runner.Load()
 	if runner == nil {
 		return process.ErrNoProcess, nil

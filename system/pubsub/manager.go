@@ -9,8 +9,8 @@ import (
 	"go.uber.org/zap"
 )
 
-// Manager implements node management by composing over the Node type
-type Manager struct {
+// NodeManager manages state of current node based on events received from the bus.
+type NodeManager struct {
 	ctx        context.Context
 	logger     *zap.Logger
 	bus        events.Bus
@@ -19,8 +19,8 @@ type Manager struct {
 }
 
 // NewNodeManager creates a new node manager instance that wraps a Node
-func NewNodeManager(node api.Node, bus events.Bus, logger *zap.Logger) *Manager {
-	return &Manager{
+func NewNodeManager(node api.Node, bus events.Bus, logger *zap.Logger) *NodeManager {
+	return &NodeManager{
 		node:   node,
 		bus:    bus,
 		logger: logger,
@@ -28,7 +28,7 @@ func NewNodeManager(node api.Node, bus events.Bus, logger *zap.Logger) *Manager 
 }
 
 // Start initializes the manager and begins listening for host registration events
-func (m *Manager) Start(ctx context.Context) error {
+func (m *NodeManager) Start(ctx context.Context) error {
 	m.ctx = ctx
 
 	// Subscribe to host registration events
@@ -48,14 +48,14 @@ func (m *Manager) Start(ctx context.Context) error {
 }
 
 // Stop gracefully shuts down the manager
-func (m *Manager) Stop() error {
+func (m *NodeManager) Stop() error {
 	if m.subscriber != nil {
 		m.subscriber.Close()
 	}
 	return nil
 }
 
-func (m *Manager) handleEvent(e events.Event) {
+func (m *NodeManager) handleEvent(e events.Event) {
 	switch e.Kind {
 	case api.RegisterHost:
 		m.handleRegisterHost(e)
@@ -70,7 +70,7 @@ func (m *Manager) handleEvent(e events.Event) {
 	}
 }
 
-func (m *Manager) handleRegisterHost(e events.Event) {
+func (m *NodeManager) handleRegisterHost(e events.Event) {
 	host, ok := e.Data.(api.Host)
 	if !ok {
 		m.logger.Error("invalid host payload",
@@ -102,7 +102,7 @@ func (m *Manager) handleRegisterHost(e events.Event) {
 	m.sendAccept(e.Path)
 }
 
-func (m *Manager) handleDeleteHost(e events.Event) {
+func (m *NodeManager) handleDeleteHost(e events.Event) {
 	// Unregister from the underlying node
 	m.node.UnregisterHost(e.Path)
 
@@ -113,7 +113,7 @@ func (m *Manager) handleDeleteHost(e events.Event) {
 	m.sendAccept(e.Path)
 }
 
-func (m *Manager) sendAccept(path events.Path) {
+func (m *NodeManager) sendAccept(path events.Path) {
 	m.bus.Send(m.ctx, events.Event{
 		System: api.System,
 		Kind:   api.AcceptHost,
@@ -121,7 +121,7 @@ func (m *Manager) sendAccept(path events.Path) {
 	})
 }
 
-func (m *Manager) sendReject(path events.Path, reason string) {
+func (m *NodeManager) sendReject(path events.Path, reason string) {
 	m.bus.Send(m.ctx, events.Event{
 		System: api.System,
 		Kind:   api.RejectHost,
@@ -131,16 +131,16 @@ func (m *Manager) sendReject(path events.Path, reason string) {
 }
 
 // Send delegates message sending to the underlying node
-func (m *Manager) Send(ctx context.Context, pid api.PID, batch *api.Batch) error {
+func (m *NodeManager) Send(ctx context.Context, pid api.PID, batch *api.Batch) error {
 	return m.node.Send(ctx, pid, batch)
 }
 
 // Attach delegates attachment to the underlying node
-func (m *Manager) Attach(pid api.PID, ch chan *api.Batch) (error, context.CancelFunc) {
+func (m *NodeManager) Attach(pid api.PID, ch chan *api.Batch) (context.CancelFunc, error) {
 	return m.node.Attach(pid, ch)
 }
 
 // Node returns the underlying Node instance
-func (m *Manager) Node() api.Node {
+func (m *NodeManager) Node() api.Node {
 	return m.node
 }

@@ -21,10 +21,10 @@ func (d *dummyHost) Send(ctx context.Context, pid api.PID, batch *api.Batch) err
 	return nil
 }
 
-func (d *dummyHost) Attach(pid api.PID, ch chan *api.Batch) (error, context.CancelFunc) {
+func (d *dummyHost) Attach(pid api.PID, ch chan *api.Batch) (context.CancelFunc, error) {
 	atomic.AddInt32(&d.attachCalled, 1)
 	cancel := func() {}
-	return nil, cancel
+	return cancel, nil
 }
 
 // dummyUpstream is a stub that implements the Upstream interface.
@@ -42,7 +42,7 @@ func TestNodeSendLocal(t *testing.T) {
 	dhost := &dummyHost{}
 	nodeID := "node1"
 	node := NewNode(nodeID, nil)
-	node.RegisterHost("host1", dhost)
+	assert.NoError(t, node.RegisterHost("host1", dhost))
 
 	// Case 1: Local message with empty pid.Node.
 	pidLocalEmpty := api.PID{
@@ -133,7 +133,7 @@ func TestNodeAttachLocal(t *testing.T) {
 	dhost := &dummyHost{}
 	nodeID := "node1"
 	node := NewNode(nodeID, nil)
-	node.RegisterHost("host1", dhost)
+	assert.NoError(t, node.RegisterHost("host1", dhost))
 
 	// Use a local PID.
 	pidLocal := api.PID{
@@ -143,7 +143,7 @@ func TestNodeAttachLocal(t *testing.T) {
 		UniqID: "uniq",
 	}
 	ch := make(chan *api.Batch, 1)
-	err, cancel := node.Attach(pidLocal, ch)
+	cancel, err := node.Attach(pidLocal, ch)
 	assert.NoError(t, err)
 	assert.NotNil(t, cancel)
 	assert.Equal(t, int32(1), dhost.attachCalled)
@@ -158,7 +158,7 @@ func TestNodeAttachNonLocal(t *testing.T) {
 		UniqID: "uniq",
 	}
 	ch := make(chan *api.Batch, 1)
-	err, cancel := node.Attach(pid, ch)
+	cancel, err := node.Attach(pid, ch)
 	assert.Error(t, err)
 	assert.Nil(t, cancel)
 	assert.Contains(t, err.Error(), "no upstream available")
@@ -175,7 +175,7 @@ func TestNodeAttachInvalidHostType(t *testing.T) {
 		UniqID: "uniq",
 	}
 	ch := make(chan *api.Batch, 1)
-	err, cancel := node.Attach(pid, ch)
+	cancel, err := node.Attach(pid, ch)
 	assert.Error(t, err)
 	assert.Nil(t, cancel)
 	assert.Contains(t, err.Error(), "invalid type")

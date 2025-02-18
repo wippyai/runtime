@@ -67,11 +67,11 @@ func NewHost(ctx context.Context, config HostConfig) *Host {
 
 // Attach attaches a receiver channel to a PID.
 // If a receiver is already attached, it returns ErrAlreadyAttached.
-func (h *Host) Attach(pid api.PID, ch chan *api.Batch) (error, context.CancelFunc) {
+func (h *Host) Attach(pid api.PID, ch chan *api.Batch) (context.CancelFunc, error) {
 	_, loaded := h.receivers.LoadOrStore(pid, ch)
 	if loaded {
 		h.logger.Warn("attempt to attach already existing receiver", zap.String("pid", pid.String()))
-		return api.ErrAlreadyAttached, nil
+		return nil, api.ErrAlreadyAttached
 	}
 
 	h.logger.Debug("receiver attached", zap.String("pid", pid.String()))
@@ -80,16 +80,14 @@ func (h *Host) Attach(pid api.PID, ch chan *api.Batch) (error, context.CancelFun
 		h.receivers.Delete(pid)
 		h.logger.Debug("receiver detached", zap.String("pid", pid.String()))
 	}
-	return nil, cancel
+	return cancel, nil
 }
 
-// AttachPIDBatch attaches a receiver channel for PIDBatch to a PID.
-// If a receiver is already attached, it returns ErrAlreadyAttached.
-func (h *Host) AttachPIDBatch(pid api.PID, ch chan *api.PIDBatch) (error, context.CancelFunc) {
+func (h *Host) AttachFallback(pid api.PID, ch chan *api.PIDBatch) (context.CancelFunc, error) {
 	_, loaded := h.receivers.LoadOrStore(pid, ch)
 	if loaded {
 		h.logger.Warn("attempt to attach already existing PIDBatch receiver", zap.String("pid", pid.String()))
-		return api.ErrAlreadyAttached, nil
+		return nil, api.ErrAlreadyAttached
 	}
 
 	h.logger.Debug("PIDBatch receiver attached", zap.String("pid", pid.String()))
@@ -98,7 +96,7 @@ func (h *Host) AttachPIDBatch(pid api.PID, ch chan *api.PIDBatch) (error, contex
 		h.receivers.Delete(pid)
 		h.logger.Debug("PIDBatch receiver detached", zap.String("pid", pid.String()))
 	}
-	return nil, cancel
+	return cancel, nil
 }
 
 // Send enqueues a send job for the given PID and batch.

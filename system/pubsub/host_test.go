@@ -64,13 +64,13 @@ func TestHost_Attach(t *testing.T) {
 
 	// First attachment
 	ch1 := make(chan *api.Batch, 10)
-	err1, cancel1 := host.Attach(pid, ch1)
+	cancel1, err1 := host.Attach(pid, ch1)
 	assert.NoError(t, err1)
 	assert.NotNil(t, cancel1)
 
 	// Try duplicate attachment
 	ch2 := make(chan *api.Batch, 10)
-	err2, _ := host.Attach(pid, ch2)
+	_, err2 := host.Attach(pid, ch2)
 	assert.Error(t, err2)
 	assert.Equal(t, api.ErrAlreadyAttached, err2)
 
@@ -99,7 +99,7 @@ func TestHost_Send(t *testing.T) {
 	}
 
 	receiverCh := make(chan *api.Batch, 1)
-	err, _ := host.Attach(pid, receiverCh)
+	_, err := host.Attach(pid, receiverCh)
 	assert.NoError(t, err)
 
 	err = host.Send(ctx, pid, &api.Batch{{Topic: "test", Payloads: nil}})
@@ -191,13 +191,13 @@ func TestHost_AttachPIDBatch(t *testing.T) {
 
 	// Test successful attachment
 	ch1 := make(chan *api.PIDBatch, 10)
-	err1, cancel1 := host.AttachPIDBatch(pid, ch1)
+	cancel1, err1 := host.AttachFallback(pid, ch1)
 	assert.NoError(t, err1)
 	assert.NotNil(t, cancel1)
 
 	// Test duplicate attachment
 	ch2 := make(chan *api.PIDBatch, 10)
-	err2, _ := host.AttachPIDBatch(pid, ch2)
+	_, err2 := host.AttachFallback(pid, ch2)
 	assert.Error(t, err2)
 	assert.Equal(t, api.ErrAlreadyAttached, err2)
 
@@ -227,7 +227,7 @@ func TestHost_SendToPIDBatchReceiver(t *testing.T) {
 
 	// Create a PIDBatch receiver
 	receiverCh := make(chan *api.PIDBatch, 1)
-	err, _ := host.AttachPIDBatch(pid, receiverCh)
+	_, err := host.AttachFallback(pid, receiverCh)
 	assert.NoError(t, err)
 
 	// Send a regular batch
@@ -265,7 +265,7 @@ func TestHost_PIDBatchDeliveryTimeout(t *testing.T) {
 
 	// Create a blocked PIDBatch receiver
 	receiverCh := make(chan *api.PIDBatch) // Unbuffered channel that no one is receiving from
-	err, _ := host.AttachPIDBatch(pid, receiverCh)
+	_, err := host.AttachFallback(pid, receiverCh)
 	assert.NoError(t, err)
 
 	// Send should succeed (as it only queues the message)
@@ -305,10 +305,10 @@ func TestHost_MixedReceivers(t *testing.T) {
 	batchCh := make(chan *api.Batch, 1)
 	pidBatchCh := make(chan *api.PIDBatch, 1)
 
-	err, _ := host.Attach(pid1, batchCh)
+	_, err := host.Attach(pid1, batchCh)
 	assert.NoError(t, err)
 
-	err, _ = host.AttachPIDBatch(pid2, pidBatchCh)
+	_, err = host.AttachFallback(pid2, pidBatchCh)
 	assert.NoError(t, err)
 
 	// Send messages to both

@@ -42,7 +42,7 @@ type (
 
 	Host interface {
 		Upstream
-		Attach(PID, chan *Batch) (error, context.CancelFunc)
+		Attach(PID, chan *Batch) (context.CancelFunc, error)
 	}
 
 	Node interface {

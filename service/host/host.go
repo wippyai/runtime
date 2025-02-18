@@ -21,8 +21,8 @@ type Host struct {
 	config process.HostConfig
 	log    *zap.Logger
 
-	processes  sync.Map // map[pubsub.PID]*processInfo
-	pidBatchCh chan *pubsub.PIDBatch
+	processChannels sync.Map // map[pubsub.PID]*processInfo
+	pidBatchCh      chan *pubsub.PIDBatch
 
 	workers *WorkerPool
 	ctx     context.Context
@@ -55,7 +55,7 @@ func (h *Host) Start(ctx context.Context) (<-chan any, error) {
 				zap.String("pid", pid.String()),
 				zap.Any("result", result.Payload))
 		}
-		h.processes.Delete(pid)
+		h.processChannels.Delete(pid)
 	})
 
 	h.workers.Start()
@@ -87,7 +87,7 @@ func (h *Host) run(status chan<- any) {
 		case <-h.ctx.Done():
 			return
 		case pidBatch := <-h.pidBatchCh:
-			if info, ok := h.processes.Load(pidBatch.PID); ok {
+			if info, ok := h.processChannels.Load(pidBatch.PID); ok {
 				procInfo := info.(*processInfo)
 
 				if err := procInfo.process.Send(pidBatch.Batch); err != nil {
@@ -101,8 +101,8 @@ func (h *Host) run(status chan<- any) {
 }
 
 func (h *Host) cleanup() {
-	h.processes.Range(func(pid, _ interface{}) bool {
-		h.processes.Delete(pid)
+	h.processChannels.Range(func(pid, _ interface{}) bool {
+		h.processChannels.Delete(pid)
 		return true
 	})
 
@@ -115,13 +115,15 @@ func (h *Host) cleanup() {
 
 func (h *Host) Launch(ctx context.Context, launch *process.LaunchProcess) (pubsub.PID, error) {
 	// check if pid is busy
-	if _, loaded := h.processes.Load(launch.PID); loaded {
+	if _, loaded := h.processChannels.Load(launch.PID); loaded {
 		return pubsub.PID{}, process.ErrHostBusy
 	}
 
 	if h.ctx == nil {
 		return pubsub.PID{}, process.ErrHostDead
 	}
+
+	// todo: link wake up channel
 
 	if err := launch.Process.Start(h.ctx, launch.PID, launch.Input); err != nil {
 		return pubsub.PID{}, err
@@ -131,7 +133,7 @@ func (h *Host) Launch(ctx context.Context, launch *process.LaunchProcess) (pubsu
 		pid:     launch.PID,
 		process: launch.Process,
 	}
-	h.processes.Store(launch.PID, info)
+	h.processChannels.Store(launch.PID, info)
 
 	// Schedule the process for execution using the worker pool
 	if err := h.workers.Schedule(&WorkRequest{
@@ -141,7 +143,7 @@ func (h *Host) Launch(ctx context.Context, launch *process.LaunchProcess) (pubsu
 		h.log.Error("failed to schedule process",
 			zap.String("pid", launch.PID.String()),
 			zap.Error(err))
-		h.processes.Delete(launch.PID)
+		h.processChannels.Delete(launch.PID)
 		return pubsub.PID{}, err
 	}
 
@@ -149,8 +151,11 @@ func (h *Host) Launch(ctx context.Context, launch *process.LaunchProcess) (pubsu
 	return launch.PID, nil
 }
 
-func (h *Host) Terminate(ctx context.Context, pid pubsub.PID) error {
-	h.processes.Delete(pid)
+func (h *Host) Terminate(_ context.Context, pid pubsub.PID) error {
+	// todo: how to wait?
+	h.workers.Terminate(pid)
+	h.processChannels.Delete(pid)
+
 	h.log.Info("process terminated", zap.String("pid", pid.String()))
 	return nil
 }
@@ -160,6 +165,8 @@ func (h *Host) Send(ctx context.Context, pid pubsub.PID, batch *pubsub.Batch) er
 		PID:   pid,
 		Batch: batch,
 	}
+
+	// We are using underlying message host to manage most of stuff for us, each process connected to it automatically.
 
 	select {
 	case h.pidBatchCh <- pidBatch:
@@ -171,17 +178,23 @@ func (h *Host) Send(ctx context.Context, pid pubsub.PID, batch *pubsub.Batch) er
 	}
 }
 
-func (h *Host) Attach(pid pubsub.PID, ch chan *pubsub.Batch) (error, context.CancelFunc) {
-	_, loaded := h.processes.LoadOrStore(pid, ch)
+func (h *Host) Attach(pid pubsub.PID, ch chan *pubsub.Batch) (context.CancelFunc, error) {
+	h.
+		_, loaded := h.processChannels.LoadOrStore(pid, ch)
 	if loaded {
 		return pubsub.ErrAlreadyAttached, nil
 	}
 
 	cancel := func() {
-		h.processes.Delete(pid)
+		err := h.Terminate(nil, pid)
+		if err != nil {
+			h.log.Error("failed to terminate process",
+				zap.String("pid", pid.String()),
+				zap.Error(err))
+		}
 		h.log.Debug("receiver detached", zap.String("pid", pid.String()))
 	}
 
 	h.log.Debug("receiver attached", zap.String("pid", pid.String()))
-	return nil, cancel
+	return cancel, nil
 }
