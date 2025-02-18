@@ -27,10 +27,7 @@ func NewMonitor(ctx context.Context, upstream pubsub.Upstream) topology.Monitor 
 }
 
 func (m *monitor) Register(pid pubsub.PID) error {
-	_, loaded := m.registry.LoadOrStore(pid.String(), true)
-	if loaded {
-		return fmt.Errorf("pid already registered: %s", pid)
-	}
+	m.registry.LoadOrStore(pid.String(), true)
 	return nil
 }
 
