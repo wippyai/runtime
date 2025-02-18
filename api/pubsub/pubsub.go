@@ -48,6 +48,8 @@ type (
 	Node interface {
 		Host
 		ID() NodeID
+		RegisterHost(HostID, Host) error
+		UnregisterHost(HostID)
 	}
 
 	Upstream interface {
