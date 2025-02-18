@@ -14,7 +14,8 @@ import (
 
 type monitor struct {
 	ctx      context.Context
-	monitors sync.Map
+	monitors sync.Map // map[string]*sync.Map - watchers for each PID
+	registry sync.Map // map[string]bool - registered PIDs
 	upstream pubsub.Upstream
 }
 
@@ -25,14 +26,24 @@ func NewMonitor(ctx context.Context, upstream pubsub.Upstream) topology.Monitor 
 	}
 }
 
-func (m *monitor) Wait(caller, pid pubsub.PID) error {
-	// todo: must error if nothing to wait!
-	// todo: we must pre-register in our manager flow!
+func (m *monitor) Register(pid pubsub.PID) error {
+	_, loaded := m.registry.LoadOrStore(pid.String(), true)
+	if loaded {
+		return fmt.Errorf("pid already registered: %s", pid)
+	}
+	return nil
+}
 
-	value, _ := m.monitors.LoadOrStore(pid, &sync.Map{})
+func (m *monitor) Wait(caller, pid pubsub.PID) error {
+	// Check if PID is registered
+	if _, ok := m.registry.Load(pid.String()); !ok {
+		return fmt.Errorf("cannot monitor unregistered pid: %s", pid)
+	}
+
+	value, _ := m.monitors.LoadOrStore(pid.String(), &sync.Map{})
 	watchers := value.(*sync.Map)
 
-	_, loaded := watchers.LoadOrStore(caller, true)
+	_, loaded := watchers.LoadOrStore(caller.String(), true)
 	if loaded {
 		return fmt.Errorf("already monitoring pid: %s", pid)
 	}
@@ -41,7 +52,7 @@ func (m *monitor) Wait(caller, pid pubsub.PID) error {
 }
 
 func (m *monitor) Release(caller, pid pubsub.PID) error {
-	value, ok := m.monitors.Load(pid)
+	value, ok := m.monitors.Load(pid.String())
 	if !ok {
 		return nil
 	}
@@ -62,15 +73,19 @@ func (m *monitor) Release(caller, pid pubsub.PID) error {
 }
 
 func (m *monitor) Notify(pid pubsub.PID, result *runtime.Result) {
-
-	value, ok := m.monitors.Load(pid)
+	value, ok := m.monitors.Load(pid.String())
 	if !ok {
 		return
 	}
 	watchers := value.(*sync.Map)
 	watchers.Range(func(key, _ interface{}) bool {
-		watcherPID, ok := key.(pubsub.PID)
+		watcherPID, ok := key.(string)
 		if !ok {
+			return true
+		}
+
+		callerPID, err := pubsub.ParsePID(watcherPID)
+		if err != nil {
 			return true
 		}
 
@@ -82,14 +97,14 @@ func (m *monitor) Notify(pid pubsub.PID, result *runtime.Result) {
 			}),
 		)
 
-		if err := m.upstream.Send(m.ctx, watcherPID, batch); err != nil {
+		if err := m.upstream.Send(m.ctx, callerPID, batch); err != nil {
 			return true
 		}
 		return true
 	})
-
 }
 
 func (m *monitor) Remove(pid pubsub.PID) {
 	m.monitors.Delete(pid.String())
+	m.registry.Delete(pid.String())
 }
