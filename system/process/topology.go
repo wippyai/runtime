@@ -41,6 +41,8 @@ func (l *Topology) AttachToContext(ctx context.Context) context.Context {
 		if err != nil {
 			l.logger.Warn("failed to register PID for monitoring", zap.String("pid", pid.String()), zap.Error(err))
 		}
+
+		// todo: register links and etc
 	})
 
 	ctx = process.WithAddedOnComplete(ctx, func(pid pubsub.PID, result *runtime.Result) {
