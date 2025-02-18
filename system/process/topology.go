@@ -37,6 +37,10 @@ func NewTopology(
 func (l *Topology) AttachToContext(ctx context.Context) context.Context {
 	ctx = process.WithAddedOnStart(ctx, func(pid pubsub.PID, proc process.Process) {
 		l.logger.Debug("process started", zap.String("pid", pid.String()))
+		err := l.monitor.Register(pid)
+		if err != nil {
+			l.logger.Warn("failed to register PID for monitoring", zap.String("pid", pid.String()), zap.Error(err))
+		}
 	})
 
 	ctx = process.WithAddedOnComplete(ctx, func(pid pubsub.PID, result *runtime.Result) {
