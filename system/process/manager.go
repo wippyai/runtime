@@ -125,6 +125,10 @@ func (m *Manager) StartMonitored(ctx context.Context, from pubsub.PID, ps *api.S
 		return pubsub.PID{}, err
 	}
 
+	if err = m.topology.monitor.Register(pid); err != nil {
+		return pubsub.PID{}, fmt.Errorf("failed to register process: %w", err)
+	}
+
 	// Set up monitoring before launch
 	if err = m.topology.monitor.Wait(from, pid); err != nil {
 		return pubsub.PID{}, fmt.Errorf("failed to monitor process: %w", err)
