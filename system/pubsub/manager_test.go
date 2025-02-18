@@ -47,8 +47,8 @@ func (n *mockNode) Send(ctx context.Context, pid api.PID, batch *api.Batch) erro
 	return n.sendErr
 }
 
-func (n *mockNode) Attach(pid api.PID, ch chan *api.Batch) (error, context.CancelFunc) {
-	return nil, func() {}
+func (n *mockNode) Attach(pid api.PID, ch chan *api.Batch) (context.CancelFunc, error) {
+	return func() {}, nil
 }
 
 // mockHost implements Host interface for testing
@@ -60,11 +60,11 @@ func (h *mockHost) Send(ctx context.Context, pid api.PID, batch *api.Batch) erro
 	return h.sendErr
 }
 
-func (h *mockHost) Attach(pid api.PID, ch chan *api.Batch) (error, context.CancelFunc) {
-	return nil, func() {}
+func (h *mockHost) Attach(pid api.PID, ch chan *api.Batch) (context.CancelFunc, error) {
+	return func() {}, nil
 }
 
-func setupManagerTest() (*Manager, *mockNode, events.Bus) {
+func setupManagerTest() (*NodeManager, *mockNode, events.Bus) {
 	logger := zap.NewNop()
 	bus := eventbus.NewBus()
 	node := newMockNode("test-node")
@@ -90,7 +90,7 @@ func TestManager_HandleRegisterHost(t *testing.T) {
 	ctx := context.Background()
 	manager, node, bus := setupManagerTest()
 	require.NoError(t, manager.Start(ctx))
-	defer manager.Stop()
+	defer func() { assert.NoError(t, manager.Stop()) }()
 
 	// Create a channel to collect response events
 	responses := make(chan events.Event, 2)
@@ -170,11 +170,11 @@ func TestManager_HandleDeleteHost(t *testing.T) {
 	ctx := context.Background()
 	manager, node, bus := setupManagerTest()
 	require.NoError(t, manager.Start(ctx))
-	defer manager.Stop()
+	defer func() { assert.NoError(t, manager.Stop()) }()
 
 	// Pre-register a host
 	host := &mockHost{}
-	node.RegisterHost("host1", host)
+	assert.NoError(t, node.RegisterHost("host1", host))
 
 	// Create a channel to collect response events
 	responses := make(chan events.Event, 1)
@@ -215,7 +215,7 @@ func TestManager_HandleUnknownEvent(t *testing.T) {
 	ctx := context.Background()
 	manager, _, bus := setupManagerTest()
 	require.NoError(t, manager.Start(ctx))
-	defer manager.Stop()
+	defer func() { assert.NoError(t, manager.Stop()) }()
 
 	// Send unknown event
 	bus.Send(ctx, events.Event{
@@ -232,7 +232,7 @@ func TestManager_Send(t *testing.T) {
 	ctx := context.Background()
 	manager, node, _ := setupManagerTest()
 	require.NoError(t, manager.Start(ctx))
-	defer manager.Stop()
+	defer func() { assert.NoError(t, manager.Stop()) }()
 
 	tests := []struct {
 		name        string
@@ -276,7 +276,7 @@ func TestManager_Attach(t *testing.T) {
 	ctx := context.Background()
 	manager, _, _ := setupManagerTest()
 	require.NoError(t, manager.Start(ctx))
-	defer manager.Stop()
+	defer func() { assert.NoError(t, manager.Stop()) }()
 
 	pid := api.PID{
 		Node:   "test-node",
@@ -286,7 +286,7 @@ func TestManager_Attach(t *testing.T) {
 	}
 	ch := make(chan *api.Batch)
 
-	err, cancel := manager.Attach(pid, ch)
+	cancel, err := manager.Attach(pid, ch)
 	require.NoError(t, err)
 	assert.NotNil(t, cancel)
 

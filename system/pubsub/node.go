@@ -62,17 +62,17 @@ func (n *Node) Send(ctx context.Context, pid api.PID, batch *api.Batch) error {
 	return fmt.Errorf("no upstream available for non-local node %s", pid.Node)
 }
 
-func (n *Node) Attach(pid api.PID, ch chan *api.Batch) (error, context.CancelFunc) {
+func (n *Node) Attach(pid api.PID, ch chan *api.Batch) (context.CancelFunc, error) {
 	if pid.Node == "" || pid.Node == n.nodeID {
 		if h, ok := n.hosts.Load(pid.Host); ok {
 			host, ok := h.(api.Host)
 			if !ok {
-				return fmt.Errorf("host %s has invalid type", pid.Host), nil
+				return nil, fmt.Errorf("host %s has invalid type", pid.Host)
 			}
 			return host.Attach(pid, ch)
 		}
-		return fmt.Errorf("host %s not found in node", pid.Host), nil
+		return nil, fmt.Errorf("host %s not found in node", pid.Host)
 	}
 
-	return fmt.Errorf("no upstream available for non-local node %s", pid.Node), nil
+	return nil, fmt.Errorf("no upstream available for non-local node %s", pid.Node)
 }
