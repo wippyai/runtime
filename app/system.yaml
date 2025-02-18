@@ -41,7 +41,8 @@ entries:
     meta:
       comment: "Process execution host"
     host:
-      max_processes: 500
+      max_processes: 5
+      workers: 1
     lifecycle:
       auto_start: true
       restart:
