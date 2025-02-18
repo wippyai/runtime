@@ -34,15 +34,7 @@ function ticker()
             end
 
             -- Sleep for 1 second
-            local sleep_err = time.sleep(time.parse_duration("1s"))
-            if sleep_err then
-                -- Sleep failed, send error and exit
-                tick_channel:send({
-                    error = "Sleep failed",
-                    details = sleep_err
-                })
-                break
-            end
+            time.sleep(time.parse_duration("1s"))
 
             ticks = ticks + 1
         end
