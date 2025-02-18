@@ -174,3 +174,164 @@ func cancelledContext() context.Context {
 	cancel()
 	return ctx
 }
+
+func TestHost_AttachPIDBatch(t *testing.T) {
+	ctx := context.Background()
+	host := NewHost(ctx, HostConfig{
+		BufferSize:  100,
+		WorkerCount: 4,
+	})
+
+	pid := api.PID{
+		Node:   "node1",
+		Host:   "host1",
+		ID:     registry.ID{NS: "ns1", Name: "proc1"},
+		UniqID: "uniq1",
+	}
+
+	// Test successful attachment
+	ch1 := make(chan *api.PIDBatch, 10)
+	err1, cancel1 := host.AttachPIDBatch(pid, ch1)
+	assert.NoError(t, err1)
+	assert.NotNil(t, cancel1)
+
+	// Test duplicate attachment
+	ch2 := make(chan *api.PIDBatch, 10)
+	err2, _ := host.AttachPIDBatch(pid, ch2)
+	assert.Error(t, err2)
+	assert.Equal(t, api.ErrAlreadyAttached, err2)
+
+	// Test cancellation
+	cancel1()
+	time.Sleep(time.Millisecond * 10) // Allow time for the delete operation
+	_, exists := host.receivers.Load(pid)
+	assert.False(t, exists)
+}
+
+func TestHost_SendToPIDBatchReceiver(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	defer cancel()
+
+	host := NewHost(ctx, HostConfig{
+		BufferSize:   2,
+		WorkerCount:  1,
+		RetryTimeout: time.Millisecond * 100,
+	})
+
+	pid := api.PID{
+		Node:   "node1",
+		Host:   "host1",
+		ID:     registry.ID{NS: "ns1", Name: "proc1"},
+		UniqID: "uniq1",
+	}
+
+	// Create a PIDBatch receiver
+	receiverCh := make(chan *api.PIDBatch, 1)
+	err, _ := host.AttachPIDBatch(pid, receiverCh)
+	assert.NoError(t, err)
+
+	// Send a regular batch
+	batch := &api.Batch{{Topic: "test", Payloads: nil}}
+	err = host.Send(ctx, pid, batch)
+	assert.NoError(t, err)
+
+	// Verify PIDBatch is received correctly
+	select {
+	case received := <-receiverCh:
+		assert.Equal(t, pid, received.PID)
+		assert.Equal(t, batch, received.Batch)
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for PIDBatch message")
+	}
+}
+
+func TestHost_PIDBatchDeliveryTimeout(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	defer cancel()
+
+	host := NewHost(ctx, HostConfig{
+		BufferSize:      2,
+		WorkerCount:     1,
+		DeliveryTimeout: time.Millisecond * 50,
+		RetryTimeout:    time.Millisecond * 100,
+	})
+
+	pid := api.PID{
+		Node:   "node1",
+		Host:   "host1",
+		ID:     registry.ID{NS: "ns1", Name: "proc1"},
+		UniqID: "uniq1",
+	}
+
+	// Create a blocked PIDBatch receiver
+	receiverCh := make(chan *api.PIDBatch) // Unbuffered channel that no one is receiving from
+	err, _ := host.AttachPIDBatch(pid, receiverCh)
+	assert.NoError(t, err)
+
+	// Send should succeed (as it only queues the message)
+	err = host.Send(ctx, pid, &api.Batch{{Topic: "test"}})
+	assert.NoError(t, err)
+
+	// Wait longer than delivery timeout
+	time.Sleep(time.Millisecond * 100)
+	// Message should have been dropped due to delivery timeout
+}
+
+func TestHost_MixedReceivers(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	defer cancel()
+
+	host := NewHost(ctx, HostConfig{
+		BufferSize:   2,
+		WorkerCount:  1,
+		RetryTimeout: time.Millisecond * 100,
+	})
+
+	pid1 := api.PID{
+		Node:   "node1",
+		Host:   "host1",
+		ID:     registry.ID{NS: "ns1", Name: "proc1"},
+		UniqID: "uniq1",
+	}
+
+	pid2 := api.PID{
+		Node:   "node1",
+		Host:   "host1",
+		ID:     registry.ID{NS: "ns1", Name: "proc2"},
+		UniqID: "uniq2",
+	}
+
+	// Attach both types of receivers
+	batchCh := make(chan *api.Batch, 1)
+	pidBatchCh := make(chan *api.PIDBatch, 1)
+
+	err, _ := host.Attach(pid1, batchCh)
+	assert.NoError(t, err)
+
+	err, _ = host.AttachPIDBatch(pid2, pidBatchCh)
+	assert.NoError(t, err)
+
+	// Send messages to both
+	batch := &api.Batch{{Topic: "test"}}
+	err = host.Send(ctx, pid1, batch)
+	assert.NoError(t, err)
+	err = host.Send(ctx, pid2, batch)
+	assert.NoError(t, err)
+
+	// Verify regular batch received
+	select {
+	case received := <-batchCh:
+		assert.Equal(t, batch, received)
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for batch message")
+	}
+
+	// Verify PIDBatch received
+	select {
+	case received := <-pidBatchCh:
+		assert.Equal(t, pid2, received.PID)
+		assert.Equal(t, batch, received.Batch)
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for PIDBatch message")
+	}
+}

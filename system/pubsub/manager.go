@@ -14,12 +14,12 @@ type Manager struct {
 	ctx        context.Context
 	logger     *zap.Logger
 	bus        events.Bus
-	node       *Node
+	node       api.Node
 	subscriber *eventbus.Subscriber
 }
 
 // NewNodeManager creates a new node manager instance that wraps a Node
-func NewNodeManager(node *Node, bus events.Bus, logger *zap.Logger) *Manager {
+func NewNodeManager(node api.Node, bus events.Bus, logger *zap.Logger) *Manager {
 	return &Manager{
 		node:   node,
 		bus:    bus,
@@ -65,7 +65,7 @@ func (m *Manager) handleEvent(e events.Event) {
 		m.logger.Warn("unknown event kind",
 			zap.String("kind", e.Kind),
 			zap.String("path", e.Path),
-			zap.String("node_id", m.node.nodeID),
+			zap.String("node_id", m.node.ID()),
 		)
 	}
 }
@@ -75,7 +75,7 @@ func (m *Manager) handleRegisterHost(e events.Event) {
 	if !ok {
 		m.logger.Error("invalid host payload",
 			zap.String("host", e.Path),
-			zap.String("node_id", m.node.nodeID),
+			zap.String("node_id", m.node.ID()),
 			zap.String("type", fmt.Sprintf("%T", e.Data)))
 
 		m.sendReject(e.Path, "invalid host payload")
@@ -87,7 +87,7 @@ func (m *Manager) handleRegisterHost(e events.Event) {
 	if err != nil {
 		m.logger.Error("failed to register host",
 			zap.String("host", e.Path),
-			zap.String("node_id", m.node.nodeID),
+			zap.String("node_id", m.node.ID()),
 			zap.Error(err))
 
 		m.sendReject(e.Path, err.Error())
@@ -96,7 +96,7 @@ func (m *Manager) handleRegisterHost(e events.Event) {
 
 	m.logger.Info("host registered successfully",
 		zap.String("host", e.Path),
-		zap.String("node_id", m.node.nodeID),
+		zap.String("node_id", m.node.ID()),
 		zap.String("type", fmt.Sprintf("%T", host)),
 	)
 	m.sendAccept(e.Path)
@@ -108,7 +108,7 @@ func (m *Manager) handleDeleteHost(e events.Event) {
 
 	m.logger.Info("host unregistered successfully",
 		zap.String("host", e.Path),
-		zap.String("node_id", m.node.nodeID),
+		zap.String("node_id", m.node.ID()),
 	)
 	m.sendAccept(e.Path)
 }
@@ -141,6 +141,6 @@ func (m *Manager) Attach(pid api.PID, ch chan *api.Batch) (error, context.Cancel
 }
 
 // Node returns the underlying Node instance
-func (m *Manager) Node() *Node {
+func (m *Manager) Node() api.Node {
 	return m.node
 }
