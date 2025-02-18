@@ -1,4 +1,3 @@
-local json = require("json")
 local http = require("http")
 local env = require("env")
 

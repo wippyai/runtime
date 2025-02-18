@@ -23,13 +23,12 @@ entries:
       depends_on:
         - gateway
     prefix: /api/v1
-    entries:
 
   - name: terminal
     kind: terminal.host
     meta:
       comment: "System shell"
-    hide_logs: false
+    hide_logs: true
     lifecycle:
       auto_start: true
       restart:
