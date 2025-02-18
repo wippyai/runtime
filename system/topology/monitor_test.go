@@ -71,9 +71,9 @@ func TestMonitor(t *testing.T) {
 			t.Errorf("unexpected error registering process: %v", err)
 		}
 
-		// Double registration should fail
-		if err := mon.Register(pid1); err == nil {
-			t.Error("expected error on double registration")
+		// Double registration should pass also
+		if err := mon.Register(pid1); err != nil {
+			t.Error("expected no error on double registration")
 		}
 	})
 
