@@ -11,7 +11,7 @@ entries:
       comment: "Streams environment variables as JSON with prioritized output of PATH, HOME, USER, and PWD variables first"
     source: file://env.lua
     method: envdump
-    modules: [ http, json, env ]  # Added http module
+    modules: [ http, json, env ]
     pool:
       size: 2
 
