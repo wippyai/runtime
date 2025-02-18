@@ -2,6 +2,7 @@ package resource
 
 import (
 	"context"
+	"fmt"
 	contextapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/registry"
@@ -160,7 +161,7 @@ func TestService_ResourceLifecycle(t *testing.T) {
 			defer wg.Done()
 			res, err := service.Acquire(ctx, id, resource.ReadWrite)
 			if err == nil {
-				defer res.Release()
+				defer func() { assert.NoError(t, res.Release()) }()
 				_, err := res.Get()
 				assert.NoError(t, err)
 			}
@@ -339,4 +340,175 @@ func TestService_GetResources(t *testing.T) {
 	reg := resource.GetResources(ctxWithReg)
 	assert.NotNil(t, reg)
 	assert.Equal(t, service, reg)
+}
+
+func TestService_ResourceListing(t *testing.T) {
+	ctx := context.Background()
+	service, bus := setupTest()
+	require.NoError(t, service.Start(ctx))
+	defer func() { assert.NoError(t, service.Stop()) }()
+
+	provider := newMockResourceProvider()
+	resources := []registry.ID{
+		{NS: "test", Name: "resource1"},
+		{NS: "test", Name: "resource2"},
+		{NS: "test", Name: "resource3"},
+	}
+
+	// Register multiple resources
+	for _, id := range resources {
+		provider.resources[id] = fmt.Sprintf("data-%s", id.Name)
+		entry := resource.Entry{
+			ID:       id,
+			Provider: provider,
+			Meta:     map[string]interface{}{"type": "test"},
+		}
+
+		bus.Send(ctx, events.Event{
+			System: resource.System,
+			Kind:   resource.Register,
+			Path:   id.String(),
+			Data:   entry,
+		})
+	}
+	time.Sleep(10 * time.Millisecond)
+
+	// Test List method
+	listed, err := service.List()
+	require.NoError(t, err)
+	assert.Equal(t, len(resources), len(listed))
+
+	// Verify all registered resources are in the list
+	for _, id := range resources {
+		found := false
+		for _, listedID := range listed {
+			if listedID == id {
+				found = true
+				break
+			}
+		}
+		assert.True(t, found, "Resource %s should be in the list", id.String())
+	}
+
+	// Remove a resource and verify list is updated
+	bus.Send(ctx, events.Event{
+		System: resource.System,
+		Kind:   resource.Remove,
+		Path:   resources[0].String(),
+		Data:   resources[0],
+	})
+	time.Sleep(10 * time.Millisecond)
+
+	listed, err = service.List()
+	require.NoError(t, err)
+	assert.Equal(t, len(resources)-1, len(listed))
+}
+
+func TestService_UpdateResource(t *testing.T) {
+	ctx := context.Background()
+	service, bus := setupTest()
+	require.NoError(t, service.Start(ctx))
+	defer func() { assert.NoError(t, service.Stop()) }()
+
+	provider := newMockResourceProvider()
+	id := registry.ID{NS: "test", Name: "resource1"}
+	provider.resources[id] = "initial-data"
+
+	// Register initial resource
+	entry := resource.Entry{
+		ID:       id,
+		Provider: provider,
+		Meta:     map[string]interface{}{"version": "1.0"},
+	}
+
+	bus.Send(ctx, events.Event{
+		System: resource.System,
+		Kind:   resource.Register,
+		Path:   id.String(),
+		Data:   entry,
+	})
+	time.Sleep(10 * time.Millisecond)
+
+	t.Run("update existing resource", func(t *testing.T) {
+		updatedEntry := resource.Entry{
+			ID:       id,
+			Provider: provider,
+			Meta:     map[string]interface{}{"version": "2.0"},
+		}
+
+		bus.Send(ctx, events.Event{
+			System: resource.System,
+			Kind:   resource.Update,
+			Path:   id.String(),
+			Data:   updatedEntry,
+		})
+		time.Sleep(10 * time.Millisecond)
+
+		// Verify resource was updated
+		assert.True(t, service.Exists(id))
+	})
+
+	t.Run("update non-existent resource", func(t *testing.T) {
+		nonExistentID := registry.ID{NS: "test", Name: "nonexistent"}
+		updatedEntry := resource.Entry{
+			ID:       nonExistentID,
+			Provider: provider,
+			Meta:     map[string]interface{}{"version": "1.0"},
+		}
+
+		bus.Send(ctx, events.Event{
+			System: resource.System,
+			Kind:   resource.Update,
+			Path:   nonExistentID.String(),
+			Data:   updatedEntry,
+		})
+		time.Sleep(10 * time.Millisecond)
+	})
+}
+
+func TestService_HandleEvent(t *testing.T) {
+	ctx := context.Background()
+	service, bus := setupTest()
+	require.NoError(t, service.Start(ctx))
+	defer func() { assert.NoError(t, service.Stop()) }()
+
+	t.Run("unknown event kind", func(t *testing.T) {
+		bus.Send(ctx, events.Event{
+			System: resource.System,
+			Kind:   "unknown.event",
+			Path:   "test:resource",
+		})
+		time.Sleep(10 * time.Millisecond) // Give time for event processing
+	})
+
+	t.Run("invalid register payload", func(t *testing.T) {
+		bus.Send(ctx, events.Event{
+			System: resource.System,
+			Kind:   resource.Register,
+			Path:   "test:resource",
+			Data:   "invalid data",
+		})
+		time.Sleep(10 * time.Millisecond)
+		assert.False(t, service.Exists(registry.ParseID("test:resource")))
+	})
+
+	t.Run("invalid update payload", func(t *testing.T) {
+		bus.Send(ctx, events.Event{
+			System: resource.System,
+			Kind:   resource.Update,
+			Path:   "test:resource",
+			Data:   "invalid data",
+		})
+		time.Sleep(10 * time.Millisecond)
+	})
+
+	t.Run("invalid remove payload", func(t *testing.T) {
+		bus.Send(ctx, events.Event{
+			System: resource.System,
+			Kind:   resource.Remove,
+			Path:   "test:resource",
+			Data:   "invalid data",
+		})
+		time.Sleep(10 * time.Millisecond)
+	})
 }
