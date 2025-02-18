@@ -17,16 +17,14 @@ type Service struct {
 	ctx        context.Context
 	logger     *zap.Logger
 	bus        events.Bus
-	registry   registry.Registry
 	resources  sync.Map // map[registry.ID]Entry
 	subscriber *eventbus.Subscriber
 }
 
 // NewService creates a new resource service instance
-func NewService(bus events.Bus, reg registry.Registry, logger *zap.Logger) *Service {
+func NewService(bus events.Bus, logger *zap.Logger) *Service {
 	return &Service{
 		bus:       bus,
-		registry:  reg,
 		logger:    logger,
 		resources: sync.Map{},
 	}
@@ -138,6 +136,10 @@ func (s *Service) handleRemove(e events.Event) {
 func (s *Service) Acquire(ctx context.Context, id registry.ID, mode resource.AccessMode) (resource.Resource[any], error) {
 	if !mode.IsValid() {
 		return nil, resource.ErrInvalidAccessMode
+	}
+
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
 	}
 
 	entryVal, ok := s.resources.Load(id)

@@ -30,18 +30,19 @@ type AccessMode uint8
 const (
 	ReadOnly  AccessMode             = 1 << iota // Resource can only be read
 	WriteOnly                                    // Resource can only be written
-	ReadWrite = ReadOnly | WriteOnly             // Resource can be read and written
 	Exclusive                                    // Resource is locked for exclusive access
+	ReadWrite = ReadOnly | WriteOnly             // Resource can be read and written
 )
 
 // IsValid checks if the access mode combination is valid
 func (m AccessMode) IsValid() bool {
-	// Exclusive can't be combined with other modes
+	// Exclusive must be standalone
 	if m&Exclusive != 0 {
 		return m == Exclusive
 	}
-	// Must have at least one access type
-	return m != 0 && m <= ReadWrite
+
+	// Other modes can be individual or combined
+	return m == ReadOnly || m == WriteOnly || m == ReadWrite
 }
 
 type (
