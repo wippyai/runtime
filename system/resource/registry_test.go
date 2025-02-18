@@ -16,10 +16,10 @@ import (
 	"time"
 )
 
-func setupTest() (*Service, events.Bus) {
+func setupTest() (*Registry, events.Bus) {
 	logger := zap.NewNop()
 	bus := eventbus.NewBus()
-	return NewService(bus, logger), bus
+	return NewResourceRegistry(bus, logger), bus
 }
 
 type mockResourceProvider struct {

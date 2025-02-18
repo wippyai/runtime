@@ -84,7 +84,7 @@ type App struct {
 	prototypes  *process.PrototypeRegistry
 	hosts       *process.HostRegistry
 
-	resources *resource.Service
+	resources *resource.Registry
 
 	// mesh
 	node *pubsub.Manager
@@ -171,7 +171,7 @@ func (a *App) Initialize() error {
 	a.prototypes = process.NewPrototypeFactory(a.eventBus, a.logger.Named("prototypes"))
 	a.hosts = process.NewHostRegistry(a.eventBus, a.logger.Named("hosts"))
 
-	a.resources = resource.NewService(a.eventBus, a.logger.Named("resources"))
+	a.resources = resource.NewResourceRegistry(a.eventBus, a.logger.Named("resources"))
 
 	// groups, links, monitor and other topology level stuff
 	control := process.NewTopology(a.ctx, a.logger.Named("control"), a.node)
