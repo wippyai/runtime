@@ -138,7 +138,7 @@ function bapp.new(init_cmd)
             end
         end
 
-        self:cleanup_termi nal()
+        self:cleanup_terminal()
     end
 
     return app
