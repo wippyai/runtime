@@ -33,9 +33,9 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/modules/uuid"
 	"github.com/ponyruntime/pony/runtime/lua/modules/websocket"
 	"github.com/ponyruntime/pony/runtime/noop"
-	"github.com/ponyruntime/pony/service/host"
 	"github.com/ponyruntime/pony/service/http"
-	service "github.com/ponyruntime/pony/service/process"
+	"github.com/ponyruntime/pony/service/process"
+	service "github.com/ponyruntime/pony/service/supervisor"
 	"github.com/ponyruntime/pony/service/terminal"
 	"github.com/ponyruntime/pony/system/eventbus"
 	"github.com/ponyruntime/pony/system/function"
@@ -568,7 +568,7 @@ func WithProcessSupervisor(a *App) eventbus.EventHandler {
 }
 
 func WithEphemeralHost(a *App) eventbus.EventHandler {
-	return reghandler.NewRegistryHandler("process.host", host.NewHostManager(
+	return reghandler.NewRegistryHandler("process.host", process.NewHostManager(
 		a.eventBus,
 		a.dtt,
 		a.logger.Named("hosts"),

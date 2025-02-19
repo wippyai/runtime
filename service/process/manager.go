@@ -3,138 +3,141 @@ package process
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/system/process"
 	"sync"
 
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"
-	processApi "github.com/ponyruntime/pony/api/process"
+	"github.com/ponyruntime/pony/api/process"
+	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/supervisor"
 	"go.uber.org/zap"
 )
 
-// Manager handles process services lifecycle and monitoring
+// Manager handles process host lifecycle and registration
 type Manager struct {
-	log      *zap.Logger
-	bus      events.Bus
-	proc     *process.Manager
-	services sync.Map // map[registry.ID]*ProcessService
+	log   *zap.Logger
+	bus   events.Bus
+	dtt   payload.Transcoder
+	mu    sync.RWMutex
+	hosts sync.Map // map[registry.ID]*Host
 }
 
-// NewProcessSupervisorManager creates a new process service manager
-func NewProcessSupervisorManager(
-	bus events.Bus,
-	proc *process.Manager,
-	log *zap.Logger,
-) *Manager {
+// NewHostManager creates a new process host manager
+func NewHostManager(bus events.Bus, dtt payload.Transcoder, logger *zap.Logger) *Manager {
 	return &Manager{
-		log:  log,
-		bus:  bus,
-		proc: proc,
+		log: logger,
+		bus: bus,
+		dtt: dtt,
 	}
 }
 
-// Add implements registry.EntryListener
+// Add creates and registers a new process host
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != processApi.KindProcessService {
-		return fmt.Errorf("invalid entry kind %s, expected %s", entry.Kind, processApi.KindProcessService)
+	if entry.Kind != process.KindHost {
+		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
 	}
 
-	// Unmarshal config
-	var cfg processApi.ServiceConfig
-	if err := payload.GetTranscoder(ctx).Unmarshal(entry.Data, &cfg); err != nil {
+	cfg := new(process.EntryConfig)
+	if err := m.dtt.Unmarshal(entry.Data, cfg); err != nil {
 		return fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
-	// Validate config
+	cfg.InitDefaults()
+
 	if err := cfg.Validate(); err != nil {
-		return fmt.Errorf("invalid configuration: %w", err)
+		return fmt.Errorf("invalid config: %w", err)
 	}
 
-	// Create service instance
-	svc := &Service{
-		id:     entry.ID,
-		config: cfg,
-		status: make(chan any, 1),
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Create new host instance
+	host := NewProcessHost(entry.ID, cfg.HostConfig, m.log)
+
+	// Store in hosts map
+	m.hosts.Store(entry.ID, host)
+
+	m.log.Info("process host created", zap.String("id", entry.ID.String()))
+
+	// Register with necessary subsystems
+	m.registerHost(ctx, entry.ID, host, cfg)
+
+	return nil
+}
+
+// Update updates an existing process host
+func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
+	return fmt.Errorf("unable to update process host")
+}
+
+// Delete removes a process host
+func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
+	if entry.Kind != process.KindHost {
+		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
 	}
 
-	// Store service
-	m.services.Store(entry.ID, svc)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.removeHost(ctx, entry.ID)
+	m.hosts.Delete(entry.ID)
+
+	m.log.Info("process host removed", zap.String("id", entry.ID.String()))
+
+	return nil
+}
+
+// registerHost registers the process host with necessary subsystems
+func (m *Manager) registerHost(ctx context.Context, id registry.ID, host *Host, cfg *process.EntryConfig) {
+	// Register with pubsub
+	m.bus.Send(ctx, events.Event{
+		System: pubsub.System,
+		Kind:   pubsub.RegisterHost,
+		Path:   id.String(),
+		Data:   process.Host(host),
+	})
+
+	// Register as process host
+	m.bus.Send(ctx, events.Event{
+		System: process.HostSystem,
+		Kind:   process.RegisterHost,
+		Path:   id.String(),
+		Data:   process.Managed(host),
+	})
 
 	// Register with supervisor
 	m.bus.Send(ctx, events.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Register,
-		Path:   entry.ID.String(),
+		Path:   id.String(),
 		Data: &supervisor.Entry{
-			Service: svc,
+			Service: host,
 			Config:  cfg.Lifecycle,
 		},
 	})
-
-	m.log.Info("process supervisor added", zap.String("id", entry.ID.String()))
-
-	return nil
 }
 
-// Update implements registry.EntryListener
-func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != processApi.KindProcessService {
-		return fmt.Errorf("invalid entry kind %s, expected %s", entry.Kind, processApi.KindProcessService)
-	}
-
-	// Get existing service
-	_, exists := m.services.Load(entry.ID)
-	if !exists {
-		return fmt.Errorf("service %s not found", entry.ID)
-	}
-
-	// Unmarshal new config
-	var cfg processApi.ServiceConfig
-	if err := payload.GetTranscoder(ctx).Unmarshal(entry.Data, &cfg); err != nil {
-		return fmt.Errorf("failed to unmarshal config: %w", err)
-	}
-
-	// Validate config
-	if err := cfg.Validate(); err != nil {
-		return fmt.Errorf("invalid configuration: %w", err)
-	}
-
-	// todo: at the moment we do not update config and do not swap ids and etc
-
-	// Update supervisor config
+// removeHost removes the process host from all subsystems
+func (m *Manager) removeHost(ctx context.Context, id registry.ID) {
+	// Remove from pubsub
 	m.bus.Send(ctx, events.Event{
-		System: supervisor.System,
-		Kind:   supervisor.Update,
-		Path:   entry.ID.String(),
-		Data: &supervisor.Entry{
-			Config: cfg.Lifecycle,
-		},
+		System: pubsub.System,
+		Kind:   pubsub.DeleteHost,
+		Path:   id.String(),
 	})
 
-	m.log.Info("process supervisor updated", zap.String("id", entry.ID.String()))
-
-	return nil
-}
-
-// Delete implements registry.EntryListener
-func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != processApi.KindProcessService {
-		return fmt.Errorf("invalid entry kind %s, expected %s", entry.Kind, processApi.KindProcessService)
-	}
+	// Remove from process hosts
+	m.bus.Send(ctx, events.Event{
+		System: process.HostSystem,
+		Kind:   process.DeleteHost,
+		Path:   id.String(),
+	})
 
 	// Remove from supervisor
 	m.bus.Send(ctx, events.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Remove,
-		Path:   entry.ID.String(),
+		Path:   id.String(),
 	})
-
-	// Remove from services map
-	m.services.Delete(entry.ID)
-
-	m.log.Info("process supervisor removed", zap.String("id", entry.ID.String()))
-
-	return nil
 }
