@@ -63,19 +63,16 @@ func NewProcess(log *zap.Logger, runner *engine.Runner, funcName string) (proces
 func (p *Process) convertPayloadsToLua(payloads payload.Payloads) ([]lua.LValue, error) {
 	args := make([]lua.LValue, 0, len(payloads))
 	for _, pp := range payloads {
-		if lv, ok := pp.Data().(lua.LValue); ok {
+		luaPayload, err := p.dtt.Transcode(pp, payload.Lua)
+		if err != nil {
+			return nil, err
+		}
+
+		if lv, ok := luaPayload.Data().(lua.LValue); ok {
 			args = append(args, lv)
-		} else {
-			// Transcode non-Lua payloads
-			luaPayload, err := p.dtt.Transcode(pp, payload.Lua)
-			if err != nil {
-				return nil, err
-			}
-			if lv, ok := luaPayload.Data().(lua.LValue); ok {
-				args = append(args, lv)
-			}
 		}
 	}
+
 	return args, nil
 }
 
@@ -169,8 +166,6 @@ func (p *Process) Send(batch *pubsub.Batch) error {
 		return p.ctx.Err()
 	default:
 		for _, msg := range *batch {
-			// todo: properly think about cancel events
-
 			// Forward messages to Lua
 			luaValues, err := p.convertPayloadsToLua(msg.Payloads)
 			if err != nil {

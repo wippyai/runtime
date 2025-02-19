@@ -19,11 +19,6 @@ local function run()
             break
         end
 
-        if result.channel == events_ch then
-            local event = result.value
-            print("got event")
-        end
-
         if result.channel == done then
             break
         end
@@ -32,6 +27,7 @@ local function run()
             print("Tick at:", time.now():format("15:04:05"))
         else
             local event = result.value
+
             print("GOT EVENT")
 
             if event then
