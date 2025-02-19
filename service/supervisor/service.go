@@ -10,6 +10,7 @@ import (
 	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/ponyruntime/pony/api/topology"
 	"github.com/ponyruntime/pony/system/process"
+	"time"
 )
 
 var supID = process.NewUniqIDGenerator()
@@ -90,7 +91,10 @@ func (svc *Service) Start(ctx context.Context) (<-chan any, error) {
 				return
 			case batch, ok := <-monitorCh:
 				if !ok {
-					svc.status <- supervisor.ErrExit
+					select {
+					case svc.status <- supervisor.ErrExit:
+					default:
+					}
 					return
 				}
 
@@ -99,9 +103,15 @@ func (svc *Service) Start(ctx context.Context) (<-chan any, error) {
 						for _, p := range msg.Payloads {
 							if event, ok := p.Data().(topology.MonitorEvent); ok {
 								if event.Result.Error != nil {
-									svc.status <- fmt.Errorf("process failed: %w", event.Result.Error)
+									select {
+									case svc.status <- fmt.Errorf("process failed: %w", event.Result.Error):
+									default:
+									}
 								} else {
-									svc.status <- supervisor.ErrExit
+									select {
+									case svc.status <- supervisor.ErrExit:
+									default:
+									}
 								}
 								return
 							}
@@ -121,10 +131,28 @@ func (svc *Service) Stop(ctx context.Context) error {
 		return nil // Not running
 	}
 
-	processes := processApi.GetProcesses(ctx)
-	if processes == nil {
-		return fmt.Errorf("no process manager found in context")
+	err := pubsub.GetNode(ctx).Send(ctx, svc.pid, pubsub.NewBatch(
+		processApi.TopicEvents,
+		payload.New(topology.CancelEvent{
+			Event: topology.Event{
+				At:   time.Now(),
+				Kind: topology.KindCancel,
+			},
+			Deadline: time.Now().Add(svc.config.Lifecycle.StopTimeout),
+		}),
+	))
+	if err != nil {
+		select {
+		case svc.status <- fmt.Errorf("failed to send cancel event: %w", err):
+		default:
+		}
 	}
 
-	return processes.Terminate(ctx, svc.pid)
+	// wait for completion
+	select {
+	case <-svc.status:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }

@@ -155,7 +155,7 @@ func (mph *Host) Launch(ctx context.Context, launch *process.LaunchProcess) (pub
 		return pubsub.PID{}, err
 	}
 
-	mph.log.Info("process launched", zap.String("pid", launch.PID.String()))
+	mph.log.Debug("process launched", zap.String("pid", launch.PID.String()))
 	return launch.PID, nil
 }
 
@@ -163,12 +163,7 @@ func (mph *Host) prepareContext(ctx context.Context, pid pubsub.PID) context.Con
 	pCtx := process.MergeContext(contextApi.MergeContext(mph.ctx, ctx), ctx)
 	pCtx = context.WithValue(pCtx, contextApi.IDCtx, pid.ID)
 	pCtx = context.WithValue(pCtx, contextApi.WakeUpKey, func() {
-		err := mph.pool.Schedule(pid)
-		if err != nil {
-			mph.log.Error("failed to wake up process",
-				zap.String("pid", pid.String()),
-				zap.Error(err))
-		}
+		_ = mph.pool.Schedule(pid) // it's ok since it means process no longer found, possible during termination
 	})
 
 	return pCtx
@@ -183,7 +178,7 @@ func (mph *Host) Terminate(ctx context.Context, pid pubsub.PID) error {
 	// terminate is aggressive, so we don't wait for the process to finish, use cancel signals instead
 	mph.pool.RemoveProcess(pid)
 
-	mph.log.Info("process terminate requested", zap.String("pid", pid.String()))
+	mph.log.Debug("process terminate requested", zap.String("pid", pid.String()))
 	return nil
 }
 
