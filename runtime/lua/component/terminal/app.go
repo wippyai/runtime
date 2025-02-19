@@ -32,9 +32,9 @@ const (
 	ChannelUpdate = "@btea/update"
 
 	// Timeout constants
-	stopTimeout = 5000 * time.Millisecond
-	taskTimeout = 3000 * time.Millisecond
-	viewTimeout = 2000 * time.Millisecond
+	stopTimeout = 1000 * time.Millisecond
+	taskTimeout = 5000 * time.Millisecond
+	viewTimeout = 5000 * time.Millisecond
 
 	maxViewRetries = 3
 
