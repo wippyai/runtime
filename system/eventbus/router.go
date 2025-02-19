@@ -100,7 +100,7 @@ func (r *EventRouter) Stop() error {
 	wg := sync.WaitGroup{}
 	wg.Add(len(r.subscribers))
 
-	// Stop all subscribers concurrently
+	// Close all subscribers concurrently
 	for _, sub := range r.subscribers {
 		go func(s handlerSubscription) {
 			defer wg.Done()

@@ -415,7 +415,7 @@ func TestStopWithPendingUnsubscribe(t *testing.T) {
 		}()
 	}
 
-	// Call Stop() while unsubscribe requests are being processed
+	// Call Close() while unsubscribe requests are being processed
 	go func() {
 		time.Sleep(10 * time.Millisecond) // Give some time for unsubscribe requests to queue up
 		b.Stop()
@@ -529,7 +529,7 @@ func TestHighConcurrencyStress(t *testing.T) {
 
 	unsubWg.Wait()
 
-	// Stop remaining channels and unsubscribe
+	// Close remaining channels and unsubscribe
 	for i := numSubscribers / 2; i < numSubscribers; i++ {
 		b.Unsubscribe(context.Background(), subscriberIDs[i])
 		close(channels[i])
@@ -758,19 +758,19 @@ func TestStopDuringBackpressure(t *testing.T) {
 	// Wait a bit to build up some backpressure
 	time.Sleep(100 * time.Millisecond)
 
-	// Stop the bus while under backpressure
+	// Close the bus while under backpressure
 	stopDone := make(chan struct{})
 	go func() {
 		b.Stop()
 		close(stopDone)
 	}()
 
-	// Ensure Stop() completes within a reasonable timeout
+	// Ensure Close() completes within a reasonable timeout
 	select {
 	case <-stopDone:
 		// Success - bus stopped properly
 	case <-time.After(1 * time.Second): // Reduced timeout
-		t.Fatal("bus.Stop() took too long under backpressure")
+		t.Fatal("bus.Close() took too long under backpressure")
 	}
 
 	// Cleanup

@@ -388,19 +388,19 @@ func (p *App) processLoop(resultCh <-chan engine.Result) {
 }
 
 // Step continues the runner. If an error occurs, it quits the bubbletea program.
-func (p *App) Step() error {
+func (p *App) Step() (bool, error) {
 	select {
 	case <-p.done:
-		return nil
+		return false, nil
 	case <-p.ctx.Done():
-		return p.ctx.Err()
+		return false, p.ctx.Err()
 	default:
 		err := p.runner.Continue(p.ctx)
 		if p.firstError == nil && err != nil {
 			p.firstError = err
 		}
 
-		return err
+		return err != nil, err
 	}
 }
 

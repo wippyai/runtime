@@ -88,8 +88,13 @@ func (r *Runner) run() {
 		default:
 		}
 
-		if err := r.proc.Step(); err != nil {
+		alive, err := r.proc.Step()
+		if err != nil {
 			r.Stop()
+			return
+		}
+
+		if !alive {
 			return
 		}
 	}

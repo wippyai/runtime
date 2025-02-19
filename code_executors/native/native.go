@@ -189,7 +189,7 @@ func (e *Executor) Stop() {
 
 	// kill the process
 	_ = pp.Kill()
-	// to prevent multiple calls to Stop()
+	// to prevent multiple calls to Close()
 	e.pid = 0
 	e.state = terminated
 	_ = e.stdoutp.Close()

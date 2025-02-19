@@ -102,13 +102,13 @@ func TestTerminalRunnerSendAndStop(t *testing.T) {
 		t.Errorf("expected no error on Send, got: %v", err)
 	}
 
-	// Stop the runner explicitly.
+	// Close the runner explicitly.
 	runner.Stop()
 
 	select {
 	case <-runner.Wait():
 		// Success: runner has stopped.
 	case <-time.After(2 * time.Second):
-		t.Fatalf("runner did not stop as expected after Stop()")
+		t.Fatalf("runner did not stop as expected after Close()")
 	}
 }

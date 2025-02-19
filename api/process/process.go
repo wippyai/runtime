@@ -60,7 +60,7 @@ type (
 		Start(context.Context, pubsub.PID, payload.Payloads) error
 
 		// Step advances process state by one iteration
-		Step() error
+		Step() (bool, error)
 	}
 
 	StartProcess struct {

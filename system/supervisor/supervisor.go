@@ -151,7 +151,7 @@ func (s *Supervisor) Stop() error {
 	}
 	s.mu.RUnlock()
 
-	// Stop all controllers in proper dependency order
+	// Close all controllers in proper dependency order
 	if err := s.sequencer.Transition(s.ctx, operations...); err != nil {
 		s.logger.Error("failed to stop controllers during shutdown", zap.Error(err))
 	}

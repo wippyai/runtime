@@ -211,7 +211,7 @@ func TestManager_StopBehavior(t *testing.T) {
 
 	require.NoError(t, manager.Start(ctx))
 
-	// Stop the manager
+	// Close the manager
 	require.NoError(t, manager.Stop())
 	cfgm := NewConfigurationManager()
 

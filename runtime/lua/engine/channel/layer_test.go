@@ -205,7 +205,7 @@ func TestCloseChannelWithPendingOperations(t *testing.T) {
 				coroutine.yield("receiver_notified")
 			end)
 
-			-- Stop the channel after receiver is blocked
+			-- Close the channel after receiver is blocked
 			coroutine.spawn(function()
 				coroutine.yield("closer_start")
 				ch:close()
@@ -541,7 +541,7 @@ func TestBufferedChannelCloseWithPendingOperations(t *testing.T) {
 		assert(msg2 == "msg2" and ok2 == true, "should receive second buffered message")
 		coroutine.yield("received_second")
 
-		-- Stop empty channel 
+		-- Close empty channel 
 		ch:close()
 		coroutine.yield("channel_closed")
 
@@ -596,7 +596,7 @@ func TestBufferedChannelClose(t *testing.T) {
 		ch:send("msg1")
 		coroutine.yield("buffered")
 		
-		-- Stop with value still buffered
+		-- Close with value still buffered
 		ch:close() 
 		coroutine.yield("closed")
 
@@ -787,7 +787,7 @@ func TestMainCoroutineChannelCascadingClose(t *testing.T) {
 		
 		coroutine.yield("goroutines_started")
 		
-		-- Stop channel from main coroutine
+		-- Close channel from main coroutine
 		ch:close()
 		coroutine.yield("channel_closed")
 		
@@ -975,7 +975,7 @@ func TestFanOutPattern(t *testing.T) {
 				outIdx = (outIdx % #outputs) + 1
 			end
 			
-			-- Stop all output channels
+			-- Close all output channels
 			for i = 1, #outputs do
 				outputs[i]:close()
 			end

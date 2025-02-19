@@ -81,7 +81,7 @@ func TestManager_StartStop(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, manager.subscriber)
 
-	// Test Stop
+	// Test Close
 	err = manager.Stop()
 	require.NoError(t, err)
 }

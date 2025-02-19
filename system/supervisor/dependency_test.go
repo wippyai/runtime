@@ -225,7 +225,7 @@ func TestSupervisor_AddDependencyToExistingService(t *testing.T) {
 	h.assertServiceState("service-b", supervisor.Running)
 	h.assertServiceState("service-a", supervisor.Running)
 
-	// Stop A and verify B keeps running (since it was started as dependency)
+	// Close A and verify B keeps running (since it was started as dependency)
 	h.sup.handleEvent(events.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Stop,
