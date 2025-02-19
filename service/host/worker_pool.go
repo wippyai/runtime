@@ -32,8 +32,8 @@ type WorkerPool struct {
 }
 
 // NewWorkerPool creates a new worker pool
-func NewWorkerPool(workers int, queueSize int, log *zap.Logger) *WorkerPool {
-	ctx, cancel := context.WithCancel(context.Background())
+func NewWorkerPool(ctx context.Context, workers int, queueSize int, log *zap.Logger) *WorkerPool {
+	ctx, cancel := context.WithCancel(ctx)
 
 	return &WorkerPool{
 		workers: workers,

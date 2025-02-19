@@ -47,7 +47,6 @@ func NewProcessHost(id registry.ID, config process.HostConfig, log *zap.Logger, 
 		log:          log,
 		msgHost:      msgHost,
 		hostMessages: make(chan *pubsub.PIDBatch, config.BufferSize),
-		workers:      NewWorkerPool(config.Workers, config.StepQueueSize, log),
 		done:         make(chan struct{}),
 	}
 }
@@ -70,7 +69,9 @@ func (mph *ProcessHost) Start(ctx context.Context) (<-chan any, error) {
 	// Wrap the incoming context with an on-complete callback.
 	mph.ctx = process.WithAddedOnComplete(ctx, mph.finalizeProcess)
 
+	mph.workers = NewWorkerPool(ctx, mph.config.Workers, mph.config.StepQueueSize, mph.log)
 	mph.workers.Start()
+
 	mph.startMessageWorkers()
 	mph.sendStatus("Host started and accepting processes")
 
