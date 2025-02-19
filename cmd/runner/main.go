@@ -560,7 +560,7 @@ func WithTerminalManager(a *App) eventbus.EventHandler {
 }
 
 func WithProcessSupervisor(a *App) eventbus.EventHandler {
-	return reghandler.NewRegistryHandler("process.service", service.NewProcessSupervisorManager(
+	return reghandler.NewRegistryHandler("process.service", service.NewSupervisorServiceManager(
 		a.eventBus,
 		a.processes,
 		a.logger.Named("supervisor"),
