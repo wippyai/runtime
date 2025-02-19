@@ -7,7 +7,6 @@ import (
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/ponyruntime/pony/api/topology"
-	"log"
 	"sync"
 	"time"
 
@@ -33,9 +32,9 @@ const (
 	ChannelUpdate = "@btea/update"
 
 	// Timeout constants
-	stopTimeout = 500 * time.Millisecond
-	taskTimeout = 300 * time.Millisecond
-	viewTimeout = 200 * time.Millisecond
+	stopTimeout = 5000 * time.Millisecond
+	taskTimeout = 3000 * time.Millisecond
+	viewTimeout = 2000 * time.Millisecond
 
 	maxViewRetries = 3
 
@@ -326,7 +325,6 @@ func (p *App) processLoop(resultCh <-chan engine.Result) {
 			// todo: something is not right with btea exit!
 			p.program.Quit()
 			time.Sleep(stopTimeout) // we really want to propagate the release of terminal, or apps might overlap
-			log.Printf("QUIT")
 		})
 	}
 

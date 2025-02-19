@@ -3,7 +3,6 @@ local discord_client = require("discord_client")
 local env = require("env")
 local DiscordUI = require("discord_ui")
 local CommandHandler = require("discord_commands")
-local json = require("json")
 
 function App()
     -- Create app with proper init commands
