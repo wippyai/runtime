@@ -9,8 +9,10 @@ import (
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/ponyruntime/pony/api/topology"
-	"time"
+	"github.com/ponyruntime/pony/system/process"
 )
+
+var supID = process.NewUniqIDGenerator()
 
 // Service represents a running process service instance
 type Service struct {
@@ -39,7 +41,8 @@ func (svc *Service) Start(ctx context.Context) (<-chan any, error) {
 	svc.supervisorPID = pubsub.PID{
 		Node:   node.ID(),
 		Host:   topology.ControlHost,
-		UniqID: fmt.Sprintf("supervisor.%d", time.Now().UnixNano()),
+		ID:     registry.ID{Name: "supervisor"},
+		UniqID: supID.Generate(),
 	}
 
 	// Create monitoring channel
