@@ -63,3 +63,17 @@ func GetOnStart(ctx context.Context) OnStart {
 }
 
 // todo: add pid and etc
+
+func MergeContext(base, foreign context.Context) context.Context {
+	origComplete := GetOnComplete(foreign)
+	if origComplete != nil {
+		base = WithAddedOnComplete(base, origComplete)
+	}
+
+	origOnStart := GetOnStart(foreign)
+	if origOnStart != nil {
+		base = WithAddedOnStart(base, origOnStart)
+	}
+
+	return base
+}

@@ -1,6 +1,8 @@
 // Package context is used to pass context between different parts of the application and not allocate
 package context
 
+import "context"
+
 // Key represents a context key used for storing and retrieving values from the context.
 // It provides a type-safe way to store context values using string names.
 type Key struct {
@@ -29,15 +31,21 @@ var (
 	HostCtx = &Key{Name: "host"} //nolint:gochecknoglobals
 
 	// --- Execution path specific
-	HandlerCtx  = &Key{Name: "handler"}  //nolint:gochecknoglobals
+	IDCtx       = &Key{Name: "handler"}  //nolint:gochecknoglobals
 	ValuesCtx   = &Key{Name: "values"}   //nolint:gochecknoglobals
 	CleanupCtx  = &Key{Name: "cleanup"}  //nolint:gochecknoglobals
 	SecurityCtx = &Key{Name: "security"} //nolint:gochecknoglobals
-	LoggerCtx   = &Key{Name: "logger"}   //nolint:gochecknoglobals
 
 	// --- Runtime and lifecycle specific
 	TerminalCtx = &Key{Name: "terminal"}     //nolint:gochecknoglobals
 	RunnerCtx   = &Key{Name: "taskGroupKey"} //nolint:gochecknoglobals
 	AsyncCtx    = &Key{Name: "scheduleKey"}  //nolint:gochecknoglobals
 	TemporalCtx = &Key{Name: "temporal"}     //nolint:gochecknoglobals
+	LoggerCtx   = &Key{Name: "logger"}       //nolint:gochecknoglobals
 )
+
+func MergeContext(base, foreign context.Context) context.Context {
+	// security and values only
+
+	return context.WithValue(base, "foreign", foreign)
+}

@@ -31,10 +31,11 @@ type HostConfig struct {
 	StepQueueSize int `json:"step_queue_size"` // Size of the step execution queue
 
 	// Messaging settings (from pubsub)
-	BufferSize      int           `json:"buffer_size"`      // Internal job channel buffer size
-	WorkerCount     int           `json:"worker_count"`     // Number of concurrent message workers
-	RetryTimeout    time.Duration `json:"retry_timeout"`    // Timeout for retry attempt on send
-	DeliveryTimeout time.Duration `json:"delivery_timeout"` // Timeout for delivery to receiver
+	BufferSize         int           `json:"buffer_size"`          // Internal job channel buffer size
+	WorkerCount        int           `json:"worker_count"`         // Number of concurrent message workers
+	RetryTimeout       time.Duration `json:"retry_timeout"`        // Timeout for retry attempt on send
+	DeliveryTimeout    time.Duration `json:"delivery_timeout"`     // Timeout for delivery to receiver
+	MessageWorkerCount int           `json:"message_worker_count"` // Number of concurrent message workers
 }
 
 // UnmarshalJSON implements custom unmarshaling for HostConfig to handle time.Duration fields
@@ -102,6 +103,10 @@ func (cfg *EntryConfig) InitDefaults() {
 
 	if cfg.HostConfig.WorkerCount == 0 {
 		cfg.HostConfig.WorkerCount = runtime.NumCPU()
+	}
+
+	if cfg.HostConfig.MessageWorkerCount == 0 {
+		cfg.HostConfig.MessageWorkerCount = runtime.NumCPU()
 	}
 
 	if cfg.HostConfig.RetryTimeout == 0 {

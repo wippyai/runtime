@@ -96,7 +96,7 @@ func (t *Terminal) run(ctx context.Context, status chan<- any) {
 				t.log.Info("config updated")
 			case opAttach:
 				var cancel context.CancelFunc
-				err, cancel = t.handleAttach(op.attachCh)
+				cancel, err = t.handleAttach(op.attachCh)
 				if op.detach != nil {
 					op.detach <- cancel
 				}
@@ -132,17 +132,25 @@ func (t *Terminal) handleLaunch(ctx context.Context, pl *process.LaunchProcess, 
 		}
 	}
 
-	pCtx := t.ctx
+	runner, err := NewTerminalRunner(t.prepareContext(ctx, pl.PID), cfg, pl)
+	if err != nil {
+		t.log.Error("failed to create terminal runner",
+			zap.Error(err))
 
-	origComplete := process.GetOnComplete(ctx)
-	if origComplete != nil {
-		pCtx = process.WithAddedOnComplete(pCtx, origComplete)
+		t.cleanup(nil)
+		close(response)
+		return err
 	}
 
-	origOnStart := process.GetOnStart(ctx)
-	if origOnStart != nil {
-		pCtx = process.WithAddedOnStart(pCtx, origOnStart)
-	}
+	t.runner.Store(runner)
+	response <- pl.PID
+	close(response)
+	return nil
+}
+
+func (t *Terminal) prepareContext(ctx context.Context, pid pubsub.PID) context.Context {
+	pCtx := process.MergeContext(ctxapi.MergeContext(t.ctx, ctx), ctx)
+	pCtx = context.WithValue(pCtx, ctxapi.IDCtx, pid.ID)
 
 	pCtx = process.WithAddedOnComplete(pCtx, func(pid pubsub.PID, result *runtime.Result) {
 		if result.Error != nil {
@@ -157,20 +165,7 @@ func (t *Terminal) handleLaunch(ctx context.Context, pl *process.LaunchProcess, 
 		t.cleanup(result)
 	})
 
-	runner, err := NewTerminalRunner(pCtx, cfg, pl)
-	if err != nil {
-		t.log.Error("failed to create terminal runner",
-			zap.Error(err))
-
-		t.cleanup(nil)
-		close(response)
-		return err
-	}
-
-	t.runner.Store(runner)
-	response <- pl.PID
-	close(response)
-	return nil
+	return pCtx
 }
 
 func (t *Terminal) handleTerminate() error {
@@ -191,7 +186,7 @@ func (t *Terminal) handleSend(msgBatch *pubsub.Batch) error {
 func (t *Terminal) handleAttach(ch chan *pubsub.Batch) (context.CancelFunc, error) {
 	runner := t.runner.Load()
 	if runner == nil {
-		return process.ErrNoProcess, nil
+		return nil, process.ErrNoProcess
 	}
 
 	// Since we're a singleton host, we attach the channel directly to the current process
@@ -202,17 +197,19 @@ func (t *Terminal) handleAttach(ch chan *pubsub.Batch) (context.CancelFunc, erro
 			select {
 			case <-ctx.Done():
 				return
-			case batch := <-ch:
+			case batch, ok := <-ch:
+				if !ok {
+					return
+				}
 				if err := runner.Send(batch); err != nil {
-					t.log.Error("failed to forward message to process",
-						zap.Error(err))
+					t.log.Error("failed to forward message to process", zap.Error(err))
 					return
 				}
 			}
 		}
 	}()
 
-	return nil, cancel
+	return cancel, nil
 }
 
 func (t *Terminal) cleanup(result *runtime.Result) {
@@ -248,7 +245,7 @@ func (t *Terminal) execOp(ctx context.Context, op op) error {
 	}
 }
 
-func (t *Terminal) Attach(pid pubsub.PID, ch chan *pubsub.Batch) (error, context.CancelFunc) {
+func (t *Terminal) Attach(pid pubsub.PID, ch chan *pubsub.Batch) (context.CancelFunc, error) {
 	detach := make(chan context.CancelFunc, 1)
 	err := t.execOp(t.ctx, op{
 		typ:      opAttach,
@@ -257,18 +254,19 @@ func (t *Terminal) Attach(pid pubsub.PID, ch chan *pubsub.Batch) (error, context
 		detach:   detach,
 	})
 	if err != nil {
-		return err, nil
+		return nil, err
 	}
 
 	select {
 	case cancel := <-detach:
-		return nil, cancel
+		return cancel, nil
 	case <-t.ctx.Done():
-		return t.ctx.Err(), nil
+		return nil, t.ctx.Err()
 	}
 }
 
-func (t *Terminal) Send(ctx context.Context, pid pubsub.PID, msg *pubsub.Batch) error {
+func (t *Terminal) Send(ctx context.Context, _ pubsub.PID, msg *pubsub.Batch) error {
+	// we dont really use pid since we always host a single process
 	return t.execOp(ctx, op{
 		typ:    opSend,
 		msg:    msg,

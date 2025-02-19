@@ -132,12 +132,8 @@ func (s *Registry) handleRemove(e events.Event) {
 		zap.String("id", id.String()))
 }
 
-// Acquire attempts to acquire a resource with the specified access mode
+// Acquire attempts to acqu,m.8klij ire a resource with the specified access mode
 func (s *Registry) Acquire(ctx context.Context, id registry.ID, mode resource.AccessMode) (resource.Resource[any], error) {
-	if !mode.IsValid() {
-		return nil, resource.ErrInvalidAccessMode
-	}
-
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}

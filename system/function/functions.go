@@ -140,7 +140,7 @@ func (f *FunctionRegistry) Call(ctx context.Context, task runtime.Task) (chan *r
 		ctx = context.Background()
 	}
 
-	ctx = context.WithValue(ctx, contextapi.HandlerCtx, task.Handler)
+	ctx = context.WithValue(ctx, contextapi.IDCtx, task.Handler)
 	execHandler, ok := handler.(function.Func)
 	if !ok {
 		return nil, fmt.Errorf("invalid handler type for target: %s", task.Handler)
