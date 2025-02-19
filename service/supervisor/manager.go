@@ -47,6 +47,8 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		return fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
+	cfg.Lifecycle.InitDefaults()
+
 	// Validate config
 	if err := cfg.Validate(); err != nil {
 		return fmt.Errorf("invalid configuration: %w", err)
@@ -95,6 +97,8 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	if err := payload.GetTranscoder(ctx).Unmarshal(entry.Data, &cfg); err != nil {
 		return fmt.Errorf("failed to unmarshal config: %w", err)
 	}
+
+	cfg.Lifecycle.InitDefaults()
 
 	// Validate config
 	if err := cfg.Validate(); err != nil {

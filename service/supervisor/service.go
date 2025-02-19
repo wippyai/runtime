@@ -142,10 +142,7 @@ func (svc *Service) Stop(ctx context.Context) error {
 		}),
 	))
 	if err != nil {
-		select {
-		case svc.status <- fmt.Errorf("failed to send cancel event: %w", err):
-		default:
-		}
+		// ignoring for now
 	}
 
 	// wait for completion

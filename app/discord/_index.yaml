@@ -15,8 +15,8 @@ entries:
     lifecycle:
       auto_start: true
       restart:
-        initial_delay: 5s
-        max_attempts: 0
+        initial_delay: 1s
+        max_attempts: 1
 
   - name: app
     kind: btea.app.lua
