@@ -202,7 +202,10 @@ func (t *FromGolang) Transcode(p payload.Payload) (payload.Payload, error) {
 		return nil, fmt.Errorf("Golang=>Lua can only transcode from Golang format, got %s", p.Format())
 	}
 
-	lv := GoToLua(p.Data())
+	lv, err := GoToLua(p.Data())
+	if err != nil {
+		return nil, err
+	}
 
 	return payload.NewPayload(lv, payload.Lua), nil
 }

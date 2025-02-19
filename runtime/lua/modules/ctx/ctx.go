@@ -67,7 +67,14 @@ func (m *Module) get(l *lua.LState) int {
 		return 2
 	}
 
-	l.Push(transcoder.GoToLua(vv))
+	v, err := transcoder.GoToLua(vv)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("error converting value to Lua: " + err.Error()))
+		return 2
+	}
+
+	l.Push(v)
 	l.Push(lua.LNil)
 
 	return 2

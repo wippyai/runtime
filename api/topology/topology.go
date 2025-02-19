@@ -37,18 +37,18 @@ type (
 	}
 
 	Event struct {
-		At   time.Time
-		Kind Kind
+		At   time.Time `json:"at"`
+		Kind Kind      `json:"kind"`
 	}
 
 	MonitorEvent struct {
-		Event
-		PID    pubsub.PID
-		Result *runtime.Result
+		Event  Event           `json:"event"`
+		PID    pubsub.PID      `json:"pid"`
+		Result *runtime.Result `json:"result"`
 	}
 
 	CancelEvent struct {
-		Event
-		Deadline time.Time
+		Event    Event     `json:"event"`
+		Deadline time.Time `json:"deadline"`
 	}
 )
