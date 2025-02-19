@@ -206,12 +206,20 @@ func (e *Runner) Run(ctx context.Context, exitCh <-chan Result) (lua.LValue, err
 		default:
 			// wait-wait-wait, are we deadlocked?
 			if len(tasks) == 0 && e.taskGroup.GetTaskCount() == 0 {
+				if len(e.cvm.tasks) == 0 {
+					return nil, nil
+				}
+
 				return nil, &DeadlockError{Count: len(e.cvm.tasks)}
 			}
 		}
 
 		// wait-wait-wait, are we deadlocked?
 		if len(tasks) == 0 && e.taskGroup.GetTaskCount() == 0 {
+			if len(e.cvm.tasks) == 0 {
+				return nil, nil
+			}
+
 			return nil, &DeadlockError{Count: len(e.cvm.tasks)}
 		}
 
@@ -256,6 +264,10 @@ func (e *Runner) Continue(ctx context.Context) error {
 
 	// wait-wait-wait, are we deadlocked?
 	if len(tasks) == 0 && e.taskGroup.GetTaskCount() == 0 {
+		if len(e.cvm.tasks) == 0 {
+			return nil
+		}
+
 		return &DeadlockError{Count: len(e.cvm.tasks)}
 	}
 

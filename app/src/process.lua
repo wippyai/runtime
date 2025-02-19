@@ -37,7 +37,8 @@ local function run()
 
     tick:stop()
     done:close()
-    events_ch:close()
+
+    return "complete"
 end
 
 return {
