@@ -2,6 +2,7 @@ package terminal
 
 import (
 	"context"
+	"errors"
 	ctxapi "github.com/ponyruntime/pony/api/context"
 	logsapi "github.com/ponyruntime/pony/api/logs"
 	"github.com/ponyruntime/pony/api/payload"
@@ -25,7 +26,6 @@ const (
 	opTerminate
 	opSend
 	opUpdateConfig
-	opAttach
 )
 
 type op struct {
@@ -94,12 +94,6 @@ func (t *Terminal) run(ctx context.Context, status chan<- any) {
 			case opUpdateConfig:
 				t.cfg = op.cfg
 				t.log.Info("config updated")
-			case opAttach:
-				var cancel context.CancelFunc
-				cancel, err = t.handleAttach(op.attachCh)
-				if op.detach != nil {
-					op.detach <- cancel
-				}
 			}
 
 			if op.result != nil {
@@ -183,35 +177,6 @@ func (t *Terminal) handleSend(msgBatch *pubsub.Batch) error {
 	return runner.Send(msgBatch)
 }
 
-func (t *Terminal) handleAttach(ch chan *pubsub.Batch) (context.CancelFunc, error) {
-	runner := t.runner.Load()
-	if runner == nil {
-		return nil, process.ErrNoProcess
-	}
-
-	// Since we're a singleton host, we attach the channel directly to the current process
-	ctx, cancel := context.WithCancel(t.ctx)
-	go func() {
-		defer cancel()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case batch, ok := <-ch:
-				if !ok {
-					return
-				}
-				if err := runner.Send(batch); err != nil {
-					t.log.Error("failed to forward message to process", zap.Error(err))
-					return
-				}
-			}
-		}
-	}()
-
-	return cancel, nil
-}
-
 func (t *Terminal) cleanup(result *runtime.Result) {
 	t.logCtrl.RestoreBaseConfig(context.Background())
 	if runner := t.runner.Swap(nil); runner != nil {
@@ -246,23 +211,7 @@ func (t *Terminal) execOp(ctx context.Context, op op) error {
 }
 
 func (t *Terminal) Attach(pid pubsub.PID, ch chan *pubsub.Batch) (context.CancelFunc, error) {
-	detach := make(chan context.CancelFunc, 1)
-	err := t.execOp(t.ctx, op{
-		typ:      opAttach,
-		attachCh: ch,
-		result:   make(chan error, 1),
-		detach:   detach,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	select {
-	case cancel := <-detach:
-		return cancel, nil
-	case <-t.ctx.Done():
-		return nil, t.ctx.Err()
-	}
+	return nil, errors.New("only terminal process can be attached to the host")
 }
 
 func (t *Terminal) Send(ctx context.Context, _ pubsub.PID, msg *pubsub.Batch) error {
