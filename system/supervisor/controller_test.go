@@ -1439,3 +1439,48 @@ func TestController_StressTestStartLast(t *testing.T) {
 		t.Errorf("Failed to stop controller: %v", err)
 	}
 }
+
+func TestController_RetryDelay(t *testing.T) {
+	var mu sync.Mutex
+	var startTimes []time.Time
+	mock := &mockService{
+		startFunc: func(ctx context.Context) (<-chan any, error) {
+			mu.Lock()
+			startTimes = append(startTimes, time.Now())
+			mu.Unlock()
+			// Always fail immediately to trigger retries.
+			return nil, errors.New("startup error")
+		},
+		stopFunc: func(ctx context.Context) error {
+			return nil
+		},
+	}
+	config := supervisor.LifecycleConfig{
+		StartTimeout:    500 * time.Millisecond,
+		StopTimeout:     500 * time.Millisecond,
+		StableThreshold: 50 * time.Millisecond, // ensure service is considered unstable so retry count is preserved
+		RetryPolicy: supervisor.RetryPolicy{
+			MaxAttempts:  3,
+			InitialDelay: 200 * time.Millisecond,
+		},
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	ctr := NewController(ctx, mock, config, func(status supervisor.Status, _ any) {})
+	err := ctr.Start()
+	if err == nil {
+		t.Fatal("Expected error from Start() due to immediate failure, got nil")
+	}
+	// Wait for retries to occur.
+	time.Sleep(1 * time.Second)
+	mu.Lock()
+	times := append([]time.Time(nil), startTimes...)
+	mu.Unlock()
+	if len(times) < 2 {
+		t.Fatal("Expected at least two start attempts")
+	}
+	delay := times[1].Sub(times[0])
+	if delay < 200*time.Millisecond {
+		t.Errorf("Expected delay of at least 200ms between start attempts, got %v", delay)
+	}
+}
