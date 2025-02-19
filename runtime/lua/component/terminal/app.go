@@ -266,8 +266,10 @@ func (p *App) Start(ctx context.Context, pid pubsub.PID, input payload.Payloads)
 	ctx = p.runner.WithContext(ctx)
 	ctx, p.closer = closer.WithContext(ctx)
 
+	args, err := p.convertPayloadsToLua(input)
+
 	// Start the Lua function.
-	resultCh, err := p.runner.Start(ctx, p.funcName, getLuaArgs(input)...)
+	resultCh, err := p.runner.Start(ctx, p.funcName, args...)
 	if err != nil {
 		return err
 	}
@@ -417,37 +419,33 @@ func (p *App) Send(msgs *pubsub.Batch) error {
 		return errors.New("process stopped")
 	default:
 		for _, m := range *msgs {
-			var luaValues []lua.LValue
-			for _, pp := range m.Payloads {
-				luaPayload, err := p.dtt.Transcode(pp, payload.Lua)
-				if err != nil {
-					p.log.Error("failed to transcode payload",
-						zap.Error(err),
-						zap.String("topic", m.Topic))
-					continue
-				}
-				if lv, ok := luaPayload.Data().(lua.LValue); ok {
-					luaValues = append(luaValues, lv)
-				}
+			luaValues, err := p.convertPayloadsToLua(m.Payloads)
+			if err != nil {
+				p.log.Error("failed to convert payloads", zap.Error(err))
+				continue
 			}
 
 			if len(luaValues) > 0 {
 				p.pubsub.Publish(m.Topic, luaValues...)
 			}
-			p.log.Debug("sent message to process", zap.Any("msg", m))
 		}
 		return nil
 	}
 }
 
-// getLuaArgs converts payloads to a slice of lua.LValue.
-func getLuaArgs(payloads payload.Payloads) []lua.LValue {
+// convertPayloadsToLua converts a slice of payloads to Lua values
+func (p *App) convertPayloadsToLua(payloads payload.Payloads) ([]lua.LValue, error) {
 	args := make([]lua.LValue, 0, len(payloads))
-	for _, p := range payloads {
-		if lv, ok := p.Data().(lua.LValue); ok {
+	for _, pp := range payloads {
+		luaPayload, err := p.dtt.Transcode(pp, payload.Lua)
+		if err != nil {
+			return nil, err
+		}
+
+		if lv, ok := luaPayload.Data().(lua.LValue); ok {
 			args = append(args, lv)
 		}
 	}
-	// todo: use trancode!
-	return args
+
+	return args, nil
 }

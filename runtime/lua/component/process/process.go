@@ -59,23 +59,6 @@ func NewProcess(log *zap.Logger, runner *engine.Runner, funcName string) (proces
 	}, nil
 }
 
-// convertPayloadsToLua converts a slice of payloads to Lua values
-func (p *Process) convertPayloadsToLua(payloads payload.Payloads) ([]lua.LValue, error) {
-	args := make([]lua.LValue, 0, len(payloads))
-	for _, pp := range payloads {
-		luaPayload, err := p.dtt.Transcode(pp, payload.Lua)
-		if err != nil {
-			return nil, err
-		}
-
-		if lv, ok := luaPayload.Data().(lua.LValue); ok {
-			args = append(args, lv)
-		}
-	}
-
-	return args, nil
-}
-
 // Start initializes and starts the Lua process
 func (p *Process) Start(ctx context.Context, pid pubsub.PID, input payload.Payloads) error {
 	p.ctx, p.cancel = context.WithCancel(ctx)
@@ -201,4 +184,21 @@ func (p *Process) complete(err error, result lua.LValue) {
 
 	p.runner.Close()
 	p.cancel()
+}
+
+// convertPayloadsToLua converts a slice of payloads to Lua values
+func (p *Process) convertPayloadsToLua(payloads payload.Payloads) ([]lua.LValue, error) {
+	args := make([]lua.LValue, 0, len(payloads))
+	for _, pp := range payloads {
+		luaPayload, err := p.dtt.Transcode(pp, payload.Lua)
+		if err != nil {
+			return nil, err
+		}
+
+		if lv, ok := luaPayload.Data().(lua.LValue); ok {
+			args = append(args, lv)
+		}
+	}
+
+	return args, nil
 }
