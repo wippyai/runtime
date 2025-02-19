@@ -470,7 +470,7 @@ func TestParserLifecycle(t *testing.T) {
             }
             tree:edit(edit)
             
-            -- Stop parser mid-operation
+            -- Close parser mid-operation
             parser:close()
             
             -- Tree should still be valid

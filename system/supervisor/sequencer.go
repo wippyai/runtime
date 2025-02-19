@@ -172,7 +172,7 @@ func (sp *Sequencer) processStopOperations(ctx context.Context, operations []Ope
 		var wg sync.WaitGroup
 		errChan := make(chan error, len(levelNodes))
 
-		// Stop services in current level in parallel
+		// Close services in current level in parallel
 		for _, serviceID := range levelNodes {
 			if op, exists := opMap[serviceID]; exists {
 				wg.Add(1)

@@ -311,7 +311,7 @@ func TestPool_ParallelExecution(t *testing.T) {
 // //		// Give job time to start
 // //		time.Sleep(10 * time.Millisecond)
 // //
-// //		// Stop the pool while job is running
+// //		// Close the pool while job is running
 // //		p.Close()
 // //
 // //		// wait for result or error

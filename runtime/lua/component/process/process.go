@@ -130,15 +130,15 @@ func (p *Process) Start(ctx context.Context, pid pubsub.PID, input payload.Paylo
 }
 
 // Step advances the process state by one iteration
-func (p *Process) Step() error {
+func (p *Process) Step() (bool, error) {
 	if p.ctx.Err() != nil {
-		return p.ctx.Err()
+		return false, p.ctx.Err()
 	}
 
 	// Continue the runner
 	if err := p.runner.Continue(p.ctx); err != nil {
 		p.complete(err, nil)
-		return err
+		return false, err
 	}
 
 	// Check for any results
@@ -146,16 +146,16 @@ func (p *Process) Step() error {
 	case result := <-p.resultCh:
 		if result.Error != nil {
 			p.complete(result.Error, nil)
-			return result.Error
+			return false, result.Error
 		}
 		if len(result.Result) > 0 {
 			p.complete(nil, result.Result[0])
-			return supervisor.ErrExit
+			return false, supervisor.ErrExit
 		}
 	default:
 	}
 
-	return nil
+	return p.runner.HasTasks(), nil
 }
 
 // Send handles incoming messages to the process

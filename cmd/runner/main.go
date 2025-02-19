@@ -296,12 +296,12 @@ func (a *App) Stop() error {
 		}
 	}()
 
-	// Stop services in reverse order
+	// Close services in reverse order
 	if err := a.eventRouter.Stop(); err != nil {
 		a.logger.Error("failed to stop router", zap.Error(err))
 	}
 
-	// Stop supervisor
+	// Close supervisor
 	if err := a.supervisor.Stop(); err != nil {
 		a.logger.Error("failed to stop supervisor", zap.Error(err))
 	}
@@ -327,7 +327,7 @@ func (a *App) Stop() error {
 		a.logger.Error("failed to stop resource service", zap.Error(err))
 	}
 
-	// Stop log manager last
+	// Close log manager last
 	if err := a.logManager.Stop(); err != nil {
 		a.logger.Error("failed to stop log manager", zap.Error(err))
 	}

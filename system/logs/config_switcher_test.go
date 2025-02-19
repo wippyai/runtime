@@ -135,7 +135,7 @@ func TestConfigSwitcher_EnableTemporaryConfigError(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// Stop the bus to force an error
+	// Close the bus to force an error
 	bus.Stop()
 
 	// Attempt to enable temporary config

@@ -176,7 +176,7 @@ func TestWebSocketClient(t *testing.T) {
 			// Send a binary message.
 			_ = conn.Write(ctx, coderws.MessageBinary, []byte("Binary Data"))
 			time.Sleep(10 * time.Millisecond)
-			// Stop with a normal closure.
+			// Close with a normal closure.
 			_ = conn.Close(coderws.StatusNormalClosure, "normal closure")
 		})
 		wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws"
@@ -206,7 +206,7 @@ func TestWebSocketClient(t *testing.T) {
                         assert(msg.data == expected.data, "Data mismatch")
                     end
                     if expected.code then
-                        assert(msg.code == expected.code, "Stop code mismatch")
+                        assert(msg.code == expected.code, "Close code mismatch")
                     end
                 end
                 return "success"

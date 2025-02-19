@@ -370,7 +370,7 @@ func TestTreeEditOperations(t *testing.T) {
 			local treesitter = require("treesitter")
 			local tree = treesitter.parse("go", "package main")
 			
-			-- Stop the tree
+			-- Close the tree
 			tree:close()
 			
 			-- Verify operations on closed tree fail gracefully

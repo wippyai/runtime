@@ -129,7 +129,7 @@ func TestEventListener_Close(t *testing.T) {
 
 	wg.Wait()
 
-	// Stop the handler
+	// Close the handler
 	handler.Close()
 
 	// send another event

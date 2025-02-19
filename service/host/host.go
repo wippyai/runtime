@@ -6,7 +6,6 @@ import (
 	contextApi "github.com/ponyruntime/pony/api/context"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/pubsub"
@@ -15,28 +14,21 @@ import (
 	"go.uber.org/zap"
 )
 
-// entry holds a launched process and its pid.
-type entry struct {
-	pid     pubsub.PID
-	process process.Process
-}
-
 // Host composes an internal pubsub.Host to manage process launching,
 // routing, and graceful shutdown. It uses an external status channel for notifications.
 type Host struct {
-	id           registry.ID
-	config       process.HostConfig
-	log          *zap.Logger
-	makeMsgHost  func(ctx context.Context) pubsub.BatchHost
-	msgHost      pubsub.BatchHost
-	hostMessages chan *pubsub.PIDBatch
-	processes    sync.Map // map[pubsub.pid]*entry
-	workers      *WorkerPool
-	ctx          context.Context
-	done         chan struct{}
-	msgWG        sync.WaitGroup
-	shutdown     atomic.Bool // shutdown flag: true if shutdown in progress.
-	statusChat   chan string // Optional external status notification channel.
+	id          registry.ID
+	config      process.HostConfig
+	log         *zap.Logger
+	makeMsgHost func(ctx context.Context) pubsub.BatchHost
+	msgHost     pubsub.BatchHost
+	msgCh       chan *pubsub.PIDBatch // Single channel for all message routing
+	pool        *ProcessPool
+	ctx         context.Context
+	done        chan struct{}
+	msgWG       sync.WaitGroup
+	shutdown    atomic.Bool // shutdown flag: true if shutdown in progress.
+	statusChat  chan string // Optional external status notification channel.
 }
 
 // NewProcessHost creates a new Host instance.
@@ -47,12 +39,12 @@ func NewProcessHost(
 	msgHost func(context.Context) pubsub.BatchHost,
 ) *Host {
 	return &Host{
-		id:           id,
-		config:       config,
-		log:          log,
-		makeMsgHost:  msgHost,
-		hostMessages: make(chan *pubsub.PIDBatch, config.BufferSize),
-		done:         make(chan struct{}),
+		id:          id,
+		config:      config,
+		log:         log,
+		makeMsgHost: msgHost,
+		msgCh:       make(chan *pubsub.PIDBatch, config.BufferSize),
+		done:        make(chan struct{}),
 	}
 }
 
@@ -77,8 +69,8 @@ func (mph *Host) Start(ctx context.Context) (<-chan any, error) {
 
 	mph.msgHost = mph.makeMsgHost(ctx)
 
-	mph.workers = NewWorkerPool(ctx, mph.config.Workers, mph.config.StepQueueSize, mph.log)
-	mph.workers.Start()
+	mph.pool = NewProcessPool(ctx, mph.config.Workers, mph.config.StepQueueSize, mph.log)
+	mph.pool.Start()
 
 	mph.startMessageWorkers()
 	mph.sendStatus("Host started and accepting processes")
@@ -97,11 +89,10 @@ func (mph *Host) finalizeProcess(pid pubsub.PID, result *runtime.Result) {
 			zap.String("pid", pid.String()),
 			zap.Any("result", result.Payload))
 	}
-	mph.processes.Delete(pid)
 	mph.msgHost.Detach(pid)
 }
 
-// startMessageWorkers spawns worker goroutines to process fallback messages.
+// startMessageWorkers spawns worker goroutines to process routing messages.
 func (mph *Host) startMessageWorkers() {
 	for i := 0; i < mph.config.MessageWorkerCount; i++ {
 		mph.msgWG.Add(1)
@@ -110,57 +101,42 @@ func (mph *Host) startMessageWorkers() {
 			defer mph.msgWG.Done()
 			for {
 				select {
-				case m, ok := <-mph.hostMessages:
+				case m, ok := <-mph.msgCh:
 					if !ok {
 						return
 					}
 
-					if pi, exists := mph.processes.Load(m.PID); exists {
-						if err := pi.(*entry).process.Send(m.Batch); err != nil {
-							mph.log.Error("failed to send message to worker",
-								zap.String("pid", m.PID.String()),
-								zap.Error(err))
-						}
-					} else {
+					if !mph.pool.HasProcess(m.PID) {
 						mph.log.Warn("routing worker received message for unknown process",
 							zap.String("pid", m.PID.String()))
+						continue
+					}
+
+					entryVal, _ := mph.pool.processes.Load(m.PID)
+					entry := entryVal.(*processEntry)
+					if err := entry.process.Send(m.Batch); err != nil {
+						mph.log.Error("failed to send message to process",
+							zap.String("pid", m.PID.String()),
+							zap.Error(err))
 					}
 				case <-mph.ctx.Done():
 					return
 				}
 			}
 		}()
-
-		/*
-			// Spawn a goroutine to forward fallback messages into the central routing channel.
-			go func(pid pubsub.PID, ch chan *pubsub.PIDBatch) {
-				for {
-					select {
-					case m, ok := <-ch:
-						if !ok {
-							mph.log.Debug("fallback channel closed", zap.String("pid", pid.String()))
-							return
-						}
-						select {
-						case mph.hostMessages <- m:
-						case <-time.After(mph.config.RetryTimeout):
-							mph.log.Warn("fallback routing queue is full", zap.String("pid", pid.String()))
-						}
-					}
-				}
-			}(launch.PID, fallbackCh)
-		*/
 	}
 }
 
-// Launch starts a new process and sets up its fallback routing. It rejects new launches if shutdown is in progress.
+// Launch starts a new process and sets up its routing. It rejects new launches if shutdown is in progress.
 func (mph *Host) Launch(ctx context.Context, launch *process.LaunchProcess) (pubsub.PID, error) {
 	if mph.shutdown.Load() {
 		return pubsub.PID{}, errors.New("host is shutting down, cannot launch new process")
 	}
-	if _, exists := mph.processes.Load(launch.PID); exists {
+
+	if mph.pool.HasProcess(launch.PID) {
 		return pubsub.PID{}, process.ErrHostBusy
 	}
+
 	if mph.ctx == nil {
 		return pubsub.PID{}, process.ErrHostDead
 	}
@@ -168,26 +144,18 @@ func (mph *Host) Launch(ctx context.Context, launch *process.LaunchProcess) (pub
 	if err := launch.Process.Start(mph.prepareContext(ctx, launch.PID), launch.PID, launch.Input); err != nil {
 		return pubsub.PID{}, err
 	}
-	pi := &entry{
-		pid:     launch.PID,
-		process: launch.Process,
-	}
-	mph.processes.Store(launch.PID, pi)
 
-	fallbackCh := make(chan *pubsub.PIDBatch, mph.config.BufferSize)
-	_, err := mph.msgHost.AttachWithPID(launch.PID, fallbackCh)
+	// Attach to message routing with shared channel
+	_, err := mph.msgHost.AttachWithPID(launch.PID, mph.msgCh)
 	if err != nil {
-		mph.processes.Delete(launch.PID)
 		return pubsub.PID{}, err
 	}
 
-	if err := mph.workers.Schedule(&task{
-		pid:     launch.PID,
-		process: launch.Process,
-	}); err != nil {
-		mph.processes.Delete(launch.PID)
+	if err := mph.pool.AddProcess(launch.PID, launch.Process); err != nil {
+		mph.msgHost.Detach(launch.PID)
 		return pubsub.PID{}, err
 	}
+
 	mph.log.Info("process launched", zap.String("pid", launch.PID.String()))
 	return launch.PID, nil
 }
@@ -195,32 +163,36 @@ func (mph *Host) Launch(ctx context.Context, launch *process.LaunchProcess) (pub
 func (mph *Host) prepareContext(ctx context.Context, pid pubsub.PID) context.Context {
 	pCtx := process.MergeContext(contextApi.MergeContext(mph.ctx, ctx), ctx)
 	pCtx = context.WithValue(pCtx, contextApi.IDCtx, pid.ID)
-
-	pCtx = process.WithAddedOnComplete(pCtx, func(pid pubsub.PID, result *runtime.Result) {
-		if result.Error != nil {
-			mph.log.Error("terminal process execution failed",
+	pCtx = context.WithValue(pCtx, contextApi.WakeUpKey, func() {
+		err := mph.pool.Schedule(pid)
+		if err != nil {
+			mph.log.Error("failed to wake up process",
 				zap.String("pid", pid.String()),
-				zap.Error(result.Error))
-		} else {
-			mph.log.Info("terminal process execution completed",
-				zap.String("pid", pid.String()),
-				zap.Any("result", result.Payload))
+				zap.Error(err))
 		}
-		mph.processes.Delete(pid)
-		mph.log.Debug("process evicted", zap.String("pid", pid.String()))
 	})
 
 	return pCtx
 }
 
-// Terminate stops a running process and detaches its fallback receiver.
-func (mph *Host) Terminate(_ context.Context, pid pubsub.PID) error {
-	mph.workers.Terminate(pid)
+// Terminate stops a running process and detaches its routing.
+func (mph *Host) Terminate(ctx context.Context, pid pubsub.PID) error {
+	if !mph.pool.HasProcess(pid) {
+		return process.ErrNoProcess
+	}
+
+	if err := mph.pool.CancelProcess(pid); err != nil {
+		mph.log.Error("failed to cancel process",
+			zap.String("pid", pid.String()),
+			zap.Error(err))
+		return err
+	}
+
 	mph.log.Info("process terminate requested", zap.String("pid", pid.String()))
 	return nil
 }
 
-// Send forwards a message via the underlying msgHost, rejecting the call if shutdown is in progress.
+// Send forwards a message via the underlying msgHost, rejecting if shutdown is in progress.
 func (mph *Host) Send(ctx context.Context, pid pubsub.PID, batch *pubsub.Batch) error {
 	if mph.shutdown.Load() {
 		return errors.New("host is shutting down, rejecting send")
@@ -236,43 +208,20 @@ func (mph *Host) Attach(pid pubsub.PID, ch chan *pubsub.Batch) (context.CancelFu
 	return mph.msgHost.Attach(pid, ch)
 }
 
-// Stop gracefully shuts down the host by rejecting new operations, sending cancel notifications,
-// and waiting until all running processes have exited.
+// Stop gracefully shuts down the host by rejecting new operations and waiting for processes to complete.
 func (mph *Host) Stop(ctx context.Context) error {
 	mph.shutdown.Store(true)
-	mph.workers.Stop()
 
-	mph.sendStatus("Host shutting down: sending cancel notifications to running processes")
-	cancelBatch := pubsub.NewBatch("cancel")
-	mph.processes.Range(func(key, _ interface{}) bool {
-		pid := key.(pubsub.PID)
-		if err := mph.msgHost.Send(ctx, pid, cancelBatch); err != nil {
-			mph.log.Warn("failed to send cancel", zap.String("pid", pid.String()), zap.Error(err))
-		}
-		return true
-	})
+	mph.sendStatus("host shutting down")
+	if err := mph.pool.CancelAll(ctx); err != nil {
+		mph.log.Error("error waiting for processes to stop", zap.Error(err))
+		return err
+	}
 
 	mph.msgWG.Wait()
+	mph.pool.Close()
+	close(mph.done)
 
-	// todo: wtf is this?
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		processCount := 0
-		mph.processes.Range(func(_, _ interface{}) bool {
-			processCount++
-			return true
-		})
-		if processCount == 0 {
-			close(mph.done)
-			mph.sendStatus("Host shutdown complete")
-			return nil
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			// Continue waiting.
-		}
-	}
+	mph.sendStatus("Host shutdown complete")
+	return nil
 }
