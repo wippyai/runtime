@@ -5,18 +5,18 @@ meta:
   depends_on: [ "ns:system", "ns:btea.lib", "ns:chat" ]
 
 entries:
-#  - name: service
-#    kind: process.service
-#    meta:
-#      comment: "Discord Bot Service"
-#      depends_on: [ "app" ]
-#    process: app
-#    host: system:terminal
-#    lifecycle:
-#      auto_start: true
-#      restart:
-#        initial_delay: 5s
-#        max_attempts: 0
+  - name: service
+    kind: process.service
+    meta:
+      comment: "Discord Bot Service"
+      depends_on: [ "app" ]
+    process: app
+    host: system:terminal
+    lifecycle:
+      auto_start: true
+      restart:
+        initial_delay: 5s
+        max_attempts: 0
 
   - name: app
     kind: btea.app.lua

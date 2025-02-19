@@ -121,6 +121,8 @@ function bapp.new(init_cmd)
                 break
             end
 
+            task:lol()
+
             -- Process the task based on channel
             if result.channel == self.update_ch then
                 local msg = task:input()

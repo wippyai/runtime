@@ -42,6 +42,36 @@ const (
 	ExitKey = "esc"
 )
 
+// App represents the main application, integrating bubbletea with the underlying Lua runtime.
+type App struct {
+	// System fields
+	log    *zap.Logger
+	dtt    payload.Transcoder
+	pubsub *subscribe.Layer
+
+	// process and Lua state
+	ctx         context.Context
+	cancel      context.CancelFunc
+	pid         pubsub.PID
+	runner      *engine.Runner
+	runnerState *lua.LState
+	funcName    string
+
+	// bubbletea integration
+	program  *tea.Program
+	terminal *terminal.PipeContext
+
+	// Data from the underlying Lua application
+	upstream chan payload.Payload
+
+	// Cleanup and error handling
+	done       chan struct{}
+	firstError error
+	closer     *closer.Cleanup
+
+	numRetries int
+}
+
 // NewApp creates and returns a new App instance.
 // It validates that the transcoder and runner are provided,
 // and finds the subscribe layer from the runner.
@@ -51,7 +81,6 @@ func NewApp(
 	runner *engine.Runner,
 	funcName string,
 ) (process.Process, error) {
-
 	if log == nil {
 		log = zap.NewNop()
 	}
@@ -90,36 +119,6 @@ func NewApp(
 		upstream: make(chan payload.Payload, 100),
 		done:     make(chan struct{}),
 	}, nil
-}
-
-// App represents the main application, integrating bubbletea with the underlying Lua runtime.
-type App struct {
-	// System fields
-	log    *zap.Logger
-	dtt    payload.Transcoder
-	pubsub *subscribe.Layer
-
-	// process and Lua state
-	ctx         context.Context
-	cancel      context.CancelFunc
-	pid         pubsub.PID
-	runner      *engine.Runner
-	runnerState *lua.LState
-	funcName    string
-
-	// Bubbletea integration
-	program  *tea.Program
-	terminal *terminal.PipeContext
-
-	// Data from the underlying Lua application
-	upstream chan payload.Payload
-
-	// Cleanup and error handling
-	done       chan struct{}
-	firstError error
-	closer     *closer.Cleanup
-
-	numRetries int
 }
 
 // Init is delegated to the bubbletea program.

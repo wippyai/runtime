@@ -188,7 +188,7 @@ func (c *Controller) supervise() {
 					cancel = nil
 				}
 			case controlFailed:
-				c.updateState(supervisor.Failed, "unexpected failure")
+				c.updateState(supervisor.Failed, c.state.details)
 				if c.state.getDesiredStatus() == supervisor.Running {
 					// the service suddenly failed, retry
 					go func() {
