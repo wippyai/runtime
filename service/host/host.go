@@ -28,7 +28,7 @@ type Host struct {
 	done        chan struct{}
 	msgWG       sync.WaitGroup
 	shutdown    atomic.Bool // shutdown flag: true if shutdown in progress.
-	statusChat  chan string // Optional external status notification channel.
+	statusCh    chan any    // Optional external status notification channel.
 }
 
 // NewProcessHost creates a new Host instance.
@@ -50,19 +50,17 @@ func NewProcessHost(
 
 // sendStatus sends a status message to the external status channel if available.
 func (mph *Host) sendStatus(message string) {
-	if mph.statusChat != nil {
-		select {
-		case mph.statusChat <- message:
-		default:
-			// Drop message if the channel is full.
-		}
+	select {
+	case mph.statusCh <- message:
+	default:
+		// Drop message if the channel is full.
 	}
 }
 
 // Start initializes the Host, starts the worker pool and routing workers,
 // and sends an external notification that the host is active.
 func (mph *Host) Start(ctx context.Context) (<-chan any, error) {
-	status := make(chan any, 1)
+	mph.statusCh = make(chan any, 1)
 
 	// Wrap the incoming context with an on-complete callback.
 	mph.ctx = process.WithAddedOnComplete(ctx, mph.finalizeProcess)
@@ -73,10 +71,9 @@ func (mph *Host) Start(ctx context.Context) (<-chan any, error) {
 	mph.pool.Start()
 
 	mph.startMessageWorkers()
-	mph.sendStatus("Host started and accepting processes")
+	mph.sendStatus("host started and accepting processes")
 
-	status <- "started"
-	return status, nil
+	return mph.statusCh, nil
 }
 
 func (mph *Host) finalizeProcess(pid pubsub.PID, result *runtime.Result) {
@@ -101,6 +98,8 @@ func (mph *Host) startMessageWorkers() {
 			defer mph.msgWG.Done()
 			for {
 				select {
+				case <-mph.done:
+					return
 				case m, ok := <-mph.msgCh:
 					if !ok {
 						return
@@ -214,10 +213,13 @@ func (mph *Host) Stop(ctx context.Context) error {
 		return err
 	}
 
-	mph.msgWG.Wait()
+	mph.sendStatus("closing worker pool")
 	mph.pool.Close()
-	close(mph.done)
 
-	mph.sendStatus("Host shutdown complete")
+	mph.sendStatus("waiting for message workers to complete")
+	close(mph.done)
+	mph.msgWG.Wait()
+
+	mph.sendStatus("host shutdown complete")
 	return nil
 }
