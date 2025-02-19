@@ -23,14 +23,14 @@ func (dp *DummyProcess) Start(ctx context.Context, pid pubsub.PID, input payload
 	return nil
 }
 
-func (dp *DummyProcess) Step() error {
+func (dp *DummyProcess) Step() (bool, error) {
 	dp.stepCount++
 	// After maxSteps, return an error to simulate process failure.
 	if dp.stepCount >= dp.maxSteps {
-		return errors.New("dummy step error")
+		return false, errors.New("dummy step error")
 	}
 	time.Sleep(10 * time.Millisecond)
-	return nil
+	return true, nil
 }
 
 func (dp *DummyProcess) Send(msg *pubsub.Batch) error {
