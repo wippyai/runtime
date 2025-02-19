@@ -2,7 +2,8 @@
 
 ## Overview
 
-A dynamic, event-driven logging system that provides configurable log routing, filtering, and runtime configuration management. The system supports downstream propagation and event bus streaming with dynamic level control.
+A dynamic, event-driven logging system that provides configurable log routing, filtering, and runtime configuration
+management. The system supports downstream propagation and event bus streaming with dynamic level control.
 
 ## Core Components
 
@@ -11,6 +12,7 @@ A dynamic, event-driven logging system that provides configurable log routing, f
 Central coordinator managing log configuration and event handling.
 
 #### Key Features:
+
 - Runtime configuration management
 - Event-based configuration updates
 - Thread-safe state management
@@ -18,6 +20,7 @@ Central coordinator managing log configuration and event handling.
 - Dynamic log level control
 
 #### Usage:
+
 ```go
 manager := NewManager(bus, core, logger, zapcore.InfoLevel)
 err := manager.Start(ctx)
@@ -32,6 +35,7 @@ config := manager.GetConfig()
 Log interceptor and router implementing zapcore.Core interface.
 
 #### Key Features:
+
 - Configurable log filtering
 - Dual output streams (downstream and events)
 - Thread-safe configuration changes
@@ -39,13 +43,14 @@ Log interceptor and router implementing zapcore.Core interface.
 - Atomic operations
 
 #### Usage:
+
 ```go
 core := NewCore(downstream, bus)
 core.Configure(config)
 
 // Check if level is enabled
 if core.Enabled(zapcore.InfoLevel) {
-    // Log will be processed
+// Log will be processed
 }
 ```
 
@@ -54,6 +59,7 @@ if core.Enabled(zapcore.InfoLevel) {
 Manages temporary logging configurations with ability to restore previous state.
 
 #### Key Features:
+
 - Temporary config switching
 - Base config preservation
 - Automatic restoration
@@ -61,6 +67,7 @@ Manages temporary logging configurations with ability to restore previous state.
 - Clear state management
 
 #### Usage:
+
 ```go
 switcher := NewConfigSwitcher(bus, logger)
 
@@ -76,6 +83,7 @@ switcher.RestoreBaseConfig(ctx)
 Handles configuration distribution and synchronization.
 
 #### Key Features:
+
 - Asynchronous config updates
 - Event-based communication
 - Timeout handling
@@ -83,6 +91,7 @@ Handles configuration distribution and synchronization.
 - Operation tracking
 
 #### Usage:
+
 ```go
 cfgManager := NewConfigurationManager()
 
@@ -96,15 +105,17 @@ err = cfgManager.SetConfig(ctx, bus, newConfig)
 ## Configuration Model
 
 ### Log Config Structure
+
 ```go
 type Config struct {
-    PropagateDownstream bool
-    StreamToEvents      bool
-    MinLevel           zapcore.Level
+PropagateDownstream bool
+StreamToEvents      bool
+MinLevel           zapcore.Level
 }
 ```
 
 ### Configuration Properties:
+
 1. PropagateDownstream
     - Controls log forwarding to downstream handlers
     - Enables/disables traditional logging paths
@@ -132,16 +143,19 @@ type Config struct {
 ### Event Flow
 
 1. Configuration Updates:
+
 ```
 Client -> SetConfig Event -> Manager -> State Event -> Client
 ```
 
 2. Configuration Requests:
+
 ```
 Client -> GetConfig Event -> Manager -> State Event -> Client
 ```
 
 3. Log Publication:
+
 ```
 Logger -> Core -> Event Bus -> Subscribers
 ```
@@ -157,6 +171,7 @@ Logger -> Core -> Event Bus -> Subscribers
 ## Error Handling
 
 ### Types of Errors:
+
 - Configuration validation errors
 - Event bus communication errors
 - Context cancellation
@@ -164,6 +179,7 @@ Logger -> Core -> Event Bus -> Subscribers
 - Downstream propagation errors
 
 ### Error Propagation:
+
 1. Immediate errors returned directly
 2. Asynchronous errors logged
 3. Context cancellation handled at all levels
@@ -171,38 +187,41 @@ Logger -> Core -> Event Bus -> Subscribers
 ## Best Practices
 
 1. Configuration Management:
+
 ```go
 ctx, cancel := context.WithTimeout(parentCtx, time.Second)
 defer cancel()
 
 err := manager.Start(ctx)
 if err != nil {
-    log.Fatal("failed to start manager", zap.Error(err))
+log.Fatal("failed to start manager", zap.Error(err))
 }
 ```
 
 2. Temporary Configurations:
+
 ```go
 switcher := NewConfigSwitcher(bus, logger)
 defer switcher.RestoreBaseConfig(ctx)
 
 err := switcher.EnableTemporaryConfig(ctx, tempConfig)
 if err != nil {
-    log.Error("failed to set temp config", zap.Error(err))
+log.Error("failed to set temp config", zap.Error(err))
 }
 ```
 
 3. Event Handling:
+
 ```go
 sub, err := eventbus.NewSubscriber(
-    ctx, 
-    bus,
-    api.System,
-    "logs.config.*",
-    handleEvent,
+ctx,
+bus,
+api.System,
+"logs.config.*",
+handleEvent,
 )
 if err != nil {
-    return fmt.Errorf("failed to subscribe: %w", err)
+return fmt.Errorf("failed to subscribe: %w", err)
 }
 defer sub.Close()
 ```
@@ -239,53 +258,56 @@ The system includes comprehensive tests covering:
 ## Implementation Guidelines
 
 1. Custom Core Implementation:
+
 ```go
 type Core struct {
-    downstream zapcore.Core
-    bus        events.Bus
-    config     atomic.Value
+downstream zapcore.Core
+bus        events.Bus
+config     atomic.Value
 }
 
 func (c *Core) Write(ent zapcore.Entry, fields []zapcore.Field) error {
-    cfg := c.config.Load().(Config)
-    
-    if cfg.PropagateDownstream {
-        if err := c.downstream.Write(ent, fields); err != nil {
-            return err
-        }
-    }
+cfg := c.config.Load().(Config)
 
-    if cfg.StreamToEvents {
-        c.publishLogEvent(ent, fields)
-    }
+if cfg.PropagateDownstream {
+if err := c.downstream.Write(ent, fields); err != nil {
+return err
+}
+}
 
-    return nil
+if cfg.StreamToEvents {
+c.publishLogEvent(ent, fields)
+}
+
+return nil
 }
 ```
 
 2. Event Handling:
+
 ```go
 func (m *Manager) handleEvent(e events.Event) {
-    switch e.Kind {
-    case api.SetConfigEvent:
-        m.handleConfigEvent(m.ctx, e)
-    case api.GetConfigEvent:
-        m.handleGetConfigEvent(m.ctx, e)
-    }
+switch e.Kind {
+case api.SetConfigEvent:
+m.handleConfigEvent(m.ctx, e)
+case api.GetConfigEvent:
+m.handleGetConfigEvent(m.ctx, e)
+}
 }
 ```
 
 3. Configuration Switching:
+
 ```go
 func (c *ConfigSwitcher) EnableTemporaryConfig(ctx context.Context, cfg Config) error {
-    if c.baseConfig == nil {
-        current, err := c.cfgManager.GetConfig(ctx, c.bus)
-        if err != nil {
-            return err
-        }
-        c.baseConfig = &current
-    }
-    
-    return c.cfgManager.SetConfig(ctx, c.bus, cfg)
+if c.baseConfig == nil {
+current, err := c.cfgManager.GetConfig(ctx, c.bus)
+if err != nil {
+return err
+}
+c.baseConfig = &current
+}
+
+return c.cfgManager.SetConfig(ctx, c.bus, cfg)
 }
 ```
