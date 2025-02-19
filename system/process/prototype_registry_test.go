@@ -30,26 +30,26 @@ func (m *mockProcess) Start(_ context.Context, _ pubsub.PID, _ payload.Payloads)
 	return nil
 }
 
-func (m *mockProcess) Step() error {
-	return m.stepErr
+func (m *mockProcess) Step() (bool, error) {
+	return true, m.stepErr
 }
 
 func newTestPrototypeRegistry(t *testing.T) (*PrototypeRegistry, events.Bus) {
 	logger := zap.NewNop()
 	bus := eventbus.NewBus()
-	registry := NewPrototypeFactory(bus, logger)
-	return registry, bus
+	reg := NewPrototypeFactory(bus, logger)
+	return reg, bus
 }
 
 func TestPrototypeRegistry_StartStop(t *testing.T) {
 	ctx := context.Background()
-	registry, _ := newTestPrototypeRegistry(t)
+	reg, _ := newTestPrototypeRegistry(t)
 
-	err := registry.Start(ctx)
+	err := reg.Start(ctx)
 	require.NoError(t, err)
-	assert.NotNil(t, registry.subscriber)
+	assert.NotNil(t, reg.subscriber)
 
-	err = registry.Stop()
+	err = reg.Stop()
 	require.NoError(t, err)
 }
 
@@ -57,7 +57,7 @@ func TestPrototypeRegistry_RegisterPrototype(t *testing.T) {
 	ctx := context.Background()
 	protoRegistry, bus := newTestPrototypeRegistry(t)
 	require.NoError(t, protoRegistry.Start(ctx))
-	defer protoRegistry.Stop()
+	defer func() { assert.NoError(t, protoRegistry.Stop()) }()
 
 	responses := make(chan events.Event, 1)
 	sub, err := eventbus.NewSubscriber(
@@ -141,7 +141,9 @@ func TestPrototypeRegistry_RegisterPrototype(t *testing.T) {
 		proc, err := protoRegistry.Create(registry.ParseID("test:error-process"))
 		require.NoError(t, err)
 		assert.Error(t, proc.Send(nil))
-		assert.Error(t, proc.Step())
+
+		_, err = proc.Step()
+		assert.Error(t, err)
 	})
 }
 
@@ -149,7 +151,7 @@ func TestPrototypeRegistry_DeletePrototype(t *testing.T) {
 	ctx := context.Background()
 	protoRegistry, bus := newTestPrototypeRegistry(t)
 	require.NoError(t, protoRegistry.Start(ctx))
-	defer protoRegistry.Stop()
+	defer func() { assert.NoError(t, protoRegistry.Stop()) }()
 
 	responses := make(chan events.Event, 1)
 	sub, err := eventbus.NewSubscriber(
@@ -227,7 +229,7 @@ func TestPrototypeRegistry_Create(t *testing.T) {
 	ctx := context.Background()
 	protoRegistry, bus := newTestPrototypeRegistry(t)
 	require.NoError(t, protoRegistry.Start(ctx))
-	defer protoRegistry.Stop()
+	defer func() { assert.NoError(t, protoRegistry.Stop()) }()
 
 	// Register test prototypes
 	successProcess := func() (process.Process, error) {
