@@ -12,7 +12,6 @@ import (
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
-	msg "github.com/ponyruntime/pony/system/pubsub"
 	"go.uber.org/zap"
 )
 
@@ -28,7 +27,7 @@ type ProcessHost struct {
 	id           registry.ID
 	config       process.HostConfig
 	log          *zap.Logger
-	msgHost      *msg.Host
+	msgHost      pubsub.BatchHost
 	hostMessages chan *pubsub.PIDBatch
 	processes    sync.Map // map[pubsub.PID]*ProcessInfo
 	workers      *WorkerPool
@@ -40,7 +39,7 @@ type ProcessHost struct {
 }
 
 // NewProcessHost creates a new ProcessHost instance.
-func NewProcessHost(id registry.ID, config process.HostConfig, log *zap.Logger, msgHost *msg.Host) *ProcessHost {
+func NewProcessHost(id registry.ID, config process.HostConfig, log *zap.Logger, msgHost pubsub.BatchHost) *ProcessHost {
 	return &ProcessHost{
 		id:           id,
 		config:       config,

@@ -45,7 +45,7 @@ var (
 )
 
 func MergeContext(base, foreign context.Context) context.Context {
-	// security and values only
+	// todo: security and values only
 
 	return context.WithValue(base, "foreign", foreign)
 }
