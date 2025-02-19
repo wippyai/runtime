@@ -79,11 +79,10 @@ func (g *TaskGroup) WakeUp() {
 		}
 
 		g.wakeCount.Add(1)
-	}
-
-	select {
-	case g.wakeup <- struct{}{}:
-	default:
+		select {
+		case g.wakeup <- struct{}{}:
+		default:
+		}
 	}
 }
 
@@ -115,6 +114,7 @@ func (g *TaskGroup) Wait(ctx context.Context, cvm CVM, block bool) ([]*Task, err
 				continue
 			case <-g.wakeup:
 				g.wakeCount.Add(^int32(0))
+				g.awaken.Store(false)
 
 				// WakeUp up and continue processing
 				block = false
@@ -139,6 +139,7 @@ func (g *TaskGroup) Wait(ctx context.Context, cvm CVM, block bool) ([]*Task, err
 			delete(g.states, result.State)
 		case <-g.wakeup:
 			g.wakeCount.Add(^int32(0))
+			g.awaken.Store(false)
 
 			// WakeUp up and continue processing
 		default:

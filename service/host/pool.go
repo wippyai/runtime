@@ -108,16 +108,14 @@ func (p *ProcessPool) worker() {
 			// Get process entry
 			entryVal, exists := p.processes.Load(pid)
 			if !exists {
-				p.log.Warn("process not found or evicted", zap.String("pid", pid.String()))
-				continue
+				continue // most likely async task stuck in the queue
 			}
 
 			entry := entryVal.(*processEntry)
 
 			// Try to acquire execution lock
 			if !entry.running.CompareAndSwap(false, true) {
-				p.log.Debug("process already running", zap.String("pid", pid.String()))
-				continue
+				continue // handled by another goroutine
 			}
 
 			// Execute process step
@@ -128,8 +126,7 @@ func (p *ProcessPool) worker() {
 					zap.Error(err))
 
 				// Process is done (with error)
-				p.processes.Delete(pid)
-				p.processWG.Done()
+				p.RemoveProcess(pid)
 				continue
 			}
 

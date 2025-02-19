@@ -32,6 +32,8 @@ local function run()
             print("Tick at:", time.now():format("15:04:05"))
         else
             local event = result.value
+            print("GOT EVENT")
+
             if event then
                 -- Handle shutdown event
                 if event.type == "shutdown" then

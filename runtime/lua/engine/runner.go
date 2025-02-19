@@ -229,17 +229,11 @@ func (e *Runner) Run(ctx context.Context, exitCh <-chan Result) (lua.LValue, err
 
 // Step processes tasks through the layer chain.
 func (e *Runner) Step(tasks ...*Task) ([]*Task, error) {
-	e.taskGroup.awaken.Store(true)
-	defer e.taskGroup.awaken.Store(false)
-
 	return e.getWrapped().Step(tasks...)
 }
 
 // Continue advances all internal until no longer possible and external signals are needed.
 func (e *Runner) Continue(ctx context.Context) error {
-	e.taskGroup.awaken.Store(true)
-	defer e.taskGroup.awaken.Store(false)
-
 	// Check if the context is already canceled.
 	select {
 	case <-ctx.Done():
