@@ -127,7 +127,7 @@ func (m *Manager) registerHost(ctx context.Context, terminal *Terminal) {
 		Path:   terminal.id.String(),
 		Data: &supervisor.Entry{
 			Service: terminal,
-			Config:  terminal.cfg.Lifecycle,
+			Config:  terminal.config.Lifecycle,
 		},
 	})
 }

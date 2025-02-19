@@ -44,7 +44,7 @@ type op struct {
 type Terminal struct {
 	id      registry.ID
 	ctx     context.Context
-	cfg     *terminal.HostConfig
+	config  *terminal.HostConfig
 	opCh    chan op
 	done    chan struct{}
 	logCtrl *logs.ConfigSwitcher
@@ -55,7 +55,7 @@ type Terminal struct {
 func NewTerminal(id registry.ID, cfg *terminal.HostConfig, logCtrl *logs.ConfigSwitcher, log *zap.Logger) *Terminal {
 	return &Terminal{
 		id:      id,
-		cfg:     cfg,
+		config:  cfg,
 		opCh:    make(chan op, 10),
 		done:    make(chan struct{}),
 		logCtrl: logCtrl,
@@ -92,7 +92,7 @@ func (t *Terminal) run(ctx context.Context, status chan<- any) {
 			case opSend:
 				err = t.handleSend(op.msg)
 			case opUpdateConfig:
-				t.cfg = op.cfg
+				t.config = op.cfg
 				t.log.Info("config updated")
 			}
 
@@ -119,7 +119,7 @@ func (t *Terminal) handleLaunch(ctx context.Context, pl *process.LaunchProcess, 
 		Stderr: os.Stderr,
 	}
 
-	if t.cfg.HideLogs {
+	if t.config.HideLogs {
 		if err := t.setupLogging(); err != nil {
 			close(response)
 			return err
@@ -252,18 +252,21 @@ func (t *Terminal) Terminate(ctx context.Context, pid pubsub.PID) error {
 }
 
 func (t *Terminal) Stop(ctx context.Context) error {
-	batch := pubsub.NewBatch(
+	err := t.Send(ctx, pubsub.PID{}, pubsub.NewBatch(
 		process.TopicEvents,
-		payload.New(topology.MonitorEvent{
-			Event: topology.Event{At: time.Now(), Kind: topology.KindCancel},
+		payload.New(topology.CancelEvent{
+			Event: topology.Event{
+				At:   time.Now(),
+				Kind: topology.KindCancel,
+			},
+			Deadline: time.Now().Add(t.config.Lifecycle.StopTimeout),
 		}),
-	)
+	))
+	if err != nil {
+		t.log.Warn("failed to send cancel event", zap.Error(err))
+	}
 
 	if runner := t.runner.Load(); runner != nil {
-		if err := t.Send(ctx, pubsub.PID{}, batch); err != nil {
-			t.log.Warn("failed to send cancel message", zap.Error(err))
-		}
-
 		select {
 		case <-runner.Wait():
 			return nil
