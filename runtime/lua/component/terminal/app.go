@@ -4,17 +4,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/supervisor"
-	"github.com/ponyruntime/pony/api/topology"
 	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/process"
+	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/runtime"
 	"github.com/ponyruntime/pony/api/service/terminal"
+	"github.com/ponyruntime/pony/api/supervisor"
+	"github.com/ponyruntime/pony/api/topology"
 	"github.com/ponyruntime/pony/internal/closer"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
@@ -24,6 +24,8 @@ import (
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
+
+// todo: we have a subtle memory leak somewhere in this package
 
 const (
 	ChannelEvents = "@btea/events"
@@ -103,16 +105,11 @@ func NewApp(
 	}
 
 	return &App{
-		// System fields
-		log:    log,
-		dtt:    dtt,
-		pubsub: subLayer,
-
-		// process and function information
+		log:      log,
+		dtt:      dtt,
+		pubsub:   subLayer,
 		runner:   runner,
 		funcName: funcName,
-
-		// Channels for upstream messages and process cleanup
 		upstream: make(chan payload.Payload, 100),
 		done:     make(chan struct{}),
 	}, nil
@@ -121,6 +118,21 @@ func NewApp(
 // Init is delegated to the bubbletea program.
 func (p *App) Init() tea.Cmd {
 	return nil
+}
+
+// scheduleCancel centralizes the cancellation routine.
+func (p *App) scheduleCancel() {
+	go func() {
+		select {
+		case <-time.After(stopTimeout):
+			p.log.Debug("cancelling process after timeout")
+			p.cancel()
+		case <-p.done:
+			return
+		case <-p.ctx.Done():
+			return
+		}
+	}()
 }
 
 // Update processes bubbletea messages. It listens for the exit key and sends updates to Lua.
@@ -137,98 +149,30 @@ func (p *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if err != nil {
 				p.log.Error("failed to send cancel event", zap.Error(err))
 			}
-
-			go func() {
-				select {
-				case <-time.After(stopTimeout):
-					p.cancel()
-				case <-p.done:
-					return
-				case <-p.ctx.Done():
-					return
-				}
-			}()
+			p.scheduleCancel()
 			return p, nil
 		}
 	}
 
 	// Forward update messages to Lua via a task on the unified events channel.
-	p.publishTaskUnified("update", protocol.MsgToLua(msg), 0)
+	p.publishTask("update", protocol.MsgToLua(msg), 0)
 	return p, nil
 }
 
 // View retrieves the view from the Lua side.
 // If the view task fails, it returns an error string.
 func (p *App) View() string {
-	response := p.publishTaskUnified("view", lua.LTrue, viewTimeout)
+	response := p.publishTask("view", lua.LTrue, viewTimeout)
 	if response == "" {
 		p.numRetries++
 		if p.numRetries < maxViewRetries {
 			return fmt.Sprintf("view task failed (retrying %d/%d)", p.numRetries, maxViewRetries)
 		}
-		p.cancel()
+		p.cancel() // todo: think about it
 		return "view task failed (exiting)"
 	}
 	p.numRetries = 0
 	return response
-}
-
-// publishTaskUnified sends a task to the unified events channel.
-// If timeout is non-zero, it waits for a response; otherwise, it fires and forgets.
-func (p *App) publishTaskUnified(taskType string, payload lua.LValue, timeout time.Duration) string {
-	task, err := p.createTask(payload)
-	if err != nil {
-		p.log.Error("failed to create task", zap.String("task", taskType), zap.Error(err))
-		if timeout > 0 {
-			return "task creation failed"
-		}
-		return ""
-	}
-
-	wrappedTask := tasks.WrapTask(p.runnerState, task)
-	msg := p.runnerState.NewTable()
-	msg.RawSetString("type", lua.LString(taskType))
-	msg.RawSetString("task", wrappedTask)
-
-	p.pubsub.Publish(ChannelEvents, msg)
-
-	if timeout > 0 {
-		select {
-		case rsp := <-task.Response:
-			if result, ok := rsp.(lua.LValue); ok {
-				return result.String()
-			}
-			p.log.Error("invalid response type", zap.String("task", taskType))
-			return "invalid response type"
-		case <-time.After(timeout):
-			p.log.Debug("task timeout", zap.String("task", taskType))
-			return ""
-		case <-p.done:
-			return "task cancelled"
-		case <-p.ctx.Done():
-			return "task cancelled"
-		}
-	} else {
-		// Fire-and-forget: handle response in the background.
-		go func() {
-			select {
-			case <-p.ctx.Done():
-				return
-			case rsp := <-task.Response:
-				if err, ok := rsp.(error); ok {
-					p.log.Error("task failed", zap.String("task", taskType), zap.Error(err))
-				}
-			case <-time.After(taskTimeout):
-				p.log.Debug("task timeout", zap.String("task", taskType))
-			}
-		}()
-		return ""
-	}
-}
-
-// createTask wraps a payload in a task.
-func (p *App) createTask(payload lua.LValue) (*tasks.Task, error) {
-	return tasks.CreateTask(payload)
 }
 
 // Start initializes the app context, sets up terminal integration, launches the bubbletea program,
@@ -253,15 +197,15 @@ func (p *App) Start(ctx context.Context, pid pubsub.PID, input payload.Payloads)
 	ctx = p.runner.WithContext(ctx)
 	ctx, p.closer = closer.WithContext(ctx)
 
-	args, err := p.convertPayloadsToLua(input)
+	args, err := p.toLuaPayloads(input)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to convert payloads: %w", err)
 	}
 
 	// Start the Lua function.
 	resultCh, err := p.runner.Start(ctx, p.funcName, args...)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to start Lua function: %w", err)
 	}
 
 	// Run the bubbletea program concurrently.
@@ -397,7 +341,7 @@ func (p *App) Send(msgs *pubsub.Batch) error {
 		return errors.New("process stopped")
 	default:
 		for _, m := range *msgs {
-			luaValues, err := p.convertPayloadsToLua(m.Payloads)
+			luaValues, err := p.toLuaPayloads(m.Payloads)
 			if err != nil {
 				p.log.Error("failed to convert payloads", zap.Error(err))
 				continue
@@ -410,13 +354,71 @@ func (p *App) Send(msgs *pubsub.Batch) error {
 	}
 }
 
-// convertPayloadsToLua converts a slice of payloads to Lua values.
-func (p *App) convertPayloadsToLua(payloads payload.Payloads) ([]lua.LValue, error) {
+// publishTask sends a task to the unified events channel.
+// If timeout is non-zero, it waits for a response; otherwise, it fires and forgets.
+func (p *App) publishTask(taskType string, payload lua.LValue, timeout time.Duration) string {
+	task, err := tasks.CreateTask(payload)
+	if err != nil {
+		p.log.Error("failed to create task", zap.String("task", taskType), zap.Error(err))
+		if timeout > 0 {
+			return "task creation failed"
+		}
+		return ""
+	}
+
+	wrappedTask := tasks.WrapTask(p.runnerState, task)
+	msg := p.runnerState.NewTable()
+	msg.RawSetString("type", lua.LString(taskType))
+	msg.RawSetString("task", wrappedTask)
+
+	p.pubsub.Publish(ChannelEvents, msg)
+
+	if timeout > 0 {
+		return p.waitResponse(task, timeout, taskType)
+	}
+
+	// Fire-and-forget: handle response in the background.
+	go func() {
+		select {
+		case <-p.ctx.Done():
+			return
+		case rsp := <-task.Response:
+			if err, ok := rsp.(error); ok {
+				p.log.Error("task failed", zap.String("task", taskType), zap.Error(err))
+			}
+		case <-time.After(taskTimeout):
+			p.log.Debug("task timeout", zap.String("task", taskType))
+		}
+	}()
+	return ""
+}
+
+// waitResponse consolidates the select pattern for waiting for a task response.
+func (p *App) waitResponse(task *tasks.Task, timeout time.Duration, taskType string) string {
+	select {
+	case rsp := <-task.Response:
+		if result, ok := rsp.(lua.LValue); ok {
+			return result.String()
+		}
+		p.log.Error("invalid response type", zap.String("task", taskType))
+		return "invalid response type"
+	case <-time.After(timeout):
+		p.log.Debug("task timeout", zap.String("task", taskType))
+		return ""
+	case <-p.done:
+		return "task cancelled"
+	case <-p.ctx.Done():
+		return "task cancelled"
+	}
+}
+
+// toLuaPayloads converts a slice of payloads to Lua values.
+func (p *App) toLuaPayloads(payloads payload.Payloads) ([]lua.LValue, error) {
 	args := make([]lua.LValue, 0, len(payloads))
 	for _, pp := range payloads {
 		luaPayload, err := p.dtt.Transcode(pp, payload.Lua)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("transcoding payload failed: %w", err)
 		}
 		if lv, ok := luaPayload.Data().(lua.LValue); ok {
 			args = append(args, lv)
