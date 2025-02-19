@@ -17,21 +17,21 @@ type (
 	Kind = string
 
 	Monitor interface {
-		// Register registers a PID that can be monitored.
+		// Register registers a pid that can be monitored.
 		// This should be called before any process can be monitored.
 		Register(pid pubsub.PID) error
 
-		// Wait attaches a caller to monitor a specific PID.
-		// Returns error if PID is not registered or already being monitored by caller.
+		// Wait attaches a caller to monitor a specific pid.
+		// Returns error if pid is not registered or already being monitored by caller.
 		Wait(caller, pid pubsub.PID) error
 
-		// Release removes a caller's monitoring of a specific PID.
+		// Release removes a caller's monitoring of a specific pid.
 		Release(caller, pid pubsub.PID) error
 
-		// Notify sends monitoring events to all watchers of a PID.
+		// Notify sends monitoring events to all watchers of a pid.
 		Notify(pid pubsub.PID, result *runtime.Result)
 
-		// Remove completely removes a PID and all its watchers.
+		// Remove completely removes a pid and all its watchers.
 		// This should be called when a process terminates.
 		Remove(pid pubsub.PID)
 	}

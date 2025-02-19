@@ -82,7 +82,7 @@ func NewApp(
 		dtt:    dtt,
 		pubsub: subLayer,
 
-		// Runner and function information
+		// process and function information
 		runner:   runner,
 		funcName: funcName,
 
@@ -99,7 +99,7 @@ type App struct {
 	dtt    payload.Transcoder
 	pubsub *subscribe.Layer
 
-	// Runner and Lua state
+	// process and Lua state
 	ctx         context.Context
 	cancel      context.CancelFunc
 	pid         pubsub.PID

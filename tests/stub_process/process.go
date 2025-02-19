@@ -36,7 +36,7 @@ func NewTickerPrototype() process.Prototype {
 	}
 }
 
-// Updated Start now uses the current API: (context, PID, payloads)
+// Updated Start now uses the current API: (context, pid, payloads)
 func (p *TickerProcess) Start(ctx context.Context, pid pubsub.PID, input payload.Payloads) error {
 	p.ctx = ctx
 	p.pid = pid

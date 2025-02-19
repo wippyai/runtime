@@ -27,7 +27,7 @@ type sendJob struct {
 
 // Host implements a local pubsub for a single host with asynchronous sending.
 type Host struct {
-	receivers sync.Map // key: api.PID -> chan *api.Batch
+	receivers sync.Map // key: api.pid -> chan *api.Batch
 	jobCh     chan sendJob
 	config    HostConfig
 	ctx       context.Context
@@ -65,7 +65,7 @@ func NewHost(ctx context.Context, config HostConfig) *Host {
 	return h
 }
 
-// Attach attaches a receiver channel to a PID.
+// Attach attaches a receiver channel to a pid.
 // If a receiver is already attached, it returns ErrAlreadyAttached.
 func (h *Host) Attach(pid api.PID, ch chan *api.Batch) (context.CancelFunc, error) {
 	_, loaded := h.receivers.LoadOrStore(pid, ch)
@@ -84,9 +84,9 @@ func (h *Host) Attach(pid api.PID, ch chan *api.Batch) (context.CancelFunc, erro
 }
 
 // AttachWithPID attaches a receiver channel for PIDBatch messages.
-// This method is intended for consumers that need both the sender's PID and the batch payload.
-// It registers the channel to receive messages where each message wraps the PID along with the batch.
-// Note: Only one PIDBatch receiver may be attached per PID; if one already exists, an error is returned.
+// This method is intended for consumers that need both the sender's pid and the batch payload.
+// It registers the channel to receive messages where each message wraps the pid along with the batch.
+// Note: Only one PIDBatch receiver may be attached per pid; if one already exists, an error is returned.
 func (h *Host) AttachWithPID(pid api.PID, ch chan *api.PIDBatch) (context.CancelFunc, error) {
 	_, loaded := h.receivers.LoadOrStore(pid, ch)
 	if loaded {
@@ -103,13 +103,13 @@ func (h *Host) AttachWithPID(pid api.PID, ch chan *api.PIDBatch) (context.Cancel
 	return cancel, nil
 }
 
-// Detach removes a receiver channel from a PID.
+// Detach removes a receiver channel from a pid.
 func (h *Host) Detach(pid api.PID) {
 	h.receivers.Delete(pid) // todo: we can add more validation here
 	h.logger.Debug("receiver detached", zap.String("pid", pid.String()))
 }
 
-// Send enqueues a send job for the given PID and batch.
+// Send enqueues a send job for the given pid and batch.
 // It first attempts to send immediately, then falls back to a retry with timeout
 // if the channel is full. Returns error if both attempts fail or context expires.
 func (h *Host) Send(ctx context.Context, pid api.PID, batch *api.Batch) error {

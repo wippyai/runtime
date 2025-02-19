@@ -14,17 +14,17 @@ type ProcessRunner interface {
 	Step() error
 }
 
-// WorkRequest represents a request to execute a process step
-type WorkRequest struct {
-	PID    pubsub.PID    // Process ID
-	Runner ProcessRunner // Process to run
+// task represents a request to execute a process step
+type task struct {
+	pid     pubsub.PID    // Process ID
+	process ProcessRunner // Process to run
 }
 
 // WorkerPool manages a pool of workers for executing process steps
 type WorkerPool struct {
 	workers int
 	log     *zap.Logger
-	workCh  chan *WorkRequest
+	workCh  chan *task
 
 	wg     sync.WaitGroup
 	ctx    context.Context
@@ -38,7 +38,7 @@ func NewWorkerPool(ctx context.Context, workers int, queueSize int, log *zap.Log
 	return &WorkerPool{
 		workers: workers,
 		log:     log,
-		workCh:  make(chan *WorkRequest, queueSize),
+		workCh:  make(chan *task, queueSize),
 		ctx:     ctx,
 		cancel:  cancel,
 	}
@@ -63,7 +63,7 @@ func (p *WorkerPool) Terminate(pid pubsub.PID) {
 }
 
 // Schedule adds a process step execution request to the work queue
-func (p *WorkerPool) Schedule(req *WorkRequest) error {
+func (p *WorkerPool) Schedule(req *task) error {
 	select {
 	case p.workCh <- req:
 		return nil
@@ -84,13 +84,13 @@ func (p *WorkerPool) worker() {
 			return
 
 		case work := <-p.workCh:
-			if err := work.Runner.Step(); err != nil {
+			if err := work.process.Step(); err != nil {
 				p.log.Debug("process step completed with error",
-					zap.String("pid", work.PID.String()),
+					zap.String("pid", work.pid.String()),
 					zap.Error(err))
 			}
 			// todo: to be updated
-			//log.Printf("process step completed: %s", work.PID)
+			//log.Printf("process step completed: %s", work.pid)
 
 			p.workCh <- work
 		}
@@ -98,6 +98,6 @@ func (p *WorkerPool) worker() {
 }
 
 // WorkChannel returns the channel for submitting work requests
-func (p *WorkerPool) WorkChannel() chan<- *WorkRequest {
+func (p *WorkerPool) WorkChannel() chan<- *task {
 	return p.workCh
 }

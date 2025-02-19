@@ -25,7 +25,7 @@ import (
 	"github.com/ponyruntime/pony/system/registry/topology"
 )
 
-// MockRunner is a mock implementation of the registry.Runner interface for testing.
+// MockRunner is a mock implementation of the registry.process interface for testing.
 type MockRunner struct {
 	newState      registry.State
 	err           error
@@ -374,7 +374,7 @@ func TestInMemoryRegistry_Apply_HistorySaveError(t *testing.T) {
 	}
 }
 
-// CustomizableMockRunner is a mock implementation of registry.Runner for testing
+// CustomizableMockRunner is a mock implementation of registry.process for testing
 // that allows setting a custom Run function.
 type CustomizableMockRunner struct {
 	RunFunc func(state registry.State, changes registry.ChangeSet) (registry.State, error)
@@ -662,7 +662,7 @@ data:
 		t.Fatalf("failed to load entries from folder: %v", err)
 	}
 
-	// 4. Mock Runner to apply loaded entries to the state
+	// 4. Mock process to apply loaded entries to the state
 	runner.RunFunc = func(state registry.State, changes registry.ChangeSet) (registry.State, error) {
 		newState := state
 		for _, change := range changes {

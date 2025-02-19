@@ -15,7 +15,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// entry holds a launched process and its PID.
+// entry holds a launched process and its pid.
 type entry struct {
 	pid     pubsub.PID
 	process process.Process
@@ -30,7 +30,7 @@ type Host struct {
 	makeMsgHost  func(ctx context.Context) pubsub.BatchHost
 	msgHost      pubsub.BatchHost
 	hostMessages chan *pubsub.PIDBatch
-	processes    sync.Map // map[pubsub.PID]*entry
+	processes    sync.Map // map[pubsub.pid]*entry
 	workers      *WorkerPool
 	ctx          context.Context
 	done         chan struct{}
@@ -130,6 +130,26 @@ func (mph *Host) startMessageWorkers() {
 				}
 			}
 		}()
+
+		/*
+			// Spawn a goroutine to forward fallback messages into the central routing channel.
+			go func(pid pubsub.PID, ch chan *pubsub.PIDBatch) {
+				for {
+					select {
+					case m, ok := <-ch:
+						if !ok {
+							mph.log.Debug("fallback channel closed", zap.String("pid", pid.String()))
+							return
+						}
+						select {
+						case mph.hostMessages <- m:
+						case <-time.After(mph.config.RetryTimeout):
+							mph.log.Warn("fallback routing queue is full", zap.String("pid", pid.String()))
+						}
+					}
+				}
+			}(launch.PID, fallbackCh)
+		*/
 	}
 }
 
@@ -161,27 +181,9 @@ func (mph *Host) Launch(ctx context.Context, launch *process.LaunchProcess) (pub
 		return pubsub.PID{}, err
 	}
 
-	// Spawn a goroutine to forward fallback messages into the central routing channel.
-	go func(pid pubsub.PID, ch chan *pubsub.PIDBatch) {
-		for {
-			select {
-			case m, ok := <-ch:
-				if !ok {
-					mph.log.Debug("fallback channel closed", zap.String("pid", pid.String()))
-					return
-				}
-				select {
-				case mph.hostMessages <- m:
-				case <-time.After(mph.config.RetryTimeout):
-					mph.log.Warn("fallback routing queue is full", zap.String("pid", pid.String()))
-				}
-			}
-		}
-	}(launch.PID, fallbackCh)
-
-	if err := mph.workers.Schedule(&WorkRequest{
-		PID:    launch.PID,
-		Runner: launch.Process,
+	if err := mph.workers.Schedule(&task{
+		pid:     launch.PID,
+		process: launch.Process,
 	}); err != nil {
 		mph.processes.Delete(launch.PID)
 		return pubsub.PID{}, err
