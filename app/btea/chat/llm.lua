@@ -97,6 +97,57 @@ M.LLMClient = {
                     stream:close()
                     update_channel:send({ type = "done" })
                 end)
+            end,
+
+            query_direct = function(self, prompt, history)
+                -- Format messages
+                local messages = {}
+                for _, msg in ipairs(history) do
+                    table.insert(messages, {
+                        role = msg.role,
+                        content = msg.content
+                    })
+                end
+                table.insert(messages, {
+                    role = "user",
+                    content = prompt
+                })
+                -- Prepare headers
+                local headers = {
+                    ["Content-Type"] = "application/json",
+                    ["Authorization"] = "Bearer " .. (env.get("OPENAI_KEY") or "")
+                }
+                -- Prepare request body with streaming disabled
+                local body = json.encode({
+                    model = self.model,
+                    messages = messages,
+                    stream = false
+                })
+                -- Make synchronous API request
+                local response, err = http.post(self.endpoint, {
+                    headers = headers,
+                    body = body,
+                    timeout = 900
+                })
+                if err then
+                    return nil, err
+                end
+                if response.status_code >= 200 and response.status_code < 300 then
+                    local data = json.decode(response.body)
+                    if data and data.choices and data.choices[1] then
+                        local result = ""
+                        if data.choices[1].message and data.choices[1].message.content then
+                            result = data.choices[1].message.content
+                        elseif data.choices[1].text then
+                            result = data.choices[1].text
+                        end
+                        return result, nil
+                    else
+                        return nil, "Invalid response format"
+                    end
+                else
+                    return nil, response.body
+                end
             end
         }
     end

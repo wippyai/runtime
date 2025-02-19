@@ -1,8 +1,9 @@
 local CommandHandler = {}
 CommandHandler.__index = CommandHandler
 
-function CommandHandler.new(client, ui)
+function CommandHandler.new(app, client, ui)
     local self = setmetatable({}, CommandHandler)
+    self.app = app
     self.client = client
     self.ui = ui
     self.commands = {}
@@ -56,6 +57,30 @@ function CommandHandler.new(client, ui)
             self.ui:add_message(string.format("!%s - %s", cmd, info.help), "system")
         end
     end, "Show this help message")
+
+    -- Register new !ai command for toggling AI mode
+    self:register_command("ai", function(args)
+        local app = self.app
+        if args[1] == "on" then
+            if not app.ai_mode_enabled then
+                app.ai_mode_enabled = true
+                app.ai_session = require("chat_components").ChatSession.new()
+                self.ui:add_message("AI mode enabled.", "system")
+            else
+                self.ui:add_message("AI mode is already enabled.", "system")
+            end
+        elseif args[1] == "off" then
+            if app.ai_mode_enabled then
+                app.ai_mode_enabled = false
+                app.ai_session = nil
+                self.ui:add_message("AI mode disabled.", "system")
+            else
+                self.ui:add_message("AI mode is already disabled.", "system")
+            end
+        else
+            self.ui:add_message("Usage: !ai on|off", "system")
+        end
+    end, "Toggle AI mode for automatic responses.")
 
     return self
 end
