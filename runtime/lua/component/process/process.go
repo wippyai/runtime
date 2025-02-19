@@ -69,7 +69,7 @@ func (p *Process) Start(ctx context.Context, pid pubsub.PID, input payload.Paylo
 	}
 
 	// Convert input payloads to Lua values
-	args, err := p.convertPayloadsToLua(input)
+	args, err := p.toLuaPayloads(input)
 	if err != nil {
 		return err
 	}
@@ -150,7 +150,7 @@ func (p *Process) Send(batch *pubsub.Batch) error {
 	default:
 		for _, msg := range *batch {
 			// Forward messages to Lua
-			luaValues, err := p.convertPayloadsToLua(msg.Payloads)
+			luaValues, err := p.toLuaPayloads(msg.Payloads)
 			if err != nil {
 				p.log.Error("failed to convert payloads", zap.Error(err))
 				continue
@@ -186,8 +186,8 @@ func (p *Process) complete(err error, result lua.LValue) {
 	p.cancel()
 }
 
-// convertPayloadsToLua converts a slice of payloads to Lua values
-func (p *Process) convertPayloadsToLua(payloads payload.Payloads) ([]lua.LValue, error) {
+// toLuaPayloads converts a slice of payloads to Lua values
+func (p *Process) toLuaPayloads(payloads payload.Payloads) ([]lua.LValue, error) {
 	args := make([]lua.LValue, 0, len(payloads))
 	for _, pp := range payloads {
 		luaPayload, err := p.dtt.Transcode(pp, payload.Lua)
