@@ -181,12 +181,8 @@ func (mph *Host) Terminate(ctx context.Context, pid pubsub.PID) error {
 		return process.ErrNoProcess
 	}
 
-	if err := mph.pool.CancelProcess(pid); err != nil {
-		mph.log.Error("failed to cancel process",
-			zap.String("pid", pid.String()),
-			zap.Error(err))
-		return err
-	}
+	// terminate is aggressive, so we don't wait for the process to finish, use cancel signals instead
+	mph.pool.RemoveProcess(pid)
 
 	mph.log.Info("process terminate requested", zap.String("pid", pid.String()))
 	return nil
