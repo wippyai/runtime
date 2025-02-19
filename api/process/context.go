@@ -75,5 +75,7 @@ func MergeContext(base, foreign context.Context) context.Context {
 		base = WithAddedOnStart(base, origOnStart)
 	}
 
+	// todo: good chance that order here is broken
+
 	return base
 }
