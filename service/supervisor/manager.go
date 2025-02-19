@@ -22,8 +22,8 @@ type Manager struct {
 	services sync.Map // map[registry.ID]*ProcessService
 }
 
-// NewProcessSupervisorManager creates a new process service manager
-func NewProcessSupervisorManager(
+// NewSupervisorServiceManager creates a new process service manager
+func NewSupervisorServiceManager(
 	bus events.Bus,
 	proc *process.Manager,
 	log *zap.Logger,
