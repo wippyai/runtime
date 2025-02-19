@@ -16,7 +16,6 @@ entries:
       auto_start: true
       restart:
         initial_delay: 1s
-        max_attempts: 2
 
   - name: app
     kind: btea.app.lua
