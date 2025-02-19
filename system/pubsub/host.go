@@ -105,7 +105,7 @@ func (h *Host) AttachWithPID(pid api.PID, ch chan *api.PIDBatch) (context.Cancel
 
 // Detach removes a receiver channel from a PID.
 func (h *Host) Detach(pid api.PID) {
-	h.receivers.Delete(pid)
+	h.receivers.Delete(pid) // todo: we can add more validation here
 	h.logger.Debug("receiver detached", zap.String("pid", pid.String()))
 }
 

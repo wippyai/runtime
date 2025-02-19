@@ -43,7 +43,6 @@ type (
 	Host interface {
 		Upstream
 		Attach(PID, chan *Batch) (context.CancelFunc, error)
-		Detach(PID)
 	}
 
 	BatchHost interface {
@@ -53,6 +52,7 @@ type (
 		// It registers the channel to receive messages where each message wraps the PID along with the batch.
 		// Note: Only one PIDBatch receiver may be attached per PID; if one already exists, an error is returned.
 		AttachWithPID(pid PID, ch chan *PIDBatch) (context.CancelFunc, error)
+		Detach(PID)
 	}
 
 	Node interface {
