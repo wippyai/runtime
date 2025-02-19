@@ -1,4 +1,4 @@
-package process
+package host
 
 import (
 	"context"
@@ -27,7 +27,7 @@ type Host struct {
 	id           registry.ID
 	config       process.HostConfig
 	log          *zap.Logger
-	makeMsgHost  func() pubsub.BatchHost
+	makeMsgHost  func(ctx context.Context) pubsub.BatchHost
 	msgHost      pubsub.BatchHost
 	hostMessages chan *pubsub.PIDBatch
 	processes    sync.Map // map[pubsub.PID]*entry
@@ -44,7 +44,7 @@ func NewProcessHost(
 	id registry.ID,
 	config process.HostConfig,
 	log *zap.Logger,
-	msgHost func() pubsub.BatchHost,
+	msgHost func(context.Context) pubsub.BatchHost,
 ) *Host {
 	return &Host{
 		id:           id,
@@ -75,7 +75,7 @@ func (mph *Host) Start(ctx context.Context) (<-chan any, error) {
 	// Wrap the incoming context with an on-complete callback.
 	mph.ctx = process.WithAddedOnComplete(ctx, mph.finalizeProcess)
 
-	mph.msgHost = mph.makeMsgHost()
+	mph.msgHost = mph.makeMsgHost(ctx)
 
 	mph.workers = NewWorkerPool(ctx, mph.config.Workers, mph.config.StepQueueSize, mph.log)
 	mph.workers.Start()

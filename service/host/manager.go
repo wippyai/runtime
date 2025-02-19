@@ -1,8 +1,9 @@
-package process
+package host
 
 import (
 	"context"
 	"fmt"
+	msg "github.com/ponyruntime/pony/system/pubsub"
 	"sync"
 
 	"github.com/ponyruntime/pony/api/events"
@@ -53,7 +54,19 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	defer m.mu.Unlock()
 
 	// Create new host instance
-	host := NewProcessHost(entry.ID, cfg.HostConfig, m.log)
+	host := NewProcessHost(
+		entry.ID,
+		cfg.HostConfig,
+		m.log,
+		func(ctx context.Context) pubsub.BatchHost {
+			return msg.NewHost(ctx, msg.HostConfig{
+				BufferSize:      cfg.HostConfig.BufferSize,
+				WorkerCount:     cfg.HostConfig.WorkerCount,
+				Logger:          m.log,
+				RetryTimeout:    cfg.HostConfig.RetryTimeout,
+				DeliveryTimeout: cfg.HostConfig.DeliveryTimeout,
+			})
+		})
 
 	// Store in hosts map
 	m.hosts.Store(entry.ID, host)
