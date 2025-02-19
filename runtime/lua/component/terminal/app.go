@@ -7,6 +7,7 @@ import (
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/ponyruntime/pony/api/topology"
+	"log"
 	"sync"
 	"time"
 
@@ -322,9 +323,10 @@ func (p *App) processLoop(resultCh <-chan engine.Result) {
 				}
 			}
 
-			_ = p.program.ReleaseTerminal()
-			time.Sleep(stopTimeout) // we really want to propagate the release of terminal, or apps might overlap
+			// todo: something is not right with btea exit!
 			p.program.Quit()
+			time.Sleep(stopTimeout) // we really want to propagate the release of terminal, or apps might overlap
+			log.Printf("QUIT")
 		})
 	}
 
@@ -345,6 +347,8 @@ func (p *App) processLoop(resultCh <-chan engine.Result) {
 		select {
 		case result, ok := <-resultCh:
 			if !ok {
+				p.log.Error("runner error", zap.Error(p.firstError))
+				completeProcess(p.firstError, nil)
 				return
 			}
 			if result.Error != nil {

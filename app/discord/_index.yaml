@@ -33,7 +33,7 @@ entries:
       "discord_commands": "discord:commands"
       "discord_ui": "discord:ui"
       "llm": "chat:llm"  # Import LLM client from chat namespace
-      "components": "chat:components"  # Import chat components
+      "chat_components": "chat:components"  # Import chat components
 
   - name: client
     kind: library.lua
