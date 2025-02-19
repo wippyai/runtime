@@ -88,17 +88,14 @@ func (p *Process) Start(ctx context.Context, pid pubsub.PID, input payload.Paylo
 		return errors.New("failed to get transcoder")
 	}
 
-	// Set up runner context and closer
-	ctx = p.runner.WithContext(ctx)
-	ctx, p.closer = closer.WithContext(ctx)
-
-	// todo: link wake up contexts
-
 	// Convert input payloads to Lua values
 	args, err := p.convertPayloadsToLua(input)
 	if err != nil {
 		return err
 	}
+
+	// Set up runner context and closer
+	ctx, p.closer = closer.WithContext(p.runner.WithContext(ctx))
 
 	// Start the Lua function
 	p.resultCh, err = p.runner.Start(ctx, p.funcName, args...)
