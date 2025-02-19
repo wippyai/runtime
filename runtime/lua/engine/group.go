@@ -15,6 +15,7 @@ type TaskGroup struct {
 	wakeup     chan struct{}
 	wakeCount  atomic.Int32
 	taskCount  atomic.Int32
+	awaken     atomic.Bool
 	wakeupFunc func()
 	states     map[*lua.LState]struct{}
 }
@@ -70,8 +71,16 @@ func (g *TaskGroup) Remove(state *lua.LState) {
 
 // WakeUp increments the wake count and sends a wakeup signal, thread safe
 func (g *TaskGroup) WakeUp() {
-	// we can optimize it a bit by skipping channel send if there is already a wakeup signal
-	g.wakeCount.Add(1)
+	if g.awaken.CompareAndSwap(false, true) {
+		// we only call the wakeup function once per wait cycle to ensure that no tasks are missed
+		// never allow situation when
+		if g.wakeupFunc != nil {
+			g.wakeupFunc()
+		}
+
+		g.wakeCount.Add(1)
+	}
+
 	select {
 	case g.wakeup <- struct{}{}:
 	default:
@@ -100,11 +109,13 @@ func (g *TaskGroup) Wait(ctx context.Context, cvm CVM, block bool) ([]*Task, err
 					tasks = append(tasks, task)
 				}
 				g.taskCount.Add(^int32(0))
+
 				delete(g.states, result.State)
 				block = false
 				continue
 			case <-g.wakeup:
 				g.wakeCount.Add(^int32(0))
+
 				// WakeUp up and continue processing
 				block = false
 				continue
@@ -124,9 +135,11 @@ func (g *TaskGroup) Wait(ctx context.Context, cvm CVM, block bool) ([]*Task, err
 				tasks = append(tasks, task)
 			}
 			g.taskCount.Add(^int32(0))
+
 			delete(g.states, result.State)
 		case <-g.wakeup:
 			g.wakeCount.Add(^int32(0))
+
 			// WakeUp up and continue processing
 		default:
 			return tasks, nil
