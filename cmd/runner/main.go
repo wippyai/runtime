@@ -452,7 +452,7 @@ func main() {
 
 	// LaunchProcess application
 	if err := app.Start(folderPath); err != nil {
-		app.logger.Fatal("Failed to start application", zap.Error(err))
+		app.logger.Fatal("failed to start application", zap.Error(err))
 	}
 
 	app.logger.Info("application started successfully")

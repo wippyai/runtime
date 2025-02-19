@@ -21,9 +21,7 @@ function bapp.new(init_cmd)
         cmd_channel = channel.new(128),
         is_running = false,
         window = { width = 80, height = 24 },
-        view_ch = pubsub.subscribe("@btea/view"),
-        update_ch = pubsub.subscribe("@btea/update"),
-        events_ch = pubsub.subscribe("@pid/events"),
+        events_ch = pubsub.subscribe("@btea/events"),
         done = channel.new()
     }
 
@@ -88,58 +86,59 @@ function bapp.new(init_cmd)
         end)
     end
 
-    function app:start_cancel_handler()
-        coroutine.spawn(function()
-            self.events_ch:receive()
-            self.is_running = false
-        end)
-    end
-
-    -- Main run loop: processes tasks directly from channels
+    -- Main run loop: processes tasks from the unified events channel.
     function app:run(update_fn, view_fn)
         self.is_running = true
         self:init_terminal()
         self:start_command_processor()
-        self:start_cancel_handler()
 
         while self.is_running do
             local result = channel.select({
-                self.view_ch:case_receive(),
-                self.update_ch:case_receive()
+                self.events_ch:case_receive(),
+                self.done:case_receive()
             })
 
-            -- Check if select operation was successful
-            if not result.ok then
+            if not result.ok or result.channel == self.done then
                 self.done:send(true)
                 break
             end
 
-            -- Get the task from the selected channel
-            local task = result.value
-            if not task then
+            local event = result.value
+            if not event then
                 self.done:send(true)
                 break
             end
 
-            task:lol()
-
-            -- Process the task based on channel
-            if result.channel == self.update_ch then
-                local msg = task:input()
-                if type(msg) == "table" then
-                    if msg.window_size then
-                        self:update_window_size(msg.window_size)
+            if type(event) == "table" and event.type and event.task then
+                local eventType = event.type
+                local task = event.task
+                if eventType == "update" then
+                    local msg = task:input()
+                    if type(msg) == "table" then
+                        if msg.window_size then
+                            self:update_window_size(msg.window_size)
+                        end
+                        local should_quit = update_fn(self, msg)
+                        if should_quit then
+                            task:complete("ok")
+                            break
+                        end
                     end
-                    local should_quit = update_fn(self, msg)
-                    if should_quit then break end
+                    task:complete("ok")
+                elseif eventType == "view" then
+                    task:complete(view_fn(self))
+                elseif eventType == "cancel" then
+                    self.is_running = false
+                    task:complete("cancel")
+                else
+                    task:complete("unknown task")
                 end
-                task:complete("ok")
-            elseif result.channel == self.view_ch then
-                task:complete(view_fn(self))
+            else
+                -- Invalid event format; ignore or log if needed.
             end
         end
 
-        self:cleanup_terminal()
+        self:cleanup_termi nal()
     end
 
     return app

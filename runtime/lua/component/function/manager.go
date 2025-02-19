@@ -120,6 +120,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 
 	// Spawn and store pool
 	if err := m.pushHandler(entry.ID, cfg); err != nil {
+		_ = m.code.DeleteNode(ctx, entry.ID)
 		return fmt.Errorf("failed to create function: %w", err)
 	}
 
