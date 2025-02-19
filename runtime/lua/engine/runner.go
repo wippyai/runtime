@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/internal/closer"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
@@ -228,11 +229,17 @@ func (e *Runner) Run(ctx context.Context, exitCh <-chan Result) (lua.LValue, err
 
 // Step processes tasks through the layer chain.
 func (e *Runner) Step(tasks ...*Task) ([]*Task, error) {
+	e.taskGroup.awaken.Store(true)
+	defer e.taskGroup.awaken.Store(false)
+
 	return e.getWrapped().Step(tasks...)
 }
 
 // Continue advances all internal until no longer possible and external signals are needed.
-func (e *Runner) Continue(ctx context.Context) error { // todo: test it
+func (e *Runner) Continue(ctx context.Context) error {
+	e.taskGroup.awaken.Store(true)
+	defer e.taskGroup.awaken.Store(false)
+
 	// Check if the context is already canceled.
 	select {
 	case <-ctx.Done():
@@ -297,7 +304,12 @@ func (e *Runner) Execute(ctx context.Context, funcName string, args ...lua.LValu
 // WithContext creates a new context with task group and layer-specific values.
 // Each layer that implements Contexter can add its own values to the context chain.
 func (e *Runner) WithContext(ctx context.Context) context.Context {
-	// todo: check if we have wakeup key
+	awake := ctx.Value(ctxapi.WakeUpKey)
+	if fn, ok := awake.(func()); ok {
+		// this is special handling for the cases where we need to wake up the VM thread
+		// in parent worker pool, this contract allows us to send signal upstream
+		e.taskGroup.wakeupFunc = fn
+	}
 
 	ctx = WithTaskGroup(ctx, e.taskGroup)
 	for _, l := range e.layers {
