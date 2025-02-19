@@ -44,7 +44,7 @@ func ParsePID(s string) (PID, error) {
 
 	parts := strings.Split(s, "|")
 	if len(parts) != 3 {
-		return pid, fmt.Errorf("invalid PID format: expected 3 parts separated by '|', got %d", len(parts))
+		return pid, fmt.Errorf("invalid pid format: expected 3 parts separated by '|', got %d", len(parts))
 	}
 
 	// Parse the host part which may include a node using the "node@host" format.

@@ -14,7 +14,7 @@ import (
 
 type monitor struct {
 	ctx      context.Context
-	monitors sync.Map // map[string]*sync.Map - watchers for each PID
+	monitors sync.Map // map[string]*sync.Map - watchers for each pid
 	registry sync.Map // map[string]bool - registered PIDs
 	upstream pubsub.Upstream
 }
@@ -32,7 +32,7 @@ func (m *monitor) Register(pid pubsub.PID) error {
 }
 
 func (m *monitor) Wait(caller, pid pubsub.PID) error {
-	// Check if PID is registered
+	// Check if pid is registered
 	if _, ok := m.registry.Load(pid.String()); !ok {
 		return fmt.Errorf("cannot monitor unregistered pid: %s", pid)
 	}

@@ -39,7 +39,7 @@ func (l *Topology) AttachToContext(ctx context.Context) context.Context {
 		l.logger.Debug("process started", zap.String("pid", pid.String()))
 		err := l.monitor.Register(pid)
 		if err != nil {
-			l.logger.Warn("failed to register PID for monitoring", zap.String("pid", pid.String()), zap.Error(err))
+			l.logger.Warn("failed to register pid for monitoring", zap.String("pid", pid.String()), zap.Error(err))
 		}
 
 		// todo: register links and etc

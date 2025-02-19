@@ -37,7 +37,7 @@ func (svc *Service) Start(ctx context.Context) (<-chan any, error) {
 		return nil, fmt.Errorf("no process manager found in context")
 	}
 
-	// Setup monitor PID
+	// Setup monitor pid
 	svc.supervisorPID = pubsub.PID{
 		Node:   node.ID(),
 		Host:   topology.ControlHost,

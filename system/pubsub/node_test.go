@@ -135,7 +135,7 @@ func TestNodeAttachLocal(t *testing.T) {
 	node := NewNode(nodeID, nil)
 	assert.NoError(t, node.RegisterHost("host1", dhost))
 
-	// Use a local PID.
+	// Use a local pid.
 	pidLocal := api.PID{
 		Node:   "",
 		Host:   "host1",

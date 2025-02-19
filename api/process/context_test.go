@@ -38,7 +38,7 @@ func TestOnCompleteAggregation(t *testing.T) {
 		t.Fatal("Expected aggregated onComplete callback, got nil")
 	}
 
-	// Create a dummy PID and runtime.Result.
+	// Create a dummy pid and runtime.Result.
 	dummyPID := pubsub.PID{
 		Host:   "test",
 		ID:     registry.ID{Name: "dummy"}, // Use a simple string, since the type isn't crucial here.

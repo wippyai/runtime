@@ -44,7 +44,7 @@ func (m *Manager) Lifecycle() *Topology {
 	return m.topology
 }
 
-// preparePID creates and validates a PID for the process
+// preparePID creates and validates a pid for the process
 func (m *Manager) preparePID(ps *api.StartProcess, managed bool) (pubsub.PID, error) {
 	pid := pubsub.PID{
 		Host:   ps.HostID,
