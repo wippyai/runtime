@@ -36,6 +36,10 @@ var (
 	CleanupCtx  = &Key{Name: "cleanup"}  //nolint:gochecknoglobals
 	SecurityCtx = &Key{Name: "security"} //nolint:gochecknoglobals
 
+	// --- Contains a callack that is when not empty can be used to notify process host about async
+	// --- process activity to wake up process thread
+	WakeUpKey = &Key{Name: "wakeup"} //nolint:gochecknoglobals
+
 	// --- Runtime and lifecycle specific
 	TerminalCtx = &Key{Name: "terminal"}     //nolint:gochecknoglobals
 	RunnerCtx   = &Key{Name: "taskGroupKey"} //nolint:gochecknoglobals

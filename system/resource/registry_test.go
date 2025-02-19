@@ -92,11 +92,6 @@ func (m *mockResourceProvider) Acquire(ctx context.Context, id registry.ID, mode
 		return nil, resource.ErrResourceLocked
 	}
 
-	// Check access mode validity
-	if mode == 0 || (mode > resource.ReadWrite && mode != resource.ModeExclusive) {
-		return nil, resource.ErrInvalidAccessMode
-	}
-
 	// If requesting exclusive access, lock the resource
 	if mode == resource.ModeExclusive {
 		m.lockedResources[id] = struct{}{}
@@ -153,13 +148,13 @@ func TestService_ResourceLifecycle(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 	assert.True(t, service.Exists(id))
 
-	// Test concurrent access
+	// Test concurrent access with normal mode
 	var wg sync.WaitGroup
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			res, err := service.Acquire(ctx, id, resource.ReadWrite)
+			res, err := service.Acquire(ctx, id, resource.ModeNormal)
 			if err == nil {
 				defer func() { assert.NoError(t, res.Release()) }()
 				_, err := res.Get()
@@ -174,14 +169,14 @@ func TestService_ResourceLifecycle(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify other acquires fail while exclusive lock is held
-	_, err = service.Acquire(ctx, id, resource.ReadWrite)
+	_, err = service.Acquire(ctx, id, resource.ModeNormal)
 	assert.Equal(t, resource.ErrResourceLocked, err)
 
 	// Release exclusive lock
 	require.NoError(t, res.Release())
 
 	// Verify resource can be acquired again
-	res, err = service.Acquire(ctx, id, resource.ReadWrite)
+	res, err = service.Acquire(ctx, id, resource.ModeNormal)
 	require.NoError(t, err)
 	require.NoError(t, res.Release())
 
@@ -233,26 +228,14 @@ func TestService_ResourceAccess(t *testing.T) {
 		errorType   error
 	}{
 		{
-			name:        "read write",
-			mode:        resource.ReadWrite,
+			name:        "normal mode",
+			mode:        resource.ModeNormal,
 			shouldError: false,
 		},
 		{
-			name:        "exclusive",
+			name:        "exclusive mode",
 			mode:        resource.ModeExclusive,
 			shouldError: false,
-		},
-		{
-			name:        "invalid mode",
-			mode:        resource.AccessMode(0),
-			shouldError: true,
-			errorType:   resource.ErrInvalidAccessMode,
-		},
-		{
-			name:        "invalid high mode",
-			mode:        resource.AccessMode(1 << 7),
-			shouldError: true,
-			errorType:   resource.ErrInvalidAccessMode,
 		},
 	}
 

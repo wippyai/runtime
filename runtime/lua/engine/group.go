@@ -11,11 +11,12 @@ import (
 
 // TaskGroup manages a group of related tasks, their states, and result collection
 type TaskGroup struct {
-	results   chan *Result
-	wakeup    chan struct{}
-	wakeCount atomic.Int32
-	taskCount atomic.Int32
-	states    map[*lua.LState]struct{}
+	results    chan *Result
+	wakeup     chan struct{}
+	wakeCount  atomic.Int32
+	taskCount  atomic.Int32
+	wakeupFunc func()
+	states     map[*lua.LState]struct{}
 }
 
 // NewTaskGroup creates a new TaskGroup instance
@@ -23,8 +24,7 @@ func NewTaskGroup(size int) *TaskGroup {
 	return &TaskGroup{
 		results: make(chan *Result, size),
 		wakeup:  make(chan struct{}, size),
-		// todo: not pointers as keys
-		states: make(map[*lua.LState]struct{}),
+		states:  make(map[*lua.LState]struct{}),
 	}
 }
 
