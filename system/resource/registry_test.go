@@ -62,7 +62,7 @@ func (m *mockResource) Release() error {
 		return nil // Already released
 	}
 
-	if m.mode == resource.Exclusive {
+	if m.mode == resource.ModeExclusive {
 		m.provider.mu.Lock()
 		delete(m.provider.lockedResources, m.id)
 		m.provider.mu.Unlock()
@@ -93,12 +93,12 @@ func (m *mockResourceProvider) Acquire(ctx context.Context, id registry.ID, mode
 	}
 
 	// Check access mode validity
-	if mode == 0 || (mode > resource.ReadWrite && mode != resource.Exclusive) {
+	if mode == 0 || (mode > resource.ReadWrite && mode != resource.ModeExclusive) {
 		return nil, resource.ErrInvalidAccessMode
 	}
 
 	// If requesting exclusive access, lock the resource
-	if mode == resource.Exclusive {
+	if mode == resource.ModeExclusive {
 		m.lockedResources[id] = struct{}{}
 	}
 
@@ -170,7 +170,7 @@ func TestService_ResourceLifecycle(t *testing.T) {
 	wg.Wait()
 
 	// Test exclusive access
-	res, err := service.Acquire(ctx, id, resource.Exclusive)
+	res, err := service.Acquire(ctx, id, resource.ModeExclusive)
 	require.NoError(t, err)
 
 	// Verify other acquires fail while exclusive lock is held
@@ -239,7 +239,7 @@ func TestService_ResourceAccess(t *testing.T) {
 		},
 		{
 			name:        "exclusive",
-			mode:        resource.Exclusive,
+			mode:        resource.ModeExclusive,
 			shouldError: false,
 		},
 		{
@@ -321,7 +321,7 @@ func TestService_ContextCancellation(t *testing.T) {
 	cancel()
 
 	// Attempt to acquire resource with cancelled context
-	_, err := service.Acquire(ctx, id, resource.Exclusive)
+	_, err := service.Acquire(ctx, id, resource.ModeExclusive)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "context canceled")
 }

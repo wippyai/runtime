@@ -58,7 +58,6 @@ func (p *WorkerPool) Stop() {
 	p.wg.Wait()
 }
 
-// Stop gracefully shuts down the worker pool
 func (p *WorkerPool) Terminate(pid pubsub.PID) {
 	// todo: to be updated
 }

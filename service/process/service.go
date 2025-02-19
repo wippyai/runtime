@@ -45,7 +45,7 @@ func (svc *Service) Start(ctx context.Context) (<-chan any, error) {
 	// Create monitoring channel
 	monitorCh := make(chan *pubsub.Batch, 1)
 
-	err, detach := node.Attach(svc.supervisorPID, monitorCh)
+	detach, err := node.Attach(svc.supervisorPID, monitorCh)
 	if err != nil {
 		return nil, fmt.Errorf("failed to attach monitor: %w", err)
 	}

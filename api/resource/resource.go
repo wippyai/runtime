@@ -18,32 +18,18 @@ const (
 
 // Common errors returned by the resource system
 var (
-	ErrResourceNotFound  = errors.New("resource not found")
-	ErrResourceLocked    = errors.New("resource is locked")
-	ErrInvalidAccessMode = errors.New("invalid access mode")
-	ErrResourceReleased  = errors.New("resource has been released")
+	ErrResourceNotFound = errors.New("resource not found")
+	ErrResourceLocked   = errors.New("resource is locked")
+	ErrResourceReleased = errors.New("resource has been released")
 )
 
 // AccessMode defines the type of access requested for a resource
 type AccessMode uint8
 
 const (
-	ReadOnly  AccessMode             = 1 << iota // Resource can only be read
-	WriteOnly                                    // Resource can only be written
-	Exclusive                                    // Resource is locked for exclusive access
-	ReadWrite = ReadOnly | WriteOnly             // Resource can be read and written
+	ModeNormal    AccessMode = 1 << iota // Resource can only be read
+	ModeExclusive                        // Resource is locked for exclusive access
 )
-
-// IsValid checks if the access mode combination is valid
-func (m AccessMode) IsValid() bool {
-	// Exclusive must be standalone
-	if m&Exclusive != 0 {
-		return m == Exclusive
-	}
-
-	// Other modes can be individual or combined
-	return m == ReadOnly || m == WriteOnly || m == ReadWrite
-}
 
 type (
 	// Entry represents a registered resource with its metadata

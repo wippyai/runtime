@@ -53,7 +53,12 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	defer m.mu.Unlock()
 
 	// Create new host instance
-	host := NewHost(entry.ID, cfg.HostConfig, m.log)
+	host := NewProcessHost(
+		entry.ID,
+		cfg.HostConfig,
+		m.log,
+		// todO: add msg host
+	)
 
 	// Store in hosts map
 	m.hosts.Store(entry.ID, host)
@@ -89,7 +94,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 }
 
 // registerHost registers the process host with necessary subsystems
-func (m *Manager) registerHost(ctx context.Context, id registry.ID, host *Host, cfg *process.EntryConfig) {
+func (m *Manager) registerHost(ctx context.Context, id registry.ID, host *ProcessHost, cfg *process.EntryConfig) {
 	// Register with pubsub
 	m.bus.Send(ctx, events.Event{
 		System: pubsub.System,

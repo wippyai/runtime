@@ -191,13 +191,13 @@ func TestHost_AttachPIDBatch(t *testing.T) {
 
 	// Test successful attachment
 	ch1 := make(chan *api.PIDBatch, 10)
-	cancel1, err1 := host.AttachFallback(pid, ch1)
+	cancel1, err1 := host.AttachWithPID(pid, ch1)
 	assert.NoError(t, err1)
 	assert.NotNil(t, cancel1)
 
 	// Test duplicate attachment
 	ch2 := make(chan *api.PIDBatch, 10)
-	_, err2 := host.AttachFallback(pid, ch2)
+	_, err2 := host.AttachWithPID(pid, ch2)
 	assert.Error(t, err2)
 	assert.Equal(t, api.ErrAlreadyAttached, err2)
 
@@ -227,7 +227,7 @@ func TestHost_SendToPIDBatchReceiver(t *testing.T) {
 
 	// Create a PIDBatch receiver
 	receiverCh := make(chan *api.PIDBatch, 1)
-	_, err := host.AttachFallback(pid, receiverCh)
+	_, err := host.AttachWithPID(pid, receiverCh)
 	assert.NoError(t, err)
 
 	// Send a regular batch
@@ -265,7 +265,7 @@ func TestHost_PIDBatchDeliveryTimeout(t *testing.T) {
 
 	// Create a blocked PIDBatch receiver
 	receiverCh := make(chan *api.PIDBatch) // Unbuffered channel that no one is receiving from
-	_, err := host.AttachFallback(pid, receiverCh)
+	_, err := host.AttachWithPID(pid, receiverCh)
 	assert.NoError(t, err)
 
 	// Send should succeed (as it only queues the message)
@@ -308,7 +308,7 @@ func TestHost_MixedReceivers(t *testing.T) {
 	_, err := host.Attach(pid1, batchCh)
 	assert.NoError(t, err)
 
-	_, err = host.AttachFallback(pid2, pidBatchCh)
+	_, err = host.AttachWithPID(pid2, pidBatchCh)
 	assert.NoError(t, err)
 
 	// Send messages to both

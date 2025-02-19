@@ -83,10 +83,14 @@ func (h *Host) Attach(pid api.PID, ch chan *api.Batch) (context.CancelFunc, erro
 	return cancel, nil
 }
 
-func (h *Host) AttachFallback(pid api.PID, ch chan *api.PIDBatch) (context.CancelFunc, error) {
+// AttachWithPID attaches a receiver channel for PIDBatch messages.
+// This method is intended for consumers that need both the sender's PID and the batch payload.
+// It registers the channel to receive messages where each message wraps the PID along with the batch.
+// Note: Only one PIDBatch receiver may be attached per PID; if one already exists, an error is returned.
+func (h *Host) AttachWithPID(pid api.PID, ch chan *api.PIDBatch) (context.CancelFunc, error) {
 	_, loaded := h.receivers.LoadOrStore(pid, ch)
 	if loaded {
-		h.logger.Warn("attempt to attach already existing PIDBatch receiver", zap.String("pid", pid.String()))
+		h.logger.Warn("attempt to attach an already existing PIDBatch receiver", zap.String("pid", pid.String()))
 		return nil, api.ErrAlreadyAttached
 	}
 
@@ -97,6 +101,12 @@ func (h *Host) AttachFallback(pid api.PID, ch chan *api.PIDBatch) (context.Cance
 		h.logger.Debug("PIDBatch receiver detached", zap.String("pid", pid.String()))
 	}
 	return cancel, nil
+}
+
+// Detach removes a receiver channel from a PID.
+func (h *Host) Detach(pid api.PID) {
+	h.receivers.Delete(pid)
+	h.logger.Debug("receiver detached", zap.String("pid", pid.String()))
 }
 
 // Send enqueues a send job for the given PID and batch.
