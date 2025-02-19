@@ -86,6 +86,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	m.configs.Store(entry.ID, cfg)
 
 	if err := m.upsertPrototype(ctx, entry.ID); err != nil {
+		_ = m.code.DeleteNode(ctx, entry.ID)
 		return fmt.Errorf("failed to create prototype: %w", err)
 	}
 

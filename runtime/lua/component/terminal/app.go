@@ -25,11 +25,8 @@ import (
 	"go.uber.org/zap"
 )
 
-// todo: we have memory leak in this package
-
 const (
-	ChannelView   = "@btea/view"
-	ChannelUpdate = "@btea/update"
+	ChannelEvents = "@btea/events"
 
 	// Timeout constants
 	stopTimeout = 1000 * time.Millisecond
@@ -155,92 +152,83 @@ func (p *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Forward update messages to Lua.
-	p.publishTask(ChannelUpdate, protocol.MsgToLua(msg))
-
+	// Forward update messages to Lua via a task on the unified events channel.
+	p.publishTaskUnified("update", protocol.MsgToLua(msg), 0)
 	return p, nil
 }
 
 // View retrieves the view from the Lua side.
 // If the view task fails, it returns an error string.
 func (p *App) View() string {
-	response := p.publishTaskWithResponse(ChannelView, lua.LTrue, viewTimeout)
+	response := p.publishTaskUnified("view", lua.LTrue, viewTimeout)
 	if response == "" {
 		p.numRetries++
 		if p.numRetries < maxViewRetries {
 			return fmt.Sprintf("view task failed (retrying %d/%d)", p.numRetries, maxViewRetries)
 		}
-
 		p.cancel()
 		return "view task failed (exiting)"
 	}
 	p.numRetries = 0
-
 	return response
 }
 
-// publishTask sends a task to a specific channel without waiting for its response.
-func (p *App) publishTask(channel string, value lua.LValue) {
-	task, err := p.createTask(value)
+// publishTaskUnified sends a task to the unified events channel.
+// If timeout is non-zero, it waits for a response; otherwise, it fires and forgets.
+func (p *App) publishTaskUnified(taskType string, payload lua.LValue, timeout time.Duration) string {
+	task, err := p.createTask(payload)
 	if err != nil {
-		p.log.Error("failed to create task",
-			zap.String("channel", channel),
-			zap.Error(err))
-		return
-	}
-
-	p.pubsub.Publish(channel, tasks.WrapTask(p.runnerState, task))
-
-	// Handle the task response in the background.
-	go func() {
-		select {
-		case <-p.ctx.Done():
-			return
-		case rsp := <-task.Response:
-			if err, ok := rsp.(error); ok {
-				p.log.Error("task failed",
-					zap.String("channel", channel),
-					zap.Error(err))
-			}
-		case <-time.After(taskTimeout):
-			p.log.Debug("task timeout", zap.String("channel", channel))
+		p.log.Error("failed to create task", zap.String("task", taskType), zap.Error(err))
+		if timeout > 0 {
+			return "task creation failed"
 		}
-	}()
-}
-
-// publishTaskWithResponse sends a task and waits for a response or timeout.
-func (p *App) publishTaskWithResponse(channel string, value lua.LValue, timeout time.Duration) string {
-	task, err := p.createTask(value)
-	if err != nil {
-		p.log.Error("failed to create task",
-			zap.String("channel", channel),
-			zap.Error(err))
-		return "task creation failed"
-	}
-
-	p.pubsub.Publish(channel, tasks.WrapTask(p.runnerState, task))
-
-	select {
-	case rsp := <-task.Response:
-		if result, ok := rsp.(lua.LValue); ok {
-			return result.String()
-		}
-
-		p.log.Error("invalid response type", zap.String("channel", channel))
-		return "invalid response type"
-	case <-time.After(timeout):
-		p.log.Debug("task timeout", zap.String("channel", channel))
 		return ""
-	case <-p.done:
-		return "task cancelled"
-	case <-p.ctx.Done():
-		return "task cancelled"
+	}
+
+	wrappedTask := tasks.WrapTask(p.runnerState, task)
+	msg := p.runnerState.NewTable()
+	msg.RawSetString("type", lua.LString(taskType))
+	msg.RawSetString("task", wrappedTask)
+
+	p.pubsub.Publish(ChannelEvents, msg)
+
+	if timeout > 0 {
+		select {
+		case rsp := <-task.Response:
+			if result, ok := rsp.(lua.LValue); ok {
+				return result.String()
+			}
+			p.log.Error("invalid response type", zap.String("task", taskType))
+			return "invalid response type"
+		case <-time.After(timeout):
+			p.log.Debug("task timeout", zap.String("task", taskType))
+			return ""
+		case <-p.done:
+			return "task cancelled"
+		case <-p.ctx.Done():
+			return "task cancelled"
+		}
+	} else {
+		// Fire-and-forget: handle response in the background.
+		go func() {
+			select {
+			case <-p.ctx.Done():
+				return
+			case rsp := <-task.Response:
+				if err, ok := rsp.(error); ok {
+					p.log.Error("task failed", zap.String("task", taskType), zap.Error(err))
+				}
+			case <-time.After(taskTimeout):
+				p.log.Debug("task timeout", zap.String("task", taskType))
+			}
+		}()
+		return ""
 	}
 }
 
-// createTask wraps a value in a task payload.
-func (p *App) createTask(value lua.LValue) (*tasks.Task, error) {
-	return tasks.CreateTask(value)
+// createTask wraps a payload in a task.
+func (p *App) createTask(payload lua.LValue) (*tasks.Task, error) {
+	return tasks.CreateTask(payload)
 }
 
 // Start initializes the app context, sets up terminal integration, launches the bubbletea program,
@@ -266,6 +254,9 @@ func (p *App) Start(ctx context.Context, pid pubsub.PID, input payload.Payloads)
 	ctx, p.closer = closer.WithContext(ctx)
 
 	args, err := p.convertPayloadsToLua(input)
+	if err != nil {
+		return err
+	}
 
 	// Start the Lua function.
 	resultCh, err := p.runner.Start(ctx, p.funcName, args...)
@@ -278,12 +269,9 @@ func (p *App) Start(ctx context.Context, pid pubsub.PID, input payload.Payloads)
 		if _, err := p.program.Run(); err != nil {
 			p.log.Error("btea program error", zap.Error(err))
 		}
-
-		// Set firstError if no error has been set yet.
 		if p.firstError == nil {
 			p.firstError = supervisor.ErrExit
 		}
-
 		p.cancel()
 	}()
 
@@ -312,7 +300,6 @@ func (p *App) processLoop(resultCh <-chan engine.Result) {
 			if cerr := p.closer.Close(); cerr != nil {
 				p.log.Error("failed to close resources", zap.Error(cerr))
 			}
-
 			if onComplete := process.GetOnComplete(p.ctx); onComplete != nil {
 				if err != nil {
 					onComplete(p.pid, &runtime.Result{Error: err})
@@ -322,10 +309,8 @@ func (p *App) processLoop(resultCh <-chan engine.Result) {
 					})
 				}
 			}
-
-			// todo: something is not right with btea exit!
 			p.program.Quit()
-			time.Sleep(stopTimeout) // we really want to propagate the release of terminal, or apps might overlap
+			time.Sleep(stopTimeout)
 		})
 	}
 
@@ -335,7 +320,6 @@ func (p *App) processLoop(resultCh <-chan engine.Result) {
 		} else {
 			completeProcess(supervisor.ErrExit, nil)
 		}
-
 		close(p.done)
 		close(p.upstream)
 		p.runner.Close()
@@ -360,7 +344,6 @@ func (p *App) processLoop(resultCh <-chan engine.Result) {
 				completeProcess(nil, result.Result[0])
 				return
 			}
-
 		case pp, ok := <-p.upstream:
 			if !ok {
 				continue
@@ -370,13 +353,11 @@ func (p *App) processLoop(resultCh <-chan engine.Result) {
 			if msg == nil {
 				msg = value
 			}
-
 			if err != nil {
 				p.log.Error("failed to convert upstream message", zap.Error(err))
 				continue
 			}
 			p.program.Send(msg)
-
 		case <-p.ctx.Done():
 			err := p.ctx.Err()
 			if p.firstError != nil {
@@ -400,7 +381,6 @@ func (p *App) Step() (bool, error) {
 		if p.firstError == nil && err != nil {
 			p.firstError = err
 		}
-
 		return err != nil, err
 	}
 }
@@ -410,7 +390,6 @@ func (p *App) Send(msgs *pubsub.Batch) error {
 	if msgs == nil {
 		return errors.New("messages are nil")
 	}
-
 	select {
 	case <-p.ctx.Done():
 		return p.ctx.Err()
@@ -423,7 +402,6 @@ func (p *App) Send(msgs *pubsub.Batch) error {
 				p.log.Error("failed to convert payloads", zap.Error(err))
 				continue
 			}
-
 			if len(luaValues) > 0 {
 				p.pubsub.Publish(m.Topic, luaValues...)
 			}
@@ -432,7 +410,7 @@ func (p *App) Send(msgs *pubsub.Batch) error {
 	}
 }
 
-// convertPayloadsToLua converts a slice of payloads to Lua values
+// convertPayloadsToLua converts a slice of payloads to Lua values.
 func (p *App) convertPayloadsToLua(payloads payload.Payloads) ([]lua.LValue, error) {
 	args := make([]lua.LValue, 0, len(payloads))
 	for _, pp := range payloads {
@@ -440,11 +418,9 @@ func (p *App) convertPayloadsToLua(payloads payload.Payloads) ([]lua.LValue, err
 		if err != nil {
 			return nil, err
 		}
-
 		if lv, ok := luaPayload.Data().(lua.LValue); ok {
 			args = append(args, lv)
 		}
 	}
-
 	return args, nil
 }

@@ -40,6 +40,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	}
 
 	if err := m.code.AddNode(ctx, node, component.BuildImports(cfg.Import, cfg.Modules)); err != nil {
+		_ = m.code.DeleteNode(ctx, entry.ID)
 		return fmt.Errorf("failed to add library node: %w", err)
 	}
 
