@@ -109,7 +109,7 @@ type Runner struct {
 func NewRunner(cvm *CoroutineVM, opts ...RunnerOption) *Runner {
 	w := &Runner{
 		cvm:       cvm,
-		taskGroup: NewTaskGroup(4096), // todo; move to options too
+		taskGroup: NewTaskGroup(256),
 		layers:    make([]Layer, 0),
 	}
 
@@ -242,6 +242,7 @@ func (e *Runner) Continue(ctx context.Context) error { // todo: test it
 
 	wrapped := e.getWrapped()
 
+	// get all tasks from the queue
 	tasks, err := wrapped.Step(e.cvm.queue.Drain()...)
 	if err != nil {
 		return err
@@ -264,10 +265,15 @@ func (e *Runner) Continue(ctx context.Context) error { // todo: test it
 	}
 
 	for _, task := range tasks {
+		// schedule new tasks
 		e.cvm.queue.Push(task)
 	}
 
 	return nil
+}
+
+func (e *Runner) HasTasks() bool {
+	return e.cvm.queue.Len() > 0
 }
 
 // Execute runs a function through the layer chain with provided context and arguments
@@ -291,19 +297,8 @@ func (e *Runner) Execute(ctx context.Context, funcName string, args ...lua.LValu
 // WithContext creates a new context with task group and layer-specific values.
 // Each layer that implements Contexter can add its own values to the context chain.
 func (e *Runner) WithContext(ctx context.Context) context.Context {
-	ctx = WithTaskGroup(ctx, e.taskGroup)
-	for _, l := range e.layers {
-		if c, ok := l.(Contexter); ok {
-			ctx = c.WithContext(ctx)
-		}
-	}
+	// todo: check if we have wakeup key
 
-	return ctx
-}
-
-// WithUpstreamContext creates a new context with task group and preset wake callback.
-func (e *Runner) WithUpstreamContext(ctx context.Context, wake func()) context.Context {
-	// todo: implement
 	ctx = WithTaskGroup(ctx, e.taskGroup)
 	for _, l := range e.layers {
 		if c, ok := l.(Contexter); ok {
