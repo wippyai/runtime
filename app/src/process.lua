@@ -28,18 +28,9 @@ local function run()
         else
             local event = result.value
 
-            print("GOT EVENT")
-
-            if event then
-                -- Handle shutdown event
-                if event.type == "shutdown" then
-                    is_running = false
-                    break
-                end
-
-                -- Dump event as JSON
-                local encoded = json.encode(event)
-                print("Received event:", encoded)
+            if event.event.kind == "pid.cancel" then
+                print("exiting process")
+                break
             end
         end
     end
