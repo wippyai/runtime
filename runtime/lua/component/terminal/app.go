@@ -25,7 +25,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// todo: we have a subtle memory leak somewhere in this package
+// todo: we have a subtle memory leak somewhere in this package (unconfirmed)
 
 const (
 	ChannelEvents = "@btea/events"
