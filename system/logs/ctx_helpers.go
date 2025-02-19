@@ -51,7 +51,7 @@ func (c *ConfigurationManager) GetConfig(ctx context.Context, bus events.Bus) (a
 	bus.Send(ctx, events.Event{
 		System: api.System,
 		Kind:   api.GetConfigEvent,
-		Path:   events.Path(path),
+		Path:   path,
 	})
 
 	// Wait for response with timeout
