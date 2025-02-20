@@ -676,20 +676,13 @@ func registerTime(l *lua.LState, mod *lua.LTable) {
 	l.SetField(mod, "FRIDAY", lua.LNumber(5))
 	l.SetField(mod, "SATURDAY", lua.LNumber(6))
 
-	sleepFunc := sleep
-	if engine.IsCoroutineVM(l) {
-		sleepFunc = sleepCoroutine
-	}
-
 	// Register time functions
 	l.SetFuncs(mod, map[string]lua.LGFunction{
 		"now":   now,
-		"sleep": sleepFunc,
+		"sleep": sleepCoroutine,
 		"date":  date,
 		"unix":  unix,
 		"parse": parse,
-
-		// requires async layer!
 		"after": after,
 	})
 }

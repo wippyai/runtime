@@ -262,7 +262,7 @@ func (e *CoroutineVM) Step(tasks ...*Task) (result []*Task, finalErr error) {
 
 				_ = e.removeTask(task)
 
-				return nil, fmt.Errorf("error resuming task: %w", rErr)
+				return nil, rErr
 			}
 
 			task.State = state
@@ -321,6 +321,7 @@ func (e *CoroutineVM) Close() {
 
 	if e.vm != nil {
 		e.vm.Close()
+		e.vm = nil
 	}
 }
 
@@ -398,6 +399,7 @@ func (e *CoroutineVM) removeTask(task *Task) error {
 			if task.cancel != nil {
 				task.cancel()
 			}
+
 			e.tasks = append(e.tasks[:i], e.tasks[i+1:]...)
 			return nil
 		}

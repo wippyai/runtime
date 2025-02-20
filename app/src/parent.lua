@@ -16,49 +16,28 @@ local function run()
     local events_ch = pubsub.subscribe("@pid/events")
     local done = channel.new()
     local is_running = true
-    local tick = time.ticker("1s")
+    local tick = time.ticker("50ms")
     local tick_ch = tick:channel()
     local child_count = 0
 
     while is_running do
-        local result = channel.select({
+        local result = channel.select{
             events_ch:case_receive(),
             done:case_receive(),
             tick_ch:case_receive()
-        })
+        }
 
         if not result.ok then
             break
         end
 
-        if result.channel == done then
-            break
-        end
-
-        if result.channel == tick_ch then
-            child_count = child_count + 1
-            local child_name = string.format("child_%d", child_count)
-
-            -- Spawn a monitored child process
-            local child_pid = process.spawn_monitored(
-                "supervisor:child", -- make sure this matches the registry ID
-                "system:heap",      -- using same host as parent
-                {
-                    name = child_name,
-                    start_time = time.now():format("15:04:05")
-                }
-            )
-
-            print(string.format("Parent spawned child process %s at %s",
-                child_pid,
-                time.now():format("15:04:05")))
-        else
+        if result.channel == events_ch then
             local event = result.value
             print("Parent received event:", json.encode(event))
 
             if event.event.kind == "pid.cancel" then
                 print("Parent process exiting:", process.pid())
-                break
+                is_running = false
             end
 
             -- Handle child process completion or failure
@@ -68,10 +47,31 @@ local function run()
                     print(string.format("Child failed with error: %s",
                         json.encode(event.result.error)))
                 elseif event.result and event.result.payload then
-                    print(string.format("Child completed with result: %s",
+                    print(string.format("Child completed with payload: %s",
                         json.encode(event.result.payload)))
                 end
             end
+        elseif result.channel == done then
+            is_running = false
+        elseif result.channel == tick_ch then
+            child_count = child_count + 1
+            local child_name = string.format("child_%d", child_count)
+
+            -- Spawn a monitored child process with child_number
+            local child_pid = process.spawn_monitored(
+                "supervisor:child",
+                "system:heap",
+                {
+                    name = child_name,
+                    start_time = time.now():format("15:04:05"),
+                    child_number = child_count  -- Add child number for error tracking
+                }
+            )
+
+            print(string.format("Parent spawned child process %s (#%d) at %s",
+                child_pid,
+                child_count,
+                time.now():format("15:04:05")))
         end
     end
 

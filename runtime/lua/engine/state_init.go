@@ -1,9 +1,17 @@
 package engine
 
 import (
+	"github.com/ponyruntime/pony/runtime/lua/engine/errors"
 	"github.com/ponyruntime/pony/runtime/lua/engine/loadlib"
 	lua "github.com/yuin/gopher-lua"
 )
+
+var SharedState *lua.LState
+
+func init() {
+	SharedState, _ = newLuaState()
+	errors.RegisterErrorsModule(SharedState)
+}
 
 // CoreLib represents a core Lua library
 type CoreLib struct {

@@ -11,10 +11,10 @@ type (
 	HostID = string
 
 	PID struct {
-		Node   NodeID
-		Host   HostID
-		ID     registry.ID
-		UniqID string
+		Node   NodeID      `json:"node"`
+		Host   HostID      `json:"host"`
+		ID     registry.ID `json:"id"`
+		UniqID string      `json:"uniq_id"`
 	}
 )
 
