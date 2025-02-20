@@ -28,8 +28,8 @@ var (
 func init() {
 	bteaBuild = code.NewBuildOptions().
 		WithMode(code.AllowAll).
+		WithDenied(registry.ID{Name: "subscribe"}).
 		WithPreloaded(code.Preload{Name: "channel", ModuleID: registry.ID{Name: "channel"}}).
-		WithPreloaded(code.Preload{Name: "pubsub", ModuleID: registry.ID{Name: "subscribe"}}).
 		WithPreloaded(code.Preload{Name: "upstream", ModuleID: registry.ID{Name: "upstream"}}).
 		WithPreloaded(code.Preload{Name: "tasks", ModuleID: registry.ID{Name: "tasks"}}).
 		WithPreloaded(code.Preload{Name: "btea", ModuleID: registry.ID{Name: "btea"}}).

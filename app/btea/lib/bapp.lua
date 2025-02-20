@@ -21,7 +21,7 @@ function bapp.new(init_cmd)
         cmd_channel = channel.new(128),
         is_running = false,
         window = { width = 80, height = 24 },
-        events_ch = pubsub.subscribe("@btea/events"),
+        events_ch = btea.events(),
         done = channel.new()
     }
 

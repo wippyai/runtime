@@ -8,8 +8,8 @@ local function run()
         process.pid(),
         json.encode(args)))
 
-    local events_ch = pubsub.subscribe("@pid/events")
-    local parent_msgs = pubsub.subscribe("parent_msgs")
+    local events_ch = process.events()
+    local parent_msgs = process.listen("parent_msgs")
     local done = channel.new()
     local start = time.now()
     local is_running = true
