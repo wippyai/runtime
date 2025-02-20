@@ -20,7 +20,7 @@ func RegisterTextUtils(l *lua.LState, mod *lua.LTable) {
 	// Spawn text utils table
 	utilsTbl := l.NewTable()
 
-	// Size functions
+	// Len functions
 	l.SetField(utilsTbl, "width", l.NewFunction(func(l *lua.LState) int {
 		str := l.CheckString(1)
 		width := lipgloss.Width(str)

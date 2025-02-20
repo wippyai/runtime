@@ -28,7 +28,7 @@ type HostConfig struct {
 	Workers      int `json:"workers"`       // Number of workers processing steps
 
 	// Queue sizes
-	StepQueueSize int `json:"step_queue_size"` // Size of the step execution queue
+	StepQueueSize int `json:"step_queue_size"` // Len of the step execution queue
 
 	// Messaging settings (from pubsub)
 	BufferSize         int           `json:"buffer_size"`          // Internal job channel buffer size

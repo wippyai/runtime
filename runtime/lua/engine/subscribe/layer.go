@@ -60,6 +60,10 @@ func (s *Layer) Release(topic string) {
 	s.mu.Unlock()
 }
 
+func (s *Layer) Len() int {
+	return s.messageQueue.Len()
+}
+
 func (s *Layer) Slots(topic string) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

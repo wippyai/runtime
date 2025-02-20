@@ -2,12 +2,10 @@ local time = require("time")
 local json = require("json")
 
 local function run()
-    -- Get process information at startup
     local info = process.info()
     print("Starting process", process.pid())
     print("Process info:", json.encode(info))
 
-    -- Print any input arguments
     local args = process.input_args()
     if args then
         print("Started with args:", json.encode(args))
@@ -19,6 +17,7 @@ local function run()
     local tick = time.ticker("50ms")
     local tick_ch = tick:channel()
     local child_count = 0
+    local active_children = 0  -- Track active children
 
     while is_running do
         local result = channel.select{
@@ -40,8 +39,8 @@ local function run()
                 is_running = false
             end
 
-            -- Handle child process completion or failure
             if event.event.kind == "pid.result" then
+                active_children = active_children - 1
                 print(string.format("Parent got result from child %s:", event.event.from))
                 if event.result and event.result.error then
                     print(string.format("Child failed with error: %s",
@@ -50,21 +49,22 @@ local function run()
                     print(string.format("Child completed with payload: %s",
                         json.encode(event.result.payload)))
                 end
+                print(string.format("ACTIVE CHILDREN: %d", active_children))
             end
         elseif result.channel == done then
             is_running = false
         elseif result.channel == tick_ch then
             child_count = child_count + 1
+            active_children = active_children + 1
             local child_name = string.format("child_%d", child_count)
 
-            -- Spawn a monitored child process with child_number
             local child_pid = process.spawn_monitored(
                 "supervisor:child",
                 "system:heap",
                 {
                     name = child_name,
                     start_time = time.now():format("15:04:05"),
-                    child_number = child_count  -- Add child number for error tracking
+                    child_number = child_count
                 }
             )
 
@@ -72,6 +72,7 @@ local function run()
                 child_pid,
                 child_count,
                 time.now():format("15:04:05")))
+            print(string.format("ACTIVE CHILDREN: %d", active_children))
         end
     end
 
