@@ -3,7 +3,8 @@ local json = require("json")
 
 local function run()
     local info = process.info()
-    print("Starting process", process.pid())
+    local parent_pid = process.pid()
+    print("Starting parent process", parent_pid)
     print("Process info:", json.encode(info))
 
     local args = process.input_args()
@@ -12,16 +13,18 @@ local function run()
     end
 
     local events_ch = pubsub.subscribe("@pid/events")
+    local child_msgs = pubsub.subscribe("child_msgs")
     local done = channel.new()
     local is_running = true
-    local tick = time.ticker("10ms")
+    local tick = time.ticker("2s")
     local tick_ch = tick:channel()
     local child_count = 0
-    local active_children = 0  -- Track active children
+    local active_children = 0
 
     while is_running do
         local result = channel.select{
             events_ch:case_receive(),
+            child_msgs:case_receive(),
             done:case_receive(),
             tick_ch:case_receive()
         }
@@ -51,6 +54,10 @@ local function run()
                 end
                 print(string.format("ACTIVE CHILDREN: %d", active_children))
             end
+        elseif result.channel == child_msgs then
+            local msg = result.value
+            print("Parent received message from child:", json.encode(msg))
+            -- No response sent back to child
         elseif result.channel == done then
             is_running = false
         elseif result.channel == tick_ch then
@@ -64,7 +71,8 @@ local function run()
                 {
                     name = child_name,
                     start_time = time.now():format("15:04:05"),
-                    child_number = child_count
+                    child_number = child_count,
+                    parent_pid = parent_pid
                 }
             )
 
@@ -73,6 +81,13 @@ local function run()
                 child_count,
                 time.now():format("15:04:05")))
             print(string.format("ACTIVE CHILDREN: %d", active_children))
+
+            -- Send only initial welcome message
+            process.send(child_pid, "parent_msgs", {
+                from = parent_pid,
+                msg = "Welcome new child!",
+                timestamp = time.now():format("15:04:05")
+            })
         end
     end
 

@@ -13,6 +13,7 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
+	"sync/atomic"
 	"time"
 )
 
@@ -32,6 +33,7 @@ type Process struct {
 	// State tracking
 	pubsub   *subscribe.Layer
 	resultCh <-chan engine.Result
+	closed   atomic.Bool
 }
 
 // NewProcess creates a new Lua process instance
@@ -119,7 +121,7 @@ func (p *Process) Start(ctx context.Context, pid pubsub.PID, input payload.Paylo
 
 // Step advances the process state by one iteration
 func (p *Process) Step() (bool, error) {
-	if p.ctx.Err() != nil {
+	if p.ctx.Err() != nil || p.closed.Load() {
 		return false, p.ctx.Err()
 	}
 
@@ -148,6 +150,10 @@ func (p *Process) Step() (bool, error) {
 
 // Send handles incoming messages to the process
 func (p *Process) Send(batch *pubsub.Batch) error {
+	if p.ctx.Err() != nil || p.closed.Load() {
+		return p.ctx.Err()
+	}
+
 	if batch == nil {
 		return errors.New("batch is nil")
 	}
@@ -174,6 +180,11 @@ func (p *Process) Send(batch *pubsub.Batch) error {
 
 // complete handles process completion and cleanup
 func (p *Process) complete(err error, result lua.LValue) {
+	if p.closed.Swap(true) {
+		p.log.Warn("process already completed", zap.String("pid", p.pid.String()))
+		return
+	}
+
 	if p.closer != nil {
 		if cErr := p.closer.Close(); cErr != nil {
 			p.log.Error("failed to close resources", zap.Error(cErr))
@@ -193,7 +204,6 @@ func (p *Process) complete(err error, result lua.LValue) {
 	p.runner.Close()
 	p.cancel()
 	p.runner = nil
-	p.pubsub = nil
 	p.pid = pubsub.PID{}
 }
 

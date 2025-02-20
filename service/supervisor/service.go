@@ -81,7 +81,7 @@ func (svc *Service) Start(ctx context.Context) (<-chan any, error) {
 
 	svc.pid = pid
 
-	// Monitor process status
+	// Topology process status
 	go func() {
 		defer close(svc.status)
 		defer detach()

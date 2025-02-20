@@ -2,7 +2,7 @@ package process
 
 import (
 	"context"
-	context2 "github.com/ponyruntime/pony/api/context"
+	contextapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/runtime"
@@ -20,6 +20,21 @@ type onStartKeyType struct{}
 
 var onCompleteKey = &onCompleteKeyType{} //nolint:gochecknoglobals
 var onStartKey = &onStartKeyType{}       //nolint:gochecknoglobals
+
+type Context struct {
+	PID       pubsub.PID
+	Start     time.Time
+	TrapExits bool
+	Input     payload.Payloads
+}
+
+func WithContext(ctx context.Context, process *Context) context.Context {
+	return context.WithValue(ctx, contextapi.ProcessCtx, process)
+}
+
+func GetContext(ctx context.Context) *Context {
+	return ctx.Value(contextapi.ProcessCtx).(*Context)
+}
 
 // WithAddedOnComplete attaches an OnComplete callback to the context.
 // If there's already one present, it combines them so that both are called.
@@ -63,37 +78,4 @@ func GetOnStart(ctx context.Context) OnStart {
 		return cb
 	}
 	return nil
-}
-
-// todo: add pid and etc
-
-func MergeContext(base, foreign context.Context) context.Context {
-	origComplete := GetOnComplete(foreign)
-	if origComplete != nil {
-		base = WithAddedOnComplete(base, origComplete)
-	}
-
-	origOnStart := GetOnStart(foreign)
-	if origOnStart != nil {
-		base = WithAddedOnStart(base, origOnStart)
-	}
-
-	// todo: good chance that order here is broken
-
-	return base
-}
-
-type Context struct {
-	PID       pubsub.PID
-	Start     time.Time
-	TrapExits bool
-	Input     payload.Payloads
-}
-
-func WithContext(ctx context.Context, process *Context) context.Context {
-	return context.WithValue(ctx, context2.ProcessCtx, process)
-}
-
-func GetProcessContext(ctx context.Context) *Context {
-	return ctx.Value(context2.ProcessCtx).(*Context)
 }

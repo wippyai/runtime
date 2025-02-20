@@ -64,10 +64,9 @@ func (mph *Host) Start(ctx context.Context) (<-chan any, error) {
 	mph.statusCh = make(chan any, 1)
 
 	// Wrap the incoming context with an on-complete callback.
-	mph.ctx = process.WithAddedOnComplete(ctx, mph.finalizeProcess)
-	mph.ctx = context.WithValue(mph.ctx, contextApi.HostCtx, mph)
-
 	mph.msgHost = mph.makeMsgHost(ctx)
+
+	mph.ctx = context.WithValue(ctx, contextApi.HostCtx, mph)
 
 	mph.pool = NewProcessPool(ctx, mph.cfg.HostConfig.Workers, mph.cfg.HostConfig.StepQueueSize, mph.log)
 	mph.pool.Start()
@@ -85,8 +84,7 @@ func (mph *Host) finalizeProcess(pid pubsub.PID, result *runtime.Result) {
 			zap.Error(result.Error))
 	} else {
 		mph.log.Info("process execution completed",
-			zap.String("pid", pid.String()),
-			zap.Any("result", result.Payload))
+			zap.String("pid", pid.String()))
 	}
 
 	mph.msgHost.Detach(pid)
@@ -164,7 +162,13 @@ func (mph *Host) Launch(ctx context.Context, launch *process.LaunchProcess) (pub
 }
 
 func (mph *Host) prepareContext(ctx context.Context, pid pubsub.PID) context.Context {
-	pCtx := process.MergeContext(contextApi.MergeContext(mph.ctx, ctx), ctx)
+	// security and other core keys
+	pCtx := contextApi.MergeContext(mph.ctx, ctx)
+
+	// lifecycle
+	pCtx = process.GetTopology(pCtx).AttachToContext(pCtx)
+	pCtx = process.WithAddedOnComplete(pCtx, mph.finalizeProcess)
+
 	pCtx = context.WithValue(pCtx, contextApi.IDCtx, pid.ID)
 	pCtx = context.WithValue(pCtx, contextApi.WakeUpKey, func() {
 		_ = mph.pool.Schedule(pid) // it's ok since it means process no longer found, possible during termination
