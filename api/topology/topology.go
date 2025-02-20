@@ -61,5 +61,6 @@ func Cancel(from pubsub.PID, deadline time.Time) *pubsub.Batch {
 		payload.New(&CancelEvent{
 			Event:    Event{At: time.Now(), From: from, Kind: KindCancel},
 			Deadline: deadline,
-		}))
+		}),
+	)
 }
