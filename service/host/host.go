@@ -209,13 +209,11 @@ func (mph *Host) Stop(ctx context.Context) error {
 		return err
 	}
 
-	mph.sendStatus("closing worker pool")
 	mph.pool.Close()
-
-	mph.sendStatus("waiting for message workers to complete")
 	close(mph.done)
 	mph.msgWG.Wait()
-
 	mph.sendStatus("host shutdown complete")
+	close(mph.statusCh)
+
 	return nil
 }
