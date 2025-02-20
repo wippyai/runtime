@@ -176,24 +176,19 @@ func (p *App) View() string {
 // Start initializes the app context, sets up terminal integration, launches the bubbletea program,
 // and starts the underlying Lua process.
 func (p *App) Start(ctx context.Context, pid pubsub.PID, input payload.Payloads) error {
-	// Create a cancellable context.
 	p.ctx, p.cancel = context.WithCancel(ctx)
 	p.pid = pid
 
-	// Retrieve the terminal from context.
 	term := terminal.FromContext(ctx)
 	if term == nil {
 		return fmt.Errorf("terminal context not found")
 	}
 	p.terminal = term
 
-	// Initialize the bubbletea program.
 	p.program = tea.NewProgram(p, tea.WithInput(term.Stdin), tea.WithOutput(term.Stdout))
 
-	// Inject upstream channel into context and add cleanup handling.
 	ctx = upstream.WithUpstreamChannel(ctx, p.upstream)
-	ctx = p.runner.WithContext(ctx)
-	ctx, p.closer = closer.WithContext(ctx)
+	ctx, p.closer = closer.WithContext(p.runner.WithContext(ctx))
 
 	args, err := p.toLuaPayloads(input)
 	if err != nil {
@@ -239,9 +234,10 @@ func (p *App) processLoop(resultCh <-chan engine.Result) {
 	var once sync.Once
 	completeProcess := func(err error, result interface{}) {
 		once.Do(func() {
-			if cerr := p.closer.Close(); cerr != nil {
-				p.log.Error("failed to close resources", zap.Error(cerr))
+			if cErr := p.closer.Close(); cErr != nil {
+				p.log.Error("failed to close resources", zap.Error(cErr))
 			}
+
 			if onComplete := process.GetOnComplete(p.ctx); onComplete != nil {
 				if err != nil {
 					onComplete(p.pid, &runtime.Result{Error: err})
