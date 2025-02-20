@@ -121,6 +121,17 @@ func (p *App) Init() tea.Cmd {
 // scheduleCancel centralizes the cancellation routine.
 func (p *App) scheduleCancel() {
 	go func() {
+		err := p.Send(pubsub.NewBatch(
+			process.TopicEvents,
+			payload.New(topology.CancelEvent{
+				Event:    topology.Event{At: time.Now(), Kind: topology.KindCancel},
+				Deadline: time.Now().Add(stopTimeout),
+			})))
+
+		if err != nil {
+			p.log.Error("failed to send cancel event", zap.Error(err))
+		}
+
 		select {
 		case <-time.After(stopTimeout):
 			p.log.Debug("cancelling process after timeout")
