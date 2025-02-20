@@ -30,9 +30,22 @@ function Client.new(token, options)
     self.last_ack_received = true
     self.channels = {}
     self.active_channel = nil
-    self.intents = self.options.intents or 65281  -- GUILDS + GUILD_MESSAGES + MESSAGE_CONTENT
+    self.active_guild = nil
+    self.last_active_channel = nil
+    self.intents = self.options.intents or 65281
+    self.application_id = nil
 
     return self
+end
+
+function Client:preserve_channel_state()
+    if self.active_channel then
+        self.last_active_channel = {
+            id = self.active_channel,
+            guild_id = self.active_guild,
+            channel_data = self.channels[self.active_channel]
+        }
+    end
 end
 
 function Client:trigger_callback(event, data)
@@ -62,6 +75,73 @@ function Client:make_api_request(method, endpoint, body)
         return json.decode(response.body), nil
     else
         return nil, response.body
+    end
+end
+
+function Client:register_commands(commands, guild_id)
+    -- Get application ID first if we don't have it
+    if not self.application_id then
+        local app_data, err = self:make_api_request("GET", "/oauth2/applications/@me")
+        if err then
+            self:trigger_callback("error", "Failed to get application data: " .. err)
+            return false
+        end
+        self.application_id = app_data.id
+    end
+
+    -- Endpoint depends on if we're registering globally or for specific guild
+    local endpoint = guild_id
+        and string.format("/applications/%s/guilds/%s/commands", self.application_id, guild_id)
+        or string.format("/applications/%s/commands", self.application_id)
+
+    -- Register each command
+    for _, command in ipairs(commands) do
+        local data, err = self:make_api_request("POST", endpoint, command)
+        if err then
+            self:trigger_callback("error", "Failed to register command " .. command.name .. ": " .. err)
+        else
+            self:trigger_callback("command_registered", command.name)
+        end
+    end
+end
+
+function Client:create_interaction_response(interaction_id, interaction_token, response_data)
+    local endpoint = string.format("/interactions/%s/%s/callback", interaction_id, interaction_token)
+    return self:make_api_request("POST", endpoint, response_data)
+end
+
+function Client:edit_interaction_response(interaction_token, message_data)
+    local endpoint = string.format("/webhooks/%s/%s/messages/@original", self.application_id, interaction_token)
+    return self:make_api_request("PATCH", endpoint, message_data)
+end
+
+function Client:handle_interaction(interaction)
+    if interaction.type == 2 then  -- Type 2 is APPLICATION_COMMAND
+        if interaction.data.name == "help" then
+            self:create_interaction_response(interaction.id, interaction.token, {
+                type = 4,  -- CHANNEL_MESSAGE_WITH_SOURCE
+                data = {
+                    content = "Available commands:\n" ..
+                             "/help - Show this help message\n" ..
+                             "/ask - Ask the AI a question\n" ..
+                             "/explain - Get an explanation of a topic"
+                }
+            })
+        elseif interaction.data.name == "ask" then
+            local question = interaction.data.options[1].value
+            -- Defer the response since AI might take a while
+            self:create_interaction_response(interaction.id, interaction.token, {
+                type = 5,  -- DEFERRED_CHANNEL_MESSAGE
+            })
+
+            -- Get AI response
+            local result, err = self.app.llm_client:query_direct(question, {})
+
+            -- Edit the deferred response with the result
+            self:edit_interaction_response(interaction.token, {
+                content = err and ("Error: " .. err) or result
+            })
+        end
     end
 end
 
@@ -114,6 +194,15 @@ function Client:handle_attachments(message)
     end
 end
 
+function Client:handle_disconnect()
+    self:preserve_channel_state()
+    if self.heartbeat_timer then
+        self.heartbeat_timer:stop()
+    end
+    self.identified = false
+    self:trigger_callback("disconnect")
+end
+
 function Client:on(event, callback)
     self.callbacks[event] = callback
     return self
@@ -140,6 +229,7 @@ end
 function Client:set_active_channel(channel_id)
     if self.channels[channel_id] then
         self.active_channel = channel_id
+        self:preserve_channel_state()  -- Save the state when changing channels
         self:trigger_callback("channel_change", self.channels[channel_id])
         return true
     end
@@ -198,7 +288,10 @@ function Client:start()
 
             while true do
                 local msg, ok = receive_ch:receive()
-                if not ok then break end
+                if not ok then
+                    self:handle_disconnect()
+                    break
+                end
 
                 if msg.type == websocket.TYPE_TEXT then
                     local success, data = pcall(json.decode, msg.data)
@@ -262,6 +355,21 @@ function Client:start()
                         if data.t == "READY" then
                             self.identified = true
                             self:trigger_callback("ready", data.d)
+
+                            -- Restore previous channel state if it exists
+                            if self.last_active_channel then
+                                coroutine.spawn(function()
+                                    -- Wait a short time for guild data to be available
+                                    time.sleep(time.parse_duration("2s"))
+
+                                    -- Refetch channels for the guild
+                                    local channels = self:get_channels(self.last_active_channel.guild_id)
+                                    if channels then
+                                        -- Restore the active channel
+                                        self:set_active_channel(self.last_active_channel.id)
+                                    end
+                                end)
+                            end
                         elseif data.t == "MESSAGE_CREATE" then
                             -- Only trigger for active channel if set
                             if not self.active_channel or data.d.channel_id == self.active_channel then
@@ -276,16 +384,11 @@ function Client:start()
                 ::continue::
             end
 
-            if self.heartbeat_timer then
-                self.heartbeat_timer:stop()
-            end
-
-            -- Clean disconnect
+            -- Clean disconnect and cleanup
             pcall(function()
                 client:close(1000, "Bot shutting down")
             end)
 
-            self:trigger_callback("disconnect")
             time.sleep(time.parse_duration("5s"))
             ::continue::
         end
