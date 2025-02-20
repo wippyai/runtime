@@ -3,6 +3,7 @@ package process
 import (
 	"context"
 	context2 "github.com/ponyruntime/pony/api/context"
+	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/runtime"
 	"time"
@@ -85,13 +86,14 @@ func MergeContext(base, foreign context.Context) context.Context {
 type Context struct {
 	PID       pubsub.PID
 	Start     time.Time
-	TrapLinks bool
+	TrapExits bool
+	Input     payload.Payloads
 }
 
-func WithContext(ctx context.Context, process Context) context.Context {
+func WithContext(ctx context.Context, process *Context) context.Context {
 	return context.WithValue(ctx, context2.ProcessCtx, process)
 }
 
-func GetProcessContext(ctx context.Context) Context {
-	return ctx.Value(context2.ProcessCtx).(Context)
+func GetProcessContext(ctx context.Context) *Context {
+	return ctx.Value(context2.ProcessCtx).(*Context)
 }

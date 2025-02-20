@@ -76,9 +76,10 @@ func (p *Process) Start(ctx context.Context, pid pubsub.PID, input payload.Paylo
 		return err
 	}
 
-	ctx = process.WithContext(ctx, process.Context{
+	ctx = process.WithContext(ctx, &process.Context{
 		PID:   pid,
 		Start: time.Now(),
+		Input: input,
 	})
 
 	// Set up runner context and closer

@@ -191,9 +191,10 @@ func (p *App) Start(ctx context.Context, pid pubsub.PID, input payload.Payloads)
 	// sets up the process context
 	ctx = process.WithContext(
 		upstream.WithUpstreamChannel(ctx, p.upstream),
-		process.Context{
+		&process.Context{
 			PID:   pid,
 			Start: time.Now(),
+			Input: input,
 		},
 	)
 

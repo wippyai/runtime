@@ -266,7 +266,7 @@ func (t *Terminal) Stop(ctx context.Context) error {
 		topology.Cancel(pubsub.PID{ID: t.id}, time.Now().Add(t.config.Lifecycle.StopTimeout)),
 	)
 
-	if err != nil {
+	if err != nil && t.runner.Load() != nil {
 		t.log.Warn("failed to send cancel event", zap.Error(err))
 	}
 
