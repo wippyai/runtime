@@ -20,6 +20,10 @@ type (
 		Step(cvm CVM, tasks ...*Task) ([]*Task, error)
 	}
 
+	LayerCloser interface {
+		CloseLayer()
+	}
+
 	// Contexter allows middleware layers to modify the context chain.
 	// Implementing this interface is optional for layers that need to add values to the context.
 	Contexter interface {
@@ -330,5 +334,16 @@ func (e *Runner) WithContext(ctx context.Context) context.Context {
 // Close shuts down the runner and its underlying CVM.
 // This should be called when the runner is no longer needed.
 func (e *Runner) Close() {
+	for _, l := range e.layers {
+		if c, ok := l.(LayerCloser); ok {
+			c.CloseLayer()
+		}
+	}
+
 	e.getWrapped().Close()
+	e.taskGroup.clean()
+	e.taskGroup = nil
+	e.layers = nil
+	e.layerCount = 0
+	e.cvm = nil
 }
