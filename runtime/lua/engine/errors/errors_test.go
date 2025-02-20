@@ -43,9 +43,9 @@ func TestWrappedErrorWithStack(t *testing.T) {
         end
 
         function middle_lua_func()
-            local ok, err = pcall(deep_lua_func)
+            local ok, Err = pcall(deep_lua_func)
             if not ok then
-                error(err, 2)
+                error(Err, 2)
             end
             return ok
         end
@@ -65,7 +65,7 @@ func TestWrappedErrorWithStack(t *testing.T) {
 
 	// Build and print actual error chain for debugging
 	var actualChain []string
-	current := wrapped.err // Launch with the wrapped error's inner error
+	current := wrapped.Err // Launch with the wrapped error's inner error
 	for current != nil {
 		actualChain = append(actualChain, current.Error())
 		current = errors.Unwrap(current)
@@ -136,9 +136,9 @@ func TestDirectErrorPropagation(t *testing.T) {
         end
 
         function middle_lua_func()
-            local ok, err = deep_lua_func()
+            local ok, Err = deep_lua_func()
             if not ok then
-                error(err)
+                error(Err)
             end
             return ok
         end
@@ -199,9 +199,9 @@ func TestErrorIdentification(t *testing.T) {
         end
 
         function middle_lua_func()
-            local ok, err = pcall(deep_lua_func)
+            local ok, Err = pcall(deep_lua_func)
             if not ok then
-                error(err)
+                error(Err)
             end
             return ok
         end
@@ -226,7 +226,7 @@ func TestErrorIdentification(t *testing.T) {
 
 	// Build and print actual error chain for debugging
 	var actualChain []string
-	current := wrapped.err // Launch with the wrapped error's inner error
+	current := wrapped.Err // Launch with the wrapped error's inner error
 	for current != nil {
 		actualChain = append(actualChain, current.Error())
 		current = errors.Unwrap(current)
@@ -271,8 +271,8 @@ func TestWrappedErrorReturnAndLuaError(t *testing.T) {
 	L.SetGlobal("get_wrapped_error", L.NewFunction(testFunc))
 
 	script := `
-        local err = get_wrapped_error()
-        error(err) -- Use Lua's error() on the wrapped error
+        local Err = get_wrapped_error()
+        error(Err) -- Use Lua's error() on the wrapped error
     `
 
 	err := L.DoString(script)
@@ -312,8 +312,8 @@ func TestErrorToString(t *testing.T) {
 	L.SetGlobal("get_error", L.NewFunction(testFunc))
 
 	script := `
-        local err = get_error()
-        local str = tostring(err)
+        local Err = get_error()
+        local str = tostring(Err)
         if str ~= "test error message" then
             error("Expected 'test error message', got: " .. str)
         end
@@ -387,14 +387,14 @@ func TestLuaErrorWrappingWithPcall(t *testing.T) {
         end
 
         function safe_call()
-            local ok, err = pcall(deep_func) -- call line 10 (in lua terms)
+            local ok, Err = pcall(deep_func) -- call line 10 (in lua terms)
             if not ok then
-                if type(err) == 'userdata' then
+                if type(Err) == 'userdata' then
                     -- If it's already a wrapped error, re-raise it with level 2 to point to caller's location
-                    error(err, 2)
+                    error(Err, 2)
                 else
                     -- If it's a string (like from normal error()), wrap it
-                    error(errors.wrap("pcall failed", err))
+                    error(errors.wrap("pcall failed", Err))
                 end
             end
         end
@@ -478,24 +478,24 @@ func TestComplexInteropErrorWrapping(t *testing.T) {
 		nestedL.SetGlobal("final_go_func", nestedL.NewFunction(finalGoFunc))
 
 		nestedScript := `
-           local ok, err = pcall(function() 
+           local ok, Err = pcall(function() 
 				local result = final_go_func()
 				return result
 			end)
 			if not ok then
-				if type(err) == 'userdata' then
-					local wrapped = errors.wrap(err, "nested lua wrapper")
+				if type(Err) == 'userdata' then
+					local wrapped = errors.wrap(Err, "nested lua wrapper")
 					error(wrapped)
 				else
-					error("unexpected error type: " .. type(err))
+					error("unexpected error type: " .. type(Err))
 				end
 
                 -- Inspect error right after pcall
-                if type(err) == 'userdata' then
-                    local wrapped = errors.wrap(err, "nested lua wrapper")
+                if type(Err) == 'userdata' then
+                    local wrapped = errors.wrap(Err, "nested lua wrapper")
                     error(wrapped)
                 else
-                    error("unexpected error type from pcall: " .. type(err))
+                    error("unexpected error type from pcall: " .. type(Err))
                 end
             end
             return true
@@ -520,16 +520,16 @@ func TestComplexInteropErrorWrapping(t *testing.T) {
 	L.SetGlobal("create_nested_state", L.NewFunction(createNestedLuaState))
 
 	script := `
-        local ok, err = pcall(function()
+        local ok, Err = pcall(function()
             create_nested_state()
         end)
         
         if not ok then
-            if type(err) == 'userdata' then
-                local wrapped = errors.wrap(err, "top level wrapper")
+            if type(Err) == 'userdata' then
+                local wrapped = errors.wrap(Err, "top level wrapper")
                 error(wrapped)
             else
-                error("unexpected error type: " .. type(err))
+                error("unexpected error type: " .. type(Err))
             end
         end
     `
