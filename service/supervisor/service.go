@@ -131,16 +131,10 @@ func (svc *Service) Stop(ctx context.Context) error {
 		return nil // Not running
 	}
 
-	err := pubsub.GetNode(ctx).Send(ctx, svc.pid, pubsub.NewBatch(
-		processApi.TopicEvents,
-		payload.New(topology.CancelEvent{
-			Event: topology.Event{
-				At:   time.Now(),
-				Kind: topology.KindCancel,
-			},
-			Deadline: time.Now().Add(svc.config.Lifecycle.StopTimeout),
-		}),
-	))
+	err := pubsub.GetNode(ctx).Send(
+		ctx, svc.pid,
+		topology.Cancel(svc.pid, time.Now().Add(svc.config.Lifecycle.StopTimeout)),
+	)
 	if err != nil {
 		// ignoring for now
 	}

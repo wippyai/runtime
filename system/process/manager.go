@@ -3,7 +3,6 @@ package process
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/api/payload"
 	api "github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/topology"
@@ -138,16 +137,8 @@ func (m *Manager) StartMonitored(ctx context.Context, from pubsub.PID, ps *api.S
 }
 
 // Cancel sends a cancellation event to the process and its monitors
-func (m *Manager) Cancel(ctx context.Context, pid pubsub.PID) error {
-	// Send cancel event to the process
-	batch := pubsub.NewBatch(
-		api.TopicEvents,
-		payload.New(topology.CancelEvent{
-			Event: topology.Event{At: time.Now(), Kind: topology.KindCancel},
-		}),
-	)
-
-	if err := m.topology.upstream.Send(ctx, pid, batch); err != nil {
+func (m *Manager) Cancel(ctx context.Context, pid pubsub.PID, deadline time.Time) error {
+	if err := m.topology.upstream.Send(ctx, pid, topology.Cancel(pubsub.PID{}, deadline)); err != nil {
 		m.logger.Error("failed to send cancel event",
 			zap.String("pid", pid.String()),
 			zap.Error(err))
