@@ -599,7 +599,7 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 				lfs.NewLFSModule(),
 				uuid.NewUUIDModule(),
 				upstream.NewUpstreamModule(),
-				processmod.NewProcessContextModule(a.logger.Named("process")),
+				processmod.NewProcessControlModule(a.logger.Named("process")),
 				tasks.NewTaskModule(),
 				subscribe.NewSubscribeModule(),
 				env.NewEnvModule(a.logger.Named("env")),
