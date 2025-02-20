@@ -253,7 +253,7 @@ func (m *ControlModule) checkProcess(l *lua.LState) (*process.Context, bool) {
 		return nil, false
 	}
 
-	procCtx := process.GetProcessContext(ctx)
+	procCtx := process.GetContext(ctx)
 	if procCtx == nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString("no process context found"))

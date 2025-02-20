@@ -45,7 +45,6 @@ type (
 
 	ResultEvent struct {
 		Event  Event           `json:"event"`
-		PID    pubsub.PID      `json:"pid"`
 		Result *runtime.Result `json:"result"`
 	}
 

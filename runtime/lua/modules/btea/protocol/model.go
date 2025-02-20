@@ -4,7 +4,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	lua "github.com/yuin/gopher-lua"
-	"log"
 	"reflect"
 )
 
@@ -36,11 +35,6 @@ func (m *LuaModelWrapper) Init() tea.Cmd {
 
 func (m *LuaModelWrapper) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if fn, ok := engine.GetFunc(m.luaState, m.value, "update"); ok {
-		mouseMsg, ok := msg.(tea.MouseMsg)
-		if ok {
-			log.Printf("MOUSE MSG: %v", mouseMsg)
-		}
-
 		luaMsg := MsgToLua(msg)
 
 		err := m.luaState.CallByParam(lua.P{

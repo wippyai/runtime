@@ -151,9 +151,10 @@ func (t *Terminal) handleLaunch(ctx context.Context, pl *process.LaunchProcess, 
 }
 
 func (t *Terminal) prepareContext(ctx context.Context, pid pubsub.PID) context.Context {
-	pCtx := process.MergeContext(ctxapi.MergeContext(t.ctx, ctx), ctx)
-	pCtx = context.WithValue(pCtx, ctxapi.IDCtx, pid.ID)
+	pCtx := ctxapi.MergeContext(t.ctx, ctx)
 
+	// lifecycle
+	pCtx = process.GetTopology(pCtx).AttachToContext(pCtx)
 	pCtx = process.WithAddedOnComplete(pCtx, func(pid pubsub.PID, result *runtime.Result) {
 		if result.Error != nil {
 			t.log.Error("terminal process execution failed",
@@ -162,10 +163,12 @@ func (t *Terminal) prepareContext(ctx context.Context, pid pubsub.PID) context.C
 		} else {
 			t.log.Info("terminal process execution completed",
 				zap.String("pid", pid.String()),
-				zap.Any("result", result.Payload))
+				zap.Any("result", result.Payload.Data()))
 		}
 		t.cleanup(result)
 	})
+
+	pCtx = context.WithValue(pCtx, ctxapi.IDCtx, pid.ID)
 
 	return pCtx
 }

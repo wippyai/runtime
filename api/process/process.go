@@ -78,7 +78,7 @@ type (
 		Start(ctx context.Context, start *StartProcess) (pubsub.PID, error)
 		StartMonitored(context.Context, pubsub.PID, *StartProcess) (pubsub.PID, error)
 		Terminate(ctx context.Context, pid pubsub.PID) error
-		Monitor() topology.Monitor
+		Topology() Topology
 	}
 
 	// Host defines the interface for process execution environments
@@ -105,11 +105,29 @@ type (
 		Host
 		Launch(ctx context.Context, pid pubsub.PID, input payload.Payloads) (pubsub.PID, error)
 	}
+
+	Topology interface {
+		Monitor() topology.Monitor
+		AttachToContext(ctx context.Context) context.Context
+	}
 )
 
 // GetProcessManager retrieves the process Manager from the context
 func GetProcessManager(ctx context.Context) Manager {
 	return ctx.Value(contextapi.ProcessesCtx).(Manager)
+}
+
+func GetTopology(ctx context.Context) Topology {
+	m, ok := ctx.Value(contextapi.ProcessesCtx).(Manager)
+	if !ok {
+		panic("process manager not found in context")
+	}
+
+	if m.Topology() == nil {
+		panic("process manager topology is nil")
+	}
+
+	return m.Topology()
 }
 
 // Validate checks if the configuration is valid

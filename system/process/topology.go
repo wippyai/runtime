@@ -33,6 +33,10 @@ func NewTopology(
 	}
 }
 
+func (l *Topology) Monitor() topology.Monitor {
+	return l.monitor
+}
+
 // AttachToContext returns a context with all topology callbacks attached
 func (l *Topology) AttachToContext(ctx context.Context) context.Context {
 	ctx = process.WithAddedOnStart(ctx, func(pid pubsub.PID, proc process.Process) {

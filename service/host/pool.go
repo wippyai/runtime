@@ -2,7 +2,6 @@ package host
 
 import (
 	"context"
-	"log"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -167,8 +166,6 @@ func (p *ProcessPool) CancelProcess(pid pubsub.PID, deadline time.Time) error {
 			zap.String("pid", pid.String()),
 			zap.Error(err))
 	}
-
-	log.Printf("send cancel message to process %s", pid.String())
 
 	// Let process handle cancellation in next schedule
 	return p.Schedule(pid)

@@ -222,10 +222,10 @@ func (h *testSupervisorHarness) waitForAllServices(state supervisor.Status) {
 		switch state {
 		case supervisor.Running:
 			svc.WaitForStart(h.t)
-			require.True(h.t, svc.IsStarted(), "Lifecycle %s should be started", id)
+			require.True(h.t, svc.IsStarted(), "Topology %s should be started", id)
 		case supervisor.Stopped:
 			svc.WaitForStop(h.t)
-			require.True(h.t, svc.IsStopped(), "Lifecycle %s should be stopped", id)
+			require.True(h.t, svc.IsStopped(), "Topology %s should be stopped", id)
 		case supervisor.Unknown, supervisor.Starting, supervisor.Stopping, supervisor.Exited, supervisor.Failed:
 			panic("not implemented")
 		}
@@ -260,7 +260,7 @@ func (h *testSupervisorHarness) assertServiceState(serviceID string, expectedSta
 func (h *testSupervisorHarness) assertServiceNotFound(serviceID string) {
 	h.t.Helper()
 	_, err := h.sup.GetState(serviceID)
-	require.Error(h.t, err, "Lifecycle should not exist")
+	require.Error(h.t, err, "Topology should not exist")
 	require.Contains(h.t, err.Error(), "not found")
 }
 
@@ -279,12 +279,12 @@ func TestSupervisor_BasicLifecycle(t *testing.T) {
 	// wait for service startup
 	service := h.services["test-service"]
 	service.WaitForStart(t)
-	require.True(t, service.IsStarted(), "Lifecycle should be started")
+	require.True(t, service.IsStarted(), "Topology should be started")
 
 	// stop supervisor and wait for service shutdown
 	h.stop()
 	service.WaitForStop(t)
-	require.True(t, service.IsStopped(), "Lifecycle should be stopped")
+	require.True(t, service.IsStopped(), "Topology should be stopped")
 
 	// Verify logs
 	h.assertLog("supervisor started")
@@ -305,10 +305,10 @@ func TestSupervisor_MultipleServices(t *testing.T) {
 	// Only service-1 should be started automatically
 	svc1 := h.services["service-1"]
 	svc1.WaitForStart(t)
-	require.True(t, svc1.IsStarted(), "Lifecycle 1 should be started automatically")
+	require.True(t, svc1.IsStarted(), "Topology 1 should be started automatically")
 
 	svc2 := h.services["service-2"]
-	require.False(t, svc2.IsStarted(), "Lifecycle 2 should not be started automatically")
+	require.False(t, svc2.IsStarted(), "Topology 2 should not be started automatically")
 
 	// Launch service-2 manually
 	h.sup.actions <- action{
@@ -336,7 +336,7 @@ func TestSupervisor_ServiceRemoval(t *testing.T) {
 
 	service := h.services["test-service"]
 	service.WaitForStart(t)
-	require.True(t, service.IsStarted(), "Lifecycle should be started")
+	require.True(t, service.IsStarted(), "Topology should be started")
 
 	// Begin transaction and remove the service
 	h.sup.handleEvent(events.Event{System: registry.System, Kind: registry.Begin})
@@ -345,7 +345,7 @@ func TestSupervisor_ServiceRemoval(t *testing.T) {
 
 	// Verify service is stopped and removed
 	service.WaitForStop(t)
-	require.True(t, service.IsStopped(), "Lifecycle should be stopped")
+	require.True(t, service.IsStopped(), "Topology should be stopped")
 	h.assertServiceNotFound("test-service")
 }
 
@@ -366,7 +366,7 @@ func TestSupervisor_TransactionValidation(t *testing.T) {
 		},
 	})
 
-	// Lifecycle should not be registered without transaction
+	// Topology should not be registered without transaction
 	time.Sleep(100 * time.Millisecond) // wait for event processing
 	h.assertServiceNotFound("test-service")
 
@@ -417,8 +417,8 @@ func TestSupervisor_TargetedServiceControl(t *testing.T) {
 
 	// wait for service-1 to stop
 	svc1.WaitForStop(t)
-	require.True(t, svc1.IsStopped(), "Lifecycle 1 should be stopped")
-	require.True(t, svc2.IsStarted(), "Lifecycle 2 should still be running")
+	require.True(t, svc1.IsStopped(), "Topology 1 should be stopped")
+	require.True(t, svc2.IsStarted(), "Topology 2 should still be running")
 
 	// Launch service-1 again
 	h.sup.actions <- action{
@@ -428,7 +428,7 @@ func TestSupervisor_TargetedServiceControl(t *testing.T) {
 
 	// wait for service-1 to start again
 	svc1.WaitForStart(t)
-	require.True(t, svc1.IsStarted(), "Lifecycle 1 should be started again")
+	require.True(t, svc1.IsStarted(), "Topology 1 should be started again")
 }
 
 func TestSupervisor_ServiceFailureAndRetry(t *testing.T) {
@@ -506,7 +506,7 @@ func TestSupervisor_TransactionDiscard(t *testing.T) {
 	// Verify original state is maintained
 	time.Sleep(100 * time.Millisecond) // wait for event processing
 
-	require.True(t, service1.IsStarted(), "Lifecycle 1 should still be running")
+	require.True(t, service1.IsStarted(), "Topology 1 should still be running")
 	h.assertServiceNotFound("service-2")
 }
 
@@ -713,9 +713,9 @@ func TestSupervisor_BusEventControl(t *testing.T) {
 
 	// Verify service is registered but not started
 	state, err := h.sup.GetState(serviceID)
-	require.NoError(t, err, "Lifecycle should be registered")
-	require.Equal(t, supervisor.Unknown, state.Status, "Lifecycle should be in Unknown state")
-	require.False(t, svc.IsStarted(), "Lifecycle should not be started")
+	require.NoError(t, err, "Topology should be registered")
+	require.Equal(t, supervisor.Unknown, state.Status, "Topology should be in Unknown state")
+	require.False(t, svc.IsStarted(), "Topology should not be started")
 
 	// Launch the service via bus event
 	h.sup.bus.Send(ctx, events.Event{
@@ -726,12 +726,12 @@ func TestSupervisor_BusEventControl(t *testing.T) {
 
 	// wait for service to start
 	svc.WaitForStart(t)
-	require.True(t, svc.IsStarted(), "Lifecycle should be started")
+	require.True(t, svc.IsStarted(), "Topology should be started")
 
 	// Verify running state
 	state, err = h.sup.GetState(serviceID)
 	require.NoError(t, err)
-	require.Equal(t, supervisor.Running, state.Status, "Lifecycle should be in Running state")
+	require.Equal(t, supervisor.Running, state.Status, "Topology should be in Running state")
 
 	// stop the service via bus event
 	h.sup.bus.Send(ctx, events.Event{
@@ -742,12 +742,12 @@ func TestSupervisor_BusEventControl(t *testing.T) {
 
 	// wait for service to stop
 	svc.WaitForStop(t)
-	require.True(t, svc.IsStopped(), "Lifecycle should be stopped")
+	require.True(t, svc.IsStopped(), "Topology should be stopped")
 
 	// Verify stopped state
 	state, err = h.sup.GetState(serviceID)
 	require.NoError(t, err)
-	require.Equal(t, supervisor.Stopped, state.Status, "Lifecycle should be in Stopped state")
+	require.Equal(t, supervisor.Stopped, state.Status, "Topology should be in Stopped state")
 
 	// Remove the service via bus event
 	h.sup.bus.Send(ctx, events.Event{
@@ -771,6 +771,6 @@ func TestSupervisor_BusEventControl(t *testing.T) {
 
 	// Verify service is removed
 	_, err = h.sup.GetState(serviceID)
-	require.Error(t, err, "Lifecycle should not exist")
+	require.Error(t, err, "Topology should not exist")
 	require.Contains(t, err.Error(), "not found", "Should get not found error")
 }

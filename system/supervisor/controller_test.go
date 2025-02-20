@@ -16,7 +16,7 @@ import (
 	"github.com/ponyruntime/pony/api/supervisor"
 )
 
-// mockService implements supervisor.Lifecycle for testing
+// mockService implements supervisor.Topology for testing
 type mockService struct {
 	startFunc func(context.Context) (<-chan any, error)
 	stopFunc  func(context.Context) error
@@ -321,11 +321,11 @@ func TestController_ServiceRecoveryAfterFailure(t *testing.T) {
 	expectedTransitions := []supervisor.Status{
 		supervisor.Starting, // Initial start
 		supervisor.Running,  // First successful start
-		supervisor.Running,  // Lifecycle Details received
-		supervisor.Failed,   // Lifecycle death
+		supervisor.Running,  // Topology Details received
+		supervisor.Failed,   // Topology death
 		supervisor.Starting, // Recovery attempt
 		supervisor.Running,  // Recovery successful
-		supervisor.Running,  // Lifecycle Details received after recovery
+		supervisor.Running,  // Topology Details received after recovery
 		supervisor.Stopping, // Clean shutdown
 		supervisor.Stopped,  // Final state
 	}
@@ -434,7 +434,7 @@ func TestController_ServiceFailedRecovery(t *testing.T) {
 	// wait for service to reach final failed state
 	select {
 	case <-stateChan:
-		// Lifecycle reached final failed state
+		// Topology reached final failed state
 	case <-time.After(time.Second):
 		cancel()
 		t.Fatal("timeout waiting for service to reach final failed state")
@@ -454,8 +454,8 @@ func TestController_ServiceFailedRecovery(t *testing.T) {
 	expectedTransitions := []supervisor.Status{
 		supervisor.Starting, // Initial start
 		supervisor.Running,  // First successful start
-		supervisor.Running,  // Lifecycle Details received
-		supervisor.Failed,   // Lifecycle death
+		supervisor.Running,  // Topology Details received
+		supervisor.Failed,   // Topology death
 		supervisor.Starting, // First recovery attempt
 		supervisor.Failed,   // First recovery failure
 		supervisor.Starting, // Second recovery attempt
@@ -796,12 +796,12 @@ func TestController_StopAndRestart(t *testing.T) {
 	expectedTransitions := []supervisor.Status{
 		supervisor.Starting, // Initial start
 		supervisor.Running,  // First running state
-		supervisor.Running,  // Lifecycle details received
+		supervisor.Running,  // Topology details received
 		supervisor.Stopping, // First stop
 		supervisor.Stopped,  // Stopped state
 		supervisor.Starting, // Restart
 		supervisor.Running,  // Second running state
-		supervisor.Running,  // Lifecycle details received
+		supervisor.Running,  // Topology details received
 		supervisor.Stopping, // Final stop
 		supervisor.Stopped,  // Final state
 	}

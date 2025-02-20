@@ -283,8 +283,6 @@ func processTextareaKeyMap(tbl *lua.LTable) textarea.KeyMap {
 			if ud, ok := lv.(*lua.LUserData); ok {
 				if b, ok := ud.Value.(*protocol.KeyBinding); ok {
 					*bindingPtr = b.Binding
-				} else {
-					fmt.Printf("Expected btea.KeyBinding for field %s\n", field)
 				}
 			}
 		}

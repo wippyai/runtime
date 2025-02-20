@@ -2,6 +2,7 @@ package lua
 
 import (
 	"fmt"
+	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/errors"
 	"reflect"
@@ -99,6 +100,8 @@ func GoToLua(v any) (lua.LValue, error) {
 		return lua.LBool(val), nil
 	case time.Time:
 		return lua.LNumber(val.Unix()), nil
+	case payload.Payload:
+		return GoToLua(val.(payload.Payload).Data())
 	case error:
 		ud := engine.SharedState.NewUserData()
 		ud.Value = errors.New(val)
@@ -153,6 +156,7 @@ func GoToLua(v any) (lua.LValue, error) {
 	case reflect.Struct:
 		table := engine.SharedState.NewTable()
 		typ := rv.Type()
+
 		fields := getStructFields(typ)
 		for _, field := range fields {
 			fieldValue := rv.Field(field.index)
