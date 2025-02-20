@@ -13,6 +13,7 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
+	"time"
 )
 
 // Process represents a Lua process instance
@@ -74,6 +75,11 @@ func (p *Process) Start(ctx context.Context, pid pubsub.PID, input payload.Paylo
 	if err != nil {
 		return err
 	}
+
+	ctx = process.WithContext(ctx, process.Context{
+		PID:   pid,
+		Start: time.Now(),
+	})
 
 	// Set up runner context and closer
 	ctx, p.closer = closer.WithContext(p.runner.WithContext(ctx))

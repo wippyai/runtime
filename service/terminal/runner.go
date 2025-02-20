@@ -5,7 +5,6 @@ import (
 	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/runtime"
-	"github.com/ponyruntime/pony/api/service/terminal"
 	"io"
 	"os"
 	"sync"
@@ -49,12 +48,6 @@ func NewTerminalRunner(
 
 	// Derive a runner context from the provided terminal context.
 	runnerCtx, cancel := context.WithCancel(ctx)
-	// Attach terminal IO context values (these keys are separate and do not override onComplete)
-	runnerCtx = terminal.WithTerminalContext(
-		runnerCtx,
-		terminal.NewTerminalContext(cfg.Stdin, cfg.Stdout, cfg.Stderr),
-	)
-
 	runnerCtx = process.WithAddedOnComplete(runnerCtx, func(pid pubsub.PID, result *runtime.Result) {
 		cancel()
 	})

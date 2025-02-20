@@ -188,7 +188,15 @@ func (p *App) Start(ctx context.Context, pid pubsub.PID, input payload.Payloads)
 
 	p.program = tea.NewProgram(p, tea.WithInput(term.Stdin), tea.WithOutput(term.Stdout))
 
-	ctx = upstream.WithUpstreamChannel(ctx, p.upstream)
+	// sets up the process context
+	ctx = process.WithContext(
+		upstream.WithUpstreamChannel(ctx, p.upstream),
+		process.Context{
+			PID:   pid,
+			Start: time.Now(),
+		},
+	)
+
 	ctx, p.closer = closer.WithContext(p.runner.WithContext(ctx))
 
 	args, err := p.toLuaPayloads(input)

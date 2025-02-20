@@ -2,8 +2,10 @@ package process
 
 import (
 	"context"
+	context2 "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/runtime"
+	"time"
 )
 
 // OnComplete is the type for a completion callback.
@@ -78,4 +80,18 @@ func MergeContext(base, foreign context.Context) context.Context {
 	// todo: good chance that order here is broken
 
 	return base
+}
+
+type Context struct {
+	PID       pubsub.PID
+	Start     time.Time
+	TrapLinks bool
+}
+
+func WithContext(ctx context.Context, process Context) context.Context {
+	return context.WithValue(ctx, context2.ProcessCtx, process)
+}
+
+func GetProcessContext(ctx context.Context) Context {
+	return ctx.Value(context2.ProcessCtx).(Context)
 }

@@ -32,8 +32,12 @@ var (
 	EnvCtx = &Key{Name: "env"} //nolint:gochecknoglobals
 	// NodeCtx represents the node manager context key
 	NodeCtx = &Key{Name: "node"} //nolint:gochecknoglobals
+	// HostCtx represents the host manager context key
+	HostCtx = &Key{Name: "host"} //nolint:gochecknoglobals
 	// IDCtx represents the handler identifier context key
 	IDCtx = &Key{Name: "handler"} //nolint:gochecknoglobals
+	// ProcessCtx represents the process context key (contains process control api)
+	ProcessCtx = &Key{Name: "process"} //nolint:gochecknoglobals
 	// ValuesCtx represents the values storage context key
 	ValuesCtx = &Key{Name: "values"} //nolint:gochecknoglobals
 	// CleanupCtx represents the cleanup operations context key

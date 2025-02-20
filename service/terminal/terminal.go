@@ -74,7 +74,11 @@ func (t *Terminal) run(ctx context.Context, status chan<- any) {
 	defer close(status)
 	defer t.cleanup(nil)
 
-	t.ctx = context.WithValue(ctx, ctxapi.LoggerCtx, t.log)
+	t.ctx = context.WithValue(
+		context.WithValue(ctx, ctxapi.HostCtx, t),
+		ctxapi.LoggerCtx,
+		t.log,
+	)
 
 	for {
 		select {
@@ -125,7 +129,12 @@ func (t *Terminal) handleLaunch(ctx context.Context, pl *process.LaunchProcess, 
 		}
 	}
 
-	runner, err := NewTerminalRunner(t.prepareContext(ctx, pl.PID), cfg, pl)
+	rCtx := terminal.WithTerminalContext(
+		t.prepareContext(ctx, pl.PID),
+		terminal.NewTerminalContext(cfg.Stdin, cfg.Stdout, cfg.Stderr),
+	)
+
+	runner, err := NewTerminalRunner(rCtx, cfg, pl)
 	if err != nil {
 		t.log.Error("failed to create terminal runner",
 			zap.Error(err))
