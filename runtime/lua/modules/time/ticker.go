@@ -12,6 +12,7 @@ import (
 // Ticker represents a Lua userdata object wrapping time.Ticker
 type Ticker struct {
 	ticker  *time.Ticker
+	exit    chan struct{}
 	chValue lua.LValue
 }
 
@@ -48,7 +49,12 @@ func ticker(l *lua.LState) int {
 
 	// Spawn channel and ticker
 	ch := channel.Named(fmt.Sprintf("ticker_%s", duration), 1)
-	ticker := time.NewTicker(duration)
+
+	tt := &Ticker{
+		ticker:  time.NewTicker(duration),
+		chValue: channel.Wrap(l, ch),
+		exit:    make(chan struct{}),
+	}
 
 	timeUD := l.NewUserData()
 	timeUD.Value = &Time{time: time.Now()} // initial value will be replaced
@@ -56,15 +62,16 @@ func ticker(l *lua.LState) int {
 
 	// Launch goroutine to handle ticker
 	go func() {
-		defer ticker.Stop()
+		defer tt.ticker.Stop()
 		for {
 			select {
-			case t := <-ticker.C:
+			case t := <-tt.ticker.C:
 				timeUD.Value = &Time{time: t}
 				errs := async.Send(l, ch, timeUD, true)
 				if errs != nil {
 					return
 				}
+			case <-tt.exit:
 			case <-l.Context().Done():
 				return
 			}
@@ -73,7 +80,7 @@ func ticker(l *lua.LState) int {
 
 	// Spawn and return Ticker userdata
 	ud := l.NewUserData()
-	ud.Value = &Ticker{ticker: ticker, chValue: channel.Wrap(l, ch)}
+	ud.Value = tt
 	l.SetMetatable(ud, l.GetTypeMetatable("Ticker"))
 	l.Push(ud)
 	return 1
@@ -96,6 +103,7 @@ func tickerStop(l *lua.LState) int {
 		return 0
 	}
 	t.ticker.Stop()
+	close(t.exit)
 	return 0
 }
 
