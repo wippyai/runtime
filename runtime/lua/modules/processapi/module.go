@@ -1,12 +1,16 @@
 package process
 
 import (
+	"fmt"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
+	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
+	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
+	"strings"
 )
 
 // ControlModule represents the process control extension module
@@ -36,9 +40,13 @@ func (m *ControlModule) Loader(l *lua.LState) int {
 
 	// Register functions
 	l.SetFuncs(mod, map[string]lua.LGFunction{
-		"info":            m.info.info,
-		"pid":             m.info.pid,
-		"input_args":      m.info.initArgs,
+		"info":       m.info.info,
+		"pid":        m.info.pid,
+		"input_args": m.info.initArgs,
+
+		"listen": m.listen,
+		"events": m.events, // New dedicated events function
+
 		"send":            m.send,
 		"spawn":           m.spawn,
 		"spawn_monitored": m.spawnMonitored,
@@ -261,4 +269,40 @@ func (m *ControlModule) checkProcess(l *lua.LState) (*process.Context, bool) {
 	}
 
 	return procCtx, true
+}
+
+// Add events function for internal messaging
+func (m *ControlModule) events(l *lua.LState) int {
+	procCtx, ok := m.checkProcess(l)
+	if !ok {
+		return 2
+	}
+
+	// Create events channel using internal @pid/events topic
+	eventsName := fmt.Sprintf("events.%s", procCtx.PID)
+	ch := channel.Named(eventsName, 1)
+
+	return subscribe.Subscribe(l, ch, process.TopicEvents)
+}
+
+// Modified listen function with @ validation
+func (m *ControlModule) listen(l *lua.LState) int {
+	topic := l.CheckString(1)
+	if topic == "" {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("topic cannot be empty"))
+		return 2
+	}
+
+	// Prevent usage of @ topics in ports
+	if strings.HasPrefix(topic, "@") {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("cannot use @ topics with ports"))
+		return 2
+	}
+
+	portName := fmt.Sprintf("listen.%s", topic)
+	ch := channel.Named(portName, 1)
+
+	return subscribe.Subscribe(l, ch, topic)
 }

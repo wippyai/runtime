@@ -12,8 +12,8 @@ local function run()
         print("Started with args:", json.encode(args))
     end
 
-    local events_ch = pubsub.subscribe("@pid/events")
-    local child_msgs = pubsub.subscribe("child_msgs")
+    local events_ch = process.events()
+    local child_msgs = process.listen("child_msgs")
     local done = channel.new()
     local is_running = true
     local tick = time.ticker("2s")

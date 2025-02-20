@@ -1,6 +1,8 @@
 package btea
 
 import (
+	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
+	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/models"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/models/list"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
@@ -53,7 +55,15 @@ func (m *Module) Loader(l *lua.LState) int {
 	models.RegisterSpinner(l, mod)
 	models.RegisterProgress(l, mod)
 
+	// communication channel
+	l.SetField(mod, "events", l.NewFunction(m.events))
+
 	// Set the module
 	l.Push(mod)
 	return 1
+}
+
+// btea events handler (internal)
+func (m *Module) events(l *lua.LState) int {
+	return subscribe.Subscribe(l, channel.Named("btea.events", 1), "@btea/events")
 }
