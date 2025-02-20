@@ -102,7 +102,7 @@ func GoToLua(v any) (lua.LValue, error) {
 	case error:
 		ud := engine.SharedState.NewUserData()
 		ud.Value = errors.New(val)
-		ud.Metatable = engine.SharedState.GetTypeMetatable("error") // todo: how?
+		ud.Metatable = engine.SharedState.GetTypeMetatable("error")
 
 		return ud, nil
 	}
