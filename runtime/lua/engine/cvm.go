@@ -111,9 +111,10 @@ func (q *TaskQueue) Len() int {
 // CoroutineVM represents a Lua virtual machine with coroutine support.
 // This VM is NOT thread safe, external synchronization is required.
 type CoroutineVM struct {
-	vm    *VM
-	tasks []*Task
-	queue *TaskQueue
+	vm     *VM
+	cancel context.CancelFunc
+	tasks  []*Task
+	queue  *TaskQueue
 }
 
 // IsCoroutineVM checks if the given Lua state has coroutine support enabled
@@ -170,6 +171,11 @@ func (e *CoroutineVM) StartString(ctx context.Context, script, scriptName string
 		return err
 	}
 
+	if e.vm.state.Context() == nil {
+		ctx, e.cancel = context.WithCancel(ctx)
+		e.vm.state.SetContext(ctx)
+	}
+
 	task := e.createTask(ctx, fn)
 	task.Resumed = args
 
@@ -190,7 +196,7 @@ func (e *CoroutineVM) Start(ctx context.Context, funcName string, args ...lua.LV
 	}
 
 	if e.vm.state.Context() == nil {
-		// probably think about alternative way
+		ctx, e.cancel = context.WithCancel(ctx)
 		e.vm.state.SetContext(ctx)
 	}
 
@@ -328,6 +334,10 @@ func (e *CoroutineVM) Close() {
 	e.tasks = nil
 
 	if e.vm != nil {
+		if e.cancel != nil {
+			e.cancel()
+		}
+
 		e.vm.Close()
 		e.vm = nil
 	}

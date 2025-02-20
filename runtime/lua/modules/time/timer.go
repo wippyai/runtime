@@ -57,6 +57,7 @@ func timer(l *lua.LState) int {
 
 	// Launch goroutine to handle timer
 	go func() {
+		// todo: ensure no leaks
 		defer tmr.Stop()
 		select {
 		case t := <-tmr.C:
