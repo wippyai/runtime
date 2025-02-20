@@ -25,38 +25,27 @@ func NewProcessControlModule(log *zap.Logger) *ControlModule {
 
 // Name returns the module name
 func (m *ControlModule) Name() string {
-	return "process.control"
+	return "process"
 }
 
 // Loader is the entry point for loading the module into Lua
 func (m *ControlModule) Loader(l *lua.LState) int {
-	// First load the info module functions
-	m.info.Loader(l)
+	// Create module table
+	mod := l.NewTable()
 
-	// Get the process table that was just created by info module
-	proc := l.GetGlobal("process")
-	if proc == lua.LNil {
-		// If for some reason process table doesn't exist, create it
-		proc = l.NewTable()
-		l.SetGlobal("process", proc)
-	}
-
-	procTable, ok := proc.(*lua.LTable)
-	if !ok {
-		l.RaiseError("process is not a table")
-		return 0
-	}
-
-	// Add our control functions to the process table
-	l.SetFuncs(procTable, map[string]lua.LGFunction{
+	// Register functions
+	l.SetFuncs(mod, map[string]lua.LGFunction{
+		"info":            m.info.info,
+		"pid":             m.info.pid,
+		"input_args":      m.info.initArgs,
 		"send":            m.send,
 		"spawn":           m.spawn,
 		"spawn_monitored": m.spawnMonitored,
 		"terminate":       m.terminate,
 	})
 
-	// No need to push anything since we're extending the existing table
-	return 0
+	l.Push(mod)
+	return 1
 }
 
 func (m *ControlModule) getNode(l *lua.LState) (pubsub.Node, bool) {
