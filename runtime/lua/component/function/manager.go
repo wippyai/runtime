@@ -33,6 +33,7 @@ func init() {
 		WithMode(code.AllowAll).
 		WithDenied(registry.ID{Name: "command"}).
 		WithDenied(registry.ID{Name: "pubsub"}).
+		WithDenied(registry.ID{Name: "process"}).
 		WithPreloaded(code.Preload{Name: "channel", ModuleID: registry.ID{Name: "channel"}})
 
 	layers = component.WithLayerInitializer(func() []engine.RunnerOption {
