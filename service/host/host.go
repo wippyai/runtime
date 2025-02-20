@@ -88,7 +88,9 @@ func (mph *Host) finalizeProcess(pid pubsub.PID, result *runtime.Result) {
 			zap.String("pid", pid.String()),
 			zap.Any("result", result.Payload))
 	}
+
 	mph.msgHost.Detach(pid)
+	mph.pool.RemoveProcess(pid)
 }
 
 // startMessageWorkers spawns worker goroutines to process routing messages.

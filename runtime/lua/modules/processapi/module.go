@@ -31,6 +31,7 @@ func (m *ControlModule) Name() string {
 // Loader is the entry point for loading the module into Lua
 func (m *ControlModule) Loader(l *lua.LState) int {
 	// Create module table
+
 	mod := l.NewTable()
 
 	// Register functions

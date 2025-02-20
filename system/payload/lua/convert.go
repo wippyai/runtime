@@ -2,6 +2,7 @@ package lua
 
 import (
 	"fmt"
+	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/errors"
 	"reflect"
 	"sync"
@@ -9,13 +10,6 @@ import (
 
 	lua "github.com/yuin/gopher-lua"
 )
-
-// Helper functions for Lua transcoding
-var lState = lua.NewState()
-
-func init() {
-	errors.RegisterErrorsModule(lState)
-}
 
 // fieldInfo holds cached information about a struct field.
 type fieldInfo struct {
@@ -106,9 +100,9 @@ func GoToLua(v any) (lua.LValue, error) {
 	case time.Time:
 		return lua.LNumber(val.Unix()), nil
 	case error:
-		ud := lState.NewUserData()
+		ud := engine.SharedState.NewUserData()
 		ud.Value = errors.New(val)
-		ud.Metatable = lState.GetTypeMetatable("error") // todo: how?
+		ud.Metatable = engine.SharedState.GetTypeMetatable("error") // todo: how?
 
 		return ud, nil
 	}
@@ -127,7 +121,7 @@ func GoToLua(v any) (lua.LValue, error) {
 			// Return nil for nil slices
 			return lua.LNil, nil
 		}
-		table := lState.NewTable()
+		table := engine.SharedState.NewTable()
 		for i := 0; i < rv.Len(); i++ {
 			lval, err := GoToLua(rv.Index(i).Interface())
 			if err != nil {
@@ -140,9 +134,9 @@ func GoToLua(v any) (lua.LValue, error) {
 	case reflect.Map:
 		if rv.IsNil() {
 			// Return empty table for nil maps
-			return lState.NewTable(), nil
+			return engine.SharedState.NewTable(), nil
 		}
-		table := lState.NewTable()
+		table := engine.SharedState.NewTable()
 		iter := rv.MapRange()
 		for iter.Next() {
 			key := iter.Key()
@@ -157,7 +151,7 @@ func GoToLua(v any) (lua.LValue, error) {
 		return table, nil
 
 	case reflect.Struct:
-		table := lState.NewTable()
+		table := engine.SharedState.NewTable()
 		typ := rv.Type()
 		fields := getStructFields(typ)
 		for _, field := range fields {
@@ -168,7 +162,7 @@ func GoToLua(v any) (lua.LValue, error) {
 			switch fieldValue.Kind() {
 			case reflect.Map:
 				if fieldValue.IsNil() {
-					lval = lState.NewTable() // Empty table for nil maps
+					lval = engine.SharedState.NewTable() // Empty table for nil maps
 					err = nil
 				} else {
 					lval, err = GoToLua(fieldValue.Interface())

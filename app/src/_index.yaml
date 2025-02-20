@@ -23,7 +23,7 @@ entries:
     kind: process.lua
     meta:
       comment: "Minimal Process"
-    source: file://process.lua
+    source: file://parent.lua
     method: run
     modules: [ "time", "json" ]
 

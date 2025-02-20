@@ -1,6 +1,8 @@
 package time
 
-import lua "github.com/yuin/gopher-lua"
+import (
+	lua "github.com/yuin/gopher-lua"
+)
 
 // Duration constants in nanoseconds
 const (

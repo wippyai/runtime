@@ -192,6 +192,9 @@ func (p *Process) complete(err error, result lua.LValue) {
 
 	p.runner.Close()
 	p.cancel()
+	p.runner = nil
+	p.pubsub = nil
+	p.pid = pubsub.PID{}
 }
 
 // toLuaPayloads converts a slice of payloads to Lua values
