@@ -16,7 +16,7 @@ local function run()
     local child_msgs = process.listen("child_msgs")
     local done = channel.new()
     local is_running = true
-    local tick = time.ticker("2s")
+    local tick = time.ticker("100ns")
     local tick_ch = tick:channel()
     local child_count = 0
     local active_children = 0

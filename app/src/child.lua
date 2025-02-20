@@ -13,9 +13,9 @@ local function run()
     local done = channel.new()
     local start = time.now()
     local is_running = true
-    local tick = time.ticker("1s")
+    local tick = time.ticker("1ns")
     local tick_ch = tick:channel()
-    local ten_seconds = time.parse_duration("10s")
+    local ten_seconds = time.parse_duration("10ns")
 
     while is_running do
         local cases = {
