@@ -57,6 +57,8 @@ func (vm *versionHistory) Path(from, to registry.Version) ([]registry.Version, e
 		return []registry.Version{from}, nil
 	}
 
+	// todo: can be optimized as `typically` we always event source from root
+
 	// Construct the graph on demand
 	g := graph.New[string, any]()
 	for _, v := range vm.versions {
