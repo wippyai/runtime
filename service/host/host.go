@@ -107,13 +107,13 @@ func (mph *Host) startMessageWorkers() {
 						return
 					}
 
-					if !mph.pool.HasProcess(m.PID) {
+					entryVal, ok := mph.pool.processes.Load(m.PID)
+					if !ok {
 						mph.log.Warn("routing worker received message for unknown process",
 							zap.String("pid", m.PID.String()))
 						continue
 					}
 
-					entryVal, _ := mph.pool.processes.Load(m.PID)
 					entry := entryVal.(*processEntry)
 					if err := entry.process.Send(m.Batch); err != nil {
 						mph.log.Error("failed to send message to process",
