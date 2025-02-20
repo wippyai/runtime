@@ -354,7 +354,7 @@ func wsClose(l *lua.LState) int {
 func wsReceive(l *lua.LState) int {
 	client, err := CheckWSClient(l)
 	if err != nil {
-		l.RaiseError(err.Error())
+		l.RaiseError("invalid client: %v", err)
 		return 2
 	}
 

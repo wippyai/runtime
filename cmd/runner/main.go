@@ -457,6 +457,8 @@ func main() {
 
 	app.logger.Info("application started successfully")
 
+	//todo: see os.OpenRoot()
+
 	// Handle shutdown signals
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
