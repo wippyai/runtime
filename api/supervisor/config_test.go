@@ -19,9 +19,10 @@ func TestLifecycleConfig_MarshalJSON(t *testing.T) {
 		{
 			name: "basic config",
 			config: LifecycleConfig{
-				AutoStart:    true,
-				StartTimeout: 30 * time.Second,
-				StopTimeout:  1 * time.Minute,
+				AutoStart:       true,
+				StartTimeout:    30 * time.Second,
+				StopTimeout:     1 * time.Minute,
+				StableThreshold: 5 * time.Second,
 				RetryPolicy: RetryPolicy{
 					InitialDelay:  1 * time.Second,
 					MaxDelay:      30 * time.Second,
@@ -31,29 +32,69 @@ func TestLifecycleConfig_MarshalJSON(t *testing.T) {
 				},
 				DependsOn: []string{"service1", "service2"},
 			},
-			expected: `{"auto_start":true,"start_timeout":"30s","stop_timeout":"1m0s","restart":{"initial_delay":"1s","max_delay":"30s","backoff_factor":2,"jitter":0.1,"max_attempts":5},"depends_on":["service1","service2"]}`,
-			wantErr:  false,
+			expected: `{
+				"auto_start": true,
+				"start_timeout": "30s",
+				"stop_timeout": "1m0s",
+				"stable_threshold": "5s",
+				"restart": {
+					"initial_delay": "1s",
+					"max_delay": "30s",
+					"backoff_factor": 2,
+					"jitter": 0.1,
+					"max_attempts": 5
+				},
+				"depends_on": ["service1", "service2"]
+			}`,
+			wantErr: false,
 		},
 		{
 			name: "zero values",
 			config: LifecycleConfig{
 				AutoStart: false,
 			},
-			expected: `{"auto_start":false,"start_timeout":"0s","stop_timeout":"0s","restart":{"initial_delay":"0s","max_delay":"0s","backoff_factor":0,"jitter":0,"max_attempts":0},"depends_on":null}`,
-			wantErr:  false,
+			expected: `{
+				"auto_start": false,
+				"start_timeout": "0s",
+				"stop_timeout": "0s",
+				"stable_threshold": "0s",
+				"restart": {
+					"initial_delay": "0s",
+					"max_delay": "0s",
+					"backoff_factor": 0,
+					"jitter": 0,
+					"max_attempts": 0
+				},
+				"depends_on": null
+			}`,
+			wantErr: false,
 		},
 		{
 			name: "custom durations",
 			config: LifecycleConfig{
-				StartTimeout: 1*time.Hour + 30*time.Minute,
-				StopTimeout:  2*time.Hour + 15*time.Minute,
+				StartTimeout:    1*time.Hour + 30*time.Minute,
+				StopTimeout:     2*time.Hour + 15*time.Minute,
+				StableThreshold: 45 * time.Second,
 				RetryPolicy: RetryPolicy{
 					InitialDelay: 1*time.Minute + 30*time.Second,
 					MaxDelay:     5*time.Minute + 45*time.Second,
 				},
 			},
-			expected: `{"auto_start":false,"start_timeout":"1h30m0s","stop_timeout":"2h15m0s","restart":{"initial_delay":"1m30s","max_delay":"5m45s","backoff_factor":0,"jitter":0,"max_attempts":0},"depends_on":null}`,
-			wantErr:  false,
+			expected: `{
+				"auto_start": false,
+				"start_timeout": "1h30m0s",
+				"stop_timeout": "2h15m0s",
+				"stable_threshold": "45s",
+				"restart": {
+					"initial_delay": "1m30s",
+					"max_delay": "5m45s",
+					"backoff_factor": 0,
+					"jitter": 0,
+					"max_attempts": 0
+				},
+				"depends_on": null
+			}`,
+			wantErr: false,
 		},
 	}
 
@@ -89,6 +130,7 @@ func TestLifecycleConfig_UnmarshalJSON(t *testing.T) {
 				"auto_start": true,
 				"start_timeout": "30s",
 				"stop_timeout": "1m",
+				"stable_threshold": "5s",
 				"restart": {
 					"initial_delay": "1s",
 					"max_delay": "30s",
@@ -99,9 +141,10 @@ func TestLifecycleConfig_UnmarshalJSON(t *testing.T) {
 				"depends_on": ["service1", "service2"]
 			}`,
 			expected: LifecycleConfig{
-				AutoStart:    true,
-				StartTimeout: 30 * time.Second,
-				StopTimeout:  1 * time.Minute,
+				AutoStart:       true,
+				StartTimeout:    30 * time.Second,
+				StopTimeout:     1 * time.Minute,
+				StableThreshold: 5 * time.Second,
 				RetryPolicy: RetryPolicy{
 					InitialDelay:  1 * time.Second,
 					MaxDelay:      30 * time.Second,
@@ -178,14 +221,26 @@ func TestRetryPolicy_MarshalJSON(t *testing.T) {
 				Jitter:        0.1,
 				MaxAttempts:   5,
 			},
-			expected: `{"initial_delay":"1s","max_delay":"30s","backoff_factor":2,"jitter":0.1,"max_attempts":5}`,
-			wantErr:  false,
+			expected: `{
+				"initial_delay": "1s",
+				"max_delay": "30s",
+				"backoff_factor": 2,
+				"jitter": 0.1,
+				"max_attempts": 5
+			}`,
+			wantErr: false,
 		},
 		{
-			name:     "zero values",
-			policy:   RetryPolicy{},
-			expected: `{"initial_delay":"0s","max_delay":"0s","backoff_factor":0,"jitter":0,"max_attempts":0}`,
-			wantErr:  false,
+			name:   "zero values",
+			policy: RetryPolicy{},
+			expected: `{
+				"initial_delay": "0s",
+				"max_delay": "0s",
+				"backoff_factor": 0,
+				"jitter": 0,
+				"max_attempts": 0
+			}`,
+			wantErr: false,
 		},
 		{
 			name: "custom durations",
@@ -196,8 +251,14 @@ func TestRetryPolicy_MarshalJSON(t *testing.T) {
 				Jitter:        0.2,
 				MaxAttempts:   3,
 			},
-			expected: `{"initial_delay":"1m30s","max_delay":"5m45s","backoff_factor":1.5,"jitter":0.2,"max_attempts":3}`,
-			wantErr:  false,
+			expected: `{
+				"initial_delay": "1m30s",
+				"max_delay": "5m45s",
+				"backoff_factor": 1.5,
+				"jitter": 0.2,
+				"max_attempts": 3
+			}`,
+			wantErr: false,
 		},
 	}
 
