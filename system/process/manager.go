@@ -40,6 +40,10 @@ func NewProcessManager(
 	}
 }
 
+func (m *Manager) Monitor() topology.Monitor {
+	return m.topology.monitor
+}
+
 func (m *Manager) Lifecycle() *Topology {
 	return m.topology
 }

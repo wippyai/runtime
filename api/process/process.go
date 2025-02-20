@@ -78,6 +78,7 @@ type (
 		Start(ctx context.Context, start *StartProcess) (pubsub.PID, error)
 		StartMonitored(context.Context, pubsub.PID, *StartProcess) (pubsub.PID, error)
 		Terminate(ctx context.Context, pid pubsub.PID) error
+		Monitor() topology.Monitor
 	}
 
 	// Host defines the interface for process execution environments
