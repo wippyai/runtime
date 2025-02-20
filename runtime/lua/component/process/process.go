@@ -62,6 +62,7 @@ func NewProcess(log *zap.Logger, runner *engine.Runner, funcName string) (proces
 // Start initializes and starts the Lua process
 func (p *Process) Start(ctx context.Context, pid pubsub.PID, input payload.Payloads) error {
 	p.ctx, p.cancel = context.WithCancel(ctx)
+
 	p.pid = pid
 	p.dtt = payload.GetTranscoder(ctx)
 	if p.dtt == nil {
@@ -167,8 +168,8 @@ func (p *Process) Send(batch *pubsub.Batch) error {
 // complete handles process completion and cleanup
 func (p *Process) complete(err error, result lua.LValue) {
 	if p.closer != nil {
-		if cerr := p.closer.Close(); cerr != nil {
-			p.log.Error("failed to close resources", zap.Error(cerr))
+		if cErr := p.closer.Close(); cErr != nil {
+			p.log.Error("failed to close resources", zap.Error(cErr))
 		}
 	}
 
