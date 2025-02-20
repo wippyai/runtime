@@ -15,7 +15,7 @@ local function run()
     local is_running = true
     local tick = time.ticker("1s")
     local tick_ch = tick:channel()
-    local ten_seconds = time.parse_duration("2s")
+    local ten_seconds = time.parse_duration("10s")
 
     while is_running do
         local cases = {
@@ -33,7 +33,7 @@ local function run()
 
         if result.channel == events_ch and result.value then
             local event = result.value
-            if event.event and event.event.kind == "pid.cancel" then
+            if event.event and event.event.kind == process.EVENT_CANCEL then
                 print("Child process cancelled:", process.pid())
                 is_running = false
             end
@@ -55,6 +55,11 @@ local function run()
                     uptime = tostring(duration),
                     timestamp = now:format("15:04:05")
                 })
+            end
+
+            -- Die with error if child number is even, at 5 seconds
+            if args.child_number % 2 == 0 and duration:seconds() >= 5 then
+                error(string.format("Child process %d died with error at 5s", args.child_number))
             end
 
             if duration:seconds() >= ten_seconds:seconds() then

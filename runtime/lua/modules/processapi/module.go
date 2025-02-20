@@ -6,6 +6,7 @@ import (
 	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
+	"github.com/ponyruntime/pony/api/topology"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
 	lua "github.com/yuin/gopher-lua"
@@ -52,6 +53,9 @@ func (m *ControlModule) Loader(l *lua.LState) int {
 		"spawn_monitored": m.spawnMonitored,
 		"terminate":       m.terminate,
 	})
+
+	mod.RawSetString("EVENT_CANCEL", lua.LString(topology.KindCancel))
+	mod.RawSetString("EVENT_RESULT", lua.LString(topology.KindResult))
 
 	l.Push(mod)
 	return 1

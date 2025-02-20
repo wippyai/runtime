@@ -158,7 +158,6 @@ func (h *Host) worker() {
 			return
 		case job := <-h.jobCh:
 			if job.ctx.Err() != nil {
-				h.logger.Warn("job context expired before processing", zap.String("pid", job.pid.String()), zap.Error(job.ctx.Err()))
 				continue
 			}
 
