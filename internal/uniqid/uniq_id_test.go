@@ -1,4 +1,4 @@
-package process
+package uniqid
 
 import (
 	"sync"
@@ -7,7 +7,7 @@ import (
 
 func TestUniqIDGenerator(t *testing.T) {
 	t.Run("generates incremental ids", func(t *testing.T) {
-		gen := NewUniqIDGenerator()
+		gen := NewGenerator()
 
 		expected := []string{
 			"0x00001",
@@ -24,7 +24,7 @@ func TestUniqIDGenerator(t *testing.T) {
 	})
 
 	t.Run("reset resets counter", func(t *testing.T) {
-		gen := NewUniqIDGenerator()
+		gen := NewGenerator()
 
 		// Generate some IDs
 		gen.Generate() // 0x00001
@@ -42,7 +42,7 @@ func TestUniqIDGenerator(t *testing.T) {
 	})
 
 	t.Run("concurrent generation produces unique ids", func(t *testing.T) {
-		gen := NewUniqIDGenerator()
+		gen := NewGenerator()
 
 		// Generate IDs concurrently
 		count := 1000
@@ -85,7 +85,7 @@ func TestUniqIDGenerator(t *testing.T) {
 	})
 
 	t.Run("large number of generations", func(t *testing.T) {
-		gen := NewUniqIDGenerator()
+		gen := NewGenerator()
 
 		// Generate a large number of IDs
 		count := uint64(65535) // Test with a significant number

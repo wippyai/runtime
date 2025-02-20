@@ -6,6 +6,7 @@ import (
 	api "github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/topology"
+	"github.com/ponyruntime/pony/internal/uniqid"
 	"go.uber.org/zap"
 	"time"
 )
@@ -18,7 +19,7 @@ type Manager struct {
 	topology   *Topology
 	nodeID     pubsub.NodeID
 	logger     *zap.Logger
-	generator  *UniqIDGenerator
+	generator  *uniqid.Generator
 }
 
 // NewProcessManager creates a new Manager.
@@ -35,7 +36,7 @@ func NewProcessManager(
 		topology:   lifecycle,
 		nodeID:     nodeID,
 		logger:     logger,
-		generator:  NewUniqIDGenerator(),
+		generator:  uniqid.NewGenerator(),
 	}
 }
 
