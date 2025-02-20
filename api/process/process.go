@@ -106,8 +106,8 @@ type (
 	}
 )
 
-// GetProcesses retrieves the process Manager from the context
-func GetProcesses(ctx context.Context) Manager {
+// GetProcessManager retrieves the process Manager from the context
+func GetProcessManager(ctx context.Context) Manager {
 	return ctx.Value(contextapi.ProcessesCtx).(Manager)
 }
 

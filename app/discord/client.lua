@@ -145,6 +145,15 @@ function Client:handle_interaction(interaction)
     end
 end
 
+function Client:show_typing(channel_id)
+    local data, err = self:make_api_request("POST", "/channels/" .. channel_id .. "/typing")
+    if err then
+        self:trigger_callback("error", "Failed to show typing indicator: " .. err)
+        return false
+    end
+    return true
+end
+
 function Client:handle_heartbeat(ws_client)
     local heartbeat_count = 0
     return function()

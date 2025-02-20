@@ -65,6 +65,7 @@ func (mph *Host) Start(ctx context.Context) (<-chan any, error) {
 
 	// Wrap the incoming context with an on-complete callback.
 	mph.ctx = process.WithAddedOnComplete(ctx, mph.finalizeProcess)
+	mph.ctx = context.WithValue(mph.ctx, contextApi.HostCtx, mph)
 
 	mph.msgHost = mph.makeMsgHost(ctx)
 
