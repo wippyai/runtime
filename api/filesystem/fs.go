@@ -1,4 +1,4 @@
-package wfs
+package filesystem
 
 import (
 	"context"
