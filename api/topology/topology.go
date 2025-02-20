@@ -11,7 +11,7 @@ const (
 	ControlHost pubsub.HostID = "node:control"
 	TopicEvents pubsub.Topic  = "@pid/events"
 	KindCancel  Kind          = "pid.cancel"
-	KindMonitor Kind          = "pid.result"
+	KindResult  Kind          = "pid.result"
 )
 
 type (
@@ -43,7 +43,7 @@ type (
 		From pubsub.PID `json:"from"`
 	}
 
-	MonitorEvent struct {
+	ResultEvent struct {
 		Event  Event           `json:"event"`
 		PID    pubsub.PID      `json:"pid"`
 		Result *runtime.Result `json:"result"`

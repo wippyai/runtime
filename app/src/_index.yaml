@@ -17,12 +17,20 @@ entries:
         initial_delay: 5s
         max_attempts: 1
       depends_on:
-       - system:heap
+        - system:heap
 
   - name: minimal
     kind: process.lua
     meta:
       comment: "Minimal Process"
     source: file://process.lua
+    method: run
+    modules: [ "time", "json" ]
+
+  - name: child
+    kind: process.lua
+    meta:
+      comment: "Child Process"
+    source: file://child.lua
     method: run
     modules: [ "time", "json" ]

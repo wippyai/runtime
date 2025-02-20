@@ -18,6 +18,7 @@ local function run()
     local is_running = true
     local tick = time.ticker("1s")
     local tick_ch = tick:channel()
+    local child_count = 0
 
     while is_running do
         local result = channel.select({
@@ -35,16 +36,41 @@ local function run()
         end
 
         if result.channel == tick_ch then
-            print(string.format("Tick at %s for process %s",
-                time.now():format("15:04:05"),
-                process.pid()))
+            child_count = child_count + 1
+            local child_name = string.format("child_%d", child_count)
+
+            -- Spawn a monitored child process
+            local child_pid = process.spawn_monitored(
+                "supervisor:child", -- make sure this matches the registry ID
+                "system:heap",      -- using same host as parent
+                {
+                    name = child_name,
+                    start_time = time.now():format("15:04:05")
+                }
+            )
+
+            print(string.format("Parent spawned child process %s at %s",
+                child_pid,
+                time.now():format("15:04:05")))
         else
             local event = result.value
-            print("System event:", json.encode(event))
+            print("Parent received event:", json.encode(event))
 
             if event.event.kind == "pid.cancel" then
-                print("Exiting process", process.pid())
+                print("Parent process exiting:", process.pid())
                 break
+            end
+
+            -- Handle child process completion or failure
+            if event.event.kind == "pid.result" then
+                print(string.format("Parent got result from child %s:", event.event.from))
+                if event.result and event.result.error then
+                    print(string.format("Child failed with error: %s",
+                        json.encode(event.result.error)))
+                elseif event.result and event.result.payload then
+                    print(string.format("Child completed with result: %s",
+                        json.encode(event.result.payload)))
+                end
             end
         end
     end

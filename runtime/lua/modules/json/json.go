@@ -178,6 +178,16 @@ func (j *jsonValue) MarshalJSON() ([]byte, error) {
 		default:
 			return nil, errInvalidKeys
 		}
+	case *lua.LUserData:
+		if str, ok := converted.Value.(string); ok {
+			return json.Marshal(str)
+		}
+
+		if err, ok := converted.Value.(error); ok {
+			return json.Marshal(err.Error())
+		}
+
+		return nil, invalidTypeError(j.LValue.Type())
 	default:
 		return nil, invalidTypeError(j.LValue.Type())
 	}

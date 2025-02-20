@@ -50,7 +50,7 @@ func (l *Topology) AttachToContext(ctx context.Context) context.Context {
 			if errors.Is(result.Error, supervisor.ErrExit) {
 				l.logger.Debug("process exited", zap.String("pid", pid.String()))
 			} else {
-				l.logger.Warn("process failed", zap.String("pid", pid.String()), zap.Error(result.Error))
+				l.logger.Debug("process failed", zap.String("pid", pid.String()), zap.Error(result.Error))
 			}
 		} else {
 			l.logger.Debug("process completed", zap.String("pid", pid.String()), zap.Any("result", result.Payload))

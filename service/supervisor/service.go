@@ -103,7 +103,7 @@ func (svc *Service) Start(ctx context.Context) (<-chan any, error) {
 					if msg.Topic == process.TopicEvents {
 						for _, p := range msg.Payloads {
 							// we always require to pass system events within go runtime, to verify legitimacy
-							if event, ok := p.Data().(topology.MonitorEvent); ok {
+							if event, ok := p.Data().(topology.ResultEvent); ok {
 								if event.Result.Error != nil {
 									select {
 									case svc.status <- fmt.Errorf("process failed: %w", event.Result.Error):

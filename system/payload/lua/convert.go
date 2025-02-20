@@ -2,6 +2,7 @@ package lua
 
 import (
 	"fmt"
+	"github.com/ponyruntime/pony/runtime/lua/engine/errors"
 	"reflect"
 	"sync"
 	"time"
@@ -11,6 +12,10 @@ import (
 
 // Helper functions for Lua transcoding
 var lState = lua.NewState()
+
+func init() {
+	errors.RegisterErrorsModule(lState)
+}
 
 // fieldInfo holds cached information about a struct field.
 type fieldInfo struct {
@@ -88,6 +93,8 @@ func GoToLua(v any) (lua.LValue, error) {
 
 	// Handle basic types first
 	switch val := v.(type) {
+	case lua.LValue:
+		return val, nil
 	case string:
 		return lua.LString(val), nil
 	case float64:
@@ -98,6 +105,12 @@ func GoToLua(v any) (lua.LValue, error) {
 		return lua.LBool(val), nil
 	case time.Time:
 		return lua.LNumber(val.Unix()), nil
+	case error:
+		ud := lState.NewUserData()
+		ud.Value = errors.New(val)
+		ud.Metatable = lState.GetTypeMetatable("error") // todo: how?
+
+		return ud, nil
 	}
 
 	// Use reflection for complex types

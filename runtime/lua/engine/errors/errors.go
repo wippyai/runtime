@@ -1,4 +1,3 @@
-// Package errors provides error handling functionality for Lua-Go interoperability.
 package errors
 
 import (
@@ -14,7 +13,7 @@ import (
 // WrappedError represents an error that occurred in either Go or Lua Context,
 // preserving stack traces from both environments.
 type WrappedError struct {
-	err      error               // Points to parent error
+	Err      error               // Points to parent error
 	LuaStack *inspect.StackTrace // Lua stack at this wrap point
 	goStack  []uintptr           // Go stack at this wrap point
 	Context  string              // Context for this wrap
@@ -23,9 +22,13 @@ type WrappedError struct {
 // Error implements the error interface.
 func (e *WrappedError) Error() string {
 	if e.Context != "" {
-		return fmt.Sprintf("%s: %v", e.Context, e.err)
+		return fmt.Sprintf("%s: %v", e.Context, e.Err)
 	}
-	return e.err.Error()
+	return e.Err.Error()
+}
+
+func (e *WrappedError) String() string {
+	return e.Error()
 }
 
 // Unwrap returns the underlying error for compatibility with Go 1.13+ error unwrapping.
@@ -33,7 +36,7 @@ func (e *WrappedError) Unwrap() error {
 	if e == nil {
 		return nil
 	}
-	return e.err
+	return e.Err
 }
 
 // Stack returns a formatted string containing both Lua and Go stack traces
@@ -88,7 +91,7 @@ func (e *WrappedError) Stack() string {
 		}
 
 		// Move to parent error if it's a WrappedError
-		if next, ok := current.err.(*WrappedError); ok {
+		if next, ok := current.Err.(*WrappedError); ok {
 			current = next
 		} else {
 			break
@@ -104,6 +107,10 @@ func shouldSkipFrame(name string) bool {
 		(strings.Contains(name, "panic") ||
 			strings.Contains(name, "throw") ||
 			strings.Contains(name, "sigpanic"))
+}
+
+func New(err error) *WrappedError {
+	return &WrappedError{Err: err}
 }
 
 // WrapError creates a new wrapped error with the given Context.
@@ -122,7 +129,7 @@ func WrapError(L *lua.LState, err error, context string) *WrappedError {
 		if context == "" {
 			// Even with no new Context, create new wrapper to capture current stacks
 			return &WrappedError{
-				err:      we.err,      // Link to original inner error
+				Err:      we.Err,      // Link to original inner error
 				LuaStack: luaStack,    // New Lua stack
 				goStack:  goStack[:n], // New Go stack
 				Context:  we.Context,  // Preserve Context
@@ -130,7 +137,7 @@ func WrapError(L *lua.LState, err error, context string) *WrappedError {
 		}
 
 		return &WrappedError{
-			err:      we,
+			Err:      we,
 			LuaStack: inspect.GetStackTrace(L),
 			goStack:  goStack[:n],
 			Context:  context,
@@ -139,7 +146,7 @@ func WrapError(L *lua.LState, err error, context string) *WrappedError {
 
 	// Spawn new wrapped error
 	return &WrappedError{
-		err:      err,
+		Err:      err,
 		LuaStack: inspect.GetStackTrace(L),
 		goStack:  goStack[:n],
 		Context:  context,

@@ -88,8 +88,9 @@ func (m *monitor) Notify(pid pubsub.PID, result *runtime.Result) {
 
 		batch := pubsub.NewBatch(
 			process.TopicEvents,
-			payload.New(topology.MonitorEvent{
-				Event:  topology.Event{At: time.Now(), Kind: topology.KindMonitor},
+			payload.New(topology.ResultEvent{
+				Event:  topology.Event{At: time.Now(), Kind: topology.KindResult},
+				PID:    pid,
 				Result: result,
 			}),
 		)
