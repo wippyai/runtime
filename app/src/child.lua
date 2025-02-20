@@ -23,6 +23,47 @@ local function run()
     local tick_ch = tick:channel()
     local ten_seconds = time.parse_duration("8ms")
 
+    while is_running do
+        -- Create cases for select
+        local cases = {
+            events_ch:case_receive(),
+            done:case_receive(),
+            tick_ch:case_receive()
+        }
+
+        local result = channel.select(cases)
+
+        if not result.ok then
+            break
+        end
+
+        -- Handle each channel case
+        if result.channel == events_ch and result.value then
+            local event = result.value
+            if event.event and event.event.kind == "pid.cancel" then
+                print("Child process cancelled:", process.pid())
+                is_running = false
+            end
+        elseif result.channel == done then
+            is_running = false
+        elseif result.channel == tick_ch and result.value then
+            -- Get current time and calculate duration
+            local now = time.now()
+            local duration = now:sub(start)
+
+            -- Compare durations directly
+            if duration:seconds() >= ten_seconds:seconds() then
+                print(string.format("Child process %s (#%d) completing after 10s",
+                    process.pid(),
+                    args.child_number))
+                is_running = false
+            end
+        end
+    end
+
+    tick:stop()
+    done:close()
+
     return {
         name = args.name,
         runtime = "10s",
@@ -30,55 +71,6 @@ local function run()
         end_time = time.now():format("15:04:05"),
         child_number = args.child_number
     }
-
-    --while is_running do
-    --    -- Create cases for select
-    --    local cases = {
-    --        events_ch:case_receive(),
-    --        done:case_receive(),
-    --        tick_ch:case_receive()
-    --    }
-    --
-    --    local result = channel.select(cases)
-    --
-    --    if not result.ok then
-    --        break
-    --    end
-    --
-    --    -- Handle each channel case
-    --    if result.channel == events_ch and result.value then
-    --        local event = result.value
-    --        if event.event and event.event.kind == "pid.cancel" then
-    --            print("Child process cancelled:", process.pid())
-    --            is_running = false
-    --        end
-    --    elseif result.channel == done then
-    --        is_running = false
-    --    elseif result.channel == tick_ch and result.value then
-    --        -- Get current time and calculate duration
-    --        local now = time.now()
-    --        local duration = now:sub(start)
-    --
-    --        -- Compare durations directly
-    --        if duration:seconds() >= ten_seconds:seconds() then
-    --            print(string.format("Child process %s (#%d) completing after 10s",
-    --                process.pid(),
-    --                args.child_number))
-    --            is_running = false
-    --        end
-    --    end
-    --end
-    --
-    --tick:stop()
-    --done:close()
-    --
-    --return {
-    --    name = args.name,
-    --    runtime = "10s",
-    --    start_time = args.start_time,
-    --    end_time = time.now():format("15:04:05"),
-    --    child_number = args.child_number
-    --}
 end
 
 return {

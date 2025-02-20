@@ -14,7 +14,7 @@ local function run()
     local events_ch = pubsub.subscribe("@pid/events")
     local done = channel.new()
     local is_running = true
-    local tick = time.ticker("50ms")
+    local tick = time.ticker("10ms")
     local tick_ch = tick:channel()
     local child_count = 0
     local active_children = 0  -- Track active children
