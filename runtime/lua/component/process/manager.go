@@ -28,7 +28,8 @@ func init() {
 	processBuild = code.NewBuildOptions().
 		WithMode(code.AllowAll).
 		WithPreloaded(code.Preload{Name: "channel", ModuleID: registry.ID{Name: "channel"}}).
-		WithPreloaded(code.Preload{Name: "pubsub", ModuleID: registry.ID{Name: "subscribe"}})
+		WithPreloaded(code.Preload{Name: "pubsub", ModuleID: registry.ID{Name: "subscribe"}}).
+		WithPreloaded(code.Preload{Name: "process", ModuleID: registry.ID{Name: "process"}})
 
 	processLayers = component.WithLayerInitializer(func() []engine.RunnerOption {
 		channels := channel.NewChannelLayer()
