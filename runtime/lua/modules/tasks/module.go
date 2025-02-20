@@ -1,4 +1,3 @@
-// tasks.go
 package tasks
 
 import (

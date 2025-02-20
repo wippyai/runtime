@@ -1,4 +1,3 @@
-// module.go
 package upstream
 
 import (

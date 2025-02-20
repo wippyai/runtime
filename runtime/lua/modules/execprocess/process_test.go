@@ -1,4 +1,4 @@
-package os_process
+package execprocess
 
 import (
 	"context"

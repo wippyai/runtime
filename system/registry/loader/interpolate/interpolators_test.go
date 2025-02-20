@@ -2,7 +2,7 @@ package interpolate
 
 import (
 	"fmt"
-	"github.com/ponyruntime/pony/tests/temp_files"
+	"github.com/ponyruntime/pony/tests/tempfiles"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -79,7 +79,7 @@ func TestLoadFile(t *testing.T) {
 		"main.yaml":              "main content",
 	}
 
-	rootDir, cleanup := temp_files.TempDirWithFiles(t, "test-load-file", files)
+	rootDir, cleanup := tempfiles.TempDirWithFiles(t, "test-load-file", files)
 	defer cleanup()
 
 	configFile := filepath.Join(rootDir, "listener", "listener.yaml")

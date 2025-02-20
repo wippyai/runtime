@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	contextapi "github.com/ponyruntime/pony/api/context"
 	"net"
 	"net/http"
 	"sync"
@@ -21,6 +22,8 @@ const (
 	// StatusBuffer defines buffer size for status channel
 	StatusBuffer = 10
 )
+
+var ContextListener = &contextapi.Key{Name: "listener"}
 
 // Server manages a single HTTP service instance and its associated router
 type Server struct {
@@ -75,7 +78,7 @@ func (s *Server) Start(ctx context.Context) (<-chan any, error) {
 		IdleTimeout:  s.config.Timeouts.IdleTimeout,
 		BaseContext: func(l net.Listener) context.Context {
 			// Inherit parent context and add listener info
-			return context.WithValue(ctx, "listener", l)
+			return context.WithValue(ctx, ContextListener, l)
 		},
 	}
 	s.mu.Unlock()

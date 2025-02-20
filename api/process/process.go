@@ -39,6 +39,7 @@ const (
 )
 
 var (
+	// ErrNoProcess indicates that no process is currently running
 	ErrNoProcess  = errors.New("no process running")
 	ErrHostBusy   = errors.New("process host is busy")
 	ErrHostDead   = errors.New("process host is dead")
@@ -54,6 +55,7 @@ type (
 		Create(registry.ID) (Process, error)
 	}
 
+	// Process defines the interface for a runnable process in the system
 	Process interface {
 		pubsub.Downstream
 
@@ -63,6 +65,7 @@ type (
 		Step() (bool, error)
 	}
 
+	// StartProcess contains the configuration needed to start a new process
 	StartProcess struct {
 		HostID   pubsub.HostID
 		ID       registry.ID
@@ -70,34 +73,40 @@ type (
 		Payloads payload.Payloads
 	}
 
+	// Manager defines the interface for process lifecycle management
 	Manager interface {
 		Start(ctx context.Context, start *StartProcess) (pubsub.PID, error)
 		StartMonitored(context.Context, pubsub.PID, *StartProcess) (pubsub.PID, error)
 		Terminate(ctx context.Context, pid pubsub.PID) error
 	}
 
+	// Host defines the interface for process execution environments
 	Host interface {
 		Send(ctx context.Context, pid pubsub.PID, msg *pubsub.Batch) error
 		Terminate(ctx context.Context, pid pubsub.PID) error
 	}
 
+	// LaunchProcess contains the information needed to launch a process
 	LaunchProcess struct {
 		PID     pubsub.PID
 		Process Process
 		Input   payload.Payloads
 	}
 
+	// Managed defines the interface for managed process hosts
 	Managed interface {
 		Host
 		Launch(ctx context.Context, launch *LaunchProcess) (pubsub.PID, error)
 	}
 
+	// Delegated defines the interface for delegated process hosts
 	Delegated interface {
 		Host
 		Launch(ctx context.Context, pid pubsub.PID, input payload.Payloads) (pubsub.PID, error)
 	}
 )
 
+// GetProcesses retrieves the process Manager from the context
 func GetProcesses(ctx context.Context) Manager {
 	return ctx.Value(contextapi.ProcessesCtx).(Manager)
 }

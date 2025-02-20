@@ -10,7 +10,7 @@ import (
 	"github.com/ponyruntime/pony/system/payload/yaml"
 	"github.com/ponyruntime/pony/system/registry/loader"
 	"github.com/ponyruntime/pony/system/registry/loader/interpolate"
-	"github.com/ponyruntime/pony/tests/temp_files"
+	"github.com/ponyruntime/pony/tests/tempfiles"
 	"github.com/stretchr/testify/assert"
 	"reflect"
 	"strings"
@@ -644,7 +644,7 @@ data:
   url: http://localhost:8080
 `,
 	}
-	rootDir, cleanup := temp_files.TempDirWithFiles(t, "registry_init_test", files)
+	rootDir, cleanup := tempfiles.TempDirWithFiles(t, "registry_init_test", files)
 	defer cleanup()
 
 	// 2. Initialize components
