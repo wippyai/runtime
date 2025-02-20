@@ -8,7 +8,7 @@ local M = {}
 M.LLMClient = {
     new = function(model, endpoint)
         return {
-            model = model or "gpt-4o-mini",
+            model = model or "o3-mini",
             endpoint = endpoint or "https://api.openai.com/v1/chat/completions",
 
             query = function(self, prompt, history, update_channel)
