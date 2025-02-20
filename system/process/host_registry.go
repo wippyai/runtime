@@ -2,6 +2,7 @@ package process
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/ponyruntime/pony/api/events"
 	api "github.com/ponyruntime/pony/api/process"
@@ -133,7 +134,7 @@ func (r *HostRegistry) sendReject(path events.Path, reason string) {
 		System: api.HostSystem,
 		Kind:   api.RejectHost,
 		Path:   path,
-		Data:   fmt.Errorf(reason),
+		Data:   errors.New(reason),
 	})
 }
 

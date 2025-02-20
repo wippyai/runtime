@@ -1,6 +1,7 @@
 package lua
 
 import (
+	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/topology"
 	"github.com/stretchr/testify/assert"
 	lua "github.com/yuin/gopher-lua"
@@ -258,7 +259,6 @@ func TestGoToLuaExtended(t *testing.T) {
 					"street": "123 Main St",
 					"city":   "New York",
 				},
-				// Updated: expecting a slice for non-empty tags
 				"tags": []any{"user", "admin"},
 				"Metadata": map[string]any{
 					"visits": float64(42),
@@ -283,9 +283,8 @@ func TestGoToLuaExtended(t *testing.T) {
 				"name":       "John Doe",
 				"age":        float64(30),
 				"created_at": float64(fixedTime.Unix()),
-				// "address" key is omitted due to conversion of nil pointer to LNil
-				"tags":     map[string]any{}, // empty slice becomes an empty table (map)
-				"Metadata": map[string]any{}, // nil map becomes an empty table
+				"tags":       map[string]any{}, // empty slice becomes an empty table
+				"Metadata":   map[string]any{}, // nil map becomes an empty table
 			},
 			wantErr: false,
 		},
@@ -295,6 +294,7 @@ func TestGoToLuaExtended(t *testing.T) {
 				Event: topology.Event{
 					Kind: topology.KindCancel,
 					At:   fixedTime,
+					From: pubsub.PID{}, // Empty PID struct
 				},
 				Deadline: fixedTime.Add(time.Second),
 			},
@@ -302,6 +302,15 @@ func TestGoToLuaExtended(t *testing.T) {
 				"event": map[string]any{
 					"at":   float64(fixedTime.Unix()),
 					"kind": "pid.cancel",
+					"from": map[string]any{
+						"Host":   "",
+						"Node":   "",
+						"UniqID": "",
+						"ID": map[string]any{
+							"name": "",
+							"ns":   "",
+						},
+					},
 				},
 				"deadline": float64(fixedTime.Add(time.Second).Unix()),
 			},
@@ -318,7 +327,7 @@ func TestGoToLuaExtended(t *testing.T) {
 			}
 			assert.NoError(t, err)
 
-			// For the Time.Time conversion test, handle separately.
+			// For the Time.Time conversion test, handle separately
 			if tt.name == "Time.Time" {
 				n, ok := got.(lua.LNumber)
 				assert.True(t, ok, "expected LNumber for time conversion")

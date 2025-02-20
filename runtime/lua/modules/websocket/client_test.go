@@ -43,7 +43,7 @@ func TestWebSocketClient(t *testing.T) {
 				t.Errorf("Accept error: %v", err)
 				return
 			}
-			defer conn.Close(coderws.StatusNormalClosure, "server closing")
+			defer func() { assert.NoError(t, conn.Close(coderws.StatusNormalClosure, "server closing")) }()
 
 			// Read one message from the client.
 			msgType, _, err := conn.Read(r.Context())
@@ -236,7 +236,7 @@ func TestWebSocketClient(t *testing.T) {
 			if err != nil {
 				return
 			}
-			defer conn.Close(coderws.StatusNormalClosure, "closing")
+			defer func() { assert.NoError(t, conn.Close(coderws.StatusNormalClosure, "closing")) }()
 			for {
 				msgType, data, err := conn.Read(r.Context())
 				if err != nil {
