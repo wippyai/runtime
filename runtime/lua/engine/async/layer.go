@@ -114,3 +114,22 @@ func (r *Layer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, err
 
 	return outTasks, nil
 }
+
+func (r *Layer) CloseLayer() {
+	// drain schedule
+	var empty = false
+	for {
+		if empty {
+			break
+		}
+		select {
+		case <-r.schedule:
+		default:
+			empty = true
+			break
+		}
+	}
+
+	r.schedule = nil
+	r.channels = nil
+}

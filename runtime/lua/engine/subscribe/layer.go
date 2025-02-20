@@ -190,6 +190,23 @@ func (s *Layer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, err
 	return outTasks, nil
 }
 
+func (s *Layer) CloseLayer() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// drain message queue
+	for e := s.messageQueue.Front(); e != nil; {
+		nextElem := e.Next()
+		e.Value = nil
+		s.messageQueue.Remove(e)
+		e = nextElem
+	}
+
+	s.tg = nil
+	s.channels = nil
+	s.subs = nil
+}
+
 func isSubscriptionRequest(v lua.LValue) (*subscribe, bool) {
 	if req, ok := v.(*subscribe); ok {
 		return req, true

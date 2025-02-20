@@ -313,11 +313,19 @@ func (e *CoroutineVM) Close() {
 			task.cancel()
 		}
 
+		task.l = nil
+		task.fn = nil
+		task.thread = nil
+
 		if task.output != nil {
 			close(task.output)
 			task.output = nil
 		}
 	}
+
+	e.queue.Drain()
+	e.queue = nil
+	e.tasks = nil
 
 	if e.vm != nil {
 		e.vm.Close()
@@ -400,9 +408,14 @@ func (e *CoroutineVM) removeTask(task *Task) error {
 				task.cancel()
 			}
 
+			task.l = nil
+			task.fn = nil
+			task.thread = nil
+
 			e.tasks = append(e.tasks[:i], e.tasks[i+1:]...)
 			return nil
 		}
 	}
+
 	return fmt.Errorf("task not found")
 }

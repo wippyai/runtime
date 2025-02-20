@@ -211,3 +211,14 @@ func (r *Layer) updateChannelRefs(tg *engine.TaskGroup, blocks, releases []*Chan
 		}
 	}
 }
+
+func (r *Layer) CloseLayer() {
+	r.queue.Drain()
+	r.queue = nil
+	for ch := range r.channels {
+		ch.receivers = nil
+		ch.senders = nil
+		delete(r.channels, ch)
+	}
+
+}
