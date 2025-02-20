@@ -2,7 +2,7 @@ package loader
 
 import (
 	"github.com/ponyruntime/pony/api/payload"
-	temp_files "github.com/ponyruntime/pony/tests/temp_files"
+	temp_files "github.com/ponyruntime/pony/tests/tempfiles"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"

@@ -1,8 +1,8 @@
-package os_process
+package execprocess
 
 import (
 	apic "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/code_executors/native"
+	"github.com/ponyruntime/pony/internal/codeexec/native"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )

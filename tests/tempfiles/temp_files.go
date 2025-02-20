@@ -1,4 +1,4 @@
-package temp_files
+package tempfiles
 
 import (
 	"os"

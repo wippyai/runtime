@@ -1,8 +1,8 @@
-package os_process
+package execprocess
 
 import (
-	"github.com/ponyruntime/pony/code_executors/native"
 	"github.com/ponyruntime/pony/internal/closer"
+	native2 "github.com/ponyruntime/pony/internal/codeexec/native"
 	"github.com/ponyruntime/pony/runtime/lua/modules/stream"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
@@ -21,12 +21,12 @@ func (m *Module) newProcess(l *lua.LState) int {
 	log.Debug("creating new process", zap.String("cmd", cmd), zap.Any("opts", opts))
 
 	// native process options
-	nopts := make([]native.Options, 0, 3)
+	nopts := make([]native2.Options, 0, 3)
 
 	// parse working directory
 	wd := l.GetField(opts, "work_dir")
 	if workdir, ok := wd.(lua.LString); ok {
-		nopts = append(nopts, native.WithWorkingDir(workdir.String()))
+		nopts = append(nopts, native2.WithWorkingDir(workdir.String()))
 	}
 
 	// parse table with the environment variables
@@ -38,12 +38,12 @@ func (m *Module) newProcess(l *lua.LState) int {
 			goenvs[k.String()] = v.String()
 		})
 
-		nopts = append(nopts, native.WithEnv(goenvs))
+		nopts = append(nopts, native2.WithEnv(goenvs))
 	}
 
-	nopts = append(nopts, native.WithCmd(cmd))
+	nopts = append(nopts, native2.WithCmd(cmd))
 
-	executor := native.NewNativeExecutor(log.Named("native_exec"), nopts...)
+	executor := native2.NewNativeExecutor(log.Named("native_exec"), nopts...)
 	closer.FromContext(l.Context()).Add(func() error {
 		// stop the executor
 		executor.Stop()

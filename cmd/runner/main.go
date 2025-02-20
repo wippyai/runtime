@@ -22,7 +22,7 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea"
 	"github.com/ponyruntime/pony/runtime/lua/modules/env"
 	httpMod "github.com/ponyruntime/pony/runtime/lua/modules/http"
-	httpClient "github.com/ponyruntime/pony/runtime/lua/modules/http_client"
+	httpClient "github.com/ponyruntime/pony/runtime/lua/modules/httpclient"
 	jsonMod "github.com/ponyruntime/pony/runtime/lua/modules/json"
 	"github.com/ponyruntime/pony/runtime/lua/modules/lfs"
 	"github.com/ponyruntime/pony/runtime/lua/modules/logger"

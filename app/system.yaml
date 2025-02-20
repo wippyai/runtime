@@ -47,3 +47,9 @@ entries:
       restart:
         initial_delay: 5s
         max_attempts: 3
+
+#  - name: root
+#    kind: fs.directory
+#    meta:
+#      comment: "Root directory"
+#    directory: /

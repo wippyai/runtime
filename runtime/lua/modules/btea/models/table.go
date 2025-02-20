@@ -1,4 +1,3 @@
-// file: table.go
 package models
 
 import (

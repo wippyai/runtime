@@ -14,42 +14,49 @@ func (ck *Key) String() string {
 }
 
 var (
-	// --- Core layers
-	BusCtx        = &Key{Name: "bus"}        //nolint:gochecknoglobals
+	// BusCtx represents the event bus context key for the application
+	BusCtx = &Key{Name: "bus"} //nolint:gochecknoglobals
+	// TranscoderCtx represents the transcoder service context key
 	TranscoderCtx = &Key{Name: "transcoder"} //nolint:gochecknoglobals
-	FunctionsCtx  = &Key{Name: "functions"}  //nolint:gochecknoglobals
-	ProcessesCtx  = &Key{Name: "processes"}  //nolint:gochecknoglobals
-	RegistryCtx   = &Key{Name: "registry"}   //nolint:gochecknoglobals
-
-	// --- System services
-	MetricsCtx   = &Key{Name: "metrics"}   //nolint:gochecknoglobals
+	// FunctionsCtx represents the function registry context key
+	FunctionsCtx = &Key{Name: "functions"} //nolint:gochecknoglobals
+	// ProcessesCtx represents the process manager context key
+	ProcessesCtx = &Key{Name: "processes"} //nolint:gochecknoglobals
+	// RegistryCtx represents the registry service context key
+	RegistryCtx = &Key{Name: "registry"} //nolint:gochecknoglobals
+	// MetricsCtx represents the metrics service context key
+	MetricsCtx = &Key{Name: "metrics"} //nolint:gochecknoglobals
+	// ResourcesCtx represents the resource manager context key
 	ResourcesCtx = &Key{Name: "resources"} //nolint:gochecknoglobals
-
-	// -- Enviroment and boundaries
-	EnvCtx  = &Key{Name: "env"}  //nolint:gochecknoglobals
+	// EnvCtx represents the environment variables context key
+	EnvCtx = &Key{Name: "env"} //nolint:gochecknoglobals
+	// NodeCtx represents the node manager context key
 	NodeCtx = &Key{Name: "node"} //nolint:gochecknoglobals
-	HostCtx = &Key{Name: "host"} //nolint:gochecknoglobals
-
-	// --- Execution path specific
-	IDCtx       = &Key{Name: "handler"}  //nolint:gochecknoglobals
-	ValuesCtx   = &Key{Name: "values"}   //nolint:gochecknoglobals
-	CleanupCtx  = &Key{Name: "cleanup"}  //nolint:gochecknoglobals
+	// IDCtx represents the handler identifier context key
+	IDCtx = &Key{Name: "handler"} //nolint:gochecknoglobals
+	// ValuesCtx represents the values storage context key
+	ValuesCtx = &Key{Name: "values"} //nolint:gochecknoglobals
+	// CleanupCtx represents the cleanup operations context key
+	CleanupCtx = &Key{Name: "cleanup"} //nolint:gochecknoglobals
+	// SecurityCtx represents the security settings context key
 	SecurityCtx = &Key{Name: "security"} //nolint:gochecknoglobals
-
-	// --- Contains a callack that is when not empty can be used to notify process host about async
-	// --- process activity to wake up process thread
+	// WakeUpKey represents a callback that can be used to notify process host about async process activity
 	WakeUpKey = &Key{Name: "wakeup"} //nolint:gochecknoglobals
-
-	// --- Runtime and lifecycle specific
-	TerminalCtx = &Key{Name: "terminal"}     //nolint:gochecknoglobals
-	RunnerCtx   = &Key{Name: "taskGroupKey"} //nolint:gochecknoglobals
-	AsyncCtx    = &Key{Name: "scheduleKey"}  //nolint:gochecknoglobals
-	TemporalCtx = &Key{Name: "temporal"}     //nolint:gochecknoglobals
-	LoggerCtx   = &Key{Name: "logger"}       //nolint:gochecknoglobals
+	// TerminalCtx represents the terminal manager context key
+	TerminalCtx = &Key{Name: "terminal"} //nolint:gochecknoglobals
+	// RunnerCtx represents the task group context key
+	RunnerCtx = &Key{Name: "taskGroupKey"} //nolint:gochecknoglobals
+	// AsyncCtx represents the scheduler context key
+	AsyncCtx = &Key{Name: "scheduleKey"} //nolint:gochecknoglobals
+	// LoggerCtx represents the logger context key
+	LoggerCtx = &Key{Name: "logger"} //nolint:gochecknoglobals
 )
 
+// MergeContext combines values from a foreign context into a base context
 func MergeContext(base, foreign context.Context) context.Context {
 	// todo: security and values only
 
-	return context.WithValue(base, "foreign", foreign)
+	// todO: redo
+	return context.WithValue(base, EnvCtx, foreign.Value(EnvCtx))
+	//return context.WithValue(base, "foreign", foreign)
 }

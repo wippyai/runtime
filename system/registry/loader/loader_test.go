@@ -7,7 +7,7 @@ import (
 	"github.com/ponyruntime/pony/system/payload/json"
 	"github.com/ponyruntime/pony/system/payload/yaml"
 	"github.com/ponyruntime/pony/system/registry/loader/interpolate"
-	"github.com/ponyruntime/pony/tests/temp_files"
+	"github.com/ponyruntime/pony/tests/tempfiles"
 	"go.uber.org/zap"
 	"reflect"
 	"testing"
@@ -167,7 +167,7 @@ invalid: content
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Spawn temporary directory with test files
-			rootDir, cleanup := temp_files.TempDirWithFiles(t, "loader-test", tt.files)
+			rootDir, cleanup := tempfiles.TempDirWithFiles(t, "loader-test", tt.files)
 			defer cleanup()
 
 			// Spawn loader

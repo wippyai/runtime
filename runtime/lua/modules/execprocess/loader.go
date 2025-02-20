@@ -1,4 +1,4 @@
-package os_process
+package execprocess
 
 import (
 	"github.com/ponyruntime/pony/runtime/lua/modules/stream"
