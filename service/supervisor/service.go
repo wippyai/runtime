@@ -4,23 +4,24 @@ import (
 	"context"
 	"fmt"
 	"github.com/ponyruntime/pony/api/payload"
-	processApi "github.com/ponyruntime/pony/api/process"
+	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/ponyruntime/pony/api/topology"
-	"github.com/ponyruntime/pony/system/process"
+	"github.com/ponyruntime/pony/internal/uniqid"
+
 	"time"
 )
 
-var supID = process.NewUniqIDGenerator()
+var supID = uniqid.NewGenerator()
 
 // Service represents a running process service instance
 type Service struct {
 	id            registry.ID
 	pid           pubsub.PID
 	supervisorPID pubsub.PID
-	config        processApi.ServiceConfig
+	config        process.ServiceConfig
 	status        chan any
 }
 
@@ -33,7 +34,7 @@ func (svc *Service) Start(ctx context.Context) (<-chan any, error) {
 	}
 
 	// Get process manager from context
-	proc := processApi.GetProcesses(ctx)
+	proc := process.GetProcesses(ctx)
 	if proc == nil {
 		return nil, fmt.Errorf("no process manager found in context")
 	}
@@ -68,7 +69,7 @@ func (svc *Service) Start(ctx context.Context) (<-chan any, error) {
 	}
 
 	// Launch monitored process
-	pid, err := proc.StartMonitored(ctx, svc.supervisorPID, &processApi.StartProcess{
+	pid, err := proc.StartMonitored(ctx, svc.supervisorPID, &process.StartProcess{
 		HostID:   svc.config.HostID,
 		ID:       processID,
 		Payloads: payloads,
@@ -99,8 +100,9 @@ func (svc *Service) Start(ctx context.Context) (<-chan any, error) {
 				}
 
 				for _, msg := range *batch {
-					if msg.Topic == processApi.TopicEvents {
+					if msg.Topic == process.TopicEvents {
 						for _, p := range msg.Payloads {
+							// we always require to pass system events within go runtime, to verify legitimacy
 							if event, ok := p.Data().(topology.MonitorEvent); ok {
 								if event.Result.Error != nil {
 									select {

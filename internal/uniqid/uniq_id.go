@@ -1,18 +1,18 @@
-package process
+package uniqid
 
 import (
 	"fmt"
 	"sync/atomic"
 )
 
-type UniqIDGenerator struct {
+type Generator struct {
 	counter uint64
 }
 
-// NewUniqIDGenerator creates a new generator instance
+// NewGenerator creates a new generator instance
 // prefix is the system identifier (e.g. "terminal", "discord:app")
-func NewUniqIDGenerator() *UniqIDGenerator {
-	return &UniqIDGenerator{
+func NewGenerator() *Generator {
+	return &Generator{
 		counter: 0,
 	}
 }
@@ -22,13 +22,13 @@ func NewUniqIDGenerator() *UniqIDGenerator {
 // - system is the prefix like "terminal" or "discord:app"
 // - addr is the memory address with counter
 // Example outputs: "terminal|0xc001", "discord:app|0xc002"
-func (g *UniqIDGenerator) Generate() string {
+func (g *Generator) Generate() string {
 	count := atomic.AddUint64(&g.counter, 1)
 	return fmt.Sprintf("0x%05x", count)
 }
 
 // Reset resets the counter to 0
 // This can be called when the node restarts
-func (g *UniqIDGenerator) Reset() {
+func (g *Generator) Reset() {
 	atomic.StoreUint64(&g.counter, 0)
 }
