@@ -6,6 +6,7 @@ import (
 	contextApi "github.com/ponyruntime/pony/api/context"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/pubsub"
@@ -18,7 +19,7 @@ import (
 // routing, and graceful shutdown. It uses an external status channel for notifications.
 type Host struct {
 	id          registry.ID
-	config      process.HostConfig
+	cfg         *process.EntryConfig
 	log         *zap.Logger
 	makeMsgHost func(ctx context.Context) pubsub.BatchHost
 	msgHost     pubsub.BatchHost
@@ -34,16 +35,16 @@ type Host struct {
 // NewProcessHost creates a new Host instance.
 func NewProcessHost(
 	id registry.ID,
-	config process.HostConfig,
+	config *process.EntryConfig,
 	log *zap.Logger,
 	msgHost func(context.Context) pubsub.BatchHost,
 ) *Host {
 	return &Host{
 		id:          id,
-		config:      config,
+		cfg:         config,
 		log:         log,
 		makeMsgHost: msgHost,
-		msgCh:       make(chan *pubsub.PIDBatch, config.BufferSize),
+		msgCh:       make(chan *pubsub.PIDBatch, config.HostConfig.BufferSize),
 		done:        make(chan struct{}),
 	}
 }
@@ -67,7 +68,7 @@ func (mph *Host) Start(ctx context.Context) (<-chan any, error) {
 
 	mph.msgHost = mph.makeMsgHost(ctx)
 
-	mph.pool = NewProcessPool(ctx, mph.config.Workers, mph.config.StepQueueSize, mph.log)
+	mph.pool = NewProcessPool(ctx, mph.cfg.HostConfig.Workers, mph.cfg.HostConfig.StepQueueSize, mph.log)
 	mph.pool.Start()
 
 	mph.startMessageWorkers()
@@ -91,7 +92,7 @@ func (mph *Host) finalizeProcess(pid pubsub.PID, result *runtime.Result) {
 
 // startMessageWorkers spawns worker goroutines to process routing messages.
 func (mph *Host) startMessageWorkers() {
-	for i := 0; i < mph.config.MessageWorkerCount; i++ {
+	for i := 0; i < mph.cfg.HostConfig.MessageWorkerCount; i++ {
 		mph.msgWG.Add(1)
 
 		go func() {
@@ -203,7 +204,7 @@ func (mph *Host) Stop(ctx context.Context) error {
 	mph.shutdown.Store(true)
 
 	mph.sendStatus("host shutting down")
-	if err := mph.pool.CancelAll(ctx); err != nil {
+	if err := mph.pool.CancelAll(ctx, time.Now().Add(mph.cfg.Lifecycle.StopTimeout)); err != nil {
 		mph.log.Error("error waiting for processes to stop", zap.Error(err))
 		return err
 	}

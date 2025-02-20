@@ -7,7 +7,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/topology"
@@ -154,7 +153,7 @@ func (p *ProcessPool) RemoveProcess(pid pubsub.PID) {
 }
 
 // CancelProcess sends a cancellation signal to a specific process
-func (p *ProcessPool) CancelProcess(pid pubsub.PID) error {
+func (p *ProcessPool) CancelProcess(pid pubsub.PID, deadline time.Time) error {
 	entryVal, exists := p.processes.Load(pid)
 	if !exists {
 		return process.ErrNoProcess
@@ -162,19 +161,8 @@ func (p *ProcessPool) CancelProcess(pid pubsub.PID) error {
 
 	entry := entryVal.(*processEntry)
 
-	// Create cancel message batch
-	batch := pubsub.NewBatch(
-		process.TopicEvents,
-		payload.New(topology.CancelEvent{
-			Event: topology.Event{
-				At:   time.Now(),
-				Kind: topology.KindCancel,
-			},
-		}),
-	)
-
 	// Send cancel message to process
-	if err := entry.process.Send(batch); err != nil {
+	if err := entry.process.Send(topology.Cancel(pid, deadline)); err != nil {
 		p.log.Warn("failed to send cancel message to process",
 			zap.String("pid", pid.String()),
 			zap.Error(err))
@@ -187,10 +175,10 @@ func (p *ProcessPool) CancelProcess(pid pubsub.PID) error {
 }
 
 // CancelAll sends cancellation signals to all processes and waits for completion
-func (p *ProcessPool) CancelAll(ctx context.Context) error {
+func (p *ProcessPool) CancelAll(ctx context.Context, deadline time.Time) error {
 	p.processes.Range(func(key, _ interface{}) bool {
 		pid := key.(pubsub.PID)
-		if err := p.CancelProcess(pid); err != nil {
+		if err := p.CancelProcess(pid, deadline); err != nil {
 			p.log.Warn("failed to cancel process",
 				zap.String("pid", pid.String()),
 				zap.Error(err))

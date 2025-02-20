@@ -5,7 +5,6 @@ import (
 	"errors"
 	ctxapi "github.com/ponyruntime/pony/api/context"
 	logsapi "github.com/ponyruntime/pony/api/logs"
-	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
@@ -252,16 +251,12 @@ func (t *Terminal) Terminate(ctx context.Context, pid pubsub.PID) error {
 }
 
 func (t *Terminal) Stop(ctx context.Context) error {
-	err := t.Send(ctx, pubsub.PID{}, pubsub.NewBatch(
-		process.TopicEvents,
-		payload.New(topology.CancelEvent{
-			Event: topology.Event{
-				At:   time.Now(),
-				Kind: topology.KindCancel,
-			},
-			Deadline: time.Now().Add(t.config.Lifecycle.StopTimeout),
-		}),
-	))
+	err := t.Send(
+		ctx,
+		pubsub.PID{},
+		topology.Cancel(pubsub.PID{ID: t.id}, time.Now().Add(t.config.Lifecycle.StopTimeout)),
+	)
+
 	if err != nil {
 		t.log.Warn("failed to send cancel event", zap.Error(err))
 	}

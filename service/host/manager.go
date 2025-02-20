@@ -41,13 +41,13 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 
 	cfg := new(process.EntryConfig)
 	if err := m.dtt.Unmarshal(entry.Data, cfg); err != nil {
-		return fmt.Errorf("failed to unmarshal config: %w", err)
+		return fmt.Errorf("failed to unmarshal cfg: %w", err)
 	}
 
 	cfg.InitDefaults()
 
 	if err := cfg.Validate(); err != nil {
-		return fmt.Errorf("invalid config: %w", err)
+		return fmt.Errorf("invalid cfg: %w", err)
 	}
 
 	m.mu.Lock()
@@ -56,7 +56,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	// Create new host instance
 	host := NewProcessHost(
 		entry.ID,
-		cfg.HostConfig,
+		cfg,
 		m.log,
 		func(ctx context.Context) pubsub.BatchHost {
 			return msg.NewHost(ctx, msg.HostConfig{

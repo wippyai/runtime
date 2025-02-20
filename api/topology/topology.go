@@ -1,6 +1,7 @@
 package topology
 
 import (
+	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/runtime"
 	"time"
@@ -37,8 +38,9 @@ type (
 	}
 
 	Event struct {
-		At   time.Time `json:"at"`
-		Kind Kind      `json:"kind"`
+		At   time.Time  `json:"at"`
+		Kind Kind       `json:"kind"`
+		From pubsub.PID `json:"from"`
 	}
 
 	MonitorEvent struct {
@@ -52,3 +54,12 @@ type (
 		Deadline time.Time `json:"deadline"`
 	}
 )
+
+func Cancel(from pubsub.PID, deadline time.Time) *pubsub.Batch {
+	return pubsub.NewBatch(
+		TopicEvents,
+		payload.New(&CancelEvent{
+			Event:    Event{At: time.Now(), From: from, Kind: KindCancel},
+			Deadline: deadline,
+		}))
+}
