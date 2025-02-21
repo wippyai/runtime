@@ -134,7 +134,7 @@ local function run()
             if msg.status == "completed" then
                 -- Optional: Add any specific handling for completion messages
             end
-            print(string.format("Message from child %d: %s", msg.child_number, json.encode(msg)))
+            -- print(string.format("Message from child %d: %s", msg.child_number, json.encode(msg)))
         end
 
         -- Check if we're done

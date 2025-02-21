@@ -6,20 +6,20 @@ local function run(args)
         error("No arguments provided")
     end
 
-    print(string.format("Child process started: %s with args: %s",
-        process.pid(),
-        json.encode(args)))
+    --print(string.format("Child process started: %s with args: %s",
+    --    process.pid(),
+    --    json.encode(args)))
 
     -- Simulate work
     --time.sleep("500ms")
 
     -- Send completion message
-    process.send(args.parent_pid, "child_msgs", {
-        from = process.pid(),
-        child_number = args.child_number,
-        status = "completed",
-        timestamp = time.now():format("15:04:05")
-    })
+    --process.send(args.parent_pid, "child_msgs", {
+    --    from = process.pid(),
+    --    child_number = args.child_number,
+    --    status = "completed",
+    --    timestamp = time.now():format("15:04:05")
+    --})
 
     return {
         name = args.name,

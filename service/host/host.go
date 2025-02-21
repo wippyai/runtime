@@ -83,7 +83,7 @@ func (mph *Host) finalizeProcess(pid pubsub.PID, result *runtime.Result) {
 			zap.String("pid", pid.String()),
 			zap.Error(result.Error))
 	} else {
-		mph.log.Info("process execution completed",
+		mph.log.Debug("process execution completed",
 			zap.String("pid", pid.String()))
 	}
 
