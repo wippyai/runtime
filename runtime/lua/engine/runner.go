@@ -249,7 +249,7 @@ func (e *Runner) Step(tasks ...*Task) ([]*Task, error) {
 }
 
 // Continue advances all internal until no longer possible and external signals are needed.
-func (e *Runner) Continue(ctx context.Context) error {
+func (e *Runner) Continue(ctx context.Context, block bool) error {
 	// Check if the context is already canceled.
 	select {
 	case <-ctx.Done():
@@ -280,7 +280,7 @@ func (e *Runner) Continue(ctx context.Context) error {
 	}
 
 	// block for any pending task
-	tasks, err = e.taskGroup.Wait(ctx, e.cvm, false)
+	tasks, err = e.taskGroup.Wait(ctx, e.cvm, block)
 	if err != nil {
 		return err
 	}

@@ -18,7 +18,7 @@ import (
 // Mock implementations
 type mockManagedHost struct{}
 
-func (m *mockManagedHost) Send(ctx context.Context, pid pubsub.PID, msg *pubsub.Batch) error {
+func (m *mockManagedHost) Send(ctx context.Context, msg *pubsub.Package) error {
 	return nil
 }
 
@@ -32,7 +32,7 @@ func (m *mockManagedHost) Launch(ctx context.Context, launch *process.LaunchProc
 
 type mockDelegatedHost struct{}
 
-func (m *mockDelegatedHost) Send(ctx context.Context, pid pubsub.PID, msg *pubsub.Batch) error {
+func (m *mockDelegatedHost) Send(ctx context.Context, msg *pubsub.Package) error {
 	return nil
 }
 
@@ -69,7 +69,7 @@ func TestHostRegistry_RegisterHost(t *testing.T) {
 	ctx := context.Background()
 	hostRegistry, bus := newTestHostRegistry(t)
 	require.NoError(t, hostRegistry.Start(ctx))
-	defer hostRegistry.Stop()
+	defer func() { assert.NoError(t, hostRegistry.Stop()) }()
 
 	responses := make(chan events.Event, 1)
 	sub, err := eventbus.NewSubscriber(
@@ -180,7 +180,7 @@ func TestHostRegistry_DeleteHost(t *testing.T) {
 	ctx := context.Background()
 	hostRegistry, bus := newTestHostRegistry(t)
 	require.NoError(t, hostRegistry.Start(ctx))
-	defer hostRegistry.Stop()
+	defer func() { assert.NoError(t, hostRegistry.Stop()) }()
 
 	responses := make(chan events.Event, 1)
 	sub, err := eventbus.NewSubscriber(

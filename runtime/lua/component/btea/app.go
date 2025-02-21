@@ -325,7 +325,7 @@ func (p *App) Step() (bool, error) {
 	case <-p.ctx.Done():
 		return false, p.ctx.Err()
 	default:
-		err := p.runner.Continue(p.ctx)
+		err := p.runner.Continue(p.ctx, true)
 		if p.firstError == nil && err != nil {
 			p.firstError = err
 		}

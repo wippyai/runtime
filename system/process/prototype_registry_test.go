@@ -22,7 +22,7 @@ type mockProcess struct {
 	stepErr error
 }
 
-func (m *mockProcess) Send(batch *pubsub.Batch) error {
+func (m *mockProcess) Send(ctx context.Context, batch *pubsub.Package) error {
 	return m.sendErr
 }
 
@@ -140,7 +140,7 @@ func TestPrototypeRegistry_RegisterPrototype(t *testing.T) {
 
 		proc, err := protoRegistry.Create(registry.ParseID("test:error-process"))
 		require.NoError(t, err)
-		assert.Error(t, proc.Send(nil))
+		assert.Error(t, proc.Send(context.Background(), nil))
 
 		_, err = proc.Step()
 		assert.Error(t, err)

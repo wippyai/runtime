@@ -126,7 +126,7 @@ func (p *Process) Step() (bool, error) {
 	}
 
 	// Continue the runner
-	if err := p.runner.Continue(p.ctx); err != nil {
+	if err := p.runner.Continue(p.ctx, false); err != nil {
 		p.complete(err, nil)
 		return false, err
 	}
