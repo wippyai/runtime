@@ -9,6 +9,7 @@ import (
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/topology"
+	"time"
 )
 
 // Event system and kind constants for the workflow package
@@ -39,10 +40,11 @@ const (
 
 var (
 	// ErrNoProcess indicates that no process is currently running
-	ErrNoProcess  = errors.New("no process running")
-	ErrHostBusy   = errors.New("process host is busy")
-	ErrHostDead   = errors.New("process host is dead")
-	ErrTerminated = errors.New("process terminated")
+	ErrNoProcess    = errors.New("no process running")
+	ErrHostBusy     = errors.New("process host is busy")
+	ErrMaxProcesses = errors.New("maximum number of processes reached")
+	ErrHostDead     = errors.New("process host is dead")
+	ErrTerminated   = errors.New("process terminated")
 )
 
 type (
@@ -77,6 +79,7 @@ type (
 		Start(ctx context.Context, start *StartProcess) (pubsub.PID, error)
 		StartMonitored(context.Context, pubsub.PID, *StartProcess) (pubsub.PID, error)
 		Terminate(ctx context.Context, pid pubsub.PID) error
+		Cancel(ctx context.Context, from, pid pubsub.PID, deadline time.Time) error
 		Topology() Topology
 	}
 

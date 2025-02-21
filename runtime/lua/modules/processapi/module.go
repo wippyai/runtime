@@ -12,6 +12,7 @@ import (
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 	"strings"
+	"time"
 )
 
 // ControlModule represents the process control extension module
@@ -36,7 +37,6 @@ func (m *ControlModule) Name() string {
 // Loader is the entry point for loading the module into Lua
 func (m *ControlModule) Loader(l *lua.LState) int {
 	// Create module table
-
 	mod := l.NewTable()
 
 	// Register functions
@@ -46,12 +46,13 @@ func (m *ControlModule) Loader(l *lua.LState) int {
 		"input_args": m.info.initArgs,
 
 		"listen": m.listen,
-		"events": m.events, // New dedicated events function
+		"events": m.events,
 
 		"send":            m.send,
 		"spawn":           m.spawn,
 		"spawn_monitored": m.spawnMonitored,
 		"terminate":       m.terminate,
+		"cancel":          m.cancel,
 	})
 
 	mod.RawSetString("EVENT_CANCEL", lua.LString(topology.KindCancel))
@@ -148,6 +149,11 @@ func (m *ControlModule) spawn(l *lua.LState) int {
 		return 2
 	}
 
+	self, ok := m.checkProcess(l)
+	if !ok {
+		return 2
+	}
+
 	// Get required arguments
 	id := l.CheckString(1) // This should be in format "namespace:name"
 	hostID := l.CheckString(2)
@@ -177,6 +183,13 @@ func (m *ControlModule) spawn(l *lua.LState) int {
 		l.Push(lua.LString(err.Error()))
 		return 2
 	}
+
+	m.log.Debug("process spawned",
+		zap.String("from", self.PID.String()),
+		zap.String("pid", pid.String()),
+		zap.String("host", hostID),
+		zap.String("process", id),
+	)
 
 	// Return PID string
 	l.Push(lua.LString(pid.String()))
@@ -225,6 +238,13 @@ func (m *ControlModule) spawnMonitored(l *lua.LState) int {
 		return 2
 	}
 
+	m.log.Debug("monitored process spawned",
+		zap.String("from", procCtx.PID.String()),
+		zap.String("pid", pid.String()),
+		zap.String("host", hostID),
+		zap.String("process", id),
+	)
+
 	// Return PID string
 	l.Push(lua.LString(pid.String()))
 	return 1
@@ -232,6 +252,11 @@ func (m *ControlModule) spawnMonitored(l *lua.LState) int {
 
 func (m *ControlModule) terminate(l *lua.LState) int {
 	manager, ok := m.getProcessManager(l)
+	if !ok {
+		return 2
+	}
+
+	self, ok := m.checkProcess(l)
 	if !ok {
 		return 2
 	}
@@ -251,6 +276,81 @@ func (m *ControlModule) terminate(l *lua.LState) int {
 		l.Push(lua.LString(err.Error()))
 		return 2
 	}
+
+	m.log.Debug("process terminated",
+		zap.String("from", self.PID.String()),
+		zap.String("pid", pid.String()),
+	)
+
+	l.Push(lua.LTrue)
+	return 1
+}
+
+func (m *ControlModule) cancel(l *lua.LState) int {
+	manager, ok := m.getProcessManager(l)
+	if !ok {
+		return 2
+	}
+
+	// Require both PID and deadline arguments
+	if l.GetTop() < 2 {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("cancel requires two arguments: pid and deadline"))
+		return 2
+	}
+
+	// Parse PID argument
+	pidStr := l.CheckString(1)
+	pid, err := pubsub.ParsePID(pidStr)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	// Get current process context
+	procCtx, ok := m.checkProcess(l)
+	if !ok {
+		return 2
+	}
+
+	// Parse required deadline argument
+	var deadline time.Time
+	switch l.Get(2).Type() {
+	case lua.LTString:
+		// Parse as duration string (e.g. "1s", "500ms")
+		durationStr := l.CheckString(2)
+		duration, err := time.ParseDuration(durationStr)
+		if err != nil {
+			l.Push(lua.LNil)
+			l.Push(lua.LString(fmt.Sprintf("invalid duration format: %v", err)))
+			return 2
+		}
+		deadline = time.Now().Add(duration)
+
+	case lua.LTNumber:
+		// Parse as milliseconds
+		ms := l.CheckNumber(2)
+		deadline = time.Now().Add(time.Duration(ms) * time.Millisecond)
+
+	default:
+		l.Push(lua.LNil)
+		l.Push(lua.LString("deadline must be either a duration string or milliseconds number"))
+		return 2
+	}
+
+	// Cancel process with deadline
+	if err := manager.Cancel(l.Context(), procCtx.PID, pid, deadline); err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	m.log.Debug("process cancel requested",
+		zap.String("from", procCtx.PID.String()),
+		zap.String("pid", pid.String()),
+		zap.Time("deadline", deadline),
+	)
 
 	l.Push(lua.LTrue)
 	return 1

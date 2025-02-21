@@ -3,6 +3,7 @@ package host
 import (
 	"context"
 	"github.com/ponyruntime/pony/api/process"
+	"log"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -20,10 +21,12 @@ type processEntry struct {
 
 // ProcessPool manages concurrent process execution
 type ProcessPool struct {
-	workers   int
-	log       *zap.Logger
-	processes sync.Map        // map[pubsub.PID]*processEntry
-	workCh    chan pubsub.PID // Channel for scheduling work
+	workers      int
+	numProcesses atomic.Int32
+	maxProcesses int
+	log          *zap.Logger
+	processes    sync.Map        // map[pubsub.PID]*processEntry
+	workCh       chan pubsub.PID // Channel for scheduling work
 
 	wg        sync.WaitGroup // Worker goroutines WaitGroup
 	processWG sync.WaitGroup // Active processes WaitGroup
@@ -35,21 +38,29 @@ func NewProcessPool(
 	ctx context.Context,
 	workers int,
 	queueSize int,
+	maxProcesses int,
 	log *zap.Logger,
 ) *ProcessPool {
 	ctx, cancel := context.WithCancel(ctx)
 
 	return &ProcessPool{
-		workers: workers,
-		log:     log,
-		workCh:  make(chan pubsub.PID, queueSize),
-		ctx:     ctx,
-		cancel:  cancel,
+		workers:      workers,
+		maxProcesses: maxProcesses,
+		log:          log,
+		workCh:       make(chan pubsub.PID, queueSize),
+		ctx:          ctx,
+		cancel:       cancel,
 	}
 }
 
 // AddProcess registers a new process with the pool
 func (p *ProcessPool) AddProcess(pid pubsub.PID, proc process.Process) error {
+	log.Printf("adding process %s to pool: %v => %v", pid.String(), p.maxProcesses, p.numProcesses.Load())
+	if p.maxProcesses != 0 && p.numProcesses.Load() >= int32(p.maxProcesses) {
+		log.Println("max processes reached, cannot add new process", zap.String("pid", pid.String()))
+		return process.ErrMaxProcesses
+	}
+
 	entry := &processEntry{
 		process: proc,
 	}
@@ -59,6 +70,7 @@ func (p *ProcessPool) AddProcess(pid pubsub.PID, proc process.Process) error {
 	}
 
 	p.processWG.Add(1)
+	p.numProcesses.Add(1)
 
 	// Schedule initial execution
 	return p.Schedule(pid)
@@ -148,6 +160,7 @@ func (p *ProcessPool) worker() {
 func (p *ProcessPool) RemoveProcess(pid pubsub.PID) {
 	if _, exists := p.processes.LoadAndDelete(pid); exists {
 		p.processWG.Done()
+		p.numProcesses.Add(^int32(0))
 	}
 }
 
