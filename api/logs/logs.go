@@ -50,4 +50,10 @@ type (
 	}
 )
 
-func GetLogger(ctx context.Context) zap.Logger { return ctx.Value(ctxapi.LoggerCtx).(zap.Logger) }
+func GetLogger(ctx context.Context) *zap.Logger {
+	if l, ok := ctx.Value(ctxapi.LoggerCtx).(*zap.Logger); ok {
+		return l
+	}
+
+	return zap.NewNop()
+}

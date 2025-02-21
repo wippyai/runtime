@@ -68,6 +68,7 @@ func (mph *Host) Start(ctx context.Context) (<-chan any, error) {
 	mph.msgHost = mph.makeMsgHost(ctx)
 
 	mph.ctx = context.WithValue(ctx, contextApi.HostCtx, mph)
+	mph.ctx = context.WithValue(mph.ctx, contextApi.LoggerCtx, mph.log)
 
 	mph.pool = NewProcessPool(
 		ctx,

@@ -169,6 +169,8 @@ func (t *Terminal) prepareContext(ctx context.Context, pid pubsub.PID) context.C
 	})
 
 	pCtx = context.WithValue(pCtx, ctxapi.IDCtx, pid.ID)
+	pCtx = context.WithValue(pCtx, ctxapi.HostCtx, t)
+	pCtx = context.WithValue(pCtx, ctxapi.LoggerCtx, t.log)
 
 	return pCtx
 }
@@ -267,7 +269,6 @@ func (t *Terminal) Terminate(ctx context.Context, pid pubsub.PID) error {
 }
 
 func (t *Terminal) Stop(ctx context.Context) error {
-
 	if runner := t.runner.Load(); runner != nil {
 		err := t.Send(
 			ctx,
