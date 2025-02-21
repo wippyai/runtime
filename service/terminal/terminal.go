@@ -170,7 +170,7 @@ func (t *Terminal) prepareContext(ctx context.Context, pid pubsub.PID) context.C
 
 	pCtx = context.WithValue(pCtx, ctxapi.IDCtx, pid.ID)
 	pCtx = context.WithValue(pCtx, ctxapi.HostCtx, t)
-	pCtx = context.WithValue(pCtx, ctxapi.LoggerCtx, t.log)
+	pCtx = context.WithValue(pCtx, ctxapi.LoggerCtx, t.log.Named(pid.UniqID))
 
 	return pCtx
 }

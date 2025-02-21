@@ -3,7 +3,7 @@ package host
 import (
 	"context"
 	"errors"
-	contextApi "github.com/ponyruntime/pony/api/context"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/service/host"
 	"sync"
 	"sync/atomic"
@@ -67,8 +67,7 @@ func (mph *Host) Start(ctx context.Context) (<-chan any, error) {
 	// Wrap the incoming context with an on-complete callback.
 	mph.msgHost = mph.makeMsgHost(ctx)
 
-	mph.ctx = context.WithValue(ctx, contextApi.HostCtx, mph)
-	mph.ctx = context.WithValue(mph.ctx, contextApi.LoggerCtx, mph.log)
+	mph.ctx = context.WithValue(ctx, ctxapi.HostCtx, mph)
 
 	mph.pool = NewProcessPool(
 		ctx,
@@ -171,14 +170,15 @@ func (mph *Host) Launch(ctx context.Context, launch *process.LaunchProcess) (pub
 
 func (mph *Host) prepareContext(ctx context.Context, pid pubsub.PID) context.Context {
 	// security and other core keys
-	pCtx := contextApi.MergeContext(mph.ctx, ctx)
+	pCtx := ctxapi.MergeContext(mph.ctx, ctx)
 
 	// lifecycle
 	pCtx = process.GetTopology(pCtx).AttachToContext(pCtx)
 	pCtx = process.WithAddedOnComplete(pCtx, mph.finalizeProcess)
 
-	pCtx = context.WithValue(pCtx, contextApi.IDCtx, pid.ID)
-	pCtx = context.WithValue(pCtx, contextApi.WakeUpKey, func() {
+	pCtx = context.WithValue(pCtx, ctxapi.IDCtx, pid.ID)
+	pCtx = context.WithValue(pCtx, ctxapi.LoggerCtx, mph.log.Named(pid.UniqID))
+	pCtx = context.WithValue(pCtx, ctxapi.WakeUpKey, func() {
 		_ = mph.pool.Schedule(pid) // it's ok since it means process no longer found, possible during termination
 	})
 
