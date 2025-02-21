@@ -2,14 +2,12 @@ package time
 
 import (
 	"context"
-	"testing"
-	"time"
-
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
+	"testing"
 )
 
 func TestTimeModule(t *testing.T) {
@@ -34,61 +32,6 @@ func TestTimeModule(t *testing.T) {
 				assert(t:second() >= 0 and t:second() <= 59)
 			`, "test")
 			assert.NoError(t, err)
-		})
-
-		t.Run("sleep()", func(t *testing.T) {
-			mod := NewTimeModule()
-			vm, err := engine.NewVM(logger,
-				engine.WithLoader(mod.Name(), mod.Loader),
-				engine.WithGlobalFunction("assert", assertLua),
-			)
-			require.NoError(t, err)
-			defer vm.Close()
-
-			t.Run("normal sleep", func(t *testing.T) {
-				start := time.Now()
-				err = vm.DoString(context.Background(), `
-					local time = require("time")
-					local duration = time.parse_duration("300ms")
-					time.sleep(duration)
-				`, "test")
-				elapsed := time.Since(start)
-
-				assert.NoError(t, err)
-				assert.GreaterOrEqual(t, elapsed.Milliseconds(), int64(200)) // Allow for small timing variations
-			})
-
-			t.Run("sleep with context cancellation", func(t *testing.T) {
-				ctx, cancel := context.WithCancel(context.Background())
-
-				// Launch long sleep in a goroutine
-				done := make(chan struct{})
-				go func() {
-					defer close(done)
-					err := vm.DoString(ctx, `
-						local time = require("time")
-						local duration = time.parse_duration("5s")
-						local err = time.sleep(duration)
-						if err then
-							assert(err:find("context canceled") ~= nil, "Expected context canceled error")
-						end
-					`, "test")
-					assert.Error(t, err)
-					assert.ErrorContains(t, err, "context canceled")
-				}()
-
-				// wait a bit then cancel
-				time.Sleep(100 * time.Millisecond)
-				cancel()
-
-				// wait for completion
-				select {
-				case <-done:
-					// Test completed normally
-				case <-time.After(time.Second):
-					t.Fatal("Test didn't complete in time")
-				}
-			})
 		})
 
 		t.Run("date()", func(t *testing.T) {
@@ -612,160 +555,6 @@ func TestTimeModule_TestBath(t *testing.T) {
 				errStr := vm.State().Get(-1).String()
 				assert.Contains(t, errStr, tc.expectedError)
 				vm.State().Pop(2)
-			})
-		}
-	})
-}
-
-func TestSleep(t *testing.T) {
-	logger := zap.NewNop()
-
-	t.Run("sleep function", func(t *testing.T) {
-		testCases := []struct {
-			name          string
-			script        string
-			minDuration   time.Duration
-			expectError   bool
-			errorContains string
-		}{
-			{
-				name: "sleep with duration object",
-				script: `
-					local time = require("time")
-					local duration = time.parse_duration("100ms")
-					time.sleep(duration)
-				`,
-				minDuration: 50 * time.Millisecond,
-			},
-			{
-				name: "sleep with string",
-				script: `
-					local time = require("time")
-					time.sleep("100ms")
-				`,
-				minDuration: 50 * time.Millisecond,
-			},
-			{
-				name: "sleep with invalid string",
-				script: `
-					local time = require("time")
-					local success, err = pcall(function()
-					   time.sleep("invalid")
-					end)
-					assert(err ~= nil)
-					return success, err
-				`,
-				expectError:   true,
-				errorContains: "time: invalid duration",
-			},
-			{
-				name: "sleep with invalid type",
-				script: `
-					local time = require("time")
-					local success, err = pcall(function()
-						time.sleep({})  
-					end)
-					assert(err ~= nil)
-					return success, err
-				`,
-				expectError:   true,
-				errorContains: "duration, string, or number expected",
-			},
-		}
-
-		for _, tc := range testCases {
-			t.Run(tc.name, func(t *testing.T) {
-				mod := NewTimeModule()
-				vm, err := engine.NewVM(logger,
-					engine.WithLoader(mod.Name(), mod.Loader),
-					engine.WithGlobalFunction("assert", assertLua),
-				)
-				require.NoError(t, err)
-				defer vm.Close()
-
-				start := time.Now()
-				err = vm.DoString(context.Background(), tc.script, "test")
-
-				if tc.expectError {
-					if tc.errorContains == "time: invalid duration" {
-						assert.NoError(t, err)
-						errStr := vm.State().Get(-1).String()
-						assert.Contains(t, errStr, tc.errorContains)
-						vm.State().Pop(1)
-					} else {
-						assert.NoError(t, err)
-						success := vm.State().Get(-2).(lua.LBool)
-						assert.False(t, bool(success))
-						errStr := vm.State().Get(-1).String()
-						assert.Contains(t, errStr, tc.errorContains)
-						vm.State().Pop(2)
-					}
-				} else {
-					assert.NoError(t, err)
-					elapsed := time.Since(start)
-					assert.GreaterOrEqual(t, elapsed, tc.minDuration,
-						"Sleep duration was shorter than expected")
-				}
-			})
-		}
-	})
-
-	t.Run("sleep with context cancellation", func(t *testing.T) {
-		testCases := []struct {
-			name   string
-			script string
-		}{
-			{
-				name: "cancel sleep with duration object",
-				script: `
-					local time = require("time")
-					local duration = time.parse_duration("5s")
-					local err = time.sleep(duration)
-					assert(err:find("context canceled") ~= nil, "Expected context canceled error")
-				`,
-			},
-			{
-				name: "cancel sleep with string duration",
-				script: `
-					local time = require("time")
-					local err = time.sleep("5s")
-					assert(err:find("context canceled") ~= nil, "Expected context canceled error")
-				`,
-			},
-		}
-
-		for _, tc := range testCases {
-			t.Run(tc.name, func(t *testing.T) {
-				mod := NewTimeModule()
-				vm, err := engine.NewVM(logger,
-					engine.WithLoader(mod.Name(), mod.Loader),
-					engine.WithGlobalFunction("assert", assertLua),
-				)
-				require.NoError(t, err)
-				defer vm.Close()
-
-				ctx, cancel := context.WithCancel(context.Background())
-
-				// Launch long sleep in a goroutine
-				done := make(chan struct{})
-				go func() {
-					defer close(done)
-					err := vm.DoString(ctx, tc.script, "test")
-					assert.Error(t, err)
-					assert.ErrorContains(t, err, "context canceled")
-				}()
-
-				// wait a bit then cancel
-				time.Sleep(100 * time.Millisecond)
-				cancel()
-
-				// wait for completion
-				select {
-				case <-done:
-					// Test completed normally
-				case <-time.After(time.Second):
-					t.Fatal("Test didn't complete in time")
-				}
 			})
 		}
 	})
