@@ -121,7 +121,7 @@ func (p *App) Init() tea.Cmd {
 // scheduleCancel centralizes the cancellation routine.
 func (p *App) scheduleCancel() {
 	go func() {
-		err := p.Send(p.ctx, topology.Cancel(p.pid, p.pid, time.Now().Add(stopTimeout)))
+		err := p.Send(topology.Cancel(p.pid, p.pid, time.Now().Add(stopTimeout)))
 
 		if err != nil {
 			p.log.Error("failed to send cancel event", zap.Error(err))
@@ -144,7 +144,7 @@ func (p *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		if msg.String() == ExitKey {
-			err := p.Send(p.ctx, topology.Cancel(p.pid, p.pid, time.Now().Add(stopTimeout)))
+			err := p.Send(topology.Cancel(p.pid, p.pid, time.Now().Add(stopTimeout)))
 			if err != nil {
 				p.log.Error("failed to send cancel event", zap.Error(err))
 			}
@@ -334,15 +334,13 @@ func (p *App) Step() (bool, error) {
 }
 
 // Send transcodes and publishes messages to the Lua process.
-func (p *App) Send(ctx context.Context, pkg *pubsub.Package) error {
+func (p *App) Send(pkg *pubsub.Package) error {
 	if pkg == nil {
 		return errors.New("messages are nil")
 	}
 	select {
 	case <-p.ctx.Done():
 		return p.ctx.Err()
-	case <-ctx.Done():
-		return ctx.Err()
 	case <-p.done:
 		return errors.New("process stopped")
 	default:

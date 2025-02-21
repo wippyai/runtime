@@ -140,7 +140,7 @@ func TestPrototypeRegistry_RegisterPrototype(t *testing.T) {
 
 		proc, err := protoRegistry.Create(registry.ParseID("test:error-process"))
 		require.NoError(t, err)
-		assert.Error(t, proc.Send(context.Background(), nil))
+		assert.Error(t, proc.Send(nil))
 
 		_, err = proc.Step()
 		assert.Error(t, err)

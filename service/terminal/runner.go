@@ -91,8 +91,8 @@ func (r *Runner) run() {
 	}
 }
 
-func (r *Runner) Send(msgBatch *pubsub.Package) error {
-	return r.proc.Send(r.ctx, msgBatch)
+func (r *Runner) Send(pkg *pubsub.Package) error {
+	return r.proc.Send(pkg)
 }
 
 func (r *Runner) Stop() {

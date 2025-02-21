@@ -21,7 +21,6 @@ type HostConfig struct {
 // sendJob represents an asynchronous send operation.
 type sendJob struct {
 	pkg *api.Package
-	ctx context.Context
 }
 
 // Host implements a local pubsub for a single host with asynchronous sending.
@@ -93,19 +92,15 @@ func (h *Host) Detach(pid api.PID) {
 // Send enqueues a send job for the given pid and pkg.
 // It first attempts to send immediately, then falls back to a retry with timeout
 // if the channel is full. Returns error if both attempts fail or context expires.
-func (h *Host) Send(ctx context.Context, pkg *api.Package) error {
+func (h *Host) Send(pkg *api.Package) error {
 	job := sendJob{
 		pkg: pkg,
-		ctx: ctx,
 	}
 
 	// First attempt: immediate send into the job channel.
 	select {
 	case h.jobCh <- job:
 		return nil
-	case <-ctx.Done():
-		h.logger.Warn("send cancelled by context", zap.String("pid", pkg.PID.String()), zap.Error(ctx.Err()))
-		return ctx.Err()
 	case <-h.ctx.Done():
 		h.logger.Warn("send cancelled by host shutdown", zap.String("pid", pkg.PID.String()))
 		return h.ctx.Err()
@@ -117,9 +112,6 @@ func (h *Host) Send(ctx context.Context, pkg *api.Package) error {
 		select {
 		case h.jobCh <- job:
 			return nil
-		case <-ctx.Done():
-			h.logger.Warn("send cancelled by context during retry", zap.String("pid", pkg.PID.String()), zap.Error(ctx.Err()))
-			return ctx.Err()
 		case <-h.ctx.Done():
 			h.logger.Warn("send cancelled by host shutdown", zap.String("pid", pkg.PID.String()))
 			return h.ctx.Err()
@@ -137,10 +129,6 @@ func (h *Host) worker() {
 		case <-h.ctx.Done():
 			return
 		case job := <-h.jobCh:
-			if job.ctx.Err() != nil {
-				continue
-			}
-
 			rec, ok := h.receivers.Load(job.pkg.PID)
 			if !ok {
 				continue
@@ -170,10 +158,6 @@ func (h *Host) deliverPackage(job sendJob, ch chan *api.Package) {
 		select {
 		case ch <- job.pkg:
 			// Successfully sent after waiting
-		case <-job.ctx.Done():
-			h.logger.Warn("send cancelled while delivering to Package receiver",
-				zap.String("pid", job.pkg.PID.String()),
-				zap.Error(job.ctx.Err()))
 		case <-time.After(h.config.DeliveryTimeout):
 			h.logger.Warn("delivery timeout exceeded; dropping Package message",
 				zap.String("pid", job.pkg.PID.String()),

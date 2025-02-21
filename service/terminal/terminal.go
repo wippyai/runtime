@@ -230,9 +230,9 @@ func (t *Terminal) Detach(pid pubsub.PID) {
 	// nothing
 }
 
-func (t *Terminal) Send(ctx context.Context, msg *pubsub.Package) error {
+func (t *Terminal) Send(msg *pubsub.Package) error {
 	// we dont really use pid since we always host a single process
-	return t.execOp(ctx, op{
+	return t.execOp(t.ctx, op{
 		typ:    opSend,
 		msg:    msg,
 		result: make(chan error, 1),
@@ -270,7 +270,6 @@ func (t *Terminal) Terminate(ctx context.Context, pid pubsub.PID) error {
 func (t *Terminal) Stop(ctx context.Context) error {
 	if runner := t.runner.Load(); runner != nil {
 		err := t.Send(
-			ctx,
 			topology.Cancel(
 				pubsub.PID{ID: t.id},
 				runner.pid,

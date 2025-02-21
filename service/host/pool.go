@@ -173,7 +173,7 @@ func (p *ProcessPool) CancelProcess(pid pubsub.PID, deadline time.Time) error {
 	entry := entryVal.(*processEntry)
 
 	// Send cancel message to process
-	if err := entry.process.Send(p.ctx, topology.Cancel(pid, pid, deadline)); err != nil {
+	if err := entry.process.Send(topology.Cancel(pid, pid, deadline)); err != nil {
 		p.log.Warn("failed to send cancel message to process",
 			zap.String("pid", pid.String()),
 			zap.Error(err))

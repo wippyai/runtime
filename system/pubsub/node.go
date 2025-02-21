@@ -40,7 +40,7 @@ func (n *Node) UnregisterHost(hostID api.HostID) {
 	n.hosts.Delete(hostID)
 }
 
-func (n *Node) Send(ctx context.Context, pkg *api.Package) error {
+func (n *Node) Send(pkg *api.Package) error {
 	// Handle local messages
 	if pkg.PID.Node == "" || pkg.PID.Node == n.nodeID {
 		if h, ok := n.hosts.Load(pkg.PID.Host); ok {
@@ -48,14 +48,14 @@ func (n *Node) Send(ctx context.Context, pkg *api.Package) error {
 			if !ok {
 				return fmt.Errorf("host %s has invalid type", pkg.PID.Host)
 			}
-			return host.Send(ctx, pkg)
+			return host.Send(pkg)
 		}
 		return fmt.Errorf("host %s not found in node", pkg.PID.Host)
 	}
 
 	// Handle upstream messages if we have an upstream configured
 	if upstream := n.upstream.Load(); upstream != nil {
-		return (*upstream).Send(ctx, pkg)
+		return (*upstream).Send(pkg)
 	}
 
 	return fmt.Errorf("no upstream available for non-local node %s", pkg.PID.Node)
