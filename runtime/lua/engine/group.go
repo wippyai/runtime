@@ -93,6 +93,8 @@ func (g *TaskGroup) GetTaskCount() int {
 
 // Wait processes all available results and returns tasks ready for resumption
 func (g *TaskGroup) Wait(ctx context.Context, cvm CVM, block bool) ([]*Task, error) {
+	defer g.awaken.Store(false)
+
 	tasks := make([]*Task, 0)
 
 	// Process all available results

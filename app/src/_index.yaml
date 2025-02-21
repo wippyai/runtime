@@ -1,5 +1,5 @@
 version: "1.0"
-namespace: supervisor
+namespace: demos
 
 meta:
   depends_on: [ "ns:system" ]
