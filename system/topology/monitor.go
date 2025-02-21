@@ -99,7 +99,7 @@ func (m *monitor) Notify(pid pubsub.PID, result *runtime.Result) {
 			}),
 		)
 
-		if err := m.upstream.Send(m.ctx, pkg); err != nil {
+		if err := m.upstream.Send(pkg); err != nil {
 			return true
 		}
 		return true

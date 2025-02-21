@@ -85,7 +85,7 @@ type (
 
 	// Host defines the interface for process execution environments
 	Host interface {
-		Send(ctx context.Context, msg *pubsub.Package) error
+		pubsub.Receiver
 		Terminate(ctx context.Context, pid pubsub.PID) error
 	}
 

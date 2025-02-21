@@ -137,8 +137,8 @@ func (m *Manager) StartMonitored(ctx context.Context, from pubsub.PID, ps *api.S
 }
 
 // Cancel sends a cancellation event to the process and its monitors
-func (m *Manager) Cancel(ctx context.Context, from, pid pubsub.PID, deadline time.Time) error {
-	if err := m.topology.upstream.Send(ctx, topology.Cancel(from, pid, deadline)); err != nil {
+func (m *Manager) Cancel(_ context.Context, from, pid pubsub.PID, deadline time.Time) error {
+	if err := m.topology.upstream.Send(topology.Cancel(from, pid, deadline)); err != nil {
 		m.logger.Error("failed to send cancel event",
 			zap.String("pid", pid.String()),
 			zap.Error(err))

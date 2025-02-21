@@ -34,7 +34,8 @@ func init() {
 		WithDenied(registry.ID{Name: "command"}).
 		WithDenied(registry.ID{Name: "pubsub"}).
 		WithDenied(registry.ID{Name: "process"}).
-		WithPreloaded(code.Preload{Name: "channel", ModuleID: registry.ID{Name: "channel"}})
+		WithPreloaded(code.Preload{Name: "channel", ModuleID: registry.ID{Name: "channel"}}).
+		WithPreloaded(code.Preload{Name: "func", ModuleID: registry.ID{Name: "func"}})
 
 	layers = component.WithLayerInitializer(func() []engine.RunnerOption {
 		channels := channel.NewChannelLayer()

@@ -122,7 +122,7 @@ func (mph *Host) startMessageWorkers() {
 					}
 
 					entry := entryVal.(*processEntry)
-					if err := entry.process.Send(mph.ctx, m); err != nil {
+					if err := entry.process.Send(m); err != nil {
 						mph.log.Error("failed to send message to process",
 							zap.String("pid", m.PID.String()),
 							zap.Error(err))
@@ -198,11 +198,11 @@ func (mph *Host) Terminate(ctx context.Context, pid pubsub.PID) error {
 }
 
 // Send forwards a message via the underlying msgHost, rejecting if shutdown is in progress.
-func (mph *Host) Send(ctx context.Context, batch *pubsub.Package) error {
+func (mph *Host) Send(pkg *pubsub.Package) error {
 	if mph.shutdown.Load() {
 		return errors.New("host is shutting down, rejecting send")
 	}
-	return mph.msgHost.Send(ctx, batch)
+	return mph.msgHost.Send(pkg)
 }
 
 // Attach registers a receiver channel with the underlying msgHost, rejecting if shutdown is in progress.

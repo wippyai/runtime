@@ -43,7 +43,7 @@ func (n *mockNode) UnregisterHost(id string) {
 	n.hosts.Delete(id)
 }
 
-func (n *mockNode) Send(ctx context.Context, pkg *api.Package) error {
+func (n *mockNode) Send(pkg *api.Package) error {
 	return n.sendErr
 }
 
@@ -60,7 +60,7 @@ type mockHost struct {
 	sendErr error
 }
 
-func (h *mockHost) Send(ctx context.Context, pkg *api.Package) error {
+func (h *mockHost) Send(pkg *api.Package) error {
 	return h.sendErr
 }
 
@@ -277,7 +277,7 @@ func TestManager_Send(t *testing.T) {
 				},
 			}
 
-			err := manager.Send(ctx, pkg)
+			err := manager.Send(pkg)
 
 			if tt.shouldError {
 				assert.Error(t, err)

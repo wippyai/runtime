@@ -131,8 +131,8 @@ func (m *NodeManager) sendReject(path events.Path, reason string) {
 }
 
 // Send delegates message sending to the underlying node
-func (m *NodeManager) Send(ctx context.Context, pkg *api.Package) error {
-	return m.node.Send(ctx, pkg)
+func (m *NodeManager) Send(pkg *api.Package) error {
+	return m.node.Send(pkg)
 }
 
 // Attach delegates attachment to the underlying node

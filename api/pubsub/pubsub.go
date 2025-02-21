@@ -75,7 +75,7 @@ type (
 
 	// Receiver defines the interface for components that can send messages upstream in the pub/sub system
 	Receiver interface {
-		Send(context.Context, *Package) error
+		Send(*Package) error
 	}
 )
 

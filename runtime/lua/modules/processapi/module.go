@@ -145,7 +145,7 @@ func (m *ControlModule) send(l *lua.LState) int {
 	}
 
 	// Send message using node
-	if err := node.Send(l.Context(), pkg); err != nil {
+	if err := node.Send(pkg); err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
 		return 2

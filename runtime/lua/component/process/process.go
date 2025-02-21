@@ -149,7 +149,7 @@ func (p *Process) Step() (bool, error) {
 }
 
 // Send handles incoming messages to the process
-func (p *Process) Send(ctx context.Context, pkg *pubsub.Package) error {
+func (p *Process) Send(pkg *pubsub.Package) error {
 	if p.ctx.Err() != nil || p.closed.Load() {
 		return p.ctx.Err()
 	}
@@ -161,8 +161,6 @@ func (p *Process) Send(ctx context.Context, pkg *pubsub.Package) error {
 	select {
 	case <-p.ctx.Done():
 		return p.ctx.Err()
-	case <-ctx.Done():
-		return ctx.Err()
 	default:
 		for _, msg := range pkg.Messages {
 			// Forward messages to Lua
