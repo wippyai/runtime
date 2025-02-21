@@ -18,7 +18,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func setupTest() (*FunctionRegistry, events.Bus) {
+func setupTest() (*Registry, events.Bus) {
 	logger := zap.NewNop()
 	bus := eventbus.NewBus()
 	executor := NewExecutor(bus, logger)

@@ -5,8 +5,10 @@ import (
 	"fmt"
 	contextapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/function"
+	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
+	"github.com/ponyruntime/pony/internal/uniqid"
 	"sync"
 
 	"github.com/ponyruntime/pony/api/events"
@@ -14,19 +16,21 @@ import (
 	"go.uber.org/zap"
 )
 
-// FunctionRegistry manages the execution of tasks by registered handlers in the runtime system.
+// Registry manages the execution of tasks by registered handlers in the runtime system.
 // It uses an event bus for communication and supports dynamic handler registration.
-type FunctionRegistry struct {
+type Registry struct {
 	ctx        context.Context
+	uniqID     *uniqid.Generator
 	logger     *zap.Logger
 	bus        events.Bus
 	handlers   sync.Map
 	subscriber *eventbus.Subscriber
 }
 
-// NewExecutor creates a new FunctionRegistry instance with the provided event bus and logger.
-func NewExecutor(bus events.Bus, logger *zap.Logger) *FunctionRegistry {
-	return &FunctionRegistry{
+// NewExecutor creates a new Registry instance with the provided event bus and logger.
+func NewExecutor(bus events.Bus, logger *zap.Logger) *Registry {
+	return &Registry{
+		uniqID:   uniqid.NewGenerator(),
 		bus:      bus,
 		logger:   logger,
 		handlers: sync.Map{},
@@ -35,7 +39,7 @@ func NewExecutor(bus events.Bus, logger *zap.Logger) *FunctionRegistry {
 
 // Start initializes the executor and begins listening for executor events.
 // It sets up a subscriber for handling executor-related events on the event bus.
-func (f *FunctionRegistry) Start(ctx context.Context) error {
+func (f *Registry) Start(ctx context.Context) error {
 	f.ctx = ctx
 
 	// Subscribe to executor events
@@ -55,14 +59,14 @@ func (f *FunctionRegistry) Start(ctx context.Context) error {
 }
 
 // Stop cleanly shuts down the executor by closing its event subscriber.
-func (f *FunctionRegistry) Stop() error {
+func (f *Registry) Stop() error {
 	if f.subscriber != nil {
 		f.subscriber.Close()
 	}
 	return nil
 }
 
-func (f *FunctionRegistry) handleEvent(e events.Event) {
+func (f *Registry) handleEvent(e events.Event) {
 	switch e.Kind {
 	case function.RegisterFunctionHandler:
 		f.registerFunction(e)
@@ -75,7 +79,7 @@ func (f *FunctionRegistry) handleEvent(e events.Event) {
 	}
 }
 
-func (f *FunctionRegistry) registerFunction(e events.Event) {
+func (f *Registry) registerFunction(e events.Event) {
 	fn, ok := e.Data.(function.Func)
 	if !ok {
 		f.logger.Error("invalid register function payload",
@@ -93,7 +97,7 @@ func (f *FunctionRegistry) registerFunction(e events.Event) {
 	f.sendAccept(e.Path)
 }
 
-func (f *FunctionRegistry) deleteFunction(e events.Event) {
+func (f *Registry) deleteFunction(e events.Event) {
 	// Check if the function exists before removing
 	_, exists := f.handlers.Load(registry.ParseID(e.Path))
 	if !exists {
@@ -109,7 +113,7 @@ func (f *FunctionRegistry) deleteFunction(e events.Event) {
 	f.sendAccept(e.Path)
 }
 
-func (f *FunctionRegistry) sendAccept(path events.Path) {
+func (f *Registry) sendAccept(path events.Path) {
 	f.bus.Send(f.ctx, events.Event{
 		System: function.System,
 		Kind:   function.AcceptFunction,
@@ -117,7 +121,7 @@ func (f *FunctionRegistry) sendAccept(path events.Path) {
 	})
 }
 
-func (f *FunctionRegistry) sendReject(path events.Path, reason string) {
+func (f *Registry) sendReject(path events.Path, reason string) {
 	f.bus.Send(f.ctx, events.Event{
 		System: function.System,
 		Kind:   function.RejectFunction,
@@ -129,7 +133,7 @@ func (f *FunctionRegistry) sendReject(path events.Path, reason string) {
 // Call runs the given task using its registered handler and returns a channel
 // for receiving the execution result(s). Returns an error if no handler is registered
 // for the task's target or if the handler type is invalid.
-func (f *FunctionRegistry) Call(ctx context.Context, task runtime.Task) (chan *runtime.Result, error) {
+func (f *Registry) Call(ctx context.Context, task runtime.Task) (chan *runtime.Result, error) {
 	handler, exists := f.handlers.Load(task.Handler)
 	if !exists {
 		return nil, fmt.Errorf("no handler registered for target: %s", task.Handler)
@@ -140,7 +144,16 @@ func (f *FunctionRegistry) Call(ctx context.Context, task runtime.Task) (chan *r
 		ctx = context.Background()
 	}
 
-	ctx = context.WithValue(ctx, contextapi.IDCtx, task.Handler)
+	node := pubsub.GetNode(ctx)
+
+	ctx = context.WithValue(ctx, contextapi.FunctionCtx, &function.Context{
+		PID: pubsub.PID{
+			Node:   node.ID(),
+			ID:     task.Handler,
+			UniqID: f.uniqID.Generate(),
+		},
+	})
+
 	execHandler, ok := handler.(function.Func)
 	if !ok {
 		return nil, fmt.Errorf("invalid handler type for target: %s", task.Handler)
