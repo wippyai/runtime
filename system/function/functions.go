@@ -3,7 +3,6 @@ package function
 import (
 	"context"
 	"fmt"
-	contextapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/function"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
@@ -20,6 +19,7 @@ import (
 // It uses an event bus for communication and supports dynamic handler registration.
 type Registry struct {
 	ctx        context.Context
+	host       pubsub.Host
 	uniqID     *uniqid.Generator
 	logger     *zap.Logger
 	bus        events.Bus
@@ -28,10 +28,12 @@ type Registry struct {
 }
 
 // NewExecutor creates a new Registry instance with the provided event bus and logger.
-func NewExecutor(bus events.Bus, logger *zap.Logger) *Registry {
+func NewExecutor(bus events.Bus, host pubsub.Host, logger *zap.Logger) *Registry {
+
 	return &Registry{
 		uniqID:   uniqid.NewGenerator(),
 		bus:      bus,
+		host:     host,
 		logger:   logger,
 		handlers: sync.Map{},
 	}
@@ -144,20 +146,21 @@ func (f *Registry) Call(ctx context.Context, task runtime.Task) (chan *runtime.R
 		ctx = context.Background()
 	}
 
-	node := pubsub.GetNode(ctx)
-
-	ctx = context.WithValue(ctx, contextapi.FunctionCtx, &function.Context{
-		PID: pubsub.PID{
-			Node:   node.ID(),
-			ID:     task.Handler,
-			UniqID: f.uniqID.Generate(),
-		},
-	})
-
 	execHandler, ok := handler.(function.Func)
 	if !ok {
 		return nil, fmt.Errorf("invalid handler type for target: %s", task.Handler)
 	}
+
+	node := pubsub.GetNode(ctx)
+	ctx = function.WithContext(ctx, &function.Context{
+		PID: pubsub.PID{
+			Node:   node.ID(),
+			Host:   function.HostID,
+			ID:     task.Handler,
+			UniqID: f.uniqID.Generate(),
+		},
+	})
+	ctx = pubsub.WithHost(ctx, f.host)
 
 	return execHandler(ctx, task)
 }

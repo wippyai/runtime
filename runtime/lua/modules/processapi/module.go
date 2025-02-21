@@ -99,7 +99,6 @@ func (m *ControlModule) getProcessManager(l *lua.LState) (process.Manager, bool)
 }
 
 func (m *ControlModule) send(l *lua.LState) int {
-	// Get node
 	node, ok := m.getNode(l)
 	if !ok {
 		return 2
@@ -113,7 +112,14 @@ func (m *ControlModule) send(l *lua.LState) int {
 	// Parse arguments
 	pidStr := l.CheckString(1)
 	topic := l.CheckString(2)
-	msg := l.CheckAny(3)
+	msgs := l.CheckTable(3) // Expect table of messages
+
+	// Validate topic - prevent @ topics
+	if strings.HasPrefix(topic, "@") {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("cannot send to @ topics"))
+		return 2
+	}
 
 	// Parse PID
 	pid, err := pubsub.ParsePID(pidStr)
@@ -123,8 +129,20 @@ func (m *ControlModule) send(l *lua.LState) int {
 		return 2
 	}
 
-	// Create pkg
-	pkg := pubsub.NewPackage(pid, topic, payload.NewPayload(msg, payload.Lua))
+	// Create message batch
+	var messages []*pubsub.Message
+	msgs.ForEach(func(_, value lua.LValue) {
+		messages = append(messages, &pubsub.Message{
+			Topic:    topic,
+			Payloads: []payload.Payload{payload.NewPayload(value, payload.Lua)},
+		})
+	})
+
+	// Create package with all messages
+	pkg := &pubsub.Package{
+		PID:      pid,
+		Messages: messages,
+	}
 
 	// Send message using node
 	if err := node.Send(l.Context(), pkg); err != nil {
@@ -133,10 +151,11 @@ func (m *ControlModule) send(l *lua.LState) int {
 		return 2
 	}
 
-	m.log.Debug("message sent",
+	m.log.Debug("messages sent",
 		zap.String("from", self.PID.String()),
 		zap.String("pid", pid.String()),
 		zap.String("topic", topic),
+		zap.Int("count", len(messages)),
 	)
 
 	l.Push(lua.LTrue)
@@ -225,7 +244,7 @@ func (m *ControlModule) spawnMonitored(l *lua.LState) int {
 
 	// Create start process config
 	start := &process.StartProcess{
-		HostID:   pubsub.HostID(hostID),
+		HostID:   hostID,
 		ID:       regID,
 		Payloads: payloads,
 	}

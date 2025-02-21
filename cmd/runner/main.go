@@ -7,6 +7,7 @@ import (
 	"fmt"
 	apiCtx "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/events"
+	functapi "github.com/ponyruntime/pony/api/function"
 	apiLog "github.com/ponyruntime/pony/api/logs"
 	apiReg "github.com/ponyruntime/pony/api/registry"
 	apiLua "github.com/ponyruntime/pony/api/runtime/lua"
@@ -21,6 +22,7 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/modules/base64"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea"
 	"github.com/ponyruntime/pony/runtime/lua/modules/env"
+	functionmod "github.com/ponyruntime/pony/runtime/lua/modules/funcapi"
 	httpMod "github.com/ponyruntime/pony/runtime/lua/modules/http"
 	httpClient "github.com/ponyruntime/pony/runtime/lua/modules/httpclient"
 	jsonMod "github.com/ponyruntime/pony/runtime/lua/modules/json"
@@ -167,15 +169,7 @@ func (a *App) Initialize() error {
 
 	a.supervisor = supervisor.NewSupervisor(a.eventBus, a.logger.Named("core"))
 
-	// Initialize core function registry
-	a.funcs = function.NewExecutor(a.eventBus, a.logger.Named("funcs"))
-	a.prototypes = process.NewPrototypeFactory(a.eventBus, a.logger.Named("prototypes"))
-	a.hosts = process.NewHostRegistry(a.eventBus, a.logger.Named("hosts"))
-
-	a.resources = resource.NewResourceRegistry(a.eventBus, a.logger.Named("resources"))
-
-	// groups, links, monitor and other topology level stuff
-	control := process.NewTopology(a.ctx, a.logger.Named("control"), a.node)
+	// -- msg hosts
 
 	// this is host dedicated to internal control messages
 	err := a.node.Node().RegisterHost(topologyApi.ControlHost, pubsub.NewHost(a.ctx, pubsub.HostConfig{
@@ -189,6 +183,31 @@ func (a *App) Initialize() error {
 	if err != nil {
 		return fmt.Errorf("failed to register control host: %w", err)
 	}
+
+	// this is host dedicated to internal control messages
+	funcHost := pubsub.NewHost(a.ctx, pubsub.HostConfig{
+		BufferSize:      1024,
+		WorkerCount:     16,
+		Logger:          a.logger.Named("control"),
+		RetryTimeout:    500 * time.Millisecond,
+		DeliveryTimeout: 500 * time.Millisecond,
+	})
+
+	err = a.node.Node().RegisterHost(functapi.HostID, funcHost)
+
+	if err != nil {
+		return fmt.Errorf("failed to register function host: %w", err)
+	}
+
+	// Initialize core function registry
+	a.funcs = function.NewExecutor(a.eventBus, funcHost, a.logger.Named("funcs"))
+	a.prototypes = process.NewPrototypeFactory(a.eventBus, a.logger.Named("prototypes"))
+	a.hosts = process.NewHostRegistry(a.eventBus, a.logger.Named("hosts"))
+
+	a.resources = resource.NewResourceRegistry(a.eventBus, a.logger.Named("resources"))
+
+	// groups, links, monitor and other topology level stuff
+	control := process.NewTopology(a.ctx, a.logger.Named("control"), a.node)
 
 	a.processes = process.NewProcessManager(
 		a.hosts,
@@ -599,14 +618,15 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 				lfs.NewLFSModule(),
 				uuid.NewUUIDModule(),
 				upstream.NewUpstreamModule(),
-				processmod.NewProcessControlModule(a.logger.Named("process")),
+				processmod.NewProcessControlModule(a.logger.Named("proc")),
+				functionmod.NewFuncContextModule(a.logger.Named("func")),
 				tasks.NewTaskModule(),
 				subscribe.NewSubscribeModule(),
 				env.NewEnvModule(a.logger.Named("env")),
 				httpClient.NewHTTPClientModule(a.logger.Named("http"), httpbase.DefaultClient),
 				websocket.NewWebSocketModule(a.logger.Named("websocket")),
 				httpMod.NewHTTPContextModule(a.logger.Named("http")),
-				treesitter.NewTreeSitterModule(a.logger.Named("treesitter")),
+				treesitter.NewTreeSitterModule(a.logger.Named("tsitter")),
 				btea.NewBteaModule(a.logger.Named("btea")),
 			},
 			ProtoCacheSize: 600,

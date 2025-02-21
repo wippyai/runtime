@@ -10,6 +10,8 @@ import (
 
 // Event system and kind constants for the executor package
 const (
+	HostID pubsub.HostID = "node:functions"
+
 	// System identifies the executor system in the event bus
 	System events.System = "function"
 
@@ -41,6 +43,14 @@ type (
 		PID pubsub.PID
 	}
 )
+
+func WithContext(ctx context.Context, function *Context) context.Context {
+	return context.WithValue(ctx, contextapi.FunctionCtx, function)
+}
+
+func GetContext(ctx context.Context) *Context {
+	return ctx.Value(contextapi.FunctionCtx).(*Context)
+}
 
 func GetFunctions(ctx context.Context) Registry {
 	return ctx.Value(contextapi.FunctionsCtx).(Registry)
