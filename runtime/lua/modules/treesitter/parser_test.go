@@ -181,7 +181,7 @@ func TestParser(t *testing.T) {
 
 	t.Run("parser garbage collection", func(t *testing.T) {
 		mod := NewTreeSitterModule(logger)
-		cleanup := closer.NewCleanup()
+		cleanup := closer.NewCloser()
 		ctx := context.WithValue(context.Background(), ctxapi.CleanupCtx, cleanup)
 
 		vm, err := engine.NewVM(logger,

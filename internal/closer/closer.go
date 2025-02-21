@@ -16,9 +16,9 @@ type Closer struct {
 	done    chan struct{}
 }
 
-// NewCleanup creates a new Closer instance with an initial capacity
+// NewCloser creates a new Closer instance with an initial capacity
 // for storing cleanup function.
-func NewCleanup() *Closer {
+func NewCloser() *Closer {
 	return &Closer{
 		closers: make([]func() error, 0, 4),
 		done:    make(chan struct{}),
@@ -40,13 +40,13 @@ func FromContext(ctx context.Context) *Closer {
 // the existing context and Closer. Otherwise, it creates a new
 // Closer instance and returns it along with an updated context.
 func WithContext(ctx context.Context) (context.Context, *Closer) {
-	// check if there is already a cleanup in the context
-	if cleanup := FromContext(ctx); cleanup != nil {
-		return ctx, cleanup
+	// check if there is already a closer in the context
+	if closer := FromContext(ctx); closer != nil {
+		return ctx, closer
 	}
 
-	cleanup := NewCleanup()
-	return context.WithValue(ctx, ctxapi.CleanupCtx, cleanup), cleanup
+	closer := NewCloser()
+	return context.WithValue(ctx, ctxapi.CleanupCtx, closer), closer
 }
 
 // Add appends a cleanup function to be executed when Close is called.
