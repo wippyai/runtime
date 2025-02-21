@@ -86,7 +86,7 @@ func (m *monitor) Notify(pid pubsub.PID, result *runtime.Result) {
 			return true
 		}
 
-		pkg := pubsub.NewPacket(
+		pkg := pubsub.NewPackage(
 			callerPID,
 			process.TopicEvents,
 			payload.New(topology.ResultEvent{

@@ -149,20 +149,22 @@ func (p *Process) Step() (bool, error) {
 }
 
 // Send handles incoming messages to the process
-func (p *Process) Send(batch *pubsub.Batch) error {
+func (p *Process) Send(ctx context.Context, pkg *pubsub.Package) error {
 	if p.ctx.Err() != nil || p.closed.Load() {
 		return p.ctx.Err()
 	}
 
-	if batch == nil {
-		return errors.New("batch is nil")
+	if pkg == nil {
+		return errors.New("pkg is nil")
 	}
 
 	select {
 	case <-p.ctx.Done():
 		return p.ctx.Err()
+	case <-ctx.Done():
+		return ctx.Err()
 	default:
-		for _, msg := range *batch {
+		for _, msg := range pkg.Messages {
 			// Forward messages to Lua
 			luaValues, err := p.toLuaPayloads(msg.Payloads)
 			if err != nil {

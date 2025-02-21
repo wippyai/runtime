@@ -122,11 +122,11 @@ func (m *ControlModule) send(l *lua.LState) int {
 		return 2
 	}
 
-	// Create batch
-	batch := pubsub.NewPacket(topic, payload.NewPayload(msg, payload.Lua))
+	// Create pkg
+	pkg := pubsub.NewPackage(pid, topic, payload.NewPayload(msg, payload.Lua))
 
 	// Send message using node
-	if err := node.Send(l.Context(), pid, batch); err != nil {
+	if err := node.Send(l.Context(), pkg); err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
 		return 2

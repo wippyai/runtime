@@ -79,8 +79,8 @@ type (
 	}
 )
 
-// NewPacket creates a new message batch with the specified topic and payload items
-func NewPacket(pid PID, topic Topic, payloads ...payload.Payload) *Package {
+// NewPackage creates a new message batch with the specified topic and payload items
+func NewPackage(pid PID, topic Topic, payloads ...payload.Payload) *Package {
 	return &Package{
 		PID:      pid,
 		Messages: []*Message{{Topic: topic, Payloads: payloads}},
