@@ -17,7 +17,7 @@ const (
 )
 
 type EntryConfig struct {
-	HostConfig Config                     `json:"host_config"`
+	HostConfig Config                     `json:"host"`
 	Lifecycle  supervisor.LifecycleConfig `json:"lifecycle"`
 }
 

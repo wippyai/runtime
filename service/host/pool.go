@@ -55,7 +55,6 @@ func NewProcessPool(
 
 // AddProcess registers a new process with the pool
 func (p *ProcessPool) AddProcess(pid pubsub.PID, proc process.Process) error {
-	log.Printf("adding process %s to pool: %v => %v", pid.String(), p.maxProcesses, p.numProcesses.Load())
 	if p.maxProcesses != 0 && p.numProcesses.Load() >= int32(p.maxProcesses) {
 		log.Println("max processes reached, cannot add new process", zap.String("pid", pid.String()))
 		return process.ErrMaxProcesses
