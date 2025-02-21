@@ -176,7 +176,6 @@ func (mph *Host) prepareContext(ctx context.Context, pid pubsub.PID) context.Con
 	pCtx = process.GetTopology(pCtx).AttachToContext(pCtx)
 	pCtx = process.WithAddedOnComplete(pCtx, mph.finalizeProcess)
 
-	pCtx = context.WithValue(pCtx, ctxapi.IDCtx, pid.ID)
 	pCtx = context.WithValue(pCtx, ctxapi.LoggerCtx, mph.log.Named(pid.UniqID))
 	pCtx = context.WithValue(pCtx, ctxapi.WakeUpKey, func() {
 		_ = mph.pool.Schedule(pid) // it's ok since it means process no longer found, possible during termination

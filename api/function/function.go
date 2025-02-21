@@ -4,6 +4,7 @@ import (
 	"context"
 	contextapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/runtime"
 )
 
@@ -34,6 +35,10 @@ type (
 	// It abstracts the function lookup and execution process
 	Registry interface {
 		Call(context.Context, runtime.Task) (chan *runtime.Result, error)
+	}
+
+	Context struct {
+		PID pubsub.PID
 	}
 )
 

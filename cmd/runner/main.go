@@ -80,7 +80,7 @@ type App struct {
 	dtt         *transcoder.Transcoder
 	reg         apiReg.Registry
 	supervisor  *supervisor.Supervisor
-	funcs       *function.FunctionRegistry
+	funcs       *function.Registry
 	processes   *process.Manager
 	prototypes  *process.PrototypeRegistry
 	hosts       *process.HostRegistry
