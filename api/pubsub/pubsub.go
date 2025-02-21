@@ -3,9 +3,12 @@ package pubsub
 import (
 	"context"
 	"errors"
+	"fmt"
 	contextApi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"
+	"github.com/ponyruntime/pony/api/registry"
+	"strings"
 )
 
 // System constants for node management
@@ -30,6 +33,16 @@ var (
 )
 
 type (
+	NodeID = string
+	HostID = string
+
+	PID struct {
+		Node   NodeID      `json:"node"`
+		Host   HostID      `json:"host"`
+		ID     registry.ID `json:"id"`
+		UniqID string      `json:"uniq_id"`
+	}
+
 	// Topic represents a string identifier for a message channel or category
 	Topic = string
 
@@ -39,29 +52,16 @@ type (
 		Payloads payload.Payloads
 	}
 
-	// PIDBatch combines a Process ID with a batch of messages for tracking message origin
-	PIDBatch struct {
-		PID   PID
-		Batch *Batch
+	// Package combines a Process ID with a batch of messages for tracking message origin
+	Package struct {
+		PID      PID
+		Messages []*Message
 	}
-
-	// Batch represents a collection of messages to be processed together
-	Batch = []*Message
 
 	// Host defines an interface for components that can receive and forward messages
 	Host interface {
-		Upstream
-		Attach(PID, chan *Batch) (context.CancelFunc, error)
-	}
-
-	// BatchHost extends Host with support for PID-aware message batching
-	BatchHost interface {
-		Host
-		// AttachWithPID attaches a receiver channel for PIDBatch messages.
-		// This method is intended for consumers that need both the sender's PID and the batch payload.
-		// It registers the channel to receive messages where each message wraps the PID along with the batch.
-		// Note: Only one PIDBatch receiver may be attached per PID; if one already exists, an error is returned.
-		AttachWithPID(pid PID, ch chan *PIDBatch) (context.CancelFunc, error)
+		Receiver
+		Attach(PID, chan *Package) (context.CancelFunc, error)
 		Detach(PID)
 	}
 
@@ -73,25 +73,70 @@ type (
 		UnregisterHost(HostID)
 	}
 
-	// Upstream defines the interface for components that can send messages upstream in the pub/sub system
-	Upstream interface {
-		Send(context.Context, PID, *Batch) error
-	}
-
-	// Downstream defines the interface for components that can receive messages from upstream sources
-	Downstream interface {
-		Send(*Batch) error
+	// Receiver defines the interface for components that can send messages upstream in the pub/sub system
+	Receiver interface {
+		Send(context.Context, *Package) error
 	}
 )
 
-// NewBatch creates a new message batch with the specified topic and payload items
-func NewBatch(topic Topic, payloads ...payload.Payload) *Batch {
-	return &Batch{
-		{Topic: topic, Payloads: payloads},
+// NewPacket creates a new message batch with the specified topic and payload items
+func NewPacket(pid PID, topic Topic, payloads ...payload.Payload) *Package {
+	return &Package{
+		PID:      pid,
+		Messages: []*Message{{Topic: topic, Payloads: payloads}},
 	}
 }
 
 // GetNode retrieves the Node instance from the provided context
 func GetNode(ctx context.Context) Node {
 	return ctx.Value(contextApi.NodeCtx).(Node)
+}
+
+func GetHost(ctx context.Context) Host {
+	return ctx.Value(contextApi.HostCtx).(Host)
+}
+
+// String formats the PID as a pipe-delimited string wrapped in curly braces.
+// Without a node it looks like: "{host|ns:name|procname}"
+// With a node it looks like: "{node@host|ns:name|procname}"
+func (p PID) String() string {
+	var formatted string
+	if p.Node == "" {
+		formatted = fmt.Sprintf("%s|%s|%s", p.Host, p.ID.String(), p.UniqID)
+	} else {
+		formatted = fmt.Sprintf("%s@%s|%s|%s", p.Node, p.Host, p.ID.String(), p.UniqID)
+	}
+	return fmt.Sprintf("{%s}", formatted)
+}
+
+// ParsePID parses a pipe-delimited string wrapped in curly braces into a PID.
+// It accepts the following formats:
+//   - "{host|ns:name|procname}"
+//   - "{node@host|ns:name|procname}"
+func ParsePID(s string) (PID, error) {
+	var pid PID
+
+	// Remove wrapping curly braces, if present.
+	s = strings.TrimPrefix(s, "{")
+	s = strings.TrimSuffix(s, "}")
+
+	parts := strings.Split(s, "|")
+	if len(parts) != 3 {
+		return pid, fmt.Errorf("invalid pid format: expected 3 parts separated by '|', got %d", len(parts))
+	}
+
+	// Parse the host part which may include a node using the "node@host" format.
+	hostPart := parts[0]
+	if idx := strings.Index(hostPart, "@"); idx >= 0 {
+		pid.Node = hostPart[:idx]
+		pid.Host = hostPart[idx+1:]
+	} else {
+		pid.Host = hostPart
+	}
+
+	// Parse the composite Process and process name.
+	pid.ID = registry.ParseID(parts[1])
+	pid.UniqID = parts[2]
+
+	return pid, nil
 }

@@ -28,6 +28,7 @@ func DefaultRunnerConfig() *RunnerConfig {
 
 // Runner manages the lifecycle of a process.
 type Runner struct {
+	pid    pubsub.PID
 	proc   process.Process
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -53,6 +54,7 @@ func NewTerminalRunner(
 	})
 
 	runner := &Runner{
+		pid:    launch.PID,
 		proc:   launch.Process,
 		ctx:    runnerCtx,
 		cancel: cancel,
@@ -89,8 +91,8 @@ func (r *Runner) run() {
 	}
 }
 
-func (r *Runner) Send(msgBatch *pubsub.Batch) error {
-	return r.proc.Send(msgBatch)
+func (r *Runner) Send(msgBatch *pubsub.Package) error {
+	return r.proc.Send(r.ctx, msgBatch)
 }
 
 func (r *Runner) Stop() {

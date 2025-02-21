@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	contextApi "github.com/ponyruntime/pony/api/context"
+	"github.com/ponyruntime/pony/api/service/host"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -19,11 +20,11 @@ import (
 // routing, and graceful shutdown. It uses an external status channel for notifications.
 type Host struct {
 	id          registry.ID
-	cfg         *process.EntryConfig
+	cfg         *host.EntryConfig
 	log         *zap.Logger
-	makeMsgHost func(ctx context.Context) pubsub.BatchHost
-	msgHost     pubsub.BatchHost
-	msgCh       chan *pubsub.PIDBatch // Single channel for all message routing
+	makeMsgHost func(ctx context.Context) pubsub.Host
+	msgHost     pubsub.Host
+	msgCh       chan *pubsub.Package // Single channel for all message routing
 	pool        *ProcessPool
 	ctx         context.Context
 	done        chan struct{}
@@ -32,19 +33,19 @@ type Host struct {
 	statusCh    chan any    // Optional external status notification channel.
 }
 
-// NewProcessHost creates a new Host instance.
-func NewProcessHost(
+// NewMultiprocessProcessHost creates a new Host instance.
+func NewMultiprocessProcessHost(
 	id registry.ID,
-	config *process.EntryConfig,
+	config *host.EntryConfig,
 	log *zap.Logger,
-	msgHost func(context.Context) pubsub.BatchHost,
+	msgHost func(context.Context) pubsub.Host,
 ) *Host {
 	return &Host{
 		id:          id,
 		cfg:         config,
 		log:         log,
 		makeMsgHost: msgHost,
-		msgCh:       make(chan *pubsub.PIDBatch, config.HostConfig.BufferSize),
+		msgCh:       make(chan *pubsub.Package, config.HostConfig.BufferSize),
 		done:        make(chan struct{}),
 	}
 }
@@ -115,7 +116,7 @@ func (mph *Host) startMessageWorkers() {
 					}
 
 					entry := entryVal.(*processEntry)
-					if err := entry.process.Send(m.Batch); err != nil {
+					if err := entry.process.Send(mph.ctx, m); err != nil {
 						mph.log.Error("failed to send message to process",
 							zap.String("pid", m.PID.String()),
 							zap.Error(err))
@@ -147,7 +148,7 @@ func (mph *Host) Launch(ctx context.Context, launch *process.LaunchProcess) (pub
 	}
 
 	// Attach to message routing with shared channel
-	_, err := mph.msgHost.AttachWithPID(launch.PID, mph.msgCh)
+	_, err := mph.msgHost.Attach(launch.PID, mph.msgCh)
 	if err != nil {
 		return pubsub.PID{}, err
 	}
@@ -191,19 +192,26 @@ func (mph *Host) Terminate(ctx context.Context, pid pubsub.PID) error {
 }
 
 // Send forwards a message via the underlying msgHost, rejecting if shutdown is in progress.
-func (mph *Host) Send(ctx context.Context, pid pubsub.PID, batch *pubsub.Batch) error {
+func (mph *Host) Send(ctx context.Context, batch *pubsub.Package) error {
 	if mph.shutdown.Load() {
 		return errors.New("host is shutting down, rejecting send")
 	}
-	return mph.msgHost.Send(ctx, pid, batch)
+	return mph.msgHost.Send(ctx, batch)
 }
 
 // Attach registers a receiver channel with the underlying msgHost, rejecting if shutdown is in progress.
-func (mph *Host) Attach(pid pubsub.PID, ch chan *pubsub.Batch) (context.CancelFunc, error) {
+func (mph *Host) Attach(pid pubsub.PID, ch chan *pubsub.Package) (context.CancelFunc, error) {
 	if mph.shutdown.Load() {
 		return nil, errors.New("host is shutting down, rejecting attach")
 	}
 	return mph.msgHost.Attach(pid, ch)
+}
+
+func (mph *Host) Detach(pid pubsub.PID) {
+	if mph.shutdown.Load() {
+		return
+	}
+	mph.msgHost.Detach(pid)
 }
 
 // Stop gracefully shuts down the host by rejecting new operations and waiting for processes to complete.

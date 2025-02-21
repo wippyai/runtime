@@ -54,8 +54,9 @@ type (
 	}
 )
 
-func Cancel(from pubsub.PID, deadline time.Time) *pubsub.Batch {
-	return pubsub.NewBatch(
+func Cancel(from, to pubsub.PID, deadline time.Time) *pubsub.Package {
+	return pubsub.NewPacket(
+		to,
 		TopicEvents,
 		payload.New(&CancelEvent{
 			Event:    Event{At: time.Now(), From: from, Kind: KindCancel},

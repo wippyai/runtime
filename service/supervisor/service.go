@@ -7,6 +7,7 @@ import (
 	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
+	supervisor2 "github.com/ponyruntime/pony/api/service/supervisor"
 	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/ponyruntime/pony/api/topology"
 	"github.com/ponyruntime/pony/internal/uniqid"
@@ -21,7 +22,7 @@ type Service struct {
 	id            registry.ID
 	pid           pubsub.PID
 	supervisorPID pubsub.PID
-	config        process.ServiceConfig
+	config        supervisor2.ServiceConfig
 	status        chan any
 }
 
@@ -48,7 +49,7 @@ func (svc *Service) Start(ctx context.Context) (<-chan any, error) {
 	}
 
 	// Create monitoring channel
-	monitorCh := make(chan *pubsub.Batch, 1)
+	monitorCh := make(chan *pubsub.Package, 1)
 
 	detach, err := node.Attach(svc.supervisorPID, monitorCh)
 	if err != nil {

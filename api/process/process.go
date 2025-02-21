@@ -3,7 +3,6 @@ package process
 import (
 	"context"
 	"errors"
-	"fmt"
 	contextapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"
@@ -57,7 +56,7 @@ type (
 
 	// Process defines the interface for a runnable process in the system
 	Process interface {
-		pubsub.Downstream
+		pubsub.Receiver
 
 		Start(context.Context, pubsub.PID, payload.Payloads) error
 
@@ -83,7 +82,7 @@ type (
 
 	// Host defines the interface for process execution environments
 	Host interface {
-		Send(ctx context.Context, pid pubsub.PID, msg *pubsub.Batch) error
+		Send(ctx context.Context, msg *pubsub.Package) error
 		Terminate(ctx context.Context, pid pubsub.PID) error
 	}
 
@@ -128,21 +127,4 @@ func GetTopology(ctx context.Context) Topology {
 	}
 
 	return m.Topology()
-}
-
-// Validate checks if the configuration is valid
-func (c *ServiceConfig) Validate() error {
-	if c.Process.Name == "" {
-		return fmt.Errorf("process Process is required")
-	}
-
-	if c.HostID == "" {
-		return fmt.Errorf("host Process is required")
-	}
-
-	if c.HostID == topology.ControlHost {
-		return fmt.Errorf("host Process cannot be %s", topology.ControlHost)
-	}
-
-	return nil
 }

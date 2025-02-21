@@ -56,7 +56,6 @@ The **NodeManager** adds an event-driven management layer over a Node. Its respo
   The NodeManager listens to host-related events (for example, registering or removing a host) from an event bus. When a
   host registration event is received, the NodeManager validates the payload, registers the host with the underlying
   Node, and sends an accept or reject response event. This ensures that the node’s host registry remains consistent.
-  citeturn1file2
 
 - **Delegating Message Operations:**  
   The NodeManager provides methods such as `Send` and `Attach` that directly delegate to the underlying Node. This

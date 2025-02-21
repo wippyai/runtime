@@ -13,27 +13,27 @@ import (
 
 type mockUpstream struct {
 	mu      sync.Mutex
-	sends   map[string][]*pubsub.Batch
+	sends   map[string][]*pubsub.Package
 	sendErr error
 }
 
 func newMockUpstream() *mockUpstream {
 	return &mockUpstream{
-		sends: make(map[string][]*pubsub.Batch),
+		sends: make(map[string][]*pubsub.Package),
 	}
 }
 
-func (m *mockUpstream) Send(ctx context.Context, pid pubsub.PID, batch *pubsub.Batch) error {
+func (m *mockUpstream) Send(ctx context.Context, batch *pubsub.Package) error {
 	if m.sendErr != nil {
 		return m.sendErr
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.sends[pid.String()] = append(m.sends[pid.String()], batch)
+	m.sends[batch.PID.String()] = append(m.sends[batch.PID.String()], batch)
 	return nil
 }
 
-func (m *mockUpstream) getSends(pid pubsub.PID) []*pubsub.Batch {
+func (m *mockUpstream) getSends(pid pubsub.PID) []*pubsub.Package {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.sends[pid.String()]

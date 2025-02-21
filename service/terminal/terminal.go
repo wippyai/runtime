@@ -31,12 +31,12 @@ type op struct {
 	typ      opType
 	ctx      context.Context
 	launch   *process.LaunchProcess
-	msg      *pubsub.Batch
+	msg      *pubsub.Package
 	cfg      *terminal.HostConfig
 	result   chan error
 	response chan pubsub.PID
 	// For attach operation
-	attachCh chan *pubsub.Batch
+	attachCh chan *pubsub.Package
 	detach   chan context.CancelFunc
 }
 
@@ -180,7 +180,7 @@ func (t *Terminal) handleTerminate() error {
 	return nil
 }
 
-func (t *Terminal) handleSend(msgBatch *pubsub.Batch) error {
+func (t *Terminal) handleSend(msgBatch *pubsub.Package) error {
 	runner := t.runner.Load()
 	if runner == nil {
 		return process.ErrNoProcess
@@ -221,11 +221,15 @@ func (t *Terminal) execOp(ctx context.Context, op op) error {
 	}
 }
 
-func (t *Terminal) Attach(pid pubsub.PID, ch chan *pubsub.Batch) (context.CancelFunc, error) {
+func (t *Terminal) Attach(pid pubsub.PID, ch chan *pubsub.Package) (context.CancelFunc, error) {
 	return nil, errors.New("only terminal process can be attached to the host")
 }
 
-func (t *Terminal) Send(ctx context.Context, _ pubsub.PID, msg *pubsub.Batch) error {
+func (t *Terminal) Detach(pid pubsub.PID) {
+	// nothing
+}
+
+func (t *Terminal) Send(ctx context.Context, msg *pubsub.Package) error {
 	// we dont really use pid since we always host a single process
 	return t.execOp(ctx, op{
 		typ:    opSend,
@@ -263,17 +267,21 @@ func (t *Terminal) Terminate(ctx context.Context, pid pubsub.PID) error {
 }
 
 func (t *Terminal) Stop(ctx context.Context) error {
-	err := t.Send(
-		ctx,
-		pubsub.PID{},
-		topology.Cancel(pubsub.PID{ID: t.id}, time.Now().Add(t.config.Lifecycle.StopTimeout)),
-	)
-
-	if err != nil && t.runner.Load() != nil {
-		t.log.Warn("failed to send cancel event", zap.Error(err))
-	}
 
 	if runner := t.runner.Load(); runner != nil {
+		err := t.Send(
+			ctx,
+			topology.Cancel(
+				pubsub.PID{ID: t.id},
+				runner.pid,
+				time.Now().Add(t.config.Lifecycle.StopTimeout),
+			),
+		)
+
+		if err != nil {
+			t.log.Warn("failed to send cancel event", zap.Error(err))
+		}
+
 		select {
 		case <-runner.Wait():
 			return nil

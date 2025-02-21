@@ -20,17 +20,16 @@ type HostConfig struct {
 
 // sendJob represents an asynchronous send operation.
 type sendJob struct {
-	pid   api.PID
-	batch *api.Batch
-	ctx   context.Context
+	pkg *api.Package
+	ctx context.Context
 }
 
 // Host implements a local pubsub for a single host with asynchronous sending.
 type Host struct {
-	receivers sync.Map // key: api.pid -> chan *api.Batch
+	ctx       context.Context
+	receivers sync.Map // key: api.pid -> chan *api.Messages
 	jobCh     chan sendJob
 	config    HostConfig
-	ctx       context.Context
 	logger    *zap.Logger
 }
 
@@ -65,58 +64,39 @@ func NewHost(ctx context.Context, config HostConfig) *Host {
 	return h
 }
 
-// Attach attaches a receiver channel to a pid.
-// If a receiver is already attached, it returns ErrAlreadyAttached.
-func (h *Host) Attach(pid api.PID, ch chan *api.Batch) (context.CancelFunc, error) {
+// Attach attaches a receiver channel for Package messages.
+// This method is intended for consumers that need both the sender's pid and the pkg payload.
+// It registers the channel to receive messages where each message wraps the pid along with the pkg.
+// Note: Only one Package receiver may be attached per pid; if one already exists, an error is returned.
+func (h *Host) Attach(pid api.PID, ch chan *api.Package) (context.CancelFunc, error) {
 	_, loaded := h.receivers.LoadOrStore(pid, ch)
 	if loaded {
-		h.logger.Warn("attempt to attach already existing receiver", zap.String("pid", pid.String()))
+		h.logger.Warn("attempt to attach an already existing Package receiver", zap.String("pid", pid.String()))
 		return nil, api.ErrAlreadyAttached
 	}
 
-	h.logger.Debug("receiver attached", zap.String("pid", pid.String()))
+	h.logger.Debug("Package receiver attached", zap.String("pid", pid.String()))
 
 	cancel := func() {
 		h.receivers.Delete(pid)
-		h.logger.Debug("receiver detached", zap.String("pid", pid.String()))
-	}
-	return cancel, nil
-}
-
-// AttachWithPID attaches a receiver channel for PIDBatch messages.
-// This method is intended for consumers that need both the sender's pid and the batch payload.
-// It registers the channel to receive messages where each message wraps the pid along with the batch.
-// Note: Only one PIDBatch receiver may be attached per pid; if one already exists, an error is returned.
-func (h *Host) AttachWithPID(pid api.PID, ch chan *api.PIDBatch) (context.CancelFunc, error) {
-	_, loaded := h.receivers.LoadOrStore(pid, ch)
-	if loaded {
-		h.logger.Warn("attempt to attach an already existing PIDBatch receiver", zap.String("pid", pid.String()))
-		return nil, api.ErrAlreadyAttached
-	}
-
-	h.logger.Debug("PIDBatch receiver attached", zap.String("pid", pid.String()))
-
-	cancel := func() {
-		h.receivers.Delete(pid)
-		h.logger.Debug("PIDBatch receiver detached", zap.String("pid", pid.String()))
+		h.logger.Debug("Package receiver detached", zap.String("pid", pid.String()))
 	}
 	return cancel, nil
 }
 
 // Detach removes a receiver channel from a pid.
 func (h *Host) Detach(pid api.PID) {
-	h.receivers.Delete(pid) // todo: we can add more validation here
+	h.receivers.Delete(pid)
 	h.logger.Debug("receiver detached", zap.String("pid", pid.String()))
 }
 
-// Send enqueues a send job for the given pid and batch.
+// Send enqueues a send job for the given pid and pkg.
 // It first attempts to send immediately, then falls back to a retry with timeout
 // if the channel is full. Returns error if both attempts fail or context expires.
-func (h *Host) Send(ctx context.Context, pid api.PID, batch *api.Batch) error {
+func (h *Host) Send(ctx context.Context, pkg *api.Package) error {
 	job := sendJob{
-		pid:   pid,
-		batch: batch,
-		ctx:   ctx,
+		pkg: pkg,
+		ctx: ctx,
 	}
 
 	// First attempt: immediate send into the job channel.
@@ -124,10 +104,10 @@ func (h *Host) Send(ctx context.Context, pid api.PID, batch *api.Batch) error {
 	case h.jobCh <- job:
 		return nil
 	case <-ctx.Done():
-		h.logger.Warn("send cancelled by context", zap.String("pid", pid.String()), zap.Error(ctx.Err()))
+		h.logger.Warn("send cancelled by context", zap.String("pid", pkg.PID.String()), zap.Error(ctx.Err()))
 		return ctx.Err()
 	case <-h.ctx.Done():
-		h.logger.Warn("send cancelled by host shutdown", zap.String("pid", pid.String()))
+		h.logger.Warn("send cancelled by host shutdown", zap.String("pid", pkg.PID.String()))
 		return h.ctx.Err()
 	default:
 		// Channel is full, try again with a retry timeout.
@@ -138,13 +118,13 @@ func (h *Host) Send(ctx context.Context, pid api.PID, batch *api.Batch) error {
 		case h.jobCh <- job:
 			return nil
 		case <-ctx.Done():
-			h.logger.Warn("send cancelled by context during retry", zap.String("pid", pid.String()), zap.Error(ctx.Err()))
+			h.logger.Warn("send cancelled by context during retry", zap.String("pid", pkg.PID.String()), zap.Error(ctx.Err()))
 			return ctx.Err()
 		case <-h.ctx.Done():
-			h.logger.Warn("send cancelled by host shutdown", zap.String("pid", pid.String()))
+			h.logger.Warn("send cancelled by host shutdown", zap.String("pid", pkg.PID.String()))
 			return h.ctx.Err()
 		case <-timer.C:
-			h.logger.Warn("send failed after retry timeout", zap.String("pid", pid.String()), zap.Duration("timeout", h.config.RetryTimeout))
+			h.logger.Warn("send failed after retry timeout", zap.String("pid", pkg.PID.String()), zap.Duration("timeout", h.config.RetryTimeout))
 			return fmt.Errorf("send timeout exceeded after retry")
 		}
 	}
@@ -161,79 +141,46 @@ func (h *Host) worker() {
 				continue
 			}
 
-			rec, ok := h.receivers.Load(job.pid)
+			rec, ok := h.receivers.Load(job.pkg.PID)
 			if !ok {
 				continue
 			}
 
 			// Handle both types of channels
 			switch ch := rec.(type) {
-			case chan *api.Batch:
-				h.deliverBatch(job, ch)
-			case chan *api.PIDBatch:
-				h.deliverPIDBatch(job, ch)
+			case chan *api.Package:
+				h.deliverPackage(job, ch)
 			default:
 				h.logger.Error("invalid receiver type",
-					zap.String("pid", job.pid.String()),
+					zap.String("pid", job.pkg.PID.String()),
 					zap.String("type", fmt.Sprintf("%T", rec)))
 			}
 		}
 	}
 }
 
-// deliverBatch handles delivery to regular Batch channels
-func (h *Host) deliverBatch(job sendJob, ch chan *api.Batch) {
+// deliverPackage handles delivery to Package channels
+func (h *Host) deliverPackage(job sendJob, ch chan *api.Package) {
 	select {
-	case ch <- job.batch:
+	case ch <- job.pkg:
 		// Successfully sent immediately
 		return
 	default:
 		// Use timeout-based delivery
 		select {
-		case ch <- job.batch:
+		case ch <- job.pkg:
 			// Successfully sent after waiting
 		case <-job.ctx.Done():
-			h.logger.Warn("send cancelled while delivering to receiver",
-				zap.String("pid", job.pid.String()),
+			h.logger.Warn("send cancelled while delivering to Package receiver",
+				zap.String("pid", job.pkg.PID.String()),
 				zap.Error(job.ctx.Err()))
 		case <-time.After(h.config.DeliveryTimeout):
-			h.logger.Warn("delivery timeout exceeded; dropping message",
-				zap.String("pid", job.pid.String()),
+			h.logger.Warn("delivery timeout exceeded; dropping Package message",
+				zap.String("pid", job.pkg.PID.String()),
 				zap.Duration("delivery_timeout", h.config.DeliveryTimeout))
 		case <-h.ctx.Done():
-			h.logger.Info("worker shutting down, dropping message",
-				zap.String("pid", job.pid.String()))
-		}
-	}
-}
-
-// deliverPIDBatch handles delivery to PIDBatch channels
-func (h *Host) deliverPIDBatch(job sendJob, ch chan *api.PIDBatch) {
-	pidBatch := &api.PIDBatch{
-		PID:   job.pid,
-		Batch: job.batch,
-	}
-
-	select {
-	case ch <- pidBatch:
-		// Successfully sent immediately
-		return
-	default:
-		// Use timeout-based delivery
-		select {
-		case ch <- pidBatch:
-			// Successfully sent after waiting
-		case <-job.ctx.Done():
-			h.logger.Warn("send cancelled while delivering to PIDBatch receiver",
-				zap.String("pid", job.pid.String()),
-				zap.Error(job.ctx.Err()))
-		case <-time.After(h.config.DeliveryTimeout):
-			h.logger.Warn("delivery timeout exceeded; dropping PIDBatch message",
-				zap.String("pid", job.pid.String()),
-				zap.Duration("delivery_timeout", h.config.DeliveryTimeout))
-		case <-h.ctx.Done():
-			h.logger.Info("worker shutting down, dropping PIDBatch message",
-				zap.String("pid", job.pid.String()))
+			h.logger.Info("worker shutting down, dropping Package message",
+				zap.String("pid", job.pkg.PID.String()))
 		}
 	}
 }
