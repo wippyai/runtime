@@ -1,6 +1,8 @@
 package engine
 
 import (
+	"fmt"
+	"github.com/ponyruntime/pony/api/logs"
 	"github.com/ponyruntime/pony/runtime/lua/engine/errors"
 	"github.com/ponyruntime/pony/runtime/lua/engine/loadlib"
 	lua "github.com/yuin/gopher-lua"
@@ -61,6 +63,24 @@ func newLuaState() (*lua.LState, error) {
 		state.Close()
 		return nil, err
 	}
+
+	// always redirect print to log, todo: move it somewhere?
+	state.SetGlobal("print", state.NewFunction(func(L *lua.LState) int {
+		log := logs.GetLogger(L.Context())
+		if log == nil {
+			for i := 1; i <= L.GetTop(); i++ {
+				fmt.Printf("%s ", L.Get(i))
+			}
+
+			return 0
+		}
+
+		for i := 1; i <= L.GetTop(); i++ {
+			log.Info(L.ToString(i))
+		}
+
+		return 0
+	}))
 
 	return state, nil
 }
