@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	contextApi "github.com/ponyruntime/pony/api/context"
+	"log"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -171,6 +172,7 @@ func (mph *Host) prepareContext(ctx context.Context, pid pubsub.PID) context.Con
 
 	pCtx = context.WithValue(pCtx, contextApi.IDCtx, pid.ID)
 	pCtx = context.WithValue(pCtx, contextApi.WakeUpKey, func() {
+		log.Println("waking up process", pid.String())
 		_ = mph.pool.Schedule(pid) // it's ok since it means process no longer found, possible during termination
 	})
 
