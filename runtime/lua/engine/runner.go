@@ -24,6 +24,10 @@ type (
 		CloseLayer()
 	}
 
+	TaskBuffer interface {
+		Len() int
+	}
+
 	// Contexter allows middleware layers to modify the context chain.
 	// Implementing this interface is optional for layers that need to add values to the context.
 	Contexter interface {
@@ -290,7 +294,14 @@ func (e *Runner) Continue(ctx context.Context) error {
 }
 
 func (e *Runner) HasTasks() bool {
-	return e.cvm.queue.Len() > 0
+	tasks := e.cvm.queue.Len()
+	for _, l := range e.layers {
+		if c, ok := l.(TaskBuffer); ok {
+			tasks += c.Len()
+		}
+	}
+
+	return tasks > 0
 }
 
 // Execute runs a function through the layer chain with provided context and arguments

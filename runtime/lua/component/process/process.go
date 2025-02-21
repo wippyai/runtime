@@ -13,7 +13,6 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
-	"log"
 	"sync/atomic"
 	"time"
 )
@@ -146,17 +145,11 @@ func (p *Process) Step() (bool, error) {
 	default:
 	}
 
-	if !p.runner.HasTasks() {
-		log.Printf("Process %s has no tasks", p.pid.String())
-		log.Printf("Process has no tasks, but still running %v", p.pubsub.Len())
-	}
-
 	return p.runner.HasTasks(), nil
 }
 
 // Send handles incoming messages to the process
 func (p *Process) Send(batch *pubsub.Batch) error {
-	log.Printf("Process %s received %d messages", p.pid.String(), len(*batch))
 	if p.ctx.Err() != nil || p.closed.Load() {
 		return p.ctx.Err()
 	}
