@@ -61,10 +61,10 @@ type App struct {
 	// Data from the underlying Lua application
 	upstream chan payload.Payload
 
-	// Cleanup and error handling
+	// Closer and error handling
 	done       chan struct{}
 	firstError error
-	closer     *closer.Cleanup
+	closer     *closer.Closer
 
 	numRetries int
 }

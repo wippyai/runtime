@@ -7,37 +7,39 @@ import (
 	ctxapi "github.com/ponyruntime/pony/api/context"
 )
 
-// Cleanup manages a thread-safe collection of cleanup functions that can be
+// Closer manages a thread-safe collection of cleanup functions that can be
 // executed in order. It is typically stored in a context and used to ensure
 // proper resource cleanup across an operation's lifecycle.
-type Cleanup struct {
+type Closer struct {
 	mu      sync.Mutex
 	closers []func() error
+	done    chan struct{}
 }
 
-// NewCleanup creates a new Cleanup instance with an initial capacity
+// NewCleanup creates a new Closer instance with an initial capacity
 // for storing cleanup function.
-func NewCleanup() *Cleanup {
-	return &Cleanup{
+func NewCleanup() *Closer {
+	return &Closer{
 		closers: make([]func() error, 0, 4),
+		done:    make(chan struct{}),
 	}
 }
 
-// FromContext retrieves a Cleanup instance from the provided context.
-// Returns nil if no Cleanup instance is found in the context.
-func FromContext(ctx context.Context) *Cleanup {
+// FromContext retrieves a Closer instance from the provided context.
+// Returns nil if no Closer instance is found in the context.
+func FromContext(ctx context.Context) *Closer {
 	v := ctx.Value(ctxapi.CleanupCtx)
 	if v == nil {
 		return nil
 	}
-	return v.(*Cleanup)
+	return v.(*Closer)
 }
 
-// WithContext creates a new context containing a Cleanup instance.
-// If the input context already has a Cleanup instance, it returns
-// the existing context and Cleanup. Otherwise, it creates a new
-// Cleanup instance and returns it along with an updated context.
-func WithContext(ctx context.Context) (context.Context, *Cleanup) {
+// WithContext creates a new context containing a Closer instance.
+// If the input context already has a Closer instance, it returns
+// the existing context and Closer. Otherwise, it creates a new
+// Closer instance and returns it along with an updated context.
+func WithContext(ctx context.Context) (context.Context, *Closer) {
 	// check if there is already a cleanup in the context
 	if cleanup := FromContext(ctx); cleanup != nil {
 		return ctx, cleanup
@@ -49,7 +51,7 @@ func WithContext(ctx context.Context) (context.Context, *Cleanup) {
 
 // Add appends a cleanup function to be executed when Close is called.
 // Functions are executed in the order they were added.
-func (c *Cleanup) Add(closer func() error) {
+func (c *Closer) Add(closer func() error) {
 	c.mu.Lock()
 	c.closers = append(c.closers, closer)
 	c.mu.Unlock()
@@ -57,8 +59,8 @@ func (c *Cleanup) Add(closer func() error) {
 
 // Close executes all cleanup functions in order and returns the first
 // error encountered, if any. After execution, all cleanup functions
-// are removed from the Cleanup instance.
-func (c *Cleanup) Close() error {
+// are removed from the Closer instance.
+func (c *Closer) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -70,5 +72,11 @@ func (c *Cleanup) Close() error {
 	}
 
 	c.closers = c.closers[:0]
+	close(c.done)
+
 	return firstErr
+}
+
+func (c *Closer) Done() <-chan struct{} {
+	return c.done
 }

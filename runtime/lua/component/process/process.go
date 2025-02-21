@@ -27,7 +27,7 @@ type Process struct {
 	ctx    context.Context
 	dtt    payload.Transcoder
 	cancel context.CancelFunc
-	closer *closer.Cleanup
+	closer *closer.Closer
 	pid    pubsub.PID
 
 	// State tracking
