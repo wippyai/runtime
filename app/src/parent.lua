@@ -7,7 +7,7 @@ local function run()
 
     -- Configuration
     local MAX_CONCURRENT_CHILDREN = 50
-    local TOTAL_CHILDREN = 10000
+    local TOTAL_CHILDREN = 100000
     local BATCH_REPORT_SIZE = 1000
 
     -- Process tracking
@@ -50,7 +50,7 @@ local function run()
         active_children = active_children + 1
 
         local child_pid = process.spawn_monitored(
-            "supervisor:child",
+            "demos:child",
             "system:heap",
             {
                 name = string.format("child_%d", child_count),
