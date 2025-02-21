@@ -12,6 +12,8 @@ import (
 	config "github.com/ponyruntime/pony/api/service/http"
 )
 
+// todo: can be rewritten or optimized, keep original configs!
+
 // DefaultRouterID is the default router Alias
 const DefaultRouterID = ""
 
@@ -254,5 +256,7 @@ func (rm *Router) rebuildRouter() {
 func (rm *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if router := rm.composedRouter.value.Load(); router != nil {
 		router.ServeHTTP(w, r)
+	} else {
+		http.Error(w, "router not initialized", http.StatusInternalServerError)
 	}
 }
