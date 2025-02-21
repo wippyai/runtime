@@ -329,7 +329,9 @@ func (e *CoroutineVM) Close() {
 		}
 	}
 
-	e.queue.Drain()
+	if e.queue != nil {
+		e.queue.Drain()
+	}
 	e.queue = nil
 	e.tasks = nil
 

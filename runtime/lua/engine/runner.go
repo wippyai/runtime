@@ -352,8 +352,11 @@ func (e *Runner) Close() {
 	}
 
 	e.getWrapped().Close()
-	e.taskGroup.clean()
-	e.taskGroup = nil
+	if e.taskGroup != nil {
+		e.taskGroup.clean()
+		e.taskGroup = nil
+	}
+
 	e.layers = nil
 	e.layerCount = 0
 	e.cvm = nil
