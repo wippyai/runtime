@@ -6,9 +6,9 @@ local function run()
     print("Starting parent process", parent_pid)
 
     -- Configuration
-    local MAX_CONCURRENT_CHILDREN = 50
+    local MAX_CONCURRENT_CHILDREN = 64
     local TOTAL_CHILDREN = 100000
-    local BATCH_REPORT_SIZE = 1000
+    local BATCH_REPORT_SIZE = 100
 
     -- Process tracking
     local active_pids = {}
@@ -81,9 +81,6 @@ local function run()
         if spawn_child() then
             spawned = spawned + 1
         end
-
-        -- todo: time sleep here can hang system!
-        time.sleep("1ms")
     end
 
     print("ALL SPAWNED")
