@@ -100,7 +100,7 @@ func (svc *Service) Start(ctx context.Context) (<-chan any, error) {
 					return
 				}
 
-				for _, msg := range *batch {
+				for _, msg := range batch.Messages {
 					if msg.Topic == process.TopicEvents {
 						for _, p := range msg.Payloads {
 							// we always require to pass system events within go runtime, to verify legitimacy
@@ -135,8 +135,8 @@ func (svc *Service) Stop(ctx context.Context) error {
 	}
 
 	err := pubsub.GetNode(ctx).Send(
-		ctx, svc.pid,
-		topology.Cancel(svc.pid, time.Now().Add(svc.config.Lifecycle.StopTimeout)),
+		ctx,
+		topology.Cancel(svc.supervisorPID, svc.pid, time.Now().Add(svc.config.Lifecycle.StopTimeout)),
 	)
 	if err != nil {
 		// ignoring for now

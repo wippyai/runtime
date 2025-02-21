@@ -55,7 +55,7 @@ type (
 )
 
 func Cancel(from, to pubsub.PID, deadline time.Time) *pubsub.Package {
-	return pubsub.NewPacket(
+	return pubsub.NewPackage(
 		to,
 		TopicEvents,
 		payload.New(&CancelEvent{
