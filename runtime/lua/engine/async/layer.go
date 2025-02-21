@@ -133,3 +133,7 @@ func (r *Layer) CloseLayer() {
 	r.schedule = nil
 	r.channels = nil
 }
+
+func (r *Layer) Len() int {
+	return len(r.schedule)
+}

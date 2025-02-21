@@ -57,8 +57,8 @@ func ticker(l *lua.LState) int {
 	}
 
 	timeUD := l.NewUserData()
-	timeUD.Value = &Time{time: time.Now()} // initial value will be replaced
-	l.SetMetatable(timeUD, l.GetTypeMetatable("Time"))
+	timeUD.Value = &Time{time: time.Now()}             // initial value will be replaced
+	l.SetMetatable(timeUD, l.GetTypeMetatable("Time")) // todo: possibly normalize
 
 	// Launch goroutine to handle ticker
 	go func() {
