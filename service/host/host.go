@@ -5,7 +5,6 @@ import (
 	"errors"
 	contextApi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/service/host"
-	"log"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -69,8 +68,6 @@ func (mph *Host) Start(ctx context.Context) (<-chan any, error) {
 	mph.msgHost = mph.makeMsgHost(ctx)
 
 	mph.ctx = context.WithValue(ctx, contextApi.HostCtx, mph)
-
-	log.Printf("starting host %s with config: %+v", mph.id, mph.cfg)
 
 	mph.pool = NewProcessPool(
 		ctx,
