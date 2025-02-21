@@ -277,14 +277,7 @@ func (m *ControlModule) checkProcess(l *lua.LState) (*process.Context, bool) {
 
 // Add events function for internal messaging
 func (m *ControlModule) events(l *lua.LState) int {
-	procCtx, ok := m.checkProcess(l)
-	if !ok {
-		return 2
-	}
-
-	// Create events channel using internal @pid/events topic
-	eventsName := fmt.Sprintf("events.%s", procCtx.PID)
-	ch := channel.Named(eventsName, 1)
+	ch := channel.Named(process.TopicEvents, 1)
 
 	return subscribe.Subscribe(l, ch, process.TopicEvents)
 }
