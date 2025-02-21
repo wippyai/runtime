@@ -76,6 +76,7 @@ func (r *Layer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, err
 				res := w.Run()
 				res.State = thread
 				_ = tg.Send(thread.Context(), res)
+				tg.WakeUp()
 			}(fw)
 			continue
 		}
