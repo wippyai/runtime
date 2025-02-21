@@ -69,7 +69,13 @@ func (mph *Host) Start(ctx context.Context) (<-chan any, error) {
 
 	mph.ctx = context.WithValue(ctx, contextApi.HostCtx, mph)
 
-	mph.pool = NewProcessPool(ctx, mph.cfg.HostConfig.Workers, mph.cfg.HostConfig.StepQueueSize, mph.log)
+	mph.pool = NewProcessPool(
+		ctx,
+		mph.cfg.HostConfig.Workers,
+		mph.cfg.HostConfig.StepQueueSize,
+		mph.cfg.HostConfig.MaxProcesses,
+		mph.log,
+	)
 	mph.pool.Start()
 
 	mph.startMessageWorkers()
