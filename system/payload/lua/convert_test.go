@@ -303,10 +303,10 @@ func TestGoToLuaExtended(t *testing.T) {
 					"at":   float64(fixedTime.Unix()),
 					"kind": "pid.cancel",
 					"from": map[string]any{
-						"Host":   "",
-						"Node":   "",
-						"UniqID": "",
-						"ID": map[string]any{
+						"host":    "",
+						"node":    "",
+						"uniq_id": "",
+						"id": map[string]any{
 							"name": "",
 							"ns":   "",
 						},
