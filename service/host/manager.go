@@ -55,7 +55,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	defer m.mu.Unlock()
 
 	// Create new host instance
-	mph := NewMultiprocessProcessHost(
+	mph := NewMultiProcessHost(
 		entry.ID,
 		cfg,
 		m.log,

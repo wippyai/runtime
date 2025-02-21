@@ -5,6 +5,7 @@ import (
 	"errors"
 	contextApi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/service/host"
+	"log"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -33,8 +34,8 @@ type Host struct {
 	statusCh    chan any    // Optional external status notification channel.
 }
 
-// NewMultiprocessProcessHost creates a new Host instance.
-func NewMultiprocessProcessHost(
+// NewMultiProcessHost creates a new Host instance.
+func NewMultiProcessHost(
 	id registry.ID,
 	config *host.EntryConfig,
 	log *zap.Logger,
@@ -68,6 +69,8 @@ func (mph *Host) Start(ctx context.Context) (<-chan any, error) {
 	mph.msgHost = mph.makeMsgHost(ctx)
 
 	mph.ctx = context.WithValue(ctx, contextApi.HostCtx, mph)
+
+	log.Printf("starting host %s with config: %+v", mph.id, mph.cfg)
 
 	mph.pool = NewProcessPool(
 		ctx,
