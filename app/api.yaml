@@ -64,3 +64,11 @@ entries:
     method: GET
     path: /stream
     handler: functions:demo.stream
+
+  - name: demo.pid
+    kind: http.endpoint
+    meta:
+      comment: "Returns current function PID"
+    method: GET
+    path: /pid
+    handler: functions:demo.pid

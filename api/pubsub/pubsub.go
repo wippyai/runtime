@@ -92,8 +92,16 @@ func GetNode(ctx context.Context) Node {
 	return ctx.Value(contextApi.NodeCtx).(Node)
 }
 
+func WithNode(ctx context.Context, node Node) context.Context {
+	return context.WithValue(ctx, contextApi.NodeCtx, node)
+}
+
 func GetHost(ctx context.Context) Host {
 	return ctx.Value(contextApi.HostCtx).(Host)
+}
+
+func WithHost(ctx context.Context, host Host) context.Context {
+	return context.WithValue(ctx, contextApi.HostCtx, host)
 }
 
 // String formats the PID as a pipe-delimited string wrapped in curly braces.

@@ -78,3 +78,13 @@ entries:
     pool:
       size: 4
       workers: 16
+
+  - name: demo.pid
+    kind: function.lua
+    meta:
+      comment: "Simple HTTP endpoint that returns current function PID"
+    source: file://http_pid.lua
+    method: handler
+    modules: [ http, func ]
+    pool:
+      size: 2
