@@ -3,12 +3,12 @@ package terminal
 import (
 	"context"
 	"errors"
+	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"testing"
 	"time"
 
 	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/registry"
 )
 
@@ -33,7 +33,7 @@ func (dp *DummyProcess) Step() (bool, error) {
 	return true, nil
 }
 
-func (dp *DummyProcess) Send(msg *pubsub.Batch) error {
+func (dp *DummyProcess) Send(ctx context.Context, msg *pubsub.Package) error {
 	// Accept all messages.
 	return nil
 }
@@ -97,7 +97,7 @@ func TestTerminalRunnerSendAndStop(t *testing.T) {
 	}
 
 	// Test the Send method.
-	err = runner.Send(&pubsub.Batch{&pubsub.Message{Topic: "test"}})
+	err = runner.Send(&pubsub.Package{Messages: []*pubsub.Message{{Topic: "test"}}})
 	if err != nil {
 		t.Errorf("expected no error on Send, got: %v", err)
 	}

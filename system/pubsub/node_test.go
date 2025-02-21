@@ -16,23 +16,27 @@ type dummyHost struct {
 	attachCalled int32
 }
 
-func (d *dummyHost) Send(ctx context.Context, pid api.PID, batch *api.Batch) error {
+func (d *dummyHost) Send(ctx context.Context, pkg *api.Package) error {
 	atomic.AddInt32(&d.sendCalled, 1)
 	return nil
 }
 
-func (d *dummyHost) Attach(pid api.PID, ch chan *api.Batch) (context.CancelFunc, error) {
+func (d *dummyHost) Attach(pid api.PID, ch chan *api.Package) (context.CancelFunc, error) {
 	atomic.AddInt32(&d.attachCalled, 1)
 	cancel := func() {}
 	return cancel, nil
 }
 
-// dummyUpstream is a stub that implements the Upstream interface.
+func (d *dummyHost) Detach(pid api.PID) {
+	// No-op for testing
+}
+
+// dummyUpstream is a stub that implements the Receiver interface.
 type dummyUpstream struct {
 	sendCalled int32
 }
 
-func (d *dummyUpstream) Send(ctx context.Context, pid api.PID, batch *api.Batch) error {
+func (d *dummyUpstream) Send(ctx context.Context, pkg *api.Package) error {
 	atomic.AddInt32(&d.sendCalled, 1)
 	return nil
 }
@@ -51,8 +55,13 @@ func TestNodeSendLocal(t *testing.T) {
 		ID:     registry.ID{NS: "ns", Name: "proc"},
 		UniqID: "uniq",
 	}
-	batch := &api.Batch{{Topic: "local"}}
-	err := node.Send(context.Background(), pidLocalEmpty, batch)
+	pkg := &api.Package{
+		PID: pidLocalEmpty,
+		Messages: []*api.Message{
+			{Topic: "local"},
+		},
+	}
+	err := node.Send(context.Background(), pkg)
 	assert.NoError(t, err)
 	assert.Equal(t, int32(1), dhost.sendCalled)
 
@@ -63,7 +72,8 @@ func TestNodeSendLocal(t *testing.T) {
 		ID:     registry.ID{NS: "ns", Name: "proc"},
 		UniqID: "uniq",
 	}
-	err = node.Send(context.Background(), pidLocal, batch)
+	pkg.PID = pidLocal
+	err = node.Send(context.Background(), pkg)
 	assert.NoError(t, err)
 	assert.Equal(t, int32(2), dhost.sendCalled)
 }
@@ -76,8 +86,13 @@ func TestNodeSendHostNotFound(t *testing.T) {
 		ID:     registry.ID{NS: "ns", Name: "proc"},
 		UniqID: "uniq",
 	}
-	batch := &api.Batch{{Topic: "notfound"}}
-	err := node.Send(context.Background(), pid, batch)
+	pkg := &api.Package{
+		PID: pid,
+		Messages: []*api.Message{
+			{Topic: "notfound"},
+		},
+	}
+	err := node.Send(context.Background(), pkg)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "host nonexistent not found")
 }
@@ -92,8 +107,13 @@ func TestNodeSendInvalidHostType(t *testing.T) {
 		ID:     registry.ID{NS: "ns", Name: "proc"},
 		UniqID: "uniq",
 	}
-	batch := &api.Batch{{Topic: "invalid"}}
-	err := node.Send(context.Background(), pid, batch)
+	pkg := &api.Package{
+		PID: pid,
+		Messages: []*api.Message{
+			{Topic: "invalid"},
+		},
+	}
+	err := node.Send(context.Background(), pkg)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid type")
 }
@@ -106,16 +126,21 @@ func TestNodeSendNonLocalNoUpstream(t *testing.T) {
 		ID:     registry.ID{NS: "ns", Name: "proc"},
 		UniqID: "uniq",
 	}
-	batch := &api.Batch{{Topic: "nonlocal"}}
-	err := node.Send(context.Background(), pid, batch)
+	pkg := &api.Package{
+		PID: pid,
+		Messages: []*api.Message{
+			{Topic: "nonlocal"},
+		},
+	}
+	err := node.Send(context.Background(), pkg)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "no upstream available")
 }
 
 func TestNodeSendNonLocalWithUpstream(t *testing.T) {
 	dUp := &dummyUpstream{}
-	// Upstream is provided via a pointer to an Upstream interface.
-	var up api.Upstream = dUp
+	// Receiver is provided via a pointer to a Receiver interface.
+	var up api.Receiver = dUp
 	node := NewNode("node1", &up)
 	pid := api.PID{
 		Node:   "remoteNode",
@@ -123,8 +148,13 @@ func TestNodeSendNonLocalWithUpstream(t *testing.T) {
 		ID:     registry.ID{NS: "ns", Name: "proc"},
 		UniqID: "uniq",
 	}
-	batch := &api.Batch{{Topic: "nonlocal"}}
-	err := node.Send(context.Background(), pid, batch)
+	pkg := &api.Package{
+		PID: pid,
+		Messages: []*api.Message{
+			{Topic: "nonlocal"},
+		},
+	}
+	err := node.Send(context.Background(), pkg)
 	assert.NoError(t, err)
 	assert.Equal(t, int32(1), dUp.sendCalled)
 }
@@ -142,7 +172,7 @@ func TestNodeAttachLocal(t *testing.T) {
 		ID:     registry.ID{NS: "ns", Name: "proc"},
 		UniqID: "uniq",
 	}
-	ch := make(chan *api.Batch, 1)
+	ch := make(chan *api.Package, 1)
 	cancel, err := node.Attach(pidLocal, ch)
 	assert.NoError(t, err)
 	assert.NotNil(t, cancel)
@@ -157,7 +187,7 @@ func TestNodeAttachNonLocal(t *testing.T) {
 		ID:     registry.ID{NS: "ns", Name: "proc"},
 		UniqID: "uniq",
 	}
-	ch := make(chan *api.Batch, 1)
+	ch := make(chan *api.Package, 1)
 	cancel, err := node.Attach(pid, ch)
 	assert.Error(t, err)
 	assert.Nil(t, cancel)
@@ -174,9 +204,43 @@ func TestNodeAttachInvalidHostType(t *testing.T) {
 		ID:     registry.ID{NS: "ns", Name: "proc"},
 		UniqID: "uniq",
 	}
-	ch := make(chan *api.Batch, 1)
+	ch := make(chan *api.Package, 1)
 	cancel, err := node.Attach(pid, ch)
 	assert.Error(t, err)
 	assert.Nil(t, cancel)
 	assert.Contains(t, err.Error(), "invalid type")
+}
+
+func TestNodeDetach(t *testing.T) {
+	dhost := &dummyHost{}
+	nodeID := "node1"
+	node := NewNode(nodeID, nil)
+	assert.NoError(t, node.RegisterHost("host1", dhost))
+
+	// Test detach with local pid
+	pidLocal := api.PID{
+		Node:   "",
+		Host:   "host1",
+		ID:     registry.ID{NS: "ns", Name: "proc"},
+		UniqID: "uniq",
+	}
+	node.Detach(pidLocal) // Should not panic
+
+	// Test detach with non-local pid
+	pidNonLocal := api.PID{
+		Node:   "remoteNode",
+		Host:   "host1",
+		ID:     registry.ID{NS: "ns", Name: "proc"},
+		UniqID: "uniq",
+	}
+	node.Detach(pidNonLocal) // Should not panic
+
+	// Test detach with invalid host
+	pidInvalidHost := api.PID{
+		Node:   "",
+		Host:   "nonexistent",
+		ID:     registry.ID{NS: "ns", Name: "proc"},
+		UniqID: "uniq",
+	}
+	node.Detach(pidInvalidHost) // Should not panic
 }

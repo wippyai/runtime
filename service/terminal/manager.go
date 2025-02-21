@@ -3,7 +3,7 @@ package terminal
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/api/process"
+	supervisor2 "github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/ponyruntime/pony/system/logs"
@@ -114,10 +114,10 @@ func (m *Manager) registerHost(ctx context.Context, terminal *Terminal) {
 
 	// we can host processes
 	m.bus.Send(ctx, events.Event{
-		System: process.HostSystem,
-		Kind:   process.RegisterHost,
+		System: supervisor2.HostSystem,
+		Kind:   supervisor2.RegisterHost,
 		Path:   terminal.id.String(),
-		Data:   process.Managed(terminal),
+		Data:   supervisor2.Managed(terminal),
 	})
 
 	// we run!
@@ -150,8 +150,8 @@ func (m *Manager) removeHost(ctx context.Context, id registry.ID) {
 
 	// we no longer run!
 	m.bus.Send(ctx, events.Event{
-		System: process.HostSystem,
-		Kind:   process.DeleteHost,
+		System: supervisor2.HostSystem,
+		Kind:   supervisor2.DeleteHost,
 		Path:   id.String(),
 	})
 }

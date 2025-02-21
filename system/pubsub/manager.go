@@ -131,12 +131,12 @@ func (m *NodeManager) sendReject(path events.Path, reason string) {
 }
 
 // Send delegates message sending to the underlying node
-func (m *NodeManager) Send(ctx context.Context, pid api.PID, batch *api.Batch) error {
-	return m.node.Send(ctx, pid, batch)
+func (m *NodeManager) Send(ctx context.Context, pkg *api.Package) error {
+	return m.node.Send(ctx, pkg)
 }
 
 // Attach delegates attachment to the underlying node
-func (m *NodeManager) Attach(pid api.PID, ch chan *api.Batch) (context.CancelFunc, error) {
+func (m *NodeManager) Attach(pid api.PID, ch chan *api.Package) (context.CancelFunc, error) {
 	return m.node.Attach(pid, ch)
 }
 

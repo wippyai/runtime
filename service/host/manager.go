@@ -3,12 +3,13 @@ package host
 import (
 	"context"
 	"fmt"
+	supervisor2 "github.com/ponyruntime/pony/api/process"
+	"github.com/ponyruntime/pony/api/service/host"
 	msg "github.com/ponyruntime/pony/system/pubsub"
 	"sync"
 
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/supervisor"
@@ -35,11 +36,11 @@ func NewHostManager(bus events.Bus, dtt payload.Transcoder, logger *zap.Logger) 
 
 // Add creates and registers a new process host
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != process.KindHost {
+	if entry.Kind != host.KindHost {
 		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
 	}
 
-	cfg := new(process.EntryConfig)
+	cfg := new(host.EntryConfig)
 	if err := m.dtt.Unmarshal(entry.Data, cfg); err != nil {
 		return fmt.Errorf("failed to unmarshal cfg: %w", err)
 	}
@@ -54,11 +55,11 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	defer m.mu.Unlock()
 
 	// Create new host instance
-	host := NewProcessHost(
+	mph := NewMultiprocessProcessHost(
 		entry.ID,
 		cfg,
 		m.log,
-		func(ctx context.Context) pubsub.BatchHost {
+		func(ctx context.Context) pubsub.Host {
 			return msg.NewHost(ctx, msg.HostConfig{
 				BufferSize:      cfg.HostConfig.BufferSize,
 				WorkerCount:     cfg.HostConfig.WorkerCount,
@@ -69,12 +70,12 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		})
 
 	// Store in hosts map
-	m.hosts.Store(entry.ID, host)
+	m.hosts.Store(entry.ID, mph)
 
 	m.log.Info("process host created", zap.String("id", entry.ID.String()))
 
 	// Register with necessary subsystems
-	m.registerHost(ctx, entry.ID, host, cfg)
+	m.registerHost(ctx, entry.ID, mph, cfg)
 
 	return nil
 }
@@ -86,7 +87,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 // Delete removes a process host
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != process.KindHost {
+	if entry.Kind != host.KindHost {
 		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
 	}
 
@@ -102,21 +103,21 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 }
 
 // registerHost registers the process host with necessary subsystems
-func (m *Manager) registerHost(ctx context.Context, id registry.ID, host *Host, cfg *process.EntryConfig) {
+func (m *Manager) registerHost(ctx context.Context, id registry.ID, host *Host, cfg *host.EntryConfig) {
 	// Register with pubsub
 	m.bus.Send(ctx, events.Event{
 		System: pubsub.System,
 		Kind:   pubsub.RegisterHost,
 		Path:   id.String(),
-		Data:   process.Host(host),
+		Data:   supervisor2.Host(host),
 	})
 
 	// Register as process host
 	m.bus.Send(ctx, events.Event{
-		System: process.HostSystem,
-		Kind:   process.RegisterHost,
+		System: supervisor2.HostSystem,
+		Kind:   supervisor2.RegisterHost,
 		Path:   id.String(),
-		Data:   process.Managed(host),
+		Data:   supervisor2.Managed(host),
 	})
 
 	// Register with supervisor
@@ -142,8 +143,8 @@ func (m *Manager) removeHost(ctx context.Context, id registry.ID) {
 
 	// Remove from process hosts
 	m.bus.Send(ctx, events.Event{
-		System: process.HostSystem,
-		Kind:   process.DeleteHost,
+		System: supervisor2.HostSystem,
+		Kind:   supervisor2.DeleteHost,
 		Path:   id.String(),
 	})
 

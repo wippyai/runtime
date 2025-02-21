@@ -17,14 +17,14 @@ type Topology struct {
 	logger   *zap.Logger
 	monitor  topology.Monitor
 	nodeID   pubsub.NodeID
-	upstream pubsub.Upstream
+	upstream pubsub.Receiver
 }
 
 // NewTopology creates a new topology manager with the given node's upstream
 func NewTopology(
 	ctx context.Context,
 	log *zap.Logger,
-	upstream pubsub.Upstream,
+	upstream pubsub.Receiver,
 ) *Topology {
 	return &Topology{
 		logger:   log,

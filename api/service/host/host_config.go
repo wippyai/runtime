@@ -1,4 +1,4 @@
-package process
+package host
 
 import (
 	"encoding/json"
@@ -17,12 +17,12 @@ const (
 )
 
 type EntryConfig struct {
-	HostConfig HostConfig                 `json:"host_config"`
+	HostConfig Config                     `json:"host_config"`
 	Lifecycle  supervisor.LifecycleConfig `json:"lifecycle"`
 }
 
-// HostConfig represents configuration for a process host service
-type HostConfig struct {
+// Config represents configuration for a process host service
+type Config struct {
 	// Process execution settings
 	MaxProcesses int `json:"max_processes"` // Maximum number of concurrent processes
 	Workers      int `json:"workers"`       // Number of workers processing steps
@@ -38,9 +38,9 @@ type HostConfig struct {
 	MessageWorkerCount int           `json:"message_worker_count"` // Number of concurrent message workers
 }
 
-// UnmarshalJSON implements custom unmarshaling for HostConfig to handle time.Duration fields
-func (c *HostConfig) UnmarshalJSON(data []byte) error {
-	type Alias HostConfig
+// UnmarshalJSON implements custom unmarshaling for Config to handle time.Duration fields
+func (c *Config) UnmarshalJSON(data []byte) error {
+	type Alias Config
 	aux := &struct {
 		RetryTimeout    string `json:"retry_timeout"`
 		DeliveryTimeout string `json:"delivery_timeout"`
@@ -71,9 +71,9 @@ func (c *HostConfig) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// MarshalJSON implements custom marshaling for HostConfig to handle time.Duration fields
-func (c *HostConfig) MarshalJSON() ([]byte, error) {
-	type Alias HostConfig
+// MarshalJSON implements custom marshaling for Config to handle time.Duration fields
+func (c *Config) MarshalJSON() ([]byte, error) {
+	type Alias Config
 	return json.Marshal(&struct {
 		RetryTimeout    string `json:"retry_timeout"`
 		DeliveryTimeout string `json:"delivery_timeout"`

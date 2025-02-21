@@ -43,12 +43,16 @@ func (n *mockNode) UnregisterHost(id string) {
 	n.hosts.Delete(id)
 }
 
-func (n *mockNode) Send(ctx context.Context, pid api.PID, batch *api.Batch) error {
+func (n *mockNode) Send(ctx context.Context, pkg *api.Package) error {
 	return n.sendErr
 }
 
-func (n *mockNode) Attach(pid api.PID, ch chan *api.Batch) (context.CancelFunc, error) {
+func (n *mockNode) Attach(pid api.PID, ch chan *api.Package) (context.CancelFunc, error) {
 	return func() {}, nil
+}
+
+func (n *mockNode) Detach(pid api.PID) {
+	// No-op for testing
 }
 
 // mockHost implements Host interface for testing
@@ -56,12 +60,16 @@ type mockHost struct {
 	sendErr error
 }
 
-func (h *mockHost) Send(ctx context.Context, pid api.PID, batch *api.Batch) error {
+func (h *mockHost) Send(ctx context.Context, pkg *api.Package) error {
 	return h.sendErr
 }
 
-func (h *mockHost) Attach(pid api.PID, ch chan *api.Batch) (context.CancelFunc, error) {
+func (h *mockHost) Attach(pid api.PID, ch chan *api.Package) (context.CancelFunc, error) {
 	return func() {}, nil
+}
+
+func (h *mockHost) Detach(pid api.PID) {
+	// No-op for testing
 }
 
 func setupManagerTest() (*NodeManager, *mockNode, events.Bus) {
@@ -254,13 +262,22 @@ func TestManager_Send(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			node.sendErr = tt.sendErr
+
 			pid := api.PID{
 				Node:   "test-node",
 				Host:   "test-host",
 				ID:     registry.ID{NS: "test", Name: "proc"},
 				UniqID: "test",
 			}
-			err := manager.Send(ctx, pid, &api.Batch{})
+
+			pkg := &api.Package{
+				PID: pid,
+				Messages: []*api.Message{
+					{Topic: "test"},
+				},
+			}
+
+			err := manager.Send(ctx, pkg)
 
 			if tt.shouldError {
 				assert.Error(t, err)
@@ -284,7 +301,7 @@ func TestManager_Attach(t *testing.T) {
 		ID:     registry.ID{NS: "test", Name: "proc"},
 		UniqID: "test",
 	}
-	ch := make(chan *api.Batch)
+	ch := make(chan *api.Package)
 
 	cancel, err := manager.Attach(pid, ch)
 	require.NoError(t, err)
@@ -292,4 +309,14 @@ func TestManager_Attach(t *testing.T) {
 
 	// Test cancel function
 	cancel()
+}
+
+func TestManager_Node(t *testing.T) {
+	ctx := context.Background()
+	manager, node, _ := setupManagerTest()
+	require.NoError(t, manager.Start(ctx))
+	defer func() { assert.NoError(t, manager.Stop()) }()
+
+	// Test that Node() returns the underlying node
+	assert.Equal(t, node, manager.Node())
 }

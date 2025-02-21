@@ -2,12 +2,12 @@ package process
 
 import (
 	"context"
+	"github.com/ponyruntime/pony/api/process"
 	"testing"
 	"time"
 
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/system/eventbus"

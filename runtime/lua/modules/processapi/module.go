@@ -123,7 +123,7 @@ func (m *ControlModule) send(l *lua.LState) int {
 	}
 
 	// Create batch
-	batch := pubsub.NewBatch(topic, payload.NewPayload(msg, payload.Lua))
+	batch := pubsub.NewPacket(topic, payload.NewPayload(msg, payload.Lua))
 
 	// Send message using node
 	if err := node.Send(l.Context(), pid, batch); err != nil {

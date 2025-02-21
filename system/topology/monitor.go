@@ -16,10 +16,10 @@ type monitor struct {
 	ctx      context.Context
 	monitors sync.Map // map[string]*sync.Map - watchers for each pid
 	registry sync.Map // map[string]bool - registered PIDs
-	upstream pubsub.Upstream
+	upstream pubsub.Receiver
 }
 
-func NewMonitor(ctx context.Context, upstream pubsub.Upstream) topology.Monitor {
+func NewMonitor(ctx context.Context, upstream pubsub.Receiver) topology.Monitor {
 	return &monitor{
 		ctx:      ctx,
 		upstream: upstream,
@@ -86,7 +86,8 @@ func (m *monitor) Notify(pid pubsub.PID, result *runtime.Result) {
 			return true
 		}
 
-		batch := pubsub.NewBatch(
+		pkg := pubsub.NewPacket(
+			callerPID,
 			process.TopicEvents,
 			payload.New(topology.ResultEvent{
 				Event: topology.Event{
@@ -98,7 +99,7 @@ func (m *monitor) Notify(pid pubsub.PID, result *runtime.Result) {
 			}),
 		)
 
-		if err := m.upstream.Send(m.ctx, callerPID, batch); err != nil {
+		if err := m.upstream.Send(m.ctx, pkg); err != nil {
 			return true
 		}
 		return true
