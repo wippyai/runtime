@@ -66,7 +66,7 @@ func TestPrototypeRegistry_RegisterPrototype(t *testing.T) {
 		process.PrototypeSystem,
 		"prototype.*",
 		func(evt events.Event) {
-			if evt.Kind == process.AcceptPrototype || evt.Kind == process.RejectPrototype {
+			if evt.Kind == process.ProtoAccept || evt.Kind == process.ProtoReject {
 				responses <- evt
 			}
 		},
@@ -81,14 +81,14 @@ func TestPrototypeRegistry_RegisterPrototype(t *testing.T) {
 
 		bus.Send(ctx, events.Event{
 			System: process.PrototypeSystem,
-			Kind:   process.RegisterPrototype,
+			Kind:   process.ProtoRegister,
 			Path:   "test:mock-process",
 			Data:   process.Prototype(mockProcess),
 		})
 
 		select {
 		case resp := <-responses:
-			assert.Equal(t, process.AcceptPrototype, resp.Kind)
+			assert.Equal(t, process.ProtoAccept, resp.Kind)
 			assert.Equal(t, "test:mock-process", resp.Path)
 		case <-time.After(time.Second):
 			t.Fatal("timeout waiting for response")
@@ -102,14 +102,14 @@ func TestPrototypeRegistry_RegisterPrototype(t *testing.T) {
 	t.Run("invalid registration payload", func(t *testing.T) {
 		bus.Send(ctx, events.Event{
 			System: process.PrototypeSystem,
-			Kind:   process.RegisterPrototype,
+			Kind:   process.ProtoRegister,
 			Path:   "test:invalid-process",
 			Data:   "invalid data",
 		})
 
 		select {
 		case resp := <-responses:
-			assert.Equal(t, process.RejectPrototype, resp.Kind)
+			assert.Equal(t, process.ProtoReject, resp.Kind)
 			assert.Equal(t, "test:invalid-process", resp.Path)
 		case <-time.After(time.Second):
 			t.Fatal("timeout waiting for response")
@@ -126,14 +126,14 @@ func TestPrototypeRegistry_RegisterPrototype(t *testing.T) {
 
 		bus.Send(ctx, events.Event{
 			System: process.PrototypeSystem,
-			Kind:   process.RegisterPrototype,
+			Kind:   process.ProtoRegister,
 			Path:   "test:error-process",
 			Data:   process.Prototype(errorPrototype),
 		})
 
 		select {
 		case resp := <-responses:
-			assert.Equal(t, process.AcceptPrototype, resp.Kind)
+			assert.Equal(t, process.ProtoAccept, resp.Kind)
 		case <-time.After(time.Second):
 			t.Fatal("timeout waiting for response")
 		}
@@ -160,7 +160,7 @@ func TestPrototypeRegistry_DeletePrototype(t *testing.T) {
 		process.PrototypeSystem,
 		"prototype.*",
 		func(evt events.Event) {
-			if evt.Kind == process.AcceptPrototype || evt.Kind == process.RejectPrototype {
+			if evt.Kind == process.ProtoAccept || evt.Kind == process.ProtoReject {
 				responses <- evt
 			}
 		},
@@ -176,14 +176,14 @@ func TestPrototypeRegistry_DeletePrototype(t *testing.T) {
 
 	bus.Send(ctx, events.Event{
 		System: process.PrototypeSystem,
-		Kind:   process.RegisterPrototype,
+		Kind:   process.ProtoRegister,
 		Path:   processID,
 		Data:   process.Prototype(mockProcess),
 	})
 
 	select {
 	case resp := <-responses:
-		assert.Equal(t, process.AcceptPrototype, resp.Kind)
+		assert.Equal(t, process.ProtoAccept, resp.Kind)
 	case <-time.After(time.Second):
 		t.Fatal("timeout waiting for registration response")
 	}
@@ -191,13 +191,13 @@ func TestPrototypeRegistry_DeletePrototype(t *testing.T) {
 	t.Run("successful deletion", func(t *testing.T) {
 		bus.Send(ctx, events.Event{
 			System: process.PrototypeSystem,
-			Kind:   process.DeletePrototype,
+			Kind:   process.ProtoDelete,
 			Path:   processID,
 		})
 
 		select {
 		case resp := <-responses:
-			assert.Equal(t, process.AcceptPrototype, resp.Kind)
+			assert.Equal(t, process.ProtoAccept, resp.Kind)
 			assert.Equal(t, processID, resp.Path)
 		case <-time.After(time.Second):
 			t.Fatal("timeout waiting for response")
@@ -211,13 +211,13 @@ func TestPrototypeRegistry_DeletePrototype(t *testing.T) {
 	t.Run("delete non-existent prototype", func(t *testing.T) {
 		bus.Send(ctx, events.Event{
 			System: process.PrototypeSystem,
-			Kind:   process.DeletePrototype,
+			Kind:   process.ProtoDelete,
 			Path:   "test:nonexistent",
 		})
 
 		select {
 		case resp := <-responses:
-			assert.Equal(t, process.RejectPrototype, resp.Kind)
+			assert.Equal(t, process.ProtoReject, resp.Kind)
 			assert.Equal(t, "test:nonexistent", resp.Path)
 		case <-time.After(time.Second):
 			t.Fatal("timeout waiting for response")
@@ -241,14 +241,14 @@ func TestPrototypeRegistry_Create(t *testing.T) {
 
 	bus.Send(ctx, events.Event{
 		System: process.PrototypeSystem,
-		Kind:   process.RegisterPrototype,
+		Kind:   process.ProtoRegister,
 		Path:   "test:success-process",
 		Data:   process.Prototype(successProcess),
 	})
 
 	bus.Send(ctx, events.Event{
 		System: process.PrototypeSystem,
-		Kind:   process.RegisterPrototype,
+		Kind:   process.ProtoRegister,
 		Path:   "test:error-process",
 		Data:   process.Prototype(errorProcess),
 	})

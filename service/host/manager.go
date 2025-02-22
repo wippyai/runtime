@@ -115,7 +115,7 @@ func (m *Manager) registerHost(ctx context.Context, id registry.ID, host *Host, 
 	// Register as process host
 	m.bus.Send(ctx, events.Event{
 		System: supervisor2.HostSystem,
-		Kind:   supervisor2.RegisterHost,
+		Kind:   supervisor2.HostRegister,
 		Path:   id.String(),
 		Data:   supervisor2.Managed(host),
 	})
@@ -144,7 +144,7 @@ func (m *Manager) removeHost(ctx context.Context, id registry.ID) {
 	// Remove from process hosts
 	m.bus.Send(ctx, events.Event{
 		System: supervisor2.HostSystem,
-		Kind:   supervisor2.DeleteHost,
+		Kind:   supervisor2.HostDelete,
 		Path:   id.String(),
 	})
 

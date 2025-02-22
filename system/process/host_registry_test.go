@@ -78,7 +78,7 @@ func TestHostRegistry_RegisterHost(t *testing.T) {
 		process.HostSystem,
 		"hosts.*",
 		func(evt events.Event) {
-			if evt.Kind == process.AcceptHost || evt.Kind == process.RejectHost {
+			if evt.Kind == process.HostAccept || evt.Kind == process.HostReject {
 				responses <- evt
 			}
 		},
@@ -90,14 +90,14 @@ func TestHostRegistry_RegisterHost(t *testing.T) {
 		host := &mockManagedHost{}
 		bus.Send(ctx, events.Event{
 			System: process.HostSystem,
-			Kind:   process.RegisterHost,
+			Kind:   process.HostRegister,
 			Path:   "test:managed-host",
 			Data:   host,
 		})
 
 		select {
 		case resp := <-responses:
-			assert.Equal(t, process.AcceptHost, resp.Kind)
+			assert.Equal(t, process.HostAccept, resp.Kind)
 			assert.Equal(t, "test:managed-host", resp.Path)
 		case <-time.After(time.Second):
 			t.Fatal("timeout waiting for response")
@@ -115,14 +115,14 @@ func TestHostRegistry_RegisterHost(t *testing.T) {
 		host := &mockDelegatedHost{}
 		bus.Send(ctx, events.Event{
 			System: process.HostSystem,
-			Kind:   process.RegisterHost,
+			Kind:   process.HostRegister,
 			Path:   "test:delegated-host",
 			Data:   host,
 		})
 
 		select {
 		case resp := <-responses:
-			assert.Equal(t, process.AcceptHost, resp.Kind)
+			assert.Equal(t, process.HostAccept, resp.Kind)
 			assert.Equal(t, "test:delegated-host", resp.Path)
 		case <-time.After(time.Second):
 			t.Fatal("timeout waiting for response")
@@ -140,14 +140,14 @@ func TestHostRegistry_RegisterHost(t *testing.T) {
 		host := &invalidHost{}
 		bus.Send(ctx, events.Event{
 			System: process.HostSystem,
-			Kind:   process.RegisterHost,
+			Kind:   process.HostRegister,
 			Path:   "test:invalid-host",
 			Data:   host,
 		})
 
 		select {
 		case resp := <-responses:
-			assert.Equal(t, process.RejectHost, resp.Kind)
+			assert.Equal(t, process.HostReject, resp.Kind)
 			assert.Equal(t, "test:invalid-host", resp.Path)
 		case <-time.After(time.Second):
 			t.Fatal("timeout waiting for response")
@@ -161,14 +161,14 @@ func TestHostRegistry_RegisterHost(t *testing.T) {
 	t.Run("register with invalid payload", func(t *testing.T) {
 		bus.Send(ctx, events.Event{
 			System: process.HostSystem,
-			Kind:   process.RegisterHost,
+			Kind:   process.HostRegister,
 			Path:   "test:invalid-payload",
 			Data:   "invalid data",
 		})
 
 		select {
 		case resp := <-responses:
-			assert.Equal(t, process.RejectHost, resp.Kind)
+			assert.Equal(t, process.HostReject, resp.Kind)
 			assert.Equal(t, "test:invalid-payload", resp.Path)
 		case <-time.After(time.Second):
 			t.Fatal("timeout waiting for response")
@@ -189,7 +189,7 @@ func TestHostRegistry_DeleteHost(t *testing.T) {
 		process.HostSystem,
 		"hosts.*",
 		func(evt events.Event) {
-			if evt.Kind == process.AcceptHost || evt.Kind == process.RejectHost {
+			if evt.Kind == process.HostAccept || evt.Kind == process.HostReject {
 				responses <- evt
 			}
 		},
@@ -202,14 +202,14 @@ func TestHostRegistry_DeleteHost(t *testing.T) {
 	host := &mockManagedHost{}
 	bus.Send(ctx, events.Event{
 		System: process.HostSystem,
-		Kind:   process.RegisterHost,
+		Kind:   process.HostRegister,
 		Path:   hostID,
 		Data:   host,
 	})
 
 	select {
 	case resp := <-responses:
-		assert.Equal(t, process.AcceptHost, resp.Kind)
+		assert.Equal(t, process.HostAccept, resp.Kind)
 	case <-time.After(time.Second):
 		t.Fatal("timeout waiting for registration response")
 	}
@@ -217,13 +217,13 @@ func TestHostRegistry_DeleteHost(t *testing.T) {
 	t.Run("successful deletion", func(t *testing.T) {
 		bus.Send(ctx, events.Event{
 			System: process.HostSystem,
-			Kind:   process.DeleteHost,
+			Kind:   process.HostDelete,
 			Path:   hostID,
 		})
 
 		select {
 		case resp := <-responses:
-			assert.Equal(t, process.AcceptHost, resp.Kind)
+			assert.Equal(t, process.HostAccept, resp.Kind)
 			assert.Equal(t, hostID, resp.Path)
 		case <-time.After(time.Second):
 			t.Fatal("timeout waiting for response")
@@ -237,13 +237,13 @@ func TestHostRegistry_DeleteHost(t *testing.T) {
 	t.Run("delete non-existent host", func(t *testing.T) {
 		bus.Send(ctx, events.Event{
 			System: process.HostSystem,
-			Kind:   process.DeleteHost,
+			Kind:   process.HostDelete,
 			Path:   "test:nonexistent",
 		})
 
 		select {
 		case resp := <-responses:
-			assert.Equal(t, process.RejectHost, resp.Kind)
+			assert.Equal(t, process.HostReject, resp.Kind)
 			assert.Equal(t, "test:nonexistent", resp.Path)
 		case <-time.After(time.Second):
 			t.Fatal("timeout waiting for response")
