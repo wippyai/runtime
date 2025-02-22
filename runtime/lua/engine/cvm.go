@@ -173,18 +173,18 @@ func (e *CoroutineVM) StartString(ctx context.Context, script, scriptName string
 	}
 
 	uw := uow.FromContext(ctx)
-	if uw == nil {
-		return fmt.Errorf("start outside of UoW is not allowed")
-	}
 
 	ctx, e.cancel = context.WithCancel(ctx)
 	e.vm.state.SetContext(ctx)
-	uw.AddCleanup(func() error {
-		if e.vm.state != nil && e.vm.state.Context() != nil {
-			e.vm.state.SetContext(nil)
-		}
-		return nil
-	})
+
+	if uw != nil {
+		uw.AddCleanup(func() error {
+			if e.vm.state != nil && e.vm.state.Context() != nil {
+				e.vm.state.SetContext(nil)
+			}
+			return nil
+		})
+	}
 
 	task := e.createTask(ctx, fn)
 	task.Resumed = args
@@ -206,18 +206,17 @@ func (e *CoroutineVM) Start(ctx context.Context, funcName string, args ...lua.LV
 	}
 
 	uw := uow.FromContext(ctx)
-	if uw == nil {
-		return nil, fmt.Errorf("start outside of UoW is not allowed")
-	}
 
 	ctx, e.cancel = context.WithCancel(ctx)
 	e.vm.state.SetContext(ctx)
-	uw.AddCleanup(func() error {
-		if e.vm.state != nil && e.vm.state.Context() != nil {
-			e.vm.state.SetContext(nil)
-		}
-		return nil
-	})
+	if uw != nil {
+		uw.AddCleanup(func() error {
+			if e.vm.state != nil && e.vm.state.Context() != nil {
+				e.vm.state.SetContext(nil)
+			}
+			return nil
+		})
+	}
 
 	task := e.createTask(ctx, fn)
 	task.Resumed = args

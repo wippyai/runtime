@@ -2,7 +2,7 @@ package btea
 
 import (
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
-	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
+	"github.com/ponyruntime/pony/runtime/lua/engine/pubsub"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/models"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/models/list"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
@@ -65,5 +65,5 @@ func (m *Module) Loader(l *lua.LState) int {
 
 // btea events handler (internal)
 func (m *Module) events(l *lua.LState) int {
-	return subscribe.Subscribe(l, channel.Named("btea.events", 1), "@btea/events")
+	return pubsub.Subscribe(l, channel.Named("btea.events", 1), "@btea/events")
 }

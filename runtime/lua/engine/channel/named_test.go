@@ -2,6 +2,7 @@ package channel
 
 import (
 	"context"
+	"github.com/ponyruntime/pony/runtime/uow"
 	"strings"
 	"testing"
 
@@ -38,9 +39,11 @@ func TestNamedChannelSend(t *testing.T) {
 	defer vm.Close()
 
 	tg := engine.NewTaskGroup(100)
-	ctx := engine.WithTaskGroup(context.Background(), tg)
+	ctx, uw := uow.WithContext(context.Background())
+	defer func() { _ = uw.Close() }()
+	ctx = engine.WithTaskGroup(ctx, tg)
 
-	err = vm.StartString(engine.WithTaskGroup(context.Background(), tg), `
+	err = vm.StartString(ctx, `
 		-- Spawn two named channels
 		local ch1 = new_named("channel1", 1)
 		local ch2 = new_named("channel2", 1)
@@ -106,7 +109,9 @@ func TestNamedChannelSelectVisibility(t *testing.T) {
 	defer vm.Close()
 
 	tg := engine.NewTaskGroup(100)
-	ctx := engine.WithTaskGroup(context.Background(), tg)
+	ctx, uw := uow.WithContext(context.Background())
+	defer func() { _ = uw.Close() }()
+	ctx = engine.WithTaskGroup(ctx, tg)
 
 	err = vm.StartString(ctx, `
 		-- Spawn named channels with different capacities 
@@ -218,7 +223,9 @@ func TestNamedChannelSelectDefaultCase(t *testing.T) {
 	defer vm.Close()
 
 	tg := engine.NewTaskGroup(100)
-	ctx := engine.WithTaskGroup(context.Background(), tg)
+	ctx, uw := uow.WithContext(context.Background())
+	defer func() { _ = uw.Close() }()
+	ctx = engine.WithTaskGroup(ctx, tg)
 
 	err = vm.StartString(ctx, `
 		-- Spawn named channels
@@ -289,7 +296,9 @@ func TestNamedChannelMultipleReceivers(t *testing.T) {
 	defer vm.Close()
 
 	tg := engine.NewTaskGroup(100)
-	ctx := engine.WithTaskGroup(context.Background(), tg)
+	ctx, uw := uow.WithContext(context.Background())
+	defer func() { _ = uw.Close() }()
+	ctx = engine.WithTaskGroup(ctx, tg)
 
 	err = vm.StartString(ctx, `
 		-- Spawn channels
@@ -453,7 +462,9 @@ func TestBufferedNamedChannelWriteCapacity(t *testing.T) {
 	defer vm.Close()
 
 	tg := engine.NewTaskGroup(100)
-	ctx := engine.WithTaskGroup(context.Background(), tg)
+	ctx, uw := uow.WithContext(context.Background())
+	defer func() { _ = uw.Close() }()
+	ctx = engine.WithTaskGroup(ctx, tg)
 
 	err = vm.StartString(ctx, `
         -- Spawn buffered channel and control channels

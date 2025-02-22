@@ -2,6 +2,7 @@ package channel
 
 import (
 	"context"
+	"github.com/ponyruntime/pony/runtime/uow"
 	"strings"
 	"testing"
 
@@ -20,7 +21,10 @@ func TestSelectImmediate(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.StartString(context.Background(), `
+	ctx, uw := uow.WithContext(context.Background())
+	defer func() { _ = uw.Close() }()
+
+	err = vm.StartString(ctx, `
 		-- Spawn two buffered channels
 		local ch1 = channel.new(1)
 		local ch2 = channel.new(1)
@@ -77,7 +81,10 @@ func TestSelectBlockedReceive(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.StartString(context.Background(), `
+	ctx, uw := uow.WithContext(context.Background())
+	defer func() { _ = uw.Close() }()
+
+	err = vm.StartString(ctx, `
 		-- Spawn two unbuffered channels
 		local ch1 = channel.new(0)
 		local ch2 = channel.new(0)
@@ -131,7 +138,10 @@ func TestSelectBlockedClose(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.StartString(context.Background(), `
+	ctx, uw := uow.WithContext(context.Background())
+	defer func() { _ = uw.Close() }()
+
+	err = vm.StartString(ctx, `
 		-- Spawn two unbuffered channels
 		local ch1 = channel.new(0)
 		local ch2 = channel.new(0)
@@ -190,7 +200,10 @@ func TestSelectWithDefaultImmediate(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.StartString(context.Background(), `
+	ctx, uw := uow.WithContext(context.Background())
+	defer func() { _ = uw.Close() }()
+
+	err = vm.StartString(ctx, `
         -- Helper to get channel stats
         local function channel_stats(ch)
             return {
@@ -258,7 +271,10 @@ func TestSelectLoopWithFeeds(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.StartString(context.Background(), `
+	ctx, uw := uow.WithContext(context.Background())
+	defer func() { _ = uw.Close() }()
+
+	err = vm.StartString(ctx, `
         -- Helper for channel stats
         local function channel_stats(ch)
             return {
@@ -343,7 +359,10 @@ func TestSelectCleanupOnReceive(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.StartString(context.Background(), `
+	ctx, uw := uow.WithContext(context.Background())
+	defer func() { _ = uw.Close() }()
+
+	err = vm.StartString(ctx, `
        local function channel_stats(ch)
            return {
                size = ch:_debug_size(),
@@ -416,7 +435,10 @@ func TestSelectCleanupAll(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.StartString(context.Background(), `
+	ctx, uw := uow.WithContext(context.Background())
+	defer func() { _ = uw.Close() }()
+
+	err = vm.StartString(ctx, `
 		local function channel_stats(ch)
 			return {
 				size = ch:_debug_size(),
@@ -519,7 +541,10 @@ func TestMixedSelectImmediate(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.StartString(context.Background(), `
+	ctx, uw := uow.WithContext(context.Background())
+	defer func() { _ = uw.Close() }()
+
+	err = vm.StartString(ctx, `
 		local function channel_stats(ch)
 			return {
 				size = ch:_debug_size(),
@@ -606,7 +631,10 @@ func TestMixedSelectBlocking(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.StartString(context.Background(), `
+	ctx, uw := uow.WithContext(context.Background())
+	defer func() { _ = uw.Close() }()
+
+	err = vm.StartString(ctx, `
 		-- Spawn unbuffered channels
 		local ch1 = channel.new(0)
 		local ch2 = channel.new(0)
@@ -691,7 +719,10 @@ func TestMixedSelectWithDefault(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.StartString(context.Background(), `
+	ctx, uw := uow.WithContext(context.Background())
+	defer func() { _ = uw.Close() }()
+
+	err = vm.StartString(ctx, `
 		-- Spawn channels that would block
 		local sendCh = channel.new(0)   -- unbuffered
 		local recvCh = channel.new(0)   -- unbuffered
@@ -772,7 +803,10 @@ func TestSingleCaseSelectWithReadyData(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.StartString(context.Background(), `
+	ctx, uw := uow.WithContext(context.Background())
+	defer func() { _ = uw.Close() }()
+
+	err = vm.StartString(ctx, `
 		local ch = channel.new(0)  -- unbuffered channel
 		local ready = channel.new(0)  -- synchronization channel
 		local results = {}  -- collect results

@@ -1,4 +1,4 @@
-package subscribe
+package pubsub
 
 import (
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
+	"github.com/ponyruntime/pony/runtime/uow"
 	"github.com/stretchr/testify/assert"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
@@ -34,7 +35,8 @@ func TestCommandLayer_BasicOperations(t *testing.T) {
 	)
 
 	// Setup context with task group
-	ctx := runner.WithContext(context.Background())
+	ctx, uw := uow.WithContext(runner.WithContext(context.Background()))
+	defer func() { _ = uw.Close() }()
 
 	// starts (but does not run)
 	err = vm.StartString(ctx, `
@@ -138,7 +140,8 @@ func TestLayer_MultipleConcurrentCommands(t *testing.T) {
 	)
 
 	// Setup context with task group
-	ctx := runner.WithContext(context.Background())
+	ctx, uw := uow.WithContext(runner.WithContext(context.Background()))
+	defer func() { _ = uw.Close() }()
 
 	// Launch VM with script that creates multiple commands
 	err = vm.StartString(ctx, `
@@ -250,8 +253,9 @@ func TestCommandLayer_ErrorPropagation(t *testing.T) {
 		engine.WithLayer(commandLayer),
 	)
 
-	// Setup context
-	ctx := runner.WithContext(context.Background())
+	// Setup context with task group
+	ctx, uw := uow.WithContext(runner.WithContext(context.Background()))
+	defer func() { _ = uw.Close() }()
 
 	// Launch VM with script that creates a command and waits for result
 	err = vm.StartString(ctx, `
@@ -329,8 +333,9 @@ func TestCommand_LuaMethodsComplete(t *testing.T) {
 		engine.WithLayer(commandLayer),
 	)
 
-	// Setup context
-	ctx := runner.WithContext(context.Background())
+	// Setup context with task group
+	ctx, uw := uow.WithContext(runner.WithContext(context.Background()))
+	defer func() { _ = uw.Close() }()
 
 	// Launch VM with script that tests all command methods
 	err = vm.StartString(ctx, `
@@ -450,7 +455,10 @@ func TestCommandLayer_SelectOperations(t *testing.T) {
 		engine.WithLayer(commandLayer),
 	)
 
-	ctx := runner.WithContext(context.Background())
+	// Setup context with task group
+	ctx, uw := uow.WithContext(runner.WithContext(context.Background()))
+	defer func() { _ = uw.Close() }()
+
 	addToFlow("test_setup_complete")
 
 	err = vm.StartString(ctx, `
