@@ -3,11 +3,22 @@ package fs
 import (
 	fsapi "github.com/ponyruntime/pony/api/fs"
 	lua "github.com/yuin/gopher-lua"
-	"log"
+	"io/fs"
 )
 
 // Module represents a fs Lua module
 type Module struct{}
+
+const (
+	// Type constants
+	typeFile = "file"
+	typeDir  = "directory"
+
+	// Seek constants
+	seekSet = "set"
+	seekCur = "cur"
+	seekEnd = "end"
+)
 
 // NewFSModule creates and returns a new instance of the fs Module
 func NewFSModule() *Module {
@@ -23,6 +34,19 @@ func (m *Module) Name() string {
 func (m *Module) Loader(l *lua.LState) int {
 	t := l.NewTable()
 
+	// Register type constants
+	typeTable := l.NewTable()
+	typeTable.RawSetString("FILE", lua.LString(typeFile))
+	typeTable.RawSetString("DIR", lua.LString(typeDir))
+	l.SetField(t, "type", typeTable)
+
+	// Register seek constants
+	seekTable := l.NewTable()
+	seekTable.RawSetString("SET", lua.LString(seekSet))
+	seekTable.RawSetString("CUR", lua.LString(seekCur))
+	seekTable.RawSetString("END", lua.LString(seekEnd))
+	l.SetField(t, "seek", seekTable)
+
 	// Register core functions
 	api := map[string]lua.LGFunction{
 		"default": apiDefault,
@@ -30,6 +54,10 @@ func (m *Module) Loader(l *lua.LState) int {
 	}
 
 	l.SetFuncs(t, api)
+
+	registerFS(l, t)
+	registerFile(l)
+
 	l.Push(t)
 	return 1
 }
@@ -41,17 +69,13 @@ func apiDefault(l *lua.LState) int {
 		return 0
 	}
 
-	fs, ok := reg.GetDefaultFS()
+	f, ok := reg.GetDefaultFS()
 	if !ok {
 		l.RaiseError("no default filesystem available")
 		return 0
 	}
 
-	log.Printf("Default filesystem: %s", fs)
-	// Create and return default filesystem instance
-	instance := l.NewTable()
-	// TODO: Set methods on instance using fs
-	l.Push(instance)
+	l.Push(WrapFS(l, f))
 	return 1
 }
 
@@ -68,17 +92,40 @@ func apiGet(l *lua.LState) int {
 		return 0
 	}
 
-	fs, ok := reg.GetFS(name)
+	f, ok := reg.GetFS(name)
 	if !ok {
 		l.RaiseError("filesystem not found: %s", name)
 		return 0
 	}
 
-	log.Printf("Getting filesystem: %v", fs)
-
-	// Create and return named filesystem instance
-	instance := l.NewTable()
-	// TODO: Set methods on instance using fs
-	l.Push(instance)
+	l.Push(WrapFS(l, f))
 	return 1
+}
+
+func WrapFS(l *lua.LState, fs fsapi.FS) *lua.LUserData {
+	ud := l.NewUserData()
+	ud.Value = &FS{fs: fs}
+	l.SetMetatable(ud, l.GetTypeMetatable("fs.FS"))
+	return ud
+}
+
+func WrapFile(l *lua.LState, file fsapi.File) *lua.LUserData {
+	ud := l.NewUserData()
+	ud.Value = &File{file: file}
+	l.SetMetatable(ud, l.GetTypeMetatable("fs.File"))
+	return ud
+}
+
+func pushFileInfo(l *lua.LState, info fs.FileInfo) *lua.LTable {
+	t := l.NewTable()
+	t.RawSetString("name", lua.LString(info.Name()))
+	t.RawSetString("size", lua.LNumber(info.Size()))
+	t.RawSetString("mode", lua.LNumber(uint32(info.Mode())))
+	t.RawSetString("modified", lua.LNumber(info.ModTime().Unix()))
+	t.RawSetString("is_dir", lua.LBool(info.IsDir()))
+	t.RawSetString("type", lua.LString(typeFile))
+	if info.IsDir() {
+		t.RawSetString("type", lua.LString(typeDir))
+	}
+	return t
 }
