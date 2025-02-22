@@ -58,13 +58,26 @@ func NewDirectoryFS(dirPath string, mode fs.FileMode) (*FS, error) {
 	}, nil
 }
 
+// normalizePath maps an absolute path to a relative one.
+// If the user passes "/" (or a path starting with "/"), we strip the leading slash.
+// In particular, "/" becomes "." so that it refers to the FS's root.
+func (d *FS) normalizePath(name string) string {
+	if name == "/" {
+		return "."
+	}
+	if len(name) > 0 && name[0] == '/' {
+		return name[1:]
+	}
+	return name
+}
+
 // checkPermissions centralizes permission checking logic.
 // It checks only the owner's permission bits and provides debug details.
-func (d *FS) checkPermissions(op, path string, check permCheck) error {
+func (d *FS) checkPermissions(op, displayPath string, check permCheck) error {
 	if d.closed.Load() {
 		return &fs.PathError{
 			Op:   op,
-			Path: path,
+			Path: displayPath,
 			Err:  ErrClosed,
 		}
 	}
@@ -84,7 +97,7 @@ func (d *FS) checkPermissions(op, path string, check permCheck) error {
 	if ownerMode&required != required {
 		return &fs.PathError{
 			Op:   op,
-			Path: path,
+			Path: displayPath,
 			Err:  fmt.Errorf("%w: required owner bits %o, but FS has %o", ErrPermissionDenied, required, ownerMode),
 		}
 	}
@@ -93,23 +106,24 @@ func (d *FS) checkPermissions(op, path string, check permCheck) error {
 
 // Open implements fs.FS.
 func (d *FS) Open(name string) (fs.File, error) {
-	// Check read permission.
-	if err := d.checkPermissions("open", name, checkRead); err != nil {
+	displayName := name
+	norm := d.normalizePath(name)
+
+	if err := d.checkPermissions("open", displayName, checkRead); err != nil {
 		return nil, err
 	}
 
-	// For directories, also check execute permission for traversal.
-	if info, err := d.root.Stat(name); err == nil && info.IsDir() {
-		if err := d.checkPermissions("open", name, checkExec); err != nil {
+	if info, err := d.root.Stat(norm); err == nil && info.IsDir() {
+		if err := d.checkPermissions("open", displayName, checkExec); err != nil {
 			return nil, err
 		}
 	}
 
-	f, err := d.root.Open(name)
+	f, err := d.root.Open(norm)
 	if err != nil {
 		return nil, &fs.PathError{
 			Op:   "open",
-			Path: name,
+			Path: displayName,
 			Err:  err,
 		}
 	}
@@ -118,13 +132,15 @@ func (d *FS) Open(name string) (fs.File, error) {
 }
 
 // OpenFile implements WriteFS.
-// It first checks that the provided file mode is within fs.ModePerm.
 func (d *FS) OpenFile(name string, flag int, perm fs.FileMode) (fsapi.File, error) {
+	displayName := name
+	norm := d.normalizePath(name)
+
 	// Check if the provided perm has bits outside of fs.ModePerm.
 	if perm&^fs.ModePerm != 0 {
 		return nil, &fs.PathError{
 			Op:   "open",
-			Path: name,
+			Path: displayName,
 			Err:  errors.New("invalid file mode: contains bits outside of fs.ModePerm"),
 		}
 	}
@@ -132,19 +148,19 @@ func (d *FS) OpenFile(name string, flag int, perm fs.FileMode) (fsapi.File, erro
 	if d.closed.Load() {
 		return nil, &fs.PathError{
 			Op:   "open",
-			Path: name,
+			Path: displayName,
 			Err:  ErrClosed,
 		}
 	}
 
 	// Check permissions based on flags.
 	if flag&(os.O_WRONLY|os.O_RDWR) != 0 {
-		if err := d.checkPermissions("open", name, checkWrite); err != nil {
+		if err := d.checkPermissions("open", displayName, checkWrite); err != nil {
 			return nil, err
 		}
 	}
 	if flag&os.O_RDWR != 0 {
-		if err := d.checkPermissions("open", name, checkRead); err != nil {
+		if err := d.checkPermissions("open", displayName, checkRead); err != nil {
 			return nil, err
 		}
 	}
@@ -152,11 +168,11 @@ func (d *FS) OpenFile(name string, flag int, perm fs.FileMode) (fsapi.File, erro
 	// Restrict permissions to the FS's mode.
 	perm = perm & d.mode
 
-	f, err := d.root.OpenFile(name, flag, perm)
+	f, err := d.root.OpenFile(norm, flag, perm)
 	if err != nil {
 		return nil, &fs.PathError{
 			Op:   "open",
-			Path: name,
+			Path: displayName,
 			Err:  err,
 		}
 	}
@@ -166,16 +182,18 @@ func (d *FS) OpenFile(name string, flag int, perm fs.FileMode) (fsapi.File, erro
 
 // ReadDir implements fs.ReadDirFS.
 func (d *FS) ReadDir(name string) ([]fs.DirEntry, error) {
-	// Check both read and execute permissions.
-	if err := d.checkPermissions("readdir", name, checkRead|checkExec); err != nil {
+	displayName := name
+	norm := d.normalizePath(name)
+
+	if err := d.checkPermissions("readdir", displayName, checkRead|checkExec); err != nil {
 		return nil, err
 	}
 
-	f, err := d.root.Open(name)
+	f, err := d.root.Open(norm)
 	if err != nil {
 		return nil, &fs.PathError{
 			Op:   "readdir",
-			Path: name,
+			Path: displayName,
 			Err:  err,
 		}
 	}
@@ -192,16 +210,18 @@ func (d *FS) ReadDir(name string) ([]fs.DirEntry, error) {
 
 // Stat implements fs.StatFS.
 func (d *FS) Stat(name string) (fs.FileInfo, error) {
-	// Check read permission.
-	if err := d.checkPermissions("stat", name, checkRead); err != nil {
+	displayName := name
+	norm := d.normalizePath(name)
+
+	if err := d.checkPermissions("stat", displayName, checkRead); err != nil {
 		return nil, err
 	}
 
-	info, err := d.root.Stat(name)
+	info, err := d.root.Stat(norm)
 	if err != nil {
 		return nil, &fs.PathError{
 			Op:   "stat",
-			Path: name,
+			Path: displayName,
 			Err:  err,
 		}
 	}
@@ -211,15 +231,17 @@ func (d *FS) Stat(name string) (fs.FileInfo, error) {
 
 // Remove implements WriteFS.
 func (d *FS) Remove(name string) error {
-	// Check write permission.
-	if err := d.checkPermissions("remove", name, checkWrite); err != nil {
+	displayName := name
+	norm := d.normalizePath(name)
+
+	if err := d.checkPermissions("remove", displayName, checkWrite); err != nil {
 		return err
 	}
 
-	if err := d.root.Remove(name); err != nil {
+	if err := d.root.Remove(norm); err != nil {
 		return &fs.PathError{
 			Op:   "remove",
-			Path: name,
+			Path: displayName,
 			Err:  err,
 		}
 	}
@@ -229,20 +251,22 @@ func (d *FS) Remove(name string) error {
 
 // Mkdir implements WriteFS.
 func (d *FS) Mkdir(name string, perm fs.FileMode) error {
-	// Check write and execute permissions.
-	if err := d.checkPermissions("mkdir", name, checkWrite); err != nil {
+	displayName := name
+	norm := d.normalizePath(name)
+
+	if err := d.checkPermissions("mkdir", displayName, checkWrite); err != nil {
 		return err
 	}
-	if err := d.checkPermissions("mkdir", name, checkExec); err != nil {
+	if err := d.checkPermissions("mkdir", displayName, checkExec); err != nil {
 		return err
 	}
 
 	perm = perm & d.mode
 
-	if err := d.root.Mkdir(name, perm); err != nil {
+	if err := d.root.Mkdir(norm, perm); err != nil {
 		return &fs.PathError{
 			Op:   "mkdir",
-			Path: name,
+			Path: displayName,
 			Err:  err,
 		}
 	}
