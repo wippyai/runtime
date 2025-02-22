@@ -20,20 +20,20 @@ func (m *Module) executeRequestYield(l *lua.LState, req *http.Request, opts *req
 		ctx = l.Context()
 	}
 
-	cleanup := uow.FromContext(ctx)
-	if cleanup == nil {
+	uw := uow.FromContext(ctx)
+	if uw == nil {
 		// should never happen
-		ctx, cleanup = uow.WithContext(ctx)
-		defer func() { _ = cleanup.Close() }()
+		ctx, uw = uow.WithContext(ctx)
+		defer func() { _ = uw.Close() }()
 	}
 
 	if opts.timeout > 0 {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, opts.timeout)
-		cleanup.AddCleanup(func() error { cancel(); return nil })
+		ctx, cancel = context.WithTimeout(uw.Context(), opts.timeout)
+		uw.AddCleanup(func() error { cancel(); return nil })
 	}
 
-	req = req.WithContext(ctx)
+	req = req.WithContext(uw.Context())
 
 	m.log.Debug("executing async request",
 		zap.String("method", req.Method),
@@ -45,7 +45,7 @@ func (m *Module) executeRequestYield(l *lua.LState, req *http.Request, opts *req
 		if err != nil {
 			return engine.NewResult(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
 		}
-		cleanup.AddCleanup(resp.Body.Close)
+		uw.AddCleanup(resp.Body.Close)
 
 		if opts.stream != nil {
 			return m.handleStreamResponseAsync(ctx, l, resp, opts.stream)
@@ -58,6 +58,7 @@ func (m *Module) executeRequestYield(l *lua.LState, req *http.Request, opts *req
 
 func (m *Module) handleStreamResponseAsync(ctx context.Context, l *lua.LState, r *http.Response, streamOpts *stream.Options) *engine.Result {
 	s, err := stream.NewStream(ctx, r.Body, streamOpts)
+
 	if err != nil {
 		return engine.NewResult(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
 	}
