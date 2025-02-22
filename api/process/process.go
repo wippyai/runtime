@@ -17,23 +17,23 @@ const (
 	// PrototypeSystem identifies the workflow system in the event bus.
 	PrototypeSystem events.System = "prototype"
 
-	// RegisterPrototype is the event kind for registering a new process prototype.
-	RegisterPrototype events.Kind = "prototype.register"
+	// ProtoRegister is the event kind for registering a new process prototype.
+	ProtoRegister events.Kind = "prototype.register"
 
-	// DeletePrototype is the event kind for removing an existing process prototype.
-	DeletePrototype events.Kind = "prototype.remove"
+	// ProtoDelete is the event kind for removing an existing process prototype.
+	ProtoDelete events.Kind = "prototype.remove"
 
-	// AcceptPrototype is the event kind for accepting a new process prototype.
-	AcceptPrototype events.Kind = "prototype.accept"
+	// ProtoAccept is the event kind for accepting a new process prototype.
+	ProtoAccept events.Kind = "prototype.accept"
 
-	// RejectPrototype is the event kind for rejecting a new process prototype.
-	RejectPrototype events.Kind = "prototype.reject"
+	// ProtoReject is the event kind for rejecting a new process prototype.
+	ProtoReject events.Kind = "prototype.reject"
 
 	HostSystem   events.System = "hosts"
-	RegisterHost events.Kind   = "hosts.register"
-	DeleteHost   events.Kind   = "hosts.remove"
-	AcceptHost   events.Kind   = "hosts.accept"
-	RejectHost   events.Kind   = "hosts.reject"
+	HostRegister events.Kind   = "hosts.register"
+	HostDelete   events.Kind   = "hosts.remove"
+	HostAccept   events.Kind   = "hosts.accept"
+	HostReject   events.Kind   = "hosts.reject"
 
 	TopicEvents = topology.TopicEvents
 )

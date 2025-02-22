@@ -41,6 +41,7 @@ import (
 	service "github.com/ponyruntime/pony/service/supervisor"
 	"github.com/ponyruntime/pony/service/terminal"
 	"github.com/ponyruntime/pony/system/eventbus"
+	"github.com/ponyruntime/pony/system/fs"
 	"github.com/ponyruntime/pony/system/function"
 	"github.com/ponyruntime/pony/system/logs"
 	transcoder "github.com/ponyruntime/pony/system/payload"
@@ -86,8 +87,8 @@ type App struct {
 	processes   *process.Manager
 	prototypes  *process.PrototypeRegistry
 	hosts       *process.HostRegistry
-
-	resources *resource.Registry
+	fsRegistry  *fs.Registry
+	resources   *resource.Registry
 
 	// mesh
 	node *pubsub.NodeManager
@@ -199,6 +200,11 @@ func (a *App) Initialize() error {
 		return fmt.Errorf("failed to register function host: %w", err)
 	}
 
+	// -- end of msg hosts
+
+	// fs
+	a.fsRegistry = fs.NewFSRegistry(a.eventBus, a.logger.Named("fs"))
+
 	// Initialize core function registry
 	a.funcs = function.NewFunctionRegistry(a.eventBus, funcHost, a.logger.Named("funcs"))
 	a.prototypes = process.NewPrototypeFactory(a.eventBus, a.logger.Named("prototypes"))
@@ -223,6 +229,7 @@ func (a *App) Initialize() error {
 func (a *App) Start(folderPath string) error {
 	// Spawn context with values
 	ctx := a.ctx
+	ctx = context.WithValue(ctx, apiCtx.FSRegistryCtx, a.fsRegistry)
 	ctx = context.WithValue(ctx, apiCtx.RegistryCtx, a.reg)
 	ctx = context.WithValue(ctx, apiCtx.LoggerCtx, a.logger)
 	ctx = context.WithValue(ctx, apiCtx.TranscoderCtx, a.dtt)
@@ -241,6 +248,11 @@ func (a *App) Start(folderPath string) error {
 		}
 	}
 	ctx = context.WithValue(ctx, apiCtx.EnvCtx, envCtx)
+
+	if err := a.fsRegistry.Start(ctx); err != nil {
+		a.cancel()
+		return fmt.Errorf("failed to start filesystem service: %w", err)
+	}
 
 	if err := a.resources.Start(ctx); err != nil {
 		a.cancel()
@@ -345,6 +357,10 @@ func (a *App) Stop() error {
 
 	if err := a.resources.Stop(); err != nil {
 		a.logger.Error("failed to stop resource service", zap.Error(err))
+	}
+
+	if err := a.fsRegistry.Stop(); err != nil {
+		a.logger.Error("failed to stop filesystem registry", zap.Error(err))
 	}
 
 	// Close log manager last
@@ -476,8 +492,6 @@ func main() {
 	}
 
 	app.logger.Info("application started successfully")
-
-	//todo: see os.OpenRoot()
 
 	// Handle shutdown signals
 	sigChan := make(chan os.Signal, 1)

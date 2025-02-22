@@ -115,7 +115,7 @@ func (m *Manager) registerHost(ctx context.Context, terminal *Terminal) {
 	// we can host processes
 	m.bus.Send(ctx, events.Event{
 		System: supervisor2.HostSystem,
-		Kind:   supervisor2.RegisterHost,
+		Kind:   supervisor2.HostRegister,
 		Path:   terminal.id.String(),
 		Data:   supervisor2.Managed(terminal),
 	})
@@ -151,7 +151,7 @@ func (m *Manager) removeHost(ctx context.Context, id registry.ID) {
 	// we no longer run!
 	m.bus.Send(ctx, events.Event{
 		System: supervisor2.HostSystem,
-		Kind:   supervisor2.DeleteHost,
+		Kind:   supervisor2.HostDelete,
 		Path:   id.String(),
 	})
 }

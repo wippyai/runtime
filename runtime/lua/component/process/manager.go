@@ -191,7 +191,7 @@ func (m *Manager) upsertPrototype(ctx context.Context, id registry.ID) error {
 func (m *Manager) registerPrototype(ctx context.Context, id registry.ID) {
 	m.bus.Send(ctx, events.Event{
 		System: process.PrototypeSystem,
-		Kind:   process.RegisterPrototype,
+		Kind:   process.ProtoRegister,
 		Path:   id.String(),
 		Data: process.Prototype(func() (process.Process, error) {
 			runner, funcName, err := m.createRunner(id)
@@ -208,7 +208,7 @@ func (m *Manager) registerPrototype(ctx context.Context, id registry.ID) {
 func (m *Manager) unregisterPrototype(ctx context.Context, id registry.ID) {
 	m.bus.Send(ctx, events.Event{
 		System: process.PrototypeSystem,
-		Kind:   process.DeletePrototype,
+		Kind:   process.ProtoDelete,
 		Path:   id.String(),
 	})
 }

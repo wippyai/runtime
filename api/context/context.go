@@ -54,12 +54,13 @@ var (
 	AsyncCtx = &Key{Name: "scheduleKey"} //nolint:gochecknoglobals
 	// LoggerCtx represents the logger context key
 	LoggerCtx = &Key{Name: "logger"} //nolint:gochecknoglobals
+	// FS Registry
+	FSRegistryCtx = &Key{Name: "fs"}
 )
 
 // MergeContext combines values from a foreign context into a base context
 func MergeContext(base, foreign context.Context) context.Context {
 	// todo: security and values only
-
 	// todO: redo
 	return context.WithValue(base, EnvCtx, foreign.Value(EnvCtx))
 	//return context.WithValue(base, "foreign", foreign)

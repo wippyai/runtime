@@ -62,9 +62,9 @@ func (r *HostRegistry) Stop() error {
 
 func (r *HostRegistry) handleEvent(e events.Event) {
 	switch e.Kind {
-	case api.RegisterHost:
+	case api.HostRegister:
 		r.registerHost(e)
-	case api.DeleteHost:
+	case api.HostDelete:
 		r.deleteHost(e)
 	default:
 		r.log.Warn("unknown event kind",
@@ -124,7 +124,7 @@ func (r *HostRegistry) deleteHost(e events.Event) {
 func (r *HostRegistry) sendAccept(path events.Path) {
 	r.bus.Send(r.ctx, events.Event{
 		System: api.HostSystem,
-		Kind:   api.AcceptHost,
+		Kind:   api.HostAccept,
 		Path:   path,
 	})
 }
@@ -132,7 +132,7 @@ func (r *HostRegistry) sendAccept(path events.Path) {
 func (r *HostRegistry) sendReject(path events.Path, reason string) {
 	r.bus.Send(r.ctx, events.Event{
 		System: api.HostSystem,
-		Kind:   api.RejectHost,
+		Kind:   api.HostReject,
 		Path:   path,
 		Data:   errors.New(reason),
 	})

@@ -61,9 +61,9 @@ func (p *PrototypeRegistry) Stop() error {
 
 func (p *PrototypeRegistry) handleEvent(e events.Event) {
 	switch e.Kind {
-	case api.RegisterPrototype:
+	case api.ProtoRegister:
 		p.upsertPrototype(e)
-	case api.DeletePrototype:
+	case api.ProtoDelete:
 		p.deletePrototype(e)
 	default:
 		p.logger.Warn("unknown event kind",
@@ -116,7 +116,7 @@ func (p *PrototypeRegistry) deletePrototype(e events.Event) {
 func (p *PrototypeRegistry) sendAccept(path events.Path) {
 	p.bus.Send(p.ctx, events.Event{
 		System: api.PrototypeSystem,
-		Kind:   api.AcceptPrototype,
+		Kind:   api.ProtoAccept,
 		Path:   path,
 	})
 }
@@ -124,7 +124,7 @@ func (p *PrototypeRegistry) sendAccept(path events.Path) {
 func (p *PrototypeRegistry) sendReject(path events.Path, reason string) {
 	p.bus.Send(p.ctx, events.Event{
 		System: api.PrototypeSystem,
-		Kind:   api.RejectPrototype,
+		Kind:   api.ProtoReject,
 		Path:   path,
 		Data:   reason,
 	})
