@@ -22,7 +22,7 @@ type mockProcess struct {
 	stepErr error
 }
 
-func (m *mockProcess) Send(ctx context.Context, batch *pubsub.Package) error {
+func (m *mockProcess) Send(batch *pubsub.Package) error {
 	return m.sendErr
 }
 
