@@ -171,10 +171,8 @@ func (e *CoroutineVM) StartString(ctx context.Context, script, scriptName string
 		return err
 	}
 
-	if e.vm.state.Context() == nil {
-		ctx, e.cancel = context.WithCancel(ctx)
-		e.vm.state.SetContext(ctx)
-	}
+	ctx, e.cancel = context.WithCancel(ctx)
+	e.vm.state.SetContext(ctx)
 
 	task := e.createTask(ctx, fn)
 	task.Resumed = args
@@ -195,10 +193,9 @@ func (e *CoroutineVM) Start(ctx context.Context, funcName string, args ...lua.LV
 		return nil, fmt.Errorf("function %q not found", funcName)
 	}
 
-	if e.vm.state.Context() == nil {
-		ctx, e.cancel = context.WithCancel(ctx)
-		e.vm.state.SetContext(ctx)
-	}
+	// todo: think it though
+	ctx, e.cancel = context.WithCancel(ctx)
+	e.vm.state.SetContext(ctx)
 
 	task := e.createTask(ctx, fn)
 	task.Resumed = args
