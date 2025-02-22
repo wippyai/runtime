@@ -6,7 +6,7 @@ entries:
     kind: fs.directory
     meta:
       comment: "Root filesystem"
-    directory: /
+    directory: ./app/
     mode: "0755"
     default: true
 

@@ -149,6 +149,35 @@ func testFullAccessFS(t *testing.T, fs *FS) {
 	assert.Equal(t, "file.txt", entries[0].Name())
 }
 
+func TestFS_Root(t *testing.T) {
+	// This test verifies that using "/" works as expected.
+	root, cleanup := tempfiles.TempDirWithFiles(t, "fs_root_test", map[string]string{
+		"file1.txt":      "root content",
+		"dir1/file2.txt": "nested content",
+	})
+	defer cleanup()
+
+	fs, err := NewDirectoryFS(root, 0755)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, fs.Close())
+	}()
+
+	// "/" should refer to the FS's root (i.e. ".")
+	info, err := fs.Stat("/")
+	require.NoError(t, err)
+	assert.True(t, info.IsDir())
+
+	entries, err := fs.ReadDir("/")
+	require.NoError(t, err)
+	// Expecting the two entries: "file1.txt" and "dir1"
+	var names []string
+	for _, entry := range entries {
+		names = append(names, entry.Name())
+	}
+	assert.ElementsMatch(t, []string{"file1.txt", "dir1"}, names)
+}
+
 func TestFS_Closed(t *testing.T) {
 	root, cleanup := tempfiles.TempDirWithFiles(t, "fs_closed_test", map[string]string{
 		"test.txt": "test content",

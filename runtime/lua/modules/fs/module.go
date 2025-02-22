@@ -102,11 +102,30 @@ func apiGet(l *lua.LState) int {
 	return 1
 }
 
+func CheckFS(l *lua.LState, n int) *FS {
+	ud := l.CheckUserData(n)
+	if v, ok := ud.Value.(*FS); ok {
+		return v
+	}
+
+	l.ArgError(n, "filesystem expected")
+	return nil
+}
+
 func WrapFS(l *lua.LState, fs fsapi.FS) *lua.LUserData {
 	ud := l.NewUserData()
 	ud.Value = &FS{fs: fs}
 	l.SetMetatable(ud, l.GetTypeMetatable("fs.FS"))
 	return ud
+}
+
+func CheckFile(l *lua.LState, n int) *File {
+	ud := l.CheckUserData(n)
+	if v, ok := ud.Value.(*File); ok {
+		return v
+	}
+	l.ArgError(n, "file expected")
+	return nil
 }
 
 func WrapFile(l *lua.LState, file fsapi.File) *lua.LUserData {
