@@ -234,7 +234,7 @@ func TestPriorityQueue(t *testing.T) {
 			t.Errorf("New queue should be empty, got length %d", pq.Len())
 		}
 
-		// Add test items
+		// AddCleanup test items
 		heap.Push(pq, &item[string]{node: "A", priority: 3})
 		heap.Push(pq, &item[string]{node: "B", priority: 1})
 		heap.Push(pq, &item[string]{node: "C", priority: 4})
@@ -273,7 +273,7 @@ func TestPriorityQueue(t *testing.T) {
 		pq := &priorityQueue[string]{items: make([]*item[string], 0)}
 		heap.Init(pq)
 
-		// Add items in non-sorted order
+		// AddCleanup items in non-sorted order
 		heap.Push(pq, &item[string]{node: "A", priority: 5})
 		heap.Push(pq, &item[string]{node: "B", priority: 3})
 		heap.Push(pq, &item[string]{node: "C", priority: 1})
@@ -336,7 +336,7 @@ func TestPriorityQueueBasicOperations(t *testing.T) {
 			t.Errorf("New queue should be empty, got length %d", pq.Len())
 		}
 
-		// Add items using heap.Push
+		// AddCleanup items using heap.Push
 		heap.Push(pq, &item[string]{node: "A", priority: 1})
 		heap.Push(pq, &item[string]{node: "B", priority: 2})
 
@@ -363,7 +363,7 @@ func TestPriorityQueueUpdatePriority(t *testing.T) {
 		pq := &priorityQueue[string]{items: make([]*item[string], 0)}
 		heap.Init(pq)
 
-		// Add items
+		// AddCleanup items
 		itemA := &item[string]{node: "A", priority: 3}
 		itemB := &item[string]{node: "B", priority: 2}
 		itemC := &item[string]{node: "C", priority: 1}
@@ -379,7 +379,7 @@ func TestPriorityQueueUpdatePriority(t *testing.T) {
 		// Verify new order
 		first := heap.Pop(pq).(*item[string])
 		if first.node != "B" || first.priority != 0 {
-			t.Errorf("After priority update, expected B:0, got %v:%d", first.node, first.priority)
+			t.Errorf("AddCleanup priority update, expected B:0, got %v:%d", first.node, first.priority)
 		}
 
 		second := heap.Pop(pq).(*item[string])
@@ -493,7 +493,7 @@ func TestPriorityQueueSwap(t *testing.T) {
 	pq := &priorityQueue[string]{items: make([]*item[string], 0)}
 	heap.Init(pq)
 
-	// Add items
+	// AddCleanup items
 	heap.Push(pq, &item[string]{node: "A", priority: 1})
 	heap.Push(pq, &item[string]{node: "B", priority: 2})
 

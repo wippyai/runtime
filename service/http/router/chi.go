@@ -159,7 +159,7 @@ func (rw *ChiRouter) wrapHandlerWithRouteInfo(
 			EndpointID: endpointID,
 		}
 
-		// Add route info to context
+		// AddCleanup route info to context
 		ctx := context.WithValue(r.Context(), config.RouteCtx, routeInfo)
 
 		// Call handler with enhanced context

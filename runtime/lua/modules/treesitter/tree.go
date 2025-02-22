@@ -3,10 +3,10 @@ package treesitter
 import (
 	"bytes"
 	"fmt"
+	"github.com/ponyruntime/pony/runtime/uow"
 	"os"
 	"sync"
 
-	"github.com/ponyruntime/pony/internal/closer"
 	treesitter "github.com/tree-sitter/go-tree-sitter"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -141,9 +141,9 @@ func treeWalk(l *lua.LState) int {
 	}
 
 	if l.Context() != nil {
-		cleanup := closer.FromContext(l.Context())
+		cleanup := uow.FromContext(l.Context())
 		if cleanup != nil {
-			cleanup.Add(func() error { cursor.Close(); return nil })
+			cleanup.AddCleanup(func() error { cursor.Close(); return nil })
 		}
 	}
 
@@ -162,7 +162,7 @@ func (t *TreeWrapper) edit(edit *treesitter.InputEdit) error {
 	return nil
 }
 
-// Add Lua binding
+// AddCleanup Lua binding
 func treeEdit(l *lua.LState) int {
 	tree := checkTree(l)
 	if tree.tree == nil {

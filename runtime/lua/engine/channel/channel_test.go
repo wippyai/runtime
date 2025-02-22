@@ -149,7 +149,7 @@ func TestChannelEdgeCases(t *testing.T) {
 		ch := newChannel(0)
 		L1 := lua.NewState()
 
-		// Add a blocked sender
+		// AddCleanup a blocked sender
 		ch.send(L1, lua.LString("test"), nil)
 
 		// Close the channel
@@ -340,7 +340,7 @@ func TestChannelReleaseLogic(t *testing.T) {
 		selectOp.cases[0].selectOp = selectOp
 		selectOp.cases[1].selectOp = selectOp
 
-		// Add operations to channels
+		// AddCleanup operations to channels
 		ch1.senders.PushBack(selectOp.cases[0])
 		ch2.receivers.PushBack(selectOp.cases[1])
 		ch1.size++
@@ -389,7 +389,7 @@ func TestChannelReleaseLogic(t *testing.T) {
 		}
 		select2.cases[0].selectOp = select2
 
-		// Add both operations to channel
+		// AddCleanup both operations to channel
 		ch.senders.PushBack(select1.cases[0])
 		ch.senders.PushBack(select2.cases[0])
 		ch.size += 2
@@ -423,7 +423,7 @@ func TestChannelBlockingScenarios(t *testing.T) {
 		L2 := lua.NewState()
 		L3 := lua.NewState()
 
-		// Add multiple blocked senders
+		// AddCleanup multiple blocked senders
 		next1 := ch.send(L1, lua.LString("test1"), nil)
 		next2 := ch.send(L2, lua.LString("test2"), nil)
 

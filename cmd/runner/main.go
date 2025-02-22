@@ -359,7 +359,7 @@ func (a *App) Stop() error {
 	return nil
 }
 
-// Add this method to your App struct
+// AddCleanup this method to your App struct
 func (a *App) StartProfiler() {
 	// Memory profiling
 	runtime.MemProfileRate = 1 // Profile all allocations

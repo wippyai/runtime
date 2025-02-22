@@ -1,13 +1,13 @@
 package lfs
 
 import (
+	"github.com/ponyruntime/pony/runtime/uow"
 	"os"
 	"path"
 	"path/filepath"
 	"time"
 
 	apic "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/internal/closer"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
@@ -48,7 +48,7 @@ func apiChdir(l *lua.LState) int {
 	// save the new cwd
 	l.SetGlobal(globalFnName, lua.LString(dir))
 
-	closer.FromContext(l.Context()).Add(func() error {
+	uow.FromContext(l.Context()).AddCleanup(func() error {
 		// clear the global variable
 		l.SetGlobal(globalFnName, lua.LString(""))
 		return nil
@@ -105,7 +105,7 @@ func apiDir(l *lua.LState) int {
 	l.Push(ud)
 
 	// add the file to the cleanup
-	closer.FromContext(l.Context()).Add(func() error {
+	uow.FromContext(l.Context()).AddCleanup(func() error {
 		_ = f.Close()
 		return nil
 	})

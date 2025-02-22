@@ -439,7 +439,7 @@ func (s *Supervisor) buildStartOperations(serviceID string) []Operation {
 			visit(depID)
 		}
 
-		// Add operation after dependencies
+		// AddCleanup operation after dependencies
 		operations = append(operations, Operation{
 			Type:         OperationStart,
 			ID:           id,
@@ -477,7 +477,7 @@ func (s *Supervisor) buildStopOperations(serviceID string) []Operation {
 			visit(depID)
 		}
 
-		// Add operation after dependents
+		// AddCleanup operation after dependents
 		if ctrl, exists := s.controllers[id]; exists {
 			operations = append(operations, Operation{
 				Type:         OperationStop,

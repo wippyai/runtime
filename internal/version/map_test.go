@@ -172,7 +172,7 @@ func TestVersionMap(t *testing.T) {
 			expectError: errors.New("no path exists from v1 to v2"),
 		},
 		{
-			name: "Add and Spawn version",
+			name: "AddCleanup and Spawn version",
 			setup: func(vm Map) {
 				require.NoError(t, vm.Add(v1))
 			},

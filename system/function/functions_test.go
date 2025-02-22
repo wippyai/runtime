@@ -213,7 +213,7 @@ func TestFunctions_Execute(t *testing.T) {
 		require.NoError(t, executor.Stop())
 	}()
 
-	// Add response tracking for registration events
+	// AddCleanup response tracking for registration events
 	var wg sync.WaitGroup
 	sub, err := eventbus.NewSubscriber(
 		ctx,
@@ -331,7 +331,7 @@ func TestFunctions_ConcurrentHandlerRegistration(t *testing.T) {
 	const numHandlers = 10
 	var wg sync.WaitGroup
 
-	// Add response tracking for registration events
+	// AddCleanup response tracking for registration events
 	sub, err := eventbus.NewSubscriber(
 		ctx,
 		bus,
@@ -348,7 +348,7 @@ func TestFunctions_ConcurrentHandlerRegistration(t *testing.T) {
 
 	// Register handlers concurrently
 	for i := 0; i < numHandlers; i++ {
-		wg.Add(1) // Add before launching goroutine
+		wg.Add(1) // AddCleanup before launching goroutine
 		go func(idx int) {
 			target := registry.ID{
 				NS:   "test",

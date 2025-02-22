@@ -192,7 +192,7 @@ func TestContexter_Iterate(t *testing.T) {
 			"key3": "value3",
 		}
 
-		// Add test values
+		// AddCleanup test values
 		for k, v := range expected {
 			ctx.WithValue(k, v)
 		}

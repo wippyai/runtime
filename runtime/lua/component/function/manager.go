@@ -10,6 +10,7 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/engine/async"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
+	"github.com/ponyruntime/pony/runtime/uow"
 	lua "github.com/yuin/gopher-lua"
 	"sync"
 
@@ -74,7 +75,7 @@ func (m *Manager) pushHandler(id registry.ID, cfg *api.FunctionConfig) error {
 	}
 
 	// Spawn new pool
-	pool, err := m.createVM(cfg, compiled)
+	pool, err := m.createPool(cfg, compiled)
 	if err != nil {
 		return fmt.Errorf("failed to create pool: %w", err)
 	}
@@ -115,7 +116,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		Method: cfg.Method,
 	}
 
-	// Add to code manager
+	// AddCleanup to code manager
 	if err := m.code.AddNode(ctx, node, component.BuildImports(cfg.Import, cfg.Modules)); err != nil {
 		return fmt.Errorf("failed to add function: %w", err)
 	}
@@ -264,21 +265,31 @@ func (m *Manager) Execute(ctx context.Context, task runtime.Task) (chan *runtime
 			args[i] = luaPayload.Data().(lua.LValue)
 		}
 
+		ctx, uw := uow.WithContext(ctx)
+		defer func() {
+			err := uw.Close()
+			if err != nil {
+				m.log.Error("failed to close unit of work", zap.Error(err))
+			}
+		}()
+
 		result, err := vm.Execute(ctx, method, args...)
 		if err != nil {
 			m.log.Error("failed to execute function", zap.Error(err))
 		}
-		resultChan <- &runtime.Result{
+		select {
+		case resultChan <- &runtime.Result{
 			Payload: payload.NewPayload(result, payload.Lua),
 			Error:   err,
+		}:
 		}
 	}()
 
 	return resultChan, nil
 }
 
-// createVM creates a new pool based on config and compiled code
-func (m *Manager) createVM(cfg *api.FunctionConfig, compiled *code.CompiledMain) (api.VM, error) {
+// createPool creates a new pool based on config and compiled code
+func (m *Manager) createPool(cfg *api.FunctionConfig, compiled *code.CompiledMain) (api.VM, error) {
 	fvm, err := component.NewRunnerFactory(m.log, compiled, layers)
 	if err != nil {
 		return nil, fmt.Errorf("failed to compile: %w", err)

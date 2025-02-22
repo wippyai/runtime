@@ -64,7 +64,7 @@ func (vm *versionHistory) Path(from, to registry.Version) ([]registry.Version, e
 	for _, v := range vm.versions {
 		g.AddNode(v.String())
 		if prev := v.Previous(); prev != nil {
-			// Add bidirectional edges with different weights
+			// AddCleanup bidirectional edges with different weights
 			g.AddEdge(prev.String(), v.String(), 1, nil) // Forward edge
 			g.AddEdge(v.String(), prev.String(), 2, nil) // Backward edge
 		}

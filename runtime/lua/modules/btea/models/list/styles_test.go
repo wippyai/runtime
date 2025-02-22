@@ -121,7 +121,7 @@ func TestLuaTableToStyles(t *testing.T) {
 			// Compare specific fields
 			assert.Equal(t, expected.Title, result.Title, "Title styles should match")
 			assert.Equal(t, expected.TitleBar, result.TitleBar, "TitleBar styles should match")
-			// Add more field comparisons as needed
+			// AddCleanup more field comparisons as needed
 		})
 	}
 }

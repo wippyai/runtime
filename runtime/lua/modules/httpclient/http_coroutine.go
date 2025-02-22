@@ -2,10 +2,10 @@ package httpclient
 
 import (
 	"context"
+	"github.com/ponyruntime/pony/runtime/uow"
 	"io"
 	"net/http"
 
-	"github.com/ponyruntime/pony/internal/closer"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	"github.com/ponyruntime/pony/runtime/lua/modules/stream"
@@ -20,17 +20,17 @@ func (m *Module) executeRequestYield(l *lua.LState, req *http.Request, opts *req
 		ctx = l.Context()
 	}
 
-	cleanup := closer.FromContext(ctx)
+	cleanup := uow.FromContext(ctx)
 	if cleanup == nil {
 		// should never happen
-		ctx, cleanup = closer.WithContext(ctx)
+		ctx, cleanup = uow.WithContext(ctx)
 		defer func() { _ = cleanup.Close() }()
 	}
 
 	if opts.timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, opts.timeout)
-		cleanup.Add(func() error { cancel(); return nil })
+		cleanup.AddCleanup(func() error { cancel(); return nil })
 	}
 
 	req = req.WithContext(ctx)
@@ -45,7 +45,7 @@ func (m *Module) executeRequestYield(l *lua.LState, req *http.Request, opts *req
 		if err != nil {
 			return engine.NewResult(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
 		}
-		cleanup.Add(resp.Body.Close)
+		cleanup.AddCleanup(resp.Body.Close)
 
 		if opts.stream != nil {
 			return m.handleStreamResponseAsync(ctx, l, resp, opts.stream)

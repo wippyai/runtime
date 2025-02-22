@@ -8,9 +8,9 @@ import (
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/runtime"
 	"github.com/ponyruntime/pony/api/supervisor"
-	"github.com/ponyruntime/pony/internal/closer"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
+	"github.com/ponyruntime/pony/runtime/uow"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 	"sync/atomic"
@@ -27,7 +27,7 @@ type Process struct {
 	ctx    context.Context
 	dtt    payload.Transcoder
 	cancel context.CancelFunc
-	closer *closer.Closer
+	uow    *uow.UnitOfWork
 	pid    pubsub.PID
 
 	// State tracking
@@ -84,8 +84,8 @@ func (p *Process) Start(ctx context.Context, pid pubsub.PID, input payload.Paylo
 		Input: input,
 	})
 
-	// Set up runner context and closer
-	ctx, p.closer = closer.WithContext(p.runner.WithContext(ctx))
+	// Set up runner context and uow
+	ctx, p.uow = uow.WithContext(p.runner.WithContext(ctx))
 
 	// Start the Lua function
 	p.resultCh, err = p.runner.Start(ctx, p.funcName, args...)
@@ -185,9 +185,9 @@ func (p *Process) complete(err error, result lua.LValue) {
 		return
 	}
 
-	if p.closer != nil {
-		if cErr := p.closer.Close(); cErr != nil {
-			p.log.Error("failed to close resources", zap.Error(cErr))
+	if p.uow != nil {
+		if cErr := p.uow.Close(); cErr != nil {
+			p.log.Error("failed to close unit of work", zap.Error(cErr))
 		}
 	}
 
@@ -203,6 +203,7 @@ func (p *Process) complete(err error, result lua.LValue) {
 
 	p.runner.Close()
 	p.cancel()
+	p.uow = nil
 	p.runner = nil
 	p.pid = pubsub.PID{}
 }

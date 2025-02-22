@@ -235,7 +235,7 @@ func (*Module) parse(l *lua.LState) int {
 	// Spawn result table
 	tbl := l.NewTable()
 
-	// Add version and variant
+	// AddCleanup version and variant
 	tbl.RawSetString("version", lua.LNumber(id.Version()))
 
 	var variant string

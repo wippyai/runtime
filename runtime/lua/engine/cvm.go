@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/ponyruntime/pony/runtime/lua/engine/errors"
+	"github.com/ponyruntime/pony/runtime/uow"
 	"strings"
 
 	lua "github.com/yuin/gopher-lua"
@@ -171,8 +172,19 @@ func (e *CoroutineVM) StartString(ctx context.Context, script, scriptName string
 		return err
 	}
 
+	uw := uow.FromContext(ctx)
+	if uw == nil {
+		return fmt.Errorf("start outside of UoW is not allowed")
+	}
+
 	ctx, e.cancel = context.WithCancel(ctx)
 	e.vm.state.SetContext(ctx)
+	uw.AddCleanup(func() error {
+		if e.vm.state != nil && e.vm.state.Context() != nil {
+			e.vm.state.SetContext(nil)
+		}
+		return nil
+	})
 
 	task := e.createTask(ctx, fn)
 	task.Resumed = args
@@ -193,9 +205,19 @@ func (e *CoroutineVM) Start(ctx context.Context, funcName string, args ...lua.LV
 		return nil, fmt.Errorf("function %q not found", funcName)
 	}
 
-	// todo: think it though
+	uw := uow.FromContext(ctx)
+	if uw == nil {
+		return nil, fmt.Errorf("start outside of UoW is not allowed")
+	}
+
 	ctx, e.cancel = context.WithCancel(ctx)
 	e.vm.state.SetContext(ctx)
+	uw.AddCleanup(func() error {
+		if e.vm.state != nil && e.vm.state.Context() != nil {
+			e.vm.state.SetContext(nil)
+		}
+		return nil
+	})
 
 	task := e.createTask(ctx, fn)
 	task.Resumed = args
@@ -216,7 +238,7 @@ func (e *CoroutineVM) Step(tasks ...*Task) (result []*Task, finalErr error) {
 		}
 	}()
 
-	// Add tasks to queue
+	// AddCleanup tasks to queue
 	for _, t := range tasks {
 		e.queue.Push(t)
 	}

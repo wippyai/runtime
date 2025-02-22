@@ -100,7 +100,7 @@ func TestZoneManagerBasics(t *testing.T) {
 
 		local info = manager:get("test-id")
 
-		-- After scanning, markers should be removed
+		-- AddCleanup scanning, markers should be removed
 		assert(#scanned == #test_str, "scanned result should be same length as original")
 		assert(scanned == test_str, "scanned result should equal original string")
 		

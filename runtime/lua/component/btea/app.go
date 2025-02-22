@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ponyruntime/pony/runtime/uow"
 	"sync"
 	"time"
 
@@ -15,7 +16,6 @@ import (
 	"github.com/ponyruntime/pony/api/service/terminal"
 	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/ponyruntime/pony/api/topology"
-	"github.com/ponyruntime/pony/internal/closer"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
@@ -61,10 +61,10 @@ type App struct {
 	// Data from the underlying Lua application
 	upstream chan payload.Payload
 
-	// Closer and error handling
+	// UnitOfWork and error handling
 	done       chan struct{}
 	firstError error
-	closer     *closer.Closer
+	uow        *uow.UnitOfWork
 
 	numRetries int
 }
@@ -198,7 +198,7 @@ func (p *App) Start(ctx context.Context, pid pubsub.PID, input payload.Payloads)
 		},
 	)
 
-	ctx, p.closer = closer.WithContext(p.runner.WithContext(ctx))
+	ctx, p.uow = uow.WithContext(p.runner.WithContext(ctx))
 
 	args, err := p.toLuaPayloads(input)
 	if err != nil {
@@ -244,7 +244,7 @@ func (p *App) processLoop(resultCh <-chan engine.Result) {
 	var once sync.Once
 	completeProcess := func(err error, result interface{}) {
 		once.Do(func() {
-			if cErr := p.closer.Close(); cErr != nil {
+			if cErr := p.uow.Close(); cErr != nil {
 				p.log.Error("failed to close resources", zap.Error(cErr))
 			}
 
@@ -258,7 +258,7 @@ func (p *App) processLoop(resultCh <-chan engine.Result) {
 				}
 			}
 			p.program.Quit()
-			time.Sleep(stopTimeout)
+			time.Sleep(stopTimeout) // let terminal to detach
 		})
 	}
 

@@ -97,7 +97,7 @@ func TestSupervisor_ParallelDependencyStart(t *testing.T) {
 	ctx := context.Background()
 	h.start(ctx)
 
-	// Add artificial delay to B and C
+	// AddCleanup artificial delay to B and C
 	svcB := h.service("service-b")
 	svcC := h.service("service-c")
 	svcB.startDelay = 200 * time.Millisecond

@@ -358,7 +358,7 @@ func TestMemoryGraph_BuildRuntime(t *testing.T) {
 		t.Fatalf("failed to add nodeC: %v", err)
 	}
 
-	// Add dependencies from MainNode to DepNodeB and DepNodeC.
+	// AddCleanup dependencies from MainNode to DepNodeB and DepNodeC.
 	if err := mg.AddDependency(nodeA.ID, nodeB.ID, "depB"); err != nil {
 		t.Fatalf("failed to add dependency A->B: %v", err)
 	}
@@ -437,7 +437,7 @@ func TestMemoryGraph_RemoveNode_MultipleIncoming(t *testing.T) {
 	if err := mg.RemoveDependency(parent2.ID, child.ID); err != nil {
 		t.Fatalf("failed to remove dependency Parent2->Child: %v", err)
 	}
-	// After removing all incoming dependencies, removal should succeed.
+	// AddCleanup removing all incoming dependencies, removal should succeed.
 	if err := mg.RemoveNode(child.ID); err != nil {
 		t.Errorf("expected removal to succeed after dependencies removed, got: %v", err)
 	}
@@ -493,7 +493,7 @@ func TestMemoryGraph_Build_TransitiveModules(t *testing.T) {
 	middleNode.Module = middleMod
 	leafNode.Module = leafMod
 
-	// Add all nodes to the graph
+	// AddCleanup all nodes to the graph
 	if err := mg.AddNode(mainNode); err != nil {
 		t.Fatalf("failed to add main node: %v", err)
 	}
@@ -602,7 +602,7 @@ func TestMemoryGraph_Build_ModuleDeduplication(t *testing.T) {
 	// dep1 also uses a unique module
 	dep1Node.Module = uniqueMod
 
-	// Add all nodes to the graph
+	// AddCleanup all nodes to the graph
 	nodes := []*Node{mainNode, dep1Node, dep2Node, commonDepNode}
 	for _, node := range nodes {
 		if err := mg.AddNode(node); err != nil {
@@ -736,7 +736,7 @@ func TestMemoryGraph_Build_AliasCollision(t *testing.T) {
 		},
 	}
 
-	// Add all nodes to graph
+	// AddCleanup all nodes to graph
 	for _, node := range nodes {
 		if err := mg.AddNode(node); err != nil {
 			t.Fatalf("failed to add node %v: %v", node.ID, err)
@@ -755,7 +755,7 @@ func TestMemoryGraph_Build_AliasCollision(t *testing.T) {
 		{"lib2", "mod2", ""},
 	}
 
-	// Add dependencies and expect failure on collision
+	// AddCleanup dependencies and expect failure on collision
 	var collisionErr error
 	for _, dep := range dependencies {
 		from := nodes[dep.from]
@@ -800,7 +800,7 @@ func TestMemoryGraph_Build_SharedDependency(t *testing.T) {
 		},
 	}
 
-	// Add all nodes to graph
+	// AddCleanup all nodes to graph
 	for _, node := range nodes {
 		if err := mg.AddNode(node); err != nil {
 			t.Fatalf("failed to add node %v: %v", node.ID, err)
@@ -820,7 +820,7 @@ func TestMemoryGraph_Build_SharedDependency(t *testing.T) {
 		{"lib1", "mod1", ""},
 	}
 
-	// Add all dependencies
+	// AddCleanup all dependencies
 	for _, dep := range dependencies {
 		from := nodes[dep.from]
 		to := nodes[dep.to]
@@ -898,7 +898,7 @@ func TestMemoryGraph_Build_FallbackAlias(t *testing.T) {
 	mainNode := createTestNode("MainFunc")
 	dependencyNode := createTestNode("DependencyFunc")
 
-	// Add nodes to graph
+	// AddCleanup nodes to graph
 	if err := mg.AddNode(mainNode); err != nil {
 		t.Fatalf("failed to add main node: %v", err)
 	}
@@ -906,7 +906,7 @@ func TestMemoryGraph_Build_FallbackAlias(t *testing.T) {
 		t.Fatalf("failed to add dependency node: %v", err)
 	}
 
-	// Add dependency without an alias
+	// AddCleanup dependency without an alias
 	if err := mg.AddDependency(mainNode.ID, dependencyNode.ID, ""); err != nil {
 		t.Fatalf("failed to add dependency: %v", err)
 	}
@@ -939,7 +939,7 @@ func TestMemoryGraph_GetAllDependents(t *testing.T) {
 	nodeD := createTestNode("D")
 	nodeE := createTestNode("E") // E -> C (additional dependent on C)
 
-	// Add all nodes
+	// AddCleanup all nodes
 	nodes := []*Node{nodeA, nodeB, nodeC, nodeD, nodeE}
 	for _, node := range nodes {
 		if err := mg.AddNode(node); err != nil {
@@ -1043,7 +1043,7 @@ func TestMemoryGraph_GetAllDependents_NoDuplicates(t *testing.T) {
 	nodeC := createTestNode("C")
 	nodeD := createTestNode("D")
 
-	// Add all nodes
+	// AddCleanup all nodes
 	nodes := []*Node{nodeA, nodeB, nodeC, nodeD}
 	for _, node := range nodes {
 		if err := mg.AddNode(node); err != nil {

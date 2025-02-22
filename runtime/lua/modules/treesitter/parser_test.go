@@ -6,7 +6,7 @@ import (
 	"time"
 
 	ctxapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/internal/closer"
+	"github.com/ponyruntime/pony/internal/uow"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -181,7 +181,7 @@ func TestParser(t *testing.T) {
 
 	t.Run("parser garbage collection", func(t *testing.T) {
 		mod := NewTreeSitterModule(logger)
-		cleanup := closer.NewCloser()
+		cleanup := uow.NewCloser()
 		ctx := context.WithValue(context.Background(), ctxapi.CleanupCtx, cleanup)
 
 		vm, err := engine.NewVM(logger,

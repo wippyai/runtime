@@ -122,7 +122,7 @@ func TestLuaTableToKeyMap(t *testing.T) {
 			assert.Equal(t, expected.CursorUp, result.CursorUp, "CursorUp bindings should match")
 			assert.Equal(t, expected.CursorDown, result.CursorDown, "CursorDown bindings should match")
 			assert.Equal(t, expected.Filter, result.Filter, "Filter bindings should match")
-			// Add more assertions for other fields as needed
+			// AddCleanup more assertions for other fields as needed
 		})
 	}
 }

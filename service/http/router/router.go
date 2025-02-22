@@ -135,7 +135,7 @@ func (rm *Router) AddEndpoint(endpointID string, cfg config.EndpointConfig) erro
 		return fmt.Errorf("router with Alias '%s' not found", routerID)
 	}
 
-	// Add endpoint to Chi router
+	// AddCleanup endpoint to Chi router
 	if err := router.(*ChiRouter).AddEndpoint(endpointID, cfg); err != nil {
 		return err
 	}
@@ -217,7 +217,7 @@ func (rm *Router) UpdateEndpoint(endpointID string, cfg config.EndpointConfig) e
 		return fmt.Errorf("router with Alias '%s' not found", newRouterID)
 	}
 
-	// Add updated endpoint to Chi router
+	// AddCleanup updated endpoint to Chi router
 	if err := router.(*ChiRouter).UpdateEndpoint(endpointID, cfg); err != nil {
 		return err
 	}

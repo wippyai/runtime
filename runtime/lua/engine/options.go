@@ -50,7 +50,7 @@ func WithLibrary(name string, source interface{}) Option {
 			return
 		}
 
-		// Add library to preload
+		// AddCleanup library to preload
 		vm.state.PreloadModule(name, func(l *lua.LState) int {
 			var fn *lua.LFunction
 

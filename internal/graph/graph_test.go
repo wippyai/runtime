@@ -315,7 +315,7 @@ func TestGraphEdgeDataOperations(t *testing.T) {
 		g.AddNode("A")
 		g.AddNode("B")
 
-		// Add edge with nil data
+		// AddCleanup edge with nil data
 		g.AddEdge("A", "B", 1, nil)
 
 		edge, exists := g.GetEdge("A", "B")
@@ -332,7 +332,7 @@ func TestGraphDependencyLevels(t *testing.T) {
 	t.Run("dependency levels with custom edges", func(t *testing.T) {
 		g := New[string, TestEdgeData]()
 
-		// Add nodes
+		// AddCleanup nodes
 		nodes := []string{"A", "B", "C", "D"}
 		for _, node := range nodes {
 			g.AddNode(node)

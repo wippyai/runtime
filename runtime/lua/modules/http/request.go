@@ -3,13 +3,13 @@ package http
 import (
 	"context"
 	"fmt"
+	"github.com/ponyruntime/pony/runtime/uow"
 	"io"
 	basehttp "net/http"
 	"strings"
 	"time"
 
 	"github.com/ponyruntime/pony/api/service/http"
-	"github.com/ponyruntime/pony/internal/closer"
 	"github.com/ponyruntime/pony/runtime/lua/modules/json"
 	"github.com/ponyruntime/pony/runtime/lua/modules/stream"
 	lua "github.com/yuin/gopher-lua"
@@ -310,13 +310,13 @@ func requestStreamBody(l *lua.LState) int {
 		return 2
 	}
 
-	cleanup := closer.FromContext(req.request.Context())
+	cleanup := uow.FromContext(req.request.Context())
 	if cleanup == nil {
-		ctx, c := closer.WithContext(req.request.Context())
+		ctx, c := uow.WithContext(req.request.Context())
 		req.request = req.request.WithContext(ctx)
 		cleanup = c
 	}
-	cleanup.Add(req.request.Body.Close)
+	cleanup.AddCleanup(req.request.Body.Close)
 
 	var bufferSize int64 = 32 * 1024 // Default 32KB buffer
 

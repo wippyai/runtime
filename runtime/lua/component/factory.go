@@ -114,7 +114,7 @@ func (f *RunnerFactory) CreateRunner() (*engine.Runner, error) {
 	runnerOpts := make([]engine.RunnerOption, len(f.runnerOptions))
 	copy(runnerOpts, f.runnerOptions)
 
-	// Add dynamically created layers
+	// AddCleanup dynamically created layers
 	for _, initializer := range f.layerInitializers {
 		runnerOpts = append(runnerOpts, initializer()...)
 	}
@@ -158,7 +158,7 @@ func (f *RunnerFactory) prepare() error {
 		}
 	}
 
-	// Add prepared dependency options to existing engine options
+	// AddCleanup prepared dependency options to existing engine options
 	f.engineOptions = append(f.engineOptions, opts...)
 	return nil
 }
