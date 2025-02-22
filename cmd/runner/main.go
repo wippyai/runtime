@@ -18,7 +18,7 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/component/library"
 	luaProcess "github.com/ponyruntime/pony/runtime/lua/component/process"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
-	"github.com/ponyruntime/pony/runtime/lua/engine/pubsub"
+	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
 	"github.com/ponyruntime/pony/runtime/lua/modules/base64"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea"
 	"github.com/ponyruntime/pony/runtime/lua/modules/env"
@@ -90,7 +90,7 @@ type App struct {
 	resources *resource.Registry
 
 	// mesh
-	node *pubsub.NodeManager
+	node *subscribe.NodeManager
 
 	shuttingDown  bool
 	forceShutdown chan struct{}
@@ -131,8 +131,8 @@ func NewApp(verbose, veryVerbose bool) (*App, error) {
 	}
 
 	// mesh layer: our node
-	node := pubsub.NewNodeManager(
-		pubsub.NewNode(hostname, nil), // no upstream for now
+	node := subscribe.NewNodeManager(
+		subscribe.NewNode(hostname, nil), // no upstream for now
 		bus,
 		appLogger.Named("pubsub"),
 	)
@@ -172,7 +172,7 @@ func (a *App) Initialize() error {
 	// -- msg hosts
 
 	// this is host dedicated to internal control messages
-	err := a.node.Node().RegisterHost(topologyApi.ControlHost, pubsub.NewHost(a.ctx, pubsub.HostConfig{
+	err := a.node.Node().RegisterHost(topologyApi.ControlHost, subscribe.NewHost(a.ctx, subscribe.HostConfig{
 		BufferSize:      1024,
 		WorkerCount:     16,
 		Logger:          a.logger.Named("control"),
@@ -185,7 +185,7 @@ func (a *App) Initialize() error {
 	}
 
 	// this is host dedicated to internal control messages
-	funcHost := pubsub.NewHost(a.ctx, pubsub.HostConfig{
+	funcHost := subscribe.NewHost(a.ctx, subscribe.HostConfig{
 		BufferSize:      1024,
 		WorkerCount:     16,
 		Logger:          a.logger.Named("control"),
@@ -621,7 +621,7 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 				processmod.NewProcessControlModule(a.logger.Named("proc")),
 				functionmod.NewFuncContextModule(a.logger.Named("func")),
 				tasks.NewTaskModule(),
-				pubsub.NewSubscribeModule(),
+				subscribe.NewSubscribeModule(),
 				env.NewEnvModule(a.logger.Named("env")),
 				httpClient.NewHTTPClientModule(a.logger.Named("http"), httpbase.DefaultClient),
 				websocket.NewWebSocketModule(a.logger.Named("websocket")),

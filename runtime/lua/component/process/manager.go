@@ -15,7 +15,7 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/component"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
-	"github.com/ponyruntime/pony/runtime/lua/engine/pubsub"
+	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
 	"go.uber.org/zap"
 )
 
@@ -36,7 +36,7 @@ func init() {
 		return []engine.RunnerOption{
 			engine.WithLayer(channels),
 			engine.WithLayer(async.NewAsyncLayer(channels, 32)),
-			engine.WithLayer(pubsub.NewSubscribe(channels)),
+			engine.WithLayer(subscribe.NewSubscribe(channels)),
 			engine.WithLayer(coroutine.NewCoroutineLayer()),
 		}
 	})

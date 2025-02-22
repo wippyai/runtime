@@ -9,7 +9,7 @@ import (
 	"github.com/ponyruntime/pony/api/runtime"
 	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/pubsub"
+	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
 	"github.com/ponyruntime/pony/runtime/uow"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
@@ -31,7 +31,7 @@ type Process struct {
 	pid    pubsub.PID
 
 	// State tracking
-	pubsub   *pubsub.Layer
+	pubsub   *subscribe.Layer
 	resultCh <-chan engine.Result
 	closed   atomic.Bool
 }
@@ -42,9 +42,9 @@ func NewProcess(log *zap.Logger, runner *engine.Runner, funcName string) (proces
 		return nil, errors.New("runner is required")
 	}
 
-	var pubsubLayer *pubsub.Layer
+	var pubsubLayer *subscribe.Layer
 	for _, layer := range runner.GetLayers() {
-		if sl, ok := layer.(*pubsub.Layer); ok {
+		if sl, ok := layer.(*subscribe.Layer); ok {
 			pubsubLayer = sl
 			break
 		}
