@@ -6,7 +6,7 @@ import (
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/runtime/lua/engine/async"
-	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
+	"github.com/ponyruntime/pony/runtime/lua/engine/pubsub"
 	"sync"
 
 	"github.com/ponyruntime/pony/api/events"
@@ -40,7 +40,7 @@ func init() {
 		return []engine.RunnerOption{
 			engine.WithLayer(channels),
 			engine.WithLayer(async.NewAsyncLayer(channels, 32)),
-			engine.WithLayer(subscribe.NewSubscribe(channels)),
+			engine.WithLayer(pubsub.NewSubscribe(channels)),
 			engine.WithLayer(coroutine.NewCoroutineLayer()),
 		}
 	})

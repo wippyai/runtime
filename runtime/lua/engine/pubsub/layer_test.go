@@ -1,9 +1,10 @@
-package subscribe
+package pubsub
 
 import (
 	"context"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
+	"github.com/ponyruntime/pony/runtime/uow"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	lua "github.com/yuin/gopher-lua"
@@ -52,7 +53,8 @@ func TestPubSub(t *testing.T) {
 		err := vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		ctx := runner.WithContext(context.Background())
+		ctx, uw := uow.WithContext(runner.WithContext(context.Background()))
+		defer func() { _ = uw.Close() }()
 
 		var wg sync.WaitGroup
 		wg.Add(1)
@@ -96,7 +98,9 @@ func TestPubSub(t *testing.T) {
 		err := vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		ctx := runner.WithContext(context.Background())
+		ctx, uw := uow.WithContext(runner.WithContext(context.Background()))
+		defer func() { _ = uw.Close() }()
+
 		exitCh, err := runner.Start(ctx, "test")
 		require.NoError(t, err)
 
@@ -120,7 +124,8 @@ func TestPubSub(t *testing.T) {
 		err := vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		ctx := runner.WithContext(context.Background())
+		ctx, uw := uow.WithContext(runner.WithContext(context.Background()))
+		defer func() { _ = uw.Close() }()
 		exitCh, err := runner.Start(ctx, "test")
 		require.NoError(t, err)
 
@@ -142,7 +147,8 @@ func TestPubSub(t *testing.T) {
 		err := vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		ctx := runner.WithContext(context.Background())
+		ctx, uw := uow.WithContext(runner.WithContext(context.Background()))
+		defer func() { _ = uw.Close() }()
 		exitCh, err := runner.Start(ctx, "test")
 		require.NoError(t, err)
 
@@ -168,7 +174,8 @@ func TestPubSub(t *testing.T) {
 		err := vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		ctx := runner.WithContext(context.Background())
+		ctx, uw := uow.WithContext(runner.WithContext(context.Background()))
+		defer func() { _ = uw.Close() }()
 
 		var wg sync.WaitGroup
 		wg.Add(1)
@@ -221,7 +228,8 @@ func TestLateSubscription(t *testing.T) {
 	err := vm.Import(script, "test", "test")
 	require.NoError(t, err)
 
-	ctx := runner.WithContext(context.Background())
+	ctx, uw := uow.WithContext(runner.WithContext(context.Background()))
+	defer func() { _ = uw.Close() }()
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -279,7 +287,8 @@ func TestCrossTopicOrdering(t *testing.T) {
 	err := vm.Import(script, "test", "test")
 	require.NoError(t, err)
 
-	ctx := runner.WithContext(context.Background())
+	ctx, uw := uow.WithContext(runner.WithContext(context.Background()))
+	defer func() { _ = uw.Close() }()
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -338,7 +347,9 @@ func TestUnsubscribeWithPendingMessages(t *testing.T) {
 	err := vm.Import(script, "test", "test")
 	require.NoError(t, err)
 
-	ctx := runner.WithContext(context.Background())
+	ctx, uw := uow.WithContext(runner.WithContext(context.Background()))
+	defer func() { _ = uw.Close() }()
+
 	var wg sync.WaitGroup
 	wg.Add(1)
 	var result interface{}
@@ -403,7 +414,9 @@ func TestMultipleTopicsUnsubscribe(t *testing.T) {
 	err := vm.Import(script, "test", "test")
 	require.NoError(t, err)
 
-	ctx := runner.WithContext(context.Background())
+	ctx, uw := uow.WithContext(runner.WithContext(context.Background()))
+	defer func() { _ = uw.Close() }()
+
 	var wg sync.WaitGroup
 	wg.Add(1)
 	var result interface{}
@@ -471,7 +484,9 @@ func TestUnsubscribeResubscribe(t *testing.T) {
 	err := vm.Import(script, "test", "test")
 	require.NoError(t, err)
 
-	ctx := runner.WithContext(context.Background())
+	ctx, uw := uow.WithContext(runner.WithContext(context.Background()))
+	defer func() { _ = uw.Close() }()
+
 	var wg sync.WaitGroup
 	wg.Add(1)
 	var result interface{}

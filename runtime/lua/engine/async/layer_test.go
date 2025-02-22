@@ -2,6 +2,7 @@ package async
 
 import (
 	"context"
+	"github.com/ponyruntime/pony/runtime/uow"
 	"testing"
 	"time"
 
@@ -66,7 +67,9 @@ func TestAsyncLayer(t *testing.T) {
 			engine.WithLayer(channels),
 		)
 
-		ctx := engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup())
+		ctx, uw := uow.WithContext(context.Background())
+		defer func() { _ = uw.Close() }()
+
 		ctx = asyncRunner.WithContext(ctx)
 
 		start := time.Now()

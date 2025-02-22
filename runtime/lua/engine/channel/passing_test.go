@@ -2,6 +2,7 @@ package channel
 
 import (
 	"context"
+	"github.com/ponyruntime/pony/runtime/uow"
 	"testing"
 
 	lua "github.com/yuin/gopher-lua"
@@ -31,7 +32,10 @@ func TestChannelPassingSimple(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.StartString(context.Background(), `
+	ctx, uw := uow.WithContext(context.Background())
+	defer func() { _ = uw.Close() }()
+
+	err = vm.StartString(ctx, `
 		-- Spawn test channels
 		local passCh = channel.new(0)    -- channel for passing other channels
 		local done = channel.new(0)      -- synchronization

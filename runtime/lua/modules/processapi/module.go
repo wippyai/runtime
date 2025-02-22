@@ -8,7 +8,7 @@ import (
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/topology"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
-	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
+	"github.com/ponyruntime/pony/runtime/lua/engine/pubsub"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 	"strings"
@@ -398,7 +398,7 @@ func (m *ControlModule) checkProcess(l *lua.LState) (*process.Context, bool) {
 func (m *ControlModule) events(l *lua.LState) int {
 	ch := channel.Named(process.TopicEvents, 1)
 
-	return subscribe.Subscribe(l, ch, process.TopicEvents)
+	return pubsub.Subscribe(l, ch, process.TopicEvents)
 }
 
 // Modified listen function with @ validation
@@ -420,5 +420,5 @@ func (m *ControlModule) listen(l *lua.LState) int {
 	portName := fmt.Sprintf("listen.%s", topic)
 	ch := channel.Named(portName, 1)
 
-	return subscribe.Subscribe(l, ch, topic)
+	return pubsub.Subscribe(l, ch, topic)
 }
