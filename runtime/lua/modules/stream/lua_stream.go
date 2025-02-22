@@ -14,6 +14,7 @@ import (
 // LuaStream wraps Stream for Lua
 type LuaStream struct {
 	*Stream
+	// todo: make reader, todo: expose better read size api and update related modules
 }
 
 // Module represents the Stream Lua module
