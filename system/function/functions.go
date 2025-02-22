@@ -27,8 +27,8 @@ type Registry struct {
 	subscriber *eventbus.Subscriber
 }
 
-// NewExecutor creates a new Registry instance with the provided event bus and logger.
-func NewExecutor(bus events.Bus, host pubsub.Host, logger *zap.Logger) *Registry {
+// NewFunctionRegistry creates a new Registry instance with the provided event bus and logger.
+func NewFunctionRegistry(bus events.Bus, host pubsub.Host, logger *zap.Logger) *Registry {
 
 	return &Registry{
 		uniqID:   uniqid.NewGenerator(),

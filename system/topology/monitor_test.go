@@ -23,13 +23,13 @@ func newMockUpstream() *mockUpstream {
 	}
 }
 
-func (m *mockUpstream) Send(ctx context.Context, batch *pubsub.Package) error {
+func (m *mockUpstream) Send(pkg *pubsub.Package) error {
 	if m.sendErr != nil {
 		return m.sendErr
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.sends[batch.PID.String()] = append(m.sends[batch.PID.String()], batch)
+	m.sends[pkg.PID.String()] = append(m.sends[pkg.PID.String()], pkg)
 	return nil
 }
 

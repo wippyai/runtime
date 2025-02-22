@@ -200,7 +200,7 @@ func (a *App) Initialize() error {
 	}
 
 	// Initialize core function registry
-	a.funcs = function.NewExecutor(a.eventBus, funcHost, a.logger.Named("funcs"))
+	a.funcs = function.NewFunctionRegistry(a.eventBus, funcHost, a.logger.Named("funcs"))
 	a.prototypes = process.NewPrototypeFactory(a.eventBus, a.logger.Named("prototypes"))
 	a.hosts = process.NewHostRegistry(a.eventBus, a.logger.Named("hosts"))
 

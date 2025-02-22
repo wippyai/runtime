@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"github.com/ponyruntime/pony/api/function"
+	pubsubapi "github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/runtime"
+	"github.com/ponyruntime/pony/system/pubsub"
 	"sync"
 	"testing"
 	"time"
@@ -21,7 +23,9 @@ import (
 func setupTest() (*Registry, events.Bus) {
 	logger := zap.NewNop()
 	bus := eventbus.NewBus()
-	executor := NewExecutor(bus, logger)
+	executor := NewFunctionRegistry(bus, pubsub.NewHost(context.Background(), pubsub.HostConfig{
+		BufferSize: 100,
+	}), logger)
 	return executor, bus
 }
 
@@ -41,6 +45,8 @@ func TestFunctions_StartStop(t *testing.T) {
 // Keep working test unchanged
 func TestFunctions_InvalidEvents(t *testing.T) {
 	ctx := context.Background()
+	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test", nil))
+
 	executor, bus := setupTest()
 	require.NoError(t, executor.Start(ctx))
 	defer func() {
@@ -90,6 +96,8 @@ func TestFunctions_InvalidEvents(t *testing.T) {
 
 func TestFunctions_EventResponses(t *testing.T) {
 	ctx := context.Background()
+	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test", nil))
+
 	executor, bus := setupTest()
 	require.NoError(t, executor.Start(ctx))
 	defer func() {
@@ -207,6 +215,8 @@ func TestFunctions_EventResponses(t *testing.T) {
 
 func TestFunctions_Execute(t *testing.T) {
 	ctx := context.Background()
+	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test", nil))
+
 	executor, bus := setupTest()
 	require.NoError(t, executor.Start(ctx))
 	defer func() {
@@ -302,7 +312,7 @@ func TestFunctions_Execute(t *testing.T) {
 				wg.Wait() // Wait for handler registration to complete
 			}
 
-			resultChan, err := executor.Call(context.Background(), tt.task)
+			resultChan, err := executor.Call(ctx, tt.task)
 
 			if tt.expectedErr != "" {
 				require.Error(t, err)
@@ -322,6 +332,8 @@ func TestFunctions_Execute(t *testing.T) {
 
 func TestFunctions_ConcurrentHandlerRegistration(t *testing.T) {
 	ctx := context.Background()
+	ctx = pubsubapi.WithNode(ctx, pubsub.NewNode("test", nil))
+
 	executor, bus := setupTest()
 	require.NoError(t, executor.Start(ctx))
 	defer func() {
@@ -400,7 +412,7 @@ func TestFunctions_ConcurrentHandlerRegistration(t *testing.T) {
 			NS:   "test",
 			Name: fmt.Sprintf("handler.%d", i),
 		}
-		resultChan, err := executor.Call(context.Background(), runtime.Task{
+		resultChan, err := executor.Call(ctx, runtime.Task{
 			Handler:  target,
 			Payloads: []payload.Payload{payload.New("test")},
 		})
