@@ -5,6 +5,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
+	"github.com/ponyruntime/pony/runtime/uow"
 	"github.com/stretchr/testify/require"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
@@ -21,12 +22,15 @@ func TestViewport(t *testing.T) {
 		return 1
 	}
 
+	ctx, uw := uow.WithContext(context.Background())
+	defer func() { _ = uw.Close() }()
+
 	t.Run("viewport creation and configuration", func(t *testing.T) {
 		vm, err := engine.NewVM(logger, engine.WithLoader("btea", loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(ctx, `
 			local btea = require("btea")
 			
 			-- Test default constructor
@@ -69,7 +73,7 @@ func TestViewport(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(ctx, `
 			local btea = require("btea")
 			
 			local viewport = btea.viewport({
@@ -129,7 +133,7 @@ func TestViewport(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(ctx, `
 			local btea = require("btea")
 			
 			local viewport = btea.viewport({
@@ -164,7 +168,10 @@ func TestViewportMouseInteraction(t *testing.T) {
 	RegisterViewport(cvm.State(), mod)
 	cvm.State().SetGlobal("btea", mod)
 
-	err = cvm.StartString(context.Background(), `
+	ctx, uw := uow.WithContext(context.Background())
+	defer func() { _ = uw.Close() }()
+
+	err = cvm.StartString(ctx, `
 		local viewport = btea.viewport({
 			width = 40,
 			height = 5,
@@ -256,7 +263,10 @@ func TestViewportUpdate(t *testing.T) {
 	RegisterViewport(cvm.State(), mod)
 	cvm.State().SetGlobal("btea", mod)
 
-	err = cvm.StartString(context.Background(), `
+	ctx, uw := uow.WithContext(context.Background())
+	defer func() { _ = uw.Close() }()
+
+	err = cvm.StartString(ctx, `
 		local viewport = btea.viewport({
 			width = 40,
 			height = 10,

@@ -6,6 +6,7 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/render"
+	"github.com/ponyruntime/pony/runtime/uow"
 	"github.com/stretchr/testify/require"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
@@ -24,12 +25,15 @@ func TestTextArea(t *testing.T) {
 		return 1
 	}
 
+	ctx, uw := uow.WithContext(context.Background())
+	defer func() { _ = uw.Close() }()
+
 	t.Run("text area creation and basic configuration", func(t *testing.T) {
 		vm, err := engine.NewVM(logger, engine.WithLoader("btea", loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(ctx, `
 			local btea = require("btea")
 			
 			-- Test default constructor
@@ -72,7 +76,7 @@ func TestTextArea(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(ctx, `
 			local btea = require("btea")
 			
 			local ta = btea.text_area({
@@ -96,7 +100,7 @@ func TestTextArea(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(ctx, `
 			local btea = require("btea")
 			
 			-- Spawn text area with custom styles
@@ -131,7 +135,7 @@ func TestTextArea(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		err = vm.DoString(ctx, `
 			local btea = require("btea")
 			
 			-- Spawn bindings helper function
@@ -191,7 +195,10 @@ func TestTextAreaUpdate(t *testing.T) {
 	RegisterTextArea(cvm.State(), mod)
 	cvm.State().SetGlobal("btea", mod)
 
-	err = cvm.StartString(context.Background(), `
+	ctx, uw := uow.WithContext(context.Background())
+	defer func() { _ = uw.Close() }()
+
+	err = cvm.StartString(ctx, `
 		local text_area = btea.text_area({
 			width = 40,
 			height = 10,

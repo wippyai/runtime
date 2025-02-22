@@ -6,6 +6,7 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/render"
+	"github.com/ponyruntime/pony/runtime/uow"
 	"github.com/stretchr/testify/require"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
@@ -25,12 +26,15 @@ func TestTextInput(t *testing.T) {
 		return 1
 	}
 
+	ctx, uw := uow.WithContext(context.Background())
+	defer func() { _ = uw.Close() }()
+
 	t.Run("text input creation and basic configuration", func(t *testing.T) {
 		vm, err := engine.NewVM(logger, engine.WithLoader("btea", loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(ctx, `
 			local btea = require("btea")
 			
 			-- Test default constructor
@@ -69,7 +73,7 @@ func TestTextInput(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(ctx, `
 			local btea = require("btea")
 				
 			-- Test with styles
@@ -95,7 +99,7 @@ func TestTextInput(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(ctx, `
 			local btea = require("btea")
 			
 			-- Test normal mode
@@ -131,7 +135,7 @@ func TestTextInput(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(ctx, `
 			local btea = require("btea")
 			
 			-- Test length validation
@@ -173,7 +177,7 @@ func TestTextInput(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(ctx, `
 			local btea = require("btea")
 			
 			local input = btea.text_input({
@@ -200,7 +204,7 @@ func TestTextInput(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(nil, `
+		err = vm.DoString(ctx, `
 			local btea = require("btea")
 			
 			-- Spawn bindings helper function
@@ -281,7 +285,10 @@ func TestTextInputUpdate(t *testing.T) {
 	RegisterTextInput(cvm.State(), mod)
 	cvm.State().SetGlobal("btea", mod)
 
-	err = cvm.StartString(context.Background(), `
+	ctx, uw := uow.WithContext(context.Background())
+	defer func() { _ = uw.Close() }()
+
+	err = cvm.StartString(ctx, `
 		local input = btea.text_input({
 			prompt = "> ",
 			placeholder = "Type something..."
