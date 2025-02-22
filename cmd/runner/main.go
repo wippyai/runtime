@@ -28,7 +28,6 @@ import (
 	httpMod "github.com/ponyruntime/pony/runtime/lua/modules/http"
 	httpClient "github.com/ponyruntime/pony/runtime/lua/modules/httpclient"
 	jsonMod "github.com/ponyruntime/pony/runtime/lua/modules/json"
-	"github.com/ponyruntime/pony/runtime/lua/modules/lfs"
 	"github.com/ponyruntime/pony/runtime/lua/modules/logger"
 	processmod "github.com/ponyruntime/pony/runtime/lua/modules/processapi"
 	"github.com/ponyruntime/pony/runtime/lua/modules/tasks"
@@ -641,7 +640,6 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 				logger.NewLoggerModule(a.logger.Named("app")),
 				base64.NewBase64Module(),
 				jsonMod.NewJSONModule(),
-				lfs.NewLFSModule(),
 				fsmod.NewFSModule(),
 				uuid.NewUUIDModule(),
 				upstream.NewUpstreamModule(),
