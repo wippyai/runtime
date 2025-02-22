@@ -80,3 +80,11 @@ entries:
     method: GET
     path: /message
     handler: demos:message.sender
+
+  - name: fs.listdir
+    kind: http.endpoint
+    meta:
+      comment: "Lists contents of the current directory"
+    method: GET
+    path: /fs/list
+    handler: functions:fs.listdir
