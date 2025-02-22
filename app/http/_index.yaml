@@ -88,3 +88,13 @@ entries:
     modules: [ http, func ]
     pool:
       size: 2
+
+  - name: fs.listdir
+    kind: function.lua
+    meta:
+      comment: "Dir list"
+    source: file://dir.lua
+    method: list_directory
+    modules: [ http, func, lfs, json ]
+    pool:
+      size: 2
