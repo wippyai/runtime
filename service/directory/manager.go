@@ -18,7 +18,7 @@ type Manager struct {
 	bus         events.Bus
 	dtt         payload.Transcoder
 	mu          sync.RWMutex
-	directories sync.Map // map[string]*DirectoryFS
+	directories sync.Map // map[string]*FS
 }
 
 // NewDirectoryManager creates a new directory manager instance
@@ -58,10 +58,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		zap.String("path", cfg.Directory),
 		zap.Bool("default", cfg.Default))
 
-	// Register with fs system
-	m.registerFS(ctx, entry.ID, cfg)
-
-	return nil
+	return m.registerFS(ctx, entry.ID, cfg)
 }
 
 // Update updates an existing directory filesystem
@@ -90,10 +87,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		zap.String("id", entry.ID.String()),
 		zap.String("path", cfg.Directory))
 
-	// Re-register with fs system
-	m.registerFS(ctx, entry.ID, cfg)
-
-	return nil
+	return m.registerFS(ctx, entry.ID, cfg)
 }
 
 // Delete removes a directory filesystem
@@ -115,14 +109,22 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	return nil
 }
 
-// registerFS registers the filesystem with the fs system
-func (m *Manager) registerFS(ctx context.Context, id registry.ID, cfg *dirapi.Config) {
+func (m *Manager) registerFS(ctx context.Context, id registry.ID, cfg *dirapi.Config) error {
+	// Create the filesystem
+	fs, err := NewDirectoryFS(cfg.Directory, cfg.FileMode())
+	if err != nil {
+		return fmt.Errorf("failed to create filesystem: %w", err)
+	}
+
+	// Store in directories map
+	m.directories.Store(id.String(), fs)
+
 	// Register regular filesystem
 	m.bus.Send(ctx, events.Event{
 		System: fsapi.System,
 		Kind:   fsapi.Register,
 		Path:   id.String(),
-		Data:   nil, // todo: Will be actual FS implementation
+		Data:   fs, // Now passing the actual FS implementation
 	})
 
 	// Register default filesystem if configured
@@ -131,9 +133,11 @@ func (m *Manager) registerFS(ctx context.Context, id registry.ID, cfg *dirapi.Co
 			System: fsapi.System,
 			Kind:   fsapi.RegisterDefault,
 			Path:   id.String(),
-			Data:   nil, // todo: Will be actual FS implementation
+			Data:   fs, // Now passing the actual FS implementation
 		})
 	}
+
+	return nil
 }
 
 // removeFS removes the filesystem from the fs system
