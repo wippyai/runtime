@@ -1,5 +1,5 @@
 local http = require("http")
-local lfs = require("lfs")
+local fs = require("fs")
 local json = require("json")
 
 function list_directory()
@@ -12,46 +12,20 @@ function list_directory()
     -- Set up response
     res:set_content_type(http.CONTENT.JSON)
 
-    -- Get current directory
-    local current_dir = lfs.currentdir()
-    if not current_dir then
+    -- Get default filesystem
+    local myfs = fs.default()
+    if not myfs then
         res:set_status(http.STATUS.INTERNAL_ERROR)
         res:write_json({
-            error = "Failed to get current directory"
+            error = "Failed to get default filesystem"
         })
         return
     end
 
-    -- List all files and directories
-    local entries = {}
-    for entry in lfs.dir(current_dir) do
-        -- Skip . and .. entries
-        if entry ~= "." and entry ~= ".." then
-            local attr = lfs.attributes(entry)
-            if attr then
-                table.insert(entries, {
-                    name = entry,
-                    type = attr.mode,
-                    size = attr.size,
-                    modified = attr.modification,
-                    is_dir = attr.mode == "directory"
-                })
-            end
-        end
-    end
-
-    -- Sort entries (directories first, then files)
-    table.sort(entries, function(a, b)
-        if a.is_dir and not b.is_dir then return true end
-        if not a.is_dir and b.is_dir then return false end
-        return a.name:lower() < b.name:lower()
-    end)
-
-    -- Send response
+    -- For now just return that we got filesystem
     res:set_status(http.STATUS.OK)
     res:write_json({
-        current_path = current_dir,
-        entries = entries
+        status = "Got default filesystem"
     })
 end
 

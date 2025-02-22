@@ -14,10 +14,10 @@ const (
 	System events.System = "fs"
 
 	Register = "fs.register"
-	Delete   = "fs.unregister"
+	Delete   = "fs.delete"
 
-	RegisterDefault = "fs.default.register"
-	DeleteDefault   = "fs.default.delete"
+	RegisterDefault = "fs.register_default"
+	DeleteDefault   = "fs.delete_default"
 
 	Accept = "fs.accept"
 	Reject = "fs.reject"
@@ -52,8 +52,8 @@ type (
 	}
 
 	Registry interface {
-		GetFS(name string) (FS, error)
-		GetDefaultFS() (FS, error)
+		GetFS(name string) (FS, bool)
+		GetDefaultFS() (FS, bool)
 	}
 )
 
@@ -61,7 +61,7 @@ func WithContext(ctx context.Context, reg Registry) context.Context {
 	return context.WithValue(ctx, ctxapi.FSRegistryCtx, reg)
 }
 
-func GetRegistry(ctx context.Context) Registry {
+func FromContext(ctx context.Context) Registry {
 	if reg, ok := ctx.Value(ctxapi.FSRegistryCtx).(Registry); ok {
 		return reg
 	}
