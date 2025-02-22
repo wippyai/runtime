@@ -169,7 +169,7 @@ func TestAsyncHTTP(t *testing.T) {
             function test_timeout()
                 local result
                 local error_msg
-                
+                print("hey")
                 -- Spawn request with short timeout
                 coroutine.spawn(function()
                     local response, err = http_client.get("https://api.example.com/slow", {
@@ -180,7 +180,7 @@ func TestAsyncHTTP(t *testing.T) {
                 end)
 
                 -- wait a bit to ensure request completes
-                time.sleep(time.parse_duration("200ms"))	
+                time.sleep(time.parse_duration("150ms"))	
                 return {result, error_msg}
             end
         `, "test", "test_timeout")
@@ -197,7 +197,6 @@ func TestAsyncHTTP(t *testing.T) {
 
 		// Verify timeout behavior
 		assert.Equal(t, lua.LNil, response, "response should be nil due to timeout")
-		assert.Contains(t, errorMsg.String(), "context deadline exceeded",
-			"should get timeout error")
+		assert.Contains(t, errorMsg.String(), "context deadline exceeded", "should get timeout error")
 	})
 }

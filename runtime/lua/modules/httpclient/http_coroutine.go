@@ -22,9 +22,8 @@ func (m *Module) executeRequestYield(l *lua.LState, req *http.Request, opts *req
 
 	uw := uow.FromContext(ctx)
 	if uw == nil {
-		// should never happen
-		ctx, uw = uow.WithContext(ctx)
-		defer func() { _ = uw.Close() }()
+		l.RaiseError("uow not found in context")
+		return 0
 	}
 
 	if opts.timeout > 0 {
@@ -33,7 +32,7 @@ func (m *Module) executeRequestYield(l *lua.LState, req *http.Request, opts *req
 		uw.AddCleanup(func() error { cancel(); return nil })
 	}
 
-	req = req.WithContext(uw.Context())
+	req = req.WithContext(ctx)
 
 	m.log.Debug("executing async request",
 		zap.String("method", req.Method),
