@@ -165,6 +165,19 @@ local pos, err = file:seek(whence, offset)
 -- Returns on error: nil, error message
 ```
 
+#### Sync File
+
+```lua
+local ok, err = file:sync()
+-- Returns on success: true
+-- Returns on error: nil, error message
+-- Description: Ensures all buffered writes are committed to stable storage
+-- Errors: raises if
+--   - file doesn't support sync operations
+--   - sync operation fails
+--   - file is closed
+```
+
 #### Close File
 
 ```lua
@@ -281,6 +294,7 @@ src:close()
 local f = fs:open("data.txt", "w")
 f:write("Line 1\n")
 f:write("Line 2\n")
+f:sync() -- Ensure data is written to disk
 f:close()
 ```
 
@@ -328,37 +342,13 @@ while true do
     -- Process data
 end
 f:close()
+
+-- Handle sync errors
+local f = fs:open("important.txt", "w")
+f:write("critical data")
+local ok, err = f:sync()
+if not ok then
+    error("Failed to sync: " .. err)
+end
+f:close()
 ```
-
-## Best Practices
-
-1. **Resource Management**
-    - Always close files after use
-    - Use pcall for error handling
-    - Clean up resources in error cases
-
-2. **Path Handling**
-    - Use forward slashes for paths
-    - Be careful with relative paths
-    - Check existence before operations
-
-3. **Performance**
-    - Use readfile/writefile for whole files
-    - Use read/write for streaming
-    - Consider buffer sizes for large files
-
-4. **Error Handling**
-    - Check return values
-    - Use pcall for operations that may fail
-    - Handle EOF conditions properly
-
-## Implementation Notes
-
-The filesystem interface is designed to be backend-agnostic. Implementations should:
-
-1. Properly implement all error conditions
-2. Handle path normalization
-3. Maintain consistent working directory state
-4. Support proper file locking/unlocking
-5. Implement efficient buffering
-6. Handle concurrent access properly
