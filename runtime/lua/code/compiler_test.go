@@ -198,10 +198,10 @@ func TestCompiler_PreloadedDependencies(t *testing.T) {
 		Module: &dummyModule{name: "preloaded"},
 	}
 
-	// Add mock compilation result for main node
+	// AddCleanup mock compilation result for main node
 	mock.results[mainNode.ID.String()] = &glua.FunctionProto{}
 
-	// Add nodes to graph
+	// AddCleanup nodes to graph
 	require.NoError(t, memGraph.AddNode(mainNode))
 	require.NoError(t, memGraph.AddNode(preloadedModule))
 

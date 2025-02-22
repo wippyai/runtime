@@ -25,7 +25,7 @@ func (dp *DummyProcess) Start(ctx context.Context, pid pubsub.PID, input payload
 
 func (dp *DummyProcess) Step() (bool, error) {
 	dp.stepCount++
-	// After maxSteps, return an error to simulate process failure.
+	// AddCleanup maxSteps, return an error to simulate process failure.
 	if dp.stepCount >= dp.maxSteps {
 		return false, errors.New("dummy step error")
 	}

@@ -152,7 +152,7 @@ func TestTaskGroup(t *testing.T) {
 		// Test 2: wait with context cancellation
 		ctx, cancel := context.WithCancel(context.Background())
 
-		// Add a state to force wait to block
+		// AddCleanup a state to force wait to block
 		group.Add(L)
 
 		var waitErr error
@@ -247,7 +247,7 @@ func TestTaskGroupProcessing(t *testing.T) {
 			},
 		}
 
-		// Add both states to the group
+		// AddCleanup both states to the group
 		group.Add(L1)
 		group.Add(L2)
 

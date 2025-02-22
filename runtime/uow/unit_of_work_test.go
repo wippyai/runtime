@@ -1,4 +1,4 @@
-package closer
+package uow
 
 import (
 	"context"
@@ -11,7 +11,7 @@ func TestCleanup(t *testing.T) {
 	t.Run("basic flow", func(t *testing.T) {
 		var closed bool
 		_, cleanup := WithContext(context.Background())
-		cleanup.Add(func() error {
+		cleanup.AddCleanup(func() error {
 			closed = true
 			return nil
 		})
@@ -41,7 +41,7 @@ func TestCleanup(t *testing.T) {
 		_, cleanup := WithContext(context.Background())
 
 		for i := 0; i < 3; i++ {
-			cleanup.Add(func() error {
+			cleanup.AddCleanup(func() error {
 				count++
 				return nil
 			})
@@ -61,7 +61,7 @@ func TestCleanup(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				cleanup.Add(func() error { return nil })
+				cleanup.AddCleanup(func() error { return nil })
 			}()
 		}
 		wg.Wait()
@@ -77,8 +77,8 @@ func TestCleanup(t *testing.T) {
 		_, cleanup := WithContext(context.Background())
 		expectedErr := errors.New("first error")
 
-		cleanup.Add(func() error { return expectedErr })
-		cleanup.Add(func() error { return errors.New("second error") })
+		cleanup.AddCleanup(func() error { return expectedErr })
+		cleanup.AddCleanup(func() error { return errors.New("second error") })
 
 		err := cleanup.Close()
 		if !errors.Is(err, expectedErr) {
@@ -90,7 +90,7 @@ func TestCleanup(t *testing.T) {
 		_, cleanup := WithContext(context.Background())
 		var count int
 
-		cleanup.Add(func() error {
+		cleanup.AddCleanup(func() error {
 			count++
 			return nil
 		})

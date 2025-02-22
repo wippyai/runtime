@@ -6,13 +6,13 @@ import (
 
 	"github.com/ponyruntime/pony/runtime/lua/engine/async"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
+	"github.com/ponyruntime/pony/runtime/uow"
 	lua "github.com/yuin/gopher-lua"
 )
 
 // Ticker represents a Lua userdata object wrapping time.Ticker
 type Ticker struct {
 	ticker  *time.Ticker
-	exit    chan struct{}
 	chValue lua.LValue
 }
 
@@ -20,6 +20,13 @@ type Ticker struct {
 func ticker(l *lua.LState) int {
 	var duration time.Duration
 	var err error
+
+	// Get UoW from context
+	uw := uow.FromContext(l.Context())
+	if uw == nil {
+		l.RaiseError("time.ticker: unit of work missing")
+		return 0
+	}
 
 	switch v := l.Get(1).(type) {
 	case *lua.LUserData:
@@ -49,30 +56,27 @@ func ticker(l *lua.LState) int {
 
 	// Spawn channel and ticker
 	ch := channel.Named(fmt.Sprintf("ticker_%s", duration), 1)
+	tkr := time.NewTicker(duration)
 
-	tt := &Ticker{
-		ticker:  time.NewTicker(duration),
-		chValue: channel.Wrap(l, ch),
-		exit:    make(chan struct{}),
-	}
+	// Register cleanup to stop ticker
+	uw.AddCleanupFunc(tkr.Stop)
 
+	// Spawn userdata for time value upfront
 	timeUD := l.NewUserData()
-	timeUD.Value = &Time{time: time.Now()}             // initial value will be replaced
-	l.SetMetatable(timeUD, l.GetTypeMetatable("Time")) // todo: possibly normalize
+	timeUD.Value = &Time{time: time.Now()} // initial value will be replaced
+	l.SetMetatable(timeUD, l.GetTypeMetatable("Time"))
 
 	// Launch goroutine to handle ticker
 	go func() {
-		defer tt.ticker.Stop()
 		for {
 			select {
-			case t := <-tt.ticker.C:
+			case t := <-tkr.C:
 				timeUD.Value = &Time{time: t}
 				errs := async.Send(l, ch, timeUD, true)
 				if errs != nil {
 					return
 				}
-			case <-tt.exit:
-			case <-l.Context().Done():
+			case <-uw.Context().Done():
 				return
 			}
 		}
@@ -80,7 +84,7 @@ func ticker(l *lua.LState) int {
 
 	// Spawn and return Ticker userdata
 	ud := l.NewUserData()
-	ud.Value = tt
+	ud.Value = &Ticker{ticker: tkr, chValue: channel.Wrap(l, ch)}
 	l.SetMetatable(ud, l.GetTypeMetatable("Ticker"))
 	l.Push(ud)
 	return 1
@@ -103,7 +107,6 @@ func tickerStop(l *lua.LState) int {
 		return 0
 	}
 	t.ticker.Stop()
-	close(t.exit)
 	return 0
 }
 

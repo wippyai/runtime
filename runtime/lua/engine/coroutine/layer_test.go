@@ -312,7 +312,7 @@ func TestDistributedWorkers(t *testing.T) {
 		// Since we're running 10 tasks that each take 100ms
 		// but distributing across 5 workers, it should take
 		// approximately 200ms (2 tasks per worker)
-		// Add some buffer for scheduling overhead
+		// AddCleanup some buffer for scheduling overhead
 		assert.Less(t, duration, 350*time.Millisecond,
 			"tasks should complete in parallel, got %v", duration)
 	})

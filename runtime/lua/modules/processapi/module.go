@@ -394,7 +394,7 @@ func (m *ControlModule) checkProcess(l *lua.LState) (*process.Context, bool) {
 	return procCtx, true
 }
 
-// Add events function for internal messaging
+// AddCleanup events function for internal messaging
 func (m *ControlModule) events(l *lua.LState) int {
 	ch := channel.Named(process.TopicEvents, 1)
 

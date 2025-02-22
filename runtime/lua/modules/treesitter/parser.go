@@ -3,9 +3,8 @@ package treesitter
 import (
 	"context"
 	"fmt"
+	"github.com/ponyruntime/pony/runtime/uow"
 	"time"
-
-	"github.com/ponyruntime/pony/internal/closer"
 
 	treesitter "github.com/tree-sitter/go-tree-sitter"
 	lua "github.com/yuin/gopher-lua"
@@ -34,11 +33,9 @@ func newParser(l *lua.LState) int {
 	parser := treesitter.NewParser()
 	wrap := &ParserWrapper{parser: parser}
 
-	if l.Context() != nil {
-		cleanup := closer.FromContext(l.Context())
-		if cleanup != nil {
-			cleanup.Add(func() error { wrap.Close(); return nil })
-		}
+	uw := uow.FromContext(l.Context())
+	if uw != nil {
+		uw.AddCleanup(func() error { wrap.Close(); return nil })
 	}
 
 	ud := l.NewUserData()
@@ -146,11 +143,9 @@ func parserParse(l *lua.LState) int {
 		return 2
 	}
 
-	if l.Context() != nil {
-		cleanup := closer.FromContext(l.Context())
-		if cleanup != nil {
-			cleanup.Add(func() error { tree.Close(); return nil })
-		}
+	uw := uow.FromContext(l.Context())
+	if uw != nil {
+		uw.AddCleanupFunc(tree.Close)
 	}
 
 	ud := l.NewUserData()

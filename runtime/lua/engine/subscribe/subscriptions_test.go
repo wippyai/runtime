@@ -37,7 +37,7 @@ func TestSubscriptionManager(t *testing.T) {
 		ch1 := channel.Named("test1", 1)
 		ch2 := channel.Named("test2", 1)
 
-		// Add first subscription
+		// AddCleanup first subscription
 		sub1, err := manager.add("same-topic", ch1)
 		require.NoError(t, err)
 
@@ -57,7 +57,7 @@ func TestSubscriptionManager(t *testing.T) {
 		manager := newSubscriptionManager()
 		ch := channel.Named("test", 1)
 
-		// Add first subscription
+		// AddCleanup first subscription
 		sub1, err := manager.add("topic1", ch)
 		require.NoError(t, err)
 

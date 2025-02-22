@@ -2,9 +2,9 @@ package treesitter
 
 import (
 	"fmt"
+	"github.com/ponyruntime/pony/runtime/uow"
 	"regexp"
 
-	"github.com/ponyruntime/pony/internal/closer"
 	treesitter "github.com/tree-sitter/go-tree-sitter"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -89,22 +89,19 @@ func newQuery(l *lua.LState) int {
 		cursor: treesitter.NewQueryCursor(),
 	}
 
-	if l.Context() != nil {
-		cleanup := closer.FromContext(l.Context())
-		if cleanup != nil {
-			cleanup.Add(func() error {
-				if wrapper.cursor != nil {
-					wrapper.cursor.Close()
-					wrapper.cursor = nil
-				}
+	uw := uow.FromContext(l.Context())
+	if uw != nil {
+		uw.AddCleanupFunc(func() {
+			if wrapper.cursor != nil {
+				wrapper.cursor.Close()
+				wrapper.cursor = nil
+			}
 
-				if wrapper.query != nil {
-					wrapper.query.Close()
-					wrapper.query = nil
-				}
-				return nil
-			})
-		}
+			if wrapper.query != nil {
+				wrapper.query.Close()
+				wrapper.query = nil
+			}
+		})
 	}
 
 	ud := l.NewUserData()
@@ -201,7 +198,7 @@ func queryCaptures(l *lua.LState) int {
 		captureTable.RawSetString("node", nodeUD)
 		captureTable.RawSetString("index", lua.LNumber(capture.Index))
 
-		// Add capture name
+		// AddCleanup capture name
 		name := query.query.CaptureNames()[capture.Index]
 		if name != "" {
 			captureTable.RawSetString("name", lua.LString(name))

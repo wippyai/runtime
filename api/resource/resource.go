@@ -46,7 +46,7 @@ type (
 		Get() (T, error)
 
 		// Release frees the resource and invalidates the access grant.
-		// After Release is called, subsequent Get() calls will panic.
+		// AddCleanup Release is called, subsequent Get() calls will panic.
 		// It's safe to call Release multiple times.
 		Release() error
 	}

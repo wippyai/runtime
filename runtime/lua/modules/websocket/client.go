@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 	"github.com/coder/websocket"
-	"github.com/ponyruntime/pony/internal/closer"
 	"github.com/ponyruntime/pony/runtime/lua/engine/async"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
+	"github.com/ponyruntime/pony/runtime/uow"
 	lua "github.com/yuin/gopher-lua"
 	"net/http"
 	"sync"
@@ -165,17 +165,17 @@ func wsConnect(l *lua.LState) int {
 		})
 	}
 
-	// Setup context with cleanup.
+	// Setup context with uw.
 	ctx := l.Context()
-	cleanup := closer.FromContext(ctx)
-	if cleanup == nil {
-		ctx, cleanup = closer.WithContext(ctx)
+	uw := uow.FromContext(ctx)
+	if uw == nil {
+		ctx, uw = uow.WithContext(ctx)
 	}
 
 	if dialTimeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, dialTimeout)
-		cleanup.Add(func() error { cancel(); return nil })
+		uw.AddCleanupFunc(cancel)
 	}
 
 	opts := &websocket.DialOptions{
@@ -207,12 +207,11 @@ func wsConnect(l *lua.LState) int {
 	// Spawn and store channel wrapper.
 	client.recvValue = channel.Wrap(l, recvCh)
 
-	// Add connection cleanup.
-	cleanup.Add(func() error {
+	// AddCleanup connection uw.
+	uw.AddCleanupFunc(func() {
 		client.closeOnce.Do(func() {
-			_ = client.conn.Close(websocket.StatusGoingAway, "connection cleanup")
+			_ = client.conn.Close(websocket.StatusGoingAway, "connection uw")
 		})
-		return nil
 	})
 
 	// Launch read loop.
@@ -290,12 +289,12 @@ func wsSend(l *lua.LState) int {
 	data := l.CheckString(2)
 
 	ctx := l.Context()
-	cleanup := closer.FromContext(ctx)
+	cleanup := uow.FromContext(ctx)
 
 	if client.client.writeTimeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, client.client.writeTimeout)
-		cleanup.Add(func() error { cancel(); return nil })
+		cleanup.AddCleanup(func() error { cancel(); return nil })
 	}
 
 	if err := client.client.conn.Write(ctx, websocket.MessageText, []byte(data)); err != nil {

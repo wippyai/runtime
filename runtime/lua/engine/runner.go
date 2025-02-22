@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	ctxapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/internal/closer"
+	"github.com/ponyruntime/pony/runtime/uow"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
@@ -99,7 +99,8 @@ type RunnerOption func(*Runner)
 func WithLayer(layer Layer) RunnerOption {
 	return func(w *Runner) {
 		w.layers = append(w.layers, layer)
-		// Invalidate cache
+
+		// invalidate cache
 		w.wrapped = nil
 		w.layerCount = 0
 	}
@@ -174,6 +175,7 @@ func (e *Runner) Start(ctx context.Context, funcName string, args ...lua.LValue)
 // Run executes the VM until completion, processing tasks through the layer chain.
 // It manages coroutine execution and handles task scheduling.
 // Returns the final execution result or an error if execution fails.
+// todo: theoretically we can remove this function as is only used in tests so far
 func (e *Runner) Run(ctx context.Context, exitCh <-chan Result) (lua.LValue, error) {
 	defer func() {
 		for _, t := range e.cvm.tasks {
@@ -306,11 +308,11 @@ func (e *Runner) HasTasks() bool {
 
 // Execute runs a function through the layer chain with provided context and arguments
 func (e *Runner) Execute(ctx context.Context, funcName string, args ...lua.LValue) (lua.LValue, error) {
-	// we always have to ensure we run using the task group context!
-	ctx, cleanup := closer.WithContext(e.WithContext(ctx))
+	// we always have to ensure we run using the uow, otherwise most of async functions won't work!
+	ctx, uw := uow.WithContext(e.WithContext(ctx))
 	defer func() {
-		if err := cleanup.Close(); err != nil {
-			e.cvm.vm.log.Error("cleanup failed", zap.Error(err))
+		if err := uw.Close(); err != nil {
+			e.cvm.vm.log.Error("uw failed", zap.Error(err))
 		}
 	}()
 

@@ -75,15 +75,15 @@ func (sp *Sequencer) processStartOperations(ctx context.Context, operations []Op
 	// Build dependency graph for starts
 	g := graph.New[string, any]()
 
-	// Add all services as nodes
+	// AddCleanup all services as nodes
 	for _, op := range operations {
 		g.AddNode(op.ID)
 	}
 
-	// Add dependency edges
+	// AddCleanup dependency edges
 	for _, op := range operations {
 		for _, dep := range op.Dependencies {
-			// Add edge from dependency to dependent
+			// AddCleanup edge from dependency to dependent
 			g.AddEdge(dep, op.ID, 1, nil)
 		}
 	}
@@ -143,7 +143,7 @@ func (sp *Sequencer) processStopOperations(ctx context.Context, operations []Ope
 	g := graph.New[string, any]()
 	opMap := make(map[string]Operation)
 
-	// Add all nodes first
+	// AddCleanup all nodes first
 	for _, op := range operations {
 		g.AddNode(op.ID)
 		opMap[op.ID] = op
@@ -154,7 +154,7 @@ func (sp *Sequencer) processStopOperations(ctx context.Context, operations []Ope
 	for _, op := range operations {
 		for _, depID := range op.Dependencies {
 			if _, exists := opMap[depID]; exists {
-				// Add edge FROM dependent TO dependency
+				// AddCleanup edge FROM dependent TO dependency
 				// This ensures dependent is processed before its dependencies
 				g.AddEdge(op.ID, depID, 1, nil)
 			}

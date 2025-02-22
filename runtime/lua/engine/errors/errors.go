@@ -53,7 +53,7 @@ func (e *WrappedError) Stack() string {
 			result.WriteString(":\n")
 		}
 
-		// Add this level's Lua stack if present
+		// AddCleanup this level's Lua stack if present
 		if current.LuaStack != nil {
 			luaFrames := current.LuaStack.String()
 			if !seenFrames[luaFrames] {
@@ -63,7 +63,7 @@ func (e *WrappedError) Stack() string {
 			}
 		}
 
-		// Add this level's Go stack if present
+		// AddCleanup this level's Go stack if present
 		if len(current.goStack) > 0 {
 			frames := runtime.CallersFrames(current.goStack)
 			for {
@@ -229,7 +229,7 @@ func RegisterErrorsModule(L *lua.LState) {
 		return 0
 	}))
 
-	// Add wrap function
+	// AddCleanup wrap function
 	L.SetField(mod, "wrap", L.NewFunction(wrapError))
 }
 

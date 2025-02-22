@@ -184,7 +184,7 @@ func TestLayer_MultipleConcurrentCommands(t *testing.T) {
 			}
 		}
 
-		// After commands are created, verify pending commands and process them
+		// AddCleanup commands are created, verify pending commands and process them
 		if contains(yields, "commands_created") {
 			// GetField and verify pending commands
 			pendingCommands = commandLayer.GetPendingCommands()
@@ -348,7 +348,7 @@ func TestCommand_LuaMethodsComplete(t *testing.T) {
 		
 		coroutine.yield("initial_checks_done")
 		
-		-- After completion checks
+		-- AddCleanup completion checks
 		assert(cmd:is_complete(), "command should be complete")
 		assert(not cmd:is_canceled(), "command should not be canceled")
 		assert(cmd:error() == nil, "successful command should have no error")

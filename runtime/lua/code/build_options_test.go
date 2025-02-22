@@ -96,7 +96,7 @@ func TestBuildOptions_StateConsistency(t *testing.T) {
 	t.Run("same Process added multiple times to lists", func(t *testing.T) {
 		opts := NewBuildOptions()
 
-		// Add same Process multiple times to lists
+		// AddCleanup same Process multiple times to lists
 		opts.WithAllowed(fooID, fooID)
 		assert.True(t, contains(opts.Allowed, fooID))
 
@@ -222,12 +222,12 @@ func TestBuildOptions_ModificationAfterSetup(t *testing.T) {
 	}
 	assert.NoError(t, opts.Validate(nodes))
 
-	// Add new allowed Process and test
+	// AddCleanup new allowed Process and test
 	opts.WithAllowed(barID)
 	nodes[barID] = &Node{ID: barID}
 	assert.NoError(t, opts.Validate(nodes))
 
-	// Add denied Process and test
+	// AddCleanup denied Process and test
 	opts.WithDenied(fooID)
 	err := opts.Validate(nodes)
 	assert.Error(t, err)

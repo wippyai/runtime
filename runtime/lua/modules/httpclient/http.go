@@ -3,11 +3,11 @@ package httpclient
 import (
 	"context"
 	"errors"
+	"github.com/ponyruntime/pony/runtime/uow"
 	"io"
 	"net/http"
 	"time"
 
-	"github.com/ponyruntime/pony/internal/closer"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/modules/stream"
 	lua "github.com/yuin/gopher-lua"
@@ -139,17 +139,17 @@ func (m *Module) executeRequest(l *lua.LState, req *http.Request, opts *requestO
 		ctx = l.Context()
 	}
 
-	cleanup := closer.FromContext(ctx)
+	cleanup := uow.FromContext(ctx)
 	if cleanup == nil {
 		// should never happen
-		ctx, cleanup = closer.WithContext(ctx)
+		ctx, cleanup = uow.WithContext(ctx)
 		defer func() { _ = cleanup.Close() }()
 	}
 
 	if opts.timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, opts.timeout)
-		cleanup.Add(func() error { cancel(); return nil })
+		cleanup.AddCleanup(func() error { cancel(); return nil })
 	}
 
 	req = req.WithContext(ctx)
@@ -161,7 +161,7 @@ func (m *Module) executeRequest(l *lua.LState, req *http.Request, opts *requestO
 		return 2
 	}
 
-	cleanup.Add(func() error {
+	cleanup.AddCleanup(func() error {
 		return resp.Body.Close()
 	})
 
@@ -226,10 +226,10 @@ func (m *Module) requestBatch(l *lua.LState) int {
 	}
 
 	// VM guarantees cleanup exists
-	cleanup := closer.FromContext(ctx)
+	cleanup := uow.FromContext(ctx)
 	if cleanup == nil {
 		// should never happen
-		ctx, cleanup = closer.WithContext(ctx)
+		ctx, cleanup = uow.WithContext(ctx)
 		defer func() { _ = cleanup.Close() }()
 	}
 
@@ -278,7 +278,7 @@ func (m *Module) requestBatch(l *lua.LState) int {
 		if opts.timeout > 0 {
 			var cancel context.CancelFunc
 			reqCtx, cancel = context.WithTimeout(ctx, opts.timeout)
-			cleanup.Add(func() error { cancel(); return nil })
+			cleanup.AddCleanup(func() error { cancel(); return nil })
 		}
 
 		requests = append(requests, req.WithContext(reqCtx))
@@ -299,7 +299,7 @@ func (m *Module) requestBatch(l *lua.LState) int {
 			}
 
 			// Register response body cleanup
-			cleanup.Add(func() error {
+			cleanup.AddCleanup(func() error {
 				return resp.Body.Close()
 			})
 

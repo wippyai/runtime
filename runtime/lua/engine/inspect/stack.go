@@ -153,7 +153,7 @@ func getStackFrame(L *lua.LState, level int) (StackFrame, bool) {
 func GetAllCoroutineStacks(L *lua.LState) []*StackTrace {
 	var traces []*StackTrace
 
-	// Add main thread
+	// AddCleanup main thread
 	traces = append(traces, GetStackTrace(L))
 
 	// We need to get any global coroutines first

@@ -29,14 +29,14 @@ func TestRouterComposition(t *testing.T) {
 	t.Run("basic composition", func(t *testing.T) {
 		router := NewRouter(handler)
 
-		// Add a new router
+		// AddCleanup a new router
 		err := router.AddRouter("router1", config.RouterConfig{
 			Prefix: "/api/v1",
 			Meta:   registry.Metadata{config.RouterID: "router1"},
 		})
 		require.NoError(t, err)
 
-		// Add endpoints to different routers
+		// AddCleanup endpoints to different routers
 		err = router.AddEndpoint("ep1", config.EndpointConfig{
 			Method: http.MethodGet,
 			Path:   "/test",
@@ -73,7 +73,7 @@ func TestRouterComposition(t *testing.T) {
 	t.Run("multiple routers", func(t *testing.T) {
 		router := NewRouter(handler)
 
-		// Add multiple routers
+		// AddCleanup multiple routers
 		routers := []struct {
 			id     string
 			prefix string
@@ -90,7 +90,7 @@ func TestRouterComposition(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			// Add an endpoint to each router
+			// AddCleanup an endpoint to each router
 			err = router.AddEndpoint("", config.EndpointConfig{
 				Method: http.MethodGet,
 				Path:   "/supervisor",
@@ -124,14 +124,14 @@ func TestRouterComposition(t *testing.T) {
 	t.Run("router updates", func(t *testing.T) {
 		router := NewRouter(handler)
 
-		// Add initial router
+		// AddCleanup initial router
 		err := router.AddRouter("router1", config.RouterConfig{
 			Prefix: "/api/v1",
 			Meta:   registry.Metadata{config.RouterID: "router1"},
 		})
 		require.NoError(t, err)
 
-		// Add endpoint
+		// AddCleanup endpoint
 		err = router.AddEndpoint("ep1", config.EndpointConfig{
 			Method: http.MethodGet,
 			Path:   "/test",
@@ -211,7 +211,7 @@ func TestRouterComposition(t *testing.T) {
 	t.Run("middleware composition", func(t *testing.T) {
 		router := NewRouter(handler)
 
-		// Add router with middleware
+		// AddCleanup router with middleware
 		err := router.AddRouter("router1", config.RouterConfig{
 			Prefix:      "/api/v1",
 			Meta:        registry.Metadata{config.RouterID: "router1"},
@@ -219,7 +219,7 @@ func TestRouterComposition(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		// Add endpoint
+		// AddCleanup endpoint
 		err = router.AddEndpoint("ep1", config.EndpointConfig{
 			Method: http.MethodGet,
 			Path:   "/test",
@@ -350,7 +350,7 @@ func TestRouterConcurrencyStress(t *testing.T) {
 		router := NewRouter(handler)
 		done := make(chan bool)
 
-		// Add initial router
+		// AddCleanup initial router
 		err := router.AddRouter("router1", config.RouterConfig{
 			Prefix: "/api/v1",
 		})
@@ -404,7 +404,7 @@ func TestRouterMiddlewareConfiguration(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		// Add test endpoint
+		// AddCleanup test endpoint
 		err = router.AddEndpoint("ep1", config.EndpointConfig{
 			Method: http.MethodGet,
 			Path:   "/test",
@@ -442,7 +442,7 @@ func TestRouter_RebuildRouter_ErrorHandling(t *testing.T) {
 
 	router := NewRouter(handler)
 
-	// Add a router with invalid timeout middleware option
+	// AddCleanup a router with invalid timeout middleware option
 	err := router.AddRouter("router1", config.RouterConfig{
 		Prefix: "/api/v1",
 		Middlewares: []string{
@@ -454,7 +454,7 @@ func TestRouter_RebuildRouter_ErrorHandling(t *testing.T) {
 	})
 	require.NoError(t, err) // Router creation should still succeed
 
-	// Add an endpoint to the router
+	// AddCleanup an endpoint to the router
 	err = router.AddEndpoint("ep1", config.EndpointConfig{
 		Method: http.MethodGet,
 		Path:   "/test",
@@ -482,7 +482,7 @@ func TestRouter_ServeHTTP_Concurrency(t *testing.T) {
 
 	router := NewRouter(handler)
 
-	// Add a router and endpoint
+	// AddCleanup a router and endpoint
 	err := router.AddRouter("router1", config.RouterConfig{
 		Prefix: "/api/v1",
 	})
@@ -538,7 +538,7 @@ func TestRouter_Endpoint_UUID(t *testing.T) {
 		return true
 	})
 
-	// Add an endpoint without providing an Alias
+	// AddCleanup an endpoint without providing an Alias
 	err := router.AddEndpoint("", config.EndpointConfig{
 		Method: http.MethodGet,
 		Path:   "/test",
@@ -578,13 +578,13 @@ func TestRouterEdgeCases(t *testing.T) {
 	t.Run("delete router complex scenarios", func(t *testing.T) {
 		router := NewRouter(handler)
 
-		// Add router with multiple endpoints
+		// AddCleanup router with multiple endpoints
 		err := router.AddRouter("router-to-delete", config.RouterConfig{
 			Prefix: "/delete-test",
 		})
 		require.NoError(t, err)
 
-		// Add multiple endpoints
+		// AddCleanup multiple endpoints
 		endpoints := []struct {
 			id   string
 			path string
@@ -621,7 +621,7 @@ func TestRouterEdgeCases(t *testing.T) {
 	t.Run("update endpoint complex scenarios", func(t *testing.T) {
 		router := NewRouter(handler)
 
-		// Add two routers for testing endpoint updates between routers
+		// AddCleanup two routers for testing endpoint updates between routers
 		err := router.AddRouter("router1", config.RouterConfig{
 			Prefix: "/api/v1",
 		})
@@ -632,7 +632,7 @@ func TestRouterEdgeCases(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		// Add initial endpoint
+		// AddCleanup initial endpoint
 		err = router.AddEndpoint("test-ep", config.EndpointConfig{
 			Method: http.MethodGet,
 			Path:   "/test",
@@ -690,13 +690,13 @@ func TestRouterUpdateScenarios(t *testing.T) {
 	t.Run("update router with active endpoints", func(t *testing.T) {
 		router := NewRouter(handler)
 
-		// Add initial router
+		// AddCleanup initial router
 		err := router.AddRouter("update-test", config.RouterConfig{
 			Prefix: "/v1",
 		})
 		require.NoError(t, err)
 
-		// Add endpoints
+		// AddCleanup endpoints
 		err = router.AddEndpoint("ep1", config.EndpointConfig{
 			Method: http.MethodGet,
 			Path:   "/test",

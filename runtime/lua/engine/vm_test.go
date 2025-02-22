@@ -651,7 +651,7 @@ func TestVM_SecurityRestrictions(t *testing.T) {
 	})
 
 	t.Run("require should only work with preloaded modules", func(t *testing.T) {
-		// Add a test library
+		// AddCleanup a test library
 		testLib := `
 			local lib = {}
 			function lib.test() return "ok" end

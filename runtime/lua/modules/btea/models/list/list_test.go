@@ -298,7 +298,7 @@ func TestItemManagement(t *testing.T) {
             assert(list:selected_item() == nil, "should have no selection")
             assert(list:cursor() == 0, "cursor should be at 0")
             
-            -- Add first item
+            -- AddCleanup first item
             list:insert_item(0, {
                 title = "First Item",
                 filter_value = "first"

@@ -1,9 +1,9 @@
 package execprocess
 
 import (
-	"github.com/ponyruntime/pony/internal/closer"
 	native2 "github.com/ponyruntime/pony/internal/codeexec/native"
 	"github.com/ponyruntime/pony/runtime/lua/modules/stream"
+	"github.com/ponyruntime/pony/runtime/uow"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
@@ -44,7 +44,7 @@ func (m *Module) newProcess(l *lua.LState) int {
 	nopts = append(nopts, native2.WithCmd(cmd))
 
 	executor := native2.NewNativeExecutor(log.Named("native_exec"), nopts...)
-	closer.FromContext(l.Context()).Add(func() error {
+	uow.FromContext(l.Context()).AddCleanup(func() error {
 		// stop the executor
 		executor.Stop()
 		m.once = nil

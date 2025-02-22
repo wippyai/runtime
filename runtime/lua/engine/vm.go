@@ -4,9 +4,8 @@ import (
 	"context"
 	"fmt"
 	errors2 "github.com/ponyruntime/pony/runtime/lua/engine/errors"
+	"github.com/ponyruntime/pony/runtime/uow"
 	"strings"
-
-	"github.com/ponyruntime/pony/internal/closer"
 
 	lua "github.com/yuin/gopher-lua"
 	"github.com/yuin/gopher-lua/parse"
@@ -109,7 +108,7 @@ func (v *VM) Execute(ctx context.Context, funcName string, args ...lua.LValue) (
 	}
 
 	if ctx != nil {
-		ctx, cleanup := closer.WithContext(ctx)
+		ctx, cleanup := uow.WithContext(ctx)
 		defer func() {
 			v.state.RemoveContext()
 			if err := cleanup.Close(); err != nil {
@@ -136,7 +135,7 @@ func (v *VM) DoString(ctx context.Context, s string, name string, args ...lua.LV
 		ctx = context.Background()
 	}
 
-	ctx, cleanup := closer.WithContext(ctx)
+	ctx, cleanup := uow.WithContext(ctx)
 	defer func() {
 		v.state.RemoveContext()
 		if err := cleanup.Close(); err != nil {

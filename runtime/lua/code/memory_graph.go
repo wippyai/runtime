@@ -235,7 +235,7 @@ func (m *MemoryGraph) GetAllDependents(id registry.ID) ([]*Node, error) {
 			return err
 		}
 
-		// Add to results if not already added
+		// AddCleanup to results if not already added
 		for _, dep := range direct {
 			if !added[dep.ID] {
 				dependents = append(dependents, dep)
@@ -358,7 +358,7 @@ func (m *MemoryGraph) Build(entrypoint registry.ID) (*Main, error) {
 
 		// Process explicit aliases
 		if len(aliases) > 0 {
-			// Add node once for each unique alias
+			// AddCleanup node once for each unique alias
 			for _, alias := range aliases {
 				depNodes = append(depNodes, Dependency{
 					Name: alias,

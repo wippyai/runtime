@@ -14,7 +14,7 @@ type luaHTTPResponse struct {
 	res      *http.Response
 	body     lua.LString
 	bodySize int
-	stream   *lua.LUserData // Add stream field for streaming support
+	stream   *lua.LUserData // AddCleanup stream field for streaming support
 }
 
 // registerHTTPResponseType registers the HTTP response type and its metatable

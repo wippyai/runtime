@@ -898,7 +898,7 @@ func TestCoroutineVM_SharedBuffer(t *testing.T) {
 					-- wait for input value
 					local value = coroutine.yield("ready_for_input")
 					
-					-- Add to shared buffer
+					-- AddCleanup to shared buffer
 					table.insert(shared_buffer.data, value)
 					shared_buffer.size = #shared_buffer.data
 					values_written = values_written + 1
@@ -2996,7 +2996,7 @@ func TestCoroutineVM_PcallErrorHandling(t *testing.T) {
 				end)
 				
 				if not ok then
-					-- Add our own context by wrapping the error
+					-- AddCleanup our own context by wrapping the error
 					local wrapped = errors.wrap(result, "consumer wrapper")
 					error(wrapped)  -- Re-raise with our additional context
 				end

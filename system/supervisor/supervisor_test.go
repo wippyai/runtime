@@ -487,7 +487,7 @@ func TestSupervisor_TransactionDiscard(t *testing.T) {
 	// Begin transaction for changes
 	h.sup.handleEvent(events.Event{System: registry.System, Kind: registry.Begin})
 
-	// Add new service and remove existing one
+	// AddCleanup new service and remove existing one
 	svc2 := h.service("service-2")
 	h.sup.handleEvent(events.Event{
 		System: supervisor.System,
@@ -549,7 +549,7 @@ func TestSupervisor_RemoveRunningService(t *testing.T) {
 	service.WaitForStart(t)
 	require.True(t, service.IsStarted())
 
-	// Add long stop delay to test proper shutdown
+	// AddCleanup long stop delay to test proper shutdown
 	service.stopDelay = 200 * time.Millisecond
 
 	// Remove the running service

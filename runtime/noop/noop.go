@@ -34,7 +34,7 @@ func (n *Runtime) Execute(ctx context.Context, task runtime.Task) (chan *runtime
 	return rspChan, nil
 }
 
-// Add implements EntryListener.Add - does nothing and returns nil
+// Add implements EntryListener.AddCleanup - does nothing and returns nil
 func (n *Runtime) Add(ctx context.Context, entry registry.Entry) error {
 	n.logger.Debug("noop runtime: add called",
 		zap.String("id", entry.ID.String()),

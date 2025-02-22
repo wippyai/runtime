@@ -2,6 +2,7 @@ package time
 
 import (
 	"fmt"
+	"github.com/ponyruntime/pony/runtime/uow"
 	"time"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine/async"
@@ -19,6 +20,12 @@ type Timer struct {
 func timer(l *lua.LState) int {
 	var duration time.Duration
 	var err error
+
+	uw := uow.FromContext(l.Context())
+	if uw == nil {
+		l.RaiseError("time.timer: unit of work missing")
+		return 0
+	}
 
 	switch v := l.Get(1).(type) {
 	case *lua.LUserData:
@@ -57,7 +64,6 @@ func timer(l *lua.LState) int {
 
 	// Launch goroutine to handle timer
 	go func() {
-		// todo: ensure no leaks
 		defer tmr.Stop()
 		select {
 		case t := <-tmr.C:
@@ -67,7 +73,7 @@ func timer(l *lua.LState) int {
 				l.RaiseError("time.timer: %s", errs)
 				return
 			}
-		case <-l.Context().Done():
+		case <-uw.Context().Done():
 			return
 		}
 	}()
