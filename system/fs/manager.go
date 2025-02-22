@@ -8,7 +8,6 @@ import (
 	fsapi "github.com/ponyruntime/pony/api/fs"
 	"github.com/ponyruntime/pony/system/eventbus"
 	"go.uber.org/zap"
-	"log"
 	"sync"
 )
 
@@ -54,7 +53,6 @@ func (r *Registry) Stop() error {
 func (r *Registry) handleEvent(e events.Event) {
 	switch e.Kind {
 	case fsapi.Register:
-		log.Printf("received filesystem registration event: %s", e.Path)
 		r.registerFS(e)
 	case fsapi.Delete:
 		r.deleteFS(e)
