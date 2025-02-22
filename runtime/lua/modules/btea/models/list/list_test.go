@@ -3,6 +3,7 @@ package list
 import (
 	"context"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/ponyruntime/pony/runtime/uow"
 	"testing"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine"
@@ -33,6 +34,8 @@ func setupListTest(t *testing.T) *engine.VM {
 
 func TestList(t *testing.T) {
 	ctx := context.Background()
+	ctx, uw := uow.WithContext(ctx)
+	defer func() { _ = uw.Close() }()
 
 	// Basic initialization and configuration
 	t.Run("list creation and basic operations", func(t *testing.T) {
@@ -230,7 +233,10 @@ func TestListUpdate(t *testing.T) {
 	RegisterList(cvm.State(), mod)
 	cvm.State().SetGlobal("btea", mod)
 
-	err = cvm.StartString(context.Background(), `
+	ctx, uw := uow.WithContext(context.Background())
+	defer func() { _ = uw.Close() }()
+
+	err = cvm.StartString(ctx, `
         local list = btea.list({
             width = 40,
             height = 20,

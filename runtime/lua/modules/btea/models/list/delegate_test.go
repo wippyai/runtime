@@ -3,6 +3,7 @@ package list
 import (
 	"bytes"
 	"context"
+	"github.com/ponyruntime/pony/runtime/uow"
 	"testing"
 
 	"github.com/charmbracelet/bubbles/list"
@@ -14,24 +15,6 @@ import (
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
-
-func setupDelegateTest(t *testing.T) *engine.VM {
-	logger := zap.NewNop()
-
-	// Setup loader with all required dependencies
-	loader := func(L *lua.LState) int {
-		mod := L.NewTable()
-		RegisterList(L, mod)
-		protocol.RegisterKeyBinding(L, mod)
-		render.RegisterStyle(L, mod)
-		L.Push(mod)
-		return 1
-	}
-
-	vm, err := engine.NewVM(logger, engine.WithLoader("btea", loader))
-	require.NoError(t, err)
-	return vm
-}
 
 func TestLuaDelegate(t *testing.T) {
 	logger := zap.NewNop()
@@ -46,9 +29,12 @@ func TestLuaDelegate(t *testing.T) {
 	render.RegisterStyle(vm.State(), mod)
 	vm.State().SetGlobal("btea", mod)
 
+	ctx, uw := uow.WithContext(context.Background())
+	defer func() { _ = uw.Close() }()
+
 	// Basic methods
 	t.Run("delegate basic methods", func(t *testing.T) {
-		err := vm.DoString(nil, `
+		err := vm.DoString(ctx, `
             -- Spawn basic list delegate
             local delegate = {
                 height = 3,
@@ -71,7 +57,7 @@ func TestLuaDelegate(t *testing.T) {
 
 	// Update handling
 	t.Run("delegate update handling", func(t *testing.T) {
-		err := vm.DoString(nil, `
+		err := vm.DoString(ctx, `
             local updated = false
             
             local delegate = {
@@ -91,7 +77,7 @@ func TestLuaDelegate(t *testing.T) {
 
 	// Help system
 	t.Run("delegate help system", func(t *testing.T) {
-		err := vm.DoString(nil, `
+		err := vm.DoString(ctx, `
             local delegate = {
                 short_help = {
                     btea.bind({
@@ -108,7 +94,7 @@ func TestLuaDelegate(t *testing.T) {
 
 	// Test styling
 	t.Run("delegate styling", func(t *testing.T) {
-		err := vm.DoString(nil, `
+		err := vm.DoString(ctx, `
             local delegate = {
                 render = function(self, model, index, item)
                     local style = btea.style()
@@ -175,7 +161,10 @@ func TestDelegateUpdate(t *testing.T) {
 	render.RegisterStyle(cvm.State(), mod)
 	cvm.State().SetGlobal("btea", mod)
 
-	err = cvm.StartString(context.Background(), `
+	ctx, uw := uow.WithContext(context.Background())
+	defer func() { _ = uw.Close() }()
+
+	err = cvm.StartString(ctx, `
         local list = btea.list({
             width = 40,
             height = 20,
