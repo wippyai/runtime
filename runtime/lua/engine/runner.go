@@ -312,7 +312,7 @@ func (e *Runner) Execute(ctx context.Context, funcName string, args ...lua.LValu
 	ctx, uw := uow.WithContext(e.WithContext(ctx))
 	defer func() {
 		if err := uw.Close(); err != nil {
-			e.cvm.vm.log.Error("uw failed", zap.Error(err))
+			e.cvm.vm.log.Error("unit of work closing failed", zap.Error(err))
 		}
 	}()
 
