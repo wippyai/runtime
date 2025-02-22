@@ -310,13 +310,9 @@ func requestStreamBody(l *lua.LState) int {
 		return 2
 	}
 
-	cleanup := uow.FromContext(req.request.Context())
-	if cleanup == nil {
-		ctx, c := uow.WithContext(req.request.Context())
-		req.request = req.request.WithContext(ctx)
-		cleanup = c
-	}
-	cleanup.AddCleanup(req.request.Body.Close)
+	uCtx, uw := uow.WithContext(req.request.Context())
+	req.request = req.request.WithContext(uCtx)
+	uw.AddCleanup(req.request.Body.Close)
 
 	var bufferSize int64 = 32 * 1024 // Default 32KB buffer
 

@@ -210,7 +210,7 @@ func wsConnect(l *lua.LState) int {
 	// AddCleanup connection uw.
 	uw.AddCleanupFunc(func() {
 		client.closeOnce.Do(func() {
-			_ = client.conn.Close(websocket.StatusGoingAway, "connection uw")
+			_ = client.conn.Close(websocket.StatusGoingAway, "connection closed")
 		})
 	})
 
@@ -289,12 +289,13 @@ func wsSend(l *lua.LState) int {
 	data := l.CheckString(2)
 
 	ctx := l.Context()
-	cleanup := uow.FromContext(ctx)
+
+	uw := uow.FromContext(ctx)
 
 	if client.client.writeTimeout > 0 {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, client.client.writeTimeout)
-		cleanup.AddCleanup(func() error { cancel(); return nil })
+		ctx, cancel = context.WithTimeout(uw.Context(), client.client.writeTimeout)
+		uw.AddCleanupFunc(cancel)
 	}
 
 	if err := client.client.conn.Write(ctx, websocket.MessageText, []byte(data)); err != nil {
@@ -328,9 +329,10 @@ func wsClose(l *lua.LState) int {
 
 	var closeErr error
 	client.client.closeOnce.Do(func() {
-		ctx := l.Context()
+		uw := uow.FromContext(l.Context())
 
 		var cancel context.CancelFunc
+		ctx := uw.Context()
 		if client.client.writeTimeout > 0 {
 			ctx, cancel = context.WithTimeout(ctx, client.client.writeTimeout)
 			defer cancel()
