@@ -23,7 +23,7 @@ local function run()
         -- Handle messages
         if result.channel == msgs and result.value then
             local msg = result.value
-            print("Received message:", msg.payload)
+            --print("Received message:", msg.payload)
 
             -- Send response back to the function
             process.send(msg.from, "response", {

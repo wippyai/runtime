@@ -19,7 +19,7 @@ function handler()
     end
 
     -- Get message from query params (optional)
-    local message = req:query("message") or "Hello from " .. func.pid()
+    local message = req:query("message") or ("Hello from " .. func.pid())
 
     -- Set up inbox to receive response
     local inbox = func.inbox()
@@ -29,7 +29,7 @@ function handler()
         from = func.pid(),
         payload = message
     })
-    
+
     if not ok then
         res:set_status(http.STATUS.INTERNAL_ERROR)
         res:write_json({

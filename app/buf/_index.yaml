@@ -35,4 +35,4 @@ entries:
     method: handler
     modules: [ http, time ]
     pool:
-      size: 2
+      size: 8
