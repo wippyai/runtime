@@ -10,13 +10,13 @@ import (
 func TestCleanup(t *testing.T) {
 	t.Run("basic flow", func(t *testing.T) {
 		var closed bool
-		_, cleanup := WithContext(context.Background())
-		cleanup.AddCleanup(func() error {
+		_, uw := WithContext(context.Background())
+		uw.AddCleanup(func() error {
 			closed = true
 			return nil
 		})
 
-		if err := cleanup.Close(); err != nil {
+		if err := uw.Close(); err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
 		if !closed {
@@ -38,65 +38,65 @@ func TestCleanup(t *testing.T) {
 
 	t.Run("multiple closers", func(t *testing.T) {
 		var count int
-		_, cleanup := WithContext(context.Background())
+		_, uw := WithContext(context.Background())
 
 		for i := 0; i < 3; i++ {
-			cleanup.AddCleanup(func() error {
+			uw.AddCleanup(func() error {
 				count++
 				return nil
 			})
 		}
 
-		cleanup.Close()
+		_ = uw.Close()
 		if count != 3 {
 			t.Errorf("expected 3 closers to be called, got %d", count)
 		}
 	})
 
 	t.Run("concurrent access", func(t *testing.T) {
-		_, cleanup := WithContext(context.Background())
+		_, uw := WithContext(context.Background())
 		var wg sync.WaitGroup
 
 		for i := 0; i < 100; i++ {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				cleanup.AddCleanup(func() error { return nil })
+				uw.AddCleanup(func() error { return nil })
 			}()
 		}
 		wg.Wait()
 
-		cleanup.Close()
+		_ = uw.Close()
 
-		if len(cleanup.closers) != 0 {
+		if len(uw.closers) != 0 {
 			t.Error("closers slice not emptied")
 		}
 	})
 
 	t.Run("error handling", func(t *testing.T) {
-		_, cleanup := WithContext(context.Background())
+		_, uw := WithContext(context.Background())
 		expectedErr := errors.New("first error")
 
-		cleanup.AddCleanup(func() error { return expectedErr })
-		cleanup.AddCleanup(func() error { return errors.New("second error") })
+		uw.AddCleanup(func() error { return errors.New("second error") })
+		uw.AddCleanup(func() error { return expectedErr })
 
-		err := cleanup.Close()
+		err := uw.Close()
 		if !errors.Is(err, expectedErr) {
 			t.Errorf("expected first error, got: %v", err)
 		}
 	})
 
 	t.Run("multiple close calls", func(t *testing.T) {
-		_, cleanup := WithContext(context.Background())
+		_, uw := WithContext(context.Background())
 		var count int
 
-		cleanup.AddCleanup(func() error {
+		uw.AddCleanup(func() error {
 			count++
 			return nil
 		})
 
-		cleanup.Close()
-		cleanup.Close()
+		_ = uw.Close()
+		_ = uw.Close()
 
 		if count != 1 {
 			t.Errorf("closer called %d times, expected once", count)
@@ -105,9 +105,9 @@ func TestCleanup(t *testing.T) {
 
 	t.Run("existing cleanup in context", func(t *testing.T) {
 		ctx, existingCleanup := WithContext(context.Background())
-		newCtx, newCleanup := WithContext(ctx)
+		newCtx, newUW := WithContext(ctx)
 
-		if newCleanup != existingCleanup {
+		if newUW != existingCleanup {
 			t.Error("WithContext should return existing cleanup")
 		}
 		if newCtx != ctx {
