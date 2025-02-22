@@ -7,6 +7,7 @@ import (
 	"fmt"
 	apiCtx "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/events"
+	fsapi "github.com/ponyruntime/pony/api/fs"
 	functapi "github.com/ponyruntime/pony/api/function"
 	apiLog "github.com/ponyruntime/pony/api/logs"
 	apiReg "github.com/ponyruntime/pony/api/registry"
@@ -22,6 +23,7 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/modules/base64"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea"
 	"github.com/ponyruntime/pony/runtime/lua/modules/env"
+	fsmod "github.com/ponyruntime/pony/runtime/lua/modules/fs"
 	functionmod "github.com/ponyruntime/pony/runtime/lua/modules/funcapi"
 	httpMod "github.com/ponyruntime/pony/runtime/lua/modules/http"
 	httpClient "github.com/ponyruntime/pony/runtime/lua/modules/httpclient"
@@ -230,7 +232,7 @@ func (a *App) Initialize() error {
 func (a *App) Start(folderPath string) error {
 	// Spawn context with values
 	ctx := a.ctx
-	ctx = context.WithValue(ctx, apiCtx.FSRegistryCtx, a.fsRegistry)
+	ctx = context.WithValue(ctx, apiCtx.FSRegistryCtx, fsapi.Registry(a.fsRegistry))
 	ctx = context.WithValue(ctx, apiCtx.RegistryCtx, a.reg)
 	ctx = context.WithValue(ctx, apiCtx.LoggerCtx, a.logger)
 	ctx = context.WithValue(ctx, apiCtx.TranscoderCtx, a.dtt)
@@ -640,6 +642,7 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 				base64.NewBase64Module(),
 				jsonMod.NewJSONModule(),
 				lfs.NewLFSModule(),
+				fsmod.NewFSModule(),
 				uuid.NewUUIDModule(),
 				upstream.NewUpstreamModule(),
 				processmod.NewProcessControlModule(a.logger.Named("proc")),

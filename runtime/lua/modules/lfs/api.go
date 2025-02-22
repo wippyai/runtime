@@ -1,7 +1,9 @@
 package lfs
 
 import (
+	fsapi "github.com/ponyruntime/pony/api/fs"
 	"github.com/ponyruntime/pony/runtime/uow"
+	"log"
 	"os"
 	"path"
 	"path/filepath"
@@ -64,6 +66,18 @@ func apiLockDir(l *lua.LState) int {
 }
 
 func apiCurrentDir(l *lua.LState) int {
+	uw := uow.FromContext(l.Context())
+	if uw == nil {
+		l.RaiseError("no uow found in context")
+		return 0
+	}
+
+	fs := fsapi.FromContext(l.Context())
+	log.Printf("fs: %v", fs)
+
+	a, ok := uw.Get("currentdir")
+	log.Printf("current dir: %v %v", a, ok)
+
 	cwd := l.GetGlobal(globalFnName).String()
 
 	l.Push(lua.LString(cwd))

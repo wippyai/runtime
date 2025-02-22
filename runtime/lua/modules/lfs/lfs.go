@@ -9,6 +9,7 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
+// todo: remove
 const globalFnName = "___currdir"
 
 // Module represents a lfs Lua module.
