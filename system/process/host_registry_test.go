@@ -18,7 +18,7 @@ import (
 // Mock implementations
 type mockManagedHost struct{}
 
-func (m *mockManagedHost) Send(ctx context.Context, msg *pubsub.Package) error {
+func (m *mockManagedHost) Send(msg *pubsub.Package) error {
 	return nil
 }
 
@@ -32,7 +32,7 @@ func (m *mockManagedHost) Launch(ctx context.Context, launch *process.LaunchProc
 
 type mockDelegatedHost struct{}
 
-func (m *mockDelegatedHost) Send(ctx context.Context, msg *pubsub.Package) error {
+func (m *mockDelegatedHost) Send(msg *pubsub.Package) error {
 	return nil
 }
 
