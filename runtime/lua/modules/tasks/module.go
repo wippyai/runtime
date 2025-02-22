@@ -4,6 +4,7 @@ import (
 	"errors"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
+	"github.com/ponyruntime/pony/runtime/uow"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -51,13 +52,19 @@ func (m *Module) taskComplete(l *lua.LState) int {
 	task := CheckTask(l, 1)
 	value := l.CheckAny(2)
 
+	uw := uow.FromContext(l.Context())
+	if uw != nil {
+		l.RaiseError("no unit of work")
+		return 0
+	}
+
 	coroutine.Wrap(l, func() *engine.Result {
 		select {
 		case task.Response <- value:
 			close(task.Response)
 			return engine.NewResult(l, []lua.LValue{lua.LTrue}, nil)
-		case <-l.Context().Done():
-			return engine.NewResult(l, nil, l.Context().Err())
+		case <-uw.Context().Done():
+			return engine.NewResult(l, nil, uw.Context().Err())
 		}
 	})
 
@@ -74,12 +81,18 @@ func (m *Module) taskSend(l *lua.LState) int {
 		values = append(values, l.Get(i))
 	}
 
+	uw := uow.FromContext(l.Context())
+	if uw != nil {
+		l.RaiseError("no unit of work")
+		return 0
+	}
+
 	coroutine.Wrap(l, func() *engine.Result {
 		select {
 		case task.Response <- value:
 			return engine.NewResult(l, []lua.LValue{lua.LTrue}, nil)
-		case <-l.Context().Done():
-			return engine.NewResult(l, nil, l.Context().Err())
+		case <-uw.Context().Done():
+			return engine.NewResult(l, nil, uw.Context().Err())
 		}
 	})
 
@@ -91,13 +104,19 @@ func (m *Module) taskFail(l *lua.LState) int {
 	task := CheckTask(l, 1)
 	errMsg := l.CheckString(2)
 
+	uw := uow.FromContext(l.Context())
+	if uw != nil {
+		l.RaiseError("no unit of work")
+		return 0
+	}
+
 	coroutine.Wrap(l, func() *engine.Result {
 		select {
 		case task.Response <- errors.New(errMsg):
 			close(task.Response)
 			return engine.NewResult(l, []lua.LValue{lua.LTrue}, nil)
-		case <-l.Context().Done():
-			return engine.NewResult(l, nil, l.Context().Err())
+		case <-uw.Context().Done():
+			return engine.NewResult(l, nil, uw.Context().Err())
 		}
 	})
 

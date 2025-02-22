@@ -270,7 +270,10 @@ func requestBody(l *lua.LState) int {
 				errChan <- err
 				return
 			}
-			bodyChan <- b
+			select {
+			case bodyChan <- b:
+			case <-ctx.Done():
+			}
 		}()
 
 		select {
@@ -369,7 +372,12 @@ func requestBodyJSON(l *lua.LState) int {
 	}
 
 	body, readErr := io.ReadAll(req.request.Body)
-	defer req.request.Body.Close()
+	defer func() {
+		err := req.request.Body.Close()
+		if err != nil {
+			// supressed for now
+		}
+	}()
 
 	if readErr != nil {
 		l.Push(lua.LNil)
