@@ -3,7 +3,7 @@ package fs
 import (
 	"context"
 	ctxapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/registry"
+	"github.com/ponyruntime/pony/api/events"
 	"io"
 	"io/fs"
 )
@@ -11,7 +11,7 @@ import (
 // Registry kinds for filesystem components
 const (
 	// System represents a filesystem directory mapping from registry
-	System registry.Kind = "fs"
+	System events.System = "fs"
 
 	Register = "fs.register"
 	Delete   = "fs.unregister"

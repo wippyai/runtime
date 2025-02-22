@@ -36,6 +36,7 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/modules/uuid"
 	"github.com/ponyruntime/pony/runtime/lua/modules/websocket"
 	"github.com/ponyruntime/pony/runtime/noop"
+	fsdir "github.com/ponyruntime/pony/service/directory"
 	processHosts "github.com/ponyruntime/pony/service/host"
 	"github.com/ponyruntime/pony/service/http"
 	service "github.com/ponyruntime/pony/service/supervisor"
@@ -471,6 +472,7 @@ func main() {
 	// ------ This is main service initiation point ------
 	app.services = eventbus.WithHandlers(append(
 		WithLuaRuntime(app),
+		WithDirectoryManager(app),
 		WithHTTPService(app),
 		WithTerminalManager(app),
 		WithProcessSupervisor(app),
@@ -615,6 +617,14 @@ func WithNoopRuntime(a *App) eventbus.EventHandler {
 	return reghandler.NewRegistryHandler("(function|workflow|process|library).*", noop.NewNoopRuntime(
 		a.eventBus,
 		a.logger.Named("noop"),
+	))
+}
+
+func WithDirectoryManager(a *App) eventbus.EventHandler {
+	return reghandler.NewRegistryHandler("fs.directory", fsdir.NewDirectoryManager(
+		a.eventBus,
+		a.dtt,
+		a.logger.Named("fs.directory"),
 	))
 }
 

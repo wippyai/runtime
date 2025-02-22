@@ -1,20 +1,17 @@
-package fs
+package directory
 
 import (
 	"errors"
 	"fmt"
+	"github.com/ponyruntime/pony/api/registry"
 	"io/fs"
 )
 
-// Common filesystem errors
-var (
-	ErrEmptyDirectory = errors.New("directory path cannot be empty")
-	ErrInvalidMode    = errors.New("invalid filesystem mode")
-)
+const Kind registry.Kind = "fs.directory"
 
 // Config represents configuration for a filesystem directory
 type Config struct {
-	// Default indicates if this is the default filesystem, only one can be set per ru
+	// Default indicates if this is the default filesystem, only one can be set per runtime.
 	Default bool `json:"default"`
 
 	// Directory is the root path for this filesystem
@@ -42,7 +39,7 @@ func (c *Config) FileMode() fs.FileMode {
 // Validate checks if the configuration is valid
 func (c *Config) Validate() error {
 	if c.Directory == "" {
-		return ErrEmptyDirectory
+		return errors.New("directory path cannot be empty")
 	}
 
 	if c.Mode != "" {
