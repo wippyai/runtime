@@ -2,6 +2,7 @@ package stream
 
 import (
 	"context"
+	"github.com/ponyruntime/pony/runtime/uow"
 	"testing"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine"
@@ -33,10 +34,13 @@ func TestAsyncStreamRead(t *testing.T) {
 			engine.WithLayer(coroutine.NewCoroutineLayer()),
 		)
 
+		ctx, uw := uow.WithContext(context.Background())
+		defer func() { _ = uw.Close() }()
+
 		// Spawn test data and stream
 		testData := []byte("chunk1chunk2chunk3")
 		reader := newMockReadCloser(testData)
-		stream, err := NewStream(context.Background(), reader, NewStreamConfig(6))
+		stream, err := NewStream(ctx, reader, NewStreamConfig(6))
 		require.NoError(t, err)
 
 		// Register stream in Lua
@@ -116,10 +120,13 @@ func TestAsyncStreamIter(t *testing.T) {
 			engine.WithLayer(coroutine.NewCoroutineLayer()),
 		)
 
+		ctx, uw := uow.WithContext(context.Background())
+		defer func() { _ = uw.Close() }()
+
 		// Spawn test data and stream
 		testData := []byte("chunk1chunk2chunk3")
 		reader := newMockReadCloser(testData)
-		stream, err := NewStream(context.Background(), reader, NewStreamConfig(6))
+		stream, err := NewStream(ctx, reader, NewStreamConfig(6))
 		require.NoError(t, err)
 
 		// Register stream in Lua

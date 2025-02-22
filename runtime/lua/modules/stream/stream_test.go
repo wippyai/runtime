@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"github.com/ponyruntime/pony/runtime/uow"
 	"io"
 	"sync"
 	"testing"
@@ -65,7 +66,10 @@ func TestStream(t *testing.T) {
 
 		cfg := NewStreamConfig(5) // Set buffer size to 5 bytes
 
-		stream, err := NewStream(context.Background(), reader, cfg)
+		ctx, uw := uow.WithContext(context.Background())
+		defer func() { _ = uw.Close() }()
+
+		stream, err := NewStream(ctx, reader, cfg)
 		require.NoError(t, err)
 
 		chunk1, err := stream.ReadChunk()
@@ -88,7 +92,11 @@ func TestStream(t *testing.T) {
 
 	t.Run("close handling", func(t *testing.T) {
 		reader := newMockReadCloser([]byte("test"))
-		stream, err := NewStream(context.Background(), reader, nil) // Test with default config
+
+		ctx, uw := uow.WithContext(context.Background())
+		defer func() { _ = uw.Close() }()
+
+		stream, err := NewStream(ctx, reader, nil) // Test with default config
 		require.NoError(t, err)
 
 		err = stream.Close()
@@ -100,7 +108,10 @@ func TestStream(t *testing.T) {
 		testData := []byte("context test data")
 		reader := newMockReadCloser(testData)
 
-		ctx, cancel := context.WithCancel(context.Background())
+		ctx, uw := uow.WithContext(context.Background())
+		defer func() { _ = uw.Close() }()
+
+		ctx, cancel := context.WithCancel(ctx)
 		stream, err := NewStream(ctx, reader, nil)
 		require.NoError(t, err)
 
@@ -119,7 +130,10 @@ func TestStreamLua(t *testing.T) {
 		testData := []byte("Hello from mocked Stream!")
 		reader := newMockReadCloser(testData)
 
-		stream, err := NewStream(context.Background(), reader, nil)
+		ctx, uw := uow.WithContext(context.Background())
+		defer func() { _ = uw.Close() }()
+
+		stream, err := NewStream(ctx, reader, nil)
 		require.NoError(t, err)
 
 		mod := NewStreamModule(logger)
@@ -159,7 +173,11 @@ func TestStreamLua(t *testing.T) {
 		reader := newMockReadCloser(testData)
 
 		cfg := NewStreamConfig(6) // 6-byte chunks
-		stream, err := NewStream(context.Background(), reader, cfg)
+
+		ctx, uw := uow.WithContext(context.Background())
+		defer func() { _ = uw.Close() }()
+
+		stream, err := NewStream(ctx, reader, cfg)
 		require.NoError(t, err)
 
 		mod := NewStreamModule(logger)
@@ -246,7 +264,10 @@ func TestStreamLuaEdgeCases(t *testing.T) {
 			assert(string.find(err, "expected Stream"), "Error should mention expected Stream type")
 		`
 
-		err = vm.DoString(context.Background(), script, "test")
+		ctx, uw := uow.WithContext(context.Background())
+		defer func() { _ = uw.Close() }()
+
+		err = vm.DoString(ctx, script, "test")
 		require.NoError(t, err)
 	})
 
@@ -254,7 +275,10 @@ func TestStreamLuaEdgeCases(t *testing.T) {
 		testData := []byte("test data")
 		reader := newMockReadCloser(testData)
 
-		stream, err := NewStream(context.Background(), reader, nil)
+		ctx, uw := uow.WithContext(context.Background())
+		defer func() { _ = uw.Close() }()
+
+		stream, err := NewStream(ctx, reader, nil)
 		require.NoError(t, err)
 
 		mod := NewStreamModule(logger)
@@ -281,7 +305,7 @@ func TestStreamLuaEdgeCases(t *testing.T) {
 			assert(string.find(err, "closed"), "Error should mention Stream is closed")
 		`
 
-		err = vm.DoString(context.Background(), script, "test")
+		err = vm.DoString(ctx, script, "test")
 		require.NoError(t, err)
 	})
 }
