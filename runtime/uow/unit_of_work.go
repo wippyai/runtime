@@ -42,13 +42,7 @@ func FromContext(ctx context.Context) *UnitOfWork {
 // the existing context and UnitOfWork. Otherwise, it creates a new
 // UnitOfWork instance and returns it along with an updated context.
 func WithContext(ctx context.Context) (context.Context, *UnitOfWork) {
-	// check if there is already a closer in the context
-	if closer := FromContext(ctx); closer != nil {
-		return ctx, closer
-	}
-
-	// Create internal context for UoW
-	uwCtx, cancel := context.WithCancel(context.Background())
+	uwCtx, cancel := context.WithCancel(ctx)
 
 	closer := &UnitOfWork{
 		closers: make([]func() error, 0, 4),

@@ -151,10 +151,9 @@ func (f *Registry) Call(ctx context.Context, task runtime.Task) (chan *runtime.R
 		return nil, fmt.Errorf("invalid handler type for target: %s", task.Handler)
 	}
 
-	node := pubsub.GetNode(ctx)
 	ctx = function.WithContext(ctx, &function.Context{
 		PID: pubsub.PID{
-			Node:   node.ID(),
+			Node:   pubsub.GetNode(ctx).ID(),
 			Host:   function.HostID,
 			ID:     task.Handler,
 			UniqID: f.uniqID.Generate(),

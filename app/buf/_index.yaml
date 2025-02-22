@@ -5,7 +5,7 @@ meta:
   depends_on: [ "ns:system" ]
 
 entries:
-  - name: message.service111
+  - name: message.service
     kind: process.service
     meta:
       comment: "Message Listener Service"
@@ -33,6 +33,6 @@ entries:
       comment: "HTTP endpoint to send messages to a process"
     source: file://message_sender.lua
     method: handler
-    modules: [ http ]
+    modules: [ http, time ]
     pool:
       size: 2

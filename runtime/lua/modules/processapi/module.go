@@ -109,10 +109,9 @@ func (m *ControlModule) send(l *lua.LState) int {
 		return 2
 	}
 
-	// Parse arguments
+	// Parse required arguments
 	pidStr := l.CheckString(1)
 	topic := l.CheckString(2)
-	msgs := l.CheckTable(3) // Expect table of messages
 
 	// Validate topic - prevent @ topics
 	if strings.HasPrefix(topic, "@") {
@@ -129,14 +128,14 @@ func (m *ControlModule) send(l *lua.LState) int {
 		return 2
 	}
 
-	// Create message batch
+	// Create message batch from variadic arguments
 	var messages []*pubsub.Message
-	msgs.ForEach(func(_, value lua.LValue) {
+	for i := 3; i <= l.GetTop(); i++ {
 		messages = append(messages, &pubsub.Message{
 			Topic:    topic,
-			Payloads: []payload.Payload{payload.NewPayload(value, payload.Lua)},
+			Payloads: []payload.Payload{payload.NewPayload(l.Get(i), payload.Lua)},
 		})
-	})
+	}
 
 	// Create package with all messages
 	pkg := &pubsub.Package{
