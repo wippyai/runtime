@@ -36,6 +36,7 @@ type (
 		fs.File
 		io.Writer
 		io.Seeker
+		Sync() error
 	}
 
 	// WriteFS adds write operations to filesystem

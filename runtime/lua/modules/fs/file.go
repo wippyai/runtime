@@ -57,6 +57,14 @@ func (f *File) Stat() (fs.FileInfo, error) {
 	return info, nil
 }
 
+func (f *File) Sync() error {
+	// Check if underlying file implements Sync
+	if err := f.file.Sync(); err != nil {
+		return fmt.Errorf("failed to sync: %w", err)
+	}
+	return nil
+}
+
 func registerFile(l *lua.LState) {
 	mt := l.NewTypeMetatable("File")
 	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
@@ -65,6 +73,7 @@ func registerFile(l *lua.LState) {
 		"seek":  fileSeek,
 		"close": fileClose,
 		"stat":  fileStat,
+		"sync":  fileSync,
 	}))
 }
 
@@ -73,6 +82,7 @@ func (f *File) Close() error {
 	f.once.Do(func() {
 		err = f.file.Close()
 	})
+
 	return err
 }
 
@@ -197,5 +207,22 @@ func fileStat(l *lua.LState) int {
 	}
 
 	l.Push(pushFileInfo(l, info))
+	return 1
+}
+
+func fileSync(l *lua.LState) int {
+	f := CheckFile(l, 1)
+	if f == nil {
+		return 0
+	}
+
+	err := f.Sync()
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	l.Push(lua.LBool(true))
 	return 1
 }
