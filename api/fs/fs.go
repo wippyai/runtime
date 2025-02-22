@@ -42,7 +42,6 @@ type (
 	WriteFS interface {
 		OpenFile(name string, flag int, perm fs.FileMode) (File, error)
 		Remove(name string) error
-		Rename(oldname, newname string) error
 		Mkdir(name string, perm fs.FileMode) error
 	}
 
