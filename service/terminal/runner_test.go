@@ -33,7 +33,7 @@ func (dp *DummyProcess) Step() (bool, error) {
 	return true, nil
 }
 
-func (dp *DummyProcess) Send(ctx context.Context, msg *pubsub.Package) error {
+func (dp *DummyProcess) Send(msg *pubsub.Package) error {
 	// Accept all messages.
 	return nil
 }
