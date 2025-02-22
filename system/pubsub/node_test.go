@@ -16,7 +16,7 @@ type dummyHost struct {
 	attachCalled int32
 }
 
-func (d *dummyHost) Send(ctx context.Context, pkg *api.Package) error {
+func (d *dummyHost) Send(pkg *api.Package) error {
 	atomic.AddInt32(&d.sendCalled, 1)
 	return nil
 }
@@ -36,7 +36,7 @@ type dummyUpstream struct {
 	sendCalled int32
 }
 
-func (d *dummyUpstream) Send(ctx context.Context, pkg *api.Package) error {
+func (d *dummyUpstream) Send(pkg *api.Package) error {
 	atomic.AddInt32(&d.sendCalled, 1)
 	return nil
 }
@@ -61,7 +61,7 @@ func TestNodeSendLocal(t *testing.T) {
 			{Topic: "local"},
 		},
 	}
-	err := node.Send(context.Background(), pkg)
+	err := node.Send(pkg)
 	assert.NoError(t, err)
 	assert.Equal(t, int32(1), dhost.sendCalled)
 
@@ -73,7 +73,7 @@ func TestNodeSendLocal(t *testing.T) {
 		UniqID: "uniq",
 	}
 	pkg.PID = pidLocal
-	err = node.Send(context.Background(), pkg)
+	err = node.Send(pkg)
 	assert.NoError(t, err)
 	assert.Equal(t, int32(2), dhost.sendCalled)
 }
@@ -92,7 +92,7 @@ func TestNodeSendHostNotFound(t *testing.T) {
 			{Topic: "notfound"},
 		},
 	}
-	err := node.Send(context.Background(), pkg)
+	err := node.Send(pkg)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "host nonexistent not found")
 }
@@ -113,7 +113,7 @@ func TestNodeSendInvalidHostType(t *testing.T) {
 			{Topic: "invalid"},
 		},
 	}
-	err := node.Send(context.Background(), pkg)
+	err := node.Send(pkg)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid type")
 }
@@ -132,7 +132,7 @@ func TestNodeSendNonLocalNoUpstream(t *testing.T) {
 			{Topic: "nonlocal"},
 		},
 	}
-	err := node.Send(context.Background(), pkg)
+	err := node.Send(pkg)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "no upstream available")
 }
@@ -154,7 +154,7 @@ func TestNodeSendNonLocalWithUpstream(t *testing.T) {
 			{Topic: "nonlocal"},
 		},
 	}
-	err := node.Send(context.Background(), pkg)
+	err := node.Send(pkg)
 	assert.NoError(t, err)
 	assert.Equal(t, int32(1), dUp.sendCalled)
 }

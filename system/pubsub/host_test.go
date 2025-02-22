@@ -110,7 +110,7 @@ func TestHost_Send(t *testing.T) {
 		},
 	}
 
-	err = host.Send(ctx, pkg)
+	err = host.Send(pkg)
 	assert.NoError(t, err)
 
 	select {
@@ -145,20 +145,8 @@ func TestHost_SendCancelledContext(t *testing.T) {
 			{Topic: "dummy"},
 		},
 	}
-	err := host.Send(context.Background(), pkg)
+	err := host.Send(pkg)
 	assert.NoError(t, err)
-
-	// Attempt to send with an already cancelled context
-	cancelledCtx := cancelledContext()
-	pkg2 := &api.Package{
-		PID: pid,
-		Messages: []*api.Message{
-			{Topic: "cancelled"},
-		},
-	}
-	err = host.Send(cancelledCtx, pkg2)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "context canceled")
 }
 
 func TestHost_SendBufferFull(t *testing.T) {
@@ -185,7 +173,7 @@ func TestHost_SendBufferFull(t *testing.T) {
 			{Topic: "test1"},
 		},
 	}
-	err := host.Send(ctx, pkg1)
+	err := host.Send(pkg1)
 	assert.NoError(t, err)
 
 	// Second send should fail with a timeout
@@ -195,7 +183,7 @@ func TestHost_SendBufferFull(t *testing.T) {
 			{Topic: "test2"},
 		},
 	}
-	err = host.Send(ctx, pkg2)
+	err = host.Send(pkg2)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "timeout")
 }
@@ -236,7 +224,7 @@ func TestHost_DeliveryTimeout(t *testing.T) {
 			{Topic: "test"},
 		},
 	}
-	err = host.Send(ctx, pkg)
+	err = host.Send(pkg)
 	assert.NoError(t, err)
 
 	// Wait longer than delivery timeout
@@ -268,7 +256,7 @@ func TestHost_NoReceiver(t *testing.T) {
 			{Topic: "test"},
 		},
 	}
-	err := host.Send(ctx, pkg)
+	err := host.Send(pkg)
 	assert.NoError(t, err) // Send should succeed even without receiver
 }
 
@@ -302,7 +290,7 @@ func TestHost_DetachDuringDelivery(t *testing.T) {
 			{Topic: "test"},
 		},
 	}
-	err = host.Send(ctx, pkg)
+	err = host.Send(pkg)
 	assert.NoError(t, err)
 
 	// Detach receiver during delivery attempt
@@ -311,50 +299,6 @@ func TestHost_DetachDuringDelivery(t *testing.T) {
 	// Allow some time for message processing
 	time.Sleep(time.Millisecond * 100)
 	// Message should be dropped without error
-}
-
-func TestHost_ContextCancellationDuringDelivery(t *testing.T) {
-	deliveryCtx, deliveryCancel := context.WithTimeout(context.Background(), time.Second*5)
-	defer deliveryCancel()
-
-	host := NewHost(deliveryCtx, HostConfig{
-		BufferSize:      2,
-		WorkerCount:     1,
-		DeliveryTimeout: time.Second,
-		RetryTimeout:    time.Millisecond * 100,
-	})
-
-	pid := api.PID{
-		Node:   "node1",
-		Host:   "host1",
-		ID:     registry.ID{NS: "ns1", Name: "proc1"},
-		UniqID: "uniq1",
-	}
-
-	// Create a blocked receiver
-	receiverCh := make(chan *api.Package)
-	_, err := host.Attach(pid, receiverCh)
-	assert.NoError(t, err)
-
-	// Send message with a separate context
-	sendCtx, sendCancel := context.WithTimeout(context.Background(), time.Second)
-	defer sendCancel()
-
-	pkg := &api.Package{
-		PID: pid,
-		Messages: []*api.Message{
-			{Topic: "test"},
-		},
-	}
-	err = host.Send(sendCtx, pkg)
-	assert.NoError(t, err)
-
-	// Cancel the host context during delivery
-	deliveryCancel()
-
-	// Allow some time for message processing
-	time.Sleep(time.Millisecond * 100)
-	// Message should be dropped due to context cancellation
 }
 
 func TestHost_MultipleWorkers(t *testing.T) {
@@ -392,7 +336,7 @@ func TestHost_MultipleWorkers(t *testing.T) {
 					{Topic: fmt.Sprintf("test-%d", i)},
 				},
 			}
-			errorCh <- host.Send(ctx, pkg)
+			errorCh <- host.Send(pkg)
 		}(i)
 	}
 
@@ -445,7 +389,7 @@ func TestHost_HostShutdown(t *testing.T) {
 			{Topic: "test"},
 		},
 	}
-	err = host.Send(ctx, pkg)
+	err = host.Send(pkg)
 	assert.NoError(t, err)
 
 	// Now cancel the host context
@@ -453,7 +397,7 @@ func TestHost_HostShutdown(t *testing.T) {
 	time.Sleep(time.Millisecond * 10) // Give workers time to shut down
 
 	// Try to send a message after shutdown
-	err = host.Send(context.Background(), pkg)
+	err = host.Send(pkg)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "context canceled")
 }
