@@ -1,4 +1,4 @@
-package pubsub
+package subscribe
 
 import (
 	"container/list"

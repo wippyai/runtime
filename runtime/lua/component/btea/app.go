@@ -17,7 +17,7 @@ import (
 	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/ponyruntime/pony/api/topology"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/pubsub"
+	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
 	"github.com/ponyruntime/pony/runtime/lua/modules/tasks"
 	"github.com/ponyruntime/pony/runtime/lua/modules/upstream"
@@ -44,7 +44,7 @@ type App struct {
 	// System fields
 	log    *zap.Logger
 	dtt    payload.Transcoder
-	pubsub *pubsub.Layer
+	pubsub *subscribe.Layer
 
 	// process and Lua state
 	ctx         context.Context
@@ -90,9 +90,9 @@ func NewApp(
 		return nil, errors.New("runner is required")
 	}
 
-	var subLayer *pubsub.Layer
+	var subLayer *subscribe.Layer
 	for _, layer := range runner.GetLayers() {
-		if sl, ok := layer.(*pubsub.Layer); ok {
+		if sl, ok := layer.(*subscribe.Layer); ok {
 			subLayer = sl
 			break
 		}
