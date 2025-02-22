@@ -48,7 +48,7 @@ import (
 	"github.com/ponyruntime/pony/system/payload/lua"
 	"github.com/ponyruntime/pony/system/payload/yaml"
 	"github.com/ponyruntime/pony/system/process"
-	pubsub "github.com/ponyruntime/pony/system/pubsub"
+	"github.com/ponyruntime/pony/system/pubsub"
 	"github.com/ponyruntime/pony/system/registry"
 	reghandler "github.com/ponyruntime/pony/system/registry/events"
 	"github.com/ponyruntime/pony/system/registry/history"
@@ -90,7 +90,7 @@ type App struct {
 	resources *resource.Registry
 
 	// mesh
-	node *subscribe.NodeManager
+	node *pubsub.NodeManager
 
 	shuttingDown  bool
 	forceShutdown chan struct{}
@@ -131,8 +131,8 @@ func NewApp(verbose, veryVerbose bool) (*App, error) {
 	}
 
 	// mesh layer: our node
-	node := subscribe.NewNodeManager(
-		subscribe.NewNode(hostname, nil), // no upstream for now
+	node := pubsub.NewNodeManager(
+		pubsub.NewNode(hostname, nil), // no upstream for now
 		bus,
 		appLogger.Named("pubsub"),
 	)
@@ -172,7 +172,7 @@ func (a *App) Initialize() error {
 	// -- msg hosts
 
 	// this is host dedicated to internal control messages
-	err := a.node.Node().RegisterHost(topologyApi.ControlHost, subscribe.NewHost(a.ctx, subscribe.HostConfig{
+	err := a.node.Node().RegisterHost(topologyApi.ControlHost, pubsub.NewHost(a.ctx, pubsub.HostConfig{
 		BufferSize:      1024,
 		WorkerCount:     16,
 		Logger:          a.logger.Named("control"),
@@ -185,7 +185,7 @@ func (a *App) Initialize() error {
 	}
 
 	// this is host dedicated to internal control messages
-	funcHost := subscribe.NewHost(a.ctx, subscribe.HostConfig{
+	funcHost := pubsub.NewHost(a.ctx, pubsub.HostConfig{
 		BufferSize:      1024,
 		WorkerCount:     16,
 		Logger:          a.logger.Named("control"),

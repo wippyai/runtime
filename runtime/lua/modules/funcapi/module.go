@@ -1,13 +1,19 @@
 package function
 
 import (
+	"github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/function"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/pubsub"
+	"github.com/ponyruntime/pony/runtime/lua/engine/async"
+	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
+	"github.com/ponyruntime/pony/runtime/uow"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 	"strings"
 )
+
+var inboxChannel = &context.Key{Name: "lua.function_inbox"}
 
 // Module represents the function module for Lua
 type Module struct {
@@ -33,9 +39,9 @@ func (m *Module) Loader(l *lua.LState) int {
 
 	// Register functions
 	l.SetFuncs(mod, map[string]lua.LGFunction{
-		"pid":  m.pid,
-		"send": m.send,
-		//"inbox": m.inbox,
+		"pid":   m.pid,
+		"send":  m.send,
+		"inbox": m.inbox,
 	})
 
 	l.Push(mod)
@@ -102,10 +108,9 @@ func (m *Module) send(l *lua.LState) int {
 		return 2
 	}
 
-	// Parse arguments
+	// Parse required arguments
 	pidStr := l.CheckString(1)
 	topic := l.CheckString(2)
-	msgs := l.CheckTable(3) // Expect table of messages
 
 	// Validate topic - prevent @ topics
 	if strings.HasPrefix(topic, "@") {
@@ -122,14 +127,14 @@ func (m *Module) send(l *lua.LState) int {
 		return 2
 	}
 
-	// Create message batch
+	// Create message batch from variadic arguments
 	var messages []*pubsub.Message
-	msgs.ForEach(func(_, value lua.LValue) {
+	for i := 3; i <= l.GetTop(); i++ {
 		messages = append(messages, &pubsub.Message{
 			Topic:    topic,
-			Payloads: []payload.Payload{payload.NewPayload(value, payload.Lua)},
+			Payloads: []payload.Payload{payload.NewPayload(l.Get(i), payload.Lua)},
 		})
-	})
+	}
 
 	// Create package with all messages
 	pkg := &pubsub.Package{
@@ -155,78 +160,95 @@ func (m *Module) send(l *lua.LState) int {
 	return 1
 }
 
-// inbox returns a channel for receiving messages
-//func (m *Module) inbox(l *lua.LState) int {
-//	fnCtx, ok := m.checkFunction(l)
-//	if !ok {
-//		return 2
-//	}
-//
-//	// Get transcoder for message conversion
-//	dtt := payload.GetTranscoder(l.Context())
-//	if dtt == nil {
-//		l.Push(lua.LNil)
-//		l.Push(lua.LString("no transcoder found"))
-//		return 2
-//	}
-//
-//	// Create channel for receiving messages
-//	ch := channel.Named("@msg", 1)
-//
-//	// Create a cancellable context
-//	ctx, cancel := context.WithCancel(l.Context())
-//
-//	// Create inbox receiver
-//	inbox := make(chan *pubsub.Package)
-//	closer, err := pubsub.GetHost(ctx).Attach(fnCtx.PID, inbox)
-//	if err != nil {
-//		cancel()
-//		l.Push(lua.LNil)
-//		l.Push(lua.LString(err.Error()))
-//		return 2
-//	}
-//
-//	// Start goroutine to handle messages
-//	go func() {
-//		defer closer()
-//		defer cancel()
-//		defer async.Close(l, ch)
-//
-//		for {
-//			select {
-//			case pkg := <-inbox:
-//				// Only handle @msg topic
-//				for _, msg := range pkg.Messages {
-//					if msg.Topic != "@msg" {
-//						continue
-//					}
-//
-//					// Convert payload to Lua value
-//					for _, p := range msg.Payloads {
-//						lv, err := dtt.Transcode(p, payload.Lua)
-//						if err != nil {
-//							m.log.Error("failed to transcode payload",
-//								zap.Error(err),
-//								zap.String("from", pkg.PID.String()))
-//							continue
-//						}
-//
-//						// Send to Lua channel
-//						if err := async.Send(l, ch, lv.Data().(lua.LValue), true); err != nil {
-//							m.log.Error("failed to send to channel",
-//								zap.Error(err),
-//								zap.String("from", pkg.PID.String()))
-//							return
-//						}
-//					}
-//				}
-//			case <-ctx.Done():
-//				return
-//			}
-//		}
-//	}()
-//
-//	// Return channel to Lua
-//	l.Push(channel.Wrap(l, ch))
-//	return 1
-//}
+func (m *Module) inbox(l *lua.LState) int {
+	fnCtx, ok := m.checkFunction(l)
+	if !ok {
+		return 2
+	}
+
+	// Get UoW from context
+	uw := uow.FromContext(l.Context())
+	if uw == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("no unit of work found"))
+		return 2
+	}
+
+	// Check if channel already exists in UoW
+	existingChannel, found := uw.Get(inboxChannel)
+	if found {
+		l.Push(existingChannel.(lua.LValue))
+		return 1
+	}
+
+	// Get transcoder for message conversion
+	dtt := payload.GetTranscoder(l.Context())
+	if dtt == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("no transcoder found"))
+		return 2
+	}
+
+	// Create channel for receiving messages (not named)
+	ch := channel.Named("function_inbox", 0)
+
+	// Create inbox receiver
+	inbox := make(chan *pubsub.Package)
+	closer, err := pubsub.GetNode(uw.Context()).Attach(fnCtx.PID, inbox)
+
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	// Register cleanup in UoW
+	uw.AddCleanup(func() error {
+		closer()
+		return async.Close(l, ch)
+	})
+
+	// Start goroutine only once
+	go func() {
+		for {
+			select {
+			case pkg := <-inbox:
+				// Handle all messages and topics
+				for _, msg := range pkg.Messages {
+					for _, p := range msg.Payloads {
+						lv, err := dtt.Transcode(p, payload.Lua)
+						if err != nil {
+							m.log.Error("failed to transcode payload",
+								zap.Error(err),
+								zap.String("from", pkg.PID.String()))
+							continue
+						}
+
+						// Create message table with payload and topic
+						msgTable := l.NewTable()
+						msgTable.RawSetString("topic", lua.LString(msg.Topic))
+						msgTable.RawSetString("payload", lv.Data().(lua.LValue))
+
+						// Send table to Lua channel
+						if err := async.Send(l, ch, msgTable, true); err != nil {
+							m.log.Error("failed to send to channel",
+								zap.Error(err),
+								zap.String("pid", pkg.PID.String()))
+							return
+						}
+					}
+				}
+			case <-uw.Done():
+				return
+			}
+		}
+	}()
+
+	// Store channel wrapper in UoW
+	channelWrapper := channel.Wrap(l, ch)
+	uw.Set(inboxChannel, channelWrapper)
+
+	// Return channel to Lua
+	l.Push(channelWrapper)
+	return 1
+}

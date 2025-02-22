@@ -1,4 +1,5 @@
 local http = require("http")
+local time = require("time")
 
 function handler()
     local req = http.request()
@@ -20,26 +21,48 @@ function handler()
     -- Get message from query params (optional)
     local message = req:query("message") or "Hello from " .. func.pid()
 
-    -- Send message to target process
-    local ok = func.send(target_pid, "message", { message })
+    -- Set up inbox to receive response
+    local inbox = func.inbox()
 
-    -- Set up response
-    res:set_content_type(http.CONTENT.JSON)
-    if ok then
-        res:set_status(http.STATUS.OK)
-        res:write_json({
-            success = true,
-            from = func.pid(),
-            to = target_pid,
-            message = message
-        })
-    else
+    -- Send message to target process
+    local ok = func.send(target_pid, "message", {
+        from = func.pid(),
+        payload = message
+    })
+    
+    if not ok then
         res:set_status(http.STATUS.INTERNAL_ERROR)
         res:write_json({
             success = false,
             error = "Failed to send message"
         })
+        return
     end
+
+    -- Wait for response with timeout
+    local timeout = time.after("1s")
+    local result = channel.select({
+        inbox:case_receive(),
+        timeout:case_receive()
+    })
+
+    if result.channel == timeout then
+        res:set_status(http.STATUS.GATEWAY_TIMEOUT)
+        res:write_json({
+            success = false,
+            error = "Response timeout after 1s"
+        })
+        return
+    end
+
+    -- Set up response
+    res:set_content_type(http.CONTENT.JSON)
+    res:set_status(http.STATUS.OK)
+    res:write_json({
+        success = true,
+        message_sent = message,
+        response = result.value.payload
+    })
 end
 
 return {
