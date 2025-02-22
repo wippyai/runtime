@@ -93,8 +93,8 @@ entries:
     kind: function.lua
     meta:
       comment: "Dir list"
-    source: file://dir.lua
+    source: file://list_dir.lua
     method: list_directory
-    modules: [ http, func, fs, json ]
+    modules: [ http, func, fs, json, time ]
     pool:
       size: 2
