@@ -56,35 +56,73 @@ The info table contains:
 
 ### Message Passing
 
-Messages are sent through named topics with an optional fallback to a default inbox:
+Messages can be sent through named topics, with an optional fallback to a default inbox channel:
 
 ```lua
--- Send messages
-process.send(pid_or_name, "topic", message, [message2, ...])
-
--- Listen for messages on a specific topic
-local msgs = process.listen("topic")
-local value = msgs:receive()
-
--- Listen for undelivered messages
-local inbox = process.inbox()
-local msg = inbox:receive()
-print(msg.topic)    -- Original topic
-print(msg.payload)  -- Table containing message values
+-- Send messages 
+process.send(pid_or_name, "topic", value1)    -- Single value
+process.send(pid_or_name, "topic", value1, value2, value3)  -- Multiple values sent as separate messages
 ```
 
-Key properties:
+Each value sent is delivered as a separate message through the channel system. When sending multiple values, they are delivered sequentially as individual messages, not as a batch.
 
-- Messages are asynchronous and non-blocking
-- Topics starting with "@" are reserved for system use
-- Messages fallback to @inbox if:
-    - The target topic doesn't exist
-    - The target process exists but isn't listening on the topic
-- Inbox messages are structured with:
-    - topic: Original message topic
-    - payload: Table containing all message values
-- Order is preserved between specific sender-receiver pairs
-- Messages are buffered until received
+### Receiving Messages
+
+Messages can be received through two types of channels:
+
+1. Named Topic Channel:
+```lua
+-- Listen on a specific topic
+local msgs = process.listen("topic")
+local value = msgs:receive()  -- Each receive gets one value
+```
+
+2. Default Inbox Channel (@inbox):
+```lua
+-- Listen for undelivered messages
+local inbox = process.inbox()
+local msg = inbox:receive()  -- Gets one message with metadata
+```
+
+#### Message Formats
+
+There are two different message formats depending on how the message is received:
+
+1. Named Topic Messages:
+    - Each message contains a single value
+    - Multiple values sent to a topic arrive as separate messages
+   ```lua
+   local msgs = process.listen("mytopic")
+   local value = msgs:receive()  -- Single value per receive
+   ```
+
+2. Inbox Messages (@inbox):
+    - Messages that fall back to @inbox are wrapped in a table with metadata
+    - Each message contains:
+        - topic: String of the original message topic
+        - payload: Table containing the message value(s)
+   ```lua
+   local inbox = process.inbox()
+   local msg = inbox:receive()  -- Gets {topic="topic", payload={value}} 
+   ```
+
+Example message handling:
+```lua
+-- Named topic handling
+local msgs = process.listen("mytopic")
+while true do
+    local value = msgs:receive()  -- Each receive gets next value
+    print("Got value:", value)
+end
+
+-- Inbox handling
+local inbox = process.inbox()
+while true do
+    local msg = inbox:receive()
+    print("Topic:", msg.topic)
+    print("Value:", msg.payload[1])  -- Access first value in payload table
+end
+```
 
 ### System Events
 
@@ -132,12 +170,14 @@ local function run(args)
     -- Set up channels
     local events = process.events()
     local msgs = process.listen("messages")
+    local inbox = process.inbox()
     
     -- Main event loop
     while true do
         local result = channel.select({
             events:case_receive(),
-            msgs:case_receive()
+            msgs:case_receive(),
+            inbox:case_receive()
         })
         
         if result.channel == events then
@@ -148,9 +188,16 @@ local function run(args)
             end
         end
         
-        -- Process messages
+        -- Process topic messages
         if result.channel == msgs then
-            -- Handle message
+            local value = result.value
+            -- Handle single value from topic
+        end
+        
+        -- Process inbox messages
+        if result.channel == inbox then
+            local msg = result.value
+            -- Handle inbox message with topic and payload
         end
     end
     
@@ -206,8 +253,11 @@ the system to treat the process as a supervised system service that should be ma
 
 2. Message Handling
     - Non-blocking send operations
-    - Preserved message order between pairs
+    - Each value is delivered as a separate message
+    - Messages preserve send order between pairs
     - Buffered message delivery
+    - Topic messages contain raw values
+    - Inbox messages contain topic and payload metadata
 
 3. Resource Management
     - Graceful process termination

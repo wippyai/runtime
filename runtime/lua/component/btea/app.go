@@ -366,17 +366,19 @@ func (p *App) Send(pkg *pubsub.Package) error {
 
 			// Fallback to inbox if available
 			if hasInbox {
-				msgTable := p.runner.GetCVM().State().NewTable()
-				msgTable.RawSetString("topic", lua.LString(msg.Topic))
+				inboxValues := make([]lua.LValue, 0, len(luaValues))
 
-				// Create payload table for multiple values
-				payloadTable := p.runner.GetCVM().State().NewTable()
-				for i, v := range luaValues {
-					payloadTable.RawSetInt(i+1, v)
+				// Create a message table for each value
+				for _, v := range luaValues {
+					msgTable := p.runner.GetCVM().State().NewTable()
+					msgTable.RawSetString("topic", lua.LString(msg.Topic))
+					msgTable.RawSetString("payload", v)
+
+					inboxValues = append(inboxValues, msgTable)
 				}
-				msgTable.RawSetString("payload", payloadTable)
 
-				p.pubsub.Publish(processmod.ChannelInbox, msgTable)
+				// Send all messages in one batch
+				p.pubsub.Publish(processmod.ChannelInbox, inboxValues...)
 			}
 		}
 		return nil
