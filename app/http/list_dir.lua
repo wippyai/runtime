@@ -33,7 +33,8 @@ local function get_analyzer_for_file(filename)
     local analyzers = {
         ["go"] = "analyze:go", -- corresponds to the analyze namespace's go function
         ["md"] = "analyze:markdown",
-        ["lua"] = "analyze:lua"
+        ["lua"] = "analyze:lua",
+        ["html"] = "analyze:html"
     }
 
     return analyzers[ext:lower()]
