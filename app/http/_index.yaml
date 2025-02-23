@@ -95,7 +95,7 @@ entries:
       comment: "Dir list"
     source: file://list_dir.lua
     method: list_directory
-    modules: [ http, func, fs, json, time ]
+    modules: [ http, func, fs, json, time, funcs ]
     pool:
       size: 2
 
