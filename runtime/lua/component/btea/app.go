@@ -381,6 +381,7 @@ func (p *App) Send(pkg *pubsub.Package) error {
 				p.pubsub.Publish(processmod.ChannelInbox, inboxValues...)
 			}
 		}
+		pubsub.ReleasePackage(pkg)
 		return nil
 	}
 }

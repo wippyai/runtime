@@ -231,6 +231,7 @@ func (m *Module) inbox(l *lua.LState) int {
 
 						// Send table to Lua channel
 						if err := async.Send(l, ch, msgTable, true); err != nil {
+							pubsub.ReleasePackage(pkg)
 							m.log.Error("failed to send to channel",
 								zap.Error(err),
 								zap.String("pid", pkg.PID.String()))
@@ -238,6 +239,7 @@ func (m *Module) inbox(l *lua.LState) int {
 						}
 					}
 				}
+				pubsub.ReleasePackage(pkg)
 			case <-uw.Done():
 				return
 			}

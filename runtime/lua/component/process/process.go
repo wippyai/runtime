@@ -202,6 +202,7 @@ func (p *Process) Send(pkg *pubsub.Package) error {
 				p.pubsub.Publish(ChannelInbox, inboxValues...)
 			}
 		}
+		pubsub.ReleasePackage(pkg)
 		return nil
 	}
 }
