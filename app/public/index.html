@@ -1,1 +1,87 @@
-hi
+<!DOCTYPE html>
+<html>
+<head>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/3.4.1/tailwind.min.css" rel="stylesheet">
+    <style>
+        @keyframes slideIn {
+            from { transform: translateY(10px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        .message {
+            animation: slideIn 0.2s ease-out forwards;
+        }
+        .glass-bg {
+            background: rgba(88, 28, 135, 0.15);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(147, 51, 234, 0.15);
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: rgba(107, 33, 168, 0.1);
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: rgba(147, 51, 234, 0.3);
+            border-radius: 3px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: rgba(147, 51, 234, 0.5);
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-gray-950 via-purple-950 to-gray-950 min-h-screen p-6">
+<div class="max-w-3xl mx-auto">
+    <div class="glass-bg rounded-3xl shadow-2xl overflow-hidden border-purple-900/20">
+        <!-- Header -->
+        <div class="bg-purple-900/50 px-6 py-4 flex items-center gap-4 border-b border-purple-800/20">
+            <div class="relative">
+                <div class="w-2.5 h-2.5 rounded-full bg-green-400 animate-pulse"></div>
+                <div class="absolute inset-0 bg-green-400/30 rounded-full animate-ping"></div>
+            </div>
+            <h1 class="text-purple-50 font-medium text-lg">Chat</h1>
+        </div>
+
+        <!-- Messages -->
+        <div class="h-[600px] overflow-y-auto p-6 space-y-6 custom-scrollbar">
+            <div class="message flex justify-start">
+                <div class="bg-purple-900/30 rounded-2xl rounded-tl-none px-5 py-3 max-w-[70%]">
+                    <p class="text-purple-50">Hi there! Check out this new design I've been working on.</p>
+                    <span class="text-xs text-purple-300/70 mt-2 block">09:41</span>
+                </div>
+            </div>
+
+            <div class="message flex justify-end">
+                <div class="bg-purple-600 rounded-2xl rounded-tr-none px-5 py-3 max-w-[70%]">
+                    <p class="text-purple-50">Wow, this looks amazing! The color scheme is perfect.</p>
+                    <span class="text-xs text-purple-200/70 mt-2 block">09:42</span>
+                </div>
+            </div>
+
+            <div class="message flex justify-start">
+                <div class="bg-purple-900/30 rounded-2xl rounded-tl-none px-5 py-3 max-w-[70%]">
+                    <p class="text-purple-50">Thanks! I spent a lot of time getting those gradients just right.</p>
+                    <span class="text-xs text-purple-300/70 mt-2 block">09:43</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Input -->
+        <div class="p-6 bg-purple-950/50 border-t border-purple-800/20">
+            <div class="flex gap-3">
+                <input type="text"
+                       placeholder="Type your message..."
+                       class="flex-1 bg-purple-900/30 text-purple-50 placeholder-purple-300/50 rounded-xl px-5 py-3
+                                  focus:outline-none focus:ring-2 focus:ring-purple-500/50 transition-all duration-200">
+                <button class="bg-purple-600 hover:bg-purple-500 text-white rounded-xl p-3 transition-all duration-200
+                                 hover:shadow-lg hover:shadow-purple-500/20 focus:outline-none focus:ring-2 focus:ring-purple-500/50">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+</body>
+</html>
