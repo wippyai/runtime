@@ -17,6 +17,9 @@ import (
 	"time"
 )
 
+// ChannelInbox used as fallback when no named topic found, gets values WITH topic included.
+const ChannelInbox = "@inbox"
+
 // Process represents a Lua process instance
 type Process struct {
 	log      *zap.Logger
@@ -162,16 +165,39 @@ func (p *Process) Send(pkg *pubsub.Package) error {
 	case <-p.ctx.Done():
 		return p.ctx.Err()
 	default:
+		// Check for inbox just once
+		hasInbox := p.pubsub.Exists(ChannelInbox)
+
 		for _, msg := range pkg.Messages {
-			// Forward messages to Lua
+			// Convert payloads to Lua values
 			luaValues, err := p.toLuaPayloads(msg.Payloads)
 			if err != nil {
 				p.log.Error("failed to convert payloads", zap.Error(err))
 				continue
 			}
+			if len(luaValues) == 0 {
+				continue
+			}
 
-			if len(luaValues) > 0 {
+			// Try main topic first
+			if p.pubsub.Exists(msg.Topic) {
 				p.pubsub.Publish(msg.Topic, luaValues...)
+				continue
+			}
+
+			// Fallback to inbox if available
+			if hasInbox {
+				msgTable := p.runner.GetCVM().State().NewTable()
+				msgTable.RawSetString("topic", lua.LString(msg.Topic))
+
+				// Create payload table for multiple values
+				payloadTable := p.runner.GetCVM().State().NewTable()
+				for i, v := range luaValues {
+					payloadTable.RawSetInt(i+1, v)
+				}
+				msgTable.RawSetString("payload", payloadTable)
+
+				p.pubsub.Publish(ChannelInbox, msgTable)
 			}
 		}
 		return nil
