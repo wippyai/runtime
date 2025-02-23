@@ -357,6 +357,8 @@ func (m *Manager) handleStaticAdd(ctx context.Context, entry registry.Entry) err
 		return fmt.Errorf("server %s not found", serverID)
 	}
 
+	cfg.FS = registry.ParseID(cfg.FS.String()).WithDefaultNS(entry.ID.NS)
+
 	handler, err := m.staticFactory.CreateHandler(ctx, cfg)
 	if err != nil {
 		return err

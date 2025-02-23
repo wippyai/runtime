@@ -30,6 +30,20 @@ entries:
         initial_delay: 5s
         max_attempts: 3
 
+  - name: public-static
+    kind: http.static
+    meta:
+      comment: "Public static file server"
+      server: gateway
+      depends_on:
+        - gateway
+        - public
+    path: /
+    fs: public
+    directory: /
+    options:
+      cache_control: "public, max-age=3600"
+
   - name: api
     kind: http.router
     meta:
