@@ -226,18 +226,6 @@ func (m *Module) run(l *lua.LState) int {
 	return 1
 }
 
-func createPayload(l *lua.LState, value lua.LValue) payload.Payload {
-	// If it's already a table, use it as is
-	if value.Type() == lua.LTTable {
-		return payload.NewPayload(value, payload.Lua)
-	}
-
-	// Wrap single value in a table
-	table := l.NewTable()
-	table.RawSetInt(1, value)
-	return payload.NewPayload(table, payload.Lua)
-}
-
 func (f *Functions) createTask(l *lua.LState) (runtime.Task, error) {
 	targetIndex := 1
 	if l.Get(1).Type() == lua.LTUserData {
@@ -257,10 +245,7 @@ func (f *Functions) createTask(l *lua.LState) (runtime.Task, error) {
 
 	var payloads []payload.Payload
 	for i := targetIndex + 1; i <= l.GetTop(); i++ {
-		arg := l.Get(i)
-		if arg != lua.LNil {
-			payloads = append(payloads, createPayload(l, arg))
-		}
+		payloads = append(payloads, payload.NewPayload(l.Get(i), payload.Lua))
 	}
 
 	return runtime.Task{
