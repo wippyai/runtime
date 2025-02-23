@@ -98,3 +98,13 @@ entries:
     modules: [ http, func, fs, json, time ]
     pool:
       size: 2
+
+  - name: demo.hello.http
+    kind: function.lua
+    meta:
+      comment: "HTTP handler for hello world greeting function"
+    source: file://hello_world.lua
+    method: handler
+    modules: [ http, funcs ]
+    pool:
+      size: 2
