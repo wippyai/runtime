@@ -2,7 +2,7 @@ version: "1.0"
 namespace: demos
 
 meta:
-  depends_on: [ "ns:system" ]
+  depends_on: [ "ns:system", "ns:wippy" ]
 
 entries:
   - name: message.service
@@ -23,15 +23,17 @@ entries:
     kind: process.lua
     meta:
       comment: "Process that waits for messages"
-    source: file://message_process.lua
+    source: file://process.lua
     method: run
     modules: [ time ]
+    import:
+      actor: wippy:actor
 
   - name: message.sender
     kind: function.lua
     meta:
       comment: "HTTP endpoint to send messages to a process"
-    source: file://message_sender.lua
+    source: file://sender.lua
     method: handler
     modules: [ http, time ]
     pool:
