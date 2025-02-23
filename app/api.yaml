@@ -87,3 +87,11 @@ entries:
     method: GET
     path: /fs/list
     func: functions:fs.listdir
+
+  - name: demo.hello
+    kind: http.endpoint
+    meta:
+      comment: "Returns hello world greeting with optional name parameter"
+    method: GET
+    path: /hello
+    func: functions:demo.hello.http

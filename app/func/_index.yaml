@@ -1,0 +1,16 @@
+version: "1.0"
+namespace: functions
+
+meta:
+  depends_on: [ "ns:system" ]
+
+entries:
+  - name: hello.greet
+    kind: function.lua
+    meta:
+      comment: "Simple greeting function that returns hello world message"
+    source: file://greet.lua
+    method: greet
+    modules: [ ]
+    pool:
+      size: 1
