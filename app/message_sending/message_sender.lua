@@ -21,11 +21,14 @@ function handler()
     -- Get message from query params (optional)
     local message = req:query("message") or ("Hello from " .. func.pid())
 
+    -- Get topic from query params (optional)
+    local topic = req:query("topic") or "message"
+
     -- Set up inbox to receive response
     local inbox = func.inbox()
 
     -- Send message to target process
-    local ok = func.send(target_pid, "message", {
+    local ok = func.send(target_pid, topic, {
         from = func.pid(),
         payload = message
     })
@@ -60,6 +63,7 @@ function handler()
     res:set_status(http.STATUS.OK)
     res:write_json({
         success = true,
+        topic = topic,
         message_sent = message,
         response = result.value.payload
     })
