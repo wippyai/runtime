@@ -31,19 +31,15 @@ function handler()
 
     -- Decode session PID
     local session_pid = base64.decode(b64_pid)
-    print("DEBUG: Sending to session PID:", session_pid)
 
     -- Set up inbox for responses
     local inbox = func.inbox()
-    print("DEBUG: Sender inbox PID:", func.pid())
 
     -- Send message to session
     local ok = func.send(session_pid, "message", {
         from = func.pid(),
         text = message
     })
-
-    print("DEBUG: Message send status:", ok)
 
     if not ok then
         res:set_status(http.STATUS.INTERNAL_ERROR)
