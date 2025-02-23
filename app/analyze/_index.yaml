@@ -34,3 +34,13 @@ entries:
     modules: [ "fs", "treesitter" ]
     pool:
       size: 1
+
+  - name: html
+    kind: function.lua
+    meta:
+      comment: "Analyzing html files"
+    source: file://html.lua
+    method: analyze
+    modules: [ "fs", "treesitter" ]
+    pool:
+      size: 1
