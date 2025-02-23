@@ -73,7 +73,7 @@ type (
 
 	StaticOptions struct {
 		IndexFile    string `json:"index"` // Index file (e.g. "index.html")
-		SPA          bool   `json:"spa"`   // If true, serve index.html for all paths
+		SPA          bool   `json:"spa"`   // If true, serve IndexFile for all paths
 		CacheControl string `json:"cache"` // Cache-Control header value
 	}
 )

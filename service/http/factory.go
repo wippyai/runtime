@@ -9,6 +9,8 @@ import (
 	"github.com/ponyruntime/pony/api/runtime"
 	config "github.com/ponyruntime/pony/api/service/http"
 	"net/http"
+	"path"
+	"strings"
 )
 
 // EndpointFactory creates HTTP handlers for function endpoints
@@ -64,6 +66,51 @@ func (f *EndpointFactory) CreateHandler(ctx context.Context, cfg *config.Endpoin
 	}), nil
 }
 
+// SPAHandler implements http.Handler to serve a Single Page Application
+type SPAHandler struct {
+	fs        http.FileSystem
+	indexPath string
+}
+
+// NewSPAHandler creates a new handler for SPA serving
+func NewSPAHandler(fsys fs.FS, indexPath string) http.Handler {
+	return &SPAHandler{
+		fs:        http.FS(fsys),
+		indexPath: indexPath,
+	}
+}
+
+func (h *SPAHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Clean the path to prevent directory traversal
+	urlPath := path.Clean(r.URL.Path)
+
+	// Try serving the exact file first
+	if _, err := h.fs.Open(strings.TrimPrefix(urlPath, "/")); err == nil {
+		// File exists, serve it directly
+		http.FileServer(h.fs).ServeHTTP(w, r)
+		return
+	}
+
+	// For all other routes, serve the index.html
+	file, err := h.fs.Open(h.indexPath)
+	if err != nil {
+		http.Error(w, "index file not found", http.StatusInternalServerError)
+		return
+	}
+	defer func() { _ = file.Close() }()
+
+	// Get file info for modification time
+	info, err := file.Stat()
+	if err != nil {
+		http.Error(w, "failed to get index stats", http.StatusInternalServerError)
+		return
+	}
+
+	// Set appropriate headers
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	http.ServeContent(w, r, h.indexPath, info.ModTime(), file)
+}
+
 // StaticFactory creates HTTP handlers for static file serving
 type StaticFactory struct {
 	fsReg fs.Registry
@@ -89,6 +136,20 @@ func (f *StaticFactory) CreateHandler(ctx context.Context, cfg *config.StaticCon
 	fsys, ok := f.fsReg.GetFS(cfg.FS.String())
 	if !ok {
 		return nil, fmt.Errorf("filesystem not found: %s", cfg.FS)
+	}
+
+	// For SPA mode, use our custom handler
+	if cfg.Options.SPA {
+		if cfg.Options.IndexFile == "" {
+			return nil, fmt.Errorf("index file must be specified for SPA mode")
+		}
+		handler := NewSPAHandler(fsys, cfg.Options.IndexFile)
+
+		if cfg.Options.CacheControl != "" {
+			handler = wrapWithCacheControl(handler, cfg.Options.CacheControl)
+		}
+
+		return handler, nil
 	}
 
 	handler := http.FileServer(http.FS(fsys))

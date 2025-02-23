@@ -14,6 +14,8 @@ entries:
     kind: fs.directory
     meta:
       comment: "Public filesystem"
+      depends_on:
+        - root
     directory: ./app/public/
     mode: "0755"
 
@@ -24,13 +26,16 @@ entries:
     addr: ":8082"
     timeouts:
       idle: 60s
+      read: 30s
+      write: 30s
     lifecycle:
       auto_start: true
       restart:
         initial_delay: 5s
         max_attempts: 3
+        backoff_factor: 1.5
 
-  - name: public-static
+  - name: public.static
     kind: http.static
     meta:
       comment: "Public static file server"
@@ -42,7 +47,9 @@ entries:
     fs: public
     directory: /
     options:
-      cache_control: "public, max-age=3600"
+      index: "index.html"
+      cache: "public, max-age=3600"
+      spa: true
 
   - name: api
     kind: http.router
@@ -51,7 +58,10 @@ entries:
       server: gateway
       depends_on:
         - gateway
+        - heap
     prefix: /api/v1
+    timeouts:
+      request: 30s
 
   - name: terminal
     kind: terminal.host
@@ -63,21 +73,18 @@ entries:
       restart:
         initial_delay: 5s
         max_attempts: 3
+        backoff_factor: 1.5
 
   - name: heap
     kind: process.host
     meta:
       comment: "Process execution host"
     host:
-      workers: 1
+      workers: 4
+      max_concurrent: 16
     lifecycle:
       auto_start: true
       restart:
         initial_delay: 5s
         max_attempts: 3
-
-#  - name: root
-#    kind: fs.directory
-#    meta:
-#      comment: "Root directory"
-#    directory: /
+        backoff_factor: 1.5
