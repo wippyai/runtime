@@ -21,8 +21,8 @@ type ControlModule struct {
 	info *Module // Base process info module
 }
 
-// NewProcessControlModule creates a new process control module
-func NewProcessControlModule(log *zap.Logger) *ControlModule {
+// NewProcAPIModule creates a new process control module
+func NewProcAPIModule(log *zap.Logger) *ControlModule {
 	return &ControlModule{
 		log:  log,
 		info: NewProcessContextModule(log), // Create the base info module

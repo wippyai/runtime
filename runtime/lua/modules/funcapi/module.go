@@ -20,8 +20,8 @@ type Module struct {
 	log *zap.Logger
 }
 
-// NewFuncContextModule creates a new function module
-func NewFuncContextModule(log *zap.Logger) *Module {
+// NewFuncAPIModule creates a new function module
+func NewFuncAPIModule(log *zap.Logger) *Module {
 	return &Module{
 		log: log,
 	}

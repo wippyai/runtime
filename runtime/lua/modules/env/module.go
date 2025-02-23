@@ -3,19 +3,15 @@ package env
 import (
 	ctxapi "github.com/ponyruntime/pony/api/context"
 	lua "github.com/yuin/gopher-lua"
-	"go.uber.org/zap"
 )
 
 // Module provides Lua bindings for accessing environment variables
 type Module struct {
-	log *zap.Logger
 }
 
 // NewEnvModule creates a new environment module
-func NewEnvModule(log *zap.Logger) *Module {
-	return &Module{
-		log: log,
-	}
+func NewEnvModule() *Module {
+	return &Module{}
 }
 
 // Name returns the module name

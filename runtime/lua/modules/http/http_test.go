@@ -14,7 +14,7 @@ func TestHttpContextConstants(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("verify METHOD constants", func(t *testing.T) {
-		mod := NewHTTPContextModule(logger)
+		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -40,7 +40,7 @@ func TestHttpContextConstants(t *testing.T) {
 	})
 
 	t.Run("verify STATUS constants", func(t *testing.T) {
-		mod := NewHTTPContextModule(logger)
+		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -66,7 +66,7 @@ func TestHttpContextConstants(t *testing.T) {
 	})
 
 	t.Run("verify CONTENT constants", func(t *testing.T) {
-		mod := NewHTTPContextModule(logger)
+		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -90,7 +90,7 @@ func TestHttpContextConstants(t *testing.T) {
 	})
 
 	t.Run("verify TRANSFER constants", func(t *testing.T) {
-		mod := NewHTTPContextModule(logger)
+		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -111,7 +111,7 @@ func TestHttpContextConstants(t *testing.T) {
 	})
 
 	t.Run("verify ERROR constants", func(t *testing.T) {
-		mod := NewHTTPContextModule(logger)
+		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
