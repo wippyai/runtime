@@ -46,8 +46,7 @@ func registerFS(l *lua.LState, mod *lua.LTable) {
 	}))
 
 	l.SetFuncs(mod, map[string]lua.LGFunction{
-		"default": apiDefault,
-		"get":     apiGet,
+		"get": apiGet,
 	})
 }
 

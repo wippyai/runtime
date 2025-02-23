@@ -51,14 +51,14 @@ func TestNoopRuntime_Execute(t *testing.T) {
 		{
 			name: "basic execution",
 			task: runtime.Task{
-				Handler: registry.ParseID("test-function"),
+				ID: registry.ParseID("test-function"),
 			},
 			wantErr: false,
 		},
 		{
 			name: "empty target",
 			task: runtime.Task{
-				Handler: registry.ParseID(""),
+				ID: registry.ParseID(""),
 			},
 			wantErr: false,
 		},
@@ -77,7 +77,7 @@ func TestNoopRuntime_Execute(t *testing.T) {
 			result := <-resultCh
 			require.NotNil(t, result)
 			require.NotNil(t, result.Payload)
-			require.Contains(t, result.Payload.Data(), tt.task.Handler.String())
+			require.Contains(t, result.Payload.Data(), tt.task.ID.String())
 		})
 	}
 }

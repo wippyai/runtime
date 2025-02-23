@@ -268,7 +268,7 @@ func TestFunctions_Execute(t *testing.T) {
 				})
 			},
 			task: runtime.Task{
-				Handler:  registry.ID{NS: "test", Name: "handler"},
+				ID:       registry.ID{NS: "test", Name: "handler"},
 				Payloads: []payload.Payload{payload.New("test input")},
 			},
 			expectedValue: "success",
@@ -276,7 +276,7 @@ func TestFunctions_Execute(t *testing.T) {
 		{
 			name: "handler not found",
 			task: runtime.Task{
-				Handler:  registry.ID{NS: "nonexistent", Name: "handler"},
+				ID:       registry.ID{NS: "nonexistent", Name: "handler"},
 				Payloads: []payload.Payload{payload.New("test input")},
 			},
 			expectedErr: "no handler registered for target: nonexistent:handler",
@@ -298,7 +298,7 @@ func TestFunctions_Execute(t *testing.T) {
 				})
 			},
 			task: runtime.Task{
-				Handler:  registry.ID{NS: "error", Name: "handler"},
+				ID:       registry.ID{NS: "error", Name: "handler"},
 				Payloads: []payload.Payload{payload.New("test input")},
 			},
 			expectedErr: "handler error",
@@ -413,7 +413,7 @@ func TestFunctions_ConcurrentHandlerRegistration(t *testing.T) {
 			Name: fmt.Sprintf("handler.%d", i),
 		}
 		resultChan, err := executor.Call(ctx, runtime.Task{
-			Handler:  target,
+			ID:       target,
 			Payloads: []payload.Payload{payload.New("test")},
 		})
 		require.NoError(t, err)

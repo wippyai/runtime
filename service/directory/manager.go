@@ -55,8 +55,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 
 	m.log.Info("directory filesystem created",
 		zap.String("id", entry.ID.String()),
-		zap.String("path", cfg.Directory),
-		zap.Bool("default", cfg.Default))
+		zap.String("path", cfg.Directory))
 
 	return m.registerFS(ctx, entry.ID, cfg)
 }
@@ -127,28 +126,11 @@ func (m *Manager) registerFS(ctx context.Context, id registry.ID, cfg *dirapi.Co
 		Data:   fs, // Now passing the actual FS implementation
 	})
 
-	// Register default filesystem if configured
-	if cfg.Default {
-		m.bus.Send(ctx, events.Event{
-			System: fsapi.System,
-			Kind:   fsapi.RegisterDefault,
-			Path:   id.String(),
-			Data:   fs, // Now passing the actual FS implementation
-		})
-	}
-
 	return nil
 }
 
 // removeFS removes the filesystem from the fs system
 func (m *Manager) removeFS(ctx context.Context, id registry.ID) {
-	// Remove from default if it was default
-	m.bus.Send(ctx, events.Event{
-		System: fsapi.System,
-		Kind:   fsapi.DeleteDefault,
-		Path:   id.String(),
-	})
-
 	// Remove regular registration
 	m.bus.Send(ctx, events.Event{
 		System: fsapi.System,

@@ -18,7 +18,6 @@ type Registry struct {
 	bus         events.Bus
 	filesystems sync.Map // map[string]FS
 	subscriber  *eventbus.Subscriber
-	defaultFS   fsapi.FS // Default filesystem for fallback
 }
 
 // NewFSRegistry creates a new filesystem registry instance
@@ -56,10 +55,6 @@ func (r *Registry) handleEvent(e events.Event) {
 		r.registerFS(e)
 	case fsapi.Delete:
 		r.deleteFS(e)
-	case fsapi.RegisterDefault:
-		r.registerDefaultFS(e)
-	case fsapi.DeleteDefault:
-		r.deleteDefaultFS(e)
 	case fsapi.Accept, fsapi.Reject:
 		// nothing, self emitted
 	default:
@@ -96,32 +91,6 @@ func (r *Registry) deleteFS(e events.Event) {
 	r.sendAccept(e.Path)
 }
 
-func (r *Registry) registerDefaultFS(e events.Event) {
-	fs, ok := e.Data.(fsapi.FS)
-	if !ok {
-		r.log.Error("invalid default filesystem payload",
-			zap.String("type", fmt.Sprintf("%T", e.Data)))
-		r.sendReject(e.Path, "invalid filesystem data type")
-		return
-	}
-
-	r.defaultFS = fs
-	r.log.Debug("default filesystem registered")
-	r.sendAccept(e.Path)
-}
-
-func (r *Registry) deleteDefaultFS(e events.Event) {
-	if r.defaultFS == nil {
-		r.log.Warn("no default filesystem to delete")
-		r.sendReject(e.Path, "no default filesystem")
-		return
-	}
-
-	r.defaultFS = nil
-	r.log.Debug("default filesystem removed")
-	r.sendAccept(e.Path)
-}
-
 func (r *Registry) sendAccept(path events.Path) {
 	r.bus.Send(r.ctx, events.Event{
 		System: fsapi.System,
@@ -144,14 +113,5 @@ func (r *Registry) GetFS(path string) (fsapi.FS, bool) {
 	if val, ok := r.filesystems.Load(path); ok {
 		return val.(fsapi.FS), true
 	}
-	return nil, false
-}
-
-// GetDefaultFS returns the default filesystem if set
-func (r *Registry) GetDefaultFS() (fsapi.FS, bool) {
-	if r.defaultFS != nil {
-		return r.defaultFS, true
-	}
-
 	return nil, false
 }

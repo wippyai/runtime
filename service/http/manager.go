@@ -3,143 +3,172 @@ package http
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/api/function"
-	"net/http"
-
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	config "github.com/ponyruntime/pony/api/service/http"
 	"github.com/ponyruntime/pony/api/supervisor"
 	"go.uber.org/zap"
+	"net/http"
+	"sync"
 )
 
-// ServerManager manages HTTP servers and their configurations
-type ServerManager struct {
-	log     *zap.Logger
-	bus     events.Bus
-	handler http.HandlerFunc
-	dtt     payload.Transcoder
-
-	servers         map[registry.ID]*Server
-	endpointServers map[registry.ID]registry.ID // endpoint Process -> server Process
-	routerServers   map[registry.ID]registry.ID // router Process -> server Process
+// ServerFactoryAPI creates new server instances
+type ServerFactoryAPI interface {
+	CreateServer(cfg *config.ServerConfig) (Server, error)
 }
 
-// NewManager creates a new HTTP service instance
+// EndpointFactoryAPI defines the interface for creating endpoint handlers
+type EndpointFactoryAPI interface {
+	// CreateHandler creates a new endpoint handler from the given configuration
+	CreateHandler(ctx context.Context, cfg *config.EndpointConfig) (http.Handler, error)
+}
+
+// StaticFactoryAPI defines the interface for creating static file handlers
+type StaticFactoryAPI interface {
+	// CreateHandler creates a new static file handler from the given configuration
+	CreateHandler(ctx context.Context, cfg *config.StaticConfig) (http.Handler, error)
+}
+
+// Server represents an HTTP server with routing capabilities
+type Server interface {
+	supervisor.Service
+
+	UpdateConfig(cfg *config.ServerConfig) error
+
+	AddRouter(id registry.ID, router *config.RouterConfig) error
+	DeleteRouter(id registry.ID) error
+	AddEndpoint(routerID, id registry.ID, path string, method string, handler http.Handler) error
+	RemoveEndpoint(routerID, id registry.ID) error
+
+	Mount(id registry.ID, path string, handler http.Handler) error
+	Remove(id registry.ID) error
+	Rebuild(ctx context.Context) error
+}
+
+type Manager struct {
+	log *zap.Logger
+	dtt payload.Transcoder
+	bus events.Bus
+
+	serverFactory   ServerFactoryAPI
+	endpointFactory EndpointFactoryAPI
+	staticFactory   StaticFactoryAPI
+
+	mu            sync.Mutex
+	servers       map[registry.ID]Server
+	routerServers map[registry.ID]registry.ID // router ID -> server ID mapping
+	pending       map[registry.ID]bool
+}
+
 func NewManager(
-	bus events.Bus, // todo: delete in favor of context
-	dtt payload.Transcoder, // todo: delete in favor of context
-	handler http.HandlerFunc,
-	logger *zap.Logger,
-) *ServerManager {
-	return &ServerManager{
-		log:             logger,
-		bus:             bus,
-		handler:         handler,
-		dtt:             dtt,
-		servers:         make(map[registry.ID]*Server),
-		endpointServers: make(map[registry.ID]registry.ID),
-		routerServers:   make(map[registry.ID]registry.ID),
-	}
-}
-
-// NewHTTPManager creates a new HTTP service instance with an executing runtime
-func NewHTTPManager(
-	bus events.Bus,
 	dtt payload.Transcoder,
-	exec function.Registry,
-	logger *zap.Logger,
-) *ServerManager {
-	return &ServerManager{
-		log:             logger,
-		bus:             bus,
-		handler:         NewEndpointHandler(exec, dtt, logger).Handle,
+	bus events.Bus,
+	serverFactory ServerFactoryAPI,
+	endpointFactory EndpointFactoryAPI,
+	staticFactory StaticFactoryAPI,
+	log *zap.Logger,
+) (*Manager, error) {
+	if dtt == nil {
+		return nil, fmt.Errorf("transcoder is required")
+	}
+	if bus == nil {
+		return nil, fmt.Errorf("event bus is required")
+	}
+	if serverFactory == nil {
+		return nil, fmt.Errorf("server factory is required")
+	}
+	if endpointFactory == nil {
+		return nil, fmt.Errorf("endpoint factory is required")
+	}
+	if staticFactory == nil {
+		return nil, fmt.Errorf("static factory is required")
+	}
+
+	return &Manager{
+		log:             log,
 		dtt:             dtt,
-		servers:         make(map[registry.ID]*Server),
-		endpointServers: make(map[registry.ID]registry.ID),
+		bus:             bus,
+		serverFactory:   serverFactory,
+		endpointFactory: endpointFactory,
+		staticFactory:   staticFactory,
+		servers:         make(map[registry.ID]Server),
 		routerServers:   make(map[registry.ID]registry.ID),
-	}
+		pending:         make(map[registry.ID]bool),
+	}, nil
 }
 
-// Add implements registry.EntryListener
-func (s *ServerManager) Add(ctx context.Context, entry registry.Entry) error {
-	if entry.Data == nil {
-		return fmt.Errorf("configuration data is required for create operation")
-	}
+func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	switch entry.Kind {
 	case config.KindServer:
-		return s.addServer(ctx, entry)
+		return m.handleServerAdd(ctx, entry)
 	case config.KindRouter:
-		return s.addRouter(entry)
+		return m.handleRouterAdd(ctx, entry)
 	case config.KindEndpoint:
-		return s.addEndpoint(entry)
+		return m.handleEndpointAdd(ctx, entry)
+	case config.KindStatic:
+		return m.handleStaticAdd(ctx, entry)
 	default:
 		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
 	}
 }
 
-// Update implements registry.EntryListener
-func (s *ServerManager) Update(ctx context.Context, entry registry.Entry) error {
-	if entry.Data == nil {
-		return fmt.Errorf("configuration data is required for update operation")
-	}
+func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	switch entry.Kind {
 	case config.KindServer:
-		return s.updateServer(ctx, entry)
+		return m.handleServerUpdate(ctx, entry)
 	case config.KindRouter:
-		return s.updateRouter(entry)
+		return m.handleRouterUpdate(ctx, entry)
 	case config.KindEndpoint:
-		return s.updateEndpoint(entry)
+		return m.handleEndpointAdd(ctx, entry)
+	case config.KindStatic:
+		return m.handleStaticAdd(ctx, entry)
 	default:
 		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
 	}
 }
 
-// Delete implements registry.EntryListener
-func (s *ServerManager) Delete(ctx context.Context, entry registry.Entry) error {
+func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	switch entry.Kind {
 	case config.KindServer:
-		return s.deleteServer(ctx, entry)
+		return m.handleServerDelete(ctx, entry)
 	case config.KindRouter:
-		return s.deleteRouter(entry)
-	case config.KindEndpoint:
-		return s.deleteEndpoint(entry)
+		return m.handleRouterDelete(ctx, entry)
+	case config.KindEndpoint, config.KindStatic:
+		return m.handleHandlerDelete(ctx, entry)
 	default:
 		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
 	}
 }
 
-func (s *ServerManager) unmarshalAndValidate(data payload.Payload, cfg interface{}) error {
-	if err := s.dtt.Unmarshal(data, cfg); err != nil {
-		return fmt.Errorf("failed to unmarshal config: %w", err)
-	}
-
-	if validator, ok := cfg.(interface{ Validate() error }); ok {
-		if err := validator.Validate(); err != nil {
-			return fmt.Errorf("invalid configuration: %w", err)
-		}
-	}
-
-	return nil
-}
-
-func (s *ServerManager) addServer(ctx context.Context, entry registry.Entry) error {
-	cfg := new(config.ServerConfig)
-	if err := s.unmarshalAndValidate(entry.Data, cfg); err != nil {
+func (m *Manager) handleServerAdd(ctx context.Context, entry registry.Entry) error {
+	cfg, err := decodeEntity[config.ServerConfig](entry, m.dtt)
+	if err != nil {
 		return err
 	}
 
-	if _, exists := s.servers[entry.ID]; exists {
+	server, err := m.serverFactory.CreateServer(cfg)
+	if err != nil {
+		return err
+	}
+
+	if _, exists := m.servers[entry.ID]; exists {
 		return fmt.Errorf("server %s already exists", entry.ID)
 	}
 
-	server := NewServer(*cfg, s.handler)
-	s.servers[entry.ID] = server
+	m.servers[entry.ID] = server
 
-	s.bus.Send(ctx, events.Event{
+	// Register with supervisor
+	m.bus.Send(ctx, events.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Register,
 		Path:   entry.ID.String(),
@@ -149,185 +178,289 @@ func (s *ServerManager) addServer(ctx context.Context, entry registry.Entry) err
 	return nil
 }
 
-func (s *ServerManager) updateServer(ctx context.Context, entry registry.Entry) error {
-	cfg := new(config.ServerConfig)
-	if err := s.unmarshalAndValidate(entry.Data, cfg); err != nil {
+func (m *Manager) handleServerUpdate(ctx context.Context, entry registry.Entry) error {
+	cfg, err := decodeEntity[config.ServerConfig](entry, m.dtt)
+	if err != nil {
 		return err
 	}
 
-	server, exists := s.servers[entry.ID]
+	server, exists := m.servers[entry.ID]
 	if !exists {
 		return fmt.Errorf("server %s not found", entry.ID)
 	}
 
-	server.UpdateConfig(*cfg)
+	if err := server.UpdateConfig(cfg); err != nil {
+		return fmt.Errorf("failed to update server config: %w", err)
+	}
+	m.pending[entry.ID] = true
 
-	s.bus.Send(ctx, events.Event{
+	// Update supervisor
+	m.bus.Send(ctx, events.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Update,
 		Path:   entry.ID.String(),
-		Data:   &supervisor.Entry{Config: cfg.Lifecycle},
+		Data: &supervisor.Entry{
+			Config: cfg.Lifecycle,
+		},
 	})
 
 	return nil
 }
 
-func (s *ServerManager) deleteServer(ctx context.Context, entry registry.Entry) error {
-	if _, exists := s.servers[entry.ID]; !exists {
+func (m *Manager) handleServerDelete(ctx context.Context, entry registry.Entry) error {
+	_, exists := m.servers[entry.ID]
+	if !exists {
 		return fmt.Errorf("server %s not found", entry.ID)
 	}
 
-	s.bus.Send(ctx, events.Event{
+	// Remove from supervisor
+	m.bus.Send(ctx, events.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Remove,
 		Path:   entry.ID.String(),
 	})
 
-	// Clean up associated endpoints and routers
-	for epID, srvID := range s.endpointServers {
-		if srvID == entry.ID {
-			delete(s.endpointServers, epID)
+	// Clean up router mappings
+	for routerID, serverID := range m.routerServers {
+		if serverID == entry.ID {
+			delete(m.routerServers, routerID)
 		}
 	}
 
-	for rID, srvID := range s.routerServers {
-		if srvID == entry.ID {
-			delete(s.routerServers, rID)
-		}
-	}
-
-	delete(s.servers, entry.ID)
+	delete(m.servers, entry.ID)
+	delete(m.pending, entry.ID)
 	return nil
 }
 
-func (s *ServerManager) addRouter(entry registry.Entry) error {
-	cfg := new(config.RouterConfig)
-	if err := s.unmarshalAndValidate(entry.Data, cfg); err != nil {
+func (m *Manager) handleRouterAdd(ctx context.Context, entry registry.Entry) error {
+	cfg, err := decodeEntity[config.RouterConfig](entry, m.dtt)
+	if err != nil {
 		return err
 	}
 
-	serverIDStr := cfg.Meta.StringValue(config.ServerID)
-	serverID := registry.ParseID(serverIDStr).WithDefaultNS(entry.ID.NS)
-	server, exists := s.servers[serverID]
+	serverID := registry.ParseID(cfg.Meta.StringValue(config.ServerID)).WithDefaultNS(entry.ID.NS)
+	server, exists := m.servers[serverID]
 	if !exists {
-		return fmt.Errorf("target server %s not found", serverID)
+		return fmt.Errorf("server %s not found", serverID)
 	}
 
-	if err := server.router.AddRouter(entry.ID.String(), *cfg); err != nil {
-		return fmt.Errorf("failed to add router: %w", err)
-	}
-
-	s.routerServers[entry.ID] = serverID
-	return nil
-}
-
-func (s *ServerManager) updateRouter(entry registry.Entry) error {
-	cfg := new(config.RouterConfig)
-	if err := s.unmarshalAndValidate(entry.Data, cfg); err != nil {
+	if err := server.AddRouter(entry.ID, cfg); err != nil {
 		return err
 	}
 
-	currentServerID, exists := s.routerServers[entry.ID]
+	m.routerServers[entry.ID] = serverID
+	m.pending[serverID] = true
+	return nil
+}
+
+func (m *Manager) handleRouterUpdate(ctx context.Context, entry registry.Entry) error {
+	cfg, err := decodeEntity[config.RouterConfig](entry, m.dtt)
+	if err != nil {
+		return err
+	}
+
+	// Get current server for this router
+	currentServerID, exists := m.routerServers[entry.ID]
 	if !exists {
 		return fmt.Errorf("router %s not found", entry.ID)
 	}
 
-	targetServerIDStr := cfg.Meta.StringValue(config.ServerID)
-	targetServerID := registry.ParseID(targetServerIDStr).WithDefaultNS(entry.ID.NS)
-	if _, exists := s.servers[targetServerID]; !exists {
-		return fmt.Errorf("target server %s not found", targetServerID)
+	// Get target server from updated config
+	newServerID := registry.ParseID(cfg.Meta.StringValue(config.ServerID)).WithDefaultNS(entry.ID.NS)
+	newServer, exists := m.servers[newServerID]
+	if !exists {
+		return fmt.Errorf("target server %s not found", newServerID)
 	}
 
-	if currentServerID == targetServerID {
-		return s.servers[currentServerID].router.UpdateRouter(entry.ID.String(), *cfg)
+	// If server changed, delete from old and add to new
+	if currentServerID != newServerID {
+		if oldServer, exists := m.servers[currentServerID]; exists {
+			if err := oldServer.DeleteRouter(entry.ID); err != nil {
+				return err
+			}
+		}
+		if err := newServer.AddRouter(entry.ID, cfg); err != nil {
+			return err
+		}
+		m.routerServers[entry.ID] = newServerID
+		m.pending[newServerID] = true
+	} else {
+		// Update existing router
+		if err := newServer.AddRouter(entry.ID, cfg); err != nil {
+			return err
+		}
+		m.pending[currentServerID] = true
 	}
 
-	// Handle server migration
-	if err := s.servers[targetServerID].router.AddRouter(entry.ID.String(), *cfg); err != nil {
-		return err
-	}
-
-	s.routerServers[entry.ID] = targetServerID
-	_ = s.servers[currentServerID].router.DeleteRouter(entry.ID.String())
 	return nil
 }
 
-func (s *ServerManager) deleteRouter(entry registry.Entry) error {
-	serverID, exists := s.routerServers[entry.ID]
+func (m *Manager) handleRouterDelete(ctx context.Context, entry registry.Entry) error {
+	serverID, exists := m.routerServers[entry.ID]
 	if !exists {
 		return fmt.Errorf("router %s not found", entry.ID)
 	}
 
-	if err := s.servers[serverID].router.DeleteRouter(entry.ID.String()); err != nil {
-		return fmt.Errorf("failed to delete router: %w", err)
+	server, exists := m.servers[serverID]
+	if !exists {
+		return fmt.Errorf("server %s not found", serverID)
 	}
 
-	delete(s.routerServers, entry.ID)
-	return nil
-}
-
-func (s *ServerManager) addEndpoint(entry registry.Entry) error {
-	cfg := new(config.EndpointConfig)
-	if err := s.unmarshalAndValidate(entry.Data, cfg); err != nil {
+	if err := server.DeleteRouter(entry.ID); err != nil {
 		return err
 	}
 
-	serverIDStr := cfg.Meta.StringValue(config.ServerID)
-	serverID := registry.ParseID(serverIDStr).WithDefaultNS(entry.ID.NS)
-	server, exists := s.servers[serverID]
-	if !exists {
-		return fmt.Errorf("target server %s not found", serverID)
-	}
-
-	if err := server.router.AddEndpoint(entry.ID.String(), *cfg); err != nil {
-		return fmt.Errorf("failed to add endpoint: %w", err)
-	}
-
-	s.endpointServers[entry.ID] = serverID
+	delete(m.routerServers, entry.ID)
+	m.pending[serverID] = true
 	return nil
 }
 
-func (s *ServerManager) updateEndpoint(entry registry.Entry) error {
-	cfg := new(config.EndpointConfig)
-	if err := s.unmarshalAndValidate(entry.Data, cfg); err != nil {
+func (m *Manager) handleEndpointAdd(ctx context.Context, entry registry.Entry) error {
+	cfg, err := decodeEntity[config.EndpointConfig](entry, m.dtt)
+	if err != nil {
 		return err
 	}
 
-	currentServerID, exists := s.endpointServers[entry.ID]
+	routerID := registry.ParseID(cfg.Meta.StringValue(config.RouterID)).WithDefaultNS(entry.ID.NS)
+	serverID, exists := m.routerServers[routerID]
 	if !exists {
-		return fmt.Errorf("endpoint %s not found", entry.ID)
+		return fmt.Errorf("router %s not found", routerID)
 	}
 
-	targetServerIDStr := cfg.Meta.StringValue(config.ServerID)
-	targetServerID := registry.ParseID(targetServerIDStr).WithDefaultNS(entry.ID.NS)
-	if _, exists := s.servers[targetServerID]; !exists {
-		return fmt.Errorf("target server %s not found", targetServerID)
+	server, exists := m.servers[serverID]
+	if !exists {
+		return fmt.Errorf("server %s not found", serverID)
 	}
 
-	if currentServerID == targetServerID {
-		return s.servers[currentServerID].router.UpdateEndpoint(entry.ID.String(), *cfg)
-	}
-
-	// Handle server migration
-	if err := s.servers[targetServerID].router.AddEndpoint(entry.ID.String(), *cfg); err != nil {
+	handler, err := m.endpointFactory.CreateHandler(ctx, cfg)
+	if err != nil {
 		return err
 	}
 
-	s.endpointServers[entry.ID] = targetServerID
-	_ = s.servers[currentServerID].router.DeleteEndpoint(entry.ID.String())
+	if err := server.AddEndpoint(routerID, entry.ID, cfg.Path, cfg.Method, handler); err != nil {
+		return err
+	}
+
+	m.pending[serverID] = true
 	return nil
 }
 
-func (s *ServerManager) deleteEndpoint(entry registry.Entry) error {
-	serverID, exists := s.endpointServers[entry.ID]
+func (m *Manager) handleStaticAdd(ctx context.Context, entry registry.Entry) error {
+	cfg, err := decodeEntity[config.StaticConfig](entry, m.dtt)
+	if err != nil {
+		return err
+	}
+
+	serverID := registry.ParseID(cfg.Meta.StringValue(config.ServerID)).WithDefaultNS(entry.ID.NS)
+	server, exists := m.servers[serverID]
 	if !exists {
-		return fmt.Errorf("endpoint %s not found", entry.ID)
+		return fmt.Errorf("server %s not found", serverID)
 	}
 
-	if err := s.servers[serverID].router.DeleteEndpoint(entry.ID.String()); err != nil {
-		return fmt.Errorf("failed to delete endpoint: %w", err)
+	handler, err := m.staticFactory.CreateHandler(ctx, cfg)
+	if err != nil {
+		return err
 	}
 
-	delete(s.endpointServers, entry.ID)
+	if err := server.Mount(entry.ID, cfg.Path, handler); err != nil {
+		return err
+	}
+
+	m.pending[serverID] = true
 	return nil
+}
+
+func (m *Manager) handleHandlerDelete(ctx context.Context, entry registry.Entry) error {
+	switch entry.Kind {
+	case config.KindEndpoint:
+		cfg, err := decodeEntity[config.EndpointConfig](entry, m.dtt)
+		if err != nil {
+			return err
+		}
+		routerID := registry.ParseID(cfg.Meta.StringValue(config.RouterID)).WithDefaultNS(entry.ID.NS)
+		serverID, exists := m.routerServers[routerID]
+		if !exists {
+			return fmt.Errorf("router %s not found", routerID)
+		}
+
+		server, exists := m.servers[serverID]
+		if !exists {
+			return fmt.Errorf("server %s not found", serverID)
+		}
+
+		if err := server.RemoveEndpoint(routerID, entry.ID); err != nil {
+			return err
+		}
+
+		m.pending[serverID] = true
+
+	case config.KindStatic:
+		cfg, err := decodeEntity[config.StaticConfig](entry, m.dtt)
+		if err != nil {
+			return err
+		}
+		serverID := registry.ParseID(cfg.Meta.StringValue(config.ServerID)).WithDefaultNS(entry.ID.NS)
+		server, exists := m.servers[serverID]
+		if !exists {
+			return fmt.Errorf("server %s not found", serverID)
+		}
+
+		if err := server.Remove(entry.ID); err != nil {
+			return err
+		}
+
+		m.pending[serverID] = true
+	}
+
+	return nil
+}
+
+func (m *Manager) Begin(ctx context.Context) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.pending = make(map[registry.ID]bool)
+}
+
+func (m *Manager) Commit(ctx context.Context) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for serverID := range m.pending {
+		if server, exists := m.servers[serverID]; exists {
+			if err := server.Rebuild(ctx); err != nil {
+				m.log.Error("failed to rebuild router",
+					zap.String("server", serverID.String()),
+					zap.Error(err))
+			}
+		}
+	}
+
+	m.pending = make(map[registry.ID]bool)
+}
+
+func (m *Manager) Discard(ctx context.Context) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.pending = make(map[registry.ID]bool)
+}
+
+// decodeEntity is a helper to decode registry entries into specific configs
+func decodeEntity[T any](entry registry.Entry, transcoder payload.Transcoder) (*T, error) {
+	if entry.Data == nil {
+		return nil, fmt.Errorf("configuration data is required")
+	}
+
+	cfg := new(T)
+	if err := transcoder.Unmarshal(entry.Data, cfg); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
+	}
+
+	// Validate if the config implements Validate()
+	if validator, ok := interface{}(cfg).(interface{ Validate() error }); ok {
+		if err := validator.Validate(); err != nil {
+			return nil, fmt.Errorf("invalid configuration: %w", err)
+		}
+	}
+
+	return cfg, nil
 }
