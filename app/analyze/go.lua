@@ -274,8 +274,8 @@ Structs (%d):
     )
 
     -- Clean up
-    if parser then parser:close() end
     if tree then tree:close() end
+    if parser then parser:close() end
 
     return {
         text = report

@@ -14,7 +14,17 @@ import (
 // TreeWrapper wraps a tree-sitter Tree for Lua integration
 type TreeWrapper struct {
 	tree   *treesitter.Tree
+	once   sync.Once
 	source string // todo: change to byte
+}
+
+func (t *TreeWrapper) Close() {
+	t.once.Do(func() {
+		if t.tree != nil {
+			t.tree.Close()
+			t.tree = nil
+		}
+	})
 }
 
 // Register the Tree type to Lua
@@ -360,10 +370,7 @@ func treePrintDotGraph(l *lua.LState) int {
 
 func treeClose(l *lua.LState) int {
 	tree := checkTree(l)
-	if tree.tree != nil {
-		tree.tree.Close()
-		tree.tree = nil
-	}
+	tree.Close()
 	return 0
 }
 

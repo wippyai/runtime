@@ -143,13 +143,15 @@ func parserParse(l *lua.LState) int {
 		return 2
 	}
 
+	tw := &TreeWrapper{tree: tree, source: code}
+
 	uw := uow.FromContext(l.Context())
 	if uw != nil {
-		uw.AddCleanupFunc(tree.Close)
+		uw.AddCleanupFunc(tw.Close)
 	}
 
 	ud := l.NewUserData()
-	ud.Value = &TreeWrapper{tree: tree, source: code}
+	ud.Value = tw
 	l.SetMetatable(ud, l.GetTypeMetatable("treesitter.Tree"))
 	l.Push(ud)
 	return 1
