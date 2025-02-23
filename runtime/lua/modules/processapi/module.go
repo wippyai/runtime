@@ -41,11 +41,12 @@ func (m *ControlModule) Loader(l *lua.LState) int {
 
 	// Register functions
 	l.SetFuncs(mod, map[string]lua.LGFunction{
-		"info":       m.info.info,
-		"pid":        m.info.pid,
-		"input_args": m.info.initArgs,
+		"info":  m.info.info,
+		"pid":   m.info.pid,
+		"input": m.info.initArgs,
 
 		"listen": m.listen,
+		"inbox":  m.inbox,
 		"events": m.events,
 
 		"send":            m.send,
@@ -420,4 +421,9 @@ func (m *ControlModule) listen(l *lua.LState) int {
 	ch := channel.Named(portName, 1)
 
 	return subscribe.Subscribe(l, ch, topic)
+}
+
+// Modified listen function with @ validation
+func (m *ControlModule) inbox(l *lua.LState) int {
+	return subscribe.Subscribe(l, channel.Named("@inbox", 1), "@inbox")
 }

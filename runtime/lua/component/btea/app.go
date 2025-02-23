@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	processmod "github.com/ponyruntime/pony/runtime/lua/component/process"
 	"github.com/ponyruntime/pony/runtime/uow"
 	"sync"
 	"time"
@@ -344,14 +345,38 @@ func (p *App) Send(pkg *pubsub.Package) error {
 	case <-p.done:
 		return errors.New("process stopped")
 	default:
-		for _, m := range pkg.Messages {
-			luaValues, err := p.toLuaPayloads(m.Payloads)
+		// Check for inbox just once
+		hasInbox := p.pubsub.Exists(processmod.ChannelInbox)
+
+		for _, msg := range pkg.Messages {
+			luaValues, err := p.toLuaPayloads(msg.Payloads)
 			if err != nil {
 				p.log.Error("failed to convert payloads", zap.Error(err))
 				continue
 			}
-			if len(luaValues) > 0 {
-				p.pubsub.Publish(m.Topic, luaValues...)
+			if len(luaValues) == 0 {
+				continue
+			}
+
+			// Try main topic first
+			if p.pubsub.Exists(msg.Topic) {
+				p.pubsub.Publish(msg.Topic, luaValues...)
+				continue
+			}
+
+			// Fallback to inbox if available
+			if hasInbox {
+				msgTable := p.runner.GetCVM().State().NewTable()
+				msgTable.RawSetString("topic", lua.LString(msg.Topic))
+
+				// Create payload table for multiple values
+				payloadTable := p.runner.GetCVM().State().NewTable()
+				for i, v := range luaValues {
+					payloadTable.RawSetInt(i+1, v)
+				}
+				msgTable.RawSetString("payload", payloadTable)
+
+				p.pubsub.Publish(processmod.ChannelInbox, msgTable)
 			}
 		}
 		return nil

@@ -76,6 +76,14 @@ func (s *Layer) Slots(topic string) (int, error) {
 	return sub.channel.Slots(), nil
 }
 
+func (s *Layer) Exists(topic string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, exists := s.subs.get(topic)
+	return exists
+}
+
 func (s *Layer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, error) {
 	processableTasks := tasks
 	var outTasks []*engine.Task
