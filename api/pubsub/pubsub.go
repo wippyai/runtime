@@ -52,12 +52,6 @@ type (
 		Payloads payload.Payloads
 	}
 
-	// Package combines a Process ID with a batch of messages for tracking message origin
-	Package struct {
-		PID      PID
-		Messages []*Message
-	}
-
 	// Host defines an interface for components that can receive and forward messages
 	Host interface {
 		Receiver
@@ -78,14 +72,6 @@ type (
 		Send(*Package) error
 	}
 )
-
-// NewPackage creates a new message batch with the specified topic and payload items
-func NewPackage(pid PID, topic Topic, payloads ...payload.Payload) *Package {
-	return &Package{
-		PID:      pid,
-		Messages: []*Message{{Topic: topic, Payloads: payloads}},
-	}
-}
 
 // GetNode retrieves the Node instance from the provided context
 func GetNode(ctx context.Context) Node {
