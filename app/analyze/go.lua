@@ -67,15 +67,18 @@ function M.analyze(filepath)
         interfaces = {},
         methods = {},
         constants = {},
-        variables = {},
-        errors = {},
-        doc_comments = {},
+        comments = {
+            doc = {},    -- Documentation comments
+            inline = {}  -- Regular inline comments
+        },
         metrics = {
             total_lines = 0,
             total_functions = 0,
             total_structs = 0,
             total_interfaces = 0,
-            total_methods = 0
+            total_methods = 0,
+            total_constants = 0,
+            total_comments = 0
         }
     }
 
@@ -131,6 +134,28 @@ function M.analyze(filepath)
     if not struct_query then
         print("Error creating struct query:", struct_err)
         return nil, "Failed to create struct query: " .. tostring(struct_err)
+    end
+
+    -- Const query
+    local const_query, const_err = treesitter.query("go", [[
+        (const_declaration
+            (const_spec
+                name: (identifier) @const.name
+                type: (_)? @const.type
+                value: (_)? @const.value))
+    ]])
+    if not const_query then
+        print("Error creating const query:", const_err)
+        return nil, "Failed to create const query: " .. tostring(const_err)
+    end
+
+    -- Comment query
+    local comment_query, comment_err = treesitter.query("go", [[
+        (comment) @comment
+    ]])
+    if not comment_query then
+        print("Error creating comment query:", comment_err)
+        return nil, "Failed to create comment query: " .. tostring(comment_err)
     end
 
     print("Debug: Processing package information...")
@@ -203,7 +228,6 @@ function M.analyze(filepath)
                 struct_info.name = capture.node:text(content)
                 print("Debug: Found struct:", struct_info.name)
             elseif capture.name == "struct.fields" and capture.node then
-                -- Count the fields by walking through field declarations
                 local field_count = capture.node:named_child_count()
                 struct_info.fields = field_count
                 print("Debug: Struct field count:", field_count)
@@ -212,6 +236,49 @@ function M.analyze(filepath)
         if struct_info.name ~= "" then
             table.insert(analysis.structs, struct_info)
             analysis.metrics.total_structs = analysis.metrics.total_structs + 1
+        end
+    end
+
+    print("Debug: Processing constants...")
+    local const_matches = const_query:matches(root, content)
+    for _, match in ipairs(const_matches) do
+        local const_info = {
+            name = "",
+            type = "",
+            value = ""
+        }
+        for _, capture in ipairs(match.captures) do
+            if capture.name == "const.name" then
+                const_info.name = capture.node:text(content)
+                print("Debug: Found constant:", const_info.name)
+            elseif capture.name == "const.type" and capture.node then
+                const_info.type = capture.node:text(content)
+                print("Debug: Constant type:", const_info.type)
+            elseif capture.name == "const.value" and capture.node then
+                const_info.value = capture.node:text(content)
+                print("Debug: Constant value:", const_info.value)
+            end
+        end
+        if const_info.name ~= "" then
+            table.insert(analysis.constants, const_info)
+            analysis.metrics.total_constants = analysis.metrics.total_constants + 1
+        end
+    end
+
+    print("Debug: Processing comments...")
+    local comment_matches = comment_query:matches(root, content)
+    for _, match in ipairs(comment_matches) do
+        for _, capture in ipairs(match.captures) do
+            local comment_text = capture.node:text(content)
+            -- Check if it's a documentation comment
+            if comment_text:match("^%s*//") or comment_text:match("^%s*/%*") then
+                table.insert(analysis.comments.doc, comment_text)
+                print("Debug: Found doc comment:", comment_text)
+            else
+                table.insert(analysis.comments.inline, comment_text)
+                print("Debug: Found inline comment:", comment_text)
+            end
+            analysis.metrics.total_comments = analysis.metrics.total_comments + 1
         end
     end
 
@@ -230,14 +297,26 @@ Metrics:
   Total Structs: %d
   Total Methods: %d
   Total Interfaces: %d
+  Total Constants: %d
+  Total Comments: %d
 
 Imports (%d):
+%s
+
+Constants (%d):
 %s
 
 Functions (%d):
 %s
 
 Structs (%d):
+%s
+
+Comments:
+Documentation Comments (%d):
+%s
+
+Inline Comments (%d):
 %s
 ]],
         safe_text(analysis.package),
@@ -246,12 +325,23 @@ Structs (%d):
         analysis.metrics.total_structs or 0,
         analysis.metrics.total_methods or 0,
         analysis.metrics.total_interfaces or 0,
+        analysis.metrics.total_constants or 0,
+        analysis.metrics.total_comments or 0,
         #(analysis.imports or {}),
         format_list(analysis.imports, function(imp)
             if imp and imp.path then
                 return string.format("  %s%s",
                     imp.path,
                     imp.alias and " as " .. imp.alias or "")
+            end
+        end),
+        #(analysis.constants or {}),
+        format_list(analysis.constants, function(const)
+            if const and const.name then
+                return string.format("  %s%s = %s",
+                    const.name,
+                    const.type ~= "" and " " .. const.type or "",
+                    const.value ~= "" and const.value or "<no value>")
             end
         end),
         #(analysis.functions or {}),
@@ -270,12 +360,20 @@ Structs (%d):
                     struct.name,
                     struct.fields or 0)
             end
+        end),
+        #(analysis.comments.doc or {}),
+        format_list(analysis.comments.doc, function(comment)
+            return "  " .. comment
+        end),
+        #(analysis.comments.inline or {}),
+        format_list(analysis.comments.inline, function(comment)
+            return "  " .. comment
         end)
     )
 
     -- Clean up
-    if tree then tree:close() end
     if parser then parser:close() end
+    if tree then tree:close() end
 
     return {
         text = report
