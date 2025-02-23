@@ -16,7 +16,7 @@ local function get_parent_path(path)
     if not last_sep then
         return "/"
     end
-    return path:sub(1, last_sep-1)
+    return path:sub(1, last_sep - 1)
 end
 
 -- Helper function to get file extension
@@ -31,8 +31,9 @@ local function get_analyzer_for_file(filename)
 
     -- Map of file extensions to analyzer functions
     local analyzers = {
-        ["go"] = "analyze:go",  -- corresponds to the analyze namespace's go function
-        ["md"] = "analyze:markdown"
+        ["go"] = "analyze:go", -- corresponds to the analyze namespace's go function
+        ["md"] = "analyze:markdown",
+        ["lua"] = "analyze:lua"
     }
 
     return analyzers[ext:lower()]

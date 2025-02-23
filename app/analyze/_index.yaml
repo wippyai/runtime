@@ -24,3 +24,13 @@ entries:
     modules: [ "fs", "treesitter" ]
     pool:
       size: 1
+
+  - name: lua
+    kind: function.lua
+    meta:
+      comment: "Analyzing lua files"
+    source: file://lua.lua
+    method: analyze
+    modules: [ "fs", "treesitter" ]
+    pool:
+      size: 1
