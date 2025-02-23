@@ -10,6 +10,13 @@ entries:
     mode: "0755"
     default: true
 
+  - name: public
+    kind: fs.directory
+    meta:
+      comment: "Public filesystem"
+    directory: ./app/public/
+    mode: "0755"
+
   - name: gateway
     kind: http.service
     meta:
@@ -23,7 +30,7 @@ entries:
         initial_delay: 5s
         max_attempts: 3
 
-  - name: router
+  - name: api
     kind: http.router
     meta:
       comment: "API router for v1 endpoints"

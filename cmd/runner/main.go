@@ -582,12 +582,31 @@ func loadApplicationState(
 // ---- Services ----
 
 func WithHTTPService(a *App) eventbus.EventHandler {
-	return reghandler.NewRegistryHandler("http.*", http.NewHTTPManager(
-		a.eventBus,
+	// Create factories
+	endpointFactory, err := http.NewEndpointFactory(a.funcs)
+	if err != nil {
+		panic(fmt.Errorf("failed to create endpoint factory: %w", err))
+	}
+
+	staticFactory, err := http.NewStaticFactory(a.fsRegistry)
+	if err != nil {
+		panic(fmt.Errorf("failed to create static factory: %w", err))
+	}
+
+	// Create manager with all required factories
+	manager, err := http.NewManager(
 		a.dtt,
-		a.funcs,
+		a.eventBus,
+		http.NewServerFactory(),
+		endpointFactory,
+		staticFactory,
 		a.logger.Named("http"),
-	))
+	)
+	if err != nil {
+		panic(fmt.Errorf("failed to create http manager: %w", err))
+	}
+
+	return reghandler.NewRegistryHandler("http.*", manager)
 }
 
 func WithTerminalManager(a *App) eventbus.EventHandler {

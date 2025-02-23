@@ -1,26 +1,27 @@
 package http
 
 import (
+	context "context"
+	"github.com/ponyruntime/pony/api/registry"
 	"net/http"
 
-	"github.com/ponyruntime/pony/api/context"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 )
 
 // Context keys for storing HTTP-specific values in the request context
 var (
 	// RequestCtx is the context key for storing the HTTP request context
-	RequestCtx = &context.Key{Name: "http.request"} //nolint:gochecknoglobals
+	RequestCtx = &ctxapi.Key{Name: "http.request"} //nolint:gochecknoglobals
 	// RouteCtx is the context key for storing the current route information
-	RouteCtx = &context.Key{Name: "http.route"} //nolint:gochecknoglobals
+	RouteCtx = &ctxapi.Key{Name: "http.route"} //nolint:gochecknoglobals
 )
 
 // RouteInfo contains information about the matched route for the current request.
 // It includes routing parameters, endpoint configuration, and matching details.
 type RouteInfo struct {
 	Params     map[string]string // URL parameters extracted from the route
-	Endpoint   EndpointConfig    // Configuration for the matched endpoint
+	Func       registry.ID       // Identifier for the function to be called
 	MatchedURI string            // The URI pattern that matched the request
-	EndpointID string            // Unique identifier for the endpoint
 }
 
 // RequestContext wraps an HTTP request and response writer with additional
@@ -29,6 +30,12 @@ type RequestContext struct {
 	r               *http.Request
 	w               http.ResponseWriter
 	responseHandled bool
+}
+
+// GetRouteInfo retrieves route information from the context
+func GetRouteInfo(ctx context.Context) (*RouteInfo, bool) {
+	info, ok := ctx.Value(RouteCtx).(*RouteInfo)
+	return info, ok
 }
 
 // NewRequestContext creates a new RequestContext instance with the provided

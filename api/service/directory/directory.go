@@ -11,9 +11,6 @@ const Kind registry.Kind = "fs.directory"
 
 // Config represents configuration for a filesystem directory
 type Config struct {
-	// Default indicates if this is the default filesystem, only one can be set per runtime.
-	Default bool `json:"default"`
-
 	// Directory is the root path for this filesystem
 	Directory string `json:"directory"`
 

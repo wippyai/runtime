@@ -132,7 +132,7 @@ func TestEventRouter(t *testing.T) {
 		for name, h := range handlers {
 			select {
 			case <-h.done:
-				// Handler received all expected events
+				// ID received all expected events
 			case <-time.After(time.Second):
 				t.Fatalf("timeout waiting for %s handler", name)
 			}

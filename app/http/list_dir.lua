@@ -33,7 +33,7 @@ function list_directory()
 
     local path = req:query("path") or "/"
     local action = req:query("action") or "list"
-    local myfs = fs.default()
+    local myfs = fs.get("system:public")
 
     if not myfs then
         res:set_status(http.STATUS.INTERNAL_ERROR)

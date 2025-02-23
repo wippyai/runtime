@@ -1,4 +1,4 @@
-package http
+package __ignore
 
 import (
 	"context"
@@ -12,45 +12,42 @@ import (
 	"go.uber.org/zap"
 )
 
-// EndpointHandler processes HTTP requests for specific endpoints.
+// Handler processes HTTP requests for specific endpoints.
 // It handles request validation, execution, and response formatting.
-type EndpointHandler struct {
-	executor   function.Registry
-	transcoder payload.Transcoder
-	log        *zap.Logger
+type Handler struct {
+	funcs function.Registry
+	dtt   payload.Transcoder
+	log   *zap.Logger
 }
 
-// NewEndpointHandler creates a new EndpointHandler with the required dependencies.
+// NewEndpointHandler creates a new Handler with the required dependencies.
 func NewEndpointHandler(
-	executor function.Registry,
-	transcoder payload.Transcoder,
+	funcs function.Registry,
+	dtt payload.Transcoder,
 	log *zap.Logger,
-) *EndpointHandler {
-	return &EndpointHandler{
-		executor:   executor,
-		transcoder: transcoder,
-		log:        log,
+) *Handler {
+	return &Handler{
+		funcs: funcs,
+		dtt:   dtt,
+		log:   log,
 	}
 }
 
 // Handle processes incoming HTTP requests.
 // It extracts route information, validates the request, executes the task,
 // and writes the response back to the client.
-func (h *EndpointHandler) Handle(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) Handle(w http.ResponseWriter, r *http.Request) {
 	routeInfo, err := h.getRouteInfo(r)
 	if err != nil {
 		h.handleError(w, err, http.StatusInternalServerError)
 		return
 	}
 
-	task := runtime.Task{Handler: routeInfo.Endpoint.Handler}
-
 	rCtx := config.NewRequestContext(r, w)
 	ctx := context.WithValue(r.Context(), config.RequestCtx, rCtx)
 
-	if _, err = h.executeTask(ctx, task); err != nil {
+	if _, err = h.executeTask(ctx, runtime.Task{ID: routeInfo.Endpoint.Func}); err != nil {
 		if !rCtx.ResponseHandled() {
-			// todo: can we have some way to enable or disable error logging?
 			h.handleError(w, err, http.StatusInternalServerError)
 		}
 		return
@@ -62,7 +59,7 @@ func (h *EndpointHandler) Handle(w http.ResponseWriter, r *http.Request) {
 }
 
 // getRouteInfo extracts route information from the request context.
-func (h *EndpointHandler) getRouteInfo(r *http.Request) (*config.RouteInfo, error) {
+func (h *Handler) getRouteInfo(r *http.Request) (*config.RouteInfo, error) {
 	routeInfo, ok := r.Context().Value(config.RouteCtx).(*config.RouteInfo)
 	if !ok {
 		h.log.Error("route info not found in context")
@@ -72,8 +69,8 @@ func (h *EndpointHandler) getRouteInfo(r *http.Request) (*config.RouteInfo, erro
 }
 
 // executeTask runs the task and handles context cancellation.
-func (h *EndpointHandler) executeTask(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
-	resultCh, err := h.executor.Call(ctx, task)
+func (h *Handler) executeTask(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
+	resultCh, err := h.funcs.Call(ctx, task)
 	if err != nil {
 		return nil, fmt.Errorf("executing task: %w", err)
 	}
@@ -81,7 +78,7 @@ func (h *EndpointHandler) executeTask(ctx context.Context, task runtime.Task) (*
 	select {
 	case result := <-resultCh:
 		if result == nil {
-			return nil, fmt.Errorf("received nil result from executor")
+			return nil, fmt.Errorf("received nil result from funcs")
 		}
 		return result, result.Error
 	case <-ctx.Done():
@@ -90,7 +87,7 @@ func (h *EndpointHandler) executeTask(ctx context.Context, task runtime.Task) (*
 }
 
 // handleError logs the error and writes it to the response.
-func (h *EndpointHandler) handleError(w http.ResponseWriter, err error, statusCode int) {
+func (h *Handler) handleError(w http.ResponseWriter, err error, statusCode int) {
 	h.log.Debug("request error", zap.Error(err), zap.Int("status_code", statusCode))
 	http.Error(w, err.Error(), statusCode)
 }

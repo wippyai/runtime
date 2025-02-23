@@ -1,4 +1,4 @@
-package http
+package __ignore
 
 import (
 	"context"

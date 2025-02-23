@@ -1,4 +1,4 @@
-package router
+package __ignore
 
 import (
 	"fmt"

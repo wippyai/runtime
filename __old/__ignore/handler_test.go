@@ -1,4 +1,4 @@
-package http
+package __ignore
 
 import (
 	"context"
@@ -69,8 +69,8 @@ func TestEndpointHandler_Handle_ExecutorError(t *testing.T) {
 	// Setup response recorder
 	w := httptest.NewRecorder()
 
-	// Setup executor error
-	expectedError := "executor error"
+	// Setup funcs error
+	expectedError := "funcs error"
 	executor.executeFunc = func(context.Context, runtime.Task) (chan *runtime.Result, error) {
 		return nil, errors.New(expectedError)
 	}
@@ -112,7 +112,7 @@ func TestEndpointHandler_Handle_ContextCancellation(t *testing.T) {
 	// Setup response recorder
 	w := httptest.NewRecorder()
 
-	// Setup executor response that will never complete due to cancellation
+	// Setup funcs response that will never complete due to cancellation
 	executor.executeFunc = func(context.Context, runtime.Task) (chan *runtime.Result, error) {
 		return make(chan *runtime.Result), nil
 	}
@@ -169,13 +169,13 @@ func TestEndpointHandler_Handle_SuccessfulResponse(t *testing.T) {
 	routeInfo := &config.RouteInfo{
 		EndpointID: "test-endpoint",
 		Endpoint: config.EndpointConfig{
-			Handler: registry.ParseID("test.function"),
+			Func: registry.ParseID("test.function"),
 		},
 	}
 	ctx := context.WithValue(req.Context(), config.RouteCtx, routeInfo)
 	req = req.WithContext(ctx)
 
-	// Setup successful executor response
+	// Setup successful funcs response
 	resultCh := make(chan *runtime.Result, 1)
 	resultCh <- &runtime.Result{} // Empty result since we're using context for response
 	close(resultCh)

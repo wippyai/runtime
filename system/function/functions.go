@@ -136,9 +136,9 @@ func (f *Registry) sendReject(path events.Path, reason string) {
 // for receiving the execution result(s). Returns an error if no handler is registered
 // for the task's target or if the handler type is invalid.
 func (f *Registry) Call(ctx context.Context, task runtime.Task) (chan *runtime.Result, error) {
-	handler, exists := f.handlers.Load(task.Handler)
+	handler, exists := f.handlers.Load(task.ID)
 	if !exists {
-		return nil, fmt.Errorf("no handler registered for target: %s", task.Handler)
+		return nil, fmt.Errorf("no handler registered for target: %s", task.ID)
 	}
 
 	// keep context boundaries
@@ -148,14 +148,14 @@ func (f *Registry) Call(ctx context.Context, task runtime.Task) (chan *runtime.R
 
 	execHandler, ok := handler.(function.Func)
 	if !ok {
-		return nil, fmt.Errorf("invalid handler type for target: %s", task.Handler)
+		return nil, fmt.Errorf("invalid handler type for target: %s", task.ID)
 	}
 
 	ctx = function.WithContext(ctx, &function.Context{
 		PID: pubsub.PID{
 			Node:   pubsub.GetNode(ctx).ID(),
 			Host:   function.HostID,
-			ID:     task.Handler,
+			ID:     task.ID,
 			UniqID: f.uniqID.Generate(),
 		},
 	})

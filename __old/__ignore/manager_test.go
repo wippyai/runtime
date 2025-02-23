@@ -1,7 +1,8 @@
-package http
+package __ignore
 
 import (
 	"context"
+	http2 "github.com/ponyruntime/pony/service/http"
 	httpbase "net/http"
 	"testing"
 
@@ -24,7 +25,7 @@ func setupTest(*testing.T) *ServerManager {
 	tr := transcoder.NewTranscoder()
 	json.Register(tr)
 
-	manager := NewManager(bus, tr, func(writer httpbase.ResponseWriter, _ *httpbase.Request) {
+	manager := http2.NewManager(bus, tr, func(writer httpbase.ResponseWriter, _ *httpbase.Request) {
 		_, _ = writer.Write([]byte("Hello, World!"))
 	}, logger)
 

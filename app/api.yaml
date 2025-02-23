@@ -5,8 +5,7 @@ meta:
   depends_on:
     - ns:functions
     - ns:system
-  server: system:gateway
-  router: system:router
+  router: system:api
 
 entries:
   - name: system.env
@@ -15,7 +14,7 @@ entries:
       comment: "Streams environment variables as JSON"
     method: GET
     path: /env
-    handler: functions:system.env
+    func: functions:system.env
 
   - name: time.http
     kind: http.endpoint
@@ -23,7 +22,7 @@ entries:
       comment: "Returns current UTC time from worldtimeapi.org"
     method: GET
     path: /time/utc
-    handler: functions:time.http
+    func: functions:time.http
 
   - name: time.local
     kind: http.endpoint
@@ -31,7 +30,7 @@ entries:
       comment: "Returns the local current time"
     method: GET
     path: /time/local
-    handler: functions:time.local
+    func: functions:time.local
 
   - name: ai.ollama
     kind: http.endpoint
@@ -39,7 +38,7 @@ entries:
       comment: "Returns the ollama response"
     method: GET
     path: /ollama
-    handler: functions:ai.ollama
+    func: functions:ai.ollama
 
   - name: time.ticker
     kind: http.endpoint
@@ -47,7 +46,7 @@ entries:
       comment: "Ticks time with events every second"
     method: GET
     path: /ticker
-    handler: functions:time.ticker
+    func: functions:time.ticker
 
   - name: demo.websocket
     kind: http.endpoint
@@ -55,7 +54,7 @@ entries:
       comment: "WebSocket demo with Discord bot implementation"
     method: GET
     path: /ws-demo
-    handler: functions:demo.websocket
+    func: functions:demo.websocket
 
   - name: demo.stream
     kind: http.endpoint
@@ -63,7 +62,7 @@ entries:
       comment: "Demonstrates different streaming formats (text, JSON, SSE)"
     method: GET
     path: /stream
-    handler: functions:demo.stream
+    func: functions:demo.stream
 
   - name: demo.pid
     kind: http.endpoint
@@ -71,7 +70,7 @@ entries:
       comment: "Returns current function PID"
     method: GET
     path: /pid
-    handler: functions:demo.pid
+    func: functions:demo.pid
 
   - name: demo.message
     kind: http.endpoint
@@ -79,7 +78,7 @@ entries:
       comment: "Sends message to a specified process"
     method: GET
     path: /message
-    handler: demos:message.sender
+    func: demos:message.sender
 
   - name: fs.listdir
     kind: http.endpoint
@@ -87,4 +86,4 @@ entries:
       comment: "Lists contents of the current directory"
     method: GET
     path: /fs/list
-    handler: functions:fs.listdir
+    func: functions:fs.listdir

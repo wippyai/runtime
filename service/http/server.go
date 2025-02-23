@@ -4,49 +4,192 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/go-chi/chi/v5/middleware"
 	contextapi "github.com/ponyruntime/pony/api/context"
+	"github.com/ponyruntime/pony/api/registry"
+	config "github.com/ponyruntime/pony/api/service/http"
+	"github.com/ponyruntime/pony/api/supervisor"
 	"net"
 	"net/http"
 	"sync"
 	"time"
-
-	config "github.com/ponyruntime/pony/api/service/http"
-	"github.com/ponyruntime/pony/service/http/router"
 )
 
 const (
-	// BootTimeout defines how long to wait for service to start
-	BootTimeout = 30 * time.Second
-	// CheckInterval defines how often to check service status during boot
+	BootTimeout   = 30 * time.Second
 	CheckInterval = 100 * time.Millisecond
-	// StatusBuffer defines buffer size for status channel
-	StatusBuffer = 10
+	StatusBuffer  = 10
 )
 
 var ContextListener = &contextapi.Key{Name: "listener"}
 
-// Server manages a single HTTP service instance and its associated router
-type Server struct {
-	config config.ServerConfig
-	router *router.Router
-	server *http.Server
-	mu     sync.RWMutex
-
-	// Immutable channels for status updates and errors
+// ServerService combines HTTP server and router functionality
+type ServerService struct {
+	config     *config.ServerConfig
+	routeMgr   *RouteManager
+	server     *http.Server
+	mu         sync.RWMutex
 	statusChan chan any
+	started    bool // Track if server has been started
 }
 
-// NewServer creates a new Server instance with the given configuration and handler
-func NewServer(config config.ServerConfig, handler http.HandlerFunc) *Server {
-	return &Server{
-		config:     config,
-		router:     router.NewRouter(handler),
-		statusChan: make(chan any, StatusBuffer), // Created once, never closed
+// NewServerService creates a new ServerService instance
+func NewServerService(cfg *config.ServerConfig) *ServerService {
+	return &ServerService{
+		config:     cfg,
+		routeMgr:   NewRouteManager(),
+		statusChan: make(chan any, StatusBuffer),
 	}
 }
 
+// UpdateConfig implements Server interface
+func (s *ServerService) UpdateConfig(cfg *config.ServerConfig) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.started {
+		if s.config.Addr != cfg.Addr {
+			return fmt.Errorf("cannot change server address while running")
+		}
+		s.server.ReadTimeout = cfg.Timeouts.ReadTimeout
+		s.server.WriteTimeout = cfg.Timeouts.WriteTimeout
+		s.server.IdleTimeout = cfg.Timeouts.IdleTimeout
+	}
+
+	s.config = cfg
+	return nil
+}
+
+// AddRouter adds a new router with its middleware stack
+func (s *ServerService) AddRouter(id registry.ID, cfg *config.RouterConfig) error {
+	// Convert middleware config to actual middleware functions
+	middlewares := make([]func(http.Handler) http.Handler, 0, len(cfg.Middlewares))
+	for _, mw := range cfg.Middlewares {
+		if fn := s.createMiddleware(mw, cfg.Options); fn != nil {
+			middlewares = append(middlewares, fn)
+		}
+	}
+
+	return s.routeMgr.AddRouter(id, cfg.Prefix, middlewares)
+}
+
+// DeleteRouter implements Server interface
+func (s *ServerService) DeleteRouter(id registry.ID) error {
+	return s.routeMgr.RemoveRouter(id)
+}
+
+// AddEndpoint implements Server interface
+func (s *ServerService) AddEndpoint(routerID, id registry.ID, path string, method string, handler http.Handler) error {
+	return s.routeMgr.AddRoute(routerID, id, method, path, id, handler)
+}
+
+// RemoveEndpoint implements Server interface
+func (s *ServerService) RemoveEndpoint(routerID, id registry.ID) error {
+	return s.routeMgr.RemoveRoute(routerID, id)
+}
+
+// Mount implements Server interface
+func (s *ServerService) Mount(id registry.ID, path string, handler http.Handler) error {
+	return s.routeMgr.Mount(path, handler)
+}
+
+// Remove implements Server interface
+func (s *ServerService) Remove(id registry.ID) error {
+	return s.routeMgr.Unmount(id.String())
+}
+
+// Rebuild implements Server interface
+func (s *ServerService) Rebuild(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.routeMgr.Build()
+
+	// If server is running, we need to update its handler
+	if s.started && s.server != nil {
+		s.server.Handler = s.routeMgr
+	}
+
+	return nil
+}
+
+// Start implements supervisor.Service
+func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
+	s.mu.Lock()
+	s.server = &http.Server{
+		Addr:         s.config.Addr,
+		Handler:      s.routeMgr,
+		ReadTimeout:  s.config.Timeouts.ReadTimeout,
+		WriteTimeout: s.config.Timeouts.WriteTimeout,
+		IdleTimeout:  s.config.Timeouts.IdleTimeout,
+		BaseContext: func(l net.Listener) context.Context {
+			return context.WithValue(ctx, ContextListener, l)
+		},
+	}
+	s.started = true
+	s.mu.Unlock()
+
+	// Launch server
+	go func() {
+		err := s.server.ListenAndServe()
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			select {
+			case s.statusChan <- fmt.Errorf("server error: %w", err):
+			default:
+			}
+		}
+
+		s.mu.Lock()
+		s.started = false
+		s.mu.Unlock()
+	}()
+
+	if err := s.ensureRunning(ctx); err != nil {
+		s.mu.Lock()
+		s.started = false
+		s.mu.Unlock()
+		return nil, fmt.Errorf("startup check failed: %w", err)
+	}
+
+	// Handle shutdown via context
+	go func() {
+		<-ctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		if err := s.Stop(shutdownCtx); err != nil {
+			select {
+			case s.statusChan <- fmt.Errorf("shutdown error: %w", err):
+			default:
+			}
+		}
+	}()
+
+	select {
+	case s.statusChan <- fmt.Sprintf("service listening on %s", s.config.Addr):
+	default:
+	}
+
+	return s.statusChan, nil
+}
+
+// Stop implements supervisor.Service
+func (s *ServerService) Stop(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.server != nil {
+		if err := s.server.Shutdown(ctx); err != nil {
+			return fmt.Errorf("graceful shutdown failed: %w", err)
+		}
+		s.server = nil
+		s.started = false
+	}
+	return nil
+}
+
 // ensureRunning verifies if the server is listening on its configured address
-func (s *Server) ensureRunning(ctx context.Context) error {
+func (s *ServerService) ensureRunning(ctx context.Context) error {
 	timeout := time.After(BootTimeout)
 	ticker := time.NewTicker(CheckInterval)
 	defer ticker.Stop()
@@ -67,82 +210,30 @@ func (s *Server) ensureRunning(ctx context.Context) error {
 	}
 }
 
-// Start implements the ServerManager interface
-func (s *Server) Start(ctx context.Context) (<-chan any, error) {
-	s.mu.Lock()
-	s.server = &http.Server{
-		Addr:         s.config.Addr,
-		Handler:      s.router,
-		ReadTimeout:  s.config.Timeouts.ReadTimeout,
-		WriteTimeout: s.config.Timeouts.WriteTimeout,
-		IdleTimeout:  s.config.Timeouts.IdleTimeout,
-		BaseContext: func(l net.Listener) context.Context {
-			// Inherit parent context and add listener info
-			return context.WithValue(ctx, ContextListener, l)
-		},
-	}
-	s.mu.Unlock()
-
-	// Launch service in a goroutine
-	go func() {
-		err := s.server.ListenAndServe()
-		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			select {
-			case s.statusChan <- fmt.Errorf("server error: %w", err):
-			default:
-				// Log could be added here if status channel is full
-			}
+// Helper methods for middleware creation
+func (s *ServerService) createMiddleware(name string, options map[string]string) func(http.Handler) http.Handler {
+	switch name {
+	case "timeout":
+		timeoutVal := options["timeout"]
+		if timeoutVal == "" {
+			timeoutVal = "60s"
 		}
-	}()
-
-	// Check if service starts successfully
-	if err := s.ensureRunning(ctx); err != nil {
-		return nil, fmt.Errorf("startup check failed: %w", err)
-	}
-
-	// Handle shutdown via context
-	go func() {
-		<-ctx.Done()
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
-		if err := s.Stop(shutdownCtx); err != nil {
-			select {
-			case s.statusChan <- fmt.Errorf("shutdown error: %w", err):
-			default:
-				// Log could be added here if status channel is full
-			}
+		duration, err := time.ParseDuration(timeoutVal)
+		if err == nil {
+			return middleware.Timeout(duration)
 		}
-	}()
-
-	// Signal successful start
-	select {
-	case s.statusChan <- fmt.Sprintf("service listening on %s", s.config.Addr):
-	default:
-		// Log could be added here if status channel is full
-	}
-
-	return s.statusChan, nil
-}
-
-// Stop implements the ServerManager interface
-func (s *Server) Stop(ctx context.Context) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.server != nil {
-		if err := s.server.Shutdown(ctx); err != nil {
-			return fmt.Errorf("graceful shutdown failed: %w", err)
-		}
-		s.server = nil
+	case "recoverer":
+		return middleware.Recoverer
+	case "request_id":
+		return middleware.RequestID
+	case "real_ip":
+		return middleware.RealIP
 	}
 	return nil
 }
 
-// UpdateConfig updates the service configuration
-// Note: Changes will only take effect on the next Start
-func (s *Server) UpdateConfig(config config.ServerConfig) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.config = config
-}
+// Ensure ServerService implements required interfaces
+var (
+	_ supervisor.Service = (*ServerService)(nil)
+	_ Server             = (*ServerService)(nil)
+)

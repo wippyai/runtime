@@ -1,4 +1,4 @@
-package router
+package __ignore
 
 import (
 	"context"
@@ -32,6 +32,7 @@ type Router struct {
 	handler        http.HandlerFunc
 	routers        sync.Map     // thread-safe map for routers
 	endpoints      sync.Map     // thread-safe map for endpoints
+	statics        sync.Map     // thread-safe map for static handlers
 	composedRouter atomicRouter // atomic pointer for router updates
 }
 
@@ -113,7 +114,7 @@ func (rm *Router) UpdateRouter(routerID string, rcfg config.RouterConfig) error 
 	}
 
 	rm.routers.Store(routerID, newRouter)
-	rm.rebuildRouter()
+	rm.rebuildRouter(nil)
 
 	return nil
 }
@@ -142,7 +143,7 @@ func (rm *Router) AddEndpoint(endpointID string, cfg config.EndpointConfig) erro
 
 	// Store endpoint configuration
 	rm.endpoints.Store(endpointID, cfg)
-	rm.rebuildRouter()
+	rm.rebuildRouter(nil)
 
 	return nil
 }
@@ -172,7 +173,7 @@ func (rm *Router) DeleteEndpoint(endpointID string) error {
 
 	// Remove endpoint configuration
 	rm.endpoints.Delete(endpointID)
-	rm.rebuildRouter()
+	rm.rebuildRouter(nil)
 
 	return nil
 }
@@ -230,17 +231,60 @@ func (rm *Router) UpdateEndpoint(endpointID string, cfg config.EndpointConfig) e
 	return nil
 }
 
+// AddStatic adds a new static file server configuration
+func (rm *Router) AddStatic(staticID string, cfg config.StaticConfig, fsReg fs.Registry) error {
+	// Check if already exists
+	if _, loaded := rm.statics.LoadOrStore(staticID, cfg); loaded {
+		return fmt.Errorf("static server with ID '%s' already exists", staticID)
+	}
+
+	// Verify the filesystem exists before allowing the configuration
+	if _, ok := fsReg.GetFS(cfg.FS.String()); !ok {
+		rm.statics.Delete(staticID) // Cleanup the stored config
+		return fmt.Errorf("filesystem %s not found", cfg.FS)
+	}
+
+	rm.rebuildRouter(fsReg)
+	return nil
+}
+
+// UpdateStatic updates an existing static file server configuration
+func (rm *Router) UpdateStatic(staticID string, cfg config.StaticConfig, fsReg fs.Registry) error {
+	if _, exists := rm.statics.Load(staticID); !exists {
+		return fmt.Errorf("static server with ID '%s' not found", staticID)
+	}
+
+	// Verify the filesystem exists before allowing the update
+	if _, ok := fsReg.GetFS(cfg.FS.String()); !ok {
+		return fmt.Errorf("filesystem %s not found", cfg.FS)
+	}
+
+	rm.statics.Store(staticID, cfg)
+	rm.rebuildRouter(fsReg)
+	return nil
+}
+
+// DeleteStatic removes a static file server configuration
+func (rm *Router) DeleteStatic(staticID string) error {
+	if _, exists := rm.statics.LoadAndDelete(staticID); !exists {
+		return fmt.Errorf("static server with ID '%s' not found", staticID)
+	}
+
+	rm.rebuildRouter(nil) // nil is safe here as we're just removing
+	return nil
+}
+
 // rebuildRouter rebuilds the composed Chi router
-func (rm *Router) rebuildRouter() {
+func (rm *Router) rebuildRouter(fsReg fs.Registry) {
 	newRouter := chi.NewRouter()
 
+	// Mount regular routers
 	rm.routers.Range(func(key, value interface{}) bool {
 		routerID := key.(string)
 		router := value.(*ChiRouter)
 
 		builtRouter, err := router.Build(rm.handler)
 		if err != nil {
-			// Log error but continue with other routers
 			fmt.Printf("error building router %s: %v\n", routerID, err)
 			return true
 		}
@@ -248,15 +292,46 @@ func (rm *Router) rebuildRouter() {
 		return true
 	})
 
+	// Mount static file servers
+	if fsReg != nil {
+		rm.statics.Range(func(key, value interface{}) bool {
+			cfg := value.(config.StaticConfig)
+			fsys, ok := fsReg.GetFS(cfg.FS.String())
+			if !ok {
+				fmt.Printf("filesystem %s not found\n", cfg.FS)
+				return true
+			}
+
+			handler := http.FileServer(http.FS(fsys))
+			if cfg.Directory != "" {
+				handler = http.StripPrefix(cfg.Path, handler)
+			}
+
+			if cfg.Options.CacheControl != "" {
+				handler = wrapWithCacheControl(handler, cfg.Options.CacheControl)
+			}
+
+			newRouter.Mount(cfg.Path, handler)
+			return true
+		})
+	}
+
 	// Atomic router update
 	rm.composedRouter.value.Store(newRouter)
 }
 
-// ServeHTTP implements the http.Handler interface
+// ServeHTTP implements the http.ID interface
 func (rm *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if router := rm.composedRouter.value.Load(); router != nil {
 		router.ServeHTTP(w, r)
 	} else {
 		http.Error(w, "router not initialized", http.StatusInternalServerError)
 	}
+}
+
+func wrapWithCacheControl(h http.Handler, cacheControl string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", cacheControl)
+		h.ServeHTTP(w, r)
+	})
 }

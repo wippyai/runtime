@@ -16,9 +16,6 @@ const (
 	Register = "fs.register"
 	Delete   = "fs.delete"
 
-	RegisterDefault = "fs.register_default"
-	DeleteDefault   = "fs.delete_default"
-
 	Accept = "fs.accept"
 	Reject = "fs.reject"
 )
@@ -54,7 +51,6 @@ type (
 
 	Registry interface {
 		GetFS(name string) (FS, bool)
-		GetDefaultFS() (FS, bool)
 	}
 )
 

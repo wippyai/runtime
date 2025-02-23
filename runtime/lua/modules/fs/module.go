@@ -49,8 +49,8 @@ func (m *Module) Loader(l *lua.LState) int {
 
 	// Register core functions
 	api := map[string]lua.LGFunction{
-		"default": apiDefault,
-		"get":     apiGet,
+		"get": apiGet,
+		// todo: add list
 	}
 
 	l.SetFuncs(t, api)
@@ -59,23 +59,6 @@ func (m *Module) Loader(l *lua.LState) int {
 	registerFile(l)
 
 	l.Push(t)
-	return 1
-}
-
-func apiDefault(l *lua.LState) int {
-	reg := fsapi.FromContext(l.Context())
-	if reg == nil {
-		l.RaiseError("no filesystem registry in context")
-		return 0
-	}
-
-	f, ok := reg.GetDefaultFS()
-	if !ok {
-		l.RaiseError("no default filesystem available")
-		return 0
-	}
-
-	l.Push(WrapFS(l, f))
 	return 1
 }
 

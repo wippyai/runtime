@@ -9,7 +9,7 @@ type (
 	// Task represents a unit of work to be executed by the executor.
 	// It contains the execution context, target identifier, and input payloads.
 	Task struct {
-		Handler  registry.ID      `json:"handler"`
+		ID       registry.ID      `json:"handler"`
 		Payloads payload.Payloads `json:"payloads"`
 	}
 
