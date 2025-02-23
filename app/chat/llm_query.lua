@@ -22,7 +22,7 @@ function handler(args)
     }
 
     local body = json.encode({
-        model = args.model or "o3-mini",
+        model = args.model or "gpt-4o",
         messages = messages,
         stream = args.stream == true
     })

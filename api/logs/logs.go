@@ -50,6 +50,10 @@ type (
 	}
 )
 
+func WithContext(ctx context.Context, logger *zap.Logger) context.Context {
+	return context.WithValue(ctx, ctxapi.LoggerCtx, logger)
+}
+
 func GetLogger(ctx context.Context) *zap.Logger {
 	if l, ok := ctx.Value(ctxapi.LoggerCtx).(*zap.Logger); ok {
 		return l
