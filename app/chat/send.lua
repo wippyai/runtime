@@ -1,7 +1,6 @@
 local http = require("http")
 local base64 = require("base64")
 local time = require("time")
-local json = require("json")
 
 function handler()
     local req = http.request()
@@ -73,7 +72,6 @@ function handler()
 
         if result.channel == inbox and result.value then
             local msg = result.value
-            print("DEBUG: Received response:", json.encode(msg))
 
             if msg.topic == "response" then
                 -- Check for completion

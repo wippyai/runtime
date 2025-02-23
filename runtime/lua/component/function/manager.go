@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/ponyruntime/pony/api/function"
+	"github.com/ponyruntime/pony/api/logs"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/runtime/lua/component"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
@@ -239,6 +240,8 @@ func (m *Manager) Execute(ctx context.Context, task runtime.Task) (chan *runtime
 
 	// Spawn result channel
 	resultChan := make(chan *runtime.Result, 1)
+
+	ctx = logs.WithContext(ctx, m.log.With(zap.String("func", task.ID.String())))
 
 	// Execute in goroutine to handle async results
 	go func() {
