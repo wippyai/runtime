@@ -16,12 +16,10 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-// Module provides Lua bindings for executing tasks in the runtime
 type Module struct {
 	appContext context.Context
 }
 
-// Functions handles task execution with proper context management
 type Functions struct {
 	funcs      function.Registry
 	appContext context.Context
@@ -104,16 +102,38 @@ func (m *Module) withContext(l *lua.LState) int {
 
 	ctxTable := l.CheckTable(2)
 
+	// Create new contexter and copy existing values
+	newValues := contextapi.NewContexter[interface{}]()
+	if functions.values != nil {
+		functions.values.Iterate(func(key string, value interface{}) {
+			newValues.WithValue(key, value)
+		})
+	}
+
+	// Add new values
 	ctxTable.ForEach(func(k, v lua.LValue) {
 		key, ok := k.(lua.LString)
 		if !ok {
 			l.ArgError(2, "context keys must be strings")
 			return
 		}
-		functions.values.WithValue(string(key), transcode.ToGoAny(v))
+		newValues.WithValue(string(key), transcode.ToGoAny(v))
 	})
 
-	l.Push(ud)
+	// Create new Functions instance
+	newFunctions := &Functions{
+		funcs:      functions.funcs,
+		appContext: functions.appContext,
+		dtt:        functions.dtt,
+		values:     newValues,
+	}
+
+	// Create new userdata with the new Functions instance
+	newUd := l.NewUserData()
+	newUd.Value = newFunctions
+	l.SetMetatable(newUd, l.GetTypeMetatable("function.Executor"))
+	l.Push(newUd)
+
 	return 1
 }
 
@@ -145,8 +165,9 @@ func (m *Module) call(l *lua.LState) int {
 	// Create task with proper context
 	task, err := functions.createTask(l)
 	if err != nil {
-		l.RaiseError(err.Error())
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
 	}
 
 	// Wrap in coroutine for execution
@@ -190,8 +211,8 @@ func (m *Module) run(l *lua.LState) int {
 	// Create task with proper validation
 	task, err := functions.createTask(l)
 	if err != nil {
-		l.RaiseError(err.Error())
-		return 0
+		l.Push(lua.LString(err.Error()))
+		return 1
 	}
 
 	// Start the task asynchronously with app context
@@ -203,6 +224,18 @@ func (m *Module) run(l *lua.LState) int {
 
 	l.Push(lua.LNil)
 	return 1
+}
+
+func createPayload(l *lua.LState, value lua.LValue) payload.Payload {
+	// If it's already a table, use it as is
+	if value.Type() == lua.LTTable {
+		return payload.NewPayload(value, payload.Lua)
+	}
+
+	// Wrap single value in a table
+	table := l.NewTable()
+	table.RawSetInt(1, value)
+	return payload.NewPayload(table, payload.Lua)
 }
 
 func (f *Functions) createTask(l *lua.LState) (runtime.Task, error) {
@@ -226,7 +259,7 @@ func (f *Functions) createTask(l *lua.LState) (runtime.Task, error) {
 	for i := targetIndex + 1; i <= l.GetTop(); i++ {
 		arg := l.Get(i)
 		if arg != lua.LNil {
-			payloads = append(payloads, payload.NewPayload(arg, payload.Lua))
+			payloads = append(payloads, createPayload(l, arg))
 		}
 	}
 
