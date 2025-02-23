@@ -54,6 +54,8 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		return fmt.Errorf("invalid configuration: %w", err)
 	}
 
+	cfg.Process = cfg.Process.WithDefaultNS(entry.ID.NS)
+
 	// Create service instance
 	svc := &Service{
 		id:     entry.ID,
@@ -106,6 +108,8 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	}
 
 	// todo: at the moment we do not update config and do not swap ids and etc
+
+	cfg.Process = cfg.Process.WithDefaultNS(entry.ID.NS)
 
 	// Update supervisor config
 	m.bus.Send(ctx, events.Event{

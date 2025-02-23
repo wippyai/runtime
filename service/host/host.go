@@ -29,6 +29,7 @@ type Host struct {
 	ctx         context.Context
 	done        chan struct{}
 	msgWG       sync.WaitGroup
+	running     atomic.Bool // true if host is running
 	shutdown    atomic.Bool // shutdown flag: true if shutdown in progress.
 	statusCh    chan any    // Optional external status notification channel.
 }
@@ -80,6 +81,7 @@ func (mph *Host) Start(ctx context.Context) (<-chan any, error) {
 
 	mph.startMessageWorkers()
 	mph.sendStatus("host started and accepting processes")
+	mph.running.Store(true)
 
 	return mph.statusCh, nil
 }
@@ -137,6 +139,10 @@ func (mph *Host) startMessageWorkers() {
 
 // Launch starts a new process and sets up its routing. It rejects new launches if shutdown is in progress.
 func (mph *Host) Launch(ctx context.Context, launch *process.LaunchProcess) (pubsub.PID, error) {
+	if !mph.running.Load() {
+		return pubsub.PID{}, errors.New("host is not running, cannot launch new process")
+	}
+
 	if mph.shutdown.Load() {
 		return pubsub.PID{}, errors.New("host is shutting down, cannot launch new process")
 	}
@@ -186,6 +192,10 @@ func (mph *Host) prepareContext(ctx context.Context, pid pubsub.PID) context.Con
 
 // Terminate stops a running process and detaches its routing.
 func (mph *Host) Terminate(ctx context.Context, pid pubsub.PID) error {
+	if mph.running.Load() == false {
+		return errors.New("host is not running, cannot launch new process")
+	}
+
 	if !mph.pool.HasProcess(pid) {
 		return process.ErrNoProcess
 	}
@@ -199,6 +209,10 @@ func (mph *Host) Terminate(ctx context.Context, pid pubsub.PID) error {
 
 // Send forwards a message via the underlying msgHost, rejecting if shutdown is in progress.
 func (mph *Host) Send(pkg *pubsub.Package) error {
+	if mph.running.Load() == false {
+		return errors.New("host is not running, cannot launch new process")
+	}
+
 	if mph.shutdown.Load() {
 		return errors.New("host is shutting down, rejecting send")
 	}
@@ -207,6 +221,10 @@ func (mph *Host) Send(pkg *pubsub.Package) error {
 
 // Attach registers a receiver channel with the underlying msgHost, rejecting if shutdown is in progress.
 func (mph *Host) Attach(pid pubsub.PID, ch chan *pubsub.Package) (context.CancelFunc, error) {
+	if mph.running.Load() == false {
+		return nil, errors.New("host is not running, cannot launch new process")
+	}
+
 	if mph.shutdown.Load() {
 		return nil, errors.New("host is shutting down, rejecting attach")
 	}
@@ -214,6 +232,9 @@ func (mph *Host) Attach(pid pubsub.PID, ch chan *pubsub.Package) (context.Cancel
 }
 
 func (mph *Host) Detach(pid pubsub.PID) {
+	if mph.running.Load() == false {
+		return
+	}
 	if mph.shutdown.Load() {
 		return
 	}
@@ -222,6 +243,10 @@ func (mph *Host) Detach(pid pubsub.PID) {
 
 // Stop gracefully shuts down the host by rejecting new operations and waiting for processes to complete.
 func (mph *Host) Stop(ctx context.Context) error {
+	if mph.running.Load() == false {
+		return errors.New("host is not running, cannot stop")
+	}
+
 	mph.shutdown.Store(true)
 
 	mph.sendStatus("host shutting down")
@@ -235,6 +260,7 @@ func (mph *Host) Stop(ctx context.Context) error {
 	mph.msgWG.Wait()
 	mph.sendStatus("host shutdown complete")
 	close(mph.statusCh)
+	mph.running.Store(false)
 
 	return nil
 }

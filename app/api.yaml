@@ -95,3 +95,19 @@ entries:
     method: GET
     path: /hello
     func: functions:demo.hello.http
+
+  - name: chat.start
+    kind: http.endpoint
+    meta:
+      comment: "Start new chat session"
+    method: GET
+    path: /chat/session/start
+    func: chat:session.start
+
+  - name: chat.send
+    kind: http.endpoint
+    meta:
+      comment: "Send message to chat session"
+    method: POST
+    path: /chat/session/send
+    func: chat:session.send

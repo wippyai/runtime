@@ -5,19 +5,19 @@ meta:
   depends_on: [ "ns:system", "ns:wippy" ]
 
 entries:
-  - name: message.service
-    kind: process.service
-    meta:
-      comment: "Message Listener Service"
-    process: message.process
-    host: system:heap
-    lifecycle:
-      auto_start: true
-      restart:
-        initial_delay: 5s
-        max_attempts: 3
-      depends_on:
-        - system:heap
+#  - name: message.service
+#    kind: process.service
+#    meta:
+#      comment: "Message Listener Service"
+#    process: message.process
+#    host: system:heap
+#    lifecycle:
+#      auto_start: true
+#      restart:
+#        initial_delay: 5s
+#        max_attempts: 3
+#      depends_on:
+#        - system:heap
 
   - name: message.process
     kind: process.lua
