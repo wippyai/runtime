@@ -29,7 +29,7 @@ func TestHttpHandler_Integration(t *testing.T) {
 		reqCtx := http.NewRequestContext(req, recorder)
 		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		mod := NewHTTPContextModule(logger)
+		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -102,7 +102,7 @@ func TestHttpHandler_Integration(t *testing.T) {
 		reqCtx := http.NewRequestContext(req, recorder)
 		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		mod := NewHTTPContextModule(logger)
+		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -151,7 +151,7 @@ func TestHttpHandler_Integration(t *testing.T) {
 		reqCtx := http.NewRequestContext(req, recorder)
 		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		mod := NewHTTPContextModule(logger)
+		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -198,7 +198,7 @@ func TestHttpHandler_Integration(t *testing.T) {
 		reqCtx := http.NewRequestContext(req, recorder)
 		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		mod := NewHTTPContextModule(logger)
+		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()

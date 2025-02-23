@@ -79,7 +79,7 @@ func TestRequest_Creation(t *testing.T) {
 		reqCtx := http.NewRequestContext(req, recorder)
 		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		mod := NewHTTPContextModule(logger)
+		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -98,7 +98,7 @@ func TestRequest_Creation(t *testing.T) {
 		reqCtx := http.NewRequestContext(req, recorder)
 		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		mod := NewHTTPContextModule(logger)
+		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -117,7 +117,7 @@ func TestRequest_Creation(t *testing.T) {
 		reqCtx := http.NewRequestContext(req, recorder)
 		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		mod := NewHTTPContextModule(logger)
+		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -140,7 +140,7 @@ func TestRequest_BasicInfo(t *testing.T) {
 		reqCtx := http.NewRequestContext(req, recorder)
 		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		mod := NewHTTPContextModule(logger)
+		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -160,7 +160,7 @@ func TestRequest_BasicInfo(t *testing.T) {
 		reqCtx := http.NewRequestContext(req, recorder)
 		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		mod := NewHTTPContextModule(logger)
+		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -181,7 +181,7 @@ func TestRequest_BasicInfo(t *testing.T) {
 		reqCtx := http.NewRequestContext(req, recorder)
 		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		mod := NewHTTPContextModule(logger)
+		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -205,7 +205,7 @@ func TestRequest_Query(t *testing.T) {
 		reqCtx := http.NewRequestContext(req, recorder)
 		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		mod := NewHTTPContextModule(logger)
+		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -227,7 +227,7 @@ func TestRequest_Query(t *testing.T) {
 		reqCtx := http.NewRequestContext(req, recorder)
 		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		mod := NewHTTPContextModule(logger)
+		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -247,7 +247,7 @@ func TestRequest_Query(t *testing.T) {
 		reqCtx := http.NewRequestContext(req, recorder)
 		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		mod := NewHTTPContextModule(logger)
+		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -273,7 +273,7 @@ func TestRequest_Body(t *testing.T) {
 		reqCtx := http.NewRequestContext(req, recorder)
 		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		mod := NewHTTPContextModule(logger)
+		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -295,7 +295,7 @@ func TestRequest_Body(t *testing.T) {
 		reqCtx := http.NewRequestContext(req, recorder)
 		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		mod := NewHTTPContextModule(logger)
+		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -317,7 +317,7 @@ func TestRequest_Body(t *testing.T) {
 		reqCtx := http.NewRequestContext(req, recorder)
 		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		mod := NewHTTPContextModule(logger)
+		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -338,7 +338,7 @@ func TestRequest_Body(t *testing.T) {
 		reqCtx := http.NewRequestContext(req, recorder)
 		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		mod := NewHTTPContextModule(logger)
+		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -363,7 +363,7 @@ func TestRequest_ContentType(t *testing.T) {
 		reqCtx := http.NewRequestContext(req, recorder)
 		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		mod := NewHTTPContextModule(logger)
+		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -384,7 +384,7 @@ func TestRequest_ContentType(t *testing.T) {
 		reqCtx := http.NewRequestContext(req, recorder)
 		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		mod := NewHTTPContextModule(logger)
+		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -405,7 +405,7 @@ func TestRequest_ContentType(t *testing.T) {
 		reqCtx := http.NewRequestContext(req, recorder)
 		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		mod := NewHTTPContextModule(logger)
+		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -432,7 +432,7 @@ func TestRequest_Headers(t *testing.T) {
 		reqCtx := http.NewRequestContext(req, recorder)
 		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		mod := NewHTTPContextModule(logger)
+		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -452,7 +452,7 @@ func TestRequest_Headers(t *testing.T) {
 		reqCtx := http.NewRequestContext(req, recorder)
 		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		mod := NewHTTPContextModule(logger)
+		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -473,7 +473,7 @@ func TestRequest_Headers(t *testing.T) {
 		reqCtx := http.NewRequestContext(req, recorder)
 		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		mod := NewHTTPContextModule(logger)
+		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -503,7 +503,7 @@ func TestRequest_BodyReadingErrors(t *testing.T) {
 		reqCtx := http.NewRequestContext(req, recorder)
 		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		mod := NewHTTPContextModule(logger)
+		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -525,7 +525,7 @@ func TestRequest_BodyReadingErrors(t *testing.T) {
 		reqCtx := http.NewRequestContext(req, recorder)
 		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		mod := NewHTTPContextModule(logger)
+		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -553,7 +553,7 @@ func TestRequest_BodyReadingErrors(t *testing.T) {
 		reqCtx := http.NewRequestContext(req, recorder)
 		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		mod := NewHTTPContextModule(logger)
+		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -576,7 +576,7 @@ func TestRequest_BodyReadingErrors(t *testing.T) {
 		reqCtx := http.NewRequestContext(req, recorder)
 		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		mod := NewHTTPContextModule(logger)
+		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(
 			logger,
 			engine.WithLoader(mod.Name(), mod.Loader),
@@ -602,7 +602,7 @@ func TestRequest_BodyReadingErrors(t *testing.T) {
 		reqCtx := http.NewRequestContext(req, recorder)
 		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		mod := NewHTTPContextModule(logger)
+		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -627,7 +627,7 @@ func TestRequest_InvalidInput(t *testing.T) {
 		reqCtx := http.NewRequestContext(req, recorder)
 		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		mod := NewHTTPContextModule(logger)
+		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -646,7 +646,7 @@ func TestRequest_InvalidInput(t *testing.T) {
 		reqCtx := http.NewRequestContext(req, recorder)
 		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		mod := NewHTTPContextModule(logger)
+		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -665,7 +665,7 @@ func TestRequest_InvalidInput(t *testing.T) {
 		reqCtx := http.NewRequestContext(req, recorder)
 		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		mod := NewHTTPContextModule(logger)
+		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -688,7 +688,7 @@ func TestRequest_EdgeCases(t *testing.T) {
 		reqCtx := http.NewRequestContext(req, recorder)
 		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		mod := NewHTTPContextModule(logger)
+		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -710,7 +710,7 @@ func TestRequest_EdgeCases(t *testing.T) {
 		reqCtx := http.NewRequestContext(req, recorder)
 		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		mod := NewHTTPContextModule(logger)
+		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -730,7 +730,7 @@ func TestRequest_EdgeCases(t *testing.T) {
 		reqCtx := http.NewRequestContext(req, recorder)
 		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		mod := NewHTTPContextModule(logger)
+		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -752,7 +752,7 @@ func TestRequest_EdgeCases(t *testing.T) {
 		reqCtx := http.NewRequestContext(req, recorder)
 		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		mod := NewHTTPContextModule(logger)
+		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -775,7 +775,7 @@ func TestRequest_EdgeCases(t *testing.T) {
 		reqCtx := http.NewRequestContext(req, recorder)
 		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		mod := NewHTTPContextModule(logger)
+		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -815,7 +815,7 @@ func TestRequest_ContextCancellation(t *testing.T) {
 		// Attach the parent context to the request context
 		ctx := context.WithValue(parentCtx, http.RequestCtx, reqCtx)
 
-		mod := NewHTTPContextModule(logger)
+		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -842,7 +842,7 @@ func TestRequest_RemoteAddr(t *testing.T) {
 		reqCtx := http.NewRequestContext(req, recorder)
 		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		mod := NewHTTPContextModule(logger)
+		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -863,7 +863,7 @@ func TestRequest_ContextErrors(t *testing.T) {
 	t.Run("no HTTP request context found", func(t *testing.T) {
 		ctx := context.Background() // Context without HTTP request
 
-		mod := NewHTTPContextModule(logger)
+		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -880,7 +880,7 @@ func TestRequest_ContextErrors(t *testing.T) {
 	t.Run("invalid HTTP request context type", func(t *testing.T) {
 		ctx := context.WithValue(context.Background(), http.RequestCtx, "invalid")
 
-		mod := NewHTTPContextModule(logger)
+		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -904,7 +904,7 @@ func TestRequest_ToString(t *testing.T) {
 		reqCtx := http.NewRequestContext(req, recorder)
 		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		mod := NewHTTPContextModule(logger)
+		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -929,7 +929,7 @@ func TestRequest_JSONWithEmptyBody(t *testing.T) {
 		reqCtx := http.NewRequestContext(req, recorder)
 		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		mod := NewHTTPContextModule(logger)
+		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(
 			logger,
 			engine.WithLoader(mod.Name(), mod.Loader),

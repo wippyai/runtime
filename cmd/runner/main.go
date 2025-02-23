@@ -24,12 +24,13 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea"
 	"github.com/ponyruntime/pony/runtime/lua/modules/env"
 	fsmod "github.com/ponyruntime/pony/runtime/lua/modules/fs"
-	functionmod "github.com/ponyruntime/pony/runtime/lua/modules/funcapi"
-	httpMod "github.com/ponyruntime/pony/runtime/lua/modules/http"
-	httpClient "github.com/ponyruntime/pony/runtime/lua/modules/httpclient"
+	funcapimod "github.com/ponyruntime/pony/runtime/lua/modules/funcapi"
+	fncallmod "github.com/ponyruntime/pony/runtime/lua/modules/funcs"
+	httpapimod "github.com/ponyruntime/pony/runtime/lua/modules/http"
+	httpclient "github.com/ponyruntime/pony/runtime/lua/modules/httpclient"
 	jsonMod "github.com/ponyruntime/pony/runtime/lua/modules/json"
 	"github.com/ponyruntime/pony/runtime/lua/modules/logger"
-	processmod "github.com/ponyruntime/pony/runtime/lua/modules/processapi"
+	procapimod "github.com/ponyruntime/pony/runtime/lua/modules/processapi"
 	"github.com/ponyruntime/pony/runtime/lua/modules/tasks"
 	timeMod "github.com/ponyruntime/pony/runtime/lua/modules/time"
 	"github.com/ponyruntime/pony/runtime/lua/modules/treesitter"
@@ -654,6 +655,7 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 		a.eventBus,
 		code.Config{
 			Modules: []apiLua.Module{
+				env.NewEnvModule(),
 				channel.NewChannelModule(),
 				timeMod.NewTimeModule(),
 				logger.NewLoggerModule(a.logger.Named("app")),
@@ -662,14 +664,14 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 				fsmod.NewFSModule(),
 				uuid.NewUUIDModule(),
 				upstream.NewUpstreamModule(),
-				processmod.NewProcessControlModule(a.logger.Named("proc")),
-				functionmod.NewFuncContextModule(a.logger.Named("func")),
 				tasks.NewTaskModule(),
 				subscribe.NewSubscribeModule(),
-				env.NewEnvModule(a.logger.Named("env")),
-				httpClient.NewHTTPClientModule(a.logger.Named("http"), httpbase.DefaultClient),
+				fncallmod.NewFuncCallerModule(a.ctx),
+				procapimod.NewProcAPIModule(a.logger.Named("proc")),
+				funcapimod.NewFuncAPIModule(a.logger.Named("func")),
+				httpapimod.NewHTTPAPIModule(a.logger.Named("http")),
+				httpclient.NewHTTPClientModule(a.logger.Named("http"), httpbase.DefaultClient),
 				websocket.NewWebSocketModule(a.logger.Named("websocket")),
-				httpMod.NewHTTPContextModule(a.logger.Named("http")),
 				treesitter.NewTreeSitterModule(a.logger.Named("tsitter")),
 				btea.NewBteaModule(a.logger.Named("btea")),
 			},

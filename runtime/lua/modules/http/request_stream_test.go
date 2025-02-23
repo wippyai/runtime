@@ -22,7 +22,7 @@ func TestRequest_StreamBody_Simple(t *testing.T) {
 		reqCtx := http.NewRequestContext(req, recorder)
 		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		mod := NewHTTPContextModule(logger)
+		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		if err != nil {
 			t.Fatalf("Failed to create VM: %v", err)
@@ -61,7 +61,7 @@ func TestRequest_StreamBody(t *testing.T) {
 		reqCtx := http.NewRequestContext(req, recorder)
 		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		mod := NewHTTPContextModule(logger)
+		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		if err != nil {
 			t.Fatalf("Failed to create VM: %v", err)
@@ -101,7 +101,7 @@ func TestRequest_StreamBody(t *testing.T) {
 		reqCtx := http.NewRequestContext(req, recorder)
 		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		mod := NewHTTPContextModule(logger)
+		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		if err != nil {
 			t.Fatalf("Failed to create VM: %v", err)
@@ -145,7 +145,7 @@ func TestRequest_StreamBody(t *testing.T) {
 		reqCtx := http.NewRequestContext(req, recorder)
 		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		mod := NewHTTPContextModule(logger)
+		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		if err != nil {
 			t.Fatalf("Failed to create VM: %v", err)
@@ -183,7 +183,7 @@ func TestRequest_StreamBody(t *testing.T) {
 		reqCtx := http.NewRequestContext(req, recorder)
 		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
 
-		mod := NewHTTPContextModule(logger)
+		mod := NewHTTPAPIModule(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		if err != nil {
 			t.Fatalf("Failed to create VM: %v", err)

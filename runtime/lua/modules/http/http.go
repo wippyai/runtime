@@ -18,8 +18,8 @@ func getTransferConstants() map[string]string {
 	}
 }
 
-// NewHTTPContextModule creates a new HTTP context module
-func NewHTTPContextModule(log *zap.Logger) *Module {
+// NewHTTPAPIModule creates a new HTTP context module
+func NewHTTPAPIModule(log *zap.Logger) *Module {
 	return &Module{log: log}
 }
 
