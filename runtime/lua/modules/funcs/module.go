@@ -27,7 +27,7 @@ type Functions struct {
 	values     *contextapi.Contexter[interface{}]
 }
 
-func NewFuncCallerModule(appContext context.Context) *Module {
+func NewFunctionModule(appContext context.Context) *Module {
 	return &Module{appContext: appContext}
 }
 

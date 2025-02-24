@@ -202,7 +202,7 @@ func fileStat(l *lua.LState) int {
 			l.RaiseError("file does not exist")
 			return 0
 		}
-		l.RaiseError(err.Error())
+		l.RaiseError("%s", err.Error())
 		return 0
 	}
 

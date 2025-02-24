@@ -666,7 +666,7 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 				upstream.NewUpstreamModule(),
 				tasks.NewTaskModule(),
 				subscribe.NewSubscribeModule(),
-				fncallmod.NewFuncCallerModule(a.ctx),
+				fncallmod.NewFunctionModule(a.ctx),
 				procapimod.NewProcAPIModule(a.logger.Named("proc")),
 				funcapimod.NewFuncAPIModule(a.logger.Named("func")),
 				httpapimod.NewHTTPAPIModule(a.logger.Named("http")),
