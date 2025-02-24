@@ -210,8 +210,8 @@ func (p *ConnPool) UpdateConfig(cfg interface{}) error {
 
 // Acquire implements resource.Provider
 func (p *ConnPool) Acquire(
-	ctx context.Context,
-	id registry.ID,
+	_ context.Context,
+	_ registry.ID,
 	mode resource.AccessMode,
 ) (resource.Resource[any], error) {
 	if p.closed.Load() {
@@ -260,5 +260,6 @@ func buildOptionsString(options map[string]string) string {
 		}
 		opts += fmt.Sprintf("%s=%s", k, v)
 	}
+
 	return opts
 }
