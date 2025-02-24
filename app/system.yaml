@@ -5,7 +5,7 @@ entries:
   - name: core
     kind: fs.directory
     meta:
-      comment: "Core filesystem cntains golang files"
+      comment: "Core filesystem contains golang files"
     directory: ./
     mode: "0755"
     default: true

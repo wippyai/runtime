@@ -60,8 +60,7 @@ type (
 
 	// SQLiteConfig defines SQLite-specific configuration
 	SQLiteConfig struct {
-		File      string                     `json:"file"`      // Database file path, use :memory: for in-memory database
-		FS        registry.ID                `json:"fs"`        // Optional filesystem resource ID for file storage
+		File      string                     `json:"file"`      // Database file path, use :memory: for in-memory database, server fs level
 		Pool      PoolConfig                 `json:"pool"`      // Connection pool settings
 		Options   map[string]string          `json:"options"`   // SQLite-specific options
 		Lifecycle supervisor.LifecycleConfig `json:"lifecycle"` // Lifecycle configuration
@@ -187,10 +186,6 @@ func (c *DBConfig) Validate() error {
 func (c *SQLiteConfig) Validate() error {
 	if c.File == "" {
 		return fmt.Errorf("file is required")
-	}
-
-	if c.FS.Name == "" && c.File != ":memory:" {
-		return fmt.Errorf("filesystem (fs) is required for non-memory databases")
 	}
 
 	if c.Pool.MaxLifetime <= 0 {

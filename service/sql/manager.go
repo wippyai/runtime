@@ -111,8 +111,7 @@ func (m *Manager) handleSQLiteAdd(ctx context.Context, entry registry.Entry) err
 		return err
 	}
 
-	cfg.FS = cfg.FS.WithDefaultNS(entry.ID.NS)
-	pool, err := NewSQLiteConnPool(ctx, cfg)
+	pool, err := NewSQLiteConnPool(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to create SQLite connection: %w", err)
 	}

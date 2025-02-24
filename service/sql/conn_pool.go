@@ -4,9 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"github.com/ponyruntime/pony/api/fs"
 	config "github.com/ponyruntime/pony/api/service/sql"
-	"os"
 	"sync"
 	"sync/atomic"
 
@@ -60,8 +58,8 @@ func NewStandardConnPool(kind registry.Kind, cfg *config.DBConfig) (*ConnPool, e
 	return pool, nil
 }
 
-// NewSQLiteConnPool creates a new connection pool for SQLite
-func NewSQLiteConnPool(ctx context.Context, cfg *config.SQLiteConfig) (*ConnPool, error) {
+// NewSQLiteConnPool creates a new connection pool for SQLite without filesystem dependency
+func NewSQLiteConnPool(cfg *config.SQLiteConfig) (*ConnPool, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid configuration: %w", err)
 	}
@@ -72,25 +70,7 @@ func NewSQLiteConnPool(ctx context.Context, cfg *config.SQLiteConfig) (*ConnPool
 	if cfg.File == ":memory:" {
 		dsn = ":memory:"
 	} else {
-		// Get FS registry from context
-		fsReg := fs.FromContext(ctx)
-		if fsReg == nil {
-			return nil, fmt.Errorf("fs registry not found in context")
-		}
-
-		filesystem, exists := fsReg.GetFS(cfg.FS.String())
-		if !exists {
-			return nil, fmt.Errorf("filesystem %s not found", cfg.FS)
-		}
-
-		// Open file through FS to verify path
-		f, err := filesystem.OpenFile(cfg.File, os.O_CREATE|os.O_RDWR, 0644)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create/open database file: %w", err)
-		}
-		_ = f.Close()
-
-		// SQLite needs absolute path
+		// Use the file path directly
 		dsn = fmt.Sprintf("file:%s?mode=rwc", cfg.File)
 	}
 
@@ -226,7 +206,7 @@ func (p *ConnPool) Acquire(
 	// Track resource usage
 	p.wg.Add(1)
 
-	return newDBConn(p, p.db), nil
+	return newDBConn(p, p.db, p.kind), nil
 }
 
 // Helper to build DSN string for different database types
