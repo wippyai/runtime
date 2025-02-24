@@ -185,6 +185,12 @@ func (p *Pool) worker() {
 			for {
 				select {
 				case t := <-p.tasks:
+					if t.ctx.Err() != nil {
+						t.result <- taskResult{err: t.ctx.Err()}
+						close(t.result)
+						continue
+					}
+
 					processTask(t)
 				default:
 					// No more tasks to process; exit the worker.
