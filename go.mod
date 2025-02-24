@@ -11,8 +11,11 @@ require (
 	github.com/coder/websocket v1.8.12
 	github.com/docker/docker v27.5.1+incompatible
 	github.com/go-chi/chi/v5 v5.2.0
+	github.com/go-sql-driver/mysql v1.9.0
 	github.com/google/uuid v1.6.0
+	github.com/lib/pq v1.10.9
 	github.com/lrstanley/bubblezone v0.0.0-20250110055121-b45205ce63e2
+	github.com/mattn/go-sqlite3 v1.14.24
 	github.com/muesli/termenv v0.15.2
 	github.com/pkg/errors v0.9.1
 	github.com/ponyruntime/tree-sitter-markdown v0.0.2
@@ -38,6 +41,7 @@ require (
 // replace github.com/ponyruntime/tree-sitter-sql => ../tree-sitter-sql
 
 require (
+	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
