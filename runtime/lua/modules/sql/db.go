@@ -52,6 +52,7 @@ func registerDB(l *lua.LState, mod *lua.LTable, log *zap.Logger) {
 	mt := l.NewTypeMetatable("sql.DB")
 	methods := l.NewTable()
 
+	methods.RawSetString("type", l.NewFunction(dbType))
 	methods.RawSetString("query", l.NewFunction(dbQuery))
 	methods.RawSetString("execute", l.NewFunction(dbExecute))
 	methods.RawSetString("prepare", l.NewFunction(dbPrepare))
@@ -59,6 +60,23 @@ func registerDB(l *lua.LState, mod *lua.LTable, log *zap.Logger) {
 	methods.RawSetString("release", l.NewFunction(dbRelease))
 
 	l.SetField(mt, "__index", methods)
+}
+
+// dbType returns the database type (kind)
+func dbType(l *lua.LState) int {
+	// Check and get database
+	db := CheckDB(l)
+	if db == nil {
+		return 0
+	}
+
+	// Map the resource type to our constant type
+	mappedType := mapDBTypeFromResourceKind(db.dbType)
+
+	// Return the database type as a string
+	l.Push(lua.LString(mappedType))
+	l.Push(lua.LNil)
+	return 2
 }
 
 // dbGet retrieves a database resource by ID
