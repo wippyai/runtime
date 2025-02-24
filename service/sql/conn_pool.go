@@ -5,13 +5,13 @@ import (
 	"database/sql"
 	"fmt"
 	"github.com/ponyruntime/pony/api/fs"
+	config "github.com/ponyruntime/pony/api/service/sql"
 	"os"
 	"sync"
 	"sync/atomic"
 
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/resource"
-	config "github.com/ponyruntime/pony/api/resource/sql"
 )
 
 // ConnPool represents a database connection pool that acts both as a service

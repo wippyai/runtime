@@ -3,13 +3,13 @@ package sql
 import (
 	"context"
 	"fmt"
+	config "github.com/ponyruntime/pony/api/service/sql"
 	"sync"
 
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/resource"
-	config "github.com/ponyruntime/pony/api/resource/sql"
 	"github.com/ponyruntime/pony/api/supervisor"
 	"go.uber.org/zap"
 )
