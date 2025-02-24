@@ -282,7 +282,7 @@ func dbExecute(l *lua.LState) int {
 		}
 
 		if err != nil {
-			return engine.NewResult(nil, nil, err)
+			return engine.NewResult(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
 		}
 
 		// Convert result to Lua table

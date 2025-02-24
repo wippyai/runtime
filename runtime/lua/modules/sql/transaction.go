@@ -94,7 +94,7 @@ func txQuery(l *lua.LState) int {
 		}
 
 		if err != nil {
-			return engine.NewResult(nil, nil, err)
+			return engine.NewResult(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
 		}
 
 		var resultTable *lua.LTable
@@ -164,7 +164,7 @@ func txExecute(l *lua.LState) int {
 		}
 
 		if err != nil {
-			return engine.NewResult(nil, nil, err)
+			return engine.NewResult(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
 		}
 
 		// Convert result to Lua table
@@ -196,7 +196,7 @@ func txPrepare(l *lua.LState) int {
 		// Prepare statement
 		stmt, err := tx.tx.Prepare(query)
 		if err != nil {
-			return engine.NewResult(nil, nil, err)
+			return engine.NewResult(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
 		}
 
 		// Create statement wrapper
@@ -246,7 +246,7 @@ func txCommit(l *lua.LState) int {
 
 		// Commit transaction
 		if err := tx.tx.Commit(); err != nil {
-			return engine.NewResult(nil, nil, err)
+			return engine.NewResult(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
 		}
 
 		// Mark as inactive
@@ -274,7 +274,7 @@ func txRollback(l *lua.LState) int {
 
 		// Rollback transaction
 		if err := tx.tx.Rollback(); err != nil {
-			return engine.NewResult(nil, nil, err)
+			return engine.NewResult(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
 		}
 
 		// Mark as inactive
