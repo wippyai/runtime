@@ -599,3 +599,322 @@ func TestStatementDataTypes(t *testing.T) {
 	assert.True(t, boolVal == lua.LTrue || boolVal == lua.LNumber(1), "Boolean value should be true or 1")
 	assert.True(t, bool(hasNull), "Null value was not properly handled")
 }
+
+// TestStatementClose tests explicit closing of a prepared statement
+func TestStatementClose(t *testing.T) {
+	_, mockRes, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	vm, L, uw, runner := setupLuaWithDB(t, mockRes)
+	defer vm.Close()
+	defer func() {
+		err := uw.Close()
+		assert.NoError(t, err, "Unit of work cleanup failed")
+	}()
+
+	// Import the test script
+	err := vm.Import(`
+		function test_statement_close()
+			local sql = require("sql")
+			local db, err = sql.get("app:test_db")
+			if err then error(err) end
+
+			local stmt, err = db:prepare("SELECT 1")
+			if err then error(err) end
+
+			-- Test close operation
+			local ok, err = stmt:close()
+			if err then error(err) end
+
+			-- Attempt to use after closing (should fail)
+			local success = true
+			local err_msg = ""
+			
+			-- This should fail because statement is closed
+			local rows, query_err = stmt:query()
+			if query_err then
+				success = false
+				err_msg = query_err
+			end
+
+			return {
+				close_successful = ok,
+				reuse_failed = not success,
+				error_message = err_msg
+			}
+		end
+	`, "test", "test_statement_close")
+	require.NoError(t, err, "Failed to import test script")
+
+	// Execute the function using the runner
+	result, err := runner.Execute(L.Context(), "test_statement_close")
+	require.NoError(t, err, "Lua execution failed")
+
+	// Verify results
+	resultTable := result.(*lua.LTable)
+	closeSuccessful := resultTable.RawGetString("close_successful")
+	reuseFailed := resultTable.RawGetString("reuse_failed")
+
+	assert.Equal(t, lua.LTrue, closeSuccessful, "Statement close should return true")
+	assert.Equal(t, lua.LTrue, reuseFailed, "Using a closed statement should fail")
+}
+
+// TestStatementQueryNoResults tests a query that returns no rows
+func TestStatementQueryNoResults(t *testing.T) {
+	_, mockRes, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	vm, L, uw, runner := setupLuaWithDB(t, mockRes)
+	defer vm.Close()
+	defer func() {
+		err := uw.Close()
+		assert.NoError(t, err, "Unit of work cleanup failed")
+	}()
+
+	// Import the test script
+	err := vm.Import(`
+		function test_query_no_results()
+			local sql = require("sql")
+			local db, err = sql.get("app:test_db")
+			if err then error(err) end
+
+			local stmt, err = db:prepare("SELECT * FROM users WHERE id = 999")
+			if err then error(err) end
+
+			-- Query with a parameter that won't match any rows
+			local rows, err = stmt:query()
+			if err then error(err) end
+
+			-- Store results for testing
+			local result = {
+				rows_received = rows ~= nil,
+				row_count = #rows
+			}
+
+			local ok, err = stmt:close()
+			if err then error(err) end
+			
+			return result
+		end
+	`, "test", "test_query_no_results")
+	require.NoError(t, err, "Failed to import test script")
+
+	// Execute the function using the runner
+	result, err := runner.Execute(L.Context(), "test_query_no_results")
+	require.NoError(t, err, "Lua execution failed")
+
+	// Verify query results
+	resultTable := result.(*lua.LTable)
+	rowsReceived := resultTable.RawGetString("rows_received").(lua.LBool)
+	rowCount := resultTable.RawGetString("row_count").(lua.LNumber)
+
+	assert.True(t, bool(rowsReceived), "Should receive a rows object even when empty")
+	assert.Equal(t, float64(0), float64(rowCount), "Expected 0 rows")
+}
+
+// TestStatementQueryNullColumns tests handling NULL values in result columns
+func TestStatementQueryNullColumns(t *testing.T) {
+	db, mockRes, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	// Create test data with NULL values
+	_, err := db.Exec(`CREATE TABLE nulls_test (
+		id INTEGER PRIMARY KEY,
+		nullable_text TEXT,
+		nullable_int INTEGER
+	)`)
+	require.NoError(t, err, "Failed to create test table")
+
+	_, err = db.Exec(`INSERT INTO nulls_test (id, nullable_text, nullable_int) VALUES 
+		(1, 'not null', 42),
+		(2, NULL, 10),
+		(3, 'text', NULL),
+		(4, NULL, NULL)`)
+	require.NoError(t, err, "Failed to insert test data")
+
+	vm, L, uw, runner := setupLuaWithDB(t, mockRes)
+	defer vm.Close()
+	defer func() {
+		err := uw.Close()
+		assert.NoError(t, err, "Unit of work cleanup failed")
+	}()
+
+	// Import the test script
+	err = vm.Import(`
+		function test_null_columns()
+			local sql = require("sql")
+			local db, err = sql.get("app:test_db")
+			if err then error(err) end
+
+			local stmt, err = db:prepare("SELECT * FROM nulls_test ORDER BY id")
+			if err then error(err) end
+
+			-- Query to get rows with NULL values
+			local rows, err = stmt:query()
+			if err then error(err) end
+
+			-- Store results for testing
+			local result = {
+				row_count = #rows,
+				row1_text_null = rows[1].nullable_text == nil,
+				row1_int_null = rows[1].nullable_int == nil,
+				row2_text_null = rows[2].nullable_text == nil,
+				row2_int_null = rows[2].nullable_int == nil,
+				row3_text_null = rows[3].nullable_text == nil,
+				row3_int_null = rows[3].nullable_int == nil,
+				row4_text_null = rows[4].nullable_text == nil,
+				row4_int_null = rows[4].nullable_int == nil
+			}
+
+			local ok, err = stmt:close()
+			if err then error(err) end
+			
+			return result
+		end
+	`, "test", "test_null_columns")
+	require.NoError(t, err, "Failed to import test script")
+
+	// Execute the function using the runner
+	result, err := runner.Execute(L.Context(), "test_null_columns")
+	require.NoError(t, err, "Lua execution failed")
+
+	// Verify NULL handling in result columns
+	resultTable := result.(*lua.LTable)
+	rowCount := resultTable.RawGetString("row_count").(lua.LNumber)
+
+	// Values that should NOT be NULL
+	row1TextNull := resultTable.RawGetString("row1_text_null").(lua.LBool)
+	row1IntNull := resultTable.RawGetString("row1_int_null").(lua.LBool)
+
+	// Values that SHOULD be NULL
+	row2TextNull := resultTable.RawGetString("row2_text_null").(lua.LBool)
+	row3IntNull := resultTable.RawGetString("row3_int_null").(lua.LBool)
+	row4TextNull := resultTable.RawGetString("row4_text_null").(lua.LBool)
+	row4IntNull := resultTable.RawGetString("row4_int_null").(lua.LBool)
+
+	assert.Equal(t, float64(4), float64(rowCount), "Expected 4 rows")
+
+	// Check non-NULL values
+	assert.False(t, bool(row1TextNull), "Row 1 text should not be NULL")
+	assert.False(t, bool(row1IntNull), "Row 1 int should not be NULL")
+
+	// Check NULL values
+	assert.True(t, bool(row2TextNull), "Row 2 text should be NULL")
+	assert.True(t, bool(row3IntNull), "Row 3 int should be NULL")
+	assert.True(t, bool(row4TextNull), "Row 4 text should be NULL")
+	assert.True(t, bool(row4IntNull), "Row 4 int should be NULL")
+}
+
+// TestStatementWithSQLNull tests using the sql.NULL constant with prepared statements
+func TestStatementWithSQLNull(t *testing.T) {
+	db, mockRes, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	// Create a table with nullable columns
+	_, err := db.Exec(`CREATE TABLE null_params_test (
+		id INTEGER PRIMARY KEY,
+		param1 TEXT,
+		param2 INTEGER,
+		param3 REAL
+	)`)
+	require.NoError(t, err, "Failed to create test table")
+
+	vm, L, uw, runner := setupLuaWithDB(t, mockRes)
+	defer vm.Close()
+	defer func() {
+		err := uw.Close()
+		assert.NoError(t, err, "Unit of work cleanup failed")
+	}()
+
+	// Import the test script
+	err = vm.Import(`
+		function test_null_params()
+			local sql = require("sql")
+			local db, err = sql.get("app:test_db")
+			if err then error(err) end
+
+			-- Test NULL at beginning, middle, and end of parameter list
+			local stmt, err = db:prepare("INSERT INTO null_params_test (param1, param2, param3) VALUES (?, ?, ?)")
+			if err then error(err) end
+
+			-- Test with NULL at beginning
+			local result1, err = stmt:execute({sql.NULL, 42, 3.14})
+			if err then error("First insert failed: " .. err) end
+
+			-- Test with NULL in middle
+			local result2, err = stmt:execute({"middle", sql.NULL, 2.71})
+			if err then error("Second insert failed: " .. err) end
+
+			-- Test with NULL at end
+			local result3, err = stmt:execute({"end", 99, sql.NULL})
+			if err then error("Third insert failed: " .. err) end
+
+			-- Query to verify the inserts
+			local rows, err = db:query("SELECT * FROM null_params_test ORDER BY id")
+			if err then error("Query failed: " .. err) end
+
+			-- Store results for testing
+			local result = {
+				row_count = #rows,
+				-- Row 1: NULL at beginning
+				row1_param1_null = rows[1].param1 == nil,
+				row1_param2_value = rows[1].param2,
+				row1_param3_value = rows[1].param3,
+				-- Row 2: NULL in middle
+				row2_param1_value = rows[2].param1,
+				row2_param2_null = rows[2].param2 == nil,
+				row2_param3_value = rows[2].param3,
+				-- Row 3: NULL at end
+				row3_param1_value = rows[3].param1,
+				row3_param2_value = rows[3].param2,
+				row3_param3_null = rows[3].param3 == nil
+			}
+
+			local ok, err = stmt:close()
+			if err then error(err) end
+			
+			return result
+		end
+	`, "test", "test_null_params")
+	require.NoError(t, err, "Failed to import test script")
+
+	// Execute the function using the runner
+	result, err := runner.Execute(L.Context(), "test_null_params")
+	require.NoError(t, err, "Lua execution failed")
+
+	// Verify NULL parameter handling
+	resultTable := result.(*lua.LTable)
+	rowCount := resultTable.RawGetString("row_count").(lua.LNumber)
+
+	// Check NULL at beginning (Row 1)
+	row1Param1Null := resultTable.RawGetString("row1_param1_null").(lua.LBool)
+	row1Param2Value := resultTable.RawGetString("row1_param2_value").(lua.LNumber)
+	row1Param3Value := resultTable.RawGetString("row1_param3_value").(lua.LNumber)
+
+	// Check NULL in middle (Row 2)
+	row2Param1Value := resultTable.RawGetString("row2_param1_value").(lua.LString)
+	row2Param2Null := resultTable.RawGetString("row2_param2_null").(lua.LBool)
+	row2Param3Value := resultTable.RawGetString("row2_param3_value").(lua.LNumber)
+
+	// Check NULL at end (Row 3)
+	row3Param1Value := resultTable.RawGetString("row3_param1_value").(lua.LString)
+	row3Param2Value := resultTable.RawGetString("row3_param2_value").(lua.LNumber)
+	row3Param3Null := resultTable.RawGetString("row3_param3_null").(lua.LBool)
+
+	assert.Equal(t, float64(3), float64(rowCount), "Expected 3 rows")
+
+	// Verify Row 1 (NULL at beginning)
+	assert.True(t, bool(row1Param1Null), "Row 1 param1 should be NULL")
+	assert.Equal(t, float64(42), float64(row1Param2Value), "Row 1 param2 should be 42")
+	assert.InDelta(t, 3.14, float64(row1Param3Value), 0.001, "Row 1 param3 should be approximately 3.14")
+
+	// Verify Row 2 (NULL in middle)
+	assert.Equal(t, "middle", string(row2Param1Value), "Row 2 param1 should be 'middle'")
+	assert.True(t, bool(row2Param2Null), "Row 2 param2 should be NULL")
+	assert.InDelta(t, 2.71, float64(row2Param3Value), 0.001, "Row 2 param3 should be approximately 2.71")
+
+	// Verify Row 3 (NULL at end)
+	assert.Equal(t, "end", string(row3Param1Value), "Row 3 param1 should be 'end'")
+	assert.Equal(t, float64(99), float64(row3Param2Value), "Row 3 param2 should be 99")
+	assert.True(t, bool(row3Param3Null), "Row 3 param3 should be NULL")
+}

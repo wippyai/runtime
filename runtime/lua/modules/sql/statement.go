@@ -12,9 +12,10 @@ import (
 
 // Statement represents a prepared statement for Lua
 type Statement struct {
-	stmt *sql.Stmt
-	db   *DB
-	log  *zap.Logger
+	stmt   *sql.Stmt
+	db     *DB
+	log    *zap.Logger
+	closed bool
 }
 
 // WrapStatement wraps a Statement as Lua userdata
@@ -50,13 +51,20 @@ func registerStatement(l *lua.LState, log *zap.Logger) {
 
 // stmtQuery executes a prepared query and returns rows
 func stmtQuery(l *lua.LState) int {
-	// Check and get statement
+	// Check and get statement.
 	stmt := CheckStatement(l)
 	if stmt == nil {
 		return 0
 	}
 
-	// Get parameters
+	// Return an error if the statement has been closed.
+	if stmt.closed {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("statement is closed"))
+		return 2
+	}
+
+	// Get parameters.
 	params, err := checkParams(l, 2)
 	if err != nil {
 		l.Push(lua.LNil)
@@ -68,7 +76,7 @@ func stmtQuery(l *lua.LState) int {
 		var rows *sql.Rows
 		var err error
 
-		// Execute query with appropriate parameter style
+		// Execute query with appropriate parameter style.
 		switch p := params.(type) {
 		case nil:
 			rows, err = stmt.stmt.Query()
@@ -83,20 +91,16 @@ func stmtQuery(l *lua.LState) int {
 		}
 
 		var resultTable *lua.LTable
-		// Use a named return parameter to capture errors from both rowsToTable and rows.Close
 		err = func() error {
 			defer func() {
 				closeErr := rows.Close()
 				if closeErr != nil {
 					stmt.log.Error("failed to close rows", zap.Error(closeErr))
-					// If we don't already have an error, use the close error
 					if err == nil {
 						err = closeErr
 					}
 				}
 			}()
-
-			// Convert rows to Lua table
 			var tableErr error
 			resultTable, tableErr = rowsToTable(l, rows)
 			return tableErr
@@ -109,18 +113,25 @@ func stmtQuery(l *lua.LState) int {
 		return engine.NewResult(nil, []lua.LValue{resultTable, lua.LNil}, nil)
 	})
 
-	return -1 // Yield
+	return -1 // Yield.
 }
 
 // stmtExecute executes a prepared statement that doesn't return rows
 func stmtExecute(l *lua.LState) int {
-	// Check and get statement
+	// Check and get statement.
 	stmt := CheckStatement(l)
 	if stmt == nil {
 		return 0
 	}
 
-	// Get parameters
+	// Return an error if the statement has been closed.
+	if stmt.closed {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("statement is closed"))
+		return 2
+	}
+
+	// Get parameters.
 	params, err := checkParams(l, 2)
 	if err != nil {
 		l.Push(lua.LNil)
@@ -132,7 +143,7 @@ func stmtExecute(l *lua.LState) int {
 		var result sql.Result
 		var err error
 
-		// Execute with appropriate parameter style
+		// Execute with appropriate parameter style.
 		switch p := params.(type) {
 		case nil:
 			result, err = stmt.stmt.Exec()
@@ -146,30 +157,37 @@ func stmtExecute(l *lua.LState) int {
 			return engine.NewResult(nil, nil, err)
 		}
 
-		// Convert result to Lua table
+		// Convert result to Lua table.
 		resultTable := resultToTable(l, result)
-
 		return engine.NewResult(nil, []lua.LValue{resultTable, lua.LNil}, nil)
 	})
 
-	return -1 // Yield
+	return -1 // Yield.
 }
 
 // stmtClose closes a prepared statement
 func stmtClose(l *lua.LState) int {
-	// Check and get statement
+	// Check and get statement.
 	stmt := CheckStatement(l)
 	if stmt == nil {
 		return 0
 	}
 
-	// This is a fast operation, no need for coroutine
-	if err := stmt.stmt.Close(); err != nil {
+	// If already closed, return error.
+	if stmt.closed {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("failed to close statement: %v", err)))
+		l.Push(lua.LString("statement is already closed"))
 		return 2
 	}
 
+	err := stmt.Close()
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	stmt.closed = true
 	l.Push(lua.LTrue)
 	l.Push(lua.LNil)
 	return 2
@@ -177,5 +195,6 @@ func stmtClose(l *lua.LState) int {
 
 // Close closes the statement directly - for use outside Lua context
 func (s *Statement) Close() error {
+	s.closed = true
 	return s.stmt.Close()
 }
