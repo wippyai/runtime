@@ -43,4 +43,4 @@ entries:
     method: analyze
     modules: [ "fs", "treesitter" ]
     pool:
-      size: 1
+      size: 32
