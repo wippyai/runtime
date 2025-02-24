@@ -5,19 +5,19 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	apiCtx "github.com/ponyruntime/pony/api/context"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/events"
 	fsapi "github.com/ponyruntime/pony/api/fs"
-	functapi "github.com/ponyruntime/pony/api/function"
-	logsapi "github.com/ponyruntime/pony/api/logs"
-	apiReg "github.com/ponyruntime/pony/api/registry"
-	apiLua "github.com/ponyruntime/pony/api/runtime/lua"
-	topologyApi "github.com/ponyruntime/pony/api/topology"
+	funcapi "github.com/ponyruntime/pony/api/function"
+	logapi "github.com/ponyruntime/pony/api/logs"
+	regapi "github.com/ponyruntime/pony/api/registry"
+	luaapi "github.com/ponyruntime/pony/api/runtime/lua"
+	topapi "github.com/ponyruntime/pony/api/topology"
 	"github.com/ponyruntime/pony/runtime/lua/code"
-	bteaApps "github.com/ponyruntime/pony/runtime/lua/component/btea"
-	luaFunc "github.com/ponyruntime/pony/runtime/lua/component/function"
+	bteaapp "github.com/ponyruntime/pony/runtime/lua/component/btea"
+	funclua "github.com/ponyruntime/pony/runtime/lua/component/function"
 	"github.com/ponyruntime/pony/runtime/lua/component/library"
-	luaProcess "github.com/ponyruntime/pony/runtime/lua/component/process"
+	proclua "github.com/ponyruntime/pony/runtime/lua/component/process"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
 	"github.com/ponyruntime/pony/runtime/lua/modules/base64"
@@ -27,20 +27,20 @@ import (
 	funcapimod "github.com/ponyruntime/pony/runtime/lua/modules/funcapi"
 	fncallmod "github.com/ponyruntime/pony/runtime/lua/modules/funcs"
 	httpapimod "github.com/ponyruntime/pony/runtime/lua/modules/http"
-	httpclient "github.com/ponyruntime/pony/runtime/lua/modules/httpclient"
-	jsonMod "github.com/ponyruntime/pony/runtime/lua/modules/json"
+	"github.com/ponyruntime/pony/runtime/lua/modules/httpclient"
+	jsonmod "github.com/ponyruntime/pony/runtime/lua/modules/json"
 	"github.com/ponyruntime/pony/runtime/lua/modules/logger"
 	procapimod "github.com/ponyruntime/pony/runtime/lua/modules/processapi"
 	sqlmod "github.com/ponyruntime/pony/runtime/lua/modules/sql"
 	"github.com/ponyruntime/pony/runtime/lua/modules/tasks"
-	timeMod "github.com/ponyruntime/pony/runtime/lua/modules/time"
+	timemod "github.com/ponyruntime/pony/runtime/lua/modules/time"
 	"github.com/ponyruntime/pony/runtime/lua/modules/treesitter"
 	"github.com/ponyruntime/pony/runtime/lua/modules/upstream"
 	"github.com/ponyruntime/pony/runtime/lua/modules/uuid"
 	"github.com/ponyruntime/pony/runtime/lua/modules/websocket"
 	"github.com/ponyruntime/pony/runtime/noop"
 	fsdir "github.com/ponyruntime/pony/service/directory"
-	processHosts "github.com/ponyruntime/pony/service/host"
+	prochost "github.com/ponyruntime/pony/service/host"
 	"github.com/ponyruntime/pony/service/http"
 	"github.com/ponyruntime/pony/service/sql"
 	service "github.com/ponyruntime/pony/service/supervisor"
@@ -85,13 +85,13 @@ type App struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
 	logger      *zap.Logger
-	logCore     logsapi.Core
+	logCore     logapi.Core
 	logManager  *logs.Manager
 	eventBus    events.Bus
 	eventRouter *eventbus.EventRouter
 	services    eventbus.RouterOption
 	dtt         *transcoder.Transcoder
-	reg         apiReg.Registry
+	reg         regapi.Registry
 	supervisor  *supervisor.Supervisor
 	funcs       *function.Registry
 	processes   *process.Manager
@@ -183,7 +183,7 @@ func (a *App) Initialize() error {
 	// -- msg hosts
 
 	// this is host dedicated to internal control messages
-	err := a.node.Node().RegisterHost(topologyApi.ControlHost, pubsub.NewHost(a.ctx, pubsub.HostConfig{
+	err := a.node.Node().RegisterHost(topapi.ControlHost, pubsub.NewHost(a.ctx, pubsub.HostConfig{
 		BufferSize:      1024,
 		WorkerCount:     16,
 		Logger:          a.logger.Named("control"),
@@ -204,7 +204,7 @@ func (a *App) Initialize() error {
 		DeliveryTimeout: 500 * time.Millisecond,
 	})
 
-	err = a.node.Node().RegisterHost(functapi.HostID, funcHost)
+	err = a.node.Node().RegisterHost(funcapi.HostID, funcHost)
 
 	if err != nil {
 		return fmt.Errorf("failed to register function host: %w", err)
@@ -239,25 +239,25 @@ func (a *App) Initialize() error {
 func (a *App) Start(folderPath string) error {
 	// Spawn context with values
 	ctx := a.ctx
-	ctx = context.WithValue(ctx, apiCtx.FSRegistryCtx, fsapi.Registry(a.fsRegistry))
-	ctx = context.WithValue(ctx, apiCtx.RegistryCtx, a.reg)
-	ctx = logsapi.WithLogger(ctx, a.logger)
-	ctx = context.WithValue(ctx, apiCtx.TranscoderCtx, a.dtt)
-	ctx = context.WithValue(ctx, apiCtx.BusCtx, a.eventBus)
-	ctx = context.WithValue(ctx, apiCtx.FunctionsCtx, a.funcs)
-	ctx = context.WithValue(ctx, apiCtx.ProcessesCtx, a.processes)
-	ctx = context.WithValue(ctx, apiCtx.ResourcesCtx, a.resources)
-	ctx = context.WithValue(ctx, apiCtx.NodeCtx, a.node.Node())
+	ctx = context.WithValue(ctx, ctxapi.FSRegistryCtx, fsapi.Registry(a.fsRegistry))
+	ctx = context.WithValue(ctx, ctxapi.RegistryCtx, a.reg)
+	ctx = logapi.WithLogger(ctx, a.logger)
+	ctx = context.WithValue(ctx, ctxapi.TranscoderCtx, a.dtt)
+	ctx = context.WithValue(ctx, ctxapi.BusCtx, a.eventBus)
+	ctx = context.WithValue(ctx, ctxapi.FunctionsCtx, a.funcs)
+	ctx = context.WithValue(ctx, ctxapi.ProcessesCtx, a.processes)
+	ctx = context.WithValue(ctx, ctxapi.ResourcesCtx, a.resources)
+	ctx = context.WithValue(ctx, ctxapi.NodeCtx, a.node.Node())
 
 	// Spawn environment context
-	envCtx := apiCtx.NewContexter[string]()
+	envCtx := ctxapi.NewContexter[string]()
 	for _, en := range os.Environ() {
 		pair := strings.SplitN(en, "=", 2)
 		if len(pair) == 2 {
 			envCtx.WithValue(pair[0], pair[1])
 		}
 	}
-	ctx = context.WithValue(ctx, apiCtx.EnvCtx, envCtx)
+	ctx = context.WithValue(ctx, ctxapi.EnvCtx, envCtx)
 
 	if err := a.fsRegistry.Start(ctx); err != nil {
 		a.cancel()
@@ -533,7 +533,7 @@ func main() {
 	}
 }
 
-func initLogger(verbose, veryVerbose bool, bus events.Bus) (*zap.Logger, logsapi.Core) {
+func initLogger(verbose, veryVerbose bool, bus events.Bus) (*zap.Logger, logapi.Core) {
 	config := zap.NewDevelopmentConfig()
 
 	switch {
@@ -563,7 +563,7 @@ func loadApplicationState(
 	folderPath string,
 	dtt *transcoder.Transcoder,
 	mainLogger *zap.Logger,
-) (apiReg.ChangeSet, error) {
+) (regapi.ChangeSet, error) {
 	folderLoader := loader.NewLoader(dtt, mainLogger, interpolate.NewEntryInterpolator(dtt,
 		interpolate.WithInterpolator(interpolate.LoadVars),
 		interpolate.WithInterpolator(interpolate.LoadFile),
@@ -580,7 +580,7 @@ func loadApplicationState(
 		return nil, fmt.Errorf("failed to load entries: %w", err)
 	}
 
-	boot, err := topology.NewStateBuilder(mainLogger).BuildDelta(apiReg.State{}, entries)
+	boot, err := topology.NewStateBuilder(mainLogger).BuildDelta(regapi.State{}, entries)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build state delta: %w", err)
 	}
@@ -635,7 +635,7 @@ func WithProcessSupervisor(a *App) eventbus.EventHandler {
 }
 
 func WithEphemeralHost(a *App) eventbus.EventHandler {
-	return reghandler.NewRegistryHandler("process.host", processHosts.NewHostManager(
+	return reghandler.NewRegistryHandler("process.host", prochost.NewHostManager(
 		a.eventBus,
 		a.dtt,
 		a.logger.Named("hosts"),
@@ -677,13 +677,13 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 		a.logger.Named("lua"),
 		a.eventBus,
 		code.Config{
-			Modules: []apiLua.Module{
+			Modules: []luaapi.Module{
 				env.NewEnvModule(),
 				channel.NewChannelModule(),
-				timeMod.NewTimeModule(),
+				timemod.NewTimeModule(),
 				logger.NewLoggerModule(a.logger.Named("app")),
 				base64.NewBase64Module(),
-				jsonMod.NewJSONModule(),
+				jsonmod.NewJSONModule(),
 				fsmod.NewFSModule(),
 				uuid.NewUUIDModule(),
 				upstream.NewUpstreamModule(),
@@ -707,10 +707,10 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 		panic(err)
 	}
 
-	funcs := luaFunc.NewManager(a.logger.Named("lua.funcs"), codeManager, a.eventBus)
+	funcs := funclua.NewManager(a.logger.Named("lua.funcs"), codeManager, a.eventBus)
 	libraries := library.NewManager(a.logger.Named("lua.libs"), codeManager)
-	processes := luaProcess.NewProcessManager(a.logger.Named("lua.proc"), codeManager, a.eventBus)
-	terminalApps := bteaApps.NewBteaManager(a.logger.Named("lua.bteaApps"), codeManager, a.eventBus)
+	processes := proclua.NewProcessManager(a.logger.Named("lua.proc"), codeManager, a.eventBus)
+	terminalApps := bteaapp.NewBteaManager(a.logger.Named("lua.bteaapp"), codeManager, a.eventBus)
 
 	return []eventbus.EventHandler{
 		reghandler.NewTransactionHandler(codeManager),
