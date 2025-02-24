@@ -96,6 +96,8 @@ func GoToLua(v any) (lua.LValue, error) {
 		return lua.LNumber(val), nil
 	case int:
 		return lua.LNumber(val), nil
+	case int32, int64:
+		return lua.LNumber(reflect.ValueOf(val).Int()), nil
 	case bool:
 		return lua.LBool(val), nil
 	case time.Time:
