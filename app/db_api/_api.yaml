@@ -1,0 +1,33 @@
+version: "1.0"
+namespace: db_api
+
+meta:
+  depends_on:
+    - ns:system
+    - ns:db_functions
+  router: system:api
+
+entries:
+  - name: users.setup
+    kind: http.endpoint
+    meta:
+      comment: "Creates users table in the database"
+    method: GET
+    path: /db/setup
+    func: db_functions:users.setup
+
+  - name: users.add
+    kind: http.endpoint
+    meta:
+      comment: "Adds a new user to the database"
+    method: POST
+    path: /db/user
+    func: db_functions:users.add
+
+  - name: users.list
+    kind: http.endpoint
+    meta:
+      comment: "Lists all users from the database"
+    method: GET
+    path: /db/users
+    func: db_functions:users.list
