@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	contextapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/function"
+	"github.com/ponyruntime/pony/api/funcs"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
@@ -21,7 +21,7 @@ type Module struct {
 }
 
 type Functions struct {
-	funcs      function.Registry
+	funcs      funcs.Registry
 	appContext context.Context
 	dtt        payload.Transcoder
 	values     *contextapi.Contexter[interface{}]
@@ -52,13 +52,13 @@ func (m *Module) Loader(l *lua.LState) int {
 	return 1
 }
 
-func (m *Module) extractDependencies(l *lua.LState) (function.Registry, payload.Transcoder, error) {
+func (m *Module) extractDependencies(l *lua.LState) (funcs.Registry, payload.Transcoder, error) {
 	uw := uow.FromContext(l.Context())
 	if uw == nil {
 		return nil, nil, errors.New("no unit of work context found")
 	}
 
-	funcs := function.GetFunctions(uw.Context())
+	funcs := funcs.GetFuncsRegistry(uw.Context())
 	if funcs == nil {
 		return nil, nil, errors.New("function registry not found in context")
 	}
