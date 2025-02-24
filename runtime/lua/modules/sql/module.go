@@ -75,6 +75,10 @@ func (m *Module) Loader(l *lua.LState) int {
 	// Register transaction functions
 	registerTransaction(l, m.log)
 
+	nullUserData := l.NewUserData()
+	nullUserData.Value = "SQL_NULL" // Marker value
+	mod.RawSetString("NULL", nullUserData)
+
 	// Register database type constants
 	types := l.NewTable()
 	types.RawSetString("postgres", lua.LString(TypePostgres))
