@@ -49,6 +49,11 @@ func registerTransaction(l *lua.LState, log *zap.Logger) {
 	methods.RawSetString("commit", l.NewFunction(txCommit))
 	methods.RawSetString("rollback", l.NewFunction(txRollback))
 
+	// Add savepoint methods
+	methods.RawSetString("savepoint", l.NewFunction(txSavepoint))
+	methods.RawSetString("rollback_to", l.NewFunction(txRollbackTo))
+	methods.RawSetString("release", l.NewFunction(txReleaseSavepoint))
+
 	l.SetField(mt, "__index", methods)
 }
 
@@ -91,10 +96,27 @@ func txQuery(l *lua.LState) int {
 		if err != nil {
 			return engine.NewResult(nil, nil, err)
 		}
-		defer rows.Close()
 
-		// Convert rows to Lua table
-		resultTable, err := rowsToTable(l, rows)
+		var resultTable *lua.LTable
+		// Use a named return parameter to capture errors from both rowsToTable and rows.Close
+		err = func() error {
+			defer func() {
+				closeErr := rows.Close()
+				if closeErr != nil {
+					tx.log.Error("failed to close rows", zap.Error(closeErr))
+					// If we don't already have an error, use the close error
+					if err == nil {
+						err = closeErr
+					}
+				}
+			}()
+
+			// Convert rows to Lua table
+			var tableErr error
+			resultTable, tableErr = rowsToTable(l, rows)
+			return tableErr
+		}()
+
 		if err != nil {
 			return engine.NewResult(nil, nil, err)
 		}
@@ -186,11 +208,18 @@ func txPrepare(l *lua.LState) int {
 
 		// Register for cleanup
 		uw := uow.FromContext(l.Context())
-		if uw != nil {
-			uw.AddCleanup(func() error {
-				return stmt.Close()
-			})
+		if uw == nil {
+			// No UOW found, close the statement immediately
+			closeErr := stmt.Close()
+			if closeErr != nil {
+				tx.log.Error("failed to close statement due to missing UOW", zap.Error(closeErr))
+			}
+			return engine.NewResult(nil, nil, fmt.Errorf("no unit of work found to manage statement"))
 		}
+
+		uw.AddCleanup(func() error {
+			return stmt.Close()
+		})
 
 		// Create userdata
 		ud := WrapStatement(l, stmtObj)
@@ -250,6 +279,139 @@ func txRollback(l *lua.LState) int {
 
 		// Mark as inactive
 		tx.active = false
+
+		return engine.NewResult(nil, []lua.LValue{lua.LTrue, lua.LNil}, nil)
+	})
+
+	return -1 // Yield
+}
+
+// txSavepoint creates a savepoint in the transaction
+func txSavepoint(l *lua.LState) int {
+	// Check and get transaction
+	tx := CheckTransaction(l)
+	if tx == nil {
+		return 0
+	}
+
+	// Get savepoint name
+	name := l.CheckString(2)
+	if name == "" {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("savepoint name is required"))
+		return 2
+	}
+
+	// Sanitize the savepoint name to prevent SQL injection
+	// Only allow alphanumeric and underscore characters
+	for _, c := range name {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_') {
+			l.Push(lua.LNil)
+			l.Push(lua.LString("savepoint name can only contain alphanumeric characters and underscores"))
+			return 2
+		}
+	}
+
+	coroutine.Wrap(l, func() *engine.Result {
+		// Check if transaction is still active
+		if !tx.active {
+			return engine.NewResult(nil, nil, fmt.Errorf("transaction is not active"))
+		}
+
+		// Create savepoint
+		query := fmt.Sprintf("SAVEPOINT %s", name)
+		_, err := tx.tx.Exec(query)
+		if err != nil {
+			return engine.NewResult(nil, nil, fmt.Errorf("failed to create savepoint: %w", err))
+		}
+
+		return engine.NewResult(nil, []lua.LValue{lua.LTrue, lua.LNil}, nil)
+	})
+
+	return -1 // Yield
+}
+
+// txRollbackTo rolls back to a savepoint in the transaction
+func txRollbackTo(l *lua.LState) int {
+	// Check and get transaction
+	tx := CheckTransaction(l)
+	if tx == nil {
+		return 0
+	}
+
+	// Get savepoint name
+	name := l.CheckString(2)
+	if name == "" {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("savepoint name is required"))
+		return 2
+	}
+
+	// Sanitize the savepoint name
+	for _, c := range name {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_') {
+			l.Push(lua.LNil)
+			l.Push(lua.LString("savepoint name can only contain alphanumeric characters and underscores"))
+			return 2
+		}
+	}
+
+	coroutine.Wrap(l, func() *engine.Result {
+		// Check if transaction is still active
+		if !tx.active {
+			return engine.NewResult(nil, nil, fmt.Errorf("transaction is not active"))
+		}
+
+		// Roll back to savepoint
+		query := fmt.Sprintf("ROLLBACK TO SAVEPOINT %s", name)
+		_, err := tx.tx.Exec(query)
+		if err != nil {
+			return engine.NewResult(nil, nil, fmt.Errorf("failed to rollback to savepoint: %w", err))
+		}
+
+		return engine.NewResult(nil, []lua.LValue{lua.LTrue, lua.LNil}, nil)
+	})
+
+	return -1 // Yield
+}
+
+// txReleaseSavepoint releases a savepoint in the transaction
+func txReleaseSavepoint(l *lua.LState) int {
+	// Check and get transaction
+	tx := CheckTransaction(l)
+	if tx == nil {
+		return 0
+	}
+
+	// Get savepoint name
+	name := l.CheckString(2)
+	if name == "" {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("savepoint name is required"))
+		return 2
+	}
+
+	// Sanitize the savepoint name
+	for _, c := range name {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_') {
+			l.Push(lua.LNil)
+			l.Push(lua.LString("savepoint name can only contain alphanumeric characters and underscores"))
+			return 2
+		}
+	}
+
+	coroutine.Wrap(l, func() *engine.Result {
+		// Check if transaction is still active
+		if !tx.active {
+			return engine.NewResult(nil, nil, fmt.Errorf("transaction is not active"))
+		}
+
+		// Release savepoint
+		query := fmt.Sprintf("RELEASE SAVEPOINT %s", name)
+		_, err := tx.tx.Exec(query)
+		if err != nil {
+			return engine.NewResult(nil, nil, fmt.Errorf("failed to release savepoint: %w", err))
+		}
 
 		return engine.NewResult(nil, []lua.LValue{lua.LTrue, lua.LNil}, nil)
 	})

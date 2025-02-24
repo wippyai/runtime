@@ -81,10 +81,27 @@ func stmtQuery(l *lua.LState) int {
 		if err != nil {
 			return engine.NewResult(nil, nil, err)
 		}
-		defer rows.Close()
 
-		// Convert rows to Lua table
-		resultTable, err := rowsToTable(l, rows)
+		var resultTable *lua.LTable
+		// Use a named return parameter to capture errors from both rowsToTable and rows.Close
+		err = func() error {
+			defer func() {
+				closeErr := rows.Close()
+				if closeErr != nil {
+					stmt.log.Error("failed to close rows", zap.Error(closeErr))
+					// If we don't already have an error, use the close error
+					if err == nil {
+						err = closeErr
+					}
+				}
+			}()
+
+			// Convert rows to Lua table
+			var tableErr error
+			resultTable, tableErr = rowsToTable(l, rows)
+			return tableErr
+		}()
+
 		if err != nil {
 			return engine.NewResult(nil, nil, err)
 		}
@@ -146,14 +163,19 @@ func stmtClose(l *lua.LState) int {
 		return 0
 	}
 
-	coroutine.Wrap(l, func() *engine.Result {
-		// Close statement
-		if err := stmt.stmt.Close(); err != nil {
-			return engine.NewResult(nil, nil, err)
-		}
+	// This is a fast operation, no need for coroutine
+	if err := stmt.stmt.Close(); err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(fmt.Sprintf("failed to close statement: %v", err)))
+		return 2
+	}
 
-		return engine.NewResult(nil, []lua.LValue{lua.LTrue, lua.LNil}, nil)
-	})
+	l.Push(lua.LTrue)
+	l.Push(lua.LNil)
+	return 2
+}
 
-	return -1 // Yield
+// Close closes the statement directly - for use outside Lua context
+func (s *Statement) Close() error {
+	return s.stmt.Close()
 }
