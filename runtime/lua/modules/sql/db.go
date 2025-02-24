@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/resource"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
@@ -215,7 +214,7 @@ func dbQuery(l *lua.LState) int {
 		}
 
 		if err != nil {
-			return engine.NewResult(nil, nil, err)
+			return engine.NewResult(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
 		}
 
 		var resultTable *lua.LTable
