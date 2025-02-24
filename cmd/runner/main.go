@@ -31,6 +31,7 @@ import (
 	jsonMod "github.com/ponyruntime/pony/runtime/lua/modules/json"
 	"github.com/ponyruntime/pony/runtime/lua/modules/logger"
 	procapimod "github.com/ponyruntime/pony/runtime/lua/modules/processapi"
+	sqlmod "github.com/ponyruntime/pony/runtime/lua/modules/sql"
 	"github.com/ponyruntime/pony/runtime/lua/modules/tasks"
 	timeMod "github.com/ponyruntime/pony/runtime/lua/modules/time"
 	"github.com/ponyruntime/pony/runtime/lua/modules/treesitter"
@@ -696,6 +697,7 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 				websocket.NewWebSocketModule(a.logger.Named("websocket")),
 				treesitter.NewTreeSitterModule(a.logger.Named("tsitter")),
 				btea.NewBteaModule(a.logger.Named("btea")),
+				sqlmod.NewSQLModule(a.logger.Named("sql")),
 			},
 			ProtoCacheSize: 600,
 			MainCacheSize:  100,
