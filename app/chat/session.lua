@@ -64,7 +64,7 @@ local function run(args)
 
         get_history = function(state, msg)
             if msg.reply_to then
-                func.send(msg.reply_to, "response", { history = state.messages })
+                process.send(msg.reply_to, "response", { history = state.messages })
             end
             return state.messages
         end,
