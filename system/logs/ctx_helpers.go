@@ -32,7 +32,7 @@ func (c *ConfigurationManager) GetConfig(ctx context.Context, bus events.Bus) (a
 
 	// Set up subscription first
 	path := fmt.Sprintf("get-logs-config-%d", c.opCounter.Add(1))
-	sub, err := eventbus.NewSubscriber(ctx, bus, api.System, api.ConfigStateEvent, func(e events.Event) {
+	sub, err := eventbus.NewSubscriber(ctx, bus, api.System, api.ConfigState, func(e events.Event) {
 		if string(e.Path) == path {
 			if cfg, ok := e.Data.(api.Config); ok {
 				select {
@@ -50,7 +50,7 @@ func (c *ConfigurationManager) GetConfig(ctx context.Context, bus events.Bus) (a
 	// Now send the request
 	bus.Send(ctx, events.Event{
 		System: api.System,
-		Kind:   api.GetConfigEvent,
+		Kind:   api.GetConfig,
 		Path:   path,
 	})
 
@@ -72,7 +72,7 @@ func (c *ConfigurationManager) SetConfig(ctx context.Context, bus events.Bus, cf
 
 	// Set up subscription first
 	path := fmt.Sprintf("set-logs-config-%d", c.opCounter.Add(1))
-	sub, err := eventbus.NewSubscriber(ctx, bus, api.System, api.ConfigStateEvent, func(e events.Event) {
+	sub, err := eventbus.NewSubscriber(ctx, bus, api.System, api.ConfigState, func(e events.Event) {
 		if string(e.Path) == path {
 			if confirm, ok := e.Data.(api.Config); ok {
 				select {
@@ -90,7 +90,7 @@ func (c *ConfigurationManager) SetConfig(ctx context.Context, bus events.Bus, cf
 	// Now send the request
 	bus.Send(ctx, events.Event{
 		System: api.System,
-		Kind:   api.SetConfigEvent,
+		Kind:   api.SetConfig,
 		Path:   events.Path(path),
 		Data:   cfg,
 	})

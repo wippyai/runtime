@@ -74,9 +74,9 @@ func (m *Manager) Stop() error {
 // handleEvent processes incoming events
 func (m *Manager) handleEvent(e events.Event) {
 	switch e.Kind {
-	case api.SetConfigEvent:
+	case api.SetConfig:
 		m.handleConfigEvent(m.ctx, e)
-	case api.GetConfigEvent:
+	case api.GetConfig:
 		m.handleGetConfigEvent(m.ctx, e)
 	}
 }
@@ -118,7 +118,7 @@ func (m *Manager) handleGetConfigEvent(ctx context.Context, e events.Event) {
 	// Send response with current config
 	m.bus.Send(ctx, events.Event{
 		System: api.System,
-		Kind:   api.ConfigStateEvent,
+		Kind:   api.ConfigState,
 		Path:   e.Path,
 		Data:   currentConfig,
 	})
@@ -131,7 +131,7 @@ func (m *Manager) handleSetConfigEvent(ctx context.Context, path events.Path, cf
 	// Send confirmation that config was applied
 	m.bus.Send(ctx, events.Event{
 		System: api.System,
-		Kind:   api.ConfigStateEvent,
+		Kind:   api.ConfigState,
 		Path:   path,
 		Data:   cfg,
 	})

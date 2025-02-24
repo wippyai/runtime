@@ -13,6 +13,7 @@ func (ck *Key) String() string {
 	return ck.Name
 }
 
+// todo: move to individual packages and make proper accessor funcs
 var (
 	// BusCtx represents the event bus context key for the application
 	BusCtx = &Key{Name: "bus"} //nolint:gochecknoglobals
@@ -52,8 +53,6 @@ var (
 	RunnerCtx = &Key{Name: "taskGroupKey"} //nolint:gochecknoglobals
 	// AsyncCtx represents the scheduler context key
 	AsyncCtx = &Key{Name: "scheduleKey"} //nolint:gochecknoglobals
-	// LoggerCtx represents the logger context key
-	LoggerCtx = &Key{Name: "logger"} //nolint:gochecknoglobals
 	// FS Registry
 	FSRegistryCtx = &Key{Name: "fs"}
 )

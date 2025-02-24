@@ -223,7 +223,7 @@ func TestCore_Write(t *testing.T) {
 				if event.System != api.System {
 					t.Error("unexpected system in event")
 				}
-				if event.Kind != api.EntryEvent {
+				if event.Kind != api.Entry {
 					t.Error("unexpected kind in event")
 				}
 				if string(event.Path) != entry.LoggerName {

@@ -63,7 +63,7 @@ func TestManager_InvalidConfigs(t *testing.T) {
 	// Test sending invalid event data
 	bus.Send(ctx, events.Event{
 		System: api.System,
-		Kind:   api.SetConfigEvent,
+		Kind:   api.SetConfig,
 		Path:   "test",
 		Data:   "invalid", // Should be api.Config
 	})
@@ -124,7 +124,7 @@ func TestManager_InvalidConfigChanges(t *testing.T) {
 			name: "invalid data type",
 			sendEvent: events.Event{
 				System: api.System,
-				Kind:   api.SetConfigEvent,
+				Kind:   api.SetConfig,
 				Path:   "test",
 				Data:   "invalid",
 			},
@@ -133,7 +133,7 @@ func TestManager_InvalidConfigChanges(t *testing.T) {
 			name: "nil data",
 			sendEvent: events.Event{
 				System: api.System,
-				Kind:   api.SetConfigEvent,
+				Kind:   api.SetConfig,
 				Path:   "test",
 			},
 		},
@@ -141,7 +141,7 @@ func TestManager_InvalidConfigChanges(t *testing.T) {
 			name: "wrong system",
 			sendEvent: events.Event{
 				System: "wrong.system",
-				Kind:   api.SetConfigEvent,
+				Kind:   api.SetConfig,
 				Path:   "test",
 				Data:   api.Config{},
 			},

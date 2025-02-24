@@ -100,7 +100,7 @@ func (c *Core) Sync() error {
 func (c *Core) publishLogEvent(ent zapcore.Entry, fields []zapcore.Field) {
 	c.bus.Send(context.Background(), events.Event{
 		System: api.System,
-		Kind:   api.EntryEvent,
+		Kind:   api.Entry,
 		Path:   events.Path(ent.LoggerName),
 		Data: struct {
 			Entry  zapcore.Entry   `json:"entry"`
