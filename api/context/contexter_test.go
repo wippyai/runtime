@@ -153,11 +153,6 @@ func TestContexter_Key_String(t *testing.T) {
 			want: "transcoder",
 		},
 		{
-			name: "logger context key",
-			key:  LoggerCtx,
-			want: "logger",
-		},
-		{
 			name: "values context key",
 			key:  ValuesCtx,
 			want: "values",

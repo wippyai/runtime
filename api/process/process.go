@@ -110,7 +110,7 @@ type (
 
 	Topology interface {
 		Monitor() topology.Monitor
-		AttachToContext(ctx context.Context) context.Context
+		OnContext(ctx context.Context) context.Context
 	}
 )
 

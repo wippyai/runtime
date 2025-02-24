@@ -8,7 +8,6 @@ import (
 // Package combines a Process ID with a batch of messages for tracking message origin
 type Package struct {
 	PID      PID
-	From     PID // Added From field to track message origin
 	Messages []*Message
 }
 
@@ -33,7 +32,6 @@ func ReleasePackage(p *Package) {
 
 	// Clear the package fields
 	p.PID = PID{}
-	p.From = PID{}
 	p.Messages = p.Messages[:0] // Preserve capacity but reset length
 
 	packagePool.Put(p)

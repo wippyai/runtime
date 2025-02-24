@@ -38,7 +38,7 @@ func (l *Topology) Monitor() topology.Monitor {
 }
 
 // AttachToContext returns a context with all topology callbacks attached
-func (l *Topology) AttachToContext(ctx context.Context) context.Context {
+func (l *Topology) OnContext(ctx context.Context) context.Context {
 	ctx = process.WithAddedOnStart(ctx, func(pid pubsub.PID, proc process.Process) {
 		l.logger.Debug("process started", zap.String("pid", pid.String()))
 		err := l.monitor.Register(pid)

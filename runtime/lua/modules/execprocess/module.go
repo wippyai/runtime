@@ -1,10 +1,8 @@
 package execprocess
 
 import (
-	apic "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/internal/codeexec/native"
 	lua "github.com/yuin/gopher-lua"
-	"go.uber.org/zap"
 )
 
 const (
@@ -32,20 +30,5 @@ func getProcessExecutor(l *lua.LState) *native.Executor {
 		return tt
 	default:
 		return nil
-	}
-}
-
-// no need to check for nil
-func getCtxLogger(l *lua.LState) *zap.Logger {
-	ctx := l.Context()
-	if ctx == nil {
-		return zap.NewNop()
-	}
-
-	switch tt := ctx.Value(apic.LoggerCtx).(type) {
-	case *zap.Logger:
-		return tt
-	default:
-		return zap.NewNop()
 	}
 }

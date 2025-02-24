@@ -74,11 +74,7 @@ func (t *Terminal) run(ctx context.Context, status chan<- any) {
 	defer close(status)
 	defer t.cleanup(nil)
 
-	t.ctx = context.WithValue(
-		context.WithValue(ctx, ctxapi.HostCtx, t),
-		ctxapi.LoggerCtx,
-		t.log,
-	)
+	t.ctx = logsapi.WithLogger(context.WithValue(ctx, ctxapi.HostCtx, t), t.log)
 
 	for {
 		select {
@@ -154,7 +150,7 @@ func (t *Terminal) prepareContext(ctx context.Context, pid pubsub.PID) context.C
 	pCtx := ctxapi.MergeContext(t.ctx, ctx)
 
 	// lifecycle
-	pCtx = process.GetTopology(pCtx).AttachToContext(pCtx)
+	pCtx = process.GetTopology(pCtx).OnContext(pCtx)
 	pCtx = process.WithAddedOnComplete(pCtx, func(pid pubsub.PID, result *runtime.Result) {
 		if result.Error != nil {
 			t.log.Error("terminal process execution failed",
@@ -169,7 +165,7 @@ func (t *Terminal) prepareContext(ctx context.Context, pid pubsub.PID) context.C
 	})
 
 	pCtx = context.WithValue(pCtx, ctxapi.HostCtx, t)
-	pCtx = context.WithValue(pCtx, ctxapi.LoggerCtx, t.log.Named(pid.UniqID))
+	pCtx = logsapi.WithLogger(pCtx, t.log.Named(pid.UniqID))
 
 	return pCtx
 }
