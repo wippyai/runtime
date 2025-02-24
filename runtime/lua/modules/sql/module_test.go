@@ -5,13 +5,15 @@ import (
 	"database/sql"
 	sqlapi "github.com/ponyruntime/pony/api/service/sql"
 	sqlres "github.com/ponyruntime/pony/service/sql"
+	"github.com/stretchr/testify/assert"
 	"testing"
 
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/resource"
 
+	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	"github.com/ponyruntime/pony/runtime/uow"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap/zaptest"
@@ -69,11 +71,47 @@ func (m *mockResourceRegistry) Exists(id registry.ID) bool {
 	return ok
 }
 
-// TestModuleBasicDBGet tests the sql.get function with a basic SQLite database
-func TestModuleBasicDBGet(t *testing.T) {
-	// Create a test logger
+// setupLuaWithDB sets up a Lua state with our SQL module and a connected database
+func setupLuaWithDB(t *testing.T, mockRes *mockResource) (*engine.CoroutineVM, *lua.LState, *uow.UnitOfWork, *engine.Runner) {
 	logger := zaptest.NewLogger(t)
 
+	// Create the SQL module
+	module := NewSQLModule(logger)
+
+	// Create a mock resource registry with our test database
+	mockRegistry := &mockResourceRegistry{
+		resources: map[registry.ID]resource.Resource[any]{
+			registry.ParseID("app:test_db"): mockRes,
+		},
+	}
+
+	// Create a VM with coroutine support
+	vm, err := engine.NewCVM(logger)
+	require.NoError(t, err)
+
+	// Get the Lua state
+	L := vm.State()
+
+	// Register the SQL module
+	L.PreloadModule(module.Name(), module.Loader)
+
+	// Create a runner with the coroutine layer
+	runner := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
+
+	// Create a UOW for resource management
+	ctx, uw := uow.WithContext(context.Background())
+
+	// Add the resource registry to the context
+	ctx = resource.WithResources(ctx, mockRegistry)
+
+	// Set the context in the Lua state
+	L.SetContext(ctx)
+
+	return vm, L, uw, runner
+}
+
+// TestModuleBasicDBGet tests the sql.get function with a basic SQLite database
+func TestModuleBasicDBGet(t *testing.T) {
 	// Create a SQLite in-memory database
 	db, err := sql.Open("sqlite3", ":memory:")
 	require.NoError(t, err, "Failed to open SQLite database")
@@ -86,9 +124,6 @@ func TestModuleBasicDBGet(t *testing.T) {
 	_, err = db.Exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
 	require.NoError(t, err, "Failed to create test table")
 
-	// Create the SQL module
-	module := NewSQLModule(logger)
-
 	// Create our resource that will be tracked for release
 	mockRes := &mockResource{
 		// Use the actual DBResource struct from the sql service package
@@ -98,71 +133,58 @@ func TestModuleBasicDBGet(t *testing.T) {
 		},
 	}
 
-	// Create a mock resource registry with our test database
-	mockRegistry := &mockResourceRegistry{
-		resources: map[registry.ID]resource.Resource[any]{
-			registry.ParseID("app:test_db"): mockRes,
-		},
-	}
+	// Setup Lua with the test database using the helper function
+	vm, L, uw, runner := setupLuaWithDB(t, mockRes)
+	defer vm.Close()
+	defer func() {
+		err := uw.Close()
+		assert.NoError(t, err, "Unit of work cleanup failed")
+	}()
 
-	// Set up the Lua state
-	L := lua.NewState()
-	defer L.Close()
+	// Import our test function into the VM
+	err = vm.Import(`
+		function test_db_get()
+			local sql = require("sql")
+			local db, err = sql.get("app:test_db")
+			if err then 
+				print("Error getting DB:", err)
+				error(err) 
+			end
 
-	// Register the SQL module
-	L.PreloadModule(module.Name(), module.Loader)
+			-- Check database type
+			local dbType, err = db:type()
+			if err then
+				print("Error getting DB type:", err)
+				error(err) 
+			end
+			
+			-- Store results for test verification
+			local result = {
+				db_type = dbType
+			}
+			
+			-- Release the database
+			local ok, err = db:release()
+			if err then 
+				print("Error releasing DB:", err)
+				error(err) 
+			end
 
-	// Create a simple UOW for resource management
-	ctx, uw := uow.WithContext(context.Background())
-
-	// Add the resource registry to the context
-	ctx = resource.WithResources(ctx, mockRegistry)
-
-	// Set the context in the Lua state
-	L.SetContext(ctx)
-
-	// Load the SQL module in Lua
-	err = L.DoString(`
-		local sql = require("sql")
-		local db, err = sql.get("app:test_db")
-		if err then 
-			print("Error getting DB:", err)
-			error(err) 
+			return result
 		end
+	`, "test", "test_db_get")
+	require.NoError(t, err, "Failed to import test function")
 
-		-- Check database type
-		local dbType, err = db:type()
-		if err then
-			print("Error getting DB type:", err)
-			error(err) 
-		end
-		
-		-- Store results for test verification
-		test_result = {
-			db_type = dbType
-		}
-		
-		-- Release the database
-		local ok, err = db:release()
-		if err then 
-			print("Error releasing DB:", err)
-			error(err) 
-		end
-	`)
-
-	// Check for Lua errors
+	// Execute the function using the runner
+	result, err := runner.Execute(L.Context(), "test_db_get")
 	require.NoError(t, err, "Lua execution failed")
 
 	// Verify the database type
-	resultTable := L.GetGlobal("test_result").(*lua.LTable)
+	resultTable := result.(*lua.LTable)
 	dbType := resultTable.RawGetString("db_type").(lua.LString)
 
 	assert.Equal(t, "sqlite", string(dbType), "Incorrect database type returned")
 
 	// Verify that the resource was released
 	assert.True(t, mockRes.released, "Database resource was not released")
-
-	// Verify UOW cleanups executed correctly
-	err = uw.Close()
-	assert.NoError(t, err, "Unit of work cleanup failed")
 }
