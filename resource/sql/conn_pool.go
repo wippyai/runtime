@@ -7,7 +7,7 @@ import (
 	"github.com/ponyruntime/pony/api/fs"
 	"os"
 	"sync"
-	"time"
+	"sync/atomic"
 
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/resource"
@@ -23,19 +23,16 @@ type ConnPool struct {
 
 	mu     sync.RWMutex
 	wg     sync.WaitGroup // tracks active resource users
-	closed bool
-	config interface{} // either *config.DBConfig or *config.SQLiteConfig
-}
-
-// dbResource represents a database connection resource
-type dbResource struct {
-	pool     *ConnPool
-	released bool
-	mu       sync.RWMutex
+	closed atomic.Bool
+	config atomic.Pointer[any] // either *config.DBConfig or *config.SQLiteConfig
 }
 
 // NewStandardConnPool creates a new connection pool for standard SQL databases
 func NewStandardConnPool(kind registry.Kind, cfg *config.DBConfig) (*ConnPool, error) {
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid configuration: %w", err)
+	}
+
 	dsn, err := buildDSN(kind, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("invalid connection config: %w", err)
@@ -49,25 +46,26 @@ func NewStandardConnPool(kind registry.Kind, cfg *config.DBConfig) (*ConnPool, e
 	// Configure pool settings
 	db.SetMaxOpenConns(cfg.Pool.MaxOpen)
 	db.SetMaxIdleConns(cfg.Pool.MaxIdle)
+	db.SetConnMaxLifetime(cfg.Pool.MaxLifetime)
 
-	if cfg.Pool.MaxLifetime != "" {
-		lifetime, err := time.ParseDuration(cfg.Pool.MaxLifetime) // todo: to cfg
-		if err != nil {
-			return nil, fmt.Errorf("invalid max lifetime duration: %w", err)
-		}
-		db.SetConnMaxLifetime(lifetime)
-	}
-
-	return &ConnPool{
+	pool := &ConnPool{
 		kind:   kind,
 		db:     db,
-		config: cfg,
 		status: make(chan any, 1),
-	}, nil
+	}
+
+	var cfgAny any = cfg
+	pool.config.Store(&cfgAny)
+
+	return pool, nil
 }
 
 // NewSQLiteConnPool creates a new connection pool for SQLite
 func NewSQLiteConnPool(ctx context.Context, cfg *config.SQLiteConfig) (*ConnPool, error) {
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid configuration: %w", err)
+	}
+
 	var dsn string
 
 	// Handle in-memory database
@@ -110,30 +108,23 @@ func NewSQLiteConnPool(ctx context.Context, cfg *config.SQLiteConfig) (*ConnPool
 	// SQLite specific settings
 	db.SetMaxOpenConns(1) // SQLite supports only one writer
 	db.SetMaxIdleConns(1)
+	db.SetConnMaxLifetime(cfg.Pool.MaxLifetime)
 
-	if cfg.Pool.MaxLifetime != "" {
-		lifetime, err := time.ParseDuration(cfg.Pool.MaxLifetime) // todo: to cfg
-		if err != nil {
-			_ = db.Close()
-			return nil, fmt.Errorf("invalid max lifetime duration: %w", err)
-		}
-		db.SetConnMaxLifetime(lifetime)
-	}
-
-	return &ConnPool{
+	pool := &ConnPool{
 		kind:   config.KindSQLite,
 		db:     db,
-		config: cfg,
 		status: make(chan any, 1),
-	}, nil
+	}
+
+	var cfgAny any = cfg
+	pool.config.Store(&cfgAny)
+
+	return pool, nil
 }
 
 // Start implements supervisor.Service
 func (p *ConnPool) Start(ctx context.Context) (<-chan any, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if p.closed {
+	if p.closed.Load() {
 		return nil, fmt.Errorf("connection pool is closed")
 	}
 
@@ -153,13 +144,10 @@ func (p *ConnPool) Start(ctx context.Context) (<-chan any, error) {
 
 // Stop implements supervisor.Service
 func (p *ConnPool) Stop(ctx context.Context) error {
-	p.mu.Lock()
-	if p.closed {
-		p.mu.Unlock()
+	// Try to set closed state - if already closed, return immediately
+	if !p.closed.CompareAndSwap(false, true) {
 		return nil
 	}
-	p.closed = true
-	p.mu.Unlock()
 
 	// Wait for all resources to be released
 	done := make(chan struct{})
@@ -178,10 +166,7 @@ func (p *ConnPool) Stop(ctx context.Context) error {
 
 // UpdateConfig updates the pool configuration
 func (p *ConnPool) UpdateConfig(cfg interface{}) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if p.closed {
+	if p.closed.Load() {
 		return fmt.Errorf("connection pool is closed")
 	}
 
@@ -190,25 +175,31 @@ func (p *ConnPool) UpdateConfig(cfg interface{}) error {
 		if p.kind == config.KindSQLite {
 			return fmt.Errorf("invalid config type for SQLite")
 		}
+
+		if err := c.Validate(); err != nil {
+			return fmt.Errorf("invalid configuration: %w", err)
+		}
+
 		p.db.SetMaxOpenConns(c.Pool.MaxOpen)
 		p.db.SetMaxIdleConns(c.Pool.MaxIdle)
-		lifetime, err := time.ParseDuration(c.Pool.MaxLifetime)
-		if err != nil {
-			return fmt.Errorf("invalid max lifetime duration: %w", err)
-		}
-		p.db.SetConnMaxLifetime(lifetime)
-		p.config = c
+		p.db.SetConnMaxLifetime(c.Pool.MaxLifetime)
+
+		var cfg any = c
+		p.config.Store(&cfg)
 
 	case *config.SQLiteConfig:
 		if p.kind != config.KindSQLite {
 			return fmt.Errorf("invalid config type for non-SQLite database")
 		}
-		lifetime, err := time.ParseDuration(c.Pool.MaxLifetime)
-		if err != nil {
-			return fmt.Errorf("invalid max lifetime duration: %w", err)
+
+		if err := c.Validate(); err != nil {
+			return fmt.Errorf("invalid configuration: %w", err)
 		}
-		p.db.SetConnMaxLifetime(lifetime)
-		p.config = c
+
+		p.db.SetConnMaxLifetime(c.Pool.MaxLifetime)
+
+		var cfg any = c
+		p.config.Store(&cfg)
 
 	default:
 		return fmt.Errorf("unsupported config type: %T", cfg)
@@ -217,19 +208,15 @@ func (p *ConnPool) UpdateConfig(cfg interface{}) error {
 	return nil
 }
 
-// Close closes the connection pool
-func (p *ConnPool) Close() error {
-	return p.Stop(context.Background())
-}
-
 // Acquire implements resource.Provider
-func (p *ConnPool) Acquire(ctx context.Context, id registry.ID, mode resource.AccessMode) (resource.Resource[any], error) {
-	p.mu.RLock()
-	if p.closed {
-		p.mu.RUnlock()
+func (p *ConnPool) Acquire(
+	ctx context.Context,
+	id registry.ID,
+	mode resource.AccessMode,
+) (resource.Resource[any], error) {
+	if p.closed.Load() {
 		return nil, fmt.Errorf("connection pool is closed")
 	}
-	p.mu.RUnlock()
 
 	// Only support normal mode for now
 	if mode != resource.ModeNormal {
@@ -239,36 +226,7 @@ func (p *ConnPool) Acquire(ctx context.Context, id registry.ID, mode resource.Ac
 	// Track resource usage
 	p.wg.Add(1)
 
-	return &dbResource{
-		pool: p,
-	}, nil
-}
-
-// Get implements resource.Resource
-func (r *dbResource) Get() (any, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	if r.released {
-		return nil, resource.ErrResourceReleased
-	}
-
-	return r.pool.db, nil
-}
-
-// Release implements resource.Resource
-func (r *dbResource) Release() error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if r.released {
-		return nil
-	}
-
-	r.released = true
-	r.pool.wg.Done()
-
-	return nil
+	return newDBConn(p, p.db), nil
 }
 
 // Helper to build DSN string for different database types

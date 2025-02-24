@@ -88,7 +88,7 @@ func (m *Manager) handleStandardDBAdd(ctx context.Context, entry registry.Entry)
 		return fmt.Errorf("service %s already exists", entry.ID)
 	}
 
-	cfg, err := decodeEntity[config.DBConfig](entry, m.dtt)
+	cfg, err := decodeAndInitConfig[config.DBConfig](m.dtt, entry)
 	if err != nil {
 		return err
 	}
@@ -98,6 +98,79 @@ func (m *Manager) handleStandardDBAdd(ctx context.Context, entry registry.Entry)
 		return fmt.Errorf("failed to create connection pool: %w", err)
 	}
 
+	return m.registerService(ctx, entry, pool, cfg.Lifecycle)
+}
+
+func (m *Manager) handleSQLiteAdd(ctx context.Context, entry registry.Entry) error {
+	if _, exists := m.services[entry.ID]; exists {
+		return fmt.Errorf("service %s already exists", entry.ID)
+	}
+
+	cfg, err := decodeAndInitConfig[config.SQLiteConfig](m.dtt, entry)
+	if err != nil {
+		return err
+	}
+
+	cfg.FS = cfg.FS.WithDefaultNS(entry.ID.NS)
+	pool, err := NewSQLiteConnPool(ctx, cfg)
+	if err != nil {
+		return fmt.Errorf("failed to create SQLite connection: %w", err)
+	}
+
+	return m.registerService(ctx, entry, pool, cfg.Lifecycle)
+}
+
+func (m *Manager) handleStandardDBUpdate(ctx context.Context, entry registry.Entry) error {
+	pool, exists := m.services[entry.ID]
+	if !exists {
+		return fmt.Errorf("service %s not found", entry.ID)
+	}
+
+	cfg, err := decodeAndInitConfig[config.DBConfig](m.dtt, entry)
+	if err != nil {
+		return err
+	}
+
+	if err := pool.UpdateConfig(cfg); err != nil {
+		return fmt.Errorf("failed to update pool config: %w", err)
+	}
+
+	m.updateService(ctx, entry, cfg.Lifecycle)
+	return nil
+}
+
+func (m *Manager) handleSQLiteUpdate(ctx context.Context, entry registry.Entry) error {
+	pool, exists := m.services[entry.ID]
+	if !exists {
+		return fmt.Errorf("service %s not found", entry.ID)
+	}
+
+	cfg, err := decodeAndInitConfig[config.SQLiteConfig](m.dtt, entry)
+	if err != nil {
+		return err
+	}
+
+	if err := pool.UpdateConfig(cfg); err != nil {
+		return fmt.Errorf("failed to update SQLite config: %w", err)
+	}
+
+	m.updateService(ctx, entry, cfg.Lifecycle)
+	return nil
+}
+
+func (m *Manager) handleDBDelete(ctx context.Context, entry registry.Entry) error {
+	_, exists := m.services[entry.ID]
+	if !exists {
+		return fmt.Errorf("service %s not found", entry.ID)
+	}
+
+	m.unregisterService(ctx, entry)
+	delete(m.services, entry.ID)
+	return nil
+}
+
+// registerService handles the common service registration logic
+func (m *Manager) registerService(ctx context.Context, entry registry.Entry, pool *ConnPool, lifecycle supervisor.LifecycleConfig) error {
 	m.services[entry.ID] = pool
 
 	// Register with supervisor
@@ -107,7 +180,7 @@ func (m *Manager) handleStandardDBAdd(ctx context.Context, entry registry.Entry)
 		Path:   entry.ID.String(),
 		Data: &supervisor.Entry{
 			Service: pool,
-			Config:  cfg.Lifecycle,
+			Config:  lifecycle,
 		},
 	})
 
@@ -130,120 +203,24 @@ func (m *Manager) handleStandardDBAdd(ctx context.Context, entry registry.Entry)
 	return nil
 }
 
-func (m *Manager) handleSQLiteAdd(ctx context.Context, entry registry.Entry) error {
-	if _, exists := m.services[entry.ID]; exists {
-		return fmt.Errorf("service %s already exists", entry.ID)
-	}
-
-	cfg, err := decodeEntity[config.SQLiteConfig](entry, m.dtt)
-	if err != nil {
-		return err
-	}
-
-	cfg.FS = cfg.FS.WithDefaultNS(entry.ID.NS)
-	pool, err := NewSQLiteConnPool(ctx, cfg)
-	if err != nil {
-		return fmt.Errorf("failed to create SQLite connection: %w", err)
-	}
-
-	m.services[entry.ID] = pool
-
-	// Register with supervisor
-	m.bus.Send(ctx, events.Event{
-		System: supervisor.System,
-		Kind:   supervisor.Register,
-		Path:   entry.ID.String(),
-		Data: &supervisor.Entry{
-			Service: pool,
-			Config:  cfg.Lifecycle,
-		},
-	})
-
-	// Register as resource provider
-	m.bus.Send(ctx, events.Event{
-		System: resource.System,
-		Kind:   resource.Register,
-		Path:   entry.ID.String(),
-		Data: resource.Entry{
-			ID:       entry.ID,
-			Provider: pool,
-			Meta:     map[string]interface{}{"type": string(entry.Kind)},
-		},
-	})
-
-	m.log.Info("added SQLite service",
-		zap.String("id", entry.ID.String()))
-
-	return nil
-}
-
-func (m *Manager) handleStandardDBUpdate(ctx context.Context, entry registry.Entry) error {
-	pool, exists := m.services[entry.ID]
-	if !exists {
-		return fmt.Errorf("service %s not found", entry.ID)
-	}
-
-	cfg, err := decodeEntity[config.DBConfig](entry, m.dtt)
-	if err != nil {
-		return err
-	}
-
-	if err := pool.UpdateConfig(cfg); err != nil {
-		return fmt.Errorf("failed to update pool config: %w", err)
-	}
-
+// updateService handles the common service update logic
+func (m *Manager) updateService(ctx context.Context, entry registry.Entry, lifecycle supervisor.LifecycleConfig) {
 	m.bus.Send(ctx, events.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Update,
 		Path:   entry.ID.String(),
 		Data: &supervisor.Entry{
-			Config: cfg.Lifecycle,
+			Config: lifecycle,
 		},
 	})
 
 	m.log.Info("updated database service",
 		zap.String("id", entry.ID.String()),
 		zap.String("kind", string(entry.Kind)))
-
-	return nil
 }
 
-func (m *Manager) handleSQLiteUpdate(ctx context.Context, entry registry.Entry) error {
-	pool, exists := m.services[entry.ID]
-	if !exists {
-		return fmt.Errorf("service %s not found", entry.ID)
-	}
-
-	cfg, err := decodeEntity[config.SQLiteConfig](entry, m.dtt)
-	if err != nil {
-		return err
-	}
-
-	if err := pool.UpdateConfig(cfg); err != nil {
-		return fmt.Errorf("failed to update SQLite config: %w", err)
-	}
-
-	m.bus.Send(ctx, events.Event{
-		System: supervisor.System,
-		Kind:   supervisor.Update,
-		Path:   entry.ID.String(),
-		Data: &supervisor.Entry{
-			Config: cfg.Lifecycle,
-		},
-	})
-
-	m.log.Info("updated SQLite service",
-		zap.String("id", entry.ID.String()))
-
-	return nil
-}
-
-func (m *Manager) handleDBDelete(ctx context.Context, entry registry.Entry) error {
-	pool, exists := m.services[entry.ID]
-	if !exists {
-		return fmt.Errorf("service %s not found", entry.ID)
-	}
-
+// unregisterService handles the common service unregistration logic
+func (m *Manager) unregisterService(ctx context.Context, entry registry.Entry) {
 	// Delete from supervisor
 	m.bus.Send(ctx, events.Event{
 		System: supervisor.System,
@@ -259,28 +236,27 @@ func (m *Manager) handleDBDelete(ctx context.Context, entry registry.Entry) erro
 		Data:   entry.ID,
 	})
 
-	delete(m.services, entry.ID)
-
-	if err := pool.Close(); err != nil {
-		m.log.Error("failed to close connection pool",
-			zap.String("id", entry.ID.String()),
-			zap.Error(err))
-	}
-
-	return nil
+	m.log.Info("removed database service",
+		zap.String("id", entry.ID.String()))
 }
 
-// Helper to decode entities
-func decodeEntity[T any](entry registry.Entry, transcoder payload.Transcoder) (*T, error) {
+// decodeAndInitConfig decodes the configuration and initializes defaults
+func decodeAndInitConfig[T any](dtt payload.Transcoder, entry registry.Entry) (*T, error) {
 	if entry.Data == nil {
 		return nil, fmt.Errorf("configuration data is required")
 	}
 
 	cfg := new(T)
-	if err := transcoder.Unmarshal(entry.Data, cfg); err != nil {
+	if err := dtt.Unmarshal(entry.Data, cfg); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
+	// Initialize defaults if the config implements InitDefaults
+	if defaulter, ok := interface{}(cfg).(interface{ InitDefaults() }); ok {
+		defaulter.InitDefaults()
+	}
+
+	// Validate if the config implements Validate
 	if validator, ok := interface{}(cfg).(interface{ Validate() error }); ok {
 		if err := validator.Validate(); err != nil {
 			return nil, fmt.Errorf("invalid configuration: %w", err)
