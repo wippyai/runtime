@@ -183,7 +183,7 @@ func TestService_ResourceLifecycle(t *testing.T) {
 	// Test removal
 	bus.Send(ctx, events.Event{
 		System: resource.System,
-		Kind:   resource.Remove,
+		Kind:   resource.Delete,
 		Path:   id.String(),
 		Data:   id,
 	})
@@ -373,10 +373,10 @@ func TestService_ResourceListing(t *testing.T) {
 		assert.True(t, found, "Resource %s should be in the list", id.String())
 	}
 
-	// Remove a resource and verify list is updated
+	// Delete a resource and verify list is updated
 	bus.Send(ctx, events.Event{
 		System: resource.System,
-		Kind:   resource.Remove,
+		Kind:   resource.Delete,
 		Path:   resources[0].String(),
 		Data:   resources[0],
 	})
@@ -488,7 +488,7 @@ func TestService_HandleEvent(t *testing.T) {
 	t.Run("invalid remove payload", func(t *testing.T) {
 		bus.Send(ctx, events.Event{
 			System: resource.System,
-			Kind:   resource.Remove,
+			Kind:   resource.Delete,
 			Path:   "test:resource",
 			Data:   "invalid data",
 		})

@@ -140,7 +140,8 @@ func (m *Manager) handleSQLiteAdd(ctx context.Context, entry registry.Entry) err
 		return err
 	}
 
-	pool, err := NewSQLiteConnPool(cfg)
+	cfg.FS = cfg.FS.WithDefaultNS(entry.ID.NS)
+	pool, err := NewSQLiteConnPool(ctx, cfg)
 	if err != nil {
 		return fmt.Errorf("failed to create SQLite connection: %w", err)
 	}
@@ -243,17 +244,17 @@ func (m *Manager) handleDBDelete(ctx context.Context, entry registry.Entry) erro
 		return fmt.Errorf("service %s not found", entry.ID)
 	}
 
-	// Remove from supervisor
+	// Delete from supervisor
 	m.bus.Send(ctx, events.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Remove,
 		Path:   entry.ID.String(),
 	})
 
-	// Remove resource provider
+	// Delete resource provider
 	m.bus.Send(ctx, events.Event{
 		System: resource.System,
-		Kind:   resource.Remove,
+		Kind:   resource.Delete,
 		Path:   entry.ID.String(),
 		Data:   entry.ID,
 	})

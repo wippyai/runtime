@@ -13,7 +13,7 @@ const (
 	System   events.System = "resources"
 	Register events.Kind   = "resources.register"
 	Update   events.Kind   = "resources.update"
-	Remove   events.Kind   = "resources.remove"
+	Delete   events.Kind   = "resources.delete"
 )
 
 // Common errors returned by the resource system
