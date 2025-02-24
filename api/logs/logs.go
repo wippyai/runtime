@@ -8,6 +8,8 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+var loggerCtx = &ctxapi.Key{Name: "logger"} //nolint:gochecknoglobals
+
 const (
 	// System identifies the logs system in the event context
 	System events.System = "logs"
@@ -50,12 +52,12 @@ type (
 	}
 )
 
-func WithContext(ctx context.Context, logger *zap.Logger) context.Context {
-	return context.WithValue(ctx, ctxapi.LoggerCtx, logger)
+func WithLogger(ctx context.Context, logger *zap.Logger) context.Context {
+	return context.WithValue(ctx, loggerCtx, logger)
 }
 
 func GetLogger(ctx context.Context) *zap.Logger {
-	if l, ok := ctx.Value(ctxapi.LoggerCtx).(*zap.Logger); ok {
+	if l, ok := ctx.Value(loggerCtx).(*zap.Logger); ok {
 		return l
 	}
 

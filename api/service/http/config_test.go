@@ -340,7 +340,9 @@ func TestEndpointConfig_Validate(t *testing.T) {
 		{
 			name: "valid config",
 			config: EndpointConfig{
-				Meta:   registry.Metadata{ServerID: "test-server"},
+				Meta: registry.Metadata{
+					RouterID: "test-router", // Added required RouterID
+				},
 				Path:   "/test",
 				Method: "GET",
 				Func:   registry.ID{NS: "default", Name: "test_handler"},
@@ -350,34 +352,46 @@ func TestEndpointConfig_Validate(t *testing.T) {
 		{
 			name: "empty path",
 			config: EndpointConfig{
-				Meta:   registry.Metadata{ServerID: "test-server"},
+				Meta: registry.Metadata{
+					RouterID: "test-router",
+				},
 				Method: "GET",
+				Func:   registry.ID{NS: "default", Name: "test_handler"},
 			},
 			wantErr: true,
 		},
 		{
 			name: "path without leading slash",
 			config: EndpointConfig{
-				Meta:   registry.Metadata{ServerID: "test-server"},
+				Meta: registry.Metadata{
+					RouterID: "test-router",
+				},
 				Path:   "test",
 				Method: "GET",
+				Func:   registry.ID{NS: "default", Name: "test_handler"},
 			},
 			wantErr: true,
 		},
 		{
 			name: "empty method",
 			config: EndpointConfig{
-				Meta: registry.Metadata{ServerID: "test-server"},
+				Meta: registry.Metadata{
+					RouterID: "test-router",
+				},
 				Path: "/test",
+				Func: registry.ID{NS: "default", Name: "test_handler"},
 			},
 			wantErr: true,
 		},
 		{
 			name: "invalid method",
 			config: EndpointConfig{
-				Meta:   registry.Metadata{ServerID: "test-server"},
+				Meta: registry.Metadata{
+					RouterID: "test-router",
+				},
 				Path:   "/test",
 				Method: "INVALID",
+				Func:   registry.ID{NS: "default", Name: "test_handler"},
 			},
 			wantErr: true,
 		},
@@ -386,15 +400,41 @@ func TestEndpointConfig_Validate(t *testing.T) {
 			config: EndpointConfig{
 				Path:   "/test",
 				Method: "GET",
+				Func:   registry.ID{NS: "default", Name: "test_handler"},
 			},
 			wantErr: true,
 		},
 		{
-			name: "missing server Alias",
+			name: "missing router ID",
 			config: EndpointConfig{
 				Meta:   registry.Metadata{},
 				Path:   "/test",
 				Method: "GET",
+				Func:   registry.ID{NS: "default", Name: "test_handler"},
+			},
+			wantErr: true,
+		},
+		{
+			name: "empty function name",
+			config: EndpointConfig{
+				Meta: registry.Metadata{
+					RouterID: "test-router",
+				},
+				Path:   "/test",
+				Method: "GET",
+				Func:   registry.ID{NS: "default", Name: ""},
+			},
+			wantErr: true,
+		},
+		{
+			name: "empty function namespace",
+			config: EndpointConfig{
+				Meta: registry.Metadata{
+					RouterID: "test-router",
+				},
+				Path:   "/test",
+				Method: "GET",
+				Func:   registry.ID{NS: "", Name: "test_handler"},
 			},
 			wantErr: true,
 		},

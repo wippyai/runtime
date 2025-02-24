@@ -9,7 +9,7 @@ import (
 	"github.com/ponyruntime/pony/api/events"
 	fsapi "github.com/ponyruntime/pony/api/fs"
 	functapi "github.com/ponyruntime/pony/api/function"
-	apiLog "github.com/ponyruntime/pony/api/logs"
+	logsapi "github.com/ponyruntime/pony/api/logs"
 	apiReg "github.com/ponyruntime/pony/api/registry"
 	apiLua "github.com/ponyruntime/pony/api/runtime/lua"
 	topologyApi "github.com/ponyruntime/pony/api/topology"
@@ -78,7 +78,7 @@ type App struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
 	logger      *zap.Logger
-	logCore     apiLog.Core
+	logCore     logsapi.Core
 	logManager  *logs.Manager
 	eventBus    events.Bus
 	eventRouter *eventbus.EventRouter
@@ -234,7 +234,7 @@ func (a *App) Start(folderPath string) error {
 	ctx := a.ctx
 	ctx = context.WithValue(ctx, apiCtx.FSRegistryCtx, fsapi.Registry(a.fsRegistry))
 	ctx = context.WithValue(ctx, apiCtx.RegistryCtx, a.reg)
-	ctx = context.WithValue(ctx, apiCtx.LoggerCtx, a.logger)
+	ctx = logsapi.WithLogger(ctx, a.logger)
 	ctx = context.WithValue(ctx, apiCtx.TranscoderCtx, a.dtt)
 	ctx = context.WithValue(ctx, apiCtx.BusCtx, a.eventBus)
 	ctx = context.WithValue(ctx, apiCtx.FunctionsCtx, a.funcs)
@@ -525,7 +525,7 @@ func main() {
 	}
 }
 
-func initLogger(verbose, veryVerbose bool, bus events.Bus) (*zap.Logger, apiLog.Core) {
+func initLogger(verbose, veryVerbose bool, bus events.Bus) (*zap.Logger, logsapi.Core) {
 	config := zap.NewDevelopmentConfig()
 
 	switch {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	ctxapi "github.com/ponyruntime/pony/api/context"
+	"github.com/ponyruntime/pony/api/logs"
 	"github.com/ponyruntime/pony/api/service/host"
 	"sync"
 	"sync/atomic"
@@ -179,10 +180,10 @@ func (mph *Host) prepareContext(ctx context.Context, pid pubsub.PID) context.Con
 	pCtx := ctxapi.MergeContext(mph.ctx, ctx)
 
 	// lifecycle
-	pCtx = process.GetTopology(pCtx).AttachToContext(pCtx)
+	pCtx = process.GetTopology(pCtx).OnContext(pCtx)
 	pCtx = process.WithAddedOnComplete(pCtx, mph.finalizeProcess)
+	pCtx = logs.WithLogger(ctx, mph.log.With(zap.String("pid", pid.String())))
 
-	pCtx = context.WithValue(pCtx, ctxapi.LoggerCtx, mph.log.With(zap.String("pid", pid.String())))
 	pCtx = context.WithValue(pCtx, ctxapi.WakeUpKey, func() {
 		_ = mph.pool.Schedule(pid) // it's ok since it means process no longer found, possible during termination
 	})

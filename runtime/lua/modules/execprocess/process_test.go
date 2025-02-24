@@ -2,9 +2,9 @@ package execprocess
 
 import (
 	"context"
+	"github.com/ponyruntime/pony/api/logs"
 	"testing"
 
-	apic "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/async"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
@@ -20,7 +20,7 @@ func TestProcessBasic(t *testing.T) {
 	// Setup logger and context
 	logger := zap.NewNop()
 	ctx := context.Background()
-	ctx = context.WithValue(ctx, apic.LoggerCtx, logger)
+	ctx = logs.WithLogger(ctx, logger)
 
 	mod := NewModule()
 	vm, err := engine.NewCVM(
@@ -126,7 +126,7 @@ func TestWorkingDir(t *testing.T) {
 	// Setup logger and context
 	logger := zap.NewNop()
 	ctx := context.Background()
-	ctx = context.WithValue(ctx, apic.LoggerCtx, logger)
+	ctx = logs.WithLogger(ctx, logger)
 
 	mod := NewModule()
 	vm, err := engine.NewCVM(
@@ -239,7 +239,7 @@ func TestWriteStdin(t *testing.T) {
 	// Setup logger and context
 	logger := zap.NewNop()
 	ctx := context.Background()
-	ctx = context.WithValue(ctx, apic.LoggerCtx, logger)
+	ctx = logs.WithLogger(ctx, logger)
 
 	mod := NewModule()
 	vm, err := engine.NewCVM(
@@ -296,7 +296,7 @@ func TestMultiplyCallsToStream(t *testing.T) {
 	// Setup logger and context
 	l, oLogger := mocklogger.ZapTestLogger(zap.DebugLevel)
 	ctx := context.Background()
-	ctx = context.WithValue(ctx, apic.LoggerCtx, l)
+	ctx = logs.WithLogger(ctx, l)
 
 	mod := NewModule()
 	vm, err := engine.NewCVM(

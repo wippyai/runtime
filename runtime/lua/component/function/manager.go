@@ -241,7 +241,7 @@ func (m *Manager) Execute(ctx context.Context, task runtime.Task) (chan *runtime
 	// Spawn result channel
 	resultChan := make(chan *runtime.Result, 1)
 
-	ctx = logs.WithContext(ctx, m.log.With(zap.String("func", task.ID.String())))
+	ctx = logs.WithLogger(ctx, m.log.With(zap.String("func", task.ID.String())))
 
 	// Execute in goroutine to handle async results
 	go func() {
