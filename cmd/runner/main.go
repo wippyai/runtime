@@ -8,7 +8,7 @@ import (
 	apiCtx "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/events"
 	fsapi "github.com/ponyruntime/pony/api/fs"
-	functapi "github.com/ponyruntime/pony/api/function"
+	functapi "github.com/ponyruntime/pony/api/funcs"
 	logsapi "github.com/ponyruntime/pony/api/logs"
 	apiReg "github.com/ponyruntime/pony/api/registry"
 	apiLua "github.com/ponyruntime/pony/api/runtime/lua"

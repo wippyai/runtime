@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/ponyruntime/pony/api/events"
-	"github.com/ponyruntime/pony/api/function"
+	"github.com/ponyruntime/pony/api/funcs"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
@@ -41,10 +41,10 @@ func (n *Runtime) Add(ctx context.Context, entry registry.Entry) error {
 		zap.String("kind", string(entry.Kind)))
 
 	n.bus.Send(ctx, events.Event{
-		System: function.System,
-		Kind:   function.RegisterFunctionHandler,
+		System: funcs.System,
+		Kind:   funcs.FuncRegister,
 		Path:   entry.ID.String(),
-		Data:   function.Func(n.Execute),
+		Data:   funcs.Func(n.Execute),
 	})
 
 	return nil
@@ -65,8 +65,8 @@ func (n *Runtime) Delete(ctx context.Context, entry registry.Entry) error {
 		zap.String("kind", entry.Kind))
 
 	n.bus.Send(ctx, events.Event{
-		System: function.System,
-		Kind:   function.DeleteFunctionHandler,
+		System: funcs.System,
+		Kind:   funcs.FuncDelete,
 		Path:   entry.ID.String(),
 	})
 

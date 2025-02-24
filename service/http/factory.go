@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/ponyruntime/pony/api/fs"
-	"github.com/ponyruntime/pony/api/function"
+	"github.com/ponyruntime/pony/api/funcs"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/runtime"
 	config "github.com/ponyruntime/pony/api/service/http"
@@ -15,14 +15,14 @@ import (
 
 // EndpointFactory creates HTTP handlers for function endpoints
 type EndpointFactory struct {
-	funcs function.Registry
+	funcs funcs.Registry
 	dtt   payload.Transcoder
 }
 
 // Ensure EndpointFactory implements EndpointFactoryAPI
 var _ EndpointFactoryAPI = (*EndpointFactory)(nil)
 
-func NewEndpointFactory(funcs function.Registry) (*EndpointFactory, error) {
+func NewEndpointFactory(funcs funcs.Registry) (*EndpointFactory, error) {
 	if funcs == nil {
 		return nil, fmt.Errorf("function registry is required")
 	}

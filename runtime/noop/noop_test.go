@@ -3,7 +3,7 @@ package noop
 import (
 	"context"
 	"github.com/ponyruntime/pony/api/events"
-	"github.com/ponyruntime/pony/api/function"
+	"github.com/ponyruntime/pony/api/funcs"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
 	"github.com/stretchr/testify/require"
@@ -128,8 +128,8 @@ func TestNoopRuntime_Add(t *testing.T) {
 			require.NoError(t, err)
 
 			require.Equal(t, 1, bus.sendCount)
-			require.Equal(t, function.System, bus.lastEvent.System)
-			require.Equal(t, function.RegisterFunctionHandler, bus.lastEvent.Kind)
+			require.Equal(t, funcs.System, bus.lastEvent.System)
+			require.Equal(t, funcs.FuncRegister, bus.lastEvent.Kind)
 			require.Equal(t, events.Path(tt.entry.ID.String()), bus.lastEvent.Path)
 		})
 	}
@@ -229,8 +229,8 @@ func TestNoopRuntime_Delete(t *testing.T) {
 			require.NoError(t, err)
 
 			require.Equal(t, 1, bus.sendCount)
-			require.Equal(t, function.System, bus.lastEvent.System)
-			require.Equal(t, function.DeleteFunctionHandler, bus.lastEvent.Kind)
+			require.Equal(t, funcs.System, bus.lastEvent.System)
+			require.Equal(t, funcs.FuncDelete, bus.lastEvent.Kind)
 			require.Equal(t, events.Path(tt.entry.ID.String()), bus.lastEvent.Path)
 		})
 	}

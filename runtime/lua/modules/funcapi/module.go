@@ -2,7 +2,7 @@ package function
 
 import (
 	"github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/function"
+	"github.com/ponyruntime/pony/api/funcs"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/runtime/lua/engine/async"
@@ -67,7 +67,7 @@ func (m *Module) getNode(l *lua.LState) (pubsub.Node, bool) {
 }
 
 // checkFunction validates context and returns function context if valid
-func (m *Module) checkFunction(l *lua.LState) (*function.Context, bool) {
+func (m *Module) checkFunction(l *lua.LState) (*funcs.Context, bool) {
 	ctx := l.Context()
 	if ctx == nil {
 		l.Push(lua.LNil)
@@ -75,7 +75,7 @@ func (m *Module) checkFunction(l *lua.LState) (*function.Context, bool) {
 		return nil, false
 	}
 
-	fnCtx := function.GetContext(ctx)
+	fnCtx := funcs.GetContext(ctx)
 	if fnCtx == nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString("no function context found"))

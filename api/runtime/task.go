@@ -6,17 +6,23 @@ import (
 )
 
 type (
-	// Task represents a unit of work to be executed by the executor.
-	// It contains the execution context, target identifier, and input payloads.
+	// Task represents a unit of work to be executed by the runtime system.
 	Task struct {
-		ID       registry.ID      `json:"handler"`
+		// ID uniquely identifies the function/process/operation to be executed
+		ID registry.ID `json:"id"`
+
+		// Payloads contains the input data for the function execution
 		Payloads payload.Payloads `json:"payloads"`
 	}
 
 	// Result represents the outcome of an executed task.
-	// It contains either a successful payload or an error.
+	// It can contain either a successful payload or an error,
+	// allowing for both successful and failed execution handling.
 	Result struct {
+		// Payload contains the successful execution result data
 		Payload payload.Payload `json:"payload"`
-		Error   error           `json:"error"`
+
+		// Error contains any error that occurred during task execution
+		Error error `json:"error"`
 	}
 )
