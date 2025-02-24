@@ -107,7 +107,3 @@ entries:
     file: "./app.db"
     lifecycle:
       auto_start: true
-      restart:
-        initial_delay: 5s
-        max_attempts: 3
-        backoff_factor: 1.5
