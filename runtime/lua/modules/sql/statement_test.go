@@ -524,42 +524,42 @@ func TestStatementDataTypes(t *testing.T) {
 
 	// Import the test script
 	err = vm.Import(`
-		function test_data_types()
-			local sql = require("sql")
-			local db, err = sql.get("app:test_db")
-			if err then error(err) end
+	function test_data_types()
+		local sql = require("sql")
+		local db, err = sql.get("app:test_db")
+		if err then error(err) end
 
-			local stmt, err = db:prepare("INSERT INTO datatypes (int_val, real_val, text_val, bool_val, null_val) VALUES (?, ?, ?, ?, ?)")
-			if err then error(err) end
+		local stmt, err = db:prepare("INSERT INTO datatypes (int_val, real_val, text_val, bool_val, null_val) VALUES (?, ?, ?, ?, ?)")
+		if err then error(err) end
 
-			-- Execute with different data types
-			local result, err = stmt:execute({42, 3.14159, "Hello, world!", true, nil})
-			if err then error(err) end
+		-- Execute with different data types, using sql.NULL instead of nil
+		local result, err = stmt:execute({42, 3.14159, "Hello, world!", true, sql.NULL})
+		if err then error(err) end
 
-			-- Query to verify the insert
-			local rows, err = db:query("SELECT * FROM datatypes")
-			if err then error(err) end
+		-- Query to verify the insert
+		local rows, err = db:query("SELECT * FROM datatypes")
+		if err then error(err) end
 
-			-- Store results for testing
-			local test_result = {
-				int_val = rows[1].int_val,
-				real_val = rows[1].real_val,
-				text_val = rows[1].text_val,
-				bool_val = rows[1].bool_val,
-				has_null = (rows[1].null_val == nil)
-			}
-			
-			-- Safely handle rows_affected which might be nil
-			if result and result.rows_affected then
-				test_result.rows_affected = result.rows_affected
-			end
-
-			local ok, err = stmt:close()
-			if err then error(err) end
-			
-			return test_result
+		-- Store results for testing
+		local test_result = {
+			int_val = rows[1].int_val,
+			real_val = rows[1].real_val,
+			text_val = rows[1].text_val,
+			bool_val = rows[1].bool_val,
+			has_null = (rows[1].null_val == nil)
+		}
+		
+		-- Safely handle rows_affected which might be nil
+		if result and result.rows_affected then
+			test_result.rows_affected = result.rows_affected
 		end
-	`, "test", "test_data_types")
+
+		local ok, err = stmt:close()
+		if err then error(err) end
+		
+		return test_result
+	end
+`, "test", "test_data_types")
 	require.NoError(t, err, "Failed to import test script")
 
 	// Execute the function using the runner

@@ -36,15 +36,31 @@ func checkParams(l *lua.LState, index int) (interface{}, error) {
 	}
 
 	if isArray {
-		// Use the existing conversion function for arrays
-		goValue := luaconv.ToGoAny(tbl)
+		// Create a slice with explicit length to preserve nil values
+		result := make([]interface{}, maxn)
 
-		// Ensure it was converted to a slice
-		if slice, ok := goValue.([]interface{}); ok {
-			return slice, nil
+		// Fill the slice, preserving nil values
+		for i := 1; i <= maxn; i++ {
+			v := tbl.RawGetInt(i)
+
+			// Check for special NULL value
+			if v.Type() == lua.LTUserData {
+				if ud, ok := v.(*lua.LUserData); ok && ud.Value == "SQL_NULL" {
+					result[i-1] = nil
+					continue
+				}
+			}
+
+			// Handle normal values
+			if v == lua.LNil {
+				result[i-1] = nil
+			} else {
+				// Convert using existing mechanism for a single value
+				result[i-1] = luaconv.ToGoAny(v)
+			}
 		}
 
-		return nil, fmt.Errorf("failed to convert parameters to slice")
+		return result, nil
 	} else {
 		// For now, we only support positional parameters
 		return nil, fmt.Errorf("only positional parameters (array-like tables) are supported")

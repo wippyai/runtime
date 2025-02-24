@@ -104,6 +104,8 @@ func GoToLua(v any) (lua.LValue, error) {
 		return lua.LNumber(val.Unix()), nil
 	case payload.Payload:
 		return GoToLua(val.(payload.Payload).Data())
+	case []byte:
+		return lua.LString(val), nil
 	case error:
 		ud := engine.SharedState.NewUserData()
 		ud.Value = errors.New(val)
