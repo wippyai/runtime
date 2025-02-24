@@ -4,10 +4,12 @@ import (
 	"context"
 	"database/sql"
 	sqlapi "github.com/ponyruntime/pony/api/service/sql"
+	sqlres "github.com/ponyruntime/pony/service/sql"
 	"testing"
 
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/resource"
+
 	"github.com/ponyruntime/pony/runtime/uow"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -18,23 +20,10 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-// mockSQLResource is a simple mock for the SQL resource
-type mockSQLResource struct {
-	db   *sql.DB
-	kind registry.Kind
-}
-
-func (m *mockSQLResource) DB() *sql.DB {
-	return m.db
-}
-
-func (m *mockSQLResource) Type() registry.Kind {
-	return m.kind
-}
-
 // mockResource implements the resource.Resource interface
 type mockResource struct {
 	resValue any
+	released bool
 }
 
 func (m *mockResource) Get() (any, error) {
@@ -42,7 +31,12 @@ func (m *mockResource) Get() (any, error) {
 }
 
 func (m *mockResource) Release() error {
+	m.released = true
 	return nil
+}
+
+func (m *mockResource) Mode() resource.AccessMode {
+	return resource.ModeNormal
 }
 
 // mockResourceRegistry is a simple mock for the resource registry
@@ -95,15 +89,19 @@ func TestModuleBasicDBGet(t *testing.T) {
 	// Create the SQL module
 	module := NewSQLModule(logger)
 
+	// Create our resource that will be tracked for release
+	mockRes := &mockResource{
+		// Use the actual DBResource struct from the sql service package
+		resValue: sqlres.DBResource{
+			DB:   db,
+			Type: sqlapi.KindSQLite,
+		},
+	}
+
 	// Create a mock resource registry with our test database
 	mockRegistry := &mockResourceRegistry{
 		resources: map[registry.ID]resource.Resource[any]{
-			registry.ID{Name: "test_db"}: &mockResource{
-				resValue: &mockSQLResource{
-					db:   db,
-					kind: sqlapi.KindSQLite,
-				},
-			},
+			registry.ParseID("app:test_db"): mockRes,
 		},
 	}
 
@@ -126,12 +124,18 @@ func TestModuleBasicDBGet(t *testing.T) {
 	// Load the SQL module in Lua
 	err = L.DoString(`
 		local sql = require("sql")
-		local db, err = sql.get("test_db")
-		if err then error(err) end
-		
+		local db, err = sql.get("app:test_db")
+		if err then 
+			print("Error getting DB:", err)
+			error(err) 
+		end
+
 		-- Check database type
 		local dbType, err = db:type()
-		if err then error(err) end
+		if err then
+			print("Error getting DB type:", err)
+			error(err) 
+		end
 		
 		-- Store results for test verification
 		test_result = {
@@ -140,7 +144,10 @@ func TestModuleBasicDBGet(t *testing.T) {
 		
 		-- Release the database
 		local ok, err = db:release()
-		if err then error(err) end
+		if err then 
+			print("Error releasing DB:", err)
+			error(err) 
+		end
 	`)
 
 	// Check for Lua errors
@@ -151,6 +158,9 @@ func TestModuleBasicDBGet(t *testing.T) {
 	dbType := resultTable.RawGetString("db_type").(lua.LString)
 
 	assert.Equal(t, "sqlite", string(dbType), "Incorrect database type returned")
+
+	// Verify that the resource was released
+	assert.True(t, mockRes.released, "Database resource was not released")
 
 	// Verify UOW cleanups executed correctly
 	err = uw.Close()
