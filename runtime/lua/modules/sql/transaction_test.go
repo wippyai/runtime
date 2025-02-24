@@ -3,6 +3,7 @@ package sql
 import (
 	"database/sql"
 	sqlres "github.com/ponyruntime/pony/service/sql"
+	"sync"
 	"testing"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -176,4 +177,138 @@ func TestTransactionSavepoint(t *testing.T) {
 	require.NoError(t, err)
 	// Expect the value to remain as "intermediate" (the change to "final" was undone).
 	assert.Equal(t, lua.LString("intermediate"), result)
+}
+
+func TestTransactionErrorHandling(t *testing.T) {
+	// Open an in-memory SQLite database.
+	db, err := sql.Open("sqlite3", ":memory:")
+	require.NoError(t, err)
+	defer db.Close()
+
+	// Create a simple table and insert initial data.
+	_, err = db.Exec("CREATE TABLE items (id INTEGER PRIMARY KEY, value TEXT)")
+	require.NoError(t, err)
+	_, err = db.Exec("INSERT INTO items (value) VALUES ('old')")
+	require.NoError(t, err)
+
+	// Wrap the DB in a mockResource for Lua integration.
+	mockRes := &mockResource{
+		resValue: sqlres.DBResource{
+			DB:   db,
+			Type: "sqlite",
+		},
+	}
+
+	// Set up the Lua VM with the SQL module.
+	vm, L, uw, runner := setupLuaWithDB(t, mockRes)
+	defer vm.Close()
+	defer func() { _ = uw.Close() }()
+
+	// Lua script that begins a transaction, performs a valid update,
+	// then executes an invalid query to trigger an error and rollback.
+	script := `
+		function test_tx_error()
+			local sql = require("sql")
+			local db, err = sql.get("app:test_db")
+			if err then error(err) end
+			-- Begin transaction
+			local tx, err = db:begin()
+			if err then error(err) end
+
+			-- Valid update
+			local res, err = tx:execute("UPDATE items SET value = 'new' WHERE id = 1")
+			if err then error(err) end
+
+			-- This update targets a non-existent table, should error.
+			local res2, err = tx:execute("UPDATE non_existing_table SET value = 'fail'")
+			if err then 
+				-- Rollback on error and return the error message.
+				tx:rollback()
+				return err
+			else
+				-- If no error occurs (unexpected), commit the transaction.
+				local ok, err = tx:commit()
+				if err then error(err) end
+				return "no error"
+			end
+		end
+	`
+	err = vm.Import(script, "test", "test_tx_error")
+	require.NoError(t, err)
+
+	result, err := runner.Execute(L.Context(), "test_tx_error")
+	require.NoError(t, err)
+
+	// The result should contain an error message mentioning the non_existing_table.
+	assert.Contains(t, result.String(), "non_existing_table")
+}
+
+func TestConcurrentTransactions(t *testing.T) {
+	// Open a shared in-memory SQLite database.
+	db, err := sql.Open("sqlite3", "file:memdb_concurrent?mode=memory&cache=shared")
+	require.NoError(t, err)
+	defer db.Close()
+
+	// Create a table and initialize a counter.
+	_, err = db.Exec("CREATE TABLE concurrent (id INTEGER PRIMARY KEY, count INTEGER)")
+	require.NoError(t, err)
+	_, err = db.Exec("INSERT INTO concurrent (id, count) VALUES (1, 0)")
+	require.NoError(t, err)
+
+	// Wrap the DB in a mockResource for Lua integration.
+	mockRes := &mockResource{
+		resValue: sqlres.DBResource{
+			DB:   db,
+			Type: "sqlite",
+		},
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	// Function that executes a transaction to increment the counter.
+	runTransaction := func() {
+		defer wg.Done()
+
+		vm, L, uw, runner := setupLuaWithDB(t, mockRes)
+		defer vm.Close()
+		defer func() { _ = uw.Close() }()
+
+		// Lua script to begin a transaction, update the counter, and commit.
+		script := `
+			function test_concurrent_tx()
+				local sql = require("sql")
+				local db, err = sql.get("app:test_db")
+				if err then error(err) end
+
+				local tx, err = db:begin()
+				if err then error(err) end
+
+				local res, err = tx:execute("UPDATE concurrent SET count = count + 1 WHERE id = 1")
+				if err then error(err) end
+
+				local ok, err = tx:commit()
+				if err then error(err) end
+
+				return "committed"
+			end
+		`
+		err := vm.Import(script, "test", "test_concurrent_tx")
+		require.NoError(t, err)
+
+		result, err := runner.Execute(L.Context(), "test_concurrent_tx")
+		require.NoError(t, err)
+		assert.Equal(t, lua.LString("committed"), result)
+	}
+
+	// Launch two concurrent transactions.
+	go runTransaction()
+	go runTransaction()
+	wg.Wait()
+
+	// Verify that the counter was incremented twice.
+	var count int
+	err = db.QueryRow("SELECT count FROM concurrent WHERE id = 1").Scan(&count)
+	require.NoError(t, err)
+	assert.Equal(t, 2, count)
 }
