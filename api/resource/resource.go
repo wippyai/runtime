@@ -109,3 +109,8 @@ func GetResources(ctx context.Context) Registry {
 	}
 	return reg
 }
+
+// WithResources adds a ResourceRegistry to the context
+func WithResources(ctx context.Context, reg Registry) context.Context {
+	return context.WithValue(ctx, contextapi.ResourcesCtx, reg)
+}
