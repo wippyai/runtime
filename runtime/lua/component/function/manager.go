@@ -3,7 +3,7 @@ package function
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/api/funcs"
+	"github.com/ponyruntime/pony/api/function"
 	"github.com/ponyruntime/pony/api/logs"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/runtime/lua/component"
@@ -321,18 +321,18 @@ func (m *Manager) createPool(cfg *api.FunctionConfig, compiled *code.CompiledMai
 // registerCaller registers function in the function system
 func (m *Manager) registerCaller(ctx context.Context, id registry.ID, method string) {
 	m.bus.Send(ctx, events.Event{
-		System: funcs.System,
-		Kind:   funcs.FuncRegister,
+		System: function.System,
+		Kind:   function.FuncRegister,
 		Path:   id.String(),
-		Data:   funcs.Func(m.Execute),
+		Data:   function.Func(m.Execute),
 	})
 }
 
 // unregisterCaller removes function from the function system
 func (m *Manager) unregisterCaller(ctx context.Context, id registry.ID) {
 	m.bus.Send(ctx, events.Event{
-		System: funcs.System,
-		Kind:   funcs.FuncDelete,
+		System: function.System,
+		Kind:   function.FuncDelete,
 		Path:   id.String(),
 	})
 }

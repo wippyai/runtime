@@ -3,7 +3,7 @@ package function
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/api/funcs"
+	"github.com/ponyruntime/pony/api/function"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
@@ -48,8 +48,8 @@ func (f *Registry) Start(ctx context.Context) error {
 	sub, err := eventbus.NewSubscriber(
 		f.ctx,
 		f.bus,
-		funcs.System,
-		"function.(register|remove)",
+		function.System,
+		"function.(register|delete)",
 		f.handleEvent,
 	)
 	if err != nil {
@@ -70,9 +70,9 @@ func (f *Registry) Stop() error {
 
 func (f *Registry) handleEvent(e events.Event) {
 	switch e.Kind {
-	case funcs.FuncRegister:
+	case function.FuncRegister:
 		f.registerFunction(e)
-	case funcs.FuncDelete:
+	case function.FuncDelete:
 		f.deleteFunction(e)
 	default:
 		f.logger.Warn("unknown event kind",
@@ -82,7 +82,7 @@ func (f *Registry) handleEvent(e events.Event) {
 }
 
 func (f *Registry) registerFunction(e events.Event) {
-	fn, ok := e.Data.(funcs.Func)
+	fn, ok := e.Data.(function.Func)
 	if !ok {
 		f.logger.Error("invalid register function payload",
 			zap.String("function", e.Path),
@@ -117,16 +117,16 @@ func (f *Registry) deleteFunction(e events.Event) {
 
 func (f *Registry) sendAccept(path events.Path) {
 	f.bus.Send(f.ctx, events.Event{
-		System: funcs.System,
-		Kind:   funcs.FuncAccept,
+		System: function.System,
+		Kind:   function.FuncAccept,
 		Path:   path,
 	})
 }
 
 func (f *Registry) sendReject(path events.Path, reason string) {
 	f.bus.Send(f.ctx, events.Event{
-		System: funcs.System,
-		Kind:   funcs.FuncReject,
+		System: function.System,
+		Kind:   function.FuncReject,
 		Path:   path,
 		Data:   reason,
 	})
@@ -146,15 +146,15 @@ func (f *Registry) Call(ctx context.Context, task runtime.Task) (chan *runtime.R
 		ctx = context.Background()
 	}
 
-	execHandler, ok := handler.(funcs.Func)
+	execHandler, ok := handler.(function.Func)
 	if !ok {
 		return nil, fmt.Errorf("invalid handler type for target: %s", task.ID)
 	}
 
-	ctx = funcs.WithContext(ctx, &funcs.Context{
+	ctx = function.WithContext(ctx, &function.Context{
 		PID: pubsub.PID{
 			Node:   pubsub.GetNode(ctx).ID(),
-			Host:   funcs.HostID,
+			Host:   function.HostID,
 			ID:     task.ID,
 			UniqID: f.uniqID.Generate(),
 		},
