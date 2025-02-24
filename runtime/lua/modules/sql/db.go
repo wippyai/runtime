@@ -296,6 +296,7 @@ func dbExecute(l *lua.LState) int {
 }
 
 // dbPrepare prepares a statement for repeated execution
+// dbPrepare prepares a statement for repeated execution
 func dbPrepare(l *lua.LState) int {
 	// Check and get database
 	db := CheckDB(l)
@@ -310,7 +311,8 @@ func dbPrepare(l *lua.LState) int {
 		// Prepare statement
 		stmt, err := db.db.Prepare(query)
 		if err != nil {
-			return engine.NewResult(nil, nil, err)
+			// Return the error to Lua instead of failing the test
+			return engine.NewResult(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
 		}
 
 		// Create statement wrapper
@@ -329,7 +331,7 @@ func dbPrepare(l *lua.LState) int {
 				db.log.Error("failed to close statement due to missing UOW",
 					zap.Error(closeErr))
 			}
-			return engine.NewResult(nil, nil, errors.New("no unit of work found to manage statement"))
+			return engine.NewResult(nil, []lua.LValue{lua.LNil, lua.LString("no unit of work found to manage statement")}, nil)
 		}
 
 		uw.AddCleanup(func() error {
