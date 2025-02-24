@@ -11,7 +11,6 @@ import (
 	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/ponyruntime/pony/api/topology"
 	"github.com/ponyruntime/pony/internal/uniqid"
-
 	"time"
 )
 
@@ -134,7 +133,11 @@ func (svc *Service) Stop(ctx context.Context) error {
 		return nil // Not running
 	}
 
-	err := pubsub.GetNode(ctx).Send(topology.Cancel(svc.supervisorPID, svc.pid, time.Now().Add(svc.config.Lifecycle.StopTimeout)))
+	err := pubsub.GetNode(ctx).Send(topology.Cancel(
+		svc.supervisorPID,
+		svc.pid,
+		time.Now().Add(svc.config.Lifecycle.StopTimeout),
+	))
 	if err != nil {
 		// ignoring for now
 	}
