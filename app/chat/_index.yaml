@@ -1,0 +1,70 @@
+version: "1.0"
+namespace: chat
+
+meta:
+  depends_on: [ "ns:system", "ns:wippy" ]
+
+entries:
+  - name: session.manager
+    kind: process.service
+    meta:
+      comment: "Chat Sessions Manager Service"
+      depends_on: [ "system:heap" ]
+    process: session.manager.proc
+    host: system:heap
+    lifecycle:
+      auto_start: true
+      restart:
+        initial_delay: 5s
+        max_attempts: 3
+      depends_on: [ "system:heap" ]
+
+  - name: session.manager.proc
+    kind: process.lua
+    meta:
+      comment: "Chat Sessions Manager Process"
+    source: file://manager.lua
+    method: run
+    modules: [ "time", "json" ]
+    import:
+      actor: wippy:actor
+
+  - name: session.proc
+    kind: process.lua
+    meta:
+      comment: "Chat Session Process"
+    source: file://session.lua
+    method: run
+    modules: [ "time", "json", "funcs" ]
+    import:
+      actor: wippy:actor
+
+  - name: session.start
+    kind: function.lua
+    meta:
+      comment: "HTTP endpoint to start new chat session"
+    source: file://start.lua
+    method: handler
+    modules: [ "http", "base64", "time" ]
+    pool:
+      size: 4
+
+  - name: session.send
+    kind: function.lua
+    meta:
+      comment: "HTTP endpoint to send message to session"
+    source: file://send.lua
+    method: handler
+    modules: [ "http", "base64", "time", "json" ]
+    pool:
+      size: 4
+
+  - name: llm.query
+    kind: function.lua
+    meta:
+      comment: "LLM query function with streaming support"
+    source: file://llm_query.lua
+    method: handler
+    modules: ["http_client", "json", "env"]
+    pool:
+      size: 4
