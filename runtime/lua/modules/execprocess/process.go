@@ -1,6 +1,7 @@
 package execprocess
 
 import (
+	"github.com/ponyruntime/pony/api/logs"
 	native2 "github.com/ponyruntime/pony/internal/codeexec/native"
 	"github.com/ponyruntime/pony/runtime/lua/modules/stream"
 	"github.com/ponyruntime/pony/runtime/uow"
@@ -9,7 +10,7 @@ import (
 )
 
 func (m *Module) newProcess(l *lua.LState) int {
-	log := getCtxLogger(l)
+	log := logs.GetLogger(l.Context())
 
 	// cmd should always be a non-empty string
 	cmd := l.CheckString(1)
@@ -59,7 +60,7 @@ func (m *Module) newProcess(l *lua.LState) int {
 }
 
 func (m *Module) startProcess(l *lua.LState) int {
-	log := getCtxLogger(l)
+	log := logs.GetLogger(l.Context())
 	log.Debug("starting process")
 	executor := getProcessExecutor(l)
 	err := executor.Start()
@@ -73,7 +74,7 @@ func (m *Module) startProcess(l *lua.LState) int {
 }
 
 func (m *Module) getStderr(l *lua.LState) int {
-	log := getCtxLogger(l)
+	log := logs.GetLogger(l.Context())
 	log.Debug("[sync.Once operation]: getting process stderr stream")
 
 	m.once.once.Do(func() {
@@ -101,7 +102,7 @@ func (m *Module) getStderr(l *lua.LState) int {
 }
 
 func (m *Module) getStdout(l *lua.LState) int {
-	log := getCtxLogger(l)
+	log := logs.GetLogger(l.Context())
 	log.Debug("[sync.Once operation]: getting process stdout stream")
 
 	m.once.once.Do(func() {
@@ -130,7 +131,7 @@ func (m *Module) getStdout(l *lua.LState) int {
 
 func (m *Module) signalProcess(l *lua.LState) int {
 	sig := l.CheckInt(1)
-	log := getCtxLogger(l)
+	log := logs.GetLogger(l.Context())
 	log.Debug("signaling process")
 	executor := getProcessExecutor(l)
 	err := executor.Signal(sig)
@@ -147,7 +148,7 @@ func (m *Module) writeStdin(l *lua.LState) int {
 	// first arg is userdata
 	// 2-nd arg is the data to write
 	data := l.CheckString(2)
-	log := getCtxLogger(l)
+	log := logs.GetLogger(l.Context())
 	log.Debug("sending data to the process stdin", zap.String("data", data))
 
 	executor := getProcessExecutor(l)

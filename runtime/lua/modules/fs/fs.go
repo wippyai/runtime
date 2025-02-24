@@ -91,7 +91,7 @@ func fsChdir(l *lua.LState) int {
 			return 0
 		}
 		wrappedErr := fmt.Errorf("failed to stat directory %s: %w", path, err)
-		l.RaiseError(wrappedErr.Error())
+		l.RaiseError("%s", wrappedErr.Error())
 		return 0
 	}
 	if !info.IsDir() {
@@ -185,7 +185,7 @@ func fsStat(l *lua.LState) int {
 			return 0
 		}
 		wrappedErr := fmt.Errorf("stat failed for path %s: %w", path, err)
-		l.RaiseError(wrappedErr.Error())
+		l.RaiseError("%s", wrappedErr.Error())
 		return 0
 	}
 	l.Push(pushFileInfo(l, info))
@@ -213,7 +213,7 @@ func fsReadDir(l *lua.LState) int {
 			return 0
 		}
 		wrappedErr := fmt.Errorf("failed to stat directory %s: %w", path, err)
-		l.RaiseError(wrappedErr.Error())
+		l.RaiseError("%s", wrappedErr.Error())
 		return 0
 	}
 	if !info.IsDir() {
@@ -227,7 +227,7 @@ func fsReadDir(l *lua.LState) int {
 			return 0
 		}
 		wrappedErr := fmt.Errorf("readdir failed for directory %s: %w", path, err)
-		l.RaiseError(wrappedErr.Error())
+		l.RaiseError("%s", wrappedErr.Error())
 		return 0
 	}
 	index := 0
@@ -273,7 +273,7 @@ func fsMkdir(l *lua.LState) int {
 			return 0
 		}
 		wrappedErr := fmt.Errorf("mkdir failed for path %s: %w", path, err)
-		l.RaiseError(wrappedErr.Error())
+		l.RaiseError("%s", wrappedErr.Error())
 		return 0
 	}
 	l.Push(lua.LBool(true))
@@ -304,7 +304,7 @@ func fsRemove(l *lua.LState) int {
 			return 0
 		}
 		wrappedErr := fmt.Errorf("remove failed for path %s: %w", path, err)
-		l.RaiseError(wrappedErr.Error())
+		l.RaiseError("%s", wrappedErr.Error())
 		return 0
 	}
 	l.Push(lua.LBool(true))

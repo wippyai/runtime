@@ -19,7 +19,7 @@ func TestEnvModule(t *testing.T) {
 		contexter.WithValue("TEST_VAR", "test_value")
 		ctx := context.WithValue(context.Background(), ctxapi.EnvCtx, contexter)
 
-		mod := NewEnvModule(logger)
+		mod := NewEnvModule()
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -37,7 +37,7 @@ func TestEnvModule(t *testing.T) {
 		contexter := ctxapi.NewContexter[string]()
 		ctx := context.WithValue(context.Background(), ctxapi.EnvCtx, contexter)
 
-		mod := NewEnvModule(logger)
+		mod := NewEnvModule()
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -55,7 +55,7 @@ func TestEnvModule(t *testing.T) {
 		contexter := ctxapi.NewContexter[string]()
 		ctx := context.WithValue(context.Background(), ctxapi.EnvCtx, contexter)
 
-		mod := NewEnvModule(logger)
+		mod := NewEnvModule()
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -69,7 +69,7 @@ func TestEnvModule(t *testing.T) {
 	})
 
 	t.Run("get with no context", func(t *testing.T) {
-		mod := NewEnvModule(logger)
+		mod := NewEnvModule()
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -86,7 +86,7 @@ func TestEnvModule(t *testing.T) {
 	t.Run("get with invalid context", func(t *testing.T) {
 		ctx := context.WithValue(context.Background(), ctxapi.EnvCtx, "not a contexter")
 
-		mod := NewEnvModule(logger)
+		mod := NewEnvModule()
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
