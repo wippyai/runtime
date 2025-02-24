@@ -13,6 +13,7 @@ import (
 	apiReg "github.com/ponyruntime/pony/api/registry"
 	apiLua "github.com/ponyruntime/pony/api/runtime/lua"
 	topologyApi "github.com/ponyruntime/pony/api/topology"
+	"github.com/ponyruntime/pony/resource/sql"
 	"github.com/ponyruntime/pony/runtime/lua/code"
 	bteaApps "github.com/ponyruntime/pony/runtime/lua/component/btea"
 	luaFunc "github.com/ponyruntime/pony/runtime/lua/component/function"
@@ -72,6 +73,11 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	// supported dbs
+	_ "github.com/go-sql-driver/mysql"
+	_ "github.com/lib/pq"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 type App struct {
@@ -479,6 +485,7 @@ func main() {
 		WithTerminalManager(app),
 		WithProcessSupervisor(app),
 		WithEphemeralHost(app),
+		WithSQLManager(app),
 	)...)
 	// --------------------------------------------------
 
@@ -645,8 +652,23 @@ func WithDirectoryManager(a *App) eventbus.EventHandler {
 	return reghandler.NewRegistryHandler("fs.directory", fsdir.NewDirectoryManager(
 		a.eventBus,
 		a.dtt,
-		a.logger.Named("fs.directory"),
+		a.logger.Named("fs.dir"),
 	))
+}
+
+func WithSQLManager(a *App) eventbus.EventHandler {
+	// Create manager with required dependencies
+	manager, err := sql.NewManager(
+		a.dtt,
+		a.eventBus,
+		a.logger.Named("sql"),
+	)
+	if err != nil {
+		panic(fmt.Errorf("failed to create sql manager: %w", err))
+	}
+
+	// Register handler for all SQL-related kinds
+	return reghandler.NewRegistryHandler("db.sql.*", manager)
 }
 
 func WithLuaRuntime(a *App) []eventbus.EventHandler {

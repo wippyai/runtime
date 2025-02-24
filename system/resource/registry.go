@@ -39,7 +39,7 @@ func (s *Registry) Start(ctx context.Context) error {
 		s.ctx,
 		s.bus,
 		resource.System,
-		"resources.(register|update|remove)",
+		"resources.(register|update|delete)",
 		s.handleEvent,
 	)
 	if err != nil {
@@ -64,7 +64,7 @@ func (s *Registry) handleEvent(e events.Event) {
 		s.handleRegister(e)
 	case resource.Update:
 		s.handleUpdate(e)
-	case resource.Remove:
+	case resource.Delete:
 		s.handleRemove(e)
 	default:
 		s.logger.Warn("unknown event kind",
@@ -120,7 +120,7 @@ func (s *Registry) handleRemove(e events.Event) {
 		return
 	}
 
-	// Remove the resource
+	// Delete the resource
 	if _, exists := s.resources.Load(id); !exists {
 		s.logger.Warn("resource not found for removal",
 			zap.String("id", id.String()))

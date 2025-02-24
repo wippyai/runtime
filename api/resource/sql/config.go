@@ -47,6 +47,7 @@ type (
 	// SQLiteConfig defines SQLite-specific configuration
 	SQLiteConfig struct {
 		File      string            `json:"file"`    // Database file path, use memory for in-memory database
+		FS        registry.ID       `json:"fs"`      // Optional filesystem resource ID
 		Pool      PoolConfig        `json:"pool"`    // Connection pool settings
 		Options   map[string]string `json:"options"` // SQLite-specific options
 		Lifecycle supervisor.LifecycleConfig
@@ -83,6 +84,7 @@ func (c *DBConfig) Validate() error {
 		return fmt.Errorf("pool.max_idle must be greater than or equal to 0")
 	}
 
+	// todo: make it duration
 	if c.Pool.MaxLifetime == "" {
 		return fmt.Errorf("pool.max_lifetime is required")
 	}
@@ -96,16 +98,8 @@ func (c *SQLiteConfig) Validate() error {
 		return fmt.Errorf("file is required")
 	}
 
-	if c.Pool.MaxOpen <= 0 {
-		return fmt.Errorf("pool.max_open must be greater than 0")
-	}
-
-	if c.Pool.MaxIdle < 0 {
-		return fmt.Errorf("pool.max_idle must be greater than or equal to 0")
-	}
-
-	if c.Pool.MaxLifetime == "" {
-		return fmt.Errorf("pool.max_lifetime is required")
+	if c.FS.Name == "" && c.File != ":memory:" {
+		return fmt.Errorf("filesystem (fs) is required")
 	}
 
 	return nil

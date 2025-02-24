@@ -4,12 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"github.com/ponyruntime/pony/api/fs"
+	"os"
 	"sync"
 	"time"
-
-	_ "github.com/go-sql-driver/mysql"
-	_ "github.com/lib/pq"
-	_ "github.com/mattn/go-sqlite3"
 
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/resource"
@@ -52,11 +50,13 @@ func NewStandardConnPool(kind registry.Kind, cfg *config.DBConfig) (*ConnPool, e
 	db.SetMaxOpenConns(cfg.Pool.MaxOpen)
 	db.SetMaxIdleConns(cfg.Pool.MaxIdle)
 
-	lifetime, err := time.ParseDuration(cfg.Pool.MaxLifetime)
-	if err != nil {
-		return nil, fmt.Errorf("invalid max lifetime duration: %w", err)
+	if cfg.Pool.MaxLifetime != "" {
+		lifetime, err := time.ParseDuration(cfg.Pool.MaxLifetime) // todo: to cfg
+		if err != nil {
+			return nil, fmt.Errorf("invalid max lifetime duration: %w", err)
+		}
+		db.SetConnMaxLifetime(lifetime)
 	}
-	db.SetConnMaxLifetime(lifetime)
 
 	return &ConnPool{
 		kind:   kind,
@@ -67,21 +67,58 @@ func NewStandardConnPool(kind registry.Kind, cfg *config.DBConfig) (*ConnPool, e
 }
 
 // NewSQLiteConnPool creates a new connection pool for SQLite
-func NewSQLiteConnPool(cfg *config.SQLiteConfig) (*ConnPool, error) {
-	db, err := sql.Open("sqlite3", cfg.File)
+func NewSQLiteConnPool(ctx context.Context, cfg *config.SQLiteConfig) (*ConnPool, error) {
+	var dsn string
+
+	// Handle in-memory database
+	if cfg.File == ":memory:" {
+		dsn = ":memory:"
+	} else {
+		// Get FS registry from context
+		fsReg := fs.FromContext(ctx)
+		if fsReg == nil {
+			return nil, fmt.Errorf("fs registry not found in context")
+		}
+
+		filesystem, exists := fsReg.GetFS(cfg.FS.String())
+		if !exists {
+			return nil, fmt.Errorf("filesystem %s not found", cfg.FS)
+		}
+
+		// Open file through FS to verify path
+		f, err := filesystem.OpenFile(cfg.File, os.O_CREATE|os.O_RDWR, 0644)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create/open database file: %w", err)
+		}
+		_ = f.Close()
+
+		// SQLite needs absolute path
+		dsn = fmt.Sprintf("file:%s?mode=rwc", cfg.File)
+	}
+
+	db, err := sql.Open("sqlite3", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create SQLite connection: %w", err)
+	}
+
+	// Enable WAL mode for better concurrency
+	if _, err := db.Exec("PRAGMA journal_mode=WAL;"); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("failed to enable WAL mode: %w", err)
 	}
 
 	// SQLite specific settings
 	db.SetMaxOpenConns(1) // SQLite supports only one writer
 	db.SetMaxIdleConns(1)
 
-	lifetime, err := time.ParseDuration(cfg.Pool.MaxLifetime)
-	if err != nil {
-		return nil, fmt.Errorf("invalid max lifetime duration: %w", err)
+	if cfg.Pool.MaxLifetime != "" {
+		lifetime, err := time.ParseDuration(cfg.Pool.MaxLifetime) // todo: to cfg
+		if err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("invalid max lifetime duration: %w", err)
+		}
+		db.SetConnMaxLifetime(lifetime)
 	}
-	db.SetConnMaxLifetime(lifetime)
 
 	return &ConnPool{
 		kind:   config.KindSQLite,
