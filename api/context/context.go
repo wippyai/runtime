@@ -55,6 +55,8 @@ var (
 	AsyncCtx = &Key{Name: "scheduleKey"} //nolint:gochecknoglobals
 	// FS Registry
 	FSRegistryCtx = &Key{Name: "fs"}
+	// Operations ctx
+	OperationsCtx = &Key{Name: "operations"} //nolint:gochecknoglobals
 )
 
 // MergeContext combines values from a foreign context into a base context
