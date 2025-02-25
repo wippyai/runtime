@@ -4,6 +4,49 @@ local json = require("json")
 local http_client = require("http_client")
 local env = require("env")
 
+local function extract_error_details(response)
+    if not response then
+        return "No response received"
+    end
+
+    -- If we have a response body, try to parse it as JSON first
+    if response.body and #response.body > 0 then
+        local success, decoded = pcall(json.decode, response.body)
+        if success and decoded and decoded.error then
+            -- Return the detailed error message from the API
+            return "API error: " .. response.status_code .. " - " ..
+                (decoded.error.message or decoded.error.type or json.encode(decoded.error))
+        end
+
+        -- Otherwise just include the raw body
+        return "API error: " .. response.status_code .. " - " .. response.body
+    end
+
+    -- If we have a stream but no body, try to read the first chunk
+    if response.stream then
+        local error_body = ""
+        local chunk = response.stream:read()
+        if chunk then
+            error_body = chunk
+
+            -- Try to parse as JSON
+            local success, decoded = pcall(json.decode, error_body)
+            if success and decoded and decoded.error then
+                return "API error: " .. response.status_code .. " - " ..
+                    (decoded.error.message or decoded.error.type or json.encode(decoded.error))
+            end
+
+            -- Otherwise use the raw chunk
+            if #error_body > 0 then
+                return "API error: " .. response.status_code .. " - " .. error_body
+            end
+        end
+    end
+
+    -- Fallback to basic error message
+    return "API error: " .. response.status_code
+end
+
 -- Claude LLM Service implementation
 local function run()
     -- Initialize state
@@ -131,8 +174,10 @@ local function run()
                     end
 
                     if response.status_code < 200 or response.status_code >= 300 then
+                        -- Use improved error extraction
+                        local error_message = extract_error_details(response)
                         process.send(msg.reply_to, "error", {
-                            message = "API error: " .. response.status_code .. " - " .. response.body
+                            message = error_message
                         })
                         return
                     end
@@ -157,9 +202,11 @@ local function run()
                     end
 
                     if response.status_code < 200 or response.status_code >= 300 then
+                        -- Guard against nil response.body with empty string fallback
+                        local body_text = response.body or ""
                         if msg.reply_to then
                             process.send(msg.reply_to, "error", {
-                                message = "API error: " .. response.status_code .. " - " .. response.body
+                                message = "API error: " .. response.status_code .. " - " .. body_text
                             })
                         end
                         return
@@ -213,7 +260,9 @@ local function run()
                 content = {
                     {
                         type = "tool_result",
-                        tool_use_id = msg.tool_use_id,
+                        tool_use = {  -- Nested structure required by API
+                            id = msg.tool_use_id
+                        },
                         content = msg.error,
                         status = "error"
                     }
@@ -222,7 +271,9 @@ local function run()
                 content = {
                     {
                         type = "tool_result",
-                        tool_use_id = msg.tool_use_id,
+                        tool_use = {  -- Nested structure required by API
+                            id = msg.tool_use_id
+                        },
                         content = msg.result
                     }
                 }
@@ -282,8 +333,10 @@ local function run()
                     end
 
                     if response.status_code < 200 or response.status_code >= 300 then
+                        -- Guard against nil response.body with empty string fallback
+                        local body_text = response.body or ""
                         process.send(msg.reply_to, "error", {
-                            message = "API error: " .. response.status_code .. " - " .. response.body
+                            message = "API error: " .. response.status_code .. " - " .. body_text
                         })
                         return
                     end
@@ -308,9 +361,11 @@ local function run()
                     end
 
                     if response.status_code < 200 or response.status_code >= 300 then
+                        -- Guard against nil response.body with empty string fallback
+                        local body_text = response.body or ""
                         if msg.reply_to then
                             process.send(msg.reply_to, "error", {
-                                message = "API error: " .. response.status_code .. " - " .. response.body
+                                message = "API error: " .. response.status_code .. " - " .. body_text
                             })
                         end
                         return
@@ -597,31 +652,74 @@ function process_streaming_response(target_pid, stream, session)
                                 index = #full_response.content,
                                 block_type = "text"
                             })
+                        elseif event.delta.type == "input_json_delta" then
+                            -- Handle JSON deltas for tool use
+                            local last_block = full_response.content[#full_response.content]
+                            if last_block and last_block.type == "tool_use" then
+                                -- Initialize input if needed
+                                if not last_block.input then
+                                    last_block.input = {}
+                                end
+
+                                -- Get the partial JSON
+                                local partial_json = event.delta.partial_json or ""
+
+                                -- Try to parse the partial JSON if it looks complete
+                                if partial_json:match("^%s*{.*}%s*$") then
+                                    local success, parsed = pcall(json.decode, partial_json)
+                                    if success and parsed then
+                                        -- If we got valid JSON, merge it into input
+                                        for k, v in pairs(parsed) do
+                                            last_block.input[k] = v
+                                        end
+                                    end
+                                else
+                                    -- For incomplete JSON, store it for debugging
+                                    last_block._partial_json = (last_block._partial_json or "") .. partial_json
+                                end
+
+                                -- Update session message
+                                local last_message = session.messages[#session.messages]
+                                local last_message_block = last_message.content[#last_message.content]
+                                if last_message_block and last_message_block.type == "tool_use" then
+                                    last_message_block.input = last_block.input
+                                end
+                            end
                         end
                     elseif event.type == "message_delta" and event.delta.stop_reason then
                         full_response.stop_reason = event.delta.stop_reason
                     elseif event.type == "tool_use" then
-                        table.insert(full_response.content, {
-                            type = "tool_use",
-                            id = event.tool_use.id,
-                            name = event.tool_use.name,
-                            input = event.tool_use.input
-                        })
+                        -- Validate that we have a tool_use id
+                        if not event.tool_use or not event.tool_use.id then
+                            process.send(target_pid, "error", {
+                                message = "Invalid tool_use event: missing tool_use.id"
+                            })
+                        else
+                            -- Add to full response
+                            table.insert(full_response.content, {
+                                type = "tool_use",
+                                id = event.tool_use.id,
+                                name = event.tool_use.name,
+                                input = event.tool_use.input
+                            })
 
-                        -- Add tool use to session message
-                        local last_message = session.messages[#session.messages]
-                        table.insert(last_message.content, {
-                            type = "tool_use",
-                            id = event.tool_use.id,
-                            name = event.tool_use.name,
-                            input = event.tool_use.input
-                        })
+                            -- Add tool use to session message
+                            local last_message = session.messages[#session.messages]
+                            table.insert(last_message.content, {
+                                type = "tool_use",
+                                id = event.tool_use.id,
+                                name = event.tool_use.name,
+                                input = event.tool_use.input
+                            })
 
-                        process.send(target_pid, "tool_use", {
-                            tool_use_id = event.tool_use.id,
-                            name = event.tool_use.name,
-                            input = event.tool_use.input
-                        })
+                            -- Send to client with debugging information
+                            process.send(target_pid, "tool_use", {
+                                tool_use_id = event.tool_use.id,
+                                name = event.tool_use.name,
+                                input = event.tool_use.input,
+                                raw_event = json.encode(event)     -- Add raw event for debugging
+                            })
+                        end
                     end
                 end
             end

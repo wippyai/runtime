@@ -10,7 +10,7 @@ ClaudeClient.__index = ClaudeClient
 -- Constants
 local API_BASE_URL = "https://api.anthropic.com/v1/messages"
 local API_VERSION = "2023-06-01"
-local DEFAULT_MODEL = "claude-3-7-sonnet-20250219"
+local DEFAULT_MODEL = "claude-3-opus-20240229"  -- Updated to use available model
 
 function ClaudeClient.new(config)
     local self = setmetatable({}, ClaudeClient)
@@ -114,6 +114,9 @@ function ClaudeClient:generate(options)
     local request_body = self:prepare_request(options or {})
     local headers = self:prepare_headers()
 
+    -- Debug log
+    print("Making API request to Claude with model: " .. (request_body.model or "default"))
+
     local response, err = http.post(self.api_base_url, {
         headers = headers,
         body = json.encode(request_body),
@@ -121,11 +124,14 @@ function ClaudeClient:generate(options)
     })
 
     if err then
+        print("API error: " .. err)
         return nil, "API request failed: " .. err
     end
 
     if response.status_code < 200 or response.status_code >= 300 then
-        return nil, "API error: " .. response.status_code .. " - " .. response.body
+        local body_text = response.body or ""
+        print("API error status: " .. response.status_code .. " body: " .. body_text)
+        return nil, "API error: " .. response.status_code .. " - " .. body_text
     end
 
     local result, parse_err = json.decode(response.body)
@@ -152,6 +158,9 @@ function ClaudeClient:generate_stream(options, callback)
     -- Add streaming parameter
     request_body.stream = true
 
+    -- Debug log
+    print("Making streaming API request to Claude with model: " .. (request_body.model or "default"))
+
     local response, err = http.post(self.api_base_url, {
         headers = headers,
         body = json.encode(request_body),
@@ -159,11 +168,14 @@ function ClaudeClient:generate_stream(options, callback)
     })
 
     if err then
+        print("API streaming error: " .. err)
         return nil, "API request failed: " .. err
     end
 
     if response.status_code < 200 or response.status_code >= 300 then
-        return nil, "API error: " .. response.status_code .. " - " .. response.body
+        local body_text = response.body or ""
+        print("API error status: " .. response.status_code .. " body: " .. body_text)
+        return nil, "API error: " .. response.status_code .. " - " .. body_text
     end
 
     -- Process the streaming response
@@ -178,24 +190,23 @@ function ClaudeClient:generate_stream(options, callback)
     coroutine.spawn(function()
         while true do
             local chunk = stream:read()
+            if err then
+                callback({ type = "error", error = "Stream read error: " .. err })
+                break
+            end
             if not chunk then
                 -- Stream ended
                 callback({ type = "done", response = full_response })
                 break
             end
 
-            for line in chunk:gmatch("[^\r\n]+") do
+            for line in chunk:gmatch("[^\n]+") do
                 if line:sub(1, 6) == "data: " then
-                    local data = line:sub(7)
-
-                    -- Check for stream termination message
-                    if data == "[DONE]" then
-                        callback({ type = "done", response = full_response })
+                    local data_line = line:sub(7):match("^%s*(.-)%s*$")
+                    if data_line == "[DONE]" then
                         break
                     end
-
-                    -- Parse the JSON data
-                    local success, event = pcall(json.decode, data)
+                    local success, event = pcall(json.decode, data_line)
                     if success and event then
                         -- Store the full response data
                         if event.type == "message_start" then
@@ -255,7 +266,9 @@ function ClaudeClient:submit_tool_result(tool_use_id, result, error_message)
         content = {
             {
                 type = "tool_result",
-                tool_use_id = tool_use_id,
+                tool_use = {  -- Nested structure required by API
+                    id = tool_use_id
+                },
                 content = error_message,
                 status = "error"
             }
@@ -264,7 +277,9 @@ function ClaudeClient:submit_tool_result(tool_use_id, result, error_message)
         content = {
             {
                 type = "tool_result",
-                tool_use_id = tool_use_id,
+                tool_use = {  -- Nested structure required by API
+                    id = tool_use_id
+                },
                 content = result
             }
         }

@@ -5,20 +5,6 @@ local function get_file_extension(filename)
     return filename:match("%.([^%.]+)$")
 end
 
--- Helper function to detect if content is binary
-local function is_binary(content)
-    -- Check first 1024 bytes for null bytes or other non-text characters
-    local check_length = math.min(1024, #content)
-    for i = 1, check_length do
-        local byte = content:byte(i)
-        -- Exclude common control characters that can appear in text
-        if byte < 9 or (byte > 13 and byte < 32) or byte == 0 then
-            return true
-        end
-    end
-    return false
-end
-
 function handle(args)
     -- Get parameters from args
     local filepath = args.path
@@ -58,18 +44,12 @@ function handle(args)
         return nil, "Failed to read file: " .. filepath
     end
 
-    -- Check if binary and handle accordingly
-    if is_binary(content) and not binary_ok then
-        return nil, "File contains binary data. Set binary_ok=true to read anyway."
-    end
-
     -- Return the content with file metadata
     return {
         content = content,
         size = stat.size,
         path = filepath,
         modified = stat.modified,
-        is_binary = is_binary(content),
         extension = get_file_extension(filepath)
     }
 end

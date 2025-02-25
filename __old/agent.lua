@@ -4,6 +4,22 @@ local json = require("json")
 -- Agent patterns and helpers library
 local Agent = {}
 
+-- Tool name aliasing to enforce API compatibility
+Agent.toolNameToFunction = {} -- Tool name (API) to actual function name mapping
+Agent.functionToToolName = {} -- Function name to tool name (API) mapping
+
+-- Helper function to create API-safe tool names
+function Agent.safeToolName(funcName)
+    -- Replace characters not allowed in API tool names with underscores
+    local toolName = funcName:gsub("[^a-zA-Z0-9_%-]", "_")
+
+    -- Store in the mapping tables
+    Agent.toolNameToFunction[toolName] = funcName
+    Agent.functionToToolName[funcName] = toolName
+
+    return toolName
+end
+
 -- Common tool schemas
 Agent.tools = {
     -- File analyzer tool schema
@@ -77,10 +93,19 @@ Agent.tools = {
 }
 
 Agent.tools.file_system = function()
+    -- Define actual function names
+    local funcNames = {
+        "tools:tree",
+        "tools:read",
+        "tools:list",
+        "tools:search",
+        "tools:analyze"
+    }
+
     return {
         -- Tree tool
         {
-            name = "tools:tree",
+            name = Agent.safeToolName(funcNames[1]), -- "tools:tree" -> "tools_tree"
             description = "Generate a tree view of a file system directory structure",
             input_schema = {
                 type = "object",
@@ -102,13 +127,13 @@ Agent.tools.file_system = function()
                         description = "Comma-separated list of directories to exclude"
                     }
                 },
-                required = {"path"}
+                required = { "path" }
             }
         },
 
         -- Read file tool
         {
-            name = "tools:read",
+            name = Agent.safeToolName(funcNames[2]), -- "tools:read" -> "tools_read"
             description = "Read a file's contents",
             input_schema = {
                 type = "object",
@@ -122,13 +147,13 @@ Agent.tools.file_system = function()
                         description = "Whether to allow reading binary files"
                     }
                 },
-                required = {"path"}
+                required = { "path" }
             }
         },
 
         -- List directory tool
         {
-            name = "tools:list",
+            name = Agent.safeToolName(funcNames[3]), -- "tools:list" -> "tools_list"
             description = "List contents of a directory",
             input_schema = {
                 type = "object",
@@ -140,20 +165,20 @@ Agent.tools.file_system = function()
                     format = {
                         type = "string",
                         description = "Output format (basic, detailed, json)",
-                        enum = {"basic", "detailed", "json"}
+                        enum = { "basic", "detailed", "json" }
                     },
                     show_hidden = {
                         type = "boolean",
                         description = "Whether to show hidden files"
                     }
                 },
-                required = {"path"}
+                required = { "path" }
             }
         },
 
         -- Search tool
         {
-            name = "tools:search",
+            name = Agent.safeToolName(funcNames[4]), -- "tools:search" -> "tools_search"
             description = "Search for text in files",
             input_schema = {
                 type = "object",
@@ -175,13 +200,13 @@ Agent.tools.file_system = function()
                         description = "Comma-separated list of file extensions to search"
                     }
                 },
-                required = {"path", "pattern"}
+                required = { "path", "pattern" }
             }
         },
 
         -- Analyze tool
         {
-            name = "tools:analyze",
+            name = Agent.safeToolName(funcNames[5]), -- "tools:analyze" -> "tools_analyze"
             description = "Analyze a file or directory to get detailed metadata",
             input_schema = {
                 type = "object",
@@ -193,10 +218,10 @@ Agent.tools.file_system = function()
                     format = {
                         type = "string",
                         description = "Output format (text or json)",
-                        enum = {"text", "json"}
+                        enum = { "text", "json" }
                     }
                 },
-                required = {"path"}
+                required = { "path" }
             }
         }
     }
@@ -243,6 +268,9 @@ Agent.tools_executors = {
 
 -- Tool dispatcher that safely handles tool execution
 function Agent.dispatch_tool(tool_name, args)
+    -- First check if this tool name is in our mapping
+    local function_name = Agent.toolNameToFunction[tool_name] or tool_name
+
     -- Check if we have an executor for this tool
     local executor = Agent.tools_executors[tool_name]
     if not executor then
@@ -250,7 +278,7 @@ function Agent.dispatch_tool(tool_name, args)
         local funcs = require("funcs")
         local executor = funcs.new()
 
-        local result, err = executor:call(tool_name, args)
+        local result, err = executor:call(function_name, args)
         if err then
             return nil, "Tool execution failed: " .. err
         end
