@@ -2,56 +2,62 @@ package operation
 
 import (
 	"context"
+
 	"github.com/ponyruntime/pony/api/events"
 	"github.com/ponyruntime/pony/api/payload"
+	"github.com/ponyruntime/pony/api/registry"
 )
 
-// System constants for the operation package
+// System constants for the operation package.
 const (
-	// System identifies the operation system in the event bus
+	// System identifies the operation system on the event bus.
 	System events.System = "operation"
 
-	// OpRegister is sent TO operation nodes to request registration
+	// OpRegister is sent to operation nodes to request registration.
 	OpRegister events.Kind = "operation.register"
 
-	// OpDelete is sent TO operation nodes to request removal
+	// OpDelete is sent to operation nodes to request their removal.
 	OpDelete events.Kind = "operation.delete"
 
-	// OpAccept is sent FROM operation nodes when registration is accepted
+	// OpAccept is sent from operation nodes to indicate that registration has been accepted.
 	OpAccept events.Kind = "operation.accept"
 
-	// OpReject is sent FROM operation nodes when registration is rejected
+	// OpReject is sent from operation nodes to indicate that registration has been rejected.
 	OpReject events.Kind = "operation.reject"
 )
 
 type (
+	// ProgressKind represents a label for the current stage or state of an operation.
 	ProgressKind = string
 
-	// Progress is a simple update about operation status
+	// Progress provides a simple status update for an ongoing operation.
+	// It is designed to communicate the current phase and any supplemental data that
+	// may be useful for monitoring the operation’s progress.
 	Progress struct {
-		// Type describes the current state or step, is many cases it will be operation specific.
+		// Type describes the current stage or step of the operation.
 		Type ProgressKind `json:"kind"`
 
-		// Data is optional payload with additional information, specific to operation type.
+		// Data optionally carries additional details relevant to the operation’s current state.
 		Data payload.Payload `json:"data,omitempty"`
 	}
 
-	// Operation represents a task that can be executed on demand
-	// It's more focused on one-time tasks like migrations, tests,
-	// or administrative procedures, unlike regular functions
-	// which are meant for frequent, standard API calls.
+	// Operation defines a one-off administrative task, such as running migrations, tests,
+	// or other maintenance procedures. These tasks are executed on-demand rather than continuously.
 	Operation interface {
-		// Execute runs the operation with the given input
-		// The progress channel allows reporting status updates during execution
-		// This channel may be nil if progress reporting is not needed
-		Execute(ctx context.Context, input payload.Payloads, progress chan<- Progress) (payload.Payload, error)
+		// Meta returns metadata describing the operation (e.g., its name, version, and other attributes).
+		Meta() registry.Metadata
+
+		// Execute performs the operation with the provided input.
+		// It accepts a context for cancellation and deadline management, a set of input payloads,
+		// and an optional progress channel to stream real-time status updates.
+		// The method returns output payloads or an error if the execution fails.
+		Execute(ctx context.Context, input payload.Payloads, progress chan<- Progress) (payload.Payloads, error)
+	}
+
+	// Registry defines the interface for managing and retrieving registered operations.
+	Registry interface {
+		// Find searches for operations matching the provided metadata.
+		// It returns a slice of matching operations and an error if the search fails.
+		Find(metadata registry.Metadata) ([]Operation, error)
 	}
 )
-
-// NewProgress creates a new progress update with the given message and optional data
-func NewProgress(kind ProgressKind, data payload.Payload) Progress {
-	return Progress{
-		Type: kind,
-		Data: data,
-	}
-}
