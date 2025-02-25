@@ -271,7 +271,7 @@ func TestHelp(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	// Message handling
+	// Type handling
 	t.Run("message handling", func(t *testing.T) {
 		vm := setupHelpTest(t)
 		defer vm.Close()

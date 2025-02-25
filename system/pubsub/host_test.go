@@ -229,7 +229,7 @@ func TestHost_DeliveryTimeout(t *testing.T) {
 
 	// Wait longer than delivery timeout
 	time.Sleep(time.Millisecond * 100)
-	// Message should have been dropped due to delivery timeout
+	// Type should have been dropped due to delivery timeout
 }
 
 func TestHost_NoReceiver(t *testing.T) {
@@ -298,7 +298,7 @@ func TestHost_DetachDuringDelivery(t *testing.T) {
 
 	// Allow some time for message processing
 	time.Sleep(time.Millisecond * 100)
-	// Message should be dropped without error
+	// Type should be dropped without error
 }
 
 func TestHost_MultipleWorkers(t *testing.T) {
