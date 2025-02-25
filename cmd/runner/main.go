@@ -22,6 +22,7 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
 	"github.com/ponyruntime/pony/runtime/lua/modules/base64"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea"
+	"github.com/ponyruntime/pony/runtime/lua/modules/crypto"
 	"github.com/ponyruntime/pony/runtime/lua/modules/env"
 	fsmod "github.com/ponyruntime/pony/runtime/lua/modules/fs"
 	funcapimod "github.com/ponyruntime/pony/runtime/lua/modules/funcapi"
@@ -689,6 +690,7 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 				upstream.NewUpstreamModule(),
 				tasks.NewTaskModule(),
 				subscribe.NewSubscribeModule(),
+				crypto.NewCryptoModule(),
 				fncallmod.NewFunctionModule(a.ctx),
 				procapimod.NewProcAPIModule(a.logger.Named("proc")),
 				funcapimod.NewFuncAPIModule(a.logger.Named("func")),
