@@ -5,7 +5,6 @@ go 1.24
 toolchain go1.24.0
 
 require (
-	github.com/asg017/sqlite-vec-go-bindings v0.1.6
 	github.com/charmbracelet/bubbles v0.20.0
 	github.com/charmbracelet/bubbletea v1.2.4
 	github.com/charmbracelet/lipgloss v1.0.0
@@ -13,6 +12,7 @@ require (
 	github.com/docker/docker v27.5.1+incompatible
 	github.com/go-chi/chi/v5 v5.2.0
 	github.com/go-sql-driver/mysql v1.9.0
+	github.com/golang-jwt/jwt/v5 v5.2.1
 	github.com/google/uuid v1.6.0
 	github.com/lib/pq v1.10.9
 	github.com/lrstanley/bubblezone v0.0.0-20250110055121-b45205ce63e2
@@ -35,6 +35,7 @@ require (
 	go.temporal.io/api v1.44.1
 	go.temporal.io/sdk v1.32.1
 	go.uber.org/zap v1.27.0
+	golang.org/x/crypto v0.32.0
 	golang.org/x/net v0.34.0
 	gopkg.in/yaml.v3 v3.0.1
 )
