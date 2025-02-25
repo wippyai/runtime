@@ -110,9 +110,9 @@ func wsConnect(l *lua.LState) int {
 	// channel_capacity: capacity for the receive channel (default 0)
 	// compression: "context_takeover", "no_context_takeover", or "disabled" (default "disabled")
 	// compression_threshold: threshold in bytes for compression (default 0)
-	var channelCapacity = 0
-	var compressionMode = websocket.CompressionDisabled
-	var compressionThreshold = 0
+	var channelCapacity int = 0
+	var compressionMode websocket.CompressionMode = websocket.CompressionDisabled
+	var compressionThreshold int = 0
 
 	// Parse options table.
 	if options != nil {
@@ -166,7 +166,11 @@ func wsConnect(l *lua.LState) int {
 	}
 
 	// Setup context with uw.
-	ctx, uw := uow.OnContext(l.Context())
+	ctx := l.Context()
+	uw := uow.FromContext(ctx)
+	if uw == nil {
+		ctx, uw = uow.OnContext(ctx)
+	}
 
 	if dialTimeout > 0 {
 		var cancel context.CancelFunc
