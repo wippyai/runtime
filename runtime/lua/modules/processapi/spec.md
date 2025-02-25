@@ -5,6 +5,8 @@
 The process system provides isolated process management with message passing capabilities. The system is designed for
 building distributed applications with strong isolation guarantees.
 
+This api only works inside processes and workflows.
+
 ## Process Properties and Structure
 
 ### Process Identification (PID)

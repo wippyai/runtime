@@ -75,7 +75,7 @@ entries:
     kind: terminal.host
     meta:
       comment: "System shell"
-    hide_logs: true
+    hide_logs: false
     lifecycle:
       auto_start: true
       restart:
@@ -97,13 +97,13 @@ entries:
         max_attempts: 3
         backoff_factor: 1.5
 
-  - name: db
-    kind: db.sql.sqlite
-    meta:
-      comment: "Application SQLite database"
-      depends_on:
-        - root
-    fs: root
-    file: "./app/db/app.db"
-    lifecycle:
-      auto_start: true
+#  - name: db
+#    kind: db.sql.sqlite
+#    meta:
+#      comment: "Application SQLite database"
+#      depends_on:
+#        - root
+#    fs: root
+#    file: "./app/db/app.db"
+#    lifecycle:
+#      auto_start: true

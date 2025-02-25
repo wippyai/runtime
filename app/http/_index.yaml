@@ -108,3 +108,13 @@ entries:
     modules: [ http, funcs ]
     pool:
       size: 2
+
+  - name: fs.dump
+    kind: function.lua
+    meta:
+      comment: "Dumps filesystem content and structure recursively"
+    source: file://fs_dump.lua
+    method: fs_dump
+    modules: [ "http", "fs", "json" ]
+    pool:
+      size: 2

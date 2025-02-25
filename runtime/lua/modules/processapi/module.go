@@ -425,5 +425,7 @@ func (m *ControlModule) listen(l *lua.LState) int {
 
 // Modified listen function with @ validation
 func (m *ControlModule) inbox(l *lua.LState) int {
+	// todo: use uw to keep channel ref
+
 	return subscribe.Subscribe(l, channel.Named("@inbox", 1), "@inbox")
 }
