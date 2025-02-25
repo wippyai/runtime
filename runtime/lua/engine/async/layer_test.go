@@ -67,7 +67,7 @@ func TestAsyncLayer(t *testing.T) {
 			engine.WithLayer(channels),
 		)
 
-		ctx, uw := uow.WithContext(context.Background())
+		ctx, uw := uow.OnContext(context.Background())
 		defer func() { _ = uw.Close() }()
 
 		ctx = asyncRunner.WithContext(ctx)

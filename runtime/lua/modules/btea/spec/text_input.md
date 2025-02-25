@@ -280,59 +280,60 @@ local bindings = {
 ## State Behavior
 
 1. Focus State
-   - Methods that modify input only work when focused
-   - Unfocused input still displays but doesn't process input
-   - Focus/blur triggers command for state updates
+    - Methods that modify input only work when focused
+    - Unfocused input still displays but doesn't process input
+    - Focus/blur triggers command for state updates
 
 2. Cursor Behavior
-   - Cursor position clamped to text bounds
-   - Word navigation stops at word boundaries
-   - Selection not supported in current version
+    - Cursor position clamped to text bounds
+    - Word navigation stops at word boundaries
+    - Selection not supported in current version
 
 3. Validation States
-   - Validation runs on every text change
-   - Invalid state shows error but allows continued input
-   - Error cleared when input becomes valid
+    - Validation runs on every text change
+    - Invalid state shows error but allows continued input
+    - Error cleared when input becomes valid
 
 4. Event Processing
-   - Key events processed in update() when focused
-   - Suggestion selection via keys generates command
-   - Clipboard paste handled via paste binding
+    - Key events processed in update() when focused
+    - Suggestion selection via keys generates command
+    - Clipboard paste handled via paste binding
 
 ## Best Practices
 
 1. **Error Handling**
-   - Always validate input before processing
-   - Show clear error messages when validation fails
-   - Handle edge cases (empty input, maximum length, etc.)
+    - Always validate input before processing
+    - Show clear error messages when validation fails
+    - Handle edge cases (empty input, maximum length, etc.)
 
 2. **User Experience**
-   - Use appropriate styles for different states (normal, error, disabled)
-   - Provide meaningful placeholders
-   - Show completion suggestions when relevant
-   - Use consistent key bindings
+    - Use appropriate styles for different states (normal, error, disabled)
+    - Provide meaningful placeholders
+    - Show completion suggestions when relevant
+    - Use consistent key bindings
 
 3. **Integration**
-   - Keep input state in your model
-   - Handle special keys appropriately
-   - Process commands returned from update()
-   - Clean up resources when done (blur input)
+    - Keep input state in your model
+    - Handle special keys appropriately
+    - Process commands returned from update()
+    - Clean up resources when done (blur input)
 
 4. **Styling**
-   - Use consistent colors and styles
-   - Make sure error states are visible
-   - Style placeholder text appropriately
-   - Consider terminal color support
+    - Use consistent colors and styles
+    - Make sure error states are visible
+    - Style placeholder text appropriately
+    - Consider terminal color support
 
 5. **Performance**
-   - Avoid expensive validation on every keystroke
-   - Consider debouncing rapid input
-   - Be mindful of suggestion list size
-   - Clean up event listeners when removing input
+    - Avoid expensive validation on every keystroke
+    - Consider debouncing rapid input
+    - Be mindful of suggestion list size
+    - Clean up event listeners when removing input
 
 ## Common Patterns
 
 ### Form Input
+
 ```lua
 local form = {
     username = btea.text_input({
@@ -348,6 +349,7 @@ local form = {
 ```
 
 ### Command Input
+
 ```lua
 local cmd_input = btea.text_input({
     prompt = "$ ",
@@ -364,6 +366,7 @@ local cmd_input = btea.text_input({
 ```
 
 ### Search Input
+
 ```lua
 local search = btea.text_input({
     prompt = "🔍 ",

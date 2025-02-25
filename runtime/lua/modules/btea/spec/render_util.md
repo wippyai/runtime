@@ -170,12 +170,14 @@ local clean = btea.text.sanitize_runes(str [, newline_repl [, tab_repl]])
 ```
 
 Processes input string to handle control characters:
+
 - Removes invalid UTF-8 sequences
 - Removes control characters
 - Optionally replaces newlines and tabs with custom strings
 - Preserves all other valid characters
 
 Parameters:
+
 - `str`: Input string to sanitize
 - `newline_repl`: (optional) String to replace newlines with, defaults to "\n"
 - `tab_repl`: (optional) String to replace tabs with, defaults to 4 spaces

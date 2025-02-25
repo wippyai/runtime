@@ -25,7 +25,7 @@ func TestTextArea(t *testing.T) {
 		return 1
 	}
 
-	ctx, uw := uow.WithContext(context.Background())
+	ctx, uw := uow.OnContext(context.Background())
 	defer func() { _ = uw.Close() }()
 
 	t.Run("text area creation and basic configuration", func(t *testing.T) {
@@ -195,7 +195,7 @@ func TestTextAreaUpdate(t *testing.T) {
 	RegisterTextArea(cvm.State(), mod)
 	cvm.State().SetGlobal("btea", mod)
 
-	ctx, uw := uow.WithContext(context.Background())
+	ctx, uw := uow.OnContext(context.Background())
 	defer func() { _ = uw.Close() }()
 
 	err = cvm.StartString(ctx, `

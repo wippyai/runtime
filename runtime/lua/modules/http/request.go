@@ -313,7 +313,7 @@ func requestStreamBody(l *lua.LState) int {
 		return 2
 	}
 
-	uCtx, uw := uow.WithContext(req.request.Context())
+	uCtx, uw := uow.OnContext(req.request.Context())
 	req.request = req.request.WithContext(uCtx)
 	uw.AddCleanup(req.request.Body.Close)
 

@@ -22,7 +22,7 @@ func TestViewport(t *testing.T) {
 		return 1
 	}
 
-	ctx, uw := uow.WithContext(context.Background())
+	ctx, uw := uow.OnContext(context.Background())
 	defer func() { _ = uw.Close() }()
 
 	t.Run("viewport creation and configuration", func(t *testing.T) {
@@ -168,7 +168,7 @@ func TestViewportMouseInteraction(t *testing.T) {
 	RegisterViewport(cvm.State(), mod)
 	cvm.State().SetGlobal("btea", mod)
 
-	ctx, uw := uow.WithContext(context.Background())
+	ctx, uw := uow.OnContext(context.Background())
 	defer func() { _ = uw.Close() }()
 
 	err = cvm.StartString(ctx, `
@@ -263,7 +263,7 @@ func TestViewportUpdate(t *testing.T) {
 	RegisterViewport(cvm.State(), mod)
 	cvm.State().SetGlobal("btea", mod)
 
-	ctx, uw := uow.WithContext(context.Background())
+	ctx, uw := uow.OnContext(context.Background())
 	defer func() { _ = uw.Close() }()
 
 	err = cvm.StartString(ctx, `

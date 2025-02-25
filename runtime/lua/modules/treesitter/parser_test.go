@@ -180,7 +180,7 @@ func TestParser(t *testing.T) {
 
 	t.Run("parser garbage collection", func(t *testing.T) {
 		mod := NewTreeSitterModule(logger)
-		ctx, uw := uow.WithContext(context.Background())
+		ctx, uw := uow.OnContext(context.Background())
 
 		vm, err := engine.NewVM(logger,
 			engine.WithLoader(mod.Name(), mod.Loader),

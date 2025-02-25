@@ -21,7 +21,7 @@ func TestProgress(t *testing.T) {
 		return 1
 	}
 
-	ctx, uw := uow.WithContext(context.Background())
+	ctx, uw := uow.OnContext(context.Background())
 	defer func() { _ = uw.Close() }()
 
 	t.Run("progress creation and configuration", func(t *testing.T) {
@@ -147,7 +147,7 @@ func TestProgressUpdate(t *testing.T) {
 	RegisterProgress(cvm.State(), mod)
 	cvm.State().SetGlobal("btea", mod)
 
-	ctx, uw := uow.WithContext(context.Background())
+	ctx, uw := uow.OnContext(context.Background())
 	defer func() { _ = uw.Close() }()
 
 	err = cvm.StartString(ctx, `

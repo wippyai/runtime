@@ -1,10 +1,12 @@
 # Bubble Tea Zone Component Specification in Lua
 
-This document defines the interface and usage patterns for the zone component in btea. Zones allow tracking and interacting with specific regions in the terminal UI.
+This document defines the interface and usage patterns for the zone component in btea. Zones allow tracking and
+interacting with specific regions in the terminal UI.
 
 ## Basic Concepts
 
 Zones are regions in your terminal UI that can:
+
 - Track their position and boundaries
 - Detect mouse interactions
 - Support nested and overlapping regions
@@ -156,6 +158,7 @@ return M
 ## Common Patterns
 
 ### Clickable List
+
 ```lua
 local function make_list(items, manager, prefix)
     local output = {}
@@ -168,6 +171,7 @@ end
 ```
 
 ### Interactive Grid
+
 ```lua
 local function make_grid(grid, manager, prefix)
     local output = {}
@@ -184,6 +188,7 @@ end
 ```
 
 ### Nested Components
+
 ```lua
 local function parent_view(model)
     local output = {

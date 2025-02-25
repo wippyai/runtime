@@ -309,7 +309,7 @@ func (e *Runner) HasTasks() bool {
 // Execute runs a function through the layer chain with provided context and arguments
 func (e *Runner) Execute(ctx context.Context, funcName string, args ...lua.LValue) (lua.LValue, error) {
 	// we always have to ensure we run using the uow, otherwise most of async functions won't work!
-	ctx, uw := uow.WithContext(e.WithContext(ctx))
+	ctx, uw := uow.OnContext(e.WithContext(ctx))
 	defer func() {
 		if err := uw.Close(); err != nil {
 			e.cvm.vm.log.Error("unit of work closing failed", zap.Error(err))

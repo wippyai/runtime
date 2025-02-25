@@ -18,6 +18,7 @@ query:close()
 ## Query Syntax
 
 ### Basic Patterns
+
 ```scheme
 ; Single node capture
 (identifier) @name
@@ -48,6 +49,7 @@ query:close()
 ```
 
 ### Predicates
+
 ```scheme
 ; Match regex pattern
 ((identifier) @id
@@ -78,6 +80,7 @@ query:close()
 ## Error Handling
 
 ### Query Creation Errors
+
 ```lua
 -- Invalid language
 local query, err = treesitter.query("invalid", pattern)
@@ -113,6 +116,7 @@ local query, err = treesitter.query("go", "(identifier) @1name")
 ```
 
 ### Execution Errors
+
 ```lua
 -- Handle match limit exceeded
 query:set_match_limit(100)
@@ -128,6 +132,7 @@ local matches = query:matches(node, code)
 ```
 
 ## Match Results Structure
+
 ```lua
 -- Matches structure
 matches = {

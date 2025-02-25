@@ -2,7 +2,10 @@
 
 ## Overview
 
-The `http` module provides access to the current HTTP request and response within a Lua environment, typically in the context of a web server handler. It allows reading request data (method, path, headers, query parameters, body) and writing response data (status, headers, body). It also supports advanced features like streaming request bodies, chunked transfer encoding, and server-sent events.
+The `http` module provides access to the current HTTP request and response within a Lua environment, typically in the
+context of a web server handler. It allows reading request data (method, path, headers, query parameters, body) and
+writing response data (status, headers, body). It also supports advanced features like streaming request bodies, chunked
+transfer encoding, and server-sent events.
 
 ## Module Interface
 
@@ -221,7 +224,8 @@ Parameters:
 
 Returns:
 
-- `iterator`: An iterator function that returns the next chunk of the body (string) on each call, and nil when the body is exhausted.
+- `iterator`: An iterator function that returns the next chunk of the body (string) on each call, and nil when the body
+  is exhausted.
 - `error`: Error message (string, or nil on success).
 
 ### Response Object
@@ -280,11 +284,13 @@ Returns:
 Flushes the response writer.
 
 Returns:
+
 - `error`: Error message (string, or nil on success).
 
 ##### `response:write_json(value: any)`
 
-Encodes the given Lua value as JSON and writes it to the response body. Sets the `Content-Type` to `application/json` if not already set.
+Encodes the given Lua value as JSON and writes it to the response body. Sets the `Content-Type` to `application/json` if
+not already set.
 
 Parameters:
 
@@ -335,18 +341,22 @@ Returns:
 ## Error Handling
 
 - Most methods return an error message as their last return value if an error occurs.
-- Errors typically occur due to invalid input, invalid state (e.g., setting headers after they have been sent), or I/O errors.
-- `request:stream_body` iterator function returns chunks of data until the body is exhausted, then it returns `nil`. Any error during reading will be returned by the `read()` method of the underlying `Stream` object.
+- Errors typically occur due to invalid input, invalid state (e.g., setting headers after they have been sent), or I/O
+  errors.
+- `request:stream_body` iterator function returns chunks of data until the body is exhausted, then it returns `nil`. Any
+  error during reading will be returned by the `read()` method of the underlying `Stream` object.
 
 ## Behavior
 
 - The module provides a way to interact with the underlying HTTP request and response objects.
 - Request methods provide read-only access to request data.
 - Response methods allow writing to the response.
-- `response:set_status`, `response:set_header`, and `response:set_content_type` must be called before any data is written to the response body.
+- `response:set_status`, `response:set_header`, and `response:set_content_type` must be called before any data is
+  written to the response body.
 - `response:write_json` automatically sets the `Content-Type` to `application/json` if it hasn't already been set.
 - `response:set_transfer` can be used to enable chunked transfer encoding or server-sent events.
-- `response:write_event` is used for sending server-sent events. It automatically sets the necessary headers for SSE if `set_transfer` hasn't been called with `http.TRANSFER.SSE`.
+- `response:write_event` is used for sending server-sent events. It automatically sets the necessary headers for SSE if
+  `set_transfer` hasn't been called with `http.TRANSFER.SSE`.
 - The `request:stream_body` method allows streaming the request body in chunks.
 - The `options` parameter in `http.request()` and `request:stream_body()` allows configuring request handling behavior.
 

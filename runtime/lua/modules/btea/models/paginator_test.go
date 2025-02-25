@@ -27,7 +27,7 @@ func TestPaginator(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		ctx, uw := uow.WithContext(context.Background())
+		ctx, uw := uow.OnContext(context.Background())
 		defer func() { _ = uw.Close() }()
 
 		err = vm.DoString(ctx, `
@@ -64,7 +64,7 @@ func TestPaginator(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		ctx, uw := uow.WithContext(context.Background())
+		ctx, uw := uow.OnContext(context.Background())
 		defer func() { _ = uw.Close() }()
 
 		err = vm.DoString(ctx, `
@@ -116,7 +116,7 @@ func TestPaginator(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		ctx, uw := uow.WithContext(context.Background())
+		ctx, uw := uow.OnContext(context.Background())
 		defer func() { _ = uw.Close() }()
 
 		err = vm.DoString(ctx, `
@@ -165,7 +165,7 @@ func TestPaginatorUpdate(t *testing.T) {
 	RegisterPaginator(cvm.State(), mod)
 	cvm.State().SetGlobal("btea", mod)
 
-	ctx, uw := uow.WithContext(context.Background())
+	ctx, uw := uow.OnContext(context.Background())
 	defer func() { _ = uw.Close() }()
 
 	err = cvm.StartString(ctx, `

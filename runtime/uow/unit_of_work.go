@@ -29,7 +29,7 @@ func FromContext(ctx context.Context) *UnitOfWork {
 		return nil
 	}
 
-	v := ctx.Value(ctxapi.CleanupCtx)
+	v := ctx.Value(ctxapi.UowCtx)
 	if v == nil {
 		return nil
 	}
@@ -37,19 +37,20 @@ func FromContext(ctx context.Context) *UnitOfWork {
 	return v.(*UnitOfWork)
 }
 
-// WithContext creates a new context containing a UnitOfWork instance.
+// OnContext creates a new context containing a UnitOfWork instance.
 // If the input context already has a UnitOfWork instance, it returns
 // the existing context and UnitOfWork. Otherwise, it creates a new
 // UnitOfWork instance and returns it along with an updated context.
-func WithContext(ctx context.Context) (context.Context, *UnitOfWork) {
+func OnContext(ctx context.Context) (context.Context, *UnitOfWork) {
 	uwCtx, cancel := context.WithCancel(ctx)
 
-	closer := &UnitOfWork{
+	uw := &UnitOfWork{
 		closers: make([]func() error, 0, 4),
 		ctx:     uwCtx,
 		cancel:  cancel,
 	}
-	return context.WithValue(ctx, ctxapi.CleanupCtx, closer), closer
+
+	return context.WithValue(ctx, ctxapi.UowCtx, uw), uw
 }
 
 // AddCleanup appends a cleanup function to be executed when Close is called.

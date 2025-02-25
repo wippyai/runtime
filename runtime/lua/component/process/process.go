@@ -88,7 +88,7 @@ func (p *Process) Start(ctx context.Context, pid pubsub.PID, input payload.Paylo
 	})
 
 	// Set up runner context and uow
-	ctx, p.uow = uow.WithContext(p.runner.WithContext(ctx))
+	ctx, p.uow = uow.OnContext(p.runner.WithContext(ctx))
 
 	// Start the Lua function
 	p.resultCh, err = p.runner.Start(ctx, p.funcName, args...)

@@ -29,7 +29,7 @@ func TestLuaDelegate(t *testing.T) {
 	render.RegisterStyle(vm.State(), mod)
 	vm.State().SetGlobal("btea", mod)
 
-	ctx, uw := uow.WithContext(context.Background())
+	ctx, uw := uow.OnContext(context.Background())
 	defer func() { _ = uw.Close() }()
 
 	// Basic methods
@@ -161,7 +161,7 @@ func TestDelegateUpdate(t *testing.T) {
 	render.RegisterStyle(cvm.State(), mod)
 	cvm.State().SetGlobal("btea", mod)
 
-	ctx, uw := uow.WithContext(context.Background())
+	ctx, uw := uow.OnContext(context.Background())
 	defer func() { _ = uw.Close() }()
 
 	err = cvm.StartString(ctx, `

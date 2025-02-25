@@ -2,7 +2,9 @@
 
 ## Overview
 
-The `uuid` module provides functions for generating, validating, and manipulating UUIDs (Universally Unique Identifiers) using different UUID versions and formats. It is built on top of the Google UUID library to provide robust UUID handling capabilities to Lua code.
+The `uuid` module provides functions for generating, validating, and manipulating UUIDs (Universally Unique Identifiers)
+using different UUID versions and formats. It is built on top of the Google UUID library to provide robust UUID handling
+capabilities to Lua code.
 
 ## Module Interface
 
@@ -15,10 +17,12 @@ local uuid = require("uuid")
 ### Error Handling
 
 All functions in the module follow a consistent error handling pattern, returning two values:
+
 1. The result value (or nil if an error occurred)
 2. An error message string (or nil if operation was successful)
 
 Example:
+
 ```lua
 local id, err = uuid.v4()
 if err then
@@ -33,13 +37,16 @@ end
 Generates a new random UUID using version 4.
 
 Returns:
-- `string, error`: The generated UUID string in standard format (e.g., "110ec58a-a0f2-4ac4-8393-c866d813b8d1"), or nil and error message on failure
+
+- `string, error`: The generated UUID string in standard format (e.g., "110ec58a-a0f2-4ac4-8393-c866d813b8d1"), or nil
+  and error message on failure
 
 #### uuid.v7()
 
 Generates a new time-ordered UUID using version 7.
 
 Returns:
+
 - `string, error`: The generated UUID string in standard format, or nil and error message on failure
 
 #### uuid.v1()
@@ -47,6 +54,7 @@ Returns:
 Generates a new time-based UUID using version 1.
 
 Returns:
+
 - `string, error`: The generated UUID string in standard format, or nil and error message on failure
 
 #### uuid.v3(namespace: string, name: string)
@@ -54,13 +62,16 @@ Returns:
 Generates a new namespace-based UUID using version 3 (MD5).
 
 Parameters:
+
 - `namespace`: A valid UUID string representing the namespace
 - `name`: The name string to generate the UUID from
 
 Returns:
+
 - `string, error`: The generated UUID string in standard format, or nil and error message on failure
 
 Errors:
+
 - "namespace must be a string"
 - "name must be a string"
 - "invalid namespace UUID"
@@ -70,13 +81,16 @@ Errors:
 Generates a new namespace-based UUID using version 5 (SHA-1).
 
 Parameters:
+
 - `namespace`: A valid UUID string representing the namespace
 - `name`: The name string to generate the UUID from
 
 Returns:
+
 - `string, error`: The generated UUID string in standard format, or nil and error message on failure
 
 Errors:
+
 - "namespace must be a string"
 - "name must be a string"
 - "invalid namespace UUID"
@@ -86,12 +100,15 @@ Errors:
 Validates if a string is a valid UUID.
 
 Parameters:
+
 - `str`: The string to validate
 
 Returns:
+
 - `boolean, error`: true if valid UUID, or nil and error message on failure
 
 Errors:
+
 - "input must be a string"
 
 #### uuid.version(str: string)
@@ -99,12 +116,15 @@ Errors:
 Gets the version of a UUID.
 
 Parameters:
+
 - `str`: The UUID string to check
 
 Returns:
+
 - `number, error`: The UUID version (1-8), or nil and error message on failure
 
 Errors:
+
 - "input must be a string"
 - "invalid UUID format"
 
@@ -113,12 +133,15 @@ Errors:
 Gets the variant of a UUID.
 
 Parameters:
+
 - `str`: The UUID string to check
 
 Returns:
+
 - `string, error`: The UUID variant ("RFC4122", "Microsoft", "NCS", or "Invalid"), or nil and error message on failure
 
 Errors:
+
 - "input must be a string"
 - "invalid UUID format"
 
@@ -127,9 +150,11 @@ Errors:
 Parses a UUID string into its components.
 
 Parameters:
+
 - `str`: The UUID string to parse
 
 Returns:
+
 - `table, error`: Table containing parsed components, or nil and error message on failure:
     - `timestamp`: (for v1, v7) Unix timestamp
     - `node`: (for v1) Node ID
@@ -137,6 +162,7 @@ Returns:
     - `variant`: UUID variant
 
 Errors:
+
 - "input must be a string"
 - "invalid UUID format"
 
@@ -145,6 +171,7 @@ Errors:
 Formats a UUID string in different representations.
 
 Parameters:
+
 - `str`: The UUID string to format
 - `format`: The desired format:
     - "standard" (default): "123e4567-e89b-12d3-a456-426614174000"
@@ -152,9 +179,11 @@ Parameters:
     - "urn": "urn:uuid:123e4567-e89b-12d3-a456-426614174000"
 
 Returns:
+
 - `string, error`: The formatted UUID string, or nil and error message on failure
 
 Errors:
+
 - "input must be a string"
 - "invalid UUID format"
 - "unsupported format"

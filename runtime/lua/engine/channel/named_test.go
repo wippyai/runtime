@@ -39,7 +39,7 @@ func TestNamedChannelSend(t *testing.T) {
 	defer vm.Close()
 
 	tg := engine.NewTaskGroup(100)
-	ctx, uw := uow.WithContext(context.Background())
+	ctx, uw := uow.OnContext(context.Background())
 	defer func() { _ = uw.Close() }()
 	ctx = engine.WithTaskGroup(ctx, tg)
 
@@ -109,7 +109,7 @@ func TestNamedChannelSelectVisibility(t *testing.T) {
 	defer vm.Close()
 
 	tg := engine.NewTaskGroup(100)
-	ctx, uw := uow.WithContext(context.Background())
+	ctx, uw := uow.OnContext(context.Background())
 	defer func() { _ = uw.Close() }()
 	ctx = engine.WithTaskGroup(ctx, tg)
 
@@ -223,7 +223,7 @@ func TestNamedChannelSelectDefaultCase(t *testing.T) {
 	defer vm.Close()
 
 	tg := engine.NewTaskGroup(100)
-	ctx, uw := uow.WithContext(context.Background())
+	ctx, uw := uow.OnContext(context.Background())
 	defer func() { _ = uw.Close() }()
 	ctx = engine.WithTaskGroup(ctx, tg)
 
@@ -296,7 +296,7 @@ func TestNamedChannelMultipleReceivers(t *testing.T) {
 	defer vm.Close()
 
 	tg := engine.NewTaskGroup(100)
-	ctx, uw := uow.WithContext(context.Background())
+	ctx, uw := uow.OnContext(context.Background())
 	defer func() { _ = uw.Close() }()
 	ctx = engine.WithTaskGroup(ctx, tg)
 
@@ -462,7 +462,7 @@ func TestBufferedNamedChannelWriteCapacity(t *testing.T) {
 	defer vm.Close()
 
 	tg := engine.NewTaskGroup(100)
-	ctx, uw := uow.WithContext(context.Background())
+	ctx, uw := uow.OnContext(context.Background())
 	defer func() { _ = uw.Close() }()
 	ctx = engine.WithTaskGroup(ctx, tg)
 

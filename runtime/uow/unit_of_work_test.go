@@ -10,7 +10,7 @@ import (
 func TestCleanup(t *testing.T) {
 	t.Run("basic flow", func(t *testing.T) {
 		var closed bool
-		_, uw := WithContext(context.Background())
+		_, uw := OnContext(context.Background())
 		uw.AddCleanup(func() error {
 			closed = true
 			return nil
@@ -25,7 +25,7 @@ func TestCleanup(t *testing.T) {
 	})
 
 	t.Run("from context", func(t *testing.T) {
-		ctx, cleanup := WithContext(context.Background())
+		ctx, cleanup := OnContext(context.Background())
 		got := FromContext(ctx)
 		if got != cleanup {
 			t.Error("FromContext returned wrong cleanup")
@@ -38,7 +38,7 @@ func TestCleanup(t *testing.T) {
 
 	t.Run("multiple closers", func(t *testing.T) {
 		var count int
-		_, uw := WithContext(context.Background())
+		_, uw := OnContext(context.Background())
 
 		for i := 0; i < 3; i++ {
 			uw.AddCleanup(func() error {
@@ -54,7 +54,7 @@ func TestCleanup(t *testing.T) {
 	})
 
 	t.Run("concurrent access", func(t *testing.T) {
-		_, uw := WithContext(context.Background())
+		_, uw := OnContext(context.Background())
 		var wg sync.WaitGroup
 
 		for i := 0; i < 100; i++ {
@@ -74,7 +74,7 @@ func TestCleanup(t *testing.T) {
 	})
 
 	t.Run("error handling", func(t *testing.T) {
-		_, uw := WithContext(context.Background())
+		_, uw := OnContext(context.Background())
 		expectedErr := errors.New("first error")
 
 		uw.AddCleanup(func() error { return errors.New("second error") })
@@ -87,7 +87,7 @@ func TestCleanup(t *testing.T) {
 	})
 
 	t.Run("multiple close calls", func(t *testing.T) {
-		_, uw := WithContext(context.Background())
+		_, uw := OnContext(context.Background())
 		var count int
 
 		uw.AddCleanup(func() error {

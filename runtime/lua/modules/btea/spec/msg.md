@@ -2,7 +2,8 @@
 
 ## Overview
 
-This specification defines how Bubble Tea messages are represented in Lua after conversion from Go. Each message is converted into a Lua table with a specific structure based on its type.
+This specification defines how Bubble Tea messages are represented in Lua after conversion from Go. Each message is
+converted into a Lua table with a specific structure based on its type.
 
 ## Message Structure
 
@@ -38,34 +39,34 @@ Key messages represent keyboard input events.
 The following key types are supported (string values):
 
 1. Control Keys:
-   - `"ctrl+@"` through `"ctrl+z"`
-   - `"ctrl+\\"`, `"ctrl+]"`, `"ctrl+^"`, `"ctrl+_"`
+    - `"ctrl+@"` through `"ctrl+z"`
+    - `"ctrl+\\"`, `"ctrl+]"`, `"ctrl+^"`, `"ctrl+_"`
 
 2. Navigation Keys:
-   - `"up"`, `"down"`, `"right"`, `"left"`
-   - `"home"`, `"end"`
-   - `"pgup"`, `"pgdown"`
-   - `"tab"`, `"backspace"`, `"delete"`
-   - `"insert"`, `"space"`, `"enter"`, `"esc"`
-   - `"runes"` (for regular character input)
+    - `"up"`, `"down"`, `"right"`, `"left"`
+    - `"home"`, `"end"`
+    - `"pgup"`, `"pgdown"`
+    - `"tab"`, `"backspace"`, `"delete"`
+    - `"insert"`, `"space"`, `"enter"`, `"esc"`
+    - `"runes"` (for regular character input)
 
 3. Shifted Variants:
-   - `"shift+tab"`, `"shift+up"`, `"shift+down"`
-   - `"shift+left"`, `"shift+right"`
-   - `"shift+home"`, `"shift+end"`
+    - `"shift+tab"`, `"shift+up"`, `"shift+down"`
+    - `"shift+left"`, `"shift+right"`
+    - `"shift+home"`, `"shift+end"`
 
 4. Ctrl Variants:
-   - `"ctrl+up"`, `"ctrl+down"`, `"ctrl+right"`, `"ctrl+left"`
-   - `"ctrl+home"`, `"ctrl+end"`
-   - `"ctrl+pgup"`, `"ctrl+pgdown"`
+    - `"ctrl+up"`, `"ctrl+down"`, `"ctrl+right"`, `"ctrl+left"`
+    - `"ctrl+home"`, `"ctrl+end"`
+    - `"ctrl+pgup"`, `"ctrl+pgdown"`
 
 5. Ctrl+Shift Variants:
-   - `"ctrl+shift+up"`, `"ctrl+shift+down"`
-   - `"ctrl+shift+left"`, `"ctrl+shift+right"`
-   - `"ctrl+shift+home"`, `"ctrl+shift+end"`
+    - `"ctrl+shift+up"`, `"ctrl+shift+down"`
+    - `"ctrl+shift+left"`, `"ctrl+shift+right"`
+    - `"ctrl+shift+home"`, `"ctrl+shift+end"`
 
 6. Function Keys:
-   - `"f1"` through `"f20"`
+    - `"f1"` through `"f20"`
 
 ## Mouse Messages
 
@@ -90,6 +91,7 @@ Mouse messages represent mouse input events.
 ### Mouse Buttons
 
 The following mouse button types are supported (string values):
+
 - `"none"`: No button (motion events)
 - `"left"`: Left mouse button
 - `"middle"`: Middle mouse button
