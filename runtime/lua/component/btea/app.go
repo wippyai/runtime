@@ -145,10 +145,6 @@ func (p *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		if msg.String() == ExitKey {
-			err := p.Send(topology.Cancel(p.pid, p.pid, time.Now().Add(stopTimeout)))
-			if err != nil {
-				p.log.Error("failed to send cancel event", zap.Error(err))
-			}
 			p.scheduleCancel()
 			return p, nil
 		}
@@ -181,7 +177,7 @@ func (p *App) Start(ctx context.Context, pid pubsub.PID, input payload.Payloads)
 	p.ctx, p.cancel = context.WithCancel(ctx)
 	p.pid = pid
 
-	term := terminal.FromContext(ctx)
+	term := terminal.FromContext(p.ctx)
 	if term == nil {
 		return fmt.Errorf("terminal context not found")
 	}
@@ -190,8 +186,8 @@ func (p *App) Start(ctx context.Context, pid pubsub.PID, input payload.Payloads)
 	p.program = tea.NewProgram(p, tea.WithInput(term.Stdin), tea.WithOutput(term.Stdout))
 
 	// sets up the process context
-	ctx = process.WithContext(
-		upstream.WithUpstreamChannel(ctx, p.upstream),
+	p.ctx = process.WithContext(
+		upstream.WithUpstreamChannel(p.ctx, p.upstream),
 		&process.Context{
 			PID:   pid,
 			Start: time.Now(),
@@ -199,7 +195,7 @@ func (p *App) Start(ctx context.Context, pid pubsub.PID, input payload.Payloads)
 		},
 	)
 
-	p.ctx, p.uow = uow.OnContext(p.runner.WithContext(ctx))
+	p.ctx, p.uow = uow.OnContext(p.runner.WithContext(p.ctx))
 
 	args, err := p.toLuaPayloads(input)
 	if err != nil {
