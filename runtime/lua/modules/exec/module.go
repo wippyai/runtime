@@ -1,4 +1,4 @@
-package execprocess
+package exec
 
 import (
 	"github.com/ponyruntime/pony/internal/codeexec/native"

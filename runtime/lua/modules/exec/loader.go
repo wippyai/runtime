@@ -1,14 +1,16 @@
-package execprocess
+package exec
 
 import (
 	"github.com/ponyruntime/pony/runtime/lua/modules/stream"
 	lua "github.com/yuin/gopher-lua"
 )
 
+// todo: refactor a little
+
 // Name returns the module's name.
 func (m *Module) Name() string {
 	return "process"
-}
+} // todo: rename to exec
 
 func (m *Module) Loader(l *lua.LState) int {
 	t := l.NewTable()

@@ -1,4 +1,4 @@
-package execprocess
+package exec
 
 import (
 	"context"

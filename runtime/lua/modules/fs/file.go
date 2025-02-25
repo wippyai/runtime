@@ -22,6 +22,9 @@ func (f *File) Read(p []byte) (int, error) {
 		if errors.Is(err, io.EOF) {
 			return n, err
 		}
+		if errors.Is(err, fs.ErrClosed) {
+			return n, fmt.Errorf("failed to read: file already closed")
+		}
 		return n, fmt.Errorf("failed to read: %w", err)
 	}
 	return n, nil
@@ -66,7 +69,7 @@ func (f *File) Sync() error {
 }
 
 func registerFile(l *lua.LState) {
-	mt := l.NewTypeMetatable("File")
+	mt := l.NewTypeMetatable("fs.File")
 	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
 		"read":  fileRead,
 		"write": fileWrite,
@@ -77,11 +80,18 @@ func registerFile(l *lua.LState) {
 	}))
 }
 
+// Close implements io.Closer.
 func (f *File) Close() error {
 	var err error
 	f.once.Do(func() {
 		err = f.file.Close()
 	})
+
+	// Don't return an error for already closed files
+	// This is the key fix - if we get ErrClosed, we shouldn't treat it as an error
+	if err != nil && errors.Is(err, fs.ErrClosed) {
+		return nil
+	}
 
 	return err
 }
@@ -179,10 +189,7 @@ func fileClose(l *lua.LState) int {
 
 	err := f.Close()
 	if err != nil {
-		if errors.Is(err, fs.ErrClosed) {
-			l.RaiseError("file already closed")
-			return 0
-		}
+		// Don't treat "already closed" as an error
 		l.RaiseError("close error: %s", err)
 		return 0
 	}
