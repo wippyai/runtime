@@ -74,7 +74,7 @@ func (t *Terminal) run(ctx context.Context, status chan<- any) {
 	defer close(status)
 	defer t.cleanup(nil)
 
-	t.ctx = logsapi.WithLogger(context.WithValue(ctx, ctxapi.HostCtx, t), t.log)
+	t.ctx = logsapi.WithLogger(pubsub.WithHost(ctx, t), t.log)
 
 	for {
 		select {

@@ -63,9 +63,9 @@ type App struct {
 	upstream chan payload.Payload
 
 	// UnitOfWork and error handling
-	done       chan struct{}
-	firstError error
-	uow        *uow.UnitOfWork
+	done      chan struct{}
+	stepError error
+	uow       *uow.UnitOfWork
 
 	numRetries int
 }
@@ -213,8 +213,8 @@ func (p *App) Start(ctx context.Context, pid pubsub.PID, input payload.Payloads)
 		if _, err := p.program.Run(); err != nil {
 			p.log.Error("btea program error", zap.Error(err))
 		}
-		if p.firstError == nil {
-			p.firstError = supervisor.ErrExit
+		if p.stepError == nil {
+			p.stepError = supervisor.ErrExit
 		}
 		p.cancel()
 	}()
@@ -256,12 +256,23 @@ func (p *App) processLoop(resultCh <-chan engine.Result) {
 			}
 			p.program.Quit()
 			time.Sleep(stopTimeout) // let terminal to detach
+
+			// todO: remove it after system stream and watchdog
+			go func() {
+				time.Sleep(stopTimeout)
+				if err != nil {
+					p.log.Error("process exited with error", zap.Error(err))
+				} else {
+					p.log.Info("process exited successfully")
+				}
+			}()
+
 		})
 	}
 
 	defer func() {
-		if p.firstError != nil {
-			completeProcess(p.firstError, nil)
+		if p.stepError != nil {
+			completeProcess(p.stepError, nil)
 		} else {
 			completeProcess(supervisor.ErrExit, nil)
 		}
@@ -275,8 +286,8 @@ func (p *App) processLoop(resultCh <-chan engine.Result) {
 		select {
 		case result, ok := <-resultCh:
 			if !ok {
-				p.log.Error("runner error", zap.Error(p.firstError))
-				completeProcess(p.firstError, nil)
+				p.log.Error("runner error", zap.Error(p.stepError))
+				completeProcess(p.stepError, nil)
 				return
 			}
 			if result.Error != nil {
@@ -305,8 +316,8 @@ func (p *App) processLoop(resultCh <-chan engine.Result) {
 			p.program.Send(msg)
 		case <-p.ctx.Done():
 			err := p.ctx.Err()
-			if p.firstError != nil {
-				err = p.firstError
+			if p.stepError != nil {
+				err = p.stepError
 			}
 			completeProcess(err, nil)
 			return
@@ -323,9 +334,11 @@ func (p *App) Step() (bool, error) {
 		return false, p.ctx.Err()
 	default:
 		err := p.runner.Continue(p.ctx, true)
-		if p.firstError == nil && err != nil {
-			p.firstError = err
+
+		if p.stepError == nil && err != nil {
+			p.stepError = err
 		}
+
 		return err != nil, err
 	}
 }

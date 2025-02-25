@@ -5,6 +5,8 @@
 The Functions module provides a Lua interface for executing tasks both synchronously and asynchronously. It enables
 namespace-aware function calls with proper context management and method chaining.
 
+This api only works inside functions and operations.
+
 ## Module Interface
 
 ### Module Loading

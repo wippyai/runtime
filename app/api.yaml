@@ -111,3 +111,11 @@ entries:
     method: POST
     path: /chat/session/send
     func: chat:session.send
+
+  - name: fs.dump
+    kind: http.endpoint
+    meta:
+      comment: "Dumps filesystem content and structure recursively"
+    method: GET
+    path: /fs/dump
+    func: functions:fs.dump

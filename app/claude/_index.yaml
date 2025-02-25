@@ -1,0 +1,71 @@
+version: "1.0"
+namespace: claude
+meta:
+  depends_on: [ "ns:system", "ns:btea.lib", "ns:analyze", "ns:functions" ]
+entries:
+  - name: tui
+    kind: btea.app.lua
+    meta:
+      comment: "Claude Terminal Interface"
+      default_host: terminal
+    source: file://tui.lua
+    method: App
+    modules: [ "time", "json", "http_client", "env", "funcs" ]
+    import:
+      "bapp": "btea.lib:bapp"
+      "claude_client": "claude:client"
+      "agent_lib": "claude:agent"
+
+  - name: tui.service
+    kind: process.service
+    meta:
+      comment: "Claude Terminal UI Service"
+      depends_on: [ "client", "agent" ]
+    process: tui
+    host: system:terminal
+    lifecycle:
+      auto_start: true
+      restart:
+        initial_delay: 5s
+        max_attempts: 3
+      depends_on: [ claude:service ]
+
+  - name: service
+    kind: process.service
+    meta:
+      comment: "Claude LLM Service"
+      depends_on: [ "client" ]
+    process: llm.service
+    host: system:heap
+    lifecycle:
+      auto_start: true
+      restart:
+        initial_delay: 5s
+        max_attempts: 3
+      depends_on: [ system:heap ]
+
+  - name: llm.service
+    kind: process.lua
+    meta:
+      comment: "Claude LLM Service Process"
+    source: file://llm_service.lua
+    method: run
+    modules: [ "time", "json", "http_client", "env" ]
+    import:
+      "actor": "wippy:actor"
+
+  - name: client
+    kind: library.lua
+    meta:
+      comment: "Claude API client library"
+      version: "1.0.0"
+    source: file://client.lua
+    modules: [ "time", "json", "http_client", "env" ]
+
+  - name: agent
+    kind: library.lua
+    meta:
+      comment: "Claude agent patterns and helpers"
+      version: "1.0.0"
+    source: file://agent.lua
+    modules: [ "time", "json" ]
