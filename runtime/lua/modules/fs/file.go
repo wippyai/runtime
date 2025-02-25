@@ -110,6 +110,7 @@ func fileRead(l *lua.LState) int {
 
 	buf := make([]byte, size)
 	n, err := f.Read(buf)
+
 	if err != nil {
 		if errors.Is(err, io.EOF) {
 			l.Push(lua.LNil)
@@ -188,13 +189,16 @@ func fileClose(l *lua.LState) int {
 	}
 
 	err := f.Close()
-	if err != nil {
-		// Don't treat "already closed" as an error
-		l.RaiseError("close error: %s", err)
-		return 0
+	if err != nil && !errors.Is(err, fs.ErrClosed) {
+		// Only return an error if it's not an "already closed" error
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
 	}
 
-	return 0
+	// Success: either the file was successfully closed, or it was already closed
+	l.Push(lua.LBool(true))
+	return 1
 }
 
 func fileStat(l *lua.LState) int {
