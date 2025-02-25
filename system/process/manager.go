@@ -77,9 +77,6 @@ func (m *Manager) launchOnHost(ctx context.Context, host api.Host, pid pubsub.PI
 			return pubsub.PID{}, fmt.Errorf("failed to init launch: %w", err)
 		}
 
-		// we monitor the lifecycle
-		ctx = m.topology.OnContext(ctx)
-
 		newPid, err := h.Launch(ctx, &api.LaunchProcess{PID: pid, Process: proc, Input: ps.Payloads})
 		if err != nil {
 			return pubsub.PID{}, fmt.Errorf("failed to launch process on managed host: %w", err)

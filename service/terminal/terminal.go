@@ -150,7 +150,7 @@ func (t *Terminal) prepareContext(ctx context.Context, pid pubsub.PID) context.C
 	pCtx := ctxapi.MergeContext(t.ctx, ctx)
 
 	// lifecycle
-	pCtx = process.GetTopology(pCtx).OnContext(pCtx)
+	pCtx = process.GetTopology(ctx).OnContext(pCtx)
 	pCtx = process.WithAddedOnComplete(pCtx, func(pid pubsub.PID, result *runtime.Result) {
 		if result.Error != nil {
 			t.log.Error("terminal process execution failed",
