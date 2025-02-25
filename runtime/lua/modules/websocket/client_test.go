@@ -161,7 +161,7 @@ func TestWebSocketClient(t *testing.T) {
 		assert.Equal(t, "success", result.String())
 	})
 
-	// --- Message types ---
+	// --- Type types ---
 	t.Run("message types", func(t *testing.T) {
 		// This server sends a series of frames: text, binary, ping, pong, then closes.
 		srv := startWSServer(t, "/ws", func(w http.ResponseWriter, r *http.Request) {
@@ -264,7 +264,7 @@ func TestWebSocketClient(t *testing.T) {
                 
                 coroutine.spawn(function()
                     for i = 1, 3 do
-                        ws:send("Message " .. i)
+                        ws:send("Type " .. i)
                         time.after("100ms"):receive()
                     end
                     done:send(true)
