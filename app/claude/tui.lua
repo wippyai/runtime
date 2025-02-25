@@ -21,6 +21,13 @@ function App()
     app.session_id = nil
     app.is_processing = false
 
+    -- Create shared inbox to prevent multiple subscriptions
+    app.shared_inbox = process.inbox()
+
+    -- Track whether we're already listening for updates
+    app.listening_for_updates = false
+    app.listening_for_tools = false
+
     -- Create Claude client
     app.claude = claude_client.Client.new()
 
@@ -95,8 +102,8 @@ function App()
 
     -- Create a session with the Claude service
     function app:create_session()
-        -- Create inbox for response
-        local inbox = process.inbox()
+        -- No need to create a new inbox here, use the shared one
+        local inbox = app.shared_inbox
 
         -- Send create session request
         local ok = process.send("{Antares@system:heap|claude:llm.service|0x00001}", "create_session", {
@@ -145,8 +152,8 @@ function App()
             end
         end
 
-        -- Create inbox for response
-        local inbox = process.inbox()
+        -- Use the shared inbox - no need to create a new one
+        local inbox = app.shared_inbox
 
         -- Send message to Claude service
         local ok = process.send("{Antares@system:heap|claude:llm.service|0x00001}", "send_message", {
@@ -162,44 +169,46 @@ function App()
             return
         end
 
-        -- Process streaming responses
-        coroutine.spawn(function()
-            while true do
-                local result = channel.select({
-                    inbox:case_receive()
-                })
+        -- Process streaming responses - Only start the listener if not already listening
+        if not app.listening_for_updates then
+            app.listening_for_updates = true
 
-                if not result.ok then
-                    break
-                end
+            coroutine.spawn(function()
+                while true do
+                    local result = channel.select({
+                        inbox:case_receive()
+                    })
 
-                local msg = result.value
-                if msg.topic == "update" then
-                    app.update_channel:send({
-                        type = "update",
-                        text = msg.payload.text
-                    })
-                elseif msg.topic == "tool_use" then
-                    app.update_channel:send({
-                        type = "tool_use",
-                        tool_use_id = msg.payload.tool_use_id,
-                        name = msg.payload.name,
-                        input = msg.payload.input
-                    })
-                elseif msg.topic == "done" then
-                    app.update_channel:send({
-                        type = "done"
-                    })
-                    break
-                elseif msg.topic == "error" then
-                    app.update_channel:send({
-                        type = "error",
-                        error = msg.payload.message
-                    })
-                    break
+                    if not result.ok then
+                        break
+                    end
+
+                    local msg = result.value
+                    if msg.topic == "update" then
+                        app.update_channel:send({
+                            type = "update",
+                            text = msg.payload.text
+                        })
+                    elseif msg.topic == "tool_use" then
+                        app.update_channel:send({
+                            type = "tool_use",
+                            tool_use_id = msg.payload.tool_use_id,
+                            name = msg.payload.name,
+                            input = msg.payload.input
+                        })
+                    elseif msg.topic == "done" then
+                        app.update_channel:send({
+                            type = "done"
+                        })
+                    elseif msg.topic == "error" then
+                        app.update_channel:send({
+                            type = "error",
+                            error = msg.payload.message
+                        })
+                    end
                 end
-            end
-        end)
+            end)
+        end
     end
 
     -- Submit tool result to Claude
@@ -209,8 +218,8 @@ function App()
             return
         end
 
-        -- Create inbox for response
-        local inbox = process.inbox()
+        -- Use the shared inbox - no need to create a new one
+        local inbox = app.shared_inbox
 
         -- Create message object
         local msg = {
@@ -263,39 +272,43 @@ function App()
     -- Now that all methods are defined, create a session
     app:create_session()
 
-    -- Start tool execution background worker
-    coroutine.spawn(function()
-        while true do
-            local tool_request, ok = app.tools_channel:receive()
-            if not ok then break end
+    -- Start tool execution background worker - Only start if not already running
+    if not app.listening_for_tools then
+        app.listening_for_tools = true
 
-            -- Add system message about tool execution
-            local system_msg = {
-                type = "system",
-                content = "Executing tool: " .. tool_request.name,
-                timestamp = time.now()
-            }
-            table.insert(app.messages, system_msg)
-            app:upstream("refresh")
+        coroutine.spawn(function()
+            while true do
+                local tool_request, ok = app.tools_channel:receive()
+                if not ok then break end
 
-            -- Execute the tool
-            local result, err = app:execute_tool(tool_request)
+                -- Add system message about tool execution
+                local system_msg = {
+                    type = "system",
+                    content = "Executing tool: " .. tool_request.name,
+                    timestamp = time.now()
+                }
+                table.insert(app.messages, system_msg)
+                app:upstream("refresh")
 
-            -- Add tool result message
-            local result_msg = {
-                type = "tool",
-                content = err and ("Error: " .. err) or result,
-                tool_name = tool_request.name,
-                timestamp = time.now()
-            }
-            table.insert(app.messages, result_msg)
+                -- Execute the tool
+                local result, err = app:execute_tool(tool_request)
 
-            -- Submit tool result back to Claude
-            app:submit_tool_result(tool_request.id, result, err)
+                -- Add tool result message
+                local result_msg = {
+                    type = "tool",
+                    content = err and ("Error: " .. err) or result,
+                    tool_name = tool_request.name,
+                    timestamp = time.now()
+                }
+                table.insert(app.messages, result_msg)
 
-            app:upstream("refresh")
-        end
-    end)
+                -- Submit tool result back to Claude
+                app:submit_tool_result(tool_request.id, result, err)
+
+                app:upstream("refresh")
+            end
+        end)
+    end
 
     -- Start LLM update listener
     coroutine.spawn(function()
@@ -399,8 +412,8 @@ function App()
 
                 -- Reset session
                 if self.session_id then
-                    -- Create inbox for response
-                    local inbox = func.inbox()
+                    -- No need to create a new inbox here, use the shared one
+                    local inbox = self.shared_inbox
 
                     -- Send clear session request
                     process.send("{Antares@system:heap|claude:llm.service|0x00001}", "clear_session", {
@@ -427,7 +440,7 @@ function App()
     -- View rendering
     local function view(self)
         local content_width = self.window.width - 6
-        local header_divider = string.rep("─", content_width)
+        local header_divider = string.rep("═", content_width)
         local content = {
             self.styles.header:render("Claude Terminal Interface"),
             self.styles.timestamp:render(header_divider)
