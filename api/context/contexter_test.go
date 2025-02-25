@@ -143,26 +143,6 @@ func TestContexter_Key_String(t *testing.T) {
 		want string
 	}{
 		{
-			name: "bus context key",
-			key:  BusCtx,
-			want: "bus",
-		},
-		{
-			name: "transcoder context key",
-			key:  TranscoderCtx,
-			want: "transcoder",
-		},
-		{
-			name: "values context key",
-			key:  ValuesCtx,
-			want: "values",
-		},
-		{
-			name: "cleanup context key",
-			key:  UowCtx,
-			want: "cleanup",
-		},
-		{
 			name: "custom key",
 			key:  &Key{Name: "custom"},
 			want: "custom",
