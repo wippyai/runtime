@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/ponyruntime/pony/runtime/uow"
 	"io"
 	"io/fs"
 	"sync"
@@ -47,11 +46,6 @@ type Stream struct {
 // NewStream creates a new Stream with the provided context, reader and configuration.
 // Returns an error if the reader is nil or if the configuration is invalid.
 func NewStream(ctx context.Context, reader io.ReadCloser, cfg *Options) (*Stream, error) {
-	uw := uow.FromContext(ctx)
-	if uw == nil {
-		return nil, fmt.Errorf("%w: no Unit Of Work in context", ErrInvalidConfig)
-	}
-
 	if reader == nil {
 		return nil, fmt.Errorf("%w: nil reader", ErrInvalidConfig)
 	}
@@ -65,8 +59,9 @@ func NewStream(ctx context.Context, reader io.ReadCloser, cfg *Options) (*Stream
 		ctx:    ctx,
 	}
 
-	// we never let stream leave outside ouf the UoW context
-	uw.AddCleanup(stream.Close)
+	/**
+	Attention, you have to clean stream at parent level.
+	*/
 
 	return stream, nil
 }
