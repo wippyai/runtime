@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	fsapi "github.com/ponyruntime/pony/api/fs"
+	"github.com/ponyruntime/pony/api/logs"
 	"io"
 	"io/fs"
 	"os"
@@ -479,6 +480,7 @@ func setupLuaWithFS(t *testing.T, mockRes *mockResource) (*engine.CoroutineVM, *
 
 	// Add the resource registry to the context
 	ctx = resource.WithResources(ctx, mockRegistry)
+	ctx = logs.WithLogger(ctx, logger)
 
 	// Set the context in the Lua state
 	L.SetContext(ctx)
