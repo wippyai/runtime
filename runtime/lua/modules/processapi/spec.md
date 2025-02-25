@@ -64,13 +64,15 @@ process.send(pid_or_name, "topic", value1)    -- Single value
 process.send(pid_or_name, "topic", value1, value2, value3)  -- Multiple values sent as separate messages
 ```
 
-Each value sent is delivered as a separate message through the channel system. When sending multiple values, they are delivered sequentially as individual messages, not as a batch.
+Each value sent is delivered as a separate message through the channel system. When sending multiple values, they are
+delivered sequentially as individual messages, not as a batch.
 
 ### Receiving Messages
 
 Messages can be received through two types of channels:
 
 1. Named Topic Channel:
+
 ```lua
 -- Listen on a specific topic
 local msgs = process.listen("topic")
@@ -78,6 +80,7 @@ local value = msgs:receive()  -- Each receive gets one value
 ```
 
 2. Default Inbox Channel (@inbox):
+
 ```lua
 -- Listen for undelivered messages
 local inbox = process.inbox()
@@ -107,6 +110,7 @@ There are two different message formats depending on how the message is received
    ```
 
 Example message handling:
+
 ```lua
 -- Named topic handling
 local msgs = process.listen("mytopic")

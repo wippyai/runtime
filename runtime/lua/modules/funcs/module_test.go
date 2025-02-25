@@ -81,7 +81,7 @@ func TestExecutorModule(t *testing.T) {
 		wrapped := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
 
 		// Create context with dependencies
-		ctx, uw := uow.WithContext(context.Background())
+		ctx, uw := uow.OnContext(context.Background())
 		defer func() { _ = uw.Close() }()
 
 		mockExec := &mockExecutor{
@@ -121,7 +121,7 @@ func TestExecutorModule(t *testing.T) {
 
 		wrapped := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
 
-		ctx, uw := uow.WithContext(context.Background())
+		ctx, uw := uow.OnContext(context.Background())
 		defer func() { _ = uw.Close() }()
 
 		mockExec := &mockExecutor{
@@ -159,7 +159,7 @@ func TestExecutorModule(t *testing.T) {
 
 		wrapped := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
 
-		ctx, uw := uow.WithContext(context.Background())
+		ctx, uw := uow.OnContext(context.Background())
 		defer func() { _ = uw.Close() }()
 
 		mockExec := &mockExecutor{
@@ -198,7 +198,7 @@ func TestExecutorModule(t *testing.T) {
 
 		wrapped := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
 
-		ctx, uw := uow.WithContext(context.Background())
+		ctx, uw := uow.OnContext(context.Background())
 		defer func() { _ = uw.Close() }()
 
 		mockExec := &mockExecutor{
@@ -236,7 +236,7 @@ func TestExecutorModule(t *testing.T) {
 		wrapped := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
 
 		ctx, cancel := context.WithCancel(context.Background())
-		ctx, uw := uow.WithContext(ctx)
+		ctx, uw := uow.OnContext(ctx)
 		defer func() { _ = uw.Close() }()
 
 		mockExec := &mockExecutor{

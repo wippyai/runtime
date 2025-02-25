@@ -2,7 +2,8 @@
 
 ## Overview
 
-The Functions module provides a Lua interface for executing tasks both synchronously and asynchronously. It enables namespace-aware function calls with proper context management and method chaining.
+The Functions module provides a Lua interface for executing tasks both synchronously and asynchronously. It enables
+namespace-aware function calls with proper context management and method chaining.
 
 ## Module Interface
 
@@ -41,9 +42,11 @@ local executor3 = funcs.new()
 ```
 
 Parameters:
+
 - `context_table`: Table with string keys and any values
 
 Returns:
+
 - New executor instance with updated context (immutable operation)
 
 #### call(target, ...)
@@ -62,10 +65,12 @@ local result, err = executor:call("myapp:process", {
 ```
 
 Parameters:
+
 - `target`: String in "namespace:name" format (namespace required)
 - `...`: Arguments to pass (auto-wrapped in payloads)
 
 Returns:
+
 - `result`: Function result or nil on error
 - `err`: Error message or nil on success
 
@@ -85,10 +90,12 @@ local err = executor:run("myapp:worker", {
 ```
 
 Parameters:
+
 - `target`: String in "namespace:name" format (namespace required)
 - `...`: Arguments to pass (auto-wrapped in payloads)
 
 Returns:
+
 - `err`: Error message or nil on success
 
 ## Usage Examples

@@ -199,7 +199,7 @@ func (p *App) Start(ctx context.Context, pid pubsub.PID, input payload.Payloads)
 		},
 	)
 
-	ctx, p.uow = uow.WithContext(p.runner.WithContext(ctx))
+	p.ctx, p.uow = uow.OnContext(p.runner.WithContext(ctx))
 
 	args, err := p.toLuaPayloads(input)
 	if err != nil {
@@ -207,7 +207,7 @@ func (p *App) Start(ctx context.Context, pid pubsub.PID, input payload.Payloads)
 	}
 
 	// Start the Lua function.
-	resultCh, err := p.runner.Start(ctx, p.funcName, args...)
+	resultCh, err := p.runner.Start(p.ctx, p.funcName, args...)
 	if err != nil {
 		return fmt.Errorf("failed to start Lua function: %w", err)
 	}
@@ -229,7 +229,7 @@ func (p *App) Start(ctx context.Context, pid pubsub.PID, input payload.Payloads)
 	}
 
 	// Notify that the process has started.
-	if onStart := process.GetOnStart(ctx); onStart != nil {
+	if onStart := process.GetOnStart(p.ctx); onStart != nil {
 		onStart(pid, p)
 	}
 

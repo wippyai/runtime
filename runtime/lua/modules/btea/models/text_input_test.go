@@ -26,7 +26,7 @@ func TestTextInput(t *testing.T) {
 		return 1
 	}
 
-	ctx, uw := uow.WithContext(context.Background())
+	ctx, uw := uow.OnContext(context.Background())
 	defer func() { _ = uw.Close() }()
 
 	t.Run("text input creation and basic configuration", func(t *testing.T) {
@@ -285,7 +285,7 @@ func TestTextInputUpdate(t *testing.T) {
 	RegisterTextInput(cvm.State(), mod)
 	cvm.State().SetGlobal("btea", mod)
 
-	ctx, uw := uow.WithContext(context.Background())
+	ctx, uw := uow.OnContext(context.Background())
 	defer func() { _ = uw.Close() }()
 
 	err = cvm.StartString(ctx, `

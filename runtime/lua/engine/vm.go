@@ -108,7 +108,7 @@ func (v *VM) Execute(ctx context.Context, funcName string, args ...lua.LValue) (
 	}
 
 	if ctx != nil {
-		ctx, cleanup := uow.WithContext(ctx)
+		ctx, cleanup := uow.OnContext(ctx)
 		defer func() {
 			v.state.RemoveContext()
 			if err := cleanup.Close(); err != nil {
@@ -135,7 +135,7 @@ func (v *VM) DoString(ctx context.Context, s string, name string, args ...lua.LV
 		ctx = context.Background()
 	}
 
-	ctx, cleanup := uow.WithContext(ctx)
+	ctx, cleanup := uow.OnContext(ctx)
 	defer func() {
 		v.state.RemoveContext()
 		if err := cleanup.Close(); err != nil {

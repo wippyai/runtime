@@ -53,7 +53,7 @@ func TestPubSub(t *testing.T) {
 		err := vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		ctx, uw := uow.WithContext(runner.WithContext(context.Background()))
+		ctx, uw := uow.OnContext(runner.WithContext(context.Background()))
 		defer func() { _ = uw.Close() }()
 
 		var wg sync.WaitGroup
@@ -98,7 +98,7 @@ func TestPubSub(t *testing.T) {
 		err := vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		ctx, uw := uow.WithContext(runner.WithContext(context.Background()))
+		ctx, uw := uow.OnContext(runner.WithContext(context.Background()))
 		defer func() { _ = uw.Close() }()
 
 		exitCh, err := runner.Start(ctx, "test")
@@ -124,7 +124,7 @@ func TestPubSub(t *testing.T) {
 		err := vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		ctx, uw := uow.WithContext(runner.WithContext(context.Background()))
+		ctx, uw := uow.OnContext(runner.WithContext(context.Background()))
 		defer func() { _ = uw.Close() }()
 		exitCh, err := runner.Start(ctx, "test")
 		require.NoError(t, err)
@@ -147,7 +147,7 @@ func TestPubSub(t *testing.T) {
 		err := vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		ctx, uw := uow.WithContext(runner.WithContext(context.Background()))
+		ctx, uw := uow.OnContext(runner.WithContext(context.Background()))
 		defer func() { _ = uw.Close() }()
 		exitCh, err := runner.Start(ctx, "test")
 		require.NoError(t, err)
@@ -174,7 +174,7 @@ func TestPubSub(t *testing.T) {
 		err := vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		ctx, uw := uow.WithContext(runner.WithContext(context.Background()))
+		ctx, uw := uow.OnContext(runner.WithContext(context.Background()))
 		defer func() { _ = uw.Close() }()
 
 		var wg sync.WaitGroup
@@ -228,7 +228,7 @@ func TestLateSubscription(t *testing.T) {
 	err := vm.Import(script, "test", "test")
 	require.NoError(t, err)
 
-	ctx, uw := uow.WithContext(runner.WithContext(context.Background()))
+	ctx, uw := uow.OnContext(runner.WithContext(context.Background()))
 	defer func() { _ = uw.Close() }()
 
 	var wg sync.WaitGroup
@@ -287,7 +287,7 @@ func TestCrossTopicOrdering(t *testing.T) {
 	err := vm.Import(script, "test", "test")
 	require.NoError(t, err)
 
-	ctx, uw := uow.WithContext(runner.WithContext(context.Background()))
+	ctx, uw := uow.OnContext(runner.WithContext(context.Background()))
 	defer func() { _ = uw.Close() }()
 
 	var wg sync.WaitGroup
@@ -347,7 +347,7 @@ func TestUnsubscribeWithPendingMessages(t *testing.T) {
 	err := vm.Import(script, "test", "test")
 	require.NoError(t, err)
 
-	ctx, uw := uow.WithContext(runner.WithContext(context.Background()))
+	ctx, uw := uow.OnContext(runner.WithContext(context.Background()))
 	defer func() { _ = uw.Close() }()
 
 	var wg sync.WaitGroup
@@ -414,7 +414,7 @@ func TestMultipleTopicsUnsubscribe(t *testing.T) {
 	err := vm.Import(script, "test", "test")
 	require.NoError(t, err)
 
-	ctx, uw := uow.WithContext(runner.WithContext(context.Background()))
+	ctx, uw := uow.OnContext(runner.WithContext(context.Background()))
 	defer func() { _ = uw.Close() }()
 
 	var wg sync.WaitGroup
@@ -484,7 +484,7 @@ func TestUnsubscribeResubscribe(t *testing.T) {
 	err := vm.Import(script, "test", "test")
 	require.NoError(t, err)
 
-	ctx, uw := uow.WithContext(runner.WithContext(context.Background()))
+	ctx, uw := uow.OnContext(runner.WithContext(context.Background()))
 	defer func() { _ = uw.Close() }()
 
 	var wg sync.WaitGroup

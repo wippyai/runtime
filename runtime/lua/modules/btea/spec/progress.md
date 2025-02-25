@@ -2,7 +2,9 @@
 
 ## Overview
 
-This specification defines how progress bar components are represented and used in Lua within the Bubble Tea framework. The progress component provides an animated progress bar with support for percentage-based tracking, gradients, and customizable styling.
+This specification defines how progress bar components are represented and used in Lua within the Bubble Tea framework.
+The progress component provides an animated progress bar with support for percentage-based tracking, gradients, and
+customizable styling.
 
 ## Progress Creation
 

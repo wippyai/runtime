@@ -9,6 +9,7 @@ status.
 ## Important Note
 
 The paginator uses zero-based indexing to maintain consistency with the Go implementation. This means:
+
 - First page is 0
 - Last page is (total_pages - 1)
 - Navigation methods work with zero-based indices
@@ -159,24 +160,24 @@ local search_results = {
 ## Best Practices
 
 1. **Zero-Based Indexing**
-   - Remember that page numbers are zero-based internally
-   - Adjust array indices when accessing Lua tables (add 1 to slice bounds)
-   - Use get_current_page() for logic rather than assumptions about page numbers
+    - Remember that page numbers are zero-based internally
+    - Adjust array indices when accessing Lua tables (add 1 to slice bounds)
+    - Use get_current_page() for logic rather than assumptions about page numbers
 
 2. **Bounds Handling**
-   - The paginator handles bounds checking internally
-   - prev_page() won't go below 0
-   - next_page() won't exceed (total_pages - 1)
+    - The paginator handles bounds checking internally
+    - prev_page() won't go below 0
+    - next_page() won't exceed (total_pages - 1)
 
 3. **State Management**
-   - Update total_pages when data changes
-   - Check on_first_page() and on_last_page() for navigation logic
-   - Use get_slice_bounds() for consistent page slicing
+    - Update total_pages when data changes
+    - Check on_first_page() and on_last_page() for navigation logic
+    - Use get_slice_bounds() for consistent page slicing
 
 4. **Message Handling**
-   - Always handle the cmd returned from update()
-   - Test both keyboard and mouse navigation if supported
-   - Consider update() return value for state changes
+    - Always handle the cmd returned from update()
+    - Test both keyboard and mouse navigation if supported
+    - Consider update() return value for state changes
 
 ## Notes
 

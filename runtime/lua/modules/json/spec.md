@@ -2,7 +2,9 @@
 
 ## Overview
 
-The `json` module provides functions for encoding Lua values into JSON (JavaScript Object Notation) strings and decoding JSON strings into Lua values. It handles basic Lua types (strings, numbers, booleans, nil) as well as tables used as arrays or objects.
+The `json` module provides functions for encoding Lua values into JSON (JavaScript Object Notation) strings and decoding
+JSON strings into Lua values. It handles basic Lua types (strings, numbers, booleans, nil) as well as tables used as
+arrays or objects.
 
 ## Module Interface
 

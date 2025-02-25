@@ -41,8 +41,8 @@ var (
 	FunctionCtx = &Key{Name: "function"}
 	// ValuesCtx represents the values storage context key
 	ValuesCtx = &Key{Name: "values"} //nolint:gochecknoglobals
-	// CleanupCtx represents the cleanup operations context key
-	CleanupCtx = &Key{Name: "cleanup"} //nolint:gochecknoglobals
+	// UowCtx represents the cleanup operations context key
+	UowCtx = &Key{Name: "unit-of-work"} //nolint:gochecknoglobals
 	// SecurityCtx represents the security settings context key
 	SecurityCtx = &Key{Name: "security"} //nolint:gochecknoglobals
 	// WakeUpKey represents a callback that can be used to notify process host about async process activity

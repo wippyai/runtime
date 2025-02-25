@@ -268,7 +268,7 @@ func (m *Manager) Execute(ctx context.Context, task runtime.Task) (chan *runtime
 			args[i] = luaPayload.Data().(lua.LValue)
 		}
 
-		ctx, uw := uow.WithContext(ctx)
+		ctx, uw := uow.OnContext(ctx)
 		defer func() {
 			err := uw.Close()
 			if err != nil {

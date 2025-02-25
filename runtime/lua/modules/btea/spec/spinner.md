@@ -2,7 +2,8 @@
 
 ## Overview
 
-The spinner component provides an animated loading indicator that can be styled and customized. It supports multiple animation types and configurable update intervals.
+The spinner component provides an animated loading indicator that can be styled and customized. It supports multiple
+animation types and configurable update intervals.
 
 ## Spinner Creation
 
@@ -16,7 +17,9 @@ local spinner = btea.spinner {
 ```
 
 ### Interval Format
+
 The interval can be specified in several formats:
+
 - Duration string: "100ms", "1s", "500ms"
 - Numeric milliseconds: 100, 500
 - Must be greater than 0

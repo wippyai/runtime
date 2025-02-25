@@ -142,7 +142,7 @@ func (m *Module) executeRequest(l *lua.LState, req *http.Request, opts *requestO
 	cleanup := uow.FromContext(ctx)
 	if cleanup == nil {
 		// should never happen
-		ctx, cleanup = uow.WithContext(ctx)
+		ctx, cleanup = uow.OnContext(ctx)
 		defer func() { _ = cleanup.Close() }()
 	}
 
@@ -229,7 +229,7 @@ func (m *Module) requestBatch(l *lua.LState) int {
 	cleanup := uow.FromContext(ctx)
 	if cleanup == nil {
 		// should never happen
-		ctx, cleanup = uow.WithContext(ctx)
+		ctx, cleanup = uow.OnContext(ctx)
 		defer func() { _ = cleanup.Close() }()
 	}
 

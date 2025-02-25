@@ -159,7 +159,7 @@ func TestContexter_Key_String(t *testing.T) {
 		},
 		{
 			name: "cleanup context key",
-			key:  CleanupCtx,
+			key:  UowCtx,
 			want: "cleanup",
 		},
 		{

@@ -22,7 +22,7 @@ func TestUnbufferedChannelOperations(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	ctx, uw := uow.WithContext(context.Background())
+	ctx, uw := uow.OnContext(context.Background())
 	defer func() { _ = uw.Close() }()
 
 	err = vm.StartString(ctx, `
@@ -82,7 +82,7 @@ func TestUnbufferedChannelOperationsMainCoroutine(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	ctx, uw := uow.WithContext(context.Background())
+	ctx, uw := uow.OnContext(context.Background())
 	defer func() { _ = uw.Close() }()
 
 	err = vm.StartString(ctx, `
@@ -137,7 +137,7 @@ func TestClosedChannelOperations(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	ctx, uw := uow.WithContext(context.Background())
+	ctx, uw := uow.OnContext(context.Background())
 	defer func() { _ = uw.Close() }()
 
 	err = vm.StartString(ctx, `
@@ -202,7 +202,7 @@ func TestCloseChannelWithPendingOperations(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	ctx, uw := uow.WithContext(context.Background())
+	ctx, uw := uow.OnContext(context.Background())
 	defer func() { _ = uw.Close() }()
 
 	err = vm.StartString(ctx, `
@@ -262,7 +262,7 @@ func TestBufferedChannelBasicOperations(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	ctx, uw := uow.WithContext(context.Background())
+	ctx, uw := uow.OnContext(context.Background())
 	defer func() { _ = uw.Close() }()
 
 	err = vm.StartString(ctx, `
@@ -326,7 +326,7 @@ func TestBufferedChannelBlockingBehavior(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	ctx, uw := uow.WithContext(context.Background())
+	ctx, uw := uow.OnContext(context.Background())
 	defer func() { _ = uw.Close() }()
 
 	err = vm.StartString(ctx, `
@@ -394,7 +394,7 @@ func TestReadBufferedValues(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	ctx, uw := uow.WithContext(context.Background())
+	ctx, uw := uow.OnContext(context.Background())
 	defer func() { _ = uw.Close() }()
 
 	err = vm.StartString(ctx, `
@@ -450,7 +450,7 @@ func TestBufferedChannelEdgeCases(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	ctx, uw := uow.WithContext(context.Background())
+	ctx, uw := uow.OnContext(context.Background())
 	defer func() { _ = uw.Close() }()
 
 	err = vm.StartString(ctx, `
@@ -546,7 +546,7 @@ func TestBufferedChannelCloseWithPendingOperations(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	ctx, uw := uow.WithContext(context.Background())
+	ctx, uw := uow.OnContext(context.Background())
 	defer func() { _ = uw.Close() }()
 
 	err = vm.StartString(ctx, `
@@ -617,7 +617,7 @@ func TestBufferedChannelClose(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	ctx, uw := uow.WithContext(context.Background())
+	ctx, uw := uow.OnContext(context.Background())
 	defer func() { _ = uw.Close() }()
 
 	err = vm.StartString(ctx, `
@@ -678,7 +678,7 @@ func TestBufferedChannelSendError(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	ctx, uw := uow.WithContext(context.Background())
+	ctx, uw := uow.OnContext(context.Background())
 	defer func() { _ = uw.Close() }()
 
 	err = vm.StartString(ctx, `
@@ -709,7 +709,7 @@ func TestMainCoroutineBlockingOnBufferedChannel(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	ctx, uw := uow.WithContext(context.Background())
+	ctx, uw := uow.OnContext(context.Background())
 	defer func() { _ = uw.Close() }()
 
 	err = vm.StartString(ctx, `
@@ -759,7 +759,7 @@ func TestMainCoroutinePanicHandling(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	ctx, uw := uow.WithContext(context.Background())
+	ctx, uw := uow.OnContext(context.Background())
 	defer func() { _ = uw.Close() }()
 
 	err = vm.StartString(ctx, `
@@ -813,7 +813,7 @@ func TestMainCoroutineChannelCascadingClose(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	ctx, uw := uow.WithContext(context.Background())
+	ctx, uw := uow.OnContext(context.Background())
 	defer func() { _ = uw.Close() }()
 
 	err = vm.StartString(ctx, `
@@ -879,7 +879,7 @@ func TestMapReducePattern(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	ctx, uw := uow.WithContext(context.Background())
+	ctx, uw := uow.OnContext(context.Background())
 	defer func() { _ = uw.Close() }()
 
 	err = vm.StartString(ctx, `
@@ -1001,7 +1001,7 @@ func TestFanOutPattern(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	ctx, uw := uow.WithContext(context.Background())
+	ctx, uw := uow.OnContext(context.Background())
 	defer func() { _ = uw.Close() }()
 
 	err = vm.StartString(ctx, `
@@ -1134,7 +1134,7 @@ func TestFanInPattern(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	ctx, uw := uow.WithContext(context.Background())
+	ctx, uw := uow.OnContext(context.Background())
 	defer func() { _ = uw.Close() }()
 
 	err = vm.StartString(ctx, `

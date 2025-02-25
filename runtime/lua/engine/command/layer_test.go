@@ -35,7 +35,7 @@ func TestCommandLayer_BasicOperations(t *testing.T) {
 	)
 
 	// Setup context with task group
-	ctx, uw := uow.WithContext(runner.WithContext(context.Background()))
+	ctx, uw := uow.OnContext(runner.WithContext(context.Background()))
 	defer func() { _ = uw.Close() }()
 
 	// starts (but does not run)
@@ -93,7 +93,7 @@ func TestCommandLayer_Context(t *testing.T) {
 	channelLayer := channel.NewChannelLayer()
 	commandLayer := NewCommandLayer(channelLayer)
 
-	// Test WithContext
+	// Test OnContext
 	ctx := context.Background()
 	enrichedCtx := commandLayer.WithContext(ctx)
 	assert.NotNil(t, enrichedCtx, "context enrichment should succeed")
@@ -140,7 +140,7 @@ func TestLayer_MultipleConcurrentCommands(t *testing.T) {
 	)
 
 	// Setup context with task group
-	ctx, uw := uow.WithContext(runner.WithContext(context.Background()))
+	ctx, uw := uow.OnContext(runner.WithContext(context.Background()))
 	defer func() { _ = uw.Close() }()
 
 	// Launch VM with script that creates multiple commands
@@ -254,7 +254,7 @@ func TestCommandLayer_ErrorPropagation(t *testing.T) {
 	)
 
 	// Setup context with task group
-	ctx, uw := uow.WithContext(runner.WithContext(context.Background()))
+	ctx, uw := uow.OnContext(runner.WithContext(context.Background()))
 	defer func() { _ = uw.Close() }()
 
 	// Launch VM with script that creates a command and waits for result
@@ -334,7 +334,7 @@ func TestCommand_LuaMethodsComplete(t *testing.T) {
 	)
 
 	// Setup context with task group
-	ctx, uw := uow.WithContext(runner.WithContext(context.Background()))
+	ctx, uw := uow.OnContext(runner.WithContext(context.Background()))
 	defer func() { _ = uw.Close() }()
 
 	// Launch VM with script that tests all command methods
@@ -456,7 +456,7 @@ func TestCommandLayer_SelectOperations(t *testing.T) {
 	)
 
 	// Setup context with task group
-	ctx, uw := uow.WithContext(runner.WithContext(context.Background()))
+	ctx, uw := uow.OnContext(runner.WithContext(context.Background()))
 	defer func() { _ = uw.Close() }()
 
 	addToFlow("test_setup_complete")

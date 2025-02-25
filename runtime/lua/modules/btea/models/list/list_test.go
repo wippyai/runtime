@@ -34,7 +34,7 @@ func setupListTest(t *testing.T) *engine.VM {
 
 func TestList(t *testing.T) {
 	ctx := context.Background()
-	ctx, uw := uow.WithContext(ctx)
+	ctx, uw := uow.OnContext(ctx)
 	defer func() { _ = uw.Close() }()
 
 	// Basic initialization and configuration
@@ -233,7 +233,7 @@ func TestListUpdate(t *testing.T) {
 	RegisterList(cvm.State(), mod)
 	cvm.State().SetGlobal("btea", mod)
 
-	ctx, uw := uow.WithContext(context.Background())
+	ctx, uw := uow.OnContext(context.Background())
 	defer func() { _ = uw.Close() }()
 
 	err = cvm.StartString(ctx, `

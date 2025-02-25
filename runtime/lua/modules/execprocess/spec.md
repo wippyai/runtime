@@ -3,6 +3,7 @@
 ## Buffer Size Limits
 
 Default and limit values for buffer sizes:
+
 * Read buffer: 64 kilobytes
 
 ## Core Types
@@ -59,8 +60,8 @@ local state = cmd:state()
 -- Returns: "not_started" | "running" | "terminated"
 ```
 
-
 ## IO Operations
+
 ```lua
 -- Write data to process stdin
 -- data is string data
@@ -86,6 +87,7 @@ end
 ```
 
 ## Complete Example
+
 ```lua
 local process = require("process")
 -- Create and configure process
@@ -107,4 +109,5 @@ end
 ```
 
 ## Notes
+
 - There is no close() method to close the process. Closing would be done automatically when the process is terminated.

@@ -22,7 +22,7 @@ func TestSpinner(t *testing.T) {
 		return 1
 	}
 
-	ctx, uw := uow.WithContext(context.Background())
+	ctx, uw := uow.OnContext(context.Background())
 	defer func() { _ = uw.Close() }()
 
 	t.Run("spinner creation and basic operations", func(t *testing.T) {
@@ -178,7 +178,7 @@ func TestSpinnerUpdate(t *testing.T) {
 	RegisterSpinner(cvm.State(), mod)
 	cvm.State().SetGlobal("btea", mod)
 
-	ctx, uw := uow.WithContext(context.Background())
+	ctx, uw := uow.OnContext(context.Background())
 	defer func() { _ = uw.Close() }()
 
 	err = cvm.StartString(ctx, `
