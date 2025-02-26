@@ -1,6 +1,7 @@
 local http_client = require("http_client")
 local env = require("env")
 local json = require("json")
+local time = require("time")
 
 -- Claude API Client
 local ClaudeClient = {}
@@ -11,7 +12,7 @@ function ClaudeClient.new(api_key)
     -- Constants
     client.API_URL = "https://api.anthropic.com/v1/messages"
     client.API_VERSION = "2023-06-01"
-    client.MODEL = "claude-3-7-sonnet-20250219"
+    client.MODEL = "claude-3-5-haiku-20241022" --"claude-3-7-sonnet-20250219" todo: make it properly selectable
     client.MAX_TOKENS = 4096
 
     -- Configuration
@@ -71,6 +72,12 @@ When a user asks about files or directories, use the appropriate tool to help th
                     end
                     response.stream:close()
                 end
+
+                local timestamp = time.now():format("20060102_150405")
+                local debug_file = "payload_error_" .. timestamp .. ".json"
+
+                -- Dump to file for full inspection
+                require("fs").get("system:core"):writefile(debug_file, payload)
 
                 on_response(error_body)
 
