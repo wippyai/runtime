@@ -20,7 +20,7 @@ function App()
     -- Initialize state
     app.messages = {}
     app.debug_logs = {}
-    app.show_debug = true
+    app.show_debug = false
     app.is_processing = false
     app.current_tool_use = nil
 

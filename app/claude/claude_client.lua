@@ -43,9 +43,15 @@ When a user asks about files or directories, use the appropriate tool to help th
 
         -- Make API request
         coroutine.spawn(function()
+            local payload, err = json.encode(request)
+            if err then
+                on_response("Failed to encode request: " .. err)
+                return nil, "Failed to encode request: " .. err
+            end
+
             local response, err = http_client.post(self.API_URL, {
                 headers = headers,
-                body = json.encode(request),
+                body = payload,
                 stream = { buffer_size = 4096 }
             })
 
@@ -65,6 +71,8 @@ When a user asks about files or directories, use the appropriate tool to help th
                     end
                     response.stream:close()
                 end
+
+                on_response(error_body)
 
                 return nil, "API error: " .. response.status_code .. " - " .. error_body
             end

@@ -16,18 +16,14 @@ function AgentHandler.new(app, config)
 You are Wippy, an AI assistant with access to file system tools.
 You can help users interact with their files and directories.
 When a user asks about files or directories, use the appropriate tool to help them.
-Use the list_directory tool when asked to list contents of a directory.
-Use the read_file tool when asked to read a file.
-Use the analyze_file tool when asked to analyze a file's details.
-Use the search_files tool when asked to find text in files.
-Use the tree tool when asked to visualize directory structure.
+You dont retry on errors but instead give content or error back to user, you are in debug mode,
+dont improvise.
 ]]
 
     -- Tool name mappings
     agent.tool_name_mapping = {
         ["list_directory"] = "tools:list",
         ["read_file"] = "tools:read",
-        ["analyze_file"] = "tools:analyze",
         ["search_files"] = "tools:search",
         ["tree"] = "tools:tree"
     }
@@ -72,26 +68,6 @@ Use the tree tool when asked to visualize directory structure.
                     binary_ok = {
                         type = "boolean",
                         description = "Whether to allow reading binary files"
-                    }
-                },
-                required = { "path" }
-            }
-        },
-        -- Analyze file tool
-        {
-            name = "analyze_file",
-            description = "Analyze a file to get detailed metadata",
-            input_schema = {
-                type = "object",
-                properties = {
-                    path = {
-                        type = "string",
-                        description = "Path to the file to analyze"
-                    },
-                    format = {
-                        type = "string",
-                        description = "Output format (text or json)",
-                        enum = { "text", "json" }
                     }
                 },
                 required = { "path" }
@@ -183,7 +159,6 @@ Use the tree tool when asked to visualize directory structure.
             "Calling function: " .. function_name .. " with input: " .. json.encode(tool_input))
 
         local result, err = executor:call(function_name, tool_input)
-
         if err then
             return nil, "Tool execution failed: " .. err
         end

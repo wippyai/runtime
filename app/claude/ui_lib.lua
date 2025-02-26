@@ -216,19 +216,21 @@ function UI.new()
 
     -- Add debug log
     ui.log_debug = function(self, app, message)
-        if type(message) == "table" then
-            message = json.encode(message)
-        end
+        self.add_system_message(self, app, "Debug: " .. message)
 
-        local now = time.now()
-        local entry = now:format("15:04:05") .. " " .. message
-
-        table.insert(app.debug_logs, entry)
-
-        -- Update debug viewport
-        local debug_content = table.concat(app.debug_logs, "\n")
-        app.debug_view:set_content(debug_content)
-        app.debug_view:scroll_to_bottom()
+        --if type(message) == "table" then
+        --    message = json.encode(message)
+        --end
+        --
+        --local now = time.now()
+        --local entry = now:format("15:04:05") .. " " .. message
+        --
+        --table.insert(app.debug_logs, entry)
+        --
+        ---- Update debug viewport
+        --local debug_content = table.concat(app.debug_logs, "\n")
+        --app.debug_view:set_content(debug_content)
+        --app.debug_view:scroll_to_bottom()
 
         app:upstream("refresh")
     end

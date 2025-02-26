@@ -12,7 +12,11 @@ var (
 	errNested      = errors.New("cannot encode recursively nested tables to JSON")
 	errSparseArray = errors.New("cannot encode sparse array")
 	errInvalidKeys = errors.New("cannot encode mixed or invalid key types")
+	errMaxDepth    = errors.New("exceeded maximum nesting depth for JSON encoding")
 )
+
+// DefaultMaxDepth is the default maximum nesting depth for JSON encoding
+const DefaultMaxDepth = 128
 
 var jsonValuePool = sync.Pool{
 	New: func() any {
@@ -20,25 +24,33 @@ var jsonValuePool = sync.Pool{
 	},
 }
 
-func getJSONValue(lv lua.LValue, visited map[*lua.LTable]bool) *jsonValue {
+func getJSONValue(lv lua.LValue, path []*lua.LTable, depth int, maxDepth int) *jsonValue {
 	jv := jsonValuePool.Get().(*jsonValue)
 	jv.LValue = lv
-	jv.visited = visited
+	jv.path = path
+	jv.depth = depth
+	jv.maxDepth = maxDepth
 	return jv
 }
 
 func putJSONValue(jv *jsonValue) {
 	jv.LValue = nil
-	jv.visited = nil
+	jv.path = nil
+	jv.depth = 0
+	jv.maxDepth = DefaultMaxDepth
 	jsonValuePool.Put(jv)
 }
 
 // Module represents JSON bindings to Lua VM.
-type Module struct{}
+type Module struct {
+	MaxDepth int // Maximum nesting depth, defaults to DefaultMaxDepth
+}
 
 // NewJSONModule creates a new JSON module.
 func NewJSONModule() *Module {
-	return &Module{}
+	return &Module{
+		MaxDepth: DefaultMaxDepth,
+	}
 }
 
 // Name returns the module name.
@@ -81,7 +93,7 @@ func (*Module) decode(l *lua.LState) int {
 }
 
 // encode encodes Lua value to JSON string with input validation.
-func (*Module) encode(l *lua.LState) int {
+func (m *Module) encode(l *lua.LState) int {
 	if l.Get(1) == nil {
 		l.ArgError(1, "value expected")
 		return 0
@@ -106,19 +118,54 @@ func (i invalidTypeError) Error() string {
 
 // Encode returns the JSON encoding of value.
 func Encode(value lua.LValue) ([]byte, error) {
-	visited := make(map[*lua.LTable]bool)
-	jv := getJSONValue(value, visited)
+	return EncodeWithMaxDepth(value, DefaultMaxDepth)
+}
+
+// EncodeWithMaxDepth returns the JSON encoding of value with specified max depth.
+func EncodeWithMaxDepth(value lua.LValue, maxDepth int) ([]byte, error) {
+	if maxDepth <= 0 {
+		maxDepth = DefaultMaxDepth
+	}
+
+	// Empty initial path
+	var path []*lua.LTable
+	jv := getJSONValue(value, path, 0, maxDepth)
 	b, err := json.Marshal(jv)
 	putJSONValue(jv)
 	return b, err
 }
 
 type jsonValue struct {
-	LValue  lua.LValue
-	visited map[*lua.LTable]bool
+	LValue   lua.LValue
+	path     []*lua.LTable // Current path of parent tables
+	depth    int           // Current nesting depth
+	maxDepth int           // Maximum allowed depth
+}
+
+// tableInPath checks if the table already exists in the current path
+func tableInPath(path []*lua.LTable, table *lua.LTable) bool {
+	for _, t := range path {
+		if t == table {
+			return true
+		}
+	}
+	return false
+}
+
+// appendTableToPath creates a new path with the table appended
+func appendTableToPath(path []*lua.LTable, table *lua.LTable) []*lua.LTable {
+	newPath := make([]*lua.LTable, len(path)+1)
+	copy(newPath, path)
+	newPath[len(path)] = table
+	return newPath
 }
 
 func (j *jsonValue) MarshalJSON() ([]byte, error) {
+	// Check depth limit
+	if j.depth > j.maxDepth {
+		return nil, errMaxDepth
+	}
+
 	switch converted := j.LValue.(type) {
 	case lua.LBool:
 		return json.Marshal(bool(converted))
@@ -129,10 +176,13 @@ func (j *jsonValue) MarshalJSON() ([]byte, error) {
 	case lua.LString:
 		return json.Marshal(string(converted))
 	case *lua.LTable:
-		if j.visited[converted] {
+		// Check for circular reference
+		if tableInPath(j.path, converted) {
 			return nil, errNested
 		}
-		j.visited[converted] = true
+
+		// Create new path with this table for child nodes
+		newPath := appendTableToPath(j.path, converted)
 
 		key, value := converted.Next(lua.LNil)
 		switch key.Type() {
@@ -141,18 +191,28 @@ func (j *jsonValue) MarshalJSON() ([]byte, error) {
 		case lua.LTNumber:
 			arr := make([]*jsonValue, 0, converted.Len())
 			expectedKey := lua.LNumber(1)
+
 			for key != lua.LNil {
 				if key.Type() != lua.LTNumber {
+					for _, child := range arr {
+						putJSONValue(child)
+					}
 					return nil, errInvalidKeys
 				}
+
 				if expectedKey != key {
+					for _, child := range arr {
+						putJSONValue(child)
+					}
 					return nil, errSparseArray
 				}
-				child := getJSONValue(value, j.visited)
+
+				child := getJSONValue(value, newPath, j.depth+1, j.maxDepth)
 				arr = append(arr, child)
 				expectedKey++
 				key, value = converted.Next(key)
 			}
+
 			b, err := json.Marshal(arr)
 			for _, child := range arr {
 				putJSONValue(child)
@@ -160,14 +220,20 @@ func (j *jsonValue) MarshalJSON() ([]byte, error) {
 			return b, err
 		case lua.LTString:
 			obj := make(map[string]*jsonValue, converted.Len())
+
 			for key != lua.LNil {
 				if key.Type() != lua.LTString {
+					for _, child := range obj {
+						putJSONValue(child)
+					}
 					return nil, errInvalidKeys
 				}
-				child := getJSONValue(value, j.visited)
+
+				child := getJSONValue(value, newPath, j.depth+1, j.maxDepth)
 				obj[key.String()] = child
 				key, value = converted.Next(key)
 			}
+
 			b, err := json.Marshal(obj)
 			for _, child := range obj {
 				putJSONValue(child)

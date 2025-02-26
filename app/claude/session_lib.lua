@@ -64,10 +64,9 @@ function Session.new(app, client, agent_handler)
 
         -- Log the actual result in debug but don't show it in the UI
         if message then
-            self.app.ui:log_debug(self.app, "Tool result (hidden from UI): " .. message:sub(1, 100) ..
-                (message:len() > 100 and "..." or ""))
+        self.app.ui:log_debug(self.app, "Tool result (hidden from UI): " .. message:sub(1, 100) ..
+            (message:len() > 100 and "..." or ""))
         end
-
         self.app:upstream("refresh")
         return self
     end
@@ -92,6 +91,30 @@ function Session.new(app, client, agent_handler)
     session.submit_tool_result = function(self, tool_use_id, result)
         self.app.ui:log_debug(self.app, "Submitting tool result for ID: " .. tool_use_id)
 
+        -- Ensure result is properly formatted for Claude
+        local content_value
+
+        -- If it's already a string, use it directly
+        if type(result) == "string" then
+            -- Check if it looks like JSON
+            if result:sub(1, 1) == "{" and result:sub(-1) == "}" then
+                -- It's already JSON-formatted, use as is
+                content_value = result
+            else
+                -- Plain text, so wrap it
+                content_value = result
+            end
+        else
+            -- It's a table, encode it to JSON
+            local success, encoded = pcall(json.encode, result)
+            if success then
+                content_value = encoded
+            else
+                -- Fallback if encoding fails
+                content_value = "Error: Failed to encode result"
+            end
+        end
+
         -- Create message with correct structure
         local tool_result_message = {
             role = "user",
@@ -99,14 +122,16 @@ function Session.new(app, client, agent_handler)
                 {
                     type = "tool_result",
                     tool_use_id = tool_use_id,
-                    content = result
+                    content = content_value
                 }
             }
         }
 
-        self.app.ui:log_debug(self.app, "Tool result message: " .. json.encode(tool_result_message))
+        -- Log a short preview of the message
+        self.app.ui:log_debug(self.app, "Tool result preview: " .. tostring(content_value):sub(1, 50) ..
+                             (tostring(content_value):len() > 50 and "..." or ""))
 
-        -- Add to history with the same structure
+        -- Add to history
         table.insert(self.conversation_history, tool_result_message)
 
         -- Reset current tool use
@@ -134,13 +159,19 @@ function Session.new(app, client, agent_handler)
 
         if err then
             self.app.ui:add_system_message(self.app, "Tool execution failed: " .. err)
-            return
+
+            -- Create a proper error result
+            result = {
+                error = err,
+                status = "error",
+                message = "The tool execution failed: " .. err
+            }
         end
 
-        -- Add tool result message (now just showing that tool executed)
-        self:add_tool_message(result, tool_name)
+        -- Add tool result message
+        self:add_tool_message(result and tostring(result) or "No result", tool_name)
 
-        -- Submit tool result
+        -- Always submit result to Claude
         self:submit_tool_result(tool_use_id, result)
 
         return result
@@ -178,6 +209,12 @@ function Session.new(app, client, agent_handler)
 
         -- Send to client
         self.client:send_request(self.app.agent_handler:get_tools(), sanitized_messages, function(stream)
+            -- if string report to debug as error
+            if type(stream) == "string" then
+                self.app.ui:log_debug(self.app, "Error: " .. stream)
+                return
+            end
+
             self:process_stream(stream)
         end)
     end

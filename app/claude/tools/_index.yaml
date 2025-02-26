@@ -44,13 +44,3 @@ entries:
     modules: [ "fs", "json" ]
     pool:
       size: 2
-
-  - name: analyze
-    kind: function.lua
-    meta:
-      comment: "File metadata analyzer that extracts information about files"
-    source: file://analyze.lua
-    method: handle
-    modules: [ "fs", "json" ]
-    pool:
-      size: 2
