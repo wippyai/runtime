@@ -13,6 +13,8 @@ function Session.new(app, client, agent_handler)
     session.debug_logs = app.debug_logs
     session.is_processing = false
     session.current_tool_use = nil
+    session.waiting_for_tool_result = false  -- Flag to prevent concurrent processing
+    session.processed_message_ids = {}  -- Track which messages have been added to history
 
     -- Store references to other components
     session.app = app
@@ -53,20 +55,20 @@ function Session.new(app, client, agent_handler)
 
     -- Add a tool message - now only shows that a tool was executed without the full content
     session.add_tool_message = function(self, message, tool_name)
-        -- Instead of showing full content, just show a notification that tool was executed
-        local tool_notification = "Tool executed successfully: " .. (tool_name or "unknown tool")
+        -- Create a simple tool notification, we'll only show the tool name in the UI
+        local tool_notification = message or "Tool executed"
 
         table.insert(self.messages, {
             type = "tool",
-            content = tool_notification,
+            content = tool_notification, -- Content won't be displayed in UI
+            tool_name = tool_name or "unknown tool",
             timestamp = time.now()
         })
 
-        -- Log the actual result in debug but don't show it in the UI
-        if message then
-        self.app.ui:log_debug(self.app, "Tool result (hidden from UI): " .. message:sub(1, 100) ..
-            (message:len() > 100 and "..." or ""))
-        end
+        -- Log the actual result in debug
+        self.app.ui:log_debug(self.app, "Tool result: " .. (message and message:sub(1, 100) or "nil") ..
+            (message and message:len() > 100 and "..." or ""))
+
         self.app:upstream("refresh")
         return self
     end
@@ -134,8 +136,9 @@ function Session.new(app, client, agent_handler)
         -- Add to history
         table.insert(self.conversation_history, tool_result_message)
 
-        -- Reset current tool use
+        -- Reset current tool use and flags
         self.current_tool_use = nil
+        self.waiting_for_tool_result = false  -- Reset flag so processing can continue
 
         -- Send to Claude
         self:send_to_claude_with_history()
@@ -168,8 +171,8 @@ function Session.new(app, client, agent_handler)
             }
         end
 
-        -- Add tool result message
-        self:add_tool_message(result and tostring(result) or "No result", tool_name)
+        -- Add tool result message with the tool name, but don't display the full content in the UI
+        self:add_tool_message("Tool executed successfully", tool_name)
 
         -- Always submit result to Claude
         self:submit_tool_result(tool_use_id, result)
@@ -190,6 +193,9 @@ function Session.new(app, client, agent_handler)
 
     -- Send message to Claude with full conversation history
     session.send_to_claude_with_history = function(self)
+        -- Debug the history first
+        self.app.ui:log_debug(self.app, "Sending history with " .. #self.conversation_history .. " messages")
+
         -- Make a clean copy of conversation history
         local sanitized_messages = {}
         for _, msg in ipairs(self.conversation_history) do
@@ -265,6 +271,7 @@ function Session.new(app, client, agent_handler)
 
                         if event.type == "message_start" then
                             current_response.role = event.message.role
+                            current_response.id = event.message.id  -- Store message ID
                         elseif event.type == "content_block_start" then
                             if event.content_block.type == "tool_use" then
                                 -- Directly capture tool_use block with ID
@@ -337,15 +344,22 @@ function Session.new(app, client, agent_handler)
                             end
                         elseif event.type == "content_block_stop" or event.type == "message_stop" then
                             -- If we have a complete tool use request, add it to history before executing
-                            if event.type == "message_stop" and self.current_tool_use then
-                                -- Add assistant message to history BEFORE executing tool
-                                table.insert(self.conversation_history, current_response)
+                            if event.type == "message_stop" and self.current_tool_use and not self.waiting_for_tool_result then
+                                -- Set flag to prevent concurrent processing
+                                self.waiting_for_tool_result = true
 
-                                -- Now execute the tool with all necessary info
+                                -- Only add message to history if we haven't processed it before
+                                if current_response.id and not self.processed_message_ids[current_response.id] then
+                                    self.processed_message_ids[current_response.id] = true
+                                    self.app.ui:log_debug(self.app, "Adding message ID to history: " .. current_response.id)
+                                    table.insert(self.conversation_history, current_response)
+                                else
+                                    self.app.ui:log_debug(self.app, "Skipping duplicate message")
+                                end
+
+                                -- Now execute the tool SYNCHRONOUSLY - no coroutine.spawn
                                 if self.current_tool_use.id and self.current_tool_use.name and self.current_tool_use.input then
-                                    coroutine.spawn(function()
-                                        self:execute_tool(self.current_tool_use.name, self.current_tool_use.input, self.current_tool_use.id)
-                                    end)
+                                    self:execute_tool(self.current_tool_use.name, self.current_tool_use.input, self.current_tool_use.id)
                                 end
                             end
                         end
@@ -354,9 +368,14 @@ function Session.new(app, client, agent_handler)
             end
         end
 
-        -- Add to conversation history if not already added
-        if #current_response.content > 0 and not self.current_tool_use then
-            table.insert(self.conversation_history, current_response)
+        -- Add to conversation history if not already added and not a tool_use
+        if #current_response.content > 0 and not self.waiting_for_tool_result then
+            -- Only add if we haven't processed this message before
+            if current_response.id and not self.processed_message_ids[current_response.id] then
+                self.processed_message_ids[current_response.id] = true
+                self.app.ui:log_debug(self.app, "Adding message ID to history at end: " .. current_response.id)
+                table.insert(self.conversation_history, current_response)
+            end
         end
 
         -- Clean up
@@ -372,6 +391,8 @@ function Session.new(app, client, agent_handler)
         self.debug_logs = {}
         self.app.debug_view:set_content("")
         self.current_tool_use = nil
+        self.waiting_for_tool_result = false
+        self.processed_message_ids = {}  -- Reset processed message IDs
         return self
     end
 

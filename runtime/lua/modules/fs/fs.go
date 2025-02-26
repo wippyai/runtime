@@ -416,6 +416,8 @@ func fsWriteFile(l *lua.LState) int {
 
 	resolved := fsInst.resolvePath(path)
 
+	value := l.Get(3)
+
 	coroutine.Wrap(l, func() *engine.Result {
 		// Open destination file
 		dstFile, err := fsInst.fs.OpenFile(resolved, flag, 0644)
@@ -429,7 +431,7 @@ func fsWriteFile(l *lua.LState) int {
 
 		// Determine the reader based on input type
 		var reader io.Reader
-		switch v := l.Get(3).(type) {
+		switch v := value.(type) {
 		case lua.LString:
 			reader = strings.NewReader(string(v))
 

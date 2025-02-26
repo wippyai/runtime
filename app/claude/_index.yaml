@@ -47,7 +47,7 @@ entries:
       comment: "Claude API client library"
       version: "1.0.0"
     source: file://claude_client.lua
-    modules: [ "time", "json", "http_client", "env" ]
+    modules: [ "time", "json", "http_client", "env", "fs" ]
 
   - name: agent_handler
     kind: library.lua
@@ -63,4 +63,4 @@ entries:
       comment: "Claude session and conversation management"
       version: "1.0.0"
     source: file://session_lib.lua
-    modules: [ "time", "json" ]
+    modules: [ "time", "json", "fs" ]
