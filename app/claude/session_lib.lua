@@ -37,6 +37,10 @@ function Session.new(app, client, agent_handler)
             }
         })
 
+        -- Update UI and scroll to bottom
+        self.app.ui:update_message_view(self.app)
+        self.app.message_view:scroll_to_bottom()
+
         self.app:upstream("refresh")
         return self
     end
@@ -48,6 +52,10 @@ function Session.new(app, client, agent_handler)
             content = message or "Thinking...",
             timestamp = time.now()
         })
+
+        -- Update viewport and scroll to bottom
+        self.app.ui:update_message_view(self.app)
+        self.app.message_view:scroll_to_bottom()
 
         self.app:upstream("refresh")
         return self
@@ -65,9 +73,15 @@ function Session.new(app, client, agent_handler)
             timestamp = time.now()
         })
 
-        -- Log the actual result in debug
-        self.app.ui:log_debug(self.app, "Tool result: " .. (message and message:sub(1, 100) or "nil") ..
-            (message and message:len() > 100 and "..." or ""))
+        -- Log the actual result in debug but don't show it in the UI
+        if message then
+            self.app.ui:log_debug(self.app, "Tool result (hidden from UI): " .. message:sub(1, 100) ..
+                (message:len() > 100 and "..." or ""))
+        end
+
+        -- Update UI and scroll to bottom
+        self.app.ui:update_message_view(self.app)
+        self.app.message_view:scroll_to_bottom()
 
         self.app:upstream("refresh")
         return self
@@ -248,6 +262,9 @@ function Session.new(app, client, agent_handler)
             last_message_index = #self.messages
         end
 
+        -- Make sure we scroll to the bottom when receiving new content
+        self.app.message_view:scroll_to_bottom()
+
         -- Process stream
         while not is_done do
             local chunk = stream:read()
@@ -306,8 +323,17 @@ function Session.new(app, client, agent_handler)
 
                                     if self.messages[last_message_index].content == "Thinking..." then
                                         self.messages[last_message_index].content = event.delta.text
+
+                                        -- Update UI and auto-scroll
+                                        self.app.ui:update_message_view(self.app)
+                                        self.app.message_view:scroll_to_bottom()
+
                                     else
                                         self.messages[last_message_index].content = self.messages[last_message_index].content .. event.delta.text
+
+                                        -- Update UI and auto-scroll
+                                        self.app.ui:update_message_view(self.app)
+                                        self.app.message_view:scroll_to_bottom()
                                     end
 
                                     self.app:upstream("refresh")
@@ -381,6 +407,11 @@ function Session.new(app, client, agent_handler)
         -- Clean up
         stream:close()
         self.is_processing = false
+
+        -- Final update and auto-scroll
+        self.app.ui:update_message_view(self.app)
+        self.app.message_view:scroll_to_bottom()
+
         self.app:upstream("refresh")
     end
 
@@ -393,6 +424,10 @@ function Session.new(app, client, agent_handler)
         self.current_tool_use = nil
         self.waiting_for_tool_result = false
         self.processed_message_ids = {}  -- Reset processed message IDs
+
+        -- Update UI and scroll
+        self.app.ui:update_message_view(self.app)
+
         return self
     end
 

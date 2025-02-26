@@ -138,11 +138,23 @@ function UI.new()
         return app
     end
 
-    -- Format tool calls as nice blocks (showing only the tool name)
+    -- Format tool calls as styled blocks (using Lip Gloss styling features)
     ui.format_tool_call = function(self, tool_name)
-        -- Create a clean tool header without showing the potentially large body
-        local tool_header = string.format("[%s]", tool_name)
-        return self.styles.tool_block:render(tool_header)
+        -- Create a stylish tool indicator with custom styling
+        local custom_border = {
+            left = "┃",
+            right = ""
+        }
+
+        -- Create a specialized tool style with custom border and colors
+        local tool_style = btea.style()
+            :foreground("#89DCEB")
+            :background("#313244")
+            :bold()
+            :padding(0, 1)
+            :custom_border(custom_border)
+
+        return tool_style:render(" " .. tool_name .. " ")
     end
 
     -- Render tab bar
@@ -287,10 +299,12 @@ function UI.new()
     ui.update = function(self, app, msg)
         -- Update window size
         if msg.window_size then
+            local viewport_height = app.window.height - 12 -- Consistent height for viewports
             app.input:set_width(app.window.width - 8)
             app.message_view:set_width(app.window.width - 8)
-            app.message_view:set_height(app.window.height - 12)
+            app.message_view:set_height(viewport_height)
             app.debug_view:set_width(app.window.width - 8)
+            app.debug_view:set_height(viewport_height)
         end
 
         -- Update input
@@ -411,15 +425,23 @@ function UI.new()
         app:upstream("refresh")
     end
 
-    -- Updated tool message to include tool name
+    -- Add tool message
     ui.add_tool_message = function(self, app, message, tool_name)
         table.insert(app.messages, {
             type = "tool",
-            tool_name = tool_name,
             content = message,
+            tool_name = tool_name or "unknown tool",
             timestamp = time.now()
         })
+
+        -- Log the actual result in debug
+        self:log_debug(app, "Tool result: " .. (message and message:sub(1, 100) or "nil") ..
+            (message and message:len() > 100 and "..." or ""))
+
+        -- Update and scroll
         self:update_message_view(app)
+        app.message_view:scroll_to_bottom()
+
         app:upstream("refresh")
     end
 
