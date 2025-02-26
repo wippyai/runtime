@@ -40,8 +40,8 @@ function handle(args)
         return {error = "File not found: " .. filepath}
     end
 
-    if not stat.is_file then
-        return {error = "Path is not a file: " .. filepath}
+    if stat.is_dir then
+        return {error = "Path is dir: " .. filepath}
     end
 
     -- Check file size limit

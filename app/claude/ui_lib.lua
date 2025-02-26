@@ -116,7 +116,7 @@ function UI.new()
         -- Initialize message viewport for scrollable chat
         app.message_view = btea.viewport({
             width = app.window.width - 8,
-            height = app.window.height - 12, -- Leave room for input and status
+            height = app.window.height - 14, -- Increased from 12 to 14 to add more space
             mouse_wheel_enabled = true,
             style = btea.style()
                 :background("#1E1E2E")
@@ -125,7 +125,7 @@ function UI.new()
         -- Initialize viewport for debug logs (with full height)
         app.debug_view = btea.viewport({
             width = app.window.width - 8,
-            height = app.window.height - 12, -- Same height as message view
+            height = app.window.height - 14, -- Same height as message view
             mouse_wheel_enabled = true
         })
 
@@ -199,7 +199,7 @@ function UI.new()
 
             local line
             if msg.type == "tool" then
-                -- Format tool calls as special blocks (only show tool name)
+                -- Format tool calls as special blocks (only show tool name) - inline with timestamp
                 local tool_name = msg.tool_name or "Tool"
                 line = styled_time .. " " .. self:format_tool_call(tool_name)
             else
@@ -210,8 +210,8 @@ function UI.new()
             table.insert(content, line)
         end
 
-        -- Update the viewport with the formatted content
-        app.message_view:set_content(table.concat(content, "\n\n"))
+        -- Update the viewport with the formatted content - use single newline instead of double
+        app.message_view:set_content(table.concat(content, "\n"))
 
         -- Auto-scroll to bottom if we were already at the bottom
         if app.message_view:at_bottom() then
@@ -255,7 +255,7 @@ function UI.new()
             main_content = table.concat(info_lines, "\n")
         end
 
-        -- Prepare footer with input and help
+        -- Prepare footer with input and help - add extra padding line for clear separation
         local input_line = app.input:view()
 
         -- Add status
@@ -278,13 +278,14 @@ function UI.new()
             status_line = status_line .. self.styles.help:render(table.concat(help_text, " | "))
         end
 
-        -- Combine all parts
+        -- Combine all parts with explicit padding line before input
         local all_content = {
             header,
             self.styles.timestamp:render(header_divider),
             "",
             main_content,
-            "",
+            "",  -- First padding line
+            "",  -- Second padding line for better separation
             input_line,
             status_line
         }
@@ -299,7 +300,7 @@ function UI.new()
     ui.update = function(self, app, msg)
         -- Update window size
         if msg.window_size then
-            local viewport_height = app.window.height - 12 -- Consistent height for viewports
+            local viewport_height = app.window.height - 14 -- Increased from 12 to 14
             app.input:set_width(app.window.width - 8)
             app.message_view:set_width(app.window.width - 8)
             app.message_view:set_height(viewport_height)
