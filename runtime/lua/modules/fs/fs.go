@@ -12,6 +12,7 @@ import (
 	lua "github.com/yuin/gopher-lua"
 	"io"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -371,6 +372,7 @@ func fsReadFile(l *lua.LState) int {
 	coroutine.Wrap(l, func() *engine.Result {
 		file, err := fsInst.fs.OpenFile(resolved, os.O_RDONLY, 0)
 		if err != nil {
+			log.Printf("fs.read_all: %s", err.Error())
 			return engine.NewResult(nil, nil, fmt.Errorf("fs.read_all: %s", err.Error()))
 		}
 		f := &File{file: file}

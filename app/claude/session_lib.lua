@@ -79,9 +79,8 @@ function Session.new(app, client, agent_handler)
                 (message:len() > 100 and "..." or ""))
         end
 
-        -- Update UI and scroll to bottom
+        -- Update UI but don't force scroll to bottom to avoid jumping
         self.app.ui:update_message_view(self.app)
-        self.app.message_view:scroll_to_bottom()
 
         self.app:upstream("refresh")
         return self
