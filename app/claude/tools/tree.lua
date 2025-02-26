@@ -130,12 +130,12 @@ function handle(args)
     -- Get the filesystem
     local core_fs = fs.get(core_fs_name)
     if not core_fs then
-        return nil, "Failed to get filesystem: " .. core_fs_name
+        return {error = "Failed to get filesystem: " .. core_fs_name}
     end
 
     -- Check if path exists
     if not core_fs:exists(root_path) then
-        return nil, "Path not found: " .. root_path
+        return {error = "Path not found: " .. root_path}
     end
 
     -- Generate file tree

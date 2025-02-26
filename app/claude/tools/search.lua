@@ -134,7 +134,7 @@ function handle(args)
     local search_path = args.path or "/"
     local pattern = args.pattern
     if not pattern then
-        return nil, "Missing required 'pattern' parameter"
+        return {error = "Missing required 'pattern' parameter"}
     end
 
     local fs_name = args.fs or "system:core"
@@ -171,12 +171,12 @@ function handle(args)
     -- Get the filesystem
     local myfs = fs.get(fs_name)
     if not myfs then
-        return nil, "Failed to get filesystem: " .. fs_name
+        return {error = "Failed to get filesystem: " .. fs_name}
     end
 
     -- Check if path exists
     if not myfs:exists(search_path) then
-        return nil, "Path not found: " .. search_path
+        return {error = "Path not found: " .. search_path}
     end
 
     -- Perform the search

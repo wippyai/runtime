@@ -29,17 +29,17 @@ function handle(args)
     -- Get the filesystem
     local myfs = fs.get(fs_name)
     if not myfs then
-        return nil, "Failed to get filesystem: " .. fs_name
+        return {error = "Failed to get filesystem: " .. fs_name}
     end
 
     -- Check if path exists and is a directory
     local stat, err = myfs:stat(path)
     if not stat then
-        return nil, "Path not found: " .. path
+        return {error = "Path not found: " .. path}
     end
 
     if not stat.is_dir then
-        return nil, "Path is not a directory: " .. path
+        return {error = "Path is not a directory: " .. path}
     end
 
     -- Read directory entries
@@ -135,7 +135,7 @@ function handle(args)
             return output
         end
     else
-        return nil, "Unknown format: " .. format
+        return {error = "Unknown format: " .. format}
     end
 end
 

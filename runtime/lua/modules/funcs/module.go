@@ -14,6 +14,7 @@ import (
 	"github.com/ponyruntime/pony/runtime/uow"
 	transcode "github.com/ponyruntime/pony/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
+	"log"
 )
 
 type Module struct {
@@ -174,6 +175,8 @@ func (m *Module) call(l *lua.LState) int {
 	coroutine.Wrap(l, func() *engine.Result {
 		resultChan, err := functions.funcs.Call(uw.Context(), task)
 		if err != nil {
+			log.Printf("!!!!!!!Task %s executed successfully 1", task.ID.String())
+
 			return engine.NewResult(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
 		}
 
@@ -188,8 +191,10 @@ func (m *Module) call(l *lua.LState) int {
 				if err != nil {
 					return engine.NewResult(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
 				}
+
 				return engine.NewResult(nil, []lua.LValue{res.Data().(lua.LValue), lua.LNil}, nil)
 			}
+
 			return engine.NewResult(nil, []lua.LValue{lua.LNil, lua.LNil}, nil)
 
 		case <-uw.Context().Done():
