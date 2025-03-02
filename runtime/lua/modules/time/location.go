@@ -1,6 +1,7 @@
 package time
 
 import (
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"time"
 
 	lua "github.com/yuin/gopher-lua"
@@ -62,25 +63,33 @@ func fixedZone(l *lua.LState) int {
 
 // Register the Location methods and create UTC/Local constants
 func registerLocation(l *lua.LState, mod *lua.LTable) {
-	locationMt := l.NewTypeMetatable("time.Location")
-	l.SetField(locationMt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
-		"string": locationString,
-	}))
-	l.SetField(locationMt, "__tostring", l.NewFunction(locationString))
+	// Use the efficient registration method
+	value.RegisterTypeMethods(
+		l,
+		"time.Location",
+		map[string]lua.LGFunction{
+			"__tostring": locationString,
+		},
+		map[string]lua.LGFunction{
+			"string": locationString,
+		},
+	)
 
 	// Register location-related functions
-	l.SetField(mod, "load_location", l.NewFunction(loadLocation))
-	l.SetField(mod, "fixed_zone", l.NewFunction(fixedZone))
+	mod.RawSetString("load_location", l.NewFunction(loadLocation))
+	mod.RawSetString("fixed_zone", l.NewFunction(fixedZone))
 
-	// Spawn and set UTC constant
+	// Create and set UTC constant
 	utcUD := l.NewUserData()
 	utcUD.Value = &Location{location: time.UTC}
-	l.SetMetatable(utcUD, locationMt)
-	l.SetField(mod, "utc", utcUD)
+	utcUD.Metatable = value.GetTypeMetatable(l, "time.Location")
 
-	// Spawn and set Local constant
+	mod.RawSetString("utc", utcUD)
+
+	// Create and set Local constant
 	localUD := l.NewUserData()
 	localUD.Value = &Location{location: time.Local}
-	l.SetMetatable(localUD, locationMt)
-	l.SetField(mod, "localtz", localUD)
+	localUD.Metatable = value.GetTypeMetatable(l, "time.Location")
+
+	mod.RawSetString("localtz", localUD)
 }
