@@ -179,7 +179,7 @@ func newChannelLua(l *lua.LState) int {
 // Channel methods
 func sendLua(l *lua.LState) int {
 	ch := CheckChannel(l)
-	value := l.CheckAny(2)
+	v := l.CheckAny(2)
 
 	if ch.isNamed() {
 		l.RaiseError("cannot send to named channel")
@@ -191,7 +191,7 @@ func sendLua(l *lua.LState) int {
 		return 0
 	}
 
-	next := ch.send(l, value, nil)
+	next := ch.send(l, v, nil)
 
 	if next.yields {
 		l.Push(next)
@@ -271,7 +271,7 @@ func closeLua(l *lua.LState) int {
 // Select case functions
 func caseSendLua(l *lua.LState) int {
 	ch := CheckChannel(l)
-	value := l.CheckAny(2)
+	v := l.CheckAny(2)
 
 	// Check for invalid send operations
 	if ch.isNamed() {
@@ -279,7 +279,7 @@ func caseSendLua(l *lua.LState) int {
 		return 0
 	}
 
-	l.Push(&op{kind: sendOp, ch: ch, value: value})
+	l.Push(&op{kind: sendOp, ch: ch, value: v})
 	return 1
 }
 

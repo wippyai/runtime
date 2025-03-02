@@ -41,17 +41,15 @@ const (
 // App represents the main application, integrating bubbletea with the underlying Lua runtime.
 type App struct {
 	// System fields
-	log    *zap.Logger
-	dtt    payload.Transcoder
-	pubsub *subscribe.Layer
+	log *zap.Logger
+	dtt payload.Transcoder
 
 	// process and Lua state
-	ctx         context.Context
-	cancel      context.CancelFunc
-	pid         pubsub.PID
-	runner      *engine.Runner
-	runnerState *lua.LState
-	funcName    string
+	ctx      context.Context
+	cancel   context.CancelFunc
+	pid      pubsub.PID
+	runner   *engine.Runner
+	funcName string
 
 	// bubbletea integration
 	program  *tea.Program
@@ -63,7 +61,7 @@ type App struct {
 	// UnitOfWork and error handling
 	done      chan struct{}
 	stepError error
-	uow       *uow.UnitOfWork
+	uow       engine.UnitOfWork
 
 	numRetries int
 }
@@ -89,22 +87,9 @@ func NewApp(
 		return nil, errors.New("runner is required")
 	}
 
-	var subLayer *subscribe.Layer
-	for _, layer := range runner.GetLayers() {
-		if sl, ok := layer.(*subscribe.Layer); ok {
-			subLayer = sl
-			break
-		}
-	}
-
-	if subLayer == nil {
-		return nil, errors.New("subscribe layer not found in runner")
-	}
-
 	return &App{
 		log:      log,
 		dtt:      dtt,
-		pubsub:   subLayer,
 		runner:   runner,
 		funcName: funcName,
 		upstream: make(chan payload.Payload, 100),
@@ -187,7 +172,7 @@ func (p *App) Start(ctx context.Context, pid pubsub.PID, input payload.Payloads)
 	p.ctx = upstream.WithUpstreamChannel(p.ctx, p.upstream)
 	p.ctx = pubsub.WithPID(p.ctx, pid)
 
-	p.ctx, p.uow = uow.OnContext(p.runner.WithContext(p.ctx))
+	p.uow, p.ctx = p.runner.InitUnitOfWork(p.ctx)
 
 	args, err := p.toLuaPayloads(input)
 	if err != nil {
@@ -211,11 +196,6 @@ func (p *App) Start(ctx context.Context, pid pubsub.PID, input payload.Payloads)
 		p.cancel()
 	}()
 
-	p.runnerState = p.runner.GetCVM().State()
-	if p.runnerState == nil {
-		return errors.New("runner state is nil")
-	}
-
 	// Notify that the process has started.
 	if onStart := process.GetOnStart(p.ctx); onStart != nil {
 		onStart(pid, p)
@@ -229,7 +209,7 @@ func (p *App) Start(ctx context.Context, pid pubsub.PID, input payload.Payloads)
 
 // processLoop listens for Lua runner results and upstream messages,
 // and handles process completion and cleanup.
-func (p *App) processLoop(resultCh <-chan engine.Update) {
+func (p *App) processLoop(resultCh <-chan *engine.Update) {
 	var once sync.Once
 	completeProcess := func(err error, result interface{}) {
 		once.Do(func() {
@@ -346,8 +326,7 @@ func (p *App) Send(pkg *pubsub.Package) error {
 	case <-p.done:
 		return errors.New("process stopped")
 	default:
-		// Check for inbox just once
-		hasInbox := p.pubsub.Exists(topology.TopicInbox)
+		hasInbox, _ := subscribe.Exists(p.ctx, topology.TopicInbox)
 
 		for _, msg := range pkg.Messages {
 			luaValues, err := p.toLuaPayloads(msg.Payloads)
@@ -359,9 +338,13 @@ func (p *App) Send(pkg *pubsub.Package) error {
 				continue
 			}
 
-			// Try main topic first
-			if p.pubsub.Exists(msg.Topic) {
-				p.pubsub.Publish(msg.Topic, luaValues...)
+			if exists, _ := subscribe.Exists(p.ctx, msg.Topic); exists {
+				err := subscribe.Publish(p.ctx, msg.Topic, luaValues...)
+				if err != nil {
+					p.log.Error("failed to publish message",
+						zap.String("topic", msg.Topic),
+						zap.Error(err))
+				}
 				continue
 			}
 
@@ -371,15 +354,18 @@ func (p *App) Send(pkg *pubsub.Package) error {
 
 				// Create a message table for each value
 				for _, v := range luaValues {
-					msgTable := p.runner.GetCVM().State().NewTable()
+					msgTable := p.uow.State().CreateTable(0, 2)
 					msgTable.RawSetString("topic", lua.LString(msg.Topic))
 					msgTable.RawSetString("payload", v)
 
 					inboxValues = append(inboxValues, msgTable)
 				}
 
-				// send all messages in one batch
-				p.pubsub.Publish(topology.TopicInbox, inboxValues...)
+				if pErr := subscribe.Publish(p.ctx, topology.TopicInbox, inboxValues...); pErr != nil {
+					p.log.Error("failed to publish message",
+						zap.String("topic", topology.TopicInbox),
+						zap.Error(pErr))
+				}
 			}
 		}
 		pubsub.ReleasePackage(pkg)
@@ -390,7 +376,7 @@ func (p *App) Send(pkg *pubsub.Package) error {
 // publishTask sends a task to the unified events channel.
 // If timeout is non-zero, it waits for a response; otherwise, it fires and forgets.
 func (p *App) publishTask(taskType string, payload lua.LValue, timeout time.Duration) string {
-	task, err := task.CreateTask(payload)
+	t, err := task.CreateTask(payload)
 	if err != nil {
 		p.log.Error("failed to create task", zap.String("task", taskType), zap.Error(err))
 		if timeout > 0 {
@@ -399,15 +385,18 @@ func (p *App) publishTask(taskType string, payload lua.LValue, timeout time.Dura
 		return ""
 	}
 
-	wrappedTask := task.WrapTask(p.runnerState, task)
-	msg := p.runnerState.NewTable()
+	wrappedTask := task.WrapTask(p.uow.State(), t)
+	msg := p.uow.State().CreateTable(0, 2)
 	msg.RawSetString("type", lua.LString(taskType))
 	msg.RawSetString("task", wrappedTask)
 
-	p.pubsub.Publish(ChannelEvents, msg)
+	if pErr := subscribe.Publish(p.ctx, ChannelEvents, msg); pErr != nil {
+		p.log.Error("failed to publish task", zap.String("task", taskType), zap.Error(err))
+		return fmt.Errorf("failed to publish task: %w", pErr).Error()
+	}
 
 	if timeout > 0 {
-		return p.waitResponse(task, timeout, taskType)
+		return p.waitResponse(t, timeout, taskType)
 	}
 
 	// Fire-and-forget: handle response in the background.
@@ -415,7 +404,7 @@ func (p *App) publishTask(taskType string, payload lua.LValue, timeout time.Dura
 		select {
 		case <-p.ctx.Done():
 			return
-		case rsp := <-task.Response:
+		case rsp := <-t.Response:
 			if err, ok := rsp.(error); ok {
 				p.log.Error("task failed", zap.String("task", taskType), zap.Error(err))
 			}
