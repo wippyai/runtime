@@ -124,13 +124,13 @@ func (m *Module) Name() string {
 
 // Loader registers the module functions
 func (m *Module) Loader(l *lua.LState) int {
-	// Spawn module table
-	mod := l.CreateTable(2, 2)
+	// Create module table with exact size
+	mod := l.CreateTable(0, 2)
 	mod.RawSetString("new", l.NewFunction(newChannelLua))
 	mod.RawSetString("select", l.NewFunction(selectLua))
 
-	// Channel methods
-	channelMethods := map[string]lua.LGFunction{
+	// Register all channel methods at once with the helper function
+	engine.RegisterTypeMethods(l, "channel", map[string]lua.LGFunction{
 		"send":             sendLua,
 		"receive":          receiveLua,
 		"close":            closeLua,
@@ -139,13 +139,9 @@ func (m *Module) Loader(l *lua.LState) int {
 		"_debug_size":      debugSizeLua,
 		"_debug_senders":   debugSendersLua,
 		"_debug_receivers": debugReceiversLua,
-	}
+	})
 
-	// Channel metatable
-	mt := l.NewTypeMetatable("channel")
-	l.SetField(mt, "__index", l.SetFuncs(l.CreateTable(8, 8), channelMethods))
-
-	// Register module
+	// Push module table to stack
 	l.Push(mod)
 	return 1
 }
@@ -154,7 +150,7 @@ func (m *Module) Loader(l *lua.LState) int {
 func Wrap(l *lua.LState, ch *Channel) lua.LValue {
 	ud := l.NewUserData()
 	ud.Value = ch
-	ud.Metatable = l.GetTypeMetatable("channel")
+	ud.Metatable = engine.GetTypeMetatable(l, "channel")
 	ch.value = ud // for select conditions they are always coupled
 
 	return ud
@@ -169,9 +165,10 @@ func newChannelLua(l *lua.LState) int {
 	}
 
 	ch := newChannel(capacity)
+
 	ud := l.NewUserData()
 	ud.Value = ch
-	ud.Metatable = l.GetTypeMetatable("channel")
+	ud.Metatable = engine.GetTypeMetatable(l, "channel")
 	ch.value = ud // yep
 
 	l.Push(ud)
@@ -368,7 +365,7 @@ func trySelect(l *lua.LState, selectOp *selectOp) *onNext {
 
 	// Handle default case
 	if selectOp.hasDefault {
-		result := engine.NewTable(2)
+		result := l.CreateTable(0, 2)
 		result.RawSetString("default", lua.LBool(true))
 		result.RawSetString("ok", lua.LBool(true))
 
