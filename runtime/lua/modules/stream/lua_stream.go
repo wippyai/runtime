@@ -3,6 +3,7 @@ package stream
 import (
 	"errors"
 	"fmt"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"io"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine"
@@ -29,7 +30,7 @@ func NewStreamModule(log *zap.Logger) *Module {
 
 // Name returns the module name
 func (m *Module) Name() string {
-	return "Stream"
+	return "stream"
 }
 
 // Loader registers the module functions and constants
@@ -45,27 +46,34 @@ func (m *Module) Loader(l *lua.LState) int {
 
 // RegisterStream registers the Stream type in Lua
 func RegisterStream(l *lua.LState) {
-	// check if the Stream type is already registered
-	if _, ok := l.GetField(l.Get(lua.RegistryIndex), "Stream").(*lua.LTable); ok {
-		return
+	// Check if type is already registered by directly accessing registry
+	registry := l.Get(lua.RegistryIndex)
+	if regTable, ok := registry.(*lua.LTable); ok {
+		if mt := regTable.RawGetString("Stream"); mt != lua.LNil {
+			return // Already registered
+		}
 	}
 
-	// Spawn and register the Stream metatable
-	mt := l.NewTypeMetatable("Stream")
-	l.SetField(mt, "__index", mt)
-
+	// Determine which read function to use based on VM type
 	readFunc := streamRead
 	if engine.IsCoroutineVM(l) {
 		readFunc = streamReadAsync
 	}
 
-	// Register methods
-	l.SetFuncs(mt, map[string]lua.LGFunction{
-		"read":       readFunc,
-		"close":      streamClose,
-		"bytes_read": streamBytesRead,
-		"__call":     streamIter,
-	})
+	// Register both method sets at once
+	value.RegisterTypeMethods(
+		l,
+		"Stream",
+		map[string]lua.LGFunction{
+			"__call":  streamIter,
+			"__index": nil, // The RegisterTypeMethods function will handle this
+		},
+		map[string]lua.LGFunction{
+			"read":       readFunc,
+			"close":      streamClose,
+			"bytes_read": streamBytesRead,
+		},
+	)
 }
 
 // checkStream verifies and returns the Stream from Lua userdata

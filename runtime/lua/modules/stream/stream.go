@@ -72,7 +72,7 @@ func (s *Stream) ReadChunk() ([]byte, error) {
 	s.rwmu.Lock()
 	defer s.rwmu.Unlock()
 
-	// TODO: sync pool
+	// todo: sync pool
 	buffer := make([]byte, s.config.bufferSize)
 	n, err := s.readDirect(buffer)
 	if err != nil {
@@ -93,7 +93,6 @@ func (s *Stream) ReadChunk() ([]byte, error) {
 
 func (s *Stream) readDirect(buffer []byte) (int, error) {
 	// Spawn a channel to receive read results
-	// todo: sync.Pool
 	resultCh := make(chan struct {
 		n   int
 		err error

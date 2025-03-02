@@ -2,7 +2,6 @@ package stream
 
 import (
 	"context"
-	"github.com/ponyruntime/pony/runtime/uow"
 	"testing"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine"
@@ -34,7 +33,7 @@ func TestAsyncStreamRead(t *testing.T) {
 			engine.WithLayer(coroutine.NewCoroutineLayer()),
 		)
 
-		ctx, uw := uow.OnContext(context.Background())
+		uw, ctx := engine.NewUnitOfWork(context.Background(), nil)
 		defer func() { _ = uw.Close() }()
 
 		// Spawn test data and stream
@@ -120,7 +119,7 @@ func TestAsyncStreamIter(t *testing.T) {
 			engine.WithLayer(coroutine.NewCoroutineLayer()),
 		)
 
-		ctx, uw := uow.OnContext(context.Background())
+		uw, ctx := engine.NewUnitOfWork(context.Background(), nil)
 		defer func() { _ = uw.Close() }()
 
 		// Spawn test data and stream
