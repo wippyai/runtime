@@ -240,7 +240,7 @@ func (c *wsClient) readLoop(l *lua.LState, uw engine.UnitOfWork) {
 			readCancel()
 		}
 
-		msg := engine.NewTable(2)
+		msg := l.CreateTable(0, 2)
 		if err != nil {
 			if websocket.CloseStatus(err) == websocket.StatusNormalClosure {
 				msg.RawSetString("code", lua.LString(TypeClose))
