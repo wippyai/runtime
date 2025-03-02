@@ -3,7 +3,9 @@ package treesitter
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/runtime/uow"
+	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
+	"sync"
 	"time"
 
 	treesitter "github.com/tree-sitter/go-tree-sitter"
@@ -13,12 +15,12 @@ import (
 // ParserWrapper wraps a Tree-sitter parser with language information
 type ParserWrapper struct {
 	parser *treesitter.Parser
+	once   sync.Once
 	lang   *LanguageInfo
 }
 
 func registerParser(l *lua.LState) {
-	mt := l.NewTypeMetatable("treesitter.Parser")
-	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
+	methods := map[string]lua.LGFunction{
 		"parse":        parserParse,
 		"set_language": parserSetLanguage,
 		"get_language": parserGetLanguage,
@@ -26,21 +28,24 @@ func registerParser(l *lua.LState) {
 		"close":        parserClose,
 		"set_timeout":  parserSetTimeout,
 		"set_ranges":   parserSetRanges,
-	}))
+	}
+	value.RegisterMethods(l, "treesitter.Parser", methods)
 }
 
 func newParser(l *lua.LState) int {
 	parser := treesitter.NewParser()
 	wrap := &ParserWrapper{parser: parser}
 
-	uw := uow.FromContext(l.Context())
-	if uw != nil {
-		uw.AddCleanup(func() error { wrap.Close(); return nil })
+	uw := engine.GetUnitOfWork(l.Context())
+	if uw == nil {
+		l.RaiseError("unit of work is not found")
+		return 0
 	}
+	uw.AddCleanup(func() error { wrap.Close(); return nil })
 
 	ud := l.NewUserData()
 	ud.Value = wrap
-	l.SetMetatable(ud, l.GetTypeMetatable("treesitter.Parser"))
+	ud.Metatable = value.GetTypeMetatable(l, "treesitter.Parser")
 	l.Push(ud)
 	return 1
 }
@@ -131,12 +136,13 @@ func parserParse(l *lua.LState) int {
 		}
 	}
 
-	ctx := l.Context()
-	if ctx == nil {
-		ctx = context.Background()
+	uw := engine.GetUnitOfWork(l.Context())
+	if uw == nil {
+		l.RaiseError("unit of work is not found")
+		return 0
 	}
 
-	tree, err := parser.parseWithContext(ctx, []byte(code), oldTree)
+	tree, err := parser.parseWithContext(uw.Context(), []byte(code), oldTree)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
@@ -144,15 +150,12 @@ func parserParse(l *lua.LState) int {
 	}
 
 	tw := &TreeWrapper{tree: tree, source: code}
-
-	uw := uow.FromContext(l.Context())
-	if uw != nil {
-		uw.AddCleanupFunc(tw.Close)
-	}
+	uw.AddCleanup(func() error { tw.Close(); return nil })
 
 	ud := l.NewUserData()
 	ud.Value = tw
-	l.SetMetatable(ud, l.GetTypeMetatable("treesitter.Tree"))
+	ud.Metatable = value.GetTypeMetatable(l, "treesitter.Tree")
+
 	l.Push(ud)
 	return 1
 }
@@ -268,10 +271,12 @@ func (p *ParserWrapper) Reset() {
 
 // Close releases all resources associated with the parser
 func (p *ParserWrapper) Close() {
-	if p.parser != nil {
-		p.parser.Close()
-		p.parser = nil
-	}
+	p.once.Do(func() {
+		if p.parser != nil {
+			p.parser.Close()
+			p.parser = nil
+		}
+	})
 }
 
 func checkParser(l *lua.LState) *ParserWrapper {

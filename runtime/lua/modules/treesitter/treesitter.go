@@ -32,7 +32,7 @@ func (m *Module) Name() string {
 
 // Loader is the module loader function.
 func (m *Module) Loader(l *lua.LState) int {
-	t := l.NewTable()
+	t := l.CreateTable(0, 5) // 5 function entries
 
 	registerParser(l)
 	registerTree(l)
@@ -41,15 +41,13 @@ func (m *Module) Loader(l *lua.LState) int {
 	registerCursor(l)
 	registerLanguage(l)
 
-	lapi := map[string]lua.LGFunction{
-		"supported_languages": m.supportedLanguages,
-		"language":            m.language,
-		"parser":              newParser,
-		"parse":               m.parse,
-		"query":               newQuery,
-	}
+	// Add module functions directly for better performance
+	t.RawSetString("supported_languages", l.NewFunction(m.supportedLanguages))
+	t.RawSetString("language", l.NewFunction(m.language))
+	t.RawSetString("parser", l.NewFunction(newParser))
+	t.RawSetString("parse", l.NewFunction(m.parse))
+	t.RawSetString("query", l.NewFunction(newQuery))
 
-	l.SetFuncs(t, lapi)
 	l.Push(t)
 	return 1
 }

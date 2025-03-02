@@ -2,6 +2,7 @@ package treesitter
 
 import "C"
 import (
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	treesitter "github.com/tree-sitter/go-tree-sitter"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -13,8 +14,7 @@ type LanguageWrapper struct {
 
 // Register the Language type to Lua
 func registerLanguage(l *lua.LState) {
-	mt := l.NewTypeMetatable("treesitter.Language")
-	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
+	methods := map[string]lua.LGFunction{
 		"version":            languageVersion,
 		"node_kind_count":    languageNodeKindCount,
 		"parse_state_count":  languageParseStateCount,
@@ -24,7 +24,8 @@ func registerLanguage(l *lua.LState) {
 		"field_count":        languageFieldCount,
 		"field_name_for_id":  languageFieldNameForID,
 		"field_id_for_name":  languageFieldIDForName,
-	}))
+	}
+	value.RegisterMethods(l, "treesitter.Language", methods)
 }
 
 func checkLanguage(l *lua.LState) *LanguageWrapper {
