@@ -83,7 +83,7 @@ type (
 		Host
 		// ID returns the unique identifier for this node
 		ID() NodeID
-		// HostRegister adds a host to this node with the specified ID
+		// RegisterHost adds a host to this node with the specified ID
 		RegisterHost(HostID, Host) error
 		// UnregisterHost removes a host from this node
 		UnregisterHost(HostID)

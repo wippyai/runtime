@@ -828,7 +828,7 @@ func TestCoroutineVM_StatusAndWrap(t *testing.T) {
 
 		vals := tasks[0].Yielded
 		if len(vals) != 1 {
-			t.Fatal("expected yielded status results")
+			t.Fatal("expected yielded status updates")
 		}
 
 		results := vals[0].(*lua.LTable)
@@ -1928,7 +1928,7 @@ func TestCoroutineVM_Mount(t *testing.T) {
 			tasks = nextTasks
 		}
 
-		// Verify results from both VMs
+		// Verify updates from both VMs
 		result1 := <-ch1
 		if result1.Error != nil {
 			t.Fatal(result1.Error)
@@ -2042,7 +2042,7 @@ func TestCoroutineVM_Mount(t *testing.T) {
 			nextTasks = tasks
 		}
 
-		// Verify results
+		// Verify updates
 		result1 := <-ch1
 		if result1.Error != nil {
 			t.Fatal(result1.Error)

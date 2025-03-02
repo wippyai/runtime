@@ -207,11 +207,12 @@ func (e *Runner) Continue(ctx context.Context, block bool) error {
 		if len(e.cvm.threads) == 0 {
 			return nil
 		}
+
 		return &DeadlockError{Count: len(e.cvm.threads)}
 	}
 
 	// block for any pending task
-	updates, err := uw.Tasks().Wait(ctx, true)
+	updates, err := uw.Tasks().Wait(ctx, block)
 	if err != nil {
 		return err
 	}
@@ -231,11 +232,8 @@ func (e *Runner) Continue(ctx context.Context, block bool) error {
 
 func (e *Runner) HasTasks() bool {
 	uw := GetUnitOfWork(e.cvm.vm.state.Context())
-	if uw != nil && uw.Tasks().Count() > 0 {
-		return true
-	}
 
-	return e.cvm.queue.Len() > 0
+	return e.cvm.queue.Len() > 0 || uw.Tasks().Awaken()
 }
 
 // Execute runs a function through the layer chain with provided context and arguments

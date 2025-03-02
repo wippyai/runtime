@@ -5,7 +5,9 @@ import (
 	"fmt"
 	api "github.com/ponyruntime/pony/api/pubsub"
 	"go.uber.org/zap"
+	"log"
 	"sync"
+	"time"
 )
 
 // HostConfig holds configuration for a Host.
@@ -15,16 +17,11 @@ type HostConfig struct {
 	Logger      *zap.Logger // Logger for operational events.
 }
 
-// sendJob represents an asynchronous send operation.
-type sendJob struct {
-	pkg *api.Package
-}
-
 // Host implements a local pubsub for a single host with asynchronous sending.
 type Host struct {
 	ctx       context.Context
-	receivers sync.Map       // key: api.pid -> chan *api.Messages
-	jobQueues []chan sendJob // One queue per worker
+	receivers sync.Map            // key: api.pid -> chan *api.Messages
+	jobQueues []chan *api.Package // One queue per worker
 	config    HostConfig
 	logger    *zap.Logger
 }
@@ -43,9 +40,9 @@ func NewHost(ctx context.Context, config HostConfig) *Host {
 	}
 
 	// Create one job queue per worker
-	jobQueues := make([]chan sendJob, config.WorkerCount)
+	jobQueues := make([]chan *api.Package, config.WorkerCount)
 	for i := 0; i < config.WorkerCount; i++ {
-		jobQueues[i] = make(chan sendJob, config.BufferSize)
+		jobQueues[i] = make(chan *api.Package, config.BufferSize)
 	}
 
 	h := &Host{
@@ -112,14 +109,12 @@ func (h *Host) Send(pkg *api.Package) error {
 	hash := fnv1a32(pkg.PID.UniqID)
 	workerIndex := int(hash % uint32(len(h.jobQueues)))
 
-	job := sendJob{
-		pkg: pkg,
-	}
-
 	// Send to the determined worker queue
 	select {
-	case h.jobQueues[workerIndex] <- job:
+	case h.jobQueues[workerIndex] <- pkg:
 		return nil
+	case <-time.After(time.Second):
+		return fmt.Errorf("send timeout for pid %s", pkg.PID.String())
 	case <-h.ctx.Done():
 		h.logger.Warn("send cancelled by host shutdown", zap.String("pid", pkg.PID.String()))
 		return h.ctx.Err()
@@ -135,18 +130,23 @@ func (h *Host) worker(queueIndex int) {
 		case <-h.ctx.Done():
 			return
 		case job := <-queue:
-			rec, ok := h.receivers.Load(job.pkg.PID)
+			log.Printf("worker %d processing job for pid %s", queueIndex, job.PID.String())
+
+			rec, ok := h.receivers.Load(job.PID)
 			if !ok {
+				log.Printf("worker %d no receiver for pid %s", queueIndex, job.PID.String())
 				continue
 			}
 
 			// Handle both types of channels
 			switch ch := rec.(type) {
 			case chan *api.Package:
+				log.Printf("worker %d sending job for pid %s", queueIndex, job.PID.String())
 				h.deliverPackage(job, ch)
+				log.Printf("worker %d sent job for pid %s", queueIndex, job.PID.String())
 			default:
 				h.logger.Error("invalid receiver type",
-					zap.String("pid", job.pkg.PID.String()),
+					zap.String("pid", job.PID.String()),
 					zap.String("type", fmt.Sprintf("%T", rec)))
 			}
 		}
@@ -154,14 +154,13 @@ func (h *Host) worker(queueIndex int) {
 }
 
 // deliverPackage handles delivery to Package channels
-func (h *Host) deliverPackage(job sendJob, ch chan *api.Package) {
+func (h *Host) deliverPackage(job *api.Package, ch chan *api.Package) {
 	select {
-	case ch <- job.pkg:
+	case ch <- job:
 		// Successfully sent immediately
 		return
-		// todo: what if deadlock?
 	case <-h.ctx.Done():
 		h.logger.Info("worker shutting down, dropping Package message",
-			zap.String("pid", job.pkg.PID.String()))
+			zap.String("pid", job.PID.String()))
 	}
 }
