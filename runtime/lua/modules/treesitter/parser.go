@@ -5,11 +5,10 @@ import (
 	"fmt"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
-	"sync"
-	"time"
-
 	treesitter "github.com/tree-sitter/go-tree-sitter"
 	lua "github.com/yuin/gopher-lua"
+	"sync"
+	"time"
 )
 
 // ParserWrapper wraps a Tree-sitter parser with language information
@@ -34,17 +33,17 @@ func registerParser(l *lua.LState) {
 
 func newParser(l *lua.LState) int {
 	parser := treesitter.NewParser()
-	wrap := &ParserWrapper{parser: parser}
+	p := &ParserWrapper{parser: parser}
 
 	uw := engine.GetUnitOfWork(l.Context())
 	if uw == nil {
 		l.RaiseError("unit of work is not found")
 		return 0
 	}
-	uw.AddCleanup(func() error { wrap.Close(); return nil })
+	uw.AddCleanup(func() error { p.Close(); return nil })
 
 	ud := l.NewUserData()
-	ud.Value = wrap
+	ud.Value = p
 	ud.Metatable = value.GetTypeMetatable(l, "treesitter.Parser")
 	l.Push(ud)
 	return 1
@@ -136,13 +135,14 @@ func parserParse(l *lua.LState) int {
 		}
 	}
 
+	fmt.Printf("!!!!!!!!!!PARSE")
 	uw := engine.GetUnitOfWork(l.Context())
 	if uw == nil {
 		l.RaiseError("unit of work is not found")
 		return 0
 	}
 
-	tree, err := parser.parseWithContext(uw.Context(), []byte(code), oldTree)
+	tree, err := parser.parseWithContext(context.Background(), []byte(code), oldTree)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
@@ -272,10 +272,10 @@ func (p *ParserWrapper) Reset() {
 // Close releases all resources associated with the parser
 func (p *ParserWrapper) Close() {
 	p.once.Do(func() {
-		if p.parser != nil {
-			p.parser.Close()
-			p.parser = nil
-		}
+		//if p.parser != nil {
+		//	//p.parser.Close()
+		//	//p.parser = nil
+		//}
 	})
 }
 

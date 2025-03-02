@@ -22,8 +22,8 @@ type TreeWrapper struct {
 func (t *TreeWrapper) Close() {
 	t.once.Do(func() {
 		if t.tree != nil {
-			t.tree.Close()
-			t.tree = nil
+			//t.tree.Close()
+			//t.tree = nil
 		}
 	})
 }
@@ -170,8 +170,8 @@ func treeWalk(l *lua.LState) int {
 	uw.AddCleanup(func() error {
 		cw.once.Do(func() {
 			if cw.cursor != nil {
-				cw.cursor.Close()
-				cw.cursor = nil
+				//cw.cursor.Close()
+				//cw.cursor = nil
 			}
 		})
 		return nil

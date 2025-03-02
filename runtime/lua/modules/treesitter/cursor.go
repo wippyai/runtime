@@ -190,8 +190,8 @@ func cursorClose(l *lua.LState) int {
 	cursor := checkCursor(l)
 	cursor.once.Do(func() {
 		if cursor.cursor != nil {
-			cursor.cursor.Close()
-			cursor.cursor = nil
+			//cursor.cursor.Close()
+			//cursor.cursor = nil
 		}
 	})
 	return 0
