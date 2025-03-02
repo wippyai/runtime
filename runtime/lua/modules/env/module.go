@@ -21,11 +21,11 @@ func (m *Module) Name() string {
 
 // Loader is the entry point for loading the module into Lua
 func (m *Module) Loader(l *lua.LState) int {
-	t := l.NewTable()
-	l.SetFuncs(t, map[string]lua.LGFunction{
-		"get":     m.get,
-		"get_all": m.getAll,
-	})
+	t := l.CreateTable(0, 2) // Exactly 2 functions: get and get_all
+
+	t.RawSetString("get", l.NewFunction(m.get))
+	t.RawSetString("get_all", l.NewFunction(m.getAll))
+
 	l.Push(t)
 	return 1
 }
@@ -76,8 +76,7 @@ func (m *Module) getAll(l *lua.LState) int {
 		return 2
 	}
 
-	result := l.NewTable()
-
+	result := l.CreateTable(0, envCtx.Len())
 	envCtx.Iterate(func(key string, value string) {
 		result.RawSetString(key, lua.LString(value))
 	})

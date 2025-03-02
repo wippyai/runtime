@@ -9,16 +9,16 @@ import (
 
 // registerRandom registers the random submodule
 func registerRandom(l *lua.LState, mod *lua.LTable) {
-	// Create random submodule table
-	randomMod := l.NewTable()
+	// Create random submodule table with exact size
+	randomMod := l.CreateTable(0, 3) // bytes, string, uuid
 
-	// Register functions
-	l.SetField(randomMod, "bytes", l.NewFunction(randomBytes))
-	l.SetField(randomMod, "string", l.NewFunction(randomString))
-	l.SetField(randomMod, "uuid", l.NewFunction(randomUUID))
+	// Register functions using RawSetString for better performance
+	randomMod.RawSetString("bytes", l.NewFunction(randomBytes))
+	randomMod.RawSetString("string", l.NewFunction(randomString))
+	randomMod.RawSetString("uuid", l.NewFunction(randomUUID))
 
 	// Add submodule to main module
-	l.SetField(mod, "random", randomMod)
+	mod.RawSetString("random", randomMod)
 }
 
 // randomBytes generates cryptographically secure random bytes

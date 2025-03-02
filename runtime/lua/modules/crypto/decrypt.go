@@ -10,15 +10,15 @@ import (
 
 // registerDecrypt registers the decrypt submodule
 func registerDecrypt(l *lua.LState, mod *lua.LTable) {
-	// Create decrypt submodule table
-	decryptMod := l.NewTable()
+	// Create decrypt submodule table with exact size
+	decryptMod := l.CreateTable(0, 2) // aes, chacha20
 
-	// Register functions
-	l.SetField(decryptMod, "aes", l.NewFunction(decryptAes))
-	l.SetField(decryptMod, "chacha20", l.NewFunction(decryptChacha20))
+	// Register functions using RawSetString
+	decryptMod.RawSetString("aes", l.NewFunction(decryptAes))
+	decryptMod.RawSetString("chacha20", l.NewFunction(decryptChacha20))
 
 	// Add submodule to main module
-	l.SetField(mod, "decrypt", decryptMod)
+	mod.RawSetString("decrypt", decryptMod)
 }
 
 // decryptAes decrypts data using AES-GCM

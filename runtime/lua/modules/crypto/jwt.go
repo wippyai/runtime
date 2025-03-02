@@ -9,15 +9,15 @@ import (
 
 // registerJWT registers the JWT submodule
 func registerJWT(l *lua.LState, mod *lua.LTable) {
-	// Create JWT submodule table
-	jwtMod := l.NewTable()
+	// Create JWT submodule table with exact size
+	jwtMod := l.CreateTable(0, 2) // encode, verify
 
-	// Register functions
-	l.SetField(jwtMod, "encode", l.NewFunction(jwtEncode))
-	l.SetField(jwtMod, "verify", l.NewFunction(jwtVerify))
+	// Register functions using RawSetString
+	jwtMod.RawSetString("encode", l.NewFunction(jwtEncode))
+	jwtMod.RawSetString("verify", l.NewFunction(jwtVerify))
 
 	// Add submodule to main module
-	l.SetField(mod, "jwt", jwtMod)
+	mod.RawSetString("jwt", jwtMod)
 }
 
 // jwtEncode creates and signs a JWT

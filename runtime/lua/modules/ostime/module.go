@@ -28,20 +28,20 @@ func (m *Module) Name() string {
 // Loader registers the module's functions into Lua state
 // It extends the os table if it exists, or creates a new one
 func (m *Module) Loader(L *lua.LState) int {
-	// Check if os table already exists
 	L.GetGlobal("os")
 	osTable := L.Get(-1)
+
+	var osTab *lua.LTable
 	if osTable.Type() == lua.LTNil {
-		// Create os table if it doesn't exist
-		osTable = L.NewTable()
-		L.SetGlobal("os", osTable)
+		osTab = L.CreateTable(0, 3) // Exactly 3 functions
+		L.SetGlobal("os", osTab)
+	} else {
+		osTab = osTable.(*lua.LTable)
 	}
 
-	// Register os.time and os.date functions
-	osTab := L.GetGlobal("os").(*lua.LTable)
-	L.SetField(osTab, "time", L.NewFunction(osTime))
-	L.SetField(osTab, "date", L.NewFunction(osDate))
-	L.SetField(osTab, "clock", L.NewFunction(m.osClock))
+	osTab.RawSetString("time", L.NewFunction(osTime))
+	osTab.RawSetString("date", L.NewFunction(osDate))
+	osTab.RawSetString("clock", L.NewFunction(m.osClock))
 
 	// We don't push anything on the stack as we're extending the os global
 	return 0
@@ -157,21 +157,21 @@ func osDate(L *lua.LState) int {
 
 // osDateTable returns a table with date/time components
 func osDateTable(L *lua.LState, t time.Time) int {
-	tbl := L.NewTable()
+	tbl := L.CreateTable(0, 9) // Exactly 9 fields
 
-	// Set all date/time fields
-	L.SetField(tbl, "year", lua.LNumber(t.Year()))
-	L.SetField(tbl, "month", lua.LNumber(t.Month()))
-	L.SetField(tbl, "day", lua.LNumber(t.Day()))
-	L.SetField(tbl, "hour", lua.LNumber(t.Hour()))
-	L.SetField(tbl, "min", lua.LNumber(t.Minute()))
-	L.SetField(tbl, "sec", lua.LNumber(t.Second()))
-	L.SetField(tbl, "wday", lua.LNumber(t.Weekday()+1)) // Lua uses 1-7 for weekdays
-	L.SetField(tbl, "yday", lua.LNumber(t.YearDay()))
+	// Set all date/time fields using RawSetString for better performance
+	tbl.RawSetString("year", lua.LNumber(t.Year()))
+	tbl.RawSetString("month", lua.LNumber(t.Month()))
+	tbl.RawSetString("day", lua.LNumber(t.Day()))
+	tbl.RawSetString("hour", lua.LNumber(t.Hour()))
+	tbl.RawSetString("min", lua.LNumber(t.Minute()))
+	tbl.RawSetString("sec", lua.LNumber(t.Second()))
+	tbl.RawSetString("wday", lua.LNumber(t.Weekday()+1)) // Lua uses 1-7 for weekdays
+	tbl.RawSetString("yday", lua.LNumber(t.YearDay()))
 
 	// Set isdst (Daylight Saving Time flag)
 	_, isDST := t.Zone()
-	L.SetField(tbl, "isdst", lua.LBool(isDST != 0))
+	tbl.RawSetString("isdst", lua.LBool(isDST != 0))
 
 	L.Push(tbl)
 	return 1

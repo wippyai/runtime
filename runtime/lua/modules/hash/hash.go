@@ -27,14 +27,16 @@ func (m *Module) Name() string {
 
 // Loader registers the module's functions into Lua state.
 func (m *Module) Loader(l *lua.LState) int {
-	mod := l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
-		"md5":    m.md5,
-		"sha1":   m.sha1,
-		"sha256": m.sha256,
-		"sha512": m.sha512,
-		"fnv32":  m.fnv32,
-		"fnv64":  m.fnv64,
-	})
+	mod := l.CreateTable(0, 6)
+
+	// Register functions directly using RawSetString for better performance
+	mod.RawSetString("md5", l.NewFunction(m.md5))
+	mod.RawSetString("sha1", l.NewFunction(m.sha1))
+	mod.RawSetString("sha256", l.NewFunction(m.sha256))
+	mod.RawSetString("sha512", l.NewFunction(m.sha512))
+	mod.RawSetString("fnv32", l.NewFunction(m.fnv32))
+	mod.RawSetString("fnv64", l.NewFunction(m.fnv64))
+
 	l.Push(mod)
 	return 1
 }

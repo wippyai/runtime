@@ -27,14 +27,11 @@ func (m *Module) Name() string {
 // Loader is the entry point for loading the module into Lua.
 // It registers the get and set functions into the Lua state.
 func (m *Module) Loader(l *lua.LState) int {
-	t := l.NewTable()
+	t := l.CreateTable(0, 2) // Exactly 2 functions: get and set
 
-	lapi := map[string]lua.LGFunction{
-		"get": m.get,
-		"set": m.set,
-	}
+	t.RawSetString("get", l.NewFunction(m.get))
+	t.RawSetString("set", l.NewFunction(m.set))
 
-	l.SetFuncs(t, lapi)
 	l.Push(t)
 	return 1
 }
