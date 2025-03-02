@@ -16,11 +16,17 @@ import (
 )
 
 const (
-	BootTimeout   = 30 * time.Second
+	// BootTimeout is the maximum time to wait for the server to start
+	BootTimeout = 30 * time.Second
+
+	// CheckInterval is the interval between server availability checks during startup
 	CheckInterval = 100 * time.Millisecond
-	StatusBuffer  = 10
+
+	// StatusBuffer is the size of the status channel buffer
+	StatusBuffer = 10
 )
 
+// ContextListener is the context key for the HTTP listener
 var ContextListener = &contextapi.Key{Name: "listener"}
 
 // ServerService combines HTTP server and router functionality
@@ -30,7 +36,8 @@ type ServerService struct {
 	server     *http.Server
 	mu         sync.RWMutex
 	statusChan chan any
-	started    bool // Track if server has been started
+	started    bool                   // Track if server has been started
+	mountPaths map[registry.ID]string // Track mount paths by Source
 }
 
 // NewServerService creates a new ServerService instance
@@ -39,29 +46,30 @@ func NewServerService(cfg *config.ServerConfig) *ServerService {
 		config:     cfg,
 		routeMgr:   NewRouteManager(),
 		statusChan: make(chan any, StatusBuffer),
+		mountPaths: make(map[registry.ID]string),
 	}
 }
 
-// UpdateConfig implements Server interface
+// UpdateConfig updates the server configuration
+// Returns an error if trying to change the address while the server is running
 func (s *ServerService) UpdateConfig(cfg *config.ServerConfig) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// Check if address changes while server is running
 	if s.started {
 		if s.config.Addr != cfg.Addr {
 			return fmt.Errorf("cannot change server address while running")
 		}
-		s.server.ReadTimeout = cfg.Timeouts.ReadTimeout
-		s.server.WriteTimeout = cfg.Timeouts.WriteTimeout
-		s.server.IdleTimeout = cfg.Timeouts.IdleTimeout
 	}
 
+	// Always update the config
 	s.config = cfg
 	return nil
 }
 
-// AddRouter adds a new router with its middleware stack
-func (s *ServerService) AddRouter(id registry.ID, cfg *config.RouterConfig) error {
+// UpsertRouter adds a new router or updates an existing one with the provided configuration
+func (s *ServerService) UpsertRouter(id registry.ID, cfg *config.RouterConfig) error {
 	// Convert middleware config to actual middleware functions
 	middlewares := make([]func(http.Handler) http.Handler, 0, len(cfg.Middlewares))
 	for _, mw := range cfg.Middlewares {
@@ -73,32 +81,55 @@ func (s *ServerService) AddRouter(id registry.ID, cfg *config.RouterConfig) erro
 	return s.routeMgr.AddRouter(id, cfg.Prefix, middlewares)
 }
 
-// DeleteRouter implements Server interface
+// DeleteRouter removes a router by Source
 func (s *ServerService) DeleteRouter(id registry.ID) error {
 	return s.routeMgr.RemoveRouter(id)
 }
 
-// AddEndpoint implements Server interface
-func (s *ServerService) AddEndpoint(routerID, id registry.ID, path string, method string, handler http.Handler) error {
+// UpsertEndpoint adds or updates an endpoint in the specified router
+func (s *ServerService) UpsertEndpoint(routerID, id registry.ID, path string, method string, handler http.Handler) error {
 	return s.routeMgr.AddRoute(routerID, id, method, path, id, handler)
 }
 
-// RemoveEndpoint implements Server interface
+// RemoveEndpoint removes an endpoint from the specified router
 func (s *ServerService) RemoveEndpoint(routerID, id registry.ID) error {
 	return s.routeMgr.RemoveRoute(routerID, id)
 }
 
-// Mount implements Server interface
+// Mount adds a handler at the specified path and tracks it by Source
 func (s *ServerService) Mount(id registry.ID, path string, handler http.Handler) error {
-	return s.routeMgr.Mount(path, handler)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if err := s.routeMgr.Mount(path, handler); err != nil {
+		return err
+	}
+
+	// Store path mapping for later unmount
+	s.mountPaths[id] = path
+	return nil
 }
 
-// Remove implements Server interface
+// Remove unmounts a handler by Source
 func (s *ServerService) Remove(id registry.ID) error {
-	return s.routeMgr.Unmount(id.String())
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	path, exists := s.mountPaths[id]
+	if !exists {
+		return fmt.Errorf("mount for Source %s not found", id)
+	}
+
+	if err := s.routeMgr.Unmount(path); err != nil {
+		return err
+	}
+
+	// Clean up the mapping
+	delete(s.mountPaths, id)
+	return nil
 }
 
-// Rebuild implements Server interface
+// Rebuild rebuilds the entire router with the current configuration
 func (s *ServerService) Rebuild(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -113,7 +144,7 @@ func (s *ServerService) Rebuild(ctx context.Context) error {
 	return nil
 }
 
-// Start implements supervisor.Service
+// Start implements the supervisor.Service interface to start the HTTP server
 func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 	s.mu.Lock()
 	s.server = &http.Server{
@@ -173,7 +204,7 @@ func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 	return s.statusChan, nil
 }
 
-// Stop implements supervisor.Service
+// Stop implements the supervisor.Service interface to stop the HTTP server
 func (s *ServerService) Stop(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -210,7 +241,7 @@ func (s *ServerService) ensureRunning(ctx context.Context) error {
 	}
 }
 
-// Helper methods for middleware creation
+// createMiddleware converts a middleware name to its handler function
 func (s *ServerService) createMiddleware(name string, options map[string]string) func(http.Handler) http.Handler {
 	switch name {
 	case "timeout":

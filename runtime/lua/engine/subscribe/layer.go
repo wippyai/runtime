@@ -1,134 +1,80 @@
 package subscribe
 
 import (
-	"container/list"
 	"fmt"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	lua "github.com/yuin/gopher-lua"
-	"golang.org/x/net/context"
-	"sync"
 )
 
+// op represents a topic operation (message or unsubscribe)
 type op struct {
-	topic string
-	unsub bool
-	value lua.LValue
+	topic  string
+	unsub  bool
+	values []lua.LValue
 }
 
+// Layer implements the subscription processing middleware
 type Layer struct {
-	mu           sync.Mutex
-	tg           *engine.TaskGroup
-	channels     *channel.Layer
-	subs         *subscriptionManager
-	messageQueue *list.List
 }
 
-func NewSubscribe(channels *channel.Layer) *Layer {
-	return &Layer{
-		channels:     channels,
-		subs:         newSubscriptionManager(),
-		messageQueue: list.New(),
-	}
+// NewSubscribeLayer creates a new subscription processing layer
+func NewSubscribeLayer() *Layer {
+	return &Layer{}
 }
 
-func (s *Layer) WithContext(ctx context.Context) context.Context {
-	s.tg = engine.GetTaskGroup(ctx)
-	return ctx
+// InitUnitOfWork initializes the subscription context for a new unit of work
+func (l *Layer) InitUnitOfWork(uw engine.UnitOfWork) {
+	// Initialize the layer context in unit of work
+	ensureLayerContext(uw)
 }
 
-func (s *Layer) Publish(topic string, value ...lua.LValue) {
-	s.mu.Lock()
-	for _, v := range value {
-		s.messageQueue.PushBack(&op{topic: topic, value: v})
-	}
-	if s.tg != nil {
-		s.tg.WakeUp()
-	}
-	s.mu.Unlock()
-}
-
-// Release removes a subscription from the topic if such exists and closes attached channel. Does not
-// remove messages from the queue, they can be re-consumed with new subscribers.
-// Essentially you can use it as common cancel signal.
-func (s *Layer) Release(topic string) {
-	s.mu.Lock()
-	s.messageQueue.PushBack(&op{topic: topic, unsub: true})
-	if s.tg != nil {
-		s.tg.WakeUp()
-	}
-	s.mu.Unlock()
-}
-
-func (s *Layer) Len() int {
-	return s.messageQueue.Len()
-}
-
-func (s *Layer) Slots(topic string) (int, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	sub, exists := s.subs.get(topic)
-	if !exists {
-		return 0, fmt.Errorf("no subscribers for topic %s", topic)
+// Step implements the engine.Layer interface
+func (l *Layer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, error) {
+	// Get unit of work from VM context
+	ctx := cvm.State().Context()
+	uw := engine.GetUnitOfWork(ctx)
+	if uw == nil {
+		return nil, fmt.Errorf("unit of work not found")
 	}
 
-	return sub.channel.Slots(), nil
-}
+	lCtx := getLayerContext(uw)
+	if lCtx == nil {
+		return nil, fmt.Errorf("layer context not found in unit of work")
+	}
 
-func (s *Layer) Exists(topic string) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	_, exists := s.subs.get(topic)
-	return exists
-}
-
-func (s *Layer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, error) {
-	processableTasks := tasks
 	var outTasks []*engine.Task
-
+	processableTasks := tasks
 	boot := true
+
+	// Continue processing while we have tasks or during the boot phase
 	for len(processableTasks) > 0 || boot {
 		if boot {
 			boot = false
-
 			// Process message queue in boot stage
-			s.mu.Lock()
-			messages := make(map[*subscription][]lua.LValue)
-
-			for e := s.messageQueue.Front(); e != nil; {
+			for e := lCtx.messageQueue.Front(); e != nil; {
 				msg := e.Value.(*op)
 				nextElem := e.Next()
 
-				if sub, exists := s.subs.get(msg.topic); exists {
+				if sub, exists := lCtx.subs.get(msg.topic); exists {
 					if msg.unsub {
-						if err := s.channels.Close(cvm.State().Context(), sub.channel); err != nil {
-							s.mu.Unlock()
+						if err := channel.Close(cvm.State(), sub.channel); err != nil {
 							return nil, fmt.Errorf("close error: %w", err)
 						}
 
 						// we are fine to ignore this error since channel might not be subscribed yet
-						_ = s.subs.remove(sub.channel)
+						_ = lCtx.subs.remove(sub.channel)
 					} else {
-						messages[sub] = append(messages[sub], msg.value)
-						if len(messages[sub]) > 0 {
-
-							if err := s.channels.Send(cvm.State().Context(), sub.channel, messages[sub]...); err != nil {
-								s.mu.Unlock()
-								return nil, fmt.Errorf("send error: %w", err)
-							}
-							messages[sub] = nil
+						if err := channel.Send(cvm.State(), sub.channel, msg.values...); err != nil {
+							return nil, fmt.Errorf("send error: %w", err)
 						}
 					}
-					s.messageQueue.Remove(e)
-				} else {
-					//fmt.Println("no subscribers for topic"), find a good logger?
+
+					lCtx.messageQueue.Remove(e)
 				}
 
 				e = nextElem
 			}
-			s.mu.Unlock()
 		}
 
 		// Process through CVM
@@ -137,10 +83,11 @@ func (s *Layer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, err
 			return nil, err
 		}
 
+		// Clear processable tasks and prepare for potential new yields
 		processableTasks = nil
+		hasYields := false
 
 		// Process yields and collect tasks
-		hasYields := false
 		for _, task := range nextTasks {
 			if len(task.Yielded) == 0 {
 				outTasks = append(outTasks, task)
@@ -152,9 +99,7 @@ func (s *Layer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, err
 			// Handle subscription requests
 			if req, ok := isSubscriptionRequest(lastYield); ok {
 				hasYields = true
-				s.mu.Lock()
-				sub, err := s.subs.add(req.topic, req.channel)
-				s.mu.Unlock()
+				sub, err := lCtx.subs.add(req.topic, req.channel)
 
 				if err != nil {
 					task.RaiseError = err
@@ -162,6 +107,7 @@ func (s *Layer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, err
 					task.Resumed = []lua.LValue{channel.Wrap(task.Thread(), sub.channel)}
 				}
 
+				// Add to processable tasks for next iteration instead of immediately processing
 				processableTasks = append(processableTasks, task)
 				continue
 			}
@@ -169,20 +115,18 @@ func (s *Layer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, err
 			// Handle unsubscribe requests
 			if req, ok := isUnsubscribeRequest(lastYield); ok {
 				hasYields = true
-				s.mu.Lock()
-				err := s.subs.remove(req.channel)
-				s.mu.Unlock()
-
+				err := lCtx.subs.remove(req.channel)
 				if err != nil {
 					task.RaiseError = err
 				} else {
-					if err := s.channels.Close(cvm.State().Context(), req.channel); err != nil {
+					if err := channel.Close(cvm.State(), req.channel); err != nil {
 						task.RaiseError = err
 					} else {
 						task.Resumed = []lua.LValue{lua.LTrue}
 					}
 				}
 
+				// Add to processable tasks for next iteration instead of immediately processing
 				processableTasks = append(processableTasks, task)
 				continue
 			}
@@ -190,29 +134,13 @@ func (s *Layer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, err
 			outTasks = append(outTasks, task)
 		}
 
+		// Exit if no more yields to process
 		if !hasYields {
 			break
 		}
 	}
 
 	return outTasks, nil
-}
-
-func (s *Layer) CloseLayer() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	// drain message queue
-	for e := s.messageQueue.Front(); e != nil; {
-		nextElem := e.Next()
-		e.Value = nil
-		s.messageQueue.Remove(e)
-		e = nextElem
-	}
-
-	s.tg = nil
-	s.channels = nil
-	s.subs = nil
 }
 
 func isSubscriptionRequest(v lua.LValue) (*subscribe, bool) {

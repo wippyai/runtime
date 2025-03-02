@@ -2,37 +2,38 @@ package coroutine
 
 import (
 	"errors"
-
+	"fmt"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	lua "github.com/yuin/gopher-lua"
+	"runtime/debug"
 )
 
-// Func is our simplified function format that just returns a Result
-type Func func() *engine.Result
+// Func is our simplified function format that just returns a Update
+type Func func() *engine.Update
 
-// FuncWrapper encapsulates an asynchronous function that can be executed in Lua context
-type FuncWrapper struct {
+// funcWrapper encapsulates an asynchronous function that can be executed in Lua context
+type funcWrapper struct {
 	fn Func
 }
 
 // Type returns the Lua type for this function wrapper
-func (f *FuncWrapper) Type() lua.LValueType {
+func (f *funcWrapper) Type() lua.LValueType {
 	return lua.LTFunction
 }
 
-func (f *FuncWrapper) String() string {
+func (f *funcWrapper) String() string {
 	return "async.func"
 }
 
 // Wrap wraps our Func into the Lua-compatible format
 func Wrap(l *lua.LState, fn Func) {
-	l.Push(&FuncWrapper{fn: fn})
+	l.Push(&funcWrapper{fn: fn})
 }
 
 // Run runs the wrapped function and returns results/error
-func (f *FuncWrapper) Run() *engine.Result {
+func (f *funcWrapper) Run() *engine.Update {
 	if f.fn == nil {
-		return engine.NewResult(nil, nil, errors.New("function has already been executed"))
+		return engine.NewUpdate(nil, nil, errors.New("function has already been executed"))
 	}
 
 	r := f.fn()
@@ -53,6 +54,11 @@ func NewCoroutineLayer() *Layer {
 func (r *Layer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, error) {
 	outTasks := make([]*engine.Task, 0)
 
+	uw := engine.GetUnitOfWork(cvm.State().Context())
+	if uw == nil {
+		return nil, errors.New("unit of work not found")
+	}
+
 	vmTasks, err := cvm.Step(tasks...)
 	if err != nil {
 		return nil, err
@@ -64,20 +70,31 @@ func (r *Layer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task, err
 			continue
 		}
 
-		if fw, ok := task.Yielded[len(task.Yielded)-1].(*FuncWrapper); ok {
+		if fw, ok := task.Yielded[len(task.Yielded)-1].(*funcWrapper); ok {
 			thread := task.Thread()
-			tg := engine.GetTaskGroup(thread.Context())
 
-			if tg == nil {
-				return nil, errors.New("task group not found")
-			}
-			tg.Add(thread)
-			go func(w *FuncWrapper) {
-				res := w.Run()
+			uw.Run(func(uw engine.UnitOfWork) {
+				defer func() {
+					if r := recover(); r != nil {
+						var panicErr error
+						if err, ok := r.(error); ok {
+							panicErr = err
+						} else {
+							panicErr = fmt.Errorf("%v, %s", r, debug.Stack())
+						}
+
+						res := engine.NewUpdate(nil, nil, panicErr)
+						res.State = thread
+						_ = uw.Tasks().Send(thread.Context(), res)
+					}
+				}()
+
+				res := fw.Run()
 				res.State = thread
-				_ = tg.Send(thread.Context(), res)
-				tg.WakeUp()
-			}(fw)
+
+				_ = uw.Tasks().Send(thread.Context(), res)
+			})
+
 			continue
 		}
 

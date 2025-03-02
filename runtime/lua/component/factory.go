@@ -13,38 +13,27 @@ import (
 
 // RunnerFactory creates and manages VM instances with consistent configuration
 type RunnerFactory struct {
-	log               *zap.Logger
-	compiled          *code.CompiledMain
-	engineOptions     []engine.Option
-	runnerOptions     []engine.RunnerOption
-	layerInitializers []LayerInitializer
-	mu                sync.RWMutex
+	log           *zap.Logger
+	compiled      *code.CompiledMain
+	engineOptions []engine.Option
+	runnerOptions []engine.RunnerOption
+	mu            sync.RWMutex
 }
 
 // Option configures the RunnerFactory
 type Option func(*RunnerFactory)
 
-// LayerInitializer creates a new set of layers for a VM instance
-type LayerInitializer func() []engine.RunnerOption
-
-// WithLayerInitializer adds a layer initializer to the factory
-func WithLayerInitializer(init LayerInitializer) Option {
-	return func(f *RunnerFactory) {
-		f.layerInitializers = append(f.layerInitializers, init)
-	}
-}
-
 // WithRunnerOption adds a runner option to the factory
-func WithRunnerOption(opt engine.RunnerOption) Option {
+func WithRunnerOption(opt ...engine.RunnerOption) Option {
 	return func(f *RunnerFactory) {
-		f.runnerOptions = append(f.runnerOptions, opt)
+		f.runnerOptions = append(f.runnerOptions, opt...)
 	}
 }
 
 // WithEngineOption adds an engine option to the factory
-func WithEngineOption(opt engine.Option) Option {
+func WithEngineOption(opt ...engine.Option) Option {
 	return func(f *RunnerFactory) {
-		f.engineOptions = append(f.engineOptions, opt)
+		f.engineOptions = append(f.engineOptions, opt...)
 	}
 }
 
@@ -65,11 +54,10 @@ func NewRunnerFactory(log *zap.Logger, compiled *code.CompiledMain, opts ...Opti
 	}
 
 	f := &RunnerFactory{
-		log:               log,
-		compiled:          compiled,
-		engineOptions:     make([]engine.Option, 0),
-		runnerOptions:     make([]engine.RunnerOption, 0),
-		layerInitializers: make([]LayerInitializer, 0),
+		log:           log,
+		compiled:      compiled,
+		engineOptions: make([]engine.Option, 0),
+		runnerOptions: make([]engine.RunnerOption, 0),
 	}
 
 	// Apply options
@@ -113,11 +101,6 @@ func (f *RunnerFactory) CreateRunner() (*engine.Runner, error) {
 
 	runnerOpts := make([]engine.RunnerOption, len(f.runnerOptions))
 	copy(runnerOpts, f.runnerOptions)
-
-	// AddCleanup dynamically created layers
-	for _, initializer := range f.layerInitializers {
-		runnerOpts = append(runnerOpts, initializer()...)
-	}
 
 	return engine.NewRunner(vm, runnerOpts...), nil
 }

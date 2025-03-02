@@ -124,15 +124,15 @@ func cmdExecute(l *lua.LState) int {
 		return 0
 	}
 	// Spawn an async function that executes the command
-	coroutine.Wrap(l, func() *engine.Result {
+	coroutine.Wrap(l, func() *engine.Update {
 		msg := wrapper.cmd()
 
 		if msg == nil {
-			return engine.NewResult(nil, nil, nil)
+			return engine.NewUpdate(nil, nil, nil)
 		}
 
 		// Convert the message to Lua and return it
-		return engine.NewResult(nil, []lua.LValue{MsgToLua(msg)}, nil)
+		return engine.NewUpdate(nil, []lua.LValue{MsgToLua(msg)}, nil)
 	})
 
 	return -1 // Yield

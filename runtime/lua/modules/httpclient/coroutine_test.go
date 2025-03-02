@@ -65,7 +65,7 @@ func TestAsyncHTTP(t *testing.T) {
 			engine.WithLayer(coroutine.NewCoroutineLayer()),
 		)
 
-		// Import test script with coroutines
+		// Imports test script with coroutines
 		err = vm.Import(`
 	       function test_http_requests()
 	           local results = {}
@@ -164,7 +164,7 @@ func TestAsyncHTTP(t *testing.T) {
 			engine.WithLayer(coroutine.NewCoroutineLayer()),
 		)
 
-		// Import test script
+		// Imports test script
 		err = vm.Import(`
             function test_timeout()
                 local result

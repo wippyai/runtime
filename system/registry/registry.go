@@ -164,6 +164,10 @@ func (r *reg) Current() (registry.Version, error) {
 	return r.currentVersion, nil
 }
 
+func (r *reg) History() registry.History {
+	return r.history
+}
+
 // --- Helper Functions ---
 
 func nextVersionID(head registry.Version) uint {

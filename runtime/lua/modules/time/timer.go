@@ -2,10 +2,9 @@ package time
 
 import (
 	"fmt"
-	"github.com/ponyruntime/pony/runtime/uow"
+	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"time"
 
-	"github.com/ponyruntime/pony/runtime/lua/engine/async"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -21,9 +20,9 @@ func timer(l *lua.LState) int {
 	var duration time.Duration
 	var err error
 
-	uw := uow.FromContext(l.Context())
+	uw := engine.GetUnitOfWork(l.Context())
 	if uw == nil {
-		l.RaiseError("time.timer: unit of work missing")
+		l.RaiseError("time.Timer: unit of work missing")
 		return 0
 	}
 
@@ -38,7 +37,7 @@ func timer(l *lua.LState) int {
 	case lua.LString:
 		duration, err = time.ParseDuration(string(v))
 		if err != nil {
-			l.RaiseError("time.timer: %s", err)
+			l.RaiseError("time.Timer: %s", err)
 			return 0
 		}
 	case lua.LNumber:
@@ -49,7 +48,7 @@ func timer(l *lua.LState) int {
 	}
 
 	if duration <= 0 {
-		l.RaiseError("time.timer: duration must be > 0")
+		l.RaiseError("time.Timer: duration must be > 0")
 		return 0
 	}
 
@@ -57,18 +56,17 @@ func timer(l *lua.LState) int {
 	ch := channel.Named(fmt.Sprintf("timer_%s", duration), 1)
 	tmr := time.NewTimer(duration)
 
-	// Spawn userdata for time value upfront
 	timeUD := l.NewUserData()
-	timeUD.Value = &Time{time: time.Now()} // initial value will be replaced
-	l.SetMetatable(timeUD, l.GetTypeMetatable("Time"))
+	timeUD.Value = &Time{time: time.Now()}
+	l.SetMetatable(timeUD, l.GetTypeMetatable("time.Time"))
 
-	// Launch goroutine to handle timer
-	go func() {
+	uw.Run(func(uw engine.UnitOfWork) {
 		defer tmr.Stop()
 		select {
 		case t := <-tmr.C:
 			timeUD.Value = &Time{time: t}
-			errs := async.Send(l, ch, timeUD, true)
+
+			errs := channel.Send(l, ch, timeUD)
 			if errs != nil {
 				l.RaiseError("time.timer: %s", errs)
 				return
@@ -76,12 +74,12 @@ func timer(l *lua.LState) int {
 		case <-uw.Context().Done():
 			return
 		}
-	}()
+	})
 
 	// Spawn and return Timer userdata
 	ud := l.NewUserData()
 	ud.Value = &Timer{timer: tmr, chValue: channel.Wrap(l, ch)}
-	l.SetMetatable(ud, l.GetTypeMetatable("Timer"))
+	l.SetMetatable(ud, l.GetTypeMetatable("time.Timer"))
 	l.Push(ud)
 	return 1
 }
@@ -160,7 +158,7 @@ func timerChannel(l *lua.LState) int {
 
 // Register Timer
 func registerTimer(l *lua.LState, mod *lua.LTable) {
-	mt := l.NewTypeMetatable("Timer")
+	mt := l.NewTypeMetatable("time.Timer")
 	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
 		"stop":    timerStop,
 		"reset":   timerReset,

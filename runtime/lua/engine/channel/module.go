@@ -2,6 +2,7 @@ package channel
 
 import (
 	"fmt"
+	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"strings"
 
 	lua "github.com/yuin/gopher-lua"
@@ -20,7 +21,7 @@ func (o *op) Type() lua.LValueType {
 func (m *onNext) String() string {
 	var parts []string
 
-	// Basic state
+	// Basic State
 	parts = append(parts, fmt.Sprintf("yields=%t", m.yields))
 
 	// Next operations
@@ -30,26 +31,26 @@ func (m *onNext) String() string {
 			details := []string{fmt.Sprintf("op%d{", i)}
 
 			// State info
-			if op.state != nil {
+			if op.State != nil {
 				details = append(details, "hasState=true")
 			}
 
 			// Error info
-			if op.err != nil {
-				details = append(details, fmt.Sprintf("err='%s'", op.err))
+			if op.Error != nil {
+				details = append(details, fmt.Sprintf("Error='%s'", op.Error))
 			}
 
 			// Values info
-			if len(op.values) > 0 {
-				valueStrs := make([]string, 0, len(op.values))
-				for _, v := range op.values {
+			if len(op.Result) > 0 {
+				valueStrs := make([]string, 0, len(op.Result))
+				for _, v := range op.Result {
 					if v == nil {
 						valueStrs = append(valueStrs, "nil")
 					} else {
 						valueStrs = append(valueStrs, v.String())
 					}
 				}
-				details = append(details, fmt.Sprintf("values=[%s]", strings.Join(valueStrs, ",")))
+				details = append(details, fmt.Sprintf("Result=[%s]", strings.Join(valueStrs, ",")))
 			}
 
 			opDetails = append(opDetails, strings.Join(details, " ")+"}")
@@ -124,11 +125,9 @@ func (m *Module) Name() string {
 // Loader registers the module functions
 func (m *Module) Loader(l *lua.LState) int {
 	// Spawn module table
-	mod := l.NewTable()
-
-	// Register constructors
-	l.SetField(mod, "new", l.NewFunction(newChannelLua))
-	l.SetField(mod, "select", l.NewFunction(selectLua))
+	mod := l.CreateTable(2, 2)
+	mod.RawSetString("new", l.NewFunction(newChannelLua))
+	mod.RawSetString("select", l.NewFunction(selectLua))
 
 	// Channel methods
 	channelMethods := map[string]lua.LGFunction{
@@ -144,7 +143,7 @@ func (m *Module) Loader(l *lua.LState) int {
 
 	// Channel metatable
 	mt := l.NewTypeMetatable("channel")
-	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), channelMethods))
+	l.SetField(mt, "__index", l.SetFuncs(l.CreateTable(8, 8), channelMethods))
 
 	// Register module
 	l.Push(mod)
@@ -155,8 +154,9 @@ func (m *Module) Loader(l *lua.LState) int {
 func Wrap(l *lua.LState, ch *Channel) lua.LValue {
 	ud := l.NewUserData()
 	ud.Value = ch
+	ud.Metatable = l.GetTypeMetatable("channel")
 	ch.value = ud // for select conditions they are always coupled
-	l.SetMetatable(ud, l.GetTypeMetatable("channel"))
+
 	return ud
 }
 
@@ -171,8 +171,9 @@ func newChannelLua(l *lua.LState) int {
 	ch := newChannel(capacity)
 	ud := l.NewUserData()
 	ud.Value = ch
+	ud.Metatable = l.GetTypeMetatable("channel")
 	ch.value = ud // yep
-	l.SetMetatable(ud, l.GetTypeMetatable("channel"))
+
 	l.Push(ud)
 	return 1
 }
@@ -182,10 +183,6 @@ func sendLua(l *lua.LState) int {
 	ch := CheckChannel(l)
 	value := l.CheckAny(2)
 
-	return Send(l, ch, value)
-}
-
-func Send(l *lua.LState, ch *Channel, value lua.LValue) int {
 	if ch.isNamed() {
 		l.RaiseError("cannot send to named channel")
 		return 0
@@ -203,8 +200,8 @@ func Send(l *lua.LState, ch *Channel, value lua.LValue) int {
 		return -1
 	}
 
-	if len(next.next) > 0 && next.next[0].err != nil {
-		l.RaiseError("%s", next.next[0].err.Error())
+	if len(next.next) > 0 && next.next[0].Error != nil {
+		l.RaiseError("%s", next.next[0].Error.Error())
 		return 0
 	}
 
@@ -228,14 +225,14 @@ func Receive(l *lua.LState, ch *Channel) int {
 
 	if len(next.next) > 0 {
 		result := next.next[0]
-		if result.err != nil {
-			l.RaiseError("%s", result.err.Error())
+		if result.Error != nil {
+			l.RaiseError("%s", result.Error.Error())
 			return 0
 		}
 
-		if len(result.values) == 2 {
-			l.Push(result.values[0]) // value
-			l.Push(result.values[1]) // ok
+		if len(result.Result) == 2 {
+			l.Push(result.Result[0]) // value
+			l.Push(result.Result[1]) // ok
 			return 2
 		}
 	}
@@ -247,10 +244,6 @@ func Receive(l *lua.LState, ch *Channel) int {
 func closeLua(l *lua.LState) int {
 	ch := CheckChannel(l)
 
-	return Close(l, ch)
-}
-
-func Close(l *lua.LState, ch *Channel) int {
 	if ch.isNamed() {
 		l.RaiseError("cannot close named channel")
 		return 0
@@ -269,8 +262,8 @@ func Close(l *lua.LState, ch *Channel) int {
 	}
 
 	// Handle immediate next
-	if len(next.next) > 0 && next.next[0].err != nil {
-		l.RaiseError("%s", next.next[0].err.Error())
+	if len(next.next) > 0 && next.next[0].Error != nil {
+		l.RaiseError("%s", next.next[0].Error.Error())
 		return 0
 	}
 
@@ -282,10 +275,6 @@ func caseSendLua(l *lua.LState) int {
 	ch := CheckChannel(l)
 	value := l.CheckAny(2)
 
-	return CaseSend(l, ch, value)
-}
-
-func CaseSend(l *lua.LState, ch *Channel, value lua.LValue) int {
 	// Check for invalid send operations
 	if ch.isNamed() {
 		l.RaiseError("cannot send to named channel")
@@ -299,10 +288,6 @@ func CaseSend(l *lua.LState, ch *Channel, value lua.LValue) int {
 func caseReceiveLua(l *lua.LState) int {
 	ch := CheckChannel(l)
 
-	return CaseReceive(l, ch)
-}
-
-func CaseReceive(l *lua.LState, ch *Channel) int {
 	l.Push(&op{kind: receiveOp, ch: ch})
 	return 1
 }
@@ -342,12 +327,12 @@ func selectLua(l *lua.LState) int {
 
 	if len(next.next) > 0 {
 		result := next.next[0]
-		if result.err != nil {
-			l.RaiseError("%s", result.err.Error())
+		if result.Error != nil {
+			l.RaiseError("%s", result.Error.Error())
 			return 0
 		}
-		if len(result.values) > 0 {
-			l.Push(result.values[0])
+		if len(result.Result) > 0 {
+			l.Push(result.Result[0])
 			return 1
 		}
 	}
@@ -359,10 +344,10 @@ func selectLua(l *lua.LState) int {
 // trySelects checks the ability of immediate select operation
 func trySelect(l *lua.LState, selectOp *selectOp) *onNext {
 	// waits := make([]*Channel, 0, len(selectOp.cases))
-	// next := make([]*opStep, 0)
+	// next := make([]*Update, 0)
 	nNext := &onNext{
 		yields:  true,
-		next:    make([]*opStep, 0),
+		next:    make([]*engine.Update, 0),
 		block:   make([]*Channel, 0),
 		release: make([]*Channel, 0),
 	}
@@ -383,13 +368,13 @@ func trySelect(l *lua.LState, selectOp *selectOp) *onNext {
 
 	// Handle default case
 	if selectOp.hasDefault {
-		result := l.NewTable()
+		result := engine.NewTable(2)
 		result.RawSetString("default", lua.LBool(true))
 		result.RawSetString("ok", lua.LBool(true))
 
 		return &onNext{
-			next: []*opStep{
-				{state: l, values: []lua.LValue{result}},
+			next: []*engine.Update{
+				{State: l, Result: []lua.LValue{result}},
 			},
 		}
 	}

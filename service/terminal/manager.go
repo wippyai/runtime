@@ -3,13 +3,13 @@ package terminal
 import (
 	"context"
 	"fmt"
-	supervisor2 "github.com/ponyruntime/pony/api/process"
+	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/supervisor"
-	"github.com/ponyruntime/pony/system/logs"
+	"github.com/ponyruntime/pony/internal/config"
 	"sync"
 
-	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	api "github.com/ponyruntime/pony/api/service/terminal"
@@ -19,15 +19,36 @@ import (
 // Manager handles terminal service lifecycle and registration
 type Manager struct {
 	log      *zap.Logger
-	bus      events.Bus
+	bus      event.Bus
 	dtt      payload.Transcoder
 	mu       sync.RWMutex
 	terminal *Terminal
+	factory  ServiceFactory
 }
 
 // NewTerminalManager creates a new terminal manager instance
-func NewTerminalManager(bus events.Bus, dtt payload.Transcoder, logger *zap.Logger) *Manager {
-	return &Manager{log: logger, bus: bus, dtt: dtt}
+func NewTerminalManager(bus event.Bus, dtt payload.Transcoder, logger *zap.Logger) *Manager {
+	return &Manager{
+		log:     logger,
+		bus:     bus,
+		dtt:     dtt,
+		factory: NewDefaultServiceFactory(bus, logger),
+	}
+}
+
+// NewTerminalManagerWithFactory creates a new terminal manager with a custom factory
+func NewTerminalManagerWithFactory(
+	bus event.Bus,
+	dtt payload.Transcoder,
+	logger *zap.Logger,
+	factory ServiceFactory,
+) *Manager {
+	return &Manager{
+		log:     logger,
+		bus:     bus,
+		dtt:     dtt,
+		factory: factory,
+	}
 }
 
 // Add creates and registers a new terminal service
@@ -36,19 +57,16 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
 	}
 
-	cfg := new(api.HostConfig)
-	if err := m.dtt.Unmarshal(entry.Data, cfg); err != nil {
-		return fmt.Errorf("failed to unmarshal config: %w", err)
-	}
-
-	if err := cfg.Validate(); err != nil {
-		return fmt.Errorf("invalid config: %w", err)
+	cfg, err := config.DecodeAndInitConfig[api.HostConfig](m.dtt, entry)
+	if err != nil {
+		return err
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.terminal = NewTerminal(entry.ID, cfg, logs.NewConfigSwitcher(m.bus, m.log), m.log)
+	// Factory now handles log switcher creation internally
+	m.terminal = m.factory.CreateTerminal(entry.ID, cfg)
 	m.log.Info("terminal service created", zap.String("id", m.terminal.id.String()))
 
 	// Register as process host
@@ -63,13 +81,9 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
 	}
 
-	cfg := new(api.HostConfig)
-	if err := m.dtt.Unmarshal(entry.Data, cfg); err != nil {
-		return fmt.Errorf("failed to unmarshal config: %w", err)
-	}
-
-	if err := cfg.Validate(); err != nil {
-		return fmt.Errorf("invalid config: %w", err)
+	cfg, err := config.DecodeAndInitConfig[api.HostConfig](m.dtt, entry)
+	if err != nil {
+		return err
 	}
 
 	m.mu.Lock()
@@ -80,10 +94,12 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	}
 
 	// Update service configuration
-	err := m.terminal.UpdateConfig(ctx, cfg)
+	err = m.terminal.UpdateConfig(ctx, cfg)
 	if err != nil {
 		return fmt.Errorf("failed to update terminal config: %w", err)
 	}
+
+	m.registerHost(ctx, m.terminal)
 
 	m.log.Info("terminal service updated", zap.String("id", m.terminal.id.String()))
 
@@ -105,23 +121,23 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 // registerHost registers the terminal service as a process host
 func (m *Manager) registerHost(ctx context.Context, terminal *Terminal) {
 	// connect to pubsub
-	m.bus.Send(ctx, events.Event{
+	m.bus.Send(ctx, event.Event{
 		System: pubsub.System,
-		Kind:   pubsub.RegisterHost,
+		Kind:   pubsub.HostRegister,
 		Path:   terminal.id.String(),
 		Data:   pubsub.Host(terminal),
 	})
 
 	// we can host processes
-	m.bus.Send(ctx, events.Event{
-		System: supervisor2.HostSystem,
-		Kind:   supervisor2.HostRegister,
+	m.bus.Send(ctx, event.Event{
+		System: process.HostSystem,
+		Kind:   process.HostRegister,
 		Path:   terminal.id.String(),
-		Data:   supervisor2.Managed(terminal),
+		Data:   process.Managed(terminal),
 	})
 
 	// we run!
-	m.bus.Send(ctx, events.Event{
+	m.bus.Send(ctx, event.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Register,
 		Path:   terminal.id.String(),
@@ -135,23 +151,23 @@ func (m *Manager) registerHost(ctx context.Context, terminal *Terminal) {
 // removeHost removes the terminal service from process host system
 func (m *Manager) removeHost(ctx context.Context, id registry.ID) {
 	// disconnect from pubsub
-	m.bus.Send(ctx, events.Event{
+	m.bus.Send(ctx, event.Event{
 		System: pubsub.System,
-		Kind:   pubsub.DeleteHost,
+		Kind:   pubsub.HostDelete,
 		Path:   id.String(),
 	})
 
 	// we can no longer host processes
-	m.bus.Send(ctx, events.Event{
+	m.bus.Send(ctx, event.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Remove,
 		Path:   id.String(),
 	})
 
 	// we no longer run!
-	m.bus.Send(ctx, events.Event{
-		System: supervisor2.HostSystem,
-		Kind:   supervisor2.HostDelete,
+	m.bus.Send(ctx, event.Event{
+		System: process.HostSystem,
+		Kind:   process.HostDelete,
 		Path:   id.String(),
 	})
 }

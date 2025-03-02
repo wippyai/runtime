@@ -43,6 +43,10 @@ func getStructFields(rt reflect.Type) []fieldInfo {
 
 // ToGoAny converts a lua.LValue to its Go equivalent.
 func ToGoAny(v lua.LValue) any {
+	if v == nil {
+		return nil
+	}
+
 	switch v.Type() { //nolint:exhaustive
 	case lua.LTNil:
 		return nil

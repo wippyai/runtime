@@ -3,7 +3,7 @@ package code
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/registry"
 	api "github.com/ponyruntime/pony/api/runtime/lua"
 	glua "github.com/yuin/gopher-lua"
@@ -17,7 +17,7 @@ type (
 	// Manager centralizes code and dependency management
 	Manager struct {
 		log      *zap.Logger
-		bus      events.Bus
+		bus      event.Bus
 		memGraph *MemoryGraph
 		compiler *Compiler
 
@@ -34,7 +34,7 @@ type (
 )
 
 // NewCodeManager creates a new code manager instance
-func NewCodeManager(log *zap.Logger, bus events.Bus, cfg Config) (*Manager, error) {
+func NewCodeManager(log *zap.Logger, bus event.Bus, cfg Config) (*Manager, error) {
 	if cfg.ProtoCacheSize <= 0 {
 		cfg.ProtoCacheSize = 100
 	}
@@ -128,7 +128,7 @@ func (cm *Manager) Commit(ctx context.Context) {
 	}
 
 	// Emit reset signal with affected nodes
-	cm.bus.Send(ctx, events.Event{
+	cm.bus.Send(ctx, event.Event{
 		System: api.System,
 		Kind:   api.InvalidateNodes,
 		Data:   affectedSlice,
@@ -198,7 +198,7 @@ func (cm *Manager) UpdateNode(_ context.Context, node Node, deps []Import) error
 		Created: time.Now(),
 	}
 
-	// Remove old dependencies
+	// Done old dependencies
 	oldDeps, err := cm.memGraph.GetDirectDependencies(node.ID)
 	if err != nil {
 		return fmt.Errorf("failed to get old dependencies: %w", err)
@@ -230,7 +230,7 @@ func (cm *Manager) DeleteNode(_ context.Context, id registry.ID) error {
 		return fmt.Errorf("node not found: %w", err)
 	}
 
-	// Remove node (MemoryGraph handles dependency cleanup)
+	// Done node (MemoryGraph handles dependency cleanup)
 	if err := cm.memGraph.RemoveNode(id); err != nil {
 		return fmt.Errorf("failed to remove node: %w", err)
 	}

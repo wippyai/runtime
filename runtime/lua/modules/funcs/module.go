@@ -1,7 +1,6 @@
 package funcs
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	contextapi "github.com/ponyruntime/pony/api/context"
@@ -10,26 +9,24 @@ import (
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
-	"github.com/ponyruntime/pony/runtime/uow"
 	transcode "github.com/ponyruntime/pony/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
 	"log"
 )
 
 type Module struct {
-	appContext context.Context
 }
 
 type Functions struct {
-	funcs      function.Registry
-	appContext context.Context
-	dtt        payload.Transcoder
-	values     *contextapi.Contexter[interface{}]
+	funcs  function.Registry
+	dtt    payload.Transcoder
+	values *contextapi.Contexter[interface{}]
 }
 
-func NewFunctionModule(appContext context.Context) *Module {
-	return &Module{appContext: appContext}
+func NewFunctionModule() *Module {
+	return &Module{}
 }
 
 func (m *Module) Name() string {
@@ -42,12 +39,16 @@ func (m *Module) Loader(l *lua.LState) int {
 		"new": m.new,
 	})
 
+	// Set up function executor metatable
 	mt := l.NewTypeMetatable("function.Executor")
 	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
 		"with_context": m.withContext,
 		"call":         m.call,
-		"run":          m.run,
+		"async":        m.async,
 	}))
+
+	// Register task type
+	RegisterTask(l)
 
 	l.Push(mod)
 	return 1
@@ -59,7 +60,7 @@ func (m *Module) extractDependencies(l *lua.LState) (function.Registry, payload.
 		return nil, nil, errors.New("no unit of work context found")
 	}
 
-	funcs := function.GetFuncsRegistry(uw.Context())
+	funcs := function.GetRegistry(uw.Context())
 	if funcs == nil {
 		return nil, nil, errors.New("function registry not found in context")
 	}
@@ -80,10 +81,9 @@ func (m *Module) new(l *lua.LState) int {
 	}
 
 	functions := &Functions{
-		funcs:      funcs,
-		appContext: m.appContext,
-		dtt:        dtt,
-		values:     contextapi.NewContexter[interface{}](),
+		funcs:  funcs,
+		dtt:    dtt,
+		values: contextapi.NewContexter[interface{}](),
 	}
 
 	ud := l.NewUserData()
@@ -123,10 +123,9 @@ func (m *Module) withContext(l *lua.LState) int {
 
 	// Create new Functions instance
 	newFunctions := &Functions{
-		funcs:      functions.funcs,
-		appContext: functions.appContext,
-		dtt:        functions.dtt,
-		values:     newValues,
+		funcs:  functions.funcs,
+		dtt:    functions.dtt,
+		values: newValues,
 	}
 
 	// Create new userdata with the new Functions instance
@@ -140,10 +139,10 @@ func (m *Module) withContext(l *lua.LState) int {
 
 func validateRegistryID(id registry.ID) error {
 	if id.NS == "" {
-		return fmt.Errorf("namespace is required, got empty namespace in ID: %s", id.String())
+		return fmt.Errorf("namespace is required, got empty namespace in Source: %s", id.String())
 	}
 	if id.Name == "" {
-		return fmt.Errorf("name is required, got empty name in ID: %s", id.String())
+		return fmt.Errorf("name is required, got empty name in Source: %s", id.String())
 	}
 	return nil
 }
@@ -164,7 +163,7 @@ func (m *Module) call(l *lua.LState) int {
 	}
 
 	// Create task with proper context
-	task, err := functions.createTask(l)
+	t, err := functions.createTask(l)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
@@ -172,40 +171,38 @@ func (m *Module) call(l *lua.LState) int {
 	}
 
 	// Wrap in coroutine for execution
-	coroutine.Wrap(l, func() *engine.Result {
-		resultChan, err := functions.funcs.Call(uw.Context(), task)
+	coroutine.Wrap(l, func() *engine.Update {
+		resultChan, err := functions.funcs.Call(uw.Context(), t)
 		if err != nil {
-			log.Printf("!!!!!!!Task %s executed successfully 1", task.ID.String())
-
-			return engine.NewResult(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
+			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
 		}
 
 		select {
 		case result := <-resultChan:
 			if result.Error != nil {
-				return engine.NewResult(nil, []lua.LValue{lua.LNil, lua.LString(result.Error.Error())}, nil)
+				return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(result.Error.Error())}, nil)
 			}
 
 			if result.Payload != nil {
 				res, err := functions.dtt.Transcode(result.Payload, payload.Lua)
 				if err != nil {
-					return engine.NewResult(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
+					return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
 				}
 
-				return engine.NewResult(nil, []lua.LValue{res.Data().(lua.LValue), lua.LNil}, nil)
+				return engine.NewUpdate(nil, []lua.LValue{res.Data().(lua.LValue), lua.LNil}, nil)
 			}
 
-			return engine.NewResult(nil, []lua.LValue{lua.LNil, lua.LNil}, nil)
+			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LNil}, nil)
 
 		case <-uw.Context().Done():
-			return engine.NewResult(nil, []lua.LValue{lua.LNil, lua.LString("execution canceled")}, nil)
+			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString("execution canceled")}, nil)
 		}
 	})
 
 	return -1 // Yield for coroutine
 }
 
-func (m *Module) run(l *lua.LState) int {
+func (m *Module) async(l *lua.LState) int {
 	ud := l.CheckUserData(1)
 	functions, ok := ud.Value.(*Functions)
 	if !ok {
@@ -214,20 +211,74 @@ func (m *Module) run(l *lua.LState) int {
 	}
 
 	// Create task with proper validation
-	task, err := functions.createTask(l)
+	runtimeTask, err := functions.createTask(l)
 	if err != nil {
-		l.Push(lua.LString(err.Error()))
-		return 1
+		l.RaiseError("failed to create task: %v", err)
+		return 0
 	}
 
-	// Start the task asynchronously with app context
-	_, err = functions.funcs.Call(functions.appContext, task)
-	if err != nil {
-		l.Push(lua.LString(err.Error()))
-		return 1
+	// Get unit of work from context
+	uw := uow.FromContext(l.Context())
+	if uw == nil {
+		l.RaiseError("no unit of work context found")
+		return 0
 	}
 
-	l.Push(lua.LNil)
+	// Create a task object with cancellation support
+	t := NewTask(l, uw.Context())
+
+	// Create task userdata
+	taskUd := l.NewUserData()
+	taskUd.Value = t
+	l.SetMetatable(taskUd, l.GetTypeMetatable("function.Task"))
+
+	// Start the task in a goroutine
+	go func() {
+		defer log.Printf("RESULT SENT")
+		// Start the function
+		resultChan, err := functions.funcs.Call(t.Context(), runtimeTask)
+		if err != nil {
+			// Set error in task object
+			t.SetError(err)
+			// Send error to the channel
+			_ = channel.Send(l, t.response, lua.LBool(false), true)
+			return
+		}
+
+		// Wait for result
+		select {
+		case result := <-resultChan:
+			if result.Error != nil {
+				// Error result
+				t.SetError(result.Error)
+				_ = channel.Close(l, t.response)
+			} else if result.Payload != nil {
+				// Success with payload
+				res, err := functions.dtt.Transcode(result.Payload, payload.Lua)
+				if err != nil {
+					t.SetError(err)
+					_ = channel.Close(l, t.response)
+				} else {
+					resultLua := res.Data().(lua.LValue)
+					t.SetResult(resultLua)
+					_ = channel.Send(l, t.response, resultLua, true)
+					_ = channel.Close(l, t.response)
+				}
+			} else {
+				// Empty success result
+				t.SetResult(lua.LNil)
+				_ = channel.Send(l, t.response, lua.LNil, true)
+				_ = channel.Close(l, t.response)
+			}
+		case <-t.Context().Done():
+			// Task was cancelled or context expired
+			t.SetError(ErrTaskCanceled)
+			_ = channel.Send(l, t.response, lua.LBool(false), false)
+		}
+	}()
+
+	// Return the task object
+	l.Push(taskUd)
 	return 1
 }
 
@@ -242,10 +293,10 @@ func (f *Functions) createTask(l *lua.LState) (runtime.Task, error) {
 		return runtime.Task{}, errors.New("target name is required")
 	}
 
-	// Parse and validate registry ID
+	// Parse and validate registry Source
 	regID := registry.ParseID(target)
 	if err := validateRegistryID(regID); err != nil {
-		return runtime.Task{}, fmt.Errorf("invalid registry ID: %w", err)
+		return runtime.Task{}, fmt.Errorf("invalid registry Source: %w", err)
 	}
 
 	var payloads []payload.Payload

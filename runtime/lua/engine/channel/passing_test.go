@@ -2,7 +2,6 @@ package channel
 
 import (
 	"context"
-	"github.com/ponyruntime/pony/runtime/uow"
 	"testing"
 
 	lua "github.com/yuin/gopher-lua"
@@ -32,7 +31,7 @@ func TestChannelPassingSimple(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	ctx, uw := uow.OnContext(context.Background())
+	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
 	defer func() { _ = uw.Close() }()
 
 	err = vm.StartString(ctx, `
@@ -57,13 +56,13 @@ func TestChannelPassingSimple(t *testing.T) {
 
 		-- Receiver for both channels
 		coroutine.spawn(function()
-			-- Send and use regular channel
+			-- send and use regular channel
 			local ch1 = passCh:receive()
 			local msg = ch1:receive()
 			assert(msg == "hello", "wrong message: " .. tostring(msg))
 			coroutine.yield("regular_received")
 
-			-- Send named channel
+			-- send named channel
 			local ch2 = passCh:receive()
 			assert(ch2 == namedCh, "received wrong named channel")
 			coroutine.yield("named_received")

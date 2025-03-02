@@ -8,17 +8,14 @@ import (
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/runtime"
 	"github.com/ponyruntime/pony/api/supervisor"
+	"github.com/ponyruntime/pony/api/topology"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
 	"github.com/ponyruntime/pony/runtime/uow"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 	"sync/atomic"
-	"time"
 )
-
-// ChannelInbox used as fallback when no named topic found, gets values WITH topic included.
-const ChannelInbox = "@inbox"
 
 // Process represents a Lua process instance
 type Process struct {
@@ -35,7 +32,7 @@ type Process struct {
 
 	// State tracking
 	pubsub   *subscribe.Layer
-	resultCh <-chan engine.Result
+	resultCh <-chan engine.Update
 	closed   atomic.Bool
 }
 
@@ -81,11 +78,7 @@ func (p *Process) Start(ctx context.Context, pid pubsub.PID, input payload.Paylo
 		return err
 	}
 
-	ctx = process.WithContext(ctx, &process.Context{
-		PID:   pid,
-		Start: time.Now(),
-		Input: input,
-	})
+	ctx = pubsub.WithPID(ctx, pid)
 
 	// Set up runner context and uow
 	ctx, p.uow = uow.OnContext(p.runner.WithContext(ctx))
@@ -165,8 +158,6 @@ func (p *Process) Send(pkg *pubsub.Package) error {
 	case <-p.ctx.Done():
 		return p.ctx.Err()
 	default:
-		// Check for inbox just once
-		hasInbox := p.pubsub.Exists(ChannelInbox)
 
 		for _, msg := range pkg.Messages {
 			// Convert payloads to Lua values
@@ -186,21 +177,19 @@ func (p *Process) Send(pkg *pubsub.Package) error {
 			}
 
 			// Fallback to inbox if available
-			if hasInbox {
-				inboxValues := make([]lua.LValue, 0, len(luaValues))
+			inboxValues := make([]lua.LValue, 0, len(luaValues))
 
-				// Create a message table for each value
-				for _, v := range luaValues {
-					msgTable := p.runner.GetCVM().State().NewTable()
-					msgTable.RawSetString("topic", lua.LString(msg.Topic))
-					msgTable.RawSetString("payload", v)
+			// Create a message table for each value
+			for _, v := range luaValues {
+				msgTable := p.runner.GetCVM().State().NewTable()
+				msgTable.RawSetString("topic", lua.LString(msg.Topic))
+				msgTable.RawSetString("payload", v)
 
-					inboxValues = append(inboxValues, msgTable)
-				}
-
-				// Send all messages in one batch
-				p.pubsub.Publish(ChannelInbox, inboxValues...)
+				inboxValues = append(inboxValues, msgTable)
 			}
+
+			// send all messages in one batch
+			p.pubsub.Publish(topology.TopicInbox, inboxValues...)
 		}
 		pubsub.ReleasePackage(pkg)
 		return nil

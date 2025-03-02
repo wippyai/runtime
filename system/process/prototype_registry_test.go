@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
@@ -34,7 +34,7 @@ func (m *mockProcess) Step() (bool, error) {
 	return true, m.stepErr
 }
 
-func newTestPrototypeRegistry(t *testing.T) (*PrototypeRegistry, events.Bus) {
+func newTestPrototypeRegistry(t *testing.T) (*PrototypeRegistry, event.Bus) {
 	logger := zap.NewNop()
 	bus := eventbus.NewBus()
 	reg := NewPrototypeFactory(bus, logger)
@@ -59,13 +59,13 @@ func TestPrototypeRegistry_RegisterPrototype(t *testing.T) {
 	require.NoError(t, protoRegistry.Start(ctx))
 	defer func() { assert.NoError(t, protoRegistry.Stop()) }()
 
-	responses := make(chan events.Event, 1)
+	responses := make(chan event.Event, 1)
 	sub, err := eventbus.NewSubscriber(
 		ctx,
 		bus,
 		process.PrototypeSystem,
 		"prototype.*",
-		func(evt events.Event) {
+		func(evt event.Event) {
 			if evt.Kind == process.ProtoAccept || evt.Kind == process.ProtoReject {
 				responses <- evt
 			}
@@ -79,7 +79,7 @@ func TestPrototypeRegistry_RegisterPrototype(t *testing.T) {
 			return &mockProcess{}, nil
 		}
 
-		bus.Send(ctx, events.Event{
+		bus.Send(ctx, event.Event{
 			System: process.PrototypeSystem,
 			Kind:   process.ProtoRegister,
 			Path:   "test:mock-process",
@@ -100,7 +100,7 @@ func TestPrototypeRegistry_RegisterPrototype(t *testing.T) {
 	})
 
 	t.Run("invalid registration payload", func(t *testing.T) {
-		bus.Send(ctx, events.Event{
+		bus.Send(ctx, event.Event{
 			System: process.PrototypeSystem,
 			Kind:   process.ProtoRegister,
 			Path:   "test:invalid-process",
@@ -124,7 +124,7 @@ func TestPrototypeRegistry_RegisterPrototype(t *testing.T) {
 			}, nil
 		}
 
-		bus.Send(ctx, events.Event{
+		bus.Send(ctx, event.Event{
 			System: process.PrototypeSystem,
 			Kind:   process.ProtoRegister,
 			Path:   "test:error-process",
@@ -153,13 +153,13 @@ func TestPrototypeRegistry_DeletePrototype(t *testing.T) {
 	require.NoError(t, protoRegistry.Start(ctx))
 	defer func() { assert.NoError(t, protoRegistry.Stop()) }()
 
-	responses := make(chan events.Event, 1)
+	responses := make(chan event.Event, 1)
 	sub, err := eventbus.NewSubscriber(
 		ctx,
 		bus,
 		process.PrototypeSystem,
 		"prototype.*",
-		func(evt events.Event) {
+		func(evt event.Event) {
 			if evt.Kind == process.ProtoAccept || evt.Kind == process.ProtoReject {
 				responses <- evt
 			}
@@ -174,7 +174,7 @@ func TestPrototypeRegistry_DeletePrototype(t *testing.T) {
 		return &mockProcess{}, nil
 	}
 
-	bus.Send(ctx, events.Event{
+	bus.Send(ctx, event.Event{
 		System: process.PrototypeSystem,
 		Kind:   process.ProtoRegister,
 		Path:   processID,
@@ -189,7 +189,7 @@ func TestPrototypeRegistry_DeletePrototype(t *testing.T) {
 	}
 
 	t.Run("successful deletion", func(t *testing.T) {
-		bus.Send(ctx, events.Event{
+		bus.Send(ctx, event.Event{
 			System: process.PrototypeSystem,
 			Kind:   process.ProtoDelete,
 			Path:   processID,
@@ -209,7 +209,7 @@ func TestPrototypeRegistry_DeletePrototype(t *testing.T) {
 	})
 
 	t.Run("delete non-existent prototype", func(t *testing.T) {
-		bus.Send(ctx, events.Event{
+		bus.Send(ctx, event.Event{
 			System: process.PrototypeSystem,
 			Kind:   process.ProtoDelete,
 			Path:   "test:nonexistent",
@@ -239,14 +239,14 @@ func TestPrototypeRegistry_Create(t *testing.T) {
 		return nil, assert.AnError
 	}
 
-	bus.Send(ctx, events.Event{
+	bus.Send(ctx, event.Event{
 		System: process.PrototypeSystem,
 		Kind:   process.ProtoRegister,
 		Path:   "test:success-process",
 		Data:   process.Prototype(successProcess),
 	})
 
-	bus.Send(ctx, events.Event{
+	bus.Send(ctx, event.Event{
 		System: process.PrototypeSystem,
 		Kind:   process.ProtoRegister,
 		Path:   "test:error-process",

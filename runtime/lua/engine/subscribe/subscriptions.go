@@ -10,7 +10,7 @@ type subscription struct {
 	channel *channel.Channel
 }
 
-// NOT thread safe, use with external sync.
+// NOT thread safe, use with external sync or inside layer.
 type subscriptionManager struct {
 	byTopic   map[string]*subscription
 	byChannel map[*channel.Channel]string

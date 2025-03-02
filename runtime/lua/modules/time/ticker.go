@@ -2,11 +2,10 @@ package time
 
 import (
 	"fmt"
+	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"time"
 
-	"github.com/ponyruntime/pony/runtime/lua/engine/async"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
-	"github.com/ponyruntime/pony/runtime/uow"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -22,9 +21,9 @@ func ticker(l *lua.LState) int {
 	var err error
 
 	// Get UoW from context
-	uw := uow.FromContext(l.Context())
+	uw := engine.GetUnitOfWork(l.Context())
 	if uw == nil {
-		l.RaiseError("time.ticker: unit of work missing")
+		l.RaiseError("time.Ticker: unit of work missing")
 		return 0
 	}
 
@@ -39,7 +38,7 @@ func ticker(l *lua.LState) int {
 	case lua.LString:
 		duration, err = time.ParseDuration(string(v))
 		if err != nil {
-			l.RaiseError("time.ticker: %s", err)
+			l.RaiseError("time.Ticker: %s", err)
 			return 0
 		}
 	case lua.LNumber:
@@ -59,20 +58,21 @@ func ticker(l *lua.LState) int {
 	tkr := time.NewTicker(duration)
 
 	// Register cleanup to stop ticker
-	uw.AddCleanupFunc(tkr.Stop)
+	uw.AddCleanup(func() error {
+		tkr.Stop()
+		return nil
+	})
 
-	// Spawn userdata for time value upfront
 	timeUD := l.NewUserData()
-	timeUD.Value = &Time{time: time.Now()} // initial value will be replaced
-	l.SetMetatable(timeUD, l.GetTypeMetatable("Time"))
+	timeUD.Value = &Time{time: time.Now()}
+	l.SetMetatable(timeUD, l.GetTypeMetatable("time.Time"))
 
-	// Launch goroutine to handle ticker
-	go func() {
+	uw.Run(func(uw engine.UnitOfWork) {
 		for {
 			select {
 			case t := <-tkr.C:
 				timeUD.Value = &Time{time: t}
-				errs := async.Send(l, ch, timeUD, true)
+				errs := channel.Send(l, ch, timeUD)
 				if errs != nil {
 					return
 				}
@@ -80,12 +80,12 @@ func ticker(l *lua.LState) int {
 				return
 			}
 		}
-	}()
+	})
 
 	// Spawn and return Ticker userdata
 	ud := l.NewUserData()
 	ud.Value = &Ticker{ticker: tkr, chValue: channel.Wrap(l, ch)}
-	l.SetMetatable(ud, l.GetTypeMetatable("Ticker"))
+	l.SetMetatable(ud, l.GetTypeMetatable("time.Ticker"))
 	l.Push(ud)
 	return 1
 }
@@ -122,7 +122,7 @@ func tickerChannel(l *lua.LState) int {
 
 // Register Ticker
 func registerTicker(l *lua.LState, mod *lua.LTable) {
-	mt := l.NewTypeMetatable("Ticker")
+	mt := l.NewTypeMetatable("time.Ticker")
 	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
 		"stop":    tickerStop,
 		"channel": tickerChannel,

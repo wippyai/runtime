@@ -1,4 +1,4 @@
-# Pony Runtime
+# Wippy Runtime
 
 A distributed process system for building resilient AI applications with Erlang-style process isolation and supervision.
 

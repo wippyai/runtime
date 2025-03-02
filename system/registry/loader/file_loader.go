@@ -15,6 +15,7 @@ type FilePayload struct {
 	path string
 }
 
+// Source returns the file path from which this payload was loaded
 func (p *FilePayload) Source() string {
 	return p.path
 }

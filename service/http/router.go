@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 )
 
+// RouteEntry represents a single route within a router
 type RouteEntry struct {
 	method  string
 	path    string
@@ -19,6 +20,7 @@ type RouteEntry struct {
 	funcID  registry.ID
 }
 
+// RouterEntry represents a router with its routes and middleware
 type RouterEntry struct {
 	prefix     string
 	middleware []func(http.Handler) http.Handler
@@ -33,6 +35,7 @@ type RouteManager struct {
 	router  atomic.Pointer[http.Handler]
 }
 
+// NewRouteManager creates a new route manager instance
 func NewRouteManager() *RouteManager {
 	rm := &RouteManager{
 		routers: make(map[registry.ID]*RouterEntry),
@@ -43,14 +46,21 @@ func NewRouteManager() *RouteManager {
 	return rm
 }
 
+// AddRouter adds a new router or updates an existing one
+// If a router with the same Source already exists, it will be updated with the new prefix and middleware
 func (rm *RouteManager) AddRouter(id registry.ID, prefix string, middleware []func(http.Handler) http.Handler) error {
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
 
-	if _, exists := rm.routers[id]; exists {
-		return fmt.Errorf("router %s already exists", id)
+	// Check if the router already exists
+	if existingRouter, exists := rm.routers[id]; exists {
+		// Update existing router instead of returning an error
+		existingRouter.prefix = prefix
+		existingRouter.middleware = middleware
+		return nil
 	}
 
+	// Create a new router if it doesn't exist
 	rm.routers[id] = &RouterEntry{
 		prefix:     prefix,
 		middleware: middleware,
@@ -60,6 +70,7 @@ func (rm *RouteManager) AddRouter(id registry.ID, prefix string, middleware []fu
 	return nil
 }
 
+// RemoveRouter removes a router by Source
 func (rm *RouteManager) RemoveRouter(id registry.ID) error {
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
@@ -72,6 +83,7 @@ func (rm *RouteManager) RemoveRouter(id registry.ID) error {
 	return nil
 }
 
+// AddRoute adds a new route to the specified router
 func (rm *RouteManager) AddRoute(routerID registry.ID, id registry.ID, method, path string, funcID registry.ID, handler http.Handler) error {
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
@@ -101,7 +113,7 @@ func (rm *RouteManager) AddRoute(routerID registry.ID, id registry.ID, method, p
 
 	// Check existing routes
 	if _, exists := router.routes[id]; exists {
-		return fmt.Errorf("route with ID %s already exists in router %s", id, routerID)
+		return fmt.Errorf("route with Source %s already exists in router %s", id, routerID)
 	}
 
 	// Check for conflicts
@@ -121,6 +133,7 @@ func (rm *RouteManager) AddRoute(routerID registry.ID, id registry.ID, method, p
 	return nil
 }
 
+// RemoveRoute removes a route from the specified router
 func (rm *RouteManager) RemoveRoute(routerID registry.ID, id registry.ID) error {
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
@@ -138,6 +151,7 @@ func (rm *RouteManager) RemoveRoute(routerID registry.ID, id registry.ID) error 
 	return nil
 }
 
+// Mount adds a handler at the specified path at the root level
 func (rm *RouteManager) Mount(path string, handler http.Handler) error {
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
@@ -158,6 +172,7 @@ func (rm *RouteManager) Mount(path string, handler http.Handler) error {
 	return nil
 }
 
+// Unmount removes a handler from the specified root path
 func (rm *RouteManager) Unmount(path string) error {
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
@@ -170,6 +185,7 @@ func (rm *RouteManager) Unmount(path string) error {
 	return nil
 }
 
+// wrapHandler wraps an HTTP handler with request context information
 func (rm *RouteManager) wrapHandler(handler http.Handler, funcID registry.ID) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Extract URL parameters from chi router context
@@ -199,6 +215,7 @@ func (rm *RouteManager) wrapHandler(handler http.Handler, funcID registry.ID) ht
 	})
 }
 
+// Build rebuilds the entire router from the current configuration
 func (rm *RouteManager) Build() {
 	router := chi.NewRouter()
 
@@ -229,6 +246,7 @@ func (rm *RouteManager) Build() {
 	rm.router.Store(&h)
 }
 
+// ServeHTTP implements the http.Handler interface
 func (rm *RouteManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	router := rm.router.Load()
 	if router == nil {

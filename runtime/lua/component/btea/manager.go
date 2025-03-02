@@ -5,11 +5,10 @@ import (
 	"fmt"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/process"
-	"github.com/ponyruntime/pony/runtime/lua/engine/async"
 	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
 	"sync"
 
-	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/registry"
 	api "github.com/ponyruntime/pony/api/runtime/lua"
 	"github.com/ponyruntime/pony/runtime/lua/code"
@@ -33,29 +32,27 @@ func init() {
 		WithPreloaded(code.Preload{Name: "upstream", ModuleID: registry.ID{Name: "upstream"}}).
 		WithPreloaded(code.Preload{Name: "tasks", ModuleID: registry.ID{Name: "tasks"}}).
 		WithPreloaded(code.Preload{Name: "btea", ModuleID: registry.ID{Name: "btea"}}).
-		WithPreloaded(code.Preload{Name: "process", ModuleID: registry.ID{Name: "process"}})
+		WithPreloaded(code.Preload{Name: "process", ModuleID: registry.ID{Name: "process"}}).
+		WithPreloaded(code.Preload{Name: "pubsub_inbox", ModuleID: registry.ID{Name: "pubsub_inbox"}}).
+		WithPreloaded(code.Preload{Name: "os", ModuleID: registry.ID{Name: "ostime"}})
 
-	layers = component.WithLayerInitializer(func() []engine.RunnerOption {
-		channels := channel.NewChannelLayer()
-		return []engine.RunnerOption{
-			engine.WithLayer(channels),
-			engine.WithLayer(async.NewAsyncLayer(channels, 32)),
-			engine.WithLayer(subscribe.NewSubscribe(channels)),
-			engine.WithLayer(coroutine.NewCoroutineLayer()),
-		}
-	})
+	layers = component.WithRunnerOption(
+		engine.WithLayer(channel.NewChannelLayer()),
+		engine.WithLayer(subscribe.NewSubscribeLayer()),
+		engine.WithLayer(coroutine.NewCoroutineLayer()),
+	)
 }
 
 // Manager is responsible for handling Btea apps.
 type Manager struct {
 	log     *zap.Logger
 	code    *code.Manager
-	bus     events.Bus
-	configs sync.Map // map[registry.ID]*api.BteaConfig
+	bus     event.Bus
+	configs sync.Map // map[registry.Source]*api.BteaConfig
 }
 
 // NewBteaManager creates a new instance of Manager.
-func NewBteaManager(log *zap.Logger, code *code.Manager, bus events.Bus) *Manager {
+func NewBteaManager(log *zap.Logger, code *code.Manager, bus event.Bus) *Manager {
 	return &Manager{
 		log:  log,
 		code: code,
@@ -80,7 +77,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		Method: cfg.Method,
 	}
 
-	if err := m.code.AddNode(ctx, node, component.BuildImports(cfg.Import, cfg.Modules)); err != nil {
+	if err := m.code.AddNode(ctx, node, component.BuildImports(cfg.Imports, cfg.Modules)); err != nil {
 		return fmt.Errorf("failed to add btea node: %w", err)
 	}
 
@@ -112,7 +109,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		Method: cfg.Method,
 	}
 
-	if err := m.code.UpdateNode(ctx, node, component.BuildImports(cfg.Import, nil)); err != nil {
+	if err := m.code.UpdateNode(ctx, node, component.BuildImports(cfg.Imports, nil)); err != nil {
 		return fmt.Errorf("failed to update btea node: %w", err)
 	}
 
@@ -195,7 +192,7 @@ func (m *Manager) upsertPrototype(ctx context.Context, id registry.ID) error {
 
 // registerPrototype registers a btea app as a process prototype
 func (m *Manager) registerPrototype(ctx context.Context, id registry.ID) {
-	m.bus.Send(ctx, events.Event{
+	m.bus.Send(ctx, event.Event{
 		System: process.PrototypeSystem,
 		Kind:   process.ProtoRegister,
 		Path:   id.String(),
@@ -213,7 +210,7 @@ func (m *Manager) registerPrototype(ctx context.Context, id registry.ID) {
 
 // unregisterPrototype removes a btea app's process prototype registration
 func (m *Manager) unregisterPrototype(ctx context.Context, id registry.ID) {
-	m.bus.Send(ctx, events.Event{
+	m.bus.Send(ctx, event.Event{
 		System: process.PrototypeSystem,
 		Kind:   process.ProtoDelete,
 		Path:   id.String(),

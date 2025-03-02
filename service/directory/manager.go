@@ -3,7 +3,7 @@ package directory
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/event"
 	fsapi "github.com/ponyruntime/pony/api/fs"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
@@ -15,18 +15,23 @@ import (
 // Manager handles filesystem directory registration and lifecycle
 type Manager struct {
 	log         *zap.Logger
-	bus         events.Bus
+	bus         event.Bus
 	dtt         payload.Transcoder
+	factory     FSFactoryAPI
 	mu          sync.RWMutex
 	directories sync.Map // map[string]*FS
 }
 
 // NewDirectoryManager creates a new directory manager instance
-func NewDirectoryManager(bus events.Bus, dtt payload.Transcoder, logger *zap.Logger) *Manager {
+func NewDirectoryManager(bus event.Bus, dtt payload.Transcoder, factory FSFactoryAPI, logger *zap.Logger) *Manager {
+	if factory == nil {
+		factory = NewDirectoryFSFactory()
+	}
 	return &Manager{
-		log: logger,
-		bus: bus,
-		dtt: dtt,
+		log:     logger,
+		bus:     bus,
+		dtt:     dtt,
+		factory: factory,
 	}
 }
 
@@ -109,8 +114,8 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 }
 
 func (m *Manager) registerFS(ctx context.Context, id registry.ID, cfg *dirapi.Config) error {
-	// Create the filesystem
-	fs, err := NewDirectoryFS(cfg.Directory, cfg.FileMode())
+	// Create the filesystem using the factory
+	fs, err := m.factory.CreateFS(cfg.Directory, cfg.FileMode())
 	if err != nil {
 		return fmt.Errorf("failed to create filesystem: %w", err)
 	}
@@ -119,7 +124,7 @@ func (m *Manager) registerFS(ctx context.Context, id registry.ID, cfg *dirapi.Co
 	m.directories.Store(id.String(), fs)
 
 	// Register regular filesystem
-	m.bus.Send(ctx, events.Event{
+	m.bus.Send(ctx, event.Event{
 		System: fsapi.System,
 		Kind:   fsapi.Register,
 		Path:   id.String(),
@@ -131,8 +136,8 @@ func (m *Manager) registerFS(ctx context.Context, id registry.ID, cfg *dirapi.Co
 
 // removeFS removes the filesystem from the fs system
 func (m *Manager) removeFS(ctx context.Context, id registry.ID) {
-	// Remove regular registration
-	m.bus.Send(ctx, events.Event{
+	// Done regular registration
+	m.bus.Send(ctx, event.Event{
 		System: fsapi.System,
 		Kind:   fsapi.Delete,
 		Path:   id.String(),

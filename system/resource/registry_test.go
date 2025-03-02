@@ -3,8 +3,7 @@ package resource
 import (
 	"context"
 	"fmt"
-	contextapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/resource"
 	"github.com/ponyruntime/pony/system/eventbus"
@@ -16,7 +15,7 @@ import (
 	"time"
 )
 
-func setupTest() (*Registry, events.Bus) {
+func setupTest() (*Registry, event.Bus) {
 	logger := zap.NewNop()
 	bus := eventbus.NewBus()
 	return NewResourceRegistry(bus, logger), bus
@@ -138,7 +137,7 @@ func TestService_ResourceLifecycle(t *testing.T) {
 	// Initialize the provider with the resource
 	provider.resources[id] = "test-data"
 
-	bus.Send(ctx, events.Event{
+	bus.Send(ctx, event.Event{
 		System: resource.System,
 		Kind:   resource.Register,
 		Path:   id.String(),
@@ -181,7 +180,7 @@ func TestService_ResourceLifecycle(t *testing.T) {
 	require.NoError(t, res.Release())
 
 	// Test removal
-	bus.Send(ctx, events.Event{
+	bus.Send(ctx, event.Event{
 		System: resource.System,
 		Kind:   resource.Delete,
 		Path:   id.String(),
@@ -212,7 +211,7 @@ func TestService_ResourceAccess(t *testing.T) {
 		Meta:     map[string]interface{}{"type": "test"},
 	}
 
-	bus.Send(ctx, events.Event{
+	bus.Send(ctx, event.Event{
 		System: resource.System,
 		Kind:   resource.Register,
 		Path:   id.String(),
@@ -291,7 +290,7 @@ func TestService_ContextCancellation(t *testing.T) {
 		Meta:     map[string]interface{}{"type": "test"},
 	}
 
-	bus.Send(ctx, events.Event{
+	bus.Send(ctx, event.Event{
 		System: resource.System,
 		Kind:   resource.Register,
 		Path:   id.String(),
@@ -314,12 +313,10 @@ func TestService_GetResources(t *testing.T) {
 	service, _ := setupTest()
 
 	// Test without registry in context
-	assert.Panics(t, func() {
-		resource.GetResources(ctx)
-	})
+	assert.Nil(t, resource.GetResources(ctx))
 
 	// Test with registry in context
-	ctxWithReg := context.WithValue(ctx, contextapi.ResourcesCtx, service)
+	ctxWithReg := resource.WithResources(ctx, service)
 	reg := resource.GetResources(ctxWithReg)
 	assert.NotNil(t, reg)
 	assert.Equal(t, service, reg)
@@ -347,7 +344,7 @@ func TestService_ResourceListing(t *testing.T) {
 			Meta:     map[string]interface{}{"type": "test"},
 		}
 
-		bus.Send(ctx, events.Event{
+		bus.Send(ctx, event.Event{
 			System: resource.System,
 			Kind:   resource.Register,
 			Path:   id.String(),
@@ -374,7 +371,7 @@ func TestService_ResourceListing(t *testing.T) {
 	}
 
 	// Delete a resource and verify list is updated
-	bus.Send(ctx, events.Event{
+	bus.Send(ctx, event.Event{
 		System: resource.System,
 		Kind:   resource.Delete,
 		Path:   resources[0].String(),
@@ -404,7 +401,7 @@ func TestService_UpdateResource(t *testing.T) {
 		Meta:     map[string]interface{}{"version": "1.0"},
 	}
 
-	bus.Send(ctx, events.Event{
+	bus.Send(ctx, event.Event{
 		System: resource.System,
 		Kind:   resource.Register,
 		Path:   id.String(),
@@ -419,7 +416,7 @@ func TestService_UpdateResource(t *testing.T) {
 			Meta:     map[string]interface{}{"version": "2.0"},
 		}
 
-		bus.Send(ctx, events.Event{
+		bus.Send(ctx, event.Event{
 			System: resource.System,
 			Kind:   resource.Update,
 			Path:   id.String(),
@@ -439,7 +436,7 @@ func TestService_UpdateResource(t *testing.T) {
 			Meta:     map[string]interface{}{"version": "1.0"},
 		}
 
-		bus.Send(ctx, events.Event{
+		bus.Send(ctx, event.Event{
 			System: resource.System,
 			Kind:   resource.Update,
 			Path:   nonExistentID.String(),
@@ -456,7 +453,7 @@ func TestService_HandleEvent(t *testing.T) {
 	defer func() { assert.NoError(t, service.Stop()) }()
 
 	t.Run("unknown event kind", func(t *testing.T) {
-		bus.Send(ctx, events.Event{
+		bus.Send(ctx, event.Event{
 			System: resource.System,
 			Kind:   "unknown.event",
 			Path:   "test:resource",
@@ -465,7 +462,7 @@ func TestService_HandleEvent(t *testing.T) {
 	})
 
 	t.Run("invalid register payload", func(t *testing.T) {
-		bus.Send(ctx, events.Event{
+		bus.Send(ctx, event.Event{
 			System: resource.System,
 			Kind:   resource.Register,
 			Path:   "test:resource",
@@ -476,7 +473,7 @@ func TestService_HandleEvent(t *testing.T) {
 	})
 
 	t.Run("invalid update payload", func(t *testing.T) {
-		bus.Send(ctx, events.Event{
+		bus.Send(ctx, event.Event{
 			System: resource.System,
 			Kind:   resource.Update,
 			Path:   "test:resource",
@@ -486,7 +483,7 @@ func TestService_HandleEvent(t *testing.T) {
 	})
 
 	t.Run("invalid remove payload", func(t *testing.T) {
-		bus.Send(ctx, events.Event{
+		bus.Send(ctx, event.Event{
 			System: resource.System,
 			Kind:   resource.Delete,
 			Path:   "test:resource",

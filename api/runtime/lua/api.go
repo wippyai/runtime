@@ -2,14 +2,14 @@ package lua
 
 import (
 	"context"
-	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/event"
 
 	lua "github.com/yuin/gopher-lua"
 )
 
 const (
-	System          events.System = "lua"
-	InvalidateNodes events.Kind   = "lua.reset_code"
+	System          event.System = "lua"
+	InvalidateNodes event.Kind   = "lua.reset_code"
 )
 
 type (

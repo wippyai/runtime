@@ -28,7 +28,7 @@ func TestSleepInCoroutines(t *testing.T) {
 		// Spawn wrapped VM with async runner
 		wrapped := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
 
-		// Import test script with two coroutines
+		// Imports test script with two coroutines
 		err = vm.Import(`
 		   local time = require("time")
 

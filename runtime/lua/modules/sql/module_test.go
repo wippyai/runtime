@@ -18,7 +18,7 @@ import (
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap/zaptest"
 
-	// Import SQLite driver for testing
+	// Imports SQLite driver for testing
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -141,7 +141,7 @@ func TestModuleBasicDBGet(t *testing.T) {
 		assert.NoError(t, err, "Unit of work cleanup failed")
 	}()
 
-	// Import our test function into the VM
+	// Imports our test function into the VM
 	err = vm.Import(`
 		function test_db_get()
 			local sql = require("sql")
@@ -175,7 +175,7 @@ func TestModuleBasicDBGet(t *testing.T) {
 	`, "test", "test_db_get")
 	require.NoError(t, err, "Failed to import test function")
 
-	// Execute the function using the runner
+	// Start the function using the runner
 	result, err := runner.Execute(L.Context(), "test_db_get")
 	require.NoError(t, err, "Lua execution failed")
 

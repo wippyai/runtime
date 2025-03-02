@@ -290,7 +290,7 @@ func processTextareaKeyMap(tbl *lua.LTable) textarea.KeyMap {
 	return keyMap
 }
 
-// Missing FuncName from BubbleTea that we should add
+// Missing Method from BubbleTea that we should add
 func textAreaLength(l *lua.LState) int {
 	ta := checkTextArea(l)
 	if ta == nil {

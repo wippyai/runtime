@@ -3,7 +3,7 @@ package noop
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/function"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
@@ -13,12 +13,12 @@ import (
 
 // Runtime implements a no-op runtime manager that satisfies the EntryListener interface
 type Runtime struct {
-	bus    events.Bus
+	bus    event.Bus
 	logger *zap.Logger
 }
 
 // NewNoopRuntime creates a new instance of Runtime
-func NewNoopRuntime(bus events.Bus, logger *zap.Logger) *Runtime {
+func NewNoopRuntime(bus event.Bus, logger *zap.Logger) *Runtime {
 	return &Runtime{
 		bus:    bus,
 		logger: logger,
@@ -40,9 +40,9 @@ func (n *Runtime) Add(ctx context.Context, entry registry.Entry) error {
 		zap.String("id", entry.ID.String()),
 		zap.String("kind", string(entry.Kind)))
 
-	n.bus.Send(ctx, events.Event{
+	n.bus.Send(ctx, event.Event{
 		System: function.System,
-		Kind:   function.FuncRegister,
+		Kind:   function.Register,
 		Path:   entry.ID.String(),
 		Data:   function.Func(n.Execute),
 	})
@@ -64,9 +64,9 @@ func (n *Runtime) Delete(ctx context.Context, entry registry.Entry) error {
 		zap.String("id", entry.ID.String()),
 		zap.String("kind", entry.Kind))
 
-	n.bus.Send(ctx, events.Event{
+	n.bus.Send(ctx, event.Event{
 		System: function.System,
-		Kind:   function.FuncDelete,
+		Kind:   function.Delete,
 		Path:   entry.ID.String(),
 	})
 

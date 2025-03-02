@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/stretchr/testify/require"
 )
@@ -24,8 +24,8 @@ func newTestBus(t *testing.T) *Bus {
 }
 
 // Helper function to generate test eventbus
-func newTestEvent(system events.System, kind events.Kind, data any) events.Event {
-	return events.Event{
+func newTestEvent(system event.System, kind event.Kind, data any) event.Event {
+	return event.Event{
 		System: system,
 		Kind:   kind,
 		Data:   payload.New(data),
@@ -33,9 +33,9 @@ func newTestEvent(system events.System, kind events.Kind, data any) events.Event
 }
 
 // Helper function to wait for a specified number of eventbus or timeout
-func waitForEvents(t *testing.T, ch chan events.Event, numEvents int, timeout time.Duration) []events.Event { //nolint:unparam
+func waitForEvents(t *testing.T, ch chan event.Event, numEvents int, timeout time.Duration) []event.Event { //nolint:unparam
 	t.Helper()
-	receivedEvents := make([]events.Event, 0, numEvents)
+	receivedEvents := make([]event.Event, 0, numEvents)
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 
@@ -55,23 +55,23 @@ func TestSubscribeAndSend(t *testing.T) {
 	bus := newTestBus(t)
 	defer bus.Stop()
 
-	ch := make(chan events.Event, 10)
+	ch := make(chan event.Event, 10)
 	subID, err := bus.Subscribe(context.Background(), "test-system", ch)
 	require.NoError(t, err)
 	defer bus.Unsubscribe(context.Background(), subID)
 
-	event := newTestEvent("test-system", "test-kind", "test-payload")
-	bus.Send(context.Background(), event)
+	e := newTestEvent("test-system", "test-kind", "test-payload")
+	bus.Send(context.Background(), e)
 
 	receivedEvents := waitForEvents(t, ch, 1, time.Second)
-	require.Equal(t, event, receivedEvents[0])
+	require.Equal(t, e, receivedEvents[0])
 }
 
 func TestSubscribeWithPathAndSend(t *testing.T) {
 	bus := newTestBus(t)
 	defer bus.Stop()
 
-	ch := make(chan events.Event, 10)
+	ch := make(chan event.Event, 10)
 	subID, err := bus.SubscribeP(context.Background(), "test-system", "users.*", ch)
 	require.NoError(t, err)
 	defer bus.Unsubscribe(context.Background(), subID)
@@ -97,7 +97,7 @@ func TestWildcardSystem(t *testing.T) {
 	bus := newTestBus(t)
 	defer bus.Stop()
 
-	ch := make(chan events.Event, 10)
+	ch := make(chan event.Event, 10)
 	subID, err := bus.Subscribe(context.Background(), "*", ch)
 	require.NoError(t, err)
 	defer bus.Unsubscribe(context.Background(), subID)
@@ -118,7 +118,7 @@ func TestUnsubscribe(t *testing.T) {
 	bus := newTestBus(t)
 	defer bus.Stop()
 
-	ch := make(chan events.Event, 10)
+	ch := make(chan event.Event, 10)
 	subID, err := bus.Subscribe(context.Background(), "test-system", ch)
 	require.NoError(t, err)
 
@@ -146,13 +146,13 @@ func TestUnsubscribe(t *testing.T) {
 func TestBusStop(t *testing.T) {
 	bus := newTestBus(t)
 
-	ch := make(chan events.Event, 10)
+	ch := make(chan event.Event, 10)
 	_, err := bus.Subscribe(context.Background(), "test-system", ch)
 	require.NoError(t, err)
 
 	// send event before stopping
-	event := newTestEvent("test-system", "test-kind", "payload")
-	bus.Send(context.Background(), event)
+	e := newTestEvent("test-system", "test-kind", "payload")
+	bus.Send(context.Background(), e)
 
 	receivedEvents := waitForEvents(t, ch, 1, time.Second)
 	require.Len(t, receivedEvents, 1)
@@ -165,13 +165,13 @@ func TestSendWithNilPayload(_ *testing.T) {
 	b := NewBus()
 	defer b.Stop()
 
-	event := events.Event{
+	e := event.Event{
 		System: "test-system",
 		Kind:   "test-kind",
 		Data:   nil,
 	}
 
-	b.Send(context.Background(), event)
+	b.Send(context.Background(), e)
 }
 
 func TestConcurrentSubscribeUnsubscribe(t *testing.T) {
@@ -185,7 +185,7 @@ func TestConcurrentSubscribeUnsubscribe(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			ch := make(chan events.Event)
+			ch := make(chan event.Event)
 			subID, err := b.Subscribe(context.Background(), "test-system", ch)
 			if err != nil {
 				t.Errorf("Listen failed: %v", err)
@@ -210,7 +210,7 @@ func TestConcurrentSendSubscribe(t *testing.T) {
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
-			ch := make(chan events.Event, numGoroutines)
+			ch := make(chan event.Event, numGoroutines)
 			_, err := b.Subscribe(context.Background(), "test-system", ch)
 			if err != nil {
 				t.Errorf("Listen failed: %v", err)
@@ -219,12 +219,12 @@ func TestConcurrentSendSubscribe(t *testing.T) {
 
 		go func() {
 			defer wg.Done()
-			event := events.Event{
+			e := event.Event{
 				System: "test-system",
 				Kind:   "test-kind",
 				Data:   payload.New([]byte("test-data")),
 			}
-			b.Send(context.Background(), event)
+			b.Send(context.Background(), e)
 		}()
 	}
 
@@ -235,18 +235,18 @@ func TestUnsubscribeClosesChannel(t *testing.T) {
 	b := NewBus()
 	defer b.Stop()
 
-	ch := make(chan events.Event)
+	ch := make(chan event.Event)
 	subID, _ := b.Subscribe(context.Background(), "test-system", ch)
 
 	b.Unsubscribe(context.Background(), subID)
 
-	// Send an event after unsubscribe
-	event := events.Event{
+	// send an event after unsubscribe
+	e := event.Event{
 		System: "test-system",
 		Kind:   "test-kind",
 		Data:   payload.New([]byte("test-data")),
 	}
-	b.Send(context.Background(), event)
+	b.Send(context.Background(), e)
 
 	// Verify no events are received after unsubscribe
 	select {
@@ -261,17 +261,17 @@ func TestNoEventsAfterUnsubscribe(t *testing.T) {
 	b := NewBus()
 	defer b.Stop()
 
-	ch := make(chan events.Event)
+	ch := make(chan event.Event)
 	subID, _ := b.Subscribe(context.Background(), "test-system", ch)
 
 	b.Unsubscribe(context.Background(), subID)
 
-	event := events.Event{
+	e := event.Event{
 		System: "test-system",
 		Kind:   "test-kind",
 		Data:   payload.New([]byte("test-data")),
 	}
-	b.Send(context.Background(), event)
+	b.Send(context.Background(), e)
 
 	select {
 	case _, ok := <-ch:
@@ -290,8 +290,8 @@ func TestStopBusClosesInternalChannel(_ *testing.T) {
 func TestStopWithActiveSubscribers(t *testing.T) {
 	b := NewBus()
 
-	ch1 := make(chan events.Event)
-	ch2 := make(chan events.Event)
+	ch1 := make(chan event.Event)
+	ch2 := make(chan event.Event)
 	_, err := b.Subscribe(context.Background(), "test-system", ch1)
 	require.NoError(t, err)
 	_, err = b.Subscribe(context.Background(), "other-system", ch2)
@@ -299,9 +299,9 @@ func TestStopWithActiveSubscribers(t *testing.T) {
 
 	b.Stop()
 
-	// Send events after stop
-	event := newTestEvent("test-system", "test-kind", "test-data")
-	b.Send(context.Background(), event)
+	// send events after stop
+	e := newTestEvent("test-system", "test-kind", "test-data")
+	b.Send(context.Background(), e)
 
 	// Verify that no events are received after stop
 	select {
@@ -318,7 +318,7 @@ func TestSubscribePEmptyKind(t *testing.T) {
 	b := NewBus()
 	defer b.Stop()
 
-	ch := make(chan events.Event)
+	ch := make(chan event.Event)
 	_, err := b.SubscribeP(context.Background(), "test-system", "", ch)
 	if err != nil {
 		t.Errorf("SubscribeP with empty kind failed: %v", err)
@@ -329,17 +329,17 @@ func TestMultipleSubscribersSameSystemPath(_ *testing.T) {
 	b := NewBus()
 	defer b.Stop()
 
-	ch1 := make(chan events.Event, 1)
-	ch2 := make(chan events.Event, 1)
+	ch1 := make(chan event.Event, 1)
+	ch2 := make(chan event.Event, 1)
 	_, _ = b.Subscribe(context.Background(), "test-system", ch1)
 	_, _ = b.Subscribe(context.Background(), "test-system", ch2)
 
-	event := events.Event{
+	e := event.Event{
 		System: "test-system",
 		Kind:   "test-kind",
 		Data:   payload.New([]byte("test-data")),
 	}
-	b.Send(context.Background(), event)
+	b.Send(context.Background(), e)
 
 	// Verify both subscribers receive the event
 	<-ch1
@@ -350,8 +350,8 @@ func TestMultipleSubscribersDifferentKinds(t *testing.T) {
 	b := NewBus()
 	defer b.Stop()
 
-	ch1 := make(chan events.Event, 10)
-	ch2 := make(chan events.Event, 10)
+	ch1 := make(chan event.Event, 10)
+	ch2 := make(chan event.Event, 10)
 
 	id1, err := b.SubscribeP(context.Background(), "test-system", "users.*", ch1)
 	require.NoError(t, err)
@@ -400,7 +400,7 @@ func TestStopWithPendingUnsubscribe(t *testing.T) {
 	b := NewBus()
 
 	// Spawn a subscriber
-	ch := make(chan events.Event)
+	ch := make(chan event.Event)
 	subID, err := b.Subscribe(context.Background(), "test-system", ch)
 	require.NoError(t, err)
 
@@ -415,7 +415,7 @@ func TestStopWithPendingUnsubscribe(t *testing.T) {
 		}()
 	}
 
-	// Call Close() while unsubscribe requests are being processed
+	// Call close() while unsubscribe requests are being processed
 	go func() {
 		time.Sleep(10 * time.Millisecond) // Give some time for unsubscribe requests to queue up
 		b.Stop()
@@ -428,7 +428,7 @@ func TestMultipleUnsubscribeSameID(t *testing.T) {
 	b := NewBus()
 	defer b.Stop()
 
-	ch := make(chan events.Event)
+	ch := make(chan event.Event)
 	subID, err := b.Subscribe(context.Background(), "test-system", ch)
 	require.NoError(t, err)
 
@@ -448,7 +448,7 @@ func TestMultipleUnsubscribeSameID(t *testing.T) {
 func TestUnsubscribeAfterStop(t *testing.T) {
 	b := NewBus()
 
-	ch := make(chan events.Event)
+	ch := make(chan event.Event)
 	subID, err := b.Subscribe(context.Background(), "test-system", ch)
 	require.NoError(t, err)
 
@@ -475,18 +475,18 @@ func TestHighConcurrencyStress(t *testing.T) {
 	publisherWg := sync.WaitGroup{}
 
 	// Launch subscribers
-	channels := make([]chan events.Event, numSubscribers)
-	subscriberIDs := make([]events.SubscriberID, numSubscribers)
+	channels := make([]chan event.Event, numSubscribers)
+	subscriberIDs := make([]event.SubscriberID, numSubscribers)
 
 	for i := 0; i < numSubscribers; i++ {
 		subscriberWg.Add(1)
-		channels[i] = make(chan events.Event, totalMessages) // Buffered channel to prevent blocking
+		channels[i] = make(chan event.Event, totalMessages) // Buffered channel to prevent blocking
 
 		var err error
 		subscriberIDs[i], err = b.Subscribe(context.Background(), "*", channels[i])
 		require.NoError(t, err)
 
-		go func(ch chan events.Event) {
+		go func(ch chan event.Event) {
 			defer subscriberWg.Done()
 			// on close will exit automatically
 			for range ch {
@@ -501,12 +501,12 @@ func TestHighConcurrencyStress(t *testing.T) {
 		go func(pubID int) {
 			defer publisherWg.Done()
 			for j := 0; j < messagesPerPub; j++ {
-				event := events.Event{
+				e := event.Event{
 					System: "stress-test",
-					Kind:   events.Kind(fmt.Sprintf("event-%d-%d", pubID, j)),
+					Kind:   event.Kind(fmt.Sprintf("event-%d-%d", pubID, j)),
 					Data:   payload.New(fmt.Sprintf("data-%d-%d", pubID, j)),
 				}
-				b.Send(context.Background(), event)
+				b.Send(context.Background(), e)
 			}
 		}(i)
 	}
@@ -529,7 +529,7 @@ func TestHighConcurrencyStress(t *testing.T) {
 
 	unsubWg.Wait()
 
-	// Close remaining channels and unsubscribe
+	// close remaining channels and unsubscribe
 	for i := numSubscribers / 2; i < numSubscribers; i++ {
 		b.Unsubscribe(context.Background(), subscriberIDs[i])
 		close(channels[i])
@@ -557,27 +557,27 @@ func TestConcurrentSubscribeWithFilter(t *testing.T) {
 	)
 
 	var wg sync.WaitGroup
-	subscriberChans := make([]chan events.Event, numSubscribers)
-	subscriberIDs := make([]events.SubscriberID, numSubscribers)
+	subscriberChans := make([]chan event.Event, numSubscribers)
+	subscriberIDs := make([]event.SubscriberID, numSubscribers)
 
 	// Spawn subscribers with different filters
 	for i := 0; i < numSubscribers; i++ {
 		wg.Add(1)
-		subscriberChans[i] = make(chan events.Event, numMessages)
+		subscriberChans[i] = make(chan event.Event, numMessages)
 		system := fmt.Sprintf("system-%d", i%numSystems)
 		kind := fmt.Sprintf("kind-%d.*", i%numKinds)
 
 		go func(idx int, sys string, k string) {
 			defer wg.Done()
 			var err error
-			subscriberIDs[idx], err = b.SubscribeP(context.Background(), events.System(sys), events.Kind(k), subscriberChans[idx])
+			subscriberIDs[idx], err = b.SubscribeP(context.Background(), event.System(sys), event.Kind(k), subscriberChans[idx])
 			require.NoError(t, err)
 		}(i, system, kind)
 	}
 
 	wg.Wait()
 
-	// Send messages concurrently
+	// send messages concurrently
 	var sendWg sync.WaitGroup
 	for i := 0; i < numMessages; i++ {
 		sendWg.Add(1)
@@ -586,12 +586,12 @@ func TestConcurrentSubscribeWithFilter(t *testing.T) {
 			system := fmt.Sprintf("system-%d", msgID%numSystems)
 			kind := fmt.Sprintf("kind-%d.test", msgID%numKinds)
 
-			event := events.Event{
-				System: events.System(system),
-				Kind:   events.Kind(kind),
+			e := event.Event{
+				System: event.System(system),
+				Kind:   event.Kind(kind),
 				Data:   payload.New(fmt.Sprintf("data-%d", msgID)),
 			}
-			b.Send(context.Background(), event)
+			b.Send(context.Background(), e)
 		}(i)
 	}
 
@@ -655,8 +655,8 @@ func TestConcurrentBusClosing(t *testing.T) {
 			defer wg.Done()
 			<-startSignal // Wait for signal to start
 
-			ch := make(chan events.Event, 10)
-			subID, err := b.Subscribe(context.Background(), events.System(fmt.Sprintf("system-%d", id)), ch)
+			ch := make(chan event.Event, 10)
+			subID, err := b.Subscribe(context.Background(), event.System(fmt.Sprintf("system-%d", id)), ch)
 			if err != nil {
 				// Either got "bus is closed" error or succeeded
 				if err.Error() != "bus is closed" {
@@ -677,12 +677,12 @@ func TestConcurrentBusClosing(t *testing.T) {
 			defer wg.Done()
 			<-startSignal // Wait for signal to start
 
-			event := events.Event{
+			e := event.Event{
 				System: "test",
 				Kind:   "test",
 				Data:   payload.New(fmt.Sprintf("data-%d", id)),
 			}
-			b.Send(context.Background(), event)
+			b.Send(context.Background(), e)
 		}(i)
 	}
 
@@ -706,15 +706,15 @@ func TestStopDuringBackpressure(t *testing.T) {
 
 	// Spawn multiple subscribers with buffered channels to prevent complete blockage
 	numSubscribers := 10
-	subscribers := make([]chan events.Event, numSubscribers)
+	subscribers := make([]chan event.Event, numSubscribers)
 	for i := 0; i < numSubscribers; i++ {
-		subscribers[i] = make(chan events.Event, 10) // Buffered channel
+		subscribers[i] = make(chan event.Event, 10) // Buffered channel
 		_, err := b.Subscribe(context.Background(), "*", subscribers[i])
 		require.NoError(t, err)
 	}
 
 	// Spawn one slow subscriber to simulate backpressure
-	slowCh := make(chan events.Event, 1) // Small buffer
+	slowCh := make(chan event.Event, 1) // Small buffer
 	_, err := b.Subscribe(context.Background(), "*", slowCh)
 	require.NoError(t, err)
 
@@ -742,7 +742,7 @@ func TestStopDuringBackpressure(t *testing.T) {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			event := events.Event{
+			e := event.Event{
 				System: "test",
 				Kind:   "test",
 				Data:   payload.New(fmt.Sprintf("data-%d", id)),
@@ -751,26 +751,26 @@ func TestStopDuringBackpressure(t *testing.T) {
 			// Try to send with timeout context to prevent permanent blocking
 			sendCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
 			defer cancel()
-			b.Send(sendCtx, event)
+			b.Send(sendCtx, e)
 		}(i)
 	}
 
 	// Wait a bit to build up some backpressure
 	time.Sleep(100 * time.Millisecond)
 
-	// Close the bus while under backpressure
+	// close the bus while under backpressure
 	stopDone := make(chan struct{})
 	go func() {
 		b.Stop()
 		close(stopDone)
 	}()
 
-	// Ensure Close() completes within a reasonable timeout
+	// Ensure close() completes within a reasonable timeout
 	select {
 	case <-stopDone:
 		// Success - bus stopped properly
 	case <-time.After(1 * time.Second): // Reduced timeout
-		t.Fatal("bus.Close() took too long under backpressure")
+		t.Fatal("bus.close() took too long under backpressure")
 	}
 
 	// Cleanup
@@ -798,7 +798,7 @@ func TestConcurrentStopAndSubscribe(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				ch := make(chan events.Event)
+				ch := make(chan event.Event)
 				_, err := b.Subscribe(context.Background(), "*", ch)
 				if err != nil && err.Error() != "bus is closed" {
 					t.Errorf("unexpected error: %v", err)
@@ -833,12 +833,12 @@ func TestConcurrentContextCancellation(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 
-			ch := make(chan events.Event)
+			ch := make(chan event.Event)
 			r, _ := rand.Int(rand.Reader, big.NewInt(100))
 			subCtx, subCancel := context.WithTimeout(ctx, time.Duration(r.Int64())*time.Millisecond)
 			defer subCancel()
 
-			_, err := b.Subscribe(subCtx, events.System(fmt.Sprintf("system-%d", id)), ch)
+			_, err := b.Subscribe(subCtx, event.System(fmt.Sprintf("system-%d", id)), ch)
 			if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 				errChan <- fmt.Errorf("unexpected error on subscribe: %w", err)
 			}
@@ -855,12 +855,12 @@ func TestConcurrentContextCancellation(t *testing.T) {
 			sendCtx, sendCancel := context.WithTimeout(ctx, time.Duration(r.Int64())*time.Millisecond)
 			defer sendCancel()
 
-			event := events.Event{
+			e := event.Event{
 				System: "test",
 				Kind:   "test",
 				Data:   payload.New(fmt.Sprintf("data-%d", id)),
 			}
-			b.Send(sendCtx, event)
+			b.Send(sendCtx, e)
 		}(i)
 	}
 

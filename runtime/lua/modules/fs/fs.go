@@ -8,11 +8,9 @@ import (
 	fsapi "github.com/ponyruntime/pony/api/fs"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
-	"github.com/ponyruntime/pony/runtime/uow"
 	lua "github.com/yuin/gopher-lua"
 	"io"
 	"io/fs"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -165,7 +163,7 @@ func fsOpen(l *lua.LState) int {
 	wrappedFile := &File{file: file}
 
 	// Use uow to register cleanup for open files - with improved error handling
-	uw := uow.FromContext(l.Context())
+	uw := engine.GetUnitOfWork(l.Context())
 	if uw != nil {
 		uw.AddCleanup(func() error {
 			err := wrappedFile.Close()
@@ -341,8 +339,9 @@ func fsExists(l *lua.LState) int {
 		l.Push(lua.LBool(false))
 		return 1
 	}
-	l.RaiseError("fs.exists: %s", err.Error())
-	return 0
+
+	l.Push(lua.LBool(false))
+	return 1
 }
 
 // fsIsDir returns true if the given path (relative to cwd) refers to a directory.
@@ -369,11 +368,10 @@ func fsReadFile(l *lua.LState) int {
 	}
 	resolved := fsInst.resolvePath(path)
 
-	coroutine.Wrap(l, func() *engine.Result {
+	coroutine.Wrap(l, func() *engine.Update {
 		file, err := fsInst.fs.OpenFile(resolved, os.O_RDONLY, 0)
 		if err != nil {
-			log.Printf("fs.read_all: %s", err.Error())
-			return engine.NewResult(nil, nil, fmt.Errorf("fs.read_all: %s", err.Error()))
+			return engine.NewUpdate(nil, nil, fmt.Errorf("fs.read_all: %s", err.Error()))
 		}
 		f := &File{file: file}
 		defer func() {
@@ -382,10 +380,10 @@ func fsReadFile(l *lua.LState) int {
 
 		var buf bytes.Buffer
 		if _, err := io.Copy(&buf, f); err != nil {
-			return engine.NewResult(nil, nil, fmt.Errorf("fs.read_all: %s", err.Error()))
+			return engine.NewUpdate(nil, nil, fmt.Errorf("fs.read_all: %s", err.Error()))
 		}
 
-		return engine.NewResult(nil, []lua.LValue{lua.LString(buf.String())}, nil)
+		return engine.NewUpdate(nil, []lua.LValue{lua.LString(buf.String())}, nil)
 	})
 
 	return -1 // Yield
@@ -420,11 +418,11 @@ func fsWriteFile(l *lua.LState) int {
 
 	value := l.Get(3)
 
-	coroutine.Wrap(l, func() *engine.Result {
+	coroutine.Wrap(l, func() *engine.Update {
 		// Open destination file
 		dstFile, err := fsInst.fs.OpenFile(resolved, flag, 0644)
 		if err != nil {
-			return engine.NewResult(nil, nil, fmt.Errorf("fs.writeall: failed to open destination: %w", err))
+			return engine.NewUpdate(nil, nil, fmt.Errorf("fs.writeall: failed to open destination: %w", err))
 		}
 		dst := &File{file: dstFile}
 		defer func() {
@@ -442,19 +440,19 @@ func fsWriteFile(l *lua.LState) int {
 			if r, ok := v.Value.(io.Reader); ok {
 				reader = r
 			} else {
-				return engine.NewResult(nil, nil, fmt.Errorf("fs.writeall: input does not implement io.Reader"))
+				return engine.NewUpdate(nil, nil, fmt.Errorf("fs.writeall: input does not implement io.Reader"))
 			}
 
 		default:
-			return engine.NewResult(nil, nil, fmt.Errorf("fs.writeall: invalid input type, expected string or Reader"))
+			return engine.NewUpdate(nil, nil, fmt.Errorf("fs.writeall: invalid input type, expected string or Reader"))
 		}
 
 		// Copy the data
 		if _, err := io.Copy(dst, reader); err != nil {
-			return engine.NewResult(nil, nil, fmt.Errorf("fs.writeall: copy failed: %w", err))
+			return engine.NewUpdate(nil, nil, fmt.Errorf("fs.writeall: copy failed: %w", err))
 		}
 
-		return engine.NewResult(nil, []lua.LValue{lua.LBool(true)}, nil)
+		return engine.NewUpdate(nil, []lua.LValue{lua.LBool(true)}, nil)
 	})
 
 	return -1 // Yield

@@ -6,12 +6,15 @@ import (
 	"time"
 )
 
+// Cache is a simple LRU cache
 type Cache[K comparable, V any] struct {
-	mu        sync.RWMutex
-	capacity  int
-	items     map[K]*list.Element
-	evictList *list.List
-	ttl       time.Duration
+	mu          sync.RWMutex
+	capacity    int
+	items       map[K]*list.Element
+	evictList   *list.List
+	ttl         time.Duration
+	stopCleanup chan struct{}
+	closed      bool
 }
 
 type entry[K comparable, V any] struct {
@@ -24,8 +27,9 @@ type entry[K comparable, V any] struct {
 type Option func(*config)
 
 type config struct {
-	capacity int
-	ttl      time.Duration
+	capacity   int
+	ttl        time.Duration
+	gcInterval time.Duration
 }
 
 // WithCapacity sets cache capacity
@@ -42,21 +46,74 @@ func WithTTL(ttl time.Duration) Option {
 	}
 }
 
+// WithGCInterval sets the interval for background garbage collection of expired entries
+func WithGCInterval(interval time.Duration) Option {
+	return func(c *config) {
+		c.gcInterval = interval
+	}
+}
+
 // New creates a new Cache with the given options
 func New[K comparable, V any](opts ...Option) *Cache[K, V] {
 	cfg := &config{
-		capacity: 1000, // default capacity
+		capacity:   1000,        // default capacity
+		gcInterval: time.Minute, // default GC interval
 	}
 
 	for _, opt := range opts {
 		opt(cfg)
 	}
 
-	return &Cache[K, V]{
-		capacity:  cfg.capacity,
-		ttl:       cfg.ttl,
-		items:     make(map[K]*list.Element),
-		evictList: list.New(),
+	cache := &Cache[K, V]{
+		capacity:    cfg.capacity,
+		ttl:         cfg.ttl,
+		items:       make(map[K]*list.Element),
+		evictList:   list.New(),
+		stopCleanup: make(chan struct{}),
+	}
+
+	// Start cleanup goroutine if TTL is enabled
+	if cfg.ttl > 0 && cfg.gcInterval > 0 {
+		go cache.cleanupLoop(cfg.gcInterval)
+	}
+
+	return cache
+}
+
+// Internal cleanup loop
+func (c *Cache[K, V]) cleanupLoop(interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			c.cleanup()
+		case <-c.stopCleanup:
+			return
+		}
+	}
+}
+
+// Internal cleanup function
+func (c *Cache[K, V]) cleanup() {
+	if c.ttl <= 0 {
+		return
+	}
+
+	now := time.Now()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for element := c.evictList.Back(); element != nil; {
+		next := element.Prev() // Get next before potentially removing element
+
+		e := element.Value.(*entry[K, V])
+		if !e.expiration.IsZero() && now.After(e.expiration) {
+			c.removeElement(element)
+		}
+
+		element = next
 	}
 }
 
@@ -138,5 +195,16 @@ func (c *Cache[K, V]) removeElement(element *list.Element) {
 func (c *Cache[K, V]) evictOldest() {
 	if element := c.evictList.Back(); element != nil {
 		c.removeElement(element)
+	}
+}
+
+// Close shuts down the cleanup goroutine
+func (c *Cache[K, V]) Close() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if !c.closed {
+		close(c.stopCleanup)
+		c.closed = true
 	}
 }

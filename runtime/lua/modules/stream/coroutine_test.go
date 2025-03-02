@@ -50,7 +50,7 @@ func TestAsyncStreamRead(t *testing.T) {
 		vm.State().SetMetatable(ud, vm.State().GetTypeMetatable("Stream"))
 		vm.State().SetGlobal("test_stream", ud)
 
-		// Import test script with coroutines
+		// Imports test script with coroutines
 		err = vm.Import(`
             function test_stream_read()
 				local results = {}
@@ -136,7 +136,7 @@ func TestAsyncStreamIter(t *testing.T) {
 		vm.State().SetMetatable(ud, vm.State().GetTypeMetatable("Stream"))
 		vm.State().SetGlobal("test_stream", ud)
 
-		// Import test script with coroutines
+		// Imports test script with coroutines
 		err = vm.Import(`
             function test_stream_iter()
                 local results = {}

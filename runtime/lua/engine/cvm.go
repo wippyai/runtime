@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"github.com/ponyruntime/pony/runtime/lua/engine/errors"
-	"github.com/ponyruntime/pony/runtime/uow"
 	"strings"
 
 	lua "github.com/yuin/gopher-lua"
@@ -16,15 +15,18 @@ import (
 // Task represents a coroutine execution unit in the Lua VM.
 // It maintains the state and context of a running coroutine.
 type Task struct {
-	l          *lua.LState
-	thread     *lua.LState
-	cancel     context.CancelFunc
-	fn         *lua.LFunction
-	output     chan Result
+	thread *lua.LState
+	cancel context.CancelFunc
+	fn     *lua.LFunction
+	output chan Update
+
 	State      lua.ResumeState
 	Yielded    []lua.LValue
 	Resumed    []lua.LValue
 	RaiseError error
+
+	pcallFrom *lua.LState
+	blocked   bool
 }
 
 // Thread returns the Lua state associated with this task's coroutine.
@@ -41,23 +43,7 @@ func (t *Task) String() string {
 	return fmt.Sprintf("<coroutine %p> %+v", t.thread, t.Yielded)
 }
 
-// Result represents the outcome of a coroutine execution.
-// It contains the final state, return values, and any error that occurred.
-type Result struct {
-	State  *lua.LState
-	Result []lua.LValue
-	Error  error
-}
-
-func NewResult(l *lua.LState, res []lua.LValue, err error) *Result {
-	return &Result{
-		State:  l,
-		Result: res,
-		Error:  err,
-	}
-}
-
-// TaskQueue manages a queue of coroutine tasks waiting for execution.
+// TaskQueue manages a queue of coroutine threads waiting for execution.
 type TaskQueue struct {
 	active *list.List
 }
@@ -86,7 +72,7 @@ func (q *TaskQueue) Pop() *Task {
 	return e.Value.(*Task)
 }
 
-// Drain removes and returns all tasks from the queue.
+// Drain removes and returns all threads from the queue.
 func (q *TaskQueue) Drain() []*Task {
 	tasks := make([]*Task, 0, q.active.Len())
 	for e := q.active.Front(); e != nil; e = e.Next() {
@@ -99,12 +85,12 @@ func (q *TaskQueue) Drain() []*Task {
 	return tasks
 }
 
-// IsEmpty returns true if the queue contains no tasks.
+// IsEmpty returns true if the queue contains no threads.
 func (q *TaskQueue) IsEmpty() bool {
 	return q.active.Len() == 0
 }
 
-// Len returns the number of tasks currently in the queue.
+// Len returns the number of threads currently in the queue.
 func (q *TaskQueue) Len() int {
 	return q.active.Len()
 }
@@ -112,10 +98,9 @@ func (q *TaskQueue) Len() int {
 // CoroutineVM represents a Lua virtual machine with coroutine support.
 // This VM is NOT thread safe, external synchronization is required.
 type CoroutineVM struct {
-	vm     *VM
-	cancel context.CancelFunc
-	tasks  []*Task
-	queue  *TaskQueue
+	vm      *VM
+	threads []*Task
+	queue   *TaskQueue
 }
 
 // IsCoroutineVM checks if the given Lua state has coroutine support enabled
@@ -137,9 +122,9 @@ func NewCVM(
 	}
 
 	avm := &CoroutineVM{
-		vm:    vm,
-		tasks: make([]*Task, 0),
-		queue: NewTaskQueue(),
+		vm:      vm,
+		threads: make([]*Task, 0),
+		queue:   NewTaskQueue(),
 	}
 	avm.bindCoroutines()
 
@@ -172,20 +157,7 @@ func (e *CoroutineVM) StartString(ctx context.Context, script, scriptName string
 		return err
 	}
 
-	uw := uow.FromContext(ctx)
-
-	ctx, e.cancel = context.WithCancel(ctx)
-	e.vm.state.SetContext(ctx)
-
-	if uw != nil {
-		uw.AddCleanup(func() error {
-			if e.vm.state != nil && e.vm.state.Context() != nil {
-				e.vm.state.SetContext(nil)
-			}
-			return nil
-		})
-	}
-
+	e.vm.state.SetContext(ctx) // must be released by uow
 	task := e.createTask(ctx, fn)
 	task.Resumed = args
 
@@ -199,45 +171,32 @@ func (e *CoroutineVM) Mount(proto *lua.FunctionProto, funcName ...string) error 
 }
 
 // Start begins execution of a named function with the provided arguments.
-func (e *CoroutineVM) Start(ctx context.Context, funcName string, args ...lua.LValue) (<-chan Result, error) {
+func (e *CoroutineVM) Start(ctx context.Context, funcName string, args ...lua.LValue) (<-chan Update, error) {
 	fn, ok := e.vm.exported[funcName]
 	if !ok {
 		return nil, fmt.Errorf("function %q not found", funcName)
 	}
 
-	uw := uow.FromContext(ctx)
-
-	ctx, e.cancel = context.WithCancel(ctx)
-	e.vm.state.SetContext(ctx)
-	if uw != nil {
-		uw.AddCleanup(func() error {
-			if e.vm.state != nil && e.vm.state.Context() != nil {
-				e.vm.state.SetContext(nil)
-			}
-			return nil
-		})
-	}
-
+	e.vm.state.SetContext(ctx) // must be released by uow
 	task := e.createTask(ctx, fn)
 	task.Resumed = args
-	task.output = make(chan Result, 1)
+	task.output = make(chan Update, 1)
 
 	return task.output, nil
 }
 
-// Step advances the execution of provided tasks or continues with queued tasks.
-// Returns yielded tasks and any errors encountered during execution.
+// Step advances the execution of provided threads or continues with queued threads.
+// Returns yielded threads and any errors encountered during execution.
 func (e *CoroutineVM) Step(tasks ...*Task) (result []*Task, finalErr error) {
 	// Lua 5.1 does not allow yields as part of pcall, which can cause engine panic
-	// We need to recover from it in case of user error
-	// TODO: Properly isolate this issue and make upstream PR
+	// We need to recover from it in case of user error, instead use cpcall
 	defer func() {
 		if r := recover(); r != nil {
 			finalErr = fmt.Errorf("panic: %v", r)
 		}
 	}()
 
-	// AddCleanup tasks to queue
+	// AddCleanup threads to queue
 	for _, t := range tasks {
 		e.queue.Push(t)
 	}
@@ -261,10 +220,11 @@ func (e *CoroutineVM) Step(tasks ...*Task) (result []*Task, finalErr error) {
 				}
 
 				if task.output != nil {
-					task.output <- Result{State: task.l, Error: rErr}
+					task.output <- Update{State: task.thread, Error: rErr}
 					close(task.output)
 					task.output = nil
 				}
+
 				_ = e.removeTask(task)
 				return nil, rErr
 			}
@@ -273,39 +233,69 @@ func (e *CoroutineVM) Step(tasks ...*Task) (result []*Task, finalErr error) {
 			if err != nil {
 				var rErr error
 				rErr = err
-
 				if wrapped := errors.GetWrappedError(rErr); wrapped != nil {
 					rErr = wrapped
 				}
 
 				if task.output != nil {
-					task.output <- Result{State: task.l, Error: rErr}
+					task.output <- Update{State: task.thread, Error: rErr}
 					close(task.output)
 					task.output = nil
 				}
 
-				_ = e.removeTask(task)
+				if task.pcallFrom != nil {
+					t, cerr := e.GetTask(task.pcallFrom)
+					if cerr != nil {
+						_ = e.removeTask(task)
+						return nil, cerr
+					}
+					_ = e.removeTask(task)
 
+					// Resume the task that called pcall
+					t.Resumed = []lua.LValue{lua.LFalse, errors.ToValue(t.thread, rErr)}
+					t.blocked = false
+					e.queue.Push(t)
+
+					continue
+				}
+
+				_ = e.removeTask(task)
 				return nil, rErr
 			}
 
 			task.State = state
 			task.Yielded = values
 			task.Resumed = nil
+
+			if task.blocked {
+				continue
+			}
 		}
 
 		if state == lua.ResumeYield {
 			yieldedTasks = append(yieldedTasks, task)
 		} else if state == lua.ResumeOK || state == lua.ResumeError {
+
 			if task.output != nil {
 				if top := task.thread.GetTop(); top > 0 {
-					task.output <- Result{State: task.l, Result: values}
+					task.output <- Update{State: task.thread, Result: values}
 				} else {
-					task.output <- Result{State: task.l}
+					task.output <- Update{State: task.thread}
 				}
 				close(task.output)
 				task.output = nil
 			}
+
+			// unfreeze parent and send it's result
+			if task.pcallFrom != nil {
+				if t, err := e.GetTask(task.pcallFrom); err == nil {
+					t.Resumed = append([]lua.LValue{lua.LTrue}, values...)
+					t.blocked = false
+					e.queue.Push(t)
+				}
+				task.pcallFrom = nil
+			}
+
 			_ = e.removeTask(task)
 		}
 	}
@@ -313,31 +303,31 @@ func (e *CoroutineVM) Step(tasks ...*Task) (result []*Task, finalErr error) {
 	return yieldedTasks, nil
 }
 
-// GetTasks returns all tasks running in VM.
+// GetTasks returns all threads running in VM.
 func (e *CoroutineVM) GetTasks() []*Task {
 	yielded := make([]*Task, 0)
-	yielded = append(yielded, e.tasks...)
+	yielded = append(yielded, e.threads...)
 	return yielded
 }
 
 // GetTask retrieves a Task associated with the given Lua state.
 func (e *CoroutineVM) GetTask(thread *lua.LState) (*Task, error) {
-	for _, task := range e.tasks {
+	for _, task := range e.threads {
 		if task.thread == thread {
 			return task, nil
 		}
 	}
+
 	return nil, fmt.Errorf("task not found")
 }
 
-// Close cleans up resources and terminates all running tasks.
+// Close cleans up resources and terminates all running threads.
 func (e *CoroutineVM) Close() {
-	for _, task := range e.tasks {
+	for _, task := range e.threads {
 		if task.cancel != nil {
 			task.cancel()
 		}
 
-		task.l = nil
 		task.fn = nil
 		task.thread = nil
 
@@ -351,13 +341,9 @@ func (e *CoroutineVM) Close() {
 		e.queue.Drain()
 	}
 	e.queue = nil
-	e.tasks = nil
+	e.threads = nil
 
 	if e.vm != nil {
-		if e.cancel != nil {
-			e.cancel()
-		}
-
 		e.vm.Close()
 		e.vm = nil
 	}
@@ -409,6 +395,31 @@ func (e *CoroutineVM) bindCoroutines() {
 		l.Call(1, lua.MultRet)
 		return l.GetTop() - 1
 	}))
+
+	e.vm.state.SetGlobal("cpcall", e.vm.state.NewFunction(func(l *lua.LState) int {
+		// get func
+		fn := l.Get(1)
+
+		// get args
+		args := make([]lua.LValue, l.GetTop()-1)
+		for i := 2; i <= l.GetTop(); i++ {
+			args[i-2] = l.Get(i)
+		}
+
+		// isolate into thread
+		task := e.createTask(l.Context(), fn.(*lua.LFunction))
+		task.Resumed = args
+		task.pcallFrom = l
+
+		t, err := e.GetTask(l)
+		if err != nil {
+			l.RaiseError("pcall: internal error")
+			return 0
+		}
+		t.blocked = true
+
+		return -1
+	}))
 }
 
 // createTask creates a new coroutine task from a Lua function.
@@ -417,14 +428,13 @@ func (e *CoroutineVM) createTask(ctx context.Context, fn *lua.LFunction) *Task {
 	thread.SetContext(ctx)
 
 	task := &Task{
-		l:      e.vm.state,
 		thread: thread,
 		cancel: cancel,
 		fn:     fn,
 		State:  lua.ResumeYield,
 	}
 
-	e.tasks = append(e.tasks, task)
+	e.threads = append(e.threads, task)
 	e.queue.Push(task)
 
 	return task
@@ -432,17 +442,17 @@ func (e *CoroutineVM) createTask(ctx context.Context, fn *lua.LFunction) *Task {
 
 // removeTask removes a task from the task list and performs cleanup.
 func (e *CoroutineVM) removeTask(task *Task) error {
-	for i, t := range e.tasks {
+	for i, t := range e.threads {
 		if t == task {
 			if task.cancel != nil {
 				task.cancel()
 			}
 
-			task.l = nil
 			task.fn = nil
 			task.thread = nil
+			task.pcallFrom = nil
 
-			e.tasks = append(e.tasks[:i], e.tasks[i+1:]...)
+			e.threads = append(e.threads[:i], e.threads[i+1:]...)
 			return nil
 		}
 	}

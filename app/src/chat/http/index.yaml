@@ -1,0 +1,49 @@
+version: "1.0"
+namespace: app.service.chat
+
+meta:
+  depends_on: [ ns:system ]
+  router: system:api
+
+entries:
+  - name: session.start
+    kind: function.lua
+    meta:
+      comment: "HTTP endpoint to start new chat session"
+      depends_on: [ app.service.chat:encryption_utils ]
+    source: file://start.lua
+    method: handler
+    modules: [ "http", "base64", "time" ]
+    imports:
+      encryption: app.service.chat:encryption_utils
+    pool:
+      size: 4
+
+  - name: session.start.endpoint
+    kind: http.endpoint
+    meta:
+      comment: "Create a new chat session"
+    method: POST
+    path: /chat/session
+    func: session.start
+
+  - name: session.send
+    kind: function.lua
+    meta:
+      comment: "HTTP endpoint to send message to session"
+      depends_on: [ app.service.chat:encryption_utils ]
+    source: file://send.lua
+    method: handler
+    modules: [ "http", "base64", "time", "json" ]
+    imports:
+      encryption: app.service.chat:encryption_utils
+    pool:
+      size: 4
+
+  - name: session.send.endpoint
+    kind: http.endpoint
+    meta:
+      comment: "Send message to chat session"
+    method: POST
+    path: /chat/message
+    func: session.send

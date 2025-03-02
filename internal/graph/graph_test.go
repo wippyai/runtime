@@ -421,7 +421,7 @@ func TestGraphRemoveEdge(t *testing.T) {
 		g.AddEdge("A", "B", 1, edgeData)
 		g.AddEdge("B", "C", 2, edgeData)
 
-		// Remove edge A->B
+		// Done edge A->B
 		err := g.RemoveEdge("A", "B")
 		if err != nil {
 			t.Errorf("unexpected error removing edge: %v", err)

@@ -41,7 +41,7 @@ func loadLocation(l *lua.LState) int {
 
 	ud := l.NewUserData()
 	ud.Value = &Location{location: loc}
-	l.SetMetatable(ud, l.GetTypeMetatable("Location"))
+	l.SetMetatable(ud, l.GetTypeMetatable("time.Location"))
 	l.Push(ud)
 	return 1
 }
@@ -55,14 +55,14 @@ func fixedZone(l *lua.LState) int {
 
 	ud := l.NewUserData()
 	ud.Value = &Location{location: loc}
-	l.SetMetatable(ud, l.GetTypeMetatable("Location"))
+	l.SetMetatable(ud, l.GetTypeMetatable("time.Location"))
 	l.Push(ud)
 	return 1
 }
 
 // Register the Location methods and create UTC/Local constants
 func registerLocation(l *lua.LState, mod *lua.LTable) {
-	locationMt := l.NewTypeMetatable("Location")
+	locationMt := l.NewTypeMetatable("time.Location")
 	l.SetField(locationMt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
 		"string": locationString,
 	}))

@@ -42,7 +42,7 @@ func LoadVars(s string, ctx interface{}) (string, error) {
 // it returns the original string appended with an error message.
 func LoadFile(s string, ctx interface{}) (string, error) {
 	// todo: use proper context and make complex loading easier with ---
-	rctx, ok := ctx.(EntryContext)
+	rCtx, ok := ctx.(EntryContext)
 	if !ok {
 		return s, nil // Invalid context, skip
 	}
@@ -56,18 +56,18 @@ func LoadFile(s string, ctx interface{}) (string, error) {
 
 	if strings.HasPrefix(filePath, "/") {
 		// Absolute path, make it relative to the root dir
-		fullPath = filepath.Join(rctx.RootDir, filepath.Clean(filePath))
+		fullPath = filepath.Join(rCtx.RootDir, filepath.Clean(filePath))
 	} else {
 		// Relative path, make it relative to the context directory
-		fileDir := rctx.RootDir
-		if rctx.Filename != "" {
-			fileDir = filepath.Dir(rctx.Filename)
+		fileDir := rCtx.RootDir
+		if rCtx.Filename != "" {
+			fileDir = filepath.Dir(rCtx.Filename)
 		}
 		fullPath = filepath.Join(fileDir, filePath)
 	}
 
 	// Spawn sure the path is still within the root directory (security check)
-	relPath, err := filepath.Rel(rctx.RootDir, fullPath)
+	relPath, err := filepath.Rel(rCtx.RootDir, fullPath)
 	if err != nil || strings.HasPrefix(relPath, "..") {
 		return s + fmt.Sprintf(" [file-error: file path '%s' is outside of the root directory]", filePath), err
 	}

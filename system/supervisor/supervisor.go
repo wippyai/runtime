@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/ponyruntime/pony/system/eventbus"
@@ -39,7 +39,7 @@ type (
 	// for coordinated operations.
 	Supervisor struct {
 		ctx         context.Context
-		bus         events.Bus
+		bus         event.Bus
 		subscriber  *eventbus.Subscriber
 		logger      *zap.Logger
 		mu          sync.RWMutex
@@ -54,7 +54,7 @@ type (
 // NewSupervisor creates a new Supervisor instance with the provided event bus
 // and logger. The supervisor is initially inactive and must be started with
 // the Launch method.
-func NewSupervisor(bus events.Bus, logger *zap.Logger) *Supervisor {
+func NewSupervisor(bus event.Bus, logger *zap.Logger) *Supervisor {
 	return &Supervisor{
 		bus:         bus,
 		logger:      logger,
@@ -151,7 +151,7 @@ func (s *Supervisor) Stop() error {
 	}
 	s.mu.RUnlock()
 
-	// Close all controllers in proper dependency order
+	// close all controllers in proper dependency order
 	if err := s.sequencer.Transition(s.ctx, operations...); err != nil {
 		s.logger.Error("failed to stop controllers during shutdown", zap.Error(err))
 	}
@@ -163,7 +163,7 @@ func (s *Supervisor) Stop() error {
 	return nil
 }
 
-func (s *Supervisor) handleEvent(e events.Event) {
+func (s *Supervisor) handleEvent(e event.Event) {
 	if e.System == registry.System {
 		switch e.Kind {
 		case registry.Begin:
@@ -321,9 +321,9 @@ func (s *Supervisor) createStateHandler(id string) func(supervisor.Status, any) 
 			}
 		}
 
-		s.bus.Send(s.ctx, events.Event{
+		s.bus.Send(s.ctx, event.Event{
 			System: supervisor.System,
-			Path:   events.Path(id),
+			Path:   event.Path(id),
 			Kind:   supervisor.Update,
 			Data: State{
 				Status:     status,
@@ -409,7 +409,7 @@ func (s *Supervisor) execute(ctx context.Context, tx *registryTX) error {
 		return fmt.Errorf("failed to execute transitions: %w", err)
 	}
 
-	// Remove stopped services
+	// Done stopped services
 	for id := range tx.remove {
 		delete(s.controllers, id)
 	}

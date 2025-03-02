@@ -3,7 +3,7 @@ package http
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	config "github.com/ponyruntime/pony/api/service/http"
@@ -15,6 +15,7 @@ import (
 
 // ServerFactoryAPI creates new server instances
 type ServerFactoryAPI interface {
+	// CreateServer creates a new HTTP server from the provided configuration
 	CreateServer(cfg *config.ServerConfig) (Server, error)
 }
 
@@ -34,22 +35,36 @@ type StaticFactoryAPI interface {
 type Server interface {
 	supervisor.Service
 
+	// UpdateConfig updates the server configuration
 	UpdateConfig(cfg *config.ServerConfig) error
 
-	AddRouter(id registry.ID, router *config.RouterConfig) error
+	// UpsertRouter adds a new router or updates an existing one
+	UpsertRouter(id registry.ID, router *config.RouterConfig) error
+
+	// DeleteRouter removes a router by Source
 	DeleteRouter(id registry.ID) error
-	AddEndpoint(routerID, id registry.ID, path string, method string, handler http.Handler) error
+
+	// UpsertEndpoint adds a new endpoint or updates an existing one
+	UpsertEndpoint(routerID, id registry.ID, path string, method string, handler http.Handler) error
+
+	// RemoveEndpoint removes an endpoint from a router
 	RemoveEndpoint(routerID, id registry.ID) error
 
+	// Mount adds a handler at a specific path
 	Mount(id registry.ID, path string, handler http.Handler) error
+
+	// Remove unmounts a handler by Source
 	Remove(id registry.ID) error
+
+	// Rebuild rebuilds the server's routing configuration
 	Rebuild(ctx context.Context) error
 }
 
+// Manager coordinates HTTP servers, routers, endpoints, and static file handlers
 type Manager struct {
 	log *zap.Logger
 	dtt payload.Transcoder
-	bus events.Bus
+	bus event.Bus
 
 	serverFactory   ServerFactoryAPI
 	endpointFactory EndpointFactoryAPI
@@ -57,13 +72,14 @@ type Manager struct {
 
 	mu            sync.Mutex
 	servers       map[registry.ID]Server
-	routerServers map[registry.ID]registry.ID // router ID -> server ID mapping
-	pending       map[registry.ID]bool
+	routerServers map[registry.ID]registry.ID // router Source -> server Source mapping
+	pending       map[registry.ID]bool        // tracks servers that need rebuilding
 }
 
+// NewManager creates a new HTTP service manager
 func NewManager(
 	dtt payload.Transcoder,
-	bus events.Bus,
+	bus event.Bus,
 	serverFactory ServerFactoryAPI,
 	endpointFactory EndpointFactoryAPI,
 	staticFactory StaticFactoryAPI,
@@ -98,24 +114,30 @@ func NewManager(
 	}, nil
 }
 
+//
+// Public API
+//
+
+// Add adds a new HTTP component (server, router, endpoint, or static handler)
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	switch entry.Kind {
 	case config.KindServer:
-		return m.handleServerAdd(ctx, entry)
+		return m.handleServerCreate(ctx, entry)
 	case config.KindRouter:
-		return m.handleRouterAdd(ctx, entry)
+		return m.handleRouterCreate(ctx, entry)
 	case config.KindEndpoint:
-		return m.handleEndpointAdd(ctx, entry)
+		return m.handleEndpointUpsert(ctx, entry)
 	case config.KindStatic:
-		return m.handleStaticAdd(ctx, entry)
+		return m.handleStaticUpsert(ctx, entry)
 	default:
 		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
 	}
 }
 
+// Update updates an existing HTTP component
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -126,14 +148,15 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	case config.KindRouter:
 		return m.handleRouterUpdate(ctx, entry)
 	case config.KindEndpoint:
-		return m.handleEndpointAdd(ctx, entry)
+		return m.handleEndpointUpsert(ctx, entry)
 	case config.KindStatic:
-		return m.handleStaticAdd(ctx, entry)
+		return m.handleStaticUpsert(ctx, entry)
 	default:
 		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
 	}
 }
 
+// Delete removes an HTTP component
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -143,14 +166,55 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 		return m.handleServerDelete(ctx, entry)
 	case config.KindRouter:
 		return m.handleRouterDelete(ctx, entry)
-	case config.KindEndpoint, config.KindStatic:
-		return m.handleHandlerDelete(ctx, entry)
+	case config.KindEndpoint:
+		return m.handleEndpointDelete(ctx, entry)
+	case config.KindStatic:
+		return m.handleStaticDelete(ctx, entry)
 	default:
 		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
 	}
 }
 
-func (m *Manager) handleServerAdd(ctx context.Context, entry registry.Entry) error {
+// Begin starts a transaction for applying changes
+// This clears any pending rebuilds
+func (m *Manager) Begin(ctx context.Context) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.pending = make(map[registry.ID]bool)
+}
+
+// Commit applies all pending changes to the servers
+// Rebuilds any servers that have been modified
+func (m *Manager) Commit(ctx context.Context) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for serverID := range m.pending {
+		if server, exists := m.servers[serverID]; exists {
+			if err := server.Rebuild(ctx); err != nil {
+				m.log.Error("failed to rebuild router",
+					zap.String("server", serverID.String()),
+					zap.Error(err))
+			}
+		}
+	}
+
+	m.pending = make(map[registry.ID]bool)
+}
+
+// Discard cancels any pending changes without applying them
+func (m *Manager) Discard(ctx context.Context) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.pending = make(map[registry.ID]bool)
+}
+
+//
+// Server handlers
+//
+
+// handleServerCreate creates a new HTTP server
+func (m *Manager) handleServerCreate(ctx context.Context, entry registry.Entry) error {
 	cfg, err := decodeEntity[config.ServerConfig](entry, m.dtt)
 	if err != nil {
 		return err
@@ -168,7 +232,7 @@ func (m *Manager) handleServerAdd(ctx context.Context, entry registry.Entry) err
 	m.servers[entry.ID] = server
 
 	// Register with supervisor
-	m.bus.Send(ctx, events.Event{
+	m.bus.Send(ctx, event.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Register,
 		Path:   entry.ID.String(),
@@ -178,6 +242,7 @@ func (m *Manager) handleServerAdd(ctx context.Context, entry registry.Entry) err
 	return nil
 }
 
+// handleServerUpdate updates an existing HTTP server
 func (m *Manager) handleServerUpdate(ctx context.Context, entry registry.Entry) error {
 	cfg, err := decodeEntity[config.ServerConfig](entry, m.dtt)
 	if err != nil {
@@ -195,7 +260,7 @@ func (m *Manager) handleServerUpdate(ctx context.Context, entry registry.Entry) 
 	m.pending[entry.ID] = true
 
 	// Update supervisor
-	m.bus.Send(ctx, events.Event{
+	m.bus.Send(ctx, event.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Update,
 		Path:   entry.ID.String(),
@@ -207,14 +272,15 @@ func (m *Manager) handleServerUpdate(ctx context.Context, entry registry.Entry) 
 	return nil
 }
 
+// handleServerDelete removes an HTTP server
 func (m *Manager) handleServerDelete(ctx context.Context, entry registry.Entry) error {
 	_, exists := m.servers[entry.ID]
 	if !exists {
 		return fmt.Errorf("server %s not found", entry.ID)
 	}
 
-	// Remove from supervisor
-	m.bus.Send(ctx, events.Event{
+	// Done from supervisor
+	m.bus.Send(ctx, event.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Remove,
 		Path:   entry.ID.String(),
@@ -232,7 +298,12 @@ func (m *Manager) handleServerDelete(ctx context.Context, entry registry.Entry) 
 	return nil
 }
 
-func (m *Manager) handleRouterAdd(ctx context.Context, entry registry.Entry) error {
+//
+// Router handlers
+//
+
+// handleRouterCreate adds a new router to a server
+func (m *Manager) handleRouterCreate(ctx context.Context, entry registry.Entry) error {
 	cfg, err := decodeEntity[config.RouterConfig](entry, m.dtt)
 	if err != nil {
 		return err
@@ -244,15 +315,23 @@ func (m *Manager) handleRouterAdd(ctx context.Context, entry registry.Entry) err
 		return fmt.Errorf("server %s not found", serverID)
 	}
 
-	if err := server.AddRouter(entry.ID, cfg); err != nil {
+	if err := server.UpsertRouter(entry.ID, cfg); err != nil {
 		return err
 	}
+
+	m.log.Debug("added router",
+		zap.String("router", entry.ID.String()),
+		zap.String("prefix", cfg.Prefix),
+		zap.String("server", serverID.String()))
 
 	m.routerServers[entry.ID] = serverID
 	m.pending[serverID] = true
 	return nil
 }
 
+// handleRouterUpdate updates an existing router
+// CRITICAL: When moving a router between servers, we must ensure all endpoints
+// are properly migrated to prevent data loss.
 func (m *Manager) handleRouterUpdate(ctx context.Context, entry registry.Entry) error {
 	cfg, err := decodeEntity[config.RouterConfig](entry, m.dtt)
 	if err != nil {
@@ -272,29 +351,49 @@ func (m *Manager) handleRouterUpdate(ctx context.Context, entry registry.Entry) 
 		return fmt.Errorf("target server %s not found", newServerID)
 	}
 
-	// If server changed, delete from old and add to new
+	// If server changed, we need to handle endpoint migration
 	if currentServerID != newServerID {
+		// IMPORTANT: Currently we just delete from old and add to new
+		// This means all endpoints attached to this router will be lost!
+		// We should consider implementing proper endpoint migration in the future.
+
+		// Done from old server
 		if oldServer, exists := m.servers[currentServerID]; exists {
 			if err := oldServer.DeleteRouter(entry.ID); err != nil {
 				return err
 			}
 		}
-		if err := newServer.AddRouter(entry.ID, cfg); err != nil {
+
+		// Add to new server
+		if err := newServer.UpsertRouter(entry.ID, cfg); err != nil {
 			return err
 		}
+
+		// Update mapping
 		m.routerServers[entry.ID] = newServerID
 		m.pending[newServerID] = true
+
+		m.log.Warn("router server changed - endpoints will need to be recreated",
+			zap.String("router", entry.ID.String()),
+			zap.String("old_server", currentServerID.String()),
+			zap.String("new_server", newServerID.String()))
 	} else {
-		// Update existing router
-		if err := newServer.AddRouter(entry.ID, cfg); err != nil {
+		// Same server, just update the router
+		if err := newServer.UpsertRouter(entry.ID, cfg); err != nil {
 			return err
 		}
 		m.pending[currentServerID] = true
 	}
 
+	m.log.Debug("updated router",
+		zap.String("router", entry.ID.String()),
+		zap.String("prefix", cfg.Prefix),
+		zap.String("server", newServerID.String()))
+
 	return nil
 }
 
+// handleRouterDelete removes a router from a server
 func (m *Manager) handleRouterDelete(ctx context.Context, entry registry.Entry) error {
 	serverID, exists := m.routerServers[entry.ID]
 	if !exists {
@@ -310,12 +409,22 @@ func (m *Manager) handleRouterDelete(ctx context.Context, entry registry.Entry) 
 		return err
 	}
 
+	m.log.Debug("deleted router",
+		zap.String("router", entry.ID.String()),
+		zap.String("server", serverID.String()))
+
 	delete(m.routerServers, entry.ID)
 	m.pending[serverID] = true
 	return nil
 }
 
-func (m *Manager) handleEndpointAdd(ctx context.Context, entry registry.Entry) error {
+//
+// Endpoint handlers
+//
+
+// handleEndpointUpsert adds or updates an endpoint in a router
+// Uses upsert pattern - if the endpoint already exists, it will be updated
+func (m *Manager) handleEndpointUpsert(ctx context.Context, entry registry.Entry) error {
 	cfg, err := decodeEntity[config.EndpointConfig](entry, m.dtt)
 	if err != nil {
 		return err
@@ -332,20 +441,66 @@ func (m *Manager) handleEndpointAdd(ctx context.Context, entry registry.Entry) e
 		return fmt.Errorf("server %s not found", serverID)
 	}
 
+	cfg.Func = cfg.Func.WithDefaultNS(entry.ID.NS)
+
 	handler, err := m.endpointFactory.CreateHandler(ctx, cfg)
 	if err != nil {
 		return err
 	}
 
-	if err := server.AddEndpoint(routerID, entry.ID, cfg.Path, cfg.Method, handler); err != nil {
+	if err := server.UpsertEndpoint(routerID, entry.ID, cfg.Path, cfg.Method, handler); err != nil {
 		return err
 	}
+
+	m.log.Debug("upserted endpoint",
+		zap.String("endpoint", entry.ID.String()),
+		zap.String("router", routerID.String()),
+		zap.String("server", serverID.String()),
+		zap.String("path", cfg.Path),
+		zap.String("method", cfg.Method))
 
 	m.pending[serverID] = true
 	return nil
 }
 
-func (m *Manager) handleStaticAdd(ctx context.Context, entry registry.Entry) error {
+// handleEndpointDelete removes an endpoint from a router
+func (m *Manager) handleEndpointDelete(ctx context.Context, entry registry.Entry) error {
+	cfg, err := decodeEntity[config.EndpointConfig](entry, m.dtt)
+	if err != nil {
+		return err
+	}
+
+	routerID := registry.ParseID(cfg.Meta.StringValue(config.RouterID)).WithDefaultNS(entry.ID.NS)
+	serverID, exists := m.routerServers[routerID]
+	if !exists {
+		return fmt.Errorf("router %s not found", routerID)
+	}
+
+	server, exists := m.servers[serverID]
+	if !exists {
+		return fmt.Errorf("server %s not found", serverID)
+	}
+
+	if err := server.RemoveEndpoint(routerID, entry.ID); err != nil {
+		return err
+	}
+
+	m.log.Debug("deleted endpoint",
+		zap.String("endpoint", entry.ID.String()),
+		zap.String("router", routerID.String()),
+		zap.String("server", serverID.String()))
+
+	m.pending[serverID] = true
+	return nil
+}
+
+//
+// Static handler handlers
+//
+
+// handleStaticUpsert adds or updates a static file handler
+// Uses upsert pattern - if the handler already exists, it will be updated
+func (m *Manager) handleStaticUpsert(ctx context.Context, entry registry.Entry) error {
 	cfg, err := decodeEntity[config.StaticConfig](entry, m.dtt)
 	if err != nil {
 		return err
@@ -368,83 +523,43 @@ func (m *Manager) handleStaticAdd(ctx context.Context, entry registry.Entry) err
 		return err
 	}
 
+	m.log.Debug("upserted static file handler",
+		zap.String("static", entry.ID.String()),
+		zap.String("server", serverID.String()),
+		zap.String("path", cfg.Path))
+
 	m.pending[serverID] = true
 	return nil
 }
 
-func (m *Manager) handleHandlerDelete(ctx context.Context, entry registry.Entry) error {
-	switch entry.Kind {
-	case config.KindEndpoint:
-		cfg, err := decodeEntity[config.EndpointConfig](entry, m.dtt)
-		if err != nil {
-			return err
-		}
-		routerID := registry.ParseID(cfg.Meta.StringValue(config.RouterID)).WithDefaultNS(entry.ID.NS)
-		serverID, exists := m.routerServers[routerID]
-		if !exists {
-			return fmt.Errorf("router %s not found", routerID)
-		}
-
-		server, exists := m.servers[serverID]
-		if !exists {
-			return fmt.Errorf("server %s not found", serverID)
-		}
-
-		if err := server.RemoveEndpoint(routerID, entry.ID); err != nil {
-			return err
-		}
-
-		m.pending[serverID] = true
-
-	case config.KindStatic:
-		cfg, err := decodeEntity[config.StaticConfig](entry, m.dtt)
-		if err != nil {
-			return err
-		}
-		serverID := registry.ParseID(cfg.Meta.StringValue(config.ServerID)).WithDefaultNS(entry.ID.NS)
-		server, exists := m.servers[serverID]
-		if !exists {
-			return fmt.Errorf("server %s not found", serverID)
-		}
-
-		if err := server.Remove(entry.ID); err != nil {
-			return err
-		}
-
-		m.pending[serverID] = true
+// handleStaticDelete removes a static file handler
+func (m *Manager) handleStaticDelete(ctx context.Context, entry registry.Entry) error {
+	cfg, err := decodeEntity[config.StaticConfig](entry, m.dtt)
+	if err != nil {
+		return err
 	}
 
+	serverID := registry.ParseID(cfg.Meta.StringValue(config.ServerID)).WithDefaultNS(entry.ID.NS)
+	server, exists := m.servers[serverID]
+	if !exists {
+		return fmt.Errorf("server %s not found", serverID)
+	}
+
+	if err := server.Remove(entry.ID); err != nil {
+		return err
+	}
+
+	m.log.Debug("deleted static file handler",
+		zap.String("static", entry.ID.String()),
+		zap.String("server", serverID.String()))
+
+	m.pending[serverID] = true
 	return nil
 }
 
-func (m *Manager) Begin(ctx context.Context) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.pending = make(map[registry.ID]bool)
-}
-
-func (m *Manager) Commit(ctx context.Context) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	for serverID := range m.pending {
-		if server, exists := m.servers[serverID]; exists {
-			if err := server.Rebuild(ctx); err != nil {
-				m.log.Error("failed to rebuild router",
-					zap.String("server", serverID.String()),
-					zap.Error(err))
-			}
-		}
-	}
-
-	m.pending = make(map[registry.ID]bool)
-}
-
-func (m *Manager) Discard(ctx context.Context) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.pending = make(map[registry.ID]bool)
-}
+//
+// Helper functions
+//
 
 // decodeEntity is a helper to decode registry entries into specific configs
 func decodeEntity[T any](entry registry.Entry, transcoder payload.Transcoder) (*T, error) {

@@ -27,6 +27,12 @@ func (e *WrappedError) Error() string {
 	return e.Err.Error()
 }
 
+// LuaType returns the Lua type of this value.
+func (e *WrappedError) Type() lua.LValueType {
+	return lua.LTUserData
+}
+
+// String implements the fmt.Stringer interface.
 func (e *WrappedError) String() string {
 	return e.Error()
 }
@@ -53,7 +59,7 @@ func (e *WrappedError) Stack() string {
 			result.WriteString(":\n")
 		}
 
-		// AddCleanup this level's Lua stack if present
+		// Add this level's Lua stack if present
 		if current.LuaStack != nil {
 			luaFrames := current.LuaStack.String()
 			if !seenFrames[luaFrames] {
@@ -63,7 +69,7 @@ func (e *WrappedError) Stack() string {
 			}
 		}
 
-		// AddCleanup this level's Go stack if present
+		// Add this level's Go stack if present
 		if len(current.goStack) > 0 {
 			frames := runtime.CallersFrames(current.goStack)
 			for {
@@ -91,7 +97,8 @@ func (e *WrappedError) Stack() string {
 		}
 
 		// Move to parent error if it's a WrappedError
-		if next, ok := current.Err.(*WrappedError); ok {
+		var next *WrappedError
+		if errors.As(current.Err, &next) {
 			current = next
 		} else {
 			break
@@ -125,7 +132,8 @@ func WrapError(L *lua.LState, err error, context string) *WrappedError {
 	luaStack := inspect.GetStackTrace(L)
 
 	// If already wrapped, preserve Context
-	if we, ok := err.(*WrappedError); ok {
+	var we *WrappedError
+	if errors.As(err, &we) {
 		if context == "" {
 			// Even with no new Context, create new wrapper to capture current stacks
 			return &WrappedError{
@@ -138,7 +146,7 @@ func WrapError(L *lua.LState, err error, context string) *WrappedError {
 
 		return &WrappedError{
 			Err:      we,
-			LuaStack: inspect.GetStackTrace(L),
+			LuaStack: luaStack,
 			goStack:  goStack[:n],
 			Context:  context,
 		}
@@ -147,7 +155,7 @@ func WrapError(L *lua.LState, err error, context string) *WrappedError {
 	// Spawn new wrapped error
 	return &WrappedError{
 		Err:      err,
-		LuaStack: inspect.GetStackTrace(L),
+		LuaStack: luaStack,
 		goStack:  goStack[:n],
 		Context:  context,
 	}
@@ -159,8 +167,26 @@ func RaiseError(L *lua.LState, err error) {
 
 	ud := L.NewUserData()
 	ud.Value = wrapped
-	L.SetMetatable(ud, L.GetTypeMetatable("error"))
+	ud.Metatable = L.GetTypeMetatable("error")
 	L.Error(ud, 1)
+}
+
+// ToValue wraps a Go error in a Lua userdata and returns it as a Lua value.
+func ToValue(L *lua.LState, err error) lua.LValue {
+	var w *WrappedError
+	if errors.As(err, &w) {
+		ud := L.NewUserData()
+		ud.Value = w
+		ud.Metatable = L.GetTypeMetatable("error")
+		return ud
+	}
+
+	wrapped := WrapError(L, err, "")
+
+	ud := L.NewUserData()
+	ud.Value = wrapped
+	ud.Metatable = L.GetTypeMetatable("error")
+	return ud
 }
 
 // GetWrappedError attempts to extract a WrappedError from a Lua error value.
@@ -184,6 +210,11 @@ func GetWrappedError(err error) *WrappedError {
 		if wrapped, ok := ud.Value.(*WrappedError); ok {
 			return wrapped
 		}
+	}
+
+	// Try to extract from Object field
+	if ud, ok := apiErr.Object.(*WrappedError); ok {
+		return ud
 	}
 
 	// Check the Cause field if Object didn't contain our error
@@ -217,7 +248,6 @@ func RegisterErrorsModule(L *lua.LState) {
 	// Spawn errors module
 	mod := L.NewTable()
 	L.SetGlobal("errors", mod)
-
 	mt := L.NewTypeMetatable("error")
 	L.SetField(mt, "__tostring", L.NewFunction(func(L *lua.LState) int {
 		if ud := L.CheckUserData(1); ud != nil {
@@ -229,8 +259,68 @@ func RegisterErrorsModule(L *lua.LState) {
 		return 0
 	}))
 
-	// AddCleanup wrap function
+	// Add wrap function
+	L.SetField(mod, "new", L.NewFunction(newError))
 	L.SetField(mod, "wrap", L.NewFunction(wrapError))
+	L.SetField(mod, "call_stack", L.NewFunction(callStack))
+}
+
+// callStack implements the errors.call_stack() function in Lua.
+// Returns the Lua stack trace as a Lua table for easier analysis.
+func callStack(L *lua.LState) int {
+	v := L.Get(1)
+	ud, ok := v.(*lua.LUserData)
+	if !ok {
+		L.Push(lua.LNil)
+		return 1
+	}
+
+	w, ok := ud.Value.(*WrappedError)
+	if !ok {
+		L.Push(lua.LNil)
+		return 1
+	}
+
+	// Create a table representation of the stack trace
+	err := L.NewTable()
+
+	// Set thread Source
+	err.RawSetString("thread", lua.LString(w.LuaStack.ThreadID))
+
+	// Create frames table array
+	framesTable := L.NewTable()
+	for i, frame := range w.LuaStack.Frames {
+		frameTable := L.NewTable()
+
+		// Add frame details
+		frameTable.RawSetString("level", lua.LNumber(frame.Level))
+		frameTable.RawSetString("source", lua.LString(frame.Source))
+		frameTable.RawSetString("line", lua.LNumber(frame.CurrentLine))
+		frameTable.RawSetString("name", lua.LString(frame.Name))
+		frameTable.RawSetString("type", lua.LString(frame.FuncType))
+
+		framesTable.RawSetInt(i+1, frameTable)
+	}
+
+	err.RawSetString("frames", framesTable)
+	L.Push(err)
+
+	return 1
+}
+
+// newError implements errors.new(message) in Lua.
+func newError(L *lua.LState) int {
+	msg := L.CheckString(1)
+	// Spawn new wrapped error
+	wrappedErr := WrapError(L, fmt.Errorf("%s", msg), "")
+
+	// Return as userdata with error metatable
+	ud := L.NewUserData()
+	ud.Value = wrappedErr
+	ud.Metatable = L.GetTypeMetatable("error")
+	L.Push(ud)
+
+	return 1
 }
 
 // wrapError implements errors.wrap(parent, new_error) in Lua.
@@ -243,9 +333,7 @@ func wrapError(L *lua.LState) int {
 
 	switch v := parent.(type) {
 	case *lua.LUserData:
-		if err, ok := v.Value.(*WrappedError); ok {
-			parentErr = err
-		} else if err, ok := v.Value.(error); ok {
+		if err, ok := v.Value.(error); ok {
 			parentErr = err
 		} else {
 			L.ArgError(1, "parent must be string or error object")
@@ -281,8 +369,40 @@ func wrapError(L *lua.LState) int {
 	// Return as userdata with error metatable
 	ud := L.NewUserData()
 	ud.Value = wrappedErr
-	L.SetMetatable(ud, L.GetTypeMetatable("error"))
+	ud.Metatable = L.GetTypeMetatable("error")
 	L.Push(ud)
 
 	return 1
+}
+
+// Unwrap extracts a WrappedError from various Lua and Go error types.
+func Unwrap(l any) *WrappedError {
+	switch v := l.(type) {
+	case *lua.LUserData:
+		// Try to extract WrappedError directly from userdata value
+		if err, ok := v.Value.(*WrappedError); ok {
+			return err
+		}
+
+		// If userdata contains ApiError, try to extract from there
+		if apiErr, ok := v.Value.(*lua.ApiError); ok {
+			return GetWrappedError(apiErr)
+		}
+
+	case *lua.ApiError:
+		return GetWrappedError(v)
+
+	case *WrappedError:
+		return v
+
+	case error:
+		// Try to extract WrappedError using errors.As
+		var we *WrappedError
+		if errors.As(v, &we) {
+			return we
+		}
+		return GetWrappedError(v)
+	}
+
+	return nil
 }

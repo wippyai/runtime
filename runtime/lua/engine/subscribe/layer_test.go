@@ -4,7 +4,6 @@ import (
 	"context"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
-	"github.com/ponyruntime/pony/runtime/uow"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	lua "github.com/yuin/gopher-lua"
@@ -14,10 +13,10 @@ import (
 	"time"
 )
 
-func setupTestVM(t *testing.T) (*engine.CoroutineVM, *channel.Layer, *Layer, *engine.Runner) {
+func setupTestVM(t *testing.T) (*engine.CoroutineVM, *engine.Runner) {
 	logger := zap.NewNop()
 
-	// Spawn VM with required modules
+	// Create VM with required modules
 	vm, err := engine.NewCVM(
 		logger,
 		engine.WithPreloaded("pubsub", NewSubscribeModule().Loader),
@@ -25,23 +24,19 @@ func setupTestVM(t *testing.T) (*engine.CoroutineVM, *channel.Layer, *Layer, *en
 	)
 	require.NoError(t, err)
 
-	// Setup layers
-	channels := channel.NewChannelLayer()
-	pubsubLayer := NewSubscribe(channels)
-
-	// Spawn runner
+	// Create runner
 	runner := engine.NewRunner(vm,
-		engine.WithLayer(channels),
-		engine.WithLayer(pubsubLayer),
+		engine.WithLayer(channel.NewChannelLayer()),
+		engine.WithLayer(NewSubscribeLayer()),
 	)
 
-	return vm, channels, pubsubLayer, runner
+	return vm, runner
 }
 
 func TestPubSub(t *testing.T) {
 	t.Run("single subscriber basic flow", func(t *testing.T) {
-		vm, _, pubsubLayer, runner := setupTestVM(t)
-		defer vm.Close()
+		vm, runner := setupTestVM(t)
+		defer runner.Close()
 
 		script := `
 	       function test()
@@ -53,8 +48,8 @@ func TestPubSub(t *testing.T) {
 		err := vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		ctx, uw := uow.OnContext(runner.WithContext(context.Background()))
-		defer func() { _ = uw.Close() }()
+		uww, ctx := runner.InitUnitOfWork(context.Background())
+		defer func() { _ = uww.Close() }()
 
 		var wg sync.WaitGroup
 		wg.Add(1)
@@ -69,6 +64,12 @@ func TestPubSub(t *testing.T) {
 				return
 			}
 
+			err = Publish(ctx, "test-topic", lua.LString("hello"))
+			if err != nil {
+				result = err
+				return
+			}
+
 			res, err := runner.Run(ctx, exitCh)
 			if err != nil {
 				result = err
@@ -77,28 +78,25 @@ func TestPubSub(t *testing.T) {
 			result = res
 		}()
 
-		time.Sleep(100 * time.Millisecond) // Let subscriber setup
-		pubsubLayer.Publish("test-topic", lua.LString("hello"))
-
 		wg.Wait()
 		assert.Equal(t, "hello", result.(lua.LValue).String())
 	})
 
 	t.Run("prevent duplicate topic subscription", func(t *testing.T) {
-		vm, _, _, runner := setupTestVM(t)
-		defer vm.Close()
+		vm, runner := setupTestVM(t)
+		defer runner.Close()
 
 		script := `
-	       function test()
-	           local sub1 = pubsub.subscribe("test-topic")
-	           local sub2 = pubsub.subscribe("test-topic") -- should fail
-	           return "shouldn't reach here"
-	       end
-	   `
+	      function test()
+	          local sub1 = pubsub.subscribe("test-topic")
+	          local sub2 = pubsub.subscribe("test-topic") -- should fail
+	          return "shouldn't reach here"
+	      end
+	  `
 		err := vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		ctx, uw := uow.OnContext(runner.WithContext(context.Background()))
+		uw, ctx := runner.InitUnitOfWork(context.Background())
 		defer func() { _ = uw.Close() }()
 
 		exitCh, err := runner.Start(ctx, "test")
@@ -110,8 +108,8 @@ func TestPubSub(t *testing.T) {
 	})
 
 	t.Run("unsubscribe flow", func(t *testing.T) {
-		vm, _, _, runner := setupTestVM(t)
-		defer vm.Close()
+		vm, runner := setupTestVM(t)
+		defer runner.Close()
 
 		script := `
 	       function test()
@@ -124,8 +122,9 @@ func TestPubSub(t *testing.T) {
 		err := vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		ctx, uw := uow.OnContext(runner.WithContext(context.Background()))
+		uw, ctx := runner.InitUnitOfWork(context.Background())
 		defer func() { _ = uw.Close() }()
+
 		exitCh, err := runner.Start(ctx, "test")
 		require.NoError(t, err)
 
@@ -135,8 +134,8 @@ func TestPubSub(t *testing.T) {
 	})
 
 	t.Run("invalid unsubscribe", func(t *testing.T) {
-		vm, _, _, runner := setupTestVM(t)
-		defer vm.Close()
+		vm, runner := setupTestVM(t)
+		defer runner.Close()
 
 		script := `
 	       function test()
@@ -147,8 +146,9 @@ func TestPubSub(t *testing.T) {
 		err := vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		ctx, uw := uow.OnContext(runner.WithContext(context.Background()))
+		uw, ctx := runner.InitUnitOfWork(context.Background())
 		defer func() { _ = uw.Close() }()
+
 		exitCh, err := runner.Start(ctx, "test")
 		require.NoError(t, err)
 
@@ -158,8 +158,8 @@ func TestPubSub(t *testing.T) {
 	})
 
 	t.Run("multiple messages in order", func(t *testing.T) {
-		vm, _, pubsubLayer, runner := setupTestVM(t)
-		defer vm.Close()
+		vm, runner := setupTestVM(t)
+		defer runner.Close()
 
 		script := `
 	       function test()
@@ -174,7 +174,7 @@ func TestPubSub(t *testing.T) {
 		err := vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		ctx, uw := uow.OnContext(runner.WithContext(context.Background()))
+		uw, ctx := runner.InitUnitOfWork(context.Background())
 		defer func() { _ = uw.Close() }()
 
 		var wg sync.WaitGroup
@@ -190,6 +190,25 @@ func TestPubSub(t *testing.T) {
 				return
 			}
 
+			// Use context-based Publish
+			err = Publish(ctx, "test-topic", lua.LString("one"))
+			if err != nil {
+				result = err
+				return
+			}
+
+			err = Publish(ctx, "test-topic", lua.LString("two"))
+			if err != nil {
+				result = err
+				return
+			}
+
+			err = Publish(ctx, "test-topic", lua.LString("three"))
+			if err != nil {
+				result = err
+				return
+			}
+
 			res, err := runner.Run(ctx, exitCh)
 			if err != nil {
 				result = err
@@ -198,18 +217,14 @@ func TestPubSub(t *testing.T) {
 			result = res
 		}()
 
-		pubsubLayer.Publish("test-topic", lua.LString("one"))
-		pubsubLayer.Publish("test-topic", lua.LString("two"))
-		pubsubLayer.Publish("test-topic", lua.LString("three"))
-
 		wg.Wait()
 		assert.Equal(t, "one,two,three", result.(lua.LValue).String())
 	})
 }
 
 func TestLateSubscription(t *testing.T) {
-	vm, _, pubsubLayer, runner := setupTestVM(t)
-	defer vm.Close()
+	vm, runner := setupTestVM(t)
+	defer runner.Close()
 
 	script := `
 		function test()
@@ -218,17 +233,17 @@ func TestLateSubscription(t *testing.T) {
 
 			-- Wait for message on topic1
 			local msg = sub1:receive()
-			
+
 			-- Only now subscribe to topic2
 			local sub2 = pubsub.subscribe("topic2")
-			
+
 			return msg
 		end
 	`
 	err := vm.Import(script, "test", "test")
 	require.NoError(t, err)
 
-	ctx, uw := uow.OnContext(runner.WithContext(context.Background()))
+	uw, ctx := runner.InitUnitOfWork(context.Background())
 	defer func() { _ = uw.Close() }()
 
 	var wg sync.WaitGroup
@@ -244,11 +259,20 @@ func TestLateSubscription(t *testing.T) {
 		}
 
 		// First publish to topic2 (no subscriber yet)
-		pubsubLayer.Publish("topic2", lua.LString("ignored"))
+		err = Publish(ctx, "topic2", lua.LString("ignored"))
+		if err != nil {
+			result = err
+			return
+		}
+
 		time.Sleep(50 * time.Millisecond)
 
 		// Then publish to topic1
-		pubsubLayer.Publish("topic1", lua.LString("saved"))
+		err = Publish(ctx, "topic1", lua.LString("saved"))
+		if err != nil {
+			result = err
+			return
+		}
 
 		res, err := runner.Run(ctx, exitCh)
 		if err != nil {
@@ -268,26 +292,26 @@ func TestLateSubscription(t *testing.T) {
 }
 
 func TestCrossTopicOrdering(t *testing.T) {
-	vm, _, pubsubLayer, runner := setupTestVM(t)
-	defer vm.Close()
+	vm, runner := setupTestVM(t)
+	defer runner.Close()
 
 	script := `
 		function test()
 			-- Subscribe to both topics first
 			local sub1 = pubsub.subscribe("topic1")
 			local sub2 = pubsub.subscribe("topic2")
-			
+
 			-- Queue receives in reverse order of sends
 			local msg1 = sub1:receive()
 			local msg2 = sub2:receive()
-			
+
 			return msg1 .. "," .. msg2
 		end
 	`
 	err := vm.Import(script, "test", "test")
 	require.NoError(t, err)
 
-	ctx, uw := uow.OnContext(runner.WithContext(context.Background()))
+	uw, ctx := runner.InitUnitOfWork(context.Background())
 	defer func() { _ = uw.Close() }()
 
 	var wg sync.WaitGroup
@@ -304,9 +328,18 @@ func TestCrossTopicOrdering(t *testing.T) {
 
 		time.Sleep(50 * time.Millisecond) // Let subscriptions set up
 
-		// Send in reverse order of receives
-		pubsubLayer.Publish("topic2", lua.LString("second"))
-		pubsubLayer.Publish("topic1", lua.LString("first"))
+		// send in reverse order of receives
+		err = Publish(ctx, "topic2", lua.LString("second"))
+		if err != nil {
+			result = err
+			return
+		}
+
+		err = Publish(ctx, "topic1", lua.LString("first"))
+		if err != nil {
+			result = err
+			return
+		}
 
 		res, err := runner.Run(ctx, exitCh)
 		if err != nil {
@@ -326,28 +359,28 @@ func TestCrossTopicOrdering(t *testing.T) {
 }
 
 func TestUnsubscribeWithPendingMessages(t *testing.T) {
-	vm, _, pubsubLayer, runner := setupTestVM(t)
-	defer vm.Close()
+	vm, runner := setupTestVM(t)
+	defer runner.Close()
 
 	script := `
 		function test()
 			local sub = pubsub.subscribe("test-topic")
 			local results = {}
-			
-			-- Send first message
+
+			-- send first message
 			results[1] = sub:receive()
-			
+
 			-- Try to receive after external unsubscribe
-			local value, ok = sub:receive()
+			local values, ok = sub:receive()
 			results[2] = ok and "received" or "closed"
-			
+
 			return table.concat(results, ",")
 		end
 	`
 	err := vm.Import(script, "test", "test")
 	require.NoError(t, err)
 
-	ctx, uw := uow.OnContext(runner.WithContext(context.Background()))
+	uw, ctx := runner.InitUnitOfWork(context.Background())
 	defer func() { _ = uw.Close() }()
 
 	var wg sync.WaitGroup
@@ -365,12 +398,21 @@ func TestUnsubscribeWithPendingMessages(t *testing.T) {
 
 		time.Sleep(50 * time.Millisecond) // Let subscriber setup
 
-		// Send message before unsubscribe
-		pubsubLayer.Publish("test-topic", lua.LString("before"))
+		// send message before unsubscribe
+		err = Publish(ctx, "test-topic", lua.LString("before"))
+		if err != nil {
+			result = err
+			return
+		}
+
 		time.Sleep(50 * time.Millisecond)
 
-		// Send unsubscribe
-		pubsubLayer.Release("test-topic")
+		// send unsubscribe
+		err = Release(ctx, "test-topic")
+		if err != nil {
+			result = err
+			return
+		}
 
 		res, err := runner.Run(ctx, exitCh)
 		if err != nil {
@@ -388,33 +430,33 @@ func TestUnsubscribeWithPendingMessages(t *testing.T) {
 }
 
 func TestMultipleTopicsUnsubscribe(t *testing.T) {
-	vm, _, pubsubLayer, runner := setupTestVM(t)
-	defer vm.Close()
+	vm, runner := setupTestVM(t)
+	defer runner.Close()
 
 	script := `
 		function test()
 			local sub1 = pubsub.subscribe("topic1")
 			local sub2 = pubsub.subscribe("topic2")
 			local results = {}
-			
-			-- GetField first messages
+
+			-- Get first messages
 			results[1] = sub1:receive()
 			results[2] = sub2:receive()
-			
-			-- GetField second message from topic2
+
+			-- Get second message from topic2
 			results[3] = sub2:receive()
-			
+
 			-- Try receive from unsubscribed topic1
-			local value, ok = sub1:receive()
+			local values, ok = sub1:receive()
 			results[4] = ok and "received" or "closed"
-			
+
 			return table.concat(results, ",")
 		end
 	`
 	err := vm.Import(script, "test", "test")
 	require.NoError(t, err)
 
-	ctx, uw := uow.OnContext(runner.WithContext(context.Background()))
+	uw, ctx := runner.InitUnitOfWork(context.Background())
 	defer func() { _ = uw.Close() }()
 
 	var wg sync.WaitGroup
@@ -432,17 +474,34 @@ func TestMultipleTopicsUnsubscribe(t *testing.T) {
 
 		time.Sleep(50 * time.Millisecond) // Let subscribers setup
 
-		// Send initial messages
-		pubsubLayer.Publish("topic1", lua.LString("t1.first"))
-		pubsubLayer.Publish("topic2", lua.LString("t2.first"))
+		// send initial messages
+		err = Publish(ctx, "topic1", lua.LString("t1.first"))
+		if err != nil {
+			result = err
+			return
+		}
+
+		err = Publish(ctx, "topic2", lua.LString("t2.first"))
+		if err != nil {
+			result = err
+			return
+		}
 
 		time.Sleep(50 * time.Millisecond)
 
 		// Release topic1
-		pubsubLayer.Release("topic1")
+		err = Release(ctx, "topic1")
+		if err != nil {
+			result = err
+			return
+		}
 
-		// Send message to topic2 after topic1 unsubscribe
-		pubsubLayer.Publish("topic2", lua.LString("t2.second"))
+		// send message to topic2 after topic1 unsubscribe
+		err = Publish(ctx, "topic2", lua.LString("t2.second"))
+		if err != nil {
+			result = err
+			return
+		}
 
 		res, err := runner.Run(ctx, exitCh)
 		if err != nil {
@@ -460,31 +519,31 @@ func TestMultipleTopicsUnsubscribe(t *testing.T) {
 }
 
 func TestUnsubscribeResubscribe(t *testing.T) {
-	vm, _, pubsubLayer, runner := setupTestVM(t)
-	defer vm.Close()
+	vm, runner := setupTestVM(t)
+	defer runner.Close()
 
 	script := `
 		function test()
 			local results = {}
-			
+
 			-- First subscription and message
 			local sub1 = pubsub.subscribe("test-topic")
 			results[1] = sub1:receive()
-			
+
 			-- First unsubscribe
 			pubsub.unsubscribe(sub1)
-			
+
 			-- Try receive after unsubscribe to verify closure
-			local value, ok = sub1:receive()
+			local values, ok = sub1:receive()
 			results[2] = ok and "received" or "closed"
-			
+
 			return table.concat(results, ",")
 		end
 	`
 	err := vm.Import(script, "test", "test")
 	require.NoError(t, err)
 
-	ctx, uw := uow.OnContext(runner.WithContext(context.Background()))
+	uw, ctx := runner.InitUnitOfWork(context.Background())
 	defer func() { _ = uw.Close() }()
 
 	var wg sync.WaitGroup
@@ -501,7 +560,11 @@ func TestUnsubscribeResubscribe(t *testing.T) {
 		}
 
 		time.Sleep(50 * time.Millisecond)
-		pubsubLayer.Publish("test-topic", lua.LString("first"))
+		err = Publish(ctx, "test-topic", lua.LString("first"))
+		if err != nil {
+			result = err
+			return
+		}
 
 		res, err := runner.Run(ctx, exitCh)
 		if err != nil {

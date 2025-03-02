@@ -2,7 +2,6 @@ package channel
 
 import (
 	"context"
-	"github.com/ponyruntime/pony/runtime/uow"
 	"strings"
 	"testing"
 
@@ -21,7 +20,7 @@ func TestSelectImmediate(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	ctx, uw := uow.OnContext(context.Background())
+	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
 	defer func() { _ = uw.Close() }()
 
 	err = vm.StartString(ctx, `
@@ -81,7 +80,7 @@ func TestSelectBlockedReceive(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	ctx, uw := uow.OnContext(context.Background())
+	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
 	defer func() { _ = uw.Close() }()
 
 	err = vm.StartString(ctx, `
@@ -138,7 +137,7 @@ func TestSelectBlockedClose(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	ctx, uw := uow.OnContext(context.Background())
+	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
 	defer func() { _ = uw.Close() }()
 
 	err = vm.StartString(ctx, `
@@ -160,7 +159,7 @@ func TestSelectBlockedClose(t *testing.T) {
 		
 		coroutine.yield("select_started")
 		
-		-- Close ch1, this should wake up select
+		-- close ch1, this should wake up select
 		ch1:close()
 		coroutine.yield("close_completed")
 	`, "test")
@@ -200,7 +199,7 @@ func TestSelectWithDefaultImmediate(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	ctx, uw := uow.OnContext(context.Background())
+	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
 	defer func() { _ = uw.Close() }()
 
 	err = vm.StartString(ctx, `
@@ -271,7 +270,7 @@ func TestSelectLoopWithFeeds(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	ctx, uw := uow.OnContext(context.Background())
+	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
 	defer func() { _ = uw.Close() }()
 
 	err = vm.StartString(ctx, `
@@ -304,7 +303,7 @@ func TestSelectLoopWithFeeds(t *testing.T) {
         
         coroutine.yield("loop_started")
         
-        -- Feed values from main goroutine
+        -- Feed Result from main goroutine
         ch1:send("val1")
         coroutine.yield("sent1")
         
@@ -359,7 +358,7 @@ func TestSelectCleanupOnReceive(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	ctx, uw := uow.OnContext(context.Background())
+	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
 	defer func() { _ = uw.Close() }()
 
 	err = vm.StartString(ctx, `
@@ -435,7 +434,7 @@ func TestSelectCleanupAll(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	ctx, uw := uow.OnContext(context.Background())
+	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
 	defer func() { _ = uw.Close() }()
 
 	err = vm.StartString(ctx, `
@@ -541,7 +540,7 @@ func TestMixedSelectImmediate(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	ctx, uw := uow.OnContext(context.Background())
+	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
 	defer func() { _ = uw.Close() }()
 
 	err = vm.StartString(ctx, `
@@ -631,7 +630,7 @@ func TestMixedSelectBlocking(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	ctx, uw := uow.OnContext(context.Background())
+	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
 	defer func() { _ = uw.Close() }()
 
 	err = vm.StartString(ctx, `
@@ -719,7 +718,7 @@ func TestMixedSelectWithDefault(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	ctx, uw := uow.OnContext(context.Background())
+	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
 	defer func() { _ = uw.Close() }()
 
 	err = vm.StartString(ctx, `
@@ -803,7 +802,7 @@ func TestSingleCaseSelectWithReadyData(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	ctx, uw := uow.OnContext(context.Background())
+	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
 	defer func() { _ = uw.Close() }()
 
 	err = vm.StartString(ctx, `
@@ -830,7 +829,7 @@ func TestSingleCaseSelectWithReadyData(t *testing.T) {
 			table.insert(results, result.value)
 			coroutine.yield("received1")
 
-			-- GetField remaining values directly
+			-- GetField remaining Result directly
 			local val2, ok2 = ch:receive()
 			table.insert(results, val2)
 			coroutine.yield("received2")
@@ -846,8 +845,8 @@ func TestSingleCaseSelectWithReadyData(t *testing.T) {
 		ready:receive()
 		coroutine.yield("complete")
 		
-		-- Verify all values were received
-		assert(#results == 3, "should receive 3 values")
+		-- Verify all Result were received
+		assert(#results == 3, "should receive 3 Result")
 		table.sort(results)
 		assert(results[1] == "val1")
 		assert(results[2] == "val2")
@@ -894,5 +893,5 @@ func TestSingleCaseSelectWithReadyData(t *testing.T) {
 			receivedCount++
 		}
 	}
-	assert.Equal(t, 3, receivedCount, "should receive all 3 values")
+	assert.Equal(t, 3, receivedCount, "should receive all 3 Result")
 }

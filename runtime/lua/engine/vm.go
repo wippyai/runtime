@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	errors2 "github.com/ponyruntime/pony/runtime/lua/engine/errors"
-	"github.com/ponyruntime/pony/runtime/uow"
 	"strings"
 
 	lua "github.com/yuin/gopher-lua"
@@ -107,18 +106,23 @@ func (v *VM) Execute(ctx context.Context, funcName string, args ...lua.LValue) (
 		return nil, fmt.Errorf("function %q not found", funcName)
 	}
 
-	if ctx != nil {
-		ctx, cleanup := uow.OnContext(ctx)
-		defer func() {
-			v.state.RemoveContext()
-			if err := cleanup.Close(); err != nil {
-				v.log.Error("cleanup failed",
-					zap.String("function", funcName),
-					zap.Error(err))
-			}
-		}()
-		v.state.SetContext(ctx)
+	// always create context
+	if ctx == nil {
+		ctx = context.Background()
 	}
+
+	uw, ctx := NewUnitOfWork(ctx, v.state)
+	uw.AddCleanup(func() error {
+		v.state.RemoveContext()
+		return nil
+	})
+	defer func() {
+		if err := uw.Close(); err != nil {
+			v.log.Error("unit of work close failed",
+				zap.String("func_name", funcName),
+				zap.Error(err))
+		}
+	}()
 
 	return v.callFunction(fn, args)
 }
@@ -135,11 +139,14 @@ func (v *VM) DoString(ctx context.Context, s string, name string, args ...lua.LV
 		ctx = context.Background()
 	}
 
-	ctx, cleanup := uow.OnContext(ctx)
-	defer func() {
+	uw, ctx := NewUnitOfWork(ctx, v.state)
+	uw.AddCleanup(func() error {
 		v.state.RemoveContext()
-		if err := cleanup.Close(); err != nil {
-			v.log.Error("cleanup failed",
+		return nil
+	})
+	defer func() {
+		if err := uw.Close(); err != nil {
+			v.log.Error("unit of work close failed",
 				zap.String("do_string", name),
 				zap.Error(err))
 		}

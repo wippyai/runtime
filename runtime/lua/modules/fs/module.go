@@ -50,7 +50,6 @@ func (m *Module) Loader(l *lua.LState) int {
 	// Register core functions
 	api := map[string]lua.LGFunction{
 		"get": apiGet,
-		// todo: add list
 	}
 
 	l.SetFuncs(t, api)
@@ -69,7 +68,7 @@ func apiGet(l *lua.LState) int {
 		return 0
 	}
 
-	reg := fsapi.FromContext(l.Context())
+	reg := fsapi.GetRegistry(l.Context())
 	if reg == nil {
 		l.RaiseError("no filesystem registry in context")
 		return 0

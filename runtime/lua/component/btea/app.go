@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	processmod "github.com/ponyruntime/pony/runtime/lua/component/process"
-	"github.com/ponyruntime/pony/runtime/uow"
+	"github.com/ponyruntime/pony/runtime/lua/modules/task"
+	"github.com/ponyruntime/pony/runtime/lua/modules/upstream"
 	"sync"
 	"time"
 
@@ -20,8 +20,6 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
-	"github.com/ponyruntime/pony/runtime/lua/modules/tasks"
-	"github.com/ponyruntime/pony/runtime/lua/modules/upstream"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
@@ -164,7 +162,7 @@ func (p *App) View() string {
 		if p.numRetries < maxViewRetries {
 			return fmt.Sprintf("view task failed (retrying %d/%d)", p.numRetries, maxViewRetries)
 		}
-		p.cancel() // todo: think about it
+		p.cancel()
 		return "view task failed (exiting)"
 	}
 	p.numRetries = 0
@@ -177,7 +175,7 @@ func (p *App) Start(ctx context.Context, pid pubsub.PID, input payload.Payloads)
 	p.ctx, p.cancel = context.WithCancel(ctx)
 	p.pid = pid
 
-	term := terminal.FromContext(p.ctx)
+	term := terminal.GetTerminalContext(p.ctx)
 	if term == nil {
 		return fmt.Errorf("terminal context not found")
 	}
@@ -186,14 +184,8 @@ func (p *App) Start(ctx context.Context, pid pubsub.PID, input payload.Payloads)
 	p.program = tea.NewProgram(p, tea.WithInput(term.Stdin), tea.WithOutput(term.Stdout))
 
 	// sets up the process context
-	p.ctx = process.WithContext(
-		upstream.WithUpstreamChannel(p.ctx, p.upstream),
-		&process.Context{
-			PID:   pid,
-			Start: time.Now(),
-			Input: input,
-		},
-	)
+	p.ctx = upstream.WithUpstreamChannel(p.ctx, p.upstream)
+	p.ctx = pubsub.WithPID(p.ctx, pid)
 
 	p.ctx, p.uow = uow.OnContext(p.runner.WithContext(p.ctx))
 
@@ -237,7 +229,7 @@ func (p *App) Start(ctx context.Context, pid pubsub.PID, input payload.Payloads)
 
 // processLoop listens for Lua runner results and upstream messages,
 // and handles process completion and cleanup.
-func (p *App) processLoop(resultCh <-chan engine.Result) {
+func (p *App) processLoop(resultCh <-chan engine.Update) {
 	var once sync.Once
 	completeProcess := func(err error, result interface{}) {
 		once.Do(func() {
@@ -355,7 +347,7 @@ func (p *App) Send(pkg *pubsub.Package) error {
 		return errors.New("process stopped")
 	default:
 		// Check for inbox just once
-		hasInbox := p.pubsub.Exists(processmod.ChannelInbox)
+		hasInbox := p.pubsub.Exists(topology.TopicInbox)
 
 		for _, msg := range pkg.Messages {
 			luaValues, err := p.toLuaPayloads(msg.Payloads)
@@ -386,8 +378,8 @@ func (p *App) Send(pkg *pubsub.Package) error {
 					inboxValues = append(inboxValues, msgTable)
 				}
 
-				// Send all messages in one batch
-				p.pubsub.Publish(processmod.ChannelInbox, inboxValues...)
+				// send all messages in one batch
+				p.pubsub.Publish(topology.TopicInbox, inboxValues...)
 			}
 		}
 		pubsub.ReleasePackage(pkg)
@@ -398,7 +390,7 @@ func (p *App) Send(pkg *pubsub.Package) error {
 // publishTask sends a task to the unified events channel.
 // If timeout is non-zero, it waits for a response; otherwise, it fires and forgets.
 func (p *App) publishTask(taskType string, payload lua.LValue, timeout time.Duration) string {
-	task, err := tasks.CreateTask(payload)
+	task, err := task.CreateTask(payload)
 	if err != nil {
 		p.log.Error("failed to create task", zap.String("task", taskType), zap.Error(err))
 		if timeout > 0 {
@@ -407,7 +399,7 @@ func (p *App) publishTask(taskType string, payload lua.LValue, timeout time.Dura
 		return ""
 	}
 
-	wrappedTask := tasks.WrapTask(p.runnerState, task)
+	wrappedTask := task.WrapTask(p.runnerState, task)
 	msg := p.runnerState.NewTable()
 	msg.RawSetString("type", lua.LString(taskType))
 	msg.RawSetString("task", wrappedTask)
@@ -435,7 +427,7 @@ func (p *App) publishTask(taskType string, payload lua.LValue, timeout time.Dura
 }
 
 // waitResponse consolidates the select pattern for waiting for a task response.
-func (p *App) waitResponse(task *tasks.Task, timeout time.Duration, taskType string) string {
+func (p *App) waitResponse(task *task.Task, timeout time.Duration, taskType string) string {
 	select {
 	case rsp := <-task.Response:
 		if result, ok := rsp.(lua.LValue); ok {

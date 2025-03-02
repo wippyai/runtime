@@ -1,0 +1,10 @@
+version: "1.0"
+namespace: wippy.lib
+
+entries:
+  - name: test
+    kind: library.lua
+    meta:
+      comment: "BDD-style testing framework with operation progress reporting"
+    source: file://test.lua
+    modules: [ "time", "json" ]

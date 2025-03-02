@@ -7,7 +7,7 @@ import (
 	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
-	supervisor2 "github.com/ponyruntime/pony/api/service/supervisor"
+	supervisorapi "github.com/ponyruntime/pony/api/service/supervisor"
 	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/ponyruntime/pony/api/topology"
 	"github.com/ponyruntime/pony/internal/uniqid"
@@ -21,7 +21,7 @@ type Service struct {
 	id            registry.ID
 	pid           pubsub.PID
 	supervisorPID pubsub.PID
-	config        supervisor2.ServiceConfig
+	config        supervisorapi.ServiceConfig
 	status        chan any
 }
 
@@ -34,7 +34,7 @@ func (svc *Service) Start(ctx context.Context) (<-chan any, error) {
 	}
 
 	// Get process manager from context
-	proc := process.GetProcessManager(ctx)
+	proc := process.GetProcesses(ctx)
 	if proc == nil {
 		return nil, fmt.Errorf("no process manager found in context")
 	}
@@ -69,10 +69,14 @@ func (svc *Service) Start(ctx context.Context) (<-chan any, error) {
 	}
 
 	// Launch monitored process
-	pid, err := proc.StartMonitored(ctx, svc.supervisorPID, &process.StartProcess{
-		HostID:   svc.config.HostID,
-		ID:       processID,
-		Payloads: payloads,
+	pid, err := proc.Start(ctx, &process.Start{
+		HostID: svc.config.HostID,
+		Source: processID,
+		Input:  payloads,
+		Lifecycle: process.Lifecycle{
+			Parent:  svc.supervisorPID,
+			Monitor: true,
+		},
 	})
 	if err != nil {
 		detach()
@@ -100,10 +104,10 @@ func (svc *Service) Start(ctx context.Context) (<-chan any, error) {
 				}
 
 				for _, msg := range batch.Messages {
-					if msg.Topic == process.TopicEvents {
+					if msg.Topic == topology.TopicEvents {
 						for _, p := range msg.Payloads {
 							// we always require to pass system events within go runtime, to verify legitimacy
-							if event, ok := p.Data().(topology.ResultEvent); ok {
+							if event, ok := p.Data().(topology.ExitEvent); ok {
 								if event.Result.Error != nil {
 									select {
 									case svc.status <- fmt.Errorf("process failed: %w", event.Result.Error):

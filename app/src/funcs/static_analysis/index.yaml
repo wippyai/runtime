@@ -1,0 +1,46 @@
+version: "1.0"
+namespace: app.funcs.static_analysis
+
+meta:
+  depends_on: [ "ns:system" ]
+
+entries:
+  - name: go_overview
+    kind: function.lua
+    meta:
+      comment: "Analyzing golang files"
+    source: file://go.lua
+    method: analyze
+    modules: [ "fs", "treesitter" ]
+    pool:
+      size: 1
+
+  - name: markdown_overview
+    kind: function.lua
+    meta:
+      comment: "Analyzing markdown files"
+    source: file://markdown.lua
+    method: analyze
+    modules: [ "fs", "treesitter" ]
+    pool:
+      size: 1
+
+  - name: lua_overview
+    kind: function.lua
+    meta:
+      comment: "Analyzing lua files"
+    source: file://lua.lua
+    method: analyze
+    modules: [ "fs", "treesitter" ]
+    pool:
+      size: 1
+
+  - name: html_overview
+    kind: function.lua
+    meta:
+      comment: "Analyzing html files"
+    source: file://html.lua
+    method: analyze
+    modules: [ "fs", "treesitter" ]
+    pool:
+      size: 32

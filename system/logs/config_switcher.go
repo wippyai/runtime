@@ -5,21 +5,21 @@ import (
 	"fmt"
 	logsapi "github.com/ponyruntime/pony/api/logs"
 
-	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/event"
 	"go.uber.org/zap"
 )
 
 // ConfigSwitcher manages switching between different logging configurations
 // while preserving the ability to restore the original configuration
 type ConfigSwitcher struct {
-	bus        events.Bus
+	bus        event.Bus
 	log        *zap.Logger
 	baseConfig *logsapi.Config
 	cfgManager *ConfigurationManager
 }
 
 // NewConfigSwitcher creates a new ConfigSwitcher instance
-func NewConfigSwitcher(bus events.Bus, log *zap.Logger) *ConfigSwitcher {
+func NewConfigSwitcher(bus event.Bus, log *zap.Logger) *ConfigSwitcher {
 	return &ConfigSwitcher{
 		bus:        bus,
 		log:        log,

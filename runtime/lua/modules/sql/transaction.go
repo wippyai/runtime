@@ -74,31 +74,31 @@ func txQuery(l *lua.LState) int {
 		return 2
 	}
 
-	coroutine.Wrap(l, func() *engine.Result {
+	coroutine.Wrap(l, func() *engine.Update {
 		// Check if transaction is still active
 		if !tx.active {
-			return engine.NewResult(nil, nil, fmt.Errorf("transaction is not active"))
+			return engine.NewUpdate(nil, nil, fmt.Errorf("transaction is not active"))
 		}
 
 		var rows *sql.Rows
 		var err error
 
-		// Execute query with appropriate parameter style
+		// Start query with appropriate parameter style
 		switch p := params.(type) {
 		case nil:
 			rows, err = tx.tx.Query(query)
 		case []interface{}:
 			rows, err = tx.tx.Query(query, p...)
 		default:
-			return engine.NewResult(nil, nil, fmt.Errorf("unsupported parameter type: %T", params))
+			return engine.NewUpdate(nil, nil, fmt.Errorf("unsupported parameter type: %T", params))
 		}
 
 		if err != nil {
-			return engine.NewResult(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
+			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
 		}
 
 		var resultTable *lua.LTable
-		// Use a named return parameter to capture errors from both rowsToTable and rows.Close
+		// Use a named return parameter to capture errors from both rowsToTable and rows.close
 		err = func() error {
 			defer func() {
 				closeErr := rows.Close()
@@ -118,10 +118,10 @@ func txQuery(l *lua.LState) int {
 		}()
 
 		if err != nil {
-			return engine.NewResult(nil, nil, err)
+			return engine.NewUpdate(nil, nil, err)
 		}
 
-		return engine.NewResult(nil, []lua.LValue{resultTable, lua.LNil}, nil)
+		return engine.NewUpdate(nil, []lua.LValue{resultTable, lua.LNil}, nil)
 	})
 
 	return -1 // Yield
@@ -144,33 +144,33 @@ func txExecute(l *lua.LState) int {
 		return 2
 	}
 
-	coroutine.Wrap(l, func() *engine.Result {
+	coroutine.Wrap(l, func() *engine.Update {
 		// Check if transaction is still active
 		if !tx.active {
-			return engine.NewResult(nil, nil, fmt.Errorf("transaction is not active"))
+			return engine.NewUpdate(nil, nil, fmt.Errorf("transaction is not active"))
 		}
 
 		var result sql.Result
 		var err error
 
-		// Execute with appropriate parameter style
+		// Start with appropriate parameter style
 		switch p := params.(type) {
 		case nil:
 			result, err = tx.tx.Exec(query)
 		case []interface{}:
 			result, err = tx.tx.Exec(query, p...)
 		default:
-			return engine.NewResult(nil, nil, fmt.Errorf("unsupported parameter type: %T", params))
+			return engine.NewUpdate(nil, nil, fmt.Errorf("unsupported parameter type: %T", params))
 		}
 
 		if err != nil {
-			return engine.NewResult(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
+			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
 		}
 
 		// Convert result to Lua table
 		resultTable := resultToTable(l, result)
 
-		return engine.NewResult(nil, []lua.LValue{resultTable, lua.LNil}, nil)
+		return engine.NewUpdate(nil, []lua.LValue{resultTable, lua.LNil}, nil)
 	})
 
 	return -1 // Yield
@@ -187,16 +187,16 @@ func txPrepare(l *lua.LState) int {
 	// Get query
 	query := l.CheckString(2)
 
-	coroutine.Wrap(l, func() *engine.Result {
+	coroutine.Wrap(l, func() *engine.Update {
 		// Check if transaction is still active
 		if !tx.active {
-			return engine.NewResult(nil, nil, fmt.Errorf("transaction is not active"))
+			return engine.NewUpdate(nil, nil, fmt.Errorf("transaction is not active"))
 		}
 
 		// Prepare statement
 		stmt, err := tx.tx.Prepare(query)
 		if err != nil {
-			return engine.NewResult(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
+			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
 		}
 
 		// Create statement wrapper
@@ -214,7 +214,7 @@ func txPrepare(l *lua.LState) int {
 			if closeErr != nil {
 				tx.log.Error("failed to close statement due to missing UOW", zap.Error(closeErr))
 			}
-			return engine.NewResult(nil, nil, fmt.Errorf("no unit of work found to manage statement"))
+			return engine.NewUpdate(nil, nil, fmt.Errorf("no unit of work found to manage statement"))
 		}
 
 		uw.AddCleanup(func() error {
@@ -224,7 +224,7 @@ func txPrepare(l *lua.LState) int {
 		// Create userdata
 		ud := WrapStatement(l, stmtObj)
 
-		return engine.NewResult(nil, []lua.LValue{ud, lua.LNil}, nil)
+		return engine.NewUpdate(nil, []lua.LValue{ud, lua.LNil}, nil)
 	})
 
 	return -1 // Yield
@@ -238,21 +238,21 @@ func txCommit(l *lua.LState) int {
 		return 0
 	}
 
-	coroutine.Wrap(l, func() *engine.Result {
+	coroutine.Wrap(l, func() *engine.Update {
 		// Check if transaction is still active
 		if !tx.active {
-			return engine.NewResult(nil, nil, fmt.Errorf("transaction is not active"))
+			return engine.NewUpdate(nil, nil, fmt.Errorf("transaction is not active"))
 		}
 
 		// Commit transaction
 		if err := tx.tx.Commit(); err != nil {
-			return engine.NewResult(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
+			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
 		}
 
 		// Mark as inactive
 		tx.active = false
 
-		return engine.NewResult(nil, []lua.LValue{lua.LTrue, lua.LNil}, nil)
+		return engine.NewUpdate(nil, []lua.LValue{lua.LTrue, lua.LNil}, nil)
 	})
 
 	return -1 // Yield
@@ -266,21 +266,21 @@ func txRollback(l *lua.LState) int {
 		return 0
 	}
 
-	coroutine.Wrap(l, func() *engine.Result {
+	coroutine.Wrap(l, func() *engine.Update {
 		// Check if transaction is still active
 		if !tx.active {
-			return engine.NewResult(nil, nil, fmt.Errorf("transaction is not active"))
+			return engine.NewUpdate(nil, nil, fmt.Errorf("transaction is not active"))
 		}
 
 		// Rollback transaction
 		if err := tx.tx.Rollback(); err != nil {
-			return engine.NewResult(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
+			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
 		}
 
 		// Mark as inactive
 		tx.active = false
 
-		return engine.NewResult(nil, []lua.LValue{lua.LTrue, lua.LNil}, nil)
+		return engine.NewUpdate(nil, []lua.LValue{lua.LTrue, lua.LNil}, nil)
 	})
 
 	return -1 // Yield
@@ -312,20 +312,20 @@ func txSavepoint(l *lua.LState) int {
 		}
 	}
 
-	coroutine.Wrap(l, func() *engine.Result {
+	coroutine.Wrap(l, func() *engine.Update {
 		// Check if transaction is still active
 		if !tx.active {
-			return engine.NewResult(nil, nil, fmt.Errorf("transaction is not active"))
+			return engine.NewUpdate(nil, nil, fmt.Errorf("transaction is not active"))
 		}
 
 		// Create savepoint
 		query := fmt.Sprintf("SAVEPOINT %s", name)
 		_, err := tx.tx.Exec(query)
 		if err != nil {
-			return engine.NewResult(nil, nil, fmt.Errorf("failed to create savepoint: %w", err))
+			return engine.NewUpdate(nil, nil, fmt.Errorf("failed to create savepoint: %w", err))
 		}
 
-		return engine.NewResult(nil, []lua.LValue{lua.LTrue, lua.LNil}, nil)
+		return engine.NewUpdate(nil, []lua.LValue{lua.LTrue, lua.LNil}, nil)
 	})
 
 	return -1 // Yield
@@ -356,20 +356,20 @@ func txRollbackTo(l *lua.LState) int {
 		}
 	}
 
-	coroutine.Wrap(l, func() *engine.Result {
+	coroutine.Wrap(l, func() *engine.Update {
 		// Check if transaction is still active
 		if !tx.active {
-			return engine.NewResult(nil, nil, fmt.Errorf("transaction is not active"))
+			return engine.NewUpdate(nil, nil, fmt.Errorf("transaction is not active"))
 		}
 
 		// Roll back to savepoint
 		query := fmt.Sprintf("ROLLBACK TO SAVEPOINT %s", name)
 		_, err := tx.tx.Exec(query)
 		if err != nil {
-			return engine.NewResult(nil, nil, fmt.Errorf("failed to rollback to savepoint: %w", err))
+			return engine.NewUpdate(nil, nil, fmt.Errorf("failed to rollback to savepoint: %w", err))
 		}
 
-		return engine.NewResult(nil, []lua.LValue{lua.LTrue, lua.LNil}, nil)
+		return engine.NewUpdate(nil, []lua.LValue{lua.LTrue, lua.LNil}, nil)
 	})
 
 	return -1 // Yield
@@ -400,20 +400,20 @@ func txReleaseSavepoint(l *lua.LState) int {
 		}
 	}
 
-	coroutine.Wrap(l, func() *engine.Result {
+	coroutine.Wrap(l, func() *engine.Update {
 		// Check if transaction is still active
 		if !tx.active {
-			return engine.NewResult(nil, nil, fmt.Errorf("transaction is not active"))
+			return engine.NewUpdate(nil, nil, fmt.Errorf("transaction is not active"))
 		}
 
 		// Release savepoint
 		query := fmt.Sprintf("RELEASE SAVEPOINT %s", name)
 		_, err := tx.tx.Exec(query)
 		if err != nil {
-			return engine.NewResult(nil, nil, fmt.Errorf("failed to release savepoint: %w", err))
+			return engine.NewUpdate(nil, nil, fmt.Errorf("failed to release savepoint: %w", err))
 		}
 
-		return engine.NewResult(nil, []lua.LValue{lua.LTrue, lua.LNil}, nil)
+		return engine.NewUpdate(nil, []lua.LValue{lua.LTrue, lua.LNil}, nil)
 	})
 
 	return -1 // Yield

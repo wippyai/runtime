@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/system/eventbus"
@@ -26,7 +26,7 @@ func (m *mockManagedHost) Terminate(ctx context.Context, pid pubsub.PID) error {
 	return nil
 }
 
-func (m *mockManagedHost) Launch(ctx context.Context, launch *process.LaunchProcess) (pubsub.PID, error) {
+func (m *mockManagedHost) Launch(ctx context.Context, launch *process.Launch) (pubsub.PID, error) {
 	return pubsub.PID{}, nil
 }
 
@@ -46,7 +46,7 @@ func (m *mockDelegatedHost) Launch(ctx context.Context, pid pubsub.PID, input pa
 
 type invalidHost struct{}
 
-func newTestHostRegistry(t *testing.T) (*HostRegistry, events.Bus) {
+func newTestHostRegistry(t *testing.T) (*HostRegistry, event.Bus) {
 	logger := zap.NewNop()
 	bus := eventbus.NewBus()
 	registry := NewHostRegistry(bus, logger)
@@ -71,13 +71,13 @@ func TestHostRegistry_RegisterHost(t *testing.T) {
 	require.NoError(t, hostRegistry.Start(ctx))
 	defer func() { assert.NoError(t, hostRegistry.Stop()) }()
 
-	responses := make(chan events.Event, 1)
+	responses := make(chan event.Event, 1)
 	sub, err := eventbus.NewSubscriber(
 		ctx,
 		bus,
 		process.HostSystem,
 		"hosts.*",
-		func(evt events.Event) {
+		func(evt event.Event) {
 			if evt.Kind == process.HostAccept || evt.Kind == process.HostReject {
 				responses <- evt
 			}
@@ -88,7 +88,7 @@ func TestHostRegistry_RegisterHost(t *testing.T) {
 
 	t.Run("register managed host", func(t *testing.T) {
 		host := &mockManagedHost{}
-		bus.Send(ctx, events.Event{
+		bus.Send(ctx, event.Event{
 			System: process.HostSystem,
 			Kind:   process.HostRegister,
 			Path:   "test:managed-host",
@@ -113,7 +113,7 @@ func TestHostRegistry_RegisterHost(t *testing.T) {
 
 	t.Run("register delegated host", func(t *testing.T) {
 		host := &mockDelegatedHost{}
-		bus.Send(ctx, events.Event{
+		bus.Send(ctx, event.Event{
 			System: process.HostSystem,
 			Kind:   process.HostRegister,
 			Path:   "test:delegated-host",
@@ -138,7 +138,7 @@ func TestHostRegistry_RegisterHost(t *testing.T) {
 
 	t.Run("register invalid host type", func(t *testing.T) {
 		host := &invalidHost{}
-		bus.Send(ctx, events.Event{
+		bus.Send(ctx, event.Event{
 			System: process.HostSystem,
 			Kind:   process.HostRegister,
 			Path:   "test:invalid-host",
@@ -159,7 +159,7 @@ func TestHostRegistry_RegisterHost(t *testing.T) {
 	})
 
 	t.Run("register with invalid payload", func(t *testing.T) {
-		bus.Send(ctx, events.Event{
+		bus.Send(ctx, event.Event{
 			System: process.HostSystem,
 			Kind:   process.HostRegister,
 			Path:   "test:invalid-payload",
@@ -182,13 +182,13 @@ func TestHostRegistry_DeleteHost(t *testing.T) {
 	require.NoError(t, hostRegistry.Start(ctx))
 	defer func() { assert.NoError(t, hostRegistry.Stop()) }()
 
-	responses := make(chan events.Event, 1)
+	responses := make(chan event.Event, 1)
 	sub, err := eventbus.NewSubscriber(
 		ctx,
 		bus,
 		process.HostSystem,
 		"hosts.*",
-		func(evt events.Event) {
+		func(evt event.Event) {
 			if evt.Kind == process.HostAccept || evt.Kind == process.HostReject {
 				responses <- evt
 			}
@@ -200,7 +200,7 @@ func TestHostRegistry_DeleteHost(t *testing.T) {
 	// Register a test host first
 	hostID := "test:managed-host"
 	host := &mockManagedHost{}
-	bus.Send(ctx, events.Event{
+	bus.Send(ctx, event.Event{
 		System: process.HostSystem,
 		Kind:   process.HostRegister,
 		Path:   hostID,
@@ -215,7 +215,7 @@ func TestHostRegistry_DeleteHost(t *testing.T) {
 	}
 
 	t.Run("successful deletion", func(t *testing.T) {
-		bus.Send(ctx, events.Event{
+		bus.Send(ctx, event.Event{
 			System: process.HostSystem,
 			Kind:   process.HostDelete,
 			Path:   hostID,
@@ -235,7 +235,7 @@ func TestHostRegistry_DeleteHost(t *testing.T) {
 	})
 
 	t.Run("delete non-existent host", func(t *testing.T) {
-		bus.Send(ctx, events.Event{
+		bus.Send(ctx, event.Event{
 			System: process.HostSystem,
 			Kind:   process.HostDelete,
 			Path:   "test:nonexistent",

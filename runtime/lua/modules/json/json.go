@@ -72,14 +72,16 @@ func (m *Module) Loader(l *lua.LState) int {
 // decode decodes JSON string to Lua value with input validation.
 func (*Module) decode(l *lua.LState) int {
 	if l.Get(1).Type() != lua.LTString {
-		l.ArgError(1, "string expected")
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.LString("string expected"))
+		return 2
 	}
 
 	str := l.ToString(1)
 	if str == "" {
-		l.ArgError(1, "empty string is not valid JSON")
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.LString("empty string is not valid JSON"))
+		return 2
 	}
 
 	value, err := Decode(l, []byte(str))
@@ -95,8 +97,9 @@ func (*Module) decode(l *lua.LState) int {
 // encode encodes Lua value to JSON string with input validation.
 func (m *Module) encode(l *lua.LState) int {
 	if l.Get(1) == nil {
-		l.ArgError(1, "value expected")
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.LString("value expected"))
+		return 2
 	}
 
 	value := l.Get(1)
@@ -108,12 +111,6 @@ func (m *Module) encode(l *lua.LState) int {
 	}
 	l.Push(lua.LString(data))
 	return 1
-}
-
-type invalidTypeError lua.LValueType
-
-func (i invalidTypeError) Error() string {
-	return "cannot encode " + lua.LValueType(i).String() + " to JSON"
 }
 
 // Encode returns the JSON encoding of value.
@@ -253,9 +250,9 @@ func (j *jsonValue) MarshalJSON() ([]byte, error) {
 			return json.Marshal(err.Error())
 		}
 
-		return nil, invalidTypeError(j.LValue.Type())
+		return []byte("null"), nil
 	default:
-		return nil, invalidTypeError(j.LValue.Type())
+		return []byte("null"), nil
 	}
 }
 

@@ -10,7 +10,7 @@ import (
 	"github.com/ponyruntime/pony/internal/uniqid"
 	"sync"
 
-	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/system/eventbus"
 	"go.uber.org/zap"
 )
@@ -22,14 +22,13 @@ type Registry struct {
 	host       pubsub.Host
 	uniqID     *uniqid.Generator
 	logger     *zap.Logger
-	bus        events.Bus
+	bus        event.Bus
 	handlers   sync.Map
 	subscriber *eventbus.Subscriber
 }
 
 // NewFunctionRegistry creates a new Registry instance with the provided event bus and logger.
-func NewFunctionRegistry(bus events.Bus, host pubsub.Host, logger *zap.Logger) *Registry {
-
+func NewFunctionRegistry(bus event.Bus, host pubsub.Host, logger *zap.Logger) *Registry {
 	return &Registry{
 		uniqID:   uniqid.NewGenerator(),
 		bus:      bus,
@@ -68,11 +67,11 @@ func (f *Registry) Stop() error {
 	return nil
 }
 
-func (f *Registry) handleEvent(e events.Event) {
+func (f *Registry) handleEvent(e event.Event) {
 	switch e.Kind {
-	case function.FuncRegister:
+	case function.Register:
 		f.registerFunction(e)
-	case function.FuncDelete:
+	case function.Delete:
 		f.deleteFunction(e)
 	default:
 		f.logger.Warn("unknown event kind",
@@ -81,7 +80,7 @@ func (f *Registry) handleEvent(e events.Event) {
 	}
 }
 
-func (f *Registry) registerFunction(e events.Event) {
+func (f *Registry) registerFunction(e event.Event) {
 	fn, ok := e.Data.(function.Func)
 	if !ok {
 		f.logger.Error("invalid register function payload",
@@ -99,7 +98,7 @@ func (f *Registry) registerFunction(e events.Event) {
 	f.sendAccept(e.Path)
 }
 
-func (f *Registry) deleteFunction(e events.Event) {
+func (f *Registry) deleteFunction(e event.Event) {
 	// Check if the function exists before removing
 	_, exists := f.handlers.Load(registry.ParseID(e.Path))
 	if !exists {
@@ -108,25 +107,25 @@ func (f *Registry) deleteFunction(e events.Event) {
 		return
 	}
 
-	// Remove the function
+	// Done the function
 	f.handlers.Delete(registry.ParseID(e.Path))
 	f.logger.Debug("function removed", zap.String("function", e.Path))
 
 	f.sendAccept(e.Path)
 }
 
-func (f *Registry) sendAccept(path events.Path) {
-	f.bus.Send(f.ctx, events.Event{
+func (f *Registry) sendAccept(path event.Path) {
+	f.bus.Send(f.ctx, event.Event{
 		System: function.System,
-		Kind:   function.FuncAccept,
+		Kind:   function.Accept,
 		Path:   path,
 	})
 }
 
-func (f *Registry) sendReject(path events.Path, reason string) {
-	f.bus.Send(f.ctx, events.Event{
+func (f *Registry) sendReject(path event.Path, reason string) {
+	f.bus.Send(f.ctx, event.Event{
 		System: function.System,
-		Kind:   function.FuncReject,
+		Kind:   function.Reject,
 		Path:   path,
 		Data:   reason,
 	})
@@ -151,15 +150,16 @@ func (f *Registry) Call(ctx context.Context, task runtime.Task) (chan *runtime.R
 		return nil, fmt.Errorf("invalid handler type for target: %s", task.ID)
 	}
 
-	ctx = function.WithContext(ctx, &function.Context{
-		PID: pubsub.PID{
-			Node:   pubsub.GetNode(ctx).ID(),
-			Host:   function.HostID,
-			ID:     task.ID,
-			UniqID: f.uniqID.Generate(),
-		},
-	})
 	ctx = pubsub.WithHost(ctx, f.host)
+	ctx = pubsub.WithPID(ctx, pubsub.PID{
+		Node:   pubsub.GetNode(ctx).ID(),
+		Host:   function.HostID,
+		ID:     task.ID,
+		UniqID: f.uniqID.Generate(),
+	})
 
 	return execHandler(ctx, task)
 }
+
+// Ensure Registry implements the operation.Registry interface
+var _ function.Registry = (*Registry)(nil)

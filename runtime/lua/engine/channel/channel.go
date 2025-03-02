@@ -3,11 +3,12 @@ package channel
 import (
 	"container/list"
 	"errors"
+	"github.com/ponyruntime/pony/runtime/lua/engine"
 
 	lua "github.com/yuin/gopher-lua"
 )
 
-// note, channel operations are not state safe but deterministic
+// note, channel operations are not State safe but deterministic
 type opKind int
 
 const (
@@ -19,8 +20,8 @@ type op struct {
 	kind     opKind
 	ch       *Channel
 	value    lua.LValue
-	task     *lua.LState // nil for buffered values
-	selectOp *selectOp   // associated select op, nil for direct ops and buffered values
+	task     *lua.LState // nil for buffered Result
+	selectOp *selectOp   // associated select op, nil for direct ops and buffered Result
 }
 
 type selectOp struct {
@@ -30,16 +31,10 @@ type selectOp struct {
 }
 
 type onNext struct {
-	yields  bool       // If current state should yield
-	next    []*opStep  // Operations to wake
-	block   []*Channel // Channels this state is waiting on
-	release []*Channel // Channels this state is releasing
-}
-
-type opStep struct {
-	err    error
-	state  *lua.LState
-	values []lua.LValue
+	yields  bool             // If current State should yield
+	next    []*engine.Update // Operations to wake
+	block   []*Channel       // Channels this State is waiting on
+	release []*Channel       // Channels this State is releasing
 }
 
 // Channel represents a buffered or unbuffered channel that requires external synchronization.
@@ -91,8 +86,8 @@ func (c *Channel) Value() lua.LValue {
 func (c *Channel) send(senderTask *lua.LState, value lua.LValue, selectOp *selectOp) *onNext {
 	if c.closed {
 		return &onNext{
-			next: []*opStep{
-				{state: senderTask, err: errors.New("send on closed channel")},
+			next: []*engine.Update{
+				{State: senderTask, Error: errors.New("send on closed channel")},
 			},
 		}
 	}
@@ -104,14 +99,14 @@ func (c *Channel) send(senderTask *lua.LState, value lua.LValue, selectOp *selec
 		if recvOp.task != nil {
 			return &onNext{
 				yields: true,
-				next: []*opStep{
+				next: []*engine.Update{
 					{
-						state:  recvOp.task,
-						values: makeResult(recvOp.task, recvOp.selectOp, recvOp.ch.value, value, true),
+						State:  recvOp.task,
+						Result: makeResult(recvOp.task, recvOp.selectOp, recvOp.ch.value, value, true),
 					},
 					{
-						state:  senderTask,
-						values: makeResult(senderTask, selectOp, c.value, nil, true),
+						State:  senderTask,
+						Result: makeResult(senderTask, selectOp, c.value, nil, true),
 					},
 				},
 				release: append(release(recvOp), flushSelects(selectOp)...),
@@ -130,10 +125,10 @@ func (c *Channel) send(senderTask *lua.LState, value lua.LValue, selectOp *selec
 		c.size++
 
 		return &onNext{
-			next: []*opStep{
+			next: []*engine.Update{
 				{
-					state:  senderTask,
-					values: makeResult(senderTask, selectOp, c.value, value, true),
+					State:  senderTask,
+					Result: makeResult(senderTask, selectOp, c.value, value, true),
 				},
 			},
 			release: flushSelects(selectOp),
@@ -162,14 +157,14 @@ func (c *Channel) receive(receiverTask *lua.LState, selectOp *selectOp) *onNext 
 		if sendOp.task != nil {
 			return &onNext{
 				yields: true,
-				next: []*opStep{
+				next: []*engine.Update{
 					{
-						state:  sendOp.task,
-						values: makeResult(sendOp.task, sendOp.selectOp, sendOp.ch.value, sendOp.value, true),
+						State:  sendOp.task,
+						Result: makeResult(sendOp.task, sendOp.selectOp, sendOp.ch.value, sendOp.value, true),
 					},
 					{
-						state:  receiverTask,
-						values: makeResult(receiverTask, selectOp, c.value, sendOp.value, true),
+						State:  receiverTask,
+						Result: makeResult(receiverTask, selectOp, c.value, sendOp.value, true),
 					},
 				},
 				release: append(release(sendOp), flushSelects(selectOp)...),
@@ -178,10 +173,10 @@ func (c *Channel) receive(receiverTask *lua.LState, selectOp *selectOp) *onNext 
 
 		// buffered
 		return &onNext{
-			next: []*opStep{
+			next: []*engine.Update{
 				{
-					state:  receiverTask,
-					values: makeResult(receiverTask, selectOp, c.value, sendOp.value, true),
+					State:  receiverTask,
+					Result: makeResult(receiverTask, selectOp, c.value, sendOp.value, true),
 				},
 			},
 		}
@@ -189,10 +184,10 @@ func (c *Channel) receive(receiverTask *lua.LState, selectOp *selectOp) *onNext 
 
 	if c.closed {
 		return &onNext{
-			next: []*opStep{
+			next: []*engine.Update{
 				{
-					state:  receiverTask,
-					values: makeResult(receiverTask, selectOp, c.value, lua.LNil, false),
+					State:  receiverTask,
+					Result: makeResult(receiverTask, selectOp, c.value, lua.LNil, false),
 				},
 			},
 		}
@@ -212,14 +207,14 @@ func (c *Channel) receive(receiverTask *lua.LState, selectOp *selectOp) *onNext 
 func (c *Channel) close(closerTask *lua.LState) *onNext {
 	if c.closed {
 		return &onNext{
-			next: []*opStep{
-				{err: errors.New("close of closed channel")},
+			next: []*engine.Update{
+				{Error: errors.New("close of closed channel")},
 			},
 		}
 	}
 
 	c.closed = true
-	var results []*opStep
+	var results []*engine.Update
 	releases := make([]*Channel, 0)
 
 	// Handle and remove ALL senders - they all fail with error
@@ -227,9 +222,9 @@ func (c *Channel) close(closerTask *lua.LState) *onNext {
 		nextE := e.Next()
 		op := e.Value.(*op)
 		if op.task != nil {
-			results = append(results, &opStep{
-				state: op.task,
-				err:   errors.New("send on closed channel"),
+			results = append(results, &engine.Update{
+				State: op.task,
+				Error: errors.New("send on closed channel"),
 			})
 			releases = append(releases, release(op)...)
 			c.senders.Remove(e)
@@ -243,9 +238,9 @@ func (c *Channel) close(closerTask *lua.LState) *onNext {
 		nextE := e.Next()
 		op := e.Value.(*op)
 		if op.task != nil {
-			results = append(results, &opStep{
-				state:  op.task,
-				values: makeResult(op.task, op.selectOp, c.value, lua.LNil, false),
+			results = append(results, &engine.Update{
+				State:  op.task,
+				Result: makeResult(op.task, op.selectOp, c.value, lua.LNil, false),
 			})
 			releases = append(releases, release(op)...)
 			c.receivers.Remove(e)
@@ -254,7 +249,7 @@ func (c *Channel) close(closerTask *lua.LState) *onNext {
 	}
 
 	if len(results) > 0 {
-		results = append(results, &opStep{state: closerTask, values: nil})
+		results = append(results, &engine.Update{State: closerTask, Result: nil})
 	}
 
 	return &onNext{
@@ -320,13 +315,6 @@ func flushSelects(s *selectOp) []*Channel {
 	return releases
 }
 
-// todo: unused
-func (c *Channel) reset() { //nolint:unused
-	c.size = 0
-	c.senders.Init()
-	c.receivers.Init()
-}
-
 func (c *Channel) isNamed() bool {
 	return c.name != ""
 }
@@ -352,7 +340,7 @@ func makeResult(task *lua.LState, selectOp *selectOp, chValue, value lua.LValue,
 }
 
 func selectResult(l *lua.LState, chValue, value lua.LValue, ok bool) []lua.LValue {
-	result := l.NewTable()
+	result := l.CreateTable(3, 3)
 	result.RawSetString("channel", chValue)
 	result.RawSetString("value", value)
 	result.RawSetString("ok", lua.LBool(ok))

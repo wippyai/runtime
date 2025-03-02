@@ -6,7 +6,7 @@ import (
 	"github.com/ponyruntime/pony/api/resource"
 	"sync"
 
-	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/system/eventbus"
 	"go.uber.org/zap"
@@ -16,13 +16,13 @@ import (
 type Registry struct {
 	ctx        context.Context
 	logger     *zap.Logger
-	bus        events.Bus
-	resources  sync.Map // map[registry.ID]Entry
+	bus        event.Bus
+	resources  sync.Map // map[registry.Source]Entry
 	subscriber *eventbus.Subscriber
 }
 
 // NewResourceRegistry creates a new resource service instance
-func NewResourceRegistry(bus events.Bus, logger *zap.Logger) *Registry {
+func NewResourceRegistry(bus event.Bus, logger *zap.Logger) *Registry {
 	return &Registry{
 		bus:       bus,
 		logger:    logger,
@@ -39,7 +39,7 @@ func (s *Registry) Start(ctx context.Context) error {
 		s.ctx,
 		s.bus,
 		resource.System,
-		"resources.(register|update|delete)",
+		"resource.(register|update|delete)",
 		s.handleEvent,
 	)
 	if err != nil {
@@ -58,7 +58,7 @@ func (s *Registry) Stop() error {
 	return nil
 }
 
-func (s *Registry) handleEvent(e events.Event) {
+func (s *Registry) handleEvent(e event.Event) {
 	switch e.Kind {
 	case resource.Register:
 		s.handleRegister(e)
@@ -73,7 +73,7 @@ func (s *Registry) handleEvent(e events.Event) {
 	}
 }
 
-func (s *Registry) handleRegister(e events.Event) {
+func (s *Registry) handleRegister(e event.Event) {
 	entry, ok := e.Data.(resource.Entry)
 	if !ok {
 		s.logger.Error("invalid resource entry payload",
@@ -89,7 +89,7 @@ func (s *Registry) handleRegister(e events.Event) {
 		zap.Any("meta", entry.Meta))
 }
 
-func (s *Registry) handleUpdate(e events.Event) {
+func (s *Registry) handleUpdate(e event.Event) {
 	entry, ok := e.Data.(resource.Entry)
 	if !ok {
 		s.logger.Error("invalid resource entry payload",
@@ -111,10 +111,10 @@ func (s *Registry) handleUpdate(e events.Event) {
 		zap.Any("meta", entry.Meta))
 }
 
-func (s *Registry) handleRemove(e events.Event) {
+func (s *Registry) handleRemove(e event.Event) {
 	id, ok := e.Data.(registry.ID)
 	if !ok {
-		s.logger.Error("invalid resource ID payload",
+		s.logger.Error("invalid resource Source payload",
 			zap.String("resource", e.Path),
 			zap.String("type", fmt.Sprintf("%T", e.Data)))
 		return

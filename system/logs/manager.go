@@ -6,7 +6,7 @@ import (
 	api "github.com/ponyruntime/pony/api/logs"
 	"sync"
 
-	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/system/eventbus"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -16,7 +16,7 @@ import (
 // all the logs from the system and sends them to the event bus. Unmanaged.
 type Manager struct {
 	log    *zap.Logger
-	bus    events.Bus
+	bus    event.Bus
 	core   api.Core
 	mu     sync.RWMutex
 	config api.Config
@@ -25,7 +25,7 @@ type Manager struct {
 }
 
 // NewManager creates a new logging service instance
-func NewManager(bus events.Bus, core api.Core, logger *zap.Logger, level zapcore.Level) *Manager {
+func NewManager(bus event.Bus, core api.Core, logger *zap.Logger, level zapcore.Level) *Manager {
 	return &Manager{
 		log:  logger,
 		bus:  bus,
@@ -72,7 +72,7 @@ func (m *Manager) Stop() error {
 }
 
 // handleEvent processes incoming events
-func (m *Manager) handleEvent(e events.Event) {
+func (m *Manager) handleEvent(e event.Event) {
 	switch e.Kind {
 	case api.SetConfig:
 		m.handleConfigEvent(m.ctx, e)
@@ -82,7 +82,7 @@ func (m *Manager) handleEvent(e events.Event) {
 }
 
 // handleConfigEvent processes incoming log configuration events
-func (m *Manager) handleConfigEvent(ctx context.Context, e events.Event) {
+func (m *Manager) handleConfigEvent(ctx context.Context, e event.Event) {
 	cfg, ok := e.Data.(api.Config)
 	if !ok {
 		m.log.Error("invalid config data type")
@@ -110,13 +110,13 @@ func (m *Manager) handleConfigEvent(ctx context.Context, e events.Event) {
 }
 
 // handleGetConfigEvent handles requests for current config state
-func (m *Manager) handleGetConfigEvent(ctx context.Context, e events.Event) {
+func (m *Manager) handleGetConfigEvent(ctx context.Context, e event.Event) {
 	m.mu.RLock()
 	currentConfig := m.config
 	m.mu.RUnlock()
 
-	// Send response with current config
-	m.bus.Send(ctx, events.Event{
+	// send response with current config
+	m.bus.Send(ctx, event.Event{
 		System: api.System,
 		Kind:   api.ConfigState,
 		Path:   e.Path,
@@ -125,11 +125,11 @@ func (m *Manager) handleGetConfigEvent(ctx context.Context, e events.Event) {
 }
 
 // handleSetConfigEvent applies a new logging configuration
-func (m *Manager) handleSetConfigEvent(ctx context.Context, path events.Path, cfg api.Config) {
+func (m *Manager) handleSetConfigEvent(ctx context.Context, path event.Path, cfg api.Config) {
 	m.config = cfg
 	m.core.Configure(cfg)
-	// Send confirmation that config was applied
-	m.bus.Send(ctx, events.Event{
+	// send confirmation that config was applied
+	m.bus.Send(ctx, event.Event{
 		System: api.System,
 		Kind:   api.ConfigState,
 		Path:   path,

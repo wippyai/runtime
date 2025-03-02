@@ -9,10 +9,18 @@ import (
 	"go.uber.org/zap"
 )
 
+// OperationType defines the kind of lifecycle operation to perform on a service.
+// It distinguishes between starting and stopping operations, which have different
+// dependency ordering requirements.
 type OperationType int
 
 const (
+	// OperationStart indicates an operation to start a service.
+	// Services are started in dependency order (dependencies before dependents).
 	OperationStart OperationType = iota
+
+	// OperationStop indicates an operation to stop a service.
+	// Services are stopped in reverse dependency order (dependents before dependencies).
 	OperationStop
 )
 
@@ -172,7 +180,7 @@ func (sp *Sequencer) processStopOperations(ctx context.Context, operations []Ope
 		var wg sync.WaitGroup
 		errChan := make(chan error, len(levelNodes))
 
-		// Close services in current level in parallel
+		// close services in current level in parallel
 		for _, serviceID := range levelNodes {
 			if op, exists := opMap[serviceID]; exists {
 				wg.Add(1)

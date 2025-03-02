@@ -3,7 +3,7 @@ package component
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	api "github.com/ponyruntime/pony/api/runtime/lua"
@@ -36,7 +36,7 @@ func (h *Handler) Pattern() eventbus.Pattern {
 	}
 }
 
-func (h *Handler) Handle(ctx context.Context, evt events.Event) error {
+func (h *Handler) Handle(ctx context.Context, evt event.Event) error {
 	// Handle Lua events first
 	if evt.System == api.System {
 		switch evt.Kind {

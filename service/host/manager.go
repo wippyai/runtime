@@ -5,10 +5,9 @@ import (
 	"fmt"
 	supervisor2 "github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/service/host"
-	msg "github.com/ponyruntime/pony/system/pubsub"
 	"sync"
 
-	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
@@ -18,19 +17,31 @@ import (
 
 // Manager handles process host lifecycle and registration
 type Manager struct {
-	log   *zap.Logger
-	bus   events.Bus
-	dtt   payload.Transcoder
-	mu    sync.RWMutex
-	hosts sync.Map // map[registry.ID]*Host
+	log         *zap.Logger
+	bus         event.Bus
+	dtt         payload.Transcoder
+	mu          sync.RWMutex
+	hosts       sync.Map // map[registry.Source]*Host
+	hostFactory Factory
 }
 
-// NewHostManager creates a new process host manager
-func NewHostManager(bus events.Bus, dtt payload.Transcoder, logger *zap.Logger) *Manager {
+// NewHostManager creates a new process host manager with default host factory
+func NewHostManager(bus event.Bus, dtt payload.Transcoder, logger *zap.Logger) *Manager {
+	return NewHostManagerWithFactory(bus, dtt, logger, NewDefaultHostFactory())
+}
+
+// NewHostManagerWithFactory creates a new process host manager with a custom host factory
+func NewHostManagerWithFactory(
+	bus event.Bus,
+	dtt payload.Transcoder,
+	logger *zap.Logger,
+	factory Factory,
+) *Manager {
 	return &Manager{
-		log: logger,
-		bus: bus,
-		dtt: dtt,
+		log:         logger,
+		bus:         bus,
+		dtt:         dtt,
+		hostFactory: factory,
 	}
 }
 
@@ -54,28 +65,26 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Create new host instance
-	mph := NewMultiProcessHost(
-		entry.ID,
-		cfg,
-		m.log,
-		func(ctx context.Context) pubsub.Host {
-			return msg.NewHost(ctx, msg.HostConfig{
-				BufferSize:      cfg.HostConfig.BufferSize,
-				WorkerCount:     cfg.HostConfig.WorkerCount,
-				Logger:          m.log,
-				RetryTimeout:    cfg.HostConfig.RetryTimeout,
-				DeliveryTimeout: cfg.HostConfig.DeliveryTimeout,
-			})
-		})
+	// Create new host instance using the factory
+	h, err := m.hostFactory.CreateHost(entry.ID, cfg, m.log)
+	if err != nil {
+		return fmt.Errorf("failed to create host: %w", err)
+	}
+
+	// Convert to concrete type for our internal storage
+	// This is safe because we know our factory returns a *Host
+	concreteHost, ok := h.(*Host)
+	if !ok {
+		return fmt.Errorf("factory returned unexpected host type: %T", h)
+	}
 
 	// Store in hosts map
-	m.hosts.Store(entry.ID, mph)
+	m.hosts.Store(entry.ID, concreteHost)
 
 	m.log.Info("process host created", zap.String("id", entry.ID.String()))
 
 	// Register with necessary subsystems
-	m.registerHost(ctx, entry.ID, mph, cfg)
+	m.registerHost(ctx, entry.ID, concreteHost, cfg)
 
 	return nil
 }
@@ -105,15 +114,15 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 // registerHost registers the process host with necessary subsystems
 func (m *Manager) registerHost(ctx context.Context, id registry.ID, host *Host, cfg *host.EntryConfig) {
 	// Register with pubsub
-	m.bus.Send(ctx, events.Event{
+	m.bus.Send(ctx, event.Event{
 		System: pubsub.System,
-		Kind:   pubsub.RegisterHost,
+		Kind:   pubsub.HostRegister,
 		Path:   id.String(),
 		Data:   supervisor2.Host(host),
 	})
 
 	// Register as process host
-	m.bus.Send(ctx, events.Event{
+	m.bus.Send(ctx, event.Event{
 		System: supervisor2.HostSystem,
 		Kind:   supervisor2.HostRegister,
 		Path:   id.String(),
@@ -121,7 +130,7 @@ func (m *Manager) registerHost(ctx context.Context, id registry.ID, host *Host, 
 	})
 
 	// Register with supervisor
-	m.bus.Send(ctx, events.Event{
+	m.bus.Send(ctx, event.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Register,
 		Path:   id.String(),
@@ -134,22 +143,22 @@ func (m *Manager) registerHost(ctx context.Context, id registry.ID, host *Host, 
 
 // removeHost removes the process host from all subsystems
 func (m *Manager) removeHost(ctx context.Context, id registry.ID) {
-	// Remove from pubsub
-	m.bus.Send(ctx, events.Event{
+	// Done from pubsub
+	m.bus.Send(ctx, event.Event{
 		System: pubsub.System,
-		Kind:   pubsub.DeleteHost,
+		Kind:   pubsub.HostDelete,
 		Path:   id.String(),
 	})
 
-	// Remove from process hosts
-	m.bus.Send(ctx, events.Event{
+	// Done from process hosts
+	m.bus.Send(ctx, event.Event{
 		System: supervisor2.HostSystem,
 		Kind:   supervisor2.HostDelete,
 		Path:   id.String(),
 	})
 
-	// Remove from supervisor
-	m.bus.Send(ctx, events.Event{
+	// Done from supervisor
+	m.bus.Send(ctx, event.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Remove,
 		Path:   id.String(),

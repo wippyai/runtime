@@ -3,11 +3,12 @@ package eventbus
 import (
 	"context"
 	"fmt"
+	"github.com/stretchr/testify/assert"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/event"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
@@ -17,7 +18,7 @@ func TestEventRouter(t *testing.T) {
 		bus := NewBus()
 		defer bus.Stop()
 
-		var receivedEvents []events.Event
+		var receivedEvents []event.Event
 		var mu sync.Mutex
 		eventReceived := make(chan struct{})
 
@@ -26,7 +27,7 @@ func TestEventRouter(t *testing.T) {
 				System: "test-system",
 				Kind:   "test-kind",
 			},
-			func(ctx context.Context, evt events.Event) error {
+			func(ctx context.Context, evt event.Event) error {
 				mu.Lock()
 				receivedEvents = append(receivedEvents, evt)
 				mu.Unlock()
@@ -37,14 +38,14 @@ func TestEventRouter(t *testing.T) {
 
 		router, err := StartRouter(context.Background(), bus, WithHandlers(handler))
 		require.NoError(t, err)
-		defer router.Stop()
+		defer func() { assert.NoError(t, router.Stop()) }()
 
-		event := events.Event{
+		e := event.Event{
 			System: "test-system",
 			Kind:   "test-kind",
 			Data:   []byte("test-data"),
 		}
-		bus.Send(context.Background(), event)
+		bus.Send(context.Background(), e)
 
 		select {
 		case <-eventReceived:
@@ -54,7 +55,7 @@ func TestEventRouter(t *testing.T) {
 
 		mu.Lock()
 		require.Len(t, receivedEvents, 1)
-		require.Equal(t, event, receivedEvents[0])
+		require.Equal(t, e, receivedEvents[0])
 		mu.Unlock()
 	})
 
@@ -63,7 +64,7 @@ func TestEventRouter(t *testing.T) {
 		defer bus.Stop()
 
 		type handlerEvents struct {
-			events    []events.Event
+			events    []event.Event
 			mu        sync.Mutex
 			expecting int
 			done      chan struct{}
@@ -75,7 +76,7 @@ func TestEventRouter(t *testing.T) {
 			"doublestar": {expecting: 3, done: make(chan struct{})},
 		}
 
-		checkAndSignal := func(name string, evt events.Event) {
+		checkAndSignal := func(name string, evt event.Event) {
 			h := handlers[name]
 			h.mu.Lock()
 			h.events = append(h.events, evt)
@@ -89,7 +90,7 @@ func TestEventRouter(t *testing.T) {
 			// Exact match handler
 			NewBaseHandler(
 				Pattern{System: "system.service1", Kind: "created"},
-				func(ctx context.Context, evt events.Event) error {
+				func(ctx context.Context, evt event.Event) error {
 					checkAndSignal("exact", evt)
 					return nil
 				},
@@ -97,7 +98,7 @@ func TestEventRouter(t *testing.T) {
 			// Single star handler - matches one segment
 			NewBaseHandler(
 				Pattern{System: "system.*", Kind: "created"},
-				func(ctx context.Context, evt events.Event) error {
+				func(ctx context.Context, evt event.Event) error {
 					checkAndSignal("singlestar", evt)
 					return nil
 				},
@@ -105,7 +106,7 @@ func TestEventRouter(t *testing.T) {
 			// Double star handler - matches multiple segments
 			NewBaseHandler(
 				Pattern{System: "system.**", Kind: "created"},
-				func(ctx context.Context, evt events.Event) error {
+				func(ctx context.Context, evt event.Event) error {
 					checkAndSignal("doublestar", evt)
 					return nil
 				},
@@ -114,10 +115,10 @@ func TestEventRouter(t *testing.T) {
 
 		router, err := StartRouter(context.Background(), bus, WithHandlers(allHandlers...))
 		require.NoError(t, err)
-		defer router.Stop()
+		defer func() { assert.NoError(t, router.Stop()) }()
 
-		// Send events that match different patterns
-		eventsData := []events.Event{
+		// send events that match different patterns
+		eventsData := []event.Event{
 			{System: "system.service1", Kind: "created", Data: []byte("1")},
 			{System: "system.service2", Kind: "created", Data: []byte("2")},
 			{System: "system.service1.internal", Kind: "created", Data: []byte("3")},
@@ -132,7 +133,7 @@ func TestEventRouter(t *testing.T) {
 		for name, h := range handlers {
 			select {
 			case <-h.done:
-				// ID received all expected events
+				// Source received all expected events
 			case <-time.After(time.Second):
 				t.Fatalf("timeout waiting for %s handler", name)
 			}
@@ -176,7 +177,7 @@ func TestEventRouter(t *testing.T) {
 
 		handler := NewBaseHandler(
 			Pattern{System: "test", Kind: "error"},
-			func(ctx context.Context, evt events.Event) error {
+			func(ctx context.Context, evt event.Event) error {
 				defer close(errorReceived)
 				return fmt.Errorf("test error: %s", evt.Data)
 			},
@@ -187,14 +188,14 @@ func TestEventRouter(t *testing.T) {
 			WithHandlers(handler),
 		)
 		require.NoError(t, err)
-		defer router.Stop()
+		defer func() { assert.NoError(t, router.Stop()) }()
 
-		event := events.Event{
+		e := event.Event{
 			System: "test",
 			Kind:   "error",
 			Data:   []byte("error-data"),
 		}
-		bus.Send(context.Background(), event)
+		bus.Send(context.Background(), e)
 
 		select {
 		case <-errorReceived:
@@ -224,10 +225,10 @@ func TestEventRouter(t *testing.T) {
 		for i := 0; i < numHandlers; i++ {
 			handlers = append(handlers, NewBaseHandler(
 				Pattern{
-					System: events.System(fmt.Sprintf("system-%d", i)),
+					System: event.System(fmt.Sprintf("system-%d", i)),
 					Kind:   "*",
 				},
-				func(ctx context.Context, evt events.Event) error {
+				func(ctx context.Context, evt event.Event) error {
 					wg.Done()
 					return nil
 				},
@@ -237,9 +238,9 @@ func TestEventRouter(t *testing.T) {
 		// Spawn router with all handlers
 		router, err := StartRouter(ctx, bus, WithHandlers(handlers...))
 		require.NoError(t, err)
-		defer router.Stop()
+		defer func() { assert.NoError(t, router.Stop()) }()
 
-		// Send events
+		// send events
 		for i := 0; i < numHandlers; i++ {
 			go func(idx int) {
 				for j := 0; j < eventsPerHandler; j++ {
@@ -247,12 +248,12 @@ func TestEventRouter(t *testing.T) {
 					case <-ctx.Done():
 						return
 					default:
-						event := events.Event{
-							System: events.System(fmt.Sprintf("system-%d", idx)),
-							Kind:   events.Kind(fmt.Sprintf("event-%d", j)),
+						e := event.Event{
+							System: event.System(fmt.Sprintf("system-%d", idx)),
+							Kind:   event.Kind(fmt.Sprintf("event-%d", j)),
 							Data:   []byte("test"),
 						}
-						bus.Send(ctx, event)
+						bus.Send(ctx, e)
 						time.Sleep(time.Microsecond)
 					}
 				}

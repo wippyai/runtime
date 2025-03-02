@@ -30,7 +30,7 @@ func TestChannelBasicOperations(t *testing.T) {
 			t.Error("expected 2 next for send/receive pair")
 		}
 
-		if next.next[1].values[0] != value {
+		if next.next[1].Result[0] != value {
 			t.Error("received wrong value")
 		}
 	})
@@ -51,7 +51,7 @@ func TestChannelBasicOperations(t *testing.T) {
 			t.Error("expected 1 result for buffered receive")
 		}
 
-		if next.next[0].values[0] != value {
+		if next.next[0].Result[0] != value {
 			t.Error("received wrong value from buffer")
 		}
 	})
@@ -66,12 +66,12 @@ func TestChannelBasicOperations(t *testing.T) {
 		}
 
 		next = ch.send(L, lua.LString("test"), nil)
-		if next.next[0].err == nil {
+		if next.next[0].Error == nil {
 			t.Error("expected error on send to closed channel")
 		}
 
 		next = ch.receive(L, nil)
-		if next.next[0].values[1] != lua.LFalse {
+		if next.next[0].Result[1] != lua.LFalse {
 			t.Error("receive on closed channel should return ok=false")
 		}
 	})
@@ -131,16 +131,16 @@ func TestChannelEdgeCases(t *testing.T) {
 		next := ch.close(L)
 
 		if next.yields {
-			t.Error("close shouldn't yield with only buffered values")
+			t.Error("close shouldn't yield with only buffered Result")
 		}
 
 		next = ch.receive(L, nil)
-		if next.next[0].values[1] != lua.LTrue {
+		if next.next[0].Result[1] != lua.LTrue {
 			t.Error("should receive buffered value successfully")
 		}
 
 		next = ch.receive(L, nil)
-		if next.next[0].values[1] != lua.LFalse {
+		if next.next[0].Result[1] != lua.LFalse {
 			t.Error("second receive should indicate closed channel")
 		}
 	})
@@ -152,26 +152,26 @@ func TestChannelEdgeCases(t *testing.T) {
 		// AddCleanup a blocked sender
 		ch.send(L1, lua.LString("test"), nil)
 
-		// Close the channel
+		// close the channel
 		next := ch.close(L1)
 		if len(next.next) != 2 {
 			t.Errorf("expected 2 next (sender error + closer), got %d", len(next.next))
 		}
 
 		senderResult := next.next[0]
-		if senderResult.err == nil || senderResult.err.Error() != "send on closed channel" {
+		if senderResult.Error == nil || senderResult.Error.Error() != "send on closed channel" {
 			t.Error("expected send on closed channel error")
 		}
-		if senderResult.state != L1 {
-			t.Error("wrong state in sender result")
+		if senderResult.State != L1 {
+			t.Error("wrong State in sender result")
 		}
 
 		closerResult := next.next[1]
-		if closerResult.state != L1 {
-			t.Error("wrong state in closer result")
+		if closerResult.State != L1 {
+			t.Error("wrong State in closer result")
 		}
-		if closerResult.values != nil {
-			t.Error("closer should have nil values")
+		if closerResult.Result != nil {
+			t.Error("closer should have nil Result")
 		}
 	})
 }
