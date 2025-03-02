@@ -41,7 +41,6 @@ func TestHost_NewHost(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			host := NewHost(ctx, tt.config)
 			assert.NotNil(t, host)
-			assert.Equal(t, tt.config.BufferSize, cap(host.jobCh))
 			assert.Equal(t, tt.config.Logger, host.logger)
 		})
 	}

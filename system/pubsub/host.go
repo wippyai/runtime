@@ -23,8 +23,8 @@ type sendJob struct {
 // Host implements a local pubsub for a single host with asynchronous sending.
 type Host struct {
 	ctx       context.Context
-	receivers sync.Map // key: api.pid -> chan *api.Messages
-	jobCh     chan sendJob
+	receivers sync.Map       // key: api.pid -> chan *api.Messages
+	jobQueues []chan sendJob // One queue per worker
 	config    HostConfig
 	logger    *zap.Logger
 }
@@ -37,21 +37,38 @@ func NewHost(ctx context.Context, config HostConfig) *Host {
 		config.Logger = zap.NewNop()
 	}
 
-	h := &Host{
-		config: config,
-		jobCh:  make(chan sendJob, config.BufferSize),
-		ctx:    ctx,
-		logger: config.Logger,
+	// Ensure at least one worker
+	if config.WorkerCount < 1 {
+		config.WorkerCount = 1
 	}
 
-	// todo: we have a current bug where we have to also provide a consistent order
-	// for each source stream, we can not split messages from the same source
-	// todo: address using consistent hashing
-	config.WorkerCount = 1
-
-	// Spawn worker goroutines.
+	// Create one job queue per worker
+	jobQueues := make([]chan sendJob, config.WorkerCount)
 	for i := 0; i < config.WorkerCount; i++ {
-		go h.worker()
+		jobQueues[i] = make(chan sendJob, config.BufferSize)
+	}
+
+	h := &Host{
+		config:    config,
+		jobQueues: jobQueues,
+		ctx:       ctx,
+		logger:    config.Logger,
+	}
+
+	// Spawn worker goroutines, each with its own queue
+	for i := 0; i < config.WorkerCount; i++ {
+		go h.worker(i)
+	}
+	return h
+}
+
+// fnv1a32 is a very fast hash function for string inputs
+// It's simple and provides good distribution
+func fnv1a32(s string) uint32 {
+	var h uint32 = 2166136261
+	for i := 0; i < len(s); i++ {
+		h ^= uint32(s[i])
+		h *= 16777619
 	}
 	return h
 }
@@ -83,23 +100,25 @@ func (h *Host) Detach(pid api.PID) {
 }
 
 // Send enqueues a send job for the given pid and pkg.
-// It first attempts to send immediately, then falls back to a retry with timeout
-// if the channel is full. Returns error if both attempts fail or context expires.
+// Uses hash of PID to route to consistent worker queue.
 func (h *Host) Send(pkg *api.Package) error {
 	if err := h.ctx.Err(); err != nil {
 		h.logger.Warn("send after host shutdown", zap.String("pid", pkg.PID.String()))
 		return err
 	}
 
-	// quick hash pid to num workers
+	// Hash PID to determine worker queue
+	// Use UniqID for hashing as it's the most specific part of PID
+	hash := fnv1a32(pkg.PID.UniqID)
+	workerIndex := int(hash % uint32(len(h.jobQueues)))
 
 	job := sendJob{
 		pkg: pkg,
 	}
 
-	// First attempt: immediate send into the job channel.
+	// Send to the determined worker queue
 	select {
-	case h.jobCh <- job:
+	case h.jobQueues[workerIndex] <- job:
 		return nil
 	case <-h.ctx.Done():
 		h.logger.Warn("send cancelled by host shutdown", zap.String("pid", pkg.PID.String()))
@@ -107,13 +126,15 @@ func (h *Host) Send(pkg *api.Package) error {
 	}
 }
 
-// worker processes send jobs from the internal channel.
-func (h *Host) worker() {
+// worker processes send jobs from a specific queue
+func (h *Host) worker(queueIndex int) {
+	queue := h.jobQueues[queueIndex]
+
 	for {
 		select {
 		case <-h.ctx.Done():
 			return
-		case job := <-h.jobCh:
+		case job := <-queue:
 			rec, ok := h.receivers.Load(job.pkg.PID)
 			if !ok {
 				continue
