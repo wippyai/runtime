@@ -4,7 +4,6 @@ import (
 	"context"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
-	"github.com/ponyruntime/pony/runtime/uow"
 	"github.com/stretchr/testify/require"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
@@ -21,15 +20,12 @@ func TestProgress(t *testing.T) {
 		return 1
 	}
 
-	ctx, uw := uow.OnContext(context.Background())
-	defer func() { _ = uw.Close() }()
-
 	t.Run("progress creation and configuration", func(t *testing.T) {
 		vm, err := engine.NewVM(logger, engine.WithLoader("btea", loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(ctx, `
+		err = vm.DoString(context.Background(), `
 			local btea = require("btea")
 			
 			-- Test default constructor
@@ -70,7 +66,7 @@ func TestProgress(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(ctx, `
+		err = vm.DoString(context.Background(), `
 			local btea = require("btea")
 			
 			local p = btea.progress({})
@@ -109,7 +105,7 @@ func TestProgress(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(ctx, `
+		err = vm.DoString(context.Background(), `
 			local btea = require("btea")
 			
 			local p = btea.progress({
@@ -147,7 +143,7 @@ func TestProgressUpdate(t *testing.T) {
 	RegisterProgress(cvm.State(), mod)
 	cvm.State().SetGlobal("btea", mod)
 
-	ctx, uw := uow.OnContext(context.Background())
+	uw, ctx := engine.NewUnitOfWork(context.Background(), cvm.State())
 	defer func() { _ = uw.Close() }()
 
 	err = cvm.StartString(ctx, `
