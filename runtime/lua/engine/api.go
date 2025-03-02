@@ -157,7 +157,7 @@ type CVM interface {
 
 	// Start initiates execution of a named function with the provided arguments.
 	// Returns a channel that will receive updates about the execution.
-	Start(ctx context.Context, funcName string, args ...lua.LValue) (<-chan Update, error)
+	Start(ctx context.Context, funcName string, args ...lua.LValue) (<-chan *Update, error)
 
 	// Step advances the execution of threads.
 	// Returns yielded threads and any error encountered.

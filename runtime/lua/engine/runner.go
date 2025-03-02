@@ -12,7 +12,7 @@ type wrappedLayer struct {
 	layer Layer // Current layer
 }
 
-func (w *wrappedLayer) Start(ctx context.Context, funcName string, args ...lua.LValue) (<-chan Update, error) {
+func (w *wrappedLayer) Start(ctx context.Context, funcName string, args ...lua.LValue) (<-chan *Update, error) {
 	return w.next.Start(ctx, funcName, args...)
 }
 
@@ -96,20 +96,16 @@ func (e *Runner) getWrapped() CVM {
 	return wrapped
 }
 
-func (e *Runner) GetLayers() []Layer {
-	return e.layers
-}
-
 // Start initiates execution of a function with the given name and arguments.
 // It returns a channel that will receive the execution result.
-func (e *Runner) Start(ctx context.Context, funcName string, args ...lua.LValue) (<-chan Update, error) {
+func (e *Runner) Start(ctx context.Context, funcName string, args ...lua.LValue) (<-chan *Update, error) {
 	return e.getWrapped().Start(ctx, funcName, args...)
 }
 
 // Run executes the VM until completion, processing threads through the layer chain.
 // It manages coroutine execution and handles task scheduling.
 // Returns the final execution result or an error if execution fails.
-func (e *Runner) Run(ctx context.Context, exitCh <-chan Update) (lua.LValue, error) {
+func (e *Runner) Run(ctx context.Context, exitCh <-chan *Update) (lua.LValue, error) {
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -122,7 +118,7 @@ func (e *Runner) Run(ctx context.Context, exitCh <-chan Update) (lua.LValue, err
 	}
 
 	wrapped := e.getWrapped()
-	var result Update
+	var result *Update
 	for {
 		tasks, err := wrapped.Step(e.cvm.queue.Drain()...)
 		if err != nil {

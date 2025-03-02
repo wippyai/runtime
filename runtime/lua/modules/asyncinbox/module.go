@@ -113,7 +113,7 @@ func (e *Module) inbox(l *lua.LState) int {
 						// Create message table with payload and topic
 						msgTable := l.CreateTable(0, 2)
 						msgTable.RawSetString("topic", lua.LString(msg.Topic))
-						msgTable.RawSetString("value", lv.Data().(lua.LValue))
+						msgTable.RawSetString("payload", lv.Data().(lua.LValue))
 
 						// Send table to Lua channel
 						if err := channel.Send(l, ch, msgTable); err != nil {

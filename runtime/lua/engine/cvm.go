@@ -18,7 +18,7 @@ type Task struct {
 	thread *lua.LState
 	cancel context.CancelFunc
 	fn     *lua.LFunction
-	output chan Update
+	output chan *Update
 
 	State      lua.ResumeState
 	Yielded    []lua.LValue
@@ -171,7 +171,7 @@ func (e *CoroutineVM) Mount(proto *lua.FunctionProto, funcName ...string) error 
 }
 
 // Start begins execution of a named function with the provided arguments.
-func (e *CoroutineVM) Start(ctx context.Context, funcName string, args ...lua.LValue) (<-chan Update, error) {
+func (e *CoroutineVM) Start(ctx context.Context, funcName string, args ...lua.LValue) (<-chan *Update, error) {
 	fn, ok := e.vm.exported[funcName]
 	if !ok {
 		return nil, fmt.Errorf("function %q not found", funcName)
@@ -180,7 +180,7 @@ func (e *CoroutineVM) Start(ctx context.Context, funcName string, args ...lua.LV
 	e.vm.state.SetContext(ctx) // must be released by uow
 	task := e.createTask(ctx, fn)
 	task.Resumed = args
-	task.output = make(chan Update, 1)
+	task.output = make(chan *Update, 1)
 
 	return task.output, nil
 }
@@ -220,7 +220,7 @@ func (e *CoroutineVM) Step(tasks ...*Task) (result []*Task, finalErr error) {
 				}
 
 				if task.output != nil {
-					task.output <- Update{State: task.thread, Error: rErr}
+					task.output <- &Update{State: task.thread, Error: rErr}
 					close(task.output)
 					task.output = nil
 				}
@@ -238,7 +238,7 @@ func (e *CoroutineVM) Step(tasks ...*Task) (result []*Task, finalErr error) {
 				}
 
 				if task.output != nil {
-					task.output <- Update{State: task.thread, Error: rErr}
+					task.output <- &Update{State: task.thread, Error: rErr}
 					close(task.output)
 					task.output = nil
 				}
@@ -278,9 +278,9 @@ func (e *CoroutineVM) Step(tasks ...*Task) (result []*Task, finalErr error) {
 
 			if task.output != nil {
 				if top := task.thread.GetTop(); top > 0 {
-					task.output <- Update{State: task.thread, Result: values}
+					task.output <- &Update{State: task.thread, Result: values}
 				} else {
-					task.output <- Update{State: task.thread}
+					task.output <- &Update{State: task.thread}
 				}
 				close(task.output)
 				task.output = nil

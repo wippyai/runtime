@@ -11,7 +11,6 @@ import (
 	"github.com/ponyruntime/pony/api/topology"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
-	"github.com/ponyruntime/pony/runtime/uow"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 	"sync/atomic"
@@ -27,12 +26,11 @@ type Process struct {
 	ctx    context.Context
 	dtt    payload.Transcoder
 	cancel context.CancelFunc
-	uow    *uow.UnitOfWork
+	uow    engine.UnitOfWork
 	pid    pubsub.PID
 
 	// State tracking
-	pubsub   *subscribe.Layer
-	resultCh <-chan engine.Update
+	resultCh <-chan *engine.Update
 	closed   atomic.Bool
 }
 
@@ -42,23 +40,10 @@ func NewProcess(log *zap.Logger, runner *engine.Runner, funcName string) (proces
 		return nil, errors.New("runner is required")
 	}
 
-	var pubsubLayer *subscribe.Layer
-	for _, layer := range runner.GetLayers() {
-		if sl, ok := layer.(*subscribe.Layer); ok {
-			pubsubLayer = sl
-			break
-		}
-	}
-
-	if pubsubLayer == nil {
-		return nil, errors.New("subscribe layer not found in runner")
-	}
-
 	return &Process{
 		log:      log,
 		runner:   runner,
 		funcName: funcName,
-		pubsub:   pubsubLayer,
 	}, nil
 }
 
@@ -81,16 +66,16 @@ func (p *Process) Start(ctx context.Context, pid pubsub.PID, input payload.Paylo
 	ctx = pubsub.WithPID(ctx, pid)
 
 	// Set up runner context and uow
-	ctx, p.uow = uow.OnContext(p.runner.WithContext(ctx))
+	p.uow, p.ctx = p.runner.InitUnitOfWork(ctx)
 
 	// Start the Lua function
-	p.resultCh, err = p.runner.Start(ctx, p.funcName, args...)
+	p.resultCh, err = p.runner.Start(p.ctx, p.funcName, args...)
 	if err != nil {
 		return err
 	}
 
 	// Notify that the process has started - do this BEFORE any potential errors
-	if onStart := process.GetOnStart(ctx); onStart != nil {
+	if onStart := process.GetOnStart(p.ctx); onStart != nil {
 		onStart(pid, p)
 	}
 
@@ -170,9 +155,13 @@ func (p *Process) Send(pkg *pubsub.Package) error {
 				continue
 			}
 
-			// Try main topic first
-			if p.pubsub.Exists(msg.Topic) {
-				p.pubsub.Publish(msg.Topic, luaValues...)
+			if exists, _ := subscribe.Exists(p.ctx, msg.Topic); exists {
+				err := subscribe.Publish(p.ctx, msg.Topic, luaValues...)
+				if err != nil {
+					p.log.Error("failed to publish message",
+						zap.String("topic", msg.Topic),
+						zap.Error(err))
+				}
 				continue
 			}
 
@@ -181,15 +170,18 @@ func (p *Process) Send(pkg *pubsub.Package) error {
 
 			// Create a message table for each value
 			for _, v := range luaValues {
-				msgTable := p.runner.GetCVM().State().NewTable()
+				msgTable := p.uow.State().NewTable()
 				msgTable.RawSetString("topic", lua.LString(msg.Topic))
 				msgTable.RawSetString("payload", v)
 
 				inboxValues = append(inboxValues, msgTable)
 			}
 
-			// send all messages in one batch
-			p.pubsub.Publish(topology.TopicInbox, inboxValues...)
+			if pErr := subscribe.Publish(p.ctx, topology.TopicInbox, inboxValues...); pErr != nil {
+				p.log.Error("failed to publish message",
+					zap.String("topic", topology.TopicInbox),
+					zap.Error(pErr))
+			}
 		}
 		pubsub.ReleasePackage(pkg)
 		return nil
