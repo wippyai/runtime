@@ -2,8 +2,6 @@ package base64
 
 import (
 	"encoding/base64"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -22,10 +20,13 @@ func (m *Module) Name() string {
 
 // Loader registers the module's functions into Lua state.
 func (m *Module) Loader(l *lua.LState) int {
-	mod := l.SetFuncs(engine.NewTable(2), map[string]lua.LGFunction{
-		"encode": m.encode,
-		"decode": m.decode,
-	})
+	// Create table with pre-allocated size for our known elements
+	mod := l.CreateTable(0, 2) // Exactly 2 functions: encode and decode
+
+	// Register functions using RawSetString for better performance
+	mod.RawSetString("encode", l.NewFunction(m.encode))
+	mod.RawSetString("decode", l.NewFunction(m.decode))
+
 	l.Push(mod)
 	return 1
 }

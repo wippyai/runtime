@@ -11,15 +11,15 @@ import (
 
 // registerHMAC registers the HMAC submodule
 func registerHMAC(l *lua.LState, mod *lua.LTable) {
-	// Create HMAC submodule table
-	hmacMod := l.NewTable()
+	// Create HMAC submodule table with exact size
+	hmacMod := l.CreateTable(0, 2) // sha256, sha512
 
-	// Register functions
-	l.SetField(hmacMod, "sha256", l.NewFunction(hmacSha256))
-	l.SetField(hmacMod, "sha512", l.NewFunction(hmacSha512))
+	// Register functions using RawSetString
+	hmacMod.RawSetString("sha256", l.NewFunction(hmacSha256))
+	hmacMod.RawSetString("sha512", l.NewFunction(hmacSha512))
 
 	// Add submodule to main module
-	l.SetField(mod, "hmac", hmacMod)
+	mod.RawSetString("hmac", hmacMod)
 }
 
 // hmacSha256 calculates HMAC-SHA256

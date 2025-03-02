@@ -25,21 +25,21 @@ func (m *Module) Name() string {
 }
 
 // Loader loads the module into the given Lua state
+// Loader loads the module into the given Lua state
 func (m *Module) Loader(l *lua.LState) int {
-	mod := l.NewTable()
+	// Create table with pre-allocated size for all known elements
+	mod := l.CreateTable(0, 7) // 5 submodules + 2 utility functions
 
-	// Register submodules
+	// Register all submodules efficiently with exact pre-allocation
 	registerRandom(l, mod)
 	registerHMAC(l, mod)
 	registerEncrypt(l, mod)
 	registerDecrypt(l, mod)
 	registerJWT(l, mod)
 
-	// Register top-level utility functions
-	l.SetFuncs(mod, map[string]lua.LGFunction{
-		"pbkdf2":                pbkdf2Func,
-		"constant_time_compare": constantTimeCompare,
-	})
+	// Register top-level utility functions directly with RawSetString
+	mod.RawSetString("pbkdf2", l.NewFunction(pbkdf2Func))
+	mod.RawSetString("constant_time_compare", l.NewFunction(constantTimeCompare))
 
 	l.Push(mod)
 	return 1

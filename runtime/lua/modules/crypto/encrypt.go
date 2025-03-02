@@ -13,15 +13,15 @@ import (
 
 // registerEncrypt registers the encrypt submodule
 func registerEncrypt(l *lua.LState, mod *lua.LTable) {
-	// Create encrypt submodule table
-	encryptMod := l.NewTable()
+	// Create encrypt submodule table with exact size
+	encryptMod := l.CreateTable(0, 2) // aes, chacha20
 
-	// Register functions
-	l.SetField(encryptMod, "aes", l.NewFunction(encryptAes))
-	l.SetField(encryptMod, "chacha20", l.NewFunction(encryptChacha20))
+	// Register functions using RawSetString
+	encryptMod.RawSetString("aes", l.NewFunction(encryptAes))
+	encryptMod.RawSetString("chacha20", l.NewFunction(encryptChacha20))
 
 	// Add submodule to main module
-	l.SetField(mod, "encrypt", encryptMod)
+	mod.RawSetString("encrypt", encryptMod)
 }
 
 // encryptAes encrypts data using AES-GCM (authenticated encryption)

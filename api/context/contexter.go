@@ -29,3 +29,7 @@ func (c *Contexter[T]) Iterate(fn func(key string, value T)) {
 		fn(k, v)
 	}
 }
+
+func (c *Contexter[T]) Len() int {
+	return len(c.shared)
+}
