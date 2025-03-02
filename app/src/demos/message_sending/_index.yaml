@@ -1,5 +1,5 @@
 version: "1.0"
-#namespace: app.demos.message_sending
+namespace: app.demos.message_sending
 
 meta:
   depends_on: [ "ns:system", "ns:wippy.lib" ]
@@ -37,7 +37,7 @@ entries:
     method: handler
     modules: [ http, time ]
     pool:
-      size: 1
+      size: 16
 
   - name: sender.endpoint
     kind: http.endpoint

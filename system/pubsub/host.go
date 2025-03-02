@@ -159,6 +159,7 @@ func (h *Host) deliverPackage(job sendJob, ch chan *api.Package) {
 	case ch <- job.pkg:
 		// Successfully sent immediately
 		return
+		// todo: what if deadlock?
 	case <-h.ctx.Done():
 		h.logger.Info("worker shutting down, dropping Package message",
 			zap.String("pid", job.pkg.PID.String()))
