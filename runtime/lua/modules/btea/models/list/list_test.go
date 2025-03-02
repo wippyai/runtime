@@ -3,7 +3,6 @@ package list
 import (
 	"context"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/ponyruntime/pony/runtime/uow"
 	"testing"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine"
@@ -33,16 +32,12 @@ func setupListTest(t *testing.T) *engine.VM {
 }
 
 func TestList(t *testing.T) {
-	ctx := context.Background()
-	ctx, uw := uow.OnContext(ctx)
-	defer func() { _ = uw.Close() }()
-
 	// Basic initialization and configuration
 	t.Run("list creation and basic operations", func(t *testing.T) {
 		vm := setupListTest(t)
 		defer vm.Close()
 
-		err := vm.DoString(ctx, `
+		err := vm.DoString(context.Background(), `
             local btea = require("btea")
             
             -- Spawn basic list
@@ -102,7 +97,7 @@ func TestList(t *testing.T) {
 		vm := setupListTest(t)
 		defer vm.Close()
 
-		err := vm.DoString(ctx, `
+		err := vm.DoString(context.Background(), `
             local btea = require("btea")
             
             -- Spawn list with multiple pages
@@ -144,7 +139,7 @@ func TestList(t *testing.T) {
 		vm := setupListTest(t)
 		defer vm.Close()
 
-		err := vm.DoString(ctx, `
+		err := vm.DoString(context.Background(), `
             local btea = require("btea")
             
             local list = btea.list({
@@ -180,7 +175,7 @@ func TestList(t *testing.T) {
 		vm := setupListTest(t)
 		defer vm.Close()
 
-		err := vm.DoString(ctx, `
+		err := vm.DoString(context.Background(), `
             local btea = require("btea")
             
             local list = btea.list({
@@ -233,7 +228,7 @@ func TestListUpdate(t *testing.T) {
 	RegisterList(cvm.State(), mod)
 	cvm.State().SetGlobal("btea", mod)
 
-	ctx, uw := uow.OnContext(context.Background())
+	uw, ctx := engine.NewUnitOfWork(context.Background(), cvm.State())
 	defer func() { _ = uw.Close() }()
 
 	err = cvm.StartString(ctx, `

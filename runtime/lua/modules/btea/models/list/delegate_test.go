@@ -3,7 +3,6 @@ package list
 import (
 	"bytes"
 	"context"
-	"github.com/ponyruntime/pony/runtime/uow"
 	"testing"
 
 	"github.com/charmbracelet/bubbles/list"
@@ -29,12 +28,9 @@ func TestLuaDelegate(t *testing.T) {
 	render.RegisterStyle(vm.State(), mod)
 	vm.State().SetGlobal("btea", mod)
 
-	ctx, uw := uow.OnContext(context.Background())
-	defer func() { _ = uw.Close() }()
-
 	// Basic methods
 	t.Run("delegate basic methods", func(t *testing.T) {
-		err := vm.DoString(ctx, `
+		err := vm.DoString(context.Background(), `
             -- Spawn basic list delegate
             local delegate = {
                 height = 3,
@@ -57,7 +53,7 @@ func TestLuaDelegate(t *testing.T) {
 
 	// Update handling
 	t.Run("delegate update handling", func(t *testing.T) {
-		err := vm.DoString(ctx, `
+		err := vm.DoString(context.Background(), `
             local updated = false
             
             local delegate = {
@@ -77,7 +73,7 @@ func TestLuaDelegate(t *testing.T) {
 
 	// Help system
 	t.Run("delegate help system", func(t *testing.T) {
-		err := vm.DoString(ctx, `
+		err := vm.DoString(context.Background(), `
             local delegate = {
                 short_help = {
                     btea.bind({
@@ -94,7 +90,7 @@ func TestLuaDelegate(t *testing.T) {
 
 	// Test styling
 	t.Run("delegate styling", func(t *testing.T) {
-		err := vm.DoString(ctx, `
+		err := vm.DoString(context.Background(), `
             local delegate = {
                 render = function(self, model, index, item)
                     local style = btea.style()
@@ -161,7 +157,7 @@ func TestDelegateUpdate(t *testing.T) {
 	render.RegisterStyle(cvm.State(), mod)
 	cvm.State().SetGlobal("btea", mod)
 
-	ctx, uw := uow.OnContext(context.Background())
+	uw, ctx := engine.NewUnitOfWork(context.Background(), cvm.State())
 	defer func() { _ = uw.Close() }()
 
 	err = cvm.StartString(ctx, `

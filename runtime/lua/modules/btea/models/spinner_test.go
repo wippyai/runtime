@@ -3,7 +3,6 @@ package models
 import (
 	"context"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
-	"github.com/ponyruntime/pony/runtime/uow"
 	"testing"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine"
@@ -22,15 +21,12 @@ func TestSpinner(t *testing.T) {
 		return 1
 	}
 
-	ctx, uw := uow.OnContext(context.Background())
-	defer func() { _ = uw.Close() }()
-
 	t.Run("spinner creation and basic operations", func(t *testing.T) {
 		vm, err := engine.NewVM(logger, engine.WithLoader("btea", loader))
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(ctx, `
+		err = vm.DoString(context.Background(), `
 			local btea = require("btea")
 			
 			-- Spawn a basic spinner
@@ -59,7 +55,7 @@ func TestSpinner(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(ctx, `
+		err = vm.DoString(context.Background(), `
 			local btea = require("btea")
 			
 			local spinner_types = {
@@ -99,7 +95,7 @@ func TestSpinner(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(ctx, `
+		err = vm.DoString(context.Background(), `
 			local btea = require("btea")
 			
 			local intervals = {
@@ -128,7 +124,7 @@ func TestSpinner(t *testing.T) {
 		defer vm.Close()
 
 		// Test invalid interval during creation
-		err = vm.DoString(ctx, `
+		err = vm.DoString(context.Background(), `
 			local btea = require("btea")
 			
 			-- Test invalid interval
@@ -178,7 +174,7 @@ func TestSpinnerUpdate(t *testing.T) {
 	RegisterSpinner(cvm.State(), mod)
 	cvm.State().SetGlobal("btea", mod)
 
-	ctx, uw := uow.OnContext(context.Background())
+	uw, ctx := engine.NewUnitOfWork(context.Background(), cvm.State())
 	defer func() { _ = uw.Close() }()
 
 	err = cvm.StartString(ctx, `
