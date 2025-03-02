@@ -112,12 +112,11 @@ local function run_tests()
     ---- Message processor coroutine
     coroutine.spawn(function()
         while true do
-        print("POLL TASKS >>>>>>>>>>>>>>")
             local result = channel.select {
                 inbox:case_receive(),
                 done_ch:case_receive()
             }
-print("<<<<<<<<<<<<< GOT MSG!", json.encode(result))
+
             if not result.ok then break end
 
             local msg = result.value.payload
