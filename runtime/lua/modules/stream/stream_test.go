@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"github.com/ponyruntime/pony/runtime/uow"
 	"io"
 	"sync"
 	"testing"
@@ -66,7 +65,7 @@ func TestStream(t *testing.T) {
 
 		cfg := NewStreamConfig(5) // Set buffer size to 5 bytes
 
-		ctx, uw := uow.OnContext(context.Background())
+		uw, ctx := engine.NewUnitOfWork(context.Background(), nil)
 		defer func() { _ = uw.Close() }()
 
 		stream, err := NewStream(ctx, reader, cfg)
@@ -93,7 +92,7 @@ func TestStream(t *testing.T) {
 	t.Run("close handling", func(t *testing.T) {
 		reader := newMockReadCloser([]byte("test"))
 
-		ctx, uw := uow.OnContext(context.Background())
+		uw, ctx := engine.NewUnitOfWork(context.Background(), nil)
 		defer func() { _ = uw.Close() }()
 
 		stream, err := NewStream(ctx, reader, nil) // Test with default config
@@ -108,7 +107,7 @@ func TestStream(t *testing.T) {
 		testData := []byte("context test data")
 		reader := newMockReadCloser(testData)
 
-		ctx, uw := uow.OnContext(context.Background())
+		uw, ctx := engine.NewUnitOfWork(context.Background(), nil)
 		defer func() { _ = uw.Close() }()
 
 		ctx, cancel := context.WithCancel(ctx)
@@ -130,7 +129,7 @@ func TestStreamLua(t *testing.T) {
 		testData := []byte("Hello from mocked Stream!")
 		reader := newMockReadCloser(testData)
 
-		ctx, uw := uow.OnContext(context.Background())
+		uw, ctx := engine.NewUnitOfWork(context.Background(), nil)
 		defer func() { _ = uw.Close() }()
 
 		stream, err := NewStream(ctx, reader, nil)
@@ -174,7 +173,7 @@ func TestStreamLua(t *testing.T) {
 
 		cfg := NewStreamConfig(6) // 6-byte chunks
 
-		ctx, uw := uow.OnContext(context.Background())
+		uw, ctx := engine.NewUnitOfWork(context.Background(), nil)
 		defer func() { _ = uw.Close() }()
 
 		stream, err := NewStream(ctx, reader, cfg)
@@ -264,7 +263,7 @@ func TestStreamLuaEdgeCases(t *testing.T) {
 			assert(string.find(err, "expected Stream"), "Error should mention expected Stream type")
 		`
 
-		ctx, uw := uow.OnContext(context.Background())
+		uw, ctx := engine.NewUnitOfWork(context.Background(), nil)
 		defer func() { _ = uw.Close() }()
 
 		err = vm.DoString(ctx, script, "test")
@@ -275,7 +274,7 @@ func TestStreamLuaEdgeCases(t *testing.T) {
 		testData := []byte("test data")
 		reader := newMockReadCloser(testData)
 
-		ctx, uw := uow.OnContext(context.Background())
+		uw, ctx := engine.NewUnitOfWork(context.Background(), nil)
 		defer func() { _ = uw.Close() }()
 
 		stream, err := NewStream(ctx, reader, nil)
