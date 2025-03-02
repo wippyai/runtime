@@ -11,6 +11,7 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	transcode "github.com/ponyruntime/pony/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
 	"log"
@@ -55,7 +56,7 @@ func (m *Module) Loader(l *lua.LState) int {
 }
 
 func (m *Module) extractDependencies(l *lua.LState) (function.Registry, payload.Transcoder, error) {
-	uw := uow.FromContext(l.Context())
+	uw := engine.GetUnitOfWork(l.Context())
 	if uw == nil {
 		return nil, nil, errors.New("no unit of work context found")
 	}
@@ -156,7 +157,7 @@ func (m *Module) call(l *lua.LState) int {
 	}
 
 	// Get unit of work context
-	uw := uow.FromContext(l.Context())
+	uw := engine.GetUnitOfWork(l.Context())
 	if uw == nil {
 		l.RaiseError("no unit of work context found")
 		return 0
@@ -218,7 +219,7 @@ func (m *Module) async(l *lua.LState) int {
 	}
 
 	// Get unit of work from context
-	uw := uow.FromContext(l.Context())
+	uw := engine.GetUnitOfWork(l.Context())
 	if uw == nil {
 		l.RaiseError("no unit of work context found")
 		return 0
@@ -230,52 +231,54 @@ func (m *Module) async(l *lua.LState) int {
 	// Create task userdata
 	taskUd := l.NewUserData()
 	taskUd.Value = t
-	l.SetMetatable(taskUd, l.GetTypeMetatable("function.Task"))
+	taskUd.Metatable = value.GetTypeMetatable(l, "function.Task")
 
 	// Start the task in a goroutine
-	go func() {
-		defer log.Printf("RESULT SENT")
-		// Start the function
-		resultChan, err := functions.funcs.Call(t.Context(), runtimeTask)
-		if err != nil {
-			// Set error in task object
-			t.SetError(err)
-			// Send error to the channel
-			_ = channel.Send(l, t.response, lua.LBool(false), true)
-			return
-		}
-
-		// Wait for result
-		select {
-		case result := <-resultChan:
-			if result.Error != nil {
-				// Error result
-				t.SetError(result.Error)
+	uw.Run(
+		func(work engine.UnitOfWork) {
+			defer log.Printf("RESULT SENT")
+			// Start the function
+			resultChan, err := functions.funcs.Call(t.Context(), runtimeTask)
+			if err != nil {
+				t.SetError(err)
+				// close chan
 				_ = channel.Close(l, t.response)
-			} else if result.Payload != nil {
-				// Success with payload
-				res, err := functions.dtt.Transcode(result.Payload, payload.Lua)
-				if err != nil {
-					t.SetError(err)
+				return
+			}
+
+			// Wait for result
+			select {
+			case result := <-resultChan:
+				if result.Error != nil {
+					// Error result
+					t.SetError(result.Error)
 					_ = channel.Close(l, t.response)
+				} else if result.Payload != nil {
+					// Success with payload
+					res, err := functions.dtt.Transcode(result.Payload, payload.Lua)
+					if err != nil {
+						t.SetError(err)
+						_ = channel.Close(l, t.response)
+					} else {
+						resultLua := res.Data().(lua.LValue)
+						t.SetResult(resultLua)
+						_ = channel.Send(l, t.response, resultLua)
+						_ = channel.Close(l, t.response)
+					}
 				} else {
-					resultLua := res.Data().(lua.LValue)
-					t.SetResult(resultLua)
-					_ = channel.Send(l, t.response, resultLua, true)
+					// Empty success result
+					t.SetResult(lua.LNil)
+					_ = channel.Send(l, t.response, lua.LNil)
 					_ = channel.Close(l, t.response)
 				}
-			} else {
-				// Empty success result
-				t.SetResult(lua.LNil)
-				_ = channel.Send(l, t.response, lua.LNil, true)
+			case <-t.Context().Done():
+				t.SetError(ErrTaskCanceled)
+				_ = channel.Close(l, t.response)
+			case <-uw.Context().Done():
+				t.SetError(ErrTaskCanceled)
 				_ = channel.Close(l, t.response)
 			}
-		case <-t.Context().Done():
-			// Task was cancelled or context expired
-			t.SetError(ErrTaskCanceled)
-			_ = channel.Send(l, t.response, lua.LBool(false), false)
-		}
-	}()
+		})
 
 	// Return the task object
 	l.Push(taskUd)

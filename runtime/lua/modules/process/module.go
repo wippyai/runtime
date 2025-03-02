@@ -32,33 +32,30 @@ func (m *ProcessAPIModule) Name() string {
 
 // Loader is the entry point for loading the module into Lua
 func (m *ProcessAPIModule) Loader(l *lua.LState) int {
-	// Create module table
-	mod := l.NewTable()
+	// Create module table with exact size for better performance
+	mod := l.CreateTable(0, 3) // Main table, events table, registry table
 
-	// Register process functions
-	l.SetFuncs(mod, map[string]lua.LGFunction{
-		"pid":             m.pid,
-		"send":            m.send,
-		"spawn":           m.spawn,
-		"spawn_monitored": m.spawnMonitored,
-		// "spawn_linked":    m.spawnLinked, // Linking not yet implemented
-		"terminate": m.terminate,
-		"cancel":    m.cancel,
-	})
+	// Register process functions directly with RawSetString for better performance
+	mod.RawSetString("pid", l.NewFunction(m.pid))
+	mod.RawSetString("send", l.NewFunction(m.send))
+	mod.RawSetString("spawn", l.NewFunction(m.spawn))
+	mod.RawSetString("spawn_monitored", l.NewFunction(m.spawnMonitored))
+	// "spawn_linked" not yet implemented
+	mod.RawSetString("terminate", l.NewFunction(m.terminate))
+	mod.RawSetString("cancel", l.NewFunction(m.cancel))
 
-	// Create event constants table
-	events := l.NewTable()
+	// Create event constants table with exact size
+	events := l.CreateTable(0, 3)
 	events.RawSetString("CANCEL", lua.LString(topology.KindCancel))
 	events.RawSetString("RESULT", lua.LString(topology.KindExit))
 	events.RawSetString("LINK_DOWN", lua.LString(topology.KindLinkDown))
 	mod.RawSetString("event", events)
 
-	reg := l.NewTable()
-	l.SetFuncs(reg, map[string]lua.LGFunction{
-		"register":   m.registryRegister,
-		"lookup":     m.registryLookup,
-		"unregister": m.registryUnregister,
-	})
+	// Registry table with exact size
+	reg := l.CreateTable(0, 3)
+	reg.RawSetString("register", l.NewFunction(m.registryRegister))
+	reg.RawSetString("lookup", l.NewFunction(m.registryLookup))
+	reg.RawSetString("unregister", l.NewFunction(m.registryUnregister))
 	mod.RawSetString("registry", reg)
 
 	l.Push(mod)

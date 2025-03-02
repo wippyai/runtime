@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/ponyruntime/pony/runtime/lua/modules/task"
-	"github.com/ponyruntime/pony/runtime/lua/modules/upstream"
+	"github.com/ponyruntime/pony/runtime/lua/engine/task"
+	"github.com/ponyruntime/pony/runtime/lua/engine/upstream"
 	"sync"
 	"time"
 

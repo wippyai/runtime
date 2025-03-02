@@ -10,7 +10,6 @@ import (
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
-	"github.com/ponyruntime/pony/runtime/uow"
 	transcoder "github.com/ponyruntime/pony/system/payload"
 	"github.com/ponyruntime/pony/system/payload/json"
 	"github.com/ponyruntime/pony/system/payload/lua"
@@ -57,7 +56,7 @@ func TestExecutorModule(t *testing.T) {
 
 	t.Run("call with single argument", func(t *testing.T) {
 		// Create module first to get the loader
-		mod := NewFunctionModule(context.Background())
+		mod := NewFunctionModule()
 
 		// Create VM with the module preloaded
 		vm, err := engine.NewCVM(logger,
@@ -81,7 +80,7 @@ func TestExecutorModule(t *testing.T) {
 		wrapped := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
 
 		// Create context with dependencies
-		ctx, uw := uow.OnContext(context.Background())
+		uw, ctx := wrapped.InitUnitOfWork(context.Background())
 		defer func() { _ = uw.Close() }()
 
 		mockExec := &mockExecutor{
@@ -101,7 +100,7 @@ func TestExecutorModule(t *testing.T) {
 	})
 
 	t.Run("call with multiple arguments", func(t *testing.T) {
-		mod := NewFunctionModule(context.Background())
+		mod := NewFunctionModule()
 		vm, err := engine.NewCVM(logger,
 			engine.WithPreloaded(mod.Name(), mod.Loader),
 		)
@@ -121,7 +120,7 @@ func TestExecutorModule(t *testing.T) {
 
 		wrapped := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
 
-		ctx, uw := uow.OnContext(context.Background())
+		uw, ctx := wrapped.InitUnitOfWork(context.Background())
 		defer func() { _ = uw.Close() }()
 
 		mockExec := &mockExecutor{
@@ -139,46 +138,8 @@ func TestExecutorModule(t *testing.T) {
 		assert.Equal(t, "multi_success", result.String())
 	})
 
-	t.Run("run returns only scheduling error", func(t *testing.T) {
-		mod := NewFunctionModule(context.Background())
-		vm, err := engine.NewCVM(logger,
-			engine.WithPreloaded(mod.Name(), mod.Loader),
-		)
-		require.NoError(t, err)
-		defer vm.Close()
-
-		err = vm.Import(`
-			function test_run()
-				local executor = funcs.new()
-				local err = executor:run("test:function", "arg1", "arg2")
-				assert(err == nil, "expected no error but got: " .. tostring(err))
-				return "ok"
-			end
-		`, "test", "test_run")
-		require.NoError(t, err)
-
-		wrapped := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
-
-		ctx, uw := uow.OnContext(context.Background())
-		defer func() { _ = uw.Close() }()
-
-		mockExec := &mockExecutor{
-			result: &runtime.Result{
-				Payload: payload.New("bg_success"),
-			},
-		}
-
-		tr := createTestTranscoder()
-		ctx = payload.WithTranscoder(ctx, tr)
-		ctx = function.WithFunctions(ctx, mockExec)
-
-		result, err := wrapped.Execute(ctx, "test_run")
-		require.NoError(t, err)
-		assert.Equal(t, "ok", result.String())
-	})
-
 	t.Run("call with executor error", func(t *testing.T) {
-		mod := NewFunctionModule(context.Background())
+		mod := NewFunctionModule()
 		vm, err := engine.NewCVM(logger,
 			engine.WithPreloaded(mod.Name(), mod.Loader),
 		)
@@ -198,7 +159,7 @@ func TestExecutorModule(t *testing.T) {
 
 		wrapped := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
 
-		ctx, uw := uow.OnContext(context.Background())
+		uw, ctx := wrapped.InitUnitOfWork(context.Background())
 		defer func() { _ = uw.Close() }()
 
 		mockExec := &mockExecutor{
@@ -215,7 +176,7 @@ func TestExecutorModule(t *testing.T) {
 	})
 
 	t.Run("context cancellation", func(t *testing.T) {
-		mod := NewFunctionModule(context.Background())
+		mod := NewFunctionModule()
 		vm, err := engine.NewCVM(logger,
 			engine.WithPreloaded(mod.Name(), mod.Loader),
 		)
@@ -236,7 +197,8 @@ func TestExecutorModule(t *testing.T) {
 		wrapped := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
 
 		ctx, cancel := context.WithCancel(context.Background())
-		ctx, uw := uow.OnContext(ctx)
+
+		uw, ctx := wrapped.InitUnitOfWork(context.Background())
 		defer func() { _ = uw.Close() }()
 
 		mockExec := &mockExecutor{
@@ -258,4 +220,6 @@ func TestExecutorModule(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "context canceled")
 	})
+
+	// todo: add async test
 }

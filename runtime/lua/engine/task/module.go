@@ -51,7 +51,7 @@ func (m *Module) taskComplete(l *lua.LState) int {
 	task := CheckTask(l, 1)
 	value := l.CheckAny(2)
 
-	uw := uow.FromContext(l.Context())
+	uw := engine.GetUnitOfWork(l.Context())
 	if uw == nil {
 		l.RaiseError("no unit of work")
 		return 0
@@ -80,7 +80,7 @@ func (m *Module) taskSend(l *lua.LState) int {
 		values = append(values, l.Get(i))
 	}
 
-	uw := uow.FromContext(l.Context())
+	uw := engine.GetUnitOfWork(l.Context())
 	if uw == nil {
 		l.RaiseError("no unit of work")
 		return 0
@@ -103,7 +103,7 @@ func (m *Module) taskFail(l *lua.LState) int {
 	task := CheckTask(l, 1)
 	errMsg := l.CheckString(2)
 
-	uw := uow.FromContext(l.Context())
+	uw := engine.GetUnitOfWork(l.Context())
 	if uw == nil {
 		l.RaiseError("no unit of work")
 		return 0
