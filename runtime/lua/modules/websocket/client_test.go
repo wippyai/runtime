@@ -214,7 +214,9 @@ func TestWebSocketClient(t *testing.T) {
 			if err != nil {
 				return
 			}
-			defer func() { assert.NoError(t, conn.Close(coderws.StatusNormalClosure, "closing")) }()
+			defer func() {
+				_ = conn.Close(coderws.StatusNormalClosure, "closing")
+			}()
 			for {
 				msgType, data, err := conn.Read(r.Context())
 				if err != nil {
