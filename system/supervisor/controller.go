@@ -19,6 +19,9 @@ const (
 	controlExit
 )
 
+// Controllable defines the interface for service lifecycle control operations.
+// Any service managed by the supervisor must implement these methods for
+// proper lifecycle management.
 type Controllable interface {
 	Start() error
 	Stop() error
@@ -86,6 +89,9 @@ func (c *Controller) Stop() error {
 	return c.runCommand(controlOp{kind: controlStop})
 }
 
+// CanRestart determines if a service is eligible for restart based on its
+// current state. A service can be restarted if it has not been explicitly
+// marked as exited.
 func (c *Controller) CanRestart() bool {
 	return c.state.getDesiredStatus() != supervisor.Exited
 }
@@ -348,6 +354,8 @@ func (c *Controller) tryRetry(attempt int32) {
 	}
 }
 
+// State returns the current public state of the service, including status,
+// details, desired state, retry count, and last update time.
 func (c *Controller) State() State {
 	return c.state.publicState()
 }

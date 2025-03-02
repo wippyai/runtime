@@ -5,6 +5,7 @@ import (
 	"sync/atomic"
 )
 
+// Generator is a unique identifier generator
 type Generator struct {
 	counter uint64
 }

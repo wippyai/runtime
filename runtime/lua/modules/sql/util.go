@@ -143,7 +143,7 @@ func resultToTable(l *lua.LState, result sql.Result) *lua.LTable {
 	// Create a Go map and then convert to Lua table
 	resultMap := make(map[string]interface{})
 
-	// Get last insert ID
+	// Get last insert Source
 	if lastInsertID, err := result.LastInsertId(); err == nil {
 		resultMap["last_insert_id"] = lastInsertID
 	} else {

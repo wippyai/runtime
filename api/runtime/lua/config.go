@@ -10,12 +10,18 @@ import (
 const (
 	// KindFunction identifies a Lua function component in the registry
 	KindFunction registry.Kind = "function.lua"
+
+	// processes
+	KindBteaApp registry.Kind = "btea.app.lua"
+	KindProcess registry.Kind = "process.lua"
+
+	// administrative
+	KindOperation registry.Kind = "operation.lua"
+	//todo: later we will add test
+
 	// KindLibrary identifies a Lua library component in the registry
 	KindLibrary registry.Kind = "library.lua"
-	// KindBteaApp identifies a Lua terminal component in the registry
-	KindBteaApp  registry.Kind = "btea.app.lua"
-	KindProcess  registry.Kind = "process.lua"
-	KindWorkflow registry.Kind = "workflow.lua"
+
 	// KindModule identifies a Lua module component in the registry
 	KindModule registry.Kind = "module.lua"
 )
@@ -34,9 +40,9 @@ type (
 	FunctionConfig struct {
 		Source  string                 `json:"source"`  // Lua source code
 		Method  string                 `json:"method"`  // Alias of the Lua method to execute
-		Import  map[string]registry.ID `json:"import"`  // Import aliases for the library
-		Pool    PoolConfig             `json:"pool"`    // VM pool configuration
+		Imports map[string]registry.ID `json:"imports"` // Imports aliases for the library
 		Modules []string               `json:"modules"` // Shortcut for importing modules
+		Pool    PoolConfig             `json:"pool"`    // VM pool configuration
 	}
 
 	// LibraryConfig defines the configuration for a Lua library component.
@@ -44,7 +50,7 @@ type (
 	LibraryConfig struct {
 		Meta    registry.Metadata      `json:"meta"`    // Metadata for the library
 		Source  string                 `json:"source"`  // Library source code
-		Import  map[string]registry.ID `json:"import"`  // Import aliases for the library
+		Imports map[string]registry.ID `json:"imports"` // Imports aliases for the library
 		Modules []string               `json:"modules"` // Shortcut for importing modules
 	}
 
@@ -53,16 +59,8 @@ type (
 		Meta    registry.Metadata      `json:"meta"`    // Metadata for the terminal
 		Source  string                 `json:"source"`  // Lua source code
 		Method  string                 `json:"method"`  // Alias of the Lua method to execute
-		Import  map[string]registry.ID `json:"import"`  // Import aliases for the library
+		Imports map[string]registry.ID `json:"imports"` // Imports aliases for the library
 		Modules []string               `json:"modules"` // Shortcut for importing modules
-	}
-
-	// WorkflowConfig defines the configuration for a Lua workflow.
-	WorkflowConfig struct {
-		Meta   registry.Metadata      `json:"meta"`   // Metadata for the terminal
-		Source string                 `json:"source"` // Lua source code
-		Method string                 `json:"method"` // Alias of the Lua method to execute
-		Import map[string]registry.ID `json:"import"` // Import aliases for the libraries (must not have deps)
 	}
 
 	// BteaConfig defines the configuration for a Lua terminal app, this is custom process with host expectations.
@@ -70,7 +68,17 @@ type (
 		Meta    registry.Metadata      `json:"meta"`    // Metadata for the terminal
 		Source  string                 `json:"source"`  // Lua source code
 		Method  string                 `json:"method"`  // Alias of the Lua method to execute
-		Import  map[string]registry.ID `json:"import"`  // Import aliases for the library
+		Imports map[string]registry.ID `json:"imports"` // Imports aliases for the library
+		Modules []string               `json:"modules"` // Shortcut for importing modules
+	}
+
+	// OperationConfig defines the configuration for a Lua operation component.
+	// Operations are admin tasks that are executed on demand and not precompiled.
+	OperationConfig struct {
+		Meta    registry.Metadata      `json:"meta"`    // Metadata for the operation
+		Source  string                 `json:"source"`  // Lua source code
+		Method  string                 `json:"method"`  // Alias of the Lua method to execute
+		Imports map[string]registry.ID `json:"imports"` // Imports aliases for the library
 		Modules []string               `json:"modules"` // Shortcut for importing modules
 	}
 )
@@ -90,12 +98,9 @@ func (c *FunctionConfig) Validate() error {
 		return fmt.Errorf("pool.num_vms must be greater than 0")
 	}
 
-	for alias, id := range c.Import {
+	for alias, id := range c.Imports {
 		if alias == "" {
 			return fmt.Errorf("import alias cannot be empty")
-		}
-		if id.NS == "" {
-			return fmt.Errorf("import ns: cannot be empty")
 		}
 		if id.Name == "" {
 			return fmt.Errorf("import :name cannot be empty")
@@ -123,12 +128,43 @@ func (c *LibraryConfig) Validate() error {
 		return fmt.Errorf("source is required")
 	}
 
-	for alias, id := range c.Import {
+	for alias, id := range c.Imports {
 		if alias == "" {
 			return fmt.Errorf("import alias cannot be empty")
 		}
-		if id.NS == "" {
-			return fmt.Errorf("import ns: cannot be empty")
+		if id.Name == "" {
+			return fmt.Errorf("import :name cannot be empty")
+		}
+	}
+
+	for _, module := range c.Modules {
+		if module == "" {
+			return fmt.Errorf("module cannot be empty")
+		}
+
+		id := registry.ParseID(module)
+		if id.NS != "" {
+			return fmt.Errorf("module cannot have a namespace")
+		}
+	}
+
+	return nil
+}
+
+// Validate checks if the OperationConfig has all required fields set to valid values.
+// It returns an error if any validation check fails.
+func (c *OperationConfig) Validate() error {
+	if c.Source == "" {
+		return fmt.Errorf("source is required")
+	}
+
+	if c.Method == "" {
+		return fmt.Errorf("method is required")
+	}
+
+	for alias, id := range c.Imports {
+		if alias == "" {
+			return fmt.Errorf("import alias cannot be empty")
 		}
 		if id.Name == "" {
 			return fmt.Errorf("import :name cannot be empty")

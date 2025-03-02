@@ -34,7 +34,7 @@ func TestCryptoModuleWithVM(t *testing.T) {
 		assert.NoError(t, err)
 	})
 
-	t.Run("pbkdf2 function with Execute", func(t *testing.T) {
+	t.Run("pbkdf2 function with Start", func(t *testing.T) {
 		mod := NewCryptoModule()
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)

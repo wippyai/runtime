@@ -20,7 +20,7 @@ func NewTerminalContext(stdin io.Reader, stdout, stderr io.Writer) *PipeContext 
 	}
 }
 
-func FromContext(ctx context.Context) *PipeContext {
+func GetTerminalContext(ctx context.Context) *PipeContext {
 	if tc, ok := ctx.Value(contextapi.TerminalCtx).(*PipeContext); ok {
 		return tc
 	}

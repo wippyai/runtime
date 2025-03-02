@@ -10,6 +10,7 @@ import (
 
 // Context keys for storing HTTP-specific values in the request context
 var (
+	// todo: privatize
 	// RequestCtx is the context key for storing the HTTP request context
 	RequestCtx = &ctxapi.Key{Name: "http.request"} //nolint:gochecknoglobals
 	// RouteCtx is the context key for storing the current route information

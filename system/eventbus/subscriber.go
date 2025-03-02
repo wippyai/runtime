@@ -4,14 +4,14 @@ import (
 	"context"
 	"sync"
 
-	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/event"
 )
 
 // Subscriber is a helper struct that simplifies subscribing to and handling events from an event bus.
 type Subscriber struct {
-	bus          events.Bus
-	subscriberID events.SubscriberID
-	handlerFunc  func(events.Event)
+	bus          event.Bus
+	subscriberID event.SubscriberID
+	handlerFunc  func(event.Event)
 	ctx          context.Context
 	cancel       context.CancelFunc
 	wg           sync.WaitGroup
@@ -22,10 +22,10 @@ type Subscriber struct {
 // The context provided will be used to start the listener and will be used during shutdown
 func NewSubscriber(
 	ctx context.Context,
-	b events.Bus,
-	system events.System,
-	kind events.Kind,
-	handlerFunc func(events.Event),
+	b event.Bus,
+	system event.System,
+	kind event.Kind,
+	handlerFunc func(event.Event),
 ) (*Subscriber, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	h := &Subscriber{
@@ -35,7 +35,7 @@ func NewSubscriber(
 		cancel:      cancel,
 	}
 
-	ch := make(chan events.Event)
+	ch := make(chan event.Event)
 	var err error
 	if kind == "" || kind == "*" {
 		h.subscriberID, err = b.Subscribe(ctx, system, ch)
@@ -89,6 +89,6 @@ func (s *Subscriber) Close() {
 }
 
 // ID returns the subscriber ID.
-func (s *Subscriber) ID() events.SubscriberID {
+func (s *Subscriber) ID() event.SubscriberID {
 	return s.subscriberID
 }

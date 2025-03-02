@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/event"
 	api "github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/system/eventbus"
 	"go.uber.org/zap"
@@ -20,13 +20,13 @@ type hostInfo struct {
 type HostRegistry struct {
 	ctx        context.Context
 	log        *zap.Logger
-	bus        events.Bus
+	bus        event.Bus
 	hosts      sync.Map // map[string]hostInfo
 	subscriber *eventbus.Subscriber
 }
 
 // NewHostRegistry creates a new host registry instance
-func NewHostRegistry(bus events.Bus, logger *zap.Logger) *HostRegistry {
+func NewHostRegistry(bus event.Bus, logger *zap.Logger) *HostRegistry {
 	return &HostRegistry{
 		log: logger,
 		bus: bus,
@@ -41,7 +41,7 @@ func (r *HostRegistry) Start(ctx context.Context) error {
 		r.ctx,
 		r.bus,
 		api.HostSystem,
-		"hosts.(register|remove)",
+		"hosts.(register|delete)",
 		r.handleEvent,
 	)
 	if err != nil {
@@ -60,7 +60,7 @@ func (r *HostRegistry) Stop() error {
 	return nil
 }
 
-func (r *HostRegistry) handleEvent(e events.Event) {
+func (r *HostRegistry) handleEvent(e event.Event) {
 	switch e.Kind {
 	case api.HostRegister:
 		r.registerHost(e)
@@ -73,7 +73,7 @@ func (r *HostRegistry) handleEvent(e events.Event) {
 	}
 }
 
-func (r *HostRegistry) registerHost(e events.Event) {
+func (r *HostRegistry) registerHost(e event.Event) {
 	host, ok := e.Data.(api.Host)
 	if !ok {
 		r.log.Error("invalid host payload",
@@ -110,7 +110,7 @@ func (r *HostRegistry) registerHost(e events.Event) {
 	r.sendAccept(e.Path)
 }
 
-func (r *HostRegistry) deleteHost(e events.Event) {
+func (r *HostRegistry) deleteHost(e event.Event) {
 	if _, exists := r.hosts.LoadAndDelete(e.Path); !exists {
 		r.log.Warn("host not found", zap.String("host", e.Path))
 		r.sendReject(e.Path, "host not found")
@@ -121,16 +121,16 @@ func (r *HostRegistry) deleteHost(e events.Event) {
 	r.sendAccept(e.Path)
 }
 
-func (r *HostRegistry) sendAccept(path events.Path) {
-	r.bus.Send(r.ctx, events.Event{
+func (r *HostRegistry) sendAccept(path event.Path) {
+	r.bus.Send(r.ctx, event.Event{
 		System: api.HostSystem,
 		Kind:   api.HostAccept,
 		Path:   path,
 	})
 }
 
-func (r *HostRegistry) sendReject(path events.Path, reason string) {
-	r.bus.Send(r.ctx, events.Event{
+func (r *HostRegistry) sendReject(path event.Path, reason string) {
+	r.bus.Send(r.ctx, event.Event{
 		System: api.HostSystem,
 		Kind:   api.HostReject,
 		Path:   path,

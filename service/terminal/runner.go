@@ -41,7 +41,7 @@ type Runner struct {
 func NewTerminalRunner(
 	ctx context.Context,
 	cfg *RunnerConfig,
-	launch *process.LaunchProcess,
+	launch *process.Launch,
 ) (*Runner, error) {
 	if cfg == nil {
 		cfg = DefaultRunnerConfig()
@@ -49,6 +49,7 @@ func NewTerminalRunner(
 
 	// Derive a runner context from the provided terminal context.
 	runnerCtx, cancel := context.WithCancel(ctx)
+
 	runnerCtx = process.WithAddedOnComplete(runnerCtx, func(pid pubsub.PID, result *runtime.Result) {
 		cancel()
 	})
@@ -91,10 +92,14 @@ func (r *Runner) run() {
 	}
 }
 
+// Send forwards a package to the underlying process.
+// Returns an error if the process cannot receive the package.
 func (r *Runner) Send(pkg *pubsub.Package) error {
 	return r.proc.Send(pkg)
 }
 
+// Stop gracefully terminates the runner and its associated process.
+// This method is idempotent and can be called multiple times safely.
 func (r *Runner) Stop() {
 	r.once.Do(func() {
 		if r.cancel != nil {
@@ -103,6 +108,8 @@ func (r *Runner) Stop() {
 	})
 }
 
+// Wait returns a channel that will be closed when the runner terminates.
+// This can be used to wait for the runner to complete its execution.
 func (r *Runner) Wait() <-chan struct{} {
 	return r.ctx.Done()
 }

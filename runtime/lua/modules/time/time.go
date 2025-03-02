@@ -47,7 +47,7 @@ func now(l *lua.LState) int {
 	t := time.Now()
 	ud := l.NewUserData()
 	ud.Value = &Time{time: t}
-	l.SetMetatable(ud, l.GetTypeMetatable("Time"))
+	l.SetMetatable(ud, l.GetTypeMetatable("time.Time"))
 	l.Push(ud)
 	return 1
 }
@@ -98,16 +98,16 @@ func sleepCoroutine(l *lua.LState) int {
 		return 1
 	}
 
-	coroutine.Wrap(l, func() *engine.Result {
+	coroutine.Wrap(l, func() *engine.Update {
 		if err := performSleep(l.Context(), duration); err != nil {
-			return engine.NewResult(
+			return engine.NewUpdate(
 				l,
 				[]lua.LValue{lua.LNil},
 				err,
 			)
 		}
 
-		return engine.NewResult(
+		return engine.NewUpdate(
 			l,
 			[]lua.LValue{lua.LString("ok")},
 			nil,
@@ -140,7 +140,7 @@ func date(l *lua.LState) int {
 	t := time.Date(year, month, day, hour, mn, sec, nsec, loc)
 	ud := l.NewUserData()
 	ud.Value = &Time{time: t}
-	l.SetMetatable(ud, l.GetTypeMetatable("Time"))
+	l.SetMetatable(ud, l.GetTypeMetatable("time.Time"))
 	l.Push(ud)
 	return 1
 }
@@ -151,7 +151,7 @@ func unix(l *lua.LState) int {
 	t := time.Unix(sec, nsec)
 	ud := l.NewUserData()
 	ud.Value = &Time{time: t}
-	l.SetMetatable(ud, l.GetTypeMetatable("Time"))
+	l.SetMetatable(ud, l.GetTypeMetatable("time.Time"))
 	l.Push(ud)
 	return 1
 }
@@ -181,7 +181,7 @@ func parse(l *lua.LState) int {
 
 	ud := l.NewUserData()
 	ud.Value = &Time{time: t}
-	l.SetMetatable(ud, l.GetTypeMetatable("Time"))
+	l.SetMetatable(ud, l.GetTypeMetatable("time.Time"))
 	l.Push(ud)
 	return 1
 }
@@ -203,7 +203,7 @@ func timeAdd(l *lua.LState) int {
 	newTime := t.time.Add(duration)
 	result := l.NewUserData()
 	result.Value = &Time{time: newTime}
-	l.SetMetatable(result, l.GetTypeMetatable("Time"))
+	l.SetMetatable(result, l.GetTypeMetatable("time.Time"))
 	l.Push(result)
 	return 1
 }
@@ -224,7 +224,7 @@ func timeSub(l *lua.LState) int {
 	duration := t.time.Sub(other.time)
 	result := l.NewUserData()
 	result.Value = &Duration{duration: duration}
-	l.SetMetatable(result, l.GetTypeMetatable("Duration"))
+	l.SetMetatable(result, l.GetTypeMetatable("time.Duration"))
 	l.Push(result)
 	return 1
 }
@@ -243,7 +243,7 @@ func timeAddDate(l *lua.LState) int {
 	newTime := t.time.AddDate(years, months, days)
 	result := l.NewUserData()
 	result.Value = &Time{time: newTime}
-	l.SetMetatable(result, l.GetTypeMetatable("Time"))
+	l.SetMetatable(result, l.GetTypeMetatable("time.Time"))
 	l.Push(result)
 	return 1
 }
@@ -499,7 +499,7 @@ func timeIn(l *lua.LState) int {
 	newTime := t.time.In(loc.location)
 	result := l.NewUserData()
 	result.Value = &Time{time: newTime}
-	l.SetMetatable(result, l.GetTypeMetatable("Time"))
+	l.SetMetatable(result, l.GetTypeMetatable("time.Time"))
 	l.Push(result)
 	return 1
 }
@@ -514,7 +514,7 @@ func timeLocation(l *lua.LState) int {
 	loc := t.time.Location()
 	result := l.NewUserData()
 	result.Value = &Location{location: loc}
-	l.SetMetatable(result, l.GetTypeMetatable("Location"))
+	l.SetMetatable(result, l.GetTypeMetatable("time.Location"))
 	l.Push(result)
 	return 1
 }
@@ -529,7 +529,7 @@ func timeUTC(l *lua.LState) int {
 	newTime := t.time.UTC()
 	result := l.NewUserData()
 	result.Value = &Time{time: newTime}
-	l.SetMetatable(result, l.GetTypeMetatable("Time"))
+	l.SetMetatable(result, l.GetTypeMetatable("time.Time"))
 	l.Push(result)
 	return 1
 }
@@ -544,7 +544,7 @@ func timeLocal(l *lua.LState) int {
 	newTime := t.time.Local()
 	result := l.NewUserData()
 	result.Value = &Time{time: newTime}
-	l.SetMetatable(result, l.GetTypeMetatable("Time"))
+	l.SetMetatable(result, l.GetTypeMetatable("time.Time"))
 	l.Push(result)
 	return 1
 }
@@ -565,7 +565,7 @@ func timeRound(l *lua.LState) int {
 	newTime := t.time.Round(d.duration)
 	result := l.NewUserData()
 	result.Value = &Time{time: newTime}
-	l.SetMetatable(result, l.GetTypeMetatable("Time"))
+	l.SetMetatable(result, l.GetTypeMetatable("time.Time"))
 	l.Push(result)
 	return 1
 }
@@ -586,7 +586,7 @@ func timeTruncate(l *lua.LState) int {
 	newTime := t.time.Truncate(d.duration)
 	result := l.NewUserData()
 	result.Value = &Time{time: newTime}
-	l.SetMetatable(result, l.GetTypeMetatable("Time"))
+	l.SetMetatable(result, l.GetTypeMetatable("time.Time"))
 	l.Push(result)
 	return 1
 }
@@ -604,7 +604,7 @@ func timeToString(l *lua.LState) int {
 // Register time-related functionality
 func registerTime(l *lua.LState, mod *lua.LTable) {
 	// Register Time metatable
-	mt := l.NewTypeMetatable("Time")
+	mt := l.NewTypeMetatable("time.Time")
 	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
 		"add":            timeAdd,
 		"sub":            timeSub,
@@ -679,7 +679,7 @@ func registerTime(l *lua.LState, mod *lua.LTable) {
 	// Register time functions
 	l.SetFuncs(mod, map[string]lua.LGFunction{
 		"now":   now,
-		"sleep": sleepCoroutine,
+		"sleep": sleepCoroutine, // todo: similar to http we have to properly detect if we are in coroutine or not
 		"date":  date,
 		"unix":  unix,
 		"parse": parse,

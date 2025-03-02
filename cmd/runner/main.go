@@ -6,11 +6,15 @@ import (
 	"flag"
 	"fmt"
 	ctxapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/event"
 	fsapi "github.com/ponyruntime/pony/api/fs"
 	funcapi "github.com/ponyruntime/pony/api/function"
 	logapi "github.com/ponyruntime/pony/api/logs"
+	"github.com/ponyruntime/pony/api/payload"
+	procapi "github.com/ponyruntime/pony/api/process"
+	pubsubapi "github.com/ponyruntime/pony/api/pubsub"
 	regapi "github.com/ponyruntime/pony/api/registry"
+	resourceapi "github.com/ponyruntime/pony/api/resource"
 	luaapi "github.com/ponyruntime/pony/api/runtime/lua"
 	topapi "github.com/ponyruntime/pony/api/topology"
 	"github.com/ponyruntime/pony/runtime/lua/code"
@@ -20,20 +24,23 @@ import (
 	proclua "github.com/ponyruntime/pony/runtime/lua/component/process"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
+	"github.com/ponyruntime/pony/runtime/lua/modules/asyncinbox"
 	"github.com/ponyruntime/pony/runtime/lua/modules/base64"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea"
 	"github.com/ponyruntime/pony/runtime/lua/modules/crypto"
 	"github.com/ponyruntime/pony/runtime/lua/modules/env"
 	fsmod "github.com/ponyruntime/pony/runtime/lua/modules/fs"
-	funcapimod "github.com/ponyruntime/pony/runtime/lua/modules/funcapi"
 	fncallmod "github.com/ponyruntime/pony/runtime/lua/modules/funcs"
 	httpapimod "github.com/ponyruntime/pony/runtime/lua/modules/http"
 	"github.com/ponyruntime/pony/runtime/lua/modules/httpclient"
 	jsonmod "github.com/ponyruntime/pony/runtime/lua/modules/json"
 	"github.com/ponyruntime/pony/runtime/lua/modules/logger"
-	procapimod "github.com/ponyruntime/pony/runtime/lua/modules/processapi"
+	"github.com/ponyruntime/pony/runtime/lua/modules/ostime"
+	processmod "github.com/ponyruntime/pony/runtime/lua/modules/process"
+	"github.com/ponyruntime/pony/runtime/lua/modules/pubsubinbox"
+	registrymod "github.com/ponyruntime/pony/runtime/lua/modules/registry"
 	sqlmod "github.com/ponyruntime/pony/runtime/lua/modules/sql"
-	"github.com/ponyruntime/pony/runtime/lua/modules/tasks"
+	"github.com/ponyruntime/pony/runtime/lua/modules/task"
 	timemod "github.com/ponyruntime/pony/runtime/lua/modules/time"
 	"github.com/ponyruntime/pony/runtime/lua/modules/treesitter"
 	"github.com/ponyruntime/pony/runtime/lua/modules/upstream"
@@ -62,9 +69,10 @@ import (
 	"github.com/ponyruntime/pony/system/registry/loader"
 	"github.com/ponyruntime/pony/system/registry/loader/interpolate"
 	"github.com/ponyruntime/pony/system/registry/runner"
-	"github.com/ponyruntime/pony/system/registry/topology"
+	regtop "github.com/ponyruntime/pony/system/registry/topology"
 	"github.com/ponyruntime/pony/system/resource"
 	"github.com/ponyruntime/pony/system/supervisor"
+	"github.com/ponyruntime/pony/system/topology"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	httpbase "net/http"
@@ -88,7 +96,7 @@ type App struct {
 	logger      *zap.Logger
 	logCore     logapi.Core
 	logManager  *logs.Manager
-	eventBus    events.Bus
+	eventBus    event.Bus
 	eventRouter *eventbus.EventRouter
 	services    eventbus.RouterOption
 	dtt         *transcoder.Transcoder
@@ -102,7 +110,9 @@ type App struct {
 	resources   *resource.Registry
 
 	// mesh
-	node *pubsub.NodeManager
+	node   *pubsub.NodeManager
+	topo   *topology.Topology
+	pidReg *topology.PIDRegistry
 
 	shuttingDown  bool
 	forceShutdown chan struct{}
@@ -149,6 +159,12 @@ func NewApp(verbose, veryVerbose bool) (*App, error) {
 		appLogger.Named("pubsub"),
 	)
 
+	topo := topology.NewTopology(node.Node())
+	pidReg := topology.NewPIDRegistry(topology.PIDRegistryConfig{
+		Parent: nil,
+		Logger: appLogger.Named("pid"),
+	})
+
 	app := &App{
 		ctx:           ctx,
 		cancel:        cancel,
@@ -159,6 +175,8 @@ func NewApp(verbose, veryVerbose bool) (*App, error) {
 		services:      nil,
 		dtt:           dtt,
 		node:          node,
+		topo:          topo,
+		pidReg:        pidReg,
 		forceShutdown: make(chan struct{}),
 	}
 
@@ -175,7 +193,7 @@ func (a *App) Initialize() error {
 	a.reg = registry.NewRegistry(
 		history.NewMemory(),
 		runner.NewBusRunner(a.eventBus, a.logger.Named("runner")),
-		topology.NewStateBuilder(a.logger),
+		regtop.NewStateBuilder(a.logger),
 		a.logger.Named("registry"),
 	)
 
@@ -185,11 +203,9 @@ func (a *App) Initialize() error {
 
 	// this is host dedicated to internal control messages
 	err := a.node.Node().RegisterHost(topapi.ControlHost, pubsub.NewHost(a.ctx, pubsub.HostConfig{
-		BufferSize:      1024,
-		WorkerCount:     16,
-		Logger:          a.logger.Named("control"),
-		RetryTimeout:    500 * time.Millisecond,
-		DeliveryTimeout: 500 * time.Millisecond,
+		BufferSize:  1024,
+		WorkerCount: 16,
+		Logger:      a.logger.Named("control"),
 	}))
 
 	if err != nil {
@@ -198,11 +214,9 @@ func (a *App) Initialize() error {
 
 	// this is host dedicated to internal control messages
 	funcHost := pubsub.NewHost(a.ctx, pubsub.HostConfig{
-		BufferSize:      1024,
-		WorkerCount:     16,
-		Logger:          a.logger.Named("control"),
-		RetryTimeout:    500 * time.Millisecond,
-		DeliveryTimeout: 500 * time.Millisecond,
+		BufferSize:  1024,
+		WorkerCount: 16,
+		Logger:      a.logger.Named("functions"),
 	})
 
 	err = a.node.Node().RegisterHost(funcapi.HostID, funcHost)
@@ -220,16 +234,11 @@ func (a *App) Initialize() error {
 	a.funcs = function.NewFunctionRegistry(a.eventBus, funcHost, a.logger.Named("funcs"))
 	a.prototypes = process.NewPrototypeFactory(a.eventBus, a.logger.Named("prototypes"))
 	a.hosts = process.NewHostRegistry(a.eventBus, a.logger.Named("hosts"))
-
 	a.resources = resource.NewResourceRegistry(a.eventBus, a.logger.Named("resources"))
-
-	// groups, links, monitor and other topology level stuff
-	control := process.NewTopology(a.ctx, a.logger.Named("control"), a.node)
 
 	a.processes = process.NewProcessManager(
 		a.hosts,
 		a.prototypes,
-		control,
 		a.node.Node().ID(), // for pid generation of managed processes
 		a.logger.Named("processes"),
 	)
@@ -240,15 +249,17 @@ func (a *App) Initialize() error {
 func (a *App) Start(folderPath string) error {
 	// Spawn context with values
 	ctx := a.ctx
-	ctx = context.WithValue(ctx, ctxapi.FSRegistryCtx, fsapi.Registry(a.fsRegistry))
-	ctx = context.WithValue(ctx, ctxapi.RegistryCtx, a.reg)
+	ctx = event.WithBus(ctx, a.eventBus)
+	ctx = fsapi.WithFSRegistry(ctx, a.fsRegistry)
+	ctx = regapi.WithRegistry(ctx, a.reg)
+	ctx = payload.WithTranscoder(ctx, a.dtt)
+	ctx = funcapi.WithFunctions(ctx, a.funcs)
+	ctx = procapi.WithProcesses(ctx, a.processes)
+	ctx = resourceapi.WithResources(ctx, a.resources)
+	ctx = pubsubapi.WithNode(ctx, a.node.Node())
+	ctx = topapi.WithTopology(ctx, a.topo)
+	ctx = topapi.WithPIDRegistry(ctx, a.pidReg)
 	ctx = logapi.WithLogger(ctx, a.logger)
-	ctx = context.WithValue(ctx, ctxapi.TranscoderCtx, a.dtt)
-	ctx = context.WithValue(ctx, ctxapi.BusCtx, a.eventBus)
-	ctx = context.WithValue(ctx, ctxapi.FunctionsCtx, a.funcs)
-	ctx = context.WithValue(ctx, ctxapi.ProcessesCtx, a.processes)
-	ctx = context.WithValue(ctx, ctxapi.ResourcesCtx, a.resources)
-	ctx = context.WithValue(ctx, ctxapi.NodeCtx, a.node.Node())
 
 	// Spawn environment context
 	envCtx := ctxapi.NewContexter[string]()
@@ -339,12 +350,12 @@ func (a *App) Stop() error {
 		}
 	}()
 
-	// Close services in reverse order
+	// close services in reverse order
 	if err := a.eventRouter.Stop(); err != nil {
 		a.logger.Error("failed to stop router", zap.Error(err))
 	}
 
-	// Close supervisor
+	// close supervisor
 	if err := a.supervisor.Stop(); err != nil {
 		a.logger.Error("failed to stop supervisor", zap.Error(err))
 	}
@@ -374,7 +385,7 @@ func (a *App) Stop() error {
 		a.logger.Error("failed to stop filesystem registry", zap.Error(err))
 	}
 
-	// Close log manager last
+	// close log manager last
 	if err := a.logManager.Stop(); err != nil {
 		a.logger.Error("failed to stop log manager", zap.Error(err))
 	}
@@ -534,7 +545,7 @@ func main() {
 	}
 }
 
-func initLogger(verbose, veryVerbose bool, bus events.Bus) (*zap.Logger, logapi.Core) {
+func initLogger(verbose, veryVerbose bool, bus event.Bus) (*zap.Logger, logapi.Core) {
 	config := zap.NewDevelopmentConfig()
 
 	switch {
@@ -581,7 +592,7 @@ func loadApplicationState(
 		return nil, fmt.Errorf("failed to load entries: %w", err)
 	}
 
-	boot, err := topology.NewStateBuilder(mainLogger).BuildDelta(regapi.State{}, entries)
+	boot, err := regtop.NewStateBuilder(mainLogger).BuildDelta(regapi.State{}, entries)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build state delta: %w", err)
 	}
@@ -654,6 +665,7 @@ func WithDirectoryManager(a *App) eventbus.EventHandler {
 	return reghandler.NewRegistryHandler("fs.directory", fsdir.NewDirectoryManager(
 		a.eventBus,
 		a.dtt,
+		nil,
 		a.logger.Named("fs.dir"),
 	))
 }
@@ -680,6 +692,7 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 		code.Config{
 			Modules: []luaapi.Module{
 				env.NewEnvModule(),
+				ostime.NewOSTimeModule(),
 				channel.NewChannelModule(),
 				timemod.NewTimeModule(),
 				logger.NewLoggerModule(a.logger.Named("app")),
@@ -688,13 +701,15 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 				fsmod.NewFSModule(),
 				uuid.NewUUIDModule(),
 				upstream.NewUpstreamModule(),
-				tasks.NewTaskModule(),
+				task.NewTaskModule(),
 				subscribe.NewSubscribeModule(),
 				crypto.NewCryptoModule(),
-				fncallmod.NewFunctionModule(a.ctx),
-				procapimod.NewProcAPIModule(a.logger.Named("proc")),
-				funcapimod.NewFuncAPIModule(a.logger.Named("func")),
+				fncallmod.NewFunctionModule(),
+				registrymod.NewRegistryModule(a.logger.Named("registry")),
+				processmod.NewProcessAPIModule(a.logger.Named("proc")),
 				httpapimod.NewHTTPAPIModule(a.logger.Named("http")),
+				pubsubinbox.NewPubSubInbox(a.logger.Named("inbox")),
+				asyncinbox.NewAsyncInbox(a.logger.Named("inbox")),
 				httpclient.NewHTTPClientModule(a.logger.Named("http"), httpbase.DefaultClient),
 				websocket.NewWebSocketModule(a.logger.Named("websocket")),
 				treesitter.NewTreeSitterModule(a.logger.Named("tsitter")),

@@ -6,13 +6,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/event"
 	"github.com/stretchr/testify/require"
 )
 
 // newTestBus is a helper function from your provided code.
 // I'm including it here for completeness of the test.
-func newTestBusForEvents(t *testing.T) events.Bus {
+func newTestBusForEvents(t *testing.T) event.Bus {
 	t.Helper()
 	return NewBus()
 }
@@ -23,11 +23,11 @@ func TestEventListener_NewEventListener(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	var receivedEvents []events.Event
+	var receivedEvents []event.Event
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	wg.Add(2)
-	handlerFunc := func(evt events.Event) {
+	handlerFunc := func(evt event.Event) {
 		mu.Lock()
 		receivedEvents = append(receivedEvents, evt)
 		mu.Unlock()
@@ -39,9 +39,9 @@ func TestEventListener_NewEventListener(t *testing.T) {
 	defer handler.Close()
 
 	// send eventbus
-	event1 := events.Event{System: "test-system", Kind: "test-kind.created", Data: "data1"}
-	event2 := events.Event{System: "test-system", Kind: "test-kind.updated", Data: "data2"}
-	event3 := events.Event{System: "other-system", Kind: "test-kind.created", Data: "data3"} // Should not be received
+	event1 := event.Event{System: "test-system", Kind: "test-kind.created", Data: "data1"}
+	event2 := event.Event{System: "test-system", Kind: "test-kind.updated", Data: "data2"}
+	event3 := event.Event{System: "other-system", Kind: "test-kind.created", Data: "data3"} // Should not be received
 
 	b.Send(context.Background(), event1)
 	b.Send(context.Background(), event2)
@@ -65,11 +65,11 @@ func TestEventListener_NewEventListener_NoKind(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	var receivedEvents []events.Event
+	var receivedEvents []event.Event
 	var mu sync.Mutex // Mutex to protect receivedEvents
 	var wg sync.WaitGroup
 	wg.Add(2)
-	handlerFunc := func(evt events.Event) {
+	handlerFunc := func(evt event.Event) {
 		mu.Lock()
 		receivedEvents = append(receivedEvents, evt)
 		mu.Unlock()
@@ -81,9 +81,9 @@ func TestEventListener_NewEventListener_NoKind(t *testing.T) {
 	defer handler.Close()
 
 	// send eventbus
-	event1 := events.Event{System: "test-system", Kind: "test-kind.created", Data: "data1"}
-	event2 := events.Event{System: "test-system", Kind: "test-kind.updated", Data: "data2"}
-	event3 := events.Event{System: "other-system", Kind: "test-kind.created", Data: "data3"} // Should not be received
+	event1 := event.Event{System: "test-system", Kind: "test-kind.created", Data: "data1"}
+	event2 := event.Event{System: "test-system", Kind: "test-kind.updated", Data: "data2"}
+	event3 := event.Event{System: "other-system", Kind: "test-kind.created", Data: "data3"} // Should not be received
 
 	b.Send(context.Background(), event1)
 	b.Send(context.Background(), event2)
@@ -107,11 +107,11 @@ func TestEventListener_Close(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	var receivedEvents []events.Event
+	var receivedEvents []event.Event
 	var mu sync.Mutex // Mutex to protect receivedEvents
 	var wg sync.WaitGroup
 	wg.Add(1)
-	handlerFunc := func(evt events.Event) {
+	handlerFunc := func(evt event.Event) {
 		mu.Lock()
 		receivedEvents = append(receivedEvents, evt)
 		mu.Unlock()
@@ -122,14 +122,14 @@ func TestEventListener_Close(t *testing.T) {
 	require.NoError(t, err)
 
 	// send eventbus
-	event1 := events.Event{System: "test-system", Kind: "test-kind.created", Data: "data1"}
-	event2 := events.Event{System: "test-system", Kind: "test-kind.updated", Data: "data2"}
+	event1 := event.Event{System: "test-system", Kind: "test-kind.created", Data: "data1"}
+	event2 := event.Event{System: "test-system", Kind: "test-kind.updated", Data: "data2"}
 
 	b.Send(context.Background(), event1)
 
 	wg.Wait()
 
-	// Close the handler
+	// close the handler
 	handler.Close()
 
 	// send another event
@@ -146,9 +146,9 @@ func TestEventListener_ContextCancellation(t *testing.T) {
 	b := newTestBusForEvents(t)
 	ctx, cancel := context.WithCancel(context.Background())
 
-	var receivedEvents []events.Event
+	var receivedEvents []event.Event
 	var mu sync.Mutex
-	handlerFunc := func(evt events.Event) {
+	handlerFunc := func(evt event.Event) {
 		mu.Lock()
 		receivedEvents = append(receivedEvents, evt)
 		mu.Unlock()
@@ -163,7 +163,7 @@ func TestEventListener_ContextCancellation(t *testing.T) {
 
 	time.Sleep(100 * time.Millisecond)
 
-	event1 := events.Event{System: "test-system", Kind: "test-kind.created", Data: "data1"}
+	event1 := event.Event{System: "test-system", Kind: "test-kind.created", Data: "data1"}
 	b.Send(context.Background(), event1)
 
 	mu.Lock()

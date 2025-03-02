@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	lua "github.com/yuin/gopher-lua"
-	// Import SQLite driver for testing
+	// Imports SQLite driver for testing
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -64,7 +64,7 @@ func TestPrepareStatement(t *testing.T) {
 		assert.NoError(t, err, "Unit of work cleanup failed")
 	}()
 
-	// Import the test script
+	// Imports the test script
 	err := vm.Import(`
 		function test_prepare()
 			local sql = require("sql")
@@ -87,7 +87,7 @@ func TestPrepareStatement(t *testing.T) {
 	`, "test", "test_prepare")
 	require.NoError(t, err, "Failed to import test script")
 
-	// Execute the function using the runner
+	// Start the function using the runner
 	result, err := runner.Execute(L.Context(), "test_prepare")
 	require.NoError(t, err, "Lua execution failed")
 
@@ -109,7 +109,7 @@ func TestStatementQuery(t *testing.T) {
 		assert.NoError(t, err, "Unit of work cleanup failed")
 	}()
 
-	// Import the test script
+	// Imports the test script
 	err := vm.Import(`
 		function test_query()
 			local sql = require("sql")
@@ -138,7 +138,7 @@ func TestStatementQuery(t *testing.T) {
 	`, "test", "test_query")
 	require.NoError(t, err, "Failed to import test script")
 
-	// Execute the function using the runner
+	// Start the function using the runner
 	result, err := runner.Execute(L.Context(), "test_query")
 	require.NoError(t, err, "Lua execution failed")
 
@@ -163,7 +163,7 @@ func TestStatementExecute(t *testing.T) {
 		assert.NoError(t, err, "Unit of work cleanup failed")
 	}()
 
-	// Import the test script
+	// Imports the test script
 	err := vm.Import(`
 		function test_execute()
 			local sql = require("sql")
@@ -173,7 +173,7 @@ func TestStatementExecute(t *testing.T) {
 			local stmt, err = db:prepare("UPDATE users SET name = ? WHERE id = ?")
 			if err then error(err) end
 
-			-- Execute with parameters
+			-- Start with parameters
 			local result, err = stmt:execute({"Updated Name", 1})
 			if err then error(err) end
 
@@ -199,7 +199,7 @@ func TestStatementExecute(t *testing.T) {
 	`, "test", "test_execute")
 	require.NoError(t, err, "Failed to import test script")
 
-	// Execute the function using the runner
+	// Start the function using the runner
 	result, err := runner.Execute(L.Context(), "test_execute")
 	require.NoError(t, err, "Lua execution failed")
 
@@ -226,7 +226,7 @@ func TestStatementMultipleExecution(t *testing.T) {
 		assert.NoError(t, err, "Unit of work cleanup failed")
 	}()
 
-	// Import the test script
+	// Imports the test script
 	err := vm.Import(`
 		function test_multiple_execute()
 			local sql = require("sql")
@@ -236,11 +236,11 @@ func TestStatementMultipleExecution(t *testing.T) {
 			local stmt, err = db:prepare("INSERT INTO users (name, age, active) VALUES (?, ?, ?)")
 			if err then error(err) end
 
-			-- Execute first insert
+			-- Start first insert
 			local result1, err = stmt:execute({"David", 40, true})
 			if err then error(err) end
 
-			-- Execute second insert
+			-- Start second insert
 			local result2, err = stmt:execute({"Eva", 28, false})
 			if err then error(err) end
 
@@ -279,7 +279,7 @@ func TestStatementMultipleExecution(t *testing.T) {
 	`, "test", "test_multiple_execute")
 	require.NoError(t, err, "Failed to import test script")
 
-	// Execute the function using the runner
+	// Start the function using the runner
 	result, err := runner.Execute(L.Context(), "test_multiple_execute")
 	require.NoError(t, err, "Lua execution failed")
 
@@ -335,7 +335,7 @@ func TestStatementErrorHandling(t *testing.T) {
 		assert.NoError(t, err, "Unit of work cleanup failed")
 	}()
 
-	// Import the test script
+	// Imports the test script
 	err := vm.Import(`
 		function test_error_handling()
 			local sql = require("sql")
@@ -359,7 +359,7 @@ func TestStatementErrorHandling(t *testing.T) {
 	`, "test", "test_error_handling")
 	require.NoError(t, err, "Failed to import test script")
 
-	// Execute the function using the runner
+	// Start the function using the runner
 	result, err := runner.Execute(L.Context(), "test_error_handling")
 	require.NoError(t, err, "Lua execution failed unexpectedly")
 
@@ -387,7 +387,7 @@ func TestStatementWithInvalidParams(t *testing.T) {
 		assert.NoError(t, err, "Unit of work cleanup failed")
 	}()
 
-	// Import the test script
+	// Imports the test script
 	err := vm.Import(`
 		function test_invalid_params()
 			local sql = require("sql")
@@ -423,7 +423,7 @@ func TestStatementWithInvalidParams(t *testing.T) {
 	`, "test", "test_invalid_params")
 	require.NoError(t, err, "Failed to import test script")
 
-	// Execute the function using the runner
+	// Start the function using the runner
 	result, err := runner.Execute(L.Context(), "test_invalid_params")
 	require.NoError(t, err, "Lua execution failed unexpectedly")
 
@@ -458,7 +458,7 @@ func TestStatementWithNilParams(t *testing.T) {
 	_, err = db.Exec("INSERT INTO counts VALUES (42)")
 	require.NoError(t, err, "Failed to insert test data")
 
-	// Import the test script
+	// Imports the test script
 	err = vm.Import(`
 		function test_nil_params()
 			local sql = require("sql")
@@ -468,7 +468,7 @@ func TestStatementWithNilParams(t *testing.T) {
 			local stmt, err = db:prepare("SELECT count FROM counts")
 			if err then error(err) end
 
-			-- Execute without parameters (nil)
+			-- Start without parameters (nil)
 			local rows, err = stmt:query()
 			if err then error(err) end
 
@@ -486,7 +486,7 @@ func TestStatementWithNilParams(t *testing.T) {
 	`, "test", "test_nil_params")
 	require.NoError(t, err, "Failed to import test script")
 
-	// Execute the function using the runner
+	// Start the function using the runner
 	result, err := runner.Execute(L.Context(), "test_nil_params")
 	require.NoError(t, err, "Lua execution failed")
 
@@ -522,7 +522,7 @@ func TestStatementDataTypes(t *testing.T) {
 	)`)
 	require.NoError(t, err, "Failed to create test table")
 
-	// Import the test script
+	// Imports the test script
 	err = vm.Import(`
 	function test_data_types()
 		local sql = require("sql")
@@ -532,7 +532,7 @@ func TestStatementDataTypes(t *testing.T) {
 		local stmt, err = db:prepare("INSERT INTO datatypes (int_val, real_val, text_val, bool_val, null_val) VALUES (?, ?, ?, ?, ?)")
 		if err then error(err) end
 
-		-- Execute with different data types, using sql.NULL instead of nil
+		-- Start with different data types, using sql.NULL instead of nil
 		local result, err = stmt:execute({42, 3.14159, "Hello, world!", true, sql.NULL})
 		if err then error(err) end
 
@@ -562,7 +562,7 @@ func TestStatementDataTypes(t *testing.T) {
 `, "test", "test_data_types")
 	require.NoError(t, err, "Failed to import test script")
 
-	// Execute the function using the runner
+	// Start the function using the runner
 	result, err := runner.Execute(L.Context(), "test_data_types")
 	require.NoError(t, err, "Lua execution failed")
 
@@ -612,7 +612,7 @@ func TestStatementClose(t *testing.T) {
 		assert.NoError(t, err, "Unit of work cleanup failed")
 	}()
 
-	// Import the test script
+	// Imports the test script
 	err := vm.Import(`
 		function test_statement_close()
 			local sql = require("sql")
@@ -646,7 +646,7 @@ func TestStatementClose(t *testing.T) {
 	`, "test", "test_statement_close")
 	require.NoError(t, err, "Failed to import test script")
 
-	// Execute the function using the runner
+	// Start the function using the runner
 	result, err := runner.Execute(L.Context(), "test_statement_close")
 	require.NoError(t, err, "Lua execution failed")
 
@@ -671,7 +671,7 @@ func TestStatementQueryNoResults(t *testing.T) {
 		assert.NoError(t, err, "Unit of work cleanup failed")
 	}()
 
-	// Import the test script
+	// Imports the test script
 	err := vm.Import(`
 		function test_query_no_results()
 			local sql = require("sql")
@@ -699,7 +699,7 @@ func TestStatementQueryNoResults(t *testing.T) {
 	`, "test", "test_query_no_results")
 	require.NoError(t, err, "Failed to import test script")
 
-	// Execute the function using the runner
+	// Start the function using the runner
 	result, err := runner.Execute(L.Context(), "test_query_no_results")
 	require.NoError(t, err, "Lua execution failed")
 
@@ -739,7 +739,7 @@ func TestStatementQueryNullColumns(t *testing.T) {
 		assert.NoError(t, err, "Unit of work cleanup failed")
 	}()
 
-	// Import the test script
+	// Imports the test script
 	err = vm.Import(`
 		function test_null_columns()
 			local sql = require("sql")
@@ -774,7 +774,7 @@ func TestStatementQueryNullColumns(t *testing.T) {
 	`, "test", "test_null_columns")
 	require.NoError(t, err, "Failed to import test script")
 
-	// Execute the function using the runner
+	// Start the function using the runner
 	result, err := runner.Execute(L.Context(), "test_null_columns")
 	require.NoError(t, err, "Lua execution failed")
 
@@ -826,7 +826,7 @@ func TestStatementWithSQLNull(t *testing.T) {
 		assert.NoError(t, err, "Unit of work cleanup failed")
 	}()
 
-	// Import the test script
+	// Imports the test script
 	err = vm.Import(`
 		function test_null_params()
 			local sql = require("sql")
@@ -878,7 +878,7 @@ func TestStatementWithSQLNull(t *testing.T) {
 	`, "test", "test_null_params")
 	require.NoError(t, err, "Failed to import test script")
 
-	// Execute the function using the runner
+	// Start the function using the runner
 	result, err := runner.Execute(L.Context(), "test_null_params")
 	require.NoError(t, err, "Lua execution failed")
 

@@ -4,8 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	contextapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/internal/wildcard"
 	"github.com/ponyruntime/pony/system/eventbus"
@@ -21,8 +20,8 @@ func NewRegistryHandler(kinds registry.Kind, listener registry.EntryListener) ev
 
 	return eventbus.NewBaseHandler(
 		eventbus.Pattern{System: registry.System, Kind: registry.AllEvents},
-		func(ctx context.Context, evt events.Event) error {
-			bus := ctx.Value(contextapi.BusCtx).(events.Bus)
+		func(ctx context.Context, evt event.Event) error {
+			bus := event.GetBus(ctx)
 			entry, ok := evt.Data.(registry.Entry)
 			if !ok {
 				// Handle transaction events
@@ -90,16 +89,16 @@ func NewRegistryHandler(kinds registry.Kind, listener registry.EntryListener) ev
 	)
 }
 
-func accept(ctx context.Context, bus events.Bus, id registry.ID) {
-	bus.Send(ctx, events.Event{
+func accept(ctx context.Context, bus event.Bus, id registry.ID) {
+	bus.Send(ctx, event.Event{
 		System: registry.System,
 		Kind:   registry.Accept,
 		Path:   id.String(),
 	})
 }
 
-func reject(ctx context.Context, bus events.Bus, id registry.ID, err error) {
-	bus.Send(ctx, events.Event{
+func reject(ctx context.Context, bus event.Bus, id registry.ID, err error) {
+	bus.Send(ctx, event.Event{
 		System: registry.System,
 		Kind:   registry.Reject,
 		Path:   id.String(),
@@ -111,7 +110,7 @@ func reject(ctx context.Context, bus events.Bus, id registry.ID, err error) {
 func NewTransactionHandler(listener registry.TransactionListener) eventbus.EventHandler {
 	return eventbus.NewBaseHandler(
 		eventbus.Pattern{System: registry.System, Kind: registry.AllEvents},
-		func(ctx context.Context, evt events.Event) error {
+		func(ctx context.Context, evt event.Event) error {
 			switch evt.Kind {
 			case registry.Begin:
 				listener.Begin(ctx)

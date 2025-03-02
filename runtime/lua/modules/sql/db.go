@@ -78,13 +78,13 @@ func dbType(l *lua.LState) int {
 	return 2
 }
 
-// dbGet retrieves a database resource by ID
+// dbGet retrieves a database resource by Source
 func dbGet(l *lua.LState, log *zap.Logger) int {
-	// Get resource ID
+	// Get resource Source
 	id := l.CheckString(1)
 	if id == "" {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("resource ID is required"))
+		l.Push(lua.LString("resource Source is required"))
 		return 2
 	}
 
@@ -103,7 +103,7 @@ func dbGet(l *lua.LState, log *zap.Logger) int {
 		return 2
 	}
 
-	// Parse resource ID
+	// Parse resource Source
 	resID := registry.ParseID(id)
 
 	// Acquire resource
@@ -196,11 +196,11 @@ func dbQuery(l *lua.LState) int {
 		return 2
 	}
 
-	coroutine.Wrap(l, func() *engine.Result {
+	coroutine.Wrap(l, func() *engine.Update {
 		var rows *sql.Rows
 		var err error
 
-		// Execute query with appropriate parameter style
+		// Start query with appropriate parameter style
 		switch p := params.(type) {
 		case nil:
 			rows, err = db.db.Query(query)
@@ -208,17 +208,17 @@ func dbQuery(l *lua.LState) int {
 			rows, err = db.db.Query(query, p...)
 		case map[string]interface{}:
 			// Support for named parameters (placeholder for future implementation)
-			return engine.NewResult(nil, nil, errors.New("named parameters not yet implemented"))
+			return engine.NewUpdate(nil, nil, errors.New("named parameters not yet implemented"))
 		default:
-			return engine.NewResult(nil, nil, fmt.Errorf("unsupported parameter type: %T", params))
+			return engine.NewUpdate(nil, nil, fmt.Errorf("unsupported parameter type: %T", params))
 		}
 
 		if err != nil {
-			return engine.NewResult(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
+			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
 		}
 
 		var resultTable *lua.LTable
-		// Use a named return parameter to capture errors from both rowsToTable and rows.Close
+		// Use a named return parameter to capture errors from both rowsToTable and rows.close
 		err = func() error {
 			defer func() {
 				closeErr := rows.Close()
@@ -238,10 +238,10 @@ func dbQuery(l *lua.LState) int {
 		}()
 
 		if err != nil {
-			return engine.NewResult(nil, nil, err)
+			return engine.NewUpdate(nil, nil, err)
 		}
 
-		return engine.NewResult(nil, []lua.LValue{resultTable, lua.LNil}, nil)
+		return engine.NewUpdate(nil, []lua.LValue{resultTable, lua.LNil}, nil)
 	})
 
 	return -1 // Yield
@@ -264,11 +264,11 @@ func dbExecute(l *lua.LState) int {
 		return 2
 	}
 
-	coroutine.Wrap(l, func() *engine.Result {
+	coroutine.Wrap(l, func() *engine.Update {
 		var result sql.Result
 		var err error
 
-		// Execute with appropriate parameter style
+		// Start with appropriate parameter style
 		switch p := params.(type) {
 		case nil:
 			result, err = db.db.Exec(query)
@@ -276,19 +276,19 @@ func dbExecute(l *lua.LState) int {
 			result, err = db.db.Exec(query, p...)
 		case map[string]interface{}:
 			// Support for named parameters (placeholder for future implementation)
-			return engine.NewResult(nil, nil, errors.New("named parameters not yet implemented"))
+			return engine.NewUpdate(nil, nil, errors.New("named parameters not yet implemented"))
 		default:
-			return engine.NewResult(nil, nil, fmt.Errorf("unsupported parameter type: %T", params))
+			return engine.NewUpdate(nil, nil, fmt.Errorf("unsupported parameter type: %T", params))
 		}
 
 		if err != nil {
-			return engine.NewResult(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
+			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
 		}
 
 		// Convert result to Lua table
 		resultTable := resultToTable(l, result)
 
-		return engine.NewResult(nil, []lua.LValue{resultTable, lua.LNil}, nil)
+		return engine.NewUpdate(nil, []lua.LValue{resultTable, lua.LNil}, nil)
 	})
 
 	return -1 // Yield
@@ -306,12 +306,12 @@ func dbPrepare(l *lua.LState) int {
 	// Get query
 	query := l.CheckString(2)
 
-	coroutine.Wrap(l, func() *engine.Result {
+	coroutine.Wrap(l, func() *engine.Update {
 		// Prepare statement
 		stmt, err := db.db.Prepare(query)
 		if err != nil {
 			// Return the error to Lua instead of failing the test
-			return engine.NewResult(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
+			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
 		}
 
 		// Create statement wrapper
@@ -330,7 +330,7 @@ func dbPrepare(l *lua.LState) int {
 				db.log.Error("failed to close statement due to missing UOW",
 					zap.Error(closeErr))
 			}
-			return engine.NewResult(nil, []lua.LValue{lua.LNil, lua.LString("no unit of work found to manage statement")}, nil)
+			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString("no unit of work found to manage statement")}, nil)
 		}
 
 		uw.AddCleanup(func() error {
@@ -340,7 +340,7 @@ func dbPrepare(l *lua.LState) int {
 		// Create userdata
 		ud := WrapStatement(l, stmtObj)
 
-		return engine.NewResult(nil, []lua.LValue{ud, lua.LNil}, nil)
+		return engine.NewUpdate(nil, []lua.LValue{ud, lua.LNil}, nil)
 	})
 
 	return -1 // Yield
@@ -354,11 +354,11 @@ func dbBegin(l *lua.LState) int {
 		return 0
 	}
 
-	coroutine.Wrap(l, func() *engine.Result {
+	coroutine.Wrap(l, func() *engine.Update {
 		// Begin transaction
 		tx, err := db.db.Begin()
 		if err != nil {
-			return engine.NewResult(nil, nil, err)
+			return engine.NewUpdate(nil, nil, err)
 		}
 
 		// Create transaction wrapper
@@ -378,7 +378,7 @@ func dbBegin(l *lua.LState) int {
 				db.log.Error("failed to rollback transaction due to missing UOW",
 					zap.Error(rollbackErr))
 			}
-			return engine.NewResult(nil, nil, errors.New("no unit of work found to manage transaction"))
+			return engine.NewUpdate(nil, nil, errors.New("no unit of work found to manage transaction"))
 		}
 
 		uw.AddCleanup(func() error {
@@ -392,7 +392,7 @@ func dbBegin(l *lua.LState) int {
 		// Create userdata
 		ud := WrapTransaction(l, txObj)
 
-		return engine.NewResult(nil, []lua.LValue{ud, lua.LNil}, nil)
+		return engine.NewUpdate(nil, []lua.LValue{ud, lua.LNil}, nil)
 	})
 
 	return -1 // Yield

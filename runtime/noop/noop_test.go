@@ -2,7 +2,7 @@ package noop
 
 import (
 	"context"
-	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/function"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
@@ -11,31 +11,31 @@ import (
 	"testing"
 )
 
-// mockEventBus is a mock implementation of the events.Bus interface for testing
+// mockEventBus is a mock implementation of the event.Bus interface for testing
 type mockEventBus struct {
 	sendCount int
-	lastEvent events.Event
+	lastEvent event.Event
 }
 
-func (m *mockEventBus) Subscribe(context.Context, events.System, chan<- events.Event) (events.SubscriberID, error) {
+func (m *mockEventBus) Subscribe(context.Context, event.System, chan<- event.Event) (event.SubscriberID, error) {
 	return "", nil
 }
 
-func (m *mockEventBus) SubscribeP(context.Context, events.System, events.Kind, chan<- events.Event) (events.SubscriberID, error) {
+func (m *mockEventBus) SubscribeP(context.Context, event.System, event.Kind, chan<- event.Event) (event.SubscriberID, error) {
 	return "", nil
 }
 
-func (m *mockEventBus) Unsubscribe(context.Context, events.SubscriberID) {
+func (m *mockEventBus) Unsubscribe(context.Context, event.SubscriberID) {
 }
 
-func (m *mockEventBus) Send(_ context.Context, event events.Event) {
+func (m *mockEventBus) Send(_ context.Context, event event.Event) {
 	m.sendCount++
 	m.lastEvent = event
 }
 
 func (m *mockEventBus) reset() {
 	m.sendCount = 0
-	m.lastEvent = events.Event{}
+	m.lastEvent = event.Event{}
 }
 
 func TestNoopRuntime_Execute(t *testing.T) {
@@ -129,8 +129,8 @@ func TestNoopRuntime_Add(t *testing.T) {
 
 			require.Equal(t, 1, bus.sendCount)
 			require.Equal(t, function.System, bus.lastEvent.System)
-			require.Equal(t, function.FuncRegister, bus.lastEvent.Kind)
-			require.Equal(t, events.Path(tt.entry.ID.String()), bus.lastEvent.Path)
+			require.Equal(t, function.Register, bus.lastEvent.Kind)
+			require.Equal(t, event.Path(tt.entry.ID.String()), bus.lastEvent.Path)
 		})
 	}
 }
@@ -230,8 +230,8 @@ func TestNoopRuntime_Delete(t *testing.T) {
 
 			require.Equal(t, 1, bus.sendCount)
 			require.Equal(t, function.System, bus.lastEvent.System)
-			require.Equal(t, function.FuncDelete, bus.lastEvent.Kind)
-			require.Equal(t, events.Path(tt.entry.ID.String()), bus.lastEvent.Path)
+			require.Equal(t, function.Delete, bus.lastEvent.Kind)
+			require.Equal(t, event.Path(tt.entry.ID.String()), bus.lastEvent.Path)
 		})
 	}
 }

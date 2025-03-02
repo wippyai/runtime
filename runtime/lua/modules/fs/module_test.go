@@ -17,7 +17,6 @@ import (
 	"github.com/ponyruntime/pony/api/resource"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
-	"github.com/ponyruntime/pony/runtime/uow"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	lua "github.com/yuin/gopher-lua"
@@ -449,7 +448,12 @@ func (m *mockFSRegistry) GetFS(name string) (fsapi.FS, bool) {
 }
 
 // setupLuaWithFS sets up a Lua state with the FS module and a mock filesystem
-func setupLuaWithFS(t *testing.T, mockRes *mockResource) (*engine.CoroutineVM, *lua.LState, *uow.UnitOfWork, *engine.Runner) {
+func setupLuaWithFS(t *testing.T, mockRes *mockResource) (
+	*engine.CoroutineVM,
+	*lua.LState,
+	engine.UnitOfWork,
+	*engine.Runner,
+) {
 	logger := zaptest.NewLogger(t)
 
 	// Create the FS module
@@ -476,7 +480,7 @@ func setupLuaWithFS(t *testing.T, mockRes *mockResource) (*engine.CoroutineVM, *
 	runner := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
 
 	// Create a UOW for resource management
-	ctx, uw := uow.OnContext(context.Background())
+	uw, ctx := runner.InitUnitOfWork(context.Background())
 
 	// Add the resource registry to the context
 	ctx = resource.WithResources(ctx, mockRegistry)
@@ -545,10 +549,10 @@ func TestFSGet(t *testing.T) {
 
 	// Inject our filesystem registry into the context
 	ctx := L.Context()
-	ctx = fsapi.WithContext(ctx, fsRegistry)
+	ctx = fsapi.WithFSRegistry(ctx, fsRegistry)
 	L.SetContext(ctx)
 
-	// Import our test function into the VM
+	// Imports our test function into the VM
 	err := vm.Import(`
 		function test_fs_get()
 			local fs = require("fs")
@@ -578,7 +582,7 @@ func TestFSGet(t *testing.T) {
 	`, "test", "test_fs_get")
 	require.NoError(t, err, "Failed to import test function")
 
-	// Execute the function using the runner
+	// Start the function using the runner
 	result, err := runner.Execute(L.Context(), "test_fs_get")
 	require.NoError(t, err, "Lua execution failed")
 

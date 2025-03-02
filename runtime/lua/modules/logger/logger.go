@@ -160,7 +160,7 @@ func loggerError(l *lua.LState) int {
 			// Handle special error field
 			if errValue := tbl.RawGetString("error"); errValue != lua.LNil {
 				fields = append(fields, zap.Error(errors.New(errValue.String())))
-				tbl.RawSetString("error", lua.LNil) // Remove error from table
+				tbl.RawSetString("error", lua.LNil) // Done error from table
 			}
 
 			fields = append(fields, tableToFields(tbl)...)

@@ -42,7 +42,7 @@ func (m *Module) Loader(l *lua.LState) int {
 	l.SetField(mod, "CLOSE_CODES", closeCodesTable)
 
 	// Register client methods
-	mt := l.NewTypeMetatable("WebSocketClient")
+	mt := l.NewTypeMetatable("websocket.Client")
 	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
 		"send":    wsSend,
 		"close":   wsClose,

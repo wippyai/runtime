@@ -6,6 +6,9 @@ import (
 	"github.com/ponyruntime/pony/api/registry"
 )
 
+// FileContent represents the structure of a registry configuration file.
+// It supports both single entry and batch entries formats, with common
+// metadata that can be applied to all entries in a file.
 type FileContent struct {
 	Version   string            `json:"version,omitempty" yaml:"version,omitempty"`
 	Namespace string            `json:"namespace"`
@@ -20,6 +23,10 @@ type FileContent struct {
 	Data map[string]interface{} `json:",inline"`
 }
 
+// ExtractEntries parses a payload containing registry entries using the provided
+// transcoder. It handles both single-entry and batch-entry formats, and ensures
+// that metadata is properly merged between file-level and entry-level definitions.
+// Returns a slice of registry entries or an error if parsing fails.
 func ExtractEntries(p payload.Payload, dtt payload.Transcoder) ([]registry.Entry, error) {
 	var content FileContent
 	if err := dtt.Unmarshal(p, &content); err != nil {

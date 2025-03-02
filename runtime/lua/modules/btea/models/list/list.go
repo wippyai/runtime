@@ -86,7 +86,7 @@ func RegisterList(l *lua.LState, mod *lua.LTable) {
 	l.SetField(mod, "list", l.NewFunction(newList))
 }
 
-// Core FuncName
+// Core Method
 
 func listUpdate(l *lua.LState) int {
 	li := CheckList(l)

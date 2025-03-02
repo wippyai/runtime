@@ -11,7 +11,9 @@ import (
 )
 
 var (
-	ErrClosed           = errors.New("filesystem is closed")
+	// ErrClosed is returned when an operation is attempted on a closed filesystem
+	ErrClosed = errors.New("filesystem is closed")
+	// ErrPermissionDenied is returned when an operation lacks required permissions
 	ErrPermissionDenied = errors.New("permission denied")
 )
 

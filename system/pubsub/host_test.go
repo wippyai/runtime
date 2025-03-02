@@ -22,19 +22,17 @@ func TestHost_NewHost(t *testing.T) {
 		{
 			name: "default configuration",
 			config: HostConfig{
-				BufferSize:   100,
-				WorkerCount:  4,
-				Logger:       logger,
-				RetryTimeout: time.Millisecond * 100,
+				BufferSize:  100,
+				WorkerCount: 4,
+				Logger:      logger,
 			},
 		},
 		{
 			name: "custom configuration",
 			config: HostConfig{
-				BufferSize:   1000,
-				WorkerCount:  8,
-				Logger:       logger,
-				RetryTimeout: time.Second,
+				BufferSize:  1000,
+				WorkerCount: 8,
+				Logger:      logger,
 			},
 		},
 	}
@@ -87,9 +85,8 @@ func TestHost_Send(t *testing.T) {
 	defer cancel()
 
 	host := NewHost(ctx, HostConfig{
-		BufferSize:   2,
-		WorkerCount:  1,
-		RetryTimeout: time.Millisecond * 100,
+		BufferSize:  2,
+		WorkerCount: 1,
 	})
 
 	pid := api.PID{
@@ -126,9 +123,8 @@ func TestHost_SendCancelledContext(t *testing.T) {
 	defer cancel()
 
 	host := NewHost(ctx, HostConfig{
-		BufferSize:   1,
-		WorkerCount:  0, // no workers so jobCh is never drained
-		RetryTimeout: time.Millisecond * 50,
+		BufferSize:  1,
+		WorkerCount: 0, // no workers so jobCh is never drained
 	})
 
 	pid := api.PID{
@@ -154,9 +150,8 @@ func TestHost_SendBufferFull(t *testing.T) {
 	defer cancel()
 
 	host := NewHost(ctx, HostConfig{
-		BufferSize:   1,
-		WorkerCount:  0, // no worker, so jobCh remains full after one send
-		RetryTimeout: time.Millisecond * 50,
+		BufferSize:  1,
+		WorkerCount: 0, // no worker, so jobCh remains full after one send
 	})
 
 	pid := api.PID{
@@ -194,52 +189,13 @@ func cancelledContext() context.Context {
 	return ctx
 }
 
-func TestHost_DeliveryTimeout(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
-	defer cancel()
-
-	host := NewHost(ctx, HostConfig{
-		BufferSize:      2,
-		WorkerCount:     1,
-		DeliveryTimeout: time.Millisecond * 50,
-		RetryTimeout:    time.Millisecond * 100,
-	})
-
-	pid := api.PID{
-		Node:   "node1",
-		Host:   "host1",
-		ID:     registry.ID{NS: "ns1", Name: "proc1"},
-		UniqID: "uniq1",
-	}
-
-	// Create a blocked receiver
-	receiverCh := make(chan *api.Package) // Unbuffered channel that no one is receiving from
-	_, err := host.Attach(pid, receiverCh)
-	assert.NoError(t, err)
-
-	// Send should succeed (as it only queues the message)
-	pkg := &api.Package{
-		PID: pid,
-		Messages: []*api.Message{
-			{Topic: "test"},
-		},
-	}
-	err = host.Send(pkg)
-	assert.NoError(t, err)
-
-	// Wait longer than delivery timeout
-	time.Sleep(time.Millisecond * 100)
-	// Type should have been dropped due to delivery timeout
-}
-
 func TestHost_NoReceiver(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
 
 	host := NewHost(ctx, HostConfig{
-		BufferSize:   2,
-		WorkerCount:  1,
-		RetryTimeout: time.Millisecond * 100,
+		BufferSize:  2,
+		WorkerCount: 1,
 	})
 
 	pid := api.PID{
@@ -249,7 +205,7 @@ func TestHost_NoReceiver(t *testing.T) {
 		UniqID: "uniq1",
 	}
 
-	// Send message without attaching a receiver
+	// send message without attaching a receiver
 	pkg := &api.Package{
 		PID: pid,
 		Messages: []*api.Message{
@@ -257,7 +213,7 @@ func TestHost_NoReceiver(t *testing.T) {
 		},
 	}
 	err := host.Send(pkg)
-	assert.NoError(t, err) // Send should succeed even without receiver
+	assert.NoError(t, err) // send should succeed even without receiver
 }
 
 func TestHost_DetachDuringDelivery(t *testing.T) {
@@ -265,10 +221,8 @@ func TestHost_DetachDuringDelivery(t *testing.T) {
 	defer cancel()
 
 	host := NewHost(ctx, HostConfig{
-		BufferSize:      2,
-		WorkerCount:     1,
-		DeliveryTimeout: time.Millisecond * 500,
-		RetryTimeout:    time.Millisecond * 100,
+		BufferSize:  2,
+		WorkerCount: 1,
 	})
 
 	pid := api.PID{
@@ -283,7 +237,7 @@ func TestHost_DetachDuringDelivery(t *testing.T) {
 	_, err := host.Attach(pid, receiverCh)
 	assert.NoError(t, err)
 
-	// Send message
+	// send message
 	pkg := &api.Package{
 		PID: pid,
 		Messages: []*api.Message{
@@ -306,9 +260,8 @@ func TestHost_MultipleWorkers(t *testing.T) {
 	defer cancel()
 
 	host := NewHost(ctx, HostConfig{
-		BufferSize:   100,
-		WorkerCount:  4, // Multiple workers
-		RetryTimeout: time.Millisecond * 100,
+		BufferSize:  100,
+		WorkerCount: 4, // Multiple workers
 	})
 
 	pid := api.PID{
@@ -322,12 +275,12 @@ func TestHost_MultipleWorkers(t *testing.T) {
 	_, err := host.Attach(pid, receiverCh)
 	assert.NoError(t, err)
 
-	// Send multiple messages concurrently
+	// send multiple messages concurrently
 	const messageCount = 50
 	errorCh := make(chan error, messageCount)
 	receivedCount := 0
 
-	// Send messages
+	// send messages
 	for i := 0; i < messageCount; i++ {
 		go func(i int) {
 			pkg := &api.Package{
@@ -366,9 +319,8 @@ func TestHost_HostShutdown(t *testing.T) {
 	defer cancel()
 
 	host := NewHost(ctx, HostConfig{
-		BufferSize:   2,
-		WorkerCount:  1,
-		RetryTimeout: time.Millisecond * 100,
+		BufferSize:  2,
+		WorkerCount: 1,
 	})
 
 	pid := api.PID{

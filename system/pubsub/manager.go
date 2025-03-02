@@ -3,7 +3,7 @@ package pubsub
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/event"
 	api "github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/system/eventbus"
 	"go.uber.org/zap"
@@ -13,13 +13,13 @@ import (
 type NodeManager struct {
 	ctx        context.Context
 	logger     *zap.Logger
-	bus        events.Bus
+	bus        event.Bus
 	node       api.Node
 	subscriber *eventbus.Subscriber
 }
 
 // NewNodeManager creates a new node manager instance that wraps a Node
-func NewNodeManager(node api.Node, bus events.Bus, logger *zap.Logger) *NodeManager {
+func NewNodeManager(node api.Node, bus event.Bus, logger *zap.Logger) *NodeManager {
 	return &NodeManager{
 		node:   node,
 		bus:    bus,
@@ -55,11 +55,11 @@ func (m *NodeManager) Stop() error {
 	return nil
 }
 
-func (m *NodeManager) handleEvent(e events.Event) {
+func (m *NodeManager) handleEvent(e event.Event) {
 	switch e.Kind {
-	case api.RegisterHost:
+	case api.HostRegister:
 		m.handleRegisterHost(e)
-	case api.DeleteHost:
+	case api.HostDelete:
 		m.handleDeleteHost(e)
 	default:
 		m.logger.Warn("unknown event kind",
@@ -70,7 +70,7 @@ func (m *NodeManager) handleEvent(e events.Event) {
 	}
 }
 
-func (m *NodeManager) handleRegisterHost(e events.Event) {
+func (m *NodeManager) handleRegisterHost(e event.Event) {
 	host, ok := e.Data.(api.Host)
 	if !ok {
 		m.logger.Error("invalid host payload",
@@ -102,7 +102,7 @@ func (m *NodeManager) handleRegisterHost(e events.Event) {
 	m.sendAccept(e.Path)
 }
 
-func (m *NodeManager) handleDeleteHost(e events.Event) {
+func (m *NodeManager) handleDeleteHost(e event.Event) {
 	// Unregister from the underlying node
 	m.node.UnregisterHost(e.Path)
 
@@ -113,18 +113,18 @@ func (m *NodeManager) handleDeleteHost(e events.Event) {
 	m.sendAccept(e.Path)
 }
 
-func (m *NodeManager) sendAccept(path events.Path) {
-	m.bus.Send(m.ctx, events.Event{
+func (m *NodeManager) sendAccept(path event.Path) {
+	m.bus.Send(m.ctx, event.Event{
 		System: api.System,
-		Kind:   api.AcceptHost,
+		Kind:   api.HostAccept,
 		Path:   path,
 	})
 }
 
-func (m *NodeManager) sendReject(path events.Path, reason string) {
-	m.bus.Send(m.ctx, events.Event{
+func (m *NodeManager) sendReject(path event.Path, reason string) {
+	m.bus.Send(m.ctx, event.Event{
 		System: api.System,
-		Kind:   api.RejectHost,
+		Kind:   api.HostReject,
 		Path:   path,
 		Data:   reason,
 	})

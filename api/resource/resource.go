@@ -1,41 +1,55 @@
+// Package resource provides a system for managing and accessing shared resources.
 package resource
 
 import (
 	"context"
 	"errors"
-	contextapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/registry"
 )
 
 // System constants define event types and identifiers for the resource system
 const (
-	System   events.System = "resources"
-	Register events.Kind   = "resources.register"
-	Update   events.Kind   = "resources.update"
-	Delete   events.Kind   = "resources.delete"
+	// System identifies the resource management system in the event context
+	System event.System = "resource"
+
+	// Register is emitted when a new resource is registered
+	Register event.Kind = "resource.register"
+	// Update is emitted when a resource is updated
+	Update event.Kind = "resource.update"
+	// Delete is emitted when a resource is removed
+	Delete event.Kind = "resource.delete"
 )
 
 // Common errors returned by the resource system
 var (
+	// ErrResourceNotFound indicates the requested resource doesn't exist
 	ErrResourceNotFound = errors.New("resource not found")
-	ErrResourceLocked   = errors.New("resource is locked")
+	// ErrResourceLocked indicates the resource is currently locked for exclusive access
+	ErrResourceLocked = errors.New("resource is locked")
+	// ErrResourceReleased indicates an attempt to use a resource that has been released
 	ErrResourceReleased = errors.New("resource has been released")
 )
 
 // AccessMode defines the type of access requested for a resource
 type AccessMode uint8
 
+// AccessMode constants define different resource access patterns
 const (
-	ModeNormal    AccessMode = 1 << iota // Resource can only be read
-	ModeExclusive                        // Resource is locked for exclusive access
+	// ModeNormal indicates the resource can only be read
+	ModeNormal AccessMode = 1 << iota
+	// ModeExclusive indicates the resource is locked for exclusive access
+	ModeExclusive
 )
 
 type (
 	// Entry represents a registered resource with its metadata
 	Entry struct {
-		ID       registry.ID
-		Meta     registry.Metadata
+		// ID uniquely identifies the resource
+		ID registry.ID
+		// Meta contains additional resource metadata
+		Meta registry.Metadata
+		// Provider is responsible for managing access to the resource
 		Provider Provider
 	}
 
@@ -46,71 +60,37 @@ type (
 		Get() (T, error)
 
 		// Release frees the resource and invalidates the access grant.
-		// AddCleanup Release is called, subsequent Get() calls will panic.
+		// After Release is called, subsequent Get() calls will fail.
 		// It's safe to call Release multiple times.
 		Release() error
 	}
 
 	// Provider defines an interface for components that can provide access to resources.
 	// Implementations are responsible for managing resource lifecycle and access control.
-	//
-	// The provider acts as a factory/manager for resources, handling:
-	// - Resource instantiation and initialization
-	// - Access mode validation and enforcement
-	// - Resource state management
-	// - Cleanup and release of resources
-	//
-	// Providers must ensure thread-safety when handling concurrent access requests.
-	// They should also properly handle context cancellation for long-running operations.
 	Provider interface {
 		// Acquire attempts to obtain access to a resource identified by id with the specified access mode.
 		//
 		// The context can be used to cancel long-running acquire operations or pass deadlines.
 		// The id uniquely identifies the resource being requested.
-		// The mode specifies the type of access being requested (read, write, exclusive).
+		// The mode specifies the type of access being requested (normal, exclusive).
 		//
-		// Returns:
-		// - A Resource providing controlled access to the resource
+		// Returns a Resource providing controlled access to the resource or an error.
+		// Common errors include:
 		// - ErrResourceNotFound if the requested resource doesn't exist
 		// - ErrResourceLocked if the resource is currently locked for exclusive access
-		// - ErrInvalidAccessMode if the requested access mode is invalid
-		// - Other implementation-specific errors that may occur during acquisition
-		//
-		// The returned Resource must be released when no longer needed by calling Release().
 		Acquire(ctx context.Context, id registry.ID, mode AccessMode) (Resource[any], error)
 	}
 
-	// Registry manages resources.
+	// Registry manages resources and provides a centralized access point for resource acquisition.
 	Registry interface {
 		// Acquire attempts to acquire a resource with the specified access mode.
-		// Returns:
-		// - ErrResourceNotFound if the resource doesn't exist
-		// - ErrResourceLocked if the resource is exclusively locked
-		// - ErrInvalidAccessMode if the requested mode is invalid
-		// - ErrRegistryUnavailable if the registry cannot be accessed
-		// The context can be used to cancel long-running acquire operations.
+		// Returns a Resource providing controlled access or an error.
 		Acquire(ctx context.Context, id registry.ID, mode AccessMode) (Resource[any], error)
 
 		// List returns all registered resource IDs.
-		// Returns ErrRegistryUnavailable if the registry cannot be accessed.
 		List() ([]registry.ID, error)
 
 		// Exists checks if a resource is registered without acquiring it.
 		Exists(id registry.ID) bool
 	}
 )
-
-// GetResources retrieves the ResourceRegistry instance from the context
-// Panics if the ResourceRegistry is not found in the context
-func GetResources(ctx context.Context) Registry {
-	reg, ok := ctx.Value(contextapi.ResourcesCtx).(Registry)
-	if !ok {
-		panic("resource registry not found in context")
-	}
-	return reg
-}
-
-// WithResources adds a ResourceRegistry to the context
-func WithResources(ctx context.Context, reg Registry) context.Context {
-	return context.WithValue(ctx, contextapi.ResourcesCtx, reg)
-}

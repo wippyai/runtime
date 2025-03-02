@@ -37,7 +37,7 @@ func TestTransactionCommit(t *testing.T) {
 	defer vm.Close()
 	defer func() { _ = uw.Close() }()
 
-	// Import a Lua script that begins a transaction, updates a row, commits, and queries the change.
+	// Imports a Lua script that begins a transaction, updates a row, commits, and queries the change.
 	script := `
 		function test_tx_commit()
 			local sql = require("sql")

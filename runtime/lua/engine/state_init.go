@@ -53,19 +53,22 @@ func loadCoreLuaLibs(state *lua.LState) error {
 
 // newLuaState creates a new Lua State with core libraries
 func newLuaState() (*lua.LState, error) {
+	// todo: other options can be exposed later
 	state := lua.NewState(lua.Options{
-		SkipOpenLibs:    true,
-		RegistryMaxSize: 256 * 200,
-		// todo: other options can be exposed later
+		RegistryMaxSize:     256 * 256,
+		RegistryGrowStep:    16,
+		SkipOpenLibs:        true,
 		MinimizeStackMemory: true,
 	})
+
+	errors.RegisterErrorsModule(state)
 
 	if err := loadCoreLuaLibs(state); err != nil {
 		state.Close()
 		return nil, err
 	}
 
-	// always redirect print to log, todo: move it somewhere?
+	// always redirect print to log, todo: move it somewhere or make core module?
 	state.SetGlobal("print", state.NewFunction(func(L *lua.LState) int {
 		log := logs.GetLogger(L.Context())
 
@@ -76,10 +79,10 @@ func newLuaState() (*lua.LState, error) {
 		}
 		msg := strings.Join(parts, " ")
 
-		if log == nil {
-			fmt.Print(msg)
-			return 0
-		}
+		//	if log == nil {
+		fmt.Print(msg)
+		//	return 0
+		//}
 
 		log.Info(msg)
 		return 0

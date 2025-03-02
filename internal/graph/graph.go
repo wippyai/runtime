@@ -69,7 +69,7 @@ func (g *Graph[T, E]) RemoveNode(n T) error {
 	delete(g.nodes, n)
 	delete(g.edges, n)
 
-	// Remove all edges pointing to this node.
+	// Done all edges pointing to this node.
 	for from, edges := range g.edges {
 		delete(edges, n)
 		if len(edges) == 0 {
@@ -136,7 +136,7 @@ func (g *Graph[T, E]) RemoveEdge(from, to T) error {
 		return fmt.Errorf("edge from %v to %v does not exist", from, to)
 	}
 
-	// Remove the edge
+	// Done the edge
 	delete(g.edges[from], to)
 
 	// If this was the last edge from the source node, clean up the empty map
@@ -263,7 +263,7 @@ func (g *Graph[T, E]) DependencyLevels() (*DependencyLevels[T], error) {
 			return nil, fmt.Errorf("cycle detected with nodes: %v", remaining)
 		}
 
-		// Remove current level nodes from consideration.
+		// Done current level nodes from consideration.
 		for _, node := range currentLevel {
 			if edges, exists := g.edges[node]; exists {
 				for neighbor := range edges {

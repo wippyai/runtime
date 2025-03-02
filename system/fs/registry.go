@@ -1,10 +1,9 @@
-// fs_registry.go
 package fs
 
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/event"
 	fsapi "github.com/ponyruntime/pony/api/fs"
 	"github.com/ponyruntime/pony/system/eventbus"
 	"go.uber.org/zap"
@@ -15,13 +14,13 @@ import (
 type Registry struct {
 	ctx         context.Context
 	log         *zap.Logger
-	bus         events.Bus
+	bus         event.Bus
 	filesystems sync.Map // map[string]FS
 	subscriber  *eventbus.Subscriber
 }
 
 // NewFSRegistry creates a new filesystem registry instance
-func NewFSRegistry(bus events.Bus, log *zap.Logger) *Registry {
+func NewFSRegistry(bus event.Bus, log *zap.Logger) *Registry {
 	return &Registry{
 		log: log,
 		bus: bus,
@@ -49,7 +48,7 @@ func (r *Registry) Stop() error {
 	return nil
 }
 
-func (r *Registry) handleEvent(e events.Event) {
+func (r *Registry) handleEvent(e event.Event) {
 	switch e.Kind {
 	case fsapi.Register:
 		r.registerFS(e)
@@ -64,7 +63,7 @@ func (r *Registry) handleEvent(e events.Event) {
 	}
 }
 
-func (r *Registry) registerFS(e events.Event) {
+func (r *Registry) registerFS(e event.Event) {
 	fs, ok := e.Data.(fsapi.FS)
 	if !ok {
 		r.log.Error("invalid filesystem payload",
@@ -80,7 +79,7 @@ func (r *Registry) registerFS(e events.Event) {
 	r.sendAccept(e.Path)
 }
 
-func (r *Registry) deleteFS(e events.Event) {
+func (r *Registry) deleteFS(e event.Event) {
 	if _, exists := r.filesystems.LoadAndDelete(e.Path); !exists {
 		r.log.Warn("filesystem not found", zap.String("fs", e.Path))
 		r.sendReject(e.Path, "filesystem not found")
@@ -91,16 +90,16 @@ func (r *Registry) deleteFS(e events.Event) {
 	r.sendAccept(e.Path)
 }
 
-func (r *Registry) sendAccept(path events.Path) {
-	r.bus.Send(r.ctx, events.Event{
+func (r *Registry) sendAccept(path event.Path) {
+	r.bus.Send(r.ctx, event.Event{
 		System: fsapi.System,
 		Kind:   fsapi.Accept,
 		Path:   path,
 	})
 }
 
-func (r *Registry) sendReject(path events.Path, reason string) {
-	r.bus.Send(r.ctx, events.Event{
+func (r *Registry) sendReject(path event.Path, reason string) {
+	r.bus.Send(r.ctx, event.Event{
 		System: fsapi.System,
 		Kind:   fsapi.Reject,
 		Path:   path,
@@ -115,3 +114,6 @@ func (r *Registry) GetFS(path string) (fsapi.FS, bool) {
 	}
 	return nil, false
 }
+
+// Ensure Registry implements the operation.Registry interface
+var _ fsapi.Registry = (*Registry)(nil)

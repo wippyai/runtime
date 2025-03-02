@@ -2,6 +2,7 @@ package base64
 
 import (
 	"encoding/base64"
+	"github.com/ponyruntime/pony/runtime/lua/engine"
 
 	lua "github.com/yuin/gopher-lua"
 )
@@ -21,7 +22,7 @@ func (m *Module) Name() string {
 
 // Loader registers the module's functions into Lua state.
 func (m *Module) Loader(l *lua.LState) int {
-	mod := l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
+	mod := l.SetFuncs(engine.NewTable(2), map[string]lua.LGFunction{
 		"encode": m.encode,
 		"decode": m.decode,
 	})

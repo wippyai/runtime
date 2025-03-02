@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/system/registry/topology"
 	"go.uber.org/zap"
@@ -16,22 +16,22 @@ import (
 // state transitions, rollbacks, and error handling. It maintains operation order
 // and provides transactional semantics through the event bus.
 type BusRunner struct {
-	bus         events.Bus
+	bus         event.Bus
 	log         *zap.Logger
-	acceptChan  chan events.Event
-	rejectChan  chan events.Event
-	acceptSubID events.SubscriberID
-	rejectSubID events.SubscriberID
+	acceptChan  chan event.Event
+	rejectChan  chan event.Event
+	acceptSubID event.SubscriberID
+	rejectSubID event.SubscriberID
 	builder     *topology.StateBuilder
 }
 
 // NewBusRunner creates a new BusRunner. This is a sequential bus, order of operations matter.
-func NewBusRunner(bus events.Bus, log *zap.Logger) *BusRunner {
+func NewBusRunner(bus event.Bus, log *zap.Logger) *BusRunner {
 	return &BusRunner{
 		bus:        bus,
 		log:        log,
-		acceptChan: make(chan events.Event),
-		rejectChan: make(chan events.Event),
+		acceptChan: make(chan event.Event),
+		rejectChan: make(chan event.Event),
 		builder:    topology.NewStateBuilder(log),
 	}
 }
@@ -53,7 +53,7 @@ func (br *BusRunner) Transition(
 	}
 	defer br.unsubscribeFromEvents(ctx)
 
-	br.bus.Send(ctx, events.Event{
+	br.bus.Send(ctx, event.Event{
 		System: registry.System,
 		Kind:   registry.Begin,
 	})
@@ -69,7 +69,7 @@ func (br *BusRunner) Transition(
 			newState = br.rollback(ctx, originalState, newState)
 
 			// Only send Discard if there was an error, and rollback already happened
-			br.bus.Send(ctx, events.Event{
+			br.bus.Send(ctx, event.Event{
 				System: registry.System,
 				Kind:   registry.Discard,
 				Data:   err,
@@ -81,7 +81,7 @@ func (br *BusRunner) Transition(
 		currentState = newState
 	}
 
-	br.bus.Send(ctx, events.Event{
+	br.bus.Send(ctx, event.Event{
 		System: registry.System,
 		Kind:   registry.Commit,
 	})
@@ -104,7 +104,7 @@ func (br *BusRunner) applyOperation(
 		zap.Any("meta", op.Entry.Meta))
 
 	// send the operation event
-	br.bus.Send(ctx, events.Event{
+	br.bus.Send(ctx, event.Event{
 		System: registry.System,
 		Kind:   op.Kind,
 		Path:   op.Entry.ID.String(),

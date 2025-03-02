@@ -9,10 +9,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/system/eventbus"
 )
 
+// ConfigurationManager is a helper for managing logging configuration at runtime.
 type ConfigurationManager struct {
 	opCounter      atomic.Uint64
 	defaultTimeout time.Duration
@@ -26,13 +27,13 @@ func NewConfigurationManager() *ConfigurationManager {
 }
 
 // GetConfig requests and waits for logging configuration from the event bus
-func (c *ConfigurationManager) GetConfig(ctx context.Context, bus events.Bus) (api.Config, error) {
+func (c *ConfigurationManager) GetConfig(ctx context.Context, bus event.Bus) (api.Config, error) {
 	// Spawn a response channel with buffer to prevent blocking
 	configCh := make(chan api.Config, 1)
 
 	// Set up subscription first
 	path := fmt.Sprintf("get-logs-config-%d", c.opCounter.Add(1))
-	sub, err := eventbus.NewSubscriber(ctx, bus, api.System, api.ConfigState, func(e events.Event) {
+	sub, err := eventbus.NewSubscriber(ctx, bus, api.System, api.ConfigState, func(e event.Event) {
 		if string(e.Path) == path {
 			if cfg, ok := e.Data.(api.Config); ok {
 				select {
@@ -48,7 +49,7 @@ func (c *ConfigurationManager) GetConfig(ctx context.Context, bus events.Bus) (a
 	defer sub.Close()
 
 	// Now send the request
-	bus.Send(ctx, events.Event{
+	bus.Send(ctx, event.Event{
 		System: api.System,
 		Kind:   api.GetConfig,
 		Path:   path,
@@ -66,13 +67,13 @@ func (c *ConfigurationManager) GetConfig(ctx context.Context, bus events.Bus) (a
 }
 
 // SetConfig sets logging configuration and waits for confirmation
-func (c *ConfigurationManager) SetConfig(ctx context.Context, bus events.Bus, cfg api.Config) error {
+func (c *ConfigurationManager) SetConfig(ctx context.Context, bus event.Bus, cfg api.Config) error {
 	// Spawn a response channel with buffer to prevent blocking
 	confirmCh := make(chan api.Config, 1)
 
 	// Set up subscription first
 	path := fmt.Sprintf("set-logs-config-%d", c.opCounter.Add(1))
-	sub, err := eventbus.NewSubscriber(ctx, bus, api.System, api.ConfigState, func(e events.Event) {
+	sub, err := eventbus.NewSubscriber(ctx, bus, api.System, api.ConfigState, func(e event.Event) {
 		if string(e.Path) == path {
 			if confirm, ok := e.Data.(api.Config); ok {
 				select {
@@ -88,10 +89,10 @@ func (c *ConfigurationManager) SetConfig(ctx context.Context, bus events.Bus, cf
 	defer sub.Close()
 
 	// Now send the request
-	bus.Send(ctx, events.Event{
+	bus.Send(ctx, event.Event{
 		System: api.System,
 		Kind:   api.SetConfig,
-		Path:   events.Path(path),
+		Path:   path,
 		Data:   cfg,
 	})
 

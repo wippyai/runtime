@@ -300,7 +300,7 @@ func TestPool_ParallelExecution(t *testing.T) {
 // //
 // //		// Launch the job
 // //		go func() {
-// //			result, err := p.Execute(context.Background(), "sleep_test", lua.LNil)
+// //			result, err := p.Start(context.Background(), "sleep_test", lua.LNil)
 // //			if err != nil {
 // //				errorChan <- err
 // //				return
@@ -311,8 +311,8 @@ func TestPool_ParallelExecution(t *testing.T) {
 // //		// Give job time to start
 // //		time.Sleep(10 * time.Millisecond)
 // //
-// //		// Close the pool while job is running
-// //		p.Close()
+// //		// close the pool while job is running
+// //		p.close()
 // //
 // //		// wait for result or error
 // //		select {

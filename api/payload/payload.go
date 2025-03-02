@@ -1,9 +1,5 @@
+// Package payload provides abstractions for handling different data formats and conversions.
 package payload
-
-import (
-	"context"
-	ctxapi "github.com/ponyruntime/pony/api/context"
-)
 
 // Format constants define the supported payload formats.
 // These formats determine how the payload data should be interpreted and processed.
@@ -28,6 +24,7 @@ type (
 	// Format represents the data format of a payload (e.g., JSON, YAML, etc.).
 	Format string
 
+	// Payloads is a slice of Payload objects.
 	Payloads = []Payload
 
 	// Payload is an interface representing a data payload with an associated format.
@@ -71,14 +68,6 @@ type (
 		Transcode(Payload) (Payload, error)
 	}
 )
-
-func GetTranscoder(ctx context.Context) Transcoder {
-	dtt, ok := ctx.Value(ctxapi.TranscoderCtx).(Transcoder)
-	if !ok {
-		return nil
-	}
-	return dtt
-}
 
 // payload is a concrete implementation of the Payload interface.
 type payload struct {

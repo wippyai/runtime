@@ -3,7 +3,7 @@ package http
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/runtime/uow"
+	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"io"
 	basehttp "net/http"
 	"strings"
@@ -313,8 +313,14 @@ func requestStreamBody(l *lua.LState) int {
 		return 2
 	}
 
-	uCtx, uw := uow.OnContext(req.request.Context())
-	req.request = req.request.WithContext(uCtx)
+	uw := engine.GetUnitOfWork(req.request.Context())
+	if uw == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("no unit of work available"))
+		return 2
+	}
+
+	req.request = req.request.WithContext(uw.Context())
 	uw.AddCleanup(req.request.Body.Close)
 
 	var bufferSize int64 = 32 * 1024 // Default 32KB buffer

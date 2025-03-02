@@ -98,7 +98,7 @@ func parseDuration(l *lua.LState) int {
 
 	ud := l.NewUserData()
 	ud.Value = &Duration{duration: duration}
-	l.SetMetatable(ud, l.GetTypeMetatable("Duration"))
+	l.SetMetatable(ud, l.GetTypeMetatable("time.Duration"))
 	l.Push(ud)
 	return 1
 }
@@ -123,7 +123,7 @@ func parseDurationValue(value lua.LValue) (time.Duration, error) {
 }
 
 func registerDuration(l *lua.LState, mod *lua.LTable) {
-	mt := l.NewTypeMetatable("Duration")
+	mt := l.NewTypeMetatable("time.Duration")
 	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
 		"nanoseconds":  durationNanoseconds,
 		"microseconds": durationMicroseconds,

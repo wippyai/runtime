@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/ponyruntime/pony/system/eventbus"
@@ -169,14 +169,14 @@ func (h *testSupervisorHarness) service(serviceID string) *testService {
 }
 
 func (h *testSupervisorHarness) registerServices(services map[string]bool) {
-	h.sup.handleEvent(events.Event{System: registry.System, Kind: registry.Begin})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Begin})
 
 	for serviceID, autoStart := range services {
 		svc := h.service(serviceID)
-		h.sup.handleEvent(events.Event{
+		h.sup.handleEvent(event.Event{
 			System: supervisor.System,
 			Kind:   supervisor.Register,
-			Path:   events.Path(serviceID),
+			Path:   event.Path(serviceID),
 			Data: &supervisor.Entry{
 				Service: svc,
 				Config: supervisor.LifecycleConfig{
@@ -192,14 +192,14 @@ func (h *testSupervisorHarness) registerServices(services map[string]bool) {
 		})
 	}
 
-	h.sup.handleEvent(events.Event{System: registry.System, Kind: registry.Commit})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Commit})
 }
 
 func (h *testSupervisorHarness) registerServiceWithDeps(serviceID string, autoStart bool, dependencies []string) {
-	h.sup.handleEvent(events.Event{
+	h.sup.handleEvent(event.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Register,
-		Path:   events.Path(serviceID),
+		Path:   event.Path(serviceID),
 		Data: &supervisor.Entry{
 			Service: h.service(serviceID),
 			Config: supervisor.LifecycleConfig{
@@ -243,10 +243,10 @@ func (h *testSupervisorHarness) assertLog(message string) {
 }
 
 func (h *testSupervisorHarness) removeService(serviceID string) {
-	h.sup.handleEvent(events.Event{
+	h.sup.handleEvent(event.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Remove,
-		Path:   events.Path(serviceID),
+		Path:   event.Path(serviceID),
 	})
 }
 
@@ -339,9 +339,9 @@ func TestSupervisor_ServiceRemoval(t *testing.T) {
 	require.True(t, service.IsStarted(), "Topology should be started")
 
 	// Begin transaction and remove the service
-	h.sup.handleEvent(events.Event{System: registry.System, Kind: registry.Begin})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Begin})
 	h.removeService("test-service")
-	h.sup.handleEvent(events.Event{System: registry.System, Kind: registry.Commit})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Commit})
 
 	// Verify service is stopped and removed
 	service.WaitForStop(t)
@@ -356,7 +356,7 @@ func TestSupervisor_TransactionValidation(t *testing.T) {
 
 	// Attempt operations outside of transaction
 	svc := h.service("test-service")
-	h.sup.handleEvent(events.Event{
+	h.sup.handleEvent(event.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Register,
 		Path:   "test-service",
@@ -441,8 +441,8 @@ func TestSupervisor_ServiceFailureAndRetry(t *testing.T) {
 	var startAttempts int32
 	svc.startErr = fmt.Errorf("startup failure")
 
-	h.sup.handleEvent(events.Event{System: registry.System, Kind: registry.Begin})
-	h.sup.handleEvent(events.Event{
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Begin})
+	h.sup.handleEvent(event.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Register,
 		Path:   "failing-service",
@@ -458,7 +458,7 @@ func TestSupervisor_ServiceFailureAndRetry(t *testing.T) {
 			},
 		},
 	})
-	h.sup.handleEvent(events.Event{System: registry.System, Kind: registry.Commit})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Commit})
 
 	// wait for retry attempts to complete
 	time.Sleep(500 * time.Millisecond)
@@ -485,11 +485,11 @@ func TestSupervisor_TransactionDiscard(t *testing.T) {
 	service1.WaitForStart(t)
 
 	// Begin transaction for changes
-	h.sup.handleEvent(events.Event{System: registry.System, Kind: registry.Begin})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Begin})
 
 	// AddCleanup new service and remove existing one
 	svc2 := h.service("service-2")
-	h.sup.handleEvent(events.Event{
+	h.sup.handleEvent(event.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Register,
 		Path:   "service-2",
@@ -501,7 +501,7 @@ func TestSupervisor_TransactionDiscard(t *testing.T) {
 	h.removeService("service-1")
 
 	// Discard transaction
-	h.sup.handleEvent(events.Event{System: registry.System, Kind: registry.Discard})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Discard})
 
 	// Verify original state is maintained
 	time.Sleep(100 * time.Millisecond) // wait for event processing
@@ -516,10 +516,10 @@ func TestSupervisor_ConcurrentTransactions(t *testing.T) {
 	h.start(ctx)
 
 	// Launch first transaction
-	h.sup.handleEvent(events.Event{System: registry.System, Kind: registry.Begin})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Begin})
 
 	// Attempt to start another transaction while first is open
-	h.sup.handleEvent(events.Event{System: registry.System, Kind: registry.Begin})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Begin})
 
 	time.Sleep(100 * time.Millisecond) // wait for event processing
 
@@ -552,10 +552,10 @@ func TestSupervisor_RemoveRunningService(t *testing.T) {
 	// AddCleanup long stop delay to test proper shutdown
 	service.stopDelay = 200 * time.Millisecond
 
-	// Remove the running service
-	h.sup.handleEvent(events.Event{System: registry.System, Kind: registry.Begin})
+	// Done the running service
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Begin})
 	h.removeService("running-service")
-	h.sup.handleEvent(events.Event{System: registry.System, Kind: registry.Commit})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Commit})
 
 	// Verify service is properly stopped and removed
 	service.WaitForStop(t)
@@ -613,7 +613,7 @@ func TestSupervisor_InvalidRegistrationPayload(t *testing.T) {
 
 	for _, tc := range invalidPayloads {
 		t.Run(tc.name, func(_ *testing.T) {
-			h.sup.handleEvent(events.Event{
+			h.sup.handleEvent(event.Event{
 				System: supervisor.System,
 				Kind:   supervisor.Register,
 				Path:   "test-service",
@@ -680,15 +680,15 @@ func TestSupervisor_BusEventControl(t *testing.T) {
 	serviceID := "event-controlled-service"
 
 	// send registration events through the bus
-	h.sup.bus.Send(ctx, events.Event{
+	h.sup.bus.Send(ctx, event.Event{
 		System: registry.System,
 		Kind:   registry.Begin,
 	})
 
-	h.sup.bus.Send(ctx, events.Event{
+	h.sup.bus.Send(ctx, event.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Register,
-		Path:   events.Path(serviceID),
+		Path:   event.Path(serviceID),
 		Data: &supervisor.Entry{
 			Service: svc,
 			Config: supervisor.LifecycleConfig{
@@ -703,7 +703,7 @@ func TestSupervisor_BusEventControl(t *testing.T) {
 		},
 	})
 
-	h.sup.bus.Send(ctx, events.Event{
+	h.sup.bus.Send(ctx, event.Event{
 		System: registry.System,
 		Kind:   registry.Commit,
 	})
@@ -718,10 +718,10 @@ func TestSupervisor_BusEventControl(t *testing.T) {
 	require.False(t, svc.IsStarted(), "Topology should not be started")
 
 	// Launch the service via bus event
-	h.sup.bus.Send(ctx, events.Event{
+	h.sup.bus.Send(ctx, event.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Start,
-		Path:   events.Path(serviceID),
+		Path:   event.Path(serviceID),
 	})
 
 	// wait for service to start
@@ -734,10 +734,10 @@ func TestSupervisor_BusEventControl(t *testing.T) {
 	require.Equal(t, supervisor.Running, state.Status, "Topology should be in Running state")
 
 	// stop the service via bus event
-	h.sup.bus.Send(ctx, events.Event{
+	h.sup.bus.Send(ctx, event.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Stop,
-		Path:   events.Path(serviceID),
+		Path:   event.Path(serviceID),
 	})
 
 	// wait for service to stop
@@ -749,19 +749,19 @@ func TestSupervisor_BusEventControl(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, supervisor.Stopped, state.Status, "Topology should be in Stopped state")
 
-	// Remove the service via bus event
-	h.sup.bus.Send(ctx, events.Event{
+	// Done the service via bus event
+	h.sup.bus.Send(ctx, event.Event{
 		System: registry.System,
 		Kind:   registry.Begin,
 	})
 
-	h.sup.bus.Send(ctx, events.Event{
+	h.sup.bus.Send(ctx, event.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Remove,
-		Path:   events.Path(serviceID),
+		Path:   event.Path(serviceID),
 	})
 
-	h.sup.bus.Send(ctx, events.Event{
+	h.sup.bus.Send(ctx, event.Event{
 		System: registry.System,
 		Kind:   registry.Commit,
 	})

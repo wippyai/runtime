@@ -201,7 +201,7 @@ func TestDelegateUpdate(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "ready", tasks[0].Yielded[0].String())
 
-	// Send key message
+	// send key message
 	tasks[0].Resumed = []lua.LValue{protocol.MsgToLua(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})}
 	tasks, err = cvm.Step(tasks[0])
 	require.NoError(t, err)

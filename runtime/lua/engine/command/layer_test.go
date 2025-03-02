@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
-	"github.com/ponyruntime/pony/runtime/uow"
 	"github.com/stretchr/testify/assert"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
@@ -14,10 +13,6 @@ import (
 
 func TestCommandLayer_BasicOperations(t *testing.T) {
 	logger := zap.NewNop()
-
-	// Spawn channel layer first
-	channelLayer := channel.NewChannelLayer()
-	commandLayer := NewCommandLayer(channelLayer)
 
 	// Spawn base VM with command module and layers
 	vm, err := engine.NewCVM(
@@ -30,12 +25,11 @@ func TestCommandLayer_BasicOperations(t *testing.T) {
 
 	// Spawn runner with layers before starting any Lua code
 	runner := engine.NewRunner(vm,
-		engine.WithLayer(channelLayer),
-		engine.WithLayer(commandLayer),
+		engine.WithLayer(channel.NewChannelLayer()),
 	)
 
 	// Setup context with task group
-	ctx, uw := uow.OnContext(runner.WithContext(context.Background()))
+	uw, ctx := runner.InitUnitOfWork(context.Background())
 	defer func() { _ = uw.Close() }()
 
 	// starts (but does not run)
@@ -65,10 +59,11 @@ func TestCommandLayer_BasicOperations(t *testing.T) {
 			}
 		}
 
-		// Check pending commands after creation
+		// Check queue commands after creation
 		if contains(yields, "command_created") {
-			pending := commandLayer.GetPendingCommands()
-			assert.Equal(t, 1, len(pending), "should have one pending command")
+			pending, err := FlushQueue(ctx)
+			assert.NoError(t, err)
+			assert.Equal(t, 1, len(pending), "should have one queue command")
 			assert.Equal(t, Type("test"), pending[0].cmdType)
 		}
 
@@ -88,41 +83,8 @@ func contains(slice []string, item string) bool {
 	return false
 }
 
-func TestCommandLayer_Context(t *testing.T) {
-	// Spawn channel layer and command layer
-	channelLayer := channel.NewChannelLayer()
-	commandLayer := NewCommandLayer(channelLayer)
-
-	// Test OnContext
-	ctx := context.Background()
-	enrichedCtx := commandLayer.WithContext(ctx)
-	assert.NotNil(t, enrichedCtx, "context enrichment should succeed")
-
-	// Test GetCommandContext with valid context
-	retrievedLayer := GetCommandContext(enrichedCtx)
-	assert.NotNil(t, retrievedLayer, "should retrieve command layer from context")
-	assert.Same(t, commandLayer, retrievedLayer, "should retrieve the same command layer instance")
-
-	// Test GetCommandContext with nil context
-	nilCtxLayer := GetCommandContext(nil)
-	assert.Nil(t, nilCtxLayer, "should return nil for nil context")
-
-	// Test GetCommandContext with context missing command layer
-	emptyCtxLayer := GetCommandContext(context.Background())
-	assert.Nil(t, emptyCtxLayer, "should return nil for context without command layer")
-
-	// Test GetCommandContext with context containing wrong value type
-	wrongCtx := context.WithValue(ctx, cmdCtxKey, "not a layer")
-	wrongTypeLayer := GetCommandContext(wrongCtx)
-	assert.Nil(t, wrongTypeLayer, "should return nil for context with wrong value type")
-}
-
 func TestLayer_MultipleConcurrentCommands(t *testing.T) {
 	logger := zap.NewNop()
-
-	// Spawn channel and command layers
-	channelLayer := channel.NewChannelLayer()
-	commandLayer := NewCommandLayer(channelLayer)
 
 	// Spawn base VM with required modules
 	vm, err := engine.NewCVM(
@@ -135,12 +97,10 @@ func TestLayer_MultipleConcurrentCommands(t *testing.T) {
 
 	// Spawn runner with layers
 	runner := engine.NewRunner(vm,
-		engine.WithLayer(channelLayer),
-		engine.WithLayer(commandLayer),
+		engine.WithLayer(channel.NewChannelLayer()),
 	)
 
-	// Setup context with task group
-	ctx, uw := uow.OnContext(runner.WithContext(context.Background()))
+	uw, ctx := runner.InitUnitOfWork(context.Background())
 	defer func() { _ = uw.Close() }()
 
 	// Launch VM with script that creates multiple commands
@@ -149,24 +109,24 @@ func TestLayer_MultipleConcurrentCommands(t *testing.T) {
 		local cmd1 = command.new("test1", {value = "first"})
 		local cmd2 = command.new("test2", {value = "second"})
 		local cmd3 = command.new("test3", {value = "third"})
-		
+
 		assert(cmd1 ~= nil, "command1 creation failed")
 		assert(cmd2 ~= nil, "command2 creation failed")
 		assert(cmd3 ~= nil, "command3 creation failed")
-		
+
 		-- Store response channels
 		local resp1 = cmd1:response()
 		local resp2 = cmd2:response()
 		local resp3 = cmd3:response()
-		
+
 		-- Yield to allow processing
 		coroutine.yield("commands_created")
-		
-		-- Send results from all channels
+
+		-- send results from all channels
 		local result1, ok1 = resp1:receive()
 		local result2, ok2 = resp2:receive()
 		local result3, ok3 = resp3:receive()
-		
+
 		-- Return all results
 		return result1, result2, result3
 	`, "test")
@@ -187,11 +147,12 @@ func TestLayer_MultipleConcurrentCommands(t *testing.T) {
 			}
 		}
 
-		// AddCleanup commands are created, verify pending commands and process them
+		// AddCleanup commands are created, verify queue commands and process them
 		if contains(yields, "commands_created") {
-			// GetField and verify pending commands
-			pendingCommands = commandLayer.GetPendingCommands()
-			assert.Equal(t, 3, len(pendingCommands), "should have three pending commands")
+			// GetField and verify queue commands
+			pendingCommands, err = FlushQueue(ctx)
+			assert.NoError(t, err)
+			assert.Equal(t, 3, len(pendingCommands), "should have three queue commands")
 
 			// Verify command types
 			var cmdTypes []Type
@@ -206,7 +167,7 @@ func TestLayer_MultipleConcurrentCommands(t *testing.T) {
 			// Process commands with results
 			for _, cmd := range pendingCommands {
 				result := lua.LString(fmt.Sprintf("result_%s", cmd.cmdType))
-				commandLayer.QueueResult(cmd, result)
+				assert.NoError(t, Result(ctx, cmd, result))
 				assert.True(t, cmd.IsComplete(), "command should be complete after processing")
 			}
 		}
@@ -234,10 +195,6 @@ func TestLayer_MultipleConcurrentCommands(t *testing.T) {
 func TestCommandLayer_ErrorPropagation(t *testing.T) {
 	logger := zap.NewNop()
 
-	// Spawn layers
-	channelLayer := channel.NewChannelLayer()
-	commandLayer := NewCommandLayer(channelLayer)
-
 	// Spawn VM with modules
 	vm, err := engine.NewCVM(
 		logger,
@@ -249,28 +206,27 @@ func TestCommandLayer_ErrorPropagation(t *testing.T) {
 
 	// Spawn runner with layers
 	runner := engine.NewRunner(vm,
-		engine.WithLayer(channelLayer),
-		engine.WithLayer(commandLayer),
+		engine.WithLayer(channel.NewChannelLayer()),
 	)
 
 	// Setup context with task group
-	ctx, uw := uow.OnContext(runner.WithContext(context.Background()))
+	uw, ctx := runner.InitUnitOfWork(context.Background())
 	defer func() { _ = uw.Close() }()
 
 	// Launch VM with script that creates a command and waits for result
 	err = vm.StartString(ctx, `
 		local cmd = command.new("test_error")
 		assert(cmd ~= nil, "command creation failed")
-		
+
 		local resp = cmd:response()
 		coroutine.yield("command_created")
-		
+
 		-- Check command state
 		assert(cmd:is_complete(), "command should be complete")
 		local err = cmd:error()
 		assert(err ~= nil, "should have error message")
 		assert(string.find(err, "test error"), "error message should match")
-		
+
 		-- Try to receive result, should get error
 		local result, ok = resp:receive()
 		assert(not ok, "should receive error status")
@@ -287,12 +243,13 @@ func TestCommandLayer_ErrorPropagation(t *testing.T) {
 		for _, task := range tasks {
 			if len(task.Yielded) > 0 && task.Yielded[0].String() == "command_created" {
 				// GetField the command and queue an error
-				pending := commandLayer.GetPendingCommands()
-				assert.Equal(t, 1, len(pending), "should have one pending command")
+				pending, err := FlushQueue(ctx)
+				assert.NoError(t, err)
+				assert.Equal(t, 1, len(pending), "should have one queue command")
 
 				cmd = pending[0]
 				testErr := fmt.Errorf("test error for command")
-				commandLayer.QueueError(cmd, testErr)
+				assert.NoError(t, Error(ctx, cmd, testErr))
 
 				// Verify error was set correctly
 				assert.True(t, cmd.IsComplete())
@@ -306,17 +263,16 @@ func TestCommandLayer_ErrorPropagation(t *testing.T) {
 
 	// Final verification of command state
 	assert.NotNil(t, cmd)
-	result, err := cmd.Result()
-	assert.Error(t, err, "should have error")
-	assert.Nil(t, result, "result should be nil when error is set")
+
+	if cmd != nil {
+		result, err := cmd.Result()
+		assert.Error(t, err, "should have error")
+		assert.Nil(t, result, "result should be nil when error is set")
+	}
 }
 
 func TestCommand_LuaMethodsComplete(t *testing.T) {
 	logger := zap.NewNop()
-
-	// Spawn layers
-	channelLayer := channel.NewChannelLayer()
-	commandLayer := NewCommandLayer(channelLayer)
 
 	// Spawn VM with modules
 	vm, err := engine.NewCVM(
@@ -328,13 +284,10 @@ func TestCommand_LuaMethodsComplete(t *testing.T) {
 	defer vm.Close()
 
 	// Spawn runner with layers
-	runner := engine.NewRunner(vm,
-		engine.WithLayer(channelLayer),
-		engine.WithLayer(commandLayer),
-	)
+	runner := engine.NewRunner(vm, engine.WithLayer(channel.NewChannelLayer()))
 
 	// Setup context with task group
-	ctx, uw := uow.OnContext(runner.WithContext(context.Background()))
+	uw, ctx := runner.InitUnitOfWork(context.Background())
 	defer func() { _ = uw.Close() }()
 
 	// Launch VM with script that tests all command methods
@@ -342,52 +295,52 @@ func TestCommand_LuaMethodsComplete(t *testing.T) {
 		-- Spawn test command
 		local cmd = command.new("test_methods")
 		assert(cmd ~= nil, "command creation failed")
-		
+
 		-- Initial state checks
 		assert(not cmd:is_complete(), "command should not be complete initially")
 		assert(not cmd:is_canceled(), "command should not be canceled initially")
 		assert(cmd:error() == nil, "should have no error initially")
-		
+
 		local result, err = cmd:result()
 		assert(result == nil and err ~= nil, "incomplete command should error on result")
-		
+
 		coroutine.yield("initial_checks_done")
-		
+
 		-- AddCleanup completion checks
 		assert(cmd:is_complete(), "command should be complete")
 		assert(not cmd:is_canceled(), "command should not be canceled")
 		assert(cmd:error() == nil, "successful command should have no error")
-		
+
 		result, err = cmd:result()
 		assert(result == "success" and err == nil, "should have success result")
-		
+
 		coroutine.yield("success_checks_done")
-		
+
 		-- Spawn another command for error case
 		local cmd_err = command.new("test_error")
 		coroutine.yield("error_command_created")
-		
+
 		-- Error case checks
 		assert(cmd_err:is_complete(), "error command should be complete")
 		assert(cmd_err:error() ~= nil, "should have error message")
-		
+
 		result, err = cmd_err:result()
 		assert(result == nil and err ~= nil, "should have error instead of result")
-		
+
 		coroutine.yield("error_checks_done")
-		
+
 		-- Spawn command to test cancellation
 		local cmd_cancel = command.new("test_cancel")
 		coroutine.yield("cancel_command_created")
-		
+
 		-- Cancellation checks
 		assert(cmd_cancel:is_complete(), "canceled command should be complete")
 		assert(cmd_cancel:is_canceled(), "should be marked as canceled")
 		assert(cmd_cancel:error() ~= nil, "canceled command should have error")
-		
+
 		result, err = cmd_cancel:result()
 		assert(result == nil and err ~= nil, "canceled command should error on result")
-		
+
 		return "all_tests_complete"
 	`, "test")
 	assert.NoError(t, err)
@@ -405,25 +358,27 @@ func TestCommand_LuaMethodsComplete(t *testing.T) {
 				switch yield {
 				case "initial_checks_done":
 					// GetField first command and set success result
-					pending := commandLayer.GetPendingCommands()
+					pending, err := FlushQueue(ctx)
+					assert.NoError(t, err)
 					assert.Equal(t, 1, len(pending))
 					currentCmd = pending[0]
-					commandLayer.QueueResult(currentCmd, lua.LString("success"))
+					assert.NoError(t, Result(ctx, currentCmd, lua.LString("success")))
 
 				case "error_command_created":
 					// GetField error command and queue error
-					pending := commandLayer.GetPendingCommands()
+					pending, err := FlushQueue(ctx)
+					assert.NoError(t, err)
 					assert.Equal(t, 1, len(pending))
 					currentCmd = pending[0]
-					commandLayer.QueueError(currentCmd, fmt.Errorf("test error"))
+					assert.NoError(t, Error(ctx, currentCmd, fmt.Errorf("test error")))
 
 				case "cancel_command_created":
 					// GetField cancel command and mark as canceled
-					pending := commandLayer.GetPendingCommands()
+					pending, err := FlushQueue(ctx)
+					assert.NoError(t, err)
 					assert.Equal(t, 1, len(pending))
 					currentCmd = pending[0]
 					currentCmd.Cancel()
-
 				}
 			}
 		}
@@ -439,9 +394,6 @@ func TestCommandLayer_SelectOperations(t *testing.T) {
 		executionFlow = append(executionFlow, step)
 	}
 
-	channelLayer := channel.NewChannelLayer()
-	commandLayer := NewCommandLayer(channelLayer)
-
 	vm, err := engine.NewCVM(
 		zap.NewNop(),
 		engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
@@ -450,13 +402,10 @@ func TestCommandLayer_SelectOperations(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	runner := engine.NewRunner(vm,
-		engine.WithLayer(channelLayer),
-		engine.WithLayer(commandLayer),
-	)
+	runner := engine.NewRunner(vm, engine.WithLayer(channel.NewChannelLayer()))
 
 	// Setup context with task group
-	ctx, uw := uow.OnContext(runner.WithContext(context.Background()))
+	uw, ctx := runner.InitUnitOfWork(context.Background())
 	defer func() { _ = uw.Close() }()
 
 	addToFlow("test_setup_complete")
@@ -464,15 +413,15 @@ func TestCommandLayer_SelectOperations(t *testing.T) {
 	err = vm.StartString(ctx, `
 		local cmd1 = command.new("select1", {value = "first"})
 		local cmd2 = command.new("select2", {value = "second"})
-		
+
 		local resp1 = cmd1:response()
 		local resp2 = cmd2:response()
 		local control_ch = channel.new()
-		
+
 		assert(not cmd1:is_complete(), "cmd1 should not be complete initially")
 		assert(not cmd2:is_complete(), "cmd2 should not be complete initially")
 		coroutine.yield("initial_state_verified")
-		
+
 		local result = channel.select{
 			resp1:case_receive(),
 			resp2:case_receive(),
@@ -481,7 +430,7 @@ func TestCommandLayer_SelectOperations(t *testing.T) {
 		assert(result.channel == resp1, "First select should choose resp1")
 		assert(result.value == "result1", "Expected result1")
 		coroutine.yield("first_select_complete")
-		
+
 		result = channel.select{
 			resp2:case_receive(),
 			control_ch:case_receive()
@@ -489,25 +438,25 @@ func TestCommandLayer_SelectOperations(t *testing.T) {
 		assert(result.channel == resp2, "Second select should choose resp2")
 		assert(result.value == "result2", "Expected result2")
 		coroutine.yield("second_select_complete")
-		
+
 		result = channel.select{
 			control_ch:case_receive(),
 			default = true
 		}
 		assert(result.default, "Should hit default case when no messages available")
 		coroutine.yield("default_select_complete")
-		
+
 		assert(cmd1:is_complete(), "cmd1 should be complete")
 		assert(cmd2:is_complete(), "cmd2 should be complete")
-		
+
 		local result1, err1 = cmd1:result()
 		assert(result1 == "result1", "cmd1 should have correct result")
 		assert(err1 == nil, "cmd1 should have no error")
-		
+
 		local result2, err2 = cmd2:result()
 		assert(result2 == "result2", "cmd2 should have correct result")
 		assert(err2 == nil, "cmd2 should have no error")
-		
+
 		coroutine.yield("final_verification_complete")
 	`, "test")
 	assert.NoError(t, err)
@@ -538,12 +487,13 @@ func TestCommandLayer_SelectOperations(t *testing.T) {
 				switch yield {
 				case "initial_state_verified":
 					stateVerified = true
-					commands = commandLayer.GetPendingCommands()
+					commands, err = FlushQueue(ctx)
+					assert.NoError(t, err)
 					assert.Equal(t, 2, len(commands))
 					assert.Equal(t, Type("select1"), commands[0].cmdType)
 					assert.Equal(t, Type("select2"), commands[1].cmdType)
 
-					commandLayer.QueueResult(commands[0], lua.LString("result1"))
+					assert.NoError(t, Result(ctx, commands[0], lua.LString("result1")))
 					addToFlow("first_result_queued")
 
 				case "first_select_complete":
@@ -553,7 +503,7 @@ func TestCommandLayer_SelectOperations(t *testing.T) {
 					assert.NoError(t, err)
 					assert.Equal(t, "result1", result.String())
 
-					commandLayer.QueueResult(commands[1], lua.LString("result2"))
+					assert.NoError(t, Result(ctx, commands[1], lua.LString("result2")))
 					addToFlow("second_result_queued")
 
 				case "second_select_complete":
@@ -583,7 +533,13 @@ func TestCommandLayer_SelectOperations(t *testing.T) {
 			}
 		}
 
-		tasks, err = runner.Step(tasks...)
+		updates, err := uw.Tasks().Wait(ctx, true)
+		assert.NoError(t, err)
+
+		scheduled, err := engine.GetTasks(runner.GetCVM(), updates...)
+		assert.NoError(t, err)
+
+		tasks, err = runner.Step(append(scheduled, tasks...)...)
 		assert.NoError(t, err)
 		addToFlow(fmt.Sprintf("step_%d_complete", stepCount))
 	}

@@ -6,16 +6,13 @@ import (
 	api "github.com/ponyruntime/pony/api/pubsub"
 	"go.uber.org/zap"
 	"sync"
-	"time"
 )
 
 // HostConfig holds configuration for a Host.
 type HostConfig struct {
-	BufferSize      int           // Internal job channel buffer size.
-	WorkerCount     int           // Number of concurrent worker goroutines.
-	Logger          *zap.Logger   // Logger for operational events.
-	RetryTimeout    time.Duration // Timeout for retry attempt on send (default: 100ms)
-	DeliveryTimeout time.Duration // Timeout for delivery to receiver (default: 30s)
+	BufferSize  int         // Internal job channel buffer size.
+	WorkerCount int         // Number of concurrent worker goroutines.
+	Logger      *zap.Logger // Logger for operational events.
 }
 
 // sendJob represents an asynchronous send operation.
@@ -40,21 +37,17 @@ func NewHost(ctx context.Context, config HostConfig) *Host {
 		config.Logger = zap.NewNop()
 	}
 
-	// Set default retry timeout if not provided
-	if config.RetryTimeout == 0 {
-		config.RetryTimeout = 100 * time.Millisecond
-	}
-	// Set default delivery timeout if not provided
-	if config.DeliveryTimeout == 0 {
-		config.DeliveryTimeout = 30 * time.Second
-	}
-
 	h := &Host{
 		config: config,
 		jobCh:  make(chan sendJob, config.BufferSize),
 		ctx:    ctx,
 		logger: config.Logger,
 	}
+
+	// todo: we have a current bug where we have to also provide a consistent order
+	// for each source stream, we can not split messages from the same source
+	// todo: address using consistent hashing
+	config.WorkerCount = 1
 
 	// Spawn worker goroutines.
 	for i := 0; i < config.WorkerCount; i++ {
@@ -93,6 +86,13 @@ func (h *Host) Detach(pid api.PID) {
 // It first attempts to send immediately, then falls back to a retry with timeout
 // if the channel is full. Returns error if both attempts fail or context expires.
 func (h *Host) Send(pkg *api.Package) error {
+	if err := h.ctx.Err(); err != nil {
+		h.logger.Warn("send after host shutdown", zap.String("pid", pkg.PID.String()))
+		return err
+	}
+
+	// quick hash pid to num workers
+
 	job := sendJob{
 		pkg: pkg,
 	}
@@ -104,21 +104,6 @@ func (h *Host) Send(pkg *api.Package) error {
 	case <-h.ctx.Done():
 		h.logger.Warn("send cancelled by host shutdown", zap.String("pid", pkg.PID.String()))
 		return h.ctx.Err()
-	default:
-		// Channel is full, try again with a retry timeout.
-		timer := time.NewTimer(h.config.RetryTimeout)
-		defer timer.Stop()
-
-		select {
-		case h.jobCh <- job:
-			return nil
-		case <-h.ctx.Done():
-			h.logger.Warn("send cancelled by host shutdown", zap.String("pid", pkg.PID.String()))
-			return h.ctx.Err()
-		case <-timer.C:
-			h.logger.Warn("send failed after retry timeout", zap.String("pid", pkg.PID.String()), zap.Duration("timeout", h.config.RetryTimeout))
-			return fmt.Errorf("send timeout exceeded after retry")
-		}
 	}
 }
 
@@ -153,18 +138,8 @@ func (h *Host) deliverPackage(job sendJob, ch chan *api.Package) {
 	case ch <- job.pkg:
 		// Successfully sent immediately
 		return
-	default:
-		// Use timeout-based delivery
-		select {
-		case ch <- job.pkg:
-			// Successfully sent after waiting
-		case <-time.After(h.config.DeliveryTimeout):
-			h.logger.Warn("delivery timeout exceeded; dropping Package message",
-				zap.String("pid", job.pkg.PID.String()),
-				zap.Duration("delivery_timeout", h.config.DeliveryTimeout))
-		case <-h.ctx.Done():
-			h.logger.Info("worker shutting down, dropping Package message",
-				zap.String("pid", job.pkg.PID.String()))
-		}
+	case <-h.ctx.Done():
+		h.logger.Info("worker shutting down, dropping Package message",
+			zap.String("pid", job.pkg.PID.String()))
 	}
 }

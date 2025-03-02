@@ -7,6 +7,7 @@ import (
 	"github.com/ponyruntime/pony/api/runtime/lua"
 	lru "github.com/ponyruntime/pony/internal/cache"
 	glua "github.com/yuin/gopher-lua"
+	"time"
 )
 
 // CompiledProto represents a compiled Lua prototype with its name
@@ -36,11 +37,20 @@ func NewCompiler(
 	compileFn func(*Node) (*glua.FunctionProto, error),
 	protoCacheCapacity int,
 	mainCacheCapacity int,
+	// todo: use proper option passing
 ) *Compiler {
 	return &Compiler{
-		protoCache: lru.New[registry.ID, *glua.FunctionProto](lru.WithCapacity(protoCacheCapacity)),
-		mainCache:  lru.New[registry.ID, *CompiledMain](lru.WithCapacity(mainCacheCapacity)),
-		compileFn:  compileFn,
+		protoCache: lru.New[registry.ID, *glua.FunctionProto](
+			lru.WithCapacity(protoCacheCapacity),
+			lru.WithTTL(time.Minute*5),
+			lru.WithGCInterval(time.Minute*5),
+		),
+		mainCache: lru.New[registry.ID, *CompiledMain](
+			lru.WithCapacity(mainCacheCapacity),
+			lru.WithTTL(time.Minute*5),
+			lru.WithGCInterval(time.Minute*5),
+		),
+		compileFn: compileFn,
 	}
 }
 
@@ -145,6 +155,7 @@ func (c *Compiler) Compile(
 	}
 
 	// Cache the compiled main
+
 	c.mainCache.Set(entrypoint, compiled)
 
 	return compiled, nil

@@ -1,0 +1,25 @@
+version: "1.0"
+namespace: app.tests
+
+meta:
+  depends_on: [ "ns:system", "ns:wippy.lib", "ns:app.tests.cases" ]
+
+entries:
+  - name: test
+    kind: function.lua
+    meta:
+      comment: "Runs all the tests it can find"
+    source: file://test.lua
+    method: run_tests
+    modules: [ http, time, json, registry, funcs ]
+    pool:
+      size: 1
+
+  - name: healthcheck.endpoint
+    kind: http.endpoint
+    meta:
+      comment: "Runs all the tests it can find"
+      router: system:api
+    method: GET
+    path: /test
+    func: test

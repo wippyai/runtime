@@ -6,7 +6,7 @@ import (
 	api "github.com/ponyruntime/pony/api/process"
 	"sync"
 
-	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/system/eventbus"
 	"go.uber.org/zap"
@@ -17,13 +17,13 @@ import (
 type PrototypeRegistry struct {
 	ctx        context.Context
 	logger     *zap.Logger
-	bus        events.Bus
+	bus        event.Bus
 	prototypes sync.Map
 	subscriber *eventbus.Subscriber
 }
 
 // NewPrototypeFactory creates a new PrototypeRegistry instance with the provided event bus and logger.
-func NewPrototypeFactory(bus events.Bus, logger *zap.Logger) *PrototypeRegistry {
+func NewPrototypeFactory(bus event.Bus, logger *zap.Logger) *PrototypeRegistry {
 	return &PrototypeRegistry{
 		bus:        bus,
 		logger:     logger,
@@ -40,7 +40,7 @@ func (p *PrototypeRegistry) Start(ctx context.Context) error {
 		p.ctx,
 		p.bus,
 		api.PrototypeSystem,
-		"prototype.(register|remove)",
+		"prototype.(register|delete)",
 		p.handleEvent,
 	)
 	if err != nil {
@@ -59,7 +59,7 @@ func (p *PrototypeRegistry) Stop() error {
 	return nil
 }
 
-func (p *PrototypeRegistry) handleEvent(e events.Event) {
+func (p *PrototypeRegistry) handleEvent(e event.Event) {
 	switch e.Kind {
 	case api.ProtoRegister:
 		p.upsertPrototype(e)
@@ -72,7 +72,7 @@ func (p *PrototypeRegistry) handleEvent(e events.Event) {
 	}
 }
 
-func (p *PrototypeRegistry) upsertPrototype(e events.Event) {
+func (p *PrototypeRegistry) upsertPrototype(e event.Event) {
 	prototype, ok := e.Data.(api.Prototype)
 	if !ok {
 		p.logger.Error("invalid register prototype payload",
@@ -90,7 +90,7 @@ func (p *PrototypeRegistry) upsertPrototype(e events.Event) {
 	p.sendAccept(e.Path)
 }
 
-func (p *PrototypeRegistry) deletePrototype(e events.Event) {
+func (p *PrototypeRegistry) deletePrototype(e event.Event) {
 	id := registry.ParseID(e.Path)
 	// Check if the prototype exists before removing
 	_, exists := p.prototypes.Load(id)
@@ -103,7 +103,7 @@ func (p *PrototypeRegistry) deletePrototype(e events.Event) {
 		return
 	}
 
-	// Remove the prototype
+	// Done the prototype
 	p.prototypes.Delete(id)
 	p.logger.Debug("prototype removed",
 		zap.String("process", e.Path),
@@ -113,16 +113,16 @@ func (p *PrototypeRegistry) deletePrototype(e events.Event) {
 	p.sendAccept(e.Path)
 }
 
-func (p *PrototypeRegistry) sendAccept(path events.Path) {
-	p.bus.Send(p.ctx, events.Event{
+func (p *PrototypeRegistry) sendAccept(path event.Path) {
+	p.bus.Send(p.ctx, event.Event{
 		System: api.PrototypeSystem,
 		Kind:   api.ProtoAccept,
 		Path:   path,
 	})
 }
 
-func (p *PrototypeRegistry) sendReject(path events.Path, reason string) {
-	p.bus.Send(p.ctx, events.Event{
+func (p *PrototypeRegistry) sendReject(path event.Path, reason string) {
+	p.bus.Send(p.ctx, event.Event{
 		System: api.PrototypeSystem,
 		Kind:   api.ProtoReject,
 		Path:   path,

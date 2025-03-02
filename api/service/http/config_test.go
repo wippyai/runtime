@@ -289,7 +289,7 @@ func TestRouterConfig_Validate(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "missing server Alias",
+			name: "missing server alias",
 			config: RouterConfig{
 				Meta:   registry.Metadata{},
 				Prefix: "/api",
@@ -405,7 +405,7 @@ func TestEndpointConfig_Validate(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "missing router ID",
+			name: "missing router Source",
 			config: EndpointConfig{
 				Meta:   registry.Metadata{},
 				Path:   "/test",
@@ -423,18 +423,6 @@ func TestEndpointConfig_Validate(t *testing.T) {
 				Path:   "/test",
 				Method: "GET",
 				Func:   registry.ID{NS: "default", Name: ""},
-			},
-			wantErr: true,
-		},
-		{
-			name: "empty function namespace",
-			config: EndpointConfig{
-				Meta: registry.Metadata{
-					RouterID: "test-router",
-				},
-				Path:   "/test",
-				Method: "GET",
-				Func:   registry.ID{NS: "", Name: "test_handler"},
 			},
 			wantErr: true,
 		},

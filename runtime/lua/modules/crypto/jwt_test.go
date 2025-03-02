@@ -121,7 +121,7 @@ func TestJWTModuleWithVM(t *testing.T) {
 				payloadTable := lua.LTable{}
 				convertMapToLuaTable(t, tc.payload, &payloadTable)
 
-				// Execute the function
+				// Start the function
 				result, err := vm.Execute(context.Background(), "test", &payloadTable, lua.LString(tc.key), lua.LString(tc.alg))
 				require.NoError(t, err)
 
@@ -257,12 +257,12 @@ func TestJWTModuleWithVM(t *testing.T) {
 				payloadTable := lua.LTable{}
 				convertMapToLuaTable(t, tc.payload, &payloadTable)
 
-				// Execute the function
+				// Start the function
 				result, err := vm.Execute(context.Background(), "encode_and_verify", &payloadTable, lua.LString(tc.key), lua.LString(tc.alg))
 				require.NoError(t, err)
 
 				// Verify the result is a table
-				require.Equal(t, lua.LTTable, result.Type(), "Result should be a table")
+				require.Equal(t, lua.LTTable, result.Type(), "Update should be a table")
 
 				// Helper function to verify claims
 				verifyClaimsTable(t, tc.payload, result.(*lua.LTable))

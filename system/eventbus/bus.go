@@ -7,7 +7,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/internal/wildcard"
 )
 
@@ -28,20 +28,20 @@ type action struct {
 }
 
 type sendEvent struct {
-	event events.Event
+	event event.Event
 	ctx   context.Context
 }
 
 type sub struct {
-	subID   events.SubscriberID
+	subID   event.SubscriberID
 	system  *wildcard.Wildcard
 	kind    *wildcard.Wildcard
-	eventCh chan<- events.Event
+	eventCh chan<- event.Event
 	doneCh  chan bool
 }
 
 type unsub struct {
-	subID  events.SubscriberID
+	subID  event.SubscriberID
 	doneCh chan bool
 }
 
@@ -49,7 +49,7 @@ type unsub struct {
 // system and kind filtering using wildcards. It provides thread-safe operations
 // for subscribing, unsubscribing, and sending events.
 type Bus struct {
-	subscribers       map[events.SubscriberID]sub
+	subscribers       map[event.SubscriberID]sub
 	actions           chan action
 	wg                sync.WaitGroup
 	subscriberCounter uint64
@@ -60,7 +60,7 @@ type Bus struct {
 // It initializes internal channels and starts the event handling goroutine.
 func NewBus() *Bus {
 	b := &Bus{
-		subscribers: make(map[events.SubscriberID]sub),
+		subscribers: make(map[event.SubscriberID]sub),
 		actions:     make(chan action, 100), // Buffered channel for all actions
 		closed:      make(chan any),
 	}
@@ -75,9 +75,9 @@ func NewBus() *Bus {
 // It returns a unique subscriber Alias that can be used to unsubscribe later.
 func (b *Bus) Subscribe(
 	ctx context.Context,
-	system events.System,
-	ch chan<- events.Event,
-) (events.SubscriberID, error) {
+	system event.System,
+	ch chan<- event.Event,
+) (event.SubscriberID, error) {
 	return b.SubscribeP(ctx, system, "", ch)
 }
 
@@ -85,10 +85,10 @@ func (b *Bus) Subscribe(
 // It supports wildcard patterns in both system and kind parameters.
 func (b *Bus) SubscribeP(
 	ctx context.Context,
-	system events.System,
-	kind events.Kind,
-	ch chan<- events.Event,
-) (events.SubscriberID, error) {
+	system event.System,
+	kind event.Kind,
+	ch chan<- event.Event,
+) (event.SubscriberID, error) {
 	if ctx.Err() != nil {
 		return "", ctx.Err()
 	}
@@ -99,12 +99,12 @@ func (b *Bus) SubscribeP(
 	subID := b.generateSubscriberID()
 	var w *wildcard.Wildcard
 	if kind != "" {
-		w = wildcard.NewWildcard(string(kind))
+		w = wildcard.NewWildcard(kind)
 	}
 
 	var sw *wildcard.Wildcard
 	if system != "" {
-		sw = wildcard.NewWildcard(string(system))
+		sw = wildcard.NewWildcard(system)
 	}
 
 	sub := sub{
@@ -135,7 +135,7 @@ func (b *Bus) SubscribeP(
 
 // Unsubscribe removes the subscription identified by the given subscriber Alias.
 // It closes the associated event channel.
-func (b *Bus) Unsubscribe(ctx context.Context, subID events.SubscriberID) {
+func (b *Bus) Unsubscribe(ctx context.Context, subID event.SubscriberID) {
 	if ctx.Err() != nil {
 		return
 	}
@@ -160,9 +160,9 @@ func (b *Bus) Unsubscribe(ctx context.Context, subID events.SubscriberID) {
 
 // Send publishes an event to all matching subscribers based on their system and kind filters.
 // The event delivery is skipped if the context is canceled.
-func (b *Bus) Send(ctx context.Context, event events.Event) {
+func (b *Bus) Send(ctx context.Context, e event.Event) {
 	select {
-	case b.actions <- action{actionType: send, event: sendEvent{event: event, ctx: ctx}}:
+	case b.actions <- action{actionType: send, event: sendEvent{event: e, ctx: ctx}}:
 	case <-b.closed:
 	case <-ctx.Done():
 	}
@@ -233,11 +233,10 @@ func (b *Bus) handleActions() {
 	}
 }
 
-func (b *Bus) handleUnsubscribe(subID events.SubscriberID) {
+func (b *Bus) handleUnsubscribe(subID event.SubscriberID) {
 	delete(b.subscribers, subID)
 }
 
-func (b *Bus) generateSubscriberID() events.SubscriberID {
-	id := atomic.AddUint64(&b.subscriberCounter, 1)
-	return events.SubscriberID(fmt.Sprintf("sub.%d", id))
+func (b *Bus) generateSubscriberID() event.SubscriberID {
+	return fmt.Sprintf("sub.%d", atomic.AddUint64(&b.subscriberCounter, 1))
 }

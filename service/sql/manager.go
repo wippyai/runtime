@@ -4,9 +4,10 @@ import (
 	"context"
 	"fmt"
 	config "github.com/ponyruntime/pony/api/service/sql"
+	config2 "github.com/ponyruntime/pony/internal/config"
 	"sync"
 
-	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/resource"
@@ -16,9 +17,10 @@ import (
 
 // Manager handles SQL database connections lifecycle and resource provisioning
 type Manager struct {
-	log *zap.Logger
-	dtt payload.Transcoder
-	bus events.Bus
+	log     *zap.Logger
+	dtt     payload.Transcoder
+	bus     event.Bus
+	factory PoolFactoryAPI
 
 	mu       sync.RWMutex
 	services map[registry.ID]*ConnPool
@@ -27,8 +29,18 @@ type Manager struct {
 // NewManager creates a new SQL service manager
 func NewManager(
 	dtt payload.Transcoder,
-	bus events.Bus,
+	bus event.Bus,
 	log *zap.Logger,
+) (*Manager, error) {
+	return NewManagerWithFactory(dtt, bus, log, NewDefaultPoolFactory())
+}
+
+// NewManagerWithFactory creates a new SQL service manager with the specified pool factory
+func NewManagerWithFactory(
+	dtt payload.Transcoder,
+	bus event.Bus,
+	log *zap.Logger,
+	factory PoolFactoryAPI,
 ) (*Manager, error) {
 	if dtt == nil {
 		return nil, fmt.Errorf("transcoder is required")
@@ -36,11 +48,15 @@ func NewManager(
 	if bus == nil {
 		return nil, fmt.Errorf("event bus is required")
 	}
+	if factory == nil {
+		return nil, fmt.Errorf("pool factory is required")
+	}
 
 	return &Manager{
 		log:      log,
 		dtt:      dtt,
 		bus:      bus,
+		factory:  factory,
 		services: make(map[registry.ID]*ConnPool),
 	}, nil
 }
@@ -88,12 +104,12 @@ func (m *Manager) handleStandardDBAdd(ctx context.Context, entry registry.Entry)
 		return fmt.Errorf("service %s already exists", entry.ID)
 	}
 
-	cfg, err := decodeAndInitConfig[config.DBConfig](m.dtt, entry)
+	cfg, err := config2.DecodeAndInitConfig[config.DBConfig](m.dtt, entry)
 	if err != nil {
 		return err
 	}
 
-	pool, err := NewStandardConnPool(entry.Kind, cfg)
+	pool, err := m.factory.CreateStandardPool(entry.Kind, cfg)
 	if err != nil {
 		return fmt.Errorf("failed to create connection pool: %w", err)
 	}
@@ -106,12 +122,12 @@ func (m *Manager) handleSQLiteAdd(ctx context.Context, entry registry.Entry) err
 		return fmt.Errorf("service %s already exists", entry.ID)
 	}
 
-	cfg, err := decodeAndInitConfig[config.SQLiteConfig](m.dtt, entry)
+	cfg, err := config2.DecodeAndInitConfig[config.SQLiteConfig](m.dtt, entry)
 	if err != nil {
 		return err
 	}
 
-	pool, err := NewSQLiteConnPool(cfg)
+	pool, err := m.factory.CreateSQLitePool(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to create SQLite connection: %w", err)
 	}
@@ -125,7 +141,7 @@ func (m *Manager) handleStandardDBUpdate(ctx context.Context, entry registry.Ent
 		return fmt.Errorf("service %s not found", entry.ID)
 	}
 
-	cfg, err := decodeAndInitConfig[config.DBConfig](m.dtt, entry)
+	cfg, err := config2.DecodeAndInitConfig[config.DBConfig](m.dtt, entry)
 	if err != nil {
 		return err
 	}
@@ -144,7 +160,7 @@ func (m *Manager) handleSQLiteUpdate(ctx context.Context, entry registry.Entry) 
 		return fmt.Errorf("service %s not found", entry.ID)
 	}
 
-	cfg, err := decodeAndInitConfig[config.SQLiteConfig](m.dtt, entry)
+	cfg, err := config2.DecodeAndInitConfig[config.SQLiteConfig](m.dtt, entry)
 	if err != nil {
 		return err
 	}
@@ -173,7 +189,7 @@ func (m *Manager) registerService(ctx context.Context, entry registry.Entry, poo
 	m.services[entry.ID] = pool
 
 	// Register with supervisor
-	m.bus.Send(ctx, events.Event{
+	m.bus.Send(ctx, event.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Register,
 		Path:   entry.ID.String(),
@@ -184,7 +200,7 @@ func (m *Manager) registerService(ctx context.Context, entry registry.Entry, poo
 	})
 
 	// Register as resource provider
-	m.bus.Send(ctx, events.Event{
+	m.bus.Send(ctx, event.Event{
 		System: resource.System,
 		Kind:   resource.Register,
 		Path:   entry.ID.String(),
@@ -204,7 +220,7 @@ func (m *Manager) registerService(ctx context.Context, entry registry.Entry, poo
 
 // updateService handles the common service update logic
 func (m *Manager) updateService(ctx context.Context, entry registry.Entry, lifecycle supervisor.LifecycleConfig) {
-	m.bus.Send(ctx, events.Event{
+	m.bus.Send(ctx, event.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Update,
 		Path:   entry.ID.String(),
@@ -221,14 +237,14 @@ func (m *Manager) updateService(ctx context.Context, entry registry.Entry, lifec
 // unregisterService handles the common service unregistration logic
 func (m *Manager) unregisterService(ctx context.Context, entry registry.Entry) {
 	// Delete from supervisor
-	m.bus.Send(ctx, events.Event{
+	m.bus.Send(ctx, event.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Remove,
 		Path:   entry.ID.String(),
 	})
 
 	// Delete resource provider
-	m.bus.Send(ctx, events.Event{
+	m.bus.Send(ctx, event.Event{
 		System: resource.System,
 		Kind:   resource.Delete,
 		Path:   entry.ID.String(),
@@ -237,30 +253,4 @@ func (m *Manager) unregisterService(ctx context.Context, entry registry.Entry) {
 
 	m.log.Info("removed database service",
 		zap.String("id", entry.ID.String()))
-}
-
-// decodeAndInitConfig decodes the configuration and initializes defaults
-func decodeAndInitConfig[T any](dtt payload.Transcoder, entry registry.Entry) (*T, error) {
-	if entry.Data == nil {
-		return nil, fmt.Errorf("configuration data is required")
-	}
-
-	cfg := new(T)
-	if err := dtt.Unmarshal(entry.Data, cfg); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
-	}
-
-	// Initialize defaults if the config implements InitDefaults
-	if defaulter, ok := interface{}(cfg).(interface{ InitDefaults() }); ok {
-		defaulter.InitDefaults()
-	}
-
-	// Validate if the config implements Validate
-	if validator, ok := interface{}(cfg).(interface{ Validate() error }); ok {
-		if err := validator.Validate(); err != nil {
-			return nil, fmt.Errorf("invalid configuration: %w", err)
-		}
-	}
-
-	return cfg, nil
 }

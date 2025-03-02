@@ -390,13 +390,13 @@ func TestItemManagement(t *testing.T) {
             assert(list:items()[1].title == "Launch Item", "start item should be first")
             
             -- Test removal from different positions
-            list:remove_item(2)  -- Remove from middle
+            list:remove_item(2)  -- Done from middle
             assert(#list:items() == 4, "should have four items after middle removal")
             
-            list:remove_item(0)  -- Remove from start
+            list:remove_item(0)  -- Done from start
             assert(#list:items() == 3, "should have three items after start removal")
             
-            list:remove_item(2)  -- Remove from end
+            list:remove_item(2)  -- Done from end
             assert(#list:items() == 2, "should have two items after end removal")
         `, "test_item_positions")
 

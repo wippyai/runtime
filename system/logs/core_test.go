@@ -5,7 +5,7 @@ import (
 	api "github.com/ponyruntime/pony/api/logs"
 	"testing"
 
-	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/event"
 	"go.uber.org/zap/zapcore"
 )
 
@@ -54,22 +54,22 @@ func (t *testDownstreamCore) Sync() error {
 	return t.syncResponse
 }
 
-// testEventBus implements events.Bus for testing
+// testEventBus implements event.Bus for testing
 type testEventBus struct {
-	sendCalls []events.Event
+	sendCalls []event.Event
 }
 
-func (t *testEventBus) Subscribe(context.Context, events.System, chan<- events.Event) (events.SubscriberID, error) {
+func (t *testEventBus) Subscribe(context.Context, event.System, chan<- event.Event) (event.SubscriberID, error) {
 	return "test", nil
 }
 
-func (t *testEventBus) SubscribeP(context.Context, events.System, events.Kind, chan<- events.Event) (events.SubscriberID, error) {
+func (t *testEventBus) SubscribeP(context.Context, event.System, event.Kind, chan<- event.Event) (event.SubscriberID, error) {
 	return "test", nil
 }
 
-func (t *testEventBus) Unsubscribe(context.Context, events.SubscriberID) {}
+func (t *testEventBus) Unsubscribe(context.Context, event.SubscriberID) {}
 
-func (t *testEventBus) Send(_ context.Context, event events.Event) {
+func (t *testEventBus) Send(_ context.Context, event event.Event) {
 	t.sendCalls = append(t.sendCalls, event)
 }
 

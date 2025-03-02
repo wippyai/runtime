@@ -3,7 +3,6 @@ package host
 import (
 	"context"
 	"github.com/ponyruntime/pony/api/process"
-	"log"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -16,7 +15,7 @@ import (
 // processEntry holds process state and execution lock
 type processEntry struct {
 	process process.Process
-	running atomic.Bool // Atomic flag to prevent concurrent execution
+	running atomic.Bool
 }
 
 // ProcessPool manages concurrent process execution
@@ -27,13 +26,13 @@ type ProcessPool struct {
 	log          *zap.Logger
 	processes    sync.Map        // map[pubsub.PID]*processEntry
 	workCh       chan pubsub.PID // Channel for scheduling work
-
-	wg        sync.WaitGroup // Worker goroutines WaitGroup
-	processWG sync.WaitGroup // Active processes WaitGroup
-	ctx       context.Context
-	cancel    context.CancelFunc
+	wg           sync.WaitGroup  // Worker goroutines WaitGroup
+	processWG    sync.WaitGroup  // Active processes WaitGroup
+	ctx          context.Context
+	cancel       context.CancelFunc
 }
 
+// NewProcessPool creates a new process pool
 func NewProcessPool(
 	ctx context.Context,
 	workers int,
@@ -56,7 +55,7 @@ func NewProcessPool(
 // AddProcess registers a new process with the pool
 func (p *ProcessPool) AddProcess(pid pubsub.PID, proc process.Process) error {
 	if p.maxProcesses != 0 && p.numProcesses.Load() >= int32(p.maxProcesses) {
-		log.Println("max processes reached, cannot add new process", zap.String("pid", pid.String()))
+		p.log.Warn("max processes reached, cannot add new process", zap.String("pid", pid.String()))
 		return process.ErrMaxProcesses
 	}
 
@@ -128,7 +127,7 @@ func (p *ProcessPool) worker() {
 				continue // handled by another goroutine
 			}
 
-			// Execute process step
+			// Start process step
 			reschedule, err := entry.process.Step()
 			if err != nil {
 				p.log.Debug("process step completed with error",
@@ -172,7 +171,7 @@ func (p *ProcessPool) CancelProcess(pid pubsub.PID, deadline time.Time) error {
 
 	entry := entryVal.(*processEntry)
 
-	// Send cancel message to process
+	// send cancel message to process
 	if err := entry.process.Send(topology.Cancel(pid, pid, deadline)); err != nil {
 		p.log.Warn("failed to send cancel message to process",
 			zap.String("pid", pid.String()),

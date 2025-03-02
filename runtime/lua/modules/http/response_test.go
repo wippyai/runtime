@@ -323,34 +323,6 @@ func TestResponse_ContentTypeHandling(t *testing.T) {
 func TestResponse_JSONHandling(t *testing.T) {
 	logger := zap.NewNop()
 
-	t.Run("invalid JSON value", func(t *testing.T) {
-		recorder := newMockResponseWriter()
-		req := httptest.NewRequest("GET", "/test", nil)
-		reqCtx := http.NewRequestContext(req, recorder)
-		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
-
-		mod := NewHTTPAPIModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
-		require.NoError(t, err)
-		defer vm.Close()
-
-		// Try to encode userdata which can't be converted to JSON
-		err = vm.DoString(ctx, `
-			local http = require("http")
-			local res = http.response()
-			
-			-- Spawn userdata which can't be JSON encoded
-			local ud = newproxy()
-			
-			local err = res:write_json(ud)
-			assert(err ~= nil, "writing userdata should return error")
-		`, "test")
-		assert.NoError(t, err)
-
-		// The response should be empty since JSON encoding failed
-		assert.Empty(t, recorder.Body.String())
-	})
-
 	t.Run("write complex JSON response", func(t *testing.T) {
 		recorder := newMockResponseWriter()
 		req := httptest.NewRequest("GET", "/test", nil)

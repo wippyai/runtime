@@ -2,7 +2,7 @@ package pubsub
 
 import (
 	"context"
-	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/event"
 	api "github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/system/eventbus"
@@ -72,7 +72,7 @@ func (h *mockHost) Detach(pid api.PID) {
 	// No-op for testing
 }
 
-func setupManagerTest() (*NodeManager, *mockNode, events.Bus) {
+func setupManagerTest() (*NodeManager, *mockNode, event.Bus) {
 	logger := zap.NewNop()
 	bus := eventbus.NewBus()
 	node := newMockNode("test-node")
@@ -89,7 +89,7 @@ func TestManager_StartStop(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, manager.subscriber)
 
-	// Test Close
+	// Test close
 	err = manager.Stop()
 	require.NoError(t, err)
 }
@@ -101,13 +101,13 @@ func TestManager_HandleRegisterHost(t *testing.T) {
 	defer func() { assert.NoError(t, manager.Stop()) }()
 
 	// Create a channel to collect response events
-	responses := make(chan events.Event, 2)
+	responses := make(chan event.Event, 2)
 	sub, err := eventbus.NewSubscriber(
 		ctx,
 		bus,
 		api.System,
 		"node.(accept_host|reject_host)",
-		func(e events.Event) {
+		func(e event.Event) {
 			responses <- e
 		},
 	)
@@ -118,37 +118,37 @@ func TestManager_HandleRegisterHost(t *testing.T) {
 		name          string
 		hostID        string
 		host          interface{}
-		expectedKind  events.Kind
+		expectedKind  event.Kind
 		expectedError string
 	}{
 		{
 			name:         "successful registration",
 			hostID:       "host1",
 			host:         &mockHost{},
-			expectedKind: api.AcceptHost,
+			expectedKind: api.HostAccept,
 		},
 		{
 			name:          "invalid host type",
 			hostID:        "host2",
 			host:          "invalid",
-			expectedKind:  api.RejectHost,
+			expectedKind:  api.HostReject,
 			expectedError: "invalid host payload",
 		},
 		{
 			name:          "duplicate host",
 			hostID:        "host1",
 			host:          &mockHost{},
-			expectedKind:  api.RejectHost,
+			expectedKind:  api.HostReject,
 			expectedError: "host already exists",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Send register event
-			bus.Send(ctx, events.Event{
+			// send register event
+			bus.Send(ctx, event.Event{
 				System: api.System,
-				Kind:   api.RegisterHost,
+				Kind:   api.HostRegister,
 				Path:   tt.hostID,
 				Data:   tt.host,
 			})
@@ -165,7 +165,7 @@ func TestManager_HandleRegisterHost(t *testing.T) {
 				t.Fatal("timeout waiting for response")
 			}
 
-			if tt.expectedKind == api.AcceptHost {
+			if tt.expectedKind == api.HostAccept {
 				// Verify host was registered
 				_, exists := node.hosts.Load(tt.hostID)
 				assert.True(t, exists)
@@ -185,30 +185,30 @@ func TestManager_HandleDeleteHost(t *testing.T) {
 	assert.NoError(t, node.RegisterHost("host1", host))
 
 	// Create a channel to collect response events
-	responses := make(chan events.Event, 1)
+	responses := make(chan event.Event, 1)
 	sub, err := eventbus.NewSubscriber(
 		ctx,
 		bus,
 		api.System,
 		"node.accept_host",
-		func(e events.Event) {
+		func(e event.Event) {
 			responses <- e
 		},
 	)
 	require.NoError(t, err)
 	defer sub.Close()
 
-	// Send delete event
-	bus.Send(ctx, events.Event{
+	// send delete event
+	bus.Send(ctx, event.Event{
 		System: api.System,
-		Kind:   api.DeleteHost,
+		Kind:   api.HostDelete,
 		Path:   "host1",
 	})
 
 	// Wait for response
 	select {
 	case resp := <-responses:
-		assert.Equal(t, api.AcceptHost, resp.Kind)
+		assert.Equal(t, api.HostAccept, resp.Kind)
 		assert.Equal(t, "host1", resp.Path)
 	case <-time.After(time.Second):
 		t.Fatal("timeout waiting for response")
@@ -225,8 +225,8 @@ func TestManager_HandleUnknownEvent(t *testing.T) {
 	require.NoError(t, manager.Start(ctx))
 	defer func() { assert.NoError(t, manager.Stop()) }()
 
-	// Send unknown event
-	bus.Send(ctx, events.Event{
+	// send unknown event
+	bus.Send(ctx, event.Event{
 		System: api.System,
 		Kind:   "unknown.event",
 		Path:   "test",

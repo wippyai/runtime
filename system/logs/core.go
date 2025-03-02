@@ -5,19 +5,19 @@ import (
 	api "github.com/ponyruntime/pony/api/logs"
 	"sync/atomic"
 
-	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/event"
 	"go.uber.org/zap/zapcore"
 )
 
 // Core implements the api.Core interface and handles log interception and routing
 type Core struct {
 	downstream zapcore.Core
-	bus        events.Bus
+	bus        event.Bus
 	config     atomic.Value // holds api.Config
 }
 
 // NewCore creates a new Core instance
-func NewCore(downstream zapcore.Core, bus events.Bus) api.Core {
+func NewCore(downstream zapcore.Core, bus event.Bus) api.Core {
 	c := &Core{
 		downstream: downstream,
 		bus:        bus,
@@ -98,10 +98,10 @@ func (c *Core) Sync() error {
 
 // publishLogEvent publishes the log entry to the event bus
 func (c *Core) publishLogEvent(ent zapcore.Entry, fields []zapcore.Field) {
-	c.bus.Send(context.Background(), events.Event{
+	c.bus.Send(context.Background(), event.Event{
 		System: api.System,
 		Kind:   api.Entry,
-		Path:   events.Path(ent.LoggerName),
+		Path:   event.Path(ent.LoggerName),
 		Data: struct {
 			Entry  zapcore.Entry   `json:"entry"`
 			Fields []zapcore.Field `json:"fields"`

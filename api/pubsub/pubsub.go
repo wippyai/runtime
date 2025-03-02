@@ -1,11 +1,11 @@
+// Package pubsub provides a publish-subscribe messaging system for inter-component communication.
 package pubsub
 
 import (
 	"context"
 	"errors"
 	"fmt"
-	contextApi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	"strings"
@@ -14,13 +14,20 @@ import (
 // System constants for node management
 const (
 	// System identifies the node management system in the event context
-	System       events.System = "node"
-	RegisterHost events.Kind   = "node.register_host"
-	DeleteHost   events.Kind   = "node.remove_host"
-	AcceptHost   events.Kind   = "node.accept_host"
-	RejectHost   events.Kind   = "node.reject_host"
+	System event.System = "node"
+
+	// HostRegister is emitted to request host registration
+	HostRegister event.Kind = "node.register_host"
+	// HostDelete is emitted to request host removal
+	HostDelete event.Kind = "node.remove_host"
+
+	// HostAccept is emitted when a host registration is successful
+	HostAccept event.Kind = "node.accept_host"
+	// HostReject is emitted when a host registration fails
+	HostReject event.Kind = "node.reject_host"
 )
 
+// Common errors returned by pubsub operations
 var (
 	// ErrAlreadyAttached indicates that a receiver is already attached to the specified PID
 	ErrAlreadyAttached = errors.New("receiver already attached")
@@ -28,19 +35,26 @@ var (
 	ErrHostNotFound = errors.New("host not found")
 	// ErrHostAlreadyExists indicates that a host with the given ID is already registered
 	ErrHostAlreadyExists = errors.New("host already exists")
-	// ErrUpstreamNotFound indicates that the requested upstream connection is not available
-	ErrUpstreamNotFound = errors.New("upstream not found")
 )
 
 type (
+	// NodeID uniquely identifies a node in the pubsub network
 	NodeID = string
+
+	// HostID uniquely identifies a host within a node
 	HostID = string
 
+	// PID represents a Process Identifier that uniquely identifies a process in the system.
+	// It contains node, host, process ID, and a unique identifier components.
 	PID struct {
-		Node   NodeID      `json:"node"`
-		Host   HostID      `json:"host"`
-		ID     registry.ID `json:"id"`
-		UniqID string      `json:"uniq_id"`
+		// Node identifies which node the process belongs to
+		Node NodeID `json:"node"`
+		// Host identifies which host the process belongs to
+		Host HostID `json:"host"`
+		// ID contains the process's registry identifier
+		ID registry.ID `json:"id"`
+		// UniqID contains a unique instance identifier
+		UniqID string `json:"uniq_id"`
 	}
 
 	// Topic represents a string identifier for a message channel or category
@@ -48,47 +62,39 @@ type (
 
 	// Message represents a single message in the pub/sub system containing a topic and payload data
 	Message struct {
-		Topic    Topic
+		// Topic identifies the message category
+		Topic Topic
+		// Payloads contains the actual message data
 		Payloads payload.Payloads
 	}
 
 	// Host defines an interface for components that can receive and forward messages
 	Host interface {
 		Receiver
+		// Attach connects a process (identified by PID) to a message channel
+		// Returns a cancel function to detach and any error that occurred
 		Attach(PID, chan *Package) (context.CancelFunc, error)
+		// Detach disconnects a process (identified by PID) from the host
 		Detach(PID)
 	}
 
 	// Node represents a messaging node that can host and route messages between multiple hosts
 	Node interface {
 		Host
+		// ID returns the unique identifier for this node
 		ID() NodeID
+		// HostRegister adds a host to this node with the specified ID
 		RegisterHost(HostID, Host) error
+		// UnregisterHost removes a host from this node
 		UnregisterHost(HostID)
 	}
 
 	// Receiver defines the interface for components that can send messages upstream in the pub/sub system
 	Receiver interface {
+		// Send dispatches a package to the upstream receiver
 		Send(*Package) error
 	}
 )
-
-// GetNode retrieves the Node instance from the provided context
-func GetNode(ctx context.Context) Node {
-	return ctx.Value(contextApi.NodeCtx).(Node)
-}
-
-func WithNode(ctx context.Context, node Node) context.Context {
-	return context.WithValue(ctx, contextApi.NodeCtx, node)
-}
-
-func GetHost(ctx context.Context) Host {
-	return ctx.Value(contextApi.HostCtx).(Host)
-}
-
-func WithHost(ctx context.Context, host Host) context.Context {
-	return context.WithValue(ctx, contextApi.HostCtx, host)
-}
 
 // String formats the PID as a pipe-delimited string wrapped in curly braces.
 // Without a node it looks like: "{host|ns:name|procname}"
@@ -107,10 +113,12 @@ func (p PID) String() string {
 // It accepts the following formats:
 //   - "{host|ns:name|procname}"
 //   - "{node@host|ns:name|procname}"
+//
+// Returns the parsed PID and any error that occurred during parsing.
 func ParsePID(s string) (PID, error) {
 	var pid PID
 
-	// Remove wrapping curly braces, if present.
+	// Done wrapping curly braces, if present.
 	s = strings.TrimPrefix(s, "{")
 	s = strings.TrimSuffix(s, "}")
 
@@ -128,7 +136,7 @@ func ParsePID(s string) (PID, error) {
 		pid.Host = hostPart
 	}
 
-	// Parse the composite Process and process name.
+	// Parse the registry ID and process name.
 	pid.ID = registry.ParseID(parts[1])
 	pid.UniqID = parts[2]
 

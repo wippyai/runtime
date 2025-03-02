@@ -1,3 +1,4 @@
+// Package pubsub provides a publish-subscribe messaging system for inter-component communication.
 package pubsub
 
 import (
@@ -5,12 +6,16 @@ import (
 	"sync"
 )
 
-// Package combines a Process ID with a batch of messages for tracking message origin
+// Package combines a Process Source with a batch of messages for tracking message origin.
+// It serves as the primary container for message delivery in the pub/sub system.
 type Package struct {
-	PID      PID
+	// PID identifies the process that originated the messages
+	PID PID
+	// Messages contains the collection of messages in this package
 	Messages []*Message
 }
 
+// Object pool for Package instances to reduce memory allocation overhead
 var packagePool = sync.Pool{
 	New: func() interface{} {
 		return &Package{
@@ -19,12 +24,14 @@ var packagePool = sync.Pool{
 	},
 }
 
-// AcquirePackage gets a Package from the pool or creates a new one
+// AcquirePackage gets a Package from the pool or creates a new one.
+// This helps reduce memory allocations and garbage collection overhead.
 func AcquirePackage() *Package {
 	return packagePool.Get().(*Package)
 }
 
-// ReleasePackage returns a Package to the pool after cleaning it
+// ReleasePackage returns a Package to the pool after cleaning it.
+// This should be called when the package is no longer needed to enable reuse.
 func ReleasePackage(p *Package) {
 	if p == nil {
 		return
@@ -37,8 +44,8 @@ func ReleasePackage(p *Package) {
 	packagePool.Put(p)
 }
 
-// NewPackage creates a new message batch with the specified topic and payload items
-// This is now implemented using the pool
+// NewPackage creates a new message package with the specified process ID, topic, and payload items.
+// This is implemented using the object pool to improve performance.
 func NewPackage(pid PID, topic Topic, payloads ...payload.Payload) *Package {
 	p := AcquirePackage()
 	p.PID = pid
@@ -49,7 +56,8 @@ func NewPackage(pid PID, topic Topic, payloads ...payload.Payload) *Package {
 	return p
 }
 
-// AddMessage adds a new message to the package
+// AddMessage adds a new message to the package with the specified topic and payload items.
+// Multiple messages with different topics can be added to a single package.
 func (p *Package) AddMessage(topic Topic, payloads ...payload.Payload) {
 	p.Messages = append(p.Messages, &Message{
 		Topic:    topic,

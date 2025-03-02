@@ -11,7 +11,6 @@ import (
 
 	coderws "github.com/coder/websocket"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/async"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -99,15 +98,8 @@ func TestWebSocketClient(t *testing.T) {
 		err = vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		channels := channel.NewChannelLayer()
-		asyncRunner := async.NewAsyncLayer(channels, 4096)
-		runner := engine.NewRunner(vm,
-			engine.WithLayer(asyncRunner),
-			engine.WithLayer(channels),
-		)
-		ctx := engine.WithTaskGroup(context.Background(), runner.GetTaskGroup())
-		ctx = asyncRunner.WithContext(ctx)
-		result, err := runner.Execute(ctx, "test")
+		runner := engine.NewRunner(vm, engine.WithLayer(channel.NewChannelLayer()))
+		result, err := runner.Execute(context.Background(), "test")
 		require.NoError(t, err)
 		assert.Equal(t, "success", result.String())
 	})
@@ -148,15 +140,8 @@ func TestWebSocketClient(t *testing.T) {
 		err = vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		channels := channel.NewChannelLayer()
-		asyncRunner := async.NewAsyncLayer(channels, 4096)
-		runner := engine.NewRunner(vm,
-			engine.WithLayer(asyncRunner),
-			engine.WithLayer(channels),
-		)
-		ctx := engine.WithTaskGroup(context.Background(), runner.GetTaskGroup())
-		ctx = asyncRunner.WithContext(ctx)
-		result, err := runner.Execute(ctx, "test")
+		runner := engine.NewRunner(vm, engine.WithLayer(channel.NewChannelLayer()))
+		result, err := runner.Execute(context.Background(), "test")
 		require.NoError(t, err)
 		assert.Equal(t, "success", result.String())
 	})
@@ -215,15 +200,8 @@ func TestWebSocketClient(t *testing.T) {
 		err = vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		channels := channel.NewChannelLayer()
-		asyncRunner := async.NewAsyncLayer(channels, 4096)
-		runner := engine.NewRunner(vm,
-			engine.WithLayer(asyncRunner),
-			engine.WithLayer(channels),
-		)
-		ctx := engine.WithTaskGroup(context.Background(), runner.GetTaskGroup())
-		ctx = asyncRunner.WithContext(ctx)
-		result, err := runner.Execute(ctx, "test")
+		runner := engine.NewRunner(vm, engine.WithLayer(channel.NewChannelLayer()))
+		result, err := runner.Execute(context.Background(), "test")
 		require.NoError(t, err)
 		assert.Equal(t, "success", result.String())
 	})
@@ -288,15 +266,8 @@ func TestWebSocketClient(t *testing.T) {
 		err = vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		channels := channel.NewChannelLayer()
-		asyncRunner := async.NewAsyncLayer(channels, 4096)
-		runner := engine.NewRunner(vm,
-			engine.WithLayer(asyncRunner),
-			engine.WithLayer(channels),
-		)
-		ctx := engine.WithTaskGroup(context.Background(), runner.GetTaskGroup())
-		ctx = asyncRunner.WithContext(ctx)
-		result, err := runner.Execute(ctx, "test")
+		runner := engine.NewRunner(vm, engine.WithLayer(channel.NewChannelLayer()))
+		result, err := runner.Execute(context.Background(), "test")
 		require.NoError(t, err)
 		assert.Equal(t, "success", result.String())
 	})
@@ -336,15 +307,8 @@ func TestWebSocketModule(t *testing.T) {
 		err = vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		channels := channel.NewChannelLayer()
-		asyncRunner := async.NewAsyncLayer(channels, 4096)
-		runner := engine.NewRunner(vm,
-			engine.WithLayer(asyncRunner),
-			engine.WithLayer(channels),
-		)
-		ctx := engine.WithTaskGroup(context.Background(), runner.GetTaskGroup())
-		ctx = asyncRunner.WithContext(ctx)
-		result, err := runner.Execute(ctx, "test")
+		runner := engine.NewRunner(vm, engine.WithLayer(channel.NewChannelLayer()))
+		result, err := runner.Execute(context.Background(), "test")
 		require.NoError(t, err)
 		assert.Equal(t, "success", result.String())
 	})
@@ -389,15 +353,8 @@ func TestWebSocketModule(t *testing.T) {
 		err = vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		channels := channel.NewChannelLayer()
-		asyncRunner := async.NewAsyncLayer(channels, 4096)
-		runner := engine.NewRunner(vm,
-			engine.WithLayer(asyncRunner),
-			engine.WithLayer(channels),
-		)
-		ctx := engine.WithTaskGroup(context.Background(), runner.GetTaskGroup())
-		ctx = asyncRunner.WithContext(ctx)
-		result, err := runner.Execute(ctx, "test")
+		runner := engine.NewRunner(vm, engine.WithLayer(channel.NewChannelLayer()))
+		result, err := runner.Execute(context.Background(), "test")
 		require.NoError(t, err)
 		assert.Equal(t, "success", result.String())
 	})

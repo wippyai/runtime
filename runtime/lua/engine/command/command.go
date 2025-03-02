@@ -1,20 +1,13 @@
 package command
 
 import (
-	"errors"
 	"fmt"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	lua "github.com/yuin/gopher-lua"
-	"sync/atomic"
 )
 
 // Type represents the type of command operation
 type Type string
-
-var (
-	ErrCommandCanceled = errors.New("command canceled")
-	commandCounter     atomic.Uint64
-)
 
 // NewCommand creates a new command with a response channel
 func NewCommand(cmdType Type, params ...lua.LValue) (*Command, error) {
@@ -38,6 +31,8 @@ func NewCommand(cmdType Type, params ...lua.LValue) (*Command, error) {
 		responseVal: ch.Value(),
 	}, nil
 }
+
+// todo: add proper cancel
 
 // Command represents an async operation request
 type Command struct {
@@ -87,4 +82,14 @@ func (c *Command) SetError(err error) {
 // Cancel marks command as canceled
 func (c *Command) Cancel() {
 	c.SetError(ErrCommandCanceled)
+}
+
+// String implements fmt.Stringer for Command
+func (c *Command) String() string {
+	return fmt.Sprintf("command{type=%s completed=%v}", c.cmdType, c.completed)
+}
+
+// Type implements lua.LValue interface
+func (c *Command) Type() lua.LValueType {
+	return lua.LTUserData
 }

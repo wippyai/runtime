@@ -2,53 +2,47 @@ package time
 
 import (
 	"fmt"
+	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"time"
 
-	"github.com/ponyruntime/pony/runtime/lua/engine/async"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
-	"github.com/ponyruntime/pony/runtime/uow"
 	lua "github.com/yuin/gopher-lua"
 )
 
 func after(l *lua.LState) int {
 	// Get UoW from context
-	uw := uow.FromContext(l.Context())
+	uw := engine.GetUnitOfWork(l.Context())
 	if uw == nil {
-		l.RaiseError("time.after: unit of work missing")
+		l.RaiseError("time.After: unit of work missing")
 		return 0
 	}
 
 	duration, err := parseDurationValue(l.Get(1))
 	if err != nil {
-		l.RaiseError("time.after: %s", err)
+		l.RaiseError("time.After: %s", err)
 		return 0
 	}
 
 	if duration <= 0 {
-		l.RaiseError("time.after: duration must be > 0")
+		l.RaiseError("time.After: duration must be > 0")
 		return 0
 	}
 
 	// Create channel using UoW context
 	ch := channel.Named(fmt.Sprintf("timer_%s", duration), 1)
 
-	// Start timer goroutine
-	go func() {
+	uw.Run(func(uw engine.UnitOfWork) {
 		select {
 		case <-time.After(duration):
-			// Timer completed, send result
-			if err := async.Send(l, ch, lua.LBool(true), true); err != nil {
-				// Log error if needed
+			if err := channel.Send(l, ch, lua.LBool(true)); err != nil {
 				return
 			}
 		case <-uw.Context().Done():
-			// UoW closed, cleanup
 			return
 		}
 
-		// Close channel after sending or when cancelled
-		_ = async.Send(l, ch, lua.LNil, false)
-	}()
+		_ = channel.Close(l, ch)
+	})
 
 	l.Push(channel.Wrap(l, ch))
 	return 1

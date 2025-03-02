@@ -4,9 +4,8 @@ import (
 	"context"
 	"fmt"
 	"github.com/coder/websocket"
-	"github.com/ponyruntime/pony/runtime/lua/engine/async"
+	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
-	"github.com/ponyruntime/pony/runtime/uow"
 	lua "github.com/yuin/gopher-lua"
 	"net/http"
 	"sync"
@@ -14,7 +13,7 @@ import (
 )
 
 // MessageType represents the type of WebSocket message.
-type MessageType string
+type MessageType = string
 
 // WebSocket message types.
 const (
@@ -166,16 +165,16 @@ func wsConnect(l *lua.LState) int {
 	}
 
 	// Setup context with uw.
-	ctx := l.Context()
-	uw := uow.FromContext(ctx)
+	uw := engine.GetUnitOfWork(l.Context())
 	if uw == nil {
-		ctx, uw = uow.OnContext(ctx)
+		l.RaiseError("no unit of work found")
+		return 0
 	}
 
+	dialCtx := uw.Context()
+	var dialCancel context.CancelFunc
 	if dialTimeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, dialTimeout)
-		uw.AddCleanupFunc(cancel)
+		dialCtx, dialCancel = context.WithTimeout(dialCtx, dialTimeout)
 	}
 
 	opts := &websocket.DialOptions{
@@ -186,7 +185,11 @@ func wsConnect(l *lua.LState) int {
 	}
 
 	// Establish connection.
-	conn, _, err := websocket.Dial(ctx, url, opts)
+	conn, _, err := websocket.Dial(dialCtx, url, opts)
+	if dialCancel != nil {
+		dialCancel()
+	}
+
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
@@ -194,7 +197,7 @@ func wsConnect(l *lua.LState) int {
 	}
 
 	// Spawn receive channel with a unique name using the configured capacity.
-	recvCh := channel.Named(fmt.Sprintf("ws_%p", conn), channelCapacity)
+	recvCh := channel.Named(fmt.Sprintf("ws.%p", conn), channelCapacity)
 
 	// Spawn client instance.
 	client := &wsClient{
@@ -207,73 +210,64 @@ func wsConnect(l *lua.LState) int {
 	// Spawn and store channel wrapper.
 	client.recvValue = channel.Wrap(l, recvCh)
 
-	// AddCleanup connection uw.
-	uw.AddCleanupFunc(func() {
-		client.closeOnce.Do(func() {
+	uw.Run(func(uw engine.UnitOfWork) {
+		defer client.closeOnce.Do(func() {
 			_ = client.conn.Close(websocket.StatusGoingAway, "connection closed")
 		})
-	})
 
-	// Launch read loop.
-	go client.readLoop(l)
+		client.readLoop(l, uw)
+	})
 
 	// Spawn userdata and set metatable.
 	ud := l.NewUserData()
 	ud.Value = &LuaWSClient{client: client}
-	l.SetMetatable(ud, l.GetTypeMetatable("WebSocketClient"))
+	l.SetMetatable(ud, l.GetTypeMetatable("websocket.Client"))
 	l.Push(ud)
 	return 1
 }
 
 // readLoop continuously reads messages from the connection.
-func (c *wsClient) readLoop(l *lua.LState) {
-	ctx := l.Context()
-
+func (c *wsClient) readLoop(l *lua.LState, uw engine.UnitOfWork) {
 	for {
-		var readCtx context.Context
-		var cancel context.CancelFunc
-
+		readCtx := uw.Context()
+		var readCancel context.CancelFunc
 		if c.readTimeout > 0 {
-			readCtx, cancel = context.WithTimeout(ctx, c.readTimeout)
-		} else {
-			readCtx = ctx
+			readCtx, readCancel = context.WithTimeout(uw.Context(), c.readTimeout)
 		}
 
 		msgType, data, err := c.conn.Read(readCtx)
-		if cancel != nil {
-			cancel()
+		if readCancel != nil {
+			readCancel()
 		}
 
+		msg := l.NewTable()
 		if err != nil {
 			if websocket.CloseStatus(err) == websocket.StatusNormalClosure {
-				msgTbl := l.NewTable()
-				l.SetField(msgTbl, "type", lua.LString(TypeClose))
-				l.SetField(msgTbl, "code", lua.LNumber(CloseCodeNormal))
-				l.SetField(msgTbl, "reason", lua.LString("normal closure"))
-				_ = async.Send(l, c.recvCh, msgTbl, true)
+				msg.RawSetString("code", lua.LString(TypeClose))
+				msg.RawSetString("reason", lua.LString("normal closure"))
+				msg.RawSetString("type", lua.LString(TypeClose))
 			} else {
-				msgTbl := l.NewTable()
-				l.SetField(msgTbl, "type", lua.LString(websocket.CloseStatus(err).String()))
-				l.SetField(msgTbl, "code", lua.LNumber(websocket.CloseStatus(err)))
-				l.SetField(msgTbl, "reason", lua.LString(err.Error()))
-				_ = async.Send(l, c.recvCh, msgTbl, true)
+				msg.RawSetString("type", lua.LString(websocket.CloseStatus(err).String()))
+				msg.RawSetString("code", lua.LNumber(websocket.CloseStatus(err)))
+				msg.RawSetString("reason", lua.LString(err.Error()))
 			}
-			_ = async.Close(l, c.recvCh)
+
+			_ = channel.Send(l, c.recvCh, msg)
+			_ = channel.Close(l, c.recvCh)
 			break
 		}
 
-		// Spawn message table.
-		msgTbl := l.NewTable()
 		switch msgType {
 		case websocket.MessageText:
-			l.SetField(msgTbl, "type", lua.LString(TypeText))
-			l.SetField(msgTbl, "data", lua.LString(string(data)))
+
+			msg.RawSetString("type", lua.LString(TypeText))
 		case websocket.MessageBinary:
-			l.SetField(msgTbl, "type", lua.LString(TypeBinary))
-			l.SetField(msgTbl, "data", lua.LString(data))
+			msg.RawSetString("type", lua.LString(TypeBinary))
 		}
 
-		_ = async.Send(l, c.recvCh, msgTbl, true)
+		msg.RawSetString("data", lua.LString(data))
+
+		_ = channel.Send(l, c.recvCh, msg)
 	}
 }
 
@@ -288,17 +282,24 @@ func wsSend(l *lua.LState) int {
 
 	data := l.CheckString(2)
 
-	ctx := l.Context()
-
-	uw := uow.FromContext(ctx)
-
-	if client.client.writeTimeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(uw.Context(), client.client.writeTimeout)
-		uw.AddCleanupFunc(cancel)
+	uw := engine.GetUnitOfWork(l.Context())
+	if uw == nil {
+		l.RaiseError("no unit of work found")
+		return 0
 	}
 
-	if err := client.client.conn.Write(ctx, websocket.MessageText, []byte(data)); err != nil {
+	var sendCtx = uw.Context()
+	var sendCancel context.CancelFunc
+	if client.client.writeTimeout > 0 {
+		sendCtx, sendCancel = context.WithTimeout(uw.Context(), client.client.writeTimeout)
+	}
+
+	err = client.client.conn.Write(sendCtx, websocket.MessageText, []byte(data))
+	if sendCancel != nil {
+		sendCancel()
+	}
+
+	if err != nil {
 		l.Push(lua.LFalse)
 		l.Push(lua.LString(err.Error()))
 		return 2
@@ -329,15 +330,6 @@ func wsClose(l *lua.LState) int {
 
 	var closeErr error
 	client.client.closeOnce.Do(func() {
-		uw := uow.FromContext(l.Context())
-
-		var cancel context.CancelFunc
-		ctx := uw.Context()
-		if client.client.writeTimeout > 0 {
-			ctx, cancel = context.WithTimeout(ctx, client.client.writeTimeout)
-			defer cancel()
-		}
-
 		closeErr = client.client.conn.Close(code, reason)
 	})
 

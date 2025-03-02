@@ -48,7 +48,7 @@ type (
 	// RouterConfig represents the configuration for a group of endpoints (a router).
 	RouterConfig struct {
 		Meta        registry.Metadata `json:"meta"`        // Metadata
-		Server      registry.ID       `json:"server"`      // Server ID
+		Server      registry.ID       `json:"server"`      // Server Source
 		Prefix      string            `json:"prefix"`      // URL prefix for this group
 		Middlewares []string          `json:"middlewares"` // Middleware names
 		Options     map[string]string `json:"options"`     // Middleware options
@@ -193,10 +193,6 @@ func (c *RouterConfig) Validate() error {
 func (c *EndpointConfig) Validate() error {
 	if c.Func.Name == "" {
 		return fmt.Errorf("func name cannot be empty")
-	}
-
-	if c.Func.NS == "" {
-		return fmt.Errorf("func namespace cannot be empty")
 	}
 
 	if c.Path == "" {

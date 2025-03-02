@@ -251,8 +251,8 @@ func tableGetColumns(l *lua.LState) int {
 	lt := l.NewTable()
 	for i, col := range cols {
 		colTbl := l.NewTable()
-		l.SetField(colTbl, "title", lua.LString(col.Title))
-		l.SetField(colTbl, "width", lua.LNumber(col.Width))
+		colTbl.RawSetString("title", lua.LString(col.Title))
+		colTbl.RawSetString("width", lua.LNumber(col.Width))
 		lt.RawSetInt(i+1, colTbl)
 	}
 	l.Push(lt)

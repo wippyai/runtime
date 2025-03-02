@@ -373,7 +373,7 @@ func TestNodeLevelInfinity(t *testing.T) {
 			t.Errorf("expected Infinity for non-existent node, got %d", level)
 		}
 
-		// Remove node and get new levels
+		// Done node and get new levels
 		err = g.RemoveNode("B")
 		if err != nil {
 			t.Fatalf("unexpected error removing node: %v", err)

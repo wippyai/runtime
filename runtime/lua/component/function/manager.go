@@ -8,14 +8,12 @@ import (
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/runtime/lua/component"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/async"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
-	"github.com/ponyruntime/pony/runtime/uow"
 	lua "github.com/yuin/gopher-lua"
 	"sync"
 
-	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
 	api "github.com/ponyruntime/pony/api/runtime/lua"
@@ -35,31 +33,28 @@ func init() {
 		WithMode(code.AllowAll).
 		WithDenied(registry.ID{Name: "command"}).
 		WithDenied(registry.ID{Name: "pubsub"}).
-		WithDenied(registry.ID{Name: "process"}).
 		WithPreloaded(code.Preload{Name: "channel", ModuleID: registry.ID{Name: "channel"}}).
-		WithPreloaded(code.Preload{Name: "func", ModuleID: registry.ID{Name: "func"}})
+		WithPreloaded(code.Preload{Name: "process", ModuleID: registry.ID{Name: "process"}}).
+		WithPreloaded(code.Preload{Name: "async_inbox", ModuleID: registry.ID{Name: "async_inbox"}}).
+		WithPreloaded(code.Preload{Name: "os", ModuleID: registry.ID{Name: "ostime"}})
 
-	layers = component.WithLayerInitializer(func() []engine.RunnerOption {
-		channels := channel.NewChannelLayer()
-		return []engine.RunnerOption{
-			engine.WithLayer(channels),
-			engine.WithLayer(async.NewAsyncLayer(channels, 4096)),
-			engine.WithLayer(coroutine.NewCoroutineLayer()),
-		}
-	})
+	layers = component.WithRunnerOption(
+		engine.WithLayer(channel.NewChannelLayer()),
+		engine.WithLayer(coroutine.NewCoroutineLayer()),
+	)
 }
 
 // Manager handles Lua function compilation, pooling and execution
 type Manager struct {
 	log     *zap.Logger
 	code    *code.Manager
-	bus     events.Bus
-	vms     sync.Map // map[registry.ID]api.Callable
-	configs sync.Map // map[registry.ID]*api.FunctionConfig
+	bus     event.Bus
+	vms     sync.Map // map[registry.Source]api.Callable
+	configs sync.Map // map[registry.Source]*api.FunctionConfig
 }
 
 // NewManager creates a new function manager instance
-func NewManager(log *zap.Logger, code *code.Manager, bus events.Bus) *Manager {
+func NewManager(log *zap.Logger, code *code.Manager, bus event.Bus) *Manager {
 	return &Manager{
 		log:  log,
 		code: code,
@@ -90,6 +85,7 @@ func (m *Manager) pushHandler(id registry.ID, cfg *api.FunctionConfig) error {
 	// Close old pool if it exists
 	if exists {
 		if closer, ok := oldPool.(api.VM); ok {
+			// should let it finish before closing
 			closer.Close()
 		}
 	}
@@ -118,7 +114,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	}
 
 	// AddCleanup to code manager
-	if err := m.code.AddNode(ctx, node, component.BuildImports(cfg.Import, cfg.Modules)); err != nil {
+	if err := m.code.AddNode(ctx, node, component.BuildImports(cfg.Imports, cfg.Modules)); err != nil {
 		return fmt.Errorf("failed to add function: %w", err)
 	}
 
@@ -155,7 +151,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	}
 
 	// Update in code manager
-	if err := m.code.UpdateNode(ctx, node, component.BuildImports(cfg.Import, cfg.Modules)); err != nil {
+	if err := m.code.UpdateNode(ctx, node, component.BuildImports(cfg.Imports, cfg.Modules)); err != nil {
 		return fmt.Errorf("failed to update function node: %w", err)
 	}
 
@@ -187,7 +183,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 		}
 	}
 
-	// Remove config
+	// Done config
 	m.configs.Delete(entry.ID)
 
 	// Unregister function caller
@@ -243,7 +239,7 @@ func (m *Manager) Execute(ctx context.Context, task runtime.Task) (chan *runtime
 
 	ctx = logs.WithLogger(ctx, m.log.With(zap.String("func", task.ID.String())))
 
-	// Execute in goroutine to handle async results
+	// Start in goroutine to handle async results
 	go func() {
 		defer close(resultChan)
 
@@ -268,17 +264,9 @@ func (m *Manager) Execute(ctx context.Context, task runtime.Task) (chan *runtime
 			args[i] = luaPayload.Data().(lua.LValue)
 		}
 
-		ctx, uw := uow.OnContext(ctx)
-		defer func() {
-			err := uw.Close()
-			if err != nil {
-				m.log.Error("failed to close unit of work", zap.Error(err))
-			}
-		}()
-
 		result, err := vm.Execute(ctx, method, args...)
 		if err != nil {
-			m.log.Error("failed to execute function", zap.Error(err))
+			m.log.Error("failed to execute function", zap.Error(err), zap.String("func", task.ID.String()))
 		}
 		select {
 		case resultChan <- &runtime.Result{
@@ -320,9 +308,9 @@ func (m *Manager) createPool(cfg *api.FunctionConfig, compiled *code.CompiledMai
 
 // registerCaller registers function in the function system
 func (m *Manager) registerCaller(ctx context.Context, id registry.ID, method string) {
-	m.bus.Send(ctx, events.Event{
+	m.bus.Send(ctx, event.Event{
 		System: function.System,
-		Kind:   function.FuncRegister,
+		Kind:   function.Register,
 		Path:   id.String(),
 		Data:   function.Func(m.Execute),
 	})
@@ -330,9 +318,9 @@ func (m *Manager) registerCaller(ctx context.Context, id registry.ID, method str
 
 // unregisterCaller removes function from the function system
 func (m *Manager) unregisterCaller(ctx context.Context, id registry.ID) {
-	m.bus.Send(ctx, events.Event{
+	m.bus.Send(ctx, event.Event{
 		System: function.System,
-		Kind:   function.FuncDelete,
+		Kind:   function.Delete,
 		Path:   id.String(),
 	})
 }

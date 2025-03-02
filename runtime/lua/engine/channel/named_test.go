@@ -2,7 +2,6 @@ package channel
 
 import (
 	"context"
-	"github.com/ponyruntime/pony/runtime/uow"
 	"strings"
 	"testing"
 
@@ -38,10 +37,8 @@ func TestNamedChannelSend(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	tg := engine.NewTaskGroup(100)
-	ctx, uw := uow.OnContext(context.Background())
+	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
 	defer func() { _ = uw.Close() }()
-	ctx = engine.WithTaskGroup(ctx, tg)
 
 	err = vm.StartString(ctx, `
 		-- Spawn two named channels
@@ -56,26 +53,30 @@ func TestNamedChannelSend(t *testing.T) {
 	assert.NoError(t, err)
 
 	runtime := NewChannelLayer()
+
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 	assert.Equal(t, 0, len(tasks), "expected no tasks")
 
-	assert.Equal(t, 1, tg.GetTaskCount(), "expected 1 task blocked")
+	assert.Equal(t, 1, uw.Tasks().Count(), "expected 1 task blocked")
 
 	// assert open chans
-	channels := runtime.GetActiveChannels()
+	channels := GetActiveChannels(ctx)
 	assert.Equal(t, 1, len(channels), "expected 1 open channel")
 	assert.Equal(t, "channel1", channels[0].Name, "unexpected channel name")
 
 	// send value to named channel
-	err = runtime.Send(ctx, named["channel1"], lua.LString("value1"))
+	err = send(ctx, named["channel1"], lua.LString("value1"))
 	assert.NoError(t, err)
 
 	// Step again
-	group, err := tg.Wait(ctx, vm, false)
+	upd, err := uw.Tasks().Wait(ctx, false)
 	assert.NoError(t, err)
 
-	tasks, err = runtime.Step(vm, group...)
+	scheduled, err := engine.GetTasks(vm, upd...)
+	assert.NoError(t, err)
+
+	tasks, err = runtime.Step(vm, scheduled...)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, len(tasks), "expected 1 task")
 
@@ -108,10 +109,8 @@ func TestNamedChannelSelectVisibility(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	tg := engine.NewTaskGroup(100)
-	ctx, uw := uow.OnContext(context.Background())
+	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
 	defer func() { _ = uw.Close() }()
-	ctx = engine.WithTaskGroup(ctx, tg)
 
 	err = vm.StartString(ctx, `
 		-- Spawn named channels with different capacities 
@@ -133,7 +132,7 @@ func TestNamedChannelSelectVisibility(t *testing.T) {
 
 		-- Ready for send
 		coroutine.yield("ready_for_send")
-
+print("OOO")
 		-- wait for completion
 		local msg = done:receive()
 		coroutine.yield("done")
@@ -142,12 +141,13 @@ func TestNamedChannelSelectVisibility(t *testing.T) {
 	assert.NoError(t, err)
 
 	runtime := NewChannelLayer()
+
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
 	var yields []string
 	checkChannels := func(expectedNames []string) {
-		channels := runtime.GetActiveChannels()
+		channels := GetActiveChannels(ctx)
 		assert.Equal(t, len(expectedNames), len(channels), "unexpected number of open channels")
 
 		actualNames := make(map[string]bool)
@@ -173,7 +173,7 @@ func TestNamedChannelSelectVisibility(t *testing.T) {
 					checkChannels([]string{"select_ch1", "select_ch2"})
 				case "ready_for_send":
 					// send value through runtime to ch1 using task group
-					err := runtime.Send(ctx, named["select_ch1"], lua.LString("value1"))
+					err := send(ctx, named["select_ch1"], lua.LString("value1"))
 					assert.NoError(t, err)
 				case "done":
 					checkChannels([]string{})
@@ -181,9 +181,13 @@ func TestNamedChannelSelectVisibility(t *testing.T) {
 			}
 		}
 
-		group, err := tg.Wait(ctx, vm, false)
+		updates, err := uw.Tasks().Wait(ctx, false)
 		assert.NoError(t, err)
-		tasks, err = runtime.Step(vm, append(group, tasks...)...)
+
+		scheduled, err := engine.GetTasks(vm, updates...)
+		assert.NoError(t, err)
+
+		tasks, err = runtime.Step(vm, append(scheduled, tasks...)...)
 		assert.NoError(t, err)
 	}
 
@@ -222,10 +226,8 @@ func TestNamedChannelSelectDefaultCase(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	tg := engine.NewTaskGroup(100)
-	ctx, uw := uow.OnContext(context.Background())
+	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
 	defer func() { _ = uw.Close() }()
-	ctx = engine.WithTaskGroup(ctx, tg)
 
 	err = vm.StartString(ctx, `
 		-- Spawn named channels
@@ -245,11 +247,12 @@ func TestNamedChannelSelectDefaultCase(t *testing.T) {
 	assert.NoError(t, err)
 
 	runtime := NewChannelLayer()
+
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
 	// Check that no channels are visible since select with default doesn't block
-	channels := runtime.GetActiveChannels()
+	channels := GetActiveChannels(ctx)
 	assert.Equal(t, 0, len(channels), "expected no visible channels with default case")
 
 	var yields []string
@@ -260,9 +263,13 @@ func TestNamedChannelSelectDefaultCase(t *testing.T) {
 			}
 		}
 
-		group, err := tg.Wait(ctx, vm, false)
+		updates, err := uw.Tasks().Wait(ctx, false)
 		assert.NoError(t, err)
-		tasks, err = runtime.Step(vm, append(group, tasks...)...)
+
+		scheduled, err := engine.GetTasks(vm, updates...)
+		assert.NoError(t, err)
+
+		tasks, err = runtime.Step(vm, append(scheduled, tasks...)...)
 		assert.NoError(t, err)
 	}
 
@@ -295,10 +302,8 @@ func TestNamedChannelMultipleReceivers(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	tg := engine.NewTaskGroup(100)
-	ctx, uw := uow.OnContext(context.Background())
+	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
 	defer func() { _ = uw.Close() }()
-	ctx = engine.WithTaskGroup(ctx, tg)
 
 	err = vm.StartString(ctx, `
 		-- Spawn channels
@@ -306,7 +311,7 @@ func TestNamedChannelMultipleReceivers(t *testing.T) {
 		local results = channel.new(3) -- To collect results in order
 		local order = 1 -- Track order of reception
 
-		-- Launch 3 coroutines that will wait for values
+		-- Launch 3 coroutines that will wait for Result
 		for i = 1, 3 do
 			coroutine.spawn(function()
 				local current = order
@@ -332,8 +337,8 @@ func TestNamedChannelMultipleReceivers(t *testing.T) {
 			coroutine.yield("collected_result_" .. i)
 		end
 
-		-- Verify all values were received
-		assert(#received == 3, "should receive exactly 3 values")
+		-- Verify all Result were received
+		assert(#received == 3, "should receive exactly 3 Result")
 
 		-- Sort by order of setup to ensure deterministic verification
 		table.sort(received, function(a, b) return a.order < b.order end)
@@ -354,6 +359,7 @@ func TestNamedChannelMultipleReceivers(t *testing.T) {
 	assert.NoError(t, err)
 
 	runtime := NewChannelLayer()
+
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -367,15 +373,15 @@ func TestNamedChannelMultipleReceivers(t *testing.T) {
 				yield := task.Yielded[0].String()
 				yields = append(yields, yield)
 
-				// Once we see receivers are ready, check channels and send values
+				// Once we see receivers are ready, check channels and send Result
 				if yield == "receivers_ready" && !valuesDelivered {
-					channels := runtime.GetActiveChannels()
+					channels := GetActiveChannels(ctx)
 					assert.Equal(t, 1, len(channels), "expected exactly one visible channel")
 					assert.Equal(t, "test_channel", channels[0].Name, "unexpected channel name")
 					assert.Equal(t, 3, channels[0].Refs, "expected 3 references to channel")
 
-					// send all values to the named channel
-					err = runtime.Send(
+					// send all Result to the named channel
+					err = send(
 						ctx,
 						named["test_channel"],
 						lua.LString("value1"), // Should go to first waiting routine
@@ -392,9 +398,13 @@ func TestNamedChannelMultipleReceivers(t *testing.T) {
 			}
 		}
 
-		group, err := tg.Wait(ctx, vm, false)
+		updates, err := uw.Tasks().Wait(ctx, false)
 		assert.NoError(t, err)
-		tasks, err = runtime.Step(vm, append(group, tasks...)...)
+
+		scheduled, err := engine.GetTasks(vm, updates...)
+		assert.NoError(t, err)
+
+		tasks, err = runtime.Step(vm, append(scheduled, tasks...)...)
 		assert.NoError(t, err)
 	}
 
@@ -424,7 +434,7 @@ func TestNamedChannelMultipleReceivers(t *testing.T) {
 	assert.Contains(t, yields, "verification_complete", "missing final verification")
 
 	// no pending named
-	channels := runtime.GetActiveChannels()
+	channels := GetActiveChannels(ctx)
 	assert.Equal(t, 0, len(channels), "expected no visible channels after completion")
 
 	// Count result collections
@@ -461,10 +471,8 @@ func TestBufferedNamedChannelWriteCapacity(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	tg := engine.NewTaskGroup(100)
-	ctx, uw := uow.OnContext(context.Background())
+	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
 	defer func() { _ = uw.Close() }()
-	ctx = engine.WithTaskGroup(ctx, tg)
 
 	err = vm.StartString(ctx, `
         -- Spawn buffered channel and control channels
@@ -477,7 +485,7 @@ func TestBufferedNamedChannelWriteCapacity(t *testing.T) {
             -- Signal we're starting
             ready:send("ready")
 
-            -- Read values with yields between them to test buffering
+            -- Read Result with yields between them to test buffering
             for i = 1, 5 do
                 local val = ch:receive()
                 coroutine.yield("read_" .. tostring(val))
@@ -499,6 +507,7 @@ func TestBufferedNamedChannelWriteCapacity(t *testing.T) {
 	assert.NoError(t, err)
 
 	runtime := NewChannelLayer()
+
 	tasks, err := runtime.Step(vm)
 	assert.NoError(t, err)
 
@@ -512,29 +521,33 @@ func TestBufferedNamedChannelWriteCapacity(t *testing.T) {
 				yields = append(yields, yield)
 
 				if yield == "main_ready" && !writesDone {
-					// Check channel state
-					channels := runtime.GetActiveChannels()
+					// Check channel State
+					channels := GetActiveChannels(ctx)
 					assert.Equal(t, 1, len(channels), "channel should be visible with reader")
 					assert.Equal(t, "buffered_channel", channels[0].Name)
 					assert.Equal(t, 4, channels[0].Slots, "should have 3 buffer slots + 1 reader")
 
-					// send values to fill buffer and one more for the reader
-					err = runtime.Send(ctx, named["buffered_channel"],
+					// send Result to fill buffer and one more for the reader
+					err = send(ctx, named["buffered_channel"],
 						lua.LString("value1"),
 						lua.LString("value2"),
 						lua.LString("value3"),
 						lua.LString("value4"),
 						lua.LString("value5"),
 					)
-					assert.NoError(t, err, "should succeed in queuing values")
+					assert.NoError(t, err, "should succeed in queuing Result")
 					writesDone = true
 				}
 			}
 		}
 
-		group, err := tg.Wait(ctx, vm, false)
+		updates, err := uw.Tasks().Wait(ctx, false)
 		assert.NoError(t, err)
-		tasks, err = runtime.Step(vm, append(group, tasks...)...)
+
+		scheduled, err := engine.GetTasks(vm, updates...)
+		assert.NoError(t, err)
+
+		tasks, err = runtime.Step(vm, append(scheduled, tasks...)...)
 		assert.NoError(t, err)
 	}
 
@@ -542,7 +555,7 @@ func TestBufferedNamedChannelWriteCapacity(t *testing.T) {
 	assert.Contains(t, yields, "main_ready", "main routine should become ready")
 	assert.Contains(t, yields, "all_complete", "main routine should complete")
 
-	// Check values were read in order
+	// Check Result were read in order
 	var readValues []string
 	for _, yield := range yields {
 		if strings.HasPrefix(yield, "read_value") {
@@ -550,7 +563,7 @@ func TestBufferedNamedChannelWriteCapacity(t *testing.T) {
 		}
 	}
 
-	// Should have read all 5 values in order
+	// Should have read all 5 Result in order
 	expectedReads := []string{
 		"value1",
 		"value2",
@@ -564,7 +577,7 @@ func TestBufferedNamedChannelWriteCapacity(t *testing.T) {
 			"value at position %d should be %s", i, expected)
 	}
 
-	// Verify final state
-	channels := runtime.GetActiveChannels()
+	// Verify final State
+	channels := GetActiveChannels(ctx)
 	assert.Equal(t, 0, len(channels), "no channels should remain visible")
 }

@@ -211,7 +211,7 @@ func TestViewportMouseInteraction(t *testing.T) {
 	require.Equal(t, 1, len(tasks))
 	require.Equal(t, "wheel_down", tasks[0].Yielded[0].String())
 
-	// Send wheel down event (scrolls up)
+	// send wheel down event (scrolls up)
 	wheelDownMsg := protocol.MsgToLua(tea.MouseMsg{
 		Action: tea.MouseActionPress,
 		Button: tea.MouseButtonWheelDown,
@@ -224,7 +224,7 @@ func TestViewportMouseInteraction(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "wheel_up", tasks[0].Yielded[0].String())
 
-	// Send wheel up event (scrolls down)
+	// send wheel up event (scrolls down)
 	wheelUpMsg := protocol.MsgToLua(tea.MouseMsg{
 		Action: tea.MouseActionPress,
 		Button: tea.MouseButtonWheelUp,
@@ -237,7 +237,7 @@ func TestViewportMouseInteraction(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "wheel_disabled", tasks[0].Yielded[0].String())
 
-	// Send wheel event while disabled
+	// send wheel event while disabled
 	wheelDisabledMsg := protocol.MsgToLua(tea.MouseMsg{
 		Action: tea.MouseActionPress,
 		Button: tea.MouseButtonWheelDown,
@@ -298,7 +298,7 @@ func TestViewportUpdate(t *testing.T) {
 	require.Equal(t, 1, len(tasks))
 	require.Equal(t, "ready_for_update", tasks[0].Yielded[0].String())
 
-	// Send update message
+	// send update message
 	updateMsg := protocol.MsgToLua(tea.KeyMsg{Type: tea.KeySpace})
 	tasks[0].Resumed = []lua.LValue{updateMsg}
 

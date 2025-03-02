@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/async"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	"github.com/ponyruntime/pony/runtime/lua/modules/stream"
@@ -38,7 +37,7 @@ func TestProcessBasic(t *testing.T) {
 	wrapped := engine.NewRunner(
 		vm,
 		engine.WithLayer(chans),
-		engine.WithLayer(async.NewAsyncLayer(chans, 10)),
+		engine.WithLayer(channel.NewAsyncLayer(chans, 10)),
 		engine.WithLayer(coroutine.NewCoroutineLayer()),
 	)
 	err = vm.Import(`
@@ -144,7 +143,7 @@ func TestWorkingDir(t *testing.T) {
 	wrapped := engine.NewRunner(
 		vm,
 		engine.WithLayer(chans),
-		engine.WithLayer(async.NewAsyncLayer(chans, 10)),
+		engine.WithLayer(channel.NewAsyncLayer(chans, 10)),
 		engine.WithLayer(coroutine.NewCoroutineLayer()),
 	)
 	err = vm.Import(`
@@ -257,7 +256,7 @@ func TestWriteStdin(t *testing.T) {
 	wrapped := engine.NewRunner(
 		vm,
 		engine.WithLayer(chans),
-		engine.WithLayer(async.NewAsyncLayer(chans, 10)),
+		engine.WithLayer(channel.NewAsyncLayer(chans, 10)),
 		engine.WithLayer(coroutine.NewCoroutineLayer()),
 	)
 	err = vm.Import(`
@@ -314,7 +313,7 @@ func TestMultiplyCallsToStream(t *testing.T) {
 	wrapped := engine.NewRunner(
 		vm,
 		engine.WithLayer(chans),
-		engine.WithLayer(async.NewAsyncLayer(chans, 10)),
+		engine.WithLayer(channel.NewAsyncLayer(chans, 10)),
 		engine.WithLayer(coroutine.NewCoroutineLayer()),
 	)
 	err = vm.Import(`

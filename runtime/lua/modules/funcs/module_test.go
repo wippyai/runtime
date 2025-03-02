@@ -3,10 +3,10 @@ package funcs
 import (
 	"context"
 	"fmt"
+	"github.com/ponyruntime/pony/api/function"
 	"github.com/ponyruntime/pony/api/runtime"
 	"testing"
 
-	contextapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
@@ -91,10 +91,10 @@ func TestExecutorModule(t *testing.T) {
 		}
 
 		tr := createTestTranscoder()
-		ctx = context.WithValue(ctx, contextapi.TranscoderCtx, tr)
-		ctx = context.WithValue(ctx, contextapi.FunctionsCtx, mockExec)
+		ctx = payload.WithTranscoder(ctx, tr)
+		ctx = function.WithFunctions(ctx, mockExec)
 
-		// Execute test
+		// Start test
 		result, err := wrapped.Execute(ctx, "test_call")
 		require.NoError(t, err)
 		assert.Equal(t, "success", result.String())
@@ -131,8 +131,8 @@ func TestExecutorModule(t *testing.T) {
 		}
 
 		tr := createTestTranscoder()
-		ctx = context.WithValue(ctx, contextapi.TranscoderCtx, tr)
-		ctx = context.WithValue(ctx, contextapi.FunctionsCtx, mockExec)
+		ctx = payload.WithTranscoder(ctx, tr)
+		ctx = function.WithFunctions(ctx, mockExec)
 
 		result, err := wrapped.Execute(ctx, "test_multi")
 		require.NoError(t, err)
@@ -169,8 +169,8 @@ func TestExecutorModule(t *testing.T) {
 		}
 
 		tr := createTestTranscoder()
-		ctx = context.WithValue(ctx, contextapi.TranscoderCtx, tr)
-		ctx = context.WithValue(ctx, contextapi.FunctionsCtx, mockExec)
+		ctx = payload.WithTranscoder(ctx, tr)
+		ctx = function.WithFunctions(ctx, mockExec)
 
 		result, err := wrapped.Execute(ctx, "test_run")
 		require.NoError(t, err)
@@ -206,8 +206,8 @@ func TestExecutorModule(t *testing.T) {
 		}
 
 		tr := createTestTranscoder()
-		ctx = context.WithValue(ctx, contextapi.TranscoderCtx, tr)
-		ctx = context.WithValue(ctx, contextapi.FunctionsCtx, mockExec)
+		ctx = payload.WithTranscoder(ctx, tr)
+		ctx = function.WithFunctions(ctx, mockExec)
 
 		result, err := wrapped.Execute(ctx, "test_error")
 		require.NoError(t, err)
@@ -246,8 +246,8 @@ func TestExecutorModule(t *testing.T) {
 		}
 
 		tr := createTestTranscoder()
-		ctx = context.WithValue(ctx, contextapi.TranscoderCtx, tr)
-		ctx = context.WithValue(ctx, contextapi.FunctionsCtx, mockExec)
+		ctx = payload.WithTranscoder(ctx, tr)
+		ctx = function.WithFunctions(ctx, mockExec)
 
 		// Cancel context during execution
 		go func() {

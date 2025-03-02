@@ -160,7 +160,7 @@ func TestStreamLua(t *testing.T) {
 			assert(type(bytes) == "number")
 			assert(bytes == #chunk)
 
-			-- Close Stream
+			-- close Stream
 			test_stream:close()
 		`
 
@@ -297,7 +297,7 @@ func TestStreamLuaEdgeCases(t *testing.T) {
 
 		script := `
 			local ok = test_stream:close()
-			assert(ok == nil, "Close should return nil on success")
+			assert(ok == nil, "close should return nil on success")
 
 			local data, err = test_stream:read()
 			assert(data == nil, "Expected nil data from closed Stream")

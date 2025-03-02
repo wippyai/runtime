@@ -72,22 +72,22 @@ func stmtQuery(l *lua.LState) int {
 		return 2
 	}
 
-	coroutine.Wrap(l, func() *engine.Result {
+	coroutine.Wrap(l, func() *engine.Update {
 		var rows *sql.Rows
 		var err error
 
-		// Execute query with appropriate parameter style.
+		// Start query with appropriate parameter style.
 		switch p := params.(type) {
 		case nil:
 			rows, err = stmt.stmt.Query()
 		case []interface{}:
 			rows, err = stmt.stmt.Query(p...)
 		default:
-			return engine.NewResult(nil, nil, fmt.Errorf("unsupported parameter type: %T", params))
+			return engine.NewUpdate(nil, nil, fmt.Errorf("unsupported parameter type: %T", params))
 		}
 
 		if err != nil {
-			return engine.NewResult(nil, nil, err)
+			return engine.NewUpdate(nil, nil, err)
 		}
 
 		var resultTable *lua.LTable
@@ -107,10 +107,10 @@ func stmtQuery(l *lua.LState) int {
 		}()
 
 		if err != nil {
-			return engine.NewResult(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
+			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
 		}
 
-		return engine.NewResult(nil, []lua.LValue{resultTable, lua.LNil}, nil)
+		return engine.NewUpdate(nil, []lua.LValue{resultTable, lua.LNil}, nil)
 	})
 
 	return -1 // Yield.
@@ -139,27 +139,27 @@ func stmtExecute(l *lua.LState) int {
 		return 2
 	}
 
-	coroutine.Wrap(l, func() *engine.Result {
+	coroutine.Wrap(l, func() *engine.Update {
 		var result sql.Result
 		var err error
 
-		// Execute with appropriate parameter style.
+		// Start with appropriate parameter style.
 		switch p := params.(type) {
 		case nil:
 			result, err = stmt.stmt.Exec()
 		case []interface{}:
 			result, err = stmt.stmt.Exec(p...)
 		default:
-			return engine.NewResult(nil, nil, fmt.Errorf("unsupported parameter type: %T", params))
+			return engine.NewUpdate(nil, nil, fmt.Errorf("unsupported parameter type: %T", params))
 		}
 
 		if err != nil {
-			return engine.NewResult(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
+			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
 		}
 
 		// Convert result to Lua table.
 		resultTable := resultToTable(l, result)
-		return engine.NewResult(nil, []lua.LValue{resultTable, lua.LNil}, nil)
+		return engine.NewUpdate(nil, []lua.LValue{resultTable, lua.LNil}, nil)
 	})
 
 	return -1 // Yield.

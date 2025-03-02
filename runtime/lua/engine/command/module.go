@@ -1,7 +1,7 @@
 package command
 
 import (
-	"fmt"
+	"errors"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -34,6 +34,7 @@ func (m *Module) Loader(L *lua.LState) int {
 		"is_complete": isCompleteFunc,
 		"result":      resultFunc,
 		"is_canceled": isCanceledFunc,
+		"cancel":      cancelFunc,
 	}
 
 	// Command metatable
@@ -74,13 +75,11 @@ func newCommandFunc(L *lua.LState) int {
 		return 0
 	}
 
-	cmdBus := GetCommandContext(L.Context())
-	if cmdBus == nil {
-		L.RaiseError("command context not found")
+	if err := Schedule(L.Context(), cmd); err != nil {
+		L.RaiseError("failed to schedule command: %v", err)
 		return 0
 	}
 
-	cmdBus.Schedule(cmd)
 	L.Push(Wrap(L, cmd))
 	return 1
 }
@@ -95,8 +94,23 @@ func responseFunc(L *lua.LState) int {
 // Check if command was canceled
 func isCanceledFunc(L *lua.LState) int {
 	cmd := CheckCommand(L)
-	isCanceled := cmd.Err() == ErrCommandCanceled
+	isCanceled := errors.Is(cmd.Err(), ErrCommandCanceled)
 	L.Push(lua.LBool(isCanceled))
+	return 1
+}
+
+// Cancel a queue command
+func cancelFunc(L *lua.LState) int {
+	cmd := CheckCommand(L)
+	cmd.Cancel()
+
+	// Queue the canceled command for processing
+	if err := Error(L.Context(), cmd, ErrCommandCanceled); err != nil {
+		L.RaiseError("failed to queue command cancellation: %v", err)
+		return 0
+	}
+
+	L.Push(lua.LBool(true))
 	return 1
 }
 
@@ -142,14 +156,4 @@ func CheckCommand(L *lua.LState) *Command {
 	}
 	L.ArgError(1, "command expected")
 	return nil
-}
-
-// String implements fmt.Stringer for Command
-func (c *Command) String() string {
-	return fmt.Sprintf("command{type=%s completed=%v}", c.cmdType, c.completed)
-}
-
-// Type implements lua.LValue interface
-func (c *Command) Type() lua.LValueType {
-	return lua.LTUserData
 }

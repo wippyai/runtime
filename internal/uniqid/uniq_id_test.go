@@ -58,7 +58,7 @@ func TestUniqIDGenerator(t *testing.T) {
 
 				mu.Lock()
 				if seen[id] {
-					t.Errorf("duplicate ID generated: %v", id)
+					t.Errorf("duplicate Source generated: %v", id)
 				}
 				seen[id] = true
 				mu.Unlock()
@@ -75,11 +75,11 @@ func TestUniqIDGenerator(t *testing.T) {
 		for id := range seen {
 			// Length should be 7 (0x + 5 hex digits)
 			if len(id) != 7 {
-				t.Errorf("invalid ID length for %v, got %d, want 7", id, len(id))
+				t.Errorf("invalid Source length for %v, got %d, want 7", id, len(id))
 			}
 			// Should start with 0x
 			if id[:2] != "0x" {
-				t.Errorf("invalid ID prefix for %v, want '0x'", id)
+				t.Errorf("invalid Source prefix for %v, want '0x'", id)
 			}
 		}
 	})
@@ -95,10 +95,10 @@ func TestUniqIDGenerator(t *testing.T) {
 			last = gen.Generate()
 		}
 
-		// Verify the last generated ID matches our count
+		// Verify the last generated Source matches our count
 		want := "0x0ffff" // hex for 65535
 		if last != want {
-			t.Errorf("after %d generations, last ID = %v, want %v", count, last, want)
+			t.Errorf("after %d generations, last Source = %v, want %v", count, last, want)
 		}
 	})
 }

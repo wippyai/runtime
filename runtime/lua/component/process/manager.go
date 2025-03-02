@@ -4,11 +4,10 @@ import (
 	"context"
 	"fmt"
 	"github.com/ponyruntime/pony/api/process"
-	"github.com/ponyruntime/pony/runtime/lua/engine/async"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	"sync"
 
-	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/registry"
 	api "github.com/ponyruntime/pony/api/runtime/lua"
 	"github.com/ponyruntime/pony/runtime/lua/code"
@@ -20,8 +19,8 @@ import (
 )
 
 var (
-	processBuild  *code.BuildOptions
-	processLayers component.Option
+	processBuild *code.BuildOptions
+	layers       component.Option
 )
 
 func init() {
@@ -29,29 +28,27 @@ func init() {
 		WithMode(code.AllowAll).
 		WithDenied(registry.ID{Name: "subscribe"}).
 		WithPreloaded(code.Preload{Name: "channel", ModuleID: registry.ID{Name: "channel"}}).
-		WithPreloaded(code.Preload{Name: "process", ModuleID: registry.ID{Name: "process"}})
+		WithPreloaded(code.Preload{Name: "process", ModuleID: registry.ID{Name: "process"}}).
+		WithPreloaded(code.Preload{Name: "pubsub_inbox", ModuleID: registry.ID{Name: "pubsub_inbox"}}).
+		WithPreloaded(code.Preload{Name: "os", ModuleID: registry.ID{Name: "ostime"}})
 
-	processLayers = component.WithLayerInitializer(func() []engine.RunnerOption {
-		channels := channel.NewChannelLayer()
-		return []engine.RunnerOption{
-			engine.WithLayer(channels),
-			engine.WithLayer(async.NewAsyncLayer(channels, 32)),
-			engine.WithLayer(subscribe.NewSubscribe(channels)),
-			engine.WithLayer(coroutine.NewCoroutineLayer()),
-		}
-	})
+	layers = component.WithRunnerOption(
+		engine.WithLayer(channel.NewChannelLayer()),
+		engine.WithLayer(subscribe.NewSubscribeLayer()),
+		engine.WithLayer(coroutine.NewCoroutineLayer()),
+	)
 }
 
 // Manager handles Lua process components
 type Manager struct {
 	log     *zap.Logger
 	code    *code.Manager
-	bus     events.Bus
-	configs sync.Map // map[registry.ID]*api.ProcessConfig
+	bus     event.Bus
+	configs sync.Map // map[registry.Source]*api.ProcessConfig
 }
 
 // NewProcessManager creates a new process manager instance
-func NewProcessManager(log *zap.Logger, code *code.Manager, bus events.Bus) *Manager {
+func NewProcessManager(log *zap.Logger, code *code.Manager, bus event.Bus) *Manager {
 	return &Manager{
 		log:  log,
 		code: code,
@@ -76,7 +73,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		Method: cfg.Method,
 	}
 
-	if err := m.code.AddNode(ctx, node, component.BuildImports(cfg.Import, cfg.Modules)); err != nil {
+	if err := m.code.AddNode(ctx, node, component.BuildImports(cfg.Imports, cfg.Modules)); err != nil {
 		return fmt.Errorf("failed to add process node: %w", err)
 	}
 
@@ -107,7 +104,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		Method: cfg.Method,
 	}
 
-	if err := m.code.UpdateNode(ctx, node, component.BuildImports(cfg.Import, cfg.Modules)); err != nil {
+	if err := m.code.UpdateNode(ctx, node, component.BuildImports(cfg.Imports, cfg.Modules)); err != nil {
 		return fmt.Errorf("failed to update process node: %w", err)
 	}
 
@@ -157,12 +154,13 @@ func (m *Manager) createRunner(id registry.ID) (*engine.Runner, string, error) {
 		return nil, "", fmt.Errorf("failed to compile process: %w", err)
 	}
 
-	fvm, err := component.NewRunnerFactory(m.log, compiled, processLayers)
+	fvm, err := component.NewRunnerFactory(m.log, compiled, layers)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to create runner factory: %w", err)
 	}
 
 	defer func() {
+		// todo: we can reuse for often used processes?
 		if err := fvm.Close(); err != nil {
 			m.log.Error("failed to close runner factory", zap.Error(err))
 		}
@@ -189,7 +187,7 @@ func (m *Manager) upsertPrototype(ctx context.Context, id registry.ID) error {
 
 // registerPrototype registers a process prototype
 func (m *Manager) registerPrototype(ctx context.Context, id registry.ID) {
-	m.bus.Send(ctx, events.Event{
+	m.bus.Send(ctx, event.Event{
 		System: process.PrototypeSystem,
 		Kind:   process.ProtoRegister,
 		Path:   id.String(),
@@ -206,7 +204,7 @@ func (m *Manager) registerPrototype(ctx context.Context, id registry.ID) {
 
 // unregisterPrototype removes a process prototype registration
 func (m *Manager) unregisterPrototype(ctx context.Context, id registry.ID) {
-	m.bus.Send(ctx, events.Event{
+	m.bus.Send(ctx, event.Event{
 		System: process.PrototypeSystem,
 		Kind:   process.ProtoDelete,
 		Path:   id.String(),

@@ -2,7 +2,7 @@ package topology
 
 import (
 	"fmt"
-	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/internal/version"
 	"go.uber.org/zap"
 	"reflect"
@@ -147,11 +147,11 @@ func verifyDeltaWithinLevel(t *testing.T, got, want registry.ChangeSet) {
 	}
 
 	// Group operations by type (Spawn, Update, Delete)
-	gotGroups := make(map[events.Kind]opGroup)
-	wantGroups := make(map[events.Kind]opGroup)
+	gotGroups := make(map[event.Kind]opGroup)
+	wantGroups := make(map[event.Kind]opGroup)
 
 	// Helper to add to groups
-	addToGroup := func(groups map[events.Kind]opGroup, op registry.Operation) {
+	addToGroup := func(groups map[event.Kind]opGroup, op registry.Operation) {
 		group := groups[op.Kind]
 		group.entries = append(group.entries, op.Entry)
 		if group.deps == nil {

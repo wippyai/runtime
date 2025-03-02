@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/system/eventbus"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -61,7 +61,7 @@ func TestManager_InvalidConfigs(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Test sending invalid event data
-	bus.Send(ctx, events.Event{
+	bus.Send(ctx, event.Event{
 		System: api.System,
 		Kind:   api.SetConfig,
 		Path:   "test",
@@ -118,11 +118,11 @@ func TestManager_InvalidConfigChanges(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		sendEvent events.Event
+		sendEvent event.Event
 	}{
 		{
 			name: "invalid data type",
-			sendEvent: events.Event{
+			sendEvent: event.Event{
 				System: api.System,
 				Kind:   api.SetConfig,
 				Path:   "test",
@@ -131,7 +131,7 @@ func TestManager_InvalidConfigChanges(t *testing.T) {
 		},
 		{
 			name: "nil data",
-			sendEvent: events.Event{
+			sendEvent: event.Event{
 				System: api.System,
 				Kind:   api.SetConfig,
 				Path:   "test",
@@ -139,7 +139,7 @@ func TestManager_InvalidConfigChanges(t *testing.T) {
 		},
 		{
 			name: "wrong system",
-			sendEvent: events.Event{
+			sendEvent: event.Event{
 				System: "wrong.system",
 				Kind:   api.SetConfig,
 				Path:   "test",
@@ -211,7 +211,7 @@ func TestManager_StopBehavior(t *testing.T) {
 
 	require.NoError(t, manager.Start(ctx))
 
-	// Close the manager
+	// close the manager
 	require.NoError(t, manager.Stop())
 	cfgm := NewConfigurationManager()
 

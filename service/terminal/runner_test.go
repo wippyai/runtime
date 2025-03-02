@@ -49,7 +49,7 @@ func TestTerminalRunnerStopsOnStepError(t *testing.T) {
 		UniqID: "test",
 	}
 
-	lp := &process.LaunchProcess{
+	lp := &process.Launch{
 		PID:     dummyPID,
 		Process: dp,
 		Input:   nil,
@@ -82,7 +82,7 @@ func TestTerminalRunnerSendAndStop(t *testing.T) {
 		UniqID: "test",
 	}
 
-	lp := &process.LaunchProcess{
+	lp := &process.Launch{
 		PID:     dummyPID,
 		Process: dp,
 		Input:   nil,
@@ -96,19 +96,19 @@ func TestTerminalRunnerSendAndStop(t *testing.T) {
 		t.Fatalf("expected no error starting runner, got: %v", err)
 	}
 
-	// Test the Send method.
+	// Test the send method.
 	err = runner.Send(&pubsub.Package{Messages: []*pubsub.Message{{Topic: "test"}}})
 	if err != nil {
-		t.Errorf("expected no error on Send, got: %v", err)
+		t.Errorf("expected no error on send, got: %v", err)
 	}
 
-	// Close the runner explicitly.
+	// close the runner explicitly.
 	runner.Stop()
 
 	select {
 	case <-runner.Wait():
 		// Success: runner has stopped.
 	case <-time.After(2 * time.Second):
-		t.Fatalf("runner did not stop as expected after Close()")
+		t.Fatalf("runner did not stop as expected after close()")
 	}
 }

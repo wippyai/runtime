@@ -1,3 +1,4 @@
+// Package eventbus provides a routing mechanism for handling events.
 package eventbus
 
 import (
@@ -5,65 +6,88 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/event"
 	"go.uber.org/zap"
 )
 
-// EventHandler defines an interface for handling events
+// EventHandler defines an interface for handling events.
+// Implementations of this interface can be registered with an EventRouter
+// to receive events matching their pattern.
 type EventHandler interface {
+	// Pattern returns the event matching criteria for this handler
 	Pattern() Pattern
-	Handle(context.Context, events.Event) error
+	// Handle processes an event that matches the pattern
+	// Returns an error if the handling fails
+	Handle(context.Context, event.Event) error
 }
 
-// Pattern defines the matching criteria for events
+// Pattern defines the matching criteria for events.
+// It matches events by their system and kind identifiers.
 type Pattern struct {
-	System events.System
-	Kind   events.Kind
+	// System identifies the system category of events to match
+	System event.System
+	// Kind identifies the specific kind of events to match
+	Kind event.Kind
 }
 
-// BaseHandler provides a basic implementation of EventHandler
+// BaseHandler provides a basic implementation of EventHandler.
+// It simplifies creation of event handlers with a function-based approach.
 type BaseHandler struct {
 	pattern Pattern
-	handler func(context.Context, events.Event) error
+	handler func(context.Context, event.Event) error
 }
 
-func NewBaseHandler(pattern Pattern, handler func(context.Context, events.Event) error) *BaseHandler {
+// NewBaseHandler creates a new handler with the specified pattern and handler function.
+// This is a convenience function for creating simple event handlers.
+func NewBaseHandler(pattern Pattern, handler func(context.Context, event.Event) error) *BaseHandler {
 	return &BaseHandler{
 		pattern: pattern,
 		handler: handler,
 	}
 }
 
+// Pattern returns the event matching criteria for this handler.
 func (h *BaseHandler) Pattern() Pattern {
 	return h.pattern
 }
 
-func (h *BaseHandler) Handle(ctx context.Context, evt events.Event) error {
+// Handle processes an event by delegating to the handler function.
+func (h *BaseHandler) Handle(ctx context.Context, evt event.Event) error {
 	return h.handler(ctx, evt)
 }
 
+// handlerSubscription represents a registered event handler and its associated subscriber.
 type handlerSubscription struct {
 	handler    EventHandler
 	subscriber *Subscriber
 }
 
+// EventRouter distributes events from an event bus to registered handlers.
+// It manages subscriptions and handler lifecycle, ensuring events are properly
+// delivered to the appropriate handlers.
 type EventRouter struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
-	bus         events.Bus
+	bus         event.Bus
 	log         *zap.Logger
 	subscribers []handlerSubscription
 	mu          sync.RWMutex
 }
 
+// RouterOption defines a function that configures an EventRouter.
+// These options are used with StartRouter to customize router behavior.
 type RouterOption func(*EventRouter)
 
+// WithLogger sets a custom logger for the EventRouter.
+// This allows integration with application-wide logging systems.
 func WithLogger(log *zap.Logger) RouterOption {
 	return func(r *EventRouter) {
 		r.log = log
 	}
 }
 
+// WithHandlers registers initial event handlers with the router.
+// This is a convenience option for setting up handlers during router creation.
 func WithHandlers(handlers ...EventHandler) RouterOption {
 	return func(r *EventRouter) {
 		for _, h := range handlers {
@@ -74,7 +98,10 @@ func WithHandlers(handlers ...EventHandler) RouterOption {
 	}
 }
 
-func StartRouter(ctx context.Context, bus events.Bus, opts ...RouterOption) (*EventRouter, error) {
+// StartRouter creates and initializes a new EventRouter with the provided options.
+// The router will be attached to the specified event bus and context.
+// Returns the initialized router and any error that occurred during setup.
+func StartRouter(ctx context.Context, bus event.Bus, opts ...RouterOption) (*EventRouter, error) {
 	ctx, cancel := context.WithCancel(ctx)
 
 	r := &EventRouter{
@@ -92,6 +119,9 @@ func StartRouter(ctx context.Context, bus events.Bus, opts ...RouterOption) (*Ev
 	return r, nil
 }
 
+// Stop gracefully shuts down the router and all its subscriptions.
+// It cancels the internal context and waits for all subscribers to close.
+// Returns any error encountered during shutdown.
 func (r *EventRouter) Stop() error {
 	r.cancel()
 
@@ -100,7 +130,7 @@ func (r *EventRouter) Stop() error {
 	wg := sync.WaitGroup{}
 	wg.Add(len(r.subscribers))
 
-	// Close all subscribers concurrently
+	// close all subscribers concurrently
 	for _, sub := range r.subscribers {
 		go func(s handlerSubscription) {
 			defer wg.Done()
@@ -120,6 +150,9 @@ func (r *EventRouter) Stop() error {
 	return nil
 }
 
+// addHandler registers a new event handler with the router.
+// It creates a subscription to the event bus for the handler's pattern.
+// Returns an error if the subscription fails or the router is stopped.
 func (r *EventRouter) addHandler(h EventHandler) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -130,9 +163,9 @@ func (r *EventRouter) addHandler(h EventHandler) error {
 	}
 
 	pattern := h.Pattern()
-	sub, err := NewSubscriber(r.ctx, r.bus, pattern.System, pattern.Kind,
-		func(evt events.Event) {
-			if err := h.Handle(r.ctx, evt); err != nil {
+	sb, err := NewSubscriber(r.ctx, r.bus, pattern.System, pattern.Kind,
+		func(e event.Event) {
+			if err := h.Handle(r.ctx, e); err != nil {
 				r.log.Error("failed to handle event", zap.Error(err))
 			}
 		},
@@ -144,7 +177,7 @@ func (r *EventRouter) addHandler(h EventHandler) error {
 
 	r.subscribers = append(r.subscribers, handlerSubscription{
 		handler:    h,
-		subscriber: sub,
+		subscriber: sb,
 	})
 
 	return nil

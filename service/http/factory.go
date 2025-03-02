@@ -22,6 +22,7 @@ type EndpointFactory struct {
 // Ensure EndpointFactory implements EndpointFactoryAPI
 var _ EndpointFactoryAPI = (*EndpointFactory)(nil)
 
+// NewEndpointFactory creates a new endpoint factory instance with the provided function registry
 func NewEndpointFactory(funcs function.Registry) (*EndpointFactory, error) {
 	if funcs == nil {
 		return nil, fmt.Errorf("function registry is required")
@@ -31,6 +32,7 @@ func NewEndpointFactory(funcs function.Registry) (*EndpointFactory, error) {
 	}, nil
 }
 
+// CreateHandler creates an HTTP handler from the provided endpoint configuration
 func (f *EndpointFactory) CreateHandler(ctx context.Context, cfg *config.EndpointConfig) (http.Handler, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid endpoint config: %w", err)
@@ -48,6 +50,10 @@ func (f *EndpointFactory) CreateHandler(ctx context.Context, cfg *config.Endpoin
 
 		select {
 		case result := <-resultCh:
+			if rCtx.ResponseHandled() {
+				return
+			}
+
 			if result == nil {
 				http.Error(w, "received nil result", http.StatusInternalServerError)
 				return
@@ -60,6 +66,9 @@ func (f *EndpointFactory) CreateHandler(ctx context.Context, cfg *config.Endpoin
 				http.Error(w, "no response sent", http.StatusInternalServerError)
 			}
 		case <-r.Context().Done():
+			if rCtx.ResponseHandled() {
+				return
+			}
 			http.Error(w, "request canceled", http.StatusInternalServerError)
 			return
 		}
@@ -72,7 +81,7 @@ type SPAHandler struct {
 	indexPath string
 }
 
-// NewSPAHandler creates a new handler for SPA serving
+// NewSPAHandler creates a new handler for SPA serving with fallback to index file
 func NewSPAHandler(fsys fs.FS, indexPath string) http.Handler {
 	return &SPAHandler{
 		fs:        http.FS(fsys),
@@ -80,6 +89,8 @@ func NewSPAHandler(fsys fs.FS, indexPath string) http.Handler {
 	}
 }
 
+// ServeHTTP handles HTTP requests for SPA applications
+// It serves static files directly when found, or falls back to the index file
 func (h *SPAHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Clean the path to prevent directory traversal
 	urlPath := path.Clean(r.URL.Path)
@@ -119,6 +130,7 @@ type StaticFactory struct {
 // Ensure StaticFactory implements StaticFactoryAPI
 var _ StaticFactoryAPI = (*StaticFactory)(nil)
 
+// NewStaticFactory creates a new static file factory instance with the provided filesystem registry
 func NewStaticFactory(fsReg fs.Registry) (*StaticFactory, error) {
 	if fsReg == nil {
 		return nil, fmt.Errorf("filesystem registry is required")
@@ -128,6 +140,7 @@ func NewStaticFactory(fsReg fs.Registry) (*StaticFactory, error) {
 	}, nil
 }
 
+// CreateHandler creates an HTTP handler from the provided static file configuration
 func (f *StaticFactory) CreateHandler(ctx context.Context, cfg *config.StaticConfig) (http.Handler, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid static config: %w", err)
@@ -165,16 +178,20 @@ func (f *StaticFactory) CreateHandler(ctx context.Context, cfg *config.StaticCon
 	return handler, nil
 }
 
+// ServerFactory creates HTTP server instances
 type ServerFactory struct{}
 
+// NewServerFactory creates a new server factory instance
 func NewServerFactory() *ServerFactory {
 	return &ServerFactory{}
 }
 
+// CreateServer creates a new HTTP server from the provided configuration
 func (f *ServerFactory) CreateServer(cfg *config.ServerConfig) (Server, error) {
 	return NewServerService(cfg), nil
 }
 
+// wrapWithCacheControl wraps an HTTP handler with Cache-Control header
 func wrapWithCacheControl(h http.Handler, cacheControl string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", cacheControl)

@@ -1319,7 +1319,7 @@ func TestController_ServiceExitDuringOperation(t *testing.T) {
 		t.Fatalf("Failed to start service: %v", err)
 	}
 
-	// Send ErrExit through details channel
+	// send ErrExit through details channel
 	detailsCh <- supervisor.ErrExit
 
 	// Wait for processing

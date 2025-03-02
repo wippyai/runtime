@@ -21,9 +21,9 @@ func TestRunner_AsLayer(t *testing.T) {
 			// Validate and get duration upfront
 			ms := l.CheckNumber(1)
 
-			Wrap(l, func() *engine.Result {
+			Wrap(l, func() *engine.Update {
 				time.Sleep(time.Duration(ms) * time.Millisecond)
-				return engine.NewResult(nil, []lua.LValue{lua.LString("slept"), ms}, nil)
+				return engine.NewUpdate(nil, []lua.LValue{lua.LString("slept"), ms}, nil)
 			})
 			return -1
 		}),
@@ -36,7 +36,7 @@ func TestRunner_AsLayer(t *testing.T) {
 	// Spawn wrapped VM with runner layer
 	wrapped := engine.NewRunner(vm, engine.WithLayer(NewCoroutineLayer()))
 
-	// Import test script
+	// Imports test script
 	err = vm.Import(`
 			function test_coroutine()
 				local result = async_sleep(100)	
@@ -68,10 +68,12 @@ func TestAsyncCoroutines(t *testing.T) {
 			// Validate and get duration upfront
 			ms := l.CheckNumber(1)
 
-			Wrap(l, func() *engine.Result {
+			Wrap(l, func() *engine.Update {
 				time.Sleep(time.Duration(ms) * time.Millisecond)
-				return engine.NewResult(nil, []lua.LValue{lua.LString("slept"), ms}, nil)
+
+				return engine.NewUpdate(nil, []lua.LValue{lua.LString("slept"), ms}, nil)
 			})
+
 			return -1
 		}),
 	)
@@ -81,7 +83,7 @@ func TestAsyncCoroutines(t *testing.T) {
 	// Spawn a wrapped VM with async runner
 	wrapped := engine.NewRunner(vm, engine.WithLayer(NewCoroutineLayer()))
 
-	// Import test script with two coroutines
+	// Imports test script with two coroutines
 	err = vm.Import(`
           function test_sleep()
               local results = {}
@@ -153,15 +155,16 @@ func TestAsyncCoroutines(t *testing.T) {
 
 func createVM(t *testing.T) *engine.CoroutineVM {
 	log := zap.NewNop()
+
 	vm, err := engine.NewCVM(log,
 		engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
 		engine.WithGlobalFunction("async_double", func(l *lua.LState) int {
 			// Validate argument first
 			value := l.CheckNumber(1)
 
-			Wrap(l, func() *engine.Result {
+			Wrap(l, func() *engine.Update {
 				time.Sleep(100 * time.Millisecond)
-				return engine.NewResult(nil, []lua.LValue{value * 2}, nil)
+				return engine.NewUpdate(nil, []lua.LValue{value * 2}, nil)
 			})
 
 			return -1
@@ -276,7 +279,7 @@ func TestDistributedWorkers(t *testing.T) {
 			engine.WithLayer(NewCoroutineLayer()),
 		)
 
-		// Import test script
+		// Imports test script
 		err := vm.Import(testScript, "test", "test_distributed_workers")
 		assert.NoError(t, err)
 
@@ -360,7 +363,7 @@ func TestWorkerPool(t *testing.T) {
                task_ch:send(i)
            end
 
-           -- Close task channel to signal no more tasks
+           -- close task channel to signal no more tasks
            task_ch:close()
 
            -- Collect and sum all results
@@ -399,7 +402,7 @@ func TestWorkerPool(t *testing.T) {
 			engine.WithLayer(NewCoroutineLayer()),
 		)
 
-		// Import test script
+		// Imports test script
 		err := vm.Import(testScript, "test", "test_worker_pool")
 		assert.NoError(t, err)
 
