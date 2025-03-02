@@ -1,6 +1,7 @@
 package websocket
 
 import (
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
@@ -44,13 +45,11 @@ func (m *Module) Loader(l *lua.LState) int {
 	}
 	mod.RawSetString("CLOSE_CODES", closeCodesTable)
 
-	// Register client methods
-	mt := l.NewTypeMetatable("websocket.Client")
-	methods := l.CreateTable(0, 3) // Exactly 3 methods
-	methods.RawSetString("send", l.NewFunction(wsSend))
-	methods.RawSetString("close", l.NewFunction(wsClose))
-	methods.RawSetString("receive", l.NewFunction(wsReceive))
-	mt.RawSetString("__index", methods)
+	value.RegisterMethods(l, "websocket.Client", map[string]lua.LGFunction{
+		"send":    wsSend,
+		"close":   wsClose,
+		"receive": wsReceive,
+	})
 
 	l.Push(mod)
 	return 1
