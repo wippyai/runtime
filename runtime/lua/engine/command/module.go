@@ -2,6 +2,7 @@ package command
 
 import (
 	"errors"
+	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -21,27 +22,18 @@ func (m *Module) Name() string {
 
 // Loader registers the module functions
 func (m *Module) Loader(L *lua.LState) int {
-	// Spawn module table
-	mod := L.NewTable()
+	mod := L.CreateTable(0, 1)
+	mod.RawSetString("new", L.NewFunction(newCommandFunc))
 
-	// Register functions
-	L.SetField(mod, "new", L.NewFunction(newCommandFunc))
-
-	// Command methods
-	commandMethods := map[string]lua.LGFunction{
+	engine.RegisterTypeMethods(L, "command", map[string]lua.LGFunction{
 		"response":    responseFunc,
 		"error":       errorFunc,
 		"is_complete": isCompleteFunc,
 		"result":      resultFunc,
 		"is_canceled": isCanceledFunc,
 		"cancel":      cancelFunc,
-	}
+	})
 
-	// Command metatable
-	mt := L.NewTypeMetatable("command")
-	L.SetField(mt, "__index", L.SetFuncs(L.NewTable(), commandMethods))
-
-	// Register module
 	L.Push(mod)
 	return 1
 }
@@ -50,7 +42,7 @@ func (m *Module) Loader(L *lua.LState) int {
 func Wrap(L *lua.LState, cmd *Command) lua.LValue {
 	ud := L.NewUserData()
 	ud.Value = cmd
-	L.SetMetatable(ud, L.GetTypeMetatable("command"))
+	ud.Metatable = engine.GetTypeMetatable(L, "command")
 	return ud
 }
 
