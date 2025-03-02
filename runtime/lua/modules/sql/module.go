@@ -63,33 +63,34 @@ func (m *Module) Name() string {
 
 // Loader is the entry point for loading the module into Lua
 func (m *Module) Loader(l *lua.LState) int {
-	// Create module table
-	mod := l.NewTable()
+	mod := l.CreateTable(0, 3) // 3 elements: NULL, type table, and DB functions
 
-	// Register DB functions
 	registerDB(l, mod, m.log)
 
-	// Register statement functions
+	// Register statement and transaction functions
 	registerStatement(l, m.log)
-
-	// Register transaction functions
 	registerTransaction(l, m.log)
 
+	// Create NULL value
 	nullUserData := l.NewUserData()
 	nullUserData.Value = "SQL_NULL" // Marker value
 	mod.RawSetString("NULL", nullUserData)
 
-	// Register database type constants
-	types := l.NewTable()
+	// Create database type constants table with exact capacity
+	types := l.CreateTable(0, 6) // 6 database types
+
+	// Add database types directly
 	types.RawSetString("postgres", lua.LString(TypePostgres))
 	types.RawSetString("mysql", lua.LString(TypeMySQL))
 	types.RawSetString("sqlite", lua.LString(TypeSQLite))
 	types.RawSetString("mssql", lua.LString(TypeMSSQL))
 	types.RawSetString("oracle", lua.LString(TypeOracle))
 	types.RawSetString("unknown", lua.LString(TypeUnknown))
+
+	// Add types table to module
 	mod.RawSetString("type", types)
 
-	// Set module as return value
+	// Return module
 	l.Push(mod)
 	return 1
 }

@@ -80,7 +80,7 @@ func rowsToTable(l *lua.LState, rows *sql.Rows) (*lua.LTable, error) {
 	}
 
 	// Prepare result table
-	resultTable := l.NewTable()
+	resultTable := l.CreateTable(8, 0)
 	rowIndex := 1
 
 	// Prepare value containers
@@ -163,7 +163,7 @@ func resultToTable(l *lua.LState, result sql.Result) *lua.LTable {
 	luaTable, err := luaconv.GoToLua(resultMap)
 	if err != nil {
 		// Fall back to manual table creation if conversion fails
-		table := l.NewTable()
+		table := l.CreateTable(0, 2)
 		table.RawSetString("last_insert_id", lua.LNil)
 		table.RawSetString("rows_affected", lua.LNil)
 		return table

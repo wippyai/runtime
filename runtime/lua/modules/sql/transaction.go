@@ -3,10 +3,10 @@ package sql
 import (
 	"database/sql"
 	"fmt"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
-	"github.com/ponyruntime/pony/runtime/uow"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
@@ -23,7 +23,8 @@ type Transaction struct {
 func WrapTransaction(l *lua.LState, tx *Transaction) *lua.LUserData {
 	ud := l.NewUserData()
 	ud.Value = tx
-	l.SetMetatable(ud, l.GetTypeMetatable("sql.Transaction"))
+	ud.Metatable = value.GetTypeMetatable(l, "sql.Transaction")
+
 	return ud
 }
 
@@ -39,22 +40,21 @@ func CheckTransaction(l *lua.LState) *Transaction {
 
 // registerTransaction registers transaction methods
 func registerTransaction(l *lua.LState, log *zap.Logger) {
-	// Register transaction metatable
-	mt := l.NewTypeMetatable("sql.Transaction")
-	methods := l.NewTable()
+	methods := map[string]lua.LGFunction{
+		// Standard transaction methods
+		"query":    txQuery,
+		"execute":  txExecute,
+		"prepare":  txPrepare,
+		"commit":   txCommit,
+		"rollback": txRollback,
 
-	methods.RawSetString("query", l.NewFunction(txQuery))
-	methods.RawSetString("execute", l.NewFunction(txExecute))
-	methods.RawSetString("prepare", l.NewFunction(txPrepare))
-	methods.RawSetString("commit", l.NewFunction(txCommit))
-	methods.RawSetString("rollback", l.NewFunction(txRollback))
+		// Savepoint methods
+		"savepoint":   txSavepoint,
+		"rollback_to": txRollbackTo,
+		"release":     txReleaseSavepoint,
+	}
 
-	// Add savepoint methods
-	methods.RawSetString("savepoint", l.NewFunction(txSavepoint))
-	methods.RawSetString("rollback_to", l.NewFunction(txRollbackTo))
-	methods.RawSetString("release", l.NewFunction(txReleaseSavepoint))
-
-	l.SetField(mt, "__index", methods)
+	value.RegisterMethods(l, "sql.Transaction", methods)
 }
 
 // txQuery executes a query within a transaction and returns rows
@@ -184,6 +184,12 @@ func txPrepare(l *lua.LState) int {
 		return 0
 	}
 
+	uw := engine.GetUnitOfWork(l.Context())
+	if uw == nil {
+		l.RaiseError("no unit of work found in context")
+		return 0
+	}
+
 	// Get query
 	query := l.CheckString(2)
 
@@ -204,17 +210,6 @@ func txPrepare(l *lua.LState) int {
 			stmt: stmt,
 			db:   tx.db,
 			log:  tx.log,
-		}
-
-		// Register for cleanup
-		uw := uow.FromContext(l.Context())
-		if uw == nil {
-			// No UOW found, close the statement immediately
-			closeErr := stmt.Close()
-			if closeErr != nil {
-				tx.log.Error("failed to close statement due to missing UOW", zap.Error(closeErr))
-			}
-			return engine.NewUpdate(nil, nil, fmt.Errorf("no unit of work found to manage statement"))
 		}
 
 		uw.AddCleanup(func() error {

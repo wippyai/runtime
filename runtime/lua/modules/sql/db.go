@@ -8,7 +8,7 @@ import (
 	"github.com/ponyruntime/pony/api/resource"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
-	"github.com/ponyruntime/pony/runtime/uow"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	sqlres "github.com/ponyruntime/pony/service/sql"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
@@ -26,7 +26,7 @@ type DB struct {
 func WrapDB(l *lua.LState, db *DB) *lua.LUserData {
 	ud := l.NewUserData()
 	ud.Value = db
-	l.SetMetatable(ud, l.GetTypeMetatable("sql.DB"))
+	ud.Metatable = value.GetTypeMetatable(l, "sql.DB")
 	return ud
 }
 
@@ -42,23 +42,20 @@ func CheckDB(l *lua.LState) *DB {
 
 // registerDB registers database functions in the module
 func registerDB(l *lua.LState, mod *lua.LTable, log *zap.Logger) {
-	// Register module functions
 	mod.RawSetString("get", l.NewFunction(func(l *lua.LState) int {
 		return dbGet(l, log)
 	}))
 
-	// Register database metatable
-	mt := l.NewTypeMetatable("sql.DB")
-	methods := l.NewTable()
+	methods := map[string]lua.LGFunction{
+		"type":    dbType,
+		"query":   dbQuery,
+		"execute": dbExecute,
+		"prepare": dbPrepare,
+		"begin":   dbBegin,
+		"release": dbRelease,
+	}
 
-	methods.RawSetString("type", l.NewFunction(dbType))
-	methods.RawSetString("query", l.NewFunction(dbQuery))
-	methods.RawSetString("execute", l.NewFunction(dbExecute))
-	methods.RawSetString("prepare", l.NewFunction(dbPrepare))
-	methods.RawSetString("begin", l.NewFunction(dbBegin))
-	methods.RawSetString("release", l.NewFunction(dbRelease))
-
-	l.SetField(mt, "__index", methods)
+	value.RegisterMethods(l, "sql.DB", methods)
 }
 
 // dbType returns the database type (kind)
@@ -88,15 +85,13 @@ func dbGet(l *lua.LState, log *zap.Logger) int {
 		return 2
 	}
 
-	// Get resource registry from context
-	ctx := l.Context()
-	if ctx == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("no context found"))
-		return 2
+	uw := engine.GetUnitOfWork(l.Context())
+	if uw == nil {
+		l.RaiseError("no unit of work found in context")
+		return 0
 	}
 
-	reg := resource.GetResources(ctx)
+	reg := resource.GetResources(uw.Context())
 	if reg == nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString("resource registry not found"))
@@ -107,7 +102,7 @@ func dbGet(l *lua.LState, log *zap.Logger) int {
 	resID := registry.ParseID(id)
 
 	// Acquire resource
-	res, err := reg.Acquire(ctx, resID, resource.ModeNormal)
+	res, err := reg.Acquire(uw.Context(), resID, resource.ModeNormal)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("failed to acquire resource: %v", err)))
@@ -152,25 +147,7 @@ func dbGet(l *lua.LState, log *zap.Logger) int {
 		log:      log,
 	}
 
-	// Add to unit of work for proper cleanup
-	uw := uow.FromContext(ctx)
-	if uw == nil {
-		// If there's no unit of work, we can't properly manage this resource
-		// Release it immediately and report an error
-		releaseErr := res.Release()
-		if releaseErr != nil {
-			log.Error("failed to release DB resource due to missing UOW",
-				zap.Error(releaseErr))
-		}
-		l.Push(lua.LNil)
-		l.Push(lua.LString("no unit of work found to manage DB resource"))
-		return 2
-	}
-
-	// Register with UOW for cleanup
-	uw.AddCleanup(func() error {
-		return res.Release()
-	})
+	uw.AddCleanup(res.Release)
 
 	// Create userdata
 	ud := WrapDB(l, db)
@@ -303,6 +280,12 @@ func dbPrepare(l *lua.LState) int {
 		return 0
 	}
 
+	uw := engine.GetUnitOfWork(l.Context())
+	if uw == nil {
+		l.RaiseError("no unit of work found in context")
+		return 0
+	}
+
 	// Get query
 	query := l.CheckString(2)
 
@@ -321,21 +304,7 @@ func dbPrepare(l *lua.LState) int {
 			log:  db.log,
 		}
 
-		// Register for cleanup
-		uw := uow.FromContext(l.Context())
-		if uw == nil {
-			// No UOW found, close the statement immediately
-			closeErr := stmt.Close()
-			if closeErr != nil {
-				db.log.Error("failed to close statement due to missing UOW",
-					zap.Error(closeErr))
-			}
-			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString("no unit of work found to manage statement")}, nil)
-		}
-
-		uw.AddCleanup(func() error {
-			return stmt.Close()
-		})
+		uw.AddCleanup(stmt.Close)
 
 		// Create userdata
 		ud := WrapStatement(l, stmtObj)
@@ -354,6 +323,12 @@ func dbBegin(l *lua.LState) int {
 		return 0
 	}
 
+	uw := engine.GetUnitOfWork(l.Context())
+	if uw == nil {
+		l.RaiseError("no unit of work found in context")
+		return 0
+	}
+
 	coroutine.Wrap(l, func() *engine.Update {
 		// Begin transaction
 		tx, err := db.db.Begin()
@@ -367,18 +342,6 @@ func dbBegin(l *lua.LState) int {
 			db:     db,
 			log:    db.log,
 			active: true,
-		}
-
-		// Register for cleanup (rollback if not committed)
-		uw := uow.FromContext(l.Context())
-		if uw == nil {
-			// No UOW found, roll back the transaction immediately
-			rollbackErr := tx.Rollback()
-			if rollbackErr != nil {
-				db.log.Error("failed to rollback transaction due to missing UOW",
-					zap.Error(rollbackErr))
-			}
-			return engine.NewUpdate(nil, nil, errors.New("no unit of work found to manage transaction"))
 		}
 
 		uw.AddCleanup(func() error {
