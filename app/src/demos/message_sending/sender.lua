@@ -19,7 +19,7 @@ function handler()
     end
 
     -- Get message from query params (optional)
-    local message = req:query("message") or ("Hello from " .. func.pid())
+    local message = req:query("message") or ("Hello from " .. process.pid())
 
     -- Get topic from query params (optional)
     local topic = req:query("topic") or "message"
@@ -50,7 +50,7 @@ function handler()
     })
 
     if result.channel == timeout then
-        res:set_status(http.STATUS.GATEWAY_TIMEOUT)
+        res:set_status(http.STATUS.INTERNAL_ERROR)
         res:write_json({
             success = false,
             error = "Response timeout after 1s"

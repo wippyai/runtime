@@ -23,7 +23,7 @@ local function run()
     local message_actor = actor.new(state, {
         -- Handler for the dedicated message topic
         message = function(state, msg)
-            print("Received message on 'message' topic:", inspect_table(msg))
+            --print("Received message on 'message' topic:", inspect_table(msg))
 
             if type(msg) == "table" and msg.from then
                 process.send(msg.from, "response", {
@@ -39,8 +39,7 @@ local function run()
 
         -- Default handler for any other topics via inbox
         __default = function(state, msg, topic)
-            print("Received message on default inbox topic '" .. tostring(topic) .. "':",
-                "payload=", inspect_table(msg))
+            --print("Received message on default inbox topic '" .. tostring(topic) .. "':", "payload=", inspect_table(msg))
 
             if msg.from then
                 process.send(msg.from, "response", {
