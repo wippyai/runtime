@@ -113,7 +113,7 @@ func GoToLua(v any) (lua.LValue, error) {
 	case error:
 		ud := engine.SharedState.NewUserData()
 		ud.Value = errors.New(val)
-		ud.Metatable = engine.SharedState.GetTypeMetatable("error")
+		ud.Metatable = engine.GetTypeMetatable(engine.SharedState, "error")
 
 		return ud, nil
 	}
@@ -147,7 +147,8 @@ func GoToLua(v any) (lua.LValue, error) {
 			// Return empty table for nil maps
 			return engine.SharedState.NewTable(), nil
 		}
-		table := engine.SharedState.NewTable()
+
+		table := engine.SharedState.CreateTable(0, rv.Len())
 		iter := rv.MapRange()
 		for iter.Next() {
 			key := iter.Key()
@@ -162,10 +163,10 @@ func GoToLua(v any) (lua.LValue, error) {
 		return table, nil
 
 	case reflect.Struct:
-		table := engine.SharedState.NewTable()
 		typ := rv.Type()
 
 		fields := getStructFields(typ)
+		table := engine.SharedState.CreateTable(0, len(fields))
 		for _, field := range fields {
 			fieldValue := rv.Field(field.index)
 			var lval lua.LValue
