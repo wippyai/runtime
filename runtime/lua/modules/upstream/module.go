@@ -9,8 +9,6 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-// todo: redo to use uow
-
 // Module provides functionality to send values upstream from Lua
 type Module struct{}
 
