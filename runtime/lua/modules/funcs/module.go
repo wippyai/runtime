@@ -14,7 +14,6 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	transcode "github.com/ponyruntime/pony/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
-	"log"
 )
 
 type Module struct {
@@ -236,7 +235,6 @@ func (m *Module) async(l *lua.LState) int {
 	// Start the task in a goroutine
 	uw.Run(
 		func(work engine.UnitOfWork) {
-			defer log.Printf("RESULT SENT")
 			// Start the function
 			resultChan, err := functions.funcs.Call(t.Context(), runtimeTask)
 			if err != nil {

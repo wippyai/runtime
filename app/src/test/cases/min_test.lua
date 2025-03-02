@@ -159,7 +159,6 @@ local function run_minimal_test(options)
     --local total_duration = end_time:sub(start_time):milliseconds() / 1000
     --
     ---- Send completion event
-    print("results.failed", results.failed)
     send_message(EVENT.COMPLETE, {
      --   total = results.total,
      --   passed = results.passed,
@@ -168,7 +167,6 @@ local function run_minimal_test(options)
       --  timestamp = end_time:unix(),
         status = results.failed > 0 and "failed" or "passed"
     })
-    print("results.returned", results.failed)
 
     -- Return formatted results
     return {
