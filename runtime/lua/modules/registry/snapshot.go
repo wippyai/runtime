@@ -3,6 +3,7 @@ package registry
 import (
 	"fmt"
 	regapi "github.com/ponyruntime/pony/api/registry"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
@@ -17,15 +18,14 @@ type Snapshot struct {
 
 // registerSnapshotType registers the Snapshot type and methods
 func (m *Module) registerSnapshotType(l *lua.LState) {
-	mt := l.NewTypeMetatable(snapshotMetatable)
-	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
+	value.RegisterMethods(l, snapshotMetatable, map[string]lua.LGFunction{
 		"entries":   snapshotEntries,
 		"get":       snapshotGet,
 		"namespace": snapshotNamespace,
 		"find":      snapshotFind,
 		"changes":   snapshotChanges,
 		"version":   snapshotVersion,
-	}))
+	})
 }
 
 // snapshotEntries returns all entries in the snapshot

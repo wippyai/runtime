@@ -4,6 +4,7 @@ import (
 	regapi "github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"github.com/ponyruntime/pony/system/registry/topology"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
@@ -18,12 +19,11 @@ type History struct {
 
 // registerHistoryType registers the History type and methods
 func (m *Module) registerHistoryType(l *lua.LState) {
-	mt := l.NewTypeMetatable(historyMetatable)
-	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
+	value.RegisterMethods(l, historyMetatable, map[string]lua.LGFunction{
 		"versions":    historyVersions,
 		"get_version": historyGetVersion,
 		"snapshot_at": historySnapshotAt,
-	}))
+	})
 }
 
 // historyVersions returns all available versions in the registry history

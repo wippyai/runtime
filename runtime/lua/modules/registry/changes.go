@@ -4,6 +4,7 @@ import (
 	regapi "github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
@@ -17,13 +18,12 @@ type Changes struct {
 
 // registerChangesType registers the Changes type and methods
 func (m *Module) registerChangesType(l *lua.LState) {
-	mt := l.NewTypeMetatable(changesMetatable)
-	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
+	value.RegisterMethods(l, changesMetatable, map[string]lua.LGFunction{
 		"create": changesCreate,
 		"update": changesUpdate,
 		"delete": changesDelete,
 		"apply":  changesApply,
-	}))
+	})
 }
 
 // changesCreate adds a new entry to the changeset
