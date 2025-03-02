@@ -497,15 +497,15 @@ func queryGetTextPredicates(l *lua.LState) int {
 
 func (q *QueryWrapper) Close() {
 	q.once.Do(func() {
-		if q.cursor != nil {
-			q.cursor.Close()
-			q.cursor = nil
-		}
-
-		if q.query != nil {
-			q.query.Close()
-			q.query = nil
-		}
+		//if q.cursor != nil {
+		//	q.cursor.Close()
+		//	q.cursor = nil
+		//}
+		//
+		//if q.query != nil {
+		//	q.query.Close()
+		//	q.query = nil
+		//}
 	})
 }
 
