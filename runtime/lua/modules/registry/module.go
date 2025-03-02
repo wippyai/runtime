@@ -43,22 +43,20 @@ func (m *Module) Name() string {
 // Loader loads the module into the Lua state
 func (m *Module) Loader(l *lua.LState) int {
 	// Create module table
-	mod := l.NewTable()
+	mod := l.CreateTable(0, 9) // Preallocate exact size for better performance
 
-	// Register module-level functions
-	l.SetFuncs(mod, map[string]lua.LGFunction{
-		"snapshot":        m.snapshotCreate,
-		"snapshot_at":     m.snapshotAt,
-		"current_version": m.currentVersion,
-		"versions":        m.versions,
-		"apply_version":   m.applyVersion,
-		"parse_id":        parseID,
-		"history":         m.historyCreate,
-		"find":            m.registryFind,
-		"get":             m.registryGet,
-	})
+	// Register module-level functions directly
+	mod.RawSetString("snapshot", l.NewFunction(m.snapshotCreate))
+	mod.RawSetString("snapshot_at", l.NewFunction(m.snapshotAt))
+	mod.RawSetString("current_version", l.NewFunction(m.currentVersion))
+	mod.RawSetString("versions", l.NewFunction(m.versions))
+	mod.RawSetString("apply_version", l.NewFunction(m.applyVersion))
+	mod.RawSetString("parse_id", l.NewFunction(parseID))
+	mod.RawSetString("history", l.NewFunction(m.historyCreate))
+	mod.RawSetString("find", l.NewFunction(m.registryFind))
+	mod.RawSetString("get", l.NewFunction(m.registryGet))
 
-	// Register types with their methods
+	// Register types with their methods using the util helper functions
 	m.registerSnapshotType(l)
 	m.registerChangesType(l)
 	m.registerVersionType(l)

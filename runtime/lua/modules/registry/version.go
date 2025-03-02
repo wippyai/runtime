@@ -2,17 +2,17 @@ package registry
 
 import (
 	regapi "github.com/ponyruntime/pony/api/registry"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 )
 
 // registerVersionType registers the Version type and methods
 func (m *Module) registerVersionType(l *lua.LState) {
-	mt := l.NewTypeMetatable(versionMetatable)
-	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
+	value.RegisterMethods(l, versionMetatable, map[string]lua.LGFunction{
 		"id":       versionID,
 		"previous": versionPrevious,
 		"string":   versionString,
-	}))
+	})
 }
 
 // versionID returns the ID of a version

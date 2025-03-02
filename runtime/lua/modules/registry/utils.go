@@ -66,7 +66,7 @@ func luaTableToEntry(l *lua.LState, table *lua.LTable) (regapi.Entry, error) {
 // entryToLuaTable converts a registry Entry to a Lua table
 func entryToLuaTable(l *lua.LState, entry regapi.Entry) (*lua.LTable, error) {
 	// Create the base table
-	entryTable := l.NewTable()
+	entryTable := l.CreateTable(0, 4)
 
 	// Convert ID
 	entryTable.RawSetString("id", lua.LString(entry.ID.String()))
@@ -75,7 +75,7 @@ func entryToLuaTable(l *lua.LState, entry regapi.Entry) (*lua.LTable, error) {
 	entryTable.RawSetString("kind", lua.LString(entry.Kind))
 
 	// Convert metadata
-	metaTable := l.NewTable()
+	metaTable := l.CreateTable(0, len(entry.Meta))
 	for k, v := range entry.Meta {
 		luaValue, err := luaconv.GoToLua(v)
 		if err != nil {
