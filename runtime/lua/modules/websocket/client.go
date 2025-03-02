@@ -243,9 +243,9 @@ func (c *wsClient) readLoop(l *lua.LState, uw engine.UnitOfWork) {
 		msg := l.CreateTable(0, 2)
 		if err != nil {
 			if websocket.CloseStatus(err) == websocket.StatusNormalClosure {
-				msg.RawSetString("code", lua.LString(TypeClose))
-				msg.RawSetString("reason", lua.LString("normal closure"))
 				msg.RawSetString("type", lua.LString(TypeClose))
+				msg.RawSetString("code", lua.LNumber(CloseCodeNormal))
+				msg.RawSetString("reason", lua.LString("normal closure"))
 			} else {
 				msg.RawSetString("type", lua.LString(websocket.CloseStatus(err).String()))
 				msg.RawSetString("code", lua.LNumber(websocket.CloseStatus(err)))
