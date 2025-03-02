@@ -13,7 +13,7 @@ entries:
     method: run_tests
     modules: [ http, time, json, registry, funcs ]
     pool:
-      size: 1
+      size: 8
 
   - name: healthcheck.endpoint
     kind: http.endpoint
