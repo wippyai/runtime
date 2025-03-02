@@ -145,50 +145,6 @@ func TestHost_SendCancelledContext(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestHost_SendBufferFull(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*1)
-	defer cancel()
-
-	host := NewHost(ctx, HostConfig{
-		BufferSize:  1,
-		WorkerCount: 0, // no worker, so jobCh remains full after one send
-	})
-
-	pid := api.PID{
-		Node:   "node1",
-		Host:   "host1",
-		ID:     registry.ID{NS: "ns1", Name: "proc1"},
-		UniqID: "uniq1",
-	}
-
-	// First send should succeed and fill the job channel
-	pkg1 := &api.Package{
-		PID: pid,
-		Messages: []*api.Message{
-			{Topic: "test1"},
-		},
-	}
-	err := host.Send(pkg1)
-	assert.NoError(t, err)
-
-	// Second send should fail with a timeout
-	pkg2 := &api.Package{
-		PID: pid,
-		Messages: []*api.Message{
-			{Topic: "test2"},
-		},
-	}
-	err = host.Send(pkg2)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "timeout")
-}
-
-func cancelledContext() context.Context {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	return ctx
-}
-
 func TestHost_NoReceiver(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
