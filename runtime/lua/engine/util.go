@@ -4,23 +4,60 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-var luaState, _ = newLuaState()
-
-// NewTable creates new empty table with given capacity.
-func NewTable(capacity int) *lua.LTable {
-	return luaState.CreateTable(capacity, capacity)
-}
-
-func SetMetadata(L *lua.LState, value lua.LValue, key string, val lua.LValue) {
-	if table, ok := value.(*lua.LTable); ok {
-		table.RawSetString(key, val)
-	} else {
-		L.SetField(value, key, val)
+// GetTypeMetatable retrieves a type's metatable directly from registry
+// without using the heavy GetField mechanism
+func GetTypeMetatable(L *lua.LState, typeName string) *lua.LTable {
+	// Get registry table directly
+	registry := L.Get(lua.RegistryIndex)
+	regTable, ok := registry.(*lua.LTable)
+	if !ok {
+		return nil // Registry isn't a table (shouldn't happen)
 	}
+
+	// Get metatable with direct access
+	mt := regTable.RawGetString(typeName)
+	if table, ok := mt.(*lua.LTable); ok {
+		return table
+	}
+
+	return nil // Metatable doesn't exist or isn't a table
 }
 
-func SetFunctions(L *lua.LState, fn []lua.LGFunction) {
+// RegisterTypeMethods efficiently registers methods for a type with minimal overhead
+func RegisterTypeMethods(L *lua.LState, typeName string, methods map[string]lua.LGFunction) *lua.LTable {
+	// Get registry table directly and ensure it's a table
+	registry := L.Get(lua.RegistryIndex)
+	regTable, ok := registry.(*lua.LTable)
+	if !ok {
+		L.RaiseError("registry is not a table")
+		return nil
+	}
 
+	// Check if metatable already exists with direct raw access
+	existingMt := regTable.RawGetString(typeName)
+	if mt, ok := existingMt.(*lua.LTable); ok {
+		// Metatable already exists, return it
+		return mt
+	}
+
+	// Create a small metatable (only need __index by default)
+	mt := L.CreateTable(0, 1)
+
+	// Create methods table with exact size
+	methodsTable := L.CreateTable(0, len(methods))
+
+	// Add all methods to methodsTable directly
+	for name, method := range methods {
+		methodsTable.RawSetString(name, L.NewFunction(method))
+	}
+
+	// Set __index to the methods table
+	mt.RawSetString("__index", methodsTable)
+
+	// Store metatable in registry directly
+	regTable.RawSetString(typeName, mt)
+
+	return mt
 }
 
 // GetField retrieves a field value from a Lua value following Lua's field access rules.

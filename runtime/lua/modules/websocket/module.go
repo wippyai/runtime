@@ -21,33 +21,36 @@ func (m *Module) Name() string {
 }
 
 // Loader registers the WebSocket module
+// Loader registers the WebSocket module
 func (m *Module) Loader(l *lua.LState) int {
-	mod := l.NewTable()
+	// Create table with pre-allocated size for our known elements
+	mod := l.CreateTable(0, 7) // 1 function + 5 types + 1 close codes table
 
-	// Register connection function
-	l.SetField(mod, "connect", l.NewFunction(wsConnect))
+	// Register connection function using RawSetString
+	mod.RawSetString("connect", l.NewFunction(wsConnect))
 
-	// Register message types
-	l.SetField(mod, "TYPE_TEXT", lua.LString(TypeText))
-	l.SetField(mod, "TYPE_BINARY", lua.LString(TypeBinary))
-	l.SetField(mod, "TYPE_PING", lua.LString(TypePing))
-	l.SetField(mod, "TYPE_PONG", lua.LString(TypePong))
-	l.SetField(mod, "TYPE_CLOSE", lua.LString(TypeClose))
+	// Register message types using RawSetString
+	mod.RawSetString("TYPE_TEXT", lua.LString(TypeText))
+	mod.RawSetString("TYPE_BINARY", lua.LString(TypeBinary))
+	mod.RawSetString("TYPE_PING", lua.LString(TypePing))
+	mod.RawSetString("TYPE_PONG", lua.LString(TypePong))
+	mod.RawSetString("TYPE_CLOSE", lua.LString(TypeClose))
 
-	// Register close codes
-	closeCodesTable := l.NewTable()
+	// Register close codes - create with exact known size
+	numCloseCodes := len(closeCodes)
+	closeCodesTable := l.CreateTable(0, numCloseCodes)
 	for k, v := range closeCodes {
-		l.SetField(closeCodesTable, k, lua.LNumber(v))
+		closeCodesTable.RawSetString(k, lua.LNumber(v))
 	}
-	l.SetField(mod, "CLOSE_CODES", closeCodesTable)
+	mod.RawSetString("CLOSE_CODES", closeCodesTable)
 
 	// Register client methods
 	mt := l.NewTypeMetatable("websocket.Client")
-	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
-		"send":    wsSend,
-		"close":   wsClose,
-		"receive": wsReceive,
-	}))
+	methods := l.CreateTable(0, 3) // Exactly 3 methods
+	methods.RawSetString("send", l.NewFunction(wsSend))
+	methods.RawSetString("close", l.NewFunction(wsClose))
+	methods.RawSetString("receive", l.NewFunction(wsReceive))
+	mt.RawSetString("__index", methods)
 
 	l.Push(mod)
 	return 1
