@@ -32,14 +32,13 @@ func TestProcessBasic(t *testing.T) {
 
 	require.NoError(t, err)
 	defer vm.Close()
-	chans := channel.NewChannelLayer()
 	// Spawn a wrapped VM with async runner
 	wrapped := engine.NewRunner(
 		vm,
-		engine.WithLayer(chans),
-		engine.WithLayer(channel.NewAsyncLayer(chans, 10)),
+		engine.WithLayer(channel.NewChannelLayer()),
 		engine.WithLayer(coroutine.NewCoroutineLayer()),
 	)
+
 	err = vm.Import(`
 			function test_process_simple()
 			    -- Spawn a new process
@@ -138,12 +137,10 @@ func TestWorkingDir(t *testing.T) {
 
 	require.NoError(t, err)
 	defer vm.Close()
-	chans := channel.NewChannelLayer()
-	// Spawn a wrapped VM with async runner
+
 	wrapped := engine.NewRunner(
 		vm,
-		engine.WithLayer(chans),
-		engine.WithLayer(channel.NewAsyncLayer(chans, 10)),
+		engine.WithLayer(channel.NewChannelLayer()),
 		engine.WithLayer(coroutine.NewCoroutineLayer()),
 	)
 	err = vm.Import(`
@@ -251,12 +248,11 @@ func TestWriteStdin(t *testing.T) {
 
 	require.NoError(t, err)
 	defer vm.Close()
-	chans := channel.NewChannelLayer()
+
 	// Spawn a wrapped VM with async runner
 	wrapped := engine.NewRunner(
 		vm,
-		engine.WithLayer(chans),
-		engine.WithLayer(channel.NewAsyncLayer(chans, 10)),
+		engine.WithLayer(channel.NewChannelLayer()),
 		engine.WithLayer(coroutine.NewCoroutineLayer()),
 	)
 	err = vm.Import(`
@@ -308,12 +304,11 @@ func TestMultiplyCallsToStream(t *testing.T) {
 
 	require.NoError(t, err)
 	defer vm.Close()
-	chans := channel.NewChannelLayer()
+
 	// Spawn a wrapped VM with async runner
 	wrapped := engine.NewRunner(
 		vm,
-		engine.WithLayer(chans),
-		engine.WithLayer(channel.NewAsyncLayer(chans, 10)),
+		engine.WithLayer(channel.NewChannelLayer()),
 		engine.WithLayer(coroutine.NewCoroutineLayer()),
 	)
 	err = vm.Import(`
