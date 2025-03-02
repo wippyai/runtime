@@ -2,7 +2,7 @@ package protocol
 
 import (
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 	"reflect"
 )
@@ -14,7 +14,7 @@ type LuaModelWrapper struct {
 }
 
 func (m *LuaModelWrapper) Init() tea.Cmd {
-	if fn, ok := engine.GetFunc(m.luaState, m.value, "init"); ok {
+	if fn, ok := value.GetFunc(m.luaState, m.value, "init"); ok {
 		err := m.luaState.CallByParam(lua.P{
 			Fn:      fn,
 			NRet:    1,
@@ -34,7 +34,7 @@ func (m *LuaModelWrapper) Init() tea.Cmd {
 }
 
 func (m *LuaModelWrapper) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if fn, ok := engine.GetFunc(m.luaState, m.value, "update"); ok {
+	if fn, ok := value.GetFunc(m.luaState, m.value, "update"); ok {
 		luaMsg := MsgToLua(msg)
 
 		err := m.luaState.CallByParam(lua.P{
@@ -65,7 +65,7 @@ func (m *LuaModelWrapper) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *LuaModelWrapper) View() string {
-	if fn, ok := engine.GetFunc(m.luaState, m.value, "view"); ok {
+	if fn, ok := value.GetFunc(m.luaState, m.value, "view"); ok {
 		err := m.luaState.CallByParam(lua.P{
 			Fn:      fn,
 			NRet:    1,
@@ -97,9 +97,9 @@ func TryGetModel(l *lua.LState, v lua.LValue) (tea.Model, bool) {
 	}
 
 	// For both userdata and tables, try wrapping if they have model methods
-	_, hasInit := engine.GetFunc(l, v, "init")
-	_, hasUpdate := engine.GetFunc(l, v, "update")
-	_, hasView := engine.GetFunc(l, v, "view")
+	_, hasInit := value.GetFunc(l, v, "init")
+	_, hasUpdate := value.GetFunc(l, v, "update")
+	_, hasView := value.GetFunc(l, v, "view")
 
 	if hasInit && hasUpdate && hasView {
 		return &LuaModelWrapper{value: v, luaState: l}, true

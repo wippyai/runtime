@@ -5,7 +5,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
 	lua "github.com/yuin/gopher-lua"
 	"io"
@@ -24,7 +24,7 @@ func (ld *LuaDelegate) Height() int {
 		}
 	}
 
-	if fieldValue, ok := engine.GetField(ld.luaState, ld.luaDelegate, "height"); ok {
+	if fieldValue, ok := value.GetField(ld.luaState, ld.luaDelegate, "height"); ok {
 		switch v := fieldValue.(type) {
 		case lua.LNumber:
 			return int(v)
@@ -48,7 +48,7 @@ func (ld *LuaDelegate) Spacing() int {
 		}
 	}
 
-	if fieldValue, ok := engine.GetField(ld.luaState, ld.luaDelegate, "spacing"); ok {
+	if fieldValue, ok := value.GetField(ld.luaState, ld.luaDelegate, "spacing"); ok {
 		switch v := fieldValue.(type) {
 		case lua.LNumber:
 			return int(v)
@@ -66,7 +66,7 @@ func (ld *LuaDelegate) Spacing() int {
 }
 
 func (ld *LuaDelegate) Render(w io.Writer, m list.Model, index int, listItem list.Item) {
-	render, ok := engine.GetFunc(ld.luaState, ld.luaDelegate, "render")
+	render, ok := value.GetFunc(ld.luaState, ld.luaDelegate, "render")
 	if !ok {
 		return
 	}
@@ -92,7 +92,7 @@ func (ld *LuaDelegate) Render(w io.Writer, m list.Model, index int, listItem lis
 }
 
 func (ld *LuaDelegate) Update(msg tea.Msg, m *list.Model) tea.Cmd {
-	update, ok := engine.GetFunc(ld.luaState, ld.luaDelegate, "update")
+	update, ok := value.GetFunc(ld.luaState, ld.luaDelegate, "update")
 	if !ok {
 		return nil
 	}
@@ -132,7 +132,7 @@ func (ld *LuaDelegate) ShortHelp() []key.Binding {
 		}
 	}
 
-	if fieldValue, ok := engine.GetField(ld.luaState, ld.luaDelegate, "short_help"); ok {
+	if fieldValue, ok := value.GetField(ld.luaState, ld.luaDelegate, "short_help"); ok {
 		if t, ok := fieldValue.(*lua.LTable); ok {
 			bindings := make([]key.Binding, 0)
 			t.ForEach(func(_, v lua.LValue) {
@@ -153,7 +153,7 @@ func (ld *LuaDelegate) FullHelp() [][]key.Binding {
 		}
 	}
 
-	if fieldValue, ok := engine.GetField(ld.luaState, ld.luaDelegate, "full_help"); ok {
+	if fieldValue, ok := value.GetField(ld.luaState, ld.luaDelegate, "full_help"); ok {
 		if t, ok := fieldValue.(*lua.LTable); ok {
 			groupedBindings := make([][]key.Binding, 0)
 			t.ForEach(func(_, group lua.LValue) {

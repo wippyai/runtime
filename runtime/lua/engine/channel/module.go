@@ -3,6 +3,7 @@ package channel
 import (
 	"fmt"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"strings"
 
 	lua "github.com/yuin/gopher-lua"
@@ -130,7 +131,7 @@ func (m *Module) Loader(l *lua.LState) int {
 	mod.RawSetString("select", l.NewFunction(selectLua))
 
 	// Register all channel methods at once with the helper function
-	engine.RegisterTypeMethods(l, "channel", map[string]lua.LGFunction{
+	value.RegisterMethods(l, "channel", map[string]lua.LGFunction{
 		"send":             sendLua,
 		"receive":          receiveLua,
 		"close":            closeLua,
@@ -150,7 +151,7 @@ func (m *Module) Loader(l *lua.LState) int {
 func Wrap(l *lua.LState, ch *Channel) lua.LValue {
 	ud := l.NewUserData()
 	ud.Value = ch
-	ud.Metatable = engine.GetTypeMetatable(l, "channel")
+	ud.Metatable = value.GetTypeMetatable(l, "channel")
 	ch.value = ud // for select conditions they are always coupled
 
 	return ud
@@ -168,7 +169,7 @@ func newChannelLua(l *lua.LState) int {
 
 	ud := l.NewUserData()
 	ud.Value = ch
-	ud.Metatable = engine.GetTypeMetatable(l, "channel")
+	ud.Metatable = value.GetTypeMetatable(l, "channel")
 	ch.value = ud // yep
 
 	l.Push(ud)

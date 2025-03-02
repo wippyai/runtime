@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/ponyruntime/pony/runtime/lua/engine/inspect"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 	"io"
 	"runtime"
@@ -244,25 +245,31 @@ func (e *WrappedError) Format(s fmt.State, verb rune) {
 }
 
 // RegisterErrorsModule registers the errors module in Lua.
+// RegisterErrorsModule registers the errors module in Lua.
 func RegisterErrorsModule(L *lua.LState) {
-	// Spawn errors module
-	mod := L.NewTable()
-	L.SetGlobal("errors", mod)
-	mt := L.NewTypeMetatable("error")
-	L.SetField(mt, "__tostring", L.NewFunction(func(L *lua.LState) int {
-		if ud := L.CheckUserData(1); ud != nil {
-			if err, ok := ud.Value.(error); ok {
-				L.Push(lua.LString(err.Error()))
-				return 1
-			}
-		}
-		return 0
-	}))
+	// Create errors module table with exact size
+	mod := L.CreateTable(0, 3) // pre-allocate for 3 functions
 
-	// Add wrap function
-	L.SetField(mod, "new", L.NewFunction(newError))
-	L.SetField(mod, "wrap", L.NewFunction(wrapError))
-	L.SetField(mod, "call_stack", L.NewFunction(callStack))
+	// Register error type with just metamethods
+	value.RegisterMetamethods(L, "error", map[string]lua.LGFunction{
+		"__tostring": func(L *lua.LState) int {
+			if ud := L.CheckUserData(1); ud != nil {
+				if err, ok := ud.Value.(error); ok {
+					L.Push(lua.LString(err.Error()))
+					return 1
+				}
+			}
+			return 0
+		},
+	})
+
+	// Add functions to module with direct access
+	mod.RawSetString("new", L.NewFunction(newError))
+	mod.RawSetString("wrap", L.NewFunction(wrapError))
+	mod.RawSetString("call_stack", L.NewFunction(callStack))
+
+	// Set global with direct access
+	L.SetGlobal("errors", mod)
 }
 
 // callStack implements the errors.call_stack() function in Lua.

@@ -5,6 +5,7 @@ import (
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/errors"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"reflect"
 	"sync"
 	"time"
@@ -113,7 +114,7 @@ func GoToLua(v any) (lua.LValue, error) {
 	case error:
 		ud := engine.SharedState.NewUserData()
 		ud.Value = errors.New(val)
-		ud.Metatable = engine.GetTypeMetatable(engine.SharedState, "error")
+		ud.Metatable = value.GetTypeMetatable(engine.SharedState, "error")
 
 		return ud, nil
 	}

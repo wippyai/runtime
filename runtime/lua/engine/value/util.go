@@ -1,4 +1,4 @@
-package engine
+package value
 
 import (
 	lua "github.com/yuin/gopher-lua"
@@ -23,8 +23,14 @@ func GetTypeMetatable(L *lua.LState, typeName string) *lua.LTable {
 	return nil // Metatable doesn't exist or isn't a table
 }
 
-// RegisterTypeMethods efficiently registers methods for a type with minimal overhead
-func RegisterTypeMethods(L *lua.LState, typeName string, methods map[string]lua.LGFunction) *lua.LTable {
+// RegisterTypeMethods efficiently registers methods for a type with minimal overhead.
+// It takes separate maps for metamethods and regular methods, either of which can be nil.
+func RegisterTypeMethods(
+	L *lua.LState,
+	typeName string,
+	metamethods map[string]lua.LGFunction,
+	methods map[string]lua.LGFunction,
+) *lua.LTable {
 	// Get registry table directly and ensure it's a table
 	registry := L.Get(lua.RegistryIndex)
 	regTable, ok := registry.(*lua.LTable)
@@ -33,31 +39,64 @@ func RegisterTypeMethods(L *lua.LState, typeName string, methods map[string]lua.
 		return nil
 	}
 
-	// Check if metatable already exists with direct raw access
+	// Check if metatable already exists
 	existingMt := regTable.RawGetString(typeName)
-	if mt, ok := existingMt.(*lua.LTable); ok {
-		// Metatable already exists, return it
-		return mt
+	var mt *lua.LTable
+
+	if existingMt != lua.LNil {
+		if existing, ok := existingMt.(*lua.LTable); ok {
+			// Metatable already exists, use it
+			mt = existing
+		} else {
+			// Unexpected value in registry, create new metatable
+			mt = L.CreateTable(0, len(metamethods)+1) // +1 for possible __index
+		}
+	} else {
+		// Create new metatable with exact size
+		mt = L.CreateTable(0, len(metamethods)+1) // +1 for possible __index
 	}
 
-	// Create a small metatable (only need __index by default)
-	mt := L.CreateTable(0, 1)
-
-	// Create methods table with exact size
-	methodsTable := L.CreateTable(0, len(methods))
-
-	// Add all methods to methodsTable directly
-	for name, method := range methods {
-		methodsTable.RawSetString(name, L.NewFunction(method))
+	// Add metamethods directly to metatable
+	if metamethods != nil {
+		for name, fn := range metamethods {
+			mt.RawSetString(name, L.NewFunction(fn))
+		}
 	}
 
-	// Set __index to the methods table
-	mt.RawSetString("__index", methodsTable)
+	// Handle regular methods if any
+	if methods != nil && len(methods) > 0 {
+		// Check if __index already exists and is a table
+		indexVal := mt.RawGetString("__index")
+		var indexTable *lua.LTable
+
+		if existing, ok := indexVal.(*lua.LTable); ok {
+			// Use existing index table
+			indexTable = existing
+		} else {
+			// Create a new methods table with exact size
+			indexTable = L.CreateTable(0, len(methods))
+			// Set __index to the methods table
+			mt.RawSetString("__index", indexTable)
+		}
+
+		// Add all methods to methodsTable directly
+		for name, fn := range methods {
+			indexTable.RawSetString(name, L.NewFunction(fn))
+		}
+	}
 
 	// Store metatable in registry directly
 	regTable.RawSetString(typeName, mt)
 
 	return mt
+}
+
+func RegisterMetamethods(L *lua.LState, typeName string, metamethods map[string]lua.LGFunction) *lua.LTable {
+	return RegisterTypeMethods(L, typeName, metamethods, nil)
+}
+
+func RegisterMethods(L *lua.LState, typeName string, methods map[string]lua.LGFunction) *lua.LTable {
+	return RegisterTypeMethods(L, typeName, nil, methods)
 }
 
 // GetField retrieves a field value from a Lua value following Lua's field access rules.
