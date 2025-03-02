@@ -3,6 +3,7 @@ package time
 import (
 	"fmt"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"time"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
@@ -58,7 +59,7 @@ func timer(l *lua.LState) int {
 
 	timeUD := l.NewUserData()
 	timeUD.Value = &Time{time: time.Now()}
-	l.SetMetatable(timeUD, l.GetTypeMetatable("time.Time"))
+	timeUD.Metatable = value.GetTypeMetatable(l, "time.Time")
 
 	uw.Run(func(uw engine.UnitOfWork) {
 		defer tmr.Stop()
@@ -79,7 +80,8 @@ func timer(l *lua.LState) int {
 	// Spawn and return Timer userdata
 	ud := l.NewUserData()
 	ud.Value = &Timer{timer: tmr, chValue: channel.Wrap(l, ch)}
-	l.SetMetatable(ud, l.GetTypeMetatable("time.Timer"))
+	ud.Metatable = value.GetTypeMetatable(l, "time.Timer")
+
 	l.Push(ud)
 	return 1
 }
@@ -158,13 +160,16 @@ func timerChannel(l *lua.LState) int {
 
 // Register Timer
 func registerTimer(l *lua.LState, mod *lua.LTable) {
-	mt := l.NewTypeMetatable("time.Timer")
-	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
+	// Register Timer methods
+	methods := map[string]lua.LGFunction{
 		"stop":    timerStop,
 		"reset":   timerReset,
 		"channel": timerChannel,
-	}))
+	}
+
+	// Use the efficient registration method
+	value.RegisterMethods(l, "time.Timer", methods)
 
 	// Register timer constructor
-	l.SetField(mod, "timer", l.NewFunction(timer))
+	mod.RawSetString("timer", l.NewFunction(timer))
 }

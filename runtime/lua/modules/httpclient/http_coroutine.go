@@ -2,7 +2,6 @@ package httpclient
 
 import (
 	"context"
-	"github.com/ponyruntime/pony/runtime/uow"
 	"io"
 	"net/http"
 
@@ -15,17 +14,13 @@ import (
 
 // executeRequestYield performs HTTP request asynchronously using coroutines
 func (m *Module) executeRequestYield(l *lua.LState, req *http.Request, opts *requestOptions) int {
-	ctx := req.Context()
-	if l.Context() != nil {
-		ctx = l.Context()
-	}
-
-	uw := uow.FromContext(ctx)
+	uw := engine.GetUnitOfWork(l.Context())
 	if uw == nil {
-		l.RaiseError("uow not found in context")
+		l.RaiseError("unit of work not found in context")
 		return 0
 	}
 
+	ctx := uw.Context()
 	if opts.timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(uw.Context(), opts.timeout)

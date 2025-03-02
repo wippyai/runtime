@@ -3,7 +3,6 @@ package httpclient
 import (
 	"context"
 	"errors"
-	"github.com/ponyruntime/pony/runtime/uow"
 	"io"
 	"net/http"
 	"time"
@@ -134,22 +133,17 @@ func (m *Module) request(l *lua.LState) int {
 
 // executeRequest performs the actual HTTP request
 func (m *Module) executeRequest(l *lua.LState, req *http.Request, opts *requestOptions) int {
-	ctx := req.Context()
-	if l.Context() != nil {
-		ctx = l.Context()
+	uw := engine.GetUnitOfWork(l.Context())
+	if uw == nil {
+		l.RaiseError("unit of work not found")
+		return 0
 	}
 
-	cleanup := uow.FromContext(ctx)
-	if cleanup == nil {
-		// should never happen
-		ctx, cleanup = uow.OnContext(ctx)
-		defer func() { _ = cleanup.Close() }()
-	}
-
+	ctx := uw.Context()
 	if opts.timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, opts.timeout)
-		cleanup.AddCleanup(func() error { cancel(); return nil })
+		uw.AddCleanup(func() error { cancel(); return nil })
 	}
 
 	req = req.WithContext(ctx)
@@ -160,10 +154,7 @@ func (m *Module) executeRequest(l *lua.LState, req *http.Request, opts *requestO
 		l.Push(lua.LString(err.Error()))
 		return 2
 	}
-
-	cleanup.AddCleanup(func() error {
-		return resp.Body.Close()
-	})
+	uw.AddCleanup(resp.Body.Close)
 
 	if opts.stream != nil {
 		return m.handleStreamResponse(ctx, l, resp, opts.stream)
@@ -220,17 +211,11 @@ func (m *Module) requestBatch(l *lua.LState) int {
 	}
 
 	results := make(chan result, count)
-	ctx := l.Context()
-	if ctx == nil {
-		ctx = context.Background()
-	}
 
-	// VM guarantees cleanup exists
-	cleanup := uow.FromContext(ctx)
-	if cleanup == nil {
-		// should never happen
-		ctx, cleanup = uow.OnContext(ctx)
-		defer func() { _ = cleanup.Close() }()
+	uw := engine.GetUnitOfWork(l.Context())
+	if uw == nil {
+		l.RaiseError("unit of work not found")
+		return 0
 	}
 
 	// Validate, parse options, and build requests
@@ -274,11 +259,11 @@ func (m *Module) requestBatch(l *lua.LState) int {
 		}
 
 		// Set context with timeout from options
-		reqCtx := ctx
+		reqCtx := uw.Context()
 		if opts.timeout > 0 {
 			var cancel context.CancelFunc
-			reqCtx, cancel = context.WithTimeout(ctx, opts.timeout)
-			cleanup.AddCleanup(func() error { cancel(); return nil })
+			reqCtx, cancel = context.WithTimeout(uw.Context(), opts.timeout)
+			uw.AddCleanup(func() error { cancel(); return nil })
 		}
 
 		requests = append(requests, req.WithContext(reqCtx))
@@ -299,7 +284,7 @@ func (m *Module) requestBatch(l *lua.LState) int {
 			}
 
 			// Register response body cleanup
-			cleanup.AddCleanup(func() error {
+			uw.AddCleanup(func() error {
 				return resp.Body.Close()
 			})
 

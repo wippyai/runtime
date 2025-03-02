@@ -2,6 +2,7 @@ package time
 
 import (
 	"fmt"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"time"
 
 	lua "github.com/yuin/gopher-lua"
@@ -123,26 +124,28 @@ func parseDurationValue(value lua.LValue) (time.Duration, error) {
 }
 
 func registerDuration(l *lua.LState, mod *lua.LTable) {
-	mt := l.NewTypeMetatable("time.Duration")
-	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
-		"nanoseconds":  durationNanoseconds,
-		"microseconds": durationMicroseconds,
-		"milliseconds": durationMilliseconds,
-		"seconds":      durationSeconds,
-		"minutes":      durationMinutes,
-		"hours":        durationHours,
-	}))
-	l.SetField(mt, "__tostring", l.NewFunction(durationToString))
+	// Use the efficient registration method
+	value.RegisterTypeMethods(l, "time.Duration",
+		map[string]lua.LGFunction{
+			"__tostring": durationToString,
+		}, map[string]lua.LGFunction{
+			"nanoseconds":  durationNanoseconds,
+			"microseconds": durationMicroseconds,
+			"milliseconds": durationMilliseconds,
+			"seconds":      durationSeconds,
+			"minutes":      durationMinutes,
+			"hours":        durationHours,
+		},
+	)
 
 	// Register duration constants
-	l.SetField(mod, "NANOSECOND", lua.LNumber(Nanosecond))
-	l.SetField(mod, "MICROSECOND", lua.LNumber(Microsecond))
-	l.SetField(mod, "MILLISECOND", lua.LNumber(Millisecond))
-	l.SetField(mod, "SECOND", lua.LNumber(Second))
-	l.SetField(mod, "MINUTE", lua.LNumber(Minute))
-	l.SetField(mod, "HOUR", lua.LNumber(Hour))
+	mod.RawSetString("NANOSECOND", lua.LNumber(Nanosecond))
+	mod.RawSetString("MICROSECOND", lua.LNumber(Microsecond))
+	mod.RawSetString("MILLISECOND", lua.LNumber(Millisecond))
+	mod.RawSetString("SECOND", lua.LNumber(Second))
+	mod.RawSetString("MINUTE", lua.LNumber(Minute))
+	mod.RawSetString("HOUR", lua.LNumber(Hour))
 
-	l.SetFuncs(mod, map[string]lua.LGFunction{
-		"parse_duration": parseDuration,
-	})
+	// Register duration function
+	mod.RawSetString("parse_duration", l.NewFunction(parseDuration))
 }
