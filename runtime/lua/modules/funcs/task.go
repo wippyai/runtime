@@ -15,6 +15,7 @@ var (
 	ErrTaskCanceled = errors.New("task canceled")
 )
 
+// todo: depreacate in favor of command!
 // Task represents a function execution with cancellation capability
 type Task struct {
 	ctx        context.Context
