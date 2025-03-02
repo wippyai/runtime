@@ -47,19 +47,20 @@ func (m *Module) Name() string {
 
 // Loader implements the module loader
 func (m *Module) Loader(l *lua.LState) int {
-	mod := l.NewTable()
-	l.SetFuncs(mod, map[string]lua.LGFunction{
-		"get":           m.makeMethod("GET"),
-		"post":          m.makeMethod("POST"),
-		"put":           m.makeMethod("PUT"),
-		"delete":        m.makeMethod("DELETE"),
-		"head":          m.makeMethod("HEAD"),
-		"patch":         m.makeMethod("PATCH"),
-		"request":       m.request,
-		"request_batch": m.requestBatch,
-		"encode_uri":    encodeURI,
-		"decode_uri":    decodeURI,
-	})
+	// Pre-allocate table with exact capacity needed
+	mod := l.CreateTable(0, 10) // 10 functions will be added
+
+	// Directly register functions instead of using SetFuncs
+	mod.RawSetString("get", l.NewFunction(m.makeMethod("GET")))
+	mod.RawSetString("post", l.NewFunction(m.makeMethod("POST")))
+	mod.RawSetString("put", l.NewFunction(m.makeMethod("PUT")))
+	mod.RawSetString("delete", l.NewFunction(m.makeMethod("DELETE")))
+	mod.RawSetString("head", l.NewFunction(m.makeMethod("HEAD")))
+	mod.RawSetString("patch", l.NewFunction(m.makeMethod("PATCH")))
+	mod.RawSetString("request", l.NewFunction(m.request))
+	mod.RawSetString("request_batch", l.NewFunction(m.requestBatch))
+	mod.RawSetString("encode_uri", l.NewFunction(encodeURI))
+	mod.RawSetString("decode_uri", l.NewFunction(decodeURI))
 
 	// Register response type
 	registerHTTPResponseType(mod, l)
