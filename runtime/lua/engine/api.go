@@ -20,7 +20,7 @@ type Update struct {
 	Error  error        // Error that occurred during execution, if any
 }
 
-// NewUpdate creates a new Update instance with the provided state, results, and error.
+// NewUpdate creates a new Update instance with the provided state, updates, and error.
 func NewUpdate(l *lua.LState, res []lua.LValue, err error) *Update {
 	return &Update{
 		State:  l,
@@ -69,7 +69,7 @@ type Tasks interface {
 	// This is thread-safe and can be called from any goroutine.
 	WakeUp()
 
-	// Wait processes results and returns threads ready for resumption.
+	// Wait processes updates and returns threads ready for resumption.
 	// If block is true, it will wait for at least one result or wake-up signal.
 	Wait(ctx context.Context, block bool) ([]*Update, error)
 
@@ -82,6 +82,9 @@ type Tasks interface {
 
 	// Count returns the current number of active threads.
 	Count() int
+
+	// Awaken checks if the task group has been awakened.
+	Awaken() bool
 }
 
 // StateProvider interface for components that have an associated Lua state

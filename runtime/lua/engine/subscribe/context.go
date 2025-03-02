@@ -7,6 +7,7 @@ import (
 	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	lua "github.com/yuin/gopher-lua"
+	"log"
 )
 
 // Define context key for subscribe layer
@@ -68,6 +69,7 @@ func Publish(ctx context.Context, topic string, values ...lua.LValue) error {
 	}
 
 	return uw.Tasks().Schedule(func() {
+		log.Printf("SCHEDULED SEND")
 		lCtx.messageQueue.PushBack(&op{
 			topic:  topic,
 			values: values,

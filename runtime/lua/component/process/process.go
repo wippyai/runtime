@@ -13,6 +13,7 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
+	"log"
 	"sync/atomic"
 )
 
@@ -107,10 +108,13 @@ func (p *Process) Step() (bool, error) {
 	}
 
 	// Continue the runner
+	log.Printf("RUN CONTINUE")
 	if err := p.runner.Continue(p.ctx, false); err != nil {
 		p.complete(err, nil)
+		log.Printf("RUN CONTINUE END ERR %v", err)
 		return false, err
 	}
+	log.Printf("RUN CONTINUE END")
 
 	// Check for any results
 	select {
@@ -126,6 +130,7 @@ func (p *Process) Step() (bool, error) {
 	default:
 	}
 
+	log.Printf("HAS TASKS %v", p.runner.HasTasks())
 	return p.runner.HasTasks(), nil
 }
 
@@ -143,7 +148,6 @@ func (p *Process) Send(pkg *pubsub.Package) error {
 	case <-p.ctx.Done():
 		return p.ctx.Err()
 	default:
-
 		for _, msg := range pkg.Messages {
 			// Convert payloads to Lua values
 			luaValues, err := p.toLuaPayloads(msg.Payloads)
@@ -162,6 +166,7 @@ func (p *Process) Send(pkg *pubsub.Package) error {
 						zap.String("topic", msg.Topic),
 						zap.Error(err))
 				}
+				log.Printf(">>>>>>>>>>>>>>>>>SEND TASK")
 				continue
 			}
 
@@ -182,6 +187,7 @@ func (p *Process) Send(pkg *pubsub.Package) error {
 					zap.String("topic", topology.TopicInbox),
 					zap.Error(pErr))
 			}
+			log.Printf(">>>>>>>>>>>>>>>>>SEND TASK")
 		}
 		pubsub.ReleasePackage(pkg)
 		return nil

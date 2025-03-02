@@ -4,6 +4,7 @@ import (
 	"container/list"
 	"context"
 	"errors"
+	"log"
 	"sync"
 	"sync/atomic"
 )
@@ -14,10 +15,11 @@ import (
 
 // taskCoordinator implements the Tasks interface for coroutine coordination
 type taskCoordinator struct {
-	results    chan *Update  // Channel for task results
+	updates    chan *Update  // Channel for task updates
 	wakeup     chan struct{} // Signal channel for wake-up notifications
 	wakeCount  atomic.Int32  // Counter for wake-up signals
 	taskCount  atomic.Int32  // Counter for active threads
+	updCount   atomic.Int32  // Counter for sent updates
 	awaken     atomic.Bool   // Flag indicating if wake-up has been signaled
 	wakeupFunc func()        // Function to call on wake-up
 
@@ -30,7 +32,7 @@ type taskCoordinator struct {
 // and optional wakeup function
 func newTaskCoordinator(bufferSize int, wakeupFunc func()) *taskCoordinator {
 	return &taskCoordinator{
-		results:    make(chan *Update, bufferSize),
+		updates:    make(chan *Update, bufferSize),
 		wakeup:     make(chan struct{}, bufferSize),
 		wakeupFunc: wakeupFunc,
 		scheduled:  list.New(),
@@ -107,10 +109,10 @@ func (t *taskCoordinator) WakeUp() {
 
 // Send pushes a result to the task channel and signals wake up
 // This is thread-safe and can be called from any goroutine
-func (t *taskCoordinator) Send(ctx context.Context, result *Update) error {
-	t.Add()
+func (t *taskCoordinator) Send(ctx context.Context, update *Update) error {
+	t.updCount.Add(1)
 	select {
-	case t.results <- result:
+	case t.updates <- update:
 		t.WakeUp()
 		return nil
 	case <-ctx.Done():
@@ -123,7 +125,28 @@ func (t *taskCoordinator) Count() int {
 	return int(t.taskCount.Load())
 }
 
-// Wait waits for results or wake-up signals
+// Awaken checks if the task group has been awakened
+func (t *taskCoordinator) Awaken() bool {
+
+	log.Printf(
+		"CHECK AWAKEN %v %v %v %v",
+		t.awaken.Load(),
+		t.taskCount.Load(),
+		t.updCount.Load(),
+		t.scheduled.Len(),
+	)
+
+	t.schedMu.Lock()
+	if t.scheduled.Len() != 0 {
+		t.schedMu.Unlock() // we have something scheduled
+		return true
+	}
+	t.schedMu.Unlock()
+
+	return t.awaken.Load() // || t.updCount.Load() > 0
+}
+
+// Wait waits for updates or wake-up signals
 // If block is true, it will wait for at least one result or wake-up signal
 func (t *taskCoordinator) Wait(ctx context.Context, block bool) ([]*Update, error) {
 	defer t.awaken.Store(false)
@@ -133,20 +156,20 @@ func (t *taskCoordinator) Wait(ctx context.Context, block bool) ([]*Update, erro
 	// Execute any pending scheduled functions first
 	t.executeScheduled()
 
-	// Process available results or continue if task count is zero
+	// Process available updates or continue if task count is zero
 	for t.taskCount.Load() > 0 {
 		if block {
 			select {
-			case result := <-t.results:
-				if result != nil {
-					updates = append(updates, result)
+			case upd := <-t.updates:
+				t.updCount.Add(^int32(0))
+				if upd != nil {
+					updates = append(updates, upd)
 				}
 				block = false
 				continue
 
 			case <-t.wakeup:
 				t.wakeCount.Add(^int32(0))
-				t.awaken.Store(false)
 				block = false
 				continue
 
@@ -155,16 +178,16 @@ func (t *taskCoordinator) Wait(ctx context.Context, block bool) ([]*Update, erro
 			}
 		}
 
-		// Non-blocking check for more results or threads
+		// Non-blocking check for more updates or threads
 		select {
-		case result := <-t.results:
-			if result != nil {
-				updates = append(updates, result)
+		case upd := <-t.updates:
+			t.updCount.Add(^int32(0))
+			if upd != nil {
+				updates = append(updates, upd)
 			}
 
 		case <-t.wakeup:
 			t.wakeCount.Add(^int32(0))
-			t.awaken.Store(false)
 		default:
 			return updates, nil
 		}
@@ -190,8 +213,8 @@ func (t *taskCoordinator) clean() {
 	// Drain channels
 	for {
 		select {
-		case <-t.results:
-			// Drain results channel
+		case <-t.updates:
+			// Drain updates channel
 		case <-t.wakeup:
 			// Drain wakeup channel
 		default:

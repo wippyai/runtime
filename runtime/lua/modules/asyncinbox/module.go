@@ -9,7 +9,6 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
-	"log"
 )
 
 var inboxChannel = &context.Key{Name: "lua.async_inbox"}
@@ -90,9 +89,21 @@ func (e *Module) inbox(l *lua.LState) int {
 	}
 
 	uw.Run(func(uw engine.UnitOfWork) {
-		defer log.Printf("DEWATCHING PID %s", pid)
-		defer topology.GetTopology(uw.Context()).Remove(pid)
-		defer closer()
+		defer func() {
+			closer()
+
+			// drain the inbox
+			for {
+				select {
+				case pkg := <-inbox:
+					pubsub.ReleasePackage(pkg)
+				default:
+					// todo: we can pass error here
+					topology.GetTopology(uw.Context()).Remove(pid)
+					return
+				}
+			}
+		}()
 		for {
 			select {
 			case pkg := <-inbox:
