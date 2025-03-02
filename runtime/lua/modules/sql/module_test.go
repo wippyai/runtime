@@ -13,7 +13,6 @@ import (
 
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
-	"github.com/ponyruntime/pony/runtime/uow"
 	"github.com/stretchr/testify/require"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap/zaptest"
@@ -72,7 +71,7 @@ func (m *mockResourceRegistry) Exists(id registry.ID) bool {
 }
 
 // setupLuaWithDB sets up a Lua state with our SQL module and a connected database
-func setupLuaWithDB(t *testing.T, mockRes *mockResource) (*engine.CoroutineVM, *lua.LState, *uow.UnitOfWork, *engine.Runner) {
+func setupLuaWithDB(t *testing.T, mockRes *mockResource) (*engine.CoroutineVM, *lua.LState, engine.UnitOfWork, *engine.Runner) {
 	logger := zaptest.NewLogger(t)
 
 	// Create the SQL module
@@ -99,7 +98,7 @@ func setupLuaWithDB(t *testing.T, mockRes *mockResource) (*engine.CoroutineVM, *
 	runner := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
 
 	// Create a UOW for resource management
-	ctx, uw := uow.OnContext(context.Background())
+	uw, ctx := runner.InitUnitOfWork(context.Background())
 
 	// Add the resource registry to the context
 	ctx = resource.WithResources(ctx, mockRegistry)

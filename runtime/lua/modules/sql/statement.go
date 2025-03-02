@@ -3,6 +3,7 @@ package sql
 import (
 	"database/sql"
 	"fmt"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
@@ -22,7 +23,8 @@ type Statement struct {
 func WrapStatement(l *lua.LState, stmt *Statement) *lua.LUserData {
 	ud := l.NewUserData()
 	ud.Value = stmt
-	l.SetMetatable(ud, l.GetTypeMetatable("sql.Statement"))
+	ud.Metatable = value.GetTypeMetatable(l, "sql.Statement")
+
 	return ud
 }
 
@@ -38,15 +40,13 @@ func CheckStatement(l *lua.LState) *Statement {
 
 // registerStatement registers statement methods
 func registerStatement(l *lua.LState, log *zap.Logger) {
-	// Register statement metatable
-	mt := l.NewTypeMetatable("sql.Statement")
-	methods := l.NewTable()
+	methods := map[string]lua.LGFunction{
+		"query":   stmtQuery,
+		"execute": stmtExecute,
+		"close":   stmtClose,
+	}
 
-	methods.RawSetString("query", l.NewFunction(stmtQuery))
-	methods.RawSetString("execute", l.NewFunction(stmtExecute))
-	methods.RawSetString("close", l.NewFunction(stmtClose))
-
-	l.SetField(mt, "__index", methods)
+	value.RegisterMethods(l, "sql.Statement", methods)
 }
 
 // stmtQuery executes a prepared query and returns rows
