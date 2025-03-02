@@ -22,18 +22,21 @@ func (m *Module) Name() string {
 
 // Loader registers the module's functions into Lua state.
 func (m *Module) Loader(l *lua.LState) int {
-	mod := l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
-		"v1":       m.v1,
-		"v3":       m.v3,
-		"v4":       m.v4,
-		"v5":       m.v5,
-		"v7":       m.v7,
-		"validate": m.validate,
-		"version":  m.version,
-		"variant":  m.variant,
-		"parse":    m.parse,
-		"format":   m.format,
-	})
+	// Create a module table with exact pre-allocated size
+	mod := l.CreateTable(0, 10) // Exactly 10 functions
+
+	// Register functions using RawSetString for better performance
+	mod.RawSetString("v1", l.NewFunction(m.v1))
+	mod.RawSetString("v3", l.NewFunction(m.v3))
+	mod.RawSetString("v4", l.NewFunction(m.v4))
+	mod.RawSetString("v5", l.NewFunction(m.v5))
+	mod.RawSetString("v7", l.NewFunction(m.v7))
+	mod.RawSetString("validate", l.NewFunction(m.validate))
+	mod.RawSetString("version", l.NewFunction(m.version))
+	mod.RawSetString("variant", l.NewFunction(m.variant))
+	mod.RawSetString("parse", l.NewFunction(m.parse))
+	mod.RawSetString("format", l.NewFunction(m.format))
+
 	l.Push(mod)
 	return 1
 }
@@ -232,10 +235,11 @@ func (*Module) parse(l *lua.LState) int {
 		return 2
 	}
 
-	// Spawn result table
-	tbl := l.NewTable()
+	// Pre-allocate table with maximum possible size
+	// Maximum fields: version, variant, timestamp, node = 4
+	tbl := l.CreateTable(0, 4)
 
-	// AddCleanup version and variant
+	// Add version and variant
 	tbl.RawSetString("version", lua.LNumber(id.Version()))
 
 	var variant string

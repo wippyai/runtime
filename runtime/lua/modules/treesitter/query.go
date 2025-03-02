@@ -2,8 +2,10 @@ package treesitter
 
 import (
 	"fmt"
-	"github.com/ponyruntime/pony/runtime/uow"
+	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"regexp"
+	"sync"
 
 	treesitter "github.com/tree-sitter/go-tree-sitter"
 	lua "github.com/yuin/gopher-lua"
@@ -13,13 +15,13 @@ import (
 type QueryWrapper struct {
 	query  *treesitter.Query
 	cursor *treesitter.QueryCursor
+	once   sync.Once
 	source string // Store source text for predicate evaluation
 }
 
 // Register the Query type to Lua
 func registerQuery(l *lua.LState) {
-	mt := l.NewTypeMetatable("treesitter.Query")
-	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
+	methods := map[string]lua.LGFunction{
 		// Core functionality
 		"close":                  queryClose,
 		"matches":                queryMatches,
@@ -53,7 +55,8 @@ func registerQuery(l *lua.LState) {
 		"capture_index_for_name":  queryCaptureIndexForName,
 		"end_byte_for_pattern":    queryEndByteForPattern,
 		"get_text_predicates":     queryGetTextPredicates,
-	}))
+	}
+	value.RegisterMethods(l, "treesitter.Query", methods)
 }
 
 // Spawn a new Query
@@ -83,30 +86,24 @@ func newQuery(l *lua.LState) int {
 		return 2
 	}
 
-	// Spawn query wrapper with cursor
-	wrapper := &QueryWrapper{
+	// Spawn query cursor with cursor
+	cursor := &QueryWrapper{
 		query:  query,
 		cursor: treesitter.NewQueryCursor(),
 	}
 
-	uw := uow.FromContext(l.Context())
-	if uw != nil {
-		uw.AddCleanupFunc(func() {
-			if wrapper.cursor != nil {
-				wrapper.cursor.Close()
-				wrapper.cursor = nil
-			}
-
-			if wrapper.query != nil {
-				wrapper.query.Close()
-				wrapper.query = nil
-			}
-		})
+	uw := engine.GetUnitOfWork(l.Context())
+	if uw == nil {
+		l.RaiseError("no unit of work found")
+		return 0
 	}
 
+	uw.AddCleanup(func() error { cursor.Close(); return nil })
+
 	ud := l.NewUserData()
-	ud.Value = wrapper
-	l.SetMetatable(ud, l.GetTypeMetatable("treesitter.Query"))
+	ud.Value = cursor
+	ud.Metatable = value.GetTypeMetatable(l, "treesitter.Query")
+
 	l.Push(ud)
 	return 1
 }
@@ -193,7 +190,7 @@ func queryCaptures(l *lua.LState) int {
 		// Spawn Node wrapper
 		nodeUD := l.NewUserData()
 		nodeUD.Value = &NodeWrapper{node: &capture.Node, source: &source}
-		l.SetMetatable(nodeUD, l.GetTypeMetatable("treesitter.Node"))
+		nodeUD.Metatable = l.GetTypeMetatable("treesitter.Node")
 
 		captureTable.RawSetString("node", nodeUD)
 		captureTable.RawSetString("index", lua.LNumber(capture.Index))
@@ -496,6 +493,20 @@ func queryGetTextPredicates(l *lua.LState) int {
 
 	l.Push(result)
 	return 1
+}
+
+func (q *QueryWrapper) Close() {
+	q.once.Do(func() {
+		if q.cursor != nil {
+			q.cursor.Close()
+			q.cursor = nil
+		}
+
+		if q.query != nil {
+			q.query.Close()
+			q.query = nil
+		}
+	})
 }
 
 // Helper functions

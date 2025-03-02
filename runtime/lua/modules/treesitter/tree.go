@@ -3,7 +3,8 @@ package treesitter
 import (
 	"bytes"
 	"fmt"
-	"github.com/ponyruntime/pony/runtime/uow"
+	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"os"
 	"sync"
 
@@ -29,8 +30,7 @@ func (t *TreeWrapper) Close() {
 
 // Register the Tree type to Lua
 func registerTree(l *lua.LState) {
-	mt := l.NewTypeMetatable("treesitter.Tree")
-	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
+	methods := map[string]lua.LGFunction{
 		"root_node":             treeRootNode,
 		"root_node_with_offset": treeRootNodeWithOffset,
 		"language":              treeLanguage,
@@ -41,7 +41,8 @@ func registerTree(l *lua.LState) {
 		"changed_ranges":        treeChangedRanges,
 		"included_ranges":       treeIncludedRanges,
 		"dot_graph":             treePrintDotGraph,
-	}))
+	}
+	value.RegisterMethods(l, "treesitter.Tree", methods)
 }
 
 func treeRootNode(l *lua.LState) int {
@@ -60,7 +61,8 @@ func treeRootNode(l *lua.LState) int {
 	// Spawn and push new Node userdata
 	ud := l.NewUserData()
 	ud.Value = &NodeWrapper{node: root, source: &tree.source}
-	l.SetMetatable(ud, l.GetTypeMetatable("treesitter.Node"))
+	ud.Metatable = l.NewTypeMetatable("treesitter.Node")
+
 	l.Push(ud)
 	return 1
 }
@@ -90,7 +92,8 @@ func treeRootNodeWithOffset(l *lua.LState) int {
 
 	ud := l.NewUserData()
 	ud.Value = &NodeWrapper{node: root, source: &tree.source}
-	l.SetMetatable(ud, l.GetTypeMetatable("treesitter.Node"))
+	ud.Metatable = l.NewTypeMetatable("treesitter.Node")
+
 	l.Push(ud)
 	return 1
 }
@@ -112,7 +115,8 @@ func treeLanguage(l *lua.LState) int {
 	// Spawn and return Language userdata
 	ud := l.NewUserData()
 	ud.Value = &LanguageWrapper{lang: lang}
-	l.SetMetatable(ud, l.GetTypeMetatable("treesitter.Language"))
+	ud.Metatable = l.NewTypeMetatable("treesitter.Language")
+
 	l.Push(ud)
 	return 1
 }
@@ -132,7 +136,8 @@ func treeCopy(l *lua.LState) int {
 
 	ud := l.NewUserData()
 	ud.Value = &TreeWrapper{tree: copied, source: tree.source}
-	l.SetMetatable(ud, l.GetTypeMetatable("treesitter.Tree"))
+	ud.Metatable = value.GetTypeMetatable(l, "treesitter.Tree")
+
 	l.Push(ud)
 	return 1
 }
@@ -150,16 +155,28 @@ func treeWalk(l *lua.LState) int {
 		return 1
 	}
 
-	if l.Context() != nil {
-		cleanup := uow.FromContext(l.Context())
-		if cleanup != nil {
-			cleanup.AddCleanup(func() error { cursor.Close(); return nil })
-		}
+	uw := engine.GetUnitOfWork(l.Context())
+	if uw == nil {
+		l.RaiseError("unit of work is not found")
+		return 1
 	}
 
+	cw := &CursorWrapper{cursor: cursor, source: &tree.source}
+
 	ud := l.NewUserData()
-	ud.Value = &CursorWrapper{cursor: cursor, source: &tree.source}
-	l.SetMetatable(ud, l.GetTypeMetatable("treesitter.Cursor"))
+	ud.Value = cw
+	ud.Metatable = value.GetTypeMetatable(l, "treesitter.Cursor")
+
+	uw.AddCleanup(func() error {
+		cw.once.Do(func() {
+			if cw.cursor != nil {
+				cw.cursor.Close()
+				cw.cursor = nil
+			}
+		})
+		return nil
+	})
+
 	l.Push(ud)
 	return 1
 }
@@ -195,7 +212,7 @@ func treeEdit(l *lua.LState) int {
 	}
 
 	// Validate row/column positions
-	// TODO: potentially dangerous type assertion
+	// TODO: potentially dangerous type assertion, todo: fix it!
 	startRow := editTable.RawGetString("start_row").(lua.LNumber)
 	startCol := editTable.RawGetString("start_column").(lua.LNumber)
 	oldEndRow := editTable.RawGetString("old_end_row").(lua.LNumber)
@@ -261,18 +278,18 @@ func treeChangedRanges(l *lua.LState) int {
 	ranges := tree.tree.ChangedRanges(otherTree.tree)
 
 	// Spawn Lua table to hold the ranges
-	rangesTable := l.NewTable()
+	rangesTable := l.CreateTable(len(ranges), 0)
 	for i, r := range ranges {
-		rangeTable := l.NewTable()
 
-		startPoint := l.NewTable()
+		startPoint := l.CreateTable(0, 2)
 		startPoint.RawSetString("row", lua.LNumber(r.StartPoint.Row))
 		startPoint.RawSetString("column", lua.LNumber(r.StartPoint.Column))
 
-		endPoint := l.NewTable()
+		endPoint := l.CreateTable(0, 2)
 		endPoint.RawSetString("row", lua.LNumber(r.EndPoint.Row))
 		endPoint.RawSetString("column", lua.LNumber(r.EndPoint.Column))
 
+		rangeTable := l.CreateTable(0, 4)
 		rangeTable.RawSetString("start_point", startPoint)
 		rangeTable.RawSetString("end_point", endPoint)
 		rangeTable.RawSetString("start_byte", lua.LNumber(r.StartByte))
@@ -296,18 +313,17 @@ func treeIncludedRanges(l *lua.LState) int {
 	ranges := tree.tree.IncludedRanges()
 
 	// Spawn Lua table to hold the ranges
-	rangesTable := l.NewTable()
+	rangesTable := l.CreateTable(len(ranges), 0)
 	for i, r := range ranges {
-		rangeTable := l.NewTable()
-
-		startPoint := l.NewTable()
+		startPoint := l.CreateTable(0, 2)
 		startPoint.RawSetString("row", lua.LNumber(r.StartPoint.Row))
 		startPoint.RawSetString("column", lua.LNumber(r.StartPoint.Column))
 
-		endPoint := l.NewTable()
+		endPoint := l.CreateTable(0, 2)
 		endPoint.RawSetString("row", lua.LNumber(r.EndPoint.Row))
 		endPoint.RawSetString("column", lua.LNumber(r.EndPoint.Column))
 
+		rangeTable := l.CreateTable(0, 4)
 		rangeTable.RawSetString("start_point", startPoint)
 		rangeTable.RawSetString("end_point", endPoint)
 		rangeTable.RawSetString("start_byte", lua.LNumber(r.StartByte))

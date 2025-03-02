@@ -2,6 +2,7 @@ package logger
 
 import (
 	"errors"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 
 	transcoder "github.com/ponyruntime/pony/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
@@ -34,21 +35,21 @@ func (m *Module) Name() string {
 
 // Loader is the entry point for loading the plugin
 func (m *Module) Loader(l *lua.LState) int {
-	// Spawn logger userdata
-	ud := l.NewUserData()
-	ud.Value = &Logger{logger: m.baseLogger}
 
-	// Set up the metatable
-	mt := l.NewTypeMetatable("Logger")
-	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
+	// Register all methods at once using the efficient method from util.go
+	methods := map[string]lua.LGFunction{
 		"debug": loggerDebug,
 		"info":  loggerInfo,
 		"warn":  loggerWarn,
 		"error": loggerError,
 		"with":  loggerWith,
 		"named": loggerNamed,
-	}))
-	l.SetMetatable(ud, mt)
+	}
+
+	// Base logger is our module entry
+	ud := l.NewUserData()
+	ud.Value = &Logger{logger: m.baseLogger}
+	ud.Metatable = value.RegisterMethods(l, "logger.Logger", methods)
 
 	l.Push(ud)
 	return 1
@@ -191,7 +192,8 @@ func loggerWith(l *lua.LState) int {
 	// Spawn new userdata
 	newUd := l.NewUserData()
 	newUd.Value = &Logger{logger: newLogger}
-	l.SetMetatable(newUd, l.GetTypeMetatable("Logger"))
+	newUd.Metatable = value.GetTypeMetatable(l, "logger.Logger")
+
 	l.Push(newUd)
 
 	return 1
@@ -217,7 +219,7 @@ func loggerNamed(l *lua.LState) int {
 	// Spawn new userdata
 	newUd := l.NewUserData()
 	newUd.Value = &Logger{logger: newLogger}
-	l.SetMetatable(newUd, l.GetTypeMetatable("Logger"))
+	newUd.Metatable = value.GetTypeMetatable(l, "logger.Logger")
 	l.Push(newUd)
 
 	return 1

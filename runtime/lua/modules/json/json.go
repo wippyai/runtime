@@ -60,11 +60,11 @@ func (m *Module) Name() string {
 
 // Loader registers the module's functions into Lua state.
 func (m *Module) Loader(l *lua.LState) int {
-	t := l.NewTable()
-	l.SetFuncs(t, map[string]lua.LGFunction{
-		"decode": m.decode,
-		"encode": m.encode,
-	})
+	t := l.CreateTable(0, 2)
+
+	t.RawSetString("decode", l.NewFunction(m.decode))
+	t.RawSetString("encode", l.NewFunction(m.encode))
+
 	l.Push(t)
 	return 1
 }

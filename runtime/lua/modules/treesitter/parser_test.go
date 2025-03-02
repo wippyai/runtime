@@ -2,7 +2,6 @@ package treesitter
 
 import (
 	"context"
-	"github.com/ponyruntime/pony/runtime/uow"
 	"testing"
 	"time"
 
@@ -180,13 +179,14 @@ func TestParser(t *testing.T) {
 
 	t.Run("parser garbage collection", func(t *testing.T) {
 		mod := NewTreeSitterModule(logger)
-		ctx, uw := uow.OnContext(context.Background())
 
 		vm, err := engine.NewVM(logger,
 			engine.WithLoader(mod.Name(), mod.Loader),
 		)
 		require.NoError(t, err)
 		defer vm.Close()
+
+		uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
 
 		err = vm.DoString(ctx, `
 			local treesitter = require("treesitter")

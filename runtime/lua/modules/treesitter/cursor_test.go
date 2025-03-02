@@ -283,7 +283,10 @@ func TestCursorImplementation(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
+		defer func() { assert.NoError(t, uw.Close()) }()
+
+		err = vm.DoString(ctx, `
             local treesitter = require("treesitter")
             local code = "package main\n\nfunc test() {}\n"
             local tree = treesitter.parse("go", code)
