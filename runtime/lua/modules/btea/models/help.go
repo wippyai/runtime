@@ -4,7 +4,7 @@ import (
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/render"
 	lua "github.com/yuin/gopher-lua"
@@ -39,7 +39,7 @@ type luaKeyMap struct {
 
 func (lk *luaKeyMap) ShortHelp() []key.Binding {
 	// Try to get short_help field using engine.GetField
-	if fieldValue, ok := engine.GetField(lk.l, lk.keymap, "short_help"); ok {
+	if fieldValue, ok := value.GetField(lk.l, lk.keymap, "short_help"); ok {
 		switch v := fieldValue.(type) {
 		case *lua.LFunction:
 			// If it's a function, call it
@@ -62,7 +62,7 @@ func (lk *luaKeyMap) ShortHelp() []key.Binding {
 
 func (lk *luaKeyMap) FullHelp() [][]key.Binding {
 	// Try to get full_help field using engine.GetField
-	if fieldValue, ok := engine.GetField(lk.l, lk.keymap, "full_help"); ok {
+	if fieldValue, ok := value.GetField(lk.l, lk.keymap, "full_help"); ok {
 		switch v := fieldValue.(type) {
 		case *lua.LFunction:
 			// If it's a function, call it

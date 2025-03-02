@@ -2,8 +2,8 @@ package command
 
 import (
 	"errors"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -25,7 +25,7 @@ func (m *Module) Loader(L *lua.LState) int {
 	mod := L.CreateTable(0, 1)
 	mod.RawSetString("new", L.NewFunction(newCommandFunc))
 
-	engine.RegisterTypeMethods(L, "command", map[string]lua.LGFunction{
+	value.RegisterMethods(L, "command", map[string]lua.LGFunction{
 		"response":    responseFunc,
 		"error":       errorFunc,
 		"is_complete": isCompleteFunc,
@@ -42,7 +42,7 @@ func (m *Module) Loader(L *lua.LState) int {
 func Wrap(L *lua.LState, cmd *Command) lua.LValue {
 	ud := L.NewUserData()
 	ud.Value = cmd
-	ud.Metatable = engine.GetTypeMetatable(L, "command")
+	ud.Metatable = value.GetTypeMetatable(L, "command")
 	return ud
 }
 

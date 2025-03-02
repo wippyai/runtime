@@ -1,7 +1,7 @@
 package list
 
 import (
-	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -19,7 +19,7 @@ func (li *LuaItem) FilterValue() string {
 		}
 	}
 
-	if fieldValue, ok := engine.GetField(li.luaState, li.value, "filter_value"); ok {
+	if fieldValue, ok := value.GetField(li.luaState, li.value, "filter_value"); ok {
 		switch v := fieldValue.(type) {
 		case lua.LString:
 			return string(v)
@@ -44,7 +44,7 @@ func (li *LuaItem) Title() string {
 		}
 	}
 
-	if fieldValue, ok := engine.GetField(li.luaState, li.value, "title"); ok {
+	if fieldValue, ok := value.GetField(li.luaState, li.value, "title"); ok {
 		switch v := fieldValue.(type) {
 		case lua.LString:
 			return string(v)
@@ -69,7 +69,7 @@ func (li *LuaItem) Description() string {
 		}
 	}
 
-	if fieldValue, ok := engine.GetField(li.luaState, li.value, "description"); ok {
+	if fieldValue, ok := value.GetField(li.luaState, li.value, "description"); ok {
 		switch v := fieldValue.(type) {
 		case lua.LString:
 			return string(v)
