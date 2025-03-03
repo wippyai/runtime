@@ -58,7 +58,7 @@ func TestNamedChannelSend(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, 0, len(tasks), "expected no tasks")
 
-	assert.Equal(t, 1, uw.Tasks().Count(), "expected 1 task blocked")
+	assert.Equal(t, 1, uw.Tasks().Blocked(), "expected 1 task blocked")
 
 	// assert open chans
 	channels := GetActiveChannels(ctx)
@@ -437,7 +437,7 @@ func TestNamedChannelMultipleReceivers(t *testing.T) {
 	channels := GetActiveChannels(ctx)
 	assert.Equal(t, 0, len(channels), "expected no visible channels after completion")
 
-	// Count result collections
+	// Ready result collections
 	collectionCount := 0
 	for _, yield := range yields {
 		if strings.HasPrefix(yield, "collected_result_") {

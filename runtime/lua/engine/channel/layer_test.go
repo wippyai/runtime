@@ -1269,7 +1269,7 @@ func TestFanInPattern(t *testing.T) {
 			-- Verify we got all expected Result
 			assert(#received == 6, "wrong number of items received")
 			
-			-- Count occurrences from each source
+			-- Ready occurrences from each source
 			local counts = {0, 0, 0}
 			for _, v in ipairs(received) do
 				counts[v.source] = counts[v.source] + 1

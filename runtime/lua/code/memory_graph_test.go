@@ -634,7 +634,7 @@ func TestMemoryGraph_Build_ModuleDeduplication(t *testing.T) {
 		t.Fatalf("failed to build runtime: %v", err)
 	}
 
-	// Count unique modules in dependencies
+	// Ready unique modules in dependencies
 	uniqueModules := make(map[string]bool)
 	for _, dep := range rt.Dependencies {
 		if dep.Node.Module != nil {
@@ -835,7 +835,7 @@ func TestMemoryGraph_Build_SharedDependency(t *testing.T) {
 		t.Fatalf("failed to build runtime: %v", err)
 	}
 
-	// Count unique modules in dependencies
+	// Ready unique modules in dependencies
 	uniqueModules := make(map[string]bool)
 	for _, dep := range rt.Dependencies {
 		if dep.Node.Module != nil {

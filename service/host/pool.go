@@ -3,6 +3,7 @@ package host
 import (
 	"context"
 	"github.com/ponyruntime/pony/api/process"
+	"log"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -128,7 +129,7 @@ func (p *ProcessPool) worker() {
 			}
 
 			// Start process step
-			reschedule, err := entry.process.Step()
+			err := entry.process.Step()
 			if err != nil {
 				p.log.Debug("process step completed with error",
 					zap.String("pid", pid.String()),
@@ -142,8 +143,9 @@ func (p *ProcessPool) worker() {
 			// Release execution lock
 			entry.running.Store(false)
 
-			// Reschedule only if process requested it
-			if reschedule {
+			// still have tasks in the queue
+			if entry.process.QueueSize() > 0 {
+				log.Printf("RUN CONTINUE %v", entry.process.QueueSize())
 				select {
 				case <-p.ctx.Done():
 					return

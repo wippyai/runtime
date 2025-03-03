@@ -84,7 +84,7 @@ func (r *Runner) run() {
 		default:
 		}
 
-		_, err := r.proc.Step()
+		err := r.proc.Step()
 		if err != nil {
 			r.Stop()
 			return

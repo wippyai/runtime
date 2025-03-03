@@ -81,9 +81,10 @@ type (
 		Start(context.Context, pubsub.PID, payload.Payloads) error
 
 		// Step advances process state by one iteration.
-		// Returns a boolean indicating if the process should continue running,
-		// and an error if the step execution fails.
-		Step() (bool, error)
+		Step() error
+
+		// QueueSize returns the number internal process pipeline, higher values indicate flooding.
+		QueueSize() int
 	}
 
 	// Lifecycle encapsulates the supervision relationship between processes.

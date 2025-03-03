@@ -457,7 +457,7 @@ func TestVM_CompiledGlobalState(t *testing.T) {
 		t.Errorf("got %v, want %v", result, lua.LNumber(2))
 	}
 
-	// Count should return current value (2)
+	// Ready should return current value (2)
 	result, err = vm.Execute(context.Background(), "getCount")
 	if err != nil {
 		t.Fatal(err)

@@ -298,12 +298,12 @@ func (p *App) processLoop(resultCh <-chan *engine.Update) {
 }
 
 // Step continues the runner. If an error occurs, it quits the bubbletea program.
-func (p *App) Step() (bool, error) {
+func (p *App) Step() error {
 	select {
 	case <-p.done:
-		return false, nil
+		return nil
 	case <-p.ctx.Done():
-		return false, p.ctx.Err()
+		return p.ctx.Err()
 	default:
 		err := p.runner.Continue(p.ctx, true)
 
@@ -311,8 +311,13 @@ func (p *App) Step() (bool, error) {
 			p.stepError = err
 		}
 
-		return err != nil, err
+		return err
 	}
+}
+
+// QueueSize returns the size of the runner's queue.
+func (p *App) QueueSize() int {
+	return p.runner.QueueSize()
 }
 
 // Send transcodes and publishes messages to the Lua process.
