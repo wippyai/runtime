@@ -23,8 +23,9 @@ type taskCoordinator struct {
 	wakeupFunc func()        // Function to call on wake-up
 
 	// For scheduling arbitrary functions to execute during Wait
-	smu       sync.Mutex // Mutex for scheduled functions
-	scheduled *list.List // List of scheduled functions
+	smu         sync.Mutex // Mutex for scheduled functions
+	scheduled   *list.List // List of scheduled functions
+	undelivered atomic.Bool
 }
 
 // newTaskCoordinator creates a new task coordinator with specified buffer size
@@ -57,21 +58,33 @@ func (t *taskCoordinator) Schedule(fn func()) error {
 
 	t.smu.Lock()
 	t.scheduled.PushBack(fn)
+	t.undelivered.Store(true)
 	t.smu.Unlock()
 
-	// Signal that there's work to do
-	t.updCount.Add(1)
 	t.WakeUp()
 	return nil
 }
 
 // executeScheduled executes any scheduled functions including ones created by scheduled functions
 func (t *taskCoordinator) executeScheduled() {
+	t.smu.Lock()
+	if t.scheduled.Len() == 0 {
+		// we have no scheduled functions, remove any indication of possible undelivered work
+		t.undelivered.CompareAndSwap(true, false)
+		t.smu.Unlock()
+
+		return
+	}
+	t.smu.Unlock()
+
 	for {
 		t.smu.Lock()
 		// If there are no functions, return quickly
 		if t.scheduled.Len() == 0 {
 			t.smu.Unlock()
+
+			// we are done with a queue, but we have to ensure to be
+			// back to this function to propagate whole cycle
 			return
 		}
 
@@ -84,7 +97,6 @@ func (t *taskCoordinator) executeScheduled() {
 		for e := funcs.Front(); e != nil; e = e.Next() {
 			if fn, ok := e.Value.(func()); ok && fn != nil {
 				fn()
-				t.updCount.Add(^int32(0))
 			}
 		}
 	}
@@ -126,7 +138,13 @@ func (t *taskCoordinator) Blocked() int {
 
 // Ready returns the number of tasks that are currently ready to be processed
 func (t *taskCoordinator) Ready() int {
-	return int(t.updCount.Load())
+	ready := int(t.updCount.Load() + t.wakeCount.Load())
+	if t.undelivered.Load() {
+		// this flag is true until executeScheduled is called with empty list
+		return ready + 1
+	}
+
+	return ready
 }
 
 // Wait waits for updates or wake-up signals

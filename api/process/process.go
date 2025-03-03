@@ -83,8 +83,10 @@ type (
 		// Step advances process state by one iteration.
 		Step() error
 
-		// QueueSize returns the number internal process pipeline, higher values indicate flooding.
-		QueueSize() int
+		// Ready returns the size of the runner's queue that is ready to be processed.
+		// Higher values typically indicate that process is lagging behind and needs more
+		// resources.
+		Ready() int
 	}
 
 	// Lifecycle encapsulates the supervision relationship between processes.

@@ -130,6 +130,7 @@ func (p *ProcessPool) worker() {
 
 			// Start process step
 			err := entry.process.Step()
+			log.Printf("STEP OF THE PROCESS")
 			if err != nil {
 				p.log.Debug("process step completed with error",
 					zap.String("pid", pid.String()),
@@ -144,8 +145,7 @@ func (p *ProcessPool) worker() {
 			entry.running.Store(false)
 
 			// still have tasks in the queue
-			if entry.process.QueueSize() > 0 {
-				log.Printf("RUN CONTINUE %v", entry.process.QueueSize())
+			if entry.process.Ready() > 0 {
 				select {
 				case <-p.ctx.Done():
 					return
