@@ -8,6 +8,16 @@ import (
 	"sync/atomic"
 )
 
+var unitOfWorkPool = sync.Pool{
+	New: func() interface{} {
+		return &unitOfWork{
+			valueStore:      newValueStore(),
+			resourceManager: newResourceManager(),
+			tasks:           newTaskCoordinator(256, nil),
+		}
+	},
+}
+
 // unitOfWork implements the UnitOfWork interface
 type unitOfWork struct {
 	ctx    context.Context
@@ -25,16 +35,15 @@ type unitOfWork struct {
 
 // NewUnitOfWork creates a new UnitOfWork instance
 func NewUnitOfWork(parentCtx context.Context, state *lua.LState) (UnitOfWork, context.Context) {
+	// Get from pool
+	uw := unitOfWorkPool.Get().(*unitOfWork)
+
 	ctx, cancel := context.WithCancel(parentCtx)
 
-	uw := &unitOfWork{
-		ctx:             ctx,
-		cancel:          cancel,
-		state:           state,
-		valueStore:      newValueStore(),
-		resourceManager: newResourceManager(),
-		tasks:           newTaskCoordinator(256, nil), // Reasonable buffer size
-	}
+	uw.ctx = ctx
+	uw.cancel = cancel
+	uw.state = state
+	uw.closed.Store(false)
 
 	// Check for wake-up function in context
 	if awake := parentCtx.Value(ctxapi.WakeUpKey); awake != nil {
@@ -130,8 +139,15 @@ func (u *unitOfWork) Terminate(err error) error {
 	if u.closed.CompareAndSwap(false, true) {
 		u.resourceManager.setTerminationError(err)
 		u.cancel()
-		return u.closeInternal()
+
+		cerr := u.closeInternal()
+
+		u.reset()
+		unitOfWorkPool.Put(u)
+
+		return cerr
 	}
+
 	return nil
 }
 
@@ -139,8 +155,14 @@ func (u *unitOfWork) Terminate(err error) error {
 func (u *unitOfWork) Close() error {
 	if u.closed.CompareAndSwap(false, true) {
 		u.cancel() // Signal cancellation to all operations
-		return u.closeInternal()
+		err := u.closeInternal()
+
+		u.reset()
+		unitOfWorkPool.Put(u)
+
+		return err
 	}
+
 	return nil
 }
 
@@ -150,20 +172,7 @@ func (u *unitOfWork) closeInternal() error {
 	var err error
 
 	u.closeOnce.Do(func() {
-		// Wait for all goroutines to finish with closeTimeout
-		done := make(chan struct{})
-		go func() {
-			u.wg.Wait()
-			close(done)
-		}()
-
-		select {
-		case <-done:
-			// Normal shutdown
-		case <-u.ctx.Done():
-			// Context was canceled before all goroutines finished
-		}
-
+		u.wg.Wait()
 		err = u.resourceManager.Close()
 	})
 
@@ -194,6 +203,22 @@ func GetTasks(provider TaskProvider, updates ...*Update) ([]*Task, error) {
 	}
 
 	return tasks, nil
+}
+
+func (u *unitOfWork) reset() {
+	u.ctx = nil
+	u.cancel = nil
+	u.state = nil
+
+	// Reset synchronization primitives
+	u.closed.Store(false)
+	u.closeOnce = sync.Once{}
+	u.wg = sync.WaitGroup{}
+
+	// Reset internal components
+	u.valueStore.reset()
+	u.resourceManager.reset()
+	u.tasks.reset()
 }
 
 // Context key for UnitOfWork

@@ -45,6 +45,10 @@ func (s *valueStore) CompareAndSwap(key any, old any, new any) bool {
 	return s.values.CompareAndSwap(key, old, new)
 }
 
+func (s *valueStore) reset() {
+	s.values = sync.Map{}
+}
+
 // Interface implementation verification
 var _ ValueStore = (*valueStore)(nil)
 
@@ -112,6 +116,16 @@ func (r *resourceManager) Close() error {
 	r.mu.Unlock()
 
 	return firstErr
+}
+
+func (r *resourceManager) reset() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// Reset to initial state
+	r.closers = make([]func() error, 0, 8)
+	r.closed = false
+	r.closeErr = nil
 }
 
 // setTerminationError sets the termination error if not already set.

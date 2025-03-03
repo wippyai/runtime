@@ -225,5 +225,26 @@ func (t *taskCoordinator) clean() {
 	}
 }
 
+func (t *taskCoordinator) reset() {
+	t.clean()
+
+	// Reset all atomic counters
+	t.taskCount.Store(0)
+	t.wakeCount.Store(0)
+	t.updCount.Store(0)
+	t.awaken.Store(false)
+	t.undelivered.Store(false)
+
+	// Recreate channels
+	t.updates = make(chan *Update, cap(t.updates))
+	t.wakeup = make(chan struct{}, cap(t.wakeup))
+	t.wakeupFunc = nil
+
+	// Reset scheduled functions list
+	t.smu.Lock()
+	t.scheduled.Init()
+	t.smu.Unlock()
+}
+
 // Interface implementation verification
 var _ Tasks = (*taskCoordinator)(nil)
