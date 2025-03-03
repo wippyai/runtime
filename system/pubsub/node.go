@@ -4,9 +4,39 @@ import (
 	"context"
 	"fmt"
 	api "github.com/ponyruntime/pony/api/pubsub"
+	"log"
 	"sync"
 	"sync/atomic"
+	"time"
 )
+
+// / ---- todo: tem
+type stats struct {
+	send  atomic.Int64
+	send2 atomic.Int64
+	send3 atomic.Int64
+	send4 atomic.Int64
+	send5 atomic.Int64
+	send6 atomic.Int64
+}
+
+var s stats
+
+func init() {
+	s = stats{}
+	go func() {
+		for {
+			time.Sleep(5 * time.Second)
+			log.Printf("STATS %v %v %v %v %v %v",
+				s.send.Load(),
+				s.send2.Load(),
+				s.send3.Load(),
+				s.send4.Load(),
+				s.send5.Load(),
+				s.send6.Load())
+		}
+	}()
+}
 
 // Node represents a messaging node in the pub/sub system that manages multiple hosts
 // and routes messages between them. Nodes can also forward messages to upstream
@@ -50,12 +80,16 @@ func (n *Node) UnregisterHost(hostID api.HostID) {
 	n.hosts.Delete(hostID)
 }
 
+var ix = 0
+
 // Send delivers a package to its destination. If the destination is in this node,
 // it routes to the appropriate host. Otherwise, it forwards to the upstream
 // receiver if one is configured.
 // Returns an error if the destination host is not found or upstream is not configured
 // for external nodes.
 func (n *Node) Send(pkg *api.Package) error {
+	s.send.Add(1)
+
 	// Handle local messages
 	if pkg.PID.Node == "" || pkg.PID.Node == n.nodeID {
 		if h, ok := n.hosts.Load(pkg.PID.Host); ok {
@@ -64,6 +98,7 @@ func (n *Node) Send(pkg *api.Package) error {
 				return fmt.Errorf("host %s has invalid type", pkg.PID.Host)
 			}
 
+			s.send2.Add(1)
 			return host.Send(pkg)
 		}
 		return fmt.Errorf("host %s not found in node", pkg.PID.Host)
