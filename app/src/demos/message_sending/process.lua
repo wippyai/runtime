@@ -19,6 +19,7 @@ local function run()
         pid = process.pid()
     }
     print("Message listener process started with PID:", state.pid)
+    process.registry.register("message_receiver")
 
     local message_actor = actor.new(state, {
         -- Handler for the dedicated message topic
