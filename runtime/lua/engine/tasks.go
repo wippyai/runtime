@@ -4,25 +4,13 @@ import (
 	"container/list"
 	"context"
 	"errors"
-	"log"
 	"sync"
 	"sync/atomic"
-	"time"
 )
 
 // ------------------------------------------------------------------------------
 // Task Coordinator Implementation
 // ------------------------------------------------------------------------------
-var in atomic.Int64
-
-func init() {
-	go func() {
-		for {
-			time.Sleep(5 * time.Second)
-			log.Printf("misses %v", in.Load())
-		}
-	}()
-}
 
 // taskCoordinator implements the Tasks interface for coroutine coordination
 type taskCoordinator struct {
@@ -126,8 +114,6 @@ func (t *taskCoordinator) WakeUp() {
 			}
 		default:
 		}
-	} else {
-		in.Add(1)
 	}
 }
 

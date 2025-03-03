@@ -572,6 +572,7 @@
             this.initTheme();
         },
         methods: {
+            // Theme Management
             initTheme() {
                 // Check for saved theme preference or use system preference
                 const savedTheme = localStorage.getItem('theme');
@@ -594,6 +595,8 @@
                 document.documentElement.classList.toggle('dark', this.darkMode);
                 localStorage.setItem('theme', this.darkMode ? 'dark' : 'light');
             },
+
+            // Test Execution
             runTests() {
                 this.isLoading = true;
                 this.loadingMessage = 'Initializing tests...';
@@ -670,6 +673,8 @@
                     this.isLoading = false;
                 }
             },
+
+            // Event Processing
             processTestEvent(data) {
                 // Determine if this is a new protocol or legacy format
                 if (data.type) {
@@ -685,8 +690,8 @@
                 const eventType = data.type;
                 const eventData = data.data || {};
 
-                // Use test_id from event data if available (crucial for correct operation association)
-                const testId = eventData.test_id;
+                // Use test_id from event data if available, otherwise use ref_id
+                const testId = eventData.test_id || eventData.ref_id;
 
                 if (testId) {
                     // Use this test_id for the current operation if needed
@@ -718,21 +723,20 @@
                 // Handle different event types according to the new protocol
                 switch (eventType) {
                     case 'test:discover':
-                        this.handleTestDiscovery({
-                            tests: eventData.tests
-                        });
+                        this.handleTestDiscovery(eventData);
+                        break;
+
+                    case 'test:suite:start':
+                        this.handleOperationStart(eventData);
                         break;
 
                     case 'test:plan':
-                        this.handleTestPlan({
-                            test_id: this.activeTestId,
-                            suites: eventData.suites
-                        });
+                        this.handleTestPlan(eventData);
                         break;
 
                     case 'test:case:start':
                         this.handleTestCase({
-                            test_id: this.activeTestId,
+                            ref_id: this.activeTestId,
                             suite: eventData.suite,
                             test: eventData.test,
                             status: 'running',
@@ -742,7 +746,7 @@
 
                     case 'test:case:pass':
                         this.handleTestCase({
-                            test_id: this.activeTestId,
+                            ref_id: this.activeTestId,
                             suite: eventData.suite,
                             test: eventData.test,
                             status: 'passed',
@@ -753,7 +757,7 @@
 
                     case 'test:case:fail':
                         this.handleTestCase({
-                            test_id: this.activeTestId,
+                            ref_id: this.activeTestId,
                             suite: eventData.suite,
                             test: eventData.test,
                             status: 'failed',
@@ -765,7 +769,7 @@
 
                     case 'test:case:skip':
                         this.handleTestCase({
-                            test_id: this.activeTestId,
+                            ref_id: this.activeTestId,
                             suite: eventData.suite,
                             test: eventData.test,
                             status: 'skipped',
@@ -796,6 +800,10 @@
                         }
                         break;
 
+                    case 'test:summary':
+                        this.updateGlobalStats(eventData);
+                        break;
+
                     case 'test:error':
                         this.globalError = {
                             message: eventData.message,
@@ -814,45 +822,11 @@
                 }
             },
             processLegacyEvent(data) {
-                // For legacy event processing
-                // Process test discovery to build the initial structure
-                if (data.event === 'test:discovery') {
-                    this.handleTestDiscovery(data);
-                    return;
-                }
-
-                // Keep track of active test ID for new protocol event conversion
-                if (data.test_id) {
-                    this.activeTestId = data.test_id;
-                }
-
-                // Store all event data by test case for detailed view
-                if (data.event === 'test:case:client') {
-                    const testId = `${data.test_id}:${data.suite}:${data.test}`;
-                    if (!this.testDataByCase[testId]) {
-                        this.testDataByCase[testId] = [];
-                    }
-                    this.testDataByCase[testId].push(data);
-                }
-
-                // Handle error events
-                if (data.event === 'error') {
-                    this.globalError = {
-                        message: data.message,
-                        time: data.time,
-                        context: {
-                            timestamp: new Date(data.time * 1000).toLocaleString(),
-                            operation: data.operation || 'Unknown',
-                            ...data
-                        }
-                    };
-
-                    // Mark running tests as errored
-                    this.markRunningTestsAsErrored(data.message);
-                }
-
-                // Process based on event type
+                // Process based on legacy event type
                 switch (data.event) {
+                    case 'test:discovery':
+                        this.handleTestDiscovery(data);
+                        break;
                     case 'test:operation:start':
                         this.handleOperationStart(data);
                         break;
@@ -866,22 +840,32 @@
                         this.handleOperationEnd(data);
                         break;
                     case 'result':
-                        // Final result for a specific test, update summary if needed
                         if (data.data) {
                             this.updateOperationResult(data.test_id, data.data);
                         }
                         break;
                     case 'test:complete':
-                        // Final summary of all tests
                         this.updateFinalSummary(data);
                         break;
                     case 'test:summary':
-                        // Update global summary stats
                         this.updateGlobalStats(data);
+                        break;
+                    case 'error':
+                        this.globalError = {
+                            message: data.message,
+                            time: data.time,
+                            context: {
+                                timestamp: new Date(data.time * 1000).toLocaleString(),
+                                operation: data.operation || 'Unknown',
+                                ...data
+                            }
+                        };
+                        this.markRunningTestsAsErrored(data.message);
                         break;
                 }
             },
 
+            // Event Handlers
             updateGlobalStats(data) {
                 if (data.total) {
                     this.stats.total = data.total;
@@ -929,7 +913,9 @@
                 });
             },
             handleOperationStart(data) {
-                const {id, name, group} = data;
+                const id = data.id || data.ref_id;
+                const name = data.name;
+                const group = data.group;
 
                 // For new protocol compatibility
                 this.activeTestId = id;
@@ -954,7 +940,7 @@
                 }
             },
             handleTestPlan(data) {
-                const opId = data.test_id || this.activeTestId;
+                const opId = data.test_id || data.ref_id || this.activeTestId;
 
                 if (!this.operations[opId]) {
                     return;
@@ -986,7 +972,7 @@
                 });
             },
             handleTestCase(data) {
-                const testId = data.test_id || this.activeTestId;
+                const testId = data.test_id || data.ref_id || this.activeTestId;
                 const {suite, test, status, error, duration} = data;
 
                 if (!testId || !this.operations[testId]) {
@@ -1036,32 +1022,17 @@
                     this.operations[testId].passed++;
                     this.stats.passed++;
                     this.stats.completed++;
-
-                    // Done running status counter if needed
-                    if (prevStatus === 'running') {
-                        // No need to adjust running stats - test has completed
-                    }
                 } else if (status === 'failed' && prevStatus !== 'failed') {
                     this.operations[testId].suites[suite].failed++;
                     this.operations[testId].failed++;
                     this.stats.failed++;
                     this.stats.completed++;
-
-                    // Mark overall status as failed
                     this.status = 'failed';
-
-                    // Done running status counter if needed
-                    if (prevStatus === 'running') {
-                        // No need to adjust running stats - test has completed
-                    }
                 } else if (status === 'skipped' && prevStatus !== 'skipped') {
                     this.operations[testId].suites[suite].skipped++;
                     this.operations[testId].skipped++;
                     this.stats.skipped++;
                     this.stats.completed++;
-                } else if (status === 'running' && prevStatus !== 'running') {
-                    // Add to running count
-                    // (no specific counter for running tests but we track transition)
                 }
             },
             handleOperationEnd(data) {
@@ -1095,8 +1066,10 @@
                 }
             },
             updateFinalSummary(data) {
+                const failedTests = data.tests_failed || data.failed || 0;
+
                 // Always update status based on tests_failed, not just status field
-                if (data.tests_failed > 0) {
+                if (failedTests > 0) {
                     this.status = 'failed';
                 } else if (this.status !== 'failed') {
                     // Only set to passed if we don't already know it failed
