@@ -2,14 +2,13 @@ package httpclient
 
 import (
 	"context"
-	"io"
-	"net/http"
-
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	"github.com/ponyruntime/pony/runtime/lua/modules/stream"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
+	"io"
+	"net/http"
 )
 
 // executeRequestYield performs HTTP request asynchronously using coroutines

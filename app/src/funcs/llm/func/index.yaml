@@ -12,7 +12,7 @@ entries:
       comment: "LLM query function with streaming support"
     source: file://llm_query.lua
     method: handler
-    modules: [ "http_client", "json", "env" ]
+    modules: [ "http_client", "json", "env", "time" ]
     pool:
       size: 4
 

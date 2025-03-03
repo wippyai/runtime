@@ -104,6 +104,7 @@ func (e *Module) inbox(l *lua.LState) int {
 				}
 			}
 		}()
+
 		for {
 			select {
 			case pkg := <-inbox:

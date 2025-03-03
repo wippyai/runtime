@@ -32,8 +32,7 @@ func (m *ProcessAPIModule) Name() string {
 
 // Loader is the entry point for loading the module into Lua
 func (m *ProcessAPIModule) Loader(l *lua.LState) int {
-	// Create module table with exact size for better performance
-	mod := l.CreateTable(0, 3) // Main table, events table, registry table
+	mod := l.CreateTable(0, 8)
 
 	// Register process functions directly with RawSetString for better performance
 	mod.RawSetString("pid", l.NewFunction(m.pid))

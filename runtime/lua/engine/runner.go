@@ -149,7 +149,7 @@ func (e *Runner) Run(ctx context.Context, exitCh <-chan *Update) (lua.LValue, er
 		default:
 		}
 
-		if len(tasks) == 0 && uw.Tasks().Ready() == 0 && uw.Tasks().Blocked() == 0 {
+		if len(tasks) == 0 && e.cvm.queue.Len() == 0 && uw.Tasks().Ready() == 0 && uw.Tasks().Blocked() == 0 {
 			return nil, &DeadlockError{Count: len(e.cvm.threads)}
 		}
 
@@ -157,8 +157,11 @@ func (e *Runner) Run(ctx context.Context, exitCh <-chan *Update) (lua.LValue, er
 			e.cvm.queue.Push(task)
 		}
 
-		// block for any pending task
-		updates, err := uw.Tasks().Wait(ctx, len(tasks) == 0)
+		updates, err := uw.Tasks().Wait(ctx,
+			len(tasks) == 0 &&
+				e.cvm.queue.Len() == 0 &&
+				uw.Tasks().Ready() == 0,
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -212,7 +215,7 @@ func (e *Runner) Continue(ctx context.Context, block bool) error {
 
 	// wait-wait-wait, are we deadlocked?
 	if uw.Tasks().Blocked() == 0 && uw.Tasks().Ready() == 0 {
-		return &DeadlockError{Count: len(e.cvm.threads) + 1212}
+		return &DeadlockError{Count: len(e.cvm.threads)}
 	}
 
 	// block for any pending task

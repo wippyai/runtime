@@ -269,9 +269,6 @@ func (m *Module) async(l *lua.LState) int {
 					_ = channel.Send(l, t.response, lua.LNil)
 					_ = channel.Close(l, t.response)
 				}
-			case <-t.Context().Done():
-				t.SetError(ErrTaskCanceled)
-				_ = channel.Close(l, t.response)
 			case <-uw.Context().Done():
 				t.SetError(ErrTaskCanceled)
 				_ = channel.Close(l, t.response)
