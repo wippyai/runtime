@@ -20,7 +20,7 @@ function actor.new(initial_state, handlers)
         local inbox = process.inbox()
         local events = process.events()
         -- Listen on dedicated message topic if handler exists
-        local msgs = handlers.message and process.listen("message") or nil
+        local msgs = handlers.message and process.listen("message") or nil -- todo fix it
 
         local select_cases = {
             inbox:case_receive(),

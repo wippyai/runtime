@@ -340,7 +340,7 @@ func makeResult(task *lua.LState, selectOp *selectOp, chValue, value lua.LValue,
 }
 
 func selectResult(l *lua.LState, chValue, value lua.LValue, ok bool) []lua.LValue {
-	result := l.CreateTable(3, 3)
+	result := l.CreateTable(0, 3)
 	result.RawSetString("channel", chValue)
 	result.RawSetString("value", value)
 	result.RawSetString("ok", lua.LBool(ok))
