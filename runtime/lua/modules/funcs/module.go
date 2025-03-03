@@ -172,7 +172,7 @@ func (m *Module) call(l *lua.LState) int {
 
 	// Wrap in coroutine for execution
 	coroutine.Wrap(l, func() *engine.Update {
-		resultChan, err := functions.funcs.Call(uw.Context(), t)
+		resultChan, err := functions.funcs.Call(engine.DetachUnitOfWork(uw.Context()), t)
 		if err != nil {
 			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
 		}
@@ -225,7 +225,7 @@ func (m *Module) async(l *lua.LState) int {
 	}
 
 	// Create a task object with cancellation support
-	t := NewTask(l, uw.Context())
+	t := NewTask(l, engine.DetachUnitOfWork(uw.Context()))
 
 	// Create task userdata
 	taskUd := l.NewUserData()

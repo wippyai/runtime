@@ -2,12 +2,10 @@ package engine
 
 import (
 	"context"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	lua "github.com/yuin/gopher-lua"
 	"sync"
 	"sync/atomic"
-	"time"
-
-	ctxapi "github.com/ponyruntime/pony/api/context"
 )
 
 // unitOfWork implements the UnitOfWork interface
@@ -17,9 +15,8 @@ type unitOfWork struct {
 	wg     sync.WaitGroup
 	state  *lua.LState // Added to satisfy StateProvider interface
 
-	closed       atomic.Bool   // Ensures close happens exactly once
-	closeOnce    sync.Once     // Additional protection for close operations
-	closeTimeout time.Duration // Timeout for graceful shutdown
+	closed    atomic.Bool // Ensures close happens exactly once
+	closeOnce sync.Once   // Additional protection for close operations
 
 	valueStore      *valueStore
 	resourceManager *resourceManager
@@ -28,18 +25,12 @@ type unitOfWork struct {
 
 // NewUnitOfWork creates a new UnitOfWork instance
 func NewUnitOfWork(parentCtx context.Context, state *lua.LState) (UnitOfWork, context.Context) {
-	return NewUnitOfWorkWithTimeout(parentCtx, state, 5*time.Second)
-}
-
-// NewUnitOfWorkWithTimeout creates a new UnitOfWork instance with specified close closeTimeout
-func NewUnitOfWorkWithTimeout(parentCtx context.Context, state *lua.LState, timeout time.Duration) (UnitOfWork, context.Context) {
 	ctx, cancel := context.WithCancel(parentCtx)
 
-	uow := &unitOfWork{
+	uw := &unitOfWork{
 		ctx:             ctx,
 		cancel:          cancel,
 		state:           state,
-		closeTimeout:    timeout,
 		valueStore:      newValueStore(),
 		resourceManager: newResourceManager(),
 		tasks:           newTaskCoordinator(256, nil), // Reasonable buffer size
@@ -48,14 +39,14 @@ func NewUnitOfWorkWithTimeout(parentCtx context.Context, state *lua.LState, time
 	// Check for wake-up function in context
 	if awake := parentCtx.Value(ctxapi.WakeUpKey); awake != nil {
 		if fn, ok := awake.(func()); ok {
-			uow.tasks.wakeupFunc = fn
+			uw.tasks.wakeupFunc = fn
 		}
 	}
 
 	// Add cleanup for state context
 	if state != nil {
 		state.SetContext(ctx)
-		uow.AddCleanup(func() error {
+		uw.AddCleanup(func() error {
 			if state.Context() != nil {
 				state.SetContext(nil)
 			}
@@ -64,9 +55,9 @@ func NewUnitOfWorkWithTimeout(parentCtx context.Context, state *lua.LState, time
 	}
 
 	// Store in context
-	ctx = context.WithValue(ctx, unitOfWorkKey, uow)
+	ctx = context.WithValue(ctx, unitOfWorkKey, uw)
 
-	return uow, ctx
+	return uw, ctx
 }
 
 // GetUnitOfWork retrieves the UnitOfWork from a context
@@ -169,8 +160,8 @@ func (u *unitOfWork) closeInternal() error {
 		select {
 		case <-done:
 			// Normal shutdown
-		case <-time.After(u.closeTimeout):
-			// Force shutdown after closeTimeout
+		case <-u.ctx.Done():
+			// Context was canceled before all goroutines finished
 		}
 
 		err = u.resourceManager.Close()

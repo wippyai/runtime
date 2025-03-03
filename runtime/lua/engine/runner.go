@@ -124,8 +124,6 @@ func (e *Runner) Run(ctx context.Context, exitCh <-chan *Update) (lua.LValue, er
 	wrapped := e.getWrapped()
 	var result *Update
 	for {
-		//uw.Tasks().RunScheduled()
-
 		tasks, err := wrapped.Step(e.cvm.queue.Drain()...)
 		if err != nil {
 			return nil, err
@@ -196,9 +194,6 @@ func (e *Runner) Continue(ctx context.Context, block bool) error {
 	}
 
 	wrapped := e.getWrapped()
-
-	// run all scheduled tasks
-	//uw.Tasks().RunScheduled()
 
 	// get all threads from the queue
 	tasks, err := wrapped.Step(e.cvm.queue.Drain()...)
