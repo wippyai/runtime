@@ -3,6 +3,7 @@ package httpclient
 import (
 	"context"
 	"errors"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"io"
 	"net/http"
 	"time"
@@ -179,7 +180,7 @@ func (m *Module) handleStreamResponse(
 	luaStream := &stream.LuaStream{Stream: s}
 	ud := l.NewUserData()
 	ud.Value = luaStream
-	l.SetMetatable(ud, l.GetTypeMetatable("Stream"))
+	ud.Metatable = value.GetTypeMetatable(l, "Stream")
 	l.Push(newResponseWithStream(resp, ud, l))
 	return 1
 }
