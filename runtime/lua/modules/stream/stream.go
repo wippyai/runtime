@@ -40,6 +40,7 @@ type Stream struct {
 	config    *Options
 	bytesRead int64
 	rwmu      sync.RWMutex
+	buffer    []byte
 	ctx       context.Context
 }
 
@@ -57,6 +58,7 @@ func NewStream(ctx context.Context, reader io.ReadCloser, cfg *Options) (*Stream
 		reader: reader,
 		config: cfg,
 		ctx:    ctx,
+		buffer: make([]byte, cfg.bufferSize),
 	}
 
 	/**
@@ -72,9 +74,15 @@ func (s *Stream) ReadChunk() ([]byte, error) {
 	s.rwmu.Lock()
 	defer s.rwmu.Unlock()
 
-	// todo: sync pool
-	buffer := make([]byte, s.config.bufferSize)
-	n, err := s.readDirect(buffer)
+	if s.reader == nil {
+		return nil, fmt.Errorf("stream closed")
+	}
+
+	if s.ctx.Err() != nil {
+		return nil, fmt.Errorf("context canceled: %w", s.ctx.Err())
+	}
+
+	n, err := s.reader.Read(s.buffer)
 	if err != nil {
 		// fs.ErrClosed is returned when the process is stopped (the file is already closed)
 		// all these errors are not critical and happen when the process (for example) is stopped
@@ -86,43 +94,10 @@ func (s *Stream) ReadChunk() ([]byte, error) {
 
 	s.bytesRead += int64(n)
 	resp := make([]byte, n)
-	copy(resp, buffer)
+	copy(resp, s.buffer)
+	s.buffer = s.buffer[0:]
 
 	return resp, nil
-}
-
-func (s *Stream) readDirect(buffer []byte) (int, error) {
-	// Spawn a channel to receive read results
-	resultCh := make(chan struct {
-		n   int
-		err error
-	}, 1)
-
-	// Launch read operation in a goroutine
-	go func() {
-		n, err := s.reader.Read(buffer)
-		select {
-		case resultCh <- struct {
-			n   int
-			err error
-		}{n, err}:
-		case <-s.ctx.Done():
-			// todo: log
-			// Read completed but context was canceled before we could send
-		}
-	}()
-
-	// wait for either context cancellation or read completion
-	select {
-	case <-s.ctx.Done():
-		return 0, fmt.Errorf("read canceled: %w", s.ctx.Err())
-	case result := <-resultCh:
-		if result.err != nil {
-			return 0, fmt.Errorf("direct read error: %w", result.err)
-		}
-
-		return result.n, nil
-	}
 }
 
 // BytesRead returns the total number of bytes read from the stream so far.
@@ -140,8 +115,12 @@ func (s *Stream) Close() error {
 	s.rwmu.Lock()
 	defer s.rwmu.Unlock()
 
-	if err := s.reader.Close(); err != nil {
-		return fmt.Errorf("stream close error: %w", err)
+	if s.reader != nil {
+		if err := s.reader.Close(); err != nil {
+			return fmt.Errorf("stream close error: %w", err)
+		}
+		s.reader = nil
 	}
+
 	return nil
 }
