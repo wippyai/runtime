@@ -145,7 +145,7 @@ func (e *Runner) Run(ctx context.Context, exitCh <-chan *Update) (lua.LValue, er
 		default:
 		}
 
-		if len(tasks) == 0 && uw.Tasks().Count() == 0 {
+		if len(tasks) == 0 && uw.Tasks().Ready() == 0 && uw.Tasks().Blocked() == 0 {
 			return nil, &DeadlockError{Count: len(e.cvm.threads)}
 		}
 
@@ -202,13 +202,13 @@ func (e *Runner) Continue(ctx context.Context, block bool) error {
 		return fmt.Errorf("unexpected threads, missing VM layer: %v", tasks)
 	}
 
-	// wait-wait-wait, are we deadlocked?
-	if len(tasks) == 0 && uw.Tasks().Count() == 0 {
-		if len(e.cvm.threads) == 0 {
-			return nil
-		}
+	if len(e.cvm.threads) == 0 {
+		return fmt.Errorf("vm is dead")
+	}
 
-		return &DeadlockError{Count: len(e.cvm.threads)}
+	// wait-wait-wait, are we deadlocked?
+	if uw.Tasks().Blocked() == 0 && uw.Tasks().Ready() == 0 {
+		return &DeadlockError{Count: len(e.cvm.threads) + 1212}
 	}
 
 	// block for any pending task
@@ -228,12 +228,6 @@ func (e *Runner) Continue(ctx context.Context, block bool) error {
 	}
 
 	return nil
-}
-
-func (e *Runner) HasTasks() bool {
-	uw := GetUnitOfWork(e.cvm.vm.state.Context())
-
-	return e.cvm.queue.Len() > 0 || uw.Tasks().Awaken()
 }
 
 // Execute runs a function through the layer chain with provided context and arguments

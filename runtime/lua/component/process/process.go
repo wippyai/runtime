@@ -102,17 +102,16 @@ func (p *Process) Start(ctx context.Context, pid pubsub.PID, input payload.Paylo
 }
 
 // Step advances the process state by one iteration
-func (p *Process) Step() (bool, error) {
+func (p *Process) Step() error {
 	if p.ctx.Err() != nil || p.closed.Load() {
-		return false, p.ctx.Err()
+		return p.ctx.Err()
 	}
 
 	// Continue the runner
 	log.Printf("RUN CONTINUE")
 	if err := p.runner.Continue(p.ctx, false); err != nil {
 		p.complete(err, nil)
-		log.Printf("RUN CONTINUE END ERR %v", err)
-		return false, err
+		return err
 	}
 	log.Printf("RUN CONTINUE END")
 
@@ -121,17 +120,21 @@ func (p *Process) Step() (bool, error) {
 	case result := <-p.resultCh:
 		if result.Error != nil {
 			p.complete(result.Error, nil)
-			return false, result.Error
+			return result.Error
 		}
 		if len(result.Result) > 0 {
 			p.complete(nil, result.Result[0])
-			return false, supervisor.ErrExit
+			return supervisor.ErrExit
 		}
 	default:
 	}
 
-	log.Printf("HAS TASKS %v", p.runner.HasTasks())
-	return p.runner.HasTasks(), nil
+	return nil
+}
+
+// QueueSize returns the size of the runner's queue.
+func (p *Process) QueueSize() int {
+	return p.runner.QueueSize()
 }
 
 // Send handles incoming messages to the process

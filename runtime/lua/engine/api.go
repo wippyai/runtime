@@ -80,11 +80,11 @@ type Tasks interface {
 	// Schedule adds a function to be executed in the task group on task polling (Wait).
 	Schedule(func()) error
 
-	// Count returns the current number of active threads.
-	Count() int
+	// Blocked returns the current number of tasks that are currently running externally.
+	Blocked() int
 
-	// Awaken checks if the task group has been awakened.
-	Awaken() bool
+	// Ready returns the number of tasks that are currently ready to be processed.
+	Ready() int
 }
 
 // StateProvider interface for components that have an associated Lua state

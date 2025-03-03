@@ -4,7 +4,6 @@ import (
 	"container/list"
 	"context"
 	"errors"
-	"log"
 	"sync"
 	"sync/atomic"
 )
@@ -17,14 +16,14 @@ import (
 type taskCoordinator struct {
 	updates    chan *Update  // Channel for task updates
 	wakeup     chan struct{} // Signal channel for wake-up notifications
+	taskCount  atomic.Int32  // Counter for external activities, usually counting blocked channels
 	wakeCount  atomic.Int32  // Counter for wake-up signals
-	taskCount  atomic.Int32  // Counter for active threads
-	updCount   atomic.Int32  // Counter for sent updates
+	updCount   atomic.Int32  // Counter for sent updates and internal updates
 	awaken     atomic.Bool   // Flag indicating if wake-up has been signaled
 	wakeupFunc func()        // Function to call on wake-up
 
 	// For scheduling arbitrary functions to execute during Wait
-	schedMu   sync.Mutex // Mutex for scheduled functions
+	smu       sync.Mutex // Mutex for scheduled functions
 	scheduled *list.List // List of scheduled functions
 }
 
@@ -56,12 +55,12 @@ func (t *taskCoordinator) Schedule(fn func()) error {
 		return errors.New("cannot schedule nil function")
 	}
 
-	t.schedMu.Lock()
+	t.smu.Lock()
 	t.scheduled.PushBack(fn)
-	t.schedMu.Unlock()
+	t.smu.Unlock()
 
 	// Signal that there's work to do
-	t.Add()
+	t.updCount.Add(1)
 	t.WakeUp()
 	return nil
 }
@@ -69,23 +68,23 @@ func (t *taskCoordinator) Schedule(fn func()) error {
 // executeScheduled executes any scheduled functions including ones created by scheduled functions
 func (t *taskCoordinator) executeScheduled() {
 	for {
-		t.schedMu.Lock()
+		t.smu.Lock()
 		// If there are no functions, return quickly
 		if t.scheduled.Len() == 0 {
-			t.schedMu.Unlock()
+			t.smu.Unlock()
 			return
 		}
 
 		// Take the current list and replace with a new one
 		funcs := t.scheduled
 		t.scheduled = list.New()
-		t.schedMu.Unlock()
+		t.smu.Unlock()
 
 		// Execute all scheduled functions
 		for e := funcs.Front(); e != nil; e = e.Next() {
 			if fn, ok := e.Value.(func()); ok && fn != nil {
 				fn()
-				t.Done()
+				t.updCount.Add(^int32(0))
 			}
 		}
 	}
@@ -120,44 +119,26 @@ func (t *taskCoordinator) Send(ctx context.Context, update *Update) error {
 	}
 }
 
-// Count returns the current number of active threads
-func (t *taskCoordinator) Count() int {
+// Blocked returns the current number of tasks that are currently running externally.
+func (t *taskCoordinator) Blocked() int {
 	return int(t.taskCount.Load())
 }
 
-// Awaken checks if the task group has been awakened
-func (t *taskCoordinator) Awaken() bool {
-
-	log.Printf(
-		"CHECK AWAKEN %v %v %v %v",
-		t.awaken.Load(),
-		t.taskCount.Load(),
-		t.updCount.Load(),
-		t.scheduled.Len(),
-	)
-
-	t.schedMu.Lock()
-	if t.scheduled.Len() != 0 {
-		t.schedMu.Unlock() // we have something scheduled
-		return true
-	}
-	t.schedMu.Unlock()
-
-	return t.awaken.Load() // || t.updCount.Load() > 0
+// Ready returns the number of tasks that are currently ready to be processed
+func (t *taskCoordinator) Ready() int {
+	return int(t.updCount.Load())
 }
 
 // Wait waits for updates or wake-up signals
 // If block is true, it will wait for at least one result or wake-up signal
 func (t *taskCoordinator) Wait(ctx context.Context, block bool) ([]*Update, error) {
-	defer t.awaken.Store(false)
-
 	updates := make([]*Update, 0)
 
 	// Execute any pending scheduled functions first
 	t.executeScheduled()
 
 	// Process available updates or continue if task count is zero
-	for t.taskCount.Load() > 0 {
+	for t.Ready() > 0 {
 		if block {
 			select {
 			case upd := <-t.updates:
@@ -170,6 +151,7 @@ func (t *taskCoordinator) Wait(ctx context.Context, block bool) ([]*Update, erro
 
 			case <-t.wakeup:
 				t.wakeCount.Add(^int32(0))
+				t.awaken.Store(false)
 				block = false
 				continue
 
@@ -188,6 +170,7 @@ func (t *taskCoordinator) Wait(ctx context.Context, block bool) ([]*Update, erro
 
 		case <-t.wakeup:
 			t.wakeCount.Add(^int32(0))
+			t.awaken.Store(false)
 		default:
 			return updates, nil
 		}
@@ -206,9 +189,9 @@ func (t *taskCoordinator) clean() {
 	t.wakeCount.Store(0)
 
 	// Clean up scheduled functions
-	t.schedMu.Lock()
+	t.smu.Lock()
 	t.scheduled.Init() // Reinitialize the list
-	t.schedMu.Unlock()
+	t.smu.Unlock()
 
 	// Drain channels
 	for {

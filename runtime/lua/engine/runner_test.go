@@ -14,7 +14,7 @@ type loggingLayer struct {
 }
 
 func (l *loggingLayer) Step(cvm CVM, tasks ...*Task) ([]*Task, error) {
-	// Count yields
+	// Ready yields
 	for _, task := range tasks {
 		if len(task.Yielded) > 0 {
 			l.yieldCount++
