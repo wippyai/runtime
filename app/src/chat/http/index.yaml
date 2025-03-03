@@ -47,3 +47,4 @@ entries:
     method: POST
     path: /chat/message
     func: session.send
+

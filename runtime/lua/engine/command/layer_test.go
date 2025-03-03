@@ -533,7 +533,7 @@ func TestCommandLayer_SelectOperations(t *testing.T) {
 			}
 		}
 
-		updates, err := uw.Tasks().Wait(ctx, true)
+		updates, err := uw.Tasks().Wait(ctx, uw.Tasks().Ready() == 0 && len(tasks) == 0)
 		assert.NoError(t, err)
 
 		scheduled, err := engine.GetTasks(runner.GetCVM(), updates...)

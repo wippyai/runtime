@@ -4,13 +4,25 @@ import (
 	"container/list"
 	"context"
 	"errors"
+	"log"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
-//------------------------------------------------------------------------------
+// ------------------------------------------------------------------------------
 // Task Coordinator Implementation
-//------------------------------------------------------------------------------
+// ------------------------------------------------------------------------------
+var in atomic.Int64
+
+func init() {
+	go func() {
+		for {
+			time.Sleep(5 * time.Second)
+			log.Printf("misses %v", in.Load())
+		}
+	}()
+}
 
 // taskCoordinator implements the Tasks interface for coroutine coordination
 type taskCoordinator struct {
@@ -106,15 +118,16 @@ func (t *taskCoordinator) executeScheduled() {
 // This is thread-safe and can be called from any goroutine
 func (t *taskCoordinator) WakeUp() {
 	if t.awaken.CompareAndSwap(false, true) {
-		if t.wakeupFunc != nil {
-			t.wakeupFunc()
-		}
-
 		t.wakeCount.Add(1)
 		select {
 		case t.wakeup <- struct{}{}:
+			if t.wakeupFunc != nil {
+				t.wakeupFunc()
+			}
 		default:
 		}
+	} else {
+		in.Add(1)
 	}
 }
 
@@ -156,7 +169,7 @@ func (t *taskCoordinator) Wait(ctx context.Context, block bool) ([]*Update, erro
 	t.executeScheduled()
 
 	// Process available updates or continue if task count is zero
-	for t.Ready() > 0 {
+	for t.Ready() > 0 || block {
 		if block {
 			select {
 			case upd := <-t.updates:

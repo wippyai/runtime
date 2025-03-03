@@ -16,15 +16,24 @@ end
 
 local function run()
     local state = {
-        pid = process.pid()
+        pid = process.pid(),
+        count = 0
     }
     print("Message listener process started with PID:", state.pid)
     process.registry.register("message_receiver")
 
+    coroutine.spawn(function()
+        while true do
+            -- Wait for 5 seconds before sending a message
+            time.sleep("10s")
+            print("alive ", state.count)
+        end
+    end)
+
     local message_actor = actor.new(state, {
         -- Handler for the dedicated message topic
         message = function(state, msg)
-            --print("Received message on 'message' topic:", inspect_table(msg))
+            state.count = state.count + 1
 
             if type(msg) == "table" and msg.from then
                 process.send(msg.from, "response", {

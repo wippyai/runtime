@@ -1,6 +1,7 @@
 local json = require("json")
 local http_client = require("http_client")
 local env = require("env")
+local time = require("time")
 
 local function handler(args)
     -- Format messages from history
@@ -11,6 +12,7 @@ local function handler(args)
             content = msg.content
         })
     end
+
     table.insert(messages, {
         role = "user",
         content = args.message
