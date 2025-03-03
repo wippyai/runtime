@@ -109,8 +109,6 @@ func (h *Host) Send(pkg *api.Package) error {
 	hash := fnv1a32(pkg.PID.UniqID)
 	workerIndex := int(hash % uint32(len(h.jobQueues)))
 
-	s.send3.Add(1)
-
 	// Send to the determined worker queue
 	select {
 	case h.jobQueues[workerIndex] <- pkg:
@@ -133,7 +131,6 @@ func (h *Host) worker(queueIndex int) {
 		case <-h.ctx.Done():
 			return
 		case job := <-queue:
-			s.send4.Add(1)
 			rec, ok := h.receivers.Load(job.PID)
 			if !ok {
 				continue
@@ -156,23 +153,12 @@ var i = 0
 
 // deliverPackage handles delivery to Package channels
 func (h *Host) deliverPackage(job *api.Package, ch chan *api.Package) {
-	s.send5.Add(1)
 	select {
 	case ch <- job:
-		s.send6.Add(1)
 		// Successfully sent immediately
 		return
 	case <-h.ctx.Done():
 		h.logger.Info("worker shutting down, dropping Package message",
 			zap.String("pid", job.PID.String()))
-	default:
-		select {
-		case ch <- job:
-		case <-time.After(time.Second * 10):
-			log.Printf("MISSED")
-		case <-h.ctx.Done():
-			h.logger.Info("worker shutting down, dropping Package message",
-				zap.String("pid", job.PID.String()))
-		}
 	}
 }
