@@ -1,6 +1,7 @@
 package httpclient
 
 import (
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"net/http"
 
 	lua "github.com/yuin/gopher-lua"
@@ -34,8 +35,7 @@ func newResponse(res *http.Response, body *[]byte, bodySize int, l *lua.LState) 
 		body:     lua.LString(*body),
 		bodySize: bodySize,
 	}
-
-	l.SetMetatable(ud, l.GetTypeMetatable(luaHTTPResponseTypeName))
+	ud.Metatable = value.GetTypeMetatable(l, luaHTTPResponseTypeName)
 	return ud
 }
 
@@ -46,7 +46,7 @@ func newResponseWithStream(res *http.Response, stream *lua.LUserData, l *lua.LSt
 		res:    res,
 		stream: stream,
 	}
-	l.SetMetatable(ud, l.GetTypeMetatable(luaHTTPResponseTypeName))
+	ud.Metatable = value.GetTypeMetatable(l, luaHTTPResponseTypeName)
 	return ud
 }
 
