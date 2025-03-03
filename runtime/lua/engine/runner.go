@@ -260,9 +260,6 @@ func (e *Runner) Execute(ctx context.Context, funcName string, args ...lua.LValu
 
 	r, err := e.Run(ctx, out)
 	if err != nil {
-		if err := nuw.Terminate(err); err != nil {
-			e.cvm.vm.log.Error("unit of work termination failed", zap.Error(err))
-		}
 		finalErr = err
 		return nil, err
 	}
