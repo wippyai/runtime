@@ -252,7 +252,7 @@ func fsReadDir(l *lua.LState) int {
 		}
 		entry := entries[index]
 		index++
-		entryTbl := l.NewTable()
+		entryTbl := l.CreateTable(0, 2)
 		entryTbl.RawSetString("name", lua.LString(entry.Name()))
 		if entry.IsDir() {
 			entryTbl.RawSetString("type", lua.LString(typeDir))
