@@ -5,7 +5,6 @@ import (
 	"fmt"
 	api "github.com/ponyruntime/pony/api/pubsub"
 	"go.uber.org/zap"
-	"log"
 	"sync"
 	"time"
 )
@@ -130,20 +129,15 @@ func (h *Host) worker(queueIndex int) {
 		case <-h.ctx.Done():
 			return
 		case job := <-queue:
-			log.Printf("worker %d processing job for pid %s", queueIndex, job.PID.String())
-
 			rec, ok := h.receivers.Load(job.PID)
 			if !ok {
-				log.Printf("worker %d no receiver for pid %s", queueIndex, job.PID.String())
 				continue
 			}
 
 			// Handle both types of channels
 			switch ch := rec.(type) {
 			case chan *api.Package:
-				log.Printf("worker %d sending job for pid %s", queueIndex, job.PID.String())
 				h.deliverPackage(job, ch)
-				log.Printf("worker %d sent job for pid %s", queueIndex, job.PID.String())
 			default:
 				h.logger.Error("invalid receiver type",
 					zap.String("pid", job.PID.String()),

@@ -315,9 +315,9 @@ func (p *App) Step() error {
 	}
 }
 
-// QueueSize returns the size of the runner's queue.
-func (p *App) QueueSize() int {
-	return p.runner.QueueSize()
+// Ready returns the size of the runner's queue that is ready to be processed.
+func (p *App) Ready() int {
+	return p.uow.Tasks().Ready() + p.runner.QueueLen()
 }
 
 // Send transcodes and publishes messages to the Lua process.
@@ -344,7 +344,7 @@ func (p *App) Send(pkg *pubsub.Package) error {
 			}
 
 			if exists, _ := subscribe.Exists(p.ctx, msg.Topic); exists {
-				err := subscribe.Publish(p.ctx, msg.Topic, luaValues...)
+				err = subscribe.Publish(p.ctx, msg.Topic, luaValues...)
 				if err != nil {
 					p.log.Error("failed to publish message",
 						zap.String("topic", msg.Topic),

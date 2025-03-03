@@ -925,7 +925,7 @@ func TestCoroutineVM_SharedBuffer(t *testing.T) {
 						shared_buffer.data = {}
 						shared_buffer.size = 0
 						
-						coroutine.yield("flushed:" .. output)
+						coroutine.yield("undelivered:" .. output)
 						return "flusher_done"
 					end
 				end
@@ -1012,9 +1012,9 @@ func TestCoroutineVM_SharedBuffer(t *testing.T) {
 			t.Fatal("expected flusher to yield output")
 		}
 
-		// Verify flushed data
+		// Verify undelivered data
 		flushResult := tasks[0].Yielded[0].String()
-		expectedResult := "flushed:val1, val2, val3, val4, val5"
+		expectedResult := "undelivered:val1, val2, val3, val4, val5"
 		if flushResult != expectedResult {
 			t.Fatalf("unexpected wait output: got %q, want %q", flushResult, expectedResult)
 		}

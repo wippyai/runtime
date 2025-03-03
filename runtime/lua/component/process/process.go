@@ -13,7 +13,6 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
-	"log"
 	"sync/atomic"
 )
 
@@ -108,12 +107,10 @@ func (p *Process) Step() error {
 	}
 
 	// Continue the runner
-	log.Printf("RUN CONTINUE")
 	if err := p.runner.Continue(p.ctx, false); err != nil {
 		p.complete(err, nil)
 		return err
 	}
-	log.Printf("RUN CONTINUE END")
 
 	// Check for any results
 	select {
@@ -132,9 +129,9 @@ func (p *Process) Step() error {
 	return nil
 }
 
-// QueueSize returns the size of the runner's queue.
-func (p *Process) QueueSize() int {
-	return p.runner.QueueSize()
+// Ready returns the size of the runner's queue that is ready to be processed.
+func (p *Process) Ready() int {
+	return p.uow.Tasks().Ready() + p.runner.QueueLen()
 }
 
 // Send handles incoming messages to the process
@@ -169,7 +166,6 @@ func (p *Process) Send(pkg *pubsub.Package) error {
 						zap.String("topic", msg.Topic),
 						zap.Error(err))
 				}
-				log.Printf(">>>>>>>>>>>>>>>>>SEND TASK")
 				continue
 			}
 
@@ -178,9 +174,9 @@ func (p *Process) Send(pkg *pubsub.Package) error {
 
 			// Create a message table for each value
 			for _, v := range luaValues {
-				msgTable := p.uow.State().NewTable()
+				msgTable := p.uow.State().CreateTable(0, 2)
 				msgTable.RawSetString("topic", lua.LString(msg.Topic))
-				msgTable.RawSetString("payload", v)
+				msgTable.RawSetString("payload", v) // todo: raw payload?
 
 				inboxValues = append(inboxValues, msgTable)
 			}
@@ -190,7 +186,6 @@ func (p *Process) Send(pkg *pubsub.Package) error {
 					zap.String("topic", topology.TopicInbox),
 					zap.Error(pErr))
 			}
-			log.Printf(">>>>>>>>>>>>>>>>>SEND TASK")
 		}
 		pubsub.ReleasePackage(pkg)
 		return nil

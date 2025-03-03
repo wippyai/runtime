@@ -18,4 +18,4 @@ entries:
     imports:
       test: "wippy.lib:test"
     pool:
-      size: 16 # todo change it to support cold pools
+      size: 8 # todo change it to support cold pools
