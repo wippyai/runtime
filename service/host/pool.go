@@ -3,7 +3,6 @@ package host
 import (
 	"context"
 	"github.com/ponyruntime/pony/api/process"
-	"log"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -130,7 +129,6 @@ func (p *ProcessPool) worker() {
 
 			// Start process step
 			err := entry.process.Step()
-			log.Printf("STEP OF THE PROCESS")
 			if err != nil {
 				p.log.Debug("process step completed with error",
 					zap.String("pid", pid.String()),
