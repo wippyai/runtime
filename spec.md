@@ -113,7 +113,7 @@ local receivers = ch:_debug_receivers()  -- Blocked receivers
 ## 4. Function API
 
 ### Function Definition and Communication
-
+todo: redo it
 ```lua
 -- Define a function
 function handler(args)

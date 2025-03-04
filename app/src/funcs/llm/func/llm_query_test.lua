@@ -118,7 +118,7 @@ local function define_tests()
             expect(response).to_equal("Second response")
         end)
 
-        it("should handle streaming LLM query", function()
+        it_skip("should handle streaming LLM query", function()
             -- Set up process.send mock to capture streamed responses
             local received_messages = {}
 

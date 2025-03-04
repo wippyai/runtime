@@ -180,20 +180,17 @@ func (t *Topology) GetLinks(pid pubsub.PID) []pubsub.PID {
 // Notify sends exit event to all watchers and links of a pid.
 // The provided result contains the process exit information to be shared.
 func (t *Topology) Notify(pid pubsub.PID, result *runtime.Result) {
-	// Create the exit event payload once
-	exitEvent := topology.ExitEvent{
-		Event: topology.Event{
-			At:   time.Now(),
-			From: pid,
-			Kind: topology.KindExit,
-		},
-		Result: result,
-	}
-
-	exitPayload := payload.New(exitEvent)
-
 	// send to all monitors
 	if value, ok := t.monitors.Load(pid.String()); ok {
+		resultPayload := payload.New(topology.ExitEvent{
+			Event: topology.Event{
+				At:   time.Now(),
+				From: pid,
+				Kind: topology.KindResult,
+			},
+			Result: result,
+		})
+
 		watchers := value.(*sync.Map)
 		watchers.Range(func(key, _ interface{}) bool {
 			watcherPID, ok := key.(string)
@@ -209,7 +206,7 @@ func (t *Topology) Notify(pid pubsub.PID, result *runtime.Result) {
 			pkg := pubsub.NewPackage(
 				callerPID,
 				topology.TopicEvents,
-				exitPayload,
+				resultPayload,
 			)
 
 			_ = t.upstream.Send(pkg)
@@ -219,14 +216,25 @@ func (t *Topology) Notify(pid pubsub.PID, result *runtime.Result) {
 
 	// send to all linked processes
 	linkedPIDs := t.GetLinks(pid)
-	for _, linkedPID := range linkedPIDs {
-		pkg := pubsub.NewPackage(
-			linkedPID,
-			topology.TopicEvents,
-			exitPayload,
-		)
 
-		_ = t.upstream.Send(pkg)
+	if len(linkedPIDs) > 0 {
+		exitPayload := payload.New(topology.ExitEvent{
+			Event: topology.Event{
+				At:   time.Now(),
+				From: pid,
+				Kind: topology.KindLinkDown,
+			},
+			Result: result,
+		})
+
+		for _, linkedPID := range linkedPIDs {
+			pkg := pubsub.NewPackage(
+				linkedPID,
+				topology.TopicEvents,
+				exitPayload,
+			)
+			_ = t.upstream.Send(pkg)
+		}
 	}
 }
 

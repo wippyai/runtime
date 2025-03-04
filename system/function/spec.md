@@ -1,254 +1,114 @@
-# Functions System Specification
+# Function Component Specification
 
-## Overview
+## Purpose
+The Function component provides a framework for registering, managing, and executing asynchronous functions within the Pony Runtime. It enables dynamic registration of handlers that can process tasks and return results through channels.
 
-A dynamic function registry and execution system that provides distributed task handling capabilities through an event-based architecture. The system allows runtime registration, removal, and execution of function handlers.
+## Core Concepts
 
-## Core Components
+### Function Model
+- **Function**: Asynchronous handler that receives a task and returns results through a channel
+- **Task**: Unit of work to be executed, containing an identifier and input payloads
+- **Result**: Outcome of execution, containing either a payload or an error
+- **Registry**: Central manager for function registration and execution
 
-### FunctionRegistry
+## Architecture
 
-The central component managing function registration and execution.
+### Registry
+The Registry is the central component:
+- Manages function registration and deregistration via events
+- Handles function lookup and execution
+- Provides context integration for accessing registry services
+- Thread-safe handler storage using sync.Map
 
-#### Key Features:
-- Dynamic handler registration and removal
-- Event-driven communication
-- Thread-safe handler storage
-- Context-aware execution
-- Graceful shutdown support
-- Error propagation and handling
-
-#### Usage:
-
-```go
-// Create new registry
-registry := NewExecutor(bus, logger)
-
-// Start the registry
-registry.Start(ctx)
-
-// Register a handler
-bus.Send(ctx, events.Event{
-    System: function.System,
-    Kind:   function.RegisterFunctionHandler,
-    Path:   "namespace:handler",
-    Data:   handlerFunc,
-})
-
-// Execute a task
-resultChan, err := registry.Call(ctx, task)
-```
-
-### Function Handler
-
-A function that processes tasks and returns results through a channel.
-
-#### Interface:
+### Function Type
+The core function signature:
 ```go
 type Func func(context.Context, runtime.Task) (chan *runtime.Result, error)
 ```
+- Takes a context and task as input
+- Returns a result channel and any immediate errors
+- Result channel allows for streaming multiple results
 
-#### Key Features:
-- Stream-based result handling
-- Context-aware execution
-- Error propagation
-- Asynchronous processing
-- Task-based input
+## Event-Based Management
 
-## Event Communication
+### Registration Events
+- `function.register`: Register a new function handler
+- `function.delete`: Remove an existing function handler
+- `function.accept`: Confirmation of successful registration/deletion
+- `function.reject`: Notification of failed registration/deletion
 
-The system uses an event bus for handler registration and management.
+## Message Flow
 
-### Event Types
+### Function Registration
+1. Client sends `function.register` event with function implementation
+2. Registry validates and stores the function
+3. Registry sends `function.accept` or `function.reject` response
 
-1. Registration Events
-    - `function.register`: Register a new handler
-    - `function.remove`: Remove an existing handler
-    - `function.accept`: Handler registration accepted
-    - `function.reject`: Handler registration rejected
+### Function Execution
+1. Client calls `registry.Call()` with task and context
+2. Registry looks up handler by task ID
+3. Registry executes function with proper context
+4. Results are streamed through the returned channel
 
-### Event Flow
+## Context Integration
 
-1. Handler Registration:
-   ```
-   Client -> Register Event -> Registry -> Accept/Reject Event -> Client
-   ```
+### Registry Access
+- `WithFunctions(ctx, registry)`: Store registry in context
+- `GetRegistry(ctx)`: Retrieve registry from context
 
-2. Handler Removal:
-   ```
-   Client -> Remove Event -> Registry -> Accept/Reject Event -> Client
-   ```
+### PID and Host Integration
+During execution, the registry:
+- Adds PID to context with function host ID and unique identifier
+- Adds Host to context for message handling
 
-## Task Execution
+## Thread Safety
+- Concurrent handler registration and deletion is supported
+- Function execution can happen concurrently
+- Context propagation maintains isolation between executions
 
-### Task Structure
+## Use Cases
+
+### Registering a Function
 ```go
-type Task struct {
-    Handler  registry.ID      // Target handler identifier
-    Payloads []payload.Payload // Input data
+handler := func(ctx context.Context, task runtime.Task) (chan *runtime.Result, error) {
+    resultCh := make(chan *runtime.Result, 1)
+    go func() {
+        // Process the task
+        resultCh <- &runtime.Result{
+            Payload: payload.New("processed result"),
+        }
+        close(resultCh)
+    }()
+    return resultCh, nil
 }
+
+bus.Send(ctx, event.Event{
+    System: function.System,
+    Kind:   function.Register,
+    Path:   "namespace:name",
+    Data:   function.Func(handler),
+})
 ```
 
-### Result Structure
+### Executing a Function
 ```go
-type Result struct {
-    Payload payload.Payload // Output data
-    Error   error          // Execution error if any
-}
-```
+registry := function.GetRegistry(ctx)
+resultCh, err := registry.Call(ctx, runtime.Task{
+    ID:       registry.ID{NS: "namespace", Name: "name"},
+    Payloads: []payload.Payload{payload.New("input data")},
+})
 
-### Execution Flow
-1. Task submission through `Call()`
-2. Handler lookup by ID
-3. Context preparation and validation
-4. Handler execution
-5. Result streaming through channel
-
-## Handler Management
-
-### Registration Process
-1. Client sends registration event with handler function
-2. Registry validates handler
-3. Handler stored in thread-safe map
-4. Accept/Reject event sent back to client
-
-### Removal Process
-1. Client sends removal event with handler ID
-2. Registry checks handler existence
-3. Handler removed from storage
-4. Accept/Reject event sent back to client
-
-## Error Handling
-
-### Types of Errors
-- Handler not found
-- Invalid handler function
-- Registration failures
-- Execution errors
-- Context cancellation
-
-### Error Propagation
-1. Immediate errors returned directly
-2. Runtime errors sent through result channel
-3. Context cancellation handled at all levels
-
-## Performance Characteristics
-
-- Thread-safe handler storage using sync.Map
-- Non-blocking event-based communication
-- Asynchronous result streaming
-- Concurrent handler registration and execution
-- Context-based cancellation support
-
-## Best Practices
-
-1. Always provide context for operation control:
-```go
-ctx, cancel := context.WithTimeout(context.Background(), timeout)
-defer cancel()
-```
-
-2. Handle result streaming properly:
-```go
-resultChan, err := registry.Call(ctx, task)
 if err != nil {
-    return err
+    // Handle error
 }
-for result := range resultChan {
-    // Process result
-}
-```
 
-3. Implement proper error handling:
-```go
-if err := registry.Start(ctx); err != nil {
-    logger.Error("failed to start registry", zap.Error(err))
-    return err
-}
-```
-
-4. Use appropriate timeouts:
-```go
-ctx, cancel := context.WithTimeout(parentCtx, 5*time.Second)
-defer cancel()
-```
-
-## Limitations
-
-- No persistent handler storage
-- No built-in retry mechanism
-- No automatic handler recovery
-- No distributed handler coordination
-- No built-in rate limiting
-
-## Security Considerations
-
-- No built-in authentication/authorization
-- Handler functions run with registry privileges
-- Input validation responsibility lies with handlers
-- No sandboxing of handler execution
-- Consider implementing middleware for security checks
-
-## Testing
-
-The system includes comprehensive tests covering:
-
-- Basic functionality
-- Concurrent operations
-- Error conditions
-- Handler lifecycle
-- Performance under load
-- Context cancellation
-- Event communication
-- Result streaming
-
-## Handler Implementation Guidelines
-
-1. Always respect context cancellation:
-```go
-func handler(ctx context.Context, task runtime.Task) (chan *runtime.Result, error) {
-    resultChan := make(chan *runtime.Result)
-    go func() {
-        defer close(resultChan)
-        select {
-        case <-ctx.Done():
-            return
-        case resultChan <- &runtime.Result{
-            Payload: processTask(task),
-        }:
-        }
-    }()
-    return resultChan, nil
-}
-```
-
-2. Proper channel management:
-```go
-func handler(ctx context.Context, task runtime.Task) (chan *runtime.Result, error) {
-    resultChan := make(chan *runtime.Result, 1) // Buffered for non-blocking
-    go func() {
-        defer close(resultChan)
-        // Process and send results
-    }()
-    return resultChan, nil
-}
-```
-
-3. Error handling:
-```go
-func handler(ctx context.Context, task runtime.Task) (chan *runtime.Result, error) {
-    if err := validateTask(task); err != nil {
-        return nil, err // Return immediate errors directly
+for result := range resultCh {
+    if result.Error != nil {
+        // Handle execution error
+    } else {
+        // Process result payload
     }
-    resultChan := make(chan *runtime.Result)
-    go func() {
-        defer close(resultChan)
-        if result, err := processTask(task); err != nil {
-            resultChan <- &runtime.Result{Error: err} // Send runtime errors through channel
-        } else {
-            resultChan <- &runtime.Result{Payload: result}
-        }
-    }()
-    return resultChan, nil
 }
 ```
+
+This specification defines the Function component that provides a flexible framework for managing and executing asynchronous tasks within the Pony Runtime.
