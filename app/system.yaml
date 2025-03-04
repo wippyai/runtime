@@ -42,7 +42,7 @@ entries:
       server: gateway
       depends_on:
         - gateway
-        - system:public
+        - public
     path: /
     fs: public
     directory: /

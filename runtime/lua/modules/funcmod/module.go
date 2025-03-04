@@ -20,8 +20,8 @@ import (
 var (
 	// subscribedKey is used to track whether we've already set up subscriptions
 	subscribedKey = &ctxapi.Key{Name: "function.subscribed"}
-	inboxChannel  = &ctxapi.Key{Name: "function.inbox.channel"}
-	eventsChannel = &ctxapi.Key{Name: "function.events.channel"}
+	inboxChannel  = &ctxapi.Key{Name: "function.channel.inbox"}
+	eventsChannel = &ctxapi.Key{Name: "function.channel.events"}
 )
 
 // Module provides inbox handling for short-lived functions and operations

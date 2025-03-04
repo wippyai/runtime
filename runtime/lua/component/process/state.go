@@ -48,7 +48,7 @@ type State struct {
 	wg        sync.WaitGroup
 	resultCh  <-chan *engine.Update
 	Closed    atomic.Bool
-	trapExit  atomic.Bool  // Controls whether process traps exit signals
+	trapLinks atomic.Bool  // Controls whether process traps exit signals
 	exitError atomic.Value // Holds an error that should terminate the process on next step
 }
 
@@ -98,14 +98,14 @@ func (s *State) InitContext(ctx context.Context, pid pubsub.PID) error {
 	return nil
 }
 
-// SetTrapExit enables or disables trapping of exit signals from linked processes
-func (s *State) SetTrapExit(trap bool) {
-	s.trapExit.Store(trap)
+// SetTrapLinks enables or disables trapping of exit signals from linked processes
+func (s *State) SetTrapLinks(trap bool) {
+	s.trapLinks.Store(trap)
 }
 
-// IsTrapExitEnabled returns whether the process is trapping exit signals
-func (s *State) IsTrapExitEnabled() bool {
-	return s.trapExit.Load()
+// IsTrapLinksEnabled returns whether the process is trapping exit signals
+func (s *State) IsTrapLinksEnabled() bool {
+	return s.trapLinks.Load()
 }
 
 // ToLuaPayloads converts a slice of payloads to Lua values
@@ -369,7 +369,7 @@ func (s *State) handleTopologyMessage(msg *pubsub.Message) bool {
 				zap.String("from", event.Event.From.String()),
 				zap.Error(exitErr))
 
-			if !s.IsTrapExitEnabled() {
+			if !s.IsTrapLinksEnabled() {
 				s.setExitError(exitErr)
 				return true
 			}
