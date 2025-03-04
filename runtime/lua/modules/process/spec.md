@@ -241,7 +241,7 @@ local child_pid = process.spawn(
 local child_pid = process.spawn_monitored(
     "namespace:name",
     "host_id",
-     arg1, arg2, arg3 
+    { key = value }  -- Optional arguments (table format)
 )
 
 -- Spawn with linking (if child fails, parent also fails)
@@ -580,6 +580,7 @@ end
 
 - Use `process.listen()` for topic-specific messages
 - Use `process.inbox()` for fallback messages
+- Use `process.events()` for system events and lifecycle management
 - Always use `channel.select()` to handle multiple channels
 - Check message types before processing
 
@@ -610,23 +611,3 @@ end
 - Use appropriate buffering for channels
 - Implement batching for high-throughput scenarios
 - Avoid creating unnecessary processes for short-lived operations
-
-## Context-Aware Message Handling
-
-Note that event handling may be context-specific. In some environments, system events may be intercepted at a higher
-layer before reaching your process. Always check the specific runtime configuration to understand how events are routed.
-
-For example, with the actor framework:
-
-```lua
-local actor = require("actor")
-
-local my_actor = actor.new(state, {
-    -- Direct event handler in actor framework
-    __on_event = function(state, event)
-        if event.event.kind == process.event.CANCEL then
-            -- Handle cancellation
-        end
-    end
-})
-```
