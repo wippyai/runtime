@@ -13,6 +13,7 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
+	"sync"
 	"sync/atomic"
 )
 
@@ -30,6 +31,7 @@ type Process struct {
 	pid    pubsub.PID
 
 	// State tracking
+	wg       sync.WaitGroup
 	resultCh <-chan *engine.Update
 	closed   atomic.Bool
 }
@@ -102,12 +104,16 @@ func (p *Process) Start(ctx context.Context, pid pubsub.PID, input payload.Paylo
 
 // Step advances the process state by one iteration
 func (p *Process) Step() error {
+	p.wg.Add(1)
+
 	if p.ctx.Err() != nil || p.closed.Load() {
+		p.wg.Done()
 		return p.ctx.Err()
 	}
 
 	// Continue the runner
 	if err := p.runner.Continue(p.ctx, false); err != nil {
+		p.wg.Done()
 		p.complete(err, nil)
 		return err
 	}
@@ -116,26 +122,35 @@ func (p *Process) Step() error {
 	select {
 	case result := <-p.resultCh:
 		if result.Error != nil {
+			p.wg.Done()
 			p.complete(result.Error, nil)
 			return result.Error
 		}
 		if len(result.Result) > 0 {
+			p.wg.Done()
 			p.complete(nil, result.Result[0])
 			return supervisor.ErrExit
 		}
 	default:
 	}
 
+	p.wg.Done()
 	return nil
 }
 
 // Ready returns the size of the runner's queue that is ready to be processed.
 func (p *Process) Ready() int {
+	p.wg.Add(1)
+	defer p.wg.Done()
+
 	return p.uow.Tasks().Ready() + p.runner.QueueLen()
 }
 
 // Send handles incoming messages to the process
 func (p *Process) Send(pkg *pubsub.Package) error {
+	p.wg.Add(1)
+	defer p.wg.Done()
+
 	if p.ctx.Err() != nil || p.closed.Load() {
 		return p.ctx.Err()
 	}
@@ -155,6 +170,7 @@ func (p *Process) Send(pkg *pubsub.Package) error {
 				p.log.Error("failed to convert payloads", zap.Error(err))
 				continue
 			}
+
 			if len(luaValues) == 0 {
 				continue
 			}
@@ -172,9 +188,11 @@ func (p *Process) Send(pkg *pubsub.Package) error {
 			// Fallback to inbox if available
 			inboxValues := make([]lua.LValue, 0, len(luaValues))
 
+			state := p.uow.State()
+
 			// Create a message table for each value
 			for _, v := range luaValues {
-				msgTable := p.uow.State().CreateTable(0, 2)
+				msgTable := state.CreateTable(0, 2)
 				msgTable.RawSetString("topic", lua.LString(msg.Topic))
 				msgTable.RawSetString("payload", v) // todo: raw payload?
 
@@ -198,6 +216,8 @@ func (p *Process) complete(err error, result lua.LValue) {
 		p.log.Warn("process already completed", zap.String("pid", p.pid.String()))
 		return
 	}
+
+	p.wg.Wait()
 
 	if p.uow != nil {
 		if cErr := p.uow.Close(); cErr != nil {

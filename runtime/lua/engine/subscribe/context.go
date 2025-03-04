@@ -57,6 +57,10 @@ func ensureLayerContext(uw engine.UnitOfWork) *layerContext {
 
 // Publish adds a message to the queue for the specified topic
 func Publish(ctx context.Context, topic string, values ...lua.LValue) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
 	uw := engine.GetUnitOfWork(ctx)
 	if uw == nil {
 		return fmt.Errorf("no unit of work found")
@@ -114,6 +118,10 @@ func Slots(ctx context.Context, topic string) (int, error) {
 
 // Exists checks if a topic has any subscribers
 func Exists(ctx context.Context, topic string) (bool, error) {
+	if ctx.Err() != nil {
+		return false, ctx.Err()
+	}
+
 	uw := engine.GetUnitOfWork(ctx)
 	if uw == nil {
 		return false, fmt.Errorf("no unit of work found")
