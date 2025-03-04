@@ -38,11 +38,10 @@ type State struct {
 	FuncName string
 
 	// Context and process information
-	Ctx    context.Context
-	DTT    payload.Transcoder
-	Cancel context.CancelFunc
-	UoW    engine.UnitOfWork
-	PID    pubsub.PID
+	Ctx context.Context
+	DTT payload.Transcoder
+	UoW engine.UnitOfWork
+	PID pubsub.PID
 
 	// State tracking
 	wg        sync.WaitGroup
@@ -77,14 +76,7 @@ func NewState(
 
 // InitContext initializes the process context and unit of work
 func (s *State) InitContext(ctx context.Context, pid pubsub.PID) error {
-	s.Ctx, s.Cancel = context.WithCancel(ctx)
 	s.PID = pid
-
-	// Get transcoder
-	s.DTT = payload.GetTranscoder(ctx)
-	if s.DTT == nil {
-		return ErrNoTranscoder
-	}
 
 	// Set PID in context
 	ctx = pubsub.WithPID(ctx, pid)
@@ -92,6 +84,12 @@ func (s *State) InitContext(ctx context.Context, pid pubsub.PID) error {
 	// Init unit of work
 	s.UoW, s.Ctx = s.Runner.InitUnitOfWork(ctx)
 	s.UoW.Values().Set(StateKey, s) // self-ref for process module
+
+	// Get transcoder
+	s.DTT = payload.GetTranscoder(ctx)
+	if s.DTT == nil {
+		return ErrNoTranscoder
+	}
 
 	// We expect Ctx being overwritten by parent caller
 
@@ -274,7 +272,6 @@ func (s *State) Complete(err error, result lua.LValue) {
 
 	// Clean up resources
 	s.Runner.Close()
-	s.Cancel()
 	s.UoW = nil
 	s.Runner = nil
 }
