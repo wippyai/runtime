@@ -34,7 +34,7 @@ func init() {
 		WithMode(code.AllowAll).
 		WithPreloaded(code.Preload{Name: "channel", ModuleID: registry.ID{Name: "channel"}}).
 		WithPreloaded(code.Preload{Name: "process", ModuleID: registry.ID{Name: "process"}}).
-		WithPreloaded(code.Preload{Name: "lazy_inbox", ModuleID: registry.ID{Name: "lazy_inbox"}}).
+		WithPreloaded(code.Preload{Name: "function_api", ModuleID: registry.ID{Name: "function_api"}}).
 		WithPreloaded(code.Preload{Name: "os", ModuleID: registry.ID{Name: "ostime"}}).
 		WithPreloaded(code.Preload{Name: "payload", ModuleID: registry.ID{Name: "payload"}})
 

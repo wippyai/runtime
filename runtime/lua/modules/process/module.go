@@ -32,17 +32,18 @@ func (m *Module) Name() string {
 
 // Loader is the entry point for loading the module into Lua
 func (m *Module) Loader(l *lua.LState) int {
-	mod := l.CreateTable(0, 10) // +2 for extensions
+	mod := l.CreateTable(0, 12) // Size adjusted for all functions
 
 	// Register process functions directly with RawSetString for better performance
 	mod.RawSetString("pid", l.NewFunction(m.pid))
 	mod.RawSetString("send", l.NewFunction(m.send))
 	mod.RawSetString("spawn", l.NewFunction(m.spawn))
 	mod.RawSetString("spawn_monitored", l.NewFunction(m.spawnMonitored))
-
-	// "spawn_linked" not yet implemented
+	mod.RawSetString("spawn_linked", l.NewFunction(m.spawnLinked))
 	mod.RawSetString("terminate", l.NewFunction(m.terminate))
 	mod.RawSetString("cancel", l.NewFunction(m.cancel))
+	mod.RawSetString("get_options", l.NewFunction(m.getOptions))
+	mod.RawSetString("set_options", l.NewFunction(m.setOptions))
 
 	// Create event constants table with exact size
 	events := l.CreateTable(0, 3)
@@ -61,6 +62,46 @@ func (m *Module) Loader(l *lua.LState) int {
 	RegisterMessageType(l)
 	l.Push(mod)
 	return 1
+}
+
+// getOptions returns an empty table (placeholder for process options)
+// Params: none
+// Returns: empty table
+func (m *Module) getOptions(l *lua.LState) int {
+	// Return empty table
+	l.Push(l.CreateTable(0, 0))
+	return 1
+}
+
+// setOptions validates options table but returns unsupported option error
+// Params: options_table
+// Returns: false, error_message
+func (m *Module) setOptions(l *lua.LState) int {
+	// Validate that argument is a table
+	if l.GetTop() < 1 || l.Get(1).Type() != lua.LTTable {
+		l.Push(lua.LBool(false))
+		l.Push(lua.LString("options parameter must be a table"))
+		return 2
+	}
+
+	// Get the first key from the table and report it as unsupported
+	options := l.CheckTable(1)
+	var firstKey string
+	options.ForEach(func(k lua.LValue, v lua.LValue) {
+		if firstKey == "" && k.Type() == lua.LTString {
+			firstKey = string(k.(lua.LString))
+		}
+	})
+
+	if firstKey != "" {
+		l.Push(lua.LBool(false))
+		l.Push(lua.LString(fmt.Sprintf("option %s is not supported", firstKey)))
+	} else {
+		l.Push(lua.LBool(true))
+		l.Push(lua.LNil)
+	}
+
+	return 2
 }
 
 // checkPID validates context and returns PID if valid
@@ -374,10 +415,9 @@ func (m *Module) spawnMonitored(l *lua.LState) int {
 	return 1
 }
 
-// spawnLinked creates a new process with linking (not implemented yet)
+// spawnLinked creates a new process with linking
 // Params: id, host, [arg1, arg2, ...]
 // Returns: pid, error
-/*
 func (m *Module) spawnLinked(l *lua.LState) int {
 	manager, ok := m.getProcessManager(l)
 	if !ok {
@@ -404,20 +444,36 @@ func (m *Module) spawnLinked(l *lua.LState) int {
 
 	// Create start process config
 	start := &process.Start{
-		HostID:   hostID,
-		Source:       registry.ParseID(id),
-		Input: payloads,
-		Parent:     self,
-		Topology:  false,
-		Link:     true,
+		HostID: hostID,
+		Source: registry.ParseID(id),
+		Input:  payloads,
+		Lifecycle: process.Lifecycle{
+			Parent:  self,
+			Monitor: false,
+			Link:    true,
+		},
 	}
 
-	// TODO: Implement linking functionality
-	l.Push(lua.LNil)
-	l.Push(lua.LString("spawn_linked is not yet implemented"))
-	return 2
+	// Start the process with linking
+	pid, err := manager.Start(l.Context(), start)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	m.log.Debug("process spawned with linking",
+		zap.String("from", self.String()),
+		zap.String("pid", pid.String()),
+		zap.String("host", hostID),
+		zap.String("process", id),
+		zap.Int("num_args", len(payloads)),
+	)
+
+	// Return PID string
+	l.Push(lua.LString(pid.String()))
+	return 1
 }
-*/
 
 // terminate terminates a process (accepts PID or registered name)
 // Params: destination

@@ -1,4 +1,4 @@
-package lazyinbox
+package funcmod
 
 import (
 	"context"
@@ -19,9 +19,9 @@ import (
 // Channel context keys for UoW storage
 var (
 	// subscribedKey is used to track whether we've already set up subscriptions
-	subscribedKey = &ctxapi.Key{Name: "lua.lazy_inbox.subscribed"}
-	inboxChannel  = &ctxapi.Key{Name: "lua.lazy_inbox.inboxChannel"}
-	eventsChannel = &ctxapi.Key{Name: "lua.lazy_inbox.eventsChannel"}
+	subscribedKey = &ctxapi.Key{Name: "function.subscribed"}
+	inboxChannel  = &ctxapi.Key{Name: "function.inbox.channel"}
+	eventsChannel = &ctxapi.Key{Name: "function.events.channel"}
 )
 
 // Module provides inbox handling for short-lived functions and operations
@@ -29,8 +29,8 @@ type Module struct {
 	log *zap.Logger
 }
 
-// NewLazyInbox creates an overlay that starts listening on demand, perfect for lightweight functions
-func NewLazyInbox(log *zap.Logger) *Module {
+// NewFunctionAPIModule creates an overlay that starts listening on demand, perfect for lightweight functions
+func NewFunctionAPIModule(log *zap.Logger) *Module {
 	return &Module{
 		log: log,
 	}
@@ -38,7 +38,7 @@ func NewLazyInbox(log *zap.Logger) *Module {
 
 // Name returns the module name
 func (e *Module) Name() string {
-	return "lazy_inbox"
+	return "function_api"
 }
 
 // Loader is the entry point for loading the module into Lua
