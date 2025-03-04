@@ -31,16 +31,16 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/modules/crypto"
 	"github.com/ponyruntime/pony/runtime/lua/modules/env"
 	fsmod "github.com/ponyruntime/pony/runtime/lua/modules/fs"
+	"github.com/ponyruntime/pony/runtime/lua/modules/funcmod"
 	fncallmod "github.com/ponyruntime/pony/runtime/lua/modules/funcs"
 	httpapimod "github.com/ponyruntime/pony/runtime/lua/modules/http"
 	"github.com/ponyruntime/pony/runtime/lua/modules/httpclient"
 	jsonmod "github.com/ponyruntime/pony/runtime/lua/modules/json"
-	"github.com/ponyruntime/pony/runtime/lua/modules/lazyinbox"
 	"github.com/ponyruntime/pony/runtime/lua/modules/logger"
 	"github.com/ponyruntime/pony/runtime/lua/modules/ostime"
 	payloadmod "github.com/ponyruntime/pony/runtime/lua/modules/payload"
 	processmod "github.com/ponyruntime/pony/runtime/lua/modules/process"
-	"github.com/ponyruntime/pony/runtime/lua/modules/pubsubinbox"
+	processmodapi "github.com/ponyruntime/pony/runtime/lua/modules/processmod"
 	registrymod "github.com/ponyruntime/pony/runtime/lua/modules/registry"
 	sqlmod "github.com/ponyruntime/pony/runtime/lua/modules/sql"
 	timemod "github.com/ponyruntime/pony/runtime/lua/modules/time"
@@ -710,8 +710,8 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 				registrymod.NewRegistryModule(a.logger.Named("registry")),
 				processmod.NewProcessAPIModule(a.logger.Named("proc")),
 				httpapimod.NewHTTPAPIModule(a.logger.Named("http")),
-				pubsubinbox.NewPubSubInbox(a.logger.Named("inbox")),
-				lazyinbox.NewLazyInbox(a.logger.Named("inbox")),
+				processmodapi.NewProcessAPIModule(a.logger.Named("inbox")),
+				funcmod.NewFunctionAPIModule(a.logger.Named("inbox")),
 				httpclient.NewHTTPClientModule(a.logger.Named("http"), httpbase.DefaultClient),
 				websocket.NewWebSocketModule(a.logger.Named("websocket")),
 				treesitter.NewTreeSitterModule(a.logger.Named("tsitter")),

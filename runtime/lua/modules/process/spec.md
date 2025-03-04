@@ -1,271 +1,549 @@
-# Process System Specification
+# Pony Runtime Lua Process API Specification
 
 ## Overview
 
-The process system provides isolated process management with message passing capabilities. The system is designed for
-building distributed applications with strong isolation guarantees.
+The Pony Runtime Process API provides a robust actor-model implementation for building concurrent, message-passing
+applications in Lua. This specification is designed for AI agents and developers working with the Pony Runtime.
 
-This api only works inside processes and workflows.
+This API is only available inside processes and workflows.
 
-## Process Properties and Structure
+## Core Concepts
 
-### Process Identification (PID)
+### Actor Model
 
-Each process has a unique PID with the following components:
+The Pony Runtime implements an actor model where:
 
-- Node (optional) - Physical node identifier
-- Host (required) - Host identifier that determines process behavior and lifecycle
-- Registry ID (required) - Composite namespace and name identifier
-    - Namespace - Process namespace
-    - Name - Name within namespace
-- Process Name (required) - Unique instance identifier
+- Processes are isolated units of computation
+- Each process has a unique identifier (PID)
+- Processes communicate exclusively through message passing
+- No shared state between processes
 
-PID String Format:
+### Concurrency Model
+
+- Lightweight processes run concurrently
+- Non-blocking message passing
+- Event-driven programming with channel-based communication
+- Supervision trees for process lifecycle management
+
+## Process Identification
+
+### Process ID (PID)
+
+Each process has a unique PID with the following format:
 
 ```
-{node@host|namespace:name|procname}     // With optional node
-{host|namespace:name|procname}          // Without node
+{node@host|namespace:name|procname}  // With node component
+{host|namespace:name|procname}       // Without node component
 ```
+
+Where:
+
+- `node` (optional): Physical node identifier in distributed setups
+- `host`: Host identifier that determines process behavior
+- `namespace:name`: Registry ID that identifies the process type
+- `procname`: Unique instance identifier
 
 Examples:
 
 ```
-{host1|app:worker|proc1}                // Local process
-{node1@host1|app:worker|proc1}          // Process on remote node
+{host1|app:worker|proc123}
+{node1@host1|system:logger|main}
 ```
 
-### Process Information
-
-Processes can access their own information:
+### Getting Process Information
 
 ```lua
--- Get process information
-local pid = process.pid()        -- Get current process PID
-local info = process.info()      -- Get process details
-local args = process.input() -- Get initialization arguments
+-- Get the current process PID as a string
+local pid = process.pid()  -- Returns "{host1|app:worker|proc123}"
 ```
-
-The info table contains:
-
-- node: Node identifier (if present)
-- host: Host identifier
-- registry_id: Table containing namespace and name
-- uniq_id: Unique process identifier
-- start_time: Process start timestamp
-- trap_exits: Boolean flag for exit signal handling
 
 ## Communication
 
 ### Message Passing
 
-Messages can be sent through named topics, with an optional fallback to a default inbox channel:
+Messages are sent between processes through named topics:
 
 ```lua
--- Send messages 
-process.send(pid_or_name, "topic", value1)    -- Single value
-process.send(pid_or_name, "topic", value1, value2, value3)  -- Multiple values sent as separate messages
+-- Basic message sending
+process.send(destination, topic, payload)
+
+-- Sending to a PID
+process.send("{host1|app:worker|proc123}", "notification", { type = "alert", level = "warning" })
+
+-- Sending to a registered name
+process.send("worker1", "task", { action = "process", id = "12345" })
+
+-- Sending multiple values (each becomes a separate message)
+process.send(destination, topic, value1, value2, value3)
 ```
 
-Each value sent is delivered as a separate message through the channel system. When sending multiple values, they are
-delivered sequentially as individual messages, not as a batch.
+#### Message Format Considerations
+
+- Each value passed to `send()` becomes a separate message
+- Messages preserve sending order between sender-receiver pairs
+- Non-blocking send operations (fire and forget)
 
 ### Receiving Messages
 
 Messages can be received through two types of channels:
 
-1. Named Topic Channel:
+#### 1. Topic-Specific Channels
 
 ```lua
--- Listen on a specific topic
-local msgs = process.listen("topic")
-local value = msgs:receive()  -- Each receive gets one value
-```
+-- Create a channel for a specific topic
+local task_channel = process.listen("task")
 
-2. Default Inbox Channel (@inbox):
+-- Receive a message (blocks until message arrives)
+local task = task_channel:receive()
 
-```lua
--- Listen for undelivered messages
-local inbox = process.inbox()
-local msg = inbox:receive()  -- Gets one message with metadata
-```
-
-#### Message Formats
-
-There are two different message formats depending on how the message is received:
-
-1. Named Topic Messages:
-    - Each message contains a single value
-    - Multiple values sent to a topic arrive as separate messages
-   ```lua
-   local msgs = process.listen("mytopic")
-   local value = msgs:receive()  -- Single value per receive
-   ```
-
-2. Inbox Messages (@inbox):
-    - Messages that fall back to @inbox are wrapped in a table with metadata
-    - Each message contains:
-        - topic: String of the original message topic
-        - payload: Table containing the message value(s)
-   ```lua
-   local inbox = process.inbox()
-   local msg = inbox:receive()  -- Gets {topic="topic", payload={value}} 
-   ```
-
-Example message handling:
-
-```lua
--- Named topic handling
-local msgs = process.listen("mytopic")
-while true do
-    local value = msgs:receive()  -- Each receive gets next value
-    print("Got value:", value)
-end
-
--- Inbox handling
-local inbox = process.inbox()
-while true do
-    local msg = inbox:receive()
-    print("Topic:", msg.topic)
-    print("Value:", msg.payload[1])  -- Access first value in payload table
+-- Receive with timeout
+local task, err = task_channel:receive(1000)  -- 1000ms timeout
+if err == "timeout" then
+    -- Handle timeout
 end
 ```
+
+Messages from topic-specific channels:
+
+- Contain raw payload values
+- One value per `:receive()` call
+
+#### 2. Default Inbox
+
+```lua
+-- Get the process inbox for messages without dedicated listeners
+local inbox = process.inbox()
+
+-- Receive a message (blocks until message arrives)
+local message = inbox:receive()
+
+-- Access message properties
+print("Topic:", message:topic())
+local payload = message:payload()
+-- Convert payload to Lua data
+local data = payload:unmarshal()
+```
+
+Messages from inbox:
+
+- Include topic metadata
+- Include original payload wrapped in a message object
+- Require unmarshal to access data
 
 ### System Events
 
 Processes can listen for system events:
 
 ```lua
+-- Create a channel for system events
 local events = process.events()
 
--- Event types
-process.EVENT_CANCEL  -- Process cancellation request
-process.EVENT_RESULT  -- Process completion/failure
+-- Receive an event
+local event = events:receive()
+
+-- Check event type
+if event.event.kind == process.event.CANCEL then
+    -- Handle cancellation request
+elseif event.event.kind == process.event.RESULT then
+    -- Handle process result notification
+elseif event.event.kind == process.event.LINK_DOWN then
+    -- Handle linked process failure
+end
 ```
 
 ## Process Management
 
-### Process Creation
+### Creating Processes
 
 ```lua
--- Basic process spawning
-local pid = process.spawn(registry_id, host_id, [args_table])
+-- Basic process spawning (no supervision)
+local child_pid = process.spawn(
+    "namespace:name",  -- Process type (required)
+    "host_id",         -- Host to run on (required)
+    arg1, arg2, arg3   -- Optional arguments passed to the process
+)
 
--- Spawn with monitoring
-local pid = process.spawn_monitored(registry_id, host_id, [args_table])
+-- Spawn with monitoring (parent gets notified when child terminates)
+local child_pid = process.spawn_monitored(
+    "namespace:name",
+    "host_id",
+    { param1 = "value1", param2 = "value2" }  -- Arguments as a table
+)
+
+-- Spawn with linking (if child fails, parent also fails)
+local child_pid = process.spawn_linked(
+    "namespace:name",
+    "host_id",
+    { job_id = "12345", priority = "high" }
+)
+```
+
+#### Supervision Behaviors
+
+- **Spawn**: No supervision, child failure doesn't affect parent
+- **Monitored**: Parent receives notification when child terminates (success or failure)
+- **Linked**: Bi-directional link where failure propagates (if child crashes, parent also crashes)
+
+### Process Registry
+
+Processes can register names for easier discovery:
+
+```lua
+-- Register the current process with a name
+process.registry.register("worker1")
+
+-- Register a specific PID with a name
+process.registry.register("backup_worker", some_pid)
+
+-- Look up a process by name
+local pid = process.registry.lookup("worker1")
+
+-- Unregister a name
+process.registry.unregister("worker1")
 ```
 
 ### Process Lifecycle Control
 
 ```lua
--- Terminate a process
-process.terminate(pid)
+-- Terminate a process immediately
+process.terminate(pid_or_name)
 
--- Request cancellation with deadline
-process.cancel(pid, deadline)  -- deadline can be duration string or milliseconds
+-- Request graceful cancellation with deadline
+process.cancel(pid_or_name, "5s")  -- String duration
+process.cancel(pid_or_name, 5000)  -- Milliseconds
 ```
 
-## Process Implementation
+## Process Implementation Patterns
 
-Processes are implemented as Lua modules that export a primary function:
+### Basic Process Structure
 
 ```lua
 local function run(args)
     -- Process initialization
     local pid = process.pid()
     
-    -- Set up channels
-    local events = process.events()
-    local msgs = process.listen("messages")
-    local inbox = process.inbox()
+    -- Process implementation
+    -- ...
     
-    -- Main event loop
-    while true do
-        local result = channel.select({
-            events:case_receive(),
-            msgs:case_receive(),
-            inbox:case_receive()
-        })
-        
-        if result.channel == events then
-            local event = result.value
-            if event.event.kind == process.EVENT_CANCEL then
-                -- Handle cancellation
-                break
-            end
-        end
-        
-        -- Process topic messages
-        if result.channel == msgs then
-            local value = result.value
-            -- Handle single value from topic
-        end
-        
-        -- Process inbox messages
-        if result.channel == inbox then
-            local msg = result.value
-            -- Handle inbox message with topic and payload
-        end
-    end
-    
-    -- Return result
-    return { status = "completed" }
+    -- Return result data when done
+    return { status = "completed", data = result_data }
 end
 
 return { run = run }
 ```
 
-## Configuration
+### Event Loop Pattern
 
-Processes are configured through YAML entries:
+```lua
+local function run(args)
+    -- Set up channels
+    local tasks = process.listen("tasks")
+    local inbox = process.inbox()
+    local events = process.events()
+    
+    -- State
+    local state = {
+        running = true,
+        tasks_processed = 0
+    }
+    
+    -- Main event loop
+    while state.running do
+        local result = channel.select({
+            tasks:case_receive(),
+            inbox:case_receive(),
+            events:case_receive()
+        })
+        
+        if result.channel == tasks then
+            -- Handle task
+            local task = result.value
+            process_task(task)
+            state.tasks_processed = state.tasks_processed + 1
+            
+        elseif result.channel == inbox then
+            -- Handle inbox message
+            local msg = result.value
+            local topic = msg:topic()
+            local payload = msg:payload():unmarshal()
+            handle_inbox_message(topic, payload)
+            
+        elseif result.channel == events then
+            -- Handle system event
+            local event = result.value
+            if event.event.kind == process.event.CANCEL then
+                state.running = false
+            end
+        end
+    end
+    
+    -- Clean up and return result
+    return { processed = state.tasks_processed }
+end
 
-```yaml
-- name: process_name
-  kind: process.lua
-  meta:
-    comment: "Process description"
-  source: file://source.lua
-  method: run
-  modules: [ "time", "json" ]  # Required modules
+return { run = run }
 ```
 
-### Root-Level Supervised Processes
+### Actor Pattern
 
-The system can be configured to automatically launch and supervise certain processes at the root level. These are
-processes that need to be always running and managed by the system itself:
+The actor pattern combines state and behavior into a single unit:
 
-```yaml
-- name: service_name
-  kind: process.service
-  process: process_name    # Reference to the process definition
-  host: system:heap       # Host where the process will run
-  lifecycle:
-    auto_start: true      # Start automatically with system
-    restart: # Restart policy
-      initial_delay: 5s
-      max_attempts: 3
-    depends_on: # Service dependencies
-      - system:heap
+```lua
+local actor = require("actor")
+
+local function run(args)
+    -- Initial state
+    local state = {
+        pid = process.pid(),
+        count = 0
+    }
+    
+    -- Create actor with state and message handlers
+    local my_actor = actor.new(state, {
+        -- Handler for the "increment" topic
+        increment = function(state, msg)
+            state.count = state.count + (msg.value or 1)
+            return state.count
+        end,
+        
+        -- Handler for the "get_count" topic
+        get_count = function(state)
+            return state.count
+        end,
+        
+        -- Handler for system cancellation
+        on_cancel = function(state)
+            return actor.exit({ 
+                final_count = state.count, 
+                status = "shutdown" 
+            })
+        end,
+        
+        -- Default handler for unhandled messages
+        __default = function(state, msg, topic)
+            print("Received unhandled message on topic:", topic)
+        end
+    })
+    
+    -- Start the actor's event loop
+    return my_actor.run()
+end
+
+return { run = run }
 ```
 
-Note: This is different from regular processes that might run for a long time - this configuration specifically tells
-the system to treat the process as a supervised system service that should be maintained at the root level.
+## Channel Operations
 
-## Key Guarantees
+### Channel Select
 
-1. Process Isolation
-    - No shared memory between processes
-    - Communication only through message passing
-    - Strong isolation boundaries
+The `channel.select` function allows waiting on multiple channels simultaneously:
 
-2. Message Handling
-    - Non-blocking send operations
-    - Each value is delivered as a separate message
-    - Messages preserve send order between pairs
-    - Buffered message delivery
-    - Topic messages contain raw values
-    - Inbox messages contain topic and payload metadata
+```lua
+local result = channel.select({
+    channel1:case_receive(),
+    channel2:case_receive(timeout_ms),
+    channel3:case_receive()
+})
 
-3. Resource Management
-    - Graceful process termination
-    - Deadline-based cancellation
-    - Automatic cleanup of terminated processes
+if result.ok then
+    -- Channel had data
+    print("Received from:", result.channel)
+    print("Value:", result.value)
+else
+    -- Error or timeout
+    print("Error:", result.error)
+end
+```
+
+### Timeouts
+
+```lua
+local time = require("time")
+
+-- Create a timeout channel
+local timeout = time.after("5s")  -- 5 second timeout
+
+-- Use in select
+local result = channel.select({
+    msgs:case_receive(),
+    timeout:case_receive()
+})
+
+if result.channel == timeout then
+    -- Timeout occurred
+end
+```
+
+## Best Practices for AI Agents
+
+### 1. Process Structure
+
+- Always implement the `run` function that takes arguments and returns a result
+- Keep process code self-contained (no global state)
+- Handle system events, especially cancellation
+
+### 2. Message Handling
+
+- Use `process.listen()` for topic-specific messages
+- Use `process.inbox()` for fallback messages
+- Always use `channel.select()` to handle multiple channels
+- Check message types before processing
+
+### 3. Process Management
+
+- Use `spawn_monitored` when you need to track child process completion
+- Use `spawn_linked` when child failures should propagate to parent
+- Use plain `spawn` for independent processes
+- Always check return values for errors
+
+### 4. Error Handling
+
+- Return error information in process results
+- Use message passing for error notifications
+- Implement proper cleanup in termination handlers
+
+### 5. Performance Considerations
+
+- Keep messages small
+- Use appropriate buffering for channels
+- Implement batching for high-throughput scenarios
+
+## Common Patterns and Examples
+
+### 1. Request-Response Pattern
+
+```lua
+-- Requester
+local function send_request(target_pid, request_data)
+    local inbox = process.inbox()
+    
+    -- Send request with reply address
+    process.send(target_pid, "request", {
+        data = request_data,
+        reply_to = process.pid()
+    })
+    
+    -- Wait for response with timeout
+    local time = require("time")
+    local timeout = time.after("5s")
+    
+    local result = channel.select({
+        inbox:case_receive(),
+        timeout:case_receive()
+    })
+    
+    if result.channel == timeout then
+        return nil, "timeout"
+    end
+    
+    local response = result.value
+    return response:payload():unmarshal()
+end
+
+-- Responder
+local function handle_request(msg)
+    local request = msg:payload():unmarshal()
+    
+    -- Process request
+    local result = process_data(request.data)
+    
+    -- Send response back
+    if request.reply_to then
+        process.send(request.reply_to, "response", result)
+    end
+end
+```
+
+### 2. Work Distribution Pattern
+
+```lua
+-- Manager process
+local function distribute_work(work_items, worker_count)
+    -- Spawn workers
+    local workers = {}
+    for i = 1, worker_count do
+        local pid = process.spawn_monitored(
+            "app:worker",
+            "system:processes",
+            { worker_id = i }
+        )
+        table.insert(workers, pid)
+    end
+    
+    -- Distribute work
+    local work_index = 1
+    while work_index <= #work_items do
+        for _, worker in ipairs(workers) do
+            if work_index <= #work_items then
+                process.send(worker, "work", work_items[work_index])
+                work_index = work_index + 1
+            else
+                break
+            end
+        end
+    end
+    
+    -- Wait for results
+    -- ...
+end
+```
+
+### 3. Supervision Tree
+
+```lua
+local function supervisor()
+    local children = {}
+    local events = process.events()
+    
+    -- Start child processes
+    local function start_child(id)
+        local pid = process.spawn_monitored("app:worker", "system:processes", { id = id })
+        children[id] = pid
+        return pid
+    end
+    
+    -- Initialize children
+    for i = 1, 5 do
+        start_child(i)
+    end
+    
+    -- Supervision loop
+    while true do
+        local event = events:receive()
+        
+        if event.event.kind == process.event.RESULT then
+            local failed_pid = event.event.from
+            
+            -- Find which child failed
+            for id, pid in pairs(children) do
+                if pid == failed_pid then
+                    print("Child", id, "failed, restarting...")
+                    -- Restart the child
+                    start_child(id)
+                    break
+                end
+            end
+        end
+    end
+end
+```
+
+## Context-Aware Message Handling
+
+Note that event handling may be context-specific. In some environments, system events may be intercepted at a higher
+layer before reaching your process. Always check the specific runtime configuration to understand how events are routed.
+
+For example, with the actor framework:
+
+```lua
+local actor = require("actor")
+
+local my_actor = actor.new(state, {
+    -- Direct event handler in actor framework
+    __on_event = function(state, event)
+        if event.event.kind == process.event.CANCEL then
+            -- Handle cancellation
+        end
+    end
+})
+```

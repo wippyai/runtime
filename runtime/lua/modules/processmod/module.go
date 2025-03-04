@@ -1,4 +1,4 @@
-package pubsubinbox
+package processmod
 
 import (
 	"fmt"
@@ -14,8 +14,8 @@ import (
 
 // Channel context keys for UoW storage
 var (
-	inboxChannel  = &context.Key{Name: "lua.pubsub_inbox"}
-	eventsChannel = &context.Key{Name: "lua.pubsub_events"}
+	inboxChannel  = &context.Key{Name: "process.pubsub.inbox"}
+	eventsChannel = &context.Key{Name: "process.pubsub.events"}
 )
 
 // Module provides pubsub-based inbox and channel functionality for long-running processes
@@ -23,8 +23,8 @@ type Module struct {
 	log *zap.Logger
 }
 
-// NewPubSubInbox creates a new pubsub-based inbox module
-func NewPubSubInbox(log *zap.Logger) *Module {
+// NewProcessAPIModule creates a new pubsub-based inbox module
+func NewProcessAPIModule(log *zap.Logger) *Module {
 	return &Module{
 		log: log,
 	}
@@ -32,7 +32,7 @@ func NewPubSubInbox(log *zap.Logger) *Module {
 
 // Name returns the module name
 func (m *Module) Name() string {
-	return "pubsub_inbox"
+	return "process_api"
 }
 
 // Loader is the entry point for loading the module into Lua

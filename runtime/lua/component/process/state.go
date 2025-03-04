@@ -3,6 +3,7 @@ package process
 import (
 	"context"
 	"errors"
+	ctxapi "github.com/ponyruntime/pony/api/context"
 	"sync"
 	"sync/atomic"
 
@@ -21,6 +22,7 @@ import (
 
 // Common errors
 var (
+	StateKey          = &ctxapi.Key{Name: "lua.process.state"}
 	ErrRunnerRequired = errors.New("runner is required")
 	ErrNoTranscoder   = errors.New("failed to get transcoder")
 	ErrNoProcess      = errors.New("no process running")
@@ -89,6 +91,7 @@ func (s *State) InitContext(ctx context.Context, pid pubsub.PID) error {
 
 	// Init unit of work
 	s.UoW, s.Ctx = s.Runner.InitUnitOfWork(ctx)
+	s.UoW.Values().Set(StateKey, s) // self-ref for process module
 
 	// We expect Ctx being overwritten by parent caller
 
