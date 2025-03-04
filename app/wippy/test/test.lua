@@ -117,6 +117,8 @@ end
 -- Restore all mocks
 function test.restore_all_mocks()
     for id, entry in pairs(_default_context.mocks.registry) do
+
+    -- todo: fails here!
         entry.target[entry.field] = entry.original
         _default_context.mocks.registry[id] = nil
     end
