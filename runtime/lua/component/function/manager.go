@@ -271,8 +271,8 @@ func (m *Manager) Execute(ctx context.Context, task runtime.Task) (chan *runtime
 		}
 		select {
 		case resultChan <- &runtime.Result{
-			Payload: payload.NewPayload(result, payload.Lua),
-			Error:   err,
+			Value: payload.NewPayload(result, payload.Lua),
+			Error: err,
 		}:
 		}
 	}()

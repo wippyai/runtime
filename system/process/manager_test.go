@@ -603,7 +603,7 @@ func TestManager_AttachLifecycle(t *testing.T) {
 
 	// Test OnComplete callback with success
 	successResult := &runtime.Result{
-		Payload: payload.New("success"),
+		Value: payload.New("success"),
 	}
 	onComplete(pid, successResult)
 

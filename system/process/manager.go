@@ -220,7 +220,7 @@ func (m *Manager) AttachLifecycle(ctx context.Context, lifecycle api.Lifecycle) 
 		} else {
 			m.logger.Debug("process completed",
 				zap.String("pid", pid.String()),
-				zap.Any("result", result.Payload))
+				zap.Any("result", result.Value))
 		}
 
 		// Handle completion/failure notification

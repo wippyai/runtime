@@ -139,7 +139,7 @@ func TestJWTModuleWithVM(t *testing.T) {
 				parts := strings.Split(token, ".")
 				assert.Equal(t, 3, len(parts), "Token should have 3 parts")
 				assert.NotEmpty(t, parts[0], "Header should not be empty")
-				assert.NotEmpty(t, parts[1], "Payload should not be empty")
+				assert.NotEmpty(t, parts[1], "Value should not be empty")
 				assert.NotEmpty(t, parts[2], "Signature should not be empty")
 
 				// Parse the token using Go's JWT library to verify it's valid

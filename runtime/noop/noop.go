@@ -29,7 +29,7 @@ func NewNoopRuntime(bus event.Bus, logger *zap.Logger) *Runtime {
 func (n *Runtime) Execute(ctx context.Context, task runtime.Task) (chan *runtime.Result, error) {
 	rspChan := make(chan *runtime.Result, 1)
 	rspChan <- &runtime.Result{
-		Payload: payload.New(fmt.Sprintf("noop runtime: task %s executed", task.ID)),
+		Value: payload.New(fmt.Sprintf("noop runtime: task %s executed", task.ID)),
 	}
 	return rspChan, nil
 }

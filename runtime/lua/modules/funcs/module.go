@@ -183,8 +183,8 @@ func (m *Module) call(l *lua.LState) int {
 				return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(result.Error.Error())}, nil)
 			}
 
-			if result.Payload != nil {
-				res, err := functions.dtt.Transcode(result.Payload, payload.Lua)
+			if result.Value != nil {
+				res, err := functions.dtt.Transcode(result.Value, payload.Lua)
 				if err != nil {
 					return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
 				}
@@ -251,9 +251,9 @@ func (m *Module) async(l *lua.LState) int {
 					// Error result
 					t.SetError(result.Error)
 					_ = channel.Close(l, t.response)
-				} else if result.Payload != nil {
+				} else if result.Value != nil {
 					// Success with payload
-					res, err := functions.dtt.Transcode(result.Payload, payload.Lua)
+					res, err := functions.dtt.Transcode(result.Value, payload.Lua)
 					if err != nil {
 						t.SetError(err)
 						_ = channel.Close(l, t.response)

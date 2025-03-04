@@ -95,7 +95,7 @@ func TestTopology_BasicFunctionality(t *testing.T) {
 
 	t.Run("notify sends events to watchers", func(t *testing.T) {
 		result := &runtime.Result{
-			Payload: payload.New("test result"),
+			Value: payload.New("test result"),
 		}
 
 		topo.Notify(pid1, result)
@@ -233,8 +233,8 @@ func TestTopology_LinkFunctionality(t *testing.T) {
 		// Create result with an error to trigger abnormal exit
 		testErr := errors.New("test error")
 		result := &runtime.Result{
-			Payload: payload.New("test result"),
-			Error:   testErr,
+			Value: payload.New("test result"),
+			Error: testErr,
 		}
 
 		topo.Notify(pid1, result)
@@ -252,7 +252,7 @@ func TestTopology_LinkFunctionality(t *testing.T) {
 
 		// Create result without an error for normal exit
 		normalResult := &runtime.Result{
-			Payload: payload.New("normal exit"),
+			Value: payload.New("normal exit"),
 		}
 
 		topo.Notify(pid1, normalResult)
@@ -329,8 +329,8 @@ func TestTopology_Concurrency(t *testing.T) {
 
 		// Create result with an error to trigger abnormal exit
 		result := &runtime.Result{
-			Payload: payload.New("main process exited with error"),
-			Error:   errors.New("test abnormal exit"),
+			Value: payload.New("main process exited with error"),
+			Error: errors.New("test abnormal exit"),
 		}
 
 		topo.Notify(mainPid, result)
@@ -346,7 +346,7 @@ func TestTopology_Concurrency(t *testing.T) {
 
 		// Create result without an error for normal exit
 		normalResult := &runtime.Result{
-			Payload: payload.New("main process exited normally"),
+			Value: payload.New("main process exited normally"),
 		}
 
 		topo.Notify(mainPid, normalResult)
@@ -406,8 +406,8 @@ func TestTopology_UpstreamError(t *testing.T) {
 
 	// Notify should not panic on upstream error
 	result := &runtime.Result{
-		Payload: payload.New("test result"),
-		Error:   errors.New("error for testing"),
+		Value: payload.New("test result"),
+		Error: errors.New("error for testing"),
 	}
 
 	// This should not panic even with upstream error

@@ -178,8 +178,8 @@ func TestEndpointFactory_CreateHandler(t *testing.T) {
 
 			// Return success
 			resultCh <- &runtime.Result{
-				Payload: payload.New("success"),
-				Error:   nil,
+				Value: payload.New("success"),
+				Error: nil,
 			}
 			close(resultCh)
 			return resultCh, nil
