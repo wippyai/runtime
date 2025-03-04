@@ -57,7 +57,7 @@ package btea
 //	terminal *terminal.PipeContext
 //
 //	// Data from the underlying Lua application
-//	upstream chan payload.Payload
+//	upstream chan payload.Value
 //
 //	// UnitOfWork and error handling
 //	done      chan struct{}
@@ -93,7 +93,7 @@ package btea
 //		dtt:      dtt,
 //		runner:   runner,
 //		funcName: funcName,
-//		upstream: make(chan payload.Payload, 100),
+//		upstream: make(chan payload.Value, 100),
 //		done:     make(chan struct{}),
 //	}, nil
 //}
@@ -226,7 +226,7 @@ package btea
 //					onComplete(p.pid, &runtime.Result{Error: err})
 //				} else {
 //					onComplete(p.pid, &runtime.Result{
-//						Payload: payload.NewPayload(result, payload.Lua),
+//						Value: payload.NewPayload(result, payload.Lua),
 //					})
 //				}
 //			}

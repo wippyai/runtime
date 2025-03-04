@@ -180,7 +180,7 @@ func (t *Terminal) prepareContext(
 		} else {
 			t.log.Info("terminal process execution completed",
 				zap.String("pid", pid.String()),
-				zap.Any("result", result.Payload.Data()))
+				zap.Any("result", result.Value.Data()))
 		}
 		t.cleanup(result)
 	})

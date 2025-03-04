@@ -253,7 +253,7 @@ func TestFunctions_Execute(t *testing.T) {
 				handler := func(ctx context.Context, _ runtime.Task) (chan *runtime.Result, error) {
 					resultChan := make(chan *runtime.Result, 1)
 					resultChan <- &runtime.Result{
-						Payload: payload.New("success"),
+						Value: payload.New("success"),
 					}
 					close(resultChan)
 					return resultChan, nil
@@ -325,7 +325,7 @@ func TestFunctions_Execute(t *testing.T) {
 
 			result := <-resultChan
 			require.NotNil(t, result)
-			assert.Equal(t, tt.expectedValue, result.Payload.Data().(string))
+			assert.Equal(t, tt.expectedValue, result.Value.Data().(string))
 		})
 	}
 }
@@ -370,7 +370,7 @@ func TestFunctions_ConcurrentHandlerRegistration(t *testing.T) {
 			handler := func(ctx context.Context, _ runtime.Task) (chan *runtime.Result, error) {
 				resultChan := make(chan *runtime.Result, 1)
 				resultChan <- &runtime.Result{
-					Payload: payload.New(fmt.Sprintf("result %d", idx)),
+					Value: payload.New(fmt.Sprintf("result %d", idx)),
 				}
 				close(resultChan)
 				return resultChan, nil
@@ -418,6 +418,6 @@ func TestFunctions_ConcurrentHandlerRegistration(t *testing.T) {
 		})
 		require.NoError(t, err)
 		result := <-resultChan
-		assert.Equal(t, fmt.Sprintf("result %d", i), result.Payload.Data().(string))
+		assert.Equal(t, fmt.Sprintf("result %d", i), result.Value.Data().(string))
 	}
 }

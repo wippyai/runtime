@@ -265,7 +265,7 @@ func (s *State) Complete(err error, result lua.LValue) {
 			onComplete(s.PID, &runtime.Result{Error: err})
 		} else {
 			onComplete(s.PID, &runtime.Result{
-				Payload: payload.NewPayload(result, payload.Lua),
+				Value: payload.NewPayload(result, payload.Lua),
 			})
 		}
 	}

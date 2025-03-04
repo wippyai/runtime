@@ -158,8 +158,8 @@ func Exit(pid pubsub.PID, result payload.Payload, err error) *pubsub.Package {
 				Kind: KindResult,
 			},
 			Result: &runtime.Result{
-				Payload: result,
-				Error:   err,
+				Value: result,
+				Error: err,
 			},
 		}),
 	)

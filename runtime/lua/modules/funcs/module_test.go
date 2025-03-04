@@ -85,7 +85,7 @@ func TestExecutorModule(t *testing.T) {
 
 		mockExec := &mockExecutor{
 			result: &runtime.Result{
-				Payload: payload.New("success"),
+				Value: payload.New("success"),
 			},
 		}
 
@@ -125,7 +125,7 @@ func TestExecutorModule(t *testing.T) {
 
 		mockExec := &mockExecutor{
 			result: &runtime.Result{
-				Payload: payload.New("multi_success"),
+				Value: payload.New("multi_success"),
 			},
 		}
 
@@ -203,7 +203,7 @@ func TestExecutorModule(t *testing.T) {
 
 		mockExec := &mockExecutor{
 			result: &runtime.Result{
-				Payload: payload.New("should not receive"),
+				Value: payload.New("should not receive"),
 			},
 		}
 

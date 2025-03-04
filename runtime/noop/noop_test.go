@@ -76,8 +76,8 @@ func TestNoopRuntime_Execute(t *testing.T) {
 
 			result := <-resultCh
 			require.NotNil(t, result)
-			require.NotNil(t, result.Payload)
-			require.Contains(t, result.Payload.Data(), tt.task.ID.String())
+			require.NotNil(t, result.Value)
+			require.Contains(t, result.Value.Data(), tt.task.ID.String())
 		})
 	}
 }

@@ -192,8 +192,8 @@ event = {
         from = "{pid}"
     },
     result = {
-        payload = {},     -- payload object
-        error = "..."     -- Error message (if failed)
+        value = {...},  -- payload value
+        error = "..."   -- Error message (if failed)
     }
 }
 ```

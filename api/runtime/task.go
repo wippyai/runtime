@@ -19,8 +19,8 @@ type (
 	// It can contain either a successful payload or an error,
 	// allowing for both successful and failed execution handling.
 	Result struct {
-		// Payload contains the successful execution result data
-		Payload payload.Payload `json:"payload"`
+		// Value contains the successful execution result data
+		Value payload.Payload `json:"value"`
 
 		// Error contains any error that occurred during task execution
 		Error error `json:"error"`
