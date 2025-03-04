@@ -2,16 +2,19 @@ package asyncinbox
 
 import (
 	"github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/topology"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
+	"github.com/ponyruntime/pony/runtime/lua/modules/process"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
 
-var inboxChannel = &context.Key{Name: "lua.async_inbox"}
+var (
+	// inboxChannel is the context key for the inbox channel
+	inboxChannel = &context.Key{Name: "lua.async_inbox"}
+)
 
 // Module provides inbox handling for short-lived functions and operations
 type Module struct {
@@ -25,12 +28,17 @@ func NewAsyncInbox(log *zap.Logger) *Module {
 	}
 }
 
+// Name returns the module name
 func (e *Module) Name() string {
 	return "async_inbox"
 }
 
 // Loader is the entry point for loading the module into Lua
 func (e *Module) Loader(l *lua.LState) int {
+	// Register message type
+	process.RegisterMessageType(l)
+
+	// Find the process table
 	v := l.GetGlobal("process")
 	if v.Type() == lua.LTTable {
 		// Get process table
@@ -43,7 +51,7 @@ func (e *Module) Loader(l *lua.LState) int {
 	return 0
 }
 
-// inbox creates an inbox channel for receiving messages in functions and operations
+// inbox creates an inbox channel for receiving messages
 func (e *Module) inbox(l *lua.LState) int {
 	pid, ok := pubsub.GetPID(l.Context())
 	if !ok {
@@ -67,16 +75,7 @@ func (e *Module) inbox(l *lua.LState) int {
 		return 1
 	}
 
-	// Get transcoder for message conversion
-	dtt := payload.GetTranscoder(l.Context())
-	if dtt == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("no transcoder found"))
-		return 2
-	}
-
 	// Create channel for receiving messages
-	// todo: reuse it? it leaks somewhere?
 	ch := channel.Named("async_inbox", 0)
 
 	// Create inbox receiver
@@ -111,21 +110,9 @@ func (e *Module) inbox(l *lua.LState) int {
 				// Handle all messages and topics
 				for _, msg := range pkg.Messages {
 					for _, p := range msg.Payloads {
-						lv, err := dtt.Transcode(p, payload.Lua)
-						if err != nil {
-							e.log.Error("failed to transcode payload",
-								zap.Error(err),
-								zap.String("from", pkg.PID.String()))
-							continue
-						}
+						lMsg := process.NewMessage(msg.Topic, p)
 
-						// Create message table with payload and topic
-						msgTable := l.CreateTable(0, 2)
-						msgTable.RawSetString("topic", lua.LString(msg.Topic))
-						msgTable.RawSetString("payload", lv.Data().(lua.LValue))
-
-						// Send table to Lua channel
-						if err := channel.Send(l, ch, msgTable); err != nil {
+						if err := channel.Send(l, ch, process.WrapMessage(l, lMsg)); err != nil {
 							pubsub.ReleasePackage(pkg)
 							e.log.Error("failed to send to channel",
 								zap.Error(err),

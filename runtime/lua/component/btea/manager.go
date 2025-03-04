@@ -34,7 +34,8 @@ func init() {
 		WithPreloaded(code.Preload{Name: "btea", ModuleID: registry.ID{Name: "btea"}}).
 		WithPreloaded(code.Preload{Name: "process", ModuleID: registry.ID{Name: "process"}}).
 		WithPreloaded(code.Preload{Name: "pubsub_inbox", ModuleID: registry.ID{Name: "pubsub_inbox"}}).
-		WithPreloaded(code.Preload{Name: "os", ModuleID: registry.ID{Name: "ostime"}})
+		WithPreloaded(code.Preload{Name: "os", ModuleID: registry.ID{Name: "ostime"}}).
+		WithPreloaded(code.Preload{Name: "payload", ModuleID: registry.ID{Name: "payload"}})
 
 	layers = component.WithRunnerOption(
 		engine.WithLayer(channel.NewChannelLayer()),

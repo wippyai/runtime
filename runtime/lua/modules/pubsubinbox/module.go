@@ -73,12 +73,8 @@ func (m *Module) inbox(l *lua.LState) int {
 		return 1
 	}
 
-	// Create channel for @pid.inbox topic
-	result := subscribe.Subscribe(
-		l,
-		channel.Named(topology.TopicInbox, 1),
-		topology.TopicInbox,
-	)
+	ch := channel.Named(topology.TopicInbox, 0)
+	result := subscribe.Subscribe(l, ch, topology.TopicInbox)
 
 	// If subscription was successful, store the channel in UoW
 	if result == 1 {
@@ -108,7 +104,7 @@ func (m *Module) events(l *lua.LState) int {
 	}
 
 	// Create new channel for events
-	ch := channel.Named(topology.TopicEvents, 1)
+	ch := channel.Named(topology.TopicEvents, 0)
 	result := subscribe.Subscribe(l, ch, topology.TopicEvents)
 
 	// If subscription was successful, store the channel in UoW
