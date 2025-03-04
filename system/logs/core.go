@@ -13,7 +13,7 @@ import (
 type Core struct {
 	downstream zapcore.Core
 	bus        event.Bus
-	config     atomic.Value // holds api.Config
+	config     *atomic.Value // holds api.Config
 }
 
 // NewCore creates a new Core instance
@@ -21,6 +21,7 @@ func NewCore(downstream zapcore.Core, bus event.Bus) api.Core {
 	c := &Core{
 		downstream: downstream,
 		bus:        bus,
+		config:     &atomic.Value{},
 	}
 
 	// Set default configuration
@@ -93,7 +94,13 @@ func (c *Core) Write(ent zapcore.Entry, fields []zapcore.Field) error {
 
 // Sync implements zapcore.Core
 func (c *Core) Sync() error {
-	return c.downstream.Sync()
+	cfg := c.config.Load().(api.Config)
+
+	if cfg.PropagateDownstream {
+		return c.downstream.Sync()
+	}
+
+	return nil
 }
 
 // publishLogEvent publishes the log entry to the event bus

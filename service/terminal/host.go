@@ -215,8 +215,9 @@ func (t *Terminal) cleanup(result *runtime.Result) {
 
 func (t *Terminal) setupLogging() error {
 	return t.logCtrl.EnableTemporaryConfig(t.ctx, logsapi.Config{
-		MinLevel:       zap.DebugLevel,
-		StreamToEvents: true,
+		MinLevel:            zap.DebugLevel,
+		StreamToEvents:      true,
+		PropagateDownstream: false,
 	})
 }
 
