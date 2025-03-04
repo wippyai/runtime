@@ -150,6 +150,7 @@ func (p *App) View() string {
 		p.cancel()
 		return "view task failed (exiting)"
 	}
+
 	p.numRetries = 0
 	return response
 }
@@ -216,6 +217,8 @@ func (p *App) processLoop(resultCh <-chan *engine.Update) {
 			if cErr := p.uow.Close(); cErr != nil {
 				p.log.Error("failed to close resources", zap.Error(cErr))
 			}
+
+			p.uow = nil
 
 			if onComplete := process.GetOnComplete(p.ctx); onComplete != nil {
 				if err != nil {
@@ -305,8 +308,7 @@ func (p *App) Step() error {
 	case <-p.ctx.Done():
 		return p.ctx.Err()
 	default:
-		err := p.runner.Continue(p.ctx, true)
-
+		err := p.runner.Continue(p.ctx, p.uow.Tasks().Ready() == 0)
 		if p.stepError == nil && err != nil {
 			p.stepError = err
 		}
@@ -381,6 +383,11 @@ func (p *App) Send(pkg *pubsub.Package) error {
 // publishTask sends a task to the unified events channel.
 // If timeout is non-zero, it waits for a response; otherwise, it fires and forgets.
 func (p *App) publishTask(taskType string, payload lua.LValue, timeout time.Duration) string {
+	if p.ctx.Err() != nil {
+		p.log.Error("context error", zap.Error(p.ctx.Err()))
+		return "context error"
+	}
+
 	t, err := task.CreateTask(payload)
 	if err != nil {
 		p.log.Error("failed to create task", zap.String("task", taskType), zap.Error(err))
@@ -389,6 +396,8 @@ func (p *App) publishTask(taskType string, payload lua.LValue, timeout time.Dura
 		}
 		return ""
 	}
+
+	// todO: apply same state fix as in process
 
 	wrappedTask := task.WrapTask(p.uow.State(), t)
 	msg := p.uow.State().CreateTable(0, 2)
@@ -410,6 +419,7 @@ func (p *App) publishTask(taskType string, payload lua.LValue, timeout time.Dura
 		case <-p.ctx.Done():
 			return
 		case rsp := <-t.Response:
+			p.uow.Tasks().WakeUp()
 			if err, ok := rsp.(error); ok {
 				p.log.Error("task failed", zap.String("task", taskType), zap.Error(err))
 			}
@@ -417,6 +427,7 @@ func (p *App) publishTask(taskType string, payload lua.LValue, timeout time.Dura
 			p.log.Debug("task timeout", zap.String("task", taskType))
 		}
 	}()
+
 	return ""
 }
 
@@ -424,6 +435,7 @@ func (p *App) publishTask(taskType string, payload lua.LValue, timeout time.Dura
 func (p *App) waitResponse(task *task.Task, timeout time.Duration, taskType string) string {
 	select {
 	case rsp := <-task.Response:
+		p.uow.Tasks().WakeUp()
 		if result, ok := rsp.(lua.LValue); ok {
 			return result.String()
 		}

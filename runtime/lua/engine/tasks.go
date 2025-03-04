@@ -68,11 +68,8 @@ func (t *taskCoordinator) Schedule(fn func()) error {
 // executeScheduled executes any scheduled functions including ones created by scheduled functions
 func (t *taskCoordinator) executeScheduled() {
 	t.smu.Lock()
-	if t.scheduled.Len() == 0 {
-		// we have no scheduled functions, remove any indication of possible undelivered work
-		t.undelivered.CompareAndSwap(true, false)
+	if t.scheduled.Len() == 0 && t.undelivered.CompareAndSwap(true, false) {
 		t.smu.Unlock()
-
 		return
 	}
 	t.smu.Unlock()
