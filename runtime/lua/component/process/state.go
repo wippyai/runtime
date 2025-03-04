@@ -76,6 +76,12 @@ func NewState(
 
 // InitContext initializes the process context and unit of work
 func (s *State) InitContext(ctx context.Context, pid pubsub.PID) error {
+	// Get transcoder
+	s.DTT = payload.GetTranscoder(ctx)
+	if s.DTT == nil {
+		return ErrNoTranscoder
+	}
+
 	s.PID = pid
 
 	// Set PID in context
@@ -84,12 +90,6 @@ func (s *State) InitContext(ctx context.Context, pid pubsub.PID) error {
 	// Init unit of work
 	s.UoW, s.Ctx = s.Runner.InitUnitOfWork(ctx)
 	s.UoW.Values().Set(StateKey, s) // self-ref for process module
-
-	// Get transcoder
-	s.DTT = payload.GetTranscoder(ctx)
-	if s.DTT == nil {
-		return ErrNoTranscoder
-	}
 
 	// We expect Ctx being overwritten by parent caller
 
@@ -163,21 +163,23 @@ func (s *State) Start(input payload.Payloads, onStart func()) error {
 // Step advances the process state by one iteration
 func (s *State) Step() error {
 	s.wg.Add(1)
-	defer s.wg.Done()
 
 	// Check for context cancellation or already closed
 	if s.Ctx.Err() != nil || s.Closed.Load() {
+		s.wg.Done()
 		return s.Ctx.Err()
 	}
 
 	// Check for pending exit error from link down events and terminates
 	if err := s.getExitError(); err != nil {
+		s.wg.Done()
 		s.Complete(err, nil)
 		return err
 	}
 
 	// Continue the runner
 	if err := s.Runner.Continue(s.Ctx, s.UoW.Tasks().Ready() == 0); err != nil {
+		s.wg.Done()
 		s.Complete(err, nil)
 		return err
 	}
@@ -186,16 +188,19 @@ func (s *State) Step() error {
 	select {
 	case result := <-s.resultCh:
 		if result.Error != nil {
+			s.wg.Done()
 			s.Complete(result.Error, nil)
 			return result.Error
 		}
 		if len(result.Result) > 0 {
+			s.wg.Done()
 			s.Complete(nil, result.Result[0])
 			return supervisor.ErrExit
 		}
 	default:
 		// No result yet, continue
 	}
+	s.wg.Done()
 
 	return nil
 }
@@ -294,10 +299,8 @@ func (s *State) ProcessPackage(pkg *pubsub.Package) error {
 		return s.Ctx.Err()
 	default:
 		for _, msg := range pkg.Messages {
-			if msg.Topic == topology.TopicEvents {
-				if s.handleTopologyMessage(msg) {
-					continue
-				}
+			if msg.Topic == topology.TopicEvents && s.handleTopologyMessage(msg) {
+				continue
 			}
 
 			// Check if the topic has a specific channel
