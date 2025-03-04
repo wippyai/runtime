@@ -5,9 +5,7 @@ import (
 	"fmt"
 	api "github.com/ponyruntime/pony/api/pubsub"
 	"go.uber.org/zap"
-	"log"
 	"sync"
-	"time"
 )
 
 // HostConfig holds configuration for a Host.
@@ -113,9 +111,6 @@ func (h *Host) Send(pkg *api.Package) error {
 	select {
 	case h.jobQueues[workerIndex] <- pkg:
 		return nil
-	case <-time.After(time.Second):
-		log.Printf("SEND TIMEOUT")
-		return fmt.Errorf("send timeout for pid %s", pkg.PID.String())
 	case <-h.ctx.Done():
 		h.logger.Warn("send cancelled by host shutdown", zap.String("pid", pkg.PID.String()))
 		return h.ctx.Err()

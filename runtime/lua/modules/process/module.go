@@ -46,7 +46,7 @@ func (m *ProcessAPIModule) Loader(l *lua.LState) int {
 	// Create event constants table with exact size
 	events := l.CreateTable(0, 3)
 	events.RawSetString("CANCEL", lua.LString(topology.KindCancel))
-	events.RawSetString("RESULT", lua.LString(topology.KindExit))
+	events.RawSetString("RESULT", lua.LString(topology.KindResult))
 	events.RawSetString("LINK_DOWN", lua.LString(topology.KindLinkDown))
 	mod.RawSetString("event", events)
 

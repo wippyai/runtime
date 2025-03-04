@@ -1,140 +1,342 @@
-# Supervisor System Overview
+# Supervisor Component Specification
 
-The Supervisor system is designed to manage the lifecycle of multiple services with complex interdependencies. It
-orchestrates service registration, startup, shutdown, and error handling through a set of tightly integrated components.
-This document provides an overview of its architecture, core components, and workflows.
+## System Events
 
-## Architecture and Key Responsibilities
+The Supervisor component communicates through the following event types:
 
-At a high level, the Supervisor system:
+- **System**: `"supervisor"` - Identifies the supervisor system in the event context
+- **Register**: `"supervisor.service.register"` - Event for registering a new service
+- **Remove**: `"supervisor.service.remove"` - Event for removing a service
+- **Update**: `"supervisor.service.status"` - Event for updating service status
+- **Start**: `"supervisor.service.start"` - Event to start a service
+- **Stop**: `"supervisor.service.stop"` - Event to stop a service
 
-- **Registers and Manages Services:**  
-  Services are registered into the system via a transaction mechanism. Each service is associated with lifecycle
-  configurations (timeouts, retry policies, dependency lists, etc.).
+## Purpose
 
-- **Coordinates Lifecycle Operations:**  
-  The system controls service startup and shutdown while ensuring proper dependency ordering. It supports both automatic
-  and manual operations.
+The Supervisor component provides a robust lifecycle management system for services within the Pony Runtime. It handles service registration, orchestrated startup and shutdown, failure detection, automatic recovery, and dependency management, ensuring services are started and stopped in the correct order.
 
-- **Monitors and Recovers Services:**  
-  If a service fails to start or unexpectedly stops, the system implements retry logic based on a configurable policy
-  and gracefully handles terminal failures.
+## Core Concepts
 
-- **Integrates with an Event System:**  
-  The Supervisor listens to an event bus, responding to events like registration, start, stop, and removal. This
-  event-driven approach allows coordinated operations across distributed services.
+### Service Lifecycle
 
-## Core Components
+- **Services**: Implementations of functionality that can be started, monitored, and stopped
+- **Lifecycle States**: Services transition through states including Unknown, Starting, Running, Stopping, Stopped, Failed, and Exited
+- **Controllers**: Individual managers for each service that handle state transitions and recovery
+- **Retry Policies**: Configurable strategies for automatic recovery from failures
+- **Terminal Errors**: Special errors (`ErrTerminated`, `ErrExit`) that signal a service should not be restarted
 
-### Supervisor
+### Dependency Management
 
-The **Supervisor** is the central coordinator. Its main responsibilities include:
+- **Dependencies**: Services can declare dependencies on other services
+- **Sequencing**: Services are started and stopped in the correct dependency order
+- **Parallel Execution**: Independent services or dependency levels can be processed concurrently
+- **Coordinated Shutdown**: When stopping, dependents are stopped before dependencies
 
-- **Event Handling:**  
-  Subscribes to events (from both registry and supervisor systems) to trigger actions such as service registration,
-  removal, startup, and shutdown.
+### Transaction Support
 
-- **Transaction Management:**  
-  Uses a transactional helper (via a registry transaction helper) to batch service registration and removal changes.
-  This ensures consistency when committing configuration changes.
+- **Registry Transactions**: Service registration and removal operations are grouped into atomic transactions
+- **Commit Protocol**: Changes are applied only when transactions are committed
+- **Rollback**: Transactions can be discarded to maintain system stability
 
-- **Operation Dispatch:**  
-  Based on received events, the Supervisor builds lifecycle operations for individual services. It then delegates the
-  actual startup and shutdown ordering to the Sequencer.
+## Architecture
 
-- **Lifecycle Queries:**  
-  Provides methods to query the state of individual services or the entire system, which is critical for monitoring and
-  debugging.
+### Key Components
 
-### Controller
+1. **Supervisor**
+   - Central registry for service management
+   - Orchestrates service operations based on dependencies
+   - Processes events for registration, state changes, and lifecycle control
+   - Manages transaction-based configuration changes
 
-The **Controller** is responsible for managing the lifecycle of a single service. Key aspects include:
+2. **Controller**
+   - Manages the lifecycle of an individual service
+   - Handles start/stop/failure states and retry logic
+   - Monitors service health through a details channel
+   - Implements stable threshold for determining service reliability
 
-- **Lifecycle Commands:**  
-  It encapsulates service start and stop commands as well as handling unexpected failures. These commands are processed
-  asynchronously via an internal channel.
+3. **Sequencer**
+   - Determines correct dependency ordering for operations
+   - Supports parallel execution of independent services
+   - Ensures services are started in dependency order (dependencies first)
+   - Ensures services are stopped in reverse dependency order (dependents first)
 
-- **State Management:**  
-  The Controller tracks both the current and desired state of a service. It also manages a retry counter to handle
-  transient failures during startup.
+4. **Event Integration**
+   - Receives events for service registration and lifecycle operations
+   - Publishes service state changes through the event bus
+   - Supports event-driven control of service lifecycle
 
-- **Retry and Failure Handling:**  
-  Upon a failed start, the Controller checks if the error is terminal. For recoverable errors, it schedules retries
-  based on a configurable retry policy.
+## Operation Flow
 
-- **Event Notification:**  
-  Changes in service state are communicated back via a callback mechanism, allowing higher-level components or external
-  systems to be notified.
+### Service Registration
 
-### Sequencer
+1. Begin a transaction through the registry system
+2. Register services with their configuration and dependencies
+3. Commit the transaction to apply changes
+4. Auto-start services and their dependencies are launched in correct order
 
-The **Sequencer** manages the ordered execution of lifecycle operations based on service dependencies. Its
-responsibilities include:
+### Service Startup
 
-- **Dependency Graph Construction:**  
-  It builds a dependency graph from the list of services. For startup operations, it ensures that dependencies are
-  started first; for shutdown, it reverses the order.
+1. Service dependencies are first identified and sorted into levels
+2. Dependencies are started before dependents, level by level
+3. Each level can execute services in parallel for efficient startup
+4. Service controllers manage the startup process and monitor state
 
-- **Parallel Execution:**  
-  Operations that are independent (i.e., on the same dependency level) are executed in parallel, speeding up the overall
-  process while maintaining the correct ordering.
+### Service Monitoring
 
-- **Error Propagation:**  
-  If any operation in a dependency level fails, the Sequencer propagates the error, allowing the Supervisor to log or
-  handle it appropriately.
+1. Services communicate state changes through a details channel
+2. Controllers process state changes and implement retry policies
+3. Services running stably for a threshold period reset their retry counters
+4. Services exceeding retry limits are marked as permanently failed
 
-### Helpers and Internal Utilities
+### Service Shutdown
 
-Supporting components include:
+1. Dependent services are stopped before their dependencies
+2. Each level is processed in parallel for efficient shutdown
+3. Services are given a timeout period to stop gracefully
+4. Controllers ensure proper resource cleanup during shutdown
 
-- **Internal State Helpers:**  
-  These functions manage internal state tracking (such as the current status, details, retry counts, and last update
-  timestamps). They ensure thread-safe updates via mutexes.
+## Service Status
 
-- **Registry Transaction Helper:**  
-  A helper that manages transactions for registering or removing services. It provides methods to begin a transaction,
-  register services, commit changes, or discard transactions if an error occurs.
+The Supervisor defines the following service status types:
 
-## System Workflow
+- **Unknown**: `"unknown"` - Service status is currently unknown (initial state)
+- **Starting**: `"starting"` - Service is currently starting up
+- **Running**: `"running"` - Service is currently running and operational
+- **Stopping**: `"stopping"` - Service is in the process of a graceful shutdown
+- **Stopped**: `"stopped"` - Service has stopped and is no longer running
+- **Exited**: `"exited"` - Service has exited on its own (terminal state)
+- **Failed**: `"failed"` - Service has failed and is not running
 
-1. **Event Reception:**  
-   The Supervisor subscribes to an event bus and listens for system events (e.g., registration, start, stop). Each event
-   is processed and translated into an action.
+## Service Configuration
 
-2. **Transaction and Registration:**  
-   When services are registered, a transaction is started. Changes are batched and then committed to ensure consistency
-   across the system.
+### Lifecycle Configuration
 
-3. **Building Operations:**  
-   Based on events and configuration, the Supervisor creates a set of operations (start/stop) for services. It factors
-   in dependency information provided in each service’s configuration.
+```go
+type LifecycleConfig struct {
+    // AutoStart determines if the service should be started automatically
+    AutoStart bool
+    
+    // DependsOn lists service IDs this service depends on
+    DependsOn []string
+    
+    // StartTimeout specifies how long to wait for service to start
+    StartTimeout time.Duration
+    
+    // StopTimeout specifies how long to wait for service to stop
+    StopTimeout time.Duration
+    
+    // StableThreshold determines when a service is considered stable
+    StableThreshold time.Duration
+    
+    // RetryPolicy defines how to handle service failures
+    RetryPolicy RetryPolicy
+}
+```
 
-4. **Sequencing Operations:**  
-   The Sequencer organizes these operations into dependency levels. It ensures that all prerequisites for a service are
-   satisfied before it is started and that services are stopped in the correct order.
+### Retry Policy
 
-5. **Controller Execution:**  
-   Each service’s Controller processes its commands asynchronously. It manages state transitions, handles retries for
-   recoverable errors, and updates its status.
+```go
+type RetryPolicy struct {
+    // MaxAttempts limits how many times to retry a failing service
+    MaxAttempts int
+    
+    // InitialDelay sets the base delay before first retry
+    InitialDelay time.Duration
+    
+    // MaxDelay caps the maximum delay between retries
+    MaxDelay time.Duration
+    
+    // Factor determines how quickly the delay increases
+    Factor float64
+}
+```
 
-6. **Monitoring and Logging:**  
-   Throughout the process, state changes and errors are logged. The system also exposes APIs to query service states,
-   which is useful for debugging and monitoring.
+## Service Interface
 
-## Example Usage Flow
+Any service managed by the supervisor must implement the `supervisor.Service` interface:
 
-Consider a scenario where Service A depends on Service B, which in turn depends on Service C:
+```go
+// Service defines the interface that must be implemented by any service managed by the supervisor.
+type Service interface {
+    // Start initiates the service. Service can post current status to the returned channel.
+    // The context passed into start method is primary service context, service must exit if context is done.
+    // The status channel needs to stay open while the service is running and only be closed when it's fully stopped or failed.
+    Start(ctx context.Context) (<-chan any, error)
+    
+    // Stop terminates the service. The context passed into stop method is only for graceful stop, service must return error
+    // if it cannot stop within the context deadline.
+    Stop(ctx context.Context) error
+}
+```
 
-- **Registration:**  
-  The services are registered via the Supervisor, and a transaction is used to commit these changes.
+## Usage Patterns
 
-- **Startup:**  
-  An event triggers a start operation for Service A. The Supervisor builds operations for A, B, and C. The Sequencer
-  calculates the dependency graph, ensuring that C is started first, followed by B, then A.
+### Registering a Service
 
-- **Recovery:**  
-  If Service B fails to start on the first attempt, its Controller uses the retry policy to reattempt the start. If the
-  maximum retry count is reached, the system marks the service as failed and propagates the failure.
+```go
+// Create service instance
+myService := NewMyService()
 
-- **Shutdown:**  
-  When stopping the services, the Sequencer reverses the dependency order so that A stops first, then B, and finally C.
+// Send registration event
+bus.Send(ctx, event.Event{
+    System: registry.System,
+    Kind:   registry.Begin,
+})
+
+bus.Send(ctx, event.Event{
+    System: supervisor.System,
+    Kind:   supervisor.Register,
+    Path:   "my-service",
+    Data: &supervisor.Entry{
+        Service: myService,
+        Config: supervisor.LifecycleConfig{
+            AutoStart:       true,
+            DependsOn:       []string{"dependency-service"},
+            StartTimeout:    5 * time.Second,
+            StopTimeout:     5 * time.Second,
+            StableThreshold: 30 * time.Second,
+            RetryPolicy: supervisor.RetryPolicy{
+                MaxAttempts:  3,
+                InitialDelay: 100 * time.Millisecond,
+                MaxDelay:     5 * time.Second,
+                Factor:       2.0,
+            },
+        },
+    },
+})
+
+bus.Send(ctx, event.Event{
+    System: registry.System,
+    Kind:   registry.Commit,
+})
+```
+
+### Controlling Service Lifecycle
+
+```go
+// Start a service
+bus.Send(ctx, event.Event{
+    System: supervisor.System,
+    Kind:   supervisor.Start,
+    Path:   "my-service",
+})
+
+// Stop a service
+bus.Send(ctx, event.Event{
+    System: supervisor.System,
+    Kind:   supervisor.Stop,
+    Path:   "my-service",
+})
+
+// Remove a service
+bus.Send(ctx, event.Event{
+    System: registry.System,
+    Kind:   registry.Begin,
+})
+bus.Send(ctx, event.Event{
+    System: supervisor.System,
+    Kind:   supervisor.Remove,
+    Path:   "my-service",
+})
+bus.Send(ctx, event.Event{
+    System: registry.System,
+    Kind:   registry.Commit,
+})
+```
+
+### Monitoring Service Status
+
+```go
+// Get state for a specific service
+state, err := supervisor.GetState("my-service")
+if err != nil {
+    // Handle service not found error
+}
+
+// Status could be Unknown, Starting, Running, Stopping, Stopped, Failed, or Exited
+fmt.Printf("Service status: %s\n", state.Status)
+
+// Get state for all services
+states := supervisor.GetAllStates()
+for serviceID, state := range states {
+    fmt.Printf("Service %s status: %s\n", serviceID, state.Status)
+}
+```
+
+### Implementing a Service
+
+```go
+type MyService struct {
+    // service-specific fields
+    statusCh chan any
+}
+
+func (s *MyService) Start(ctx context.Context) (<-chan any, error) {
+    // Initialize resources
+    s.statusCh = make(chan any, 10)
+    
+    // Start service operations in a goroutine
+    go func() {
+        // Report initial status
+        s.statusCh <- "service started"
+        
+        // Perform work and report status periodically
+        for {
+            select {
+            case <-ctx.Done():
+                return
+            case <-time.After(time.Minute):
+                // Report health metrics or status updates
+                s.statusCh <- map[string]interface{}{
+                    "connections": 42,
+                    "memory_mb":   128,
+                }
+            }
+        }
+    }()
+    
+    return s.statusCh, nil
+}
+
+func (s *MyService) Stop(ctx context.Context) error {
+    // Graceful shutdown logic
+    s.statusCh <- "shutting down"
+    
+    // Clean up resources
+    close(s.statusCh)
+    return nil
+}
+```
+
+## Error Handling
+
+The supervisor handles various error conditions:
+
+- **Service Start Failures**: Retried according to the retry policy
+- **Service Stop Timeouts**: Logged and forcefully terminated
+- **Missing Dependencies**: Prevented from starting services with unmet dependencies
+- **Terminal Errors**: Special errors that indicate a service should not be retried:
+   - `ErrTerminated` - Returned when a service is terminated and should not be restarted
+   - `ErrExit` - Returned when a service exits on its own and should not be restarted
+
+## Implementation Notes
+
+### Controller State Management
+
+- Controllers maintain atomic state updates with proper locking
+- States include the current status, desired status, and retry counts
+- State updates are broadcast through the event system
+
+### Sequencer Algorithm
+
+- Uses a dependency graph to determine proper execution order
+- Computes dependency levels for parallel execution
+- Inverts dependency relationships for stop operations
+
+### Transaction Safety
+
+- Services are only started after a transaction is committed
+- Multiple edits can be applied atomically
+- Transactions can be discarded if configuration is invalid
+
+This specification outlines the Supervisor component for the Pony Runtime, providing a comprehensive framework for service lifecycle management with dependency-aware orchestration and fault tolerance.

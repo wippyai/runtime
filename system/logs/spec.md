@@ -1,313 +1,115 @@
-# Logging System Specification
+# Logging Component Specification
 
-## Overview
+## Purpose
+The Logging component provides a structured, configurable logging system for the Pony Runtime with support for dynamic configuration and event integration. It allows for centralized logging control, context-based logger retrieval, and flexible routing of log entries.
 
-A dynamic, event-driven logging system that provides configurable log routing, filtering, and runtime configuration
-management. The system supports downstream propagation and event bus streaming with dynamic level control.
+## Core Concepts
 
-## Core Components
+### Logging Configuration
+- **PropagateDownstream**: Controls whether logs are sent to underlying logger implementations
+- **StreamToEvents**: Controls whether logs are published as events on the event bus
+- **MinLevel**: Defines the minimum level threshold for log processing
 
-### Manager
+### Core Components
+- **Core**: Zapcore implementation that intercepts and routes log entries based on configuration
+- **Manager**: Central service that manages logging configuration and handles config events
+- **ConfigSwitcher**: Utility for temporarily changing and restoring logging configurations
 
-Central coordinator managing log configuration and event handling.
-
-#### Key Features:
-
-- Runtime configuration management
-- Event-based configuration updates
-- Thread-safe state management
-- Graceful shutdown support
-- Dynamic log level control
-
-#### Usage:
-
-```go
-manager := NewManager(bus, core, logger, zapcore.InfoLevel)
-err := manager.Start(ctx)
-defer manager.Stop()
-
-// Get current config
-config := manager.GetConfig()
-```
+## Architecture
 
 ### Core
+The Core component serves as the central logging interceptor:
+- Implements Zap's zapcore.Core interface for integration with Zap logger
+- Routes log entries based on current configuration
+- Supports both traditional logging and event-based publishing
+- Thread-safe configuration handling using atomic storage
 
-Log interceptor and router implementing zapcore.Core interface.
-
-#### Key Features:
-
-- Configurable log filtering
-- Dual output streams (downstream and events)
-- Thread-safe configuration changes
-- Field augmentation support
-- Atomic operations
-
-#### Usage:
-
-```go
-core := NewCore(downstream, bus)
-core.Configure(config)
-
-// Check if level is enabled
-if core.Enabled(zapcore.InfoLevel) {
-// Log will be processed
-}
-```
+### Manager
+The Manager component provides centralized logging control:
+- Handles configuration events from the event bus
+- Applies configuration changes to the Core
+- Responds to configuration queries
+- Provides current configuration state
 
 ### ConfigSwitcher
+The ConfigSwitcher provides a pattern for temporary configuration changes:
+- Stores the original configuration for later restoration
+- Applies temporary configurations without losing original settings
+- Restores previous configuration when operation completes
 
-Manages temporary logging configurations with ability to restore previous state.
+### Context Integration
+The context integration provides logger access throughout the system:
+- `WithLogger`: Stores a logger in a context
+- `GetLogger`: Retrieves a logger from a context (with fallback to no-op)
+- Allows propagation of logger instances without direct coupling
 
-#### Key Features:
+## Message Flow
 
-- Temporary config switching
-- Base config preservation
-- Automatic restoration
-- Thread-safe operations
-- Clear state management
+### Configuration Changes
+1. Client sends `logs.config.set` event with new configuration
+2. Manager receives event and validates configuration
+3. Manager applies configuration to Core
+4. Manager sends `logs.config.state` event confirming the change
 
-#### Usage:
+### Configuration Queries
+1. Client sends `logs.config.get` event
+2. Manager receives event and prepares current configuration
+3. Manager sends `logs.config.state` event with current configuration
 
+### Log Entry Processing
+1. Application code logs message via Zap logger
+2. Core's Write method intercepts log entry
+3. If PropagateDownstream is true, entry is sent to underlying logger
+4. If StreamToEvents is true, entry is published as event on bus
+
+## Integration Points
+
+### Event System
+The Logging component uses events for management operations:
+- `logs.config.set`: Request to update logging configuration
+- `logs.config.get`: Request for current configuration
+- `logs.config.state`: Response with configuration state
+- `logs.entry`: Log entry published as an event
+
+### Context System
+- Logger instances are stored and retrieved from context
+- Provides a standard pattern for accessing loggers throughout the system
+
+## Utility Helpers
+
+### ConfigurationManager
+- Provides high-level methods for interacting with logging configuration
+- Handles subscription to configuration events
+- Supports request/response pattern for configuration queries
+- Provides timeouts and error handling
+
+## Common Usage Patterns
+
+### Temporary Logging Configuration
 ```go
-switcher := NewConfigSwitcher(bus, logger)
+// Store original config and apply temporary one
+switcher := logs.NewConfigSwitcher(bus, logger)
+tempConfig := api.Config{
+    PropagateDownstream: true,
+    StreamToEvents: true,
+    MinLevel: zapcore.DebugLevel,
+}
+switcher.EnableTemporaryConfig(ctx, tempConfig)
 
-// Enable temporary config
-err := switcher.EnableTemporaryConfig(ctx, tempConfig)
+// Do work with temporary config...
 
 // Restore original config
 switcher.RestoreBaseConfig(ctx)
 ```
 
-### ConfigurationManager
-
-Handles configuration distribution and synchronization.
-
-#### Key Features:
-
-- Asynchronous config updates
-- Event-based communication
-- Timeout handling
-- Error propagation
-- Operation tracking
-
-#### Usage:
-
+### Context-based Logger Retrieval
 ```go
-cfgManager := NewConfigurationManager()
+// Store logger in context
+ctx = logs.WithLogger(ctx, logger)
 
-// Get current config
-config, err := cfgManager.GetConfig(ctx, bus)
-
-// Set new config
-err = cfgManager.SetConfig(ctx, bus, newConfig)
+// Later, retrieve logger from context
+logger := logs.GetLogger(ctx)
+logger.Info("Operation completed", zap.Int("count", count))
 ```
 
-## Configuration Model
-
-### Log Config Structure
-
-```go
-type Config struct {
-PropagateDownstream bool
-StreamToEvents      bool
-MinLevel           zapcore.Level
-}
-```
-
-### Configuration Properties:
-
-1. PropagateDownstream
-    - Controls log forwarding to downstream handlers
-    - Enables/disables traditional logging paths
-
-2. StreamToEvents
-    - Toggles event bus publishing
-    - Enables distributed log collection
-
-3. MinLevel
-    - Sets minimum log level threshold
-    - Controls log filtering granularity
-
-## Event Communication
-
-### Event Types
-
-1. Configuration Events:
-    - `logs.config.set`: Update logging configuration
-    - `logs.config.get`: Request current configuration
-    - `logs.config.state`: Configuration state response
-
-2. Log Events:
-    - `logs.entry`: Log entry publication
-
-### Event Flow
-
-1. Configuration Updates:
-
-```
-Client -> SetConfig Event -> Manager -> State Event -> Client
-```
-
-2. Configuration Requests:
-
-```
-Client -> GetConfig Event -> Manager -> State Event -> Client
-```
-
-3. Log Publication:
-
-```
-Logger -> Core -> Event Bus -> Subscribers
-```
-
-## Performance Characteristics
-
-- Atomic configuration updates
-- Non-blocking event publication
-- Buffered event channels
-- Thread-safe operations
-- Minimal lock contention
-
-## Error Handling
-
-### Types of Errors:
-
-- Configuration validation errors
-- Event bus communication errors
-- Context cancellation
-- Timeout errors
-- Downstream propagation errors
-
-### Error Propagation:
-
-1. Immediate errors returned directly
-2. Asynchronous errors logged
-3. Context cancellation handled at all levels
-
-## Best Practices
-
-1. Configuration Management:
-
-```go
-ctx, cancel := context.WithTimeout(parentCtx, time.Second)
-defer cancel()
-
-err := manager.Start(ctx)
-if err != nil {
-log.Fatal("failed to start manager", zap.Error(err))
-}
-```
-
-2. Temporary Configurations:
-
-```go
-switcher := NewConfigSwitcher(bus, logger)
-defer switcher.RestoreBaseConfig(ctx)
-
-err := switcher.EnableTemporaryConfig(ctx, tempConfig)
-if err != nil {
-log.Error("failed to set temp config", zap.Error(err))
-}
-```
-
-3. Event Handling:
-
-```go
-sub, err := eventbus.NewSubscriber(
-ctx,
-bus,
-api.System,
-"logs.config.*",
-handleEvent,
-)
-if err != nil {
-return fmt.Errorf("failed to subscribe: %w", err)
-}
-defer sub.Close()
-```
-
-## Limitations
-
-- No persistent configuration storage
-- No built-in authentication/authorization
-- Single active configuration at a time
-- No automatic config validation
-- No built-in rate limiting
-
-## Security Considerations
-
-- No built-in access control
-- Event bus security inherited
-- Configuration validation responsibility
-- Consider implementing middleware for security
-- Sensitive data logging controls needed
-
-## Testing
-
-The system includes comprehensive tests covering:
-
-- Basic functionality
-- Configuration changes
-- Event handling
-- Error conditions
-- Concurrent operations
-- Timeout handling
-- State management
-- Core logging operations
-
-## Implementation Guidelines
-
-1. Custom Core Implementation:
-
-```go
-type Core struct {
-downstream zapcore.Core
-bus        events.Bus
-config     atomic.Value
-}
-
-func (c *Core) Write(ent zapcore.Entry, fields []zapcore.Field) error {
-cfg := c.config.Load().(Config)
-
-if cfg.PropagateDownstream {
-if err := c.downstream.Write(ent, fields); err != nil {
-return err
-}
-}
-
-if cfg.StreamToEvents {
-c.publishLogEvent(ent, fields)
-}
-
-return nil
-}
-```
-
-2. Event Handling:
-
-```go
-func (m *Manager) handleEvent(e events.Event) {
-switch e.Kind {
-case api.SetConfigEvent:
-m.handleConfigEvent(m.ctx, e)
-case api.GetConfigEvent:
-m.handleGetConfigEvent(m.ctx, e)
-}
-}
-```
-
-3. Configuration Switching:
-
-```go
-func (c *ConfigSwitcher) EnableTemporaryConfig(ctx context.Context, cfg Config) error {
-if c.baseConfig == nil {
-current, err := c.cfgManager.GetConfig(ctx, c.bus)
-if err != nil {
-return err
-}
-c.baseConfig = &current
-}
-
-return c.cfgManager.SetConfig(ctx, c.bus, cfg)
-}
-```
+This specification defines the Logging component that provides flexible, structured logging for the Pony Runtime with support for dynamic configuration and integration with the event system.

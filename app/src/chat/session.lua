@@ -34,7 +34,7 @@ local function run(args)
                 stream = (target ~= nil),
                 reply_to = target,
                 endpoint = "https://api.openai.com/v1/chat/completions",
-                model = "o3-mini"
+                model = "gpt-4o-mini"
             })
 
             if err then
