@@ -7,8 +7,9 @@ The Topology component uses the following event types for process communication:
 - **TopicInbox**: `"@pid/inbox"` - Inbox topic for normal process messages
 - **TopicEvents**: `"@pid/events"` - Events topic for process lifecycle events
 - **KindCancel**: `"pid.cancel"` - Cancellation request event
+- **KindResult**: `"pid.result"` - Process result notification sent to monitors
 - **KindExit**: `"pid.exit"` - Process exit notification
-- **KindLinkDown**: `"pid.link.down"` - Notification that a linked process is down
+- **KindLinkDown**: `"pid.link.down"` - Notification that a linked process is down (abnormal exit)
 - **KindLinkEstablished**: `"pid.link.established"` - Notification of link establishment
 - **KindLinkRemoved**: `"pid.link.removed"` - Notification of link removal
 
@@ -27,13 +28,14 @@ The Topology component provides process communication and lifecycle management w
 ### Process Monitoring
 
 - **Monitor**: One-way relationship where a process watches another's lifecycle
-- **Notification**: When a monitored process exits, all monitors receive a notification
+- **Notification**: When a monitored process exits, all monitors receive a notification with `KindResult`
 - **Error Propagation**: Exit notifications include the result and any error that caused the exit
 
 ### Process Linking
 
 - **Link**: Bidirectional relationship between processes
-- **Error Propagation**: When a linked process exits, all linked processes receive the exit notification
+- **Error Propagation**: When a linked process exits abnormally (with an error), all linked processes receive a `KindLinkDown` notification
+- **Normal Exit Behavior**: When a linked process exits normally (without an error), linked processes do not receive an exit notification
 - **Automatic Cleanup**: Links are automatically removed when a process exits
 
 ## Architecture
@@ -41,18 +43,18 @@ The Topology component provides process communication and lifecycle management w
 ### Key Components
 
 1. **Topology**
-    - Central manager for process relationships
-    - Tracks process monitors, links, and registrations
-    - Handles process exit notifications and cleanup
+   - Central manager for process relationships
+   - Tracks process monitors, links, and registrations
+   - Handles process exit notifications and cleanup
 
 2. **PIDRegistry**
-    - Provides Erlang-style name registration for PIDs
-    - Supports hierarchical registries with parent-child relationships
-    - Optimized for concurrent access with thread-safe operations
+   - Provides Erlang-style name registration for PIDs
+   - Supports hierarchical registries with parent-child relationships
+   - Optimized for concurrent access with thread-safe operations
 
 3. **Context Integration**
-    - Helper functions to store/retrieve Topology and PIDRegistry from context
-    - Enables easy access to topology services throughout the runtime
+   - Helper functions to store/retrieve Topology and PIDRegistry from context
+   - Enables easy access to topology services throughout the runtime
 
 ## Interface Definitions
 
@@ -123,8 +125,6 @@ type ExitEvent struct {
 type LinkEvent struct {
     // Event contains the base event information
     Event Event `json:"event"`
-    // To identifies the target process of the link
-    To pubsub.PID `json:"to"`
 }
 ```
 
@@ -141,22 +141,24 @@ type LinkEvent struct {
 1. Process A (caller) calls `Wait(A, B)` to monitor Process B
 2. The Topology verifies Process B is registered
 3. The Topology adds Process A to Process B's watchers list
-4. When Process B exits, all watchers (including A) receive an exit notification
+4. When Process B exits, all watchers (including A) receive a `KindResult` notification
 
 ### Process Linking
 
 1. Process A calls `Link(A, B)` to establish a bidirectional link with Process B
 2. The Topology verifies both processes are registered
 3. The Topology creates bidirectional links between A and B
-4. Both processes receive a link notification
-5. When either process exits, the other receives an exit notification
+4. Both processes receive a `KindLinkEstablished` notification
+5. When either process exits abnormally, the other receives a `KindLinkDown` notification
+6. When either process exits normally, no notification is sent to linked processes
 
 ### Process Exit
 
 1. When a process exits, it calls `Notify` with its exit result
-2. The Topology sends exit notifications to all linked processes and monitors
-3. The Topology calls `Remove` to clean up all references to the process
-4. All links are removed and processes receive unlink notifications
+2. The Topology sends `KindResult` notifications to all monitors
+3. The Topology sends `KindLinkDown` notifications to all linked processes only for abnormal exits
+4. The Topology calls `Remove` to clean up all references to the process
+5. All links are removed and processes receive `KindLinkRemoved` notifications
 
 ## Usage Patterns
 
@@ -234,6 +236,10 @@ result := &runtime.Result{
     Payload: payload.New("completed work"),
     Error:   err, // nil or any error that caused exit
 }
+
+// Notify will send:
+// - KindResult notifications to all monitors
+// - KindLinkDown notifications to linked processes ONLY if err != nil
 topo.Notify(myPID, result)
 
 // Clean up process completely
@@ -261,6 +267,7 @@ The topology handles various error conditions:
 - Maintains separate maps for monitors, links, and registrations
 - Avoids blocking on communication with upstream by ignoring send errors
 - Ensures bidirectional link consistency by updating both sides atomically
+- Implements Erlang-style exit behavior where only abnormal exits propagate to linked processes
 
 ### PIDRegistry Implementation
 
@@ -274,3 +281,10 @@ The topology handles various error conditions:
 - Provides helper functions to store and retrieve Topology and PIDRegistry from context
 - Type-safe accessor functions that return nil if component is not found
 - Ensures components can be accessed throughout the process lifecycle
+
+### Exit Propagation Logic
+
+- Monitors receive all exit events (both normal and abnormal) with `KindResult`
+- Linked processes only receive exit notifications (`KindLinkDown`) for abnormal exits
+- This behavior matches Erlang's process link semantics, where normal exits don't propagate
+- An abnormal exit is defined as any exit where `result.Error != nil`

@@ -211,6 +211,6 @@ type (
 		// Launch starts a process with the given PID and input.
 		// Returns the PID of the started process or an error if the process
 		// cannot be started.
-		Launch(ctx context.Context, pid pubsub.PID, input payload.Payloads) (pubsub.PID, error)
+		Launch(ctx context.Context, pid pubsub.PID, lf Lifecycle, input payload.Payloads) (pubsub.PID, error)
 	}
 )

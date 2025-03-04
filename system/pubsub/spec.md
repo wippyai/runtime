@@ -1,121 +1,288 @@
 # PubSub Component Specification
 
+## System Events
+
+The PubSub component uses the following event types for communication:
+
+- **System**: `"node"` - Identifies the node management system in the event context
+- **HostRegister**: `"node.register_host"` - Event for requesting host registration
+- **HostDelete**: `"node.remove_host"` - Event for requesting host removal
+- **HostAccept**: `"node.accept_host"` - Event for successful host registration
+- **HostReject**: `"node.reject_host"` - Event for failed host registration
+
 ## Purpose
 
-The PubSub component provides a distributed message-passing system for communication between processes in the Pony
-Runtime. It enables asynchronous, topic-based messaging with support for both local and remote process communication.
+The PubSub component provides a distributed message routing infrastructure for the Pony Runtime. It enables efficient and reliable communication between processes across multiple hosts and nodes in a distributed system. The component supports hierarchical routing, process addressing through PIDs (Process Identifiers), and message delivery with customizable delivery guarantees.
 
 ## Core Concepts
 
-### Process Identification
+### Hierarchical Structure
 
-Each process in the system is uniquely identified by a PID (Process Identifier) with the format:
-`{node@host|namespace:name|uniq_id}`.
+- **Node**: Top-level routing entity that manages multiple hosts and routes messages between them
+- **Host**: Process execution environment that manages a set of processes and routes messages to them
+- **PID (Process Identifier)**: Unique identifier for addressing processes across the distributed system
 
-- **Node**: Identifies which node the process belongs to (optional for local processes)
-- **Host**: Identifies which host environment the process runs in
-- **Namespace:Name**: Registry identifier for the process type
-- **UniqID**: Unique instance identifier
+### Message Routing
 
-### Messaging Structure
+- **Topics**: Named channels for message delivery that processes can subscribe to
+- **Messages**: Units of communication containing topic and payload information
+- **Packages**: Collections of related messages sent to a specific PID
 
-- **Package**: Main container for message delivery
-    - Contains destination PID (where messages should be delivered)
-    - Contains one or more messages
+### Distribution
 
-- **Message**: Individual communication unit
-    - Identified by a topic (string)
-    - Contains payload data (actual content)
+- **Local Routing**: Direct delivery of messages to processes within the same host
+- **Cross-Host Routing**: Delivery of messages between processes on different hosts within the same node
+- **Cross-Node Routing**: Forwarding messages to processes on different nodes through upstream connections
 
-### Component Hierarchy
+## Architecture
 
-1. **Node**: Top-level component that manages multiple hosts
-2. **Host**: Container that manages process message delivery
-3. **Process**: End consumer that receives messages via attached channels
+### Key Components
 
-## Message Routing
+1. **Node**
+  - Top-level messaging router
+  - Manages multiple hosts and routes messages between them
+  - Forwards messages to upstream nodes when necessary
+  - Maintains host registry for local message routing
 
-### Local Delivery
+2. **Host**
+  - Process container and local message router
+  - Manages process message queues
+  - Implements asynchronous message delivery with worker pools
+  - Provides consistent message delivery through PID-based routing
 
-When a process sends a message to another process on the same node:
+3. **NodeManager**
+  - Event-driven management interface for nodes
+  - Handles host registration and removal events
+  - Provides administrative control over the node's configuration
+  - Acts as a bridge between the event system and the Node implementation
 
-1. Sender creates a Package with the recipient's PID
-2. Package is sent to the Node
-3. Node identifies the target Host based on PID.Host
-4. Host uses a worker pool to deliver the Package
-5. Message is delivered to the channel attached to the recipient's PID
+## Interface Definitions
 
-### Remote Delivery
+### Node Interface
 
-When a process sends a message to a process on a different node:
+```go
+type Node interface {
+    Host
+    // ID returns the unique identifier for this node
+    ID() NodeID
+    // RegisterHost adds a host to this node with the specified ID
+    RegisterHost(HostID, Host) error
+    // UnregisterHost removes a host from this node
+    UnregisterHost(HostID)
+}
+```
 
-1. Sender creates a Package with the recipient's PID (including remote node)
-2. Local Node detects non-local destination
-3. Package is forwarded to upstream receiver
-4. Upstream delivers to the destination Node
-5. Destination Node routes to the appropriate Host
-6. Host delivers to the recipient process
+### Host Interface
 
-## Implementation Details
+```go
+type Host interface {
+    Receiver
+    // Attach connects a process (identified by PID) to a message channel
+    // Returns a cancel function to detach and any error that occurred
+    Attach(PID, chan *Package) (context.CancelFunc, error)
+    // Detach disconnects a process (identified by PID) from the host
+    Detach(PID)
+}
+```
 
-### Host
+### Receiver Interface
 
-- Manages process message delivery within a single environment
-- Uses worker pool for concurrent message processing
-- Employs consistent hashing to route messages to specific workers
-- Maps PIDs to receiver channels using thread-safe collection
-- Handles attachment/detachment of process receiver channels
+```go
+type Receiver interface {
+    // Send dispatches a package to the upstream receiver
+    Send(*Package) error
+}
+```
 
-### Node
+### Message Structure
 
-- Manages multiple hosts within a logical node
-- Routes messages to appropriate hosts or upstream
-- Handles host registration/deregistration
-- Can forward messages to parent nodes in distributed setups
+```go
+type Message struct {
+    // Topic identifies the message category
+    Topic Topic
+    // Payloads contains the actual message data
+    Payloads payload.Payloads
+}
 
-### NodeManager
+type Package struct {
+    // PID identifies the destination process
+    PID PID
+    // Messages contains the actual message data
+    Messages []*Message
+}
+```
 
-- Event-driven management layer for Node
-- Listens for host registration/removal events
-- Processes registration requests and sends responses
-- Delegates actual message operations to underlying Node
+### PID Structure
+
+```go
+type PID struct {
+    // Node identifies which node the process belongs to
+    Node NodeID
+    // Host identifies which host the process belongs to
+    Host HostID
+    // ID contains the process's registry identifier
+    ID registry.ID
+    // UniqID contains a unique instance identifier
+    UniqID string
+}
+```
+
+## Operation Flow
+
+### Message Routing
+
+1. A sender calls `Send(package)` on a Receiver (Node or Host)
+2. The Receiver examines the package's PID to determine the routing path:
+  - If PID.Node matches the local Node or is empty, route within the node
+  - If PID.Node is different and an upstream is configured, forward to upstream
+3. For local routing, the Node looks up the Host based on PID.Host
+4. The Host uses a worker pool to deliver the message to the appropriate receiver channel
+5. The Host uses consistent hashing based on PID.UniqID to ensure messages for the same PID are processed by the same worker
+
+### Host Registration
+
+1. Client sends a HostRegister event with a Host implementation
+2. NodeManager receives the event and calls RegisterHost on the underlying Node
+3. Node stores the Host in its registry under the specified HostID
+4. NodeManager sends a HostAccept event if successful, or HostReject if failed
+5. The Host is now available for message routing and delivery
+
+### Process Attachment
+
+1. Client calls Attach(pid, channel) on a Node
+2. Node determines the appropriate Host based on pid.Host
+3. Node delegates to the Host's Attach method
+4. Host registers the channel for receiving messages addressed to the PID
+5. Host returns a cancel function that can be used to detach the receiver
+
+## Usage Patterns
+
+### Creating a Node and Host
+
+```go
+// Create a Host
+ctx := context.Background()
+hostConfig := HostConfig{
+    BufferSize:  100,
+    WorkerCount: 4,
+    Logger:      logger,
+}
+host := NewHost(ctx, hostConfig)
+
+// Create a Node
+nodeID := "node1"
+node := NewNode(nodeID, nil)
+
+// Register the Host with the Node
+err := node.RegisterHost("host1", host)
+if err != nil {
+    // Handle error
+}
+```
+
+### Registering a Host via Events
+
+```go
+// Create a NodeManager
+node := NewNode("node1", nil)
+bus := eventBus
+logger := logger
+manager := NewNodeManager(node, bus, logger)
+manager.Start(ctx)
+
+// Send host registration event
+bus.Send(ctx, event.Event{
+    System: api.System,
+    Kind:   api.HostRegister,
+    Path:   "host1",
+    Data:   host,
+})
+```
+
+### Attaching a Process Receiver
+
+```go
+// Create a channel to receive packages
+ch := make(chan *api.Package, 10)
+
+// Create a PID
+pid := api.PID{
+    Node:   "node1",
+    Host:   "host1",
+    ID:     registry.ID{NS: "ns1", Name: "proc1"},
+    UniqID: "uniq1",
+}
+
+// Attach the channel to the PID
+cancel, err := node.Attach(pid, ch)
+if err != nil {
+    // Handle error
+}
+defer cancel() // Detach when done
+
+// Read packages from the channel
+for pkg := range ch {
+    // Process the package
+}
+```
+
+### Sending Messages
+
+```go
+// Create a Package
+pkg := &api.Package{
+    PID: pid,
+    Messages: []*api.Message{
+        {
+            Topic: "my.topic",
+            Payloads: payload.New("Hello, world!"),
+        },
+    },
+}
+
+// Send the Package
+err := node.Send(pkg)
+if err != nil {
+    // Handle error
+}
+```
 
 ## Error Handling
 
 The system defines several standard errors:
 
-- `ErrAlreadyAttached`: Attempt to attach a receiver to a PID that already has one
-- `ErrHostNotFound`: Requested host doesn't exist in the node
-- `ErrHostAlreadyExists`: Host with the given ID is already registered
+- **ErrAlreadyAttached**: Returned when attempting to attach a receiver to a PID that already has one
+- **ErrHostNotFound**: Returned when attempting to route a message to a non-existent host
+- **ErrHostAlreadyExists**: Returned when attempting to register a host with an ID that is already in use
 
-## Performance Considerations
+Additional error conditions include:
 
-The implementation includes several optimizations:
+- Invalid host types in the Node registry
+- Non-local routing with no upstream configured
+- Context cancellation during message sending
+- Channel blocking during message delivery (message is dropped)
 
-- Object pooling for Package instances to reduce memory allocations
-- Multiple worker goroutines with dedicated queues to reduce contention
-- Consistent hashing to ensure messages for the same PID go to the same worker
-- Context-based cancellation for clean shutdown
-- Non-blocking channel operations with configurable buffer sizes
+## Implementation Notes
 
-## Integration
+### Host Implementation
 
-### Event System
+- Uses a worker pool pattern with multiple goroutines for processing message delivery
+- Implements a consistent hashing algorithm based on PID.UniqID to ensure all messages for a PID are handled by the same worker
+- Uses non-blocking channel sends to prevent deadlocks, with messages dropped if receiver channels are full
+- Closes worker goroutines when context is cancelled
 
-The PubSub component uses an event system for management operations:
+### Node Implementation
 
-- `node.register_host`: Request to register a new host
-- `node.remove_host`: Request to remove a host
-- `node.accept_host`: Response for successful operation
-- `node.reject_host`: Response for failed operation
+- Uses sync.Map for thread-safe host registry access
+- Implements a three-tiered routing strategy (local, cross-host, cross-node)
+- Supports attaching an upstream receiver for hierarchical message routing
+- Handles special cases for empty Node IDs in PIDs (treated as local)
 
-### Context Integration
+### NodeManager Implementation
 
-Helper functions to store and retrieve PubSub components in context:
+- Acts as an adapter between the event system and the Node implementation
+- Provides administrative control over host registration and removal
+- Implements event-based communication for host lifecycle management
+- Forwards actual messaging operations to the underlying Node
 
-- `WithPID/GetPID`: Store/retrieve PID
-- `WithNode/GetNode`: Store/retrieve Node
-- `WithHost/GetHost`: Store/retrieve Host
-
-This specification outlines a flexible, performant messaging system that forms the communication backbone of the Pony
-Runtime's distributed process model.
+This specification outlines the PubSub component for the Pony Runtime, providing a robust distributed messaging infrastructure with support for hierarchical routing, process addressing, and flexible delivery semantics.
