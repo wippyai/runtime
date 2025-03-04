@@ -1,224 +1,340 @@
-# Event Bus System Specification
+# Event Bus Component Specification
 
-## Overview
+## System Events
 
-A high-performance, thread-safe event bus implementation in Go that provides publish/subscribe messaging patterns with
-advanced filtering capabilities.
+The Event Bus component does not define specific system events itself, but rather provides the infrastructure for event-based communication between components in the Pony Runtime.
 
-## Core Components
+## Purpose
 
-### Bus
+The Event Bus component provides a robust, concurrent, and pattern-matching event distribution system for the Pony Runtime. It enables loosely coupled communication between components through a publish-subscribe pattern, where publishers and subscribers are decoupled and can operate independently. The component supports hierarchical event routing with wildcard pattern matching, allowing for flexible subscription to event categories.
 
-The central message distribution system implementing the publisher/subscriber pattern.
+## Core Concepts
 
-#### Key Features:
+### Event Structure
 
-- Thread-safe operations for subscribe, unsubscribe, and send
-- Support for wildcard pattern matching on system and kind fields
-- Buffered channels for efficient event handling
-- Graceful shutdown with proper cleanup
-- Context-aware operations for timeout and cancellation support
+- **Event**: Fundamental message unit containing System, Kind, Path, and Data fields
+- **System**: Identifier for the system or module that events belong to
+- **Kind**: Specific type of event within a system
+- **Path**: Path identifier for related entity
+- **Data**: Payload of the event, containing any relevant data
 
-#### Usage:
+### Subscribers and Subscriptions
+
+- **Subscriber**: Component that listens for specific events
+- **SubscriberID**: Unique identifier for a subscription
+- **Pattern Matching**: Supports advanced wildcard patterns for flexible event filtering
+- **Event Channels**: Events are delivered to subscribers through Go channels
+
+### Wildcard Patterns
+
+- **Dot Notation**: Events and patterns use dot notation for hierarchical organization (e.g., "system.service.event")
+- **Single Wildcard**: The "*" character matches exactly one segment
+- **Multi Wildcard**: The "**" pattern matches zero or more segments
+- **Alternation**: Parenthesized patterns with pipe separators like "(a|b|c)" match any of the options
+- **Mixed Patterns**: Patterns can combine literals, wildcards, and alternations (e.g., "system.*.action.(create|update)")
+
+### Event Routing
+
+- **Bus**: Central event distribution system
+- **EventRouter**: Handles routing of events to registered handlers
+- **EventHandler**: Processes events matching specific patterns
+- **Subscriber**: Helper that simplifies subscribing to and handling events
+
+## Architecture
+
+### Key Components
+
+1. **Bus**
+   - Core event distribution mechanism
+   - Manages subscriptions and event delivery
+   - Supports thread-safe concurrent operations
+   - Provides pattern-based event filtering
+
+2. **Subscriber**
+   - Simplifies subscription management
+   - Handles event processing in background goroutines
+   - Provides automatic cleanup on context cancellation
+   - Manages the lifecycle of event channels
+
+3. **EventRouter**
+   - Routes events to registered handlers
+   - Supports declarative event handling with patterns
+   - Manages handler registration and lifecycle
+   - Provides error handling for event processing
+
+4. **Wildcard**
+   - Implements advanced pattern matching for filtering events
+   - Supports hierarchical dot-notation patterns
+   - Provides segment-based matching with single and multi-wildcards
+   - Enables alternation patterns for matching one of multiple options
+
+5. **Context Integration**
+   - Stores and retrieves event bus instance from context
+   - Ensures consistent access to the event bus throughout the system
+   - Enables component composition through context propagation
+
+## Interface Definitions
+
+### Bus Interface
 
 ```go
-bus := NewBus()
-defer bus.Stop()
-
-// Subscribe to events
-ch := make(chan events.Event)
-subID, err := bus.Subscribe(ctx, "system-name", ch)
-
-// Subscribe with pattern matching
-subID, err := bus.SubscribeP(ctx, "system-name", "event.*", ch)
-
-// Send events
-bus.Send(ctx, events.Event{...})
+type Bus interface {
+    // Subscribe subscribes a channel to events from a specific system
+    Subscribe(context.Context, System, chan<- Event) (SubscriberID, error)
+    
+    // SubscribeP subscribes a channel to events matching both system and kind patterns
+    SubscribeP(context.Context, System, Kind, chan<- Event) (SubscriberID, error)
+    
+    // Unsubscribe removes a subscription using its SubscriberID
+    Unsubscribe(context.Context, SubscriberID)
+    
+    // Send publishes an event to the bus
+    Send(context.Context, Event)
+}
 ```
 
-### Router
-
-A higher-level routing layer that provides pattern-based event distribution.
-
-#### Key Features:
-
-- Pattern-based event routing to specific handlers
-- Support for multiple concurrent handlers
-- Built-in error handling and logging
-- Middleware-style event processing
-- Graceful shutdown coordination
-
-#### Usage:
+### EventHandler Interface
 
 ```go
-router, err := StartRouter(ctx, bus,
-WithHandlers(handler1, handler2),
-WithLogger(logger))
-defer router.Stop()
+type EventHandler interface {
+    // Pattern returns the event matching criteria for this handler
+    Pattern() Pattern
+    
+    // Handle processes an event that matches the pattern
+    Handle(context.Context, Event) error
+}
 ```
 
-### Subscriber
-
-A helper component that simplifies event subscription and handling.
-
-#### Key Features:
-
-- Simplified event subscription interface
-- Automatic cleanup on context cancellation
-- Goroutine-safe event processing
-- Support for both simple and pattern-based subscriptions
-
-#### Usage:
+### Pattern Structure
 
 ```go
-subscriber, err := NewSubscriber(ctx, bus, "system", "kind.*",
-func (evt Event) {
-// Handle event
-})
-defer subscriber.Close()
+type Pattern struct {
+    // System identifies the system category of events to match
+    System System
+    
+    // Kind identifies the specific kind of events to match
+    Kind Kind
+}
 ```
 
-## Event Pattern Matching
+### Event Structure
 
-The system implements a sophisticated wildcard pattern matching system for event routing that supports hierarchical
-dot-notation patterns.
-
-### Pattern Types
-
-1. Single Wildcard (`*`)
-    - Matches exactly one segment
-    - Example: `a.*` matches `a.b` but not `a.b.c`
-
-2. Double Wildcard (`**`)
-    - Matches zero or more segments
-    - Can appear anywhere in the pattern
-    - Example: `a.**` matches `a`, `a.b`, `a.b.c`, etc.
-
-3. Exact Matches
-    - Direct string comparison
-    - Example: `a.b.c` only matches `a.b.c`
-
-4. Alternations (`(a|b)`)
-    - Matches any one of the provided options
-    - Example: `(a|b).state.*` matches both `a.state.x` and `b.state.x`
-
-### Pattern Rules
-
-1. Segment Boundaries
-    - Patterns are split on dots (`.`)
-    - Each segment is matched independently
-    - Example: `a.*.c` has three segments
-
-2. Wildcard Behavior
-    - `*` consumes exactly one segment
-    - `**` is greedy but backtracks to find matches
-    - `**` at pattern end matches all remaining segments
-
-### Examples
-
-```
-Pattern: "*.state.*"
-✓ Matches: "a.state.x"
-✗ No Match: "b.state.y.z"   (too many segments)
-✗ No Match: "b.event.y"     (middle segment must be "state")
-
-Pattern: "a.**"
-✓ Matches: "a"
-✓ Matches: "a.b"
-✓ Matches: "a.b.c.d"
-
-Pattern: "(a|b).*.state"
-✓ Matches: "a.x.state"
-✓ Matches: "b.y.state"
-✗ No Match: "c.x.state"     (first segment must be "a" or "b")
+```go
+type Event struct {
+    // System is the system or module the event originates from
+    System System
+    
+    // Kind is the specific type of the event
+    Kind Kind
+    
+    // Path is the path of the event
+    Path Path
+    
+    // Data is the payload of the event
+    Data any
+}
 ```
 
-### Performance Characteristics
+## Operation Flow
 
-- Pattern compilation is done once at subscription time
-- Matching is performed using recursive matching with backtracking
-- Alternations use simple array lookups
-- Memory efficient with minimal allocations during matching
+### Event Publishing
 
-## Performance Characteristics
+1. Publisher creates an Event instance with appropriate System, Kind, Path, and Data fields
+2. Publisher calls Bus.Send() with the event and a context
+3. Bus delivers the event to all matching subscribers based on their subscription patterns
+4. If a subscriber's channel is full or if context is canceled, event delivery is skipped for that subscriber
 
-- Uses buffered channels for non-blocking event distribution
-- Concurrent event processing with proper synchronization
-- Efficient pattern matching for event routing
-- Graceful handling of slow consumers
-- Built-in backpressure handling
+### Event Subscribing
+
+1. Subscriber creates a channel to receive events
+2. Subscriber calls Bus.Subscribe() or Bus.SubscribeP() with appropriate system and kind patterns
+3. Bus returns a unique SubscriberID for the subscription
+4. Subscriber receives events through the channel
+5. Subscriber can unsubscribe by calling Bus.Unsubscribe() with the SubscriberID
+
+### Event Routing
+
+1. Router is initialized with an event bus instance
+2. Handlers are registered with the router, each with a pattern to match events
+3. When an event matching a handler's pattern is published, the router delivers it to the handler
+4. Handler processes the event and returns any error
+5. Router handles error logging and continues processing events
+
+## Usage Patterns
+
+### Basic Event Publishing and Subscribing
+
+```go
+// Create a new event bus
+bus := eventbus.NewBus()
+
+// Create a channel to receive events
+eventCh := make(chan event.Event, 10)
+
+// Subscribe to events from a specific system
+ctx := context.Background()
+subID, err := bus.Subscribe(ctx, "system-name", eventCh)
+if err != nil {
+    // Handle error
+}
+
+// Publish an event
+event := event.Event{
+    System: "system-name",
+    Kind:   "event-kind",
+    Path:   "entity-path",
+    Data:   someData,
+}
+bus.Send(ctx, event)
+
+// Process received events
+go func() {
+    for evt := range eventCh {
+        // Process event
+    }
+}()
+
+// Later, unsubscribe when done
+bus.Unsubscribe(ctx, subID)
+```
+
+### Using Subscriber Helper
+
+```go
+// Create a new event bus
+bus := eventbus.NewBus()
+
+// Create a subscriber with a handler function
+subscriber, err := eventbus.NewSubscriber(
+    ctx,
+    bus,
+    "system-name",
+    "event-kind.*",
+    func(evt event.Event) {
+        // Process event
+    },
+)
+if err != nil {
+    // Handle error
+}
+
+// Event processing happens automatically in background goroutines
+
+// Close subscriber when done
+subscriber.Close()
+```
+
+### Using EventRouter with Handlers
+
+```go
+// Create event handlers
+handler1 := eventbus.NewBaseHandler(
+    eventbus.Pattern{System: "system-name", Kind: "kind1.*"},
+    func(ctx context.Context, evt event.Event) error {
+        // Process event
+        return nil
+    },
+)
+
+handler2 := eventbus.NewBaseHandler(
+    eventbus.Pattern{System: "system-name", Kind: "kind2.(create|update)"},
+    func(ctx context.Context, evt event.Event) error {
+        // Process event
+        return nil
+    },
+)
+
+handler3 := eventbus.NewBaseHandler(
+    eventbus.Pattern{System: "system-name", Kind: "service.**.status"},
+    func(ctx context.Context, evt event.Event) error {
+        // Process events from any depth of service hierarchy
+        // that ends with "status"
+        return nil
+    },
+)
+
+// Create and start router
+router, err := eventbus.StartRouter(
+    ctx,
+    bus,
+    eventbus.WithHandlers(handler1, handler2, handler3),
+    eventbus.WithLogger(logger),
+)
+if err != nil {
+    // Handle error
+}
+
+// Events are automatically routed to appropriate handlers
+
+// Stop router when done
+router.Stop()
+```
+
+### Context Integration
+
+```go
+// Store event bus in context
+ctx := event.WithBus(context.Background(), bus)
+
+// Later, retrieve event bus from context
+bus := event.GetBus(ctx)
+if bus != nil {
+    bus.Send(ctx, evt)
+}
+```
 
 ## Error Handling
 
-- Context-based cancellation and timeout support
-- Proper error propagation
-- Graceful shutdown on errors
-- Error logging with configurable logger
+The Event Bus component handles various error conditions:
 
-## Thread Safety
+- **Context Cancellation**: Operations are skipped if context is canceled
+- **Full Subscriber Channels**: Events are skipped for subscribers with full channels
+- **Handler Errors**: EventRouter logs errors but continues processing
+- **Subscription Errors**: Errors are returned for failed subscriptions
+- **Closed Bus**: Operations on a closed bus return appropriate errors
 
-The implementation is fully thread-safe and handles:
+## Implementation Notes
 
-- Concurrent subscriptions/unsubscriptions
-- Concurrent event publishing
-- Safe shutdown with multiple active subscribers
-- Race-free event distribution
+### Bus Implementation
 
-## Best Practices
+- Uses a dedicated goroutine for processing all operations
+- Employs buffered channels for handling subscription and event actions
+- Maintains thread safety with sync.Map for subscriber management
+- Implements graceful shutdown with proper cleanup of resources
+- Uses wildcard pattern matching for flexible event filtering
+- Handles concurrent operations with non-blocking message delivery
 
-1. Always use context for operation control:
+### Subscriber Implementation
 
-```go
-ctx, cancel := context.WithTimeout(context.Background(), timeout)
-defer cancel()
-```
+- Manages subscription lifecycle automatically
+- Handles event processing in background goroutines
+- Implements automatic cleanup on context cancellation
+- Ensures proper synchronization during shutdown
 
-2. Implement proper shutdown:
+### EventRouter Implementation
 
-```go
-defer bus.Stop()
-defer subscriber.Close()
-```
+- Supports dynamic handler registration
+- Manages handler subscriptions throughout their lifecycle
+- Provides error handling and logging for event processing
+- Implements concurrent operation with proper synchronization
 
-3. Handle backpressure with buffered channels:
+### Wildcard Implementation
 
-```go
-ch := make(chan events.Event, bufferSize)
-```
+- Implements pattern matching using recursive segment-based comparisons
+- Parses patterns into segments based on dot delimiter
+- Handles special wildcards with different matching semantics:
+   - "*" matches exactly one segment
+   - "**" matches zero or more segments (greedy matching)
+- Supports alternation with (a|b|c) syntax to match one of multiple options
+- Optimizes for common patterns to ensure efficient matching
+- Handles edge cases like empty patterns and boundary conditions
 
-4. Use pattern matching effectively:
+### Wildcard Pattern Matching
 
-```go
-// Specific events
-"users.created"
-// All user events
-"users.*"
-// All system events
-"system.**"
-```
-
-## Limitations
-
-- Events are delivered at-least-once (no exactly-once guarantee)
-- No persistent event storage
-- No built-in event ordering guarantees
-- No automatic message retry mechanism
-
-## Security Considerations
-
-- No built-in authentication/authorization
-- No encryption of event payloads
-- Should be used within trusted boundaries
-- Consider implementing middleware for security checks
-
-## Testing
-
-The system includes comprehensive tests covering:
-
-- Basic functionality
-- Concurrent operations
-- Error conditions
-- Pattern matching
-- Performance under load
-- Graceful shutdown
-- Context cancellation
+- Implements a sophisticated hierarchical pattern matching system
+- Supports single "*" wildcards that match exactly one segment
+- Supports "**" wildcards that match zero or more segments (greedy matching)
+- Supports alternation patterns with (a|b) syntax for matching one of multiple options
+- Enables dot-separated hierarchical event naming (e.g., "system.service.action")
+- Allows for precise control over event filtering with mixed patterns
+- Employs recursive pattern matching for handling complex nested patterns
