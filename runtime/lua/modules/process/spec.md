@@ -5,8 +5,6 @@
 The Pony Runtime Process API provides a robust actor-model implementation for building concurrent, message-passing
 applications in Lua. This specification is designed for AI agents and developers working with the Pony Runtime.
 
-This API is only available inside processes and workflows.
-
 ## Core Concepts
 
 ### Actor Model
@@ -57,6 +55,27 @@ Examples:
 local pid = process.pid()  -- Returns "{host1|app:worker|proc123}"
 ```
 
+## Process Constants
+
+The Pony Runtime defines important constants for system events:
+
+```lua
+-- System event kinds (for identifying event types)
+process.event.CANCEL           -- "pid.cancel" - Cancellation request event
+process.event.RESULT           -- "pid.exit" - Process result/exit notification event
+process.event.LINK_DOWN        -- "pid.link.down" - Linked process failure event
+```
+
+## System Topics
+
+The system uses special topics for internal message routing:
+
+```lua
+-- These are internal constants, shown for reference
+TopicInbox = "@pid/inbox"   -- Inbox topic for process messages
+TopicEvents = "@pid/events" -- Events topic for process lifecycle events
+```
+
 ## Communication
 
 ### Message Passing
@@ -94,19 +113,11 @@ Messages can be received through two types of channels:
 local task_channel = process.listen("task")
 
 -- Receive a message (blocks until message arrives)
-local task = task_channel:receive()
+local task, ok = task_channel:receive()
 
--- Receive with timeout
-local task, err = task_channel:receive(1000)  -- 1000ms timeout
-if err == "timeout" then
-    -- Handle timeout
-end
+-- Already unmarshalled
+print(task.foo)
 ```
-
-Messages from topic-specific channels:
-
-- Contain raw payload values
-- One value per `:receive()` call
 
 #### 2. Default Inbox
 
@@ -114,14 +125,15 @@ Messages from topic-specific channels:
 -- Get the process inbox for messages without dedicated listeners
 local inbox = process.inbox()
 
--- Receive a message (blocks until message arrives)
+-- Receive a message
 local message = inbox:receive()
 
 -- Access message properties
 print("Topic:", message:topic())
 local payload = message:payload()
+
 -- Convert payload to Lua data
-local data = payload:unmarshal()
+local data = payload:data()
 ```
 
 Messages from inbox:
@@ -129,10 +141,11 @@ Messages from inbox:
 - Include topic metadata
 - Include original payload wrapped in a message object
 - Require unmarshal to access data
+- You can send payload values without unpacking
 
 ### System Events
 
-Processes can listen for system events:
+Processes and workflows can listen for system events:
 
 ```lua
 -- Create a channel for system events
@@ -144,12 +157,73 @@ local event = events:receive()
 -- Check event type
 if event.event.kind == process.event.CANCEL then
     -- Handle cancellation request
+    local deadline = event.deadline -- Time when cancellation should take effect
 elseif event.event.kind == process.event.RESULT then
     -- Handle process result notification
+    local result = event.result -- Process execution result
+    local data = result.payload:data() -- Result payload value (unmarshal required)
+    local error = result.error -- Error if any
 elseif event.event.kind == process.event.LINK_DOWN then
     -- Handle linked process failure
 end
 ```
+
+#### Event Structures
+
+System events are delivered as Lua tables with the following structures:
+
+1. Base Event Structure (present in all events):
+
+```lua
+event = {
+    at = timestamp,  -- Time when the event occurred
+    kind = "pid.cancel|pid.exit|pid.link.down|...",  -- Event type
+    from = "{pid}"   -- Source PID
+}
+```
+
+2. Exit Event (RESULT):
+
+```lua
+{
+    event = {  -- Base event structure
+        at = timestamp,
+        kind = "pid.exit",
+        from = "{pid}"
+    },
+    result = {
+        payload = {},     -- payload object
+        error = "..."     -- Error message (if failed)
+    }
+}
+```
+
+3. Cancel Event:
+
+```lua
+{
+    event = {  -- Base event structure
+        at = timestamp,
+        kind = "pid.cancel",
+        from = "{pid}"
+    },
+    deadline = timestamp  -- When cancellation should take effect
+}
+```
+
+4. Link Event:
+
+```lua
+{
+    event = {  -- Base event structure
+        at = timestamp,
+        kind = "pid.link.down", -- Also could be "pid.link.established" or "pid.link.removed"
+        from = "{pid}"
+    }
+}
+```
+
+> Note, that link down will only arrive after abnormal exit and no trap_links option is set.
 
 ## Process Management
 
@@ -167,21 +241,21 @@ local child_pid = process.spawn(
 local child_pid = process.spawn_monitored(
     "namespace:name",
     "host_id",
-    { param1 = "value1", param2 = "value2" }  -- Arguments as a table
+     arg1, arg2, arg3 
 )
 
 -- Spawn with linking (if child fails, parent also fails)
 local child_pid = process.spawn_linked(
     "namespace:name",
     "host_id",
-    { job_id = "12345", priority = "high" }
+    arg1, arg2, arg3  
 )
 ```
 
 #### Supervision Behaviors
 
 - **Spawn**: No supervision, child failure doesn't affect parent
-- **Monitored**: Parent receives notification when child terminates (success or failure)
+- **Monitored**: Parent receives notification (event.RESULT) when child terminates (success or failure)
 - **Linked**: Bi-directional link where failure propagates (if child crashes, parent also crashes)
 
 ### Process Registry
@@ -211,6 +285,19 @@ process.terminate(pid_or_name)
 -- Request graceful cancellation with deadline
 process.cancel(pid_or_name, "5s")  -- String duration
 process.cancel(pid_or_name, 5000)  -- Milliseconds
+```
+
+### Process Options
+
+```lua
+-- Get current process options
+local options = process.get_options()
+print(options.trap_links)  -- Check if link trapping is enabled
+
+-- Set process options
+local success, error = process.set_options({
+    trap_links = true  -- Enable trap_links to receive notifications instead of failing
+})
 ```
 
 ## Process Implementation Patterns
@@ -265,7 +352,7 @@ local function run(args)
             -- Handle inbox message
             local msg = result.value
             local topic = msg:topic()
-            local payload = msg:payload():unmarshal()
+            local payload = msg:payload():data()
             handle_inbox_message(topic, payload)
             
         elseif result.channel == events then
@@ -284,55 +371,19 @@ end
 return { run = run }
 ```
 
-### Actor Pattern
+## Channel Operations
 
-The actor pattern combines state and behavior into a single unit:
+The channel system provides a Go-like concurrency model for communication between coroutines within a process.
+
+### Channel Creation
 
 ```lua
-local actor = require("actor")
+-- Create an unbuffered channel
+local ch = channel.new()
 
-local function run(args)
-    -- Initial state
-    local state = {
-        pid = process.pid(),
-        count = 0
-    }
-    
-    -- Create actor with state and message handlers
-    local my_actor = actor.new(state, {
-        -- Handler for the "increment" topic
-        increment = function(state, msg)
-            state.count = state.count + (msg.value or 1)
-            return state.count
-        end,
-        
-        -- Handler for the "get_count" topic
-        get_count = function(state)
-            return state.count
-        end,
-        
-        -- Handler for system cancellation
-        on_cancel = function(state)
-            return actor.exit({ 
-                final_count = state.count, 
-                status = "shutdown" 
-            })
-        end,
-        
-        -- Default handler for unhandled messages
-        __default = function(state, msg, topic)
-            print("Received unhandled message on topic:", topic)
-        end
-    })
-    
-    -- Start the actor's event loop
-    return my_actor.run()
-end
-
-return { run = run }
+-- Create a buffered channel with capacity 5
+local ch = channel.new(5)
 ```
-
-## Channel Operations
 
 ### Channel Select
 
@@ -341,26 +392,29 @@ The `channel.select` function allows waiting on multiple channels simultaneously
 ```lua
 local result = channel.select({
     channel1:case_receive(),
-    channel2:case_receive(timeout_ms),
-    channel3:case_receive()
+    channel2:case_receive(),
+    channel3:case_send("value")
 })
 
 if result.ok then
     -- Channel had data
-    print("Received from:", result.channel)
+    print("Selected channel:", result.channel)
     print("Value:", result.value)
 else
-    -- Error or timeout
+    -- Error or closed channel
     print("Error:", result.error)
 end
 ```
 
-### Timeouts
+### Implementing Timeouts
+
+Since there are no direct timeout parameters on channel operations, timeouts must be implemented using the time module
+with a dedicated timeout channel:
 
 ```lua
 local time = require("time")
 
--- Create a timeout channel
+-- Create a timeout channel that will receive after specified duration
 local timeout = time.after("5s")  -- 5 second timeout
 
 -- Use in select
@@ -371,42 +425,28 @@ local result = channel.select({
 
 if result.channel == timeout then
     -- Timeout occurred
+    handle_timeout()
+else
+    -- Message received within timeout
+    process_message(result.value)
 end
 ```
 
-## Best Practices for AI Agents
+### Select with Default Case
 
-### 1. Process Structure
+```lua
+-- Non-blocking select with default case
+local result = channel.select({
+    ch1:case_receive(),
+    ch2:case_send("value"),
+    default = true
+})
 
-- Always implement the `run` function that takes arguments and returns a result
-- Keep process code self-contained (no global state)
-- Handle system events, especially cancellation
-
-### 2. Message Handling
-
-- Use `process.listen()` for topic-specific messages
-- Use `process.inbox()` for fallback messages
-- Always use `channel.select()` to handle multiple channels
-- Check message types before processing
-
-### 3. Process Management
-
-- Use `spawn_monitored` when you need to track child process completion
-- Use `spawn_linked` when child failures should propagate to parent
-- Use plain `spawn` for independent processes
-- Always check return values for errors
-
-### 4. Error Handling
-
-- Return error information in process results
-- Use message passing for error notifications
-- Implement proper cleanup in termination handlers
-
-### 5. Performance Considerations
-
-- Keep messages small
-- Use appropriate buffering for channels
-- Implement batching for high-throughput scenarios
+if result.default then
+    -- No operations were ready
+    print("Would have blocked, continuing...")
+end
+```
 
 ## Common Patterns and Examples
 
@@ -437,12 +477,12 @@ local function send_request(target_pid, request_data)
     end
     
     local response = result.value
-    return response:payload():unmarshal()
+    return response:payload():data()
 end
 
 -- Responder
 local function handle_request(msg)
-    local request = msg:payload():unmarshal()
+    local request = msg:payload():data()
     
     -- Process request
     local result = process_data(request.data)
@@ -483,7 +523,7 @@ local function distribute_work(work_items, worker_count)
         end
     end
     
-    -- Wait for results
+    -- Wait for results using monitoring events
     -- ...
 end
 ```
@@ -527,6 +567,49 @@ local function supervisor()
     end
 end
 ```
+
+## Best Practices for AI Agents
+
+### 1. Process Structure
+
+- Always implement the `run` function that takes arguments and returns a result
+- Keep process code self-contained (no global state)
+- Handle system events, especially cancellation
+
+### 2. Message Handling
+
+- Use `process.listen()` for topic-specific messages
+- Use `process.inbox()` for fallback messages
+- Always use `channel.select()` to handle multiple channels
+- Check message types before processing
+
+### 3. Process Management
+
+- Use `spawn_monitored` when you need to track child process completion
+- Use `spawn_linked` when child failures should propagate to parent
+- Use plain `spawn` for independent processes
+- Always check return values for errors
+
+### 4. Error Handling
+
+- Return error information in process results
+- Use message passing for error notifications
+- Implement proper cleanup in termination handlers
+- Use `trap_links = true` option to handle link failures instead of crashing
+
+### 5. Timeouts and Deadlines
+
+- Always implement timeouts for operations that may block
+- Use the `time.after()` function with `channel.select()` for timeout handling
+- Set realistic deadlines for cancellation requests
+- Handle timeout cases gracefully
+
+### 6. Performance Considerations
+
+- Keep messages small
+- Use appropriate buffering for channels
+- Implement batching for high-throughput scenarios
+- Avoid creating unnecessary processes for short-lived operations
 
 ## Context-Aware Message Handling
 
