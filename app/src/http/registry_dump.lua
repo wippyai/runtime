@@ -113,11 +113,13 @@ local function handler()
     local result = {}
     for i, entry in ipairs(entries) do
         -- Create simplified entry representation
+        local idp = registry.parse_id(entry.id)
+
         local clean_entry = {
             id = {
-                ns = entry.id.ns,
-                name = entry.id.name,
-                full = entry.id.ns .. ":" .. entry.id.name
+                ns = idp.ns,
+                name = idp.name,
+                full = entry.id
             },
             kind = entry.kind,
             meta = entry.meta,
@@ -602,8 +604,10 @@ local function handler()
         -- Build list of unique namespaces for dropdown
         local namespaces = {}
         for _, entry in ipairs(entries) do
-            if not namespaces[entry.id.ns] then
-                namespaces[entry.id.ns] = true
+            local ipd = registry.parse_id(entry.id)
+
+            if not namespaces[ipd.ns] then
+                namespaces[ipd.ns] = true
             end
         end
 
