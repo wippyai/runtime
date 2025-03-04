@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/topology"
+	"github.com/ponyruntime/pony/runtime/lua/component/process"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
@@ -14,8 +15,8 @@ import (
 
 // Channel context keys for UoW storage
 var (
-	inboxChannel  = &context.Key{Name: "process.pubsub.inbox"}
-	eventsChannel = &context.Key{Name: "process.pubsub.events"}
+	inboxChannel  = &context.Key{Name: "process.channel.inbox"}
+	eventsChannel = &context.Key{Name: "process.channel.events"}
 )
 
 // Module provides pubsub-based inbox and channel functionality for long-running processes
@@ -52,8 +53,122 @@ func (m *Module) Loader(l *lua.LState) int {
 	processTable.RawSetString("events", l.NewFunction(m.events))
 	processTable.RawSetString("listen", l.NewFunction(m.listen))
 
+	// Add our methods to the process table
+	processTable.RawSetString("get_options", l.NewFunction(m.getOptions))
+	processTable.RawSetString("set_options", l.NewFunction(m.setOptions))
+
 	// No need to return anything as we're modifying the global module
 	return 0
+}
+
+// getOptions retrieves current process options from UoW
+// Returns: options table
+func (m *Module) getOptions(l *lua.LState) int {
+	// Get UoW from context
+	uw := engine.GetUnitOfWork(l.Context())
+	if uw == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("no unit of work found"))
+		return 2
+	}
+
+	// Create options table
+	options := l.CreateTable(0, 1) // Initial size for known options
+
+	// Get existing options from UoW or use defaults
+	procVal, found := uw.Values().Get(process.StateKey)
+	if !found {
+		l.RaiseError("invalid operational context")
+		return 0
+	}
+
+	proc, ok := procVal.(*process.State)
+	if !ok {
+		l.RaiseError("invalid operational context")
+		return 0
+	}
+
+	options.RawSetString("trap_links", lua.LBool(proc.IsTrapLinksEnabled()))
+
+	l.Push(options)
+	return 1
+
+}
+
+// setOptions configures process options
+// Params: options_table
+// Returns: success, error
+func (m *Module) setOptions(l *lua.LState) int {
+	// Get UoW from context
+	uw := engine.GetUnitOfWork(l.Context())
+	if uw == nil {
+		l.Push(lua.LBool(false))
+		l.Push(lua.LString("no unit of work found"))
+		return 2
+	}
+
+	// Validate that argument is a table
+	if l.GetTop() < 1 || l.Get(1).Type() != lua.LTTable {
+		l.Push(lua.LBool(false))
+		l.Push(lua.LString("options parameter must be a table"))
+		return 2
+	}
+
+	// Get process state from UoW
+	procVal, found := uw.Values().Get(process.StateKey)
+	if !found {
+		l.Push(lua.LBool(false))
+		l.Push(lua.LString("invalid operational context"))
+		return 2
+	}
+
+	proc, ok := procVal.(*process.State)
+	if !ok {
+		l.Push(lua.LBool(false))
+		l.Push(lua.LString("invalid operational context"))
+		return 2
+	}
+
+	options := l.CheckTable(1)
+
+	// Track if we found any unsupported options
+	unsupportedOption := ""
+
+	// Process trap_links option if present
+	if trapLinks := options.RawGetString("trap_links"); trapLinks != lua.LNil {
+		if trapLinks.Type() != lua.LTBool {
+			l.Push(lua.LBool(false))
+			l.Push(lua.LString("trap_links must be a boolean"))
+			return 2
+		}
+
+		proc.SetTrapLinks(lua.LVAsBool(trapLinks))
+
+		m.log.Debug("trap_links setting changed",
+			zap.Bool("enable", lua.LVAsBool(trapLinks)))
+	}
+
+	// Check for any other options - first one becomes error
+	options.ForEach(func(k lua.LValue, v lua.LValue) {
+		if k.Type() == lua.LTString {
+			keyStr := string(k.(lua.LString))
+			if keyStr != "trap_links" && unsupportedOption == "" {
+				unsupportedOption = keyStr
+			}
+		}
+	})
+
+	// If we found an unsupported option, return error
+	if unsupportedOption != "" {
+		l.Push(lua.LBool(false))
+		l.Push(lua.LString(fmt.Sprintf("option %s is not supported", unsupportedOption)))
+		return 2
+	}
+
+	// Return success
+	l.Push(lua.LBool(true))
+	l.Push(lua.LNil)
+	return 2
 }
 
 // inbox creates a special inbox channel for receiving messages that don't match other topics
