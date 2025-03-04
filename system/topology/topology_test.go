@@ -227,22 +227,39 @@ func TestTopology_LinkFunctionality(t *testing.T) {
 		assert.Equal(t, pid3, links1[0], "pid1 should still be linked to pid3")
 	})
 
-	t.Run("notify propagates to linked processes", func(t *testing.T) {
+	t.Run("notify propagates to linked processes for abnormal exits", func(t *testing.T) {
 		upstream.reset()
 
+		// Create result with an error to trigger abnormal exit
+		testErr := errors.New("test error")
 		result := &runtime.Result{
 			Payload: payload.New("test result"),
+			Error:   testErr,
 		}
 
 		topo.Notify(pid1, result)
 
-		// Check that linked pid3 received notification
+		// Check that linked pid3 received notification for abnormal exit
 		sends3 := upstream.getSends(pid3)
-		assert.Equal(t, 1, len(sends3), "pid3 should receive exit notification")
+		assert.Equal(t, 1, len(sends3), "pid3 should receive exit notification for abnormal exit")
 
 		// Check that unlinked pid2 didn't receive notification
 		sends2 := upstream.getSends(pid2)
 		assert.Equal(t, 0, len(sends2), "pid2 should not receive exit notification")
+
+		// Reset and test normal exit
+		upstream.reset()
+
+		// Create result without an error for normal exit
+		normalResult := &runtime.Result{
+			Payload: payload.New("normal exit"),
+		}
+
+		topo.Notify(pid1, normalResult)
+
+		// Check that linked pid3 did not receive notification for normal exit
+		sends3 = upstream.getSends(pid3)
+		assert.Equal(t, 0, len(sends3), "pid3 should not receive exit notification for normal exit")
 	})
 
 	t.Run("removing process cleans up links", func(t *testing.T) {
@@ -307,11 +324,13 @@ func TestTopology_Concurrency(t *testing.T) {
 		assert.Equal(t, workerCount, len(links), "mainPid should be linked to all workers")
 	})
 
-	t.Run("exit propagation to multiple links", func(t *testing.T) {
+	t.Run("exit propagation to multiple links for abnormal exit", func(t *testing.T) {
 		upstream.reset()
 
+		// Create result with an error to trigger abnormal exit
 		result := &runtime.Result{
-			Payload: payload.New("main process exited"),
+			Payload: payload.New("main process exited with error"),
+			Error:   errors.New("test abnormal exit"),
 		}
 
 		topo.Notify(mainPid, result)
@@ -319,7 +338,23 @@ func TestTopology_Concurrency(t *testing.T) {
 		// Verify all workers received exit notification
 		for _, worker := range workers {
 			sends := upstream.getSends(worker)
-			assert.Equal(t, 1, len(sends), "worker should receive exit notification")
+			assert.Equal(t, 1, len(sends), "worker should receive exit notification for abnormal exit")
+		}
+
+		// Test normal exit doesn't send notifications
+		upstream.reset()
+
+		// Create result without an error for normal exit
+		normalResult := &runtime.Result{
+			Payload: payload.New("main process exited normally"),
+		}
+
+		topo.Notify(mainPid, normalResult)
+
+		// Verify workers didn't receive notifications for normal exit
+		for _, worker := range workers {
+			sends := upstream.getSends(worker)
+			assert.Equal(t, 0, len(sends), "worker should not receive exit notification for normal exit")
 		}
 	})
 
@@ -372,6 +407,7 @@ func TestTopology_UpstreamError(t *testing.T) {
 	// Notify should not panic on upstream error
 	result := &runtime.Result{
 		Payload: payload.New("test result"),
+		Error:   errors.New("error for testing"),
 	}
 
 	// This should not panic even with upstream error

@@ -93,7 +93,7 @@ func (m *Manager) launchOnHost(ctx context.Context, host api.Host, pid pubsub.PI
 	case api.Delegated:
 		// For delegated hosts, we don't pass the Process instance
 		// But we should consider adding a way to pass lifecycle info to delegated hosts as well
-		newPid, err := h.Launch(ctx, pid, ps.Input)
+		newPid, err := h.Launch(ctx, pid, ps.Lifecycle, ps.Input)
 		if err != nil {
 			return pubsub.PID{}, fmt.Errorf("failed to launch process on delegated host: %w", err)
 		}

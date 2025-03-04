@@ -180,7 +180,7 @@ func (t *Topology) GetLinks(pid pubsub.PID) []pubsub.PID {
 // Notify sends exit event to all watchers and links of a pid.
 // The provided result contains the process exit information to be shared.
 func (t *Topology) Notify(pid pubsub.PID, result *runtime.Result) {
-	// send to all monitors
+	// Send to all monitors
 	if value, ok := t.monitors.Load(pid.String()); ok {
 		resultPayload := payload.New(topology.ExitEvent{
 			Event: topology.Event{
@@ -214,10 +214,12 @@ func (t *Topology) Notify(pid pubsub.PID, result *runtime.Result) {
 		})
 	}
 
-	// send to all linked processes
-	linkedPIDs := t.GetLinks(pid)
+	// Check if this is a normal exit
+	isNormalExit := result.Error == nil
 
-	if len(linkedPIDs) > 0 {
+	// For linked processes, only send KindLinkDown for abnormal exits
+	linkedPIDs := t.GetLinks(pid)
+	if len(linkedPIDs) > 0 && !isNormalExit {
 		exitPayload := payload.New(topology.ExitEvent{
 			Event: topology.Event{
 				At:   time.Now(),
@@ -236,6 +238,14 @@ func (t *Topology) Notify(pid pubsub.PID, result *runtime.Result) {
 			_ = t.upstream.Send(pkg)
 		}
 	}
+
+	// Cleanup is important regardless of exit type
+	// This is normally done by calling t.Remove(pid) after Notify
+	// but we can ensure the cleanup is done here as well
+
+	// Note: We don't do the actual cleanup in Notify to allow
+	// separate control over notification and removal timing.
+	// The caller should call t.Remove(pid) after this method.
 }
 
 // Remove completely removes a pid and all its watchers, destroying all links.
