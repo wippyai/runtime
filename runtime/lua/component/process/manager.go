@@ -26,7 +26,6 @@ var (
 func init() {
 	processBuild = code.NewBuildOptions().
 		WithMode(code.AllowAll).
-		WithDenied(registry.ID{Name: "subscribe"}).
 		WithPreloaded(code.Preload{Name: "channel", ModuleID: registry.ID{Name: "channel"}}).
 		WithPreloaded(code.Preload{Name: "process", ModuleID: registry.ID{Name: "process"}}).
 		WithPreloaded(code.Preload{Name: "pubsub_inbox", ModuleID: registry.ID{Name: "pubsub_inbox"}}).
@@ -198,7 +197,7 @@ func (m *Manager) registerPrototype(ctx context.Context, id registry.ID) {
 				return nil, err
 			}
 
-			return NewProcess(m.log, runner, funcName)
+			return NewLuaProcess(m.log, runner, funcName)
 		}),
 	})
 }

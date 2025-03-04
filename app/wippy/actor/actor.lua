@@ -20,7 +20,7 @@ function actor.new(initial_state, handlers)
         local inbox = process.inbox()
         local events = process.events()
         -- Listen on dedicated message topic if handler exists
-        local msgs = handlers.message and process.listen("message") or nil -- todo fix it
+        local msgs = handlers.message and process.listen("message") or nil
 
         local select_cases = {
             inbox:case_receive(),
@@ -59,20 +59,27 @@ function actor.new(initial_state, handlers)
 
             -- Handle inbox messages
             if result.channel == inbox and result.value then
+                -- inbox allows us to access raw values
                 local msg = result.value
-                local handler = handlers[msg.topic]
+
+                -- Extract topic and payload from message
+                local topic = msg:topic()
+                local payload_ud = msg:payload()
+                local payload = payload_ud:data()
+
+                local handler = handlers[topic]
 
                 if handler then
-                    local reply = handler(state, msg.payload)
+                    local reply = handler(state, payload)
                     if is_exit(reply) then
                         return reply.result
                     end
-                    if reply and msg.payload.reply_to then
-                        process.send(msg.payload.reply_to, msg.topic .. "_reply", reply)
+                    if reply and payload.reply_to then
+                        process.send(payload.reply_to, topic .. "_reply", reply)
                     end
                 elseif handlers.__default then
                     -- Call default handler with topic as extra param
-                    local reply = handlers.__default(state, msg.payload, msg.topic)
+                    local reply = handlers.__default(state, payload, topic)
                     if is_exit(reply) then
                         return reply.result
                     end

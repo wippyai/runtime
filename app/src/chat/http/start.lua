@@ -43,7 +43,8 @@ local function handler()
         return
     end
 
-    local response = result.value.payload
+    -- raw payload access via data, can be forwarded
+    local response = result.value:payload():data()
     if response.status ~= "ok" then
         res:set_status(http.STATUS.INTERNAL_ERROR)
         res:write_json({
