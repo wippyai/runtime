@@ -33,7 +33,7 @@ func (m *Module) Name() string {
 
 // Loader is the entry point for loading the module into Lua
 func (m *Module) Loader(l *lua.LState) int {
-	mod := l.CreateTable(0, 12) // Size adjusted for all functions
+	mod := l.CreateTable(0, 16) // Size adjusted for all functions
 
 	// Register process functions directly with RawSetString for better performance
 	mod.RawSetString("pid", l.NewFunction(m.pid))
@@ -45,11 +45,15 @@ func (m *Module) Loader(l *lua.LState) int {
 	mod.RawSetString("cancel", l.NewFunction(m.cancel))
 	mod.RawSetString("get_options", l.NewFunction(m.getOptions))
 	mod.RawSetString("set_options", l.NewFunction(m.setOptions))
+	mod.RawSetString("monitor", l.NewFunction(m.monitor))
+	mod.RawSetString("unmonitor", l.NewFunction(m.unmonitor))
+	mod.RawSetString("link", l.NewFunction(m.link))
+	mod.RawSetString("unlink", l.NewFunction(m.unlink))
 
 	// Create event constants table with exact size
 	events := l.CreateTable(0, 3)
 	events.RawSetString("CANCEL", lua.LString(topology.KindCancel))
-	events.RawSetString("RESULT", lua.LString(topology.KindResult))
+	events.RawSetString("EXIT", lua.LString(topology.KindExit))
 	events.RawSetString("LINK_DOWN", lua.LString(topology.KindLinkDown))
 	mod.RawSetString("event", events)
 
@@ -175,6 +179,26 @@ func (m *Module) getRegistry(l *lua.LState) (topology.PIDRegistry, bool) {
 	}
 
 	return reg, true
+}
+
+// getTopology retrieves the topology instance from context
+func (m *Module) getTopology(l *lua.LState) (topology.Topology, bool) {
+	ctx := l.Context()
+	if ctx == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("no context found"))
+		return nil, false
+	}
+
+	// Get topology from context
+	topo := topology.GetTopology(ctx)
+	if topo == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("no topology found in context"))
+		return nil, false
+	}
+
+	return topo, true
 }
 
 // resolvePID attempts to resolve a string to a PID, either by direct parsing
@@ -587,6 +611,194 @@ func (m *Module) cancel(l *lua.LState) int {
 		zap.String("from", self.String()),
 		zap.String("pid", pid.String()),
 		zap.Time("deadline", deadline),
+	)
+
+	l.Push(lua.LTrue)
+	return 1
+}
+
+// monitor establishes monitoring of another process
+// Params: destination (PID or registered name)
+// Returns: success, error
+func (m *Module) monitor(l *lua.LState) int {
+	topo, ok := m.getTopology(l)
+	if !ok {
+		return 2 // Error values already pushed by getTopology
+	}
+
+	self, ok := m.checkPID(l)
+	if !ok {
+		return 2 // Error values already pushed by checkPID
+	}
+
+	// Get destination argument
+	if l.GetTop() < 1 {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("monitor requires a destination argument"))
+		return 2
+	}
+
+	pidOrName := l.CheckString(1)
+
+	// Resolve destination
+	pid, err := m.resolvePID(l, pidOrName)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	// Set up monitoring
+	if err := topo.Wait(self, pid); err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	m.log.Debug("process monitoring established",
+		zap.String("from", self.String()),
+		zap.String("pid", pid.String()),
+	)
+
+	l.Push(lua.LTrue)
+	return 1
+}
+
+// unmonitor removes monitoring of another process
+// Params: destination (PID or registered name)
+// Returns: success, error
+func (m *Module) unmonitor(l *lua.LState) int {
+	topo, ok := m.getTopology(l)
+	if !ok {
+		return 2 // Error values already pushed by getTopology
+	}
+
+	self, ok := m.checkPID(l)
+	if !ok {
+		return 2 // Error values already pushed by checkPID
+	}
+
+	// Get destination argument
+	if l.GetTop() < 1 {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("unmonitor requires a destination argument"))
+		return 2
+	}
+
+	pidOrName := l.CheckString(1)
+
+	// Resolve destination
+	pid, err := m.resolvePID(l, pidOrName)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	// Remove monitoring
+	if err := topo.Release(self, pid); err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	m.log.Debug("process monitoring removed",
+		zap.String("from", self.String()),
+		zap.String("pid", pid.String()),
+	)
+
+	l.Push(lua.LTrue)
+	return 1
+}
+
+// link establishes a bidirectional link with another process
+// Params: destination (PID or registered name)
+// Returns: success, error
+func (m *Module) link(l *lua.LState) int {
+	topo, ok := m.getTopology(l)
+	if !ok {
+		return 2 // Error values already pushed by getTopology
+	}
+
+	self, ok := m.checkPID(l)
+	if !ok {
+		return 2 // Error values already pushed by checkPID
+	}
+
+	// Get destination argument
+	if l.GetTop() < 1 {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("link requires a destination argument"))
+		return 2
+	}
+
+	pidOrName := l.CheckString(1)
+
+	// Resolve destination
+	pid, err := m.resolvePID(l, pidOrName)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	// Establish link
+	if err := topo.Link(self, pid); err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	m.log.Debug("process link established",
+		zap.String("from", self.String()),
+		zap.String("to", pid.String()),
+	)
+
+	l.Push(lua.LTrue)
+	return 1
+}
+
+// unlink removes a bidirectional link with another process
+// Params: destination (PID or registered name)
+// Returns: success, error
+func (m *Module) unlink(l *lua.LState) int {
+	topo, ok := m.getTopology(l)
+	if !ok {
+		return 2 // Error values already pushed by getTopology
+	}
+
+	self, ok := m.checkPID(l)
+	if !ok {
+		return 2 // Error values already pushed by checkPID
+	}
+
+	// Get destination argument
+	if l.GetTop() < 1 {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("unlink requires a destination argument"))
+		return 2
+	}
+
+	pidOrName := l.CheckString(1)
+
+	// Resolve destination
+	pid, err := m.resolvePID(l, pidOrName)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	// Remove link
+	if err := topo.Unlink(self, pid); err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	m.log.Debug("process link removed",
+		zap.String("from", self.String()),
+		zap.String("to", pid.String()),
 	)
 
 	l.Push(lua.LTrue)

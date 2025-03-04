@@ -24,8 +24,8 @@ const (
 const (
 	// KindCancel indicates a cancellation request
 	KindCancel Kind = "pid.cancel"
-	// KindResult indicates a process has exited
-	KindResult Kind = "pid.exit"
+	// KindExit indicates a process has exited
+	KindExit Kind = "pid.exit"
 
 	// KindLinkDown indicates a linked process is down
 	KindLinkDown Kind = "pid.link.down"
@@ -155,7 +155,7 @@ func Exit(pid pubsub.PID, result payload.Payload, err error) *pubsub.Package {
 			Event: Event{
 				At:   time.Now(),
 				From: pid,
-				Kind: KindResult,
+				Kind: KindExit,
 			},
 			Result: &runtime.Result{
 				Value: result,
