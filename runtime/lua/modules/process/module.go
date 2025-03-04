@@ -1,4 +1,4 @@
-package runtime
+package process
 
 import (
 	"fmt"
@@ -13,32 +13,33 @@ import (
 	"time"
 )
 
-// ProcessAPIModule provides a unified process API for all contexts
-type ProcessAPIModule struct {
+// Module provides a unified process API for all contexts
+type Module struct {
 	log *zap.Logger
 }
 
 // NewProcessAPIModule creates a new unified process API module
-func NewProcessAPIModule(log *zap.Logger) *ProcessAPIModule {
-	return &ProcessAPIModule{
+func NewProcessAPIModule(log *zap.Logger) *Module {
+	return &Module{
 		log: log,
 	}
 }
 
 // Name returns the module name
-func (m *ProcessAPIModule) Name() string {
+func (m *Module) Name() string {
 	return "process"
 }
 
 // Loader is the entry point for loading the module into Lua
-func (m *ProcessAPIModule) Loader(l *lua.LState) int {
-	mod := l.CreateTable(0, 8)
+func (m *Module) Loader(l *lua.LState) int {
+	mod := l.CreateTable(0, 10) // +2 for extensions
 
 	// Register process functions directly with RawSetString for better performance
 	mod.RawSetString("pid", l.NewFunction(m.pid))
 	mod.RawSetString("send", l.NewFunction(m.send))
 	mod.RawSetString("spawn", l.NewFunction(m.spawn))
 	mod.RawSetString("spawn_monitored", l.NewFunction(m.spawnMonitored))
+
 	// "spawn_linked" not yet implemented
 	mod.RawSetString("terminate", l.NewFunction(m.terminate))
 	mod.RawSetString("cancel", l.NewFunction(m.cancel))
@@ -57,12 +58,13 @@ func (m *ProcessAPIModule) Loader(l *lua.LState) int {
 	reg.RawSetString("unregister", l.NewFunction(m.registryUnregister))
 	mod.RawSetString("registry", reg)
 
+	RegisterMessageType(l)
 	l.Push(mod)
 	return 1
 }
 
 // checkPID validates context and returns PID if valid
-func (m *ProcessAPIModule) checkPID(l *lua.LState) (pubsub.PID, bool) {
+func (m *Module) checkPID(l *lua.LState) (pubsub.PID, bool) {
 	ctx := l.Context()
 	if ctx == nil {
 		l.Push(lua.LNil)
@@ -76,7 +78,7 @@ func (m *ProcessAPIModule) checkPID(l *lua.LState) (pubsub.PID, bool) {
 }
 
 // getNode retrieves node from context
-func (m *ProcessAPIModule) getNode(l *lua.LState) (pubsub.Node, bool) {
+func (m *Module) getNode(l *lua.LState) (pubsub.Node, bool) {
 	ctx := l.Context()
 	if ctx == nil {
 		l.Push(lua.LNil)
@@ -95,7 +97,7 @@ func (m *ProcessAPIModule) getNode(l *lua.LState) (pubsub.Node, bool) {
 }
 
 // getProcessManager retrieves process manager from context using the standard context key
-func (m *ProcessAPIModule) getProcessManager(l *lua.LState) (process.Manager, bool) {
+func (m *Module) getProcessManager(l *lua.LState) (process.Manager, bool) {
 	ctx := l.Context()
 	if ctx == nil {
 		l.Push(lua.LNil)
@@ -114,7 +116,7 @@ func (m *ProcessAPIModule) getProcessManager(l *lua.LState) (process.Manager, bo
 }
 
 // getRegistry retrieves the PID registry from context
-func (m *ProcessAPIModule) getRegistry(l *lua.LState) (topology.PIDRegistry, bool) {
+func (m *Module) getRegistry(l *lua.LState) (topology.PIDRegistry, bool) {
 	ctx := l.Context()
 	if ctx == nil {
 		l.Push(lua.LNil)
@@ -135,7 +137,7 @@ func (m *ProcessAPIModule) getRegistry(l *lua.LState) (topology.PIDRegistry, boo
 
 // resolvePID attempts to resolve a string to a PID, either by direct parsing
 // or by looking up in the registry if it's not a valid PID format
-func (m *ProcessAPIModule) resolvePID(l *lua.LState, pidOrName string) (pubsub.PID, error) {
+func (m *Module) resolvePID(l *lua.LState, pidOrName string) (pubsub.PID, error) {
 	// Try to parse as PID first
 	pid, err := pubsub.ParsePID(pidOrName)
 	if err == nil {
@@ -158,7 +160,7 @@ func (m *ProcessAPIModule) resolvePID(l *lua.LState, pidOrName string) (pubsub.P
 
 // pid returns the string representation of the current PID
 // Returns: pid_string
-func (m *ProcessAPIModule) pid(l *lua.LState) int {
+func (m *Module) pid(l *lua.LState) int {
 	pid, ok := m.checkPID(l)
 	if !ok {
 		return 2 // Error values already pushed by checkPID
@@ -171,7 +173,7 @@ func (m *ProcessAPIModule) pid(l *lua.LState) int {
 // send sends a message to another process (accepts PID or registered name)
 // Params: destination, topic, [payload1, payload2, ...]
 // Returns: success, error
-func (m *ProcessAPIModule) send(l *lua.LState) int {
+func (m *Module) send(l *lua.LState) int {
 	node, ok := m.getNode(l)
 	if !ok {
 		return 2 // Error values already pushed by getNode
@@ -241,7 +243,7 @@ func (m *ProcessAPIModule) send(l *lua.LState) int {
 }
 
 // createPayloadsFromArgs converts Lua arguments to process payloads
-func (m *ProcessAPIModule) createPayloadsFromArgs(l *lua.LState, startIndex int) payload.Payloads {
+func (m *Module) createPayloadsFromArgs(l *lua.LState, startIndex int) payload.Payloads {
 	var payloads payload.Payloads
 
 	// Convert each argument to a payload
@@ -255,7 +257,7 @@ func (m *ProcessAPIModule) createPayloadsFromArgs(l *lua.LState, startIndex int)
 // spawn creates a new process without monitoring or linking
 // Params: id, host, [arg1, arg2, ...]
 // Returns: pid, error
-func (m *ProcessAPIModule) spawn(l *lua.LState) int {
+func (m *Module) spawn(l *lua.LState) int {
 	manager, ok := m.getProcessManager(l)
 	if !ok {
 		return 2 // Error values already pushed by getProcessManager
@@ -315,7 +317,7 @@ func (m *ProcessAPIModule) spawn(l *lua.LState) int {
 // spawnMonitored creates a new process with monitoring
 // Params: id, host, [arg1, arg2, ...]
 // Returns: pid, error
-func (m *ProcessAPIModule) spawnMonitored(l *lua.LState) int {
+func (m *Module) spawnMonitored(l *lua.LState) int {
 	manager, ok := m.getProcessManager(l)
 	if !ok {
 		return 2 // Error values already pushed by getProcessManager
@@ -376,7 +378,7 @@ func (m *ProcessAPIModule) spawnMonitored(l *lua.LState) int {
 // Params: id, host, [arg1, arg2, ...]
 // Returns: pid, error
 /*
-func (m *ProcessAPIModule) spawnLinked(l *lua.LState) int {
+func (m *Module) spawnLinked(l *lua.LState) int {
 	manager, ok := m.getProcessManager(l)
 	if !ok {
 		return 2 // Error values already pushed by getProcessManager
@@ -420,7 +422,7 @@ func (m *ProcessAPIModule) spawnLinked(l *lua.LState) int {
 // terminate terminates a process (accepts PID or registered name)
 // Params: destination
 // Returns: success, error
-func (m *ProcessAPIModule) terminate(l *lua.LState) int {
+func (m *Module) terminate(l *lua.LState) int {
 	manager, ok := m.getProcessManager(l)
 	if !ok {
 		return 2 // Error values already pushed by getProcessManager
@@ -462,7 +464,7 @@ func (m *ProcessAPIModule) terminate(l *lua.LState) int {
 // Params: destination, deadline
 // Where deadline can be a duration string (e.g. "5s") or milliseconds number
 // Returns: success, error
-func (m *ProcessAPIModule) cancel(l *lua.LState) int {
+func (m *Module) cancel(l *lua.LState) int {
 	manager, ok := m.getProcessManager(l)
 	if !ok {
 		return 2 // Error values already pushed by getProcessManager
@@ -538,7 +540,7 @@ func (m *ProcessAPIModule) cancel(l *lua.LState) int {
 // Params: name, [pid]
 // If pid is not provided, registers the current process
 // Returns: success, error
-func (m *ProcessAPIModule) registryRegister(l *lua.LState) int {
+func (m *Module) registryRegister(l *lua.LState) int {
 	reg, ok := m.getRegistry(l)
 	if !ok {
 		return 2 // Error values already pushed by getRegistry
@@ -589,7 +591,7 @@ func (m *ProcessAPIModule) registryRegister(l *lua.LState) int {
 // registryLookup finds the PID registered with a given name
 // Params: name
 // Returns: pid, error
-func (m *ProcessAPIModule) registryLookup(l *lua.LState) int {
+func (m *Module) registryLookup(l *lua.LState) int {
 	reg, ok := m.getRegistry(l)
 	if !ok {
 		return 2 // Error values already pushed by getRegistry
@@ -624,7 +626,7 @@ func (m *ProcessAPIModule) registryLookup(l *lua.LState) int {
 // registryUnregister removes a name registration
 // Params: name
 // Returns: success
-func (m *ProcessAPIModule) registryUnregister(l *lua.LState) int {
+func (m *Module) registryUnregister(l *lua.LState) int {
 	reg, ok := m.getRegistry(l)
 	if !ok {
 		return 2 // Error values already pushed by getRegistry

@@ -223,6 +223,8 @@ func (h *Host) Terminate(ctx context.Context, pid pubsub.PID) error {
 		return process.ErrNoProcess
 	}
 
+	// todo: trigger process lifecycle!
+
 	// terminate is aggressive, so we don't wait for the process to finish, use cancel signals instead
 	h.pool.RemoveProcess(pid)
 

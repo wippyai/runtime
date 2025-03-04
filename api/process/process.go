@@ -55,6 +55,9 @@ var (
 
 	// ErrHostDead indicates that the process host is no longer available.
 	ErrHostDead = errors.New("process host is dead")
+
+	// ErrTerminated indicates that the process has been terminated.
+	ErrTerminated = errors.New("process terminated")
 )
 
 type (
@@ -87,6 +90,9 @@ type (
 		// Higher values typically indicate that process is lagging behind and needs more
 		// resources.
 		Ready() int
+
+		// Terminate notifies the process about termination, triggers lifecycle handling.
+		Terminate()
 	}
 
 	// Lifecycle encapsulates the supervision relationship between processes.

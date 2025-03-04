@@ -38,6 +38,7 @@ import (
 	jsonmod "github.com/ponyruntime/pony/runtime/lua/modules/json"
 	"github.com/ponyruntime/pony/runtime/lua/modules/logger"
 	"github.com/ponyruntime/pony/runtime/lua/modules/ostime"
+	payloadmod "github.com/ponyruntime/pony/runtime/lua/modules/payload"
 	processmod "github.com/ponyruntime/pony/runtime/lua/modules/process"
 	"github.com/ponyruntime/pony/runtime/lua/modules/pubsubinbox"
 	registrymod "github.com/ponyruntime/pony/runtime/lua/modules/registry"
@@ -705,6 +706,7 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 				subscribe.NewSubscribeModule(),
 				crypto.NewCryptoModule(),
 				fncallmod.NewFunctionModule(),
+				payloadmod.NewPayloadModule(),
 				registrymod.NewRegistryModule(a.logger.Named("registry")),
 				processmod.NewProcessAPIModule(a.logger.Named("proc")),
 				httpapimod.NewHTTPAPIModule(a.logger.Named("http")),
