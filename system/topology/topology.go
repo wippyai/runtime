@@ -186,7 +186,7 @@ func (t *Topology) Notify(pid pubsub.PID, result *runtime.Result) {
 			Event: topology.Event{
 				At:   time.Now(),
 				From: pid,
-				Kind: topology.KindResult,
+				Kind: topology.KindExit,
 			},
 			Result: result,
 		})

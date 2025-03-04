@@ -62,7 +62,7 @@ The Pony Runtime defines important constants for system events:
 ```lua
 -- System event kinds (for identifying event types)
 process.event.CANCEL           -- "pid.cancel" - Cancellation request event
-process.event.RESULT           -- "pid.exit" - Process result/exit notification event
+process.event.EXIT             -- "pid.exit" - Process exit notification event
 process.event.LINK_DOWN        -- "pid.link.down" - Linked process failure event
 ```
 
@@ -74,6 +74,8 @@ Messages are sent between processes through named topics:
 
 ```lua
 -- Basic message sending
+-- Params: destination, topic, [payload1, payload2, ...]
+-- Returns: true on success, nil and error_message on failure
 process.send(destination, topic, payload)
 
 -- Sending to a PID
@@ -148,7 +150,7 @@ local event = events:receive()
 if event.event.kind == process.event.CANCEL then
     -- Handle cancellation request
     local deadline = event.deadline -- Time when cancellation should take effect
-elseif event.event.kind == process.event.RESULT then
+elseif event.event.kind == process.event.EXIT then
     -- Handle process result notification
     local result = event.result -- Process execution result
     local data = result.payload:data() -- Result payload value (unmarshal required)
@@ -172,7 +174,7 @@ event = {
 }
 ```
 
-2. Exit Event (RESULT):
+2. Exit Event (EXIT):
 
 ```lua
 {
@@ -213,7 +215,8 @@ event = {
 }
 ```
 
-> Note, that link down will only arrive after abnormal exit and no trap_links option is set.
+> Note, that link down events will only arrive if the `trap_links` option is set to `true`. Otherwise, when a linked
+> process fails, the current process will also fail without receiving an event.
 
 ## Process Management
 
@@ -221,6 +224,8 @@ event = {
 
 ```lua
 -- Basic process spawning (no supervision)
+-- Params: id, host, [arg1, arg2, ...]
+-- Returns: pid_string on success, nil and error_message on failure
 local child_pid = process.spawn(
     "namespace:name",  -- Process type (required)
     "host_id",         -- Host to run on (required)
@@ -228,6 +233,8 @@ local child_pid = process.spawn(
 )
 
 -- Spawn with monitoring (parent gets notified when child terminates)
+-- Params: id, host, [arg1, arg2, ...]
+-- Returns: pid_string on success, nil and error_message on failure
 local child_pid = process.spawn_monitored(
     "namespace:name",
     "host_id",
@@ -235,6 +242,8 @@ local child_pid = process.spawn_monitored(
 )
 
 -- Spawn with linking (if child fails, parent also fails)
+-- Params: id, host, [arg1, arg2, ...]
+-- Returns: pid_string on success, nil and error_message on failure
 local child_pid = process.spawn_linked(
     "namespace:name",
     "host_id",
@@ -245,8 +254,35 @@ local child_pid = process.spawn_linked(
 #### Supervision Behaviors
 
 - **Spawn**: No supervision, child failure doesn't affect parent
-- **Monitored**: Parent receives notification (event.RESULT) when child terminates (success or failure)
+- **Monitored**: Parent receives notification (event.EXIT) when child terminates (success or failure)
 - **Linked**: Bi-directional link where failure propagates (if child crashes, parent also crashes)
+
+### Process Links and Monitors
+
+```lua
+-- Establish a link with another process
+-- Params: destination (PID string or registered name)
+-- Returns: true on success, nil and error_message on failure
+process.link(destination)
+
+-- Remove a link with another process
+-- Params: destination (PID string or registered name)
+-- Returns: true on success, nil and error_message on failure
+process.unlink(destination)
+
+-- Monitor another process (receive notification when it exits)
+-- Params: destination (PID string or registered name)
+-- Returns: true on success, nil and error_message on failure
+process.monitor(destination)
+
+-- Stop monitoring another process
+-- Params: destination (PID string or registered name)
+-- Returns: true on success, nil and error_message on failure
+process.unmonitor(destination)
+```
+
+Unlike process spawning which creates new processes with links or monitoring, these functions establish links or
+monitoring relationships with existing processes.
 
 ### Process Registry
 
@@ -254,15 +290,23 @@ Processes can register names for easier discovery:
 
 ```lua
 -- Register the current process with a name
+-- Params: name, [pid]
+-- Returns: true on success, nil and error_message on failure
 process.registry.register("worker1")
 
 -- Register a specific PID with a name
+-- Params: name, pid
+-- Returns: true on success, nil and error_message on failure
 process.registry.register("backup_worker", some_pid)
 
 -- Look up a process by name
+-- Params: name
+-- Returns: pid_string on success, nil and error_message on failure
 local pid = process.registry.lookup("worker1")
 
 -- Unregister a name
+-- Params: name
+-- Returns: true if successfully unregistered, false if name wasn't registered
 process.registry.unregister("worker1")
 ```
 
@@ -270,9 +314,13 @@ process.registry.unregister("worker1")
 
 ```lua
 -- Terminate a process immediately
+-- Params: destination (PID string or registered name)
+-- Returns: true on success, nil and error_message on failure
 process.terminate(pid_or_name)
 
 -- Request graceful cancellation with deadline
+-- Params: destination (PID string or registered name), deadline
+-- Returns: true on success, nil and error_message on failure
 process.cancel(pid_or_name, "5s")  -- String duration
 process.cancel(pid_or_name, 5000)  -- Milliseconds
 ```
@@ -281,12 +329,16 @@ process.cancel(pid_or_name, 5000)  -- Milliseconds
 
 ```lua
 -- Get current process options
+-- Params: none
+-- Returns: options table
 local options = process.get_options()
 print(options.trap_links)  -- Check if link trapping is enabled
 
 -- Set process options
+-- Params: options_table
+-- Returns: success (boolean), error_message (or nil if successful)
 local success, error = process.set_options({
-    trap_links = true  -- Enable trap_links to receive notifications instead of failing
+    trap_links = true  -- When true, process receives LINK_DOWN events instead of failing when linked processes die
 })
 ```
 
@@ -518,7 +570,7 @@ local function distribute_work(work_items, worker_count)
 end
 ```
 
-### 3. Supervision Tree
+### 3. Supervision Tree with Links and Monitors
 
 ```lua
 local function supervisor()
@@ -537,11 +589,17 @@ local function supervisor()
         start_child(i)
     end
     
+    -- Add link to critical process
+    local database_pid = process.registry.lookup("database")
+    if database_pid then
+        process.link(database_pid)
+    end
+    
     -- Supervision loop
     while true do
         local event = events:receive()
         
-        if event.event.kind == process.event.RESULT then
+        if event.event.kind == process.event.EXIT then
             local failed_pid = event.event.from
             
             -- Find which child failed
@@ -552,6 +610,17 @@ local function supervisor()
                     start_child(id)
                     break
                 end
+            end
+        elseif event.event.kind == process.event.LINK_DOWN then
+            -- Critical linked process failed
+            -- With trap_links = true, we receive LINK_DOWN events instead of dying
+            local down_pid = event.event.from
+            print("Linked process down:", down_pid)
+                            
+            -- Try to reconnect or restart
+            if down_pid == database_pid then
+                -- Try to reconnect to database
+                reconnect_database()
             end
         end
     end
@@ -579,6 +648,7 @@ end
 - Use `spawn_monitored` when you need to track child process completion
 - Use `spawn_linked` when child failures should propagate to parent
 - Use plain `spawn` for independent processes
+- Use `process.link()` and `process.monitor()` for existing processes
 - Always check return values for errors
 
 ### 4. Error Handling
@@ -586,7 +656,8 @@ end
 - Return error information in process results
 - Use message passing for error notifications
 - Implement proper cleanup in termination handlers
-- Use `trap_links = true` option to handle link failures instead of crashing
+- Use `trap_links = true` option to receive `LINK_DOWN` events when linked processes fail instead of failing yourself
+- Unlink processes before terminating them if necessary
 
 ### 5. Timeouts and Deadlines
 
@@ -601,3 +672,4 @@ end
 - Use appropriate buffering for channels
 - Implement batching for high-throughput scenarios
 - Avoid creating unnecessary processes for short-lived operations
+- Consider link and monitor overhead when designing process relationships
