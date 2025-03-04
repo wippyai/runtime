@@ -49,6 +49,13 @@ type App struct {
 	upstream   chan payload.Payload
 	numRetries int
 	done       chan struct{}
+
+	// Our own cancel mechanism
+	appCtx    context.Context
+	appCancel context.CancelFunc
+
+	// Ensure termination only happens once
+	terminateOnce sync.Once
 }
 
 // NewApp creates a new BubbleTea application with the underlying process State.
@@ -62,10 +69,15 @@ func NewApp(log *zap.Logger, dtt payload.Transcoder, runner *engine.Runner, func
 		return nil, err
 	}
 
+	// Create app context separate from state context
+	appCtx, appCancel := context.WithCancel(context.Background())
+
 	return &App{
-		state:    state,
-		upstream: make(chan payload.Payload, 100),
-		done:     make(chan struct{}),
+		state:     state,
+		upstream:  make(chan payload.Payload, 100),
+		done:      make(chan struct{}),
+		appCtx:    appCtx,
+		appCancel: appCancel,
 	}, nil
 }
 
@@ -97,7 +109,7 @@ func (a *App) View() string {
 		if a.numRetries < maxViewRetries {
 			return fmt.Sprintf("view task failed (retrying %d/%d)", a.numRetries, maxViewRetries)
 		}
-		a.state.Cancel()
+		a.Terminate() // Use our terminate method to ensure proper cleanup
 		return "view task failed (exiting)"
 	}
 
@@ -125,6 +137,9 @@ func (a *App) Start(ctx context.Context, pid pubsub.PID, input payload.Payloads)
 		return err
 	}
 
+	// Setup context watchers for cleanup
+	a.setupContextWatchers()
+
 	// Create a wrapping function to handle process start notification
 	onStartFunc := func() {
 		// Notify that the process has started
@@ -137,7 +152,8 @@ func (a *App) Start(ctx context.Context, pid pubsub.PID, input payload.Payloads)
 			if _, err := a.program.Run(); err != nil {
 				a.state.Log.Error("btea program error", zap.Error(err))
 			}
-			a.state.Cancel()
+			// When program exits, terminate the process
+			a.Terminate()
 		}()
 
 		// Start processing upstream messages
@@ -146,6 +162,34 @@ func (a *App) Start(ctx context.Context, pid pubsub.PID, input payload.Payloads)
 
 	// Start the Lua function
 	return a.state.Start(input, onStartFunc)
+}
+
+// setupContextWatchers sets up goroutines to watch various cancellation signals
+func (a *App) setupContextWatchers() {
+	// Watch parent context (state.Ctx)
+	go func() {
+		<-a.state.Ctx.Done()
+		a.state.Log.Debug("parent context cancelled, terminating app")
+		a.Terminate()
+	}()
+
+	// Watch app context
+	go func() {
+		<-a.appCtx.Done()
+		a.state.Log.Debug("app context cancelled, quitting program")
+		// Quit the program if not already quitting
+		if a.program != nil {
+			a.program.Quit()
+		}
+	}()
+
+	// Watch done channel
+	go func() {
+		<-a.done
+		a.state.Log.Debug("done channel closed, ensuring termination")
+		// Cleanup if anything is still running
+		a.appCancel()
+	}()
 }
 
 // scheduleCancel centralizes the cancellation routine
@@ -157,13 +201,16 @@ func (a *App) scheduleCancel() {
 			a.state.Log.Error("failed to send cancel event", zap.Error(err))
 		}
 
+		// Start a timer to force termination if not already terminating
 		select {
 		case <-time.After(stopTimeout):
-			a.state.Log.Debug("cancelling process after timeout")
-			a.state.Cancel()
+			a.state.Log.Debug("cancellation timeout reached, forcing termination")
+			a.Terminate()
 		case <-a.done:
 			return
 		case <-a.state.Ctx.Done():
+			return
+		case <-a.appCtx.Done():
 			return
 		}
 	}()
@@ -189,6 +236,8 @@ func (a *App) processUpstream() {
 			a.program.Send(msg)
 		case <-a.state.Ctx.Done():
 			return
+		case <-a.appCtx.Done():
+			return
 		case <-a.done:
 			return
 		}
@@ -202,6 +251,8 @@ func (a *App) Step() error {
 		return nil
 	case <-a.state.Ctx.Done():
 		return a.state.Ctx.Err()
+	case <-a.appCtx.Done():
+		return context.Canceled
 	default:
 		return a.state.Step()
 	}
@@ -219,14 +270,24 @@ func (a *App) Send(pkg *pubsub.Package) error {
 
 // Terminate forcefully stops the process
 func (a *App) Terminate() {
-	var once sync.Once
-	once.Do(func() {
-		a.program.Quit()
+	a.terminateOnce.Do(func() {
+		a.state.Log.Debug("terminating btea app")
+
+		// Cancel app context to signal all our watchers
+		a.appCancel()
+
+		// Try to shutdown the program gracefully
+		if a.program != nil {
+			a.program.Quit()
+		}
 
 		// Allow time for terminal to detach
 		time.Sleep(stopTimeout)
 
+		// Complete the state with exit error
 		a.state.Complete(supervisor.ErrExit, nil)
+
+		// Signal done to all our goroutines
 		close(a.done)
 		close(a.upstream)
 	})
@@ -234,9 +295,17 @@ func (a *App) Terminate() {
 
 // publishTask sends a task to the unified events channel
 func (a *App) publishTask(taskType string, payload lua.LValue, timeout time.Duration) string {
-	if a.state.Ctx.Err() != nil {
+	// Check all possible cancellation signals
+	select {
+	case <-a.state.Ctx.Done():
 		a.state.Log.Error("context error", zap.Error(a.state.Ctx.Err()))
 		return "context error"
+	case <-a.appCtx.Done():
+		return "app context cancelled"
+	case <-a.done:
+		return "done"
+	default:
+		// Continue with task
 	}
 
 	t, err := task.CreateTask(payload)
@@ -266,6 +335,10 @@ func (a *App) publishTask(taskType string, payload lua.LValue, timeout time.Dura
 	go func() {
 		select {
 		case <-a.state.Ctx.Done():
+			return
+		case <-a.appCtx.Done():
+			return
+		case <-a.done:
 			return
 		case rsp := <-t.Response:
 			a.state.UoW.Tasks().WakeUp()
@@ -297,5 +370,7 @@ func (a *App) waitResponse(t *task.Task, timeout time.Duration, taskType string)
 		return "task cancelled"
 	case <-a.state.Ctx.Done():
 		return "task cancelled"
+	case <-a.appCtx.Done():
+		return "app cancelled"
 	}
 }

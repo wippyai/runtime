@@ -9,6 +9,7 @@ import (
 	"github.com/ponyruntime/pony/api/topology"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
+	"log"
 	"strings"
 	"time"
 )
@@ -604,6 +605,8 @@ func (m *Module) registryRegister(l *lua.LState) int {
 
 	self, ok := m.checkPID(l)
 	if !ok {
+		log.Printf("RREEEEEEEEEEEEEEEEEGGG %v", self)
+
 		return 2 // Error values already pushed by checkPID
 	}
 
