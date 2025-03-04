@@ -294,9 +294,10 @@ func (s *State) ProcessPackage(pkg *pubsub.Package) error {
 		return s.Ctx.Err()
 	default:
 		for _, msg := range pkg.Messages {
-			if msg.Topic == topology.TopicEvents && s.handleTopologyMessage(msg) {
-				// handled level above
-				continue
+			if msg.Topic == topology.TopicEvents {
+				if s.handleTopologyMessage(msg) {
+					continue
+				}
 			}
 
 			// Check if the topic has a specific channel
