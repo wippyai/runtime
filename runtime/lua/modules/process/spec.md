@@ -66,16 +66,6 @@ process.event.RESULT           -- "pid.exit" - Process result/exit notification 
 process.event.LINK_DOWN        -- "pid.link.down" - Linked process failure event
 ```
 
-## System Topics
-
-The system uses special topics for internal message routing:
-
-```lua
--- These are internal constants, shown for reference
-TopicInbox = "@pid/inbox"   -- Inbox topic for process messages
-TopicEvents = "@pid/events" -- Events topic for process lifecycle events
-```
-
 ## Communication
 
 ### Message Passing
