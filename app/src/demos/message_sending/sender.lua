@@ -55,7 +55,7 @@ function handler()
         success = true,
         topic = topic,
         message_sent = message,
-        response = result.value.payload
+        response = result.value:payload():data() -- cos of inbox semantics
     })
 end
 

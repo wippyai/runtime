@@ -76,15 +76,17 @@ local function handler()
         if result.channel == inbox and result.value then
             local msg = result.value
 
-            if msg.topic == "response" then
+            if msg:topic() == "response" then
+                local data = msg:payload():data()
+
                 -- Check for completion
-                if msg.payload.done and not msg.payload.text then
+                if data.done and not data.text then
                     return
                 end
 
                 -- Send response chunk if we have text
-                if msg.payload.text then
-                    res:write_json(msg.payload)
+                if data.text then
+                    res:write_json(data)
                     res:write("\n")
                     res:flush()
                 end

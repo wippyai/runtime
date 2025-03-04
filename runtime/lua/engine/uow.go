@@ -65,6 +65,7 @@ func NewUnitOfWork(parentCtx context.Context, state *lua.LState) (UnitOfWork, co
 
 	// Store in context
 	ctx = context.WithValue(ctx, unitOfWorkKey, uw)
+	uw.ctx = ctx
 
 	return uw, ctx
 }

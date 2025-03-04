@@ -20,8 +20,17 @@ local function run_tests()
     res:set_header("Access-Control-Allow-Origin", "*")
     res:set_header("Access-Control-Allow-Methods", "GET")
 
+    -- Configure test options
+    local options = {
+        pid = process.pid(),
+        topic = "test:update",
+        timeout = req:query("timeout") or "1m",
+        msg_timeout = req:query("timeout") or "1s",
+        query = { ["type"] = "test" }
+    }
+
     -- Create inbox for test messages
-    local inbox = process.inbox()
+    local inbox = process.listen("test:update")
     if not inbox then
         res:set_status(http.STATUS.INTERNAL_ERROR)
         res:write_json({
@@ -33,15 +42,6 @@ local function run_tests()
         })
         return false
     end
-
-    -- Configure test options
-    local options = {
-        pid = process.pid(),
-        topic = "test:update",
-        timeout = req:query("timeout") or "1m",
-        msg_timeout = req:query("timeout") or "1s",
-        query = { ["type"] = "test" }
-    }
 
     -- Utility function to send events to the client
     local function write_event(type, data)
@@ -119,7 +119,8 @@ local function run_tests()
 
             if not result.ok then break end
 
-            local msg = result.value.payload
+            -- messages in inbox are wrapped in a message object
+            local msg = result.value
 
             if msg.type == "test:complete" then
                 test_done_ch:send(msg)

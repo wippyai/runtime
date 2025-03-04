@@ -26,7 +26,6 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
 	"github.com/ponyruntime/pony/runtime/lua/engine/task"
 	"github.com/ponyruntime/pony/runtime/lua/engine/upstream"
-	"github.com/ponyruntime/pony/runtime/lua/modules/asyncinbox"
 	"github.com/ponyruntime/pony/runtime/lua/modules/base64"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea"
 	"github.com/ponyruntime/pony/runtime/lua/modules/crypto"
@@ -36,6 +35,7 @@ import (
 	httpapimod "github.com/ponyruntime/pony/runtime/lua/modules/http"
 	"github.com/ponyruntime/pony/runtime/lua/modules/httpclient"
 	jsonmod "github.com/ponyruntime/pony/runtime/lua/modules/json"
+	"github.com/ponyruntime/pony/runtime/lua/modules/lazyinbox"
 	"github.com/ponyruntime/pony/runtime/lua/modules/logger"
 	"github.com/ponyruntime/pony/runtime/lua/modules/ostime"
 	payloadmod "github.com/ponyruntime/pony/runtime/lua/modules/payload"
@@ -711,7 +711,7 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 				processmod.NewProcessAPIModule(a.logger.Named("proc")),
 				httpapimod.NewHTTPAPIModule(a.logger.Named("http")),
 				pubsubinbox.NewPubSubInbox(a.logger.Named("inbox")),
-				asyncinbox.NewAsyncInbox(a.logger.Named("inbox")),
+				lazyinbox.NewLazyInbox(a.logger.Named("inbox")),
 				httpclient.NewHTTPClientModule(a.logger.Named("http"), httpbase.DefaultClient),
 				websocket.NewWebSocketModule(a.logger.Named("websocket")),
 				treesitter.NewTreeSitterModule(a.logger.Named("tsitter")),

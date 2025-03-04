@@ -320,27 +320,18 @@ func (s *State) ProcessPackage(pkg *pubsub.Package) error {
 				continue
 			}
 
-			hasInbox, err := subscribe.Exists(s.Ctx, topology.TopicInbox)
-			if err != nil {
-				s.Log.Error("failed to check inbox",
-					zap.String("topic", topology.TopicInbox),
-					zap.Error(err))
-				continue
+			inboxValues := make([]lua.LValue, 0, len(msg.Payloads))
+
+			for _, p := range msg.Payloads {
+				m := processmod.NewMessage(msg.Topic, p)
+				inboxValues = append(inboxValues, processmod.WrapMessage(s.UoW.State(), m))
 			}
 
-			if hasInbox {
-				inboxValues := make([]lua.LValue, 0, len(msg.Payloads))
-
-				for _, p := range msg.Payloads {
-					m := processmod.NewMessage(msg.Topic, p)
-					inboxValues = append(inboxValues, processmod.WrapMessage(s.UoW.State(), m))
-				}
-
-				if err := subscribe.Publish(s.Ctx, topology.TopicInbox, inboxValues...); err != nil {
-					s.Log.Error("failed to publish to inbox",
-						zap.String("topic", topology.TopicInbox),
-						zap.Error(err))
-				}
+			// has internal queue, but must be drained
+			if err := subscribe.Publish(s.Ctx, topology.TopicInbox, inboxValues...); err != nil {
+				s.Log.Error("failed to publish to inbox",
+					zap.String("topic", topology.TopicInbox),
+					zap.Error(err))
 			}
 		}
 
