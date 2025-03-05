@@ -3,6 +3,7 @@ package lua
 import (
 	"fmt"
 	"github.com/ponyruntime/pony/api/payload"
+	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/errors"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
@@ -109,6 +110,8 @@ func GoToLua(v any) (lua.LValue, error) {
 		return lua.LNumber(val.Unix()), nil
 	case payload.Payload:
 		return GoToLua(val.(payload.Payload).Data())
+	case pubsub.PID:
+		return lua.LString(val.String()), nil
 	case []byte:
 		return lua.LString(val), nil
 	case error:

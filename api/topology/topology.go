@@ -99,36 +99,28 @@ type (
 		Remove(pid pubsub.PID)
 	}
 
-	// Event represents a base topology event
-	Event struct {
+	// ExitEvent represents a process exit notification
+	ExitEvent struct {
 		// At is the timestamp when the event occurred
 		At time.Time `json:"at"`
 		// Kind identifies the type of event
 		Kind Kind `json:"kind"`
 		// From identifies the source process
 		From pubsub.PID `json:"from"`
-	}
-
-	// ExitEvent represents a process exit notification
-	ExitEvent struct {
-		// Event contains the base event information
-		Event Event `json:"event"`
 		// Result contains the exit result information
 		Result *runtime.Result `json:"result"`
 	}
 
 	// CancelEvent represents a process cancellation request
 	CancelEvent struct {
-		// Event contains the base event information
-		Event Event `json:"event"`
+		// At is the timestamp when the event occurred
+		At time.Time `json:"at"`
+		// Kind identifies the type of event
+		Kind Kind `json:"kind"`
+		// From identifies the source process
+		From pubsub.PID `json:"from"`
 		// Deadline specifies when the cancellation should take effect
 		Deadline time.Time `json:"deadline"`
-	}
-
-	// LinkEvent represents a link status change notification
-	LinkEvent struct {
-		// Event contains the base event information
-		Event Event `json:"event"`
 	}
 )
 
@@ -139,7 +131,9 @@ func Cancel(from, to pubsub.PID, deadline time.Time) *pubsub.Package {
 		to,
 		TopicEvents,
 		payload.New(&CancelEvent{
-			Event:    Event{At: time.Now(), From: from, Kind: KindCancel},
+			At:       time.Now(),
+			From:     from,
+			Kind:     KindCancel,
 			Deadline: deadline,
 		}),
 	)
@@ -152,35 +146,12 @@ func Exit(pid pubsub.PID, result payload.Payload, err error) *pubsub.Package {
 		pid,
 		TopicEvents,
 		payload.New(&ExitEvent{
-			Event: Event{
-				At:   time.Now(),
-				From: pid,
-				Kind: KindExit,
-			},
+			At:   time.Now(),
+			From: pid,
+			Kind: KindExit,
 			Result: &runtime.Result{
 				Value: result,
 				Error: err,
-			},
-		}),
-	)
-}
-
-// NotifyLink creates a package for notifying about link status changes.
-// The established parameter indicates whether the link is being established or removed.
-func NotifyLink(from, to pubsub.PID, established bool) *pubsub.Package {
-	kind := KindLinkEstablished
-	if !established {
-		kind = KindLinkRemoved
-	}
-
-	return pubsub.NewPackage(
-		to,
-		TopicEvents,
-		payload.New(&LinkEvent{
-			Event: Event{
-				At:   time.Now(),
-				From: from,
-				Kind: kind,
 			},
 		}),
 	)

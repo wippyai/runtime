@@ -210,7 +210,7 @@ func (e *Runner) Continue(ctx context.Context, block bool) error {
 	}
 
 	if len(e.cvm.threads) == 0 {
-		return fmt.Errorf("vm is dead")
+		return nil
 	}
 
 	// wait-wait-wait, are we deadlocked?
