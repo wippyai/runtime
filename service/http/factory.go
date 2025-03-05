@@ -69,8 +69,6 @@ func (f *EndpointFactory) CreateHandler(ctx context.Context, cfg *config.Endpoin
 			if rCtx.ResponseHandled() {
 				return
 			}
-			http.Error(w, "request canceled", http.StatusInternalServerError)
-			return
 		}
 	}), nil
 }

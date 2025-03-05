@@ -196,10 +196,9 @@ func (e *Runner) Continue(ctx context.Context, block bool) error {
 		return fmt.Errorf("unit of work not found")
 	}
 
-	wrapped := e.getWrapped()
-
 	// get all threads from the queue
-	tasks, err := wrapped.Step(e.cvm.queue.Drain()...)
+	tasks, err := e.getWrapped().Step(e.cvm.queue.Drain()...)
+
 	if err != nil {
 		return err
 	}

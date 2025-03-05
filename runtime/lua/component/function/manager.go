@@ -265,10 +265,12 @@ func (m *Manager) Execute(ctx context.Context, task runtime.Task) (chan *runtime
 			args[i] = luaPayload.Data().(lua.LValue)
 		}
 
+		// todo: we can potentially wrap it a bit different way or use global worker pool
 		result, err := vm.Execute(ctx, method, args...)
 		if err != nil {
 			m.log.Error("failed to execute function", zap.Error(err), zap.String("func", task.ID.String()))
 		}
+
 		select {
 		case resultChan <- &runtime.Result{
 			Value: payload.NewPayload(result, payload.Lua),

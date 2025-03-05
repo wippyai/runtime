@@ -16,14 +16,12 @@ import (
 
 // ProcessPoolAPI defines the interface that a process pool must implement
 type ProcessPoolAPI interface {
-	// AddProcess registers a new process with the pool
-	AddProcess(pid pubsub.PID, proc process.Process) error
+	Add(pid pubsub.PID, proc process.Process) error
 
-	// Schedule adds a process to the work queue
 	Schedule(pid pubsub.PID) error
 
-	// HasProcess checks if a process exists in the pool
-	HasProcess(pid pubsub.PID) bool
+	// Has checks if a process exists in the pool
+	Has(pid pubsub.PID) bool
 
 	// Start launches the worker goroutines
 	Start()
@@ -31,11 +29,11 @@ type ProcessPoolAPI interface {
 	// Close gracefully shuts down the worker pool
 	Close()
 
-	// RemoveProcess removes a process from the pool
-	RemoveProcess(pid pubsub.PID)
+	// Remove removes a process from the pool
+	Remove(pid pubsub.PID)
 
-	// CancelProcess sends a cancellation signal to a specific process
-	CancelProcess(pid pubsub.PID, deadline time.Time) error
+	// Cancel sends a cancellation signal to a specific process
+	Cancel(pid pubsub.PID, deadline time.Time) error
 
 	// CancelAll sends cancellation signals to all processes and waits for completion
 	CancelAll(ctx context.Context, deadline time.Time) error
@@ -85,7 +83,6 @@ type ProcessPoolFactory interface {
 	CreateProcessPool(
 		ctx context.Context,
 		workers int,
-		queueSize int,
 		maxProcesses int,
 		logger *zap.Logger,
 	) (ProcessPoolAPI, error)
@@ -98,7 +95,6 @@ type DefaultProcessPoolFactory struct{}
 func (f *DefaultProcessPoolFactory) CreateProcessPool(
 	ctx context.Context,
 	workers int,
-	queueSize int,
 	maxProcesses int,
 	logger *zap.Logger,
 ) (ProcessPoolAPI, error) {
@@ -109,7 +105,6 @@ func (f *DefaultProcessPoolFactory) CreateProcessPool(
 	return NewProcessPool(
 		ctx,
 		workers,
-		queueSize,
 		maxProcesses,
 		logger,
 	), nil

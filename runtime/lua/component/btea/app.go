@@ -254,7 +254,7 @@ func (a *App) Step() error {
 	case <-a.appCtx.Done():
 		return context.Canceled
 	default:
-		return a.state.Step()
+		return a.state.Step(true)
 	}
 }
 

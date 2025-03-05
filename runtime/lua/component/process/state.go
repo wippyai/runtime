@@ -4,9 +4,6 @@ import (
 	"context"
 	"errors"
 	ctxapi "github.com/ponyruntime/pony/api/context"
-	"sync"
-	"sync/atomic"
-
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/pubsub"
@@ -18,6 +15,8 @@ import (
 	processmod "github.com/ponyruntime/pony/runtime/lua/modules/process"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
+	"sync"
+	"sync/atomic"
 )
 
 // Common errors
@@ -163,7 +162,7 @@ func (s *State) Start(input payload.Payloads, onStart func()) error {
 }
 
 // Step advances the process state by one iteration
-func (s *State) Step() error {
+func (s *State) Step(block bool) error {
 	s.wg.Add(1)
 
 	// Check for context cancellation or already closed
@@ -182,8 +181,7 @@ func (s *State) Step() error {
 		return err
 	}
 
-	// Continue the runner
-	if err := s.Runner.Continue(s.Ctx, s.UoW.Tasks().Ready() == 0); err != nil {
+	if err := s.Runner.Continue(s.Ctx, block); err != nil {
 		s.wg.Done()
 		s.Complete(err, nil)
 		return err
@@ -229,6 +227,13 @@ func (s *State) exitWith(err error) {
 
 // GetTaskCount returns the combined count of ready tasks
 func (s *State) GetTaskCount() int {
+	s.wg.Add(1)
+	defer s.wg.Done()
+
+	if s.Closed.Load() {
+		return 0
+	}
+
 	if s.UoW == nil || s.Runner == nil {
 		return 0
 	}

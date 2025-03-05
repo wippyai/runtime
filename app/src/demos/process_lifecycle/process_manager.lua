@@ -7,7 +7,8 @@ local function run()
         pid = process.pid(),
         processes = {}, -- Process tracking
         next_id = 1,    -- For generating unique IDs
-        terminated_count = 0  -- Count of terminated processes
+        terminated_count = 0,  -- Count of terminated processes
+        completed_processes = {} -- Archive of completed processes
     }
 
     print("Process lifecycle manager started with PID:", state.pid)
@@ -19,7 +20,7 @@ local function run()
             local id = state.next_id
             state.next_id = state.next_id + 1
 
-            print("Creating new parent process, request from:", msg.from)
+            print("Creating new parent process, request from:", msg.from, state.next_id)
 
             -- Spawn new parent process (monitored by us)
             local parent_pid, err = process.spawn_monitored(
@@ -145,7 +146,18 @@ local function run()
                 process.send(msg.reply_to, "response", {
                     status = "ok",
                     processes = result,
-                    terminated_count = state.terminated_count
+                    terminated_count = state.terminated_count,
+                    completed_count = #state.completed_processes
+                })
+            end
+        end,
+
+        -- Get completed processes history
+        get_completed_processes = function(state, msg)
+            if msg.reply_to then
+                process.send(msg.reply_to, "response", {
+                    status = "ok",
+                    completed_processes = state.completed_processes
                 })
             end
         end,
@@ -171,6 +183,21 @@ local function run()
                         proc.status = status
                         proc.result = event.result
                         proc.ended_at = time.now()
+
+                        -- Archive the completed process
+                        --table.insert(state.completed_processes, {
+                        --    id = id,
+                        --    parent_pid = proc.parent_pid,
+                        --    created_at = proc.created_at,
+                        --    ended_at = proc.ended_at,
+                        --    status = status,
+                        --    result = proc.result
+                        --})
+
+                        -- Remove process from active processes
+                        state.processes[id] = nil
+                        print("Process", pid, "removed from active processes")
+
                         break
                     end
                 end

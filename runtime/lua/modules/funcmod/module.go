@@ -108,10 +108,10 @@ func (e *Module) ensureSubscriptions(l *lua.LState) bool {
 
 		for {
 			select {
-			case pkg := <-inbox:
-				e.processPackage(uw, pkg)
 			case <-uw.Context().Done():
 				return
+			case pkg := <-inbox:
+				e.processPackage(uw, pkg)
 			}
 		}
 	})
