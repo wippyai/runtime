@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	ctxapi "github.com/ponyruntime/pony/api/context"
+	"log"
 	"sync"
 	"sync/atomic"
 
@@ -210,9 +211,9 @@ func (s *State) Step() error {
 	return nil
 }
 
-// setExitError sets an error that will cause the process to exit on the next step.
+// ExitWith sets an error that will cause the process to exit on the next step.
 // This also triggers a wake-up to ensure the error is processed promptly.
-func (s *State) setExitError(err error) {
+func (s *State) ExitWith(err error) {
 	if err == nil {
 		return
 	}
@@ -249,7 +250,9 @@ func (s *State) Complete(err error, result lua.LValue) {
 	}
 
 	// Wait for any pending operations to complete
+	log.Printf("CLOSING %v", s.PID)
 	s.wg.Wait()
+	log.Printf("CLOSING %v", s.PID)
 
 	// Clean up unit of work
 	if s.UoW != nil {
@@ -365,7 +368,7 @@ func (s *State) handleTopologyMessage(msg *pubsub.Message) bool {
 				zap.Error(exitErr))
 
 			if !s.IsTrapLinksEnabled() {
-				s.setExitError(exitErr)
+				s.ExitWith(exitErr)
 				return true
 			}
 		}

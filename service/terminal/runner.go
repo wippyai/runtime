@@ -102,6 +102,7 @@ func (r *Runner) Send(pkg *pubsub.Package) error {
 // This method is idempotent and can be called multiple times safely.
 func (r *Runner) Stop() {
 	r.once.Do(func() {
+		r.proc.Terminate()
 		if r.cancel != nil {
 			r.cancel()
 		}

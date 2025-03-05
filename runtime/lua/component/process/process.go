@@ -6,7 +6,6 @@ import (
 	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
-	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
 
@@ -64,8 +63,7 @@ func (p *LuaProcess) Send(pkg *pubsub.Package) error {
 
 // Terminate forcefully stops the process
 func (p *LuaProcess) Terminate() {
-	// Use a nil result to indicate forced termination
-	p.state.Complete(process.ErrTerminated, lua.LNil)
+	p.state.ExitWith(process.ErrTerminated)
 }
 
 // IsClosed returns whether the process has completed execution
