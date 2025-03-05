@@ -16,7 +16,7 @@ local function run(args)
     process.registry.register("parent_" .. state.pid)
 
     -- Set up trap_links to receive LINK_DOWN events instead of dying
-    process.set_options({ trap_links = true })
+    --process.set_options({ trap_links = true })
 
     -- Spawn a linked child process - if child crashes, parent will be notified
     state.child_pid = process.spawn_linked(
@@ -24,6 +24,7 @@ local function run(args)
         "system:processes",
         { parent_pid = state.pid }
     )
+    process.monitor(state.child_pid)
 
     if not state.child_pid then
         print("Failed to spawn child process")
@@ -54,11 +55,15 @@ local function run(args)
 
         -- Handle system events
         __on_event = function(state, event)
-            print("GOT PARENTE EVNT")
             if event.kind == process.event.LINK_DOWN then
                 -- This happens when a linked process dies, and we have trap_links=true
                 print("Child process down:", event.from)
                 state.status = "child_down"
+                error("children down, we can not continue")
+            elseif event.kind == process.event.EXIT then
+                print("Child process compete:", event.result.result)
+                state.status = "child_complete"
+                return actor.exit({ status = "complete", counter = state.counter })
             elseif event.kind == process.event.CANCEL then
                 print("Cancel requested with deadline:", event.deadline)
                 state.status = "cancelling"

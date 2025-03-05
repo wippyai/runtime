@@ -47,8 +47,10 @@ type State struct {
 	wg        sync.WaitGroup
 	resultCh  <-chan *engine.Update
 	Closed    atomic.Bool
-	trapLinks atomic.Bool  // Controls whether process traps exit signals
-	exitError atomic.Value // Holds an error that should terminate the process on next step
+	trapLinks atomic.Bool // Controls whether process traps exit signals
+	hasExit   atomic.Bool
+	exitError error // Holds an error that should terminate the process on next step
+	mu        sync.Mutex
 }
 
 // NewState creates a new process state
@@ -170,9 +172,12 @@ func (s *State) Step() error {
 		return s.Ctx.Err()
 	}
 
-	// Check for pending exit error from link down events and terminates
-	if err := s.getExitError(); err != nil {
+	if s.hasExit.Load() {
+		s.mu.Lock()
+		err := s.exitError
+		s.mu.Unlock()
 		s.wg.Done()
+
 		s.Complete(err, nil)
 		return err
 	}
@@ -212,35 +217,24 @@ func (s *State) setExitError(err error) {
 		return
 	}
 
-	s.exitError.Store(err)
+	s.mu.Lock()
+	s.exitError = err
+	s.hasExit.Store(true)
+	s.mu.Unlock()
 
-	// Wake up the unit of work to process this error ASAP
 	if s.UoW != nil && s.UoW.Tasks() != nil {
 		s.UoW.Tasks().WakeUp()
 	}
-}
-
-// getExitError retrieves and clears any pending exit error
-func (s *State) getExitError() error {
-	val := s.exitError.Load()
-	if val == nil {
-		return nil
-	}
-
-	// Clear the error so we don't process it twice
-	s.exitError.Store(nil)
-
-	if err, ok := val.(error); ok {
-		return err
-	}
-
-	return nil
 }
 
 // GetTaskCount returns the combined count of ready tasks
 func (s *State) GetTaskCount() int {
 	if s.UoW == nil || s.Runner == nil {
 		return 0
+	}
+
+	if s.hasExit.Load() {
+		return 1
 	}
 
 	return s.UoW.Tasks().Ready() + s.Runner.QueueLen()
@@ -375,8 +369,6 @@ func (s *State) handleTopologyMessage(msg *pubsub.Message) bool {
 				return true
 			}
 		}
-
-		// todo: we can also process link events to know who is linked to us
 	}
 
 	return false

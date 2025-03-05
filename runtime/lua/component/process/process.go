@@ -68,11 +68,6 @@ func (p *LuaProcess) Terminate() {
 	p.state.Complete(process.ErrTerminated, lua.LNil)
 }
 
-// SetTrapExit controls whether the process will trap exit signals from linked processes
-func (p *LuaProcess) SetTrapExit(trap bool) {
-	p.state.SetTrapLinks(trap)
-}
-
 // IsClosed returns whether the process has completed execution
 func (p *LuaProcess) IsClosed() bool {
 	return p.state.Closed.Load()

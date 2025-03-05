@@ -491,12 +491,21 @@
             },
             getStatusDotClass() {
                 let baseClass = 'status-indicator-dot ';
-                if (this.operation.status === 'completed') {
+                if (this.operation.status === 'completed' || this.operation.status === 'passed') {
                     return baseClass + (this.operation.failed > 0 ? 'status-dot-failed' : 'status-dot-passed');
                 } else if (this.operation.status === 'running') {
                     return baseClass + 'status-dot-running animate-pulse-slow';
                 } else if (this.operation.status === 'error') {
                     return baseClass + 'status-dot-error';
+                } else if (this.operation.passed > 0 && this.operation.passed + this.operation.skipped === this.operation.total) {
+                    // If all tests are either passed or skipped, show as passed
+                    return baseClass + 'status-dot-passed';
+                } else if (this.operation.failed > 0) {
+                    // If any tests failed
+                    return baseClass + 'status-dot-failed';
+                } else if (this.operation.skipped > 0 && this.operation.skipped === this.operation.total) {
+                    // If all tests are skipped
+                    return baseClass + 'status-dot-skipped';
                 }
                 return baseClass + 'status-dot-idle';
             }

@@ -1,9 +1,6 @@
 # Actor Library for Pony Runtime
 
-The Actor Library provides a simple and flexible way to build processes using the actor model pattern in the Pony
-Runtime environment. This guide explains how to use the library effectively.
-
-Wippy uses golang concurrency model.
+The Actor Library provides a simple and flexible way to build processes using the actor model pattern in the Pony Runtime environment. This guide explains how to use the library effectively.
 
 ## Basic Usage
 
@@ -26,7 +23,7 @@ local function run()
             state.count = state.count + 1
             print("Received message:", msg)
             
-            -- You can respond if the message includes a reply_to
+                            -- You can respond if the message includes a reply_to
             if msg.reply_to then
                 process.send(msg.reply_to, "response", {
                     status = "ok",
@@ -55,15 +52,16 @@ There are several types of handlers you can define:
 
 1. **Topic Handlers**: Named functions that handle specific message topics
 2. **Special Handlers**:
-    - `__on_cancel`: Handles process cancellation
-    - `__on_event`: Handles all system events (exit, cancel, link_down)
-    - `__default`: Catches messages with topics that don't have specific handlers
+   - `__init`: Called when the actor starts
+   - `__on_cancel`: Handles process cancellation
+   - `__on_event`: Handles all system events (exit, cancel, link_down)
+   - `__default`: Catches messages with topics that don't have specific handlers
 
 ## Working with Custom Channels
 
 ### Registering Channels
 
-Actor library allows you to register custom channels:
+The actor library allows you to register custom channels:
 
 ```lua
 -- Inside a handler or during initialization
@@ -96,6 +94,39 @@ state.unregister_channel(timer)
 
 Note: Channels are automatically unregistered when they close.
 
+## Handler Management
+
+You can dynamically add and remove topic handlers at runtime:
+
+```lua
+-- Add a new topic handler
+state.add_handler("new_topic", function(state, payload)
+    print("Handling new topic:", payload)
+    return { status = "processed" }
+end)
+
+-- Remove a topic handler
+state.remove_handler("old_topic")
+```
+
+## Custom Process Implementation
+
+The actor library supports custom process implementations:
+
+```lua
+-- Custom process implementation
+local custom_process = {
+    inbox = function() return my_custom_inbox() end,
+    events = function() return my_custom_events() end,
+    send = function(dest, topic, payload) return my_custom_send(dest, topic, payload) end,
+    pid = function() return my_custom_pid() end,
+    event = my_custom_event_types
+}
+
+-- Create actor with custom process
+local my_actor = actor.new(state, handlers, custom_process)
+```
+
 ## Common Patterns
 
 ### Request-Response Pattern
@@ -121,21 +152,16 @@ end
 ```lua
 local time = require("time")
 
--- In your run function after creating the actor
-local function run()
-    local state = { /* ... */ }
-    local my_actor = actor.new(state, { /* ... */ })
-    
-    -- Create and register a timer before running the actor
+-- In your initialization handler
+__init = function(state)
+    -- Create and register a timer
     local timer = time.ticker("5s")
     state.register_channel(timer, function(state, _, ok)
         if ok then
             print("Periodic task running...")
             perform_periodic_task(state)
         end
-    })
-    
-    return my_actor.run()
+    end)
 end
 ```
 
@@ -189,3 +215,29 @@ __on_cancel = function(state)
     return actor.exit({ status = "shutdown_complete" })
 end
 ```
+
+## Exit Handling
+
+The actor can be explicitly exited from any handler using `actor.exit()`:
+
+```lua
+shutdown = function(state, msg)
+    -- Perform cleanup
+    cleanup_resources(state)
+    
+    -- Return a result with actor.exit
+    return actor.exit({ status = "shutdown", reason = msg.reason })
+end
+```
+
+## Implementation Details
+
+### Channel Selection
+
+The library uses Pony's channel selection mechanism to efficiently handle messages from multiple sources:
+
+1. The actor's inbox for regular message passing
+2. System events channel for process events
+3. Any registered custom channels
+
+The select mechanism automatically rebuilds when channels are added or removed.
