@@ -6,7 +6,8 @@ local function run()
     local state = {
         pid = process.pid(),
         processes = {}, -- Process tracking
-        next_id = 1     -- For generating unique IDs
+        next_id = 1,    -- For generating unique IDs
+        terminated_count = 0  -- Count of terminated processes
     }
 
     print("Process lifecycle manager started with PID:", state.pid)
@@ -107,6 +108,15 @@ local function run()
             local ok = process.terminate(proc.parent_pid)
 
             proc.status = "terminating"
+            state.terminated_count = state.terminated_count + 1
+
+            print("Terminated count:", state.terminated_count)
+
+            -- Crash after terminating 2 parents to test auto recovery
+            if state.terminated_count >= 2 then
+                print("Critical error: Too many terminated processes!")
+                error("Process manager failure: Terminated over 2 parent processes")
+            end
 
             if msg.reply_to then
                 process.send(msg.reply_to, "response", {
@@ -134,7 +144,8 @@ local function run()
             if msg.reply_to then
                 process.send(msg.reply_to, "response", {
                     status = "ok",
-                    processes = result
+                    processes = result,
+                    terminated_count = state.terminated_count
                 })
             end
         end,
@@ -167,7 +178,7 @@ local function run()
         end,
 
         -- Handle cancellation
-        on_cancel = function(state)
+        __on_cancel = function(state)
             print("Process manager received cancel signal")
             return actor.exit({ status = "shutdown" })
         end

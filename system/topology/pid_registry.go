@@ -37,14 +37,6 @@ func NewPIDRegistry(config PIDRegistryConfig) *PIDRegistry {
 // Register associates a name with a PID
 // Returns error if name is already taken
 func (r *PIDRegistry) Register(name string, pid pubsub.PID) error {
-	// Check if name is already registered
-	if _, exists := r.nameToID.Load(name); exists {
-		r.logger.Warn("attempt to register already registered name",
-			zap.String("name", name),
-			zap.String("pid", pid.String()))
-		return topology.ErrNameAlreadyRegistered
-	}
-
 	// Store name → PID mapping
 	r.nameToID.Store(name, pid)
 
