@@ -7,9 +7,9 @@ import (
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/topology"
+	"github.com/ponyruntime/pony/runtime/lua/engine"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
-	"log"
 	"strings"
 	"time"
 )
@@ -389,6 +389,13 @@ func (m *Module) spawnMonitored(l *lua.LState) int {
 		return 2 // Error values already pushed by getProcessManager
 	}
 
+	uw := engine.GetUnitOfWork(l.Context())
+	if uw == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("no unit of work found"))
+		return 2
+	}
+
 	self, ok := m.checkPID(l)
 	if !ok {
 		return 2 // Error values already pushed by checkPID
@@ -420,7 +427,7 @@ func (m *Module) spawnMonitored(l *lua.LState) int {
 	}
 
 	// Start the process with monitoring
-	pid, err := manager.Start(l.Context(), start)
+	pid, err := manager.Start(uw.Context(), start)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
@@ -817,8 +824,6 @@ func (m *Module) registryRegister(l *lua.LState) int {
 
 	self, ok := m.checkPID(l)
 	if !ok {
-		log.Printf("RREEEEEEEEEEEEEEEEEGGG %v", self)
-
 		return 2 // Error values already pushed by checkPID
 	}
 
@@ -839,6 +844,11 @@ func (m *Module) registryRegister(l *lua.LState) int {
 		}
 	} else {
 		pid = self // Use current process PID
+	}
+
+	if pid.ID.Name == "parent" {
+		l.Push(lua.LTrue)
+		return 1
 	}
 
 	// Register the name

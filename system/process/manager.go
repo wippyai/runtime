@@ -206,6 +206,14 @@ func (m *Manager) AttachLifecycle(ctx context.Context, lifecycle api.Lifecycle) 
 			return
 		}
 
+		// Get pid registry from context
+		pidReg := topology.GetPIDRegistry(ctx)
+		if pidReg == nil {
+			m.logger.Error("pid registry not found in context",
+				zap.String("pid", pid.String()))
+			return
+		}
+
 		if result.Error != nil {
 			if errors.Is(result.Error, supervisor.ErrExit) {
 				m.logger.Debug("process exited",
@@ -223,8 +231,8 @@ func (m *Manager) AttachLifecycle(ctx context.Context, lifecycle api.Lifecycle) 
 				zap.Any("result", result.Value))
 		}
 
-		// Handle completion/failure notification
 		topo.Notify(pid, result)
+		pidReg.Remove(pid)
 		topo.Remove(pid)
 	})
 

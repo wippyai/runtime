@@ -7,6 +7,7 @@ import (
 	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/logs"
 	"github.com/ponyruntime/pony/api/service/host"
+	"log"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -111,6 +112,7 @@ func (h *Host) finalizeProcess(pid pubsub.PID, result *runtime.Result) {
 			zap.String("pid", pid.String()))
 	}
 
+	log.Printf("DETACH")
 	h.msgHost.Detach(pid)
 	h.pool.Remove(pid)
 }
@@ -176,6 +178,7 @@ func (h *Host) Launch(ctx context.Context, launch *process.Launch) (pubsub.PID, 
 	}
 
 	ctx = h.prepareContext(ctx, launch.PID, launch.Lifecycle)
+
 	if err := launch.Process.Start(ctx, launch.PID, launch.Input); err != nil {
 		return pubsub.PID{}, err
 	}

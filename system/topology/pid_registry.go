@@ -12,6 +12,7 @@ import (
 type PIDRegistry struct {
 	parent   topology.PIDRegistry
 	nameToID sync.Map // Maps from name (string) to PID
+	idToName sync.Map // Maps from PID to name (string) - for efficient removal by PID
 	logger   *zap.Logger
 }
 
@@ -39,6 +40,15 @@ func NewPIDRegistry(config PIDRegistryConfig) *PIDRegistry {
 func (r *PIDRegistry) Register(name string, pid pubsub.PID) error {
 	// Store name → PID mapping
 	r.nameToID.Store(name, pid)
+
+	// Store reverse mapping for efficient removal by PID
+	// Using a sync.Map to store a slice of names for each PID
+	var names []string
+	if existingNames, ok := r.idToName.Load(pid); ok {
+		names = existingNames.([]string)
+	}
+	names = append(names, name)
+	r.idToName.Store(pid, names)
 
 	r.logger.Debug("registered name to PID mapping",
 		zap.String("name", name),
@@ -68,8 +78,28 @@ func (r *PIDRegistry) Unregister(name string) bool {
 
 	pid := pidVal.(pubsub.PID)
 
-	// Done mapping
+	// Remove from nameToID map
 	r.nameToID.Delete(name)
+
+	// Update the reverse mapping in idToName
+	if namesVal, ok := r.idToName.Load(pid); ok {
+		names := namesVal.([]string)
+		// Filter out the name we're removing
+		updatedNames := make([]string, 0, len(names)-1)
+		for _, n := range names {
+			if n != name {
+				updatedNames = append(updatedNames, n)
+			}
+		}
+
+		// If there are still names, update the map
+		// Otherwise, remove the PID entry entirely
+		if len(updatedNames) > 0 {
+			r.idToName.Store(pid, updatedNames)
+		} else {
+			r.idToName.Delete(pid)
+		}
+	}
 
 	r.logger.Debug("unregistered name",
 		zap.String("name", name),
@@ -103,6 +133,43 @@ func (r *PIDRegistry) Lookup(name string) (pubsub.PID, bool) {
 	// no log in hot operation, can be handled on app level
 
 	return pid, true
+}
+
+// Remove completely removes a PID from the registry,
+// removing all name associations for that PID
+func (r *PIDRegistry) Remove(pid pubsub.PID) {
+	// Get all names associated with this PID
+	namesVal, exists := r.idToName.Load(pid)
+	if !exists {
+		// If no names found in this registry, try parent
+		if r.parent != nil {
+			r.parent.Remove(pid)
+		}
+		return
+	}
+
+	names := namesVal.([]string)
+
+	// Remove each name from the nameToID map
+	for _, name := range names {
+		r.nameToID.Delete(name)
+
+		r.logger.Debug("removed name during PID removal",
+			zap.String("name", name),
+			zap.String("pid", pid.String()))
+	}
+
+	// Remove the PID from the idToName map
+	r.idToName.Delete(pid)
+
+	r.logger.Debug("removed PID from registry",
+		zap.String("pid", pid.String()),
+		zap.Int("names_removed", len(names)))
+
+	// Propagate to parent if exists
+	if r.parent != nil {
+		r.parent.Remove(pid)
+	}
 }
 
 // Ensure Registry implements the operation.Registry interface
