@@ -21,7 +21,6 @@ entries:
       comment: "Tests the actor library's messaging and event handling capabilities"
     source: file://actor_test.lua
     method: run_tests
-    modules: [ "time", "json" ]
     imports:
       test: "wippy.lib:test"
       actor: "wippy.lib:actor"
