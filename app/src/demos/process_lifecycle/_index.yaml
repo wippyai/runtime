@@ -14,7 +14,7 @@ entries:
     lifecycle:
       auto_start: true
       restart:
-        initial_delay: 5s
+        initial_delay: 0s
         max_attempts: 3
       depends_on:
         - system:processes
