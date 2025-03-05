@@ -174,7 +174,7 @@ func (t *Topology) GetLinks(pid pubsub.PID) []pubsub.PID {
 func (t *Topology) Notify(pid pubsub.PID, result *runtime.Result) {
 	// Send to all monitors
 	if value, ok := t.monitors.Load(pid.String()); ok {
-		resultPayload := payload.New(topology.ExitEvent{
+		resultPayload := payload.New(&topology.ExitEvent{
 			At:     time.Now(),
 			From:   pid,
 			Kind:   topology.KindExit,
@@ -210,7 +210,7 @@ func (t *Topology) Notify(pid pubsub.PID, result *runtime.Result) {
 	// For linked processes, only send KindLinkDown for abnormal exits
 	linkedPIDs := t.GetLinks(pid)
 	if len(linkedPIDs) > 0 && !isNormalExit {
-		exitPayload := payload.New(topology.ExitEvent{
+		exitPayload := payload.New(&topology.ExitEvent{
 			At:     time.Now(),
 			From:   pid,
 			Kind:   topology.KindLinkDown,

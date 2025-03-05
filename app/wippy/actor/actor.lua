@@ -172,9 +172,6 @@ function actor.new(initial_state, handlers, proc)
                     if is_exit(reply) then
                         return reply.result
                     end
-                    if reply and payload.reply_to then
-                        proc_impl.send(payload.reply_to, topic .. "_reply", reply)
-                    end
                 elseif handlers.__default then
                     -- Call default handler with topic as extra param
                     local reply = handlers.__default(state, payload, topic)
