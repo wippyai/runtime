@@ -22,7 +22,7 @@ local function run()
 
             print("Creating new parent process, request from:", msg.from, state.next_id)
 
-            -- Spawn new parent process (monitored by us)
+            ---- Spawn new parent process (monitored by us)
             local parent_pid, err = process.spawn_monitored(
                 "app.demos.process_lifecycle:parent",
                 "system:processes"
@@ -40,13 +40,13 @@ local function run()
             end
 
             -- Track process
-            state.processes[id] = {
-                id = id,
-                parent_pid = parent_pid,
-                created_at = time.now(),
-                created_by = msg.from,
-                status = "running"
-            }
+            --state.processes[id] = {
+                           --            --    id = id,
+                           --            --    parent_pid = parent_pid,
+                           --            --    created_at = time.now(),
+                           --            --    created_by = msg.from,
+                           --            --    status = "running"
+                           --            --}
 
             print("Created new parent process:", parent_pid, "ID:", id)
 

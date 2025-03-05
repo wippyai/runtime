@@ -199,7 +199,7 @@ func (p *ProcessPool) Cancel(pid pubsub.PID, deadline time.Time) error {
 // CancelAll sends cancellation signals to all processes and waits for completion
 func (p *ProcessPool) CancelAll(ctx context.Context, deadline time.Time) error {
 	p.processes.Range(func(key, _ interface{}) bool {
-		pid := key.(pubsub.PID)
+		pid, _ := pubsub.ParsePID(key.(string))
 		if err := p.Cancel(pid, deadline); err != nil {
 			p.log.Warn("failed to cancel process",
 				zap.String("pid", pid.String()),

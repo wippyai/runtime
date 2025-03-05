@@ -58,6 +58,9 @@ type (
 		// Lookup finds the PID registered with a given name
 		// Returns the PID and true if found, empty PID and false if not found
 		Lookup(name string) (pubsub.PID, bool)
+
+		// Remove completely removes a pid from a registry
+		Remove(pid pubsub.PID)
 	}
 
 	// Monitor defines the interface for process monitoring
