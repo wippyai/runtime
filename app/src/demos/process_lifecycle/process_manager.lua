@@ -143,7 +143,7 @@ local function run()
         __on_event = function(state, event)
             if event.kind == process.event.EXIT then
                 local pid = event.from
-print("EXIT ON ", pid)
+
                 -- Find which process completed
                 for id, proc in pairs(state.processes) do
                     if proc.parent_pid == pid then
