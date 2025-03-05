@@ -3,7 +3,6 @@ package host
 import (
 	"context"
 	"github.com/ponyruntime/pony/api/process"
-	"log"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -17,7 +16,7 @@ import (
 type processEntry struct {
 	process process.Process
 	running atomic.Bool
-	awaken  chan struct{}
+	awaken  atomic.Bool
 }
 
 // ProcessPool manages concurrent process execution
@@ -26,19 +25,20 @@ type ProcessPool struct {
 	numProcesses atomic.Int32
 	maxProcesses int
 	log          *zap.Logger
-	processes    sync.Map        // map[pubsub.PID]*processEntry
-	workCh       chan pubsub.PID // Channel for scheduling work
-	wg           sync.WaitGroup  // Worker goroutines WaitGroup
-	processWG    sync.WaitGroup  // Active processes WaitGroup
+	processes    sync.Map         // map[pubsub.PID]*processEntry
+	workCh       chan *pubsub.PID // Channel for scheduling work
+	wg           sync.WaitGroup   // Worker goroutines WaitGroup
+	processWG    sync.WaitGroup   // Active processes WaitGroup
 	ctx          context.Context
 	cancel       context.CancelFunc
+
+	count atomic.Int32
 }
 
 // NewProcessPool creates a new process pool
 func NewProcessPool(
 	ctx context.Context,
 	workers int,
-	queueSize int,
 	maxProcesses int,
 	log *zap.Logger,
 ) *ProcessPool {
@@ -48,14 +48,14 @@ func NewProcessPool(
 		workers:      workers,
 		maxProcesses: maxProcesses,
 		log:          log,
-		workCh:       make(chan pubsub.PID, queueSize),
+		workCh:       make(chan *pubsub.PID, 50000), // must ALWAYS fit all processes
 		ctx:          ctx,
 		cancel:       cancel,
 	}
 }
 
 // AddProcess registers a new process with the pool
-func (p *ProcessPool) AddProcess(pid pubsub.PID, proc process.Process) error {
+func (p *ProcessPool) Add(pid pubsub.PID, proc process.Process) error {
 	if p.maxProcesses != 0 && p.numProcesses.Load() >= int32(p.maxProcesses) {
 		p.log.Warn("max processes reached, cannot add new process", zap.String("pid", pid.String()))
 		return process.ErrMaxProcesses
@@ -63,10 +63,9 @@ func (p *ProcessPool) AddProcess(pid pubsub.PID, proc process.Process) error {
 
 	entry := &processEntry{
 		process: proc,
-		awaken:  make(chan struct{}),
 	}
 
-	if _, loaded := p.processes.LoadOrStore(pid, entry); loaded {
+	if _, loaded := p.processes.LoadOrStore(pid.String(), entry); loaded {
 		return process.ErrHostBusy
 	}
 
@@ -78,24 +77,30 @@ func (p *ProcessPool) AddProcess(pid pubsub.PID, proc process.Process) error {
 }
 
 // HasProcess checks if a process exists in the pool
-func (p *ProcessPool) HasProcess(pid pubsub.PID) bool {
-	_, exists := p.processes.Load(pid)
+func (p *ProcessPool) Has(pid pubsub.PID) bool {
+	_, exists := p.processes.Load(pid.String())
 	return exists
 }
 
 // Schedule adds a process to the work queue
 func (p *ProcessPool) Schedule(pid pubsub.PID) error {
-	entry, ok := p.processes.Load(pid)
-	if !ok {
+	pr, exists := p.processes.Load(pid.String())
+	if !exists {
 		return process.ErrNoProcess
 	}
 
-	select {
-	case p.workCh <- pid:
-		return nil
-	case <-p.ctx.Done():
-		return context.Canceled
+	if pr.(*processEntry).awaken.CompareAndSwap(false, true) {
+		select {
+		case p.workCh <- &pid:
+			return nil
+		case <-p.ctx.Done():
+			return context.Canceled
+		}
+	} else {
+		p.count.Add(1)
 	}
+
+	return nil
 }
 
 // Start launches the worker goroutines
@@ -123,7 +128,7 @@ func (p *ProcessPool) worker() {
 
 		case pid := <-p.workCh:
 			// Get process entry
-			entryVal, exists := p.processes.Load(pid)
+			entryVal, exists := p.processes.Load(pid.String())
 			if !exists {
 				continue // most likely async task stuck in the queue
 			}
@@ -135,7 +140,6 @@ func (p *ProcessPool) worker() {
 				continue // handled by another goroutine
 			}
 
-			// Start process step
 			err := entry.process.Step()
 			if err != nil {
 				p.log.Debug("process step completed with error",
@@ -143,7 +147,7 @@ func (p *ProcessPool) worker() {
 					zap.Error(err))
 
 				// Process is done (with error)
-				p.RemoveProcess(pid)
+				p.Remove(*pid)
 				continue
 			}
 
@@ -156,25 +160,25 @@ func (p *ProcessPool) worker() {
 				case <-p.ctx.Done():
 					return
 				case p.workCh <- pid:
-				default:
-					log.Printf("SHIITTT")
 				}
+			} else {
+				entry.awaken.Store(false)
 			}
 		}
 	}
 }
 
-// RemoveProcess removes a process from the pool
-func (p *ProcessPool) RemoveProcess(pid pubsub.PID) {
-	if _, exists := p.processes.LoadAndDelete(pid); exists {
+// Remove removes a process from the pool
+func (p *ProcessPool) Remove(pid pubsub.PID) {
+	if _, exists := p.processes.LoadAndDelete(pid.String()); exists {
 		p.processWG.Done()
 		p.numProcesses.Add(^int32(0))
 	}
 }
 
-// CancelProcess sends a cancellation signal to a specific process
-func (p *ProcessPool) CancelProcess(pid pubsub.PID, deadline time.Time) error {
-	entryVal, exists := p.processes.Load(pid)
+// Cancel sends a cancellation signal to a specific process
+func (p *ProcessPool) Cancel(pid pubsub.PID, deadline time.Time) error {
+	entryVal, exists := p.processes.Load(pid.String())
 	if !exists {
 		return process.ErrNoProcess
 	}
@@ -188,7 +192,7 @@ func (p *ProcessPool) CancelProcess(pid pubsub.PID, deadline time.Time) error {
 			zap.Error(err))
 	}
 
-	// Let process handle cancellation in next schedule
+	// Let process handle cancellation in next Schedule
 	return p.Schedule(pid)
 }
 
@@ -196,7 +200,7 @@ func (p *ProcessPool) CancelProcess(pid pubsub.PID, deadline time.Time) error {
 func (p *ProcessPool) CancelAll(ctx context.Context, deadline time.Time) error {
 	p.processes.Range(func(key, _ interface{}) bool {
 		pid := key.(pubsub.PID)
-		if err := p.CancelProcess(pid, deadline); err != nil {
+		if err := p.Cancel(pid, deadline); err != nil {
 			p.log.Warn("failed to cancel process",
 				zap.String("pid", pid.String()),
 				zap.Error(err))

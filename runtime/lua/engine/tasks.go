@@ -106,11 +106,13 @@ func (t *taskCoordinator) WakeUp() {
 		t.wakeCount.Add(1)
 		select {
 		case t.wakeup <- struct{}{}:
-			if t.wakeupFunc != nil {
-				t.wakeupFunc()
-			}
 		default:
+			t.wakeCount.Add(^int32(0))
 		}
+	}
+
+	if t.wakeupFunc != nil {
+		t.wakeupFunc()
 	}
 }
 
@@ -123,6 +125,7 @@ func (t *taskCoordinator) Send(ctx context.Context, update *Update) error {
 		t.WakeUp()
 		return nil
 	case <-ctx.Done():
+		t.updCount.Add(^int32(0))
 		return ctx.Err()
 	}
 }

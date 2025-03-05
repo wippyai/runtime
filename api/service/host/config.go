@@ -24,9 +24,6 @@ type Config struct {
 	MaxProcesses int `json:"max_processes"` // Maximum number of concurrent processes
 	Workers      int `json:"workers"`       // Number of workers processing steps
 
-	// Queue sizes
-	StepQueueSize int `json:"step_queue_size"` // Len of the step execution queue
-
 	// Messaging settings (from pubsub)
 	BufferSize         int `json:"buffer_size"`          // Internal job channel buffer size
 	WorkerCount        int `json:"worker_count"`         // Number of concurrent message workers
@@ -40,13 +37,9 @@ func (cfg *EntryConfig) InitDefaults() {
 		cfg.HostConfig.Workers = runtime.NumCPU()
 	}
 
-	if cfg.HostConfig.StepQueueSize == 0 {
-		cfg.HostConfig.StepQueueSize = 10
-	}
-
 	// Messaging defaults
 	if cfg.HostConfig.BufferSize == 0 {
-		cfg.HostConfig.BufferSize = 1
+		cfg.HostConfig.BufferSize = 1024
 	}
 
 	if cfg.HostConfig.WorkerCount == 0 {
@@ -68,10 +61,6 @@ func (cfg *EntryConfig) Validate() error {
 
 	if c.Workers <= 0 {
 		return fmt.Errorf("workers must be greater than 0")
-	}
-
-	if c.StepQueueSize <= 0 {
-		return fmt.Errorf("step_queue_size must be greater than 0")
 	}
 
 	// Validate messaging settings

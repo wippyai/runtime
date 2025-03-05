@@ -49,7 +49,7 @@ func (p *LuaProcess) Start(ctx context.Context, pid pubsub.PID, input payload.Pa
 
 // Step advances the process state by one iteration
 func (p *LuaProcess) Step() error {
-	return p.state.Step()
+	return p.state.Step(false)
 }
 
 // Ready returns the size of the runner's queue that is ready to be processed.

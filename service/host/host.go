@@ -84,7 +84,6 @@ func (h *Host) Start(ctx context.Context) (<-chan any, error) {
 	h.pool, err = h.poolFactory.CreateProcessPool(
 		h.ctx,
 		h.cfg.HostConfig.Workers,
-		h.cfg.HostConfig.StepQueueSize,
 		h.cfg.HostConfig.MaxProcesses,
 		h.log,
 	)
@@ -113,7 +112,7 @@ func (h *Host) finalizeProcess(pid pubsub.PID, result *runtime.Result) {
 	}
 
 	h.msgHost.Detach(pid)
-	h.pool.RemoveProcess(pid)
+	h.pool.Remove(pid)
 }
 
 // startMessageWorkers spawns worker goroutines to process routing messages.
@@ -133,7 +132,7 @@ func (h *Host) startMessageWorkers() {
 					}
 
 					// We need to check if the process exists in the pool
-					if !h.pool.HasProcess(m.PID) {
+					if !h.pool.Has(m.PID) {
 						h.log.Warn("routing worker received message for unknown process",
 							zap.String("pid", m.PID.String()))
 						continue
@@ -142,7 +141,8 @@ func (h *Host) startMessageWorkers() {
 					// Get the process and send the message
 					// Note: This requires an internal access to the pool's processes map
 					// We may need to enhance the ProcessPoolAPI to include a SendToProcess method
-					entryVal, _ := h.pool.(*ProcessPool).processes.Load(m.PID)
+					// todo: redo it
+					entryVal, _ := h.pool.(*ProcessPool).processes.Load(m.PID.String())
 					entry := entryVal.(*processEntry)
 					if err := entry.process.Send(m); err != nil {
 						h.log.Error("failed to send message to process",
@@ -167,7 +167,7 @@ func (h *Host) Launch(ctx context.Context, launch *process.Launch) (pubsub.PID, 
 		return pubsub.PID{}, errors.New("host is shutting down, cannot launch new process")
 	}
 
-	if h.pool.HasProcess(launch.PID) {
+	if h.pool.Has(launch.PID) {
 		return pubsub.PID{}, process.ErrHostBusy
 	}
 
@@ -186,7 +186,7 @@ func (h *Host) Launch(ctx context.Context, launch *process.Launch) (pubsub.PID, 
 		return pubsub.PID{}, err
 	}
 
-	if err := h.pool.AddProcess(launch.PID, launch.Process); err != nil {
+	if err := h.pool.Add(launch.PID, launch.Process); err != nil {
 		h.msgHost.Detach(launch.PID)
 		return pubsub.PID{}, err
 	}
@@ -219,17 +219,17 @@ func (h *Host) Terminate(ctx context.Context, pid pubsub.PID) error {
 		return errors.New("host is not running, cannot launch new process")
 	}
 
-	if !h.pool.HasProcess(pid) {
+	if !h.pool.Has(pid) {
 		return process.ErrNoProcess
 	}
 
 	// get process
-	entryVal, _ := h.pool.(*ProcessPool).processes.Load(pid)
+	entryVal, _ := h.pool.(*ProcessPool).processes.Load(pid.String())
 	entry := entryVal.(*processEntry)
 	entry.process.Terminate()
 
 	// terminate is aggressive, so we don't wait for the process to finish, use cancel signals instead
-	h.pool.RemoveProcess(pid)
+	h.pool.Remove(pid)
 
 	h.log.Debug("process terminate requested", zap.String("pid", pid.String()))
 	return nil

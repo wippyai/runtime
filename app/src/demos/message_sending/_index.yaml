@@ -47,3 +47,22 @@ entries:
     method: GET
     path: /send
     func: message.sender
+
+  - name: message.sender2
+    kind: function.lua
+    meta:
+      comment: "HTTP endpoint to send messages to a process"
+    source: file://sender.lua
+    method: handler
+    modules: [ http, time ]
+    pool:
+      size: 8
+
+  - name: sender.endpoint2
+    kind: http.endpoint
+    meta:
+      comment: "Send message to PID"
+      router: system:api
+    method: GET
+    path: /send2
+    func: message.sender2
