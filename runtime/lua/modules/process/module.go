@@ -41,6 +41,7 @@ func (m *Module) Loader(l *lua.LState) int {
 	mod.RawSetString("spawn", l.NewFunction(m.spawn))
 	mod.RawSetString("spawn_monitored", l.NewFunction(m.spawnMonitored))
 	mod.RawSetString("spawn_linked", l.NewFunction(m.spawnLinked))
+	mod.RawSetString("spawn_linked_monitored", l.NewFunction(m.spawnLinkedMonitored))
 	mod.RawSetString("terminate", l.NewFunction(m.terminate))
 	mod.RawSetString("cancel", l.NewFunction(m.cancel))
 	mod.RawSetString("get_options", l.NewFunction(m.getOptions))
@@ -482,6 +483,66 @@ func (m *Module) spawnLinked(l *lua.LState) int {
 		Lifecycle: process.Lifecycle{
 			Parent:  self,
 			Monitor: false,
+			Link:    true,
+		},
+	}
+
+	// Start the process with linking
+	pid, err := manager.Start(l.Context(), start)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	m.log.Debug("process spawned with linking",
+		zap.String("from", self.String()),
+		zap.String("pid", pid.String()),
+		zap.String("host", hostID),
+		zap.String("process", id),
+		zap.Int("num_args", len(payloads)),
+	)
+
+	// Return PID string
+	l.Push(lua.LString(pid.String()))
+	return 1
+}
+
+// spawnLinked creates a new process with linking
+// Params: id, host, [arg1, arg2, ...]
+// Returns: pid, error
+func (m *Module) spawnLinkedMonitored(l *lua.LState) int {
+	manager, ok := m.getProcessManager(l)
+	if !ok {
+		return 2 // Error values already pushed by getProcessManager
+	}
+
+	self, ok := m.checkPID(l)
+	if !ok {
+		return 2 // Error values already pushed by checkPID
+	}
+
+	// Get required arguments
+	if l.GetTop() < 2 {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("spawn_linked requires at least id and host arguments"))
+		return 2
+	}
+
+	id := l.CheckString(1) // This should be in format "namespace:name"
+	hostID := l.CheckString(2)
+
+	// Get any optional args (starting from argument 3)
+	payloads := m.createPayloadsFromArgs(l, 3)
+
+	// Create start process config
+	start := &process.Start{
+		HostID: hostID,
+		Source: registry.ParseID(id),
+		Input:  payloads,
+		Lifecycle: process.Lifecycle{
+			Parent:  self,
+			Monitor: true,
 			Link:    true,
 		},
 	}

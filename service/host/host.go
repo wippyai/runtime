@@ -7,7 +7,6 @@ import (
 	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/logs"
 	"github.com/ponyruntime/pony/api/service/host"
-	"log"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -112,7 +111,6 @@ func (h *Host) finalizeProcess(pid pubsub.PID, result *runtime.Result) {
 			zap.String("pid", pid.String()))
 	}
 
-	log.Printf("DETACH")
 	h.msgHost.Detach(pid)
 	h.pool.Remove(pid)
 }
@@ -144,13 +142,16 @@ func (h *Host) startMessageWorkers() {
 					// Note: This requires an internal access to the pool's processes map
 					// We may need to enhance the ProcessPoolAPI to include a SendToProcess method
 					// todo: redo it
-					entryVal, _ := h.pool.(*ProcessPool).processes.Load(m.PID.String())
-					entry := entryVal.(*processEntry)
-					if err := entry.process.Send(m); err != nil {
-						h.log.Error("failed to send message to process",
-							zap.String("pid", m.PID.String()),
-							zap.Error(err))
+					entryVal, ok := h.pool.(*ProcessPool).processes.Load(m.PID.String())
+					if ok && entryVal != nil {
+						entry := entryVal.(*processEntry)
+						if err := entry.process.Send(m); err != nil {
+							h.log.Error("failed to send message to process",
+								zap.String("pid", m.PID.String()),
+								zap.Error(err))
+						}
 					}
+
 				case <-h.ctx.Done():
 					return
 				}
