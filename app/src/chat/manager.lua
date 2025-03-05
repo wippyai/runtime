@@ -59,7 +59,7 @@ local function run()
             state.sessions[msg.pid] = nil
         end,
 
-        -- Handle monitored process events
+        -- Handle monitored process events (already using correct format)
         __on_event = function(state, event)
             if event.kind == process.event.EXIT then
                 local pid = event.from
@@ -70,13 +70,13 @@ local function run()
             end
         end,
 
-        -- Handle cancellation
-        on_cancel = function(state)
+        -- Updated cancellation handler with double underscore prefix
+        __on_cancel = function(state)
             print("Session manager received cancel signal")
             return actor.exit({ status = "shutdown" })
         end,
 
-        -- Default handler for unknown messages
+        -- Default handler for unknown messages (already using correct format)
         __default = function(state, msg, topic)
             print("Unknown message received:", topic)
             print("Payload:", json.encode(msg))

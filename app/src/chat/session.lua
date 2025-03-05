@@ -9,7 +9,8 @@ local function run(args)
         created_at = time.now(),
         messages = {},
         current_response = "",
-        is_responding = false
+        is_responding = false,
+        func_executor = funcs.new() -- Create funcs executor once
     }
 
     print("Chat session started:", state.pid)
@@ -28,7 +29,7 @@ local function run(args)
             -- Use reply_to if available; otherwise fall back to msg.from.
             local target = msg.reply_to or msg.from
 
-            local response, err = funcs.new():call("app.funcs.openai:llm_query", {
+            local response, err = state.func_executor:call("app.funcs.openai:llm_query", {
                 message = msg.text,
                 history = state.messages,
                 stream = (target ~= nil),
@@ -72,7 +73,8 @@ local function run(args)
             state.messages = {}
         end,
 
-        on_cancel = function(state)
+        -- Updated cancellation handler with double underscore prefix
+        __on_cancel = function(state)
             print("Session received cancel signal")
             if args and args.manager_pid then
                 process.send(args.manager_pid, "session_closed", {

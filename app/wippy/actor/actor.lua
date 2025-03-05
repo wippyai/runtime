@@ -15,7 +15,6 @@ end
 local default_process = {
     inbox = function() return process.inbox() end,
     events = function() return process.events() end,
-    listen = function(topic) return process.listen(topic) end,
     send = function(dest, topic, payload) return process.send(dest, topic, payload) end,
     pid = function() return process.pid() end,
     event = process.event
@@ -33,18 +32,19 @@ function actor.new(initial_state, handlers, proc)
         local inbox = proc_impl.inbox()
         local events = proc_impl.events()
 
-        -- Set up topic-specific listeners
-        local topic_listeners = {}
-        local topic_channels = {}
+        -- Setup for topic-specific handlers from the handlers table
+        local topic_handlers = {}
 
         -- Find handlers that should be associated with specific topics
         for name, handler in pairs(handlers) do
             -- Special handlers start with __, others are assumed to be topic handlers
             if type(handler) == "function" and not name:match("^__") then
-                topic_listeners[name] = handler
-                topic_channels[name] = proc_impl.listen(name)
+                topic_handlers[name] = handler
             end
         end
+
+        -- Registered channels and their handlers
+        local registered_channels = {}
 
         -- Build select cases starting with core channels
         local select_cases = {
@@ -52,10 +52,47 @@ function actor.new(initial_state, handlers, proc)
             events:case_receive()
         }
 
-        -- Add topic-specific channels to select cases
-        for topic, channel in pairs(topic_channels) do
-            table.insert(select_cases, channel:case_receive())
+        -- Function to rebuild select cases when channels change
+        local function rebuild_select_cases()
+            select_cases = {
+                inbox:case_receive(),
+                events:case_receive()
+            }
+
+            for _, channel_info in pairs(registered_channels) do
+                table.insert(select_cases, channel_info.channel:case_receive())
+            end
         end
+
+        -- Function to register a new channel and its handler
+        local function register_channel(channel, handler)
+            if not channel or type(handler) ~= "function" then
+                error("Channel and handler function must be provided")
+            end
+
+            local channel_id = tostring(channel)
+            registered_channels[channel_id] = { channel = channel, handler = handler }
+
+            -- Rebuild select cases with the new channel
+            rebuild_select_cases()
+
+            return true
+        end
+
+        -- Function to unregister a channel
+        local function unregister_channel(channel)
+            local channel_id = tostring(channel)
+            if registered_channels[channel_id] then
+                registered_channels[channel_id] = nil
+                rebuild_select_cases()
+                return true
+            end
+            return false
+        end
+
+        -- Add channel management functions to state
+        state.register_channel = register_channel
+        state.unregister_channel = unregister_channel
 
         while true do
             local result = channel.select(select_cases)
@@ -94,7 +131,7 @@ function actor.new(initial_state, handlers, proc)
                 local payload_ud = msg:payload()
                 local payload = payload_ud:data()
 
-                local handler = handlers[topic]
+                local handler = topic_handlers[topic]
 
                 if handler then
                     local reply = handler(state, payload)
@@ -113,20 +150,28 @@ function actor.new(initial_state, handlers, proc)
                 end
             end
 
-            -- Check if this was a topic-specific channel
-            for topic, channel in pairs(topic_channels) do
-                if result.channel == channel and result.value then
-                    local message = result.value
-                    local handler = topic_listeners[topic]
+            -- Check if this was a registered channel
+            local handled = false
+            for channel_id, channel_info in pairs(registered_channels) do
+                if result.channel == channel_info.channel then
+                    local handler = channel_info.handler
 
-                    if handler then
-                        local reply = handler(state, message)
-                        if is_exit(reply) then
-                            return reply.result
-                        end
+                    -- Call handler with the received value (or nil if channel closed)
+                    -- Third parameter indicates if channel is still open (ok value)
+                    local reply = handler(state, result.value, result.ok)
+
+                    -- If channel was closed, automatically unregister it
+                    if not result.ok then
+                        registered_channels[channel_id] = nil
+                        rebuild_select_cases()
                     end
 
-                    break -- Found the channel, no need to check others
+                    if is_exit(reply) then
+                        return reply.result
+                    end
+
+                    handled = true
+                    break
                 end
             end
         end

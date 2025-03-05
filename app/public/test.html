@@ -51,7 +51,7 @@
 <script type="text/x-template" id="test-suite-template">
     <div class="border-b last:border-b-0">
         <!-- Suite Header -->
-        <div class="p-3 bg-bg-hover cursor-pointer" @click="toggleExpanded">
+        <div :class="['p-3 cursor-pointer', getSuiteHeaderClass()]" @click="toggleExpanded">
             <div class="flex justify-between items-center">
                 <div class="flex items-center gap-2">
                     <svg xmlns="http://www.w3.org/2000/svg" class="icon transition-transform"
@@ -418,12 +418,22 @@
         },
         data() {
             return {
-                expanded: true
+                expanded: false // Changed from true to false
             };
         },
         methods: {
             toggleExpanded() {
                 this.expanded = !this.expanded;
+            },
+            getSuiteHeaderClass() {
+                // Added this method to apply appropriate background color based on suite status
+                if (this.suite.failed > 0) {
+                    return 'bg-danger-light';
+                } else if (this.suite.passed > 0 && this.suite.passed + this.suite.skipped === this.suite.total) {
+                    return 'bg-success-light';
+                } else {
+                    return 'bg-bg-hover';
+                }
             }
         }
     };
@@ -442,7 +452,7 @@
         },
         data() {
             return {
-                expanded: true
+                expanded: false // Changed from true to false
             };
         },
         computed: {
