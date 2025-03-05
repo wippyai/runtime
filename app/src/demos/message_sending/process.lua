@@ -34,7 +34,7 @@ local function run()
             end
         end,
 
-        on_cancel = function(state)
+        __on_cancel = function(state)
             print("Process received cancel signal")
             return actor.exit({ status = "shutdown" })
         end,

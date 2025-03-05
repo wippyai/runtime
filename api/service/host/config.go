@@ -41,12 +41,12 @@ func (cfg *EntryConfig) InitDefaults() {
 	}
 
 	if cfg.HostConfig.StepQueueSize == 0 {
-		cfg.HostConfig.StepQueueSize = 5000
+		cfg.HostConfig.StepQueueSize = 10
 	}
 
 	// Messaging defaults
 	if cfg.HostConfig.BufferSize == 0 {
-		cfg.HostConfig.BufferSize = 1000
+		cfg.HostConfig.BufferSize = 1
 	}
 
 	if cfg.HostConfig.WorkerCount == 0 {

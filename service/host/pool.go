@@ -3,6 +3,7 @@ package host
 import (
 	"context"
 	"github.com/ponyruntime/pony/api/process"
+	"log"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -16,6 +17,7 @@ import (
 type processEntry struct {
 	process process.Process
 	running atomic.Bool
+	awaken  chan struct{}
 }
 
 // ProcessPool manages concurrent process execution
@@ -61,6 +63,7 @@ func (p *ProcessPool) AddProcess(pid pubsub.PID, proc process.Process) error {
 
 	entry := &processEntry{
 		process: proc,
+		awaken:  make(chan struct{}),
 	}
 
 	if _, loaded := p.processes.LoadOrStore(pid, entry); loaded {
@@ -82,6 +85,11 @@ func (p *ProcessPool) HasProcess(pid pubsub.PID) bool {
 
 // Schedule adds a process to the work queue
 func (p *ProcessPool) Schedule(pid pubsub.PID) error {
+	entry, ok := p.processes.Load(pid)
+	if !ok {
+		return process.ErrNoProcess
+	}
+
 	select {
 	case p.workCh <- pid:
 		return nil
@@ -148,6 +156,8 @@ func (p *ProcessPool) worker() {
 				case <-p.ctx.Done():
 					return
 				case p.workCh <- pid:
+				default:
+					log.Printf("SHIITTT")
 				}
 			}
 		}
