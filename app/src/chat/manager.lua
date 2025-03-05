@@ -61,10 +61,10 @@ local function run()
 
         -- Handle monitored process events
         __on_event = function(state, event)
-            if event.event.kind == process.EVENT_RESULT then
-                local pid = event.event.from
+            if event.kind == process.event.EXIT then
+                local pid = event.from
                 if state.sessions[pid] then
-                    print("Session terminated:", pid, "error:", event.event.error or "none")
+                    print("Session terminated:", pid, "error:", event.error or "none")
                     state.sessions[pid] = nil
                 end
             end

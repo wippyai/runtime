@@ -490,6 +490,8 @@ if result.default then
 end
 ```
 
+> You can close channels you own, but you can not closed channels own by the process.
+
 ## Common Patterns and Examples
 
 ### 1. Request-Response Pattern
@@ -599,8 +601,8 @@ local function supervisor()
     while true do
         local event = events:receive()
         
-        if event.event.kind == process.event.EXIT then
-            local failed_pid = event.event.from
+        if event.kind == process.event.EXIT then
+            local failed_pid = event.from
             
             -- Find which child failed
             for id, pid in pairs(children) do
@@ -611,10 +613,10 @@ local function supervisor()
                     break
                 end
             end
-        elseif event.event.kind == process.event.LINK_DOWN then
+        elseif event.kind == process.event.LINK_DOWN then
             -- Critical linked process failed
             -- With trap_links = true, we receive LINK_DOWN events instead of dying
-            local down_pid = event.event.from
+            local down_pid = event.from
             print("Linked process down:", down_pid)
                             
             -- Try to reconnect or restart

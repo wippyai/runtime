@@ -111,10 +111,6 @@ func (t *Topology) Link(from, to pubsub.PID) error {
 	fromLinks.Store(to.String(), true)
 	toLinks.Store(from.String(), true)
 
-	// send link notifications to both processes
-	_ = t.upstream.Send(topology.NotifyLink(from, to, true))
-	_ = t.upstream.Send(topology.NotifyLink(to, from, true))
-
 	return nil
 }
 
@@ -140,10 +136,6 @@ func (t *Topology) Unlink(from, to pubsub.PID) error {
 		toLinks := toLinksValue.(*sync.Map)
 		toLinks.Delete(from.String())
 	}
-
-	// send link removed notifications
-	_ = t.upstream.Send(topology.NotifyLink(from, to, false))
-	_ = t.upstream.Send(topology.NotifyLink(to, from, false))
 
 	return nil
 }
@@ -183,11 +175,9 @@ func (t *Topology) Notify(pid pubsub.PID, result *runtime.Result) {
 	// Send to all monitors
 	if value, ok := t.monitors.Load(pid.String()); ok {
 		resultPayload := payload.New(topology.ExitEvent{
-			Event: topology.Event{
-				At:   time.Now(),
-				From: pid,
-				Kind: topology.KindExit,
-			},
+			At:     time.Now(),
+			From:   pid,
+			Kind:   topology.KindExit,
 			Result: result,
 		})
 
@@ -221,11 +211,9 @@ func (t *Topology) Notify(pid pubsub.PID, result *runtime.Result) {
 	linkedPIDs := t.GetLinks(pid)
 	if len(linkedPIDs) > 0 && !isNormalExit {
 		exitPayload := payload.New(topology.ExitEvent{
-			Event: topology.Event{
-				At:   time.Now(),
-				From: pid,
-				Kind: topology.KindLinkDown,
-			},
+			At:     time.Now(),
+			From:   pid,
+			Kind:   topology.KindLinkDown,
 			Result: result,
 		})
 

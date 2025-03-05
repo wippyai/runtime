@@ -356,7 +356,7 @@ func (s *State) handleTopologyMessage(msg *pubsub.Message) bool {
 	// Handle different event types
 	switch event := data.(type) {
 	case *topology.ExitEvent:
-		if event.Event.Kind == topology.KindLinkDown {
+		if event.Kind == topology.KindLinkDown {
 			// Link down event - terminate if not trapping
 			var exitErr error
 			if event.Result != nil && event.Result.Error != nil {
@@ -367,7 +367,7 @@ func (s *State) handleTopologyMessage(msg *pubsub.Message) bool {
 
 			s.Log.Debug("link down detected, setting exit error",
 				zap.String("pid", s.PID.String()),
-				zap.String("from", event.Event.From.String()),
+				zap.String("from", event.From.String()),
 				zap.Error(exitErr))
 
 			if !s.IsTrapLinksEnabled() {

@@ -10,3 +10,20 @@ entries:
     meta:
       comment: "Actor pattern library for btea processes"
     source: file://actor.lua
+    modules: [ "json" ]
+
+  - name: actor_test
+    kind: function.lua
+    meta:
+      name: "Actor Library Test"
+      type: "test"
+      tags: [ "actor", "library", "message-passing", "concurrency", "tests" ]
+      comment: "Tests the actor library's messaging and event handling capabilities"
+    source: file://actor_test.lua
+    method: run_tests
+    modules: [ "time", "json" ]
+    imports:
+      test: "wippy.lib:test"
+      actor: "wippy.lib:actor"
+    pool:
+      size: 1 # todo change it to support cold pools
