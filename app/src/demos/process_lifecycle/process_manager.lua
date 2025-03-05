@@ -141,8 +141,8 @@ local function run()
 
         -- Handle monitored process events
         __on_event = function(state, event)
-            if event.event.kind == process.event.EXIT then
-                local pid = event.event.from
+            if event.kind == process.event.EXIT then
+                local pid = event.from
 
                 -- Find which process completed
                 for id, proc in pairs(state.processes) do

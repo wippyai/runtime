@@ -48,3 +48,23 @@ entries:
     path: /chat/message
     func: session.send
 
+#  - name: session.cancel
+#    kind: function.lua
+#    meta:
+#      comment: "HTTP endpoint to cancel a chat session"
+#      depends_on: [ app.service.chat:encryption_utils ]
+#    source: file://cancel.lua
+#    method: handler
+#    modules: [ "http", "time" ]
+#    imports:
+#      encryption: app.service.chat:encryption_utils
+#    pool:
+#      size: 2
+#
+#  - name: session.cancel.endpoint
+#    kind: http.endpoint
+#    meta:
+#      comment: "Cancel an existing chat session"
+#    method: POST
+#    path: /chat/cancel
+#    func: session.cancel

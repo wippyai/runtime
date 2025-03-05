@@ -13,7 +13,6 @@ local function run()
     print("Chat session manager started with PID:", state.pid)
 
     local manager = actor.new(state, {
-        -- Handle session creation requests
         create_session = function(state, msg)
             print("Creating new session, request from:", msg.from)
 
@@ -53,13 +52,6 @@ local function run()
             end
         end,
 
-        -- Handle session closure notifications
-        session_closed = function(state, msg)
-            print("Session closed:", msg.pid, "reason:", msg.reason)
-            state.sessions[msg.pid] = nil
-        end,
-
-        -- Handle monitored process events (already using correct format)
         __on_event = function(state, event)
             if event.kind == process.event.EXIT then
                 local pid = event.from
@@ -70,13 +62,11 @@ local function run()
             end
         end,
 
-        -- Updated cancellation handler with double underscore prefix
         __on_cancel = function(state)
             print("Session manager received cancel signal")
             return actor.exit({ status = "shutdown" })
         end,
 
-        -- Default handler for unknown messages (already using correct format)
         __default = function(state, msg, topic)
             print("Unknown message received:", topic)
             print("Payload:", json.encode(msg))

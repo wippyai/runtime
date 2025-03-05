@@ -60,6 +60,7 @@
                               d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
                               clip-rule="evenodd"/>
                     </svg>
+                    <div :class="getStatusDotClass()"></div>
                     <h3 class="font-medium">{{ suite.name }}</h3>
                 </div>
                 <div class="flex gap-3">
@@ -433,6 +434,18 @@
                     return 'bg-success-light';
                 } else {
                     return 'bg-bg-hover';
+                }
+            },
+            getStatusDotClass() {
+                let baseClass = 'status-indicator-dot ';
+                if (this.suite.failed > 0) {
+                    return baseClass + 'status-dot-failed';
+                } else if (this.suite.passed > 0 && this.suite.passed + this.suite.skipped === this.suite.total) {
+                    return baseClass + 'status-dot-passed';
+                } else if (this.suite.skipped > 0 && this.suite.skipped === this.suite.total) {
+                    return baseClass + 'status-dot-skipped';
+                } else {
+                    return baseClass + 'status-dot-idle';
                 }
             }
         }
