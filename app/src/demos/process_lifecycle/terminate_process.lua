@@ -65,8 +65,7 @@ local function handler()
         id = response.id,
         parent_pid = response.parent_pid,
         status = "terminating",
-        message = "Terminate signal sent. This will immediately kill the parent process " +
-                  "and will also kill the linked child process unless trap_links is enabled."
+        message = "Terminate signal sent. This will immediately kill the parent process and will also kill the linked child process unless trap_links is enabled."
     })
 end
 
