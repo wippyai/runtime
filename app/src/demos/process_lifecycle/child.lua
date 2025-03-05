@@ -26,7 +26,7 @@ local function run(args)
             state.register_channel(work_ticker:channel(), function(state, value, ok)
                 if ok then
                     state.counter = state.counter + 1
-                    print("Child", state.pid, "working... count:", state.counter)
+                    --print("Child", state.pid, "working... count:", state.counter)
 
                     -- Report progress to parent
                     if state.parent_pid then

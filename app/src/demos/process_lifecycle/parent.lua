@@ -49,7 +49,7 @@ local function run(args)
 
         -- Handle child progress updates
         child_progress = function(state, msg)
-            print("Child progress:", msg.counter)
+            --print("Child progress:", msg.counter)
             state.counter = msg.counter
         end,
 
