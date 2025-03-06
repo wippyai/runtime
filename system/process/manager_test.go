@@ -3,6 +3,7 @@ package process
 import (
 	"context"
 	"errors"
+	toposystem "github.com/ponyruntime/pony/system/topology"
 	"testing"
 	"time"
 
@@ -78,14 +79,15 @@ func (m *managerManagedHost) Launch(ctx context.Context, launch *process.Launch)
 
 // Manager-specific delegated host mock
 type managerDelegatedHost struct {
-	launchErr    error
-	terminateErr error
-	sendErr      error
-	launched     bool
-	terminated   bool
-	lastPID      pubsub.PID
-	lastInput    payload.Payloads
-	lastCancel   *pubsub.Package
+	launchErr     error
+	terminateErr  error
+	sendErr       error
+	launched      bool
+	terminated    bool
+	lastPID       pubsub.PID
+	lastLifecycle process.Lifecycle
+	lastInput     payload.Payloads
+	lastCancel    *pubsub.Package
 }
 
 func (m *managerDelegatedHost) Send(pkg *pubsub.Package) error {
@@ -98,13 +100,15 @@ func (m *managerDelegatedHost) Terminate(ctx context.Context, pid pubsub.PID) er
 	return m.terminateErr
 }
 
-func (m *managerDelegatedHost) Launch(ctx context.Context, pid pubsub.PID, input payload.Payloads) (pubsub.PID, error) {
+// Updated to match the Delegated interface with Lifecycle parameter
+func (m *managerDelegatedHost) Launch(ctx context.Context, pid pubsub.PID, lf process.Lifecycle, input payload.Payloads) (pubsub.PID, error) {
 	if m.launchErr != nil {
 		return pubsub.PID{}, m.launchErr
 	}
 
 	m.launched = true
 	m.lastPID = pid
+	m.lastLifecycle = lf
 	m.lastInput = input
 
 	// Return a PID with the provided values but a modified UniqID
@@ -127,6 +131,32 @@ func (m *managerProcessMock) Create(id registry.ID) (process.Process, error) {
 	}
 	// Use the existing mockProcess type which is already defined in prototype_registry_test.go
 	return &mockProcess{}, nil
+}
+
+// Updated mockProcess implementation for manager_test.go
+type mockProcess struct {
+	sendErr error
+	stepErr error
+}
+
+func (m *mockProcess) Send(batch *pubsub.Package) error {
+	return m.sendErr
+}
+
+func (m *mockProcess) Start(_ context.Context, _ pubsub.PID, _ payload.Payloads) error {
+	return nil
+}
+
+func (m *mockProcess) Step() error {
+	return m.stepErr
+}
+
+func (m *mockProcess) Ready() int {
+	return 0
+}
+
+func (m *mockProcess) Terminate() {
+	// No-op implementation for tests
 }
 
 // Manager-specific mock topology
@@ -202,6 +232,7 @@ func contextWithManagerTopology() (context.Context, *managerTopology) {
 	topo := newManagerTopology()
 	ctx := context.Background()
 	ctx = topology.WithTopology(ctx, topo)
+	ctx = topology.WithPIDRegistry(ctx, toposystem.NewPIDRegistry(toposystem.PIDRegistryConfig{}))
 	return ctx, topo
 }
 
@@ -289,13 +320,18 @@ func TestManager_Start_DelegatedHost(t *testing.T) {
 	sourceID := registry.ID{NS: "test", Name: "process"}
 	uniqID := "test-uniq"
 	inputs := payload.Payloads{}
+	lifecycle := process.Lifecycle{
+		Monitor: true,
+		Link:    true,
+	}
 
 	// Execute the test
 	startReq := &process.Start{
-		HostID: hostID,
-		Source: sourceID,
-		UniqID: uniqID,
-		Input:  inputs,
+		HostID:    hostID,
+		Source:    sourceID,
+		UniqID:    uniqID,
+		Input:     inputs,
+		Lifecycle: lifecycle,
 	}
 
 	resultPID, err := manager.Start(ctx, startReq)
@@ -313,6 +349,7 @@ func TestManager_Start_DelegatedHost(t *testing.T) {
 	assert.Equal(t, hostID, delegatedHost.lastPID.Host)
 	assert.Equal(t, sourceID, delegatedHost.lastPID.ID)
 	assert.Equal(t, inputs, delegatedHost.lastInput)
+	assert.Equal(t, lifecycle, delegatedHost.lastLifecycle)
 }
 
 func TestManager_Start_HostNotFound(t *testing.T) {
@@ -438,8 +475,8 @@ func TestManager_Cancel(t *testing.T) {
 		// The payload should be a CancelEvent
 		if p := message.Payloads[0]; p != nil {
 			if cancelEvent, ok := p.Data().(*topology.CancelEvent); ok {
-				assert.Equal(t, fromPID, cancelEvent.Event.From)
-				assert.Equal(t, topology.KindCancel, cancelEvent.Event.Kind)
+				assert.Equal(t, fromPID, cancelEvent.From)
+				assert.Equal(t, topology.KindCancel, cancelEvent.Kind)
 				assert.WithinDuration(t, deadline, cancelEvent.Deadline, time.Second)
 			} else {
 				t.Fatalf("Expected CancelEvent, got %T", p.Data())

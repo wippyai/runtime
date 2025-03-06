@@ -3,7 +3,6 @@ package topology
 import (
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/topology"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 	"testing"
@@ -34,19 +33,23 @@ func TestPIDRegistry_Register(t *testing.T) {
 	err := reg.Register("name1", pid1)
 	assert.NoError(t, err)
 
-	// Test name already registered
+	// Test overwriting existing registration (should be allowed for atomic pointer changes)
 	err = reg.Register("name1", pid2)
-	assert.ErrorIs(t, err, topology.ErrNameAlreadyRegistered)
+	assert.NoError(t, err)
+
+	// Verify the name now points to pid2
+	resolvedPID, found := reg.Lookup("name1")
+	assert.True(t, found)
+	assert.Equal(t, pid2, resolvedPID)
 
 	// Test successful registration of different name and PID
 	err = reg.Register("name2", pid2)
 	assert.NoError(t, err)
 
-	// Test registering same PID with different name (now allowed)
+	// Test registering same PID with different name (should be allowed)
 	err = reg.Register("name3", pid1)
 	assert.NoError(t, err)
 }
-
 func TestPIDRegistry_Lookup(t *testing.T) {
 	logger := zap.NewNop()
 	reg := NewPIDRegistry(PIDRegistryConfig{

@@ -10,8 +10,6 @@ The Topology component uses the following event types for process communication:
 - **KindResult**: `"pid.result"` - Process result notification sent to monitors
 - **KindExit**: `"pid.exit"` - Process exit notification
 - **KindLinkDown**: `"pid.link.down"` - Notification that a linked process is down (abnormal exit)
-- **KindLinkEstablished**: `"pid.link.established"` - Notification of link establishment
-- **KindLinkRemoved**: `"pid.link.removed"` - Notification of link removal
 
 ## Purpose
 

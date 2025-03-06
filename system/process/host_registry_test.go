@@ -40,7 +40,8 @@ func (m *mockDelegatedHost) Terminate(ctx context.Context, pid pubsub.PID) error
 	return nil
 }
 
-func (m *mockDelegatedHost) Launch(ctx context.Context, pid pubsub.PID, input payload.Payloads) (pubsub.PID, error) {
+// Updated to match the Delegated interface with Lifecycle parameter
+func (m *mockDelegatedHost) Launch(ctx context.Context, pid pubsub.PID, lf process.Lifecycle, input payload.Payloads) (pubsub.PID, error) {
 	return pubsub.PID{}, nil
 }
 
