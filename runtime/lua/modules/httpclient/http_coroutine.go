@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"github.com/ponyruntime/pony/runtime/lua/modules/stream"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
@@ -39,11 +40,13 @@ func (m *Module) executeRequestYield(l *lua.LState, req *http.Request, opts *req
 		if err != nil {
 			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
 		}
-		uw.AddCleanup(resp.Body.Close)
+		_ = resp.Body.Close()
 
 		if opts.stream {
 			return m.handleStreamResponseAsync(ctx, l, resp, uw, closer)
 		}
+		defer closer()
+
 		return m.handleRegularResponseAsync(l, resp)
 	})
 
@@ -66,7 +69,7 @@ func (m *Module) handleStreamResponseAsync(
 	luaStream := stream.NewLuaStream(uw, s, closer)
 	ud := l.NewUserData()
 	ud.Value = luaStream
-	l.SetMetatable(ud, l.GetTypeMetatable("Stream"))
+	ud.Metatable = value.GetTypeMetatable(l, "Stream")
 
 	return engine.NewUpdate(nil, []lua.LValue{newResponseWithStream(r, ud, l), lua.LNil}, nil)
 }
@@ -76,6 +79,7 @@ func (m *Module) handleRegularResponseAsync(l *lua.LState, resp *http.Response) 
 	if err != nil {
 		return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
 	}
+	_ = resp.Body.Close()
 
 	return engine.NewUpdate(nil, []lua.LValue{newResponse(resp, &body, len(body), l), lua.LNil}, nil)
 }
