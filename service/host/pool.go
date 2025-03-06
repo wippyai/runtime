@@ -44,7 +44,7 @@ func NewProcessPool(
 ) *ProcessPool {
 	ctx, cancel := context.WithCancel(ctx)
 
-	p := &ProcessPool{
+	return &ProcessPool{
 		workers:      workers,
 		maxProcesses: maxProcesses,
 		log:          log,
@@ -52,27 +52,9 @@ func NewProcessPool(
 		ctx:          ctx,
 		cancel:       cancel,
 	}
-
-	go func() {
-		for {
-			time.Sleep(5 * time.Second)
-			p.processes.Range(func(pid, value interface{}) bool {
-				entry := value.(*processEntry)
-				p.log.Info("process status",
-					zap.String("pid", pid.(string)),
-					zap.Int("ready", entry.process.Ready()),
-					zap.Bool("running", entry.running.Load()),
-					zap.Bool("awaken", entry.awaken.Load()))
-				return true
-			})
-
-		}
-	}()
-
-	return p
 }
 
-// AddProcess registers a new process with the pool
+// Add registers a new process with the pool
 func (p *ProcessPool) Add(pid pubsub.PID, proc process.Process) error {
 	if p.maxProcesses != 0 && p.numProcesses.Load() >= int32(p.maxProcesses) {
 		p.log.Warn("max processes reached, cannot add new process", zap.String("pid", pid.String()))
@@ -102,21 +84,21 @@ func (p *ProcessPool) Has(pid pubsub.PID) bool {
 
 // Schedule adds a process to the work queue
 func (p *ProcessPool) Schedule(pid pubsub.PID) error {
-	//pr, exists := p.processes.Load(pid.String())
-	//if !exists {
-	//	return process.ErrNoProcess
-	//}
-
-	//if pr.(*processEntry).awaken.CompareAndSwap(false, true) {
-	select {
-	case p.workCh <- &pid:
-		return nil
-	case <-p.ctx.Done():
-		return context.Canceled
+	pr, exists := p.processes.Load(pid.String())
+	if !exists {
+		return process.ErrNoProcess
 	}
-	//} else {
-	//	p.count.Add(1)
-	//}
+
+	if pr.(*processEntry).awaken.CompareAndSwap(false, true) {
+		select {
+		case p.workCh <- &pid:
+			return nil
+		case <-p.ctx.Done():
+			return context.Canceled
+		}
+	} else {
+		p.count.Add(1)
+	}
 
 	return nil
 }

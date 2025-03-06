@@ -80,6 +80,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"runtime/debug"
 	"runtime/pprof"
 	"strings"
 	"syscall"
@@ -185,6 +186,8 @@ func NewApp(verbose, veryVerbose bool) (*App, error) {
 }
 
 func (a *App) Initialize() error {
+	debug.SetTraceback("single")
+
 	// LaunchProcess log manager first for proper logging
 	if err := a.logManager.Start(a.ctx); err != nil {
 		return fmt.Errorf("failed to start log manager: %w", err)
