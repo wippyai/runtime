@@ -17,7 +17,6 @@ type Transcoder struct {
 	transcodePath   *sync.Map // thread-safe cache for transcoder paths
 }
 
-// todo: should not be global
 var globalTranscoder *Transcoder //nolint:gochecknoglobals
 var once sync.Once               //nolint:gochecknoglobals
 
