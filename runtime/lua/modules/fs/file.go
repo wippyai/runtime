@@ -10,37 +10,38 @@ import (
 	lua "github.com/yuin/gopher-lua"
 	"io"
 	"io/fs"
-	"sync"
 )
 
 type File struct {
 	file    fsapi.File
-	once    sync.Once
 	release context.CancelFunc
+	closed  bool
 }
 
 // NewFile creates a new wrapped file with UoW integration
-func NewFile(l *lua.LState, file fsapi.File) *File {
+func NewFile(uw engine.UnitOfWork, file fsapi.File) *File {
 	wrappedFile := &File{file: file}
 
-	// Register cleanup in UoW if available
-	uw := engine.GetUnitOfWork(l.Context())
-	if uw != nil {
-		wrappedFile.release = uw.AddCleanup(func() error {
-			err := wrappedFile.Close()
-			if err != nil && errors.Is(err, fs.ErrClosed) {
-				// Don't report "already closed" as an error
-				return nil
-			}
-			return err
-		})
-	}
+	// Register cleanup in UoW
+	wrappedFile.release = uw.AddCleanup(func() error {
+		// Close the file directly
+		err := file.Close()
+		if err != nil && errors.Is(err, fs.ErrClosed) {
+			// Don't report "already closed" as an error
+			return nil
+		}
+		return err
+	})
 
 	return wrappedFile
 }
 
 // Read implements io.Reader.
 func (f *File) Read(p []byte) (int, error) {
+	if f.closed {
+		return 0, fmt.Errorf("failed to read: file already closed")
+	}
+
 	n, err := f.file.Read(p)
 	if err != nil {
 		if errors.Is(err, io.EOF) {
@@ -56,6 +57,10 @@ func (f *File) Read(p []byte) (int, error) {
 
 // Write implements io.Writer.
 func (f *File) Write(p []byte) (int, error) {
+	if f.closed {
+		return 0, fmt.Errorf("failed to write: file already closed")
+	}
+
 	n, err := f.file.Write(p)
 	if err != nil {
 		return n, fmt.Errorf("failed to write: %w", err)
@@ -68,6 +73,10 @@ func (f *File) Write(p []byte) (int, error) {
 
 // Seek implements io.Seeker.
 func (f *File) Seek(offset int64, whence int) (int64, error) {
+	if f.closed {
+		return 0, fmt.Errorf("failed to seek: file already closed")
+	}
+
 	pos, err := f.file.Seek(offset, whence)
 	if err != nil {
 		return pos, fmt.Errorf("failed to seek: %w", err)
@@ -77,6 +86,10 @@ func (f *File) Seek(offset int64, whence int) (int64, error) {
 
 // Stat implements fs.File.
 func (f *File) Stat() (fs.FileInfo, error) {
+	if f.closed {
+		return nil, fmt.Errorf("failed to stat: file already closed")
+	}
+
 	info, err := f.file.Stat()
 	if err != nil {
 		return nil, fmt.Errorf("failed to stat file: %w", err)
@@ -85,6 +98,10 @@ func (f *File) Stat() (fs.FileInfo, error) {
 }
 
 func (f *File) Sync() error {
+	if f.closed {
+		return fmt.Errorf("failed to sync: file already closed")
+	}
+
 	// Check if underlying file implements Sync
 	if err := f.file.Sync(); err != nil {
 		return fmt.Errorf("failed to sync: %w", err)
@@ -93,18 +110,22 @@ func (f *File) Sync() error {
 }
 
 // Close implements io.Closer with UoW integration.
+// Calls the release function which will both close the file and remove the cleanup from UoW.
 func (f *File) Close() error {
-	var err error
-	f.once.Do(func() {
-		err = f.file.Close()
-	})
-
-	// Don't return an error for already closed files
-	if err != nil && errors.Is(err, fs.ErrClosed) {
-		return nil
+	if f.closed {
+		return nil // Already closed, no error
 	}
 
-	return err
+	// Mark as closed first to prevent re-entry
+	f.closed = true
+
+	// Execute release function which will both close the file and remove the cleanup from UoW
+	if f.release != nil {
+		f.release()
+		f.release = nil
+	}
+
+	return nil
 }
 
 // Lua integration
@@ -120,6 +141,16 @@ func registerFile(l *lua.LState) {
 	}
 
 	value.RegisterTypeMethods(l, "fs.File", nil, methods)
+}
+
+// Helper function to extract Unit of Work from Lua state
+func getUnitOfWork(l *lua.LState) engine.UnitOfWork {
+	uw := engine.GetUnitOfWork(l.Context())
+	if uw == nil {
+		l.RaiseError("unit of work missing from context")
+		return nil
+	}
+	return uw
 }
 
 // Lua method implementations
@@ -216,19 +247,11 @@ func fileClose(l *lua.LState) int {
 		return 0
 	}
 
-	// Use release function if available to both execute cleanup and remove from UoW
-	if f.release != nil {
-		f.release()
-		f.release = nil
-	} else {
-		// If no release function, just close directly
-		err := f.Close()
-		if err != nil && !errors.Is(err, fs.ErrClosed) {
-			// Only return an error if it's not an "already closed" error
-			l.Push(lua.LNil)
-			l.Push(lua.LString(err.Error()))
-			return 2
-		}
+	err := f.Close()
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
 	}
 
 	// Success: the file was either successfully closed or was already closed
