@@ -158,8 +158,8 @@ func (m *Module) executeRequest(l *lua.LState, req *http.Request, opts *requestO
 	}
 	uw.AddCleanup(resp.Body.Close)
 
-	if opts.stream != nil {
-		return m.handleStreamResponse(ctx, l, resp, opts.stream)
+	if opts.stream {
+		return m.handleStreamResponse(ctx, l, resp, uw, opts)
 	}
 	return m.handleRegularResponse(l, resp)
 }
@@ -168,19 +168,22 @@ func (m *Module) handleStreamResponse(
 	ctx context.Context,
 	l *lua.LState,
 	resp *http.Response,
-	streamOpts *stream.Options,
+	uw engine.UnitOfWork,
+	opts *requestOptions,
 ) int {
-	s, err := stream.NewStream(ctx, resp.Body, streamOpts)
+	s, err := stream.NewStream(ctx, resp.Body)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
 		return 2
 	}
 
-	luaStream := &stream.LuaStream{Stream: s}
+	// Create the LuaStream which will be managed by the UoW
+	luaStream := stream.NewLuaStream(uw, s)
 	ud := l.NewUserData()
 	ud.Value = luaStream
 	ud.Metatable = value.GetTypeMetatable(l, "Stream")
+
 	l.Push(newResponseWithStream(resp, ud, l))
 	return 1
 }
@@ -249,7 +252,7 @@ func (m *Module) requestBatch(l *lua.LState) int {
 		}
 
 		// Don't allow streaming in batch requests
-		if opts.stream != nil {
+		if opts.stream {
 			l.ArgError(1, "streaming is not supported in batch requests")
 			return
 		}

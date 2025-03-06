@@ -40,8 +40,8 @@ func (m *Module) executeRequestYield(l *lua.LState, req *http.Request, opts *req
 		}
 		uw.AddCleanup(resp.Body.Close)
 
-		if opts.stream != nil {
-			return m.handleStreamResponseAsync(ctx, l, resp, opts.stream)
+		if opts.stream {
+			return m.handleStreamResponseAsync(ctx, l, resp, uw, opts)
 		}
 		return m.handleRegularResponseAsync(l, resp)
 	})
@@ -49,14 +49,20 @@ func (m *Module) executeRequestYield(l *lua.LState, req *http.Request, opts *req
 	return -1
 }
 
-func (m *Module) handleStreamResponseAsync(ctx context.Context, l *lua.LState, r *http.Response, streamOpts *stream.Options) *engine.Update {
-	s, err := stream.NewStream(ctx, r.Body, streamOpts)
-
+func (m *Module) handleStreamResponseAsync(
+	ctx context.Context,
+	l *lua.LState,
+	r *http.Response,
+	uw engine.UnitOfWork,
+	opts *requestOptions,
+) *engine.Update {
+	s, err := stream.NewStream(ctx, r.Body)
 	if err != nil {
 		return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
 	}
 
-	luaStream := &stream.LuaStream{Stream: s}
+	// Create the LuaStream which will be managed by the UoW
+	luaStream := stream.NewLuaStream(uw, s)
 	ud := l.NewUserData()
 	ud.Value = luaStream
 	l.SetMetatable(ud, l.GetTypeMetatable("Stream"))
