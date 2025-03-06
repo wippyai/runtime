@@ -4,14 +4,13 @@ import (
 	"context"
 	"fmt"
 	"github.com/ponyruntime/pony/api/function"
-	"github.com/ponyruntime/pony/api/logs"
-	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/runtime/lua/component"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
-	lua "github.com/yuin/gopher-lua"
+	"github.com/ponyruntime/pony/runtime/lua/pool/queued"
+	syncpool "github.com/ponyruntime/pony/runtime/lua/pool/sync"
 	"sync"
 
 	"github.com/ponyruntime/pony/api/event"
@@ -19,8 +18,6 @@ import (
 	"github.com/ponyruntime/pony/api/runtime"
 	api "github.com/ponyruntime/pony/api/runtime/lua"
 	"github.com/ponyruntime/pony/runtime/lua/code"
-	queupool "github.com/ponyruntime/pony/runtime/lua/pool/queued"
-	syncpool "github.com/ponyruntime/pony/runtime/lua/pool/sync"
 	"go.uber.org/zap"
 )
 
@@ -43,6 +40,11 @@ func init() {
 		engine.WithLayer(subscribe.NewSubscribeLayer()),
 		engine.WithLayer(coroutine.NewCoroutineLayer()),
 	)
+}
+
+type pool interface {
+	Execute(ctx context.Context, task runtime.Task) (chan *runtime.Result, error)
+	Close()
 }
 
 // Manager handles Lua function compilation, pooling and execution
@@ -213,77 +215,29 @@ func (m *Manager) Invalidate(ctx context.Context, ids []registry.ID) {
 }
 
 // getHandler retrieves the method name and VM for a given handler
-func (m *Manager) getHandler(handler registry.ID) (string, api.VM, error) {
+func (m *Manager) getHandler(handler registry.ID) (pool, error) {
 	vmInterface, ok := m.vms.Load(handler)
 	if !ok {
-		return "", nil, fmt.Errorf("no function found for function: %s", handler)
+		return nil, fmt.Errorf("no function found for function: %s", handler)
 	}
 
-	cfgInterface, ok := m.configs.Load(handler)
-	if !ok {
-		return "", nil, fmt.Errorf("no config found for function: %s", handler)
-	}
-
-	return cfgInterface.(*api.FunctionConfig).Method, vmInterface.(api.VM), nil
+	return vmInterface.(pool), nil
 }
 
 // Execute runs a function with given arguments
 func (m *Manager) Execute(ctx context.Context, task runtime.Task) (chan *runtime.Result, error) {
-	// generally speaking we can offload cold handlers
-	method, vm, err := m.getHandler(task.ID)
+	// Get handler directly - it already implements our pool interface
+	vm, err := m.getHandler(task.ID)
 	if err != nil {
 		return nil, err
 	}
 
-	// Spawn result channel
-	resultChan := make(chan *runtime.Result, 1)
-
-	ctx = logs.WithLogger(ctx, m.log.With(zap.String("func", task.ID.String())))
-
-	// Start in goroutine to handle async results
-	go func() {
-		defer close(resultChan)
-
-		// Get transcoder from context
-		dtt := payload.GetTranscoder(ctx)
-		if dtt == nil {
-			resultChan <- &runtime.Result{Error: fmt.Errorf("no transcoder found in context")}
-			return
-		}
-
-		// Convert payloads to Lua values
-		args := make([]lua.LValue, len(task.Payloads))
-		for i, p := range task.Payloads {
-			// Transcode to Lua format if needed
-			luaPayload, err := dtt.Transcode(p, payload.Lua)
-			if err != nil {
-				resultChan <- &runtime.Result{
-					Error: fmt.Errorf("failed to transcode payload: %w", err),
-				}
-				return
-			}
-			args[i] = luaPayload.Data().(lua.LValue)
-		}
-
-		// todo: we can potentially wrap it a bit different way or use global worker pool
-		result, err := vm.Execute(ctx, method, args...)
-		if err != nil {
-			m.log.Error("failed to execute function", zap.Error(err), zap.String("func", task.ID.String()))
-		}
-
-		select {
-		case resultChan <- &runtime.Result{
-			Value: payload.NewPayload(result, payload.Lua),
-			Error: err,
-		}:
-		}
-	}()
-
-	return resultChan, nil
+	// Use the pool to execute the task directly
+	return vm.Execute(ctx, task)
 }
 
 // createPool creates a new pool based on config and compiled code
-func (m *Manager) createPool(cfg *api.FunctionConfig, compiled *code.CompiledMain) (api.VM, error) {
+func (m *Manager) createPool(cfg *api.FunctionConfig, compiled *code.CompiledMain) (pool, error) {
 	fvm, err := component.NewRunnerFactory(m.log, compiled, layers)
 	if err != nil {
 		return nil, fmt.Errorf("failed to compile: %w", err)
@@ -294,18 +248,22 @@ func (m *Manager) createPool(cfg *api.FunctionConfig, compiled *code.CompiledMai
 	}
 
 	if cfg.Pool.Workers > 0 {
-		return queupool.NewPool(
+		// Use queued TaskPool for worker-based execution
+		return queued.NewTaskPool(
 			fvm,
-			queupool.WithSize(cfg.Pool.Size),
-			queupool.WithLogger(m.log),
-			queupool.WithWorkers(cfg.Pool.Workers),
+			cfg.Method,
+			queued.WithTaskSize(cfg.Pool.Size),
+			queued.WithTaskLogger(m.log),
+			queued.WithTaskWorkers(cfg.Pool.Workers),
 		)
 	}
 
-	return syncpool.NewPool(
+	// Use sync TaskPool for synchronous execution
+	return syncpool.NewTaskPool(
 		fvm,
-		syncpool.WithSize(cfg.Pool.Size),
-		syncpool.WithLogger(m.log),
+		cfg.Method,
+		syncpool.WithTaskPoolSize(cfg.Pool.Size),
+		syncpool.WithTaskPoolLogger(m.log),
 	)
 }
 
