@@ -119,12 +119,17 @@ func TestHttpHandler_Integration(t *testing.T) {
 			
 			-- Process request body in chunks
 			local chunks = {}
-			for chunk in req:stream_body({buffer_size = 5}) do
+			local stream, err = req:stream()
+			assert(err == nil, "should have no error, got " .. tostring(err))
+
+			while true do
+				local chunk = stream:read(5)	
+				
 				if chunk == nil then break end
 				table.insert(chunks, chunk)
 				res:write("Chunk: " .. chunk .. "\n")
 			end
-			
+
 			-- Verify we got all chunks
 			assert(#chunks == 3, "should receive 3 chunks")
 		`

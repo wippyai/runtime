@@ -53,7 +53,6 @@ func (m *Module) Loader(l *lua.LState) int {
 // registerConstants registers all constant tables with explanatory comments
 func (m *Module) registerConstants(l *lua.LState, mod *lua.LTable) {
 	// METHOD table - HTTP methods
-	methodTbl := l.NewTable()
 	methods := map[string]string{
 		"GET":     "GET",
 		"POST":    "POST",
@@ -63,13 +62,13 @@ func (m *Module) registerConstants(l *lua.LState, mod *lua.LTable) {
 		"HEAD":    "HEAD",
 		"OPTIONS": "OPTIONS",
 	}
-	for name, val := range methods {
-		methodTbl.RawSetString(name, lua.LString(val))
+	methodTbl := l.CreateTable(0, len(methods))
+	for name, value := range methods {
+		methodTbl.RawSetString(name, lua.LString(value))
 	}
 	mod.RawSetString("METHOD", methodTbl)
 
 	// STATUS table - HTTP status codes
-	statusTbl := l.NewTable()
 	statuses := map[string]int{
 		"OK":             200, // Success
 		"CREATED":        201, // Resource created
@@ -79,13 +78,13 @@ func (m *Module) registerConstants(l *lua.LState, mod *lua.LTable) {
 		"NOT_FOUND":      404, // Resource not found
 		"INTERNAL_ERROR": 500, // Server error
 	}
+	statusTbl := l.CreateTable(0, len(statuses))
 	for name, value := range statuses {
 		statusTbl.RawSetString(name, lua.LNumber(value))
 	}
 	mod.RawSetString("STATUS", statusTbl)
 
 	// CONTENT table - Content types
-	contentTbl := l.NewTable()
 	contentTypes := map[string]string{
 		"JSON":      "application/json",
 		"FORM":      "application/x-www-form-urlencoded",
@@ -93,26 +92,28 @@ func (m *Module) registerConstants(l *lua.LState, mod *lua.LTable) {
 		"TEXT":      "text/plain",
 		"STREAM":    "application/octet-stream",
 	}
+	contentTbl := l.CreateTable(0, len(contentTypes))
 	for name, val := range contentTypes {
 		contentTbl.RawSetString(name, lua.LString(val))
 	}
 	mod.RawSetString("CONTENT", contentTbl)
 
 	// TRANSFER table - Transfer encoding types
-	transferTbl := l.NewTable()
-	for name, val := range getTransferConstants() {
+	transferConstants := getTransferConstants()
+	transferTbl := l.CreateTable(0, len(transferConstants))
+	for name, val := range transferConstants {
 		transferTbl.RawSetString(name, lua.LString(val))
 	}
 	mod.RawSetString("TRANSFER", transferTbl)
 
 	// ERROR table - Error types
-	errorTbl := l.NewTable()
 	errorTypes := map[string]string{
 		"PARSE_FAILED":  "PARSE_FAILED",  // Body parsing failed
 		"INVALID_STATE": "INVALID_STATE", // Operation not valid in current state
 		"WRITE_FAILED":  "WRITE_FAILED",  // Response write failed
 		"STREAM_ERROR":  "STREAM_ERROR",  // Streaming operation failed
 	}
+	errorTbl := l.CreateTable(0, len(errorTypes))
 	for name, val := range errorTypes {
 		errorTbl.RawSetString(name, lua.LString(val))
 	}
