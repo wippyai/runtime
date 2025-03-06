@@ -288,7 +288,7 @@ func TestStreamLuaEdgeCases(t *testing.T) {
 		l := vm.State()
 		RegisterStream(l)
 
-		luaStream := &LuaStream{Stream: stream}
+		luaStream := NewLuaStream(uw, stream)
 		ud := l.NewUserData()
 		ud.Value = luaStream
 		l.SetMetatable(ud, l.GetTypeMetatable("Stream"))
