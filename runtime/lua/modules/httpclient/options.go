@@ -13,14 +13,13 @@ import (
 
 // requestOptions holds parsed request options
 type requestOptions struct {
-	headers         map[string]string
-	cookies         map[string]string
-	body            string
-	query           string
-	timeout         time.Duration
-	auth            *struct{ user, pass string }
-	stream          bool  // Flag to indicate streaming should be used
-	streamChunkSize int64 // Chunk size for streaming reads, 0 means default
+	headers map[string]string
+	cookies map[string]string
+	body    string
+	query   string
+	timeout time.Duration
+	auth    *struct{ user, pass string }
+	stream  bool // Flag to indicate streaming should be used
 }
 
 // parseOptions parses Lua value into requestOptions
@@ -92,13 +91,6 @@ func parseOptions(value lua.LValue) (*requestOptions, error) {
 	if streamOpts := table.RawGetString("stream"); streamOpts != lua.LNil {
 		// If stream is present, enable streaming
 		opts.stream = true
-
-		// Check if it's a table with options
-		if streamTable, ok := streamOpts.(*lua.LTable); ok {
-			if bs := streamTable.RawGetString("chunk_size"); bs.Type() == lua.LTNumber {
-				opts.streamChunkSize = int64(bs.(lua.LNumber))
-			}
-		}
 	}
 
 	return opts, nil

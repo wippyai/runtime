@@ -142,10 +142,7 @@ func requestHeader(l *lua.LState) int {
 		return 2
 	}
 
-	// Join the values with a comma and a space.
-	value := strings.Join(values, ", ")
-
-	l.Push(lua.LString(value))
+	l.Push(lua.LString(strings.Join(values, ", ")))
 	l.Push(lua.LNil)
 	return 2
 }
@@ -323,27 +320,14 @@ func requestStreamBody(l *lua.LState) int {
 
 	req.request = req.request.WithContext(uw.Context())
 
-	var bufferSize int64 = 32 * 1024 // Default 32KB buffer
-
-	if l.GetTop() > 1 {
-		opts := l.CheckTable(2)
-		if opts != nil {
-			if bs := opts.RawGetString("buffer_size"); !lua.LVIsFalse(bs) {
-				if n, ok := bs.(lua.LNumber); ok {
-					bufferSize = int64(n)
-				}
-			}
-		}
-	}
-
-	s, err := stream.NewStream(req.request.Context(), req.request.Body, stream.NewStreamConfig(bufferSize))
+	s, err := stream.NewStream(req.request.Context(), req.request.Body)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("failed to create stream: %v", err)))
 		return 2
 	}
 
-	luaStream := stream.NewLuaStream(uw, s)
+	luaStream := stream.NewLuaStream(uw, s, nil)
 
 	ud := l.NewUserData()
 	ud.Value = luaStream

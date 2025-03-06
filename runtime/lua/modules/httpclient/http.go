@@ -210,6 +210,7 @@ func (m *Module) handleRegularResponse(l *lua.LState, resp *http.Response) int {
 }
 
 // requestBatch handles concurrent batch requests
+// requestBatch handles concurrent batch requests with proper closer cleanup
 func (m *Module) requestBatch(l *lua.LState) int {
 	requestsTable := l.CheckTable(1)
 	count := requestsTable.Len()
@@ -234,6 +235,10 @@ func (m *Module) requestBatch(l *lua.LState) int {
 
 	// Validate, parse options, and build requests
 	requests := make([]*http.Request, 0, count)
+
+	// Track cleanup functions to ensure they're properly evicted
+	cancelers := make([]context.CancelFunc, count)
+
 	requestsTable.ForEach(func(_ lua.LValue, value lua.LValue) {
 		if value.Type() != lua.LTTable {
 			l.ArgError(1, ErrInvalidRequest.Error())
@@ -272,12 +277,14 @@ func (m *Module) requestBatch(l *lua.LState) int {
 			return
 		}
 
+		idx := len(requests)
 		// Set context with timeout from options
 		reqCtx := uw.Context()
 		if opts.timeout > 0 {
 			var cancel context.CancelFunc
 			reqCtx, cancel = context.WithTimeout(uw.Context(), opts.timeout)
-			uw.AddCleanup(func() error { cancel(); return nil }) // todo: evict!
+			// Store the cancel function to be explicitly called later
+			cancelers[idx] = cancel
 		}
 
 		requests = append(requests, req.WithContext(reqCtx))
@@ -285,12 +292,25 @@ func (m *Module) requestBatch(l *lua.LState) int {
 
 	// If any error occurred during validation, return immediately
 	if l.GetTop() > 1 {
+		// Clean up any created cancel functions
+		for _, cancel := range cancelers {
+			if cancel != nil {
+				cancel()
+			}
+		}
 		return 0
 	}
 
 	// Process requests concurrently
 	for i, req := range requests {
 		go func(i int, req *http.Request) {
+			defer func() {
+				// Ensure the cancel function is called after request completes
+				if cancelers[i] != nil {
+					cancelers[i]()
+				}
+			}()
+
 			resp, err := m.client.Do(req)
 			if err != nil {
 				results <- result{i, nil, err}
