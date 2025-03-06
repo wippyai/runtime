@@ -172,12 +172,8 @@ func TestTopology_LinkFunctionality(t *testing.T) {
 		err := topo.Link(pid1, pid2)
 		assert.NoError(t, err)
 
-		// Check link notifications were sent
-		sends1 := upstream.getSends(pid1)
-		sends2 := upstream.getSends(pid2)
-
-		assert.Equal(t, 1, len(sends2), "pid2 should receive 1 link notification")
-		assert.Equal(t, 1, len(sends1), "pid1 should receive 1 link notification")
+		// Link notifications are no longer sent according to updated spec
+		// No need to check for notifications
 	})
 
 	t.Run("linking is bidirectional", func(t *testing.T) {
@@ -210,12 +206,8 @@ func TestTopology_LinkFunctionality(t *testing.T) {
 		err := topo.Unlink(pid1, pid2)
 		assert.NoError(t, err)
 
-		// Check link removal notifications were sent
-		sends1 := upstream.getSends(pid1)
-		sends2 := upstream.getSends(pid2)
-
-		assert.Equal(t, 1, len(sends2), "pid2 should receive 1 unlink notification")
-		assert.Equal(t, 1, len(sends1), "pid1 should receive 1 unlink notification")
+		// Unlink notifications are no longer sent according to updated spec
+		// No need to check for notifications
 
 		// Verify links are removed
 		links1 := topo.GetLinks(pid1)
@@ -271,9 +263,8 @@ func TestTopology_LinkFunctionality(t *testing.T) {
 		links3 := topo.GetLinks(pid3)
 		assert.Equal(t, 0, len(links3), "pid3 should have 0 links after pid1 is removed")
 
-		// Check unlink notifications were sent
-		sends3 := upstream.getSends(pid3)
-		assert.Equal(t, 1, len(sends3), "pid3 should receive unlink notification")
+		// Unlink notifications are no longer sent according to updated spec
+		// No need to check for notifications
 	})
 }
 

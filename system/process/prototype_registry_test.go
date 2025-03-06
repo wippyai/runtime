@@ -7,32 +7,12 @@ import (
 	"time"
 
 	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/system/eventbus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
-
-// mockProcess implements process.Process interface
-type mockProcess struct {
-	sendErr error
-	stepErr error
-}
-
-func (m *mockProcess) Send(batch *pubsub.Package) error {
-	return m.sendErr
-}
-
-func (m *mockProcess) Start(_ context.Context, _ pubsub.PID, _ payload.Payloads) error {
-	return nil
-}
-
-func (m *mockProcess) Step() (bool, error) {
-	return true, m.stepErr
-}
 
 func newTestPrototypeRegistry(t *testing.T) (*PrototypeRegistry, event.Bus) {
 	logger := zap.NewNop()
@@ -142,7 +122,7 @@ func TestPrototypeRegistry_RegisterPrototype(t *testing.T) {
 		require.NoError(t, err)
 		assert.Error(t, proc.Send(nil))
 
-		_, err = proc.Step()
+		err = proc.Step()
 		assert.Error(t, err)
 	})
 }
