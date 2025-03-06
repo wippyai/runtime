@@ -135,7 +135,7 @@ func TestStreamLua(t *testing.T) {
 		stream, err := NewStream(ctx, reader, nil)
 		require.NoError(t, err)
 
-		mod := NewStreamModule(logger)
+		mod := NewStreamModule()
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -179,7 +179,7 @@ func TestStreamLua(t *testing.T) {
 		stream, err := NewStream(ctx, reader, cfg)
 		require.NoError(t, err)
 
-		mod := NewStreamModule(logger)
+		mod := NewStreamModule()
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -235,7 +235,7 @@ func TestStreamLuaEdgeCases(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("invalid userdata type", func(t *testing.T) {
-		mod := NewStreamModule(logger)
+		mod := NewStreamModule()
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -280,7 +280,7 @@ func TestStreamLuaEdgeCases(t *testing.T) {
 		stream, err := NewStream(ctx, reader, nil)
 		require.NoError(t, err)
 
-		mod := NewStreamModule(logger)
+		mod := NewStreamModule()
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()

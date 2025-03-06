@@ -1,6 +1,7 @@
 package stream
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
@@ -9,23 +10,22 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	lua "github.com/yuin/gopher-lua"
-	"go.uber.org/zap"
 )
 
 // LuaStream wraps Stream for Lua
 type LuaStream struct {
 	*Stream
-	// todo: make reader, todo: expose better read size api and update related modules
+	onRelease context.CancelFunc
+	closed    bool
 }
 
 // Module represents the Stream Lua module
 type Module struct {
-	log *zap.Logger
 }
 
 // NewStreamModule creates a new Stream module (internal)
-func NewStreamModule(log *zap.Logger) *Module {
-	return &Module{log: log}
+func NewStreamModule() *Module {
+	return &Module{}
 }
 
 // Name returns the module name
@@ -74,6 +74,40 @@ func RegisterStream(l *lua.LState) {
 			"bytes_read": streamBytesRead,
 		},
 	)
+}
+
+// NewLuaStream creates a new LuaStream with UoW integration
+func NewLuaStream(uw engine.UnitOfWork, stream *Stream) *LuaStream {
+	luaStream := &LuaStream{
+		Stream: stream,
+		closed: false,
+	}
+
+	// Register unconditional cleanup in UoW
+	luaStream.onRelease = uw.AddCleanup(stream.Close)
+
+	return luaStream
+}
+
+// Close closes the underlying stream and handles UoW cleanup
+func (ls *LuaStream) Close() error {
+	if ls.closed {
+		return nil
+	}
+
+	// Close the stream
+	err := ls.Stream.Close()
+
+	// Mark as closed after closing
+	ls.closed = true
+
+	// Cancel the cleanup function in UoW (don't execute it, just remove it)
+	if ls.onRelease != nil {
+		ls.onRelease()
+		ls.onRelease = nil
+	}
+
+	return err
 }
 
 // checkStream verifies and returns the Stream from Lua userdata

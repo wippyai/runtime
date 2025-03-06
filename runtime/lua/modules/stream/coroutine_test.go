@@ -21,7 +21,7 @@ func TestAsyncStreamRead(t *testing.T) {
 		vm, err := engine.NewCVM(
 			log,
 			engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
-			engine.WithPreloaded("stream", NewStreamModule(log).Loader),
+			engine.WithPreloaded("stream", NewStreamModule().Loader),
 		)
 		require.NoError(t, err)
 		defer vm.Close()
@@ -107,7 +107,7 @@ func TestAsyncStreamIter(t *testing.T) {
 		vm, err := engine.NewCVM(
 			log,
 			engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
-			engine.WithPreloaded("stream", NewStreamModule(log).Loader),
+			engine.WithPreloaded("stream", NewStreamModule().Loader),
 		)
 		require.NoError(t, err)
 		defer vm.Close()
