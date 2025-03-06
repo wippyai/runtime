@@ -16,7 +16,7 @@ local function define_tests()
             run_integration_tests = actual_api_key and #actual_api_key > 10
 
             if run_integration_tests then
-                print("Integration tests will run with real API key")
+                --print("Integration tests will run with real API key")
             else
                 print("Skipping integration tests - no valid API key found")
             end
