@@ -215,21 +215,24 @@ func (s *State) exitWith(err error) {
 		return
 	}
 
+	s.wg.Add(1)
+	defer s.wg.Done()
+	if s.Closed.Load() {
+		return
+	}
+
 	s.mu.Lock()
 	s.exitError = err
 	s.hasExit.Store(true)
 	s.mu.Unlock()
 
-	if s.UoW != nil && s.UoW.Tasks() != nil {
-		s.UoW.Tasks().WakeUp()
-	}
+	s.UoW.Tasks().WakeUp()
 }
 
 // GetTaskCount returns the combined count of ready tasks
 func (s *State) GetTaskCount() int {
 	s.wg.Add(1)
 	defer s.wg.Done()
-
 	if s.Closed.Load() {
 		return 0
 	}
@@ -247,7 +250,6 @@ func (s *State) GetTaskCount() int {
 
 // Complete handles process completion and cleanup
 func (s *State) Complete(err error, result lua.LValue) {
-	// Check if already completed to avoid double cleanup
 	if s.Closed.Swap(true) {
 		return
 	}
