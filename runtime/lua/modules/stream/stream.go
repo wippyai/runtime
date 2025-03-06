@@ -11,93 +11,82 @@ import (
 )
 
 var (
-	// ErrInvalidConfig indicates that the Stream configuration is invalid,
-	// such as when a nil reader is provided
-	ErrInvalidConfig = fmt.Errorf("invalid Stream configuration")
+	// ErrInvalidReader indicates that a nil reader was provided
+	ErrInvalidReader = fmt.Errorf("invalid reader")
+
+	// DefaultChunkSize is the default size to read in chunks if not specified
+	DefaultChunkSize int64 = 32 * 1024 // 32KB by default
 )
 
-// Options holds configuration for Stream operations
-type Options struct {
-	bufferSize int64
-}
-
-// NewStreamConfig creates a new configuration with the specified buffer size.
-// If bufferSize is <= 0, it defaults to 32KB.
-func NewStreamConfig(bufferSize int64) *Options {
-	if bufferSize <= 0 {
-		bufferSize = 32 * 1024 // Default 32KB buffer
-	}
-	return &Options{
-		bufferSize: bufferSize,
-	}
-}
-
 // Stream handles streaming data from a reader with context awareness and
-// concurrent-safe operations. It tracks bytes read and provides chunked reading
-// capabilities.
+// concurrent-safe operations. It implements io.ReadCloser interface.
 type Stream struct {
 	reader    io.ReadCloser
-	config    *Options
 	bytesRead int64
 	rwmu      sync.RWMutex
-	buffer    []byte
 	ctx       context.Context
 }
 
-// NewStream creates a new Stream with the provided context, reader and configuration.
-// Returns an error if the reader is nil or if the configuration is invalid.
-func NewStream(ctx context.Context, reader io.ReadCloser, cfg *Options) (*Stream, error) {
+// NewStream creates a new Stream with the provided context and reader.
+// Returns an error if the reader is nil.
+func NewStream(ctx context.Context, reader io.ReadCloser) (*Stream, error) {
 	if reader == nil {
-		return nil, fmt.Errorf("%w: nil reader", ErrInvalidConfig)
-	}
-	if cfg == nil {
-		cfg = NewStreamConfig(0)
+		return nil, ErrInvalidReader
 	}
 
 	stream := &Stream{
 		reader: reader,
-		config: cfg,
 		ctx:    ctx,
-		buffer: make([]byte, cfg.bufferSize),
 	}
-
-	/**
-	Attention, you have to clean stream at parent level.
-	*/
 
 	return stream, nil
 }
 
-// ReadChunk reads the next chunk of data based on the configured buffer size.
-// Returns EOF when the stream is exhausted.
-func (s *Stream) ReadChunk() ([]byte, error) {
+// Read implements io.Reader interface. It reads up to len(p) bytes into p
+// with context-awareness and tracking of bytes read.
+func (s *Stream) Read(p []byte) (n int, err error) {
 	s.rwmu.Lock()
 	defer s.rwmu.Unlock()
 
 	if s.reader == nil {
-		return nil, fmt.Errorf("stream closed")
+		return 0, fmt.Errorf("stream closed")
 	}
 
 	if s.ctx.Err() != nil {
-		return nil, fmt.Errorf("context canceled: %w", s.ctx.Err())
+		return 0, fmt.Errorf("context canceled: %w", s.ctx.Err())
 	}
 
-	n, err := s.reader.Read(s.buffer)
+	n, err = s.reader.Read(p)
 	if err != nil {
 		// fs.ErrClosed is returned when the process is stopped (the file is already closed)
 		// all these errors are not critical and happen when the process (for example) is stopped
 		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, fs.ErrClosed) {
-			return nil, err
+			return n, err
 		}
-		return nil, fmt.Errorf("read error: %w", err)
+		return n, fmt.Errorf("read error: %w", err)
 	}
 
 	s.bytesRead += int64(n)
-	resp := make([]byte, n)
-	copy(resp, s.buffer)
-	s.buffer = s.buffer[0:]
+	return n, nil
+}
 
-	return resp, nil
+// ReadChunk reads a chunk of data with the specified size.
+// If size <= 0, it uses DefaultChunkSize.
+func (s *Stream) ReadChunk(size int64) ([]byte, error) {
+	if size <= 0 {
+		size = DefaultChunkSize
+	}
+
+	buffer := make([]byte, size)
+	n, err := s.Read(buffer)
+	if err != nil {
+		return nil, err
+	}
+
+	// Return only the portion of the buffer that was filled
+	chunk := make([]byte, n)
+	copy(chunk, buffer[:n])
+	return chunk, nil
 }
 
 // BytesRead returns the total number of bytes read from the stream so far.
