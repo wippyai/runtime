@@ -183,7 +183,7 @@ func (p *TaskPool) worker() {
 		}
 
 		// Execute the function
-		result, err := vm.Execute(ctx, t.method, args...)
+		result, err := vm.Execute(t.ctx, t.method, args...)
 
 		// Create the runtime.Result
 		runtimeResult := &runtime.Result{
