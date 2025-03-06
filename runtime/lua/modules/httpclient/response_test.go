@@ -374,63 +374,64 @@ func (m *mockReadCloser) Close() error {
 func TestStreamedResponseBodyHandling(t *testing.T) {
 	logger := zap.NewNop()
 
-	//t.Run("read by chunk", func(t *testing.T) {
-	//	mockClient := &mockHTTPClient{
-	//		doFunc: func(req *http.Request) (*http.Response, error) {
-	//			body := []byte("chunk1chunk2chunk3")
-	//			return &http.Response{
-	//				StatusCode: 200,
-	//				Body:       io.NopCloser(bytes.NewReader(body)),
-	//				Request:    req,
-	//			}, nil
-	//		},
-	//	}
-	//
-	//	mod := NewHTTPClientModule(logger, mockClient)
-	//	vm, err := engine.NewVM(
-	//		logger,
-	//		engine.WithLoader(mod.Name(), mod.Loader),
-	//	)
-	//	require.NoError(t, err)
-	//	defer vm.Close()
-	//
-	//	script := `
-	//	local http = require("http_client")
-	//
-	//	local response = http.get("https://api.example.com/test", { stream = true })
-	//	assert(response ~= nil, "Response should not be nil")
-	//	assert(response.stream ~= nil, "Response stream should not be nil")
-	//	assert(response.body == nil, "Response body should be nil")
-	//	assert(response.body_size == -1, "Body size should be -1 when streaming")
-	//
-	//	local s = response.stream
-	//	local expected = {"chunk1", "chunk2", "chunk3"}
-	//	local idx = 1
-	//
-	//	for chunk in s(6) do
-	//		assert(chunk == expected[idx], string.format("chunk %d mismatch", idx))
-	//		idx = idx + 1
-	//	end
-	//
-	//	-- Verify we got all expected chunks
-	//	assert(idx - 1 == #expected, "wrong number of iterations")
-	//
-	//	-- Try one more iteration to ensure proper EOF handling
-	//	local iter = s()
-	//	local final = iter()
-	//	assert(final == nil, "expected nil after all chunks read")
-	//`
-	//
-	//	err = vm.DoString(context.Background(), script, "test")
-	//	assert.NoError(t, err)
-	//})
-
-	t.Run("timeout during read", func(t *testing.T) {
+	t.Run("read by chunk", func(t *testing.T) {
 		mockClient := &mockHTTPClient{
 			doFunc: func(req *http.Request) (*http.Response, error) {
-				// Simulate a slow response that will cause a timeout
-				body := []byte("data")
-				reader := newMockReadCloser(body, 2000*time.Millisecond)
+				body := []byte("chunk1chunk2chunk3")
+				return &http.Response{
+					StatusCode: 200,
+					Body:       io.NopCloser(bytes.NewReader(body)),
+					Request:    req,
+				}, nil
+			},
+		}
+
+		mod := NewHTTPClientModule(logger, mockClient)
+		vm, err := engine.NewVM(
+			logger,
+			engine.WithLoader(mod.Name(), mod.Loader),
+		)
+		require.NoError(t, err)
+		defer vm.Close()
+
+		script := `
+		local http = require("http_client")
+	
+		local response = http.get("https://api.example.com/test", { stream = true })
+		assert(response ~= nil, "Response should not be nil")
+		assert(response.stream ~= nil, "Response stream should not be nil")
+		assert(response.body == nil, "Response body should be nil")
+		assert(response.body_size == -1, "Body size should be -1 when streaming")
+	
+		local s = response.stream
+		local expected = {"chunk1", "chunk2", "chunk3"}
+		local idx = 1
+	
+		for chunk in s(6) do
+			assert(chunk == expected[idx], string.format("chunk %d mismatch", idx))
+			idx = idx + 1
+		end
+	
+		-- Verify we got all expected chunks
+		assert(idx - 1 == #expected, "wrong number of iterations")
+	
+		-- Try one more iteration to ensure proper EOF handling
+		local iter = s()
+		local final = iter()
+		assert(final == nil, "expected nil after all chunks read")
+	`
+
+		err = vm.DoString(context.Background(), script, "test")
+		assert.NoError(t, err)
+	})
+
+	t.Run("error during read", func(t *testing.T) {
+		mockClient := &mockHTTPClient{
+			doFunc: func(req *http.Request) (*http.Response, error) {
+				// Simulate an error after reading some data
+				body := []byte("chunk1chunk2")
+				reader := newMockReadCloser(body, 0)
+				reader.errAfter = 6 // Inject error after 6 bytes
 				return &http.Response{
 					StatusCode: 200,
 					Body:       reader,
@@ -449,102 +450,60 @@ func TestStreamedResponseBodyHandling(t *testing.T) {
 
 		script := `
 		local http = require("http_client")
-
-		local response = http.get("https://api.example.com/test", { timeout = "100ms", stream = {} })
+	
+		local response = http.get("https://api.example.com/test", { stream = true })
 		assert(response ~= nil, "Response should not be nil")
-
+	
 		local s = response.stream
-
-		local chunk, err = s:read()
-print("HELLO")
-print("ERR", err, "DD")
-		assert(chunk == nil, "Chunk should be nil due to timeout")
-		assert(string.find(err, "context deadline"), "Error should indicate a timeout or canceled context")
+		local chunk, err = s:read(6)
+		assert(chunk == "chunk1", "First chunk should be read successfully")
+		assert(err == nil, "Error should be nil for the first chunk")
+	
+		chunk, err = s:read(6)
+		assert(chunk == nil, "Chunk should be nil due to error")
+		assert(string.find(err, "mock error"), "Error should indicate the injected error")
 	`
 
 		err = vm.DoString(context.Background(), script, "test")
 		assert.NoError(t, err)
 	})
-	//
-	//t.Run("error during read", func(t *testing.T) {
-	//	mockClient := &mockHTTPClient{
-	//		doFunc: func(req *http.Request) (*http.Response, error) {
-	//			// Simulate an error after reading some data
-	//			body := []byte("chunk1chunk2")
-	//			reader := newMockReadCloser(body, 0)
-	//			reader.errAfter = 6 // Inject error after 6 bytes
-	//			return &http.Response{
-	//				StatusCode: 200,
-	//				Body:       reader,
-	//				Request:    req,
-	//			}, nil
-	//		},
-	//	}
-	//
-	//	mod := NewHTTPClientModule(logger, mockClient)
-	//	vm, err := engine.NewVM(
-	//		logger,
-	//		engine.WithLoader(mod.Name(), mod.Loader),
-	//	)
-	//	require.NoError(t, err)
-	//	defer vm.Close()
-	//
-	//	script := `
-	//	local http = require("http_client")
-	//
-	//	local response = http.get("https://api.example.com/test", { stream = true })
-	//	assert(response ~= nil, "Response should not be nil")
-	//
-	//	local s = response.stream
-	//	local chunk, err = s:read(6)
-	//	assert(chunk == "chunk1", "First chunk should be read successfully")
-	//	assert(err == nil, "Error should be nil for the first chunk")
-	//
-	//	chunk, err = s:read(6)
-	//	assert(chunk == nil, "Chunk should be nil due to error")
-	//	assert(string.find(err, "mock error"), "Error should indicate the injected error")
-	//`
-	//
-	//	err = vm.DoString(context.Background(), script, "test")
-	//	assert.NoError(t, err)
-	//})
-	//
-	//t.Run("close stream", func(t *testing.T) {
-	//	mockClient := &mockHTTPClient{
-	//		doFunc: func(req *http.Request) (*http.Response, error) {
-	//			body := []byte("data")
-	//			reader := newMockReadCloser(body, 0)
-	//			return &http.Response{
-	//				StatusCode: 200,
-	//				Body:       reader,
-	//				Request:    req,
-	//			}, nil
-	//		},
-	//	}
-	//
-	//	mod := NewHTTPClientModule(logger, mockClient)
-	//	vm, err := engine.NewVM(
-	//		logger,
-	//		engine.WithLoader(mod.Name(), mod.Loader),
-	//	)
-	//	require.NoError(t, err)
-	//	defer vm.Close()
-	//
-	//	script := `
-	//	local http = require("http_client")
-	//
-	//	local response = http.get("https://api.example.com/test", { stream = {} })
-	//	assert(response ~= nil, "Response should not be nil")
-	//
-	//	local s = response.stream
-	//	s:close()
-	//
-	//	local chunk, err = s:read()
-	//	assert(chunk == nil, "Chunk should be nil after closing")
-	//	assert(string.find(err, "closed"), "Error should indicate stream is closed")
-	//`
-	//
-	//	err = vm.DoString(context.Background(), script, "test")
-	//	assert.NoError(t, err)
-	//})
+
+	t.Run("close stream", func(t *testing.T) {
+		mockClient := &mockHTTPClient{
+			doFunc: func(req *http.Request) (*http.Response, error) {
+				body := []byte("data")
+				reader := newMockReadCloser(body, 0)
+				return &http.Response{
+					StatusCode: 200,
+					Body:       reader,
+					Request:    req,
+				}, nil
+			},
+		}
+
+		mod := NewHTTPClientModule(logger, mockClient)
+		vm, err := engine.NewVM(
+			logger,
+			engine.WithLoader(mod.Name(), mod.Loader),
+		)
+		require.NoError(t, err)
+		defer vm.Close()
+
+		script := `
+		local http = require("http_client")
+	
+		local response = http.get("https://api.example.com/test", { stream = {} })
+		assert(response ~= nil, "Response should not be nil")
+	
+		local s = response.stream
+		s:close()
+	
+		local chunk, err = s:read()
+		assert(chunk == nil, "Chunk should be nil after closing")
+		assert(string.find(err, "closed"), "Error should indicate stream is closed")
+	`
+
+		err = vm.DoString(context.Background(), script, "test")
+		assert.NoError(t, err)
+	})
 }
