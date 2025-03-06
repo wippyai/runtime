@@ -1,6 +1,7 @@
 package sql
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
@@ -13,10 +14,11 @@ import (
 
 // Statement represents a prepared statement for Lua
 type Statement struct {
-	stmt   *sql.Stmt
-	db     *DB
-	log    *zap.Logger
-	closed bool
+	stmt      *sql.Stmt
+	db        *DB
+	log       *zap.Logger
+	closed    bool
+	onRelease context.CancelFunc
 }
 
 // WrapStatement wraps a Statement as Lua userdata
@@ -180,11 +182,17 @@ func stmtClose(l *lua.LState) int {
 		return 2
 	}
 
-	err := stmt.Close()
+	err := stmt.stmt.Close()
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
 		return 2
+	}
+
+	// Call and clear the onRelease function to remove from UoW
+	if stmt.onRelease != nil {
+		stmt.onRelease()
+		stmt.onRelease = nil
 	}
 
 	stmt.closed = true
@@ -195,6 +203,16 @@ func stmtClose(l *lua.LState) int {
 
 // Close closes the statement directly - for use outside Lua context
 func (s *Statement) Close() error {
+	if s.closed {
+		return nil
+	}
+
+	// Call and clear the onRelease function to remove from UoW
+	if s.onRelease != nil {
+		s.onRelease()
+		s.onRelease = nil
+	}
+
 	s.closed = true
 	return s.stmt.Close()
 }

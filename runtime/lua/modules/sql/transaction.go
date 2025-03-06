@@ -1,6 +1,7 @@
 package sql
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
@@ -13,10 +14,11 @@ import (
 
 // Transaction represents a database transaction for Lua
 type Transaction struct {
-	tx     *sql.Tx
-	db     *DB
-	log    *zap.Logger
-	active bool
+	tx        *sql.Tx
+	db        *DB
+	log       *zap.Logger
+	active    bool
+	onRelease context.CancelFunc
 }
 
 // WrapTransaction wraps a Transaction as Lua userdata
@@ -212,9 +214,8 @@ func txPrepare(l *lua.LState) int {
 			log:  tx.log,
 		}
 
-		uw.AddCleanup(func() error {
-			return stmt.Close()
-		})
+		// Store the cancellation function
+		stmtObj.onRelease = uw.AddCleanup(stmt.Close)
 
 		// Create userdata
 		ud := WrapStatement(l, stmtObj)
@@ -247,6 +248,12 @@ func txCommit(l *lua.LState) int {
 		// Mark as inactive
 		tx.active = false
 
+		// Remove from UoW cleanup
+		if tx.onRelease != nil {
+			tx.onRelease()
+			tx.onRelease = nil
+		}
+
 		return engine.NewUpdate(nil, []lua.LValue{lua.LTrue, lua.LNil}, nil)
 	})
 
@@ -274,6 +281,12 @@ func txRollback(l *lua.LState) int {
 
 		// Mark as inactive
 		tx.active = false
+
+		// Remove from UoW cleanup
+		if tx.onRelease != nil {
+			tx.onRelease()
+			tx.onRelease = nil
+		}
 
 		return engine.NewUpdate(nil, []lua.LValue{lua.LTrue, lua.LNil}, nil)
 	})

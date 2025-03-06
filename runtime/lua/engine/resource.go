@@ -98,14 +98,22 @@ func (r *resourceManager) AddCleanup(fn func() error) context.CancelFunc {
 	element := r.closers.PushBack(fn)
 	r.mu.Unlock()
 
-	// Return cancel function that can be safely called even during close
+	// Return cancel function that both executes fn and removes it from list
+	// This ensures exactly-once execution
 	return func() {
-		// Only attempt removal if we're not in closing process
+		// Only attempt if we're not in closing process
 		if !r.closing.Load() {
 			r.mu.Lock()
-			// Double-check inside lock
 			if !r.closed {
-				r.closers.Remove(element)
+				// Remove from list - only if still in list
+				if element.Value != nil {
+					r.closers.Remove(element)
+					element.Value = nil // Mark as processed
+					r.mu.Unlock()
+					// Execute function after releasing lock to prevent deadlocks
+					_ = fn()
+					return
+				}
 			}
 			r.mu.Unlock()
 		}
