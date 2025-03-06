@@ -10,7 +10,7 @@ local function run(args)
         counter = 0
     }
 
-    print("Child process finished with PID:", state.pid)
+    --print("Child process finished with PID:", state.pid)
     return "OK"
 
     --print("Child process started with PID:", state.pid)

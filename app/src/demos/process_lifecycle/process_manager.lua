@@ -20,7 +20,7 @@ local function run()
             local id = state.next_id
             state.next_id = state.next_id + 1
 
-            print("Creating new parent process, request from:", msg.from, state.next_id)
+            --print("Creating new parent process, request from:", msg.from, state.next_id)
 
             ---- Spawn new parent process (monitored by us)
             local parent_pid, err = process.spawn_monitored(
@@ -48,7 +48,7 @@ local function run()
                 status = "running"
             }
 
-            print("Created new parent process:", parent_pid, "ID:", id)
+            --print("Created new parent process:", parent_pid, "ID:", id)
 
             if msg.reply_to then
                 process.send(msg.reply_to, "response", {
@@ -174,9 +174,9 @@ local function run()
 
                         if event.result and event.result.error then
                             status = "failed"
-                            print("Process", pid, "failed:", event.result.error)
+                            --print("Process", pid, "failed:", event.result.error)
                         else
-                            print("Process", pid, "completed with result:", json.encode(event.result))
+                            --print("Process", pid, "completed with result:", json.encode(event.result))
                         end
 
                         -- Update process status
@@ -196,7 +196,7 @@ local function run()
 
                         -- Remove process from active processes
                         state.processes[id] = nil
-                        print("Process", pid, "removed from active processes")
+                        --print("Process", pid, "removed from active processes")
 
                         break
                     end

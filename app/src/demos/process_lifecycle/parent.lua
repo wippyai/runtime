@@ -11,7 +11,7 @@ local function run(args)
     }
 
     process.registry.register("parent_" .. state.pid)
-    print("Parent process started with PID:", state.pid)
+    --print("Parent process started with PID:", state.pid)
 
     -- Set up trap_links to receive LINK_DOWN events instead of dying
     process.set_options({ trap_links = true })
@@ -28,7 +28,7 @@ local function run(args)
         return { status = "error", error = "Failed to spawn child" }
     end
 
-    print("Spawned linked child:", state.child_pid)
+    --print("Spawned linked child:", state.child_pid)
 
     local parent_actor = actor.new(state, {
         -- Handle status request
@@ -54,20 +54,20 @@ local function run(args)
         __on_event = function(state, event)
             if event.kind == process.event.LINK_DOWN then
                 -- This happens when a linked process dies, and we have trap_links=true
-                print("Child process down:", event.from)
+                --print("Child process down:", event.from)
                 state.status = "child_down"
-                error("children down, we can not continue")
+                --error("children down, we can not continue")
             elseif event.kind == process.event.EXIT then
-                print("Child process compete:", event.result.result)
+                --print("Child process compete:", event.result.result)
                 state.status = "child_complete"
                 return actor.exit({ status = "complete", counter = state.counter })
             elseif event.kind == process.event.CANCEL then
-                print("Cancel requested with deadline:", event.deadline)
+                --print("Cancel requested with deadline:", event.deadline)
                 state.status = "cancelling"
 
                 -- Forward cancellation to child process
                 if state.child_pid then
-                    print("Forwarding cancel to child:", state.child_pid)
+                    --print("Forwarding cancel to child:", state.child_pid)
                     process.cancel(state.child_pid, event.deadline)
                 end
 
@@ -95,7 +95,7 @@ local function run(args)
 
     -- Run the actor loop
     local result = parent_actor.run()
-    print("Parent process exiting:", state.pid)
+    --print("Parent process exiting:", state.pid)
     return result
 end
 
