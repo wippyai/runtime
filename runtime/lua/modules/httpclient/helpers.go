@@ -84,7 +84,7 @@ func getURLFromArgs(l *lua.LState, argIndex int) (string, error) {
 
 // getOptionsFromArgs fetches and validates the options from Lua arguments.
 func getOptionsFromArgs(l *lua.LState, argIndex int) (*requestOptions, error) {
-	optionsValue := l.OptTable(argIndex, l.NewTable())
+	optionsValue := l.OptTable(argIndex, l.CreateTable(0, 3))
 	opts, err := parseOptions(optionsValue)
 	if err != nil {
 		return nil, err

@@ -99,7 +99,7 @@ func httpResponseHeaders(res *luaHTTPResponse, l *lua.LState) int {
 		return 2
 	}
 
-	headers := l.NewTable()
+	headers := l.CreateTable(len(res.res.Header), 0)
 	for key := range res.res.Header {
 		val := res.res.Header.Get(key)
 		if val != "" {
@@ -120,7 +120,7 @@ func httpResponseCookies(res *luaHTTPResponse, l *lua.LState) int {
 		return 2
 	}
 
-	cookies := l.NewTable()
+	cookies := l.CreateTable(len(res.res.Cookies()), 0)
 	for _, cookie := range res.res.Cookies() {
 		if cookie != nil && cookie.Name != "" {
 			cookies.RawSetString(cookie.Name, lua.LString(cookie.Value))
