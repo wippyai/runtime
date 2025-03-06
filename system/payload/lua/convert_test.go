@@ -2,6 +2,7 @@ package lua
 
 import (
 	"github.com/ponyruntime/pony/api/pubsub"
+	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/topology"
 	"github.com/stretchr/testify/assert"
 	lua "github.com/yuin/gopher-lua"
@@ -291,27 +292,23 @@ func TestGoToLuaExtended(t *testing.T) {
 		{
 			name: "cancel event",
 			input: topology.CancelEvent{
-				Event: topology.Event{
-					Kind: topology.KindCancel,
-					At:   fixedTime,
-					From: pubsub.PID{}, // Empty PID struct
+				Kind: topology.KindCancel,
+				At:   fixedTime,
+				From: pubsub.PID{
+					Node: "node",
+					Host: "host",
+					ID: registry.ID{
+						NS:   "ns",
+						Name: "name",
+					},
+					UniqID: "id",
 				},
 				Deadline: fixedTime.Add(time.Second),
 			},
 			want: map[string]any{
-				"event": map[string]any{
-					"at":   float64(fixedTime.Unix()),
-					"kind": "pid.cancel",
-					"from": map[string]any{
-						"host":    "",
-						"node":    "",
-						"uniq_id": "",
-						"id": map[string]any{
-							"name": "",
-							"ns":   "",
-						},
-					},
-				},
+				"at":       float64(fixedTime.Unix()),
+				"kind":     "pid.cancel",
+				"from":     "{node@host|ns:name|id}",
 				"deadline": float64(fixedTime.Add(time.Second).Unix()),
 			},
 			wantErr: false,
