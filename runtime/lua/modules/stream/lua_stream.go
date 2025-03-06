@@ -84,7 +84,9 @@ func NewLuaStream(uw engine.UnitOfWork, stream *Stream) *LuaStream {
 	}
 
 	// Register unconditional cleanup in UoW
-	luaStream.onRelease = uw.AddCleanup(stream.Close)
+	luaStream.onRelease = uw.AddCleanup(func() error {
+		return luaStream.Stream.Close()
+	})
 
 	return luaStream
 }
@@ -95,19 +97,16 @@ func (ls *LuaStream) Close() error {
 		return nil
 	}
 
-	// Close the stream
-	err := ls.Stream.Close()
-
-	// Mark as closed after closing
+	// Mark as closed first
 	ls.closed = true
 
-	// Cancel the cleanup function in UoW (don't execute it, just remove it)
+	// Cancel (not execute) the cleanup function in UoW
 	if ls.onRelease != nil {
 		ls.onRelease()
 		ls.onRelease = nil
 	}
 
-	return err
+	return nil
 }
 
 // checkStream verifies and returns the Stream from Lua userdata
