@@ -14,13 +14,15 @@ import (
 
 // taskCoordinator implements the Tasks interface for coroutine coordination
 type taskCoordinator struct {
-	updates    chan *Update  // Channel for task updates
-	wakeup     chan struct{} // Signal channel for wake-up notifications
-	taskCount  atomic.Int32  // Counter for external activities, usually counting blocked channels
-	wakeCount  atomic.Int32  // Counter for wake-up signals
-	updCount   atomic.Int32  // Counter for sent updates and internal updates
-	awaken     atomic.Bool   // Flag indicating if wake-up has been signaled
-	wakeupFunc func()        // Function to call on wake-up
+	updates   chan *Update  // Channel for task updates
+	wakeup    chan struct{} // Signal channel for wake-up notifications
+	taskCount atomic.Int32  // Counter for external activities, usually counting blocked channels
+	wakeCount atomic.Int32  // Counter for wake-up signals
+	updCount  atomic.Int32  // Counter for sent updates and internal updates
+	awaken    atomic.Bool   // Flag indicating if wake-up has been signaled
+
+	wmu        sync.Mutex // Mutex for scheduled functions
+	wakeupFunc func()     // Function to call on wake-up
 
 	// For scheduling arbitrary functions to execute during Wait
 	smu         sync.Mutex // Mutex for scheduled functions
@@ -111,6 +113,8 @@ func (t *taskCoordinator) WakeUp() {
 		}
 	}
 
+	t.wmu.Lock()
+	defer t.wmu.Unlock()
 	if t.wakeupFunc != nil {
 		t.wakeupFunc()
 	}
@@ -225,6 +229,10 @@ func (t *taskCoordinator) clean() {
 }
 
 func (t *taskCoordinator) reset() {
+	t.wmu.Lock()
+	t.wakeupFunc = nil
+	t.wmu.Unlock()
+
 	t.clean()
 
 	// Reset all atomic counters
@@ -237,9 +245,8 @@ func (t *taskCoordinator) reset() {
 	// Recreate channels
 	t.updates = make(chan *Update, cap(t.updates))
 	t.wakeup = make(chan struct{}, cap(t.wakeup))
-	t.wakeupFunc = nil
 
-	// Reset scheduled functions list
+	// Reset scheduled functions and wake up list
 	t.smu.Lock()
 	t.scheduled.Init()
 	t.smu.Unlock()
