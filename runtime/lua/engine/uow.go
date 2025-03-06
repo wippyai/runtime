@@ -181,8 +181,8 @@ func (u *unitOfWork) closeInternal() error {
 }
 
 // AddCleanup registers a function to be called on close
-func (u *unitOfWork) AddCleanup(fn func() error) {
-	u.resourceManager.AddCleanup(fn)
+func (u *unitOfWork) AddCleanup(fn func() error) context.CancelFunc {
+	return u.resourceManager.AddCleanup(fn)
 }
 
 // GetTasks associates coroutine value updates with thread task for later execution.

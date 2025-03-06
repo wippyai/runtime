@@ -114,7 +114,9 @@ type UnitOfWork interface {
 
 	// AddCleanup registers a function to be called when the unit of work is closed.
 	// Cleanup functions are called in reverse order (LIFO).
-	AddCleanup(fn func() error) // todo: we need a proper eviction func as well!
+	// Returns a CancelFunc that can be called to prevent the cleanup function from being
+	// executed during Close or Terminate - useful for resources that are manually closed.
+	AddCleanup(fn func() error) context.CancelFunc
 
 	// Terminate initiates shutdown with error propagation.
 	// It cancels the context and executes cleanup functions.
