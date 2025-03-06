@@ -14,9 +14,9 @@ import (
 // LuaStream wraps Stream for Lua and implements io.ReadCloser interface
 type LuaStream struct {
 	*Stream
-	onRelease context.CancelFunc
-	closer    context.CancelFunc
-	closed    bool
+	release    context.CancelFunc
+	onComplete context.CancelFunc
+	closed     bool
 }
 
 // Read implements io.Reader
@@ -34,9 +34,9 @@ func (ls *LuaStream) Close() error {
 	}
 
 	ls.closed = true
-	if ls.onRelease != nil {
-		ls.onRelease()
-		ls.onRelease = nil
+	if ls.release != nil {
+		ls.release()
+		ls.release = nil
 	}
 
 	return nil
@@ -100,18 +100,18 @@ func RegisterStream(l *lua.LState) {
 }
 
 // NewLuaStream creates a new LuaStream with UoW integration
-func NewLuaStream(uw engine.UnitOfWork, stream *Stream, closer context.CancelFunc) *LuaStream {
+func NewLuaStream(uw engine.UnitOfWork, stream *Stream, onComplete context.CancelFunc) *LuaStream {
 	luaStream := &LuaStream{
-		Stream: stream,
-		closer: closer,
-		closed: false,
+		Stream:     stream,
+		onComplete: onComplete,
+		closed:     false,
 	}
 
 	// Register unconditional cleanup in UoW
-	luaStream.onRelease = uw.AddCleanup(func() error {
-		if luaStream.closer != nil {
-			luaStream.closer()
-			luaStream.closer = nil
+	luaStream.release = uw.AddCleanup(func() error {
+		if luaStream.onComplete != nil {
+			luaStream.onComplete()
+			luaStream.onComplete = nil
 		}
 
 		return luaStream.Stream.Close()
