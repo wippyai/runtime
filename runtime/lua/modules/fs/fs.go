@@ -2,21 +2,17 @@ package fs
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
-	ctxapi "github.com/ponyruntime/pony/api/context"
 	fsapi "github.com/ponyruntime/pony/api/fs"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 )
-
-var cwdKey = &ctxapi.Key{Name: "fs.cwd"}
 
 // FS represents a filesystem instance wrapper with its own current working directory.
 type FS struct {
@@ -24,10 +20,20 @@ type FS struct {
 	cwd string // current working directory relative to the FS mount point; "." represents root.
 }
 
-// registerFS registers the FS type and its methods, including helper functions.
-func registerFS(l *lua.LState, mod *lua.LTable) {
-	mt := l.NewTypeMetatable("fs.FS")
-	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
+// NewFS creates a new FS instance with the given filesystem and cwd
+func NewFS(fs fsapi.FS, cwd string) *FS {
+	if cwd == "" {
+		cwd = "."
+	}
+	return &FS{
+		fs:  fs,
+		cwd: cwd,
+	}
+}
+
+// registerFS registers the FS module and its functions.
+func registerFS(l *lua.LState) {
+	methods := map[string]lua.LGFunction{
 		// Core operations
 		"chdir":   fsChdir,
 		"pwd":     fsPwd,
@@ -38,17 +44,16 @@ func registerFS(l *lua.LState, mod *lua.LTable) {
 		"readdir": fsReadDir,
 
 		// File operations
-		"readfile":  fsReadFile,  // instead of read_all
-		"writefile": fsWriteFile, // instead of write_all
+		"readfile":  fsReadFile,
+		"writefile": fsWriteFile,
 
 		// Checks
 		"isdir":  fsIsDir,
 		"exists": fsExists,
-	}))
+	}
 
-	l.SetFuncs(mod, map[string]lua.LGFunction{
-		"get": apiGet,
-	})
+	// Register the type with both metamethods and methods
+	value.RegisterTypeMethods(l, "fs.FS", nil, methods)
 }
 
 // resolvePath resolves the provided path relative to the FS instance's cwd.
@@ -159,22 +164,7 @@ func fsOpen(l *lua.LState) int {
 		return 0
 	}
 
-	// Create our wrapped file
-	wrappedFile := &File{file: file}
-
-	// Use uow to register cleanup for open files - with improved error handling
-	uw := engine.GetUnitOfWork(l.Context())
-	if uw != nil {
-		uw.AddCleanup(func() error {
-			err := wrappedFile.Close()
-			if err != nil && errors.Is(err, fs.ErrClosed) {
-				// Don't report "already closed" as an error
-				return nil
-			}
-			return err
-		})
-	}
-
+	// Create and return the wrapped file
 	l.Push(WrapFile(l, file))
 	return 1
 }
@@ -371,16 +361,18 @@ func fsReadFile(l *lua.LState) int {
 	coroutine.Wrap(l, func() *engine.Update {
 		file, err := fsInst.fs.OpenFile(resolved, os.O_RDONLY, 0)
 		if err != nil {
-			return engine.NewUpdate(nil, nil, fmt.Errorf("fs.read_all: %s", err.Error()))
+			return engine.NewUpdate(nil, nil, fmt.Errorf("fs.readfile: %s", err.Error()))
 		}
-		f := &File{file: file}
+
+		// Use our unified File type with UoW integration
+		f := NewFile(l, file)
 		defer func() {
-			_ = f.Close() // todo: add logger from ctx
+			_ = f.Close() // Safe to ignore error here as we're just cleaning up
 		}()
 
 		var buf bytes.Buffer
 		if _, err := io.Copy(&buf, f); err != nil {
-			return engine.NewUpdate(nil, nil, fmt.Errorf("fs.read_all: %s", err.Error()))
+			return engine.NewUpdate(nil, nil, fmt.Errorf("fs.readfile: %s", err.Error()))
 		}
 
 		return engine.NewUpdate(nil, []lua.LValue{lua.LString(buf.String())}, nil)
@@ -389,14 +381,14 @@ func fsReadFile(l *lua.LState) int {
 	return -1 // Yield
 }
 
-// fsWriteall writes data to a file using coroutine.Wrap
+// fsWriteFile writes data to a file using coroutine.Wrap
 func fsWriteFile(l *lua.LState) int {
 	fsInst := CheckFS(l, 1)
 	path := l.CheckString(2)
 
 	// Validate second argument is present
 	if l.Get(3) == lua.LNil {
-		l.RaiseError("fs.writeall: data argument required")
+		l.RaiseError("fs.writefile: data argument required")
 		return 0
 	}
 
@@ -410,23 +402,24 @@ func fsWriteFile(l *lua.LState) int {
 	case "a":
 		flag = os.O_WRONLY | os.O_CREATE | os.O_APPEND
 	default:
-		l.RaiseError("fs.writeall: invalid mode; must be 'w', 'wx' or 'a'")
+		l.RaiseError("fs.writefile: invalid mode; must be 'w', 'wx' or 'a'")
 		return 0
 	}
 
 	resolved := fsInst.resolvePath(path)
-
 	value := l.Get(3)
 
 	coroutine.Wrap(l, func() *engine.Update {
 		// Open destination file
 		dstFile, err := fsInst.fs.OpenFile(resolved, flag, 0644)
 		if err != nil {
-			return engine.NewUpdate(nil, nil, fmt.Errorf("fs.writeall: failed to open destination: %w", err))
+			return engine.NewUpdate(nil, nil, fmt.Errorf("fs.writefile: failed to open destination: %w", err))
 		}
-		dst := &File{file: dstFile}
+
+		// Use our unified File type with UoW integration
+		dst := NewFile(l, dstFile)
 		defer func() {
-			_ = dst.Close() // todo: ctx logger
+			_ = dst.Close() // Safe to ignore error here as we're just cleaning up
 		}()
 
 		// Determine the reader based on input type
@@ -440,16 +433,16 @@ func fsWriteFile(l *lua.LState) int {
 			if r, ok := v.Value.(io.Reader); ok {
 				reader = r
 			} else {
-				return engine.NewUpdate(nil, nil, fmt.Errorf("fs.writeall: input does not implement io.Reader"))
+				return engine.NewUpdate(nil, nil, fmt.Errorf("fs.writefile: input does not implement io.Reader"))
 			}
 
 		default:
-			return engine.NewUpdate(nil, nil, fmt.Errorf("fs.writeall: invalid input type, expected string or Reader"))
+			return engine.NewUpdate(nil, nil, fmt.Errorf("fs.writefile: invalid input type, expected string or Reader"))
 		}
 
 		// Copy the data
 		if _, err := io.Copy(dst, reader); err != nil {
-			return engine.NewUpdate(nil, nil, fmt.Errorf("fs.writeall: copy failed: %w", err))
+			return engine.NewUpdate(nil, nil, fmt.Errorf("fs.writefile: copy failed: %w", err))
 		}
 
 		return engine.NewUpdate(nil, []lua.LValue{lua.LBool(true)}, nil)

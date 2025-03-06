@@ -326,7 +326,7 @@ package time
 //		var execErr error
 //
 //		go func() {
-//			defer close(done)
+//			defer release(done)
 //			_, execErr = wrapped.Execute(ctx, "test")
 //		}()
 //

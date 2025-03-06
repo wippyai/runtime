@@ -1,8 +1,10 @@
 package time
 
 import (
+	"context"
 	"fmt"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"time"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
@@ -13,6 +15,8 @@ import (
 type Ticker struct {
 	ticker  *time.Ticker
 	chValue lua.LValue
+	done    chan struct{}
+	release context.CancelFunc
 }
 
 // Constructor for ticker
@@ -56,16 +60,31 @@ func ticker(l *lua.LState) int {
 	// Spawn channel and ticker
 	ch := channel.Named(fmt.Sprintf("ticker_%s", duration), 1)
 	tkr := time.NewTicker(duration)
+	done := make(chan struct{})
 
-	// Register cleanup to stop ticker
-	uw.AddCleanup(func() error {
-		tkr.Stop()
+	// Create ticker object
+	tickerObj := &Ticker{
+		ticker:  tkr,
+		chValue: channel.Wrap(l, ch),
+		done:    done,
+	}
+
+	// With the proposed change to resourceManager.AddCleanup,
+	// calling release will both execute the cleanup function AND remove it from the list
+	tickerObj.release = uw.AddCleanup(func() error {
+		select {
+		case <-done:
+			// Already stopped
+		default:
+			tkr.Stop()
+			close(done)
+		}
 		return nil
 	})
 
 	timeUD := l.NewUserData()
 	timeUD.Value = &Time{time: time.Now()}
-	l.SetMetatable(timeUD, l.GetTypeMetatable("time.Time"))
+	timeUD.Metatable = value.GetTypeMetatable(l, "time.Time")
 
 	uw.Run(func(uw engine.UnitOfWork) {
 		for {
@@ -76,16 +95,20 @@ func ticker(l *lua.LState) int {
 				if errs != nil {
 					return
 				}
+			case <-done:
+				// Explicitly stopped
+				return
 			case <-uw.Context().Done():
+				// UoW completed
 				return
 			}
 		}
 	})
 
-	// Spawn and return Ticker userdata
+	// Create and return Ticker userdata
 	ud := l.NewUserData()
-	ud.Value = &Ticker{ticker: tkr, chValue: channel.Wrap(l, ch)}
-	l.SetMetatable(ud, l.GetTypeMetatable("time.Ticker"))
+	ud.Value = tickerObj
+	ud.Metatable = value.GetTypeMetatable(l, "time.Ticker")
 	l.Push(ud)
 	return 1
 }
@@ -106,7 +129,18 @@ func tickerStop(l *lua.LState) int {
 		l.ArgError(1, "ticker expected")
 		return 0
 	}
-	t.ticker.Stop()
+
+	select {
+	case <-t.done:
+		// Already stopped
+	default:
+		// Just call release - it will both stop the ticker AND remove from UoW cleanup
+		if t.release != nil {
+			t.release()
+			t.release = nil
+		}
+	}
+
 	return 0
 }
 

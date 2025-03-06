@@ -32,7 +32,7 @@ func (m *Module) Name() string {
 
 // Loader loads the module into the given Lua state
 func (m *Module) Loader(l *lua.LState) int {
-	t := l.NewTable()
+	t := l.CreateTable(0, 3) // 3 fields: type, seek, and get function
 
 	// Register type constants
 	typeTable := l.CreateTable(0, 2)
@@ -47,15 +47,10 @@ func (m *Module) Loader(l *lua.LState) int {
 	seekTable.RawSetString("END", lua.LString(seekEnd))
 	l.SetField(t, "seek", seekTable)
 
-	// Register core functions
-	api := map[string]lua.LGFunction{
-		"get": apiGet,
-	}
+	t.RawSetString("get", l.NewFunction(apiGet))
 
-	l.SetFuncs(t, api)
-
-	registerFS(l, t)
 	registerFile(l)
+	registerFS(l)
 
 	l.Push(t)
 	return 1

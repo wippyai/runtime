@@ -1,6 +1,7 @@
 package sql
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -16,10 +17,11 @@ import (
 
 // DB represents a database connection wrapper for Lua
 type DB struct {
-	resource resource.Resource[any]
-	db       *sql.DB
-	dbType   string
-	log      *zap.Logger
+	resource  resource.Resource[any]
+	db        *sql.DB
+	dbType    string
+	log       *zap.Logger
+	onRelease context.CancelFunc
 }
 
 // WrapDB wraps a DB as a Lua userdata
@@ -147,7 +149,7 @@ func dbGet(l *lua.LState, log *zap.Logger) int {
 		log:      log,
 	}
 
-	uw.AddCleanup(res.Release)
+	db.onRelease = uw.AddCleanup(res.Release)
 
 	// Create userdata
 	ud := WrapDB(l, db)
@@ -272,7 +274,6 @@ func dbExecute(l *lua.LState) int {
 }
 
 // dbPrepare prepares a statement for repeated execution
-// dbPrepare prepares a statement for repeated execution
 func dbPrepare(l *lua.LState) int {
 	// Check and get database
 	db := CheckDB(l)
@@ -304,7 +305,8 @@ func dbPrepare(l *lua.LState) int {
 			log:  db.log,
 		}
 
-		uw.AddCleanup(stmt.Close)
+		// Store the cleanup function in the statement
+		stmtObj.onRelease = uw.AddCleanup(stmt.Close)
 
 		// Create userdata
 		ud := WrapStatement(l, stmtObj)
@@ -344,7 +346,8 @@ func dbBegin(l *lua.LState) int {
 			active: true,
 		}
 
-		uw.AddCleanup(func() error {
+		// Store the cleanup function in the transaction
+		txObj.onRelease = uw.AddCleanup(func() error {
 			// Only rollback if still active
 			if txObj.active {
 				return tx.Rollback()
@@ -378,6 +381,11 @@ func dbRelease(l *lua.LState) int {
 			return 2
 		}
 		db.resource = nil
+	}
+
+	if db.onRelease != nil {
+		db.onRelease()
+		db.onRelease = nil
 	}
 
 	l.Push(lua.LTrue)

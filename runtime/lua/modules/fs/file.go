@@ -1,9 +1,12 @@
 package fs
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	fsapi "github.com/ponyruntime/pony/api/fs"
+	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 	"io"
 	"io/fs"
@@ -11,8 +14,29 @@ import (
 )
 
 type File struct {
-	file fsapi.File
-	once sync.Once
+	file    fsapi.File
+	once    sync.Once
+	release context.CancelFunc
+}
+
+// NewFile creates a new wrapped file with UoW integration
+func NewFile(l *lua.LState, file fsapi.File) *File {
+	wrappedFile := &File{file: file}
+
+	// Register cleanup in UoW if available
+	uw := engine.GetUnitOfWork(l.Context())
+	if uw != nil {
+		wrappedFile.release = uw.AddCleanup(func() error {
+			err := wrappedFile.Close()
+			if err != nil && errors.Is(err, fs.ErrClosed) {
+				// Don't report "already closed" as an error
+				return nil
+			}
+			return err
+		})
+	}
+
+	return wrappedFile
 }
 
 // Read implements io.Reader.
@@ -68,19 +92,7 @@ func (f *File) Sync() error {
 	return nil
 }
 
-func registerFile(l *lua.LState) {
-	mt := l.NewTypeMetatable("fs.File")
-	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
-		"read":  fileRead,
-		"write": fileWrite,
-		"seek":  fileSeek,
-		"close": fileClose,
-		"stat":  fileStat,
-		"sync":  fileSync,
-	}))
-}
-
-// Close implements io.Closer.
+// Close implements io.Closer with UoW integration.
 func (f *File) Close() error {
 	var err error
 	f.once.Do(func() {
@@ -88,13 +100,29 @@ func (f *File) Close() error {
 	})
 
 	// Don't return an error for already closed files
-	// This is the key fix - if we get ErrClosed, we shouldn't treat it as an error
 	if err != nil && errors.Is(err, fs.ErrClosed) {
 		return nil
 	}
 
 	return err
 }
+
+// Lua integration
+
+func registerFile(l *lua.LState) {
+	methods := map[string]lua.LGFunction{
+		"read":  fileRead,
+		"write": fileWrite,
+		"seek":  fileSeek,
+		"close": fileClose,
+		"stat":  fileStat,
+		"sync":  fileSync,
+	}
+
+	value.RegisterTypeMethods(l, "fs.File", nil, methods)
+}
+
+// Lua method implementations
 
 func fileRead(l *lua.LState) int {
 	f := CheckFile(l, 1)
@@ -188,15 +216,22 @@ func fileClose(l *lua.LState) int {
 		return 0
 	}
 
-	err := f.Close()
-	if err != nil && !errors.Is(err, fs.ErrClosed) {
-		// Only return an error if it's not an "already closed" error
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+	// Use release function if available to both execute cleanup and remove from UoW
+	if f.release != nil {
+		f.release()
+		f.release = nil
+	} else {
+		// If no release function, just close directly
+		err := f.Close()
+		if err != nil && !errors.Is(err, fs.ErrClosed) {
+			// Only return an error if it's not an "already closed" error
+			l.Push(lua.LNil)
+			l.Push(lua.LString(err.Error()))
+			return 2
+		}
 	}
 
-	// Success: either the file was successfully closed, or it was already closed
+	// Success: the file was either successfully closed or was already closed
 	l.Push(lua.LBool(true))
 	return 1
 }

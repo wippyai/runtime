@@ -20,7 +20,7 @@ type requestOptions struct {
 	query   string
 	timeout time.Duration
 	auth    *struct{ user, pass string }
-	stream  *stream.Options // AddCleanup stream configuration
+	stream  *stream.Options
 }
 
 // parseOptions parses Lua value into requestOptions

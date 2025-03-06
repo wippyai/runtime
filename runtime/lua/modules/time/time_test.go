@@ -207,7 +207,7 @@ func TestTimeModule_TestBath(t *testing.T) {
                 `,
 				expected: []bool{true, true, true},
 			},
-			// AddCleanup more test cases for other methods
+			// Add more test cases for other methods
 		}
 
 		for _, tc := range testCases {
