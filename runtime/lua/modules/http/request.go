@@ -297,8 +297,8 @@ func requestBody(l *lua.LState) int {
 	return 2
 }
 
-// requestStreamBody returns an iterator for streaming the request body
-func requestStreamBody(l *lua.LState) int {
+// requestStream returns an iterator for streaming the request body
+func requestStream(l *lua.LState) int {
 	req, err := checkRequest(l, 1)
 	if err != nil {
 		l.ArgError(1, err.Error())
@@ -311,7 +311,7 @@ func requestStreamBody(l *lua.LState) int {
 		return 2
 	}
 
-	uw := engine.GetUnitOfWork(req.request.Context())
+	uw := engine.GetUnitOfWork(l.Context())
 	if uw == nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString("no unit of work available"))
@@ -327,6 +327,8 @@ func requestStreamBody(l *lua.LState) int {
 		return 2
 	}
 
+	// we expect that the stream is closed by the end of UoW, after all you can only use it functions
+	// or user can close it directly
 	luaStream := stream.NewLuaStream(uw, s, nil)
 
 	ud := l.NewUserData()
@@ -334,9 +336,7 @@ func requestStreamBody(l *lua.LState) int {
 	ud.Metatable = value.GetTypeMetatable(l, "Stream")
 
 	l.Push(ud)
-	l.Call(0, 1)
-	l.Push(lua.LNil)
-	return 2
+	return 1
 }
 
 // requestBodyJSON returns the body parsed as JSON
@@ -511,7 +511,7 @@ func registerRequest(l *lua.LState, mod *lua.LTable) {
 		"has_body":        requestHasBody,
 		"accepts":         requestAccepts,
 		"is_content_type": requestIsContentType,
-		"stream_body":     requestStreamBody,
+		"stream":          requestStream,
 	}))
 	l.SetField(mt, "__tostring", l.NewFunction(requestToString))
 

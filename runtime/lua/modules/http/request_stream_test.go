@@ -33,12 +33,15 @@ func TestRequest_StreamBody_Simple(t *testing.T) {
 			local http = require("http")
 			local req = http.request()
 			local chunks = {}
-			for chunk in req:stream_body() do
-				if chunk == nil then
-					break
-				end
+
+			local stream, err = req:stream()
+
+			while true do
+				local chunk = stream:read()
+				if chunk == nil then break end	
 				table.insert(chunks, chunk)
 			end
+
 			local streamedBody = table.concat(chunks)
 			if streamedBody ~= "` + bodyContent + `" then
 				error("streamed body should match original body")
@@ -54,7 +57,8 @@ func TestRequest_StreamBody_Simple(t *testing.T) {
 func TestRequest_StreamBody(t *testing.T) {
 	logger := zap.NewNop()
 	bodyContent := "This is a long body that should be streamed in chunks."
-	t.Run("stream_body with default options", func(t *testing.T) {
+
+	t.Run("stream with default behavior", func(t *testing.T) {
 		body := strings.NewReader(bodyContent)
 		req := httptest.NewRequest("POST", "/test", body)
 		recorder := httptest.NewRecorder()
@@ -72,17 +76,17 @@ func TestRequest_StreamBody(t *testing.T) {
 			local http = require("http")
 			local req = http.request()
 			local chunks = {}
-			local iter, err = req:stream_body()
+			local stream, err = req:stream()
 			if err ~= nil then
-				error("stream_body failed: " .. err)
+				error("stream failed: " .. err)
 			end
 
-			for chunk in iter do
-				if chunk == nil then
-					break
-				end
+			while true do
+				local chunk = stream:read()
+				if chunk == nil then break end
 				table.insert(chunks, chunk)
 			end
+			
 			local streamedBody = table.concat(chunks)
 			if streamedBody ~= "` + bodyContent + `" then
 				error("streamed body should match original body")
@@ -94,7 +98,7 @@ func TestRequest_StreamBody(t *testing.T) {
 		}
 	})
 
-	t.Run("stream_body with custom buffer_size", func(t *testing.T) {
+	t.Run("stream with custom read size", func(t *testing.T) {
 		body := strings.NewReader(bodyContent)
 		req := httptest.NewRequest("POST", "/test", body)
 		recorder := httptest.NewRecorder()
@@ -112,21 +116,21 @@ func TestRequest_StreamBody(t *testing.T) {
 			local http = require("http")
 			local req = http.request()
 			local chunks = {}
-			local bufferSize = 10
-			local iter, err = req:stream_body({buffer_size = bufferSize})
+			local readSize = 10
+			local stream, err = req:stream()
 			if err ~= nil then
-				error("stream_body failed: " .. err)
+				error("stream failed: " .. err)
 			end
 
-			for chunk in iter do
-				if chunk == nil then
-					break
-				end
+			while true do
+				local chunk = stream:read(readSize)
+				if chunk == nil then break end
 				table.insert(chunks, chunk)
-				if #chunk > bufferSize then
-					error("chunk size should not exceed buffer size")
+				if #chunk > readSize then
+					error("chunk size should not exceed read size")
 				end
 			end
+			
 			local streamedBody = table.concat(chunks)
 			if streamedBody ~= "` + bodyContent + `" then
 				error("streamed body should match original body")
@@ -138,7 +142,7 @@ func TestRequest_StreamBody(t *testing.T) {
 		}
 	})
 
-	t.Run("empty stream_body", func(t *testing.T) {
+	t.Run("empty stream", func(t *testing.T) {
 		body := strings.NewReader("") // Empty body
 		req := httptest.NewRequest("POST", "/test", body)
 		recorder := httptest.NewRecorder()
@@ -155,13 +159,14 @@ func TestRequest_StreamBody(t *testing.T) {
 		script := `
 			local http = require("http")
 			local req = http.request()
-			local iter, err = req:stream_body()
+			local stream, err = req:stream()
 			if err ~= nil then
-				error("stream_body failed: " .. err)
+				error("stream failed: " .. err)
 			end
 
-			for chunk in iter do
-				error("should not enter loop for empty body")
+			local chunk = stream:read()
+			if chunk ~= nil then
+				error("should receive nil for empty body")
 			end
 		`
 		err = vm.DoString(ctx, script, "test")
@@ -170,7 +175,7 @@ func TestRequest_StreamBody(t *testing.T) {
 		}
 	})
 
-	t.Run("error in stream_body chunk read", func(t *testing.T) {
+	t.Run("error in stream chunk read", func(t *testing.T) {
 		// Spawn a reader that returns an error after a few reads
 		errorReader := &errorReader{
 			data:  []byte(bodyContent),
@@ -194,17 +199,27 @@ func TestRequest_StreamBody(t *testing.T) {
 			local http = require("http")
 			local req = http.request()
 			local chunks = {}
-			local iter, err = req:stream_body()
+			local stream, err = req:stream()
 			if err ~= nil then
-				error("stream_body failed: " .. err)
+				error("stream failed: " .. err)
 			end
 
-			for chunk in iter do
+			local hasError = false
+			while true do
+				local chunk, err = stream:read(5)
+				if err ~= nil then
+					-- Expected error
+					hasError = true
+					break
+				end
 				if chunk == nil then
-					error("should not be nil when error")
 					break
 				end
 				table.insert(chunks, chunk)
+			end
+			
+			if not hasError then
+				error("should have encountered an error during read")
 			end
 		`
 		err = vm.DoString(ctx, script, "test")
