@@ -5,9 +5,9 @@ local json = require("json")
 local function run()
     local state = {
         pid = process.pid(),
-        processes = {}, -- Process tracking
-        next_id = 1,    -- For generating unique IDs
-        terminated_count = 0,  -- Count of terminated processes
+        processes = {},          -- Process tracking
+        next_id = 1,             -- For generating unique IDs
+        terminated_count = 0,    -- Count of terminated processes
         completed_processes = {} -- Archive of completed processes
     }
 
@@ -40,13 +40,13 @@ local function run()
             end
 
             -- Track process
-            --state.processes[id] = {
-                           --            --    id = id,
-                           --            --    parent_pid = parent_pid,
-                           --            --    created_at = time.now(),
-                           --            --    created_by = msg.from,
-                           --            --    status = "running"
-                           --            --}
+            state.processes[id] = {
+                id = id,
+                parent_pid = parent_pid,
+                created_at = time.now(),
+                created_by = msg.from,
+                status = "running"
+            }
 
             print("Created new parent process:", parent_pid, "ID:", id)
 

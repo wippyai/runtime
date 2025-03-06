@@ -44,7 +44,7 @@ func NewProcessPool(
 ) *ProcessPool {
 	ctx, cancel := context.WithCancel(ctx)
 
-	return &ProcessPool{
+	p := &ProcessPool{
 		workers:      workers,
 		maxProcesses: maxProcesses,
 		log:          log,
@@ -52,6 +52,24 @@ func NewProcessPool(
 		ctx:          ctx,
 		cancel:       cancel,
 	}
+
+	go func() {
+		for {
+			time.Sleep(5 * time.Second)
+			p.processes.Range(func(pid, value interface{}) bool {
+				entry := value.(*processEntry)
+				p.log.Info("process status",
+					zap.String("pid", pid.(string)),
+					zap.Int("ready", entry.process.Ready()),
+					zap.Bool("running", entry.running.Load()),
+					zap.Bool("awaken", entry.awaken.Load()))
+				return true
+			})
+
+		}
+	}()
+
+	return p
 }
 
 // AddProcess registers a new process with the pool
@@ -84,21 +102,21 @@ func (p *ProcessPool) Has(pid pubsub.PID) bool {
 
 // Schedule adds a process to the work queue
 func (p *ProcessPool) Schedule(pid pubsub.PID) error {
-	pr, exists := p.processes.Load(pid.String())
-	if !exists {
-		return process.ErrNoProcess
-	}
+	//pr, exists := p.processes.Load(pid.String())
+	//if !exists {
+	//	return process.ErrNoProcess
+	//}
 
-	if pr.(*processEntry).awaken.CompareAndSwap(false, true) {
-		select {
-		case p.workCh <- &pid:
-			return nil
-		case <-p.ctx.Done():
-			return context.Canceled
-		}
-	} else {
-		p.count.Add(1)
+	//if pr.(*processEntry).awaken.CompareAndSwap(false, true) {
+	select {
+	case p.workCh <- &pid:
+		return nil
+	case <-p.ctx.Done():
+		return context.Canceled
 	}
+	//} else {
+	//	p.count.Add(1)
+	//}
 
 	return nil
 }
@@ -134,6 +152,7 @@ func (p *ProcessPool) worker() {
 			}
 
 			entry := entryVal.(*processEntry)
+			entry.awaken.Store(false) // we got it to work
 
 			// Try to acquire execution lock
 			if !entry.running.CompareAndSwap(false, true) {
@@ -161,8 +180,6 @@ func (p *ProcessPool) worker() {
 					return
 				case p.workCh <- pid:
 				}
-			} else {
-				entry.awaken.Store(false)
 			}
 		}
 	}
