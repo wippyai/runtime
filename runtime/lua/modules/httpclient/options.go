@@ -8,19 +8,19 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ponyruntime/pony/runtime/lua/modules/stream"
 	lua "github.com/yuin/gopher-lua"
 )
 
 // requestOptions holds parsed request options
 type requestOptions struct {
-	headers map[string]string
-	cookies map[string]string
-	body    string
-	query   string
-	timeout time.Duration
-	auth    *struct{ user, pass string }
-	stream  *stream.Options
+	headers         map[string]string
+	cookies         map[string]string
+	body            string
+	query           string
+	timeout         time.Duration
+	auth            *struct{ user, pass string }
+	stream          bool  // Flag to indicate streaming should be used
+	streamChunkSize int64 // Chunk size for streaming reads, 0 means default
 }
 
 // parseOptions parses Lua value into requestOptions
@@ -90,13 +90,14 @@ func parseOptions(value lua.LValue) (*requestOptions, error) {
 	}
 
 	if streamOpts := table.RawGetString("stream"); streamOpts != lua.LNil {
-		if streamTable, ok := streamOpts.(*lua.LTable); ok {
-			bufferSize := int64(0)
-			if bs := streamTable.RawGetString("buffer_size"); bs.Type() == lua.LTNumber {
-				bufferSize = int64(bs.(lua.LNumber))
-			}
+		// If stream is present, enable streaming
+		opts.stream = true
 
-			opts.stream = stream.NewStreamConfig(bufferSize)
+		// Check if it's a table with options
+		if streamTable, ok := streamOpts.(*lua.LTable); ok {
+			if bs := streamTable.RawGetString("chunk_size"); bs.Type() == lua.LTNumber {
+				opts.streamChunkSize = int64(bs.(lua.LNumber))
+			}
 		}
 	}
 

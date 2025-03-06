@@ -397,7 +397,7 @@ func TestStreamedResponseBodyHandling(t *testing.T) {
 		script := `
 		local http = require("http_client")
 
-		local response = http.get("https://api.example.com/test", { stream = { buffer_size = 6 } })
+		local response = http.get("https://api.example.com/test", { stream = true })
 		assert(response ~= nil, "Response should not be nil")
 		assert(response.stream ~= nil, "Response stream should not be nil")
 		assert(response.body == nil, "Response body should be nil")
@@ -407,7 +407,7 @@ func TestStreamedResponseBodyHandling(t *testing.T) {
 		local expected = {"chunk1", "chunk2", "chunk3"}
 		local idx = 1
 
-		for chunk in s() do
+		for chunk in s(6) do
 			assert(chunk == expected[idx], string.format("chunk %d mismatch", idx))
 			idx = idx + 1
 		end
