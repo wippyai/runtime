@@ -164,7 +164,7 @@ func fsOpen(l *lua.LState) int {
 		return 0
 	}
 
-	// Create and return the wrapped file
+	// Create and return the wrapped file with UoW integration
 	l.Push(WrapFile(l, file))
 	return 1
 }
@@ -358,6 +358,13 @@ func fsReadFile(l *lua.LState) int {
 	}
 	resolved := fsInst.resolvePath(path)
 
+	// Get UoW for file management
+	uw := engine.GetUnitOfWork(l.Context())
+	if uw == nil {
+		l.RaiseError("unit of work missing from context")
+		return 0
+	}
+
 	coroutine.Wrap(l, func() *engine.Update {
 		file, err := fsInst.fs.OpenFile(resolved, os.O_RDONLY, 0)
 		if err != nil {
@@ -365,7 +372,7 @@ func fsReadFile(l *lua.LState) int {
 		}
 
 		// Use our unified File type with UoW integration
-		f := NewFile(l, file)
+		f := NewFile(uw, file)
 		defer func() {
 			_ = f.Close() // Safe to ignore error here as we're just cleaning up
 		}()
@@ -407,7 +414,14 @@ func fsWriteFile(l *lua.LState) int {
 	}
 
 	resolved := fsInst.resolvePath(path)
-	value := l.Get(3)
+	v := l.Get(3)
+
+	// Get UoW for file management
+	uw := engine.GetUnitOfWork(l.Context())
+	if uw == nil {
+		l.RaiseError("unit of work missing from context")
+		return 0
+	}
 
 	coroutine.Wrap(l, func() *engine.Update {
 		// Open destination file
@@ -417,14 +431,14 @@ func fsWriteFile(l *lua.LState) int {
 		}
 
 		// Use our unified File type with UoW integration
-		dst := NewFile(l, dstFile)
+		dst := NewFile(uw, dstFile)
 		defer func() {
 			_ = dst.Close() // Safe to ignore error here as we're just cleaning up
 		}()
 
 		// Determine the reader based on input type
 		var reader io.Reader
-		switch v := value.(type) {
+		switch v := v.(type) {
 		case lua.LString:
 			reader = strings.NewReader(string(v))
 

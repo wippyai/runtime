@@ -131,14 +131,13 @@ func (e *Module) processPackage(uw engine.UnitOfWork, pkg *pubsub.Package) {
 		// Always forward topology events
 		if msg.Topic == topology.TopicEvents {
 			// First check if events channel exists
-			if exists, _ := subscribe.Exists(uw.Context(), topology.TopicEvents); exists {
-				luaValues, err := e.toLuaPayloads(uw.Context(), msg.Payloads)
-				if err == nil && len(luaValues) > 0 {
-					if err := subscribe.Publish(uw.Context(), topology.TopicEvents, luaValues...); err != nil {
-						e.log.Error("failed to publish event", zap.Error(err))
-					}
+			luaValues, err := e.toLuaPayloads(uw.Context(), msg.Payloads)
+			if err == nil && len(luaValues) > 0 {
+				if err := subscribe.Publish(uw.Context(), topology.TopicEvents, luaValues...); err != nil {
+					e.log.Error("failed to publish event", zap.Error(err))
 				}
 			}
+
 			continue
 		}
 

@@ -21,6 +21,21 @@ type Transaction struct {
 	onRelease context.CancelFunc
 }
 
+// NewTransaction creates a new Transaction with UoW integration
+func NewTransaction(uw engine.UnitOfWork, tx *sql.Tx, db *DB, log *zap.Logger) *Transaction {
+	txWrapper := &Transaction{
+		tx:     tx,
+		db:     db,
+		log:    log,
+		active: true,
+	}
+
+	// Register unconditional cleanup in UoW - directly pass tx.Rollback
+	txWrapper.onRelease = uw.AddCleanup(tx.Rollback)
+
+	return txWrapper
+}
+
 // WrapTransaction wraps a Transaction as Lua userdata
 func WrapTransaction(l *lua.LState, tx *Transaction) *lua.LUserData {
 	ud := l.NewUserData()
@@ -207,15 +222,8 @@ func txPrepare(l *lua.LState) int {
 			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
 		}
 
-		// Create statement wrapper
-		stmtObj := &Statement{
-			stmt: stmt,
-			db:   tx.db,
-			log:  tx.log,
-		}
-
-		// Store the cancellation function
-		stmtObj.onRelease = uw.AddCleanup(stmt.Close)
+		// Create statement wrapper using the constructor
+		stmtObj := NewStatement(uw, stmt, tx.db, tx.log)
 
 		// Create userdata
 		ud := WrapStatement(l, stmtObj)
@@ -248,7 +256,7 @@ func txCommit(l *lua.LState) int {
 		// Mark as inactive
 		tx.active = false
 
-		// Remove from UoW cleanup
+		// Cancel the cleanup function in UoW (don't execute it, just remove it)
 		if tx.onRelease != nil {
 			tx.onRelease()
 			tx.onRelease = nil
@@ -274,15 +282,15 @@ func txRollback(l *lua.LState) int {
 			return engine.NewUpdate(nil, nil, fmt.Errorf("transaction is not active"))
 		}
 
-		// Rollback transaction
+		// Rollback transaction explicitly
 		if err := tx.tx.Rollback(); err != nil {
 			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
 		}
 
-		// Mark as inactive
+		// Mark as inactive after successful rollback
 		tx.active = false
 
-		// Remove from UoW cleanup
+		// Cancel the cleanup function in UoW (don't execute it, just remove it)
 		if tx.onRelease != nil {
 			tx.onRelease()
 			tx.onRelease = nil

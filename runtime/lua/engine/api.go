@@ -119,6 +119,7 @@ type UnitOfWork interface {
 	// 2. Removes the function from the cleanup list to prevent duplicate execution
 	// 3. Returns any error from the cleanup function
 	// This is useful for resources that are explicitly released before UoW completion.
+	// Cleanup func guaranteed to execute once only.
 	AddCleanup(fn func() error) context.CancelFunc
 
 	// Terminate initiates shutdown with error propagation.

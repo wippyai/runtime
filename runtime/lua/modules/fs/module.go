@@ -2,6 +2,7 @@ package fs
 
 import (
 	fsapi "github.com/ponyruntime/pony/api/fs"
+	"github.com/ponyruntime/pony/runtime/lua/engine"
 	lua "github.com/yuin/gopher-lua"
 	"io/fs"
 )
@@ -91,7 +92,7 @@ func CheckFS(l *lua.LState, n int) *FS {
 
 func WrapFS(l *lua.LState, fs fsapi.FS) *lua.LUserData {
 	ud := l.NewUserData()
-	ud.Value = &FS{fs: fs}
+	ud.Value = NewFS(fs, ".")
 	l.SetMetatable(ud, l.GetTypeMetatable("fs.FS"))
 	return ud
 }
@@ -105,9 +106,18 @@ func CheckFile(l *lua.LState, n int) *File {
 	return nil
 }
 
+// WrapFile creates a new File userdata with UoW integration
 func WrapFile(l *lua.LState, file fsapi.File) *lua.LUserData {
+	// Get Unit of Work from context
+	uw := engine.GetUnitOfWork(l.Context())
+	if uw == nil {
+		l.RaiseError("unit of work missing from context")
+		return nil
+	}
+
+	// Create a new File with UoW integration
 	ud := l.NewUserData()
-	ud.Value = &File{file: file}
+	ud.Value = NewFile(uw, file)
 	l.SetMetatable(ud, l.GetTypeMetatable("fs.File"))
 	return ud
 }

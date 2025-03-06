@@ -24,6 +24,21 @@ type DB struct {
 	onRelease context.CancelFunc
 }
 
+// NewDB creates a new database connection wrapper with UoW integration
+func NewDB(uw engine.UnitOfWork, resource resource.Resource[any], db *sql.DB, dbType string, log *zap.Logger) *DB {
+	dbWrapper := &DB{
+		resource: resource,
+		db:       db,
+		dbType:   dbType,
+		log:      log,
+	}
+
+	// Register unconditional cleanup in UoW - directly pass resource.Release
+	dbWrapper.onRelease = uw.AddCleanup(resource.Release)
+
+	return dbWrapper
+}
+
 // WrapDB wraps a DB as a Lua userdata
 func WrapDB(l *lua.LState, db *DB) *lua.LUserData {
 	ud := l.NewUserData()
@@ -141,15 +156,8 @@ func dbGet(l *lua.LState, log *zap.Logger) int {
 		return 2
 	}
 
-	// Create and wrap DB
-	db := &DB{
-		resource: res,
-		db:       sqlRes.DB,
-		dbType:   string(sqlRes.Type),
-		log:      log,
-	}
-
-	db.onRelease = uw.AddCleanup(res.Release)
+	// Create and wrap DB with UoW integration
+	db := NewDB(uw, res, sqlRes.DB, string(sqlRes.Type), log)
 
 	// Create userdata
 	ud := WrapDB(l, db)
@@ -298,15 +306,8 @@ func dbPrepare(l *lua.LState) int {
 			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
 		}
 
-		// Create statement wrapper
-		stmtObj := &Statement{
-			stmt: stmt,
-			db:   db,
-			log:  db.log,
-		}
-
-		// Store the cleanup function in the statement
-		stmtObj.onRelease = uw.AddCleanup(stmt.Close)
+		// Create statement wrapper using the constructor
+		stmtObj := NewStatement(uw, stmt, db, db.log)
 
 		// Create userdata
 		ud := WrapStatement(l, stmtObj)
@@ -338,22 +339,8 @@ func dbBegin(l *lua.LState) int {
 			return engine.NewUpdate(nil, nil, err)
 		}
 
-		// Create transaction wrapper
-		txObj := &Transaction{
-			tx:     tx,
-			db:     db,
-			log:    db.log,
-			active: true,
-		}
-
-		// Store the cleanup function in the transaction
-		txObj.onRelease = uw.AddCleanup(func() error {
-			// Only rollback if still active
-			if txObj.active {
-				return tx.Rollback()
-			}
-			return nil
-		})
+		// Create transaction wrapper using the constructor
+		txObj := NewTransaction(uw, tx, db, db.log)
 
 		// Create userdata
 		ud := WrapTransaction(l, txObj)
@@ -373,9 +360,10 @@ func dbRelease(l *lua.LState) int {
 		return 0
 	}
 
-	// Release resource directly - no need for coroutine
+	// Release the resource directly
 	if db.resource != nil {
-		if err := db.resource.Release(); err != nil {
+		err := db.resource.Release()
+		if err != nil {
 			l.Push(lua.LNil)
 			l.Push(lua.LString(err.Error()))
 			return 2
@@ -383,6 +371,7 @@ func dbRelease(l *lua.LState) int {
 		db.resource = nil
 	}
 
+	// Cancel the cleanup function in UoW (don't execute it, just remove it)
 	if db.onRelease != nil {
 		db.onRelease()
 		db.onRelease = nil

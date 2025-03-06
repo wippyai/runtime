@@ -21,6 +21,21 @@ type Statement struct {
 	onRelease context.CancelFunc
 }
 
+// NewStatement creates a new Statement with UoW integration
+func NewStatement(uw engine.UnitOfWork, stmt *sql.Stmt, db *DB, log *zap.Logger) *Statement {
+	stmtWrapper := &Statement{
+		stmt:   stmt,
+		db:     db,
+		log:    log,
+		closed: false,
+	}
+
+	// Register unconditional cleanup in UoW - directly pass stmt.Close
+	stmtWrapper.onRelease = uw.AddCleanup(stmt.Close)
+
+	return stmtWrapper
+}
+
 // WrapStatement wraps a Statement as Lua userdata
 func WrapStatement(l *lua.LState, stmt *Statement) *lua.LUserData {
 	ud := l.NewUserData()
@@ -182,6 +197,7 @@ func stmtClose(l *lua.LState) int {
 		return 2
 	}
 
+	// We need to close explicitly and then cancel the UoW cleanup
 	err := stmt.stmt.Close()
 	if err != nil {
 		l.Push(lua.LNil)
@@ -189,13 +205,15 @@ func stmtClose(l *lua.LState) int {
 		return 2
 	}
 
-	// Call and clear the onRelease function to remove from UoW
+	// Mark as closed after successful close
+	stmt.closed = true
+
+	// Cancel the cleanup function in UoW (don't execute it, just remove it)
 	if stmt.onRelease != nil {
 		stmt.onRelease()
 		stmt.onRelease = nil
 	}
 
-	stmt.closed = true
 	l.Push(lua.LTrue)
 	l.Push(lua.LNil)
 	return 2
@@ -207,12 +225,20 @@ func (s *Statement) Close() error {
 		return nil
 	}
 
-	// Call and clear the onRelease function to remove from UoW
+	// Close the statement directly
+	err := s.stmt.Close()
+	if err != nil {
+		return err
+	}
+
+	// Mark as closed after successful close
+	s.closed = true
+
+	// Cancel the cleanup function in UoW (don't execute it, just remove it)
 	if s.onRelease != nil {
 		s.onRelease()
 		s.onRelease = nil
 	}
 
-	s.closed = true
-	return s.stmt.Close()
+	return nil
 }
