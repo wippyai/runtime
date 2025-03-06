@@ -15,7 +15,6 @@ import (
 	processmod "github.com/ponyruntime/pony/runtime/lua/modules/process"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
-	"log"
 	"sync"
 	"sync/atomic"
 )
@@ -304,7 +303,7 @@ func (s *State) ProcessPackage(pkg *pubsub.Package) error {
 				continue
 			}
 
-			// Check if the topic has a specific channel
+			// Check if the topic has a specific channel (events always send to process to avoid cross pollution)
 			if exists, _ := subscribe.Exists(s.Ctx, msg.Topic); exists || msg.Topic == topology.TopicEvents {
 				// Convert payloads to Lua values
 				luaValues, err := s.ToLuaPayloads(msg.Payloads)
@@ -322,7 +321,6 @@ func (s *State) ProcessPackage(pkg *pubsub.Package) error {
 						zap.String("topic", msg.Topic),
 						zap.Error(err))
 				}
-				log.Printf("send msg to topic in process %v: %v", s.PID, msg.Topic)
 				continue
 			}
 
@@ -339,7 +337,6 @@ func (s *State) ProcessPackage(pkg *pubsub.Package) error {
 					zap.String("topic", topology.TopicInbox),
 					zap.Error(err))
 			}
-			log.Printf("send msg to INBOX in process %v: %v", s.PID, msg.Topic)
 		}
 
 		pubsub.ReleasePackage(pkg)
