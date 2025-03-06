@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"io"
 	basehttp "net/http"
 	"strings"
@@ -321,7 +322,6 @@ func requestStreamBody(l *lua.LState) int {
 	}
 
 	req.request = req.request.WithContext(uw.Context())
-	uw.AddCleanup(req.request.Body.Close)
 
 	var bufferSize int64 = 32 * 1024 // Default 32KB buffer
 
@@ -336,20 +336,18 @@ func requestStreamBody(l *lua.LState) int {
 		}
 	}
 
-	s, err := stream.NewStream(req.request.Context(), req.request.Body, stream.NewStreamConfig(
-		bufferSize,
-	))
+	s, err := stream.NewStream(req.request.Context(), req.request.Body, stream.NewStreamConfig(bufferSize))
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("failed to create stream: %v", err)))
 		return 2
 	}
 
-	luaStream := &stream.LuaStream{Stream: s}
+	luaStream := stream.NewLuaStream(uw, s)
+
 	ud := l.NewUserData()
 	ud.Value = luaStream
-
-	l.SetMetatable(ud, l.GetTypeMetatable("Stream"))
+	ud.Metatable = value.GetTypeMetatable(l, "Stream")
 
 	l.Push(ud)
 	l.Call(0, 1)

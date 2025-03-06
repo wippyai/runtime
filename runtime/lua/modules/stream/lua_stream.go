@@ -4,26 +4,49 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"io"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
 )
 
-// LuaStream wraps Stream for Lua
+// LuaStream wraps Stream for Lua and implements io.ReadCloser interface
 type LuaStream struct {
 	*Stream
 	onRelease context.CancelFunc
 	closed    bool
 }
 
+// Read implements io.Reader
+func (ls *LuaStream) Read(p []byte) (n int, err error) {
+	if ls.closed {
+		return 0, io.ErrClosedPipe
+	}
+	return ls.Stream.Read(p)
+}
+
+// Close implements io.Closer
+func (ls *LuaStream) Close() error {
+	if ls.closed {
+		return nil
+	}
+
+	ls.closed = true
+	if ls.onRelease != nil {
+		ls.onRelease()
+		ls.onRelease = nil
+	}
+
+	return nil
+}
+
 // Module represents the Stream Lua module
 type Module struct {
 }
 
-// NewStreamModule creates a new Stream module (internal)
+// NewStreamModule creates a new Stream module
 func NewStreamModule() *Module {
 	return &Module{}
 }
@@ -84,29 +107,9 @@ func NewLuaStream(uw engine.UnitOfWork, stream *Stream) *LuaStream {
 	}
 
 	// Register unconditional cleanup in UoW
-	luaStream.onRelease = uw.AddCleanup(func() error {
-		return luaStream.Stream.Close()
-	})
+	luaStream.onRelease = uw.AddCleanup(luaStream.Stream.Close)
 
 	return luaStream
-}
-
-// Close closes the underlying stream and handles UoW cleanup
-func (ls *LuaStream) Close() error {
-	if ls.closed {
-		return nil
-	}
-
-	// Mark as closed first
-	ls.closed = true
-
-	// Cancel (not execute) the cleanup function in UoW
-	if ls.onRelease != nil {
-		ls.onRelease()
-		ls.onRelease = nil
-	}
-
-	return nil
 }
 
 // checkStream verifies and returns the Stream from Lua userdata
@@ -126,8 +129,15 @@ func streamReadAsync(l *lua.LState) int {
 		return 2
 	}
 
+	// Get chunk size from argument or use default
+	var chunkSize int64 = DefaultChunkSize
+	if l.GetTop() >= 2 {
+		size := l.CheckNumber(2)
+		chunkSize = int64(size)
+	}
+
 	coroutine.Wrap(l, func() *engine.Update {
-		chunk, err := stream.ReadChunk()
+		chunk, err := stream.ReadChunk(chunkSize)
 		if errors.Is(err, io.EOF) {
 			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LNil}, nil)
 		}
@@ -151,7 +161,14 @@ func streamRead(l *lua.LState) int {
 		return 2
 	}
 
-	chunk, err := stream.ReadChunk()
+	// Get chunk size from argument or use default
+	var chunkSize int64 = DefaultChunkSize
+	if l.GetTop() >= 2 {
+		size := l.CheckNumber(2)
+		chunkSize = int64(size)
+	}
+
+	chunk, err := stream.ReadChunk(chunkSize)
 	if errors.Is(err, io.EOF) {
 		l.Push(lua.LNil)
 		return 1
@@ -202,8 +219,18 @@ func streamIter(l *lua.LState) int {
 		return 0
 	}
 
+	// Get optional chunk size for iteration
+	var chunkSize int64 = DefaultChunkSize
+	if l.GetTop() >= 2 {
+		size := l.CheckNumber(2)
+		chunkSize = int64(size)
+	}
+
+	// Capture chunk size in closure
+	iterSize := chunkSize
+
 	l.Push(l.NewFunction(func(l *lua.LState) int {
-		data, err := s.ReadChunk()
+		data, err := s.ReadChunk(iterSize)
 		if err != nil {
 			l.Push(lua.LNil)
 			return 1

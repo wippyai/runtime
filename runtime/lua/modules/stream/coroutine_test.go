@@ -39,7 +39,7 @@ func TestAsyncStreamRead(t *testing.T) {
 		// Spawn test data and stream
 		testData := []byte("chunk1chunk2chunk3")
 		reader := newMockReadCloser(testData)
-		stream, err := NewStream(ctx, reader, NewStreamConfig(6))
+		stream, err := NewStream(ctx, reader)
 		require.NoError(t, err)
 
 		// Register stream in Lua
@@ -58,21 +58,21 @@ func TestAsyncStreamRead(t *testing.T) {
 				local done = channel.new(2) -- Track both coroutines completion
 				
 				-- Main flow reads first
-				local chunk = test_stream:read()
+				local chunk = test_stream:read(6)  -- Specify chunk size of 6
 				results.first = chunk
 				sync1:send(true)
 				
 				-- Both coroutines can run in parallel after first read
 				coroutine.spawn(function()
 					sync1:receive()
-					local chunk = test_stream:read()
+					local chunk = test_stream:read(6)  -- Specify chunk size of 6
 					results.second = chunk
 					sync2:send("next")
 				end)
 				
 				coroutine.spawn(function()
 					sync2:receive()
-					local chunk = test_stream:read()
+					local chunk = test_stream:read(6)  -- Specify chunk size of 6
 					results.third = chunk
 					done:send(true)
 				end)
@@ -125,7 +125,7 @@ func TestAsyncStreamIter(t *testing.T) {
 		// Spawn test data and stream
 		testData := []byte("chunk1chunk2chunk3")
 		reader := newMockReadCloser(testData)
-		stream, err := NewStream(ctx, reader, NewStreamConfig(6))
+		stream, err := NewStream(ctx, reader)
 		require.NoError(t, err)
 
 		// Register stream in Lua
@@ -141,10 +141,10 @@ func TestAsyncStreamIter(t *testing.T) {
                 local results = {}
                 local sync = channel.new(1)
                 
-                -- First coroutine reads chunks
+                -- First coroutine reads chunks with explicit chunk size of 6
                 coroutine.spawn(function()
                     local chunks = {}
-                    for chunk in test_stream() do
+                    for chunk in test_stream(6) do
                         table.insert(chunks, chunk)
                     end
                     results.chunks = chunks
