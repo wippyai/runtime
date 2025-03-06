@@ -25,10 +25,10 @@ type ProcessPool struct {
 	numProcesses atomic.Int32
 	maxProcesses int
 	log          *zap.Logger
-	processes    sync.Map         // map[pubsub.PID]*processEntry
-	workCh       chan *pubsub.PID // Channel for scheduling work
-	wg           sync.WaitGroup   // Worker goroutines WaitGroup
-	processWG    sync.WaitGroup   // Active processes WaitGroup
+	processes    sync.Map        // map[pubsub.PID]*processEntry
+	workCh       chan pubsub.PID // Channel for scheduling work
+	wg           sync.WaitGroup  // Worker goroutines WaitGroup
+	processWG    sync.WaitGroup  // Active processes WaitGroup
 	ctx          context.Context
 	cancel       context.CancelFunc
 
@@ -48,7 +48,7 @@ func NewProcessPool(
 		workers:      workers,
 		maxProcesses: maxProcesses,
 		log:          log,
-		workCh:       make(chan *pubsub.PID, 50000), // must ALWAYS fit all processes
+		workCh:       make(chan pubsub.PID, 50000), // must ALWAYS fit all processes, todo: use other approach?
 		ctx:          ctx,
 		cancel:       cancel,
 	}
@@ -93,7 +93,7 @@ func (p *ProcessPool) Schedule(pid pubsub.PID) error {
 	// todo: comment to crash
 	if pr.(*processEntry).awaken.CompareAndSwap(false, true) {
 		select {
-		case p.workCh <- &pid:
+		case p.workCh <- pid:
 			return nil
 		case <-p.ctx.Done():
 			return context.Canceled
@@ -151,7 +151,7 @@ func (p *ProcessPool) worker() {
 					zap.Error(err))
 
 				// Process is done (with error)
-				p.Remove(*pid)
+				p.Remove(pid)
 				continue
 			}
 
