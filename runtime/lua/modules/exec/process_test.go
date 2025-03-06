@@ -26,7 +26,7 @@ func TestProcessBasic(t *testing.T) {
 		logger,
 		engine.WithPreloaded("process", mod.Loader),
 		engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
-		engine.WithPreloaded("stream", stream.NewStreamModule(logger).Loader),
+		engine.WithPreloaded("stream", stream.NewStreamModule().Loader),
 		engine.WithPreloaded("time", time.NewTimeModule().Loader),
 	)
 
@@ -131,7 +131,7 @@ func TestWorkingDir(t *testing.T) {
 		logger,
 		engine.WithPreloaded("process", mod.Loader),
 		engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
-		engine.WithPreloaded("stream", stream.NewStreamModule(logger).Loader),
+		engine.WithPreloaded("stream", stream.NewStreamModule().Loader),
 		engine.WithPreloaded("time", time.NewTimeModule().Loader),
 	)
 
@@ -242,7 +242,7 @@ func TestWriteStdin(t *testing.T) {
 		logger,
 		engine.WithPreloaded("process", mod.Loader),
 		engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
-		engine.WithPreloaded("stream", stream.NewStreamModule(logger).Loader),
+		engine.WithPreloaded("stream", stream.NewStreamModule().Loader),
 		engine.WithPreloaded("time", time.NewTimeModule().Loader),
 	)
 
@@ -298,7 +298,7 @@ func TestMultiplyCallsToStream(t *testing.T) {
 		l,
 		engine.WithPreloaded("process", mod.Loader),
 		engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
-		engine.WithPreloaded("stream", stream.NewStreamModule(l).Loader),
+		engine.WithPreloaded("stream", stream.NewStreamModule().Loader),
 		engine.WithPreloaded("time", time.NewTimeModule().Loader),
 	)
 
