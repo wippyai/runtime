@@ -81,7 +81,7 @@ func (m *Module) getStderr(l *lua.LState) int {
 		executor := getProcessExecutor(l)
 		log.Debug("[sync.Once]: creating a new stderr stream")
 
-		s, errs := stream.NewStream(l.Context(), executor.StderrReader(), stream.NewStreamConfig(65536))
+		s, errs := stream.NewStream(l.Context(), executor.StderrReader())
 		if errs != nil {
 			l.RaiseError("failed to create stderr stream: %s", errs.Error())
 			return
@@ -109,7 +109,7 @@ func (m *Module) getStdout(l *lua.LState) int {
 		executor := getProcessExecutor(l)
 		log.Debug("[sync.Once]: creating a new stdout stream")
 
-		s, errs := stream.NewStream(l.Context(), executor.StdoutReader(), stream.NewStreamConfig(65536))
+		s, errs := stream.NewStream(l.Context(), executor.StdoutReader())
 		if errs != nil {
 			l.RaiseError("failed to create stdout stream: %s", errs.Error())
 			return
