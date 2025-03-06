@@ -4,9 +4,7 @@ import (
 	"context"
 	"fmt"
 	api "github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/topology"
 	"go.uber.org/zap"
-	"log"
 	"sync"
 )
 
@@ -150,10 +148,6 @@ func (h *Host) worker(queueIndex int) {
 func (h *Host) deliverPackage(job *api.Package, ch chan *api.Package) {
 	select {
 	case ch <- job:
-		if job.Messages[0].Topic == topology.TopicEvents {
-			log.Printf("delivered package to %v %+v", job.PID, job.Messages[0].Payloads[0].Data())
-		}
-
 		// Successfully sent immediately
 		return
 	case <-h.ctx.Done():

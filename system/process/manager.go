@@ -11,7 +11,6 @@ import (
 	"github.com/ponyruntime/pony/api/topology"
 	"github.com/ponyruntime/pony/internal/uniqid"
 	"go.uber.org/zap"
-	"log"
 	"time"
 )
 
@@ -195,8 +194,6 @@ func (m *Manager) AttachLifecycle(ctx context.Context, lifecycle api.Lifecycle) 
 					zap.Error(err))
 			}
 		}
-
-		log.Printf("Process started: %s %v", pid.String(), lifecycle)
 	})
 
 	// OnComplete callback handles process termination topology events
@@ -234,9 +231,7 @@ func (m *Manager) AttachLifecycle(ctx context.Context, lifecycle api.Lifecycle) 
 				zap.Any("result", result.Value))
 		}
 
-		log.Printf("!!!!Process completed: %s", pid.String())
 		topo.Notify(pid, result)
-
 		pidReg.Remove(pid)
 		topo.Remove(pid)
 	})
