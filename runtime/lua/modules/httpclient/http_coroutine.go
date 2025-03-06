@@ -40,12 +40,12 @@ func (m *Module) executeRequestYield(l *lua.LState, req *http.Request, opts *req
 		if err != nil {
 			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
 		}
-		_ = resp.Body.Close()
 
 		if opts.stream {
 			return m.handleStreamResponseAsync(ctx, l, resp, uw, closer)
 		}
 		defer closer()
+		defer func() { _ = resp.Body.Close() }()
 
 		return m.handleRegularResponseAsync(l, resp)
 	})
