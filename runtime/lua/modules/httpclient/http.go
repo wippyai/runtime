@@ -141,11 +141,12 @@ func (m *Module) executeRequest(l *lua.LState, req *http.Request, opts *requestO
 		return 0
 	}
 
+	var closer context.CancelFunc
 	ctx := uw.Context()
 	if opts.timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, opts.timeout)
-		uw.AddCleanup(func() error { cancel(); return nil })
+		closer = uw.AddCleanup(func() error { cancel(); return nil })
 	}
 
 	req = req.WithContext(ctx)
@@ -156,11 +157,12 @@ func (m *Module) executeRequest(l *lua.LState, req *http.Request, opts *requestO
 		l.Push(lua.LString(err.Error()))
 		return 2
 	}
-	uw.AddCleanup(resp.Body.Close)
 
 	if opts.stream {
-		return m.handleStreamResponse(ctx, l, resp, uw, opts)
+		return m.handleStreamResponse(ctx, l, resp, uw, closer)
 	}
+	defer closer()
+
 	return m.handleRegularResponse(l, resp)
 }
 
@@ -169,7 +171,7 @@ func (m *Module) handleStreamResponse(
 	l *lua.LState,
 	resp *http.Response,
 	uw engine.UnitOfWork,
-	opts *requestOptions,
+	closer context.CancelFunc,
 ) int {
 	s, err := stream.NewStream(ctx, resp.Body)
 	if err != nil {
@@ -179,7 +181,7 @@ func (m *Module) handleStreamResponse(
 	}
 
 	// Create the LuaStream which will be managed by the UoW
-	luaStream := stream.NewLuaStream(uw, s)
+	luaStream := stream.NewLuaStream(uw, s, closer)
 	ud := l.NewUserData()
 	ud.Value = luaStream
 	ud.Metatable = value.GetTypeMetatable(l, "Stream")
@@ -190,7 +192,14 @@ func (m *Module) handleStreamResponse(
 
 func (m *Module) handleRegularResponse(l *lua.LState, resp *http.Response) int {
 	body, err := io.ReadAll(resp.Body)
+
 	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	if err := resp.Body.Close(); err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
 		return 2
@@ -268,7 +277,7 @@ func (m *Module) requestBatch(l *lua.LState) int {
 		if opts.timeout > 0 {
 			var cancel context.CancelFunc
 			reqCtx, cancel = context.WithTimeout(uw.Context(), opts.timeout)
-			uw.AddCleanup(func() error { cancel(); return nil })
+			uw.AddCleanup(func() error { cancel(); return nil }) // todo: evict!
 		}
 
 		requests = append(requests, req.WithContext(reqCtx))
@@ -288,16 +297,12 @@ func (m *Module) requestBatch(l *lua.LState) int {
 				return
 			}
 
-			// Register response body cleanup
-			uw.AddCleanup(func() error {
-				return resp.Body.Close()
-			})
-
 			body, err := io.ReadAll(resp.Body)
 			if err != nil {
 				results <- result{i, nil, err}
 				return
 			}
+			_ = resp.Body.Close()
 
 			results <- result{i, newResponse(resp, &body, len(body), l), nil}
 		}(i, req)

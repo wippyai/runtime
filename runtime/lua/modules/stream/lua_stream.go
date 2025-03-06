@@ -4,18 +4,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
-
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
+	"io"
 )
 
 // LuaStream wraps Stream for Lua and implements io.ReadCloser interface
 type LuaStream struct {
 	*Stream
 	onRelease context.CancelFunc
+	closer    context.CancelFunc
 	closed    bool
 }
 
@@ -100,14 +100,22 @@ func RegisterStream(l *lua.LState) {
 }
 
 // NewLuaStream creates a new LuaStream with UoW integration
-func NewLuaStream(uw engine.UnitOfWork, stream *Stream) *LuaStream {
+func NewLuaStream(uw engine.UnitOfWork, stream *Stream, closer context.CancelFunc) *LuaStream {
 	luaStream := &LuaStream{
 		Stream: stream,
+		closer: closer,
 		closed: false,
 	}
 
 	// Register unconditional cleanup in UoW
-	luaStream.onRelease = uw.AddCleanup(luaStream.Stream.Close)
+	luaStream.onRelease = uw.AddCleanup(func() error {
+		if luaStream.closer != nil {
+			luaStream.closer()
+			luaStream.closer = nil
+		}
+
+		return luaStream.Stream.Close()
+	})
 
 	return luaStream
 }
@@ -139,10 +147,12 @@ func streamReadAsync(l *lua.LState) int {
 	coroutine.Wrap(l, func() *engine.Update {
 		chunk, err := stream.ReadChunk(chunkSize)
 		if errors.Is(err, io.EOF) {
+			_ = stream.Close()
 			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LNil}, nil)
 		}
 
 		if err != nil {
+			_ = stream.Close()
 			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
 		}
 
@@ -170,10 +180,15 @@ func streamRead(l *lua.LState) int {
 
 	chunk, err := stream.ReadChunk(chunkSize)
 	if errors.Is(err, io.EOF) {
+		_ = stream.Close()
+
 		l.Push(lua.LNil)
 		return 1
 	}
+
 	if err != nil {
+		_ = stream.Close()
+
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
 		return 2
@@ -213,7 +228,7 @@ func streamBytesRead(l *lua.LState) int {
 
 // streamIter implements the __call metamethod for iteration in Lua
 func streamIter(l *lua.LState) int {
-	s, err := checkStream(l)
+	stream, err := checkStream(l)
 	if err != nil {
 		l.RaiseError("stream iteration error: %v", err)
 		return 0
@@ -230,8 +245,9 @@ func streamIter(l *lua.LState) int {
 	iterSize := chunkSize
 
 	l.Push(l.NewFunction(func(l *lua.LState) int {
-		data, err := s.ReadChunk(iterSize)
+		data, err := stream.ReadChunk(iterSize)
 		if err != nil {
+			_ = stream.Close()
 			l.Push(lua.LNil)
 			return 1
 		}

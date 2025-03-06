@@ -359,7 +359,7 @@ func TestLuaStreamAsReadCloser(t *testing.T) {
 		stream, err := NewStream(ctx, reader)
 		require.NoError(t, err)
 
-		luaStream := NewLuaStream(uw, stream)
+		luaStream := NewLuaStream(uw, stream, nil)
 
 		// Test as io.Reader
 		var readCloser io.ReadCloser = luaStream
