@@ -9,7 +9,7 @@ import (
 
 func TestSubscriptionManager(t *testing.T) {
 	t.Run("basic subscription flow", func(t *testing.T) {
-		manager := newSubscriptionManager()
+		manager := newSubscriptionContext()
 		ch := channel.Named("test", 1)
 
 		// Test adding subscription
@@ -33,7 +33,7 @@ func TestSubscriptionManager(t *testing.T) {
 	})
 
 	t.Run("prevent duplicate topic subscriptions", func(t *testing.T) {
-		manager := newSubscriptionManager()
+		manager := newSubscriptionContext()
 		ch1 := channel.Named("test1", 1)
 		ch2 := channel.Named("test2", 1)
 
@@ -54,7 +54,7 @@ func TestSubscriptionManager(t *testing.T) {
 	})
 
 	t.Run("allow same channel reuse", func(t *testing.T) {
-		manager := newSubscriptionManager()
+		manager := newSubscriptionContext()
 		ch := channel.Named("test", 1)
 
 		// AddCleanup first subscription
@@ -68,7 +68,7 @@ func TestSubscriptionManager(t *testing.T) {
 	})
 
 	t.Run("handle invalid unsubscribe", func(t *testing.T) {
-		manager := newSubscriptionManager()
+		manager := newSubscriptionContext()
 		ch := channel.Named("test", 1)
 
 		// Try to remove non-existent subscription
