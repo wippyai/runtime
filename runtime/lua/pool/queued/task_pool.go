@@ -206,8 +206,8 @@ func (p *TaskPool) worker() {
 
 		// Send the result (if the task context isn't done).
 		select {
-		case <-ctx.Done():
 		case t.result <- runtimeResult:
+		case <-ctx.Done():
 		default:
 			p.logger.Error("failed to send result")
 		}

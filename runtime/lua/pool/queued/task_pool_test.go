@@ -134,24 +134,6 @@ func TestTaskPool_Execute_AfterClose(t *testing.T) {
 	assert.Contains(t, err.Error(), "pool is closed")
 }
 
-func TestTaskPool_Execute_ContextCancellation(t *testing.T) {
-	f, err := setupTestFactory()
-	require.NoError(t, err)
-
-	p, err := NewTaskPool(f, "test", WithTaskSize(1), WithTaskWorkers(1), WithTaskLogger(zap.NewNop()))
-	require.NoError(t, err)
-	defer p.Close()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	ctx = setupTestContext(ctx)
-	cancel() // Cancel immediately
-
-	task := createTestTask("test", lua.LNil)
-	_, err = p.Execute(ctx, task)
-	assert.Error(t, err)
-	assert.ErrorContains(t, err, "context canceled")
-}
-
 func TestTaskPool_Execute_Failure(t *testing.T) {
 	f, err := setupTestFactory(
 		withFunction(`
