@@ -23,20 +23,27 @@ func (dp *DummyProcess) Start(ctx context.Context, pid pubsub.PID, input payload
 	return nil
 }
 
-func (dp *DummyProcess) Step() (bool, error) {
+func (dp *DummyProcess) Step() error {
 	dp.stepCount++
 	// AddCleanup maxSteps, return an error to simulate process failure.
 	if dp.stepCount >= dp.maxSteps {
-		return false, errors.New("dummy step error")
+		return errors.New("dummy step error")
 	}
 	time.Sleep(10 * time.Millisecond)
-	return true, nil
+	return nil
 }
 
 func (dp *DummyProcess) Send(msg *pubsub.Package) error {
 	// Accept all messages.
 	return nil
 }
+
+func (dp *DummyProcess) Ready() int {
+	// Accept all messages.
+	return 0
+}
+
+func (dp *DummyProcess) Terminate() {}
 
 func TestTerminalRunnerStopsOnStepError(t *testing.T) {
 	// Set up a dummy process that fails after 3 steps.
