@@ -28,6 +28,7 @@ function actor.new(initial_state, handlers, proc)
     -- Use provided process implementation or default to global process
     local proc_impl = proc or default_process
 
+
     local function run_loop(state)
         local inbox = proc_impl.inbox()
         local events = proc_impl.events()

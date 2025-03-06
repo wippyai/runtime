@@ -145,13 +145,13 @@ func (h *Host) startMessageWorkers() {
 					entryVal, ok := h.pool.(*ProcessPool).processes.Load(m.PID.String())
 					if ok && entryVal != nil {
 						entry := entryVal.(*processEntry)
+
 						if err := entry.process.Send(m); err != nil {
 							h.log.Error("failed to send message to process",
 								zap.String("pid", m.PID.String()),
 								zap.Error(err))
 						}
 					}
-
 				case <-h.ctx.Done():
 					return
 				}
