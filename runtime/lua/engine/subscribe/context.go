@@ -14,7 +14,7 @@ var subContext = ctxapi.Key{Name: "subscribe.context"}
 
 // layerContext maintains state for subscribe operations
 type layerContext struct {
-	subs         *subscriptionManager // Subscription manager
+	subs         *subscriptionContext // Subscription manager
 	messageQueue *list.List           // Queue of pending messages, this layer does not drop unfamiliar messages
 }
 
@@ -41,7 +41,7 @@ func ensureLayerContext(uw engine.UnitOfWork) *layerContext {
 	ctx, ok := uw.Values().Get(subContext)
 	if !ok {
 		ctx = &layerContext{
-			subs:         newSubscriptionManager(),
+			subs:         newSubscriptionContext(),
 			messageQueue: list.New(),
 		}
 		uw.Values().Set(subContext, ctx)

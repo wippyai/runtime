@@ -3,6 +3,7 @@ package subscribe
 import (
 	"fmt"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
+	"sync"
 )
 
 type subscription struct {
@@ -10,20 +11,24 @@ type subscription struct {
 	channel *channel.Channel
 }
 
-// NOT thread safe, use with external sync or inside layer.
-type subscriptionManager struct {
+// This context is expected to be accessed concurrently.
+type subscriptionContext struct {
 	byTopic   map[string]*subscription
 	byChannel map[*channel.Channel]string
+	mu        sync.RWMutex
 }
 
-func newSubscriptionManager() *subscriptionManager {
-	return &subscriptionManager{
+func newSubscriptionContext() *subscriptionContext {
+	return &subscriptionContext{
 		byTopic:   make(map[string]*subscription),
 		byChannel: make(map[*channel.Channel]string),
 	}
 }
 
-func (m *subscriptionManager) add(topic string, ch *channel.Channel) (*subscription, error) {
+func (m *subscriptionContext) add(topic string, ch *channel.Channel) (*subscription, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	if existing, exists := m.byTopic[topic]; exists {
 		if existing.channel != ch {
 			return nil, fmt.Errorf("topic %q already has an active subscription", topic)
@@ -41,7 +46,10 @@ func (m *subscriptionManager) add(topic string, ch *channel.Channel) (*subscript
 	return sub, nil
 }
 
-func (m *subscriptionManager) remove(ch *channel.Channel) error {
+func (m *subscriptionContext) remove(ch *channel.Channel) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	topic, exists := m.byChannel[ch]
 	if !exists {
 		return fmt.Errorf("channel not found in subscriptions")
@@ -52,7 +60,10 @@ func (m *subscriptionManager) remove(ch *channel.Channel) error {
 	return nil
 }
 
-func (m *subscriptionManager) get(topic string) (*subscription, bool) {
+func (m *subscriptionContext) get(topic string) (*subscription, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	sub, exists := m.byTopic[topic]
 	return sub, exists
 }

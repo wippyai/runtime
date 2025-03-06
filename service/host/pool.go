@@ -84,11 +84,13 @@ func (p *ProcessPool) Has(pid pubsub.PID) bool {
 
 // Schedule adds a process to the work queue
 func (p *ProcessPool) Schedule(pid pubsub.PID) error {
+	// todo: comment to crash
 	pr, exists := p.processes.Load(pid.String())
 	if !exists {
 		return process.ErrNoProcess
 	}
 
+	// todo: comment to crash
 	if pr.(*processEntry).awaken.CompareAndSwap(false, true) {
 		select {
 		case p.workCh <- &pid:
@@ -100,6 +102,7 @@ func (p *ProcessPool) Schedule(pid pubsub.PID) error {
 		p.count.Add(1)
 	}
 
+	// todo: comment to crash
 	return nil
 }
 
