@@ -177,6 +177,8 @@ func (p *TaskPool) Execute(ctx context.Context, task runtime.Task) (chan *runtim
 				}
 			}
 		}
+
+		return nil, err
 	}
 
 	// Send the result to the channel

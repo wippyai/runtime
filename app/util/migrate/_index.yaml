@@ -1,0 +1,27 @@
+version: "1.0"
+namespace: app.migrations
+
+meta:
+  depends_on: [ "ns:system", "ns:wippy.lib" ]
+
+entries:
+  - name: migration_discovery
+    kind: function.lua
+    meta:
+      comment: "Discovers all available migrations without running them"
+    source: file://migration_discovery.lua
+    method: discover_migrations
+    modules: [ http, time, json, registry ]
+    imports:
+      migration_registry: "wippy.lib:migration_registry"
+    pool:
+      size: 1
+
+  - name: discover.endpoint
+    kind: http.endpoint
+    meta:
+      comment: "Discovers all available migrations"
+      router: system:api
+    method: GET
+    path: /migrations/discover
+    func: migration_discovery
