@@ -144,7 +144,7 @@ func (t *taskCoordinator) Ready() int {
 	ready := int(t.updCount.Load() + t.wakeCount.Load())
 	if t.undelivered.Load() {
 		// this flag is true until executeScheduled is called with empty list
-		return ready + 1
+		ready = ready + 1
 	}
 
 	return ready
@@ -154,6 +154,7 @@ func (t *taskCoordinator) Ready() int {
 // If block is true, it will wait for at least one result or wake-up signal
 func (t *taskCoordinator) Wait(ctx context.Context, block bool) ([]*Update, error) {
 	updates := make([]*Update, 0)
+	t.awaken.Store(false)
 
 	// Execute any pending scheduled functions first
 	t.executeScheduled()
