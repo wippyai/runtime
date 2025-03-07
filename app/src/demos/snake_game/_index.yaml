@@ -5,19 +5,19 @@ meta:
   depends_on: [ "ns:system", "ns:wippy.lib" ]
 
 entries:
-#  - name: game.service
-#    kind: process.service
-#    meta:
-#      comment: "Snake game"
-#    process: game
-#    host: system:terminal
-#    lifecycle:
-#      auto_start: true
-#      restart:
-#        initial_delay: 5s
-#        max_attempts: 1
-#      depends_on:
-#        - system:terminal
+  - name: game.service
+    kind: process.service
+    meta:
+      comment: "Snake game"
+    process: game
+    host: system:terminal
+    lifecycle:
+      auto_start: true
+      restart:
+        initial_delay: 5s
+        max_attempts: 1
+      depends_on:
+        - system:terminal
 
   - name: game
     kind: btea.app.lua

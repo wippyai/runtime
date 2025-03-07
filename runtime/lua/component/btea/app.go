@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	process2 "github.com/ponyruntime/pony/runtime/lua/component/process"
+	baseprocess "github.com/ponyruntime/pony/runtime/lua/component/process"
 	"github.com/ponyruntime/pony/runtime/lua/engine/task"
 	"sync"
 	"time"
@@ -41,7 +41,7 @@ const (
 // App represents the main BubbleTea application that uses a State under the hood.
 type App struct {
 	// Process state
-	state *process2.State
+	state *baseprocess.State
 
 	// BubbleTea specific fields
 	program    *tea.Program
@@ -64,7 +64,7 @@ func NewApp(log *zap.Logger, dtt payload.Transcoder, runner *engine.Runner, func
 		return nil, errors.New("transcoder is required")
 	}
 
-	state, err := process2.NewState(log, runner, funcName)
+	state, err := baseprocess.NewState(log, runner, funcName)
 	if err != nil {
 		return nil, err
 	}
@@ -254,7 +254,7 @@ func (a *App) Step() error {
 	case <-a.appCtx.Done():
 		return context.Canceled
 	default:
-		return a.state.Step(true)
+		return a.state.Step(a.Ready() == 0)
 	}
 }
 
@@ -317,6 +317,7 @@ func (a *App) publishTask(taskType string, payload lua.LValue, timeout time.Dura
 		return ""
 	}
 
+	// todo: use proper task wrapping package
 	wrappedTask := task.WrapTask(a.state.UoW.State(), t)
 	msg := a.state.UoW.State().CreateTable(0, 2)
 	msg.RawSetString("type", lua.LString(taskType))
