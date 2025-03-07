@@ -126,18 +126,21 @@ func (m *Module) parse(l *lua.LState) int {
 	// Use context from Lua state if available
 	ctx := l.Context()
 
-	// Parse with context
-	tree := parser.ParseCtx(ctx, []byte(code), nil)
-	if tree == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("failed to parse code"))
-		return 2
-	}
-
 	uw := engine.GetUnitOfWork(ctx)
 	if uw == nil {
 		l.RaiseError("unit of work is not found")
 		return 0
+	}
+
+	var cflag uintptr
+	parser.SetCancellationFlag(&cflag)
+
+	// Parse with context
+	tree := parser.ParseCtx(uw.Context(), []byte(code), nil)
+	if tree == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("failed to parse code"))
+		return 2
 	}
 
 	// Use the new constructor
