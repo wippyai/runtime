@@ -1,0 +1,37 @@
+version: "1.0"
+#namespace: wippy.lib
+
+meta:
+  depends_on: [ "ns:system" ]
+
+entries:
+  - name: migration
+    kind: library.lua
+    meta:
+      comment: "Migration library for database schema changes"
+    source: file://migration.lua
+    modules: [ "sql", "time" ]
+
+  - name: migration_schema
+    kind: library.lua
+    meta:
+      comment: "Schema definitions for migration tracking"
+    source: file://migration_schema.lua
+    modules: [ "sql", "json" ]
+
+  - name: migration_registry
+    kind: library.lua
+    meta:
+      comment: "Registry queries for migrations"
+    source: file://migration_registry.lua
+    modules: [ "registry" ]
+
+  - name: migration_runner
+    kind: library.lua
+    meta:
+      comment: "Migration execution engine"
+    source: file://migration_runner.lua
+    modules: [ "sql", "time" ]
+    imports:
+      migration_schema: "wippy.lib:migration_schema"
+      migration_registry: "wippy.lib:migration_registry"

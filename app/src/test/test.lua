@@ -1,8 +1,8 @@
 local http = require("http")
-local registry = require("registry")
 local funcs = require("funcs")
 local json = require("json")
 local time = require("time")
+local test_registry = require("test_registry")
 
 -- Simplified test endpoint that combines test discovery and execution
 local function run_tests()
@@ -26,8 +26,20 @@ local function run_tests()
         topic = "test:update",
         timeout = req:query("timeout") or "1m",
         msg_timeout = req:query("timeout") or "1s",
-        query = { ["type"] = "test" }
+        type = "test"
     }
+
+    -- Apply filter options if provided
+    if req:query("group") then
+        options.group = req:query("group")
+    end
+
+    if req:query("tags") then
+        options.tags = {}
+        for tag in req:query("tags"):gmatch("([^,]+)") do
+            table.insert(options.tags, tag:trim())
+        end
+    end
 
     -- Create inbox for test messages
     local inbox = process.listen("test:update")
@@ -65,9 +77,9 @@ local function run_tests()
         return false
     end
 
-    -- Step 1: Discover available tests
-    local entries, err = registry.find(options.query)
-    if err or not entries or #entries == 0 then
+    -- Step 1: Discover available tests using the test_registry library
+    local tests, err = test_registry.find(options)
+    if err or not tests or #tests == 0 then
         write_event("test:error", {
             message = err or "No test functions found",
             context = "test_discovery",
@@ -75,30 +87,6 @@ local function run_tests()
         })
         return false
     end
-
-    -- Process test entries
-    local tests = {}
-    for i, entry in ipairs(entries) do
-        local meta = entry.meta or {}
-        local display_name = meta.name or ("Unnamed test " .. i)
-        local group = meta.group or "default"
-
-        table.insert(tests, {
-            id = entry.id,
-            name = display_name,
-            group = group,
-            meta = meta
-        })
-    end
-
-    -- Sort tests by group and name
-    table.sort(tests, function(a, b)
-        if a.group ~= b.group then
-            return a.group < b.group
-        else
-            return a.name < b.name
-        end
-    end)
 
     -- Send discovered tests to client
     write_event("test:discover", {

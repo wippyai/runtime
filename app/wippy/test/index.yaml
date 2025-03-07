@@ -8,3 +8,10 @@ entries:
       comment: "BDD-style testing framework with operation progress reporting"
     source: file://test.lua
     modules: [ "time", "json" ]
+
+  - name: test_registry
+    kind: library.lua
+    meta:
+      comment: "Registry queries for test discovery and organization"
+    source: file://test_registry.lua
+    modules: [ "registry", "time" ]
