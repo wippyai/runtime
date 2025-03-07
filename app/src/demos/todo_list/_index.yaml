@@ -3,9 +3,8 @@ namespace: app.demo.todo_list
 
 meta:
   depends_on: [ "ns:wippy.lib" ]
-  db_namespace: "todo_list"
-  db_types: [ "sqlite" ]
   type: "migration"
+  target_db: system:db
 
 entries:
   - name: todo_table
