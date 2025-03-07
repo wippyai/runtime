@@ -218,10 +218,12 @@ func (e *Runner) Continue(ctx context.Context, block bool) error {
 	}
 
 	// block for any pending task
+	//st := time.Now()
 	updates, err := uw.Tasks().Wait(ctx, block)
 	if err != nil {
 		return err
 	}
+	//log.Printf("step wait time: %v", time.Since(st))
 
 	tasks, err = GetTasks(e.cvm, updates...)
 	if err != nil {
