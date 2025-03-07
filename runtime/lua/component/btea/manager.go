@@ -29,7 +29,7 @@ func init() {
 		WithMode(code.AllowAll).
 		WithPreloaded(code.Preload{Name: "channel", ModuleID: registry.ID{Name: "channel"}}).
 		WithPreloaded(code.Preload{Name: "upstream", ModuleID: registry.ID{Name: "upstream"}}).
-		WithPreloaded(code.Preload{Name: "tasks", ModuleID: registry.ID{Name: "tasks"}}).
+		WithPreloaded(code.Preload{Name: "task", ModuleID: registry.ID{Name: "task"}}).
 		WithPreloaded(code.Preload{Name: "btea", ModuleID: registry.ID{Name: "btea"}}).
 		WithPreloaded(code.Preload{Name: "process", ModuleID: registry.ID{Name: "process"}}).
 		WithPreloaded(code.Preload{Name: "process_api", ModuleID: registry.ID{Name: "process_api"}}).

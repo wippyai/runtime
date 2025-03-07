@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	baseprocess "github.com/ponyruntime/pony/runtime/lua/component/process"
-	"github.com/ponyruntime/pony/runtime/lua/engine/task"
 	"sync"
 	"time"
 
@@ -17,7 +16,6 @@ import (
 	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/ponyruntime/pony/api/topology"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
 	"github.com/ponyruntime/pony/runtime/lua/engine/upstream"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
 	lua "github.com/yuin/gopher-lua"
@@ -53,6 +51,9 @@ type App struct {
 	// Our own cancel mechanism
 	appCtx    context.Context
 	appCancel context.CancelFunc
+
+	// Task runner - initialized after UoW is available
+	taskRunner *TaskRunner
 
 	// Ensure termination only happens once
 	terminateOnce sync.Once
@@ -96,15 +97,25 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Forward update messages to Lua via a task on the unified events channel.
-	a.publishTask("update", protocol.MsgToLua(msg), 0)
+	// Forward update messages to Lua via task runner
+	if a.taskRunner != nil {
+		err := a.taskRunner.SendTask("update", protocol.MsgToLua(msg))
+		if err != nil {
+			a.state.Log.Error("failed to send update message", zap.Error(err))
+		}
+	}
+
 	return a, nil
 }
 
 // View retrieves the view from the Lua side.
 func (a *App) View() string {
-	response := a.publishTask("view", lua.LTrue, viewTimeout)
-	if response == "" {
+	if a.taskRunner == nil {
+		return "initializing..."
+	}
+
+	response, err := a.taskRunner.ExecuteTask("view", lua.LTrue, viewTimeout)
+	if err != nil || response == "" {
 		a.numRetries++
 		if a.numRetries < maxViewRetries {
 			return fmt.Sprintf("view task failed (retrying %d/%d)", a.numRetries, maxViewRetries)
@@ -142,6 +153,9 @@ func (a *App) Start(ctx context.Context, pid pubsub.PID, input payload.Payloads)
 
 	// Create a wrapping function to handle process start notification
 	onStartFunc := func() {
+		// Initialize task runner here when UoW is available
+		a.taskRunner = NewTaskRunner(a)
+
 		// Notify that the process has started
 		if onStart := process.GetOnStart(a.state.Ctx); onStart != nil {
 			onStart(pid, a)
@@ -300,83 +314,27 @@ func (a *App) Terminate() {
 }
 
 // publishTask sends a task to the unified events channel
-func (a *App) publishTask(taskType string, payload lua.LValue, timeout time.Duration) string {
-	// Check all possible cancellation signals
-	select {
-	case <-a.state.Ctx.Done():
-		a.state.Log.Error("context error", zap.Error(a.state.Ctx.Err()))
-		return "context error"
-	case <-a.appCtx.Done():
-		return "app context cancelled"
-	case <-a.done:
-		return "done"
-	default:
-		// Continue with task
+func (a *App) publishTask(taskType string, luaValue lua.LValue, timeout time.Duration) string {
+	// Check if task runner is available
+	if a.taskRunner == nil {
+		a.state.Log.Error("task runner not initialized", zap.String("task", taskType))
+		return "task runner not initialized"
 	}
 
-	t, err := task.CreateTask(payload)
+	// Execute task using the task runner
+	response, err := a.taskRunner.ExecuteTask(taskType, luaValue, timeout)
 	if err != nil {
-		a.state.Log.Error("failed to create task", zap.String("task", taskType), zap.Error(err))
-		if timeout > 0 {
-			return "task creation failed"
+		// Return empty string for timeouts in fire-and-forget mode
+		if errors.Is(err, ErrTimeout) && timeout <= 0 {
+			return ""
 		}
-		return ""
+
+		// Log errors for debugging
+		a.state.Log.Error("task failed", zap.String("task", taskType), zap.Error(err))
+
+		// Return error message
+		return err.Error()
 	}
 
-	// todo: use proper task wrapping package
-	wrappedTask := task.WrapTask(a.state.UoW.State(), t)
-	msg := a.state.UoW.State().CreateTable(0, 2)
-	msg.RawSetString("type", lua.LString(taskType))
-	msg.RawSetString("task", wrappedTask)
-
-	if pErr := subscribe.Publish(a.state.Ctx, ChannelEvents, msg); pErr != nil {
-		a.state.Log.Error("failed to publish task", zap.String("task", taskType), zap.Error(err))
-		return fmt.Errorf("failed to publish task: %w", pErr).Error()
-	}
-
-	if timeout > 0 {
-		return a.waitResponse(t, timeout, taskType)
-	}
-
-	// Fire-and-forget: handle response in the background
-	go func() {
-		select {
-		case <-a.state.Ctx.Done():
-			return
-		case <-a.appCtx.Done():
-			return
-		case <-a.done:
-			return
-		case rsp := <-t.Response:
-			a.state.UoW.Tasks().WakeUp()
-			if err, ok := rsp.(error); ok {
-				a.state.Log.Error("task failed", zap.String("task", taskType), zap.Error(err))
-			}
-		case <-time.After(taskTimeout):
-			a.state.Log.Debug("task timeout", zap.String("task", taskType))
-		}
-	}()
-
-	return ""
-}
-
-// waitResponse waits for a task response with timeout
-func (a *App) waitResponse(t *task.Task, timeout time.Duration, taskType string) string {
-	select {
-	case rsp := <-t.Response:
-		if result, ok := rsp.(lua.LValue); ok {
-			return result.String()
-		}
-		a.state.Log.Error("invalid response type", zap.String("task", taskType))
-		return "invalid response type"
-	case <-time.After(timeout):
-		a.state.Log.Debug("task timeout", zap.String("task", taskType))
-		return ""
-	case <-a.done:
-		return "task cancelled"
-	case <-a.state.Ctx.Done():
-		return "task cancelled"
-	case <-a.appCtx.Done():
-		return "app cancelled"
-	}
+	return response
 }
