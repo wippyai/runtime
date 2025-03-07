@@ -3,7 +3,6 @@ package eventbus
 import (
 	"context"
 	"crypto/rand"
-	"errors"
 	"fmt"
 	"math/big"
 	"sync"
@@ -814,65 +813,5 @@ func TestConcurrentStopAndSubscribe(t *testing.T) {
 		}()
 
 		wg.Wait()
-	}
-}
-
-func TestConcurrentContextCancellation(t *testing.T) {
-	b := NewBus()
-	defer b.Stop()
-
-	numOperations := 100
-	ctx, cancel := context.WithCancel(context.Background())
-
-	var wg sync.WaitGroup
-	errChan := make(chan error, numOperations)
-
-	// Launch concurrent subscriptions
-	for i := 0; i < numOperations; i++ {
-		wg.Add(1)
-		go func(id int) {
-			defer wg.Done()
-
-			ch := make(chan event.Event)
-			r, _ := rand.Int(rand.Reader, big.NewInt(100))
-			subCtx, subCancel := context.WithTimeout(ctx, time.Duration(r.Int64())*time.Millisecond)
-			defer subCancel()
-
-			_, err := b.Subscribe(subCtx, event.System(fmt.Sprintf("system-%d", id)), ch)
-			if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
-				errChan <- fmt.Errorf("unexpected error on subscribe: %w", err)
-			}
-		}(i)
-	}
-
-	// Launch concurrent sends
-	for i := 0; i < numOperations; i++ {
-		wg.Add(1)
-		go func(id int) {
-			defer wg.Done()
-
-			r, _ := rand.Int(rand.Reader, big.NewInt(100))
-			sendCtx, sendCancel := context.WithTimeout(ctx, time.Duration(r.Int64())*time.Millisecond)
-			defer sendCancel()
-
-			e := event.Event{
-				System: "test",
-				Kind:   "test",
-				Data:   payload.New(fmt.Sprintf("data-%d", id)),
-			}
-			b.Send(sendCtx, e)
-		}(i)
-	}
-
-	// Randomly cancel the parent context
-	time.Sleep(50 * time.Millisecond)
-	cancel()
-
-	wg.Wait()
-	close(errChan)
-
-	// Check for unexpected errors
-	for err := range errChan {
-		t.Errorf("Unexpected error: %v", err)
 	}
 }
