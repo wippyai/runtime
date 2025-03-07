@@ -2,12 +2,12 @@ package btea
 
 import (
 	"errors"
+	"github.com/ponyruntime/pony/runtime/lua/protocol/task"
 	"time"
 
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/runtime"
 	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
-	"github.com/ponyruntime/pony/runtime/lua/engine/task"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
