@@ -158,7 +158,7 @@ local function run_tests()
             ref_id = test_id
         }
 
-        local task, err = executor:async(test_id, test_options)
+        local cmd, err = executor:async(test_id, test_options)
         if err then
             write_event("test:error", {
                 message = "Failed to start test: " .. err,
@@ -168,7 +168,7 @@ local function run_tests()
 
             tests_failed = tests_failed + 1
         else
-            local ok = wait_for_completion(task:response(), options.timeout)
+            local ok = wait_for_completion(cmd:response(), options.timeout)
             if not ok then
                 write_event("test:error", {
                     message = "Test timed out after " .. options.timeout,

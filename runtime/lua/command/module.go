@@ -18,19 +18,12 @@ func NewCommandModule() *Module {
 
 // Name returns the module name
 func (m *Module) Name() string {
-	return "command"
+	return "command.Command"
 }
 
 // Loader registers the module functions
 func (m *Module) Loader(l *lua.LState) int {
-	// Register command type methods
-	value.RegisterTypeMethods(l, "command", nil, map[string]lua.LGFunction{
-		"response":    responseFunc,
-		"is_complete": isCompleteFunc,
-		"result":      resultFunc,
-		"is_canceled": isCanceledFunc,
-		"cancel":      cancelFunc,
-	})
+	RegisterCommand(l)
 
 	// Create module table with new function
 	mod := l.CreateTable(0, 1)
@@ -38,6 +31,17 @@ func (m *Module) Loader(l *lua.LState) int {
 
 	l.Push(mod)
 	return 1
+}
+
+func RegisterCommand(l *lua.LState) {
+	// Register command type methods
+	value.RegisterTypeMethods(l, "command.Command", nil, map[string]lua.LGFunction{
+		"response":    responseFunc,
+		"is_complete": isCompleteFunc,
+		"result":      resultFunc,
+		"is_canceled": isCanceledFunc,
+		"cancel":      cancelFunc,
+	})
 }
 
 // newCommandFunc creates a new command from Lua
@@ -165,4 +169,11 @@ func CheckCommand(l *lua.LState) *Command {
 	}
 	l.ArgError(1, "command expected")
 	return nil
+}
+
+func WrapCommand(l *lua.LState, cmd *Command) *lua.LUserData {
+	ud := l.NewUserData()
+	ud.Value = cmd
+	ud.Metatable = value.GetTypeMetatable(l, "command.Command")
+	return ud
 }

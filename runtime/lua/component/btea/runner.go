@@ -2,7 +2,7 @@ package btea
 
 import (
 	"errors"
-	"github.com/ponyruntime/pony/runtime/lua/protocol/task"
+	task2 "github.com/ponyruntime/pony/runtime/lua/task"
 	"time"
 
 	"github.com/ponyruntime/pony/api/payload"
@@ -47,12 +47,12 @@ func (r *TaskRunner) SendTask(taskType string, input lua.LValue) error {
 	inputPayload := payload.NewPayload(input, payload.Lua)
 
 	// Create task without completion callback
-	t := task.NewTask(inputPayload, nil)
+	t := task2.NewTask(inputPayload, nil)
 
 	// Create message table
 	msg := r.state.CreateTable(0, 2)
 	msg.RawSetString("type", lua.LString(taskType))
-	msg.RawSetString("task", task.WrapTask(r.state, t))
+	msg.RawSetString("task", task2.WrapTask(r.state, t))
 
 	// Publish to events channel
 	return subscribe.Publish(r.app.state.Ctx, ChannelEvents, msg)
@@ -88,7 +88,7 @@ func (r *TaskRunner) ExecuteTask(taskType string, input lua.LValue, timeout time
 	resultCh := make(chan runtime.Result, 1)
 
 	// Create task with completion callback
-	t := task.NewTask(inputPayload, func(result runtime.Result) {
+	t := task2.NewTask(inputPayload, func(result runtime.Result) {
 		select {
 		case resultCh <- result:
 			// Result sent
@@ -100,7 +100,7 @@ func (r *TaskRunner) ExecuteTask(taskType string, input lua.LValue, timeout time
 	// Create message table
 	msg := r.state.CreateTable(0, 2)
 	msg.RawSetString("type", lua.LString(taskType))
-	msg.RawSetString("task", task.WrapTask(r.state, t))
+	msg.RawSetString("task", task2.WrapTask(r.state, t))
 
 	// Publish to events channel
 	if err := subscribe.Publish(r.app.state.Ctx, ChannelEvents, msg); err != nil {
