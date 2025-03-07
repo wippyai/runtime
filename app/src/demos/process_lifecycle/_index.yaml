@@ -57,7 +57,7 @@ entries:
     method: handler
     modules: [ http, time ]
     pool:
-      size: 4
+      size: 8
 
   - name: cancel.endpoint
     kind: function.lua

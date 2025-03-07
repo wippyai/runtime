@@ -80,7 +80,7 @@ entries:
     meta:
       comment: "Process execution host"
     host:
-      workers: 16
+      workers: 32
       max_processes: 20000
     lifecycle:
       auto_start: true
