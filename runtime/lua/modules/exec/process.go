@@ -87,6 +87,7 @@ func (m *Module) getStderr(l *lua.LState) int {
 			return
 		}
 
+		// todo: fix it all
 		luaStream := &stream.LuaStream{Stream: s}
 		ud := l.NewUserData()
 		ud.Value = luaStream

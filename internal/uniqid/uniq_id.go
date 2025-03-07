@@ -25,7 +25,7 @@ func NewGenerator() *Generator {
 // Example outputs: "terminal|0xc001", "discord:app|0xc002"
 func (g *Generator) Generate() string {
 	count := atomic.AddUint64(&g.counter, 1)
-	return fmt.Sprintf("0x%05x", count)
+	return fmt.Sprintf("0x%09x", count)
 }
 
 // Reset resets the counter to 0

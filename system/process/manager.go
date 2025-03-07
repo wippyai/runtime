@@ -105,14 +105,14 @@ func (m *Manager) launchOnHost(ctx context.Context, host api.Host, pid pubsub.PI
 }
 
 // Start launches a process, passing the lifecycle information to the host
-func (m *Manager) Start(ctx context.Context, ps *api.Start) (pubsub.PID, error) {
-	host, exists := m.hosts.GetHost(ps.HostID)
+func (m *Manager) Start(ctx context.Context, start *api.Start) (pubsub.PID, error) {
+	host, exists := m.hosts.GetHost(start.HostID)
 	if !exists {
-		return pubsub.PID{}, fmt.Errorf("host not found: `%s`", ps.HostID)
+		return pubsub.PID{}, fmt.Errorf("host not found: `%s`", start.HostID)
 	}
 
 	_, managed := host.(api.Managed)
-	pid, err := m.preparePID(ps, managed)
+	pid, err := m.preparePID(start, managed)
 	if err != nil {
 		return pubsub.PID{}, err
 	}
@@ -121,7 +121,7 @@ func (m *Manager) Start(ctx context.Context, ps *api.Start) (pubsub.PID, error) 
 	// during the actual process launch, so we don't need to do it here anymore.
 	// This prevents having orphaned PIDs in the topology if the launch fails.
 
-	return m.launchOnHost(ctx, host, pid, ps)
+	return m.launchOnHost(ctx, host, pid, start)
 }
 
 // Cancel sends a cancellation event to the process and its monitors

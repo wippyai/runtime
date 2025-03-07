@@ -17,7 +17,7 @@ local function run(args)
     process.set_options({ trap_links = true })
 
     -- Spawn a linked child process - if child crashes, parent will be notified
-    state.child_pid = process.spawn_linked_monitored(
+    state.child_pid = process.spawn_monitored(
         "app.demos.process_lifecycle:child",
         "system:processes",
         { parent_pid = state.pid }
