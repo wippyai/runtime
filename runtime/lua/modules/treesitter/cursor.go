@@ -1,17 +1,19 @@
 package treesitter
 
 import (
+	"context"
+	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	treesitter "github.com/tree-sitter/go-tree-sitter"
 	lua "github.com/yuin/gopher-lua"
-	"sync"
 )
 
 // CursorWrapper wraps a tree-sitter TreeCursor for Lua integration
 type CursorWrapper struct {
-	cursor *treesitter.TreeCursor
-	once   sync.Once
-	source *string
+	cursor  *treesitter.TreeCursor
+	source  *string
+	closed  bool
+	release context.CancelFunc // Cancel function from UoW
 }
 
 // Register the Cursor type to Lua
@@ -35,7 +37,35 @@ func registerCursor(l *lua.LState) {
 		"copy":                       cursorCopy,
 		"close":                      cursorClose,
 	}
+
 	value.RegisterMethods(l, "treesitter.Cursor", methods)
+}
+
+func NewCursor(uw engine.UnitOfWork, cursor *treesitter.TreeCursor, source *string) *CursorWrapper {
+	wrapper := &CursorWrapper{
+		cursor: cursor,
+		source: source,
+	}
+
+	// Register cleanup with UoW, storing the cancel function
+	wrapper.release = uw.AddCleanup(func() error {
+		if wrapper.cursor != nil && !wrapper.closed {
+			wrapper.cursor.Close()
+			wrapper.cursor = nil
+			wrapper.closed = true
+		}
+		return nil
+	})
+
+	return wrapper
+}
+
+func (c *CursorWrapper) Close() {
+	if !c.closed && c.release != nil {
+		c.closed = true
+		c.release() // Remove cleanup from UoW but don't execute it
+		c.release = nil
+	}
 }
 
 func cursorCurrentNode(l *lua.LState) int {
@@ -187,13 +217,8 @@ func cursorCopy(l *lua.LState) int {
 }
 
 func cursorClose(l *lua.LState) int {
-	cursor := checkCursor(l)
-	cursor.once.Do(func() {
-		if cursor.cursor != nil {
-			//cursor.cursor.Close()
-			//cursor.cursor = nil
-		}
-	})
+	c := checkCursor(l)
+	c.Close()
 	return 0
 }
 
@@ -201,6 +226,10 @@ func cursorClose(l *lua.LState) int {
 func checkCursor(l *lua.LState) *CursorWrapper {
 	ud := l.CheckUserData(1)
 	if v, ok := ud.Value.(*CursorWrapper); ok {
+		if v.closed || v.cursor == nil {
+			l.ArgError(1, "TreeCursor is closed")
+			return nil
+		}
 		return v
 	}
 	l.ArgError(1, "TreeCursor expected")

@@ -2,6 +2,7 @@ package treesitter
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
@@ -14,18 +15,39 @@ import (
 
 // TreeWrapper wraps a tree-sitter Tree for Lua integration
 type TreeWrapper struct {
-	tree   *treesitter.Tree
-	once   sync.Once
-	source string // todo: change to byte
+	tree    *treesitter.Tree
+	source  string // todo: change to byte
+	closed  bool
+	release context.CancelFunc // Cancel function from UoW
 }
 
-func (t *TreeWrapper) Close() {
-	t.once.Do(func() {
-		if t.tree != nil {
-			//t.tree.Close()
-			//t.tree = nil
+// NewTree creates a new tree wrapper with proper UoW integration
+func NewTree(uw engine.UnitOfWork, tree *treesitter.Tree, source string) *TreeWrapper {
+	wrapper := &TreeWrapper{
+		tree:   tree,
+		source: source,
+	}
+
+	// Register cleanup with UoW, storing the cancel function
+	wrapper.release = uw.AddCleanup(func() error {
+		if wrapper.tree != nil && !wrapper.closed {
+			wrapper.tree.Close()
+			wrapper.tree = nil
+			wrapper.closed = true
 		}
+		return nil
 	})
+
+	return wrapper
+}
+
+// Close marks the tree as closed and cancels the UoW cleanup
+func (t *TreeWrapper) Close() {
+	if !t.closed && t.release != nil {
+		t.closed = true
+		t.release() // Remove cleanup from UoW but don't execute it
+		t.release = nil
+	}
 }
 
 // Register the Tree type to Lua
@@ -161,21 +183,15 @@ func treeWalk(l *lua.LState) int {
 		return 1
 	}
 
-	cw := &CursorWrapper{cursor: cursor, source: &tree.source}
+	cw := NewCursor(uw, cursor, &tree.source)
+	if cw == nil {
+		l.Push(lua.LNil)
+		return 1
+	}
 
 	ud := l.NewUserData()
 	ud.Value = cw
 	ud.Metatable = value.GetTypeMetatable(l, "treesitter.Cursor")
-
-	uw.AddCleanup(func() error {
-		cw.once.Do(func() {
-			if cw.cursor != nil {
-				//cw.cursor.Close()
-				//cw.cursor = nil
-			}
-		})
-		return nil
-	})
 
 	l.Push(ud)
 	return 1
@@ -395,6 +411,11 @@ func treeClose(l *lua.LState) int {
 func checkTree(l *lua.LState) *TreeWrapper {
 	ud := l.CheckUserData(1)
 	if v, ok := ud.Value.(*TreeWrapper); ok {
+		if v.closed {
+			l.ArgError(1, "tree already closed")
+			return nil
+		}
+
 		return v
 	}
 	l.ArgError(1, "Tree expected")

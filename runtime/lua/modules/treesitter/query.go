@@ -1,22 +1,22 @@
 package treesitter
 
 import (
+	"context"
 	"fmt"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
-	"regexp"
-	"sync"
-
 	treesitter "github.com/tree-sitter/go-tree-sitter"
 	lua "github.com/yuin/gopher-lua"
+	"regexp"
 )
 
 // QueryWrapper wraps a tree-sitter Query and QueryCursor for Lua integration
 type QueryWrapper struct {
-	query  *treesitter.Query
-	cursor *treesitter.QueryCursor
-	once   sync.Once
-	source string // Store source text for predicate evaluation
+	query   *treesitter.Query
+	cursor  *treesitter.QueryCursor
+	source  string
+	closed  bool
+	release context.CancelFunc
 }
 
 // Register the Query type to Lua
@@ -59,6 +59,41 @@ func registerQuery(l *lua.LState) {
 	value.RegisterMethods(l, "treesitter.Query", methods)
 }
 
+// NewQuery creates a new query wrapper with proper UoW integration
+func NewQuery(uw engine.UnitOfWork, query *treesitter.Query, cursor *treesitter.QueryCursor) *QueryWrapper {
+	wrapper := &QueryWrapper{
+		query:  query,
+		cursor: cursor,
+	}
+
+	// Register cleanup with UoW, storing the cancel function
+	wrapper.release = uw.AddCleanup(func() error {
+		if !wrapper.closed {
+			if wrapper.cursor != nil {
+				wrapper.cursor.Close()
+				wrapper.cursor = nil
+			}
+			if wrapper.query != nil {
+				wrapper.query.Close()
+				wrapper.query = nil
+			}
+			wrapper.closed = true
+		}
+		return nil
+	})
+
+	return wrapper
+}
+
+// Close marks the query as closed and cancels the UoW cleanup
+func (q *QueryWrapper) Close() {
+	if !q.closed && q.release != nil {
+		q.closed = true
+		q.release()
+		q.release = nil
+	}
+}
+
 // Spawn a new Query
 func newQuery(l *lua.LState) int {
 	languageStr := l.CheckString(1)
@@ -86,22 +121,18 @@ func newQuery(l *lua.LState) int {
 		return 2
 	}
 
-	// Spawn query cursor with cursor
-	cursor := &QueryWrapper{
-		query:  query,
-		cursor: treesitter.NewQueryCursor(),
-	}
-
 	uw := engine.GetUnitOfWork(l.Context())
 	if uw == nil {
 		l.RaiseError("no unit of work found")
 		return 0
 	}
 
-	uw.AddCleanup(func() error { cursor.Close(); return nil })
+	// Use the new constructor
+	queryWrapper := NewQuery(uw, query, treesitter.NewQueryCursor())
+	queryWrapper.source = pattern // Store the source
 
 	ud := l.NewUserData()
-	ud.Value = cursor
+	ud.Value = queryWrapper
 	ud.Metatable = value.GetTypeMetatable(l, "treesitter.Query")
 
 	l.Push(ud)
@@ -495,25 +526,15 @@ func queryGetTextPredicates(l *lua.LState) int {
 	return 1
 }
 
-func (q *QueryWrapper) Close() {
-	q.once.Do(func() {
-		//if q.cursor != nil {
-		//	q.cursor.Close()
-		//	q.cursor = nil
-		//}
-		//
-		//if q.query != nil {
-		//	q.query.Close()
-		//	q.query = nil
-		//}
-	})
-}
-
 // Helper functions
 
 func checkQuery(l *lua.LState) *QueryWrapper {
 	ud := l.CheckUserData(1)
 	if v, ok := ud.Value.(*QueryWrapper); ok {
+		if v.closed {
+			l.ArgError(1, "query already closed")
+			return nil
+		}
 		return v
 	}
 	l.ArgError(1, "Query expected")

@@ -1,15 +1,14 @@
 package treesitter
 
 import (
-	"context"
 	"fmt"
+	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 
 	treesitter "github.com/tree-sitter/go-tree-sitter"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
-
-// todo: a good chunk of memory optimizations is needed here, but no rush
 
 // Module is the Lua module for the Tree-sitter bindings.
 type Module struct {
@@ -126,9 +125,6 @@ func (m *Module) parse(l *lua.LState) int {
 
 	// Use context from Lua state if available
 	ctx := l.Context()
-	if ctx == nil {
-		ctx = context.Background()
-	}
 
 	// Parse with context
 	tree := parser.ParseCtx(ctx, []byte(code), nil)
@@ -138,11 +134,20 @@ func (m *Module) parse(l *lua.LState) int {
 		return 2
 	}
 
+	uw := engine.GetUnitOfWork(ctx)
+	if uw == nil {
+		l.RaiseError("unit of work is not found")
+		return 0
+	}
+
+	// Use the new constructor
+	treeWrapper := NewTree(uw, tree, code)
+
 	// Return tree userdata
 	ud := l.NewUserData()
-	ud.Value = &TreeWrapper{tree: tree, source: code}
-	l.SetMetatable(ud, l.GetTypeMetatable("treesitter.Tree"))
-	l.Push(ud)
+	ud.Value = treeWrapper
+	ud.Metatable = value.GetTypeMetatable(l, "treesitter.Tree")
 
+	l.Push(ud)
 	return 1
 }
