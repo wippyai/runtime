@@ -1,16 +1,26 @@
 version: "1.0"
-#namespace: wippy.lib
-
-meta:
-  depends_on: [ "ns:system" ]
+namespace: wippy.lib
 
 entries:
-  - name: migration
+  - name: migration_core
     kind: library.lua
     meta:
-      comment: "Migration library for database schema changes"
-    source: file://migration.lua
-    modules: [ "sql", "time" ]
+      comment: "Core DSL for migration definitions"
+    source: file://migration_core.lua
+
+  - name: migration_db_proxy
+    kind: library.lua
+    meta:
+      comment: "Database proxy for intercepting SQL operations"
+    source: file://migration_db_proxy.lua
+    modules: [ "sql" ]
+
+  - name: migration_reporter
+    kind: library.lua
+    meta:
+      comment: "Event reporting system for migrations"
+    source: file://migration_reporter.lua
+    modules: [ "time" ]
 
   - name: migration_schema
     kind: library.lua
@@ -26,12 +36,40 @@ entries:
     source: file://migration_registry.lua
     modules: [ "registry" ]
 
-  - name: migration_runner
+  - name: migration_executor
     kind: library.lua
     meta:
       comment: "Migration execution engine"
-    source: file://migration_runner.lua
+      depends_on:
+        - wippy.lib:migration_core
+        - wippy.lib:migration_db_proxy
+        - wippy.lib:migration_schema
+        - wippy.lib:migration_reporter
+    source: file://migration_executor.lua
     modules: [ "sql", "time" ]
     imports:
+      migration_core: "wippy.lib:migration_core"
+      migration_db_proxy: "wippy.lib:migration_db_proxy"
       migration_schema: "wippy.lib:migration_schema"
+      migration_reporter: "wippy.lib:migration_reporter"
+
+  - name: migration
+    kind: library.lua
+    meta:
+      comment: "Main migration library API"
+      depends_on:
+        - wippy.lib:migration_core
+        - wippy.lib:migration_db_proxy
+        - wippy.lib:migration_schema
+        - wippy.lib:migration_reporter
+        - wippy.lib:migration_executor
+        - wippy.lib:migration_registry
+    source: file://migration.lua
+    modules: [ "sql", "time" ]
+    imports:
+      migration_core: "wippy.lib:migration_core"
+      migration_db_proxy: "wippy.lib:migration_db_proxy"
+      migration_schema: "wippy.lib:migration_schema"
+      migration_reporter: "wippy.lib:migration_reporter"
+      migration_executor: "wippy.lib:migration_executor"
       migration_registry: "wippy.lib:migration_registry"

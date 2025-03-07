@@ -1,9 +1,6 @@
 version: "1.0"
 namespace: wippy.lib
 
-meta:
-  depends_on: [ "ns:system" ]
-
 entries:
   - name: actor
     kind: library.lua
@@ -19,6 +16,7 @@ entries:
       type: "test"
       tags: [ "actor", "library", "message-passing", "concurrency", "tests" ]
       comment: "Tests the actor library's messaging and event handling capabilities"
+      depends_on: [ "wippy.lib:actor", "wippy:lib.test" ]
     source: file://actor_test.lua
     method: run_tests
     imports:

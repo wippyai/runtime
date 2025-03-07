@@ -84,6 +84,17 @@ function migration_schema.record_migration(db, id, db_namespace, description, st
     return db:execute(query, params)
 end
 
+-- Update migration duration after transaction commits
+function migration_schema.update_migration_duration(db, id, duration)
+    local query = [[
+        UPDATE _migrations
+        SET duration = ?
+        WHERE id = ?
+    ]]
+
+    return db:execute(query, { duration, id })
+end
+
 -- Get migrations by filter
 function migration_schema.get_migrations(db, filter)
     filter = filter or {}

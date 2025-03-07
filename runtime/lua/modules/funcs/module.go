@@ -15,7 +15,6 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	payloadmod "github.com/ponyruntime/pony/runtime/lua/modules/payload"
 	lua "github.com/yuin/gopher-lua"
-	"log"
 )
 
 // Module represents the function module
@@ -261,7 +260,6 @@ func (m *Module) async(l *lua.LState) int {
 				Error: result.Error,
 			})
 		case <-work.Context().Done():
-			log.Printf("OFF %v", err)
 			_ = cmd.Cancel()
 		}
 	})
