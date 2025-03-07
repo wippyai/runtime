@@ -139,7 +139,7 @@ func snapshotFind(l *lua.LState) int {
 	var result []regapi.Entry
 
 	// Create metamatcher from metadata
-	matcher := metadataToMatcher(meta)
+	matcher := metadataToMatcher(meta) // todo: REDO TO USE FINDER!!!
 
 	// Filter entries using the matcher - this is a simple operation with in-memory data
 	for _, entry := range snap.entries {

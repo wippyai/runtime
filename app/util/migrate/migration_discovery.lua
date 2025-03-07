@@ -2,9 +2,8 @@ local http = require("http")
 local json = require("json")
 local time = require("time")
 local migration_registry = require("migration_registry")
-local registry = require("registry")
 
--- Function to discover migrations without executing them
+-- Function to discover migrations using migration_registry
 local function discover_migrations()
     -- Set up HTTP response
     local res = http.response()
@@ -43,118 +42,99 @@ local function discover_migrations()
         end
     end
 
-    sdf.fff = ss.ll.dd()
-
-print(":OK")
-    -- Get registry snapshot directly for debugging
-    local snapshot, snap_err = registry.snapshot()
-    if snap_err then
-        res:set_status(http.STATUS.INTERNAL_ERROR)
-        res:write_json({
-            error = "Failed to get registry snapshot: " .. snap_err,
-            timestamp = time.now():unix()
-        })
-        return false
-    end
-
-    -- Debug: Get all entries to see what's available
-    local all_entries = snapshot:find({})
-
-    -- Extract migration entries correctly
+    -- Get migrations using migration_registry.find()
     local migrations = {}
-    for _, entry in ipairs(all_entries) do
-        if entry.kind == "migration.lua" then
-            table.insert(migrations, entry)
-        end
+    local find_err
+
+    -- Use pcall to safely call migration_registry.find()
+    migrations, find_err = migration_registry.find(options)
+    if find_err then
+        migrations = {}
     end
 
-    -- Get all available namespaces
-    local namespaces = {}
-    local namespace_set = {}
+    -- Format migrations for response
+    local formatted_migrations = format_migrations(migrations)
 
-    for _, entry in ipairs(migrations) do
-        if entry.meta and entry.meta.db_namespace then
-            namespace_set[entry.meta.db_namespace] = true
-        end
-    end
-
-    for ns in pairs(namespace_set) do
-        table.insert(namespaces, ns)
-    end
-
-    -- Sort namespaces
-    table.sort(namespaces)
-
-    -- Format migrations for display
-    local formatted_migrations = {}
-    for _, migration in ipairs(migrations) do
-        -- Apply filters if specified
-        local include = true
-
-        if options.db_namespace and
-            (not migration.meta or migration.meta.db_namespace ~= options.db_namespace) then
-            include = false
-        end
-
-        if include and options.db_types and #options.db_types > 0 then
-            include = false
-            if migration.meta and migration.meta.db_types then
-                for _, db_type in ipairs(options.db_types) do
-                    for _, mig_db_type in ipairs(migration.meta.db_types) do
-                        if db_type == mig_db_type then
-                            include = true
-                            break
-                        end
-                    end
-                    if include then break end
-                end
-            end
-        end
-
-        if include and options.tags and #options.tags > 0 then
-            include = false
-            if migration.meta and migration.meta.tags then
-                for _, tag in ipairs(options.tags) do
-                    for _, mig_tag in ipairs(migration.meta.tags) do
-                        if tag == mig_tag then
-                            include = true
-                            break
-                        end
-                    end
-                    if include then break end
-                end
-            end
-        end
-
-        if include then
-            table.insert(formatted_migrations, {
-                id = migration.id,
-                description = (migration.meta and migration.meta.description) or "",
-                db_namespace = (migration.meta and migration.meta.db_namespace) or "",
-                db_types = (migration.meta and migration.meta.db_types) or {},
-                tags = (migration.meta and migration.meta.tags) or {},
-                timestamp = (migration.meta and migration.meta.timestamp) or ""
-            })
-        end
-    end
-
-    -- Debug information
-    local debug_info = {
-        total_registry_entries = #all_entries,
-        migration_entries = #migrations,
-        filtered_migrations = #formatted_migrations
-    }
+    -- Extract namespaces
+    local namespaces = extract_namespaces(formatted_migrations)
 
     -- Return the discovered migrations and namespaces
     res:write_json({
         migrations = formatted_migrations,
         namespaces = namespaces,
         count = #formatted_migrations,
-        debug = debug_info,
         timestamp = time.now():unix()
     })
 
     return true
+end
+
+-- Helper function to format migrations for response
+function format_migrations(migrations)
+    local formatted = {}
+
+    for _, migration in ipairs(migrations) do
+        -- Extract ID fields
+        local id = "unknown"
+        local name = "unknown"
+        local namespace = "unknown"
+        local kind = migration.kind or "unknown"
+
+        if migration.id then
+            if type(migration.id) == "table" then
+                if migration.id.full then
+                    id = migration.id.full
+                elseif migration.id.ns and migration.id.name then
+                    id = migration.id.ns .. ":" .. migration.id.name
+                end
+
+                name = migration.id.name or "unknown"
+                namespace = migration.id.ns or "unknown"
+            elseif type(migration.id) == "string" then
+                id = migration.id
+                local ns, n = migration.id:match("([^:]+):([^:]+)")
+                if ns and n then
+                    namespace = ns
+                    name = n
+                end
+            end
+        end
+
+        local entry = {
+            id = id,
+            name = name,
+            namespace = namespace,
+            kind = kind,
+            description = (migration.meta and migration.meta.description) or "",
+            db_namespace = (migration.meta and migration.meta.db_namespace) or "",
+            db_types = (migration.meta and migration.meta.db_types) or {},
+            timestamp = (migration.meta and migration.meta.timestamp) or "",
+            method = migration.method or ""
+        }
+
+        table.insert(formatted, entry)
+    end
+
+    return formatted
+end
+
+-- Helper function to extract unique namespaces
+function extract_namespaces(migrations)
+    local namespace_set = {}
+
+    for _, migration in ipairs(migrations) do
+        if migration.db_namespace and migration.db_namespace ~= "" then
+            namespace_set[migration.db_namespace] = true
+        end
+    end
+
+    local namespaces = {}
+    for ns in pairs(namespace_set) do
+        table.insert(namespaces, ns)
+    end
+
+    table.sort(namespaces)
+    return namespaces
 end
 
 return { discover_migrations = discover_migrations }
