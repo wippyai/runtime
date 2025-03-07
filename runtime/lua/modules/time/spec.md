@@ -4,7 +4,7 @@
 
 The `time` module provides a Lua interface for time-related functionality. It provides tools for working with dates,
 times, durations, timers, tickers, and time zones. It supports time formatting, parsing, arithmetic operations, and
-various timing primitives for concurrent programming.
+various timing primitives for concurrent programming. Time package mimics Go's time package, providing a familiar API.
 
 ## Module Loading
 
@@ -69,11 +69,11 @@ String conversion is handled automatically when using `tostring(duration)`, retu
 
 A `Location` represents a time zone. Every Time has an associated Location that determines wall time display.
 
-#### Location Constants
+#### Location Objects/Values
 
 ```lua
-time.utc      -- UTC location
-time.localtz  -- System local timezone location
+time.utc     -- UTC location (userdata object, not a constant)
+time.localtz -- System local timezone location (userdata object, not a constant)
 ```
 
 #### Location Creation
@@ -116,20 +116,20 @@ local t, err = time.parse("2006-01-02 15:04:05", "2024-01-15 14:30:00")
 
 ```lua
 time.RFC3339      -- "2006-01-02T15:04:05Z07:00"
-time.RFC3339Nano  -- "2006-01-02T15:04:05.999999999Z07:00"
+time.RFC3339NANO  -- "2006-01-02T15:04:05.999999999Z07:00"
 time.RFC822       -- "02 Jan 06 15:04 MST" 
 time.RFC822Z      -- "02 Jan 06 15:04 -0700"
 time.RFC850       -- "Monday, 02-Jan-06 15:04:05 MST"
 time.RFC1123      -- "Mon, 02 Jan 2006 15:04:05 MST"
 time.RFC1123Z     -- "Mon, 02 Jan 2006 15:04:05 -0700"
-time.Kitchen      -- "3:04PM"
-time.Stamp        -- "Jan _2 15:04:05"
-time.StampMilli   -- "Jan _2 15:04:05.000"
-time.StampMicro   -- "Jan _2 15:04:05.000000"
-time.StampNano    -- "Jan _2 15:04:05.000000000"
-time.DateTime     -- "2006-01-02 15:04:05"
-time.DateOnly     -- "2006-01-02"
-time.TimeOnly     -- "15:04:05"
+time.KITCHEN      -- "3:04PM"
+time.STAMP        -- "Jan _2 15:04:05"
+time.STAMP_MILLI  -- "Jan _2 15:04:05.000"
+time.STAMP_MICRO  -- "Jan _2 15:04:05.000000"
+time.STAMP_NANO   -- "Jan _2 15:04:05.000000000"
+time.DATE_TIME    -- "2006-01-02 15:04:05"
+time.DATE_ONLY    -- "2006-01-02"
+time.TIME_ONLY    -- "15:04:05"
 ```
 
 #### Time Methods
@@ -253,5 +253,3 @@ local result = channel.select{
     done:case_receive()
 }
 ```
-
-Would you like me to continue with error handling, best practices and examples?
