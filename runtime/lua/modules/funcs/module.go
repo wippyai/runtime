@@ -269,13 +269,6 @@ func (m *Module) async(l *lua.LState) int {
 	return 1
 }
 
-// cancelHandler creates a handler for command cancellation
-func (f *Functions) cancelHandler(l *lua.LState, task runtime.Task) runtime.Canceller {
-	return func(cmd runtime.Command) {
-		// todo: cancel inner context! Implement cancellation logic if needed
-	}
-}
-
 // createTask creates a runtime.Task from Lua parameters
 func (f *Functions) createTask(l *lua.LState) (runtime.Task, error) {
 	targetIndex := 1
