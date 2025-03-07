@@ -22,7 +22,7 @@ local function run()
 
             --print("Creating new parent process, request from:", msg.from, state.next_id)
 
-            ---- Spawn new parent process (monitored by us)
+            -- Spawn new parent process
             local parent_pid, err = process.spawn_monitored(
                 "app.demos.process_lifecycle:parent",
                 "system:processes"
@@ -40,15 +40,13 @@ local function run()
             end
 
             -- Track process
-            state.processes[id] = {
+            state.processes[parent_pid] = {
                 id = id,
                 parent_pid = parent_pid,
                 created_at = time.now(),
                 created_by = msg.from,
                 status = "running"
             }
-
-            --print("Created new parent process:", parent_pid, "ID:", id)
 
             if msg.reply_to then
                 process.send(msg.reply_to, "response", {
@@ -133,7 +131,7 @@ local function run()
             local result = {}
             for id, proc in pairs(state.processes) do
                 table.insert(result, {
-                    id = id,
+                    id = proc.id,
                     parent_pid = proc.parent_pid,
                     created_at = proc.created_at,
                     status = proc.status,
@@ -166,41 +164,7 @@ local function run()
         __on_event = function(state, event)
             if event.kind == process.event.EXIT then
                 local pid = event.from
-
-                -- Find which process completed
-                for id, proc in pairs(state.processes) do
-                    if proc.parent_pid == pid then
-                        local status = "completed"
-
-                        if event.result and event.result.error then
-                            status = "failed"
-                            --print("Process", pid, "failed:", event.result.error)
-                        else
-                            --print("Process", pid, "completed with result:", json.encode(event.result))
-                        end
-
-                        -- Update process status
-                        proc.status = status
-                        proc.result = event.result
-                        proc.ended_at = time.now()
-
-                        -- Archive the completed process
-                        --table.insert(state.completed_processes, {
-                        --    id = id,
-                        --    parent_pid = proc.parent_pid,
-                        --    created_at = proc.created_at,
-                        --    ended_at = proc.ended_at,
-                        --    status = status,
-                        --    result = proc.result
-                        --})
-
-                        -- Remove process from active processes
-                        state.processes[id] = nil
-                        --print("Process", pid, "removed from active processes")
-
-                        break
-                    end
-                end
+                state.processes[pid] = nil
             end
         end,
 

@@ -31,16 +31,17 @@ require (
 	github.com/tree-sitter/tree-sitter-php v0.23.11
 	github.com/tree-sitter/tree-sitter-python v0.23.6
 	github.com/tree-sitter/tree-sitter-typescript v0.23.2
-	github.com/yuin/gopher-lua v1.1.1
+	github.com/yuin/gopher-lua v0.0.0-00010101000000-000000000000
 	go.temporal.io/api v1.44.1
 	go.temporal.io/sdk v1.32.1
 	go.uber.org/zap v1.27.0
 	golang.org/x/crypto v0.32.0
-	golang.org/x/net v0.34.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
 // replace github.com/ponyruntime/tree-sitter-sql => ../tree-sitter-sql
+
+replace github.com/yuin/gopher-lua => github.com/ponyruntime/go-lua v0.0.0-20250307025234-ece9a5460bdd
 
 require (
 	filippo.io/edwards25519 v1.1.0 // indirect
@@ -74,6 +75,7 @@ require (
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
+	github.com/ponyruntime/go-lua v1.2.1 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/sahilm/fuzzy v0.1.1 // indirect
 	go.opentelemetry.io/auto/sdk v1.1.0 // indirect
@@ -84,6 +86,7 @@ require (
 	go.opentelemetry.io/otel/sdk v1.34.0 // indirect
 	go.opentelemetry.io/otel/trace v1.34.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
+	golang.org/x/net v0.34.0 // indirect
 	golang.org/x/sync v0.10.0 // indirect
 	golang.org/x/sys v0.29.0 // indirect
 	golang.org/x/text v0.21.0 // indirect

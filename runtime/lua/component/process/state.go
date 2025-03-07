@@ -283,8 +283,8 @@ func (s *State) Complete(err error, result lua.LValue) {
 	s.Runner = nil
 }
 
-// ProcessPackage handles an incoming message package
-func (s *State) ProcessPackage(pkg *pubsub.Package) error {
+// SendPackage handles an incoming message package
+func (s *State) SendPackage(pkg *pubsub.Package) error {
 	s.wg.Add(1)
 	defer s.wg.Done()
 

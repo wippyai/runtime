@@ -59,7 +59,7 @@ func (p *LuaProcess) Ready() int {
 
 // Send handles incoming messages to the process
 func (p *LuaProcess) Send(pkg *pubsub.Package) error {
-	return p.state.ProcessPackage(pkg)
+	return p.state.SendPackage(pkg)
 }
 
 // Terminate forcefully stops the process
