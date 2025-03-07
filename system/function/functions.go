@@ -149,16 +149,23 @@ func (f *Registry) Call(ctx context.Context, task runtime.Task) (chan *runtime.R
 	if !ok {
 		return nil, fmt.Errorf("invalid handler type for target: %s", task.ID)
 	}
-
-	ctx = pubsub.WithHost(ctx, f.host)
-	ctx = pubsub.WithPID(ctx, pubsub.PID{
+	pid := pubsub.PID{
 		Node:   pubsub.GetNode(ctx).ID(),
 		Host:   function.HostID,
 		ID:     task.ID,
 		UniqID: f.uniqID.Generate(),
-	})
+	}
+	ctx = pubsub.WithHost(ctx, f.host)
+	ctx = pubsub.WithPID(ctx, pid)
 
-	return execHandler(ctx, task)
+	ch, err := execHandler(ctx, task)
+	if err != nil {
+		f.logger.Error(err.Error(),
+			zap.String("function", task.ID.String()),
+			zap.String("pid", pid.String()))
+	}
+
+	return ch, err
 }
 
 // Ensure Registry implements the operation.Registry interface

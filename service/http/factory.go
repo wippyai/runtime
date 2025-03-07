@@ -44,7 +44,9 @@ func (f *EndpointFactory) CreateHandler(ctx context.Context, cfg *config.Endpoin
 
 		resultCh, err := f.funcs.Call(execCtx, runtime.Task{ID: cfg.Func})
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			if !rCtx.ResponseHandled() {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			}
 			return
 		}
 
