@@ -15,6 +15,7 @@ type ParserWrapper struct {
 	parser  *treesitter.Parser
 	lang    *LanguageInfo
 	closed  bool
+	flag    uintptr
 	release context.CancelFunc
 }
 
@@ -35,7 +36,10 @@ func registerParser(l *lua.LState) {
 func NewParser(uw engine.UnitOfWork, parser *treesitter.Parser) *ParserWrapper {
 	wrapper := &ParserWrapper{
 		parser: parser,
+		flag:   0,
 	}
+
+	parser.SetCancellationFlag(&wrapper.flag)
 
 	// Register cleanup with UoW, storing the cancel function
 	wrapper.release = uw.AddCleanup(func() error {
@@ -97,8 +101,8 @@ func (p *ParserWrapper) parseWithContext(ctx context.Context, code []byte, oldTr
 		p.parser.SetTimeoutMicros(uint64(timeout.Microseconds())) //nolint:gosec
 	}
 
-	var cflag uintptr
-	p.parser.SetCancellationFlag(&cflag)
+	//var cflag uintptr
+	//p.parser.SetCancellationFlag(&cflag)
 
 	var oldTreePtr *treesitter.Tree
 	if oldTree != nil {
