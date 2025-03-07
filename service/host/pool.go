@@ -76,21 +76,80 @@ func (p *ProcessPool) Add(pid pubsub.PID, proc process.Process) error {
 	return p.Schedule(pid)
 }
 
-// HasProcess checks if a process exists in the pool
+// Cancel sends a cancellation signal to a specific process
+func (p *ProcessPool) Cancel(pid pubsub.PID, deadline time.Time) error {
+	entryVal, exists := p.processes.Load(pid.String())
+	if !exists {
+		return process.ErrNoProcess
+	}
+
+	entry := entryVal.(*processEntry)
+
+	// send cancel message to process
+	if err := entry.process.Send(topology.Cancel(pid, pid, deadline)); err != nil {
+		p.log.Warn("failed to send cancel message to process",
+			zap.String("pid", pid.String()),
+			zap.Error(err))
+	}
+
+	// Let process handle cancellation in next Schedule
+	return p.Schedule(pid)
+}
+
+// CancelAll sends cancellation signals to all processes and waits for completion
+func (p *ProcessPool) CancelAll(ctx context.Context, deadline time.Time) error {
+	p.processes.Range(func(key, _ interface{}) bool {
+		pid, _ := pubsub.ParsePID(key.(string))
+		if err := p.Cancel(pid, deadline); err != nil {
+			p.log.Warn("failed to cancel process",
+				zap.String("pid", pid.String()),
+				zap.Error(err))
+		}
+		return true
+	})
+
+	// Wait for all processes to complete or context to cancel
+	done := make(chan struct{})
+	go func() {
+		p.processWG.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// Close gracefully shuts down the worker pool
+func (p *ProcessPool) Close() {
+	p.cancel()
+	p.wg.Wait()
+}
+
+// Has checks if a process exists in the pool
 func (p *ProcessPool) Has(pid pubsub.PID) bool {
 	_, exists := p.processes.Load(pid.String())
 	return exists
 }
 
+// Remove removes a process from the pool
+func (p *ProcessPool) Remove(pid pubsub.PID) {
+	if _, exists := p.processes.LoadAndDelete(pid.String()); exists {
+		p.processWG.Done()
+		p.numProcesses.Add(^int32(0))
+	}
+}
+
 // Schedule adds a process to the work queue
 func (p *ProcessPool) Schedule(pid pubsub.PID) error {
-	// todo: comment to crash
 	pr, exists := p.processes.Load(pid.String())
 	if !exists {
 		return process.ErrNoProcess
 	}
 
-	// todo: comment to crash
 	if pr.(*processEntry).awaken.CompareAndSwap(false, true) {
 		select {
 		case p.workCh <- pid:
@@ -100,8 +159,17 @@ func (p *ProcessPool) Schedule(pid pubsub.PID) error {
 		}
 	}
 
-	// todo: comment to crash
 	return nil
+}
+
+// Send sends a message to a specific process
+func (p *ProcessPool) Send(pid pubsub.PID, pkg *pubsub.Package) error {
+	entryVal, exists := p.processes.Load(pid.String())
+	if !exists {
+		return process.ErrNoProcess
+	}
+
+	return entryVal.(*processEntry).process.Send(pkg)
 }
 
 // Start launches the worker goroutines
@@ -112,10 +180,14 @@ func (p *ProcessPool) Start() {
 	}
 }
 
-// Close gracefully shuts down the worker pool
-func (p *ProcessPool) Close() {
-	p.cancel()
-	p.wg.Wait()
+// Terminate notifies a process about termination
+func (p *ProcessPool) Terminate(pid pubsub.PID) {
+	entryVal, exists := p.processes.Load(pid.String())
+	if !exists {
+		return
+	}
+
+	entryVal.(*processEntry).process.Terminate()
 }
 
 // worker runs in its own goroutine and processes work requests
@@ -165,60 +237,5 @@ func (p *ProcessPool) worker() {
 				}
 			}
 		}
-	}
-}
-
-// Remove removes a process from the pool
-func (p *ProcessPool) Remove(pid pubsub.PID) {
-	if _, exists := p.processes.LoadAndDelete(pid.String()); exists {
-		p.processWG.Done()
-		p.numProcesses.Add(^int32(0))
-	}
-}
-
-// Cancel sends a cancellation signal to a specific process
-func (p *ProcessPool) Cancel(pid pubsub.PID, deadline time.Time) error {
-	entryVal, exists := p.processes.Load(pid.String())
-	if !exists {
-		return process.ErrNoProcess
-	}
-
-	entry := entryVal.(*processEntry)
-
-	// send cancel message to process
-	if err := entry.process.Send(topology.Cancel(pid, pid, deadline)); err != nil {
-		p.log.Warn("failed to send cancel message to process",
-			zap.String("pid", pid.String()),
-			zap.Error(err))
-	}
-
-	// Let process handle cancellation in next Schedule
-	return p.Schedule(pid)
-}
-
-// CancelAll sends cancellation signals to all processes and waits for completion
-func (p *ProcessPool) CancelAll(ctx context.Context, deadline time.Time) error {
-	p.processes.Range(func(key, _ interface{}) bool {
-		pid, _ := pubsub.ParsePID(key.(string))
-		if err := p.Cancel(pid, deadline); err != nil {
-			p.log.Warn("failed to cancel process",
-				zap.String("pid", pid.String()),
-				zap.Error(err))
-		}
-		return true
-	})
-
-	// Wait for all processes to complete or context to cancel
-	done := make(chan struct{})
-	go func() {
-		p.processWG.Wait()
-		close(done)
-	}()
-
-	select {
-	case <-done:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
 	}
 }

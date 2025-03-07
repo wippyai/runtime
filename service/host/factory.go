@@ -16,8 +16,10 @@ import (
 
 // ProcessPoolAPI defines the interface that a process pool must implement
 type ProcessPoolAPI interface {
+	// Add registers a new process with the pool
 	Add(pid pubsub.PID, proc process.Process) error
 
+	// Schedule adds a process to the work queue
 	Schedule(pid pubsub.PID) error
 
 	// Has checks if a process exists in the pool
@@ -29,6 +31,9 @@ type ProcessPoolAPI interface {
 	// Close gracefully shuts down the worker pool
 	Close()
 
+	// Terminate notifies a process about termination
+	Terminate(pid pubsub.PID)
+
 	// Remove removes a process from the pool
 	Remove(pid pubsub.PID)
 
@@ -37,6 +42,9 @@ type ProcessPoolAPI interface {
 
 	// CancelAll sends cancellation signals to all processes and waits for completion
 	CancelAll(ctx context.Context, deadline time.Time) error
+
+	// Send sends a message to a specific process
+	Send(pid pubsub.PID, pkg *pubsub.Package) error
 }
 
 // MessageHostFactory defines an interface for creating message hosts

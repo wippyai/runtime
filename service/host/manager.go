@@ -89,11 +89,6 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	return nil
 }
 
-// Update updates an existing process host
-func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
-	return fmt.Errorf("unable to update process host")
-}
-
 // Delete removes a process host
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != host.KindHost {
@@ -163,4 +158,9 @@ func (m *Manager) removeHost(ctx context.Context, id registry.ID) {
 		Kind:   supervisor.Remove,
 		Path:   id.String(),
 	})
+}
+
+// Update updates an existing process host
+func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
+	return fmt.Errorf("unable to update process host")
 }
