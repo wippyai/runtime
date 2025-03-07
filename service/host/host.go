@@ -56,6 +56,118 @@ func NewMultiProcessHost(
 	}
 }
 
+// Attach registers a receiver channel with the underlying msgHost, rejecting if shutdown is in progress.
+func (h *Host) Attach(pid pubsub.PID, ch chan *pubsub.Package) (context.CancelFunc, error) {
+	if h.running.Load() == false {
+		return nil, errors.New("host is not running, cannot launch new process")
+	}
+
+	if h.shutdown.Load() {
+		return nil, errors.New("host is shutting down, rejecting attach")
+	}
+
+	return h.msgHost.Attach(pid, ch)
+}
+
+// Detach unregisters a receiver channel from the underlying msgHost, rejecting if shutdown is in progress.
+func (h *Host) Detach(pid pubsub.PID) {
+	if h.running.Load() == false {
+		return
+	}
+
+	if h.shutdown.Load() {
+		return
+	}
+
+	h.msgHost.Detach(pid)
+}
+
+// finalizeProcess handles cleanup when a process completes execution
+func (h *Host) finalizeProcess(pid pubsub.PID, result *runtime.Result) {
+	if result.Error != nil {
+		h.log.Error("process execution failed",
+			zap.String("pid", pid.String()),
+			zap.Error(result.Error))
+	} else {
+		h.log.Debug("process execution completed",
+			zap.String("pid", pid.String()))
+	}
+
+	h.msgHost.Detach(pid)
+	h.pool.Remove(pid)
+}
+
+// Launch starts a new process and sets up its routing. It rejects new launches if shutdown is in progress.
+func (h *Host) Launch(ctx context.Context, launch *process.Launch) (pubsub.PID, error) {
+	if !h.running.Load() {
+		return pubsub.PID{}, errors.New("host is not running, cannot launch new process")
+	}
+
+	if h.shutdown.Load() {
+		return pubsub.PID{}, errors.New("host is shutting down, cannot launch new process")
+	}
+
+	if h.pool.Has(launch.PID) {
+		return pubsub.PID{}, process.ErrHostBusy
+	}
+
+	if h.ctx == nil {
+		return pubsub.PID{}, process.ErrHostDead
+	}
+
+	ctx = h.prepareContext(ctx, launch.PID, launch.Lifecycle)
+
+	if err := launch.Process.Start(ctx, launch.PID, launch.Input); err != nil {
+		return pubsub.PID{}, err
+	}
+
+	// Attach to message routing with shared channel
+	_, err := h.msgHost.Attach(launch.PID, h.msgCh)
+	if err != nil {
+		return pubsub.PID{}, err
+	}
+
+	if err := h.pool.Add(launch.PID, launch.Process); err != nil {
+		h.msgHost.Detach(launch.PID)
+		return pubsub.PID{}, err
+	}
+
+	h.log.Debug("process launched", zap.String("pid", launch.PID.String()))
+	return launch.PID, nil
+}
+
+// prepareContext sets up the context for a process
+func (h *Host) prepareContext(ctx context.Context, pid pubsub.PID, lifecycle process.Lifecycle) context.Context {
+	// security and other core keys
+	pCtx := ctxapi.MergeContext(h.ctx, ctx)
+
+	// global lifecycle
+	pCtx = process.GetProcesses(ctx).AttachLifecycle(pCtx, lifecycle)
+
+	// local lifecycle
+	pCtx = process.WithAddedOnComplete(pCtx, h.finalizeProcess)
+	pCtx = context.WithValue(pCtx, ctxapi.WakeUpKey, func() {
+		_ = h.pool.Schedule(pid)
+	})
+
+	pCtx = logs.WithLogger(pCtx, h.log.With(zap.String("pid", pid.String())))
+
+	return pCtx
+}
+
+// Send forwards a message via the underlying msgHost, rejecting if shutdown is in progress.
+func (h *Host) Send(pkg *pubsub.Package) error {
+	if h.running.Load() == false {
+		return errors.New("host is not running, cannot launch new process")
+	}
+
+	if h.shutdown.Load() {
+		return errors.New("host is shutting down, rejecting send")
+	}
+
+	return h.msgHost.Send(pkg)
+}
+
 // sendStatus sends a status message to the external status channel if available.
 func (h *Host) sendStatus(message string) {
 	select {
@@ -101,20 +213,6 @@ func (h *Host) Start(ctx context.Context) (<-chan any, error) {
 	return h.statusCh, nil
 }
 
-func (h *Host) finalizeProcess(pid pubsub.PID, result *runtime.Result) {
-	if result.Error != nil {
-		h.log.Error("process execution failed",
-			zap.String("pid", pid.String()),
-			zap.Error(result.Error))
-	} else {
-		h.log.Debug("process execution completed",
-			zap.String("pid", pid.String()))
-	}
-
-	h.msgHost.Detach(pid)
-	h.pool.Remove(pid)
-}
-
 // startMessageWorkers spawns worker goroutines to process routing messages.
 func (h *Host) startMessageWorkers() {
 	for i := 0; i < h.cfg.HostConfig.MessageWorkerCount; i++ {
@@ -131,26 +229,12 @@ func (h *Host) startMessageWorkers() {
 						return
 					}
 
-					// We need to check if the process exists in the pool
-					if !h.pool.Has(m.PID) {
-						h.log.Warn("routing worker received message for unknown process",
-							zap.String("pid", m.PID.String()))
+					err := h.pool.Send(m.PID, m)
+					if err != nil {
+						h.log.Warn("failed to send message to process",
+							zap.String("pid", m.PID.String()),
+							zap.Error(err))
 						continue
-					}
-
-					// Get the process and send the message
-					// Note: This requires an internal access to the pool's processes map
-					// We may need to enhance the ProcessPoolAPI to include a SendToProcess method
-					// todo: redo it
-					entryVal, ok := h.pool.(*ProcessPool).processes.Load(m.PID.String())
-					if ok && entryVal != nil {
-						entry := entryVal.(*processEntry)
-
-						if err := entry.process.Send(m); err != nil {
-							h.log.Error("failed to send message to process",
-								zap.String("pid", m.PID.String()),
-								zap.Error(err))
-						}
 					}
 				case <-h.ctx.Done():
 					return
@@ -158,124 +242,6 @@ func (h *Host) startMessageWorkers() {
 			}
 		}()
 	}
-}
-
-// Launch starts a new process and sets up its routing. It rejects new launches if shutdown is in progress.
-func (h *Host) Launch(ctx context.Context, launch *process.Launch) (pubsub.PID, error) {
-	if !h.running.Load() {
-		return pubsub.PID{}, errors.New("host is not running, cannot launch new process")
-	}
-
-	if h.shutdown.Load() {
-		return pubsub.PID{}, errors.New("host is shutting down, cannot launch new process")
-	}
-
-	if h.pool.Has(launch.PID) {
-		return pubsub.PID{}, process.ErrHostBusy
-	}
-
-	if h.ctx == nil {
-		return pubsub.PID{}, process.ErrHostDead
-	}
-
-	ctx = h.prepareContext(ctx, launch.PID, launch.Lifecycle)
-
-	if err := launch.Process.Start(ctx, launch.PID, launch.Input); err != nil {
-		return pubsub.PID{}, err
-	}
-
-	// Attach to message routing with shared channel
-	_, err := h.msgHost.Attach(launch.PID, h.msgCh)
-	if err != nil {
-		return pubsub.PID{}, err
-	}
-
-	if err := h.pool.Add(launch.PID, launch.Process); err != nil {
-		h.msgHost.Detach(launch.PID)
-		return pubsub.PID{}, err
-	}
-
-	h.log.Debug("process launched", zap.String("pid", launch.PID.String()))
-	return launch.PID, nil
-}
-
-func (h *Host) prepareContext(ctx context.Context, pid pubsub.PID, lifecycle process.Lifecycle) context.Context {
-	// security and other core keys
-	pCtx := ctxapi.MergeContext(h.ctx, ctx)
-
-	// global lifecycle
-	pCtx = process.GetProcesses(ctx).AttachLifecycle(pCtx, lifecycle)
-
-	// local lifecycle
-	pCtx = process.WithAddedOnComplete(pCtx, h.finalizeProcess)
-	pCtx = context.WithValue(pCtx, ctxapi.WakeUpKey, func() {
-		_ = h.pool.Schedule(pid)
-	})
-
-	pCtx = logs.WithLogger(pCtx, h.log.With(zap.String("pid", pid.String())))
-
-	return pCtx
-}
-
-// Terminate stops a running process and detaches its routing.
-func (h *Host) Terminate(ctx context.Context, pid pubsub.PID) error {
-	if h.running.Load() == false {
-		return errors.New("host is not running, cannot launch new process")
-	}
-
-	if !h.pool.Has(pid) {
-		return process.ErrNoProcess
-	}
-
-	// get process
-	entryVal, _ := h.pool.(*ProcessPool).processes.Load(pid.String())
-	entry := entryVal.(*processEntry)
-	entry.process.Terminate()
-
-	// terminate is aggressive, so we don't wait for the process to finish, use cancel signals instead
-	h.pool.Remove(pid)
-
-	h.log.Debug("process terminate requested", zap.String("pid", pid.String()))
-	return nil
-}
-
-// Send forwards a message via the underlying msgHost, rejecting if shutdown is in progress.
-func (h *Host) Send(pkg *pubsub.Package) error {
-	if h.running.Load() == false {
-		return errors.New("host is not running, cannot launch new process")
-	}
-
-	if h.shutdown.Load() {
-		return errors.New("host is shutting down, rejecting send")
-	}
-
-	return h.msgHost.Send(pkg)
-}
-
-// Attach registers a receiver channel with the underlying msgHost, rejecting if shutdown is in progress.
-func (h *Host) Attach(pid pubsub.PID, ch chan *pubsub.Package) (context.CancelFunc, error) {
-	if h.running.Load() == false {
-		return nil, errors.New("host is not running, cannot launch new process")
-	}
-
-	if h.shutdown.Load() {
-		return nil, errors.New("host is shutting down, rejecting attach")
-	}
-
-	return h.msgHost.Attach(pid, ch)
-}
-
-// Detach unregisters a receiver channel from the underlying msgHost, rejecting if shutdown is in progress.
-func (h *Host) Detach(pid pubsub.PID) {
-	if h.running.Load() == false {
-		return
-	}
-
-	if h.shutdown.Load() {
-		return
-	}
-
-	h.msgHost.Detach(pid)
 }
 
 // Stop gracefully shuts down the host by rejecting new operations and waiting for processes to complete.
@@ -299,5 +265,23 @@ func (h *Host) Stop(ctx context.Context) error {
 	close(h.statusCh)
 	h.running.Store(false)
 
+	return nil
+}
+
+// Terminate stops a running process and detaches its routing.
+func (h *Host) Terminate(ctx context.Context, pid pubsub.PID) error {
+	if h.running.Load() == false {
+		return errors.New("host is not running, cannot launch new process")
+	}
+
+	if !h.pool.Has(pid) {
+		return process.ErrNoProcess
+	}
+
+	// terminate is aggressive, so we don't wait for the process to finish, use cancel signals instead
+	h.pool.Terminate(pid)
+	h.pool.Remove(pid)
+
+	h.log.Debug("process terminate requested", zap.String("pid", pid.String()))
 	return nil
 }
