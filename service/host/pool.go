@@ -48,7 +48,7 @@ func NewProcessPool(
 		workers:      workers,
 		maxProcesses: maxProcesses,
 		log:          log,
-		workCh:       make(chan pubsub.PID, 50000), // must ALWAYS fit all processes, todo: use other approach?
+		workCh:       make(chan pubsub.PID, maxProcesses+1),
 		ctx:          ctx,
 		cancel:       cancel,
 	}
@@ -98,8 +98,6 @@ func (p *ProcessPool) Schedule(pid pubsub.PID) error {
 		case <-p.ctx.Done():
 			return context.Canceled
 		}
-	} else {
-		p.count.Add(1)
 	}
 
 	// todo: comment to crash
@@ -159,7 +157,7 @@ func (p *ProcessPool) worker() {
 			entry.running.Store(false)
 
 			// still have tasks in the queue
-			if entry.process.Ready() > 0 {
+			if entry.process.Ready() > 0 && entry.awaken.CompareAndSwap(false, true) {
 				select {
 				case <-p.ctx.Done():
 					return

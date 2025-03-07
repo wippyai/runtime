@@ -33,6 +33,10 @@ type Config struct {
 func (cfg *EntryConfig) InitDefaults() {
 	cfg.Lifecycle.InitDefaults()
 
+	if cfg.HostConfig.MaxProcesses == 0 {
+		cfg.HostConfig.MaxProcesses = 5000
+	}
+
 	if cfg.HostConfig.Workers == 0 {
 		cfg.HostConfig.Workers = runtime.NumCPU()
 	}
