@@ -25,7 +25,7 @@ entries:
       comment: "Tests the LLM query function with mocked HTTP responses"
     source: file://llm_query_test.lua
     method: run_tests
-    modules: [ "http_client", "json", "env" ]
+    modules: [ "http_client", "json", "env", "time" ]
     imports:
       test: wippy.lib:test
       llm_query: app.funcs.openai:llm_query

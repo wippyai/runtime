@@ -18,6 +18,7 @@ import (
 	luaapi "github.com/ponyruntime/pony/api/runtime/lua"
 	topapi "github.com/ponyruntime/pony/api/topology"
 	"github.com/ponyruntime/pony/runtime/lua/code"
+	"github.com/ponyruntime/pony/runtime/lua/command"
 	bteaapp "github.com/ponyruntime/pony/runtime/lua/component/btea"
 	funclua "github.com/ponyruntime/pony/runtime/lua/component/function"
 	"github.com/ponyruntime/pony/runtime/lua/component/library"
@@ -46,7 +47,7 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/modules/treesitter"
 	"github.com/ponyruntime/pony/runtime/lua/modules/uuid"
 	"github.com/ponyruntime/pony/runtime/lua/modules/websocket"
-	"github.com/ponyruntime/pony/runtime/lua/protocol/task"
+	"github.com/ponyruntime/pony/runtime/lua/task"
 	"github.com/ponyruntime/pony/runtime/noop"
 	fsdir "github.com/ponyruntime/pony/service/directory"
 	prochost "github.com/ponyruntime/pony/service/host"
@@ -710,6 +711,7 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 				fncallmod.NewFunctionModule(),
 				payloadmod.NewPayloadModule(),
 				task.NewTaskModule(),
+				command.NewCommandModule(),
 				registrymod.NewRegistryModule(a.logger.Named("registry")),
 				processmod.NewProcessAPIModule(a.logger.Named("proc")),
 				httpapimod.NewHTTPAPIModule(a.logger.Named("http")),

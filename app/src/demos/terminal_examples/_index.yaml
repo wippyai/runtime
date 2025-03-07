@@ -1,5 +1,5 @@
 version: "1.0"
-namespace: app.demos.terminal_examples
+#namespace: app.demos.terminal_examples
 
 meta:
   depends_on: [ "ns:system", "ns:wippy.lib" ]

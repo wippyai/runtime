@@ -1,6 +1,7 @@
 package funcs
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	contextapi "github.com/ponyruntime/pony/api/context"
@@ -8,52 +9,55 @@ import (
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
+	"github.com/ponyruntime/pony/runtime/lua/command"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
-	transcode "github.com/ponyruntime/pony/system/payload/lua"
+	payloadmod "github.com/ponyruntime/pony/runtime/lua/modules/payload"
 	lua "github.com/yuin/gopher-lua"
+	"log"
 )
 
-type Module struct {
-}
+// Module represents the function module
+type Module struct{}
 
+// Functions represents a function executor with context values
 type Functions struct {
 	funcs  function.Registry
 	dtt    payload.Transcoder
 	values *contextapi.Contexter[interface{}]
 }
 
+// NewFunctionModule creates a new function module
 func NewFunctionModule() *Module {
 	return &Module{}
 }
 
+// Name returns the module name
 func (m *Module) Name() string {
 	return "funcs"
 }
 
+// Loader registers the module functions
 func (m *Module) Loader(l *lua.LState) int {
-	mod := l.NewTable()
-	l.SetFuncs(mod, map[string]lua.LGFunction{
-		"new": m.new,
-	})
-
-	// Set up function executor metatable
-	mt := l.NewTypeMetatable("function.Executor")
-	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
+	// Register the function executor methods
+	value.RegisterTypeMethods(l, "function.Executor", nil, map[string]lua.LGFunction{
 		"with_context": m.withContext,
 		"call":         m.call,
 		"async":        m.async,
-	}))
+	})
 
-	// Register task type
-	RegisterTask(l)
+	// Create module table
+	mod := l.CreateTable(0, 1)
+	mod.RawSetString("new", l.NewFunction(m.new))
+
+	command.RegisterCommand(l)
 
 	l.Push(mod)
 	return 1
 }
 
+// extractDependencies gets the required dependencies from context
 func (m *Module) extractDependencies(l *lua.LState) (function.Registry, payload.Transcoder, error) {
 	uw := engine.GetUnitOfWork(l.Context())
 	if uw == nil {
@@ -73,6 +77,7 @@ func (m *Module) extractDependencies(l *lua.LState) (function.Registry, payload.
 	return funcs, dtt, nil
 }
 
+// new creates a new function executor
 func (m *Module) new(l *lua.LState) int {
 	funcs, dtt, err := m.extractDependencies(l)
 	if err != nil {
@@ -88,11 +93,12 @@ func (m *Module) new(l *lua.LState) int {
 
 	ud := l.NewUserData()
 	ud.Value = functions
-	l.SetMetatable(ud, l.GetTypeMetatable("function.Executor"))
+	ud.Metatable = value.GetTypeMetatable(l, "function.Executor")
 	l.Push(ud)
 	return 1
 }
 
+// withContext creates a new executor with additional context values
 func (m *Module) withContext(l *lua.LState) int {
 	ud := l.CheckUserData(1)
 	functions, ok := ud.Value.(*Functions)
@@ -118,7 +124,7 @@ func (m *Module) withContext(l *lua.LState) int {
 			l.ArgError(2, "context keys must be strings")
 			return
 		}
-		newValues.WithValue(string(key), transcode.ToGoAny(v))
+		newValues.WithValue(string(key), v) // Store as LValue
 	})
 
 	// Create new Functions instance
@@ -131,22 +137,24 @@ func (m *Module) withContext(l *lua.LState) int {
 	// Create new userdata with the new Functions instance
 	newUd := l.NewUserData()
 	newUd.Value = newFunctions
-	l.SetMetatable(newUd, l.GetTypeMetatable("function.Executor"))
+	newUd.Metatable = value.GetTypeMetatable(l, "function.Executor")
 	l.Push(newUd)
 
 	return 1
 }
 
+// validateRegistryID validates a registry ID
 func validateRegistryID(id registry.ID) error {
 	if id.NS == "" {
-		return fmt.Errorf("namespace is required, got empty namespace in Source: %s", id.String())
+		return fmt.Errorf("namespace is required, got empty namespace in ID: %s", id.String())
 	}
 	if id.Name == "" {
-		return fmt.Errorf("name is required, got empty name in Source: %s", id.String())
+		return fmt.Errorf("name is required, got empty name in ID: %s", id.String())
 	}
 	return nil
 }
 
+// call synchronously executes a function
 func (m *Module) call(l *lua.LState) int {
 	ud := l.CheckUserData(1)
 	functions, ok := ud.Value.(*Functions)
@@ -202,6 +210,7 @@ func (m *Module) call(l *lua.LState) int {
 	return -1 // Yield for coroutine
 }
 
+// async asynchronously executes a function and returns a command
 func (m *Module) async(l *lua.LState) int {
 	ud := l.CheckUserData(1)
 	functions, ok := ud.Value.(*Functions)
@@ -217,69 +226,59 @@ func (m *Module) async(l *lua.LState) int {
 		return 0
 	}
 
-	// Get unit of work from context
+	// Start the function execution in a goroutine
 	uw := engine.GetUnitOfWork(l.Context())
 	if uw == nil {
 		l.RaiseError("no unit of work context found")
 		return 0
 	}
 
-	// Create a task object with cancellation support
-	t := NewTask(l, engine.DetachUnitOfWork(uw.Context()))
+	ctx, cancel := context.WithCancel(engine.DetachUnitOfWork(uw.Context()))
 
-	// Create task userdata
-	taskUd := l.NewUserData()
-	taskUd.Value = t
-	taskUd.Metatable = value.GetTypeMetatable(l, "function.Task")
+	// Create a Command for the function call with the task's params
+	cmd := command.NewCommand(
+		l,
+		runtimeTask.ID.String(),
+		func(cmd runtime.Command) { cancel() },
+		runtimeTask.Payloads...,
+	)
 
-	// Start the task in a goroutine
-	uw.Run(
-		func(work engine.UnitOfWork) {
-			// Start the function
-			resultChan, err := functions.funcs.Call(t.Context(), runtimeTask)
-			if err != nil {
-				t.SetError(err)
-				// close chan
-				_ = channel.Close(l, t.response)
-				return
-			}
+	uw.Run(func(work engine.UnitOfWork) {
+		// Run the function
+		resultChan, err := functions.funcs.Call(ctx, runtimeTask)
+		if err != nil {
+			_ = cmd.Complete(&runtime.Result{
+				Error: err,
+			})
+			return
+		}
 
-			// Wait for result
-			select {
-			case result := <-resultChan:
-				if result.Error != nil {
-					// Error result
-					t.SetError(result.Error)
-					_ = channel.Close(l, t.response)
-				} else if result.Value != nil {
-					// Success with payload
-					res, err := functions.dtt.Transcode(result.Value, payload.Lua)
-					if err != nil {
-						t.SetError(err)
-						_ = channel.Close(l, t.response)
-					} else {
-						resultLua := res.Data().(lua.LValue)
-						t.SetResult(resultLua)
-						_ = channel.Send(l, t.response, resultLua)
-						_ = channel.Close(l, t.response)
-					}
-				} else {
-					// Empty success result
-					t.SetResult(lua.LNil)
-					_ = channel.Send(l, t.response, lua.LNil)
-					_ = channel.Close(l, t.response)
-				}
-			case <-uw.Context().Done():
-				t.SetError(ErrTaskCanceled)
-				_ = channel.Close(l, t.response)
-			}
-		})
+		// Wait for result
+		select {
+		case result := <-resultChan:
+			_ = cmd.Complete(&runtime.Result{
+				Value: result.Value,
+				Error: result.Error,
+			})
+		case <-work.Context().Done():
+			log.Printf("OFF %v", err)
+			_ = cmd.Cancel()
+		}
+	})
 
-	// Return the task object
-	l.Push(taskUd)
+	// Return the command object
+	l.Push(command.WrapCommand(l, cmd))
 	return 1
 }
 
+// cancelHandler creates a handler for command cancellation
+func (f *Functions) cancelHandler(l *lua.LState, task runtime.Task) runtime.Canceller {
+	return func(cmd runtime.Command) {
+		// todo: cancel inner context! Implement cancellation logic if needed
+	}
+}
+
+// createTask creates a runtime.Task from Lua parameters
 func (f *Functions) createTask(l *lua.LState) (runtime.Task, error) {
 	targetIndex := 1
 	if l.Get(1).Type() == lua.LTUserData {
@@ -291,15 +290,26 @@ func (f *Functions) createTask(l *lua.LState) (runtime.Task, error) {
 		return runtime.Task{}, errors.New("target name is required")
 	}
 
-	// Parse and validate registry Source
+	// Parse and validate registry ID
 	regID := registry.ParseID(target)
 	if err := validateRegistryID(regID); err != nil {
-		return runtime.Task{}, fmt.Errorf("invalid registry Source: %w", err)
+		return runtime.Task{}, fmt.Errorf("invalid registry ID: %w", err)
 	}
 
 	var payloads []payload.Payload
 	for i := targetIndex + 1; i <= l.GetTop(); i++ {
-		payloads = append(payloads, payload.NewPayload(l.Get(i), payload.Lua))
+		val := l.Get(i)
+
+		// Check if argument is already a payload wrapper
+		if ud, ok := val.(*lua.LUserData); ok {
+			if pw, ok := ud.Value.(*payloadmod.Wrapper); ok {
+				payloads = append(payloads, pw.Payload)
+				continue
+			}
+		}
+
+		// Otherwise create a new payload
+		payloads = append(payloads, payload.NewPayload(val, payload.Lua))
 	}
 
 	return runtime.Task{
