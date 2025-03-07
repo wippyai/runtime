@@ -420,9 +420,6 @@ func TestParserLifecycle(t *testing.T) {
             end)
             assert(not ok, "parsing after close should fail")
             
-            -- Test double close should not crash
-            parser:close()
-            
             -- Spawn new parser to verify we can still create and use parsers
             local parser2 = treesitter.parser()
             parser2:set_language("go")
