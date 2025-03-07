@@ -205,3 +205,11 @@ func PushPayload(l *lua.LState, p payload.Payload) int {
 	l.Push(ud)
 	return 1
 }
+
+func WrapPayload(l *lua.LState, p payload.Payload) lua.LValue {
+	ud := l.NewUserData()
+	ud.Value = &Wrapper{Payload: p}
+	ud.Metatable = value.GetTypeMetatable(l, TypeName)
+
+	return ud
+}
