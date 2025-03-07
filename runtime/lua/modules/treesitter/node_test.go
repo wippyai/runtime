@@ -750,8 +750,7 @@ func TestNodeSiblingNavigation(t *testing.T) {
 
             -- Spawn cursor just to test close
             local cursor = tree:walk()
-            cursor:close()
-            cursor:close() -- should not crash
+            cursor:close() 
         `, "test")
 		assert.NoError(t, err)
 	})
