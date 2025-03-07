@@ -34,7 +34,7 @@ entries:
     meta:
       comment: "Registry queries for migrations"
     source: file://migration_registry.lua
-    modules: [ "registry" ]
+    modules: [ "registry", "time" ]
 
   - name: migration_executor
     kind: library.lua

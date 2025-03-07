@@ -1,13 +1,15 @@
-local registry = require("registry")
-
-local migration_registry = {}
+local time = require("time")
+local migrations = {
+    registry = require("registry")
+}
 
 -- Find migrations in registry
-function migration_registry.find(options)
+function migrations.find(options)
     options = options or {}
 
     local criteria = {
-        kind = "migration.lua"
+        [".kind"] = "function.lua",
+        type = "migration",
     }
 
     if options.db_namespace then
@@ -25,14 +27,8 @@ function migration_registry.find(options)
         criteria.meta.tags = options.tags
     end
 
-    -- Get registry snapshot
-    local snapshot, err = registry.snapshot()
-    if err then
-        return nil, "Failed to get registry snapshot: " .. err
-    end
-
     -- Find migrations
-    local entries = snapshot:find(criteria)
+    local entries = migrations.registry.find(criteria)
 
     -- Sort by timestamp
     table.sort(entries, function(a, b)
@@ -45,31 +41,19 @@ function migration_registry.find(options)
 end
 
 -- Get specific migration by ID
-function migration_registry.get(id)
-    local snapshot, err = registry.snapshot()
-    if err then
-        return nil, "Failed to get registry snapshot: " .. err
-    end
-
-    return snapshot:get(id)
+function migrations.get(id)
+    return migrations.registry.get(id)
 end
 
 -- Get entries for a specific db_namespace
-function migration_registry.get_by_namespace(db_namespace)
+function migrations.get_by_namespace(db_namespace)
     if not db_namespace then
         return nil, "db_namespace is required"
     end
 
-    local snapshot, err = registry.snapshot()
-    if err then
-        return nil, "Failed to get registry snapshot: " .. err
-    end
-
-    local entries = snapshot:find({
-        kind = "migration.lua",
-        meta = {
-            db_namespace = db_namespace
-        }
+    local entries = migrations.registry.find({
+        [".kind"] = "migration.lua",
+        db_namespace = db_namespace
     })
 
     -- Sort by timestamp
@@ -83,14 +67,10 @@ function migration_registry.get_by_namespace(db_namespace)
 end
 
 -- Get all migration namespaces
-function migration_registry.get_namespaces()
-    local snapshot, err = registry.snapshot()
-    if err then
-        return nil, "Failed to get registry snapshot: " .. err
-    end
-
-    local entries = snapshot:find({
-        kind = "migration.lua"
+function migrations.get_namespaces()
+    local entries = migrations.registry.find({
+        [".kind"] = "function.lua",
+        type = "migration",
     })
 
     local namespaces = {}
@@ -109,4 +89,4 @@ function migration_registry.get_namespaces()
     return result
 end
 
-return migration_registry
+return migrations

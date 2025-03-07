@@ -1,0 +1,21 @@
+version: "1.0"
+namespace: app.demo.crud
+
+meta:
+  depends_on: [ "ns:wippy.lib" ]
+
+entries:
+  - name: user_table
+    kind: function.lua
+    meta:
+      description: "Create users table with indexes"
+      type: "migration"
+      timestamp: "2025-03-07T12:00:00Z"
+      db_types: [ "sqlite" ]
+      db_namespace: "app"
+    source: file://add_user_table.lua
+    method: migrate
+    imports:
+      migration: "wippy.lib:migration"
+    pool:
+      size: 1
