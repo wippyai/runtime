@@ -1,19 +1,19 @@
 version: "1.0"
-namespace: app.demo.crud
+namespace: app.demo.todo_list
 
 meta:
   depends_on: [ "ns:wippy.lib" ]
+  db_namespace: "todo_list"
+  db_types: [ "sqlite" ]
+  type: "migration"
 
 entries:
-  - name: user_table
+  - name: todo_table
     kind: function.lua
     meta:
-      description: "Create users table with indexes"
-      type: "migration"
+      description: "Create todo_items table with indexes"
       timestamp: "2025-03-07T12:00:00Z"
-      db_types: [ "sqlite" ]
-      db_namespace: "app"
-    source: file://add_user_table.lua
+    source: file://add_todo_table.lua
     method: migrate
     imports:
       migration: "wippy.lib:migration"
