@@ -7,6 +7,7 @@ import (
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
+	"github.com/ponyruntime/pony/api/runtime"
 	"time"
 )
 
@@ -93,6 +94,11 @@ type (
 
 		// Terminate notifies the process about termination, triggers lifecycle handling.
 		Terminate()
+	}
+
+	Workflow interface {
+		Process
+		Commands() []runtime.Command
 	}
 
 	// Lifecycle encapsulates the supervision relationship between processes.
