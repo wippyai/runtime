@@ -17,6 +17,18 @@ entries:
     pool:
       size: 1
 
+  - name: db_discovery
+    kind: function.lua
+    meta:
+      comment: "Discovers all available target databases for migrations"
+    source: file://db_discovery.lua
+    method: discover_dbs
+    modules: [ http, time, json ]
+    imports:
+      migration_registry: "wippy.lib:migration_registry"
+    pool:
+      size: 1
+
   - name: discover.endpoint
     kind: http.endpoint
     meta:
@@ -25,3 +37,12 @@ entries:
     method: GET
     path: /migrations/discover
     func: migration_discovery
+
+  - name: db.endpoint
+    kind: http.endpoint
+    meta:
+      comment: "Lists all available target databases for migrations"
+      router: system:api
+    method: GET
+    path: /migrations/databases
+    func: db_discovery

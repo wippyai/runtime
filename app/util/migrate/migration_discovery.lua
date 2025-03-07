@@ -21,17 +21,9 @@ local function discover_migrations()
     -- Parse query parameters for filtering
     local options = {}
 
-    -- Filter by db_namespace
-    if req:query("namespace") then
-        options.db_namespace = req:query("namespace")
-    end
-
-    -- Filter by database type
-    if req:query("db_type") then
-        options.db_types = {}
-        for db_type in req:query("db_type"):gmatch("([^,]+)") do
-            table.insert(options.db_types, db_type:trim())
-        end
+    -- Filter by target_db instead of db_namespace
+    if req:query("target_db") then
+        options.target_db = req:query("target_db")
     end
 
     -- Filter by tags
@@ -55,13 +47,13 @@ local function discover_migrations()
     -- Format migrations for response
     local formatted_migrations = format_migrations(migrations)
 
-    -- Extract namespaces
-    local namespaces = extract_namespaces(formatted_migrations)
+    -- Extract target databases
+    local target_dbs = migration_registry.get_target_dbs()
 
-    -- Return the discovered migrations and namespaces
+    -- Return the discovered migrations and target databases
     res:write_json({
         migrations = formatted_migrations,
-        namespaces = namespaces,
+        databases = target_dbs,
         count = #formatted_migrations,
         timestamp = time.now():unix()
     })
@@ -100,15 +92,34 @@ function format_migrations(migrations)
             end
         end
 
+        -- Parse timestamp using time package
+        local timestamp_str = (migration.meta and migration.meta.timestamp) or ""
+        local timestamp = timestamp_str
+
+        -- Try to parse timestamp if it's a string
+        if type(timestamp_str) == "string" and #timestamp_str > 0 then
+            -- Try RFC3339 format first
+            local t, err = time.parse(time.RFC3339, timestamp_str)
+            if t then
+                timestamp = t:unix()
+            else
+                -- Try date-time format
+                t, err = time.parse(time.DateTime, timestamp_str)
+                if t then
+                    timestamp = t:unix()
+                end
+            end
+        end
+
         local entry = {
             id = id,
             name = name,
             namespace = namespace,
             kind = kind,
             description = (migration.meta and migration.meta.description) or "",
-            db_namespace = (migration.meta and migration.meta.db_namespace) or "",
-            db_types = (migration.meta and migration.meta.db_types) or {},
-            timestamp = (migration.meta and migration.meta.timestamp) or "",
+            target_db = (migration.meta and migration.meta.target_db) or "",
+            timestamp = timestamp,
+            timestamp_raw = timestamp_str,
             method = migration.method or ""
         }
 
@@ -116,25 +127,6 @@ function format_migrations(migrations)
     end
 
     return formatted
-end
-
--- Helper function to extract unique namespaces
-function extract_namespaces(migrations)
-    local namespace_set = {}
-
-    for _, migration in ipairs(migrations) do
-        if migration.db_namespace and migration.db_namespace ~= "" then
-            namespace_set[migration.db_namespace] = true
-        end
-    end
-
-    local namespaces = {}
-    for ns in pairs(namespace_set) do
-        table.insert(namespaces, ns)
-    end
-
-    table.sort(namespaces)
-    return namespaces
 end
 
 return { discover_migrations = discover_migrations }
