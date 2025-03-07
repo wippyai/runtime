@@ -254,7 +254,13 @@ func (a *App) Step() error {
 	case <-a.appCtx.Done():
 		return context.Canceled
 	default:
-		return a.state.Step(a.Ready() == 0)
+		for a.state.GetTaskCount() > 0 {
+			if err := a.state.Step(false); err != nil {
+				return err
+			}
+		}
+
+		return a.state.Step(true)
 	}
 }
 
@@ -358,7 +364,6 @@ func (a *App) publishTask(taskType string, payload lua.LValue, timeout time.Dura
 func (a *App) waitResponse(t *task.Task, timeout time.Duration, taskType string) string {
 	select {
 	case rsp := <-t.Response:
-		a.state.UoW.Tasks().WakeUp()
 		if result, ok := rsp.(lua.LValue); ok {
 			return result.String()
 		}
