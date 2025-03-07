@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/ponyruntime/pony/__old/task"
 	process2 "github.com/ponyruntime/pony/runtime/lua/component/process"
+	"github.com/ponyruntime/pony/runtime/lua/engine/task"
 	"sync"
 	"time"
 
@@ -265,7 +265,7 @@ func (a *App) Ready() int {
 
 // Send handles incoming messages to the process
 func (a *App) Send(pkg *pubsub.Package) error {
-	return a.state.ProcessPackage(pkg)
+	return a.state.SendPackage(pkg)
 }
 
 // Terminate forcefully stops the process
