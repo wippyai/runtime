@@ -308,6 +308,7 @@ function migration.run(fn, options)
         total = #implementations,
         applied = 0,
         skipped = 0,
+        skipped_reasons = {},
         failed = 0,
         db_type = db_type
     }
@@ -324,7 +325,7 @@ function migration.run(fn, options)
                 direction = options.direction,
                 dry_run = options.dry_run,
                 force = options.force,
-                id = options.id
+                id = options.id,
             })
 
             table.insert(results.migrations, result)
@@ -333,6 +334,7 @@ function migration.run(fn, options)
                 results.applied = results.applied + 1
             elseif result.status == "skipped" then
                 results.skipped = results.skipped + 1
+                table.insert(results.skipped_reasons, result.reason)
             elseif result.status == "error" then
                 results.failed = results.failed + 1
 
@@ -346,6 +348,7 @@ function migration.run(fn, options)
         else
             -- No implementation for this DB type
             results.skipped = results.skipped + 1
+            table.insert(results.skipped_reasons, "No implementation for database type: " .. db_type)
         end
     end
 

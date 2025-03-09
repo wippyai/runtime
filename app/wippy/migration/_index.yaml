@@ -23,7 +23,7 @@ entries:
         - wippy.migration:repository
         - wippy.migration:registry
     source: file://runner.lua
-    modules: [ "time", "funcs" ]
+    modules: [ "time", "funcs", "json" ]
     imports:
       repository: "wippy.migration:repository"
       registry: "wippy.migration:registry"

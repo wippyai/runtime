@@ -145,7 +145,7 @@ local function execute_migration(migration_id, options)
 
     -- Execute the migration in isolation
     local result, exec_err = executor:call(migration_id, options)
-
+    print(require("json").encode(result))
     if exec_err then
         return {
             status = "error",
@@ -192,6 +192,7 @@ function Runner:run(options)
 
     -- Execute each migration that's not already applied
     for _, migration in ipairs(migrations) do
+
         -- Skip if already applied
         if migration.applied then
             results.migrations_skipped = results.migrations_skipped + 1
