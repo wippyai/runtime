@@ -8,7 +8,7 @@ entries:
   - name: status
     kind: function.lua
     meta:
-      comment: "Discovers all available migrations without running them"
+      comment: "Gets migration status for a specific database"
     source: file://status.lua
     method: discover_migrations
     modules: [ http, time, json ]
@@ -30,6 +30,42 @@ entries:
     pool:
       size: 1
 
+  - name: run
+    kind: function.lua
+    meta:
+      comment: "Runs all pending migrations for a database"
+    source: file://run.lua
+    method: run_migrations
+    modules: [ http, time, json ]
+    imports:
+      runner: "wippy.migration:runner"
+    pool:
+      size: 1
+
+  - name: run_single
+    kind: function.lua
+    meta:
+      comment: "Runs a specific migration by ID"
+    source: file://run_single.lua
+    method: run_migration
+    modules: [ http, time, json ]
+    imports:
+      runner: "wippy.migration:runner"
+    pool:
+      size: 1
+
+  - name: rollback
+    kind: function.lua
+    meta:
+      comment: "Rolls back migrations for a database"
+    source: file://rollback.lua
+    method: rollback_migrations
+    modules: [ http, time, json ]
+    imports:
+      runner: "wippy.migration:runner"
+    pool:
+      size: 1
+
   - name: status.endpoint
     kind: http.endpoint
     meta:
@@ -47,3 +83,30 @@ entries:
     method: GET
     path: /migrations/databases
     func: dbs
+
+  - name: run.endpoint
+    kind: http.endpoint
+    meta:
+      comment: "Runs all pending migrations for a database"
+      router: system:api
+    method: POST
+    path: /migrations/run
+    func: run
+
+  - name: run_single.endpoint
+    kind: http.endpoint
+    meta:
+      comment: "Runs a specific migration by ID"
+      router: system:api
+    method: POST
+    path: /migrations/run_single
+    func: run_single
+
+  - name: rollback.endpoint
+    kind: http.endpoint
+    meta:
+      comment: "Rolls back migrations for a database"
+      router: system:api
+    method: POST
+    path: /migrations/rollback
+    func: rollback

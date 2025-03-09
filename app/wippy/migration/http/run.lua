@@ -47,18 +47,7 @@ local function run_migrations()
     end
 
     -- Setup runner for the target database
-    local db_runner
-    local setup_success, setup_err = pcall(function()
-        db_runner = runner.setup(body.target_db)
-    end)
-
-    if not setup_success or not db_runner then
-        res:set_status(http.STATUS.INTERNAL_SERVER_ERROR)
-        res:write_json({
-            error = "Failed to setup migration runner: " .. (setup_err or "unknown error")
-        })
-        return true
-    end
+    local db_runner = runner.setup(body.target_db)
 
     -- Set up options
     local options = {
@@ -76,6 +65,13 @@ local function run_migrations()
     local result = db_runner:run(options)
     local end_time = time.now()
     local duration = end_time:sub(start_time):milliseconds() / 1000 -- In seconds
+
+    -- Check if result is an error response
+    if result and result.status == "error" then
+        res:set_status(http.STATUS.INTERNAL_SERVER_ERROR)
+        res:write_json(result)
+        return true
+    end
 
     -- Enhance the result with runtime info
     result.runtime = {
