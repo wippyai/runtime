@@ -22,7 +22,7 @@ entries:
       depends_on:
         - wippy.migration:repository
         - wippy.migration:registry
-    source: file://migration.lua
+    source: file://runner.lua
     modules: [ "time", "funcs" ]
     imports:
       repository: "wippy.migration:repository"

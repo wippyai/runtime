@@ -32,6 +32,14 @@ local registry_finder = require("registry")
 
 local runner = {}
 
+-- Helper function to create error response
+local function create_error(message)
+    return {
+        status = "error",
+        error = tostring(message)
+    }
+end
+
 -- Runner object for a specific database
 local Runner = {}
 Runner.__index = Runner
@@ -55,28 +63,28 @@ function Runner:find_migrations(options)
     -- Get database connection to determine type
     local db, err = sql.get(self.database_id)
     if err then
-        return nil, "Failed to connect to database: " .. err
+        return nil, "Failed to connect to database: " .. tostring(err)
     end
 
     -- Get database type
     local db_type, type_err = db:type()
     if type_err then
         db:release()
-        return nil, "Failed to determine database type: " .. type_err
+        return nil, "Failed to determine database type: " .. tostring(type_err)
     end
 
     -- Initialize tracking table
-    local _, init_err = repository.init_tracking_table(db)
-    if init_err then
+    local init_ok, init_err = repository.init_tracking_table(db)
+    if not init_ok then
         db:release()
-        return nil, "Failed to initialize migration tracking table: " .. init_err
+        return nil, "Failed to initialize migration tracking table: " .. tostring(init_err)
     end
 
     -- Get applied migrations
     local applied_migrations, applied_err = repository.get_migrations(db)
     if applied_err then
         db:release()
-        return nil, "Failed to get applied migrations: " .. applied_err
+        return nil, "Failed to get applied migrations: " .. tostring(applied_err)
     end
 
     -- Build map of applied migrations for quick lookup
@@ -94,7 +102,7 @@ function Runner:find_migrations(options)
     local migrations, find_err = registry_finder.find(find_options)
     if find_err then
         db:release()
-        return nil, "Failed to find migrations: " .. find_err
+        return nil, "Failed to find migrations: " .. tostring(find_err)
     end
 
     db:release()
@@ -141,7 +149,7 @@ local function execute_migration(migration_id, options)
     if exec_err then
         return {
             status = "error",
-            error = "Failed to execute migration: " .. exec_err
+            error = "Failed to execute migration: " .. tostring(exec_err)
         }
     end
 
@@ -155,10 +163,7 @@ function Runner:run(options)
     -- Find available migrations
     local migrations, find_err = self:find_migrations(options)
     if find_err then
-        return {
-            status = "error",
-            error = find_err
-        }
+        return create_error(find_err)
     end
 
     if not migrations or #migrations == 0 then
@@ -339,30 +344,21 @@ function Runner:rollback(options)
     -- Get database connection
     local db, err = sql.get(self.database_id)
     if err then
-        return {
-            status = "error",
-            error = "Failed to connect to database: " .. err
-        }
+        return create_error("Failed to connect to database: " .. tostring(err))
     end
 
     -- Initialize tracking table
-    local _, init_err = repository.init_tracking_table(db)
-    if init_err then
+    local init_ok, init_err = repository.init_tracking_table(db)
+    if not init_ok then
         db:release()
-        return {
-            status = "error",
-            error = "Failed to initialize migration tracking table: " .. init_err
-        }
+        return create_error("Failed to initialize migration tracking table: " .. tostring(init_err))
     end
 
     -- Get applied migrations sorted by most recent first
-    local applied_migrations, err = repository.get_migrations(db)
-    if err then
+    local applied_migrations, query_err = repository.get_migrations(db)
+    if query_err then
         db:release()
-        return {
-            status = "error",
-            error = "Failed to get applied migrations: " .. err
-        }
+        return create_error("Failed to get applied migrations: " .. tostring(query_err))
     end
 
     db:release()
@@ -469,10 +465,7 @@ function Runner:status(options)
     -- Find available migrations
     local migrations, find_err = self:find_migrations(options)
     if find_err then
-        return {
-            status = "error",
-            error = find_err
-        }
+        return create_error(find_err)
     end
 
     -- Count metrics
@@ -487,11 +480,18 @@ function Runner:status(options)
 
     -- Get database type
     local db, err = sql.get(self.database_id)
-    if not err then
-        local db_type, _ = db:type()
-        status_report.db_type = db_type
-        db:release()
+    if err then
+        return create_error("Failed to connect to database: " .. tostring(err))
     end
+
+    local db_type, type_err = db:type()
+    if type_err then
+        db:release()
+        return create_error("Failed to determine database type: " .. tostring(type_err))
+    end
+
+    status_report.db_type = db_type
+    db:release()
 
     -- Process migrations
     for _, migration in ipairs(migrations) do
