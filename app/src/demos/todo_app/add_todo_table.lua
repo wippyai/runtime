@@ -2,8 +2,19 @@ local function define_migration()
     migration("Create todo_items table", function()
         database("sqlite", function()
             precondition(function(db)
+                -- First check if the table already exists
                 local result = db:query("SELECT name FROM sqlite_master WHERE type='table' AND name='todo_items'")
-                return not (result and #result > 0), "Todo items table already exists"
+                if result and #result > 0 then
+                    return false, "Todo items table already exists"
+                end
+
+                -- Check if users table exists (since we need a foreign key reference)
+                local users_result = db:query("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
+                if not users_result or #users_result == 0 then
+                    return false, "Users table does not exist yet - required for foreign key"
+                end
+
+                return true
             end)
 
             up(function(db)

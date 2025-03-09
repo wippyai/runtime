@@ -66,6 +66,16 @@ entries:
     pool:
       size: 1
 
+  - name: check_tables
+    kind: function.lua
+    meta:
+      comment: "Checks available tables in a database"
+    source: file://check_tables.lua
+    method: check_tables
+    modules: [ http, json, sql ]
+    pool:
+      size: 1
+
   - name: status.endpoint
     kind: http.endpoint
     meta:
@@ -110,3 +120,12 @@ entries:
     method: POST
     path: /migrations/rollback
     func: rollback
+
+  - name: check_tables.endpoint
+    kind: http.endpoint
+    meta:
+      comment: "Checks available tables in a database"
+      router: system:api
+    method: GET
+    path: /migrations/check-tables
+    func: check_tables

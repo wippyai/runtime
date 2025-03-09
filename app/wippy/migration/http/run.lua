@@ -52,7 +52,7 @@ local function run_migrations()
     -- Set up options
     local options = {
         force = body.force == true,
-        dry_run = body.dry_run == true
+        verbose_errors = true -- Enable detailed error reporting
     }
 
     -- Add tags if specified
@@ -78,6 +78,19 @@ local function run_migrations()
         requested_at = start_time:unix(),
         duration = duration
     }
+
+    -- For skipped migrations with "Unknown" reason, try to provide more context
+    if result.migrations then
+        for i, migration in ipairs(result.migrations) do
+            if migration.status == "skipped" and (not migration.reason or migration.reason == "Unknown") then
+                -- Check if this migration has a precondition that might have failed
+                local migration_info = db_runner:get_migration_info(migration.id)
+                if migration_info and migration_info.has_precondition then
+                    result.migrations[i].reason = "Precondition check failed - check migration dependencies"
+                end
+            end
+        end
+    end
 
     -- Return the result
     res:write_json(result)
