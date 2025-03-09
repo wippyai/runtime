@@ -144,7 +144,7 @@ local function execute_migration(migration_id, options)
     local executor = funcs.new()
 
     -- Execute the migration in isolation
-    local cmd, exec_err = executor:sync(migration_id, options)
+    local result, exec_err = executor:call(migration_id, options)
 
     if exec_err then
         return {
@@ -153,7 +153,7 @@ local function execute_migration(migration_id, options)
         }
     end
 
-    return cmd:response()
+    return result
 end
 
 -- Run migrations in isolated manner
