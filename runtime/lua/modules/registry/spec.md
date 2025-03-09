@@ -53,7 +53,7 @@ local entry, err = snapshot:get("namespace:name")
 -- Returns on error: nil, error message
 
 -- Entry Structure:
--- entry.id: Table with {ns = "namespace", name = "name"}
+-- entry.id: id (string) - Entry ID in "namespace:name" format
 -- entry.kind: Entry kind (string)
 -- entry.meta: Metadata table (key-value pairs)
 -- entry.data: Entry data (any value)

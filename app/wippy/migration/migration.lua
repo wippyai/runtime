@@ -293,7 +293,7 @@ function migration.run(fn, options)
     end
 
     -- Define migrations using the core DSL
-    local implementations_or_err = cpcall(migration_core.define, fn)
+    local success,implementations_or_err = cpcall(migration_core.define, fn)
     if not success then
         if need_release then db:release() end
 
