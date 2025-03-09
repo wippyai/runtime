@@ -47,7 +47,7 @@ function migration_core.create_migration_fn(context)
         }
 
         -- Run the migration definition function to collect implementations
-        local success, err = pcall(fn)
+        local success, err = cpcall(fn)
         if not success then
             context.current_migration = old_migration
             error("Error in migration definition: " .. tostring(err))

@@ -91,7 +91,7 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/lib/pq"
 
-	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
+	//sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -468,7 +468,8 @@ func (a *App) StartProfiler() {
 }
 
 func main() {
-	sqlite_vec.Auto()
+	// todo: also fix in github pipelines
+	//sqlite_vec.Auto()
 
 	// Parse command line flags
 	verbose := flag.Bool("v", false, "enable verbose debug logging")
