@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/ponyruntime/pony/api/payload"
 	regapi "github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/internal/metamatch"
 	luaconv "github.com/ponyruntime/pony/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -170,34 +169,4 @@ func convertFilterToMetadata(l *lua.LState, filterTable *lua.LTable) regapi.Meta
 	}
 
 	return meta
-}
-
-// metadataToMatcher converts registry metadata to a metamatch.Matcher
-// leveraging the internal metamatch package for filtering
-func metadataToMatcher(metadata regapi.Metadata) *metamatch.Matcher {
-	matcher := metamatch.NewMatcher()
-
-	// Add conditions for each metadata entry
-	for key, value := range metadata {
-		switch v := value.(type) {
-		case string:
-			matcher = matcher.WithStringValue(key, v)
-		case bool:
-			matcher = matcher.WithBoolValue(key, v)
-		case int:
-			matcher = matcher.WithIntValue(key, v)
-		case float64:
-			matcher = matcher.WithIntValue(key, int(v))
-		case []string:
-			// For string arrays, we assume all values must be present (AND logic)
-			for _, tag := range v {
-				matcher = matcher.WithTagContains(key, tag)
-			}
-		default:
-			// For other types, use exact value matching
-			matcher = matcher.WithExactValue(key, value)
-		}
-	}
-
-	return matcher
 }

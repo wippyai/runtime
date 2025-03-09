@@ -10,11 +10,11 @@ import (
 
 // memoryFinder implements the Finder interface for in-memory registry state
 type memoryFinder struct {
-	reg registry.Registry
+	reg registry.EntryReader
 }
 
 // NewFinder creates a new Finder that can search registry entries
-func NewFinder(r registry.Registry) registry.Finder {
+func NewFinder(r registry.EntryReader) registry.Finder {
 	return &memoryFinder{reg: r}
 }
 

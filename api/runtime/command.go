@@ -1,6 +1,9 @@
 package runtime
 
-import "github.com/ponyruntime/pony/api/context"
+import (
+	"github.com/ponyruntime/pony/api/context"
+	"github.com/ponyruntime/pony/api/payload"
+)
 
 var CancellerCtx = &context.Key{Name: "runtime.canceller"}
 
@@ -13,6 +16,7 @@ type (
 	Command interface {
 		ID() ID
 		Type() Type
+		Params() payload.Payloads
 		Result() *Result
 		Complete(result *Result) error
 		Cancel() error
