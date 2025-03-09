@@ -108,6 +108,15 @@
                     </svg>
                     {{ showLogs ? 'Hide Logs' : 'Show Logs' }}
                 </button>
+                <button v-if="hasSkippedMigrations" @click="showSkippedDetails = !showSkippedDetails"
+                        class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-yellow-600 hover:bg-yellow-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24"
+                         stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                              d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                    {{ showSkippedDetails ? 'Hide Skipped Details' : 'Show Skipped Details' }}
+                </button>
             </div>
         </div>
         <p class="mt-2 text-sm text-gray-600">Manage and track database migrations across your system</p>
@@ -305,6 +314,48 @@
             migrations</p>
     </div>
 
+    <!-- Skipped Migrations Detail Panel -->
+    <div v-if="showSkippedDetails && hasSkippedMigrations" class="bg-white shadow sm:rounded-lg mb-8">
+        <div class="px-4 py-5 border-b border-gray-200 sm:px-6">
+            <h3 class="text-lg leading-6 font-medium text-gray-900">
+                Skipped Migration Details
+            </h3>
+            <p class="mt-1 max-w-2xl text-sm text-gray-500">
+                Detailed information about migrations that were skipped during execution
+            </p>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                <tr>
+                    <th scope="col"
+                        class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID
+                    </th>
+                    <th scope="col"
+                        class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name
+                    </th>
+                    <th scope="col"
+                        class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Reason
+                    </th>
+                </tr>
+                </thead>
+                <tbody class="bg-white divide-y divide-gray-200">
+                <tr v-for="(detail, index) in skippedDetails" :key="index" class="bg-yellow-50">
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-mono">
+                        {{ formatId(detail.id) }}
+                    </td>
+                    <td class="px-6 py-4 text-sm text-gray-900">
+                        {{ detail.name }}
+                    </td>
+                    <td class="px-6 py-4 text-sm text-gray-500">
+                        {{ detail.reason || 'Unknown reason' }}
+                    </td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
     <!-- Migration Logs Panel -->
     <div v-if="showLogs && migrationLogs.length > 0" class="bg-white shadow sm:rounded-lg mb-8">
         <div class="px-4 py-5 border-b border-gray-200 sm:px-6">
@@ -430,7 +481,8 @@
                                 <span class="text-sm font-medium block" :class="getStatusTextColor(migration)">
                                     {{ migration.status.charAt(0).toUpperCase() + migration.status.slice(1) }}
                                 </span>
-                                <span v-if="migration.status === 'skipped' && migration.reason" class="text-xs text-gray-500 block">
+                                <span v-if="migration.status === 'skipped' && migration.reason"
+                                      class="text-xs text-gray-500 block">
                                     {{ migration.reason }}
                                 </span>
                             </div>
@@ -546,14 +598,17 @@
                                     </div>
                                     <div class="sm:col-span-1">
                                         <dt class="text-sm font-medium text-gray-500">Status</dt>
-                                        <dd class="mt-1 text-sm font-medium" :class="getStatusTextColor(selectedMigration)">
-                                            {{ selectedMigration.status.charAt(0).toUpperCase() + selectedMigration.status.slice(1) }}
+                                        <dd class="mt-1 text-sm font-medium"
+                                            :class="getStatusTextColor(selectedMigration)">
+                                            {{ selectedMigration.status.charAt(0).toUpperCase() +
+                                            selectedMigration.status.slice(1) }}
                                         </dd>
                                     </div>
                                     <div v-if="selectedMigration.status === 'skipped'" class="sm:col-span-2">
                                         <dt class="text-sm font-medium text-gray-500">Skip Reason</dt>
                                         <dd class="mt-1 text-sm text-yellow-600">
-                                            {{ selectedMigration.reason || 'Unknown' }}
+                                            {{ selectedMigration.reason ||
+                                            getSkipReasonForMigration(selectedMigration.id) || 'Unknown' }}
                                         </dd>
                                     </div>
                                     <div class="sm:col-span-1">
@@ -631,6 +686,8 @@
             const selectedMigration = ref(null);
             const migrationLogs = ref([]);
             const showLogs = ref(false);
+            const showSkippedDetails = ref(false);
+            const skippedDetails = ref([]);
             const notification = ref({
                 show: false,
                 type: 'success',
@@ -651,12 +708,21 @@
                 return migrationLogs.value.length > 0;
             });
 
+            const hasSkippedMigrations = computed(() => {
+                return skippedDetails.value.length > 0;
+            });
+
             // Load logs from local storage
             const loadLogsFromStorage = () => {
                 try {
                     const savedLogs = localStorage.getItem('migrationLogs');
                     if (savedLogs) {
                         migrationLogs.value = JSON.parse(savedLogs);
+                    }
+
+                    const savedSkippedDetails = localStorage.getItem('skippedDetails');
+                    if (savedSkippedDetails) {
+                        skippedDetails.value = JSON.parse(savedSkippedDetails);
                     }
                 } catch (error) {
                     console.error('Error loading logs from storage:', error);
@@ -667,6 +733,7 @@
             const saveLogsToStorage = () => {
                 try {
                     localStorage.setItem('migrationLogs', JSON.stringify(migrationLogs.value));
+                    localStorage.setItem('skippedDetails', JSON.stringify(skippedDetails.value));
                 } catch (error) {
                     console.error('Error saving logs to storage:', error);
                 }
@@ -693,6 +760,29 @@
             // Clear all logs
             const clearLogs = () => {
                 migrationLogs.value = [];
+                saveLogsToStorage();
+            };
+
+            // Get skip reason for a specific migration ID
+            const getSkipReasonForMigration = (migrationId) => {
+                const detail = skippedDetails.value.find(d => d.id === migrationId);
+                return detail ? detail.reason : null;
+            };
+
+            // Update skipped details
+            const updateSkippedDetails = (details) => {
+                if (!details || !Array.isArray(details)) return;
+
+                // Merge new details with existing ones
+                for (const detail of details) {
+                    const existingIndex = skippedDetails.value.findIndex(d => d.id === detail.id);
+                    if (existingIndex >= 0) {
+                        skippedDetails.value[existingIndex] = detail;
+                    } else {
+                        skippedDetails.value.push(detail);
+                    }
+                }
+
                 saveLogsToStorage();
             };
 
@@ -802,6 +892,12 @@
                         addLog('success', 'Migrations completed',
                             `Applied: ${data.migrations_applied}, Skipped: ${data.migrations_skipped}, Failed: ${data.migrations_failed}, Duration: ${data.duration.toFixed(2)}s`);
 
+                        // Update skipped details if available
+                        if (data.skipped_details && data.skipped_details.length > 0) {
+                            updateSkippedDetails(data.skipped_details);
+                            showSkippedDetails.value = true;
+                        }
+
                         // Add detailed logs for each migration
                         if (data.migrations) {
                             data.migrations.forEach(migration => {
@@ -864,11 +960,27 @@
                             showNotification('warning', 'Migration Skipped',
                                 `Migration ${formatId(migrationId)} was skipped: ${migration.reason || 'Unknown reason'}`);
                             addLog('warning', `Migration ${formatId(migrationId)} skipped`, migration.reason);
+
+                            // Add to skipped details
+                            if (migration.reason) {
+                                updateSkippedDetails([{
+                                    id: migrationId,
+                                    name: migration.description || 'Unknown',
+                                    reason: migration.reason
+                                }]);
+                                showSkippedDetails.value = true;
+                            }
                         } else {
                             showNotification('error', 'Migration Issue',
                                 `Migration ${formatId(migrationId)} result: ${migration.status}`);
                             addLog('warning', `Migration ${formatId(migrationId)} issue`,
                                 `Status: ${migration.status}, Details: ${migration.error || 'Unknown'}`);
+                        }
+
+                        // Update skipped details if available
+                        if (data.skipped_details && data.skipped_details.length > 0) {
+                            updateSkippedDetails(data.skipped_details);
+                            showSkippedDetails.value = true;
                         }
 
                         // Refresh migration status
@@ -923,9 +1035,18 @@
                         const migration = data.migrations[0];
 
                         if (migration.status === 'skipped') {
+                            const skipReason = migration.reason || 'Unknown reason';
                             showNotification('warning', 'Migration Skipped',
-                                `Migration ${formatId(migrationId)} was skipped: ${migration.reason || 'Unknown reason'}`);
-                            addLog('warning', `Migration ${formatId(migrationId)} skipped`, migration.reason);
+                                `Migration ${formatId(migrationId)} was skipped: ${skipReason}`);
+                            addLog('warning', `Migration ${formatId(migrationId)} skipped`, skipReason);
+
+                            // Add to skipped details
+                            updateSkippedDetails([{
+                                id: migrationId,
+                                name: migration.description || 'Unknown',
+                                reason: skipReason
+                            }]);
+                            showSkippedDetails.value = true;
 
                             if (migration.reason === 'Precondition check failed') {
                                 // Check if it's referencing a missing table
@@ -935,10 +1056,17 @@
                                     addLog('info', 'Available tables', JSON.stringify(tableData.tables));
 
                                     if (!tableData.tables.includes('users')) {
-                                        addLog('warning', 'Missing users table',
-                                            'The migration tries to reference a users table that does not exist');
+                                        const detailedReason = 'The migration tries to reference a users table that does not exist';
+                                        addLog('warning', 'Missing users table', detailedReason);
                                         showNotification('warning', 'Missing Dependency',
                                             'This migration requires a users table which does not exist yet');
+
+                                        // Update skipped details with more info
+                                        updateSkippedDetails([{
+                                            id: migrationId,
+                                            name: migration.description || 'Unknown',
+                                            reason: `Precondition check failed: ${detailedReason}`
+                                        }]);
                                     }
                                 }
                             }
@@ -948,6 +1076,12 @@
                             addLog('info', `Migration ${formatId(migrationId)} debug`,
                                 `Status: ${migration.status}, Details: ${migration.error || migration.reason || 'No details available'}`);
                         }
+                    }
+
+                    // Update skipped details if available
+                    if (data.skipped_details && data.skipped_details.length > 0) {
+                        updateSkippedDetails(data.skipped_details);
+                        showSkippedDetails.value = true;
                     }
                 } catch (error) {
                     console.error('Error debugging migration:', error);
@@ -998,6 +1132,16 @@
                                     `Rollback of ${formatId(migrationId)}: ${migration.status}`);
                                 addLog('warning', `Rollback of ${formatId(migrationId)} issue`,
                                     `Status: ${migration.status}, Details: ${migration.error || migration.reason || 'Unknown'}`);
+
+                                // Add to skipped details if it was skipped
+                                if (migration.status === 'skipped' && migration.reason) {
+                                    updateSkippedDetails([{
+                                        id: migrationId,
+                                        name: migration.description || 'Unknown',
+                                        reason: `Rollback skipped: ${migration.reason}`
+                                    }]);
+                                    showSkippedDetails.value = true;
+                                }
                             }
 
                             // Refresh migration status
@@ -1050,6 +1194,12 @@
                         addLog('success', 'Rollback completed',
                             `Reverted: ${data.migrations_reverted}, Skipped: ${data.migrations_skipped}, Failed: ${data.migrations_failed}, Duration: ${data.duration.toFixed(2)}s`);
 
+                        // Update skipped details if available
+                        if (data.skipped_details && data.skipped_details.length > 0) {
+                            updateSkippedDetails(data.skipped_details);
+                            showSkippedDetails.value = true;
+                        }
+
                         // Add detailed logs for each migration
                         if (data.migrations) {
                             data.migrations.forEach(migration => {
@@ -1060,6 +1210,15 @@
                                 const logDetails = migration.reason || migration.error || '';
 
                                 addLog(logType, logMessage, logDetails);
+
+                                // Add to skipped details if it was skipped
+                                if (migration.status === 'skipped' && migration.reason) {
+                                    updateSkippedDetails([{
+                                        id: migration.id,
+                                        name: migration.description || 'Unknown',
+                                        reason: `Rollback skipped: ${migration.reason}`
+                                    }]);
+                                }
                             });
                         }
 
@@ -1213,6 +1372,9 @@
                 migrationLogs,
                 showLogs,
                 hasMigrationLogs,
+                showSkippedDetails,
+                skippedDetails,
+                hasSkippedMigrations,
                 loadMigrationStatus,
                 runAllMigrations,
                 runSingleMigration,
@@ -1226,7 +1388,8 @@
                 getStatusTextColor,
                 formatId,
                 showMigrationDetails,
-                clearLogs
+                clearLogs,
+                getSkipReasonForMigration
             };
         }
     }).mount('#app');

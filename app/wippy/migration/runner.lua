@@ -145,7 +145,6 @@ local function execute_migration(migration_id, options)
 
     -- Execute the migration in isolation
     local result, exec_err = executor:call(migration_id, options)
-    print(require("json").encode(result))
     if exec_err then
         return {
             status = "error",
@@ -184,7 +183,8 @@ function Runner:run(options)
         migrations_applied = 0,
         migrations_skipped = 0,
         migrations_failed = 0,
-        migrations = {}
+        migrations = {},
+        skipped_details = {} -- Add this field to track skipped migrations details
     }
 
     -- Start timing
@@ -196,6 +196,12 @@ function Runner:run(options)
         -- Skip if already applied
         if migration.applied then
             results.migrations_skipped = results.migrations_skipped + 1
+            local skip_details = {
+                id = migration.id,
+                name = migration.meta and migration.meta.description or "",
+                reason = "Already applied"
+            }
+            table.insert(results.skipped_details, skip_details)
             table.insert(results.migrations, {
                 id = migration.id,
                 status = "skipped",
@@ -238,10 +244,35 @@ function Runner:run(options)
             })
         else
             results.migrations_skipped = results.migrations_skipped + 1
+
+            -- Extract reason properly from nested result
+            local reason
+            if result then
+                -- Check if reason is directly available
+                if result.reason then
+                    reason = result.reason
+                -- Check if it's inside the skipped_reasons structure
+                elseif result.name and result.reason then
+                    reason = result.reason
+                elseif result.skipped_reasons and #result.skipped_reasons > 0 then
+                    reason = result.skipped_reasons[1].reason
+                else
+                    reason = "Unknown"
+                end
+            else
+                reason = "Unknown"
+            end
+
+            local skip_details = {
+                id = migration.id,
+                name = migration.meta and migration.meta.description or "",
+                reason = reason
+            }
+            table.insert(results.skipped_details, skip_details)
             table.insert(results.migrations, {
                 id = migration.id,
                 status = "skipped",
-                reason = result and result.reason or "Unknown",
+                reason = reason,
                 description = migration.meta and migration.meta.description or ""
             })
         end
@@ -255,6 +286,11 @@ function Runner:run(options)
     -- Determine final status
     if results.status ~= "error" then
         results.status = "complete"
+    end
+
+    -- Include skipped_reasons if there are any skipped migrations
+    if results.migrations_skipped > 0 and result and result.skipped_reasons then
+        results.skipped_reasons = result.skipped_reasons
     end
 
     return results
@@ -284,7 +320,8 @@ function Runner:run_next(options)
         migrations_applied = 0,
         migrations_skipped = 0,
         migrations_failed = 0,
-        migrations = {}
+        migrations = {},
+        skipped_details = {} -- Add this field to track skipped migrations details
     }
 
     -- Start timing
@@ -319,12 +356,23 @@ function Runner:run_next(options)
         })
     else
         results.migrations_skipped = 1
+        local skip_details = {
+            id = next_migration.id,
+            name = next_migration.meta and next_migration.meta.description or "",
+            reason = result and result.reason or "Unknown"
+        }
+        table.insert(results.skipped_details, skip_details)
         table.insert(results.migrations, {
             id = next_migration.id,
             status = "skipped",
             reason = result and result.reason or "Unknown",
             description = next_migration.meta and next_migration.meta.description or ""
         })
+    end
+
+    -- Include skipped_reasons if available
+    if result and result.skipped_reasons then
+        results.skipped_reasons = result.skipped_reasons
     end
 
     local end_time = time.now()
@@ -398,7 +446,8 @@ function Runner:rollback(options)
         migrations_reverted = 0,
         migrations_skipped = 0,
         migrations_failed = 0,
-        migrations = {}
+        migrations = {},
+        skipped_details = {} -- Add this field to track skipped migrations details
     }
 
     -- Start timing
@@ -439,6 +488,12 @@ function Runner:rollback(options)
             })
         else
             results.migrations_skipped = results.migrations_skipped + 1
+            local skip_details = {
+                id = migration.id,
+                name = migration.description or "",
+                reason = result and result.reason or "Unknown"
+            }
+            table.insert(results.skipped_details, skip_details)
             table.insert(results.migrations, {
                 id = migration.id,
                 status = "skipped",
@@ -446,6 +501,11 @@ function Runner:rollback(options)
                 description = migration.description or ""
             })
         end
+    end
+
+    -- Include skipped_reasons if available
+    if result and result.skipped_reasons then
+        results.skipped_reasons = result.skipped_reasons
     end
 
     local end_time = time.now()

@@ -10,7 +10,7 @@ entries:
         - wippy.migration:core
         - wippy.migration:repository
     source: file://migration.lua
-    modules: [ "time" ]
+    modules: [ "time", "json" ]
     imports:
       core: "wippy.migration:core"
       repository: "wippy.migration:repository"
@@ -23,7 +23,7 @@ entries:
         - wippy.migration:repository
         - wippy.migration:registry
     source: file://runner.lua
-    modules: [ "time", "funcs", "json" ]
+    modules: [ "time", "funcs" ]
     imports:
       repository: "wippy.migration:repository"
       registry: "wippy.migration:registry"

@@ -55,7 +55,6 @@ local function execute_migration(migration_item, options)
     local db = options.db
     local db_type = options.db_type
     local direction = options.direction or "up"
-    local dry_run = options.dry_run
     local migration_id = options.id or migration_item.description:gsub("%s+", "_"):lower()
 
     -- Find the implementation for this database type
@@ -64,7 +63,8 @@ local function execute_migration(migration_item, options)
         return {
             status = "skipped",
             description = migration_item.description,
-            reason = "No implementation for database type: " .. db_type
+            reason = "No implementation for database type: " .. db_type,
+            name = migration_item.description -- Add migration name
         }
     end
 
@@ -73,13 +73,15 @@ local function execute_migration(migration_item, options)
         return {
             status = "error",
             description = migration_item.description,
-            error = "Missing 'up' implementation for " .. db_type
+            error = "Missing 'up' implementation for " .. db_type,
+            name = migration_item.description -- Add migration name
         }
     elseif direction == "down" and not impl.down then
         return {
             status = "error",
             description = migration_item.description,
-            error = "Missing 'down' implementation for " .. db_type
+            error = "Missing 'down' implementation for " .. db_type,
+            name = migration_item.description -- Add migration name
         }
     end
 
@@ -90,7 +92,8 @@ local function execute_migration(migration_item, options)
             return {
                 status = "error",
                 description = migration_item.description,
-                error = "Failed to check migration status: " .. check_err
+                error = "Failed to check migration status: " .. check_err,
+                name = migration_item.description -- Add migration name
             }
         end
 
@@ -98,7 +101,8 @@ local function execute_migration(migration_item, options)
             return {
                 status = "skipped",
                 description = migration_item.description,
-                reason = "Migration already applied"
+                reason = "Migration already applied",
+                name = migration_item.description -- Add migration name
             }
         end
     end
@@ -110,18 +114,10 @@ local function execute_migration(migration_item, options)
             return {
                 status = "skipped",
                 description = migration_item.description,
-                reason = skip_reason or "Precondition check failed"
+                reason = skip_reason or "Precondition check failed",
+                name = migration_item.description -- Add migration name
             }
         end
-    end
-
-    -- Exit early if this is a dry run
-    if dry_run then
-        return {
-            status = "preview",
-            description = migration_item.description,
-            db_type = db_type
-        }
     end
 
     -- Start transaction for atomic migration application
@@ -130,7 +126,8 @@ local function execute_migration(migration_item, options)
         return {
             status = "error",
             description = migration_item.description,
-            error = "Failed to start transaction: " .. tx_err
+            error = "Failed to start transaction: " .. tx_err,
+            name = migration_item.description -- Add migration name
         }
     end
 
@@ -151,7 +148,8 @@ local function execute_migration(migration_item, options)
                 return {
                     status = "error",
                     description = migration_item.description,
-                    error = "Failed to remove migration record: " .. remove_err
+                    error = "Failed to remove migration record: " .. remove_err,
+                    name = migration_item.description -- Add migration name
                 }
             end
         end
@@ -164,7 +162,8 @@ local function execute_migration(migration_item, options)
         return {
             status = "error",
             description = migration_item.description,
-            error = err
+            error = err,
+            name = migration_item.description -- Add migration name
         }
     end
 
@@ -182,7 +181,8 @@ local function execute_migration(migration_item, options)
             return {
                 status = "error",
                 description = migration_item.description,
-                error = "Failed to record migration: " .. record_err
+                error = "Failed to record migration: " .. record_err,
+                name = migration_item.description -- Add migration name
             }
         end
     end
@@ -196,7 +196,8 @@ local function execute_migration(migration_item, options)
             return {
                 status = "error",
                 description = migration_item.description,
-                error = "After hook failed: " .. after_err
+                error = "After hook failed: " .. after_err,
+                name = migration_item.description -- Add migration name
             }
         end
     end
@@ -207,7 +208,8 @@ local function execute_migration(migration_item, options)
         return {
             status = "error",
             description = migration_item.description,
-            error = "Failed to commit transaction: " .. commit_err
+            error = "Failed to commit transaction: " .. commit_err,
+            name = migration_item.description -- Add migration name
         }
     end
 
@@ -225,7 +227,8 @@ local function execute_migration(migration_item, options)
     return {
         status = status,
         description = migration_item.description,
-        duration = duration:milliseconds() / 1000 -- Convert to seconds
+        duration = duration:milliseconds() / 1000, -- Convert to seconds
+        name = migration_item.description          -- Add migration name
     }
 end
 
@@ -290,7 +293,7 @@ function migration.run(fn, options)
     end
 
     -- Define migrations using the core DSL
-    local success, implementations_or_err = cpcall(migration_core.define, fn)
+    local implementations_or_err = cpcall(migration_core.define, fn)
     if not success then
         if need_release then db:release() end
 
@@ -323,7 +326,6 @@ function migration.run(fn, options)
                 db = db,
                 db_type = db_type,
                 direction = options.direction,
-                dry_run = options.dry_run,
                 force = options.force,
                 id = options.id,
             })
@@ -334,7 +336,11 @@ function migration.run(fn, options)
                 results.applied = results.applied + 1
             elseif result.status == "skipped" then
                 results.skipped = results.skipped + 1
-                table.insert(results.skipped_reasons, result.reason)
+                local skipped_info = {
+                    name = result.name,
+                    reason = result.reason
+                }
+                table.insert(results.skipped_reasons, skipped_info)
             elseif result.status == "error" then
                 results.failed = results.failed + 1
 
@@ -348,7 +354,11 @@ function migration.run(fn, options)
         else
             -- No implementation for this DB type
             results.skipped = results.skipped + 1
-            table.insert(results.skipped_reasons, "No implementation for database type: " .. db_type)
+            local skipped_info = {
+                name = m.description,
+                reason = "No implementation for database type: " .. db_type
+            }
+            table.insert(results.skipped_reasons, skipped_info)
         end
     end
 
