@@ -2,7 +2,7 @@ local http = require("http")
 local funcs = require("funcs")
 local json = require("json")
 local time = require("time")
-local test_registry = require("test_registry")
+local registry = require("registry")
 
 -- Simplified test endpoint that combines test discovery and execution
 local function run_tests()
@@ -78,7 +78,7 @@ local function run_tests()
     end
 
     -- Step 1: Discover available tests using the test_registry library
-    local tests, err = test_registry.find(options)
+    local tests, err = registry.find(options)
     if err or not tests or #tests == 0 then
         write_event("test:error", {
             message = err or "No test functions found",

@@ -141,7 +141,7 @@ function migrations.record_migration(db, id, description)
 end
 
 -- Remove a migration record (for rollbacks)
-function migration_ledger.remove_migration(db, id)
+function migrations.remove_migration(db, id)
     if not id or id == "" then
         return nil, "Migration ID is required"
     end

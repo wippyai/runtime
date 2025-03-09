@@ -7,7 +7,7 @@ It handles searching, filtering, and retrieving migration metadata from the regi
 ]]
 
 local time = require("time")
-local registry = require("registry")
+local registry = require("base_registry")
 
 -- Base criteria for identifying migration entries in the registry
 local BASE_MIGRATION_CRITERIA = {

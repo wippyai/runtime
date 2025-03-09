@@ -1,7 +1,8 @@
 local http = require("http")
 local json = require("json")
 local time = require("time")
-local migration_registry = require("migration_registry")
+local registry = require("registry")
+local runner = require("runner")
 
 -- Function to discover migrations using migration_registry
 local function discover_migrations()
@@ -38,8 +39,7 @@ local function discover_migrations()
     local migrations = {}
     local find_err
 
-    -- Use pcall to safely call migration_registry.find()
-    migrations, find_err = migration_registry.find(options)
+    migrations, find_err = registry.find(options)
     if find_err then
         migrations = {}
     end
@@ -48,7 +48,7 @@ local function discover_migrations()
     local formatted_migrations = format_migrations(migrations)
 
     -- Extract target databases
-    local target_dbs = migration_registry.get_target_dbs()
+    local target_dbs = registry.get_target_dbs()
 
     -- Return the discovered migrations and target databases
     res:write_json({
@@ -57,6 +57,85 @@ local function discover_migrations()
         count = #formatted_migrations,
         timestamp = time.now():unix()
     })
+
+    return true
+end
+
+-- Get detailed migration status using runner module
+local function get_migration_status()
+    -- Set up HTTP response
+    local res = http.response()
+    local req = http.request()
+    if not res or not req then
+        return nil, "Failed to create HTTP context"
+    end
+
+    -- Set response headers
+    res:set_status(http.STATUS.OK)
+    res:set_content_type(http.CONTENT.JSON)
+    res:set_header("Access-Control-Allow-Origin", "*")
+    res:set_header("Access-Control-Allow-Methods", "GET")
+
+    -- Get target database from query parameters (required)
+    local target_db = req:query("target_db")
+    if not target_db or target_db == "" then
+        res:set_status(http.STATUS.BAD_REQUEST)
+        res:write_json({
+            error = "Missing required parameter: target_db"
+        })
+        return true
+    end
+
+    -- Parse other query parameters for filtering
+    local options = {}
+
+    -- Filter by tags
+    if req:query("tags") then
+        options.tags = {}
+        for tag in req:query("tags"):gmatch("([^,]+)") do
+            table.insert(options.tags, tag:trim())
+        end
+    end
+
+    -- Setup a runner for the target database
+    local db_runner
+    local setup_success, setup_err = pcall(function()
+        db_runner = runner.setup(target_db)
+    end)
+
+    if not setup_success or not db_runner then
+        res:set_status(http.STATUS.INTERNAL_SERVER_ERROR)
+        res:write_json({
+            error = "Failed to setup migration runner: " .. (setup_err or "unknown error")
+        })
+        return true
+    end
+
+    -- Get status using runner
+    local start_time = time.now()
+    local status, status_err = cpcall(function()
+        return db_runner:status(options)
+    end)
+    local end_time = time.now()
+    local duration = end_time:sub(start_time):milliseconds() / 1000 -- In seconds
+
+    if not status or type(status) ~= "table" then
+        res:set_status(http.STATUS.INTERNAL_SERVER_ERROR)
+        res:write_json({
+            error = "Failed to get migration status: " .. (status_err or "unknown error"),
+            target_db = target_db
+        })
+        return true
+    end
+
+    -- Enhance the status response
+    status.runtime = {
+        requested_at = start_time:unix(),
+        duration = duration
+    }
+
+    -- Return the migration status
+    res:write_json(status)
 
     return true
 end
@@ -120,7 +199,8 @@ function format_migrations(migrations)
             target_db = (migration.meta and migration.meta.target_db) or "",
             timestamp = timestamp,
             timestamp_raw = timestamp_str,
-            method = migration.method or ""
+            method = migration.method or "",
+            tags = (migration.meta and migration.meta.tags) or {}
         }
 
         table.insert(formatted, entry)
@@ -129,4 +209,7 @@ function format_migrations(migrations)
     return formatted
 end
 
-return { discover_migrations = discover_migrations }
+return {
+    discover_migrations = discover_migrations,
+    get_migration_status = get_migration_status
+}

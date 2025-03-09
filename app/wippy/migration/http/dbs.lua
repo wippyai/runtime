@@ -1,7 +1,7 @@
 local http = require("http")
 local json = require("json")
 local time = require("time")
-local migration_registry = require("migration_registry")
+local registry = require("registry")
 
 -- Function to discover all target databases available for migrations
 local function discover_dbs()
@@ -19,7 +19,7 @@ local function discover_dbs()
     res:set_header("Access-Control-Allow-Methods", "GET")
 
     -- Get all target databases
-    local target_dbs = migration_registry.get_target_dbs()
+    local target_dbs = registry.get_target_dbs()
 
     -- Return the discovered databases
     res:write_json({
