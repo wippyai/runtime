@@ -36,6 +36,7 @@ func (m *Module) Loader(l *lua.LState) int {
 	mod := l.CreateTable(0, 16) // Size adjusted for all functions
 
 	// Register process functions directly with RawSetString for better performance
+	mod.RawSetString("id", l.NewFunction(m.id))
 	mod.RawSetString("pid", l.NewFunction(m.pid))
 	mod.RawSetString("send", l.NewFunction(m.send))
 	mod.RawSetString("spawn", l.NewFunction(m.spawn))
@@ -234,6 +235,18 @@ func (m *Module) pid(l *lua.LState) int {
 	}
 
 	l.Push(lua.LString(pid.String()))
+	return 1
+}
+
+// pid returns the string representation of the current PID
+// Returns: pid_string
+func (m *Module) id(l *lua.LState) int {
+	pid, ok := m.checkPID(l)
+	if !ok {
+		return 2 // Error values already pushed by checkPID
+	}
+
+	l.Push(lua.LString(pid.ID.String()))
 	return 1
 }
 
