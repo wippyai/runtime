@@ -99,7 +99,7 @@ entries:
       comment: "Runs a specific migration by ID"
       router: system:api
     method: POST
-    path: /migrations/run_single
+    path: /migrations/run-single
     func: run_single
 
   - name: rollback.endpoint
