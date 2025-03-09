@@ -4,6 +4,7 @@ import (
 	"fmt"
 	regapi "github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
+	"github.com/ponyruntime/pony/system/registry"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
@@ -14,6 +15,21 @@ type Snapshot struct {
 	version regapi.Version
 	entries []regapi.Entry
 	log     *zap.Logger
+}
+
+// GetAllEntries returns all entries in the snapshot
+func (s *Snapshot) GetAllEntries() ([]regapi.Entry, error) {
+	return s.entries, nil
+}
+
+// GetEntry returns a specific entry by ID
+func (s *Snapshot) GetEntry(id regapi.ID) (regapi.Entry, error) {
+	for _, entry := range s.entries {
+		if entry.ID == id {
+			return entry, nil
+		}
+	}
+	return regapi.Entry{}, fmt.Errorf("entry not found: %s", id)
 }
 
 // registerSnapshotType registers the Snapshot type and methods
@@ -31,14 +47,22 @@ func (m *Module) registerSnapshotType(l *lua.LState) {
 // snapshotEntries returns all entries in the snapshot
 func snapshotEntries(l *lua.LState) int {
 	// Get snapshot
-	snap := checkSnapshot(l)
+	snap := CheckSnapshot(l)
 	if snap == nil {
 		return 0
 	}
 
-	// Convert to Lua table - this is a simple operation with in-memory data
-	entriesTable := l.NewTable()
-	for i, entry := range snap.entries {
+	// Get all entries using the EntryReader interface method
+	entries, err := snap.GetAllEntries()
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	// Convert to Lua table
+	entriesTable := l.CreateTable(len(entries), 0)
+	for i, entry := range entries {
 		entryTable, err := entryToLuaTable(l, entry)
 		if err != nil {
 			l.Push(lua.LNil)
@@ -55,7 +79,7 @@ func snapshotEntries(l *lua.LState) int {
 // snapshotGet retrieves a specific entry by ID
 func snapshotGet(l *lua.LState) int {
 	// Get snapshot
-	snap := checkSnapshot(l)
+	snap := CheckSnapshot(l)
 	if snap == nil {
 		return 0
 	}
@@ -64,31 +88,31 @@ func snapshotGet(l *lua.LState) int {
 	idStr := l.CheckString(2)
 	id := regapi.ParseID(idStr)
 
-	// Find entry - this is a simple operation with in-memory data
-	for _, entry := range snap.entries {
-		if entry.ID.NS == id.NS && entry.ID.Name == id.Name {
-			entryTable, err := entryToLuaTable(l, entry)
-			if err != nil {
-				l.Push(lua.LNil)
-				l.Push(lua.LString(err.Error()))
-				return 2
-			}
-
-			l.Push(entryTable)
-			l.Push(lua.LNil)
-			return 2
-		}
+	// Find entry using the EntryReader interface method
+	entry, err := snap.GetEntry(id)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
 	}
 
+	// Convert to Lua table
+	entryTable, err := entryToLuaTable(l, entry)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	l.Push(entryTable)
 	l.Push(lua.LNil)
-	l.Push(lua.LString(fmt.Sprintf("entry not found: %s", id)))
 	return 2
 }
 
 // snapshotNamespace returns all entries in a namespace
 func snapshotNamespace(l *lua.LState) int {
 	// Get snapshot
-	snap := checkSnapshot(l)
+	snap := CheckSnapshot(l)
 	if snap == nil {
 		return 0
 	}
@@ -120,10 +144,10 @@ func snapshotNamespace(l *lua.LState) int {
 	return 1
 }
 
-// snapshotFind returns entries matching criteria
+// snapshotFind returns entries matching criteria using the Finder interface
 func snapshotFind(l *lua.LState) int {
 	// Get snapshot
-	snap := checkSnapshot(l)
+	snap := CheckSnapshot(l)
 	if snap == nil {
 		return 0
 	}
@@ -134,31 +158,21 @@ func snapshotFind(l *lua.LState) int {
 	// Convert filter to metadata for finder
 	meta := convertFilterToMetadata(l, filterTable)
 
-	// Create in-memory finder for snapshot entries
-	// (We're using snapshot-local search instead of registry-wide search)
-	var result []regapi.Entry
+	// Create a finder using the snapshot as an EntryReader
+	// This uses the same implementation as registryFind for consistent behavior
+	finder := registry.NewFinder(snap)
 
-	// Create metamatcher from metadata
-	matcher := metadataToMatcher(meta) // todo: REDO TO USE FINDER!!!
-
-	// Filter entries using the matcher - this is a simple operation with in-memory data
-	for _, entry := range snap.entries {
-		// Create augmented metadata with ID fields for matching
-		augMeta := make(regapi.Metadata)
-
-		// Copy original metadata
-		for k, v := range entry.Meta {
-			augMeta[k] = v
-		}
-
-		if matcher.Match(augMeta) {
-			result = append(result, entry)
-		}
+	// Find entries using the Finder interface
+	entries, err := finder.Find(meta)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(err.Error()))
+		return 2
 	}
 
 	// Convert to Lua table
 	entriesTable := l.NewTable()
-	for i, entry := range result {
+	for i, entry := range entries {
 		entryTable, err := entryToLuaTable(l, entry)
 		if err != nil {
 			l.Push(lua.LNil)
@@ -175,7 +189,7 @@ func snapshotFind(l *lua.LState) int {
 // snapshotChanges creates a changeset for modifying the registry
 func snapshotChanges(l *lua.LState) int {
 	// Get snapshot
-	snap := checkSnapshot(l)
+	snap := CheckSnapshot(l)
 	if snap == nil {
 		return 0
 	}
@@ -199,7 +213,7 @@ func snapshotChanges(l *lua.LState) int {
 // snapshotVersion returns the version of the snapshot
 func snapshotVersion(l *lua.LState) int {
 	// Get snapshot
-	snap := checkSnapshot(l)
+	snap := CheckSnapshot(l)
 	if snap == nil {
 		return 0
 	}
@@ -211,7 +225,7 @@ func snapshotVersion(l *lua.LState) int {
 }
 
 // Helper function to check if the first argument is a Snapshot and return it
-func checkSnapshot(l *lua.LState) *Snapshot {
+func CheckSnapshot(l *lua.LState) *Snapshot {
 	ud := l.CheckUserData(1)
 	if snapshot, ok := ud.Value.(*Snapshot); ok {
 		return snapshot

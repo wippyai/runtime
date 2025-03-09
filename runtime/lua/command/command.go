@@ -27,7 +27,7 @@ type Command struct {
 	cmdType runtime.Type
 
 	// Input parameters
-	Params []payload.Payload
+	params []payload.Payload
 
 	// Internal state
 	mu        sync.Mutex
@@ -63,7 +63,7 @@ func NewCommand(l *lua.LState, cmdType runtime.Type, onCancel runtime.Canceller,
 	return &Command{
 		id:              id,
 		cmdType:         cmdType,
-		Params:          params,
+		params:          params,
 		responseChannel: respChan,
 		channelValue:    respValue,
 		unitOfWork:      uw,
@@ -79,6 +79,10 @@ func (c *Command) ID() runtime.ID {
 // Type returns the command's type
 func (c *Command) Type() runtime.Type {
 	return c.cmdType
+}
+
+func (c *Command) Params() payload.Payloads {
+	return c.params
 }
 
 // Result returns the command's result
