@@ -55,18 +55,7 @@ local function run_migration()
     end
 
     -- Setup runner for the target database
-    local db_runner
-    local setup_success, setup_err = pcall(function()
-        db_runner = runner.setup(body.target_db)
-    end)
-
-    if not setup_success or not db_runner then
-        res:set_status(http.STATUS.INTERNAL_SERVER_ERROR)
-        res:write_json({
-            error = "Failed to setup migration runner: " .. (setup_err or "unknown error")
-        })
-        return true
-    end
+    local db_runner = runner.setup(body.target_db)
 
     -- Determine migration direction (up or down)
     local direction = (body.direction and body.direction:lower() == "down") and "down" or "up"
@@ -86,6 +75,13 @@ local function run_migration()
         result = db_runner:run_next(options)
     else
         result = db_runner:rollback(options)
+    end
+
+    -- Check if result is an error response
+    if result and result.status == "error" then
+        res:set_status(http.STATUS.INTERNAL_SERVER_ERROR)
+        res:write_json(result)
+        return true
     end
 
     local end_time = time.now()
