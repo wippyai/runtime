@@ -2,11 +2,19 @@ version: "1.0"
 namespace: app.demo.todo_app
 
 meta:
-  depends_on: [ "ns:wippy.migration" ]
-  type: "migration"
-  target_db: system:db
+  depends_on:
+    - "ns:system"
+    - "ns:wippy.migration"
+  type: "application"
 
 entries:
+  - name: todo_repo
+    kind: library.lua
+    meta:
+      comment: "Todo repository library"
+    source: file://todo_repo.lua
+    modules: [ "sql" ]
+
   - name: todo_table
     kind: function.lua
     meta:

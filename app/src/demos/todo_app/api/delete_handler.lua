@@ -1,0 +1,33 @@
+local http = require("http")
+local todo_repo = require("todo_repo")
+
+-- Delete a todo
+function delete_todo()
+    local req = http.request()
+    local res = http.response()
+    res:set_content_type(http.CONTENT.JSON)
+
+    local id = tonumber(req:query("id"))
+    if not id then
+        res:set_status(http.STATUS.BAD_REQUEST)
+        res:write_json({error = "Missing or invalid todo ID"})
+        return
+    end
+
+    local result, err = todo_repo.delete(id)
+    if err then
+        if err == "Todo not found" then
+            res:set_status(http.STATUS.NOT_FOUND)
+        else
+            res:set_status(http.STATUS.INTERNAL_ERROR)
+        end
+        res:write_json({error = err})
+        return
+    end
+
+    res:write_json({success = true})
+end
+
+return {
+    delete_todo = delete_todo
+}
