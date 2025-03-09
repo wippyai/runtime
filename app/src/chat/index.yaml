@@ -2,7 +2,7 @@ version: "1.0"
 namespace: app.service.chat
 
 meta:
-  depends_on: [ ns:system, ns:wippy.lib ]
+  depends_on: [ ns:system, ns:wippy.actor ]
   router: system:api
 
 entries:
@@ -27,7 +27,7 @@ entries:
     method: run
     modules: [ "time", "json" ]
     imports:
-      actor: wippy.lib:actor
+      actor: wippy.actor:actor
 
   - name: session
     kind: process.lua
@@ -37,7 +37,7 @@ entries:
     method: run
     modules: [ "time", "json", "funcs" ]
     imports:
-      actor: wippy.lib:actor
+      actor: wippy.actor:actor
 
   - name: encryption_utils
     kind: library.lua

@@ -2,7 +2,7 @@ version: "1.0"
 namespace: app.demos.message_sending
 
 meta:
-  depends_on: [ "ns:system", "ns:wippy.lib" ]
+  depends_on: [ "ns:system", "ns:wippy.actor" ]
 
 entries:
   - name: message.service
@@ -27,7 +27,7 @@ entries:
     method: run
     modules: [ time ]
     imports:
-      actor: wippy.lib:actor
+      actor: wippy.actor:actor
 
   - name: message.sender
     kind: function.lua

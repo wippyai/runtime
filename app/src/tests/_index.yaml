@@ -2,7 +2,7 @@ version: "1.0"
 namespace: app.test.cases
 
 meta:
-  depends_on: [ "ns:system", "ns:wippy.lib" ]
+  depends_on: [ "ns:system", "ns:wippy.test" ]
 
 entries:
   - name: system_test
@@ -16,6 +16,6 @@ entries:
     method: run_tests
     modules: [ "http_client", "fs", "time", "sql", "crypto" ]
     imports:
-      test: "wippy.lib:test"
+      test: "wippy.test:test"
     pool:
       size: 1 # todo change it to support cold pools

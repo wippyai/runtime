@@ -2,7 +2,7 @@ version: "1.0"
 namespace: app.demo.todo_list
 
 meta:
-  depends_on: [ "ns:wippy.lib" ]
+  depends_on: [ "ns:wippy.migration" ]
   type: "migration"
   target_db: system:db
 
@@ -15,6 +15,6 @@ entries:
     source: file://add_todo_table.lua
     method: migrate
     imports:
-      migration: "wippy.lib:migration"
+      migration: "wippy.migration:migration"
     pool:
       size: 1

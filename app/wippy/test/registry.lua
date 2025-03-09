@@ -1,4 +1,4 @@
-local registry = require("registry")
+local registry = require("base_registry")
 local time = require("time")
 
 local test_registry = {}

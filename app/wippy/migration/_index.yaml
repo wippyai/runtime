@@ -1,75 +1,51 @@
 version: "1.0"
-namespace: wippy.lib
+namespace: wippy.migration
 
 entries:
-  - name: migration_core
-    kind: library.lua
-    meta:
-      comment: "Core DSL for migration definitions"
-    source: file://migration_core.lua
-
-  - name: migration_db_proxy
-    kind: library.lua
-    meta:
-      comment: "Database proxy for intercepting SQL operations"
-    source: file://migration_db_proxy.lua
-    modules: [ "sql" ]
-
-  - name: migration_reporter
-    kind: library.lua
-    meta:
-      comment: "Event reporting system for migrations"
-    source: file://migration_reporter.lua
-    modules: [ "time" ]
-
-  - name: migration_schema
-    kind: library.lua
-    meta:
-      comment: "Schema definitions for migration tracking"
-    source: file://migration_schema.lua
-    modules: [ "sql", "json" ]
-
-  - name: migration_registry
-    kind: library.lua
-    meta:
-      comment: "Registry queries for migrations"
-    source: file://migration_registry.lua
-    modules: [ "registry", "time" ]
-
-  - name: migration_executor
-    kind: library.lua
-    meta:
-      comment: "Migration execution engine"
-      depends_on:
-        - wippy.lib:migration_core
-        - wippy.lib:migration_db_proxy
-        - wippy.lib:migration_schema
-        - wippy.lib:migration_reporter
-    source: file://migration_executor.lua
-    modules: [ "sql", "time" ]
-    imports:
-      migration_core: "wippy.lib:migration_core"
-      migration_db_proxy: "wippy.lib:migration_db_proxy"
-      migration_schema: "wippy.lib:migration_schema"
-      migration_reporter: "wippy.lib:migration_reporter"
-
   - name: migration
     kind: library.lua
     meta:
       comment: "Main migration library API"
       depends_on:
-        - wippy.lib:migration_core
-        - wippy.lib:migration_db_proxy
-        - wippy.lib:migration_schema
-        - wippy.lib:migration_reporter
-        - wippy.lib:migration_executor
-        - wippy.lib:migration_registry
+        - wippy.migration:core
+        - wippy.migration:repository
     source: file://migration.lua
-    modules: [ "sql", "time" ]
+    modules: [ "time" ]
     imports:
-      migration_core: "wippy.lib:migration_core"
-      migration_db_proxy: "wippy.lib:migration_db_proxy"
-      migration_schema: "wippy.lib:migration_schema"
-      migration_reporter: "wippy.lib:migration_reporter"
-      migration_executor: "wippy.lib:migration_executor"
-      migration_registry: "wippy.lib:migration_registry"
+      core: "wippy.migration:core"
+      repository: "wippy.migration:repository"
+
+  - name: runner
+    kind: library.lua
+    meta:
+      comment: "Main migration library API"
+      depends_on:
+        - wippy.migration:repository
+        - wippy.migration:registry
+    source: file://migration.lua
+    modules: [ "time", "funcs" ]
+    imports:
+      repository: "wippy.migration:repository"
+      registry: "wippy.migration:registry"
+
+  - name: core
+    kind: library.lua
+    meta:
+      comment: "Core DSL for migration definitions"
+    source: file://core.lua
+
+  - name: repository
+    kind: library.lua
+    meta:
+      comment: "Migration repository (in-db) for tracking applied migrations"
+    source: file://repository.lua
+    modules: [ "sql", "json" ]
+
+  - name: registry
+    kind: library.lua
+    meta:
+      comment: "Registry queries for migrations"
+    source: file://registry.lua
+    modules: [ "time" ]
+    imports:
+      "base_registry": ":registry"

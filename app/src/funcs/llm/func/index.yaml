@@ -2,7 +2,7 @@ version: "1.0"
 namespace: app.funcs.openai
 
 meta:
-  depends_on: [ ns:system, ns:wippy.lib ]
+  depends_on: [ ns:system, ns:wippy.test ]
   router: system:api
 
 entries:
@@ -27,7 +27,7 @@ entries:
     method: run_tests
     modules: [ "http_client", "json", "env", "time" ]
     imports:
-      test: wippy.lib:test
+      test: wippy.test:test
       llm_query: app.funcs.openai:llm_query
     pool:
       size: 1 # todo change on cold pool

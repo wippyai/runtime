@@ -1,5 +1,5 @@
 version: "1.0"
-namespace: wippy.lib
+namespace: wippy.test
 
 entries:
   - name: test
@@ -9,9 +9,11 @@ entries:
     source: file://test.lua
     modules: [ "time", "json" ]
 
-  - name: test_registry
+  - name: registry
     kind: library.lua
     meta:
       comment: "Registry queries for test discovery and organization"
-    source: file://test_registry.lua
-    modules: [ "registry", "time" ]
+    source: file://registry.lua
+    modules: [ "time" ]
+    imports:
+      "base_registry": ":registry"

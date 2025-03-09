@@ -1,7 +1,7 @@
 local http = require("http")
 local json = require("json")
 local time = require("time")
-local test_registry = require("test_registry")
+local registry = require("registry")
 
 -- Function to discover tests without executing them
 local function discover_tests()
@@ -35,7 +35,7 @@ local function discover_tests()
     end
 
     -- Use test_registry to discover tests
-    local tests, err = test_registry.find(options)
+    local tests, err = registry.find(options)
     if err then
         res:set_status(http.STATUS.INTERNAL_ERROR)
         res:write_json({
@@ -46,7 +46,7 @@ local function discover_tests()
     end
 
     -- Get all available groups
-    local groups, err = test_registry.get_groups()
+    local groups, err = registry.get_groups()
     if err then
         groups = {}
     end

@@ -2,7 +2,7 @@ version: "1.0"
 namespace: app.demos.process_lifecycle
 
 meta:
-  depends_on: [ "ns:system", "ns:wippy.lib" ]
+  depends_on: [ "ns:system", "ns:wippy.actor" ]
 
 entries:
   - name: manager.service
@@ -27,7 +27,7 @@ entries:
     method: run
     modules: [ time, json ]
     imports:
-      actor: wippy.lib:actor
+      actor: wippy.actor:actor
 
   - name: parent
     kind: process.lua
@@ -37,7 +37,7 @@ entries:
     method: run
     modules: [ time ]
     imports:
-      actor: wippy.lib:actor
+      actor: wippy.actor:actor
 
   - name: child
     kind: process.lua
@@ -47,7 +47,7 @@ entries:
     method: run
     modules: [ time ]
     imports:
-      actor: wippy.lib:actor
+      actor: wippy.actor:actor
 
   - name: start.endpoint
     kind: function.lua

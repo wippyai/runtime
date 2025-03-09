@@ -1,287 +1,376 @@
+--[[
+Migration System
+---------------
+
+A self-contained migration system for database schema changes.
+This module provides a simplified interface for database migrations
+with transaction support and automatic migration tracking.
+
+Usage:
+local migration = require("migration")
+
+-- Define a migration (in a separate migration file)
+local my_migration = migration.define(function()
+  migration("Add users table", function()
+    database("sqlite", function()
+      precondition(function(db)
+        -- Check if migration should run
+      end)
+
+      up(function(db)
+        -- Forward migration logic
+      end)
+
+      down(function(db)
+        -- Rollback logic
+      end)
+    end)
+  end)
+end)
+
+-- Run the migration
+local result = my_migration({
+  database_id = "my_database",
+  direction = "up" -- or "down" for rollback
+})
+]]
+
 local migration = {}
 local sql = require("sql")
 local time = require("time")
 
-local migration_core = require("migration_core")
-local migration_db_proxy = require("migration_db_proxy")
-local migration_schema = require("migration_schema")
-local migration_reporter = require("migration_reporter")
-local migration_executor = require("migration_executor")
-local migration_registry = require("migration_registry")
+-- Import required modules
+local migration_core = require("core")
+local repository = require("repository")
 
--- Re-export event types
-migration.event = migration_reporter.event
+-- Execute a single migration with proper transaction handling
+local function execute_migration(migration_item, options)
+    if not migration_item or not options or not options.db or not options.db_type then
+        return {
+            status = "error",
+            error = "Invalid migration or options"
+        }
+    end
 
--- Run a migration function with full reporting
+    local db = options.db
+    local db_type = options.db_type
+    local direction = options.direction or "up"
+    local dry_run = options.dry_run
+    local migration_id = options.id or migration_item.description:gsub("%s+", "_"):lower()
+
+    -- Find the implementation for this database type
+    local impl = migration_item.database_implementations[db_type]
+    if not impl then
+        return {
+            status = "skipped",
+            description = migration_item.description,
+            reason = "No implementation for database type: " .. db_type
+        }
+    end
+
+    -- Validate implementation for requested direction
+    if direction == "up" and not impl.up then
+        return {
+            status = "error",
+            description = migration_item.description,
+            error = "Missing 'up' implementation for " .. db_type
+        }
+    elseif direction == "down" and not impl.down then
+        return {
+            status = "error",
+            description = migration_item.description,
+            error = "Missing 'down' implementation for " .. db_type
+        }
+    end
+
+    -- Check if already applied for up direction
+    if direction == "up" then
+        local is_applied, check_err = repository.is_applied(db, migration_id)
+        if check_err then
+            return {
+                status = "error",
+                description = migration_item.description,
+                error = "Failed to check migration status: " .. check_err
+            }
+        end
+
+        if is_applied and not options.force then
+            return {
+                status = "skipped",
+                description = migration_item.description,
+                reason = "Migration already applied"
+            }
+        end
+    end
+
+    -- Check precondition if available
+    if impl.precondition then
+        local needed, skip_reason = impl.precondition(db)
+        if not needed then
+            return {
+                status = "skipped",
+                description = migration_item.description,
+                reason = skip_reason or "Precondition check failed"
+            }
+        end
+    end
+
+    -- Exit early if this is a dry run
+    if dry_run then
+        return {
+            status = "preview",
+            description = migration_item.description,
+            db_type = db_type
+        }
+    end
+
+    -- Start transaction for atomic migration application
+    local tx, tx_err = db:begin()
+    if tx_err then
+        return {
+            status = "error",
+            description = migration_item.description,
+            error = "Failed to start transaction: " .. tx_err
+        }
+    end
+
+    -- Apply migration
+    local start_time = time.now()
+    local success, err
+
+    if direction == "up" then
+        success, err = cpcall(impl.up, tx)
+    else
+        success, err = cpcall(impl.down, tx)
+
+        if success then
+            -- Remove migration record for down migrations
+            local remove_ok, remove_err = repository.remove_migration(tx, migration_id)
+            if not remove_ok then
+                tx:rollback()
+                return {
+                    status = "error",
+                    description = migration_item.description,
+                    error = "Failed to remove migration record: " .. remove_err
+                }
+            end
+        end
+    end
+
+    if not success then
+        -- Rollback transaction
+        tx:rollback()
+
+        return {
+            status = "error",
+            description = migration_item.description,
+            error = err
+        }
+    end
+
+    -- For up migrations, record in tracking table
+    if direction == "up" then
+        local record_ok, record_err = repository.record_migration(
+            tx,
+            migration_id,
+            migration_item.description
+        )
+
+        if not record_ok then
+            tx:rollback()
+
+            return {
+                status = "error",
+                description = migration_item.description,
+                error = "Failed to record migration: " .. record_err
+            }
+        end
+    end
+
+    -- Apply after hooks if available (for up migrations)
+    if direction == "up" and impl.after then
+        local after_success, after_err = cpcall(impl.after, tx)
+        if not after_success then
+            tx:rollback()
+
+            return {
+                status = "error",
+                description = migration_item.description,
+                error = "After hook failed: " .. after_err
+            }
+        end
+    end
+
+    -- Commit transaction
+    local commit_success, commit_err = tx:commit()
+    if not commit_success then
+        return {
+            status = "error",
+            description = migration_item.description,
+            error = "Failed to commit transaction: " .. commit_err
+        }
+    end
+
+    local end_time = time.now()
+    local duration = end_time:sub(start_time)
+
+    -- Set status based on direction
+    local status
+    if direction == "up" then
+        status = "applied"
+    else
+        status = "reverted"
+    end
+
+    return {
+        status = status,
+        description = migration_item.description,
+        duration = duration:milliseconds() / 1000 -- Convert to seconds
+    }
+end
+
+-- Run a migration function
 function migration.run(fn, options)
     -- Default options
     options = options or {}
 
-    -- Create reporter based on options
-    local reporter
-    if options.reporter then
-        -- Use provided reporter
-        reporter = options.reporter
-    elseif options.pid then
-        -- Create reporter that targets a process
-        reporter = migration_reporter.create({
-            pid = options.pid,
-            topic = options.topic or "migration:update",
-            ref_id = options.ref_id
-        })
-    elseif options.target then
-        -- Create reporter that targets a custom target
-        reporter = migration_reporter.create({
-            target = options.target,
-            ref_id = options.ref_id
-        })
+    if not options.database_id and not options.db then
+        return {
+            status = "error",
+            error = "Database ID or connection is required"
+        }
+    end
+
+    -- Default direction is "up"
+    options.direction = options.direction or "up"
+    if options.direction ~= "up" and options.direction ~= "down" then
+        return {
+            status = "error",
+            error = "Invalid direction: must be 'up' or 'down'"
+        }
+    end
+
+    -- Get database connection
+    local db, db_err
+    local need_release = false
+
+    if options.db then
+        db = options.db
     else
-        -- Create no-op reporter
-        reporter = migration_reporter.create_noop()
-    end
-
-    -- Run the migration function
-    return migration_executor.run(fn, {
-        database_id = options.database_id,
-        db = options.db,
-        reporter = reporter,
-        dry_run = options.dry_run,
-        transaction = options.transaction,
-        force = options.force,
-        db_namespace = options.db_namespace,
-        record_migration = options.record_migration ~= false, -- Default to true
-        ensure_schema = options.ensure_schema ~= false        -- Default to true
-    })
-end
-
--- Run a migration from registry by ID
-function migration.run_by_id(id, options)
-    options = options or {}
-
-    -- Get migration from registry
-    local entry, err = migration_registry.get(id)
-    if err then
-        return nil, "Failed to get migration: " .. err
-    end
-
-    if not entry or not entry.data or type(entry.data) ~= "function" then
-        return nil, "Invalid migration function in registry"
-    end
-
-    -- Extract metadata
-    local meta = entry.meta or {}
-
-    -- Set namespace if not explicitly provided
-    if not options.db_namespace and meta.db_namespace then
-        options.db_namespace = meta.db_namespace
-    end
-
-    -- Set ref_id if not provided
-    if not options.ref_id then
-        options.ref_id = id
-    end
-
-    -- Run the migration function
-    return migration.run(entry.data, options)
-end
-
--- Run all migrations for a namespace
-function migration.run_namespace(options)
-    options = options or {}
-
-    if not options.database_id then
-        return nil, "Database ID is required"
-    end
-
-    if not options.db_namespace then
-        return nil, "Database namespace is required"
-    end
-
-    -- Create reporter
-    local reporter
-    if options.reporter then
-        reporter = options.reporter
-    elseif options.pid then
-        reporter = migration_reporter.create({
-            pid = options.pid,
-            topic = options.topic or "migration:update",
-            ref_id = options.ref_id
-        })
-    elseif options.target then
-        reporter = migration_reporter.create({
-            target = options.target,
-            ref_id = options.ref_id
-        })
-    else
-        reporter = migration_reporter.create_noop()
-    end
-
-    -- Get DB connection
-    local db, err = migration_db_proxy.get_connection(
-        options.database_id,
-        reporter
-    )
-
-    if err then
-        reporter.report(migration_reporter.event.ERROR, {
-            message = "Failed to connect to database: " .. err,
-            timestamp = reporter.now()
-        })
-
-        return nil, "Failed to connect to database: " .. err
+        db, db_err = sql.get(options.database_id)
+        if db_err then
+            return {
+                status = "error",
+                error = "Failed to connect to database: " .. db_err
+            }
+        end
+        need_release = true
     end
 
     -- Initialize tracking table
-    local _, init_err = migration_schema.init_tracking_table(db)
-    if init_err then
-        db:release()
+    local init_ok, init_err = repository.init_tracking_table(db)
+    if not init_ok then
+        if need_release then db:release() end
 
-        reporter.report(migration_reporter.event.ERROR, {
-            message = "Failed to initialize migration tracking table: " .. init_err,
-            timestamp = reporter.now()
-        })
-
-        return nil, "Failed to initialize migration tracking table: " .. init_err
+        return {
+            status = "error",
+            error = "Failed to initialize migration tracking table: " .. init_err
+        }
     end
 
     -- Get database type
     local db_type, type_err = db:type()
     if type_err then
-        db:release()
-
-        reporter.report(migration_reporter.event.ERROR, {
-            message = "Failed to determine database type: " .. type_err,
-            timestamp = reporter.now()
-        })
-
-        return nil, "Failed to determine database type: " .. type_err
-    end
-
-    -- Find migrations in registry
-    local find_options = {
-        db_namespace = options.db_namespace,
-        db_types = { db_type },
-        tags = options.tags
-    }
-
-    local migrations, find_err = migration_registry.find(find_options)
-    if find_err then
-        db:release()
-
-        reporter.report(migration_reporter.event.ERROR, {
-            message = "Failed to find migrations: " .. find_err,
-            timestamp = reporter.now()
-        })
-
-        return nil, "Failed to find migrations: " .. find_err
-    end
-
-    -- Release the initial DB connection; each migration will get its own
-    db:release()
-
-    if not migrations or #migrations == 0 then
-        reporter.report(migration_reporter.event.COMPLETE, {
-            status = "complete",
-            message = "No migrations found for namespace: " .. options.db_namespace,
-            total = 0,
-            applied = 0,
-            skipped = 0,
-            failed = 0,
-            timestamp = reporter.now()
-        })
+        if need_release then db:release() end
 
         return {
-            status = "complete",
-            message = "No migrations found for namespace: " .. options.db_namespace,
-            migrations_found = 0,
-            migrations_applied = 0,
-            migrations_skipped = 0,
-            migrations_failed = 0
+            status = "error",
+            error = "Failed to determine database type: " .. type_err
         }
     end
 
-    -- Report discovery
-    reporter.report(migration_reporter.event.DISCOVER, {
-        total = #migrations,
-        namespace = options.db_namespace,
-        db_type = db_type,
-        timestamp = reporter.now()
-    })
+    -- Define migrations using the core DSL
+    local success, implementations_or_err = cpcall(migration_core.define, fn)
+    if not success then
+        if need_release then db:release() end
 
-    -- Track results
+        return {
+            status = "error",
+            error = "Failed to define migration: " .. implementations_or_err
+        }
+    end
+
+    local implementations = implementations_or_err
+
+    -- Results container
     local results = {
-        status = "running",
-        namespace = options.db_namespace,
-        db_type = db_type,
-        migrations_found = #migrations,
-        migrations_applied = 0,
-        migrations_skipped = 0,
-        migrations_failed = 0,
-        migrations = {}
+        migrations = {},
+        total = #implementations,
+        applied = 0,
+        skipped = 0,
+        failed = 0,
+        db_type = db_type
     }
 
-    -- Run each migration
-    for _, entry in ipairs(migrations) do
-        -- Set migration options
-        local migration_options = {
-            database_id = options.database_id,
-            db_namespace = options.db_namespace,
-            dry_run = options.dry_run,
-            force = options.force,
-            transaction = options.transaction,
-            reporter = reporter,
-            ref_id = entry.id
-        }
+    local start_time = time.now()
 
-        -- Run the migration
-        local result = migration.run_by_id(entry.id, migration_options)
+    -- Apply each migration
+    for _, m in ipairs(implementations) do
+        -- Only process migrations with an implementation for this DB type
+        if m.database_implementations[db_type] then
+            local result = execute_migration(m, {
+                db = db,
+                db_type = db_type,
+                direction = options.direction,
+                dry_run = options.dry_run,
+                force = options.force,
+                id = options.id
+            })
 
-        -- Track results
-        table.insert(results.migrations, {
-            id = entry.id,
-            description = entry.meta and entry.meta.description or "",
-            status = result.status,
-            error = result.error,
-            duration = result.duration
-        })
+            table.insert(results.migrations, result)
 
-        -- Update counters
-        if result.status == "applied" then
-            results.migrations_applied = results.migrations_applied + 1
-        elseif result.status == "skipped" then
-            results.migrations_skipped = results.migrations_skipped + 1
-        elseif result.status == "error" then
-            results.migrations_failed = results.migrations_failed + 1
+            if result.status == "applied" or result.status == "reverted" then
+                results.applied = results.applied + 1
+            elseif result.status == "skipped" then
+                results.skipped = results.skipped + 1
+            elseif result.status == "error" then
+                results.failed = results.failed + 1
 
-            -- Stop on first error unless force flag is set
-            if not options.force then
-                results.status = "error"
-                results.error = result.error
-                break
+                -- Stop on first error unless force option is set
+                if not options.force then
+                    results.status = "error"
+                    results.error = result.error
+                    break
+                end
             end
+        else
+            -- No implementation for this DB type
+            results.skipped = results.skipped + 1
         end
     end
 
-    -- Set final status
-    if results.status ~= "error" then
-        results.status = "complete"
+    local end_time = time.now()
+    results.duration = end_time:sub(start_time):milliseconds() / 1000 -- Convert to seconds
+
+    -- Determine final status
+    if not results.status then
+        results.status = results.failed > 0 and "failed" or "complete"
     end
 
-    -- Final completion report (although this might be redundant)
-    reporter.report(migration_reporter.event.COMPLETE, {
-        status = results.status,
-        total = results.migrations_found,
-        applied = results.migrations_applied,
-        skipped = results.migrations_skipped,
-        failed = results.migrations_failed,
-        timestamp = reporter.now()
-    })
+    -- Release DB connection if we opened it
+    if need_release then
+        db:release()
+    end
 
     return results
 end
 
 -- Creating a migration definition function
 function migration.define(fn)
+    if not fn or type(fn) ~= "function" then
+        error("Migration definition must be a function")
+    end
+
     return function(options)
         return migration.run(fn, options)
     end
