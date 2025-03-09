@@ -135,6 +135,7 @@ function migrations.record_migration(db, id, description)
         INSERT INTO _migrations (id, description)
         VALUES (?, ?)
     ]]
+    -- Create an array-like table for parameters
     local params = { id, description or "" }
 
     return db:execute(query, params)
@@ -151,6 +152,7 @@ function migrations.remove_migration(db, id)
         WHERE id = ?
     ]]
 
+    -- Create an array-like table for parameters
     return db:execute(query, { id })
 end
 
@@ -173,6 +175,11 @@ function migrations.get_migrations(db, filter)
 
     query = query .. " ORDER BY applied_at"
 
+    -- Make sure params is an array-like table, not a key-value map
+    if #params == 0 then
+        params = nil
+    end
+
     return db:query(query, params)
 end
 
@@ -188,7 +195,9 @@ function migrations.is_applied(db, id)
         WHERE id = ?
     ]]
 
-    local result, err = db:query(query, { id })
+    -- Create an array-like table for parameters
+    local params = { id }
+    local result, err = db:query(query, params)
     if err then
         return nil, "Failed to check migration status: " .. err
     end

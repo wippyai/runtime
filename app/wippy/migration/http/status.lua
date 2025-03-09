@@ -4,65 +4,8 @@ local time = require("time")
 local registry = require("registry")
 local runner = require("runner")
 
--- Function to discover migrations using migration_registry
+-- Function to discover migrations with required target_db parameter
 local function discover_migrations()
-    -- Set up HTTP response
-    local res = http.response()
-    local req = http.request()
-    if not res or not req then
-        return nil, "Failed to create HTTP context"
-    end
-
-    -- Set response headers
-    res:set_status(http.STATUS.OK)
-    res:set_content_type(http.CONTENT.JSON)
-    res:set_header("Access-Control-Allow-Origin", "*")
-    res:set_header("Access-Control-Allow-Methods", "GET")
-
-    -- Parse query parameters for filtering
-    local options = {}
-
-    -- Filter by target_db instead of db_namespace
-    if req:query("target_db") then
-        options.target_db = req:query("target_db")
-    end
-
-    -- Filter by tags
-    if req:query("tags") then
-        options.tags = {}
-        for tag in req:query("tags"):gmatch("([^,]+)") do
-            table.insert(options.tags, tag:trim())
-        end
-    end
-
-    -- Get migrations using migration_registry.find()
-    local migrations = {}
-    local find_err
-
-    migrations, find_err = registry.find(options)
-    if find_err then
-        migrations = {}
-    end
-
-    -- Format migrations for response
-    local formatted_migrations = format_migrations(migrations)
-
-    -- Extract target databases
-    local target_dbs = registry.get_target_dbs()
-
-    -- Return the discovered migrations and target databases
-    res:write_json({
-        migrations = formatted_migrations,
-        databases = target_dbs,
-        count = #formatted_migrations,
-        timestamp = time.now():unix()
-    })
-
-    return true
-end
-
--- Get detailed migration status using runner module
-local function get_migration_status()
     -- Set up HTTP response
     local res = http.response()
     local req = http.request()
@@ -87,7 +30,9 @@ local function get_migration_status()
     end
 
     -- Parse other query parameters for filtering
-    local options = {}
+    local options = {
+        target_db = target_db
+    }
 
     -- Filter by tags
     if req:query("tags") then
@@ -98,49 +43,28 @@ local function get_migration_status()
     end
 
     -- Setup a runner for the target database
-    local db_runner
-    local setup_success, setup_err = pcall(function()
-        db_runner = runner.setup(target_db)
-    end)
+    local db_runner = runner.setup(target_db)
 
-    if not setup_success or not db_runner then
+    local status = db_runner:status(options)
+
+    -- Check if status is an error response
+    if status and status.status == "error" then
         res:set_status(http.STATUS.INTERNAL_SERVER_ERROR)
-        res:write_json({
-            error = "Failed to setup migration runner: " .. (setup_err or "unknown error")
-        })
+        res:write_json(status)
         return true
     end
 
-    -- Get status using runner
-    local start_time = time.now()
-    local status, status_err = cpcall(function()
-        return db_runner:status(options)
-    end)
-    local end_time = time.now()
-    local duration = end_time:sub(start_time):milliseconds() / 1000 -- In seconds
-
-    if not status or type(status) ~= "table" then
-        res:set_status(http.STATUS.INTERNAL_SERVER_ERROR)
-        res:write_json({
-            error = "Failed to get migration status: " .. (status_err or "unknown error"),
-            target_db = target_db
-        })
-        return true
-    end
-
-    -- Enhance the status response
+    -- Add runtime info
     status.runtime = {
-        requested_at = start_time:unix(),
-        duration = duration
+        requested_at = time.now():unix()
     }
 
-    -- Return the migration status
+    -- Return the migration status directly
     res:write_json(status)
-
     return true
 end
 
--- Helper function to format migrations for response
+-- Helper function to format migrations for response without 'method' field
 function format_migrations(migrations)
     local formatted = {}
 
@@ -199,7 +123,6 @@ function format_migrations(migrations)
             target_db = (migration.meta and migration.meta.target_db) or "",
             timestamp = timestamp,
             timestamp_raw = timestamp_str,
-            method = migration.method or "",
             tags = (migration.meta and migration.meta.tags) or {}
         }
 
@@ -210,6 +133,5 @@ function format_migrations(migrations)
 end
 
 return {
-    discover_migrations = discover_migrations,
-    get_migration_status = get_migration_status
+    discover_migrations = discover_migrations
 }

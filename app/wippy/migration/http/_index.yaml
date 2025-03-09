@@ -1,5 +1,5 @@
 version: "1.0"
-#namespace: wippy.migration.http
+namespace: wippy.migration.http
 
 meta:
   depends_on: [ "ns:system", "ns:wippy.migration" ]
@@ -9,9 +9,9 @@ entries:
     kind: function.lua
     meta:
       comment: "Discovers all available migrations without running them"
-    source: file://migration_status.lua
+    source: file://status.lua
     method: discover_migrations
-    modules: [ http, time, json, registry ]
+    modules: [ http, time, json ]
     imports:
       registry: "wippy.migration:registry"
       runner: "wippy.migration:runner"
@@ -33,7 +33,7 @@ entries:
   - name: status.endpoint
     kind: http.endpoint
     meta:
-      comment: "Discovers all available migrations"
+      comment: "Gets migration status for a specific database"
       router: system:api
     method: GET
     path: /migrations/status

@@ -267,7 +267,7 @@ local function handler()
             if statInfo.modified then
                 local t = time.unix(statInfo.modified, 0)
                 if t then
-                    modified = t:format(time.DateTime)
+                    modified = t:format(time.DATE_TIME)
                 end
             end
         end
