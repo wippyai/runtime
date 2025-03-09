@@ -1,5 +1,5 @@
 version: "1.0"
-namespace: app.demo.todo_list
+namespace: app.demo.todo_app
 
 meta:
   depends_on: [ "ns:wippy.migration" ]
@@ -12,6 +12,7 @@ entries:
     meta:
       description: "Create todo_items table with indexes"
       timestamp: "2025-03-07T12:00:00Z"
+      tags: [ "todo_app" ]
     source: file://add_todo_table.lua
     method: migrate
     imports:

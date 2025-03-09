@@ -33,6 +33,10 @@
             background-color: #3b82f6;
         }
 
+        .status-skipped {
+            background-color: #9ca3af;
+        }
+
         .time-ago {
             font-size: 0.8rem;
             color: #6b7280;
@@ -94,6 +98,15 @@
                               d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
                     </svg>
                     Refresh
+                </button>
+                <button v-if="hasMigrationLogs" @click="showLogs = !showLogs"
+                        class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-gray-600 hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24"
+                         stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                              d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                    </svg>
+                    {{ showLogs ? 'Hide Logs' : 'Show Logs' }}
                 </button>
             </div>
         </div>
@@ -164,6 +177,17 @@
                                   d="M13 10V3L4 14h7v7l9-11h-7z"/>
                         </svg>
                         Run All Migrations
+                    </button>
+                    <button v-if="selectedDb && hasAppliedMigrations" @click="rollbackLastMigration()"
+                            :disabled="isLoading || !selectedDb || !hasAppliedMigrations"
+                            :class="['inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500',
+                                    (isLoading || !selectedDb || !hasAppliedMigrations) ? 'bg-red-300 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700 text-white']">
+                        <svg class="mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                             stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                  d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"/>
+                        </svg>
+                        Rollback Last
                     </button>
                 </div>
             </div>
@@ -281,6 +305,63 @@
             migrations</p>
     </div>
 
+    <!-- Migration Logs Panel -->
+    <div v-if="showLogs && migrationLogs.length > 0" class="bg-white shadow sm:rounded-lg mb-8">
+        <div class="px-4 py-5 border-b border-gray-200 sm:px-6">
+            <h3 class="text-lg leading-6 font-medium text-gray-900">
+                Migration Execution Logs
+            </h3>
+            <p class="mt-1 max-w-2xl text-sm text-gray-500">
+                Recent migration execution results and errors
+            </p>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                <tr>
+                    <th scope="col"
+                        class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Time
+                    </th>
+                    <th scope="col"
+                        class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type
+                    </th>
+                    <th scope="col"
+                        class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Message
+                    </th>
+                </tr>
+                </thead>
+                <tbody class="bg-white divide-y divide-gray-200">
+                <tr v-for="(log, index) in migrationLogs" :key="index"
+                    :class="{'bg-red-50': log.type === 'error', 'bg-green-50': log.type === 'success', 'bg-yellow-50': log.type === 'warning'}">
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {{ formatDate(log.timestamp) }}
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full"
+                              :class="{
+                                'bg-red-100 text-red-800': log.type === 'error',
+                                'bg-green-100 text-green-800': log.type === 'success',
+                                'bg-yellow-100 text-yellow-800': log.type === 'warning',
+                                'bg-blue-100 text-blue-800': log.type === 'info'
+                              }">
+                            {{ log.type.toUpperCase() }}
+                        </span>
+                    </td>
+                    <td class="px-6 py-4 text-sm text-gray-500 whitespace-pre-line">
+                        {{ log.message }}
+                        <div v-if="log.details" class="mt-1 text-xs text-gray-400">{{ log.details }}</div>
+                    </td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="px-4 py-3 bg-gray-50 text-right sm:px-6">
+            <button @click="clearLogs" class="text-sm text-gray-500 hover:text-gray-700">
+                Clear Logs
+            </button>
+        </div>
+    </div>
+
     <!-- Main Content (only shown when a database is selected) -->
     <div v-if="selectedDb" class="bg-white shadow sm:rounded-lg">
         <div class="px-4 py-5 border-b border-gray-200 sm:px-6">
@@ -345,9 +426,14 @@
                     <td class="px-6 py-4 whitespace-nowrap">
                         <div class="flex items-center">
                             <span class="status-indicator" :class="getStatusClass(migration)"></span>
-                            <span class="text-sm font-medium" :class="getStatusTextColor(migration)">
+                            <div>
+                                <span class="text-sm font-medium block" :class="getStatusTextColor(migration)">
                                     {{ migration.status.charAt(0).toUpperCase() + migration.status.slice(1) }}
                                 </span>
+                                <span v-if="migration.status === 'skipped' && migration.reason" class="text-xs text-gray-500 block">
+                                    {{ migration.reason }}
+                                </span>
+                            </div>
                         </div>
                     </td>
                     <td class="px-6 py-4 whitespace-nowrap">
@@ -359,6 +445,9 @@
                     <td class="px-6 py-4 whitespace-nowrap">
                         <div class="text-sm text-gray-900">{{ formatDate(migration.timestamp) }}</div>
                         <div class="text-xs text-gray-500">{{ timeAgo(migration.timestamp) }}</div>
+                        <div v-if="migration.applied_at" class="text-xs text-green-600">
+                            Applied: {{ formatDate(migration.applied_at) }}
+                        </div>
                     </td>
                     <td class="px-6 py-4 whitespace-nowrap">
                         <div class="flex flex-wrap gap-1">
@@ -390,6 +479,17 @@
                                      fill="currentColor">
                                     <path fill-rule="evenodd"
                                           d="M10 18a8 8 0 100-16 8 8 0 000 16zm.707-10.293a1 1 0 00-1.414-1.414l-3 3a1 1 0 000 1.414l3 3a1 1 0 001.414-1.414L9.414 11H13a1 1 0 100-2H9.414l1.293-1.293z"
+                                          clip-rule="evenodd"/>
+                                </svg>
+                            </button>
+                            <button v-if="migration.status === 'skipped' && !migration.reason"
+                                    @click="debugMigration(migration.id)"
+                                    title="Debug why this migration was skipped"
+                                    class="inline-flex items-center p-1 border border-transparent rounded-full text-orange-600 hover:bg-orange-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500">
+                                <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"
+                                     fill="currentColor">
+                                    <path fill-rule="evenodd"
+                                          d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-3a1 1 0 00-.867.5 1 1 0 11-1.731-1A3 3 0 0113 8a3.001 3.001 0 01-2 2.83V11a1 1 0 11-2 0v-1a1 1 0 011-1 1 1 0 100-2zm0 8a1 1 0 100-2 1 1 0 000 2z"
                                           clip-rule="evenodd"/>
                                 </svg>
                             </button>
@@ -446,7 +546,15 @@
                                     </div>
                                     <div class="sm:col-span-1">
                                         <dt class="text-sm font-medium text-gray-500">Status</dt>
-                                        <dd class="mt-1 text-sm text-gray-900">{{ selectedMigration.status }}</dd>
+                                        <dd class="mt-1 text-sm font-medium" :class="getStatusTextColor(selectedMigration)">
+                                            {{ selectedMigration.status.charAt(0).toUpperCase() + selectedMigration.status.slice(1) }}
+                                        </dd>
+                                    </div>
+                                    <div v-if="selectedMigration.status === 'skipped'" class="sm:col-span-2">
+                                        <dt class="text-sm font-medium text-gray-500">Skip Reason</dt>
+                                        <dd class="mt-1 text-sm text-yellow-600">
+                                            {{ selectedMigration.reason || 'Unknown' }}
+                                        </dd>
                                     </div>
                                     <div class="sm:col-span-1">
                                         <dt class="text-sm font-medium text-gray-500">Created At</dt>
@@ -491,6 +599,12 @@
                             class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-red-600 text-base font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 sm:ml-3 sm:w-auto sm:text-sm">
                         Rollback
                     </button>
+                    <button v-if="selectedMigration.status === 'skipped'"
+                            type="button"
+                            @click="debugMigration(selectedMigration.id); selectedMigration = null;"
+                            class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-yellow-600 text-base font-medium text-white hover:bg-yellow-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500 sm:ml-3 sm:w-auto sm:text-sm">
+                        Debug Migration
+                    </button>
                     <button type="button"
                             @click="selectedMigration = null"
                             class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:w-auto sm:text-sm">
@@ -515,6 +629,8 @@
             const isLoading = ref(false);
             const isMigrationRunning = ref(false);
             const selectedMigration = ref(null);
+            const migrationLogs = ref([]);
+            const showLogs = ref(false);
             const notification = ref({
                 show: false,
                 type: 'success',
@@ -527,6 +643,59 @@
                 return migrationStatus.value ? migrationStatus.value.pending_migrations : 0;
             });
 
+            const hasAppliedMigrations = computed(() => {
+                return migrationStatus.value ? migrationStatus.value.applied_migrations > 0 : false;
+            });
+
+            const hasMigrationLogs = computed(() => {
+                return migrationLogs.value.length > 0;
+            });
+
+            // Load logs from local storage
+            const loadLogsFromStorage = () => {
+                try {
+                    const savedLogs = localStorage.getItem('migrationLogs');
+                    if (savedLogs) {
+                        migrationLogs.value = JSON.parse(savedLogs);
+                    }
+                } catch (error) {
+                    console.error('Error loading logs from storage:', error);
+                }
+            };
+
+            // Save logs to local storage
+            const saveLogsToStorage = () => {
+                try {
+                    localStorage.setItem('migrationLogs', JSON.stringify(migrationLogs.value));
+                } catch (error) {
+                    console.error('Error saving logs to storage:', error);
+                }
+            };
+
+            // Add a log entry
+            const addLog = (type, message, details = null) => {
+                const log = {
+                    timestamp: Date.now(),
+                    type,
+                    message,
+                    details
+                };
+                migrationLogs.value.unshift(log);
+
+                // Keep logs at a reasonable size
+                if (migrationLogs.value.length > 100) {
+                    migrationLogs.value = migrationLogs.value.slice(0, 100);
+                }
+
+                saveLogsToStorage();
+            };
+
+            // Clear all logs
+            const clearLogs = () => {
+                migrationLogs.value = [];
+                saveLogsToStorage();
+            };
+
             // Methods
             const showNotification = (type, title, message, timeout = 5000) => {
                 notification.value = {
@@ -535,6 +704,9 @@
                     title,
                     message
                 };
+
+                // Log the notification
+                addLog(type, title, message);
 
                 // Auto hide after timeout
                 setTimeout(() => {
@@ -551,10 +723,12 @@
 
                     if (data && data.databases) {
                         databases.value = data.databases;
+                        addLog('info', 'Databases loaded', `Found ${data.databases.length} available databases`);
                     }
                 } catch (error) {
                     console.error('Error fetching databases:', error);
                     showNotification('error', 'Failed to Load Databases', 'There was an error loading the available databases.');
+                    addLog('error', 'Failed to load databases', error.toString());
                 } finally {
                     isLoadingDatabases.value = false;
                 }
@@ -579,8 +753,11 @@
 
                     if (data && data.migrations) {
                         migrationStatus.value = data;
+                        addLog('info', `Loaded migration status for ${selectedDb.value}`,
+                            `Total: ${data.total_migrations}, Applied: ${data.applied_migrations}, Pending: ${data.pending_migrations}`);
                     } else if (data && data.status === 'error') {
                         showNotification('error', 'Error Loading Migrations', data.error);
+                        addLog('error', `Error loading migrations for ${selectedDb.value}`, data.error);
                         migrationStatus.value = null;
                     } else {
                         migrationStatus.value = null;
@@ -588,6 +765,7 @@
                 } catch (error) {
                     console.error('Error loading migration status:', error);
                     showNotification('error', 'Failed to Load Migrations', 'There was an error loading the migration status.');
+                    addLog('error', `Failed to load migration status for ${selectedDb.value}`, error.toString());
                     migrationStatus.value = null;
                 } finally {
                     isLoading.value = false;
@@ -600,6 +778,8 @@
 
                 isMigrationRunning.value = true;
                 try {
+                    addLog('info', `Starting migration batch for ${selectedDb.value}`, 'Running all pending migrations');
+
                     const response = await fetch('/api/v1/migrations/run', {
                         method: 'POST',
                         headers: {
@@ -614,15 +794,34 @@
 
                     if (data.status === 'error') {
                         showNotification('error', 'Migration Failed', data.error);
+                        addLog('error', 'Batch migration failed', data.error);
                     } else if (data.status === 'complete') {
                         showNotification('success', 'Migrations Completed',
-                            `Applied ${data.migrations_applied} of ${data.migrations_found} migrations`);
+                            `Applied ${data.migrations_applied} of ${data.migrations_found} migrations in ${data.duration.toFixed(2)}s`);
+
+                        addLog('success', 'Migrations completed',
+                            `Applied: ${data.migrations_applied}, Skipped: ${data.migrations_skipped}, Failed: ${data.migrations_failed}, Duration: ${data.duration.toFixed(2)}s`);
+
+                        // Add detailed logs for each migration
+                        if (data.migrations) {
+                            data.migrations.forEach(migration => {
+                                const logType = migration.status === 'applied' ? 'success' :
+                                    (migration.status === 'error' ? 'error' : 'warning');
+
+                                const logMessage = `Migration ${formatId(migration.id)}: ${migration.status}`;
+                                const logDetails = migration.reason || migration.error || '';
+
+                                addLog(logType, logMessage, logDetails);
+                            });
+                        }
+
                         // Refresh migration status
                         await loadMigrationStatus();
                     }
                 } catch (error) {
                     console.error('Error running migrations:', error);
                     showNotification('error', 'Migration Error', 'There was an error running the migrations.');
+                    addLog('error', 'Migration error', error.toString());
                 } finally {
                     isMigrationRunning.value = false;
                 }
@@ -634,6 +833,8 @@
 
                 isMigrationRunning.value = true;
                 try {
+                    addLog('info', `Starting single migration: ${formatId(migrationId)}`, `Database: ${selectedDb.value}`);
+
                     const response = await fetch('/api/v1/migrations/run-single', {
                         method: 'POST',
                         headers: {
@@ -650,15 +851,108 @@
 
                     if (data.status === 'error') {
                         showNotification('error', 'Migration Failed', data.error);
-                    } else {
-                        showNotification('success', 'Migration Completed',
-                            `Applied migration ${migrationId.split(':').pop()}`);
+                        addLog('error', `Migration ${formatId(migrationId)} failed`, data.error);
+                    } else if (data.migrations && data.migrations.length > 0) {
+                        const migration = data.migrations[0];
+
+                        if (migration.status === 'applied') {
+                            showNotification('success', 'Migration Completed',
+                                `Applied migration ${formatId(migrationId)} in ${data.duration.toFixed(2)}s`);
+                            addLog('success', `Migration ${formatId(migrationId)} completed`,
+                                `Duration: ${data.duration.toFixed(2)}s`);
+                        } else if (migration.status === 'skipped') {
+                            showNotification('warning', 'Migration Skipped',
+                                `Migration ${formatId(migrationId)} was skipped: ${migration.reason || 'Unknown reason'}`);
+                            addLog('warning', `Migration ${formatId(migrationId)} skipped`, migration.reason);
+                        } else {
+                            showNotification('error', 'Migration Issue',
+                                `Migration ${formatId(migrationId)} result: ${migration.status}`);
+                            addLog('warning', `Migration ${formatId(migrationId)} issue`,
+                                `Status: ${migration.status}, Details: ${migration.error || 'Unknown'}`);
+                        }
+
                         // Refresh migration status
+                        await loadMigrationStatus();
+                    } else {
+                        showNotification('success', 'Migration Processed',
+                            `Migration ${formatId(migrationId)} processed`);
+                        addLog('info', `Migration ${formatId(migrationId)} processed`,
+                            `No detailed result available`);
                         await loadMigrationStatus();
                     }
                 } catch (error) {
                     console.error('Error running migration:', error);
                     showNotification('error', 'Migration Error', 'There was an error running the migration.');
+                    addLog('error', `Error running migration ${formatId(migrationId)}`, error.toString());
+                } finally {
+                    isMigrationRunning.value = false;
+                }
+            };
+
+            // Debug a migration
+            const debugMigration = async (migrationId) => {
+                if (!selectedDb.value || !migrationId) return;
+
+                isMigrationRunning.value = true;
+                try {
+                    addLog('info', `Debugging migration: ${formatId(migrationId)}`, `Database: ${selectedDb.value}`);
+
+                    showNotification('info', 'Debugging Migration',
+                        `Attempting to diagnose why migration ${formatId(migrationId)} is being skipped...`);
+
+                    // Try to execute the migration with a dry-run
+                    const response = await fetch('/api/v1/migrations/run-single', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            target_db: selectedDb.value,
+                            migration_id: migrationId,
+                            dry_run: true,
+                            direction: 'up'
+                        })
+                    });
+
+                    const data = await response.json();
+
+                    if (data.status === 'error') {
+                        showNotification('error', 'Debug Failed', data.error);
+                        addLog('error', `Debug migration ${formatId(migrationId)} failed`, data.error);
+                    } else if (data.migrations && data.migrations.length > 0) {
+                        const migration = data.migrations[0];
+
+                        if (migration.status === 'skipped') {
+                            showNotification('warning', 'Migration Skipped',
+                                `Migration ${formatId(migrationId)} was skipped: ${migration.reason || 'Unknown reason'}`);
+                            addLog('warning', `Migration ${formatId(migrationId)} skipped`, migration.reason);
+
+                            if (migration.reason === 'Precondition check failed') {
+                                // Check if it's referencing a missing table
+                                const checkTableResponse = await fetch(`/api/v1/migrations/check-tables?target_db=${encodeURIComponent(selectedDb.value)}`);
+                                if (checkTableResponse.ok) {
+                                    const tableData = await checkTableResponse.json();
+                                    addLog('info', 'Available tables', JSON.stringify(tableData.tables));
+
+                                    if (!tableData.tables.includes('users')) {
+                                        addLog('warning', 'Missing users table',
+                                            'The migration tries to reference a users table that does not exist');
+                                        showNotification('warning', 'Missing Dependency',
+                                            'This migration requires a users table which does not exist yet');
+                                    }
+                                }
+                            }
+                        } else {
+                            showNotification('info', 'Debug Result',
+                                `Migration ${formatId(migrationId)} debug result: ${migration.status}`);
+                            addLog('info', `Migration ${formatId(migrationId)} debug`,
+                                `Status: ${migration.status}, Details: ${migration.error || migration.reason || 'No details available'}`);
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error debugging migration:', error);
+                    showNotification('error', 'Debug Error', 'There was an error debugging the migration.');
+                    addLog('error', `Error debugging migration ${formatId(migrationId)}`, error.toString());
                 } finally {
                     isMigrationRunning.value = false;
                 }
@@ -672,6 +966,8 @@
                 try {
                     // If ID is provided, roll back that specific migration
                     if (migrationId) {
+                        addLog('info', `Starting rollback for migration: ${formatId(migrationId)}`, `Database: ${selectedDb.value}`);
+
                         const response = await fetch('/api/v1/migrations/run-single', {
                             method: 'POST',
                             headers: {
@@ -688,38 +984,92 @@
 
                         if (data.status === 'error') {
                             showNotification('error', 'Rollback Failed', data.error);
-                        } else {
-                            showNotification('success', 'Rollback Completed',
-                                `Rolled back migration ${migrationId.split(':').pop()}`);
+                            addLog('error', `Rollback of ${formatId(migrationId)} failed`, data.error);
+                        } else if (data.migrations && data.migrations.length > 0) {
+                            const migration = data.migrations[0];
+
+                            if (migration.status === 'reverted') {
+                                showNotification('success', 'Rollback Completed',
+                                    `Rolled back migration ${formatId(migrationId)} in ${data.duration.toFixed(2)}s`);
+                                addLog('success', `Rollback of ${formatId(migrationId)} completed`,
+                                    `Duration: ${data.duration.toFixed(2)}s`);
+                            } else {
+                                showNotification('warning', 'Rollback Issue',
+                                    `Rollback of ${formatId(migrationId)}: ${migration.status}`);
+                                addLog('warning', `Rollback of ${formatId(migrationId)} issue`,
+                                    `Status: ${migration.status}, Details: ${migration.error || migration.reason || 'Unknown'}`);
+                            }
+
                             // Refresh migration status
+                            await loadMigrationStatus();
+                        } else {
+                            showNotification('success', 'Rollback Processed',
+                                `Rollback of ${formatId(migrationId)} processed`);
                             await loadMigrationStatus();
                         }
                     } else {
-                        // Otherwise, roll back the last migration
-                        const response = await fetch('/api/v1/migrations/rollback', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json'
-                            },
-                            body: JSON.stringify({
-                                target_db: selectedDb.value
-                            })
-                        });
-
-                        const data = await response.json();
-
-                        if (data.status === 'error') {
-                            showNotification('error', 'Rollback Failed', data.error);
-                        } else {
-                            showNotification('success', 'Rollback Completed',
-                                `Rolled back ${data.migrations_reverted} migration(s)`);
-                            // Refresh migration status
-                            await loadMigrationStatus();
-                        }
+                        await rollbackLastMigration();
                     }
                 } catch (error) {
                     console.error('Error rolling back:', error);
                     showNotification('error', 'Rollback Error', 'There was an error rolling back the migration.');
+                    addLog('error', `Error rolling back ${migrationId ? formatId(migrationId) : 'last migration'}`, error.toString());
+                } finally {
+                    isMigrationRunning.value = false;
+                }
+            };
+
+            // Rollback the last applied migration
+            const rollbackLastMigration = async () => {
+                if (!selectedDb.value) return;
+
+                isMigrationRunning.value = true;
+                try {
+                    addLog('info', `Starting rollback of last migration`, `Database: ${selectedDb.value}`);
+
+                    const response = await fetch('/api/v1/migrations/rollback', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            target_db: selectedDb.value,
+                            count: 1
+                        })
+                    });
+
+                    const data = await response.json();
+
+                    if (data.status === 'error') {
+                        showNotification('error', 'Rollback Failed', data.error);
+                        addLog('error', `Rollback of last migration failed`, data.error);
+                    } else {
+                        showNotification('success', 'Rollback Completed',
+                            `Rolled back ${data.migrations_reverted} migration(s) in ${data.duration.toFixed(2)}s`);
+
+                        addLog('success', 'Rollback completed',
+                            `Reverted: ${data.migrations_reverted}, Skipped: ${data.migrations_skipped}, Failed: ${data.migrations_failed}, Duration: ${data.duration.toFixed(2)}s`);
+
+                        // Add detailed logs for each migration
+                        if (data.migrations) {
+                            data.migrations.forEach(migration => {
+                                const logType = migration.status === 'reverted' ? 'success' :
+                                    (migration.status === 'error' ? 'error' : 'warning');
+
+                                const logMessage = `Migration ${formatId(migration.id)}: ${migration.status}`;
+                                const logDetails = migration.reason || migration.error || '';
+
+                                addLog(logType, logMessage, logDetails);
+                            });
+                        }
+
+                        // Refresh migration status
+                        await loadMigrationStatus();
+                    }
+                } catch (error) {
+                    console.error('Error rolling back:', error);
+                    showNotification('error', 'Rollback Error', 'There was an error rolling back the migration.');
+                    addLog('error', 'Error rolling back last migration', error.toString());
                 } finally {
                     isMigrationRunning.value = false;
                 }
@@ -797,6 +1147,7 @@
                 if (status === 'pending') return 'status-pending';
                 if (status === 'error') return 'status-error';
                 if (status === 'preview') return 'status-preview';
+                if (status === 'skipped') return 'status-skipped';
 
                 return 'status-pending';
             };
@@ -810,6 +1161,7 @@
                 if (status === 'pending') return 'text-yellow-600';
                 if (status === 'error') return 'text-red-600';
                 if (status === 'preview') return 'text-blue-600';
+                if (status === 'skipped') return 'text-gray-600';
 
                 return 'text-gray-600';
             };
@@ -834,6 +1186,7 @@
 
             // Initialize the app
             onMounted(() => {
+                loadLogsFromStorage();
                 fetchDatabases();
             });
 
@@ -854,19 +1207,26 @@
                 isLoading,
                 isMigrationRunning,
                 pendingMigrations,
+                hasAppliedMigrations,
                 selectedMigration,
                 notification,
+                migrationLogs,
+                showLogs,
+                hasMigrationLogs,
                 loadMigrationStatus,
                 runAllMigrations,
                 runSingleMigration,
                 rollbackMigration,
+                rollbackLastMigration,
+                debugMigration,
                 refreshData,
                 formatDate,
                 timeAgo,
                 getStatusClass,
                 getStatusTextColor,
                 formatId,
-                showMigrationDetails
+                showMigrationDetails,
+                clearLogs
             };
         }
     }).mount('#app');
