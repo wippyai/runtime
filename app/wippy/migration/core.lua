@@ -9,7 +9,6 @@ any database-specific logic.
 The DSL includes the following functions:
 - migration(description, fn) - Define a migration with a description
 - database(type, fn) - Define database-specific implementation
-- precondition(fn) - Define conditions that determine if a migration should run
 - up(fn) - Define the forward migration logic
 - after(fn) - Define post-migration steps
 - down(fn) - Define rollback logic
@@ -84,7 +83,6 @@ function migration_core.create_database_fn(context)
         -- Create new database context
         context.current_database = {
             type = db_type,
-            precondition = nil,
             up = nil,
             after = nil,
             down = nil,
@@ -102,21 +100,6 @@ function migration_core.create_database_fn(context)
         
         -- Restore previous database context
         context.current_database = old_database
-    end
-end
-
--- Define precondition function
-function migration_core.create_precondition_fn(context)
-    return function(fn)
-        if not context.current_database then
-            error("precondition() must be called within a database block")
-        end
-        
-        if not fn or type(fn) ~= "function" then
-            error("Precondition must be a function")
-        end
-
-        context.current_database.precondition = fn
     end
 end
 
@@ -169,7 +152,6 @@ end
 function migration_core.setup_globals(context)
     _G.migration = migration_core.create_migration_fn(context)
     _G.database = migration_core.create_database_fn(context)
-    _G.precondition = migration_core.create_precondition_fn(context)
     _G.up = migration_core.create_up_fn(context)
     _G.after = migration_core.create_after_fn(context)
     _G.down = migration_core.create_down_fn(context)
@@ -179,7 +161,6 @@ end
 function migration_core.cleanup_globals()
     _G.migration = nil
     _G.database = nil
-    _G.precondition = nil
     _G.up = nil
     _G.after = nil
     _G.down = nil

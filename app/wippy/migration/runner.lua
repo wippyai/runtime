@@ -107,10 +107,13 @@ function Runner:find_migrations(options)
 
     db:release()
 
-    -- Enrich migrations with applied status
+    -- Enrich migrations with applied status - UPDATED
     for i, migration in ipairs(migrations) do
-        migrations[i].applied = applied_map[migration.id] ~= nil
-        migrations[i].applied_at = applied_map[migration.id] and applied_map[migration.id].applied_at or nil
+        local migration_id = migration.id
+
+        -- Check if the migration has been applied by its registry ID
+        migrations[i].applied = applied_map[migration_id] ~= nil
+        migrations[i].applied_at = applied_map[migration_id] and applied_map[migration_id].applied_at or nil
     end
 
     return migrations
@@ -215,7 +218,8 @@ function Runner:run(options)
         -- Set up migration options
         local migration_options = {
             database_id = self.database_id,
-            direction = "up"
+            direction = "up",
+            id = migration.id
         }
 
         -- Execute the migration
@@ -296,7 +300,7 @@ function Runner:run(options)
     return results
 end
 
--- Run just the next pending migration
+-- Run just the next pending migration - UPDATED
 function Runner:run_next(options)
     options = options or {}
 
@@ -356,16 +360,35 @@ function Runner:run_next(options)
         })
     else
         results.migrations_skipped = 1
+
+        -- Extract reason properly from nested result - UPDATED
+        local reason
+        if result then
+            -- Check if reason is directly available
+            if result.reason then
+                reason = result.reason
+            -- Check if it's inside the skipped_reasons structure
+            elseif result.name and result.reason then
+                reason = result.reason
+            elseif result.skipped_reasons and #result.skipped_reasons > 0 then
+                reason = result.skipped_reasons[1].reason
+            else
+                reason = "Unknown"
+            end
+        else
+            reason = "Unknown"
+        end
+
         local skip_details = {
             id = next_migration.id,
             name = next_migration.meta and next_migration.meta.description or "",
-            reason = result and result.reason or "Unknown"
+            reason = reason
         }
         table.insert(results.skipped_details, skip_details)
         table.insert(results.migrations, {
             id = next_migration.id,
             status = "skipped",
-            reason = result and result.reason or "Unknown",
+            reason = reason,
             description = next_migration.meta and next_migration.meta.description or ""
         })
     end
@@ -488,16 +511,35 @@ function Runner:rollback(options)
             })
         else
             results.migrations_skipped = results.migrations_skipped + 1
+
+            -- Extract reason properly from nested result - UPDATED
+            local reason
+            if result then
+                -- Check if reason is directly available
+                if result.reason then
+                    reason = result.reason
+                -- Check if it's inside the skipped_reasons structure
+                elseif result.name and result.reason then
+                    reason = result.reason
+                elseif result.skipped_reasons and #result.skipped_reasons > 0 then
+                    reason = result.skipped_reasons[1].reason
+                else
+                    reason = "Unknown"
+                end
+            else
+                reason = "Unknown"
+            end
+
             local skip_details = {
                 id = migration.id,
                 name = migration.description or "",
-                reason = result and result.reason or "Unknown"
+                reason = reason
             }
             table.insert(results.skipped_details, skip_details)
             table.insert(results.migrations, {
                 id = migration.id,
                 status = "skipped",
-                reason = result and result.reason or "Unknown",
+                reason = reason,
                 description = migration.description or ""
             })
         end

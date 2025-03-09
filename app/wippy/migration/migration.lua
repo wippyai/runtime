@@ -13,10 +13,6 @@ local migration = require("migration")
 local my_migration = migration.define(function()
   migration("Add users table", function()
     database("sqlite", function()
-      precondition(function(db)
-        -- Check if migration should run
-      end)
-
       up(function(db)
         -- Forward migration logic
       end)
@@ -55,7 +51,17 @@ local function execute_migration(migration_item, options)
     local db = options.db
     local db_type = options.db_type
     local direction = options.direction or "up"
-    local migration_id = options.id or migration_item.description:gsub("%s+", "_"):lower()
+
+    -- Modified migration ID determination
+    local migration_id
+    if options.id then
+        migration_id = options.id
+    else
+        return {
+            status = "error",
+            error = "Migration ID is required",
+        }
+    end
 
     -- Find the implementation for this database type
     local impl = migration_item.database_implementations[db_type]
@@ -102,19 +108,6 @@ local function execute_migration(migration_item, options)
                 status = "skipped",
                 description = migration_item.description,
                 reason = "Migration already applied",
-                name = migration_item.description -- Add migration name
-            }
-        end
-    end
-
-    -- Check precondition if available
-    if impl.precondition then
-        local needed, skip_reason = impl.precondition(db)
-        if not needed then
-            return {
-                status = "skipped",
-                description = migration_item.description,
-                reason = skip_reason or "Precondition check failed",
                 name = migration_item.description -- Add migration name
             }
         end
@@ -293,7 +286,7 @@ function migration.run(fn, options)
     end
 
     -- Define migrations using the core DSL
-    local success,implementations_or_err = cpcall(migration_core.define, fn)
+    local success, implementations_or_err = cpcall(migration_core.define, fn)
     if not success then
         if need_release then db:release() end
 
