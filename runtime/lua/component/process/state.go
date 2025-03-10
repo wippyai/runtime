@@ -231,8 +231,6 @@ func (s *State) exitWith(err error) {
 
 // GetTaskCount returns the combined count of ready tasks
 func (s *State) GetTaskCount() int {
-	s.wg.Add(1)
-	defer s.wg.Done()
 	if s.Closed.Load() {
 		return 0
 	}
