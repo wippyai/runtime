@@ -231,6 +231,9 @@ func (s *State) exitWith(err error) {
 
 // GetTaskCount returns the combined count of ready tasks
 func (s *State) GetTaskCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if s.Closed.Load() {
 		return 0
 	}
@@ -248,6 +251,9 @@ func (s *State) GetTaskCount() int {
 
 // Complete handles process completion and cleanup
 func (s *State) Complete(err error, result lua.LValue) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if s.Closed.Swap(true) {
 		return
 	}
