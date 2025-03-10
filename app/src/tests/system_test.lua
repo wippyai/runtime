@@ -82,7 +82,7 @@ local function define_tests()
 
         it("should format date correctly", function()
             local now = time.now()
-            local formatted = now:format(time.DateOnly)
+            local formatted = now:format(time.DATE_ONLY)
             expect(formatted).to_be_type("string", "Formatted time should be a string")
             expect(formatted).to_match("^%d%d%d%d%-%d%d%-%d%d$", "Time format should match YYYY-MM-DD")
         end)
