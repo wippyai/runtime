@@ -30,7 +30,7 @@ jobs:
           go env -w CGO_ENABLED=1
 
       - name: Run linter
-        uses: golangci/golangci-lint-action@v6.2.0
+        uses: golangci/golangci-lint-action@v6.5.0
         env:
           CGO_ENABLED: 1
         with:
