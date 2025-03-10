@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/ponyruntime/pony/runtime/lua/engine/errors"
 	"strings"
+	"sync"
 
 	lua "github.com/yuin/gopher-lua"
 	"github.com/yuin/gopher-lua/parse"
@@ -46,6 +47,7 @@ func (t *Task) String() string {
 // TaskQueue manages a queue of coroutine threads waiting for execution.
 type TaskQueue struct {
 	active *list.List
+	mu     sync.RWMutex
 }
 
 // NewTaskQueue creates and initializes a new TaskQueue instance.
@@ -57,12 +59,18 @@ func NewTaskQueue() *TaskQueue {
 
 // Push adds a new task to the end of the queue.
 func (q *TaskQueue) Push(task *Task) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
 	q.active.PushBack(task)
 }
 
 // Pop removes and returns the first task in the queue.
 // Returns nil if the queue is empty.
 func (q *TaskQueue) Pop() *Task {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
 	if q.active.Len() == 0 {
 		return nil
 	}
@@ -74,6 +82,9 @@ func (q *TaskQueue) Pop() *Task {
 
 // Drain removes and returns all threads from the queue.
 func (q *TaskQueue) Drain() []*Task {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
 	tasks := make([]*Task, 0, q.active.Len())
 	for e := q.active.Front(); e != nil; e = e.Next() {
 		t := e.Value.(*Task)
@@ -87,11 +98,17 @@ func (q *TaskQueue) Drain() []*Task {
 
 // IsEmpty returns true if the queue contains no threads.
 func (q *TaskQueue) IsEmpty() bool {
+	q.mu.RLock()
+	defer q.mu.RUnlock()
+
 	return q.active.Len() == 0
 }
 
 // Len returns the number of threads currently in the queue.
 func (q *TaskQueue) Len() int {
+	q.mu.RLock()
+	defer q.mu.RUnlock()
+
 	return q.active.Len()
 }
 
