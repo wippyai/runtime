@@ -11,16 +11,29 @@ local function get_registry()
     return tool_resolver._registry or require("registry")
 end
 
--- Sanitize tool name to avoid problematic characters for LLM and convert to snake_case
-function tool_resolver.sanitize_name(name)
-    -- Replace colons with underscores
-    local sanitized = name:gsub(":", "_")
+-- Extract the tool name without namespace
+local function extract_tool_name(full_id)
+    -- Split by colon to separate namespace from tool name
+    local parts = {}
+    for part in string.gmatch(full_id, "[^:]+") do
+        table.insert(parts, part)
+    end
+
+    -- If we have namespace:name format, return just the name part
+    if #parts >= 2 then
+        return parts[#parts]
+    end
+
+    -- Otherwise return the original id
+    return full_id
+end
+
+-- Generate a sanitized name from any string input
+local function sanitize_name(name)
+    -- Replace non-allowed characters with underscores
+    local sanitized = name:gsub("[^%w]", "_")
 
     -- Convert to snake_case
-    -- Replace spaces and dashes with underscores
-    sanitized = sanitized:gsub("%s+", "_"):gsub("-", "_")
-
-    -- Convert camelCase or PascalCase to snake_case
     sanitized = sanitized:gsub("([A-Z])", function(c) return "_" .. c:lower() end)
 
     -- Fix double underscores and leading underscore if present
@@ -28,6 +41,18 @@ function tool_resolver.sanitize_name(name)
     sanitized = sanitized:gsub("^_", "")
 
     return sanitized
+end
+
+-- Get the LLM-friendly tool name
+function tool_resolver.get_tool_name(entry)
+    -- If llm_alias is specified, use that
+    if entry.meta and entry.meta.llm_alias then
+        return entry.meta.llm_alias
+    end
+
+    -- Otherwise extract the name part from ID and sanitize
+    local name = extract_tool_name(entry.id)
+    return sanitize_name(name)
 end
 
 -- Fetch a tool's schema from the registry
@@ -77,9 +102,8 @@ function tool_resolver.get_tool_schema(tool_id)
         }
     end
 
-    -- Create tool definition in generic format
-    -- Use llm_alias if specified, otherwise use sanitized name
-    local display_name = entry.meta.llm_alias or tool_resolver.sanitize_name(entry.meta.name or entry.id)
+    -- Get the tool name
+    local display_name = tool_resolver.get_tool_name(entry)
 
     -- Get description in priority order: llm_description > description > llm_descirtion > comment
     local description = ""
@@ -114,6 +138,7 @@ function tool_resolver.get_tool_schemas(tool_ids)
     local results = {}
     local errors = {}
 
+    -- Process tools
     for _, id in ipairs(tool_ids) do
         local tool, err = tool_resolver.get_tool_schema(id)
         if tool then
@@ -137,59 +162,34 @@ function tool_resolver.resolve_name_to_id(name, scope_ids)
     -- Normalize the name for comparison
     local normalized_name = name:lower()
 
-    -- Define match types in priority order
-    local match_funcs = {
-        -- 1. Exact llm_alias match
-        function(entry, norm_name)
-            return entry.meta.llm_alias and entry.meta.llm_alias:lower() == norm_name
-        end,
+    for _, id in ipairs(scope_ids) do
+        local entry, err = registry.get(id)
+        if not err and entry and entry.meta and entry.meta.type == "tool" then
+            -- Try exact matches in priority order
 
-        -- 2. Exact ID match
-        function(entry, norm_name)
-            return entry.id:lower() == norm_name
-        end,
+            -- 1. Check generated tool name
+            if tool_resolver.get_tool_name(entry):lower() == normalized_name then
+                return id
+            end
 
-        -- 3. Exact name match
-        function(entry, norm_name)
-            return entry.meta.name and entry.meta.name:lower() == norm_name
-        end,
+            -- 2. Check exact ID match
+            if id:lower() == normalized_name then
+                return id
+            end
 
-        -- 4. Exact sanitized name match
-        function(entry, norm_name)
-            local sanitized = tool_resolver.sanitize_name(entry.meta.name or entry.id)
-            return sanitized:lower() == norm_name
-        end,
+            -- 3. Check meta.name
+            if entry.meta.name and entry.meta.name:lower() == normalized_name then
+                return id
+            end
 
-        -- 5. Partial llm_alias match
-        function(entry, norm_name)
-            return entry.meta.llm_alias and entry.meta.llm_alias:lower():find(norm_name, 1, true)
-        end,
+            -- 4. Check sanitized meta.name
+            if entry.meta.name and sanitize_name(entry.meta.name):lower() == normalized_name then
+                return id
+            end
 
-        -- 6. Partial ID match
-        function(entry, norm_name)
-            return entry.id:lower():find(norm_name, 1, true)
-        end,
-
-        -- 7. Partial name match
-        function(entry, norm_name)
-            return entry.meta.name and entry.meta.name:lower():find(norm_name, 1, true)
-        end,
-
-        -- 8. Partial sanitized name match
-        function(entry, norm_name)
-            local sanitized = tool_resolver.sanitize_name(entry.meta.name or entry.id)
-            return sanitized:lower():find(norm_name, 1, true)
-        end
-    }
-
-    -- Check each match type in order
-    for _, match_func in ipairs(match_funcs) do
-        for _, id in ipairs(scope_ids) do
-            local entry, err = registry.get(id)
-            if entry and entry.meta and entry.meta.type == "tool" then
-                if match_func(entry, normalized_name) then
-                    return id
-                end
+            -- 5. Check extracted tool name part
+            if extract_tool_name(id):lower() == normalized_name then
+                return id
             end
         end
     end
@@ -229,6 +229,7 @@ function tool_resolver.find_tools(criteria)
 
     -- Convert to tool definitions
     local tools = {}
+
     for _, entry in ipairs(entries) do
         local tool, err = tool_resolver.get_tool_schema(entry.id)
         if tool then
@@ -236,7 +237,21 @@ function tool_resolver.find_tools(criteria)
         end
     end
 
+    -- Sort tools by name for stable ordering
+    table.sort(tools, function(a, b)
+        return a.name < b.name
+    end)
+
     return tools
+end
+
+-- Backward compatibility function
+function tool_resolver.sanitize_name(name)
+    -- Handle the namespace case
+    if name:find(":") then
+        return sanitize_name(extract_tool_name(name))
+    end
+    return sanitize_name(name)
 end
 
 return tool_resolver

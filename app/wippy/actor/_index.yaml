@@ -14,6 +14,7 @@ entries:
     meta:
       name: "Actor Library Test"
       type: "test"
+      group: "General Libraries"
       tags: [ "actor", "library", "message-passing", "concurrency", "tests" ]
       comment: "Tests the actor library's messaging and event handling capabilities"
       depends_on: [ "wippy.actor:actor", "wippy.test:test" ]

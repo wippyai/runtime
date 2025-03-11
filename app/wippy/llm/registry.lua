@@ -10,7 +10,7 @@ local llm_registry = {}
 -- Implementation capability identifiers for registry lookups
 llm_registry.CAPABILITY = {
     GENERATE = "generate",           -- Basic text generation
-    GENERATE_WITH_TOOLS = "tools",   -- Text generation with tool calling
+    TOOL_CALLING = "tools",          -- Text generation with tool calling
     GENERATE_WITH_SCHEMA = "schema", -- Schema-guided generation
     THINKING = "thinking"            -- Thinking/reasoning capability
 }

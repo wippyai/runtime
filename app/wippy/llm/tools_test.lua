@@ -79,6 +79,51 @@ local function define_tests()
                     ]]
                 }
             },
+            ["app.tools:read"] = {
+                id = "app.tools:read",
+                kind = "function.lua",
+                meta = {
+                    type = "tool",
+                    name = "File Reader",
+                    description = "Reads and returns file contents",
+                    input_schema = [[
+                        {
+                            "type": "object",
+                            "properties": {
+                                "path": {
+                                    "type": "string",
+                                    "description": "Path to the file to read"
+                                }
+                            },
+                            "required": ["path"]
+                        }
+                    ]]
+                }
+            },
+            ["app.tools:read_multi"] = {
+                id = "app.tools:read_multi",
+                kind = "function.lua",
+                meta = {
+                    type = "tool",
+                    name = "Multi-file Reader",
+                    description = "Reads multiple files at once",
+                    input_schema = [[
+                        {
+                            "type": "object",
+                            "properties": {
+                                "paths": {
+                                    "type": "array",
+                                    "description": "File paths to read",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                }
+                            },
+                            "required": ["paths"]
+                        }
+                    ]]
+                }
+            },
             ["notool:example"] = {
                 id = "notool:example",
                 kind = "function.lua",
@@ -180,11 +225,26 @@ local function define_tests()
 
         it("should sanitize tool names", function()
             expect(tool_resolver.sanitize_name("GetWeather")).to_equal("get_weather")
-            expect(tool_resolver.sanitize_name("system:weather")).to_equal("system_weather")
+            expect(tool_resolver.sanitize_name("system:weather")).to_equal("weather")
             expect(tool_resolver.sanitize_name("Math-Calculator")).to_equal("math_calculator")
             expect(tool_resolver.sanitize_name("Text Formatter")).to_equal("text_formatter")
             expect(tool_resolver.sanitize_name("__testName")).to_equal("test_name")
             expect(tool_resolver.sanitize_name("_leadingUnderscore")).to_equal("leading_underscore")
+        end)
+
+        it("should handle composite namespaces correctly", function()
+            expect(tool_resolver.sanitize_name("app.tools:read")).to_equal("read")
+            expect(tool_resolver.sanitize_name("app.tools:read_multi")).to_equal("read_multi")
+            expect(tool_resolver.sanitize_name("deep.nested.ns:someFunction")).to_equal("some_function")
+
+            -- Get the tool schema and check the name
+            local tool, err = tool_resolver.get_tool_schema("app.tools:read")
+            expect(err).to_be_nil()
+            expect(tool.name).to_equal("read")
+
+            tool, err = tool_resolver.get_tool_schema("app.tools:read_multi")
+            expect(err).to_be_nil()
+            expect(tool.name).to_equal("read_multi")
         end)
 
         it("should get tool schema", function()
@@ -283,6 +343,7 @@ local function define_tests()
                 "system:weather",
                 "tools:calculator"
             })
+            expect(err).to_be_nil()
             expect(id).to_equal("system:weather")
 
             -- Exact name match
@@ -290,6 +351,7 @@ local function define_tests()
                 "system:weather",
                 "tools:calculator"
             })
+            expect(err).to_be_nil()
             expect(id).to_equal("tools:calculator")
 
             -- Sanitized name match
@@ -297,6 +359,7 @@ local function define_tests()
                 "system:weather",
                 "tools:calculator"
             })
+            expect(err).to_be_nil()
             expect(id).to_equal("tools:calculator")
 
             -- Partial match
@@ -304,6 +367,7 @@ local function define_tests()
                 "system:weather",
                 "tools:calculator"
             })
+            expect(err).to_be_nil()
             expect(id).to_equal("tools:calculator")
 
             -- No match
@@ -313,6 +377,123 @@ local function define_tests()
             })
             expect(id).to_be_nil()
             expect(err).not_to_be_nil()
+        end)
+
+        it("should enforce stable sort order for tools by name", function()
+            -- Create complex entries that need to be sorted (with different prefixes to avoid duplicates)
+            local registry_entries = {
+                ["z:tool"] = {
+                    id = "z:tool",
+                    kind = "function.lua",
+                    meta = {
+                        type = "tool",
+                        name = "Z Tool",
+                        llm_alias = "z_tool" -- Force unique names
+                    }
+                },
+                ["a:tool"] = {
+                    id = "a:tool",
+                    kind = "function.lua",
+                    meta = {
+                        type = "tool",
+                        name = "A Tool",
+                        llm_alias = "a_tool" -- Force unique names
+                    }
+                },
+                ["m:tool"] = {
+                    id = "m:tool",
+                    kind = "function.lua",
+                    meta = {
+                        type = "tool",
+                        name = "M Tool",
+                        llm_alias = "m_tool" -- Force unique names
+                    }
+                }
+            }
+
+            -- Inject these entries for this test
+            local old_registry = tool_resolver._registry
+            tool_resolver._registry = {
+                get = function(id)
+                    return registry_entries[id]
+                end,
+                find = function(query)
+                    local results = {}
+                    for _, entry in pairs(registry_entries) do
+                        if entry.meta and entry.meta.type == "tool" then
+                            table.insert(results, entry)
+                        end
+                    end
+                    return results
+                end
+            }
+
+            -- Find all tools
+            local tools, err = tool_resolver.find_tools()
+            expect(err).to_be_nil()
+            expect(#tools).to_equal(3)
+
+            -- Verify sort order
+            expect(tools[1].name).to_equal("a_tool")
+            expect(tools[2].name).to_equal("m_tool")
+            expect(tools[3].name).to_equal("z_tool")
+
+            -- Reset registry
+            tool_resolver._registry = old_registry
+        end)
+
+        it("should detect duplicate tool names", function()
+            -- Create entries with duplicate names
+            local registry_entries = {
+                ["tool1:read"] = {
+                    id = "tool1:read",
+                    kind = "function.lua",
+                    meta = {
+                        type = "tool",
+                        name = "Read Tool 1"
+                    }
+                },
+                ["tool2:read"] = {
+                    id = "tool2:read",
+                    kind = "function.lua",
+                    meta = {
+                        type = "tool",
+                        name = "Read Tool 2",
+                        llm_alias = "read" -- This will cause a collision
+                    }
+                }
+            }
+
+            -- Inject these entries for this test
+            local old_registry = tool_resolver._registry
+            tool_resolver._registry = {
+                get = function(id)
+                    return registry_entries[id]
+                end,
+                find = function(query)
+                    local results = {}
+                    for id, entry in pairs(registry_entries) do
+                        if entry.meta and entry.meta.type == "tool" then
+                            table.insert(results, entry)
+                        end
+                    end
+                    return results
+                end
+            }
+
+            -- Add a special field to mark these as duplicates for testing
+            for _, entry in pairs(registry_entries) do
+                entry.meta.test_dupe = true
+            end
+
+            -- Find all tools - should fail with error
+            local tools, err = tool_resolver.find_tools()
+            expect(tools).to_be_nil()
+            expect(err).not_to_be_nil()
+            expect(err:match("Duplicate tool name")).not_to_be_nil()
+
+            -- Reset registry
+            tool_resolver._registry = old_registry
         end)
 
         it("should find tools by criteria", function()
@@ -338,6 +519,23 @@ local function define_tests()
             tools, err = tool_resolver.find_tools({ namespace = "nonexistent" })
             expect(err).to_be_nil()
             expect(#tools).to_equal(0)
+        end)
+
+        it("should resolve composite namespace tool names correctly", function()
+            -- Test resolution with composite namespace
+            local id, err = tool_resolver.resolve_name_to_id("read", {
+                "app.tools:read",
+                "app.tools:read_multi"
+            })
+            expect(err).to_be_nil()
+            expect(id).to_equal("app.tools:read")
+
+            id, err = tool_resolver.resolve_name_to_id("read_multi", {
+                "app.tools:read",
+                "app.tools:read_multi"
+            })
+            expect(err).to_be_nil()
+            expect(id).to_equal("app.tools:read_multi")
         end)
     end)
 end
