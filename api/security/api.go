@@ -2,6 +2,7 @@ package security
 
 import (
 	"errors"
+	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/registry"
 )
 
@@ -9,6 +10,16 @@ import (
 type Result int
 
 const (
+	// System identifies the security system in the event context
+	System event.System = "security"
+
+	// PolicyRegister is the event kind for registering a new policy
+	PolicyRegister event.Kind = "security.policy.register"
+	// PolicyUpdate is the event kind for updating an existing policy
+	PolicyUpdate event.Kind = "security.policy.update"
+	// PolicyDelete is the event kind for deleting a policy
+	PolicyDelete event.Kind = "security.policy.delete"
+
 	Undefined Result = iota
 	Allow
 	Deny
@@ -60,6 +71,16 @@ type (
 		Policies() []Policy
 	}
 
+	// PolicyEntry represents a policy registration payload
+	PolicyEntry struct {
+		// Policy is the policy to register
+		Policy Policy
+
+		// Groups is a list of group IDs this policy belongs to
+		// If empty, the policy is not assigned to any group
+		Groups []registry.ID
+	}
+
 	// Registry defines the core interface for accessing security policies
 	Registry interface {
 		// GetPolicy retrieves a policy by its ID
@@ -67,9 +88,6 @@ type (
 
 		// GetPolicyGroup retrieves all policies in a group as a scope
 		GetPolicyGroup(groupID registry.ID) (Scope, error)
-
-		// GetPoliciesByTag retrieves all policies with the specified tag
-		GetPoliciesByTag(tag string) ([]Policy, error)
 
 		// ListGroups returns all available policy group IDs
 		ListGroups() []registry.ID
