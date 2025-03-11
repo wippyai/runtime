@@ -124,62 +124,58 @@ local function define_tests()
             }
         }
 
-        -- First, create the registry object in the global scope
-        before_all(function()
-            -- Create the registry object in the global scope
-            _G.registry = {
-                get = function() end,
-                find = function() end
-            }
-        end)
-
         before_each(function()
-            -- Now mock the methods on the global registry object
-            mock(_G.registry, "get", function(id)
-                local entry = registry_entries[id]
-                if entry then
-                    return entry
-                else
-                    return nil, "Entry not found: " .. id
-                end
-            end)
-
-            mock(_G.registry, "find", function(query)
-                local results = {}
-
-                for id, entry in pairs(registry_entries) do
-                    local matches = true
-
-                    -- Check kind
-                    if query[".kind"] and entry.kind ~= query[".kind"] then
-                        matches = false
+            -- Create a mock registry object
+            local mock_registry = {
+                get = function(id)
+                    local entry = registry_entries[id]
+                    if entry then
+                        return entry
+                    else
+                        return nil, "Entry not found: " .. id
                     end
+                end,
 
-                    -- Check type
-                    if query.type and entry.meta and entry.meta.type ~= query.type then
-                        matches = false
-                    end
+                find = function(query)
+                    local results = {}
 
-                    -- Check namespace
-                    if query["~namespace"] then
-                        local ns = id:match("^([^:]+):")
-                        if not ns or not ns:match(query["~namespace"]) then
+                    for id, entry in pairs(registry_entries) do
+                        local matches = true
+
+                        -- Check kind
+                        if query[".kind"] and entry.kind ~= query[".kind"] then
                             matches = false
+                        end
+
+                        -- Check type
+                        if query.type and entry.meta and entry.meta.type ~= query.type then
+                            matches = false
+                        end
+
+                        -- Check namespace
+                        if query["~namespace"] then
+                            local ns = id:match("^([^:]+):")
+                            if not ns or not ns:match(query["~namespace"]) then
+                                matches = false
+                            end
+                        end
+
+                        if matches then
+                            table.insert(results, entry)
                         end
                     end
 
-                    if matches then
-                        table.insert(results, entry)
-                    end
+                    return results
                 end
+            }
 
-                return results
-            end)
+            -- Directly inject the mock registry into the tool_resolver
+            tool_resolver._registry = mock_registry
         end)
 
-        after_all(function()
-            -- Clean up the global registry
-            _G.registry = nil
+        after_each(function()
+            -- Reset the tool_resolver registry reference after each test
+            tool_resolver._registry = nil
         end)
 
         it("should sanitize tool names", function()

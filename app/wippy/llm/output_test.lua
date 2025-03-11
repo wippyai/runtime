@@ -279,7 +279,8 @@ local function define_tests()
                 return true
             end)
 
-            local streamer = output.streamer("test-pid")
+            -- Create streamer with a larger buffer size to prevent auto-send
+            local streamer = output.streamer("test-pid", "llm_response", 20)
 
             -- Empty buffer case - should return false
             local sent = streamer:flush()

@@ -1,8 +1,15 @@
 local json = require("json")
-local registry = require("registry")
 
 -- Tool Resolver Library - For discovering tools and their schemas
 local tool_resolver = {}
+
+-- Allow for registry injection for testing
+tool_resolver._registry = nil
+
+-- Get registry - use injected registry or require it
+local function get_registry()
+    return tool_resolver._registry or require("registry")
+end
 
 -- Sanitize tool name to avoid problematic characters for LLM and convert to snake_case
 function tool_resolver.sanitize_name(name)
@@ -25,7 +32,9 @@ end
 
 -- Fetch a tool's schema from the registry
 function tool_resolver.get_tool_schema(tool_id)
-    -- Get tool from registry directly
+    local registry = get_registry()
+
+    -- Get tool from registry
     local entry, err = registry.get(tool_id)
     if err or not entry then
         return nil, "Tool not found: " .. (err or "unknown error")
@@ -119,6 +128,8 @@ end
 
 -- Find a tool ID from a list of tool IDs that matches a given name
 function tool_resolver.resolve_name_to_id(name, scope_ids)
+    local registry = get_registry()
+
     if not name or not scope_ids or #scope_ids == 0 then
         return nil, "Name and scope IDs are required"
     end
@@ -188,6 +199,8 @@ end
 
 -- Find tools by criteria (namespace, tags, etc.)
 function tool_resolver.find_tools(criteria)
+    local registry = get_registry()
+
     local query = {
         [".kind"] = "function.lua",
         type = "tool"
@@ -204,7 +217,7 @@ function tool_resolver.find_tools(criteria)
         end
     end
 
-    -- Query registry directly
+    -- Query registry
     local entries, err = registry.find(query)
     if err then
         return nil, "Failed to find tools: " .. err
