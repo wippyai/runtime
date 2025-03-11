@@ -16,6 +16,7 @@ import (
 	regapi "github.com/ponyruntime/pony/api/registry"
 	resourceapi "github.com/ponyruntime/pony/api/resource"
 	luaapi "github.com/ponyruntime/pony/api/runtime/lua"
+	secapi "github.com/ponyruntime/pony/api/security"
 	topapi "github.com/ponyruntime/pony/api/topology"
 	"github.com/ponyruntime/pony/runtime/lua/code"
 	"github.com/ponyruntime/pony/runtime/lua/command"
@@ -73,6 +74,7 @@ import (
 	"github.com/ponyruntime/pony/system/registry/runner"
 	regtop "github.com/ponyruntime/pony/system/registry/topology"
 	"github.com/ponyruntime/pony/system/resource"
+	"github.com/ponyruntime/pony/system/security"
 	"github.com/ponyruntime/pony/system/supervisor"
 	"github.com/ponyruntime/pony/system/topology"
 	"go.uber.org/zap"
@@ -103,6 +105,7 @@ type App struct {
 	logManager  *logs.Manager
 	eventBus    event.Bus
 	eventRouter *eventbus.EventRouter
+	security    *security.PolicyRegistry
 	services    eventbus.RouterOption
 	dtt         *transcoder.Transcoder
 	reg         regapi.Registry
@@ -196,6 +199,11 @@ func (a *App) Initialize() error {
 		return fmt.Errorf("failed to start log manager: %w", err)
 	}
 
+	a.security = security.NewPolicyRegistry(a.eventBus, a.logger.Named("security"))
+	if err := a.security.Start(a.ctx); err != nil {
+		return fmt.Errorf("failed to start security manager: %w", err)
+	}
+
 	// Initialize core components
 	a.reg = registry.NewRegistry(
 		history.NewMemory(),
@@ -257,6 +265,7 @@ func (a *App) Start(folderPath string) error {
 	// Spawn context with values
 	ctx := a.ctx
 	ctx = event.WithBus(ctx, a.eventBus)
+	ctx = secapi.WithRegistry(ctx, a.security)
 	ctx = fsapi.WithFSRegistry(ctx, a.fsRegistry)
 	ctx = regapi.WithRegistry(ctx, a.reg)
 	ctx = payload.WithTranscoder(ctx, a.dtt)
@@ -390,6 +399,10 @@ func (a *App) Stop() error {
 
 	if err := a.fsRegistry.Stop(); err != nil {
 		a.logger.Error("failed to stop filesystem registry", zap.Error(err))
+	}
+
+	if err := a.security.Stop(); err != nil {
+		a.logger.Error("failed to stop security manager", zap.Error(err))
 	}
 
 	// close log manager last
