@@ -1,194 +1,82 @@
-local llm_registry = require("llm_registry")
-local stream_helper = require("stream_helper")
-local funcs = require("funcs")
+local registry = require("base_registry")
 
--- LLM Library - High-level interface for LLM functionalities
-local llm = {}
+-- LLM Registry Library - For discovering LLM implementations
+local llm_registry = {}
 
 ---------------------------
--- Core LLM Functions
+-- LLM Function Discovery
 ---------------------------
 
--- Generate text using an LLM model
-function llm.generate(system_prompts, user_prompts, options)
-    if not options or not options.model then
-        return nil, "Model is required in options"
-    end
+-- Implementation capability identifiers for registry lookups
+llm_registry.CAPABILITY = {
+    GENERATE = "generate",           -- Basic text generation
+    GENERATE_WITH_TOOLS = "tools",   -- Text generation with tool calling
+    GENERATE_WITH_SCHEMA = "schema", -- Schema-guided generation
+    THINKING = "thinking"            -- Thinking/reasoning capability
+}
 
-    -- Find implementation
-    local implementation, err = llm_registry.find_implementation(
-        llm_registry.CAPABILITY.GENERATE,
-        options.model
-    )
+-- Helper function to match a model name against a pattern
+local function model_matches_pattern(model_name, pattern)
+    if not pattern then return true end
+    if pattern == "*" then return true end
 
-    if not implementation then
-        return nil, "No suitable LLM implementation found: " .. (err or "")
-    end
-
-    -- Format messages in the expected format
-    local messages = {}
-
-    -- Add system prompts
-    if system_prompts and #system_prompts > 0 then
-        for _, prompt in ipairs(system_prompts) do
-            table.insert(messages, {
-                role = stream_helper.ROLE.SYSTEM,
-                content = prompt
-            })
-        end
-    end
-
-    -- Add user prompts
-    if user_prompts and #user_prompts > 0 then
-        for _, prompt in ipairs(user_prompts) do
-            table.insert(messages, {
-                role = stream_helper.ROLE.USER,
-                content = prompt
-            })
-        end
-    end
-
-    -- Prepare arguments for the implementation
-    local args = {
-        messages = messages,
-        model = options.model,
-        max_tokens = options.max_tokens,
-        temperature = options.temperature or 0.5,
-        stream_to = options.stream_to
-    }
-
-    -- Add any thinking parameters if specified
-    if options.thinking then
-        args.thinking = options.thinking
-    end
-
-    -- Create a funcs executor
-    local executor = funcs.new()
-
-    -- Call the implementation
-    return executor:call(implementation.id, args)
+    -- Convert glob-style patterns to Lua patterns
+    local lua_pattern = pattern:gsub("%*", ".*"):gsub("%?", ".")
+    return model_name:match("^" .. lua_pattern .. "$") ~= nil
 end
 
--- Generate text with a schema using an LLM model
-function llm.generate_with_schema(schema, system_prompts, user_prompts, options)
-    if not options or not options.model then
-        return nil, "Model is required in options"
+-- Find an LLM implementation based on capability and model pattern
+function llm_registry.find_implementation(capability, model)
+    if not model then
+        return nil, "Model is required"
     end
 
-    -- Find implementation
-    local implementation, err = llm_registry.find_implementation(
-        llm_registry.CAPABILITY.GENERATE_WITH_SCHEMA,
-        options.model
-    )
-
-    if not implementation then
-        return nil, "No suitable LLM implementation found: " .. (err or "")
-    end
-
-    -- Format messages in the expected format
-    local messages = {}
-
-    -- Add system prompts
-    if system_prompts and #system_prompts > 0 then
-        for _, prompt in ipairs(system_prompts) do
-            table.insert(messages, {
-                role = stream_helper.ROLE.SYSTEM,
-                content = prompt
-            })
-        end
-    end
-
-    -- Add user prompts
-    if user_prompts and #user_prompts > 0 then
-        for _, prompt in ipairs(user_prompts) do
-            table.insert(messages, {
-                role = stream_helper.ROLE.USER,
-                content = prompt
-            })
-        end
-    end
-
-    -- Prepare arguments for the implementation
-    local args = {
-        messages = messages,
-        schema = schema,
-        model = options.model,
-        max_tokens = options.max_tokens,
-        temperature = options.temperature or 0.5,
-        stream_to = options.stream_to
+    local query = {
+        [".kind"] = "function.lua",
+        ["llm_function"] = capability
     }
 
-    -- Add any thinking parameters if specified
-    if options.thinking then
-        args.thinking = options.thinking
+    -- Query registry
+    local entries, err = registry.find(query)
+    if err then
+        return nil, "Failed to find LLM implementations: " .. err
     end
 
-    -- Create a funcs executor
-    local executor = funcs.new()
-
-    -- Call the implementation
-    return executor:call(implementation.id, args)
-end
-
--- Generate text with tools using an LLM model
-function llm.generate_with_tools(system_prompts, user_prompts, tools, options)
-    if not options or not options.model then
-        return nil, "Model is required in options"
+    if not entries or #entries == 0 then
+        return nil, "No LLM implementations found for capability: " .. capability
     end
 
-    -- Find implementation
-    local implementation, err = llm_registry.find_implementation(
-        llm_registry.CAPABILITY.GENERATE_WITH_TOOLS,
-        options.model
-    )
+    -- Filter entries by model patterns in metadata
+    local matching_entries = {}
 
-    if not implementation then
-        return nil, "No suitable LLM implementation found: " .. (err or "")
-    end
-
-    -- Format messages in the expected format
-    local messages = {}
-
-    -- Add system prompts
-    if system_prompts and #system_prompts > 0 then
-        for _, prompt in ipairs(system_prompts) do
-            table.insert(messages, {
-                role = stream_helper.ROLE.SYSTEM,
-                content = prompt
-            })
+    for _, entry in ipairs(entries) do
+        -- Check if entry has model patterns specified
+        if not entry.meta.models then
+            -- If entry doesn't have model patterns, include it as fallback
+            table.insert(matching_entries, entry)
+        else
+            -- Check each model pattern in the entry
+            for _, pattern in ipairs(entry.meta.models) do
+                if model_matches_pattern(model, pattern) then
+                    table.insert(matching_entries, entry)
+                    break
+                end
+            end
         end
     end
 
-    -- Add user prompts
-    if user_prompts and #user_prompts > 0 then
-        for _, prompt in ipairs(user_prompts) do
-            table.insert(messages, {
-                role = stream_helper.ROLE.USER,
-                content = prompt
-            })
-        end
+    if #matching_entries == 0 then
+        return nil, "No LLM implementations found for model: " .. model
     end
 
-    -- Prepare arguments for the implementation
-    local args = {
-        messages = messages,
-        tools = tools,
-        model = options.model,
-        max_tokens = options.max_tokens,
-        temperature = options.temperature or 0.5,
-        stream_to = options.stream_to
-    }
+    -- Sort implementations by priority (if specified)
+    table.sort(matching_entries, function(a, b)
+        local a_priority = a.meta.priority or 0
+        local b_priority = b.meta.priority or 0
+        return a_priority > b_priority
+    end)
 
-    -- Add any thinking parameters if specified
-    if options.thinking then
-        args.thinking = options.thinking
-    end
-
-    -- Create a funcs executor
-    local executor = funcs.new()
-
-    -- Call the implementation
-    return executor:call(implementation.id, args)
+    return matching_entries[1]
 end
 
-return llm
+return llm_registry
