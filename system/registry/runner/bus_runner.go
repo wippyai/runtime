@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/system/registry/topology"
@@ -96,6 +95,21 @@ func (br *BusRunner) applyOperation(
 ) (topology.StateMap, error) {
 	if err := br.builder.ValidateOperation(state, op); err != nil {
 		return state, fmt.Errorf("invalid operation: %w", err)
+	}
+
+	if op.Entry.Kind == registry.KindEntry {
+		br.log.Debug("processing entry",
+			zap.String("id", op.Entry.ID.String()),
+			zap.Any("meta", op.Entry.Meta))
+
+		// with entry events we dont propagate any events and handle them internally
+		// use registry.entry for dynamic configs
+		newState, err := br.builder.ApplyOperation(state, op)
+		if err != nil {
+			return state, fmt.Errorf("applying change to state: %w", err)
+		}
+
+		return newState, nil
 	}
 
 	br.log.Debug("starting operation",

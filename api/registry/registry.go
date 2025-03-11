@@ -43,6 +43,9 @@ const (
 	TagDependsOn = "depends_on"
 	// TagGroups is used to mark group membership of registry entries
 	TagGroups = "groups"
+
+	// KindEntry stores value in registry without propagation, useful for app specific configs.
+	KindEntry Kind = "registry.entry"
 )
 
 type (
