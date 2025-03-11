@@ -567,7 +567,7 @@ local function format_error_message(err)
             -- Iterate through frames, focusing on the most helpful ones
             for i, frame in ipairs(call_stack.frames) do
                 -- Skip frames with type 'G' (global) as they're not very helpful
-                if frame.type ~= "G" then
+                --if frame.type ~= "G" then
                     local source = frame.source and frame.source:gsub("[<>]", "") or "unknown"
                     local line = frame.line and frame.line > 0 and frame.line or "?"
                     local func_name = frame.name and frame.name:gsub("[<>]", "") or "unknown"
@@ -576,7 +576,7 @@ local function format_error_message(err)
                     local prefix = i > 1 and "  " or "->"
                     stack_text = stack_text .. string.format("\n%s %s:%s in %s",
                         prefix, source, line, func_name)
-                end
+               -- end
             end
 
             -- Append formatted stack trace to error message
@@ -666,14 +666,6 @@ local function run_test(suite, test_case)
         -- Format error with stack trace
         local formatted_error = format_error_message(err)
         local error_text = formatted_error
-        local stack_trace = ""
-
-        -- Extract stack trace if available
-        local stack_pos = formatted_error:find("Stack trace:")
-        if stack_pos then
-            error_text = formatted_error:sub(1, stack_pos - 1):gsub("%s+$", "")
-            stack_trace = formatted_error:sub(stack_pos)
-        end
 
         result.status = "fail"
         result.error = formatted_error
@@ -685,7 +677,6 @@ local function run_test(suite, test_case)
             test = test_case.name,
             duration = duration,
             error = error_text,
-            stack_trace = stack_trace,
             timestamp = completion_timestamp
         })
     end

@@ -3,144 +3,148 @@ local tool_resolver = require("tools")
 
 local function define_tests()
     describe("Tool Resolver Library", function()
-        -- Mock the registry module
-        local registry_entries = {}
-
-        -- Set up mock for the registry module
-        before_each(function()
-            -- Create test registry entries
-            registry_entries = {
-                ["system:weather"] = {
-                    id = "system:weather",
-                    kind = "function.lua",
-                    meta = {
-                        type = "tool",
-                        name = "Weather Service",
-                        llm_alias = "get_weather",
-                        description = "Get weather information by location",
-                        input_schema = [[
-                            {
-                                "type": "object",
-                                "properties": {
-                                    "location": {
-                                        "type": "string",
-                                        "description": "The city or location"
-                                    },
-                                    "units": {
-                                        "type": "string",
-                                        "enum": ["celsius", "fahrenheit"],
-                                        "default": "celsius"
-                                    }
+        -- Create registry entries for testing
+        local registry_entries = {
+            ["system:weather"] = {
+                id = "system:weather",
+                kind = "function.lua",
+                meta = {
+                    type = "tool",
+                    name = "Weather Service",
+                    llm_alias = "get_weather",
+                    description = "Get weather information by location",
+                    input_schema = [[
+                        {
+                            "type": "object",
+                            "properties": {
+                                "location": {
+                                    "type": "string",
+                                    "description": "The city or location"
                                 },
-                                "required": ["location"]
-                            }
-                        ]]
-                    }
-                },
-                ["tools:calculator"] = {
-                    id = "tools:calculator",
-                    kind = "function.lua",
-                    meta = {
-                        type = "tool",
-                        name = "Math Calculator",
-                        description = "Perform calculations",
-                        input_schema = [[
-                            {
-                                "type": "object",
-                                "properties": {
-                                    "expression": {
-                                        "type": "string",
-                                        "description": "Math expression to evaluate"
-                                    }
+                                "units": {
+                                    "type": "string",
+                                    "enum": ["celsius", "fahrenheit"],
+                                    "default": "celsius"
+                                }
+                            },
+                            "required": ["location"]
+                        }
+                    ]]
+                }
+            },
+            ["tools:calculator"] = {
+                id = "tools:calculator",
+                kind = "function.lua",
+                meta = {
+                    type = "tool",
+                    name = "Math Calculator",
+                    description = "Perform calculations",
+                    input_schema = [[
+                        {
+                            "type": "object",
+                            "properties": {
+                                "expression": {
+                                    "type": "string",
+                                    "description": "Math expression to evaluate"
+                                }
+                            },
+                            "required": ["expression"]
+                        }
+                    ]]
+                }
+            },
+            ["utils:formatter"] = {
+                id = "utils:formatter",
+                kind = "function.lua",
+                meta = {
+                    type = "tool",
+                    name = "Text Formatter",
+                    comment = "Format text with various options",
+                    input_schema = [[
+                        {
+                            "type": "object",
+                            "properties": {
+                                "text": {
+                                    "type": "string",
+                                    "description": "Text to format"
                                 },
-                                "required": ["expression"]
-                            }
-                        ]]
-                    }
-                },
-                ["utils:formatter"] = {
-                    id = "utils:formatter",
-                    kind = "function.lua",
-                    meta = {
-                        type = "tool",
-                        name = "Text Formatter",
-                        comment = "Format text with various options",
-                        input_schema = [[
-                            {
-                                "type": "object",
-                                "properties": {
-                                    "text": {
-                                        "type": "string",
-                                        "description": "Text to format"
-                                    },
-                                    "format": {
-                                        "type": "string",
-                                        "enum": ["uppercase", "lowercase", "titlecase"],
-                                        "default": "titlecase"
-                                    }
-                                },
-                                "required": ["text"]
-                            }
-                        ]]
-                    }
-                },
-                ["notool:example"] = {
-                    id = "notool:example",
-                    kind = "function.lua",
-                    meta = {
-                        type = "not-a-tool",
-                        name = "Not A Tool"
-                    }
-                },
-                ["badschema:tool"] = {
-                    id = "badschema:tool",
-                    kind = "function.lua",
-                    meta = {
-                        type = "tool",
-                        name = "Bad Schema Tool",
-                        input_schema = "not valid json"
-                    }
-                },
-                ["empty:tool"] = {
-                    id = "empty:tool",
-                    kind = "function.lua",
-                    meta = {
-                        type = "tool",
-                        name = "Empty Schema Tool",
-                        input_schema = [[ { "type": "object", "properties": {} } ]]
-                    }
-                },
-                ["noschema:tool"] = {
-                    id = "noschema:tool",
-                    kind = "function.lua",
-                    meta = {
-                        type = "tool",
-                        name = "No Schema Tool"
-                    }
-                },
-                ["typo:tool"] = {
-                    id = "typo:tool",
-                    kind = "function.lua",
-                    meta = {
-                        type = "tool",
-                        name = "Typo Description Tool",
-                        llm_descirtion = "Tool with typo in description field"
-                    }
+                                "format": {
+                                    "type": "string",
+                                    "enum": ["uppercase", "lowercase", "titlecase"],
+                                    "default": "titlecase"
+                                }
+                            },
+                            "required": ["text"]
+                        }
+                    ]]
+                }
+            },
+            ["notool:example"] = {
+                id = "notool:example",
+                kind = "function.lua",
+                meta = {
+                    type = "not-a-tool",
+                    name = "Not A Tool"
+                }
+            },
+            ["badschema:tool"] = {
+                id = "badschema:tool",
+                kind = "function.lua",
+                meta = {
+                    type = "tool",
+                    name = "Bad Schema Tool",
+                    input_schema = "not valid json"
+                }
+            },
+            ["empty:tool"] = {
+                id = "empty:tool",
+                kind = "function.lua",
+                meta = {
+                    type = "tool",
+                    name = "Empty Schema Tool",
+                    input_schema = [[ { "type": "object", "properties": {} } ]]
+                }
+            },
+            ["noschema:tool"] = {
+                id = "noschema:tool",
+                kind = "function.lua",
+                meta = {
+                    type = "tool",
+                    name = "No Schema Tool"
+                }
+            },
+            ["typo:tool"] = {
+                id = "typo:tool",
+                kind = "function.lua",
+                meta = {
+                    type = "tool",
+                    name = "Typo Description Tool",
+                    llm_descirtion = "Tool with typo in description field"
                 }
             }
+        }
 
-            -- Mock registry.get
-            mock("registry.get", function(id)
+        -- First, create the registry object in the global scope
+        before_all(function()
+            -- Create the registry object in the global scope
+            _G.registry = {
+                get = function() end,
+                find = function() end
+            }
+        end)
+
+        before_each(function()
+            -- Now mock the methods on the global registry object
+            mock(_G.registry, "get", function(id)
                 local entry = registry_entries[id]
                 if entry then
-                    return entry, nil
+                    return entry
                 else
                     return nil, "Entry not found: " .. id
                 end
             end)
 
-            -- Mock registry.find
-            mock("registry.find", function(query)
+            mock(_G.registry, "find", function(query)
                 local results = {}
 
                 for id, entry in pairs(registry_entries) do
@@ -152,7 +156,7 @@ local function define_tests()
                     end
 
                     -- Check type
-                    if query.type and (not entry.meta or entry.meta.type ~= query.type) then
+                    if query.type and entry.meta and entry.meta.type ~= query.type then
                         matches = false
                     end
 
@@ -164,30 +168,18 @@ local function define_tests()
                         end
                     end
 
-                    -- Check tags
-                    if query.meta and query.meta.tags and entry.meta and entry.meta.tags then
-                        for _, tag in ipairs(query.meta.tags) do
-                            local found = false
-                            for _, entry_tag in ipairs(entry.meta.tags) do
-                                if entry_tag == tag then
-                                    found = true
-                                    break
-                                end
-                            end
-                            if not found then
-                                matches = false
-                                break
-                            end
-                        end
-                    end
-
                     if matches then
                         table.insert(results, entry)
                     end
                 end
 
-                return results, nil
+                return results
             end)
+        end)
+
+        after_all(function()
+            -- Clean up the global registry
+            _G.registry = nil
         end)
 
         it("should sanitize tool names", function()

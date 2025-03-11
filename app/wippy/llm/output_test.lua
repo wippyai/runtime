@@ -281,17 +281,21 @@ local function define_tests()
 
             local streamer = output.streamer("test-pid")
 
-            -- Add content without triggering automatic send
-            streamer:buffer_content("Hello world")
+            -- Empty buffer case - should return false
+            local sent = streamer:flush()
+            expect(sent).to_be_false()
             expect(#sent_messages).to_equal(0)
 
-            -- Flush the buffer
-            local sent = streamer:flush()
+            -- Add content without triggering automatic send
+            streamer:buffer_content("Hello world")
+
+            -- Now there should be content to flush
+            sent = streamer:flush()
             expect(sent).to_be_true()
             expect(#sent_messages).to_equal(1)
             expect(sent_messages[1].payload.content).to_equal("Hello world")
 
-            -- Flush empty buffer should not send anything
+            -- Flush empty buffer should not send anything and return false
             sent = streamer:flush()
             expect(sent).to_be_false()
             expect(#sent_messages).to_equal(1) -- Still just one message

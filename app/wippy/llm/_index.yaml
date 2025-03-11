@@ -69,7 +69,6 @@ entries:
       comment: "Tests the tool resolver library functionality for discovering and managing tools"
     source: file://tools_test.lua
     method: run_tests
-    modules: [ "json", "registry" ]
     imports:
       test: "wippy.test:test"
       tools: "wippy.llm:tools"

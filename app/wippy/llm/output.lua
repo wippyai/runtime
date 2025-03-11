@@ -161,8 +161,8 @@ function output.streamer(pid, topic, buffer_size)
     streamer.buffer_content = function(self, text)
         self.buffer = self.buffer .. (text or "")
 
-        -- Stream chunks when buffer is large or sentence appears complete
-        if #self.buffer > 10 or self.buffer:match("[%.%!%?]%s*$") then
+        -- Stream chunks when buffer is larger than buffer_size or sentence appears complete
+        if #self.buffer >= self.buffer_size or self.buffer:match("[%.%!%?]%s*$") then
             self:send_content(self.buffer)
             self.buffer = ""
             return true

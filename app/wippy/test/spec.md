@@ -248,24 +248,40 @@ test.assert(value).to_equal(expected)
 
 ```lua
 it("should handle async code", function()
-    local done = false
+    local ch = channel.new()
+    local timeout_ch = time.after("1000ms")  -- 1 second timeout
     
-    async_function(function(result)
-        done = true
-        expect(result).to_equal("expected")
+    -- Spawn a coroutine to run the async operation
+    coroutine.spawn(function()
+        local result = async_function()
+        ch:send(result)
     end)
     
-    -- Wait for the callback
-    local timeout = 1000
-    local start = time.now()
+    -- Wait for the result with a timeout
+    local result = channel.select{
+        ch:case_receive(),
+        timeout_ch:case_receive()
+    }
     
-    while not done do
-        if time.now():sub(start):milliseconds() > timeout then
-            error("Timeout waiting for async operation")
-        end
-        -- Yield to allow other operations
-        coroutine.yield()
+    if result.channel == timeout_ch then
+        error("Timeout waiting for async operation")
+    else
+        expect(result.value).to_equal("expected")
     end
+end)
+```
+
+Alternative approach using cpcall:
+
+```lua
+it("should handle async operation with cpcall", function()
+    -- cpcall allows async operations and returns result or error
+    local success, result = cpcall(function()
+        return async_function_that_may_take_time()
+    end)
+    
+    expect(success).to_be_true()
+    expect(result).to_equal("expected")
 end)
 ```
 
@@ -281,3 +297,56 @@ it("should throw an error", function()
     expect(tostring(err)).to_match("expected error pattern")
 end)
 ```
+
+## Registering Tests in Your Application
+
+To register tests in your application, you can use a YAML configuration file (typically `_index.yaml`):
+
+```yaml
+version: "1.0"
+namespace: app.test.cases
+
+meta:
+  depends_on: [ "ns:system", "ns:wippy.test" ]
+
+entries:
+  - name: system_test
+    kind: function.lua
+    meta:
+      name: "System Test"
+      type: "test"
+      tags: [ "system", "monitoring", "health", "tests" ]
+      comment: "Performs a basic system health check"
+    source: file://system_test.lua
+    method: run_tests
+    modules: [ "http_client", "fs", "time", "sql", "crypto" ]
+    imports:
+      test: "wippy.test:test"
+```
+
+Your test file (`system_test.lua`) should export the method specified in the YAML config:
+
+```lua
+-- Import dependencies
+local test = require("test")
+
+-- Define the run_tests function that will be called
+function run_tests(options)
+    -- Define your test cases
+    local function define_tests()
+        describe("System Health", function()
+            -- Your test cases here
+        end)
+    end
+    
+    -- Run the tests with the test framework
+    return test.run_cases(define_tests)(options)
+end
+
+-- Return the run_tests function
+return {
+    run_tests = run_tests
+}
+```
+
+The application framework will load your test module using the information in the YAML file and execute the specified method.
