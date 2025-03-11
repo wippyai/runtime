@@ -82,8 +82,6 @@ entries:
     source: file://get_status.lua
     method: handler
     modules: [ http, time ]
-    pool:
-      size: 1
 
   - name: start.http
     kind: http.endpoint

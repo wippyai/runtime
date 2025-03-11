@@ -25,5 +25,3 @@ entries:
     method: migrate
     imports:
       migration: "wippy.migration:migration"
-    pool:
-      size: 1

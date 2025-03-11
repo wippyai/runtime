@@ -22,5 +22,3 @@ entries:
     imports:
       test: "wippy.test:test"
       actor: "wippy.actor:actor"
-    pool:
-      size: 1 # todo change it to support cold pools
