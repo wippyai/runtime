@@ -433,58 +433,74 @@ local function format_value(val)
     end
 end
 
+-- Helper function to get debug info for assertions
+local function get_debug_info()
+    local info = debug.getinfo(3) -- 3 levels up to get the calling context
+    return {
+        line = info.currentline,
+        source = info.source
+    }
+end
+
 local function assert_equal(actual, expected, message)
     if actual ~= expected then
-        error(errors.new(message or string.format("Expected %s but got %s",
-            format_value(expected), format_value(actual)), 2))
+        local info = get_debug_info()
+        error(string.format("%s:%d: Expected %s but got %s",
+            info.source, info.line, format_value(expected), format_value(actual)), 2)
     end
     return true
 end
 
 local function assert_not_equal(actual, expected, message)
     if actual == expected then
-        error(message or string.format("Expected %s to not equal %s",
-            format_value(actual), format_value(expected)), 2)
+        local info = get_debug_info()
+        error(string.format("%s:%d: Expected %s to not equal %s",
+            info.source, info.line, format_value(actual), format_value(expected)), 2)
     end
     return true
 end
 
 local function assert_true(actual, message)
     if actual ~= true then
-
-    local info = debug.getinfo(1) -- 1 is the stack level (current function)
-    print("Line:", info.currentline)
-    print("Source:", info.source)
-    print("Function name:", info.name)
-        error(message or string.format("Expected true but got %s", format_value(actual)), 2)
+        local info = get_debug_info()
+        error(string.format("%s:%d: Expected true but got %s",
+            info.source, info.line, format_value(actual)), 2)
     end
     return true
 end
 
 local function assert_false(actual, message)
     if actual ~= false then
-        error(message or string.format("Expected false but got %s", format_value(actual)), 2)
+        local info = get_debug_info()
+        error(string.format("%s:%d: Expected false but got %s",
+            info.source, info.line, format_value(actual)), 2)
     end
     return true
 end
 
 local function assert_nil(actual, message)
     if actual ~= nil then
-        error(message or string.format("Expected nil but got %s", format_value(actual)), 2)
+        local info = get_debug_info()
+        error(string.format("%s:%d: Expected nil but got %s",
+            info.source, info.line, format_value(actual)), 2)
     end
     return true
 end
 
 local function assert_not_nil(actual, message)
     if actual == nil then
-        error(errors.new(message or "Expected value to not be nil", 2))
+        local info = get_debug_info()
+        error(string.format("%s:%d: Expected value to not be nil",
+            info.source, info.line), 2)
     end
     return true
 end
 
 local function assert_match(str, pattern, message)
     if not string.match(str, pattern) then
-        error(message or string.format("Expected %q to match pattern %q", str, pattern), 2)
+        local info = get_debug_info()
+        error(string.format("%s:%d: Expected %q to match pattern %q",
+            info.source, info.line, str, pattern), 2)
     end
     return true
 end
@@ -516,14 +532,17 @@ function test.expect(actual)
         to_be_type = function(expected_type, message)
             local actual_type = type(actual)
             if actual_type ~= expected_type then
-                error(message or string.format("Expected type %s but got %s",
-                    expected_type, actual_type), 2)
+                local info = get_debug_info()
+                error(string.format("%s:%d: Expected type %s but got %s",
+                    info.source, info.line, expected_type, actual_type), 2)
             end
             return true
         end,
         to_contain = function(expected, message)
             if type(actual) ~= "table" then
-                error("Expected a table to check contents", 2)
+                local info = get_debug_info()
+                error(string.format("%s:%d: Expected a table to check contents",
+                    info.source, info.line), 2)
             end
 
             local found = false
@@ -535,17 +554,23 @@ function test.expect(actual)
             end
 
             if not found then
-                error(message or string.format("Expected table to contain %s", format_value(expected)), 2)
+                local info = get_debug_info()
+                error(string.format("%s:%d: Expected table to contain %s",
+                    info.source, info.line, format_value(expected)), 2)
             end
             return true
         end,
         to_have_key = function(key, message)
             if type(actual) ~= "table" then
-                error("Expected a table to check for key", 2)
+                local info = get_debug_info()
+                error(string.format("%s:%d: Expected a table to check for key",
+                    info.source, info.line), 2)
             end
 
             if actual[key] == nil then
-                error(message or string.format("Expected table to have key %s", format_value(key)), 2)
+                local info = get_debug_info()
+                error(string.format("%s:%d: Expected table to have key %s",
+                    info.source, info.line, format_value(key)), 2)
             end
             return true
         end
@@ -554,37 +579,38 @@ end
 
 -- Format error with stack trace into a structured object
 local function format_error_message(err)
-    -- If it's already a string, return as is
-    if type(err) == "string" then
-        return err
-    end
-
-    -- Get basic error message
+    -- For error objects, first get the basic message
     local error_message = tostring(err)
 
-    -- Append stack trace if available
+    -- Only add stack trace for non-assertion errors (like runtime errors)
+    -- and only if the errors.call_stack function is available
     if errors and errors.call_stack then
+        -- Get the call stack
         local call_stack = errors.call_stack(err)
-        if call_stack and call_stack.frames then
-            -- Format stack trace as a readable string
-            local stack_text = "\nStack trace:"
-
-            -- Iterate through frames, focusing on the most helpful ones
-            for i, frame in ipairs(call_stack.frames) do
-                -- Skip frames with type 'G' (global) as they're not very helpful
-                --if frame.type ~= "G" then
-                    local source = frame.source and frame.source:gsub("[<>]", "") or "unknown"
-                    local line = frame.line and frame.line > 0 and frame.line or "?"
-                    local func_name = frame.name and frame.name:gsub("[<>]", "") or "unknown"
-
-                    -- Format line with an arrow for the first non-global frame
-                    local prefix = i > 1 and "  " or "->"
-                    stack_text = stack_text .. string.format("\n%s %s:%s in %s",
-                        prefix, source, line, func_name)
-               -- end
+        if call_stack and call_stack.frames and #call_stack.frames > 0 then
+            -- Don't add stack trace info for assertion errors
+            for _, frame in ipairs(call_stack.frames) do
+                -- If this appears to be from our assertion system, skip stack trace
+                if frame.source and frame.line and string.match(frame.name or "", "assert") then
+                    return error_message
+                end
             end
 
-            -- Append formatted stack trace to error message
+            -- For non-assertion errors, add the stack trace
+            local stack_text = "\nStack trace:"
+            for i, frame in ipairs(call_stack.frames) do
+                local source = frame.source and frame.source:gsub("[<>]", "") or "unknown"
+                local line = frame.line and frame.line > 0 and frame.line or "?"
+                local func_name = frame.name and frame.name:gsub("[<>]", "") or "unknown"
+
+                -- Don't include any frames from assertion functions
+                if not string.match(func_name or "", "assert") then
+                    local prefix = i > 1 and "  " or "->"
+                    stack_text = stack_text .. string.format("\n%s %s:%s in %s",
+                                                           prefix, source, line, func_name)
+                end
+            end
+
             error_message = error_message .. stack_text
         end
     end
@@ -668,12 +694,11 @@ local function run_test(suite, test_case)
             timestamp = completion_timestamp
         })
     else
-        -- Format error with stack trace
-        local formatted_error = format_error_message(err)
-        local error_text = formatted_error
+        -- Format error message without additional prefixes or redundant data
+        local error_text = format_error_message(err)
 
         result.status = "fail"
-        result.error = formatted_error
+        result.error = error_text
         _default_context.results.failed = _default_context.results.failed + 1
 
         -- Send fail event according to protocol
