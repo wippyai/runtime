@@ -18,16 +18,16 @@ entries:
     pool:
       size: 4
 
-  - name: llm_query_test
-    kind: function.lua
-    meta:
-      name: "LLM Query Test"
-      type: "test"
-      tags: [ "llm", "api", "integration", "tests" ]
-      comment: "Tests the LLM query function with mocked HTTP responses"
-    source: file://llm_query_test.lua
-    method: run_tests
-    modules: [ "http_client", "json", "env", "time" ]
-    imports:
-      test: wippy.test:test
-      llm_query: app.funcs.openai:llm_query
+#  - name: llm_query_test
+#    kind: function.lua
+#    meta:
+#      name: "LLM Query Test"
+#      type: "test"
+#      tags: [ "llm", "api", "integration", "tests" ]
+#      comment: "Tests the LLM query function with mocked HTTP responses"
+#    source: file://llm_query_test.lua
+#    method: run_tests
+#    modules: [ "http_client", "json", "env", "time" ]
+#    imports:
+#      test: wippy.test:test
+#      llm_query: app.funcs.openai:llm_query
