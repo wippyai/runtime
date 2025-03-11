@@ -1,9 +1,11 @@
 package policy
 
 import (
+	"fmt"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/security"
+	"github.com/ponyruntime/pony/api/service/policy"
 )
 
 // FactoryAPI defines the interface for creating policy entries
@@ -26,23 +28,28 @@ func NewDefaultFactory(dtt payload.Transcoder) *DefaultFactory {
 
 // CreatePolicyEntry implements FactoryAPI
 func (f *DefaultFactory) CreatePolicyEntry(entry registry.Entry) (*security.PolicyEntry, error) {
-	//// Extract payload from registry entry
-	//policyEntry := new(security.PolicyEntry)
-	//if err := f.dtt.Unmarshal(entry.Data, policyEntry); err != nil {
-	//	return nil, fmt.Errorf("failed to unmarshal policy entry: %w", err)
-	//}
-	//
-	//// Validate policy
-	//if policyEntry.Policy == nil {
-	//	return nil, fmt.Errorf("policy cannot be nil")
-	//}
-	//
-	//// Normalize group IDs with the entry's namespace
-	//for i, groupID := range policyEntry.Groups {
-	//	policyEntry.Groups[i] = groupID.WithDefaultNS(entry.ID.NS)
-	//}
+	// Extract payload from registry entry
+	cfg := new(policy.Config)
+	if err := f.dtt.Unmarshal(entry.Data, cfg); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal policy config: %w", err)
+	}
 
-	// todo: this is wrong!
+	// Validate the configuration
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid policy config: %w", err)
+	}
 
-	return nil, nil
+	// Create the policy
+	policyObj, err := NewPolicy(entry.ID, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create policy: %w", err)
+	}
+
+	// Create policy entry
+	policyEntry := &security.PolicyEntry{
+		Policy: policyObj,
+		Groups: cfg.GetGroupIDs(entry.ID.NS),
+	}
+
+	return policyEntry, nil
 }
