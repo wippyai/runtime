@@ -35,6 +35,7 @@ entries:
       name: "Prompt Library Test"
       type: "test"
       tags: [ "llm", "prompts", "messages", "tests" ]
+      group: "LLM Library"
       comment: "Tests the prompt library functionality for building LLM messages"
     source: file://prompt_test.lua
     method: run_tests
@@ -42,3 +43,33 @@ entries:
     imports:
       test: "wippy.test:test"
       prompt: "wippy.llm:prompt"
+
+  - name: output_test
+    kind: function.lua
+    meta:
+      name: "Output Library Test"
+      type: "test"
+      tags: [ "llm", "output", "formatting", "tests" ]
+      group: "LLM Library"
+      comment: "Tests the output library functionality for formatting LLM responses"
+    source: file://output_test.lua
+    method: run_tests
+    modules: [ "json", "time" ]
+    imports:
+      test: "wippy.test:test"
+      output: "wippy.llm:output"
+
+  - name: tools_test
+    kind: function.lua
+    meta:
+      name: "Tools Library Test"
+      type: "test"
+      tags: [ "llm", "tools", "resolver", "tests" ]
+      group: "LLM Library"
+      comment: "Tests the tool resolver library functionality for discovering and managing tools"
+    source: file://tools_test.lua
+    method: run_tests
+    modules: [ "json", "registry" ]
+    imports:
+      test: "wippy.test:test"
+      tools: "wippy.llm:tools"

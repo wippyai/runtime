@@ -29,7 +29,7 @@ prompt.CONTENT_TYPE = {
 -- Create a text content part
 function prompt.text(content)
     return {
-        type = prompt_builder.CONTENT_TYPE.TEXT,
+        type = prompt.CONTENT_TYPE.TEXT,
         text = content
     }
 end
@@ -37,7 +37,7 @@ end
 -- Create an image content part
 function prompt.image(url, alt_text)
     local image_part = {
-        type = prompt_builder.CONTENT_TYPE.IMAGE,
+        type = prompt.CONTENT_TYPE.IMAGE,
         source = {
             type = "url",
             url = url
