@@ -1,148 +1,187 @@
-local time = require("time")
-
--- Stream Helper Library - For standardized streaming responses
-local stream_helper = {}
+-- Output Library - For standardized LLM output formatting
+local output = {}
 
 ---------------------------
--- Chunk Types and Error Types
+-- Chunk Types
 ---------------------------
 
--- Streaming chunk type identifiers
-stream_helper.CHUNK_TYPE = {
-    CONTENT = "content",         -- Regular text content
-    TOOL_CALL = "tool_call",     -- Tool call request
-    TOOL_RESULT = "tool_result", -- Tool execution result
-    THINKING = "thinking",       -- Thinking process
-    DONE = "done",               -- Completion marker
-    ERROR = "error"              -- Error message
+-- Result type identifiers
+output.TYPE = {
+    CONTENT = "content",     -- Regular text content
+    TOOL_CALL = "tool_call", -- Tool call request
+    ERROR = "error",         -- Error
+    THINKING = "thinking",   -- Thinking process
+    DONE = "done"            -- Completion marker
 }
 
--- Standard role types for messages
-stream_helper.ROLE = {
-    SYSTEM = "system",
-    USER = "user",
-    ASSISTANT = "assistant",
-    FUNCTION = "function",
-    TOOL = "tool"
-}
-
--- Unified error types
-stream_helper.ERROR_TYPE = {
+-- Error type constants
+output.ERROR_TYPE = {
     INVALID_REQUEST = "invalid_request",
     AUTHENTICATION = "authentication_error",
     RATE_LIMIT = "rate_limit_exceeded",
     SERVER_ERROR = "server_error",
     CONTEXT_LENGTH = "context_length_exceeded",
-    CONTENT_FILTER = "content_filter"
+    CONTENT_FILTER = "content_filter",
+    TIMEOUT = "timeout_error"
 }
 
 ---------------------------
--- Stream Helper Functions
+-- Core Formatting Functions
 ---------------------------
 
--- Helper function to format timestamps consistently
-local function format_timestamp()
-    return time.now():format("2006-01-02T15:04:05.000Z07:00")
-end
-
--- Create a standardized error object
-function stream_helper.make_error(type, message, code, provider)
+-- Format an error object
+function output.error(type, message, code)
     return {
-        type = type or stream_helper.ERROR_TYPE.SERVER_ERROR,
-        message = message or "Unknown error",
-        code = code,
-        provider = provider,
-        timestamp = format_timestamp()
+        type = output.TYPE.ERROR,
+        error = {
+            type = type or output.ERROR_TYPE.SERVER_ERROR,
+            message = message or "Unknown error",
+            code = code
+        }
     }
 end
 
--- Send a streaming chunk to the provided PID
-function stream_helper.send_chunk(pid, chunk_type, content, meta)
-    if not pid then return false end
-
-    local chunk = {
-        type = chunk_type,
-        timestamp = format_timestamp(),
-        content = content,
-        meta = meta or {}
-    }
-
-    return process.send(pid, "llm_response", chunk)
-end
-
--- Send a final response to the provided PID
-function stream_helper.send_done(pid, meta)
-    return stream_helper.send_chunk(pid, stream_helper.CHUNK_TYPE.DONE, nil, meta)
-end
-
--- Send an error response to the provided PID
-function stream_helper.send_error(pid, error_obj)
-    return stream_helper.send_chunk(pid, stream_helper.CHUNK_TYPE.ERROR, error_obj.message, {
-        error = error_obj
-    })
-end
-
--- Helper to create a usage information structure
-function stream_helper.make_usage_info(prompt_tokens, completion_tokens, total_tokens)
-    local usage = {
-        prompt_tokens = prompt_tokens or 0,
-        completion_tokens = completion_tokens or 0
-    }
-
-    usage.total_tokens = total_tokens or (usage.prompt_tokens + usage.completion_tokens)
-
-    return usage
-end
-
--- Format a content chunk
-function stream_helper.format_content(text)
+-- Format a content response
+function output.content(text)
     return {
-        type = stream_helper.CHUNK_TYPE.CONTENT,
-        content = text,
-        timestamp = format_timestamp()
+        type = output.TYPE.CONTENT,
+        content = text
     }
 end
 
--- Format a thinking chunk
-function stream_helper.format_thinking(content, model, provider)
+-- Format a thinking response
+function output.thinking(content)
     return {
-        type = stream_helper.CHUNK_TYPE.THINKING,
-        content = content,
-        model = model,
-        provider = provider,
-        timestamp = format_timestamp()
+        type = output.TYPE.THINKING,
+        content = content
     }
 end
 
--- Format a tool call chunk
-function stream_helper.format_tool_call(name, arguments, tool_id)
+-- Format a tool call response
+function output.tool_call(name, arguments, id)
     return {
-        type = stream_helper.CHUNK_TYPE.TOOL_CALL,
+        type = output.TYPE.TOOL_CALL,
         name = name,
         arguments = arguments,
-        tool_id = tool_id,
-        timestamp = format_timestamp()
+        id = id
     }
 end
 
--- Format a tool result chunk
-function stream_helper.format_tool_result(tool_id, result, error)
+-- Format a done message
+function output.done(meta)
     return {
-        type = stream_helper.CHUNK_TYPE.TOOL_RESULT,
-        tool_id = tool_id,
-        result = result,
-        error = error,
-        timestamp = format_timestamp()
+        type = output.TYPE.DONE,
+        meta = meta or {}
     }
 end
 
--- Create and return a done chunk with metadata
-function stream_helper.format_done(meta)
+-- Create usage information
+function output.usage(prompt_tokens, completion_tokens, thinking_tokens)
     return {
-        type = stream_helper.CHUNK_TYPE.DONE,
-        meta = meta or {},
-        timestamp = format_timestamp()
+        prompt_tokens = prompt_tokens or 0,
+        completion_tokens = completion_tokens or 0,
+        thinking_tokens = thinking_tokens or 0,
+        total_tokens = (prompt_tokens or 0) + (completion_tokens or 0) + (thinking_tokens or 0)
     }
 end
 
-return stream_helper
+-- Wrap an LLM result
+function output.wrap(result_type, content, usage_info)
+    local wrapped = {
+        type = result_type
+    }
+
+    if result_type == output.TYPE.CONTENT then
+        wrapped.content = content
+    elseif result_type == output.TYPE.TOOL_CALL then
+        if type(content) == "table" then
+            wrapped.name = content.name
+            wrapped.arguments = content.arguments
+            wrapped.id = content.id
+        else
+            wrapped.name = "unknown"
+            wrapped.arguments = content
+        end
+    elseif result_type == output.TYPE.ERROR then
+        wrapped.error = content
+    elseif result_type == output.TYPE.THINKING then
+        wrapped.content = content
+    end
+
+    if usage_info then
+        wrapped.usage = usage_info
+    end
+
+    return wrapped
+end
+
+---------------------------
+-- Streaming Functions
+---------------------------
+
+-- Create a new streamer for a specific PID
+function output.streamer(pid, topic, buffer_size)
+    if not pid then
+        return nil, "PID is required for streamer"
+    end
+
+    local streamer = {
+        pid = pid,
+        topic = topic or "llm_response",
+        buffer = "",
+        buffer_size = buffer_size or 10 -- Default buffer size
+    }
+
+    -- Send content chunk
+    streamer.send_content = function(self, text)
+        return process.send(self.pid, self.topic, output.content(text))
+    end
+
+    -- Send thinking chunk
+    streamer.send_thinking = function(self, text)
+        return process.send(self.pid, self.topic, output.thinking(text))
+    end
+
+    -- Send tool call chunk
+    streamer.send_tool_call = function(self, name, arguments, id)
+        return process.send(self.pid, self.topic, output.tool_call(name, arguments, id))
+    end
+
+    -- Send error chunk
+    streamer.send_error = function(self, type, message, code)
+        return process.send(self.pid, self.topic, output.error(type, message, code))
+    end
+
+    -- Send done chunk
+    streamer.send_done = function(self, meta)
+        return process.send(self.pid, self.topic, output.done(meta))
+    end
+
+    -- Buffer content and send when a natural break is detected
+    streamer.buffer_content = function(self, text)
+        self.buffer = self.buffer .. (text or "")
+
+        -- Stream chunks when buffer is large or sentence appears complete
+        if #self.buffer > 10 or self.buffer:match("[%.%!%?]%s*$") then
+            self:send_content(self.buffer)
+            self.buffer = ""
+            return true
+        end
+
+        return false
+    end
+
+    -- Flush any remaining buffered content
+    streamer.flush = function(self)
+        if #self.buffer > 0 then
+            self:send_content(self.buffer)
+            self.buffer = ""
+            return true
+        end
+        return false
+    end
+
+    return streamer
+end
+
+return output

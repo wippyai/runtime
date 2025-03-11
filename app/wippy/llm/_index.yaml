@@ -9,3 +9,11 @@ entries:
       type: "tool"
     source: file://tools.lua
     modules: [ "json", "registry" ]
+
+  - name: output
+    kind: library.lua
+    meta:
+      comment: "Output formatting library for standardizing LLM responses"
+      type: "library"
+    source: file://output.lua
+    modules: [ "time" ]
