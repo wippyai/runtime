@@ -22,10 +22,10 @@ func (v *execLayer) Step(cvm engine.CVM, tasks ...*engine.Task) ([]*engine.Task,
 
 	// terminate all tests and perform execution here
 	for len(tasks) > 0 {
-		// Process tasks that have yielded values
+		// Process tasks that have yielded Result
 		for _, task := range tasks {
 			if len(task.Yielded) > 0 {
-				// Set empty resume values but don't modify the state otherwise
+				// Set empty resume Result but don't modify the State otherwise
 				task.Resumed = []lua.LValue{}
 				v.handled = append(v.handled, task.Yielded)
 			}
@@ -46,7 +46,7 @@ func TestChannelRuntimeAsLayer(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("channel layer basic operations", func(t *testing.T) {
-		// Create base CVM
+		// Spawn base CVM
 		base, err := engine.NewCVM(
 			logger,
 			engine.WithPreloaded("channel", NewChannelModule().Loader),
@@ -54,7 +54,7 @@ func TestChannelRuntimeAsLayer(t *testing.T) {
 		assert.NoError(t, err)
 		defer base.Close()
 
-		// Create wrapped CVM with channel runtime as layer
+		// Spawn wrapped CVM with channel runtime as layer
 		channelRuntime := NewChannelLayer()
 		wrapped := engine.NewRunner(base,
 			engine.WithLayer(channelRuntime),
@@ -73,7 +73,7 @@ func TestChannelRuntimeAsLayer(t *testing.T) {
 					coroutine.yield("sent")
 				end)
 				
-				-- Receive in main routine
+				-- send in main routine
 				local msg, ok = ch:receive()
 				assert(msg == "hello", "wrong message received")
 				assert(ok == true, "receive should succeed")

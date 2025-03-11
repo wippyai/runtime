@@ -123,7 +123,7 @@ func TestLanguageOperations(t *testing.T) {
 			local treesitter = require("treesitter")
 			local lang = treesitter.language("go")
 			
-			-- Test with invalid node kind ID
+			-- Test with invalid node kind Alias
 			local invalid_kind = lang:node_kind_for_id(65535)  -- max uint16
 			assert(type(invalid_kind) == "string", "should handle max node kind id")
 			
@@ -180,7 +180,7 @@ func TestLuaSupport(t *testing.T) {
 		local root = tree:root_node()
 		assert(root ~= nil, "root should not be nil")
 
-		-- Create a simple query to find the function
+		-- Spawn a simple query to find the function
 		local query = treesitter.query("lua", [[
 			(function_declaration
 				name: (identifier) @func_name

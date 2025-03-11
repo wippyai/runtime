@@ -1,20 +1,24 @@
 package treesitter
 
 import (
+	"context"
+	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	treesitter "github.com/tree-sitter/go-tree-sitter"
 	lua "github.com/yuin/gopher-lua"
 )
 
 // CursorWrapper wraps a tree-sitter TreeCursor for Lua integration
 type CursorWrapper struct {
-	cursor *treesitter.TreeCursor
-	source *string
+	cursor  *treesitter.TreeCursor
+	source  *string
+	closed  bool
+	release context.CancelFunc // Cancel function from UoW
 }
 
 // Register the Cursor type to Lua
 func registerCursor(l *lua.LState) {
-	mt := l.NewTypeMetatable("treesitter.Cursor")
-	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
+	methods := map[string]lua.LGFunction{
 		"current_node":               cursorCurrentNode,
 		"current_field_id":           cursorCurrentFieldID,
 		"current_field_name":         cursorCurrentFieldName,
@@ -32,7 +36,36 @@ func registerCursor(l *lua.LState) {
 		"reset_to":                   cursorResetTo,
 		"copy":                       cursorCopy,
 		"close":                      cursorClose,
-	}))
+	}
+
+	value.RegisterMethods(l, "treesitter.Cursor", methods)
+}
+
+func NewCursor(uw engine.UnitOfWork, cursor *treesitter.TreeCursor, source *string) *CursorWrapper {
+	wrapper := &CursorWrapper{
+		cursor: cursor,
+		source: source,
+	}
+
+	// Register cleanup with UoW, storing the cancel function
+	wrapper.release = uw.AddCleanup(func() error {
+		if wrapper.cursor != nil && !wrapper.closed {
+			wrapper.cursor.Close()
+			wrapper.cursor = nil
+			wrapper.closed = true
+		}
+		return nil
+	})
+
+	return wrapper
+}
+
+func (c *CursorWrapper) Close() {
+	if !c.closed && c.release != nil {
+		c.closed = true
+		c.release() // Remove cleanup from UoW but don't execute it
+		c.release = nil
+	}
 }
 
 func cursorCurrentNode(l *lua.LState) int {
@@ -45,7 +78,8 @@ func cursorCurrentNode(l *lua.LState) int {
 
 	ud := l.NewUserData()
 	ud.Value = &NodeWrapper{node: node, source: cursor.source}
-	l.SetMetatable(ud, l.GetTypeMetatable("treesitter.Node"))
+	ud.Metatable = value.GetTypeMetatable(l, "treesitter.Node")
+
 	l.Push(ud)
 	return 1
 }
@@ -135,7 +169,7 @@ func cursorGotoFirstChildForByte(l *lua.LState) int {
 func cursorGotoFirstChildForPoint(l *lua.LState) int {
 	cursor := checkCursor(l)
 
-	// Get point table argument
+	// Spawn point table argument
 	pointTbl := l.CheckTable(2)
 	row := uint(pointTbl.RawGetString("row").(lua.LNumber))
 	col := uint(pointTbl.RawGetString("column").(lua.LNumber))
@@ -176,16 +210,15 @@ func cursorCopy(l *lua.LState) int {
 
 	ud := l.NewUserData()
 	ud.Value = &CursorWrapper{cursor: copied, source: cursor.source}
-	l.SetMetatable(ud, l.GetTypeMetatable("treesitter.Cursor"))
+	ud.Metatable = value.GetTypeMetatable(l, "treesitter.Cursor")
+
 	l.Push(ud)
 	return 1
 }
 
 func cursorClose(l *lua.LState) int {
-	cursor := checkCursor(l)
-	if cursor != nil {
-		cursor.cursor.Close()
-	}
+	c := checkCursor(l)
+	c.Close()
 	return 0
 }
 
@@ -193,6 +226,10 @@ func cursorClose(l *lua.LState) int {
 func checkCursor(l *lua.LState) *CursorWrapper {
 	ud := l.CheckUserData(1)
 	if v, ok := ud.Value.(*CursorWrapper); ok {
+		if v.closed || v.cursor == nil {
+			l.ArgError(1, "TreeCursor is closed")
+			return nil
+		}
 		return v
 	}
 	l.ArgError(1, "TreeCursor expected")

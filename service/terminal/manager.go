@@ -3,69 +3,61 @@ package terminal
 import (
 	"context"
 	"fmt"
+	"github.com/ponyruntime/pony/api/process"
+	"github.com/ponyruntime/pony/api/pubsub"
+	"github.com/ponyruntime/pony/api/supervisor"
+	"github.com/ponyruntime/pony/internal/config"
 	"sync"
 
-	"github.com/ponyruntime/pony/api/events"
+	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	api "github.com/ponyruntime/pony/api/service/terminal"
-	"github.com/ponyruntime/pony/api/supervisor"
-	"github.com/ponyruntime/pony/pkg/eventbus"
 	"go.uber.org/zap"
 )
 
+// Manager handles terminal service lifecycle and registration
 type Manager struct {
-	ctx      context.Context
 	log      *zap.Logger
-	bus      events.Bus
+	bus      event.Bus
 	dtt      payload.Transcoder
-	sub      *eventbus.Subscriber
 	mu       sync.RWMutex
-	services map[registry.ID]*service
-	apps     map[registry.ID]*api.Terminal
+	terminal *Terminal
+	factory  ServiceFactory
 }
 
-func NewManager(bus events.Bus, dtt payload.Transcoder, logger *zap.Logger) *Manager {
+// NewTerminalManager creates a new terminal manager instance
+func NewTerminalManager(bus event.Bus, dtt payload.Transcoder, logger *zap.Logger) *Manager {
 	return &Manager{
-		log:      logger,
-		bus:      bus,
-		dtt:      dtt,
-		services: make(map[registry.ID]*service),
-		apps:     make(map[registry.ID]*api.Terminal),
+		log:     logger,
+		bus:     bus,
+		dtt:     dtt,
+		factory: NewDefaultServiceFactory(bus, logger),
 	}
 }
 
-// Start initializes the manager and starts listening for events
-func (m *Manager) Start(ctx context.Context) error {
-	m.ctx = ctx
-
-	// Subscribe to terminal events
-	sub, err := eventbus.NewSubscriber(ctx, m.bus, api.System, "*", m.handleEvent)
-	if err != nil {
-		return fmt.Errorf("failed to create event subscriber: %w", err)
+// NewTerminalManagerWithFactory creates a new terminal manager with a custom factory
+func NewTerminalManagerWithFactory(
+	bus event.Bus,
+	dtt payload.Transcoder,
+	logger *zap.Logger,
+	factory ServiceFactory,
+) *Manager {
+	return &Manager{
+		log:     logger,
+		bus:     bus,
+		dtt:     dtt,
+		factory: factory,
 	}
-	m.sub = sub
-
-	m.log.Info("terminal manager started")
-	return nil
 }
 
-// Stop gracefully shuts down the manager
-func (m *Manager) Stop() error {
-	if m.sub != nil {
-		m.sub.Close()
-		m.sub = nil
-	}
-
-	return nil
-}
-
+// Add creates and registers a new terminal service
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != api.KindTerminal {
+	if entry.Kind != api.KindHost {
 		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
 	}
 
-	cfg, err := m.fetchConfig(entry)
+	cfg, err := config.DecodeAndInitConfig[api.HostConfig](m.dtt, entry)
 	if err != nil {
 		return err
 	}
@@ -73,125 +65,109 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	app, exists := m.apps[cfg.Target]
-	if !exists {
-		return fmt.Errorf("terminal app %s not found", cfg.Target)
-	}
+	// Factory now handles log switcher creation internally
+	m.terminal = m.factory.CreateTerminal(entry.ID, cfg)
+	m.log.Info("terminal service created", zap.String("id", m.terminal.id.String()))
 
-	svc := newService(*app, entry.ID, cfg, m.bus, m.log)
-	m.services[entry.ID] = svc
-
-	// Register with supervisor
-	m.bus.Send(ctx, events.Event{
-		System: supervisor.System,
-		Kind:   supervisor.Register,
-		Path:   events.Path(entry.ID),
-		Data: &supervisor.Entry{
-			Service: svc,
-			Config:  cfg.Lifecycle,
-		},
-	})
+	// Register as process host
+	m.registerHost(ctx, m.terminal)
 
 	return nil
 }
 
+// Update updates an existing terminal service
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	if entry.Kind != api.KindHost {
+		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
+	}
 
-	cfg, err := m.fetchConfig(entry)
+	cfg, err := config.DecodeAndInitConfig[api.HostConfig](m.dtt, entry)
 	if err != nil {
 		return err
 	}
 
-	svc, exists := m.services[entry.ID]
-	if !exists {
-		return fmt.Errorf("service %s not found", entry.ID)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.terminal == nil {
+		return fmt.Errorf("terminal %s not found", entry.ID)
 	}
 
-	app, exists := m.apps[cfg.Target]
-	if !exists {
-		return fmt.Errorf("terminal app %s not found", cfg.Target)
+	// Update service configuration
+	err = m.terminal.UpdateConfig(ctx, cfg)
+	if err != nil {
+		return fmt.Errorf("failed to update terminal config: %w", err)
 	}
 
-	if err := svc.UpdateApp(ctx, *app, cfg.Target); err != nil {
-		return fmt.Errorf("failed to update service: %w", err)
-	}
+	m.registerHost(ctx, m.terminal)
 
-	m.bus.Send(ctx, events.Event{
-		System: supervisor.System,
-		Kind:   supervisor.Update,
-		Path:   events.Path(entry.ID),
-		Data:   &supervisor.Entry{Config: cfg.Lifecycle},
-	})
+	m.log.Info("terminal service updated", zap.String("id", m.terminal.id.String()))
 
 	return nil
 }
 
-func (m *Manager) fetchConfig(entry registry.Entry) (*api.ServiceConfig, error) {
-	cfg := new(api.ServiceConfig)
-	if err := m.dtt.Unmarshal(entry.Data, cfg); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal cfg: %w", err)
-	}
-	if err := cfg.Validate(); err != nil {
-		return nil, fmt.Errorf("invalid cfg: %w", err)
-	}
-
-	cfg.InitDefaults()
-	return cfg, nil
-}
-
+// Delete removes a terminal service
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	m.mu.Lock()
-	delete(m.services, entry.ID)
-	m.mu.Unlock()
+	defer m.mu.Unlock()
 
-	m.bus.Send(ctx, events.Event{
-		System: supervisor.System,
-		Kind:   supervisor.Remove,
-		Path:   events.Path(entry.ID),
-	})
+	m.removeHost(ctx, entry.ID)
+	m.terminal = nil // stop controlled by supervisor
+	m.log.Info("terminal service removed", zap.String("id", entry.ID.String()))
 
 	return nil
 }
 
-func (m *Manager) handleEvent(e events.Event) {
-	switch e.Kind {
-	case api.RegisterTerminalEvent:
-		app, ok := e.Data.(api.Terminal)
-		if !ok {
-			m.log.Error("invalid register terminal data", zap.String("id", string(e.Path)))
-			return
-		}
+// registerHost registers the terminal service as a process host
+func (m *Manager) registerHost(ctx context.Context, terminal *Terminal) {
+	// connect to pubsub
+	m.bus.Send(ctx, event.Event{
+		System: pubsub.System,
+		Kind:   pubsub.HostRegister,
+		Path:   terminal.id.String(),
+		Data:   pubsub.Host(terminal),
+	})
 
-		m.mu.Lock()
-		m.apps[registry.ID(e.Path)] = &app
+	// we can host processes
+	m.bus.Send(ctx, event.Event{
+		System: process.HostSystem,
+		Kind:   process.HostRegister,
+		Path:   terminal.id.String(),
+		Data:   process.Managed(terminal),
+	})
 
-		// Update any running services using this app
-		found := false
-		for _, svc := range m.services {
-			if svc.terminal.id == registry.ID(e.Path) {
-				err := svc.UpdateApp(m.ctx, app, registry.ID(e.Path))
-				if err != nil {
-					m.log.Error("failed to update service",
-						zap.String("id", string(e.Path)),
-						zap.Error(err))
-				}
+	// we run!
+	m.bus.Send(ctx, event.Event{
+		System: supervisor.System,
+		Kind:   supervisor.Register,
+		Path:   terminal.id.String(),
+		Data: &supervisor.Entry{
+			Service: terminal,
+			Config:  terminal.config.Lifecycle,
+		},
+	})
+}
 
-				found = true
-				m.log.Info("updated terminal application", zap.String("id", string(e.Path)))
-			}
-		}
-		m.mu.Unlock()
+// removeHost removes the terminal service from process host system
+func (m *Manager) removeHost(ctx context.Context, id registry.ID) {
+	// disconnect from pubsub
+	m.bus.Send(ctx, event.Event{
+		System: pubsub.System,
+		Kind:   pubsub.HostDelete,
+		Path:   id.String(),
+	})
 
-		if !found {
-			m.log.Info("registered terminal application", zap.String("id", string(e.Path)))
-		}
-	case api.DeleteTerminalEvent:
-		m.mu.Lock()
-		delete(m.apps, registry.ID(e.Path))
-		m.mu.Unlock()
+	// we can no longer host processes
+	m.bus.Send(ctx, event.Event{
+		System: supervisor.System,
+		Kind:   supervisor.Remove,
+		Path:   id.String(),
+	})
 
-		m.log.Info("deleted terminal application", zap.String("id", string(e.Path)))
-	}
+	// we no longer run!
+	m.bus.Send(ctx, event.Event{
+		System: process.HostSystem,
+		Kind:   process.HostDelete,
+		Path:   id.String(),
+	})
 }

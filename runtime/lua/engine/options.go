@@ -50,7 +50,7 @@ func WithLibrary(name string, source interface{}) Option {
 			return
 		}
 
-		// Add library to preload
+		// AddCleanup library to preload
 		vm.state.PreloadModule(name, func(l *lua.LState) int {
 			var fn *lua.LFunction
 
@@ -112,7 +112,7 @@ func WithLoader(name string, loader lua.LGFunction) Option {
 // the result as a global variable with the given name.
 func WithPreloaded(name string, loader lua.LGFunction) Option {
 	return func(vm *VM) {
-		// Create module instance using loader
+		// Spawn module instance using loader
 		L := vm.state
 		L.Push(L.NewFunction(loader))
 		err := L.PCall(0, lua.MultRet, nil)
@@ -133,6 +133,15 @@ func WithPreloaded(name string, loader lua.LGFunction) Option {
 func WithGlobalFunction(name string, function lua.LGFunction) Option {
 	return func(vm *VM) {
 		vm.state.SetGlobal(name, vm.state.NewFunction(function))
+	}
+}
+
+func WithFunctionProto(name string, proto *lua.FunctionProto) Option {
+	return func(vm *VM) {
+		err := vm.Mount(proto, name)
+		if err != nil {
+			vm.initErrors = append(vm.initErrors, fmt.Errorf("failed to load main function: %w", err))
+		}
 	}
 }
 

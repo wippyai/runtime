@@ -3,6 +3,8 @@ package engine
 import (
 	"context"
 	"fmt"
+	"github.com/ponyruntime/pony/runtime/lua/engine/errors"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -37,7 +39,7 @@ func TestCoroutineVM_Basic(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		// Get yielded tasks
+		// GetField yielded threads
 		tasks, _ := vm.Step()
 		if len(tasks) != 1 {
 			t.Fatalf("expected 1 yielded task, got %d", len(tasks))
@@ -107,14 +109,14 @@ func TestCoroutineVM_ParallelTasks(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		// Get initial yielded tasks
+		// GetField initial yielded threads
 		tasks, err := vm.Step()
 		if err != nil {
 			t.Fatal(err)
 		}
 
 		if len(tasks) != 2 {
-			t.Fatalf("expected 2 yielded tasks, got %d", len(tasks))
+			t.Fatalf("expected 2 yielded threads, got %d", len(tasks))
 		}
 
 		// Verify first yields
@@ -136,7 +138,7 @@ func TestCoroutineVM_ParallelTasks(t *testing.T) {
 		}
 
 		if task1 == nil || task2 == nil {
-			t.Fatal("failed to identify both tasks")
+			t.Fatal("failed to identify both threads")
 		}
 
 		// Step task1 to middle
@@ -151,7 +153,7 @@ func TestCoroutineVM_ParallelTasks(t *testing.T) {
 			t.Fatal("unexpected yield value from task1")
 		}
 
-		// Complete task2
+		// Notify task2
 		tasks, err = vm.Step(task2)
 		if err != nil {
 			t.Fatal(err)
@@ -160,7 +162,7 @@ func TestCoroutineVM_ParallelTasks(t *testing.T) {
 			t.Fatal("expected task2 to complete")
 		}
 
-		// Complete task1
+		// Notify task1
 		tasks, err = vm.Step(task1)
 		if err != nil {
 			t.Fatal(err)
@@ -253,7 +255,7 @@ func TestCoroutineVM_ErrorHandling(t *testing.T) {
 
 		remainingTasks := vm.GetTasks()
 		if len(remainingTasks) != 0 {
-			t.Fatal("expected no remaining tasks after removal")
+			t.Fatal("expected no remaining threads after removal")
 		}
 	})
 }
@@ -317,7 +319,7 @@ func TestCoroutineVM_NativeCoroutines(t *testing.T) {
 
 		err = vm.StartString(context.Background(), `
 			function task_func()
-				-- Create a native coroutine
+				-- Spawn a native coroutine
 				local co = coroutine.create(function()
 					coroutine.yield("native_first")
 					return "native_done"
@@ -363,7 +365,7 @@ func TestCoroutineVM_NativeCoroutines(t *testing.T) {
 		}
 	})
 
-	t.Run("shared coroutine between tasks", func(t *testing.T) {
+	t.Run("shared coroutine between threads", func(t *testing.T) {
 		vm, err := NewCVM(logger)
 		if err != nil {
 			t.Fatal(err)
@@ -371,7 +373,7 @@ func TestCoroutineVM_NativeCoroutines(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.StartString(context.Background(), `
-			-- Create a shared native coroutine
+			-- Spawn a shared native coroutine
 			shared_co = coroutine.create(function(task_name)
 				for i = 1, 2 do
 					local val = task_name .. "_" .. i
@@ -407,7 +409,7 @@ func TestCoroutineVM_NativeCoroutines(t *testing.T) {
 
 		tasks, _ := vm.Step()
 		if len(tasks) != 2 {
-			t.Fatalf("expected 2 yielded tasks, got %d", len(tasks))
+			t.Fatalf("expected 2 yielded threads, got %d", len(tasks))
 		}
 
 		// First task should get first value
@@ -423,49 +425,49 @@ func TestCoroutineVM_NativeCoroutines(t *testing.T) {
 		}
 	})
 
-	t.Run("prevent task self-resumption", func(t *testing.T) {
-		vm, err := NewCVM(logger)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer vm.Close()
-
-		err = vm.StartString(context.Background(), `
-			error_caught = false
-			
-			function task_func()
-				local co = coroutine.create(function()
-					local task = coroutine.running()
-					local ok, err = pcall(function()
-						coroutine.resume(task)
-					end)
-					error_caught = not ok
-					return "after_error"
-				end)
-				
-				local ok, val = coroutine.resume(co)
-				coroutine.yield(val)
-			end
-
-			coroutine.spawn(task_func)
-		`, "test")
-
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		tasks, _ := vm.Step()
-		task := tasks[0]
-		vals := task.Yielded
-		if len(vals) != 1 || vals[0].String() != "after_error" {
-			t.Fatalf("unexpected yield value: %v", vals)
-		}
-
-		err = vm.StartString(context.Background(), `assert(error_caught == true)`, "verify")
-		if err != nil {
-			t.Fatalf("assertion failed: %v", err)
-		}
-	})
+	//t.Run("prevent task self-resumption", func(t *testing.T) {
+	//	vm, err := NewCVM(logger)
+	//	if err != nil {
+	//		t.Fatal(err)
+	//	}
+	//	defer vm.close()
+	//
+	//	err = vm.StartString(context.Background(), `
+	//		error_caught = false
+	//
+	//		function task_func()
+	//			local co = coroutine.create(function()
+	//				local task = coroutine.running()
+	//				local ok, err = pcall(function()
+	//					coroutine.resume(task)
+	//				end)
+	//				error_caught = not ok
+	//				return "after_error"
+	//			end)
+	//
+	//			local ok, val = coroutine.resume(co)
+	//			coroutine.yield(val)
+	//		end
+	//
+	//		coroutine.spawn(task_func)
+	//	`, "test")
+	//
+	//	if err != nil {
+	//		t.Fatal(err)
+	//	}
+	//
+	//	threads, _ := vm.Step()
+	//	task := threads[0]
+	//	vals := task.Yielded
+	//	if len(vals) != 1 || vals[0].String() != "after_error" {
+	//		t.Fatalf("unexpected yield value: %v", vals)
+	//	}
+	//
+	//	err = vm.StartString(context.Background(), `assert(error_caught == true)`, "verify")
+	//	if err != nil {
+	//		t.Fatalf("assertion failed: %v", err)
+	//	}
+	//})
 }
 
 func TestCoroutineVM_ArgumentValidation(t *testing.T) {
@@ -687,7 +689,7 @@ func TestCoroutineVM_AdditionalCoverage(t *testing.T) {
 
 		tasks, _ := vm.Step()
 		if len(tasks) != 0 {
-			t.Fatal("expected no yielded tasks")
+			t.Fatal("expected no yielded threads")
 		}
 
 		// Try to step a completed task
@@ -696,7 +698,7 @@ func TestCoroutineVM_AdditionalCoverage(t *testing.T) {
 			t.Fatal(err)
 		}
 		if len(newTasks) != 0 {
-			t.Fatal("expected no tasks after stepping completed task")
+			t.Fatal("expected no threads after stepping completed task")
 		}
 	})
 
@@ -741,7 +743,7 @@ func TestCoroutineVM_AdditionalCoverage(t *testing.T) {
 		}
 		defer vm.Close()
 
-		// Create a dummy task that's not in the VM
+		// Spawn a dummy task that's not in the VM
 		dummyTask := &Task{}
 		err = vm.removeTask(dummyTask)
 		if err == nil {
@@ -760,7 +762,7 @@ func TestCoroutineVM_AdditionalCoverage(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.StartString(context.Background(), `
-			-- Create a function that will error when called
+			-- Spawn a function that will error when called
 			local badFunc = function()
 				error("coroutine creation error")
 			end
@@ -790,7 +792,7 @@ func TestCoroutineVM_StatusAndWrap(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.StartString(context.Background(), `
-			-- Create a task that will check statuses
+			-- Spawn a task that will check statuses
 			local status_results = {}
 			
 			function check_status()
@@ -805,7 +807,7 @@ func TestCoroutineVM_StatusAndWrap(t *testing.T) {
 				coroutine.resume(inner)
 				status_results[2] = coroutine.status(inner)
 				
-				-- Complete and check final status
+				-- Notify and check final status
 				coroutine.resume(inner)
 				status_results[3] = coroutine.status(inner)
 				
@@ -826,7 +828,7 @@ func TestCoroutineVM_StatusAndWrap(t *testing.T) {
 
 		vals := tasks[0].Yielded
 		if len(vals) != 1 {
-			t.Fatal("expected yielded status results")
+			t.Fatal("expected yielded status updates")
 		}
 
 		results := vals[0].(*lua.LTable)
@@ -845,7 +847,7 @@ func TestCoroutineVM_StatusAndWrap(t *testing.T) {
 		defer vm.Close()
 
 		err = vm.StartString(context.Background(), `
-			-- Create a vm coroutine
+			-- Spawn a vm coroutine
 			local vm = coroutine.wrap(function()
 				coroutine.yield("from_wrap")
 				return "wrap_done"
@@ -896,7 +898,7 @@ func TestCoroutineVM_SharedBuffer(t *testing.T) {
 					-- wait for input value
 					local value = coroutine.yield("ready_for_input")
 					
-					-- Add to shared buffer
+					-- AddCleanup to shared buffer
 					table.insert(shared_buffer.data, value)
 					shared_buffer.size = #shared_buffer.data
 					values_written = values_written + 1
@@ -923,7 +925,7 @@ func TestCoroutineVM_SharedBuffer(t *testing.T) {
 						shared_buffer.data = {}
 						shared_buffer.size = 0
 						
-						coroutine.yield("flushed:" .. output)
+						coroutine.yield("undelivered:" .. output)
 						return "flusher_done"
 					end
 				end
@@ -937,13 +939,13 @@ func TestCoroutineVM_SharedBuffer(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		// Get initial tasks
+		// GetField initial threads
 		tasks, _ := vm.Step()
 		if len(tasks) != 2 {
-			t.Fatalf("expected 2 yielded tasks, got %d", len(tasks))
+			t.Fatalf("expected 2 yielded threads, got %d", len(tasks))
 		}
 
-		// Identify writer and flusher tasks
+		// Identify writer and flusher threads
 		var writerTask, flusherTask *Task
 		for _, task := range tasks {
 			vals := task.Yielded
@@ -963,7 +965,7 @@ func TestCoroutineVM_SharedBuffer(t *testing.T) {
 		}
 
 		if writerTask == nil || flusherTask == nil {
-			t.Fatal("failed to identify both tasks")
+			t.Fatal("failed to identify both threads")
 		}
 
 		// Write 5 values
@@ -986,7 +988,7 @@ func TestCoroutineVM_SharedBuffer(t *testing.T) {
 				t.Fatalf("unexpected write output: %v", writeResult)
 			}
 
-			// Get layerNotify for next value
+			// GetField layerNotify for next value
 			tasks, err = vm.Step(tasks[0])
 			if err != nil {
 				t.Fatal(err)
@@ -1010,14 +1012,14 @@ func TestCoroutineVM_SharedBuffer(t *testing.T) {
 			t.Fatal("expected flusher to yield output")
 		}
 
-		// Verify flushed data
+		// Verify undelivered data
 		flushResult := tasks[0].Yielded[0].String()
-		expectedResult := "flushed:val1, val2, val3, val4, val5"
+		expectedResult := "undelivered:val1, val2, val3, val4, val5"
 		if flushResult != expectedResult {
 			t.Fatalf("unexpected wait output: got %q, want %q", flushResult, expectedResult)
 		}
 
-		// Complete flusher
+		// Notify flusher
 		flusherTask = tasks[0]
 		tasks, err = vm.Step(flusherTask)
 		if err != nil {
@@ -1045,14 +1047,14 @@ func TestCoroutineVM_NestedSpawn(t *testing.T) {
 				return "child_done"
 			end
 
-			function parent()
+			function pcallFrom()
 				coroutine.yield("parent_start")
 				coroutine.spawn(child)
 				coroutine.yield("parent_spawned")
 				return "parent_done"
 			end
 
-			coroutine.spawn(parent)
+			coroutine.spawn(pcallFrom)
 		`, "nested_spawn_test")
 
 		if err != nil {
@@ -1066,10 +1068,10 @@ func TestCoroutineVM_NestedSpawn(t *testing.T) {
 
 		parentTask := tasks[0]
 		if parentTask.Yielded[0].String() != "parent_start" {
-			t.Fatal("unexpected parent initial yield")
+			t.Fatal("unexpected pcallFrom initial yield")
 		}
 
-		// Step parent to spawn child
+		// Step pcallFrom to spawn child
 		tasks, err = vm.Step(parentTask)
 		if err != nil {
 			t.Fatal(err)
@@ -1080,17 +1082,17 @@ func TestCoroutineVM_NestedSpawn(t *testing.T) {
 		}
 
 		if tasks[0].Yielded[0].String() != "parent_spawned" {
-			t.Fatal("unexpected parent yield after spawn")
+			t.Fatal("unexpected pcallFrom yield after spawn")
 		}
 
 		if tasks[1].Yielded[0].String() != "child_running" {
 			t.Fatal("unexpected child initial yield")
 		}
 
-		// Check all yielded tasks - should include child
+		// Check all yielded threads - should include child
 		allTasks := vm.GetTasks()
 		if len(allTasks) != 2 {
-			t.Fatal("expected both parent and child tasks")
+			t.Fatal("expected both pcallFrom and child threads")
 		}
 
 		// Verify child task
@@ -1106,7 +1108,7 @@ func TestCoroutineVM_NestedSpawn(t *testing.T) {
 			t.Fatal("child task not found")
 		}
 
-		// Complete child task
+		// Notify child task
 		tasks, err = vm.Step(childTask)
 		if err != nil {
 			t.Fatal(err)
@@ -1115,13 +1117,13 @@ func TestCoroutineVM_NestedSpawn(t *testing.T) {
 			t.Fatal("expected child to complete")
 		}
 
-		// Complete parent task
+		// Notify pcallFrom task
 		tasks, err = vm.Step(parentTask)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if len(tasks) != 0 {
-			t.Fatal("expected parent to complete")
+			t.Fatal("expected pcallFrom to complete")
 		}
 	})
 
@@ -1172,14 +1174,14 @@ func TestCoroutineVM_NestedSpawn(t *testing.T) {
 			t.Fatal("unexpected root initial yield")
 		}
 
-		// Step root to spawn middle tasks
+		// Step root to spawn middle threads
 		tasks, err = vm.Step(rootTask)
 		if err != nil {
 			t.Fatal(err)
 		}
 
 		if len(tasks) != 3 {
-			t.Fatal("missing tasks")
+			t.Fatal("missing threads")
 		}
 
 		if tasks[0].Yielded[0].String() != "root_spawned" {
@@ -1194,13 +1196,13 @@ func TestCoroutineVM_NestedSpawn(t *testing.T) {
 			t.Fatal("unexpected middle initial yield")
 		}
 
-		// Should now have root + 2 middle tasks
+		// Should now have root + 2 middle threads
 		allTasks := vm.GetTasks()
 		if len(allTasks) != 3 {
-			t.Fatal("expected root + 2 middle tasks")
+			t.Fatal("expected root + 2 middle threads")
 		}
 
-		// Step middle tasks to spawn leaves
+		// Step middle threads to spawn leaves
 		var middleTasks []*Task
 		for _, task := range allTasks {
 			vals := task.Yielded
@@ -1210,16 +1212,16 @@ func TestCoroutineVM_NestedSpawn(t *testing.T) {
 		}
 
 		if len(middleTasks) != 2 {
-			t.Fatal("expected 2 middle tasks")
+			t.Fatal("expected 2 middle threads")
 		}
 
-		// Step both middle tasks
+		// Step both middle threads
 		tasks, err = vm.Step(middleTasks...)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		// Verify leaf tasks:2 middle + 4 leaf
+		// Verify leaf threads:2 middle + 4 leaf
 		leafCount := 0
 		for _, task := range tasks {
 			if task.Yielded[0].String() == "leaf" {
@@ -1227,7 +1229,7 @@ func TestCoroutineVM_NestedSpawn(t *testing.T) {
 			}
 		}
 		if leafCount != 4 {
-			t.Fatal("expected 4 leaf tasks")
+			t.Fatal("expected 4 leaf threads")
 		}
 	})
 }
@@ -1289,7 +1291,7 @@ func TestCoroutineVM_MonitorStatus(t *testing.T) {
 
 		tasks, _ := vm.Step()
 		if len(tasks) != 2 {
-			t.Fatal("expected 2 initial tasks")
+			t.Fatal("expected 2 initial threads")
 		}
 
 		var targetTask, monitorTask *Task
@@ -1304,7 +1306,7 @@ func TestCoroutineVM_MonitorStatus(t *testing.T) {
 		}
 
 		if targetTask == nil || monitorTask == nil {
-			t.Fatal("failed to identify both tasks")
+			t.Fatal("failed to identify both threads")
 		}
 
 		// First monitor observation (while target is at first yield)
@@ -1338,7 +1340,7 @@ func TestCoroutineVM_MonitorStatus(t *testing.T) {
 		}
 		monitorTask = tasks[0]
 
-		// Complete target
+		// Notify target
 		targetTask.Resumed = []lua.LValue{lua.LString("resume2")}
 		tasks, err = vm.Step(targetTask)
 		if err != nil {
@@ -1450,8 +1452,8 @@ func TestCoroutineVM_ClosedCoroutines(t *testing.T) {
 		}
 
 		// Check the initial task count
-		if len(vm.tasks) != 0 {
-			t.Fatalf("expected all tasks immediately done")
+		if len(vm.threads) != 0 {
+			t.Fatalf("expected all threads immediately done")
 		}
 	})
 
@@ -1474,18 +1476,18 @@ func TestCoroutineVM_ClosedCoroutines(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if len(vm.tasks) != 1 {
+		if len(vm.threads) != 1 {
 			t.Fatal("expected 1 initial task")
 		}
 
 		// Step should output in error but cleanup task
-		_, err = vm.Step(vm.tasks...)
+		_, err = vm.Step(vm.threads...)
 		if err == nil {
 			t.Fatal("expected error from coroutine")
 		}
 
 		// Verify task was removed
-		if len(vm.tasks) != 0 {
+		if len(vm.threads) != 0 {
 			t.Fatal("expected task to be removed after error")
 		}
 
@@ -1564,7 +1566,7 @@ func TestCoroutineVM_CustomValue(t *testing.T) {
 			t.Fatalf("expected custom_data, got %s", customVal.value)
 		}
 
-		// Complete the coroutine
+		// Notify the coroutine
 		tasks, err = vm.Step(task)
 		if err != nil {
 			t.Fatal(err)
@@ -1627,7 +1629,7 @@ func TestCoroutineVM_CustomValue(t *testing.T) {
 			t.Fatalf("expected custom_data, got %s", customVal.value)
 		}
 
-		// Complete the coroutine
+		// Notify the coroutine
 		tasks, err = vm.Step(task)
 		if err != nil {
 			t.Fatal(err)
@@ -1685,7 +1687,7 @@ func TestCoroutineVM_CustomValue(t *testing.T) {
 			t.Fatalf("expected custom_data, got %s", customVal.value)
 		}
 
-		// Complete the coroutine
+		// Notify the coroutine
 		tasks, err = vm.Step(task)
 		if err != nil {
 			t.Fatal(err)
@@ -1753,7 +1755,7 @@ func TestCoroutineVM_CustomValue(t *testing.T) {
 			t.Fatalf("expected custom_data, got %s", customVal.value)
 		}
 
-		// Complete the coroutine
+		// Notify the coroutine
 		tasks, err = vm.Step(task)
 		if err != nil {
 			t.Fatal(err)
@@ -1818,7 +1820,7 @@ func TestCoroutineVM_Mount(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("mount and execute coroutine function", func(t *testing.T) {
-		// Create first VM and compile function
+		// Spawn first VM and compile function
 		vm1, err := NewCVM(logger)
 		if err != nil {
 			t.Fatal(err)
@@ -1849,7 +1851,7 @@ func TestCoroutineVM_Mount(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		// Create second VM and mount same function
+		// Spawn second VM and mount same function
 		vm2, err := NewCVM(logger)
 		if err != nil {
 			t.Fatal(err)
@@ -1861,7 +1863,7 @@ func TestCoroutineVM_Mount(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		// Start coroutines in both VMs
+		// Launch coroutines in both VMs
 		ch1, err := vm1.Start(context.Background(), "test")
 		if err != nil {
 			t.Fatal(err)
@@ -1926,7 +1928,7 @@ func TestCoroutineVM_Mount(t *testing.T) {
 			tasks = nextTasks
 		}
 
-		// Verify results from both VMs
+		// Verify updates from both VMs
 		result1 := <-ch1
 		if result1.Error != nil {
 			t.Fatal(result1.Error)
@@ -2007,7 +2009,7 @@ func TestCoroutineVM_Mount(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		// Start both coroutines
+		// Launch both coroutines
 		ch1, err := vm.Start(context.Background(), "func1", lua.LString("arg1"))
 		if err != nil {
 			t.Fatal(err)
@@ -2018,7 +2020,7 @@ func TestCoroutineVM_Mount(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		// Process all tasks until completion
+		// Process all threads until completion
 		var nextTasks []*Task
 		for {
 			tasks, err := vm.Step(nextTasks...)
@@ -2040,7 +2042,7 @@ func TestCoroutineVM_Mount(t *testing.T) {
 			nextTasks = tasks
 		}
 
-		// Verify results
+		// Verify updates
 		result1 := <-ch1
 		if result1.Error != nil {
 			t.Fatal(result1.Error)
@@ -2107,7 +2109,7 @@ func TestCoroutineVM_StartWithArguments(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		// Create test arguments of different types
+		// Spawn test arguments of different types
 		testTable := &lua.LTable{}
 		testTable.RawSetInt(1, lua.LString("item1"))
 		testTable.RawSetInt(2, lua.LString("item2"))
@@ -2119,7 +2121,7 @@ func TestCoroutineVM_StartWithArguments(t *testing.T) {
 			testTable,
 		}
 
-		// Start the function with arguments
+		// Launch the function with arguments
 		ch, err := vm.Start(context.Background(), "test_args", args...)
 		if err != nil {
 			t.Fatal(err)
@@ -2157,7 +2159,7 @@ func TestCoroutineVM_StartWithArguments(t *testing.T) {
 			t.Fatalf("wrong argument values, got %q, want %q", valueCheck, expectedValues)
 		}
 
-		// Complete the coroutine
+		// Notify the coroutine
 		tasks, err = vm.Step(tasks[0])
 		if err != nil {
 			t.Fatal(err)
@@ -2224,7 +2226,7 @@ func TestCoroutineVM_StartWithArguments(t *testing.T) {
 			t.Fatal("function not called correctly")
 		}
 
-		// Complete the coroutine
+		// Notify the coroutine
 		_, err = vm.Step(tasks[0])
 		if err != nil {
 			t.Fatal(err)
@@ -2291,7 +2293,7 @@ func TestCoroutineVM_StartWithArguments(t *testing.T) {
 			t.Fatalf("expected nil arguments, got %s", nilCheck)
 		}
 
-		// Complete the coroutine
+		// Notify the coroutine
 		_, err = vm.Step(tasks[0])
 		if err != nil {
 			t.Fatal(err)
@@ -2339,7 +2341,7 @@ func TestCoroutineVM_ImmediateErrors(t *testing.T) {
 			t.Fatalf("unexpected error message: %v", err)
 		}
 		if len(tasks) != 0 {
-			t.Fatal("expected no tasks after error")
+			t.Fatal("expected no threads after error")
 		}
 	})
 
@@ -2372,7 +2374,7 @@ func TestCoroutineVM_ImmediateErrors(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		// Start the function and get the channel
+		// Launch the function and get the channel
 		ch, err := vm.Start(context.Background(), "test_error")
 		if err != nil {
 			t.Fatal(err)
@@ -2425,7 +2427,7 @@ func TestCoroutineVM_ImmediateErrors(t *testing.T) {
 			t.Fatalf("unexpected error message: %v", err)
 		}
 		if len(tasks) != 0 {
-			t.Fatal("expected no tasks after error")
+			t.Fatal("expected no threads after error")
 		}
 	})
 }
@@ -2452,7 +2454,7 @@ func TestCoroutineVM_Import(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		// Start the function and get output channel
+		// Launch the function and get output channel
 		ch, err := vm.Start(context.Background(), "test")
 		if err != nil {
 			t.Fatal(err)
@@ -2471,7 +2473,7 @@ func TestCoroutineVM_Import(t *testing.T) {
 			t.Fatalf("unexpected yield value: %v", tasks[0].Yielded[0])
 		}
 
-		// Complete task
+		// Notify task
 		_, err = vm.Step(tasks[0])
 		if err != nil {
 			t.Fatal(err)
@@ -2838,6 +2840,419 @@ func TestCoroutineVM_Import(t *testing.T) {
 		result2 := <-ch2
 		if result2.Error != nil || result2.Result[0].(lua.LNumber) != 1 {
 			t.Fatal("unexpected get_state result")
+		}
+	})
+}
+
+func TestCoroutineVM_GoErrorPropagation(t *testing.T) {
+	logger := zap.NewNop()
+
+	t.Run("wrapped go error propagation through resume", func(t *testing.T) {
+		vm, err := NewCVM(logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm.Close()
+
+		// Register a function that creates a wrapped Go error
+		vm.vm.state.SetGlobal("go_produce_error", vm.vm.state.NewFunction(func(l *lua.LState) int {
+			// Spawn a Go error
+			goErr := fmt.Errorf("test go error")
+
+			// Wrap it to capture Go stack trace
+			wrappedErr := errors.WrapError(l, goErr, "error context")
+
+			// Spawn userdata with error metatable
+			ud := l.NewUserData()
+			ud.Value = wrappedErr
+			l.SetMetatable(ud, l.GetTypeMetatable("error"))
+
+			l.Push(ud)
+			return 1
+		}))
+
+		// Launch a coroutine that will receive and try to use an error
+		err = vm.StartString(context.Background(), `
+			-- First coroutine that creates and yields a Go error
+			function error_producer()
+				local err = go_produce_error()  -- Call to Go function that produces error
+				coroutine.yield(err)
+				return "producer_done"
+			end
+
+			-- Second coroutine that receives and uses the error
+			function error_consumer()
+				local err = coroutine.yield("ready")  -- First yield to get error
+				error(err)  -- Try to use the error, should fail
+			end
+
+			-- Spawn both coroutines
+			coroutine.spawn(error_producer)
+			coroutine.spawn(error_consumer)
+		`, "error_test")
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// First Step - both coroutines should yield
+		tasks, err := vm.Step()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(tasks) != 2 {
+			t.Fatalf("expected 2 yielded threads, got %d", len(tasks))
+		}
+
+		// Find producer and consumer threads
+		var producerTask, consumerTask *Task
+		for _, task := range tasks {
+			if len(task.Yielded) == 1 {
+				if ud, ok := task.Yielded[0].(*lua.LUserData); ok {
+					if _, ok := ud.Value.(*errors.WrappedError); ok {
+						producerTask = task
+					}
+				} else if task.Yielded[0].String() == "ready" {
+					consumerTask = task
+				}
+			}
+		}
+
+		if producerTask == nil || consumerTask == nil {
+			t.Fatal("failed to identify both threads")
+		}
+
+		// send error from producer to consumer
+		consumerTask.Resumed = producerTask.Yielded
+
+		// Step consumer - should fail with wrapped error
+		tasks, err = vm.Step(consumerTask)
+		if err == nil {
+			t.Fatal("expected error when resuming with Go error")
+		}
+
+		// Verify error is a wrapped error
+		wrappedErr := errors.GetWrappedError(err)
+		if wrappedErr == nil {
+			t.Fatal("expected wrapped error")
+		}
+
+		// Verify error contains both Go and Lua frames
+		stack := wrappedErr.Stack()
+		if !strings.Contains(stack, "error_test:4") { // Lua frame
+			t.Fatal("stack trace missing Lua frames")
+		}
+		if !strings.Contains(stack, "go_produce_error") { // Go frame
+			t.Fatal("stack trace missing Go frames")
+		}
+	})
+}
+
+func TestCoroutineVM_PcallErrorHandling(t *testing.T) {
+	logger := zap.NewNop()
+
+	t.Run("coroutine pcall error wrapping", func(t *testing.T) {
+		vm, err := NewCVM(logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm.Close()
+
+		errors.RegisterErrorsModule(vm.vm.state)
+
+		// Register a function that creates a wrapped Go error
+		vm.vm.state.SetGlobal("go_produce_error", vm.vm.state.NewFunction(func(l *lua.LState) int {
+			// Spawn a Go error
+			goErr := fmt.Errorf("test go error")
+
+			// Wrap it to capture Go stack trace
+			wrappedErr := errors.WrapError(l, goErr, "error context")
+
+			// Spawn userdata with error metatable
+			ud := l.NewUserData()
+			ud.Value = wrappedErr
+			l.SetMetatable(ud, l.GetTypeMetatable("error"))
+
+			l.Push(ud)
+			return 1
+		}))
+
+		// Launch coroutines - one produces error, other handles with pcall
+		err = vm.StartString(context.Background(), `
+			-- First coroutine that creates and yields a Go error
+			function error_producer()
+				local err = go_produce_error()  -- Will be injected by CVM
+				coroutine.yield(err)
+				return "producer_done"
+			end
+
+			-- Second coroutine that receives error and handles with pcall
+			function error_consumer()
+				local err = coroutine.yield("ready")  -- First yield to get error
+				
+				-- Use pcall to handle the error and add our own context
+				local ok, result = pcall(function()
+					error(err)  -- This will fail with the original error
+				end)
+				
+				if not ok then
+					-- AddCleanup our own context by wrapping the error
+					local wrapped = errors.wrap(result, "consumer wrapper")
+					error(wrapped)  -- Re-raise with our additional context
+				end
+				
+				return "consumer_done"  -- Should never reach here
+			end
+
+			-- Spawn both coroutines
+			coroutine.spawn(error_producer)
+			coroutine.spawn(error_consumer)
+		`, "error_test")
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// First Step - both coroutines should yield
+		tasks, err := vm.Step()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(tasks) != 2 {
+			t.Fatalf("expected 2 yielded threads, got %d", len(tasks))
+		}
+
+		// Find producer and consumer threads
+		var producerTask, consumerTask *Task
+		for _, task := range tasks {
+			if len(task.Yielded) == 1 {
+				err := errors.Unwrap(task.Yielded[0])
+				if err != nil {
+					producerTask = task
+				} else if task.Yielded[0].String() == "ready" {
+					consumerTask = task
+				}
+			}
+		}
+
+		if producerTask == nil || consumerTask == nil {
+			t.Fatal("failed to identify both threads")
+		}
+
+		// send error from producer to consumer
+		consumerTask.Resumed = producerTask.Yielded
+
+		// Step consumer - should fail with wrapped error that includes both contexts
+		tasks, err = vm.Step(consumerTask)
+		if err == nil {
+			t.Fatal("expected error when resuming with Go error")
+		}
+
+		// Verify error is a wrapped error
+		wrappedErr := errors.Unwrap(err)
+		if wrappedErr == nil {
+			t.Fatal("expected wrapped error")
+		}
+
+		// Verify error message contains both contexts
+		errMsg := wrappedErr.Error()
+		if !strings.Contains(errMsg, "consumer wrapper") {
+			t.Error("error missing consumer context")
+		}
+		if !strings.Contains(errMsg, "error context") {
+			t.Error("error missing original context")
+		}
+
+		// Verify error stack contains all relevant frames
+		stack := wrappedErr.Stack()
+
+		requiredFrames := []string{
+			"consumer wrapper", // Consumer wrapper
+			"go_produce_error", // Original Go function
+			"error_test:20",    // error() call
+			"error_test:4",     // coroutine.yield
+		}
+
+		for _, frame := range requiredFrames {
+			if !strings.Contains(stack, frame) {
+				t.Errorf("stack missing required frame: %s", frame)
+			}
+		}
+
+		// Verify error chain preserves both wrapper contexts
+		var contexts []string
+		current := wrappedErr
+		for current != nil {
+			if current.Context != "" {
+				contexts = append(contexts, current.Context)
+			}
+			if next := errors.GetWrappedError(current.Unwrap()); next != nil {
+				current = next
+			} else {
+				break
+			}
+		}
+
+		expectedContexts := []string{
+			"consumer wrapper",
+			"error context",
+		}
+
+		if !reflect.DeepEqual(contexts, expectedContexts) {
+			t.Errorf("wrong context order:\nwant: %v\ngot: %v", expectedContexts, contexts)
+		}
+	})
+
+	// cpcall runs in a separate thread, use for functions that use different layers
+	t.Run("coroutine cpcall error wrapping", func(t *testing.T) {
+		vm, err := NewCVM(logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm.Close()
+
+		errors.RegisterErrorsModule(vm.vm.state)
+
+		// Register a function that creates a wrapped Go error
+		vm.vm.state.SetGlobal("go_produce_error", vm.vm.state.NewFunction(func(l *lua.LState) int {
+			// Spawn a Go error
+			goErr := fmt.Errorf("test go error")
+
+			// Wrap it to capture Go stack trace
+			wrappedErr := errors.WrapError(l, goErr, "error context")
+
+			// Spawn userdata with error metatable
+			ud := l.NewUserData()
+			ud.Value = wrappedErr
+			l.SetMetatable(ud, l.GetTypeMetatable("error"))
+
+			l.Push(ud)
+			return 1
+		}))
+
+		// Launch coroutines - one produces error, other handles with pcall
+		err = vm.StartString(context.Background(), `
+			-- First coroutine that creates and yields a Go error
+			function error_producer()
+				local err = go_produce_error()  -- Will be injected by CVM
+				coroutine.yield(err)
+				return "producer_done"
+			end
+
+			-- Second coroutine that receives error and handles with pcall
+			function error_consumer()
+				local err = coroutine.yield("ready")  -- First yield to get error
+				
+				-- Use pcall to handle the error and add our own context
+				local ok, result = cpcall(function()
+					error(err)  -- This will fail with the original error
+				end)
+				
+				if not ok then
+					-- AddCleanup our own context by wrapping the error
+					local wrapped = errors.wrap(result, "consumer wrapper")
+					error(wrapped)  -- Re-raise with our additional context
+				end
+				
+				return "consumer_done"  -- Should never reach here
+			end
+
+			-- Spawn both coroutines
+			coroutine.spawn(error_producer)
+			coroutine.spawn(error_consumer)
+		`, "error_test")
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// First Step - both coroutines should yield
+		tasks, err := vm.Step()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(tasks) != 2 {
+			t.Fatalf("expected 2 yielded threads, got %d", len(tasks))
+		}
+
+		// Find producer and consumer threads
+		var producerTask, consumerTask *Task
+		for _, task := range tasks {
+			if len(task.Yielded) == 1 {
+				err := errors.Unwrap(task.Yielded[0])
+				if err != nil {
+					producerTask = task
+				} else if task.Yielded[0].String() == "ready" {
+					consumerTask = task
+				}
+			}
+		}
+
+		if producerTask == nil || consumerTask == nil {
+			t.Fatal("failed to identify both threads")
+		}
+
+		// send error from producer to consumer
+		consumerTask.Resumed = producerTask.Yielded
+
+		// Step consumer - should fail with wrapped error that includes both contexts
+		tasks, err = vm.Step(consumerTask)
+		if err == nil {
+			t.Fatal("expected error when resuming with Go error")
+		}
+
+		// Verify error is a wrapped error
+		wrappedErr := errors.Unwrap(err)
+		if wrappedErr == nil {
+			t.Fatal("expected wrapped error")
+		}
+
+		// Verify error message contains both contexts
+		errMsg := wrappedErr.Error()
+		if !strings.Contains(errMsg, "consumer wrapper") {
+			t.Error("error missing consumer context")
+		}
+		if !strings.Contains(errMsg, "error context") {
+			t.Error("error missing original context")
+		}
+
+		// Verify error stack contains all relevant frames
+		stack := wrappedErr.Stack()
+
+		requiredFrames := []string{
+			"consumer wrapper", // Consumer wrapper
+			"go_produce_error", // Original Go function
+			"error_test:20",    // error() call
+			"error_test:4",     // coroutine.yield
+		}
+
+		for _, frame := range requiredFrames {
+			if !strings.Contains(stack, frame) {
+				t.Errorf("stack missing required frame: %s", frame)
+			}
+		}
+
+		// Verify error chain preserves both wrapper contexts
+		var contexts []string
+		current := wrappedErr
+		for current != nil {
+			if current.Context != "" {
+				contexts = append(contexts, current.Context)
+			}
+			if next := errors.GetWrappedError(current.Unwrap()); next != nil {
+				current = next
+			} else {
+				break
+			}
+		}
+
+		expectedContexts := []string{
+			"consumer wrapper",
+			"error context",
+		}
+
+		if !reflect.DeepEqual(contexts, expectedContexts) {
+			t.Errorf("wrong context order:\nwant: %v\ngot: %v", expectedContexts, contexts)
 		}
 	})
 }

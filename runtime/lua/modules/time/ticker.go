@@ -1,10 +1,12 @@
 package time
 
 import (
+	"context"
 	"fmt"
+	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"time"
 
-	"github.com/ponyruntime/pony/runtime/lua/engine/async"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -13,12 +15,21 @@ import (
 type Ticker struct {
 	ticker  *time.Ticker
 	chValue lua.LValue
+	done    chan struct{}
+	release context.CancelFunc
 }
 
 // Constructor for ticker
 func ticker(l *lua.LState) int {
 	var duration time.Duration
 	var err error
+
+	// Get UoW from context
+	uw := engine.GetUnitOfWork(l.Context())
+	if uw == nil {
+		l.RaiseError("time.Ticker: unit of work missing")
+		return 0
+	}
 
 	switch v := l.Get(1).(type) {
 	case *lua.LUserData:
@@ -31,7 +42,7 @@ func ticker(l *lua.LState) int {
 	case lua.LString:
 		duration, err = time.ParseDuration(string(v))
 		if err != nil {
-			l.RaiseError("time.ticker: %s", err)
+			l.RaiseError("time.Ticker: %s", err)
 			return 0
 		}
 	case lua.LNumber:
@@ -46,36 +57,58 @@ func ticker(l *lua.LState) int {
 		return 0
 	}
 
-	// Create channel and ticker
+	// Spawn channel and ticker
 	ch := channel.Named(fmt.Sprintf("ticker_%s", duration), 1)
-	ticker := time.NewTicker(duration)
+	tkr := time.NewTicker(duration)
+	done := make(chan struct{})
+
+	// Create ticker object
+	tickerObj := &Ticker{
+		ticker:  tkr,
+		chValue: channel.Wrap(l, ch),
+		done:    done,
+	}
+
+	// With the proposed change to resourceManager.AddCleanup,
+	// calling release will both execute the cleanup function AND remove it from the list
+	tickerObj.release = uw.AddCleanup(func() error {
+		select {
+		case <-done:
+			// Already stopped
+		default:
+			tkr.Stop()
+			close(done)
+		}
+		return nil
+	})
 
 	timeUD := l.NewUserData()
-	timeUD.Value = &Time{time: time.Now()} // initial value will be replaced
-	l.SetMetatable(timeUD, l.GetTypeMetatable("Time"))
+	timeUD.Value = &Time{time: time.Now()}
+	timeUD.Metatable = value.GetTypeMetatable(l, "time.Time")
 
-	// Start goroutine to handle ticker
-	go func() {
-		defer ticker.Stop()
+	uw.Run(func(uw engine.UnitOfWork) {
 		for {
 			select {
-			case t := <-ticker.C:
+			case t := <-tkr.C:
 				timeUD.Value = &Time{time: t}
-				errs := async.Send(l, ch, timeUD, true)
+				errs := channel.Send(l, ch, timeUD)
 				if errs != nil {
-					l.RaiseError("time.ticker: %s", errs)
 					return
 				}
-			case <-l.Context().Done():
+			case <-done:
+				// Explicitly stopped
+				return
+			case <-uw.Context().Done():
+				// UoW completed
 				return
 			}
 		}
-	}()
+	})
 
 	// Create and return Ticker userdata
 	ud := l.NewUserData()
-	ud.Value = &Ticker{ticker: ticker, chValue: channel.Wrap(l, ch)}
-	l.SetMetatable(ud, l.GetTypeMetatable("Ticker"))
+	ud.Value = tickerObj
+	ud.Metatable = value.GetTypeMetatable(l, "time.Ticker")
 	l.Push(ud)
 	return 1
 }
@@ -96,7 +129,18 @@ func tickerStop(l *lua.LState) int {
 		l.ArgError(1, "ticker expected")
 		return 0
 	}
-	t.ticker.Stop()
+
+	select {
+	case <-t.done:
+		// Already stopped
+	default:
+		// Just call release - it will both stop the ticker AND remove from UoW cleanup
+		if t.release != nil {
+			t.release()
+			t.release = nil
+		}
+	}
+
 	return 0
 }
 
@@ -112,7 +156,7 @@ func tickerChannel(l *lua.LState) int {
 
 // Register Ticker
 func registerTicker(l *lua.LState, mod *lua.LTable) {
-	mt := l.NewTypeMetatable("Ticker")
+	mt := l.NewTypeMetatable("time.Ticker")
 	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
 		"stop":    tickerStop,
 		"channel": tickerChannel,

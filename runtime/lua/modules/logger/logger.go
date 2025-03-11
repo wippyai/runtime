@@ -2,8 +2,9 @@ package logger
 
 import (
 	"errors"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 
-	transcoder "github.com/ponyruntime/pony/pkg/payload/lua"
+	transcoder "github.com/ponyruntime/pony/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
@@ -34,21 +35,21 @@ func (m *Module) Name() string {
 
 // Loader is the entry point for loading the plugin
 func (m *Module) Loader(l *lua.LState) int {
-	// Create logger userdata
-	ud := l.NewUserData()
-	ud.Value = &Logger{logger: m.baseLogger}
 
-	// Set up the metatable
-	mt := l.NewTypeMetatable("Logger")
-	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
+	// Register all methods at once using the efficient method from util.go
+	methods := map[string]lua.LGFunction{
 		"debug": loggerDebug,
 		"info":  loggerInfo,
 		"warn":  loggerWarn,
 		"error": loggerError,
 		"with":  loggerWith,
 		"named": loggerNamed,
-	}))
-	l.SetMetatable(ud, mt)
+	}
+
+	// Base logger is our module entry
+	ud := l.NewUserData()
+	ud.Value = &Logger{logger: m.baseLogger}
+	ud.Metatable = value.RegisterMethods(l, "logger.Logger", methods)
 
 	l.Push(ud)
 	return 1
@@ -160,7 +161,7 @@ func loggerError(l *lua.LState) int {
 			// Handle special error field
 			if errValue := tbl.RawGetString("error"); errValue != lua.LNil {
 				fields = append(fields, zap.Error(errors.New(errValue.String())))
-				tbl.RawSetString("error", lua.LNil) // Remove error from table
+				tbl.RawSetString("error", lua.LNil) // Done error from table
 			}
 
 			fields = append(fields, tableToFields(tbl)...)
@@ -185,13 +186,14 @@ func loggerWith(l *lua.LState) int {
 		return 0
 	}
 
-	// Create new logger with fields
+	// Spawn new logger with fields
 	newLogger := logger.logger.With(tableToFields(fields)...)
 
-	// Create new userdata
+	// Spawn new userdata
 	newUd := l.NewUserData()
 	newUd.Value = &Logger{logger: newLogger}
-	l.SetMetatable(newUd, l.GetTypeMetatable("Logger"))
+	newUd.Metatable = value.GetTypeMetatable(l, "logger.Logger")
+
 	l.Push(newUd)
 
 	return 1
@@ -211,13 +213,13 @@ func loggerNamed(l *lua.LState) int {
 		return 0
 	}
 
-	// Create new named logger
+	// Spawn new named logger
 	newLogger := logger.logger.Named(name)
 
-	// Create new userdata
+	// Spawn new userdata
 	newUd := l.NewUserData()
 	newUd.Value = &Logger{logger: newLogger}
-	l.SetMetatable(newUd, l.GetTypeMetatable("Logger"))
+	newUd.Metatable = value.GetTypeMetatable(l, "logger.Logger")
 	l.Push(newUd)
 
 	return 1

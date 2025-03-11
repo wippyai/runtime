@@ -1,0 +1,98 @@
+version: "1.0"
+namespace: system
+
+entries:
+  - name: root
+    kind: fs.directory
+    meta:
+      comment: "Root filesystem"
+    directory: ./
+    mode: "0755"
+    default: true
+
+  - name: public
+    kind: fs.directory
+    meta:
+      comment: "Public filesystem"
+      depends_on:
+        - root
+    directory: ./app/public/
+    mode: "0755"
+
+  - name: gateway
+    kind: http.service
+    meta:
+      comment: "Main HTTP gateway service"
+    addr: ":8082"
+    timeouts:
+      idle: 60s
+      read: 30s
+      write: 30s
+    lifecycle:
+      auto_start: true
+      restart:
+        initial_delay: 5s
+        max_attempts: 3
+        backoff_factor: 1.5
+
+  - name: public.static
+    kind: http.static
+    meta:
+      comment: "Public static file server"
+      server: gateway
+      depends_on:
+        - gateway
+        - public
+    path: /
+    fs: public
+    directory: /
+    options:
+      index: "index.html"
+      cache: "public, max-age=3600"
+      spa: true
+
+  - name: api
+    kind: http.router
+    meta:
+      comment: "API router for v1 endpoints"
+      server: gateway
+      depends_on:
+        - gateway
+        - heap
+    prefix: /api/v1
+    timeouts:
+      request: 30s
+
+  - name: terminal
+    kind: terminal.host
+    meta:
+      comment: "System terminal host"
+    hide_logs: false
+    lifecycle:
+      auto_start: true
+      restart:
+        initial_delay: 5s
+        max_attempts: 3
+        backoff_factor: 1.5
+
+  - name: processes
+    kind: process.host
+    meta:
+      comment: "Process execution host"
+    host:
+      workers: 32
+      max_processes: 20000
+    lifecycle:
+      auto_start: true
+      restart:
+        initial_delay: 5s
+        max_attempts: 3
+        backoff_factor: 1.5
+
+  - name: db
+    kind: db.sql.sqlite
+    meta:
+      comment: "Application SQLite database"
+    file: "./app/data/app.db"
+    lifecycle:
+      auto_start: true

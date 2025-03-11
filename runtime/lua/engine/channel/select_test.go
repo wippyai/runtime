@@ -20,8 +20,11 @@ func TestSelectImmediate(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.StartString(context.Background(), `
-		-- Create two buffered channels
+	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
+	defer func() { _ = uw.Close() }()
+
+	err = vm.StartString(ctx, `
+		-- Spawn two buffered channels
 		local ch1 = channel.new(1)
 		local ch2 = channel.new(1)
 
@@ -77,12 +80,15 @@ func TestSelectBlockedReceive(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.StartString(context.Background(), `
-		-- Create two unbuffered channels
+	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
+	defer func() { _ = uw.Close() }()
+
+	err = vm.StartString(ctx, `
+		-- Spawn two unbuffered channels
 		local ch1 = channel.new(0)
 		local ch2 = channel.new(0)
 		
-		-- Start select operation that will block
+		-- Launch select operation that will block
 		coroutine.spawn(function()
 			local result = channel.select{
 				ch1:case_receive(),
@@ -131,12 +137,15 @@ func TestSelectBlockedClose(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.StartString(context.Background(), `
-		-- Create two unbuffered channels
+	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
+	defer func() { _ = uw.Close() }()
+
+	err = vm.StartString(ctx, `
+		-- Spawn two unbuffered channels
 		local ch1 = channel.new(0)
 		local ch2 = channel.new(0)
 		
-		-- Start select operation that will block
+		-- Launch select operation that will block
 		coroutine.spawn(function()
 			local result = channel.select{
 				ch1:case_receive(),
@@ -150,7 +159,7 @@ func TestSelectBlockedClose(t *testing.T) {
 		
 		coroutine.yield("select_started")
 		
-		-- Close ch1, this should wake up select
+		-- close ch1, this should wake up select
 		ch1:close()
 		coroutine.yield("close_completed")
 	`, "test")
@@ -190,7 +199,10 @@ func TestSelectWithDefaultImmediate(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.StartString(context.Background(), `
+	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
+	defer func() { _ = uw.Close() }()
+
+	err = vm.StartString(ctx, `
         -- Helper to get channel stats
         local function channel_stats(ch)
             return {
@@ -200,7 +212,7 @@ func TestSelectWithDefaultImmediate(t *testing.T) {
             }
         end
 
-        -- Create two empty channels
+        -- Spawn two empty channels
         local ch1 = channel.new(0)
         local ch2 = channel.new(0)
 
@@ -258,7 +270,10 @@ func TestSelectLoopWithFeeds(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.StartString(context.Background(), `
+	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
+	defer func() { _ = uw.Close() }()
+
+	err = vm.StartString(ctx, `
         -- Helper for channel stats
         local function channel_stats(ch)
             return {
@@ -272,7 +287,7 @@ func TestSelectLoopWithFeeds(t *testing.T) {
         local ch2 = channel.new(0)
         local done = channel.new(0)
         
-        -- Start select loop in goroutine
+        -- Launch select loop in goroutine
         coroutine.spawn(function()
             local count = 0
             while count < 2 do
@@ -288,7 +303,7 @@ func TestSelectLoopWithFeeds(t *testing.T) {
         
         coroutine.yield("loop_started")
         
-        -- Feed values from main goroutine
+        -- Feed Result from main goroutine
         ch1:send("val1")
         coroutine.yield("sent1")
         
@@ -343,7 +358,10 @@ func TestSelectCleanupOnReceive(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.StartString(context.Background(), `
+	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
+	defer func() { _ = uw.Close() }()
+
+	err = vm.StartString(ctx, `
        local function channel_stats(ch)
            return {
                size = ch:_debug_size(),
@@ -355,7 +373,7 @@ func TestSelectCleanupOnReceive(t *testing.T) {
        local ch1 = channel.new(0)
        local ch2 = channel.new(0)
 
-       -- Start blocked select
+       -- Launch blocked select
        coroutine.spawn(function()
            local result = channel.select{
                ch1:case_receive(),
@@ -416,7 +434,10 @@ func TestSelectCleanupAll(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.StartString(context.Background(), `
+	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
+	defer func() { _ = uw.Close() }()
+
+	err = vm.StartString(ctx, `
 		local function channel_stats(ch)
 			return {
 				size = ch:_debug_size(),
@@ -519,7 +540,10 @@ func TestMixedSelectImmediate(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.StartString(context.Background(), `
+	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
+	defer func() { _ = uw.Close() }()
+
+	err = vm.StartString(ctx, `
 		local function channel_stats(ch)
 			return {
 				size = ch:_debug_size(),
@@ -528,7 +552,7 @@ func TestMixedSelectImmediate(t *testing.T) {
 			}
 		end
 
-		-- Create channels with different states
+		-- Spawn channels with different states
 		local readyCh = channel.new(1)    -- buffered, will have a value
 		local emptyCh = channel.new(1)    -- buffered, empty
 		local fullCh = channel.new(1)     -- buffered, full
@@ -606,13 +630,16 @@ func TestMixedSelectBlocking(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.StartString(context.Background(), `
-		-- Create unbuffered channels
+	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
+	defer func() { _ = uw.Close() }()
+
+	err = vm.StartString(ctx, `
+		-- Spawn unbuffered channels
 		local ch1 = channel.new(0)
 		local ch2 = channel.new(0)
 		local resultCh = channel.new(1)  -- for test coordination
 		
-		-- Start a goroutine that will do mixed select
+		-- Launch a goroutine that will do mixed select
 		coroutine.spawn(function()
 			local result = channel.select{
 				ch1:case_send("value1"),    -- might be selected
@@ -623,7 +650,7 @@ func TestMixedSelectBlocking(t *testing.T) {
 		
 		coroutine.yield("select_started")
 		
-		-- Start helper goroutine to trigger one of the cases
+		-- Launch helper goroutine to trigger one of the cases
 		coroutine.spawn(function()
 			ch2:send("value2")  -- trigger the receive case
 			coroutine.yield("helper_complete")
@@ -691,8 +718,11 @@ func TestMixedSelectWithDefault(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.StartString(context.Background(), `
-		-- Create channels that would block
+	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
+	defer func() { _ = uw.Close() }()
+
+	err = vm.StartString(ctx, `
+		-- Spawn channels that would block
 		local sendCh = channel.new(0)   -- unbuffered
 		local recvCh = channel.new(0)   -- unbuffered
 		
@@ -772,7 +802,10 @@ func TestSingleCaseSelectWithReadyData(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.StartString(context.Background(), `
+	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
+	defer func() { _ = uw.Close() }()
+
+	err = vm.StartString(ctx, `
 		local ch = channel.new(0)  -- unbuffered channel
 		local ready = channel.new(0)  -- synchronization channel
 		local results = {}  -- collect results
@@ -796,7 +829,7 @@ func TestSingleCaseSelectWithReadyData(t *testing.T) {
 			table.insert(results, result.value)
 			coroutine.yield("received1")
 
-			-- Get remaining values directly
+			-- GetField remaining Result directly
 			local val2, ok2 = ch:receive()
 			table.insert(results, val2)
 			coroutine.yield("received2")
@@ -812,8 +845,8 @@ func TestSingleCaseSelectWithReadyData(t *testing.T) {
 		ready:receive()
 		coroutine.yield("complete")
 		
-		-- Verify all values were received
-		assert(#results == 3, "should receive 3 values")
+		-- Verify all Result were received
+		assert(#results == 3, "should receive 3 Result")
 		table.sort(results)
 		assert(results[1] == "val1")
 		assert(results[2] == "val2")
@@ -860,5 +893,5 @@ func TestSingleCaseSelectWithReadyData(t *testing.T) {
 			receivedCount++
 		}
 	}
-	assert.Equal(t, 3, receivedCount, "should receive all 3 values")
+	assert.Equal(t, 3, receivedCount, "should receive all 3 Result")
 }

@@ -2,6 +2,9 @@ package engine
 
 import (
 	"context"
+	errors2 "errors"
+	"fmt"
+	"github.com/ponyruntime/pony/runtime/lua/engine/errors"
 	"strings"
 	"testing"
 
@@ -392,7 +395,7 @@ func TestVM_GlobalState(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Get count should return the current value (2)
+	// GetField count should return the current value (2)
 	if err := vm.DoString(context.Background(), `assert(getCount() == 2)`, "test3"); err != nil {
 		t.Fatal(err)
 	}
@@ -406,11 +409,11 @@ func TestVM_GlobalState(t *testing.T) {
 func TestVM_CompiledGlobalState(t *testing.T) {
 	logger := zap.NewNop()
 
-	// Create initial State table
+	// Spawn initial State table
 	stateTable := &lua.LTable{}
 	stateTable.RawSetString("count", lua.LNumber(0))
 
-	// Create VM with global State
+	// Spawn VM with global State
 	vm, err := NewVM(logger, WithGlobalValue("State", stateTable))
 	if err != nil {
 		t.Fatal(err)
@@ -454,7 +457,7 @@ func TestVM_CompiledGlobalState(t *testing.T) {
 		t.Errorf("got %v, want %v", result, lua.LNumber(2))
 	}
 
-	// GetCount should return current value (2)
+	// Ready should return current value (2)
 	result, err = vm.Execute(context.Background(), "getCount")
 	if err != nil {
 		t.Fatal(err)
@@ -491,7 +494,7 @@ func TestVM_ErrorTraceback(t *testing.T) {
 	}
 	defer vm.Close()
 
-	t.Run("error in Init with traceback", func(t *testing.T) {
+	t.Run("error in AddTaskQueue with traceback", func(t *testing.T) {
 		err := vm.DoString(context.Background(), `
 			local function deep()
 				error("deep error")
@@ -648,7 +651,7 @@ func TestVM_SecurityRestrictions(t *testing.T) {
 	})
 
 	t.Run("require should only work with preloaded modules", func(t *testing.T) {
-		// Add a test library
+		// AddCleanup a test library
 		testLib := `
 			local lib = {}
 			function lib.test() return "ok" end
@@ -710,7 +713,7 @@ func TestVM_Mount(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("share bytecode between VMs", func(t *testing.T) {
-		// Create first VM and compile function
+		// Spawn first VM and compile function
 		vm1, err := NewVM(logger)
 		if err != nil {
 			t.Fatal(err)
@@ -739,7 +742,7 @@ func TestVM_Mount(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		// Create second VM
+		// Spawn second VM
 		vm2, err := NewVM(logger)
 		if err != nil {
 			t.Fatal(err)
@@ -775,7 +778,7 @@ func TestVM_Mount(t *testing.T) {
 	})
 
 	t.Run("mount function with state isolation", func(t *testing.T) {
-		// Create two VMs
+		// Spawn two VMs
 		vm1, err := NewVM(logger)
 		if err != nil {
 			t.Fatal(err)
@@ -1225,7 +1228,7 @@ func TestVM_SharedLibraryProto(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Create two VMs sharing the same library prototype
+	// Spawn two VMs sharing the same library prototype
 	vm1, err := NewVM(logger, WithLibrary("mathlib", proto))
 	if err != nil {
 		t.Fatal(err)
@@ -1415,4 +1418,80 @@ func TestVM_Context_Cancellation(t *testing.T) {
 	} else if !strings.Contains(err.Error(), "context canceled") && !strings.Contains(err.Error(), "interrupted") {
 		t.Errorf("expected error message to contain 'context canceled' or 'interrupted', got: %v", err)
 	}
+}
+
+func TestVM_ErrorHandling(t *testing.T) {
+	logger := zap.NewNop()
+
+	t.Run("lua api error handling", func(t *testing.T) {
+		vm, err := NewVM(logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm.Close()
+
+		script := `
+            function test_error()
+                error("lua error")
+            end
+        `
+
+		if err := vm.Import(script, "test", "test_error"); err != nil {
+			t.Fatal(err)
+		}
+
+		_, err = vm.Execute(context.Background(), "test_error")
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+
+		var apiErr *lua.ApiError
+		if !errors2.As(err, &apiErr) {
+			t.Fatal("error was not a Lua ApiError")
+		}
+
+		if !strings.Contains(apiErr.Error(), "lua error") {
+			t.Errorf("unexpected error message: %v", apiErr.Error())
+		}
+	})
+
+	t.Run("wrapped error from go", func(t *testing.T) {
+		vm, err := NewVM(logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer vm.Close()
+
+		testFunc := func(L *lua.LState) int {
+			err := fmt.Errorf("error from go")
+			errors.RaiseError(L, err)
+			return 0
+		}
+
+		vm.state.SetGlobal("go_error_func", vm.state.NewFunction(testFunc))
+
+		script := `
+            function test_error()
+                return go_error_func()
+            end
+        `
+
+		if err := vm.Import(script, "test", "test_error"); err != nil {
+			t.Fatal(err)
+		}
+
+		_, err = vm.Execute(context.Background(), "test_error")
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+
+		var wrapped *errors.WrappedError
+		if !errors2.As(err, &wrapped) {
+			t.Fatal("error was not a WrappedError")
+		}
+
+		if !strings.Contains(wrapped.Error(), "error from go") {
+			t.Errorf("unexpected error message: %v", wrapped.Error())
+		}
+	})
 }

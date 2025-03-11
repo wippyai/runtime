@@ -23,7 +23,7 @@ type task struct {
 	result chan taskResult
 }
 
-// Pool manages multiple Lua VMs with a task queue for script execution
+// Pool manages multiple Lua VMs with a task queue for script execution.
 type Pool struct {
 	size       int
 	logger     *zap.Logger
@@ -36,10 +36,10 @@ type Pool struct {
 	workerWait sync.WaitGroup
 }
 
-// Option represents a pool configuration option
+// Option represents a pool configuration option.
 type Option func(*Pool)
 
-// WithSize sets the size of the VM pool
+// WithSize sets the size of the VM pool (unused in queued pool but provided for interface consistency).
 func WithSize(size int) Option {
 	return func(p *Pool) {
 		if size > 0 {
@@ -48,7 +48,7 @@ func WithSize(size int) Option {
 	}
 }
 
-// WithWorkers sets the number of worker goroutines
+// WithWorkers sets the number of worker goroutines.
 func WithWorkers(workers int) Option {
 	return func(p *Pool) {
 		if workers > 0 {
@@ -57,7 +57,7 @@ func WithWorkers(workers int) Option {
 	}
 }
 
-// WithLogger sets the logger for the pool
+// WithLogger sets the logger for the pool.
 func WithLogger(logger *zap.Logger) Option {
 	return func(p *Pool) {
 		if logger != nil {
@@ -66,7 +66,7 @@ func WithLogger(logger *zap.Logger) Option {
 	}
 }
 
-// NewPool creates a new pool with the given configuration
+// NewPool creates a new pool with the given configuration.
 func NewPool(factory api.Factory, opts ...Option) (*Pool, error) {
 	p := &Pool{
 		size:    5,
@@ -87,11 +87,11 @@ func NewPool(factory api.Factory, opts ...Option) (*Pool, error) {
 	return p, nil
 }
 
-// init initializes the pool and starts worker goroutines
+// init initializes the pool and starts worker goroutines.
 func (p *Pool) init(factory api.Factory) error {
 	p.factory = factory
 
-	// Start worker goroutines
+	// Launch worker goroutines.
 	for i := 0; i < p.workers; i++ {
 		p.workerWait.Add(1)
 		go p.worker()
@@ -100,7 +100,7 @@ func (p *Pool) init(factory api.Factory) error {
 	return nil
 }
 
-// Execute queues a task for execution and returns its result
+// Execute queues a task for execution and returns its result.
 func (p *Pool) Execute(ctx context.Context, name string, args ...lua.LValue) (lua.LValue, error) {
 	if p.closed.Load() {
 		return nil, fmt.Errorf("pool is closed")
@@ -113,7 +113,7 @@ func (p *Pool) Execute(ctx context.Context, name string, args ...lua.LValue) (lu
 		result: make(chan taskResult, 1),
 	}
 
-	// Try to queue the task
+	// Try to queue the task.
 	select {
 	case <-ctx.Done():
 		close(t.result)
@@ -124,68 +124,91 @@ func (p *Pool) Execute(ctx context.Context, name string, args ...lua.LValue) (lu
 	case p.tasks <- t:
 	}
 
-	// wait for result or cancellation
+	// Wait for result or cancellation.
 	select {
 	case res := <-t.result:
 		return res.value, res.err
+	case <-p.done:
+		return nil, fmt.Errorf("pool is closed")
 	case <-ctx.Done():
-		// Note: task might still be picked up and executed by a worker,
-		// but the caller won't wait for the result
+		// Task might still be executed by a worker, but we return immediately.
 		return nil, ctx.Err()
 	}
 }
 
-// worker runs in its own goroutine and processes tasks
+// worker runs in its own goroutine and processes tasks.
 func (p *Pool) worker() {
-	defer p.workerWait.Done() // Signal worker completion
+	defer p.workerWait.Done()
 
-	// Create a VM for this worker
-	vm, err := p.factory.MakeVM()
+	// Spawn a VM for this worker.
+	vm, err := p.factory.CreateVM()
 	if err != nil {
 		p.logger.Error("failed to create VM for worker", zap.Error(err))
 		return
 	}
+	// Ensure the VM is closed when the worker exits.
 	defer vm.Close()
+
+	// processTask is a closure that executes a single task using the current VM.
+	// If vm.Start returns an error, we close the current VM and attempt to recreate it.
+	processTask := func(t *task) {
+		if t == nil {
+			return
+		}
+
+		result, err := vm.Execute(t.ctx, t.name, t.args...)
+		if err != nil {
+			// On error, close the faulty VM and attempt to create a new one.
+			vm.Close()
+			newVM, newErr := p.factory.CreateVM()
+			if newErr != nil {
+				p.logger.Error("failed to recreate VM", zap.Error(newErr))
+			} else {
+				vm = newVM
+			}
+		}
+
+		// send the result (if the task context isn’t done).
+		select {
+		case <-t.ctx.Done():
+		case t.result <- taskResult{value: result, err: err}:
+		default:
+			p.logger.Error("failed to send result")
+		}
+		close(t.result)
+	}
 
 	for {
 		select {
+		// If the pool is shutting down, drain remaining tasks non-blockingly.
 		case <-p.done:
-			// Process remaining tasks in the channel after done signal
-			for t := range p.tasks {
-				if t == nil {
-					continue
-				}
-
-				result, err := vm.Execute(t.ctx, t.name, t.args...)
+			for {
 				select {
-				case t.result <- taskResult{value: result, err: err}:
+				case t := <-p.tasks:
+					if t.ctx.Err() != nil {
+						t.result <- taskResult{err: t.ctx.Err()}
+						close(t.result)
+						continue
+					}
+
+					processTask(t)
 				default:
-					p.logger.Error("failed to send result")
+					// No more tasks to process; exit the worker.
+					return
 				}
-				close(t.result)
 			}
-			return
+		// Process incoming task.
 		case t := <-p.tasks:
-			if t == nil {
-				continue
-			}
-			result, err := vm.Execute(t.ctx, t.name, t.args...)
-			select {
-			case t.result <- taskResult{value: result, err: err}:
-			default:
-				p.logger.Error("failed to send result")
-			}
-			close(t.result)
+			processTask(t)
 		}
 	}
 }
 
-// Close shuts down the pool
+// Close shuts down the pool.
 func (p *Pool) Close() {
 	p.closeOnce.Do(func() {
 		p.closed.Store(true)
 		close(p.done)
-		close(p.tasks)
 		p.workerWait.Wait()
 	})
 }

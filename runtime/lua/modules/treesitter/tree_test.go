@@ -192,7 +192,7 @@ func TestTreeTraversal(t *testing.T) {
 				package main
 
 				type Person struct {
-					Name string
+					Alias string
 					Age  int
 				}
 
@@ -265,7 +265,7 @@ func TestTreeTraversal(t *testing.T) {
 			assert(cursor:goto_first_child(), "move to first child")
 			assert(cursor:goto_next_sibling(), "move to type_declaration")
 			
-			-- Create copy at type_declaration
+			-- Spawn copy at type_declaration
 			local cursor2 = cursor:copy()
 			local original_kind = cursor:current_node():kind()
 			assert(cursor2:current_node():kind() == original_kind, "copied cursor should match")
@@ -370,7 +370,7 @@ func TestTreeEditOperations(t *testing.T) {
 			local treesitter = require("treesitter")
 			local tree = treesitter.parse("go", "package main")
 			
-			-- Close the tree
+			-- close the tree
 			tree:close()
 			
 			-- Verify operations on closed tree fail gracefully
@@ -398,7 +398,7 @@ func TestTreeEditOperations(t *testing.T) {
 		err = vm.DoString(context.Background(), `
 			local treesitter = require("treesitter")
 			
-			-- Create and manipulate multiple trees
+			-- Spawn and manipulate multiple trees
 			local function stress_test()
 				local trees = {}
 				for i = 1, 10 do
@@ -407,7 +407,7 @@ func TestTreeEditOperations(t *testing.T) {
 					table.insert(trees, tree)
 					table.insert(trees, copy)
 					
-					-- Create some edits
+					-- Spawn some edits
 					local edit = {
 						start_byte = 0,
 						old_end_byte = 5,
@@ -467,7 +467,7 @@ func TestComplexTreeOperations(t *testing.T) {
 			]]
 			local tree = treesitter.parse("go", code)
 			
-			-- Get root node with offset to foo function
+			-- GetField root node with offset to foo function
 			local offset = {
 				row = 6,    -- 0-based row index
 				column = 0  -- start of line
@@ -628,17 +628,17 @@ func TestTreeWalking(t *testing.T) {
 		err = vm.DoString(context.Background(), `
             local treesitter = require("treesitter")
             
-            -- Create a slightly complex tree
+            -- Spawn a slightly complex tree
             local code = [[
                 package main
 
                 type Person struct {
-                    Name string
+                    Alias string
                     Age  int
                 }
 
                 func (p *Person) String() string {
-                    return p.Name
+                    return p.Alias
                 }
             ]]
 

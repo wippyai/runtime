@@ -1,0 +1,48 @@
+version: "1.0"
+namespace: wippy.test.http
+
+meta:
+  depends_on: [ "ns:system", "ns:wippy.test" ]
+
+entries:
+  - name: discovery
+    kind: function.lua
+    meta:
+      comment: "Discovers all available test cases without running them"
+    source: file://discovery.lua
+    method: discover_tests
+    modules: [ http, time, json ]
+    imports:
+      registry: "wippy.test:registry"
+    pool:
+      size: 1
+
+  - name: test
+    kind: function.lua
+    meta:
+      comment: "Runs all the tests it can find"
+    source: file://test.lua
+    method: run_tests
+    modules: [ http, time, json, funcs ]
+    imports:
+      registry: "wippy.test:registry"
+    pool:
+      size: 8
+
+  - name: discover.endpoint
+    kind: http.endpoint
+    meta:
+      comment: "Discovers all available tests cases"
+      router: system:api
+    method: GET
+    path: /test/discover
+    func: test_discovery
+
+  - name: test.endpoint
+    kind: http.endpoint
+    meta:
+      comment: "Runs all the tests it can find"
+      router: system:api
+    method: GET
+    path: /test
+    func: test

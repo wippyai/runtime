@@ -34,6 +34,6 @@ jobs:
         env:
           CGO_ENABLED: 1
         with:
-          version: v1.63
+          version: v1.64.6
           only-new-issues: false
           args: --timeout=10m --build-tags=race ./...

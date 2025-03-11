@@ -5,7 +5,7 @@ import (
 )
 
 // stringReplacer defines the function signature for custom string replacement logic with context.
-type stringReplacer func(string, interface{}) (string, error)
+type stringReplacer func(string, any) (string, error)
 
 // replacer handles string replacement within arbitrary data structures.
 type replacer struct {
@@ -20,7 +20,7 @@ func newStringReplacer(replacementFunc stringReplacer) *replacer {
 }
 
 // replaceString applies the replacement function to the given string, passing the context.
-func (r *replacer) replaceString(s string, ctx interface{}) (string, error) {
+func (r *replacer) replaceString(s string, ctx any) (string, error) {
 	if r.rFunc == nil {
 		return s, nil
 	}
@@ -28,7 +28,7 @@ func (r *replacer) replaceString(s string, ctx interface{}) (string, error) {
 }
 
 // replaceRecursive is the helpers recursive function for value replacement with context.
-func (r *replacer) replaceRecursive(val reflect.Value, ctx interface{}) (any, error) {
+func (r *replacer) replaceRecursive(val reflect.Value, ctx any) (any, error) {
 	if !val.IsValid() {
 		return nil, nil
 	}
@@ -109,7 +109,7 @@ func (r *replacer) replaceRecursive(val reflect.Value, ctx interface{}) (any, er
 }
 
 // Replace is the main entry point for string replacement within 'data' with context.
-func (r *replacer) Replace(data any, ctx interface{}) (any, error) {
+func (r *replacer) Replace(data any, ctx any) (any, error) {
 	if data == nil {
 		return nil, nil
 	}

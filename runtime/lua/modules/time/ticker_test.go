@@ -2,17 +2,15 @@ package time
 
 import (
 	"context"
-	"testing"
-	"time"
-
 	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/async"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
+	"testing"
+	"time"
 )
 
 func TestTicker(t *testing.T) {
@@ -31,15 +29,15 @@ func TestTicker(t *testing.T) {
 			function test()
 				local results = {}
 				local ticker = time.ticker("50ms")
-				
-				-- Receive 3 ticks
+
+				-- Send 3 ticks
 				for i = 1, 3 do
 					local t = ticker:channel():receive()
 					assert(type(t) == "userdata") -- Should be a time object
 					assert(t.hour ~= nil) -- Verify it has time methods
 					table.insert(results, "tick")
 				end
-				
+
 				ticker:stop()
 				return results
 			end
@@ -48,17 +46,10 @@ func TestTicker(t *testing.T) {
 		err = vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		channels := channel.NewChannelLayer()
-		asyncRunner := async.NewAsyncLayer(channels, 4096)
-		wrapped := engine.NewRunner(vm,
-			engine.WithLayer(asyncRunner),
-			engine.WithLayer(channels),
-		)
-
-		ctx := asyncRunner.WithContext(engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup()))
+		runner := engine.NewRunner(vm, engine.WithLayer(channel.NewChannelLayer()))
 
 		start := time.Now()
-		result, err := wrapped.Execute(ctx, "test")
+		result, err := runner.Execute(context.Background(), "test")
 		duration := time.Since(start)
 
 		require.NoError(t, err)
@@ -164,15 +155,9 @@ func TestTicker(t *testing.T) {
 				err = vm.Import(tc.script, "test", "test")
 				require.NoError(t, err)
 
-				channels := channel.NewChannelLayer()
-				asyncRunner := async.NewAsyncLayer(channels, 4096)
-				wrapped := engine.NewRunner(vm,
-					engine.WithLayer(asyncRunner),
-					engine.WithLayer(channels),
-				)
+				runner := engine.NewRunner(vm, engine.WithLayer(channel.NewChannelLayer()))
 
-				ctx := asyncRunner.WithContext(context.Background())
-				result, err := wrapped.Execute(ctx, "test")
+				result, err := runner.Execute(context.Background(), "test")
 
 				if tc.expectError {
 					assert.Error(t, err)
@@ -209,22 +194,16 @@ func TestTicker(t *testing.T) {
 		err = vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		channels := channel.NewChannelLayer()
-		asyncRunner := async.NewAsyncLayer(channels, 4096)
-		wrapped := engine.NewRunner(vm,
-			engine.WithLayer(asyncRunner),
-			engine.WithLayer(channels),
-		)
+		runner := engine.NewRunner(vm, engine.WithLayer(channel.NewChannelLayer()))
 
 		ctx, cancel := context.WithCancel(context.Background())
-		ctx = asyncRunner.WithContext(ctx)
 
 		done := make(chan struct{})
 		var execErr error
 
 		go func() {
 			defer close(done)
-			_, execErr = wrapped.Execute(ctx, "test")
+			_, execErr = runner.Execute(ctx, "test")
 		}()
 
 		// Let it tick a few times
@@ -255,7 +234,7 @@ func TestTicker(t *testing.T) {
 				local done = channel.new(0)
 				local ticker = time.ticker("50ms")
 
-				-- Start a goroutine to send on a channel after delay
+				-- Launch a goroutine to send on a channel after delay
 				coroutine.spawn(function()
 					time.sleep("125ms")
 					done:send("done")
@@ -283,17 +262,12 @@ func TestTicker(t *testing.T) {
 		err = vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		channels := channel.NewChannelLayer()
-		asyncRunner := async.NewAsyncLayer(channels, 4096)
-		wrapped := engine.NewRunner(vm,
-			engine.WithLayer(asyncRunner),
-			engine.WithLayer(channels),
+		runner := engine.NewRunner(vm,
+			engine.WithLayer(channel.NewChannelLayer()),
 			engine.WithLayer(coroutine.NewCoroutineLayer()),
 		)
 
-		ctx := asyncRunner.WithContext(context.Background())
-
-		result, err := wrapped.Execute(ctx, "test")
+		result, err := runner.Execute(context.Background(), "test")
 		require.NoError(t, err)
 
 		resultTable := result.(*lua.LTable)

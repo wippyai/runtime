@@ -20,7 +20,7 @@ import (
 type LanguageInfo struct {
 	Name     string                // Full lowercased language name (e.g., "javascript")
 	Aliases  []string              // Alternative names or short codes (e.g., ["js", "javascript"])
-	Language func() unsafe.Pointer // Function to get the Tree-sitter language object
+	Language func() unsafe.Pointer // Func to get the Tree-sitter language object
 }
 
 // Languages maintains a registry of supported programming languages and their aliases

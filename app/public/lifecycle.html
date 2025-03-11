@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Process Lifecycle Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            margin: 0;
+            font-family: system-ui, -apple-system, sans-serif;
+            transition: background-color 0.3s, color 0.3s;
+        }
+        .theme-transition {
+            transition: background-color 0.3s, color 0.3s, border-color 0.3s;
+        }
+        .process-card {
+            transition: all 0.3s ease;
+        }
+        .process-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .animate-pulse-slow {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+    </style>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        'primary': '#3B82F6',
+                        'success': '#10B981',
+                        'warning': '#F59E0B',
+                        'danger': '#EF4444',
+                        'neutral': '#6B7280'
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-gray-50 dark:bg-gray-900 dark:text-gray-100 theme-transition">
+<div class="container mx-auto p-4 max-w-6xl">
+    <div class="flex items-center justify-between mb-6">
+        <div class="flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-8 h-8 text-blue-600 dark:text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+            </svg>
+            <h1 class="text-2xl font-bold">Process Lifecycle Dashboard</h1>
+        </div>
+
+        <!-- Theme Toggle Button -->
+        <button id="theme-toggle" class="p-2 rounded-lg bg-gray-200 dark:bg-gray-700 theme-transition">
+            <!-- Sun icon (shown in dark mode) -->
+            <svg id="light-icon" class="w-5 h-5 hidden dark:block text-yellow-400" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" clip-rule="evenodd" />
+            </svg>
+            <!-- Moon icon (shown in light mode) -->
+            <svg id="dark-icon" class="w-5 h-5 block dark:hidden text-gray-700" fill="currentColor" viewBox="0 0 20 20">
+                <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z" />
+            </svg>
+        </button>
+    </div>
+
+    <!-- Control Panel -->
+    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4 mb-6 theme-transition">
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+                <h2 class="text-lg font-semibold mb-2">Process Control</h2>
+                <p class="text-gray-600 dark:text-gray-400 text-sm">Create and manage processes with Pony Runtime</p>
+            </div>
+            <div class="flex gap-2">
+                <button id="refresh-btn" class="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 theme-transition">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 inline-block mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    Refresh
+                </button>
+                <button id="start-process-btn" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 theme-transition">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 inline-block mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                    </svg>
+                    Start Process
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Process List -->
+    <div class="mb-4">
+        <h2 class="text-xl font-semibold mb-4">Active Processes</h2>
+
+        <!-- Loading State -->
+        <div id="loading-state" class="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 text-center theme-transition">
+            <svg class="animate-spin mx-auto h-10 w-10 text-blue-500 mb-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <p class="text-gray-600 dark:text-gray-400">Loading processes...</p>
+        </div>
+
+        <!-- Empty State -->
+        <div id="empty-state" class="hidden bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 text-center theme-transition">
+            <svg xmlns="http://www.w3.org/2000/svg" class="mx-auto h-12 w-12 text-gray-400 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+            </svg>
+            <p class="text-gray-600 dark:text-gray-400 mb-4">No active processes found</p>
+            <button id="empty-start-btn" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 theme-transition">
+                Start Your First Process
+            </button>
+        </div>
+
+        <!-- Process Grid -->
+        <div id="process-grid" class="hidden grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <!-- Process cards will be added here dynamically -->
+        </div>
+    </div>
+
+    <!-- Info Panel -->
+    <div class="bg-blue-50 dark:bg-blue-900/30 rounded-lg p-4 theme-transition">
+        <h3 class="text-lg font-semibold text-blue-700 dark:text-blue-300 mb-2">About This Demo</h3>
+        <p class="text-blue-600 dark:text-blue-400 mb-2">This dashboard demonstrates process lifecycle management with Pony Runtime's actor model:</p>
+        <ul class="list-disc pl-5 text-blue-600 dark:text-blue-400 space-y-1">
+            <li><strong>Start Process</strong>: Creates a parent process that spawns a linked child process</li>
+            <li><strong>Cancel</strong>: Sends a cancellation signal allowing processes to clean up before exiting</li>
+            <li><strong>Terminate</strong>: Immediately kills processes without cleanup</li>
+            <li><strong>Process Relationships</strong>: Parent-child links demonstrate error propagation and supervision</li>
+        </ul>
+    </div>
+</div>
+
+<!-- Process Template (hidden, used for cloning) -->
+<template id="process-card-template">
+    <div class="process-card bg-white dark:bg-gray-800 rounded-lg shadow-sm overflow-hidden theme-transition">
+        <div class="p-4 border-b border-gray-100 dark:border-gray-700">
+            <div class="flex justify-between items-start">
+                <div>
+                    <h3 class="font-semibold text-lg process-id">Process ID: 1</h3>
+                    <p class="text-sm text-gray-500 dark:text-gray-400 process-pid">PID: {host1|app:worker|proc123}</p>
+                </div>
+                <div class="flex items-center">
+                    <span class="status-badge px-2 py-1 text-xs rounded-full"></span>
+                </div>
+            </div>
+        </div>
+        <div class="p-4 space-y-3">
+            <div class="flex justify-between">
+                <span class="text-gray-600 dark:text-gray-400">Status:</span>
+                <span class="process-status font-medium"></span>
+            </div>
+            <div class="flex justify-between">
+                <span class="text-gray-600 dark:text-gray-400">Uptime:</span>
+                <span class="process-uptime font-mono"></span>
+            </div>
+            <div class="process-result hidden">
+                <div class="mt-2 p-2 bg-gray-50 dark:bg-gray-700 rounded text-sm">
+                    <pre class="result-pre whitespace-pre-wrap break-words font-mono text-xs"></pre>
+                </div>
+            </div>
+        </div>
+        <div class="p-4 bg-gray-50 dark:bg-gray-700/50 flex gap-2">
+            <button class="cancel-btn px-3 py-1.5 bg-yellow-500 text-white rounded hover:bg-yellow-600 flex-1 text-sm flex justify-center items-center">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                Cancel
+            </button>
+            <button class="terminate-btn px-3 py-1.5 bg-red-500 text-white rounded hover:bg-red-600 flex-1 text-sm flex justify-center items-center">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+                Terminate
+            </button>
+        </div>
+    </div>
+</template>
+
+<script>
+    // Theme management
+    const themeToggle = document.getElementById('theme-toggle');
+
+    // Check for saved theme preference or use system preference
+    if (localStorage.getItem('theme') === 'dark' ||
+        (!localStorage.getItem('theme') && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+        document.documentElement.classList.add('dark');
+    } else {
+        document.documentElement.classList.remove('dark');
+    }
+
+    // Theme toggle button handler
+    themeToggle.addEventListener('click', () => {
+        if (document.documentElement.classList.contains('dark')) {
+            document.documentElement.classList.remove('dark');
+            localStorage.setItem('theme', 'light');
+        } else {
+            document.documentElement.classList.add('dark');
+            localStorage.setItem('theme', 'dark');
+        }
+    });
+
+    // Process management
+    const API_BASE = '/api/v1';
+    let processUpdateInterval = null;
+
+    // Button handlers
+    document.getElementById('start-process-btn').addEventListener('click', startProcess);
+    document.getElementById('refresh-btn').addEventListener('click', fetchProcesses);
+    document.getElementById('empty-start-btn').addEventListener('click', startProcess);
+
+    // Start app
+    document.addEventListener('DOMContentLoaded', () => {
+        fetchProcesses();
+
+        // Set up automatic refresh every 2 seconds
+        processUpdateInterval = setInterval(fetchProcesses, 400);
+    });
+
+    // Cleanup on page unload
+    window.addEventListener('beforeunload', () => {
+        if (processUpdateInterval) {
+            clearInterval(processUpdateInterval);
+        }
+    });
+
+    // Fetch processes from API
+    async function fetchProcesses() {
+        try {
+            const response = await fetch(`${API_BASE}/process/status`);
+            if (!response.ok) {
+                throw new Error(`Server error: ${response.status}`);
+            }
+
+            const data = await response.json();
+            updateProcessGrid(data.processes || []);
+
+        } catch (error) {
+            console.error('Failed to fetch processes:', error);
+            showError('Failed to load processes. Please try refreshing.');
+        }
+    }
+
+    // Update the process grid with process data
+    function updateProcessGrid(processes) {
+        const grid = document.getElementById('process-grid');
+        const loadingState = document.getElementById('loading-state');
+        const emptyState = document.getElementById('empty-state');
+
+        // Hide loading state
+        loadingState.classList.add('hidden');
+
+        // Check if we have processes
+        if (processes.length === 0) {
+            grid.classList.add('hidden');
+            emptyState.classList.remove('hidden');
+            return;
+        }
+
+        // Show grid, hide empty state
+        grid.classList.remove('hidden');
+        emptyState.classList.add('hidden');
+
+        // Get existing card IDs
+        const existingCards = new Set();
+        grid.querySelectorAll('.process-card').forEach(card => {
+            existingCards.add(card.getAttribute('data-id'));
+        });
+
+        // Add or update process cards
+        processes.forEach(process => {
+            const processId = process.id.toString();
+
+            // Check if card already exists
+            let card = grid.querySelector(`.process-card[data-id="${processId}"]`);
+
+            if (card) {
+                // Update existing card
+                updateProcessCard(card, process);
+                existingCards.delete(processId);
+            } else {
+                // Create new card
+                card = createProcessCard(process);
+                grid.appendChild(card);
+            }
+        });
+
+        // Remove cards for processes that no longer exist
+        existingCards.forEach(id => {
+            const card = grid.querySelector(`.process-card[data-id="${id}"]`);
+            if (card) {
+                card.classList.add('opacity-0');
+                setTimeout(() => {
+                    card.remove();
+                }, 300);
+            }
+        });
+    }
+
+    // Create a new process card
+    function createProcessCard(process) {
+        const template = document.getElementById('process-card-template');
+        const card = template.content.cloneNode(true).children[0];
+
+        // Set card ID for easy reference
+        card.setAttribute('data-id', process.id);
+
+        // Add data to card
+        updateProcessCard(card, process);
+
+        // Add event listeners
+        card.querySelector('.cancel-btn').addEventListener('click', () => cancelProcess(process.id));
+        card.querySelector('.terminate-btn').addEventListener('click', () => terminateProcess(process.id));
+
+        return card;
+    }
+
+    // Update an existing process card
+    function updateProcessCard(card, process) {
+        // Update basic info
+        card.querySelector('.process-id').textContent = `Process ID: ${process.id}`;
+        card.querySelector('.process-pid').textContent = `PID: ${process.parent_pid}`;
+
+        // Format and set uptime
+        const uptime = typeof process.uptime === 'number'
+            ? formatDuration(process.uptime * 1000)
+            : 'N/A';
+        card.querySelector('.process-uptime').textContent = uptime;
+
+        // Update status and badge
+        const statusEl = card.querySelector('.process-status');
+        const badgeEl = card.querySelector('.status-badge');
+
+        statusEl.textContent = capitalizeFirst(process.status || 'unknown');
+
+        // Set badge style based on status
+        setBadgeStatus(badgeEl, process.status);
+
+        // Show result if available
+        const resultEl = card.querySelector('.process-result');
+        const resultPre = card.querySelector('.result-pre');
+
+        if (process.result && process.status !== 'running') {
+            resultEl.classList.remove('hidden');
+            resultPre.textContent = JSON.stringify(process.result, null, 2);
+        } else {
+            resultEl.classList.add('hidden');
+        }
+
+        // Disable buttons if process is not running
+        const isComplete = process.status === 'completed' ||
+            process.status === 'failed' ||
+            process.status === 'cancelled' ||
+            process.status === 'terminating';
+
+        card.querySelector('.cancel-btn').disabled = isComplete;
+        card.querySelector('.terminate-btn').disabled = isComplete;
+
+        if (isComplete) {
+            card.querySelector('.cancel-btn').classList.add('opacity-50', 'cursor-not-allowed');
+            card.querySelector('.terminate-btn').classList.add('opacity-50', 'cursor-not-allowed');
+        } else {
+            card.querySelector('.cancel-btn').classList.remove('opacity-50', 'cursor-not-allowed');
+            card.querySelector('.terminate-btn').classList.remove('opacity-50', 'cursor-not-allowed');
+        }
+    }
+
+    // Set badge style based on process status
+    function setBadgeStatus(badge, status) {
+        // Remove all existing status classes
+        badge.classList.remove(
+            'bg-green-100', 'text-green-800',
+            'bg-yellow-100', 'text-yellow-800',
+            'bg-red-100', 'text-red-800',
+            'bg-blue-100', 'text-blue-800',
+            'bg-gray-100', 'text-gray-800'
+        );
+
+        // Set new classes based on status
+        switch (status) {
+            case 'running':
+                badge.classList.add('bg-blue-100', 'text-blue-800', 'animate-pulse-slow');
+                badge.textContent = 'Running';
+                break;
+            case 'completed':
+                badge.classList.add('bg-green-100', 'text-green-800');
+                badge.textContent = 'Completed';
+                break;
+            case 'failed':
+                badge.classList.add('bg-red-100', 'text-red-800');
+                badge.textContent = 'Failed';
+                break;
+            case 'cancelling':
+                badge.classList.add('bg-yellow-100', 'text-yellow-800');
+                badge.textContent = 'Cancelling';
+                break;
+            case 'cancelled':
+                badge.classList.add('bg-yellow-100', 'text-yellow-800');
+                badge.textContent = 'Cancelled';
+                break;
+            case 'terminating':
+                badge.classList.add('bg-red-100', 'text-red-800');
+                badge.textContent = 'Terminated';
+                break;
+            default:
+                badge.classList.add('bg-gray-100', 'text-gray-800');
+                badge.textContent = capitalizeFirst(status || 'Unknown');
+        }
+    }
+
+    // Start a new process
+    async function startProcess() {
+        try {
+            const response = await fetch(`${API_BASE}/process/start`);
+            if (!response.ok) {
+                throw new Error(`Server error: ${response.status}`);
+            }
+
+            const data = await response.json();
+            console.log('Started process:', data);
+
+            // Refresh process list immediately
+            fetchProcesses();
+
+        } catch (error) {
+            console.error('Failed to start process:', error);
+            showError('Failed to start process. Please try again.');
+        }
+    }
+
+    // Cancel a process
+    async function cancelProcess(id, deadline = '5s') {
+        try {
+            const response = await fetch(`${API_BASE}/process/cancel?id=${id}&deadline=${deadline}`);
+            if (!response.ok) {
+                throw new Error(`Server error: ${response.status}`);
+            }
+
+            const data = await response.json();
+            console.log('Cancelled process:', data);
+
+            // Refresh process list immediately
+            fetchProcesses();
+
+        } catch (error) {
+            console.error('Failed to cancel process:', error);
+            showError('Failed to cancel process. Please try again.');
+        }
+    }
+
+    // Terminate a process
+    async function terminateProcess(id) {
+        try {
+            const response = await fetch(`${API_BASE}/process/terminate?id=${id}`);
+            if (!response.ok) {
+                throw new Error(`Server error: ${response.status}`);
+            }
+
+            const data = await response.json();
+            console.log('Terminated process:', data);
+
+            // Refresh process list immediately
+            fetchProcesses();
+
+        } catch (error) {
+            console.error('Failed to terminate process:', error);
+            showError('Failed to terminate process. Please try again.');
+        }
+    }
+
+    // Show error notification (simplified implementation)
+    function showError(message) {
+        alert(message);
+    }
+
+    // Helper: Format duration in milliseconds to human-readable string
+    function formatDuration(ms) {
+        if (ms < 1000) {
+            return `${ms}ms`;
+        } else if (ms < 60000) {
+            return `${(ms / 1000).toFixed(1)}s`;
+        } else {
+            const minutes = Math.floor(ms / 60000);
+            const seconds = ((ms % 60000) / 1000).toFixed(1);
+            return `${minutes}m ${seconds}s`;
+        }
+    }
+
+    // Helper: Capitalize first letter
+    function capitalizeFirst(string) {
+        if (!string) return '';
+        return string.charAt(0).toUpperCase() + string.slice(1);
+    }
+</script>
+</body>
+</html>

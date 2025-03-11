@@ -1,25 +1,27 @@
 package treesitter
 
 import (
+	"context"
 	"fmt"
-	"regexp"
-
-	"github.com/ponyruntime/pony/internal/closer"
+	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	treesitter "github.com/tree-sitter/go-tree-sitter"
 	lua "github.com/yuin/gopher-lua"
+	"regexp"
 )
 
 // QueryWrapper wraps a tree-sitter Query and QueryCursor for Lua integration
 type QueryWrapper struct {
-	query  *treesitter.Query
-	cursor *treesitter.QueryCursor
-	source string // Store source text for predicate evaluation
+	query   *treesitter.Query
+	cursor  *treesitter.QueryCursor
+	source  string
+	closed  bool
+	release context.CancelFunc
 }
 
 // Register the Query type to Lua
 func registerQuery(l *lua.LState) {
-	mt := l.NewTypeMetatable("treesitter.Query")
-	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
+	methods := map[string]lua.LGFunction{
 		// Core functionality
 		"close":                  queryClose,
 		"matches":                queryMatches,
@@ -53,15 +55,51 @@ func registerQuery(l *lua.LState) {
 		"capture_index_for_name":  queryCaptureIndexForName,
 		"end_byte_for_pattern":    queryEndByteForPattern,
 		"get_text_predicates":     queryGetTextPredicates,
-	}))
+	}
+	value.RegisterMethods(l, "treesitter.Query", methods)
 }
 
-// Create a new Query
+// NewQuery creates a new query wrapper with proper UoW integration
+func NewQuery(uw engine.UnitOfWork, query *treesitter.Query, cursor *treesitter.QueryCursor) *QueryWrapper {
+	wrapper := &QueryWrapper{
+		query:  query,
+		cursor: cursor,
+	}
+
+	// Register cleanup with UoW, storing the cancel function
+	wrapper.release = uw.AddCleanup(func() error {
+		if !wrapper.closed {
+			if wrapper.cursor != nil {
+				wrapper.cursor.Close()
+				wrapper.cursor = nil
+			}
+			if wrapper.query != nil {
+				wrapper.query.Close()
+				wrapper.query = nil
+			}
+			wrapper.closed = true
+		}
+		return nil
+	})
+
+	return wrapper
+}
+
+// Close marks the query as closed and cancels the UoW cleanup
+func (q *QueryWrapper) Close() {
+	if !q.closed && q.release != nil {
+		q.closed = true
+		q.release()
+		q.release = nil
+	}
+}
+
+// Spawn a new Query
 func newQuery(l *lua.LState) int {
 	languageStr := l.CheckString(1)
 	pattern := l.CheckString(2)
 
-	// Get language from string
+	// Spawn language from string
 	langInfo := NewLanguages().GetLanguageInfo(languageStr)
 	if langInfo == nil {
 		l.Push(lua.LNil)
@@ -83,33 +121,20 @@ func newQuery(l *lua.LState) int {
 		return 2
 	}
 
-	// Create query wrapper with cursor
-	wrapper := &QueryWrapper{
-		query:  query,
-		cursor: treesitter.NewQueryCursor(),
+	uw := engine.GetUnitOfWork(l.Context())
+	if uw == nil {
+		l.RaiseError("no unit of work found")
+		return 0
 	}
 
-	if l.Context() != nil {
-		cleanup := closer.FromContext(l.Context())
-		if cleanup != nil {
-			cleanup.Add(func() error {
-				if wrapper.cursor != nil {
-					wrapper.cursor.Close()
-					wrapper.cursor = nil
-				}
-
-				if wrapper.query != nil {
-					wrapper.query.Close()
-					wrapper.query = nil
-				}
-				return nil
-			})
-		}
-	}
+	// Use the new constructor
+	queryWrapper := NewQuery(uw, query, treesitter.NewQueryCursor())
+	queryWrapper.source = pattern // Store the source
 
 	ud := l.NewUserData()
-	ud.Value = wrapper
-	l.SetMetatable(ud, l.GetTypeMetatable("treesitter.Query"))
+	ud.Value = queryWrapper
+	ud.Metatable = value.GetTypeMetatable(l, "treesitter.Query")
+
 	l.Push(ud)
 	return 1
 }
@@ -123,7 +148,7 @@ func matchToLuaTable(l *lua.LState, query *treesitter.Query, match *treesitter.Q
 	for _, capture := range match.Captures {
 		captureTable := l.NewTable()
 
-		// Create Node wrapper for the specific capture's node
+		// Spawn Node wrapper for the specific capture's node
 		nodeUD := l.NewUserData()
 		nodeUD.Value = &NodeWrapper{node: &capture.Node, source: &source}
 		l.SetMetatable(nodeUD, l.GetTypeMetatable("treesitter.Node"))
@@ -131,7 +156,7 @@ func matchToLuaTable(l *lua.LState, query *treesitter.Query, match *treesitter.Q
 		captureTable.RawSetString("node", nodeUD)
 		captureTable.RawSetString("index", lua.LNumber(capture.Index))
 
-		// Get capture name from query pattern
+		// Spawn capture name from query pattern
 		name := query.CaptureNames()[capture.Index]
 		if name != "" {
 			captureTable.RawSetString("name", lua.LString(name))
@@ -193,21 +218,21 @@ func queryCaptures(l *lua.LState) int {
 		capture := match.Captures[index]
 		captureTable := l.NewTable()
 
-		// Create Node wrapper
+		// Spawn Node wrapper
 		nodeUD := l.NewUserData()
 		nodeUD.Value = &NodeWrapper{node: &capture.Node, source: &source}
-		l.SetMetatable(nodeUD, l.GetTypeMetatable("treesitter.Node"))
+		nodeUD.Metatable = l.GetTypeMetatable("treesitter.Node")
 
 		captureTable.RawSetString("node", nodeUD)
 		captureTable.RawSetString("index", lua.LNumber(capture.Index))
 
-		// Add capture name
+		// AddCleanup capture name
 		name := query.query.CaptureNames()[capture.Index]
 		if name != "" {
 			captureTable.RawSetString("name", lua.LString(name))
 		}
 
-		// Get the text of the captured node
+		// Spawn the text of the captured node
 		start := capture.Node.StartByte()
 		end := capture.Node.EndByte()
 		if end <= uint(len(source)) {
@@ -506,6 +531,10 @@ func queryGetTextPredicates(l *lua.LState) int {
 func checkQuery(l *lua.LState) *QueryWrapper {
 	ud := l.CheckUserData(1)
 	if v, ok := ud.Value.(*QueryWrapper); ok {
+		if v.closed {
+			l.ArgError(1, "query already closed")
+			return nil
+		}
 		return v
 	}
 	l.ArgError(1, "Query expected")

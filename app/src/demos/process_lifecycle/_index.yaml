@@ -1,0 +1,126 @@
+version: "1.0"
+namespace: app.demos.process_lifecycle
+
+meta:
+  depends_on: [ "ns:system", "ns:wippy.actor" ]
+
+entries:
+  - name: manager.service
+    kind: process.service
+    meta:
+      comment: "Process Lifecycle Manager Service"
+    process: manager
+    host: system:processes
+    lifecycle:
+      auto_start: true
+      restart:
+        initial_delay: 0s
+        max_attempts: 3
+      depends_on:
+        - system:processes
+
+  - name: manager
+    kind: process.lua
+    meta:
+      comment: "Process that manages lifecycle processes"
+    source: file://process_manager.lua
+    method: run
+    modules: [ time, json ]
+    imports:
+      actor: wippy.actor:actor
+
+  - name: parent
+    kind: process.lua
+    meta:
+      comment: "Parent process with linked child"
+    source: file://parent.lua
+    method: run
+    modules: [ time ]
+    imports:
+      actor: wippy.actor:actor
+
+  - name: child
+    kind: process.lua
+    meta:
+      comment: "Child process that works continuously"
+    source: file://child.lua
+    method: run
+    modules: [ time ]
+    imports:
+      actor: wippy.actor:actor
+
+  - name: start.endpoint
+    kind: function.lua
+    meta:
+      comment: "HTTP endpoint to start processes"
+    source: file://start_process.lua
+    method: handler
+    modules: [ http, time ]
+    pool:
+      size: 8
+
+  - name: cancel.endpoint
+    kind: function.lua
+    meta:
+      comment: "HTTP endpoint to cancel processes"
+    source: file://cancel_process.lua
+    method: handler
+    modules: [ http, time ]
+    pool:
+      size: 4
+
+  - name: terminate.endpoint
+    kind: function.lua
+    meta:
+      comment: "HTTP endpoint to terminate processes"
+    source: file://terminate_process.lua
+    method: handler
+    modules: [ http, time ]
+    pool:
+      size: 4
+
+  - name: status.endpoint
+    kind: function.lua
+    meta:
+      comment: "HTTP endpoint to get processes status"
+    source: file://get_status.lua
+    method: handler
+    modules: [ http, time ]
+    pool:
+      size: 4
+
+  - name: start.http
+    kind: http.endpoint
+    meta:
+      comment: "Start Process"
+      router: system:api
+    method: GET
+    path: /process/start
+    func: start.endpoint
+
+  - name: cancel.http
+    kind: http.endpoint
+    meta:
+      comment: "Cancel Process"
+      router: system:api
+    method: GET
+    path: /process/cancel
+    func: cancel.endpoint
+
+  - name: terminate.http
+    kind: http.endpoint
+    meta:
+      comment: "Terminate Process"
+      router: system:api
+    method: GET
+    path: /process/terminate
+    func: terminate.endpoint
+
+  - name: status.http
+    kind: http.endpoint
+    meta:
+      comment: "Get Processes Status"
+      router: system:api
+    method: GET
+    path: /process/status
+    func: status.endpoint

@@ -21,7 +21,7 @@ func TestGetLanguageInfo(t *testing.T) {
 		wantFound bool
 	}{
 		{
-			name:  "Get existing language (primary alias)",
+			name:  "GetField existing language (primary alias)",
 			alias: "go",
 			want: &LanguageInfo{
 				Name:     "go",
@@ -31,7 +31,7 @@ func TestGetLanguageInfo(t *testing.T) {
 			wantFound: true,
 		},
 		{
-			name:  "Get existing language (alternative alias)",
+			name:  "GetField existing language (alternative alias)",
 			alias: "js",
 			want: &LanguageInfo{
 				Name:     "javascript",
@@ -41,13 +41,13 @@ func TestGetLanguageInfo(t *testing.T) {
 			wantFound: true,
 		},
 		{
-			name:      "Get non-existing language",
+			name:      "GetField non-existing language",
 			alias:     "xyz",
 			want:      nil,
 			wantFound: false,
 		},
 		{
-			name:  "Get language with nil Language function",
+			name:  "GetField language with nil Language function",
 			alias: "foo",
 			want: &LanguageInfo{
 				Name:     "bar",
@@ -74,7 +74,7 @@ func TestGetLanguageInfo(t *testing.T) {
 
 			// Compare field by field, skipping the Language function
 			if got.Name != tt.want.Name {
-				t.Errorf("GetLanguageInfo() Name = %v, want %v", got.Name, tt.want.Name)
+				t.Errorf("GetLanguageInfo() Alias = %v, want %v", got.Name, tt.want.Name)
 			}
 			if !reflect.DeepEqual(got.Aliases, tt.want.Aliases) {
 				t.Errorf("GetLanguageInfo() Aliases = %v, want %v", got.Aliases, tt.want.Aliases)
@@ -142,7 +142,10 @@ func TestGrammarSupport(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
+		defer func() { assert.NoError(t, uw.Close()) }()
+
+		err = vm.DoString(ctx, `
 			local treesitter = require("treesitter")
 			
 			-- Test various language aliases

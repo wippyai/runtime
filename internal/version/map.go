@@ -57,30 +57,21 @@ func (vm *versionHistory) Path(from, to registry.Version) ([]registry.Version, e
 		return []registry.Version{from}, nil
 	}
 
-	// Construct the graph on demand
-	g := graph.NewGraph()
-	for _, v := range vm.versions {
-		g.AddNode(graph.Node(v.String()))
-		if prev := v.Previous(); prev != nil {
-			g.AddEdge(graph.Edge{
-				From:   graph.Node(prev.String()),
-				To:     graph.Node(v.String()),
-				Weight: 1,
-			})
+	// todo: can be optimized as `typically` we always event source from root
 
-			g.AddEdge(graph.Edge{
-				From:   graph.Node(v.String()),
-				To:     graph.Node(prev.String()),
-				Weight: 2,
-			})
+	// Construct the graph on demand
+	g := graph.New[string, any]()
+	for _, v := range vm.versions {
+		g.AddNode(v.String())
+		if prev := v.Previous(); prev != nil {
+			// AddCleanup bidirectional edges with different weights
+			g.AddEdge(prev.String(), v.String(), 1, nil) // Forward edge
+			g.AddEdge(v.String(), prev.String(), 2, nil) // Backward edge
 		}
 	}
 
 	// Find the shortest path using the graph
-	path, err := g.ShortestPath(
-		graph.Node(from.String()),
-		graph.Node(to.String()),
-	)
+	path, err := g.ShortestPath(from.String(), to.String())
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +79,7 @@ func (vm *versionHistory) Path(from, to registry.Version) ([]registry.Version, e
 	// Convert the graph path to a version path
 	versionPath := make([]registry.Version, len(path.Nodes))
 	for i, node := range path.Nodes {
-		versionPath[i] = vm.versions[string(node)]
+		versionPath[i] = vm.versions[node]
 	}
 
 	return versionPath, nil

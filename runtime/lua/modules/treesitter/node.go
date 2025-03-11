@@ -1,6 +1,7 @@
 package treesitter
 
 import (
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	treesitter "github.com/tree-sitter/go-tree-sitter"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -13,9 +14,7 @@ type NodeWrapper struct {
 
 // Register the Node type to Lua
 func registerNode(l *lua.LState) {
-	mt := l.NewTypeMetatable("treesitter.Node")
-
-	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
+	methods := map[string]lua.LGFunction{
 		// Navigation methods
 		"parent":                           nodeParent,
 		"child":                            nodeChild,
@@ -54,7 +53,8 @@ func registerNode(l *lua.LState) {
 		// Text and source methods
 		"text":    nodeText,
 		"to_sexp": nodeToSexp,
-	}))
+	}
+	value.RegisterMethods(l, "treesitter.Node", methods)
 }
 
 // Navigation methods implementation
@@ -69,7 +69,8 @@ func nodeParent(l *lua.LState) int {
 
 	ud := l.NewUserData()
 	ud.Value = &NodeWrapper{node: parent, source: node.source}
-	l.SetMetatable(ud, l.GetTypeMetatable("treesitter.Node"))
+	ud.Metatable = value.GetTypeMetatable(l, "treesitter.Node")
+
 	l.Push(ud)
 	return 1
 }
@@ -84,7 +85,8 @@ func nodeChild(l *lua.LState) int {
 	}
 	ud := l.NewUserData()
 	ud.Value = &NodeWrapper{node: child, source: node.source}
-	l.SetMetatable(ud, l.GetTypeMetatable("treesitter.Node"))
+	ud.Metatable = value.GetTypeMetatable(l, "treesitter.Node")
+
 	l.Push(ud)
 	return 1
 }
@@ -104,7 +106,8 @@ func nodeNextSibling(l *lua.LState) int {
 	}
 	ud := l.NewUserData()
 	ud.Value = &NodeWrapper{node: sibling, source: node.source}
-	l.SetMetatable(ud, l.GetTypeMetatable("treesitter.Node"))
+	ud.Metatable = value.GetTypeMetatable(l, "treesitter.Node")
+
 	l.Push(ud)
 	return 1
 }
@@ -117,9 +120,11 @@ func nodePrevSibling(l *lua.LState) int {
 		return 1
 	}
 	ud := l.NewUserData()
-	// todo: eventually we need sync.map for that to avoid duplicate constructs, but this is optimization for later
+	// todo: eventually we need sync.map for that to avoid duplicate constructs,
+	// todo: but this is optimization for later
 	ud.Value = &NodeWrapper{node: sibling, source: node.source}
-	l.SetMetatable(ud, l.GetTypeMetatable("treesitter.Node"))
+	ud.Metatable = value.GetTypeMetatable(l, "treesitter.Node")
+
 	l.Push(ud)
 	return 1
 }
@@ -133,7 +138,7 @@ func nodeNextNamedSibling(l *lua.LState) int {
 	}
 	ud := l.NewUserData()
 	ud.Value = &NodeWrapper{node: sibling, source: node.source}
-	l.SetMetatable(ud, l.GetTypeMetatable("treesitter.Node"))
+	ud.Metatable = value.GetTypeMetatable(l, "treesitter.Node")
 	l.Push(ud)
 	return 1
 }
@@ -147,7 +152,7 @@ func nodePrevNamedSibling(l *lua.LState) int {
 	}
 	ud := l.NewUserData()
 	ud.Value = &NodeWrapper{node: sibling, source: node.source}
-	l.SetMetatable(ud, l.GetTypeMetatable("treesitter.Node"))
+	ud.Metatable = value.GetTypeMetatable(l, "treesitter.Node")
 	l.Push(ud)
 	return 1
 }
@@ -162,7 +167,7 @@ func nodeNamedChild(l *lua.LState) int {
 	}
 	ud := l.NewUserData()
 	ud.Value = &NodeWrapper{node: child, source: node.source}
-	l.SetMetatable(ud, l.GetTypeMetatable("treesitter.Node"))
+	ud.Metatable = value.GetTypeMetatable(l, "treesitter.Node")
 	l.Push(ud)
 	return 1
 }
@@ -185,7 +190,7 @@ func nodeChildByFieldName(l *lua.LState) int {
 	}
 	ud := l.NewUserData()
 	ud.Value = &NodeWrapper{node: child, source: node.source}
-	l.SetMetatable(ud, l.GetTypeMetatable("treesitter.Node"))
+	ud.Metatable = value.GetTypeMetatable(l, "treesitter.Node")
 	l.Push(ud)
 	return 1
 }
@@ -245,7 +250,7 @@ func nodeEndByte(l *lua.LState) int {
 func nodeStartPoint(l *lua.LState) int {
 	node := checkNode(l)
 	point := node.node.StartPosition()
-	pointTable := l.NewTable()
+	pointTable := l.CreateTable(0, 2)
 	pointTable.RawSetString("row", lua.LNumber(point.Row))
 	pointTable.RawSetString("column", lua.LNumber(point.Column))
 	l.Push(pointTable)
@@ -255,7 +260,7 @@ func nodeStartPoint(l *lua.LState) int {
 func nodeEndPoint(l *lua.LState) int {
 	node := checkNode(l)
 	point := node.node.EndPosition()
-	pointTable := l.NewTable()
+	pointTable := l.CreateTable(0, 2)
 	pointTable.RawSetString("row", lua.LNumber(point.Row))
 	pointTable.RawSetString("column", lua.LNumber(point.Column))
 	l.Push(pointTable)
@@ -278,7 +283,7 @@ func nodeText(l *lua.LState) int {
 		code = *node.source
 	}
 
-	// Get byte positions
+	// Spawn byte positions
 	// start and end can't be < 0
 	start := node.node.StartByte()
 	end := node.node.EndByte()
@@ -321,12 +326,12 @@ func nodeIsMissing(l *lua.LState) int {
 func nodeNamedDescendantForPointRange(l *lua.LState) int {
 	node := checkNode(l)
 
-	// Get start point table argument
+	// Spawn start point table argument
 	startPointTbl := l.CheckTable(2)
 	startRow := uint(startPointTbl.RawGetString("row").(lua.LNumber))
 	startCol := uint(startPointTbl.RawGetString("column").(lua.LNumber))
 
-	// Get end point table argument
+	// Spawn end point table argument
 	endPointTbl := l.CheckTable(3)
 	endRow := uint(endPointTbl.RawGetString("row").(lua.LNumber))
 	endCol := uint(endPointTbl.RawGetString("column").(lua.LNumber))
@@ -342,7 +347,7 @@ func nodeNamedDescendantForPointRange(l *lua.LState) int {
 
 	ud := l.NewUserData()
 	ud.Value = &NodeWrapper{node: descendant}
-	l.SetMetatable(ud, l.GetTypeMetatable("treesitter.Node"))
+	ud.Metatable = value.GetTypeMetatable(l, "treesitter.Node")
 	l.Push(ud)
 	return 1
 }

@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine"
-	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 
 	"github.com/stretchr/testify/assert"
@@ -63,32 +62,82 @@ func TestStream(t *testing.T) {
 		testData := []byte("Hello, World!")
 		reader := newMockReadCloser(testData)
 
-		cfg := NewStreamConfig(5) // Set buffer size to 5 bytes
+		uw, ctx := engine.NewUnitOfWork(context.Background(), nil)
+		defer func() { _ = uw.Close() }()
 
-		stream, err := NewStream(context.Background(), reader, cfg)
+		stream, err := NewStream(ctx, reader)
 		require.NoError(t, err)
 
-		chunk1, err := stream.ReadChunk()
+		// Use ReadChunk with explicit chunk size
+		chunk1, err := stream.ReadChunk(5)
 		require.NoError(t, err)
 		assert.Equal(t, "Hello", string(chunk1))
 
-		chunk2, err := stream.ReadChunk()
+		chunk2, err := stream.ReadChunk(5)
 		require.NoError(t, err)
 		assert.Equal(t, ", Wor", string(chunk2))
 
-		chunk3, err := stream.ReadChunk()
+		chunk3, err := stream.ReadChunk(5)
 		require.NoError(t, err)
 		assert.Equal(t, "ld!", string(chunk3))
 
-		_, err = stream.ReadChunk()
+		_, err = stream.ReadChunk(5)
 		assert.ErrorIs(t, err, io.EOF)
 
 		assert.Equal(t, int64(13), stream.BytesRead())
 	})
 
+	t.Run("read with buffer size", func(t *testing.T) {
+		testData := []byte("This is a test of different buffer sizes")
+		reader := newMockReadCloser(testData)
+
+		uw, ctx := engine.NewUnitOfWork(context.Background(), nil)
+		defer func() { _ = uw.Close() }()
+
+		stream, err := NewStream(ctx, reader)
+		require.NoError(t, err)
+
+		// Use default buffer size (too big for our test data)
+		data, err := stream.ReadChunk(DefaultChunkSize)
+		require.NoError(t, err)
+		assert.Equal(t, string(testData), string(data))
+
+		// EOF on next read
+		_, err = stream.ReadChunk(1)
+		assert.ErrorIs(t, err, io.EOF)
+	})
+
+	t.Run("direct use as io.Reader", func(t *testing.T) {
+		testData := []byte("Testing io.Reader interface")
+		reader := newMockReadCloser(testData)
+
+		uw, ctx := engine.NewUnitOfWork(context.Background(), nil)
+		defer func() { _ = uw.Close() }()
+
+		stream, err := NewStream(ctx, reader)
+		require.NoError(t, err)
+
+		// Read directly using Read method
+		buffer := make([]byte, 10)
+		n, err := stream.Read(buffer)
+		require.NoError(t, err)
+		assert.Equal(t, 10, n)
+		assert.Equal(t, "Testing io", string(buffer[:n]))
+
+		// Read the rest
+		buffer = make([]byte, 100)
+		n, err = stream.Read(buffer)
+		require.NoError(t, err)
+		assert.Equal(t, ".Reader interface", string(buffer[:n]))
+	})
+
 	t.Run("close handling", func(t *testing.T) {
 		reader := newMockReadCloser([]byte("test"))
-		stream, err := NewStream(context.Background(), reader, nil) // Test with default config
+
+		uw, ctx := engine.NewUnitOfWork(context.Background(), nil)
+		defer func() { _ = uw.Close() }()
+
+		stream, err := NewStream(ctx, reader)
 		require.NoError(t, err)
 
 		err = stream.Close()
@@ -100,14 +149,17 @@ func TestStream(t *testing.T) {
 		testData := []byte("context test data")
 		reader := newMockReadCloser(testData)
 
-		ctx, cancel := context.WithCancel(context.Background())
-		stream, err := NewStream(ctx, reader, nil)
+		uw, ctx := engine.NewUnitOfWork(context.Background(), nil)
+		defer func() { _ = uw.Close() }()
+
+		ctx, cancel := context.WithCancel(ctx)
+		stream, err := NewStream(ctx, reader)
 		require.NoError(t, err)
 
 		// Cancel context before read
 		cancel()
 
-		_, err = stream.ReadChunk()
+		_, err = stream.ReadChunk(10)
 		assert.ErrorContains(t, err, "context canceled")
 	})
 }
@@ -119,10 +171,13 @@ func TestStreamLua(t *testing.T) {
 		testData := []byte("Hello from mocked Stream!")
 		reader := newMockReadCloser(testData)
 
-		stream, err := NewStream(context.Background(), reader, nil)
+		uw, ctx := engine.NewUnitOfWork(context.Background(), nil)
+		defer func() { _ = uw.Close() }()
+
+		stream, err := NewStream(ctx, reader)
 		require.NoError(t, err)
 
-		mod := NewStreamModule(logger)
+		mod := NewStreamModule()
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -137,17 +192,62 @@ func TestStreamLua(t *testing.T) {
 		l.SetGlobal("test_stream", ud)
 
 		script := `
-			-- Read data
+			-- Read data with default chunk size
 			local chunk = test_stream:read()
 			assert(chunk == "Hello from mocked Stream!")
 
-			-- Get bytes read
+			-- GetField bytes read
 			local bytes = test_stream:bytes_read()
 			assert(type(bytes) == "number")
 			assert(bytes == #chunk)
 
-			-- Close Stream
+			-- close Stream
 			test_stream:close()
+		`
+
+		err = vm.DoString(context.Background(), script, "test")
+		require.NoError(t, err)
+	})
+
+	t.Run("Stream with custom chunk size", func(t *testing.T) {
+		testData := []byte("Hello from mocked Stream!")
+		reader := newMockReadCloser(testData)
+
+		uw, ctx := engine.NewUnitOfWork(context.Background(), nil)
+		defer func() { _ = uw.Close() }()
+
+		stream, err := NewStream(ctx, reader)
+		require.NoError(t, err)
+
+		mod := NewStreamModule()
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		require.NoError(t, err)
+		defer vm.Close()
+
+		l := vm.State()
+		RegisterStream(l)
+
+		luaStream := &LuaStream{Stream: stream}
+		ud := l.NewUserData()
+		ud.Value = luaStream
+		l.SetMetatable(ud, l.GetTypeMetatable("Stream"))
+		l.SetGlobal("test_stream", ud)
+
+		script := `
+			-- Read data with explicit chunk size of 5
+			local chunk1 = test_stream:read(5)
+			assert(chunk1 == "Hello", "Expected 'Hello', got '" .. tostring(chunk1) .. "'")
+			
+			local chunk2 = test_stream:read(5)
+			assert(chunk2 == " from", "Expected ' from', got '" .. tostring(chunk2) .. "'")
+			
+			-- Read the rest with a large chunk size
+			local chunk3 = test_stream:read(100)
+			assert(chunk3 == " mocked Stream!", "Expected ' mocked Stream!', got '" .. tostring(chunk3) .. "'")
+			
+			-- Should be at EOF now
+			local eofChunk = test_stream:read(1)
+			assert(eofChunk == nil, "Expected nil at EOF")
 		`
 
 		err = vm.DoString(context.Background(), script, "test")
@@ -158,11 +258,13 @@ func TestStreamLua(t *testing.T) {
 		testData := []byte("chunk1chunk2chunk3")
 		reader := newMockReadCloser(testData)
 
-		cfg := NewStreamConfig(6) // 6-byte chunks
-		stream, err := NewStream(context.Background(), reader, cfg)
+		uw, ctx := engine.NewUnitOfWork(context.Background(), nil)
+		defer func() { _ = uw.Close() }()
+
+		stream, err := NewStream(ctx, reader)
 		require.NoError(t, err)
 
-		mod := NewStreamModule(logger)
+		mod := NewStreamModule()
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)
 		defer vm.Close()
@@ -177,9 +279,10 @@ func TestStreamLua(t *testing.T) {
 		l.SetGlobal("test_stream", ud)
 
 		script := `
-        local expected = {"chunk1", "chunk2", "chunk3"}
+        local expected = {"chunk1chunk2chunk3"}
         local idx = 1
         
+        -- Iterator with default chunk size (will read all in one go)
         for chunk in test_stream() do
             assert(chunk == expected[idx], string.format("chunk %d mismatch", idx))
             idx = idx + 1
@@ -187,101 +290,96 @@ func TestStreamLua(t *testing.T) {
         
         assert(idx - 1 == #expected, "wrong number of iterations")
         
-        local iter = test_stream()
-        local final = iter()
-        assert(final == nil, "expected nil after all chunks read")
-    	`
+        -- Create a new stream with the same data for custom chunk size test
+        `
 
 		err = vm.DoString(context.Background(), script, "test")
+		require.NoError(t, err)
+
+		// Test with custom chunk size
+		reader2 := newMockReadCloser(testData)
+		stream2, err := NewStream(ctx, reader2)
+		require.NoError(t, err)
+
+		luaStream2 := &LuaStream{Stream: stream2}
+		ud2 := l.NewUserData()
+		ud2.Value = luaStream2
+		l.SetMetatable(ud2, l.GetTypeMetatable("Stream"))
+		l.SetGlobal("test_stream2", ud2)
+
+		script2 := `
+        local expected = {"chunk", "1chun", "k2chu", "nk3"}
+        local idx = 1
+        
+        -- Iterator with chunk size 5
+        for chunk in test_stream2(5) do
+            assert(chunk == expected[idx], string.format("chunk %d mismatch: expected '%s', got '%s'", 
+                idx, expected[idx], chunk))
+            idx = idx + 1
+        end
+        
+        assert(idx - 1 == #expected, "wrong number of iterations")
+    	`
+
+		err = vm.DoString(context.Background(), script2, "test")
 		require.NoError(t, err)
 	})
 }
 
 func TestStreamEdgeCases(t *testing.T) {
-	t.Run("zero buffer size defaults to 32KB", func(t *testing.T) {
-		cfg := NewStreamConfig(0)
-		assert.Equal(t, int64(32*1024), cfg.bufferSize)
-	})
-
-	t.Run("negative buffer size handled", func(t *testing.T) {
-		cfg := NewStreamConfig(-1)
-		assert.Equal(t, int64(32*1024), cfg.bufferSize)
-	})
-
 	t.Run("nil reader rejected", func(t *testing.T) {
-		_, err := NewStream(context.Background(), nil, nil)
-		assert.ErrorIs(t, err, ErrInvalidConfig)
-	})
-}
-
-func TestStreamLuaEdgeCases(t *testing.T) {
-	logger := zap.NewNop()
-
-	t.Run("invalid userdata type", func(t *testing.T) {
-		mod := NewStreamModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
-		require.NoError(t, err)
-		defer vm.Close()
-
-		l := vm.State()
-		mt := l.NewTypeMetatable("Stream")
-		l.SetField(mt, "__index", l.NewFunction(func(l *lua.LState) int {
-			method := l.ToString(2)
-			if method == "read" {
-				l.Push(l.NewFunction(streamRead))
-				return 1
-			}
-			return 0
-		}))
-
-		ud := l.NewUserData()
-		ud.Value = "not a Stream"
-		l.SetMetatable(ud, mt)
-		l.SetGlobal("test_stream", ud)
-
-		script := `
-			local success, err = test_stream:read()
-			assert(success == nil, "Expected nil result for invalid Stream")
-			assert(type(err) == "string", "Expected error message")
-			assert(string.find(err, "expected Stream"), "Error should mention expected Stream type")
-		`
-
-		err = vm.DoString(context.Background(), script, "test")
-		require.NoError(t, err)
+		_, err := NewStream(context.Background(), nil)
+		assert.ErrorIs(t, err, ErrInvalidReader)
 	})
 
 	t.Run("read after close", func(t *testing.T) {
-		testData := []byte("test data")
+		reader := newMockReadCloser([]byte("test"))
+		stream, err := NewStream(context.Background(), reader)
+		require.NoError(t, err)
+
+		err = stream.Close()
+		require.NoError(t, err)
+
+		_, err = stream.ReadChunk(10)
+		assert.ErrorContains(t, err, "stream closed")
+
+		_, err = stream.Read(make([]byte, 10))
+		assert.ErrorContains(t, err, "stream closed")
+	})
+}
+
+func TestLuaStreamAsReadCloser(t *testing.T) {
+	t.Run("LuaStream implements io.ReadCloser", func(t *testing.T) {
+		testData := []byte("ReadCloser interface test")
 		reader := newMockReadCloser(testData)
 
-		stream, err := NewStream(context.Background(), reader, nil)
+		uw, ctx := engine.NewUnitOfWork(context.Background(), nil)
+		defer func() { _ = uw.Close() }()
+
+		stream, err := NewStream(ctx, reader)
 		require.NoError(t, err)
 
-		mod := NewStreamModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		luaStream := NewLuaStream(uw, stream, nil)
+
+		// Test as io.Reader
+		var readCloser io.ReadCloser = luaStream
+
+		buffer := make([]byte, 10)
+		n, err := readCloser.Read(buffer)
 		require.NoError(t, err)
-		defer vm.Close()
+		assert.Equal(t, 10, n)
+		assert.Equal(t, "ReadCloser", string(buffer[:n]))
 
-		l := vm.State()
-		RegisterStream(l)
-
-		luaStream := &LuaStream{Stream: stream}
-		ud := l.NewUserData()
-		ud.Value = luaStream
-		l.SetMetatable(ud, l.GetTypeMetatable("Stream"))
-		l.SetGlobal("test_stream", ud)
-
-		script := `
-			local ok = test_stream:close()
-			assert(ok == nil, "Close should return nil on success")
-
-			local data, err = test_stream:read()
-			assert(data == nil, "Expected nil data from closed Stream")
-			assert(type(err) == "string", "Expected error string")
-			assert(string.find(err, "closed"), "Error should mention Stream is closed")
-		`
-
-		err = vm.DoString(context.Background(), script, "test")
+		// Test close
+		err = readCloser.Close()
 		require.NoError(t, err)
+
+		// Read after close should fail
+		_, err = readCloser.Read(buffer)
+		assert.ErrorIs(t, err, io.ErrClosedPipe)
+
+		// Second close should be a no-op
+		err = readCloser.Close()
+		assert.NoError(t, err)
 	})
 }

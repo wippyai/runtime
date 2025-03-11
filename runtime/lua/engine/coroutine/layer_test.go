@@ -21,9 +21,9 @@ func TestRunner_AsLayer(t *testing.T) {
 			// Validate and get duration upfront
 			ms := l.CheckNumber(1)
 
-			Wrap(l, func() *engine.Result {
+			Wrap(l, func() *engine.Update {
 				time.Sleep(time.Duration(ms) * time.Millisecond)
-				return engine.NewResult(nil, []lua.LValue{lua.LString("slept"), ms}, nil)
+				return engine.NewUpdate(nil, []lua.LValue{lua.LString("slept"), ms}, nil)
 			})
 			return -1
 		}),
@@ -33,10 +33,10 @@ func TestRunner_AsLayer(t *testing.T) {
 	}
 	defer vm.Close()
 
-	// Create wrapped VM with runner layer
+	// Spawn wrapped VM with runner layer
 	wrapped := engine.NewRunner(vm, engine.WithLayer(NewCoroutineLayer()))
 
-	// Import test script
+	// Imports test script
 	err = vm.Import(`
 			function test_coroutine()
 				local result = async_sleep(100)	
@@ -48,7 +48,7 @@ func TestRunner_AsLayer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Execute through layer
+	// execute through layer
 	result, err := wrapped.Execute(context.Background(), "test_coroutine")
 	if err != nil {
 		t.Fatal(err)
@@ -62,37 +62,39 @@ func TestRunner_AsLayer(t *testing.T) {
 func TestAsyncCoroutines(t *testing.T) {
 	log, _ := zap.NewDevelopment()
 
-	// Create base VM with sleep function
+	// Spawn base VM with sleep function
 	vm, err := engine.NewCVM(log,
 		engine.WithGlobalFunction("async_sleep", func(l *lua.LState) int {
 			// Validate and get duration upfront
 			ms := l.CheckNumber(1)
 
-			Wrap(l, func() *engine.Result {
+			Wrap(l, func() *engine.Update {
 				time.Sleep(time.Duration(ms) * time.Millisecond)
-				return engine.NewResult(nil, []lua.LValue{lua.LString("slept"), ms}, nil)
+
+				return engine.NewUpdate(nil, []lua.LValue{lua.LString("slept"), ms}, nil)
 			})
+
 			return -1
 		}),
 	)
 	require.NoError(t, err)
 	defer vm.Close()
 
-	// Create a wrapped VM with async runner
+	// Spawn a wrapped VM with async runner
 	wrapped := engine.NewRunner(vm, engine.WithLayer(NewCoroutineLayer()))
 
-	// Import test script with two coroutines
+	// Imports test script with two coroutines
 	err = vm.Import(`
           function test_sleep()
               local results = {}
 
-              -- Start first coroutine (longer sleep)
+              -- Launch first coroutine (longer sleep)
               coroutine.spawn(function()
                   local res1, dur1 = async_sleep(75)
                   results.first = {res1, dur1}
               end)
 
-              -- Start second coroutine (shorter sleep)
+              -- Launch second coroutine (shorter sleep)
               coroutine.spawn(function()
                   local res2, dur2 = async_sleep(25)
                   results.second = {res2, dur2}
@@ -153,15 +155,16 @@ func TestAsyncCoroutines(t *testing.T) {
 
 func createVM(t *testing.T) *engine.CoroutineVM {
 	log := zap.NewNop()
+
 	vm, err := engine.NewCVM(log,
 		engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
 		engine.WithGlobalFunction("async_double", func(l *lua.LState) int {
 			// Validate argument first
 			value := l.CheckNumber(1)
 
-			Wrap(l, func() *engine.Result {
+			Wrap(l, func() *engine.Update {
 				time.Sleep(100 * time.Millisecond)
-				return engine.NewResult(nil, []lua.LValue{value * 2}, nil)
+				return engine.NewUpdate(nil, []lua.LValue{value * 2}, nil)
 			})
 
 			return -1
@@ -240,7 +243,7 @@ func TestDistributedWorkers(t *testing.T) {
            local NUM_TASKS = 10
            local results = {}
 
-           -- Create result channel with buffer size matching number of tasks
+           -- Spawn result channel with buffer size matching number of tasks
            local result_ch = channel.new(NUM_TASKS)
 
            -- Distribute work across workers
@@ -266,7 +269,7 @@ func TestDistributedWorkers(t *testing.T) {
    `
 
 	t.Run("distributed work across workers", func(t *testing.T) {
-		// Create VM with necessary modules
+		// Spawn VM with necessary modules
 		vm := createVM(t)
 		defer vm.Close()
 
@@ -276,11 +279,11 @@ func TestDistributedWorkers(t *testing.T) {
 			engine.WithLayer(NewCoroutineLayer()),
 		)
 
-		// Import test script
+		// Imports test script
 		err := vm.Import(testScript, "test", "test_distributed_workers")
 		assert.NoError(t, err)
 
-		// Execute and time the operation
+		// execute and time the operation
 		start := time.Now()
 		result, err := wrapped.Execute(context.Background(), "test_distributed_workers")
 		duration := time.Since(start)
@@ -303,7 +306,7 @@ func TestDistributedWorkers(t *testing.T) {
 			// Verify the doubled value is correct
 			assert.Equal(t, task*2, value)
 
-			// Verify worker ID is in valid range
+			// Verify worker Alias is in valid range
 			assert.GreaterOrEqual(t, int(worker), 1)
 			assert.LessOrEqual(t, int(worker), 5)
 		})
@@ -312,7 +315,7 @@ func TestDistributedWorkers(t *testing.T) {
 		// Since we're running 10 tasks that each take 100ms
 		// but distributing across 5 workers, it should take
 		// approximately 200ms (2 tasks per worker)
-		// Add some buffer for scheduling overhead
+		// AddCleanup some buffer for scheduling overhead
 		assert.Less(t, duration, 350*time.Millisecond,
 			"tasks should complete in parallel, got %v", duration)
 	})
@@ -324,7 +327,7 @@ func TestWorkerPool(t *testing.T) {
            local NUM_WORKERS = 20
            local NUM_TASKS = 20
 
-           -- Create channels for tasks and results
+           -- Spawn channels for tasks and results
            local task_ch = channel.new(NUM_TASKS)
            local result_ch = channel.new(NUM_TASKS)
            local done_ch = channel.new(NUM_WORKERS) -- Channel to track worker completion
@@ -360,7 +363,7 @@ func TestWorkerPool(t *testing.T) {
                task_ch:send(i)
            end
 
-           -- Close task channel to signal no more tasks
+           -- close task channel to signal no more tasks
            task_ch:close()
 
            -- Collect and sum all results
@@ -389,7 +392,7 @@ func TestWorkerPool(t *testing.T) {
    `
 
 	t.Run("worker pool with result aggregation", func(t *testing.T) {
-		// Create VM with necessary modules
+		// Spawn VM with necessary modules
 		vm := createVM(t)
 		defer vm.Close()
 
@@ -399,11 +402,11 @@ func TestWorkerPool(t *testing.T) {
 			engine.WithLayer(NewCoroutineLayer()),
 		)
 
-		// Import test script
+		// Imports test script
 		err := vm.Import(testScript, "test", "test_worker_pool")
 		assert.NoError(t, err)
 
-		// Execute and time the operation
+		// execute and time the operation
 		start := time.Now()
 		result, err := wrapped.Execute(context.Background(), "test_worker_pool")
 		duration := time.Since(start)
@@ -426,7 +429,7 @@ func TestWorkerPool(t *testing.T) {
 		results.ForEach(func(_, value lua.LValue) {
 			result := value.(*lua.LTable)
 
-			// Verify worker ID is in valid range
+			// Verify worker Alias is in valid range
 			worker := result.RawGetString("worker").(lua.LNumber)
 			assert.GreaterOrEqual(t, int(worker), 1)
 			assert.LessOrEqual(t, int(worker), 20)

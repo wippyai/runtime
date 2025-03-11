@@ -20,6 +20,8 @@ const (
 	KindRouter registry.Kind = "http.router"
 	// KindEndpoint identifies an HTTP endpoint component
 	KindEndpoint registry.Kind = "http.endpoint"
+	// KindStatic identifies a static file server component
+	KindStatic registry.Kind = "http.static"
 
 	// ServerID is the key used to identify the server in configuration metadata
 	ServerID string = "server"
@@ -46,6 +48,7 @@ type (
 	// RouterConfig represents the configuration for a group of endpoints (a router).
 	RouterConfig struct {
 		Meta        registry.Metadata `json:"meta"`        // Metadata
+		Server      registry.ID       `json:"server"`      // Server Source
 		Prefix      string            `json:"prefix"`      // URL prefix for this group
 		Middlewares []string          `json:"middlewares"` // Middleware names
 		Options     map[string]string `json:"options"`     // Middleware options
@@ -53,14 +56,25 @@ type (
 
 	// EndpointConfig represents the configuration for a single endpoint.
 	EndpointConfig struct {
-		Meta              registry.Metadata `json:"meta"`                // Metadata
-		Path              string            `json:"path"`                // URL path
-		Method            string            `json:"method"`              // Timeouts method
-		Target            string            `json:"target"`              // Target function
-		JSONInput         bool              `json:"json_input"`          // Expect input as JSON
-		JSONSchema        any               `json:"json_schema"`         // JSON schema for input validation, only if JSONInput is true
-		JSONOutput        bool              `json:"json_output"`         // Automatically marshal output to JSON
-		SuccessStatusCode int               `json:"success_status_code"` // HTTP status code for success
+		Meta   registry.Metadata `json:"meta"`   // Metadata
+		Path   string            `json:"path"`   // URL path
+		Method string            `json:"method"` // Timeouts method
+		Func   registry.ID       `json:"func"`   // Func function
+	}
+
+	// StaticConfig represents the configuration for a static file server endpoint
+	StaticConfig struct {
+		Meta      registry.Metadata `json:"meta"`      // Metadata
+		Path      string            `json:"path"`      // URL path prefix to serve under
+		FS        registry.ID       `json:"fs"`        // Name of the filesystem to serve from
+		Directory string            `json:"directory"` // Directory within the filesystem to serve
+		Options   StaticOptions     `json:"options"`   // Optional configuration
+	}
+
+	StaticOptions struct {
+		IndexFile    string `json:"index"` // Index file (e.g. "index.html")
+		SPA          bool   `json:"spa"`   // If true, serve IndexFile for all paths
+		CacheControl string `json:"cache"` // Cache-Control header value
 	}
 )
 
@@ -148,8 +162,8 @@ func (c *RouterConfig) Validate() error {
 		return fmt.Errorf("metadata cannot be nil")
 	}
 
-	routerID := c.Meta.StringValue(ServerID)
-	if routerID == "" {
+	serverID := c.Meta.StringValue(ServerID)
+	if serverID == "" {
 		return fmt.Errorf("server in metadata cannot be empty")
 	}
 
@@ -177,6 +191,10 @@ func (c *RouterConfig) Validate() error {
 
 // Validate checks if the endpoint configuration is valid
 func (c *EndpointConfig) Validate() error {
+	if c.Func.Name == "" {
+		return fmt.Errorf("func name cannot be empty")
+	}
+
 	if c.Path == "" {
 		return fmt.Errorf("endpoint path cannot be empty")
 	}
@@ -196,6 +214,29 @@ func (c *EndpointConfig) Validate() error {
 		// Valid HTTP methods
 	default:
 		return fmt.Errorf("invalid HTTP method: %s", c.Method)
+	}
+
+	if c.Meta == nil {
+		return fmt.Errorf("metadata cannot be nil")
+	}
+
+	// Verify required metadata
+	routerID := c.Meta.StringValue(RouterID)
+	if routerID == "" {
+		return fmt.Errorf("router in metadata cannot be empty")
+	}
+
+	return nil
+}
+
+// Validate checks if the endpoint configuration is valid
+func (c *StaticConfig) Validate() error {
+	if c.Path == "" {
+		return fmt.Errorf("endpoint path cannot be empty")
+	}
+
+	if !strings.HasPrefix(c.Path, "/") {
+		return fmt.Errorf("endpoint path must start with /")
 	}
 
 	if c.Meta == nil {

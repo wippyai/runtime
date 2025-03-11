@@ -7,7 +7,7 @@ type Interpolator struct {
 }
 
 // Replacer is a function that transforms a string.
-type Replacer func(srt string, ctx interface{}) (string, error)
+type Replacer func(srt string, ctx any) (string, error)
 
 // NewInterpolator creates a new Interpolator with the provided Replacers.
 // It traverses the input data structure (maps, slices, structs, etc.) recursively,
@@ -19,7 +19,7 @@ func NewInterpolator(replacers ...Replacer) *Interpolator {
 }
 
 // Interpolate performs interpolation on the input data using the registered Replacers.
-func (i *Interpolator) Interpolate(in interface{}, ctx interface{}) (interface{}, error) {
+func (i *Interpolator) Interpolate(in any, ctx any) (any, error) {
 	// the replacer is the one responsible to iterate over the data structure
 	// recursively.
 	return i.sr.Replace(in, replaceContext{
@@ -31,13 +31,13 @@ func (i *Interpolator) Interpolate(in interface{}, ctx interface{}) (interface{}
 // replaceContext holds the Replacers and context for a single replacement operation.
 // It is used by the helpers replacer.
 type replaceContext struct {
-	replacers []Replacer  // List of replacer functions.
-	ctx       interface{} // Context passed to the replacers.
+	replacers []Replacer // List of replacer function.
+	ctx       any        // Context passed to the replacers.
 }
 
 // replaceString applies a chain of Replacer functions to a single string.
 // It iterates through each registered Replacer and applies it sequentially.
-func replaceString(s string, ctx interface{}) (string, error) {
+func replaceString(s string, ctx any) (string, error) {
 	if replaceCtx, ok := ctx.(replaceContext); ok {
 		var err error
 		// execute the chain of replacers

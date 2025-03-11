@@ -2,7 +2,8 @@
 
 ## Overview
 
-The `base64` module provides functions for encoding and decoding data using the Base64 encoding scheme. It allows Lua code to easily convert strings to and from their Base64 representations.
+The `base64` module provides functions for encoding and decoding data using the Base64 encoding scheme. It allows Lua
+code to easily convert strings to and from their Base64 representations.
 
 ## Module Interface
 
@@ -20,12 +21,12 @@ Encodes a string using the Base64 encoding.
 
 Parameters:
 
--   `str`: The string to encode.
+- `str`: The string to encode.
 
 Returns:
 
--   `encoded`: The Base64 encoded string.
--   `error`: Error message string (or nil on success).
+- `encoded`: The Base64 encoded string.
+- `error`: Error message string (or nil on success).
 
 #### base64.decode(encoded: string)
 
@@ -33,12 +34,13 @@ Decodes a Base64 encoded string.
 
 Parameters:
 
--   `encoded`: The Base64 encoded string to decode.
+- `encoded`: The Base64 encoded string to decode.
 
 Returns:
 
--   `decoded`: The decoded string.
--   `error`: Error message string (or nil on success).
+- `decoded`: The decoded string.
+- `error`: Error message string (or nil on success).
+
 ### Error Handling
 
 The module returns errors in the following cases:
@@ -59,26 +61,29 @@ The module returns errors in the following cases:
 ## Behavior
 
 1. **Encoding:**
-    -   The `encode` function takes any string as input.
-    -   It returns the Base64 encoded representation of the input string.
-    -   Empty strings are valid input and result in an empty string output.
+    - The `encode` function takes any string as input.
+    - It returns the Base64 encoded representation of the input string.
+    - Empty strings are valid input and result in an empty string output.
 
 2. **Decoding:**
-    -   The `decode` function takes a Base64 encoded string as input.
-    -   It returns the decoded string if the input is valid.
-    -   Empty strings are valid input and result in an empty string output.
-    -   If the input is not a valid Base64 string, it returns `nil` and an error message.
+    - The `decode` function takes a Base64 encoded string as input.
+    - It returns the decoded string if the input is valid.
+    - Empty strings are valid input and result in an empty string output.
+    - If the input is not a valid Base64 string, it returns `nil` and an error message.
 
 ## Thread Safety
 
--   The `base64` module is designed to be thread-safe.
--   It does not maintain any internal state that could be affected by concurrent access.
+- The `base64` module is designed to be thread-safe.
+- It does not maintain any internal state that could be affected by concurrent access.
 
 ## Best Practices
 
-1. **Always check for errors:** When using `decode`, always check the returned `error` value to handle potential decoding failures.
-2. **Validate input:** Ensure that the input to `encode` and `decode` is of the correct type (string) before calling the functions.
-3. **Handle empty strings:** Be aware that empty strings are valid input and will result in empty string output for both `encode` and `decode`.
+1. **Always check for errors:** When using `decode`, always check the returned `error` value to handle potential
+   decoding failures.
+2. **Validate input:** Ensure that the input to `encode` and `decode` is of the correct type (string) before calling the
+   function.
+3. **Handle empty strings:** Be aware that empty strings are valid input and will result in empty string output for both
+   `encode` and `decode`.
 
 ## Example Usage
 

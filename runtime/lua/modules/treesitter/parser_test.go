@@ -5,8 +5,6 @@ import (
 	"testing"
 	"time"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/internal/closer"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -181,14 +179,14 @@ func TestParser(t *testing.T) {
 
 	t.Run("parser garbage collection", func(t *testing.T) {
 		mod := NewTreeSitterModule(logger)
-		cleanup := closer.NewCleanup()
-		ctx := context.WithValue(context.Background(), ctxapi.CleanupCtx, cleanup)
 
 		vm, err := engine.NewVM(logger,
 			engine.WithLoader(mod.Name(), mod.Loader),
 		)
 		require.NoError(t, err)
 		defer vm.Close()
+
+		uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
 
 		err = vm.DoString(ctx, `
 			local treesitter = require("treesitter")
@@ -201,9 +199,7 @@ func TestParser(t *testing.T) {
 		`, "test")
 		assert.NoError(t, err)
 
-		// Verify cleanup works with GC
-		err = cleanup.Close()
-		assert.NoError(t, err)
+		assert.NoError(t, uw.Close())
 	})
 
 	t.Run("get language", func(t *testing.T) {
@@ -398,7 +394,7 @@ func TestParserLifecycle(t *testing.T) {
 		err = vm.DoString(context.Background(), `
             local treesitter = require("treesitter")
             
-            -- Create parser and parse some code
+            -- Spawn parser and parse some code
             local parser = treesitter.parser()
             parser:set_language("go")
             
@@ -424,10 +420,7 @@ func TestParserLifecycle(t *testing.T) {
             end)
             assert(not ok, "parsing after close should fail")
             
-            -- Test double close should not crash
-            parser:close()
-            
-            -- Create new parser to verify we can still create and use parsers
+            -- Spawn new parser to verify we can still create and use parsers
             local parser2 = treesitter.parser()
             parser2:set_language("go")
             local tree3 = parser2:parse("package main")
@@ -470,7 +463,7 @@ func TestParserLifecycle(t *testing.T) {
             }
             tree:edit(edit)
             
-            -- Close parser mid-operation
+            -- close parser mid-operation
             parser:close()
             
             -- Tree should still be valid
@@ -501,7 +494,7 @@ func TestParserResetAndClose(t *testing.T) {
 		err = vm.DoString(context.Background(), `
 			local treesitter = require("treesitter")
 			
-			-- Get a parser and parse some code
+			-- GetField a parser and parse some code
 			local parser = treesitter.parser()
 			assert(parser:set_language("go"), "should set language")
 			

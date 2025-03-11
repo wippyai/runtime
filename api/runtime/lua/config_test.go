@@ -3,7 +3,6 @@ package lua
 import (
 	"testing"
 
-	"github.com/ponyruntime/pony/api/registry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -18,11 +17,9 @@ func TestFunctionConfig_Validate(t *testing.T) {
 		{
 			name: "valid config",
 			config: FunctionConfig{
-				Meta:      registry.Metadata{"version": "1.0"},
-				Source:    "function test() return 'hello' end",
-				Method:    "test",
-				Libraries: []string{"lib1", "lib2"},
-				Modules:   []string{"mod1", "mod2"},
+				Source:  "function test() return 'hello' end",
+				Method:  "test",
+				Modules: []string{"mod1", "mod2"},
 				Pool: PoolConfig{
 					Size:    5,
 					Workers: 2,

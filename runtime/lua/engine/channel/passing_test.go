@@ -31,15 +31,18 @@ func TestChannelPassingSimple(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.StartString(context.Background(), `
-		-- Create test channels
+	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
+	defer func() { _ = uw.Close() }()
+
+	err = vm.StartString(ctx, `
+		-- Spawn test channels
 		local passCh = channel.new(0)    -- channel for passing other channels
 		local done = channel.new(0)      -- synchronization
 		local namedCh = new_named("test", 0)
 
 		-- Test passing regular channel
 		coroutine.spawn(function()
-			local ch = channel.new(0)    -- Create regular channel
+			local ch = channel.new(0)    -- Spawn regular channel
 			passCh:send(ch)              -- Pass it
 			ch:send("hello")             
 			coroutine.yield("regular_sent")
@@ -53,13 +56,13 @@ func TestChannelPassingSimple(t *testing.T) {
 
 		-- Receiver for both channels
 		coroutine.spawn(function()
-			-- Receive and use regular channel
+			-- send and use regular channel
 			local ch1 = passCh:receive()
 			local msg = ch1:receive()
 			assert(msg == "hello", "wrong message: " .. tostring(msg))
 			coroutine.yield("regular_received")
 
-			-- Receive named channel
+			-- send named channel
 			local ch2 = passCh:receive()
 			assert(ch2 == namedCh, "received wrong named channel")
 			coroutine.yield("named_received")

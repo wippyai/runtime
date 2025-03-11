@@ -1,6 +1,8 @@
 package time
 
-import lua "github.com/yuin/gopher-lua"
+import (
+	lua "github.com/yuin/gopher-lua"
+)
 
 // Duration constants in nanoseconds
 const (
@@ -24,7 +26,7 @@ func (m *Module) Name() string {
 
 // Loader registers the module's functions and constants into Lua state
 func (m *Module) Loader(l *lua.LState) int {
-	mod := l.NewTable()
+	mod := l.CreateTable(0, 24)
 
 	registerDuration(l, mod)
 	registerLocation(l, mod)

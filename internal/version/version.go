@@ -22,7 +22,7 @@ func (v version) String() string {
 	return fmt.Sprintf("v%d", v.id)
 }
 
-// PreviousID returns the ID of the previous version.
+// Previous returns the ID of the previous version.
 func (v version) Previous() registry.Version {
 	if v.previousID == nil {
 		return nil
