@@ -451,6 +451,11 @@ end
 
 local function assert_true(actual, message)
     if actual ~= true then
+
+    local info = debug.getinfo(1) -- 1 is the stack level (current function)
+    print("Line:", info.currentline)
+    print("Source:", info.source)
+    print("Function name:", info.name)
         error(message or string.format("Expected true but got %s", format_value(actual)), 2)
     end
     return true
