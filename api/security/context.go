@@ -2,15 +2,16 @@ package security
 
 import (
 	"context"
+	"errors"
 	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/registry"
 )
 
 // Context keys
 var (
-	actorCtx     = &ctxapi.Key{Name: "security.actor"}
-	policySetCtx = &ctxapi.Key{Name: "security.policySet"}
-	tokenCtx     = &ctxapi.Key{Name: "security.token"}
+	actorCtx    = &ctxapi.Key{Name: "security.actor"}
+	scopeCtx    = &ctxapi.Key{Name: "security.scope"}
+	registryCtx = &ctxapi.Key{Name: "security.registry"}
 )
 
 // WithActor attaches an actor to the context
@@ -24,52 +25,65 @@ func GetActor(ctx context.Context) (Actor, bool) {
 	return actor, ok
 }
 
-// WithPolicySet attaches a policy set to the context
-func WithPolicySet(ctx context.Context, set PolicySet) context.Context {
-	return context.WithValue(ctx, policySetCtx, set)
+// WithScope attaches a scope to the context
+func WithScope(ctx context.Context, scope Scope) context.Context {
+	return context.WithValue(ctx, scopeCtx, scope)
 }
 
-// GetPolicySet retrieves the policy set from the context
-func GetPolicySet(ctx context.Context) (PolicySet, bool) {
-	set, ok := ctx.Value(policySetCtx).(PolicySet)
-	return set, ok
+// GetScope retrieves the scope from the context
+func GetScope(ctx context.Context) (Scope, bool) {
+	scope, ok := ctx.Value(scopeCtx).(Scope)
+	return scope, ok
 }
 
 // WithPolicy creates a new context with an added policy
 func WithPolicy(ctx context.Context, policy Policy) context.Context {
-	set, ok := GetPolicySet(ctx)
+	scope, ok := GetScope(ctx)
 	if !ok {
-		set = NewEmptyPolicySet()
+		panic("security scope not found in context")
 	}
 
-	return WithPolicySet(ctx, set.With(policy))
+	return WithScope(ctx, scope.With(policy))
 }
 
-// WithToken attaches token information to the context
-func WithToken(ctx context.Context, token TokenInfo) context.Context {
-	return context.WithValue(ctx, tokenCtx, token)
+// WithRegistry attaches a security registry to the context
+func WithRegistry(ctx context.Context, registry Registry) context.Context {
+	return context.WithValue(ctx, registryCtx, registry)
 }
 
-// GetToken retrieves token information from the context
-func GetToken(ctx context.Context) (TokenInfo, bool) {
-	token, ok := ctx.Value(tokenCtx).(TokenInfo)
-	return token, ok
+// GetRegistry retrieves the security registry from the context
+func GetRegistry(ctx context.Context) (Registry, bool) {
+	reg, ok := ctx.Value(registryCtx).(Registry)
+	return reg, ok
+}
+
+// GetPolicy retrieves a policy by ID using the registry from context
+func GetPolicy(ctx context.Context, id registry.ID) (Policy, error) {
+	reg, ok := GetRegistry(ctx)
+	if !ok {
+		return nil, errors.New("security registry not found in context")
+	}
+	return reg.GetPolicy(id)
+}
+
+// GetPolicyGroup retrieves a policy group by ID using the registry from context
+func GetPolicyGroup(ctx context.Context, id registry.ID) (Scope, error) {
+	reg, ok := GetRegistry(ctx)
+	if !ok {
+		return nil, errors.New("security registry not found in context")
+	}
+	return reg.GetPolicyGroup(id)
 }
 
 // IsAllowed checks if the current actor is allowed to perform an action
 func IsAllowed(ctx context.Context, action, resource string, meta registry.Metadata) bool {
 	actor, hasActor := GetActor(ctx)
-	set, hasSet := GetPolicySet(ctx)
+	scope, hasScope := GetScope(ctx)
 
-	if !hasActor || !hasSet {
+	if !hasActor || !hasScope {
 		return false
 	}
 
-	result := set.Evaluate(actor, action, resource, meta)
+	result := scope.Evaluate(actor, action, resource, meta)
 	return result == Allow
-}
-
-// NewEmptyPolicySet creates an empty policy set.
-func NewEmptyPolicySet() PolicySet {
-	return nil // Implementation provided elsewhere
 }

@@ -1,8 +1,8 @@
 package security
 
 import (
+	"errors"
 	"github.com/ponyruntime/pony/api/registry"
-	"time"
 )
 
 // Result represents a policy decision
@@ -12,6 +12,14 @@ const (
 	Undefined Result = iota
 	Allow
 	Deny
+)
+
+var (
+	// ErrPolicyNotFound is returned when a requested policy does not exist
+	ErrPolicyNotFound = errors.New("policy not found")
+
+	// ErrGroupNotFound is returned when a requested policy group does not exist
+	ErrGroupNotFound = errors.New("policy group not found")
 )
 
 type (
@@ -27,43 +35,46 @@ type (
 	// Policy defines an authorization policy
 	Policy interface {
 		// ID returns the policy's unique identifier
-		ID() string
+		ID() registry.ID
 
 		// Evaluate determines if the action on resource is allowed/denied
-		// The ctx can be used to evaluate complex conditions
+		// The meta can be used to evaluate complex conditions
 		Evaluate(actor Actor, action, resource string, meta registry.Metadata) Result
 	}
 
-	// PolicySet is an immutable collection of policies
-	PolicySet interface {
-		// With returns a new PolicySet with the added policy
-		With(policy Policy) PolicySet
+	// Scope is an immutable collection of policies defining access boundaries
+	Scope interface {
+		// With returns a new Scope with the added policy
+		With(policy Policy) Scope
 
-		// Without returns a new PolicySet without the specified policy
-		Without(policyID string) PolicySet
+		// Without returns a new Scope without the specified policy
+		Without(policyID registry.ID) Scope
 
 		// Evaluate checks all policies and determines if action is allowed
 		Evaluate(actor Actor, action, resource string, meta registry.Metadata) Result
 
-		// Contains checks if a policy is in the set
-		Contains(policyID string) bool
+		// Contains checks if a policy is in the scope
+		Contains(policyID registry.ID) bool
 
-		// Policies returns all policies in the set
+		// Policies returns all policies in the scope
 		Policies() []Policy
 	}
 
-	// TokenInfo contains information about an authentication token
-	TokenInfo struct {
-		// ActorID identifies the actor associated with this token
-		ActorID string
+	// Registry defines the core interface for accessing security policies
+	Registry interface {
+		// GetPolicy retrieves a policy by its ID
+		GetPolicy(id registry.ID) (Policy, error)
 
-		// Expiry defines when this token expires
-		Expiry time.Time
+		// GetPolicyGroup retrieves all policies in a group as a scope
+		GetPolicyGroup(groupID registry.ID) (Scope, error)
 
-		// Scope defines what this token can be used for
-		Scope string
+		// GetPoliciesByTag retrieves all policies with the specified tag
+		GetPoliciesByTag(tag string) ([]Policy, error)
 
-		// Extra contains additional application-specific data
-		Extra map[string]any
+		// ListGroups returns all available policy group IDs
+		ListGroups() []registry.ID
+
+		// ListPolicies returns all available policy IDs
+		ListPolicies() []registry.ID
 	}
 )
