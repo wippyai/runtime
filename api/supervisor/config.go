@@ -15,10 +15,12 @@ type (
 		StartTimeout time.Duration `json:"start_timeout" yaml:"start_timeout" default:"10s"`
 		// StopTimeout specifies the maximum duration allowed for the service to stop.
 		StopTimeout time.Duration `json:"stop_timeout" yamal:"stop_timeout" default:"10s"`
+		// StableThreshold defines the time duration that the service must run to be considered stable.
+		StableThreshold time.Duration `json:"stable_threshold" yaml:"stable_threshold" default:"5s"`
 		// RetryPolicy defines the policy for retrying a failed service.
 		RetryPolicy RetryPolicy `json:"restart" yaml:"restart"`
 		// DependsOn specifies a list of service names that this service depends on.
-		DependsOn []string `json:"depends_on" yaml:"depends_on" default:"[]"` // Empty array
+		DependsOn []string `json:"depends_on" yaml:"depends_on" default:"[]"` // Empty array todo: make it work
 	}
 
 	// RetryPolicy defines the parameters for retrying a service after a failure.
@@ -31,8 +33,8 @@ type (
 		BackoffFactor float64 `json:"backoff_factor" yaml:"backoff_factor" default:"2.0"`
 		// Jitter introduces random variation to the retry delay to prevent synchronized retries.
 		Jitter float64 `json:"jitter" yaml:"jitter" default:"0.1"`
-		// MaxAttempts specifies the maximum number of retry attempts before giving up.
-		MaxAttempts int `json:"max_attempts" yaml:"max_attempts" default:"5"`
+		// MaxAttempts specifies the maximum number of retry attempts before giving up, 0 - infinite.
+		MaxAttempts int `json:"max_attempts" yaml:"max_attempts" default:"0"`
 	}
 )
 
@@ -40,8 +42,9 @@ type (
 func (cfg *LifecycleConfig) UnmarshalJSON(data []byte) error {
 	type Alias LifecycleConfig
 	aux := &struct {
-		StartTimeout string `json:"start_timeout"`
-		StopTimeout  string `json:"stop_timeout"`
+		StartTimeout    string `json:"start_timeout"`
+		StopTimeout     string `json:"stop_timeout"`
+		StableThreshold string `json:"stable_threshold"`
 		*Alias
 	}{
 		Alias: (*Alias)(cfg),
@@ -63,6 +66,13 @@ func (cfg *LifecycleConfig) UnmarshalJSON(data []byte) error {
 		cfg.StopTimeout, err = time.ParseDuration(aux.StopTimeout)
 		if err != nil {
 			return fmt.Errorf("invalid StopTimeout duration format: %w", err)
+		}
+	}
+
+	if aux.StableThreshold != "" {
+		cfg.StableThreshold, err = time.ParseDuration(aux.StableThreshold)
+		if err != nil {
+			return fmt.Errorf("invalid StableThreshold duration format: %w", err)
 		}
 	}
 
@@ -113,6 +123,10 @@ func (cfg *LifecycleConfig) InitDefaults() {
 		cfg.StopTimeout = 10 * time.Second
 	}
 
+	if cfg.StableThreshold == 0 {
+		cfg.StableThreshold = 5 * time.Second
+	}
+
 	if cfg.RetryPolicy.InitialDelay == 0 {
 		cfg.RetryPolicy.InitialDelay = time.Second
 	}
@@ -128,23 +142,21 @@ func (cfg *LifecycleConfig) InitDefaults() {
 	if cfg.RetryPolicy.Jitter == 0 {
 		cfg.RetryPolicy.Jitter = 0.1
 	}
-
-	if cfg.RetryPolicy.MaxAttempts == 0 {
-		cfg.RetryPolicy.MaxAttempts = 5
-	}
 }
 
 // MarshalJSON provides custom marshaling for LifecycleConfig, converting time.Duration to strings
 func (cfg *LifecycleConfig) MarshalJSON() ([]byte, error) {
 	type Alias LifecycleConfig
 	return json.Marshal(&struct {
-		StartTimeout string `json:"start_timeout"`
-		StopTimeout  string `json:"stop_timeout"`
+		StartTimeout    string `json:"start_timeout"`
+		StopTimeout     string `json:"stop_timeout"`
+		StableThreshold string `json:"stable_threshold"`
 		*Alias
 	}{
-		StartTimeout: cfg.StartTimeout.String(),
-		StopTimeout:  cfg.StopTimeout.String(),
-		Alias:        (*Alias)(cfg),
+		StartTimeout:    cfg.StartTimeout.String(),
+		StopTimeout:     cfg.StopTimeout.String(),
+		StableThreshold: cfg.StableThreshold.String(),
+		Alias:           (*Alias)(cfg),
 	})
 }
 

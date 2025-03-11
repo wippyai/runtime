@@ -4,185 +4,309 @@ import (
 	"context"
 	"fmt"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/ponyruntime/pony/runtime/lua/factory"
-
+	api "github.com/ponyruntime/pony/api/runtime/lua"
+	"github.com/ponyruntime/pony/runtime/lua/code"
+	"github.com/ponyruntime/pony/runtime/lua/component"
+	"github.com/ponyruntime/pony/runtime/lua/engine"
+	timemod "github.com/ponyruntime/pony/runtime/lua/modules/time"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	lua "github.com/yuin/gopher-lua"
+	"github.com/yuin/gopher-lua/parse"
 	"go.uber.org/zap"
 )
 
-func setupTestPool(t *testing.T, size, workers int) *Pool {
-	logger := zap.NewNop()
-	f := factory.NewFactory(logger)
+// testFunction represents a Lua function definition for testing
+type testFunction struct {
+	source string
+	name   string
+	proto  *lua.FunctionProto
+}
 
-	// Add test functions to VM config
-	factory.WithFunction("test", `
-		function test(arg)
-			return arg
-		end
-		return test
-	`)(f)
+// testFactoryConfig holds configuration for test factory setup
+type testFactoryConfig struct {
+	functions   []testFunction
+	engineOpts  []engine.Option
+	factoryOpts []component.Option
+}
 
-	factory.WithFunction("block", `
-		function block()
-			while true do
+// testOption configures the test factory
+type testOption func(*testFactoryConfig)
+
+// withFunction adds a test function to the configuration
+func withFunction(source string, method string) testOption {
+	return func(cfg *testFactoryConfig) {
+		cfg.functions = append(cfg.functions, testFunction{
+			source: source,
+			name:   method,
+		})
+	}
+}
+
+// withEngineOption adds an engine option to the configuration
+func withEngineOption(opt engine.Option) testOption {
+	return func(cfg *testFactoryConfig) {
+		cfg.engineOpts = append(cfg.engineOpts, opt)
+	}
+}
+
+// withFactoryOption adds a factory option to the configuration
+func withFactoryOption(opt component.Option) testOption {
+	return func(cfg *testFactoryConfig) {
+		cfg.factoryOpts = append(cfg.factoryOpts, opt)
+	}
+}
+
+// defaultTestFunction returns the basic echo test function
+func defaultTestFunction() testFunction {
+	return testFunction{
+		source: `
+			function test(arg)
+				return arg
 			end
-			return nil
-		end
-		return block
-	`)(f)
+			return test
+		`,
+		name: "test",
+	}
+}
 
-	factory.WithFunction("fail", `
-		function fail()
-			error("intentional failure")
-		end
-		return fail
-	`)(f)
+// setupTestFactory creates a configured factory for testing with the given options
+func setupTestFactory(opts ...testOption) (api.Factory, error) {
+	logger := zap.NewNop()
 
-	factory.WithFunction("get_id", `
-		local id = 0
-		function get_id()
-			id = id + 1
-			return id
-		end
-		return get_id
-	`)(f)
+	// Initialize config with defaults
+	cfg := &testFactoryConfig{
+		functions: []testFunction{defaultTestFunction()},
+	}
 
-	// Create pool with custom size and workers
-	p, err := NewPool(f,
-		WithSize(size),
-		WithWorkers(workers),
-		WithLogger(logger),
+	// Apply options
+	for _, opt := range opts {
+		opt(cfg)
+	}
+
+	// compile all funcs
+	for i, fn := range cfg.functions {
+		chunk, err := parse.Parse(strings.NewReader(fn.source), fn.name)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse function %q: %w", fn.name, err)
+		}
+
+		proto, err := lua.Compile(chunk, fn.name)
+		if err != nil {
+			return nil, fmt.Errorf("failed to compile function %q: %w", fn.name, err)
+		}
+
+		cfg.functions[i].proto = proto
+	}
+
+	// Spawn compiled main
+	compiled := &code.CompiledMain{
+		Main:     cfg.functions[0].proto,
+		FuncName: cfg.functions[0].name,
+		Dependencies: []code.CompiledProto{
+			{
+				Name: "time",
+				Node: &code.Node{
+					Kind:   api.KindModule,
+					Module: timemod.NewTimeModule(),
+				},
+			},
+		},
+	}
+
+	factoryOpts := append(cfg.factoryOpts,
+		component.WithEngineOption(engine.WithGlobalValue("_VERSION", lua.LString("test"))),
+	)
+
+	// all rest of the functions
+	for _, fn := range cfg.functions[1:] {
+		factoryOpts = append(factoryOpts,
+			component.WithEngineOption(engine.WithFunctionProto(fn.name, fn.proto)),
+		)
+	}
+
+	// Prepare engine options
+	engineOpts := cfg.engineOpts
+	for _, opt := range engineOpts {
+		factoryOpts = append(factoryOpts, component.WithEngineOption(opt))
+	}
+
+	f, err := component.NewRunnerFactory(logger, compiled, factoryOpts...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create factory: %w", err)
+	}
+
+	return f, nil
+}
+
+func TestQueuedPool_Execute_Basic(t *testing.T) {
+	f, err := setupTestFactory() // Use default config
+	assert.NoError(t, err)
+
+	p, err := NewPool(f, WithSize(1), WithWorkers(1), WithLogger(zap.NewNop()))
+	require.NoError(t, err)
+	defer p.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	arg := lua.LString("hello")
+	result, err := p.Execute(ctx, "test", arg)
+	require.NoError(t, err)
+	assert.Equal(t, arg, result)
+}
+
+func TestQueuedPool_Execute_AfterClose(t *testing.T) {
+	f, err := setupTestFactory()
+	require.NoError(t, err)
+
+	p, err := NewPool(f, WithSize(1), WithWorkers(1), WithLogger(zap.NewNop()))
+	require.NoError(t, err)
+
+	p.Close()
+
+	_, err = p.Execute(context.Background(), "test", lua.LNil)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "pool is closed")
+}
+
+func TestQueuedPool_Execute_ContextCancellation(t *testing.T) {
+	f, err := setupTestFactory()
+	require.NoError(t, err)
+
+	p, err := NewPool(f, WithSize(1), WithWorkers(1), WithLogger(zap.NewNop()))
+	require.NoError(t, err)
+	defer p.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	_, err = p.Execute(ctx, "test", lua.LNil)
+	assert.Error(t, err)
+	assert.ErrorContains(t, err, "context canceled")
+}
+
+func TestQueuedPool_Execute_Failure(t *testing.T) {
+	f, err := setupTestFactory(
+		withFunction(`
+			function fail()
+				error("intentional failure")
+			end
+			return fail
+		`, "fail"),
+		withFunction(`
+			function test(arg)
+				return arg
+			end
+			return test
+		`, "test"),
 	)
 	require.NoError(t, err)
 
-	return p
-}
+	p, err := NewPool(f, WithSize(1), WithWorkers(1), WithLogger(zap.NewNop()))
+	require.NoError(t, err)
+	defer p.Close()
 
-func TestQueuedPool_Execute(t *testing.T) {
-	t.Run("basic execution", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
-		p := setupTestPool(t, 1, 1)
-		defer p.Close()
+	// Run failing function
+	_, err = p.Execute(ctx, "fail", lua.LNil)
+	assert.Error(t, err)
 
-		arg := lua.LString("hello")
-		result, err := p.Execute(ctx, "test", arg)
-		require.NoError(t, err)
-		assert.Equal(t, arg, result)
-	})
-
-	t.Run("execution after close", func(t *testing.T) {
-		p := setupTestPool(t, 1, 1)
-		p.Close()
-
-		_, err := p.Execute(context.Background(), "test", lua.LNil)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "pool is closed")
-	})
-
-	t.Run("context cancellation", func(t *testing.T) {
-		p := setupTestPool(t, 1, 1)
-		defer p.Close()
-
-		ctx, cancel := context.WithCancel(context.Background())
-		cancel()
-
-		_, err := p.Execute(ctx, "test", lua.LNil)
-		assert.Error(t, err)
-		assert.ErrorContains(t, err, "context canceled")
-	})
-
-	t.Run("failed execution", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-
-		p := setupTestPool(t, 1, 1)
-		defer p.Close()
-
-		// Run failing function
-		_, err := p.Execute(ctx, "fail", lua.LNil)
-		assert.Error(t, err)
-
-		// Verify pool still works
-		result, err := p.Execute(ctx, "test", lua.LString("test"))
-		assert.NoError(t, err)
-		assert.Equal(t, lua.LString("test"), result)
-	})
+	// Verify pool still works
+	result, err := p.Execute(ctx, "test", lua.LString("test"))
+	assert.NoError(t, err)
+	assert.Equal(t, lua.LString("test"), result)
 }
 
 func TestQueuedPool_ParallelExecution(t *testing.T) {
-	t.Run("execute multiple jobs with multiple workers", func(t *testing.T) {
-		p := setupTestPool(t, 3, 3) // Pool with 3 VMs and 3 workers
-		defer p.Close()
+	f, err := setupTestFactory() // Default function is sufficient for parallel test
+	require.NoError(t, err)
 
-		var wg sync.WaitGroup
-		results := make(chan string, 10)
+	p, err := NewPool(f, WithSize(3), WithWorkers(3), WithLogger(zap.NewNop()))
+	require.NoError(t, err)
+	defer p.Close()
 
-		// Launch 10 jobs
-		for i := 0; i < 10; i++ {
-			wg.Add(1)
-			go func(id int) {
-				defer wg.Done()
-				result, err := p.Execute(context.Background(), "test", lua.LString(fmt.Sprintf("job-%d", id)))
-				if err != nil {
-					results <- fmt.Sprintf("error-%d", id)
-					return
-				}
-				results <- result.String()
-			}(i)
-		}
+	var wg sync.WaitGroup
+	results := make(chan string, 10)
 
-		wg.Wait()
-		close(results)
+	// Launch 10 jobs with 3 workers
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			result, err := p.Execute(context.Background(), "test",
+				lua.LString(fmt.Sprintf("job-%d", id)))
+			if err != nil {
+				results <- fmt.Sprintf("error-%d", id)
+				return
+			}
+			results <- result.String()
+		}(i)
+	}
 
-		// Collect and verify results
-		var count int
-		for r := range results {
-			require.Contains(t, r, "job-")
-			count++
-		}
-		require.Equal(t, 10, count, "All jobs should complete")
-	})
+	wg.Wait()
+	close(results)
 
-	t.Run("verify worker distribution", func(t *testing.T) {
-		p := setupTestPool(t, 3, 3)
-		defer p.Close()
+	// Collect and verify results
+	var count int
+	for r := range results {
+		require.Contains(t, r, "job-")
+		count++
+	}
+	require.Equal(t, 10, count, "All jobs should complete")
+}
 
-		var wg sync.WaitGroup
-		executed := make(map[string]int)
-		var mu sync.Mutex
+func TestQueuedPool_WorkerDistribution(t *testing.T) {
+	f, err := setupTestFactory(
+		withFunction(`
+			local id = 0
+			function get_id()
+				id = id + 1
+				return id
+			end
+			return get_id
+		`, "get_id"),
+	)
+	require.NoError(t, err)
 
-		// Run multiple tasks and track results
-		for i := 0; i < 30; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				result, err := p.Execute(context.Background(), "get_id", lua.LNil)
-				if err != nil {
-					return
-				}
-				mu.Lock()
-				executed[result.String()]++
-				mu.Unlock()
-			}()
-		}
+	p, err := NewPool(f, WithSize(3), WithWorkers(3), WithLogger(zap.NewNop()))
+	require.NoError(t, err)
+	defer p.Close()
 
-		wg.Wait()
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	idCounts := make(map[string]int)
 
-		// Verify distribution
-		mu.Lock()
-		defer mu.Unlock()
-		workerCount := len(executed)
-		assert.True(t, workerCount > 1, "Tasks should be distributed across workers (got %d workers)", workerCount)
-	})
+	// Run multiple tasks and track distribution
+	for i := 0; i < 30; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			result, err := p.Execute(context.Background(), "get_id", lua.LNil)
+			if err != nil {
+				return
+			}
+			mu.Lock()
+			idCounts[result.String()]++
+			mu.Unlock()
+		}()
+	}
+
+	wg.Wait()
+
+	mu.Lock()
+	uniqueWorkers := len(idCounts)
+	mu.Unlock()
+
+	assert.True(t, uniqueWorkers > 1, "Tasks should be distributed across multiple workers")
 }
 
 func TestQueuedPool_StressTest(t *testing.T) {
@@ -190,70 +314,104 @@ func TestQueuedPool_StressTest(t *testing.T) {
 		t.Skip("Skipping stress test in short mode")
 	}
 
-	t.Run("rapid parallel execution with queue", func(t *testing.T) {
-		p := setupTestPool(t, 3, 3)
-		var wg sync.WaitGroup
-		successCount := atomic.Int32{}
+	t.Run("rapid parallel execution and close", func(t *testing.T) {
+		iterations := 5
+		for i := 0; i < iterations; i++ {
+			f, err := setupTestFactory()
+			require.NoError(t, err)
 
-		// Launch many parallel jobs
-		for j := 0; j < 100; j++ {
-			wg.Add(1)
-			go func(id int) {
-				defer wg.Done()
-				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-				defer cancel()
+			p, err := NewPool(f, WithSize(3), WithWorkers(3), WithLogger(zap.NewNop()))
+			require.NoError(t, err)
 
-				result, err := p.Execute(ctx, "test", lua.LString(fmt.Sprintf("job-%d", id)))
-				if err == nil && result != nil {
-					successCount.Add(1)
+			var wg sync.WaitGroup
+			successCount := atomic.Int32{}
+
+			// Launch many parallel jobs
+			for j := 0; j < 1000; j++ {
+				wg.Add(1)
+				go func(id int) {
+					defer wg.Done()
+					result, err := p.Execute(context.Background(), "test",
+						lua.LString(fmt.Sprintf("job-%d", id)))
+					if err == nil && result != nil {
+						successCount.Add(1)
+					}
+				}(j)
+
+				if j == 500 {
+					go p.Close()
 				}
-			}(j)
+			}
+
+			wg.Wait()
+			success := successCount.Load()
+			require.True(t, success > 0, "Some jobs should succeed")
+			require.True(t, success < 1000, "Not all jobs should succeed due to close")
 		}
-
-		wg.Wait()
-		p.Close()
-
-		success := successCount.Load()
-		require.True(t, success > 0, "Some jobs should succeed")
 	})
 }
 
 func TestQueuedPool_QueueBehavior(t *testing.T) {
-	t.Run("queue overflow handling", func(t *testing.T) {
-		// Create a pool with small number of workers but larger queue
-		p := setupTestPool(t, 1, 1)
-		defer p.Close()
+	f, err := setupTestFactory(
+		withFunction(`
+			function sleep()
+				local time = require("time")
+				time.sleep(time.parse_duration("100ms"))
+				return "done"
+			end
+			return sleep
+		`, "sleep"),
+	)
+	require.NoError(t, err)
 
-		var wg sync.WaitGroup
-		for i := 0; i < 50; i++ {
-			wg.Add(1)
-			go func(id int) {
-				defer wg.Done()
-				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-				defer cancel()
+	p, err := NewPool(f, WithSize(1), WithWorkers(1), WithLogger(zap.NewNop()))
+	require.NoError(t, err)
+	defer p.Close()
 
-				_, _ = p.Execute(ctx, "test", lua.LString(fmt.Sprintf("job-%d", id)))
-			}(i)
-		}
+	var wg sync.WaitGroup
+	results := make(chan string, 10)
 
-		wg.Wait()
-	})
+	// Queue several jobs that will take time to complete
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			result, err := p.Execute(ctx, "sleep", lua.LNil)
+			if err != nil {
+				results <- fmt.Sprintf("error-%d", id)
+				return
+			}
+			results <- result.String()
+		}(i)
+	}
+
+	wg.Wait()
+	close(results)
+
+	// Verify all jobs completed
+	var count int
+	for range results {
+		count++
+	}
+	require.Equal(t, 10, count, "All queued jobs should complete")
 }
 
 func BenchmarkQueuedPool_Execute(b *testing.B) {
-	logger := zap.NewNop()
-	vmConfig := factory.NewFactory(logger)
-	factory.WithFunction("bench", `
-		function test(arg)
-			return arg
-		end
-		return test
-	`)(vmConfig)
+	f, err := setupTestFactory(
+		withFunction(`
+			function bench(arg)
+				return arg
+			end
+			return bench
+		`, "bench"),
+	)
+	require.NoError(b, err)
 
 	workers := runtime.GOMAXPROCS(0)
-	p, err := NewPool(vmConfig,
-		WithSize(workers),
-		WithWorkers(workers))
+	p, err := NewPool(f, WithSize(workers), WithWorkers(workers))
 	require.NoError(b, err)
 	defer p.Close()
 

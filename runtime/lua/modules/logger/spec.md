@@ -2,7 +2,9 @@
 
 ## Overview
 
-The `logger` module provides a Lua interface for structured logging. It allows Lua scripts to log messages at different levels (debug, info, warn, error) with optional fields for additional context. It also supports creating new loggers with pre-defined fields or names.
+The `logger` module provides a Lua interface for structured logging. It allows Lua scripts to log messages at different
+levels (debug, info, warn, error) with optional fields for additional context. It also supports creating new loggers
+with pre-defined fields or names.
 
 ## Module Interface
 

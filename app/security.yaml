@@ -1,0 +1,17 @@
+version: "1.0"
+namespace: system.security
+
+meta:
+  depends_on: [ ns:system ]
+  comment: "Security policies configuration"
+
+entries:
+  - name: admin_policy
+    kind: security.policy
+    meta:
+      comment: "Global admin access policy"
+    groups: [ "admin" ]
+    policy:
+      actions: "*"
+      resources: "*"
+      effect: "allow"

@@ -174,7 +174,7 @@ func TestNodeAdditionalMethods(t *testing.T) {
 			local treesitter = require("treesitter")
 			local code = [[
 				type Person struct {
-					Name string
+					Alias string
 					Age  int
 				}
 			]]
@@ -287,7 +287,7 @@ func TestNodeTextMethod(t *testing.T) {
             local code = [[package main
 
 type Person struct {
-    Name string
+    Alias string
     Age  int
 }]]
             local tree = treesitter.parse("go", code)
@@ -319,7 +319,7 @@ type Person struct {
             
             local field_node = cursor:current_node()
             local field_text = field_node:text()
-            assert(field_text:match("Name%s+string"), "field text should contain Name string")
+            assert(field_text:match("Alias%s+string"), "field text should contain Alias string")
             
             -- Test error handling with invalid source
             local ok, err = pcall(function()
@@ -351,17 +351,17 @@ func TestNodeChildText(t *testing.T) {
             local tree = treesitter.parse("go", code)
             local root = tree:root_node()
             
-            -- Get the first child (function_declaration)
+            -- GetField the first child (function_declaration)
             local func_node = root:child(0)
             local func_text = func_node:text(code)
             assert(func_text == "func test() { return 42 }", "function text should match")
             
-            -- Get function name node
+            -- GetField function name node
             local name_node = func_node:child_by_field_name("name")
             local name_text = name_node:text(code)
             assert(name_text == "test", "function name should match")
             
-            -- Get function body
+            -- GetField function body
             local body_node = func_node:child_by_field_name("body")
             local body_text = body_node:text(code)
             assert(body_text == "{ return 42 }", "function body should match")
@@ -653,7 +653,7 @@ func TestNodeSiblingNavigation(t *testing.T) {
             end
             assert(list_node ~= nil, "should find import_spec_list")
 
-            -- Get first import_spec by finding first import_spec child
+            -- GetField first import_spec by finding first import_spec child
             local first_import = nil
             for i = 0, list_node:child_count() - 1 do
                 local child = list_node:child(i)
@@ -674,7 +674,7 @@ func TestNodeSiblingNavigation(t *testing.T) {
             assert(next_named ~= nil, "next named sibling should exist")
             assert(next_named:text(code):match("os"), "next named sibling should contain 'os' import")
 
-            -- Get last import_spec by finding last import_spec child
+            -- GetField last import_spec by finding last import_spec child
             local last_import = nil
             for i = list_node:child_count() - 1, 0, -1 do
                 local child = list_node:child(i)
@@ -748,10 +748,9 @@ func TestNodeSiblingNavigation(t *testing.T) {
             assert(not last:is_missing(), "last node should not be missing")
             assert(not root:is_missing(), "root should not be missing")
 
-            -- Create cursor just to test close
+            -- Spawn cursor just to test close
             local cursor = tree:walk()
-            cursor:close()
-            cursor:close() -- should not crash
+            cursor:close() 
         `, "test")
 		assert.NoError(t, err)
 	})

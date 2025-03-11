@@ -3,9 +3,8 @@ package engine
 import (
 	"context"
 	"fmt"
+	errors2 "github.com/ponyruntime/pony/runtime/lua/engine/errors"
 	"strings"
-
-	"github.com/ponyruntime/pony/internal/closer"
 
 	lua "github.com/yuin/gopher-lua"
 	"github.com/yuin/gopher-lua/parse"
@@ -25,7 +24,7 @@ type VM struct {
 
 // NewVM creates a new VM instance with the provided script and options
 func NewVM(log *zap.Logger, opts ...Option) (*VM, error) {
-	state, err := newLuaState()
+	state, err := newLuaState() // todo: pass options
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Lua State: %w", err)
 	}
@@ -53,6 +52,8 @@ func (v *VM) Close() {
 	if v.state != nil {
 		v.state.Close()
 		v.state = nil
+		v.exported = nil
+		v.initErrors = nil
 	}
 }
 
@@ -105,18 +106,23 @@ func (v *VM) Execute(ctx context.Context, funcName string, args ...lua.LValue) (
 		return nil, fmt.Errorf("function %q not found", funcName)
 	}
 
-	if ctx != nil {
-		ctx, cleanup := closer.WithContext(ctx)
-		defer func() {
-			v.state.RemoveContext()
-			if err := cleanup.Close(); err != nil {
-				v.log.Error("cleanup failed",
-					zap.String("function", funcName),
-					zap.Error(err))
-			}
-		}()
-		v.state.SetContext(ctx)
+	// always create context
+	if ctx == nil {
+		ctx = context.Background()
 	}
+
+	uw, ctx := NewUnitOfWork(ctx, v.state)
+	uw.AddCleanup(func() error {
+		v.state.RemoveContext()
+		return nil
+	})
+	defer func() {
+		if err := uw.Close(); err != nil {
+			v.log.Error("unit of work close failed",
+				zap.String("func_name", funcName),
+				zap.Error(err))
+		}
+	}()
 
 	return v.callFunction(fn, args)
 }
@@ -133,11 +139,14 @@ func (v *VM) DoString(ctx context.Context, s string, name string, args ...lua.LV
 		ctx = context.Background()
 	}
 
-	ctx, cleanup := closer.WithContext(ctx)
-	defer func() {
+	uw, ctx := NewUnitOfWork(ctx, v.state)
+	uw.AddCleanup(func() error {
 		v.state.RemoveContext()
-		if err := cleanup.Close(); err != nil {
-			v.log.Error("cleanup failed",
+		return nil
+	})
+	defer func() {
+		if err := uw.Close(); err != nil {
+			v.log.Error("unit of work close failed",
 				zap.String("do_string", name),
 				zap.Error(err))
 		}
@@ -216,7 +225,11 @@ func (v *VM) callFunction(fn lua.LValue, args []lua.LValue) (lua.LValue, error) 
 	}
 
 	if err := v.state.PCall(len(args), 1, nil); err != nil {
-		return nil, fmt.Errorf("function call error: %w", err)
+		wrapped := errors2.GetWrappedError(err)
+		if wrapped != nil {
+			return nil, wrapped
+		}
+		return nil, err
 	}
 
 	var result lua.LValue

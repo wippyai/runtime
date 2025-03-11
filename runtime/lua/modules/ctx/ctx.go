@@ -1,8 +1,8 @@
 package ctx
 
 import (
-	ctxapi "github.com/ponyruntime/pony/api/context" // Make sure this import path is correct
-	transcoder "github.com/ponyruntime/pony/pkg/payload/lua"
+	ctxapi "github.com/ponyruntime/pony/api/context" // Spawn sure this import path is correct
+	transcoder "github.com/ponyruntime/pony/system/payload/lua"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
@@ -27,14 +27,11 @@ func (m *Module) Name() string {
 // Loader is the entry point for loading the module into Lua.
 // It registers the get and set functions into the Lua state.
 func (m *Module) Loader(l *lua.LState) int {
-	t := l.NewTable()
+	t := l.CreateTable(0, 2) // Exactly 2 functions: get and set
 
-	lapi := map[string]lua.LGFunction{
-		"get": m.get,
-		"set": m.set,
-	}
+	t.RawSetString("get", l.NewFunction(m.get))
+	t.RawSetString("set", l.NewFunction(m.set))
 
-	l.SetFuncs(t, lapi)
 	l.Push(t)
 	return 1
 }
@@ -67,7 +64,14 @@ func (m *Module) get(l *lua.LState) int {
 		return 2
 	}
 
-	l.Push(transcoder.GoToLua(l, vv))
+	v, err := transcoder.GoToLua(vv)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("error converting value to Lua: " + err.Error()))
+		return 2
+	}
+
+	l.Push(v)
 	l.Push(lua.LNil)
 
 	return 2

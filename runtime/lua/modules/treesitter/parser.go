@@ -3,23 +3,23 @@ package treesitter
 import (
 	"context"
 	"fmt"
-	"time"
-
-	"github.com/ponyruntime/pony/internal/closer"
-
+	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	treesitter "github.com/tree-sitter/go-tree-sitter"
 	lua "github.com/yuin/gopher-lua"
+	"time"
 )
 
 // ParserWrapper wraps a Tree-sitter parser with language information
 type ParserWrapper struct {
-	parser *treesitter.Parser
-	lang   *LanguageInfo
+	parser  *treesitter.Parser
+	lang    *LanguageInfo
+	closed  bool
+	release context.CancelFunc
 }
 
 func registerParser(l *lua.LState) {
-	mt := l.NewTypeMetatable("treesitter.Parser")
-	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
+	methods := map[string]lua.LGFunction{
 		"parse":        parserParse,
 		"set_language": parserSetLanguage,
 		"get_language": parserGetLanguage,
@@ -27,23 +27,69 @@ func registerParser(l *lua.LState) {
 		"close":        parserClose,
 		"set_timeout":  parserSetTimeout,
 		"set_ranges":   parserSetRanges,
-	}))
+	}
+	value.RegisterMethods(l, "treesitter.Parser", methods)
+}
+
+// NewParser creates a new parser wrapper with proper UoW integration
+func NewParser(uw engine.UnitOfWork, parser *treesitter.Parser) *ParserWrapper {
+	wrapper := &ParserWrapper{
+		parser: parser,
+	}
+
+	var flag uintptr
+	parser.SetCancellationFlag(&flag)
+
+	// Register cleanup with UoW, storing the cancel function
+	wrapper.release = uw.AddCleanup(func() error {
+		if wrapper.parser != nil && !wrapper.closed {
+			wrapper.parser.Close()
+			wrapper.parser = nil
+			wrapper.closed = true
+		}
+		return nil
+	})
+
+	return wrapper
+}
+
+// SetIncludedRanges sets the ranges of text that should be included in parsing
+func (p *ParserWrapper) SetIncludedRanges(ranges []treesitter.Range) error {
+	if p.parser == nil {
+		return fmt.Errorf("parser is closed")
+	}
+	return p.parser.SetIncludedRanges(ranges)
+}
+
+// Reset resets the parser to its initial state
+func (p *ParserWrapper) Reset() {
+	p.parser.Reset()
+}
+
+// Close marks the parser as closed and cancels the UoW cleanup
+func (p *ParserWrapper) Close() {
+	if !p.closed && p.release != nil {
+		p.closed = true
+		p.release() // Remove cleanup from UoW but don't execute it
+		p.release = nil
+	}
 }
 
 func newParser(l *lua.LState) int {
 	parser := treesitter.NewParser()
-	wrap := &ParserWrapper{parser: parser}
 
-	if l.Context() != nil {
-		cleanup := closer.FromContext(l.Context())
-		if cleanup != nil {
-			cleanup.Add(func() error { wrap.Close(); return nil })
-		}
+	uw := engine.GetUnitOfWork(l.Context())
+	if uw == nil {
+		l.RaiseError("unit of work is not found")
+		return 0
 	}
 
+	// Use the new constructor
+	p := NewParser(uw, parser)
+
 	ud := l.NewUserData()
-	ud.Value = wrap
-	l.SetMetatable(ud, l.GetTypeMetatable("treesitter.Parser"))
+	ud.Value = p
+	ud.Metatable = value.GetTypeMetatable(l, "treesitter.Parser")
 	l.Push(ud)
 	return 1
 }
@@ -134,28 +180,25 @@ func parserParse(l *lua.LState) int {
 		}
 	}
 
-	ctx := l.Context()
-	if ctx == nil {
-		ctx = context.Background()
+	uw := engine.GetUnitOfWork(l.Context())
+	if uw == nil {
+		l.RaiseError("unit of work is not found")
+		return 0
 	}
 
-	tree, err := parser.parseWithContext(ctx, []byte(code), oldTree)
+	tree, err := parser.parseWithContext(uw.Context(), []byte(code), oldTree)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
 		return 2
 	}
 
-	if l.Context() != nil {
-		cleanup := closer.FromContext(l.Context())
-		if cleanup != nil {
-			cleanup.Add(func() error { tree.Close(); return nil })
-		}
-	}
+	tw := NewTree(uw, tree, code)
 
 	ud := l.NewUserData()
-	ud.Value = &TreeWrapper{tree: tree, source: code}
-	l.SetMetatable(ud, l.GetTypeMetatable("treesitter.Tree"))
+	ud.Value = tw
+	ud.Metatable = value.GetTypeMetatable(l, "treesitter.Tree")
+
 	l.Push(ud)
 	return 1
 }
@@ -256,30 +299,13 @@ func parserSetRanges(l *lua.LState) int {
 	return 1
 }
 
-// SetIncludedRanges sets the ranges of text that should be included in parsing
-func (p *ParserWrapper) SetIncludedRanges(ranges []treesitter.Range) error {
-	if p.parser == nil {
-		return fmt.Errorf("parser is closed")
-	}
-	return p.parser.SetIncludedRanges(ranges)
-}
-
-// Reset resets the parser to its initial state
-func (p *ParserWrapper) Reset() {
-	p.parser.Reset()
-}
-
-// Close releases all resources associated with the parser
-func (p *ParserWrapper) Close() {
-	if p.parser != nil {
-		p.parser.Close()
-		p.parser = nil
-	}
-}
-
 func checkParser(l *lua.LState) *ParserWrapper {
 	ud := l.CheckUserData(1)
 	if v, ok := ud.Value.(*ParserWrapper); ok {
+		if v.closed {
+			l.ArgError(1, "parser already closed")
+			return nil
+		}
 		return v
 	}
 	l.ArgError(1, "Parser expected")

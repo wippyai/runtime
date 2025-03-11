@@ -46,7 +46,7 @@ func TestVersionMap_Path_Backwards(t *testing.T) {
 	from := v3
 	to := v1
 	actualPath, _ := vm.Path(from, to)
-	expectedPath := []registry.Version{v3, v2, v1} // Name in reverse
+	expectedPath := []registry.Version{v3, v2, v1} // Alias in reverse
 
 	if !reflect.DeepEqual(actualPath, expectedPath) {
 		t.Errorf("Expected path: %v, got: %v", expectedPath, actualPath)
@@ -78,7 +78,7 @@ func TestVersionMap_Path_Branches(t *testing.T) {
 }
 
 func TestVersionMap(t *testing.T) {
-	// Create some versions.
+	// Spawn some versions.
 	v1 := New(1)
 	v2 := FromParent(v1, 2)
 	v3 := FromParent(v2, 3)
@@ -88,14 +88,14 @@ func TestVersionMap(t *testing.T) {
 	// Test Cases
 	testCases := []struct {
 		name        string
-		setup       func(vm Map) // Function to set up the versionHistory
+		setup       func(vm Map) // Func to set up the versionHistory
 		from        registry.Version
 		to          registry.Version
 		expected    []registry.Version
 		expectError error
 	}{
 		{
-			name: "Name within a branch",
+			name: "Alias within a branch",
 			setup: func(vm Map) {
 				require.NoError(t, vm.Add(v1))
 				require.NoError(t, vm.Add(v2))
@@ -107,7 +107,7 @@ func TestVersionMap(t *testing.T) {
 			expected: []registry.Version{v1, v2, v3, v4},
 		},
 		{
-			name: "Name to the past",
+			name: "Alias to the past",
 			setup: func(vm Map) {
 				require.NoError(t, vm.Add(v1))
 				require.NoError(t, vm.Add(v2))
@@ -119,7 +119,7 @@ func TestVersionMap(t *testing.T) {
 			expected: []registry.Version{v4, v3, v2, v1},
 		},
 		{
-			name: "Name across branches",
+			name: "Alias across branches",
 			setup: func(vm Map) {
 				require.NoError(t, vm.Add(v1))
 				require.NoError(t, vm.Add(v2))
@@ -132,7 +132,7 @@ func TestVersionMap(t *testing.T) {
 			expected: []registry.Version{v3, v2, v5},
 		},
 		{
-			name: "From and to are identical",
+			name: "Target and to are identical",
 			setup: func(vm Map) {
 				require.NoError(t, vm.Add(v1))
 			},
@@ -141,7 +141,7 @@ func TestVersionMap(t *testing.T) {
 			expected: []registry.Version{v1},
 		},
 		{
-			name: "From version not found",
+			name: "Target version not found",
 			setup: func(vm Map) {
 				require.NoError(t, vm.Add(v1))
 			},
@@ -164,15 +164,15 @@ func TestVersionMap(t *testing.T) {
 			name: "No path exists",
 			setup: func(vm Map) {
 				require.NoError(t, vm.Add(v1))
-				require.NoError(t, vm.Add(New(2))) // Create an unrelated version
+				require.NoError(t, vm.Add(New(2))) // Spawn an unrelated version
 			},
 			from:        v1,
 			to:          New(2),
 			expected:    nil,
-			expectError: errors.New("no path found"),
+			expectError: errors.New("no path exists from v1 to v2"),
 		},
 		{
-			name: "Add and Get version",
+			name: "AddCleanup and Spawn version",
 			setup: func(vm Map) {
 				require.NoError(t, vm.Add(v1))
 			},
@@ -181,7 +181,7 @@ func TestVersionMap(t *testing.T) {
 			expected: []registry.Version{v1},
 		},
 		{
-			name: "Get non-existent version",
+			name: "Spawn non-existent version",
 			setup: func(Map) {
 				// No versions added
 			},

@@ -2,16 +2,14 @@ package time
 
 import (
 	"context"
-	"testing"
-	"time"
-
 	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/async"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
+	"testing"
+	"time"
 )
 
 func TestTimeAfter(t *testing.T) {
@@ -107,18 +105,10 @@ func TestTimeAfter(t *testing.T) {
 				err = vm.Import(tc.script, "test", "test")
 				require.NoError(t, err)
 
-				channels := channel.NewChannelLayer()
-				asyncRunner := async.NewAsyncLayer(channels, 4096)
-				wrapped := engine.NewRunner(vm,
-					engine.WithLayer(asyncRunner),
-					engine.WithLayer(channels),
-				)
-
-				ctx := engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup())
-				ctx = asyncRunner.WithContext(ctx)
+				runner := engine.NewRunner(vm, engine.WithLayer(channel.NewChannelLayer()))
 
 				start := time.Now()
-				result, err := wrapped.Execute(ctx, "test")
+				result, err := runner.Execute(context.Background(), "test")
 
 				if tc.expectError {
 					assert.Error(t, err)
@@ -150,59 +140,51 @@ func TestAfterTimers(t *testing.T) {
 		defer vm.Close()
 
 		script := `
-            function test()
-                local results = {}
-                local done = channel.new(0)
+           function test()
+               local results = {}
+               local done = channel.new(0)
 
-                -- Start three timers with different durations
-                coroutine.spawn(function()
-                    local t1 = time.after("50ms")
-                    t1:receive()
-                    table.insert(results, "timer1")
-                    if #results == 3 then
-                        done:send(true)
-                    end
-                end)
+               -- Launch three timers with different durations
+               coroutine.spawn(function()
+                   local t1 = time.after("50ms")
+                   t1:receive()
+                   table.insert(results, "timer1")
+                   if #results == 3 then
+                       done:send(true)
+                   end
+               end)
 
-                coroutine.spawn(function()
-                    local t2 = time.after("100ms")
-                    t2:receive()
-                    table.insert(results, "timer2")
-                    if #results == 3 then
-                        done:send(true)
-                    end
-                end)
+               coroutine.spawn(function()
+                   local t2 = time.after("100ms")
+                   t2:receive()
+                   table.insert(results, "timer2")
+                   if #results == 3 then
+                       done:send(true)
+                   end
+               end)
 
-                coroutine.spawn(function()
-                    local t3 = time.after("150ms")
-                    t3:receive()
-                    table.insert(results, "timer3")
-                    if #results == 3 then
-                        done:send(true)
-                    end
-                end)
+               coroutine.spawn(function()
+                   local t3 = time.after("150ms")
+                   t3:receive()
+                   table.insert(results, "timer3")
+                   if #results == 3 then
+                       done:send(true)
+                   end
+               end)
 
-                -- wait for all timers to complete
-                done:receive()
-                return results
-            end
-        `
+               -- wait for all timers to complete
+               done:receive()
+               return results
+           end
+       `
 
 		err = vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		channels := channel.NewChannelLayer()
-		asyncRunner := async.NewAsyncLayer(channels, 4069)
-		wrapped := engine.NewRunner(vm,
-			engine.WithLayer(asyncRunner),
-			engine.WithLayer(channels),
-		)
-
-		ctx := engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup())
-		ctx = asyncRunner.WithContext(ctx)
+		wrapped := engine.NewRunner(vm, engine.WithLayer(channel.NewChannelLayer()))
 
 		start := time.Now()
-		result, err := wrapped.Execute(ctx, "test")
+		result, err := wrapped.Execute(context.Background(), "test")
 		duration := time.Since(start)
 		require.NoError(t, err)
 
@@ -227,59 +209,53 @@ func TestAfterTimers(t *testing.T) {
 		defer vm.Close()
 
 		script := `
-            function test()
-                local results = {}
-                local done = channel.new(0)
+           function test()
+               local results = {}
+               local done = channel.new(0)
 
-                -- Start three timers with different durations
-                coroutine.spawn(function()
-                    local t1 = time.after("50ms")
-                    t1:receive()
-                    table.insert(results, "timer1")
-                    if #results == 3 then
-                        done:send(true)
-                    end
-                end)
+               -- Launch three timers with different durations
+               coroutine.spawn(function()
+                   local t1 = time.after("50ms")
+                   t1:receive()
+                   table.insert(results, "timer1")
+                   if #results == 3 then
+                       done:send(true)
+                   end
+               end)
 
-                coroutine.spawn(function()
-                    local t2 = time.after("100ms")
-                    t2:receive()
-                    table.insert(results, "timer2")
-                    if #results == 3 then
-                        done:send(true)
-                    end
-                end)
+               coroutine.spawn(function()
+                   local t2 = time.after("100ms")
+                   t2:receive()
+                   table.insert(results, "timer2")
+                   if #results == 3 then
+                       done:send(true)
+                   end
+               end)
 
-                coroutine.spawn(function()
-                    local t3 = time.after("150ms")
-                    t3:receive()
-                    table.insert(results, "timer3")
-                    if #results == 3 then
-                        done:send(true)
-                    end
-                end)
+               coroutine.spawn(function()
+                   local t3 = time.after("150ms")
+                   t3:receive()
+                   table.insert(results, "timer3")
+                   if #results == 3 then
+                       done:send(true)
+                   end
+               end)
 
-                -- wait for all timers to complete
-                done:receive()
-                return results
-            end
-        `
+               -- wait for all timers to complete
+               done:receive()
+               return results
+           end
+       `
 
 		err = vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		channels := channel.NewChannelLayer()
-		asyncRunner := async.NewAsyncLayer(channels, 4069)
 		wrapped := engine.NewRunner(vm,
-			engine.WithLayer(channels),
-			engine.WithLayer(asyncRunner),
+			engine.WithLayer(channel.NewChannelLayer()),
 		)
 
-		ctx := engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup())
-		ctx = asyncRunner.WithContext(ctx)
-
 		start := time.Now()
-		result, err := wrapped.Execute(ctx, "test")
+		result, err := wrapped.Execute(context.Background(), "test")
 		duration := time.Since(start)
 		require.NoError(t, err)
 
@@ -304,31 +280,25 @@ func TestAfterTimers(t *testing.T) {
 		defer vm.Close()
 
 		script := `
-            function test()
-                local t1 = time.after("500ms")
-                -- Simple receive, no pcall needed as context cancellation
-                -- will be caught by the Go layer
-                t1:receive()
-                return "completed"
-            end
-        `
+           function test()
+               local t1 = time.after("500ms")
+               -- Simple receive, no pcall needed as context cancellation
+               -- will be caught by the Go layer
+               t1:receive()
+               return "completed"
+           end
+       `
 
 		err = vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		channels := channel.NewChannelLayer()
-		asyncRunner := async.NewAsyncLayer(channels, 4069)
-		wrapped := engine.NewRunner(vm,
-			engine.WithLayer(asyncRunner),
-			engine.WithLayer(channels),
-		)
+		wrapped := engine.NewRunner(vm, engine.WithLayer(channel.NewChannelLayer()))
 
-		ctx, cancel := context.WithCancel(engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup()))
-		ctx = asyncRunner.WithContext(ctx)
-
-		// Start execution in a goroutine
+		// Launch execution in a goroutine
 		done := make(chan struct{})
 		var execErr error
+
+		ctx, cancel := context.WithCancel(context.Background())
 
 		go func() {
 			defer close(done)
@@ -359,35 +329,27 @@ func TestAfterTimers(t *testing.T) {
 		defer vm.Close()
 
 		script := `
-            function test()
-                local results = {}
-                
-                -- Use same duration multiple times sequentially
-                for i = 1, 3 do
-                    local t = time.after("50ms")
-                    t:receive()
-                    table.insert(results, "timer" .. i)
-                end
-                
-                return results
-            end
-        `
+           function test()
+               local results = {}
+
+               -- Use same duration multiple times sequentially
+               for i = 1, 3 do
+                   local t = time.after("50ms")
+                   t:receive()
+                   table.insert(results, "timer" .. i)
+               end
+
+               return results
+           end
+       `
 
 		err = vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		channels := channel.NewChannelLayer()
-		asyncRunner := async.NewAsyncLayer(channels, 4069)
-		wrapped := engine.NewRunner(vm,
-			engine.WithLayer(asyncRunner),
-			engine.WithLayer(channels),
-		)
-
-		ctx := engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup())
-		ctx = asyncRunner.WithContext(ctx)
+		wrapped := engine.NewRunner(vm, engine.WithLayer(channel.NewChannelLayer()))
 
 		start := time.Now()
-		result, err := wrapped.Execute(ctx, "test")
+		result, err := wrapped.Execute(context.Background(), "test")
 		duration := time.Since(start)
 		require.NoError(t, err)
 
@@ -412,53 +374,45 @@ func TestAfterTimers(t *testing.T) {
 		defer vm.Close()
 
 		script := `
-            function test()
-                local results = {}
-                local done = channel.new(0)
-                
-                -- Mix string durations, numbers, and parsed durations
-                coroutine.spawn(function()
-                    local t1 = time.after("75ms")
-                    t1:receive()
-                    table.insert(results, "string_duration")
-                    if #results == 3 then done:send(true) end
-                end)
-                
-                coroutine.spawn(function()
-                    local t2 = time.after(50)  -- 50ms as number
-                    t2:receive()
-                    table.insert(results, "number_duration")
-                    if #results == 3 then done:send(true) end
-                end)
-                
-                coroutine.spawn(function()
-                    local d = time.parse_duration("100ms")
-                    local t3 = time.after(d)
-                    t3:receive()
-                    table.insert(results, "parsed_duration")
-                    if #results == 3 then done:send(true) end
-                end)
-                
-                done:receive()
-                return results
-            end
-        `
+           function test()
+               local results = {}
+               local done = channel.new(0)
+
+               -- Mix string durations, numbers, and parsed durations
+               coroutine.spawn(function()
+                   local t1 = time.after("75ms")
+                   t1:receive()
+                   table.insert(results, "string_duration")
+                   if #results == 3 then done:send(true) end
+               end)
+
+               coroutine.spawn(function()
+                   local t2 = time.after(50)  -- 50ms as number
+                   t2:receive()
+                   table.insert(results, "number_duration")
+                   if #results == 3 then done:send(true) end
+               end)
+
+               coroutine.spawn(function()
+                   local d = time.parse_duration("100ms")
+                   local t3 = time.after(d)
+                   t3:receive()
+                   table.insert(results, "parsed_duration")
+                   if #results == 3 then done:send(true) end
+               end)
+
+               done:receive()
+               return results
+           end
+       `
 
 		err = vm.Import(script, "test", "test")
 		require.NoError(t, err)
 
-		channels := channel.NewChannelLayer()
-		asyncRunner := async.NewAsyncLayer(channels, 4069)
-		wrapped := engine.NewRunner(vm,
-			engine.WithLayer(asyncRunner),
-			engine.WithLayer(channels),
-		)
-
-		ctx := engine.WithTaskGroup(context.Background(), wrapped.GetTaskGroup())
-		ctx = asyncRunner.WithContext(ctx)
+		wrapped := engine.NewRunner(vm, engine.WithLayer(channel.NewChannelLayer()))
 
 		start := time.Now()
-		result, err := wrapped.Execute(ctx, "test")
+		result, err := wrapped.Execute(context.Background(), "test")
 		duration := time.Since(start)
 		require.NoError(t, err)
 

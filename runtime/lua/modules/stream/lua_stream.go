@@ -1,39 +1,64 @@
 package stream
 
 import (
+	"context"
 	"errors"
 	"fmt"
-	"io"
-
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
-	"go.uber.org/zap"
+	"io"
 )
 
-// LuaStream wraps Stream for Lua
+// LuaStream wraps Stream for Lua and implements io.ReadCloser interface
 type LuaStream struct {
 	*Stream
+	release    context.CancelFunc
+	onComplete context.CancelFunc
+	closed     bool
+}
+
+// Read implements io.Reader
+func (ls *LuaStream) Read(p []byte) (n int, err error) {
+	if ls.closed {
+		return 0, io.ErrClosedPipe
+	}
+	return ls.Stream.Read(p)
+}
+
+// Close implements io.Closer
+func (ls *LuaStream) Close() error {
+	if ls.closed {
+		return nil
+	}
+
+	ls.closed = true
+	if ls.release != nil {
+		ls.release()
+		ls.release = nil
+	}
+
+	return nil
 }
 
 // Module represents the Stream Lua module
 type Module struct {
-	log *zap.Logger
 }
 
-// NewStreamModule creates a new Stream module (internal)
-func NewStreamModule(log *zap.Logger) *Module {
-	return &Module{log: log}
+// NewStreamModule creates a new Stream module
+func NewStreamModule() *Module {
+	return &Module{}
 }
 
 // Name returns the module name
 func (m *Module) Name() string {
-	return "Stream"
+	return "stream"
 }
 
 // Loader registers the module functions and constants
 func (m *Module) Loader(l *lua.LState) int {
-	// Create module table
+	// Spawn module table
 	mod := l.NewTable()
 
 	RegisterStream(l)
@@ -44,27 +69,55 @@ func (m *Module) Loader(l *lua.LState) int {
 
 // RegisterStream registers the Stream type in Lua
 func RegisterStream(l *lua.LState) {
-	// check if the Stream type is already registered
-	if _, ok := l.GetField(l.Get(lua.RegistryIndex), "Stream").(*lua.LTable); ok {
-		return
+	// Check if type is already registered by directly accessing registry
+	registry := l.Get(lua.RegistryIndex)
+	if regTable, ok := registry.(*lua.LTable); ok {
+		if mt := regTable.RawGetString("Stream"); mt != lua.LNil {
+			return // Already registered
+		}
 	}
 
-	// Create and register the Stream metatable
-	mt := l.NewTypeMetatable("Stream")
-	l.SetField(mt, "__index", mt)
-
+	// Determine which read function to use based on VM type
 	readFunc := streamRead
 	if engine.IsCoroutineVM(l) {
 		readFunc = streamReadAsync
 	}
 
-	// Register methods
-	l.SetFuncs(mt, map[string]lua.LGFunction{
-		"read":       readFunc,
-		"close":      streamClose,
-		"bytes_read": streamBytesRead,
-		"__call":     streamIter,
+	// Register both method sets at once
+	value.RegisterTypeMethods(
+		l,
+		"Stream",
+		map[string]lua.LGFunction{
+			"__call":  streamIter,
+			"__index": nil, // The RegisterTypeMethods function will handle this
+		},
+		map[string]lua.LGFunction{
+			"read":       readFunc,
+			"close":      streamClose,
+			"bytes_read": streamBytesRead,
+		},
+	)
+}
+
+// NewLuaStream creates a new LuaStream with UoW integration
+func NewLuaStream(uw engine.UnitOfWork, stream *Stream, onComplete context.CancelFunc) *LuaStream {
+	luaStream := &LuaStream{
+		Stream:     stream,
+		onComplete: onComplete,
+		closed:     false,
+	}
+
+	// Register unconditional cleanup in UoW
+	luaStream.release = uw.AddCleanup(func() error {
+		if luaStream.onComplete != nil {
+			luaStream.onComplete()
+			luaStream.onComplete = nil
+		}
+
+		return luaStream.Stream.Close()
 	})
+
+	return luaStream
 }
 
 // checkStream verifies and returns the Stream from Lua userdata
@@ -84,17 +137,26 @@ func streamReadAsync(l *lua.LState) int {
 		return 2
 	}
 
-	coroutine.Wrap(l, func() *engine.Result {
-		chunk, err := stream.ReadChunk()
+	// Get chunk size from argument or use default
+	var chunkSize int64 = DefaultChunkSize
+	if l.GetTop() >= 2 {
+		size := l.CheckNumber(2)
+		chunkSize = int64(size)
+	}
+
+	coroutine.Wrap(l, func() *engine.Update {
+		chunk, err := stream.ReadChunk(chunkSize)
 		if errors.Is(err, io.EOF) {
-			return engine.NewResult(nil, []lua.LValue{lua.LNil, lua.LNil}, nil)
+			_ = stream.Close()
+			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LNil}, nil)
 		}
 
 		if err != nil {
-			return engine.NewResult(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
+			_ = stream.Close()
+			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
 		}
 
-		return engine.NewResult(nil, []lua.LValue{lua.LString(chunk), lua.LNil}, nil)
+		return engine.NewUpdate(nil, []lua.LValue{lua.LString(chunk), lua.LNil}, nil)
 	})
 
 	return -1
@@ -109,12 +171,24 @@ func streamRead(l *lua.LState) int {
 		return 2
 	}
 
-	chunk, err := stream.ReadChunk()
+	// Get chunk size from argument or use default
+	var chunkSize int64 = DefaultChunkSize
+	if l.GetTop() >= 2 {
+		size := l.CheckNumber(2)
+		chunkSize = int64(size)
+	}
+
+	chunk, err := stream.ReadChunk(chunkSize)
 	if errors.Is(err, io.EOF) {
+		_ = stream.Close()
+
 		l.Push(lua.LNil)
 		return 1
 	}
+
 	if err != nil {
+		_ = stream.Close()
+
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
 		return 2
@@ -154,15 +228,26 @@ func streamBytesRead(l *lua.LState) int {
 
 // streamIter implements the __call metamethod for iteration in Lua
 func streamIter(l *lua.LState) int {
-	s, err := checkStream(l)
+	stream, err := checkStream(l)
 	if err != nil {
 		l.RaiseError("stream iteration error: %v", err)
 		return 0
 	}
 
+	// Get optional chunk size for iteration
+	var chunkSize int64 = DefaultChunkSize
+	if l.GetTop() >= 2 {
+		size := l.CheckNumber(2)
+		chunkSize = int64(size)
+	}
+
+	// Capture chunk size in closure
+	iterSize := chunkSize
+
 	l.Push(l.NewFunction(func(l *lua.LState) int {
-		data, err := s.ReadChunk()
+		data, err := stream.ReadChunk(iterSize)
 		if err != nil {
+			_ = stream.Close()
 			l.Push(lua.LNil)
 			return 1
 		}

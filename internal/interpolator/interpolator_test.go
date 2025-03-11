@@ -267,7 +267,7 @@ func TestInterpolator_Interpolate_ReplacerErrorHandling(t *testing.T) {
 }
 
 func TestInterpolator_Interpolate_File_Replacement(t *testing.T) {
-	// Create a temporary directory for testing
+	// Spawn a temporary directory for testing
 	tempDir, err := os.MkdirTemp("", "interpolator_test")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
@@ -276,7 +276,7 @@ func TestInterpolator_Interpolate_File_Replacement(t *testing.T) {
 		_ = os.RemoveAll(tempDir)
 	}()
 
-	// Create a test file
+	// Spawn a test file
 	testFilePath := filepath.Join(tempDir, "test.txt")
 	testFileContent := "This is the file content."
 	err = os.WriteFile(testFilePath, []byte(testFileContent), 0600)

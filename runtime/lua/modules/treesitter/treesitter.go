@@ -1,15 +1,14 @@
 package treesitter
 
 import (
-	"context"
 	"fmt"
+	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 
 	treesitter "github.com/tree-sitter/go-tree-sitter"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
-
-// todo: a good chunk of memory optimizations is needed here, but no rush
 
 // Module is the Lua module for the Tree-sitter bindings.
 type Module struct {
@@ -32,7 +31,7 @@ func (m *Module) Name() string {
 
 // Loader is the module loader function.
 func (m *Module) Loader(l *lua.LState) int {
-	t := l.NewTable()
+	t := l.CreateTable(0, 5) // 5 function entries
 
 	registerParser(l)
 	registerTree(l)
@@ -41,15 +40,13 @@ func (m *Module) Loader(l *lua.LState) int {
 	registerCursor(l)
 	registerLanguage(l)
 
-	lapi := map[string]lua.LGFunction{
-		"supported_languages": m.supportedLanguages,
-		"language":            m.language,
-		"parser":              newParser,
-		"parse":               m.parse,
-		"query":               newQuery,
-	}
+	// Add module functions directly for better performance
+	t.RawSetString("supported_languages", l.NewFunction(m.supportedLanguages))
+	t.RawSetString("language", l.NewFunction(m.language))
+	t.RawSetString("parser", l.NewFunction(newParser))
+	t.RawSetString("parse", l.NewFunction(m.parse))
+	t.RawSetString("query", l.NewFunction(newQuery))
 
-	l.SetFuncs(t, lapi)
 	l.Push(t)
 	return 1
 }
@@ -83,7 +80,7 @@ func (m *Module) language(l *lua.LState) int {
 
 	lang := treesitter.NewLanguage(langInfo.Language())
 
-	// Create and return Language userdata
+	// Spawn and return Language userdata
 	ud := l.NewUserData()
 	ud.Value = &LanguageWrapper{lang: lang}
 	l.SetMetatable(ud, l.GetTypeMetatable("treesitter.Language"))
@@ -103,7 +100,7 @@ func (m *Module) parse(l *lua.LState) int {
 	languageAlias := l.CheckString(1)
 	code := l.CheckString(2)
 
-	// Create parser and set language
+	// Spawn parser and set language
 	parser := treesitter.NewParser()
 	defer parser.Close()
 
@@ -128,23 +125,32 @@ func (m *Module) parse(l *lua.LState) int {
 
 	// Use context from Lua state if available
 	ctx := l.Context()
-	if ctx == nil {
-		ctx = context.Background()
+
+	uw := engine.GetUnitOfWork(ctx)
+	if uw == nil {
+		l.RaiseError("unit of work is not found")
+		return 0
 	}
 
+	var cflag uintptr
+	parser.SetCancellationFlag(&cflag)
+
 	// Parse with context
-	tree := parser.ParseCtx(ctx, []byte(code), nil)
+	tree := parser.ParseCtx(uw.Context(), []byte(code), nil)
 	if tree == nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString("failed to parse code"))
 		return 2
 	}
 
+	// Use the new constructor
+	treeWrapper := NewTree(uw, tree, code)
+
 	// Return tree userdata
 	ud := l.NewUserData()
-	ud.Value = &TreeWrapper{tree: tree, source: code}
-	l.SetMetatable(ud, l.GetTypeMetatable("treesitter.Tree"))
-	l.Push(ud)
+	ud.Value = treeWrapper
+	ud.Metatable = value.GetTypeMetatable(l, "treesitter.Tree")
 
+	l.Push(ud)
 	return 1
 }

@@ -2,6 +2,7 @@ package time
 
 import (
 	"context"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"time"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine"
@@ -47,7 +48,8 @@ func now(l *lua.LState) int {
 	t := time.Now()
 	ud := l.NewUserData()
 	ud.Value = &Time{time: t}
-	l.SetMetatable(ud, l.GetTypeMetatable("Time"))
+	ud.Metatable = value.GetTypeMetatable(l, "time.Time")
+
 	l.Push(ud)
 	return 1
 }
@@ -98,16 +100,16 @@ func sleepCoroutine(l *lua.LState) int {
 		return 1
 	}
 
-	coroutine.Wrap(l, func() *engine.Result {
+	coroutine.Wrap(l, func() *engine.Update {
 		if err := performSleep(l.Context(), duration); err != nil {
-			return engine.NewResult(
+			return engine.NewUpdate(
 				l,
 				[]lua.LValue{lua.LNil},
 				err,
 			)
 		}
 
-		return engine.NewResult(
+		return engine.NewUpdate(
 			l,
 			[]lua.LValue{lua.LString("ok")},
 			nil,
@@ -140,7 +142,8 @@ func date(l *lua.LState) int {
 	t := time.Date(year, month, day, hour, mn, sec, nsec, loc)
 	ud := l.NewUserData()
 	ud.Value = &Time{time: t}
-	l.SetMetatable(ud, l.GetTypeMetatable("Time"))
+	ud.Metatable = value.GetTypeMetatable(l, "time.Time")
+
 	l.Push(ud)
 	return 1
 }
@@ -151,14 +154,15 @@ func unix(l *lua.LState) int {
 	t := time.Unix(sec, nsec)
 	ud := l.NewUserData()
 	ud.Value = &Time{time: t}
-	l.SetMetatable(ud, l.GetTypeMetatable("Time"))
+	ud.Metatable = value.GetTypeMetatable(l, "time.Time")
+
 	l.Push(ud)
 	return 1
 }
 
 func parse(l *lua.LState) int {
 	layout := l.CheckString(1)
-	value := l.CheckString(2)
+	v := l.CheckString(2)
 
 	var loc *time.Location
 	if l.GetTop() >= 3 {
@@ -172,7 +176,7 @@ func parse(l *lua.LState) int {
 		loc = time.Local
 	}
 
-	t, err := time.ParseInLocation(layout, value, loc)
+	t, err := time.ParseInLocation(layout, v, loc)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.LString(err.Error()))
@@ -181,7 +185,8 @@ func parse(l *lua.LState) int {
 
 	ud := l.NewUserData()
 	ud.Value = &Time{time: t}
-	l.SetMetatable(ud, l.GetTypeMetatable("Time"))
+	ud.Metatable = value.GetTypeMetatable(l, "time.Time")
+
 	l.Push(ud)
 	return 1
 }
@@ -203,7 +208,8 @@ func timeAdd(l *lua.LState) int {
 	newTime := t.time.Add(duration)
 	result := l.NewUserData()
 	result.Value = &Time{time: newTime}
-	l.SetMetatable(result, l.GetTypeMetatable("Time"))
+	result.Metatable = value.GetTypeMetatable(l, "time.Time")
+
 	l.Push(result)
 	return 1
 }
@@ -224,7 +230,8 @@ func timeSub(l *lua.LState) int {
 	duration := t.time.Sub(other.time)
 	result := l.NewUserData()
 	result.Value = &Duration{duration: duration}
-	l.SetMetatable(result, l.GetTypeMetatable("Duration"))
+	result.Metatable = value.GetTypeMetatable(l, "time.Duration")
+
 	l.Push(result)
 	return 1
 }
@@ -243,7 +250,8 @@ func timeAddDate(l *lua.LState) int {
 	newTime := t.time.AddDate(years, months, days)
 	result := l.NewUserData()
 	result.Value = &Time{time: newTime}
-	l.SetMetatable(result, l.GetTypeMetatable("Time"))
+	result.Metatable = value.GetTypeMetatable(l, "time.Time")
+
 	l.Push(result)
 	return 1
 }
@@ -499,7 +507,8 @@ func timeIn(l *lua.LState) int {
 	newTime := t.time.In(loc.location)
 	result := l.NewUserData()
 	result.Value = &Time{time: newTime}
-	l.SetMetatable(result, l.GetTypeMetatable("Time"))
+	result.Metatable = value.GetTypeMetatable(l, "time.Time")
+
 	l.Push(result)
 	return 1
 }
@@ -514,7 +523,8 @@ func timeLocation(l *lua.LState) int {
 	loc := t.time.Location()
 	result := l.NewUserData()
 	result.Value = &Location{location: loc}
-	l.SetMetatable(result, l.GetTypeMetatable("Location"))
+	result.Metatable = value.GetTypeMetatable(l, "time.Location")
+
 	l.Push(result)
 	return 1
 }
@@ -529,7 +539,8 @@ func timeUTC(l *lua.LState) int {
 	newTime := t.time.UTC()
 	result := l.NewUserData()
 	result.Value = &Time{time: newTime}
-	l.SetMetatable(result, l.GetTypeMetatable("Time"))
+	result.Metatable = value.GetTypeMetatable(l, "time.Time")
+
 	l.Push(result)
 	return 1
 }
@@ -544,7 +555,8 @@ func timeLocal(l *lua.LState) int {
 	newTime := t.time.Local()
 	result := l.NewUserData()
 	result.Value = &Time{time: newTime}
-	l.SetMetatable(result, l.GetTypeMetatable("Time"))
+	result.Metatable = value.GetTypeMetatable(l, "time.Time")
+
 	l.Push(result)
 	return 1
 }
@@ -565,7 +577,8 @@ func timeRound(l *lua.LState) int {
 	newTime := t.time.Round(d.duration)
 	result := l.NewUserData()
 	result.Value = &Time{time: newTime}
-	l.SetMetatable(result, l.GetTypeMetatable("Time"))
+	result.Metatable = value.GetTypeMetatable(l, "time.Time")
+
 	l.Push(result)
 	return 1
 }
@@ -586,7 +599,8 @@ func timeTruncate(l *lua.LState) int {
 	newTime := t.time.Truncate(d.duration)
 	result := l.NewUserData()
 	result.Value = &Time{time: newTime}
-	l.SetMetatable(result, l.GetTypeMetatable("Time"))
+	result.Metatable = value.GetTypeMetatable(l, "time.Time")
+
 	l.Push(result)
 	return 1
 }
@@ -603,93 +617,90 @@ func timeToString(l *lua.LState) int {
 
 // Register time-related functionality
 func registerTime(l *lua.LState, mod *lua.LTable) {
-	// Register Time metatable
-	mt := l.NewTypeMetatable("Time")
-	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
-		"add":            timeAdd,
-		"sub":            timeSub,
-		"add_date":       timeAddDate,
-		"after":          timeAfter,
-		"before":         timeBefore,
-		"equal":          timeEqual,
-		"format":         timeFormat,
-		"format_rfc3339": timeFormatRFC3339,
-		"unix":           timeUnix,
-		"unix_nano":      timeUnixNano,
-		"date":           timeDate,
-		"clock":          timeClock,
-		"year":           timeYear,
-		"month":          timeMonth,
-		"day":            timeDay,
-		"hour":           timeHour,
-		"minute":         timeMinute,
-		"second":         timeSecond,
-		"nanosecond":     timeNanosecond,
-		"weekday":        timeWeekday,
-		"year_day":       timeYearDay,
-		"is_zero":        timeIsZero,
-		"in_location":    timeIn,
-		"location":       timeLocation,
-		"utc":            timeUTC,
-		"in_local":       timeLocal,
-		"round":          timeRound,
-		"truncate":       timeTruncate,
-	}))
-	l.SetField(mt, "__tostring", l.NewFunction(timeToString))
 
-	l.SetField(mod, "RFC3339", lua.LString(time.RFC3339))
-	l.SetField(mod, "RFC3339Nano", lua.LString(time.RFC3339Nano))
-	l.SetField(mod, "RFC822", lua.LString(time.RFC822))
-	l.SetField(mod, "RFC822Z", lua.LString(time.RFC822Z))
-	l.SetField(mod, "RFC850", lua.LString(time.RFC850))
-	l.SetField(mod, "RFC1123", lua.LString(time.RFC1123))
-	l.SetField(mod, "RFC1123Z", lua.LString(time.RFC1123Z))
-	l.SetField(mod, "Kitchen", lua.LString(time.Kitchen))
-	l.SetField(mod, "Stamp", lua.LString(time.Stamp))
-	l.SetField(mod, "StampMilli", lua.LString(time.StampMilli))
-	l.SetField(mod, "StampMicro", lua.LString(time.StampMicro))
-	l.SetField(mod, "StampNano", lua.LString(time.StampNano))
-	l.SetField(mod, "DateTime", lua.LString("2006-01-02 15:04:05"))
-	l.SetField(mod, "DateOnly", lua.LString("2006-01-02"))
-	l.SetField(mod, "TimeOnly", lua.LString("15:04:05"))
+	// Use the efficient registration method
+	value.RegisterTypeMethods(l,
+		"time.Time",
+		map[string]lua.LGFunction{
+			"__tostring": timeToString,
+		},
+		map[string]lua.LGFunction{
+			"add":            timeAdd,
+			"sub":            timeSub,
+			"add_date":       timeAddDate,
+			"after":          timeAfter,
+			"before":         timeBefore,
+			"equal":          timeEqual,
+			"format":         timeFormat,
+			"format_rfc3339": timeFormatRFC3339,
+			"unix":           timeUnix,
+			"unix_nano":      timeUnixNano,
+			"date":           timeDate,
+			"clock":          timeClock,
+			"year":           timeYear,
+			"month":          timeMonth,
+			"day":            timeDay,
+			"hour":           timeHour,
+			"minute":         timeMinute,
+			"second":         timeSecond,
+			"nanosecond":     timeNanosecond,
+			"weekday":        timeWeekday,
+			"year_day":       timeYearDay,
+			"is_zero":        timeIsZero,
+			"in_location":    timeIn,
+			"location":       timeLocation,
+			"utc":            timeUTC,
+			"in_local":       timeLocal,
+			"round":          timeRound,
+			"truncate":       timeTruncate,
+		},
+	)
+
+	// Set format constants using RawSetString for performance
+	mod.RawSetString("RFC3339", lua.LString(time.RFC3339))
+	mod.RawSetString("RFC3339NANO", lua.LString(time.RFC3339Nano))
+	mod.RawSetString("RFC822", lua.LString(time.RFC822))
+	mod.RawSetString("RFC822Z", lua.LString(time.RFC822Z))
+	mod.RawSetString("RFC850", lua.LString(time.RFC850))
+	mod.RawSetString("RFC1123", lua.LString(time.RFC1123))
+	mod.RawSetString("RFC1123Z", lua.LString(time.RFC1123Z))
+	mod.RawSetString("KITCHEN", lua.LString(time.Kitchen))
+	mod.RawSetString("STAMP", lua.LString(time.Stamp))
+	mod.RawSetString("STAMP_MILLI", lua.LString(time.StampMilli))
+	mod.RawSetString("STAMP_MICRO", lua.LString(time.StampMicro))
+	mod.RawSetString("STAMP_NANO", lua.LString(time.StampNano))
+	mod.RawSetString("DATE_TIME", lua.LString("2006-01-02 15:04:05"))
+	mod.RawSetString("DATE_ONLY", lua.LString("2006-01-02"))
+	mod.RawSetString("TIME_ONLY", lua.LString("15:04:05"))
 
 	// Register month constants
-	l.SetField(mod, "JANUARY", lua.LNumber(1))
-	l.SetField(mod, "FEBRUARY", lua.LNumber(2))
-	l.SetField(mod, "MARCH", lua.LNumber(3))
-	l.SetField(mod, "APRIL", lua.LNumber(4))
-	l.SetField(mod, "MAY", lua.LNumber(5))
-	l.SetField(mod, "JUNE", lua.LNumber(6))
-	l.SetField(mod, "JULY", lua.LNumber(7))
-	l.SetField(mod, "AUGUST", lua.LNumber(8))
-	l.SetField(mod, "SEPTEMBER", lua.LNumber(9))
-	l.SetField(mod, "OCTOBER", lua.LNumber(10))
-	l.SetField(mod, "NOVEMBER", lua.LNumber(11))
-	l.SetField(mod, "DECEMBER", lua.LNumber(12))
+	mod.RawSetString("JANUARY", lua.LNumber(1))
+	mod.RawSetString("FEBRUARY", lua.LNumber(2))
+	mod.RawSetString("MARCH", lua.LNumber(3))
+	mod.RawSetString("APRIL", lua.LNumber(4))
+	mod.RawSetString("MAY", lua.LNumber(5))
+	mod.RawSetString("JUNE", lua.LNumber(6))
+	mod.RawSetString("JULY", lua.LNumber(7))
+	mod.RawSetString("AUGUST", lua.LNumber(8))
+	mod.RawSetString("SEPTEMBER", lua.LNumber(9))
+	mod.RawSetString("OCTOBER", lua.LNumber(10))
+	mod.RawSetString("NOVEMBER", lua.LNumber(11))
+	mod.RawSetString("DECEMBER", lua.LNumber(12))
 
 	// Register weekday constants
-	l.SetField(mod, "SUNDAY", lua.LNumber(0))
-	l.SetField(mod, "MONDAY", lua.LNumber(1))
-	l.SetField(mod, "TUESDAY", lua.LNumber(2))
-	l.SetField(mod, "WEDNESDAY", lua.LNumber(3))
-	l.SetField(mod, "THURSDAY", lua.LNumber(4))
-	l.SetField(mod, "FRIDAY", lua.LNumber(5))
-	l.SetField(mod, "SATURDAY", lua.LNumber(6))
+	mod.RawSetString("SUNDAY", lua.LNumber(0))
+	mod.RawSetString("MONDAY", lua.LNumber(1))
+	mod.RawSetString("TUESDAY", lua.LNumber(2))
+	mod.RawSetString("WEDNESDAY", lua.LNumber(3))
+	mod.RawSetString("THURSDAY", lua.LNumber(4))
+	mod.RawSetString("FRIDAY", lua.LNumber(5))
+	mod.RawSetString("SATURDAY", lua.LNumber(6))
 
-	sleepFunc := sleep
-	if engine.IsCoroutineVM(l) {
-		sleepFunc = sleepCoroutine
-	}
-
-	// Register time functions
-	l.SetFuncs(mod, map[string]lua.LGFunction{
-		"now":   now,
-		"sleep": sleepFunc,
-		"date":  date,
-		"unix":  unix,
-		"parse": parse,
-
-		// requires async layer!
-		"after": after,
-	})
+	// Register time functions directly
+	mod.RawSetString("now", l.NewFunction(now))
+	mod.RawSetString("sleep", l.NewFunction(sleepCoroutine))
+	mod.RawSetString("date", l.NewFunction(date))
+	mod.RawSetString("unix", l.NewFunction(unix))
+	mod.RawSetString("parse", l.NewFunction(parse))
+	mod.RawSetString("after", l.NewFunction(after))
 }

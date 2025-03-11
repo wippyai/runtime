@@ -163,7 +163,7 @@ func TestBasicQuery(t *testing.T) {
 		local root = tree:root_node()
 		assert(root ~= nil, "root should not be nil")
 
-		-- Create a simple query to find the function
+		-- Spawn a simple query to find the function
 		local query = treesitter.query("go", "(function_declaration) @function")
 		assert(query ~= nil, "query should not be nil")
 
@@ -184,7 +184,7 @@ func TestBasicQuery(t *testing.T) {
 			local capture = match.captures[1]
 			assert(capture.node ~= nil, "capture should have node")
 
-			-- Get the text of the captured node
+			-- GetField the text of the captured node
 			local text = capture.node:text(code)
 
 			assert(text:match("^func hello"), "captured text should start with 'func hello'")
@@ -227,7 +227,7 @@ func greet(name string) {
 		local root = tree:root_node()
 		assert(root ~= nil, "root should not be nil")
 
-		-- Create query to capture function name and parameters
+		-- Spawn query to capture function name and parameters
 		local query = treesitter.query("go", [[
 (function_declaration
   name: (identifier) @func_name)
@@ -324,7 +324,7 @@ func log(msg string) {
                 elseif capture.name == "return_type" then
                     func.return_type = capture.node:text(code)
                 elseif capture.name == "params" then
-                    -- Get parameters from the parameter list node
+                    -- GetField parameters from the parameter list node
                     local param_matches = param_query:matches(capture.node, code)
                     for _, param_match in ipairs(param_matches) do
                         local param = {}
@@ -520,7 +520,7 @@ func example(x int, y string) int {
         local tree = treesitter.parse("go", code)
         local root = tree:root_node()
 
-        -- Create query with multiple patterns
+        -- Spawn query with multiple patterns
         local query = treesitter.query("go", [[
           (function_declaration) @func
           (parameter_declaration name: (identifier) @param_name type: (type_identifier) @param_type)
@@ -534,7 +534,7 @@ func example(x int, y string) int {
         local capture_count = query:capture_count()
         assert(capture_count == 4, "should have 4 captures") -- func, param_name, param_type, condition
 
-        -- Get all capture names
+        -- GetField all capture names
         local capture_names = {}
         for i = 0, capture_count-1 do
             local name = query:capture_name_for_id(i)
@@ -841,17 +841,17 @@ func ProcessData(data string) error {
     return validateResult(result)
 }
 
-type Handler struct {
-    Name string
-    ID   int
+type Spawn struct {
+    Alias string
+    Alias   int
 }
 
-func (h *Handler) Process() {
-    fmt.Println("Processing with:", h.Name)
+func (h *Spawn) Process() {
+    fmt.Println("Processing with:", h.Alias)
 }
 ]]
 
--- Create query with various predicates
+-- Spawn query with various predicates
 local query = treesitter.query("go", [[
 (identifier) @id
   (#match? @id "^Process")
@@ -866,12 +866,12 @@ local query = treesitter.query("go", [[
   (#eq? @type "string"))
 
 (type_identifier) @type
-  (#eq? @type "Handler")
+  (#eq? @type "Spawn")
 ]])
 
 assert(query ~= nil, "query creation failed")
 
--- Get text predicates for each pattern
+-- GetField text predicates for each pattern
 for i = 0, query:pattern_count() - 1 do
     local predicates = query:get_text_predicates(i)
     assert(predicates ~= nil, "should get text predicates for pattern " .. i)
@@ -879,7 +879,7 @@ for i = 0, query:pattern_count() - 1 do
     end
 end
 
--- Get property predicates
+-- GetField property predicates
 for i = 0, query:pattern_count() - 1 do
     local predicates = query:get_property_predicates(i)
     assert(predicates ~= nil, "should get property predicates for pattern " .. i)

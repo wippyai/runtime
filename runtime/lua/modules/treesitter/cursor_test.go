@@ -34,7 +34,7 @@ func TestCursorMethods(t *testing.T) {
 			local tree = treesitter.parse("go", code)
 			assert(tree ~= nil, "tree should not be nil")
 			
-			-- Create cursor and test initial state
+			-- Spawn cursor and test initial state
 			local cursor = tree:walk()
 			assert(cursor ~= nil, "cursor should not be nil")
 			assert(type(cursor) == "userdata", "cursor should be userdata")
@@ -115,7 +115,7 @@ func TestCursorMethods(t *testing.T) {
 			local depth = cursor:current_depth()
 			assert(depth > 0, "cursor should have moved down")
 			
-			-- Get the root node from the tree for resetting
+			-- GetField the root node from the tree for resetting
 			local root = tree:root_node()
 			assert(root ~= nil, "should have valid root node")
 			
@@ -193,7 +193,7 @@ func TestCursorAdditionalMethods(t *testing.T) {
 			local treesitter = require("treesitter")
 			local code = [[
 				type Person struct {
-					Name string
+					Alias string
 					Age  int
 				}
 			]]
@@ -283,7 +283,10 @@ func TestCursorImplementation(t *testing.T) {
 		require.NoError(t, err)
 		defer vm.Close()
 
-		err = vm.DoString(context.Background(), `
+		uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
+		defer func() { assert.NoError(t, uw.Close()) }()
+
+		err = vm.DoString(ctx, `
             local treesitter = require("treesitter")
             local code = "package main\n\nfunc test() {}\n"
             local tree = treesitter.parse("go", code)

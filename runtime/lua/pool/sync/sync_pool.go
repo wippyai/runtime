@@ -73,9 +73,9 @@ func (p *Pool) init() error {
 
 	p.vms = make(chan api.VM, p.size)
 
-	// Create initial VM pool
+	// Spawn initial VM pool
 	for i := 0; i < p.size; i++ {
-		vm, err := p.factory.MakeVM()
+		vm, err := p.factory.CreateVM()
 		if err != nil {
 			close(p.vms)
 			p.cleanupVMs()
@@ -126,7 +126,7 @@ func (p *Pool) Execute(ctx context.Context, name string, args ...lua.LValue) (lu
 	case <-p.done:
 		return nil, err
 	default:
-		if newVM, createErr := p.factory.MakeVM(); createErr == nil {
+		if newVM, createErr := p.factory.CreateVM(); createErr == nil {
 			select {
 			case p.vms <- newVM:
 			default:
@@ -158,6 +158,6 @@ func (p *Pool) cleanupVMs() {
 func (p *Pool) Close() {
 	p.closeOnce.Do(func() {
 		close(p.done)  // Signal shutdown
-		p.cleanupVMs() // Close existing VMs
+		p.cleanupVMs() // close existing VMs
 	})
 }

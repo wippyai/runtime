@@ -16,11 +16,11 @@ func TestCtxModule(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("get and set with valid context", func(t *testing.T) {
-		// Create a Contexter and add it to the context
+		// Spawn a Contexter and add it to the context
 		contexter := ctxapi.NewContexter[any]()
 		ctx := context.WithValue(context.Background(), ctxapi.ValuesCtx, contexter)
 
-		// Create a new Lua VM with the context module
+		// Spawn a new Lua VM with the context module
 		mod := New(logger)
 		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
 		require.NoError(t, err)

@@ -2,133 +2,115 @@ package terminal
 
 import (
 	"context"
-	"errors"
-	"fmt"
+	"github.com/ponyruntime/pony/api/process"
+	"github.com/ponyruntime/pony/api/pubsub"
+	"github.com/ponyruntime/pony/api/runtime"
+	"io"
 	"os"
 	"sync"
-
-	"github.com/ponyruntime/pony/api/events"
-	"github.com/ponyruntime/pony/api/registry"
-	api "github.com/ponyruntime/pony/api/service/terminal"
-	"go.uber.org/zap"
 )
 
-// terminalRunner encapsulates terminal execution and lifecycle
-type terminalRunner struct {
-	terminal api.Terminal
-	id       registry.ID
-	bus      events.Bus
-	log      *zap.Logger
-
-	ctx     context.Context
-	cancel  context.CancelFunc
-	done    chan struct{}
-	mu      sync.Mutex
-	exitErr error
+// RunnerConfig holds the configuration for a Runner.
+type RunnerConfig struct {
+	Stdin  io.Reader
+	Stdout io.Writer
+	Stderr io.Writer
 }
 
-func newTerminalRunner(
-	app api.Terminal,
-	id registry.ID,
-	bus events.Bus,
-	log *zap.Logger,
-) *terminalRunner {
-	return &terminalRunner{
-		terminal: app,
-		id:       id,
-		bus:      bus,
-		log:      log,
-		done:     make(chan struct{}),
+// DefaultRunnerConfig returns the default RunnerConfig.
+func DefaultRunnerConfig() *RunnerConfig {
+	return &RunnerConfig{
+		Stdin:  os.Stdin,
+		Stdout: os.Stdout,
+		Stderr: os.Stderr,
 	}
 }
 
-func (r *terminalRunner) start(ctx context.Context) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+// Runner manages the lifecycle of a process.
+type Runner struct {
+	pid    pubsub.PID
+	proc   process.Process
+	ctx    context.Context
+	cancel context.CancelFunc
+	cfg    *RunnerConfig
+	once   sync.Once
+}
 
-	if r.ctx != nil {
-		return errors.New("terminal already running")
+// NewTerminalRunner creates a new Runner. It derives a child context from the provided
+// terminal context (which might already include an onComplete callback) and attaches the terminal values.
+func NewTerminalRunner(
+	ctx context.Context,
+	cfg *RunnerConfig,
+	launch *process.Launch,
+) (*Runner, error) {
+	if cfg == nil {
+		cfg = DefaultRunnerConfig()
 	}
 
-	// Setup debug observation if supported
-	if debugTerm, ok := r.terminal.(api.DebugTerminal); ok {
-		if err := debugTerm.Observe(ctx, r.bus); err != nil {
-			return fmt.Errorf("debug setup failed: %w", err)
+	// Derive a runner context from the provided terminal context.
+	runnerCtx, cancel := context.WithCancel(ctx)
+
+	runnerCtx = process.WithAddedOnComplete(runnerCtx, func(pid pubsub.PID, result *runtime.Result) {
+		cancel()
+	})
+
+	runner := &Runner{
+		pid:    launch.PID,
+		proc:   launch.Process,
+		ctx:    runnerCtx,
+		cancel: cancel,
+		cfg:    cfg,
+	}
+
+	// Start the process with the runner's context.
+	if err := runner.proc.Start(runnerCtx, launch.PID, launch.Input); err != nil {
+		cancel()
+		return nil, err
+	}
+
+	// Launch the runner loop.
+	go runner.run()
+
+	return runner, nil
+}
+
+func (r *Runner) run() {
+	defer r.Stop()
+
+	for {
+		select {
+		case <-r.ctx.Done():
+			return
+		default:
+		}
+
+		err := r.proc.Step()
+		if err != nil {
+			r.Stop()
+			return
 		}
 	}
-
-	r.ctx, r.cancel = context.WithCancel(ctx)
-	go r.run()
-
-	return nil
 }
 
-func (r *terminalRunner) run() {
-	defer close(r.done)
-
-	err := r.terminal.Run(r.ctx, os.Stdin, os.Stdout)
-	r.exitErr = err
-	if err != nil {
-		r.log.Error("terminal exited with error",
-			zap.String("id", string(r.id)),
-			zap.Error(err))
-	} else {
-		r.log.Info("terminal exited",
-			zap.String("id", string(r.id)))
-	}
+// Send forwards a package to the underlying process.
+// Returns an error if the process cannot receive the package.
+func (r *Runner) Send(pkg *pubsub.Package) error {
+	return r.proc.Send(pkg)
 }
 
-func (r *terminalRunner) stop(ctx context.Context) error {
-	r.mu.Lock()
-	if r.ctx == nil {
-		r.mu.Unlock()
-		return nil
-	}
-
-	r.ctx = nil
-	r.mu.Unlock()
-
-	// coordinated shutdown
-	done := make(chan struct{})
-	go func() {
-		r.cancel()
-		<-r.done
-		close(done)
-	}()
-
-	// wait for either shutdown completion or timeout
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-done:
-		return nil
-	}
+// Stop gracefully terminates the runner and its associated process.
+// This method is idempotent and can be called multiple times safely.
+func (r *Runner) Stop() {
+	r.once.Do(func() {
+		r.proc.Terminate()
+		if r.cancel != nil {
+			r.cancel()
+		}
+	})
 }
 
-func (r *terminalRunner) wait() <-chan struct{} {
-	return r.done
-}
-
-func (r *terminalRunner) transferState(next *terminalRunner) error {
-	// Don't transfer state if it's the same app being updated
-	if r.id != next.id {
-		return nil
-	}
-
-	currentStateful, ok := r.terminal.(api.StatefulTerminal)
-	if !ok {
-		return nil
-	}
-
-	nextStateful, ok := next.terminal.(api.StatefulTerminal)
-	if !ok {
-		return nil
-	}
-
-	state := currentStateful.State()
-	if state == nil {
-		return nil
-	}
-
-	return nextStateful.SetState(state)
+// Wait returns a channel that will be closed when the runner terminates.
+// This can be used to wait for the runner to complete its execution.
+func (r *Runner) Wait() <-chan struct{} {
+	return r.ctx.Done()
 }

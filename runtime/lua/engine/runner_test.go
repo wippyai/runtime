@@ -14,14 +14,14 @@ type loggingLayer struct {
 }
 
 func (l *loggingLayer) Step(cvm CVM, tasks ...*Task) ([]*Task, error) {
-	// Count yields
+	// Ready yields
 	for _, task := range tasks {
 		if len(task.Yielded) > 0 {
 			l.yieldCount++
 		}
 	}
 
-	// only observe tasks, continue the execution chain
+	// only observe threads, continue the execution chain
 	return cvm.Step(tasks...)
 }
 
@@ -33,7 +33,7 @@ type execLayer struct {
 func (v *execLayer) Step(cvm CVM, tasks ...*Task) ([]*Task, error) {
 	// terminate all tests and perform execution here
 	for len(tasks) > 0 {
-		// Process tasks that have yielded values
+		// Process threads that have yielded values
 		for _, task := range tasks {
 			if len(task.Yielded) > 0 {
 				// Set empty resume values but don't modify the task otherwise
@@ -41,7 +41,7 @@ func (v *execLayer) Step(cvm CVM, tasks ...*Task) ([]*Task, error) {
 				v.handled = append(v.handled, task.Yielded)
 			}
 		}
-		// Continue the execution chain with all tasks
+		// Continue the execution chain with all threads
 		nextTasks, err := cvm.Step(tasks...)
 		if err != nil {
 			return nil, err

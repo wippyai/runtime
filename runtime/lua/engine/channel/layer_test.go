@@ -21,8 +21,11 @@ func TestUnbufferedChannelOperations(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.StartString(context.Background(), `
-			-- Create an unbuffered channel
+	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
+	defer func() { _ = uw.Close() }()
+
+	err = vm.StartString(ctx, `
+			-- Spawn an unbuffered channel
 			local ch = channel.new()
 
 			-- Sender coroutine
@@ -78,8 +81,11 @@ func TestUnbufferedChannelOperationsMainCoroutine(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.StartString(context.Background(), `
-			-- Create an unbuffered channel
+	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
+	defer func() { _ = uw.Close() }()
+
+	err = vm.StartString(ctx, `
+			-- Spawn an unbuffered channel
 			local ch = channel.new()
 
 			-- Sender coroutine
@@ -130,8 +136,11 @@ func TestClosedChannelOperations(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.StartString(context.Background(), `
-			-- Create a channel and close it
+	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
+	defer func() { _ = uw.Close() }()
+
+	err = vm.StartString(ctx, `
+			-- Spawn a channel and close it
 			local ch = channel.new()
 			ch:close()
 
@@ -147,11 +156,78 @@ func TestClosedChannelOperations(t *testing.T) {
 			-- Try sending to closed channel
 			coroutine.spawn(function()
 				coroutine.yield("sender_start")
-				local success, err = pcall(function()
+				local success, Error = pcall(function()
 					ch:send("message")
 				end)
 				assert(not success, "send should fail")
-				assert(string.match(err, "send on closed channel"), "wrong error message")
+
+				assert(string.match(tostring(Error), "send on closed channel"), "wrong error message")
+				coroutine.yield("send_done")
+			end)
+		`, "test")
+	assert.NoError(t, err)
+
+	runtime := NewChannelLayer()
+	tasks, err := runtime.Step(vm)
+	assert.NoError(t, err)
+
+	var yields []string
+	for len(tasks) > 0 {
+		for _, task := range tasks {
+			if len(task.Yielded) > 0 {
+				yields = append(yields, task.Yielded[0].String())
+			}
+		}
+		tasks, err = runtime.Step(vm, tasks...)
+		assert.NoError(t, err)
+	}
+
+	expectedOrder := []string{
+		"receiver_start",
+		"sender_start",
+		"receive_done",
+		"send_done",
+	}
+
+	assert.Equal(t, expectedOrder, yields, "yields occurred in unexpected order")
+}
+
+func TestClosedChannelOperations_CPCALL(t *testing.T) {
+	logger := zap.NewNop()
+
+	vm, err := engine.NewCVM(
+		logger,
+		engine.WithPreloaded("channel", NewChannelModule().Loader),
+	)
+	assert.NoError(t, err)
+	defer vm.Close()
+
+	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
+	defer func() { _ = uw.Close() }()
+
+	err = vm.StartString(ctx, `
+			-- Spawn a channel and close it
+			local ch = channel.new()
+			ch:close()
+
+			-- Try receiving from closed channel
+			coroutine.spawn(function()
+				coroutine.yield("receiver_start")
+				local msg, ok = ch:receive()
+				assert(msg == nil, "expected nil message")
+				assert(ok == false, "expected receive failure")
+				coroutine.yield("receive_done")
+			end)
+
+			-- Try sending to closed channel
+			coroutine.spawn(function()
+				coroutine.yield("sender_start")
+				local success, Error = cpcall(function()
+					ch:send("message")
+				end)
+				assert(not success, "send should fail")
+
+				assert(string.match(tostring(Error), "send on closed channel"), "wrong error message")
 				coroutine.yield("send_done")
 			end)
 		`, "test")
@@ -192,8 +268,11 @@ func TestCloseChannelWithPendingOperations(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.StartString(context.Background(), `
-			-- Create a channel
+	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
+	defer func() { _ = uw.Close() }()
+
+	err = vm.StartString(ctx, `
+			-- Spawn a channel
 			local ch = channel.new()
 
 			-- Spawn blocking receiver first
@@ -205,7 +284,7 @@ func TestCloseChannelWithPendingOperations(t *testing.T) {
 				coroutine.yield("receiver_notified")
 			end)
 
-			-- Close the channel after receiver is blocked
+			-- close the channel after receiver is blocked
 			coroutine.spawn(function()
 				coroutine.yield("closer_start")
 				ch:close()
@@ -249,8 +328,11 @@ func TestBufferedChannelBasicOperations(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.StartString(context.Background(), `
-			-- Create a buffered channel with capacity 2
+	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
+	defer func() { _ = uw.Close() }()
+
+	err = vm.StartString(ctx, `
+			-- Spawn a buffered channel with capacity 2
 			local ch = channel.new(2)
 
 			-- Test non-blocking sends up to capacity
@@ -310,8 +392,11 @@ func TestBufferedChannelBlockingBehavior(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.StartString(context.Background(), `
-		-- Create a buffered channel with capacity 1
+	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
+	defer func() { _ = uw.Close() }()
+
+	err = vm.StartString(ctx, `
+		-- Spawn a buffered channel with capacity 1
 		local ch = channel.new(1)
 
 		-- Fill the buffer and attempt to send (should block)
@@ -324,7 +409,7 @@ func TestBufferedChannelBlockingBehavior(t *testing.T) {
 			coroutine.yield("blocked_send_complete")
 		end)
 
-		-- Receiver gets values after sender blocks
+		-- Receiver gets Result after sender blocks
 		coroutine.spawn(function()
 			coroutine.yield("receiver_start")
 
@@ -375,8 +460,11 @@ func TestReadBufferedValues(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.StartString(context.Background(), `
-		-- Create a buffered channel with capacity 1
+	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
+	defer func() { _ = uw.Close() }()
+
+	err = vm.StartString(ctx, `
+		-- Spawn a buffered channel with capacity 1
 		local ch = channel.new(1)
 		
 		ch:send("msg1") -- no block
@@ -428,15 +516,18 @@ func TestBufferedChannelEdgeCases(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.StartString(context.Background(), `
+	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
+	defer func() { _ = uw.Close() }()
+
+	err = vm.StartString(ctx, `
 		-- Test error cases first
-		local success, err = pcall(function()
+		local success, Error = pcall(function()
 			local invalidCh = channel.new(-1) -- Should error
 		end)
 		assert(not success, "negative capacity should fail")
 		coroutine.yield("invalid_capacity_checked")
 		
-		-- Test sending multiple values and ordering in buffered channel
+		-- Test sending multiple Result and ordering in buffered channel
 		local chMulti = channel.new(3)
 		
 		-- Multiple sends first (all should succeed without blocking)
@@ -447,7 +538,7 @@ func TestBufferedChannelEdgeCases(t *testing.T) {
 		chMulti:send("msg3")
 		coroutine.yield("sent3")
 		
-		-- Now receive all values in order
+		-- Now receive all Result in order
 		local msg1, ok1 = chMulti:receive()
 		assert(msg1 == "msg1", "wrong first message")
 		coroutine.yield("received1")
@@ -460,7 +551,7 @@ func TestBufferedChannelEdgeCases(t *testing.T) {
 		assert(msg3 == "msg3", "wrong third message")
 		coroutine.yield("received3")
 		
-		-- Test close with buffered values
+		-- Test close with buffered Result
 		local chClose = channel.new(2)
 		chClose:send("buffered1")
 		chClose:send("buffered2")
@@ -475,7 +566,7 @@ func TestBufferedChannelEdgeCases(t *testing.T) {
 		coroutine.yield("close_buffered2")
 		
 		local msg3, ok3 = chClose:receive()
-		assert(msg3 == nil and ok3 == false, "should get closed signal after buffered values")
+		assert(msg3 == nil and ok3 == false, "should get closed signal after buffered Result")
 		coroutine.yield("close_with_buffer_checked")
 	`, "test")
 	assert.NoError(t, err)
@@ -521,8 +612,11 @@ func TestBufferedChannelCloseWithPendingOperations(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.StartString(context.Background(), `
-		-- Create a buffered channel with capacity 2
+	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
+	defer func() { _ = uw.Close() }()
+
+	err = vm.StartString(ctx, `
+		-- Spawn a buffered channel with capacity 2
 		local ch = channel.new(2)
 
 		-- Fill the buffer (no blocking)
@@ -541,11 +635,11 @@ func TestBufferedChannelCloseWithPendingOperations(t *testing.T) {
 		assert(msg2 == "msg2" and ok2 == true, "should receive second buffered message")
 		coroutine.yield("received_second")
 
-		-- Close empty channel 
+		-- close empty channel 
 		ch:close()
 		coroutine.yield("channel_closed")
 
-		-- Receive from closed empty channel
+		-- send from closed empty channel
 		local msg3, ok3 = ch:receive()
 		assert(msg3 == nil and ok3 == false, "should get closed channel signal")
 		coroutine.yield("received_closed")
@@ -589,23 +683,26 @@ func TestBufferedChannelClose(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.StartString(context.Background(), `
+	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
+	defer func() { _ = uw.Close() }()
+
+	err = vm.StartString(ctx, `
 		local ch = channel.new(2)
 		
 		-- Buffer a value
 		ch:send("msg1")
 		coroutine.yield("buffered")
 		
-		-- Close with value still buffered
+		-- close with value still buffered
 		ch:close() 
 		coroutine.yield("closed")
 
-		-- Get buffered value after close
+		-- GetField buffered value after close
 		local msg, ok = ch:receive()
 		assert(msg == "msg1" and ok == true, "should get buffered value")
 		coroutine.yield("received_buffered")
 
-		-- Get closed signal
+		-- GetField closed signal
 		local msg2, ok2 = ch:receive()
 		assert(msg2 == nil and ok2 == false, "should get closed signal")
 		coroutine.yield("received_closed")
@@ -647,7 +744,10 @@ func TestBufferedChannelSendError(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.StartString(context.Background(), `
+	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
+	defer func() { _ = uw.Close() }()
+
+	err = vm.StartString(ctx, `
 		local ch = channel.new(1)
 		ch:close()
 		ch:send("msg") -- Should error
@@ -675,8 +775,11 @@ func TestMainCoroutineBlockingOnBufferedChannel(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.StartString(context.Background(), `
-		-- Create a buffered channel with capacity 1
+	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
+	defer func() { _ = uw.Close() }()
+
+	err = vm.StartString(ctx, `
+		-- Spawn a buffered channel with capacity 1
 		local ch = channel.new(1)
 		
 		-- Fill the buffer
@@ -722,10 +825,13 @@ func TestMainCoroutinePanicHandling(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.StartString(context.Background(), `
+	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
+	defer func() { _ = uw.Close() }()
+
+	err = vm.StartString(ctx, `
 		local ch = channel.new(0)
 		
-		-- Start a goroutine that will be blocked
+		-- Launch a goroutine that will be blocked
 		coroutine.spawn(function()
 			ch:receive()
 		end)
@@ -773,11 +879,14 @@ func TestMainCoroutineChannelCascadingClose(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.StartString(context.Background(), `
+	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
+	defer func() { _ = uw.Close() }()
+
+	err = vm.StartString(ctx, `
 		local ch = channel.new(0)
 		local next = channel.new(2) -- Collect next from goroutines
 		
-		-- Start two goroutines that will be blocked on receive
+		-- Launch two goroutines that will be blocked on receive
 		for i = 1, 2 do
 			coroutine.spawn(function()
 				local val, ok = ch:receive()
@@ -787,7 +896,7 @@ func TestMainCoroutineChannelCascadingClose(t *testing.T) {
 		
 		coroutine.yield("goroutines_started")
 		
-		-- Close channel from main coroutine
+		-- close channel from main coroutine
 		ch:close()
 		coroutine.yield("channel_closed")
 		
@@ -836,8 +945,11 @@ func TestMapReducePattern(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.StartString(context.Background(), `
-		-- Create channels for work distribution and result collection
+	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
+	defer func() { _ = uw.Close() }()
+
+	err = vm.StartString(ctx, `
+		-- Spawn channels for work distribution and result collection
 		local workCh = channel.new(5)    -- Buffer some work items
 		local resultCh = channel.new(0)  -- Unbuffered next channel
 		local doneCh = channel.new(0)    -- Synchronization channel
@@ -846,7 +958,7 @@ func TestMapReducePattern(t *testing.T) {
 		local input = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
 		local expectedSum = 385  -- Sum of squares of numbers 1-10
 
-		-- Start workers
+		-- Launch workers
 		for i = 1, 3 do
 			coroutine.spawn(function()
 				while true do
@@ -955,7 +1067,10 @@ func TestFanOutPattern(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.StartString(context.Background(), `
+	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
+	defer func() { _ = uw.Close() }()
+
+	err = vm.StartString(ctx, `
 		-- Input channel and multiple output channels
 		local source = channel.new(0)
 		local outputs = {
@@ -975,7 +1090,7 @@ func TestFanOutPattern(t *testing.T) {
 				outIdx = (outIdx % #outputs) + 1
 			end
 			
-			-- Close all output channels
+			-- close all output channels
 			for i = 1, #outputs do
 				outputs[i]:close()
 			end
@@ -1085,7 +1200,10 @@ func TestFanInPattern(t *testing.T) {
 	assert.NoError(t, err)
 	defer vm.Close()
 
-	err = vm.StartString(context.Background(), `
+	uw, ctx := engine.NewUnitOfWork(context.Background(), vm.State())
+	defer func() { _ = uw.Close() }()
+
+	err = vm.StartString(ctx, `
 		-- Multiple input channels and single output channel
 		local inputs = {
 			channel.new(0),
@@ -1148,10 +1266,10 @@ func TestFanInPattern(t *testing.T) {
 				coroutine.yield("consumer_received_" .. val.value .. "_from_" .. val.source)
 			end
 			
-			-- Verify we got all expected values
+			-- Verify we got all expected Result
 			assert(#received == 6, "wrong number of items received")
 			
-			-- Count occurrences from each source
+			-- Ready occurrences from each source
 			local counts = {0, 0, 0}
 			for _, v in ipairs(received) do
 				counts[v.source] = counts[v.source] + 1

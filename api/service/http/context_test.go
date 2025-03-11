@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/ponyruntime/pony/api/registry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -87,20 +88,18 @@ func TestRouteInfo(t *testing.T) {
 				"id":   "123",
 				"name": "test",
 			},
-			Endpoint: EndpointConfig{
-				Path:   "/test/:id",
-				Method: "GET",
+			Func: registry.ID{
+				NS:   "test-ns",
+				Name: "test-handler",
 			},
 			MatchedURI: "/test/123",
-			EndpointID: "test-endpoint",
 		}
 
 		assert.Equal(t, "123", routeInfo.Params["id"])
 		assert.Equal(t, "test", routeInfo.Params["name"])
-		assert.Equal(t, "/test/:id", routeInfo.Endpoint.Path)
-		assert.Equal(t, "GET", routeInfo.Endpoint.Method)
+		assert.Equal(t, "test-ns", routeInfo.Func.NS)
+		assert.Equal(t, "test-handler", routeInfo.Func.Name)
 		assert.Equal(t, "/test/123", routeInfo.MatchedURI)
-		assert.Equal(t, "test-endpoint", routeInfo.EndpointID)
 	})
 }
 
@@ -122,14 +121,13 @@ func TestContextIntegration(t *testing.T) {
 	req := httptest.NewRequest("GET", "/test", nil)
 	w := httptest.NewRecorder()
 	reqCtx := NewRequestContext(req, w)
-	routeInfo := RouteInfo{
+	routeInfo := &RouteInfo{
 		Params: map[string]string{"id": "123"},
-		Endpoint: EndpointConfig{
-			Path:   "/test/:id",
-			Method: "GET",
+		Func: registry.ID{
+			NS:   "test-ns",
+			Name: "test-handler",
 		},
 		MatchedURI: "/test/123",
-		EndpointID: "test-endpoint",
 	}
 
 	t.Run("stores and retrieves from context", func(t *testing.T) {
@@ -144,12 +142,11 @@ func TestContextIntegration(t *testing.T) {
 		assert.Equal(t, w, retrievedReqCtx.ResponseWriter())
 
 		// Retrieve and verify RouteInfo
-		retrievedRouteInfo, ok := ctx.Value(RouteCtx).(RouteInfo)
+		retrievedRouteInfo, ok := GetRouteInfo(ctx)
 		require.True(t, ok)
 		assert.Equal(t, routeInfo.Params, retrievedRouteInfo.Params)
-		assert.Equal(t, routeInfo.Endpoint, retrievedRouteInfo.Endpoint)
+		assert.Equal(t, routeInfo.Func, retrievedRouteInfo.Func)
 		assert.Equal(t, routeInfo.MatchedURI, retrievedRouteInfo.MatchedURI)
-		assert.Equal(t, routeInfo.EndpointID, retrievedRouteInfo.EndpointID)
 	})
 }
 

@@ -17,26 +17,29 @@ func TestAsyncStreamRead(t *testing.T) {
 	t.Run("async stream reading", func(t *testing.T) {
 		log, _ := zap.NewDevelopment()
 
-		// Create base VM with stream module
+		// Spawn base VM with stream module
 		vm, err := engine.NewCVM(
 			log,
 			engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
-			engine.WithPreloaded("stream", NewStreamModule(log).Loader),
+			engine.WithPreloaded("stream", NewStreamModule().Loader),
 		)
 		require.NoError(t, err)
 		defer vm.Close()
 
-		// Create a wrapped VM with async runner
+		// Spawn a wrapped VM with async runner
 		wrapped := engine.NewRunner(
 			vm,
 			engine.WithLayer(channel.NewChannelLayer()),
 			engine.WithLayer(coroutine.NewCoroutineLayer()),
 		)
 
-		// Create test data and stream
+		uw, ctx := engine.NewUnitOfWork(context.Background(), nil)
+		defer func() { _ = uw.Close() }()
+
+		// Spawn test data and stream
 		testData := []byte("chunk1chunk2chunk3")
 		reader := newMockReadCloser(testData)
-		stream, err := NewStream(context.Background(), reader, NewStreamConfig(6))
+		stream, err := NewStream(ctx, reader)
 		require.NoError(t, err)
 
 		// Register stream in Lua
@@ -46,7 +49,7 @@ func TestAsyncStreamRead(t *testing.T) {
 		vm.State().SetMetatable(ud, vm.State().GetTypeMetatable("Stream"))
 		vm.State().SetGlobal("test_stream", ud)
 
-		// Import test script with coroutines
+		// Imports test script with coroutines
 		err = vm.Import(`
             function test_stream_read()
 				local results = {}
@@ -55,21 +58,21 @@ func TestAsyncStreamRead(t *testing.T) {
 				local done = channel.new(2) -- Track both coroutines completion
 				
 				-- Main flow reads first
-				local chunk = test_stream:read()
+				local chunk = test_stream:read(6)  -- Specify chunk size of 6
 				results.first = chunk
 				sync1:send(true)
 				
 				-- Both coroutines can run in parallel after first read
 				coroutine.spawn(function()
 					sync1:receive()
-					local chunk = test_stream:read()
+					local chunk = test_stream:read(6)  -- Specify chunk size of 6
 					results.second = chunk
 					sync2:send("next")
 				end)
 				
 				coroutine.spawn(function()
 					sync2:receive()
-					local chunk = test_stream:read()
+					local chunk = test_stream:read(6)  -- Specify chunk size of 6
 					results.third = chunk
 					done:send(true)
 				end)
@@ -80,7 +83,7 @@ func TestAsyncStreamRead(t *testing.T) {
         `, "test", "test_stream_read")
 		require.NoError(t, err)
 
-		// Execute test and verify results
+		// execute test and verify results
 		result, err := wrapped.Execute(context.Background(), "test_stream_read")
 		require.NoError(t, err)
 
@@ -100,26 +103,29 @@ func TestAsyncStreamIter(t *testing.T) {
 	t.Run("async stream iteration", func(t *testing.T) {
 		log := zap.NewNop()
 
-		// Create base VM with stream module
+		// Spawn base VM with stream module
 		vm, err := engine.NewCVM(
 			log,
 			engine.WithPreloaded("channel", channel.NewChannelModule().Loader),
-			engine.WithPreloaded("stream", NewStreamModule(log).Loader),
+			engine.WithPreloaded("stream", NewStreamModule().Loader),
 		)
 		require.NoError(t, err)
 		defer vm.Close()
 
-		// Create wrapped VM with async runner
+		// Spawn wrapped VM with async runner
 		wrapped := engine.NewRunner(
 			vm,
 			engine.WithLayer(channel.NewChannelLayer()),
 			engine.WithLayer(coroutine.NewCoroutineLayer()),
 		)
 
-		// Create test data and stream
+		uw, ctx := engine.NewUnitOfWork(context.Background(), nil)
+		defer func() { _ = uw.Close() }()
+
+		// Spawn test data and stream
 		testData := []byte("chunk1chunk2chunk3")
 		reader := newMockReadCloser(testData)
-		stream, err := NewStream(context.Background(), reader, NewStreamConfig(6))
+		stream, err := NewStream(ctx, reader)
 		require.NoError(t, err)
 
 		// Register stream in Lua
@@ -129,16 +135,16 @@ func TestAsyncStreamIter(t *testing.T) {
 		vm.State().SetMetatable(ud, vm.State().GetTypeMetatable("Stream"))
 		vm.State().SetGlobal("test_stream", ud)
 
-		// Import test script with coroutines
+		// Imports test script with coroutines
 		err = vm.Import(`
             function test_stream_iter()
                 local results = {}
                 local sync = channel.new(1)
                 
-                -- First coroutine reads chunks
+                -- First coroutine reads chunks with explicit chunk size of 6
                 coroutine.spawn(function()
                     local chunks = {}
-                    for chunk in test_stream() do
+                    for chunk in test_stream(6) do
                         table.insert(chunks, chunk)
                     end
                     results.chunks = chunks
@@ -152,7 +158,7 @@ func TestAsyncStreamIter(t *testing.T) {
         `, "test", "test_stream_iter")
 		require.NoError(t, err)
 
-		// Execute test and verify results
+		// execute test and verify results
 		result, err := wrapped.Execute(context.Background(), "test_stream_iter")
 		require.NoError(t, err)
 

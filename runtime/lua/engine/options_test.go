@@ -246,7 +246,7 @@ func TestVM_LibraryStackTrace(t *testing.T) {
 				lib.middle()
 			end
 			
-			lib.top()  -- Start the chain of calls
+			lib.top()  -- Launch the chain of calls
 			return lib
 		`
 		vm, err := NewVM(logger, WithLibrary("stacklib", libSource))
@@ -340,7 +340,7 @@ func TestVM_WithPreloaded(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("successful preload", func(t *testing.T) {
-		// Create a simple loader that returns a table
+		// Spawn a simple loader that returns a table
 		loader := func(l *lua.LState) int {
 			tab := l.NewTable()
 			l.SetField(tab, "test", lua.LString("value"))
