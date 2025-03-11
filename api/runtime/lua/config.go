@@ -15,15 +15,14 @@ const (
 	KindBteaApp registry.Kind = "btea.app.lua"
 	KindProcess registry.Kind = "process.lua"
 
-	// administrative
-	KindOperation registry.Kind = "operation.lua"
-	//todo: later we will add test
-
 	// KindLibrary identifies a Lua library component in the registry
 	KindLibrary registry.Kind = "library.lua"
 
 	// KindModule identifies a Lua module component in the registry
 	KindModule registry.Kind = "module.lua"
+
+	// DefaultMaxSize how many concurrent executions are allowed in a flex pool by default
+	DefaultMaxSize = 100
 )
 
 type (
@@ -32,6 +31,9 @@ type (
 	PoolConfig struct {
 		Size    int `json:"size"`    // Total number of VMs in the pool
 		Workers int `json:"workers"` // Number of worker threads
+		// lazy/flex pool specifics
+		WarmStart bool `json:"warm_start"` // Whether to precompile (default: false)
+		MaxSize   int  `json:"max_size"`   // Maximum size for lazy pool / concurrent executions (default: 100)
 	}
 
 	// FunctionConfig defines the configuration for a Lua function component.

@@ -114,3 +114,23 @@ entries:
     method: GET
     path: /registry/dump
     func: registry_dump
+
+  - name: list_tools
+    kind: function.lua
+    meta:
+      comment: "Lists all system tools and their schemas"
+    source: file://tools_endpoint.lua
+    method: handler
+    modules: [ http, json ]
+    imports:
+      tools_reg: wippy.llm:tools
+    pool:
+      size: 2
+
+  - name: list_tools.endpoint
+    kind: http.endpoint
+    meta:
+      comment: "Provides access to all system tools and their schemas"
+    method: GET
+    path: /tools/list
+    func: list_tools
