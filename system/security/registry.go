@@ -76,7 +76,7 @@ func (r *PolicyRegistry) handleEvent(e event.Event) {
 }
 
 func (r *PolicyRegistry) registerPolicy(e event.Event) {
-	entry, ok := e.Data.(security.PolicyEntry)
+	entry, ok := e.Data.(*security.PolicyEntry)
 	if !ok {
 		r.logger.Error("invalid policy payload",
 			zap.String("policy", string(e.Path)),
@@ -118,7 +118,7 @@ func (r *PolicyRegistry) updatePolicy(e event.Event) {
 		return
 	}
 
-	existing := existingVal.(security.PolicyEntry)
+	existing := existingVal.(*security.PolicyEntry)
 
 	// Remove from old groups that aren't in the new list
 	for _, oldGroup := range existing.Groups {
@@ -168,7 +168,7 @@ func (r *PolicyRegistry) deletePolicy(e event.Event) {
 	}
 
 	// Remove from all groups
-	existing := existingVal.(security.PolicyEntry)
+	existing := existingVal.(*security.PolicyEntry)
 	for _, groupID := range existing.Groups {
 		r.removePolicyFromGroup(groupID, policyID)
 	}
@@ -233,7 +233,7 @@ func (r *PolicyRegistry) GetPolicy(id registry.ID) (security.Policy, error) {
 		return nil, security.ErrPolicyNotFound
 	}
 
-	entry := val.(security.PolicyEntry)
+	entry := val.(*security.PolicyEntry)
 	return entry.Policy, nil
 }
 

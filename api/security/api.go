@@ -71,7 +71,7 @@ type (
 		Policies() []Policy
 	}
 
-	// PolicyEntry represents a policy registration payload
+	// PolicyEntry represents a policy registration payload, must be passed with all events by pointer
 	PolicyEntry struct {
 		// Policy is the policy to register
 		Policy Policy
