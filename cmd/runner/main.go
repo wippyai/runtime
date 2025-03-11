@@ -53,6 +53,7 @@ import (
 	fsdir "github.com/ponyruntime/pony/service/directory"
 	prochost "github.com/ponyruntime/pony/service/host"
 	"github.com/ponyruntime/pony/service/http"
+	"github.com/ponyruntime/pony/service/policy"
 	"github.com/ponyruntime/pony/service/sql"
 	service "github.com/ponyruntime/pony/service/supervisor"
 	"github.com/ponyruntime/pony/service/terminal"
@@ -516,6 +517,7 @@ func main() {
 	// ------ This is main service initiation point ------
 	app.services = eventbus.WithHandlers(append(
 		WithLuaRuntime(app),
+		WithYamlPolicies(app),
 		WithDirectoryManager(app),
 		WithHTTPService(app),
 		WithTerminalManager(app),
@@ -706,6 +708,18 @@ func WithSQLManager(a *App) eventbus.EventHandler {
 
 	// Register handler for all SQL-related kinds
 	return reghandler.NewRegistryHandler("db.sql.*", manager)
+}
+
+func WithYamlPolicies(a *App) eventbus.EventHandler {
+	// Create manager with required dependencies
+	manager := policy.NewManager(
+		a.eventBus,
+		policy.NewDefaultFactory(a.dtt),
+		a.logger.Named("policy"),
+	)
+
+	// Register handler for all SQL-related kinds
+	return reghandler.NewRegistryHandler("security.policy", manager)
 }
 
 func WithLuaRuntime(a *App) []eventbus.EventHandler {
