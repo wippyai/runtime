@@ -2,9 +2,8 @@ package function
 
 import (
 	"fmt"
-	api "github.com/ponyruntime/pony/api/runtime/lua"
-
 	"github.com/ponyruntime/pony/api/registry"
+	api "github.com/ponyruntime/pony/api/runtime/lua"
 	"github.com/ponyruntime/pony/runtime/lua/code"
 	"github.com/ponyruntime/pony/runtime/lua/component"
 	"go.uber.org/zap"
@@ -65,5 +64,13 @@ func (f *Factory) CreateVM() (api.VM, error) {
 	}
 
 	// Create and return VM using the factory
-	return realFactory.CreateVM()
+	vm, err := realFactory.CreateVM()
+	if err := realFactory.Close(); err != nil {
+		if vm != nil {
+			vm.Close()
+		}
+		return nil, fmt.Errorf("failed to close runner: %w", err)
+	}
+
+	return vm, err
 }

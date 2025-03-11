@@ -14,8 +14,6 @@ entries:
     modules: [ http, time, json ]
     imports:
       registry: "wippy.test:registry"
-    pool:
-      size: 1
 
   - name: test
     kind: function.lua

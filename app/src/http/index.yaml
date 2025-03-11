@@ -32,8 +32,6 @@ entries:
     source: file://http_pid.lua
     method: handler
     modules: [ http ]
-    pool:
-      size: 2
 
   - name: demo_pid.endpoint
     kind: http.endpoint
@@ -50,8 +48,6 @@ entries:
     source: file://list_dir.lua
     method: handler
     modules: [ http, fs, json, time, funcs ]
-    pool:
-      size: 1
 
   - name: fs_listdir.endpoint
     kind: http.endpoint
@@ -68,8 +64,6 @@ entries:
     source: file://ticker.lua
     method: handler
     modules: [ http, time, json ]
-    pool:
-      size: 8
 
   - name: time_ticker.endpoint
     kind: http.endpoint
@@ -86,8 +80,6 @@ entries:
     source: file://env.lua
     method: handler
     modules: [ http, json, env ]
-    pool:
-      size: 1
 
   - name: system_env.endpoint
     kind: http.endpoint
@@ -104,8 +96,6 @@ entries:
     source: file://registry_dump.lua
     method: handler
     modules: [ http, json, registry ]
-    pool:
-      size: 2
 
   - name: registry_dump.endpoint
     kind: http.endpoint
@@ -124,8 +114,6 @@ entries:
     modules: [ http, json ]
     imports:
       tools_reg: wippy.llm:tools
-    pool:
-      size: 2
 
   - name: list_tools.endpoint
     kind: http.endpoint

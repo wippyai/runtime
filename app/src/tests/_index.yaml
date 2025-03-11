@@ -17,5 +17,3 @@ entries:
     modules: [ "http_client", "fs", "time", "sql", "crypto" ]
     imports:
       test: "wippy.test:test"
-    pool:
-      size: 1 # todo change it to support cold pools
