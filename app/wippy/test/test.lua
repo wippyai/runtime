@@ -582,6 +582,12 @@ local function format_error_message(err)
     -- For error objects, first get the basic message
     local error_message = tostring(err)
 
+    -- Check if the error message itself indicates it's an assertion error
+    if string.match(error_message, "Expected") then
+        -- Just return it without adding any stack trace
+        return error_message
+    end
+
     -- Only add stack trace for non-assertion errors (like runtime errors)
     -- and only if the errors.call_stack function is available
     if errors and errors.call_stack then
