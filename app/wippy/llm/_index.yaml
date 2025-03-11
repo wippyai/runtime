@@ -1,6 +1,9 @@
 version: "1.0"
 namespace: wippy.llm
 
+meta:
+  depends_on: [ "ns:wippy.test" ]
+
 entries:
   - name: tools
     kind: library.lua
@@ -17,3 +20,25 @@ entries:
       type: "library"
     source: file://output.lua
     modules: [ "time" ]
+
+  - name: prompt
+    kind: library.lua
+    meta:
+      comment: "Universal abstract prompt builder for LLM messages with multi-modal support"
+      type: "library"
+    source: file://prompt.lua
+    modules: [ "json" ]
+
+  - name: prompt_test
+    kind: function.lua
+    meta:
+      name: "Prompt Library Test"
+      type: "test"
+      tags: [ "llm", "prompts", "messages", "tests" ]
+      comment: "Tests the prompt library functionality for building LLM messages"
+    source: file://prompt_test.lua
+    method: run_tests
+    modules: [ "json" ]
+    imports:
+      test: "wippy.test:test"
+      prompt: "wippy.llm:prompt"
