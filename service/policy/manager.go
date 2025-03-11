@@ -6,7 +6,6 @@ import (
 	"github.com/ponyruntime/pony/api/service/policy"
 
 	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/security"
 	"go.uber.org/zap"
@@ -22,14 +21,9 @@ type Manager struct {
 // NewManager creates a new policy manager
 func NewManager(
 	bus event.Bus,
-	dtt payload.Transcoder,
 	factory FactoryAPI,
 	logger *zap.Logger,
 ) *Manager {
-	if factory == nil {
-		factory = NewDefaultFactory(dtt)
-	}
-
 	return &Manager{
 		log:     logger,
 		bus:     bus,
