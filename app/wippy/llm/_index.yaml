@@ -1,0 +1,11 @@
+version: "1.0"
+namespace: wippy.llm
+
+entries:
+  - name: tools
+    kind: library.lua
+    meta:
+      comment: "Tool resolver library for discovering tools and their schemas"
+      type: "tool"
+    source: file://tools.lua
+    modules: [ "json", "registry" ]

@@ -10,6 +10,8 @@ entries:
     kind: function.lua
     meta:
       comment: "LLM query function with streaming support"
+      llm_implements: generate
+      models: [ "gpt*", "o*" ]
     source: file://llm_query.lua
     method: handler
     modules: [ "http_client", "json", "env", "time" ]
