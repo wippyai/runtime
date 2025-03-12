@@ -934,6 +934,56 @@ local function define_tests()
             local expected_total = done_message.meta.usage.prompt_tokens + done_message.meta.usage.completion_tokens
             expect(done_message.meta.usage.total_tokens).to_equal(expected_total, "Total tokens calculation incorrect")
         end)
+
+        it("should respect system prompts when generating responses", function()
+            -- Skip test if integration tests are disabled
+            if not RUN_INTEGRATION_TESTS then
+                print("Skipping system prompt integration test - not enabled")
+                return
+            end
+
+            -- Create a prompt with a clear system instruction
+            local promptBuilder = prompt.new()
+            promptBuilder:add_system("You must respond in the style of a pirate captain. Use pirate language, sayings like 'Arrr' and 'Ahoy', and talk about the sea.")
+            promptBuilder:add_user("Tell me about coding best practices")
+
+            -- Make the real API call with gpt-4o-mini
+            local response = text_generation.handler({
+                model = "gpt-4o-mini",
+                messages = promptBuilder:get_messages(),
+                options = {
+                    temperature = 0, -- Deterministic output
+                    max_tokens = 150  -- Moderate response size
+                },
+                api_key = actual_api_key
+            })
+
+            -- Verify response
+            expect(response.error).to_be_nil("API request failed: " ..
+                (response.error_message or "unknown error"))
+            expect(response.result).not_to_be_nil("No response received from API")
+
+            -- Check for pirate language markers in the response
+            local pirate_markers = {"arr", "ahoy", "matey", "sea", "ship", "pirate", "captain"}
+            local has_pirate_language = false
+            for _, marker in ipairs(pirate_markers) do
+                if response.result:lower():find(marker) then
+                    has_pirate_language = true
+                    break
+                end
+            end
+
+            expect(has_pirate_language).to_be_true("Response doesn't contain pirate language as instructed by system message: " .. response.result)
+
+            -- Verify token information is present
+            expect(response.tokens).not_to_be_nil("Expected token information")
+            expect(response.tokens.prompt_tokens > 0).to_be_true("No prompt tokens reported")
+            expect(response.tokens.completion_tokens > 0).to_be_true("No completion tokens reported")
+            expect(response.tokens.total_tokens > 0).to_be_true("No total tokens reported")
+
+            -- Print response for manual verification
+            print("System prompt test response: " .. response.result:sub(1, 100) .. "...")
+        end)
     end)
 end
 
