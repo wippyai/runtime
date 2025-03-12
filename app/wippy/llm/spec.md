@@ -15,6 +15,9 @@
     },                     
     tool_call_behavior = "auto",           
     
+    -- json schema for schema based responses only, tool expected to return object that matches this schema
+    schema = {},
+    
     -- Streaming configuration
     stream = false,
     reply_to = "process-id",               
