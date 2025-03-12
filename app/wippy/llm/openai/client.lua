@@ -81,7 +81,7 @@ function openai.request(endpoint_path, payload, options)
     options = options or {}
 
     -- Get API key
-    local api_key = options.api_key or env.get("OPENAI_KEY")
+    local api_key = options.api_key or env.get("OPENAI_API_KEY")
     if not api_key then
         return nil, {
             type = output.ERROR_TYPE.AUTHENTICATION,
