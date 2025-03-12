@@ -227,12 +227,22 @@ function tool_resolver.find_tools(criteria)
         return {}
     end
 
-    -- Convert to tool definitions
+    -- Convert to tool definitions and check for duplicates
     local tools = {}
+    local name_to_id = {}
 
     for _, entry in ipairs(entries) do
         local tool, err = tool_resolver.get_tool_schema(entry.id)
         if tool then
+            -- Check for duplicate tool names
+            if name_to_id[tool.name] then
+                return nil, "Duplicate tool name detected: '" .. tool.name .. "' for tools '" ..
+                           name_to_id[tool.name] .. "' and '" .. entry.id .. "'"
+            end
+
+            -- Record this tool name
+            name_to_id[tool.name] = entry.id
+
             table.insert(tools, tool)
         end
     end

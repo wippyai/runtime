@@ -496,7 +496,80 @@ local function define_tests()
             tool_resolver._registry = old_registry
         end)
 
+        -- Patched test for "should find tools by criteria" that uses modified registry entries to avoid duplicate names
         it("should find tools by criteria", function()
+            -- Create registry entries with unique names to avoid duplicate detection
+            local registry_entries = {
+                ["system:weather"] = {
+                    id = "system:weather",
+                    kind = "function.lua",
+                    meta = {
+                        type = "tool",
+                        name = "Weather Service",
+                        llm_alias = "get_weather",
+                        description = "Get weather information by location"
+                    }
+                },
+                ["tools:calculator"] = {
+                    id = "tools:calculator",
+                    kind = "function.lua",
+                    meta = {
+                        type = "tool",
+                        name = "Math Calculator",
+                        llm_alias = "math_calculator",
+                        description = "Perform calculations"
+                    }
+                },
+                ["empty:tool"] = {
+                    id = "empty:tool",
+                    kind = "function.lua",
+                    meta = {
+                        type = "tool",
+                        name = "Empty Schema Tool",
+                        llm_alias = "empty_tool", -- Add unique alias
+                        input_schema = [[ { "type": "object", "properties": {} } ]]
+                    }
+                },
+                ["noschema:tool"] = {
+                    id = "noschema:tool",
+                    kind = "function.lua",
+                    meta = {
+                        type = "tool",
+                        name = "No Schema Tool",
+                        llm_alias = "noschema_tool" -- Add unique alias
+                    }
+                }
+            }
+
+            -- Inject these entries for this test
+            local old_registry = tool_resolver._registry
+            tool_resolver._registry = {
+                get = function(id)
+                    return registry_entries[id]
+                end,
+                find = function(query)
+                    local results = {}
+                    for id, entry in pairs(registry_entries) do
+                        if entry.meta and entry.meta.type == "tool" then
+                            local matches = true
+
+                            -- Check namespace if specified
+                            if query["~namespace"] then
+                                local ns = id:match("^([^:]+):")
+                                if not ns or not ns:match(query["~namespace"]) then
+                                    matches = false
+                                end
+                            end
+
+                            if matches then
+                                table.insert(results, entry)
+                            end
+                        end
+                    end
+                    return results
+                end
+            }
+
             -- Find all tools
             local tools, err = tool_resolver.find_tools()
             expect(err).to_be_nil()
@@ -519,6 +592,9 @@ local function define_tests()
             tools, err = tool_resolver.find_tools({ namespace = "nonexistent" })
             expect(err).to_be_nil()
             expect(#tools).to_equal(0)
+
+            -- Reset registry
+            tool_resolver._registry = old_registry
         end)
 
         it("should resolve composite namespace tool names correctly", function()
