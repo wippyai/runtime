@@ -805,9 +805,134 @@ local function define_tests()
             expect(response.result).to_equal(complete_text)
 
             -- Verify the final response has the structure we expect
-            expect(response.tokens).to_be_nil("Tokens should be nil in streaming mode")
+            expect(response.tokens).not_to_be_nil("Tokens should be in streaming mode")
             expect(response.metadata).not_to_be_nil("Response should have metadata")
             expect(response.finish_reason).not_to_be_nil("Response should have finish reason")
+        end)
+
+        it("should extract thinking tokens from done message when streaming with o3-mini", function()
+            -- Skip test if integration tests are disabled
+            if not RUN_INTEGRATION_TESTS then
+                print("Skipping integration test - not enabled")
+                return
+            end
+
+            -- Set up process.send mock to capture streamed responses
+            local received_messages = {}
+            mock(process, "send", function(pid, topic, data)
+                table.insert(received_messages, { pid = pid, topic = topic, data = data })
+            end)
+
+            -- Create prompt for a reasoning task
+            local promptBuilder = prompt.new()
+            promptBuilder:add_user("Think and say hello world in reverse?")
+
+            -- Make a streaming request with thinking effort
+            local response = text_generation.handler({
+                model = "o3-mini",
+                messages = promptBuilder:get_messages(),
+                options = {
+                    thinking_effort = 10,        -- Medium reasoning
+                    max_completion_tokens = 2000 -- Use correct parameter for o-models
+                },
+                api_key = actual_api_key,
+                stream = {
+                    reply_to = "test-thinking-pid",
+                    topic = "test_stream_thinking"
+                }
+            })
+
+            -- Verify the response structure for streaming
+            expect(response.error).to_be_nil("API request failed: " .. (response.error_message or "unknown error"))
+            expect(response.streaming).to_be_true("Response should indicate streaming")
+
+            -- Look for done message in received messages
+            local done_message = nil
+            for _, msg in ipairs(received_messages) do
+                if msg.data and msg.data.type == "done" then
+                    done_message = msg.data
+                    print("Done message: " .. json.encode(done_message))
+                    break
+                end
+            end
+
+            -- Verify done message includes usage and reasoning tokens
+            expect(done_message).not_to_be_nil("No done message received")
+            expect(done_message.meta).not_to_be_nil("No metadata in done message")
+            expect(done_message.meta.usage).not_to_be_nil("No usage data in done message")
+
+            -- If tokens are available in the main response, verify them too
+            if response.tokens then
+                print("Tokens in response: " .. json.encode(response.tokens))
+                expect(response.tokens.prompt_tokens > 0).to_be_true("No prompt tokens in response")
+                expect(response.tokens.completion_tokens > 0).to_be_true("No completion tokens in response")
+
+                -- For o3-mini with thinking_effort, we should have thinking tokens
+                if response.tokens.thinking_tokens then
+                    expect(response.tokens.thinking_tokens > 0).to_be_true("No thinking tokens in response")
+                end
+            end
+        end)
+
+        it("should extract standard tokens from done message when streaming with gpt-4o-mini", function()
+            -- Skip test if integration tests are disabled
+            if not RUN_INTEGRATION_TESTS then
+                print("Skipping integration test - not enabled")
+                return
+            end
+
+            -- Set up process.send mock to capture streamed responses
+            local received_messages = {}
+            mock(process, "send", function(pid, topic, data)
+                table.insert(received_messages, { pid = pid, topic = topic, data = data })
+            end)
+
+            -- Create prompt for a standard task
+            local promptBuilder = prompt.new()
+            promptBuilder:add_user("List 3 benefits of unit testing")
+
+            -- Make a streaming request with gpt-4o-mini
+            local response = text_generation.handler({
+                model = "gpt-4o-mini",
+                messages = promptBuilder:get_messages(),
+                options = {
+                    temperature = 0,
+                    max_tokens = 150
+                },
+                api_key = actual_api_key,
+                stream = {
+                    reply_to = "test-standard-pid",
+                    topic = "test_stream_standard"
+                }
+            })
+
+            -- Verify the response structure
+            expect(response.error).to_be_nil("API request failed: " ..
+                (response.error_message or "unknown error"))
+            expect(response.streaming).to_be_true("Response should indicate streaming")
+
+            -- Extract token usage from the done message
+            local done_message = nil
+            for _, msg in ipairs(received_messages) do
+                if msg.data.type == "done" and msg.pid == "test-standard-pid" then
+                    done_message = msg.data
+                    break
+                end
+            end
+
+            expect(done_message).not_to_be_nil("No done message received for gpt-4o-mini")
+            expect(done_message.meta.usage).not_to_be_nil("No token usage in done message")
+            expect(done_message.meta.usage.prompt_tokens > 0).to_be_true("No prompt tokens reported")
+            expect(done_message.meta.usage.completion_tokens > 0).to_be_true("No completion tokens reported")
+            expect(done_message.meta.usage.total_tokens > 0).to_be_true("No total tokens reported")
+
+            -- Verify that thinking tokens are not present in regular model
+            expect(done_message.meta.usage.thinking_tokens == nil or done_message.meta.usage.thinking_tokens == 0)
+                .to_be_true("Thinking tokens should not be present for gpt-4o-mini")
+
+            -- Check that total tokens is sum of prompt and completion tokens
+            local expected_total = done_message.meta.usage.prompt_tokens + done_message.meta.usage.completion_tokens
+            expect(done_message.meta.usage.total_tokens).to_equal(expected_total, "Total tokens calculation incorrect")
         end)
     end)
 end

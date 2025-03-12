@@ -258,64 +258,95 @@ function openai.process_stream(stream_response, callbacks)
     -- Process each streamed chunk
     while true do
         local chunk, err = stream_response.stream:read()
+
         -- Handle read errors
         if err then
             on_error(err)
             return nil, err
         end
+
         -- End of stream
         if not chunk then
             break
         end
+
         -- Skip empty chunks
         if chunk == "" then
+            -- Continue to next chunk
             goto continue
         end
 
-        -- Split the chunk into individual data lines
-        for data_line in chunk:gmatch("data:%s*(.-)%s*\n") do
-            -- Skip empty lines
+        -- Check for errors in the chunk
+        local error_json = chunk:match('data:%s*({.-"error":.-)%s*\n')
+        if error_json then
+            local parsed_error, parse_err = json.decode(error_json)
+            if not parse_err and parsed_error and parsed_error.error then
+                local error_info = {
+                    message = parsed_error.error.message,
+                    code = parsed_error.error.code,
+                    type = parsed_error.error.type,
+                    param = parsed_error.error.param
+                }
+                on_error(error_info)
+                return nil, error_info.message, { error = error_info }
+            end
+        end
+
+        -- Process each data line in the chunk
+        for data_line in chunk:gmatch('data:%s*(.-)%s*\n') do
+            -- Skip empty data lines
             if data_line == "" then
-                goto continue_inner
+                goto continue_line
             end
 
             -- Check for [DONE] marker
             if data_line == "[DONE]" then
-                goto done
+                -- Create the final result
+                local result = {
+                    content = full_content,
+                    finish_reason = finish_reason,
+                    usage = usage,
+                    metadata = metadata
+                }
+                -- Call the done callback
+                on_done(result)
+                return full_content, nil, result
             end
 
             -- Parse the JSON data
             local parsed, parse_err = json.decode(data_line)
             if parse_err then
-                print("JSON parse error:", parse_err)
-                goto continue_inner
+                -- Skip lines that can't be parsed
+                goto continue_line
             end
 
-            -- Process the delta
+            -- Process the delta if present
             if parsed.choices and parsed.choices[1] then
                 local choice = parsed.choices[1]
+
                 -- Handle content delta
                 if choice.delta and choice.delta.content then
                     local content_chunk = choice.delta.content
                     full_content = full_content .. content_chunk
                     on_content(content_chunk)
                 end
+
                 -- Record finish reason if present
                 if choice.finish_reason then
                     finish_reason = choice.finish_reason
                 end
             end
+
             -- Capture usage info if present
             if parsed.usage then
                 usage = parsed.usage
             end
 
-            ::continue_inner::
+            ::continue_line::
         end
 
         ::continue::
     end
-    ::done::
 
     -- Create the final result
     local result = {
@@ -324,6 +355,13 @@ function openai.process_stream(stream_response, callbacks)
         usage = usage,
         metadata = metadata
     }
+
+    -- Make sure usage is included for o-models with reasoning
+    if usage and usage.completion_tokens_details and usage.completion_tokens_details.reasoning_tokens then
+        if not result.usage then result.usage = {} end
+        if not result.usage.completion_tokens_details then result.usage.completion_tokens_details = {} end
+        result.usage.completion_tokens_details.reasoning_tokens = usage.completion_tokens_details.reasoning_tokens
+    end
 
     -- Call the done callback
     on_done(result)

@@ -27,20 +27,47 @@ local function handler(args)
     -- Configure options objects for easier management
     local options = args.options or {}
 
+    -- Check if this is an o* model (OpenAI o-series models)
+    local is_o_model = args.model:match("^o%d") ~= nil
+
     -- Configure request payload
     local payload = {
         model = args.model,
         messages = messages,
-        temperature = options.temperature,
         top_p = options.top_p,
         n = options.n,
-        max_tokens = options.max_tokens,
         presence_penalty = options.presence_penalty,
         frequency_penalty = options.frequency_penalty,
         logit_bias = options.logit_bias,
         user = options.user,
         seed = options.seed
     }
+
+    -- Handle max tokens parameter differently based on model type
+    if options.max_tokens then
+        if is_o_model then
+            payload.max_completion_tokens = options.max_tokens
+            -- Remove max_tokens for o* models as it's not supported
+            payload.max_tokens = nil
+        else
+            payload.max_tokens = options.max_tokens
+        end
+    end
+
+    -- Always apply max_completion_tokens if explicitly provided
+    if options.max_completion_tokens then
+        payload.max_completion_tokens = options.max_completion_tokens
+        -- For consistency, remove max_tokens if max_completion_tokens is specified
+        payload.max_tokens = nil
+    end
+
+    -- Add temperature based on model type
+    if options.temperature ~= nil then
+        -- Only set temperature for non-reasoning models or non-o* models
+        if not (is_o_model and options.thinking_effort) then
+            payload.temperature = options.temperature
+        end
+    end
 
     -- Add stop sequences if provided
     if options.stop_sequences then
@@ -52,12 +79,11 @@ local function handler(args)
     -- Add thinking effort mapping - using the utility in openai client
     if options.thinking_effort then
         payload.reasoning_effort = openai.map_thinking_effort(options.thinking_effort)
-        payload.temperature = nil -- not working for reasoning models
-    end
 
-    -- Add max_completion_tokens
-    if options.max_completion_tokens then
-        payload.max_completion_tokens = options.max_completion_tokens
+        -- Remove temperature for o* models with thinking effort as it's not compatible
+        if is_o_model then
+            payload.temperature = nil
+        end
     end
 
     -- Make the request
@@ -103,15 +129,30 @@ local function handler(args)
         local finish_reason = nil
 
         -- Process the streaming response
-        full_content = openai.process_stream(response, {
+        local stream_content, stream_err, stream_result = openai.process_stream(response, {
             on_content = function(content_chunk)
                 streamer:buffer_content(content_chunk)
             end,
             on_error = function(error_info)
+                -- Convert error to standard format
+                local mapped_error = {
+                    error = output.ERROR_TYPE.SERVER_ERROR,
+                    error_message = error_info.message or "Error processing stream",
+                    code = error_info.code
+                }
+
+                -- If error mentions specific parameters, change error type
+                if error_info.param and error_info.message then
+                    if error_info.message:match("max_tokens") then
+                        mapped_error.error = output.ERROR_TYPE.INVALID_REQUEST
+                    end
+                end
+
+                -- Send error to the streamer
                 streamer:send_error(
-                    output.ERROR_TYPE.SERVER_ERROR,
-                    error_info.message or "Error processing stream",
-                    error_info.code
+                    mapped_error.error,
+                    mapped_error.error_message,
+                    mapped_error.code
                 )
             end,
             on_done = function(result)
@@ -126,15 +167,38 @@ local function handler(args)
                 -- Send a simplified done message with minimal info
                 streamer:send_done({
                     model = args.model,
-                    provider = "openai"
+                    provider = "openai",
+                    usage = result.usage
                 })
             end
         })
 
+        -- Handle streaming errors
+        if stream_err then
+            -- If we already sent an error via on_error, just return the same error
+            return {
+                error = output.ERROR_TYPE.SERVER_ERROR,
+                error_message = stream_err,
+                code = stream_result and stream_result.error and stream_result.error.code,
+                streaming = true
+            }
+        end
+
+        -- Extract tokens from stream_result if available
+        local tokens = nil
+        if stream_result and stream_result.usage then
+            tokens = output.usage(
+                stream_result.usage.prompt_tokens,
+                stream_result.usage.completion_tokens,
+                (stream_result.usage.completion_tokens_details and
+                 stream_result.usage.completion_tokens_details.reasoning_tokens) or 0
+            )
+        end
+
         -- Return the final content and metadata for the caller
         return {
-            result = full_content,
-            tokens = nil, -- Tokens are sent in the done event
+            result = stream_content or full_content,
+            tokens = tokens, -- Include token usage from the stream
             metadata = response.metadata,
             finish_reason = finish_reason and openai.FINISH_REASON_MAP[finish_reason] or finish_reason,
             streaming = true
