@@ -47,14 +47,14 @@ function openai.map_error(err)
     if err.message then
         -- Check for context length errors
         if err.message:match("context length") or
-           err.message:match("string too long") or
-           err.message:match("maximum.+tokens") then
+            err.message:match("string too long") or
+            err.message:match("maximum.+tokens") then
             error_type = output.ERROR_TYPE.CONTEXT_LENGTH
         end
 
         -- Check for content filter errors
         if err.message:match("content policy") or
-           err.message:match("content filter") then
+            err.message:match("content filter") then
             error_type = output.ERROR_TYPE.CONTENT_FILTER
         end
     end
@@ -217,11 +217,11 @@ function openai.request(endpoint_path, payload, options)
     end
 
     -- Parse successful response
-    local parsed, err = json.decode(response.body)
-    if err then
+    local success, parsed = pcall(json.decode, response.body)
+    if not success then
         return nil, {
             status_code = response.status_code,
-            message = "Failed to parse OpenAI response: " .. err,
+            message = "Failed to parse OpenAI response: " .. parsed,
             metadata = extract_response_metadata(response)
         }
     end
@@ -230,6 +230,102 @@ function openai.request(endpoint_path, payload, options)
     parsed.metadata = extract_response_metadata(response)
 
     return parsed
+end
+
+-- Process a streaming completion response
+function openai.process_stream(stream_response, callbacks)
+    if not stream_response or not stream_response.stream then
+        return nil, "Invalid stream response"
+    end
+
+    local full_content = ""
+    local finish_reason = nil
+    local usage = nil
+    local metadata = stream_response.metadata or {}
+
+    -- Default callbacks
+    callbacks = callbacks or {}
+    local on_content = callbacks.on_content or function() end
+    local on_error = callbacks.on_error or function() end
+    local on_done = callbacks.on_done or function() end
+
+    -- Process each streamed chunk
+    while true do
+        local chunk, err = stream_response.stream:read()
+
+        -- Handle read errors
+        if err then
+            on_error(err)
+            return nil, err
+        end
+
+        -- End of stream
+        if not chunk then
+            break
+        end
+
+        -- Skip empty chunks
+        if chunk == "" then
+            goto continue
+        end
+
+        -- Handle SSE format (data: prefix)
+        local data_str = chunk
+        if chunk:match("^data:") then
+            data_str = chunk:match("^data:%s*(.+)")
+            if not data_str or data_str == "" then
+                goto continue
+            end
+        end
+
+        -- Check for [DONE] marker
+        if data_str:match("%[DONE%]") then
+            break
+        end
+
+        -- Parse the JSON data
+        local parsed, decode_err = json.decode(data_str)
+        if decode_err or not parsed then
+            goto continue
+        end
+
+        -- Process the delta
+        if parsed.choices and parsed.choices[1] then
+            local choice = parsed.choices[1]
+
+            -- Handle content delta
+            if choice.delta and choice.delta.content then
+                local content_chunk = choice.delta.content
+                full_content = full_content .. content_chunk
+                on_content(content_chunk)
+            end
+
+            -- Record finish reason if present
+            if choice.finish_reason then
+                finish_reason = choice.finish_reason
+            end
+        end
+
+        -- Capture usage info if present
+        if parsed.usage then
+            usage = parsed.usage
+        end
+
+        ::continue::
+    end
+
+    -- Create the final result
+    local result = {
+        content = full_content,
+        finish_reason = finish_reason,
+        usage = usage,
+        metadata = metadata
+    }
+
+    -- Call the done callback
+    on_done(result)
+
+    return full_content, nil, result
 end
 
 -- Extract usage information from response

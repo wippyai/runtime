@@ -2,283 +2,259 @@ local openai = require("openai_client")
 local output = require("output")
 local tools = require("tools")
 
--- OpenAI Tool Calling Handler
--- Supports both streaming and non-streaming tool calling
+-- Function Calling Handler
+-- Supports text generation with tool/function calling capabilities
 local function handler(args)
     -- Validate required arguments
     if not args.model then
-        return nil, "Model is required"
-    end
-
-    if not (args.tool_ids or args.tool_schemas or args.schema) then
-        return nil, "Either tool_ids, tool_schemas, or schema is required for tool/function calling"
+        return {
+            error = output.ERROR_TYPE.INVALID_REQUEST,
+            error_message = "Model is required"
+        }
     end
 
     -- Format messages from various input formats
-    local messages = {}
-
-    -- If messages array provided directly, use it
-    if args.messages and #args.messages > 0 then
-        messages = args.messages
-    else
-        -- Otherwise build from separate fields
-        -- Add system prompt if provided
-        if args.system_prompt then
-            table.insert(messages, {
-                role = "system",
-                content = args.system_prompt
-            })
-        end
-
-        -- Add user message
-        if args.message then
-            table.insert(messages, {
-                role = "user",
-                content = args.message
-            })
-        end
-    end
+    local messages = args.messages or {}
 
     if #messages == 0 then
-        return nil, "No messages provided"
-    end
-
-    -- Configure parameters for OpenAI request
-    local params = {
-        model = args.model,
-        temperature = args.temperature,
-        top_p = args.top_p,
-        frequency_penalty = args.frequency_penalty,
-        presence_penalty = args.presence_penalty,
-        max_tokens = args.max_tokens,
-        timeout = args.timeout,
-        api_key = args.api_key,
-        organization = args.organization,
-        base_url = args.endpoint and args.endpoint:match("(.-)/*$"),
-        reasoning_effort = args.reasoning_effort, -- For o1/o3 models
-        max_completion_tokens = args.max_completion_tokens -- For o1/o3 models
+        return {
+            error = output.ERROR_TYPE.INVALID_REQUEST,
+            error_message = "No messages provided"
+        }
     }
 
-    -- Handle schema-based approach if specified
-    if args.schema then
-        -- For schema-based responses, we're forcing a JSON structure
-        params.response_format = { type = "json_object" }
+    -- Configure options objects for easier management
+    local options = args.options or {}
 
-        -- Add schema enforcement through a system message
-        local schema_message = {
-            role = "system",
-            content = "You MUST respond with a JSON object that conforms to the following schema: " ..
-                      (type(args.schema) == "string" and args.schema or require("json").encode(args.schema))
-        }
+    -- Configure request payload
+    local payload = {
+        model = args.model,
+        messages = messages,
+        temperature = options.temperature,
+        top_p = options.top_p,
+        top_k = options.top_k,
+        max_tokens = options.max_tokens,
+        presence_penalty = options.presence_penalty,
+        frequency_penalty = options.frequency_penalty,
+        logit_bias = options.logit_bias,
+        user = options.user,
+        seed = options.seed
+    }
 
-        -- Insert at the beginning of messages, preserving existing system messages
-        table.insert(messages, 1, schema_message)
-    else
-        -- Process tool schemas (either from tool_ids or direct tool_schemas)
-        local request_tools = {}
+    -- Add stop sequences if provided
+    if options.stop_sequences then
+        payload.stop = options.stop_sequences
+    elseif options.stop then
+        payload.stop = options.stop
+    end
 
-        -- If tool IDs are provided, resolve them
-        if args.tool_ids and #args.tool_ids > 0 then
-            local tool_schemas, errors = tools.get_tool_schemas(args.tool_ids)
-            if errors and next(errors) then
-                local err_msg = "Failed to resolve tool schemas: "
-                for id, err in pairs(errors) do
-                    err_msg = err_msg .. id .. " (" .. err .. "), "
-                end
-                return nil, err_msg:sub(1, -3)  -- Remove trailing comma and space
+    -- Add thinking effort mapping - using the utility in openai client
+    if args.thinking_effort and args.thinking_effort > 0 then
+        payload.reasoning_effort = openai.map_thinking_effort(args.thinking_effort)
+        payload.temperature = nil -- not working for reasoning models
+    end
+
+    -- Process tool schemas (either from tool_ids or direct tool_schemas)
+    local request_tools = {}
+
+    -- If tool IDs are provided, resolve them
+    if args.tool_ids and #args.tool_ids > 0 then
+        local tool_schemas, errors = tools.get_tool_schemas(args.tool_ids)
+        if errors and next(errors) then
+            local err_msg = "Failed to resolve tool schemas: "
+            for id, err in pairs(errors) do
+                err_msg = err_msg .. id .. " (" .. err .. "), "
             end
-
-            -- Convert tool schemas to OpenAI format
-            for _, tool in pairs(tool_schemas) do
-                table.insert(request_tools, {
-                    type = "function",
-                    function = {
-                        name = tool.name,
-                        description = tool.description,
-                        parameters = tool.schema
-                    }
-                })
-            end
+            return {
+                error = output.ERROR_TYPE.INVALID_REQUEST,
+                error_message = err_msg:sub(1, -3)  -- Remove trailing comma and space
+            }
         end
 
-        -- If tool schemas are provided directly, use them
-        if args.tool_schemas and next(args.tool_schemas) then
-            for _, tool in pairs(args.tool_schemas) do
-                table.insert(request_tools, {
-                    type = "function",
-                    function = {
-                        name = tool.name,
-                        description = tool.description,
-                        parameters = tool.schema
-                    }
-                })
-            end
-        end
-
-        -- Add tools to request
-        if #request_tools > 0 then
-            params.tools = request_tools
-
-            -- Set tool_choice based on args
-            if args.tool_call_behavior == "none" then
-                params.tool_choice = "none"
-            elseif args.tool_call_behavior == "auto" or not args.tool_call_behavior then
-                params.tool_choice = "auto"
-            else
-                -- If a specific tool is requested
-                params.tool_choice = {
-                    type = "function",
-                    function = {
-                        name = args.tool_call_behavior
-                    }
+        -- Convert tool schemas to OpenAI format
+        for _, tool in pairs(tool_schemas) do
+            table.insert(request_tools, {
+                type = "function",
+                function = {
+                    name = tool.name,
+                    description = tool.description,
+                    parameters = tool.schema
                 }
-            end
+            })
         end
     end
 
-    -- Handle streaming
-    if args.stream and args.stream_to then
-        params.stream = true
-        params.buffer_size = args.buffer_size or 4096
-
-        -- Create a streamer
-        local streamer = output.streamer(args.stream_to, args.topic or "llm_response", args.buffer_size or 10)
-
-        -- Make streaming request
-        local stream_response, err = openai.chat_completion(messages, args.model, params)
-
-        if err then
-            streamer:send_error(
-                err.type or output.ERROR_TYPE.SERVER_ERROR,
-                err.message or "OpenAI API error",
-                err.status_code
-            )
-            return nil, err.message, { error = err }
+    -- If tool schemas are provided directly, use them
+    if args.tool_schemas and next(args.tool_schemas) then
+        for _, tool in pairs(args.tool_schemas) do
+            table.insert(request_tools, {
+                type = "function",
+                function = {
+                    name = tool.name,
+                    description = tool.description,
+                    parameters = tool.schema
+                }
+            })
         end
+    end
 
-        -- Keep track of tool calls
+    -- Add tools to request if any are defined
+    if #request_tools > 0 then
+        payload.tools = request_tools
+
+        -- Set tool_choice based on args.tool_call per spec
+        if args.tool_call == "none" then
+            payload.tool_choice = "none"
+        elseif args.tool_call == "auto" or not args.tool_call then
+            payload.tool_choice = "auto"
+        elseif args.tool_call == "singular" then
+            -- This is a specific requirement in the spec - forbids multiple tool calls
+            -- For OpenAI, we'll set it to "required" which means at least one tool must be called
+            payload.tool_choice = "required"
+        elseif type(args.tool_call) == "string" and args.tool_call ~= "auto" and args.tool_call ~= "none" then
+            -- A specific tool name was provided
+            payload.tool_choice = {
+                type = "function",
+                function = {
+                    name = args.tool_call
+                }
+            }
+        end
+    end
+
+    -- Handle streaming configuration
+    local stream_config = nil
+    if args.stream then
+        if type(args.stream) == "table" and args.stream.reply_to then
+            stream_config = {
+                enabled = true,
+                reply_to = args.stream.reply_to,
+                topic = args.stream.topic or "llm_response"
+            }
+            -- We'll handle streaming separately in a future implementation
+        else
+            return {
+                error = output.ERROR_TYPE.INVALID_REQUEST,
+                error_message = "Stream configuration requires reply_to process ID"
+            }
+        }
+    end
+
+    -- Make the request
+    local request_options = {
+        api_key = args.api_key,
+        organization = args.organization,
+        timeout = args.timeout or 120,
+        base_url = args.endpoint
+    }
+
+    -- For now, we'll not implement streaming but validate the config
+    if stream_config then
+        return {
+            error = output.ERROR_TYPE.INVALID_REQUEST,
+            error_message = "Streaming not yet implemented for function calling"
+        }
+    }
+
+    -- Perform the request to OpenAI
+    local response, err = openai.request(
+        openai.DEFAULT_CHAT_ENDPOINT,
+        payload,
+        request_options
+    )
+
+    -- Handle errors - use the map_error function to get standardized error format
+    if err then
+        return openai.map_error(err)
+    }
+
+    -- Check response validity
+    if not response or not response.choices or #response.choices == 0 then
+        return {
+            error = output.ERROR_TYPE.SERVER_ERROR,
+            error_message = "Invalid response structure from OpenAI"
+        }
+    }
+
+    -- Extract the first choice
+    local first_choice = response.choices[0] or response.choices[1]
+    if not first_choice then
+        return {
+            error = output.ERROR_TYPE.SERVER_ERROR,
+            error_message = "No choices in OpenAI response"
+        }
+    }
+
+    -- Check if the response contains tool calls
+    if first_choice.message and first_choice.message.tool_calls and #first_choice.message.tool_calls > 0 then
         local tool_calls = {}
-        local tool_call_index = 0
-        local current_tool_call = nil
 
-        -- Process the streaming response
-        local full_content = openai.process_chat_stream(stream_response, {
-            on_content = function(content)
-                streamer:buffer_content(content)
-            end,
-            on_tool_call = function(delta_tool_calls)
-                for _, delta in ipairs(delta_tool_calls) do
-                    -- If this is a new tool call, initialize it
-                    if delta.index and (not current_tool_call or delta.index ~= tool_call_index) then
-                        tool_call_index = delta.index
-                        current_tool_call = {
-                            id = delta.id,
-                            type = delta.type,
-                            function = {
-                                name = delta.function and delta.function.name or "",
-                                arguments = delta.function and delta.function.arguments or ""
-                            }
-                        }
-                        tool_calls[tool_call_index + 1] = current_tool_call
-                    elseif current_tool_call then
-                        -- Update existing tool call with delta data
-                        if delta.function then
-                            if delta.function.name then
-                                current_tool_call.function.name =
-                                    current_tool_call.function.name .. delta.function.name
-                            end
-                            if delta.function.arguments then
-                                current_tool_call.function.arguments =
-                                    current_tool_call.function.arguments .. delta.function.arguments
-                            end
-                        end
-                    end
-
-                    -- If we have a complete tool call, send it
-                    if current_tool_call and current_tool_call.function.name and
-                       current_tool_call.function.arguments then
-                        streamer:send_tool_call(
-                            current_tool_call.function.name,
-                            current_tool_call.function.arguments,
-                            current_tool_call.id
-                        )
-                    end
-                end
-            end,
-            on_error = function(error_info)
-                streamer:send_error(
-                    output.ERROR_TYPE.SERVER_ERROR,
-                    error_info.message or "OpenAI streaming error"
-                )
-            end,
-            on_done = function(result)
-                -- Flush any remaining content
-                streamer:flush()
-
-                -- Send done event with metadata
-                streamer:send_done({
-                    model = args.model,
-                    provider = "openai",
-                    request_id = result.metadata and result.metadata.request_id,
-                    tool_calls = #tool_calls > 0 and tool_calls or nil
+        -- Process each tool call
+        for _, tool_call in ipairs(first_choice.message.tool_calls) do
+            if tool_call.function then
+                table.insert(tool_calls, {
+                    id = tool_call.id,
+                    type = "function",
+                    function = {
+                        name = tool_call.function.name,
+                        arguments = tool_call.function.arguments
+                    }
                 })
             end
-        })
-
-        -- Return appropriate response based on what happened
-        if #tool_calls > 0 then
-            -- Return tool call result
-            return {
-                type = output.TYPE.TOOL_CALL,
-                provider = "openai",
-                model = args.model,
-                metadata = stream_response.metadata,
-                tool_calls = tool_calls
-            }
-        else
-            -- Return the full content that was streamed
-            return full_content, nil, {
-                provider = "openai",
-                model = args.model,
-                metadata = stream_response.metadata
-            }
         end
+
+        -- Extract token usage information
+        local tokens = nil
+        if response.usage then
+            tokens = output.usage(
+                response.usage.prompt_tokens,
+                response.usage.completion_tokens,
+                (response.usage.completion_tokens_details and
+                    response.usage.completion_tokens_details.reasoning_tokens) or 0
+            )
+        end
+
+        -- Return tool call result
+        return {
+            type = output.TYPE.TOOL_CALL,
+            provider = "openai",
+            model = args.model,
+            metadata = response.metadata,
+            tool_calls = tool_calls,
+            tokens = tokens,
+            finish_reason = openai.FINISH_REASON_MAP[first_choice.finish_reason] or first_choice.finish_reason
+        }
+    elseif first_choice.message and first_choice.message.content then
+        -- Extract content for normal text response
+        local content = first_choice.message.content
+
+        -- Extract token usage information
+        local tokens = nil
+        if response.usage then
+            tokens = output.usage(
+                response.usage.prompt_tokens,
+                response.usage.completion_tokens,
+                (response.usage.completion_tokens_details and
+                    response.usage.completion_tokens_details.reasoning_tokens) or 0
+            )
+        end
+
+        -- Use the finish reason map from the client
+        local finish_reason = openai.FINISH_REASON_MAP[first_choice.finish_reason] or first_choice.finish_reason
+
+        -- Return successful response with standardized finish reason
+        return {
+            result = content,
+            tokens = tokens,
+            metadata = response.metadata,
+            finish_reason = finish_reason
+        }
     else
-        -- Non-streaming request
-        local response, err = openai.chat_completion(messages, args.model, params)
-
-        if err then
-            return nil, err.message, { error = err }
-        end
-
-        -- Format the response in our standardized format
-        local formatted_response = openai.format_completion_response(response, {
-            model = args.model
-        })
-
-        if not formatted_response then
-            return nil, "Failed to format OpenAI response"
-        end
-
-        -- Check if the response contains tool calls
-        local first_choice = formatted_response.choices[1]
-        if first_choice and first_choice.tool_calls and #first_choice.tool_calls > 0 then
-            -- Return tool call result
-            return {
-                type = output.TYPE.TOOL_CALL,
-                provider = "openai",
-                model = args.model,
-                metadata = formatted_response.metadata,
-                tool_calls = first_choice.tool_calls
-            }
-        elseif first_choice and first_choice.message and first_choice.message.content then
-            -- Regular text response
-            return first_choice.message.content, nil, formatted_response
-        else
-            return nil, "No content or tool calls in OpenAI response"
-        end
-    end
+        return {
+            error = output.ERROR_TYPE.SERVER_ERROR,
+            error_message = "No content or tool calls in OpenAI response"
+        }
+    }
 end
 
--- Return the handler function
 return { handler = handler }
