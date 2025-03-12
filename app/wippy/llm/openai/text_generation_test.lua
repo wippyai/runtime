@@ -1,18 +1,13 @@
-local test = require("test")
 local text_generation = require("text_generation")
 local openai_client = require("openai_client")
 local output = require("output")
 local json = require("json")
 local env = require("env")
 
--- Toggle to enable/disable real API integration test
-local RUN_INTEGRATION_TESTS = env.get("ENABLE_OPENAI_INTEGRATION_TESTS") == "true"
-
-local function run_tests(options)
-    return test.run_cases(define_tests)(options)
-end
-
 local function define_tests()
+    -- Toggle to enable/disable real API integration test
+    local RUN_INTEGRATION_TESTS = env.get("ENABLE_INTEGRATION_TESTS")
+
     describe("OpenAI Text Generation Handler", function()
         local actual_api_key = nil
 
@@ -28,7 +23,7 @@ local function define_tests()
                     RUN_INTEGRATION_TESTS = false
                 end
             else
-                print("Integration tests disabled - set ENABLE_OPENAI_INTEGRATION_TESTS=true to enable")
+                print("Integration tests disabled - set ENABLE_INTEGRATION_TESTS=true to enable")
             end
         end)
 
@@ -122,6 +117,4 @@ local function define_tests()
     end)
 end
 
-return {
-    run_tests = run_tests
-}
+return require("test").run_cases(define_tests)
