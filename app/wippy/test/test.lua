@@ -539,26 +539,32 @@ function test.expect(actual)
             return true
         end,
         to_contain = function(expected, message)
-            if type(actual) ~= "table" then
+            if type(actual) == "table" then
+                local found = false
+                for _, v in pairs(actual) do
+                    if v == expected then
+                        found = true
+                        break
+                    end
+                end
+                if not found then
+                    local info = get_debug_info()
+                    error(string.format("%s:%d: Expected table to contain %s",
+                        info.source, info.line, format_value(expected)), 2)
+                end
+                return true
+            elseif type(actual) == "string" then
+                if not string.find(actual, expected, 1, true) then
+                    local info = get_debug_info()
+                    error(string.format("%s:%d: Expected string to contain %s",
+                        info.source, info.line, format_value(expected)), 2)
+                end
+                return true
+            else
                 local info = get_debug_info()
-                error(string.format("%s:%d: Expected a table to check contents",
+                error(string.format("%s:%d: Expected a table or string to check contents",
                     info.source, info.line), 2)
             end
-
-            local found = false
-            for _, v in pairs(actual) do
-                if v == expected then
-                    found = true
-                    break
-                end
-            end
-
-            if not found then
-                local info = get_debug_info()
-                error(string.format("%s:%d: Expected table to contain %s",
-                    info.source, info.line, format_value(expected)), 2)
-            end
-            return true
         end,
         to_have_key = function(key, message)
             if type(actual) ~= "table" then

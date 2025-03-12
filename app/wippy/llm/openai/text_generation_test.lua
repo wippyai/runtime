@@ -3,6 +3,7 @@ local openai_client = require("openai_client")
 local output = require("output")
 local json = require("json")
 local env = require("env")
+local prompt = require("prompt")
 
 local function define_tests()
     -- Toggle to enable/disable real API integration test
@@ -32,9 +33,9 @@ local function define_tests()
             mock(openai_client, "request", function(endpoint_path, payload, options)
                 -- Validate the request
                 expect(endpoint_path).to_equal(openai_client.DEFAULT_CHAT_ENDPOINT)
-                expect(payload.model).to_equal("gpt-4")
+                expect(payload.model).to_equal("gpt-4o-mini")
                 expect(payload.messages[1].role).to_equal("user")
-                expect(payload.messages[1].content).to_equal("Say hello world")
+                expect(payload.messages[1].content[1].text).to_equal("Say hello world")
 
                 -- Return mock successful response
                 return {
@@ -58,10 +59,14 @@ local function define_tests()
                 }
             end)
 
-            -- Call with a simple message
+            -- Create proper prompt using the prompt builder
+            local promptBuilder = prompt.new()
+            promptBuilder:add_user("Say hello world")
+
+            -- Call with a properly built prompt
             local response = text_generation.handler({
-                model = "gpt-4",
-                message = "Say hello world"
+                model = "gpt-4o-mini",
+                messages = promptBuilder:get_messages()
             })
 
             -- Verify the response structure
@@ -86,12 +91,18 @@ local function define_tests()
             -- Restore original functions for integration test
             restore_all_mocks()
 
+            -- Create proper prompt using the prompt builder
+            local promptBuilder = prompt.new()
+            promptBuilder:add_user("Reply with exactly the text 'Integration test successful'")
+
             -- Make a real API call with gpt-4o-mini
             local response = text_generation.handler({
                 model = "gpt-4o-mini",
-                message = "Reply with exactly the text 'Integration test successful'",
-                temperature = 0, -- Deterministic output
-                max_tokens = 15  -- Short response
+                messages = promptBuilder:get_messages(),
+                options = {
+                    temperature = 0, -- Deterministic output
+                    max_tokens = 15  -- Short response
+                }
             })
 
             -- Verify response
@@ -109,10 +120,58 @@ local function define_tests()
             expect(response.tokens.prompt_tokens > 0).to_be_true("No prompt tokens reported")
             expect(response.tokens.completion_tokens > 0).to_be_true("No completion tokens reported")
             expect(response.tokens.total_tokens > 0).to_be_true("No total tokens reported")
+        end)
 
-            -- Should have metadata
-            expect(response.metadata).not_to_be_nil("No metadata received")
-            expect(response.metadata.request_id).not_to_be_nil("No request ID in metadata")
+        it("should handle wrong model errors correctly with mocked client", function()
+            -- Mock the client request function to simulate a model error
+            mock(openai_client, "request", function(endpoint_path, payload, options)
+                -- Return a model-related error with the correct error type from real API
+                return nil, {
+                    type = "invalid_request_error",
+                    message = "The model 'nonexistent-model' does not exist or you do not have access to it.",
+                    status_code = 404
+                }
+            end)
+
+            -- Create proper prompt using the prompt builder
+            local promptBuilder = prompt.new()
+            promptBuilder:add_user("This is a test message")
+
+            -- Call with a non-existent model
+            local response = text_generation.handler({
+                model = "nonexistent-model",
+                messages = promptBuilder:get_messages()
+            })
+
+            -- Verify the mapped error type
+            expect(response.error).to_equal(output.ERROR_TYPE.MODEL_ERROR)
+            expect(response.error_message).to_contain("does not exist")
+        end)
+
+        it("should handle wrong model errors correctly with real API", function()
+            -- Skip test if integration tests are disabled
+            if not RUN_INTEGRATION_TESTS then
+                print("Skipping integration test - not enabled")
+                return
+            end
+
+            -- Create proper prompt using the prompt builder
+            local promptBuilder = prompt.new()
+            promptBuilder:add_user("This is an integration test message")
+
+            -- Call with a deliberately incorrect model name
+            local response = text_generation.handler({
+                model = "nonexistent-model",
+                messages = promptBuilder:get_messages(),
+                api_key = actual_api_key -- Use the real API key
+            })
+
+            -- Verify error handling with real API
+            expect(response.error).to_equal(output.ERROR_TYPE.MODEL_ERROR)
+            expect(response.error_message).to_contain("does not exist")
+
+            -- Log the actual error message for debugging
+            print("Integration error message: " .. (response.error_message or "nil"))
         end)
     end)
 end

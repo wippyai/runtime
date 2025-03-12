@@ -80,6 +80,7 @@ entries:
     modules: [ "json", "env" ]
     imports:
       test: "wippy.test:test"
+      prompt: "wippy.llm:prompt"
       output: "wippy.llm:output"
       text_generation: "wippy.llm.openai:text_generation"
       openai_client: "wippy.llm.openai:client"

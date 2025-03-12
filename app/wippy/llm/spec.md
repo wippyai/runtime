@@ -20,10 +20,12 @@
     topic = "llm_response",                
     
     -- Generation parameters (optional and model specific)
-    temperature = 0.7,
-    top_p = 0.9,
-    top_k = 40,
-    max_tokens = 1024,
-    stop_sequences = {"\n\nHuman:"}
+    options = {
+        temperature = 0.7,
+        top_p = 0.9,
+        top_k = 40,
+        max_tokens = 1024,
+        -- provider specific
+    }
 }
 ```

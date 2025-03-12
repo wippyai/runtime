@@ -1,6 +1,7 @@
 local openai = require("openai_client")
 local output = require("output")
 local json = require("json")
+local env = require("env")
 
 -- OpenAI Text Generation Handler
 -- Basic completion without streaming support
@@ -14,29 +15,7 @@ local function handler(args)
     end
 
     -- Format messages from various input formats
-    local messages = {}
-
-    -- If messages array provided directly, use it
-    if args.messages and #args.messages > 0 then
-        messages = args.messages
-    else
-        -- Otherwise build from separate fields
-        -- Add system prompt if provided
-        if args.system_prompt then
-            table.insert(messages, {
-                role = "system",
-                content = args.system_prompt
-            })
-        end
-
-        -- Add user message
-        if args.message then
-            table.insert(messages, {
-                role = "user",
-                content = args.message
-            })
-        end
-    end
+    local messages = args.messages or {}
 
     if #messages == 0 then
         return {
@@ -45,33 +24,39 @@ local function handler(args)
         }
     end
 
+    -- Configure options objects for easier management
+    local options = args.options or {}
+
     -- Configure request payload
     local payload = {
         model = args.model,
         messages = messages,
-        temperature = args.temperature,
-        top_p = args.top_p,
-        n = args.n,
-        max_tokens = args.max_tokens,
-        presence_penalty = args.presence_penalty,
-        frequency_penalty = args.frequency_penalty,
-        logit_bias = args.logit_bias,
-        user = args.user
+        temperature = options.temperature,
+        top_p = options.top_p,
+        n = options.n,
+        max_tokens = options.max_tokens,
+        presence_penalty = options.presence_penalty,
+        frequency_penalty = options.frequency_penalty,
+        logit_bias = options.logit_bias,
+        user = options.user,
+        seed = options.seed
     }
 
-    -- Handle response_format if provided
-    if args.response_format == "json" then
-        payload.response_format = { type = "json_object" }
+    -- Add stop sequences if provided
+    if options.stop_sequences then
+        payload.stop = options.stop_sequences
+    elseif options.stop then
+        payload.stop = options.stop
     end
 
-    -- Add reasoning_effort parameter for OpenAI reasoning models
-    if args.thinking_effort then
-        payload.reasoning_effort = args.thinking_effort
+    -- Add thinking effort mapping - using the utility in openai client
+    if options.thinking_effort then
+        payload.reasoning_effort = openai.map_thinking_effort(options.thinking_effort)
     end
 
-    -- Add max_completion_tokens for OpenAI reasoning models
-    if args.max_completion_tokens then
-        payload.max_completion_tokens = args.max_completion_tokens
+    -- Add max_completion_tokens
+    if options.max_completion_tokens then
+        payload.max_completion_tokens = options.max_completion_tokens
     end
 
     -- Make the request
@@ -89,13 +74,9 @@ local function handler(args)
         request_options
     )
 
-    -- Handle errors
+    -- Handle errors - use the map_error function to get standardized error format
     if err then
-        return {
-            error = err.type,
-            error_message = err.message,
-            status_code = err.status_code
-        }
+        return openai.map_error(err)
     end
 
     -- Check response validity
@@ -129,12 +110,15 @@ local function handler(args)
         )
     end
 
-    -- Return successful response
+    -- Use the finish reason map from the client
+    local finish_reason = openai.FINISH_REASON_MAP[first_choice.finish_reason] or first_choice.finish_reason
+
+    -- Return successful response with standardized finish reason
     return {
         result = content,
         tokens = tokens,
         metadata = response.metadata,
-        finish_reason = first_choice.finish_reason
+        finish_reason = finish_reason
     }
 end
 

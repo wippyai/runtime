@@ -11,25 +11,86 @@ openai.DEFAULT_API_ENDPOINT = "https://api.openai.com/v1"
 openai.DEFAULT_CHAT_ENDPOINT = "/chat/completions"
 openai.DEFAULT_EMBEDDING_ENDPOINT = "/embeddings"
 
--- Error types mapping
-openai.ERROR_TYPES = {
-    invalid_request_error = output.ERROR_TYPE.INVALID_REQUEST,
-    authentication_error = output.ERROR_TYPE.AUTHENTICATION,
-    permission_error = output.ERROR_TYPE.AUTHENTICATION,
-    rate_limit_error = output.ERROR_TYPE.RATE_LIMIT,
-    server_error = output.ERROR_TYPE.SERVER_ERROR,
-    context_length_exceeded = output.ERROR_TYPE.CONTEXT_LENGTH,
-    content_filter = output.ERROR_TYPE.CONTENT_FILTER,
-    timeout = output.ERROR_TYPE.TIMEOUT
+-- Map OpenAI finish reasons to standardized finish reasons
+openai.FINISH_REASON_MAP = {
+    ["stop"] = output.FINISH_REASON.STOP,
+    ["length"] = output.FINISH_REASON.LENGTH,
+    ["content_filter"] = output.FINISH_REASON.CONTENT_FILTER,
+    ["tool_calls"] = output.FINISH_REASON.TOOL_CALL,
 }
+
+-- Error type mapping function for OpenAI errors
+-- Maps specific error messages to standardized error types
+function openai.map_error(err)
+    if not err then
+        return {
+            error = output.ERROR_TYPE.SERVER_ERROR,
+            error_message = "Unknown error (nil error object)"
+        }
+    end
+
+    -- Default to server error unless we determine otherwise
+    local error_type = output.ERROR_TYPE.SERVER_ERROR
+
+    -- Special cases for common error types based on status code
+    if err.status_code == 401 then
+        error_type = output.ERROR_TYPE.AUTHENTICATION
+    elseif err.status_code == 404 then
+        error_type = output.ERROR_TYPE.MODEL_ERROR
+    elseif err.status_code == 429 then
+        error_type = output.ERROR_TYPE.RATE_LIMIT
+    elseif err.status_code >= 500 then
+        error_type = output.ERROR_TYPE.SERVER_ERROR
+    end
+
+    -- Return already in the format expected by the text generation handler
+    return {
+        error = error_type,
+        error_message = err.message or "Unknown OpenAI error"
+    }
+end
+
+-- Map numeric thinking effort (0-100) to OpenAI reasoning effort values
+function openai.map_thinking_effort(effort)
+    if not effort then return nil end
+
+    if effort < 25 then
+        return "low"
+    elseif effort < 75 then
+        return "medium"
+    else
+        return "high"
+    end
+end
 
 -- Extract metadata from OpenAI HTTP response
 local function extract_response_metadata(http_response)
+    if not http_response or not http_response.headers then
+        return {}
+    end
+
     local metadata = {
-        request_id = http_response.headers["x-request-id"],
-        organization = http_response.headers["openai-organization"],
-        processing_ms = tonumber(http_response.headers["openai-processing-ms"]),
-        version = http_response.headers["openai-version"],
+        -- Basic request information
+        request_id = http_response.headers["X-Request-Id"],
+        organization = http_response.headers["Openai-Organization"],
+        processing_ms = tonumber(http_response.headers["Openai-Processing-Ms"]),
+        version = http_response.headers["Openai-Version"],
+
+        -- Rate limit information
+        rate_limit = {
+            limit_requests = tonumber(http_response.headers["X-Ratelimit-Limit-Requests"]),
+            limit_tokens = tonumber(http_response.headers["X-Ratelimit-Limit-Tokens"]),
+            remaining_requests = tonumber(http_response.headers["X-Ratelimit-Remaining-Requests"]),
+            remaining_tokens = tonumber(http_response.headers["X-Ratelimit-Remaining-Tokens"]),
+            reset_requests = http_response.headers["X-Ratelimit-Reset-Requests"],
+            reset_tokens = http_response.headers["X-Ratelimit-Reset-Tokens"]
+        },
+
+        -- Additional headers that might be useful
+        date = http_response.headers["Date"],
+        content_type = http_response.headers["Content-Type"],
+        cache_status = http_response.headers["Cf-Cache-Status"],
+        cf_ray = http_response.headers["Cf-Ray"]
     }
 
     -- Add rate limit information if available
@@ -50,24 +111,28 @@ end
 
 -- Parse error from OpenAI response
 local function parse_error(http_response)
+    -- Always include status code to help with error type mapping
     local error_info = {
         status_code = http_response.status_code,
-        headers = {
-            request_id = http_response.headers["x-request-id"]
-        }
+        message = "OpenAI API error: " .. (http_response.status_code or "unknown status")
     }
 
+    -- Add request ID if available
+    if http_response.headers and http_response.headers["x-request-id"] then
+        error_info.headers = {
+            request_id = http_response.headers["x-request-id"]
+        }
+    end
+
     -- Try to parse error body as JSON
-    local parsed, err = json.decode(http_response.body or "{}")
-    if not err and parsed and parsed.error then
-        error_info.type = openai.ERROR_TYPES[parsed.error.type] or output.ERROR_TYPE.SERVER_ERROR
-        error_info.message = parsed.error.message or "Unknown OpenAI error"
-        error_info.code = parsed.error.code
-        error_info.param = parsed.error.param
-        error_info.raw_type = parsed.error.type
-    else
-        error_info.type = output.ERROR_TYPE.SERVER_ERROR
-        error_info.message = "OpenAI API error: " .. http_response.status_code
+    if http_response.body then
+        local parsed, decode_err = json.decode(http_response.body)
+        if not decode_err and parsed and parsed.error then
+            error_info.message = parsed.error.message or error_info.message
+            error_info.code = parsed.error.code
+            error_info.param = parsed.error.param
+            error_info.type = parsed.error.type
+        end
     end
 
     -- Add metadata from headers
@@ -84,9 +149,8 @@ function openai.request(endpoint_path, payload, options)
     local api_key = options.api_key or env.get("OPENAI_API_KEY")
     if not api_key then
         return nil, {
-            type = output.ERROR_TYPE.AUTHENTICATION,
-            message = "OpenAI API key is required",
-            status_code = 401
+            status_code = 401,
+            message = "OpenAI API key is required"
         }
     end
 
@@ -140,9 +204,8 @@ function openai.request(endpoint_path, payload, options)
     local parsed, err = json.decode(response.body)
     if err then
         return nil, {
-            type = output.ERROR_TYPE.SERVER_ERROR,
-            message = "Failed to parse OpenAI response: " .. err,
             status_code = response.status_code,
+            message = "Failed to parse OpenAI response: " .. err,
             metadata = extract_response_metadata(response)
         }
     end
@@ -151,125 +214,6 @@ function openai.request(endpoint_path, payload, options)
     parsed.metadata = extract_response_metadata(response)
 
     return parsed
-end
-
--- Embeddings function
-function openai.create_embeddings(input, model, params)
-    params = params or {}
-
-    -- Format input to ensure it's an array
-    local input_text = input
-    if type(input_text) ~= "table" then
-        input_text = { input_text }
-    end
-
-    -- Prepare the payload
-    local payload = {
-        model = model,
-        input = input_text,
-        encoding_format = params.encoding_format or "float"
-    }
-
-    -- Add optional parameters
-    if params.user then
-        payload.user = params.user
-    end
-
-    if params.dimensions then
-        payload.dimensions = params.dimensions
-    end
-
-    -- Make the request
-    local response, err = openai.request(
-        openai.DEFAULT_EMBEDDING_ENDPOINT,
-        payload,
-        {
-            api_key = params.api_key,
-            organization = params.organization,
-            timeout = params.timeout,
-            base_url = params.base_url
-        }
-    )
-
-    return response, err
-end
-
--- Process streaming response for chat completion
-function openai.process_chat_stream(stream_response, stream_handler, options)
-    options = options or {}
-    local full_content = ""
-
-    -- Handle streaming
-    if stream_response and stream_response.stream then
-        local has_error = false
-
-        -- Process the stream
-        while true do
-            local chunk = stream_response.stream:read()
-            if not chunk then break end
-
-            for line in chunk:gmatch("[^\n]+") do
-                if line:sub(1, 5) == "data:" then
-                    local data = line:sub(6):match("^%s*(.-)%s*$")
-                    if data == "[DONE]" then
-                        break
-                    end
-
-                    local decoded, decode_err = json.decode(data)
-                    if not decode_err and decoded then
-                        -- Check for errors in the stream
-                        if decoded.error then
-                            if stream_handler and stream_handler.on_error then
-                                stream_handler.on_error(decoded.error)
-                            end
-                            has_error = true
-                            break
-                        end
-
-                        -- Process delta content
-                        if decoded.choices and
-                            decoded.choices[1] and
-                            decoded.choices[1].delta then
-                            local delta = decoded.choices[1].delta
-
-                            -- Handle content
-                            if delta.content then
-                                if stream_handler and stream_handler.on_content then
-                                    stream_handler.on_content(delta.content)
-                                end
-                                full_content = full_content .. delta.content
-                            end
-
-                            -- Handle tool calls
-                            if delta.tool_calls then
-                                if stream_handler and stream_handler.on_tool_call then
-                                    stream_handler.on_tool_call(delta.tool_calls)
-                                end
-                            end
-                        end
-                    end
-                end
-            end
-
-            if has_error then
-                break
-            end
-        end
-
-        -- Call done handler if available
-        if stream_handler and stream_handler.on_done then
-            stream_handler.on_done({
-                content = full_content,
-                metadata = stream_response.metadata,
-                provider = "openai"
-            })
-        end
-
-        -- Close the stream
-        stream_response.stream:close()
-    end
-
-    return full_content
 end
 
 -- Extract usage information from response

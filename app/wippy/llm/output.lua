@@ -22,7 +22,17 @@ output.ERROR_TYPE = {
     SERVER_ERROR = "server_error",
     CONTEXT_LENGTH = "context_length_exceeded",
     CONTENT_FILTER = "content_filter",
-    TIMEOUT = "timeout_error"
+    TIMEOUT = "timeout_error",
+    MODEL_ERROR = "model_error" -- Added new error type for invalid model
+}
+
+-- Finish/stop reason constants
+output.FINISH_REASON = {
+    STOP = "stop",               -- Normal completion
+    LENGTH = "length",           -- Reached max tokens
+    CONTENT_FILTER = "filtered", -- Content filtered
+    TOOL_CALL = "tool_call",     -- Tool/function call
+    ERROR = "error"              -- Other error
 }
 
 ---------------------------
