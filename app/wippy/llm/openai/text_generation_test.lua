@@ -446,8 +446,6 @@ local function define_tests()
                 local expected_total = response.tokens.prompt_tokens + response.tokens.completion_tokens +
                 response.tokens.thinking_tokens
                 expect(response.tokens.total_tokens).to_equal(expected_total, "Total tokens calculation incorrect")
-            else
-                print("WARNING: No thinking tokens reported by the API - this is expected for some models")
             end
 
             -- Verify we got a reasonable answer
