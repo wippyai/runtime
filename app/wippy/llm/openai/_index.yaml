@@ -72,7 +72,7 @@ entries:
     meta:
       name: "OpenAI Text Generation Test"
       type: "test"
-      tags: [ "llm", "openai", "text-generation", "tests" ]
+      tags: [ "llm", "openai", "generation" ]
       group: "OpenAI Library"
       comment: "Tests the OpenAI text generation handler functionality"
     source: file://text_generation_test.lua
