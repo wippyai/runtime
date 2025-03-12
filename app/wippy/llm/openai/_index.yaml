@@ -32,7 +32,7 @@ entries:
     pool:
       max_size: 100
 
-  - name: full_feature
+  - name: tool_calling
     kind: function.lua
     meta:
       comment: "OpenAI function/tool calling implementation"
@@ -42,7 +42,7 @@ entries:
       priority: 50
     source: file://tool_calling.lua
     method: handler
-    modules: [ "json", "env" ]
+    modules: [ "json" ]
     imports:
       output: "wippy.llm:output"
       tools: "wippy.llm:tools"
@@ -100,4 +100,23 @@ entries:
       test: "wippy.test:test"
       output: "wippy.llm:output"
       embeddings: "wippy.llm.openai:embeddings"
+      openai_client: "wippy.llm.openai:client"
+
+  - name: tool_calling_test
+    kind: function.lua
+    meta:
+      name: "OpenAI Tool Calling Test"
+      type: "test"
+      tags: [ "llm", "openai", "tools", "function_calling" ]
+      group: "OpenAI Library"
+      comment: "Tests the OpenAI tool/function calling handler functionality"
+    source: file://tool_calling_test.lua
+    method: run_tests
+    modules: [ "json", "env" ]
+    imports:
+      test: "wippy.test:test"
+      prompt: "wippy.llm:prompt"
+      output: "wippy.llm:output"
+      tools: "wippy.llm:tools"
+      tool_calling: "wippy.llm.openai:tool_calling"
       openai_client: "wippy.llm.openai:client"

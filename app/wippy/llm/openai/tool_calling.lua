@@ -100,7 +100,7 @@ local function handler(args)
             end
             return {
                 error = output.ERROR_TYPE.INVALID_REQUEST,
-                error_message = err_msg:sub(1, -3)  -- Remove trailing comma and space
+                error_message = err_msg:sub(1, -3) -- Remove trailing comma and space
             }
         end
 
@@ -231,27 +231,39 @@ local function handler(args)
         -- Variables to track the state
         local full_content = ""
         local finish_reason = nil
-        local tool_calls_data = nil
+        local tool_calls_data = {}
+        local has_tool_calls = false
 
         -- Process the streaming response
         local stream_content, stream_err, stream_result = openai_client.process_stream(response, {
             on_content = function(content_chunk)
-                if not tool_calls_data then
-                    -- Only buffer content if we haven't seen tool calls
-                    streamer:buffer_content(content_chunk)
-                    full_content = full_content .. content_chunk
-                end
+                -- Always buffer content chunks
+                streamer:buffer_content(content_chunk)
+                full_content = full_content .. content_chunk
             end,
             on_tool_call = function(tool_call_info)
-                -- If we get a tool call, we need to handle it differently
-                if not tool_calls_data then
-                    tool_calls_data = {}
-                end
+                -- Mark that we've seen a tool call
+                has_tool_calls = true
 
-                -- Add tool call info to our tracking
+                -- Add tool call to our tracking
                 table.insert(tool_calls_data, tool_call_info)
 
-                -- Mark that we've seen a tool call
+                -- Parse arguments for streaming
+                local parsed_args = {}
+                if tool_call_info.arguments then
+                    local success, args = pcall(json.decode, tool_call_info.arguments)
+                    if success and args then
+                        parsed_args = args
+                    end
+                end
+
+                -- Send a streaming tool call event
+                streamer:send_tool_call(
+                    tool_call_info.name,
+                    parsed_args,
+                    tool_call_info.id
+                )
+
                 return true
             end,
             on_error = function(error_info)
@@ -278,51 +290,32 @@ local function handler(args)
                     finish_reason = result.finish_reason
                 end
 
-                -- If we saw tool calls, send a structured tool call message instead
-                if tool_calls_data and #tool_calls_data > 0 then
-                    -- Process tool calls into our format
-                    local processed_tool_calls = {}
-                    for _, tool_call in ipairs(tool_calls_data) do
-                        local parsed_args = nil
-                        if tool_call.arguments then
-                            local success, parsed = pcall(json.decode, tool_call.arguments)
-                            if success and parsed then
-                                parsed_args = parsed
-                            end
+                -- Process all tool calls into our format
+                local processed_tool_calls = {}
+                for _, tool_call in ipairs(tool_calls_data) do
+                    local parsed_args = {}
+                    if tool_call.arguments then
+                        local success, args = pcall(json.decode, tool_call.arguments)
+                        if success and args then
+                            parsed_args = args
                         end
-
-                        table.insert(processed_tool_calls, {
-                            id = tool_call.id,
-                            name = tool_call.name,
-                            arguments = parsed_args or {},
-                            original_id = tool_name_to_id_map[tool_call.name]
-                        })
                     end
 
-                    -- Send a tool call message
-                    for _, tool_call in ipairs(processed_tool_calls) do
-                        streamer:send_tool_call(
-                            tool_call.name,
-                            tool_call.arguments,
-                            tool_call.id
-                        )
-                    end
-
-                    -- Send a simplified done message with minimal info
-                    streamer:send_done({
-                        model = args.model,
-                        provider = "openai",
-                        usage = result.usage,
-                        tool_calls = processed_tool_calls
-                    })
-                else
-                    -- Send a simplified done message with minimal info
-                    streamer:send_done({
-                        model = args.model,
-                        provider = "openai",
-                        usage = result.usage
+                    table.insert(processed_tool_calls, {
+                        id = tool_call.id,
+                        name = tool_call.name,
+                        arguments = parsed_args,
+                        registry_id = tool_name_to_id_map[tool_call.name]
                     })
                 end
+
+                -- Send a simplified done message with minimal info
+                streamer:send_done({
+                    model = args.model,
+                    provider = "openai",
+                    usage = result.usage,
+                    tool_calls = #processed_tool_calls > 0 and processed_tool_calls or nil
+                })
             end
         })
 
@@ -343,28 +336,28 @@ local function handler(args)
                 stream_result.usage.prompt_tokens,
                 stream_result.usage.completion_tokens,
                 (stream_result.usage.completion_tokens_details and
-                 stream_result.usage.completion_tokens_details.reasoning_tokens) or 0
+                    stream_result.usage.completion_tokens_details.reasoning_tokens) or 0
             )
         end
 
         -- Return the final content and metadata for the caller
-        if tool_calls_data and #tool_calls_data > 0 then
+        if #tool_calls_data > 0 then
             -- Process tool calls into our format
             local processed_tool_calls = {}
             for _, tool_call in ipairs(tool_calls_data) do
-                local parsed_args = nil
+                local parsed_args = {}
                 if tool_call.arguments then
-                    local success, parsed = pcall(json.decode, tool_call.arguments)
-                    if success and parsed then
-                        parsed_args = parsed
+                    local success, args = pcall(json.decode, tool_call.arguments)
+                    if success and args then
+                        parsed_args = args
                     end
                 end
 
                 table.insert(processed_tool_calls, {
                     id = tool_call.id,
                     name = tool_call.name,
-                    arguments = parsed_args or {},
-                    original_id = tool_name_to_id_map[tool_call.name]
+                    arguments = parsed_args,
+                    registry_id = tool_name_to_id_map[tool_call.name]
                 })
             end
 
@@ -438,8 +431,8 @@ local function handler(args)
                 -- Parse arguments JSON string into a Lua table
                 local arguments = {}
                 if tool_call["function"].arguments then
-                    local success, parsed = pcall(json.decode, tool_call["function"].arguments)
-                    if success and parsed then
+                    local parsed, parse_err = json.decode(tool_call["function"].arguments)
+                    if not parse_err and parsed then
                         arguments = parsed
                     end
                 end
@@ -449,7 +442,7 @@ local function handler(args)
                     id = tool_call.id,
                     name = tool_call["function"].name,
                     arguments = arguments,
-                    original_id = tool_name_to_id_map[tool_call["function"].name]
+                    registry_id = tool_name_to_id_map[tool_call["function"].name]
                 })
             end
         end

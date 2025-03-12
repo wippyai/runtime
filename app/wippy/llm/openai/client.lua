@@ -249,9 +249,14 @@ function openai.process_stream(stream_response, callbacks)
     local usage = nil
     local metadata = stream_response.metadata or {}
 
+    -- Track tool calls across chunks
+    local tool_calls_accumulator = {}
+    local sent_tool_calls = {} -- Track which tool calls have been sent
+
     -- Default callbacks
     callbacks = callbacks or {}
     local on_content = callbacks.on_content or function() end
+    local on_tool_call = callbacks.on_tool_call or function() end
     local on_error = callbacks.on_error or function() end
     local on_done = callbacks.on_done or function() end
 
@@ -301,6 +306,19 @@ function openai.process_stream(stream_response, callbacks)
 
             -- Check for [DONE] marker
             if data_line == "[DONE]" then
+                -- Process any accumulated tool calls that haven't been sent yet
+                for id, tool_call in pairs(tool_calls_accumulator) do
+                    -- Only send if complete and not already sent
+                    if tool_call.name and tool_call.arguments and not sent_tool_calls[id] then
+                        sent_tool_calls[id] = true
+                        on_tool_call({
+                            id = id,
+                            name = tool_call.name,
+                            arguments = tool_call.arguments
+                        })
+                    end
+                end
+
                 -- Create the final result
                 local result = {
                     content = full_content,
@@ -331,9 +349,88 @@ function openai.process_stream(stream_response, callbacks)
                     on_content(content_chunk)
                 end
 
+                -- Handle tool call deltas
+                if choice.delta and choice.delta.tool_calls then
+                    for _, tool_call_delta in ipairs(choice.delta.tool_calls) do
+                        local index = tool_call_delta.index
+                        local id = tool_call_delta.id
+
+                        -- Initialize tool call entry if new
+                        if id and not tool_calls_accumulator[id] then
+                            tool_calls_accumulator[id] = {
+                                id = id,
+                                index = index,
+                                arguments = "",
+                                name = nil
+                            }
+                        elseif not id and tool_call_delta.index ~= nil then
+                            -- If no ID but we have an index, find the ID for this index
+                            for tc_id, tc in pairs(tool_calls_accumulator) do
+                                if tc.index == index then
+                                    id = tc_id
+                                    break
+                                end
+                            end
+                        end
+
+                        -- If we have a valid ID, update the tool call info
+                        if id then
+                            -- Track the index
+                            if tool_call_delta.index ~= nil then
+                                tool_calls_accumulator[id].index = tool_call_delta.index
+                            end
+
+                            -- Get function info if present
+                            if tool_call_delta["function"] then
+                                -- Update name if available
+                                if tool_call_delta["function"].name then
+                                    tool_calls_accumulator[id].name = tool_call_delta["function"].name
+                                end
+
+                                -- Accumulate argument chunks
+                                if tool_call_delta["function"].arguments then
+                                    tool_calls_accumulator[id].arguments =
+                                        (tool_calls_accumulator[id].arguments or "") ..
+                                        tool_call_delta["function"].arguments
+                                end
+                            end
+
+                            -- Check if tool call is complete and should be sent
+                            local tool_call = tool_calls_accumulator[id]
+                            if tool_call.name and tool_call.arguments and not sent_tool_calls[id] and
+                                (choice.finish_reason == "tool_calls" or -- End of response
+                                    -- Check if the arguments form a complete JSON object with ending }
+                                    (tool_call.arguments:match("}%s*$") and
+                                        -- Try parsing to make sure it's valid JSON
+                                        pcall(json.decode, tool_call.arguments))) then
+                                sent_tool_calls[id] = true
+                                on_tool_call({
+                                    id = id,
+                                    name = tool_call.name,
+                                    arguments = tool_call.arguments
+                                })
+                            end
+                        end
+                    end
+                end
+
                 -- Record finish reason if present
                 if choice.finish_reason then
                     finish_reason = choice.finish_reason
+
+                    -- If we're finishing with tool_calls, make one final check for complete tool calls
+                    if choice.finish_reason == "tool_calls" then
+                        for id, tool_call in pairs(tool_calls_accumulator) do
+                            if tool_call.name and tool_call.arguments and not sent_tool_calls[id] then
+                                sent_tool_calls[id] = true
+                                on_tool_call({
+                                    id = id,
+                                    name = tool_call.name,
+                                    arguments = tool_call.arguments
+                                })
+                            end
+                        end
+                    end
                 end
             end
 
@@ -346,6 +443,18 @@ function openai.process_stream(stream_response, callbacks)
         end
 
         ::continue::
+    end
+
+    -- Process any remaining tool calls that haven't been sent
+    for id, tool_call in pairs(tool_calls_accumulator) do
+        if tool_call.name and tool_call.arguments and not sent_tool_calls[id] then
+            sent_tool_calls[id] = true
+            on_tool_call({
+                id = id,
+                name = tool_call.name,
+                arguments = tool_call.arguments
+            })
+        end
     end
 
     -- Create the final result
