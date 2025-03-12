@@ -43,6 +43,22 @@ function openai.map_error(err)
         error_type = output.ERROR_TYPE.SERVER_ERROR
     end
 
+    -- Special cases based on error message content
+    if err.message then
+        -- Check for context length errors
+        if err.message:match("context length") or
+           err.message:match("string too long") or
+           err.message:match("maximum.+tokens") then
+            error_type = output.ERROR_TYPE.CONTEXT_LENGTH
+        end
+
+        -- Check for content filter errors
+        if err.message:match("content policy") or
+           err.message:match("content filter") then
+            error_type = output.ERROR_TYPE.CONTENT_FILTER
+        end
+    end
+
     -- Return already in the format expected by the text generation handler
     return {
         error = error_type,

@@ -52,6 +52,7 @@ local function handler(args)
     -- Add thinking effort mapping - using the utility in openai client
     if options.thinking_effort then
         payload.reasoning_effort = openai.map_thinking_effort(options.thinking_effort)
+        payload.temperature = nil -- not working for reasoning models
     end
 
     -- Add max_completion_tokens
