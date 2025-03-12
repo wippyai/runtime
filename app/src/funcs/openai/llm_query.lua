@@ -36,6 +36,10 @@ local function handler(args)
             stream = { buffer_size = 4096 }
         })
 
+        if response.status_code >= 200 and response.status_code < 300 then
+            print("Response status code:", response.status_code)
+        end
+
         local buffer = ""
         local full_response = ""
 
