@@ -1,7 +1,7 @@
 local json = require("json")
 local http_client = require("http_client")
 local env = require("env")
-local output = require("wippy.llm:output")
+local output = require("output")
 
 -- OpenAI Client Library
 local openai = {}
@@ -115,7 +115,7 @@ function openai.request(endpoint_path, payload, options)
 
     -- Handle streaming if requested
     if options.stream then
-        http_options.stream = { buffer_size = options.buffer_size or 4096 }
+        http_options.stream = true
     end
 
     -- Send the request
@@ -153,67 +153,6 @@ function openai.request(endpoint_path, payload, options)
     return parsed
 end
 
--- Chat completion function
-function openai.chat_completion(messages, model, params)
-    params = params or {}
-
-    -- Prepare the request payload
-    local payload = {
-        model = model,
-        messages = messages,
-        temperature = params.temperature,
-        top_p = params.top_p,
-        n = params.n,
-        stream = params.stream == true,
-        max_tokens = params.max_tokens,
-        presence_penalty = params.presence_penalty,
-        frequency_penalty = params.frequency_penalty,
-        logit_bias = params.logit_bias,
-        user = params.user
-    }
-
-    -- Handle response_format if provided
-    if params.response_format then
-        payload.response_format = params.response_format
-    end
-
-    -- Add tool-related parameters if provided
-    if params.tools and #params.tools > 0 then
-        payload.tools = params.tools
-
-        -- Set tool_choice if provided
-        if params.tool_choice then
-            payload.tool_choice = params.tool_choice
-        end
-    end
-
-    -- Add reasoning_effort parameter for OpenAI reasoning models
-    if params.reasoning_effort then
-        payload.reasoning_effort = params.reasoning_effort
-    end
-
-    -- Add max_completion_tokens for OpenAI reasoning models
-    if params.max_completion_tokens then
-        payload.max_completion_tokens = params.max_completion_tokens
-    end
-
-    -- Make the request
-    local response, err = openai.request(
-        openai.DEFAULT_CHAT_ENDPOINT,
-        payload,
-        {
-            api_key = params.api_key,
-            organization = params.organization,
-            timeout = params.timeout,
-            stream = params.stream,
-            buffer_size = params.buffer_size,
-            base_url = params.base_url
-        }
-    )
-
-    return response, err
-end
-
 -- Embeddings function
 function openai.create_embeddings(input, model, params)
     params = params or {}
@@ -221,7 +160,7 @@ function openai.create_embeddings(input, model, params)
     -- Format input to ensure it's an array
     local input_text = input
     if type(input_text) ~= "table" then
-        input_text = {input_text}
+        input_text = { input_text }
     end
 
     -- Prepare the payload
@@ -289,9 +228,8 @@ function openai.process_chat_stream(stream_response, stream_handler, options)
 
                         -- Process delta content
                         if decoded.choices and
-                           decoded.choices[1] and
-                           decoded.choices[1].delta then
-
+                            decoded.choices[1] and
+                            decoded.choices[1].delta then
                             local delta = decoded.choices[1].delta
 
                             -- Handle content
@@ -334,62 +272,25 @@ function openai.process_chat_stream(stream_response, stream_handler, options)
     return full_content
 end
 
--- Function to format OpenAI response into standardized output format
-function openai.format_completion_response(openai_response, params)
-    if not openai_response or not openai_response.choices or #openai_response.choices == 0 then
-        return nil, {
-            type = output.ERROR_TYPE.SERVER_ERROR,
-            message = "Invalid response structure from OpenAI"
-        }
+-- Extract usage information from response
+function openai.extract_usage(openai_response)
+    if not openai_response or not openai_response.usage then
+        return nil
     end
 
-    local result = {
-        provider = "openai",
-        model = params.model,
-        metadata = openai_response.metadata,
-        choices = {}
+    local usage = {
+        prompt_tokens = openai_response.usage.prompt_tokens or 0,
+        completion_tokens = openai_response.usage.completion_tokens or 0,
+        total_tokens = openai_response.usage.total_tokens or 0
     }
 
-    -- Add usage information if available
-    if openai_response.usage then
-        result.usage = {
-            prompt_tokens = openai_response.usage.prompt_tokens,
-            completion_tokens = openai_response.usage.completion_tokens,
-            total_tokens = openai_response.usage.total_tokens
-        }
-
-        -- Add reasoning tokens if available
-        if openai_response.usage.completion_tokens_details then
-            result.usage.reasoning_tokens = openai_response.usage.completion_tokens_details.reasoning_tokens
-        end
+    -- Add thinking tokens if available (mapped from reasoning_tokens)
+    if openai_response.usage.completion_tokens_details and
+        openai_response.usage.completion_tokens_details.reasoning_tokens then
+        usage.thinking_tokens = openai_response.usage.completion_tokens_details.reasoning_tokens
     end
 
-    -- Process all choices
-    for i, choice in ipairs(openai_response.choices) do
-        local formatted_choice = {
-            index = choice.index or (i - 1),
-            message = choice.message,
-            finish_reason = choice.finish_reason
-        }
-
-        -- Check for tool calls and reformat if needed
-        if choice.message and choice.message.tool_calls and #choice.message.tool_calls > 0 then
-            formatted_choice.tool_calls = {}
-
-            for _, tool_call in ipairs(choice.message.tool_calls) do
-                table.insert(formatted_choice.tool_calls, {
-                    id = tool_call.id,
-                    type = tool_call.type,
-                    name = tool_call.["function"] and tool_call.["function"].name,
-                    arguments = tool_call.["function"] and tool_call.["function"].arguments
-                })
-            end
-        end
-
-        table.insert(result.choices, formatted_choice)
-    end
-
-    return result
+    return usage
 end
 
 return openai

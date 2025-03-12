@@ -1,6 +1,6 @@
 local openai = require("openai_client")
-local output = require("wippy.llm:output")
-local tools = require("wippy.llm:tools")
+local output = require("output")
+local tools = require("tools")
 
 -- OpenAI Tool Calling Handler
 -- Supports both streaming and non-streaming tool calling

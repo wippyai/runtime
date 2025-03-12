@@ -33,7 +33,7 @@ local function handler(args)
         local response = http_client.post(args.endpoint, {
             headers = headers,
             body = body,
-            stream = { buffer_size = 4096 }
+            stream = true
         })
 
         if response.status_code >= 200 and response.status_code < 300 then
