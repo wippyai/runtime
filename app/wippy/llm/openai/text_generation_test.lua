@@ -435,13 +435,6 @@ local function define_tests()
             expect(response.error).to_be_nil("API request failed: " ..
                 (response.error_message or "unknown error"))
 
-            -- Log token usage for debugging
-            print("Integration reasoning test token usage:")
-            print("Prompt tokens: " .. (response.tokens.prompt_tokens or "nil"))
-            print("Completion tokens: " .. (response.tokens.completion_tokens or "nil"))
-            print("Thinking tokens: " .. (response.tokens.thinking_tokens or "nil"))
-            print("Total tokens: " .. (response.tokens.total_tokens or "nil"))
-
             -- Verify response has token information
             expect(response.tokens).not_to_be_nil("Expected token information")
             expect(response.tokens.prompt_tokens > 0).to_be_true("Expected non-zero prompt tokens")
