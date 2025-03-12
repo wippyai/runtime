@@ -22,6 +22,23 @@ local function define_tests()
             expect(messages[3].content[1].text).to_equal("Of course! What do you need help with?")
         end)
 
+        it("should support developer messages", function()
+            local builder = prompt.new()
+
+            builder:add_system("You are a helpful assistant.")
+            builder:add_user("How do I fix this code error?")
+            builder:add_developer("User is asking about code errors. Provide debugging steps.")
+            builder:add_assistant("I'd be happy to help debug your code.")
+
+            local messages = builder:get_messages()
+            expect(#messages).to_equal(4, "Expected 4 messages with developer message")
+            expect(messages[1].role).to_equal("system")
+            expect(messages[2].role).to_equal("user")
+            expect(messages[3].role).to_equal("developer", "Third message should be developer")
+            expect(messages[3].content[1].text).to_equal("User is asking about code errors. Provide debugging steps.")
+            expect(messages[4].role).to_equal("assistant")
+        end)
+
         it("should create multi-modal messages with text and images", function()
             local builder = prompt.new()
 
@@ -100,14 +117,8 @@ local function define_tests()
             -- Add various message types
             builder:add_system("You are a helpful assistant.")
             builder:add_cache_marker("system_cache")
-            builder:add_message(
-                prompt.ROLE.USER,
-                {
-                    prompt.text("Look at this:"),
-                    prompt.image("https://example.com/image.jpg")
-                }
-            )
-            builder:add_function_call("get_weather", '{"location":"London"}', "call_id")
+            builder:add_user("Look at this code")
+            builder:add_developer("User is asking about code. Provide code examples.")
 
             -- Clone the builder
             local cloned = builder:clone()
@@ -187,6 +198,25 @@ local function define_tests()
             expect(messages[3].role).to_equal("assistant")
             expect(messages[2].content[1].text).to_equal("What is the capital of France?")
             expect(messages[3].content[1].text).to_equal("The capital of France is Paris.")
+        end)
+
+        it("should support developer messages with multi-modal content", function()
+            local builder = prompt.new()
+
+            builder:add_message(
+                prompt.ROLE.DEVELOPER,
+                {
+                    prompt.text("Here's a screenshot of the error:"),
+                    prompt.image("https://example.com/error.jpg", "Error screenshot")
+                }
+            )
+
+            local messages = builder:get_messages()
+            expect(#messages).to_equal(1, "Expected 1 message")
+            expect(messages[1].role).to_equal("developer")
+            expect(#messages[1].content).to_equal(2, "Expected 2 content parts")
+            expect(messages[1].content[1].type).to_equal("text")
+            expect(messages[1].content[2].type).to_equal("image")
         end)
     end)
 end

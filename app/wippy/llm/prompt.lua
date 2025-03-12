@@ -13,6 +13,7 @@ prompt.ROLE = {
     SYSTEM = "system",
     USER = "user",
     ASSISTANT = "assistant",
+    DEVELOPER = "developer",
     FUNCTION = "function"
 }
 
@@ -60,6 +61,17 @@ function prompt.new(messages)
     local builder = {
         messages = messages or {}
     }
+
+    -- Add a developer message with contextual tips
+    builder.add_developer = function(self, content)
+        if content and #content > 0 then
+            return self:add_message(
+                prompt.ROLE.DEVELOPER,
+                { prompt.text(content) }
+            )
+        end
+        return self
+    end
 
     -- Add a message with specified role and content parts
     builder.add_message = function(self, role, content_parts, name)
