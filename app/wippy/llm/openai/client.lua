@@ -189,14 +189,20 @@ function openai.request(endpoint_path, payload, options)
     -- Make the request
     local http_options = {
         headers = headers,
-        body = json.encode(payload),
         timeout = options.timeout or 120
     }
 
     -- Handle streaming if requested
     if options.stream then
         http_options.stream = true
+        payload.stream = true
+        payload.stream_options = {
+            include_usage = true
+        }
     end
+
+    -- Make the request
+    http_options.body = json.encode(payload)
 
     -- Send the request
     local response = http_client.post(full_url, http_options)
@@ -252,67 +258,64 @@ function openai.process_stream(stream_response, callbacks)
     -- Process each streamed chunk
     while true do
         local chunk, err = stream_response.stream:read()
-
         -- Handle read errors
         if err then
             on_error(err)
             return nil, err
         end
-
         -- End of stream
         if not chunk then
             break
         end
-
         -- Skip empty chunks
         if chunk == "" then
             goto continue
         end
 
-        -- Handle SSE format (data: prefix)
-        local data_str = chunk
-        if chunk:match("^data:") then
-            data_str = chunk:match("^data:%s*(.+)")
-            if not data_str or data_str == "" then
-                goto continue
-            end
-        end
-
-        -- Check for [DONE] marker
-        if data_str:match("%[DONE%]") then
-            break
-        end
-
-        -- Parse the JSON data
-        local parsed, decode_err = json.decode(data_str)
-        if decode_err or not parsed then
-            goto continue
-        end
-
-        -- Process the delta
-        if parsed.choices and parsed.choices[1] then
-            local choice = parsed.choices[1]
-
-            -- Handle content delta
-            if choice.delta and choice.delta.content then
-                local content_chunk = choice.delta.content
-                full_content = full_content .. content_chunk
-                on_content(content_chunk)
+        -- Split the chunk into individual data lines
+        for data_line in chunk:gmatch("data:%s*(.-)%s*\n") do
+            -- Skip empty lines
+            if data_line == "" then
+                goto continue_inner
             end
 
-            -- Record finish reason if present
-            if choice.finish_reason then
-                finish_reason = choice.finish_reason
+            -- Check for [DONE] marker
+            if data_line == "[DONE]" then
+                goto done
             end
-        end
 
-        -- Capture usage info if present
-        if parsed.usage then
-            usage = parsed.usage
+            -- Parse the JSON data
+            local parsed, parse_err = json.decode(data_line)
+            if parse_err then
+                print("JSON parse error:", parse_err)
+                goto continue_inner
+            end
+
+            -- Process the delta
+            if parsed.choices and parsed.choices[1] then
+                local choice = parsed.choices[1]
+                -- Handle content delta
+                if choice.delta and choice.delta.content then
+                    local content_chunk = choice.delta.content
+                    full_content = full_content .. content_chunk
+                    on_content(content_chunk)
+                end
+                -- Record finish reason if present
+                if choice.finish_reason then
+                    finish_reason = choice.finish_reason
+                end
+            end
+            -- Capture usage info if present
+            if parsed.usage then
+                usage = parsed.usage
+            end
+
+            ::continue_inner::
         end
 
         ::continue::
     end
+    ::done::
 
     -- Create the final result
     local result = {
