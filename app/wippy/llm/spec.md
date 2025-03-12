@@ -12,12 +12,13 @@
     tool_schemas = {
         -- manually defined tools in a format of tool_resolver
     },                     
-    tool_call_behavior = "auto",           
+    tool_call = "auto", -- auto, `tool-name` (forced), singular (forbids multicalls)    
     
     -- Streaming configuration
-    stream = false,             -- for streamer
-    reply_to = "process-id",               
-    topic = "llm_response",                
+    stream = {             -- for streamer
+        reply_to = "process-id",               
+        topic = "llm_response",                
+    },
     
     -- Generation parameters (optional and model specific)
     options = {
