@@ -1,7 +1,5 @@
 local openai = require("openai_client")
 local output = require("output")
-local json = require("json")
-local env = require("env")
 
 -- OpenAI Text Generation Handler
 -- Supports both streaming and non-streaming completion
