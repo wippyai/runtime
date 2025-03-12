@@ -1,0 +1,85 @@
+version: "1.0"
+namespace: app.funcs.openai
+
+meta:
+  depends_on: [ "ns:system", "ns:wippy.llm" ]
+
+entries:
+  - name: openai_client
+    kind: library.lua
+    meta:
+      comment: "OpenAI API client library with error handling and response formatting"
+      type: "library"
+    source: file://openai_client.lua
+    modules: [ "http_client", "json", "env" ]
+    imports:
+      output: "wippy.llm:output"
+
+  - name: llm_text_generation
+    kind: function.lua
+    meta:
+      comment: "OpenAI text generation implementation"
+      llm_function: [ "generate" ]  # Capability identifier for registry lookup
+      models: [ "gpt*", "o*" ]      # Model patterns supported
+      priority: 10                  # Higher priority implementations are chosen first
+      provider: "openai"            # Provider identifier
+    source: file://llm_text_generation.lua
+    method: handler
+    modules: [ "json", "env" ]
+    imports:
+      output: "wippy.llm:output"
+      openai_client: "app.funcs.openai:openai_client"  # Fixed import path
+    pool:
+      size: 4  # Allow multiple concurrent requests
+
+  - name: llm_tool_calling
+    kind: function.lua
+    meta:
+      comment: "OpenAI function/tool calling implementation"
+      llm_function: [ "tool_calling", "generate" ]  # Supports both tool calling and regular generation
+      models: [ "gpt*", "o*" ]                      # Model patterns supported
+      priority: 10                                  # Higher priority implementations are chosen first
+      provider: "openai"                            # Provider identifier
+    source: file://llm_tool_calling.lua
+    method: handler
+    modules: [ "json", "env" ]
+    imports:
+      output: "wippy.llm:output"
+      tools: "wippy.llm:tools"
+      openai_client: "app.funcs.openai:openai_client"  # Fixed import path
+    pool:
+      size: 4  # Allow multiple concurrent requests
+
+  - name: llm_schema_generation
+    kind: function.lua
+    meta:
+      comment: "OpenAI schema-based structured output generation"
+      llm_function: [ "generate_with_schema" ]  # Capability for schema-guided generation
+      models: [ "gpt*", "o*" ]                  # Model patterns supported
+      priority: 10                              # Higher priority implementations are chosen first
+      provider: "openai"                        # Provider identifier
+    source: file://llm_schema_generation.lua
+    method: handler
+    modules: [ "json" ]
+    imports:
+      output: "wippy.llm:output"
+      openai_client: "app.funcs.openai:openai_client"  # Fixed import path
+    pool:
+      size: 4  # Allow multiple concurrent requests
+
+  - name: llm_embeddings
+    kind: function.lua
+    meta:
+      comment: "OpenAI embeddings implementation"
+      llm_function: [ "embeddings" ]            # Embeddings capability
+      models: [ "text-embedding*", "ada*" ]     # Model patterns for embedding models
+      priority: 10                              # Higher priority implementations are chosen first
+      provider: "openai"                        # Provider identifier
+    source: file://llm_embeddings.lua
+    method: handler
+    modules: [ ]
+    imports:
+      output: "wippy.llm:output"
+      openai_client: "app.funcs.openai:openai_client"  # Fixed import path
+    pool:
+      size: 4  # Allow multiple concurrent requests
