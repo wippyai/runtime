@@ -60,7 +60,7 @@ entries:
       priority: 10
     source: file://embeddings.lua
     method: handler
-    modules: [ ]
+    modules: [ "json" ]
     imports:
       output: "wippy.llm:output"
       openai_client: "wippy.llm.openai:client"
@@ -83,4 +83,21 @@ entries:
       prompt: "wippy.llm:prompt"
       output: "wippy.llm:output"
       text_generation: "wippy.llm.openai:text_generation"
+      openai_client: "wippy.llm.openai:client"
+
+  - name: embeddings_test
+    kind: function.lua
+    meta:
+      name: "OpenAI Embeddings Test"
+      type: "test"
+      tags: [ "llm", "openai", "embeddings" ]
+      group: "OpenAI Library"
+      comment: "Tests the OpenAI embeddings handler functionality"
+    source: file://embeddings_test.lua
+    method: run_tests
+    modules: [ "json", "env" ]
+    imports:
+      test: "wippy.test:test"
+      output: "wippy.llm:output"
+      embeddings: "wippy.llm.openai:embeddings"
       openai_client: "wippy.llm.openai:client"
