@@ -122,3 +122,19 @@ entries:
     method: GET
     path: /tools/list
     func: list_tools
+
+  - name: hello_world
+    kind: function.lua
+    meta:
+      comment: "Simple HTTP endpoint that returns Hello World as JSON"
+    source: file://hello_world.lua
+    method: handler
+    modules: [ http ]
+
+  - name: hello_world.endpoint
+    kind: http.endpoint
+    meta:
+      comment: "Returns Hello World message"
+    method: GET
+    path: /hello
+    func: hello_world

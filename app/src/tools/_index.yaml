@@ -39,8 +39,6 @@ entries:
     source: file://tree.lua
     method: handle
     modules: [ "fs", "json" ]
-    pool:
-      size: 2
 
   - name: read
     kind: function.lua
@@ -73,8 +71,6 @@ entries:
     source: file://read.lua
     method: handle
     modules: [ "fs" ]
-    pool:
-      size: 2
 
   - name: list
     kind: function.lua
@@ -112,8 +108,6 @@ entries:
     source: file://list.lua
     method: handle
     modules: [ "fs", "json" ]
-    pool:
-      size: 2
 
   - name: search
     kind: function.lua
@@ -164,8 +158,6 @@ entries:
     source: file://search.lua
     method: handle
     modules: [ "fs", "json" ]
-    pool:
-      size: 2
 
   - name: write
     kind: function.lua
@@ -205,8 +197,6 @@ entries:
     source: file://write_file.lua
     method: handle
     modules: [ "fs" ]
-    pool:
-      size: 2
 
   - name: read_multi
     kind: function.lua
@@ -241,5 +231,3 @@ entries:
     source: file://read_multi.lua
     method: handle
     modules: [ "fs", "json" ]
-    pool:
-      size: 2

@@ -58,7 +58,6 @@ entries:
       server: gateway
       depends_on:
         - gateway
-        - heap
     prefix: /api/v1
     timeouts:
       request: 30s

@@ -21,6 +21,8 @@ entries:
       description: "Create todo_items table with indexes"
       timestamp: "2025-03-07T12:00:00Z"
       tags: [ "todo_app" ]
+      type: "migration"
+      target_db: "system:db"
     source: file://add_todo_table.lua
     method: migrate
     imports:
