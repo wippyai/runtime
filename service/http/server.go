@@ -9,7 +9,7 @@ import (
 	"github.com/ponyruntime/pony/api/registry"
 	config "github.com/ponyruntime/pony/api/service/http"
 	"github.com/ponyruntime/pony/api/supervisor"
-	httpmiddleware "github.com/ponyruntime/pony/service/http/middleware"
+	httpmiddleware "github.com/ponyruntime/pony/service/http/websocket_relay"
 	"net"
 	"net/http"
 	"sync"
