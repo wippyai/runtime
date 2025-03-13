@@ -54,6 +54,7 @@ import (
 	fsdir "github.com/ponyruntime/pony/service/directory"
 	prochost "github.com/ponyruntime/pony/service/host"
 	"github.com/ponyruntime/pony/service/http"
+	"github.com/ponyruntime/pony/service/memstore"
 	"github.com/ponyruntime/pony/service/policy"
 	"github.com/ponyruntime/pony/service/sql"
 	service "github.com/ponyruntime/pony/service/supervisor"
@@ -525,6 +526,7 @@ func main() {
 		WithProcessSupervisor(app),
 		WithEphemeralHost(app),
 		WithSQLManager(app),
+		WithMemStore(app),
 	)...)
 	// --------------------------------------------------
 
@@ -668,7 +670,7 @@ func WithProcessSupervisor(a *App) eventbus.EventHandler {
 	return reghandler.NewRegistryHandler("process.service", service.NewSupervisorServiceManager(
 		a.eventBus,
 		a.processes,
-		a.logger.Named("supervisor"),
+		a.logger.Named("super"),
 	))
 }
 
@@ -721,6 +723,17 @@ func WithYamlPolicies(a *App) eventbus.EventHandler {
 
 	// Register handler for all SQL-related kinds
 	return reghandler.NewRegistryHandler("security.policy", manager)
+}
+
+func WithMemStore(a *App) eventbus.EventHandler {
+	// Create manager with required dependencies
+	manager := memstore.NewManager(
+		a.eventBus,
+		a.dtt,
+		a.logger.Named("memory"),
+	)
+
+	return reghandler.NewRegistryHandler("store.memory", manager)
 }
 
 func WithLuaRuntime(a *App) []eventbus.EventHandler {

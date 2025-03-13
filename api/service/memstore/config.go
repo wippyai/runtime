@@ -1,6 +1,7 @@
 package memstore
 
 import (
+	"encoding/json"
 	"fmt"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/supervisor"
@@ -60,4 +61,41 @@ func (c *MemoryConfig) InitDefaults() {
 
 	// Initialize lifecycle defaults from supervisor package
 	c.Lifecycle.InitDefaults()
+}
+
+// UnmarshalJSON implements custom unmarshaling for MemoryConfig to handle time.Duration fields.
+func (c *MemoryConfig) UnmarshalJSON(data []byte) error {
+	type Alias MemoryConfig
+	aux := &struct {
+		CleanupInterval string `json:"cleanup_interval"`
+		*Alias
+	}{
+		Alias: (*Alias)(c),
+	}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	var err error
+	if aux.CleanupInterval != "" {
+		c.CleanupInterval, err = time.ParseDuration(aux.CleanupInterval)
+		if err != nil {
+			return fmt.Errorf("invalid CleanupInterval duration format: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements custom marshaling for MemoryConfig to handle time.Duration fields.
+func (c *MemoryConfig) MarshalJSON() ([]byte, error) {
+	type Alias MemoryConfig
+	return json.Marshal(&struct {
+		CleanupInterval string `json:"cleanup_interval"`
+		*Alias
+	}{
+		CleanupInterval: c.CleanupInterval.String(),
+		Alias:           (*Alias)(c),
+	})
 }
