@@ -35,7 +35,7 @@ entries:
       comment: "Model discovery library for finding models by name, capability, and retrieving model cards"
       type: "library"
     source: file://models.lua
-    modules: [ "registry" ]
+    modules: [ "registry", "json" ]
 
   - name: prompt_test
     kind: function.lua

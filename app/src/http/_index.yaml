@@ -123,6 +123,24 @@ entries:
     path: /tools/list
     func: list_tools
 
+  - name: list_models
+    kind: function.lua
+    meta:
+      comment: "Lists all available LLM models and their capabilities"
+    source: file://models_endpoint.lua
+    method: handler
+    modules: [ http, json ]
+    imports:
+      models: wippy.llm:models
+
+  - name: list_models.endpoint
+    kind: http.endpoint
+    meta:
+      comment: "Provides access to all available LLM models and their capabilities"
+    method: GET
+    path: /models/list
+    func: list_models
+
   - name: hello_world
     kind: function.lua
     meta:

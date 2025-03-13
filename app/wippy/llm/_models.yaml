@@ -70,7 +70,7 @@ entries:
       capabilities: [ "tool_use", "vision", "thinking", "caching" ]
     provider_model: "claude-3-7-sonnet-20250219"
     max_tokens: 200000
-    output_tokens: 4096
+    output_tokens: 8192
     pricing:
       input: 3.00
       output: 15.00
@@ -88,7 +88,7 @@ entries:
       capabilities: [ "tool_use", "vision", "caching" ]
     provider_model: "claude-3-5-sonnet-20241022"
     max_tokens: 200000
-    output_tokens: 4096
+    output_tokens: 8192
     pricing:
       input: 3.00
       output: 15.00
@@ -101,12 +101,12 @@ entries:
     kind: registry.entry
     meta:
       type: "llm.model"
-      name: "claude3-haiku"
+      name: "claude-3-5-haiku"
       comment: "Fastest Claude model optimized for speed while maintaining high intelligence"
       capabilities: [ "tool_use", "vision", "caching" ]
     provider_model: "claude-3-5-haiku-20241022"
     max_tokens: 200000
-    output_tokens: 4096
+    output_tokens: 8192
     pricing:
       input: 0.80
       output: 4.00
@@ -157,7 +157,7 @@ entries:
   - name: text-embedding-ada-002
     kind: registry.entry
     meta:
-      type: "llm.embedding"
+      type: "llm.model"
       name: "text-embedding-ada-002"
       comment: "Legacy embedding model with 61.0% performance on MTEB benchmark"
       capabilities: [ "multilingual" ]

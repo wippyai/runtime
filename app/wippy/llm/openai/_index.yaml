@@ -1,5 +1,5 @@
 version: "1.0"
-#namespace: wippy.llm.openai
+namespace: wippy.llm.openai
 
 meta:
   depends_on: [ "ns:wippy.llm" ]
