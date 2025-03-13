@@ -25,9 +25,7 @@ entries:
       comment: "Main HTTP gateway service"
     addr: ":8082"
     timeouts:
-      idle: 60s
-      read: 30s
-      write: 30s
+      idle: 120s
     lifecycle:
       auto_start: true
       restart:
@@ -59,8 +57,6 @@ entries:
       depends_on:
         - gateway
     prefix: /api/v1
-    timeouts:
-      request: 30s
 
   - name: terminal
     kind: terminal.host
