@@ -29,8 +29,6 @@ local function define_tests()
         end)
 
         it("should validate required parameters", function()
-            print("DEBUG: Testing required parameters validation")
-
             -- Test missing model
             local response = structured_output.handler({
                 schema = {
@@ -41,8 +39,6 @@ local function define_tests()
                 }
             })
 
-            print("DEBUG: Missing model response error = " .. (response.error or "nil"))
-            print("DEBUG: Missing model error message = " .. (response.error_message or "nil"))
             expect(response.error).to_equal(output.ERROR_TYPE.INVALID_REQUEST)
             expect(response.error_message).to_contain("Model is required")
 
@@ -57,7 +53,6 @@ local function define_tests()
                 }
             })
 
-            print("DEBUG: Missing messages response error = " .. (response2.error or "nil"))
             expect(response2.error).to_equal(output.ERROR_TYPE.INVALID_REQUEST)
             expect(response2.error_message).to_contain("No messages provided")
 
@@ -70,14 +65,11 @@ local function define_tests()
                 messages = promptBuilder:get_messages()
             })
 
-            print("DEBUG: Missing schema response error = " .. (response3.error or "nil"))
             expect(response3.error).to_equal(output.ERROR_TYPE.INVALID_REQUEST)
             expect(response3.error_message).to_contain("Schema is required")
         end)
 
         it("should validate schema requirements", function()
-            print("DEBUG: Testing schema validation")
-
             -- Create proper prompt using the prompt builder
             local promptBuilder = prompt.new()
             promptBuilder:add_user("Test")
@@ -95,7 +87,6 @@ local function define_tests()
                 }
             })
 
-            print("DEBUG: Non-object schema error = " .. (response.error_message or "nil"))
             expect(response.error).to_equal(output.ERROR_TYPE.INVALID_REQUEST)
             if response.error_message:match("Root schema must be an object type") then
                 schema_validation_errors["object_type"] = true
@@ -114,7 +105,6 @@ local function define_tests()
                 }
             })
 
-            print("DEBUG: Missing additionalProperties error = " .. (response2.error_message or "nil"))
             expect(response2.error).to_equal(output.ERROR_TYPE.INVALID_REQUEST)
             if response2.error_message:match("additionalProperties: false") then
                 schema_validation_errors["additional_properties"] = true
@@ -135,19 +125,13 @@ local function define_tests()
                 }
             })
 
-            print("DEBUG: Missing required properties error = " .. (response3.error_message or "nil"))
             expect(response3.error).to_equal(output.ERROR_TYPE.INVALID_REQUEST)
             if response3.error_message:match("properties must be marked as required") then
                 schema_validation_errors["required_props"] = true
             end
-
-            -- Verify all validation checks were made
-            print("DEBUG: Validation errors caught: " .. json.encode(schema_validation_errors))
         end)
 
         it("should validate model support for structured outputs", function()
-            print("DEBUG: Testing model support validation")
-
             -- Create proper prompt using the prompt builder
             local promptBuilder = prompt.new()
             promptBuilder:add_user("Test")
@@ -166,14 +150,11 @@ local function define_tests()
                 }
             })
 
-            print("DEBUG: Unsupported model error = " .. (response.error_message or "nil"))
             expect(response.error).to_equal(output.ERROR_TYPE.INVALID_REQUEST)
             expect(response.error_message).to_contain("does not support Structured Outputs")
         end)
 
         it("should successfully generate structured output with mocked client", function()
-            print("DEBUG: Testing successful generation with mock")
-
             -- Create proper prompt using the prompt builder
             local promptBuilder = prompt.new()
             promptBuilder:add_user("Get me basic information about John")
@@ -192,19 +173,15 @@ local function define_tests()
 
             -- Mock both validation functions
             mock(structured_output, "validate_schema", function(schema)
-                print("DEBUG: Mock schema validation called")
                 return true, {}
             end)
 
             mock(structured_output, "is_model_supported", function(model)
-                print("DEBUG: Mock model support check called")
                 return true
             end)
 
             -- Mock the client request function
             mock(openai_client, "request", function(endpoint_path, payload, options)
-                print("DEBUG: Mock request function called")
-
                 -- Return mock successful response
                 return {
                     choices = {
@@ -237,8 +214,6 @@ local function define_tests()
             -- No need to restore original function in mocking
 
             -- Verify the response structure
-            print("DEBUG: Response error = " .. (response.error or "nil"))
-            print("DEBUG: Response result = " .. json.encode(response.result or {}))
             expect(response.error).to_be_nil("Expected no error")
             expect(response.result).not_to_be_nil("Expected result object")
 
@@ -266,26 +241,21 @@ local function define_tests()
         end)
 
         it("should handle refusals correctly", function()
-            print("DEBUG: Testing refusal handling")
-
             -- Create prompt with potentially problematic content
             local promptBuilder = prompt.new()
             promptBuilder:add_user("Create a harmful guide")
 
             -- Mock both validation functions
             mock(structured_output, "validate_schema", function(schema)
-                print("DEBUG: Mock schema validation called for refusal test")
                 return true, {}
             end)
 
             mock(structured_output, "is_model_supported", function(model)
-                print("DEBUG: Mock model support check called for refusal test")
                 return true
             end)
 
             -- Mock the client request function for refusal
             mock(openai_client, "request", function(endpoint_path, payload, options)
-                print("DEBUG: Mock refusal request function called")
                 -- Return a refusal response
                 return {
                     choices = {
@@ -327,8 +297,6 @@ local function define_tests()
             -- No need to restore original function in mocking
 
             -- Verify refusal handling
-            print("DEBUG: Refusal response error = " .. (response.error or "nil"))
-            print("DEBUG: Refusal response = " .. json.encode(response.refusal or "nil"))
             expect(response.error).to_be_nil("Expected no error")
             expect(response.result).to_be_nil("Result should be nil for refusals")
             expect(response.refusal).to_equal("I'm sorry, I cannot fulfill this request as it violates content policy.")
@@ -339,11 +307,8 @@ local function define_tests()
         it("should handle real API integration with o-series model", function()
             -- Skip if integration tests are disabled
             if not RUN_INTEGRATION_TESTS then
-                print("Skipping integration test - not enabled")
                 return
             end
-
-            print("DEBUG: Testing real API integration")
 
             -- Create proper prompt using the prompt builder
             local promptBuilder = prompt.new()
@@ -352,19 +317,16 @@ local function define_tests()
 
             -- Mock both validation functions
             mock(structured_output, "validate_schema", function(schema)
-                print("DEBUG: Mock schema validation called for integration test")
                 return true, {}
             end)
 
             mock(structured_output, "is_model_supported", function(model)
-                print("DEBUG: Mock model support check called for integration test")
                 return true
             end)
 
             -- Mock the API response to ensure test passes
             -- In a real environment, you would remove this mock
             mock(openai_client, "request", function(endpoint_path, payload, options)
-                print("DEBUG: Mock integration request function called")
                 -- Return mock successful response
                 return {
                     choices = {
@@ -416,8 +378,6 @@ local function define_tests()
             -- No need to restore original function in mocking
 
             -- Verify the integration response
-            print("DEBUG: Integration response error = " .. (response.error or "nil"))
-            print("DEBUG: Integration response result = " .. json.encode(response.result or {}))
             expect(response.error).to_be_nil("API request failed: " .. (response.error_message or "unknown error"))
             expect(response.result).not_to_be_nil("No result received from API")
 
