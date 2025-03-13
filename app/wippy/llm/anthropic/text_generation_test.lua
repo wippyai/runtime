@@ -1,5 +1,5 @@
 local text_generation = require("text_generation")
-local ClaudeClient = require("claude_client")
+local claude_client = require("claude_client")
 local output = require("output")
 local json = require("json")
 local env = require("env")
@@ -30,9 +30,9 @@ local function define_tests()
 
         it("should successfully generate text with mocked client", function()
             -- Mock the client send_request function
-            mock(ClaudeClient, "send_request", function(self, endpoint_path, payload, options)
+            mock(claude_client, "send_request", function(self, endpoint_path, payload, options)
                 -- Validate the request
-                expect(endpoint_path).to_equal(ClaudeClient.API_ENDPOINTS.MESSAGES)
+                expect(endpoint_path).to_equal(claude_client.API_ENDPOINTS.MESSAGES)
                 expect(payload.model).to_equal("claude-3-5-haiku-20241022")
                 expect(payload.messages[1].role).to_equal("user")
                 expect(payload.messages[1].content[1].text).to_equal("Say hello world")
@@ -119,7 +119,7 @@ local function define_tests()
 
         it("should handle wrong model errors correctly with mocked client", function()
             -- Mock the client send_request function to simulate a model error
-            mock(ClaudeClient, "send_request", function(self, endpoint_path, payload, options)
+            mock(claude_client, "send_request", function(self, endpoint_path, payload, options)
                 -- Return a model-related error with the correct error type from real API
                 return nil, {
                     status_code = 404,
@@ -171,7 +171,7 @@ local function define_tests()
         -- Test for length stop reason
         it("should handle length stop reason correctly with mocked client", function()
             -- Mock the client send_request function
-            mock(ClaudeClient, "send_request", function(self, endpoint_path, payload, options)
+            mock(claude_client, "send_request", function(self, endpoint_path, payload, options)
                 -- Return a response with max_tokens as finish reason
                 return {
                     content = {
@@ -214,7 +214,7 @@ local function define_tests()
         -- Test for context length exceeded error
         it("should handle context length exceeded error with mocked client", function()
             -- Mock the client send_request function to simulate context length error
-            mock(ClaudeClient, "send_request", function(self, endpoint_path, payload, options)
+            mock(claude_client, "send_request", function(self, endpoint_path, payload, options)
                 -- Return nil and an error for context length exceeded
                 return nil, {
                     status_code = 400,
@@ -224,7 +224,7 @@ local function define_tests()
             end)
 
             -- Mock the map_error function to properly handle context length errors
-            mock(ClaudeClient, "map_error", function(err)
+            mock(claude_client, "map_error", function(err)
                 -- Check if the error message contains "context length"
                 if err and err.message and err.message:match("context length") then
                     return {
@@ -338,7 +338,7 @@ local function define_tests()
         -- Mocked test for extended thinking
         it("should correctly handle extended thinking with mocked client", function()
             -- Mock the client send_request function
-            mock(ClaudeClient, "send_request", function(self, endpoint_path, payload, options)
+            mock(claude_client, "send_request", function(self, endpoint_path, payload, options)
                 -- Verify that thinking is enabled
                 expect(payload.thinking).not_to_be_nil("Expected thinking to be enabled")
                 expect(payload.thinking.type).to_equal("enabled")
@@ -392,9 +392,9 @@ local function define_tests()
 
         it("should handle developer messages correctly with mocked client", function()
             -- Mock the client send_request function
-            mock(ClaudeClient, "send_request", function(self, endpoint_path, payload, options)
+            mock(claude_client, "send_request", function(self, endpoint_path, payload, options)
                 -- Validate the request
-                expect(endpoint_path).to_equal(ClaudeClient.API_ENDPOINTS.MESSAGES)
+                expect(endpoint_path).to_equal(claude_client.API_ENDPOINTS.MESSAGES)
                 expect(payload.model).to_equal("claude-3-5-haiku-20241022")
 
                 -- Verify developer messages are properly converted
@@ -554,7 +554,7 @@ local function define_tests()
             }
 
             -- Mock the process_stream function
-            mock(ClaudeClient, "process_stream", function(stream_response, callbacks)
+            mock(claude_client, "process_stream", function(stream_response, callbacks)
                 -- Call the callbacks in sequence to simulate streaming
                 callbacks.on_content("Hello")
                 callbacks.on_content(", ")
@@ -582,7 +582,7 @@ local function define_tests()
             end)
 
             -- Mock the send_request function to return a streamable response
-            mock(ClaudeClient, "send_request", function(self, endpoint_path, payload, options)
+            mock(claude_client, "send_request", function(self, endpoint_path, payload, options)
                 -- Validate the request has streaming enabled
                 expect(options.stream).to_be_true("Stream option should be enabled")
 

@@ -5,15 +5,15 @@ local time = require("time")
 local output = require("output")
 
 -- Enhanced Claude API Client
-local ClaudeClient = {}
+local claude_client = {}
 
 -- Constants for API paths
-ClaudeClient.API_ENDPOINTS = {
+claude_client.API_ENDPOINTS = {
     MESSAGES = "/v1/messages"
 }
 
 -- Constants for model default parameters
-ClaudeClient.MODEL_DEFAULTS = {
+claude_client.MODEL_DEFAULTS = {
     -- Map models to their default max tokens
     ["claude-3-7-sonnet-20250219"] = 4096,
     ["claude-3-5-sonnet-20241022"] = 4096,
@@ -24,7 +24,7 @@ ClaudeClient.MODEL_DEFAULTS = {
 }
 
 -- Map Claude finish reasons to standardized finish reasons
-ClaudeClient.FINISH_REASON_MAP = {
+claude_client.FINISH_REASON_MAP = {
     ["end_turn"] = output.FINISH_REASON.STOP,
     ["max_tokens"] = output.FINISH_REASON.LENGTH,
     ["stop_sequence"] = output.FINISH_REASON.STOP,
@@ -32,7 +32,7 @@ ClaudeClient.FINISH_REASON_MAP = {
 }
 
 -- Error type mapping function for Claude errors
-function ClaudeClient.map_error(err)
+function claude_client.map_error(err)
     if not err then
         return {
             error = output.ERROR_TYPE.SERVER_ERROR,
@@ -103,7 +103,7 @@ local function extract_response_metadata(http_response)
 
             output_tokens_limit = tonumber(http_response.headers["anthropic-ratelimit-output-tokens-limit"]),
             output_tokens_remaining = tonumber(http_response.headers["anthropic-ratelimit-output-tokens-remaining"]),
-            output_tokens_reset = http_response.headers["anthropic-ratelimit-output-tokens-reset"])
+            output_tokens_reset = tonumber(http_response.headers["anthropic-ratelimit-output-tokens-reset"])
         },
 
         -- Additional headers that might be useful
@@ -144,7 +144,7 @@ local function parse_error(http_response)
 end
 
 -- Process a streaming completion response
-function ClaudeClient.process_stream(stream_response, callbacks)
+function claude_client.process_stream(stream_response, callbacks)
     if not stream_response or not stream_response.stream then
         return nil, "Invalid stream response"
     end
@@ -322,7 +322,7 @@ function ClaudeClient.process_stream(stream_response, callbacks)
 end
 
 -- Extract usage information from response
-function ClaudeClient.extract_usage(claude_response)
+function claude_client.extract_usage(claude_response)
     if not claude_response or not claude_response.usage then
         return nil
     end
@@ -346,14 +346,14 @@ function ClaudeClient.extract_usage(claude_response)
     return usage
 end
 
-function ClaudeClient.new(api_key)
+function claude_client.new(api_key)
     local client = {}
 
     -- Constants
     client.API_URL = "https://api.anthropic.com"
     client.API_VERSION = "2023-06-01"
     client.MODEL = "claude-3-7-sonnet-20250219"
-    client.MAX_TOKENS = ClaudeClient.MODEL_DEFAULTS[client.MODEL] or 4096
+    client.MAX_TOKENS = claude_client.MODEL_DEFAULTS[client.MODEL] or 4096
 
     -- Thinking mode configuration
     client.thinking_enabled = false
@@ -515,7 +515,7 @@ function ClaudeClient.new(api_key)
 
         -- Send request
         local response, err = self:send_request(
-            ClaudeClient.API_ENDPOINTS.MESSAGES,
+            claude_client.API_ENDPOINTS.MESSAGES,
             payload,
             {
                 stream = options.stream,
@@ -531,7 +531,7 @@ function ClaudeClient.new(api_key)
 
         -- Handle streaming if a handler is provided
         if options.stream and options.stream_handler and response.stream then
-            return ClaudeClient.process_stream(response, options.stream_handler)
+            return claude_client.process_stream(response, options.stream_handler)
         end
 
         return response
@@ -560,7 +560,7 @@ function ClaudeClient.new(api_key)
             self.MODEL = options.model
             -- Update max tokens based on model if not explicitly set
             if not options.max_tokens then
-                self.MAX_TOKENS = ClaudeClient.MODEL_DEFAULTS[self.MODEL] or 4096
+                self.MAX_TOKENS = claude_client.MODEL_DEFAULTS[self.MODEL] or 4096
             end
         end
 
@@ -590,4 +590,4 @@ function ClaudeClient.new(api_key)
     return client
 end
 
-return ClaudeClient
+return claude_client

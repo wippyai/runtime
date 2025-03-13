@@ -1,0 +1,88 @@
+version: "1.0"
+namespace: wippy.llm.claude
+
+meta:
+  depends_on: [ "ns:wippy.llm" ]
+  provider: "anthropic"
+
+entries:
+  - name: client
+    kind: library.lua
+    meta:
+      comment: "Claude API client library with error handling and response formatting"
+    source: file://client.lua
+    modules: [ "http_client", "json", "env", "time" ]
+    imports:
+      output: "wippy.llm:output"
+
+  - name: text_generation
+    kind: function.lua
+    meta:
+      comment: "Claude text generation implementation"
+      type: llm_function
+      supports: [ "generate", "stream" ]
+      models: [ "claude-3*" ]
+      priority: 100
+    source: file://text_generation.lua
+    method: handler
+    modules: [ "json", "env" ]
+    imports:
+      output: "wippy.llm:output"
+      claude_client: "wippy.llm.claude:client"
+    pool:
+      max_size: 25
+
+  - name: tool_calling
+    kind: function.lua
+    meta:
+      comment: "Claude function/tool calling implementation"
+      type: llm_function
+      supports: [ "generate", "tools", "stream" ]
+      models: [ "claude-3*" ]
+      priority: 50
+    source: file://tool_calling.lua
+    method: handler
+    modules: [ "json" ]
+    imports:
+      output: "wippy.llm:output"
+      tools: "wippy.llm:tools"
+      claude_client: "wippy.llm.claude:client"
+    pool:
+      max_size: 25
+
+  - name: text_generation_test
+    kind: function.lua
+    meta:
+      name: "Claude Text Generation Test"
+      type: "test"
+      tags: [ "llm", "claude", "generation" ]
+      group: "Claude Library"
+      comment: "Tests the Claude text generation handler functionality"
+    source: file://text_generation_test.lua
+    method: run_tests
+    modules: [ "json", "env" ]
+    imports:
+      test: "wippy.test:test"
+      prompt: "wippy.llm:prompt"
+      output: "wippy.llm:output"
+      text_generation: "wippy.llm.claude:text_generation"
+      claude_client: "wippy.llm.claude:client"
+
+  - name: tool_calling_test
+    kind: function.lua
+    meta:
+      name: "Claude Tool Calling Test"
+      type: "test"
+      tags: [ "llm", "claude", "tools", "function_calling" ]
+      group: "Claude Library"
+      comment: "Tests the Claude tool/function calling handler functionality"
+    source: file://tool_calling_test.lua
+    method: run_tests
+    modules: [ "json", "env" ]
+    imports:
+      test: "wippy.test:test"
+      prompt: "wippy.llm:prompt"
+      output: "wippy.llm:output"
+      tools: "wippy.llm:tools"
+      tool_calling: "wippy.llm.claude:tool_calling"
+      claude_client: "wippy.llm.claude:client"

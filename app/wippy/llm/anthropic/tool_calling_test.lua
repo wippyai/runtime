@@ -1,5 +1,5 @@
 local tool_calling = require("tool_calling")
-local ClaudeClient = require("claude_client")
+local claude_client = require("claude_client")
 local output = require("output")
 local tools = require("tools")
 local json = require("json")
@@ -103,9 +103,9 @@ local function define_tests()
 
         it("should handle text generation without tools", function()
             -- Mock the client send_request function
-            mock(ClaudeClient, "send_request", function(self, endpoint_path, payload, options)
+            mock(claude_client, "send_request", function(self, endpoint_path, payload, options)
                 -- Validate the request
-                expect(endpoint_path).to_equal(ClaudeClient.API_ENDPOINTS.MESSAGES)
+                expect(endpoint_path).to_equal(claude_client.API_ENDPOINTS.MESSAGES)
                 expect(payload.model).to_equal("claude-3-5-haiku-20241022")
                 -- Check if messages array is present
                 expect(payload.messages).not_to_be_nil("Expected messages array")
@@ -162,9 +162,9 @@ local function define_tests()
 
         it("should handle successful tool calls with tool_ids", function()
             -- Mock the client send_request function
-            mock(ClaudeClient, "send_request", function(self, endpoint_path, payload, options)
+            mock(claude_client, "send_request", function(self, endpoint_path, payload, options)
                 -- Validate the request
-                expect(endpoint_path).to_equal(ClaudeClient.API_ENDPOINTS.MESSAGES)
+                expect(endpoint_path).to_equal(claude_client.API_ENDPOINTS.MESSAGES)
                 expect(payload.model).to_equal("claude-3-5-haiku-20241022")
 
                 -- Check if messages array is present
@@ -250,9 +250,9 @@ local function define_tests()
 
         it("should handle successful tool calls with direct tool_schemas", function()
             -- Mock the client send_request function
-            mock(ClaudeClient, "send_request", function(self, endpoint_path, payload, options)
+            mock(claude_client, "send_request", function(self, endpoint_path, payload, options)
                 -- Validate the request
-                expect(endpoint_path).to_equal(ClaudeClient.API_ENDPOINTS.MESSAGES)
+                expect(endpoint_path).to_equal(claude_client.API_ENDPOINTS.MESSAGES)
                 expect(payload.model).to_equal("claude-3-5-haiku-20241022")
                 -- Check if messages array is present
                 expect(payload.messages).not_to_be_nil("Expected messages array")
@@ -325,9 +325,9 @@ local function define_tests()
 
         it("should handle multiple tool calls", function()
             -- Mock the client send_request function
-            mock(ClaudeClient, "send_request", function(self, endpoint_path, payload, options)
+            mock(claude_client, "send_request", function(self, endpoint_path, payload, options)
                 -- Validate the request
-                expect(endpoint_path).to_equal(ClaudeClient.API_ENDPOINTS.MESSAGES)
+                expect(endpoint_path).to_equal(claude_client.API_ENDPOINTS.MESSAGES)
                 expect(payload.model).to_equal("claude-3-5-haiku-20241022")
 
                 -- Verify tools are set correctly
@@ -405,7 +405,7 @@ local function define_tests()
 
         it("should enforce singular tool calls when specified", function()
             -- Mock the client send_request function to return multiple tool calls
-            mock(ClaudeClient, "send_request", function(self, endpoint_path, payload, options)
+            mock(claude_client, "send_request", function(self, endpoint_path, payload, options)
                 -- Return mock response with multiple tool calls
                 return {
                     content = {
@@ -467,7 +467,7 @@ local function define_tests()
 
         it("should handle forced tool calls", function()
             -- Mock the client send_request function
-            mock(ClaudeClient, "send_request", function(self, endpoint_path, payload, options)
+            mock(claude_client, "send_request", function(self, endpoint_path, payload, options)
                 -- Validate the request has forced tool choice
                 expect(payload.tool_choice).not_to_be_nil("Expected tool_choice to be set")
                 expect(payload.tool_choice.type).to_equal("tool")
@@ -525,7 +525,7 @@ local function define_tests()
 
         it("should handle invalid tool specifications", function()
             -- Mock the client send_request function
-            mock(ClaudeClient, "send_request", function(self, endpoint_path, payload, options)
+            mock(claude_client, "send_request", function(self, endpoint_path, payload, options)
                 -- This shouldn't be called
                 fail("Request should not be made with invalid tool")
                 return nil

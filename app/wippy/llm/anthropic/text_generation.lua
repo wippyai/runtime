@@ -1,4 +1,4 @@
-local ClaudeClient = require("claude_client")
+local claude_client = require("claude_client")
 local output = require("output")
 
 -- Claude Text Generation Handler
@@ -25,7 +25,7 @@ local function handler(args)
     local options = args.options or {}
 
     -- Create client with API key
-    local client = ClaudeClient.new(args.api_key)
+    local client = claude_client.new(args.api_key)
 
     -- Configure the client
     client:configure({
@@ -176,7 +176,7 @@ local function handler(args)
 
         -- Make streaming request
         local response, err = client:send_request(
-            ClaudeClient.API_ENDPOINTS.MESSAGES,
+            claude_client.API_ENDPOINTS.MESSAGES,
             payload,
             {
                 stream = true,
@@ -186,7 +186,7 @@ local function handler(args)
 
         -- Handle request errors
         if err then
-            local mapped_error = ClaudeClient.map_error(err)
+            local mapped_error = claude_client.map_error(err)
             streamer:send_error(
                 mapped_error.error,
                 mapped_error.error_message,
@@ -202,7 +202,7 @@ local function handler(args)
         local has_thinking = false
 
         -- Process the streaming response
-        local stream_content, stream_err, stream_result = ClaudeClient.process_stream(response, {
+        local stream_content, stream_err, stream_result = claude_client.process_stream(response, {
             on_content = function(content_chunk)
                 full_content = full_content .. content_chunk
                 streamer:buffer_content(content_chunk)
@@ -276,7 +276,7 @@ local function handler(args)
         end
 
         -- Map the finish reason to standardized format
-        local standardized_finish_reason = ClaudeClient.FINISH_REASON_MAP[finish_reason] or finish_reason
+        local standardized_finish_reason = claude_client.FINISH_REASON_MAP[finish_reason] or finish_reason
 
         -- Return the final content and metadata for the caller
         local result = {
@@ -298,7 +298,7 @@ local function handler(args)
     else
         -- Non-streaming request
         local response, err = client:send_request(
-            ClaudeClient.API_ENDPOINTS.MESSAGES,
+            claude_client.API_ENDPOINTS.MESSAGES,
             payload,
             {
                 timeout = args.timeout or 120
@@ -307,7 +307,7 @@ local function handler(args)
 
         -- Handle errors
         if err then
-            return ClaudeClient.map_error(err)
+            return claude_client.map_error(err)
         end
 
         -- Check response validity
@@ -348,7 +348,7 @@ local function handler(args)
         end
 
         -- Map finish reason to standardized format
-        local finish_reason = ClaudeClient.FINISH_REASON_MAP[response.stop_reason] or response.stop_reason
+        local finish_reason = claude_client.FINISH_REASON_MAP[response.stop_reason] or response.stop_reason
 
         -- Return successful response with standardized finish reason
         local result = {
