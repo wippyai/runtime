@@ -1409,6 +1409,258 @@ local function define_tests()
 
             print("Complete flow test successful. Final response: " .. result_text:sub(1, 100) .. "...")
         end)
+
+        it("should handle streaming tool calls with content and tool result", function()
+            -- Skip if not running integration tests
+            if not RUN_INTEGRATION_TESTS then
+                print("Skipping streaming test - integration tests not enabled")
+                return
+            end
+
+            -- Track received streaming messages
+            local received_messages = {}
+            mock(process, "send", function(pid, topic, data)
+                table.insert(received_messages, { pid = pid, topic = topic, data = data })
+                print("Stream event: " .. (data.type or "unknown") .. " received")
+            end)
+
+            -- Create prompt for a calculation
+            local promptBuilder = prompt.new()
+            promptBuilder:add_user("Calculate 156 * 37 and tell me if the result is divisible by 12")
+            promptBuilder:add_developer("Use calculator tool for accuracy")
+
+            -- Call with streaming enabled
+            local response = tool_calling.handler({
+                model = "gpt-4o",
+                messages = promptBuilder:get_messages(),
+                tool_schemas = {
+                    ["custom:calculator"] = mock_tools["calculator"]
+                },
+                api_key = actual_api_key,
+                options = {
+                    temperature = 0 -- For deterministic results
+                },
+                stream = {
+                    reply_to = "test-stream-handler",
+                    topic = "test_streaming_topic",
+                    buffer_size = 5
+                }
+            })
+
+            -- Verify the streaming response structure
+            expect(response.error).to_be_nil("API request failed: " .. (response.error_message or "unknown error"))
+            expect(response.streaming).to_be_true("Response should indicate streaming mode")
+            expect(response.result).not_to_be_nil("No result object returned")
+
+            -- Allow time for streams to complete
+            print("Streaming complete, analyzing " .. #received_messages .. " stream messages")
+
+            -- Verify stream event types are present
+            local event_types = {}
+            for _, msg in ipairs(received_messages) do
+                if msg.data and msg.data.type then
+                    event_types[msg.data.type] = (event_types[msg.data.type] or 0) + 1
+                end
+            end
+
+            -- Check if we have at least some messages
+            expect(#received_messages > 0).to_be_true("No streaming messages received")
+
+            -- Should have tool_call events
+            local has_tool_call = false
+            for _, msg in ipairs(received_messages) do
+                if msg.data and msg.data.type == "tool_call" then
+                    has_tool_call = true
+                    break
+                end
+            end
+            expect(has_tool_call).to_be_true("Expected at least one tool_call event")
+
+            -- Should have a done event
+            local has_done = false
+            for _, msg in ipairs(received_messages) do
+                if msg.data and msg.data.type == "done" then
+                    has_done = true
+                    break
+                end
+            end
+            expect(has_done).to_be_true("Expected at least one done event")
+
+            -- Check if tool_call exists in the response
+            expect(response.result.tool_calls).not_to_be_nil("No tool_calls in response result")
+            expect(#response.result.tool_calls > 0).to_be_true("Empty tool_calls in response result")
+
+            -- Basic verification of the first tool call
+            local tool = response.result.tool_calls[1]
+            expect(tool.name).to_equal("calculate", "Expected calculator tool")
+            expect(tool.registry_id).to_equal("custom:calculator", "Expected calculator tool")
+
+            -- Print summary of stream events
+            print("Stream event summary:")
+            for event_type, count in pairs(event_types) do
+                print("  " .. event_type .. ": " .. count)
+            end
+        end)
+
+        -- Test with multi-step streaming conversation
+        it("should handle streaming tool calls with subsequent conversation", function()
+            -- Skip if not running integration tests
+            if not RUN_INTEGRATION_TESTS then
+                print("Skipping multi-step streaming test - integration tests not enabled")
+                return
+            end
+
+            -- Track received streaming messages for each request
+            local first_request_messages = {}
+            local second_request_messages = {}
+            local current_messages = first_request_messages
+
+            -- Mock process.send to capture streaming messages
+            mock(process, "send", function(pid, topic, data)
+                table.insert(current_messages, { pid = pid, topic = topic, data = data })
+            end)
+
+            -- Create prompt for initial request
+            local promptBuilder = prompt.new()
+            promptBuilder:add_user("What is 77 squared?")
+            promptBuilder:add_developer("Always use the calculator tool")
+
+            -- Step 1: Make initial streaming request
+            local response = tool_calling.handler({
+                model = "gpt-4o",
+                messages = promptBuilder:get_messages(),
+                tool_schemas = {
+                    ["custom:calculator"] = mock_tools["calculator"]
+                },
+                api_key = actual_api_key,
+                options = {
+                    temperature = 0
+                },
+                stream = {
+                    reply_to = "test-conversation-pid",
+                    topic = "test_conversation_stream",
+                    buffer_size = 5
+                }
+            })
+
+            -- Verify first streaming response
+            expect(response.error).to_be_nil("First API request failed: " .. (response.error_message or "unknown error"))
+            expect(response.streaming).to_be_true("First response should indicate streaming")
+            expect(response.result.tool_calls).not_to_be_nil("No tool calls in first response")
+
+            -- Find the tool call information
+            local tool_call = response.result.tool_calls[1]
+            expect(tool_call).not_to_be_nil("No tool call found in response")
+            expect(tool_call.name).to_equal("calculate", "Wrong tool called")
+
+            -- Verify first call had appropriate streaming events
+            local first_event_types = {}
+            for _, msg in ipairs(first_request_messages) do
+                first_event_types[msg.data.type] = (first_event_types[msg.data.type] or 0) + 1
+            end
+
+            expect(first_event_types.tool_call).not_to_be_nil("No tool_call events in first request")
+            expect(first_event_types.done).not_to_be_nil("No done event in first request")
+
+            -- Add the response content and tool call to our conversation
+            promptBuilder:add_assistant(response.result.content)
+            promptBuilder:add_function_call(tool_call.name, tool_call.arguments, tool_call.id)
+
+            -- Add the tool result to the conversation
+            local calc_result = 77 * 77
+            local tool_result = "The result of 77 squared is " .. calc_result
+            promptBuilder:add_function_result(tool_call.name, tool_result, tool_call.id)
+
+            -- Switch to capturing messages for the second request
+            current_messages = second_request_messages
+
+            -- Step 2: Make follow-up streaming request
+            local continuation_response = tool_calling.handler({
+                model = "gpt-4o",
+                messages = promptBuilder:get_messages(),
+                api_key = actual_api_key,
+                options = {
+                    temperature = 0
+                },
+                stream = {
+                    reply_to = "test-conversation-pid",
+                    topic = "test_conversation_stream",
+                    buffer_size = 5
+                }
+            })
+
+            -- Verify second streaming response
+            expect(continuation_response.error).to_be_nil("Second API request failed: " ..
+                (continuation_response.error_message or "unknown error"))
+            expect(continuation_response.streaming).to_be_true("Second response should indicate streaming")
+
+            -- Check second request streaming events
+            print("Second request received " .. #second_request_messages .. " messages")
+
+            -- Count message types
+            local second_event_types = {}
+            for _, msg in ipairs(second_request_messages) do
+                if msg.data and msg.data.type then
+                    second_event_types[msg.data.type] = (second_event_types[msg.data.type] or 0) + 1
+                end
+            end
+
+            -- Print all event types for debugging
+            print("Second request event types:")
+            for event_type, count in pairs(second_event_types) do
+                print("  " .. event_type .. ": " .. count)
+            end
+
+            -- Only check for done event since that's most reliable
+            local has_done = false
+            for _, msg in ipairs(second_request_messages) do
+                if msg.data and msg.data.type == "done" then
+                    has_done = true
+                    break
+                end
+            end
+
+            expect(has_done).to_be_true("No done event in second request")
+            expect(#second_request_messages > 0).to_be_true("Expected messages in second request")
+
+            -- Check result formatting
+            local result_text = ""
+            if type(continuation_response.result) == "string" then
+                result_text = continuation_response.result
+            elseif type(continuation_response.result) == "table" and continuation_response.result.content then
+                result_text = continuation_response.result.content
+            end
+
+            expect(result_text).not_to_be_nil("No text content in continuation response")
+            expect(#result_text > 0).to_be_true("Empty text content in continuation response")
+
+            -- Continuation should mention 5929 (the result of 77 squared)
+            -- Use string.find with plain search instead of pattern matching
+            expect(string.find(result_text, "5929", 1, true) ~= nil).to_be_true(
+                "Response doesn't include correct answer")
+            print("Final response contains result: " .. result_text:sub(1, 100) .. "...")
+
+            -- Print summary
+            print("Multi-step streaming test complete")
+            print("First request: " .. table.concat(
+                (function()
+                    local types = {}
+                    for t, c in pairs(first_event_types) do
+                        table.insert(types, t .. "=" .. c)
+                    end
+                    return types
+                end)(), ", "
+            ))
+            print("Second request: " .. table.concat(
+                (function()
+                    local types = {}
+                    for t, c in pairs(second_event_types) do
+                        table.insert(types, t .. "=" .. c)
+                    end
+                    return types
+                end)(), ", "
+            ))
+        end)
     end)
 end
 

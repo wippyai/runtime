@@ -396,20 +396,11 @@ function claude.process_stream(stream_response, callbacks)
             goto continue
         end
 
-        -- Extract and process each event line
-        for event_line in chunk:gmatch("event: (.-)\n") do
-            local event_type = event_line:match("^(%S+)")
-            if not event_type then
-                goto continue_event
-            end
-
-            local data_line = chunk:match("data: (.-)\n")
-            if not data_line then
-                goto continue_event
-            end
-
+        -- Process the chunk - extract all events
+        local event_pattern = "event: ([^\n]+)\ndata: ([^\n]+)"
+        for event_type, data_json in chunk:gmatch(event_pattern) do
             -- Parse the data as JSON
-            local success, data = pcall(json.decode, data_line)
+            local success, data = pcall(json.decode, data_json)
             if not success or not data then
                 goto continue_event
             end
@@ -444,7 +435,10 @@ function claude.process_stream(stream_response, callbacks)
                     -- Initialize tool call if needed
                     if not tool_calls[tool_call_index] then
                         tool_calls[tool_call_index] = {
-                            partial_json = ""
+                            partial_json = "",
+                            id = nil,
+                            name = nil,
+                            arguments = nil
                         }
                     end
 
@@ -460,6 +454,15 @@ function claude.process_stream(stream_response, callbacks)
                 -- If this is a completed tool call, try to parse it
                 if tool_calls[block_index] and tool_calls[block_index].partial_json then
                     local json_str = tool_calls[block_index].partial_json
+
+                    -- Make sure the JSON is valid by adding missing braces if needed
+                    if not json_str:match("^%s*{") then
+                        json_str = "{" .. json_str
+                    end
+                    if not json_str:match("}%s*$") then
+                        json_str = json_str .. "}"
+                    end
+
                     local success, parsed_input = pcall(json.decode, json_str)
 
                     if success and parsed_input then
@@ -467,6 +470,13 @@ function claude.process_stream(stream_response, callbacks)
                         if content_blocks[block_index] and
                             content_blocks[block_index].type == "tool_use" then
                             local tool_call = content_blocks[block_index]
+
+                            -- Store complete tool call info
+                            tool_calls[block_index].id = tool_call.id or ""
+                            tool_calls[block_index].name = tool_call.name or ""
+                            tool_calls[block_index].arguments = parsed_input
+
+                            -- Notify about the tool call
                             on_tool_call({
                                 id = tool_call.id or "",
                                 name = tool_call.name or "",
@@ -480,6 +490,16 @@ function claude.process_stream(stream_response, callbacks)
                 if data.index ~= nil and data.content_block then
                     local block_index = data.index
                     content_blocks[block_index] = data.content_block
+
+                    -- If this is a tool_use block, initialize the tool call entry
+                    if data.content_block.type == "tool_use" then
+                        tool_calls[block_index] = tool_calls[block_index] or {
+                            partial_json = "",
+                            id = data.content_block.id,
+                            name = data.content_block.name,
+                            arguments = nil -- Will be filled when we get the complete JSON
+                        }
+                    end
                 end
             elseif event_type == "message_delta" then
                 -- Update finish reason and usage
@@ -496,11 +516,24 @@ function claude.process_stream(stream_response, callbacks)
                 end
             elseif event_type == "message_stop" then
                 -- End of message, create final result
+
+                -- Prepare the finalized tool calls for the result
+                local finalized_tool_calls = {}
+                for idx, tool_call in pairs(tool_calls) do
+                    if tool_call.id and tool_call.name then
+                        table.insert(finalized_tool_calls, {
+                            id = tool_call.id,
+                            name = tool_call.name,
+                            arguments = tool_call.arguments or {}
+                        })
+                    end
+                end
+
                 local result = {
                     content = full_content,
                     finish_reason = finish_reason,
                     stop_sequence = stop_sequence,
-                    tool_calls = next(tool_calls) and tool_calls or nil,
+                    tool_calls = #finalized_tool_calls > 0 and finalized_tool_calls or nil,
                     usage = usage,
                     metadata = metadata
                 }
@@ -526,12 +559,24 @@ function claude.process_stream(stream_response, callbacks)
         ::continue::
     end
 
+    -- Prepare the finalized tool calls for the result
+    local finalized_tool_calls = {}
+    for idx, tool_call in pairs(tool_calls) do
+        if tool_call.id and tool_call.name then
+            table.insert(finalized_tool_calls, {
+                id = tool_call.id,
+                name = tool_call.name,
+                arguments = tool_call.arguments or {}
+            })
+        end
+    end
+
     -- Create the final result if we didn't get a message_stop event
     local result = {
         content = full_content,
         finish_reason = finish_reason,
         stop_sequence = stop_sequence,
-        tool_calls = next(tool_calls) and tool_calls or nil,
+        tool_calls = #finalized_tool_calls > 0 and finalized_tool_calls or nil,
         usage = usage,
         metadata = metadata
     }
