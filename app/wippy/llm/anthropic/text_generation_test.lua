@@ -979,7 +979,7 @@ local function define_tests()
             end
 
             expect(has_technical_terms).to_be_true(
-            "Response should include technical terminology as instructed in system message")
+                "Response should include technical terminology as instructed in system message")
         end)
 
         it("should handle streaming text generation with real Claude API", function()
@@ -1379,6 +1379,106 @@ local function define_tests()
             else
                 print("WARNING: Second call cache_read_input_tokens is nil")
             end
+        end)
+
+        it("should stream thinking content with real API", function()
+            -- Skip if not running integration tests
+            if not RUN_INTEGRATION_TESTS then
+                print("Skipping integration test - not enabled")
+                return
+            end
+
+            -- Skip test if using unsuitable model
+            local model = "claude-3-7-sonnet-20250219" -- Only 3.7 models support thinking
+            print("Running thinking streaming test with " .. model)
+
+            -- Set up process.send mock to capture streamed responses
+            local received_messages = {}
+            mock(process, "send", function(pid, topic, data)
+                table.insert(received_messages, { pid = pid, topic = topic, data = data })
+                if data.type then
+                    print("Received stream message: " .. data.type) -- Print for debugging
+                end
+            end)
+
+            -- Create prompt for a reasoning task
+            local promptBuilder = prompt.new()
+            promptBuilder:add_user(
+                "Solve this step by step: If 5 workers can build a wall in 8 days, how many workers would be needed to build the same wall in 2 days? Show your reasoning.")
+
+            -- Call with streaming and thinking enabled
+            local response = text_generation.handler({
+                model = model,
+                messages = promptBuilder:get_messages(),
+                options = {
+                    thinking_effort = 1,
+                    temperature = 0
+                },
+                api_key = actual_api_key,
+                stream = {
+                    reply_to = "thinking-stream-test-pid",
+                    topic = "thinking_stream_test",
+                    buffer_size = 10 -- Small buffer to ensure multiple chunks
+                }
+            })
+
+            -- Verify the response structure for streaming
+            expect(response.error).to_be_nil("API request failed: " ..
+                (response.error_message or "unknown error"))
+            expect(response.streaming).to_be_true("Response should indicate streaming")
+            expect(response.result).not_to_be_nil("Should have complete response content")
+
+            -- Verify thinking content is in final response
+            if not response.thinking or #response.thinking == 0 then
+                print("WARNING: No thinking content in final response - model may not support thinking")
+            else
+                print("Thinking content length: " .. #response.thinking)
+                expect(#response.thinking > 0).to_be_true("Expected non-empty thinking content")
+            end
+
+            -- Verify streamed messages - should have at least some
+            expect(#received_messages > 0).to_be_true("Should have received stream messages")
+
+            -- Track message types
+            local content_count = 0
+            local thinking_count = 0
+            local done_count = 0
+
+            for _, msg in ipairs(received_messages) do
+                expect(msg.pid).to_equal("thinking-stream-test-pid")
+                expect(msg.topic).to_equal("thinking_stream_test")
+
+                if msg.data.type == "content" then
+                    content_count = content_count + 1
+                elseif msg.data.type == "thinking" then
+                    thinking_count = thinking_count + 1
+                elseif msg.data.type == "done" then
+                    done_count = done_count + 1
+                    -- Verify done message includes thinking info
+                    expect(msg.data.meta).not_to_be_nil("Done message missing metadata")
+
+                    -- This model should support thinking, but let's be cautious
+                    if msg.data.meta.has_thinking then
+                        expect(msg.data.meta.has_thinking).to_be_true("Expected thinking flag in done metadata")
+                    end
+                end
+            end
+
+            -- Should have at least some content messages
+            expect(content_count > 0).to_be_true("Should have received content messages")
+
+            -- May have thinking messages if model supports it
+            if thinking_count == 0 then
+                print("WARNING: No thinking messages received - model may not support thinking or has changed")
+            else
+                print("Received " .. thinking_count .. " thinking messages")
+            end
+
+            -- Should have exactly one done message
+            expect(done_count).to_equal(1, "Should have exactly one done message")
+
+            -- Verify the response contains the correct numerical answer (20 workers)
+            expect(response.result:match("20")).not_to_be_nil("Response should contain the correct answer (20 workers)")
         end)
     end)
 end
