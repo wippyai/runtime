@@ -131,29 +131,6 @@ local function define_tests()
             end
         end)
 
-        it("should validate model support for structured outputs", function()
-            -- Create proper prompt using the prompt builder
-            local promptBuilder = prompt.new()
-            promptBuilder:add_user("Test")
-
-            -- Test with an unsupported model
-            local response = structured_output.handler({
-                model = "gpt-3.5-turbo",
-                messages = promptBuilder:get_messages(),
-                schema = {
-                    type = "object",
-                    properties = {
-                        name = { type = "string" }
-                    },
-                    required = { "name" },
-                    additionalProperties = false
-                }
-            })
-
-            expect(response.error).to_equal(output.ERROR_TYPE.INVALID_REQUEST)
-            expect(response.error_message).to_contain("does not support Structured Outputs")
-        end)
-
         it("should successfully generate structured output with mocked client", function()
             -- Create proper prompt using the prompt builder
             local promptBuilder = prompt.new()
@@ -174,10 +151,6 @@ local function define_tests()
             -- Mock both validation functions
             mock(structured_output, "validate_schema", function(schema)
                 return true, {}
-            end)
-
-            mock(structured_output, "is_model_supported", function(model)
-                return true
             end)
 
             -- Mock the client request function
@@ -250,10 +223,6 @@ local function define_tests()
                 return true, {}
             end)
 
-            mock(structured_output, "is_model_supported", function(model)
-                return true
-            end)
-
             -- Mock the client request function for refusal
             mock(openai_client, "request", function(endpoint_path, payload, options)
                 -- Return a refusal response
@@ -304,99 +273,161 @@ local function define_tests()
             expect(response.finish_reason).to_equal("stop")
         end)
 
-        it("should handle real API integration with o-series model", function()
+        it("should handle real GPT-4o API calls with structured output", function()
             -- Skip if integration tests are disabled
             if not RUN_INTEGRATION_TESTS then
                 return
             end
 
-            -- Create proper prompt using the prompt builder
+            -- Create prompt
             local promptBuilder = prompt.new()
-            promptBuilder:add_system("You are a helpful assistant that outputs structured data.")
-            promptBuilder:add_user("Provide me with information about a fictional person named Alex Johnson.")
+            promptBuilder:add_system("You are a helpful assistant that outputs structured JSON data.")
+            promptBuilder:add_user("Provide me with information about a fictional company called TechNova Inc.")
 
-            -- Mock both validation functions
-            mock(structured_output, "validate_schema", function(schema)
-                return true, {}
-            end)
-
-            mock(structured_output, "is_model_supported", function(model)
-                return true
-            end)
-
-            -- Mock the API response to ensure test passes
-            -- In a real environment, you would remove this mock
-            mock(openai_client, "request", function(endpoint_path, payload, options)
-                -- Return mock successful response
-                return {
-                    choices = {
-                        {
-                            message = {
-                                content =
-                                '{"name":"Alex Johnson","age":35,"occupation":"Software Engineer","hobbies":["hiking","photography","coding"],"background":"Alex grew up in Seattle and studied computer science."}'
-                            },
-                            finish_reason = "stop"
-                        }
+            -- Fix schema format issues - ensure required is an array, not a table
+            local company_schema = {
+                type = "object",
+                properties = {
+                    name = { type = "string" },
+                    industry = { type = "string" },
+                    founded_year = { type = "number" },
+                    headquarters = { type = "string" },
+                    employees = { type = "number" },
+                    products = {
+                        type = "array",
+                        items = { type = "string" }
                     },
-                    usage = {
-                        prompt_tokens = 50,
-                        completion_tokens = 40,
-                        total_tokens = 90
-                    },
-                    metadata = {
-                        request_id = "req_integration123",
-                        processing_ms = 250
-                    }
-                }
-            end)
-
-            -- Call with API
-            local response = structured_output.handler({
-                model = "o3-mini", -- Use an o-series model that supports structured outputs
-                messages = promptBuilder:get_messages(),
-                schema = {
-                    type = "object",
-                    properties = {
-                        name = { type = "string" },
-                        age = { type = "number" },
-                        occupation = { type = "string" },
-                        hobbies = {
-                            type = "array",
-                            items = { type = "string" }
-                        },
-                        background = { type = "string" }
-                    },
-                    required = { "name", "age", "occupation", "hobbies", "background" },
-                    additionalProperties = false
+                    description = { type = "string" }
                 },
+                required = { "name", "industry", "founded_year", "headquarters", "employees", "products", "description" },
+                additionalProperties = false
+            }
+
+            -- Track original request function to see the full error
+            local original_request = openai_client.request
+            mock(openai_client, "request", function(endpoint_path, payload, options)
+                local response, err = original_request(endpoint_path, payload, options)
+
+                if err then
+                    return response, err
+                else
+                    return response
+                end
+            end)
+
+            -- Make actual API call
+            local response = structured_output.handler({
+                model = "gpt-4o-mini",
+                messages = promptBuilder:get_messages(),
+                schema = company_schema,
                 api_key = actual_api_key,
                 options = {
                     temperature = 0 -- For deterministic results
                 }
             })
 
-            -- No need to restore original function in mocking
-
-            -- Verify the integration response
             expect(response.error).to_be_nil("API request failed: " .. (response.error_message or "unknown error"))
-            expect(response.result).not_to_be_nil("No result received from API")
 
-            -- Verify schema compliance
-            if response.result then
-                expect(response.result.name).not_to_be_nil("Missing name field")
-                expect(response.result.age).not_to_be_nil("Missing age field")
-                expect(response.result.occupation).not_to_be_nil("Missing occupation field")
-                expect(type(response.result.hobbies)).to_equal("table", "Hobbies should be an array")
-                expect(#response.result.hobbies > 0).to_be_true("Hobbies array should have items")
-                expect(type(response.result.background)).to_equal("string", "Background should be a string")
+            -- Rest of checks only if response succeeded
+            if response.error then return end
+
+            -- Check if we got a refusal
+            if response.refusal then
+                return
             end
 
-            -- Verify token information
-            expect(response.tokens).not_to_be_nil("No token information received")
-            if response.tokens then
-                expect(response.tokens.prompt_tokens > 0).to_be_true("No prompt tokens reported")
-                expect(response.tokens.completion_tokens > 0).to_be_true("No completion tokens reported")
-                expect(response.tokens.total_tokens > 0).to_be_true("No total tokens reported")
+            -- Verify schema compliance
+            expect(response.result).not_to_be_nil("No result received from GPT-4o API")
+            if response.result then
+                expect(response.result.name).to_contain("TechNova")
+                expect(response.result.industry).not_to_be_nil()
+                expect(response.result.founded_year).not_to_be_nil()
+                expect(type(response.result.products)).to_equal("table")
+            end
+        end)
+
+        it("should handle real O-series API calls with structured output", function()
+            -- Skip if integration tests are disabled
+            if not RUN_INTEGRATION_TESTS then
+                print("Skipping O-series integration test - not enabled")
+                return
+            end
+
+            -- Create prompt
+            local promptBuilder = prompt.new()
+            promptBuilder:add_system("You are a helpful assistant that outputs structured JSON data.")
+            promptBuilder:add_user("Extract key points from this travel review: 'I visited Paris last summer. " ..
+                "The Eiffel Tower was magnificent but crowded. The food was excellent, " ..
+                "especially the pastries. Hotel prices were high, but public transportation was affordable. " ..
+                "Weather was perfect with sunny days. Would definitely recommend!'")
+
+            -- Fix schema format issues - make sure enum is properly formatted as an array
+            local review_schema = {
+                type = "object",
+                properties = {
+                    destination = { type = "string" },
+                    visit_time = { type = "string" },
+                    highlights = {
+                        type = "array",
+                        items = { type = "string" }
+                    },
+                    pros = {
+                        type = "array",
+                        items = { type = "string" }
+                    },
+                    cons = {
+                        type = "array",
+                        items = { type = "string" }
+                    },
+                    overall_sentiment = {
+                        type = "string",
+                        enum = { "positive", "neutral", "negative", "mixed" }
+                    }
+                },
+                required = { "destination", "visit_time", "highlights", "pros", "cons", "overall_sentiment" },
+                additionalProperties = false
+            }
+
+
+            -- Track original request function to debug
+            local original_request = openai_client.request
+            mock(openai_client, "request", function(endpoint_path, payload, options)
+                local response, err = original_request(endpoint_path, payload, options)
+
+                if err then
+                    return response, err
+                else
+                    return response
+                end
+            end)
+
+            -- Make actual API call
+            local response = structured_output.handler({
+                model = "o3-mini", -- Use O-series model
+                messages = promptBuilder:get_messages(),
+                schema = review_schema,
+                api_key = actual_api_key,
+                options = {
+                    temperature = 0,     -- For deterministic results
+                    thinking_effort = 25 -- Add some thinking effort for O-series
+                }
+            })
+
+            expect(response.error).to_be_nil("API request failed: " .. (response.error_message or "unknown error"))
+
+            -- Rest of checks only if response succeeded
+            if response.error then return end
+
+            -- Check if we got a refusal
+            if response.refusal then
+                return
+            end
+
+            -- Rest of verification only runs if no error
+            if response.result then
+                expect(response.result.destination).to_equal("Paris")
+                expect(type(response.result.highlights)).to_equal("table")
+                expect(response.result.overall_sentiment).not_to_be_nil()
             end
         end)
     end)

@@ -2,7 +2,8 @@
 
 ## Overview
 
-This test framework provides a BDD-style testing solution for Lua applications. It includes support for test suites, individual test cases, various assertion types, lifecycle hooks, and a powerful mocking system.
+This test framework provides a BDD-style testing solution for Lua applications. It includes support for test suites,
+individual test cases, various assertion types, lifecycle hooks, and a powerful mocking system.
 
 ## Getting Started
 
@@ -32,7 +33,8 @@ return test.run_cases(define_tests)
 
 ### Running Tests
 
-To run tests, call `test.run_cases(define_tests_fn)` with a function that defines your tests. This returns a function that can be called with options:
+To run tests, call `test.run_cases(define_tests_fn)` with a function that defines your tests. This returns a function
+that can be called with options:
 
 ```lua
 local runner = test.run_cases(define_tests)
@@ -91,6 +93,10 @@ expect("test string").to_match("^test")
 -- Table assertions
 expect(table).to_contain(expected_value)
 expect(table).to_have_key(key_name)
+
+-- Error message checking
+local response = function_that_returns_error()
+expect(response.error_message).to_contain("expected error text")
 ```
 
 ## Lifecycle Hooks
@@ -153,21 +159,6 @@ restore_mock("process.send")
 restore_all_mocks()
 ```
 
-### Process Mocking
-
-The framework has special support for mocking the `process` object:
-
-```lua
--- Mock process.send
-mock_process("send", function(pid, topic, payload)
-    -- Replacement implementation
-    return true
-end)
-
--- Create and mock process object if it doesn't exist
-mock_process()
-```
-
 ### Tracking Mock Calls
 
 A common pattern is to track calls to a mocked function:
@@ -190,163 +181,172 @@ it("should call the right function", function()
 end)
 ```
 
-## Advanced Features
+## Effective Debugging Strategies
 
-### Mock Namespaces
+### Troubleshooting Failing Tests
 
-For better mock debugging, register namespaces for tables:
-
-```lua
-test.register_mock_namespace(my_table, "my_table")
-```
-
-### Test Framework Integration
-
-The framework can integrate with a test runner using process messaging:
+When tests fail, use these strategies to diagnose the issue:
 
 ```lua
-test.setup_process_integration({
-    pid = parent_pid,
-    ref_id = "test-run-123",
-    topic = "test:results"
+it("should work correctly", function()
+    -- Add debug prints with descriptive labels
+    print("DEBUG: Starting test 'should work correctly'")
+    
+    -- Log important state information
+    print("DEBUG: Initial state:", json.encode(some_state))
+    
+    -- Track function execution
+    local original_func = module.function_name
+    mock(module, "function_name", function(...)
+        print("DEBUG: function_name called with args:", json.encode({...}))
+        return original_func(...)
+    end)
+    
+    -- Log assertions before making them
+    local result = complex_operation()
+    print("DEBUG: Operation result:", json.encode(result))
+    expect(result.status).to_equal("success")
 })
 ```
 
-### Error Reporting
+### Isolating Components
 
-Report test errors manually:
-
-```lua
-test.report_error("Something went wrong", "context")
-```
-
-## Aliased Methods
-
-For different style preferences, some methods have aliases:
+When testing complex modules, isolate the component under test:
 
 ```lua
--- Instead of describe
-test.spec("My specs", function() end)
-test.context("My context", function() end)
-
--- Instead of expect
-test.assert(value).to_equal(expected)
-```
-
-## Best Practices
-
-1. Keep tests focused and simple
-2. Restore mocks after using them (done automatically if using hooks)
-3. Use descriptive suite and test names
-4. Group related tests in the same suite
-5. Use lifecycle hooks to avoid repetitive setup/teardown code
-6. Be careful when mocking process.send as it's used by the test framework
-
-## Common Patterns
-
-### Testing async code
-
-```lua
-it("should handle async code", function()
-    local ch = channel.new()
-    local timeout_ch = time.after("1000ms")  -- 1 second timeout
+it("should validate inputs correctly", function()
+    -- Mock dependencies to isolate the component being tested
+    mock(dependency, "validate", function() return true end)
+    mock(logger, "log", function() end)
     
-    -- Spawn a coroutine to run the async operation
-    coroutine.spawn(function()
-        local result = async_function()
-        ch:send(result)
-    end)
-    
-    -- Wait for the result with a timeout
-    local result = channel.select{
-        ch:case_receive(),
-        timeout_ch:case_receive()
-    }
-    
-    if result.channel == timeout_ch then
-        error("Timeout waiting for async operation")
-    else
-        expect(result.value).to_equal("expected")
-    end
+    -- Now the test focuses only on the target component's logic
+    local result = component.process_input("test")
+    expect(result.success).to_be_true()
 end)
 ```
 
-Alternative approach using cpcall:
+### Progressive Mocking
+
+For complex test scenarios, apply mocks progressively:
 
 ```lua
-it("should handle async operation with cpcall", function()
-    -- cpcall allows async operations and returns result or error
-    local success, result = cpcall(function()
-        return async_function_that_may_take_time()
-    end)
+it("should handle a complex workflow", function()
+    -- First, test with minimal mocking
+    local result1 = workflow.start("task")
+    print("DEBUG: Initial result:", json.encode(result1))
     
-    expect(success).to_be_true()
-    expect(result).to_equal("expected")
-end)
+    -- If failing, add more mocks to isolate the issue
+    mock(database, "query", function() return {row1={}, row2={}} end)
+    local result2 = workflow.start("task")
+    print("DEBUG: Result with DB mock:", json.encode(result2))
+    
+    -- Continue adding mocks until the failure point is identified
+    mock(api_client, "request", function() return {status=200, data={}} end)
+    local result3 = workflow.start("task")
+    print("DEBUG: Result with DB and API mocks:", json.encode(result3))
+})
 ```
 
-### Testing error cases
+## Advanced Mocking Techniques
+
+### Mocking Module Exports
+
+When testing modules that export functions, use this pattern:
 
 ```lua
-it("should throw an error", function()
-    local success, err = pcall(function()
-        function_that_should_error()
-    end)
-    
-    expect(success).to_be_false()
-    expect(tostring(err)).to_match("expected error pattern")
-end)
-```
+-- Module structure designed for testability
+local my_module = {}
 
-## Registering Tests in Your Application
-
-To register tests in your application, you can use a YAML configuration file (typically `_index.yaml`):
-
-```yaml
-version: "1.0"
-namespace: app.test.cases
-
-meta:
-  depends_on: [ "ns:system", "ns:wippy.test" ]
-
-entries:
-  - name: system_test
-    kind: function.lua
-    meta:
-      name: "System Test"
-      type: "test"
-      tags: [ "system", "monitoring", "health", "tests" ]
-      comment: "Performs a basic system health check"
-    source: file://system_test.lua
-    method: run_tests
-    modules: [ "http_client", "fs", "time", "sql", "crypto" ]
-    imports:
-      test: "wippy.test:test"
-```
-
-Your test file (`system_test.lua`) should export the method specified in the YAML config:
-
-```lua
--- Import dependencies
-local test = require("test")
-
--- Define the run_tests function that will be called
-function run_tests(options)
-    -- Define your test cases
-    local function define_tests()
-        describe("System Health", function()
-            -- Your test cases here
-        end)
-    end
-    
-    -- Run the tests with the test framework
-    return test.run_cases(define_tests)(options)
+function my_module.validate_data(data)
+    -- Validation logic
 end
 
--- Return the run_tests function
-return {
-    run_tests = run_tests
-}
+function my_module.process_data(data)
+    if not my_module.validate_data(data) then
+        return nil, "Invalid data"
+    end
+    -- Processing logic
+end
+
+return my_module
+
+-- In tests:
+it("should process data without validation", function()
+    -- Mock the validation function to always return true
+    mock(my_module, "validate_data", function() return true end)
+    
+    -- Now we can test process_data without validation interference
+    local result = my_module.process_data({invalid_data=true})
+    expect(result).not_to_be_nil()
+})
 ```
 
-The application framework will load your test module using the information in the YAML file and execute the specified method.
+### Mocking Internal Functions
+
+To mock internal functions during tests:
+
+```lua
+-- Module with internal functions
+local function _private_function(arg)
+    -- Internal logic
+end
+
+local module = {}
+function module.public_function(arg)
+    return _private_function(arg)
+end
+
+-- Expose private functions for testing
+if _ENV.TEST_MODE then
+    module._private_function = _private_function
+end
+
+return module
+
+-- In tests:
+local TEST_MODE = true
+local module = require("module")
+
+it("should allow mocking internal functions", function()
+    mock(module, "_private_function", function() return "mocked" end)
+    expect(module.public_function()).to_equal("mocked")
+})
+```
+
+### Mocking Environment Variables
+
+Test different environment configurations:
+
+```lua
+it("should respect environment settings", function()
+    local original_get = env.get
+    mock(env, "get", function(key)
+        if key == "API_TIMEOUT" then
+            return "5000"
+        end
+        return original_get(key)
+    end)
+    
+    expect(client.get_timeout()).to_equal(5000)
+})
+```
+
+## Test Organization Best Practices
+
+### Grouping Related Tests
+
+Organize tests for better readability and focus:
+
+```lua
+describe("User Module", function()
+    describe("Authentication", function()
+        it("should login valid users", function() end)
+        it("should reject invalid credentials", function() end)
+    end)
+    
+    describe("Profile Management", function()
+        it("should update user profiles", function() end)
+        it("should validate profile data", function() end)
+    end)
+})
+```

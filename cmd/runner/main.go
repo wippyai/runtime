@@ -34,6 +34,7 @@ import (
 	fsmod "github.com/ponyruntime/pony/runtime/lua/modules/fs"
 	"github.com/ponyruntime/pony/runtime/lua/modules/funcmod"
 	fncallmod "github.com/ponyruntime/pony/runtime/lua/modules/funcs"
+	"github.com/ponyruntime/pony/runtime/lua/modules/hash"
 	httpapimod "github.com/ponyruntime/pony/runtime/lua/modules/http"
 	"github.com/ponyruntime/pony/runtime/lua/modules/httpclient"
 	jsonmod "github.com/ponyruntime/pony/runtime/lua/modules/json"
@@ -743,6 +744,7 @@ func WithLuaRuntime(a *App) []eventbus.EventHandler {
 				fncallmod.NewFunctionModule(),
 				payloadmod.NewPayloadModule(),
 				task.NewTaskModule(),
+				hash.NewHashModule(),
 				command.NewCommandModule(),
 				registrymod.NewRegistryModule(a.logger.Named("registry")),
 				processmod.NewProcessAPIModule(a.logger.Named("proc")),

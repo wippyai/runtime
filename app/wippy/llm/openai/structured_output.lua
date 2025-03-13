@@ -1,9 +1,27 @@
 local openai_client = require("openai_client")
 local output = require("output")
 local json = require("json")
+local hash = require("hash")
 
 -- Create module table for exports
 local structured_output = {}
+
+-- Generate a unique name for a schema based on its structure
+function structured_output.generate_schema_name(schema)
+    -- Serialize the schema to a string
+    local schema_str = json.encode(schema)
+
+    -- Calculate SHA-256 hash of the schema
+    local digest, err = hash.sha256(schema_str)
+    if err then
+        -- Fallback to a simple hash if sha256 fails
+        return "schema_" .. os.time()
+    end
+
+    -- Use first 16 characters of hash as the schema name
+    -- This keeps the name reasonably short while still being unique
+    return "schema_" .. string.sub(digest, 1, 16)
+end
 
 -- Validate schema meets OpenAI requirements for Structured Outputs
 function structured_output.validate_schema(schema)
@@ -62,21 +80,6 @@ function structured_output.validate_schema(schema)
     return #errors == 0, errors
 end
 
--- Check if model supports Structured Outputs
-function structured_output.is_model_supported(model)
-    -- Check if the model name patterns match supported models
-    local model_name = model:lower()
-
-    if model_name:match("^gpt%-4o%-mini") or
-        model_name:match("^gpt%-4o%-2024") or
-        model_name:match("^o%d%-") or
-        model_name:match("^gpt%-4%.5%-preview") then
-        return true
-    end
-
-    return false
-end
-
 -- Main handler for OpenAI Structured Output
 function structured_output.handler(args)
     -- Validate required arguments
@@ -114,21 +117,17 @@ function structured_output.handler(args)
         }
     end
 
-    -- Check if model supports Structured Outputs
-    if not structured_output.is_model_supported(args.model) then
-        return {
-            error = output.ERROR_TYPE.INVALID_REQUEST,
-            error_message = "Model " ..
-            args.model ..
-            " does not support Structured Outputs with json_schema. Supported models include gpt-4o-mini, gpt-4o-2024-08-06, o-series, and later models."
-        }
-    end
-
     -- Configure options objects for easier management
     local options = args.options or {}
 
     -- Check if this is an o* model (OpenAI o-series models)
     local is_o_model = args.model:match("^o%d") ~= nil
+
+    -- Generate a schema name if not provided
+    local schema_name = args.schema_name
+    if not schema_name then
+        schema_name = structured_output.generate_schema_name(args.schema)
+    end
 
     -- Configure request payload
     local payload = {
@@ -143,7 +142,11 @@ function structured_output.handler(args)
         seed = options.seed,
         response_format = {
             type = "json_schema",
-            schema = args.schema
+            json_schema = {
+                name = schema_name,
+                schema = args.schema,
+                strict = true
+            }
         }
     }
 
@@ -167,10 +170,7 @@ function structured_output.handler(args)
 
     -- Add temperature based on model type
     if options.temperature ~= nil then
-        -- Only set temperature for non-reasoning models or non-o* models
-        if not (is_o_model and args.thinking_effort) then
-            payload.temperature = options.temperature
-        end
+        payload.temperature = options.temperature
     end
 
     -- Add stop sequences if provided
@@ -183,11 +183,11 @@ function structured_output.handler(args)
     -- Add thinking effort mapping - using the utility in openai client
     if args.thinking_effort and args.thinking_effort > 0 then
         payload.reasoning_effort = openai_client.map_thinking_effort(args.thinking_effort)
+    end
 
-        -- Remove temperature for o* models with thinking effort as it's not compatible
-        if is_o_model then
-            payload.temperature = nil
-        end
+    -- Remove temperature for o* models
+    if is_o_model then
+        payload.temperature = nil
     end
 
     -- Make the request
@@ -197,6 +197,9 @@ function structured_output.handler(args)
         timeout = args.timeout or 120,
         base_url = args.endpoint
     }
+
+    -- For debugging - log the payload structure
+    -- print("DEBUG: Payload with schema:", json.encode(payload))
 
     -- Perform the request to OpenAI
     local response, err = openai_client.request(

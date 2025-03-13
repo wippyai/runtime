@@ -61,10 +61,7 @@ local function handler(args)
 
     -- Add temperature based on model type
     if options.temperature ~= nil then
-        -- Only set temperature for non-reasoning models or non-o* models
-        if not (is_o_model and options.thinking_effort) then
-            payload.temperature = options.temperature
-        end
+        payload.temperature = options.temperature
     end
 
     -- Add stop sequences if provided
@@ -77,11 +74,11 @@ local function handler(args)
     -- Add thinking effort mapping - using the utility in openai client
     if options.thinking_effort then
         payload.reasoning_effort = openai.map_thinking_effort(options.thinking_effort)
+    end
 
-        -- Remove temperature for o* models with thinking effort as it's not compatible
-        if is_o_model then
-            payload.temperature = nil
-        end
+    -- Remove temperature for o* models
+    if is_o_model then
+        payload.temperature = nil
     end
 
     -- Make the request
@@ -189,7 +186,7 @@ local function handler(args)
                 stream_result.usage.prompt_tokens,
                 stream_result.usage.completion_tokens,
                 (stream_result.usage.completion_tokens_details and
-                 stream_result.usage.completion_tokens_details.reasoning_tokens) or 0
+                    stream_result.usage.completion_tokens_details.reasoning_tokens) or 0
             )
         end
 
