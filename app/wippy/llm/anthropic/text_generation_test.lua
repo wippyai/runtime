@@ -554,24 +554,32 @@ local function define_tests()
         end)
 
         it("should handle developer messages correctly with mocked client", function()
-            -- Mock the client request function
+            -- Mock the claude.request function
             mock(claude_client, "request", function(endpoint_path, payload, options)
                 -- Validate the request
                 expect(endpoint_path).to_equal(claude_client.API_ENDPOINTS.MESSAGES)
                 expect(payload.model).to_equal("claude-3-5-haiku-20241022")
 
-                -- Developer messages should be in system content now
-                expect(payload.system).not_to_be_nil("Expected system content for developer messages")
+                -- Check that the user message contains the developer instructions
                 local found_dev_content = false
 
-                for _, block in ipairs(payload.system) do
-                    if block.type == "text" and block.text:match("concise answer") then
-                        found_dev_content = true
-                        break
+                for _, msg in ipairs(payload.messages) do
+                    if msg.role == "user" then
+                        for _, content_part in ipairs(msg.content) do
+                            -- Print the content for debugging
+                            print("Content part:", content_part.type, content_part.text)
+
+                            if content_part.type == "text" and
+                                type(content_part.text) == "string" and
+                                content_part.text:find("<developer%-instruction>") then
+                                found_dev_content = true
+                                break
+                            end
+                        end
                     end
                 end
 
-                expect(found_dev_content).to_be_true("Developer message not found in system content")
+                expect(found_dev_content).to_be_true("Developer message not appended to user message")
 
                 -- Return mock successful response
                 return {
@@ -754,32 +762,113 @@ local function define_tests()
             expect(word_count <= 17).to_be_true("Response should be concise (15 words or fewer): " .. response.result)
         end)
 
+        -- Fixed test for developer messages
+        it("should handle developer messages correctly with mocked client", function()
+            -- Mock the claude.request function
+            mock(claude_client, "request", function(endpoint_path, payload, options)
+                -- Validate the request
+                expect(endpoint_path).to_equal(claude_client.API_ENDPOINTS.MESSAGES)
+                expect(payload.model).to_equal("claude-3-5-haiku-20241022")
+
+                -- With the current design, developer instructions are appended to the previous message
+                -- Check that the user message contains the developer instructions
+                local found_dev_content = false
+
+                for _, msg in ipairs(payload.messages) do
+                    if msg.role == "user" then
+                        for _, content_part in ipairs(msg.content) do
+                            if content_part.type == "text" and
+                                content_part.text:match("<developer%-instruction>.*concise answer.*</developer%-instruction>") then
+                                found_dev_content = true
+                                break
+                            end
+                        end
+                    end
+                end
+
+                expect(found_dev_content).to_be_true("Developer message not appended to user message")
+
+                -- Return mock successful response
+                return {
+                    content = {
+                        {
+                            type = "text",
+                            text = "Paris"
+                        }
+                    },
+                    id = "msg_devmsg123",
+                    model = "claude-3-5-haiku-20241022",
+                    role = "assistant",
+                    stop_reason = "end_turn",
+                    stop_sequence = nil,
+                    type = "message",
+                    usage = {
+                        input_tokens = 15,
+                        output_tokens = 1
+                    },
+                    metadata = {
+                        request_id = "req_mock456",
+                        processing_ms = 120
+                    }
+                }
+            end)
+
+            -- Create prompt using the prompt builder
+            local promptBuilder = prompt.new()
+            promptBuilder:add_user("What is the capital of France?")
+            promptBuilder:add_developer("Provide a concise answer")
+
+            -- Call with the properly built prompt
+            local response = text_generation.handler({
+                model = "claude-3-5-haiku-20241022",
+                messages = promptBuilder:get_messages()
+            })
+
+            -- Verify the response structure
+            expect(response.error).to_be_nil("Expected no error")
+            expect(response.result).to_equal("Paris")
+            expect(response.tokens).not_to_be_nil("Expected token information")
+            expect(response.tokens.prompt_tokens).to_equal(15)
+            expect(response.tokens.completion_tokens).to_equal(1)
+            expect(response.tokens.total_tokens).to_equal(16)
+            expect(response.finish_reason).to_equal("stop")
+        end)
+
+        -- Fixed test for combining developer messages with system messages
         it("should combine developer messages with system messages correctly with mocked client", function()
-            -- Mock the client request function
+            -- Mock the claude.request function
             mock(claude_client, "request", function(endpoint_path, payload, options)
                 -- Validate the request
                 expect(endpoint_path).to_equal(claude_client.API_ENDPOINTS.MESSAGES)
 
-                -- Check system content has both regular system and developer messages
+                -- Check system content exists
                 expect(payload.system).not_to_be_nil("Expected system content")
-                expect(#payload.system >= 2).to_be_true("Expected multiple system blocks")
 
-                -- System content should have both the original message and developer instructions
+                -- Find system content with historian instructions
                 local found_system_content = false
-                local found_dev_content = false
-
                 for _, block in ipairs(payload.system) do
                     if block.type == "text" and block.text:match("Speak like a historian") then
                         found_system_content = true
-                    end
-                    if block.type == "text" and block.text:match("Developer instructions") and
-                        block.text:match("Include exact dates") then
-                        found_dev_content = true
+                        break
                     end
                 end
-
                 expect(found_system_content).to_be_true("System content not found")
-                expect(found_dev_content).to_be_true("Developer message not found")
+
+                -- With the current design, developer instructions are appended to the user message
+                local found_dev_content = false
+                for _, msg in ipairs(payload.messages) do
+                    if msg.role == "user" then
+                        for _, content_part in ipairs(msg.content) do
+                            if content_part.type == "text" and
+                                type(content_part.text) == "string" and
+                                content_part.text:find("<developer%-instruction>") then
+                                found_dev_content = true
+                                break
+                            end
+                        end
+                    end
+                end
+                expect(found_dev_content).to_be_true("Developer message not appended to user message")
 
                 -- Return mock successful response
                 return {
@@ -813,7 +902,7 @@ local function define_tests()
             promptBuilder:add_user("Tell me about the Battle of Hastings")
             promptBuilder:add_developer("Include exact dates for historical events")
 
-            -- Call with the properly built prompt
+            -- Call with the properly built prompt - USING text_generation HANDLER, not tool_calling
             local response = text_generation.handler({
                 model = "claude-3-5-haiku-20241022",
                 messages = promptBuilder:get_messages()
@@ -821,7 +910,7 @@ local function define_tests()
 
             -- Verify the response structure
             expect(response.error).to_be_nil("Expected no error")
-            expect(response.result).to_contain("1066")       -- Contains exact date
+            expect(response.result).to_contain("1066")  -- Contains exact date
             expect(response.result).to_contain("October 14") -- More exact date
             expect(response.tokens).not_to_be_nil("Expected token information")
         end)

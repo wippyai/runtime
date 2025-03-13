@@ -115,6 +115,7 @@ func sleepCoroutine(l *lua.LState) int {
 			nil,
 		)
 	})
+
 	return -1
 }
 

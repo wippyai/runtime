@@ -47,7 +47,10 @@ local function handler(args)
     -- Debug token count issue detection
     local has_system_content = false
 
-    -- First pass: Process system messages and add regular messages
+    -- Map developer instructions to positions
+    local developer_instructions = {}
+
+    -- First pass: Process system messages and collect developer instructions
     for i, msg in ipairs(messages) do
         if msg.role == "system" then
             has_system_content = true
@@ -71,6 +74,36 @@ local function handler(args)
             table.insert(cache_marker_positions, current_marker_idx)
             has_cache_markers = true
             -- Don't add this to processed messages
+        elseif msg.role == "developer" then
+            -- Collect developer instruction content
+            local dev_content
+            if type(msg.content) == "string" then
+                dev_content = msg.content
+            else
+                -- If content is an array, extract the text
+                local text = ""
+                for _, part in ipairs(msg.content) do
+                    if part.type == "text" then
+                        text = text .. part.text
+                    end
+                end
+                dev_content = text
+            end
+
+            -- Find the previous non-developer, non-cache_marker message index
+            local prev_msg_idx = i - 1
+            while prev_msg_idx >= 1 do
+                local prev_role = messages[prev_msg_idx].role
+                if prev_role ~= "developer" and prev_role ~= "cache_marker" then
+                    -- Store developer instruction with the index of the previous message
+                    if not developer_instructions[prev_msg_idx] then
+                        developer_instructions[prev_msg_idx] = {}
+                    end
+                    table.insert(developer_instructions[prev_msg_idx], dev_content)
+                    break
+                end
+                prev_msg_idx = prev_msg_idx - 1
+            end
         else
             -- Regular user or assistant message
             local role = msg.role
@@ -95,64 +128,36 @@ local function handler(args)
         end
     end
 
-    -- Second pass: Process developer instructions by attaching them to the previous message
-    for i = #messages, 1, -1 do -- Process in reverse to avoid index issues
-        local msg = messages[i]
+    -- Second pass: Apply developer instructions to messages
+    for i, msg in ipairs(messages) do
+        if developer_instructions[i] and #developer_instructions[i] > 0 then
+            -- Get the corresponding processed message index
+            local processed_idx = 0
+            local cur_reg_msg = 0
 
-        if msg.role == "developer" then
-            -- Get developer instruction content
-            local dev_content
-            if type(msg.content) == "string" then
-                dev_content = msg.content
-            else
-                -- If content is an array, extract the text
-                local text = ""
-                for _, part in ipairs(msg.content) do
-                    if part.type == "text" then
-                        text = text .. part.text
-                    end
+            -- Count regular messages up to this index to find the processed message
+            for j = 1, i do
+                if messages[j].role ~= "developer" and messages[j].role ~= "cache_marker" and messages[j].role ~= "system" then
+                    cur_reg_msg = cur_reg_msg + 1
                 end
-                dev_content = text
-            end
 
-            -- Find the previous non-developer, non-cache_marker message index
-            local prev_msg_idx = i - 1
-            while prev_msg_idx >= 1 do
-                local prev_role = messages[prev_msg_idx].role
-                if prev_role ~= "developer" and prev_role ~= "cache_marker" then
+                if j == i then
+                    processed_idx = cur_reg_msg
                     break
                 end
-                prev_msg_idx = prev_msg_idx - 1
             end
 
-            -- If we found a valid previous message, append the developer instruction to it
-            if prev_msg_idx >= 1 and prev_msg_idx <= #processed_messages then
-                -- Find the corresponding processed message
-                local processed_idx = 0
-                local cur_reg_msg = 0
+            if processed_idx > 0 and processed_idx <= #processed_messages then
+                -- Get the last content block
+                local last_content_idx = #processed_messages[processed_idx].content
+                if last_content_idx > 0 then
+                    local last_content = processed_messages[processed_idx].content[last_content_idx]
 
-                -- Find the matching processed message index
-                for j = 1, #messages do
-                    if j == prev_msg_idx then
-                        processed_idx = cur_reg_msg
-                        break
-                    end
-
-                    if messages[j].role ~= "developer" and messages[j].role ~= "cache_marker" and messages[j].role ~= "system" then
-                        cur_reg_msg = cur_reg_msg + 1
-                    end
-                end
-
-                if processed_idx > 0 and processed_idx <= #processed_messages then
-                    -- Get the last content block
-                    local last_content_idx = #processed_messages[processed_idx].content
-                    if last_content_idx > 0 then
-                        local last_content = processed_messages[processed_idx].content[last_content_idx]
-
-                        -- If it's a text block, append the developer instruction
-                        if last_content.type == "text" then
+                    -- If it's a text block, append all the developer instructions
+                    if last_content.type == "text" then
+                        for _, instruction in ipairs(developer_instructions[i]) do
                             last_content.text = last_content.text ..
-                                "\n<developer-instruction>" .. dev_content .. "</developer-instruction>"
+                                "\n<developer-instruction>" .. instruction .. "</developer-instruction>"
                         end
                     end
                 end

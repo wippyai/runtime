@@ -1,5 +1,4 @@
 version: "1.0"
-# temporary off
 #namespace: wippy.llm.openai
 
 meta:
