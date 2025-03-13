@@ -910,7 +910,7 @@ local function define_tests()
 
             -- Verify the response structure
             expect(response.error).to_be_nil("Expected no error")
-            expect(response.result).to_contain("1066")  -- Contains exact date
+            expect(response.result).to_contain("1066")       -- Contains exact date
             expect(response.result).to_contain("October 14") -- More exact date
             expect(response.tokens).not_to_be_nil("Expected token information")
         end)
@@ -922,19 +922,20 @@ local function define_tests()
                 return
             end
 
-            -- Create system messages - both string and content blocks
+            -- Create system messages with specific formatting instructions
             local system_messages = {
-                "You are a cybersecurity expert.",
+                "You are a technical writer creating documentation.",
                 {
                     type = "text",
-                    text = "Use simplified terminology for beginners."
+                    text = "All responses must be formatted with bullet points."
                 }
             }
 
-            -- Create prompt with developer message
+            -- Create prompt with specific query and developer instructions
             local promptBuilder = prompt.new()
-            promptBuilder:add_user("Explain what a firewall does")
-            promptBuilder:add_developer("Include a brief real-world analogy")
+            promptBuilder:add_user("List benefits of cloud computing")
+            -- Developer instruction that adds specific constraints
+            promptBuilder:add_developer("Include EXACTLY 3 bullet points. No more, no less.")
 
             -- Make a real API call
             local response = text_generation.handler({
@@ -942,8 +943,7 @@ local function define_tests()
                 messages = promptBuilder:get_messages(),
                 system = system_messages,
                 options = {
-                    temperature = 0, -- Deterministic output
-                    max_tokens = 150 -- Moderate response
+                    temperature = 0 -- Deterministic output
                 },
                 api_key = actual_api_key
             })
@@ -953,27 +953,33 @@ local function define_tests()
                 (response.error_message or "unknown error"))
             expect(response.result).not_to_be_nil("No response received from API")
 
-            -- Verify it contains simplified terminology - correct Lua string matching
-            local has_simplified_terms = false
-            if string.find(response.result:lower(), "simply") or
-                string.find(response.result:lower(), "basic") or
-                string.find(response.result:lower(), "think of") or
-                string.find(response.result:lower(), "like a") then
-                has_simplified_terms = true
+            -- Verify it follows the system instruction to use bullet points
+            local bullet_point_count = 0
+            for _ in response.result:gmatch("•") do
+                bullet_point_count = bullet_point_count + 1
             end
 
-            expect(has_simplified_terms).to_be_true("Response should use simplified terminology for beginners")
-
-            -- Verify it contains an analogy - correct Lua string matching
-            local has_analogy = false
-            if string.find(response.result:lower(), "like a") or
-                string.find(response.result:lower(), "similar to") or
-                string.find(response.result:lower(), "imagine") or
-                string.find(response.result:lower(), "just as") then
-                has_analogy = true
+            if bullet_point_count == 0 then
+                -- Alternative bullet point format
+                for _ in response.result:gmatch("%-") do
+                    bullet_point_count = bullet_point_count + 1
+                end
             end
 
-            expect(has_analogy).to_be_true("Response should include an analogy")
+            expect(bullet_point_count).to_equal(3,
+                "Response should contain exactly 3 bullet points as specified in developer instructions")
+
+            -- Verify it follows the system instruction to be a technical writer
+            local has_technical_terms = false
+            if response.result:match("infrastructure") or
+                response.result:match("scalability") or
+                response.result:match("flexibility") or
+                response.result:match("efficiency") then
+                has_technical_terms = true
+            end
+
+            expect(has_technical_terms).to_be_true(
+            "Response should include technical terminology as instructed in system message")
         end)
 
         it("should handle streaming text generation with real Claude API", function()
