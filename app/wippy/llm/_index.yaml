@@ -1,6 +1,9 @@
 version: "1.0"
 namespace: wippy.llm
 
+meta:
+  depends_on: [ ns:wippy.test ]
+
 entries:
   - name: tools
     kind: library.lua
@@ -25,6 +28,14 @@ entries:
       type: "library"
     source: file://prompt.lua
     modules: [ "json" ]
+
+  - name: models
+    kind: library.lua
+    meta:
+      comment: "Model discovery library for finding models by name, capability, and retrieving model cards"
+      type: "library"
+    source: file://models.lua
+    modules: [ "registry" ]
 
   - name: prompt_test
     kind: function.lua
@@ -69,3 +80,17 @@ entries:
     imports:
       test: "wippy.test:test"
       tools: "wippy.llm:tools"
+
+  - name: models_test
+    kind: function.lua
+    meta:
+      name: "Models Library Test"
+      type: "test"
+      tags: [ "llm", "models", "discovery", "tests" ]
+      group: "LLM Library"
+      comment: "Tests the model discovery library functionality for finding models and retrieving model cards"
+    source: file://models_test.lua
+    method: run_tests
+    imports:
+      test: "wippy.test:test"
+      models: "wippy.llm:models"
