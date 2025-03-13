@@ -445,8 +445,8 @@ end
 local function assert_equal(actual, expected, message)
     if actual ~= expected then
         local info = get_debug_info()
-        error(string.format("%s:%d: Expected %s but got %s",
-            info.source, info.line, format_value(expected), format_value(actual)), 2)
+        error(string.format("%s:%d: Expected %s but got %s: %s",
+            info.source, info.line, format_value(expected), format_value(actual), message), 2)
     end
     return true
 end
@@ -454,8 +454,8 @@ end
 local function assert_not_equal(actual, expected, message)
     if actual == expected then
         local info = get_debug_info()
-        error(string.format("%s:%d: Expected %s to not equal %s",
-            info.source, info.line, format_value(actual), format_value(expected)), 2)
+        error(string.format("%s:%d: Expected %s to not equal %s: %s",
+            info.source, info.line, format_value(actual), format_value(expected), message), 2)
     end
     return true
 end
@@ -463,8 +463,8 @@ end
 local function assert_true(actual, message)
     if actual ~= true then
         local info = get_debug_info()
-        error(string.format("%s:%d: Expected true but got %s",
-            info.source, info.line, format_value(actual)), 2)
+        error(string.format("%s:%d: Expected true but got %s: %s",
+            info.source, info.line, format_value(actual), message), 2)
     end
     return true
 end
@@ -472,8 +472,8 @@ end
 local function assert_false(actual, message)
     if actual ~= false then
         local info = get_debug_info()
-        error(string.format("%s:%d: Expected false but got %s",
-            info.source, info.line, format_value(actual)), 2)
+        error(string.format("%s:%d: Expected false but got %s: %s",
+            info.source, info.line, format_value(actual)), message, 2)
     end
     return true
 end
@@ -481,8 +481,8 @@ end
 local function assert_nil(actual, message)
     if actual ~= nil then
         local info = get_debug_info()
-        error(string.format("%s:%d: Expected nil but got %s",
-            info.source, info.line, format_value(actual)), 2)
+        error(string.format("%s:%d: Expected nil but got %s: %s",
+            info.source, info.line, format_value(actual), message), 2)
     end
     return true
 end
@@ -490,8 +490,8 @@ end
 local function assert_not_nil(actual, message)
     if actual == nil then
         local info = get_debug_info()
-        error(string.format("%s:%d: Expected value to not be nil",
-            info.source, info.line), 2)
+        error(string.format("%s:%d: Expected value to not be nil: %s",
+            info.source, info.line, message), 2)
     end
     return true
 end
@@ -499,8 +499,8 @@ end
 local function assert_match(str, pattern, message)
     if not string.match(str, pattern) then
         local info = get_debug_info()
-        error(string.format("%s:%d: Expected %q to match pattern %q",
-            info.source, info.line, str, pattern), 2)
+        error(string.format("%s:%d: Expected %q to match pattern %q: %s",
+            info.source, info.line, str, pattern, message), 2)
     end
     return true
 end
@@ -533,8 +533,8 @@ function test.expect(actual)
             local actual_type = type(actual)
             if actual_type ~= expected_type then
                 local info = get_debug_info()
-                error(string.format("%s:%d: Expected type %s but got %s",
-                    info.source, info.line, expected_type, actual_type), 2)
+                error(string.format("%s:%d: Expected type %s but got %s: %s",
+                    info.source, info.line, expected_type, actual_type, message), 2)
             end
             return true
         end,
@@ -549,34 +549,34 @@ function test.expect(actual)
                 end
                 if not found then
                     local info = get_debug_info()
-                    error(string.format("%s:%d: Expected table to contain %s",
-                        info.source, info.line, format_value(expected)), 2)
+                    error(string.format("%s:%d: Expected table to contain %s: %s",
+                        info.source, info.line, format_value(expected), message), 2)
                 end
                 return true
             elseif type(actual) == "string" then
                 if not string.find(actual, expected, 1, true) then
                     local info = get_debug_info()
-                    error(string.format("%s:%d: Expected string to contain %s",
-                        info.source, info.line, format_value(expected)), 2)
+                    error(string.format("%s:%d: Expected string to contain %s: %s",
+                        info.source, info.line, format_value(expected), message), 2)
                 end
                 return true
             else
                 local info = get_debug_info()
-                error(string.format("%s:%d: Expected a table or string to check contents",
-                    info.source, info.line), 2)
+                error(string.format("%s:%d: Expected a table or string to check contents: %s",
+                    info.source, info.line, message), 2)
             end
         end,
         to_have_key = function(key, message)
             if type(actual) ~= "table" then
                 local info = get_debug_info()
-                error(string.format("%s:%d: Expected a table to check for key",
-                    info.source, info.line), 2)
+                error(string.format("%s:%d: Expected a table to check for key: %s",
+                    info.source, info.line, message), 2)
             end
 
             if actual[key] == nil then
                 local info = get_debug_info()
-                error(string.format("%s:%d: Expected table to have key %s",
-                    info.source, info.line, format_value(key)), 2)
+                error(string.format("%s:%d: Expected table to have key %s: %s",
+                    info.source, info.line, format_value(key), message), 2)
             end
             return true
         end

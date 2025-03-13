@@ -12,26 +12,6 @@ local function model_supports_thinking(model)
     return model:match("claude%-3%-7") or model:match("claude%-3%.7")
 end
 
--- Helper function to apply cache control markers
-local function apply_cache_marker(content_block)
-    if type(content_block) ~= "table" then
-        return content_block
-    end
-
-    -- Deep copy the block to avoid side effects
-    local block_copy = {}
-    for k, v in pairs(content_block) do
-        block_copy[k] = v
-    end
-
-    -- Add cache control if not already present
-    if not block_copy.cache_control then
-        block_copy.cache_control = { type = "ephemeral" }
-    end
-
-    return block_copy
-end
-
 -- Claude Text Generation Handler
 -- Supports text generation without tool calling functionality
 local function handler(args)
@@ -55,58 +35,29 @@ local function handler(args)
     -- Configure options
     local options = args.options or {}
 
-    -- Process system messages (could be string, array of strings, or array of content blocks)
-    local system_content = nil
-    local has_developer_instructions = false
-
-    if args.system then
-        -- Convert to content blocks format that Claude API expects
-        if type(args.system) == "string" then
-            -- Single string system prompt
-            system_content = { {
-                type = "text",
-                text = args.system
-            } }
-        elseif type(args.system) == "table" then
-            if args.system.type then
-                -- Single content block object
-                system_content = { args.system }
-            else
-                -- Array of content blocks or strings
-                system_content = {}
-                for i, item in ipairs(args.system) do
-                    if type(item) == "string" then
-                        table.insert(system_content, {
-                            type = "text",
-                            text = item
-                        })
-                    else
-                        table.insert(system_content, item)
-                    end
-                end
-            end
-        end
-    end
-
-    -- Apply cache markers if requested
-    if options.cache_marker and system_content and #system_content > 0 then
-        -- Apply cache control to the last system block
-        local last_block = system_content[#system_content]
-        if last_block then
-            -- Apply cache marker only if not already present
-            if not last_block.cache_control then
-                last_block.cache_control = { type = "ephemeral" }
-            end
-        end
-    end
-
-    -- Process messages - separating developer messages from regular messages
+    -- Process messages - separating system, developer, and cache marker messages from regular messages
     local processed_messages = {}
-    local prev_user_idx = nil
+    local system_content = {}
     local developer_instructions = {}
+    local has_developer_instructions = false
+    local has_cache_marker = false
+    local cache_marker_id = nil
 
     for i, msg in ipairs(messages) do
-        if msg.role == "developer" then
+        if msg.role == "system" then
+            -- Handle system messages - add to system content
+            if type(msg.content) == "string" then
+                table.insert(system_content, {
+                    type = "text",
+                    text = msg.content
+                })
+            else
+                -- If content is an array, add each part
+                for _, part in ipairs(msg.content) do
+                    table.insert(system_content, part)
+                end
+            end
+        elseif msg.role == "developer" then
             has_developer_instructions = true
 
             -- Collect developer instructions - we'll add them to system content
@@ -125,6 +76,12 @@ local function handler(args)
             end
 
             table.insert(developer_instructions, dev_content)
+        elseif msg.role == "cache_marker" then
+            -- Found a cache marker
+            has_cache_marker = true
+            cache_marker_id = msg.marker_id or "default"
+
+            -- Don't add this to processed messages
         else
             -- Regular user or assistant message
             local role = msg.role
@@ -142,20 +99,11 @@ local function handler(args)
                 role = role,
                 content = content
             })
-
-            -- Track the last user message position
-            if role == "user" then
-                prev_user_idx = #processed_messages
-            end
         end
     end
 
     -- If we have developer instructions, add them to system content
     if has_developer_instructions and #developer_instructions > 0 then
-        if not system_content then
-            system_content = {}
-        end
-
         -- Combine all developer instructions into a single system block
         local combined_instructions = "Developer instructions:\n" .. table.concat(developer_instructions, "\n\n")
         table.insert(system_content, {
@@ -164,15 +112,38 @@ local function handler(args)
         })
     end
 
+    -- Apply cache markers if we have a cache marker
+    if has_cache_marker and #system_content > 0 then
+        -- Apply cache control to the last system block
+        local last_block = system_content[#system_content]
+        if last_block then
+            -- Apply cache marker
+            last_block.cache_control = {
+                type = "ephemeral"
+            }
+
+            -- Add marker ID if available
+            if cache_marker_id then
+                -- Note: Claude API might not directly support marker_id,
+                -- but we'll include it for future compatibility
+                last_block.cache_control.marker_id = cache_marker_id
+            end
+        end
+    end
+
     -- Configure request payload
     local payload = {
         model = args.model,
         messages = processed_messages,
         max_tokens = options.max_tokens,
         temperature = options.temperature,
-        system = system_content,
         stop_sequences = options.stop_sequences
     }
+
+    -- Only add system content if we have any
+    if #system_content > 0 then
+        payload.system = system_content
+    end
 
     -- Add thinking if enabled and model supports it
     if options.thinking_effort and options.thinking_effort > 0 then
