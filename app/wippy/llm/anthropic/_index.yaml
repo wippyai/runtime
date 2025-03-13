@@ -85,40 +85,40 @@ entries:
 #      output: "wippy.llm:output"
 #      text_generation: "wippy.llm.claude:text_generation"
 #      claude_client: "wippy.llm.claude:client"
-#
-#  - name: tool_calling_test
-#    kind: function.lua
-#    meta:
-#      name: "Claude Tool Calling Test"
-#      type: "test"
-#      tags: [ "llm", "claude", "tools", "function_calling" ]
-#      group: "Claude Library"
-#      comment: "Tests the Claude tool/function calling handler functionality"
-#    source: file://tool_calling_test.lua
-#    method: run_tests
-#    modules: [ "json", "env" ]
-#    imports:
-#      test: "wippy.test:test"
-#      prompt: "wippy.llm:prompt"
-#      output: "wippy.llm:output"
-#      tools: "wippy.llm:tools"
-#      tool_calling: "wippy.llm.claude:tool_calling"
-#      claude_client: "wippy.llm.claude:client"
 
-  - name: structured_output_test
+  - name: tool_calling_test
     kind: function.lua
     meta:
-      name: "Claude Structured Output Test"
+      name: "Claude Tool Calling Test"
       type: "test"
-      tags: [ "llm", "claude", "schema", "structured_output" ]
+      tags: [ "llm", "claude", "tools", "function_calling" ]
       group: "Claude Library"
-      comment: "Tests the Claude structured output handler functionality"
-    source: file://structured_output_test.lua
+      comment: "Tests the Claude tool/function calling handler functionality"
+    source: file://tool_calling_test.lua
     method: run_tests
     modules: [ "json", "env" ]
     imports:
       test: "wippy.test:test"
       prompt: "wippy.llm:prompt"
       output: "wippy.llm:output"
-      structured_output: "wippy.llm.claude:structured_output"
+      tools: "wippy.llm:tools"
+      tool_calling: "wippy.llm.claude:tool_calling"
       claude_client: "wippy.llm.claude:client"
+
+#  - name: structured_output_test
+#    kind: function.lua
+#    meta:
+#      name: "Claude Structured Output Test"
+#      type: "test"
+#      tags: [ "llm", "claude", "schema", "structured_output" ]
+#      group: "Claude Library"
+#      comment: "Tests the Claude structured output handler functionality"
+#    source: file://structured_output_test.lua
+#    method: run_tests
+#    modules: [ "json", "env" ]
+#    imports:
+#      test: "wippy.test:test"
+#      prompt: "wippy.llm:prompt"
+#      output: "wippy.llm:output"
+#      structured_output: "wippy.llm.claude:structured_output"
+#      claude_client: "wippy.llm.claude:client"

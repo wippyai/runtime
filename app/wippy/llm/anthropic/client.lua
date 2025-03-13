@@ -285,7 +285,7 @@ function claude.request(endpoint_path, payload, options)
     return parsed
 end
 
--- Send a message using the Messages API (simplified interface)
+-- Send a message using the Messages API
 function claude.create_message(options)
     options = options or {}
 
