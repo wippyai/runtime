@@ -92,7 +92,6 @@ entries:
     lifecycle:
       auto_start: true
 
-
   - name: cache
     kind: store.memory
     meta:
@@ -103,10 +102,6 @@ entries:
     cleanup_interval: 5m
     lifecycle:
       auto_start: true
-      restart:
-        initial_delay: 5s
-        max_attempts: 3
-        backoff_factor: 1.5
 
   - name: session
     kind: store.memory
@@ -118,19 +113,3 @@ entries:
     cleanup_interval: 10m
     lifecycle:
       auto_start: true
-      restart:
-        initial_delay: 3s
-        max_attempts: 5
-        backoff_factor: 2.0
-
-  - name: rate_limiter
-    kind: store.memory
-    meta:
-      comment: "API rate limiting data"
-      depends_on:
-        - api
-    max_size: 20000
-    cleanup_interval: 1m
-    lifecycle:
-      auto_start: true
-      stop_timeout: 10s
