@@ -1,4 +1,4 @@
-local claude_client = require("claude_client")
+local claude = require("claude_client")
 local output = require("output")
 local tools = require("tools")
 local json = require("json")
@@ -55,16 +55,6 @@ local function handler(args)
 
     -- Configure options
     local options = args.options or {}
-
-    -- Create client with API key
-    local client = claude_client.new(args.api_key)
-
-    -- Configure the client
-    client:configure({
-        model = args.model,
-        api_version = args.api_version,
-        max_tokens = options.max_tokens
-    })
 
     -- Process system messages (could be string, array of strings, or array of content blocks)
     local system_content = nil
@@ -268,17 +258,18 @@ local function handler(args)
         tool_choice = tool_choice
     }
 
-    if #claude_tools > 0 then
-    end
-
     -- Add thinking if enabled and model supports it
     if options.thinking_effort and options.thinking_effort > 0 then
         if model_supports_thinking(args.model) then
-            payload.thinking = {
-                type = "enabled",
-                budget_tokens = math.max(1024, math.floor(options.thinking_effort * 160))
-            }
-        else
+            -- Calculate thinking budget based on thinking effort
+            local thinking_budget = claude.calculate_thinking_budget(options.thinking_effort)
+
+            if thinking_budget > 0 then
+                payload.thinking = {
+                    type = "enabled",
+                    budget_tokens = thinking_budget
+                }
+            end
         end
     end
 
@@ -298,10 +289,12 @@ local function handler(args)
         )
 
         -- Make streaming request
-        local response, err = client:send_request(
-            claude_client.API_ENDPOINTS.MESSAGES,
+        local response, err = claude.request(
+            claude.API_ENDPOINTS.MESSAGES,
             payload,
             {
+                api_key = args.api_key,
+                api_version = args.api_version,
                 stream = true,
                 timeout = args.timeout or 120
             }
@@ -309,7 +302,7 @@ local function handler(args)
 
         -- Handle request errors
         if err then
-            local mapped_error = claude_client.map_error(err)
+            local mapped_error = claude.map_error(err)
 
             streamer:send_error(
                 mapped_error.error,
@@ -329,7 +322,7 @@ local function handler(args)
         local has_thinking = false
 
         -- Process the streaming response
-        local stream_content, stream_err, stream_result = claude_client.process_stream(response, {
+        local stream_content, stream_err, stream_result = claude.process_stream(response, {
             on_content = function(content_chunk)
                 full_content = full_content .. content_chunk
                 streamer:buffer_content(content_chunk)
@@ -409,7 +402,6 @@ local function handler(args)
             }
         end
 
-
         -- Extract tokens from stream_result if available
         local tokens = nil
         if stream_result and stream_result.usage then
@@ -450,7 +442,7 @@ local function handler(args)
                 result = full_content,
                 tokens = tokens,
                 metadata = response.metadata,
-                finish_reason = claude_client.FINISH_REASON_MAP[finish_reason] or finish_reason,
+                finish_reason = claude.FINISH_REASON_MAP[finish_reason] or finish_reason,
                 streaming = true,
                 provider = "anthropic",
                 model = args.model
@@ -465,17 +457,19 @@ local function handler(args)
         end
     else
         -- Non-streaming request
-        local response, err = client:send_request(
-            claude_client.API_ENDPOINTS.MESSAGES,
+        local response, err = claude.request(
+            claude.API_ENDPOINTS.MESSAGES,
             payload,
             {
+                api_key = args.api_key,
+                api_version = args.api_version,
                 timeout = args.timeout or 120
             }
         )
 
         -- Handle errors
         if err then
-            local mapped_error = claude_client.map_error(err)
+            local mapped_error = claude.map_error(err)
             return mapped_error
         end
 
@@ -494,7 +488,6 @@ local function handler(args)
                 error_message = "Invalid response structure from Claude API (missing content)"
             }
         end
-
 
         -- Process the response content
         local content_text = ""
@@ -527,7 +520,6 @@ local function handler(args)
                     thinking_content = thinking_content .. (block.thinking or "")
                 end
                 has_thinking = true
-            else
             end
         end
 
@@ -541,7 +533,6 @@ local function handler(args)
                 response.usage.cache_creation_input_tokens or 0,
                 response.usage.cache_read_input_tokens or 0
             )
-        else
         end
 
         -- Return based on whether we have tool calls or just text
@@ -568,7 +559,7 @@ local function handler(args)
             -- Map finish reason to standardized format
             local raw_finish_reason = response.stop_reason
 
-            local finish_reason = claude_client.FINISH_REASON_MAP[response.stop_reason] or response.stop_reason
+            local finish_reason = claude.FINISH_REASON_MAP[response.stop_reason] or response.stop_reason
 
             -- Return successful text response
             local result = {

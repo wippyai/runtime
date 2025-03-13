@@ -1,4 +1,4 @@
-local claude = require("claude")
+local claude = require("claude_client")
 local output = require("output")
 local json = require("json")
 
@@ -181,12 +181,21 @@ local function handler(args)
             local thinking_budget = claude.calculate_thinking_budget(options.thinking_effort)
 
             if thinking_budget > 0 then
+                -- Ensure max_tokens is greater than thinking budget
+                if not payload.max_tokens or payload.max_tokens <= thinking_budget then
+                    -- Set max_tokens to thinking budget + 1000 tokens as a reasonable buffer
+                    payload.max_tokens = thinking_budget + 1024
+                end
+
+                -- Add thinking configuration
                 payload.thinking = {
                     type = "enabled",
                     budget_tokens = thinking_budget
                 }
             end
         end
+
+        payload.temperature = 1
     end
 
     -- Handle streaming if requested

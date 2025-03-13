@@ -30,62 +30,53 @@ local function define_tests()
         end)
 
         it("should successfully generate text with mocked client", function()
-            -- Create a mock client constructor
-            local mock_client = {
-                send_request = function(self, endpoint_path, payload, options)
-                    -- Validate the request
-                    expect(endpoint_path).to_equal(claude_client.API_ENDPOINTS.MESSAGES)
-                    expect(payload.model).to_equal("claude-3-5-haiku-20241022")
+            -- Mock the claude.request function
+            mock(claude_client, "request", function(endpoint_path, payload, options)
+                -- Validate the request
+                expect(endpoint_path).to_equal(claude_client.API_ENDPOINTS.MESSAGES)
+                expect(payload.model).to_equal("claude-3-5-haiku-20241022")
 
-                    -- Check messages array
-                    local found_user_message = false
-                    for _, msg in ipairs(payload.messages) do
-                        if msg.role == "user" then
-                            if type(msg.content) == "table" then
-                                for _, content in ipairs(msg.content) do
-                                    if content.type == "text" and content.text == "Say hello world" then
-                                        found_user_message = true
-                                        break
-                                    end
+                -- Check messages array
+                local found_user_message = false
+                for _, msg in ipairs(payload.messages) do
+                    if msg.role == "user" then
+                        -- Look for the expected message content
+                        if type(msg.content) == "table" then
+                            for _, content in ipairs(msg.content) do
+                                if content.type == "text" and content.text == "Say hello world" then
+                                    found_user_message = true
+                                    break
                                 end
-                            elseif type(msg.content) == "string" and msg.content == "Say hello world" then
-                                found_user_message = true
                             end
                         end
                     end
-                    expect(found_user_message).to_be_true("Expected user message with 'Say hello world' content")
-
-                    -- Return mock successful response
-                    return {
-                        content = {
-                            {
-                                type = "text",
-                                text = "Hello, world!"
-                            }
-                        },
-                        id = "msg_mock123",
-                        model = "claude-3-5-haiku-20241022",
-                        role = "assistant",
-                        stop_reason = "end_turn",
-                        stop_sequence = nil,
-                        type = "message",
-                        usage = {
-                            input_tokens = 10,
-                            output_tokens = 5
-                        }
-                    }
-                end,
-
-                -- Add configure method to prevent "attempt to call a nil value" errors
-                configure = function(self, options)
-                    return self
                 end
-            }
+                expect(found_user_message).to_be_true("Expected user message with 'Say hello world' content")
 
-            -- Store original function and mock claude_client.new
-            local original_new = claude_client.new
-            mock(claude_client, "new", function()
-                return mock_client
+                -- Return mock successful response
+                return {
+                    content = {
+                        {
+                            type = "text",
+                            text = "Hello, world!"
+                        }
+                    },
+                    id = "msg_mock123",
+                    model = "claude-3-5-haiku-20241022",
+                    role = "assistant",
+                    stop_reason = "end_turn",
+                    stop_sequence = nil,
+                    type = "message",
+                    usage = {
+                        input_tokens = 10,
+                        output_tokens = 5
+                    },
+                    -- Add metadata to match new client expectations
+                    metadata = {
+                        request_id = "req_mock123",
+                        processing_ms = 150
+                    }
+                }
             end)
 
             -- Create proper prompt using the prompt builder
@@ -105,266 +96,346 @@ local function define_tests()
             expect(response.tokens.prompt_tokens).to_equal(10)
             expect(response.tokens.completion_tokens).to_equal(5)
             expect(response.tokens.total_tokens).to_equal(15)
-            expect(response.finish_reason).to_equal("stop")
+            expect(response.finish_reason).to_equal("stop") -- Mapped from "end_turn"
+            expect(response.metadata).not_to_be_nil("Expected metadata in response")
+            expect(response.metadata.request_id).to_equal("req_mock123")
         end)
 
-        --
-        --it("should connect to real Claude API with claude-3-5-haiku model", function()
-        --    -- Skip test if integration tests are disabled
-        --    if not RUN_INTEGRATION_TESTS then
-        --        print("Skipping integration test - not enabled")
-        --        return
-        --    end
-        --
-        --    -- Create proper prompt using the prompt builder
-        --    local promptBuilder = prompt.new()
-        --    promptBuilder:add_user("Reply with exactly the text 'Integration test successful'")
-        --
-        --    -- Make a real API call with claude-3-5-haiku
-        --    local response = text_generation.handler({
-        --        model = "claude-3-5-haiku-20241022",
-        --        messages = promptBuilder:get_messages(),
-        --        options = {
-        --            temperature = 0, -- Deterministic output
-        --            max_tokens = 15  -- Short response
-        --        },
-        --        api_key = actual_api_key
-        --    })
-        --
-        --    -- Verify response
-        --    expect(response.error).to_be_nil("API request failed: " ..
-        --        (response.error_message or "unknown error"))
-        --    expect(response.result).not_to_be_nil("No response received from API")
-        --
-        --    -- Should contain our expected phrase
-        --    expect(response.result:find("Integration test successful")).not_to_be_nil(
-        --        "Expected phrase not found in response: " .. response.result
-        --    )
-        --
-        --    -- Should have token usage
-        --    expect(response.tokens).not_to_be_nil("No token usage information received")
-        --    expect(response.tokens.prompt_tokens > 0).to_be_true("No prompt tokens reported")
-        --    expect(response.tokens.completion_tokens > 0).to_be_true("No completion tokens reported")
-        --    expect(response.tokens.total_tokens > 0).to_be_true("No total tokens reported")
-        --end)
-        --
-        --it("should handle wrong model errors correctly with mocked client", function()
-        --    -- Mock the client send_request function to simulate a model error
-        --    mock(claude_client, "send_request", function(self, endpoint_path, payload, options)
-        --        -- Return a model-related error with the correct error type from real API
-        --        return nil, {
-        --            status_code = 404,
-        --            message = "The model 'nonexistent-model' does not exist or you do not have access to it."
-        --        }
-        --    end)
-        --
-        --    -- Create proper prompt using the prompt builder
-        --    local promptBuilder = prompt.new()
-        --    promptBuilder:add_user("This is a test message")
-        --
-        --    -- Call with a non-existent model
-        --    local response = text_generation.handler({
-        --        model = "nonexistent-model",
-        --        messages = promptBuilder:get_messages()
-        --    })
-        --
-        --    -- Verify the mapped error type
-        --    expect(response.error).to_equal(output.ERROR_TYPE.MODEL_ERROR)
-        --    expect(response.error_message).to_contain("does not exist")
-        --end)
-        --
-        --it("should handle wrong model errors correctly with real API", function()
-        --    -- Skip test if integration tests are disabled
-        --    if not RUN_INTEGRATION_TESTS then
-        --        print("Skipping integration test - not enabled")
-        --        return
-        --    end
-        --
-        --    -- Create proper prompt using the prompt builder
-        --    local promptBuilder = prompt.new()
-        --    promptBuilder:add_user("This is an integration test message")
-        --
-        --    -- Call with a deliberately incorrect model name
-        --    local response = text_generation.handler({
-        --        model = "nonexistent-model",
-        --        messages = promptBuilder:get_messages(),
-        --        api_key = actual_api_key -- Use the real API key
-        --    })
-        --
-        --    -- Verify error handling with real API
-        --    expect(response.error).to_equal(output.ERROR_TYPE.MODEL_ERROR)
-        --    expect(response.error_message).to_contain("does not exist")
-        --
-        --    -- Log the actual error message for debugging
-        --    print("Integration error message: " .. (response.error_message or "nil"))
-        --end)
-        --
-        ---- Test for length stop reason
-        --it("should handle length stop reason correctly with mocked client", function()
-        --    -- Mock the client send_request function
-        --    mock(claude_client, "send_request", function(self, endpoint_path, payload, options)
-        --        -- Return a response with max_tokens as finish reason
-        --        return {
-        --            content = {
-        --                {
-        --                    type = "text",
-        --                    text = "Here's a comprehensive response that will aim"
-        --                }
-        --            },
-        --            id = "msg_mock456",
-        --            model = "claude-3-5-haiku-20241022",
-        --            role = "assistant",
-        --            stop_reason = "max_tokens",
-        --            stop_sequence = nil,
-        --            type = "message",
-        --            usage = {
-        --                input_tokens = 10,
-        --                output_tokens = 8
-        --            }
-        --        }
-        --    end)
-        --
-        --    -- Create prompt
-        --    local promptBuilder = prompt.new()
-        --    promptBuilder:add_user("Generate a long response that should hit the max tokens limit")
-        --
-        --    -- Call with a small max_tokens setting
-        --    local response = text_generation.handler({
-        --        model = "claude-3-5-haiku-20241022",
-        --        messages = promptBuilder:get_messages(),
-        --        options = {
-        --            max_tokens = 8 -- Deliberately small to trigger max_tokens
-        --        }
-        --    })
-        --
-        --    -- Verify finish reason mapping
-        --    expect(response.finish_reason).to_equal(output.FINISH_REASON.LENGTH)
-        --    expect(response.result).to_equal("Here's a comprehensive response that will aim")
-        --end)
-        --
-        ---- Test for context length exceeded error
-        --it("should handle context length exceeded error with mocked client", function()
-        --    -- Mock the client send_request function to simulate context length error
-        --    mock(claude_client, "send_request", function(self, endpoint_path, payload, options)
-        --        -- Return nil and an error for context length exceeded
-        --        return nil, {
-        --            status_code = 400,
-        --            message =
-        --            "This model's maximum context length is 128000 tokens. However, your message resulted in 130000 tokens. Please reduce the length of the messages."
-        --        }
-        --    end)
-        --
-        --    -- Mock the map_error function to properly handle context length errors
-        --    mock(claude_client, "map_error", function(err)
-        --        -- Check if the error message contains "context length"
-        --        if err and err.message and err.message:match("context length") then
-        --            return {
-        --                error = output.ERROR_TYPE.CONTEXT_LENGTH,
-        --                error_message = err.message
-        --            }
-        --        end
-        --
-        --        -- Default error handling
-        --        return {
-        --            error = output.ERROR_TYPE.SERVER_ERROR,
-        --            error_message = err.message or "Unknown error"
-        --        }
-        --    end)
-        --
-        --    -- Create a prompt builder with a very large content
-        --    local promptBuilder = prompt.new()
-        --
-        --    -- Add a large user message
-        --    local largeMessage = string.rep("This is a test message to exceed the context length. ", 6000)
-        --    promptBuilder:add_user(largeMessage)
-        --
-        --    -- Call with the large message
-        --    local response = text_generation.handler({
-        --        model = "claude-3-5-haiku-20241022",
-        --        messages = promptBuilder:get_messages()
-        --    })
-        --
-        --    -- Verify the error type
-        --    expect(response.error).to_equal(output.ERROR_TYPE.CONTEXT_LENGTH)
-        --    expect(response.error_message).to_contain("maximum context length")
-        --end)
-        --
-        ---- Integration test for length finish reason with real API
-        --it("should handle length finish reason correctly with real API", function()
-        --    -- Skip if not running integration tests
-        --    if not RUN_INTEGRATION_TESTS then
-        --        print("Skipping integration test - not enabled")
-        --        return
-        --    end
-        --
-        --    -- Create prompt
-        --    local promptBuilder = prompt.new()
-        --    promptBuilder:add_user(
-        --        "Write a detailed explanation of quantum computing that is at least 100 sentences long. Make sure to cover quantum bits, quantum gates, quantum entanglement, quantum algorithms, quantum supremacy, and the future of quantum computing.")
-        --
-        --    -- Call with a very small max_tokens to ensure we hit the length limit
-        --    local response = text_generation.handler({
-        --        model = "claude-3-5-haiku-20241022",
-        --        messages = promptBuilder:get_messages(),
-        --        options = {
-        --            max_tokens = 15, -- Very small to ensure we hit length limit
-        --            temperature = 0  -- For consistency
-        --        },
-        --        api_key = actual_api_key
-        --    })
-        --
-        --    -- Verify no error
-        --    expect(response.error).to_be_nil("API request failed: " ..
-        --        (response.error_message or "unknown error"))
-        --
-        --    -- Check tokens usage
-        --    expect(response.tokens).not_to_be_nil("Expected token information")
-        --
-        --    -- Verify tokens are close to our requested max
-        --    expect(response.tokens.completion_tokens <= 20).to_be_true("Expected completion tokens near our max")
-        --
-        --    -- Verify finish reason is length
-        --    expect(response.finish_reason).to_equal(output.FINISH_REASON.LENGTH)
-        --end)
-        --
-        ---- Test for extended thinking
-        --it("should correctly handle extended thinking with claude-3-7-sonnet", function()
-        --    -- Skip if not running integration tests
-        --    if not RUN_INTEGRATION_TESTS then
-        --        print("Skipping integration test - not enabled")
-        --        return
-        --    end
-        --
-        --    -- Create prompt for a reasoning task
-        --    local promptBuilder = prompt.new()
-        --    promptBuilder:add_user(
-        --        "Solve this step by step: If a train travels at 60 mph for 2.5 hours, then slows down to 40 mph for 1.5 hours, what is the total distance traveled?")
-        --
-        --    -- Call with thinking enabled
-        --    local response = text_generation.handler({
-        --        model = "claude-3-7-sonnet-20250219", -- Use Claude 3.7 Sonnet
-        --        messages = promptBuilder:get_messages(),
-        --        options = {
-        --            thinking_effort = 20, -- Enable thinking
-        --            temperature = 0       -- For consistent results
-        --        },
-        --        api_key = actual_api_key
-        --    })
-        --
-        --    -- Verify no error
-        --    expect(response.error).to_be_nil("API request failed: " ..
-        --        (response.error_message or "unknown error"))
-        --
-        --    -- Verify response has token information
-        --    expect(response.tokens).not_to_be_nil("Expected token information")
-        --    expect(response.tokens.prompt_tokens > 0).to_be_true("Expected non-zero prompt tokens")
-        --    expect(response.tokens.completion_tokens > 0).to_be_true("Expected non-zero completion tokens")
-        --
-        --    -- Verify we got a reasonable answer containing the correct numbers
-        --    expect(response.result).to_contain("150") -- 60 mph * 2.5 hours = 150 miles
-        --    expect(response.result).to_contain("60")  -- 40 mph * 1.5 hours = 60 miles
-        --    expect(response.result).to_contain("210") -- 150 + 60 = 210 miles
-        --end)
+        it("should handle wrong model errors correctly with mocked client", function()
+            -- Mock the claude.request function to simulate a model error
+            mock(claude_client, "request", function(endpoint_path, payload, options)
+                -- Return a model-related error with the correct error type from real API
+                return nil, {
+                    status_code = 404,
+                    message = "The model 'nonexistent-model' does not exist or you do not have access to it."
+                }
+            end)
+
+            -- Create proper prompt using the prompt builder
+            local promptBuilder = prompt.new()
+            promptBuilder:add_user("This is a test message")
+
+            -- Call with a non-existent model
+            local response = text_generation.handler({
+                model = "nonexistent-model",
+                messages = promptBuilder:get_messages()
+            })
+
+            -- Verify the mapped error type
+            expect(response.error).to_equal(output.ERROR_TYPE.MODEL_ERROR,
+                "Expected MODEL_ERROR but got: " .. (response.error or "nil"))
+            expect(response.error_message).to_contain("does not exist",
+                "Error message didn't contain expected text: " .. (response.error_message or "nil"))
+
+            -- Verify error mapping was called correctly
+            -- This is implicitly checked by the response error type
+        end)
+
+        it("should connect to real Claude API with claude-3-5-haiku model", function()
+            -- Skip test if integration tests are disabled
+            if not RUN_INTEGRATION_TESTS then
+                print("Skipping integration test - not enabled")
+                return
+            end
+
+            -- Create proper prompt using the prompt builder
+            local promptBuilder = prompt.new()
+            promptBuilder:add_user("Reply with exactly the text 'Integration test successful'")
+
+            -- Make a real API call with claude-3-5-haiku
+            local response = text_generation.handler({
+                model = "claude-3-5-haiku-20241022",
+                messages = promptBuilder:get_messages(),
+                options = {
+                    temperature = 0, -- Deterministic output
+                    max_tokens = 15  -- Short response
+                },
+                api_key = actual_api_key
+            })
+
+            -- Verify response
+            expect(response.error).to_be_nil("API request failed: " ..
+                (response.error_message or "unknown error"))
+            expect(response.result).not_to_be_nil("No response received from API")
+
+            -- Should contain our expected phrase
+            expect(response.result:find("Integration test successful")).not_to_be_nil(
+                "Expected phrase not found in response: " .. response.result
+            )
+
+            -- Should have token usage
+            expect(response.tokens).not_to_be_nil("No token usage information received")
+            expect(response.tokens.prompt_tokens > 0).to_be_true("No prompt tokens reported")
+            expect(response.tokens.completion_tokens > 0).to_be_true("No completion tokens reported")
+            expect(response.tokens.total_tokens > 0).to_be_true("No total tokens reported")
+
+            -- Should have metadata
+            expect(response.metadata).not_to_be_nil("No metadata received from API")
+            expect(response.metadata.request_id).not_to_be_nil("No request ID in metadata")
+        end)
+
+        it("should handle wrong model errors correctly with real API", function()
+            -- Skip test if integration tests are disabled
+            if not RUN_INTEGRATION_TESTS then
+                print("Skipping integration test - not enabled")
+                return
+            end
+
+            -- Create proper prompt using the prompt builder
+            local promptBuilder = prompt.new()
+            promptBuilder:add_user("This is an integration test message")
+
+            -- Call with a deliberately incorrect model name
+            local response = text_generation.handler({
+                model = "nonexistent-model",
+                messages = promptBuilder:get_messages(),
+                api_key = actual_api_key -- Use the real API key
+            })
+
+            print(response.error_message)
+
+            -- Verify error handling with real API
+            expect(response.error).to_equal(output.ERROR_TYPE.MODEL_ERROR)
+            expect(response.error_message).to_contain("nonexistent-model")
+        end)
+
+        it("should handle length stop reason correctly with mocked client", function()
+            -- Mock the client request function
+            mock(claude_client, "request", function(endpoint_path, payload, options)
+                -- Validate the request
+                expect(endpoint_path).to_equal(claude_client.API_ENDPOINTS.MESSAGES)
+                expect(payload.model).to_equal("claude-3-5-haiku-20241022")
+                expect(payload.max_tokens).to_equal(8) -- Verify max_tokens is passed
+
+                -- Return a response with max_tokens as finish reason
+                return {
+                    content = {
+                        {
+                            type = "text",
+                            text = "Here's a comprehensive response that will aim"
+                        }
+                    },
+                    id = "msg_mock456",
+                    model = "claude-3-5-haiku-20241022",
+                    role = "assistant",
+                    stop_reason = "max_tokens",
+                    stop_sequence = nil,
+                    type = "message",
+                    usage = {
+                        input_tokens = 10,
+                        output_tokens = 8
+                    },
+                    -- Add metadata to match new client expectations
+                    metadata = {
+                        request_id = "req_mock456",
+                        processing_ms = 150
+                    }
+                }
+            end)
+
+            -- Create prompt using the prompt builder
+            local promptBuilder = prompt.new()
+            promptBuilder:add_user("Generate a long response that should hit the max tokens limit")
+
+            -- Call with a small max_tokens setting
+            local response = text_generation.handler({
+                model = "claude-3-5-haiku-20241022",
+                messages = promptBuilder:get_messages(),
+                options = {
+                    max_tokens = 8 -- Deliberately small to trigger max_tokens
+                }
+            })
+
+            -- Verify finish reason mapping
+            expect(response.finish_reason).to_equal(output.FINISH_REASON.LENGTH)
+            expect(response.result).to_equal("Here's a comprehensive response that will aim")
+
+            -- Verify token usage info is passed through
+            expect(response.tokens).not_to_be_nil("Expected token information")
+            expect(response.tokens.prompt_tokens).to_equal(10)
+            expect(response.tokens.completion_tokens).to_equal(8)
+            expect(response.tokens.total_tokens).to_equal(18)
+
+            -- Verify metadata is included
+            expect(response.metadata).not_to_be_nil("Expected metadata in response")
+            expect(response.metadata.request_id).to_equal("req_mock456")
+        end)
+
+        it("should handle context length exceeded error with mocked client", function()
+            -- Mock the client request function to simulate context length error
+            mock(claude_client, "request", function(endpoint_path, payload, options)
+                -- Return nil and an error for context length exceeded
+                return nil, {
+                    status_code = 400,
+                    message =
+                    "This model's maximum context length is 128000 tokens. However, your message resulted in 130000 tokens. Please reduce the length of the messages."
+                }
+            end)
+
+            -- We no longer need to mock map_error since that's part of the actual code we're testing
+            -- The real map_error function should handle this error type correctly
+
+            -- Create a prompt builder with a very large content
+            local promptBuilder = prompt.new()
+
+            -- Add a large user message
+            local largeMessage = string.rep("This is a test message to exceed the context length. ", 6000)
+            promptBuilder:add_user(largeMessage)
+
+            -- Call with the large message
+            local response = text_generation.handler({
+                model = "claude-3-5-haiku-20241022",
+                messages = promptBuilder:get_messages()
+            })
+
+            -- Verify the error type
+            expect(response.error).to_equal(output.ERROR_TYPE.CONTEXT_LENGTH)
+            expect(response.error_message).to_contain("maximum context length")
+
+            -- Optionally, add more specific checks on the exact error message
+            expect(response.error_message).to_contain("128000 tokens")
+            expect(response.error_message).to_contain("130000 tokens")
+        end)
+
+        it("should handle length finish reason correctly with real API", function()
+            -- Skip if not running integration tests
+            if not RUN_INTEGRATION_TESTS then
+                print("Skipping integration test - not enabled")
+                return
+            end
+
+            -- Create prompt
+            local promptBuilder = prompt.new()
+            promptBuilder:add_user(
+                "Write a detailed explanation of quantum computing that is at least 100 sentences long. Make sure to cover quantum bits, quantum gates, quantum entanglement, quantum algorithms, quantum supremacy, and the future of quantum computing.")
+
+            -- Call with a very small max_tokens to ensure we hit the length limit
+            local response = text_generation.handler({
+                model = "claude-3-5-haiku-20241022",
+                messages = promptBuilder:get_messages(),
+                options = {
+                    max_tokens = 15, -- Very small to ensure we hit length limit
+                    temperature = 0  -- For consistency
+                },
+                api_key = actual_api_key
+            })
+
+            -- Verify no error
+            expect(response.error).to_be_nil("API request failed: " ..
+                (response.error_message or "unknown error"))
+
+            -- Check tokens usage
+            expect(response.tokens).not_to_be_nil("Expected token information")
+
+            -- Verify tokens are close to our requested max
+            expect(response.tokens.completion_tokens <= 20).to_be_true("Expected completion tokens near our max")
+
+            -- Verify finish reason is length
+            expect(response.finish_reason).to_equal(output.FINISH_REASON.LENGTH)
+        end)
+
+        it("should handle context length errors correctly with real API", function()
+            -- Skip if not running integration tests
+            if not RUN_INTEGRATION_TESTS then
+                print("Skipping integration test - not enabled")
+                return
+            end
+
+            -- Create a prompt builder with extremely large content
+            local promptBuilder = prompt.new()
+
+            -- Generate a message that will exceed Claude's context window
+            -- Haiku has a 200K token context, so we need to create something huge
+            -- Each repetition is about 15 tokens, so 14,000 repetitions should be over 210K tokens
+            local largeMessage = string.rep("This is a test message to exceed the context length of Claude 3.5 Haiku. ",
+                14000)
+
+            -- Add the large message as user input
+            promptBuilder:add_user(largeMessage)
+
+            -- Call Claude API with the large message
+            local response = text_generation.handler({
+                model = "claude-3-5-haiku-20241022",
+                messages = promptBuilder:get_messages(),
+                api_key = actual_api_key
+            })
+
+            -- Verify the error type matches what we expect for context length exceeded
+            expect(response.error).to_equal(output.ERROR_TYPE.CONTEXT_LENGTH,
+                "Expected CONTEXT_LENGTH error but got: " .. (response.error or "nil"))
+
+            -- The exact error message might vary, but should mention tokens or size
+            expect(response.error_message).to_match("token",
+                "Error should mention tokens but got: " .. (response.error_message or "nil"))
+        end)
+
+        it("should correctly handle extended thinking with claude-3-7-sonnet", function()
+            -- Skip if not running integration tests
+            if not RUN_INTEGRATION_TESTS then
+                print("Skipping integration test - not enabled")
+                return
+            end
+
+            -- Create prompt for a reasoning task
+            local promptBuilder = prompt.new()
+            promptBuilder:add_user(
+                "Solve this step by step: If a train travels at 60 mph for 2.5 hours, then slows down to 40 mph for 1.5 hours, what is the total distance traveled?")
+
+            -- Print test info
+            print("Running extended thinking test with Claude 3.7 Sonnet")
+
+            -- Call with thinking enabled
+            local response = text_generation.handler({
+                model = "claude-3-7-sonnet-20250219", -- Use Claude 3.7 Sonnet
+                messages = promptBuilder:get_messages(),
+                options = {
+                    thinking_effort = 20, -- Enable thinking
+                    temperature = 0 -- For consistent results
+                },
+                api_key = actual_api_key
+            })
+
+            -- Log full response for debugging
+            print("Response error: " .. (response.error or "nil"))
+            print("Response error_message: " .. (response.error_message or "nil"))
+
+            -- If we got an error, log it but continue the test
+            if response.error then
+                print("TEST WARNING: Got error from API: " .. response.error .. " - " .. (response.error_message or ""))
+                print("This might be expected if the model doesn't support thinking")
+
+                -- Check if this is a "thinking not supported" error
+                if response.error == "invalid_request" and
+                    response.error_message and
+                    (response.error_message:match("thinking") or response.error_message:match("not supported")) then
+                    print("Skipping remaining assertions because thinking is not supported")
+                    return
+                end
+            end
+
+            -- Verify no error (this will now fail if we get an error)
+            expect(response.error).to_be_nil("API request failed: " ..
+                (response.error_message or "unknown error"))
+
+            -- Verify response has token information
+            expect(response.tokens).not_to_be_nil("Expected token information")
+            expect(response.tokens.prompt_tokens > 0).to_be_true("Expected non-zero prompt tokens")
+            expect(response.tokens.completion_tokens > 0).to_be_true("Expected non-zero completion tokens")
+
+            -- Verify we got a reasonable answer containing the correct numbers
+            expect(response.result).to_contain("150") -- 60 mph * 2.5 hours = 150 miles
+            expect(response.result).to_contain("60") -- 40 mph * 1.5 hours = 60 miles
+            expect(response.result).to_contain("210") -- 150 + 60 = 210 miles
+
+            -- Check if thinking content was returned
+            if response.thinking then
+                print("Thinking content received, length: " .. #response.thinking)
+                expect(#response.thinking > 0).to_be_true("Expected non-empty thinking content")
+            else
+                print("No thinking content received in the response")
+            end
+        end)
+
         --
         ---- Mocked test for extended thinking
         --it("should correctly handle extended thinking with mocked client", function()

@@ -114,7 +114,7 @@ local function extract_response_metadata(http_response)
 
     local metadata = {
         -- Basic request information
-        request_id = http_response.headers["X-Request-Id"],
+        request_id = http_response.headers["Request-Id"] or http_response.headers["X-Request-Id"],
         processing_ms = tonumber(http_response.headers["Processing-Ms"]),
 
         -- Rate limit information
