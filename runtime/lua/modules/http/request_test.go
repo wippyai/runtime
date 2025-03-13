@@ -1,10 +1,12 @@
 package http
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -946,5 +948,211 @@ func TestRequest_JSONWithEmptyBody(t *testing.T) {
 			assert(err ~= nil, "expected error")
 		`, "test")
 		assert.NoError(t, err)
+	})
+}
+
+func TestRequest_Multipart(t *testing.T) {
+	logger := zap.NewNop()
+
+	t.Run("request multipart", func(t *testing.T) {
+		var body bytes.Buffer
+		mw := multipart.NewWriter(&body)
+
+		// Add form field to test form values (which will be ignored by our implementation)
+		err := mw.WriteField("field1", "value1")
+		assert.NoError(t, err)
+
+		// Add file parts
+		part1, err := mw.CreateFormFile("file", "test1.txt")
+		assert.NoError(t, err)
+		_, err = io.Copy(part1, strings.NewReader("Hello World!"))
+		assert.NoError(t, err)
+
+		part2, err := mw.CreateFormFile("file", "test2.txt")
+		assert.NoError(t, err)
+		_, err = io.Copy(part2, strings.NewReader("Another file content"))
+		assert.NoError(t, err)
+
+		// Add a file with a different field name
+		otherPart, err := mw.CreateFormFile("other_file", "other.txt")
+		assert.NoError(t, err)
+		_, err = io.Copy(otherPart, strings.NewReader("Other file content"))
+		assert.NoError(t, err)
+
+		err = mw.Close()
+		assert.NoError(t, err)
+
+		// Create request with the prepared body
+		req := httptest.NewRequest("POST", "/upload", &body)
+		req.Header.Set("Content-Type", mw.FormDataContentType())
+
+		recorder := httptest.NewRecorder()
+		reqCtx := http.NewRequestContext(req, recorder)
+		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+
+		mod := NewHTTPAPIModule(logger)
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		require.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.DoString(ctx, `
+          local http = require("http")
+          
+          -- Get the request object
+          local req = http.request()
+          
+          -- Parse the multipart form
+          local form, err = req:parse_multipart()
+          assert(err == nil, "Failed to parse multipart form: " .. (err or ""))
+          assert(form ~= nil, "Expected form to be non-nil")
+          
+          -- Form values should not be present
+          assert(form.values == nil, "Expected form values to be absent, but got: " .. tostring(form.values))
+          
+          -- Test files
+          assert(form.files ~= nil, "Expected form files to be present")
+          assert(form.files.file ~= nil, "Expected file field to be present")
+          
+          local fileCount = #form.files.file
+          assert(fileCount == 2, "Expected 2 files in 'file' field, but got: " .. fileCount)
+          
+          -- Test first file
+          local file1 = form.files.file[1]
+          local file1Name = file1:name()
+          assert(file1Name == "test1.txt", "Expected file1 name to be test1.txt, but got: " .. file1Name)
+          
+          local file1Size = file1:size()
+          assert(file1Size == 12, "Expected file1 size to be 12, but got: " .. file1Size)
+          
+          -- Test streaming
+          local stream1, err1 = file1:stream()
+          assert(err1 == nil, "Failed to create stream for file1: " .. (err1 or ""))
+          
+          local content1 = stream1:read()
+          assert(content1 == "Hello World!", "Expected file1 content to be 'Hello World!', but got: '" .. content1 .. "'")
+          
+          -- Test second file
+          local file2 = form.files.file[2]
+          local file2Name = file2:name()
+          assert(file2Name == "test2.txt", "Expected file2 name to be test2.txt, but got: " .. file2Name)
+          
+          local file2Size = file2:size()
+          assert(file2Size == 20, "Expected file2 size to be 20, but got: " .. file2Size)
+          
+          local stream2, err2 = file2:stream()
+          assert(err2 == nil, "Failed to create stream for file2: " .. (err2 or ""))
+          
+          local content2 = stream2:read()
+          assert(content2 == "Another file content", "Expected file2 content to be 'Another file content', but got: '" .. content2 .. "'")
+          
+          -- Test other file field
+          assert(form.files.other_file ~= nil, "Expected other_file field to be present")
+          
+          local otherFileCount = #form.files.other_file
+          assert(otherFileCount == 1, "Expected 1 file in 'other_file' field, but got: " .. otherFileCount)
+          
+          local otherFile = form.files.other_file[1]
+          local otherFileName = otherFile:name()
+          assert(otherFileName == "other.txt", "Expected other file name to be other.txt, but got: " .. otherFileName)
+          
+          local otherFileSize = otherFile:size()
+          assert(otherFileSize == 18, "Expected other file size to be 18, but got: " .. otherFileSize)
+          
+          local otherStream, otherErr = otherFile:stream()
+          assert(otherErr == nil, "Failed to create stream for other file: " .. (otherErr or ""))
+          
+          local otherContent = otherStream:read()
+          assert(otherContent == "Other file content", "Expected other file content to be 'Other file content', but got: '" .. otherContent .. "'")
+          
+          -- Test partial streaming
+          local stream3, err3 = file1:stream()
+          assert(err3 == nil, "Failed to create another stream for file1: " .. (err3 or ""))
+          
+          local partial = stream3:read(5)
+          assert(partial == "Hello", "Expected partial content to be 'Hello', but got: '" .. partial .. "'")
+       `, "test")
+
+		assert.NoError(t, err, "Lua script execution failed")
+	})
+
+	t.Run("request multipart with custom max memory", func(t *testing.T) {
+		var body bytes.Buffer
+		mw := multipart.NewWriter(&body)
+
+		// Create a larger file
+		part, err := mw.CreateFormFile("large_file", "large.txt")
+		assert.NoError(t, err)
+
+		// Create large content (1MB)
+		largeContent := make([]byte, 1024*1024)
+		for i := range largeContent {
+			largeContent[i] = byte(i % 256)
+		}
+
+		_, err = part.Write(largeContent)
+		assert.NoError(t, err)
+
+		err = mw.Close()
+		assert.NoError(t, err)
+
+		// Create request with the prepared body
+		req := httptest.NewRequest("POST", "/upload", &body)
+		req.Header.Set("Content-Type", mw.FormDataContentType())
+
+		recorder := httptest.NewRecorder()
+		reqCtx := http.NewRequestContext(req, recorder)
+		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+
+		mod := NewHTTPAPIModule(logger)
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		require.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.DoString(ctx, `
+			local http = require("http")
+			local req = http.request()
+			
+			-- Parse multipart form with custom max memory (2MB)
+			local form, err = req:parse_multipart(2 * 1024 * 1024)
+			assert(err == nil, "Failed to parse multipart form: " .. (err or ""))
+			assert(form ~= nil, "Expected form to be non-nil")
+			
+			-- Form values should not be present
+			assert(form.values == nil, "Expected form values to be absent, but got: " .. tostring(form.values))
+			
+			-- Verify large file
+			assert(form.files.large_file ~= nil, "Expected large_file field to be present")
+			
+			local largeFile = form.files.large_file[1]
+			local largeFileSize = largeFile:size()
+			assert(largeFileSize == 1024 * 1024, "Expected large file size to be 1MB, but got: " .. largeFileSize)
+		`, "test")
+
+		assert.NoError(t, err, "Lua script execution failed")
+	})
+
+	t.Run("request non-multipart content type", func(t *testing.T) {
+		req := httptest.NewRequest("POST", "/upload", strings.NewReader("plain text"))
+		req.Header.Set("Content-Type", "text/plain")
+
+		recorder := httptest.NewRecorder()
+		reqCtx := http.NewRequestContext(req, recorder)
+		ctx := context.WithValue(context.Background(), http.RequestCtx, reqCtx)
+
+		mod := NewHTTPAPIModule(logger)
+		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
+		require.NoError(t, err)
+		defer vm.Close()
+
+		err = vm.DoString(ctx, `
+			local http = require("http")
+			local req = http.request()
+			
+			local form, err = req:parse_multipart()
+			assert(form == nil, "Expected form to be nil for non-multipart content")
+			assert(err == "content type is not multipart/form-data", "Expected error to be 'content type is not multipart/form-data', but got: '" .. (err or "") .. "'")
+		`, "test")
+
+		assert.NoError(t, err, "Lua script execution failed")
 	})
 }

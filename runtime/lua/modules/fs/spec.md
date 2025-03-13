@@ -202,7 +202,7 @@ local content = fs:readfile(path)
 #### Write Entire File
 
 ```lua
-fs:writefile(path, data[, mode])
+fs:writefile(path, data, mode)
 -- Parameters:
 --   path (string): File to write
 --   data: Content to write, can be:
