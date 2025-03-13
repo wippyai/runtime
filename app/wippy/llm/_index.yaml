@@ -1,9 +1,6 @@
 version: "1.0"
 namespace: wippy.llm
 
-meta:
-  depends_on: [ "ns:wippy.test" ]
-
 entries:
   - name: tools
     kind: library.lua

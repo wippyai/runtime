@@ -32,7 +32,7 @@ function llm_registry.find_implementation(capability, model)
     end
 
     local query = {
-        [".kind"] = "function.lua",
+        [".kind"] = "regisry.entry",
         ["llm_function"] = capability
     }
 

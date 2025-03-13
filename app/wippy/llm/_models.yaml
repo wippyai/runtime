@@ -1,0 +1,173 @@
+version: "1.0"
+namespace: wippy.llm
+
+entries:
+  # OpenAI Models
+  - name: gpt-4o
+    kind: registry.entry
+    meta:
+      type: "llm.model"
+      name: "gpt-4o"
+      comment: "Fast, intelligent, flexible GPT model with text and image input capabilities"
+      capabilities: [ "tool_use", "vision" ]
+    provider_model: "gpt-4o-2024-11-20"
+    max_tokens: 128000
+    output_tokens: 16384
+    pricing:
+      input: 2.50
+      output: 10.00
+      cached_input: 1.25
+    handlers:
+      generate: "wippy.llm.openai:text_generation"
+      structured_output: "wippy.llm.openai:structured_output"
+      call_tools: "wippy.llm.openai:tool_calling"
+
+  - name: gpt-4o-mini
+    kind: registry.entry
+    meta:
+      type: "llm.model"
+      name: "gpt-4o-mini"
+      comment: "Fast, affordable small model for focused tasks with text and image input"
+      capabilities: [ "tool_use", "vision" ]
+    provider_model: "gpt-4o-mini-2024-07-18"
+    max_tokens: 128000
+    output_tokens: 16384
+    pricing:
+      input: 0.15
+      output: 0.60
+      cached_input: 0.075
+    handlers:
+      generate: "wippy.llm.openai:text_generation"
+      structured_output: "wippy.llm.openai:structured_output"
+      call_tools: "wippy.llm.openai:tool_calling"
+
+  - name: o3-mini
+    kind: registry.entry
+    meta:
+      type: "llm.model"
+      name: "o3-mini"
+      comment: "Fast, flexible intelligent reasoning model for complex, multi-step tasks"
+      capabilities: [ "tool_use", "thinking" ]
+    provider_model: "o3-mini-2025-01-31"
+    max_tokens: 200000
+    output_tokens: 100000
+    pricing:
+      input: 1.10
+      output: 4.40
+      cached_input: 0.55
+    handlers:
+      generate: "wippy.llm.openai:text_generation"
+      structured_output: "wippy.llm.openai:structured_output"
+      call_tools: "wippy.llm.openai:tool_calling"
+
+  # Anthropic Models
+  - name: claude-3-7-sonnet
+    kind: registry.entry
+    meta:
+      type: "llm.model"
+      name: "claude-3-7-sonnet"
+      comment: "Anthropic's most intelligent model with extended thinking capabilities for complex reasoning"
+      capabilities: [ "tool_use", "vision", "thinking", "caching" ]
+    provider_model: "claude-3-7-sonnet-20250219"
+    max_tokens: 200000
+    output_tokens: 4096
+    pricing:
+      input: 3.00
+      output: 15.00
+    handlers:
+      generate: "wippy.llm.claude:text_generation"
+      structured_output: "wippy.llm.claude:structured_output"
+      call_tools: "wippy.llm.claude:tool_calling"
+
+  - name: claude-3-5-sonnet
+    kind: registry.entry
+    meta:
+      type: "llm.model"
+      name: "claude-3-5-sonnet"
+      comment: "High-performance Claude model with strong reasoning and multimodal capabilities"
+      capabilities: [ "tool_use", "vision", "caching" ]
+    provider_model: "claude-3-5-sonnet-20241022"
+    max_tokens: 200000
+    output_tokens: 4096
+    pricing:
+      input: 3.00
+      output: 15.00
+    handlers:
+      generate: "wippy.llm.claude:text_generation"
+      structured_output: "wippy.llm.claude:structured_output"
+      call_tools: "wippy.llm.claude:tool_calling"
+
+  - name: claude3-haiku
+    kind: registry.entry
+    meta:
+      type: "llm.model"
+      name: "claude3-haiku"
+      comment: "Fastest Claude model optimized for speed while maintaining high intelligence"
+      capabilities: [ "tool_use", "vision", "caching" ]
+    provider_model: "claude-3-5-haiku-20241022"
+    max_tokens: 200000
+    output_tokens: 4096
+    pricing:
+      input: 0.80
+      output: 4.00
+    handlers:
+      generate: "wippy.llm.claude:text_generation"
+      structured_output: "wippy.llm.claude:structured_output"
+      call_tools: "wippy.llm.claude:tool_calling"
+
+  # Embedding Models
+  - name: text-embedding-3-small
+    kind: registry.entry
+    meta:
+      type: "llm.embedding"
+      name: "text-embedding-3-small"
+      comment: "Cost-effective embedding model with high performance (62.3% on MTEB benchmark)"
+      capabilities: [ "multilingual" ]
+    provider_model: "text-embedding-3-small"
+    dimensions: 1536
+    max_tokens: 8191
+    model_family: "third-generation"
+    knowledge_cutoff: "September 2021"
+    mteb_performance: 62.3
+    pricing:
+      input: 0.02
+      pages_per_dollar: 62500
+    handlers:
+      embeddings: "wippy.llm.openai:embeddings"
+
+  - name: text-embedding-3-large
+    kind: registry.entry
+    meta:
+      type: "llm.embedding"
+      name: "text-embedding-3-large"
+      comment: "Most powerful embedding model for highest accuracy (64.6% on MTEB benchmark)"
+      capabilities: [ "multilingual" ]
+    provider_model: "text-embedding-3-large"
+    dimensions: 3072
+    max_tokens: 8191
+    model_family: "third-generation"
+    knowledge_cutoff: "September 2021"
+    mteb_performance: 64.6
+    pricing:
+      input: 0.13
+      pages_per_dollar: 9615
+    handlers:
+      embeddings: "wippy.llm.openai:embeddings"
+
+  - name: text-embedding-ada-002
+    kind: registry.entry
+    meta:
+      type: "llm.embedding"
+      name: "text-embedding-ada-002"
+      comment: "Legacy embedding model with 61.0% performance on MTEB benchmark"
+      capabilities: [ "multilingual" ]
+    provider_model: "text-embedding-ada-002"
+    dimensions: 1536
+    max_tokens: 8191
+    model_family: "second-generation"
+    mteb_performance: 61.0
+    pricing:
+      input: 0.05
+      pages_per_dollar: 12500
+    handlers:
+      embeddings: "wippy.llm.openai:embeddings"
