@@ -1,5 +1,36 @@
-local claude_client = require("claude_client")
+local claude = require("claude")
 local output = require("output")
+local json = require("json")
+
+-- Helper function to check if a model supports thinking
+local function model_supports_thinking(model)
+    -- Currently, only Claude 3.7 models support extended thinking
+    if not model then
+        return false
+    end
+
+    return model:match("claude%-3%-7") or model:match("claude%-3%.7")
+end
+
+-- Helper function to apply cache control markers
+local function apply_cache_marker(content_block)
+    if type(content_block) ~= "table" then
+        return content_block
+    end
+
+    -- Deep copy the block to avoid side effects
+    local block_copy = {}
+    for k, v in pairs(content_block) do
+        block_copy[k] = v
+    end
+
+    -- Add cache control if not already present
+    if not block_copy.cache_control then
+        block_copy.cache_control = { type = "ephemeral" }
+    end
+
+    return block_copy
+end
 
 -- Claude Text Generation Handler
 -- Supports text generation without tool calling functionality
@@ -24,18 +55,9 @@ local function handler(args)
     -- Configure options
     local options = args.options or {}
 
-    -- Create client with API key
-    local client = claude_client.new(args.api_key)
-
-    -- Configure the client
-    client:configure({
-        model = args.model,
-        api_version = args.api_version,
-        max_tokens = options.max_tokens
-    })
-
     -- Process system messages (could be string, array of strings, or array of content blocks)
     local system_content = nil
+    local has_developer_instructions = false
 
     if args.system then
         -- Convert to content blocks format that Claude API expects
@@ -52,7 +74,7 @@ local function handler(args)
             else
                 -- Array of content blocks or strings
                 system_content = {}
-                for _, item in ipairs(args.system) do
+                for i, item in ipairs(args.system) do
                     if type(item) == "string" then
                         table.insert(system_content, {
                             type = "text",
@@ -68,60 +90,41 @@ local function handler(args)
 
     -- Apply cache markers if requested
     if options.cache_marker and system_content and #system_content > 0 then
-        -- Add cache control to the last system block
+        -- Apply cache control to the last system block
         local last_block = system_content[#system_content]
         if last_block then
-            last_block.cache_control = { type = "ephemeral" }
+            -- Apply cache marker only if not already present
+            if not last_block.cache_control then
+                last_block.cache_control = { type = "ephemeral" }
+            end
         end
     end
 
     -- Process messages - separating developer messages from regular messages
     local processed_messages = {}
     local prev_user_idx = nil
+    local developer_instructions = {}
 
     for i, msg in ipairs(messages) do
         if msg.role == "developer" then
-            -- Developer messages need special handling
-            -- They should follow the user message they relate to
+            has_developer_instructions = true
 
-            -- Format the developer message content
+            -- Collect developer instructions - we'll add them to system content
             local dev_content
             if type(msg.content) == "string" then
-                dev_content = { { type = "text", text = msg.content } }
-            else
                 dev_content = msg.content
-            end
-
-            if prev_user_idx then
-                -- Insert after the last user message
-                table.insert(processed_messages, prev_user_idx + 1, {
-                    role = "assistant", -- Claude doesn't have developer role
-                    content = dev_content
-                })
-
-                -- Add a placeholder user message to maintain conversation format
-                table.insert(processed_messages, prev_user_idx + 2, {
-                    role = "user",
-                    content = { { type = "text", text = "" } }
-                })
-
-                -- Update indices
-                prev_user_idx = prev_user_idx + 2
             else
-                -- No user message yet, add a placeholder first
-                table.insert(processed_messages, {
-                    role = "user",
-                    content = { { type = "text", text = "" } }
-                })
-
-                -- Then add the developer content as assistant message
-                table.insert(processed_messages, {
-                    role = "assistant",
-                    content = dev_content
-                })
-
-                prev_user_idx = 1
+                -- If content is an array, extract the text
+                local text = ""
+                for _, part in ipairs(msg.content) do
+                    if part.type == "text" then
+                        text = text .. part.text
+                    end
+                end
+                dev_content = text
             end
+
+            table.insert(developer_instructions, dev_content)
         else
             -- Regular user or assistant message
             local role = msg.role
@@ -147,6 +150,20 @@ local function handler(args)
         end
     end
 
+    -- If we have developer instructions, add them to system content
+    if has_developer_instructions and #developer_instructions > 0 then
+        if not system_content then
+            system_content = {}
+        end
+
+        -- Combine all developer instructions into a single system block
+        local combined_instructions = "Developer instructions:\n" .. table.concat(developer_instructions, "\n\n")
+        table.insert(system_content, {
+            type = "text",
+            text = combined_instructions
+        })
+    end
+
     -- Configure request payload
     local payload = {
         model = args.model,
@@ -157,12 +174,19 @@ local function handler(args)
         stop_sequences = options.stop_sequences
     }
 
-    -- Add thinking if enabled
+    -- Add thinking if enabled and model supports it
     if options.thinking_effort and options.thinking_effort > 0 then
-        payload.thinking = {
-            type = "enabled",
-            budget_tokens = math.max(1024, math.floor(options.thinking_effort * 160))
-        }
+        if model_supports_thinking(args.model) then
+            -- Calculate thinking budget based on thinking effort
+            local thinking_budget = claude.calculate_thinking_budget(options.thinking_effort)
+
+            if thinking_budget > 0 then
+                payload.thinking = {
+                    type = "enabled",
+                    budget_tokens = thinking_budget
+                }
+            end
+        end
     end
 
     -- Handle streaming if requested
@@ -175,10 +199,12 @@ local function handler(args)
         )
 
         -- Make streaming request
-        local response, err = client:send_request(
-            claude_client.API_ENDPOINTS.MESSAGES,
+        local response, err = claude.request(
+            claude.API_ENDPOINTS.MESSAGES,
             payload,
             {
+                api_key = args.api_key,
+                api_version = args.api_version,
                 stream = true,
                 timeout = args.timeout or 120
             }
@@ -186,12 +212,14 @@ local function handler(args)
 
         -- Handle request errors
         if err then
-            local mapped_error = claude_client.map_error(err)
+            local mapped_error = claude.map_error(err)
+
             streamer:send_error(
                 mapped_error.error,
                 mapped_error.error_message,
                 mapped_error.code
             )
+
             return mapped_error
         end
 
@@ -202,7 +230,7 @@ local function handler(args)
         local has_thinking = false
 
         -- Process the streaming response
-        local stream_content, stream_err, stream_result = claude_client.process_stream(response, {
+        local stream_content, stream_err, stream_result = claude.process_stream(response, {
             on_content = function(content_chunk)
                 full_content = full_content .. content_chunk
                 streamer:buffer_content(content_chunk)
@@ -276,7 +304,7 @@ local function handler(args)
         end
 
         -- Map the finish reason to standardized format
-        local standardized_finish_reason = claude_client.FINISH_REASON_MAP[finish_reason] or finish_reason
+        local standardized_finish_reason = claude.FINISH_REASON_MAP[finish_reason] or finish_reason
 
         -- Return the final content and metadata for the caller
         local result = {
@@ -297,24 +325,34 @@ local function handler(args)
         return result
     else
         -- Non-streaming request
-        local response, err = client:send_request(
-            claude_client.API_ENDPOINTS.MESSAGES,
+        local response, err = claude.request(
+            claude.API_ENDPOINTS.MESSAGES,
             payload,
             {
+                api_key = args.api_key,
+                api_version = args.api_version,
                 timeout = args.timeout or 120
             }
         )
 
         -- Handle errors
         if err then
-            return claude_client.map_error(err)
+            local mapped_error = claude.map_error(err)
+            return mapped_error
         end
 
         -- Check response validity
-        if not response or not response.content then
+        if not response then
             return {
                 error = output.ERROR_TYPE.SERVER_ERROR,
-                error_message = "Invalid response structure from Claude API"
+                error_message = "Empty response from Claude API"
+            }
+        end
+
+        if not response.content then
+            return {
+                error = output.ERROR_TYPE.SERVER_ERROR,
+                error_message = "Invalid response structure from Claude API (missing content)"
             }
         end
 
@@ -323,7 +361,7 @@ local function handler(args)
         local thinking_content = ""
         local has_thinking = false
 
-        for _, block in ipairs(response.content) do
+        for i, block in ipairs(response.content) do
             if block.type == "text" then
                 content = content .. (block.text or "")
             elseif block.type == "thinking" or block.type == "redacted_thinking" then
@@ -348,7 +386,9 @@ local function handler(args)
         end
 
         -- Map finish reason to standardized format
-        local finish_reason = claude_client.FINISH_REASON_MAP[response.stop_reason] or response.stop_reason
+        local raw_finish_reason = response.stop_reason
+
+        local finish_reason = claude.FINISH_REASON_MAP[response.stop_reason] or response.stop_reason
 
         -- Return successful response with standardized finish reason
         local result = {

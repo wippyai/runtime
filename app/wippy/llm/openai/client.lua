@@ -223,11 +223,11 @@ function openai.request(endpoint_path, payload, options)
     end
 
     -- Parse successful response
-    local success, parsed = pcall(json.decode, response.body)
-    if not success then
+    local parsed, parse_err = json.decode(response.body)
+    if parse_err then
         return nil, {
             status_code = response.status_code,
-            message = "Failed to parse OpenAI response: " .. parsed,
+            message = "Failed to parse OpenAI response: " .. parse_err,
             metadata = extract_response_metadata(response)
         }
     end
@@ -397,12 +397,11 @@ function openai.process_stream(stream_response, callbacks)
 
                             -- Check if tool call is complete and should be sent
                             local tool_call = tool_calls_accumulator[id]
+                            local is_complete, _ = json.decode(tool_call.arguments)
                             if tool_call.name and tool_call.arguments and not sent_tool_calls[id] and
                                 (choice.finish_reason == "tool_calls" or -- End of response
-                                    -- Check if the arguments form a complete JSON object with ending }
-                                    (tool_call.arguments:match("}%s*$") and
-                                        -- Try parsing to make sure it's valid JSON
-                                        pcall(json.decode, tool_call.arguments))) then
+                                    -- Check if we can successfully parse the arguments
+                                    is_complete) then
                                 sent_tool_calls[id] = true
                                 on_tool_call({
                                     id = id,

@@ -198,9 +198,6 @@ function structured_output.handler(args)
         base_url = args.endpoint
     }
 
-    -- For debugging - log the payload structure
-    -- print("DEBUG: Payload with schema:", json.encode(payload))
-
     -- Perform the request to OpenAI
     local response, err = openai_client.request(
         openai_client.DEFAULT_CHAT_ENDPOINT,
@@ -256,13 +253,14 @@ function structured_output.handler(args)
             model = args.model
         }
     elseif first_choice.message.content then
-        -- Try to parse the content as JSON
-        local success, parsed_content = pcall(json.decode, first_choice.message.content)
-        if success and parsed_content then
-            result = parsed_content
-        else
-            -- If parsing fails, return the raw content
+        -- Decode JSON content
+        local parsed_content, decode_err = json.decode(first_choice.message.content)
+
+        -- If decoding fails, return the raw content
+        if decode_err then
             result = first_choice.message.content
+        else
+            result = parsed_content
         end
     else
         return {

@@ -3,6 +3,36 @@ local output = require("output")
 local tools = require("tools")
 local json = require("json")
 
+-- Helper function to check if a model supports thinking
+local function model_supports_thinking(model)
+    -- Currently, only Claude 3.7 models support extended thinking
+    if not model then
+        return false
+    end
+
+    return model:match("claude%-3%-7") or model:match("claude%-3%.7")
+end
+
+-- Helper function to apply cache control markers
+local function apply_cache_marker(content_block)
+    if type(content_block) ~= "table" then
+        return content_block
+    end
+
+    -- Deep copy the block to avoid side effects
+    local block_copy = {}
+    for k, v in pairs(content_block) do
+        block_copy[k] = v
+    end
+
+    -- Add cache control if not already present
+    if not block_copy.cache_control then
+        block_copy.cache_control = { type = "ephemeral" }
+    end
+
+    return block_copy
+end
+
 -- Claude Tool Calling Handler
 -- Supports text generation with tool/function calling capabilities
 local function handler(args)
@@ -38,6 +68,7 @@ local function handler(args)
 
     -- Process system messages (could be string, array of strings, or array of content blocks)
     local system_content = nil
+    local has_developer_instructions = false
 
     if args.system then
         -- Convert to content blocks format that Claude API expects
@@ -54,7 +85,7 @@ local function handler(args)
             else
                 -- Array of content blocks or strings
                 system_content = {}
-                for _, item in ipairs(args.system) do
+                for i, item in ipairs(args.system) do
                     if type(item) == "string" then
                         table.insert(system_content, {
                             type = "text",
@@ -70,60 +101,42 @@ local function handler(args)
 
     -- Apply cache markers if requested
     if options.cache_marker and system_content and #system_content > 0 then
-        -- Add cache control to the last system block
+        -- Apply cache control to the last system block
         local last_block = system_content[#system_content]
         if last_block then
-            last_block.cache_control = { type = "ephemeral" }
+            -- Apply cache marker only if not already present
+            if not last_block.cache_control then
+                last_block.cache_control = { type = "ephemeral" }
+            else
+            end
         end
     end
 
     -- Process messages - separating developer messages from regular messages
     local processed_messages = {}
     local prev_user_idx = nil
+    local developer_instructions = {}
 
     for i, msg in ipairs(messages) do
         if msg.role == "developer" then
-            -- Developer messages need special handling
-            -- They should follow the user message they relate to
+            has_developer_instructions = true
 
-            -- Format the developer message content
+            -- Collect developer instructions - we'll add them to system content
             local dev_content
             if type(msg.content) == "string" then
-                dev_content = { { type = "text", text = msg.content } }
-            else
                 dev_content = msg.content
-            end
-
-            if prev_user_idx then
-                -- Insert after the last user message
-                table.insert(processed_messages, prev_user_idx + 1, {
-                    role = "assistant", -- Claude doesn't have developer role
-                    content = dev_content
-                })
-
-                -- Add a placeholder user message to maintain conversation format
-                table.insert(processed_messages, prev_user_idx + 2, {
-                    role = "user",
-                    content = { { type = "text", text = "" } }
-                })
-
-                -- Update indices
-                prev_user_idx = prev_user_idx + 2
             else
-                -- No user message yet, add a placeholder first
-                table.insert(processed_messages, {
-                    role = "user",
-                    content = { { type = "text", text = "" } }
-                })
-
-                -- Then add the developer content as assistant message
-                table.insert(processed_messages, {
-                    role = "assistant",
-                    content = dev_content
-                })
-
-                prev_user_idx = 1
+                -- If content is an array, extract the text
+                local text = ""
+                for _, part in ipairs(msg.content) do
+                    if part.type == "text" then
+                        text = text .. part.text
+                    end
+                end
+                dev_content = text
             end
+
+            table.insert(developer_instructions, dev_content)
         else
             -- Regular user or assistant message
             local role = msg.role
@@ -149,6 +162,21 @@ local function handler(args)
         end
     end
 
+
+    -- If we have developer instructions, add them to system content
+    if has_developer_instructions and #developer_instructions > 0 then
+        if not system_content then
+            system_content = {}
+        end
+
+        -- Combine all developer instructions into a single system block
+        local combined_instructions = "Developer instructions:\n" .. table.concat(developer_instructions, "\n\n")
+        table.insert(system_content, {
+            type = "text",
+            text = combined_instructions
+        })
+    end
+
     -- Process tool schemas (either from tool_ids or direct tool_schemas)
     local claude_tools = {}
     local tool_name_to_id_map = {} -- Map tool names back to our IDs
@@ -156,6 +184,7 @@ local function handler(args)
     -- If tool IDs are provided, resolve them
     if args.tool_ids and #args.tool_ids > 0 then
         local tool_schemas, errors = tools.get_tool_schemas(args.tool_ids)
+
         if errors and next(errors) then
             local err_msg = "Failed to resolve tool schemas: "
             for id, err in pairs(errors) do
@@ -166,6 +195,7 @@ local function handler(args)
                 error_message = err_msg:sub(1, -3) -- Remove trailing comma and space
             }
         end
+
 
         -- Convert tool schemas to Claude format
         for id, tool in pairs(tool_schemas) do
@@ -193,6 +223,7 @@ local function handler(args)
             tool_name_to_id_map[tool.name] = id
         end
     end
+
 
     -- Configure tool_choice based on args.tool_call
     local tool_choice = nil
@@ -237,16 +268,28 @@ local function handler(args)
         tool_choice = tool_choice
     }
 
-    -- Add thinking if enabled
+    if #claude_tools > 0 then
+    end
+
+    -- Add thinking if enabled and model supports it
     if options.thinking_effort and options.thinking_effort > 0 then
-        payload.thinking = {
-            type = "enabled",
-            budget_tokens = math.max(1024, math.floor(options.thinking_effort * 160))
-        }
+        if model_supports_thinking(args.model) then
+            payload.thinking = {
+                type = "enabled",
+                budget_tokens = math.max(1024, math.floor(options.thinking_effort * 160))
+            }
+        else
+        end
     end
 
     -- Handle streaming if requested
     if args.stream and args.stream.reply_to then
+        -- Check if model supports streaming with tools
+        if #claude_tools > 0 then
+            -- Currently, most Claude models support tool streaming
+            -- Just log for now, don't block the request
+        end
+
         -- Create a streamer with the provided reply_to process ID
         local streamer = output.streamer(
             args.stream.reply_to,
@@ -267,13 +310,16 @@ local function handler(args)
         -- Handle request errors
         if err then
             local mapped_error = claude_client.map_error(err)
+
             streamer:send_error(
                 mapped_error.error,
                 mapped_error.error_message,
                 mapped_error.code
             )
+
             return mapped_error
         end
+
 
         -- Variables to store the full result
         local full_content = ""
@@ -297,9 +343,9 @@ local function handler(args)
             on_tool_call = function(tool_call_info)
                 -- Add to tracking
                 table.insert(tool_calls, {
-                    id = tool_call_info.id,
-                    name = tool_call_info.name,
-                    arguments = tool_call_info.arguments,
+                    id = tool_call_info.id or "",
+                    name = tool_call_info.name or "",
+                    arguments = tool_call_info.arguments or {},
                     registry_id = tool_name_to_id_map[tool_call_info.name]
                 })
 
@@ -349,7 +395,6 @@ local function handler(args)
                     meta.has_thinking = true
                 end
 
-                -- Send the done message
                 streamer:send_done(meta)
             end
         })
@@ -363,6 +408,7 @@ local function handler(args)
                 streaming = true
             }
         end
+
 
         -- Extract tokens from stream_result if available
         local tokens = nil
@@ -429,16 +475,26 @@ local function handler(args)
 
         -- Handle errors
         if err then
-            return claude_client.map_error(err)
+            local mapped_error = claude_client.map_error(err)
+            return mapped_error
         end
 
+
         -- Check response validity
-        if not response or not response.content then
+        if not response then
             return {
                 error = output.ERROR_TYPE.SERVER_ERROR,
-                error_message = "Invalid response structure from Claude API"
+                error_message = "Empty response from Claude API"
             }
         end
+
+        if not response.content then
+            return {
+                error = output.ERROR_TYPE.SERVER_ERROR,
+                error_message = "Invalid response structure from Claude API (missing content)"
+            }
+        end
+
 
         -- Process the response content
         local content_text = ""
@@ -446,7 +502,7 @@ local function handler(args)
         local thinking_content = ""
         local has_thinking = false
 
-        for _, block in ipairs(response.content) do
+        for i, block in ipairs(response.content) do
             if block.type == "text" then
                 content_text = content_text .. (block.text or "")
             elseif block.type == "tool_use" then
@@ -460,8 +516,8 @@ local function handler(args)
 
                 -- Add to the tool calls list
                 table.insert(tool_calls, {
-                    id = block.id,
-                    name = block.name,
+                    id = block.id or "",
+                    name = block.name or "",
                     arguments = arguments,
                     registry_id = tool_name_to_id_map[block.name]
                 })
@@ -471,6 +527,7 @@ local function handler(args)
                     thinking_content = thinking_content .. (block.thinking or "")
                 end
                 has_thinking = true
+            else
             end
         end
 
@@ -484,6 +541,7 @@ local function handler(args)
                 response.usage.cache_creation_input_tokens or 0,
                 response.usage.cache_read_input_tokens or 0
             )
+        else
         end
 
         -- Return based on whether we have tool calls or just text
@@ -508,6 +566,8 @@ local function handler(args)
             return result
         else
             -- Map finish reason to standardized format
+            local raw_finish_reason = response.stop_reason
+
             local finish_reason = claude_client.FINISH_REASON_MAP[response.stop_reason] or response.stop_reason
 
             -- Return successful text response

@@ -244,8 +244,8 @@ local function handler(args)
                 -- Parse arguments for streaming
                 local parsed_args = {}
                 if tool_call_info.arguments then
-                    local success, args = pcall(json.decode, tool_call_info.arguments)
-                    if success and args then
+                    local args, parse_err = json.decode(tool_call_info.arguments)
+                    if args and not parse_err then
                         parsed_args = args
                     end
                 end
@@ -288,8 +288,8 @@ local function handler(args)
                 for _, tool_call in ipairs(tool_calls_data) do
                     local parsed_args = {}
                     if tool_call.arguments then
-                        local success, args = pcall(json.decode, tool_call.arguments)
-                        if success and args then
+                        local args, parse_err = json.decode(tool_call.arguments)
+                        if args and not parse_err then
                             parsed_args = args
                         end
                     end
@@ -340,8 +340,8 @@ local function handler(args)
             for _, tool_call in ipairs(tool_calls_data) do
                 local parsed_args = {}
                 if tool_call.arguments then
-                    local success, args = pcall(json.decode, tool_call.arguments)
-                    if success and args then
+                    local args, parse_err = json.decode(tool_call.arguments)
+                    if args and not parse_err then
                         parsed_args = args
                     end
                 end
