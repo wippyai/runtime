@@ -14,7 +14,8 @@ prompt.ROLE = {
     USER = "user",
     ASSISTANT = "assistant",
     DEVELOPER = "developer",
-    FUNCTION = "function"
+    FUNCTION = "function",
+    FUNCTION_CALL = "function_call"
 }
 
 -- Content types
@@ -145,7 +146,7 @@ function prompt.new(messages)
     builder.add_function_call = function(self, function_name, arguments, function_call_id)
         if function_name and arguments then
             local message = {
-                role = prompt.ROLE.ASSISTANT,
+                role = prompt.ROLE.FUNCTION_CALL,
                 content = {}, -- Empty content when there's a function call
                 function_call = {
                     name = function_name,

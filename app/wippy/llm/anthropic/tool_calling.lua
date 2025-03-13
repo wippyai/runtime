@@ -14,7 +14,6 @@ local function model_supports_thinking(model)
 end
 
 -- Claude Tool Calling Handler
--- Supports text generation with tool/function calling capabilities
 local function handler(args)
     -- Validate required arguments
     if not args.model then
@@ -50,6 +49,9 @@ local function handler(args)
 
     -- Map developer instructions to positions
     local developer_instructions = {}
+
+    -- Map function call IDs to their tool use blocks
+    local function_call_map = {}
 
     -- First pass: Process system messages and collect developer instructions
     for i, msg in ipairs(messages) do
@@ -105,6 +107,34 @@ local function handler(args)
                 end
                 prev_msg_idx = prev_msg_idx - 1
             end
+        elseif msg.role == "function" then
+            -- Handle function results - convert to Claude's tool_result format
+            local function_name = msg.name
+            local result_content = ""
+
+            -- Extract content from function result
+            if type(msg.content) == "string" then
+                result_content = msg.content
+            elseif type(msg.content) == "table" then
+                if #msg.content > 0 and msg.content[1].type == "text" then
+                    result_content = msg.content[1].text
+                end
+            end
+
+            -- Create a user message with tool_result content block
+            table.insert(processed_messages, {
+                role = "user",
+                content = {
+                    {
+                        type = "tool_result",
+                        tool_use_id = msg.function_call_id,
+                        content = result_content
+                    }
+                }
+            })
+
+            -- Track position for message cache markers
+            current_marker_idx = #processed_messages
         else
             -- Regular user or assistant message
             local role = msg.role
