@@ -494,6 +494,64 @@ func newRequest(l *lua.LState) int {
 	return 2
 }
 
+// requestParseMultipart parses multipart form data from the request
+func requestParseMultipart(l *lua.LState) int {
+	req, err := checkRequest(l, 1)
+	if err != nil {
+		l.ArgError(1, err.Error())
+		return 0
+	}
+
+	// Check if the content type is multipart/form-data
+	contentType := req.request.Header.Get("Content-Type")
+	if !strings.HasPrefix(contentType, "multipart/form-data") {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("content type is not multipart/form-data"))
+		return 2
+	}
+
+	// Parse multipart form with default max memory
+	maxMemory := int64(32 << 20) // 32MB default
+	if l.GetTop() > 1 {
+		maxMemoryOpt := l.CheckInt64(2)
+		if maxMemoryOpt > 0 {
+			maxMemory = maxMemoryOpt
+		}
+	}
+
+	if err := req.request.ParseMultipartForm(maxMemory); err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString(fmt.Sprintf("failed to parse multipart form: %v", err)))
+		return 2
+	}
+
+	// Create result table
+	result := l.NewTable()
+
+	// Add file objects
+	files := l.NewTable()
+	for key, fileHeaders := range req.request.MultipartForm.File {
+		filesList := l.NewTable()
+		for i, fileHeader := range fileHeaders {
+			// Create MultipartFile userdata
+			ud := l.NewUserData()
+			ud.Value = &MultipartFile{
+				fileHeader: fileHeader,
+				request:    req.request,
+			}
+			l.SetMetatable(ud, l.GetTypeMetatable("MultipartFile"))
+
+			filesList.RawSetInt(i+1, ud)
+		}
+		files.RawSetString(key, filesList)
+	}
+	result.RawSetString("files", files)
+
+	l.Push(result)
+	l.Push(lua.LNil)
+	return 2
+}
+
 // registerRequest registers the Request type and its methods
 func registerRequest(l *lua.LState, mod *lua.LTable) {
 	mt := l.NewTypeMetatable("Request")
@@ -512,6 +570,7 @@ func registerRequest(l *lua.LState, mod *lua.LTable) {
 		"accepts":         requestAccepts,
 		"is_content_type": requestIsContentType,
 		"stream":          requestStream,
+		"parse_multipart": requestParseMultipart,
 	}))
 	l.SetField(mt, "__tostring", l.NewFunction(requestToString))
 
