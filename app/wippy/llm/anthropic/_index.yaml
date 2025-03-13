@@ -31,7 +31,6 @@ entries:
       comment: "Claude text generation implementation"
       type: llm_function
       supports: [ "generate", "stream" ]
-      models: [ "claude-3*" ]
       priority: 100
     source: file://text_generation.lua
     method: handler
@@ -49,7 +48,6 @@ entries:
       comment: "Claude function/tool calling implementation"
       type: llm_function
       supports: [ "generate", "tools", "stream" ]
-      models: [ "claude-3*" ]
       priority: 50
     source: file://tool_calling.lua
     method: handler
@@ -62,14 +60,12 @@ entries:
     pool:
       max_size: 25
 
-
   - name: structured_output
     kind: function.lua
     meta:
       comment: "Claude structured output implementation using tool calling"
       type: llm_function
       supports: [ "schema" ]
-      models: [ "claude-3*" ]
       priority: 40
     source: file://structured_output.lua
     method: handler

@@ -21,7 +21,6 @@ entries:
       comment: "OpenAI text generation implementation"
       type: llm_function
       supports: [ "generate", "stream" ]
-      models: [ "gpt*", "o*" ]
       priority: 100
     source: file://text_generation.lua
     method: handler
@@ -38,7 +37,6 @@ entries:
       comment: "OpenAI function/tool calling implementation"
       type: llm_function
       supports: [ "generate", "tools", "stream" ]
-      models: [ "gpt*", "o*" ]
       priority: 50
     source: file://tool_calling.lua
     method: handler
@@ -56,7 +54,6 @@ entries:
       comment: "OpenAI structured output implementation with schema enforcement"
       type: llm_function
       supports: [ "schema" ]
-      models: [ "gpt-4o*", "o*", "gpt-4.5*" ]
       priority: 40
     source: file://structured_output.lua
     method: handler
@@ -73,7 +70,6 @@ entries:
       comment: "OpenAI embeddings implementation"
       type: llm_function
       supports: [ "embeddings" ]
-      models: [ "text-embedding*", "ada*" ]
       priority: 10
     source: file://embeddings.lua
     method: handler
