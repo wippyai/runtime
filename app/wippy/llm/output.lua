@@ -86,12 +86,13 @@ function output.done(meta)
 end
 
 -- Create usage information
-function output.usage(prompt_tokens, completion_tokens, thinking_tokens, cached_tokens)
+function output.usage(prompt_tokens, completion_tokens, thinking_tokens, cache_write_tokens, cache_read_tokens)
     return {
         prompt_tokens = prompt_tokens or 0,
         completion_tokens = completion_tokens or 0,
         thinking_tokens = thinking_tokens or 0,
-        cached_tokens = cached_tokens or 0,
+        cache_write_tokens = cache_write_tokens or 0,
+        cache_read_tokens = cache_read_tokens or 0,
         total_tokens = (prompt_tokens or 0) + (completion_tokens or 0) + (thinking_tokens or 0)
     }
 end

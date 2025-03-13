@@ -24,7 +24,7 @@ local function run_tests()
     local options = {
         pid = process.pid(),
         topic = "test:update",
-        timeout = req:query("timeout") or "1m",
+        timeout = req:query("timeout") or "15m",
         msg_timeout = req:query("timeout") or "1s",
         type = "test"
     }

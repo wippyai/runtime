@@ -19,7 +19,7 @@ generation and embeddings. These specifications ensure consistent interfaces acr
     -- Tool configuration (for tool calling only)
     tool_ids = {"system:weather", "tools:calculator"}, -- Optional: List of tool IDs to use
     tool_schemas = { ... },                -- Optional: Tool definitions matching tool_resolver format
-    tool_call = "auto",                    -- Optional: "auto", tool-name (forced), "singular" (forbids multicalls)
+    tool_call = "auto",                    -- Optional: "auto", tool-name (forced)
     
     -- Streaming configuration
     stream = {                             -- Optional: For streaming responses

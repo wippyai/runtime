@@ -150,10 +150,6 @@ local function handler(args)
             payload.tool_choice = "none"
         elseif args.tool_call == "auto" or not args.tool_call then
             payload.tool_choice = "auto"
-        elseif args.tool_call == "singular" then
-            -- This is a specific requirement in the spec - forbids multiple tool calls
-            -- For OpenAI, we'll set it to "auto" but check the number of tool calls in response
-            payload.tool_choice = "auto"
         elseif type(args.tool_call) == "string" and args.tool_call ~= "auto" and args.tool_call ~= "none" then
             -- A specific tool name was provided
             local tool_choice = {
@@ -416,14 +412,6 @@ local function handler(args)
 
     -- Check if the response contains tool calls
     if first_choice.message.tool_calls and #first_choice.message.tool_calls > 0 then
-        -- Check if we're enforcing singular tool calls but got multiple
-        if args.tool_call == "singular" and #first_choice.message.tool_calls > 1 then
-            return {
-                error = output.ERROR_TYPE.INVALID_REQUEST,
-                error_message = "Multiple tool calls received but 'singular' tool_call mode was specified"
-            }
-        end
-
         -- Process each tool call
         local processed_tool_calls = {}
         for _, tool_call in ipairs(first_choice.message.tool_calls) do

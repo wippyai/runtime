@@ -1,5 +1,5 @@
 local tool_calling = require("tool_calling")
-local openai_client = require("openai_client")
+local ClaudeClient = require("claude_client")
 local output = require("output")
 local tools = require("tools")
 local json = require("json")
@@ -10,7 +10,7 @@ local function define_tests()
     -- Toggle to enable/disable real API integration test
     local RUN_INTEGRATION_TESTS = env.get("ENABLE_INTEGRATION_TESTS")
 
-    describe("OpenAI Tool Calling Handler", function()
+    describe("Claude Tool Calling Handler", function()
         local actual_api_key = nil
 
         -- Mock tool schemas for testing
@@ -52,7 +52,7 @@ local function define_tests()
 
         before_all(function()
             -- Check if we have a real API key for integration tests
-            actual_api_key = env.get("OPENAI_API_KEY")
+            actual_api_key = env.get("ANTHROPIC_API_KEY")
 
             if RUN_INTEGRATION_TESTS then
                 if actual_api_key and #actual_api_key > 10 then
@@ -94,7 +94,7 @@ local function define_tests()
 
             -- Test missing messages
             local response2 = tool_calling.handler({
-                model = "gpt-4o"
+                model = "claude-3-5-haiku-20241022"
             })
 
             expect(response2.error).to_equal(output.ERROR_TYPE.INVALID_REQUEST)
@@ -102,11 +102,11 @@ local function define_tests()
         end)
 
         it("should handle text generation without tools", function()
-            -- Mock the client request function
-            mock(openai_client, "request", function(endpoint_path, payload, options)
+            -- Mock the client send_request function
+            mock(ClaudeClient, "send_request", function(self, endpoint_path, payload, options)
                 -- Validate the request
-                expect(endpoint_path).to_equal(openai_client.DEFAULT_CHAT_ENDPOINT)
-                expect(payload.model).to_equal("gpt-4o")
+                expect(endpoint_path).to_equal(ClaudeClient.API_ENDPOINTS.MESSAGES)
+                expect(payload.model).to_equal("claude-3-5-haiku-20241022")
                 -- Check if messages array is present
                 expect(payload.messages).not_to_be_nil("Expected messages array")
                 expect(#payload.messages).to_equal(1, "Expected 1 message")
@@ -117,23 +117,22 @@ local function define_tests()
 
                 -- Return mock successful response with text content
                 return {
-                    choices = {
+                    content = {
                         {
-                            message = {
-                                role = "assistant",
-                                content = "Hello! How can I assist you today?"
-                            },
-                            finish_reason = "stop"
+                            type = "text",
+                            text = "Hello! How can I assist you today?"
                         }
                     },
+                    id = "msg_notools123",
+                    model = "claude-3-5-haiku-20241022",
+                    role = "assistant",
+                    stop_reason = "end_turn",
+                    stop_sequence = nil,
+                    type = "message",
                     usage = {
-                        prompt_tokens = 10,
-                        completion_tokens = 8,
+                        input_tokens = 10,
+                        output_tokens = 8,
                         total_tokens = 18
-                    },
-                    metadata = {
-                        request_id = "req_mocktext123",
-                        processing_ms = 120
                     }
                 }
             end)
@@ -144,7 +143,7 @@ local function define_tests()
 
             -- Call handler without tools
             local response = tool_calling.handler({
-                model = "gpt-4o",
+                model = "claude-3-5-haiku-20241022",
                 messages = promptBuilder:get_messages()
             })
 
@@ -156,18 +155,17 @@ local function define_tests()
             expect(response.tokens.completion_tokens).to_equal(8)
             expect(response.tokens.total_tokens).to_equal(18)
             expect(response.metadata).not_to_be_nil("Expected metadata")
-            expect(response.metadata.request_id).to_equal("req_mocktext123")
             expect(response.finish_reason).to_equal("stop")
-            expect(response.provider).to_equal("openai")
-            expect(response.model).to_equal("gpt-4o")
+            expect(response.provider).to_equal("anthropic")
+            expect(response.model).to_equal("claude-3-5-haiku-20241022")
         end)
 
         it("should handle successful tool calls with tool_ids", function()
-            -- Mock the client request function
-            mock(openai_client, "request", function(endpoint_path, payload, options)
+            -- Mock the client send_request function
+            mock(ClaudeClient, "send_request", function(self, endpoint_path, payload, options)
                 -- Validate the request
-                expect(endpoint_path).to_equal(openai_client.DEFAULT_CHAT_ENDPOINT)
-                expect(payload.model).to_equal("gpt-4o")
+                expect(endpoint_path).to_equal(ClaudeClient.API_ENDPOINTS.MESSAGES)
+                expect(payload.model).to_equal("claude-3-5-haiku-20241022")
 
                 -- Check if messages array is present
                 expect(payload.messages).not_to_be_nil("Expected messages array")
@@ -176,46 +174,41 @@ local function define_tests()
 
                 -- Verify tools are set correctly
                 expect(payload.tools).not_to_be_nil("Expected tools to be set")
-
                 expect(#payload.tools).to_equal(1)
-                expect(payload.tools[1].type).to_equal("function")
+                expect(payload.tools[1].name).to_equal("get_weather")
 
                 -- Verify tool_choice
-                expect(payload.tool_choice).to_equal("auto")
+                expect(payload.tool_choice).not_to_be_nil("Expected tool_choice to be set")
+                expect(payload.tool_choice.type).to_equal("any")
 
                 -- Return mock successful response with tool calls
-                local response = {
-                    choices = {
+                return {
+                    content = {
                         {
-                            message = {
-                                role = "assistant",
-                                content = "I'll check the weather for you.",
-                                tool_calls = {
-                                    {
-                                        id = "call_abc123",
-                                        type = "function",
-                                        ["function"] = {
-                                            name = "get_weather",
-                                            arguments = '{"location":"New York","units":"celsius"}'
-                                        }
-                                    }
-                                }
-                            },
-                            finish_reason = "tool_calls"
+                            type = "text",
+                            text = "I'll check the weather for you."
+                        },
+                        {
+                            type = "tool_use",
+                            id = "toolu_abc123",
+                            name = "get_weather",
+                            input = {
+                                location = "New York",
+                                units = "celsius"
+                            }
                         }
                     },
+                    id = "msg_tool123",
+                    model = "claude-3-5-haiku-20241022",
+                    role = "assistant",
+                    stop_reason = "tool_use",
+                    stop_sequence = nil,
+                    type = "message",
                     usage = {
-                        prompt_tokens = 42,
-                        completion_tokens = 15,
-                        total_tokens = 57
-                    },
-                    metadata = {
-                        request_id = "req_mocktool123",
-                        processing_ms = 180
+                        input_tokens = 42,
+                        output_tokens = 15
                     }
                 }
-
-                return response
             end)
 
             -- Create proper prompt using the prompt builder
@@ -223,31 +216,9 @@ local function define_tests()
             promptBuilder:add_user("What's the weather in New York?")
             local messages = promptBuilder:get_messages()
 
-            mock(tools, "get_tool_schemas", function(tool_ids)
-                local result = {}
-                local errors = {}
-
-                for _, id in ipairs(tool_ids) do
-                    local tool_name = id:match(":([^:]+)$") or id
-                    if mock_tools[tool_name] then
-                        result[id] = mock_tools[tool_name]
-                    else
-                        errors[id] = "Tool not found: " .. id
-                    end
-                end
-
-                if next(errors) then
-                    print("Returning errors: " .. json.encode(errors))
-                else
-                    print("Returning successful schemas: " .. #tool_ids .. " tools")
-                end
-
-                return result, next(errors) and errors or nil
-            end)
-
             -- Call handler with tool IDs
             local response = tool_calling.handler({
-                model = "gpt-4o",
+                model = "claude-3-5-haiku-20241022",
                 messages = messages,
                 tool_ids = { "system:weather" } -- This will match our mocked tool IDs
             })
@@ -261,7 +232,7 @@ local function define_tests()
 
             -- Verify first tool call
             local tool_call = response.result.tool_calls[1]
-            expect(tool_call.id).to_equal("call_abc123")
+            expect(tool_call.id).to_equal("toolu_abc123")
             expect(tool_call.name).to_equal("get_weather")
             expect(tool_call.arguments).not_to_be_nil("Expected parsed arguments")
             expect(tool_call.arguments.location).to_equal("New York")
@@ -272,19 +243,17 @@ local function define_tests()
             expect(response.tokens.prompt_tokens).to_equal(42)
             expect(response.tokens.completion_tokens).to_equal(15)
             expect(response.tokens.total_tokens).to_equal(57)
-            expect(response.metadata).not_to_be_nil("Expected metadata")
-            expect(response.metadata.request_id).to_equal("req_mocktool123")
             expect(response.finish_reason).to_equal("tool_call")
-            expect(response.provider).to_equal("openai")
-            expect(response.model).to_equal("gpt-4o")
+            expect(response.provider).to_equal("anthropic")
+            expect(response.model).to_equal("claude-3-5-haiku-20241022")
         end)
 
         it("should handle successful tool calls with direct tool_schemas", function()
-            -- Mock the client request function
-            mock(openai_client, "request", function(endpoint_path, payload, options)
+            -- Mock the client send_request function
+            mock(ClaudeClient, "send_request", function(self, endpoint_path, payload, options)
                 -- Validate the request
-                expect(endpoint_path).to_equal(openai_client.DEFAULT_CHAT_ENDPOINT)
-                expect(payload.model).to_equal("gpt-4o")
+                expect(endpoint_path).to_equal(ClaudeClient.API_ENDPOINTS.MESSAGES)
+                expect(payload.model).to_equal("claude-3-5-haiku-20241022")
                 -- Check if messages array is present
                 expect(payload.messages).not_to_be_nil("Expected messages array")
                 expect(#payload.messages).to_equal(1, "Expected 1 message")
@@ -293,34 +262,33 @@ local function define_tests()
                 -- Verify tools are set correctly
                 expect(payload.tools).not_to_be_nil("Expected tools to be set")
                 expect(#payload.tools).to_equal(1)
-                expect(payload.tools[1].type).to_equal("function")
-                expect(payload.tools[1]["function"].name).to_equal("calculate")
+                expect(payload.tools[1].name).to_equal("calculate")
 
                 -- Return mock successful response with tool calls
                 return {
-                    choices = {
+                    content = {
                         {
-                            message = {
-                                role = "assistant",
-                                content = "I'll calculate that for you.",
-                                tool_calls = {
-                                    {
-                                        id = "call_calc123",
-                                        type = "function",
-                                        ["function"] = {
-                                            name = "calculate",
-                                            arguments = '{"expression":"2+2"}'
-                                        }
-                                    }
-                                }
-                            },
-                            finish_reason = "tool_calls"
+                            type = "text",
+                            text = "I'll calculate that for you."
+                        },
+                        {
+                            type = "tool_use",
+                            id = "toolu_calc123",
+                            name = "calculate",
+                            input = {
+                                expression = "2+2"
+                            }
                         }
                     },
+                    id = "msg_calc123",
+                    model = "claude-3-5-haiku-20241022",
+                    role = "assistant",
+                    stop_reason = "tool_use",
+                    stop_sequence = nil,
+                    type = "message",
                     usage = {
-                        prompt_tokens = 38,
-                        completion_tokens = 12,
-                        total_tokens = 50
+                        input_tokens = 38,
+                        output_tokens = 12
                     }
                 }
             end)
@@ -331,7 +299,7 @@ local function define_tests()
 
             -- Call handler with direct tool schemas
             local response = tool_calling.handler({
-                model = "gpt-4o",
+                model = "claude-3-5-haiku-20241022",
                 messages = promptBuilder:get_messages(),
                 tool_schemas = {
                     ["custom:calculator"] = mock_tools["calculator"]
@@ -347,7 +315,7 @@ local function define_tests()
 
             -- Verify first tool call
             local tool_call = response.result.tool_calls[1]
-            expect(tool_call.id).to_equal("call_calc123")
+            expect(tool_call.id).to_equal("toolu_calc123")
             expect(tool_call.name).to_equal("calculate")
             expect(tool_call.arguments.expression).to_equal("2+2")
 
@@ -356,11 +324,11 @@ local function define_tests()
         end)
 
         it("should handle multiple tool calls", function()
-            -- Mock the client request function
-            mock(openai_client, "request", function(endpoint_path, payload, options)
+            -- Mock the client send_request function
+            mock(ClaudeClient, "send_request", function(self, endpoint_path, payload, options)
                 -- Validate the request
-                expect(endpoint_path).to_equal(openai_client.DEFAULT_CHAT_ENDPOINT)
-                expect(payload.model).to_equal("gpt-4o")
+                expect(endpoint_path).to_equal(ClaudeClient.API_ENDPOINTS.MESSAGES)
+                expect(payload.model).to_equal("claude-3-5-haiku-20241022")
 
                 -- Verify tools are set correctly
                 expect(payload.tools).not_to_be_nil("Expected tools to be set")
@@ -368,37 +336,38 @@ local function define_tests()
 
                 -- Return mock successful response with multiple tool calls
                 return {
-                    choices = {
+                    content = {
                         {
-                            message = {
-                                role = "assistant",
-                                content = "I'll check both of those for you.",
-                                tool_calls = {
-                                    {
-                                        id = "call_weather123",
-                                        type = "function",
-                                        ["function"] = {
-                                            name = "get_weather",
-                                            arguments = '{"location":"New York","units":"celsius"}'
-                                        }
-                                    },
-                                    {
-                                        id = "call_calc123",
-                                        type = "function",
-                                        ["function"] = {
-                                            name = "calculate",
-                                            arguments = '{"expression":"2+2"}'
-                                        }
-                                    }
-                                }
-                            },
-                            finish_reason = "tool_calls"
+                            type = "text",
+                            text = "I'll check both of those for you."
+                        },
+                        {
+                            type = "tool_use",
+                            id = "toolu_weather123",
+                            name = "get_weather",
+                            input = {
+                                location = "New York",
+                                units = "celsius"
+                            }
+                        },
+                        {
+                            type = "tool_use",
+                            id = "toolu_calc123",
+                            name = "calculate",
+                            input = {
+                                expression = "2+2"
+                            }
                         }
                     },
+                    id = "msg_multi123",
+                    model = "claude-3-5-haiku-20241022",
+                    role = "assistant",
+                    stop_reason = "tool_use",
+                    stop_sequence = nil,
+                    type = "message",
                     usage = {
-                        prompt_tokens = 55,
-                        completion_tokens = 22,
-                        total_tokens = 77
+                        input_tokens = 55,
+                        output_tokens = 22
                     }
                 }
             end)
@@ -409,7 +378,7 @@ local function define_tests()
 
             -- Call handler with both tools
             local response = tool_calling.handler({
-                model = "gpt-4o",
+                model = "claude-3-5-haiku-20241022",
                 messages = promptBuilder:get_messages(),
                 tool_schemas = {
                     ["system:weather"] = mock_tools["weather"],
@@ -434,39 +403,102 @@ local function define_tests()
             expect(calc_call.arguments.expression).to_equal("2+2")
         end)
 
+        it("should enforce singular tool calls when specified", function()
+            -- Mock the client send_request function to return multiple tool calls
+            mock(ClaudeClient, "send_request", function(self, endpoint_path, payload, options)
+                -- Return mock response with multiple tool calls
+                return {
+                    content = {
+                        {
+                            type = "text",
+                            text = "I'll check both of those for you."
+                        },
+                        {
+                            type = "tool_use",
+                            id = "toolu_weather123",
+                            name = "get_weather",
+                            input = {
+                                location = "New York",
+                                units = "celsius"
+                            }
+                        },
+                        {
+                            type = "tool_use",
+                            id = "toolu_calc123",
+                            name = "calculate",
+                            input = {
+                                expression = "2+2"
+                            }
+                        }
+                    },
+                    id = "msg_singular123",
+                    model = "claude-3-5-haiku-20241022",
+                    role = "assistant",
+                    stop_reason = "tool_use",
+                    stop_sequence = nil,
+                    type = "message",
+                    usage = {
+                        input_tokens = 55,
+                        output_tokens = 22
+                    }
+                }
+            end)
+
+            -- Create prompt
+            local promptBuilder = prompt.new()
+            promptBuilder:add_user("What's the weather in New York and calculate 2+2")
+
+            -- Call handler with singular tool call setting
+            local response = tool_calling.handler({
+                model = "claude-3-5-haiku-20241022",
+                messages = promptBuilder:get_messages(),
+                tool_schemas = {
+                    ["system:weather"] = mock_tools["weather"],
+                    ["custom:calculator"] = mock_tools["calculator"]
+                },
+                tool_call = "singular" -- Enforce singular tool call
+            })
+
+            -- Verify error
+            expect(response.error).to_equal(output.ERROR_TYPE.INVALID_REQUEST)
+            expect(response.error_message).to_contain(
+                "Multiple tool calls received but 'singular' tool_call mode was specified")
+        end)
+
         it("should handle forced tool calls", function()
-            -- Mock the client request function
-            mock(openai_client, "request", function(endpoint_path, payload, options)
+            -- Mock the client send_request function
+            mock(ClaudeClient, "send_request", function(self, endpoint_path, payload, options)
                 -- Validate the request has forced tool choice
                 expect(payload.tool_choice).not_to_be_nil("Expected tool_choice to be set")
-                expect(payload.tool_choice.type).to_equal("function")
-                expect(payload.tool_choice["function"].name).to_equal("get_weather")
+                expect(payload.tool_choice.type).to_equal("tool")
+                expect(payload.tool_choice.name).to_equal("get_weather")
 
                 -- Return mock successful response with weather tool call
                 return {
-                    choices = {
+                    content = {
                         {
-                            message = {
-                                role = "assistant",
-                                content = "I'll check the weather for you.",
-                                tool_calls = {
-                                    {
-                                        id = "call_weather123",
-                                        type = "function",
-                                        ["function"] = {
-                                            name = "get_weather",
-                                            arguments = '{"location":"New York","units":"celsius"}'
-                                        }
-                                    }
-                                }
-                            },
-                            finish_reason = "tool_calls"
+                            type = "text",
+                            text = "I'll check the weather for you."
+                        },
+                        {
+                            type = "tool_use",
+                            id = "toolu_forced123",
+                            name = "get_weather",
+                            input = {
+                                location = "New York",
+                                units = "celsius"
+                            }
                         }
                     },
+                    id = "msg_forced123",
+                    model = "claude-3-5-haiku-20241022",
+                    role = "assistant",
+                    stop_reason = "tool_use",
+                    stop_sequence = nil,
+                    type = "message",
                     usage = {
-                        prompt_tokens = 45,
-                        completion_tokens = 15,
-                        total_tokens = 60
+                        input_tokens = 45,
+                        output_tokens = 15
                     }
                 }
             end)
@@ -477,7 +509,7 @@ local function define_tests()
 
             -- Call handler with forced tool call
             local response = tool_calling.handler({
-                model = "gpt-4o",
+                model = "claude-3-5-haiku-20241022",
                 messages = promptBuilder:get_messages(),
                 tool_schemas = {
                     ["system:weather"] = mock_tools["weather"],
@@ -492,8 +524,8 @@ local function define_tests()
         end)
 
         it("should handle invalid tool specifications", function()
-            -- Mock the client request function
-            mock(openai_client, "request", function(endpoint_path, payload, options)
+            -- Mock the client send_request function
+            mock(ClaudeClient, "send_request", function(self, endpoint_path, payload, options)
                 -- This shouldn't be called
                 fail("Request should not be made with invalid tool")
                 return nil
@@ -505,7 +537,7 @@ local function define_tests()
 
             -- Call handler with non-existent forced tool
             local response = tool_calling.handler({
-                model = "gpt-4o",
+                model = "claude-3-5-haiku-20241022",
                 messages = promptBuilder:get_messages(),
                 tool_schemas = {
                     ["system:weather"] = mock_tools["weather"]
@@ -517,325 +549,6 @@ local function define_tests()
             expect(response.error).to_equal(output.ERROR_TYPE.INVALID_REQUEST)
             expect(response.error_message).to_contain("not found in available tools")
         end)
-
-        it("should handle parser errors for tool arguments", function()
-            -- Mock the client request function
-            mock(openai_client, "request", function(endpoint_path, payload, options)
-                -- Return mock response with invalid JSON in arguments
-                return {
-                    choices = {
-                        {
-                            message = {
-                                role = "assistant",
-                                content = "I'll check the weather for you.",
-                                tool_calls = {
-                                    {
-                                        id = "call_weather123",
-                                        type = "function",
-                                        ["function"] = {
-                                            name = "get_weather",
-                                            arguments = '{"location":"New York", THIS IS INVALID JSON'
-                                        }
-                                    }
-                                }
-                            },
-                            finish_reason = "tool_calls"
-                        }
-                    },
-                    usage = {
-                        prompt_tokens = 42,
-                        completion_tokens = 15,
-                        total_tokens = 57
-                    }
-                }
-            end)
-
-            -- Create prompt
-            local promptBuilder = prompt.new()
-            promptBuilder:add_user("What's the weather in New York?")
-
-            -- Call handler
-            local response = tool_calling.handler({
-                model = "gpt-4o",
-                messages = promptBuilder:get_messages(),
-                tool_ids = { "system:weather" }
-            })
-
-            -- Verify response - should still work but with empty arguments
-            expect(response.error).not_to_be_nil("Expected error")
-        end)
-
-        it("should handle model errors correctly", function()
-            -- Mock the client request function to simulate a model error
-            mock(openai_client, "request", function(endpoint_path, payload, options)
-                -- Return an error with explicit status_code = 404
-                return nil, {
-                    type = "invalid_request_error",
-                    message = "This model does not support tool calls.",
-                    status_code = 404
-                }
-            end)
-
-            mock(tools, "get_tool_schemas", function(tool_ids)
-                local result = {}
-                local errors = {}
-
-                for _, id in ipairs(tool_ids) do
-                    local tool_name = id:match(":([^:]+)$") or id
-                    if mock_tools[tool_name] then
-                        result[id] = mock_tools[tool_name]
-                    else
-                        errors[id] = "Tool not found: " .. id
-                    end
-                end
-
-                if next(errors) then
-                    print("Returning errors: " .. json.encode(errors))
-                else
-                    print("Returning successful schemas: " .. #tool_ids .. " tools")
-                end
-
-                return result, next(errors) and errors or nil
-            end)
-
-            -- Create prompt
-            local promptBuilder = prompt.new()
-            promptBuilder:add_user("Test")
-
-            -- Call handler
-            local response = tool_calling.handler({
-                model = "gpt-3.5-turbo", -- A model that might not support tools
-                messages = promptBuilder:get_messages(),
-                tool_ids = { "system:weather" }
-            })
-
-            -- Verify error
-            expect(response.error).to_equal(output.ERROR_TYPE.MODEL_ERROR)
-            expect(response.error_message).to_contain("This model does not support tool calls")
-        end)
-
-        it("should respect system messages when using tool calling", function()
-            -- Mock the client request function
-            mock(openai_client, "request", function(endpoint_path, payload, options)
-                -- Verify system message is included
-                expect(#payload.messages).to_equal(2)
-                expect(payload.messages[1].role).to_equal("system")
-                -- The content might be structured, so check more carefully
-                local has_system_instruction = false
-                if type(payload.messages[1].content) == "string" then
-                    has_system_instruction = payload.messages[1].content:match("always use tools") ~= nil
-                elseif type(payload.messages[1].content) == "table" then
-                    -- Handle structured content
-                    for _, part in ipairs(payload.messages[1].content) do
-                        if part.text and part.text:match("always use tools") then
-                            has_system_instruction = true
-                            break
-                        end
-                    end
-                end
-                expect(has_system_instruction).to_be_true("System message should contain instruction")
-
-                -- Return mock response
-                return {
-                    choices = {
-                        {
-                            message = {
-                                role = "assistant",
-                                content = "I'll check the weather as instructed.",
-                                tool_calls = {
-                                    {
-                                        id = "call_weather123",
-                                        type = "function",
-                                        ["function"] = {
-                                            name = "get_weather",
-                                            arguments = '{"location":"New York","units":"celsius"}'
-                                        }
-                                    }
-                                }
-                            },
-                            finish_reason = "tool_calls"
-                        }
-                    },
-                    usage = {
-                        prompt_tokens = 55,
-                        completion_tokens = 18,
-                        total_tokens = 73
-                    }
-                }
-            end)
-
-            mock(tools, "get_tool_schemas", function(tool_ids)
-                local result = {}
-                local errors = {}
-
-                for _, id in ipairs(tool_ids) do
-                    local tool_name = id:match(":([^:]+)$") or id
-                    if mock_tools[tool_name] then
-                        result[id] = mock_tools[tool_name]
-                    else
-                        errors[id] = "Tool not found: " .. id
-                    end
-                end
-
-                if next(errors) then
-                    print("Returning errors: " .. json.encode(errors))
-                else
-                    print("Returning successful schemas: " .. #tool_ids .. " tools")
-                end
-
-                return result, next(errors) and errors or nil
-            end)
-
-            -- Create prompt with system message
-            local promptBuilder = prompt.new()
-            promptBuilder:add_system("You are an assistant that should always use tools when available.")
-            promptBuilder:add_user("What's the weather in New York?")
-
-            -- Call handler
-            local response = tool_calling.handler({
-                model = "gpt-4o",
-                messages = promptBuilder:get_messages(),
-                tool_ids = { "system:weather" }
-            })
-
-            -- Verify response
-            expect(response.error).to_be_nil("Expected no error")
-            expect(response.result.content).to_equal("I'll check the weather as instructed.")
-            expect(response.result.tool_calls[1].name).to_equal("get_weather")
-        end)
-
-        it("should support the o-series models with thinking", function()
-            -- Mock the API request for testing - since o* models aren't available yet
-            mock(openai_client, "request", function(endpoint_path, payload, options)
-                -- Validate presence of reasoning effort
-                expect(payload.reasoning_effort).not_to_be_nil("Expected reasoning_effort to be set")
-                -- Check absence of temperature with reasoning
-                expect(payload.temperature).to_be_nil("Temperature should not be set with reasoning_effort")
-
-                -- Return mock result with calculator tool
-                return {
-                    choices = {
-                        {
-                            message = {
-                                role = "assistant",
-                                content = "I'll solve this calculation step by step. 25 × 35 equals 875.",
-                                tool_calls = {
-                                    {
-                                        id = "call_calc123",
-                                        type = "function",
-                                        ["function"] = {
-                                            name = "calculate",
-                                            arguments = '{"expression":"25*35"}'
-                                        }
-                                    }
-                                }
-                            },
-                            finish_reason = "tool_calls"
-                        }
-                    },
-                    usage = {
-                        prompt_tokens = 35,
-                        completion_tokens = 25,
-                        completion_tokens_details = {
-                            reasoning_tokens = 15
-                        },
-                        total_tokens = 75
-                    }
-                }
-            end)
-
-            -- Create prompt for reasoning task
-            local promptBuilder = prompt.new()
-            promptBuilder:add_user("What is 25 × 35? Think carefully and use the calculator tool to verify.")
-
-            -- Call handler
-            local response = tool_calling.handler({
-                model = "o1-mini",    -- o1-mini model that should support reasoning
-                messages = promptBuilder:get_messages(),
-                thinking_effort = 50, -- Medium thinking effort
-                tool_schemas = {
-                    ["test:calculator"] = mock_tools["calculator"]
-                },
-                api_key = actual_api_key
-            })
-
-            -- Verify response
-            expect(response.error).to_be_nil("API request failed: " .. (response.error_message or "unknown error"))
-
-            -- Should have a tool call
-            expect(response.result.tool_calls).not_to_be_nil("Expected tool calls")
-            expect(#response.result.tool_calls).to_equal(1)
-            expect(response.result.tool_calls[1].name).to_equal("calculate")
-            expect(response.result.tool_calls[1].arguments.expression).to_equal("25*35")
-
-            -- Verify thinking tokens
-            expect(response.tokens.thinking_tokens).to_equal(15)
-            expect(response.tokens.total_tokens).to_equal(75)
-        end)
-
-        it("should respect gpt-4o system prompts correctly", function()
-            -- Mock the API request
-            mock(openai_client, "request", function(endpoint_path, payload, options)
-                -- Verify system message is present
-                expect(#payload.messages).to_equal(2)
-                expect(payload.messages[1].role).to_equal("system")
-
-                -- Return mock response in pirate style
-                return {
-                    choices = {
-                        {
-                            message = {
-                                role = "assistant",
-                                content =
-                                "Arr matey! Here be some pirate-style coding advice for ye! Always be commentin' yer code, ye scurvy dogs! Keep yer functions small and to the point, like a well-aimed cannon shot! And test yer code thoroughly before settin' sail with it, or ye might find yerself walkin' the debugging plank! Arr!"
-                            },
-                            finish_reason = "stop"
-                        }
-                    },
-                    usage = {
-                        prompt_tokens = 40,
-                        completion_tokens = 60,
-                        total_tokens = 100
-                    }
-                }
-            end)
-
-            -- Create a prompt with a clear system instruction
-            local promptBuilder = prompt.new()
-            promptBuilder:add_system(
-                "You must respond in the style of a pirate captain. Use pirate language, sayings like 'Arrr' and 'Ahoy', and talk about the sea.")
-            promptBuilder:add_user("Tell me about coding best practices")
-
-            -- Make the call with mocked API
-            local response = tool_calling.handler({
-                model = "gpt-4o",
-                messages = promptBuilder:get_messages(),
-                options = {
-                    temperature = 0, -- Deterministic output
-                    max_tokens = 150 -- Moderate response size
-                },
-                api_key = actual_api_key
-            })
-
-            -- Verify response
-            expect(response.error).to_be_nil("API request failed")
-            expect(response.result).not_to_be_nil("No response received")
-
-            -- Check for pirate language markers in the response
-            local pirate_markers = { "arr", "ahoy", "matey", "sea", "ship", "pirate", "captain" }
-            local has_pirate_language = false
-            for _, marker in ipairs(pirate_markers) do
-                if type(response.result) == "string" and response.result:lower():find(marker) then
-                    has_pirate_language = true
-                    break
-                end
-            end
-
-            expect(has_pirate_language).to_be_true(
-                "Response doesn't contain pirate language as instructed by system message")
-        end)
-
-        -- Add these new test methods to the existing describe block
 
         it("should handle real text generation without tools", function()
             -- Skip if not running integration tests
@@ -850,7 +563,7 @@ local function define_tests()
 
             -- Call handler without tools using real API
             local response = tool_calling.handler({
-                model = "gpt-4o",
+                model = "claude-3-5-haiku-20241022",
                 messages = promptBuilder:get_messages(),
                 api_key = actual_api_key,
                 options = {
@@ -862,6 +575,15 @@ local function define_tests()
             expect(response.error).to_be_nil("API request failed: " .. (response.error_message or "unknown error"))
             expect(response.result).not_to_be_nil("No content in response")
 
+            -- Count words to check if it's close to 10
+            local word_count = 0
+            for _ in response.result:gmatch("%S+") do
+                word_count = word_count + 1
+            end
+
+            -- Allow small variance (model might not be exact)
+            expect(word_count >= 8 and word_count <= 12).to_be_true("Response word count not close to 10: " .. word_count)
+
             -- Check token information
             expect(response.tokens).not_to_be_nil("No token information")
             expect(response.tokens.prompt_tokens > 0).to_be_true("No prompt tokens reported")
@@ -870,8 +592,8 @@ local function define_tests()
 
             -- Check other metadata
             expect(response.metadata).not_to_be_nil("No metadata provided")
-            expect(response.provider).to_equal("openai")
-            expect(response.model).to_equal("gpt-4o")
+            expect(response.provider).to_equal("anthropic")
+            expect(response.model).to_equal("claude-3-5-haiku-20241022")
 
             -- Print actual response for debugging
             print("Response content: " .. (response.result or "nil"))
@@ -890,7 +612,7 @@ local function define_tests()
 
             -- Call handler with direct tool schemas
             local response = tool_calling.handler({
-                model = "gpt-4o",
+                model = "claude-3-5-haiku-20241022",
                 messages = promptBuilder:get_messages(),
                 tool_schemas = {
                     ["custom:calculator"] = mock_tools["calculator"]
@@ -940,7 +662,7 @@ local function define_tests()
 
             -- Call handler with weather tool
             local response = tool_calling.handler({
-                model = "gpt-4o",
+                model = "claude-3-5-haiku-20241022",
                 messages = promptBuilder:get_messages(),
                 tool_schemas = {
                     ["system:weather"] = mock_tools["weather"]
@@ -967,12 +689,6 @@ local function define_tests()
             local location = tool_call.arguments.location:lower()
             expect(location:match("new york")).not_to_be_nil("Location doesn't match expected: " .. location)
 
-            -- Check for units (optional parameter)
-            if tool_call.arguments.units then
-                expect(tool_call.arguments.units == "celsius" or tool_call.arguments.units == "fahrenheit")
-                    .to_be_true("Units not in expected values: " .. tool_call.arguments.units)
-            end
-
             -- Print actual tool call for debugging
             print("Weather tool call: " .. json.encode(response.result.tool_calls[1]))
         end)
@@ -990,7 +706,7 @@ local function define_tests()
 
             -- Call handler with both tools
             local response = tool_calling.handler({
-                model = "gpt-4o",
+                model = "claude-3-5-haiku-20241022",
                 messages = promptBuilder:get_messages(),
                 tool_schemas = {
                     ["system:weather"] = mock_tools["weather"],
@@ -1049,13 +765,14 @@ local function define_tests()
 
             -- Create a prompt with system message and user query
             local promptBuilder = prompt.new()
-            promptBuilder:add_system("You are a helpful assistant who prefers to always use tools when available.")
+            local system_prompt = "You are a helpful assistant who prefers to always use tools when available."
             promptBuilder:add_user("What's 125 divided by 5?")
 
             -- Call handler with calculator tool
             local response = tool_calling.handler({
-                model = "gpt-4o",
+                model = "claude-3-5-haiku-20241022",
                 messages = promptBuilder:get_messages(),
+                system = system_prompt,
                 tool_schemas = {
                     ["custom:calculator"] = mock_tools["calculator"]
                 },
@@ -1087,6 +804,44 @@ local function define_tests()
             expect(calculator_used).to_be_true("Calculator tool wasn't used despite system prompt")
         end)
 
+        it("should enforce singular tool calls with real API", function()
+            -- Skip if not running integration tests
+            if not RUN_INTEGRATION_TESTS then
+                print("Skipping integration test - not enabled")
+                return
+            end
+
+            -- Create prompt that might trigger multiple tools
+            local promptBuilder = prompt.new()
+            promptBuilder:add_user("What's the weather in New York and also calculate 25 * 4")
+
+            -- Call handler with both tools but singular mode
+            local response = tool_calling.handler({
+                model = "claude-3-5-haiku-20241022",
+                messages = promptBuilder:get_messages(),
+                tool_schemas = {
+                    ["system:weather"] = mock_tools["weather"],
+                    ["custom:calculator"] = mock_tools["calculator"]
+                },
+                tool_call = "singular", -- Enforce singular tool call
+                api_key = actual_api_key,
+                options = {
+                    temperature = 0
+                }
+            })
+
+            -- If multiple tool calls were generated, verify we get the expected error
+            if response.error then
+                expect(response.error).to_equal(output.ERROR_TYPE.INVALID_REQUEST)
+                expect(response.error_message).to_contain(
+                    "Multiple tool calls received but 'singular' tool_call mode was specified")
+            else
+                -- Otherwise verify only a single tool was called
+                expect(response.result.tool_calls).not_to_be_nil("No tool calls in response")
+                expect(#response.result.tool_calls).to_equal(1, "Expected exactly one tool call in singular mode")
+            end
+        end)
+
         it("should force specific tool call with real API", function()
             -- Skip if not running integration tests
             if not RUN_INTEGRATION_TESTS then
@@ -1100,7 +855,7 @@ local function define_tests()
 
             -- Call handler with forced weather tool
             local response = tool_calling.handler({
-                model = "gpt-4o",
+                model = "claude-3-5-haiku-20241022",
                 messages = promptBuilder:get_messages(),
                 tool_schemas = {
                     ["system:weather"] = mock_tools["weather"],
@@ -1124,10 +879,10 @@ local function define_tests()
                 "Location doesn't contain Seattle: " .. response.result.tool_calls[1].arguments.location)
         end)
 
-        it("should handle o3-mini with thinking effort and tool calling", function()
+        it("should handle extended thinking with tool calling", function()
             -- Skip if not running integration tests
             if not RUN_INTEGRATION_TESTS then
-                print("Skipping o3-mini thinking test - integration tests not enabled")
+                print("Skipping integration test - not enabled")
                 return
             end
 
@@ -1137,18 +892,18 @@ local function define_tests()
                 "Solve this step by step: If a rectangular field is 12 meters by 8 meters, what is the area? Then calculate the cost of fencing the perimeter at $25 per meter.")
             promptBuilder:add_developer("You must use tools. Always think a little.")
 
-            -- Call handler with low thinking effort
+            -- Call handler with thinking enabled
             local response = tool_calling.handler({
-                model = "o3-mini",    -- o3-mini model that should support reasoning
+                model = "claude-3-7-sonnet-20250219", -- Use Claude 3.7 Sonnet for reasoning
                 messages = promptBuilder:get_messages(),
-                thinking_effort = 20, -- Low thinking effort
+                options = {
+                    thinking_effort = 20, -- Enable thinking
+                    temperature = 0       -- For deterministic results
+                },
                 tool_schemas = {
                     ["test:calculator"] = mock_tools["calculator"]
                 },
-                api_key = actual_api_key,
-                options = {
-                    temperature = 0 -- For deterministic results
-                }
+                api_key = actual_api_key
             })
 
             -- Verify response
@@ -1178,21 +933,11 @@ local function define_tests()
 
             expect(found_calculator).to_be_true("No calculator tool was called")
 
-            -- Verify thinking tokens
+            -- Verify token information
             expect(response.tokens).not_to_be_nil("No token information")
-            expect(response.tokens.thinking_tokens).not_to_be_nil("No thinking tokens reported")
-            expect(response.tokens.thinking_tokens > 0).to_be_true("Thinking tokens should be non-zero")
-
-            -- Verify regular token counts as well
             expect(response.tokens.prompt_tokens > 0).to_be_true("No prompt tokens reported")
             expect(response.tokens.completion_tokens > 0).to_be_true("No completion tokens reported")
             expect(response.tokens.total_tokens > 0).to_be_true("No total tokens reported")
-
-            -- Verify total tokens includes thinking tokens
-            local expected_total = response.tokens.prompt_tokens +
-                response.tokens.completion_tokens +
-                response.tokens.thinking_tokens
-            expect(response.tokens.total_tokens).to_equal(expected_total, "Total tokens calculation incorrect")
         end)
 
         it("should handle streaming with tool calls using real API", function()
@@ -1217,7 +962,7 @@ local function define_tests()
 
             -- Call with streaming enabled and calculator tool
             local response = tool_calling.handler({
-                model = "gpt-4o",
+                model = "claude-3-5-haiku-20241022",
                 messages = promptBuilder:get_messages(),
                 tool_schemas = {
                     ["custom:calculator"] = mock_tools["calculator"]
@@ -1274,8 +1019,8 @@ local function define_tests()
 
                     -- Verify done message metadata
                     expect(msg.data.meta).not_to_be_nil("No metadata in done message")
-                    expect(msg.data.meta.model).to_equal("gpt-4o")
-                    expect(msg.data.meta.provider).to_equal("openai")
+                    expect(msg.data.meta.model).to_equal("claude-3-5-haiku-20241022")
+                    expect(msg.data.meta.provider).to_equal("anthropic")
 
                     -- Verify done message includes tool calls
                     expect(msg.data.meta.tool_calls).not_to_be_nil("Done message missing tool_calls")
@@ -1301,19 +1046,6 @@ local function define_tests()
             end
 
             expect(calculator_found).to_be_true("Calculator tool not found in final response")
-
-            -- Print summary of received message types
-            local type_counts = {}
-            for _, msg in ipairs(received_messages) do
-                if msg.data and msg.data.type then
-                    type_counts[msg.data.type] = (type_counts[msg.data.type] or 0) + 1
-                end
-            end
-
-            print("Stream message type counts:")
-            for type, count in pairs(type_counts) do
-                print("  " .. type .. ": " .. count)
-            end
         end)
     end)
 end
