@@ -1315,6 +1315,100 @@ local function define_tests()
                 print("  " .. type .. ": " .. count)
             end
         end)
+
+        it("should handle complete tool call flow with real API", function()
+            -- Skip if not running integration tests
+            if not RUN_INTEGRATION_TESTS then
+                print("Skipping integration test - not enabled")
+                return
+            end
+
+            -- Create initial prompt with a clear calculator request
+            local promptBuilder = prompt.new()
+            promptBuilder:add_user("What is the square root of 1764?")
+            promptBuilder:add_developer("Use the calculator tool to solve this. Don't solve it directly.")
+
+            -- Step 1: Initial request with tool
+            local response = tool_calling.handler({
+                model = "o3-mini", -- Use OpenAI's o1-mini model
+                messages = promptBuilder:get_messages(),
+                tool_schemas = {
+                    ["custom:calculator"] = mock_tools["calculator"]
+                },
+                api_key = actual_api_key,
+                options = {
+                    top_p = 1, -- For deterministic results
+                    seed = 42  -- For reproducible results
+                }
+            })
+
+            -- Verify the response structure
+            expect(response.error).to_be_nil("API request failed: " .. (response.error_message or "unknown error"))
+            expect(response.result).not_to_be_nil("No result returned")
+            expect(response.result.tool_calls).not_to_be_nil("No tool calls in response")
+            expect(#response.result.tool_calls > 0).to_be_true("Expected at least one tool call")
+
+            -- Verify the calculator was used
+            local tool_call = response.result.tool_calls[1]
+            expect(tool_call.name).to_equal("calculate", "Expected calculator tool")
+            expect(tool_call.id).not_to_be_nil("Tool call missing ID")
+            expect(tool_call.arguments).not_to_be_nil("Tool call missing arguments")
+
+            -- Use the actual content from the API response
+            promptBuilder:add_assistant(response.result.content)
+
+            -- Add the function call to the conversation using function_call format
+            promptBuilder:add_function_call(tool_call.name, tool_call.arguments, tool_call.id)
+
+            -- Simulate executing the tool
+            local calc_result = math.sqrt(1764)
+            local tool_result = "The square root of 1764 is " .. calc_result
+
+            -- Add the result to the conversation using the appropriate method for tool results
+            promptBuilder:add_function_result(tool_call.name, tool_result, tool_call.id)
+
+            -- Step 2: Second request to continue conversation with the tool result
+            local continuation_response = tool_calling.handler({
+                model = "o3-mini", -- Keep using the same model
+                messages = promptBuilder:get_messages(),
+                api_key = actual_api_key,
+                options = {
+                    top_p = 1, -- For deterministic results
+                    seed = 42  -- For reproducible results
+                }
+            })
+
+            -- Verify the continuation response
+            expect(continuation_response.error).to_be_nil("API request failed in continuation: " ..
+                (continuation_response.error_message or "unknown error"))
+            expect(continuation_response.result).not_to_be_nil("No continuation result returned")
+
+            -- Result should be a text response with the answer
+            local result_text = ""
+            if type(continuation_response.result) == "string" then
+                result_text = continuation_response.result
+            elseif type(continuation_response.result) == "table" and continuation_response.result.content then
+                result_text = continuation_response.result.content
+            end
+
+            expect(result_text).not_to_be_nil("No text content in continuation response")
+            expect(#result_text > 0).to_be_true("Empty text content in continuation response")
+
+            -- Response should mention the correct answer (42)
+            expect(result_text:match("42") ~= nil).to_be_true("Response doesn't include correct answer")
+
+            -- Verify token information
+            expect(continuation_response.tokens).not_to_be_nil("No token information")
+            expect(continuation_response.tokens.prompt_tokens > 0).to_be_true("No prompt tokens reported")
+            expect(continuation_response.tokens.completion_tokens > 0).to_be_true("No completion tokens reported")
+            expect(continuation_response.tokens.total_tokens > 0).to_be_true("No total tokens reported")
+
+            -- Verify provider info
+            expect(continuation_response.provider).to_equal("openai", "Wrong provider")
+            expect(continuation_response.model).to_equal("o3-mini", "Wrong model")
+
+            print("Complete flow test successful. Final response: " .. result_text:sub(1, 100) .. "...")
+        end)
     end)
 end
 

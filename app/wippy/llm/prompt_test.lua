@@ -84,7 +84,7 @@ local function define_tests()
             expect(#messages).to_equal(2, "Expected 2 messages")
 
             -- Check function call
-            expect(messages[1].role).to_equal("assistant")
+            expect(messages[1].role).to_equal("function_call")
             expect(messages[1].function_call).not_to_be_nil("Function call should exist")
             expect(messages[1].function_call.name).to_equal("get_weather")
             expect(messages[1].function_call.arguments).to_equal('{"location":"London","units":"celsius"}')

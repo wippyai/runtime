@@ -135,6 +135,35 @@ local function handler(args)
 
             -- Track position for message cache markers
             current_marker_idx = #processed_messages
+        elseif msg.role == "function_call" then
+            -- Handle function call messages as assistant with tool_use format
+            local function_name = msg.function_call.name
+            local arguments = msg.function_call.arguments
+            local function_id = msg.function_call.id
+
+            -- Convert arguments from string to object if needed
+            if type(arguments) == "string" then
+                local success, parsed = pcall(json.decode, arguments)
+                if success then
+                    arguments = parsed
+                end
+            end
+
+            -- Create an assistant message with tool_use content block
+            table.insert(processed_messages, {
+                role = "assistant",
+                content = {
+                    {
+                        type = "tool_use",
+                        id = function_id,
+                        name = function_name,
+                        input = arguments
+                    }
+                }
+            })
+
+            -- Track position for message cache markers
+            current_marker_idx = #processed_messages
         else
             -- Regular user or assistant message
             local role = msg.role
@@ -145,6 +174,34 @@ local function handler(args)
                 content = { { type = "text", text = msg.content } }
             else
                 content = msg.content
+            end
+
+            -- Process content array for any function calls (if in assistant message)
+            if role == "assistant" and content then
+                for j, part in ipairs(content) do
+                    if part.type == "function_call" then
+                        -- Get function call data
+                        local function_name = part.name
+                        local function_id = part.id
+                        local arguments = part.arguments
+
+                        -- Convert arguments to proper format if it's a string (JSON)
+                        if type(arguments) == "string" then
+                            local success, parsed = pcall(json.decode, arguments)
+                            if success then
+                                arguments = parsed
+                            end
+                        end
+
+                        -- Replace with tool_use format
+                        content[j] = {
+                            type = "tool_use",
+                            id = function_id,
+                            name = function_name,
+                            input = arguments
+                        }
+                    end
+                end
             end
 
             -- Add to processed messages
