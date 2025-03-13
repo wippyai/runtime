@@ -21,6 +21,7 @@ entries:
       comment: "OpenAI text generation implementation"
       type: llm_function
       supports: [ "generate", "stream" ]
+      models: [ "gpt*", "o*" ]
       priority: 100
     source: file://text_generation.lua
     method: handler
@@ -37,6 +38,7 @@ entries:
       comment: "OpenAI function/tool calling implementation"
       type: llm_function
       supports: [ "generate", "tools", "stream" ]
+      models: [ "gpt*", "o*" ]
       priority: 50
     source: file://tool_calling.lua
     method: handler
@@ -54,6 +56,7 @@ entries:
       comment: "OpenAI structured output implementation with schema enforcement"
       type: llm_function
       supports: [ "schema" ]
+      models: [ "gpt-4o*", "o*", "gpt-4.5*" ]
       priority: 40
     source: file://structured_output.lua
     method: handler
@@ -70,6 +73,7 @@ entries:
       comment: "OpenAI embeddings implementation"
       type: llm_function
       supports: [ "embeddings" ]
+      models: [ "text-embedding*", "ada*" ]
       priority: 10
     source: file://embeddings.lua
     method: handler
@@ -80,59 +84,59 @@ entries:
     pool:
       max_size: 50
 
-  #  - name: text_generation_test
-  #    kind: function.lua
-  #    meta:
-  #      name: "OpenAI Text Generation Test"
-  #      type: "test"
-  #      tags: [ "llm", "openai", "generation" ]
-  #      group: "OpenAI Library"
-  #      comment: "Tests the OpenAI text generation handler functionality"
-  #    source: file://text_generation_test.lua
-  #    method: run_tests
-  #    modules: [ "json", "env" ]
-  #    imports:
-  #      test: "wippy.test:test"
-  #      prompt: "wippy.llm:prompt"
-  #      output: "wippy.llm:output"
-  #      text_generation: "wippy.llm.openai:text_generation"
-  #      openai_client: "wippy.llm.openai:client"
-  #
-  #  - name: embeddings_test
-  #    kind: function.lua
-  #    meta:
-  #      name: "OpenAI Embeddings Test"
-  #      type: "test"
-  #      tags: [ "llm", "openai", "embeddings" ]
-  #      group: "OpenAI Library"
-  #      comment: "Tests the OpenAI embeddings handler functionality"
-  #    source: file://embeddings_test.lua
-  #    method: run_tests
-  #    modules: [ "json", "env" ]
-  #    imports:
-  #      test: "wippy.test:test"
-  #      output: "wippy.llm:output"
-  #      embeddings: "wippy.llm.openai:embeddings"
-  #      openai_client: "wippy.llm.openai:client"
-  #
-  #  - name: tool_calling_test
-  #    kind: function.lua
-  #    meta:
-  #      name: "OpenAI Tool Calling Test"
-  #      type: "test"
-  #      tags: [ "llm", "openai", "tools", "function_calling" ]
-  #      group: "OpenAI Library"
-  #      comment: "Tests the OpenAI tool/function calling handler functionality"
-  #    source: file://tool_calling_test.lua
-  #    method: run_tests
-  #    modules: [ "json", "env" ]
-  #    imports:
-  #      test: "wippy.test:test"
-  #      prompt: "wippy.llm:prompt"
-  #      output: "wippy.llm:output"
-  #      tools: "wippy.llm:tools"
-  #      tool_calling: "wippy.llm.openai:tool_calling"
-  #      openai_client: "wippy.llm.openai:client"
+#  - name: text_generation_test
+#    kind: function.lua
+#    meta:
+#      name: "OpenAI Text Generation Test"
+#      type: "test"
+#      tags: [ "llm", "openai", "generation" ]
+#      group: "OpenAI Library"
+#      comment: "Tests the OpenAI text generation handler functionality"
+#    source: file://text_generation_test.lua
+#    method: run_tests
+#    modules: [ "json", "env" ]
+#    imports:
+#      test: "wippy.test:test"
+#      prompt: "wippy.llm:prompt"
+#      output: "wippy.llm:output"
+#      text_generation: "wippy.llm.openai:text_generation"
+#      openai_client: "wippy.llm.openai:client"
+#
+#  - name: embeddings_test
+#    kind: function.lua
+#    meta:
+#      name: "OpenAI Embeddings Test"
+#      type: "test"
+#      tags: [ "llm", "openai", "embeddings" ]
+#      group: "OpenAI Library"
+#      comment: "Tests the OpenAI embeddings handler functionality"
+#    source: file://embeddings_test.lua
+#    method: run_tests
+#    modules: [ "json", "env" ]
+#    imports:
+#      test: "wippy.test:test"
+#      output: "wippy.llm:output"
+#      embeddings: "wippy.llm.openai:embeddings"
+#      openai_client: "wippy.llm.openai:client"
+#
+#  - name: tool_calling_test
+#    kind: function.lua
+#    meta:
+#      name: "OpenAI Tool Calling Test"
+#      type: "test"
+#      tags: [ "llm", "openai", "tools", "function_calling" ]
+#      group: "OpenAI Library"
+#      comment: "Tests the OpenAI tool/function calling handler functionality"
+#    source: file://tool_calling_test.lua
+#    method: run_tests
+#    modules: [ "json", "env" ]
+#    imports:
+#      test: "wippy.test:test"
+#      prompt: "wippy.llm:prompt"
+#      output: "wippy.llm:output"
+#      tools: "wippy.llm:tools"
+#      tool_calling: "wippy.llm.openai:tool_calling"
+#      openai_client: "wippy.llm.openai:client"
 
   - name: structured_output_test
     kind: function.lua
