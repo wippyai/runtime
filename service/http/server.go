@@ -9,6 +9,7 @@ import (
 	"github.com/ponyruntime/pony/api/registry"
 	config "github.com/ponyruntime/pony/api/service/http"
 	"github.com/ponyruntime/pony/api/supervisor"
+	httpmiddleware "github.com/ponyruntime/pony/service/http/middleware"
 	"net"
 	"net/http"
 	"sync"
@@ -31,6 +32,7 @@ var ContextListener = &contextapi.Key{Name: "listener"}
 
 // ServerService combines HTTP server and router functionality
 type ServerService struct {
+	ctx        context.Context
 	config     *config.ServerConfig
 	routeMgr   *RouteManager
 	server     *http.Server
@@ -158,6 +160,7 @@ func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 		},
 	}
 	s.started = true
+	s.ctx = ctx
 	s.mu.Unlock()
 
 	// Launch server
@@ -259,7 +262,10 @@ func (s *ServerService) createMiddleware(name string, options map[string]string)
 		return middleware.RequestID
 	case "real_ip":
 		return middleware.RealIP
+	case "websocket_relay":
+		return httpmiddleware.WebsocketRelay
 	}
+
 	return nil
 }
 

@@ -178,7 +178,7 @@ func (c *RouterConfig) Validate() error {
 					}
 				}
 			}
-		case "recoverer", "request_id", "real_ip":
+		case "recoverer", "request_id", "real_ip", "websocket_relay":
 			// These middleware don't require additional validation
 			continue
 		default:
