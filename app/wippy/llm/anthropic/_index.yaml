@@ -15,6 +15,16 @@ entries:
     imports:
       output: "wippy.llm:output"
 
+  - name: mapper
+    kind: library.lua
+    meta:
+      comment: "Claude API mapper library for standardized request/response mapping"
+    source: file://mapper.lua
+    modules: [ "json" ]
+    imports:
+      output: "wippy.llm:output"
+      prompt: "wippy.llm:prompt"
+
   - name: text_generation
     kind: function.lua
     meta:
@@ -29,6 +39,7 @@ entries:
     imports:
       output: "wippy.llm:output"
       claude_client: "wippy.llm.claude:client"
+      mapper: "wippy.llm.claude:mapper"
     pool:
       max_size: 25
 
@@ -47,6 +58,7 @@ entries:
       output: "wippy.llm:output"
       tools: "wippy.llm:tools"
       claude_client: "wippy.llm.claude:client"
+      mapper: "wippy.llm.claude:mapper"
     pool:
       max_size: 25
 
@@ -65,6 +77,7 @@ entries:
     imports:
       output: "wippy.llm:output"
       claude_client: "wippy.llm.claude:client"
+      mapper: "wippy.llm.claude:mapper"
     pool:
       max_size: 25
 
