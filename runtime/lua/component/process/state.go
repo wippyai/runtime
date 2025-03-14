@@ -333,7 +333,7 @@ func (s *State) SendPackage(pkg *pubsub.Package) error {
 			inboxValues := make([]lua.LValue, 0, len(msg.Payloads))
 
 			for _, p := range msg.Payloads {
-				m := processmod.NewMessage(msg.Topic, p)
+				m := processmod.NewMessage(pkg.Source, msg.Topic, p)
 				inboxValues = append(inboxValues, processmod.WrapMessage(s.UoW.State(), m))
 			}
 

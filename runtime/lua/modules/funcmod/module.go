@@ -163,7 +163,7 @@ func (e *Module) processPackage(uw engine.UnitOfWork, pkg *pubsub.Package) {
 
 		inboxValues := make([]lua.LValue, 0, len(msg.Payloads))
 		for _, p := range msg.Payloads {
-			m := process.NewMessage(msg.Topic, p)
+			m := process.NewMessage(pkg.Source, msg.Topic, p)
 			inboxValues = append(inboxValues, process.WrapMessage(uw.State(), m))
 		}
 

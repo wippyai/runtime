@@ -3,6 +3,7 @@ package websocket_relay
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"github.com/coder/websocket"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/pubsub"
@@ -13,6 +14,7 @@ import (
 	"net/http"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // Constants for the WebSocket relay
@@ -34,7 +36,31 @@ const (
 
 	// WSCloseTopic is the topic for close signals (any message to close the connection)
 	WSCloseTopic pubsub.Topic = "ws.close"
+
+	// WSPingTopic is the topic for ping messages
+	WSPingTopic pubsub.Topic = "ws.ping"
+
+	// WSPongTopic is the topic for pong responses
+	WSPongTopic pubsub.Topic = "ws.pong"
+
+	// WSHealthcheckTopic is the topic for healthcheck requests
+	WSHealthcheckTopic pubsub.Topic = "ws.healthcheck"
+
+	// Default ping interval if not specified
+	DefaultPingInterval = 30 * time.Second
 )
+
+// ConnectionMetadata holds metadata about a WebSocket connection
+type ConnectionMetadata struct {
+	// ConnectedAt is the time the connection was established
+	ConnectedAt time.Time `json:"connected_at"`
+
+	// LastPongAt is the time of the last pong response
+	LastPongAt time.Time `json:"last_pong_at,omitempty"`
+
+	// CustomData holds any additional connection-specific data
+	CustomData map[string]interface{} `json:"custom_data,omitempty"`
+}
 
 // RelayCommand holds the configuration for a WebSocket relay request, can be send at start or into ws.control
 type RelayCommand struct {
@@ -43,6 +69,22 @@ type RelayCommand struct {
 
 	// MessageTopic is the topic to use for WebSocket messages (optional)
 	MessageTopic string `json:"message_topic,omitempty"`
+
+	// PingInterval is the interval at which to send ping messages (optional)
+	// Format: "1s", "30s", "1m", etc.
+	PingInterval string `json:"ping_interval,omitempty"`
+
+	// ConnectionMetadata is additional data to include with the connection
+	ConnectionMetadata map[string]interface{} `json:"connection_metadata,omitempty"`
+}
+
+// CloseCommand holds information about how to close a WebSocket connection
+type CloseCommand struct {
+	// Reason is a human-readable explanation for the closure
+	Reason string `json:"reason,omitempty"`
+
+	// Code is the WebSocket status code to use (defaults to NormalClosure)
+	Code int `json:"code,omitempty"`
 }
 
 // RelayManager manages WebSocket connections and their relay to the pubsub system
@@ -114,7 +156,7 @@ func (m *RelayManager) Middleware(h http.Handler) http.Handler {
 		}
 
 		// Handle the WebSocket connection with the request context
-		go m.handleConnection(r.Context(), conn, targetPID, messageTopic)
+		go m.handleConnection(r.Context(), conn, targetPID, config, messageTopic)
 	})
 }
 
@@ -133,6 +175,7 @@ func (m *RelayManager) handleConnection(
 	ctx context.Context,
 	conn *websocket.Conn,
 	targetPID pubsub.PID,
+	relayConfig RelayCommand,
 	messageTopic pubsub.Topic,
 ) {
 	// Create logger with connection info
@@ -157,8 +200,6 @@ func (m *RelayManager) handleConnection(
 		return
 	}
 
-	nodeID := ""
-
 	// Get server ID from context
 	serverID, ok := ctx.Value(httpapi.ContextServerID).(registry.ID)
 	if !ok || serverID.String() == "" {
@@ -166,7 +207,6 @@ func (m *RelayManager) handleConnection(
 		m.safeClose(conn, websocket.StatusInternalError, "Server ID not found in context", connLogger)
 		return
 	}
-	hostID := serverID.String()
 
 	// Get transcoder from context
 	dtt := payload.GetTranscoder(ctx)
@@ -178,8 +218,8 @@ func (m *RelayManager) handleConnection(
 
 	// Create a unique Target for this WebSocket connection
 	wsPID := pubsub.PID{
-		Node:   nodeID,
-		Host:   hostID,
+		Node:   node.ID(),
+		Host:   serverID.String(),
 		ID:     registry.ParseID("ws:conn"),
 		UniqID: m.idGen.Generate(),
 	}
@@ -211,8 +251,37 @@ func (m *RelayManager) handleConnection(
 	currentTargetPID.Store(targetPID)
 	currentMessageTopic.Store(messageTopic)
 
+	// Create connection metadata
+	connectionMetadata := &ConnectionMetadata{
+		ConnectedAt: time.Now(),
+		LastPongAt:  time.Now(),
+		CustomData:  relayConfig.ConnectionMetadata,
+	}
+
+	// Set up ping interval
+	var pingInterval time.Duration
+	if relayConfig.PingInterval != "" {
+		var parseErr error
+		pingInterval, parseErr = time.ParseDuration(relayConfig.PingInterval)
+		if parseErr != nil {
+			connLogger.Warn("Invalid ping interval format, using default",
+				zap.String("provided", relayConfig.PingInterval),
+				zap.Error(parseErr))
+			pingInterval = DefaultPingInterval
+		}
+	} else {
+		pingInterval = DefaultPingInterval
+	}
+
+	// Create the join payload with connection metadata
+	joinPayload := payload.NewPayload(map[string]interface{}{
+		"ws_pid":    wsPID,
+		"metadata":  connectionMetadata,
+		"reconnect": false,
+	}, payload.JSON)
+
 	// Send a join notification to the target Target
-	joinMsg := pubsub.NewPackage(wsPID, targetPID, WSJoinTopic, payload.New(wsPID))
+	joinMsg := pubsub.NewPackage(wsPID, targetPID, WSJoinTopic, joinPayload)
 	if err := node.Send(joinMsg); err != nil {
 		connLogger.Error("Error sending join message", zap.Error(err))
 		m.safeClose(conn, websocket.StatusInternalError, "Error sending join message", connLogger)
@@ -223,6 +292,10 @@ func (m *RelayManager) handleConnection(
 	var wg sync.WaitGroup
 	wg.Add(2)
 
+	// Set up ping ticker
+	pingTicker := time.NewTicker(pingInterval)
+	defer pingTicker.Stop()
+
 	// Start handler for messages from pubsub to WebSocket
 	go func() {
 		defer wg.Done()
@@ -231,6 +304,40 @@ func (m *RelayManager) handleConnection(
 			select {
 			case <-wsCtx.Done():
 				return
+
+			case <-pingTicker.C:
+				// Send ping to client
+				pingData := map[string]interface{}{
+					"type":      "ping",
+					"timestamp": time.Now().UnixNano(),
+					"server_ts": time.Now().Format(time.RFC3339Nano),
+				}
+
+				pingJSON, err := json.Marshal(pingData)
+				if err != nil {
+					connLogger.Error("Error encoding ping message", zap.Error(err))
+					continue
+				}
+
+				if err := conn.Write(wsCtx, websocket.MessageText, pingJSON); err != nil {
+					connLogger.Error("Error sending ping to WebSocket", zap.Error(err))
+					wsCancel()
+					return
+				}
+
+				// Also send ping to target
+				currentTarget := currentTargetPID.Load().(pubsub.PID)
+				pingPayload := payload.NewPayload(map[string]interface{}{
+					"ws_pid":    wsPID.String(),
+					"metadata":  *connectionMetadata,
+					"ping_time": time.Now(),
+				}, payload.JSON)
+
+				pingMsg := pubsub.NewPackage(wsPID, currentTarget, WSPingTopic, pingPayload)
+				if err := node.Send(pingMsg); err != nil {
+					connLogger.Warn("Error sending ping to target", zap.Error(err))
+				}
+
 			case pkg, ok := <-msgCh:
 				if !ok {
 					connLogger.Debug("Message channel closed")
@@ -248,15 +355,44 @@ func (m *RelayManager) handleConnection(
 
 						// Update configuration
 						if command.TargetPID != "" {
+							oldTargetPID := currentTargetPID.Load().(pubsub.PID)
 							newTargetPID, err := pubsub.ParsePID(command.TargetPID)
 							if err != nil {
-								connLogger.Error("Invalid target Target in control command",
+								connLogger.Error("Invalid target PID in control command",
 									zap.Error(err),
 									zap.String("pid", command.TargetPID))
 								continue
 							}
+
+							// Only send leave/join if the target actually changed
+							if oldTargetPID.String() != newTargetPID.String() {
+								// Send leave notification to old target
+								leavePayload := payload.NewPayload(map[string]interface{}{
+									"ws_pid":   wsPID,
+									"metadata": connectionMetadata,
+									"reason":   "Target PID changed",
+								}, payload.JSON)
+
+								leaveMsg := pubsub.NewPackage(wsPID, oldTargetPID, WSLeaveTopic, leavePayload)
+								if err := node.Send(leaveMsg); err != nil {
+									connLogger.Error("Error sending leave message on PID change", zap.Error(err))
+								}
+
+								// Send join notification to new target
+								joinPayload := payload.NewPayload(map[string]interface{}{
+									"ws_pid":    wsPID,
+									"metadata":  connectionMetadata,
+									"reconnect": false,
+								}, payload.JSON)
+
+								joinMsg := pubsub.NewPackage(wsPID, newTargetPID, WSJoinTopic, joinPayload)
+								if err := node.Send(joinMsg); err != nil {
+									connLogger.Error("Error sending join message on PID change", zap.Error(err))
+								}
+							}
+
 							currentTargetPID.Store(newTargetPID)
-							connLogger.Info("Updated target Target", zap.String("newTargetPID", newTargetPID.String()))
+							connLogger.Info("Updated target PID", zap.String("newTargetPID", newTargetPID.String()))
 						}
 
 						if command.MessageTopic != "" {
@@ -264,12 +400,50 @@ func (m *RelayManager) handleConnection(
 							connLogger.Info("Updated message topic", zap.String("newTopic", command.MessageTopic))
 						}
 
+						if command.PingInterval != "" {
+							newInterval, err := time.ParseDuration(command.PingInterval)
+							if err != nil {
+								connLogger.Error("Invalid ping interval in control command",
+									zap.Error(err),
+									zap.String("interval", command.PingInterval))
+							} else {
+								pingInterval = newInterval
+								pingTicker.Reset(pingInterval)
+								connLogger.Info("Updated ping interval", zap.Duration("newInterval", pingInterval))
+							}
+						}
+
+						if command.ConnectionMetadata != nil {
+							connectionMetadata.CustomData = command.ConnectionMetadata
+							connLogger.Info("Updated connection metadata")
+						}
+
 						continue
 					}
 
 					// Handle close messages
 					if msg.Topic == WSCloseTopic {
-						connLogger.Info("Received close command from server")
+						closeReason := "Connection closed by server"
+						closeCode := websocket.StatusNormalClosure
+
+						// Extract close reason and code if provided
+						if len(msg.Payloads) > 0 {
+							var closeCommand CloseCommand
+							if err := dtt.Unmarshal(msg.Payloads[0], &closeCommand); err == nil {
+								if closeCommand.Reason != "" {
+									closeReason = closeCommand.Reason
+								}
+								if closeCommand.Code != 0 {
+									closeCode = websocket.StatusCode(closeCommand.Code)
+								}
+							}
+						}
+
+						connLogger.Info("Received close command from server",
+							zap.String("reason", closeReason),
+							zap.Int("code", int(closeCode)))
+
+						m.safeClose(conn, closeCode, closeReason, connLogger)
 						wsCancel() // Trigger clean shutdown
 						return
 					}
@@ -298,11 +472,36 @@ func (m *RelayManager) handleConnection(
 						// Extract data based on format
 						switch jsonPayload.Format() {
 						case payload.JSON:
-							data = []byte(jsonPayload.Data().(string))
+							// Fix the panic by correctly handling JSON data
+							switch v := jsonPayload.Data().(type) {
+							case []byte:
+								data = v
+							case string:
+								data = []byte(v)
+							default:
+								// If it's not already a string or []byte, marshal it
+								jsonBytes, err := json.Marshal(jsonPayload.Data())
+								if err != nil {
+									connLogger.Error("Error marshaling JSON payload", zap.Error(err))
+									continue
+								}
+								data = jsonBytes
+							}
 						case payload.String:
-							data = []byte(jsonPayload.Data().(string))
+							switch v := jsonPayload.Data().(type) {
+							case string:
+								data = []byte(v)
+							default:
+								data = []byte(fmt.Sprintf("%v", v))
+							}
 						case payload.Bytes:
-							data = jsonPayload.Data().([]byte)
+							switch v := jsonPayload.Data().(type) {
+							case []byte:
+								data = v
+							default:
+								connLogger.Error("Expected bytes payload but got different type")
+								continue
+							}
 							msgType = websocket.MessageBinary
 						default:
 							connLogger.Error("Unsupported payload format after transcoding",
@@ -345,6 +544,53 @@ func (m *RelayManager) handleConnection(
 					return
 				}
 
+				// Check if message is a pong response to our ping
+				if msgType == websocket.MessageText {
+					var msgObj map[string]interface{}
+					if err := json.Unmarshal(data, &msgObj); err == nil {
+						// Handle pong response
+						if msgType, ok := msgObj["type"].(string); ok && msgType == "pong" {
+							// Update last pong time
+							connectionMetadata.LastPongAt = time.Now()
+
+							// Forward pong to target
+							currentTarget := currentTargetPID.Load().(pubsub.PID)
+							pongPayload := payload.NewPayload(map[string]interface{}{
+								"ws_pid":    wsPID.String(),
+								"metadata":  connectionMetadata,
+								"client_ts": msgObj["client_ts"],
+								"server_ts": msgObj["server_ts"],
+								"pong_time": time.Now(),
+							}, payload.JSON)
+
+							pongMsg := pubsub.NewPackage(wsPID, currentTarget, WSPongTopic, pongPayload)
+							if err := node.Send(pongMsg); err != nil {
+								connLogger.Warn("Error sending pong to target", zap.Error(err))
+							}
+							continue // Skip normal message handling
+						}
+
+						// Handle healthcheck
+						if msgType, ok := msgObj["type"].(string); ok && msgType == "healthcheck" {
+							// Forward healthcheck to target with connection metadata
+							healthcheckData := map[string]interface{}{
+								"ws_pid":      wsPID.String(),
+								"metadata":    connectionMetadata,
+								"client_data": msgObj,
+							}
+
+							currentTarget := currentTargetPID.Load().(pubsub.PID)
+							healthcheckPayload := payload.NewPayload(healthcheckData, payload.JSON)
+							healthcheckMsg := pubsub.NewPackage(wsPID, currentTarget, WSHealthcheckTopic, healthcheckPayload)
+
+							if err := node.Send(healthcheckMsg); err != nil {
+								connLogger.Error("Error sending healthcheck", zap.Error(err))
+							}
+							continue // Skip normal message handling
+						}
+					}
+				}
+
 				// Convert to pubsub payload
 				var payloadData payload.Payload
 
@@ -372,15 +618,20 @@ func (m *RelayManager) handleConnection(
 	// Wait for handlers to complete
 	wg.Wait()
 
-	// Send a leave notification to the target Target
-	leaveMsg := pubsub.NewPackage(wsPID, currentTargetPID.Load().(pubsub.PID), WSLeaveTopic, payload.New(wsPID))
+	// Send a leave notification to the target Target with reason
+	leavePayload := payload.NewPayload(map[string]interface{}{
+		"ws_pid":   wsPID,
+		"metadata": connectionMetadata,
+		"reason":   "Connection closed",
+	}, payload.JSON)
+
+	leaveMsg := pubsub.NewPackage(wsPID, currentTargetPID.Load().(pubsub.PID), WSLeaveTopic, leavePayload)
 	if err := node.Send(leaveMsg); err != nil {
 		connLogger.Error("Error sending leave message", zap.Error(err))
 	}
 
 	// Clean up
 	host.Detach(wsPID)
-	m.safeClose(conn, websocket.StatusNormalClosure, "Connection closed", connLogger)
 	connLogger.Info("websocket connection closed")
 }
 

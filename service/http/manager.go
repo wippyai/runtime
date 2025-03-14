@@ -17,7 +17,7 @@ import (
 // ServerFactoryAPI creates new server instances
 type ServerFactoryAPI interface {
 	// CreateServer creates a new HTTP server from the provided configuration
-	CreateServer(cfg *config.ServerConfig) (Server, error)
+	CreateServer(id registry.ID, cfg *config.ServerConfig) (Server, error)
 }
 
 // EndpointFactoryAPI defines the interface for creating endpoint handlers
@@ -222,7 +222,7 @@ func (m *Manager) handleServerCreate(ctx context.Context, entry registry.Entry) 
 		return err
 	}
 
-	server, err := m.serverFactory.CreateServer(cfg)
+	server, err := m.serverFactory.CreateServer(entry.ID, cfg)
 	if err != nil {
 		return err
 	}

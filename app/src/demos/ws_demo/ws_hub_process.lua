@@ -19,22 +19,22 @@ local function run()
     print("WebSocket Hub started with PID:", process.pid())
 
     -- Create channels for events
-    local inbox = process.inbox()             -- For getting messages from the relay
-    local ticker = time.ticker("1s")          -- For sending periodic updates
-    local events = process.events()           -- For process lifecycle events
+    local inbox = process.inbox()    -- For getting messages from the relay
+    local ticker = time.ticker("1s") -- For sending periodic updates
+    local events = process.events()  -- For process lifecycle events
 
     -- Set process options
     process.set_options({
-        trap_links = true  -- We want to handle link downs
+        trap_links = true -- We want to handle link downs
     })
 
     -- Main event loop
     local running = true
     while running do
         local result = channel.select({
-            inbox:case_receive(),         -- Messages from clients
+            inbox:case_receive(),            -- Messages from clients
             ticker:channel():case_receive(), -- Ticker for periodic broadcast
-            events:case_receive()         -- System events
+            events:case_receive()            -- System events
         })
 
         if result.channel == inbox then
@@ -52,20 +52,12 @@ local function run()
                 state.connected_clients[client_pid] = true
                 state.client_count = state.client_count + 1
 
-                -- Send handshake response with configuration
-                process.send(client_pid, "ws.control", {
-                    message_topic = "ws.message",  -- Use default or specify custom topic
-                    -- Uncomment to redirect to another PID
-                    -- target_pid = process.pid() -- Keep the same target or specify a new one
-                })
-
                 -- Send welcome message to this client
-                process.send(client_pid, "ws.message", {
+                print(process.send(client_pid, "ws.message", {
                     type = "welcome",
                     message = "Welcome to the WebSocket Hub!",
                     clients = state.client_count
-                })
-
+                }))
             elseif topic == "ws.leave" then
                 -- Client disconnected
                 local client_pid = payload
@@ -76,7 +68,6 @@ local function run()
                     state.connected_clients[client_pid] = nil
                     state.client_count = state.client_count - 1
                 end
-
             elseif topic == "ws.message" then
                 -- Message from client, echo it back to all clients
                 print("Received message from client:", payload)
@@ -91,7 +82,6 @@ local function run()
                     })
                 end
             end
-
         elseif result.channel == ticker:channel() then
             -- Time to send a periodic update to all clients
             state.message_count = state.message_count + 1
@@ -114,9 +104,9 @@ local function run()
                 state.message_count, state.client_count))
 
             for client_pid, _ in pairs(state.connected_clients) do
+            print(client_pid)
                 process.send(client_pid, "ws.message", update)
             end
-
         elseif result.channel == events then
             -- Process a system event
             local event = result.value

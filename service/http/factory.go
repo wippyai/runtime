@@ -192,14 +192,7 @@ func NewServerFactory(middlewareFactory MiddlewareAPI) *ServerFactory {
 }
 
 // CreateServer creates a new HTTP server from the provided configuration
-func (f *ServerFactory) CreateServer(cfg *config.ServerConfig) (Server, error) {
-	// Create a new ID for the server
-	id := registry.ParseID(cfg.Meta.StringValue("id"))
-	if id.Name == "" {
-		// Generate a default ID if none provided
-		id = registry.ID{NS: "http", Name: "server"}
-	}
-
+func (f *ServerFactory) CreateServer(id registry.ID, cfg *config.ServerConfig) (Server, error) {
 	return NewServerService(id, cfg, f.middlewareFactory), nil
 }
 
