@@ -63,7 +63,7 @@ func NewTerminalRunner(
 		cfg:    cfg,
 	}
 
-	// Start the process with the runner's context.
+	// Serve the process with the runner's context.
 	if err := runner.proc.Start(runnerCtx, launch.PID, launch.Input); err != nil {
 		cancel()
 		return nil, err

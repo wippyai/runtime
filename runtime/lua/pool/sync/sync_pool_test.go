@@ -300,7 +300,7 @@ func TestPool_ParallelExecution(t *testing.T) {
 // //
 // //		// Launch the job
 // //		go func() {
-// //			result, err := p.Start(context.Background(), "sleep_test", lua.LNil)
+// //			result, err := p.Serve(context.Background(), "sleep_test", lua.LNil)
 // //			if err != nil {
 // //				errorChan <- err
 // //				return

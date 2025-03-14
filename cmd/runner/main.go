@@ -536,7 +536,7 @@ func main() {
 	// collect gc
 	runtime.GC()
 
-	// Start profiler if enabled
+	// Serve profiler if enabled
 	if *enableProfiling {
 		app.StartProfiler()
 	}

@@ -583,7 +583,7 @@ func TestFSGet(t *testing.T) {
 	`, "test", "test_fs_get")
 	require.NoError(t, err, "Failed to import test function")
 
-	// Start the function using the runner
+	// Serve the function using the runner
 	result, err := runner.Execute(L.Context(), "test_fs_get")
 	require.NoError(t, err, "Lua execution failed")
 

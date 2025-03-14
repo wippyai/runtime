@@ -94,7 +94,7 @@ func stmtQuery(l *lua.LState) int {
 		var rows *sql.Rows
 		var err error
 
-		// Start query with appropriate parameter style.
+		// Serve query with appropriate parameter style.
 		switch p := params.(type) {
 		case nil:
 			rows, err = stmt.stmt.Query()
@@ -161,7 +161,7 @@ func stmtExecute(l *lua.LState) int {
 		var result sql.Result
 		var err error
 
-		// Start with appropriate parameter style.
+		// Serve with appropriate parameter style.
 		switch p := params.(type) {
 		case nil:
 			result, err = stmt.stmt.Exec()

@@ -118,11 +118,11 @@ func TestServerService_Basic(t *testing.T) {
 		err = server.UpdateConfig(newCfg)
 		assert.NoError(t, err)
 
-		// Start the server with a timeout context
+		// Serve the server with a timeout context
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		// Start the server and wait for it to be ready
+		// Serve the server and wait for it to be ready
 		statusCh, startErr := server.Start(ctx)
 		require.NoError(t, startErr)
 		require.NotNil(t, statusCh)
@@ -309,7 +309,7 @@ func TestServerService_StartStop(t *testing.T) {
 	err = server.Rebuild(context.Background())
 	require.NoError(t, err)
 
-	// Start the server
+	// Serve the server
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -436,7 +436,7 @@ func TestServerService_Middleware(t *testing.T) {
 	err = server.Rebuild(context.Background())
 	require.NoError(t, err)
 
-	// Start the server
+	// Serve the server
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -596,7 +596,7 @@ func TestEnsureRunning(t *testing.T) {
 	middleware := NewDefaultMiddlewareFactory()
 	server := NewServerService(id, cfg, middleware)
 
-	// Start a separate HTTP server on that port to simulate our server already running
+	// Serve a separate HTTP server on that port to simulate our server already running
 	httpServer := &http.Server{
 		Addr: cfg.Addr,
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -674,7 +674,7 @@ func TestContextListener(t *testing.T) {
 	err = server.Rebuild(context.Background())
 	require.NoError(t, err)
 
-	// Start the server
+	// Serve the server
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 

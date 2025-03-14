@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"sync/atomic"
 	"time"
 
@@ -136,8 +135,8 @@ func NewConnection(
 	return conn, nil
 }
 
-// Start begins processing WebSocket communication
-func (c *Connection) Start() {
+// Serve begins processing WebSocket communication
+func (c *Connection) Serve() {
 	// Send initial join notification with metadata
 	if err := c.sendJoinNotification(c.currentTargetPID); err != nil {
 		c.logger.Error("Failed to send join notification", zap.Error(err))
@@ -145,7 +144,7 @@ func (c *Connection) Start() {
 		return
 	}
 
-	// Start a goroutine to handle reading from WebSocket (client -> pubsub)
+	// Serve a goroutine to handle reading from WebSocket (client -> pubsub)
 	go c.handleWebSocketRead()
 
 	// Main loop to process messages
@@ -159,7 +158,6 @@ func (c *Connection) processMessages() {
 	for {
 		select {
 		case <-c.ctx.Done():
-			log.Printf("DONE")
 			return
 
 		case <-c.readDone:

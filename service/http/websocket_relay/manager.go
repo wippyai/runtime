@@ -130,7 +130,7 @@ func (m *RelayManager) Middleware(h http.Handler) http.Handler {
 			host,
 			node,
 			transcoder,
-			m.idGen, // Pass the RelayManager's idGen
+			m.idGen,
 			logger,
 		)
 
@@ -144,6 +144,6 @@ func (m *RelayManager) Middleware(h http.Handler) http.Handler {
 		}
 
 		// Handle the WebSocket connection in a separate goroutine
-		go wsConn.Start()
+		wsConn.Serve()
 	})
 }

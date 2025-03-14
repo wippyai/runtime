@@ -1469,7 +1469,7 @@ func TestController_RetryDelay(t *testing.T) {
 	ctr := NewController(ctx, mock, config, func(status supervisor.Status, _ any) {})
 	err := ctr.Start()
 	if err == nil {
-		t.Fatal("Expected error from Start() due to immediate failure, got nil")
+		t.Fatal("Expected error from Serve() due to immediate failure, got nil")
 	}
 	// Wait for retries to occur.
 	time.Sleep(1 * time.Second)

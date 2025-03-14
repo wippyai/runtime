@@ -241,7 +241,7 @@ func (h *Host) Start(ctx context.Context) (<-chan any, error) {
 
 // startMessageWorkers spawns worker goroutines to process routing messages.
 func (h *Host) startMessageWorkers() {
-	// Start one worker per message queue for load balancing
+	// Serve one worker per message queue for load balancing
 	for i := 0; i < len(h.msgQueues); i++ {
 		h.msgWG.Add(1)
 		queue := h.msgQueues[i]

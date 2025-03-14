@@ -171,11 +171,11 @@ func (a *App) Start(ctx context.Context, pid pubsub.PID, input payload.Payloads)
 			a.Terminate()
 		}()
 
-		// Start processing upstream messages
+		// Serve processing upstream messages
 		go a.processUpstream()
 	}
 
-	// Start the Lua function
+	// Serve the Lua function
 	return a.state.Start(input, onStartFunc)
 }
 
@@ -216,7 +216,7 @@ func (a *App) scheduleCancel() {
 			a.state.Log.Error("failed to send cancel event", zap.Error(err))
 		}
 
-		// Start a timer to force termination if not already terminating
+		// Serve a timer to force termination if not already terminating
 		select {
 		case <-time.After(stopTimeout):
 			a.state.Log.Debug("cancellation timeout reached, forcing termination")

@@ -370,7 +370,7 @@ func (m *Module) spawn(l *lua.LState) int {
 		},
 	}
 
-	// Start the process
+	// Serve the process
 	pid, err := manager.Start(l.Context(), start)
 	if err != nil {
 		l.Push(lua.LNil)
@@ -437,7 +437,7 @@ func (m *Module) spawnMonitored(l *lua.LState) int {
 		},
 	}
 
-	// Start the process with monitoring
+	// Serve the process with monitoring
 	pid, err := manager.Start(uw.Context(), start)
 	if err != nil {
 		l.Push(lua.LNil)
@@ -497,7 +497,7 @@ func (m *Module) spawnLinked(l *lua.LState) int {
 		},
 	}
 
-	// Start the process with linking
+	// Serve the process with linking
 	pid, err := manager.Start(l.Context(), start)
 	if err != nil {
 		l.Push(lua.LNil)
@@ -557,7 +557,7 @@ func (m *Module) spawnLinkedMonitored(l *lua.LState) int {
 		},
 	}
 
-	// Start the process with linking
+	// Serve the process with linking
 	pid, err := manager.Start(l.Context(), start)
 	if err != nil {
 		l.Push(lua.LNil)

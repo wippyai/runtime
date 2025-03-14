@@ -62,7 +62,7 @@ func (m *MemoryStore) Start(ctx context.Context) (<-chan any, error) {
 		return nil, store.ErrStoreClosed
 	}
 
-	// Start cleanup goroutine if cleanup interval is set
+	// Serve cleanup goroutine if cleanup interval is set
 	if m.config.CleanupInterval > 0 {
 		m.wg.Add(1)
 		go m.cleanupLoop(ctx)

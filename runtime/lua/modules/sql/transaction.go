@@ -101,7 +101,7 @@ func txQuery(l *lua.LState) int {
 		var rows *sql.Rows
 		var err error
 
-		// Start query with appropriate parameter style
+		// Serve query with appropriate parameter style
 		switch p := params.(type) {
 		case nil:
 			rows, err = tx.tx.Query(query)
@@ -171,7 +171,7 @@ func txExecute(l *lua.LState) int {
 		var result sql.Result
 		var err error
 
-		// Start with appropriate parameter style
+		// Serve with appropriate parameter style
 		switch p := params.(type) {
 		case nil:
 			result, err = tx.tx.Exec(query)

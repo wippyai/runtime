@@ -344,7 +344,7 @@ func TestFlexPool_Concurrency(t *testing.T) {
 
 	ctx := setupTestContext(context.Background())
 
-	// Start time
+	// Serve time
 	start := time.Now()
 
 	// Launch 6 jobs that each take about 100ms

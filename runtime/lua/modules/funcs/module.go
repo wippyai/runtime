@@ -226,7 +226,7 @@ func (m *Module) async(l *lua.LState) int {
 		return 0
 	}
 
-	// Start the function execution in a goroutine
+	// Serve the function execution in a goroutine
 	uw := engine.GetUnitOfWork(l.Context())
 	if uw == nil {
 		l.RaiseError("no unit of work context found")

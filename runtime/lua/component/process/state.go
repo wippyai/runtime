@@ -133,7 +133,7 @@ func (s *State) Start(input payload.Payloads, onStart func()) error {
 		return err
 	}
 
-	// Start the Lua function
+	// Serve the Lua function
 	s.resultCh, err = s.Runner.Start(s.Ctx, s.FuncName, args...)
 	if err != nil {
 		return err

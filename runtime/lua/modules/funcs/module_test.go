@@ -94,7 +94,7 @@ func TestExecutorModule(t *testing.T) {
 		ctx = payload.WithTranscoder(ctx, tr)
 		ctx = function.WithFunctions(ctx, mockExec)
 
-		// Start test
+		// Serve test
 		result, err := wrapped.Execute(ctx, "test_call")
 		require.NoError(t, err)
 		assert.Equal(t, "success", result.String())
