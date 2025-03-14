@@ -90,7 +90,7 @@ func TestExecutor_MegaCommand(t *testing.T) {
 
 func TestExecutor_Stdout(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
-	executor := NewNativeExecutor(logger, WithCmd("echo 'hello world'"))
+	executor := NewNativeExecutor(logger, WithCmd("sleep 1 && echo 'hello world'"))
 
 	err := executor.Start()
 	assert.NoError(t, err)
