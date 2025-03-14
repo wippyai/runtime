@@ -52,6 +52,13 @@ local function run()
                 state.connected_clients[client_pid] = true
                 state.client_count = state.client_count + 1
 
+                -- Send handshake response with configuration
+                process.send(client_pid, "ws.control", {
+                    message_topic = "ws.message",  -- Use default or specify custom topic
+                    -- Uncomment to redirect to another PID
+                    -- target_pid = process.pid() -- Keep the same target or specify a new one
+                })
+
                 -- Send welcome message to this client
                 process.send(client_pid, "ws.message", {
                     type = "welcome",
@@ -114,10 +121,10 @@ local function run()
             -- Process a system event
             local event = result.value
 
-            if event.event.kind == process.event.CANCEL then
+            if event.kind == process.event.CANCEL then
                 print("WebSocket Hub received cancel request")
                 running = false
-            elseif event.event.kind == process.event.LINK_DOWN then
+            elseif event.kind == process.event.LINK_DOWN then
                 print("Link down event from:", event.event.from)
             end
         end

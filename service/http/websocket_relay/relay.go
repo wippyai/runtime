@@ -10,10 +10,10 @@ import (
 	httpapi "github.com/ponyruntime/pony/api/service/http"
 	"github.com/ponyruntime/pony/internal/uniqid"
 	"go.uber.org/zap"
-	"log"
 	"net/http"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // Constants for the WebSocket relay
@@ -35,6 +35,9 @@ const (
 
 	// WSCloseTopic is the topic for close signals (any message to close the connection)
 	WSCloseTopic pubsub.Topic = "ws.close"
+
+	// HandshakeTimeout is the timeout for the initial handshake with the process
+	HandshakeTimeout = 5 * time.Second
 )
 
 // RelayCommand holds the configuration for a WebSocket relay request, can be send at start or into ws.control
@@ -70,11 +73,10 @@ func (m *RelayManager) Middleware(h http.Handler) http.Handler {
 
 		// Check if the handler added our special header to the response
 		relayConfigStr := wrappedWriter.Header().Get(WSRelayHeader)
-		log.Printf("RRRRRRRRRR")
-
 		if relayConfigStr == "" {
 			return // not our business
 		}
+		w.Header().Del(WSRelayHeader)
 
 		// Get context logger and add request info
 		logger := m.logger.With(
@@ -113,7 +115,7 @@ func (m *RelayManager) Middleware(h http.Handler) http.Handler {
 			return
 		}
 
-		// Handle the WebSocket connection
+		// Handle the WebSocket connection with the request context
 		go m.handleConnection(r.Context(), conn, targetPID, messageTopic)
 	})
 }
@@ -133,12 +135,12 @@ func (m *RelayManager) handleConnection(
 	ctx context.Context,
 	conn *websocket.Conn,
 	targetPID pubsub.PID,
-	messageTopic string,
+	messageTopic pubsub.Topic,
 ) {
 	// Create logger with connection info
 	connLogger := m.logger.With(
 		zap.String("targetPID", targetPID.String()),
-		zap.String("topic", messageTopic),
+		zap.String("topic", string(messageTopic)),
 	)
 
 	// Get host from context
@@ -200,15 +202,6 @@ func (m *RelayManager) handleConnection(
 	}
 	defer cancel()
 
-	// Send a join notification to the target PID
-	joinMsg := pubsub.NewPackage(targetPID, WSJoinTopic, payload.New(wsPID))
-
-	if err := node.Send(joinMsg); err != nil {
-		connLogger.Error("Error sending join message", zap.Error(err))
-		m.safeClose(conn, websocket.StatusInternalError, "Failed to send join message", connLogger)
-		return
-	}
-
 	// Create a context with cancellation for the WebSocket handlers
 	wsCtx, wsCancel := context.WithCancel(ctx)
 	defer wsCancel()
@@ -220,7 +213,99 @@ func (m *RelayManager) handleConnection(
 	currentTargetPID.Store(targetPID)
 	currentMessageTopic.Store(messageTopic)
 
-	// Create a WaitGroup for the handlers
+	// Handshake with the target process
+	// Create a handshake timeout context
+	handshakeCtx, handshakeCancel := context.WithTimeout(wsCtx, HandshakeTimeout)
+	defer handshakeCancel()
+
+	// Create a channel for the handshake response
+	handshakeDone := make(chan bool)
+
+	// Set up a goroutine to handle the handshake
+	go func() {
+		success := false
+		defer func() {
+			handshakeDone <- success
+			close(handshakeDone)
+		}()
+
+		// Send a join notification to the target PID
+		joinMsg := pubsub.NewPackage(targetPID, WSJoinTopic, payload.New(wsPID))
+		if err := node.Send(joinMsg); err != nil {
+			connLogger.Error("Error sending join message", zap.Error(err))
+			return
+		}
+
+		// Wait for control message as the handshake response
+		for {
+			select {
+			case <-handshakeCtx.Done():
+				// Handshake timed out
+				connLogger.Error("Handshake timed out, closing connection")
+				return
+
+			case pkg, ok := <-msgCh:
+				if !ok {
+					connLogger.Debug("Message channel closed during handshake")
+					return
+				}
+
+				for _, msg := range pkg.Messages {
+					// Handle control message (our handshake response)
+					if msg.Topic == WSControlTopic && len(msg.Payloads) > 0 {
+						var command RelayCommand
+						if err := dtt.Unmarshal(msg.Payloads[0], &command); err != nil {
+							connLogger.Error("Failed to unmarshal control payload", zap.Error(err))
+							continue
+						}
+
+						// Update configuration from handshake
+						if command.TargetPID != "" {
+							newTargetPID, err := pubsub.ParsePID(command.TargetPID)
+							if err != nil {
+								connLogger.Error("Invalid target PID in handshake",
+									zap.Error(err),
+									zap.String("pid", command.TargetPID))
+							} else {
+								currentTargetPID.Store(newTargetPID)
+								connLogger.Info("Updated target PID from handshake",
+									zap.String("newTargetPID", newTargetPID.String()))
+							}
+						}
+
+						if command.MessageTopic != "" {
+							currentMessageTopic.Store(command.MessageTopic)
+							connLogger.Info("Updated message topic from handshake",
+								zap.String("newTopic", command.MessageTopic))
+						}
+
+						// Handshake complete, exit the goroutine with success
+						success = true
+						return
+					}
+				}
+			}
+		}
+	}()
+
+	// Wait for handshake to complete or timeout
+	var handshakeSuccess bool
+	select {
+	case handshakeSuccess = <-handshakeDone:
+		if handshakeSuccess {
+			connLogger.Info("Handshake completed successfully")
+		} else {
+			connLogger.Error("Handshake failed")
+			m.safeClose(conn, websocket.StatusInternalError, "Handshake failed", connLogger)
+			return
+		}
+	case <-handshakeCtx.Done():
+		connLogger.Error("Handshake context cancelled")
+		m.safeClose(conn, websocket.StatusInternalError, "Handshake timeout", connLogger)
+		return
+	}
+
+	// Create a WaitGroup for the main handlers
 	var wg sync.WaitGroup
 	wg.Add(2)
 
@@ -242,18 +327,8 @@ func (m *RelayManager) handleConnection(
 					// Handle control messages (reconfiguration)
 					if msg.Topic == WSControlTopic && len(msg.Payloads) > 0 {
 						var command RelayCommand
-						p := msg.Payloads[0]
-
-						// Try to convert to JSON if not already
-						jsonPayload, err := dtt.Transcode(p, payload.JSON)
-						if err != nil {
-							connLogger.Error("Failed to transcode control payload", zap.Error(err))
-							continue
-						}
-
-						// Parse control command
-						if err := json.Unmarshal([]byte(jsonPayload.Data().(string)), &command); err != nil {
-							connLogger.Error("Invalid control command", zap.Error(err))
+						if err := dtt.Unmarshal(msg.Payloads[0], &command); err != nil {
+							connLogger.Error("Failed to unmarshal control payload", zap.Error(err))
 							continue
 						}
 
