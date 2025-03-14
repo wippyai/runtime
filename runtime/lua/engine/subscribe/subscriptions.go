@@ -2,8 +2,9 @@ package subscribe
 
 import (
 	"fmt"
-	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	"sync"
+
+	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 )
 
 type subscription struct {

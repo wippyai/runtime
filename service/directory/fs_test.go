@@ -1,12 +1,13 @@
 package directory
 
 import (
-	"github.com/ponyruntime/pony/tests/tempfiles"
 	"io"
 	iofs "io/fs"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/ponyruntime/pony/tests/tempfiles"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

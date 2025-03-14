@@ -3,6 +3,10 @@ package resource
 import (
 	"context"
 	"fmt"
+	"sync"
+	"testing"
+	"time"
+
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/resource"
@@ -10,9 +14,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
-	"sync"
-	"testing"
-	"time"
 )
 
 func setupTest() (*Registry, event.Bus) {
@@ -302,7 +303,7 @@ func TestService_ContextCancellation(t *testing.T) {
 	// Cancel context before acquire
 	cancel()
 
-	// Attempt to acquire resource with cancelled context
+	// Attempt to acquire resource with canceled context
 	_, err := service.Acquire(ctx, id, resource.ModeExclusive)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "context canceled")

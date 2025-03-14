@@ -187,7 +187,7 @@ func TestUpstreamModule(t *testing.T) {
 				`, rune('A'+n))
 
 				if err := vm.DoString(ctx, script, "test"); err != nil {
-					errCh <- fmt.Errorf("goroutine %d error: %v", n, err)
+					errCh <- fmt.Errorf("goroutine %d error: %w", n, err)
 				}
 			}(i)
 		}

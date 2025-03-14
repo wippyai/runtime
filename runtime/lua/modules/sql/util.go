@@ -3,8 +3,9 @@ package sql
 import (
 	"database/sql"
 	"fmt"
-	luaconv "github.com/ponyruntime/pony/system/payload/lua"
 	"time"
+
+	luaconv "github.com/ponyruntime/pony/system/payload/lua"
 
 	lua "github.com/yuin/gopher-lua"
 )

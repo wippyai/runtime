@@ -3,11 +3,12 @@ package treesitter
 import (
 	"context"
 	"fmt"
+	"regexp"
+
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	treesitter "github.com/tree-sitter/go-tree-sitter"
 	lua "github.com/yuin/gopher-lua"
-	"regexp"
 )
 
 // QueryWrapper wraps a tree-sitter Query and QueryCursor for Lua integration

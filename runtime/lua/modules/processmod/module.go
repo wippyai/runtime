@@ -2,6 +2,8 @@ package processmod
 
 import (
 	"fmt"
+	"strings"
+
 	"github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/topology"
 	"github.com/ponyruntime/pony/runtime/lua/component/process"
@@ -10,7 +12,6 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/engine/subscribe"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
-	"strings"
 )
 
 // Channel context keys for UoW storage
@@ -92,7 +93,6 @@ func (m *Module) getOptions(l *lua.LState) int {
 
 	l.Push(options)
 	return 1
-
 }
 
 // setOptions configures process options

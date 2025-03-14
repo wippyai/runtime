@@ -2,9 +2,10 @@ package channel
 
 import (
 	"fmt"
+	"strings"
+
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
-	"strings"
 
 	lua "github.com/yuin/gopher-lua"
 )

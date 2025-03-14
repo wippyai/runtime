@@ -2,6 +2,7 @@ package registry
 
 import (
 	"fmt"
+
 	regapi "github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"github.com/ponyruntime/pony/system/registry"

@@ -4,9 +4,10 @@ import (
 	"container/list"
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/runtime/lua/engine/errors"
 	"strings"
 	"sync"
+
+	"github.com/ponyruntime/pony/runtime/lua/engine/errors"
 
 	lua "github.com/yuin/gopher-lua"
 	"github.com/yuin/gopher-lua/parse"
@@ -292,7 +293,6 @@ func (e *CoroutineVM) Step(tasks ...*Task) (result []*Task, finalErr error) {
 		if state == lua.ResumeYield {
 			yieldedTasks = append(yieldedTasks, task)
 		} else if state == lua.ResumeOK || state == lua.ResumeError {
-
 			if task.output != nil {
 				if top := task.thread.GetTop(); top > 0 {
 					task.output <- &Update{State: task.thread, Result: values}

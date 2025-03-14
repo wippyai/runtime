@@ -2,8 +2,9 @@ package logs
 
 import (
 	"context"
-	api "github.com/ponyruntime/pony/api/logs"
 	"testing"
+
+	api "github.com/ponyruntime/pony/api/logs"
 
 	"github.com/ponyruntime/pony/api/event"
 	"go.uber.org/zap/zapcore"

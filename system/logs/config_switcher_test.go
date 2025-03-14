@@ -2,9 +2,10 @@ package logs
 
 import (
 	"context"
-	logsapi "github.com/ponyruntime/pony/api/logs"
 	"testing"
 	"time"
+
+	logsapi "github.com/ponyruntime/pony/api/logs"
 
 	"go.uber.org/zap/zaptest/observer"
 

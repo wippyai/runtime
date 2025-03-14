@@ -4,9 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	baseprocess "github.com/ponyruntime/pony/runtime/lua/component/process"
 	"sync"
 	"time"
+
+	baseprocess "github.com/ponyruntime/pony/runtime/lua/component/process"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/ponyruntime/pony/api/payload"
@@ -183,14 +184,14 @@ func (a *App) setupContextWatchers() {
 	// Watch parent context (state.Ctx)
 	go func() {
 		<-a.state.Ctx.Done()
-		a.state.Log.Debug("parent context cancelled, terminating app")
+		a.state.Log.Debug("parent context canceled, terminating app")
 		a.Terminate()
 	}()
 
 	// Watch app context
 	go func() {
 		<-a.appCtx.Done()
-		a.state.Log.Debug("app context cancelled, quitting program")
+		a.state.Log.Debug("app context canceled, quitting program")
 		// Quit the program if not already quitting
 		if a.program != nil {
 			a.program.Quit()

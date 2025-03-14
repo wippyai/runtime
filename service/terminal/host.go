@@ -3,6 +3,10 @@ package terminal
 import (
 	"context"
 	"errors"
+	"os"
+	"sync/atomic"
+	"time"
+
 	ctxapi "github.com/ponyruntime/pony/api/context"
 	logsapi "github.com/ponyruntime/pony/api/logs"
 	"github.com/ponyruntime/pony/api/process"
@@ -13,9 +17,6 @@ import (
 	"github.com/ponyruntime/pony/api/topology"
 	"github.com/ponyruntime/pony/system/logs"
 	"go.uber.org/zap"
-	"os"
-	"sync/atomic"
-	"time"
 )
 
 type opType int

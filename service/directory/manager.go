@@ -3,13 +3,14 @@ package directory
 import (
 	"context"
 	"fmt"
+	"sync"
+
 	"github.com/ponyruntime/pony/api/event"
 	fsapi "github.com/ponyruntime/pony/api/fs"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"
 	dirapi "github.com/ponyruntime/pony/api/service/directory"
 	"go.uber.org/zap"
-	"sync"
 )
 
 // Manager handles filesystem directory registration and lifecycle

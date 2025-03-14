@@ -3,10 +3,11 @@ package supervisor
 import (
 	"context"
 	"fmt"
+	"sync"
+
 	processapi "github.com/ponyruntime/pony/api/service/supervisor"
 	"github.com/ponyruntime/pony/internal/config"
 	"github.com/ponyruntime/pony/system/process"
-	"sync"
 
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/payload"

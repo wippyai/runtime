@@ -4,9 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	config "github.com/ponyruntime/pony/api/service/sql"
 	"sync"
 	"sync/atomic"
+
+	config "github.com/ponyruntime/pony/api/service/sql"
 
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/resource"

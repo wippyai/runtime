@@ -2,9 +2,10 @@ package pubsub
 
 import (
 	"context"
-	api "github.com/ponyruntime/pony/api/pubsub"
 	"sync/atomic"
 	"testing"
+
+	api "github.com/ponyruntime/pony/api/pubsub"
 
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/stretchr/testify/assert"

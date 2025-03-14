@@ -1,10 +1,11 @@
 package protocol
 
 import (
+	"reflect"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	lua "github.com/yuin/gopher-lua"
-	"reflect"
 )
 
 // LuaModelWrapper wraps either userdata or table to implement tea.Model

@@ -3,6 +3,13 @@ package http
 import (
 	"context"
 	"fmt"
+	"io/fs"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"testing"
+
 	apifsLib "github.com/ponyruntime/pony/api/fs"
 	"github.com/ponyruntime/pony/api/function"
 	"github.com/ponyruntime/pony/api/payload"
@@ -11,12 +18,6 @@ import (
 	config "github.com/ponyruntime/pony/api/service/http"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"io/fs"
-	"net/http"
-	"net/http/httptest"
-	"os"
-	"path/filepath"
-	"testing"
 )
 
 // SimpleFunctionRegistry for testing

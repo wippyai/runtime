@@ -3,8 +3,9 @@ package directory
 import (
 	"errors"
 	"fmt"
-	"github.com/ponyruntime/pony/api/registry"
 	"io/fs"
+
+	"github.com/ponyruntime/pony/api/registry"
 )
 
 const Kind registry.Kind = "fs.directory"

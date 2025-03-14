@@ -3,14 +3,15 @@ package http
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"path"
+	"strings"
+
 	"github.com/ponyruntime/pony/api/fs"
 	"github.com/ponyruntime/pony/api/function"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/runtime"
 	config "github.com/ponyruntime/pony/api/service/http"
-	"net/http"
-	"path"
-	"strings"
 )
 
 // EndpointFactory creates HTTP handlers for function endpoints
