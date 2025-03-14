@@ -1,6 +1,7 @@
 package http
 
 import (
+	"errors"
 	"go.uber.org/zap"
 	"net/http"
 )
@@ -8,7 +9,7 @@ import (
 // MiddlewareAPI defines the interface for creating middleware handlers
 type MiddlewareAPI interface {
 	// CreateMiddleware creates a middleware handler from name and options
-	CreateMiddleware(name string, options map[string]string) func(http.Handler) http.Handler
+	CreateMiddleware(name string, options map[string]string) (func(http.Handler) http.Handler, error)
 }
 
 // MiddlewareFactory is the default implementation of MiddlewareAPI
@@ -62,15 +63,13 @@ func NewDefaultMiddlewareFactory(options ...MiddlewareFactoryOption) *Middleware
 }
 
 // CreateMiddleware creates a middleware handler from name and options
-func (f *MiddlewareFactory) CreateMiddleware(name string, options map[string]string) func(http.Handler) http.Handler {
+func (f *MiddlewareFactory) CreateMiddleware(name string, options map[string]string) (func(http.Handler) http.Handler, error) {
 	if creator, exists := f.middlewareMap[name]; exists {
 		handler := creator(options)
 		if handler != nil {
-			return handler
+			return handler, nil
 		}
-		f.logger.Debug("middleware creator returned nil handler", zap.String("middleware", name))
 	}
 
-	f.logger.Warn("middleware not found", zap.String("middleware", name))
-	return nil
+	return nil, errors.New("middleware not found: " + name)
 }

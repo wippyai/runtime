@@ -310,16 +310,16 @@ func (r *storeResource) Get() (any, error) {
 }
 
 // Release implements resource.Resource interface
-func (r *storeResource) Release() error {
+func (r *storeResource) Release() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	if r.closed {
-		return nil
+		return
 	}
 
 	r.closed = true
-	return nil
+	return
 }
 
 // Ensure MemoryStore implements all required interfaces

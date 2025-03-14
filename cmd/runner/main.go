@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/ponyruntime/pony/service/tokenstore"
 	httpbase "net/http"
 	"os"
 	"os/signal"
@@ -525,6 +526,7 @@ func main() {
 		WithYamlPolicies(app),
 		WithDirectoryManager(app),
 		WithHTTPService(app),
+		WithTokenStoreManager(app),
 		WithTerminalManager(app),
 		WithProcessSupervisor(app),
 		WithEphemeralHost(app),
@@ -632,6 +634,20 @@ func loadApplicationState(
 }
 
 // ---- Services ----
+func WithTokenStoreManager(a *App) eventbus.EventHandler {
+	// Create token store manager
+	manager := tokenstore.NewManager(
+		a.eventBus,
+		a.dtt,
+		a.resources,
+		a.security,
+		a.logger.Named("tokenstore"),
+	)
+
+	// Register manager for token store related entries
+	return reghandler.NewRegistryHandler("security.token_store", manager)
+}
+
 func WithHTTPService(a *App) eventbus.EventHandler {
 	// Create factories
 	endpointFactory, err := http.NewEndpointFactory(a.funcs)
@@ -671,6 +687,7 @@ func WithHTTPService(a *App) eventbus.EventHandler {
 
 		// WebSocket relay middleware
 		http.WithMiddleware("websocket_relay", relayManager.Middleware),
+		http.WithMiddlewareCreator(tokenstore.MiddlewareName, tokenstore.CreateTokenAuthMiddleware),
 	)
 
 	// Create manager with all required factories

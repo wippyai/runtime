@@ -10,16 +10,8 @@ entries:
     kind: security.policy
     meta:
       comment: "Global admin access policy"
-    groups: [ "admin" ]
+    groups: [ "global:admin" ]
     policy:
       actions: "*"
       resources: "*"
       effect: "allow"
-
-  - name: any_name
-    kind: registry.entry
-    meta:
-      comment: "Global admin access policy"
-    groups: [ "admin" ]
-    anything:
-      agent_id: 12122

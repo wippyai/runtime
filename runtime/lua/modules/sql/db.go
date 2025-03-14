@@ -35,7 +35,10 @@ func NewDB(uw engine.UnitOfWork, resource resource.Resource[any], db *sql.DB, db
 	}
 
 	// Register unconditional cleanup in UoW - directly pass resource.Release
-	dbWrapper.onRelease = uw.AddCleanup(resource.Release)
+	dbWrapper.onRelease = uw.AddCleanup(func() error {
+		resource.Release()
+		return nil
+	})
 
 	return dbWrapper
 }
@@ -130,13 +133,7 @@ func dbGet(l *lua.LState, log *zap.Logger) int {
 	// Get DB instance
 	dbRes, err := res.Get()
 	if err != nil {
-		// Release resource immediately since we failed
-		releaseErr := res.Release()
-		if releaseErr != nil {
-			log.Error("failed to release resource after get failure",
-				zap.Error(err),
-				zap.Error(releaseErr))
-		}
+		res.Release()
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("failed to get resource: %v", err)))
 		return 2
@@ -145,13 +142,8 @@ func dbGet(l *lua.LState, log *zap.Logger) int {
 	// Check if it's a DBResource
 	sqlRes, ok := dbRes.(sqlres.DBResource)
 	if !ok {
-		// Release resource immediately since it's not the right type
-		releaseErr := res.Release()
-		if releaseErr != nil {
-			log.Error("failed to release non-DB resource",
-				zap.String("resource_type", fmt.Sprintf("%T", dbRes)),
-				zap.Error(releaseErr))
-		}
+		res.Release()
+
 		l.Push(lua.LNil)
 		l.Push(lua.LString(fmt.Sprintf("resource is not a database: %T", dbRes)))
 		return 2
@@ -363,12 +355,7 @@ func dbRelease(l *lua.LState) int {
 
 	// Release the resource directly
 	if db.resource != nil {
-		err := db.resource.Release()
-		if err != nil {
-			l.Push(lua.LNil)
-			l.Push(lua.LString(err.Error()))
-			return 2
-		}
+		db.resource.Release()
 		db.resource = nil
 	}
 

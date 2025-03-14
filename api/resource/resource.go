@@ -63,7 +63,7 @@ type (
 		// Release frees the resource and invalidates the access grant.
 		// After Release is called, subsequent Get() calls will fail.
 		// It's safe to call Release multiple times.
-		Release() error
+		Release()
 	}
 
 	// Provider defines an interface for components that can provide access to resources.

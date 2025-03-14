@@ -82,7 +82,7 @@ func TestMiddlewareFactory(t *testing.T) {
 		)
 
 		// Test with default options
-		handler := factory.CreateMiddleware("configurable", nil)
+		handler, _ := factory.CreateMiddleware("configurable", nil)
 		assert.NotNil(t, handler)
 
 		rec := httptest.NewRecorder()

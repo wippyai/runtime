@@ -205,12 +205,11 @@ func (r *DBConn) Get() (any, error) {
 }
 
 // Release implements resource.Resource
-func (r *DBConn) Release() error {
+func (r *DBConn) Release() {
 	// Only release once - if we were already released, return immediately
 	if !r.released.CompareAndSwap(false, true) {
-		return nil
+		return
 	}
 
 	r.pool.wg.Done()
-	return nil
 }

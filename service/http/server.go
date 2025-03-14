@@ -85,9 +85,12 @@ func (s *ServerService) UpsertRouter(id registry.ID, cfg *config.RouterConfig) e
 	middlewares := make([]func(http.Handler) http.Handler, 0, len(cfg.Middleware))
 	if s.middlewareFac != nil {
 		for _, mw := range cfg.Middleware {
-			if fn := s.middlewareFac.CreateMiddleware(mw, cfg.Options); fn != nil {
-				middlewares = append(middlewares, fn)
+			m, err := s.middlewareFac.CreateMiddleware(mw, cfg.Options)
+			if err != nil {
+				return fmt.Errorf("failed to create middleware %s: %w", mw, err)
 			}
+
+			middlewares = append(middlewares, m)
 		}
 	}
 

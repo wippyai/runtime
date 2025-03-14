@@ -84,10 +84,6 @@ func (e *ConditionEvaluator) extractField(
 
 // extractActorField extracts a field from the actor
 func (e *ConditionEvaluator) extractActorField(actor security.Actor, parts []string) (any, error) {
-	if actor == nil {
-		return nil, fmt.Errorf("actor is nil")
-	}
-
 	// Handle first level of actor fields
 	if len(parts) == 0 {
 		return nil, fmt.Errorf("no actor field specified")
@@ -95,14 +91,14 @@ func (e *ConditionEvaluator) extractActorField(actor security.Actor, parts []str
 
 	switch parts[0] {
 	case "id":
-		return actor.ID(), nil
+		return actor.ID, nil
 	case "meta":
 		if len(parts) == 1 {
-			return actor.Meta(), nil
+			return actor.Meta, nil
 		}
 
 		// Handle nested metadata access
-		actorMeta := actor.Meta()
+		actorMeta := actor.Meta
 		key := parts[1]
 		if len(parts) == 2 {
 			return actorMeta[key], nil
@@ -132,7 +128,12 @@ func (e *ConditionEvaluator) extractMetaField(meta registry.Metadata, parts []st
 	// If it's a direct metadata key
 	key := parts[0]
 	if len(parts) == 1 {
-		return meta[key], nil
+		v, ok := meta[key]
+		if !ok {
+			return nil, fmt.Errorf("metadata key not found: %s", key)
+		}
+
+		return v, nil
 	}
 
 	// Handle nested maps
@@ -178,11 +179,10 @@ func (e *ConditionEvaluator) compare(fieldValue, compareValue any, operator stri
 	// Handle special operators
 	switch operator {
 	case "exists":
-		exists := fieldValue != nil
 		if boolValue, ok := compareValue.(bool); ok {
-			return exists == boolValue, nil
+			return true == boolValue, nil
 		}
-		return exists, nil
+		return true, nil
 
 	case "eq":
 		return e.equals(fieldValue, compareValue)

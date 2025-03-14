@@ -54,12 +54,12 @@ func (m *mockResource) Get() (any, error) {
 	return m.data, nil
 }
 
-func (m *mockResource) Release() error {
+func (m *mockResource) Release() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if m.released {
-		return nil // Already released
+		return // Already released
 	}
 
 	if m.mode == resource.ModeExclusive {
@@ -69,7 +69,7 @@ func (m *mockResource) Release() error {
 	}
 
 	m.released = true
-	return nil
+	return
 }
 
 func (m *mockResourceProvider) Acquire(ctx context.Context, id registry.ID, mode resource.AccessMode) (resource.Resource[any], error) {

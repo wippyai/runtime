@@ -32,9 +32,8 @@ func (m *mockResource) Get() (any, error) {
 	return m.resValue, nil
 }
 
-func (m *mockResource) Release() error {
+func (m *mockResource) Release() {
 	m.released = true
-	return nil
 }
 
 func (m *mockResource) Mode() resource.AccessMode {
