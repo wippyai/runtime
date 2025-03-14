@@ -34,6 +34,8 @@ function handler()
         return
     end
 
+    print("lookup ok")
+
     -- Create WS relay configuration
     local relay_config = {
         target_pid = hub_pid,
@@ -51,15 +53,8 @@ function handler()
         return
     end
 
-    -- Set the special relay header that tells the middleware to upgrade to WebSocket
+    -- do not send anything, else, this initiates relay handler to enbable message forwarding for ws
     res:set_header("X-WS-Relay", config_json)
-
-    -- The response itself doesn't matter as the middleware will intercept and upgrade
-    -- But we'll set a fallback for clients that don't support WebSockets
-    res:set_status(http.STATUS.OK)
-    res:set_content_type(http.CONTENT.TEXT)
-    res:write(
-    "WebSocket connection should be established. If you see this message, your client doesn't support WebSockets.")
 end
 
 return {

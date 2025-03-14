@@ -63,10 +63,15 @@ func NewWebSocketRelay(logger *zap.Logger) *RelayManager {
 // Middleware creates an HTTP middleware function that handles WebSocket relay requests
 func (m *RelayManager) Middleware(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		h.ServeHTTP(w, r)
+		wrappedWriter := newResponseWrapper(w)
 
-		relayConfigStr := r.Header.Get(WSRelayHeader)
+		// Call the next handler
+		h.ServeHTTP(wrappedWriter, r)
+
+		// Check if the handler added our special header to the response
+		relayConfigStr := wrappedWriter.Header().Get(WSRelayHeader)
 		log.Printf("RRRRRRRRRR")
+
 		if relayConfigStr == "" {
 			return // not our business
 		}
@@ -388,4 +393,20 @@ func (m *RelayManager) handleConnection(
 	host.Detach(wsPID)
 	m.safeClose(conn, websocket.StatusNormalClosure, "Connection closed", connLogger)
 	connLogger.Info("WebSocket connection closed")
+}
+
+type responseWrapper struct {
+	http.ResponseWriter
+	headers http.Header
+}
+
+func newResponseWrapper(w http.ResponseWriter) *responseWrapper {
+	return &responseWrapper{
+		ResponseWriter: w,
+		headers:        w.Header(),
+	}
+}
+
+func (rw *responseWrapper) Header() http.Header {
+	return rw.headers
 }

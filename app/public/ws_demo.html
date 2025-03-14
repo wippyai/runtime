@@ -132,8 +132,9 @@
 
         // Get the current host and port
         const protocol = window.location.protocol;
-        const wsUrl = `${protocol}//${window.location.host}/api/v1/ws/connect`;
 
+        const wsUrl = `${protocol}//${window.location.host}/api/v1/ws/connect`;
+        console.log(wsUrl);
         // Create WebSocket connection
         socket = new WebSocket(wsUrl);
 
