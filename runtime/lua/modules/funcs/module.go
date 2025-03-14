@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	luaconv "github.com/ponyruntime/pony/system/payload/lua"
 
 	contextapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/function"
@@ -88,7 +89,7 @@ func (m *Module) new(l *lua.LState) int {
 	functions := &Functions{
 		funcs:  funcs,
 		dtt:    dtt,
-		values: contextapi.NewContexter[interface{}](),
+		values: contextapi.NewContexter[any](),
 	}
 
 	ud := l.NewUserData()
@@ -110,9 +111,9 @@ func (m *Module) withContext(l *lua.LState) int {
 	ctxTable := l.CheckTable(2)
 
 	// Create new contexter and copy existing values
-	newValues := contextapi.NewContexter[interface{}]()
+	newValues := contextapi.NewContexter[any]()
 	if functions.values != nil {
-		functions.values.Iterate(func(key string, value interface{}) {
+		functions.values.Iterate(func(key string, value any) {
 			newValues.WithValue(key, value)
 		})
 	}
@@ -124,7 +125,7 @@ func (m *Module) withContext(l *lua.LState) int {
 			l.ArgError(2, "context keys must be strings")
 			return
 		}
-		newValues.WithValue(string(key), v) // Store as LValue
+		newValues.WithValue(string(key), luaconv.ToGoAny(v))
 	})
 
 	// Create new Functions instance

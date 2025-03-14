@@ -53,6 +53,8 @@ func (m *Module) Loader(l *lua.LState) int {
 	mod.RawSetString("link", l.NewFunction(m.link))
 	mod.RawSetString("unlink", l.NewFunction(m.unlink))
 
+	mod.RawSetString("with_context", l.NewFunction(m.withContext))
+
 	// Create event constants table with exact size
 	events := l.CreateTable(0, 3)
 	events.RawSetString("CANCEL", lua.LString(topology.KindCancel))
