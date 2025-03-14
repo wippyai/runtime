@@ -199,7 +199,7 @@ func (m *RelayManager) handleConnection(
 	defer cancel()
 
 	// Create a context with cancellation for the WebSocket handlers
-	wsCtx, wsCancel := context.WithCancel(ctx)
+	wsCtx, wsCancel := context.WithCancel(context.Background())
 	defer wsCancel()
 
 	// Atomic variables for configuration changes
