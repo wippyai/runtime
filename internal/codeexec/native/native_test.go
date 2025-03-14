@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -185,7 +186,7 @@ func TestExecutor_Stderr(t *testing.T) {
 }
 
 func TestExecutor_ReadWithInvalidCommand(t *testing.T) {
-	l, _ := mocklogger.ZapTestLogger(zap.DebugLevel)
+	l, oLogger := mocklogger.ZapTestLogger(zap.DebugLevel)
 	executor := NewNativeExecutor(l, WithCmd("sleep 1 && invalidcommand"))
 
 	err := executor.Start()
@@ -201,6 +202,7 @@ func TestExecutor_ReadWithInvalidCommand(t *testing.T) {
 	for {
 		// we don't care about the perf here
 		buf := make([]byte, 65536)
+		time.Sleep(time.Second)
 		_, err = executor.StderrReader().Read(buf)
 		if err != nil {
 			// fs.ErrClosed is returned when the process is stopped (the file is already closed)
@@ -214,7 +216,12 @@ func TestExecutor_ReadWithInvalidCommand(t *testing.T) {
 		sb.Write(buf)
 	}
 
-	assert.Contains(t, sb.String(), "sh: invalidcommand: command not found")
+	if runtime.GOOS == "linux" {
+		assert.Equal(t, 1, oLogger.FilterMessageSnippet("command wait error").Len())
+	} else {
+		// macOS
+		assert.Contains(t, sb.String(), "sh: invalidcommand: command not found")
+	}
 }
 
 func TestExecutor_WriteStdin(t *testing.T) {
