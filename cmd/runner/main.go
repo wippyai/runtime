@@ -644,7 +644,7 @@ func WithHTTPService(a *App) eventbus.EventHandler {
 	}
 
 	// Create websocket relay manager
-	relayManager := websocket_relay.NewWebSocketRelay(a.logger.Named("ws"))
+	relayManager := websocket_relay.NewWebSocketRelay(a.ctx, a.logger.Named("ws"))
 
 	// Create middleware factory with all standard middleware
 	midFactory := http.NewDefaultMiddlewareFactory(

@@ -47,13 +47,15 @@ type RelayCommand struct {
 
 // RelayManager manages WebSocket connections and their relay to the pubsub system
 type RelayManager struct {
+	appCtx context.Context
 	logger *zap.Logger
 	idGen  *uniqid.Generator
 }
 
 // NewWebSocketRelay creates a new WebSocket relay manager
-func NewWebSocketRelay(logger *zap.Logger) *RelayManager {
+func NewWebSocketRelay(ctx context.Context, logger *zap.Logger) *RelayManager {
 	return &RelayManager{
+		appCtx: ctx,
 		logger: logger,
 		idGen:  uniqid.NewGenerator(),
 	}
@@ -199,7 +201,7 @@ func (m *RelayManager) handleConnection(
 	defer cancel()
 
 	// Create a context with cancellation for the WebSocket handlers
-	wsCtx, wsCancel := context.WithCancel(context.Background())
+	wsCtx, wsCancel := context.WithCancel(m.appCtx)
 	defer wsCancel()
 
 	// Atomic variables for configuration changes
@@ -379,7 +381,7 @@ func (m *RelayManager) handleConnection(
 	// Clean up
 	host.Detach(wsPID)
 	m.safeClose(conn, websocket.StatusNormalClosure, "Connection closed", connLogger)
-	connLogger.Info("WebSocket connection closed")
+	connLogger.Info("websocket connection closed")
 }
 
 type responseWrapper struct {
