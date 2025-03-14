@@ -20,6 +20,9 @@ func Register(transcoder payload.TranscoderRegister) {
 	transcoder.RegisterTranscoder(payload.Lua, payload.Golang, 2, to)
 	transcoder.RegisterTranscoder(payload.Golang, payload.Lua, 2, from)
 	transcoder.RegisterUnmarshaler(payload.Lua, to)
+
+	RegisterString(transcoder)
+	RegisterBytes(transcoder)
 }
 
 // ToGolang converts a Lua payload to a Golang payload.
