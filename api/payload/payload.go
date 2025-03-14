@@ -97,7 +97,7 @@ func New(data any) Payload {
 
 // NewString creates a new payload with the given string data and the String format.
 func NewString(data string) Payload {
-	return New(data) // fallback
+	return NewPayload(data, String)
 }
 
 // NewError creates a new payload wrapping a Go error with the Error format.

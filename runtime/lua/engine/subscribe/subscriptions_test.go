@@ -1,10 +1,11 @@
 package subscribe
 
 import (
+	"testing"
+
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"testing"
 )
 
 func TestSubscriptionManager(t *testing.T) {

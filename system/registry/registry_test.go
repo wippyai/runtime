@@ -3,6 +3,11 @@ package registry
 import (
 	"context"
 	"fmt"
+	"reflect"
+	"strings"
+	"sync"
+	"testing"
+
 	"github.com/pkg/errors"
 	"github.com/ponyruntime/pony/internal/version"
 	transcoder "github.com/ponyruntime/pony/system/payload"
@@ -12,10 +17,6 @@ import (
 	"github.com/ponyruntime/pony/system/registry/loader/interpolate"
 	"github.com/ponyruntime/pony/tests/tempfiles"
 	"github.com/stretchr/testify/assert"
-	"reflect"
-	"strings"
-	"sync"
-	"testing"
 
 	"go.uber.org/zap"
 

@@ -3,10 +3,11 @@ package sql
 import (
 	"context"
 	"database/sql"
+	"testing"
+
 	sqlapi "github.com/ponyruntime/pony/api/service/sql"
 	sqlres "github.com/ponyruntime/pony/service/sql"
 	"github.com/stretchr/testify/assert"
-	"testing"
 
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/resource"

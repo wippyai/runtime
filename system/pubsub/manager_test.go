@@ -2,6 +2,10 @@ package pubsub
 
 import (
 	"context"
+	"sync"
+	"testing"
+	"time"
+
 	"github.com/ponyruntime/pony/api/event"
 	api "github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
@@ -9,9 +13,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
-	"sync"
-	"testing"
-	"time"
 )
 
 // mockNode implements Node interface for testing

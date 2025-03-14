@@ -1,9 +1,10 @@
 package value
 
 import (
+	"testing"
+
 	"github.com/stretchr/testify/assert"
 	lua "github.com/yuin/gopher-lua"
-	"testing"
 )
 
 func TestGetField(t *testing.T) {

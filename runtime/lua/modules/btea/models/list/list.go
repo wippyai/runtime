@@ -1,11 +1,12 @@
 package list
 
 import (
+	"time"
+
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
 	lua "github.com/yuin/gopher-lua"
-	"time"
 )
 
 // Item is an item that appears in the list.

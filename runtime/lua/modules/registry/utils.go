@@ -3,6 +3,7 @@ package registry
 import (
 	"errors"
 	"fmt"
+
 	"github.com/ponyruntime/pony/api/payload"
 	regapi "github.com/ponyruntime/pony/api/registry"
 	luaconv "github.com/ponyruntime/pony/system/payload/lua"

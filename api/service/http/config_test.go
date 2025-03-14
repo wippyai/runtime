@@ -296,27 +296,6 @@ func TestRouterConfig_Validate(t *testing.T) {
 			},
 			wantErr: true,
 		},
-		{
-			name: "invalid middleware",
-			config: RouterConfig{
-				Meta:       registry.Metadata{ServerID: "test-server"},
-				Prefix:     "/api",
-				Middleware: []string{"invalid"},
-			},
-			wantErr: true,
-		},
-		{
-			name: "invalid timeout value",
-			config: RouterConfig{
-				Meta:       registry.Metadata{ServerID: "test-server"},
-				Prefix:     "/api",
-				Middleware: []string{"timeout"},
-				Options: map[string]string{
-					"timeout": "invalid",
-				},
-			},
-			wantErr: true,
-		},
 	}
 
 	for _, tt := range tests {

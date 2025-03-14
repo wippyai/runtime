@@ -3,9 +3,10 @@ package pubsub
 import (
 	"context"
 	"fmt"
+	"sync"
+
 	api "github.com/ponyruntime/pony/api/pubsub"
 	"go.uber.org/zap"
-	"sync"
 )
 
 // HostConfig holds configuration for a Host.
@@ -111,7 +112,7 @@ func (h *Host) Send(pkg *api.Package) error {
 	case h.jobQueues[workerIndex] <- pkg:
 		return nil
 	case <-h.ctx.Done():
-		h.logger.Warn("send cancelled by host shutdown", zap.String("pid", pkg.Target.String()))
+		h.logger.Warn("send canceled by host shutdown", zap.String("pid", pkg.Target.String()))
 		return h.ctx.Err()
 	}
 }

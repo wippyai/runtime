@@ -2,8 +2,9 @@ package http
 
 import (
 	context "context"
-	"github.com/ponyruntime/pony/api/registry"
 	"net/http"
+
+	"github.com/ponyruntime/pony/api/registry"
 
 	ctxapi "github.com/ponyruntime/pony/api/context"
 )

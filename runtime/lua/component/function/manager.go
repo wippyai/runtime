@@ -3,9 +3,6 @@ package function
 import (
 	"context"
 	"fmt"
-	"sync"
-
-	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/function"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
@@ -19,6 +16,13 @@ import (
 	"github.com/ponyruntime/pony/runtime/lua/pool/flex"
 	"github.com/ponyruntime/pony/runtime/lua/pool/queued"
 	syncpool "github.com/ponyruntime/pony/runtime/lua/pool/sync"
+	"sync"
+
+	"github.com/ponyruntime/pony/api/event"
+	"github.com/ponyruntime/pony/api/registry"
+	"github.com/ponyruntime/pony/api/runtime"
+	api "github.com/ponyruntime/pony/api/runtime/lua"
+	"github.com/ponyruntime/pony/runtime/lua/code"
 	"go.uber.org/zap"
 )
 

@@ -2,10 +2,11 @@ package host
 
 import (
 	"context"
-	"github.com/ponyruntime/pony/api/process"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/ponyruntime/pony/api/process"
 
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/topology"

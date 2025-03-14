@@ -1,10 +1,11 @@
 package topology
 
 import (
+	"sync"
+
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/topology"
 	"go.uber.org/zap"
-	"sync"
 )
 
 // PIDRegistry provides Erlang-style name registration for PIDs.

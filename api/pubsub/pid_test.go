@@ -2,8 +2,9 @@ package pubsub
 
 import (
 	"encoding/json"
-	"github.com/ponyruntime/pony/api/registry"
 	"testing"
+
+	"github.com/ponyruntime/pony/api/registry"
 )
 
 func TestPIDJSONMarshaling(t *testing.T) {

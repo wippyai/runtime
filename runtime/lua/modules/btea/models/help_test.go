@@ -2,13 +2,14 @@ package models
 
 import (
 	"context"
+	"testing"
+
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/render"
 	"github.com/stretchr/testify/require"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
-	"testing"
 )
 
 func setupHelpTest(t *testing.T) *engine.VM {

@@ -1,9 +1,10 @@
 package code
 
 import (
+	"testing"
+
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/stretchr/testify/assert"
-	"testing"
 )
 
 func TestBuildOptions_WithMethods(t *testing.T) {
@@ -72,7 +73,7 @@ func TestBuildOptions_StateConsistency(t *testing.T) {
 			WithDenied(fooID)
 
 		nodes := map[registry.ID]*Node{
-			fooID: &Node{ID: fooID},
+			fooID: {ID: fooID},
 		}
 		err := opts.Validate(nodes)
 		assert.Error(t, err)
@@ -86,7 +87,7 @@ func TestBuildOptions_StateConsistency(t *testing.T) {
 			WithDenied(fooID)
 
 		nodes := map[registry.ID]*Node{
-			fooID: &Node{ID: fooID},
+			fooID: {ID: fooID},
 		}
 		err := opts.Validate(nodes)
 		assert.Error(t, err)
@@ -218,7 +219,7 @@ func TestBuildOptions_ModificationAfterSetup(t *testing.T) {
 
 	// Initial validation
 	nodes := map[registry.ID]*Node{
-		fooID: &Node{ID: fooID},
+		fooID: {ID: fooID},
 	}
 	assert.NoError(t, opts.Validate(nodes))
 
@@ -257,8 +258,8 @@ func TestBuildOptions_Validate(t *testing.T) {
 			opts: NewBuildOptions().
 				WithMode(AllowAll),
 			nodes: map[registry.ID]*Node{
-				registry.ID{Name: "foo"}: createNode("foo"),
-				registry.ID{Name: "bar"}: createNode("bar"),
+				{Name: "foo"}: createNode("foo"),
+				{Name: "bar"}: createNode("bar"),
 			},
 			wantError: false,
 		},
@@ -268,8 +269,8 @@ func TestBuildOptions_Validate(t *testing.T) {
 				WithMode(AllowAll).
 				WithDenied(registry.ID{Name: "foo"}),
 			nodes: map[registry.ID]*Node{
-				registry.ID{Name: "foo"}: createNode("foo"),
-				registry.ID{Name: "bar"}: createNode("bar"),
+				{Name: "foo"}: createNode("foo"),
+				{Name: "bar"}: createNode("bar"),
 			},
 			wantError: true,
 			errorMsg:  "Process `:foo` is not allowed in this build",
@@ -280,8 +281,8 @@ func TestBuildOptions_Validate(t *testing.T) {
 				WithMode(AllowListed).
 				WithAllowed(registry.ID{Name: "foo"}, registry.ID{Name: "bar"}),
 			nodes: map[registry.ID]*Node{
-				registry.ID{Name: "foo"}: createNode("foo"),
-				registry.ID{Name: "bar"}: createNode("bar"),
+				{Name: "foo"}: createNode("foo"),
+				{Name: "bar"}: createNode("bar"),
 			},
 			wantError: false,
 		},
@@ -291,8 +292,8 @@ func TestBuildOptions_Validate(t *testing.T) {
 				WithMode(AllowListed).
 				WithAllowed(registry.ID{Name: "foo"}),
 			nodes: map[registry.ID]*Node{
-				registry.ID{Name: "foo"}: createNode("foo"),
-				registry.ID{Name: "bar"}: createNode("bar"),
+				{Name: "foo"}: createNode("foo"),
+				{Name: "bar"}: createNode("bar"),
 			},
 			wantError: true,
 			errorMsg:  "Process `:bar` is not in the allowed IDs list",
@@ -303,7 +304,7 @@ func TestBuildOptions_Validate(t *testing.T) {
 				WithMode(DenyAll).
 				WithRequired(registry.ID{Name: "foo"}),
 			nodes: map[registry.ID]*Node{
-				registry.ID{Name: "foo"}: createNode("foo"),
+				{Name: "foo"}: createNode("foo"),
 			},
 			wantError: false,
 		},
@@ -313,8 +314,8 @@ func TestBuildOptions_Validate(t *testing.T) {
 				WithMode(DenyAll).
 				WithRequired(registry.ID{Name: "foo"}),
 			nodes: map[registry.ID]*Node{
-				registry.ID{Name: "foo"}: createNode("foo"),
-				registry.ID{Name: "bar"}: createNode("bar"),
+				{Name: "foo"}: createNode("foo"),
+				{Name: "bar"}: createNode("bar"),
 			},
 			wantError: true,
 			errorMsg:  "Process `:bar` is not allowed (DenyAll mode)",
@@ -326,8 +327,8 @@ func TestBuildOptions_Validate(t *testing.T) {
 				WithAllowed(registry.ID{Name: "foo"}, registry.ID{Name: "bar"}).
 				WithRequired(registry.ID{Name: "foo"}),
 			nodes: map[registry.ID]*Node{
-				registry.ID{Name: "foo"}: createNode("foo"),
-				registry.ID{Name: "bar"}: createNode("bar"),
+				{Name: "foo"}: createNode("foo"),
+				{Name: "bar"}: createNode("bar"),
 			},
 			wantError: false,
 		},
@@ -338,8 +339,8 @@ func TestBuildOptions_Validate(t *testing.T) {
 				WithAllowed(registry.ID{Name: "bar"}).
 				WithRequired(registry.ID{Name: "foo"}),
 			nodes: map[registry.ID]*Node{
-				registry.ID{Name: "foo"}: createNode("foo"),
-				registry.ID{Name: "bar"}: createNode("bar"),
+				{Name: "foo"}: createNode("foo"),
+				{Name: "bar"}: createNode("bar"),
 			},
 			wantError: true,
 			errorMsg:  "required Process `:foo` must also be in allowed list (StrictListed mode)",
@@ -350,7 +351,7 @@ func TestBuildOptions_Validate(t *testing.T) {
 				WithMode(AllowAll).
 				WithRequired(registry.ID{Name: "foo"}),
 			nodes: map[registry.ID]*Node{
-				registry.ID{Name: "bar"}: createNode("bar"),
+				{Name: "bar"}: createNode("bar"),
 			},
 			wantError: true,
 			errorMsg:  "required Process `:foo` was not found",
@@ -362,7 +363,7 @@ func TestBuildOptions_Validate(t *testing.T) {
 				WithRequired(registry.ID{Name: "foo"}).
 				WithDenied(registry.ID{Name: "foo"}),
 			nodes: map[registry.ID]*Node{
-				registry.ID{Name: "foo"}: createNode("foo"),
+				{Name: "foo"}: createNode("foo"),
 			},
 			wantError: true,
 			errorMsg:  "Process `:foo` is not allowed in this build",

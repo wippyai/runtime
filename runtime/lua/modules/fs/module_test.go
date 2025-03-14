@@ -3,8 +3,6 @@ package fs
 import (
 	"context"
 	"errors"
-	fsapi "github.com/ponyruntime/pony/api/fs"
-	"github.com/ponyruntime/pony/api/logs"
 	"io"
 	"io/fs"
 	"os"
@@ -12,6 +10,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	fsapi "github.com/ponyruntime/pony/api/fs"
+	"github.com/ponyruntime/pony/api/logs"
 
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/resource"

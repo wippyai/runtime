@@ -3,10 +3,11 @@ package topology
 
 import (
 	"errors"
+	"time"
+
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/runtime"
-	"time"
 )
 
 // System constants for host and topic identifiers

@@ -2,8 +2,9 @@ package registry
 
 import (
 	"encoding/json"
-	"github.com/stretchr/testify/assert"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestID_UnmarshalJSON(t *testing.T) {

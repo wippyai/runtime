@@ -1,12 +1,13 @@
 package code
 
 import (
+	"testing"
+
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime/lua"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	glua "github.com/yuin/gopher-lua"
-	"testing"
 )
 
 // Mock compiler function for testing

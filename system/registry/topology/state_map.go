@@ -1,6 +1,9 @@
 package topology
 
 import (
+	"slices"
+	"strings"
+
 	"github.com/ponyruntime/pony/api/registry"
 )
 
@@ -31,5 +34,15 @@ func (sm StateMap) ToSlice() registry.State {
 	for _, entry := range sm {
 		slice = append(slice, entry)
 	}
+	// Sort the slice by ID (namespace first, then name)
+	slices.SortFunc(slice, func(a, b registry.Entry) int {
+		// First compare by namespace
+		if nsComp := strings.Compare(a.ID.NS, b.ID.NS); nsComp != 0 {
+			return nsComp
+		}
+
+		// If namespaces are equal, compare by name
+		return strings.Compare(a.ID.Name, b.ID.Name)
+	})
 	return slice
 }

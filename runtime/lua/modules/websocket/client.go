@@ -3,13 +3,14 @@ package websocket
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"sync"
+	"time"
+
 	"github.com/coder/websocket"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	lua "github.com/yuin/gopher-lua"
-	"net/http"
-	"sync"
-	"time"
 )
 
 // MessageType represents the type of WebSocket message.
@@ -109,9 +110,9 @@ func wsConnect(l *lua.LState) int {
 	// channel_capacity: capacity for the receive channel (default 0)
 	// compression: "context_takeover", "no_context_takeover", or "disabled" (default "disabled")
 	// compression_threshold: threshold in bytes for compression (default 0)
-	var channelCapacity int = 0
-	var compressionMode websocket.CompressionMode = websocket.CompressionDisabled
-	var compressionThreshold int = 0
+	var channelCapacity = 0
+	var compressionMode = websocket.CompressionDisabled
+	var compressionThreshold = 0
 
 	// Parse options table.
 	if options != nil {

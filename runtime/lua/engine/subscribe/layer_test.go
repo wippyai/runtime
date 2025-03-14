@@ -2,15 +2,16 @@ package subscribe
 
 import (
 	"context"
+	"sync"
+	"testing"
+	"time"
+
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
-	"sync"
-	"testing"
-	"time"
 )
 
 func setupTestVM(t *testing.T) (*engine.CoroutineVM, *engine.Runner) {

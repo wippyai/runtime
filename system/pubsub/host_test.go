@@ -3,12 +3,13 @@ package pubsub
 import (
 	"context"
 	"fmt"
+	"testing"
+	"time"
+
 	api "github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
-	"testing"
-	"time"
 )
 
 func TestHost_NewHost(t *testing.T) {

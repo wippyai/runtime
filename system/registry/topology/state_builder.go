@@ -2,10 +2,11 @@ package topology
 
 import (
 	"fmt"
+	"reflect"
+
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/internal/version"
 	"go.uber.org/zap"
-	"reflect"
 )
 
 // StateBuilder constructs registry states and calculates state transitions

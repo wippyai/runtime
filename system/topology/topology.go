@@ -2,12 +2,13 @@ package topology
 
 import (
 	"fmt"
+	"sync"
+	"time"
+
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/runtime"
 	"github.com/ponyruntime/pony/api/topology"
-	"sync"
-	"time"
 )
 
 // Topology implements process monitoring, linking, and lifecycle management

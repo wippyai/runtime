@@ -1,0 +1,26 @@
+version: "1.0"
+namespace: app.upload.handlers
+
+meta:
+  depends_on: [ ns:system ]
+  router: system:api
+
+entries:
+  - name: fs_upload
+    kind: function.lua
+    meta:
+      comment: "Handles file uploads via multipart/form-data and stores them in /uploads directory"
+    source: file://upload.lua
+    method: handler
+    modules: [ http, fs ]
+    pool:
+      size: 2
+      workers: 4
+
+  - name: fs_upload.endpoint
+    kind: http.endpoint
+    meta:
+      comment: "Upload files to the server filesystem"
+    method: POST
+    path: /fs/upload
+    func: fs_upload

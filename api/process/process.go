@@ -3,12 +3,13 @@ package process
 import (
 	"context"
 	"errors"
+	"time"
+
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
-	"time"
 )
 
 // Event system and kind constants for the process package
@@ -165,7 +166,7 @@ type (
 		Terminate(context.Context, pubsub.PID) error
 	}
 
-	// Canceller defines the interface for gracefully cancelling a running process.
+	// Canceller defines the interface for gracefully canceling a running process.
 	Canceller interface {
 		// Cancel sends a cancellation signal to a process identified by pid.
 		// from is the Target of the cancellation requester, and deadline specifies

@@ -3,11 +3,12 @@ package terminal
 import (
 	"context"
 	"fmt"
+	"sync"
+
 	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/ponyruntime/pony/internal/config"
-	"sync"
 
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/payload"

@@ -5,7 +5,16 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/go-chi/chi/v5/middleware"
+	httpbase "net/http"
+	"os"
+	"os/signal"
+	"runtime"
+	"runtime/debug"
+	"runtime/pprof"
+	"strings"
+	"syscall"
+	"time"
+
 	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/event"
 	fsapi "github.com/ponyruntime/pony/api/fs"
@@ -84,21 +93,12 @@ import (
 	"github.com/ponyruntime/pony/system/topology"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
-	httpbase "net/http"
-	"os"
-	"os/signal"
-	"runtime"
-	"runtime/debug"
-	"runtime/pprof"
-	"strings"
-	"syscall"
-	"time"
 
 	// supported dbs
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/lib/pq"
 
-	//sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
+	// sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -487,7 +487,7 @@ func (a *App) StartProfiler() {
 
 func main() {
 	// todo: also fix in github pipelines
-	//sqlite_vec.Auto()
+	// sqlite_vec.Auto()
 
 	// Parse command line flags
 	verbose := flag.Bool("v", false, "enable verbose debug logging")

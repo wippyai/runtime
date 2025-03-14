@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"errors"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"

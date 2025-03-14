@@ -4,12 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	ctxapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/logs"
-	"github.com/ponyruntime/pony/api/service/host"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	ctxapi "github.com/ponyruntime/pony/api/context"
+	"github.com/ponyruntime/pony/api/logs"
+	"github.com/ponyruntime/pony/api/service/host"
 
 	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/pubsub"
@@ -75,7 +76,7 @@ func fnv1a32(s string) uint32 {
 
 // Attach registers a receiver channel with the underlying msgHost, rejecting if shutdown is in progress.
 func (h *Host) Attach(pid pubsub.PID, ch chan *pubsub.Package) (context.CancelFunc, error) {
-	if h.running.Load() == false {
+	if !h.running.Load() {
 		return nil, errors.New("host is not running, cannot launch new process")
 	}
 
@@ -88,7 +89,7 @@ func (h *Host) Attach(pid pubsub.PID, ch chan *pubsub.Package) (context.CancelFu
 
 // Detach unregisters a receiver channel from the underlying msgHost, rejecting if shutdown is in progress.
 func (h *Host) Detach(pid pubsub.PID) {
-	if h.running.Load() == false {
+	if !h.running.Load() {
 		return
 	}
 
@@ -182,7 +183,7 @@ func (h *Host) prepareContext(ctx context.Context, pid pubsub.PID, lifecycle pro
 
 // Send forwards a message via the underlying msgHost, rejecting if shutdown is in progress.
 func (h *Host) Send(pkg *pubsub.Package) error {
-	if h.running.Load() == false {
+	if !h.running.Load() {
 		return errors.New("host is not running, cannot launch new process")
 	}
 
@@ -276,7 +277,7 @@ func (h *Host) startMessageWorkers() {
 
 // Stop gracefully shuts down the host by rejecting new operations and waiting for processes to complete.
 func (h *Host) Stop(ctx context.Context) error {
-	if h.running.Load() == false {
+	if !h.running.Load() {
 		return errors.New("host is not running, cannot stop")
 	}
 
@@ -306,7 +307,7 @@ func (h *Host) Stop(ctx context.Context) error {
 
 // Terminate stops a running process and detaches its routing.
 func (h *Host) Terminate(ctx context.Context, pid pubsub.PID) error {
-	if h.running.Load() == false {
+	if !h.running.Load() {
 		return errors.New("host is not running, cannot launch new process")
 	}
 

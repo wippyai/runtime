@@ -3,9 +3,10 @@ package coroutine
 import (
 	"errors"
 	"fmt"
+	"runtime/debug"
+
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	lua "github.com/yuin/gopher-lua"
-	"runtime/debug"
 )
 
 // Func is our simplified function format that just returns a Update

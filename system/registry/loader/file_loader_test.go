@@ -1,14 +1,15 @@
 package loader
 
 import (
+	"os"
+	"path/filepath"
+	"testing"
+
 	"github.com/ponyruntime/pony/api/payload"
 	temp_files "github.com/ponyruntime/pony/tests/tempfiles"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
-	"os"
-	"path/filepath"
-	"testing"
 )
 
 func TestFileLoader(t *testing.T) {

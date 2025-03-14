@@ -2,9 +2,10 @@ package uuid
 
 import (
 	"fmt"
+	"strings"
+
 	"github.com/google/uuid"
 	lua "github.com/yuin/gopher-lua"
-	"strings"
 )
 
 // Module represents a UUID Lua module.

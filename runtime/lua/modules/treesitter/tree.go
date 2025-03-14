@@ -4,10 +4,11 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"os"
 	"sync"
+
+	"github.com/ponyruntime/pony/runtime/lua/engine"
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 
 	treesitter "github.com/tree-sitter/go-tree-sitter"
 	lua "github.com/yuin/gopher-lua"
@@ -296,7 +297,6 @@ func treeChangedRanges(l *lua.LState) int {
 	// Spawn Lua table to hold the ranges
 	rangesTable := l.CreateTable(len(ranges), 0)
 	for i, r := range ranges {
-
 		startPoint := l.CreateTable(0, 2)
 		startPoint.RawSetString("row", lua.LNumber(r.StartPoint.Row))
 		startPoint.RawSetString("column", lua.LNumber(r.StartPoint.Column))

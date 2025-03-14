@@ -4,6 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
+	"net/http"
+	"sync"
+	"time"
+
 	"github.com/go-chi/chi/v5/middleware"
 	contextapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/logs"
@@ -11,10 +16,8 @@ import (
 	"github.com/ponyruntime/pony/api/registry"
 	config "github.com/ponyruntime/pony/api/service/http"
 	"github.com/ponyruntime/pony/api/supervisor"
-	pubsubsys "github.com/ponyruntime/pony/system/pubsub"
 	"net"
 	"net/http"
-	"runtime"
 	"sync"
 	"time"
 )
@@ -272,7 +275,7 @@ func (s *ServerService) ensureRunning(ctx context.Context) error {
 		case <-timeout:
 			return fmt.Errorf("service failed to start within %v timeout", BootTimeout)
 		case <-ctx.Done():
-			return fmt.Errorf("startup cancelled: %w", ctx.Err())
+			return fmt.Errorf("startup canceled: %w", ctx.Err())
 		case <-ticker.C:
 			conn, err := net.DialTimeout("tcp", s.config.Addr, time.Second)
 			if err == nil {

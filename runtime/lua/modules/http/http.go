@@ -39,6 +39,9 @@ func (m *Module) Loader(l *lua.LState) int {
 	// a helper class is always needed
 	stream.RegisterStream(l)
 
+	// Register MultipartFile type
+	registerMultipartFile(l)
+
 	// Register Request type and methods
 	registerRequest(l, mod)
 

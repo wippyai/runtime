@@ -2,8 +2,9 @@ package pubsub
 
 import (
 	"fmt"
-	"github.com/ponyruntime/pony/api/registry"
 	"strings"
+
+	"github.com/ponyruntime/pony/api/registry"
 )
 
 // String formats the PID as a pipe-delimited string wrapped in curly braces.
