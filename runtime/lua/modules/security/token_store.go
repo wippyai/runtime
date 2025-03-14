@@ -68,6 +68,7 @@ func registerTokenStoreType(l *lua.LState) {
 	value.RegisterMethods(l, TokenStoreMetatable, map[string]lua.LGFunction{
 		"validate": tokenStoreValidate,
 		"create":   tokenStoreCreate,
+		"revoke":   tokenStoreRevoke,
 		"close":    tokenStoreClose,
 	})
 }
@@ -193,6 +194,32 @@ func tokenStoreCreate(l *lua.LState) int {
 	})
 
 	return -1 // Yield to coroutine
+}
+
+// tokenStoreCreate creates a new token
+func tokenStoreRevoke(l *lua.LState) int {
+	ts := checkTokenStore(l)
+	if ts == nil {
+		return 0
+	}
+
+	if ts.resource == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("token store is closed"))
+		return 2
+	}
+
+	token := l.CheckString(2)
+
+	err := ts.tokenStore.Revoke(l.Context(), secapi.Token(token))
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("failed to revoke token: " + err.Error()))
+		return 2
+	}
+
+	l.Push(lua.LTrue)
+	return 1
 }
 
 // tokenStoreClose closes the token store resource
