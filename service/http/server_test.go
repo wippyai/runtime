@@ -75,9 +75,13 @@ func TestServerService_Basic(t *testing.T) {
 			},
 		}
 
-		server := NewServerService(cfg)
+		id := registry.ID{NS: "test", Name: "server1"}
+		middleware := NewDefaultMiddlewareFactory()
+		server := NewServerService(id, cfg, middleware)
+
 		assert.NotNil(t, server)
 		assert.Equal(t, cfg, server.config)
+		assert.Equal(t, id, server.id)
 	})
 
 	t.Run("update config", func(t *testing.T) {
@@ -91,7 +95,9 @@ func TestServerService_Basic(t *testing.T) {
 			},
 		}
 
-		server := NewServerService(cfg)
+		id := registry.ID{NS: "test", Name: "server1"}
+		middleware := NewDefaultMiddlewareFactory()
+		server := NewServerService(id, cfg, middleware)
 
 		// Update config before starting server
 		newCfg := &config.ServerConfig{
@@ -154,7 +160,9 @@ func TestServerService_RouterOperations(t *testing.T) {
 		Addr: fmt.Sprintf(":%d", port),
 	}
 
-	server := NewServerService(cfg)
+	id := registry.ID{NS: "test", Name: "server1"}
+	middleware := NewDefaultMiddlewareFactory()
+	server := NewServerService(id, cfg, middleware)
 
 	t.Run("add and delete router", func(t *testing.T) {
 		routerID := registry.ID{NS: "test", Name: "router1"}
@@ -174,7 +182,7 @@ func TestServerService_RouterOperations(t *testing.T) {
 	})
 
 	t.Run("add and remove endpoint", func(t *testing.T) {
-		// Use a different router Source to avoid conflicts
+		// Use a different router ID to avoid conflicts
 		routerID := registry.ID{NS: "test", Name: "router2"}
 		routerCfg := &config.RouterConfig{
 			Prefix: "/api/v2",
@@ -191,7 +199,7 @@ func TestServerService_RouterOperations(t *testing.T) {
 		}))
 		require.NoError(t, err)
 
-		// Done endpoint
+		// Remove endpoint
 		err = server.RemoveEndpoint(routerID, endpointID)
 		require.NoError(t, err)
 
@@ -277,7 +285,9 @@ func TestServerService_StartStop(t *testing.T) {
 		},
 	}
 
-	server := NewServerService(cfg)
+	id := registry.ID{NS: "test", Name: "server1"}
+	middleware := NewDefaultMiddlewareFactory()
+	server := NewServerService(id, cfg, middleware)
 
 	// Add router and endpoint
 	routerID := registry.ID{NS: "test", Name: "router4"}
@@ -370,7 +380,35 @@ func TestServerService_Middleware(t *testing.T) {
 		Addr: fmt.Sprintf("127.0.0.1:%d", port),
 	}
 
-	server := NewServerService(cfg)
+	id := registry.ID{NS: "test", Name: "server1"}
+
+	// Create middleware factory for the test
+	middlewareFactory := NewDefaultMiddlewareFactory(
+		WithMiddlewareCreator("request_id", func(options map[string]string) func(http.Handler) http.Handler {
+			return func(next http.Handler) http.Handler {
+				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					// Pass through any existing request ID
+					reqID := r.Header.Get("X-Request-Id")
+					if reqID == "" {
+						reqID = "generated-id"
+					}
+					// Set it in the request
+					r.Header.Set("X-Request-Id", reqID)
+					next.ServeHTTP(w, r)
+				})
+			}
+		}),
+		WithMiddlewareCreator("real_ip", func(options map[string]string) func(http.Handler) http.Handler {
+			return func(next http.Handler) http.Handler {
+				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					// Simple pass-through middleware for testing
+					next.ServeHTTP(w, r)
+				})
+			}
+		}),
+	)
+
+	server := NewServerService(id, cfg, middlewareFactory)
 
 	// Add router with middleware
 	routerID := registry.ID{NS: "test", Name: "router5"}
@@ -383,11 +421,11 @@ func TestServerService_Middleware(t *testing.T) {
 	err = server.UpsertRouter(routerID, routerCfg)
 	require.NoError(t, err)
 
-	// Add test endpoint that checks request Source middleware
+	// Add test endpoint that checks request ID middleware
 	endpointID := registry.ID{NS: "test", Name: "endpoint5"}
 
 	err = server.UpsertEndpoint(routerID, endpointID, "/test", "GET", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Check if request Source was set by middleware
+		// Check if request ID was set by middleware
 		reqID := r.Header.Get("X-Request-Id")
 		// Important: Copy the header from request to response
 		w.Header().Set("X-Got-Request-Id", reqID)
@@ -429,7 +467,7 @@ func TestServerService_Middleware(t *testing.T) {
 	var resp *http.Response
 	var lastErr error
 
-	// Set a custom request Source in the client request to ensure middleware processes it
+	// Set a custom request ID in the client request to ensure middleware processes it
 	req, err := http.NewRequest("GET", fmt.Sprintf("http://%s/api/test", cfg.Addr), nil)
 	require.NoError(t, err)
 	req.Header.Set("X-Request-Id", "test-request-id")
@@ -445,9 +483,9 @@ func TestServerService_Middleware(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	// Check if request Source header was set
+	// Check if request ID header was set
 	reqID := resp.Header.Get("X-Got-Request-Id")
-	assert.NotEmpty(t, reqID, "Request Source middleware should be applied")
+	assert.Equal(t, "test-request-id", reqID, "Request ID middleware should pass through the ID")
 	assert.NoError(t, resp.Body.Close())
 
 	// Stop the server
@@ -462,7 +500,55 @@ func TestServerService_Middleware(t *testing.T) {
 }
 
 func TestCreateMiddleware(t *testing.T) {
-	server := NewServerService(&config.ServerConfig{})
+	id := registry.ID{NS: "test", Name: "server1"}
+	middlewareFactory := NewDefaultMiddlewareFactory(
+		WithMiddlewareCreator("timeout", func(options map[string]string) func(http.Handler) http.Handler {
+			timeoutVal := options["timeout"]
+			if timeoutVal == "" {
+				timeoutVal = "60s"
+			}
+			duration, err := time.ParseDuration(timeoutVal)
+			if err != nil {
+				return nil
+			}
+			return func(next http.Handler) http.Handler {
+				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					ctx, cancel := context.WithTimeout(r.Context(), duration)
+					defer cancel()
+					next.ServeHTTP(w, r.WithContext(ctx))
+				})
+			}
+		}),
+		WithMiddlewareCreator("recoverer", func(options map[string]string) func(http.Handler) http.Handler {
+			return func(next http.Handler) http.Handler {
+				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					defer func() {
+						if rvr := recover(); rvr != nil {
+							http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+						}
+					}()
+					next.ServeHTTP(w, r)
+				})
+			}
+		}),
+		WithMiddlewareCreator("request_id", func(options map[string]string) func(http.Handler) http.Handler {
+			return func(next http.Handler) http.Handler {
+				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					r.Header.Set("X-Request-Id", "test-id")
+					next.ServeHTTP(w, r)
+				})
+			}
+		}),
+		WithMiddlewareCreator("real_ip", func(options map[string]string) func(http.Handler) http.Handler {
+			return func(next http.Handler) http.Handler {
+				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					next.ServeHTTP(w, r)
+				})
+			}
+		}),
+	)
+
+	server := NewServerService(id, &config.ServerConfig{}, middlewareFactory)
 
 	t.Run("timeout middleware", func(t *testing.T) {
 		options := map[string]string{"timeout": "10s"}
@@ -505,7 +591,10 @@ func TestEnsureRunning(t *testing.T) {
 	cfg := &config.ServerConfig{
 		Addr: fmt.Sprintf("127.0.0.1:%d", port),
 	}
-	server := NewServerService(cfg)
+
+	id := registry.ID{NS: "test", Name: "server1"}
+	middleware := NewDefaultMiddlewareFactory()
+	server := NewServerService(id, cfg, middleware)
 
 	// Start a separate HTTP server on that port to simulate our server already running
 	httpServer := &http.Server{
@@ -556,7 +645,10 @@ func TestContextListener(t *testing.T) {
 	cfg := &config.ServerConfig{
 		Addr: fmt.Sprintf("127.0.0.1:%d", port),
 	}
-	server := NewServerService(cfg)
+
+	id := registry.ID{NS: "test", Name: "server1"}
+	middleware := NewDefaultMiddlewareFactory()
+	server := NewServerService(id, cfg, middleware)
 
 	// Add a test endpoint that verifies the listener context is set
 	routerID := registry.ID{NS: "test", Name: "router6"}
