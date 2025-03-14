@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Demo</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        #status {
+            font-weight: bold;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+        .connected { background-color: #d4edda; color: #155724; }
+        .disconnected { background-color: #f8d7da; color: #721c24; }
+        .connecting { background-color: #fff3cd; color: #856404; }
+
+        #messages {
+            height: 400px;
+            overflow-y: auto;
+            border: 1px solid #dee2e6;
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+        }
+        .message {
+            margin-bottom: 8px;
+            padding: 8px;
+            border-radius: 4px;
+        }
+        .update { background-color: #e2f0fd; }
+        .echo { background-color: #e6f3e6; }
+        .welcome { background-color: #e6e6fa; }
+        .error { background-color: #f8d7da; }
+
+        .input-group {
+            display: flex;
+            margin-bottom: 10px;
+        }
+        #message {
+            flex-grow: 1;
+            padding: 6px 12px;
+            border: 1px solid #ced4da;
+            border-radius: 4px 0 0 4px;
+        }
+        button {
+            padding: 6px 12px;
+            background-color: #007bff;
+            color: white;
+            border: 1px solid #007bff;
+            border-radius: 0 4px 4px 0;
+            cursor: pointer;
+        }
+        button:disabled {
+            background-color: #6c757d;
+            border-color: #6c757d;
+            cursor: not-allowed;
+        }
+        .stats {
+            font-size: 0.9em;
+            color: #6c757d;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+<h1>WebSocket Demo</h1>
+<div id="status" class="disconnected">Disconnected</div>
+
+<div class="input-group">
+    <input type="text" id="message" placeholder="Type a message..." disabled>
+    <button id="send" disabled>Send</button>
+</div>
+
+<button id="connect">Connect</button>
+<button id="disconnect" disabled>Disconnect</button>
+
+<div id="messages"></div>
+
+<script>
+    // DOM elements
+    const statusEl = document.getElementById('status');
+    const messagesEl = document.getElementById('messages');
+    const messageInput = document.getElementById('message');
+    const sendButton = document.getElementById('send');
+    const connectButton = document.getElementById('connect');
+    const disconnectButton = document.getElementById('disconnect');
+
+    // WebSocket connection
+    let socket = null;
+
+    // Connect to WebSocket
+    function connect() {
+        updateStatus('connecting', 'Connecting...');
+
+        // Get the current host and port
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//${window.location.host}/api/v1/ws/connect`;
+
+        // Create WebSocket connection
+        socket = new WebSocket(wsUrl);
+
+        // Connection opened
+        socket.addEventListener('open', (event) => {
+            updateStatus('connected', 'Connected');
+            enableMessageInput(true);
+            connectButton.disabled = true;
+            disconnectButton.disabled = false;
+            addMessage('system', 'Connected to WebSocket server');
+        });
+
+        // Listen for messages
+        socket.addEventListener('message', (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                addMessage(data.type, data);
+            } catch (e) {
+                addMessage('error', { message: `Failed to parse message: ${event.data}` });
+            }
+        });
+
+        // Connection closed
+        socket.addEventListener('close', (event) => {
+            updateStatus('disconnected', 'Disconnected');
+            enableMessageInput(false);
+            connectButton.disabled = false;
+            disconnectButton.disabled = true;
+            addMessage('system', `Connection closed. Code: ${event.code}, Reason: ${event.reason || 'No reason provided'}`);
+            socket = null;
+        });
+
+        // Connection error
+        socket.addEventListener('error', (event) => {
+            updateStatus('disconnected', 'Connection Error');
+            addMessage('error', { message: 'WebSocket connection error' });
+        });
+    }
+
+    // Disconnect WebSocket
+    function disconnect() {
+        if (socket) {
+            socket.close();
+        }
+    }
+
+    // Send a message
+    function sendMessage() {
+        const message = messageInput.value.trim();
+        if (message && socket && socket.readyState === WebSocket.OPEN) {
+            socket.send(message);
+            messageInput.value = '';
+            addMessage('sent', { message: message });
+        }
+    }
+
+    // Update connection status
+    function updateStatus(state, text) {
+        statusEl.className = state;
+        statusEl.textContent = text;
+    }
+
+    // Enable/disable message input
+    function enableMessageInput(enabled) {
+        messageInput.disabled = !enabled;
+        sendButton.disabled = !enabled;
+    }
+
+    // Add message to the messages container
+    function addMessage(type, data) {
+        const messageEl = document.createElement('div');
+        messageEl.className = `message ${type}`;
+
+        let content = '';
+
+        switch (type) {
+            case 'update':
+                content = `<strong>Update:</strong> ${data.time}<br>Sequence: #${data.sequence}`;
+                if (data.clients) {
+                    content += `<div class="stats">Connected clients: ${data.clients}</div>`;
+                }
+                break;
+
+            case 'welcome':
+                content = `<strong>Welcome:</strong> ${data.message}`;
+                if (data.clients) {
+                    content += `<div class="stats">Connected clients: ${data.clients}</div>`;
+                }
+                break;
+
+            case 'echo':
+                content = `<strong>Echo:</strong> ${data.message}`;
+                if (data.from) {
+                    content += `<div class="stats">From: ${data.from}</div>`;
+                }
+                if (data.clients) {
+                    content += `<div class="stats">Connected clients: ${data.clients}</div>`;
+                }
+                break;
+
+            case 'sent':
+                content = `<strong>Sent:</strong> ${data.message}`;
+                break;
+
+            case 'system':
+                content = `<strong>System:</strong> ${data}`;
+                break;
+
+            case 'error':
+                content = `<strong>Error:</strong> ${data.message}`;
+                break;
+
+            default:
+                content = `<strong>${type}:</strong> ${JSON.stringify(data)}`;
+        }
+
+        messageEl.innerHTML = content;
+        messagesEl.appendChild(messageEl);
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
+    // Add event listeners
+    connectButton.addEventListener('click', connect);
+    disconnectButton.addEventListener('click', disconnect);
+    sendButton.addEventListener('click', sendMessage);
+    messageInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            sendMessage();
+        }
+    });
+</script>
+</body>
+</html>
