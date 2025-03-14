@@ -527,12 +527,12 @@ func requestParseMultipart(l *lua.LState) int {
 	}
 
 	// Create result table
-	result := l.NewTable()
+	result := l.CreateTable(0, 1)
 
 	// Add file objects
-	files := l.NewTable()
+	files := l.CreateTable(0, len(req.request.MultipartForm.File))
 	for key, fileHeaders := range req.request.MultipartForm.File {
-		filesList := l.NewTable()
+		filesList := l.CreateTable(len(fileHeaders), 0)
 		for i, fileHeader := range fileHeaders {
 			// Create MultipartFile userdata
 			ud := l.NewUserData()
@@ -540,7 +540,7 @@ func requestParseMultipart(l *lua.LState) int {
 				fileHeader: fileHeader,
 				request:    req.request,
 			}
-			l.SetMetatable(ud, l.GetTypeMetatable("MultipartFile"))
+			ud.Metatable = value.GetTypeMetatable(l, "MultipartFile")
 
 			filesList.RawSetInt(i+1, ud)
 		}
