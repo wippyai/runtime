@@ -648,7 +648,7 @@ func WithHTTPService(a *App) eventbus.EventHandler {
 
 	// Create middleware factory with all standard middleware
 	midFactory := http.NewDefaultMiddlewareFactory(
-		http.WithLogger(a.logger.Named("http.middleware")),
+		http.WithLogger(a.logger.Named("http.md")),
 
 		// Standard Chi middlewares
 		http.WithMiddleware("recoverer", middleware.Recoverer),

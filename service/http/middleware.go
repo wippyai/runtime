@@ -71,6 +71,6 @@ func (f *MiddlewareFactory) CreateMiddleware(name string, options map[string]str
 		f.logger.Debug("middleware creator returned nil handler", zap.String("middleware", name))
 	}
 
-	f.logger.Debug("middleware not found", zap.String("middleware", name))
+	f.logger.Warn("middleware not found", zap.String("middleware", name))
 	return nil
 }

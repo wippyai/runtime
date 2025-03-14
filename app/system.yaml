@@ -57,7 +57,7 @@ entries:
       depends_on:
         - gateway
     prefix: /api/v1
-    middlewares: [ websocket_relay ]
+    middleware: [ websocket_relay ]
 
   - name: terminal
     kind: terminal.host
