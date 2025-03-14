@@ -27,10 +27,10 @@ func TestCtxModule(t *testing.T) {
 		defer vm.Close()
 
 		// Set values from Go
-		contexter.WithValue("stringKey", "stringValue")
-		contexter.WithValue("numberKey", 123)
-		contexter.WithValue("boolKey", true)
-		contexter.WithValue("tableKey", map[string]any{"name": "John"})
+		contexter.SetValue("stringKey", "stringValue")
+		contexter.SetValue("numberKey", 123)
+		contexter.SetValue("boolKey", true)
+		contexter.SetValue("tableKey", map[string]any{"name": "John"})
 
 		// Test getting values from Lua
 		err = vm.DoString(ctx, `

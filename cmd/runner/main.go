@@ -290,7 +290,7 @@ func (a *App) Start(folderPath string) error {
 	for _, en := range os.Environ() {
 		pair := strings.SplitN(en, "=", 2)
 		if len(pair) == 2 {
-			envCtx.WithValue(pair[0], pair[1])
+			envCtx.SetValue(pair[0], pair[1])
 		}
 	}
 	ctx = context.WithValue(ctx, ctxapi.EnvCtx, envCtx)

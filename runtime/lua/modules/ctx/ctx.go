@@ -98,7 +98,7 @@ func (m *Module) set(l *lua.LState) int {
 		return 0
 	}
 
-	ctxter.WithValue(k, transcoder.ToGoAny(l.CheckAny(2)))
+	ctxter.SetValue(k, transcoder.ToGoAny(l.CheckAny(2)))
 
 	l.Push(lua.LTrue)
 	l.Push(lua.LNil)

@@ -14,7 +14,7 @@ func NewContexter[T any]() *Contexter[T] {
 	}
 }
 
-func (c *Contexter[T]) WithValue(key string, value T) {
+func (c *Contexter[T]) SetValue(key string, value T) {
 	c.shared[key] = value
 }
 

@@ -114,7 +114,7 @@ func (m *Module) withContext(l *lua.LState) int {
 	newValues := contextapi.NewContexter[any]()
 	if functions.values != nil {
 		functions.values.Iterate(func(key string, value any) {
-			newValues.WithValue(key, value)
+			newValues.SetValue(key, value)
 		})
 	}
 
@@ -125,7 +125,7 @@ func (m *Module) withContext(l *lua.LState) int {
 			l.ArgError(2, "context keys must be strings")
 			return
 		}
-		newValues.WithValue(string(key), luaconv.ToGoAny(v))
+		newValues.SetValue(string(key), luaconv.ToGoAny(v))
 	})
 
 	// Create new Functions instance

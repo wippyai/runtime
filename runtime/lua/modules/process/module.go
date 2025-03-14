@@ -34,6 +34,8 @@ func (m *Module) Name() string {
 
 // Loader is the entry point for loading the module into Lua
 func (m *Module) Loader(l *lua.LState) int {
+	m.registerContextType(l)
+
 	mod := l.CreateTable(0, 16) // Size adjusted for all functions
 
 	// Register process functions directly with RawSetString for better performance

@@ -29,19 +29,19 @@ func TestContexter_WithValue(t *testing.T) {
 	// Test with different types to ensure generic functionality
 	t.Run("string type", func(t *testing.T) {
 		ctx := NewContexter[string]()
-		ctx.WithValue("test", "value")
+		ctx.SetValue("test", "value")
 
 		if val, ok := ctx.shared["test"]; !ok || val != "value" {
-			t.Errorf("WithValue() failed to store string value, got %v, want %v", val, "value")
+			t.Errorf("SetValue() failed to store string value, got %v, want %v", val, "value")
 		}
 	})
 
 	t.Run("int type", func(t *testing.T) {
 		ctx := NewContexter[int]()
-		ctx.WithValue("test", 42)
+		ctx.SetValue("test", 42)
 
 		if val, ok := ctx.shared["test"]; !ok || val != 42 {
-			t.Errorf("WithValue() failed to store int value, got %v, want %v", val, 42)
+			t.Errorf("SetValue() failed to store int value, got %v, want %v", val, 42)
 		}
 	})
 
@@ -51,20 +51,20 @@ func TestContexter_WithValue(t *testing.T) {
 		}
 		ctx := NewContexter[testStruct]()
 		value := testStruct{field: "test"}
-		ctx.WithValue("test", value)
+		ctx.SetValue("test", value)
 
 		if val, ok := ctx.shared["test"]; !ok || val.field != "test" {
-			t.Errorf("WithValue() failed to store struct value, got %v, want %v", val, value)
+			t.Errorf("SetValue() failed to store struct value, got %v, want %v", val, value)
 		}
 	})
 
 	t.Run("overwrite existing value", func(t *testing.T) {
 		ctx := NewContexter[string]()
-		ctx.WithValue("test", "value1")
-		ctx.WithValue("test", "value2")
+		ctx.SetValue("test", "value1")
+		ctx.SetValue("test", "value2")
 
 		if val, ok := ctx.shared["test"]; !ok || val != "value2" {
-			t.Errorf("WithValue() failed to overwrite value, got %v, want %v", val, "value2")
+			t.Errorf("SetValue() failed to overwrite value, got %v, want %v", val, "value2")
 		}
 	})
 }
@@ -81,7 +81,7 @@ func TestContexter_Value(t *testing.T) {
 			name: "existing value",
 			setupFunc: func() *Contexter[string] {
 				ctx := NewContexter[string]()
-				ctx.WithValue("test", "value")
+				ctx.SetValue("test", "value")
 				return ctx
 			},
 			key:     "test",
@@ -115,7 +115,7 @@ func TestContexter_Value(t *testing.T) {
 	// Test with different types
 	t.Run("int type retrieval", func(t *testing.T) {
 		ctx := NewContexter[int]()
-		ctx.WithValue("test", 42)
+		ctx.SetValue("test", 42)
 
 		if val, ok := ctx.Value("test"); !ok || val != 42 {
 			t.Errorf("Value() failed to retrieve int value, got %v, want %v", val, 42)
@@ -128,7 +128,7 @@ func TestContexter_Value(t *testing.T) {
 		}
 		ctx := NewContexter[testStruct]()
 		value := testStruct{field: "test"}
-		ctx.WithValue("test", value)
+		ctx.SetValue("test", value)
 
 		if val, ok := ctx.Value("test"); !ok || val.field != "test" {
 			t.Errorf("Value() failed to retrieve struct value, got %v, want %v", val, value)
@@ -169,7 +169,7 @@ func TestContexter_Iterate(t *testing.T) {
 
 		// AddCleanup test values
 		for k, v := range expected {
-			ctx.WithValue(k, v)
+			ctx.SetValue(k, v)
 		}
 
 		// Collect values during iteration
