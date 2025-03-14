@@ -94,6 +94,10 @@ func CreateTokenAuthMiddleware(options map[string]string) func(http.Handler) htt
 							}
 						}
 					}
+				} else {
+					logger.Error("invalid auth context",
+						zap.String("store", tokenStoreID.String()),
+						zap.Error(err))
 				}
 			}
 

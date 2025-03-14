@@ -57,7 +57,9 @@ entries:
       depends_on:
         - gateway
     prefix: /api/v1
-    middleware: [ websocket_relay ]
+    middleware: [ websocket_relay, token_auth ]
+    options:
+      token_store: system.security:auth.tokens
 
   - name: terminal
     kind: terminal.host
