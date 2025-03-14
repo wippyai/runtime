@@ -11,7 +11,6 @@ import (
 
 	mocklogger "github.com/ponyruntime/pony/tests/mock"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
 
@@ -217,7 +216,8 @@ func TestExecutor_ReadWithInvalidCommand(t *testing.T) {
 	}
 
 	if runtime.GOOS == "linux" {
-		require.Equal(t, 1, oLogger.FilterMessageSnippet("command wait error").Len())
+		assert.Contains(t, sb.String(), "sh: invalidcommand: command not found")
+		assert.Equal(t, 1, oLogger.FilterMessageSnippet("command wait error").Len())
 	} else {
 		// macOS
 		assert.Contains(t, sb.String(), "sh: invalidcommand: command not found")
