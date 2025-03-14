@@ -65,6 +65,8 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		return err
 	}
 
+	cfg.Store = cfg.Store.WithDefaultNS(entry.ID.NS)
+
 	// Store the configuration (actual token store will be created during acquisition)
 	m.configs[entry.ID] = cfg
 
@@ -105,6 +107,8 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	if err != nil {
 		return err
 	}
+
+	cfg.Store = cfg.Store.WithDefaultNS(entry.ID.NS)
 
 	// Update configuration
 	m.configs[entry.ID] = cfg

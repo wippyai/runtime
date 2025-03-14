@@ -103,14 +103,3 @@ entries:
     cleanup_interval: 5m
     lifecycle:
       auto_start: true
-
-  - name: session
-    kind: store.memory
-    meta:
-      comment: "User session storage"
-      depends_on:
-        - gateway
-    max_size: 5000
-    cleanup_interval: 10m
-    lifecycle:
-      auto_start: true

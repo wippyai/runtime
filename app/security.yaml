@@ -15,3 +15,25 @@ entries:
       actions: "*"
       resources: "*"
       effect: "allow"
+
+  - name: auth.tokens
+    kind: security.token_store
+    meta:
+      comment: "Authentication token storage"
+      depends_on:
+        - session
+    store: session
+    token_length: 32
+    token_key: "${ENV_TOKEN_KEY:-secretkey123}"  # Use environment variable or default
+    default_expiration: 24h  # 1 day token lifetime
+
+  - name: session
+    kind: store.memory
+    meta:
+      comment: "User session storage"
+      depends_on:
+        - gateway
+    max_size: 5000
+    cleanup_interval: 10m
+    lifecycle:
+      auto_start: true
