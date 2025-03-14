@@ -11,8 +11,8 @@ type MiddlewareAPI interface {
 	CreateMiddleware(name string, options map[string]string) func(http.Handler) http.Handler
 }
 
-// DefaultMiddlewareFactory is the default implementation of MiddlewareAPI
-type DefaultMiddlewareFactory struct {
+// MiddlewareFactory is the default implementation of MiddlewareAPI
+type MiddlewareFactory struct {
 	logger        *zap.Logger
 	middlewareMap map[string]MiddlewareCreator
 }
@@ -20,19 +20,19 @@ type DefaultMiddlewareFactory struct {
 // MiddlewareCreator is a function that creates a middleware handler from options
 type MiddlewareCreator func(options map[string]string) func(http.Handler) http.Handler
 
-// MiddlewareFactoryOption configures a DefaultMiddlewareFactory
-type MiddlewareFactoryOption func(*DefaultMiddlewareFactory)
+// MiddlewareFactoryOption configures a MiddlewareFactory
+type MiddlewareFactoryOption func(*MiddlewareFactory)
 
 // WithLogger sets the logger for the middleware factory
 func WithLogger(logger *zap.Logger) MiddlewareFactoryOption {
-	return func(f *DefaultMiddlewareFactory) {
+	return func(f *MiddlewareFactory) {
 		f.logger = logger
 	}
 }
 
 // WithMiddleware adds a simple middleware handler to the factory
 func WithMiddleware(name string, handler func(http.Handler) http.Handler) MiddlewareFactoryOption {
-	return func(f *DefaultMiddlewareFactory) {
+	return func(f *MiddlewareFactory) {
 		f.middlewareMap[name] = func(options map[string]string) func(http.Handler) http.Handler {
 			return handler
 		}
@@ -41,14 +41,14 @@ func WithMiddleware(name string, handler func(http.Handler) http.Handler) Middle
 
 // WithMiddlewareCreator adds a configurable middleware creator to the factory
 func WithMiddlewareCreator(name string, creator MiddlewareCreator) MiddlewareFactoryOption {
-	return func(f *DefaultMiddlewareFactory) {
+	return func(f *MiddlewareFactory) {
 		f.middlewareMap[name] = creator
 	}
 }
 
 // NewDefaultMiddlewareFactory creates a new default middleware factory with the provided options
-func NewDefaultMiddlewareFactory(options ...MiddlewareFactoryOption) *DefaultMiddlewareFactory {
-	factory := &DefaultMiddlewareFactory{
+func NewDefaultMiddlewareFactory(options ...MiddlewareFactoryOption) *MiddlewareFactory {
+	factory := &MiddlewareFactory{
 		logger:        zap.NewNop(),
 		middlewareMap: make(map[string]MiddlewareCreator),
 	}
@@ -62,7 +62,7 @@ func NewDefaultMiddlewareFactory(options ...MiddlewareFactoryOption) *DefaultMid
 }
 
 // CreateMiddleware creates a middleware handler from name and options
-func (f *DefaultMiddlewareFactory) CreateMiddleware(name string, options map[string]string) func(http.Handler) http.Handler {
+func (f *MiddlewareFactory) CreateMiddleware(name string, options map[string]string) func(http.Handler) http.Handler {
 	if creator, exists := f.middlewareMap[name]; exists {
 		handler := creator(options)
 		if handler != nil {

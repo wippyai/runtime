@@ -8,11 +8,11 @@ import (
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
 	httpapi "github.com/ponyruntime/pony/api/service/http"
-	"github.com/ponyruntime/pony/api/topology"
 	"github.com/ponyruntime/pony/internal/uniqid"
 	"go.uber.org/zap"
 	"net/http"
 	"sync"
+	"sync/atomic"
 )
 
 // Constants for the WebSocket relay
@@ -28,10 +28,16 @@ const (
 
 	// WSLeaveTopic is the topic for leave notifications
 	WSLeaveTopic pubsub.Topic = "ws.leave"
+
+	// WSControlTopic is the topic for configuration
+	WSControlTopic pubsub.Topic = "ws.control"
+
+	// WSCloseTopic is the topic for close signals (any message to close the connection)
+	WSCloseTopic pubsub.Topic = "ws.close"
 )
 
-// RelayConfig holds the configuration for a WebSocket relay request
-type RelayConfig struct {
+// RelayCommand holds the configuration for a WebSocket relay request, can be send at start or into ws.control
+type RelayCommand struct {
 	// TargetPID is the PID that should receive WebSocket messages
 	TargetPID string `json:"target_pid"`
 
@@ -72,7 +78,7 @@ func (m *RelayManager) Middleware(h http.Handler) http.Handler {
 		logger.Debug("Handling WebSocket relay request", zap.String("config", relayConfigStr))
 
 		// Parse the relay configuration
-		var config RelayConfig
+		var config RelayCommand
 		if err := json.Unmarshal([]byte(relayConfigStr), &config); err != nil {
 			logger.Error("Invalid relay configuration", zap.Error(err))
 			http.Error(w, "Invalid relay configuration: "+err.Error(), http.StatusBadRequest)
@@ -197,6 +203,13 @@ func (m *RelayManager) handleConnection(
 	wsCtx, wsCancel := context.WithCancel(ctx)
 	defer wsCancel()
 
+	// Atomic variables for configuration changes
+	var currentTargetPID atomic.Value
+	var currentMessageTopic atomic.Value
+
+	currentTargetPID.Store(targetPID)
+	currentMessageTopic.Store(messageTopic)
+
 	// Create a WaitGroup for the handlers
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -216,9 +229,50 @@ func (m *RelayManager) handleConnection(
 				}
 
 				for _, msg := range pkg.Messages {
-					// Check for topology events (cancel, exit)
-					if msg.Topic == topology.TopicEvents {
+					// Handle control messages (reconfiguration)
+					if msg.Topic == WSControlTopic && len(msg.Payloads) > 0 {
+						var command RelayCommand
+						p := msg.Payloads[0]
+
+						// Try to convert to JSON if not already
+						jsonPayload, err := dtt.Transcode(p, payload.JSON)
+						if err != nil {
+							connLogger.Error("Failed to transcode control payload", zap.Error(err))
+							continue
+						}
+
+						// Parse control command
+						if err := json.Unmarshal([]byte(jsonPayload.Data().(string)), &command); err != nil {
+							connLogger.Error("Invalid control command", zap.Error(err))
+							continue
+						}
+
+						// Update configuration
+						if command.TargetPID != "" {
+							newTargetPID, err := pubsub.ParsePID(command.TargetPID)
+							if err != nil {
+								connLogger.Error("Invalid target PID in control command",
+									zap.Error(err),
+									zap.String("pid", command.TargetPID))
+								continue
+							}
+							currentTargetPID.Store(newTargetPID)
+							connLogger.Info("Updated target PID", zap.String("newTargetPID", newTargetPID.String()))
+						}
+
+						if command.MessageTopic != "" {
+							currentMessageTopic.Store(command.MessageTopic)
+							connLogger.Info("Updated message topic", zap.String("newTopic", command.MessageTopic))
+						}
+
 						continue
+					}
+
+					// Handle close messages
+					if msg.Topic == WSCloseTopic {
+						connLogger.Info("Received close command from server")
+						wsCancel() // Trigger clean shutdown
+						return
 					}
 
 					// Forward regular messages to WebSocket
@@ -309,8 +363,12 @@ func (m *RelayManager) handleConnection(
 					payloadData = payload.NewPayload(data, payload.Bytes)
 				}
 
-				// Send to target PID using the specified topic
-				msg := pubsub.NewPackage(targetPID, messageTopic, payloadData)
+				// Get current configuration values
+				currentTarget := currentTargetPID.Load().(pubsub.PID)
+				currentTopic := currentMessageTopic.Load().(string)
+
+				// Send to target PID using the current message topic
+				msg := pubsub.NewPackage(currentTarget, currentTopic, payloadData)
 				if err := host.Send(msg); err != nil {
 					connLogger.Error("Error sending to pubsub", zap.Error(err))
 					wsCancel()
@@ -324,7 +382,7 @@ func (m *RelayManager) handleConnection(
 	wg.Wait()
 
 	// Send a leave notification to the target PID
-	leaveMsg := pubsub.NewPackage(targetPID, WSLeaveTopic, payload.New(wsPID))
+	leaveMsg := pubsub.NewPackage(currentTargetPID.Load().(pubsub.PID), WSLeaveTopic, payload.New(wsPID))
 	if err := host.Send(leaveMsg); err != nil {
 		connLogger.Error("Error sending leave message", zap.Error(err))
 	}
