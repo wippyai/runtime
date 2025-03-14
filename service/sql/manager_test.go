@@ -385,9 +385,8 @@ func TestManager_Update(t *testing.T) {
 	}))
 
 	// Drain events channel
-	for len(supervisorEvents) > 0 {
-		<-supervisorEvents
-	}
+	<-supervisorEvents
+	<-supervisorEvents
 
 	tests := []struct {
 		name          string
@@ -423,10 +422,6 @@ func TestManager_Update(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Clear events channel
-			for len(supervisorEvents) > 0 {
-				<-supervisorEvents
-			}
 
 			entry := registry.Entry{
 				ID:   tt.id,
