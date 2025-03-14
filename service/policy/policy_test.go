@@ -96,9 +96,9 @@ func TestPolicy(t *testing.T) {
 	}
 
 	// Test policy evaluation with matching role
-	adminActor := &mockActor{
-		id:   "admin-user",
-		meta: registry.Metadata{"role": "admin"},
+	adminActor := security.Actor{
+		ID:   "admin-user",
+		Meta: registry.Metadata{"role": "admin"},
 	}
 	result := p.Evaluate(adminActor, "read", "document", nil)
 	if result != security.Allow {

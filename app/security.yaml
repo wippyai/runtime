@@ -24,8 +24,8 @@ entries:
         - session
     store: session
     token_length: 32
-    token_key: "${ENV_TOKEN_KEY:-secretkey123}"  # Use environment variable or default
-    default_expiration: 24h  # 1 day token lifetime
+    token_key: "${ENV_TOKEN_KEY:-secretkey123}"
+    default_expiration: 24h
 
   - name: session
     kind: store.memory
