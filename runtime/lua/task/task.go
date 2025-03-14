@@ -2,9 +2,10 @@ package task
 
 import (
 	"errors"
+	"sync"
+
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/runtime"
-	"sync"
 )
 
 // ResultCallback is a function called when a task completes

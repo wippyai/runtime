@@ -2,8 +2,9 @@ package time
 
 import (
 	"context"
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"time"
+
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
@@ -617,7 +618,6 @@ func timeToString(l *lua.LState) int {
 
 // Register time-related functionality
 func registerTime(l *lua.LState, mod *lua.LTable) {
-
 	// Use the efficient registration method
 	value.RegisterTypeMethods(l,
 		"time.Time",

@@ -2,13 +2,15 @@ package sql
 
 import (
 	"database/sql"
+	"testing"
+
 	sqlapi "github.com/ponyruntime/pony/api/service/sql"
 	sqlres "github.com/ponyruntime/pony/service/sql"
-	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	lua "github.com/yuin/gopher-lua"
+
 	// Imports SQLite driver for testing
 	_ "github.com/mattn/go-sqlite3"
 )

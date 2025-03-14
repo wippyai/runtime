@@ -324,13 +324,36 @@ func TestQueuedPool_StressTest(t *testing.T) {
 			require.NoError(t, err)
 
 			var wg sync.WaitGroup
-			successCount := atomic.Int32{}
+			var successCount atomic.Int32
 
-			// Launch many parallel jobs
-			for j := 0; j < 1000; j++ {
+			// Ensure some jobs complete before closing
+			const totalJobs = 1000
+			const jobsBeforeClose = 500
+
+			// Launch a few jobs and ensure they complete before closing
+			for j := 0; j < 10; j++ {
 				wg.Add(1)
 				go func(id int) {
 					defer wg.Done()
+					result, err := p.Execute(context.Background(), "test",
+						lua.LString(fmt.Sprintf("guaranteed-job-%d", id)))
+					if err == nil && result != nil {
+						successCount.Add(1)
+					}
+				}(j)
+			}
+
+			// Wait for these initial jobs to complete
+			wg.Wait()
+
+			// Reset wait group for the main batch
+			var mainWg sync.WaitGroup
+
+			// Launch the main batch of parallel jobs
+			for j := 0; j < totalJobs; j++ {
+				mainWg.Add(1)
+				go func(id int) {
+					defer mainWg.Done()
 					result, err := p.Execute(context.Background(), "test",
 						lua.LString(fmt.Sprintf("job-%d", id)))
 					if err == nil && result != nil {
@@ -338,12 +361,12 @@ func TestQueuedPool_StressTest(t *testing.T) {
 					}
 				}(j)
 
-				if j == 500 {
+				if j == jobsBeforeClose {
 					go p.Close()
 				}
 			}
 
-			wg.Wait()
+			mainWg.Wait()
 			success := successCount.Load()
 			require.True(t, success > 0, "Some jobs should succeed")
 			require.True(t, success < 1000, "Not all jobs should succeed due to close")

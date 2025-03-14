@@ -153,7 +153,7 @@ func TestConcurrency(t *testing.T) {
 		var wg sync.WaitGroup
 		for i := 0; i < 100; i++ {
 			wg.Add(1)
-			i := i
+
 			go func() {
 				defer wg.Done()
 				cache.Set("key", i)
@@ -173,7 +173,7 @@ func TestConcurrency(t *testing.T) {
 		var wg sync.WaitGroup
 		for i := 0; i < 100; i++ {
 			wg.Add(2)
-			i := i
+
 			go func() {
 				defer wg.Done()
 				cache.Set(string(rune(i)), i)

@@ -3,9 +3,10 @@
 package fs
 
 import (
-	"github.com/ponyruntime/pony/api/event"
 	"io"
 	"io/fs"
+
+	"github.com/ponyruntime/pony/api/event"
 )
 
 // Event bus constants for filesystem operations

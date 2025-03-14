@@ -2,9 +2,10 @@ package logs
 
 import (
 	"context"
-	api "github.com/ponyruntime/pony/api/logs"
 	"testing"
 	"time"
+
+	api "github.com/ponyruntime/pony/api/logs"
 
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/system/eventbus"

@@ -2,6 +2,7 @@ package channel
 
 import (
 	"errors"
+
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -16,7 +17,7 @@ func Send(l *lua.LState, ch *Channel, value ...lua.LValue) error {
 	return uw.Tasks().Schedule(func() {
 		err := send(l.Context(), ch, value...)
 		if err != nil {
-			//log.Printf("error sending value to channel: %v", err)
+			// log.Printf("error sending value to channel: %v", err)
 		}
 	})
 }
@@ -31,7 +32,7 @@ func Close(l *lua.LState, ch *Channel) error {
 	return uw.Tasks().Schedule(func() {
 		err := closeChannel(l.Context(), ch)
 		if err != nil {
-			//log.Printf("error closing channel: %v", err)
+			// log.Printf("error closing channel: %v", err)
 		}
 	})
 }

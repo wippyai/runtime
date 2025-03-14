@@ -2,13 +2,14 @@ package noop
 
 import (
 	"context"
+	"testing"
+
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/function"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
-	"testing"
 )
 
 // mockEventBus is a mock implementation of the event.Bus interface for testing

@@ -2,14 +2,15 @@ package time
 
 import (
 	"context"
+	"testing"
+	"time"
+
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
-	"testing"
-	"time"
 )
 
 func TestTimeAfter(t *testing.T) {

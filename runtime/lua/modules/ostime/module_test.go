@@ -2,13 +2,14 @@ package ostime
 
 import (
 	"context"
+	"testing"
+	"time"
+
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
-	"testing"
-	"time"
 )
 
 func TestOSTimeModule(t *testing.T) {

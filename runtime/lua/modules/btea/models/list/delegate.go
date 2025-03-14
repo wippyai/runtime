@@ -2,13 +2,14 @@ package list
 
 import (
 	"fmt"
+	"io"
+
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
 	lua "github.com/yuin/gopher-lua"
-	"io"
 )
 
 // LuaDelegate is a wrapper to make Lua functions act as list.ItemDelegate

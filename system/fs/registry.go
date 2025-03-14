@@ -3,11 +3,12 @@ package fs
 import (
 	"context"
 	"fmt"
+	"sync"
+
 	"github.com/ponyruntime/pony/api/event"
 	fsapi "github.com/ponyruntime/pony/api/fs"
 	"github.com/ponyruntime/pony/system/eventbus"
 	"go.uber.org/zap"
-	"sync"
 )
 
 // Registry manages filesystem mounts and their registration

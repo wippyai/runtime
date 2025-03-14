@@ -2,11 +2,12 @@ package engine
 
 import (
 	"fmt"
+	"strings"
+
 	"github.com/ponyruntime/pony/api/logs"
 	"github.com/ponyruntime/pony/runtime/lua/engine/errors"
 	"github.com/ponyruntime/pony/runtime/lua/engine/loadlib"
 	lua "github.com/yuin/gopher-lua"
-	"strings"
 )
 
 var SharedState *lua.LState

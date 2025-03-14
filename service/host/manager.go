@@ -3,9 +3,10 @@ package host
 import (
 	"context"
 	"fmt"
+	"sync"
+
 	supervisor2 "github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/service/host"
-	"sync"
 
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/payload"

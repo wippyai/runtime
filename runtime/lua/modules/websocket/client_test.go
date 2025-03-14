@@ -2,12 +2,13 @@ package websocket
 
 import (
 	"context"
-	timemod "github.com/ponyruntime/pony/runtime/lua/modules/time"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	timemod "github.com/ponyruntime/pony/runtime/lua/modules/time"
 
 	coderws "github.com/coder/websocket"
 	"github.com/ponyruntime/pony/runtime/lua/engine"

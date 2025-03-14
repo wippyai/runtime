@@ -2,9 +2,10 @@ package process_test
 
 import (
 	"context"
+	"testing"
+
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
-	"testing"
 
 	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/runtime"

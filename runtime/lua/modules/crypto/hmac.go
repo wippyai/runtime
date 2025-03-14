@@ -6,6 +6,7 @@ import (
 	"crypto/sha512"
 	"encoding/hex"
 	"fmt"
+
 	lua "github.com/yuin/gopher-lua"
 )
 

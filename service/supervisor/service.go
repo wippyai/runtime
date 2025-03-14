@@ -3,6 +3,8 @@ package supervisor
 import (
 	"context"
 	"fmt"
+	"time"
+
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/pubsub"
@@ -11,7 +13,6 @@ import (
 	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/ponyruntime/pony/api/topology"
 	"github.com/ponyruntime/pony/internal/uniqid"
-	"time"
 )
 
 var supID = uniqid.NewGenerator()

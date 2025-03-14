@@ -3,8 +3,9 @@ package security
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/api/security"
 	"sync"
+
+	"github.com/ponyruntime/pony/api/security"
 
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/registry"

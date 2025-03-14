@@ -1,11 +1,12 @@
 package models
 
 import (
+	"time"
+
 	"github.com/charmbracelet/bubbles/progress"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/ponyruntime/pony/runtime/lua/modules/btea/protocol"
 	lua "github.com/yuin/gopher-lua"
-	"time"
 )
 
 // Progress wraps progress.Model for Lua

@@ -2,12 +2,13 @@ package topology
 
 import (
 	"fmt"
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/internal/version"
-	"go.uber.org/zap"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/ponyruntime/pony/api/event"
+	"github.com/ponyruntime/pony/internal/version"
+	"go.uber.org/zap"
 
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"

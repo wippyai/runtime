@@ -3,9 +3,10 @@ package sql
 import (
 	"encoding/json"
 	"fmt"
+	"time"
+
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/supervisor"
-	"time"
 )
 
 // Registry kind constants for different SQL database types

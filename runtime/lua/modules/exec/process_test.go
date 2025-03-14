@@ -2,8 +2,9 @@ package exec
 
 import (
 	"context"
-	"github.com/ponyruntime/pony/api/logs"
 	"testing"
+
+	"github.com/ponyruntime/pony/api/logs"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/channel"

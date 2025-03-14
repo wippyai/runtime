@@ -3,8 +3,9 @@ package engine
 import (
 	"context"
 	"fmt"
-	errors2 "github.com/ponyruntime/pony/runtime/lua/engine/errors"
 	"strings"
+
+	errors2 "github.com/ponyruntime/pony/runtime/lua/engine/errors"
 
 	lua "github.com/yuin/gopher-lua"
 	"github.com/yuin/gopher-lua/parse"

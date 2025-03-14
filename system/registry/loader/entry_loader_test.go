@@ -1,10 +1,11 @@
 package loader
 
 import (
-	tr "github.com/ponyruntime/pony/system/payload"
-	"github.com/ponyruntime/pony/system/payload/json"
 	"reflect"
 	"testing"
+
+	tr "github.com/ponyruntime/pony/system/payload"
+	"github.com/ponyruntime/pony/system/payload/json"
 
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"

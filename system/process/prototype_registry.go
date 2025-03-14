@@ -3,8 +3,9 @@ package process
 import (
 	"context"
 	"fmt"
-	api "github.com/ponyruntime/pony/api/process"
 	"sync"
+
+	api "github.com/ponyruntime/pony/api/process"
 
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/registry"
