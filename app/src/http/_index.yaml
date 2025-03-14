@@ -156,3 +156,19 @@ entries:
     method: GET
     path: /hello
     func: hello_world
+
+  - name: security_demo
+    kind: function.lua
+    meta:
+      comment: "Demo endpoint showcasing security features (actors, tokens, permissions)"
+    source: file://security_demo.lua
+    method: handler
+    modules: [ http, json, time, security ]
+
+  - name: security_demo.endpoint
+    kind: http.endpoint
+    meta:
+      comment: "Security system API demo with token creation and validation"
+    method: GET
+    path: /api/v1/security/demo
+    func: security_demo

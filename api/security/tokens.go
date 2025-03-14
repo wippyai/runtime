@@ -49,5 +49,8 @@ type (
 
 		// Validate checks if a token is valid and returns the associated actor and scope
 		Validate(ctx context.Context, token Token) (Actor, Scope, error)
+
+		// Revoke removes a token from the store
+		Revoke(ctx context.Context, token Token) error
 	}
 )
