@@ -3,10 +3,11 @@ package terminal
 import (
 	"context"
 	"errors"
-	"github.com/ponyruntime/pony/api/process"
-	"github.com/ponyruntime/pony/api/pubsub"
 	"testing"
 	"time"
+
+	"github.com/ponyruntime/pony/api/process"
+	"github.com/ponyruntime/pony/api/pubsub"
 
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"

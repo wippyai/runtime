@@ -3,9 +3,10 @@ package process
 import (
 	"context"
 	"fmt"
+	"sync"
+
 	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
-	"sync"
 
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/registry"

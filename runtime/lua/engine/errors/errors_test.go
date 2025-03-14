@@ -3,10 +3,11 @@ package errors
 import (
 	"errors"
 	"fmt"
-	lua "github.com/yuin/gopher-lua"
 	"reflect"
 	"strings"
 	"testing"
+
+	lua "github.com/yuin/gopher-lua"
 )
 
 func TestWrappedErrorWithStack(t *testing.T) {
@@ -511,7 +512,7 @@ func TestComplexInteropErrorWrapping(t *testing.T) {
 
 				L.Error(ud, 0)
 			} else {
-				RaiseError(L, fmt.Errorf("error from nested state (unwrapped): %v", err))
+				RaiseError(L, fmt.Errorf("error from nested state (unwrapped): %w", err))
 			}
 		}
 		return 0

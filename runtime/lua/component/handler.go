@@ -3,6 +3,7 @@ package component
 import (
 	"context"
 	"fmt"
+
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/registry"

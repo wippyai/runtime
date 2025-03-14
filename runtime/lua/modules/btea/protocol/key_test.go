@@ -1,10 +1,11 @@
 package protocol
 
 import (
+	"testing"
+
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/stretchr/testify/assert"
 	lua "github.com/yuin/gopher-lua"
-	"testing"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/stretchr/testify/require"

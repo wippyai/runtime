@@ -2,9 +2,10 @@ package protocol
 
 import (
 	"fmt"
+	"reflect"
+
 	tea "github.com/charmbracelet/bubbletea"
 	lua "github.com/yuin/gopher-lua"
-	"reflect"
 )
 
 var (

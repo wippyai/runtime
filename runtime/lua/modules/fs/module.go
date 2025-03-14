@@ -1,10 +1,11 @@
 package fs
 
 import (
+	"io/fs"
+
 	fsapi "github.com/ponyruntime/pony/api/fs"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	lua "github.com/yuin/gopher-lua"
-	"io/fs"
 )
 
 // Module represents a fs Lua module

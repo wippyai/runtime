@@ -3,9 +3,10 @@ package pubsub
 import (
 	"context"
 	"fmt"
-	api "github.com/ponyruntime/pony/api/pubsub"
 	"sync"
 	"sync/atomic"
+
+	api "github.com/ponyruntime/pony/api/pubsub"
 )
 
 // Node represents a messaging node in the pub/sub system that manages multiple hosts
@@ -49,8 +50,6 @@ func (n *Node) RegisterHost(hostID api.HostID, host api.Host) error {
 func (n *Node) UnregisterHost(hostID api.HostID) {
 	n.hosts.Delete(hostID)
 }
-
-var ix = 0
 
 // Send delivers a package to its destination. If the destination is in this node,
 // it routes to the appropriate host. Otherwise, it forwards to the upstream

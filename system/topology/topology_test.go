@@ -2,13 +2,14 @@ package topology
 
 import (
 	"errors"
+	"sync"
+	"testing"
+
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
 	"github.com/stretchr/testify/assert"
-	"sync"
-	"testing"
 )
 
 type mockUpstream struct {

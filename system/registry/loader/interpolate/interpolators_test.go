@@ -2,10 +2,11 @@ package interpolate
 
 import (
 	"fmt"
-	"github.com/ponyruntime/pony/tests/tempfiles"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ponyruntime/pony/tests/tempfiles"
 
 	"github.com/stretchr/testify/assert"
 )

@@ -2,8 +2,9 @@ package terminal
 
 import (
 	"context"
-	contextapi "github.com/ponyruntime/pony/api/context"
 	"io"
+
+	contextapi "github.com/ponyruntime/pony/api/context"
 )
 
 type PipeContext struct {

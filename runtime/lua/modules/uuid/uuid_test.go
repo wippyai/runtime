@@ -2,15 +2,16 @@ package uuid
 
 import (
 	"context"
+	"strings"
+	"testing"
+	"time"
+
 	"github.com/google/uuid"
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
-	"strings"
-	"testing"
-	"time"
 )
 
 func TestUUIDModuleWithVM(t *testing.T) {

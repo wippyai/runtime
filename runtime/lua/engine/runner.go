@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+
 	lua "github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
 )
@@ -218,12 +219,12 @@ func (e *Runner) Continue(ctx context.Context, block bool) error {
 	}
 
 	// block for any pending task
-	//st := time.Now()
+	// st := time.Now()
 	updates, err := uw.Tasks().Wait(ctx, block)
 	if err != nil {
 		return err
 	}
-	//log.Printf("step wait time: %v", time.Since(st))
+	// log.Printf("step wait time: %v", time.Since(st))
 
 	tasks, err = GetTasks(e.cvm, updates...)
 	if err != nil {

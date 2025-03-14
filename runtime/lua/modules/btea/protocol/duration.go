@@ -2,10 +2,11 @@ package protocol
 
 import (
 	"fmt"
-	lua "github.com/yuin/gopher-lua"
 	"strconv"
 	"strings"
 	"time"
+
+	lua "github.com/yuin/gopher-lua"
 )
 
 // ParseDuration converts a Lua value to a time.Duration.

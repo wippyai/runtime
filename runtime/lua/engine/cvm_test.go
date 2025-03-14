@@ -3,10 +3,11 @@ package engine
 import (
 	"context"
 	"fmt"
-	"github.com/ponyruntime/pony/runtime/lua/engine/errors"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/ponyruntime/pony/runtime/lua/engine/errors"
 
 	"github.com/stretchr/testify/require"
 	"github.com/yuin/gopher-lua/parse"
@@ -425,7 +426,7 @@ func TestCoroutineVM_NativeCoroutines(t *testing.T) {
 		}
 	})
 
-	//t.Run("prevent task self-resumption", func(t *testing.T) {
+	// t.Run("prevent task self-resumption", func(t *testing.T) {
 	//	vm, err := NewCVM(logger)
 	//	if err != nil {
 	//		t.Fatal(err)

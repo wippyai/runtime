@@ -3,9 +3,10 @@ package command
 import (
 	"errors"
 	"fmt"
-	payloadmod "github.com/ponyruntime/pony/runtime/lua/modules/payload"
 	"sync"
 	"sync/atomic"
+
+	payloadmod "github.com/ponyruntime/pony/runtime/lua/modules/payload"
 
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/runtime"

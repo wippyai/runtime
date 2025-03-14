@@ -1,8 +1,9 @@
 package policy
 
 import (
-	"github.com/ponyruntime/pony/api/service/policy"
 	"testing"
+
+	"github.com/ponyruntime/pony/api/service/policy"
 
 	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/security"

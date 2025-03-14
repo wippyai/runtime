@@ -1,10 +1,11 @@
 package interpolate
 
 import (
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/stretchr/testify/assert"
 	"strings"
 	"testing"
+
+	"github.com/ponyruntime/pony/api/payload"
+	"github.com/stretchr/testify/assert"
 )
 
 // MockTranscoder implements payload.Transcoder interface for testing

@@ -228,6 +228,46 @@ Returns:
   is exhausted.
 - `error`: Error message (string, or nil on success).
 
+##### `request:parse_multipart(max_memory: number)`
+
+Parses multipart form data from the request and returns file attachments.
+
+Parameters:
+- `max_memory`: (Optional) Maximum memory in bytes to use for parsing the multipart form. Default is 10MB.
+
+Returns:
+- `form`: A table containing the form data with these fields:
+  - `files`: A table mapping field names to arrays of file objects
+- `error`: Error message (string, or nil on success)
+
+##### MultipartFile Object Methods
+
+When using `request:parse_multipart()`, each file is represented as a MultipartFile object with the following methods:
+
+###### `file:name()`
+
+Returns the original filename of the file as sent by the client.
+
+Returns:
+- `name`: The filename (string)
+- `error`: nil
+
+###### `file:size()`
+
+Returns the size of the file in bytes.
+
+Returns:
+- `size`: The file size in bytes (number)
+- `error`: nil
+
+###### `file:stream()`
+
+Creates a Stream object for reading the file contents incrementally.
+
+Returns:
+- `stream`: A Stream object for reading the file
+- `error`: Error message (string, or nil on success)
+
 ### Response Object
 
 The `http.response()` function creates a new `Response` object representing the current HTTP response.
@@ -431,5 +471,57 @@ if req:method() == http.METHOD.GET and req:path() == "/events" then
   end
 
   res:write_event({ name = "end", data = { message = "Event stream finished" } })
+end
+```
+### Example: Handling Multipart Form Uploads
+
+```lua
+local http = require("http")
+
+-- Get request object
+local req = http.request()
+local res = http.response()
+
+-- Check if the request is multipart/form-data
+if req:is_content_type(http.CONTENT.MULTIPART) then
+  -- Parse multipart form with 20MB limit
+  local form, err = req:parse_multipart(20 * 1024 * 1024)
+  if err then
+    res:set_status(http.STATUS.BAD_REQUEST)
+    res:write("Failed to parse form: " .. err)
+    return
+  end
+  
+  -- Process uploaded files
+  if form.files.avatar and #form.files.avatar > 0 then
+    local avatar = form.files.avatar[1]
+    local filename = avatar:name()
+    local size = avatar:size()
+    local stream, err = avatar:stream()
+    if err then
+      res:set_status(http.STATUS.INTERNAL_ERROR)
+      res:write("Failed to create stream: " .. err)
+      return
+    end
+    
+    -- Use the filesystem module to write the stream to a file
+    local fsObj = fs.get("local")  -- Get the local filesystem
+    local targetPath = "/uploads/" .. image:name()
+    
+    -- Write the stream directly to a file
+    local success, err = fsObj:writefile(targetPath, stream)
+    if not success then
+      res:set_status(http.STATUS.INTERNAL_ERROR)
+      res:write("Failed to save file: " .. err)
+      return
+    end
+    
+    res:set_status(http.STATUS.OK)
+    res:write_json({
+      message = "Image saved to filesystem",
+      path = targetPath,
+      size = image:size()
+    })
+  end
 end
 ```

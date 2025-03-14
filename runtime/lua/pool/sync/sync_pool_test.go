@@ -3,13 +3,14 @@ package sync
 import (
 	"context"
 	"fmt"
-	api "github.com/ponyruntime/pony/api/runtime/lua"
 	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	api "github.com/ponyruntime/pony/api/runtime/lua"
 
 	"github.com/ponyruntime/pony/runtime/lua/code"
 	"github.com/ponyruntime/pony/runtime/lua/component"
@@ -126,7 +127,6 @@ func setupTestFactory(opts ...testOption) (api.Factory, error) {
 
 	// all rest of the functions
 	for _, fn := range cfg.functions[1:] {
-
 		factoryOpts = append(cfg.factoryOpts,
 			component.WithEngineOption(engine.WithFunctionProto(fn.name, fn.proto)),
 		)
@@ -398,7 +398,6 @@ func TestPool_VMReuse(t *testing.T) {
 }
 
 func BenchmarkPool_Execute(b *testing.B) {
-
 	f, err := setupTestFactory(
 		withFunction(`
 			function bench(arg)

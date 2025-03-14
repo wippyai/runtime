@@ -1,10 +1,11 @@
 package protocol
 
 import (
-	"github.com/charmbracelet/bubbletea"
-	lua "github.com/yuin/gopher-lua"
 	"reflect"
 	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
+	lua "github.com/yuin/gopher-lua"
 )
 
 func TestKeyMessageConversion(t *testing.T) {

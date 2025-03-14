@@ -2,11 +2,12 @@ package loader
 
 import (
 	"fmt"
-	"github.com/ponyruntime/pony/api/payload"
-	"go.uber.org/zap"
 	"io/fs"
 	"os"
 	"path/filepath"
+
+	"github.com/ponyruntime/pony/api/payload"
+	"go.uber.org/zap"
 )
 
 // FilePayload represents a file-based payload that includes its source path

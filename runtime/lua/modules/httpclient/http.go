@@ -3,10 +3,11 @@ package httpclient
 import (
 	"context"
 	"errors"
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/modules/stream"

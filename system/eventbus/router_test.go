@@ -3,10 +3,11 @@ package eventbus
 import (
 	"context"
 	"fmt"
-	"github.com/stretchr/testify/assert"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/stretchr/testify/require"

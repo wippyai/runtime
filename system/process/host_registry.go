@@ -4,11 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
+
 	"github.com/ponyruntime/pony/api/event"
 	api "github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/system/eventbus"
 	"go.uber.org/zap"
-	"sync"
 )
 
 type hostInfo struct {

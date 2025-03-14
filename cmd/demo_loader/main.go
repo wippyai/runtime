@@ -2,11 +2,12 @@ package main
 
 import (
 	"fmt"
-	"github.com/ponyruntime/pony/system/registry/loader/interpolate"
-	"github.com/ponyruntime/pony/system/registry/topology"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/ponyruntime/pony/system/registry/loader/interpolate"
+	"github.com/ponyruntime/pony/system/registry/topology"
 
 	"github.com/ponyruntime/pony/system/payload/lua"
 	"go.uber.org/zap/zapcore"

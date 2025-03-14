@@ -5,9 +5,10 @@ package logs
 import (
 	"context"
 	"fmt"
-	api "github.com/ponyruntime/pony/api/logs"
 	"sync/atomic"
 	"time"
+
+	api "github.com/ponyruntime/pony/api/logs"
 
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/system/eventbus"

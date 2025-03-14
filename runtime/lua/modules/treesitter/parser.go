@@ -3,11 +3,12 @@ package treesitter
 import (
 	"context"
 	"fmt"
+	"time"
+
 	"github.com/ponyruntime/pony/runtime/lua/engine"
 	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	treesitter "github.com/tree-sitter/go-tree-sitter"
 	lua "github.com/yuin/gopher-lua"
-	"time"
 )
 
 // ParserWrapper wraps a Tree-sitter parser with language information

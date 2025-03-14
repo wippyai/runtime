@@ -3,14 +3,15 @@ package code
 import (
 	"context"
 	"fmt"
+	"strings"
+	"time"
+
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/registry"
 	api "github.com/ponyruntime/pony/api/runtime/lua"
 	glua "github.com/yuin/gopher-lua"
 	"github.com/yuin/gopher-lua/parse"
 	"go.uber.org/zap"
-	"strings"
-	"time"
 )
 
 type (

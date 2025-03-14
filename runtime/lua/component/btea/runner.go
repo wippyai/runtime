@@ -2,8 +2,9 @@ package btea
 
 import (
 	"errors"
-	task2 "github.com/ponyruntime/pony/runtime/lua/task"
 	"time"
+
+	task2 "github.com/ponyruntime/pony/runtime/lua/task"
 
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/runtime"
@@ -65,7 +66,7 @@ func (r *TaskRunner) ExecuteTask(taskType string, input lua.LValue, timeout time
 	case <-r.app.state.Ctx.Done():
 		return "context error", r.app.state.Ctx.Err()
 	case <-r.app.appCtx.Done():
-		return "app context cancelled", errors.New("app context cancelled")
+		return "app context canceled", errors.New("app context canceled")
 	case <-r.app.done:
 		return "done", errors.New("app done")
 	default:
@@ -117,11 +118,11 @@ func (r *TaskRunner) ExecuteTask(taskType string, input lua.LValue, timeout time
 		r.log.Debug("task timeout", zap.String("task", taskType))
 		return "", ErrTimeout
 	case <-r.app.done:
-		return "task cancelled", errors.New("task cancelled")
+		return "task canceled", errors.New("task canceled")
 	case <-r.app.state.Ctx.Done():
-		return "task cancelled", r.app.state.Ctx.Err()
+		return "task canceled", r.app.state.Ctx.Err()
 	case <-r.app.appCtx.Done():
-		return "app cancelled", errors.New("app cancelled")
+		return "app canceled", errors.New("app canceled")
 	}
 
 	// Handle error in result

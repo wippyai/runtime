@@ -1,8 +1,9 @@
 package httpclient
 
 import (
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	"net/http"
+
+	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 
 	lua "github.com/yuin/gopher-lua"
 )
