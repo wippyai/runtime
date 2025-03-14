@@ -362,6 +362,8 @@ func (m *RelayManager) handleConnection(
 						reason := "Connection closed by server"
 						code := websocket.StatusNormalClosure
 
+						// todo: release 						pubsub.ReleasePackage(pkg)!!!
+
 						if len(msg.Payloads) > 0 {
 							// Try to extract reason and code from payload
 							payload := msg.Payloads[0].Data()
