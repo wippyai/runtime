@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/ponyruntime/pony/api/event"
 	"github.com/ponyruntime/pony/api/payload"
+	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
 	config "github.com/ponyruntime/pony/api/service/http"
 	"github.com/ponyruntime/pony/api/supervisor"
@@ -34,6 +35,7 @@ type StaticFactoryAPI interface {
 // Server represents an HTTP server with routing capabilities
 type Server interface {
 	supervisor.Service
+	pubsub.Host
 
 	// UpdateConfig updates the server configuration
 	UpdateConfig(cfg *config.ServerConfig) error
@@ -239,6 +241,13 @@ func (m *Manager) handleServerCreate(ctx context.Context, entry registry.Entry) 
 		Data:   &supervisor.Entry{Service: server, Config: cfg.Lifecycle},
 	})
 
+	m.bus.Send(ctx, event.Event{
+		System: pubsub.System,
+		Kind:   pubsub.HostRegister,
+		Path:   entry.ID.String(),
+		Data:   pubsub.Host(server),
+	})
+
 	return nil
 }
 
@@ -283,6 +292,13 @@ func (m *Manager) handleServerDelete(ctx context.Context, entry registry.Entry) 
 	m.bus.Send(ctx, event.Event{
 		System: supervisor.System,
 		Kind:   supervisor.Remove,
+		Path:   entry.ID.String(),
+	})
+
+	// Done from process hosts
+	m.bus.Send(ctx, event.Event{
+		System: pubsub.System,
+		Kind:   pubsub.HostDelete,
 		Path:   entry.ID.String(),
 	})
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/go-chi/chi/v5/middleware"
 	ctxapi "github.com/ponyruntime/pony/api/context"
 	"github.com/ponyruntime/pony/api/event"
 	fsapi "github.com/ponyruntime/pony/api/fs"
@@ -54,6 +55,7 @@ import (
 	fsdir "github.com/ponyruntime/pony/service/directory"
 	prochost "github.com/ponyruntime/pony/service/host"
 	"github.com/ponyruntime/pony/service/http"
+	"github.com/ponyruntime/pony/service/http/websocket_relay"
 	"github.com/ponyruntime/pony/service/memstore"
 	"github.com/ponyruntime/pony/service/policy"
 	"github.com/ponyruntime/pony/service/sql"
@@ -629,7 +631,6 @@ func loadApplicationState(
 }
 
 // ---- Services ----
-
 func WithHTTPService(a *App) eventbus.EventHandler {
 	// Create factories
 	endpointFactory, err := http.NewEndpointFactory(a.funcs)
@@ -642,11 +643,40 @@ func WithHTTPService(a *App) eventbus.EventHandler {
 		panic(fmt.Errorf("failed to create static factory: %w", err))
 	}
 
+	// Create websocket relay manager
+	relayManager := websocket_relay.NewWebSocketRelay(a.logger.Named("ws"))
+
+	// Create middleware factory with all standard middleware
+	midFactory := http.NewDefaultMiddlewareFactory(
+		http.WithLogger(a.logger.Named("http.middleware")),
+
+		// Standard Chi middlewares
+		http.WithMiddleware("recoverer", middleware.Recoverer),
+		http.WithMiddleware("request_id", middleware.RequestID),
+		http.WithMiddleware("real_ip", middleware.RealIP),
+
+		// Timeout middleware with options
+		http.WithMiddlewareCreator("timeout", func(options map[string]string) func(handler httpbase.Handler) httpbase.Handler {
+			timeoutVal := options["timeout"]
+			if timeoutVal == "" {
+				timeoutVal = "60s"
+			}
+			duration, err := time.ParseDuration(timeoutVal)
+			if err != nil {
+				return nil
+			}
+			return middleware.Timeout(duration)
+		}),
+
+		// WebSocket relay middleware
+		http.WithMiddleware("websocket_relay", relayManager.Middleware),
+	)
+
 	// Create manager with all required factories
 	manager, err := http.NewManager(
 		a.dtt,
 		a.eventBus,
-		http.NewServerFactory(),
+		http.NewServerFactory(midFactory),
 		endpointFactory,
 		staticFactory,
 		a.logger.Named("http"),

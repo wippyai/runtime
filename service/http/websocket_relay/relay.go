@@ -1,18 +1,18 @@
-package middleware
+package websocket_relay
 
 import (
 	"context"
 	"encoding/json"
-	"net/http"
-	"sync"
-	"time"
-
 	"github.com/coder/websocket"
 	"github.com/ponyruntime/pony/api/payload"
 	"github.com/ponyruntime/pony/api/pubsub"
 	"github.com/ponyruntime/pony/api/registry"
+	httpapi "github.com/ponyruntime/pony/api/service/http"
 	"github.com/ponyruntime/pony/api/topology"
+	"github.com/ponyruntime/pony/internal/uniqid"
 	"go.uber.org/zap"
+	"net/http"
+	"sync"
 )
 
 // Constants for the WebSocket relay
@@ -41,21 +41,15 @@ type RelayConfig struct {
 
 // RelayManager manages WebSocket connections and their relay to the pubsub system
 type RelayManager struct {
-	// host is the pubsub host used for message routing
-	host pubsub.Host
-
-	// logger is the structured logger for this manager
 	logger *zap.Logger
-
-	// activeConns tracks active WebSocket connections
-	activeConns sync.Map
+	idGen  *uniqid.Generator
 }
 
-// NewWebSocketRelayManager creates a new WebSocket relay manager
-func NewWebSocketRelayManager(host pubsub.Host, logger *zap.Logger) *RelayManager {
+// NewWebSocketRelay creates a new WebSocket relay manager
+func NewWebSocketRelay(logger *zap.Logger) *RelayManager {
 	return &RelayManager{
-		host:   host,
 		logger: logger,
+		idGen:  uniqid.NewGenerator(),
 	}
 }
 
@@ -66,7 +60,7 @@ func (m *RelayManager) Middleware(h http.Handler) http.Handler {
 
 		relayConfigStr := r.Header.Get(WSRelayHeader)
 		if relayConfigStr == "" {
-			return // not out business
+			return // not our business
 		}
 
 		// Get context logger and add request info
@@ -111,6 +105,16 @@ func (m *RelayManager) Middleware(h http.Handler) http.Handler {
 	})
 }
 
+// safeClose closes a WebSocket connection and logs any errors
+func (m *RelayManager) safeClose(conn *websocket.Conn, code websocket.StatusCode, reason string, logger *zap.Logger) {
+	if err := conn.Close(code, reason); err != nil {
+		logger.Error("Error closing WebSocket connection",
+			zap.Error(err),
+			zap.Int("statusCode", int(code)),
+			zap.String("reason", reason))
+	}
+}
+
 // handleConnection manages a WebSocket connection and its bidirectional communication
 func (m *RelayManager) handleConnection(
 	ctx context.Context,
@@ -118,36 +122,64 @@ func (m *RelayManager) handleConnection(
 	targetPID pubsub.PID,
 	messageTopic string,
 ) {
-	// todo: use uniq id
-
-	// Create a unique PID for this WebSocket connection
-	wsPID := pubsub.PID{
-		Node:   targetPID.Node,
-		Host:   "ws-relay",
-		ID:     registry.ParseID("ws:connection"),
-		UniqID: time.Now().Format("20060102150405.000000000"), // todo: use uniq id generator
-	}
-
+	// Create logger with connection info
 	connLogger := m.logger.With(
-		zap.String("wsID", wsPID.String()),
 		zap.String("targetPID", targetPID.String()),
 		zap.String("topic", messageTopic),
 	)
 
-	connLogger.Info("WebSocket connection established")
+	// Get host from context
+	host := pubsub.GetHost(ctx)
+	if host == nil {
+		connLogger.Error("Host not found in context")
+		m.safeClose(conn, websocket.StatusInternalError, "Host not found in context", connLogger)
+		return
+	}
 
-	// Track the active connection
-	m.activeConns.Store(wsPID.String(), conn)
-	defer m.activeConns.Delete(wsPID.String()) // todo: do i need it?
+	// Get node from context
+	node := pubsub.GetNode(ctx)
+	nodeID := ""
+	if node != nil {
+		nodeID = node.ID()
+	}
+
+	// Get server ID from context
+	serverID, ok := ctx.Value(httpapi.ContextServerID).(registry.ID)
+	if !ok || serverID.String() == "" {
+		connLogger.Error("Server ID not found in context")
+		m.safeClose(conn, websocket.StatusInternalError, "Server ID not found in context", connLogger)
+		return
+	}
+	hostID := serverID.String()
+
+	// Get transcoder from context
+	dtt := payload.GetTranscoder(ctx)
+	if dtt == nil {
+		connLogger.Error("Transcoder not found in context")
+		m.safeClose(conn, websocket.StatusInternalError, "Transcoder not found in context", connLogger)
+		return
+	}
+
+	// Create a unique PID for this WebSocket connection
+	wsPID := pubsub.PID{
+		Node:   nodeID,
+		Host:   hostID,
+		ID:     registry.ParseID("ws:connection"),
+		UniqID: m.idGen.Generate(),
+	}
+
+	// Update logger with WebSocket ID
+	connLogger = connLogger.With(zap.String("wsID", wsPID.String()))
+	connLogger.Info("WebSocket connection established")
 
 	// Create a channel for receiving messages from pubsub
 	msgCh := make(chan *pubsub.Package, 10)
 
 	// Attach the WebSocket PID to the relay host
-	cancel, err := m.host.Attach(wsPID, msgCh)
+	cancel, err := host.Attach(wsPID, msgCh)
 	if err != nil {
 		connLogger.Error("Error attaching WebSocket to relay host", zap.Error(err))
-		conn.Close(websocket.StatusInternalError, "Failed to attach to relay")
+		m.safeClose(conn, websocket.StatusInternalError, "Failed to attach to relay", connLogger)
 		return
 	}
 	defer cancel()
@@ -155,10 +187,9 @@ func (m *RelayManager) handleConnection(
 	// Send a join notification to the target PID
 	joinMsg := pubsub.NewPackage(targetPID, WSJoinTopic, payload.New(wsPID))
 
-	if err := m.host.Send(joinMsg); err != nil {
+	if err := host.Send(joinMsg); err != nil {
 		connLogger.Error("Error sending join message", zap.Error(err))
-		// todo: always handle close errors
-		conn.Close(websocket.StatusInternalError, "Failed to send join message")
+		m.safeClose(conn, websocket.StatusInternalError, "Failed to send join message", connLogger)
 		return
 	}
 
@@ -187,45 +218,44 @@ func (m *RelayManager) handleConnection(
 				for _, msg := range pkg.Messages {
 					// Check for topology events (cancel, exit)
 					if msg.Topic == topology.TopicEvents {
-						// todo: handle it properly
 						continue
 					}
 
 					// Forward regular messages to WebSocket
-					if len(pkg.Messages) > 0 && len(pkg.Messages[0].Payloads) > 0 {
-						p := pkg.Messages[0].Payloads[0]
+					if len(msg.Payloads) > 0 {
+						p := msg.Payloads[0]
 						var data []byte
-						var msgType = websocket.MessageText // todo: support binaries too later
+						var msgType = websocket.MessageText
 
-						// todo: wrong use dtt!!!!!!
+						// Use DTT to transcode to the appropriate format
+						var jsonPayload payload.Payload
+						var err error
 
-						// Convert payload to appropriate format for WebSocket
-						switch p.Format() {
-						case payload.JSON:
-							data = []byte(p.Data().(string))
-						case payload.String:
-							data = []byte(p.Data().(string))
-						case payload.Golang:
-							jsonData, err := json.Marshal(p.Data())
+						// Convert to JSON if not already in JSON or string format
+						if p.Format() != payload.JSON && p.Format() != payload.String {
+							jsonPayload, err = dtt.Transcode(p, payload.JSON)
 							if err != nil {
-								connLogger.Error("Error marshaling payload", zap.Error(err))
+								connLogger.Error("Error transcoding payload", zap.Error(err))
 								continue
 							}
-							data = jsonData
-						case payload.Bytes:
-							data = p.Data().([]byte)
-							msgType = websocket.MessageBinary
-						default:
-
-							jsonData, err := json.Marshal(p.Data())
-							if err != nil {
-								connLogger.Error("Error marshaling payload", zap.Error(err))
-								continue
-							}
-							data = jsonData
+						} else {
+							jsonPayload = p
 						}
 
-						// todo: above is wrong, use dtt
+						// Extract data based on format
+						switch jsonPayload.Format() {
+						case payload.JSON:
+							data = []byte(jsonPayload.Data().(string))
+						case payload.String:
+							data = []byte(jsonPayload.Data().(string))
+						case payload.Bytes:
+							data = jsonPayload.Data().([]byte)
+							msgType = websocket.MessageBinary
+						default:
+							connLogger.Error("Unsupported payload format after transcoding",
+								zap.String("format", string(jsonPayload.Format())))
+							continue
+						}
 
 						// Write to WebSocket
 						if err := conn.Write(wsCtx, msgType, data); err != nil {
@@ -269,9 +299,9 @@ func (m *RelayManager) handleConnection(
 					// Try to parse as JSON
 					var jsonData interface{}
 					if json.Unmarshal(data, &jsonData) == nil {
-						payloadData = payload.NewPayload(data, payload.JSON)
+						payloadData = payload.NewPayload(string(data), payload.JSON)
 					} else {
-						// Treat as plain text ??? todo test it
+						// Treat as plain text
 						payloadData = payload.NewString(string(data))
 					}
 				} else {
@@ -281,7 +311,7 @@ func (m *RelayManager) handleConnection(
 
 				// Send to target PID using the specified topic
 				msg := pubsub.NewPackage(targetPID, messageTopic, payloadData)
-				if err := m.host.Send(msg); err != nil {
+				if err := host.Send(msg); err != nil {
 					connLogger.Error("Error sending to pubsub", zap.Error(err))
 					wsCancel()
 					return
@@ -295,22 +325,12 @@ func (m *RelayManager) handleConnection(
 
 	// Send a leave notification to the target PID
 	leaveMsg := pubsub.NewPackage(targetPID, WSLeaveTopic, payload.New(wsPID))
-	if err := m.host.Send(leaveMsg); err != nil {
+	if err := host.Send(leaveMsg); err != nil {
 		connLogger.Error("Error sending leave message", zap.Error(err))
 	}
 
 	// Clean up
-	m.host.Detach(wsPID)
-	conn.Close(websocket.StatusNormalClosure, "Connection closed")
+	host.Detach(wsPID)
+	m.safeClose(conn, websocket.StatusNormalClosure, "Connection closed", connLogger)
 	connLogger.Info("WebSocket connection closed")
-}
-
-// Active returns the count of active WebSocket connections
-func (m *RelayManager) Active() int {
-	count := 0
-	m.activeConns.Range(func(_, _ interface{}) bool {
-		count++
-		return true
-	})
-	return count
 }

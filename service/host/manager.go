@@ -3,7 +3,7 @@ package host
 import (
 	"context"
 	"fmt"
-	supervisor2 "github.com/ponyruntime/pony/api/process"
+	"github.com/ponyruntime/pony/api/process"
 	"github.com/ponyruntime/pony/api/service/host"
 	"sync"
 
@@ -113,15 +113,15 @@ func (m *Manager) registerHost(ctx context.Context, id registry.ID, host *Host, 
 		System: pubsub.System,
 		Kind:   pubsub.HostRegister,
 		Path:   id.String(),
-		Data:   supervisor2.Host(host),
+		Data:   process.Host(host),
 	})
 
 	// Register as process host
 	m.bus.Send(ctx, event.Event{
-		System: supervisor2.HostSystem,
-		Kind:   supervisor2.HostRegister,
+		System: process.HostSystem,
+		Kind:   process.HostRegister,
 		Path:   id.String(),
-		Data:   supervisor2.Managed(host),
+		Data:   process.Managed(host),
 	})
 
 	// Register with supervisor
@@ -147,8 +147,8 @@ func (m *Manager) removeHost(ctx context.Context, id registry.ID) {
 
 	// Done from process hosts
 	m.bus.Send(ctx, event.Event{
-		System: supervisor2.HostSystem,
-		Kind:   supervisor2.HostDelete,
+		System: process.HostSystem,
+		Kind:   process.HostDelete,
 		Path:   id.String(),
 	})
 

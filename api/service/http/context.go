@@ -11,10 +11,9 @@ import (
 // Context keys for storing HTTP-specific values in the request context
 var (
 	// todo: privatize
-	// RequestCtx is the context key for storing the HTTP request context
-	RequestCtx = &ctxapi.Key{Name: "http.request"} //nolint:gochecknoglobals
-	// RouteCtx is the context key for storing the current route information
-	RouteCtx = &ctxapi.Key{Name: "http.route"} //nolint:gochecknoglobals
+	RequestCtx      = &ctxapi.Key{Name: "http.request"}   //nolint:gochecknoglobals
+	RouteCtx        = &ctxapi.Key{Name: "http.route"}     //nolint:gochecknoglobals
+	ContextServerID = &ctxapi.Key{Name: "http.server_id"} //nolint:gochecknoglobals
 )
 
 // RouteInfo contains information about the matched route for the current request.

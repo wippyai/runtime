@@ -375,9 +375,9 @@ func TestServerService_Middleware(t *testing.T) {
 	// Add router with middleware
 	routerID := registry.ID{NS: "test", Name: "router5"}
 	routerCfg := &config.RouterConfig{
-		Prefix:      "/api",
-		Middlewares: []string{"request_id", "real_ip"},
-		Options:     map[string]string{},
+		Prefix:     "/api",
+		Middleware: []string{"request_id", "real_ip"},
+		Options:    map[string]string{},
 	}
 
 	err = server.UpsertRouter(routerID, routerCfg)

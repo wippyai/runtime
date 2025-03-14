@@ -6,6 +6,7 @@ import (
 	"github.com/ponyruntime/pony/api/fs"
 	"github.com/ponyruntime/pony/api/function"
 	"github.com/ponyruntime/pony/api/payload"
+	"github.com/ponyruntime/pony/api/registry"
 	"github.com/ponyruntime/pony/api/runtime"
 	config "github.com/ponyruntime/pony/api/service/http"
 	"net/http"
@@ -179,16 +180,27 @@ func (f *StaticFactory) CreateHandler(ctx context.Context, cfg *config.StaticCon
 }
 
 // ServerFactory creates HTTP server instances
-type ServerFactory struct{}
+type ServerFactory struct {
+	middlewareFactory MiddlewareAPI
+}
 
 // NewServerFactory creates a new server factory instance
-func NewServerFactory() *ServerFactory {
-	return &ServerFactory{}
+func NewServerFactory(middlewareFactory MiddlewareAPI) *ServerFactory {
+	return &ServerFactory{
+		middlewareFactory: middlewareFactory,
+	}
 }
 
 // CreateServer creates a new HTTP server from the provided configuration
 func (f *ServerFactory) CreateServer(cfg *config.ServerConfig) (Server, error) {
-	return NewServerService(cfg), nil
+	// Create a new ID for the server
+	id := registry.ParseID(cfg.Meta.StringValue("id"))
+	if id.Name == "" {
+		// Generate a default ID if none provided
+		id = registry.ID{NS: "http", Name: "server"}
+	}
+
+	return NewServerService(id, cfg, f.middlewareFactory), nil
 }
 
 // wrapWithCacheControl wraps an HTTP handler with Cache-Control header
